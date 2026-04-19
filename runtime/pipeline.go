@@ -1,0 +1,81 @@
+package runtime
+
+import (
+	"errors"
+
+	"codeburg.org/lexbit/lurpicui/render"
+)
+
+type frameHandoff struct {
+	frame  *render.Frame
+	doneCh chan struct{}
+}
+
+// RenderPipeline hands frames to the render backend with capacity-1 backpressure.
+type RenderPipeline struct {
+	backend   render.Backend
+	handoffCh chan frameHandoff
+	fatalCh   chan error
+}
+
+type renderThread struct {
+	pipeline *RenderPipeline
+}
+
+func newRenderPipeline(backend render.Backend) *RenderPipeline {
+	return &RenderPipeline{
+		backend:   backend,
+		handoffCh: make(chan frameHandoff, 1),
+		fatalCh:   make(chan error, 1),
+	}
+}
+
+// Submit sends a frame to the render backend pipeline.
+func (p *RenderPipeline) Submit(frame *render.Frame) {
+	if p == nil || p.backend == nil {
+		return
+	}
+	p.handoffCh <- frameHandoff{frame: frame}
+}
+
+// SubmitAndWait hands a frame to the renderer and waits for completion.
+func (p *RenderPipeline) SubmitAndWait(frame *render.Frame) {
+	if p == nil || p.backend == nil {
+		return
+	}
+	done := make(chan struct{})
+	p.handoffCh <- frameHandoff{frame: frame, doneCh: done}
+	<-done
+}
+
+func (rt *renderThread) run() {
+	if rt == nil || rt.pipeline == nil {
+		return
+	}
+	for handoff := range rt.pipeline.handoffCh {
+		if rt.pipeline.backend == nil || handoff.frame == nil {
+			if handoff.doneCh != nil {
+				close(handoff.doneCh)
+			}
+			continue
+		}
+		if err := rt.pipeline.backend.Submit(handoff.frame); err != nil {
+			select {
+			case rt.pipeline.fatalCh <- err:
+			default:
+			}
+		}
+		if handoff.doneCh != nil {
+			close(handoff.doneCh)
+		}
+	}
+}
+
+func (p *RenderPipeline) destroy() {
+	if p == nil {
+		return
+	}
+	close(p.handoffCh)
+}
+
+var errPipelineClosed = errors.New("runtime: render pipeline closed")
