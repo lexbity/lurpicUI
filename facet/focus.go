@@ -70,6 +70,14 @@ func (m *FocusManager) Focused() FacetID {
 	return m.focused
 }
 
+// FocusedImpl returns the currently focused facet implementation, if any.
+func (m *FocusManager) FocusedImpl() FacetImpl {
+	if m == nil {
+		return nil
+	}
+	return m.focusedImpl
+}
+
 // TabNext moves focus to the next focusable facet in tab order.
 func (m *FocusManager) TabNext() {
 	if m == nil || len(m.tabOrder) == 0 {

@@ -432,6 +432,76 @@ func TestProcessText_routes_to_focused_facet(t *testing.T) {
 	}
 }
 
+func TestProcessIMECompose_routes_to_focused_input(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	var received []facet.TextEvent
+	child.AddRole(&facet.InputRole{OnText: func(e facet.TextEvent) bool {
+		received = append(received, e)
+		return true
+	}})
+	sys.focus.SetFocused(child.ID())
+	got := sys.Process([]platform.Event{platform.EventIMECompose{Text: "preedit"}}, nil, &root)
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if !Deliver(got[0], &root) {
+		t.Fatal("expected delivered event")
+	}
+	if len(received) != 1 || received[0].Text != "preedit" || !received[0].Composing {
+		t.Fatalf("received = %#v", received)
+	}
+}
+
+func TestProcessIMECommit_routes_to_focused_input(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	var received []facet.TextEvent
+	child.AddRole(&facet.InputRole{OnText: func(e facet.TextEvent) bool {
+		received = append(received, e)
+		return true
+	}})
+	sys.focus.SetFocused(child.ID())
+	got := sys.Process([]platform.Event{platform.EventIMECommit{Text: "done"}}, nil, &root)
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if !Deliver(got[0], &root) {
+		t.Fatal("expected delivered event")
+	}
+	if len(received) != 1 || received[0].Text != "done" || received[0].Composing {
+		t.Fatalf("received = %#v", received)
+	}
+}
+
+func TestProcessIME_not_delivered_without_focus(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	got := sys.Process([]platform.Event{platform.EventIMECompose{Text: "preedit"}}, nil, &root)
+	if len(got) != 0 {
+		t.Fatalf("len = %d", len(got))
+	}
+}
+
+func TestProcessIME_not_delivered_without_input_role(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	child.AddRole(&facet.FocusRole{Focusable: func() bool { return true }, TabIndex: 0})
+	sys.focus.SetFocused(child.ID())
+	got := sys.Process([]platform.Event{platform.EventIMECommit{Text: "done"}}, nil, &root)
+	if len(got) != 0 {
+		t.Fatalf("len = %d", len(got))
+	}
+}
+
 func TestFocusFollowsClick_sets_focus_on_press(t *testing.T) {
 	sys := NewSystem(DefaultGestureConfig())
 	root := facet.NewFacet()

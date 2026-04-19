@@ -60,6 +60,13 @@ func Run(config Config, builder RootBuilder) error {
 	}
 	defer window.Destroy()
 	window.SetTitle(config.Window.Title)
+	contentScale := config.Runtime.ContentScale
+	if contentScale <= 0 {
+		contentScale = window.ContentScale()
+	}
+	if contentScale <= 0 {
+		contentScale = 1
+	}
 
 	fontRegistry, err := loadFontRegistry(config.Fonts)
 	if err != nil {
@@ -92,6 +99,7 @@ func Run(config Config, builder RootBuilder) error {
 	root := builder(BuildContext{
 		FontRegistry: fontRegistry,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
+		ContentScale: contentScale,
 		Theme:        theme.Default(),
 	})
 	if root == nil {

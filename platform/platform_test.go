@@ -37,13 +37,15 @@ type stubWindow struct {
 	surface platform.Surface
 }
 
-func (w *stubWindow) Surface() platform.Surface { return w.surface }
-func (w *stubWindow) SetTitle(title string)     {}
-func (w *stubWindow) Size() (width, height int) { return 0, 0 }
-func (w *stubWindow) Show()                     {}
-func (w *stubWindow) Hide()                     {}
-func (w *stubWindow) Close()                    {}
-func (w *stubWindow) Destroy()                  {}
+func (w *stubWindow) Surface() platform.Surface      { return w.surface }
+func (w *stubWindow) SetTitle(title string)          {}
+func (w *stubWindow) Size() (width, height int)      { return 0, 0 }
+func (w *stubWindow) ContentScale() float32          { return 1 }
+func (w *stubWindow) SetIMECursorRect(rect gfx.Rect) {}
+func (w *stubWindow) Show()                          {}
+func (w *stubWindow) Hide()                          {}
+func (w *stubWindow) Close()                         {}
+func (w *stubWindow) Destroy()                       {}
 
 type stubQueue struct{}
 
@@ -105,6 +107,13 @@ func TestPlatformAppInterface_implementable(t *testing.T) {
 	}
 	if clip := app.Clipboard(); clip == nil {
 		t.Fatal("expected clipboard")
+	}
+}
+
+func TestPlatform_ContentScale_default(t *testing.T) {
+	win := &stubWindow{surface: &memSurface{}}
+	if got := win.ContentScale(); got != 1 {
+		t.Fatalf("ContentScale = %v, want 1", got)
 	}
 }
 

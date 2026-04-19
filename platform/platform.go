@@ -18,6 +18,8 @@ type Window interface {
 	Surface() Surface
 	SetTitle(title string)
 	Size() (width, height int)
+	ContentScale() float32
+	SetIMECursorRect(rect gfx.Rect)
 	Show()
 	Hide()
 	Close()

@@ -465,6 +465,10 @@ func (w *window) SetTitle(title string) {
 
 func (w *window) Size() (width, height int) { return w.width, w.height }
 
+func (w *window) ContentScale() float32 { return 1 }
+
+func (w *window) SetIMECursorRect(rect gfx.Rect) {}
+
 func (w *window) Show() {
 	if w == nil || w.app == nil || w.closed {
 		return
@@ -803,7 +807,10 @@ func (a *app) translateEvent(ev *C.xcb_generic_event_t) []platform.Event {
 
 func (a *app) translateKeyEvent(ev *C.xcb_generic_event_t, press bool) []platform.Event {
 	k := (*C.xcb_key_press_event_t)(unsafe.Pointer(ev))
-	keysym := C.xcb_key_symbols_get_keysym(a.keysyms, C.xcb_keycode_t(k.detail), 0)
+	var keysym C.xcb_keysym_t
+	if a.keysyms != nil {
+		keysym = C.xcb_key_symbols_get_keysym(a.keysyms, C.xcb_keycode_t(k.detail), 0)
+	}
 	key := keyFromKeysym(uint32(keysym))
 	mod := modifiersFromState(uint16(k.state))
 	kind := platform.KeyRelease

@@ -6,6 +6,26 @@ import (
 	"codeburg.org/lexbit/lurpicui/signal"
 )
 
+func TestTransaction_deferCall_order_and_nil_safe(t *testing.T) {
+	tx := &Transaction{}
+	var got []string
+
+	tx.deferCall(nil)
+	tx.deferCall(func() { got = append(got, "first") })
+	tx.deferCall(func() { got = append(got, "second") })
+	tx.Commit()
+
+	want := []string{"first", "second"}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v want %#v", got, want)
+		}
+	}
+}
+
 func TestTransaction_defers_signals_until_commit(t *testing.T) {
 	s := NewValueStore(1)
 	tx := Begin()
@@ -117,5 +137,42 @@ func TestTransaction_multi_store_atomic(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("got %#v want %#v", got, want)
 		}
+	}
+}
+
+func TestSignalQueueHook_defers_until_invoked_and_nil_restores_immediate(t *testing.T) {
+	var queued []func()
+	SetSignalQueueHook(func(fn func()) {
+		queued = append(queued, fn)
+	})
+	defer SetSignalQueueHook(nil)
+
+	called := 0
+	enqueueSignal(func() { called++ })
+	if called != 0 {
+		t.Fatalf("called before flushing queue = %d", called)
+	}
+	if len(queued) != 1 {
+		t.Fatalf("queued = %d", len(queued))
+	}
+	queued[0]()
+	if called != 1 {
+		t.Fatalf("called after flush = %d", called)
+	}
+
+	SetSignalQueueHook(nil)
+	enqueueSignal(func() { called++ })
+	if called != 2 {
+		t.Fatalf("called after restore = %d", called)
+	}
+}
+
+func TestVersionSource_nil_safe(t *testing.T) {
+	var vs *VersionSource
+	if got := vs.Current(); got != 0 {
+		t.Fatalf("current = %d", got)
+	}
+	if got := vs.Increment(); got != 0 {
+		t.Fatalf("increment = %d", got)
 	}
 }

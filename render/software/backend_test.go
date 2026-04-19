@@ -1,8 +1,12 @@
 package software
 
 import (
+	"bytes"
 	"image"
 	"image/color"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -110,6 +114,62 @@ func TestSoftwareRenderer_fillrect_alpha_blend(t *testing.T) {
 	want := color.RGBA{R: 255, G: 128, B: 128, A: 255}
 	if !approxRGBA(got, want, 2) {
 		t.Fatalf("blend mismatch: got %#v want %#v", got, want)
+	}
+}
+
+func TestSoftwareRenderer_fillpath_antialiased(t *testing.T) {
+	r, s := newRenderer(t, 32, 32)
+	path := gfx.NewPath().
+		MoveTo(gfx.Point{X: 4.25, Y: 4.25}).
+		LineTo(gfx.Point{X: 24.75, Y: 5.1}).
+		LineTo(gfx.Point{X: 10.5, Y: 24.75}).
+		Close().
+		Build()
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 32, 32),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if !hasPartialAlpha(s, 4, 4, 25, 25) {
+		t.Fatalf("expected antialiased edge coverage")
+	}
+}
+
+func TestSoftwareRenderer_strokepath_rasterizes(t *testing.T) {
+	r, s := newRenderer(t, 32, 32)
+	path := gfx.NewPath().
+		MoveTo(gfx.Point{X: 4, Y: 4}).
+		LineTo(gfx.Point{X: 28, Y: 20}).
+		Build()
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 32, 32),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.StrokePath{Path: path, Stroke: gfx.DefaultStroke(4), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if !hasNonBlankPixels(s, 4, 4, 28, 20) {
+		t.Fatalf("expected stroked path pixels")
 	}
 }
 
@@ -377,7 +437,7 @@ func TestSoftwareRenderer_unbalanced_push_pop(t *testing.T) {
 
 func TestSoftwareRenderer_drawglyphrun_produces_pixels(t *testing.T) {
 	r, s := newRenderer(t, 80, 80)
-	run := testGlyphRun(t, "Hello", "glyphface", 18)
+	run := testGlyphRun(t, "Hello", 18)
 	frame := &render.Frame{
 		Layers: []render.Layer{
 			{
@@ -405,7 +465,7 @@ func TestSoftwareRenderer_drawglyphrun_produces_pixels(t *testing.T) {
 
 func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
 	r, s := newRenderer(t, 80, 80)
-	run := testGlyphRun(t, "Hi", "glyphface", 18)
+	run := testGlyphRun(t, "Hi", 18)
 	frame := &render.Frame{
 		Layers: []render.Layer{
 			{
@@ -433,7 +493,7 @@ func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
 
 func TestSoftwareRenderer_drawglyphrun_atlas_caches(t *testing.T) {
 	r, _ := newRenderer(t, 80, 80)
-	run := testGlyphRun(t, "A", "glyphface", 18)
+	run := testGlyphRun(t, "A", 18)
 	frame := &render.Frame{
 		Layers: []render.Layer{
 			{
@@ -466,7 +526,7 @@ func TestSoftwareRenderer_drawglyphrun_atlas_caches(t *testing.T) {
 
 func TestSoftwareRenderer_drawglyphrun_clipped_by_cliprect(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
-	run := testGlyphRun(t, "Clip", "glyphface", 28)
+	run := testGlyphRun(t, "Clip", 28)
 	frame := &render.Frame{
 		Layers: []render.Layer{
 			{
@@ -494,7 +554,7 @@ func TestSoftwareRenderer_drawglyphrun_clipped_by_cliprect(t *testing.T) {
 
 func TestSoftwareRenderer_drawglyphrun_translated(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
-	run := testGlyphRun(t, "Move", "glyphface", 18)
+	run := testGlyphRun(t, "Move", 18)
 	frame := &render.Frame{
 		Layers: []render.Layer{
 			{
@@ -575,14 +635,16 @@ func TestGlyphAtlas_independent_per_face_and_size(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	if err := reg.LoadFontBytes([]byte("face-one"), "face-one"); err != nil {
+	regular := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	boldItalic := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Bold.ttf")
+	if err := reg.LoadFontBytes(regular, "roboto-regular"); err != nil {
 		t.Fatalf("load face one: %v", err)
 	}
-	if err := reg.LoadFontBytes([]byte("face-two"), "face-two"); err != nil {
+	if err := reg.LoadFontBytes(boldItalic, "roboto-bolditalic"); err != nil {
 		t.Fatalf("load face two: %v", err)
 	}
-	faceOne := reg.Resolve(text.TextStyle{Family: "face-one", Size: 12})
-	faceTwo := reg.Resolve(text.TextStyle{Family: "face-two", Size: 12})
+	faceOne := reg.Resolve(text.TextStyle{Family: "Noto Sans", Weight: text.WeightRegular, Size: 12})
+	faceTwo := reg.Resolve(text.TextStyle{Family: "Noto Sans", Weight: text.WeightBold, Size: 12})
 	runOne := text.GlyphRun{
 		Glyphs: []text.PositionedGlyph{{GlyphID: 65, Advance: 8}},
 		Face:   faceOne,
@@ -608,20 +670,44 @@ func TestGlyphAtlas_independent_per_face_and_size(t *testing.T) {
 	}
 }
 
-func testGlyphRun(t *testing.T, label, family string, size float32) text.GlyphRun {
+func testGlyphRun(t *testing.T, label string, size float32) text.GlyphRun {
 	t.Helper()
 	reg, err := text.NewFontRegistry()
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	if err := reg.LoadFontBytes([]byte(family), family); err != nil {
+	data := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	if err := reg.LoadFontBytes(data, "roboto-regular"); err != nil {
 		t.Fatalf("load font: %v", err)
 	}
-	layout := text.NewShaper(reg).ShapeSimple(label, text.TextStyle{Family: family, Size: size})
+	layout := text.NewShaper(reg).ShapeSimple(label, text.TextStyle{Family: "Noto Sans", Size: size})
 	if layout == nil || len(layout.Lines) == 0 || len(layout.Lines[0].Runs) == 0 {
 		t.Fatalf("expected shaped run for %q", label)
 	}
 	return layout.Lines[0].Runs[0]
+}
+
+func mustReadTestFont(t *testing.T, rel string) []byte {
+	t.Helper()
+	path := mustTestFontPath(t, rel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read test font %q: %v", path, err)
+	}
+	return data
+}
+
+func mustTestFontPath(t *testing.T, rel string) string {
+	t.Helper()
+	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatalf("go env GOMODCACHE: %v", err)
+	}
+	path := filepath.Join(string(bytes.TrimSpace(out)), rel)
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("test font path %q: %v", path, err)
+	}
+	return path
 }
 
 func hasNonBlankPixels(s *testSurface, x0, y0, x1, y1 int) bool {
@@ -646,6 +732,21 @@ func hasDominantRedPixels(s *testSurface, x0, y0, x1, y1 int) bool {
 			}
 			px := pxAt(s, x, y)
 			if px.A != 0 && px.R > px.G && px.R > px.B {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasPartialAlpha(s *testSurface, x0, y0, x1, y1 int) bool {
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if x < 0 || y < 0 || x >= s.w || y >= s.h {
+				continue
+			}
+			a := pxAt(s, x, y).A
+			if a > 0 && a < 255 {
 				return true
 			}
 		}

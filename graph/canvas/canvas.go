@@ -101,20 +101,21 @@ func (f *GraphCanvasFacet) SetOnPointer(fn func(e facet.PointerEvent) bool) {
 func (f *GraphCanvasFacet) OnAttach(ctx facet.AttachContext) {
 	f.rt = ctx.Runtime
 	f.pool = job.NewPool(1)
+	sub := facet.Subscribe(f)
 
 	invalidate := func() {
 		f.rt.Invalidate(f.Base().ID(), facet.DirtyProjection, "graphStore.OnReplace")
 	}
 
 	// Subscribe to node store replacements → rebuild index.
-	f.subs.Add(f.graphStore.OnReplaceSubscribe(func(signal.Unit) {
+	sub.Collect(f.graphStore.OnReplaceSubscribe(func(signal.Unit) {
 		f.scheduleIndexRebuild()
 		invalidate()
 	}))
 
 	// Subscribe to viewport changes → re-project only (no rebuild).
 	if f.viewportStore != nil {
-		signal.Track(&f.subs, &f.viewportStore.OnChange, func(signal.Change[ViewportState]) {
+		facet.To(sub, &f.viewportStore.OnChange, func(signal.Change[ViewportState]) {
 			invalidate()
 		})
 	}

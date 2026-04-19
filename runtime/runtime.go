@@ -39,8 +39,9 @@ type Runtime struct {
 	window      platform.Window
 	root        facet.FacetImpl
 
-	frameNumber uint64
-	frameTimer  *FrameTimer
+	frameNumber  uint64
+	frameTimer   *FrameTimer
+	contentScale float32
 
 	dirtyFacets   map[facet.FacetID]facet.DirtyFlags
 	dirtySources  map[facet.FacetID]string
@@ -191,6 +192,7 @@ func (rt *Runtime) start() error {
 		store.SetSignalQueueHook(rt.queueSignal)
 		go (&renderThread{pipeline: rt.renderPipeline}).run()
 		rt.jobPool.Start()
+		rt.contentScale = rt.effectiveContentScale()
 		rt.attachTree(rt.root)
 		rt.activateTree(rt.root)
 		rt.markTreeDirty(rt.root, facet.DirtyAll)
@@ -305,6 +307,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		}
 	}
 	stats.RenderDuration = time.Since(renderStart)
+	rt.updateIMECursorRect()
 
 	rt.lastStats = stats
 	if diag := rt.diagnosticsHook(); diag != nil {
@@ -360,9 +363,38 @@ func (rt *Runtime) handleResize(w, h int) {
 		}
 	}
 	rt.markTreeDirty(rt.root, facet.DirtyAll)
+	if newScale := rt.effectiveContentScale(); newScale != rt.contentScale {
+		rt.contentScale = newScale
+		rt.markTreeDirty(rt.root, facet.DirtyAll)
+	}
 	if rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()
 	}
+}
+
+func (rt *Runtime) updateIMECursorRect() {
+	if rt == nil || rt.window == nil || rt.focusManager == nil {
+		return
+	}
+	focused := rt.focusManager.FocusedImpl()
+	if focused == nil || focused.Base() == nil {
+		return
+	}
+	tr := focused.Base().TextRole()
+	if tr == nil || !tr.CaretVisible || tr.Layout == nil {
+		return
+	}
+	caret := tr.Layout.CaretRect(tr.CaretPosition)
+	offset := gfx.Point{}
+	if lr := focused.Base().LayoutRole(); lr != nil {
+		offset = lr.ArrangedBounds.Min
+	}
+	rt.window.SetIMECursorRect(gfx.RectFromXYWH(
+		caret.Min.X+offset.X,
+		caret.Min.Y+offset.Y,
+		caret.Width(),
+		caret.Height(),
+	))
 }
 
 // AddFacet attaches a new child facet at runtime.
@@ -564,6 +596,21 @@ func (rt *Runtime) windowSize() (int, int) {
 		return 0, 0
 	}
 	return rt.window.Size()
+}
+
+func (rt *Runtime) effectiveContentScale() float32 {
+	if rt == nil {
+		return 1
+	}
+	if rt.config.ContentScale > 0 {
+		return rt.config.ContentScale
+	}
+	if rt.window != nil {
+		if scale := rt.window.ContentScale(); scale > 0 {
+			return scale
+		}
+	}
+	return 1
 }
 
 func convertFrame(frame *projection.FrameOutput) *render.Frame {

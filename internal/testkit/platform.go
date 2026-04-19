@@ -78,6 +78,12 @@ func (w *NullWindow) Size() (width, height int) {
 	return w.surface.Size()
 }
 
+func (w *NullWindow) ContentScale() float32 {
+	return 1
+}
+
+func (w *NullWindow) SetIMECursorRect(rect gfx.Rect) {}
+
 func (w *NullWindow) Resize(width, height int) {
 	if w == nil || w.surface == nil {
 		return

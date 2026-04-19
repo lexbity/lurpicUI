@@ -144,10 +144,7 @@ func newTrackedProjectionFacet(name string, bounds gfx.Rect, s *store.ValueStore
 	}
 	f.attachFn = func(ctx facet.AttachContext) {
 		if s != nil {
-			slot := f.TrackVersion(s.Version)
-			signal.Track(f.Subs(), &s.OnChange, func(signal.Change[int]) {
-				f.UpdateTrackedVersion(slot, s.Version)
-			})
+			facet.Store(facet.Subscribe(f), &s.OnChange, s.Version, func(signal.Change[int]) {})
 		}
 	}
 	return f

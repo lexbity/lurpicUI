@@ -2,6 +2,7 @@ package software
 
 import (
 	"errors"
+	"image/draw"
 	"image"
 	"image/color"
 	"math"
@@ -12,11 +13,14 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 
-	_ "github.com/go-text/render"
-	_ "golang.org/x/image/vector"
+	gotextrender "github.com/go-text/render"
+	"github.com/go-text/typesetting/font"
+	ot "github.com/go-text/typesetting/font/opentype"
+	"golang.org/x/image/vector"
 )
 
 var _ = text.GlyphRun{}
+var _ = gotextrender.Renderer{}
 
 type blitSurface interface {
 	render.Surface
@@ -358,19 +362,11 @@ func strokeRect(target *image.RGBA, state renderState, rect gfx.Rect, stroke gfx
 }
 
 func fillPath(target *image.RGBA, state renderState, path gfx.Path, brush gfx.Brush) {
-	bounds := pathBounds(path)
-	if bounds.IsEmpty() {
-		return
-	}
-	fillRect(target, state, bounds, brush)
+	rasterizePath(target, state, path, brush, 1)
 }
 
 func strokePath(target *image.RGBA, state renderState, path gfx.Path, stroke gfx.StrokeStyle, brush gfx.Brush) {
-	bounds := pathBounds(path)
-	if bounds.IsEmpty() {
-		return
-	}
-	fillRect(target, state, bounds.Inset(-stroke.Width/2, -stroke.Width/2), brush)
+	rasterizePath(target, state, strokePathOutline(path, stroke), brush, 1)
 }
 
 func drawPolyline(target *image.RGBA, state renderState, pts []gfx.Point, stroke gfx.StrokeStyle, brush gfx.Brush, closed bool) {
@@ -415,6 +411,81 @@ func (r *SoftwareRenderer) drawGlyphRun(target *image.RGBA, state renderState, c
 	}
 }
 
+func rasterizePath(target *image.RGBA, state renderState, path gfx.Path, brush gfx.Brush, opacity float32) {
+	if target == nil || len(path.Segments) == 0 {
+		return
+	}
+
+	var transformed gfx.Path
+	transformed.Segments = make([]gfx.PathSegment, 0, len(path.Segments))
+	for _, seg := range path.Segments {
+		out := gfx.PathSegment{Verb: seg.Verb}
+		for i := range seg.Pts {
+			out.Pts[i] = state.transform.TransformPoint(seg.Pts[i])
+		}
+		transformed.Segments = append(transformed.Segments, out)
+	}
+
+	bounds := pathBounds(transformed)
+	rr := intersectRects(bounds, state.clip)
+	if rr.IsEmpty() {
+		return
+	}
+	minX := clampInt(int(math.Floor(float64(rr.Min.X))), 0, target.Bounds().Dx())
+	minY := clampInt(int(math.Floor(float64(rr.Min.Y))), 0, target.Bounds().Dy())
+	maxX := clampInt(int(math.Ceil(float64(rr.Max.X))), 0, target.Bounds().Dx())
+	maxY := clampInt(int(math.Ceil(float64(rr.Max.Y))), 0, target.Bounds().Dy())
+	if minX >= maxX || minY >= maxY {
+		return
+	}
+
+	mask := image.NewAlpha(image.Rect(0, 0, maxX-minX, maxY-minY))
+	ras := vector.NewRasterizer(mask.Bounds().Dx(), mask.Bounds().Dy())
+	ras.DrawOp = draw.Src
+	for _, seg := range transformed.Segments {
+		switch seg.Verb {
+		case gfx.PathMoveTo:
+			ras.MoveTo(seg.Pts[0].X-float32(minX), seg.Pts[0].Y-float32(minY))
+		case gfx.PathLineTo:
+			ras.LineTo(seg.Pts[0].X-float32(minX), seg.Pts[0].Y-float32(minY))
+		case gfx.PathQuadTo:
+			ras.QuadTo(
+				seg.Pts[0].X-float32(minX), seg.Pts[0].Y-float32(minY),
+				seg.Pts[1].X-float32(minX), seg.Pts[1].Y-float32(minY),
+			)
+		case gfx.PathCubicTo:
+			ras.CubeTo(
+				seg.Pts[0].X-float32(minX), seg.Pts[0].Y-float32(minY),
+				seg.Pts[1].X-float32(minX), seg.Pts[1].Y-float32(minY),
+				seg.Pts[2].X-float32(minX), seg.Pts[2].Y-float32(minY),
+			)
+		case gfx.PathClose:
+			ras.ClosePath()
+		}
+	}
+	ras.Draw(mask, mask.Bounds(), image.NewUniform(color.Alpha{A: 255}), image.Point{})
+
+	for y := 0; y < mask.Bounds().Dy(); y++ {
+		for x := 0; x < mask.Bounds().Dx(); x++ {
+			a := mask.AlphaAt(x, y).A
+			if a == 0 {
+				continue
+			}
+			px := minX + x
+			py := minY + y
+			c := sampleBrush(brush, gfx.Point{X: float32(px), Y: float32(py)}, rr)
+			blendAt(target, px, py, c, state.opacity*opacity*float32(a)/255)
+		}
+	}
+}
+
+func strokePathOutline(path gfx.Path, stroke gfx.StrokeStyle) gfx.Path {
+	if len(path.Segments) == 0 || stroke.Width <= 0 {
+		return gfx.Path{}
+	}
+	return gfx.RectPath(pathBounds(path).Inset(stroke.Width/2, stroke.Width/2))
+}
+
 func (a *glyphAtlas) getOrRasterize(run text.GlyphRun, glyph text.PositionedGlyph) *glyphEntry {
 	if a == nil {
 		return nil
@@ -437,38 +508,133 @@ func (a *glyphAtlas) getOrRasterize(run text.GlyphRun, glyph text.PositionedGlyp
 	if entry := a.entries[key]; entry != nil {
 		return entry
 	}
-	entry := rasterizeGlyphEntry(key, size)
+	entry := rasterizeGlyphEntry(run, glyph, size)
 	a.entries[key] = entry
 	a.rasterizeCount++
 	return entry
 }
 
-func rasterizeGlyphEntry(key glyphKey, size float32) *glyphEntry {
-	w := maxInt(1, int(math.Ceil(float64(size*0.55))))
-	h := maxInt(1, int(math.Ceil(float64(size*0.9))))
-	if w < 3 {
-		w = 3
+func rasterizeGlyphEntry(run text.GlyphRun, glyph text.PositionedGlyph, size float32) *glyphEntry {
+	goFace := run.Face.GoFace()
+	if goFace == nil {
+		return nil
 	}
-	if h < 4 {
-		h = 4
+	gid := font.GID(glyph.GlyphID)
+	data := goFace.GlyphData(gid)
+	if data == nil {
+		return nil
 	}
+	scale := size / float32(goFace.Upem())
+	if scale <= 0 {
+		scale = 1
+	}
+
+	switch gd := data.(type) {
+	case font.GlyphOutline:
+		return rasterizeOutlineGlyph(gd, scale)
+	case font.GlyphSVG:
+		return rasterizeOutlineGlyph(gd.Outline, scale)
+	case font.GlyphBitmap:
+		return rasterizeBitmapGlyph(gd, scale)
+	default:
+		return nil
+	}
+}
+
+func rasterizeOutlineGlyph(outline font.GlyphOutline, scale float32) *glyphEntry {
+	if len(outline.Segments) == 0 {
+		return &glyphEntry{bitmap: image.NewAlpha(image.Rect(0, 0, 1, 1))}
+	}
+	minX, minY, maxX, maxY := outlineBounds(outline, scale)
+	w := maxInt(1, int(math.Ceil(float64(maxX-minX)))+2)
+	h := maxInt(1, int(math.Ceil(float64(maxY-minY)))+2)
 	bmp := image.NewAlpha(image.Rect(0, 0, w, h))
-	seed := uint32(key.glyphID) ^ key.sizeBits ^ uint32(key.faceKey) ^ (uint32(key.glyphID)<<7 | uint32(key.faceKey>>32))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
-			on := x == 0 || y == 0 || x == w-1 || y == h-1 || x == y%w
-			if !on {
-				v := (uint32(x)*31 + uint32(y)*17 + seed) % 9
-				on = v == 0 || (seed>>uint((x+y)%16))&1 == 1 && (x+y)%3 == 0
+	ras := vector.NewRasterizer(w, h)
+	ras.DrawOp = draw.Src
+	for _, seg := range outline.Segments {
+		switch seg.Op {
+		case ot.SegmentOpMoveTo:
+			ras.MoveTo(seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1))
+		case ot.SegmentOpLineTo:
+			ras.LineTo(seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1))
+		case ot.SegmentOpQuadTo:
+			ras.QuadTo(
+				seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1),
+				seg.Args[1].X*scale-minX+1, float32(h)-(seg.Args[1].Y*scale-minY+1),
+			)
+		case ot.SegmentOpCubeTo:
+			ras.CubeTo(
+				seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1),
+				seg.Args[1].X*scale-minX+1, float32(h)-(seg.Args[1].Y*scale-minY+1),
+				seg.Args[2].X*scale-minX+1, float32(h)-(seg.Args[2].Y*scale-minY+1),
+			)
+		}
+	}
+	ras.Draw(bmp, bmp.Bounds(), image.NewUniform(color.Alpha{A: 255}), image.Point{})
+	return &glyphEntry{
+		bitmap:  bmp,
+		offsetX: minX - 1,
+		offsetY: -maxY + 1,
+	}
+}
+
+func rasterizeBitmapGlyph(gd font.GlyphBitmap, scale float32) *glyphEntry {
+	w := maxInt(1, int(math.Ceil(float64(float32(gd.Width)*scale)))+2)
+	h := maxInt(1, int(math.Ceil(float64(float32(gd.Height)*scale)))+2)
+	bmp := image.NewAlpha(image.Rect(0, 0, w, h))
+	if gd.Width <= 0 || gd.Height <= 0 {
+		return &glyphEntry{bitmap: bmp}
+	}
+	if gd.Format == font.BlackAndWhite {
+		for y := 0; y < h; y++ {
+			sy := clampInt(int(float32(y-1)/scale), 0, gd.Height-1)
+			for x := 0; x < w; x++ {
+				sx := clampInt(int(float32(x-1)/scale), 0, gd.Width-1)
+				idx := sy*gd.Width + sx
+				if idx < 0 || idx >= gd.Width*gd.Height {
+					continue
+				}
+				bit := gd.Data[idx/8] >> uint(7-(idx%8))
+				if bit&1 == 1 {
+					bmp.SetAlpha(x, y, color.Alpha{A: 255})
+				}
 			}
-			if on {
-				// Slightly vary the alpha so different glyphs do not all look identical.
-				alpha := uint8(200 + (seed+uint32(x*13+y*7))%55)
-				bmp.SetAlpha(x, y, color.Alpha{A: alpha})
+		}
+		return &glyphEntry{bitmap: bmp}
+	}
+	return &glyphEntry{bitmap: bmp}
+}
+
+func outlineBounds(outline font.GlyphOutline, scale float32) (minX, minY, maxX, maxY float32) {
+	first := true
+	for _, seg := range outline.Segments {
+		for _, pt := range seg.Args {
+			x := pt.X * scale
+			y := pt.Y * scale
+			if first {
+				minX, maxX = x, x
+				minY, maxY = y, y
+				first = false
+				continue
+			}
+			if x < minX {
+				minX = x
+			}
+			if y < minY {
+				minY = y
+			}
+			if x > maxX {
+				maxX = x
+			}
+			if y > maxY {
+				maxY = y
 			}
 		}
 	}
-	return &glyphEntry{bitmap: bmp}
+	if first {
+		return 0, 0, 0, 0
+	}
+	return
 }
 
 func drawGlyphBitmap(target *image.RGBA, state renderState, bmp *image.Alpha, pos gfx.Point, brush gfx.Brush) {

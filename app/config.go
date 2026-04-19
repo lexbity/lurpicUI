@@ -32,6 +32,7 @@ type Config struct {
 type BuildContext struct {
 	FontRegistry *text.FontRegistry
 	WindowSize   gfx.Size
+	ContentScale float32
 	Theme        theme.Context
 }
 

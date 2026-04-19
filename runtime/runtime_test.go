@@ -15,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -78,6 +79,7 @@ type runtimeRenderFacet struct {
 type runtimeFocusFacet struct {
 	facet.Facet
 	focus facet.FocusRole
+	text  facet.TextRole
 }
 
 type layoutCountLeaf struct {
@@ -93,6 +95,12 @@ type runtimeJobFacet struct {
 	facet.Facet
 	projection facet.ProjectionRole
 	lastResult job.AnyResult
+}
+
+type runtimeSubscriptionFacet struct {
+	facet.Facet
+	store       *store.ValueStore[int]
+	changeCount int
 }
 
 type projectionJobFacet struct {
@@ -168,6 +176,21 @@ func newRuntimeJobFacet() *runtimeJobFacet {
 	f.AddRole(&f.projection)
 	return f
 }
+
+func newRuntimeSubscriptionFacet(s *store.ValueStore[int]) *runtimeSubscriptionFacet {
+	f := &runtimeSubscriptionFacet{Facet: facet.NewFacet(), store: s}
+	return f
+}
+
+func (f *runtimeSubscriptionFacet) Base() *facet.Facet { return &f.Facet }
+func (f *runtimeSubscriptionFacet) OnAttach(ctx facet.AttachContext) {
+	facet.Store(facet.Subscribe(f), &f.store.OnChange, f.store.Version, func(signal.Change[int]) {
+		f.changeCount++
+	})
+}
+func (f *runtimeSubscriptionFacet) OnDetach()     {}
+func (f *runtimeSubscriptionFacet) OnActivate()   {}
+func (f *runtimeSubscriptionFacet) OnDeactivate() {}
 
 func newProjectionJobFacet() *projectionJobFacet {
 	f := &projectionJobFacet{
@@ -387,6 +410,37 @@ func TestRuntime_attachtree_calls_onattach(t *testing.T) {
 	rt.attachTree(root)
 	if root.attachCount != 1 {
 		t.Fatalf("attach count = %d", root.attachCount)
+	}
+}
+
+func TestRuntime_subscribe_builder_integrates_with_lifecycle(t *testing.T) {
+	s := store.NewValueStore(1)
+	root := newRuntimeSubscriptionFacet(s)
+	rt := mustRuntimeTree(t, root)
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	if got := root.Subs().Len(); got != 1 {
+		t.Fatalf("subscriptions after attach = %d", got)
+	}
+	if got := root.SubscribedVersions(); len(got) != 1 || got[0] != 0 {
+		t.Fatalf("subscribed versions after attach = %#v", got)
+	}
+
+	s.Set(2)
+	rt.RunOneFrame()
+
+	if root.changeCount != 1 {
+		t.Fatalf("changeCount = %d", root.changeCount)
+	}
+	if got := root.SubscribedVersions(); len(got) != 1 || got[0] != 1 {
+		t.Fatalf("subscribed versions after update = %#v", got)
+	}
+
+	rt.Shutdown()
+	if s.OnChange.HasSubscribers() {
+		t.Fatal("expected subscriptions to be released on shutdown")
 	}
 }
 
@@ -613,6 +667,64 @@ func TestRuntime_layout_skipped_when_no_dirty(t *testing.T) {
 	}
 }
 
+func TestRuntime_contentScale_from_config(t *testing.T) {
+	root := facet.NewFacet()
+	win := &testWindow{width: 200, height: 100, contentScale: 3}
+	cfg := DefaultConfig()
+	cfg.ContentScale = 2
+	rt, err := New(cfg, nil, win, &stubBackend{}, &root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if got := rt.contentScale; got != 2 {
+		t.Fatalf("contentScale = %v, want 2", got)
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_contentScale_from_window(t *testing.T) {
+	root := facet.NewFacet()
+	win := &testWindow{width: 200, height: 100, contentScale: 1.5}
+	cfg := DefaultConfig()
+	cfg.ContentScale = 0
+	rt, err := New(cfg, nil, win, &stubBackend{}, &root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	if got := rt.contentScale; got != 1.5 {
+		t.Fatalf("contentScale = %v, want 1.5", got)
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_resize_marks_dirty_on_scale_change(t *testing.T) {
+	root := facet.NewFacet()
+	win := &testWindow{width: 200, height: 100, contentScale: 1}
+	rt, err := New(DefaultConfig(), nil, win, &stubBackend{}, &root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	rt.dirtyFacets = map[facet.FacetID]facet.DirtyFlags{}
+	win.contentScale = 2
+	rt.handleResize(320, 180)
+	if got := rt.contentScale; got != 2 {
+		t.Fatalf("contentScale = %v, want 2", got)
+	}
+	if flags := rt.dirtyFacets[root.ID()]; flags&facet.DirtyAll == 0 {
+		t.Fatalf("dirty flags = %v", flags)
+	}
+	rt.Shutdown()
+}
+
 func TestRuntime_run_returns_render_error(t *testing.T) {
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
 	rt := mustRuntimeWithBackend(t, root, &stubBackend{submitErr: errors.New("boom")})
@@ -724,6 +836,42 @@ func TestRuntime_ShiftTab_reverses_focus(t *testing.T) {
 	if got := rt.focusManager.Focused(); got != a.ID() {
 		t.Fatalf("focused = %d", got)
 	}
+}
+
+func TestRuntime_updateIMECursorRect_sets_window_rect(t *testing.T) {
+	root := facet.NewFacet()
+	child := &runtimeFocusFacet{Facet: facet.NewFacet()}
+	child.focus.Focusable = func() bool { return true }
+	child.focus.TabIndex = 0
+	child.text.Layout = &text.TextLayout{
+		Lines: []text.ShapedLine{
+			{
+				Bounds:    text.RectFromXYWH(4, 6, 20, 14),
+				Baseline:  12,
+				FirstRune: 0,
+				RuneCount: 1,
+			},
+		},
+		LineHeight: 14,
+	}
+	child.text.CaretVisible = true
+	child.text.CaretPosition = text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+	child.AddRole(&child.focus)
+	child.AddRole(&child.text)
+	root.AddChild(&child.Facet)
+
+	win := &testWindow{width: 200, height: 100, contentScale: 1}
+	rt := mustRuntimeWithBackend(t, &root, &stubBackend{})
+	rt.window = win
+	rt.focusManager.SetFocus(child)
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	rt.RunOneFrame()
+	if win.imeRect != (gfx.RectFromXYWH(4, 6, 2, 14)) {
+		t.Fatalf("imeRect = %#v", win.imeRect)
+	}
+	rt.Shutdown()
 }
 
 func TestRuntime_projection_context_has_runtime(t *testing.T) {
@@ -985,17 +1133,26 @@ func mustRuntimeWithBackend(t *testing.T, root facet.FacetImpl, backend render.B
 }
 
 type testWindow struct {
-	width  int
-	height int
+	width        int
+	height       int
+	contentScale float32
+	imeRect      gfx.Rect
 }
 
 func (w *testWindow) Surface() platform.Surface { return nil }
 func (w *testWindow) SetTitle(title string)     {}
 func (w *testWindow) Size() (width, height int) { return w.width, w.height }
-func (w *testWindow) Show()                     {}
-func (w *testWindow) Hide()                     {}
-func (w *testWindow) Close()                    {}
-func (w *testWindow) Destroy()                  {}
+func (w *testWindow) ContentScale() float32 {
+	if w != nil && w.contentScale > 0 {
+		return w.contentScale
+	}
+	return 1
+}
+func (w *testWindow) SetIMECursorRect(rect gfx.Rect) { w.imeRect = rect }
+func (w *testWindow) Show()                          {}
+func (w *testWindow) Hide()                          {}
+func (w *testWindow) Close()                         {}
+func (w *testWindow) Destroy()                       {}
 
 var _ platform.App = (*nilApp)(nil)
 

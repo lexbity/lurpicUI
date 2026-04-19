@@ -1,17 +1,24 @@
 package text
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"unicode"
-	"unicode/utf8"
 
-	_ "github.com/go-text/typesetting/font"
+	"github.com/go-text/typesetting/di"
+	"github.com/go-text/typesetting/font"
+	"github.com/go-text/typesetting/language"
+	textsegmenter "github.com/go-text/typesetting/segmenter"
+	gotextshaping "github.com/go-text/typesetting/shaping"
+	"golang.org/x/image/math/fixed"
 )
 
 // Weight encodes font weight values in CSS-like increments.
@@ -134,8 +141,10 @@ type FontSource struct {
 }
 
 type fontFaceRecord struct {
-	id     uint64
-	source FontSource
+	face     *font.Face
+	desc     font.Description
+	source   FontSource
+	cacheKey uint64
 }
 
 // FontFace is an opaque wrapper around a resolved font face record.
@@ -168,11 +177,12 @@ type PositionedGlyph struct {
 
 // ShapedLine is one wrapped line within a layout.
 type ShapedLine struct {
-	Runs      []GlyphRun
-	Bounds    Rect
-	Baseline  float32
-	FirstRune int
-	RuneCount int
+	Runs       []GlyphRun
+	Bounds     Rect
+	Baseline   float32
+	FirstRune  int
+	RuneCount  int
+	clusterMap []float32
 }
 
 // TextLayout is the shaped and wrapped result of a paragraph.
@@ -259,18 +269,8 @@ func (l *TextLayout) HitTest(p Point) TextPosition {
 	if p.X >= line.Bounds.Max.X {
 		return TextPosition{Index: line.FirstRune + line.RuneCount, Affinity: AffinityUpstream}
 	}
-	for _, run := range line.Runs {
-		if len(run.Glyphs) == 0 {
-			continue
-		}
-		g := run.Glyphs[0]
-		mid := run.Bounds.Min.X + g.Advance/2
-		if p.X < mid {
-			return TextPosition{Index: g.RuneIndex, Affinity: AffinityDownstream}
-		}
-		if p.X < run.Bounds.Max.X {
-			return TextPosition{Index: g.RuneIndex + 1, Affinity: AffinityUpstream}
-		}
+	if idx, ok := line.hitTestClusterIndex(p.X - line.Bounds.Min.X); ok {
+		return TextPosition{Index: line.FirstRune + idx, Affinity: AffinityUpstream}
 	}
 	return TextPosition{Index: line.FirstRune + line.RuneCount, Affinity: AffinityUpstream}
 }
@@ -361,31 +361,24 @@ func (l *TextLayout) WordBoundaryAt(pos TextPosition) TextRange {
 		return TextRange{Start: pos.Index, End: pos.Index}
 	}
 	i := clampInt(pos.Index, 0, len(runes))
-	if i == len(runes) {
-		if i == 0 {
-			return TextRange{Start: 0, End: 0}
+	words := wordRanges(runes)
+	if len(words) == 0 {
+		return TextRange{Start: i, End: i}
+	}
+	for _, word := range words {
+		if i >= word.Start && i < word.End {
+			return word
 		}
-		i = len(runes) - 1
 	}
-	isBoundary := func(r rune) bool {
-		return r == 0 || unicode.IsSpace(r) || unicode.IsPunct(r)
+	if i <= words[0].Start {
+		return words[0]
 	}
-	start := i
-	if !isBoundary(runes[i]) {
-		for start > 0 && !isBoundary(runes[start-1]) {
-			start--
+	for idx := 1; idx < len(words); idx++ {
+		if i < words[idx].Start {
+			return words[idx-1]
 		}
-		end := i + 1
-		for end < len(runes) && !isBoundary(runes[end]) {
-			end++
-		}
-		return TextRange{Start: start, End: end}
 	}
-	end := i + 1
-	for end < len(runes) && isBoundary(runes[end]) {
-		end++
-	}
-	return TextRange{Start: i, End: end}
+	return words[len(words)-1]
 }
 
 func (l *TextLayout) lineIndexForPoint(p Point) int {
@@ -459,6 +452,16 @@ func (l *TextLayout) positionX(pos TextPosition, lineIndex int) float32 {
 	if pos.Index >= endIndex {
 		return line.Bounds.Max.X
 	}
+	if len(line.clusterMap) > 0 {
+		idx := pos.Index - line.FirstRune
+		if idx < 0 {
+			idx = 0
+		}
+		if idx >= len(line.clusterMap) {
+			return line.Bounds.Max.X
+		}
+		return line.Bounds.Min.X + line.clusterMap[idx]
+	}
 	for _, run := range line.Runs {
 		if len(run.Glyphs) == 0 {
 			continue
@@ -476,12 +479,23 @@ func (l *TextLayout) positionX(pos TextPosition, lineIndex int) float32 {
 
 // Shaper performs paragraph shaping and line wrapping.
 type Shaper struct {
-	registry *FontRegistry
+	registry     *FontRegistry
+	shaper       gotextshaping.HarfbuzzShaper
+	segmenter    gotextshaping.Segmenter
+	contentScale float32
 }
 
 // NewShaper constructs a shaper using the provided registry.
 func NewShaper(registry *FontRegistry) *Shaper {
-	return &Shaper{registry: registry}
+	return &Shaper{registry: registry, contentScale: 1}
+}
+
+// SetContentScale adjusts the pixels-per-em scale used while shaping.
+func (s *Shaper) SetContentScale(scale float32) {
+	if s == nil || scale <= 0 {
+		return
+	}
+	s.contentScale = scale
 }
 
 // ShapeSimple shapes a single-span paragraph on one line.
@@ -494,25 +508,108 @@ func (s *Shaper) ShapeSimple(text string, style TextStyle) *TextLayout {
 // Shape converts a paragraph into a shaped layout.
 func (s *Shaper) Shape(p Paragraph) *TextLayout {
 	layout := &TextLayout{}
-	if len(p.Spans) == 0 {
+	if s == nil || len(p.Spans) == 0 {
 		return layout
 	}
 
-	maxWidth := p.MaxWidth
+	availableFaces := s.registryFaces()
+	if len(availableFaces) == 0 {
+		return layout
+	}
+
 	var (
-		lines      []ShapedLine
-		current    shapedLineBuilder
-		globalRune int
-		source     strings.Builder
+		lines                 []ShapedLine
+		b                     lineBuilder
+		source                strings.Builder
+		totalRune             int
+		alignment             = p.Alignment
+		maxWidth              = p.MaxWidth
+		defaultLineH          = DefaultStyle().Size * 1.2
+		currentLineH          = defaultLineH
+		pendingBlankLine      bool
+		trimLeadingWhitespace bool
 	)
 
 	flushLine := func(force bool) {
-		if !force && current.isEmpty() {
+		if !force && !b.hasContent() {
 			return
 		}
-		line := current.finish()
+		if !b.hasContent() && len(lines) == 0 {
+			currentLineH = maxFloat32(currentLineH, defaultLineH)
+		}
+		line := b.finish(totalRune, currentLineH, alignment, maxWidth)
 		lines = append(lines, line)
-		current.reset()
+		totalRune += line.RuneCount
+		b.reset()
+		currentLineH = defaultLineH
+	}
+
+	addSoftSegment := func(seg softSegment, style TextStyle, availableFaces []*font.Face) {
+		if len(seg.Text) == 0 {
+			return
+		}
+		if trimLeadingWhitespace {
+			seg = trimSoftSegment(seg)
+			if len(seg.Text) == 0 {
+				return
+			}
+		}
+		segments := s.segmentRunes(seg.Text, availableFaces, style)
+		if len(segments) == 0 {
+			return
+		}
+		if pendingBlankLine {
+			pendingBlankLine = false
+		}
+		segmentWidth := float32(0)
+		for _, sub := range segments {
+			if sub.Face.IsZero() || len(sub.Text) == 0 {
+				continue
+			}
+			out := s.shapeSegment(sub, style)
+			if out == nil || len(out.Glyphs) == 0 {
+				continue
+			}
+			segmentWidth += float32(out.Advance) / 64
+		}
+		if maxWidth > 0 && b.hasContent() && b.width+segmentWidth > maxWidth {
+			flushLine(true)
+			trimLeadingWhitespace = true
+			seg = trimSoftSegment(seg)
+			if len(seg.Text) == 0 {
+				return
+			}
+			segments = s.segmentRunes(seg.Text, availableFaces, style)
+			if len(segments) == 0 {
+				return
+			}
+		}
+		for _, sub := range segments {
+			if sub.Face.IsZero() || len(sub.Text) == 0 {
+				continue
+			}
+			out := s.shapeSegment(sub, style)
+			if out == nil || len(out.Glyphs) == 0 {
+				continue
+			}
+			segmentLineH := float32(out.LineBounds.LineThickness()) / 64
+			if segmentLineH <= 0 {
+				segmentLineH = maxFloat32(style.Size*1.2, 1)
+			}
+			if segmentLineH > currentLineH {
+				currentLineH = segmentLineH
+			}
+			for i := 0; i < len(out.Glyphs); {
+				j := i + 1
+				for j < len(out.Glyphs) && out.Glyphs[j].ClusterIndex == out.Glyphs[i].ClusterIndex {
+					j++
+				}
+				cluster := out.Glyphs[i:j]
+				b.addCluster(sub, style, cluster)
+				i = j
+			}
+		}
+		trimLeadingWhitespace = false
 	}
 
 	for _, span := range p.Spans {
@@ -521,168 +618,443 @@ func (s *Shaper) Shape(p Paragraph) *TextLayout {
 		if style.Size <= 0 {
 			style = DefaultStyle()
 		}
-		face := s.resolveFace(style)
-		text := span.Text
-		for len(text) > 0 {
-			r, size := utf8.DecodeRuneInString(text)
-			text = text[size:]
-			if r == '\n' {
+		runes := []rune(span.Text)
+		if len(runes) == 0 {
+			continue
+		}
+		for i := 0; i < len(runes); {
+			if runes[i] == '\r' || runes[i] == '\n' {
 				flushLine(true)
-				globalRune++
+				trimLeadingWhitespace = true
+				pendingBlankLine = true
+				if runes[i] == '\r' && i+1 < len(runes) && runes[i+1] == '\n' {
+					i += 2
+				} else {
+					i++
+				}
 				continue
 			}
-			glyph := makeGlyph(r, style, globalRune)
-			if maxWidth > 0 && !current.isEmpty() && current.width+glyph.Advance > maxWidth {
-				flushLine(true)
+			j := i
+			for j < len(runes) && runes[j] != '\r' && runes[j] != '\n' {
+				j++
 			}
-			current.appendGlyph(glyph, face, style, string(r))
-			globalRune++
+			segments := s.breakSoftSegments(runes[i:j])
+			for _, seg := range segments {
+				addSoftSegment(seg, style, availableFaces)
+			}
+			i = j
 		}
 	}
-	flushLine(false)
+
+	if pendingBlankLine {
+		flushLine(true)
+		pendingBlankLine = false
+	}
+
+	if b.hasContent() {
+		flushLine(true)
+	}
 
 	if len(lines) == 0 {
 		return layout
 	}
 
-	lineHeight := maxLineHeight(lines)
-	if lineHeight <= 0 {
-		lineHeight = DefaultStyle().Size * 1.2
-	}
-	layout.LineHeight = lineHeight
-
-	var y float32
-	maxX := float32(0)
-	totalRune := 0
-	for i := range lines {
-		line := &lines[i]
-		line.RuneCount = countRunes(line)
-		line.FirstRune = totalRune
-		totalRune += line.RuneCount
-		line.Baseline = y + lineHeight*0.8
-		shiftLine(line, p.Alignment, maxWidth)
-		line.Bounds.Min.Y = y
-		line.Bounds.Max.Y = y + lineHeight
-		if line.Bounds.Max.X > maxX {
-			maxX = line.Bounds.Max.X
-		}
-		y += lineHeight
-	}
 	layout.Lines = lines
-	if len(lines) > 0 {
-		layout.Baseline = lines[0].Baseline
-	}
+	layout.LineHeight = lineHeightFromLines(lines)
+	layout.Baseline = lines[0].Baseline
 	layout.source = source.String()
-	layout.Bounds = RectFromXYWH(0, 0, maxX, y)
+	layout.Bounds = RectFromXYWH(0, 0, lineMaxWidth(lines), layout.LineHeight*float32(len(lines)))
+	if len(lines) == 1 && lines[0].RuneCount == 0 {
+		layout.LineHeight = defaultLineH
+		layout.Bounds = RectFromXYWH(0, 0, 0, layout.LineHeight)
+	}
 	return layout
 }
 
-func (s *Shaper) resolveFace(style TextStyle) FontFace {
-	if s == nil || s.registry == nil {
-		reg, _ := NewFontRegistry()
-		return reg.Resolve(style)
+func (s *Shaper) shapeSegment(seg resolvedSegment, style TextStyle) *gotextshaping.Output {
+	if s == nil {
+		return nil
 	}
-	return s.registry.Resolve(style)
-}
-
-type shapedLineBuilder struct {
-	runs  []GlyphRun
-	width float32
-	size  float32
-}
-
-func (b *shapedLineBuilder) isEmpty() bool {
-	return b == nil || (len(b.runs) == 0 && b.width == 0)
-}
-
-func (b *shapedLineBuilder) appendGlyph(g PositionedGlyph, face FontFace, style TextStyle, text string) {
-	g.X = b.width
-	run := GlyphRun{
-		Glyphs:  []PositionedGlyph{g},
-		Face:    face,
-		Size:    style.Size,
-		Style:   style,
-		Bounds:  RectFromXYWH(g.X, 0, g.Advance, maxFloat32(style.Size*1.2, 1)),
-		Advance: g.Advance,
-		Text:    text,
-	}
-	b.runs = append(b.runs, run)
-	b.width += g.Advance
-	if style.Size > b.size {
-		b.size = style.Size
-	}
-}
-
-func (b *shapedLineBuilder) finish() ShapedLine {
-	line := ShapedLine{
-		Runs:   append([]GlyphRun(nil), b.runs...),
-		Bounds: RectFromXYWH(0, 0, b.width, maxFloat32(b.size*1.2, 1)),
-	}
-	return line
-}
-
-func (b *shapedLineBuilder) reset() {
-	if b == nil {
-		return
-	}
-	b.runs = b.runs[:0]
-	b.width = 0
-	b.size = 0
-}
-
-func makeGlyph(r rune, style TextStyle, runeIndex int) PositionedGlyph {
-	advance := glyphAdvance(r, style)
-	return PositionedGlyph{
-		GlyphID:   uint32(r),
-		Advance:   advance,
-		RuneIndex: runeIndex,
-	}
-}
-
-func glyphAdvance(r rune, style TextStyle) float32 {
+	in := seg.Run
 	size := style.Size
 	if size <= 0 {
 		size = DefaultStyle().Size
 	}
-	if size < 1 {
-		size = 1
+	scale := s.contentScale
+	if scale <= 0 {
+		scale = 1
 	}
-	switch r {
-	case '\t':
-		tabWidth := style.TabWidth
-		if tabWidth <= 0 {
-			tabWidth = 4
+	in.Size = fixed.I(int(math.Round(float64(size * scale))))
+	out := s.shaper.Shape(in)
+	return &out
+}
+
+func (s *Shaper) registryFaces() []*font.Face {
+	if s == nil || s.registry == nil {
+		return nil
+	}
+	s.registry.mu.RLock()
+	defer s.registry.mu.RUnlock()
+	faces := make([]*font.Face, 0, len(s.registry.faces))
+	for _, rec := range s.registry.faces {
+		if rec == nil || rec.face == nil {
+			continue
 		}
-		return size * 0.33 * float32(tabWidth)
-	case ' ':
-		return size * 0.33
-	case '\r':
-		return 0
-	default:
-		return size * 0.6
+		faces = append(faces, rec.face)
+	}
+	return faces
+}
+
+type resolvedSegment struct {
+	Text string
+	Face FontFace
+	Run  gotextshaping.Input
+}
+
+func (s *Shaper) segmentRunes(runes []rune, availableFaces []*font.Face, style TextStyle) []resolvedSegment {
+	if len(runes) == 0 || len(availableFaces) == 0 {
+		return nil
+	}
+	input := gotextshaping.Input{
+		Text:      runes,
+		RunStart:  0,
+		RunEnd:    len(runes),
+		Direction: di.DirectionLTR,
+		Script:    language.Common,
+	}
+	segs := s.segmenter.Split(input, registryFontMap{faces: availableFaces})
+	if len(segs) == 0 {
+		return nil
+	}
+	out := make([]resolvedSegment, 0, len(segs))
+	for _, seg := range segs {
+		if seg.Face == nil {
+			continue
+		}
+		selected := s.registry.Resolve(style)
+		if selected.IsZero() {
+			selected = s.fontFaceFor(seg.Face)
+		}
+		if selected.IsZero() {
+			continue
+		}
+		run := seg
+		run.Face = selected.face.face
+		out = append(out, resolvedSegment{
+			Text: string(runes[seg.RunStart:seg.RunEnd]),
+			Face: selected,
+			Run:  run,
+		})
+	}
+	return out
+}
+
+func (s *Shaper) fontFaceFor(face *font.Face) FontFace {
+	if s == nil || s.registry == nil || face == nil {
+		return FontFace{}
+	}
+	s.registry.mu.RLock()
+	defer s.registry.mu.RUnlock()
+	for _, rec := range s.registry.faces {
+		if rec != nil && rec.face == face {
+			return FontFace{face: rec}
+		}
+	}
+	return FontFace{}
+}
+
+type softSegment struct {
+	Text []rune
+}
+
+type lineBreaker struct {
+	seg textsegmenter.Segmenter
+}
+
+func (lb *lineBreaker) breakOpportunities(text []rune) []int {
+	if lb == nil || len(text) == 0 {
+		return nil
+	}
+	lb.seg.Init(text)
+	iter := lb.seg.LineIterator()
+	out := make([]int, 0, len(text))
+	for iter.Next() {
+		line := iter.Line()
+		out = append(out, line.Offset+len(line.Text))
+	}
+	if len(out) == 0 || out[len(out)-1] != len(text) {
+		out = append(out, len(text))
+	}
+	return out
+}
+
+func (s *Shaper) breakSoftSegments(text []rune) []softSegment {
+	if len(text) == 0 {
+		return nil
+	}
+	lb := lineBreaker{}
+	breaks := lb.breakOpportunities(text)
+	if len(breaks) == 0 {
+		return []softSegment{{Text: append([]rune(nil), text...)}}
+	}
+	out := make([]softSegment, 0, len(breaks))
+	start := 0
+	for _, end := range breaks {
+		if end < start {
+			continue
+		}
+		if end > len(text) {
+			end = len(text)
+		}
+		out = append(out, softSegment{Text: append([]rune(nil), text[start:end]...)})
+		start = end
+	}
+	if start < len(text) {
+		out = append(out, softSegment{Text: append([]rune(nil), text[start:]...)})
+	}
+	return out
+}
+
+func trimSoftSegment(seg softSegment) softSegment {
+	if len(seg.Text) == 0 {
+		return seg
+	}
+	i := 0
+	for i < len(seg.Text) && unicode.IsSpace(seg.Text[i]) {
+		i++
+	}
+	if i == 0 {
+		return seg
+	}
+	return softSegment{Text: append([]rune(nil), seg.Text[i:]...)}
+}
+
+type registryFontMap struct {
+	faces []*font.Face
+}
+
+func (m registryFontMap) ResolveFace(r rune) *font.Face {
+	if len(m.faces) == 0 {
+		return nil
+	}
+	for _, face := range m.faces {
+		if face == nil {
+			continue
+		}
+		if _, has := face.NominalGlyph(r); has {
+			return face
+		}
+	}
+	return m.faces[0]
+}
+
+type lineBuilder struct {
+	runs       []GlyphRun
+	cur        *runBuilder
+	width      float32
+	runeCount  int
+	clusterMap []float32
+}
+
+type runBuilder struct {
+	face     FontFace
+	style    TextStyle
+	text     string
+	glyphs   []PositionedGlyph
+	startX   float32
+	advance  float32
+	runeText int
+}
+
+func (b *lineBuilder) hasContent() bool {
+	return b != nil && (b.cur != nil || len(b.runs) > 0 || b.width > 0 || b.runeCount > 0)
+}
+
+func (b *lineBuilder) reset() {
+	if b == nil {
+		return
+	}
+	b.runs = b.runs[:0]
+	b.cur = nil
+	b.width = 0
+	b.runeCount = 0
+	b.clusterMap = b.clusterMap[:0]
+}
+
+func (b *lineBuilder) ensureRun(seg resolvedSegment, style TextStyle) {
+	if b == nil {
+		return
+	}
+	if b.cur != nil && b.cur.face == seg.Face && sameStyle(b.cur.style, style) {
+		return
+	}
+	b.flushRun()
+	b.cur = &runBuilder{
+		face:   seg.Face,
+		style:  style,
+		text:   seg.Text,
+		startX: b.width,
 	}
 }
 
-func countRunes(line *ShapedLine) int {
-	total := 0
-	if line == nil {
-		return 0
+func (b *lineBuilder) addCluster(seg resolvedSegment, style TextStyle, glyphs []gotextshaping.Glyph) {
+	if b == nil {
+		return
 	}
-	for _, run := range line.Runs {
-		total += len(run.Glyphs)
+	b.ensureRun(seg, style)
+	if b.cur == nil {
+		return
 	}
-	return total
+	if len(glyphs) == 0 {
+		return
+	}
+	clusterStart := b.runeCount
+	clusterRuneCount := glyphs[0].RuneCount
+	clusterAdvance := float32(0)
+	for _, g := range glyphs {
+		clusterAdvance += float32(g.XAdvance) / 64
+	}
+	startX := b.cur.advance
+	for _, g := range glyphs {
+		adv := float32(g.XAdvance) / 64
+		glyph := PositionedGlyph{
+			GlyphID:   uint32(g.GlyphID),
+			Advance:   adv,
+			RuneIndex: clusterStart,
+			X:         b.cur.advance,
+			Y:         float32(g.YOffset) / 64,
+		}
+		b.cur.glyphs = append(b.cur.glyphs, glyph)
+		b.cur.advance += adv
+	}
+	if clusterRuneCount > 0 {
+		if len(b.clusterMap) == 0 {
+			b.clusterMap = append(b.clusterMap, 0)
+		}
+		for i := 0; i < clusterRuneCount; i++ {
+			b.clusterMap = append(b.clusterMap, startX+clusterAdvance*float32(i+1)/float32(clusterRuneCount))
+		}
+		b.runeCount += clusterRuneCount
+	}
+	b.width = b.cur.startX + b.cur.advance
 }
 
-func maxLineHeight(lines []ShapedLine) float32 {
+func (b *lineBuilder) flushRun() {
+	if b == nil || b.cur == nil {
+		return
+	}
+	run := GlyphRun{
+		Glyphs:  append([]PositionedGlyph(nil), b.cur.glyphs...),
+		Face:    b.cur.face,
+		Size:    b.cur.style.Size,
+		Style:   b.cur.style,
+		Bounds:  RectFromXYWH(b.cur.startX, 0, b.cur.advance, maxFloat32(b.cur.style.Size*1.2, 1)),
+		Advance: b.cur.advance,
+		Text:    b.cur.text,
+	}
+	b.runs = append(b.runs, run)
+	b.cur = nil
+}
+
+func (b *lineBuilder) finish(firstRune int, lineHeight float32, alignment TextAlignment, maxWidth float32) ShapedLine {
+	if b == nil {
+		return ShapedLine{}
+	}
+	b.flushRun()
+	runs := append([]GlyphRun(nil), b.runs...)
+	line := ShapedLine{
+		Runs:       runs,
+		Bounds:     RectFromXYWH(0, 0, b.width, maxFloat32(lineHeight, 1)),
+		Baseline:   maxFloat32(lineHeight*0.8, 1),
+		FirstRune:  firstRune,
+		RuneCount:  b.runeCount,
+		clusterMap: append([]float32(nil), b.clusterMap...),
+	}
+	if len(line.clusterMap) == 0 {
+		line.clusterMap = []float32{0}
+	}
+	shiftLine(&line, alignment, maxWidth)
+	return line
+}
+
+func (l *ShapedLine) hitTestClusterIndex(x float32) (int, bool) {
+	if l == nil || len(l.clusterMap) < 2 {
+		return 0, false
+	}
+	if x <= 0 {
+		return 0, true
+	}
+	last := len(l.clusterMap) - 1
+	if x >= l.clusterMap[last] {
+		return last, true
+	}
+	idx := sort.Search(len(l.clusterMap), func(i int) bool {
+		return l.clusterMap[i] >= x
+	})
+	if idx <= 0 {
+		return 0, true
+	}
+	if idx >= len(l.clusterMap) {
+		return last, true
+	}
+	left := l.clusterMap[idx-1]
+	right := l.clusterMap[idx]
+	if x-left <= right-x {
+		return idx - 1, true
+	}
+	return idx, true
+}
+
+func wordRanges(runes []rune) []TextRange {
+	if len(runes) == 0 {
+		return nil
+	}
+	var seg textsegmenter.Segmenter
+	seg.Init(runes)
+	iter := seg.WordIterator()
+	var out []TextRange
+	for iter.Next() {
+		word := iter.Word()
+		start := word.Offset
+		end := word.Offset + len(word.Text)
+		if start < end {
+			out = append(out, TextRange{Start: start, End: end})
+		}
+	}
+	return out
+}
+
+func sameStyle(a, b TextStyle) bool {
+	return a.Family == b.Family &&
+		a.Size == b.Size &&
+		a.Weight == b.Weight &&
+		a.Style == b.Style &&
+		a.LineHeight == b.LineHeight &&
+		a.LetterSpacing == b.LetterSpacing &&
+		a.TabWidth == b.TabWidth
+}
+
+func lineHeightFromLines(lines []ShapedLine) float32 {
 	var maxH float32
 	for _, line := range lines {
-		h := line.Bounds.Height()
-		if h > maxH {
+		if h := line.Bounds.Height(); h > maxH {
 			maxH = h
 		}
 	}
+	if maxH <= 0 {
+		return DefaultStyle().Size * 1.2
+	}
 	return maxH
+}
+
+func lineMaxWidth(lines []ShapedLine) float32 {
+	var maxW float32
+	for _, line := range lines {
+		if w := line.Bounds.Width(); w > maxW {
+			maxW = w
+		}
+	}
+	return maxW
 }
 
 func shiftLine(line *ShapedLine, alignment TextAlignment, maxWidth float32) {
@@ -745,19 +1117,13 @@ func maxInt(a, b int) int {
 
 // FontRegistry manages loaded font sources and face resolution.
 type FontRegistry struct {
-	mu       sync.RWMutex
-	fallback *fontFaceRecord
-	faces    []*fontFaceRecord
+	mu    sync.RWMutex
+	faces []*fontFaceRecord
 }
 
-var fontFaceSeq atomic.Uint64
-
-// NewFontRegistry creates a registry with a fallback face.
+// NewFontRegistry creates an empty registry.
 func NewFontRegistry() (*FontRegistry, error) {
-	r := &FontRegistry{}
-	r.fallback = &fontFaceRecord{id: fontFaceSeq.Add(1), source: FontSource{Name: "fallback", Data: []byte("fallback")}}
-	r.faces = []*fontFaceRecord{r.fallback}
-	return r, nil
+	return &FontRegistry{}, nil
 }
 
 // LoadFontFile loads a font from disk and stores it in the registry.
@@ -786,10 +1152,24 @@ func (r *FontRegistry) LoadFontBytes(data []byte, name string) error {
 	if strings.TrimSpace(name) == "" {
 		return errors.New("text: font data requires name")
 	}
+	faces, err := font.ParseTTC(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("text: parse font %q: %w", name, err)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	rec := &fontFaceRecord{id: fontFaceSeq.Add(1), source: FontSource{Name: name, Data: append([]byte(nil), data...)}}
-	r.faces = append(r.faces, rec)
+	for i, face := range faces {
+		if face == nil || face.Font == nil {
+			continue
+		}
+		rec := &fontFaceRecord{
+			face:     face,
+			desc:     face.Font.Describe(),
+			source:   FontSource{Name: name, Data: append([]byte(nil), data...)},
+			cacheKey: computeFontCacheKey(data, i),
+		}
+		r.faces = append(r.faces, rec)
+	}
 	return nil
 }
 
@@ -820,37 +1200,35 @@ func (r *FontRegistry) Resolve(style TextStyle) FontFace {
 	if face := r.resolveLocked(style); face != nil {
 		return FontFace{face: face}
 	}
-	return FontFace{face: r.fallback}
+	return FontFace{}
 }
 
 func (r *FontRegistry) resolveLocked(style TextStyle) *fontFaceRecord {
 	if r == nil {
 		return nil
 	}
-	var familyMatch *fontFaceRecord
-	var styleMatch *fontFaceRecord
+	targetFamily := font.NormalizeFamily(style.Family)
+	if targetFamily == "" {
+		return nil
+	}
+	var (
+		best      *fontFaceRecord
+		bestScore int
+	)
 	for _, face := range r.faces {
-		if face == nil {
+		if face == nil || face.face == nil {
 			continue
 		}
-		if style.Family != "" && strings.EqualFold(face.source.Name, style.Family) {
-			familyMatch = face
-			if style.Weight >= WeightBold && strings.Contains(strings.ToLower(face.source.Name), "bold") {
-				return face
-			}
-			if style.Style == StyleItalic && strings.Contains(strings.ToLower(face.source.Name), "italic") {
-				return face
-			}
-			styleMatch = face
+		if font.NormalizeFamily(face.desc.Family) != targetFamily {
+			continue
+		}
+		score := faceMatchScore(face.desc.Aspect, style)
+		if best == nil || score < bestScore {
+			best = face
+			bestScore = score
 		}
 	}
-	if familyMatch != nil {
-		return familyMatch
-	}
-	if styleMatch != nil {
-		return styleMatch
-	}
-	return r.fallback
+	return best
 }
 
 // IsZero reports whether the face wraps an unresolved record.
@@ -858,10 +1236,52 @@ func (f FontFace) IsZero() bool {
 	return f.face == nil
 }
 
+// GoFace returns the underlying go-text font face.
+func (f FontFace) GoFace() *font.Face {
+	if f.face == nil {
+		return nil
+	}
+	return f.face.face
+}
+
 // CacheKey returns a stable identifier suitable for glyph atlas keys.
 func (f FontFace) CacheKey() uint64 {
 	if f.face == nil {
 		return 0
 	}
-	return f.face.id
+	return f.face.cacheKey
+}
+
+func computeFontCacheKey(data []byte, index int) uint64 {
+	sum := sha256.Sum256(append(append([]byte(nil), data...), byte(index>>24), byte(index>>16), byte(index>>8), byte(index)))
+	return binaryToUint64(sum[:8])
+}
+
+func binaryToUint64(b []byte) uint64 {
+	if len(b) < 8 {
+		return 0
+	}
+	return uint64(b[0])<<56 | uint64(b[1])<<48 | uint64(b[2])<<40 | uint64(b[3])<<32 |
+		uint64(b[4])<<24 | uint64(b[5])<<16 | uint64(b[6])<<8 | uint64(b[7])
+}
+
+func faceMatchScore(aspect font.Aspect, style TextStyle) int {
+	score := 0
+	wantStyle := font.StyleNormal
+	if style.Style != StyleNormal {
+		wantStyle = font.StyleItalic
+	}
+	if aspect.Style != wantStyle {
+		score += 1000
+	}
+	wantWeight := font.Weight(style.Weight)
+	if wantWeight == 0 {
+		wantWeight = font.WeightNormal
+	}
+	diff := aspect.Weight - wantWeight
+	if diff < 0 {
+		diff = -diff
+	}
+	score += int(diff)
+	return score
 }

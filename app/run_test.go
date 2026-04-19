@@ -25,20 +25,28 @@ func (s *fakeSurface) Lock() error              { return nil }
 func (s *fakeSurface) Unlock([]gfx.Rect) error  { return nil }
 
 type fakeWindow struct {
-	surface   *fakeSurface
-	title     string
-	shown     bool
-	destroyed bool
-	showCalls int
+	surface      *fakeSurface
+	title        string
+	shown        bool
+	destroyed    bool
+	showCalls    int
+	contentScale float32
 }
 
 func (w *fakeWindow) Surface() platform.Surface { return w.surface }
 func (w *fakeWindow) SetTitle(title string)     { w.title = title }
 func (w *fakeWindow) Size() (int, int)          { return w.surface.width, w.surface.height }
-func (w *fakeWindow) Show()                     { w.shown = true; w.showCalls++ }
-func (w *fakeWindow) Hide()                     { w.shown = false }
-func (w *fakeWindow) Close()                    {}
-func (w *fakeWindow) Destroy()                  { w.destroyed = true }
+func (w *fakeWindow) ContentScale() float32 {
+	if w.contentScale > 0 {
+		return w.contentScale
+	}
+	return 1
+}
+func (w *fakeWindow) SetIMECursorRect(rect gfx.Rect) {}
+func (w *fakeWindow) Show()                          { w.shown = true; w.showCalls++ }
+func (w *fakeWindow) Hide()                          { w.shown = false }
+func (w *fakeWindow) Close()                         {}
+func (w *fakeWindow) Destroy()                       { w.destroyed = true }
 
 type fakeEventQueue struct{}
 
@@ -172,6 +180,32 @@ func TestRun_window_shown_after_first_frame(t *testing.T) {
 	}
 	if !observedShown {
 		t.Fatal("expected window to be shown before runtime loop")
+	}
+}
+
+func TestRun_build_context_content_scale(t *testing.T) {
+	restoreHooks(t)
+	app := &fakeApp{
+		window: &fakeWindow{
+			surface:      &fakeSurface{width: 640, height: 480},
+			contentScale: 2,
+		},
+	}
+	var observed float32
+	newPlatformApp = func() (platform.App, error) { return app, nil }
+	newBackend = func() render.Backend { return &fakeBackend{} }
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	cfg := DefaultConfig("hello", 640, 480)
+	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
+		observed = ctx.ContentScale
+		return &fakeRoot{}
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if observed != 2 {
+		t.Fatalf("ContentScale = %v, want 2", observed)
 	}
 }
 

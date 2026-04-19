@@ -118,6 +118,84 @@ func TestCollectionStore_replace_clears_previous(t *testing.T) {
 	}
 }
 
+func TestCollectionStore_tx_methods_defer_in_order(t *testing.T) {
+	s := NewCollectionStore(identifyItem)
+	var got []string
+	s.addInvalidationTarget(func() { got = append(got, "invalidate") })
+	s.onInsert.Subscribe(func(e CollectionInsertEvent[testItem]) { got = append(got, "insert:"+e.Item.Name) })
+	s.onUpdate.Subscribe(func(e CollectionUpdateEvent[testItem]) { got = append(got, "update:"+e.New.Name) })
+	s.onRemove.Subscribe(func(e CollectionRemoveEvent[testItem]) { got = append(got, "remove:"+e.Item.Name) })
+	s.onReplace.Subscribe(func(signal.Unit) { got = append(got, "replace") })
+
+	s.Insert(testItem{ID: 1, Name: "seed"})
+	got = got[:0]
+
+	tx := Begin()
+	s.InsertTx(testItem{ID: 2, Name: "b"}, tx)
+	s.UpdateTx(testItem{ID: 1, Name: "seed2"}, tx)
+	s.RemoveTx(1, tx)
+	s.ReplaceTx([]testItem{{ID: 3, Name: "c"}}, tx)
+
+	if len(got) != 0 {
+		t.Fatalf("unexpected pre-commit signals: %#v", got)
+	}
+	tx.Commit()
+
+	want := []string{
+		"invalidate", "insert:b",
+		"invalidate", "update:seed2",
+		"invalidate", "remove:seed2",
+		"invalidate", "replace",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v want %#v", got, want)
+		}
+	}
+	if all := s.All(); len(all) != 1 || all[0].ID != 3 || all[0].Name != "c" {
+		t.Fatalf("final store = %#v", all)
+	}
+}
+
+func TestCollectionStore_accessors_and_subscribe(t *testing.T) {
+	s := NewCollectionStore(identifyItem)
+	if s.Len() != 0 {
+		t.Fatalf("len = %d", s.Len())
+	}
+	if got := s.All(); got != nil {
+		t.Fatalf("all = %#v", got)
+	}
+	if _, ok := s.Get(99); ok {
+		t.Fatal("expected missing item")
+	}
+
+	s.Insert(testItem{ID: 1, Name: "a"})
+	if got := s.At(0); got.ID != 1 || got.Name != "a" {
+		t.Fatalf("at = %#v", got)
+	}
+
+	seen := 0
+	unsub := s.OnReplaceSubscribe(func(signal.Unit) { seen++ })
+	s.Replace([]testItem{{ID: 1, Name: "a"}})
+	unsub()
+	s.Replace([]testItem{{ID: 2, Name: "b"}})
+	if seen != 1 {
+		t.Fatalf("seen = %d", seen)
+	}
+	if s.Len() != 1 {
+		t.Fatalf("len = %d", s.Len())
+	}
+	if got, ok := s.Get(2); !ok || got.Name != "b" {
+		t.Fatalf("get = %#v %v", got, ok)
+	}
+	if got := s.Version(); got == 0 {
+		t.Fatal("expected version to increment")
+	}
+}
+
 func TestCollectionStore_all_returns_copy(t *testing.T) {
 	s := NewCollectionStore(identifyItem)
 	s.Insert(testItem{ID: 1, Name: "a"})
@@ -165,6 +243,87 @@ func TestMapStore_set_new_key(t *testing.T) {
 
 	if !got.WasNew || got.Key != "a" || got.Value != 1 || got.Previous != 0 {
 		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestMapStore_tx_methods_defer_in_order(t *testing.T) {
+	s := NewMapStore[string, int]()
+	var got []string
+	s.addInvalidationTarget(func() { got = append(got, "invalidate") })
+	s.onSet.Subscribe(func(e MapSetEvent[string, int]) { got = append(got, "set") })
+	s.onDelete.Subscribe(func(e MapDeleteEvent[string, int]) { got = append(got, "delete") })
+	s.onClear.Subscribe(func(signal.Unit) { got = append(got, "clear") })
+
+	tx := Begin()
+	s.SetTx("a", 1, tx)
+	s.SetTx("b", 2, tx)
+	s.DeleteTx("a", tx)
+	s.ClearTx(tx)
+
+	if len(got) != 0 {
+		t.Fatalf("unexpected pre-commit signals: %#v", got)
+	}
+	tx.Commit()
+
+	want := []string{
+		"invalidate", "set",
+		"invalidate", "set",
+		"invalidate", "delete",
+		"invalidate", "clear",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v want %#v", got, want)
+		}
+	}
+	if s.Len() != 0 {
+		t.Fatalf("len = %d", s.Len())
+	}
+}
+
+func TestMapStore_accessors_and_version(t *testing.T) {
+	s := NewMapStore[string, int]()
+	if s.Has("missing") {
+		t.Fatal("expected missing key")
+	}
+	if s.Len() != 0 {
+		t.Fatalf("len = %d", s.Len())
+	}
+	if got := s.Snapshot(); got != nil {
+		t.Fatalf("snapshot = %#v", got)
+	}
+	if got := s.Version(); got != 0 {
+		t.Fatalf("version = %d", got)
+	}
+
+	s.Set("a", 1)
+	if !s.Has("a") {
+		t.Fatal("expected key to exist")
+	}
+	if s.Len() != 1 {
+		t.Fatalf("len = %d", s.Len())
+	}
+	snap := s.Snapshot()
+	snap["a"] = 2
+	if got, _ := s.Get("a"); got != 1 {
+		t.Fatalf("store mutated via snapshot: %d", got)
+	}
+	if got := s.Version(); got == 0 {
+		t.Fatal("expected version to increment")
+	}
+}
+
+func TestMapStore_tx_delete_and_clear_noop_paths(t *testing.T) {
+	s := NewMapStore[string, int]()
+	tx := Begin()
+	s.DeleteTx("missing", tx)
+	s.ClearTx(tx)
+	tx.Commit()
+	if s.Len() != 0 {
+		t.Fatalf("len = %d", s.Len())
 	}
 }
 

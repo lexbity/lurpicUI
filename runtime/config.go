@@ -22,6 +22,7 @@ type Config struct {
 	GestureConfig   input.GestureConfig
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
+	ContentScale    float32
 	Logger          Logger
 	DiagnosticsHook DiagnosticsHook
 }

@@ -215,7 +215,7 @@ func TestSubs_released_on_dispose(t *testing.T) {
 	f := newTestFacet()
 	sig := signal.NewSignal[signal.Unit]("test")
 	called := 0
-	signal.Track(f.Subs(), &sig, func(signal.Unit) {
+	To(Subscribe(f), &sig, func(signal.Unit) {
 		called++
 	})
 	if got := f.Subs().Len(); got != 1 {
@@ -234,7 +234,7 @@ func TestSubs_released_on_dispose(t *testing.T) {
 func TestFacetSubs_attach_detach_reattach_clean(t *testing.T) {
 	f := newTestFacet()
 	sig := signal.NewSignal[signal.Unit]("test")
-	signal.Track(f.Subs(), &sig, func(signal.Unit) {})
+	To(Subscribe(f), &sig, func(signal.Unit) {})
 	Attach(f, AttachContext{})
 	Dispose(f)
 	if got := f.Subs().Len(); got != 0 {

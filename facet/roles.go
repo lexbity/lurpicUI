@@ -135,7 +135,8 @@ type KeyEvent struct {
 
 // TextEvent is delivered to facets during text input routing.
 type TextEvent struct {
-	Text string
+	Text      string
+	Composing bool
 }
 
 // InputRole participates in direct input handling.
@@ -259,6 +260,7 @@ func (r *TextRole) CollectSelectionGeometry() *TextSelectionGeometry {
 	return out
 }
 
+// TrackStore is deprecated. Use Store with a Subscribe builder instead.
 // TrackStore subscribes to a signal and appends the store version to versions.
 func TrackStore[T any](
 	bag *signal.Subscriptions,

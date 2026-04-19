@@ -93,7 +93,7 @@ func TestProjectionRole_missing_onproject_panics_on_attach(t *testing.T) {
 func TestTrackStore_registers_version_source(t *testing.T) {
 	f := NewFacet()
 	v := store.NewValueStore(1)
-	TrackStore(f.Subs(), &f.subscribedVersions, v.Version, &v.OnChange, func(signal.Change[int]) {})
+	Store(Subscribe(&f), &v.OnChange, v.Version, func(signal.Change[int]) {})
 	got := f.SubscribedVersions()
 	if len(got) != 1 || got[0] != v.Version() {
 		t.Fatalf("got %#v want [%d]", got, v.Version())
@@ -105,7 +105,7 @@ func TestFacetSubs_released_on_dispose(t *testing.T) {
 	role := &LayoutRole{OnMeasure: func(Constraints) gfx.Size { return gfx.Size{W: 1, H: 1} }}
 	f.roles = []Role{role}
 	sig := signal.NewSignal[signal.Unit]("test")
-	signal.Track(f.Subs(), &sig, func(signal.Unit) {})
+	To(Subscribe(f), &sig, func(signal.Unit) {})
 	if got := f.Subs().Len(); got != 1 {
 		t.Fatalf("expected 1 sub, got %d", got)
 	}

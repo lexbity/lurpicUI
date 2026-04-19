@@ -87,7 +87,8 @@ type KeyInputEvent struct {
 }
 
 type TextInputEvent struct {
-	Text string
+	Text      string
+	Composing bool
 }
 
 type FocusGainedEvent struct{}
@@ -420,6 +421,32 @@ func (s *System) processText(e platform.EventText) []RoutedEvent {
 	}}
 }
 
+func (s *System) processIMEText(text string, composing bool) []RoutedEvent {
+	if s == nil {
+		return nil
+	}
+	var focused facet.FacetImpl
+	if s.focusManager != nil {
+		focused = s.focusManager.FocusedImpl()
+	}
+	if focused == nil && s.focus.Focused() != 0 && s.focusTree != nil {
+		if path := findFacetPath(s.focusTree, s.focus.Focused()); len(path) > 0 {
+			focused = path[len(path)-1]
+		}
+	}
+	if focused == nil || focused.Base() == nil {
+		return nil
+	}
+	role := focused.Base().InputRole()
+	if role == nil || role.OnText == nil {
+		return nil
+	}
+	return []RoutedEvent{{
+		Target: focused.Base().ID(),
+		Event:  TextInputEvent{Text: text, Composing: composing},
+	}}
+}
+
 func (s *System) requestFocus(targetID facet.FacetID, tree facet.FacetImpl) facet.FacetID {
 	if s == nil || targetID == 0 || tree == nil {
 		return 0
@@ -537,6 +564,10 @@ func (s *System) Process(events []platform.Event, hitMap *projection.HitMap, tre
 			routed = append(routed, s.processKey(ev)...)
 		case platform.EventText:
 			routed = append(routed, s.processText(ev)...)
+		case platform.EventIMECompose:
+			routed = append(routed, s.processIMEText(ev.Text, true)...)
+		case platform.EventIMECommit:
+			routed = append(routed, s.processIMEText(ev.Text, false)...)
 		case platform.EventWindowFocus:
 			if !ev.Focused {
 				s.ClearPointerState()
@@ -678,7 +709,7 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 		if role == nil || role.OnText == nil {
 			return false
 		}
-		return role.OnText(facet.TextEvent{Text: ev.Text})
+		return role.OnText(facet.TextEvent{Text: ev.Text, Composing: ev.Composing})
 	case FocusGainedEvent:
 		if role := base.FocusRole(); role != nil && role.OnFocusGained != nil {
 			role.OnFocusGained()
