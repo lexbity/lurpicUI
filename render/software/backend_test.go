@@ -1,0 +1,664 @@
+package software
+
+import (
+	"image"
+	"image/color"
+	"testing"
+
+	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/text"
+)
+
+type testSurface struct {
+	buf    []byte
+	stride int
+	w      int
+	h      int
+}
+
+func newTestSurface(w, h int) *testSurface {
+	return &testSurface{
+		buf:    make([]byte, w*h*4),
+		stride: w * 4,
+		w:      w,
+		h:      h,
+	}
+}
+
+func (s *testSurface) Buffer() []byte { return s.buf }
+func (s *testSurface) Stride() int    { return s.stride }
+func (s *testSurface) Size() (width, height int) {
+	return s.w, s.h
+}
+func (s *testSurface) Resize(width, height int) {
+	s.w = width
+	s.h = height
+	s.stride = width * 4
+	s.buf = make([]byte, width*height*4)
+}
+func (s *testSurface) Lock() error { return nil }
+func (s *testSurface) Unlock([]gfx.Rect) error {
+	return nil
+}
+
+func newRenderer(t *testing.T, w, h int) (*SoftwareRenderer, *testSurface) {
+	t.Helper()
+	surf := newTestSurface(w, h)
+	r := NewSoftwareRenderer()
+	if err := r.Initialize(surf); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	return r, surf
+}
+
+func solidLayer(id render.LayerID, bounds gfx.Rect, hash uint64, c gfx.Color) render.Layer {
+	return render.Layer{
+		ID:          id,
+		Bounds:      bounds,
+		Opacity:     1,
+		CommandHash: hash,
+		Commands: gfx.CommandList{Commands: []gfx.Command{
+			gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, bounds.Width(), bounds.Height()), Brush: gfx.SolidBrush(c)},
+		}},
+	}
+}
+
+func pxAt(s *testSurface, x, y int) color.RGBA {
+	off := y*s.stride + x*4
+	return color.RGBA{R: s.buf[off], G: s.buf[off+1], B: s.buf[off+2], A: s.buf[off+3]}
+}
+
+func TestSoftwareRenderer_fillrect_solid(t *testing.T) {
+	r, s := newRenderer(t, 20, 20)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 5, 5); got != (color.RGBA{R: 255, G: 0, B: 0, A: 255}) {
+		t.Fatalf("inside pixel mismatch: %#v", got)
+	}
+	if got := pxAt(s, 15, 15); got != (color.RGBA{}) {
+		t.Fatalf("outside pixel mismatch: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_fillrect_alpha_blend(t *testing.T) {
+	r, s := newRenderer(t, 20, 20)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, G: 1, B: 1, A: 1}),
+			{
+				ID:          2,
+				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity:     1,
+				CommandHash: 2,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 0.5})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	got := pxAt(s, 5, 5)
+	want := color.RGBA{R: 255, G: 128, B: 128, A: 255}
+	if !approxRGBA(got, want, 2) {
+		t.Fatalf("blend mismatch: got %#v want %#v", got, want)
+	}
+}
+
+func TestSoftwareRenderer_transform_stack_translates(t *testing.T) {
+	r, s := newRenderer(t, 150, 150)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.PushTransform{Matrix: gfx.Translation(100, 100)},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 105, 105); got.R != 255 || got.A != 255 {
+		t.Fatalf("translated pixel missing: %#v", got)
+	}
+	if got := pxAt(s, 5, 5); got != (color.RGBA{}) {
+		t.Fatalf("unexpected pixel before translation: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_clip_rect_clips(t *testing.T) {
+	r, s := newRenderer(t, 100, 100)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.PushClipRect{Rect: gfx.RectFromXYWH(0, 0, 50, 50)},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 100, 100), Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 25, 25); got.B != 255 {
+		t.Fatalf("clipped inside pixel missing: %#v", got)
+	}
+	if got := pxAt(s, 75, 75); got != (color.RGBA{}) {
+		t.Fatalf("clipped outside pixel should be transparent: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_opacity_stack(t *testing.T) {
+	r, s := newRenderer(t, 20, 20)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.PushOpacity{Alpha: 0.5},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 20, 20), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	got := pxAt(s, 10, 10)
+	want := color.RGBA{R: 0, G: 128, B: 0, A: 128}
+	if !approxRGBA(got, want, 2) {
+		t.Fatalf("opacity mismatch: got %#v want %#v", got, want)
+	}
+}
+
+func TestSoftwareRenderer_layer_caching_skip(t *testing.T) {
+	r, _ := newRenderer(t, 20, 20)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit1: %v", err)
+	}
+	first := r.RasterizeCount()
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit2: %v", err)
+	}
+	if got := r.RasterizeCount(); got != first {
+		t.Fatalf("expected second submit to skip rasterization, got %d -> %d", first, got)
+	}
+}
+
+func TestSoftwareRenderer_layer_compositing_order(t *testing.T) {
+	r, s := newRenderer(t, 20, 20)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+			{
+				ID:          2,
+				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity:     1,
+				CommandHash: 2,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 5, 5); got.B != 255 || got.R != 0 {
+		t.Fatalf("top-left compositing mismatch: %#v", got)
+	}
+	if got := pxAt(s, 15, 15); got.R != 255 || got.B != 0 {
+		t.Fatalf("background compositing mismatch: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_multilayer_opacity(t *testing.T) {
+	r, s := newRenderer(t, 20, 20)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+			{
+				ID:          2,
+				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity:     0.5,
+				CommandHash: 2,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 20, 20), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	got := pxAt(s, 10, 10)
+	want := color.RGBA{R: 128, G: 128, B: 0, A: 255}
+	if !approxRGBA(got, want, 2) {
+		t.Fatalf("opacity composite mismatch: got %#v want %#v", got, want)
+	}
+}
+
+func TestSoftwareRenderer_drawimage_nearest(t *testing.T) {
+	r, s := newRenderer(t, 8, 8)
+	src := image.NewRGBA(image.Rect(0, 0, 2, 2))
+	src.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
+	src.SetRGBA(1, 0, color.RGBA{G: 255, A: 255})
+	src.SetRGBA(0, 1, color.RGBA{B: 255, A: 255})
+	src.SetRGBA(1, 1, color.RGBA{R: 255, G: 255, B: 255, A: 255})
+
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 8, 8),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawImage{
+						Image:    src,
+						DestRect: gfx.RectFromXYWH(0, 0, 4, 4),
+						SrcRect:  gfx.RectFromXYWH(0, 0, 2, 2),
+						Sampling: gfx.SamplingNearest,
+						Opacity:  1,
+					},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 0, 0); got.R != 255 || got.G != 0 || got.B != 0 {
+		t.Fatalf("top-left mismatch: %#v", got)
+	}
+	if got := pxAt(s, 3, 0); got.G != 255 || got.R != 0 {
+		t.Fatalf("top-right mismatch: %#v", got)
+	}
+	if got := pxAt(s, 0, 3); got.B != 255 || got.R != 0 {
+		t.Fatalf("bottom-left mismatch: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_resize_reallocates(t *testing.T) {
+	r, s := newRenderer(t, 100, 100)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 100, 100), 1, gfx.Color{R: 1, A: 1}),
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit1: %v", err)
+	}
+	if err := r.Resize(200, 200); err != nil {
+		t.Fatalf("resize: %v", err)
+	}
+	frame = &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 200, 200), 2, gfx.Color{G: 1, A: 1}),
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit2: %v", err)
+	}
+	if s.w != 200 || s.h != 200 || len(s.buf) != 200*200*4 {
+		t.Fatalf("surface not resized: %+v", s)
+	}
+	if got := pxAt(s, 199, 199); got.G != 255 {
+		t.Fatalf("resized pixel missing: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_unbalanced_push_pop(t *testing.T) {
+	r, s := newRenderer(t, 150, 150)
+	frame1 := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.PushTransform{Matrix: gfx.Translation(100, 100)},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame1); err != nil {
+		t.Fatalf("submit1: %v", err)
+	}
+	frame2 := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
+				Opacity:     1,
+				CommandHash: 2,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame2); err != nil {
+		t.Fatalf("submit2: %v", err)
+	}
+	if got := pxAt(s, 5, 5); got.B != 255 || got.R != 0 {
+		t.Fatalf("expected second frame to reset transform state, got %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_drawglyphrun_produces_pixels(t *testing.T) {
+	r, s := newRenderer(t, 80, 80)
+	run := testGlyphRun(t, "Hello", "glyphface", 18)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawGlyphRun{
+						Run:    run,
+						Origin: gfx.Point{X: 10, Y: 10},
+						Brush:  gfx.SolidBrush(gfx.Color{R: 1, A: 1}),
+					},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if !hasNonBlankPixels(s, 10, 10, 40, 40) {
+		t.Fatalf("expected glyph pixels in rendered region")
+	}
+}
+
+func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
+	r, s := newRenderer(t, 80, 80)
+	run := testGlyphRun(t, "Hi", "glyphface", 18)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawGlyphRun{
+						Run:    run,
+						Origin: gfx.Point{X: 8, Y: 8},
+						Brush:  gfx.SolidBrush(gfx.Color{R: 1, A: 1}),
+					},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if !hasDominantRedPixels(s, 8, 8, 32, 32) {
+		t.Fatalf("expected red-dominant glyph pixels")
+	}
+}
+
+func TestSoftwareRenderer_drawglyphrun_atlas_caches(t *testing.T) {
+	r, _ := newRenderer(t, 80, 80)
+	run := testGlyphRun(t, "A", "glyphface", 18)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 10, Y: 10}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				}},
+			},
+			{
+				ID:          2,
+				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity:     1,
+				CommandHash: 2,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 20, Y: 10}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := r.GlyphRasterizeCount(); got != 1 {
+		t.Fatalf("expected one glyph rasterization, got %d", got)
+	}
+}
+
+func TestSoftwareRenderer_drawglyphrun_clipped_by_cliprect(t *testing.T) {
+	r, s := newRenderer(t, 100, 100)
+	run := testGlyphRun(t, "Clip", "glyphface", 28)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.PushClipRect{Rect: gfx.RectFromXYWH(0, 0, 20, 100)},
+					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 0, Y: 0}, Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if !hasNonBlankPixels(s, 0, 0, 20, 40) {
+		t.Fatalf("expected clipped glyph pixels on left side")
+	}
+	if hasNonBlankPixels(s, 25, 0, 60, 40) {
+		t.Fatalf("expected no glyph pixels outside clip rect")
+	}
+}
+
+func TestSoftwareRenderer_drawglyphrun_translated(t *testing.T) {
+	r, s := newRenderer(t, 100, 100)
+	run := testGlyphRun(t, "Move", "glyphface", 18)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.PushTransform{Matrix: gfx.Translation(40, 15)},
+					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 0, Y: 0}, Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if !hasNonBlankPixels(s, 40, 15, 70, 45) {
+		t.Fatalf("expected translated glyph pixels")
+	}
+	if hasNonBlankPixels(s, 0, 0, 20, 20) {
+		t.Fatalf("unexpected pixels before translation")
+	}
+}
+
+func TestSoftwareRenderer_drawselectionrects_fills_region(t *testing.T) {
+	r, s := newRenderer(t, 40, 40)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 40, 40),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawSelectionRects{
+						Rects: []gfx.Rect{gfx.RectFromXYWH(5, 5, 10, 10)},
+						Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1}),
+					},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 8, 8); got.G != 255 {
+		t.Fatalf("expected selection rect fill, got %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_drawglyphrun_empty_no_panic(t *testing.T) {
+	r, s := newRenderer(t, 40, 40)
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 40, 40),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawGlyphRun{Run: text.GlyphRun{}, Origin: gfx.Point{X: 0, Y: 0}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if hasNonBlankPixels(s, 0, 0, 40, 40) {
+		t.Fatalf("empty glyph run should not draw pixels")
+	}
+}
+
+func TestGlyphAtlas_independent_per_face_and_size(t *testing.T) {
+	r, _ := newRenderer(t, 40, 40)
+	reg, err := text.NewFontRegistry()
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	if err := reg.LoadFontBytes([]byte("face-one"), "face-one"); err != nil {
+		t.Fatalf("load face one: %v", err)
+	}
+	if err := reg.LoadFontBytes([]byte("face-two"), "face-two"); err != nil {
+		t.Fatalf("load face two: %v", err)
+	}
+	faceOne := reg.Resolve(text.TextStyle{Family: "face-one", Size: 12})
+	faceTwo := reg.Resolve(text.TextStyle{Family: "face-two", Size: 12})
+	runOne := text.GlyphRun{
+		Glyphs: []text.PositionedGlyph{{GlyphID: 65, Advance: 8}},
+		Face:   faceOne,
+		Size:   12,
+		Style:  text.TextStyle{Size: 12},
+	}
+	runTwo := text.GlyphRun{
+		Glyphs: []text.PositionedGlyph{{GlyphID: 65, Advance: 16}},
+		Face:   faceTwo,
+		Size:   24,
+		Style:  text.TextStyle{Size: 24},
+	}
+	entryOne := r.glyphAtlas.getOrRasterize(runOne, runOne.Glyphs[0])
+	entryTwo := r.glyphAtlas.getOrRasterize(runTwo, runTwo.Glyphs[0])
+	if entryOne == nil || entryTwo == nil {
+		t.Fatalf("expected atlas entries")
+	}
+	if entryOne == entryTwo {
+		t.Fatalf("expected distinct atlas entries for face/size variations")
+	}
+	if got := r.GlyphRasterizeCount(); got != 2 {
+		t.Fatalf("expected two glyph rasterizations, got %d", got)
+	}
+}
+
+func testGlyphRun(t *testing.T, label, family string, size float32) text.GlyphRun {
+	t.Helper()
+	reg, err := text.NewFontRegistry()
+	if err != nil {
+		t.Fatalf("registry: %v", err)
+	}
+	if err := reg.LoadFontBytes([]byte(family), family); err != nil {
+		t.Fatalf("load font: %v", err)
+	}
+	layout := text.NewShaper(reg).ShapeSimple(label, text.TextStyle{Family: family, Size: size})
+	if layout == nil || len(layout.Lines) == 0 || len(layout.Lines[0].Runs) == 0 {
+		t.Fatalf("expected shaped run for %q", label)
+	}
+	return layout.Lines[0].Runs[0]
+}
+
+func hasNonBlankPixels(s *testSurface, x0, y0, x1, y1 int) bool {
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if x < 0 || y < 0 || x >= s.w || y >= s.h {
+				continue
+			}
+			if pxAt(s, x, y).A != 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func hasDominantRedPixels(s *testSurface, x0, y0, x1, y1 int) bool {
+	for y := y0; y < y1; y++ {
+		for x := x0; x < x1; x++ {
+			if x < 0 || y < 0 || x >= s.w || y >= s.h {
+				continue
+			}
+			px := pxAt(s, x, y)
+			if px.A != 0 && px.R > px.G && px.R > px.B {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func approxRGBA(a, b color.RGBA, tol uint8) bool {
+	d := func(x, y uint8) uint8 {
+		if x > y {
+			return x - y
+		}
+		return y - x
+	}
+	return d(a.R, b.R) <= tol && d(a.G, b.G) <= tol && d(a.B, b.B) <= tol && d(a.A, b.A) <= tol
+}
