@@ -31,6 +31,7 @@ type Runtime struct {
 	layoutSystem     *layout.System
 	projectionSystem *projection.System
 	inputSystem      *input.System
+	focusManager     *facet.FocusManager
 	jobPool          *job.Pool
 	renderPipeline   *RenderPipeline
 
@@ -80,11 +81,12 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if config.Logger == nil {
 		config.Logger = NopLogger{}
 	}
-	return &Runtime{
+	rt := &Runtime{
 		config:           config,
 		layoutSystem:     layout.NewSystem(),
 		projectionSystem: projection.NewSystem(),
 		inputSystem:      input.NewSystem(config.GestureConfig),
+		focusManager:     facet.NewFocusManager(),
 		jobPool:          job.NewPool(config.WorkerCount),
 		renderPipeline:   newRenderPipeline(backend),
 		platformApp:      platformApp,
@@ -97,7 +99,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		doneCh:           make(chan struct{}),
 		log:              config.Logger,
 		diag:             config.DiagnosticsHook,
-	}, nil
+	}
+	rt.inputSystem.SetFocusManager(rt.focusManager)
+	return rt, nil
 }
 
 // RunOneFrame executes a single frame pass synchronously.
@@ -262,7 +266,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	dirtySnapshot := rt.copyDirtyFacets()
 	layoutStart := time.Now()
 	if rt.hasLayoutDirty() {
-		rt.layoutSystem.MarkDirty(rt.root)
+		rt.markLayoutDirtyFacets()
 		w, h := rt.windowSize()
 		rt.layoutSystem.Run(gfx.Size{W: float32(w), H: float32(h)})
 	}
@@ -270,11 +274,15 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.DirtyFacets = len(dirtySnapshot)
 
 	projStart := time.Now()
+	rt.projectionSystem.SetRuntime(rt)
 	frameOut := rt.projectionSystem.Run(rt.root, projection.FrameInfo{
 		Number:    rt.frameNumber,
 		DeltaTime: now.Sub(rt.frameTimer.lastFrame),
 		WallTime:  now,
 	})
+	if rt.focusManager != nil {
+		rt.focusManager.RebuildTabOrder(rt.root)
+	}
 	stats.ProjectDuration = time.Since(projStart)
 	stats.ProjectedFacets = rt.projectionSystem.ProjectedFacets
 	stats.CacheHits = rt.projectionSystem.CacheHits
@@ -330,6 +338,9 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 		case platform.EventWindowFocus:
 			if !e.Focused {
 				rt.inputSystem.ClearPointerState()
+				if rt.focusManager != nil {
+					rt.focusManager.ClearFocus()
+				}
 				rt.inputSystem.ClearFocus()
 			}
 		default:
@@ -424,6 +435,9 @@ func (rt *Runtime) drainJobResults() (committed int, discarded int) {
 			continue
 		}
 		committed++
+		if rt.frameTimer != nil {
+			rt.frameTimer.RequestFrame()
+		}
 	}
 	return committed, discarded
 }
@@ -504,6 +518,20 @@ func (rt *Runtime) hasLayoutDirty() bool {
 		}
 	}
 	return false
+}
+
+func (rt *Runtime) markLayoutDirtyFacets() {
+	if rt == nil || rt.layoutSystem == nil {
+		return
+	}
+	for id, flags := range rt.dirtyFacets {
+		if flags&facet.DirtyLayout == 0 {
+			continue
+		}
+		if f := rt.findFacetByID(rt.root, id); f != nil {
+			rt.layoutSystem.MarkDirty(f)
+		}
+	}
 }
 
 func (rt *Runtime) tickFacets(dt time.Duration) {
@@ -611,7 +639,27 @@ func computeDirtyRegions(output *projection.FrameOutput, dirtySnapshot map[facet
 
 // RuntimeServices hooks used by facets during attach.
 func (rt *Runtime) Schedule(j job.AnyJob) {
-	_ = j
+	if rt == nil || j == nil || rt.jobPool == nil {
+		return
+	}
+	ownerID := facet.FacetID(j.OwnerID())
+	_ = rt.jobPool.SubmitAny(j, func(result job.AnyResult) {
+		f := rt.findFacetByID(rt.root, ownerID)
+		if f == nil || f.Base() == nil {
+			return
+		}
+		pr := f.Base().ProjectionRole()
+		if pr == nil || pr.OnJobResult == nil {
+			return
+		}
+		pr.OnJobResult(result)
+		f.Base().InvalidateWithSource(facet.DirtyProjection, "job.OnJobResult")
+		rt.dirtyFacets[ownerID] |= facet.DirtyProjection
+		rt.dirtySources[ownerID] = "job.OnJobResult"
+		if rt.frameTimer != nil {
+			rt.frameTimer.RequestFrame()
+		}
+	})
 }
 
 func (rt *Runtime) CancelJob(id job.JobID) {
@@ -661,6 +709,21 @@ func (rt *Runtime) diagnosticsHook() DiagnosticsHook {
 	rt.diagMu.RLock()
 	defer rt.diagMu.RUnlock()
 	return rt.diag
+}
+
+func (rt *Runtime) findFacetByID(root facet.FacetImpl, id facet.FacetID) facet.FacetImpl {
+	if rt == nil || root == nil || root.Base() == nil {
+		return nil
+	}
+	if root.Base().ID() == id {
+		return root
+	}
+	for _, child := range root.Base().Children() {
+		if found := rt.findFacetByID(child, id); found != nil {
+			return found
+		}
+	}
+	return nil
 }
 
 // overlayInjector is satisfied by diagnostics.Hook when an Overlay is set.

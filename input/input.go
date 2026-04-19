@@ -147,6 +147,7 @@ type System struct {
 	config       GestureConfig
 	pointers     map[PointerID]*PointerState
 	focus        FocusState
+	focusManager *facet.FocusManager
 	focusTree    facet.FacetImpl
 	hover        HoverState
 	clickHistory clickHistory
@@ -199,6 +200,14 @@ func (s *System) ClearFocus() {
 	}
 	s.focus.Clear()
 	s.focusTree = nil
+}
+
+// SetFocusManager installs the runtime-owned focus manager.
+func (s *System) SetFocusManager(m *facet.FocusManager) {
+	if s == nil {
+		return
+	}
+	s.focusManager = m
 }
 
 // getOrCreatePointer returns the state for one pointer ID.

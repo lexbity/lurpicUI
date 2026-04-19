@@ -34,12 +34,12 @@ func (s *StackLayout) AddChild(child facet.FacetImpl) {
 	s.Facet.AddChild(child.Base())
 }
 
-func (s *StackLayout) onMeasure(c facet.Constraints) gfx.Size {
+func (s *StackLayout) onMeasure(c Constraints) gfx.Size {
 	if s == nil {
 		return gfx.Size{}
 	}
 	maxSize := gfx.Size{}
-	layoutC := fromFacetConstraints(c)
+	layoutC := c
 	for _, child := range s.children {
 		size := measureChild(child, layoutC)
 		if size.W > maxSize.W {
@@ -144,16 +144,16 @@ func (c *ColumnLayout) Add(child FlexChild) {
 	c.Facet.AddChild(child.Facet.Base())
 }
 
-func (r *RowLayout) onMeasure(c facet.Constraints) gfx.Size {
-	return linearMeasure(r.children, fromFacetConstraints(c), r.Gap, r.Padding, true)
+func (r *RowLayout) onMeasure(c Constraints) gfx.Size {
+	return linearMeasure(r.children, c, r.Gap, r.Padding, true)
 }
 
 func (r *RowLayout) onArrange(bounds gfx.Rect) {
 	linearArrange(r.children, bounds, r.Gap, r.Padding, r.CrossAlignment, true)
 }
 
-func (c *ColumnLayout) onMeasure(cons facet.Constraints) gfx.Size {
-	return linearMeasure(c.children, fromFacetConstraints(cons), c.Gap, c.Padding, false)
+func (c *ColumnLayout) onMeasure(cons Constraints) gfx.Size {
+	return linearMeasure(c.children, cons, c.Gap, c.Padding, false)
 }
 
 func (c *ColumnLayout) onArrange(bounds gfx.Rect) {
@@ -312,7 +312,7 @@ func flexConstraints(c Constraints, child FlexChild, share float32, horizontal b
 }
 
 func clampChildSize(size gfx.Size, child FlexChild) gfx.Size {
-	return clampSize(size, child.MinSize, child.MaxSize)
+	return Constraints{MinSize: child.MinSize, MaxSize: child.MaxSize}.Constrain(size)
 }
 
 func alignedCrossOrigin(childExtent float32, bounds gfx.Rect, a Alignment, horizontal bool) float32 {
@@ -372,8 +372,8 @@ func NewPaddingLayout(child facet.FacetImpl, padding gfx.Insets) *PaddingLayout 
 	return p
 }
 
-func (p *PaddingLayout) onMeasure(c facet.Constraints) gfx.Size {
-	layoutC := fromFacetConstraints(c)
+func (p *PaddingLayout) onMeasure(c Constraints) gfx.Size {
+	layoutC := c
 	inner := deflateConstraints(layoutC, p.Padding)
 	childSize := gfx.Size{}
 	if p.Child != nil {
@@ -417,8 +417,8 @@ func NewSizedBox(w, h float32, child facet.FacetImpl) *SizedBox {
 	return s
 }
 
-func (s *SizedBox) onMeasure(c facet.Constraints) gfx.Size {
-	layoutC := fromFacetConstraints(c)
+func (s *SizedBox) onMeasure(c Constraints) gfx.Size {
+	layoutC := c
 	forced := gfx.Size{W: s.Width, H: s.Height}
 	if s.Child != nil {
 		measureChild(s.Child, Tight(forced))
@@ -479,8 +479,8 @@ func (s *SplitLayout) SetSecond(child facet.FacetImpl) {
 	}
 }
 
-func (s *SplitLayout) onMeasure(c facet.Constraints) gfx.Size {
-	layoutC := fromFacetConstraints(c)
+func (s *SplitLayout) onMeasure(c Constraints) gfx.Size {
+	layoutC := c
 	return layoutC.Constrain(layoutC.MaxSize)
 }
 
@@ -565,8 +565,8 @@ func NewScrollLayout(axes ScrollAxes, child facet.FacetImpl) *ScrollLayout {
 	return s
 }
 
-func (s *ScrollLayout) onMeasure(c facet.Constraints) gfx.Size {
-	inner := fromFacetConstraints(c)
+func (s *ScrollLayout) onMeasure(c Constraints) gfx.Size {
+	inner := c
 	childConstraints := inner
 	if s.ScrollAxes&ScrollVertical != 0 {
 		childConstraints = childConstraints.WithMaxHeight(0)

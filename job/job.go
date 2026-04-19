@@ -235,6 +235,19 @@ func Schedule[I, O any](p *Pool, job Job[I, O], onCommit func(O)) error {
 	return nil
 }
 
+// submitAny enqueues an opaque job and invokes afterCommit after a successful commit.
+func (p *Pool) submitAny(j AnyJob, afterCommit func(AnyResult)) error {
+	if p == nil || j == nil {
+		return errors.New("job: nil pool or job")
+	}
+	return j.submit(p, afterCommit)
+}
+
+// SubmitAny enqueues an opaque job and invokes afterCommit after a successful commit.
+func (p *Pool) SubmitAny(j AnyJob, afterCommit func(AnyResult)) error {
+	return p.submitAny(j, afterCommit)
+}
+
 // Drain returns all available completed results without blocking.
 func (p *Pool) Drain() []anyResult {
 	if p == nil {

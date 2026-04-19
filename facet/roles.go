@@ -6,18 +6,17 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/layout/space"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 var nextLayerID atomic.Uint64
 
-// Constraints describe the available layout space for a facet.
-type Constraints struct {
-	MinSize gfx.Size
-	MaxSize gfx.Size
-}
+// Constraints is the shared layout constraint type.
+type Constraints = space.Constraints
 
 // LayoutRole participates in measurement and arrangement.
 type LayoutRole struct {
@@ -215,6 +214,51 @@ func (r *ProjectionRole) Project(ctx ProjectionContext) *gfx.CommandList {
 	return r.OnProject(ctx)
 }
 
+// TextSelectionGeometry is the selection geometry produced by TextRole.
+type TextSelectionGeometry struct {
+	CaretRect      gfx.Rect
+	SelectionRects []gfx.Rect
+	CaretVisible   bool
+}
+
+// TextRole participates in selection geometry collection.
+type TextRole struct {
+	Layout        *text.TextLayout
+	Selection     text.TextRange
+	CaretPosition text.TextPosition
+	CaretVisible  bool
+}
+
+// CollectSelectionGeometry computes selection and caret geometry from the current text layout.
+func (r *TextRole) CollectSelectionGeometry() *TextSelectionGeometry {
+	if r == nil || r.Layout == nil {
+		return nil
+	}
+	out := &TextSelectionGeometry{
+		CaretVisible: r.CaretVisible,
+	}
+	if sel := r.Selection.Normalized(); !sel.IsEmpty() {
+		rects := r.Layout.SelectionRects(sel)
+		if len(rects) > 0 {
+			out.SelectionRects = make([]gfx.Rect, 0, len(rects))
+			for _, rect := range rects {
+				out.SelectionRects = append(out.SelectionRects, gfx.Rect{
+					Min: gfx.Point{X: rect.Min.X, Y: rect.Min.Y},
+					Max: gfx.Point{X: rect.Max.X, Y: rect.Max.Y},
+				})
+			}
+		}
+	}
+	if r.CaretVisible {
+		rect := r.Layout.CaretRect(r.CaretPosition)
+		out.CaretRect = gfx.Rect{
+			Min: gfx.Point{X: rect.Min.X, Y: rect.Min.Y},
+			Max: gfx.Point{X: rect.Max.X, Y: rect.Max.Y},
+		}
+	}
+	return out
+}
+
 // TrackStore subscribes to a signal and appends the store version to versions.
 func TrackStore[T any](
 	bag *signal.Subscriptions,
@@ -335,6 +379,13 @@ func (r *ProjectionRole) onDeactivate(f *Facet) {}
 func (r *ProjectionRole) onDispose(f *Facet) {
 	r.OnProject = nil
 	r.OnJobResult = nil
+}
+
+func (r *TextRole) onAttach(f *Facet)     {}
+func (r *TextRole) onActivate(f *Facet)   {}
+func (r *TextRole) onDeactivate(f *Facet) {}
+func (r *TextRole) onDispose(f *Facet) {
+	r.Layout = nil
 }
 
 func (r *TickRole) onAttach(f *Facet)     {}

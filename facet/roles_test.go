@@ -71,6 +71,9 @@ func TestFacet_role_accessor_returns_nil_when_absent(t *testing.T) {
 	if f.ProjectionRole() != nil {
 		t.Fatal("expected nil projection role")
 	}
+	if f.TextRole() != nil {
+		t.Fatal("expected nil text role")
+	}
 	if f.TickRole() != nil {
 		t.Fatal("expected nil tick role")
 	}
@@ -82,6 +85,15 @@ func TestFacet_role_accessor_returns_role_when_present(t *testing.T) {
 	f.AddRole(layout)
 	if got := f.LayoutRole(); got != layout {
 		t.Fatalf("expected layout accessor to return registered role, got %#v", got)
+	}
+}
+
+func TestFacet_text_role_accessor_returns_role_when_present(t *testing.T) {
+	f := NewFacet()
+	role := &TextRole{}
+	f.AddRole(role)
+	if got := f.TextRole(); got != role {
+		t.Fatalf("expected text accessor to return registered role, got %#v", got)
 	}
 }
 

@@ -368,6 +368,19 @@ func (f *Facet) ProjectionRole() *ProjectionRole {
 	return nil
 }
 
+// TextRole returns the registered text role, if any.
+func (f *Facet) TextRole() *TextRole {
+	if f == nil {
+		return nil
+	}
+	for _, role := range f.roles {
+		if typed, ok := role.(*TextRole); ok {
+			return typed
+		}
+	}
+	return nil
+}
+
 // TickRole returns the registered tick role, if any.
 func (f *Facet) TickRole() *TickRole {
 	if f == nil {

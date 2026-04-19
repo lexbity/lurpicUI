@@ -75,6 +75,7 @@ type System struct {
 	currentHitMap   *HitMap
 	ProjectedFacets int
 	CacheHits       int
+	runtime         facet.RuntimeServices
 }
 
 type projectionNode struct {
@@ -89,6 +90,14 @@ func NewSystem() *System {
 		outputCache: make(map[facet.FacetID]*ProjectionOutput),
 		dirtySet:    make(map[facet.FacetID]struct{}),
 	}
+}
+
+// SetRuntime provides the runtime services exposed to ProjectionRole callbacks.
+func (s *System) SetRuntime(rt facet.RuntimeServices) {
+	if s == nil {
+		return
+	}
+	s.runtime = rt
 }
 
 func (s *System) MarkDirty(id facet.FacetID) {
@@ -207,6 +216,7 @@ func (s *System) project(
 		if cmds := pr.Project(facet.ProjectionContext{
 			Bounds:   bounds,
 			Viewport: base.ViewportRole(),
+			Runtime:  s.runtime,
 		}); cmds != nil {
 			output.Commands = *cmds
 		}
@@ -221,6 +231,9 @@ func (s *System) project(
 			MarkID: 0,
 			Cursor: facet.CursorDefault,
 		}}
+	}
+	if tr := base.TextRole(); tr != nil {
+		output.SelectionGeometry = selectionGeometryFromTextRole(tr)
 	}
 	if base.ViewportRole() != nil || len(base.Children()) > 0 {
 		childCtx := &ChildProjectionContext{
@@ -240,6 +253,25 @@ func (s *System) project(
 		output.SelectionGeometry = nil
 	}
 	return output
+}
+
+func selectionGeometryFromTextRole(role *facet.TextRole) *SelectionGeometry {
+	if role == nil {
+		return nil
+	}
+	geom := role.CollectSelectionGeometry()
+	if geom == nil {
+		return nil
+	}
+	out := &SelectionGeometry{
+		CaretRect:    geom.CaretRect,
+		CaretVisible: geom.CaretVisible,
+	}
+	if len(geom.SelectionRects) > 0 {
+		out.SelectionRects = make([]gfx.Rect, len(geom.SelectionRects))
+		copy(out.SelectionRects, geom.SelectionRects)
+	}
+	return out
 }
 
 func (s *System) assembleFrameOutput() *FrameOutput {

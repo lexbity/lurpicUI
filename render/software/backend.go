@@ -11,6 +11,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
+
+	_ "github.com/go-text/render"
+	_ "golang.org/x/image/vector"
 )
 
 var _ = text.GlyphRun{}

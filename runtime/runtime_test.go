@@ -10,9 +10,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
+	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
@@ -72,6 +75,50 @@ type runtimeRenderFacet struct {
 	name   string
 }
 
+type runtimeFocusFacet struct {
+	facet.Facet
+	focus facet.FocusRole
+}
+
+type layoutCountLeaf struct {
+	facet.Facet
+	layout facet.LayoutRole
+
+	measureCount int
+	arrangeCount int
+	size         gfx.Size
+}
+
+type runtimeJobFacet struct {
+	facet.Facet
+	projection facet.ProjectionRole
+	lastResult job.AnyResult
+}
+
+type projectionJobFacet struct {
+	facet.Facet
+	projection facet.ProjectionRole
+
+	rt             *Runtime
+	scheduled      bool
+	projectCalls   int
+	commitCount    int
+	jobResultCount int
+	commitValue    int
+	dirtySeen      bool
+	jobStarted     chan struct{}
+	jobDone        chan struct{}
+	jobRelease     chan struct{}
+	lastResult     job.AnyResult
+	versionSource  *store.ValueStore[int]
+}
+
+type projectionRuntimeFacet struct {
+	facet.Facet
+	projection facet.ProjectionRole
+	scheduled  bool
+}
+
 func newRuntimeRenderFacet(name string, bounds gfx.Rect, fill color.RGBA) *runtimeRenderFacet {
 	f := &runtimeRenderFacet{Facet: facet.NewFacet(), name: name}
 	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
@@ -85,6 +132,107 @@ func newRuntimeRenderFacet(name string, bounds gfx.Rect, fill color.RGBA) *runti
 	}
 	f.AddRole(&f.layout)
 	f.AddRole(&f.render)
+	return f
+}
+
+func newRuntimeFocusFacet(tabIndex int) *runtimeFocusFacet {
+	f := &runtimeFocusFacet{Facet: facet.NewFacet()}
+	f.focus.Focusable = func() bool { return true }
+	f.focus.TabIndex = tabIndex
+	f.AddRole(&f.focus)
+	return f
+}
+
+func newLayoutCountLeaf(size gfx.Size) *layoutCountLeaf {
+	leaf := &layoutCountLeaf{Facet: facet.NewFacet(), size: size}
+	leaf.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
+		leaf.measureCount++
+		return leaf.size
+	}
+	leaf.layout.OnArrange = func(bounds gfx.Rect) {
+		leaf.arrangeCount++
+		leaf.layout.ArrangedBounds = bounds
+	}
+	leaf.AddRole(&leaf.layout)
+	return leaf
+}
+
+func newRuntimeJobFacet() *runtimeJobFacet {
+	f := &runtimeJobFacet{Facet: facet.NewFacet()}
+	f.projection.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
+		return nil
+	}
+	f.projection.OnJobResult = func(result job.AnyResult) {
+		f.lastResult = result
+	}
+	f.AddRole(&f.projection)
+	return f
+}
+
+func newProjectionJobFacet() *projectionJobFacet {
+	f := &projectionJobFacet{
+		Facet:      facet.NewFacet(),
+		jobStarted: make(chan struct{}),
+		jobDone:    make(chan struct{}),
+		jobRelease: make(chan struct{}),
+	}
+	f.projection.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
+		f.projectCalls++
+		if !f.scheduled {
+			f.scheduled = true
+			snap := job.NewSnapshot(5, store.Version(0))
+			if f.versionSource != nil {
+				snap = job.NewSnapshot(5, f.versionSource.Version())
+				snap = job.BindCurrentVersions(snap, func() []store.Version {
+					return []store.Version{f.versionSource.Version()}
+				})
+			}
+			f.rt.Schedule(job.BindJob(uint64(f.ID()), job.Job[int, int]{
+				ID:       1,
+				Priority: job.PriorityBackground,
+				Snapshot: snap,
+				Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
+					defer close(f.jobDone)
+					close(f.jobStarted)
+					<-f.jobRelease
+					return snap.Data * 2, nil
+				},
+			}, func(v int) {
+				f.commitCount++
+				f.commitValue = v
+			}))
+		}
+		return &gfx.CommandList{}
+	}
+	f.projection.OnJobResult = func(result job.AnyResult) {
+		f.jobResultCount++
+		f.lastResult = result
+		if f.rt != nil && f.ID() != 0 {
+			f.dirtySeen = f.rt.dirtyFacets[f.ID()]&facet.DirtyProjection != 0
+		}
+		f.Base().InvalidateWithSource(facet.DirtyProjection, "OnJobResult")
+	}
+	f.AddRole(&f.projection)
+	return f
+}
+
+func newProjectionRuntimeFacet() *projectionRuntimeFacet {
+	f := &projectionRuntimeFacet{Facet: facet.NewFacet()}
+	f.projection.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
+		if !f.scheduled {
+			f.scheduled = true
+			ctx.Runtime.Schedule(job.BindJob(uint64(f.ID()), job.Job[int, int]{
+				ID:       2,
+				Priority: job.PriorityBackground,
+				Snapshot: job.NewSnapshot(1),
+				Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
+					return snap.Data + 1, nil
+				},
+			}, func(int) {}))
+		}
+		return &gfx.CommandList{}
+	}
+	f.AddRole(&f.projection)
 	return f
 }
 
@@ -390,6 +538,81 @@ func TestRuntime_request_frame_when_dirty(t *testing.T) {
 	rt.Shutdown()
 }
 
+func TestRuntime_layout_only_remeasures_dirty_subtree(t *testing.T) {
+	root := layout.NewRowLayout()
+	left := newLayoutCountLeaf(gfx.Size{W: 50, H: 20})
+	right := newLayoutCountLeaf(gfx.Size{W: 60, H: 20})
+	root.Add(layout.Fixed(left))
+	root.Add(layout.Fixed(right))
+
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt.window = &testWindow{width: 200, height: 100}
+	rt.RunOneFrame()
+
+	leftInitial := left.measureCount
+	rightInitial := right.measureCount
+
+	rt.dirtyFacets[left.ID()] = facet.DirtyLayout
+	rt.markLayoutDirtyFacets()
+	rt.layoutSystem.Run(gfx.Size{W: 200, H: 100})
+
+	if left.measureCount != leftInitial+1 {
+		t.Fatalf("left measure count = %d, want %d", left.measureCount, leftInitial+1)
+	}
+	if right.measureCount != rightInitial {
+		t.Fatalf("right measure count = %d, want %d", right.measureCount, rightInitial)
+	}
+}
+
+func TestRuntime_layout_full_tree_on_resize(t *testing.T) {
+	root := layout.NewRowLayout()
+	left := newLayoutCountLeaf(gfx.Size{W: 50, H: 20})
+	right := newLayoutCountLeaf(gfx.Size{W: 60, H: 20})
+	root.Add(layout.Fixed(left))
+	root.Add(layout.Fixed(right))
+
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt.window = &testWindow{width: 200, height: 100}
+	rt.RunOneFrame()
+
+	leftInitial := left.measureCount
+	rightInitial := right.measureCount
+
+	rt.handleResize(320, 180)
+	rt.markLayoutDirtyFacets()
+	rt.layoutSystem.Run(gfx.Size{W: 320, H: 180})
+
+	if left.measureCount != leftInitial+1 {
+		t.Fatalf("left measure count = %d, want %d", left.measureCount, leftInitial+1)
+	}
+	if right.measureCount != rightInitial+1 {
+		t.Fatalf("right measure count = %d, want %d", right.measureCount, rightInitial+1)
+	}
+}
+
+func TestRuntime_layout_skipped_when_no_dirty(t *testing.T) {
+	root := layout.NewRowLayout()
+	left := newLayoutCountLeaf(gfx.Size{W: 50, H: 20})
+	right := newLayoutCountLeaf(gfx.Size{W: 60, H: 20})
+	root.Add(layout.Fixed(left))
+	root.Add(layout.Fixed(right))
+
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt.window = &testWindow{width: 200, height: 100}
+	rt.RunOneFrame()
+
+	leftInitial := left.measureCount
+	rightInitial := right.measureCount
+	rt.RunOneFrame()
+
+	if left.measureCount != leftInitial {
+		t.Fatalf("left measure count = %d, want %d", left.measureCount, leftInitial)
+	}
+	if right.measureCount != rightInitial {
+		t.Fatalf("right measure count = %d, want %d", right.measureCount, rightInitial)
+	}
+}
+
 func TestRuntime_run_returns_render_error(t *testing.T) {
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
 	rt := mustRuntimeWithBackend(t, root, &stubBackend{submitErr: errors.New("boom")})
@@ -426,6 +649,313 @@ func TestRuntime_diagnostics_hook_records_frames(t *testing.T) {
 	rt.Shutdown()
 }
 
+func TestRuntime_focus_manager_not_nil(t *testing.T) {
+	rt := mustRuntime(t)
+	if rt.focusManager == nil {
+		t.Fatal("expected focus manager")
+	}
+}
+
+func TestRuntime_RebuildTabOrder_called_each_frame(t *testing.T) {
+	root := facet.NewFacet()
+	a := newRuntimeFocusFacet(1)
+	b := newRuntimeFocusFacet(0)
+	root.AddChild(&a.Facet)
+	root.AddChild(&b.Facet)
+	rt := mustRuntimeTree(t, &root)
+
+	rt.RunOneFrame()
+	rt.focusManager.SetFocus(b)
+	rt.focusManager.TabNext()
+	if got := rt.focusManager.Focused(); got != a.ID() {
+		t.Fatalf("focused after first frame = %d", got)
+	}
+
+	a.focus.TabIndex = -1
+	rt.RunOneFrame()
+	rt.focusManager.SetFocus(b)
+	rt.focusManager.TabNext()
+	if got := rt.focusManager.Focused(); got != b.ID() {
+		t.Fatalf("focused after second frame = %d", got)
+	}
+}
+
+func TestRuntime_WindowBlur_clears_focus(t *testing.T) {
+	root := facet.NewFacet()
+	child := newRuntimeFocusFacet(0)
+	root.AddChild(&child.Facet)
+	rt := mustRuntimeTree(t, &root)
+	rt.RunOneFrame()
+	rt.focusManager.SetFocus(child)
+	rt.pendingEvents = []platform.Event{platform.EventWindowFocus{Focused: false}}
+	rt.RunOneFrame()
+	if got := rt.focusManager.Focused(); got != 0 {
+		t.Fatalf("focused = %d", got)
+	}
+}
+
+func TestRuntime_Tab_advances_focus(t *testing.T) {
+	root := facet.NewFacet()
+	a := newRuntimeFocusFacet(0)
+	b := newRuntimeFocusFacet(1)
+	root.AddChild(&a.Facet)
+	root.AddChild(&b.Facet)
+	rt := mustRuntimeTree(t, &root)
+	rt.RunOneFrame()
+	rt.focusManager.SetFocus(a)
+	rt.pendingEvents = []platform.Event{platform.EventKey{Kind: platform.KeyPress, Key: platform.KeyTab}}
+	rt.RunOneFrame()
+	if got := rt.focusManager.Focused(); got != b.ID() {
+		t.Fatalf("focused = %d", got)
+	}
+}
+
+func TestRuntime_ShiftTab_reverses_focus(t *testing.T) {
+	root := facet.NewFacet()
+	a := newRuntimeFocusFacet(0)
+	b := newRuntimeFocusFacet(1)
+	root.AddChild(&a.Facet)
+	root.AddChild(&b.Facet)
+	rt := mustRuntimeTree(t, &root)
+	rt.RunOneFrame()
+	rt.focusManager.SetFocus(b)
+	rt.pendingEvents = []platform.Event{platform.EventKey{Kind: platform.KeyPress, Key: platform.KeyTab, Modifiers: platform.ModShift}}
+	rt.RunOneFrame()
+	if got := rt.focusManager.Focused(); got != a.ID() {
+		t.Fatalf("focused = %d", got)
+	}
+}
+
+func TestRuntime_projection_context_has_runtime(t *testing.T) {
+	root := newProjectionRuntimeFacet()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt.RunOneFrame()
+	if !root.scheduled {
+		t.Fatal("expected projection to schedule a job")
+	}
+	rt.RunOneFrame()
+	rt.Shutdown()
+}
+
+func TestRuntime_OnJobResult_called_after_drain(t *testing.T) {
+	root := newProjectionJobFacet()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	root.rt = rt
+
+	rt.RunOneFrame()
+	<-root.jobStarted
+	close(root.jobRelease)
+	<-root.jobDone
+	time.Sleep(10 * time.Millisecond)
+	rt.RunOneFrame()
+
+	if root.commitCount != 1 {
+		t.Fatalf("commitCount = %d", root.commitCount)
+	}
+	if root.commitValue != 10 {
+		t.Fatalf("commitValue = %d", root.commitValue)
+	}
+	if root.jobResultCount != 1 {
+		t.Fatalf("jobResultCount = %d", root.jobResultCount)
+	}
+	if root.lastResult == nil || root.lastResult.JobID() != 1 || root.lastResult.OwnerID() != uint64(root.ID()) {
+		t.Fatalf("lastResult = %#v", root.lastResult)
+	}
+	if root.projectCalls != 2 {
+		t.Fatalf("projectCalls = %d", root.projectCalls)
+	}
+}
+
+func TestRuntime_OnJobResult_stale_snapshot_not_committed(t *testing.T) {
+	root := newProjectionJobFacet()
+	root.versionSource = store.NewValueStore[int](1)
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	root.rt = rt
+
+	rt.RunOneFrame()
+	<-root.jobStarted
+	root.versionSource.Set(2)
+	close(root.jobRelease)
+	<-root.jobDone
+	time.Sleep(10 * time.Millisecond)
+	rt.RunOneFrame()
+
+	if root.commitCount != 0 {
+		t.Fatalf("commitCount = %d", root.commitCount)
+	}
+	if root.jobResultCount != 0 {
+		t.Fatalf("jobResultCount = %d", root.jobResultCount)
+	}
+	if root.projectCalls != 1 {
+		t.Fatalf("projectCalls = %d", root.projectCalls)
+	}
+}
+
+func TestRuntime_OnJobResult_cancelled_not_delivered(t *testing.T) {
+	root := newProjectionJobFacet()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	root.rt = rt
+
+	rt.RunOneFrame()
+	<-root.jobStarted
+	rt.CancelJob(1)
+	close(root.jobRelease)
+	<-root.jobDone
+	time.Sleep(10 * time.Millisecond)
+	rt.RunOneFrame()
+
+	if root.commitCount != 0 {
+		t.Fatalf("commitCount = %d", root.commitCount)
+	}
+	if root.jobResultCount != 0 {
+		t.Fatalf("jobResultCount = %d", root.jobResultCount)
+	}
+}
+
+func TestRuntime_drainJobResults_returns_correct_counts(t *testing.T) {
+	rt := mustRuntime(t)
+
+	if err := job.Schedule(rt.jobPool, job.Job[int, int]{
+		ID:       1,
+		Priority: job.PriorityBackground,
+		Snapshot: job.NewSnapshot(2, 1),
+		Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
+			return snap.Data + 1, nil
+		},
+	}, func(int) {}); err != nil {
+		t.Fatalf("schedule success: %v", err)
+	}
+
+	if err := job.Schedule(rt.jobPool, job.Job[int, int]{
+		ID:       2,
+		Priority: job.PriorityBackground,
+		Snapshot: job.NewSnapshot(3, 1),
+		Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
+			return 0, errors.New("boom")
+		},
+	}, func(int) {}); err != nil {
+		t.Fatalf("schedule error: %v", err)
+	}
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	done := make(chan struct{})
+	if err := job.Schedule(rt.jobPool, job.Job[int, int]{
+		ID:       3,
+		Priority: job.PriorityBackground,
+		Snapshot: job.NewSnapshot(4, 1),
+		Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
+			defer close(done)
+			close(started)
+			<-release
+			return snap.Data, nil
+		},
+	}, func(int) {}); err != nil {
+		t.Fatalf("schedule cancel: %v", err)
+	}
+
+	<-started
+	rt.CancelJob(3)
+	close(release)
+	<-done
+	time.Sleep(10 * time.Millisecond)
+
+	committed, discarded := rt.drainJobResults()
+	if committed != 1 || discarded != 2 {
+		t.Fatalf("committed=%d discarded=%d", committed, discarded)
+	}
+}
+
+func TestRuntime_dirty_after_OnJobResult(t *testing.T) {
+	root := newProjectionJobFacet()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	root.rt = rt
+
+	rt.RunOneFrame()
+	<-root.jobStarted
+	close(root.jobRelease)
+	<-root.jobDone
+	rt.drainJobResults()
+
+	if flags := rt.dirtyFacets[root.ID()]; flags&facet.DirtyProjection == 0 {
+		t.Fatalf("dirty flags = %v", flags)
+	}
+}
+
+func TestRuntime_Schedule_submits_to_pool(t *testing.T) {
+	root := newRuntimeJobFacet()
+	rt := mustRuntimeTree(t, root)
+	committed := 0
+	started := make(chan struct{})
+	release := make(chan struct{})
+	j := job.BindJob(uint64(root.ID()), job.Job[int, int]{
+		ID:       7,
+		Priority: job.PriorityBackground,
+		Snapshot: job.NewSnapshot(3, 1),
+		Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
+			close(started)
+			<-release
+			return snap.Data * 2, nil
+		},
+	}, func(v int) {
+		committed = v
+	})
+
+	rt.Schedule(j)
+	<-started
+	close(release)
+	time.Sleep(10 * time.Millisecond)
+	rt.RunOneFrame()
+
+	if committed != 6 {
+		t.Fatalf("commit = %d", committed)
+	}
+	if root.lastResult == nil {
+		t.Fatal("expected on-job-result callback")
+	}
+	if got := root.lastResult.JobID(); got != 7 {
+		t.Fatalf("job id = %d", got)
+	}
+	if got := root.lastResult.OwnerID(); got != uint64(root.ID()) {
+		t.Fatalf("owner id = %d", got)
+	}
+	if root.lastResult.Cancelled() {
+		t.Fatal("expected non-cancelled result")
+	}
+	if root.lastResult.Err() != nil {
+		t.Fatalf("unexpected error = %v", root.lastResult.Err())
+	}
+}
+
+func TestRuntime_Schedule_nil_job_noop(t *testing.T) {
+	var rt *Runtime
+	rt.Schedule(nil)
+}
+
+func TestRuntime_findFacetByID_root(t *testing.T) {
+	root, _, _ := newRuntimeTestTree()
+	rt := mustRuntimeTree(t, root)
+	if got := rt.findFacetByID(root, root.ID()); got == nil || got.Base() != root.Base() {
+		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestRuntime_findFacetByID_child(t *testing.T) {
+	root, _, leaf := newRuntimeTestTree()
+	rt := mustRuntimeTree(t, root)
+	if got := rt.findFacetByID(root, leaf.ID()); got == nil || got.Base() != leaf.Base() {
+		t.Fatalf("got %#v", got)
+	}
+}
+
+func TestRuntime_findFacetByID_missing(t *testing.T) {
+	root, _, _ := newRuntimeTestTree()
+	rt := mustRuntimeTree(t, root)
+	if got := rt.findFacetByID(root, 9999); got != nil {
+		t.Fatalf("got %#v", got)
+	}
+}
+
 func mustRuntime(t *testing.T) *Runtime {
 	t.Helper()
 	root := facet.NewFacet()
@@ -453,6 +983,19 @@ func mustRuntimeWithBackend(t *testing.T, root facet.FacetImpl, backend render.B
 	}
 	return rt
 }
+
+type testWindow struct {
+	width  int
+	height int
+}
+
+func (w *testWindow) Surface() platform.Surface { return nil }
+func (w *testWindow) SetTitle(title string)     {}
+func (w *testWindow) Size() (width, height int) { return w.width, w.height }
+func (w *testWindow) Show()                     {}
+func (w *testWindow) Hide()                     {}
+func (w *testWindow) Close()                    {}
+func (w *testWindow) Destroy()                  {}
 
 var _ platform.App = (*nilApp)(nil)
 

@@ -6,9 +6,18 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 )
+
+type projectionRuntimeStub struct{}
+
+func (projectionRuntimeStub) Schedule(j job.AnyJob)  {}
+func (projectionRuntimeStub) CancelJob(id job.JobID) {}
+func (projectionRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
+}
 
 type projectionTestFacet struct {
 	facet.Facet
@@ -20,6 +29,7 @@ type projectionTestFacet struct {
 	hit        facet.HitRole
 	projection facet.ProjectionRole
 	viewport   facet.ViewportRole
+	textRole   facet.TextRole
 
 	projectCalls int
 	collectCalls int
@@ -143,6 +153,31 @@ func newTrackedProjectionFacet(name string, bounds gfx.Rect, s *store.ValueStore
 	return f
 }
 
+func newTextProjectionFacet(name string, bounds gfx.Rect) *projectionTestFacet {
+	f := newProjectionTestFacet(name, bounds)
+	layout := &text.TextLayout{
+		Lines: []text.ShapedLine{{
+			Runs: []text.GlyphRun{{
+				Glyphs:  []text.PositionedGlyph{{GlyphID: 1, Advance: 10, RuneIndex: 0}},
+				Bounds:  text.RectFromXYWH(0, 0, 10, 10),
+				Advance: 10,
+				Text:    "a",
+			}},
+			Bounds:    text.RectFromXYWH(0, 0, 10, 10),
+			FirstRune: 0,
+			RuneCount: 1,
+		}},
+		LineHeight: 10,
+		Bounds:     text.RectFromXYWH(0, 0, 10, 10),
+	}
+	f.textRole.Layout = layout
+	f.textRole.Selection = text.TextRange{Start: 0, End: 1}
+	f.textRole.CaretPosition = text.TextPosition{Index: 1, Affinity: text.AffinityUpstream}
+	f.textRole.CaretVisible = true
+	f.AddRole(&f.textRole)
+	return f
+}
+
 func (f *projectionTestFacet) Base() *facet.Facet { return &f.Facet }
 func (f *projectionTestFacet) OnAttach(ctx facet.AttachContext) {
 	if f.attachFn != nil {
@@ -177,6 +212,31 @@ func TestProjectionSystem_initial_run_projects_all(t *testing.T) {
 	}
 	if root.projectCalls != 1 || child.projectCalls != 1 {
 		t.Fatalf("project calls = root:%d child:%d", root.projectCalls, child.projectCalls)
+	}
+}
+
+func TestProjectionContext_runtime_nil_without_set(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 10, 10))
+	attachTree(root)
+
+	sys := NewSystem()
+	sys.Run(root, FrameInfo{})
+
+	if root.lastCtx.Runtime != nil {
+		t.Fatalf("runtime = %#v", root.lastCtx.Runtime)
+	}
+}
+
+func TestProjectionContext_runtime_non_nil(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 10, 10))
+	attachTree(root)
+
+	sys := NewSystem()
+	sys.SetRuntime(projectionRuntimeStub{})
+	sys.Run(root, FrameInfo{})
+
+	if root.lastCtx.Runtime == nil {
+		t.Fatal("expected runtime")
 	}
 }
 
@@ -415,6 +475,31 @@ func TestProjectionOutput_selection_geometry_nil_for_non_text(t *testing.T) {
 	}
 	if got := sys.outputCache[root.ID()].SelectionGeometry; got != nil {
 		t.Fatalf("expected nil selection geometry on output, got %#v", got)
+	}
+}
+
+func TestProjectionOutput_selection_geometry_from_text_role(t *testing.T) {
+	root := newTextProjectionFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
+	attachTree(root)
+
+	sys := NewSystem()
+	out := sys.Run(root, FrameInfo{})
+
+	got := out.SelectionGeometries[root.ID()]
+	if got == nil {
+		t.Fatal("expected selection geometry for text role")
+	}
+	if !got.CaretVisible {
+		t.Fatal("expected caret visible")
+	}
+	if got.CaretRect.Width() == 0 {
+		t.Fatalf("expected caret rect, got %#v", got.CaretRect)
+	}
+	if len(got.SelectionRects) != 1 {
+		t.Fatalf("expected 1 selection rect, got %d", len(got.SelectionRects))
+	}
+	if sys.outputCache[root.ID()].SelectionGeometry == nil {
+		t.Fatal("expected cached selection geometry")
 	}
 }
 

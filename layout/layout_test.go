@@ -12,24 +12,24 @@ type testLeaf struct {
 	layout facet.LayoutRole
 
 	measuredSize    gfx.Size
-	lastConstraints facet.Constraints
+	lastConstraints Constraints
 	arrangedBounds  gfx.Rect
 	measureCount    int
 	arrangeCount    int
-	measureFn       func(facet.Constraints) gfx.Size
+	measureFn       func(Constraints) gfx.Size
 }
 
 func newTestLeaf(size gfx.Size) *testLeaf {
 	return newTestLeafWithMeasure(size, nil)
 }
 
-func newTestLeafWithMeasure(size gfx.Size, fn func(facet.Constraints) gfx.Size) *testLeaf {
+func newTestLeafWithMeasure(size gfx.Size, fn func(Constraints) gfx.Size) *testLeaf {
 	l := &testLeaf{
 		Facet:        facet.NewFacet(),
 		measuredSize: size,
 		measureFn:    fn,
 	}
-	l.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
+	l.layout.OnMeasure = func(c Constraints) gfx.Size {
 		l.measureCount++
 		l.lastConstraints = c
 		if l.measureFn != nil {
@@ -148,7 +148,7 @@ func TestRowLayout_fixed_children(t *testing.T) {
 func TestRowLayout_flex_child_gets_remainder(t *testing.T) {
 	row := NewRowLayout()
 	fixed := newTestLeaf(gfx.Size{W: 100, H: 20})
-	flex := newTestLeafWithMeasure(gfx.Size{}, func(c facet.Constraints) gfx.Size {
+	flex := newTestLeafWithMeasure(gfx.Size{}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: c.MaxSize.W, H: 20}
 	})
 	row.Add(Fixed(fixed))
@@ -163,10 +163,10 @@ func TestRowLayout_flex_child_gets_remainder(t *testing.T) {
 
 func TestRowLayout_multiple_flex_children_proportional(t *testing.T) {
 	row := NewRowLayout()
-	a := newTestLeafWithMeasure(gfx.Size{}, func(c facet.Constraints) gfx.Size {
+	a := newTestLeafWithMeasure(gfx.Size{}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: c.MaxSize.W, H: 20}
 	})
-	b := newTestLeafWithMeasure(gfx.Size{}, func(c facet.Constraints) gfx.Size {
+	b := newTestLeafWithMeasure(gfx.Size{}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: c.MaxSize.W, H: 20}
 	})
 	row.Add(Flexible(a, 1))
@@ -213,7 +213,7 @@ func TestRowLayout_padding_reduces_available_space(t *testing.T) {
 func TestColumnLayout_vertical_equivalent_to_row(t *testing.T) {
 	col := NewColumnLayout()
 	a := newTestLeaf(gfx.Size{W: 20, H: 100})
-	b := newTestLeafWithMeasure(gfx.Size{}, func(c facet.Constraints) gfx.Size {
+	b := newTestLeafWithMeasure(gfx.Size{}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: 20, H: c.MaxSize.H}
 	})
 	col.Add(Fixed(a))
@@ -238,7 +238,7 @@ func TestPaddingLayout_adds_insets(t *testing.T) {
 }
 
 func TestPaddingLayout_deflates_constraints(t *testing.T) {
-	child := newTestLeafWithMeasure(gfx.Size{W: 10, H: 10}, func(c facet.Constraints) gfx.Size {
+	child := newTestLeafWithMeasure(gfx.Size{W: 10, H: 10}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: c.MaxSize.W, H: c.MaxSize.H}
 	})
 	pad := NewPaddingLayout(child, gfx.Insets{Top: 5, Right: 7, Bottom: 3, Left: 9})
@@ -251,7 +251,7 @@ func TestPaddingLayout_deflates_constraints(t *testing.T) {
 }
 
 func TestSizedBox_forces_width_and_height(t *testing.T) {
-	child := newTestLeafWithMeasure(gfx.Size{}, func(c facet.Constraints) gfx.Size {
+	child := newTestLeafWithMeasure(gfx.Size{}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: c.MaxSize.W, H: c.MaxSize.H}
 	})
 	box := NewSizedBox(100, 50, child)
@@ -309,7 +309,7 @@ func TestSplitLayout_divider_width_respected(t *testing.T) {
 }
 
 func TestScrollLayout_child_unconstrained_on_scroll_axis(t *testing.T) {
-	child := newTestLeafWithMeasure(gfx.Size{W: 50, H: 50}, func(c facet.Constraints) gfx.Size {
+	child := newTestLeafWithMeasure(gfx.Size{W: 50, H: 50}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: 50, H: 50}
 	})
 	scroll := NewScrollLayout(ScrollVertical, child)
@@ -370,6 +370,23 @@ func TestLayoutSystem_run_clears_dirty(t *testing.T) {
 	}
 	if got := child.Base().DirtyFlags() & facet.DirtyLayout; got != 0 {
 		t.Fatalf("expected child dirty cleared, got %v", got)
+	}
+}
+
+func TestLayoutSystem_selectedRoots_prunes_dirty_descendants(t *testing.T) {
+	root := NewStackLayout(AlignTopLeft)
+	mid := NewStackLayout(AlignTopLeft)
+	leaf := newTestLeaf(gfx.Size{W: 10, H: 10})
+	root.AddChild(mid)
+	mid.AddChild(leaf)
+
+	sys := NewSystem()
+	sys.dirtyRoots[root.ID()] = root
+	sys.dirtyRoots[leaf.ID()] = leaf
+
+	roots := sys.selectedRoots()
+	if len(roots) != 1 || roots[0] != root {
+		t.Fatalf("selected roots = %#v", roots)
 	}
 }
 

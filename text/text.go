@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"unicode"
 	"unicode/utf8"
+
+	_ "github.com/go-text/typesetting/font"
 )
 
 // Weight encodes font weight values in CSS-like increments.

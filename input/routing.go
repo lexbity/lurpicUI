@@ -366,10 +366,33 @@ func (s *System) processScroll(e platform.EventScroll, hitMap *projection.HitMap
 }
 
 func (s *System) processKey(e platform.EventKey) []RoutedEvent {
-	if s == nil || s.focus.Focused() == 0 {
+	if s == nil {
 		return nil
 	}
 	targetID := s.focus.Focused()
+	if s.focusManager != nil && s.focusManager.Focused() != 0 {
+		targetID = s.focusManager.Focused()
+	}
+	if targetID == 0 {
+		return nil
+	}
+	if e.Kind == platform.KeyPress && e.Key == platform.KeyTab && s.focusManager != nil {
+		oldFocus := targetID
+		if e.Modifiers&platform.ModShift != 0 {
+			s.focusManager.TabPrev()
+		} else {
+			s.focusManager.TabNext()
+		}
+		newFocus := s.focusManager.Focused()
+		if newFocus == 0 || newFocus == oldFocus {
+			return nil
+		}
+		s.focus.SetFocused(newFocus)
+		if path := findFacetPath(s.focusTree, newFocus); len(path) > 0 {
+			return s.focusTransitionEvents(oldFocus, newFocus)
+		}
+		return nil
+	}
 	out := []RoutedEvent{{
 		Target: targetID,
 		Event:  KeyInputEvent{Kind: e.Kind, Key: e.Key, Modifiers: e.Modifiers},
@@ -381,11 +404,18 @@ func (s *System) processKey(e platform.EventKey) []RoutedEvent {
 }
 
 func (s *System) processText(e platform.EventText) []RoutedEvent {
-	if s == nil || s.focus.Focused() == 0 {
+	if s == nil {
+		return nil
+	}
+	targetID := s.focus.Focused()
+	if s.focusManager != nil && s.focusManager.Focused() != 0 {
+		targetID = s.focusManager.Focused()
+	}
+	if targetID == 0 {
 		return nil
 	}
 	return []RoutedEvent{{
-		Target: s.focus.Focused(),
+		Target: targetID,
 		Event:  TextInputEvent{Text: e.Text},
 	}}
 }
@@ -415,6 +445,9 @@ func (s *System) requestFocus(targetID facet.FacetID, tree facet.FacetImpl) face
 			continue
 		}
 		s.focus.SetFocused(base.ID())
+		if s.focusManager != nil {
+			s.focusManager.SetFocus(path[i])
+		}
 		s.focusTree = tree
 		return base.ID()
 	}
@@ -467,6 +500,11 @@ func (s *System) handleTabNavigation(e platform.EventKey, tree facet.FacetImpl) 
 		return nil
 	}
 	s.focus.SetFocused(newID)
+	if s.focusManager != nil {
+		if path := findFacetPath(tree, newID); len(path) > 0 {
+			s.focusManager.SetFocus(path[len(path)-1])
+		}
+	}
 	s.focusTree = tree
 	out := make([]RoutedEvent, 0, 2)
 	if current != 0 {

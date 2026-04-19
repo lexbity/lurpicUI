@@ -366,6 +366,188 @@ func TestPool_worker_goroutine_cannot_touch_store(t *testing.T) {
 	}
 }
 
+func TestBindJob_ownerID(t *testing.T) {
+	j := BindJob(42, Job[int, int]{ID: 7}, nil)
+	if got := j.OwnerID(); got != 42 {
+		t.Fatalf("owner = %d", got)
+	}
+}
+
+func TestBindJob_jobID(t *testing.T) {
+	j := BindJob(42, Job[int, int]{ID: 7}, nil)
+	if got := j.JobID(); got != 7 {
+		t.Fatalf("jobID = %d", got)
+	}
+}
+
+func TestBindJob_onCommit_called(t *testing.T) {
+	p := NewPool(1)
+	defer p.Shutdown()
+
+	commits := 0
+	j := BindJob(99, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(5, 1),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			return snap.Data * 2, nil
+		},
+	}, func(v int) {
+		commits = v
+	})
+
+	if err := j.submit(p, nil); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	waitForResults(t, p, 1)
+	_ = p.Drain()
+	if commits != 10 {
+		t.Fatalf("commit = %d", commits)
+	}
+}
+
+func TestBindJob_afterCommit_called(t *testing.T) {
+	p := NewPool(1)
+	defer p.Shutdown()
+
+	order := make([]string, 0, 2)
+	j := BindJob(99, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(5, 1),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			return snap.Data * 2, nil
+		},
+	}, func(v int) {
+		order = append(order, "commit")
+	})
+
+	if err := j.submit(p, func(result AnyResult) {
+		if result.JobID() != 1 || result.OwnerID() != 99 || result.Cancelled() || result.Err() != nil {
+			t.Fatalf("unexpected result: %#v", result)
+		}
+		order = append(order, "after")
+	}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	waitForResults(t, p, 1)
+	_ = p.Drain()
+	if len(order) != 2 || order[0] != "commit" || order[1] != "after" {
+		t.Fatalf("order = %#v", order)
+	}
+}
+
+func TestBindJob_afterCommit_not_called_on_cancel(t *testing.T) {
+	p := NewPool(1)
+	defer p.Shutdown()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	onCommitCalled := false
+	afterCommitCalled := false
+
+	first := BindJob(11, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(1, 1),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			close(started)
+			<-release
+			return snap.Data, nil
+		},
+	}, func(v int) {
+		onCommitCalled = true
+	})
+	if err := first.submit(p, func(AnyResult) {
+		afterCommitCalled = true
+	}); err != nil {
+		t.Fatalf("submit first: %v", err)
+	}
+
+	<-started
+	if err := BindJob(11, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(2, 1),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			return snap.Data, nil
+		},
+	}, nil).submit(p, nil); err != nil {
+		t.Fatalf("submit second: %v", err)
+	}
+	close(release)
+	waitForResults(t, p, 2)
+	drained := p.Drain()
+	if len(drained) != 2 {
+		t.Fatalf("drained = %d", len(drained))
+	}
+	cancelled := false
+	for _, res := range drained {
+		if res.JobID() == 1 && res.Cancelled() {
+			cancelled = true
+		}
+	}
+	if !cancelled {
+		t.Fatal("expected cancelled result")
+	}
+	if onCommitCalled || afterCommitCalled {
+		t.Fatalf("callbacks should not run on cancelled result: commit=%v after=%v", onCommitCalled, afterCommitCalled)
+	}
+}
+
+func TestBindJob_afterCommit_not_called_on_error(t *testing.T) {
+	p := NewPool(1)
+	defer p.Shutdown()
+
+	onCommitCalled := false
+	afterCommitCalled := false
+	j := BindJob(7, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(1, 1),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			return 0, errors.New("boom")
+		},
+	}, func(v int) {
+		onCommitCalled = true
+	})
+	if err := j.submit(p, func(AnyResult) {
+		afterCommitCalled = true
+	}); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	waitForResults(t, p, 1)
+	drained := p.Drain()
+	if len(drained) != 1 || drained[0].err == nil {
+		t.Fatalf("drained %#v", drained)
+	}
+	if onCommitCalled || afterCommitCalled {
+		t.Fatalf("callbacks should not run on error: commit=%v after=%v", onCommitCalled, afterCommitCalled)
+	}
+}
+
+func TestAnyResult_fields(t *testing.T) {
+	boom := errors.New("boom")
+	r := &boundResult{
+		jobID:     7,
+		ownerID:   42,
+		err:       boom,
+		cancelled: true,
+	}
+	if r.JobID() != 7 {
+		t.Fatalf("jobID = %d", r.JobID())
+	}
+	if r.OwnerID() != 42 {
+		t.Fatalf("ownerID = %d", r.OwnerID())
+	}
+	if !r.Cancelled() {
+		t.Fatal("expected cancelled")
+	}
+	if r.Err() != boom {
+		t.Fatalf("err = %v", r.Err())
+	}
+}
+
 func waitForResults(t *testing.T, p *Pool, want int) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

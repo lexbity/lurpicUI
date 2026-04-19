@@ -113,7 +113,7 @@ func measureChild(f facet.FacetImpl, c Constraints) gfx.Size {
 	if role == nil {
 		return gfx.Size{}
 	}
-	return role.Measure(c.toFacet())
+	return role.Measure(c)
 }
 
 // arrangeChild runs the arrange pass on one child facet.
