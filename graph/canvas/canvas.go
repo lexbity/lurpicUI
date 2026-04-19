@@ -90,7 +90,10 @@ func NewGraphCanvasFacet(
 }
 
 // Base satisfies facet.FacetImpl.
-func (f *GraphCanvasFacet) Base() *facet.Facet { return &f.Facet }
+func (f *GraphCanvasFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
 
 // SetOnPointer sets the pointer event handler for testing.
 func (f *GraphCanvasFacet) SetOnPointer(fn func(e facet.PointerEvent) bool) {

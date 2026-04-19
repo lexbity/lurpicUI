@@ -21,7 +21,10 @@ func newDiagTestFacet(name string) *diagTestFacet {
 	return &diagTestFacet{Facet: facet.NewFacet(), name: name}
 }
 
-func (f *diagTestFacet) Base() *facet.Facet               { return &f.Facet }
+func (f *diagTestFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
 func (f *diagTestFacet) OnAttach(ctx facet.AttachContext) {}
 func (f *diagTestFacet) OnDetach()                        {}
 func (f *diagTestFacet) OnActivate()                      {}

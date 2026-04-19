@@ -13,6 +13,7 @@ type Facet struct {
 
 	parent   *Facet
 	children []*Facet
+	impl     FacetImpl
 	roles    []Role
 	subs     signal.Subscriptions
 
@@ -64,6 +65,19 @@ func (f *Facet) Children() []*Facet {
 	out := make([]*Facet, len(f.children))
 	copy(out, f.children)
 	return out
+}
+
+// BindImpl records the concrete implementation that owns this base facet.
+// Concrete facets call this from their Base method so lifecycle traversal can
+// dispatch to the real implementation when they are nested as children.
+func (f *Facet) BindImpl(impl FacetImpl) {
+	if f == nil || impl == nil {
+		return
+	}
+	if f.impl != nil && f.impl != impl {
+		panic("facet: BindImpl called with a different implementation")
+	}
+	f.impl = impl
 }
 
 // DirtyFlags reports the current dirty bits.

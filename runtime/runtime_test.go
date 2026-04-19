@@ -59,7 +59,10 @@ type runtimeTestFacet struct {
 	name          string
 }
 
-func (f *runtimeTestFacet) Base() *facet.Facet               { return &f.Facet }
+func (f *runtimeTestFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
 func (f *runtimeTestFacet) OnAttach(ctx facet.AttachContext) { f.attachCount++ }
 func (f *runtimeTestFacet) OnDetach() {
 	if f.detachOrder != nil {
@@ -182,7 +185,10 @@ func newRuntimeSubscriptionFacet(s *store.ValueStore[int]) *runtimeSubscriptionF
 	return f
 }
 
-func (f *runtimeSubscriptionFacet) Base() *facet.Facet { return &f.Facet }
+func (f *runtimeSubscriptionFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
 func (f *runtimeSubscriptionFacet) OnAttach(ctx facet.AttachContext) {
 	facet.Store(facet.Subscribe(f), &f.store.OnChange, f.store.Version, func(signal.Change[int]) {
 		f.changeCount++

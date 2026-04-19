@@ -175,7 +175,10 @@ func newTextProjectionFacet(name string, bounds gfx.Rect) *projectionTestFacet {
 	return f
 }
 
-func (f *projectionTestFacet) Base() *facet.Facet { return &f.Facet }
+func (f *projectionTestFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
 func (f *projectionTestFacet) OnAttach(ctx facet.AttachContext) {
 	if f.attachFn != nil {
 		f.attachFn(ctx)

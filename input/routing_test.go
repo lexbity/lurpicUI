@@ -29,7 +29,10 @@ func newTestInputFacet(tabIndex int, focusable bool) *testInputFacet {
 	return f
 }
 
-func (f *testInputFacet) Base() *facet.Facet               { return &f.Facet }
+func (f *testInputFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
 func (f *testInputFacet) OnAttach(ctx facet.AttachContext) {}
 func (f *testInputFacet) OnDetach()                        {}
 func (f *testInputFacet) OnActivate()                      {}

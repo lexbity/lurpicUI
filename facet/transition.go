@@ -12,6 +12,7 @@ type FacetImpl interface {
 // Attach transitions a facet from Created to Attached.
 func Attach(f FacetImpl, ctx AttachContext) {
 	base := baseOf(f)
+	f = concreteImpl(base, f)
 	requireState(base, StateCreated, StateAttached)
 	roles := base.rolesSnapshot()
 	for _, role := range roles {
@@ -20,13 +21,14 @@ func Attach(f FacetImpl, ctx AttachContext) {
 	f.OnAttach(ctx)
 	base.setState(StateAttached)
 	for _, child := range base.childrenSnapshot() {
-		Attach(child, ctx)
+		Attach(concreteImpl(child, child), ctx)
 	}
 }
 
 // Activate transitions a facet from Attached or Inactive to Active.
 func Activate(f FacetImpl) {
 	base := baseOf(f)
+	f = concreteImpl(base, f)
 	switch base.State() {
 	case StateAttached, StateInactive:
 	default:
@@ -39,13 +41,14 @@ func Activate(f FacetImpl) {
 	f.OnActivate()
 	base.setState(StateActive)
 	for _, child := range base.childrenSnapshot() {
-		Activate(child)
+		Activate(concreteImpl(child, child))
 	}
 }
 
 // Deactivate transitions a facet from Active to Inactive.
 func Deactivate(f FacetImpl) {
 	base := baseOf(f)
+	f = concreteImpl(base, f)
 	requireState(base, StateActive, StateInactive)
 	roles := base.rolesSnapshot()
 	for _, role := range roles {
@@ -54,20 +57,21 @@ func Deactivate(f FacetImpl) {
 	f.OnDeactivate()
 	base.setState(StateInactive)
 	for _, child := range base.childrenSnapshot() {
-		Deactivate(child)
+		Deactivate(concreteImpl(child, child))
 	}
 }
 
 // Dispose transitions a facet into the terminal Disposed state.
 func Dispose(f FacetImpl) {
 	base := baseOf(f)
+	f = concreteImpl(base, f)
 	switch base.State() {
 	case StateCreated, StateAttached, StateActive, StateInactive:
 	default:
 		panic(invalidTransition(base.State(), StateDisposed))
 	}
 	for _, child := range base.childrenSnapshot() {
-		Dispose(child)
+		Dispose(concreteImpl(child, child))
 	}
 	roles := base.rolesSnapshot()
 	for _, role := range roles {
@@ -76,6 +80,13 @@ func Dispose(f FacetImpl) {
 	f.OnDetach()
 	base.releaseSubscriptions()
 	base.setState(StateDisposed)
+}
+
+func concreteImpl(base *Facet, fallback FacetImpl) FacetImpl {
+	if base != nil && base.impl != nil {
+		return base.impl
+	}
+	return fallback
 }
 
 func baseOf(f FacetImpl) *Facet {

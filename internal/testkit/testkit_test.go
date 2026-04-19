@@ -46,7 +46,10 @@ func newTestRenderFacet() *testRenderFacet {
 	return f
 }
 
-func (f *testRenderFacet) Base() *facet.Facet               { return &f.Facet }
+func (f *testRenderFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
 func (f *testRenderFacet) OnAttach(ctx facet.AttachContext) {}
 func (f *testRenderFacet) OnDetach()                        {}
 func (f *testRenderFacet) OnActivate()                      {}

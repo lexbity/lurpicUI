@@ -1,6 +1,7 @@
 package store
 
 import (
+	"reflect"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -12,7 +13,7 @@ type versionedInvalidatable interface {
 }
 
 // Derived is a read-only computed store.
-type Derived[T comparable] struct {
+type Derived[T any] struct {
 	version VersionSource
 	compute func() T
 
@@ -27,7 +28,7 @@ type Derived[T comparable] struct {
 	OnChange signal.Signal[signal.Change[T]]
 }
 
-func NewDerived[T comparable](compute func() T, sources ...Invalidatable) *Derived[T] {
+func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
 	d := &Derived[T]{
 		compute:  compute,
 		dirty:    true,
@@ -69,7 +70,7 @@ func (d *Derived[T]) Get() T {
 	next := d.compute()
 	d.mu.Lock()
 	old := d.value
-	changed := !d.initialized || old != next
+	changed := !d.initialized || !reflect.DeepEqual(old, next)
 	d.value = next
 	d.initialized = true
 	d.dirty = false
