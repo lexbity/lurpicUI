@@ -215,6 +215,32 @@ func TestSoftwareRenderer_transform_stack_translates(t *testing.T) {
 	}
 }
 
+func TestSoftwareRenderer_batch_bounds_are_localized(t *testing.T) {
+	r, s := newRenderer(t, 80, 80)
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(20, 30, 10, 10),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.FillRect{Rect: gfx.RectFromXYWH(20, 30, 10, 10), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 25, 35); got.G != 255 || got.A != 255 {
+		t.Fatalf("localized batch pixel missing: %#v", got)
+	}
+	if got := pxAt(s, 5, 5); got != (color.RGBA{}) {
+		t.Fatalf("unexpected pixel before localized region: %#v", got)
+	}
+}
+
 func TestSoftwareRenderer_clip_rect_clips(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
 	frame := &render.Frame{

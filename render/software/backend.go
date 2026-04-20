@@ -349,7 +349,7 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch 
 		return
 	}
 	state := renderState{
-		transform: gfx.Identity(),
+		transform: gfx.Translation(-RenderBatch.Bounds.Min.X, -RenderBatch.Bounds.Min.Y),
 		clip:      gfx.RectFromXYWH(0, 0, float32(target.Bounds().Dx()), float32(target.Bounds().Dy())),
 		opacity:   1,
 	}
