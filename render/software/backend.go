@@ -2,9 +2,9 @@ package software
 
 import (
 	"errors"
-	"image/draw"
 	"image"
 	"image/color"
+	"image/draw"
 	"math"
 	"sync"
 
@@ -228,13 +228,42 @@ func (r *SoftwareRenderer) blitToSurface() error {
 
 	dst := surface.Buffer()
 	stride := surface.Stride()
+	if len(dst) == 0 || r.output.Stride == 0 {
+		return nil
+	}
 	if stride <= 0 {
 		stride = r.width * 4
 	}
-	for y := 0; y < r.height; y++ {
+	rowBytes := r.width * 4
+	if rowBytes > r.output.Stride {
+		rowBytes = r.output.Stride
+	}
+	if rowBytes > stride {
+		rowBytes = stride
+	}
+	maxRows := r.height
+	if maxRows > 0 {
+		if liveRows := len(dst) / stride; liveRows < maxRows {
+			maxRows = liveRows
+		}
+	}
+	for y := 0; y < maxRows; y++ {
 		srcOff := y * r.output.Stride
 		dstOff := y * stride
-		copy(dst[dstOff:dstOff+r.width*4], r.output.Pix[srcOff:srcOff+r.width*4])
+		if srcOff >= len(r.output.Pix) || dstOff >= len(dst) {
+			break
+		}
+		n := rowBytes
+		if remaining := len(r.output.Pix) - srcOff; remaining < n {
+			n = remaining
+		}
+		if remaining := len(dst) - dstOff; remaining < n {
+			n = remaining
+		}
+		if n <= 0 {
+			break
+		}
+		copy(dst[dstOff:dstOff+n], r.output.Pix[srcOff:srcOff+n])
 	}
 	return nil
 }

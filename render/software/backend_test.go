@@ -46,6 +46,21 @@ func (s *testSurface) Unlock([]gfx.Rect) error {
 	return nil
 }
 
+type shrinkingSurface struct {
+	*testSurface
+	shrinkToW int
+	shrinkToH int
+	shrunk    bool
+}
+
+func (s *shrinkingSurface) Lock() error {
+	if !s.shrunk {
+		s.Resize(s.shrinkToW, s.shrinkToH)
+		s.shrunk = true
+	}
+	return nil
+}
+
 func newRenderer(t *testing.T, w, h int) (*SoftwareRenderer, *testSurface) {
 	t.Helper()
 	surf := newTestSurface(w, h)
@@ -392,6 +407,33 @@ func TestSoftwareRenderer_resize_reallocates(t *testing.T) {
 	}
 	if got := pxAt(s, 199, 199); got.G != 255 {
 		t.Fatalf("resized pixel missing: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_blit_clamps_to_live_surface_size(t *testing.T) {
+	base := newTestSurface(20, 20)
+	surf := &shrinkingSurface{
+		testSurface: base,
+		shrinkToW:   10,
+		shrinkToH:   10,
+	}
+	r := NewSoftwareRenderer()
+	if err := r.Initialize(surf); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	frame := &render.Frame{
+		Layers: []render.Layer{
+			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if surf.w != 10 || surf.h != 10 || len(surf.buf) != 10*10*4 {
+		t.Fatalf("surface not shrunk as expected: %+v", surf.testSurface)
+	}
+	if got := pxAt(surf.testSurface, 5, 5); got.R != 255 || got.A != 255 {
+		t.Fatalf("expected preserved blit after resize, got %#v", got)
 	}
 }
 

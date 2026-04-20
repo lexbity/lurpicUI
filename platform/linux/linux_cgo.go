@@ -328,19 +328,6 @@ func (a *app) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 
 	id := C.xcb_generate_id(a.conn)
 	colormap := C.xcb_generate_id(a.conn)
-	values := []C.uint32_t{
-		C.uint32_t(C.XCB_EVENT_MASK_EXPOSURE |
-			C.XCB_EVENT_MASK_STRUCTURE_NOTIFY |
-			C.XCB_EVENT_MASK_KEY_PRESS |
-			C.XCB_EVENT_MASK_KEY_RELEASE |
-			C.XCB_EVENT_MASK_BUTTON_PRESS |
-			C.XCB_EVENT_MASK_BUTTON_RELEASE |
-			C.XCB_EVENT_MASK_POINTER_MOTION |
-			C.XCB_EVENT_MASK_ENTER_WINDOW |
-			C.XCB_EVENT_MASK_LEAVE_WINDOW |
-			C.XCB_EVENT_MASK_FOCUS_CHANGE),
-	}
-	mask := C.uint32_t(C.XCB_CW_EVENT_MASK)
 
 	if opts.Width <= 0 {
 		opts.Width = 1
@@ -348,6 +335,27 @@ func (a *app) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 	if opts.Height <= 0 {
 		opts.Height = 1
 	}
+
+	// For a non-default visual (32-bit ARGB), xcb_create_window requires
+	// XCB_CW_BORDER_PIXEL and XCB_CW_COLORMAP in addition to XCB_CW_EVENT_MASK.
+	// Value list must be ordered by ascending attribute constant value:
+	//   XCB_CW_BORDER_PIXEL=8, XCB_CW_EVENT_MASK=0x800, XCB_CW_COLORMAP=0x2000
+	eventMask := C.uint32_t(C.XCB_EVENT_MASK_EXPOSURE |
+		C.XCB_EVENT_MASK_STRUCTURE_NOTIFY |
+		C.XCB_EVENT_MASK_KEY_PRESS |
+		C.XCB_EVENT_MASK_KEY_RELEASE |
+		C.XCB_EVENT_MASK_BUTTON_PRESS |
+		C.XCB_EVENT_MASK_BUTTON_RELEASE |
+		C.XCB_EVENT_MASK_POINTER_MOTION |
+		C.XCB_EVENT_MASK_ENTER_WINDOW |
+		C.XCB_EVENT_MASK_LEAVE_WINDOW |
+		C.XCB_EVENT_MASK_FOCUS_CHANGE)
+	values := []C.uint32_t{
+		0,                      // XCB_CW_BORDER_PIXEL
+		eventMask,              // XCB_CW_EVENT_MASK
+		C.uint32_t(colormap),   // XCB_CW_COLORMAP
+	}
+	mask := C.uint32_t(C.XCB_CW_BORDER_PIXEL | C.XCB_CW_EVENT_MASK | C.XCB_CW_COLORMAP)
 
 	C.xcb_create_colormap(a.conn, C.XCB_COLORMAP_ALLOC_NONE, colormap, a.screen.root, visual.visual_id)
 	C.lurpic_xcb_create_window(
@@ -589,6 +597,10 @@ func (s *shmSurface) Unlock(dirtyRects []gfx.Rect) error {
 	if len(rects) == 0 {
 		rects = []gfx.Rect{gfx.RectFromXYWH(0, 0, float32(s.width), float32(s.height))}
 	}
+	var gc C.xcb_gcontext_t
+	if s.window != nil {
+		gc = s.window.gc
+	}
 	for _, r := range rects {
 		if r.IsEmpty() {
 			continue
@@ -601,7 +613,7 @@ func (s *shmSurface) Unlock(dirtyRects []gfx.Rect) error {
 		C.lurpic_xcb_shm_put_image(
 			s.conn,
 			C.xcb_drawable_t(s.win),
-			C.xcb_gcontext_t(0),
+			gc,
 			C.uint16_t(w),
 			C.uint16_t(h),
 			C.int16_t(x),
@@ -791,6 +803,8 @@ func (a *app) translateEvent(ev *C.xcb_generic_event_t) []platform.Event {
 		return a.translateFocus(ev, true)
 	case C.XCB_FOCUS_OUT:
 		return a.translateFocus(ev, false)
+	case C.XCB_EXPOSE:
+		return a.translateExpose(ev)
 	case C.XCB_CONFIGURE_NOTIFY:
 		return a.translateConfigure(ev)
 	case C.XCB_CLIENT_MESSAGE:
@@ -890,6 +904,17 @@ func (a *app) translateFocus(ev *C.xcb_generic_event_t, focused bool) []platform
 	}
 }
 
+func (a *app) translateExpose(ev *C.xcb_generic_event_t) []platform.Event {
+	e := (*C.xcb_expose_event_t)(unsafe.Pointer(ev))
+	win := a.lookupWindow(uint32(e.window))
+	if win == nil {
+		return nil
+	}
+	return []platform.Event{
+		platform.EventWindowResize{Window: win, Width: win.width, Height: win.height},
+	}
+}
+
 func (a *app) translateConfigure(ev *C.xcb_generic_event_t) []platform.Event {
 	c := (*C.xcb_configure_notify_event_t)(unsafe.Pointer(ev))
 	win := a.lookupWindow(uint32(c.window))
@@ -960,6 +985,10 @@ func (a *app) lookupWindow(id uint32) *window {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	return a.windows[id]
+}
+
+func (s *shmSurface) Resize(width, height int) {
+	_ = s.resize(width, height)
 }
 
 func (s *shmSurface) resize(width, height int) error {
