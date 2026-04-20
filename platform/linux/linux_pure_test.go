@@ -84,16 +84,18 @@ func TestLinuxPureKeyAndTextMappings(t *testing.T) {
 	}
 
 	textCases := map[uint32]string{
-		' ':             " ",
-		keysymTab:       "\t",
-		keysymReturn:    "\n",
-		keysymBackSpace: "\b",
+		' ':          " ",
+		keysymTab:    "\t",
+		keysymReturn: "\n",
 	}
 	for sym, want := range textCases {
 		got, ok := textFromKeysym(sym)
 		if !ok || got != want {
 			t.Fatalf("textFromKeysym(%#x) = %q, %v", sym, got, ok)
 		}
+	}
+	if got, ok := textFromKeysym(keysymBackSpace); ok || got != "" {
+		t.Fatalf("textFromKeysym(backspace) = %q, %v", got, ok)
 	}
 	if got, ok := textFromKeysym(0); ok || got != "" {
 		t.Fatalf("textFromKeysym(0) = %q, %v", got, ok)

@@ -65,8 +65,6 @@ func textFromKeysym(sym uint32) (string, bool) {
 		return "\t", true
 	case keysymReturn:
 		return "\n", true
-	case keysymBackSpace:
-		return "\b", true
 	}
 	return "", false
 }
