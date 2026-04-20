@@ -3,6 +3,9 @@
 package linux
 
 import (
+	"os"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -23,7 +26,7 @@ func TestLinuxNewApp_no_display_returns_error(t *testing.T) {
 }
 
 func TestLinuxAppWindowLifecycle_andSurfaceMethods(t *testing.T) {
-	t.Setenv("DISPLAY", ":1")
+	requireLiveDisplay(t)
 	app, err := NewApp()
 	if err != nil {
 		t.Skipf("NewApp unavailable in test environment: %v", err)
@@ -77,7 +80,7 @@ func TestLinuxAppWindowLifecycle_andSurfaceMethods(t *testing.T) {
 }
 
 func TestLinuxEventTranslations_cover_helpers(t *testing.T) {
-	t.Setenv("DISPLAY", ":1")
+	requireLiveDisplay(t)
 	app, err := NewApp()
 	if err != nil {
 		t.Skipf("NewApp unavailable in test environment: %v", err)
@@ -211,7 +214,7 @@ func TestLinuxHelperFunctions_cover_remaining_paths(t *testing.T) {
 }
 
 func TestLinuxClipboard_selectionPath_readsFromXSelection(t *testing.T) {
-	t.Setenv("DISPLAY", ":1")
+	requireLiveDisplay(t)
 	platApp, err := NewApp()
 	if err != nil {
 		t.Skipf("NewApp unavailable in test environment: %v", err)
@@ -261,7 +264,7 @@ func TestLinuxClipboard_selectionPath_readsFromXSelection(t *testing.T) {
 }
 
 func TestLinuxQueue_waitAndPollOnLiveApp(t *testing.T) {
-	t.Setenv("DISPLAY", ":1")
+	requireLiveDisplay(t)
 	app, err := NewApp()
 	if err != nil {
 		t.Skipf("NewApp unavailable in test environment: %v", err)
@@ -288,7 +291,7 @@ func TestLinuxQueue_waitAndPollOnLiveApp(t *testing.T) {
 }
 
 func TestLinuxSurface_resize_and_lock_contention(t *testing.T) {
-	t.Setenv("DISPLAY", ":1")
+	requireLiveDisplay(t)
 	app, err := NewApp()
 	if err != nil {
 		t.Skipf("NewApp unavailable in test environment: %v", err)
@@ -347,7 +350,7 @@ func TestLinuxClipboard_andApp_nilSafety(t *testing.T) {
 }
 
 func TestLinuxClipboard_roundtrip_and_close(t *testing.T) {
-	t.Setenv("DISPLAY", ":1")
+	requireLiveDisplay(t)
 	app, err := NewApp()
 	if err != nil {
 		t.Skipf("NewApp unavailable in test environment: %v", err)
@@ -409,4 +412,34 @@ func TestModifierMapping_shift_ctrl_alt(t *testing.T) {
 	if mods != want {
 		t.Fatalf("unexpected modifiers: got %v want %v", mods, want)
 	}
+}
+
+func requireLiveDisplay(t *testing.T) {
+	t.Helper()
+	display := os.Getenv("DISPLAY")
+	if display == "" {
+		t.Skip("DISPLAY not set")
+	}
+	if display[0] == ':' {
+		rest := display[1:]
+		if idx := indexByte(rest, '.'); idx >= 0 {
+			rest = rest[:idx]
+		}
+		if _, err := strconv.Atoi(rest); err != nil {
+			t.Skipf("DISPLAY %q is not a numeric local display", display)
+		}
+		socket := filepath.Join("/tmp/.X11-unix", "X"+rest)
+		if _, err := os.Stat(socket); err != nil {
+			t.Skipf("X display socket %q unavailable: %v", socket, err)
+		}
+	}
+}
+
+func indexByte(s string, c byte) int {
+	for i := range s {
+		if s[i] == c {
+			return i
+		}
+	}
+	return -1
 }
