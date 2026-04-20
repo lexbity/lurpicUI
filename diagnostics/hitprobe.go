@@ -21,14 +21,27 @@ type HitProbe struct {
 	typeNames map[facet.FacetID]string
 }
 
+// HitProbeSource provides a current hit-probe snapshot.
+type HitProbeSource interface {
+	HitProbe() *HitProbe
+}
+
 // NewHitProbe constructs a probe from the current hit map and optional tree root.
 func NewHitProbe(root facet.FacetImpl, hitMap *projection.HitMap) *HitProbe {
 	probe := &HitProbe{hitMap: hitMap}
 	if root != nil {
 		probe.typeNames = make(map[facet.FacetID]string)
-		walkFacet(root, 0, func(_ int, info FacetInfo) {
-			probe.typeNames[info.ID] = info.TypeName
-		})
+		var walk func(facet.FacetImpl)
+		walk = func(node facet.FacetImpl) {
+			if node == nil || node.Base() == nil {
+				return
+			}
+			probe.typeNames[node.Base().ID()] = typeName(node)
+			for _, child := range node.Base().Children() {
+				walk(child)
+			}
+		}
+		walk(root)
 	}
 	return probe
 }

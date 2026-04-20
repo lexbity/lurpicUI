@@ -2,19 +2,23 @@ package layout
 
 import "codeburg.org/lexbit/lurpicui/gfx"
 
-// Alignment places smaller children within a container.
+// Alignment places smaller children within a container or layer cell.
 type Alignment uint8
 
 const (
-	AlignTopLeft Alignment = iota
+	AlignStretch Alignment = iota
+	AlignStart
+	AlignCenter
+	AlignEnd
+	AlignTopLeft
 	AlignTopCenter
 	AlignTopRight
 	AlignCenterLeft
-	AlignCenter
 	AlignCenterRight
 	AlignBottomLeft
 	AlignBottomCenter
 	AlignBottomRight
+	AlignBaseline
 )
 
 func alignedOrigin(childSize gfx.Size, bounds gfx.Rect, a Alignment) gfx.Point {

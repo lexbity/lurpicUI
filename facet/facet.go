@@ -80,6 +80,14 @@ func (f *Facet) BindImpl(impl FacetImpl) {
 	f.impl = impl
 }
 
+// Impl returns the bound concrete implementation, if one has been recorded.
+func (f *Facet) Impl() FacetImpl {
+	if f == nil {
+		return nil
+	}
+	return f.impl
+}
+
 // DirtyFlags reports the current dirty bits.
 func (f *Facet) DirtyFlags() DirtyFlags {
 	if f == nil {

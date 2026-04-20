@@ -65,10 +65,10 @@ type SoftwareRenderer struct {
 	output  *image.RGBA
 
 	RenderBatchCache map[render.RenderBatchID]*RenderBatchCacheEntry
-	diffCache  *renderutil.RenderBatchCache
-	glyphAtlas *glyphAtlas
-	width      int
-	height     int
+	diffCache        *renderutil.RenderBatchCache
+	glyphAtlas       *glyphAtlas
+	width            int
+	height           int
 
 	rasterizeCount int
 }
@@ -76,8 +76,8 @@ type SoftwareRenderer struct {
 func NewSoftwareRenderer() *SoftwareRenderer {
 	return &SoftwareRenderer{
 		RenderBatchCache: make(map[render.RenderBatchID]*RenderBatchCacheEntry),
-		diffCache:  renderutil.NewRenderBatchCache(),
-		glyphAtlas: &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)},
+		diffCache:        renderutil.NewRenderBatchCache(),
+		glyphAtlas:       &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)},
 	}
 }
 
@@ -150,38 +150,76 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	clearRGBA(r.output)
 
 	seen := make(map[render.RenderBatchID]struct{}, len(frame.RenderBatchs))
-	for _, RenderBatch := range frame.RenderBatchs {
-		seen[RenderBatch.ID] = struct{}{}
-		ld := diff.RenderBatchs[RenderBatch.ID]
-		if ld.Kind == renderutil.RenderBatchUnchanged {
-			if entry := r.RenderBatchCache[RenderBatch.ID]; entry != nil && entry.buffer != nil {
-				r.compositeRenderBatch(r.output, entry.buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
+	if len(frame.Layers) > 0 {
+		for _, layer := range frame.Layers {
+			for _, RenderBatch := range layer.Batches {
+				seen[RenderBatch.ID] = struct{}{}
+				ld := diff.RenderBatchs[RenderBatch.ID]
+				if ld.Kind == renderutil.RenderBatchUnchanged {
+					if entry := r.RenderBatchCache[RenderBatch.ID]; entry != nil && entry.buffer != nil {
+						r.compositeRenderBatch(r.output, entry.buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
+					}
+					continue
+				}
+				if ld.Kind == renderutil.RenderBatchRemoved {
+					delete(r.RenderBatchCache, RenderBatch.ID)
+					continue
+				}
+
+				sizeW := int(math.Ceil(float64(RenderBatch.Bounds.Width())))
+				sizeH := int(math.Ceil(float64(RenderBatch.Bounds.Height())))
+				if sizeW < 0 {
+					sizeW = 0
+				}
+				if sizeH < 0 {
+					sizeH = 0
+				}
+
+				buffer := image.NewRGBA(image.Rect(0, 0, sizeW, sizeH))
+				r.rasterizeRenderBatch(buffer, &RenderBatch, layer.ClipRect)
+				r.rasterizeCount++
+				r.RenderBatchCache[RenderBatch.ID] = &RenderBatchCacheEntry{
+					bounds:      RenderBatch.Bounds,
+					commandHash: RenderBatch.CommandHash,
+					buffer:      buffer,
+				}
+				r.compositeRenderBatch(r.output, buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
 			}
-			continue
 		}
-		if ld.Kind == renderutil.RenderBatchRemoved {
-			delete(r.RenderBatchCache, RenderBatch.ID)
-			continue
-		}
+	} else {
+		for _, RenderBatch := range frame.RenderBatchs {
+			seen[RenderBatch.ID] = struct{}{}
+			ld := diff.RenderBatchs[RenderBatch.ID]
+			if ld.Kind == renderutil.RenderBatchUnchanged {
+				if entry := r.RenderBatchCache[RenderBatch.ID]; entry != nil && entry.buffer != nil {
+					r.compositeRenderBatch(r.output, entry.buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
+				}
+				continue
+			}
+			if ld.Kind == renderutil.RenderBatchRemoved {
+				delete(r.RenderBatchCache, RenderBatch.ID)
+				continue
+			}
 
-		sizeW := int(math.Ceil(float64(RenderBatch.Bounds.Width())))
-		sizeH := int(math.Ceil(float64(RenderBatch.Bounds.Height())))
-		if sizeW < 0 {
-			sizeW = 0
-		}
-		if sizeH < 0 {
-			sizeH = 0
-		}
+			sizeW := int(math.Ceil(float64(RenderBatch.Bounds.Width())))
+			sizeH := int(math.Ceil(float64(RenderBatch.Bounds.Height())))
+			if sizeW < 0 {
+				sizeW = 0
+			}
+			if sizeH < 0 {
+				sizeH = 0
+			}
 
-		buffer := image.NewRGBA(image.Rect(0, 0, sizeW, sizeH))
-		r.rasterizeRenderBatch(buffer, &RenderBatch)
-		r.rasterizeCount++
-		r.RenderBatchCache[RenderBatch.ID] = &RenderBatchCacheEntry{
-			bounds:      RenderBatch.Bounds,
-			commandHash: RenderBatch.CommandHash,
-			buffer:      buffer,
+			buffer := image.NewRGBA(image.Rect(0, 0, sizeW, sizeH))
+			r.rasterizeRenderBatch(buffer, &RenderBatch, gfx.Rect{})
+			r.rasterizeCount++
+			r.RenderBatchCache[RenderBatch.ID] = &RenderBatchCacheEntry{
+				bounds:      RenderBatch.Bounds,
+				commandHash: RenderBatch.CommandHash,
+				buffer:      buffer,
+			}
+			r.compositeRenderBatch(r.output, buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
 		}
-		r.compositeRenderBatch(r.output, buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
 	}
 
 	for id := range r.RenderBatchCache {
@@ -200,6 +238,21 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	}
 	r.diffCache.Update(frame, buffers)
 	return nil
+}
+
+func flattenLayerBatches(layers []render.LayeredBatch) []render.RenderBatch {
+	if len(layers) == 0 {
+		return nil
+	}
+	var total int
+	for _, layer := range layers {
+		total += len(layer.Batches)
+	}
+	out := make([]render.RenderBatch, 0, total)
+	for _, layer := range layers {
+		out = append(out, layer.Batches...)
+	}
+	return out
 }
 
 func (r *SoftwareRenderer) allocateOutput(width, height int) {
@@ -291,7 +344,7 @@ func (r *SoftwareRenderer) compositeRenderBatch(dst *image.RGBA, src *image.RGBA
 	}
 }
 
-func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch *render.RenderBatch) {
+func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch *render.RenderBatch, clip gfx.Rect) {
 	if target == nil || RenderBatch == nil {
 		return
 	}
@@ -299,6 +352,9 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch 
 		transform: gfx.Identity(),
 		clip:      gfx.RectFromXYWH(0, 0, float32(target.Bounds().Dx()), float32(target.Bounds().Dy())),
 		opacity:   1,
+	}
+	if !clip.IsEmpty() {
+		state.clip = intersectRects(state.clip, clip)
 	}
 	stack := []renderState{state}
 

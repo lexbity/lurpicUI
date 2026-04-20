@@ -22,8 +22,21 @@ type RenderBatch struct {
 	CommandHash uint64
 }
 
+// LayeredBatch groups render batches by layer order and clip rect.
+type LayeredBatch struct {
+	RenderOrder int
+	ClipRect    gfx.Rect
+	Batches     []RenderBatch
+}
+
+// FramePacket carries layer-ordered batches.
+type FramePacket struct {
+	Layers []LayeredBatch
+}
+
 type Frame struct {
-	RenderBatchs       []RenderBatch
+	FramePacket
+	RenderBatchs []RenderBatch
 	DirtyRegions []gfx.Rect
 }
 

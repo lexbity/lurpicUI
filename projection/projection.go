@@ -57,7 +57,7 @@ type RenderBatchOutput struct {
 }
 
 type FrameOutput struct {
-	RenderBatchs              []RenderBatchOutput
+	RenderBatchs        []RenderBatchOutput
 	HitMap              *HitMap
 	SelectionGeometries map[facet.FacetID]*SelectionGeometry
 }
@@ -76,6 +76,12 @@ type System struct {
 	ProjectedFacets int
 	CacheHits       int
 	runtime         facet.RuntimeServices
+	layerResolver   LayerResolver
+}
+
+// LayerResolver provides resolved layer snapshots to the projection pass.
+type LayerResolver interface {
+	ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool)
 }
 
 type projectionNode struct {
@@ -98,6 +104,11 @@ func (s *System) SetRuntime(rt facet.RuntimeServices) {
 		return
 	}
 	s.runtime = rt
+	if lr, ok := rt.(LayerResolver); ok {
+		s.layerResolver = lr
+	} else {
+		s.layerResolver = nil
+	}
 }
 
 func (s *System) MarkDirty(id facet.FacetID) {
@@ -144,6 +155,15 @@ func (s *System) CurrentHitMap() *HitMap {
 	return s.currentHitMap
 }
 
+// SetCurrentHitMap replaces the cached hit map. It is used by runtime tests and
+// allows callers to inject a precomputed traversal map.
+func (s *System) SetCurrentHitMap(m *HitMap) {
+	if s == nil {
+		return
+	}
+	s.currentHitMap = m
+}
+
 func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 	if root == nil {
 		return nil
@@ -174,18 +194,24 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 	base := node.base
 	facetID := base.ID()
 	resolvedTransform := parentTransform
-	if viewport := base.ViewportRole(); viewport != nil {
-		resolvedTransform = resolvedTransform.Multiply(viewport.Transform)
-	}
 	bounds := gfx.Rect{}
-	if layout := base.LayoutRole(); layout != nil {
-		bounds = layout.ArrangedBounds
+	layerCtx, hasLayer := s.resolveLayerContext(node.impl, parentTransform)
+	if hasLayer {
+		resolvedTransform = layerCtx.Transform
+		bounds = layerCtx.Bounds
+	} else {
+		if viewport := base.ViewportRole(); viewport != nil {
+			resolvedTransform = resolvedTransform.Multiply(viewport.Transform)
+		}
+		if layoutRole := base.LayoutRole(); layoutRole != nil {
+			bounds = layoutRole.ArrangedBounds
+		}
 	}
 
-	cacheKey := s.computeCacheKey(node.impl, resolvedTransform, parentChildCtx)
+	cacheKey := s.computeCacheKey(node.impl, resolvedTransform, parentChildCtx, layerCtx, hasLayer)
 	output := s.outputCache[facetID]
 	if output == nil || output.CacheKey != cacheKey || s.isDirtyWithMap(facetID, dirty) {
-		output = s.project(node.impl, resolvedTransform, bounds, parentChildCtx, cacheKey)
+		output = s.project(node.impl, resolvedTransform, bounds, parentChildCtx, cacheKey, layerCtx, hasLayer)
 		s.outputCache[facetID] = output
 		s.ProjectedFacets++
 	} else {
@@ -204,6 +230,8 @@ func (s *System) project(
 	bounds gfx.Rect,
 	parentChildCtx *ChildProjectionContext,
 	cacheKey ProjectionCacheKey,
+	layerCtx facet.ProjectionLayer,
+	hasLayer bool,
 ) *ProjectionOutput {
 	base := impl.Base()
 	output := &ProjectionOutput{
@@ -213,11 +241,21 @@ func (s *System) project(
 		CacheKey:  cacheKey,
 	}
 	if pr := base.ProjectionRole(); pr != nil && pr.OnProject != nil {
-		if cmds := pr.Project(facet.ProjectionContext{
+		ctx := facet.ProjectionContext{
 			Bounds:   bounds,
 			Viewport: base.ViewportRole(),
 			Runtime:  s.runtime,
-		}); cmds != nil {
+		}
+		if hasLayer {
+			ctx.Layer = layerCtx
+		} else {
+			ctx.Layer = facet.ProjectionLayer{
+				Bounds:    bounds,
+				Transform: resolvedTransform,
+				ClipRect:  bounds,
+			}
+		}
+		if cmds := pr.Project(ctx); cmds != nil {
 			output.Commands = *cmds
 		}
 	} else if rr := base.RenderRole(); rr != nil && rr.OnCollect != nil {
@@ -319,6 +357,8 @@ func (s *System) computeCacheKey(
 	f facet.FacetImpl,
 	resolvedTransform gfx.Transform,
 	parentChildCtx *ChildProjectionContext,
+	layerCtx facet.ProjectionLayer,
+	hasLayer bool,
 ) ProjectionCacheKey {
 	base := f.Base()
 	if base == nil {
@@ -339,6 +379,14 @@ func (s *System) computeCacheKey(
 			hashRect(&h, *parentChildCtx.ClipBounds)
 		}
 		hashRect(&h, parentChildCtx.WorldBounds)
+	}
+	if hasLayer {
+		h.WriteUint8(1)
+		hashRect(&h, layerCtx.Bounds)
+		hashTransform(&h, layerCtx.Transform)
+		hashRect(&h, layerCtx.ClipRect)
+	} else {
+		h.WriteUint8(0)
 	}
 	if layout := base.LayoutRole(); layout != nil {
 		h.WriteUint8(1)
@@ -374,6 +422,29 @@ func (s *System) computeCacheKey(
 		h.WriteUint64(uint64(v))
 	}
 	return ProjectionCacheKey(h.Sum())
+}
+
+func (s *System) resolveLayerContext(impl facet.FacetImpl, parentTransform gfx.Transform) (facet.ProjectionLayer, bool) {
+	if s == nil || impl == nil || impl.Base() == nil {
+		return facet.ProjectionLayer{}, false
+	}
+	if s.layerResolver != nil {
+		if layer, ok := s.layerResolver.ResolveProjectionLayer(impl.Base().ID()); ok {
+			return layer, true
+		}
+	}
+	base := impl.Base()
+	layer := facet.ProjectionLayer{}
+	if layoutRole := base.LayoutRole(); layoutRole != nil {
+		layer.Bounds = layoutRole.ArrangedBounds
+	}
+	if viewport := base.ViewportRole(); viewport != nil {
+		layer.Transform = parentTransform.Multiply(viewport.Transform)
+	} else {
+		layer.Transform = parentTransform
+	}
+	layer.ClipRect = layer.Bounds
+	return layer, false
 }
 
 type hitEntry struct {

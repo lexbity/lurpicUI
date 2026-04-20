@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"image/color"
+	"strings"
 	"testing"
 	"time"
 
@@ -23,6 +24,17 @@ import (
 type stubBackend struct {
 	submitErr error
 }
+
+type recordingLogger struct {
+	warnings []string
+}
+
+func (l *recordingLogger) Debug(string, ...any) {}
+func (l *recordingLogger) Info(string, ...any)  {}
+func (l *recordingLogger) Warn(msg string, args ...any) {
+	l.warnings = append(l.warnings, msg)
+}
+func (l *recordingLogger) Error(string, ...any) {}
 
 func (s *stubBackend) Initialize(surface render.Surface) error { return nil }
 func (s *stubBackend) Submit(frame *render.Frame) error        { return s.submitErr }
@@ -79,6 +91,40 @@ type runtimeRenderFacet struct {
 	name   string
 }
 
+type runtimeLayerFacet struct {
+	facet.Facet
+	layout     facet.LayoutRole
+	specs      []layout.LayerSpec
+	anchors    layout.AnchorSet
+	onExport   func(ctx layout.AnchorExportContext)
+	exportHits int
+}
+
+type runtimeProjectedFacet struct {
+	facet.Facet
+	layout    facet.LayoutRole
+	worldPos  gfx.Point
+	worldSize gfx.Size
+}
+
+type spyPolicy struct {
+	measure func(children []layout.ChildNode, constraints gfx.Size) gfx.Size
+	arrange func(children []layout.ChildNode, layer layout.ResolvedLayer)
+}
+
+func (p *spyPolicy) Measure(children []layout.ChildNode, constraints gfx.Size) gfx.Size {
+	if p != nil && p.measure != nil {
+		return p.measure(children, constraints)
+	}
+	return gfx.Size{}
+}
+
+func (p *spyPolicy) Arrange(children []layout.ChildNode, layer layout.ResolvedLayer) {
+	if p != nil && p.arrange != nil {
+		p.arrange(children, layer)
+	}
+}
+
 type runtimeFocusFacet struct {
 	facet.Facet
 	focus facet.FocusRole
@@ -128,6 +174,43 @@ type projectionRuntimeFacet struct {
 	facet.Facet
 	projection facet.ProjectionRole
 	scheduled  bool
+}
+
+func (f *runtimeLayerFacet) OnLayerSpecs() []layout.LayerSpec {
+	return f.specs
+}
+
+func (f *runtimeLayerFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
+
+func (f *runtimeLayerFacet) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
+	f.exportHits++
+	if f.onExport != nil {
+		f.onExport(ctx)
+	}
+	if len(f.anchors) == 0 {
+		return nil
+	}
+	out := make(layout.AnchorSet, len(f.anchors))
+	for id, pos := range f.anchors {
+		out[id] = pos
+	}
+	return out
+}
+
+func (f *runtimeProjectedFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
+
+func (f *runtimeProjectedFacet) WorldPosition() gfx.Point {
+	return f.worldPos
+}
+
+func (f *runtimeProjectedFacet) WorldSize() gfx.Size {
+	return f.worldSize
 }
 
 func newRuntimeRenderFacet(name string, bounds gfx.Rect, fill color.RGBA) *runtimeRenderFacet {
@@ -292,6 +375,201 @@ func newRuntimeRenderTree() (*runtimeRenderFacet, *runtimeRenderFacet) {
 	}
 	child := newRuntimeRenderFacet("child", gfx.RectFromXYWH(0, 0, 40, 40), color.RGBA{R: 200, G: 0, B: 0, A: 255})
 	return root, child
+}
+
+func newRuntimeLayerTree() (*runtimeLayerFacet, *runtimeRenderFacet) {
+	root := &runtimeLayerFacet{
+		Facet: facet.NewFacet(),
+		specs: []layout.LayerSpec{
+			{
+				ID:          1,
+				Placement:   layout.PlacementFree,
+				Measurement: layout.MeasureNonStructural,
+				CoordLimits: layout.CoordLimits{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)},
+			},
+		},
+	}
+	root.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
+		return gfx.Size{W: 100, H: 100}
+	}
+	root.layout.OnArrange = func(bounds gfx.Rect) {
+		root.layout.ArrangedBounds = bounds
+	}
+	root.AddRole(&root.layout)
+	child := newRuntimeRenderFacet("child", gfx.RectFromXYWH(0, 0, 20, 10), color.RGBA{R: 200, G: 0, B: 0, A: 255})
+	return root, child
+}
+
+func newRuntimeAnchorTree() (*runtimeLayerFacet, *runtimeLayerFacet, *runtimeTestFacet) {
+	root := &runtimeLayerFacet{
+		Facet: facet.NewFacet(),
+		specs: []layout.LayerSpec{
+			{
+				ID:          1,
+				Placement:   layout.PlacementStack,
+				Measurement: layout.MeasureStructural,
+			},
+			{
+				ID:          2,
+				Placement:   layout.PlacementAnchor,
+				Measurement: layout.MeasureNonStructural,
+			},
+		},
+	}
+	root.AddRole(&root.layout)
+	exporter := &runtimeLayerFacet{
+		Facet:   facet.NewFacet(),
+		anchors: layout.AnchorSet{"mark": gfx.Point{X: 10, Y: 20}},
+	}
+	exporter.layout.OnMeasure = func(c facet.Constraints) gfx.Size { return gfx.Size{} }
+	exporter.layout.OnArrange = func(bounds gfx.Rect) { exporter.layout.ArrangedBounds = bounds }
+	exporter.AddRole(&exporter.layout)
+	child := &runtimeTestFacet{Facet: facet.NewFacet(), name: "anchor-child"}
+	root.Base()
+	exporter.Base()
+	child.Base()
+	root.AddChild(&exporter.Facet)
+	root.AddChild(&child.Facet)
+	return root, exporter, child
+}
+
+func newRuntimeAnchorPlacementTree() (*runtimeLayerFacet, *runtimeLayerFacet, *runtimeRenderFacet) {
+	root := &runtimeLayerFacet{
+		Facet: facet.NewFacet(),
+		specs: []layout.LayerSpec{
+			{
+				ID:          1,
+				Placement:   layout.PlacementStack,
+				Measurement: layout.MeasureStructural,
+			},
+			{
+				ID:          2,
+				Placement:   layout.PlacementAnchor,
+				Measurement: layout.MeasureNonStructural,
+			},
+		},
+	}
+	root.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
+		return gfx.Size{W: 300, H: 300}
+	}
+	root.layout.OnArrange = func(bounds gfx.Rect) {
+		root.layout.ArrangedBounds = bounds
+	}
+	root.AddRole(&root.layout)
+
+	exporter := &runtimeLayerFacet{
+		Facet:   facet.NewFacet(),
+		anchors: layout.AnchorSet{"mark": gfx.Point{X: 100, Y: 200}},
+	}
+	exporter.layout.OnMeasure = func(c facet.Constraints) gfx.Size { return gfx.Size{} }
+	exporter.layout.OnArrange = func(bounds gfx.Rect) { exporter.layout.ArrangedBounds = bounds }
+	exporter.AddRole(&exporter.layout)
+
+	child := newRuntimeRenderFacet("anchor-child", gfx.RectFromXYWH(0, 0, 50, 30), color.RGBA{R: 0, G: 128, B: 255, A: 255})
+	child.layout.OnArrange = func(bounds gfx.Rect) {
+		child.layout.ArrangedBounds = bounds
+	}
+	return root, exporter, child
+}
+
+func newRuntimeProjectedTree() (*runtimeLayerFacet, *runtimeProjectedFacet) {
+	root := &runtimeLayerFacet{
+		Facet: facet.NewFacet(),
+		specs: []layout.LayerSpec{
+			{
+				ID:          1,
+				Placement:   layout.PlacementStack,
+				Measurement: layout.MeasureStructural,
+			},
+			{
+				ID:          2,
+				Placement:   layout.PlacementProjected,
+				Measurement: layout.MeasureNonStructural,
+				CoordSpace:  layout.CoordViewport,
+			},
+		},
+	}
+	root.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
+		return gfx.Size{W: 400, H: 400}
+	}
+	root.layout.OnArrange = func(bounds gfx.Rect) {
+		root.layout.ArrangedBounds = bounds
+	}
+	root.AddRole(&root.layout)
+
+	child := &runtimeProjectedFacet{
+		Facet:     facet.NewFacet(),
+		worldPos:  gfx.Point{X: 100, Y: 200},
+		worldSize: gfx.Size{W: 50, H: 30},
+	}
+	child.layout.OnMeasure = func(c facet.Constraints) gfx.Size { return gfx.Size{W: 50, H: 30} }
+	child.layout.OnArrange = func(bounds gfx.Rect) {
+		child.layout.ArrangedBounds = bounds
+	}
+	child.AddRole(&child.layout)
+
+	root.Base()
+	child.Base()
+	return root, child
+}
+
+func setupAnchorExportRuntime(t *testing.T, root *runtimeLayerFacet, exporter *runtimeLayerFacet, child *runtimeTestFacet) *Runtime {
+	t.Helper()
+	rt := mustRuntimeTree(t, root)
+	rt.layerStates[root.ID()] = &resolvedLayerSet{
+		specs: append([]layout.LayerSpec(nil), root.specs...),
+		layers: []layout.ResolvedLayer{
+			{
+				LayerID:     1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
+				Transform:   gfx.Identity(),
+				ClipRect:    gfx.Rect{},
+				CoordLimits: layout.CoordLimits{},
+				HitPolicy:   layout.HitNormal,
+				RenderOrder: 0,
+				CoordSpace:  layout.CoordParentLayout,
+			},
+			{
+				LayerID:     2,
+				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
+				Transform:   gfx.Identity(),
+				ClipRect:    gfx.Rect{},
+				CoordLimits: layout.CoordLimits{},
+				HitPolicy:   layout.HitNormal,
+				RenderOrder: 0,
+				CoordSpace:  layout.CoordParentLayout,
+			},
+		},
+	}
+	rt.childAttachments[exporter.ID()] = layout.ChildAttachment{LayerID: 1}
+	rt.childAttachments[child.ID()] = layout.ChildAttachment{
+		LayerID: 2,
+		Placement: layout.PlacementHints{
+			AnchorRef: "mark",
+		},
+	}
+	return rt
+}
+
+type assemblyLayerResolverStub struct {
+	layers      map[facet.FacetID]facet.ProjectionLayer
+	attachments map[facet.FacetID]layout.ChildAttachment
+}
+
+func (s assemblyLayerResolverStub) ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool) {
+	if s.layers == nil {
+		return facet.ProjectionLayer{}, false
+	}
+	layer, ok := s.layers[id]
+	return layer, ok
+}
+
+func (s assemblyLayerResolverStub) ResolveChildAttachment(id facet.FacetID) (layout.ChildAttachment, bool) {
+	if s.attachments == nil {
+		return layout.ChildAttachment{}, false
+	}
+	attachment, ok := s.attachments[id]
+	return attachment, ok
 }
 
 func TestRuntimeNew_nil_fontregistry_errors(t *testing.T) {
@@ -528,7 +806,7 @@ func TestRuntime_addfacet_visible_next_frame(t *testing.T) {
 	}
 	rt.RunOneFrame()
 	before := rt.LastFrameStats().RenderBatchCount
-	rt.AddFacet(root, child)
+	rt.AddFacet(root, child, layout.ChildAttachment{})
 	rt.RunOneFrame()
 	if got := rt.LastFrameStats().RenderBatchCount; got <= before {
 		t.Fatalf("RenderBatch count = %d, before = %d", got, before)
@@ -539,6 +817,488 @@ func TestRuntime_addfacet_visible_next_frame(t *testing.T) {
 	rt.Shutdown()
 }
 
+func TestRuntime_assembleFrame_orders_layers_and_z(t *testing.T) {
+	resolver := assemblyLayerResolverStub{
+		layers: map[facet.FacetID]facet.ProjectionLayer{
+			1: {RenderOrder: 2, ClipRect: gfx.Rect{}},
+			2: {RenderOrder: 0, ClipRect: gfx.Rect{}},
+			3: {RenderOrder: 1, ClipRect: gfx.Rect{}},
+		},
+	}
+	output := &projection.FrameOutput{
+		RenderBatchs: []projection.RenderBatchOutput{
+			{FacetID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Commands: gfx.CommandList{}},
+			{FacetID: 2, Bounds: gfx.RectFromXYWH(10, 0, 10, 10), Commands: gfx.CommandList{}},
+			{FacetID: 3, Bounds: gfx.RectFromXYWH(20, 0, 10, 10), Commands: gfx.CommandList{}},
+		},
+	}
+	frame := assembleFrameWithLayers(output, nil, resolver)
+	if len(frame.Layers) != 3 {
+		t.Fatalf("layers = %d, want 3", len(frame.Layers))
+	}
+	if frame.Layers[0].RenderOrder != 0 || frame.Layers[1].RenderOrder != 1 || frame.Layers[2].RenderOrder != 2 {
+		t.Fatalf("layer order = %#v", frame.Layers)
+	}
+	if frame.RenderBatchs[0].ID != 2 || frame.RenderBatchs[1].ID != 3 || frame.RenderBatchs[2].ID != 1 {
+		t.Fatalf("render batch order = %#v", frame.RenderBatchs)
+	}
+}
+
+func TestRuntime_assembleFrame_groups_same_layer_by_zpriority(t *testing.T) {
+	rt := mustRuntime(t)
+	rt.policyRegistry = DefaultRegistry()
+	rtResolver := assemblyLayerResolverStub{
+		layers: map[facet.FacetID]facet.ProjectionLayer{
+			1: {RenderOrder: 1, ClipRect: gfx.RectFromXYWH(0, 0, 100, 100)},
+			2: {RenderOrder: 1, ClipRect: gfx.RectFromXYWH(0, 0, 100, 100)},
+		},
+		attachments: map[facet.FacetID]layout.ChildAttachment{
+			1: {ZPriority: 1},
+			2: {ZPriority: 0},
+		},
+	}
+	output := &projection.FrameOutput{
+		RenderBatchs: []projection.RenderBatchOutput{
+			{FacetID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Commands: gfx.CommandList{}},
+			{FacetID: 2, Bounds: gfx.RectFromXYWH(10, 0, 10, 10), Commands: gfx.CommandList{}},
+		},
+	}
+	frame := assembleFrameWithLayers(output, nil, rtResolver)
+	if len(frame.Layers) != 1 {
+		t.Fatalf("layers = %d, want 1", len(frame.Layers))
+	}
+	if got := frame.RenderBatchs[0].ID; got != 2 {
+		t.Fatalf("first batch id = %d, want 2", got)
+	}
+	if got := frame.RenderBatchs[1].ID; got != 1 {
+		t.Fatalf("second batch id = %d, want 1", got)
+	}
+	if got := len(frame.Layers[0].Batches); got != 2 {
+		t.Fatalf("layer batch count = %d, want 2", got)
+	}
+}
+
+func TestRuntime_addchild_arranges_by_layer_attachment(t *testing.T) {
+	root, child := newRuntimeLayerTree()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	rt.AddFacet(root, child, layout.ChildAttachment{
+		LayerID: 1,
+		Placement: layout.PlacementHints{
+			FreeAnchor: layout.FreeBottomRight,
+		},
+	})
+	rt.RunOneFrame()
+	got := child.LayoutRole().ArrangedBounds
+	want := gfx.RectFromXYWH(80, 90, 20, 10)
+	if got != want {
+		t.Fatalf("arranged bounds = %#v, want %#v", got, want)
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_addfacet_wrapper_preserves_old_api(t *testing.T) {
+	root, child := newRuntimeLayerTree()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	rt.AddFacet(root, child, layout.ChildAttachment{})
+	rt.RunOneFrame()
+	if got := child.LayoutRole().ArrangedBounds; got.IsEmpty() {
+		t.Fatal("expected child to be arranged")
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_layerpolicy_registry_invokes_registered_policy(t *testing.T) {
+	root, child := newRuntimeLayerTree()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	called := false
+	rt.policyRegistry.policies[layout.PlacementFree] = &spyPolicy{
+		measure: func(children []layout.ChildNode, constraints gfx.Size) gfx.Size {
+			return gfx.Size{}
+		},
+		arrange: func(children []layout.ChildNode, layer layout.ResolvedLayer) {
+			called = true
+			for i := range children {
+				children[i].SetArrangedBounds(gfx.RectFromXYWH(0, 0, 1, 1))
+			}
+		},
+	}
+	rt.AddFacet(root, child, layout.ChildAttachment{
+		LayerID: 1,
+		Placement: layout.PlacementHints{
+			FreeAnchor: layout.FreeTopLeft,
+		},
+	})
+	rt.RunOneFrame()
+	if !called {
+		t.Fatal("expected policy to be invoked")
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_anchorExport_updates_cache_and_skips_unchanged(t *testing.T) {
+	root, exporter, child := newRuntimeAnchorTree()
+	rt := setupAnchorExportRuntime(t, root, exporter, child)
+
+	rt.resolveAnchorExports()
+
+	cache := rt.anchorCaches[root.ID()]
+	if cache == nil {
+		t.Fatal("expected cache to be created")
+	}
+	if got := cache.Version(); got != 1 {
+		t.Fatalf("cache version = %d, want 1", got)
+	}
+	if pos, ok := cache.Get("mark"); !ok || pos != (gfx.Point{X: 10, Y: 20}) {
+		t.Fatalf("cached mark = %#v, %v", pos, ok)
+	}
+	if flags := child.DirtyFlags(); flags&facet.DirtyLayout == 0 {
+		t.Fatalf("child flags = %v, want layout dirty", flags)
+	}
+	if got := exporter.exportHits; got != 1 {
+		t.Fatalf("export hits = %d, want 1", got)
+	}
+
+	child.Base().ClearDirty(facet.DirtyLayout)
+	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
+	rt.dirtySources = make(map[facet.FacetID]string)
+
+	rt.resolveAnchorExports()
+
+	if got := cache.Version(); got != 1 {
+		t.Fatalf("cache version after identical export = %d, want 1", got)
+	}
+	if flags := child.DirtyFlags(); flags&facet.DirtyLayout != 0 {
+		t.Fatalf("child flags = %v, want clean", flags)
+	}
+	if got := exporter.exportHits; got != 2 {
+		t.Fatalf("export hits = %d, want 2", got)
+	}
+}
+
+func TestRuntime_anchorExport_marks_children_on_move_and_remove(t *testing.T) {
+	root, exporter, child := newRuntimeAnchorTree()
+	rt := setupAnchorExportRuntime(t, root, exporter, child)
+
+	rt.resolveAnchorExports()
+	cache := rt.anchorCaches[root.ID()]
+	if cache == nil {
+		t.Fatal("expected cache")
+	}
+
+	child.Base().ClearDirty(facet.DirtyLayout)
+	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
+	rt.dirtySources = make(map[facet.FacetID]string)
+
+	exporter.anchors = layout.AnchorSet{"mark": gfx.Point{X: 20, Y: 25}}
+	rt.resolveAnchorExports()
+	if got := cache.Version(); got != 2 {
+		t.Fatalf("cache version after move = %d, want 2", got)
+	}
+	if flags := child.DirtyFlags(); flags&facet.DirtyLayout == 0 {
+		t.Fatalf("child flags after move = %v, want layout dirty", flags)
+	}
+
+	child.Base().ClearDirty(facet.DirtyLayout)
+	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
+	rt.dirtySources = make(map[facet.FacetID]string)
+
+	exporter.anchors = nil
+	rt.resolveAnchorExports()
+	if got := cache.Version(); got != 3 {
+		t.Fatalf("cache version after removal = %d, want 3", got)
+	}
+	if _, ok := cache.Get("mark"); ok {
+		t.Fatal("expected removed anchor to be absent")
+	}
+	if flags := child.DirtyFlags(); flags&facet.DirtyLayout == 0 {
+		t.Fatalf("child flags after removal = %v, want layout dirty", flags)
+	}
+}
+
+func TestRuntime_anchorExport_resets_cache_when_exporter_detached(t *testing.T) {
+	root, exporter, child := newRuntimeAnchorTree()
+	rt := setupAnchorExportRuntime(t, root, exporter, child)
+
+	rt.resolveAnchorExports()
+	cache := rt.anchorCaches[root.ID()]
+	if cache == nil {
+		t.Fatal("expected cache")
+	}
+
+	child.Base().ClearDirty(facet.DirtyLayout)
+	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
+	rt.dirtySources = make(map[facet.FacetID]string)
+
+	rt.RemoveFacet(exporter)
+	rt.resolveAnchorExports()
+
+	if got := cache.Version(); got != 2 {
+		t.Fatalf("cache version after detach = %d, want 2", got)
+	}
+	if _, ok := cache.Get("mark"); ok {
+		t.Fatal("expected cache to be reset")
+	}
+	if flags := child.DirtyFlags(); flags&facet.DirtyLayout == 0 {
+		t.Fatalf("child flags after detach = %v, want layout dirty", flags)
+	}
+}
+
+func TestRuntime_anchorExport_discards_cache_when_anchor_children_removed(t *testing.T) {
+	root, exporter, child := newRuntimeAnchorTree()
+	rt := setupAnchorExportRuntime(t, root, exporter, child)
+
+	rt.resolveAnchorExports()
+	if _, ok := rt.anchorCaches[root.ID()]; !ok {
+		t.Fatal("expected cache")
+	}
+
+	rt.RemoveFacet(child)
+	rt.resolveAnchorExports()
+
+	if _, ok := rt.anchorCaches[root.ID()]; ok {
+		t.Fatal("expected cache to be discarded when no anchor children remain")
+	}
+}
+
+func TestRuntime_anchorExport_panics_on_store_set(t *testing.T) {
+	root, exporter, child := newRuntimeAnchorTree()
+	s := store.NewValueStore(0)
+	exporter.onExport = func(ctx layout.AnchorExportContext) {
+		s.Set(1)
+	}
+	rt := setupAnchorExportRuntime(t, root, exporter, child)
+	expectPanicContains(t, "store.Set", func() {
+		rt.resolveAnchorExports()
+	})
+}
+
+func TestRuntime_anchorExport_panics_on_job_schedule(t *testing.T) {
+	root, exporter, child := newRuntimeAnchorTree()
+	pool := job.NewPool(1)
+	defer pool.Shutdown()
+	exporter.onExport = func(ctx layout.AnchorExportContext) {
+		_ = job.Schedule(pool, job.Job[int, int]{
+			ID:       1,
+			Priority: job.PriorityBackground,
+			Snapshot: job.NewSnapshot(1),
+			Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
+				return snap.Data, nil
+			},
+		}, nil)
+	}
+	rt := setupAnchorExportRuntime(t, root, exporter, child)
+	expectPanicContains(t, "job.Schedule", func() {
+		rt.resolveAnchorExports()
+	})
+}
+
+func TestRuntime_anchorLayer_uses_exported_anchor_cache(t *testing.T) {
+	root, exporter, child := newRuntimeAnchorPlacementTree()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	rt.AddFacet(root, exporter, layout.ChildAttachment{LayerID: 1})
+	rt.AddFacet(root, child, layout.ChildAttachment{
+		LayerID: 2,
+		Placement: layout.PlacementHints{
+			AnchorRef:  "mark",
+			AnchorSide: layout.AnchorAbove,
+			AnchorGap:  8,
+		},
+	})
+	rt.RunOneFrame()
+	got := child.LayoutRole().ArrangedBounds
+	want := gfx.RectFromXYWH(75, 162, 50, 30)
+	if got != want {
+		t.Fatalf("anchor bounds = %#v, want %#v", got, want)
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_projectedLayer_uses_world_positioned_child(t *testing.T) {
+	root, child := newRuntimeProjectedTree()
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	rt.AddFacet(root, child, layout.ChildAttachment{LayerID: 2})
+	rt.RunOneFrame()
+	got := child.LayoutRole().ArrangedBounds
+	want := gfx.RectFromXYWH(100, 200, 50, 30)
+	if got != want {
+		t.Fatalf("projected bounds = %#v, want %#v", got, want)
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_projectedLayer_warns_when_world_position_missing(t *testing.T) {
+	root := &runtimeLayerFacet{
+		Facet: facet.NewFacet(),
+		specs: []layout.LayerSpec{
+			{ID: 1, Placement: layout.PlacementStack, Measurement: layout.MeasureStructural},
+			{ID: 2, Placement: layout.PlacementProjected, Measurement: layout.MeasureNonStructural, CoordSpace: layout.CoordViewport},
+		},
+	}
+	root.layout.OnMeasure = func(c facet.Constraints) gfx.Size { return gfx.Size{W: 400, H: 400} }
+	root.layout.OnArrange = func(bounds gfx.Rect) { root.layout.ArrangedBounds = bounds }
+	root.AddRole(&root.layout)
+
+	child := newRuntimeRenderFacet("plain", gfx.RectFromXYWH(0, 0, 20, 20), color.RGBA{R: 200, G: 0, B: 0, A: 255})
+	child.layout.OnArrange = func(bounds gfx.Rect) { child.layout.ArrangedBounds = bounds }
+
+	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt.log = &recordingLogger{}
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	rt.AddFacet(root, child, layout.ChildAttachment{LayerID: 2})
+	rt.RunOneFrame()
+	if got := child.LayoutRole().ArrangedBounds; got != (gfx.Rect{}) {
+		t.Fatalf("missing world-position child bounds = %#v, want zero", got)
+	}
+	if got := len(rt.log.(*recordingLogger).warnings); got == 0 {
+		t.Fatal("expected warning for missing WorldPositioned")
+	}
+	rt.Shutdown()
+}
+
+func TestRuntime_HitTest_passThrough_prefers_lower_layer(t *testing.T) {
+	rt := mustRuntime(t)
+	rt.projectionLayers = map[facet.FacetID]facet.ProjectionLayer{
+		1: {RenderOrder: 2, HitPolicy: uint8(layout.HitPassThrough)},
+		2: {RenderOrder: 1, HitPolicy: uint8(layout.HitNormal)},
+	}
+	rt.projectionSystem = projection.NewSystem()
+	rt.projectionSystem.SetCurrentHitMap(projection.NewHitMap(
+		projection.HitMapEntry{FacetID: 1, Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}}},
+		projection.HitMapEntry{FacetID: 2, Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}}},
+	))
+	if got := rt.HitTest(gfx.Point{X: 10, Y: 10}); got != 2 {
+		t.Fatalf("HitTest = %d, want 2", got)
+	}
+}
+
+func TestRuntime_HitTest_blockBelow_stops_traversal(t *testing.T) {
+	rt := mustRuntime(t)
+	rt.projectionLayers = map[facet.FacetID]facet.ProjectionLayer{
+		1: {RenderOrder: 2, HitPolicy: uint8(layout.HitBlockBelow)},
+		2: {RenderOrder: 1, HitPolicy: uint8(layout.HitNormal)},
+	}
+	rt.projectionSystem = projection.NewSystem()
+	rt.projectionSystem.SetCurrentHitMap(projection.NewHitMap(
+		projection.HitMapEntry{FacetID: 1, Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(200, 200, 10, 10)}}},
+		projection.HitMapEntry{FacetID: 2, Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}}},
+	))
+	if got := rt.HitTest(gfx.Point{X: 10, Y: 10}); got != 0 {
+		t.Fatalf("HitTest = %d, want 0", got)
+	}
+}
+
+func TestRuntime_HitTest_disabled_skips_layer(t *testing.T) {
+	rt := mustRuntime(t)
+	rt.projectionLayers = map[facet.FacetID]facet.ProjectionLayer{
+		1: {RenderOrder: 2, HitPolicy: uint8(layout.HitDisabled)},
+		2: {RenderOrder: 1, HitPolicy: uint8(layout.HitNormal)},
+	}
+	rt.projectionSystem = projection.NewSystem()
+	rt.projectionSystem.SetCurrentHitMap(projection.NewHitMap(
+		projection.HitMapEntry{FacetID: 1, Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}}},
+		projection.HitMapEntry{FacetID: 2, Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}}},
+	))
+	if got := rt.HitTest(gfx.Point{X: 10, Y: 10}); got != 2 {
+		t.Fatalf("HitTest = %d, want 2", got)
+	}
+}
+
+func TestRuntime_HitTest_recordsTrace(t *testing.T) {
+	rt := mustRuntime(t)
+	rt.EnableHitTrace(true)
+	rt.root = &runtimeTestFacet{Facet: facet.NewFacet(), name: "root"}
+	childOne := &runtimeTestFacet{Facet: facet.NewFacet(), name: "childOne"}
+	childTwo := &runtimeTestFacet{Facet: facet.NewFacet(), name: "childTwo"}
+	rootBase := rt.root.Base()
+	rootBase.AddChildRuntime(&childOne.Facet)
+	rootBase.AddChildRuntime(&childTwo.Facet)
+	rt.projectionLayers = map[facet.FacetID]facet.ProjectionLayer{
+		childOne.ID(): {RenderOrder: 2, HitPolicy: uint8(layout.HitPassThrough)},
+		childTwo.ID(): {RenderOrder: 1, HitPolicy: uint8(layout.HitNormal)},
+	}
+	rt.projectionSystem = projection.NewSystem()
+	rt.projectionSystem.SetCurrentHitMap(projection.NewHitMap(
+		projection.HitMapEntry{FacetID: childOne.ID(), Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}}},
+		projection.HitMapEntry{FacetID: childTwo.ID(), Transform: gfx.Identity(), Regions: []projection.HitRegion{{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}}},
+	))
+	if got := rt.HitTest(gfx.Point{X: 10, Y: 10}); got != childTwo.ID() {
+		t.Fatalf("HitTest = %d, want %d", got, childTwo.ID())
+	}
+	trace := rt.HitTrace()
+	if trace.Result != childTwo.ID() || len(trace.TestedLayers) != 2 {
+		t.Fatalf("trace = %#v", trace)
+	}
+	if trace.TestedLayers[0].StoppedHere || !trace.TestedLayers[1].StoppedHere {
+		t.Fatalf("trace stop flags = %#v", trace.TestedLayers)
+	}
+}
+
+func TestRuntime_Inspect_exposesLayerSnapshots(t *testing.T) {
+	rt := mustRuntime(t)
+	root := &runtimeTestFacet{Facet: facet.NewFacet(), name: "root"}
+	rootBase := root.Base()
+	rt.root = root
+	rt.layerStates[rootBase.ID()] = &resolvedLayerSet{
+		specs: []layout.LayerSpec{{
+			ID:          9,
+			Placement:   layout.PlacementStack,
+			Measurement: layout.MeasureStructural,
+			CoordSpace:  layout.CoordParentLayout,
+			RenderOrder: 4,
+			HitPolicy:   layout.HitNormal,
+		}},
+		layers: []layout.ResolvedLayer{{
+			LayerID:     9,
+			Bounds:      gfx.RectFromXYWH(1, 2, 3, 4),
+			ClipRect:    gfx.RectFromXYWH(1, 2, 3, 4),
+			RenderOrder: 4,
+			HitPolicy:   layout.HitNormal,
+		}},
+		childCounts: []int{1},
+	}
+	rt.anchorCaches[rootBase.ID()] = layout.NewAnchorPositionCache()
+	rt.anchorCaches[rootBase.ID()].Update("mark-a", gfx.Point{X: 7, Y: 8})
+	var inspected bool
+	rt.Inspect(func(insp *diagnostics.Inspector) {
+		inspected = true
+		info, ok := insp.Find(rootBase.ID())
+		if !ok {
+			t.Fatal("expected root info")
+		}
+		if len(info.Layers) != 1 || info.Layers[0].LayerID != 9 || info.Layers[0].ChildCount != 1 {
+			t.Fatalf("layer info = %#v", info.Layers)
+		}
+		snap, ok := insp.AnchorSnapshot(rootBase.ID())
+		if !ok || snap.Version == 0 || len(snap.Entries) != 1 {
+			t.Fatalf("anchor snapshot = %#v", snap)
+		}
+		desc := insp.Describe()
+		if !strings.Contains(desc, "Layers:") || !strings.Contains(desc, "AnchorCache:") {
+			t.Fatalf("describe output = %q", desc)
+		}
+	})
+	if !inspected {
+		t.Fatal("expected inspect callback")
+	}
+}
+
 func TestRuntime_removefacet_absent_next_frame(t *testing.T) {
 	root, child := newRuntimeRenderTree()
 	backend := &recordingBackend{}
@@ -547,7 +1307,7 @@ func TestRuntime_removefacet_absent_next_frame(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	rt.RunOneFrame()
-	rt.AddFacet(root, child)
+	rt.AddFacet(root, child, layout.ChildAttachment{})
 	rt.RunOneFrame()
 	if got := rt.LastFrameStats().RenderBatchCount; got != 2 {
 		t.Fatalf("RenderBatch count after add = %d", got)
@@ -570,7 +1330,7 @@ func TestRuntime_removefacet_parent_gets_layout_dirty(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	rt.RunOneFrame()
-	rt.AddFacet(root, child)
+	rt.AddFacet(root, child, layout.ChildAttachment{})
 	rt.RunOneFrame()
 	rt.RemoveFacet(child)
 	if flags := root.DirtyFlags(); flags&facet.DirtyLayout == 0 {
@@ -589,7 +1349,7 @@ func TestRuntime_request_frame_when_dirty(t *testing.T) {
 	case <-rt.frameTimer.requestCh:
 	default:
 	}
-	rt.AddFacet(root, child)
+	rt.AddFacet(root, child, layout.ChildAttachment{})
 	select {
 	case <-rt.frameTimer.requestCh:
 	default:
@@ -1108,6 +1868,21 @@ func TestRuntime_findFacetByID_missing(t *testing.T) {
 	if got := rt.findFacetByID(root, 9999); got != nil {
 		t.Fatalf("got %#v", got)
 	}
+}
+
+func expectPanicContains(t *testing.T, want string, fn func()) {
+	t.Helper()
+	defer func() {
+		recovered := recover()
+		if recovered == nil {
+			t.Fatalf("expected panic containing %q", want)
+		}
+		msg, _ := recovered.(string)
+		if !strings.Contains(msg, want) {
+			t.Fatalf("panic %q missing %q", msg, want)
+		}
+	}()
+	fn()
 }
 
 func mustRuntime(t *testing.T) *Runtime {

@@ -1,7 +1,9 @@
 package diagnostics
 
 import (
+	"fmt"
 	"reflect"
+	"strings"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -13,6 +15,7 @@ type FacetInfo struct {
 	TypeName          string
 	State             facet.LifecycleState
 	Roles             []string
+	Layers            []LayerSnapshot
 	ArrangedBounds    gfx.Rect
 	DirtyFlags        facet.DirtyFlags
 	ChildCount        int
@@ -21,7 +24,10 @@ type FacetInfo struct {
 
 // Inspector provides a read-only tree view over a facet tree.
 type Inspector struct {
-	root facet.FacetImpl
+	root         facet.FacetImpl
+	layerSource  LayerSource
+	anchorSource AnchorSource
+	hitTraceSrc  HitTraceSource
 }
 
 // NewInspector constructs an inspector for root.
@@ -29,12 +35,36 @@ func NewInspector(root facet.FacetImpl) *Inspector {
 	return &Inspector{root: root}
 }
 
+// SetLayerSource binds an external layer snapshot source.
+func (i *Inspector) SetLayerSource(source LayerSource) {
+	if i == nil {
+		return
+	}
+	i.layerSource = source
+}
+
+// SetAnchorSource binds an external anchor snapshot source.
+func (i *Inspector) SetAnchorSource(source AnchorSource) {
+	if i == nil {
+		return
+	}
+	i.anchorSource = source
+}
+
+// SetHitTraceSource binds an external hit-trace source.
+func (i *Inspector) SetHitTraceSource(source HitTraceSource) {
+	if i == nil {
+		return
+	}
+	i.hitTraceSrc = source
+}
+
 // Walk calls fn for every facet in tree order.
 func (i *Inspector) Walk(fn func(depth int, info FacetInfo)) {
 	if i == nil || fn == nil {
 		return
 	}
-	walkFacet(i.root, 0, fn)
+	i.walkFacet(i.root, 0, fn)
 }
 
 // Find returns the FacetInfo for the given ID.
@@ -73,7 +103,59 @@ func (i *Inspector) DirtySet() map[facet.FacetID]facet.DirtyFlags {
 	return out
 }
 
-func walkFacet(node facet.FacetImpl, depth int, fn func(depth int, info FacetInfo)) {
+// LayerSnapshots returns the resolved layers for the given parent facet.
+func (i *Inspector) LayerSnapshots(parent facet.FacetID) []LayerSnapshot {
+	if i == nil || i.layerSource == nil {
+		return nil
+	}
+	return i.layerSource.LayerSnapshots(parent)
+}
+
+// AnchorSnapshot returns the resolved anchors for the given parent facet.
+func (i *Inspector) AnchorSnapshot(parent facet.FacetID) (AnchorSnapshot, bool) {
+	if i == nil || i.anchorSource == nil {
+		return AnchorSnapshot{}, false
+	}
+	return i.anchorSource.AnchorSnapshot(parent)
+}
+
+// HitTrace returns the most recent hit traversal trace.
+func (i *Inspector) HitTrace() HitTestTrace {
+	if i == nil || i.hitTraceSrc == nil {
+		return HitTestTrace{}
+	}
+	return i.hitTraceSrc.HitTrace()
+}
+
+// Describe renders the current tree, including layer and anchor snapshots.
+func (i *Inspector) Describe() string {
+	if i == nil || i.root == nil {
+		return ""
+	}
+	var b strings.Builder
+	i.Walk(func(depth int, info FacetInfo) {
+		indent := strings.Repeat("  ", depth)
+		fmt.Fprintf(&b, "%sFacetID: %d (%s)\n", indent, info.ID, info.TypeName)
+		if len(info.Roles) > 0 {
+			fmt.Fprintf(&b, "%s  Roles: %s\n", indent, strings.Join(info.Roles, ", "))
+		}
+		if info.LastInvalidatedBy != "" {
+			fmt.Fprintf(&b, "%s  Dirty: %s\n", indent, info.LastInvalidatedBy)
+		}
+		if len(info.Layers) > 0 {
+			fmt.Fprintf(&b, "%s  Layers:\n", indent)
+			for _, layer := range info.Layers {
+				fmt.Fprintf(&b, "%s    %s\n", indent, layer.String())
+			}
+		}
+		if snap, ok := i.AnchorSnapshot(info.ID); ok {
+			fmt.Fprintf(&b, "%s  AnchorCache: %s\n", indent, snap.String())
+		}
+	})
+	return strings.TrimRight(b.String(), "\n")
+}
+
+func (i *Inspector) walkFacet(node facet.FacetImpl, depth int, fn func(depth int, info FacetInfo)) {
 	if node == nil || fn == nil {
 		return
 	}
@@ -81,13 +163,13 @@ func walkFacet(node facet.FacetImpl, depth int, fn func(depth int, info FacetInf
 	if base == nil {
 		return
 	}
-	fn(depth, facetInfoFor(node))
+	fn(depth, i.facetInfoFor(node))
 	for _, child := range base.Children() {
-		walkFacet(child, depth+1, fn)
+		i.walkFacet(child, depth+1, fn)
 	}
 }
 
-func facetInfoFor(node facet.FacetImpl) FacetInfo {
+func (i *Inspector) facetInfoFor(node facet.FacetImpl) FacetInfo {
 	base := node.Base()
 	info := FacetInfo{
 		ID:                base.ID(),
@@ -98,6 +180,9 @@ func facetInfoFor(node facet.FacetImpl) FacetInfo {
 		LastInvalidatedBy: base.LastInvalidatedBy(),
 		ArrangedBounds:    arrangedBounds(base),
 		Roles:             roleNames(base),
+	}
+	if i != nil && i.layerSource != nil {
+		info.Layers = i.layerSource.LayerSnapshots(base.ID())
 	}
 	return info
 }

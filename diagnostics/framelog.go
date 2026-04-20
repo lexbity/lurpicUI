@@ -137,10 +137,11 @@ func (l *FrameLog) Summary() FrameLogSummary {
 
 // Hook adapts diagnostics components to the runtime diagnostics hook interface.
 type Hook struct {
-	FrameLog  *FrameLog
-	Overlay   *Overlay
-	Inspector *Inspector
-	HitProbe  *HitProbe
+	FrameLog       *FrameLog
+	Overlay        *Overlay
+	Inspector      *Inspector
+	HitProbe       *HitProbe
+	HitProbeSource HitProbeSource
 }
 
 // OnFrame records the supplied frame stats.

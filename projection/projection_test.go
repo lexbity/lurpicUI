@@ -19,6 +19,19 @@ func (projectionRuntimeStub) CancelJob(id job.JobID) {}
 func (projectionRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 
+type projectionLayerRuntimeStub struct {
+	projectionRuntimeStub
+	layers map[facet.FacetID]facet.ProjectionLayer
+}
+
+func (s projectionLayerRuntimeStub) ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool) {
+	if s.layers == nil {
+		return facet.ProjectionLayer{}, false
+	}
+	layer, ok := s.layers[id]
+	return layer, ok
+}
+
 type projectionTestFacet struct {
 	facet.Facet
 
@@ -237,6 +250,63 @@ func TestProjectionContext_runtime_non_nil(t *testing.T) {
 
 	if root.lastCtx.Runtime == nil {
 		t.Fatal("expected runtime")
+	}
+}
+
+func TestProjectionContext_layer_is_populated(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
+	child := newProjectionTestFacet("child", gfx.RectFromXYWH(10, 20, 30, 40))
+	root.AddChild(&child.Facet)
+	attachTree(root)
+
+	sys := NewSystem()
+	sys.SetRuntime(projectionLayerRuntimeStub{
+		layers: map[facet.FacetID]facet.ProjectionLayer{
+			child.ID(): {
+				Bounds:    gfx.RectFromXYWH(10, 20, 30, 40),
+				Transform: gfx.Translation(12, 18),
+				ClipRect:  gfx.RectFromXYWH(10, 20, 30, 40),
+			},
+		},
+	})
+	sys.Run(root, FrameInfo{})
+
+	if got := child.lastCtx.Layer.Bounds; got != (gfx.RectFromXYWH(10, 20, 30, 40)) {
+		t.Fatalf("layer bounds = %#v", got)
+	}
+	if got := child.lastCtx.Layer.Transform; got != (gfx.Translation(12, 18)) {
+		t.Fatalf("layer transform = %#v", got)
+	}
+	if got := child.lastCtx.Layer.ClipRect; got != (gfx.RectFromXYWH(10, 20, 30, 40)) {
+		t.Fatalf("layer clip = %#v", got)
+	}
+}
+
+func TestProjectionContext_layer_transform_overrides_viewport(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
+	root.viewport.Transform = gfx.Scale(2, 2)
+	root.AddRole(&root.viewport)
+	child := newProjectionTestFacet("child", gfx.RectFromXYWH(0, 0, 10, 10))
+	root.AddChild(&child.Facet)
+	attachTree(root)
+
+	sys := NewSystem()
+	sys.SetRuntime(projectionLayerRuntimeStub{
+		layers: map[facet.FacetID]facet.ProjectionLayer{
+			child.ID(): {
+				Bounds:    gfx.RectFromXYWH(0, 0, 10, 10),
+				Transform: gfx.Identity(),
+				ClipRect:  gfx.RectFromXYWH(0, 0, 10, 10),
+			},
+		},
+	})
+	out := sys.Run(root, FrameInfo{})
+
+	if child.lastCtx.Layer.Transform != gfx.Identity() {
+		t.Fatalf("layer transform = %#v", child.lastCtx.Layer.Transform)
+	}
+	if got := out.RenderBatchs[1].Transform; got != gfx.Identity() {
+		t.Fatalf("batch transform = %#v", got)
 	}
 }
 

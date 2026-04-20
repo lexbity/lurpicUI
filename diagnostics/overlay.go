@@ -1,6 +1,7 @@
 package diagnostics
 
 import (
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/render"
 )
@@ -13,19 +14,28 @@ type Overlay struct {
 	showDirty  bool
 	showHitMap bool
 
-	boundsColor gfx.Color
-	dirtyColor  gfx.Color
-	hitColor    gfx.Color
-	timingColor gfx.Color
+	boundsColor    gfx.Color
+	dirtyColor     gfx.Color
+	hitColor       gfx.Color
+	anchorColor    gfx.Color
+	anchorHotColor gfx.Color
+	linkColor      gfx.Color
+	timingColor    gfx.Color
+
+	lastAnchorVersions map[facet.FacetID]uint64
 }
 
 // NewOverlay constructs an inactive overlay with default debug colors.
 func NewOverlay() *Overlay {
 	return &Overlay{
-		boundsColor: gfx.ColorFromRGBA8(80, 120, 220, 80),
-		dirtyColor:  gfx.ColorFromRGBA8(220, 40, 40, 60),
-		hitColor:    gfx.ColorFromRGBA8(40, 180, 60, 100),
-		timingColor: gfx.ColorFromRGBA8(220, 200, 40, 200),
+		boundsColor:        gfx.ColorFromRGBA8(80, 120, 220, 80),
+		dirtyColor:         gfx.ColorFromRGBA8(220, 40, 40, 60),
+		hitColor:           gfx.ColorFromRGBA8(40, 180, 60, 100),
+		anchorColor:        gfx.ColorFromRGBA8(60, 200, 220, 180),
+		anchorHotColor:     gfx.ColorFromRGBA8(255, 240, 100, 220),
+		linkColor:          gfx.ColorFromRGBA8(180, 180, 180, 160),
+		timingColor:        gfx.ColorFromRGBA8(220, 200, 40, 200),
+		lastAnchorVersions: make(map[facet.FacetID]uint64),
 	}
 }
 
@@ -81,6 +91,10 @@ func (o *Overlay) Inject(frame *render.Frame, inspector *Inspector, hitProbe *Hi
 			if o.showDirty && info.DirtyFlags != 0 {
 				o.drawDirtyHighlight(&list, info)
 			}
+			o.drawLayerSummary(&list, info)
+			if snap, ok := inspector.AnchorSnapshot(info.ID); ok {
+				o.drawAnchorSnapshot(&list, inspector, snap, surfaceSize)
+			}
 		})
 	}
 	if o.showHitMap && hitProbe != nil {
@@ -89,9 +103,19 @@ func (o *Overlay) Inject(frame *render.Frame, inspector *Inspector, hitProbe *Hi
 	o.drawTimingBar(&list, stats, surfaceSize)
 
 	frame.RenderBatchs = append(frame.RenderBatchs, render.RenderBatch{
-		Bounds:  gfx.Rect{Max: gfx.Point{X: surfaceSize.W, Y: surfaceSize.H}},
-		Opacity: 1.0,
+		Bounds:   gfx.Rect{Max: gfx.Point{X: surfaceSize.W, Y: surfaceSize.H}},
+		Opacity:  1.0,
 		Commands: list,
+	})
+	frame.Layers = append(frame.Layers, render.LayeredBatch{
+		RenderOrder: int(^uint(0) >> 1),
+		Batches: []render.RenderBatch{
+			{
+				Bounds:   gfx.Rect{Max: gfx.Point{X: surfaceSize.W, Y: surfaceSize.H}},
+				Opacity:  1.0,
+				Commands: list,
+			},
+		},
 	})
 }
 
@@ -101,7 +125,11 @@ func (h *Hook) InjectOverlay(frame *render.Frame, stats FrameStats) {
 	if h == nil || h.Overlay == nil || !h.Overlay.IsActive() {
 		return
 	}
-	h.Overlay.Inject(frame, h.Inspector, h.HitProbe, stats)
+	probe := h.HitProbe
+	if h.HitProbeSource != nil {
+		probe = h.HitProbeSource.HitProbe()
+	}
+	h.Overlay.Inject(frame, h.Inspector, probe, stats)
 }
 
 func (o *Overlay) drawFacetBounds(list *gfx.CommandList, info FacetInfo) {
@@ -117,6 +145,53 @@ func (o *Overlay) drawDirtyHighlight(list *gfx.CommandList, info FacetInfo) {
 		Rect:  info.ArrangedBounds,
 		Brush: gfx.SolidBrush(o.dirtyColor),
 	})
+}
+
+func (o *Overlay) drawLayerSummary(list *gfx.CommandList, info FacetInfo) {
+	for _, layer := range info.Layers {
+		list.Add(gfx.StrokeRect{
+			Rect:   layer.Bounds,
+			Stroke: gfx.DefaultStroke(1),
+			Brush:  gfx.SolidBrush(o.anchorColor),
+		})
+	}
+}
+
+func (o *Overlay) drawAnchorSnapshot(list *gfx.CommandList, inspector *Inspector, snap AnchorSnapshot, _ gfx.Size) {
+	if inspector == nil || len(snap.Entries) == 0 {
+		return
+	}
+	hot := o.lastAnchorVersions[snap.ParentID] != snap.Version
+	if hot {
+		o.lastAnchorVersions[snap.ParentID] = snap.Version
+	}
+	anchorBrush := o.anchorColor
+	if hot {
+		anchorBrush = o.anchorHotColor
+	}
+	for _, entry := range snap.Entries {
+		center := entry.Position
+		cross := gfx.RectFromXYWH(center.X-2, center.Y-2, 4, 4)
+		list.Add(gfx.FillRect{
+			Rect:  cross,
+			Brush: gfx.SolidBrush(anchorBrush),
+		})
+		for _, childID := range entry.Children {
+			childInfo, ok := inspector.Find(childID)
+			if !ok {
+				continue
+			}
+			childCenter := gfx.Point{
+				X: childInfo.ArrangedBounds.Min.X + childInfo.ArrangedBounds.Width()/2,
+				Y: childInfo.ArrangedBounds.Min.Y + childInfo.ArrangedBounds.Height()/2,
+			}
+			list.Add(gfx.DrawPolyline{
+				Points: []gfx.Point{center, childCenter},
+				Stroke: gfx.DefaultStroke(1),
+				Brush:  gfx.SolidBrush(o.linkColor),
+			})
+		}
+	}
 }
 
 func (o *Overlay) drawHitRegions(list *gfx.CommandList, probe *HitProbe, surfaceSize gfx.Size) {

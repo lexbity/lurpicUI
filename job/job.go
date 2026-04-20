@@ -7,6 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -165,6 +166,7 @@ func NewPool(workerCount int) *Pool {
 
 // Schedule submits a job to the pool.
 func Schedule[I, O any](p *Pool, job Job[I, O], onCommit func(O)) error {
+	syncutil.AssertNotAnchorExporting("job.Schedule")
 	if p == nil {
 		return errors.New("job: nil pool")
 	}
@@ -237,6 +239,7 @@ func Schedule[I, O any](p *Pool, job Job[I, O], onCommit func(O)) error {
 
 // submitAny enqueues an opaque job and invokes afterCommit after a successful commit.
 func (p *Pool) submitAny(j AnyJob, afterCommit func(AnyResult)) error {
+	syncutil.AssertNotAnchorExporting("job.SubmitAny")
 	if p == nil || j == nil {
 		return errors.New("job: nil pool or job")
 	}

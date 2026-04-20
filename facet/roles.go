@@ -54,8 +54,8 @@ func (r *LayoutRole) Arrange(bounds gfx.Rect) {
 
 // RenderRole participates in command collection.
 type RenderRole struct {
-	RenderBatchID   gfx.RenderBatchCacheID
-	OnCollect func(list *gfx.CommandList, bounds gfx.Rect)
+	RenderBatchID gfx.RenderBatchCacheID
+	OnCollect     func(list *gfx.CommandList, bounds gfx.Rect)
 }
 
 // Collect appends draw commands for the given bounds.
@@ -161,6 +161,15 @@ type ViewportRole struct {
 	WorldBounds gfx.Rect
 }
 
+// ProjectionLayer carries the resolved spatial context for projection.
+type ProjectionLayer struct {
+	Bounds      gfx.Rect
+	Transform   gfx.Transform
+	ClipRect    gfx.Rect
+	RenderOrder int
+	HitPolicy   uint8
+}
+
 // ScreenToWorld converts a screen-space point to world space.
 func (v *ViewportRole) ScreenToWorld(screenPt gfx.Point) (worldPt gfx.Point, ok bool) {
 	if v == nil {
@@ -199,6 +208,7 @@ type ProjectionContext struct {
 	Bounds   gfx.Rect
 	Viewport *ViewportRole
 	Runtime  RuntimeServices
+	Layer    ProjectionLayer
 }
 
 // ProjectionRole participates in projection output collection.

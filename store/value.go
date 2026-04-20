@@ -44,12 +44,14 @@ func (s *ValueStore[T]) Get() T {
 // Set updates the value immediately and emits OnChange if the value changed.
 func (s *ValueStore[T]) Set(value T) {
 	syncutil.AssertRuntimeThread()
+	syncutil.AssertNotAnchorExporting("store.Set")
 	s.set(value, nil)
 }
 
 // SetTx is like Set but defers notifications until tx.Commit.
 func (s *ValueStore[T]) SetTx(value T, tx *Transaction) {
 	syncutil.AssertRuntimeThread()
+	syncutil.AssertNotAnchorExporting("store.SetTx")
 	s.set(value, tx)
 }
 

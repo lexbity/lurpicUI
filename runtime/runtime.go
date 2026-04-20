@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -15,11 +16,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	projectedpolicy "codeburg.org/lexbit/lurpicui/layout/projected"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/store"
-	"codeburg.org/lexbit/lurpicui/text"
 )
 
 type pendingSignal struct{ deliver func() }
@@ -34,6 +35,7 @@ type Runtime struct {
 	focusManager     *facet.FocusManager
 	jobPool          *job.Pool
 	renderPipeline   *RenderPipeline
+	policyRegistry   *PolicyRegistry
 
 	platformApp platform.App
 	window      platform.Window
@@ -43,12 +45,18 @@ type Runtime struct {
 	frameTimer   *FrameTimer
 	contentScale float32
 
-	dirtyFacets   map[facet.FacetID]facet.DirtyFlags
-	dirtySources  map[facet.FacetID]string
-	pendingEvents []platform.Event
-	signalQueue   []pendingSignal
-	diagMu        sync.RWMutex
-	diag          DiagnosticsHook
+	dirtyFacets      map[facet.FacetID]facet.DirtyFlags
+	dirtySources     map[facet.FacetID]string
+	childAttachments map[facet.FacetID]layout.ChildAttachment
+	layerStates      map[facet.FacetID]*resolvedLayerSet
+	anchorCaches     map[facet.FacetID]*layout.AnchorPositionCache
+	projectionLayers map[facet.FacetID]facet.ProjectionLayer
+	lastHitTrace     diagnostics.HitTestTrace
+	hitTraceEnabled  bool
+	pendingEvents    []platform.Event
+	signalQueue      []pendingSignal
+	diagMu           sync.RWMutex
+	diag             DiagnosticsHook
 
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
@@ -90,12 +98,17 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		focusManager:     facet.NewFocusManager(),
 		jobPool:          job.NewPool(config.WorkerCount),
 		renderPipeline:   newRenderPipeline(backend),
+		policyRegistry:   DefaultRegistry(),
 		platformApp:      platformApp,
 		window:           window,
 		root:             root,
 		frameTimer:       NewFrameTimer(config.TargetFPS),
 		dirtyFacets:      make(map[facet.FacetID]facet.DirtyFlags),
 		dirtySources:     make(map[facet.FacetID]string),
+		childAttachments: make(map[facet.FacetID]layout.ChildAttachment),
+		layerStates:      make(map[facet.FacetID]*resolvedLayerSet),
+		anchorCaches:     make(map[facet.FacetID]*layout.AnchorPositionCache),
+		projectionLayers: make(map[facet.FacetID]facet.ProjectionLayer),
 		shutdownCh:       make(chan struct{}),
 		doneCh:           make(chan struct{}),
 		log:              config.Logger,
@@ -250,7 +263,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 	rt.tickFacets(dt)
 
-	currentHitMap := rt.projectionSystem.CurrentHitMap()
+	currentHitMap := rt.layeredHitMap(rt.projectionSystem.CurrentHitMap())
 	routedEvents := rt.inputSystem.Process(rt.pendingEvents, currentHitMap, rt.root)
 	rt.pendingEvents = rt.pendingEvents[:0]
 	routedEvents = append(routedEvents, hoverEvents...)
@@ -275,6 +288,16 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.LayoutDuration = time.Since(layoutStart)
 	stats.DirtyFacets = len(dirtySnapshot)
 
+	layerStart := time.Now()
+	phaseStats := rt.resolveLayerTree()
+	stats.LayoutResolveDuration = time.Since(layerStart)
+	stats.LayoutDuration += stats.LayoutResolveDuration
+	stats.LayerSpecDuration = phaseStats.specResolution
+	stats.AnchorExportDuration = phaseStats.anchorExport
+	stats.StructuralMeasureDuration = phaseStats.structuralMeasure
+	stats.LayerBoundsDuration = phaseStats.layerBoundsResolution
+	stats.ArrangeDuration = phaseStats.arrange
+
 	projStart := time.Now()
 	rt.projectionSystem.SetRuntime(rt)
 	frameOut := rt.projectionSystem.Run(rt.root, projection.FrameInfo{
@@ -297,7 +320,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		frame := rt.assembleFrame(frameOut, dirtySnapshot)
 		if diag := rt.diagnosticsHook(); diag != nil {
 			if oi, ok := diag.(overlayInjector); ok {
-				oi.InjectOverlay(frame, rt.lastStats)
+				oi.InjectOverlay(frame, stats)
 			}
 		}
 		if waitForRender {
@@ -397,8 +420,8 @@ func (rt *Runtime) updateIMECursorRect() {
 	))
 }
 
-// AddFacet attaches a new child facet at runtime.
-func (rt *Runtime) AddFacet(parent, child facet.FacetImpl) {
+// AddFacet attaches a new child facet at runtime with layer metadata.
+func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment layout.ChildAttachment) {
 	if rt == nil || parent == nil || child == nil {
 		return
 	}
@@ -408,8 +431,15 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl) {
 		return
 	}
 	parentBase.AddChildRuntime(childBase)
+	if rt.childAttachments == nil {
+		rt.childAttachments = make(map[facet.FacetID]layout.ChildAttachment)
+	}
+	rt.childAttachments[childBase.ID()] = attachment
 	rt.attachTree(child)
 	rt.activateTree(child)
+	if rt.projectionLayers == nil {
+		rt.projectionLayers = make(map[facet.FacetID]facet.ProjectionLayer)
+	}
 	parentBase.InvalidateWithSource(facet.DirtyLayout, "runtime.AddFacet")
 	rt.dirtyFacets[parentBase.ID()] |= facet.DirtyLayout
 	rt.dirtySources[parentBase.ID()] = "runtime.AddFacet"
@@ -429,6 +459,12 @@ func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
 		return
 	}
 	parent.RemoveChild(child.Base())
+	if rt.childAttachments != nil {
+		delete(rt.childAttachments, child.Base().ID())
+	}
+	if rt.projectionLayers != nil {
+		delete(rt.projectionLayers, child.Base().ID())
+	}
 	parent.InvalidateWithSource(facet.DirtyLayout, "runtime.RemoveFacet")
 	rt.dirtyFacets[parent.ID()] |= facet.DirtyLayout
 	rt.dirtySources[parent.ID()] = "runtime.RemoveFacet"
@@ -614,21 +650,40 @@ func (rt *Runtime) effectiveContentScale() float32 {
 }
 
 func convertFrame(frame *projection.FrameOutput) *render.Frame {
-	return assembleFrame(frame, nil)
+	return assembleFrameWithLayers(frame, nil, nil)
 }
 
 func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) *render.Frame {
-	return assembleFrame(output, dirtySnapshot)
+	return assembleFrameWithLayers(output, dirtySnapshot, rt)
 }
 
-func assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) *render.Frame {
+type frameLayerResolver interface {
+	ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool)
+	ResolveChildAttachment(id facet.FacetID) (layout.ChildAttachment, bool)
+}
+
+type layoutPhaseStats struct {
+	specResolution        time.Duration
+	anchorExport          time.Duration
+	structuralMeasure     time.Duration
+	layerBoundsResolution time.Duration
+	arrange               time.Duration
+}
+
+type frameBatchItem struct {
+	order int
+	z     int
+	clip  gfx.Rect
+	index int
+	batch render.RenderBatch
+}
+
+func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags, resolver frameLayerResolver) *render.Frame {
 	if output == nil {
 		return &render.Frame{}
 	}
-	out := &render.Frame{
-		RenderBatchs: make([]render.RenderBatch, 0, len(output.RenderBatchs)),
-	}
-	for _, RenderBatch := range output.RenderBatchs {
+	items := make([]frameBatchItem, 0, len(output.RenderBatchs))
+	for i, RenderBatch := range output.RenderBatchs {
 		cmds := gfx.CommandList{}
 		if !RenderBatch.Transform.IsIdentity() {
 			cmds.Add(gfx.PushTransform{Matrix: RenderBatch.Transform})
@@ -651,13 +706,58 @@ func assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.Facet
 		if !RenderBatch.Transform.IsIdentity() {
 			cmds.Add(gfx.PopTransform{})
 		}
-		out.RenderBatchs = append(out.RenderBatchs, render.RenderBatch{
+		rb := render.RenderBatch{
 			ID:          render.RenderBatchID(RenderBatch.FacetID),
 			Bounds:      RenderBatch.Bounds,
 			Opacity:     RenderBatch.Opacity,
 			Commands:    cmds,
 			CommandHash: hashutil.HashCommandList(cmds),
-		})
+		}
+		item := frameBatchItem{index: i, batch: rb}
+		if resolver != nil {
+			if layer, ok := resolver.ResolveProjectionLayer(RenderBatch.FacetID); ok {
+				item.order = layer.RenderOrder
+				item.clip = layer.ClipRect
+			}
+			if attachment, ok := resolver.ResolveChildAttachment(RenderBatch.FacetID); ok {
+				item.z = attachment.ZPriority
+			}
+		}
+		items = append(items, item)
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].order != items[j].order {
+			return items[i].order < items[j].order
+		}
+		if items[i].z != items[j].z {
+			return items[i].z < items[j].z
+		}
+		return items[i].index < items[j].index
+	})
+	out := &render.Frame{
+		RenderBatchs: make([]render.RenderBatch, 0, len(items)),
+		FramePacket: render.FramePacket{
+			Layers: make([]render.LayeredBatch, 0, len(items)),
+		},
+	}
+	hasLayer := false
+	var currentOrder int
+	var currentClip gfx.Rect
+	for _, item := range items {
+		out.RenderBatchs = append(out.RenderBatchs, item.batch)
+		if !hasLayer || currentOrder != item.order || currentClip != item.clip {
+			out.Layers = append(out.Layers, render.LayeredBatch{
+				RenderOrder: item.order,
+				ClipRect:    item.clip,
+				Batches:     []render.RenderBatch{item.batch},
+			})
+			currentOrder = item.order
+			currentClip = item.clip
+			hasLayer = true
+			continue
+		}
+		last := len(out.Layers) - 1
+		out.Layers[last].Batches = append(out.Layers[last].Batches, item.batch)
 	}
 	out.DirtyRegions = computeDirtyRegions(output, dirtySnapshot)
 	return out
@@ -739,6 +839,18 @@ func (rt *Runtime) EnableDiagnostics(d DiagnosticsHook) {
 	rt.diagMu.Lock()
 	rt.diag = d
 	rt.diagMu.Unlock()
+	if hook, ok := d.(*diagnostics.Hook); ok {
+		if hook.Inspector == nil {
+			hook.Inspector = diagnostics.NewInspector(rt.root)
+		}
+		if hook.Inspector != nil {
+			hook.Inspector.SetLayerSource(rt)
+			hook.Inspector.SetAnchorSource(rt)
+			hook.Inspector.SetHitTraceSource(rt)
+		}
+		hook.HitProbeSource = rt
+	}
+	rt.hitTraceEnabled = true
 }
 
 // Inspect runs fn with a synchronous inspector snapshot.
@@ -746,7 +858,11 @@ func (rt *Runtime) Inspect(fn func(*diagnostics.Inspector)) {
 	if rt == nil || fn == nil {
 		return
 	}
-	fn(diagnostics.NewInspector(rt.root))
+	inspector := diagnostics.NewInspector(rt.root)
+	inspector.SetLayerSource(rt)
+	inspector.SetAnchorSource(rt)
+	inspector.SetHitTraceSource(rt)
+	fn(inspector)
 }
 
 func (rt *Runtime) diagnosticsHook() DiagnosticsHook {
@@ -766,11 +882,716 @@ func (rt *Runtime) findFacetByID(root facet.FacetImpl, id facet.FacetID) facet.F
 		return root
 	}
 	for _, child := range root.Base().Children() {
-		if found := rt.findFacetByID(child, id); found != nil {
+		next := facet.FacetImpl(child)
+		if impl := child.Impl(); impl != nil {
+			next = impl
+		}
+		if found := rt.findFacetByID(next, id); found != nil {
 			return found
 		}
 	}
 	return nil
+}
+
+func (rt *Runtime) resolveLayerTree() layoutPhaseStats {
+	if rt == nil || rt.root == nil {
+		return layoutPhaseStats{}
+	}
+	rt.projectionLayers = make(map[facet.FacetID]facet.ProjectionLayer)
+	return rt.walkLayerTree(rt.root, gfx.Identity())
+}
+
+func (rt *Runtime) resolveAnchorExports() {
+	if rt == nil || rt.root == nil {
+		return
+	}
+	endGuard := syncutil.BeginAnchorExport()
+	defer endGuard()
+	visited := make(map[facet.FacetID]struct{})
+	rt.walkAnchorExportTree(rt.root, visited)
+	for parentID := range rt.anchorCaches {
+		if _, ok := visited[parentID]; !ok {
+			delete(rt.anchorCaches, parentID)
+		}
+	}
+}
+
+func (rt *Runtime) walkAnchorExportTree(node facet.FacetImpl, visited map[facet.FacetID]struct{}) {
+	if rt == nil || node == nil || node.Base() == nil {
+		return
+	}
+	if visited != nil {
+		visited[node.Base().ID()] = struct{}{}
+	}
+	rt.reconcileAnchorExports(node)
+	for _, child := range node.Base().Children() {
+		rt.walkAnchorExportTree(child, visited)
+	}
+}
+
+func (rt *Runtime) reconcileAnchorExports(parent facet.FacetImpl) {
+	if rt == nil || parent == nil || parent.Base() == nil {
+		return
+	}
+	parentID := parent.Base().ID()
+	state := rt.layerStates[parentID]
+	cache := rt.anchorCaches[parentID]
+	if state == nil && cache == nil {
+		return
+	}
+	var layerKinds map[layout.LayerID]layout.PlacementMode
+	if state != nil {
+		layerKinds = make(map[layout.LayerID]layout.PlacementMode, len(state.specs))
+		for _, spec := range state.specs {
+			layerKinds[spec.ID] = spec.Placement
+		}
+	}
+	anchorChildren := make(map[layout.AnchorID][]facet.FacetID)
+	exporters := make([]facet.FacetImpl, 0)
+	for _, childBase := range parent.Base().Children() {
+		if childBase == nil {
+			continue
+		}
+		attachment, ok := rt.childAttachments[childBase.ID()]
+		if ok {
+			layerID := attachment.LayerID
+			if layerID == 0 && state != nil && len(state.specs) > 0 {
+				layerID = state.specs[0].ID
+			}
+			if attachment.Placement.AnchorRef != "" && layerKinds != nil && layerKinds[layerID] == layout.PlacementAnchor {
+				anchorChildren[attachment.Placement.AnchorRef] = append(anchorChildren[attachment.Placement.AnchorRef], childBase.ID())
+			}
+		}
+		child := rt.findFacetByID(rt.root, childBase.ID())
+		if child == nil {
+			continue
+		}
+		if _, ok := child.(layout.AnchorExporter); ok {
+			if attachment, ok := rt.childAttachments[childBase.ID()]; ok && state != nil {
+				layerID := attachment.LayerID
+				if layerID == 0 && len(state.specs) > 0 {
+					layerID = state.specs[0].ID
+				}
+				if _, ok := state.resolvedLayer(layerID); ok {
+					exporters = append(exporters, child)
+				}
+			}
+		}
+	}
+	if len(anchorChildren) == 0 {
+		if cache != nil && cache.Len() > 0 {
+			_ = cache.Reset()
+		}
+		delete(rt.anchorCaches, parentID)
+		return
+	}
+	if cache == nil {
+		cache = layout.NewAnchorPositionCache()
+		rt.anchorCaches[parentID] = cache
+	}
+	if len(exporters) == 0 {
+		if cache.Len() > 0 {
+			_ = cache.Reset()
+			rt.markAnchorChildrenDirty(anchorChildren, "anchor exporter detached")
+			if rt.frameTimer != nil {
+				rt.frameTimer.RequestFrame()
+			}
+		}
+		return
+	}
+	combined := make(layout.AnchorSet)
+	for _, exporterFacet := range exporters {
+		exporter := exporterFacet.(layout.AnchorExporter)
+		attachment, ok := rt.childAttachments[exporterFacet.Base().ID()]
+		if !ok {
+			continue
+		}
+		layerID := attachment.LayerID
+		if layerID == 0 && len(state.specs) > 0 {
+			layerID = state.specs[0].ID
+		}
+		resolved, ok := state.resolvedLayer(layerID)
+		if !ok {
+			continue
+		}
+		ctx := layout.AnchorExportContext{
+			ResolvedLayer: resolved,
+			Viewport: layout.Viewport{
+				Transform:   resolved.Transform,
+				WorldBounds: resolved.Bounds,
+			},
+		}
+		for id, pos := range exporter.ExportAnchors(ctx) {
+			combined[id] = pos
+		}
+	}
+	changes := cache.Replace(combined)
+	if len(changes) == 0 {
+		return
+	}
+	for _, change := range changes {
+		if refs := anchorChildren[change.ID]; len(refs) > 0 {
+			rt.markFacetGroupDirty(refs, facet.DirtyLayout, anchorChangeSource(change))
+		}
+	}
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
+func anchorChangeSource(change layout.AnchorChange) string {
+	if change.Removed {
+		return fmt.Sprintf("anchor %q removed from %v", change.ID, change.Old)
+	}
+	if change.Old == (gfx.Point{}) {
+		return fmt.Sprintf("anchor %q added at %v", change.ID, change.New)
+	}
+	return fmt.Sprintf("anchor %q moved %v -> %v", change.ID, change.Old, change.New)
+}
+
+func (rt *Runtime) markAnchorChildrenDirty(anchorChildren map[layout.AnchorID][]facet.FacetID, source string) {
+	if rt == nil || len(anchorChildren) == 0 {
+		return
+	}
+	ids := make([]facet.FacetID, 0)
+	for _, refs := range anchorChildren {
+		ids = append(ids, refs...)
+	}
+	rt.markFacetGroupDirty(ids, facet.DirtyLayout, source)
+}
+
+func (rt *Runtime) markFacetGroupDirty(ids []facet.FacetID, flags facet.DirtyFlags, source string) {
+	if rt == nil {
+		return
+	}
+	for _, id := range ids {
+		rt.markFacetDirtyByID(id, flags, source)
+	}
+}
+
+func (rt *Runtime) markFacetDirtyByID(id facet.FacetID, flags facet.DirtyFlags, source string) {
+	if rt == nil || id == 0 {
+		return
+	}
+	rt.dirtyFacets[id] |= flags
+	if source != "" {
+		rt.dirtySources[id] = source
+	}
+	if f := rt.findFacetByID(rt.root, id); f != nil && f.Base() != nil {
+		f.Base().InvalidateWithSource(flags, source)
+	}
+}
+
+func (rt *Runtime) walkLayerTree(node facet.FacetImpl, accumulated gfx.Transform) layoutPhaseStats {
+	if rt == nil || node == nil || node.Base() == nil {
+		return layoutPhaseStats{}
+	}
+	var stats layoutPhaseStats
+	current := accumulated
+	if viewport := node.Base().ViewportRole(); viewport != nil {
+		current = current.Multiply(viewport.Transform)
+	}
+	if composer, ok := node.(LayerComposer); ok {
+		stats = rt.resolveComposedLayers(node, composer, current)
+	}
+	for _, child := range node.Base().Children() {
+		childStats := rt.walkLayerTree(child, current)
+		stats.specResolution += childStats.specResolution
+		stats.anchorExport += childStats.anchorExport
+		stats.structuralMeasure += childStats.structuralMeasure
+		stats.layerBoundsResolution += childStats.layerBoundsResolution
+		stats.arrange += childStats.arrange
+	}
+	return stats
+}
+
+func (rt *Runtime) resolveComposedLayers(parent facet.FacetImpl, composer LayerComposer, accumulated gfx.Transform) layoutPhaseStats {
+	if rt == nil || parent == nil || parent.Base() == nil || composer == nil {
+		return layoutPhaseStats{}
+	}
+	var stats layoutPhaseStats
+	specStart := time.Now()
+	specs := composer.OnLayerSpecs()
+	stats.specResolution += time.Since(specStart)
+	if len(specs) == 0 {
+		delete(rt.layerStates, parent.Base().ID())
+		return stats
+	}
+	for _, spec := range specs {
+		if err := layout.ValidateLayerSpec(spec); err != nil {
+			panic(err)
+		}
+	}
+	parentID := parent.Base().ID()
+	state := rt.layerStates[parentID]
+	if state == nil {
+		state = &resolvedLayerSet{}
+		rt.layerStates[parentID] = state
+	}
+	state.specs = append(state.specs[:0], specs...)
+	state.layers = state.layers[:0]
+	state.childCounts = state.childCounts[:0]
+	parentBounds := gfx.Rect{}
+	if lr := parent.Base().LayoutRole(); lr != nil {
+		if !lr.ArrangedBounds.IsEmpty() {
+			parentBounds = lr.ArrangedBounds
+		} else if lr.MeasuredSize.W > 0 || lr.MeasuredSize.H > 0 {
+			parentBounds = gfx.RectFromXYWH(0, 0, lr.MeasuredSize.W, lr.MeasuredSize.H)
+		}
+	} else if w, h := rt.windowSize(); w > 0 || h > 0 {
+		parentBounds = gfx.RectFromXYWH(0, 0, float32(w), float32(h))
+	}
+	if parentBounds.IsEmpty() {
+		return stats
+	}
+	childrenByLayer := make(map[layout.LayerID][]layerChildRef, len(parent.Base().Children()))
+	for _, childBase := range parent.Base().Children() {
+		if childBase == nil {
+			continue
+		}
+		child := childBase
+		attachment := rt.childAttachments[child.ID()]
+		layerID := attachment.LayerID
+		if layerID == 0 && len(specs) > 0 {
+			layerID = specs[0].ID
+		}
+		childrenByLayer[layerID] = append(childrenByLayer[layerID], layerChildRef{
+			base:       child,
+			attachment: attachment,
+		})
+	}
+	layerBoundsStart := time.Now()
+	for _, spec := range specs {
+		resolved := layout.ResolvedLayer{
+			LayerID:     spec.ID,
+			Bounds:      resolveLayerBounds(parentBounds, spec),
+			CoordLimits: spec.CoordLimits,
+			HitPolicy:   spec.HitPolicy,
+			RenderOrder: spec.RenderOrder,
+			CoordSpace:  spec.CoordSpace,
+		}
+		resolved.Transform = resolveLayerTransform(accumulated, spec)
+		resolved.ClipRect = resolveClipRect(resolved, spec, parent.Base(), accumulated)
+		state.layers = append(state.layers, resolved)
+		state.childCounts = append(state.childCounts, len(childrenByLayer[spec.ID]))
+	}
+	stats.layerBoundsResolution += time.Since(layerBoundsStart)
+	anchorStart := time.Now()
+	rt.reconcileAnchorExports(parent)
+	stats.anchorExport += time.Since(anchorStart)
+	cache := rt.anchorCaches[parentID]
+	for i := range state.layers {
+		if state.specs[i].Placement == layout.PlacementAnchor {
+			state.layers[i].AnchorCache = cache
+		}
+	}
+	arrangeStart := time.Now()
+	for i, spec := range state.specs {
+		layerChildren := childrenByLayer[spec.ID]
+		policy := rt.policyRegistry.MustPolicy(spec.Placement)
+		nodes := make([]layout.ChildNode, 0, len(layerChildren))
+		handles := make([]layout.ChildArrangeHandle, len(layerChildren))
+		resolved := state.layers[i]
+		for j := range layerChildren {
+			ref := layerChildren[j]
+			intrinsic := gfx.Size{}
+			node := layout.ChildNode{
+				FacetID:       ref.base.ID(),
+				Attachment:    ref.attachment,
+				IntrinsicSize: intrinsic,
+			}
+			if spec.Placement == layout.PlacementProjected {
+				if childImpl := rt.findFacetByID(rt.root, ref.base.ID()); childImpl != nil {
+					if wp, ok := childImpl.(projectedpolicy.WorldPositioned); ok {
+						node.WorldPosition = wp.WorldPosition()
+						node.WorldSize = wp.WorldSize()
+						node.HasWorldSpace = true
+					} else if rt.log != nil {
+						rt.log.Warn("layout/projected missing WorldPositioned", "facetID", ref.base.ID(), "layerID", spec.ID)
+					}
+				}
+			} else if lr := ref.base.LayoutRole(); lr != nil {
+				intrinsic = lr.Measure(layout.Loose(gfx.Size{
+					W: parentBounds.Width(),
+					H: parentBounds.Height(),
+				}))
+				node.IntrinsicSize = intrinsic
+			}
+			node.AttachArrangeHandle(&handles[j])
+			nodes = append(nodes, node)
+		}
+		if spec.Measurement == layout.MeasureStructural {
+			measureStart := time.Now()
+			_ = policy.Measure(nodes, gfx.Size{W: resolved.Bounds.Width(), H: resolved.Bounds.Height()})
+			stats.structuralMeasure += time.Since(measureStart)
+		}
+		policy.Arrange(nodes, resolved)
+		for j := range layerChildren {
+			ref := layerChildren[j]
+			arranged := gfx.Rect{}
+			if bounds, ok := handles[j].Bounds(); ok {
+				arranged = bounds
+				if lr := ref.base.LayoutRole(); lr != nil {
+					lr.Arrange(bounds)
+				}
+			}
+			rt.projectionLayers[ref.base.ID()] = facet.ProjectionLayer{
+				Bounds:      arranged,
+				Transform:   resolved.Transform,
+				ClipRect:    resolved.ClipRect,
+				RenderOrder: resolved.RenderOrder,
+				HitPolicy:   uint8(resolved.HitPolicy),
+			}
+		}
+		state.layers[i] = resolved
+	}
+	stats.arrange += time.Since(arrangeStart)
+	return stats
+}
+
+type layerChildRef struct {
+	base       *facet.Facet
+	attachment layout.ChildAttachment
+}
+
+func resolveLayerBounds(parentBounds gfx.Rect, spec layout.LayerSpec) gfx.Rect {
+	if !spec.CoordLimits.Bounds.IsEmpty() {
+		return spec.CoordLimits.Bounds
+	}
+	return parentBounds
+}
+
+func resolveLayerTransform(accumulated gfx.Transform, spec layout.LayerSpec) gfx.Transform {
+	switch spec.CoordSpace {
+	case layout.CoordViewport:
+		return accumulated
+	case layout.CoordScreenAligned:
+		return gfx.Identity()
+	case layout.CoordParentLayout, layout.CoordContent:
+		return gfx.Identity()
+	default:
+		return gfx.Identity()
+	}
+}
+
+func resolveClipRect(layer layout.ResolvedLayer, spec layout.LayerSpec, parent *facet.Facet, accumulated gfx.Transform) gfx.Rect {
+	switch spec.ClipPolicy {
+	case layout.ClipNone:
+		return gfx.Rect{}
+	case layout.ClipToParent, layout.ClipToContent, layout.ClipToViewport:
+		if spec.ClipPolicy == layout.ClipToViewport && parent != nil {
+			if vr := parent.ViewportRole(); vr != nil && !vr.WorldBounds.IsEmpty() {
+				return accumulated.TransformRect(vr.WorldBounds)
+			}
+		}
+		return layer.Bounds
+	default:
+		return layer.Bounds
+	}
+}
+
+// ResolveProjectionLayer returns the current projection-layer snapshot for a facet.
+func (rt *Runtime) ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool) {
+	if rt == nil || id == 0 {
+		return facet.ProjectionLayer{}, false
+	}
+	layer, ok := rt.projectionLayers[id]
+	return layer, ok
+}
+
+// ResolveChildAttachment returns the stored attachment metadata for a child facet.
+func (rt *Runtime) ResolveChildAttachment(id facet.FacetID) (layout.ChildAttachment, bool) {
+	if rt == nil || id == 0 || rt.childAttachments == nil {
+		return layout.ChildAttachment{}, false
+	}
+	attachment, ok := rt.childAttachments[id]
+	return attachment, ok
+}
+
+// LayerSnapshots returns diagnostics layer summaries for a parent facet.
+func (rt *Runtime) LayerSnapshots(parent facet.FacetID) []diagnostics.LayerSnapshot {
+	if rt == nil || parent == 0 {
+		return nil
+	}
+	state := rt.layerStates[parent]
+	if state == nil || len(state.specs) == 0 {
+		return nil
+	}
+	snapshots := make([]diagnostics.LayerSnapshot, 0, len(state.specs))
+	cache := rt.anchorCaches[parent]
+	for i := range state.specs {
+		spec := state.specs[i]
+		layer := layout.ResolvedLayer{}
+		if i < len(state.layers) {
+			layer = state.layers[i]
+		}
+		snapshots = append(snapshots, diagnostics.LayerSnapshot{
+			LayerID:     spec.ID,
+			Placement:   spec.Placement,
+			Measurement: spec.Measurement,
+			CoordSpace:  spec.CoordSpace,
+			RenderOrder: spec.RenderOrder,
+			HitPolicy:   spec.HitPolicy,
+			Bounds:      layer.Bounds,
+			ClipRect:    layer.ClipRect,
+			Transform:   layer.Transform,
+			ChildCount:  0,
+			AnchorCacheVersion: func() uint64 {
+				if cache == nil {
+					return 0
+				}
+				return cache.Version()
+			}(),
+			AnchorCacheCount: func() int {
+				if cache == nil {
+					return 0
+				}
+				return cache.Len()
+			}(),
+		})
+		if i < len(state.childCounts) {
+			snapshots[i].ChildCount = state.childCounts[i]
+		}
+	}
+	return snapshots
+}
+
+// AnchorSnapshot returns diagnostics data for a parent's anchor cache.
+func (rt *Runtime) AnchorSnapshot(parent facet.FacetID) (diagnostics.AnchorSnapshot, bool) {
+	if rt == nil || parent == 0 {
+		return diagnostics.AnchorSnapshot{}, false
+	}
+	cache := rt.anchorCaches[parent]
+	if cache == nil {
+		return diagnostics.AnchorSnapshot{}, false
+	}
+	parentFacet := rt.findFacetByID(rt.root, parent)
+	if parentFacet == nil || parentFacet.Base() == nil {
+		return diagnostics.AnchorSnapshot{}, false
+	}
+	childRefs := make(map[layout.AnchorID][]facet.FacetID)
+	for _, childBase := range parentFacet.Base().Children() {
+		if childBase == nil {
+			continue
+		}
+		attachment, ok := rt.childAttachments[childBase.ID()]
+		if !ok || attachment.Placement.AnchorRef == "" {
+			continue
+		}
+		childRefs[attachment.Placement.AnchorRef] = append(childRefs[attachment.Placement.AnchorRef], childBase.ID())
+	}
+	snapshot := diagnostics.AnchorSnapshot{
+		ParentID: parent,
+		Version:  cache.Version(),
+	}
+	positions := cache.Snapshot()
+	if len(positions) == 0 {
+		return snapshot, true
+	}
+	for id, pos := range positions {
+		snapshot.Entries = append(snapshot.Entries, diagnostics.AnchorSnapshotEntry{
+			ID:       id,
+			Position: pos,
+			Children: append([]facet.FacetID(nil), childRefs[id]...),
+		})
+	}
+	sort.SliceStable(snapshot.Entries, func(i, j int) bool {
+		return snapshot.Entries[i].ID < snapshot.Entries[j].ID
+	})
+	return snapshot, true
+}
+
+// HitProbe returns a fresh hit probe for the current hit map.
+func (rt *Runtime) HitProbe() *diagnostics.HitProbe {
+	if rt == nil || rt.projectionSystem == nil {
+		return nil
+	}
+	return diagnostics.NewHitProbe(rt.root, rt.layeredHitMap(rt.projectionSystem.CurrentHitMap()))
+}
+
+// HitTrace returns the most recent hit traversal trace.
+func (rt *Runtime) HitTrace() diagnostics.HitTestTrace {
+	if rt == nil {
+		return diagnostics.HitTestTrace{}
+	}
+	return rt.lastHitTrace
+}
+
+// EnableHitTrace toggles capture of the most recent hit traversal trace.
+func (rt *Runtime) EnableHitTrace(enabled bool) {
+	if rt == nil {
+		return
+	}
+	rt.hitTraceEnabled = enabled
+	if !enabled {
+		rt.lastHitTrace = diagnostics.HitTestTrace{}
+	}
+}
+
+// HitTest resolves the topmost facet hit at the given screen point.
+func (rt *Runtime) HitTest(screenPos gfx.Point) facet.FacetID {
+	if rt == nil || rt.projectionSystem == nil {
+		if rt != nil && rt.hitTraceEnabled {
+			rt.lastHitTrace = diagnostics.HitTestTrace{}
+		}
+		return 0
+	}
+	hitMap := rt.layeredHitMap(rt.projectionSystem.CurrentHitMap())
+	if hitMap == nil {
+		if rt.hitTraceEnabled {
+			rt.lastHitTrace = diagnostics.HitTestTrace{}
+		}
+		return 0
+	}
+	id, trace := rt.hitTestWithMap(hitMap, screenPos)
+	if rt.hitTraceEnabled {
+		rt.lastHitTrace = trace
+	}
+	return id
+}
+
+func (rt *Runtime) layeredHitMap(hitMap *projection.HitMap) *projection.HitMap {
+	if rt == nil || hitMap == nil {
+		return hitMap
+	}
+	entries := hitMap.Entries()
+	if len(entries) == 0 {
+		return hitMap
+	}
+	type hitLayerEntry struct {
+		entry projection.HitMapEntry
+		order int
+		z     int
+	}
+	items := make([]hitLayerEntry, 0, len(entries))
+	for _, entry := range entries {
+		layer, ok := rt.projectionLayers[entry.FacetID]
+		order := 0
+		if ok {
+			order = layer.RenderOrder
+		}
+		z := 0
+		if attachment, ok := rt.childAttachments[entry.FacetID]; ok {
+			z = attachment.ZPriority
+		}
+		items = append(items, hitLayerEntry{entry: entry, order: order, z: z})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].order != items[j].order {
+			return items[i].order > items[j].order
+		}
+		if items[i].z != items[j].z {
+			return items[i].z > items[j].z
+		}
+		return false
+	})
+	sorted := make([]projection.HitMapEntry, 0, len(items))
+	for _, item := range items {
+		sorted = append(sorted, item.entry)
+	}
+	return projection.NewHitMap(sorted...)
+}
+
+func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point) (facet.FacetID, diagnostics.HitTestTrace) {
+	if rt == nil || hitMap == nil {
+		return 0, diagnostics.HitTestTrace{}
+	}
+	entries := hitMap.Entries()
+	if len(entries) == 0 {
+		return 0, diagnostics.HitTestTrace{}
+	}
+	type orderedEntry struct {
+		entry projection.HitMapEntry
+		order int
+		z     int
+	}
+	items := make([]orderedEntry, 0, len(entries))
+	for _, entry := range entries {
+		layer, ok := rt.projectionLayers[entry.FacetID]
+		order := 0
+		policy := layout.HitNormal
+		if ok {
+			order = layer.RenderOrder
+			policy = layout.LayerHitPolicy(layer.HitPolicy)
+		}
+		z := 0
+		if attachment, ok := rt.childAttachments[entry.FacetID]; ok {
+			z = attachment.ZPriority
+		}
+		if policy == layout.HitDisabled {
+			continue
+		}
+		items = append(items, orderedEntry{entry: entry, order: order, z: z})
+	}
+	sort.SliceStable(items, func(i, j int) bool {
+		if items[i].order != items[j].order {
+			return items[i].order > items[j].order
+		}
+		if items[i].z != items[j].z {
+			return items[i].z > items[j].z
+		}
+		return i < j
+	})
+	trace := diagnostics.HitTestTrace{TestedLayers: make([]diagnostics.LayerHitTrace, 0, len(items))}
+	var passthrough facet.FacetID
+	for _, item := range items {
+		layer, ok := rt.projectionLayers[item.entry.FacetID]
+		policy := layout.HitNormal
+		if ok {
+			policy = layout.LayerHitPolicy(layer.HitPolicy)
+		}
+		parentID := facet.FacetID(0)
+		layerID := layout.LayerID(0)
+		if child := rt.findFacetByID(rt.root, item.entry.FacetID); child != nil && child.Base() != nil {
+			if parent := child.Base().Parent(); parent != nil {
+				parentID = parent.ID()
+			}
+		}
+		if attachment, ok := rt.childAttachments[item.entry.FacetID]; ok {
+			layerID = attachment.LayerID
+		}
+		local := screenPos
+		if inv, ok := item.entry.Transform.Inverse(); ok {
+			local = inv.TransformPoint(screenPos)
+		}
+		hit := false
+		tested := 0
+		for _, region := range item.entry.Regions {
+			tested++
+			if projection.HitRegionContains(region, local) {
+				hit = true
+				break
+			}
+		}
+		traceLayer := diagnostics.LayerHitTrace{
+			ParentID:    parentID,
+			LayerID:     layerID,
+			HitPolicy:   policy,
+			TestedCount: tested,
+		}
+		if !hit {
+			traceLayer.StoppedHere = policy == layout.HitBlockBelow
+			trace.TestedLayers = append(trace.TestedLayers, traceLayer)
+			if policy == layout.HitBlockBelow {
+				trace.Result = 0
+				return 0, trace
+			}
+			continue
+		}
+		traceLayer.HitFacetID = item.entry.FacetID
+		switch policy {
+		case layout.HitPassThrough:
+			passthrough = item.entry.FacetID
+			trace.TestedLayers = append(trace.TestedLayers, traceLayer)
+		case layout.HitNormal, layout.HitBlockBelow:
+			traceLayer.StoppedHere = true
+			trace.TestedLayers = append(trace.TestedLayers, traceLayer)
+			trace.Result = item.entry.FacetID
+			return item.entry.FacetID, trace
+		}
+	}
+	trace.Result = passthrough
+	return passthrough, trace
 }
 
 // overlayInjector is satisfied by diagnostics.Hook when an Overlay is set.
@@ -779,11 +1600,3 @@ type overlayInjector interface {
 }
 
 var _ facet.RuntimeServices = (*Runtime)(nil)
-
-// Legacy constructor compatibility for the test harness during the transition.
-func NewLegacy(root facet.FacetImpl, backend render.Backend, windowSize gfx.Size) (*Runtime, error) {
-	cfg := DefaultConfig()
-	reg, _ := text.NewFontRegistry()
-	cfg.FontRegistry = reg
-	return New(cfg, nil, nil, backend, root)
-}

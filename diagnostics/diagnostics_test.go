@@ -1,12 +1,14 @@
 package diagnostics
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -57,6 +59,31 @@ func buildDiagTree(t *testing.T) (*diagTestFacet, *diagTestFacet, *diagTestFacet
 	facet.Attach(root, facet.AttachContext{Runtime: diagRuntimeStub{}, Theme: theme.Default()})
 	facet.Activate(root)
 	return root, child, grand
+}
+
+type fakeLayerSource struct {
+	layers map[facet.FacetID][]LayerSnapshot
+}
+
+func (s fakeLayerSource) LayerSnapshots(parent facet.FacetID) []LayerSnapshot {
+	return s.layers[parent]
+}
+
+type fakeAnchorSource struct {
+	snaps map[facet.FacetID]AnchorSnapshot
+}
+
+func (s fakeAnchorSource) AnchorSnapshot(parent facet.FacetID) (AnchorSnapshot, bool) {
+	snap, ok := s.snaps[parent]
+	return snap, ok
+}
+
+type fakeHitTraceSource struct {
+	trace HitTestTrace
+}
+
+func (s fakeHitTraceSource) HitTrace() HitTestTrace {
+	return s.trace
 }
 
 func TestInspector_walk_visits_all_facets(t *testing.T) {
@@ -124,6 +151,69 @@ func TestInspector_lastinvalidatedby_cleared_after_projection(t *testing.T) {
 	}
 	if info.LastInvalidatedBy != "" {
 		t.Fatalf("expected clear invalidation source, got %q", info.LastInvalidatedBy)
+	}
+}
+
+func TestInspector_describe_includes_layers_and_anchors(t *testing.T) {
+	root, child, _ := buildDiagTree(t)
+	insp := NewInspector(root)
+	insp.SetLayerSource(fakeLayerSource{
+		layers: map[facet.FacetID][]LayerSnapshot{
+			root.ID(): {{
+				LayerID:     7,
+				Placement:   layout.PlacementStack,
+				Measurement: layout.MeasureStructural,
+				CoordSpace:  layout.CoordParentLayout,
+				RenderOrder: 3,
+				HitPolicy:   layout.HitPassThrough,
+				Bounds:      gfx.RectFromXYWH(1, 2, 3, 4),
+			}},
+		},
+	})
+	insp.SetAnchorSource(fakeAnchorSource{
+		snaps: map[facet.FacetID]AnchorSnapshot{
+			root.ID(): {
+				ParentID: root.ID(),
+				Version:  9,
+				Entries: []AnchorSnapshotEntry{{
+					ID:       "mark",
+					Position: gfx.Point{X: 11, Y: 12},
+					Children: []facet.FacetID{child.ID()},
+				}},
+			},
+		},
+	})
+	info, ok := insp.Find(root.ID())
+	if !ok {
+		t.Fatal("expected root")
+	}
+	if len(info.Layers) != 1 || info.Layers[0].LayerID != 7 {
+		t.Fatalf("layers = %#v", info.Layers)
+	}
+	desc := insp.Describe()
+	if desc == "" || !strings.Contains(desc, "Layers:") || !strings.Contains(desc, "mark") {
+		t.Fatalf("describe output = %q", desc)
+	}
+}
+
+func TestInspector_hitTrace_source(t *testing.T) {
+	insp := NewInspector(nil)
+	insp.SetHitTraceSource(fakeHitTraceSource{
+		trace: HitTestTrace{
+			Result: 42,
+			TestedLayers: []LayerHitTrace{{
+				ParentID:    7,
+				LayerID:     3,
+				HitPolicy:   layout.HitPassThrough,
+				TestedCount: 2,
+				HitFacetID:  42,
+				StoppedHere: false,
+			}},
+		},
+	})
+	got := insp.HitTrace()
+	if got.Result != 42 || len(got.TestedLayers) != 1 {
+		t.Fatalf("hit trace = %#v", got)
 	}
 }
 
@@ -439,5 +529,41 @@ func TestOverlay_hit_regions_drawn(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("expected 2 StrokeRect for 2 hit regions, got %d", count)
+	}
+}
+
+func TestOverlay_anchor_visualization_draws_connectors(t *testing.T) {
+	o := NewOverlay()
+	o.Toggle()
+	root, child, _ := buildOverlayTree(t)
+	insp := NewInspector(root)
+	insp.SetAnchorSource(fakeAnchorSource{
+		snaps: map[facet.FacetID]AnchorSnapshot{
+			root.ID(): {
+				ParentID: root.ID(),
+				Version:  1,
+				Entries: []AnchorSnapshotEntry{{
+					ID:       "anchor-a",
+					Position: gfx.Point{X: 5, Y: 5},
+					Children: []facet.FacetID{child.ID()},
+				}},
+			},
+		},
+	})
+	frame := baseFrame()
+	o.Inject(frame, insp, nil, FrameStats{})
+	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	hasPolyline := false
+	hasFillRect := false
+	for _, cmd := range overlay.Commands.Commands {
+		switch cmd.(type) {
+		case gfx.DrawPolyline:
+			hasPolyline = true
+		case gfx.FillRect:
+			hasFillRect = true
+		}
+	}
+	if !hasPolyline || !hasFillRect {
+		t.Fatalf("expected anchor crosshair and connector, got %#v", overlay.Commands.Commands)
 	}
 }
