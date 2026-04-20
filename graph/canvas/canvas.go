@@ -1,4 +1,4 @@
-// Package canvas provides GraphCanvasFacet, a reference application-layer facet
+// Package canvas provides GraphCanvasFacet, a reference application-RenderBatch facet
 // that renders a large node graph using a background-built R*-tree spatial index
 // with level-of-detail rendering.
 package canvas

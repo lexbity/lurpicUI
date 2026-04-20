@@ -13,7 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
-var nextLayerID atomic.Uint64
+var nextRenderBatchID atomic.Uint64
 
 // Constraints is the shared layout constraint type.
 type Constraints = space.Constraints
@@ -54,7 +54,7 @@ func (r *LayoutRole) Arrange(bounds gfx.Rect) {
 
 // RenderRole participates in command collection.
 type RenderRole struct {
-	LayerID   gfx.LayerCacheID
+	RenderBatchID   gfx.RenderBatchCacheID
 	OnCollect func(list *gfx.CommandList, bounds gfx.Rect)
 }
 
@@ -326,8 +326,8 @@ func (r *LayoutRole) onDispose(f *Facet) {
 }
 
 func (r *RenderRole) onAttach(f *Facet) {
-	if r.LayerID == 0 {
-		r.LayerID = gfx.LayerCacheID(nextLayerID.Add(1))
+	if r.RenderBatchID == 0 {
+		r.RenderBatchID = gfx.RenderBatchCacheID(nextRenderBatchID.Add(1))
 	}
 }
 func (r *RenderRole) onActivate(f *Facet)   {}

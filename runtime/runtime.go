@@ -289,7 +289,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.ProjectedFacets = rt.projectionSystem.ProjectedFacets
 	stats.CacheHits = rt.projectionSystem.CacheHits
 	if frameOut != nil {
-		stats.LayerCount = len(frameOut.Layers)
+		stats.RenderBatchCount = len(frameOut.RenderBatchs)
 	}
 
 	renderStart := time.Now()
@@ -626,17 +626,17 @@ func assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.Facet
 		return &render.Frame{}
 	}
 	out := &render.Frame{
-		Layers: make([]render.Layer, 0, len(output.Layers)),
+		RenderBatchs: make([]render.RenderBatch, 0, len(output.RenderBatchs)),
 	}
-	for _, layer := range output.Layers {
+	for _, RenderBatch := range output.RenderBatchs {
 		cmds := gfx.CommandList{}
-		if !layer.Transform.IsIdentity() {
-			cmds.Add(gfx.PushTransform{Matrix: layer.Transform})
+		if !RenderBatch.Transform.IsIdentity() {
+			cmds.Add(gfx.PushTransform{Matrix: RenderBatch.Transform})
 		}
-		for _, cmd := range layer.Commands.Commands {
+		for _, cmd := range RenderBatch.Commands.Commands {
 			cmds.Add(cmd)
 		}
-		if sel := output.SelectionGeometries[layer.FacetID]; sel != nil {
+		if sel := output.SelectionGeometries[RenderBatch.FacetID]; sel != nil {
 			selectionCmd := gfx.DrawSelectionRects{
 				Rects: append([]gfx.Rect(nil), sel.SelectionRects...),
 				Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(64, 128, 255, 96)),
@@ -648,13 +648,13 @@ func assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.Facet
 				cmds.Add(selectionCmd)
 			}
 		}
-		if !layer.Transform.IsIdentity() {
+		if !RenderBatch.Transform.IsIdentity() {
 			cmds.Add(gfx.PopTransform{})
 		}
-		out.Layers = append(out.Layers, render.Layer{
-			ID:          render.LayerID(layer.FacetID),
-			Bounds:      layer.Bounds,
-			Opacity:     layer.Opacity,
+		out.RenderBatchs = append(out.RenderBatchs, render.RenderBatch{
+			ID:          render.RenderBatchID(RenderBatch.FacetID),
+			Bounds:      RenderBatch.Bounds,
+			Opacity:     RenderBatch.Opacity,
 			Commands:    cmds,
 			CommandHash: hashutil.HashCommandList(cmds),
 		})
@@ -664,17 +664,17 @@ func assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.Facet
 }
 
 func computeDirtyRegions(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) []gfx.Rect {
-	if output == nil || len(output.Layers) == 0 {
+	if output == nil || len(output.RenderBatchs) == 0 {
 		return nil
 	}
-	rects := make([]gfx.Rect, 0, len(output.Layers))
-	for _, layer := range output.Layers {
+	rects := make([]gfx.Rect, 0, len(output.RenderBatchs))
+	for _, RenderBatch := range output.RenderBatchs {
 		if dirtySnapshot != nil {
-			if flags := dirtySnapshot[layer.FacetID]; flags == 0 {
+			if flags := dirtySnapshot[RenderBatch.FacetID]; flags == 0 {
 				continue
 			}
 		}
-		rects = append(rects, layer.Bounds)
+		rects = append(rects, RenderBatch.Bounds)
 	}
 	if len(rects) == 0 {
 		return nil

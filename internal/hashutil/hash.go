@@ -134,12 +134,12 @@ func hashCommand(b *CacheKeyBuilder, cmd gfx.Command) {
 		hashRect(b, c.SrcRect)
 		b.WriteUint8(uint8(c.Sampling))
 		b.WriteFloat32(c.Opacity)
-	case gfx.BeginLayer:
-		b.WriteString("BeginLayer")
+	case gfx.BeginRenderBatch:
+		b.WriteString("BeginRenderBatch")
 		hashRect(b, c.Bounds)
 		b.WriteUint64(uint64(c.CacheID))
-	case gfx.EndLayer:
-		b.WriteString("EndLayer")
+	case gfx.EndRenderBatch:
+		b.WriteString("EndRenderBatch")
 	default:
 		b.WriteString("UnknownCommand")
 	}

@@ -28,28 +28,28 @@ func TestCommandList_type_preservation(t *testing.T) {
 	}
 }
 
-func TestBeginEndLayer_symmetry(t *testing.T) {
+func TestBeginEndRenderBatch_symmetry(t *testing.T) {
 	cmds := []Command{
-		BeginLayer{CacheID: 1},
+		BeginRenderBatch{CacheID: 1},
 		PushOpacity{Alpha: 0.5},
-		BeginLayer{CacheID: 2},
-		EndLayer{},
-		EndLayer{},
+		BeginRenderBatch{CacheID: 2},
+		EndRenderBatch{},
+		EndRenderBatch{},
 	}
 
 	depth := 0
 	for _, cmd := range cmds {
 		switch cmd.(type) {
-		case BeginLayer:
+		case BeginRenderBatch:
 			depth++
-		case EndLayer:
+		case EndRenderBatch:
 			depth--
 		}
 		if depth < 0 {
-			t.Fatal("layer stack underflow")
+			t.Fatal("RenderBatch stack underflow")
 		}
 	}
 	if depth != 0 {
-		t.Fatalf("expected layer stack to end balanced, got depth %d", depth)
+		t.Fatalf("expected RenderBatch stack to end balanced, got depth %d", depth)
 	}
 }

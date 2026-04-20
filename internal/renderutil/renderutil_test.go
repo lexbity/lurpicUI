@@ -8,10 +8,10 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 )
 
-func TestLayerCache_unchanged_detection(t *testing.T) {
-	cache := NewLayerCache()
+func TestRenderBatchCache_unchanged_detection(t *testing.T) {
+	cache := NewRenderBatchCache()
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
@@ -25,7 +25,7 @@ func TestLayerCache_unchanged_detection(t *testing.T) {
 	}
 	cache.Update(frame, nil)
 	diff := cache.Diff(frame)
-	if got := diff.Layers[1].Kind; got != LayerUnchanged {
+	if got := diff.RenderBatchs[1].Kind; got != RenderBatchUnchanged {
 		t.Fatalf("kind = %v, want unchanged", got)
 	}
 	if len(diff.CompositeDirtyRects) != 0 {
@@ -33,10 +33,10 @@ func TestLayerCache_unchanged_detection(t *testing.T) {
 	}
 }
 
-func TestLayerCache_added_detection(t *testing.T) {
-	cache := NewLayerCache()
+func TestRenderBatchCache_added_detection(t *testing.T) {
+	cache := NewRenderBatchCache()
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
@@ -49,15 +49,15 @@ func TestLayerCache_added_detection(t *testing.T) {
 		},
 	}
 	diff := cache.Diff(frame)
-	if got := diff.Layers[1].Kind; got != LayerAdded {
+	if got := diff.RenderBatchs[1].Kind; got != RenderBatchAdded {
 		t.Fatalf("kind = %v, want added", got)
 	}
 }
 
-func TestLayerCache_removed_detection(t *testing.T) {
-	cache := NewLayerCache()
+func TestRenderBatchCache_removed_detection(t *testing.T) {
+	cache := NewRenderBatchCache()
 	frame1 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
@@ -80,18 +80,18 @@ func TestLayerCache_removed_detection(t *testing.T) {
 	}
 	cache.Update(frame1, nil)
 	frame2 := &render.Frame{
-		Layers: frame1.Layers[:1],
+		RenderBatchs: frame1.RenderBatchs[:1],
 	}
 	diff := cache.Diff(frame2)
-	if got := diff.Layers[2].Kind; got != LayerRemoved {
+	if got := diff.RenderBatchs[2].Kind; got != RenderBatchRemoved {
 		t.Fatalf("kind = %v, want removed", got)
 	}
 }
 
-func TestLayerCache_fullchange_on_bounds_change(t *testing.T) {
-	cache := NewLayerCache()
+func TestRenderBatchCache_fullchange_on_bounds_change(t *testing.T) {
+	cache := NewRenderBatchCache()
 	frame1 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
@@ -105,7 +105,7 @@ func TestLayerCache_fullchange_on_bounds_change(t *testing.T) {
 	}
 	cache.Update(frame1, nil)
 	frame2 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
@@ -118,13 +118,13 @@ func TestLayerCache_fullchange_on_bounds_change(t *testing.T) {
 		},
 	}
 	diff := cache.Diff(frame2)
-	if got := diff.Layers[1].Kind; got != LayerFullChange {
+	if got := diff.RenderBatchs[1].Kind; got != RenderBatchFullChange {
 		t.Fatalf("kind = %v, want full change", got)
 	}
 }
 
-func TestLayerCache_partialchange_detection(t *testing.T) {
-	cache := NewLayerCache()
+func TestRenderBatchCache_partialchange_detection(t *testing.T) {
+	cache := NewRenderBatchCache()
 	oldCmds := make([]gfx.Command, 10)
 	newCmds := make([]gfx.Command, 10)
 	for i := 0; i < 10; i++ {
@@ -133,7 +133,7 @@ func TestLayerCache_partialchange_detection(t *testing.T) {
 		newCmds[i] = oldCmds[i]
 	}
 	frame1 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 100, 10),
@@ -146,7 +146,7 @@ func TestLayerCache_partialchange_detection(t *testing.T) {
 	cache.Update(frame1, nil)
 	newCmds[3] = gfx.FillRect{Rect: gfx.RectFromXYWH(300, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})}
 	frame2 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 100, 10),
@@ -157,19 +157,19 @@ func TestLayerCache_partialchange_detection(t *testing.T) {
 		},
 	}
 	diff := cache.Diff(frame2)
-	layerDiff := diff.Layers[1]
-	if layerDiff.Kind != LayerPartialChange {
-		t.Fatalf("kind = %v, want partial change", layerDiff.Kind)
+	RenderBatchDiff := diff.RenderBatchs[1]
+	if RenderBatchDiff.Kind != RenderBatchPartialChange {
+		t.Fatalf("kind = %v, want partial change", RenderBatchDiff.Kind)
 	}
-	if len(layerDiff.DirtyRects) == 0 {
+	if len(RenderBatchDiff.DirtyRects) == 0 {
 		t.Fatal("expected dirty rects")
 	}
 }
 
-func TestLayerCache_complexTransform_forces_full(t *testing.T) {
-	cache := NewLayerCache()
+func TestRenderBatchCache_complexTransform_forces_full(t *testing.T) {
+	cache := NewRenderBatchCache()
 	frame1 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
@@ -183,7 +183,7 @@ func TestLayerCache_complexTransform_forces_full(t *testing.T) {
 	}
 	cache.Update(frame1, nil)
 	frame2 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
@@ -197,7 +197,7 @@ func TestLayerCache_complexTransform_forces_full(t *testing.T) {
 		},
 	}
 	diff := cache.Diff(frame2)
-	if got := diff.Layers[1].Kind; got != LayerFullChange {
+	if got := diff.RenderBatchs[1].Kind; got != RenderBatchFullChange {
 		t.Fatalf("kind = %v, want full change", got)
 	}
 }
@@ -282,8 +282,8 @@ func TestCommandBounds_state_commands_empty(t *testing.T) {
 	}
 }
 
-func TestPropagateDirty_through_transparent_layer(t *testing.T) {
-	layers := []render.Layer{
+func TestPropagateDirty_through_transparent_RenderBatch(t *testing.T) {
+	RenderBatchs := []render.RenderBatch{
 		{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 100, 100),
@@ -295,12 +295,12 @@ func TestPropagateDirty_through_transparent_layer(t *testing.T) {
 			Opacity: 0.5,
 		},
 	}
-	perLayer := map[render.LayerID][]gfx.Rect{
+	perRenderBatch := map[render.RenderBatchID][]gfx.Rect{
 		1: []gfx.Rect{
 			gfx.RectFromXYWH(30, 30, 20, 20),
 		},
 	}
-	got := PropagateDirty(layers, perLayer)
+	got := PropagateDirty(RenderBatchs, perRenderBatch)
 	if len(got) == 0 {
 		t.Fatal("expected propagated dirt")
 	}
@@ -317,10 +317,10 @@ func TestPropagateDirty_through_transparent_layer(t *testing.T) {
 	}
 }
 
-func TestLayerCache_update_stores_buffers(t *testing.T) {
-	cache := NewLayerCache()
+func TestRenderBatchCache_update_stores_buffers(t *testing.T) {
+	cache := NewRenderBatchCache()
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:      1,
 				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
@@ -328,11 +328,11 @@ func TestLayerCache_update_stores_buffers(t *testing.T) {
 			},
 		},
 	}
-	bufs := map[render.LayerID]*image.RGBA{
+	bufs := map[render.RenderBatchID]*image.RGBA{
 		1: image.NewRGBA(image.Rect(0, 0, 10, 10)),
 	}
 	cache.Update(frame, bufs)
-	if _, ok := cache.layers[1]; !ok {
-		t.Fatal("expected layer snapshot")
+	if _, ok := cache.RenderBatchs[1]; !ok {
+		t.Fatal("expected RenderBatch snapshot")
 	}
 }

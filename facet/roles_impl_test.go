@@ -51,13 +51,13 @@ func TestRenderRole_collect_called_with_bounds(t *testing.T) {
 	}
 }
 
-func TestRenderRole_layerid_assigned_on_attach(t *testing.T) {
+func TestRenderRole_RenderBatchid_assigned_on_attach(t *testing.T) {
 	f := &Facet{state: StateCreated}
 	role := &RenderRole{}
 	f.roles = []Role{role}
 	Attach(f, AttachContext{})
-	if role.LayerID == 0 {
-		t.Fatal("expected non-zero layer id")
+	if role.RenderBatchID == 0 {
+		t.Fatal("expected non-zero RenderBatch id")
 	}
 }
 

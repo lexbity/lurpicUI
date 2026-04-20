@@ -472,7 +472,7 @@ func TestRuntime_marktreedirty_sets_flags(t *testing.T) {
 func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 	rt := mustRuntime(t)
 	output := &projection.FrameOutput{
-		Layers: []projection.LayerOutput{
+		RenderBatchs: []projection.RenderBatchOutput{
 			{
 				FacetID:   1,
 				Bounds:    gfx.RectFromXYWH(0, 0, 10, 10),
@@ -484,10 +484,10 @@ func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 		},
 	}
 	frame := rt.assembleFrame(output, map[facet.FacetID]facet.DirtyFlags{1: facet.DirtyAll})
-	if frame == nil || len(frame.Layers) != 1 {
+	if frame == nil || len(frame.RenderBatchs) != 1 {
 		t.Fatalf("frame = %#v", frame)
 	}
-	cmds := frame.Layers[0].Commands.Commands
+	cmds := frame.RenderBatchs[0].Commands.Commands
 	if len(cmds) < 3 {
 		t.Fatalf("commands = %#v", cmds)
 	}
@@ -497,7 +497,7 @@ func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 	if _, ok := cmds[len(cmds)-1].(gfx.PopTransform); !ok {
 		t.Fatalf("last command = %T", cmds[len(cmds)-1])
 	}
-	if frame.Layers[0].CommandHash == 0 {
+	if frame.RenderBatchs[0].CommandHash == 0 {
 		t.Fatal("expected command hash")
 	}
 }
@@ -505,7 +505,7 @@ func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 func TestRuntime_assembleFrame_dirty_regions(t *testing.T) {
 	rt := mustRuntime(t)
 	output := &projection.FrameOutput{
-		Layers: []projection.LayerOutput{
+		RenderBatchs: []projection.RenderBatchOutput{
 			{FacetID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10)},
 			{FacetID: 2, Bounds: gfx.RectFromXYWH(10, 10, 10, 10)},
 		},
@@ -527,13 +527,13 @@ func TestRuntime_addfacet_visible_next_frame(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 	rt.RunOneFrame()
-	before := rt.LastFrameStats().LayerCount
+	before := rt.LastFrameStats().RenderBatchCount
 	rt.AddFacet(root, child)
 	rt.RunOneFrame()
-	if got := rt.LastFrameStats().LayerCount; got <= before {
-		t.Fatalf("layer count = %d, before = %d", got, before)
+	if got := rt.LastFrameStats().RenderBatchCount; got <= before {
+		t.Fatalf("RenderBatch count = %d, before = %d", got, before)
 	}
-	if backend.last == nil || len(backend.last.Layers) != 2 {
+	if backend.last == nil || len(backend.last.RenderBatchs) != 2 {
 		t.Fatalf("backend frame = %#v", backend.last)
 	}
 	rt.Shutdown()
@@ -549,15 +549,15 @@ func TestRuntime_removefacet_absent_next_frame(t *testing.T) {
 	rt.RunOneFrame()
 	rt.AddFacet(root, child)
 	rt.RunOneFrame()
-	if got := rt.LastFrameStats().LayerCount; got != 2 {
-		t.Fatalf("layer count after add = %d", got)
+	if got := rt.LastFrameStats().RenderBatchCount; got != 2 {
+		t.Fatalf("RenderBatch count after add = %d", got)
 	}
 	rt.RemoveFacet(child)
 	rt.RunOneFrame()
-	if got := rt.LastFrameStats().LayerCount; got != 1 {
-		t.Fatalf("layer count after remove = %d", got)
+	if got := rt.LastFrameStats().RenderBatchCount; got != 1 {
+		t.Fatalf("RenderBatch count after remove = %d", got)
 	}
-	if backend.last == nil || len(backend.last.Layers) != 1 {
+	if backend.last == nil || len(backend.last.RenderBatchs) != 1 {
 		t.Fatalf("backend frame = %#v", backend.last)
 	}
 	rt.Shutdown()

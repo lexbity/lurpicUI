@@ -48,7 +48,7 @@ type SelectionGeometry struct {
 	CaretVisible   bool
 }
 
-type LayerOutput struct {
+type RenderBatchOutput struct {
 	FacetID   facet.FacetID
 	Commands  gfx.CommandList
 	Bounds    gfx.Rect
@@ -57,7 +57,7 @@ type LayerOutput struct {
 }
 
 type FrameOutput struct {
-	Layers              []LayerOutput
+	RenderBatchs              []RenderBatchOutput
 	HitMap              *HitMap
 	SelectionGeometries map[facet.FacetID]*SelectionGeometry
 }
@@ -286,7 +286,7 @@ func (s *System) assembleFrameOutput() *FrameOutput {
 		if po.Commands.Len() == 0 {
 			continue
 		}
-		out.Layers = append(out.Layers, LayerOutput{
+		out.RenderBatchs = append(out.RenderBatchs, RenderBatchOutput{
 			FacetID:   po.FacetID,
 			Commands:  po.Commands,
 			Bounds:    po.Bounds,
@@ -352,7 +352,7 @@ func (s *System) computeCacheKey(
 	}
 	if render := base.RenderRole(); render != nil {
 		h.WriteUint8(1)
-		h.WriteUint64(uint64(render.LayerID))
+		h.WriteUint64(uint64(render.RenderBatchID))
 	} else {
 		h.WriteUint8(0)
 	}

@@ -30,16 +30,16 @@ func TestFrame_dirty_regions_nil_safe(t *testing.T) {
 	}
 }
 
-func TestLayerID_zero_valid(t *testing.T) {
-	if render.LayerID(0) != 0 {
-		t.Fatal("expected LayerID(0) to be a valid zero value")
+func TestRenderBatchID_zero_valid(t *testing.T) {
+	if render.RenderBatchID(0) != 0 {
+		t.Fatal("expected RenderBatchID(0) to be a valid zero value")
 	}
 }
 
-func TestLayer_commandhash_field_present(t *testing.T) {
-	layer := render.Layer{CommandHash: 0}
-	if layer.CommandHash != 0 {
-		t.Fatalf("expected zero command hash, got %d", layer.CommandHash)
+func TestRenderBatch_commandhash_field_present(t *testing.T) {
+	RenderBatch := render.RenderBatch{CommandHash: 0}
+	if RenderBatch.CommandHash != 0 {
+		t.Fatalf("expected zero command hash, got %d", RenderBatch.CommandHash)
 	}
 }
 
@@ -54,12 +54,12 @@ func TestRenderSurfaceInterface_satisfiable(t *testing.T) {
 	}
 }
 
-func TestRenderLayer_uses_gfx_types(t *testing.T) {
-	layer := render.Layer{
+func TestRenderRenderBatch_uses_gfx_types(t *testing.T) {
+	RenderBatch := render.RenderBatch{
 		ID:     7,
 		Bounds: gfx.RectFromXYWH(1, 2, 3, 4),
 	}
-	if layer.Bounds.Width() != 3 || layer.Bounds.Height() != 4 {
-		t.Fatalf("unexpected bounds: %+v", layer.Bounds)
+	if RenderBatch.Bounds.Width() != 3 || RenderBatch.Bounds.Height() != 4 {
+		t.Fatalf("unexpected bounds: %+v", RenderBatch.Bounds)
 	}
 }

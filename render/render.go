@@ -12,10 +12,10 @@ type Surface interface {
 	Resize(width, height int)
 }
 
-type LayerID uint64
+type RenderBatchID uint64
 
-type Layer struct {
-	ID          LayerID
+type RenderBatch struct {
+	ID          RenderBatchID
 	Bounds      gfx.Rect
 	Opacity     float32
 	Commands    gfx.CommandList
@@ -23,7 +23,7 @@ type Layer struct {
 }
 
 type Frame struct {
-	Layers       []Layer
+	RenderBatchs       []RenderBatch
 	DirtyRegions []gfx.Rect
 }
 

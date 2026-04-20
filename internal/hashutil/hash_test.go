@@ -120,8 +120,8 @@ func TestHashutil_command_variants_cover_sensitive_fields(t *testing.T) {
 		},
 		gfx.PopOpacity{},
 		gfx.PopClip{},
-		gfx.BeginLayer{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), CacheID: 7},
-		gfx.EndLayer{},
+		gfx.BeginRenderBatch{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), CacheID: 7},
+		gfx.EndRenderBatch{},
 	}}
 	if got := HashCommandList(base); got == 0 {
 		t.Fatal("expected hash")
@@ -193,8 +193,8 @@ func TestHashutil_all_command_helpers_are_covered(t *testing.T) {
 		gfx.DrawImage{Image: img, DestRect: gfx.RectFromXYWH(1, 1, 3, 3), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingBilinear, Opacity: 0.75},
 		gfx.PopOpacity{},
 		gfx.PopClip{},
-		gfx.BeginLayer{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), CacheID: 7},
-		gfx.EndLayer{},
+		gfx.BeginRenderBatch{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), CacheID: 7},
+		gfx.EndRenderBatch{},
 	}}
 	got := HashCommandList(cl)
 	if got == 0 {

@@ -89,14 +89,14 @@ type DrawImage struct {
 	Opacity  float32
 }
 
-type LayerCacheID uint64
+type RenderBatchCacheID uint64
 
-type BeginLayer struct {
+type BeginRenderBatch struct {
 	Bounds  Rect
-	CacheID LayerCacheID
+	CacheID RenderBatchCacheID
 }
 
-type EndLayer struct{}
+type EndRenderBatch struct{}
 
 type CommandList struct {
 	Commands []Command
@@ -117,8 +117,8 @@ func (cmd DrawPoints) isCommand()         {}
 func (cmd DrawGlyphRun) isCommand()       {}
 func (cmd DrawSelectionRects) isCommand() {}
 func (cmd DrawImage) isCommand()          {}
-func (cmd BeginLayer) isCommand()         {}
-func (cmd EndLayer) isCommand()           {}
+func (cmd BeginRenderBatch) isCommand()         {}
+func (cmd EndRenderBatch) isCommand()           {}
 
 func (cl *CommandList) Add(cmd Command) {
 	if cl == nil {

@@ -234,8 +234,8 @@ func TestHarness_frame_stats_populated(t *testing.T) {
 	h := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
 	h.RunFrame()
 	stats := h.LastFrameStats()
-	if stats.LayerCount == 0 {
-		t.Fatalf("expected layer count, got %#v", stats)
+	if stats.RenderBatchCount == 0 {
+		t.Fatalf("expected RenderBatch count, got %#v", stats)
 	}
 	if stats.ProjectedFacets == 0 {
 		t.Fatalf("expected projected facets, got %#v", stats)

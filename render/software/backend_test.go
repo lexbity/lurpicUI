@@ -71,8 +71,8 @@ func newRenderer(t *testing.T, w, h int) (*SoftwareRenderer, *testSurface) {
 	return r, surf
 }
 
-func solidLayer(id render.LayerID, bounds gfx.Rect, hash uint64, c gfx.Color) render.Layer {
-	return render.Layer{
+func solidRenderBatch(id render.RenderBatchID, bounds gfx.Rect, hash uint64, c gfx.Color) render.RenderBatch {
+	return render.RenderBatch{
 		ID:          id,
 		Bounds:      bounds,
 		Opacity:     1,
@@ -91,8 +91,8 @@ func pxAt(s *testSurface, x, y int) color.RGBA {
 func TestSoftwareRenderer_fillrect_solid(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
 	frame := &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
 		},
 	}
 	if err := r.Submit(frame); err != nil {
@@ -109,8 +109,8 @@ func TestSoftwareRenderer_fillrect_solid(t *testing.T) {
 func TestSoftwareRenderer_fillrect_alpha_blend(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
 	frame := &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, G: 1, B: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, G: 1, B: 1, A: 1}),
 			{
 				ID:          2,
 				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
@@ -141,7 +141,7 @@ func TestSoftwareRenderer_fillpath_antialiased(t *testing.T) {
 		Close().
 		Build()
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 32, 32),
@@ -168,7 +168,7 @@ func TestSoftwareRenderer_strokepath_rasterizes(t *testing.T) {
 		LineTo(gfx.Point{X: 28, Y: 20}).
 		Build()
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 32, 32),
@@ -191,7 +191,7 @@ func TestSoftwareRenderer_strokepath_rasterizes(t *testing.T) {
 func TestSoftwareRenderer_transform_stack_translates(t *testing.T) {
 	r, s := newRenderer(t, 150, 150)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
@@ -218,7 +218,7 @@ func TestSoftwareRenderer_transform_stack_translates(t *testing.T) {
 func TestSoftwareRenderer_clip_rect_clips(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
@@ -245,7 +245,7 @@ func TestSoftwareRenderer_clip_rect_clips(t *testing.T) {
 func TestSoftwareRenderer_opacity_stack(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
@@ -268,11 +268,11 @@ func TestSoftwareRenderer_opacity_stack(t *testing.T) {
 	}
 }
 
-func TestSoftwareRenderer_layer_caching_skip(t *testing.T) {
+func TestSoftwareRenderer_RenderBatch_caching_skip(t *testing.T) {
 	r, _ := newRenderer(t, 20, 20)
 	frame := &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
 		},
 	}
 	if err := r.Submit(frame); err != nil {
@@ -287,11 +287,11 @@ func TestSoftwareRenderer_layer_caching_skip(t *testing.T) {
 	}
 }
 
-func TestSoftwareRenderer_layer_compositing_order(t *testing.T) {
+func TestSoftwareRenderer_RenderBatch_compositing_order(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
 	frame := &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
 			{
 				ID:          2,
 				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
@@ -314,11 +314,11 @@ func TestSoftwareRenderer_layer_compositing_order(t *testing.T) {
 	}
 }
 
-func TestSoftwareRenderer_multilayer_opacity(t *testing.T) {
+func TestSoftwareRenderer_multiRenderBatch_opacity(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
 	frame := &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
 			{
 				ID:          2,
 				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
@@ -349,7 +349,7 @@ func TestSoftwareRenderer_drawimage_nearest(t *testing.T) {
 	src.SetRGBA(1, 1, color.RGBA{R: 255, G: 255, B: 255, A: 255})
 
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 8, 8),
@@ -384,8 +384,8 @@ func TestSoftwareRenderer_drawimage_nearest(t *testing.T) {
 func TestSoftwareRenderer_resize_reallocates(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
 	frame := &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 100, 100), 1, gfx.Color{R: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 100, 100), 1, gfx.Color{R: 1, A: 1}),
 		},
 	}
 	if err := r.Submit(frame); err != nil {
@@ -395,8 +395,8 @@ func TestSoftwareRenderer_resize_reallocates(t *testing.T) {
 		t.Fatalf("resize: %v", err)
 	}
 	frame = &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 200, 200), 2, gfx.Color{G: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 200, 200), 2, gfx.Color{G: 1, A: 1}),
 		},
 	}
 	if err := r.Submit(frame); err != nil {
@@ -422,8 +422,8 @@ func TestSoftwareRenderer_blit_clamps_to_live_surface_size(t *testing.T) {
 		t.Fatalf("initialize: %v", err)
 	}
 	frame := &render.Frame{
-		Layers: []render.Layer{
-			solidLayer(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+		RenderBatchs: []render.RenderBatch{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
 		},
 	}
 	if err := r.Submit(frame); err != nil {
@@ -440,7 +440,7 @@ func TestSoftwareRenderer_blit_clamps_to_live_surface_size(t *testing.T) {
 func TestSoftwareRenderer_unbalanced_push_pop(t *testing.T) {
 	r, s := newRenderer(t, 150, 150)
 	frame1 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
@@ -457,7 +457,7 @@ func TestSoftwareRenderer_unbalanced_push_pop(t *testing.T) {
 		t.Fatalf("submit1: %v", err)
 	}
 	frame2 := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
@@ -481,7 +481,7 @@ func TestSoftwareRenderer_drawglyphrun_produces_pixels(t *testing.T) {
 	r, s := newRenderer(t, 80, 80)
 	run := testGlyphRun(t, "Hello", 18)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
@@ -509,7 +509,7 @@ func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
 	r, s := newRenderer(t, 80, 80)
 	run := testGlyphRun(t, "Hi", 18)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
@@ -537,7 +537,7 @@ func TestSoftwareRenderer_drawglyphrun_atlas_caches(t *testing.T) {
 	r, _ := newRenderer(t, 80, 80)
 	run := testGlyphRun(t, "A", 18)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
@@ -570,7 +570,7 @@ func TestSoftwareRenderer_drawglyphrun_clipped_by_cliprect(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
 	run := testGlyphRun(t, "Clip", 28)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
@@ -598,7 +598,7 @@ func TestSoftwareRenderer_drawglyphrun_translated(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
 	run := testGlyphRun(t, "Move", 18)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
@@ -625,7 +625,7 @@ func TestSoftwareRenderer_drawglyphrun_translated(t *testing.T) {
 func TestSoftwareRenderer_drawselectionrects_fills_region(t *testing.T) {
 	r, s := newRenderer(t, 40, 40)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 40, 40),
@@ -651,7 +651,7 @@ func TestSoftwareRenderer_drawselectionrects_fills_region(t *testing.T) {
 func TestSoftwareRenderer_drawglyphrun_empty_no_panic(t *testing.T) {
 	r, s := newRenderer(t, 40, 40)
 	frame := &render.Frame{
-		Layers: []render.Layer{
+		RenderBatchs: []render.RenderBatch{
 			{
 				ID:          1,
 				Bounds:      gfx.RectFromXYWH(0, 0, 40, 40),

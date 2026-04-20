@@ -8,7 +8,7 @@ type FrameStats struct {
 	DirtyFacets     int
 	ProjectedFacets int
 	CacheHits       int
-	LayerCount      int
+	RenderBatchCount      int
 	JobsCommitted   int
 	JobsDiscarded   int
 	LayoutDuration  time.Duration

@@ -127,7 +127,7 @@ func TestInspector_lastinvalidatedby_cleared_after_projection(t *testing.T) {
 	}
 }
 
-func TestHitProbe_at_returns_all_layers(t *testing.T) {
+func TestHitProbe_at_returns_all_RenderBatchs(t *testing.T) {
 	root, child, _ := buildDiagTree(t)
 	hitMap := projection.NewHitMap(
 		projection.HitMapEntry{
@@ -264,7 +264,7 @@ func buildOverlayTree(t *testing.T) (*diagTestFacet, *diagTestFacet, *diagTestFa
 
 func baseFrame() *render.Frame {
 	return &render.Frame{
-		Layers: []render.Layer{{Bounds: gfx.RectFromXYWH(0, 0, 200, 100)}},
+		RenderBatchs: []render.RenderBatch{{Bounds: gfx.RectFromXYWH(0, 0, 200, 100)}},
 	}
 }
 
@@ -296,29 +296,29 @@ func TestOverlay_inject_inactive_noop(t *testing.T) {
 	o := NewOverlay()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	if len(frame.Layers) != 1 {
-		t.Fatalf("expected 1 layer, got %d", len(frame.Layers))
+	if len(frame.RenderBatchs) != 1 {
+		t.Fatalf("expected 1 RenderBatch, got %d", len(frame.RenderBatchs))
 	}
 }
 
-func TestOverlay_inject_adds_layer(t *testing.T) {
+func TestOverlay_inject_adds_RenderBatch(t *testing.T) {
 	o := NewOverlay()
 	o.Toggle()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	if len(frame.Layers) != 2 {
-		t.Fatalf("expected 2 layers, got %d", len(frame.Layers))
+	if len(frame.RenderBatchs) != 2 {
+		t.Fatalf("expected 2 RenderBatchs, got %d", len(frame.RenderBatchs))
 	}
 }
 
-func TestOverlay_inject_layer_is_topmost(t *testing.T) {
+func TestOverlay_inject_RenderBatch_is_topmost(t *testing.T) {
 	o := NewOverlay()
 	o.Toggle()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	last := frame.Layers[len(frame.Layers)-1]
+	last := frame.RenderBatchs[len(frame.RenderBatchs)-1]
 	if last.ID != 0 {
-		t.Fatalf("overlay layer ID should be 0 (no cache), got %v", last.ID)
+		t.Fatalf("overlay RenderBatch ID should be 0 (no cache), got %v", last.ID)
 	}
 }
 
@@ -328,7 +328,7 @@ func TestOverlay_inject_produces_commands(t *testing.T) {
 	root, _, _ := buildOverlayTree(t)
 	frame := baseFrame()
 	o.Inject(frame, NewInspector(root), nil, FrameStats{})
-	overlay := frame.Layers[len(frame.Layers)-1]
+	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
 	if overlay.Commands.Len() == 0 {
 		t.Fatal("expected non-empty command list from overlay")
 	}
@@ -340,7 +340,7 @@ func TestOverlay_bounds_drawn_for_each_facet(t *testing.T) {
 	root, _, _ := buildOverlayTree(t)
 	frame := baseFrame()
 	o.Inject(frame, NewInspector(root), nil, FrameStats{})
-	overlay := frame.Layers[len(frame.Layers)-1]
+	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
 	count := 0
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.StrokeRect); ok {
@@ -360,7 +360,7 @@ func TestOverlay_dirty_facets_highlighted(t *testing.T) {
 	root.Base().InvalidateWithSource(facet.DirtyProjection, "test")
 	frame := baseFrame()
 	o.Inject(frame, NewInspector(root), nil, FrameStats{})
-	overlay := frame.Layers[len(frame.Layers)-1]
+	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
 	hasFillRect := false
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.FillRect); ok {
@@ -383,7 +383,7 @@ func TestOverlay_timing_bar_present(t *testing.T) {
 	}
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, stats)
-	overlay := frame.Layers[len(frame.Layers)-1]
+	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
 	hasFillRect := false
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.FillRect); ok {
@@ -401,13 +401,13 @@ func TestOverlay_no_cache_id(t *testing.T) {
 	o.Toggle()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	overlay := frame.Layers[len(frame.Layers)-1]
+	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
 	if overlay.ID != 0 {
-		t.Fatalf("overlay layer should have ID=0 (no cache), got %v", overlay.ID)
+		t.Fatalf("overlay RenderBatch should have ID=0 (no cache), got %v", overlay.ID)
 	}
 	for _, cmd := range overlay.Commands.Commands {
-		if bl, ok := cmd.(gfx.BeginLayer); ok && bl.CacheID != 0 {
-			t.Fatalf("overlay layer must not contain BeginLayer with non-zero CacheID")
+		if bl, ok := cmd.(gfx.BeginRenderBatch); ok && bl.CacheID != 0 {
+			t.Fatalf("overlay RenderBatch must not contain BeginRenderBatch with non-zero CacheID")
 		}
 	}
 }
@@ -430,7 +430,7 @@ func TestOverlay_hit_regions_drawn(t *testing.T) {
 	probe := NewHitProbe(nil, hitMap)
 	frame := baseFrame()
 	o.Inject(frame, nil, probe, FrameStats{})
-	overlay := frame.Layers[len(frame.Layers)-1]
+	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
 	count := 0
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.StrokeRect); ok {

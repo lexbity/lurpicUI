@@ -30,7 +30,7 @@ type blitSurface interface {
 	Unlock([]gfx.Rect) error
 }
 
-type layerCacheEntry struct {
+type RenderBatchCacheEntry struct {
 	bounds      gfx.Rect
 	commandHash uint64
 	buffer      *image.RGBA
@@ -64,8 +64,8 @@ type SoftwareRenderer struct {
 	surface blitSurface
 	output  *image.RGBA
 
-	layerCache map[render.LayerID]*layerCacheEntry
-	diffCache  *renderutil.LayerCache
+	RenderBatchCache map[render.RenderBatchID]*RenderBatchCacheEntry
+	diffCache  *renderutil.RenderBatchCache
 	glyphAtlas *glyphAtlas
 	width      int
 	height     int
@@ -75,8 +75,8 @@ type SoftwareRenderer struct {
 
 func NewSoftwareRenderer() *SoftwareRenderer {
 	return &SoftwareRenderer{
-		layerCache: make(map[render.LayerID]*layerCacheEntry),
-		diffCache:  renderutil.NewLayerCache(),
+		RenderBatchCache: make(map[render.RenderBatchID]*RenderBatchCacheEntry),
+		diffCache:  renderutil.NewRenderBatchCache(),
 		glyphAtlas: &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)},
 	}
 }
@@ -114,8 +114,8 @@ func (r *SoftwareRenderer) Destroy() {
 	r.output = nil
 	r.width = 0
 	r.height = 0
-	r.layerCache = make(map[render.LayerID]*layerCacheEntry)
-	r.diffCache = renderutil.NewLayerCache()
+	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
+	r.diffCache = renderutil.NewRenderBatchCache()
 	r.glyphAtlas = &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)}
 }
 
@@ -149,23 +149,23 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	diff := r.diffCache.Diff(frame)
 	clearRGBA(r.output)
 
-	seen := make(map[render.LayerID]struct{}, len(frame.Layers))
-	for _, layer := range frame.Layers {
-		seen[layer.ID] = struct{}{}
-		ld := diff.Layers[layer.ID]
-		if ld.Kind == renderutil.LayerUnchanged {
-			if entry := r.layerCache[layer.ID]; entry != nil && entry.buffer != nil {
-				r.compositeLayer(r.output, entry.buffer, layer.Bounds.Min, layer.Opacity)
+	seen := make(map[render.RenderBatchID]struct{}, len(frame.RenderBatchs))
+	for _, RenderBatch := range frame.RenderBatchs {
+		seen[RenderBatch.ID] = struct{}{}
+		ld := diff.RenderBatchs[RenderBatch.ID]
+		if ld.Kind == renderutil.RenderBatchUnchanged {
+			if entry := r.RenderBatchCache[RenderBatch.ID]; entry != nil && entry.buffer != nil {
+				r.compositeRenderBatch(r.output, entry.buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
 			}
 			continue
 		}
-		if ld.Kind == renderutil.LayerRemoved {
-			delete(r.layerCache, layer.ID)
+		if ld.Kind == renderutil.RenderBatchRemoved {
+			delete(r.RenderBatchCache, RenderBatch.ID)
 			continue
 		}
 
-		sizeW := int(math.Ceil(float64(layer.Bounds.Width())))
-		sizeH := int(math.Ceil(float64(layer.Bounds.Height())))
+		sizeW := int(math.Ceil(float64(RenderBatch.Bounds.Width())))
+		sizeH := int(math.Ceil(float64(RenderBatch.Bounds.Height())))
 		if sizeW < 0 {
 			sizeW = 0
 		}
@@ -174,19 +174,19 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 		}
 
 		buffer := image.NewRGBA(image.Rect(0, 0, sizeW, sizeH))
-		r.rasterizeLayer(buffer, &layer)
+		r.rasterizeRenderBatch(buffer, &RenderBatch)
 		r.rasterizeCount++
-		r.layerCache[layer.ID] = &layerCacheEntry{
-			bounds:      layer.Bounds,
-			commandHash: layer.CommandHash,
+		r.RenderBatchCache[RenderBatch.ID] = &RenderBatchCacheEntry{
+			bounds:      RenderBatch.Bounds,
+			commandHash: RenderBatch.CommandHash,
 			buffer:      buffer,
 		}
-		r.compositeLayer(r.output, buffer, layer.Bounds.Min, layer.Opacity)
+		r.compositeRenderBatch(r.output, buffer, RenderBatch.Bounds.Min, RenderBatch.Opacity)
 	}
 
-	for id := range r.layerCache {
+	for id := range r.RenderBatchCache {
 		if _, ok := seen[id]; !ok {
-			delete(r.layerCache, id)
+			delete(r.RenderBatchCache, id)
 		}
 	}
 
@@ -194,8 +194,8 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 		return err
 	}
 
-	buffers := make(map[render.LayerID]*image.RGBA, len(r.layerCache))
-	for id, entry := range r.layerCache {
+	buffers := make(map[render.RenderBatchID]*image.RGBA, len(r.RenderBatchCache))
+	for id, entry := range r.RenderBatchCache {
 		buffers[id] = entry.buffer
 	}
 	r.diffCache.Update(frame, buffers)
@@ -268,7 +268,7 @@ func (r *SoftwareRenderer) blitToSurface() error {
 	return nil
 }
 
-func (r *SoftwareRenderer) compositeLayer(dst *image.RGBA, src *image.RGBA, offset gfx.Point, opacity float32) {
+func (r *SoftwareRenderer) compositeRenderBatch(dst *image.RGBA, src *image.RGBA, offset gfx.Point, opacity float32) {
 	if dst == nil || src == nil || opacity <= 0 {
 		return
 	}
@@ -291,8 +291,8 @@ func (r *SoftwareRenderer) compositeLayer(dst *image.RGBA, src *image.RGBA, offs
 	}
 }
 
-func (r *SoftwareRenderer) rasterizeLayer(target *image.RGBA, layer *render.Layer) {
-	if target == nil || layer == nil {
+func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch *render.RenderBatch) {
+	if target == nil || RenderBatch == nil {
 		return
 	}
 	state := renderState{
@@ -302,7 +302,7 @@ func (r *SoftwareRenderer) rasterizeLayer(target *image.RGBA, layer *render.Laye
 	}
 	stack := []renderState{state}
 
-	for _, cmd := range layer.Commands.Commands {
+	for _, cmd := range RenderBatch.Commands.Commands {
 		state = stack[len(stack)-1]
 		switch c := cmd.(type) {
 		case gfx.PushTransform:
@@ -350,7 +350,7 @@ func (r *SoftwareRenderer) rasterizeLayer(target *image.RGBA, layer *render.Laye
 			}
 		case gfx.DrawImage:
 			drawImage(target, state, c)
-		case gfx.BeginLayer, gfx.EndLayer:
+		case gfx.BeginRenderBatch, gfx.EndRenderBatch:
 		}
 	}
 }

@@ -207,8 +207,8 @@ func TestProjectionSystem_initial_run_projects_all(t *testing.T) {
 	if got := sys.CacheHits; got != 0 {
 		t.Fatalf("CacheHits = %d, want 0", got)
 	}
-	if got := len(out.Layers); got != 2 {
-		t.Fatalf("layers = %d, want 2", got)
+	if got := len(out.RenderBatchs); got != 2 {
+		t.Fatalf("RenderBatchs = %d, want 2", got)
 	}
 	if root.projectCalls != 1 || child.projectCalls != 1 {
 		t.Fatalf("project calls = root:%d child:%d", root.projectCalls, child.projectCalls)
@@ -381,14 +381,14 @@ func TestProjectionSystem_assembles_frameoutput(t *testing.T) {
 	sys := NewSystem()
 	out := sys.Run(root, FrameInfo{})
 
-	if got := len(out.Layers); got != 2 {
-		t.Fatalf("layers = %d, want 2", got)
+	if got := len(out.RenderBatchs); got != 2 {
+		t.Fatalf("RenderBatchs = %d, want 2", got)
 	}
-	if out.Layers[0].FacetID != root.ID() || out.Layers[1].FacetID != child.ID() {
-		t.Fatalf("unexpected layer order: %#v", out.Layers)
+	if out.RenderBatchs[0].FacetID != root.ID() || out.RenderBatchs[1].FacetID != child.ID() {
+		t.Fatalf("unexpected RenderBatch order: %#v", out.RenderBatchs)
 	}
-	if out.Layers[0].Opacity != 1 || out.Layers[1].Opacity != 1 {
-		t.Fatalf("unexpected opacity values: %#v", out.Layers)
+	if out.RenderBatchs[0].Opacity != 1 || out.RenderBatchs[1].Opacity != 1 {
+		t.Fatalf("unexpected opacity values: %#v", out.RenderBatchs)
 	}
 }
 
@@ -635,7 +635,7 @@ func TestDirtyPropagation_accumulates_within_frame(t *testing.T) {
 	}
 }
 
-func TestFrameOutput_layers_ordered_back_to_front(t *testing.T) {
+func TestFrameOutput_RenderBatchs_ordered_back_to_front(t *testing.T) {
 	root := newRenderOnlyFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
 	child := newRenderOnlyFacet("child", gfx.RectFromXYWH(10, 10, 20, 20))
 	root.AddChild(&child.Facet)
@@ -644,11 +644,11 @@ func TestFrameOutput_layers_ordered_back_to_front(t *testing.T) {
 	sys := NewSystem()
 	out := sys.Run(root, FrameInfo{})
 
-	if len(out.Layers) != 2 {
-		t.Fatalf("layers = %d, want 2", len(out.Layers))
+	if len(out.RenderBatchs) != 2 {
+		t.Fatalf("RenderBatchs = %d, want 2", len(out.RenderBatchs))
 	}
-	if out.Layers[0].FacetID != root.ID() || out.Layers[1].FacetID != child.ID() {
-		t.Fatalf("unexpected layer order: %#v", out.Layers)
+	if out.RenderBatchs[0].FacetID != root.ID() || out.RenderBatchs[1].FacetID != child.ID() {
+		t.Fatalf("unexpected RenderBatch order: %#v", out.RenderBatchs)
 	}
 }
 
@@ -659,8 +659,8 @@ func TestFrameOutput_empty_commandlist_excluded(t *testing.T) {
 	sys := NewSystem()
 	out := sys.Run(root, FrameInfo{})
 
-	if len(out.Layers) != 0 {
-		t.Fatalf("layers = %d, want 0", len(out.Layers))
+	if len(out.RenderBatchs) != 0 {
+		t.Fatalf("RenderBatchs = %d, want 0", len(out.RenderBatchs))
 	}
 	if out.HitMap == nil {
 		t.Fatal("expected hitmap")

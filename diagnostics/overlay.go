@@ -5,7 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 )
 
-// Overlay draws a visual debug layer over the render output.
+// Overlay draws a visual debug RenderBatch over the render output.
 // Activated by Toggle — no recompilation needed.
 type Overlay struct {
 	active     bool
@@ -57,7 +57,7 @@ func (o *Overlay) IsActive() bool {
 	return o != nil && o.active
 }
 
-// Inject adds an overlay layer to the top of frame.
+// Inject adds an overlay RenderBatch to the top of frame.
 // No-op when inactive or frame is nil.
 func (o *Overlay) Inject(frame *render.Frame, inspector *Inspector, hitProbe *HitProbe, stats FrameStats) {
 	if o == nil || !o.active || frame == nil {
@@ -65,7 +65,7 @@ func (o *Overlay) Inject(frame *render.Frame, inspector *Inspector, hitProbe *Hi
 	}
 
 	var surfaceSize gfx.Size
-	for _, l := range frame.Layers {
+	for _, l := range frame.RenderBatchs {
 		if l.Bounds.Max.X > surfaceSize.W {
 			surfaceSize.W = l.Bounds.Max.X
 		}
@@ -88,7 +88,7 @@ func (o *Overlay) Inject(frame *render.Frame, inspector *Inspector, hitProbe *Hi
 	}
 	o.drawTimingBar(&list, stats, surfaceSize)
 
-	frame.Layers = append(frame.Layers, render.Layer{
+	frame.RenderBatchs = append(frame.RenderBatchs, render.RenderBatch{
 		Bounds:  gfx.Rect{Max: gfx.Point{X: surfaceSize.W, Y: surfaceSize.H}},
 		Opacity: 1.0,
 		Commands: list,
