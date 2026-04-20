@@ -123,14 +123,16 @@ func (m *FocusManager) RebuildTabOrder(root FacetImpl) {
 	}
 	entries := make([]entry, 0, 8)
 	seq := 0
-	var walk func(FacetImpl)
-	walk = func(impl FacetImpl) {
+	stack := []FacetImpl{root}
+	for len(stack) > 0 {
+		impl := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
 		if impl == nil {
-			return
+			continue
 		}
 		base := impl.Base()
 		if base == nil {
-			return
+			continue
 		}
 		m.byID[base.ID()] = impl
 		if role := base.FocusRole(); role != nil {
@@ -143,11 +145,11 @@ func (m *FocusManager) RebuildTabOrder(root FacetImpl) {
 			}
 		}
 		seq++
-		for _, child := range base.Children() {
-			walk(child)
+		children := base.Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
 		}
 	}
-	walk(root)
 
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].index != entries[j].index {

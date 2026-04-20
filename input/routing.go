@@ -637,20 +637,48 @@ func findFacetPath(root facet.FacetImpl, target facet.FacetID) []facet.FacetImpl
 	if root == nil {
 		return nil
 	}
-	base := root.Base()
-	if base == nil {
-		return nil
+	type pathFrame struct {
+		impl facet.FacetImpl
+		next int
 	}
-	if base.ID() == target {
-		return []facet.FacetImpl{root}
-	}
-	for _, child := range base.Children() {
+	stack := []pathFrame{{impl: root}}
+	path := make([]facet.FacetImpl, 0, 16)
+	for len(stack) > 0 {
+		frame := &stack[len(stack)-1]
+		base := frame.impl.Base()
+		if base == nil {
+			stack = stack[:len(stack)-1]
+			if len(path) > 0 {
+				path = path[:len(path)-1]
+			}
+			continue
+		}
+		if frame.next == 0 {
+			path = append(path, frame.impl)
+			if base.ID() == target {
+				out := make([]facet.FacetImpl, len(path))
+				copy(out, path)
+				return out
+			}
+		}
+		children := base.Children()
+		if frame.next >= len(children) {
+			stack = stack[:len(stack)-1]
+			if len(path) > 0 {
+				path = path[:len(path)-1]
+			}
+			continue
+		}
+		child := children[frame.next]
+		frame.next++
 		if child == nil {
 			continue
 		}
-		if path := findFacetPath(child, target); len(path) > 0 {
-			return append([]facet.FacetImpl{root}, path...)
+		next := facet.FacetImpl(child)
+		if impl := child.Impl(); impl != nil {
+			next = impl
 		}
+		stack = append(stack, pathFrame{impl: next})
 	}
 	return nil
 }

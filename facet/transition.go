@@ -11,75 +11,116 @@ type FacetImpl interface {
 
 // Attach transitions a facet from Created to Attached.
 func Attach(f FacetImpl, ctx AttachContext) {
-	base := baseOf(f)
-	f = concreteImpl(base, f)
-	requireState(base, StateCreated, StateAttached)
-	roles := base.rolesSnapshot()
-	for _, role := range roles {
-		role.onAttach(base)
+	type attachFrame struct {
+		impl FacetImpl
 	}
-	f.OnAttach(ctx)
-	base.setState(StateAttached)
-	for _, child := range base.childrenSnapshot() {
-		Attach(concreteImpl(child, child), ctx)
+	stack := []attachFrame{{impl: f}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		base := baseOf(frame.impl)
+		frame.impl = concreteImpl(base, frame.impl)
+		requireState(base, StateCreated, StateAttached)
+		roles := base.rolesSnapshot()
+		for _, role := range roles {
+			role.onAttach(base)
+		}
+		frame.impl.OnAttach(ctx)
+		base.setState(StateAttached)
+		children := base.childrenSnapshot()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, attachFrame{impl: concreteImpl(children[i], children[i])})
+		}
 	}
 }
 
 // Activate transitions a facet from Attached or Inactive to Active.
 func Activate(f FacetImpl) {
-	base := baseOf(f)
-	f = concreteImpl(base, f)
-	switch base.State() {
-	case StateAttached, StateInactive:
-	default:
-		panic(invalidTransition(base.State(), StateActive))
+	type activateFrame struct {
+		impl FacetImpl
 	}
-	roles := base.rolesSnapshot()
-	for _, role := range roles {
-		role.onActivate(base)
-	}
-	f.OnActivate()
-	base.setState(StateActive)
-	for _, child := range base.childrenSnapshot() {
-		Activate(concreteImpl(child, child))
+	stack := []activateFrame{{impl: f}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		base := baseOf(frame.impl)
+		frame.impl = concreteImpl(base, frame.impl)
+		switch base.State() {
+		case StateAttached, StateInactive:
+		default:
+			panic(invalidTransition(base.State(), StateActive))
+		}
+		roles := base.rolesSnapshot()
+		for _, role := range roles {
+			role.onActivate(base)
+		}
+		frame.impl.OnActivate()
+		base.setState(StateActive)
+		children := base.childrenSnapshot()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, activateFrame{impl: concreteImpl(children[i], children[i])})
+		}
 	}
 }
 
 // Deactivate transitions a facet from Active to Inactive.
 func Deactivate(f FacetImpl) {
-	base := baseOf(f)
-	f = concreteImpl(base, f)
-	requireState(base, StateActive, StateInactive)
-	roles := base.rolesSnapshot()
-	for _, role := range roles {
-		role.onDeactivate(base)
+	type deactivateFrame struct {
+		impl FacetImpl
 	}
-	f.OnDeactivate()
-	base.setState(StateInactive)
-	for _, child := range base.childrenSnapshot() {
-		Deactivate(concreteImpl(child, child))
+	stack := []deactivateFrame{{impl: f}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		base := baseOf(frame.impl)
+		frame.impl = concreteImpl(base, frame.impl)
+		requireState(base, StateActive, StateInactive)
+		roles := base.rolesSnapshot()
+		for _, role := range roles {
+			role.onDeactivate(base)
+		}
+		frame.impl.OnDeactivate()
+		base.setState(StateInactive)
+		children := base.childrenSnapshot()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, deactivateFrame{impl: concreteImpl(children[i], children[i])})
+		}
 	}
 }
 
 // Dispose transitions a facet into the terminal Disposed state.
 func Dispose(f FacetImpl) {
-	base := baseOf(f)
-	f = concreteImpl(base, f)
-	switch base.State() {
-	case StateCreated, StateAttached, StateActive, StateInactive:
-	default:
-		panic(invalidTransition(base.State(), StateDisposed))
+	type disposeFrame struct {
+		impl   FacetImpl
+		entered bool
 	}
-	for _, child := range base.childrenSnapshot() {
-		Dispose(concreteImpl(child, child))
+	stack := []disposeFrame{{impl: f}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		base := baseOf(frame.impl)
+		frame.impl = concreteImpl(base, frame.impl)
+		if !frame.entered {
+			switch base.State() {
+			case StateCreated, StateAttached, StateActive, StateInactive:
+			default:
+				panic(invalidTransition(base.State(), StateDisposed))
+			}
+			stack = append(stack, disposeFrame{impl: frame.impl, entered: true})
+			children := base.childrenSnapshot()
+			for i := len(children) - 1; i >= 0; i-- {
+				stack = append(stack, disposeFrame{impl: concreteImpl(children[i], children[i])})
+			}
+			continue
+		}
+		roles := base.rolesSnapshot()
+		for _, role := range roles {
+			role.onDispose(base)
+		}
+		frame.impl.OnDetach()
+		base.releaseSubscriptions()
+		base.setState(StateDisposed)
 	}
-	roles := base.rolesSnapshot()
-	for _, role := range roles {
-		role.onDispose(base)
-	}
-	f.OnDetach()
-	base.releaseSubscriptions()
-	base.setState(StateDisposed)
 }
 
 func concreteImpl(base *Facet, fallback FacetImpl) FacetImpl {

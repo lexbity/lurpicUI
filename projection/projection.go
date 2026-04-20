@@ -176,13 +176,37 @@ func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 		impl: root,
 		base: base,
 	}
-	for _, child := range base.Children() {
-		childNode := buildProjectionTree(child)
-		if childNode == nil {
+	type buildFrame struct {
+		impl facet.FacetImpl
+		node *projectionNode
+	}
+	stack := []buildFrame{{impl: root, node: node}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.impl == nil || frame.node == nil || frame.node.base == nil {
 			continue
 		}
-		childNode.parent = node
-		node.children = append(node.children, childNode)
+		children := frame.node.base.Children()
+		if len(children) == 0 {
+			continue
+		}
+		frame.node.children = make([]*projectionNode, 0, len(children))
+		for i := 0; i < len(children); i++ {
+			child := children[i]
+			if child == nil || child.Base() == nil {
+				continue
+			}
+			childNode := &projectionNode{
+				impl:   child,
+				base:   child.Base(),
+				parent: frame.node,
+			}
+			frame.node.children = append(frame.node.children, childNode)
+		}
+		for i := len(frame.node.children) - 1; i >= 0; i-- {
+			stack = append(stack, buildFrame{impl: frame.node.children[i].impl, node: frame.node.children[i]})
+		}
 	}
 	return node
 }
@@ -191,36 +215,54 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 	if node == nil || node.base == nil || node.impl == nil {
 		return
 	}
-	base := node.base
-	facetID := base.ID()
-	resolvedTransform := parentTransform
-	bounds := gfx.Rect{}
-	layerCtx, hasLayer := s.resolveLayerContext(node.impl, parentTransform)
-	if hasLayer {
-		resolvedTransform = layerCtx.Transform
-		bounds = layerCtx.Bounds
-	} else {
-		if viewport := base.ViewportRole(); viewport != nil {
-			resolvedTransform = resolvedTransform.Multiply(viewport.Transform)
-		}
-		if layoutRole := base.LayoutRole(); layoutRole != nil {
-			bounds = layoutRole.ArrangedBounds
-		}
+	type walkFrame struct {
+		node            *projectionNode
+		parentTransform gfx.Transform
+		parentChildCtx  *ChildProjectionContext
 	}
+	stack := []walkFrame{{node: node, parentTransform: parentTransform, parentChildCtx: parentChildCtx}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.node == nil || frame.node.base == nil || frame.node.impl == nil {
+			continue
+		}
+		base := frame.node.base
+		facetID := base.ID()
+		resolvedTransform := frame.parentTransform
+		bounds := gfx.Rect{}
+		layerCtx, hasLayer := s.resolveLayerContext(frame.node.impl, frame.parentTransform)
+		if hasLayer {
+			resolvedTransform = layerCtx.Transform
+			bounds = layerCtx.Bounds
+		} else {
+			if viewport := base.ViewportRole(); viewport != nil {
+				resolvedTransform = resolvedTransform.Multiply(viewport.Transform)
+			}
+			if layoutRole := base.LayoutRole(); layoutRole != nil {
+				bounds = layoutRole.ArrangedBounds
+			}
+		}
 
-	cacheKey := s.computeCacheKey(node.impl, resolvedTransform, parentChildCtx, layerCtx, hasLayer)
-	output := s.outputCache[facetID]
-	if output == nil || output.CacheKey != cacheKey || s.isDirtyWithMap(facetID, dirty) {
-		output = s.project(node.impl, resolvedTransform, bounds, parentChildCtx, cacheKey, layerCtx, hasLayer)
-		s.outputCache[facetID] = output
-		s.ProjectedFacets++
-	} else {
-		s.CacheHits++
-	}
-	s.frameOutputs = append(s.frameOutputs, output)
-	childCtx := output.ChildContext
-	for _, child := range node.children {
-		s.walkNode(child, resolvedTransform, childCtx, dirty)
+		cacheKey := s.computeCacheKey(frame.node.impl, resolvedTransform, frame.parentChildCtx, layerCtx, hasLayer)
+		output := s.outputCache[facetID]
+		if output == nil || output.CacheKey != cacheKey || s.isDirtyWithMap(facetID, dirty) {
+			output = s.project(frame.node.impl, resolvedTransform, bounds, frame.parentChildCtx, cacheKey, layerCtx, hasLayer)
+			s.outputCache[facetID] = output
+			s.ProjectedFacets++
+		} else {
+			s.CacheHits++
+		}
+		s.frameOutputs = append(s.frameOutputs, output)
+		childCtx := output.ChildContext
+		children := frame.node.children
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, walkFrame{
+				node:            children[i],
+				parentTransform: resolvedTransform,
+				parentChildCtx:  childCtx,
+			})
+		}
 	}
 }
 
@@ -584,10 +626,12 @@ func collectSelectionGeometries(outputs []*ProjectionOutput) map[facet.FacetID]*
 
 func (s *System) collectDirtyFlags(node *projectionNode) map[facet.FacetID]facet.DirtyFlags {
 	dirty := make(map[facet.FacetID]facet.DirtyFlags)
-	var walk func(*projectionNode)
-	walk = func(n *projectionNode) {
+	stack := []*projectionNode{node}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
 		if n == nil || n.base == nil {
-			return
+			continue
 		}
 		flags := n.base.DirtyFlags()
 		if s != nil && s.isDirty(n.base.ID()) {
@@ -596,11 +640,11 @@ func (s *System) collectDirtyFlags(node *projectionNode) map[facet.FacetID]facet
 		if flags != 0 {
 			dirty[n.base.ID()] |= flags
 		}
-		for _, child := range n.children {
-			walk(child)
+		children := n.children
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
 		}
 	}
-	walk(node)
 	if len(dirty) == 0 {
 		return nil
 	}
@@ -614,10 +658,12 @@ func (s *System) propagateDirty(node *projectionNode, dirty map[facet.FacetID]fa
 	changed := true
 	for changed {
 		changed = false
-		var walk func(*projectionNode)
-		walk = func(n *projectionNode) {
+		stack := []*projectionNode{node}
+		for len(stack) > 0 {
+			n := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
 			if n == nil || n.base == nil {
-				return
+				continue
 			}
 			id := n.base.ID()
 			flags := dirty[id]
@@ -636,11 +682,11 @@ func (s *System) propagateDirty(node *projectionNode, dirty map[facet.FacetID]fa
 					changed = true
 				}
 			}
-			for _, child := range n.children {
-				walk(child)
+			children := n.children
+			for i := len(children) - 1; i >= 0; i-- {
+				stack = append(stack, children[i])
 			}
 		}
-		walk(node)
 	}
 }
 
@@ -648,10 +694,20 @@ func (s *System) markSubtreeDirty(node *projectionNode, flags facet.DirtyFlags, 
 	if node == nil || node.base == nil {
 		return false
 	}
-	changed := mergeDirtyFlags(dirty, node.base.ID(), flags)
-	for _, child := range node.children {
-		if s.markSubtreeDirty(child, flags, dirty) {
+	changed := false
+	stack := []*projectionNode{node}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == nil || n.base == nil {
+			continue
+		}
+		if mergeDirtyFlags(dirty, n.base.ID(), flags) {
 			changed = true
+		}
+		children := n.children
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
 		}
 	}
 	return changed
@@ -661,11 +717,20 @@ func (s *System) clearTreeDirty(node *projectionNode) {
 	if node == nil || node.base == nil {
 		return
 	}
-	if flags := node.base.DirtyFlags(); flags != 0 {
-		node.base.ClearDirty(flags)
-	}
-	for _, child := range node.children {
-		s.clearTreeDirty(child)
+	stack := []*projectionNode{node}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == nil || n.base == nil {
+			continue
+		}
+		if flags := n.base.DirtyFlags(); flags != 0 {
+			n.base.ClearDirty(flags)
+		}
+		children := n.children
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
+		}
 	}
 }
 

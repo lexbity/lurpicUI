@@ -435,6 +435,9 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment layout.Chi
 		rt.childAttachments = make(map[facet.FacetID]layout.ChildAttachment)
 	}
 	rt.childAttachments[childBase.ID()] = attachment
+	if parentBase.State() == facet.StateCreated {
+		return
+	}
 	rt.attachTree(child)
 	rt.activateTree(child)
 	if rt.projectionLayers == nil {
@@ -571,11 +574,21 @@ func (rt *Runtime) markTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
 	if rt == nil || root == nil {
 		return
 	}
-	root.Base().InvalidateWithSource(flags, "runtime.markTreeDirty")
-	rt.dirtyFacets[root.Base().ID()] = flags
-	rt.dirtySources[root.Base().ID()] = "runtime.markTreeDirty"
-	for _, child := range root.Base().Children() {
-		rt.markTreeDirty(child, flags)
+	stack := []facet.FacetImpl{root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == nil || node.Base() == nil {
+			continue
+		}
+		base := node.Base()
+		base.InvalidateWithSource(flags, "runtime.markTreeDirty")
+		rt.dirtyFacets[base.ID()] = flags
+		rt.dirtySources[base.ID()] = "runtime.markTreeDirty"
+		children := base.Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
+		}
 	}
 }
 
@@ -619,11 +632,20 @@ func (rt *Runtime) walkActive(root facet.FacetImpl, fn func(facet.FacetImpl)) {
 	if rt == nil || root == nil || fn == nil {
 		return
 	}
-	if root.Base() != nil && root.Base().State() == facet.StateActive {
-		fn(root)
-	}
-	for _, child := range root.Base().Children() {
-		rt.walkActive(child, fn)
+	stack := []facet.FacetImpl{root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == nil || node.Base() == nil {
+			continue
+		}
+		if node.Base().State() == facet.StateActive {
+			fn(node)
+		}
+		children := node.Base().Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
+		}
 	}
 }
 
@@ -878,16 +900,24 @@ func (rt *Runtime) findFacetByID(root facet.FacetImpl, id facet.FacetID) facet.F
 	if rt == nil || root == nil || root.Base() == nil {
 		return nil
 	}
-	if root.Base().ID() == id {
-		return root
-	}
-	for _, child := range root.Base().Children() {
-		next := facet.FacetImpl(child)
-		if impl := child.Impl(); impl != nil {
-			next = impl
+	stack := []facet.FacetImpl{root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == nil || node.Base() == nil {
+			continue
 		}
-		if found := rt.findFacetByID(next, id); found != nil {
-			return found
+		if node.Base().ID() == id {
+			return node
+		}
+		children := node.Base().Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			child := children[i]
+			next := facet.FacetImpl(child)
+			if impl := child.Impl(); impl != nil {
+				next = impl
+			}
+			stack = append(stack, next)
 		}
 	}
 	return nil
@@ -920,12 +950,21 @@ func (rt *Runtime) walkAnchorExportTree(node facet.FacetImpl, visited map[facet.
 	if rt == nil || node == nil || node.Base() == nil {
 		return
 	}
-	if visited != nil {
-		visited[node.Base().ID()] = struct{}{}
-	}
-	rt.reconcileAnchorExports(node)
-	for _, child := range node.Base().Children() {
-		rt.walkAnchorExportTree(child, visited)
+	stack := []facet.FacetImpl{node}
+	for len(stack) > 0 {
+		current := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if current == nil || current.Base() == nil {
+			continue
+		}
+		if visited != nil {
+			visited[current.Base().ID()] = struct{}{}
+		}
+		rt.reconcileAnchorExports(current)
+		children := current.Base().Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
+		}
 	}
 }
 
@@ -1087,20 +1126,33 @@ func (rt *Runtime) walkLayerTree(node facet.FacetImpl, accumulated gfx.Transform
 		return layoutPhaseStats{}
 	}
 	var stats layoutPhaseStats
-	current := accumulated
-	if viewport := node.Base().ViewportRole(); viewport != nil {
-		current = current.Multiply(viewport.Transform)
+	type layerFrame struct {
+		node      facet.FacetImpl
+		transform gfx.Transform
 	}
-	if composer, ok := node.(LayerComposer); ok {
-		stats = rt.resolveComposedLayers(node, composer, current)
-	}
-	for _, child := range node.Base().Children() {
-		childStats := rt.walkLayerTree(child, current)
-		stats.specResolution += childStats.specResolution
-		stats.anchorExport += childStats.anchorExport
-		stats.structuralMeasure += childStats.structuralMeasure
-		stats.layerBoundsResolution += childStats.layerBoundsResolution
-		stats.arrange += childStats.arrange
+	stack := []layerFrame{{node: node, transform: accumulated}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.node == nil || frame.node.Base() == nil {
+			continue
+		}
+		current := frame.transform
+		if viewport := frame.node.Base().ViewportRole(); viewport != nil {
+			current = current.Multiply(viewport.Transform)
+		}
+		if composer, ok := frame.node.(LayerComposer); ok {
+			childStats := rt.resolveComposedLayers(frame.node, composer, current)
+			stats.specResolution += childStats.specResolution
+			stats.anchorExport += childStats.anchorExport
+			stats.structuralMeasure += childStats.structuralMeasure
+			stats.layerBoundsResolution += childStats.layerBoundsResolution
+			stats.arrange += childStats.arrange
+		}
+		children := frame.node.Base().Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, layerFrame{node: children[i], transform: current})
+		}
 	}
 	return stats
 }
