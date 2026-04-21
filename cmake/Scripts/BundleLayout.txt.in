@@ -1,0 +1,20 @@
+LurpicUI bundle layout
+
+Build tree staging root:
+  @LURPIC_BUNDLE_STAGE_ROOT@
+
+Staged subdirectories:
+  examples: @LURPIC_BUNDLE_EXAMPLES_DIR@
+  themes:   @LURPIC_BUNDLE_THEMES_DIR@
+  docs:     @LURPIC_BUNDLE_DOCS_DIR@
+  presets:  @LURPIC_BUNDLE_PRESETS_DIR@
+
+Later install-tree layout:
+  examples: share/lurpic/examples
+  themes:   share/lurpic/themes
+  docs:     share/lurpic/docs
+  presets:  share/lurpic/presets
+
+Policy:
+  CMake may stage generated example/theme artifacts into the build tree.
+  Source trees are never mutated by build targets.

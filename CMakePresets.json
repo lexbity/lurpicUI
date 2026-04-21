@@ -1,0 +1,215 @@
+{
+  "version": 10,
+  "configurePresets": [
+    {
+      "name": "base-linux",
+      "hidden": true,
+      "generator": "Unix Makefiles",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "LURPIC_PLATFORM_LINUX": "ON",
+        "LURPIC_PLATFORM_ANDROID": "OFF",
+        "LURPIC_BUILD_TESTS": "ON",
+        "LURPIC_BUILD_EXAMPLES": "OFF",
+        "LURPIC_BUILD_BENCHMARKS": "OFF",
+        "LURPIC_BUILD_DOCS": "OFF",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "OFF",
+        "LURPIC_ENABLE_DEBUG_VALIDATION": "OFF",
+        "LURPIC_UPDATE_GOLDENS": "OFF",
+        "LURPIC_CI_MODE": "OFF",
+        "LURPIC_RELEASE_PACKAGE": "OFF"
+      }
+    },
+    {
+      "name": "base-software",
+      "hidden": true,
+      "inherits": "base-linux",
+      "cacheVariables": {
+        "LURPIC_BACKEND_SOFTWARE": "ON",
+        "LURPIC_BACKEND_VULKAN": "OFF"
+      }
+    },
+    {
+      "name": "base-vulkan",
+      "hidden": true,
+      "inherits": "base-software",
+      "cacheVariables": {
+        "LURPIC_BACKEND_VULKAN": "ON",
+        "LURPIC_VULKAN_SDK_ROOT": "${sourceDir}/cmake/Fixtures/VulkanSDK"
+      }
+    },
+    {
+      "name": "base-vulkan-headless",
+      "hidden": true,
+      "inherits": "base-vulkan"
+    },
+    {
+      "name": "base-headless",
+      "hidden": true,
+      "inherits": "base-software",
+      "cacheVariables": {
+        "LURPIC_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "base-ci-headless",
+      "hidden": true,
+      "inherits": "base-headless",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LURPIC_CI_MODE": "ON",
+        "LURPIC_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "base-release",
+      "hidden": true,
+      "inherits": "base-linux",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LURPIC_RELEASE_PACKAGE": "ON",
+        "LURPIC_BUILD_EXAMPLES": "OFF",
+        "LURPIC_BUILD_DOCS": "ON",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "OFF"
+      }
+    },
+    {
+      "name": "dev-software",
+      "inherits": "base-software",
+      "displayName": "Developer software",
+      "description": "Software-first developer preset with examples enabled.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LURPIC_BUILD_EXAMPLES": "ON",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "ON"
+      }
+    },
+    {
+      "name": "dev-software-debug",
+      "inherits": "dev-software",
+      "displayName": "Developer software debug",
+      "description": "Software developer preset with lurpic_debug validation enabled.",
+      "cacheVariables": {
+        "LURPIC_ENABLE_DEBUG_VALIDATION": "ON"
+      }
+    },
+    {
+      "name": "dev-headless",
+      "inherits": "base-headless",
+      "displayName": "Developer headless",
+      "description": "Headless developer preset for non-display machines.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LURPIC_CI_MODE": "ON"
+      }
+    },
+    {
+      "name": "dev-vulkan",
+      "inherits": "base-vulkan",
+      "displayName": "Developer Vulkan",
+      "description": "Developer preset with the Vulkan backend enabled.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LURPIC_BUILD_EXAMPLES": "ON",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "ON"
+      }
+    },
+    {
+      "name": "ci-software-headless",
+      "inherits": "base-ci-headless",
+      "displayName": "CI software headless",
+      "description": "CI preset for headless software-only validation.",
+      "cacheVariables": {
+        "LURPIC_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "ci-software-debug",
+      "inherits": "base-ci-headless",
+      "displayName": "CI software debug",
+      "description": "CI preset for lurpic_debug validation without display dependencies.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LURPIC_ENABLE_DEBUG_VALIDATION": "ON",
+        "LURPIC_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "ci-vulkan",
+      "inherits": "base-vulkan-headless",
+      "displayName": "CI Vulkan",
+      "description": "CI preset for Vulkan validation without requiring a display session.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "LURPIC_CI_MODE": "ON",
+        "LURPIC_BUILD_EXAMPLES": "OFF"
+      }
+    },
+    {
+      "name": "release-software",
+      "inherits": "base-release",
+      "displayName": "Release software",
+      "description": "Release preset for software-only distributable builds.",
+      "cacheVariables": {
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "OFF"
+      }
+    },
+    {
+      "name": "release-vulkan",
+      "inherits": "base-release",
+      "displayName": "Release Vulkan",
+      "description": "Release preset for Vulkan-enabled distributable builds.",
+      "cacheVariables": {
+        "LURPIC_BACKEND_VULKAN": "ON",
+        "LURPIC_VULKAN_SDK_ROOT": "${sourceDir}/cmake/Fixtures/VulkanSDK",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "OFF"
+      }
+    },
+    {
+      "name": "release-bundle",
+      "inherits": "base-release",
+      "displayName": "Release bundle",
+      "description": "Release preset that stages examples and template themes for bundling.",
+      "cacheVariables": {
+        "LURPIC_BUILD_EXAMPLES": "ON",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "ON",
+        "LURPIC_BUILD_DOCS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "build-ci-software-headless",
+      "configurePreset": "ci-software-headless",
+      "targets": [
+        "build-go",
+        "vet",
+        "test-all"
+      ]
+    },
+    {
+      "name": "build-ci-software-debug",
+      "configurePreset": "ci-software-debug",
+      "targets": [
+        "test-debug",
+        "test-all"
+      ]
+    },
+    {
+      "name": "build-ci-vulkan",
+      "configurePreset": "ci-vulkan",
+      "targets": [
+        "build-backend-vulkan",
+        "test-all"
+      ]
+    },
+    {
+      "name": "build-release-bundle",
+      "configurePreset": "release-bundle",
+      "targets": [
+        "build-examples",
+        "package"
+      ]
+    }
+  ]
+}

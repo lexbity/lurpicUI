@@ -1,0 +1,21 @@
+LurpicUI build summary
+
+Project version: @LURPIC_PACKAGE_VERSION@
+VCS revision: @LURPIC_VCS_REVISION@
+Build timestamp: @LURPIC_BUILD_TIMESTAMP@
+
+Backends:
+  software: @LURPIC_BACKEND_SOFTWARE_TEXT@
+  Vulkan: @LURPIC_BACKEND_VULKAN_TEXT@
+
+Platforms:
+  Linux: @LURPIC_PLATFORM_LINUX_TEXT@
+  Android: @LURPIC_PLATFORM_ANDROID_TEXT@
+
+Configured assets:
+  examples enabled: @LURPIC_BUILD_EXAMPLES_TEXT@
+  template themes enabled: @LURPIC_INCLUDE_TEMPLATE_THEMES_TEXT@
+  release packaging: @LURPIC_RELEASE_PACKAGE_TEXT@
+
+Staging root:
+  @LURPIC_BUNDLE_STAGE_ROOT@

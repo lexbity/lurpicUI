@@ -199,12 +199,15 @@ func (c *Connector) project(ctx facet.ProjectionContext) *gfx.CommandList {
 	}
 	if c.Label != nil {
 		mid := c.routeLabelPoint(path)
-		label := *c.Label
-		label.Placement = LabelFree
-		label.Offset = mid
-		if cmds := label.project(ctx); cmds != nil {
+		oldPlacement := c.Label.Placement
+		oldOffset := c.Label.Offset
+		c.Label.Placement = LabelFree
+		c.Label.Offset = mid
+		if cmds := c.Label.project(ctx); cmds != nil {
 			list.Commands = append(list.Commands, cmds.Commands...)
 		}
+		c.Label.Placement = oldPlacement
+		c.Label.Offset = oldOffset
 	}
 	return &list
 }

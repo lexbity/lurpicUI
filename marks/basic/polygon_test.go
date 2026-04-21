@@ -10,7 +10,7 @@ import (
 
 func TestPolygon_fill_hit(t *testing.T) {
 	poly := &Polygon{
-		Points: []gfx.Point{{0, 0}, {10, 0}, {10, 10}, {0, 10}},
+		Points: []gfx.Point{{X: 0, Y: 0}, {X: 10, Y: 0}, {X: 10, Y: 10}, {X: 0, Y: 10}},
 		Style: PrimitiveStyleProps{
 			Fill: theme.Material{
 				Fills:   []theme.Fill{{Type: theme.FillSolid, Color: gfx.Color{R: 1, A: 1}, Opacity: 1}},
@@ -30,7 +30,7 @@ func TestPolygon_fill_hit(t *testing.T) {
 
 func TestPolygon_centroid_anchor_present_for_valid_polygon(t *testing.T) {
 	poly := &Polygon{
-		Points: []gfx.Point{{0, 0}, {10, 0}, {10, 10}, {0, 10}},
+		Points: []gfx.Point{{X: 0, Y: 0}, {X: 10, Y: 0}, {X: 10, Y: 10}, {X: 0, Y: 10}},
 	}
 	anchors := poly.ExportAnchors(layout.AnchorExportContext{})
 	if _, ok := anchors["centroid"]; !ok {

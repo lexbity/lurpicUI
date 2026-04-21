@@ -93,7 +93,9 @@ func TestPolylinePath_closed_and_open(t *testing.T) {
 
 func TestCommandInterface_externalTypes_rejected(t *testing.T) {
 	cmd := exec.Command("go", "test", "-tags=commandnegative", "./testdata/commandexternal")
-	cmd.Env = append(cmd.Environ(), "GOCACHE=/tmp/lurpic-go-cache", "GOTMPDIR=/tmp/lurpic-go-tmp")
+	cacheDir := t.TempDir()
+	tmpDir := t.TempDir()
+	cmd.Env = append(cmd.Environ(), "GOCACHE="+cacheDir, "GOTMPDIR="+tmpDir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatalf("expected commandnegative package to fail compilation")

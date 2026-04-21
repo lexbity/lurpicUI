@@ -221,7 +221,10 @@ func stringifyFacetID(id facet.FacetID) string {
 	return fmt.Sprintf("%d", uint64(id))
 }
 
-func basicTextParagraph(t basic.Text) (lineCount int, runeCount int, maxRunes int, lineSize float32) {
+func basicTextParagraph(t *basic.Text) (lineCount int, runeCount int, maxRunes int, lineSize float32) {
+	if t == nil {
+		return 0, 0, 0, 0
+	}
 	style := t.Style
 	if style.Size <= 0 {
 		style = text.DefaultStyle()
@@ -269,7 +272,10 @@ func splitLines(s string) []string {
 	return out
 }
 
-func basicTextBounds(t basic.Text) gfx.Rect {
+func basicTextBounds(t *basic.Text) gfx.Rect {
+	if t == nil {
+		return gfx.Rect{}
+	}
 	lineCount, _, maxRunes, lineSize := basicTextParagraph(t)
 	style := t.Style
 	if style.Size <= 0 {
@@ -293,7 +299,7 @@ func textMarkCommandList(t *basic.Text, tx gfx.Transform) *gfx.CommandList {
 	if t == nil {
 		return &gfx.CommandList{}
 	}
-	copy := *t
+	copy := cloneBasicText(t)
 	copy.Tx.Transform = tx.Multiply(normalizeTransform(copy.Tx.Transform))
 	role := copy.Base().ProjectionRole()
 	if role == nil {
@@ -306,7 +312,7 @@ func textMarkBounds(t *basic.Text, tx gfx.Transform) gfx.Rect {
 	if t == nil {
 		return gfx.Rect{}
 	}
-	copy := *t
+	copy := cloneBasicText(t)
 	copy.Tx.Transform = tx.Multiply(normalizeTransform(copy.Tx.Transform))
 	role := copy.Base().LayoutRole()
 	if role != nil {
@@ -316,6 +322,21 @@ func textMarkBounds(t *basic.Text, tx gfx.Transform) gfx.Rect {
 		}
 	}
 	return basicTextBounds(copy)
+}
+
+func cloneBasicText(src *basic.Text) *basic.Text {
+	if src == nil {
+		return nil
+	}
+	return &basic.Text{
+		ID:         src.ID,
+		Paragraph:  src.Paragraph,
+		Style:      src.Style,
+		MaxWidth:   src.MaxWidth,
+		Align:      src.Align,
+		Selectable: src.Selectable,
+		Tx:         src.Tx,
+	}
 }
 
 func transformRect(tx gfx.Transform, r gfx.Rect) gfx.Rect {
@@ -527,30 +548,62 @@ func strokeStyle(stroke theme.MaterialStroke) gfx.StrokeStyle {
 func projectMarkAt(mark marks.Mark, pos gfx.Point, ctx facet.ProjectionContext) *gfx.CommandList {
 	switch m := mark.(type) {
 	case *Label:
-		copy := *m
-		copy.Placement = LabelFree
-		copy.Offset = pos
-		return copy.project(ctx)
+		if m == nil {
+			return &gfx.CommandList{}
+		}
+		oldPlacement := m.Placement
+		oldOffset := m.Offset
+		m.Placement = LabelFree
+		m.Offset = pos
+		defer func() {
+			m.Placement = oldPlacement
+			m.Offset = oldOffset
+		}()
+		return m.project(ctx)
 	case *basic.Text:
-		copy := *m
-		copy.Tx.Transform = gfx.Translation(pos.X, pos.Y).Multiply(normalizeTransform(copy.Tx.Transform))
-		role := copy.Base().ProjectionRole()
+		if m == nil {
+			return &gfx.CommandList{}
+		}
+		oldTx := m.Tx
+		m.Tx.Transform = gfx.Translation(pos.X, pos.Y).Multiply(normalizeTransform(m.Tx.Transform))
+		defer func() {
+			m.Tx = oldTx
+		}()
+		role := m.Base().ProjectionRole()
 		if role == nil {
 			return &gfx.CommandList{}
 		}
 		return role.Project(ctx)
 	case *SymbolInstance:
-		copy := *m
-		copy.Position = pos
-		return copy.project(ctx)
+		if m == nil {
+			return &gfx.CommandList{}
+		}
+		oldPos := m.Position
+		m.Position = pos
+		defer func() {
+			m.Position = oldPos
+		}()
+		return m.project(ctx)
 	case *Icon:
-		copy := *m
-		copy.Position = pos
-		return copy.project(ctx)
+		if m == nil {
+			return &gfx.CommandList{}
+		}
+		oldPos := m.Position
+		m.Position = pos
+		defer func() {
+			m.Position = oldPos
+		}()
+		return m.project(ctx)
 	case *Handle:
-		copy := *m
-		copy.Position = pos
-		return copy.project(ctx)
+		if m == nil {
+			return &gfx.CommandList{}
+		}
+		oldPos := m.Position
+		m.Position = pos
+		defer func() {
+			m.Position = oldPos
+		}()
+		return m.project(ctx)
 	default:
 		if impl, ok := mark.(facet.FacetImpl); ok {
 			role := impl.Base().ProjectionRole()

@@ -1,0 +1,10 @@
+LurpicUI bundle summary
+
+Examples enabled: @LURPIC_BUILD_EXAMPLES_TEXT@
+Template themes included: @LURPIC_INCLUDE_TEMPLATE_THEMES_TEXT@
+Example staging root: @LURPIC_BUNDLE_STAGE_ROOT@
+Example staging directories:
+  @LURPIC_BUNDLE_EXAMPLES_DIR@
+  @LURPIC_BUNDLE_THEMES_DIR@
+  @LURPIC_BUNDLE_DOCS_DIR@
+  @LURPIC_BUNDLE_PRESETS_DIR@

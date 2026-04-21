@@ -173,7 +173,9 @@ func TestMarkID_zero_is_facet_itself(t *testing.T) {
 
 func TestRoleInterface_not_implementable_externally(t *testing.T) {
 	cmd := exec.Command("go", "test", "-tags=rolenegative", "./testdata/roleexternal")
-	cmd.Env = append(cmd.Environ(), "GOCACHE=/tmp/lurpic-go-cache", "GOTMPDIR=/tmp/lurpic-go-tmp")
+	cacheDir := t.TempDir()
+	tmpDir := t.TempDir()
+	cmd.Env = append(cmd.Environ(), "GOCACHE="+cacheDir, "GOTMPDIR="+tmpDir)
 	out, err := cmd.CombinedOutput()
 	if err == nil {
 		t.Fatal("expected external role package to fail compilation")
