@@ -153,6 +153,7 @@ const (
 	KeyPageDown
 	KeyEscape
 	KeyEnter
+	KeySpace
 	KeyTab
 	KeyBackspace
 )

@@ -9,6 +9,7 @@ const (
 	keysymTab       = 0xff09
 	keysymReturn    = 0xff0d
 	keysymEscape    = 0xff1b
+	keysymSpace     = 0x20
 	keysymHome      = 0xff50
 	keysymLeft      = 0xff51
 	keysymUp        = 0xff52
@@ -41,6 +42,8 @@ func keyFromKeysym(sym uint32) platform.Key {
 		return platform.KeyEscape
 	case keysymReturn:
 		return platform.KeyEnter
+	case keysymSpace:
+		return platform.KeySpace
 	case keysymTab:
 		return platform.KeyTab
 	case keysymBackSpace:

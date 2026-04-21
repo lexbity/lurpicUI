@@ -188,6 +188,27 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 		if inv, ok := item.entry.Transform.Inverse(); ok {
 			local = inv.TransformPoint(screenPos)
 		}
+		if !layer.ClipRect.IsEmpty() {
+			clip := layer.ClipRect
+			if inv, ok := item.entry.Transform.Inverse(); ok {
+				clip = inv.TransformRect(clip)
+			}
+			if !clip.Contains(local) {
+				traceLayer := diagnostics.LayerHitTrace{
+					ParentID:    parentID,
+					LayerID:     layerID,
+					HitPolicy:   policy,
+					TestedCount: 0,
+					StoppedHere: policy == layout.HitBlockBelow,
+				}
+				trace.TestedLayers = append(trace.TestedLayers, traceLayer)
+				if policy == layout.HitBlockBelow {
+					trace.Result = 0
+					return 0, trace
+				}
+				continue
+			}
+		}
 		hit := false
 		tested := 0
 		for _, region := range item.entry.Regions {

@@ -68,6 +68,7 @@ func TestLinuxPureKeyAndTextMappings(t *testing.T) {
 		keysymPageDown:  platform.KeyPageDown,
 		keysymEscape:    platform.KeyEscape,
 		keysymReturn:    platform.KeyEnter,
+		keysymSpace:     platform.KeySpace,
 		keysymTab:       platform.KeyTab,
 		keysymBackSpace: platform.KeyBackspace,
 	}
@@ -84,7 +85,7 @@ func TestLinuxPureKeyAndTextMappings(t *testing.T) {
 	}
 
 	textCases := map[uint32]string{
-		' ':          " ",
+		keysymSpace:  " ",
 		keysymTab:    "\t",
 		keysymReturn: "\n",
 	}

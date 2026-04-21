@@ -56,6 +56,7 @@ func TestKeyTranslation_navigation_keys(t *testing.T) {
 		keysymPageDown:  platform.KeyPageDown,
 		keysymEscape:    platform.KeyEscape,
 		keysymReturn:    platform.KeyEnter,
+		keysymSpace:     platform.KeySpace,
 		keysymTab:       platform.KeyTab,
 		keysymBackSpace: platform.KeyBackspace,
 	}
