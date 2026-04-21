@@ -59,6 +59,8 @@ type Runtime struct {
 	rootStyleContext any
 	phase1HooksMu    sync.RWMutex
 	phase1Hooks      []func(time.Duration)
+	shutdownHooksMu  sync.RWMutex
+	shutdownHooks    []func()
 
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
@@ -230,6 +232,8 @@ func (rt *Runtime) shutdown() error {
 		return nil
 	}
 	rt.jobPool.CancelAll()
+	rt.runShutdownHooks()
+	rt.clearShutdownHooks()
 	rt.disposeTree(rt.root)
 	rt.jobPool.Shutdown()
 	rt.clearPhase1TickHooks()

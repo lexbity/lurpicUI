@@ -43,9 +43,10 @@ type Timeline struct {
 	speed   float32
 	forward bool
 
-	runtime    *runtime.Runtime
-	unregister func()
-	disposed   bool
+	runtime            *runtime.Runtime
+	unregister         func()
+	unregisterShutdown func()
+	disposed           bool
 }
 
 // Keyframe maps a point in time to a value.

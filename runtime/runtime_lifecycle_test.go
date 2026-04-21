@@ -46,6 +46,23 @@ func TestRuntime_phase1TickHooks_areScoped_and_cleared_on_shutdown(t *testing.T)
 	unregister()
 }
 
+func TestRuntime_shutdownHooks_are_invoked_and_cleared(t *testing.T) {
+	rt := mustRuntime(t)
+	var count int
+	unregister := rt.RegisterShutdownHook(func() {
+		count++
+	})
+	rt.runShutdownHooks()
+	if count != 1 {
+		t.Fatalf("count before clear = %d", count)
+	}
+	unregister()
+	rt.runShutdownHooks()
+	if count != 1 {
+		t.Fatalf("count after clear = %d", count)
+	}
+}
+
 func TestRuntime_shutdown_disposes_tree_bottomup(t *testing.T) {
 	order := []string{}
 	root := &runtimeTestFacet{Facet: facet.NewFacet(), name: "root", detachOrder: &order}

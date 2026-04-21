@@ -50,3 +50,47 @@ func (rt *Runtime) clearPhase1TickHooks() {
 	rt.phase1Hooks = nil
 	rt.phase1HooksMu.Unlock()
 }
+
+// RegisterShutdownHook registers a callback that runs during runtime shutdown.
+func (rt *Runtime) RegisterShutdownHook(fn func()) func() {
+	if fn == nil {
+		return func() {}
+	}
+	if rt == nil {
+		return func() {}
+	}
+	rt.shutdownHooksMu.Lock()
+	rt.shutdownHooks = append(rt.shutdownHooks, fn)
+	index := len(rt.shutdownHooks) - 1
+	rt.shutdownHooksMu.Unlock()
+	return func() {
+		rt.shutdownHooksMu.Lock()
+		if index >= 0 && index < len(rt.shutdownHooks) && rt.shutdownHooks[index] != nil {
+			rt.shutdownHooks[index] = nil
+		}
+		rt.shutdownHooksMu.Unlock()
+	}
+}
+
+func (rt *Runtime) runShutdownHooks() {
+	if rt == nil {
+		return
+	}
+	rt.shutdownHooksMu.RLock()
+	hooks := append([]func(){}, rt.shutdownHooks...)
+	rt.shutdownHooksMu.RUnlock()
+	for _, hook := range hooks {
+		if hook != nil {
+			hook()
+		}
+	}
+}
+
+func (rt *Runtime) clearShutdownHooks() {
+	if rt == nil {
+		return
+	}
+	rt.shutdownHooksMu.Lock()
+	rt.shutdownHooks = nil
+	rt.shutdownHooksMu.Unlock()
+}

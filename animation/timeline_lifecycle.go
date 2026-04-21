@@ -24,6 +24,7 @@ func (tl *Timeline) bind() {
 	}
 	if tl.runtime != nil {
 		tl.unregister = tl.runtime.RegisterPhase1TickHook(tl.tick)
+		tl.unregisterShutdown = tl.runtime.RegisterShutdownHook(tl.dispose)
 		return
 	}
 	timelineMu.Lock()
@@ -51,7 +52,11 @@ func (tl *Timeline) dispose() {
 	if tl.unregister != nil {
 		tl.unregister()
 	}
+	if tl.unregisterShutdown != nil {
+		tl.unregisterShutdown()
+	}
 	tl.unregister = nil
+	tl.unregisterShutdown = nil
 	tl.runtime = nil
 }
 
