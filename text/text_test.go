@@ -1,15 +1,13 @@
 package text
 
 import (
-	"bytes"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"testing"
 )
 
-const testNotoSansRegular = "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf"
-const testLigatureFont = "github.com/go-text/typesetting-utils@v0.0.0-20240317173224-1986cbe96c66/opentype/common/DejaVuSans.ttf"
+const testNotoSansRegular = "testdata/NotoSans-Regular.ttf"
+const testLigatureFont = "testdata/NotoSans-Regular.ttf"
 
 func TestDefaultStyle_non_zero_size(t *testing.T) {
 	if got := DefaultStyle(); got.Size <= 0 {
@@ -102,7 +100,7 @@ func TestTextSpan_empty_string(t *testing.T) {
 
 func TestLoadFontFile_roundtrip(t *testing.T) {
 	reg, _ := NewFontRegistry()
-	path := mustTestFontPath(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	path := mustResolveTestFontPath(t, testNotoSansRegular)
 	if err := reg.LoadFontFile(path); err != nil {
 		t.Fatalf("LoadFontFile: %v", err)
 	}
@@ -655,7 +653,7 @@ func TestShaper_newline_splits_line(t *testing.T) {
 
 func TestShaper_multistyle_span(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	if err := reg.LoadFontBytes(mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Bold.ttf"), "NotoSans-Bold.ttf"); err != nil {
+	if err := reg.LoadFontBytes(mustReadTestFont(t, "testdata/NotoSans-Bold.ttf"), "NotoSans-Bold.ttf"); err != nil {
 		t.Fatalf("LoadFontBytes bold: %v", err)
 	}
 	shaper := NewShaper(reg)
@@ -680,42 +678,77 @@ func TestShaper_multistyle_span(t *testing.T) {
 	}
 }
 
-func mustTestFontPath(t *testing.T, rel string) string {
+func mustReadTestFont(t *testing.T, path string) []byte {
 	t.Helper()
-	modCache := mustGoModCache(t)
-	path := filepath.Join(modCache, rel)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("test font path %q: %v", path, err)
+	for _, candidate := range testFontCandidates(path) {
+		data, err := os.ReadFile(candidate)
+		if err == nil {
+			return data
+		}
 	}
-	return path
+	t.Fatalf("read test font %q: no candidate found", path)
+	return nil
 }
 
-func mustReadTestFont(t *testing.T, rel string) []byte {
+func mustResolveTestFontPath(t *testing.T, path string) string {
 	t.Helper()
-	path := mustTestFontPath(t, rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read test font %q: %v", path, err)
+	for _, candidate := range testFontCandidates(path) {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
 	}
-	return data
+	t.Fatalf("resolve test font %q: no candidate found", path)
+	return ""
 }
 
-func mustGoModCache(t *testing.T) string {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
+func testFontCandidates(path string) []string {
+	candidates := []string{path}
+	if filepath.IsAbs(path) {
+		return candidates
 	}
-	return string(bytes.TrimSpace(out))
+	roots := []string{}
+	if gomodcache := os.Getenv("GOMODCACHE"); gomodcache != "" {
+		roots = append(roots, gomodcache)
+	}
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		roots = append(roots, filepath.Join(gopath, "pkg", "mod"))
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		roots = append(roots, filepath.Join(home, "go", "pkg", "mod"))
+	}
+	for _, root := range roots {
+		candidates = append(candidates, filepath.Join(root, path))
+		if len(path) >= len("testdata/") && path[:len("testdata/")] == "testdata/" {
+			candidates = append(candidates, filepath.Join(root, "github.com/go-text/render@v0.2.0", path))
+			candidates = append(candidates, filepath.Join(root, "github.com/go-text/typesetting-utils@v0.0.0-20240317173224-1986cbe96c66", "opentype", "common", filepath.Base(path)))
+		}
+	}
+	return uniquePaths(candidates)
 }
 
-func mustTestRegistry(t *testing.T, rel string) (*FontRegistry, string) {
+func uniquePaths(paths []string) []string {
+	seen := make(map[string]struct{}, len(paths))
+	out := make([]string, 0, len(paths))
+	for _, p := range paths {
+		if p == "" {
+			continue
+		}
+		if _, ok := seen[p]; ok {
+			continue
+		}
+		seen[p] = struct{}{}
+		out = append(out, p)
+	}
+	return out
+}
+
+func mustTestRegistry(t *testing.T, path string) (*FontRegistry, string) {
 	t.Helper()
 	reg, err := NewFontRegistry()
 	if err != nil {
 		t.Fatalf("NewFontRegistry: %v", err)
 	}
-	if err := reg.LoadFontBytes(mustReadTestFont(t, rel), filepath.Base(rel)); err != nil {
+	if err := reg.LoadFontBytes(mustReadTestFont(t, path), filepath.Base(path)); err != nil {
 		t.Fatalf("LoadFontBytes: %v", err)
 	}
 	if len(reg.faces) == 0 || reg.faces[0] == nil {

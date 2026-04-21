@@ -1,6 +1,7 @@
 package store
 
 import (
+	"reflect"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
@@ -13,7 +14,7 @@ type Invalidatable interface {
 }
 
 // ValueStore holds a single observable value of type T.
-type ValueStore[T comparable] struct {
+type ValueStore[T any] struct {
 	version VersionSource
 
 	mu            sync.RWMutex
@@ -23,7 +24,7 @@ type ValueStore[T comparable] struct {
 	OnChange signal.Signal[signal.Change[T]]
 }
 
-func NewValueStore[T comparable](initial T) *ValueStore[T] {
+func NewValueStore[T any](initial T) *ValueStore[T] {
 	return &ValueStore[T]{
 		value:    initial,
 		OnChange: signal.NewSignal[signal.Change[T]]("ValueStore.OnChange"),
@@ -70,7 +71,7 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 
 	s.mu.Lock()
 	old := s.value
-	if old == value {
+	if reflect.DeepEqual(old, value) {
 		s.mu.Unlock()
 		return
 	}
