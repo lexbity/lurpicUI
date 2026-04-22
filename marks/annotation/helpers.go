@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/basic"
+	"codeburg.org/lexbit/lurpicui/marks/internal/markutil"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -25,18 +26,11 @@ func registerAnnotationDescriptor(d marks.Descriptor) {
 }
 
 func syncLayout(layoutRole *facet.LayoutRole, bounds gfx.Rect) {
-	if layoutRole == nil {
-		return
-	}
-	layoutRole.Arrange(bounds)
-	layoutRole.MeasuredSize = gfx.Size{W: bounds.Width(), H: bounds.Height()}
+	markutil.SyncLayout(layoutRole, bounds)
 }
 
 func syncViewport(viewport *facet.ViewportRole, transform gfx.Transform) {
-	if viewport == nil {
-		return
-	}
-	viewport.Transform = transform
+	markutil.SyncViewport(viewport, transform)
 }
 
 func attachSingleChild(parent *facet.Facet, child marks.Mark) {
@@ -523,26 +517,7 @@ func strokeBrushFromMaterial(stroke theme.MaterialStroke, opacity float32) gfx.B
 }
 
 func strokeStyle(stroke theme.MaterialStroke) gfx.StrokeStyle {
-	style := gfx.DefaultStroke(stroke.Width)
-	switch stroke.Cap {
-	case theme.CapRound:
-		style.Cap = gfx.LineCapRound
-	case theme.CapSquare:
-		style.Cap = gfx.LineCapSquare
-	default:
-		style.Cap = gfx.LineCapButt
-	}
-	switch stroke.Join {
-	case theme.JoinRound:
-		style.Join = gfx.LineJoinRound
-	case theme.JoinBevel:
-		style.Join = gfx.LineJoinBevel
-	default:
-		style.Join = gfx.LineJoinMiter
-	}
-	style.Dash = append([]float32(nil), stroke.Dash...)
-	style.DashOffset = stroke.DashOffset
-	return style
+	return markutil.StrokeStyle(stroke)
 }
 
 func projectMarkAt(mark marks.Mark, pos gfx.Point, ctx facet.ProjectionContext) *gfx.CommandList {

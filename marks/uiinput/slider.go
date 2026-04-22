@@ -9,8 +9,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 // SliderOrientation controls the slider axis.
@@ -71,14 +71,15 @@ func (s *Slider) Base() *facet.Facet { s.ensureInit(); return &s.base }
 func (s *Slider) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUIInput, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uiinput:slider"), Focusable: true, HitTestable: true}
 }
-func (s *Slider) AuthoredID() string { return s.ID }
+func (s *Slider) AuthoredID() string               { return s.ID }
 func (s *Slider) OnAttach(ctx facet.AttachContext) { s.syncRoles() }
-func (s *Slider) OnDetach() {}
-func (s *Slider) OnActivate() {}
-func (s *Slider) OnDeactivate() {}
+func (s *Slider) OnDetach()                        {}
+func (s *Slider) OnActivate()                      {}
+func (s *Slider) OnDeactivate()                    {}
 
 func (s *Slider) ensureInit() {
 	s.once.Do(func() {
+		ensureBase(&s.base)
 		s.base.BindImpl(s)
 		s.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			b := s.bounds()
@@ -97,7 +98,7 @@ func (s *Slider) ensureInit() {
 			OnKey:     func(e facet.KeyEvent) bool { return s.handleKey(e) },
 		}
 		s.focusRole = &facet.FocusRole{
-			Focusable: func() bool { return !s.Disabled },
+			Focusable:     func() bool { return !s.Disabled },
 			OnFocusGained: func() { s.state.focused = true },
 			OnFocusLost:   func() { s.state.focused = false; s.dragging = false },
 		}
@@ -117,9 +118,9 @@ func (s *Slider) syncRoles() {
 
 func (s *Slider) bounds() gfx.Rect {
 	if s.Orientation == SliderVertical {
-		return gfx.RectFromXYWH(0, 0, 28, 200)
+		return gfx.RectFromXYWH(0, 0, sliderThumbSize()+12, 200)
 	}
-	return gfx.RectFromXYWH(0, 0, 240, 28)
+	return gfx.RectFromXYWH(0, 0, 240, sliderTrackThickness()+24)
 }
 
 func (s *Slider) handlePointer(e facet.PointerEvent) bool {

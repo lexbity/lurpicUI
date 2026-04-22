@@ -8,8 +8,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 // Switch is a toggle control with track/thumb visuals.
@@ -44,14 +44,15 @@ func (s *Switch) Base() *facet.Facet { s.ensureInit(); return &s.base }
 func (s *Switch) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUIInput, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uiinput:switch"), Focusable: true, HitTestable: true}
 }
-func (s *Switch) AuthoredID() string { return s.ID }
+func (s *Switch) AuthoredID() string               { return s.ID }
 func (s *Switch) OnAttach(ctx facet.AttachContext) { s.syncRoles() }
-func (s *Switch) OnDetach() {}
-func (s *Switch) OnActivate() {}
-func (s *Switch) OnDeactivate() {}
+func (s *Switch) OnDetach()                        {}
+func (s *Switch) OnActivate()                      {}
+func (s *Switch) OnDeactivate()                    {}
 
 func (s *Switch) ensureInit() {
 	s.once.Do(func() {
+		ensureBase(&s.base)
 		s.base.BindImpl(s)
 		s.layoutRole = &facet.LayoutRole{OnMeasure: func(cn facet.Constraints) gfx.Size {
 			bounds := s.bounds()
@@ -70,7 +71,7 @@ func (s *Switch) ensureInit() {
 			OnKey:     func(e facet.KeyEvent) bool { return s.handleKey(e) },
 		}
 		s.focusRole = &facet.FocusRole{
-			Focusable: func() bool { return !s.Disabled },
+			Focusable:     func() bool { return !s.Disabled },
 			OnFocusGained: func() { s.state.focused = true },
 			OnFocusLost:   func() { s.state.focused = false },
 		}
@@ -88,7 +89,9 @@ func (s *Switch) syncRoles() {
 	s.state.disabled = s.Disabled
 }
 
-func (s *Switch) bounds() gfx.Rect { return gfx.RectFromXYWH(0, 0, 44, 28) }
+func (s *Switch) bounds() gfx.Rect {
+	return gfx.RectFromXYWH(0, 0, switchTrackWidth(), switchTrackHeight())
+}
 
 func (s *Switch) handlePointer(e facet.PointerEvent) bool {
 	if s.Disabled {

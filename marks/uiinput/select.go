@@ -8,8 +8,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 // SelectOption is one option in a select control.
@@ -53,14 +53,15 @@ func (s *Select) Base() *facet.Facet { s.ensureInit(); return &s.base }
 func (s *Select) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUIInput, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uiinput:select"), Focusable: true, HitTestable: true}
 }
-func (s *Select) AuthoredID() string { return s.ID }
+func (s *Select) AuthoredID() string               { return s.ID }
 func (s *Select) OnAttach(ctx facet.AttachContext) { s.syncRoles() }
-func (s *Select) OnDetach() {}
-func (s *Select) OnActivate() {}
-func (s *Select) OnDeactivate() {}
+func (s *Select) OnDetach()                        {}
+func (s *Select) OnActivate()                      {}
+func (s *Select) OnDeactivate()                    {}
 
 func (s *Select) ensureInit() {
 	s.once.Do(func() {
+		ensureBase(&s.base)
 		s.base.BindImpl(s)
 		s.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			bounds := s.bounds()
@@ -110,12 +111,13 @@ func (s *Select) syncRoles() {
 }
 
 func (s *Select) bounds() gfx.Rect {
-	return gfx.RectFromXYWH(0, 0, 180, 36)
+	return gfx.RectFromXYWH(0, 0, selectMinWidth()+40, buttonHeight())
 }
 
 func (s *Select) popupBounds() gfx.Rect {
-	height := float32(len(s.Options)) * 28
-	return gfx.RectFromXYWH(0, 36, 180, height)
+	itemH := selectItemHeight()
+	height := float32(len(s.Options)) * itemH
+	return gfx.RectFromXYWH(0, buttonHeight(), selectMinWidth()+40, height)
 }
 
 func (s *Select) indexOf(key string) int {
@@ -145,7 +147,7 @@ func (s *Select) handlePointer(e facet.PointerEvent) bool {
 			return true
 		}
 		if s.open && popup.Contains(e.Position) {
-			idx := int((e.Position.Y - popup.Min.Y) / 28)
+			idx := int((e.Position.Y - popup.Min.Y) / selectItemHeight())
 			if idx >= 0 && idx < len(s.Options) {
 				s.highlight = idx
 			}
@@ -155,7 +157,7 @@ func (s *Select) handlePointer(e facet.PointerEvent) bool {
 		return false
 	}
 	if e.Kind == platform.PointerRelease && s.open && popup.Contains(e.Position) {
-		idx := int((e.Position.Y - popup.Min.Y) / 28)
+		idx := int((e.Position.Y - popup.Min.Y) / selectItemHeight())
 		if idx >= 0 && idx < len(s.Options) {
 			s.Selected.Set(s.Options[idx].Key)
 			s.highlight = idx
@@ -221,7 +223,7 @@ func (s *Select) project(ctx facet.ProjectionContext) *gfx.CommandList {
 		popupStyle := slots.Popup.Resolve(theme.StateDefault, theme.DefaultTokens())
 		list.Add(gfx.FillRect{Rect: popup, Brush: gfx.SolidBrush(fillColor(popupStyle, gfx.Color{R: 0.98, G: 0.98, B: 0.99, A: 1}))})
 		for i, opt := range s.Options {
-			row := gfx.RectFromXYWH(0, popup.Min.Y+float32(i)*28, popup.Width(), 28)
+			row := gfx.RectFromXYWH(0, popup.Min.Y+float32(i)*selectItemHeight(), popup.Width(), selectItemHeight())
 			if i == s.highlight {
 				list.Add(gfx.FillRect{Rect: row, Brush: gfx.SolidBrush(gfx.Color{R: 0.9, G: 0.94, B: 1, A: 1})})
 			}

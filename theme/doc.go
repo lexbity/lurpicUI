@@ -1,6 +1,6 @@
-// Package theme defines tokens, materials, style contexts, and recipe resolution.
+// Package theme defines the legacy-compatible tokens, materials, style
+// contexts, and recipe resolution surface.
 //
-// The package is the authored-to-runtime theming bridge. It exposes the token
-// model, style cascade, animated material data, and family-specific recipe
-// resolvers.
+// Canonical template-theme schema, validation reports, and Material-baseline
+// tables live under the theme/templates and theme/baseline subpackages.
 package theme

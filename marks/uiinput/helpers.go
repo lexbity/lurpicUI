@@ -4,6 +4,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/internal/markutil"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -11,63 +13,51 @@ func registerDescriptor(d marks.Descriptor) {
 	marks.RegisterDescriptor(d)
 }
 
-func syncLayout(layoutRole *facet.LayoutRole, bounds gfx.Rect) {
-	if layoutRole == nil {
+func ensureBase(base *facet.Facet) {
+	if base == nil {
 		return
 	}
-	layoutRole.Arrange(bounds)
-	layoutRole.MeasuredSize = gfx.Size{W: bounds.Width(), H: bounds.Height()}
+	if base.ID() == 0 {
+		*base = facet.NewFacet()
+	}
+}
+
+func invalidate(base *facet.Facet, flags facet.DirtyFlags, source string) {
+	if base == nil {
+		return
+	}
+	base.InvalidateWithSource(flags, source)
+}
+
+func syncLayout(layoutRole *facet.LayoutRole, bounds gfx.Rect) {
+	markutil.SyncLayout(layoutRole, bounds)
 }
 
 func syncViewport(viewport *facet.ViewportRole, transform gfx.Transform) {
-	if viewport == nil {
-		return
-	}
-	viewport.Transform = transform
+	markutil.SyncViewport(viewport, transform)
 }
 
 func fillColor(m theme.Material, fallback gfx.Color) gfx.Color {
-	for _, fill := range m.Fills {
-		if fill.Type == theme.FillSolid || fill.Type == theme.FillNone {
-			return fill.Color.WithAlpha(fill.Color.A * fill.Opacity * m.Opacity)
-		}
-	}
-	return fallback
+	return markutil.FillColor(m, fallback)
 }
 
 func strokeColor(m theme.Material, fallback gfx.Color) gfx.Color {
-	for _, stroke := range m.Strokes {
-		if stroke.Paint.Type == theme.FillSolid || stroke.Paint.Type == theme.FillNone {
-			return stroke.Paint.Color.WithAlpha(stroke.Paint.Color.A * stroke.Paint.Opacity * m.Opacity)
-		}
-	}
-	return fallback
+	return markutil.StrokeColor(m, fallback)
 }
 
 func strokeStyle(stroke theme.MaterialStroke) gfx.StrokeStyle {
-	style := gfx.DefaultStroke(stroke.Width)
-	switch stroke.Cap {
-	case theme.CapRound:
-		style.Cap = gfx.LineCapRound
-	case theme.CapSquare:
-		style.Cap = gfx.LineCapSquare
-	default:
-		style.Cap = gfx.LineCapButt
-	}
-	switch stroke.Join {
-	case theme.JoinRound:
-		style.Join = gfx.LineJoinRound
-	case theme.JoinBevel:
-		style.Join = gfx.LineJoinBevel
-	default:
-		style.Join = gfx.LineJoinMiter
-	}
-	style.Dash = append([]float32(nil), stroke.Dash...)
-	style.DashOffset = stroke.DashOffset
-	return style
+	return markutil.StrokeStyle(stroke)
+}
+
+func drawText(list *gfx.CommandList, shaper *text.Shaper, x, y float32, s string, style text.TextStyle, color gfx.Color) {
+	markutil.DrawText(list, shaper, x, y, s, style, color)
 }
 
 func clampInt(v, min, max int) int {
+	return markutil.ClampInt(v, min, max)
+}
+
+func clampFloat(v, min, max float64) float64 {
 	if v < min {
 		return min
 	}
@@ -75,4 +65,56 @@ func clampInt(v, min, max int) int {
 		return max
 	}
 	return v
+}
+
+func buttonHeight() float32 {
+	return markutil.RegularUIInputBaseline().Button.Height.Regular - 4
+}
+
+func checkboxSize() float32 {
+	return markutil.RegularUIInputBaseline().Checkbox.Size.Regular + 10
+}
+
+func radioGroupSize() float32 {
+	return markutil.RegularUIInputBaseline().RadioGroup.Size.Regular
+}
+
+func selectMinWidth() float32 {
+	return markutil.RegularUIInputBaseline().Select.MinWidth.Regular
+}
+
+func selectPaddingY() float32 {
+	return markutil.RegularUIInputBaseline().Select.PaddingY.Regular
+}
+
+func selectItemHeight() float32 {
+	return buttonHeight() - selectPaddingY()
+}
+
+func textInputMinWidth() float32 {
+	return markutil.RegularUIInputBaseline().TextInput.MinWidth.Regular
+}
+
+func textInputPaddingY() float32 {
+	return markutil.RegularUIInputBaseline().TextInput.PaddingY.Regular
+}
+
+func textInputMultilineHeight() float32 {
+	return textInputMinWidth() - 20
+}
+
+func sliderTrackThickness() float32 {
+	return markutil.RegularUIInputBaseline().Slider.TrackThickness.Regular
+}
+
+func sliderThumbSize() float32 {
+	return markutil.RegularUIInputBaseline().Slider.ThumbSize.Regular
+}
+
+func switchTrackWidth() float32 {
+	return markutil.RegularUIInputBaseline().Switch.TrackWidth.Regular + 8
+}
+
+func switchTrackHeight() float32 {
+	return markutil.RegularUIInputBaseline().Switch.TrackHeight.Regular + 8
 }

@@ -61,6 +61,7 @@ type renderState struct {
 }
 
 type SoftwareRenderer struct {
+	mu      sync.RWMutex
 	surface blitSurface
 	output  *image.RGBA
 
@@ -90,6 +91,8 @@ func (r *SoftwareRenderer) Initialize(surface render.Surface) error {
 		return errors.New("software renderer: surface must implement platform.Surface")
 	}
 
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.surface = blit
 	w, h := surface.Size()
 	r.allocateOutput(w, h)
@@ -100,6 +103,8 @@ func (r *SoftwareRenderer) Resize(width, height int) error {
 	if width < 0 || height < 0 {
 		return errors.New("software renderer: invalid size")
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.allocateOutput(width, height)
 	if r.surface != nil {
 		if resizable, ok := any(r.surface).(interface{ Resize(int, int) }); ok {
@@ -110,6 +115,8 @@ func (r *SoftwareRenderer) Resize(width, height int) error {
 }
 
 func (r *SoftwareRenderer) Destroy() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.surface = nil
 	r.output = nil
 	r.width = 0
@@ -134,6 +141,8 @@ func (r *SoftwareRenderer) GlyphRasterizeCount() int {
 }
 
 func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if r.surface == nil {
 		return errors.New("software renderer: not initialized")
 	}
@@ -354,7 +363,7 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch 
 		opacity:   1,
 	}
 	if !clip.IsEmpty() {
-		state.clip = intersectRects(state.clip, clip)
+		state.clip = intersectRects(state.clip, state.transform.TransformRect(clip))
 	}
 	stack := []renderState{state}
 

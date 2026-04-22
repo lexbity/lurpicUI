@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type fakeSurface struct {
@@ -206,6 +207,32 @@ func TestRun_build_context_content_scale(t *testing.T) {
 	}
 	if observed != 2 {
 		t.Fatalf("ContentScale = %v, want 2", observed)
+	}
+}
+
+func TestRun_build_context_theme_passthrough(t *testing.T) {
+	restoreHooks(t)
+	app := &fakeApp{}
+	newPlatformApp = func() (platform.App, error) { return app, nil }
+	newBackend = func() render.Backend { return &fakeBackend{} }
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	customTheme := theme.Default()
+	var observed theme.Context
+	cfg := DefaultConfig("hello", 640, 480)
+	cfg.Theme = customTheme
+	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
+		observed = ctx.Theme
+		return &fakeRoot{}
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if observed == nil {
+		t.Fatal("expected a non-nil theme context")
+	}
+	if got, want := observed.Color(theme.ColorPrimary), customTheme.Color(theme.ColorPrimary); got != want {
+		t.Fatalf("Theme passthrough failed: got %#v want %#v", got, want)
 	}
 }
 

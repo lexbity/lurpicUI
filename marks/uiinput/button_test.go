@@ -13,6 +13,7 @@ func TestButton_pointer_click_invokes_action(t *testing.T) {
 	var calls int
 	b := &Button{OnPress: func() { calls++ }}
 	b.ensureInit()
+	b.Base().LayoutRole().Arrange(gfx.RectFromXYWH(0, 0, 96, buttonHeight()))
 	if !b.handlePointer(facet.PointerEvent{Kind: platform.PointerPress}) {
 		t.Fatal("expected press to be handled")
 	}
@@ -21,6 +22,17 @@ func TestButton_pointer_click_invokes_action(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestButton_pointer_enter_updates_hover_state(t *testing.T) {
+	b := &Button{}
+	b.ensureInit()
+	if !b.handlePointer(facet.PointerEvent{Kind: platform.PointerEnter}) {
+		t.Fatal("expected enter to be handled")
+	}
+	if !b.state.hovered {
+		t.Fatal("expected hover state")
 	}
 }
 

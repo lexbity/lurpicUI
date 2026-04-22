@@ -35,6 +35,9 @@ func TestTextInput_typing_updates_bound_store(t *testing.T) {
 	if got := ti.Value.Get(); got != "abc" {
 		t.Fatalf("value = %q, want abc", got)
 	}
+	if got := ti.Base().LastInvalidatedBy(); got != "text-input-text" {
+		t.Fatalf("last invalidation = %q, want text-input-text", got)
+	}
 }
 
 func TestTextInput_selection_geometry_updates_on_drag(t *testing.T) {

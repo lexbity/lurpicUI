@@ -62,6 +62,7 @@ func (s *SpeedDial) OnDeactivate()                    {}
 
 func (s *SpeedDial) ensureInit() {
 	s.once.Do(func() {
+		ensureBase(&s.base)
 		s.base.BindImpl(s)
 		s.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			b := s.bounds()

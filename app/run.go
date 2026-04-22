@@ -96,11 +96,16 @@ func Run(config Config, builder RootBuilder) error {
 	}
 
 	w, h := window.Size()
+	themeContext := config.Theme
+	if themeContext == nil {
+		themeContext = theme.Default()
+	}
+
 	root := builder(BuildContext{
 		FontRegistry: fontRegistry,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: contentScale,
-		Theme:        theme.Default(),
+		Theme:        themeContext,
 	})
 	if root == nil {
 		return errors.New("app: RootBuilder returned nil")

@@ -83,11 +83,11 @@ func (s *Snackbar) syncRoles() {
 }
 
 func (s *Snackbar) bounds() gfx.Rect {
-	w := float32(320)
+	w := snackbarWidth()
 	if s.Action != nil && s.Action.Label != "" {
 		w += 88
 	}
-	return gfx.RectFromXYWH(0, 0, w, 56)
+	return gfx.RectFromXYWH(0, 0, w, snackbarHeight())
 }
 
 func (s *Snackbar) hitBounds() gfx.Rect {

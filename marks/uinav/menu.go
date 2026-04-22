@@ -64,6 +64,7 @@ func (m *Menu) OnDeactivate()                    {}
 
 func (m *Menu) ensureInit() {
 	m.once.Do(func() {
+		ensureBase(&m.base)
 		m.base.BindImpl(m)
 		m.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			b := m.bounds()
@@ -112,11 +113,8 @@ func (m *Menu) anchorPoint() gfx.Point {
 }
 
 func (m *Menu) bounds() gfx.Rect {
-	itemH := float32(28)
-	if m.Dense {
-		itemH = 22
-	}
-	return gfx.RectFromXYWH(0, 0, 220, float32(len(m.Items))*itemH+8)
+	itemH := m.itemHeight()
+	return gfx.RectFromXYWH(0, 0, drawerMinWidth()-menuPadding()*2-4, float32(len(m.Items))*itemH+8)
 }
 
 func (m *Menu) hitBounds() gfx.Rect {
@@ -130,9 +128,9 @@ func (m *Menu) hitBounds() gfx.Rect {
 
 func (m *Menu) itemHeight() float32 {
 	if m.Dense {
-		return 22
+		return menuRowHeight() - 6
 	}
-	return 28
+	return menuRowHeight()
 }
 
 func (m *Menu) firstEnabledIndex() int {

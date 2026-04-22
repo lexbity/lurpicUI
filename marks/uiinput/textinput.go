@@ -8,9 +8,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -24,6 +24,8 @@ type TextInput struct {
 	ReadOnly    bool
 	Multiline   bool
 	Assistive   string
+	Theme       theme.Context
+	Shaper      *text.Shaper
 
 	base         facet.Facet
 	once         sync.Once
@@ -56,13 +58,23 @@ func (t *TextInput) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUIInput, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uiinput:textinput"), Focusable: true, HitTestable: true}
 }
 func (t *TextInput) AuthoredID() string { return t.ID }
-func (t *TextInput) OnAttach(ctx facet.AttachContext) { t.syncRoles() }
-func (t *TextInput) OnDetach() {}
-func (t *TextInput) OnActivate() {}
+func (t *TextInput) OnAttach(ctx facet.AttachContext) {
+	t.syncRoles()
+	s := facet.Subscribe(t)
+	if st := t.Value.Store(); st != nil {
+		facet.To(s, &st.OnChange, func(signal.Change[string]) {
+			t.rebuildLayout()
+			invalidate(&t.base, facet.DirtyLayout|facet.DirtyProjection, "text-input-bind")
+		})
+	}
+}
+func (t *TextInput) OnDetach()     {}
+func (t *TextInput) OnActivate()   {}
 func (t *TextInput) OnDeactivate() {}
 
 func (t *TextInput) ensureInit() {
 	t.once.Do(func() {
+		ensureBase(&t.base)
 		t.base.BindImpl(t)
 		t.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			bounds := t.bounds()
@@ -82,7 +94,7 @@ func (t *TextInput) ensureInit() {
 			OnText:    func(e facet.TextEvent) bool { return t.handleText(e) },
 		}
 		t.focusRole = &facet.FocusRole{
-			Focusable: func() bool { return !t.Disabled },
+			Focusable:     func() bool { return !t.Disabled },
 			OnFocusGained: func() { t.state.focused = true },
 			OnFocusLost: func() {
 				t.state.focused = false
@@ -105,18 +117,22 @@ func (t *TextInput) syncRoles() {
 }
 
 func (t *TextInput) bounds() gfx.Rect {
+	if t.layoutRole != nil && !t.layoutRole.ArrangedBounds.IsEmpty() {
+		return t.layoutRole.ArrangedBounds
+	}
 	layout := t.currentLayout()
 	if layout == nil || layout.Bounds.IsEmpty() {
 		if t.Multiline {
-			return gfx.RectFromXYWH(0, 0, 280, 120)
+			return gfx.RectFromXYWH(0, 0, textInputMinWidth()*2, textInputMultilineHeight())
 		}
-		return gfx.RectFromXYWH(0, 0, 280, 36)
+		return gfx.RectFromXYWH(0, 0, textInputMinWidth()*2, buttonHeight())
 	}
 	height := layout.Bounds.Height()
 	if height < 20 {
 		height = 20
 	}
-	return gfx.RectFromXYWH(0, 0, maxf(280, layout.Bounds.Width()+16), height+16)
+	padY := textInputPaddingY()
+	return gfx.RectFromXYWH(0, 0, maxf(textInputMinWidth()*2, layout.Bounds.Width()+16), height+padY*2)
 }
 
 func (t *TextInput) currentText() string {
@@ -153,24 +169,28 @@ func (t *TextInput) handlePointer(e facet.PointerEvent) bool {
 	if t.Disabled {
 		return false
 	}
+	bounds := t.bounds()
 	layout := t.currentLayout()
 	if layout == nil {
 		layout = simpleTextLayout("", t.Multiline)
 	}
-		local := e.Position
+	local := text.Point{X: e.Position.X - bounds.Min.X, Y: e.Position.Y - bounds.Min.Y}
 	switch e.Kind {
 	case platform.PointerPress:
+		t.state.focused = true
 		pos := layout.HitTest(text.Point{X: local.X - 8, Y: local.Y - 8})
 		t.cursor = clampInt(pos.Index, 0, layout.RuneCount())
 		t.selection = text.TextRange{Start: t.cursor, End: t.cursor}
 		t.dragAnchor = t.cursor
 		t.dragging = true
+		invalidate(&t.base, facet.DirtyProjection, "text-input-press")
 		return true
 	case platform.PointerMove:
 		if t.dragging {
 			pos := layout.HitTest(text.Point{X: local.X - 8, Y: local.Y - 8})
 			t.cursor = clampInt(pos.Index, 0, layout.RuneCount())
 			t.selection = text.TextRange{Start: t.dragAnchor, End: t.cursor}
+			invalidate(&t.base, facet.DirtyProjection, "text-input-drag")
 			return true
 		}
 	case platform.PointerRelease:
@@ -179,6 +199,7 @@ func (t *TextInput) handlePointer(e facet.PointerEvent) bool {
 			t.cursor = clampInt(pos.Index, 0, layout.RuneCount())
 			t.selection = text.TextRange{Start: t.dragAnchor, End: t.cursor}
 			t.dragging = false
+			invalidate(&t.base, facet.DirtyProjection, "text-input-release")
 			return true
 		}
 	}
@@ -224,6 +245,7 @@ func (t *TextInput) handleKey(e facet.KeyEvent) bool {
 			t.cursor = cursor
 			t.selection = text.TextRange{Start: cursor, End: cursor}
 		}
+		invalidate(&t.base, facet.DirtyProjection, "text-input-key-left")
 		return true
 	case platform.KeyRight:
 		if e.Modifiers&platform.ModShift != 0 {
@@ -242,6 +264,7 @@ func (t *TextInput) handleKey(e facet.KeyEvent) bool {
 			t.cursor = cursor
 			t.selection = text.TextRange{Start: cursor, End: cursor}
 		}
+		invalidate(&t.base, facet.DirtyProjection, "text-input-key-right")
 		return true
 	case platform.KeyHome:
 		t.cursor = 0
@@ -250,6 +273,7 @@ func (t *TextInput) handleKey(e facet.KeyEvent) bool {
 		} else {
 			t.selection = text.TextRange{}
 		}
+		invalidate(&t.base, facet.DirtyProjection, "text-input-key-home")
 		return true
 	case platform.KeyEnd:
 		t.cursor = len(runes)
@@ -258,6 +282,7 @@ func (t *TextInput) handleKey(e facet.KeyEvent) bool {
 		} else {
 			t.selection = text.TextRange{}
 		}
+		invalidate(&t.base, facet.DirtyProjection, "text-input-key-end")
 		return true
 	case platform.KeyBackspace:
 		if t.ReadOnly {
@@ -265,6 +290,7 @@ func (t *TextInput) handleKey(e facet.KeyEvent) bool {
 		}
 		if !sel.IsEmpty() {
 			applyInsert("")
+			invalidate(&t.base, facet.DirtyLayout|facet.DirtyProjection, "text-input-backspace")
 			return true
 		}
 		if cursor > 0 {
@@ -273,11 +299,13 @@ func (t *TextInput) handleKey(e facet.KeyEvent) bool {
 			t.cursor = cursor - 1
 			t.selection = text.TextRange{Start: t.cursor, End: t.cursor}
 			t.rebuildLayout()
+			invalidate(&t.base, facet.DirtyLayout|facet.DirtyProjection, "text-input-backspace")
 		}
 		return true
 	case platform.KeyEnter:
 		if t.Multiline && !t.ReadOnly {
 			applyInsert("\n")
+			invalidate(&t.base, facet.DirtyLayout|facet.DirtyProjection, "text-input-enter")
 		}
 		return true
 	default:
@@ -291,6 +319,7 @@ func (t *TextInput) handleText(e facet.TextEvent) bool {
 	}
 	if e.Composing {
 		t.composing = e.Text
+		invalidate(&t.base, facet.DirtyProjection, "text-input-compose")
 		return true
 	}
 	selection := t.selection.Normalized()
@@ -300,42 +329,55 @@ func (t *TextInput) handleText(e facet.TextEvent) bool {
 	t.selection = text.TextRange{Start: t.cursor, End: t.cursor}
 	t.composing = ""
 	t.rebuildLayout()
+	invalidate(&t.base, facet.DirtyLayout|facet.DirtyProjection, "text-input-text")
 	return true
 }
 
 func (t *TextInput) project(ctx facet.ProjectionContext) *gfx.CommandList {
-	slots, _ := uirecipe.ResolveTextInputRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()}, TextInputOutlined)
+	_ = ctx
+	th := t.themeContext()
 	layout := t.currentLayout()
 	var list gfx.CommandList
 	bounds := t.bounds()
-	field := slots.Field.Resolve(t.state.interactionState(), theme.DefaultTokens())
-	list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(fillColor(field, gfx.Color{R: 1, G: 1, B: 1, A: 1}))})
+	field := th.Color(theme.ColorSurface)
+	outline := th.Color(theme.ColorBorder)
+	if field.A == 0 {
+		field = gfx.Color{R: 0.14, G: 0.15, B: 0.18, A: 1}
+	}
+	list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(field)})
+	list.Add(gfx.StrokeRect{Rect: bounds, Brush: gfx.SolidBrush(outline)})
 	if t.state.focused {
-		focus := slots.FocusRing.Resolve(theme.StateFocused, theme.DefaultTokens())
-		if len(focus.Strokes) > 0 {
-			list.Add(gfx.StrokeRect{Rect: bounds.Inset(-2, -2), Stroke: strokeStyle(focus.Strokes[0]), Brush: gfx.SolidBrush(strokeColor(focus, gfx.Color{R: 0.3, G: 0.5, B: 1, A: 1}))})
-		}
+		list.Add(gfx.StrokeRect{Rect: bounds.Inset(-2, -2), Brush: gfx.SolidBrush(th.Color(theme.ColorPrimary))})
 	}
 	if layout != nil {
-		origin := gfx.Point{X: bounds.Min.X + 8, Y: bounds.Min.Y + 8}
+		origin := gfx.Point{X: bounds.Min.X + 12, Y: bounds.Min.Y + 10}
 		if t.selection.IsEmpty() {
 			if t.state.focused {
-		caretRect := textRectToGfx(layout.CaretRect(text.TextPosition{Index: t.cursor})).Offset(origin.X, origin.Y)
-		list.Add(gfx.FillRect{Rect: caretRect, Brush: gfx.SolidBrush(fillColor(slots.Caret.Resolve(theme.StateDefault, theme.DefaultTokens()), gfx.Color{A: 1}))})
-		}
-	} else {
+				caretRect := textRectToGfx(layout.CaretRect(text.TextPosition{Index: t.cursor})).Offset(origin.X, origin.Y)
+				list.Add(gfx.FillRect{Rect: caretRect, Brush: gfx.SolidBrush(th.Color(theme.ColorCaret))})
+			}
+		} else {
 			for _, rect := range layout.SelectionRects(t.selection) {
-				list.Add(gfx.DrawSelectionRects{Rects: []gfx.Rect{textRectToGfx(rect).Offset(origin.X, origin.Y)}, Brush: gfx.SolidBrush(fillColor(slots.Selection.Resolve(theme.StateDefault, theme.DefaultTokens()), gfx.Color{R: 0.3, G: 0.5, B: 1, A: 0.2}))})
+				list.Add(gfx.DrawSelectionRects{Rects: []gfx.Rect{textRectToGfx(rect).Offset(origin.X, origin.Y)}, Brush: gfx.SolidBrush(th.Color(theme.ColorSelection))})
 			}
 		}
 	}
 	if t.Value.Get() == "" && t.Placeholder != "" {
-		list.Add(gfx.DrawPoints{Points: []gfx.Point{{X: bounds.Min.X + 8, Y: bounds.Min.Y + 16}}, Radius: 1, Brush: gfx.SolidBrush(fillColor(slots.Placeholder.Resolve(theme.StateDefault, theme.DefaultTokens()), gfx.Color{A: 0.5}))})
+		drawText(&list, t.Shaper, bounds.Min.X+12, bounds.Min.Y+8, t.Placeholder, th.TextStyle(theme.TextBodyS), th.Color(theme.ColorTextSecondary))
+	} else {
+		drawText(&list, t.Shaper, bounds.Min.X+12, bounds.Min.Y+8, t.Value.Get(), th.TextStyle(theme.TextBodyS), th.Color(theme.ColorText))
 	}
 	if t.Assistive != "" {
-		list.Add(gfx.DrawPoints{Points: []gfx.Point{{X: bounds.Min.X + 8, Y: bounds.Max.Y - 4}}, Radius: 1, Brush: gfx.SolidBrush(fillColor(slots.AssistiveText.Resolve(theme.StateDefault, theme.DefaultTokens()), gfx.Color{A: 0.5}))})
+		drawText(&list, t.Shaper, bounds.Min.X+12, bounds.Max.Y-8, t.Assistive, th.TextStyle(theme.TextLabelS), th.Color(theme.ColorTextSecondary))
 	}
 	return &list
+}
+
+func (t *TextInput) themeContext() theme.Context {
+	if t.Theme != nil {
+		return t.Theme
+	}
+	return theme.Default()
 }
 
 func replaceRunes(s string, start, end int, insert string) string {

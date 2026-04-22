@@ -8,14 +8,14 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 )
 
 // ViewportBinding describes a scrollable viewport.
 type ViewportBinding struct {
-	Offset     store.Binding[float64]
-	Extent     store.Binding[float64]
+	Offset      store.Binding[float64]
+	Extent      store.Binding[float64]
 	ContentSize store.Binding[float64]
 }
 
@@ -49,14 +49,15 @@ func (s *Scrollbar) Base() *facet.Facet { s.ensureInit(); return &s.base }
 func (s *Scrollbar) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUINav, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uinav:scrollbar"), HitTestable: true}
 }
-func (s *Scrollbar) AuthoredID() string { return s.ID }
+func (s *Scrollbar) AuthoredID() string               { return s.ID }
 func (s *Scrollbar) OnAttach(ctx facet.AttachContext) { s.syncRoles() }
-func (s *Scrollbar) OnDetach() {}
-func (s *Scrollbar) OnActivate() {}
-func (s *Scrollbar) OnDeactivate() {}
+func (s *Scrollbar) OnDetach()                        {}
+func (s *Scrollbar) OnActivate()                      {}
+func (s *Scrollbar) OnDeactivate()                    {}
 
 func (s *Scrollbar) ensureInit() {
 	s.once.Do(func() {
+		ensureBase(&s.base)
 		s.base.BindImpl(s)
 		s.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			bounds := s.bounds()
@@ -89,9 +90,9 @@ func (s *Scrollbar) syncRoles() {
 
 func (s *Scrollbar) bounds() gfx.Rect {
 	if s.Orientation == ScrollbarVertical {
-		return gfx.RectFromXYWH(0, 0, 12, 240)
+		return gfx.RectFromXYWH(0, 0, scrollbarThickness(), drawerMinWidth())
 	}
-	return gfx.RectFromXYWH(0, 0, 240, 12)
+	return gfx.RectFromXYWH(0, 0, drawerMinWidth(), scrollbarThickness())
 }
 
 func (s *Scrollbar) thumbRatio() float32 {

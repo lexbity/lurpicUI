@@ -10,8 +10,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/annotation"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -28,6 +29,8 @@ type Tabs struct {
 	Items    []TabItem
 	Selected store.Binding[string]
 	Variant  TabsVariant
+	Theme    theme.Context
+	Shaper   *text.Shaper
 
 	base         facet.Facet
 	once         sync.Once
@@ -56,13 +59,23 @@ func (t *Tabs) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUINav, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uinav:tabs"), Focusable: true, HitTestable: true}
 }
 func (t *Tabs) AuthoredID() string { return t.ID }
-func (t *Tabs) OnAttach(ctx facet.AttachContext) { t.syncRoles() }
-func (t *Tabs) OnDetach() {}
-func (t *Tabs) OnActivate() {}
+func (t *Tabs) OnAttach(ctx facet.AttachContext) {
+	t.syncRoles()
+	s := facet.Subscribe(t)
+	if st := t.Selected.Store(); st != nil {
+		facet.To(s, &st.OnChange, func(signal.Change[string]) {
+			t.syncRoles()
+			invalidate(&t.base, facet.DirtyProjection, "tabs-selected")
+		})
+	}
+}
+func (t *Tabs) OnDetach()     {}
+func (t *Tabs) OnActivate()   {}
 func (t *Tabs) OnDeactivate() {}
 
 func (t *Tabs) ensureInit() {
 	t.once.Do(func() {
+		ensureBase(&t.base)
 		t.base.BindImpl(t)
 		t.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			b := t.bounds()
@@ -82,8 +95,14 @@ func (t *Tabs) ensureInit() {
 		}
 		t.focusRole = &facet.FocusRole{
 			Focusable: func() bool { return true },
-			OnFocusGained: func() { t.state.focused = true },
-			OnFocusLost:   func() { t.state.focused = false },
+			OnFocusGained: func() {
+				t.state.focused = true
+				invalidate(&t.base, facet.DirtyProjection, "tabs-focus")
+			},
+			OnFocusLost: func() {
+				t.state.focused = false
+				invalidate(&t.base, facet.DirtyProjection, "tabs-focus")
+			},
 		}
 		t.base.AddRole(t.layoutRole)
 		t.base.AddRole(t.viewportRole)
@@ -101,17 +120,29 @@ func (t *Tabs) ensureInit() {
 func (t *Tabs) syncRoles() {
 	syncLayout(t.layoutRole, t.bounds())
 	syncViewport(t.viewportRole, gfx.Identity())
+	invalidate(&t.base, facet.DirtyProjection, "tabs-sync")
 }
 
 func (t *Tabs) bounds() gfx.Rect {
 	if len(t.Items) == 0 {
 		return rectFromSize(0, 0)
 	}
-	return gfx.RectFromXYWH(0, 0, float32(len(t.Items))*96, 40)
+	if t.layoutRole != nil && !t.layoutRole.ArrangedBounds.IsEmpty() {
+		return t.layoutRole.ArrangedBounds
+	}
+	return gfx.RectFromXYWH(0, 0, float32(len(t.Items))*96, tabsHeight())
 }
 
 func (t *Tabs) itemBounds(i int) gfx.Rect {
-	return gfx.RectFromXYWH(float32(i)*96, 0, 96, 40)
+	bounds := t.bounds()
+	if len(t.Items) == 0 {
+		return gfx.Rect{}
+	}
+	itemW := bounds.Width() / float32(len(t.Items))
+	if itemW <= 0 {
+		itemW = 96
+	}
+	return gfx.RectFromXYWH(bounds.Min.X+float32(i)*itemW, bounds.Min.Y, itemW, bounds.Height())
 }
 
 func (t *Tabs) indexOf(key string) int {
@@ -124,7 +155,15 @@ func (t *Tabs) indexOf(key string) int {
 }
 
 func (t *Tabs) selectedOffset() float32 {
-	return float32(t.indexOf(t.Selected.Get())) * 96
+	bounds := t.bounds()
+	if len(t.Items) == 0 {
+		return 0
+	}
+	itemW := bounds.Width() / float32(len(t.Items))
+	if itemW <= 0 {
+		itemW = 96
+	}
+	return bounds.Min.X + float32(t.indexOf(t.Selected.Get()))*itemW
 }
 
 func (t *Tabs) handlePointer(e facet.PointerEvent) bool {
@@ -134,6 +173,7 @@ func (t *Tabs) handlePointer(e facet.PointerEvent) bool {
 	for i := range t.Items {
 		if t.itemBounds(i).Contains(e.Position) {
 			t.Selected.Set(t.Items[i].Key)
+			invalidate(&t.base, facet.DirtyProjection, "tabs-pointer")
 			return true
 		}
 	}
@@ -154,6 +194,7 @@ func (t *Tabs) handleKey(e facet.KeyEvent) bool {
 		return false
 	}
 	t.Selected.Set(t.Items[idx].Key)
+	invalidate(&t.base, facet.DirtyProjection, "tabs-key")
 	return true
 }
 
@@ -164,17 +205,47 @@ func (t *Tabs) Tick(dt time.Duration) bool {
 }
 
 func (t *Tabs) project(ctx facet.ProjectionContext) *gfx.CommandList {
-	slots, _ := uirecipe.ResolveTabsRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()}, t.Variant)
+	_ = ctx
+	th := t.themeContext()
 	var list gfx.CommandList
+	bounds := t.bounds()
+	if bounds.IsEmpty() {
+		return &list
+	}
+	itemW := bounds.Width() / float32(len(t.Items))
+	if itemW <= 0 {
+		itemW = 96
+	}
 	for i, item := range t.Items {
 		rect := t.itemBounds(i)
-		style := slots.Tab.Resolve(theme.StateDefault, theme.DefaultTokens())
+		bg := th.Color(theme.ColorSurface)
+		fg := th.Color(theme.ColorText)
 		if t.Selected.Get() == item.Key {
-			style = slots.Current.Resolve(theme.StateSelected, theme.DefaultTokens())
+			bg = th.Color(theme.ColorPrimary)
+			fg = th.Color(theme.ColorOnPrimary)
 		}
-		list.Add(gfx.FillRect{Rect: rect, Brush: gfx.SolidBrush(fillColor(style, gfx.Color{R: 1, G: 1, B: 1, A: 1}))})
+		list.Add(gfx.FillRect{Rect: rect, Brush: gfx.SolidBrush(bg)})
+		if t.Shaper != nil && item.Label != "" {
+			labelStyle := th.TextStyle(theme.TextLabelS)
+			layout := t.Shaper.ShapeSimple(item.Label, labelStyle)
+			if layout != nil {
+				x := rect.Min.X + (rect.Width()-layout.Bounds.Width())/2
+				y := rect.Min.Y + (rect.Height()-layout.Bounds.Height())/2
+				drawText(&list, t.Shaper, x, y, item.Label, labelStyle, fg)
+			}
+		}
 	}
 	indicatorX := float32(t.indicator.Current())
-	list.Add(gfx.FillRect{Rect: gfx.RectFromXYWH(indicatorX, 38, 96, 2), Brush: gfx.SolidBrush(fillColor(slots.Indicator.Resolve(theme.StateDefault, theme.DefaultTokens()), gfx.Color{R: 0.25, G: 0.45, B: 0.95, A: 1}))})
+	list.Add(gfx.FillRect{Rect: gfx.RectFromXYWH(indicatorX, bounds.Max.Y-tabsIndicatorThickness(), itemW, tabsIndicatorThickness()), Brush: gfx.SolidBrush(th.Color(theme.ColorPrimary))})
+	if t.state.focused {
+		list.Add(gfx.StrokeRect{Rect: bounds.Inset(-2, -2), Brush: gfx.SolidBrush(th.Color(theme.ColorPrimary))})
+	}
 	return &list
+}
+
+func (t *Tabs) themeContext() theme.Context {
+	if t.Theme != nil {
+		return t.Theme
+	}
+	return theme.Default()
 }

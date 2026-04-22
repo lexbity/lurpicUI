@@ -101,7 +101,7 @@ func (d *Dialog) syncRoles() {
 }
 
 func (d *Dialog) bounds() gfx.Rect {
-	return gfx.RectFromXYWH(0, 0, 420, 280)
+	return gfx.RectFromXYWH(0, 0, dialogWidth(), dialogHeight())
 }
 
 func (d *Dialog) surfaceBounds() gfx.Rect {

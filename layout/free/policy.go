@@ -84,8 +84,13 @@ func anchorPoint(bounds gfx.Rect, anchor layout.FreeAnchor) gfx.Point {
 }
 
 func clampToBounds(rect, bounds gfx.Rect) gfx.Rect {
-	if rect.Width() > bounds.Width() || rect.Height() > bounds.Height() {
-		return gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, rect.Width(), rect.Height())
+	width := rect.Width()
+	height := rect.Height()
+	if width > bounds.Width() {
+		width = bounds.Width()
+	}
+	if height > bounds.Height() {
+		height = bounds.Height()
 	}
 	x := rect.Min.X
 	y := rect.Min.Y
@@ -95,11 +100,11 @@ func clampToBounds(rect, bounds gfx.Rect) gfx.Rect {
 	if y < bounds.Min.Y {
 		y = bounds.Min.Y
 	}
-	if x+rect.Width() > bounds.Max.X {
-		x = bounds.Max.X - rect.Width()
+	if x+width > bounds.Max.X {
+		x = bounds.Max.X - width
 	}
-	if y+rect.Height() > bounds.Max.Y {
-		y = bounds.Max.Y - rect.Height()
+	if y+height > bounds.Max.Y {
+		y = bounds.Max.Y - height
 	}
-	return gfx.RectFromXYWH(x, y, rect.Width(), rect.Height())
+	return gfx.RectFromXYWH(x, y, width, height)
 }

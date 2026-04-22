@@ -5,6 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/internal/markutil"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -13,53 +14,27 @@ func registerDescriptor(d marks.Descriptor) {
 }
 
 func syncLayout(layoutRole *facet.LayoutRole, bounds gfx.Rect) {
-	if layoutRole == nil {
-		return
-	}
-	layoutRole.Arrange(bounds)
-	layoutRole.MeasuredSize = gfx.Size{W: bounds.Width(), H: bounds.Height()}
+	markutil.SyncLayout(layoutRole, bounds)
 }
 
 func syncViewport(viewport *facet.ViewportRole, transform gfx.Transform) {
-	if viewport == nil {
-		return
-	}
-	viewport.Transform = transform
+	markutil.SyncViewport(viewport, transform)
 }
 
 func fillColor(m theme.Material, fallback gfx.Color) gfx.Color {
-	for _, fill := range m.Fills {
-		if fill.Type == theme.FillSolid || fill.Type == theme.FillNone {
-			return fill.Color.WithAlpha(fill.Color.A * fill.Opacity * m.Opacity)
-		}
-	}
-	return fallback
+	return markutil.FillColor(m, fallback)
 }
 
 func strokeColor(m theme.Material, fallback gfx.Color) gfx.Color {
-	for _, stroke := range m.Strokes {
-		if stroke.Paint.Type == theme.FillSolid || stroke.Paint.Type == theme.FillNone {
-			return stroke.Paint.Color.WithAlpha(stroke.Paint.Color.A * stroke.Paint.Opacity * m.Opacity)
-		}
-	}
-	return fallback
+	return markutil.StrokeColor(m, fallback)
 }
 
 func strokeStyle(stroke theme.MaterialStroke) gfx.StrokeStyle {
-	style := gfx.DefaultStroke(stroke.Width)
-	style.Dash = append([]float32(nil), stroke.Dash...)
-	style.DashOffset = stroke.DashOffset
-	return style
+	return markutil.StrokeStyle(stroke)
 }
 
 func clampInt(v, min, max int) int {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
+	return markutil.ClampInt(v, min, max)
 }
 
 func clampFloat(v, min, max float64) float64 {
@@ -70,6 +45,34 @@ func clampFloat(v, min, max float64) float64 {
 		return max
 	}
 	return v
+}
+
+func dialogWidth() float32 {
+	return markutil.RegularUINotificationBaseline().Dialog.MinWidth.Regular + 100
+}
+
+func dialogHeight() float32 {
+	return markutil.RegularUINotificationBaseline().Dialog.MinWidth.Regular - 40
+}
+
+func snackbarWidth() float32 {
+	return markutil.RegularUINotificationBaseline().Snackbar.MinHeight.Regular*4 + 144
+}
+
+func snackbarHeight() float32 {
+	return markutil.RegularUINotificationBaseline().Snackbar.MinHeight.Regular + 12
+}
+
+func progressLinearHeight() float32 {
+	return markutil.RegularUINotificationBaseline().Progress.LinearThickness.Regular + 8
+}
+
+func progressCircularSize() float32 {
+	return markutil.RegularUINotificationBaseline().Progress.CircularStroke.Regular * 12
+}
+
+func progressLinearWidth() float32 {
+	return markutil.RegularUINotificationBaseline().Progress.LinearThickness.Regular * 60
 }
 
 func attachChildMarks(parent *facet.Facet, children []marks.Mark) {

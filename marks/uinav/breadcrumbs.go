@@ -6,9 +6,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 )
 
 // BreadcrumbItem describes one breadcrumb segment.
@@ -43,14 +43,15 @@ func (b *Breadcrumbs) Base() *facet.Facet { b.ensureInit(); return &b.base }
 func (b *Breadcrumbs) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUINav, ConstructionClass: marks.ConstructionGenerated, Type: marks.TypeName("uinav:breadcrumbs")}
 }
-func (b *Breadcrumbs) AuthoredID() string { return b.ID }
+func (b *Breadcrumbs) AuthoredID() string               { return b.ID }
 func (b *Breadcrumbs) OnAttach(ctx facet.AttachContext) { b.syncRoles() }
-func (b *Breadcrumbs) OnDetach() {}
-func (b *Breadcrumbs) OnActivate() {}
-func (b *Breadcrumbs) OnDeactivate() {}
+func (b *Breadcrumbs) OnDetach()                        {}
+func (b *Breadcrumbs) OnActivate()                      {}
+func (b *Breadcrumbs) OnDeactivate()                    {}
 
 func (b *Breadcrumbs) ensureInit() {
 	b.once.Do(func() {
+		ensureBase(&b.base)
 		b.base.BindImpl(b)
 		b.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			bounds := b.bounds()

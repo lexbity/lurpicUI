@@ -268,6 +268,33 @@ func TestSoftwareRenderer_clip_rect_clips(t *testing.T) {
 	}
 }
 
+func TestSoftwareRenderer_clip_rect_translates_with_batch_bounds(t *testing.T) {
+	r, s := newRenderer(t, 100, 100)
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(20, 30, 40, 40),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.PushClipRect{Rect: gfx.RectFromXYWH(20, 30, 20, 20)},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(20, 30, 40, 40), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				}},
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	if got := pxAt(s, 25, 35); got.R != 255 || got.A != 255 {
+		t.Fatalf("translated clip inside pixel missing: %#v", got)
+	}
+	if got := pxAt(s, 45, 55); got != (color.RGBA{}) {
+		t.Fatalf("translated clip outside pixel should be transparent: %#v", got)
+	}
+}
+
 func TestSoftwareRenderer_opacity_stack(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
 	frame := &render.Frame{

@@ -60,13 +60,12 @@ func init() {
 		ConstructionClass: marks.ConstructionGenerated,
 		Type:              marks.TypeName("chart:axis"),
 		AnchorExporting:   true,
-		HitTestable:       true,
 	})
 }
 
 func (a *Axis) Base() *facet.Facet { a.ensureInit(); return &a.base }
 func (a *Axis) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: marks.FamilyChart, ConstructionClass: marks.ConstructionGenerated, Type: marks.TypeName("chart:axis"), AnchorExporting: true, HitTestable: true}
+	return marks.Descriptor{Family: marks.FamilyChart, ConstructionClass: marks.ConstructionGenerated, Type: marks.TypeName("chart:axis"), AnchorExporting: true}
 }
 func (a *Axis) AuthoredID() string               { return a.ID }
 func (a *Axis) OnAttach(ctx facet.AttachContext) { a.syncRoles() }
@@ -83,16 +82,9 @@ func (a *Axis) ensureInit() {
 		}}
 		a.viewportRole = &facet.ViewportRole{Transform: gfx.Identity()}
 		a.projection = &facet.ProjectionRole{OnProject: func(ctx facet.ProjectionContext) *gfx.CommandList { return a.project(ctx) }}
-		a.hitRole = &facet.HitRole{OnHitTest: func(p gfx.Point) facet.HitResult {
-			if a.bounds().Contains(p) {
-				return facet.HitResult{Hit: true, Cursor: facet.CursorDefault}
-			}
-			return facet.HitResult{}
-		}}
 		a.base.AddRole(a.layoutRole)
 		a.base.AddRole(a.viewportRole)
 		a.base.AddRole(a.projection)
-		a.base.AddRole(a.hitRole)
 		a.syncRoles()
 	})
 }
@@ -296,7 +288,7 @@ func (a *Axis) OnLayerSpecs() []layout.LayerSpec {
 		Placement:   layout.PlacementProjected,
 		Measurement: layout.MeasureNonStructural,
 		CoordSpace:  layout.CoordViewport,
-		HitPolicy:   layout.HitNormal,
+		HitPolicy:   layout.HitDisabled,
 		RenderOrder: 250,
 	}}
 }

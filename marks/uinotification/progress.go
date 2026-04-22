@@ -89,9 +89,10 @@ func (p *Progress) syncRoles() {
 
 func (p *Progress) bounds() gfx.Rect {
 	if p.Shape == ProgressCircular {
-		return gfx.RectFromXYWH(0, 0, 48, 48)
+		size := progressCircularSize()
+		return gfx.RectFromXYWH(0, 0, size, size)
 	}
-	return gfx.RectFromXYWH(0, 0, 240, 12)
+	return gfx.RectFromXYWH(0, 0, progressLinearWidth(), progressLinearHeight())
 }
 
 func (p *Progress) fraction() float64 {

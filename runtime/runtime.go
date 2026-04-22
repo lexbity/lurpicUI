@@ -852,3 +852,11 @@ func (rt *Runtime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source s
 		}
 	})
 }
+
+// RequestFrame wakes the runtime's frame timer for an immediate pass.
+func (rt *Runtime) RequestFrame() {
+	if rt == nil || rt.frameTimer == nil {
+		return
+	}
+	rt.frameTimer.RequestFrame()
+}

@@ -8,8 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/annotation"
 	"codeburg.org/lexbit/lurpicui/platform"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
-	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -21,6 +20,8 @@ type Button struct {
 	Variant  ButtonVariant
 	Disabled bool
 	OnPress  func()
+	Theme    theme.Context
+	Shaper   *text.Shaper
 
 	base         facet.Facet
 	once         sync.Once
@@ -72,6 +73,7 @@ func (b *Button) CanFocus() bool { return !b.Disabled }
 
 func (b *Button) ensureInit() {
 	b.once.Do(func() {
+		ensureBase(&b.base)
 		b.base.BindImpl(b)
 		b.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			bounds := b.bounds()
@@ -93,10 +95,12 @@ func (b *Button) ensureInit() {
 			Focusable: func() bool { return !b.Disabled },
 			OnFocusGained: func() {
 				b.state.focused = true
+				invalidate(&b.base, facet.DirtyProjection, "button-focus")
 			},
 			OnFocusLost: func() {
 				b.state.focused = false
 				b.state.pressed = false
+				invalidate(&b.base, facet.DirtyProjection, "button-focus")
 			},
 		}
 		b.base.AddRole(b.layoutRole)
@@ -113,10 +117,14 @@ func (b *Button) syncRoles() {
 	b.state.disabled = b.Disabled
 	syncLayout(b.layoutRole, b.bounds())
 	syncViewport(b.viewportRole, gfx.Identity())
+	invalidate(&b.base, facet.DirtyProjection, "button-sync")
 }
 
 func (b *Button) bounds() gfx.Rect {
-	return gfx.RectFromXYWH(0, 0, 96, 36)
+	if b.layoutRole != nil && !b.layoutRole.ArrangedBounds.IsEmpty() {
+		return b.layoutRole.ArrangedBounds
+	}
+	return gfx.RectFromXYWH(0, 0, 96, buttonHeight())
 }
 
 func (b *Button) handlePointer(e facet.PointerEvent) bool {
@@ -125,11 +133,27 @@ func (b *Button) handlePointer(e facet.PointerEvent) bool {
 	}
 	switch e.Kind {
 	case platform.PointerPress:
+		b.state.hovered = true
 		b.state.pressed = true
+		invalidate(&b.base, facet.DirtyProjection, "button-press")
+		return true
+	case platform.PointerEnter:
+		b.state.hovered = true
+		invalidate(&b.base, facet.DirtyProjection, "button-hover")
+		return true
+	case platform.PointerMove:
+		b.state.hovered = true
+		invalidate(&b.base, facet.DirtyProjection, "button-hover")
+		return true
+	case platform.PointerLeave:
+		b.state.hovered = false
+		b.state.pressed = false
+		invalidate(&b.base, facet.DirtyProjection, "button-hover")
 		return true
 	case platform.PointerRelease:
 		wasPressed := b.state.pressed
 		b.state.pressed = false
+		invalidate(&b.base, facet.DirtyProjection, "button-release")
 		if wasPressed {
 			b.activate()
 			return true
@@ -144,6 +168,7 @@ func (b *Button) handleKey(e facet.KeyEvent) bool {
 	}
 	if e.Key == platform.KeySpace || e.Key == platform.KeyEnter {
 		b.activate()
+		invalidate(&b.base, facet.DirtyProjection, "button-activate")
 		return true
 	}
 	return false
@@ -162,27 +187,70 @@ func (b *Button) activate() {
 }
 
 func (b *Button) project(ctx facet.ProjectionContext) *gfx.CommandList {
-	slots := b.resolveRecipe()
+	_ = ctx
+	th := b.themeContext()
 	bounds := b.bounds()
-	state := b.state.interactionState()
-	container := slots.Container.Resolve(state, theme.DefaultTokens())
-	focus := slots.FocusRing.Resolve(theme.StateFocused, theme.DefaultTokens())
 	var list gfx.CommandList
-	list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(fillColor(container, gfx.Color{R: 0.9, G: 0.9, B: 0.92, A: 1}))})
-	if b.state.focused && len(focus.Strokes) > 0 {
-		stroke := focus.Strokes[0]
-		list.Add(gfx.StrokeRect{Rect: bounds.Inset(-2, -2), Stroke: strokeStyle(stroke), Brush: gfx.SolidBrush(strokeColor(focus, gfx.Color{R: 0.3, G: 0.5, B: 1, A: 1}))})
+	bg := th.Color(theme.ColorSurfaceVariant)
+	fg := th.Color(theme.ColorText)
+	switch b.Variant {
+	case ButtonFilled:
+		bg = th.Color(theme.ColorPrimary)
+		fg = th.Color(theme.ColorOnPrimary)
+	case ButtonOutlined:
+		bg = th.Color(theme.ColorSurface)
+	case ButtonTonal:
+		bg = th.Color(theme.ColorSurfaceVariant)
+		fg = th.Color(theme.ColorText)
+	case ButtonText:
+		bg = gfx.Color{}
+	default:
+		bg = th.Color(theme.ColorSurfaceVariant)
+	}
+	if bg.A == 0 {
+		bg = gfx.Color{R: 0.16, G: 0.17, B: 0.2, A: 1}
+	}
+	if b.state.hovered && !b.state.pressed {
+		bg = gfx.Color{
+			R: float32(clampFloat(float64(bg.R)+0.04, 0, 1)),
+			G: float32(clampFloat(float64(bg.G)+0.04, 0, 1)),
+			B: float32(clampFloat(float64(bg.B)+0.04, 0, 1)),
+			A: bg.A,
+		}
+	}
+	if b.state.pressed {
+		bg = gfx.Color{
+			R: float32(clampFloat(float64(bg.R)+0.08, 0, 1)),
+			G: float32(clampFloat(float64(bg.G)+0.08, 0, 1)),
+			B: float32(clampFloat(float64(bg.B)+0.08, 0, 1)),
+			A: bg.A,
+		}
+	}
+	list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(bg)})
+	list.Add(gfx.StrokeRect{Rect: bounds, Brush: gfx.SolidBrush(th.Color(theme.ColorBorder))})
+	if b.state.focused {
+		list.Add(gfx.StrokeRect{Rect: bounds.Inset(-2, -2), Brush: gfx.SolidBrush(th.Color(theme.ColorPrimary))})
 	}
 	if b.Label != "" {
-		list.Add(gfx.DrawPoints{Points: []gfx.Point{{X: 10, Y: 10}}, Radius: 1, Brush: gfx.SolidBrush(gfx.Color{A: 1})})
+		labelStyle := th.TextStyle(theme.TextLabelS)
+		if b.Shaper != nil {
+			layout := b.Shaper.ShapeSimple(b.Label, labelStyle)
+			if layout != nil {
+				x := bounds.Min.X + (bounds.Width()-layout.Bounds.Width())/2
+				y := bounds.Min.Y + (bounds.Height()-layout.Bounds.Height())/2
+				drawText(&list, b.Shaper, x, y, b.Label, labelStyle, fg)
+			}
+		}
 	}
 	if b.Icon != nil {
-		list.Add(gfx.DrawPoints{Points: []gfx.Point{{X: 18, Y: 18}}, Radius: 2, Brush: gfx.SolidBrush(gfx.Color{A: 1})})
+		list.Add(gfx.DrawPoints{Points: []gfx.Point{{X: bounds.Min.X + 16, Y: bounds.Min.Y + bounds.Height()/2}}, Radius: 2, Brush: gfx.SolidBrush(fg)})
 	}
 	return &list
 }
 
-func (b *Button) resolveRecipe() shared.ButtonSlots {
-	slots, _ := uirecipe.ResolveButtonRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()}, b.Variant)
-	return slots
+func (b *Button) themeContext() theme.Context {
+	if b.Theme != nil {
+		return b.Theme
+	}
+	return theme.Default()
 }

@@ -7,6 +7,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/internal/markutil"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -21,54 +23,48 @@ func registerDescriptor(d marks.Descriptor) {
 	marks.RegisterDescriptor(d)
 }
 
-func syncLayout(layoutRole *facet.LayoutRole, bounds gfx.Rect) {
-	if layoutRole == nil {
+func ensureBase(base *facet.Facet) {
+	if base == nil {
 		return
 	}
-	layoutRole.Arrange(bounds)
-	layoutRole.MeasuredSize = gfx.Size{W: bounds.Width(), H: bounds.Height()}
+	if base.ID() == 0 {
+		*base = facet.NewFacet()
+	}
+}
+
+func invalidate(base *facet.Facet, flags facet.DirtyFlags, source string) {
+	if base == nil {
+		return
+	}
+	base.InvalidateWithSource(flags, source)
+}
+
+func syncLayout(layoutRole *facet.LayoutRole, bounds gfx.Rect) {
+	markutil.SyncLayout(layoutRole, bounds)
 }
 
 func syncViewport(viewport *facet.ViewportRole, transform gfx.Transform) {
-	if viewport == nil {
-		return
-	}
-	viewport.Transform = transform
+	markutil.SyncViewport(viewport, transform)
 }
 
 func fillColor(m theme.Material, fallback gfx.Color) gfx.Color {
-	for _, fill := range m.Fills {
-		if fill.Type == theme.FillSolid || fill.Type == theme.FillNone {
-			return fill.Color.WithAlpha(fill.Color.A * fill.Opacity * m.Opacity)
-		}
-	}
-	return fallback
+	return markutil.FillColor(m, fallback)
 }
 
 func strokeColor(m theme.Material, fallback gfx.Color) gfx.Color {
-	for _, stroke := range m.Strokes {
-		if stroke.Paint.Type == theme.FillSolid || stroke.Paint.Type == theme.FillNone {
-			return stroke.Paint.Color.WithAlpha(stroke.Paint.Color.A * stroke.Paint.Opacity * m.Opacity)
-		}
-	}
-	return fallback
+	return markutil.StrokeColor(m, fallback)
 }
 
 func strokeStyle(stroke theme.MaterialStroke) gfx.StrokeStyle {
-	style := gfx.DefaultStroke(stroke.Width)
-	style.Dash = append([]float32(nil), stroke.Dash...)
-	style.DashOffset = stroke.DashOffset
-	return style
+	return markutil.StrokeStyle(stroke)
+}
+
+func drawText(list *gfx.CommandList, shaper *text.Shaper, x, y float32, s string, style text.TextStyle, color gfx.Color) {
+	markutil.DrawText(list, shaper, x, y, s, style, color)
 }
 
 func clampInt(v, min, max int) int {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
+	return markutil.ClampInt(v, min, max)
 }
 
 func clampFloat(v, min, max float64) float64 {
@@ -79,6 +75,38 @@ func clampFloat(v, min, max float64) float64 {
 		return max
 	}
 	return v
+}
+
+func tabsHeight() float32 {
+	return markutil.RegularUINavBaseline().Tabs.Height.Regular
+}
+
+func tabsIndicatorThickness() float32 {
+	return markutil.RegularUINavBaseline().Tabs.IndicatorThickness.Regular
+}
+
+func drawerMinWidth() float32 {
+	return markutil.RegularUINavBaseline().Drawer.MinWidth.Regular - menuPadding()*2
+}
+
+func drawerMaxWidth() float32 {
+	return markutil.RegularUINavBaseline().Drawer.MinWidth.Regular + menuPadding()*8
+}
+
+func menuRowHeight() float32 {
+	return markutil.RegularUINavBaseline().Menu.RowHeight.Regular - 8
+}
+
+func menuPadding() float32 {
+	return markutil.RegularUINavBaseline().Menu.Padding.Regular
+}
+
+func scrollbarThickness() float32 {
+	return markutil.RegularUINavBaseline().Scrollbar.Thickness.Regular + 2
+}
+
+func paginationItemSize() float32 {
+	return markutil.RegularUINavBaseline().Pagination.ItemSize.Regular
 }
 
 func rectFromSize(w, h float32) gfx.Rect {

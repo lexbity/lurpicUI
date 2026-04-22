@@ -71,6 +71,7 @@ func (d *Drawer) OnDeactivate()                    {}
 
 func (d *Drawer) ensureInit() {
 	d.once.Do(func() {
+		ensureBase(&d.base)
 		d.base.BindImpl(d)
 		d.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			b := d.bounds()
@@ -110,7 +111,7 @@ func (d *Drawer) syncRoles() {
 }
 
 func (d *Drawer) bounds() gfx.Rect {
-	return gfx.RectFromXYWH(0, 0, 240, 320)
+	return gfx.RectFromXYWH(0, 0, drawerMinWidth(), drawerMaxWidth())
 }
 
 func (d *Drawer) hitBounds() gfx.Rect {

@@ -8,9 +8,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 )
 
 // Pagination renders a page window.
@@ -42,14 +42,15 @@ func (p *Pagination) Base() *facet.Facet { p.ensureInit(); return &p.base }
 func (p *Pagination) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUINav, ConstructionClass: marks.ConstructionGenerated, Type: marks.TypeName("uinav:pagination"), HitTestable: true}
 }
-func (p *Pagination) AuthoredID() string { return p.ID }
+func (p *Pagination) AuthoredID() string               { return p.ID }
 func (p *Pagination) OnAttach(ctx facet.AttachContext) { p.syncRoles() }
-func (p *Pagination) OnDetach() {}
-func (p *Pagination) OnActivate() {}
-func (p *Pagination) OnDeactivate() {}
+func (p *Pagination) OnDetach()                        {}
+func (p *Pagination) OnActivate()                      {}
+func (p *Pagination) OnDeactivate()                    {}
 
 func (p *Pagination) ensureInit() {
 	p.once.Do(func() {
+		ensureBase(&p.base)
 		p.base.BindImpl(p)
 		p.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			bounds := p.bounds()
@@ -82,7 +83,7 @@ func (p *Pagination) syncRoles() {
 
 func (p *Pagination) bounds() gfx.Rect {
 	items := p.windowItems()
-	return gfx.RectFromXYWH(0, 0, float32(len(items))*32, 28)
+	return gfx.RectFromXYWH(0, 0, float32(len(items))*paginationItemSize(), menuRowHeight())
 }
 
 type paginationEntry struct {

@@ -8,8 +8,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 // RadioOption is one option within a radio group.
@@ -51,14 +51,15 @@ func (r *RadioGroup) Base() *facet.Facet { r.ensureInit(); return &r.base }
 func (r *RadioGroup) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUIInput, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uiinput:radiogroup"), Focusable: true, HitTestable: true}
 }
-func (r *RadioGroup) AuthoredID() string { return r.ID }
+func (r *RadioGroup) AuthoredID() string               { return r.ID }
 func (r *RadioGroup) OnAttach(ctx facet.AttachContext) { r.syncRoles() }
-func (r *RadioGroup) OnDetach() {}
-func (r *RadioGroup) OnActivate() {}
-func (r *RadioGroup) OnDeactivate() {}
+func (r *RadioGroup) OnDetach()                        {}
+func (r *RadioGroup) OnActivate()                      {}
+func (r *RadioGroup) OnDeactivate()                    {}
 
 func (r *RadioGroup) ensureInit() {
 	r.once.Do(func() {
+		ensureBase(&r.base)
 		r.base.BindImpl(r)
 		r.layoutRole = &facet.LayoutRole{OnMeasure: func(c facet.Constraints) gfx.Size {
 			bounds := r.bounds()
@@ -105,7 +106,8 @@ func (r *RadioGroup) syncRoles() {
 }
 
 func (r *RadioGroup) bounds() gfx.Rect {
-	return gfx.RectFromXYWH(0, 0, 160, float32(len(r.Options))*28)
+	rowH := radioGroupSize() + 10
+	return gfx.RectFromXYWH(0, 0, 160, float32(len(r.Options))*rowH)
 }
 
 func (r *RadioGroup) indexOf(key string) int {

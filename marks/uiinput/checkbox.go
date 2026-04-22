@@ -8,8 +8,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
-	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme"
+	uirecipe "codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 // Checkbox is a boolean toggle control.
@@ -44,14 +44,15 @@ func (c *Checkbox) Base() *facet.Facet { c.ensureInit(); return &c.base }
 func (c *Checkbox) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: marks.FamilyUIInput, ConstructionClass: marks.ConstructionComposed, Type: marks.TypeName("uiinput:checkbox"), Focusable: true, HitTestable: true}
 }
-func (c *Checkbox) AuthoredID() string { return c.ID }
+func (c *Checkbox) AuthoredID() string               { return c.ID }
 func (c *Checkbox) OnAttach(ctx facet.AttachContext) { c.syncRoles() }
-func (c *Checkbox) OnDetach() {}
-func (c *Checkbox) OnActivate() {}
-func (c *Checkbox) OnDeactivate() {}
+func (c *Checkbox) OnDetach()                        {}
+func (c *Checkbox) OnActivate()                      {}
+func (c *Checkbox) OnDeactivate()                    {}
 
 func (c *Checkbox) ensureInit() {
 	c.once.Do(func() {
+		ensureBase(&c.base)
 		c.base.BindImpl(c)
 		c.layoutRole = &facet.LayoutRole{OnMeasure: func(cn facet.Constraints) gfx.Size {
 			bounds := c.bounds()
@@ -70,7 +71,7 @@ func (c *Checkbox) ensureInit() {
 			OnKey:     func(e facet.KeyEvent) bool { return c.handleKey(e) },
 		}
 		c.focusRole = &facet.FocusRole{
-			Focusable: func() bool { return !c.Disabled },
+			Focusable:     func() bool { return !c.Disabled },
 			OnFocusGained: func() { c.state.focused = true },
 			OnFocusLost:   func() { c.state.focused = false },
 		}
@@ -88,7 +89,7 @@ func (c *Checkbox) syncRoles() {
 	c.state.disabled = c.Disabled
 }
 
-func (c *Checkbox) bounds() gfx.Rect { return gfx.RectFromXYWH(0, 0, 28, 28) }
+func (c *Checkbox) bounds() gfx.Rect { return gfx.RectFromXYWH(0, 0, checkboxSize(), checkboxSize()) }
 
 func (c *Checkbox) handlePointer(e facet.PointerEvent) bool {
 	if c.Disabled {

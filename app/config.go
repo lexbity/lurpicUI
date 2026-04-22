@@ -26,6 +26,7 @@ type Config struct {
 	Window  WindowConfig
 	Runtime runtime.Config
 	Fonts   []FontSource
+	Theme   theme.Context
 }
 
 // BuildContext is passed to the root builder after engine startup.
