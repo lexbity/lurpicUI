@@ -1,0 +1,51 @@
+{
+  "id": "basic.test",
+  "display_name": "Basic Test Scenario",
+  "schema": "1.0",
+  "required_scene": "basic",
+  "environment": {
+    "theme": "baseline",
+    "density": "default",
+    "backend": "software",
+    "window_size": {
+      "width": 800,
+      "height": 600
+    }
+  },
+  "actions": [
+    {
+      "type": "scene_load",
+      "params": {
+        "scene": "basic"
+      }
+    },
+    {
+      "type": "wait_frames",
+      "params": {
+        "frames": 3
+      }
+    },
+    {
+      "type": "screenshot",
+      "params": {
+        "name": "initial_state"
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "type": "scene_id",
+      "params": {
+        "expected": "basic"
+      }
+    }
+  ],
+  "artifacts": [
+    {
+      "type": "screenshot",
+      "name": "initial_state",
+      "required": true
+    }
+  ],
+  "tags": ["basic", "smoke-test"]
+}
