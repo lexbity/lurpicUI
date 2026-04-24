@@ -14,11 +14,12 @@ import (
 // FooterFacet displays the bottom status bar.
 type FooterFacet struct {
 	facet.Facet
-	layout       facet.LayoutRole
-	render       facet.RenderRole
-	th           theme.Context
-	shaper       *text.Shaper
-	subscription signal.SubscriptionID
+	layout      facet.LayoutRole
+	render      facet.RenderRole
+	th          theme.Context
+	shaper      *text.Shaper
+	registrySub signal.SubscriptionID
+	execSub     signal.SubscriptionID
 }
 
 // NewFooterFacet creates a new footer facet.
@@ -53,14 +54,18 @@ func (f *FooterFacet) Base() *facet.Facet {
 
 // OnAttach handles attachment and subscribes to stores.
 func (f *FooterFacet) OnAttach(ctx facet.AttachContext) {
-	f.subscription = store.ScenarioRegistryStore.OnChange.Subscribe(func(change signal.Change[*store.ScenarioRegistry]) {
+	f.registrySub = store.ScenarioRegistryStore.OnChange.Subscribe(func(change signal.Change[*store.ScenarioRegistry]) {
+		f.Invalidate(facet.DirtyProjection)
+	})
+	f.execSub = store.ExecutionStateStore.OnChange.Subscribe(func(change signal.Change[store.ExecutionState]) {
 		f.Invalidate(facet.DirtyProjection)
 	})
 }
 
 // OnDetach handles detachment.
 func (f *FooterFacet) OnDetach() {
-	store.ScenarioRegistryStore.OnChange.Unsubscribe(f.subscription)
+	store.ScenarioRegistryStore.OnChange.Unsubscribe(f.registrySub)
+	store.ExecutionStateStore.OnChange.Unsubscribe(f.execSub)
 }
 
 // OnActivate handles activation.
@@ -109,6 +114,29 @@ func (f *FooterFacet) renderFooter(list *gfx.CommandList, bounds gfx.Rect) {
 	if leftLayout != nil && len(leftLayout.Lines) > 0 {
 		line := leftLayout.Lines[0]
 		origin := gfx.Point{X: inner.Min.X, Y: inner.Min.Y + 12}
+		for _, run := range line.Runs {
+			list.Add(gfx.DrawGlyphRun{
+				Run:    run,
+				Origin: origin,
+				Brush:  gfx.SolidBrush(f.th.Color(theme.ColorTextSecondary)),
+			})
+		}
+	}
+
+	// Show execution controls hint on the right
+	exec := store.ExecutionStateStore.Get()
+	var rightText string
+	if exec.IsRunning() {
+		rightText = "[Esc] Cancel"
+	} else {
+		rightText = "[R] Run  [E] Export"
+	}
+
+	rightLayout := f.shaper.ShapeSimple(rightText, statusStyle)
+	if rightLayout != nil && len(rightLayout.Lines) > 0 {
+		line := rightLayout.Lines[0]
+		x := inner.Max.X - line.Bounds.Width()
+		origin := gfx.Point{X: x, Y: inner.Min.Y + 12}
 		for _, run := range line.Runs {
 			list.Add(gfx.DrawGlyphRun{
 				Run:    run,

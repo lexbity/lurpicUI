@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -95,6 +96,36 @@ func TestScenario_Validate(t *testing.T) {
 			},
 			wantErr:  true,
 			errField: "artifacts",
+		},
+		{
+			name: "invalid capability",
+			scenario: Scenario{
+				ID:          "test.bad_capability",
+				DisplayName: "Test",
+				Schema:      "1.0",
+				Actions:     []Action{{Type: ActionWaitFrames}},
+				Capabilities: []Capability{
+					CapSceneLoad,
+					Capability("invalid_capability"),
+				},
+			},
+			wantErr:  true,
+			errField: "capabilities",
+		},
+		{
+			name: "duplicate capability",
+			scenario: Scenario{
+				ID:          "test.duplicate_capability",
+				DisplayName: "Test",
+				Schema:      "1.0",
+				Actions:     []Action{{Type: ActionWaitFrames}},
+				Capabilities: []Capability{
+					CapSceneLoad,
+					CapSceneLoad,
+				},
+			},
+			wantErr:  true,
+			errField: "capabilities",
 		},
 	}
 
@@ -201,6 +232,172 @@ func TestScenario_HasCapability(t *testing.T) {
 	}
 	if s.HasCapability(CapIME) {
 		t.Error("Expected HasCapability(CapIME) to be false")
+	}
+}
+
+func TestScenario_HasFamily(t *testing.T) {
+	s := Scenario{
+		Family:        "basic",
+		RequiredScene: "basic",
+		Tags:          []string{"smoke", "basic"},
+	}
+
+	if !s.HasFamily("basic") {
+		t.Error("Expected HasFamily(basic) to be true")
+	}
+	if !s.HasFamily("smoke") {
+		t.Error("Expected HasFamily(smoke) to be true via tags")
+	}
+	if s.HasFamily("chart") {
+		t.Error("Expected HasFamily(chart) to be false")
+	}
+}
+
+func TestScenario_Clone(t *testing.T) {
+	original := &Scenario{
+		ID:          "test.clone",
+		DisplayName: "Clone Test",
+		Schema:      SchemaVersion,
+		Family:      "basic",
+		Environment: Environment{
+			Theme:    "baseline",
+			Density:  "default",
+			Backend:  "software",
+			Platform: "linux",
+		},
+		Actions: []Action{
+			{
+				Type:   ActionSceneLoad,
+				Target: Target{LogicalID: "button.primary", Fallback: &Target{LogicalID: "fallback"}},
+				Params: ActionParams{"scene": "basic"},
+			},
+		},
+		Assertions: []Assertion{{Type: AssertSceneID, Params: AssertionParams{"expected": "basic"}}},
+		Artifacts:  []ArtifactSpec{{Type: ArtifactScreenshot, Name: "shot", Required: true}},
+		Tags:       []string{"basic"},
+		Capabilities: []Capability{
+			CapSceneLoad,
+			CapScreenshots,
+		},
+		ExpectedState: &ExpectedState{
+			SceneID:       "basic",
+			ControlStates: map[string]string{"mode": "default"},
+			Theme:         "baseline",
+		},
+	}
+
+	clone := original.Clone()
+	if clone == nil {
+		t.Fatal("Clone() returned nil")
+	}
+	if clone == original {
+		t.Fatal("Clone() returned the original pointer")
+	}
+
+	clone.Family = "chart"
+	clone.Environment.Theme = "dark"
+	clone.Actions[0].Params["scene"] = "chart"
+	clone.Actions[0].Target.Fallback.LogicalID = "changed"
+	clone.Tags[0] = "chart"
+	clone.Capabilities[0] = CapAssertions
+	clone.ExpectedState.ControlStates["mode"] = "chart"
+
+	if original.Family != "basic" {
+		t.Fatalf("original.Family = %q, want basic", original.Family)
+	}
+	if original.Environment.Theme != "baseline" {
+		t.Fatalf("original.Environment.Theme = %q, want baseline", original.Environment.Theme)
+	}
+	if original.Actions[0].Params["scene"] != "basic" {
+		t.Fatalf("original.Actions[0].Params[scene] = %v, want basic", original.Actions[0].Params["scene"])
+	}
+	if original.Actions[0].Target.Fallback.LogicalID != "fallback" {
+		t.Fatalf("original fallback logical ID = %q, want fallback", original.Actions[0].Target.Fallback.LogicalID)
+	}
+	if original.Tags[0] != "basic" {
+		t.Fatalf("original.Tags[0] = %q, want basic", original.Tags[0])
+	}
+	if original.Capabilities[0] != CapSceneLoad {
+		t.Fatalf("original.Capabilities[0] = %q, want %q", original.Capabilities[0], CapSceneLoad)
+	}
+	if original.ExpectedState.ControlStates["mode"] != "default" {
+		t.Fatalf("original ExpectedState.ControlStates[mode] = %q, want default", original.ExpectedState.ControlStates["mode"])
+	}
+}
+
+func TestNewFixtureScenario(t *testing.T) {
+	scenario := NewFixtureScenario("test.fixture", "Fixture Test")
+
+	if scenario.ID != "test.fixture" {
+		t.Fatalf("ID = %q, want test.fixture", scenario.ID)
+	}
+	if scenario.DisplayName != "Fixture Test" {
+		t.Fatalf("DisplayName = %q, want Fixture Test", scenario.DisplayName)
+	}
+	if scenario.Schema != SchemaVersion {
+		t.Fatalf("Schema = %q, want %q", scenario.Schema, SchemaVersion)
+	}
+}
+
+func TestScenario_JSONRoundTrip(t *testing.T) {
+	original := Scenario{
+		ID:            "test.roundtrip",
+		DisplayName:   "Round Trip",
+		Schema:        SchemaVersion,
+		Family:        "basic",
+		RequiredScene: "basic",
+		Environment: Environment{
+			Theme:    "baseline",
+			Density:  "default",
+			Backend:  "software",
+			Platform: "linux",
+		},
+		Actions: []Action{{Type: ActionSceneLoad, Params: ActionParams{"scene": "basic"}}},
+		Assertions: []Assertion{{Type: AssertSceneID, Params: AssertionParams{
+			"expected": "basic",
+		}}},
+		Artifacts: []ArtifactSpec{{Type: ArtifactScreenshot, Name: "initial", Required: true}},
+		Tags:      []string{"basic", "smoke"},
+		Capabilities: []Capability{
+			CapSceneLoad,
+			CapScreenshots,
+			CapAssertions,
+		},
+		ExpectedState: &ExpectedState{
+			SceneID: "basic",
+			Theme:   "baseline",
+			Density: "default",
+		},
+		Description: "round trip fixture",
+	}
+
+	data, err := json.Marshal(original)
+	if err != nil {
+		t.Fatalf("Marshal() error = %v", err)
+	}
+
+	var decoded Scenario
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+
+	if decoded.ID != original.ID {
+		t.Fatalf("decoded ID = %q, want %q", decoded.ID, original.ID)
+	}
+	if decoded.DisplayName != original.DisplayName {
+		t.Fatalf("decoded DisplayName = %q, want %q", decoded.DisplayName, original.DisplayName)
+	}
+	if decoded.RequiredScene != original.RequiredScene {
+		t.Fatalf("decoded RequiredScene = %q, want %q", decoded.RequiredScene, original.RequiredScene)
+	}
+	if decoded.Family != original.Family {
+		t.Fatalf("decoded Family = %q, want %q", decoded.Family, original.Family)
+	}
+	if len(decoded.Capabilities) != len(original.Capabilities) {
+		t.Fatalf("decoded Capabilities len = %d, want %d", len(decoded.Capabilities), len(original.Capabilities))
+	}
+	if decoded.ExpectedState == nil || decoded.ExpectedState.SceneID != "basic" {
+		t.Fatalf("decoded ExpectedState = %#v, want scene_id basic", decoded.ExpectedState)
 	}
 }
 

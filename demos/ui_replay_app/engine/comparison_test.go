@@ -78,6 +78,50 @@ func TestComparisonRunner_AddVariant(t *testing.T) {
 	}
 }
 
+func TestComparisonRunner_RunClonesScenario(t *testing.T) {
+	runner := NewRunner(nil, nil)
+	compRunner := NewComparisonRunner(runner, ModeThemeComparison)
+	compRunner.AddVariant(VariantConfig{
+		Name:  "dark",
+		Theme: "dark",
+	})
+
+	original := &model.Scenario{
+		ID:          "test.clone",
+		DisplayName: "Clone Test",
+		Schema:      model.SchemaVersion,
+		Environment: model.Environment{
+			Theme:    "baseline",
+			Density:  "default",
+			Backend:  "software",
+			Platform: "linux",
+		},
+	}
+
+	result, err := compRunner.Run(original)
+	if err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Run() returned nil result")
+	}
+	if original.Environment.Theme != "baseline" {
+		t.Fatalf("original.Environment.Theme = %q, want baseline", original.Environment.Theme)
+	}
+	if len(result.Variants) != 1 {
+		t.Fatalf("Variants len = %d, want 1", len(result.Variants))
+	}
+	if result.Variants[0].InputScenario == nil {
+		t.Fatal("Variant input scenario should be captured")
+	}
+	if result.Variants[0].InputScenario.Environment.Theme != "dark" {
+		t.Fatalf("variant input theme = %q, want dark", result.Variants[0].InputScenario.Environment.Theme)
+	}
+	if result.Variants[0].AppliedEnvironment.Theme != "dark" {
+		t.Fatalf("applied theme = %q, want dark", result.Variants[0].AppliedEnvironment.Theme)
+	}
+}
+
 func TestComparisonResult_GenerateDiffReport(t *testing.T) {
 	result := &ComparisonResult{
 		Mode:       ModeThemeComparison,

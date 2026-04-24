@@ -13,6 +13,7 @@ func TestBundleBuilder_Build(t *testing.T) {
 		ID:          "test.scenario",
 		DisplayName: "Test Scenario",
 		Schema:      "1.0",
+		Family:      "basic",
 		Environment: model.Environment{
 			Theme:   "baseline",
 			Density: "default",
@@ -23,10 +24,16 @@ func TestBundleBuilder_Build(t *testing.T) {
 	scenario.Environment.WindowSize.Height = 900
 
 	builder := NewBundleBuilder(scenario, t.TempDir())
-	builder.SetRunResult(model.StatusPassed)
+	builder.SetRunResults(&model.RunResult{
+		Status: model.StatusPassed,
+		AssertionResults: []model.AssertionResult{
+			{Step: 1, Type: model.AssertSceneID, Passed: true},
+		},
+	})
 	builder.SetProvenance(ProvenanceInfo{
 		Platform: "test",
 	})
+	builder.SetDiagnosticsSummary(map[string]interface{}{"fps": 60})
 
 	t.Run("empty bundle builds successfully", func(t *testing.T) {
 		bundle, err := builder.Build()
@@ -38,6 +45,9 @@ func TestBundleBuilder_Build(t *testing.T) {
 		}
 		if bundle.Manifest == nil {
 			t.Fatal("Bundle missing manifest")
+		}
+		if bundle.OutputPath == "" {
+			t.Fatal("Build() should set deterministic output path")
 		}
 	})
 
@@ -56,6 +66,18 @@ func TestBundleBuilder_Build(t *testing.T) {
 		if bundle.Manifest.Version != BundleVersion {
 			t.Errorf("Version = %v, want %v", bundle.Manifest.Version, BundleVersion)
 		}
+		if bundle.Manifest.ScenarioFamily != "basic" {
+			t.Errorf("ScenarioFamily = %v, want basic", bundle.Manifest.ScenarioFamily)
+		}
+		if bundle.Manifest.ActionCount != 0 {
+			t.Errorf("ActionCount = %d, want 0", bundle.Manifest.ActionCount)
+		}
+		if len(bundle.Manifest.AssertionResults) != 1 {
+			t.Errorf("AssertionResults len = %d, want 1", len(bundle.Manifest.AssertionResults))
+		}
+		if bundle.Manifest.DiagnosticsSummary["fps"] != 60 {
+			t.Errorf("DiagnosticsSummary[fps] = %v, want 60", bundle.Manifest.DiagnosticsSummary["fps"])
+		}
 	})
 
 	t.Run("environment captured correctly", func(t *testing.T) {
@@ -66,6 +88,16 @@ func TestBundleBuilder_Build(t *testing.T) {
 		}
 		if bundle.Manifest.Environment.WindowWidth != 1400 {
 			t.Errorf("WindowWidth = %d, want 1400", bundle.Manifest.Environment.WindowWidth)
+		}
+	})
+
+	t.Run("deterministic output path", func(t *testing.T) {
+		again, err := builder.Build()
+		if err != nil {
+			t.Fatalf("Build() error = %v", err)
+		}
+		if again.OutputPath != builder.generateBundlePath() {
+			t.Errorf("OutputPath = %q, want deterministic path", again.OutputPath)
 		}
 	})
 }
@@ -131,6 +163,16 @@ func TestBundleBuilder_AddArtifacts(t *testing.T) {
 		}
 		if string(arts[0].Data) != "step 1: started\nstep 1: completed" {
 			t.Error("Log content mismatch")
+		}
+	})
+
+	t.Run("artifact order is deterministic", func(t *testing.T) {
+		bundle, _ := builder.Build()
+		if len(bundle.Artifacts) == 0 {
+			t.Fatal("bundle should contain manifest artifact")
+		}
+		if bundle.Artifacts[0].Name != "manifest.json" {
+			t.Fatalf("first artifact = %q, want manifest.json", bundle.Artifacts[0].Name)
 		}
 	})
 
@@ -394,4 +436,175 @@ func containsImpl(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestBundle_DeterministicArtifactNaming(t *testing.T) {
+	scenario := &model.Scenario{
+		ID:          "test.naming",
+		DisplayName: "Naming Test",
+		Schema:      "1.0",
+		Family:      "basic",
+		Environment: model.Environment{
+			Theme:    "baseline",
+			Density:  "default",
+			Backend:  "software",
+			Platform: "linux",
+		},
+	}
+	scenario.Environment.WindowSize.Width = 1400
+	scenario.Environment.WindowSize.Height = 900
+
+	outputDir := t.TempDir()
+
+	// Build two bundles with same scenario and environment
+	builder1 := NewBundleBuilder(scenario, outputDir)
+	builder1.SetRunResult(model.StatusPassed)
+	builder1.AddScreenshot("step_1_screenshot", []byte("png1"), nil)
+	builder1.AddLog("execution_log", "log content")
+
+	builder2 := NewBundleBuilder(scenario, outputDir)
+	builder2.SetRunResult(model.StatusPassed)
+	builder2.AddScreenshot("step_1_screenshot", []byte("png1"), nil)
+	builder2.AddLog("execution_log", "log content")
+
+	bundle1, err := builder1.Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	bundle2, err := builder2.Build()
+	if err != nil {
+		t.Fatalf("Build() error = %v", err)
+	}
+
+	t.Run("artifact names are identical across builds", func(t *testing.T) {
+		if len(bundle1.Artifacts) != len(bundle2.Artifacts) {
+			t.Errorf("Artifact count mismatch: %d vs %d", len(bundle1.Artifacts), len(bundle2.Artifacts))
+		}
+
+		for i := range bundle1.Artifacts {
+			if i >= len(bundle2.Artifacts) {
+				break
+			}
+			if bundle1.Artifacts[i].Name != bundle2.Artifacts[i].Name {
+				t.Errorf("Artifact[%d] name mismatch: %q vs %q", i, bundle1.Artifacts[i].Name, bundle2.Artifacts[i].Name)
+			}
+		}
+	})
+
+	t.Run("bundle paths are deterministic", func(t *testing.T) {
+		// Path should be deterministic based on scenario and environment
+		if bundle1.OutputPath != bundle2.OutputPath {
+			t.Errorf("OutputPath not deterministic: %q vs %q", bundle1.OutputPath, bundle2.OutputPath)
+		}
+	})
+
+	t.Run("manifest artifacts list is ordered", func(t *testing.T) {
+		// Verify artifacts are sorted by type then name
+		for i := 1; i < len(bundle1.Manifest.Artifacts); i++ {
+			prev := bundle1.Manifest.Artifacts[i-1]
+			curr := bundle1.Manifest.Artifacts[i]
+			if prev.Type > curr.Type {
+				t.Errorf("Artifacts not sorted by type at index %d: %s > %s", i, prev.Type, curr.Type)
+			}
+			if prev.Type == curr.Type && prev.Name > curr.Name {
+				t.Errorf("Artifacts not sorted by name at index %d: %s > %s", i, prev.Name, curr.Name)
+			}
+		}
+	})
+}
+
+func TestBundleBuilder_generateBundlePath_Determinism(t *testing.T) {
+	scenario := &model.Scenario{
+		ID:          "my.scenario.id",
+		DisplayName: "My Scenario",
+		Schema:      "1.0",
+		Environment: model.Environment{
+			Theme:    "dark_theme",
+			Density:  "high_density",
+			Backend:  "vulkan_backend",
+			Platform: "linux_platform",
+		},
+	}
+
+	outputDir := "/some/output/dir"
+	builder := NewBundleBuilder(scenario, outputDir)
+
+	// Generate path multiple times
+	path1 := builder.generateBundlePath()
+	path2 := builder.generateBundlePath()
+	path3 := builder.generateBundlePath()
+
+	t.Run("path is deterministic across calls", func(t *testing.T) {
+		if path1 != path2 || path2 != path3 {
+			t.Errorf("generateBundlePath() not deterministic: %q, %q, %q", path1, path2, path3)
+		}
+	})
+
+	t.Run("path contains normalized scenario components", func(t *testing.T) {
+		// Scenario ID with dots is preserved (normalizeName only converts spaces, slashes, backslashes, colons)
+		if !contains(path1, "my.scenario.id") {
+			t.Errorf("Path should contain scenario ID: %q", path1)
+		}
+		// Theme with underscore (spaces converted to underscores)
+		if !contains(path1, "dark_theme") {
+			t.Errorf("Path should contain theme: %q", path1)
+		}
+		// Backend with underscore
+		if !contains(path1, "vulkan_backend") {
+			t.Errorf("Path should contain backend: %q", path1)
+		}
+	})
+
+	t.Run("path starts with output directory", func(t *testing.T) {
+		if len(path1) < len(outputDir) || path1[:len(outputDir)] != outputDir {
+			t.Errorf("Path %q should start with output directory %q", path1, outputDir)
+		}
+	})
+}
+
+func TestBundle_ManifestStability(t *testing.T) {
+	scenario := &model.Scenario{
+		ID:           "test.stability",
+		DisplayName:  "Stability Test",
+		Schema:       "1.0",
+		Family:       "test_family",
+		Tags:         []string{"tag1", "tag2", "tag3"},
+		Capabilities: []model.Capability{model.CapSceneLoad, model.CapAssertions},
+		Environment: model.Environment{
+			Theme:   "baseline",
+			Density: "default",
+			Backend: "software",
+		},
+	}
+
+	builder := NewBundleBuilder(scenario, t.TempDir())
+	builder.SetRunResult(model.StatusPassed)
+	builder.SetRunLabel("test_run")
+
+	bundle, _ := builder.Build()
+
+	t.Run("manifest contains all scenario metadata", func(t *testing.T) {
+		if bundle.Manifest.ScenarioID != string(scenario.ID) {
+			t.Errorf("ScenarioID = %v, want %v", bundle.Manifest.ScenarioID, scenario.ID)
+		}
+		if bundle.Manifest.ScenarioFamily != scenario.Family {
+			t.Errorf("ScenarioFamily = %v, want %v", bundle.Manifest.ScenarioFamily, scenario.Family)
+		}
+		if len(bundle.Manifest.Tags) != len(scenario.Tags) {
+			t.Errorf("Tags length = %v, want %v", len(bundle.Manifest.Tags), len(scenario.Tags))
+		}
+		if len(bundle.Manifest.Capabilities) != len(scenario.Capabilities) {
+			t.Errorf("Capabilities length = %v, want %v", len(bundle.Manifest.Capabilities), len(scenario.Capabilities))
+		}
+	})
+
+	t.Run("manifest environment is captured", func(t *testing.T) {
+		if bundle.Manifest.Environment.Theme != scenario.Environment.Theme {
+			t.Errorf("Theme = %v, want %v", bundle.Manifest.Environment.Theme, scenario.Environment.Theme)
+		}
+		if bundle.Manifest.Environment.Backend != scenario.Environment.Backend {
+			t.Errorf("Backend = %v, want %v", bundle.Manifest.Environment.Backend, scenario.Environment.Backend)
+		}
+	})
 }

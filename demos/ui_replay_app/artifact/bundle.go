@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,15 +26,24 @@ type Bundle struct {
 
 // Manifest describes the bundle contents and provenance.
 type Manifest struct {
-	Version       string                `json:"version"`
-	CreatedAt     time.Time             `json:"created_at"`
-	ScenarioID    string                `json:"scenario_id"`
-	ScenarioName  string                `json:"scenario_name"`
-	SchemaVersion string                `json:"schema_version"`
-	RunResult     model.ExecutionStatus `json:"run_result"`
-	Environment   EnvironmentInfo       `json:"environment"`
-	Artifacts     []ArtifactEntry       `json:"artifacts"`
-	Provenance    ProvenanceInfo        `json:"provenance"`
+	Version            string                  `json:"version"`
+	CreatedAt          time.Time               `json:"created_at"`
+	ScenarioID         string                  `json:"scenario_id"`
+	ScenarioName       string                  `json:"scenario_name"`
+	ScenarioFamily     string                  `json:"scenario_family,omitempty"`
+	RequiredScene      string                  `json:"required_scene,omitempty"`
+	SchemaVersion      string                  `json:"schema_version"`
+	RunResult          model.ExecutionStatus   `json:"run_result"`
+	ActionCount        int                     `json:"action_count"`
+	AssertionCount     int                     `json:"assertion_count"`
+	ArtifactCount      int                     `json:"artifact_count"`
+	Tags               []string                `json:"tags,omitempty"`
+	Capabilities       []model.Capability      `json:"capabilities,omitempty"`
+	AssertionResults   []model.AssertionResult `json:"assertion_results,omitempty"`
+	DiagnosticsSummary map[string]interface{}  `json:"diagnostics_summary,omitempty"`
+	Environment        EnvironmentInfo         `json:"environment"`
+	Artifacts          []ArtifactEntry         `json:"artifacts"`
+	Provenance         ProvenanceInfo          `json:"provenance"`
 }
 
 // EnvironmentInfo captures the execution environment.
@@ -87,12 +97,16 @@ const BundleVersion = "1.0"
 
 // BundleBuilder constructs artifact bundles.
 type BundleBuilder struct {
-	artifacts  []Artifact
-	scenario   *model.Scenario
-	env        model.Environment
-	result     model.ExecutionStatus
-	provenance ProvenanceInfo
-	outputDir  string
+	artifacts          []Artifact
+	scenario           *model.Scenario
+	env                model.Environment
+	result             model.ExecutionStatus
+	assertionResults   []model.AssertionResult
+	diagnosticsSummary map[string]interface{}
+	provenance         ProvenanceInfo
+	outputDir          string
+	capturedAt         time.Time
+	runLabel           string
 }
 
 // NewBundleBuilder creates a new bundle builder.
@@ -108,6 +122,40 @@ func NewBundleBuilder(scenario *model.Scenario, outputDir string) *BundleBuilder
 // SetRunResult sets the execution result for the bundle.
 func (b *BundleBuilder) SetRunResult(result model.ExecutionStatus) {
 	b.result = result
+}
+
+// SetRunResults sets the execution result and assertion details for the bundle.
+func (b *BundleBuilder) SetRunResults(result *model.RunResult) {
+	if result == nil {
+		return
+	}
+	b.result = result.Status
+	b.assertionResults = append([]model.AssertionResult(nil), result.AssertionResults...)
+	if !result.StartTime.IsZero() {
+		b.capturedAt = result.StartTime
+	}
+}
+
+// SetCapturedAt overrides the manifest timestamp.
+func (b *BundleBuilder) SetCapturedAt(t time.Time) {
+	b.capturedAt = t
+}
+
+// SetRunLabel applies a stable label to the bundle path.
+func (b *BundleBuilder) SetRunLabel(label string) {
+	b.runLabel = label
+}
+
+// SetDiagnosticsSummary stores a summary of the diagnostics snapshot.
+func (b *BundleBuilder) SetDiagnosticsSummary(summary map[string]interface{}) {
+	if summary == nil {
+		b.diagnosticsSummary = nil
+		return
+	}
+	b.diagnosticsSummary = make(map[string]interface{}, len(summary))
+	for key, value := range summary {
+		b.diagnosticsSummary[key] = value
+	}
 }
 
 // SetProvenance sets the provenance information.
@@ -195,11 +243,20 @@ func (b *BundleBuilder) AddAssertionReport(report map[string]interface{}) error 
 
 // Build creates the final bundle.
 func (b *BundleBuilder) Build() (*Bundle, error) {
-	createdAt := time.Now()
+	createdAt := b.capturedAt
+	if createdAt.IsZero() {
+		if b.result != "" {
+			createdAt = time.Unix(0, 0).UTC()
+		} else {
+			createdAt = time.Unix(0, 0).UTC()
+		}
+	}
+
+	artifacts := sortedArtifacts(b.artifacts)
 
 	// Create artifact entries
-	entries := make([]ArtifactEntry, 0, len(b.artifacts))
-	for _, art := range b.artifacts {
+	entries := make([]ArtifactEntry, 0, len(artifacts))
+	for _, art := range artifacts {
 		entry := ArtifactEntry{
 			Name:     art.Name,
 			Type:     string(art.Type),
@@ -212,12 +269,21 @@ func (b *BundleBuilder) Build() (*Bundle, error) {
 
 	// Create manifest
 	manifest := &Manifest{
-		Version:       BundleVersion,
-		CreatedAt:     createdAt,
-		ScenarioID:    string(b.scenario.ID),
-		ScenarioName:  b.scenario.DisplayName,
-		SchemaVersion: b.scenario.Schema,
-		RunResult:     b.result,
+		Version:            BundleVersion,
+		CreatedAt:          createdAt,
+		ScenarioID:         string(b.scenario.ID),
+		ScenarioName:       b.scenario.DisplayName,
+		ScenarioFamily:     b.scenario.Family,
+		RequiredScene:      b.scenario.RequiredScene,
+		SchemaVersion:      b.scenario.Schema,
+		RunResult:          b.result,
+		ActionCount:        len(b.scenario.Actions),
+		AssertionCount:     len(b.scenario.Assertions),
+		ArtifactCount:      len(entries),
+		Tags:               append([]string(nil), b.scenario.Tags...),
+		Capabilities:       append([]model.Capability(nil), b.scenario.Capabilities...),
+		AssertionResults:   append([]model.AssertionResult(nil), b.assertionResults...),
+		DiagnosticsSummary: cloneInterfaceMap(b.diagnosticsSummary),
 		Environment: EnvironmentInfo{
 			Theme:        b.env.Theme,
 			Density:      b.env.Density,
@@ -237,7 +303,7 @@ func (b *BundleBuilder) Build() (*Bundle, error) {
 
 	bundle := &Bundle{
 		Manifest:   manifest,
-		Artifacts:  b.artifacts,
+		Artifacts:  append([]Artifact(nil), artifacts...),
 		CreatedAt:  createdAt,
 		OutputPath: b.generateBundlePath(),
 	}
@@ -331,6 +397,7 @@ func LoadBundle(dir string) (*Bundle, error) {
 			Data: data,
 		})
 	}
+	bundle.Artifacts = sortArtifacts(bundle.Artifacts)
 
 	return bundle, nil
 }
@@ -370,12 +437,14 @@ func LoadBundleFromZip(zipPath string) (*Bundle, error) {
 		}
 	}
 
-	return &Bundle{
+	bundle := &Bundle{
 		Manifest:   &manifest,
 		Artifacts:  artifacts,
 		CreatedAt:  manifest.CreatedAt,
 		OutputPath: zipPath,
-	}, nil
+	}
+	bundle.Artifacts = sortArtifacts(bundle.Artifacts)
+	return bundle, nil
 }
 
 // Validate checks bundle integrity.
@@ -461,12 +530,53 @@ func (b *BundleBuilder) normalizeName(name string) string {
 }
 
 func (b *BundleBuilder) generateBundlePath() string {
-	timestamp := time.Now().Format("20060102_150405")
-	scenarioSafe := b.normalizeName(string(b.scenario.ID))
-	return filepath.Join(b.outputDir, fmt.Sprintf("%s_%s", scenarioSafe, timestamp))
+	parts := []string{
+		b.normalizeName(string(b.scenario.ID)),
+		b.normalizeName(b.env.Backend),
+		b.normalizeName(b.env.Platform),
+		b.normalizeName(b.env.Theme),
+		b.normalizeName(b.env.Density),
+		b.normalizeName(b.runLabel),
+	}
+	filtered := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" {
+			filtered = append(filtered, part)
+		}
+	}
+	return filepath.Join(b.outputDir, strings.Join(filtered, "_"))
 }
 
 func calculateChecksum(data []byte) string {
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:])
+}
+
+func sortArtifacts(artifacts []Artifact) []Artifact {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	out := append([]Artifact(nil), artifacts...)
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].Type != out[j].Type {
+			return out[i].Type < out[j].Type
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out
+}
+
+func sortedArtifacts(artifacts []Artifact) []Artifact {
+	return sortArtifacts(artifacts)
+}
+
+func cloneInterfaceMap(values map[string]interface{}) map[string]interface{} {
+	if values == nil {
+		return nil
+	}
+	out := make(map[string]interface{}, len(values))
+	for key, value := range values {
+		out[key] = value
+	}
+	return out
 }

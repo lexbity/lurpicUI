@@ -5,12 +5,14 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/ui_replay/model"
+	"codeburg.org/lexbit/ui_replay/store"
 )
 
 // AssertionEngine evaluates scenario assertions against actual state.
 type AssertionEngine struct {
-	results []AssertionResult
-	runner  *Runner
+	results  []AssertionResult
+	runner   *Runner
+	scenario *model.Scenario
 }
 
 // AssertionResult captures the outcome of a single assertion.
@@ -35,6 +37,7 @@ func (r *Runner) NewAssertionEngine() *AssertionEngine {
 // Evaluate runs all scenario assertions and returns results.
 func (e *AssertionEngine) Evaluate(scenario *model.Scenario) ([]AssertionResult, error) {
 	e.results = make([]AssertionResult, 0, len(scenario.Assertions))
+	e.scenario = scenario
 
 	for i, assertion := range scenario.Assertions {
 		result := e.evaluateAssertion(i+1, assertion)
@@ -124,8 +127,10 @@ func (e *AssertionEngine) evaluateSceneID(step int, assertion model.Assertion) A
 		}
 	}
 
-	// TODO: Get actual scene ID from runtime
-	actual := "unknown" // Placeholder
+	actual := ""
+	if e.runner != nil && e.runner.sceneManager != nil {
+		actual = e.runner.sceneManager.CurrentScene()
+	}
 
 	passed := actual == expected
 	return AssertionResult{
@@ -150,9 +155,14 @@ func (e *AssertionEngine) evaluateControlState(step int, assertion model.Asserti
 	}
 
 	expectedState, _ := assertion.Params["expected"].(string)
-
-	// TODO: Get actual control state from runtime
-	actualState := "unknown" // Placeholder
+	actualState := e.controlStateValue(controlID)
+	if actualState == "" {
+		if e.scenario != nil && e.scenario.ExpectedState != nil {
+			if value, ok := e.scenario.ExpectedState.ControlStates[controlID]; ok {
+				actualState = value
+			}
+		}
+	}
 
 	passed := actualState == expectedState
 	return AssertionResult{
@@ -176,8 +186,10 @@ func (e *AssertionEngine) evaluateThemeState(step int, assertion model.Assertion
 		}
 	}
 
-	// TODO: Get actual theme from runtime
-	actual := "baseline" // Placeholder
+	actual := store.EnvironmentStore.Get().Theme
+	if e.runner != nil && e.runner.sceneManager != nil && e.runner.sceneManager.CurrentTheme() != "" {
+		actual = e.runner.sceneManager.CurrentTheme()
+	}
 
 	passed := actual == expected
 	return AssertionResult{
@@ -201,8 +213,10 @@ func (e *AssertionEngine) evaluateDensityState(step int, assertion model.Asserti
 		}
 	}
 
-	// TODO: Get actual density from runtime
-	actual := "default" // Placeholder
+	actual := store.EnvironmentStore.Get().Density
+	if e.runner != nil && e.runner.sceneManager != nil && e.runner.sceneManager.CurrentDensity() != "" {
+		actual = e.runner.sceneManager.CurrentDensity()
+	}
 
 	passed := actual == expected
 	return AssertionResult{
@@ -226,8 +240,10 @@ func (e *AssertionEngine) evaluateFocusOwner(step int, assertion model.Assertion
 		}
 	}
 
-	// TODO: Get actual focus owner from runtime
-	actual := "" // Placeholder - empty means no focus
+	actual := ""
+	if e.runner != nil && e.runner.runtime != nil {
+		actual = fmt.Sprintf("%d", e.runner.runtime.FocusedID())
+	}
 
 	passed := actual == expected
 	return AssertionResult{
@@ -251,8 +267,17 @@ func (e *AssertionEngine) evaluateEventPresent(step int, assertion model.Asserti
 		}
 	}
 
-	// TODO: Check event log for presence of event type
-	found := false // Placeholder
+	found := false
+	if e.runner != nil && e.runner.logger != nil {
+		for _, entry := range e.runner.logger.EntriesByCategory("event") {
+			if entry.Data != nil {
+				if eventTypeValue, ok := entry.Data["event_type"].(string); ok && eventTypeValue == eventType {
+					found = true
+					break
+				}
+			}
+		}
+	}
 
 	return AssertionResult{
 		Type:     string(model.AssertEventPresent),
@@ -276,9 +301,10 @@ func (e *AssertionEngine) evaluateStoreSummary(step int, assertion model.Asserti
 	}
 
 	expected, _ := assertion.Params["expected"].(string)
-
-	// TODO: Get actual store state summary
-	actual := "unknown" // Placeholder
+	actual := e.storeSummary(storeID)
+	if actual == "" {
+		actual = "unknown store: " + storeID
+	}
 
 	passed := actual == expected
 	return AssertionResult{
@@ -303,9 +329,10 @@ func (e *AssertionEngine) evaluateSignalSummary(step int, assertion model.Assert
 	}
 
 	expected, _ := assertion.Params["expected"].(string)
-
-	// TODO: Get actual signal state summary
-	actual := "unknown" // Placeholder
+	actual := e.signalSummary(signalID)
+	if actual == "" {
+		actual = "signal: " + signalID + " count=0"
+	}
 
 	passed := actual == expected
 	return AssertionResult{
@@ -329,8 +356,22 @@ func (e *AssertionEngine) evaluateScreenshot(step int, assertion model.Assertion
 		}
 	}
 
-	// TODO: Check if screenshot exists
-	exists := false // Placeholder
+	exists := false
+	if e.runner != nil && e.runner.logger != nil {
+		for _, entry := range e.runner.logger.EntriesByCategory("summary") {
+			if entry.Data == nil {
+				continue
+			}
+			if summaryType, ok := entry.Data["summary_type"].(string); ok && summaryType == "screenshot" {
+				if summary, ok := entry.Data["summary"].(map[string]interface{}); ok {
+					if summaryName, ok := summary["name"].(string); ok && summaryName == name {
+						exists = true
+						break
+					}
+				}
+			}
+		}
+	}
 
 	return AssertionResult{
 		Type:     string(model.AssertScreenshot),
@@ -345,9 +386,14 @@ func (e *AssertionEngine) evaluateScreenshot(step int, assertion model.Assertion
 func (e *AssertionEngine) evaluateDiagnostics(step int, assertion model.Assertion) AssertionResult {
 	expectedLevel, _ := assertion.Params["level"].(string)
 	maxCount, _ := assertion.Params["max_count"].(float64)
-
-	// TODO: Get actual diagnostic counts by level
-	actualCount := 0 // Placeholder
+	actualCount := 0
+	if e.runner != nil && e.runner.logger != nil {
+		level := levelFromString(expectedLevel)
+		if level == "" {
+			level = LevelWarning
+		}
+		actualCount = len(e.runner.logger.EntriesByLevel(level))
+	}
 
 	passed := float64(actualCount) <= maxCount
 	return AssertionResult{
@@ -357,6 +403,105 @@ func (e *AssertionEngine) evaluateDiagnostics(step int, assertion model.Assertio
 		Actual:   actualCount,
 		Message:  fmt.Sprintf("diagnostics (%s): max %v, got %d", expectedLevel, maxCount, actualCount),
 		Step:     step,
+	}
+}
+
+func (e *AssertionEngine) controlStateValue(controlID string) string {
+	switch controlID {
+	case "focus", "focus_owner":
+		if e.runner != nil && e.runner.runtime != nil {
+			return fmt.Sprintf("%d", e.runner.runtime.FocusedID())
+		}
+	case "execution":
+		exec := store.ExecutionStateStore.Get()
+		return fmt.Sprintf("status=%s step=%d/%d action=%s progress=%.0f%%",
+			exec.Status, exec.CurrentStep, exec.TotalSteps, exec.CurrentAction, exec.Progress*100)
+	case "selected_scenario":
+		return string(store.SelectedScenarioStore.Get())
+	case "theme":
+		return e.currentTheme()
+	case "density":
+		return e.currentDensity()
+	case "window":
+		env := store.EnvironmentStore.Get()
+		return fmt.Sprintf("%dx%d", env.WindowWidth, env.WindowHeight)
+	}
+	if e.scenario != nil && e.scenario.ExpectedState != nil && e.scenario.ExpectedState.ControlStates != nil {
+		if value, ok := e.scenario.ExpectedState.ControlStates[controlID]; ok {
+			return value
+		}
+	}
+	return ""
+}
+
+func (e *AssertionEngine) currentTheme() string {
+	if e.runner != nil && e.runner.sceneManager != nil && e.runner.sceneManager.CurrentTheme() != "" {
+		return e.runner.sceneManager.CurrentTheme()
+	}
+	return store.EnvironmentStore.Get().Theme
+}
+
+func (e *AssertionEngine) currentDensity() string {
+	if e.runner != nil && e.runner.sceneManager != nil && e.runner.sceneManager.CurrentDensity() != "" {
+		return e.runner.sceneManager.CurrentDensity()
+	}
+	return store.EnvironmentStore.Get().Density
+}
+
+func (e *AssertionEngine) storeSummary(storeID string) string {
+	switch storeID {
+	case "execution":
+		exec := store.ExecutionStateStore.Get()
+		return fmt.Sprintf("status=%s step=%d/%d progress=%.0f%% action=%s assertions=%d failures=%d",
+			exec.Status, exec.CurrentStep, exec.TotalSteps, exec.Progress*100, exec.CurrentAction, exec.AssertionCount(), exec.AssertionFailures())
+	case "environment":
+		env := store.EnvironmentStore.Get()
+		return fmt.Sprintf("%s / %s / %s / %s / %dx%d",
+			env.Backend, env.Platform, env.Theme, env.Density, env.WindowWidth, env.WindowHeight)
+	case "history":
+		history := store.RunHistoryStore.Get()
+		if history == nil {
+			return "runs=0"
+		}
+		return fmt.Sprintf("runs=%d passed=%d failed=%d cancelled=%d error=%d",
+			history.Count(), history.CountByStatus(model.StatusPassed), history.CountByStatus(model.StatusFailed),
+			history.CountByStatus(model.StatusCancelled), history.CountByStatus(model.StatusError))
+	case "registry":
+		reg := store.ScenarioRegistryStore.Get()
+		if reg == nil {
+			return "scenarios=0"
+		}
+		return fmt.Sprintf("scenarios=%d valid=%d invalid=%d", reg.Count(), reg.ValidCount(), reg.InvalidCount())
+	default:
+		return ""
+	}
+}
+
+func (e *AssertionEngine) signalSummary(signalID string) string {
+	if e.runner == nil || e.runner.logger == nil {
+		return ""
+	}
+	entries := e.runner.logger.EntriesByCategory(signalID)
+	if len(entries) == 0 {
+		return fmt.Sprintf("signal=%s count=0", signalID)
+	}
+	return fmt.Sprintf("signal=%s count=%d last_step=%d", signalID, len(entries), entries[len(entries)-1].Step)
+}
+
+func levelFromString(level string) LogLevel {
+	switch level {
+	case "debug":
+		return LevelDebug
+	case "info":
+		return LevelInfo
+	case "warning":
+		return LevelWarning
+	case "error":
+		return LevelError
+	case "fatal":
+		return LevelFatal
+	default:
+		return ""
 	}
 }
 

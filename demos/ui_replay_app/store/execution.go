@@ -10,12 +10,13 @@ var ExecutionStateStore = store.NewValueStore[ExecutionState](ExecutionState{})
 
 // ExecutionState represents the current replay execution status.
 type ExecutionState struct {
-	Status        model.ExecutionStatus
-	CurrentStep   int
-	TotalSteps    int
-	CurrentAction string
-	Error         string
-	Progress      float32
+	Status           model.ExecutionStatus
+	CurrentStep      int
+	TotalSteps       int
+	CurrentAction    string
+	Error            string
+	Progress         float32
+	AssertionResults []model.AssertionResult
 }
 
 // IsRunning returns true if execution is in progress.
@@ -31,6 +32,22 @@ func (e ExecutionState) CanStart() bool {
 		e.Status == model.StatusError ||
 		e.Status == model.StatusCancelled ||
 		e.Status == ""
+}
+
+// AssertionCount returns the number of recorded assertion results.
+func (e ExecutionState) AssertionCount() int {
+	return len(e.AssertionResults)
+}
+
+// AssertionFailures returns the number of failed assertion results.
+func (e ExecutionState) AssertionFailures() int {
+	count := 0
+	for _, result := range e.AssertionResults {
+		if !result.Passed {
+			count++
+		}
+	}
+	return count
 }
 
 // RunHistoryStore holds the history of executed runs.

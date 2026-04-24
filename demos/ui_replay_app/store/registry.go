@@ -138,7 +138,7 @@ func (r *ScenarioRegistry) Add(s *model.Scenario) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.scenarios[s.ID] = s
+	r.scenarios[s.ID] = s.Clone()
 	return nil
 }
 
@@ -150,7 +150,10 @@ func (r *ScenarioRegistry) Get(id model.ScenarioID) (*model.Scenario, bool) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	s, ok := r.scenarios[id]
-	return s, ok
+	if !ok || s == nil {
+		return nil, ok
+	}
+	return s.Clone(), true
 }
 
 // All returns all scenarios sorted by display name.
@@ -163,7 +166,9 @@ func (r *ScenarioRegistry) All() []*model.Scenario {
 
 	var list []*model.Scenario
 	for _, s := range r.scenarios {
-		list = append(list, s)
+		if s != nil {
+			list = append(list, s.Clone())
+		}
 	}
 	sort.Slice(list, func(i, j int) bool {
 		return list[i].DisplayName < list[j].DisplayName

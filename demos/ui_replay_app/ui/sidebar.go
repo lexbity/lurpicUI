@@ -19,7 +19,10 @@ type SidebarFacet struct {
 	render       facet.RenderRole
 	th           theme.Context
 	shaper       *text.Shaper
-	subscription signal.SubscriptionID
+	registrySub  signal.SubscriptionID
+	selectionSub signal.SubscriptionID
+	execSub      signal.SubscriptionID
+	historySub   signal.SubscriptionID
 }
 
 // NewSidebarFacet creates a new sidebar facet.
@@ -54,14 +57,26 @@ func (f *SidebarFacet) Base() *facet.Facet {
 
 // OnAttach handles attachment and subscribes to stores.
 func (f *SidebarFacet) OnAttach(ctx facet.AttachContext) {
-	f.subscription = store.ScenarioRegistryStore.OnChange.Subscribe(func(change signal.Change[*store.ScenarioRegistry]) {
+	f.registrySub = store.ScenarioRegistryStore.OnChange.Subscribe(func(change signal.Change[*store.ScenarioRegistry]) {
+		f.Invalidate(facet.DirtyProjection)
+	})
+	f.selectionSub = store.SelectedScenarioStore.OnChange.Subscribe(func(change signal.Change[model.ScenarioID]) {
+		f.Invalidate(facet.DirtyProjection)
+	})
+	f.execSub = store.ExecutionStateStore.OnChange.Subscribe(func(change signal.Change[store.ExecutionState]) {
+		f.Invalidate(facet.DirtyProjection)
+	})
+	f.historySub = store.RunHistoryStore.OnChange.Subscribe(func(change signal.Change[*store.RunHistory]) {
 		f.Invalidate(facet.DirtyProjection)
 	})
 }
 
 // OnDetach handles detachment.
 func (f *SidebarFacet) OnDetach() {
-	store.ScenarioRegistryStore.OnChange.Unsubscribe(f.subscription)
+	store.ScenarioRegistryStore.OnChange.Unsubscribe(f.registrySub)
+	store.SelectedScenarioStore.OnChange.Unsubscribe(f.selectionSub)
+	store.ExecutionStateStore.OnChange.Unsubscribe(f.execSub)
+	store.RunHistoryStore.OnChange.Unsubscribe(f.historySub)
 }
 
 // OnActivate handles activation.
@@ -141,6 +156,10 @@ func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 		}
 		y = f.renderScenarioItem(list, inner, y, scenario, scenario.ID == selectedID)
 	}
+
+	// Render run history section
+	y += 20 // Spacer
+	f.renderRunHistory(list, inner, &y)
 }
 
 func (f *SidebarFacet) renderEmptyState(list *gfx.CommandList, bounds gfx.Rect, y *float32) {
@@ -185,4 +204,88 @@ func (f *SidebarFacet) renderScenarioItem(list *gfx.CommandList, bounds gfx.Rect
 		return y + layout.Bounds.Height() + 8
 	}
 	return y + 20
+}
+
+func (f *SidebarFacet) renderRunHistory(list *gfx.CommandList, bounds gfx.Rect, y *float32) {
+	if *y > bounds.Max.Y {
+		return
+	}
+
+	sectionStyle := f.th.TextStyle(theme.TextLabelS)
+	headerLayout := f.shaper.ShapeSimple("Run History", sectionStyle)
+	if headerLayout != nil && len(headerLayout.Lines) > 0 {
+		line := headerLayout.Lines[0]
+		origin := gfx.Point{X: bounds.Min.X, Y: *y}
+		for _, run := range line.Runs {
+			list.Add(gfx.DrawGlyphRun{
+				Run:    run,
+				Origin: origin,
+				Brush:  gfx.SolidBrush(f.th.Color(theme.ColorTextSecondary)),
+			})
+		}
+		*y += headerLayout.Bounds.Height() + 12
+	}
+
+	history := store.RunHistoryStore.Get()
+	if history == nil || history.Count() == 0 {
+		emptyStyle := f.th.TextStyle(theme.TextBodyS)
+		emptyLayout := f.shaper.ShapeSimple("No runs yet", emptyStyle)
+		if emptyLayout != nil && len(emptyLayout.Lines) > 0 {
+			line := emptyLayout.Lines[0]
+			origin := gfx.Point{X: bounds.Min.X, Y: *y}
+			for _, run := range line.Runs {
+				list.Add(gfx.DrawGlyphRun{
+					Run:    run,
+					Origin: origin,
+					Brush:  gfx.SolidBrush(f.th.Color(theme.ColorTextSecondary)),
+				})
+			}
+		}
+		return
+	}
+
+	// Show recent runs (up to 5)
+	bodyStyle := f.th.TextStyle(theme.TextBodyS)
+	runs := history.All()
+	count := 0
+	for _, run := range runs {
+		if *y > bounds.Max.Y || count >= 5 {
+			break
+		}
+
+		statusIcon := "○"
+		color := f.th.Color(theme.ColorTextSecondary)
+		switch run.Status {
+		case model.StatusPassed:
+			statusIcon = "✓"
+			color = gfx.Color{R: 0.2, G: 0.8, B: 0.3, A: 1}
+		case model.StatusFailed, model.StatusError:
+			statusIcon = "✗"
+			color = gfx.Color{R: 0.9, G: 0.3, B: 0.3, A: 1}
+		case model.StatusRunning:
+			statusIcon = "▶"
+			color = f.th.Color(theme.ColorPrimary)
+		}
+
+		scenarioName := string(run.ScenarioID)
+		if len(scenarioName) > 20 {
+			scenarioName = scenarioName[:20] + "..."
+		}
+		runText := fmt.Sprintf("%s %s (%s)", statusIcon, scenarioName, run.Status)
+
+		runLayout := f.shaper.ShapeSimple(runText, bodyStyle)
+		if runLayout != nil && len(runLayout.Lines) > 0 {
+			line := runLayout.Lines[0]
+			origin := gfx.Point{X: bounds.Min.X, Y: *y}
+			for _, r := range line.Runs {
+				list.Add(gfx.DrawGlyphRun{
+					Run:    r,
+					Origin: origin,
+					Brush:  gfx.SolidBrush(color),
+				})
+			}
+			*y += runLayout.Bounds.Height() + 4
+		}
+		count++
+	}
 }

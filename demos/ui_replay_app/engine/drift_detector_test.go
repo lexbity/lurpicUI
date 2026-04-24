@@ -11,14 +11,24 @@ import (
 func TestDriftDetector_CaptureFingerprint(t *testing.T) {
 	detector := NewDriftDetector()
 	runner := NewRunner(&runtime.Runtime{}, nil)
-	runner.scenario = &model.Scenario{ID: "test.scenario"}
+	runner.scenario = &model.Scenario{
+		ID: "test.scenario",
+		Environment: model.Environment{
+			Theme:    "baseline",
+			Density:  "default",
+			Backend:  "software",
+			Platform: "linux",
+		},
+	}
 
 	t.Run("captures fingerprint", func(t *testing.T) {
 		result := &model.RunResult{
-			Status:        model.StatusPassed,
-			StepsExecuted: 5,
-			StartTime:     time.Now(),
-			EndTime:       time.Now().Add(1 * time.Second),
+			Status:           model.StatusPassed,
+			StepsExecuted:    5,
+			StartTime:        time.Now(),
+			EndTime:          time.Now().Add(1 * time.Second),
+			AssertionResults: []model.AssertionResult{{Type: model.AssertSceneID, Passed: true}},
+			Artifacts:        []string{"artifact-a"},
 		}
 
 		fp := detector.CaptureFingerprint(runner, result)
@@ -31,6 +41,15 @@ func TestDriftDetector_CaptureFingerprint(t *testing.T) {
 		}
 		if fp.StepCount != 5 {
 			t.Errorf("StepCount = %d, want 5", fp.StepCount)
+		}
+		if fp.EnvironmentHash == "" {
+			t.Error("EnvironmentHash should not be empty")
+		}
+		if fp.AssertionHash == "" {
+			t.Error("AssertionHash should not be empty")
+		}
+		if fp.ArtifactHash == "" {
+			t.Error("ArtifactHash should not be empty")
 		}
 	})
 }
@@ -80,8 +99,8 @@ func TestDriftDetector_CompareRuns(t *testing.T) {
 		if !report.Detected {
 			t.Error("Should detect frame count drift")
 		}
-		if report.DriftType != DriftState {
-			t.Errorf("DriftType = %v, want state", report.DriftType)
+		if report.DriftType != DriftExecution {
+			t.Errorf("DriftType = %v, want execution", report.DriftType)
 		}
 	})
 
@@ -103,6 +122,90 @@ func TestDriftDetector_CompareRuns(t *testing.T) {
 		report := detector.CompareRuns(fp1, fp2)
 		if !report.Detected {
 			t.Error("Should detect step count drift")
+		}
+	})
+
+	t.Run("detects assertion drift", func(t *testing.T) {
+		now := time.Now()
+		fp1 := RunFingerprint{
+			AssertionHash: "aaa",
+			ExecutionHash: "same",
+			FrameCount:    100,
+			StepCount:     5,
+			StartTime:     now,
+			EndTime:       now.Add(1 * time.Second),
+		}
+		fp2 := RunFingerprint{
+			AssertionHash: "bbb",
+			ExecutionHash: "same",
+			FrameCount:    100,
+			StepCount:     5,
+			StartTime:     now,
+			EndTime:       now.Add(1 * time.Second),
+		}
+
+		report := detector.CompareRuns(fp1, fp2)
+		if !report.Detected {
+			t.Error("Should detect assertion drift")
+		}
+		if report.DriftType != DriftAssertion {
+			t.Errorf("DriftType = %v, want assertion", report.DriftType)
+		}
+	})
+
+	t.Run("detects artifact drift", func(t *testing.T) {
+		now := time.Now()
+		fp1 := RunFingerprint{
+			ArtifactHash:  "aaa",
+			ExecutionHash: "same",
+			FrameCount:    100,
+			StepCount:     5,
+			StartTime:     now,
+			EndTime:       now.Add(1 * time.Second),
+		}
+		fp2 := RunFingerprint{
+			ArtifactHash:  "bbb",
+			ExecutionHash: "same",
+			FrameCount:    100,
+			StepCount:     5,
+			StartTime:     now,
+			EndTime:       now.Add(1 * time.Second),
+		}
+
+		report := detector.CompareRuns(fp1, fp2)
+		if !report.Detected {
+			t.Error("Should detect artifact drift")
+		}
+		if report.DriftType != DriftArtifact {
+			t.Errorf("DriftType = %v, want artifact", report.DriftType)
+		}
+	})
+
+	t.Run("detects environment drift", func(t *testing.T) {
+		now := time.Now()
+		fp1 := RunFingerprint{
+			EnvironmentHash: "aaa",
+			ExecutionHash:   "same",
+			FrameCount:      100,
+			StepCount:       5,
+			StartTime:       now,
+			EndTime:         now.Add(1 * time.Second),
+		}
+		fp2 := RunFingerprint{
+			EnvironmentHash: "bbb",
+			ExecutionHash:   "same",
+			FrameCount:      100,
+			StepCount:       5,
+			StartTime:       now,
+			EndTime:         now.Add(1 * time.Second),
+		}
+
+		report := detector.CompareRuns(fp1, fp2)
+		if !report.Detected {
+			t.Error("Should detect environment drift")
+		}
+		if report.DriftType != DriftEnvironment {
+			t.Errorf("DriftType = %v, want environment", report.DriftType)
 		}
 	})
 
@@ -172,9 +275,14 @@ func TestDriftClassifier_Classify(t *testing.T) {
 			expected: "timing_drift:warning",
 		},
 		{
-			name:     "state drift",
-			report:   DriftReport{Detected: true, DriftType: DriftState, Severity: "error"},
-			expected: "state_drift:error",
+			name:     "execution drift",
+			report:   DriftReport{Detected: true, DriftType: DriftExecution, Severity: "error"},
+			expected: "execution_drift:error",
+		},
+		{
+			name:     "assertion drift",
+			report:   DriftReport{Detected: true, DriftType: DriftAssertion, Severity: "error"},
+			expected: "assertion_drift:error",
 		},
 		{
 			name:     "environment drift",
@@ -249,6 +357,7 @@ func TestDriftDetector_DetectDrift(t *testing.T) {
 		ID:          "test.drift",
 		DisplayName: "Drift Test",
 		Schema:      "1.0",
+		Family:      "basic",
 		Actions: []model.Action{
 			{Type: model.ActionWaitFrames, Params: map[string]interface{}{"frames": 1.0}},
 		},

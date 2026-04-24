@@ -1,8 +1,11 @@
 package engine
 
 import (
+	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -196,23 +199,36 @@ func (me *MatrixExecutor) ExecuteMatrixParallel(scenarios []model.ScenarioID, ru
 
 func (me *MatrixExecutor) executeCell(cell MatrixCell, scenario *model.Scenario, runner *Runner) CellResult {
 	startTime := time.Now()
+	scenarioCopy := scenario.Clone()
+	if scenarioCopy == nil {
+		var scenarioID model.ScenarioID
+		if scenario != nil {
+			scenarioID = scenario.ID
+		}
+		return CellResult{
+			Cell:     cell,
+			Scenario: scenarioID,
+			Error:    fmt.Errorf("scenario clone failed"),
+			Duration: time.Since(startTime),
+		}
+	}
 
 	if me.onCellStart != nil {
-		me.onCellStart(cell, scenario.ID)
+		me.onCellStart(cell, scenarioCopy.ID)
 	}
 
 	// Configure environment for this cell
-	scenario.Environment.Backend = cell.Backend
-	scenario.Environment.Platform = cell.Platform
-	scenario.Environment.Theme = cell.Theme
-	scenario.Environment.Density = cell.Density
+	scenarioCopy.Environment.Backend = cell.Backend
+	scenarioCopy.Environment.Platform = cell.Platform
+	scenarioCopy.Environment.Theme = cell.Theme
+	scenarioCopy.Environment.Density = cell.Density
 
 	// Execute the scenario
-	runResult, err := runner.Run(scenario)
+	runResult, err := runner.Run(scenarioCopy)
 
 	cellResult := CellResult{
 		Cell:     cell,
-		Scenario: scenario.ID,
+		Scenario: scenarioCopy.ID,
 		Result:   runResult,
 		Error:    err,
 		Duration: time.Since(startTime),
@@ -227,11 +243,18 @@ func (me *MatrixExecutor) executeCell(cell MatrixCell, scenario *model.Scenario,
 			me.onCellComplete(cell, runResult)
 		}
 
-		// Create bundle if execution succeeded
-		builder := artifact.NewBundleBuilder(scenario, me.outputDir)
-		builder.SetRunResult(runResult.Status)
-		// Bundle will be built separately if needed
-		_ = builder
+		// Create and save bundle for this cell execution
+		builder := artifact.NewBundleBuilder(scenarioCopy, me.outputDir)
+		builder.SetRunResults(runResult)
+		builder.SetProvenance(artifact.ProvenanceInfo{
+			Platform: cell.Platform,
+		})
+
+		if bundle, err := builder.Build(); err == nil {
+			cellResult.Bundle = bundle
+			// Save bundle to disk for baseline comparison
+			_ = bundle.SaveToDisk()
+		}
 	}
 
 	return cellResult
@@ -292,8 +315,7 @@ type ScenarioFilter func(scenario *model.Scenario) bool
 // FilterByFamily filters scenarios by family.
 func FilterByFamily(family string) ScenarioFilter {
 	return func(scenario *model.Scenario) bool {
-		// TODO: Add family field to scenario metadata
-		return true
+		return scenario != nil && scenario.HasFamily(family)
 	}
 }
 
@@ -436,12 +458,12 @@ type BaselineManager struct {
 
 // Baseline represents a known-good baseline for a matrix cell.
 type Baseline struct {
-	Cell        MatrixCell
-	Scenario    model.ScenarioID
-	Fingerprint RunFingerprint
-	BundlePath  string
-	CreatedAt   time.Time
-	Version     string
+	Cell          MatrixCell
+	Scenario      model.ScenarioID
+	Fingerprint   RunFingerprint
+	BundlePath    string
+	CreatedAt     time.Time
+	BundleVersion string
 }
 
 // NewBaselineManager creates a new baseline manager.
@@ -458,12 +480,12 @@ func (bm *BaselineManager) RecordBaseline(cell MatrixCell, scenario model.Scenar
 
 	key := cell.String() + "_" + string(scenario)
 	bm.baselines[key] = &Baseline{
-		Cell:        cell,
-		Scenario:    scenario,
-		Fingerprint: fingerprint,
-		BundlePath:  bundlePath,
-		CreatedAt:   time.Now(),
-		Version:     "1.0",
+		Cell:          cell,
+		Scenario:      scenario,
+		Fingerprint:   fingerprint,
+		BundlePath:    bundlePath,
+		CreatedAt:     time.Unix(0, 0).UTC(),
+		BundleVersion: artifact.BundleVersion,
 	}
 }
 
@@ -483,6 +505,28 @@ func (bm *BaselineManager) CompareToBaseline(cell MatrixCell, scenario model.Sce
 	if !ok {
 		return nil, false
 	}
+	if result == nil {
+		return &DriftReport{
+			Detected:    true,
+			DriftType:   DriftExecution,
+			Severity:    "critical",
+			Description: "nil run result cannot be compared to a baseline",
+		}, true
+	}
+	if baseline.BundleVersion != artifact.BundleVersion {
+		return &DriftReport{
+			Detected:    true,
+			DriftType:   DriftArtifact,
+			Severity:    "critical",
+			Description: fmt.Sprintf("baseline bundle version %s is incompatible with current bundle version %s", baseline.BundleVersion, artifact.BundleVersion),
+			Differences: []Difference{{
+				Field:    "bundle_version",
+				ValueA:   baseline.BundleVersion,
+				ValueB:   artifact.BundleVersion,
+				Severity: "critical",
+			}},
+		}, true
+	}
 
 	// Compare current result to baseline fingerprint
 	detector := NewDriftDetector()
@@ -496,14 +540,101 @@ func (bm *BaselineManager) CompareToBaseline(cell MatrixCell, scenario model.Sce
 	return report, true
 }
 
+// RecordBaselineFromCell records a baseline from a cell result.
+// It validates the cell's bundle before recording and returns an error if invalid.
+func (bm *BaselineManager) RecordBaselineFromCell(cellResult CellResult, fingerprint RunFingerprint) error {
+	if cellResult.Bundle == nil {
+		return fmt.Errorf("cannot record baseline: cell result has no bundle")
+	}
+
+	// Validate the bundle before recording
+	if err := cellResult.Bundle.Validate(); err != nil {
+		return fmt.Errorf("cannot record baseline: bundle validation failed: %w", err)
+	}
+
+	bm.RecordBaseline(
+		cellResult.Cell,
+		cellResult.Scenario,
+		fingerprint,
+		cellResult.Bundle.OutputPath,
+	)
+	return nil
+}
+
+// ValidateBaselineBundle loads and validates the bundle at a baseline's path.
+// Returns an error if the bundle is missing, corrupted, or version-incompatible.
+func (bm *BaselineManager) ValidateBaselineBundle(cell MatrixCell, scenario model.ScenarioID) error {
+	baseline, ok := bm.GetBaseline(cell, scenario)
+	if !ok {
+		return fmt.Errorf("no baseline found for cell %s scenario %s", cell, scenario)
+	}
+
+	if baseline.BundleVersion != artifact.BundleVersion {
+		return fmt.Errorf("baseline bundle version %s is incompatible with current version %s",
+			baseline.BundleVersion, artifact.BundleVersion)
+	}
+
+	bundle, err := artifact.LoadBundle(baseline.BundlePath)
+	if err != nil {
+		return fmt.Errorf("failed to load baseline bundle from %s: %w", baseline.BundlePath, err)
+	}
+
+	if err := bundle.Validate(); err != nil {
+		return fmt.Errorf("baseline bundle validation failed: %w", err)
+	}
+
+	return nil
+}
+
 // SaveBaselines saves all baselines to disk.
 func (bm *BaselineManager) SaveBaselines(outputDir string) error {
 	bm.mu.RLock()
 	defer bm.mu.RUnlock()
 
-	for key := range bm.baselines {
-		_ = filepath.Join(outputDir, key+".baseline.json")
-		// TODO: Implement JSON serialization
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return fmt.Errorf("create baseline directory: %w", err)
+	}
+
+	for key, baseline := range bm.baselines {
+		data, err := json.MarshalIndent(baseline, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshal baseline %s: %w", key, err)
+		}
+		if err := os.WriteFile(filepath.Join(outputDir, key+".baseline.json"), data, 0644); err != nil {
+			return fmt.Errorf("write baseline %s: %w", key, err)
+		}
+	}
+
+	return nil
+}
+
+// LoadBaselines loads all persisted baselines from disk.
+func (bm *BaselineManager) LoadBaselines(outputDir string) error {
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return err
+	}
+
+	bm.mu.Lock()
+	defer bm.mu.Unlock()
+	if bm.baselines == nil {
+		bm.baselines = make(map[string]*Baseline)
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".baseline.json") {
+			continue
+		}
+		path := filepath.Join(outputDir, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read baseline %s: %w", entry.Name(), err)
+		}
+		var baseline Baseline
+		if err := json.Unmarshal(data, &baseline); err != nil {
+			return fmt.Errorf("parse baseline %s: %w", entry.Name(), err)
+		}
+		key := baseline.Cell.String() + "_" + string(baseline.Scenario)
+		bm.baselines[key] = &baseline
 	}
 
 	return nil

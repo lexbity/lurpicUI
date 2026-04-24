@@ -46,10 +46,12 @@ type ComparisonResult struct {
 
 // VariantResult holds the result of a single variant run.
 type VariantResult struct {
-	Variant   VariantConfig
-	RunResult *model.RunResult
-	Bundle    *artifact.Bundle
-	Error     error
+	Variant            VariantConfig
+	InputScenario      *model.Scenario
+	AppliedEnvironment model.Environment
+	RunResult          *model.RunResult
+	Bundle             *artifact.Bundle
+	Error              error
 }
 
 // NewComparisonRunner creates a comparison runner.
@@ -124,6 +126,9 @@ func (cr *ComparisonRunner) GeneratePlatformVariants(platforms []string) {
 
 // Run executes all variants and returns comparison results.
 func (cr *ComparisonRunner) Run(scenario *model.Scenario) (*ComparisonResult, error) {
+	if scenario == nil {
+		return nil, fmt.Errorf("scenario is nil")
+	}
 	if len(cr.variants) == 0 {
 		return nil, fmt.Errorf("no variants configured")
 	}
@@ -136,24 +141,39 @@ func (cr *ComparisonRunner) Run(scenario *model.Scenario) (*ComparisonResult, er
 	}
 
 	for _, variant := range cr.variants {
-		// Apply variant configuration
+		scenarioCopy := scenario.Clone()
+		if scenarioCopy == nil {
+			result.Variants = append(result.Variants, VariantResult{
+				Variant: variant,
+				Error:   fmt.Errorf("scenario clone failed"),
+			})
+			continue
+		}
+
+		// Apply variant configuration to the cloned input only.
 		if variant.Theme != "" {
-			scenario.Environment.Theme = variant.Theme
+			scenarioCopy.Environment.Theme = variant.Theme
 		}
 		if variant.Density != "" {
-			scenario.Environment.Density = variant.Density
+			scenarioCopy.Environment.Density = variant.Density
 		}
 		if variant.Backend != "" {
-			scenario.Environment.Backend = variant.Backend
+			scenarioCopy.Environment.Backend = variant.Backend
+		}
+		if variant.Platform != "" {
+			scenarioCopy.Environment.Platform = variant.Platform
 		}
 
-		// Run the scenario
-		runResult, err := cr.baseRunner.Run(scenario)
+		inputSnapshot := scenarioCopy.Clone()
+		appliedEnvironment := scenarioCopy.Environment.Clone()
+		runResult, err := cr.baseRunner.Run(scenarioCopy)
 
 		variantResult := VariantResult{
-			Variant:   variant,
-			RunResult: runResult,
-			Error:     err,
+			Variant:            variant,
+			InputScenario:      inputSnapshot,
+			AppliedEnvironment: appliedEnvironment,
+			RunResult:          runResult,
+			Error:              err,
 		}
 
 		result.Variants = append(result.Variants, variantResult)

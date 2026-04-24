@@ -119,6 +119,7 @@ func (f *InspectorFacet) renderInspector(list *gfx.CommandList, bounds gfx.Rect)
 		{"Status:", string(exec.Status)},
 		{"Step:", fmt.Sprintf("%d/%d", exec.CurrentStep, exec.TotalSteps)},
 		{"Progress:", fmt.Sprintf("%.0f%%", exec.Progress*100)},
+		{"Assertions:", fmt.Sprintf("%d total / %d failed", exec.AssertionCount(), exec.AssertionFailures())},
 	}
 
 	bodyStyle := f.th.TextStyle(theme.TextBodyS)
@@ -139,6 +140,38 @@ func (f *InspectorFacet) renderInspector(list *gfx.CommandList, bounds gfx.Rect)
 				})
 			}
 			y += textLayout.Bounds.Height() + 8
+		}
+	}
+
+	if len(exec.AssertionResults) > 0 && y <= inner.Max.Y {
+		last := exec.AssertionResults[len(exec.AssertionResults)-1]
+		lastText := fmt.Sprintf("Last: step %d %s %v", last.Step, last.Type, last.Passed)
+		lastLayout := f.shaper.ShapeSimple(lastText, bodyStyle)
+		if lastLayout != nil && len(lastLayout.Lines) > 0 {
+			line := lastLayout.Lines[0]
+			origin := gfx.Point{X: inner.Min.X, Y: y + 8}
+			for _, run := range line.Runs {
+				list.Add(gfx.DrawGlyphRun{
+					Run:    run,
+					Origin: origin,
+					Brush:  gfx.SolidBrush(f.th.Color(theme.ColorTextSecondary)),
+				})
+			}
+			y += lastLayout.Bounds.Height() + 8
+		}
+		if !last.Passed && last.Reason != "" && y <= inner.Max.Y {
+			reasonLayout := f.shaper.ShapeSimple(last.Reason, bodyStyle)
+			if reasonLayout != nil && len(reasonLayout.Lines) > 0 {
+				line := reasonLayout.Lines[0]
+				origin := gfx.Point{X: inner.Min.X, Y: y}
+				for _, run := range line.Runs {
+					list.Add(gfx.DrawGlyphRun{
+						Run:    run,
+						Origin: origin,
+						Brush:  gfx.SolidBrush(f.th.Color(theme.ColorText)),
+					})
+				}
+			}
 		}
 	}
 }

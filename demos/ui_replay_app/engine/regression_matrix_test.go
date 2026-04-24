@@ -3,6 +3,7 @@ package engine
 import (
 	"testing"
 
+	"codeburg.org/lexbit/ui_replay/artifact"
 	"codeburg.org/lexbit/ui_replay/model"
 	"codeburg.org/lexbit/ui_replay/store"
 )
@@ -152,10 +153,24 @@ func TestScenarioFilter(t *testing.T) {
 	t.Run("filter by family", func(t *testing.T) {
 		filter := FilterByFamily("input")
 
-		scenario := &model.Scenario{ID: "test"}
-		// Currently returns true for all (TODO implementation)
-		if !filter(scenario) {
-			t.Error("Should return true for now")
+		scenarioWithFamily := &model.Scenario{
+			ID:     "test1",
+			Family: "input",
+		}
+		scenarioWithTag := &model.Scenario{
+			ID:   "test2",
+			Tags: []string{"input"},
+		}
+		scenarioWithoutFamily := &model.Scenario{ID: "test3", Family: "chart"}
+
+		if !filter(scenarioWithFamily) {
+			t.Error("Should match scenario with family")
+		}
+		if !filter(scenarioWithTag) {
+			t.Error("Should match scenario with family tag")
+		}
+		if filter(scenarioWithoutFamily) {
+			t.Error("Should not match scenario without family")
 		}
 	})
 }
@@ -231,6 +246,9 @@ func TestBaselineManager(t *testing.T) {
 		if baseline.Scenario != scenarioID {
 			t.Error("Scenario mismatch")
 		}
+		if baseline.BundleVersion != artifact.BundleVersion {
+			t.Errorf("BundleVersion = %v, want %v", baseline.BundleVersion, artifact.BundleVersion)
+		}
 	})
 
 	t.Run("get non-existent baseline", func(t *testing.T) {
@@ -261,6 +279,40 @@ func TestBaselineManager(t *testing.T) {
 		_, ok := manager.CompareToBaseline(MatrixCell{Backend: "vulkan"}, scenarioID, result)
 		if ok {
 			t.Error("Should not find non-existent baseline")
+		}
+	})
+
+	t.Run("save and reload baselines", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := manager.SaveBaselines(dir); err != nil {
+			t.Fatalf("SaveBaselines() error = %v", err)
+		}
+
+		loaded := NewBaselineManager()
+		if err := loaded.LoadBaselines(dir); err != nil {
+			t.Fatalf("LoadBaselines() error = %v", err)
+		}
+		baseline, ok := loaded.GetBaseline(cell, scenarioID)
+		if !ok {
+			t.Fatal("Loaded baseline not found")
+		}
+		if baseline.BundleVersion != artifact.BundleVersion {
+			t.Errorf("Loaded BundleVersion = %v, want %v", baseline.BundleVersion, artifact.BundleVersion)
+		}
+	})
+
+	t.Run("reject incompatible baseline version", func(t *testing.T) {
+		key := cell.String() + "_" + string(scenarioID)
+		manager.baselines[key].BundleVersion = "0.9"
+		report, ok := manager.CompareToBaseline(cell, scenarioID, &model.RunResult{Status: model.StatusPassed})
+		if !ok {
+			t.Fatal("CompareToBaseline should still return report for incompatible baseline")
+		}
+		if report == nil || !report.Detected {
+			t.Fatal("Expected detected incompatibility report")
+		}
+		if report.Severity != "critical" {
+			t.Errorf("Severity = %v, want critical", report.Severity)
 		}
 	})
 }
@@ -298,10 +350,23 @@ func TestRegistrySubset(t *testing.T) {
 	registry := store.NewScenarioRegistry()
 
 	// Register some test scenarios
+	scenario1 := model.NewFixtureScenario("test1", "Test 1")
+	scenario1.Family = "basic"
+	scenario1.Tags = []string{"critical"}
+	scenario1.Capabilities = []model.Capability{model.CapScreenshots}
+	scenario2 := model.NewFixtureScenario("test2", "Test 2")
+	scenario2.Family = "input"
+	scenario2.Tags = []string{"ui"}
+	scenario2.Capabilities = []model.Capability{model.CapSceneLoad}
+	scenario3 := model.NewFixtureScenario("test3", "Test 3")
+	scenario3.Family = "basic"
+	scenario3.Tags = []string{"critical", "ui"}
+	scenario3.Capabilities = []model.Capability{model.CapAssertions}
+
 	scenarios := []*model.Scenario{
-		{ID: "test1", Tags: []string{"critical"}, Capabilities: []model.Capability{model.CapScreenshots}},
-		{ID: "test2", Tags: []string{"ui"}, Capabilities: []model.Capability{model.CapSceneLoad}},
-		{ID: "test3", Tags: []string{"critical", "ui"}, Capabilities: []model.Capability{model.CapAssertions}},
+		&scenario1,
+		&scenario2,
+		&scenario3,
 	}
 
 	for _, s := range scenarios {
@@ -319,6 +384,13 @@ func TestRegistrySubset(t *testing.T) {
 		subset := RegistrySubset(registry, FilterByCapability("screenshots"))
 		if len(subset) != 1 {
 			t.Errorf("Expected 1 scenario with 'screenshots' capability, got %d", len(subset))
+		}
+	})
+
+	t.Run("subset by family", func(t *testing.T) {
+		subset := RegistrySubset(registry, FilterByFamily("basic"))
+		if len(subset) != 2 {
+			t.Errorf("Expected 2 scenarios with 'basic' family, got %d", len(subset))
 		}
 	})
 }

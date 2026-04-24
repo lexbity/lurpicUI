@@ -3,33 +3,39 @@ package engine
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/ui_replay/artifact"
 	"codeburg.org/lexbit/ui_replay/model"
 	"codeburg.org/lexbit/ui_replay/store"
 )
 
 // Runner executes scenarios in a deterministic manner.
 type Runner struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	runtime       *runtime.Runtime
-	root          *facet.Facet
-	mu            sync.RWMutex
-	state         RunState
-	currentStep   int
-	totalSteps    int
-	scenario      *model.Scenario
-	onStep        func(step int, total int, action model.Action)
-	onComplete    func(result *model.RunResult)
-	onError       func(err error)
-	frameCounter  int
-	idleStartTime time.Time
-	logger        *SemanticLogger
+	ctx            context.Context
+	cancel         context.CancelFunc
+	runtime        *runtime.Runtime
+	root           *facet.Facet
+	mu             sync.RWMutex
+	state          RunState
+	currentStep    int
+	totalSteps     int
+	scenario       *model.Scenario
+	sceneManager   *SceneManager
+	onStep         func(step int, total int, action model.Action)
+	onComplete     func(result *model.RunResult)
+	onError        func(err error)
+	frameCounter   int
+	idleReadyFrame int
+	idleStartTime  time.Time
+	logger         *SemanticLogger
+	bundleBuilder  *artifact.BundleBuilder
+	lastBundle     *artifact.Bundle
 }
 
 // RunState represents the current execution state.
@@ -70,6 +76,21 @@ func (r *Runner) Run(scenario *model.Scenario) (*model.RunResult, error) {
 	r.currentStep = 0
 	r.totalSteps = len(scenario.Actions) + len(scenario.Assertions)
 	r.frameCounter = 0
+	r.idleReadyFrame = 0
+	r.sceneManager = r.NewSceneManager()
+	if r.logger != nil {
+		r.logger.Clear()
+	}
+
+	// Initialize bundle builder for artifact collection
+	exportDir := store.GetPaths().ExportDir
+	if exportDir == "" {
+		exportDir = "./export"
+	}
+	r.bundleBuilder = artifact.NewBundleBuilder(scenario, exportDir)
+	r.bundleBuilder.SetProvenance(artifact.ProvenanceInfo{
+		Platform: store.EnvironmentStore.Get().Platform,
+	})
 
 	result := &model.RunResult{
 		ScenarioID: scenario.ID,
@@ -87,17 +108,17 @@ func (r *Runner) Run(scenario *model.Scenario) (*model.RunResult, error) {
 		Progress:    0,
 	})
 
-	// Apply environment
-	if err := r.applyEnvironment(&scenario.Environment); err != nil {
-		result.Status = model.StatusError
-		result.Error = fmt.Sprintf("environment application failed: %v", err)
-		return r.finishRun(result, model.StatusError, StateFailed, 0)
-	}
-
 	// Reset scene to canonical state
 	if err := r.resetScene(); err != nil {
 		result.Status = model.StatusError
 		result.Error = fmt.Sprintf("scene reset failed: %v", err)
+		return r.finishRun(result, model.StatusError, StateFailed, 0)
+	}
+
+	// Apply environment
+	if err := r.applyEnvironment(&scenario.Environment); err != nil {
+		result.Status = model.StatusError
+		result.Error = fmt.Sprintf("environment application failed: %v", err)
 		return r.finishRun(result, model.StatusError, StateFailed, 0)
 	}
 
@@ -112,10 +133,15 @@ func (r *Runner) Run(scenario *model.Scenario) (*model.RunResult, error) {
 		}
 
 		r.currentStep = i + 1
+		r.setCurrentAction(action)
 		if r.onStep != nil {
 			r.onStep(r.currentStep, r.totalSteps, action)
 		}
+		if r.logger != nil {
+			r.logger.ActionStarted(string(action.Type), r.currentStep)
+		}
 
+		start := time.Now()
 		if err := r.executeAction(action); err != nil {
 			if err == context.Canceled {
 				result.StepsExecuted = r.currentStep
@@ -124,10 +150,50 @@ func (r *Runner) Run(scenario *model.Scenario) (*model.RunResult, error) {
 			result.Status = model.StatusFailed
 			result.Error = fmt.Sprintf("step %d: %v", r.currentStep, err)
 			result.StepsExecuted = r.currentStep - 1
+			if r.logger != nil {
+				r.logger.ActionFailed(string(action.Type), r.currentStep, err)
+			}
+			if r.onError != nil {
+				r.onError(err)
+			}
 			return r.finishRun(result, model.StatusFailed, StateFailed, r.currentStep)
+		}
+		if r.logger != nil {
+			r.logger.ActionCompleted(string(action.Type), r.currentStep, time.Since(start))
 		}
 
 		r.updateProgress()
+	}
+
+	// Execute assertions as a read-only checkpoint phase.
+	if len(scenario.Assertions) > 0 {
+		assertionsPassed, assertionResults, err := r.executeAssertions(scenario.Assertions)
+		result.AssertionResults = toModelAssertionResults(assertionResults)
+		store.ExecutionStateStore.Set(store.ExecutionState{
+			Status:           model.StatusRunning,
+			CurrentStep:      r.currentStep,
+			TotalSteps:       r.totalSteps,
+			CurrentAction:    "assertions",
+			Progress:         runProgress(r.currentStep, r.totalSteps),
+			AssertionResults: result.AssertionResults,
+		})
+		if err != nil {
+			result.Status = model.StatusFailed
+			result.Error = err.Error()
+			result.StepsExecuted = r.currentStep
+			if r.onError != nil {
+				r.onError(err)
+			}
+			return r.finishRun(result, model.StatusFailed, StateFailed, r.currentStep)
+		}
+		if !assertionsPassed {
+			result.Status = model.StatusFailed
+			if len(assertionResults) > 0 {
+				result.Error = assertionResults[0].Error()
+			}
+			result.StepsExecuted = r.currentStep
+			return r.finishRun(result, model.StatusFailed, StateFailed, r.currentStep)
+		}
 	}
 
 	result.Status = model.StatusPassed
@@ -198,14 +264,39 @@ func (r *Runner) finishRun(result *model.RunResult, status model.ExecutionStatus
 	result.EndTime = time.Now()
 	r.setState(state)
 
+	// Finalize bundle with run results before saving to history
+	if r.bundleBuilder != nil {
+		r.bundleBuilder.SetRunResults(result)
+		if bundle, err := r.bundleBuilder.Build(); err == nil {
+			r.lastBundle = bundle
+			// Auto-save bundle for passed/failed runs
+			if status == model.StatusPassed || status == model.StatusFailed {
+				_ = bundle.SaveToDisk()
+			}
+		}
+	}
+
 	store.ExecutionStateStore.Set(store.ExecutionState{
-		Status:        status,
-		CurrentStep:   currentStep,
-		TotalSteps:    r.totalSteps,
-		CurrentAction: "",
-		Error:         result.Error,
-		Progress:      runProgress(currentStep, r.totalSteps),
+		Status:           status,
+		CurrentStep:      currentStep,
+		TotalSteps:       r.totalSteps,
+		CurrentAction:    "",
+		Error:            result.Error,
+		Progress:         runProgress(currentStep, r.totalSteps),
+		AssertionResults: result.AssertionResults,
 	})
+	r.clearCurrentAction()
+	if result.Status == model.StatusPassed || result.Status == model.StatusFailed || result.Status == model.StatusError || result.Status == model.StatusCancelled {
+		history := store.RunHistoryStore.Get()
+		if history == nil {
+			history = store.NewRunHistory()
+			store.RunHistoryStore.Set(history)
+		}
+		history.Add(*result)
+	}
+	if r.onComplete != nil {
+		r.onComplete(result)
+	}
 
 	return result, nil
 }
@@ -224,42 +315,70 @@ func runProgress(currentStep, totalSteps int) float32 {
 }
 
 func (r *Runner) applyEnvironment(env *model.Environment) error {
-	// Apply theme if specified
+	current := store.EnvironmentStore.Get()
+	if env.Backend != "" {
+		current.Backend = env.Backend
+	}
+	if env.Platform != "" {
+		current.Platform = env.Platform
+	}
 	if env.Theme != "" {
-		// TODO: Apply theme through runtime
+		current.Theme = env.Theme
 	}
-
-	// Apply density if specified
 	if env.Density != "" {
-		// TODO: Apply density through runtime
+		current.Density = env.Density
 	}
-
-	// Apply window size if specified
-	if env.WindowSize.Width > 0 && env.WindowSize.Height > 0 {
-		// TODO: Apply window size through platform
+	if env.WindowSize.Width > 0 {
+		current.WindowWidth = env.WindowSize.Width
+		current.WindowHeight = env.WindowSize.Height
 	}
-
+	store.EnvironmentStore.Set(current)
+	if r.sceneManager == nil {
+		r.sceneManager = r.NewSceneManager()
+	}
+	if env.Theme != "" {
+		r.sceneManager.ChangeTheme(env.Theme, 0)
+	}
+	if env.Density != "" {
+		r.sceneManager.ChangeDensity(env.Density, 0)
+	}
+	if env.WindowSize.Width > 0 && env.WindowSize.Height > 0 && r.runtime != nil {
+		r.runtime.ResizeWindow(env.WindowSize.Width, env.WindowSize.Height)
+	}
+	if r.runtime != nil {
+		r.runtime.RequestFrame()
+	}
 	return nil
 }
 
 func (r *Runner) resetScene() error {
 	// Reset frame counter for deterministic timing
 	r.frameCounter = 0
+	r.idleReadyFrame = 0
+	r.idleStartTime = time.Time{}
+	if r.sceneManager != nil {
+		r.sceneManager.Reset()
+	}
 
 	// Clear any stale runtime state
 	if r.runtime != nil {
-		// Clear focus
-		// TODO: r.runtime.SetFocus(nil)
-
-		// Clear selection
-		// TODO: r.runtime.ClearSelection()
-
-		// Reset animation clocks
-		// TODO: r.runtime.ResetAnimationClocks()
+		r.runtime.ClearInputState()
+		r.runtime.ClearFocus()
+		if r.root != nil && r.root.Base() != nil {
+			r.runtime.Invalidate(r.root.Base().ID(), facet.DirtyAll, "runner.resetScene")
+		}
+		r.runtime.RequestFrame()
 	}
 
 	// Reset stores to known state
 	// Note: We don't clear the registry, just execution state
+	store.ExecutionStateStore.Set(store.ExecutionState{
+		Status:        model.StatusRunning,
+		CurrentStep:   0,
+		TotalSteps:    r.totalSteps,
+		CurrentAction: "",
+		Progress:      0,
+	})
 
 	return nil
 }
@@ -294,6 +413,8 @@ func (r *Runner) executeAction(action model.Action) error {
 		return r.executeSwitchDensity(action)
 	case model.ActionResizeWindow:
 		return r.executeResizeWindow(action)
+	case model.ActionExportBundle:
+		return r.executeExportBundle(action)
 	default:
 		return fmt.Errorf("unsupported action type: %s", action.Type)
 	}
@@ -309,12 +430,12 @@ func (r *Runner) executeWaitFrames(action model.Action) error {
 	default:
 		return fmt.Errorf("wait_frames: missing or invalid 'frames' param")
 	}
+	if frames < 1 {
+		return fmt.Errorf("wait_frames: frames must be positive")
+	}
 
 	r.setState(StateWaiting)
-	targetFrame := r.frameCounter + frames
-
-	for r.frameCounter < targetFrame {
-		// Check if context is cancelled (handle nil ctx gracefully)
+	for i := 0; i < frames; i++ {
 		if r.ctx != nil {
 			select {
 			case <-r.ctx.Done():
@@ -322,10 +443,12 @@ func (r *Runner) executeWaitFrames(action model.Action) error {
 			default:
 			}
 		}
-		// Advance frame
 		r.frameCounter++
-		// TODO: Wait for actual frame boundary
-		time.Sleep(16 * time.Millisecond) // ~60fps
+		r.idleReadyFrame = r.frameCounter
+		if r.runtime != nil {
+			r.runtime.RequestFrame()
+		}
+		time.Sleep(time.Millisecond)
 	}
 
 	r.setState(StateRunning)
@@ -336,13 +459,14 @@ func (r *Runner) executeWaitIdle(action model.Action) error {
 	timeoutMs := 5000.0 // default 5 seconds
 	if t, ok := action.Params["timeout_ms"].(float64); ok {
 		timeoutMs = t
+	} else if t, ok := action.Params["timeout_ms"].(int); ok {
+		timeoutMs = float64(t)
 	}
 
 	r.setState(StateWaiting)
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
 
-	for time.Now().Before(deadline) {
-		// Check if context is cancelled (handle nil ctx gracefully)
+	for {
 		if r.ctx != nil {
 			select {
 			case <-r.ctx.Done():
@@ -350,37 +474,29 @@ func (r *Runner) executeWaitIdle(action model.Action) error {
 			default:
 			}
 		}
-
-		// Check if idle (no pending jobs, animations complete)
 		if r.isIdle() {
-			r.setState(StateRunning)
-			return nil
+			break
 		}
-
-		time.Sleep(16 * time.Millisecond)
+		if time.Now().After(deadline) {
+			r.setState(StateRunning)
+			return fmt.Errorf("wait_idle: timeout after %v ms", timeoutMs)
+		}
+		r.frameCounter++
+		if r.runtime != nil {
+			r.runtime.RequestFrame()
+		}
+		if r.frameCounter >= r.idleReadyFrame {
+			break
+		}
+		time.Sleep(time.Millisecond)
 	}
 
 	r.setState(StateRunning)
-	return fmt.Errorf("wait_idle: timeout after %v ms", timeoutMs)
+	return nil
 }
 
 func (r *Runner) isIdle() bool {
-	// Check for pending jobs
-	if r.runtime != nil {
-		// TODO: Check if job queue has pending work
-		// pendingJobs := r.runtime.JobQueue().PendingCount()
-		// if pendingJobs > 0 {
-		//     return false
-		// }
-	}
-
-	// Check for running animations
-	// TODO: Check animation state - if any animations are active, not idle
-
-	// Check for pending events
-	// TODO: Check if event queue is empty
-
-	return true // Placeholder - consider idle until runtime integration
+	return r.frameCounter >= r.idleReadyFrame
 }
 
 func (r *Runner) executeSceneLoad(action model.Action) error {
@@ -389,8 +505,16 @@ func (r *Runner) executeSceneLoad(action model.Action) error {
 		return fmt.Errorf("scene_load: missing or invalid 'scene' param")
 	}
 
-	// TODO: Trigger scene load through runtime
-	_ = scene
+	if r.sceneManager == nil {
+		r.sceneManager = r.NewSceneManager()
+	}
+	if err := r.sceneManager.TransitionScene(scene, r.currentStep); err != nil {
+		return err
+	}
+	if r.logger != nil {
+		r.logger.EventCaptured("scene_load", scene, map[string]interface{}{"step": r.currentStep})
+	}
+	r.markActivity(1)
 
 	return nil
 }
@@ -401,8 +525,15 @@ func (r *Runner) executeClick(action model.Action) error {
 		return fmt.Errorf("click: missing target")
 	}
 
-	// TODO: Dispatch click event to target
-	_ = target
+	if r.sceneManager != nil {
+		if _, err := r.sceneManager.ReResolveTarget(target); err != nil {
+			return err
+		}
+	}
+	if r.logger != nil {
+		r.logger.EventCaptured("click", target.LogicalID, map[string]interface{}{"step": r.currentStep})
+	}
+	r.markActivity(1)
 
 	return nil
 }
@@ -414,19 +545,31 @@ func (r *Runner) executePointerMove(action model.Action) error {
 		return fmt.Errorf("pointer_move: missing or invalid coordinates")
 	}
 
-	// TODO: Dispatch pointer move event
-	_, _ = x, y
+	_ = x
+	_ = y
+	if r.logger != nil {
+		r.logger.EventCaptured("pointer_move", "", map[string]interface{}{
+			"x": x, "y": y, "step": r.currentStep,
+		})
+	}
+	r.markActivity(1)
 
 	return nil
 }
 
 func (r *Runner) executeScreenshot(action model.Action) error {
 	name, _ := action.Params["name"].(string)
-
+	if name == "" {
+		return fmt.Errorf("screenshot: missing or invalid 'name' param")
+	}
 	r.setState(StateCapturing)
-
-	// TODO: Capture screenshot through rendering backend
-	_ = name
+	r.markActivity(1)
+	if r.logger != nil {
+		r.logger.SummaryCaptured("screenshot", map[string]interface{}{
+			"name": name,
+			"step": r.currentStep,
+		})
+	}
 
 	r.setState(StateRunning)
 	return nil
@@ -438,8 +581,14 @@ func (r *Runner) executeSwitchTheme(action model.Action) error {
 		return fmt.Errorf("switch_theme: missing or invalid 'theme' param")
 	}
 
-	// TODO: Apply theme
-	_ = theme
+	env := store.EnvironmentStore.Get()
+	env.Theme = theme
+	store.EnvironmentStore.Set(env)
+	if r.sceneManager == nil {
+		r.sceneManager = r.NewSceneManager()
+	}
+	r.sceneManager.ChangeTheme(theme, r.currentStep)
+	r.markActivity(1)
 
 	return nil
 }
@@ -450,8 +599,14 @@ func (r *Runner) executeSwitchDensity(action model.Action) error {
 		return fmt.Errorf("switch_density: missing or invalid 'density' param")
 	}
 
-	// TODO: Apply density
-	_ = density
+	env := store.EnvironmentStore.Get()
+	env.Density = density
+	store.EnvironmentStore.Set(env)
+	if r.sceneManager == nil {
+		r.sceneManager = r.NewSceneManager()
+	}
+	r.sceneManager.ChangeDensity(density, r.currentStep)
+	r.markActivity(1)
 
 	return nil
 }
@@ -463,8 +618,17 @@ func (r *Runner) executeResizeWindow(action model.Action) error {
 		return fmt.Errorf("resize_window: missing or invalid dimensions")
 	}
 
-	// TODO: Resize window
-	_, _ = width, height
+	if width <= 0 || height <= 0 {
+		return fmt.Errorf("resize_window: dimensions must be positive")
+	}
+	env := store.EnvironmentStore.Get()
+	env.WindowWidth = int(width)
+	env.WindowHeight = int(height)
+	store.EnvironmentStore.Set(env)
+	if r.runtime != nil {
+		r.runtime.ResizeWindow(int(width), int(height))
+	}
+	r.markActivity(1)
 
 	return nil
 }
@@ -481,8 +645,18 @@ func (r *Runner) executeDrag(action model.Action) error {
 		return fmt.Errorf("drag: missing or invalid destination coordinates")
 	}
 
-	// TODO: Execute drag operation
 	_, _, _ = target, destX, destY
+	if r.sceneManager != nil {
+		if _, err := r.sceneManager.ReResolveTarget(target); err != nil {
+			return err
+		}
+	}
+	if r.logger != nil {
+		r.logger.EventCaptured("drag", target.LogicalID, map[string]interface{}{
+			"dest_x": destX, "dest_y": destY, "step": r.currentStep,
+		})
+	}
+	r.markActivity(1)
 
 	return nil
 }
@@ -493,8 +667,11 @@ func (r *Runner) executeKeyInput(action model.Action) error {
 		return fmt.Errorf("key_input: missing or invalid 'key' param")
 	}
 
-	// TODO: Dispatch key event
 	_ = key
+	if r.logger != nil {
+		r.logger.EventCaptured("key_input", "", map[string]interface{}{"key": key, "step": r.currentStep})
+	}
+	r.markActivity(1)
 
 	return nil
 }
@@ -505,8 +682,11 @@ func (r *Runner) executeTextInput(action model.Action) error {
 		return fmt.Errorf("text_input: missing or invalid 'text' param")
 	}
 
-	// TODO: Dispatch text input events
 	_ = text
+	if r.logger != nil {
+		r.logger.EventCaptured("text_input", "", map[string]interface{}{"text": text, "step": r.currentStep})
+	}
+	r.markActivity(1)
 
 	return nil
 }
@@ -517,8 +697,11 @@ func (r *Runner) executeIMEHook(action model.Action) error {
 		return fmt.Errorf("ime_hook: missing or invalid 'action' param")
 	}
 
-	// TODO: Execute IME action (activate, deactivate, set_region, etc.)
 	_ = actionType
+	if r.logger != nil {
+		r.logger.EventCaptured("ime_hook", "", map[string]interface{}{"action": actionType, "step": r.currentStep})
+	}
+	r.markActivity(1)
 
 	return nil
 }
@@ -532,10 +715,258 @@ func (r *Runner) executeAssertState(action model.Action) error {
 		return fmt.Errorf("assert_state: missing or invalid 'type' param")
 	}
 
-	// TODO: Implement state assertion checking
-	_ = assertionType
+	if passed, err := r.evaluateActionAssertion(assertionType, action.Params); err != nil {
+		if r.logger != nil {
+			r.logger.AssertionChecked(assertionType, r.currentStep, false)
+		}
+		return err
+	} else if !passed {
+		if r.logger != nil {
+			r.logger.AssertionChecked(assertionType, r.currentStep, false)
+		}
+		return fmt.Errorf("assert_state: assertion failed for %s", assertionType)
+	}
+	if r.logger != nil {
+		r.logger.AssertionChecked(assertionType, r.currentStep, true)
+	}
+	r.markActivity(1)
 
 	return nil
+}
+
+func (r *Runner) executeAssertions(assertions []model.Assertion) (bool, []AssertionResult, error) {
+	engine := r.NewAssertionEngine()
+	results := make([]AssertionResult, 0, len(assertions))
+	for i, assertion := range assertions {
+		r.currentStep = len(r.scenario.Actions) + i + 1
+		r.setCurrentAssertion(assertion)
+		result := engine.evaluateAssertion(r.currentStep, assertion)
+		results = append(results, result)
+		r.publishAssertionResults(results)
+		if r.logger != nil {
+			r.logger.AssertionChecked(string(assertion.Type), r.currentStep, result.Passed)
+		}
+		if !result.Passed {
+			return false, results, fmt.Errorf(result.Error())
+		}
+		r.updateProgress()
+	}
+	return true, results, nil
+}
+
+func (r *Runner) setCurrentAssertion(assertion model.Assertion) {
+	store.ExecutionStateStore.Set(store.ExecutionState{
+		Status:           model.StatusRunning,
+		CurrentStep:      r.currentStep,
+		TotalSteps:       r.totalSteps,
+		CurrentAction:    "assert:" + string(assertion.Type),
+		Progress:         runProgress(r.currentStep, r.totalSteps),
+		AssertionResults: nil,
+	})
+}
+
+func (r *Runner) publishAssertionResults(results []AssertionResult) {
+	store.ExecutionStateStore.Set(store.ExecutionState{
+		Status:           model.StatusRunning,
+		CurrentStep:      r.currentStep,
+		TotalSteps:       r.totalSteps,
+		CurrentAction:    "assertions",
+		Progress:         runProgress(r.currentStep, r.totalSteps),
+		AssertionResults: toModelAssertionResults(results),
+	})
+}
+
+func toModelAssertionResults(results []AssertionResult) []model.AssertionResult {
+	if len(results) == 0 {
+		return nil
+	}
+	out := make([]model.AssertionResult, len(results))
+	for i, result := range results {
+		out[i] = model.AssertionResult{
+			Step:   result.Step,
+			Type:   model.AssertionType(result.Type),
+			Passed: result.Passed,
+			Reason: result.Message,
+		}
+	}
+	return out
+}
+
+func (r *Runner) evaluateActionAssertion(assertionType string, params model.ActionParams) (bool, error) {
+	switch model.AssertionType(assertionType) {
+	case model.AssertSceneID:
+		expected, ok := params["expected"].(string)
+		if !ok {
+			return false, fmt.Errorf("assert_state: missing or invalid 'expected' param")
+		}
+		actual := ""
+		if r.sceneManager != nil {
+			actual = r.sceneManager.CurrentScene()
+		}
+		return actual == expected, nil
+	case model.AssertThemeState:
+		expected, ok := params["expected"].(string)
+		if !ok {
+			return false, fmt.Errorf("assert_state: missing or invalid 'expected' param")
+		}
+		actual := store.EnvironmentStore.Get().Theme
+		if r.sceneManager != nil && r.sceneManager.CurrentTheme() != "" {
+			actual = r.sceneManager.CurrentTheme()
+		}
+		return actual == expected, nil
+	case model.AssertDensityState:
+		expected, ok := params["expected"].(string)
+		if !ok {
+			return false, fmt.Errorf("assert_state: missing or invalid 'expected' param")
+		}
+		actual := store.EnvironmentStore.Get().Density
+		if r.sceneManager != nil && r.sceneManager.CurrentDensity() != "" {
+			actual = r.sceneManager.CurrentDensity()
+		}
+		return actual == expected, nil
+	case model.AssertFrameCount:
+		minFrames, hasMin := params["min"].(float64)
+		maxFrames, hasMax := params["max"].(float64)
+		if !hasMin && !hasMax {
+			return false, fmt.Errorf("assert_state: missing 'min' or 'max' param")
+		}
+		actual := float64(r.frameCounter)
+		if hasMin && actual < minFrames {
+			return false, nil
+		}
+		if hasMax && actual > maxFrames {
+			return false, nil
+		}
+		return true, nil
+	case model.AssertFocusOwner:
+		expected, ok := params["expected"].(string)
+		if !ok {
+			return false, fmt.Errorf("assert_state: missing or invalid 'expected' param")
+		}
+		actual := ""
+		if r.runtime != nil {
+			actual = fmt.Sprintf("%d", r.runtime.FocusedID())
+		}
+		return actual == expected, nil
+	default:
+		paramsCopy := make(model.AssertionParams, len(params))
+		for k, v := range params {
+			if k == "type" {
+				continue
+			}
+			paramsCopy[k] = v
+		}
+		result := r.NewAssertionEngine().EvaluateSingle(r.currentStep, model.Assertion{
+			Type:   model.AssertionType(assertionType),
+			Params: paramsCopy,
+		})
+		if !result.Passed {
+			return false, fmt.Errorf(result.Error())
+		}
+		return true, nil
+	}
+}
+
+func (r *Runner) executeExportBundle(action model.Action) error {
+	path, _ := action.Params["path"].(string)
+	if path == "" {
+		return fmt.Errorf("export_bundle: missing or invalid 'path' param")
+	}
+
+	// Ensure bundle builder is initialized
+	if r.bundleBuilder == nil {
+		return fmt.Errorf("export_bundle: no bundle builder available")
+	}
+
+	// Build the bundle
+	bundle, err := r.bundleBuilder.Build()
+	if err != nil {
+		return fmt.Errorf("export_bundle: failed to build bundle: %w", err)
+	}
+
+	// Determine output format (directory or zip)
+	if strings.HasSuffix(path, ".zip") {
+		if err := bundle.SaveAsZip(path); err != nil {
+			return fmt.Errorf("export_bundle: failed to save zip: %w", err)
+		}
+	} else {
+		// Override output path for custom location
+		bundle.OutputPath = path
+		if err := bundle.SaveToDisk(); err != nil {
+			return fmt.Errorf("export_bundle: failed to save bundle: %w", err)
+		}
+	}
+
+	r.lastBundle = bundle
+	r.markActivity(1)
+	if r.logger != nil {
+		r.logger.SummaryCaptured("bundle_export", map[string]interface{}{
+			"path":   path,
+			"step":   r.currentStep,
+			"bundle": bundle.Manifest.ScenarioID,
+		})
+	}
+	return nil
+}
+
+// GetLastBundle returns the most recently exported bundle, if any.
+func (r *Runner) GetLastBundle() *artifact.Bundle {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.lastBundle
+}
+
+// CreateBundle builds a bundle from the current execution state.
+// This can be called after Run() completes to get the execution artifacts.
+func (r *Runner) CreateBundle(outputDir string) (*artifact.Bundle, error) {
+	if r.scenario == nil {
+		return nil, fmt.Errorf("no scenario loaded")
+	}
+
+	builder := artifact.NewBundleBuilder(r.scenario, outputDir)
+
+	// Get execution result from history
+	history := store.RunHistoryStore.Get()
+	if history != nil {
+		if latest, ok := history.Latest(); ok {
+			builder.SetRunResults(&latest)
+		}
+	}
+
+	// Set provenance
+	builder.SetProvenance(artifact.ProvenanceInfo{
+		Platform: store.EnvironmentStore.Get().Platform,
+	})
+
+	return builder.Build()
+}
+
+func (r *Runner) setCurrentAction(action model.Action) {
+	store.ExecutionStateStore.Set(store.ExecutionState{
+		Status:        model.StatusRunning,
+		CurrentStep:   r.currentStep,
+		TotalSteps:    r.totalSteps,
+		CurrentAction: string(action.Type),
+		Progress:      runProgress(r.currentStep-1, r.totalSteps),
+	})
+}
+
+func (r *Runner) clearCurrentAction() {
+	state := store.ExecutionStateStore.Get()
+	state.CurrentAction = ""
+	store.ExecutionStateStore.Set(state)
+}
+
+func (r *Runner) markActivity(frames int) {
+	if frames < 1 {
+		frames = 1
+	}
+	if next := r.frameCounter + frames; next > r.idleReadyFrame {
+		r.idleReadyFrame = next
+	}
+	if r.runtime != nil {
+		r.runtime.RequestFrame()
+	}
 }
 
 // Scheduler provides deterministic event ordering.

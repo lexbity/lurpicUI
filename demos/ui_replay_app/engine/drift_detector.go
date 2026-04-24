@@ -16,9 +16,11 @@ type DriftType string
 
 const (
 	DriftTiming      DriftType = "timing"
-	DriftState       DriftType = "state"
+	DriftExecution   DriftType = "execution"
+	DriftAssertion   DriftType = "assertion"
 	DriftEnvironment DriftType = "environment"
 	DriftArtifact    DriftType = "artifact"
+	DriftState       DriftType = "state"
 )
 
 // DriftReport captures detected nondeterminism between runs.
@@ -35,15 +37,18 @@ type DriftReport struct {
 
 // RunFingerprint captures identifying characteristics of a run.
 type RunFingerprint struct {
-	RunID         string
-	ScenarioID    string
-	StartTime     time.Time
-	EndTime       time.Time
-	FrameCount    int
-	StepCount     int
-	AssertionHash string
-	LogHash       string
-	StateHash     string
+	RunID           string
+	ScenarioID      string
+	StartTime       time.Time
+	EndTime         time.Time
+	FrameCount      int
+	StepCount       int
+	AssertionHash   string
+	ArtifactHash    string
+	EnvironmentHash string
+	LogHash         string
+	ExecutionHash   string
+	StateHash       string
 }
 
 // DriftDetector detects and classifies nondeterminism.
@@ -60,6 +65,13 @@ func NewDriftDetector() *DriftDetector {
 	}
 }
 
+func shortHash(value string) string {
+	if len(value) <= 16 {
+		return value
+	}
+	return value[:16] + "..."
+}
+
 // SetTolerance sets the tolerance for timing differences.
 func (dd *DriftDetector) SetTolerance(tolerance float64) {
 	dd.tolerance = tolerance
@@ -68,17 +80,58 @@ func (dd *DriftDetector) SetTolerance(tolerance float64) {
 // CaptureFingerprint creates a fingerprint from a completed run.
 func (dd *DriftDetector) CaptureFingerprint(runner *Runner, result *model.RunResult) RunFingerprint {
 	fp := RunFingerprint{
-		RunID:      generateRunID(),
-		ScenarioID: string(runner.scenario.ID),
-		StartTime:  result.StartTime,
-		EndTime:    result.EndTime,
-		FrameCount: runner.frameCounter,
-		StepCount:  result.StepsExecuted,
+		RunID:     generateRunID(),
+		StartTime: result.StartTime,
+		EndTime:   result.EndTime,
+		StepCount: result.StepsExecuted,
 	}
 
-	// Hash assertion results if available
-	if runner.logger != nil {
+	if runner != nil {
+		fp.FrameCount = runner.frameCounter
+	}
+
+	if runner != nil && runner.scenario != nil {
+		fp.ScenarioID = string(runner.scenario.ID)
+		fp.EnvironmentHash = hashValue(runner.scenario.Environment)
+	}
+
+	fp.AssertionHash = hashValue(result.AssertionResults)
+	fp.ArtifactHash = hashValue(result.Artifacts)
+	fp.ExecutionHash = hashValue(struct {
+		Status        model.ExecutionStatus
+		Error         string
+		StepsExecuted int
+		StepsTotal    int
+		FrameCount    int
+		LogHash       string
+	}{
+		Status:        result.Status,
+		Error:         result.Error,
+		StepsExecuted: result.StepsExecuted,
+		StepsTotal:    result.StepsTotal,
+		FrameCount:    fp.FrameCount,
+		LogHash:       "",
+	})
+	fp.StateHash = fp.ExecutionHash
+
+	if runner != nil && runner.logger != nil {
 		fp.LogHash = hashEntries(runner.logger.Entries())
+		fp.ExecutionHash = hashValue(struct {
+			Status        model.ExecutionStatus
+			Error         string
+			StepsExecuted int
+			StepsTotal    int
+			FrameCount    int
+			LogHash       string
+		}{
+			Status:        result.Status,
+			Error:         result.Error,
+			StepsExecuted: result.StepsExecuted,
+			StepsTotal:    result.StepsTotal,
+			FrameCount:    fp.FrameCount,
+			LogHash:       fp.LogHash,
+		})
+		fp.StateHash = fp.ExecutionHash
 	}
 
 	dd.fingerprints = append(dd.fingerprints, fp)
@@ -100,7 +153,9 @@ func (dd *DriftDetector) CompareRuns(runA, runB RunFingerprint) *DriftReport {
 
 	if dd.isTimingDrift(durationA, durationB) {
 		report.Detected = true
-		report.DriftType = DriftTiming
+		if report.DriftType == "" {
+			report.DriftType = DriftTiming
+		}
 		report.Severity = "warning"
 		report.Description = fmt.Sprintf("Timing drift detected: %v vs %v", durationA, durationB)
 		report.Differences = append(report.Differences, Difference{
@@ -111,10 +166,74 @@ func (dd *DriftDetector) CompareRuns(runA, runB RunFingerprint) *DriftReport {
 		})
 	}
 
-	// Check frame count drift
+	// Check environment drift.
+	if runA.EnvironmentHash != "" && runB.EnvironmentHash != "" && runA.EnvironmentHash != runB.EnvironmentHash {
+		report.Detected = true
+		report.DriftType = DriftEnvironment
+		report.Severity = "error"
+		report.Description = "Environment mismatch detected"
+		report.Differences = append(report.Differences, Difference{
+			Field:    "environment",
+			ValueA:   shortHash(runA.EnvironmentHash),
+			ValueB:   shortHash(runB.EnvironmentHash),
+			Severity: "error",
+		})
+	}
+
+	// Check semantic assertion drift.
+	if runA.AssertionHash != "" && runB.AssertionHash != "" && runA.AssertionHash != runB.AssertionHash {
+		report.Detected = true
+		if report.DriftType == "" || report.DriftType == DriftTiming {
+			report.DriftType = DriftAssertion
+		}
+		report.Severity = "error"
+		report.Description = "Assertion output mismatch detected"
+		report.Differences = append(report.Differences, Difference{
+			Field:    "assertions",
+			ValueA:   shortHash(runA.AssertionHash),
+			ValueB:   shortHash(runB.AssertionHash),
+			Severity: "error",
+		})
+	}
+
+	// Check artifact drift.
+	if runA.ArtifactHash != "" && runB.ArtifactHash != "" && runA.ArtifactHash != runB.ArtifactHash {
+		report.Detected = true
+		if report.DriftType == "" || report.DriftType == DriftTiming {
+			report.DriftType = DriftArtifact
+		}
+		report.Severity = "error"
+		report.Description = "Artifact mismatch detected"
+		report.Differences = append(report.Differences, Difference{
+			Field:    "artifacts",
+			ValueA:   shortHash(runA.ArtifactHash),
+			ValueB:   shortHash(runB.ArtifactHash),
+			Severity: "error",
+		})
+	}
+
+	// Check execution drift.
+	if runA.ExecutionHash != "" && runB.ExecutionHash != "" && runA.ExecutionHash != runB.ExecutionHash {
+		report.Detected = true
+		if report.DriftType == "" || report.DriftType == DriftTiming {
+			report.DriftType = DriftExecution
+		}
+		report.Severity = "error"
+		report.Description = fmt.Sprintf("Execution mismatch: frame %d vs %d, step %d vs %d", runA.FrameCount, runB.FrameCount, runA.StepCount, runB.StepCount)
+		report.Differences = append(report.Differences, Difference{
+			Field:    "execution",
+			ValueA:   shortHash(runA.ExecutionHash),
+			ValueB:   shortHash(runB.ExecutionHash),
+			Severity: "error",
+		})
+	}
+
+	// Frame and step count mismatches are tracked as execution drift details.
 	if runA.FrameCount != runB.FrameCount {
 		report.Detected = true
-		report.DriftType = DriftState
+		if report.DriftType == "" || report.DriftType == DriftTiming {
+			report.DriftType = DriftExecution
+		}
 		report.Severity = "error"
 		report.Description = fmt.Sprintf("Frame count mismatch: %d vs %d", runA.FrameCount, runB.FrameCount)
 		report.Differences = append(report.Differences, Difference{
@@ -125,10 +244,11 @@ func (dd *DriftDetector) CompareRuns(runA, runB RunFingerprint) *DriftReport {
 		})
 	}
 
-	// Check step count drift
 	if runA.StepCount != runB.StepCount {
 		report.Detected = true
-		report.DriftType = DriftState
+		if report.DriftType == "" || report.DriftType == DriftTiming {
+			report.DriftType = DriftExecution
+		}
 		report.Severity = "error"
 		report.Description = fmt.Sprintf("Step count mismatch: %d vs %d", runA.StepCount, runB.StepCount)
 		report.Differences = append(report.Differences, Difference{
@@ -139,16 +259,16 @@ func (dd *DriftDetector) CompareRuns(runA, runB RunFingerprint) *DriftReport {
 		})
 	}
 
-	// Check log hash drift
+	// Check log hash drift last; it is a symptom of execution drift.
 	if runA.LogHash != "" && runB.LogHash != "" && runA.LogHash != runB.LogHash {
 		report.Detected = true
-		if report.DriftType == "" {
-			report.DriftType = DriftEnvironment
+		if report.DriftType == "" || report.DriftType == DriftTiming {
+			report.DriftType = DriftExecution
 		}
 		report.Differences = append(report.Differences, Difference{
 			Field:    "log_hash",
-			ValueA:   runA.LogHash[:16] + "...",
-			ValueB:   runB.LogHash[:16] + "...",
+			ValueA:   shortHash(runA.LogHash),
+			ValueB:   shortHash(runB.LogHash),
 			Severity: "warning",
 		})
 	}
@@ -171,7 +291,11 @@ func (dd *DriftDetector) DetectDrift(runner *Runner, scenario *model.Scenario, r
 
 	// Run multiple times and capture fingerprints
 	for i := 0; i < runs; i++ {
-		result, err := runner.Run(scenario)
+		runScenario := scenario.Clone()
+		if runScenario == nil {
+			return nil, fmt.Errorf("run %d scenario clone failed", i)
+		}
+		result, err := runner.Run(runScenario)
 		if err != nil {
 			return nil, fmt.Errorf("run %d failed: %w", i, err)
 		}
@@ -232,8 +356,10 @@ func (dc *DriftClassifier) Classify(report *DriftReport) string {
 	switch report.DriftType {
 	case DriftTiming:
 		return fmt.Sprintf("timing_drift:%s", report.Severity)
-	case DriftState:
-		return fmt.Sprintf("state_drift:%s", report.Severity)
+	case DriftExecution, DriftState:
+		return fmt.Sprintf("execution_drift:%s", report.Severity)
+	case DriftAssertion:
+		return fmt.Sprintf("assertion_drift:%s", report.Severity)
 	case DriftEnvironment:
 		return fmt.Sprintf("environment_drift:%s", report.Severity)
 	case DriftArtifact:

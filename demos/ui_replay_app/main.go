@@ -17,11 +17,11 @@ import (
 
 func main() {
 	var (
-		windowWidth   = flag.Int("width", 1400, "window width")
-		windowHeight  = flag.Int("height", 900, "window height")
-		scenarioDir   = flag.String("scenario-dir", defaultScenarioDir(), "directory containing scenario files")
-		historyDir    = flag.String("history-dir", defaultHistoryDir(), "directory for replay history")
-		exportDir     = flag.String("export-dir", defaultExportDir(), "directory for artifact exports")
+		windowWidth  = flag.Int("width", 1400, "window width")
+		windowHeight = flag.Int("height", 900, "window height")
+		scenarioDir  = flag.String("scenario-dir", defaultScenarioDir(), "directory containing scenario files")
+		historyDir   = flag.String("history-dir", defaultHistoryDir(), "directory for replay history")
+		exportDir    = flag.String("export-dir", defaultExportDir(), "directory for artifact exports")
 	)
 	flag.Parse()
 

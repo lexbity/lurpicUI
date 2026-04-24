@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -13,11 +15,12 @@ import (
 // ContentFacet displays the main scenario content viewport.
 type ContentFacet struct {
 	facet.Facet
-	layout       facet.LayoutRole
-	render       facet.RenderRole
-	th           theme.Context
-	shaper       *text.Shaper
-	subscription signal.SubscriptionID
+	layout      facet.LayoutRole
+	render      facet.RenderRole
+	th          theme.Context
+	shaper      *text.Shaper
+	scenarioSub signal.SubscriptionID
+	execSub     signal.SubscriptionID
 }
 
 // NewContentFacet creates a new content facet.
@@ -52,14 +55,18 @@ func (f *ContentFacet) Base() *facet.Facet {
 
 // OnAttach handles attachment and subscribes to stores.
 func (f *ContentFacet) OnAttach(ctx facet.AttachContext) {
-	f.subscription = store.SelectedScenarioStore.OnChange.Subscribe(func(change signal.Change[model.ScenarioID]) {
+	f.scenarioSub = store.SelectedScenarioStore.OnChange.Subscribe(func(change signal.Change[model.ScenarioID]) {
+		f.Invalidate(facet.DirtyProjection)
+	})
+	f.execSub = store.ExecutionStateStore.OnChange.Subscribe(func(change signal.Change[store.ExecutionState]) {
 		f.Invalidate(facet.DirtyProjection)
 	})
 }
 
 // OnDetach handles detachment.
 func (f *ContentFacet) OnDetach() {
-	store.SelectedScenarioStore.OnChange.Unsubscribe(f.subscription)
+	store.SelectedScenarioStore.OnChange.Unsubscribe(f.scenarioSub)
+	store.ExecutionStateStore.OnChange.Unsubscribe(f.execSub)
 }
 
 // OnActivate handles activation.
@@ -140,10 +147,73 @@ func (f *ContentFacet) renderContent(list *gfx.CommandList, bounds gfx.Rect) {
 		y += idLayout.Bounds.Height() + 24
 	}
 
+	if scenario.ExpectedState != nil {
+		expectedText := fmt.Sprintf(
+			"Expected: scene=%s theme=%s density=%s",
+			scenario.ExpectedState.SceneID,
+			scenario.ExpectedState.Theme,
+			scenario.ExpectedState.Density,
+		)
+		expectedLayout := f.shaper.ShapeSimple(expectedText, idStyle)
+		if expectedLayout != nil && len(expectedLayout.Lines) > 0 {
+			line := expectedLayout.Lines[0]
+			origin := gfx.Point{X: inner.Min.X, Y: y}
+			for _, run := range line.Runs {
+				list.Add(gfx.DrawGlyphRun{
+					Run:    run,
+					Origin: origin,
+					Brush:  gfx.SolidBrush(f.th.Color(theme.ColorTextSecondary)),
+				})
+			}
+			y += expectedLayout.Bounds.Height() + 16
+		}
+	}
+
 	sectionStyle := f.th.TextStyle(theme.TextLabelS)
-	actionLayout := f.shaper.ShapeSimple("Actions: "+string(rune(len(scenario.Actions)+48)), sectionStyle)
-	if actionLayout != nil && len(actionLayout.Lines) > 0 {
-		line := actionLayout.Lines[0]
+	bodyStyle := f.th.TextStyle(theme.TextBodyS)
+
+	// Show execution state with progress
+	exec := store.ExecutionStateStore.Get()
+	if exec.IsRunning() || exec.Status == model.StatusPassed || exec.Status == model.StatusFailed {
+		progressText := fmt.Sprintf("Progress: Step %d/%d (%.0f%%)", exec.CurrentStep, exec.TotalSteps, exec.Progress*100)
+		progressLayout := f.shaper.ShapeSimple(progressText, sectionStyle)
+		if progressLayout != nil && len(progressLayout.Lines) > 0 {
+			line := progressLayout.Lines[0]
+			origin := gfx.Point{X: inner.Min.X, Y: y}
+			for _, run := range line.Runs {
+				list.Add(gfx.DrawGlyphRun{
+					Run:    run,
+					Origin: origin,
+					Brush:  gfx.SolidBrush(f.th.Color(theme.ColorPrimary)),
+				})
+			}
+			y += progressLayout.Bounds.Height() + 8
+		}
+
+		// Show current action if running
+		if exec.IsRunning() && exec.CurrentAction != "" {
+			actionText := fmt.Sprintf("Current: %s", exec.CurrentAction)
+			actionLayout := f.shaper.ShapeSimple(actionText, bodyStyle)
+			if actionLayout != nil && len(actionLayout.Lines) > 0 {
+				line := actionLayout.Lines[0]
+				origin := gfx.Point{X: inner.Min.X, Y: y}
+				for _, run := range line.Runs {
+					list.Add(gfx.DrawGlyphRun{
+						Run:    run,
+						Origin: origin,
+						Brush:  gfx.SolidBrush(f.th.Color(theme.ColorPrimary)),
+					})
+				}
+				y += actionLayout.Bounds.Height() + 12
+			}
+		}
+
+		y += 8 // Spacer
+	}
+
+	actionHeader := f.shaper.ShapeSimple("Actions:", sectionStyle)
+	if actionHeader != nil && len(actionHeader.Lines) > 0 {
+		line := actionHeader.Lines[0]
 		origin := gfx.Point{X: inner.Min.X, Y: y}
 		for _, run := range line.Runs {
 			list.Add(gfx.DrawGlyphRun{
@@ -152,16 +222,31 @@ func (f *ContentFacet) renderContent(list *gfx.CommandList, bounds gfx.Rect) {
 				Brush:  gfx.SolidBrush(f.th.Color(theme.ColorTextSecondary)),
 			})
 		}
-		y += actionLayout.Bounds.Height() + 8
+		y += actionHeader.Bounds.Height() + 8
 	}
 
 	for i, action := range scenario.Actions {
 		if y > inner.Max.Y {
 			break
 		}
-		actionText := string(rune(i+1+48)) + ". " + string(action.Type)
-		itemStyle := f.th.TextStyle(theme.TextBodyS)
-		itemLayout := f.shaper.ShapeSimple(actionText, itemStyle)
+
+		// Determine if this is the current step
+		isCurrentStep := exec.IsRunning() && exec.CurrentStep == i+1
+		isPastStep := exec.CurrentStep > i+1
+
+		// Status indicator
+		statusIcon := "○"
+		color := f.th.Color(theme.ColorText)
+		if isPastStep {
+			statusIcon = "✓"
+			color = gfx.Color{R: 0.4, G: 0.7, B: 0.4, A: 1}
+		} else if isCurrentStep {
+			statusIcon = "▶"
+			color = f.th.Color(theme.ColorPrimary)
+		}
+
+		actionText := fmt.Sprintf("%s %d. %s", statusIcon, i+1, action.Type)
+		itemLayout := f.shaper.ShapeSimple(actionText, bodyStyle)
 		if itemLayout != nil && len(itemLayout.Lines) > 0 {
 			line := itemLayout.Lines[0]
 			origin := gfx.Point{X: inner.Min.X + 16, Y: y}
@@ -169,10 +254,51 @@ func (f *ContentFacet) renderContent(list *gfx.CommandList, bounds gfx.Rect) {
 				list.Add(gfx.DrawGlyphRun{
 					Run:    run,
 					Origin: origin,
-					Brush:  gfx.SolidBrush(f.th.Color(theme.ColorText)),
+					Brush:  gfx.SolidBrush(color),
 				})
 			}
 			y += itemLayout.Bounds.Height() + 4
+		}
+	}
+
+	if len(exec.AssertionResults) > 0 && y <= inner.Max.Y {
+		y += 12
+		assertionHeader := f.shaper.ShapeSimple("Assertions", sectionStyle)
+		if assertionHeader != nil && len(assertionHeader.Lines) > 0 {
+			line := assertionHeader.Lines[0]
+			origin := gfx.Point{X: inner.Min.X, Y: y}
+			for _, run := range line.Runs {
+				list.Add(gfx.DrawGlyphRun{
+					Run:    run,
+					Origin: origin,
+					Brush:  gfx.SolidBrush(f.th.Color(theme.ColorTextSecondary)),
+				})
+			}
+			y += assertionHeader.Bounds.Height() + 8
+		}
+		limit := len(exec.AssertionResults)
+		if limit > 3 {
+			limit = 3
+		}
+		for i := len(exec.AssertionResults) - limit; i < len(exec.AssertionResults); i++ {
+			if i < 0 || y > inner.Max.Y {
+				continue
+			}
+			result := exec.AssertionResults[i]
+			lineText := fmt.Sprintf("step %d %s %v", result.Step, result.Type, result.Passed)
+			resultLayout := f.shaper.ShapeSimple(lineText, bodyStyle)
+			if resultLayout != nil && len(resultLayout.Lines) > 0 {
+				line := resultLayout.Lines[0]
+				origin := gfx.Point{X: inner.Min.X + 16, Y: y}
+				for _, run := range line.Runs {
+					list.Add(gfx.DrawGlyphRun{
+						Run:    run,
+						Origin: origin,
+						Brush:  gfx.SolidBrush(f.th.Color(theme.ColorText)),
+					})
+				}
+				y += resultLayout.Bounds.Height() + 4
+			}
 		}
 	}
 }

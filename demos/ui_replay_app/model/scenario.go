@@ -1,7 +1,30 @@
+// Package model defines the core types for UI Replay scenarios, actions, assertions,
+// and execution results. It provides validation, cloning, and schema compatibility
+// checks to ensure reliable replay execution across different versions.
+//
+// Schema Compatibility:
+//
+// The current schema version is "1.0". Scenarios with supported schema versions
+// are accepted; others are rejected during validation. When loading scenarios
+// from external sources, use SchemaMigrator to convert older schemas before
+// validation.
+//
+// Basic usage:
+//
+//	scenario := &model.Scenario{
+//	    ID:          "my.scenario",
+//	    DisplayName: "My Scenario",
+//	    Schema:      model.SchemaVersion,
+//	    Actions:     []model.Action{{Type: model.ActionWaitFrames}},
+//	}
+//	if err := scenario.Validate(); err != nil {
+//	    // handle validation error
+//	}
 package model
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -10,6 +33,50 @@ const SchemaVersion = "1.0"
 
 // SupportedSchemaVersions lists all supported schema versions for backward compatibility.
 var SupportedSchemaVersions = []string{"1.0"}
+
+// SchemaMigrator converts scenarios between schema versions.
+// It provides forward compatibility by migrating older schemas to the current version.
+type SchemaMigrator struct {
+	SourceVersion string
+	TargetVersion string
+}
+
+// NewSchemaMigrator creates a migrator for the given source version.
+// Returns nil if no migration is needed or if the source version is unsupported.
+func NewSchemaMigrator(sourceVersion string) *SchemaMigrator {
+	if sourceVersion == SchemaVersion {
+		return nil // No migration needed
+	}
+	if !isSupportedSchema(sourceVersion) {
+		return nil // Unsupported source version
+	}
+	return &SchemaMigrator{
+		SourceVersion: sourceVersion,
+		TargetVersion: SchemaVersion,
+	}
+}
+
+// MigrateScenario converts a scenario to the target schema version.
+// It updates the schema field and applies any necessary transformations.
+func (m *SchemaMigrator) MigrateScenario(s *Scenario) error {
+	if m == nil || s == nil {
+		return nil
+	}
+	if s.Schema == m.TargetVersion {
+		return nil // Already at target version
+	}
+
+	// Apply version-specific migrations
+	switch m.SourceVersion {
+	case "1.0":
+		// No migrations needed - 1.0 is the base version
+	default:
+		return fmt.Errorf("no migration path from version %s to %s", m.SourceVersion, m.TargetVersion)
+	}
+
+	s.Schema = m.TargetVersion
+	return nil
+}
 
 // Capability represents a scenario capability declaration.
 type Capability string
@@ -27,6 +94,19 @@ const (
 	CapBackgroundJobs Capability = "background_jobs"
 )
 
+var supportedCapabilities = map[Capability]struct{}{
+	CapSceneLoad:      {},
+	CapThemeSwitch:    {},
+	CapDensitySwitch:  {},
+	CapPointerInput:   {},
+	CapKeyboardInput:  {},
+	CapTextInput:      {},
+	CapIME:            {},
+	CapScreenshots:    {},
+	CapAssertions:     {},
+	CapBackgroundJobs: {},
+}
+
 // ScenarioID uniquely identifies a scenario.
 type ScenarioID string
 
@@ -35,6 +115,7 @@ type Scenario struct {
 	ID            ScenarioID     `json:"id"`
 	DisplayName   string         `json:"display_name"`
 	Schema        string         `json:"schema"`
+	Family        string         `json:"family,omitempty"`
 	RequiredScene string         `json:"required_scene,omitempty"`
 	Environment   Environment    `json:"environment"`
 	Actions       []Action       `json:"actions"`
@@ -46,6 +127,123 @@ type Scenario struct {
 	Description   string         `json:"description,omitempty"`
 }
 
+// NewFixtureScenario returns a registry-safe scenario scaffold for tests and fixtures.
+// It fills in the required schema fields so callers can focus on the fields under test.
+func NewFixtureScenario(id ScenarioID, displayName string) Scenario {
+	return Scenario{
+		ID:          id,
+		DisplayName: displayName,
+		Schema:      SchemaVersion,
+	}
+}
+
+// Clone returns a deep copy of the scenario so callers can mutate the copy safely.
+func (s *Scenario) Clone() *Scenario {
+	if s == nil {
+		return nil
+	}
+
+	clone := *s
+	clone.Environment = s.Environment.Clone()
+	clone.Actions = cloneActions(s.Actions)
+	clone.Assertions = cloneAssertions(s.Assertions)
+	clone.Artifacts = cloneArtifacts(s.Artifacts)
+	clone.Tags = append([]string(nil), s.Tags...)
+	clone.Capabilities = append([]Capability(nil), s.Capabilities...)
+	clone.ExpectedState = cloneExpectedState(s.ExpectedState)
+	return &clone
+}
+
+// Clone returns a copy of the environment.
+func (e Environment) Clone() Environment {
+	return Environment{
+		Theme:      e.Theme,
+		Density:    e.Density,
+		Backend:    e.Backend,
+		Platform:   e.Platform,
+		WindowSize: e.WindowSize,
+	}
+}
+
+func cloneActions(actions []Action) []Action {
+	if len(actions) == 0 {
+		return nil
+	}
+	out := make([]Action, len(actions))
+	for i, action := range actions {
+		out[i] = action
+		out[i].Params = cloneActionParams(action.Params)
+		out[i].Target = cloneTarget(action.Target)
+	}
+	return out
+}
+
+func cloneAssertions(assertions []Assertion) []Assertion {
+	if len(assertions) == 0 {
+		return nil
+	}
+	out := make([]Assertion, len(assertions))
+	for i, assertion := range assertions {
+		out[i] = assertion
+		out[i].Params = cloneAssertionParams(assertion.Params)
+	}
+	return out
+}
+
+func cloneArtifacts(artifacts []ArtifactSpec) []ArtifactSpec {
+	if len(artifacts) == 0 {
+		return nil
+	}
+	out := make([]ArtifactSpec, len(artifacts))
+	copy(out, artifacts)
+	return out
+}
+
+func cloneTarget(target Target) Target {
+	clone := target
+	if target.Fallback != nil {
+		fallback := cloneTarget(*target.Fallback)
+		clone.Fallback = &fallback
+	}
+	return clone
+}
+
+func cloneExpectedState(state *ExpectedState) *ExpectedState {
+	if state == nil {
+		return nil
+	}
+	clone := *state
+	if state.ControlStates != nil {
+		clone.ControlStates = make(map[string]string, len(state.ControlStates))
+		for key, value := range state.ControlStates {
+			clone.ControlStates[key] = value
+		}
+	}
+	return &clone
+}
+
+func cloneActionParams(params ActionParams) ActionParams {
+	if params == nil {
+		return nil
+	}
+	out := make(ActionParams, len(params))
+	for key, value := range params {
+		out[key] = value
+	}
+	return out
+}
+
+func cloneAssertionParams(params AssertionParams) AssertionParams {
+	if params == nil {
+		return nil
+	}
+	out := make(AssertionParams, len(params))
+	for key, value := range params {
+		out[key] = value
+	}
+	return out
+}
+
 // ExpectedState describes the expected scene/control state for validation.
 type ExpectedState struct {
 	SceneID       string            `json:"scene_id,omitempty"`
@@ -53,6 +251,42 @@ type ExpectedState struct {
 	Theme         string            `json:"theme,omitempty"`
 	Density       string            `json:"density,omitempty"`
 	FocusTarget   string            `json:"focus_target,omitempty"`
+}
+
+// String returns a human-readable summary of the expected state.
+func (e *ExpectedState) String() string {
+	if e == nil {
+		return "<nil>"
+	}
+	parts := []string{}
+	if e.SceneID != "" {
+		parts = append(parts, fmt.Sprintf("scene=%s", e.SceneID))
+	}
+	if e.Theme != "" {
+		parts = append(parts, fmt.Sprintf("theme=%s", e.Theme))
+	}
+	if e.Density != "" {
+		parts = append(parts, fmt.Sprintf("density=%s", e.Density))
+	}
+	if e.FocusTarget != "" {
+		parts = append(parts, fmt.Sprintf("focus=%s", e.FocusTarget))
+	}
+	if len(e.ControlStates) > 0 {
+		parts = append(parts, fmt.Sprintf("%d controls", len(e.ControlStates)))
+	}
+	if len(parts) == 0 {
+		return "<empty>"
+	}
+	return strings.Join(parts, ", ")
+}
+
+// IsEmpty returns true if no expected state is defined.
+func (e *ExpectedState) IsEmpty() bool {
+	if e == nil {
+		return true
+	}
+	return e.SceneID == "" && e.Theme == "" && e.Density == "" &&
+		e.FocusTarget == "" && len(e.ControlStates) == 0
 }
 
 // Environment describes the execution environment.
@@ -65,6 +299,58 @@ type Environment struct {
 		Width  int `json:"width"`
 		Height int `json:"height"`
 	} `json:"window_size,omitempty"`
+}
+
+// String returns a human-readable summary of the environment.
+func (e Environment) String() string {
+	return fmt.Sprintf("%s/%s/%s/%s (%dx%d)",
+		e.Backend, e.Platform, e.Theme, e.Density,
+		e.WindowSize.Width, e.WindowSize.Height)
+}
+
+// IsEmpty returns true if no environment fields are set.
+func (e Environment) IsEmpty() bool {
+	return e.Theme == "" && e.Density == "" && e.Backend == "" &&
+		e.Platform == "" && e.WindowSize.Width == 0 && e.WindowSize.Height == 0
+}
+
+// Validate checks the environment for valid values.
+// Returns nil for empty environments (which inherit defaults at runtime).
+func (e Environment) Validate() error {
+	if e.IsEmpty() {
+		return nil
+	}
+
+	// Validate window size if set
+	if e.WindowSize.Width < 0 || e.WindowSize.Height < 0 {
+		return ValidationError{
+			Field:   "environment.window_size",
+			Message: fmt.Sprintf("window dimensions must be positive, got %dx%d", e.WindowSize.Width, e.WindowSize.Height),
+		}
+	}
+
+	return nil
+}
+
+// DisplayString returns a concise display string for UI presentation.
+func (e Environment) DisplayString() string {
+	parts := []string{}
+	if e.Backend != "" {
+		parts = append(parts, e.Backend)
+	}
+	if e.Platform != "" {
+		parts = append(parts, e.Platform)
+	}
+	if e.Theme != "" {
+		parts = append(parts, e.Theme)
+	}
+	if e.Density != "" {
+		parts = append(parts, e.Density)
+	}
+	if len(parts) == 0 {
+		return "default"
+	}
+	return fmt.Sprintf("%s", strings.Join(parts, "/"))
 }
 
 // ActionType identifies the type of action.
@@ -121,6 +407,31 @@ func (t Target) Resolve() Target {
 // ActionParams contains action-specific parameters.
 type ActionParams map[string]interface{}
 
+// String returns a human-readable summary of the action.
+func (a Action) String() string {
+	if a.Target.IsEmpty() {
+		return string(a.Type)
+	}
+	if a.Target.LogicalID != "" {
+		return fmt.Sprintf("%s[%s]", a.Type, a.Target.LogicalID)
+	}
+	return fmt.Sprintf("%s[%.1f,%.1f]", a.Type, a.Target.X, a.Target.Y)
+}
+
+// String returns a human-readable summary of the target.
+func (t Target) String() string {
+	if t.IsEmpty() {
+		if t.Fallback != nil {
+			return fmt.Sprintf("fallback(%s)", t.Fallback.String())
+		}
+		return "<empty>"
+	}
+	if t.LogicalID != "" {
+		return t.LogicalID
+	}
+	return fmt.Sprintf("(%.1f,%.1f)", t.X, t.Y)
+}
+
 // AssertionType identifies the type of assertion.
 type AssertionType string
 
@@ -144,6 +455,11 @@ type Assertion struct {
 	Params AssertionParams `json:"params,omitempty"`
 }
 
+// String returns a human-readable summary of the assertion.
+func (a Assertion) String() string {
+	return string(a.Type)
+}
+
 // AssertionParams contains assertion-specific parameters.
 type AssertionParams map[string]interface{}
 
@@ -162,6 +478,14 @@ type ArtifactSpec struct {
 	Type     ArtifactType `json:"type"`
 	Name     string       `json:"name,omitempty"`
 	Required bool         `json:"required"`
+}
+
+// String returns a human-readable summary of the artifact spec.
+func (a ArtifactSpec) String() string {
+	if a.Name != "" {
+		return fmt.Sprintf("%s:%s", a.Type, a.Name)
+	}
+	return string(a.Type)
 }
 
 // ValidationError represents a structured validation failure.
@@ -202,6 +526,9 @@ func (s *Scenario) Validate() error {
 		return err
 	}
 	if err := s.validateArtifacts(); err != nil {
+		return err
+	}
+	if err := s.validateCapabilities(); err != nil {
 		return err
 	}
 	return nil
@@ -250,6 +577,35 @@ func (s *Scenario) validateArtifacts() error {
 			}
 			names[artifact.Name] = true
 		}
+	}
+	return nil
+}
+
+func (s *Scenario) validateCapabilities() error {
+	seen := make(map[Capability]bool)
+	for i, capability := range s.Capabilities {
+		if capability == "" {
+			return ValidationError{
+				Field:   "capabilities",
+				Message: "missing capability",
+				Step:    i + 1,
+			}
+		}
+		if _, ok := supportedCapabilities[capability]; !ok {
+			return ValidationError{
+				Field:   "capabilities",
+				Message: fmt.Sprintf("unsupported capability: %q", capability),
+				Step:    i + 1,
+			}
+		}
+		if seen[capability] {
+			return ValidationError{
+				Field:   "capabilities",
+				Message: fmt.Sprintf("duplicate capability: %q", capability),
+				Step:    i + 1,
+			}
+		}
+		seen[capability] = true
 	}
 	return nil
 }
@@ -350,6 +706,25 @@ func (s *Scenario) HasCapability(cap Capability) bool {
 	return false
 }
 
+// HasFamily reports whether the scenario belongs to the requested family.
+func (s *Scenario) HasFamily(family string) bool {
+	if s == nil || family == "" {
+		return false
+	}
+	if s.Family == family {
+		return true
+	}
+	if s.RequiredScene == family {
+		return true
+	}
+	for _, tag := range s.Tags {
+		if tag == family {
+			return true
+		}
+	}
+	return false
+}
+
 // Summary returns a human-readable summary of the scenario.
 func (s *Scenario) Summary() string {
 	return fmt.Sprintf("%s (%s): %d actions, %d assertions, %d artifacts",
@@ -357,16 +732,42 @@ func (s *Scenario) Summary() string {
 }
 
 // ExecutionStatus represents the status of a replay execution.
+// The status transitions are:
+//
+//	pending → running → passed
+//	              ↓
+//	        failed/error/cancelled
 type ExecutionStatus string
 
 const (
-	StatusPending   ExecutionStatus = "pending"
-	StatusRunning   ExecutionStatus = "running"
-	StatusPassed    ExecutionStatus = "passed"
-	StatusFailed    ExecutionStatus = "failed"
-	StatusError     ExecutionStatus = "error"
+	// StatusPending indicates the scenario is ready to run but not yet started.
+	StatusPending ExecutionStatus = "pending"
+	// StatusRunning indicates the scenario is currently executing.
+	StatusRunning ExecutionStatus = "running"
+	// StatusPassed indicates all actions and assertions completed successfully.
+	StatusPassed ExecutionStatus = "passed"
+	// StatusFailed indicates one or more assertions failed.
+	StatusFailed ExecutionStatus = "failed"
+	// StatusError indicates an unexpected error occurred during execution.
+	StatusError ExecutionStatus = "error"
+	// StatusCancelled indicates the execution was cancelled by the user.
 	StatusCancelled ExecutionStatus = "cancelled"
 )
+
+// String returns the string representation of the status.
+func (e ExecutionStatus) String() string {
+	return string(e)
+}
+
+// IsTerminal returns true if the status represents a completed execution.
+func (e ExecutionStatus) IsTerminal() bool {
+	switch e {
+	case StatusPassed, StatusFailed, StatusError, StatusCancelled:
+		return true
+	default:
+		return false
+	}
+}
 
 // RunResult contains the outcome of a replay execution.
 type RunResult struct {
@@ -381,12 +782,39 @@ type RunResult struct {
 	Error            string            `json:"error,omitempty"`
 }
 
+// String returns a human-readable summary of the run result.
+func (r RunResult) String() string {
+	passed := 0
+	failed := 0
+	for _, ar := range r.AssertionResults {
+		if ar.Passed {
+			passed++
+		} else {
+			failed++
+		}
+	}
+	return fmt.Sprintf("%s: %s (%d/%d steps, %d passed, %d failed assertions, %v duration)",
+		r.ScenarioID, r.Status, r.StepsExecuted, r.StepsTotal, passed, failed, r.Duration())
+}
+
 // AssertionResult represents a single assertion outcome.
 type AssertionResult struct {
 	Step   int           `json:"step"`
 	Type   AssertionType `json:"type"`
 	Passed bool          `json:"passed"`
 	Reason string        `json:"reason,omitempty"`
+}
+
+// String returns a human-readable summary of the assertion result.
+func (ar AssertionResult) String() string {
+	status := "PASS"
+	if !ar.Passed {
+		status = "FAIL"
+	}
+	if ar.Reason != "" {
+		return fmt.Sprintf("[%s] step %d %s: %s", status, ar.Step, ar.Type, ar.Reason)
+	}
+	return fmt.Sprintf("[%s] step %d %s", status, ar.Step, ar.Type)
 }
 
 // Duration returns the run duration.

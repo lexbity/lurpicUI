@@ -60,6 +60,8 @@ This document describes the JSON schema for replay scenarios.
 | `artifacts` | array | Expected output artifacts |
 | `tags` | array | Classification tags |
 
+`display_name` and `schema` are required for registry-loaded scenarios. Tests that only need a lightweight fixture should use `model.NewFixtureScenario(...)` so the runtime contract stays explicit.
+
 ## Actions
 
 ### Action Structure
@@ -176,6 +178,8 @@ Capabilities declare what the scenario needs from the runtime:
 | `assertions` | State assertions |
 | `background_jobs` | Background job handling |
 
+Capability declarations are validated against this list. Unknown capability strings, empty entries, and duplicates are rejected by the scenario validator.
+
 ## Validation
 
 Scenarios are validated before execution:
@@ -185,7 +189,8 @@ Scenarios are validated before execution:
 3. **Action types** - all types must be supported
 4. **Assertion types** - all types must be supported
 5. **Artifact types** - all types must be supported
-6. **Duplicate names** - artifact names must be unique
+6. **Capability values** - all capabilities must be supported and unique
+7. **Duplicate names** - artifact names must be unique
 
 ### Validation Errors
 
@@ -218,6 +223,11 @@ type ValidationError struct {
     }
   },
   "capabilities": ["scene_load", "pointer_input", "screenshots", "assertions"],
+  "expected_state": {
+    "scene_id": "basic",
+    "theme": "baseline",
+    "density": "default"
+  },
   "actions": [
     {
       "type": "scene_load",

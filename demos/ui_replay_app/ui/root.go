@@ -9,7 +9,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/ui_replay/engine"
 	"codeburg.org/lexbit/ui_replay/model"
+	"codeburg.org/lexbit/ui_replay/store"
 )
 
 // ReplayRootFacet is the root facet managing the replay shell layout.
@@ -35,6 +37,10 @@ type ReplayRootFacet struct {
 
 	hasError bool
 	errorMsg string
+
+	// Execution control
+	runner      *engine.Runner
+	runCallback func(*model.RunResult)
 }
 
 // NewReplayRootFacet creates the root facet with all child facets.
@@ -282,4 +288,98 @@ func (f *ReplayRootFacet) renderErrorState(list *gfx.CommandList, bounds gfx.Rec
 			}
 		}
 	}
+}
+
+// SetRunner sets the runner for execution control.
+func (f *ReplayRootFacet) SetRunner(runner *engine.Runner) {
+	f.runner = runner
+}
+
+// SetRunCallback sets the callback for run completion notifications.
+func (f *ReplayRootFacet) SetRunCallback(cb func(*model.RunResult)) {
+	f.runCallback = cb
+}
+
+// ReloadScenario reloads the currently selected scenario and runs it.
+func (f *ReplayRootFacet) ReloadScenario() error {
+	scenario, ok := store.SelectedScenario()
+	if !ok {
+		return fmt.Errorf("no scenario selected")
+	}
+
+	if f.runner == nil {
+		return fmt.Errorf("no runner available")
+	}
+
+	go func() {
+		result, err := f.runner.Run(scenario)
+		if err != nil {
+			// Error is already logged by the runner
+			return
+		}
+		if f.runCallback != nil {
+			f.runCallback(result)
+		}
+		f.RequestFrame()
+	}()
+
+	return nil
+}
+
+// CancelRun cancels the current execution.
+func (f *ReplayRootFacet) CancelRun() error {
+	if f.runner == nil {
+		return fmt.Errorf("no runner available")
+	}
+
+	f.runner.Cancel()
+	return nil
+}
+
+// ExportBundle exports the last run bundle to the specified path.
+func (f *ReplayRootFacet) ExportBundle(path string) error {
+	if f.runner == nil {
+		return fmt.Errorf("no runner available")
+	}
+
+	bundle := f.runner.GetLastBundle()
+	if bundle == nil {
+		return fmt.Errorf("no bundle available - run a scenario first")
+	}
+
+	if path == "" {
+		path = bundle.OutputPath
+	}
+
+	if err := bundle.SaveToDisk(); err != nil {
+		return fmt.Errorf("failed to save bundle: %w", err)
+	}
+
+	return nil
+}
+
+// GetExecutionState returns the current execution state.
+func (f *ReplayRootFacet) GetExecutionState() store.ExecutionState {
+	return store.ExecutionStateStore.Get()
+}
+
+// IsRunning returns true if a scenario is currently running.
+func (f *ReplayRootFacet) IsRunning() bool {
+	exec := store.ExecutionStateStore.Get()
+	return exec.IsRunning()
+}
+
+// SelectScenario selects a scenario by ID.
+func (f *ReplayRootFacet) SelectScenario(id model.ScenarioID) {
+	store.SelectScenario(id)
+}
+
+// GetSelectedScenario returns the currently selected scenario.
+func (f *ReplayRootFacet) GetSelectedScenario() (*model.Scenario, bool) {
+	return store.SelectedScenario()
+}
+
+// GetRunHistory returns the run history.
+func (f *ReplayRootFacet) GetRunHistory() *store.RunHistory {
+	return store.RunHistoryStore.Get()
 }
