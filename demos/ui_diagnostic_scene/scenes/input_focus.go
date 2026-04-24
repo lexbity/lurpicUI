@@ -5,8 +5,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/basic"
+	"codeburg.org/lexbit/lurpicui/marks/uiinput"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/ui_diagnostic_scene/scene"
+
+	textpkg "codeburg.org/lexbit/lurpicui/text"
 )
 
 // InputFocusScene validates keyboard routing, tab order, caret visibility,
@@ -16,6 +20,11 @@ type InputFocusScene struct {
 	focusableItems []*focusableItem
 	focusedIndex   int
 	logs           []string
+	textValue      store.Binding[string]
+	choiceValue    store.Binding[string]
+	textInput      *uiinput.TextInput
+	disabledButton *uiinput.Button
+	choiceSelect   *uiinput.Select
 }
 
 type focusableItem struct {
@@ -34,7 +43,7 @@ func NewInputFocusScene() *InputFocusScene {
 		BaseScene: NewBaseScene(
 			"input-focus",
 			"Input / Focus",
-			"Validates keyboard routing, tab order, caret visibility, focus transitions",
+			"Validates keyboard routing, tab order, caret visibility, focus transitions, and disabled focus targets",
 			[]string{"uiinput"},
 		),
 		focusableItems: make([]*focusableItem, 0),
@@ -52,8 +61,11 @@ func (s *InputFocusScene) BuildRoot() facet.FacetImpl {
 	}
 
 	col := layout.NewColumnLayout()
+	col.Gap = 10
 	s.root = col
 	s.focusableItems = make([]*focusableItem, 0)
+	s.textValue = store.NewBinding("caret")
+	s.choiceValue = store.NewBinding("alpha")
 
 	// Create focusable buttons in a row
 	row := layout.NewRowLayout()
@@ -75,6 +87,44 @@ func (s *InputFocusScene) BuildRoot() facet.FacetImpl {
 		},
 	}
 	col.AddChild(decor.Base())
+
+	inputTitle := &basic.Text{
+		ID: "input-focus-uiinput-title",
+		Paragraph: textpkg.Paragraph{
+			Spans: []textpkg.TextSpan{{Text: "Real uiinput focus targets", Style: textpkg.TextStyle{Size: 15}}},
+		},
+		MaxWidth: 400,
+	}
+	col.AddChild(inputTitle.Base())
+
+	uiRow := layout.NewRowLayout()
+	uiRow.Gap = 12
+
+	s.textInput = &uiinput.TextInput{
+		ID:          "input-focus-textinput",
+		Value:       s.textValue,
+		Placeholder: "Type here",
+		Assistive:   "caret and composition probe",
+		Variant:     uiinput.TextInputOutlined,
+	}
+	uiRow.Add(layout.Fixed(s.textInput.Base()))
+
+	s.disabledButton = &uiinput.Button{
+		ID:       "input-focus-disabled-button",
+		Label:    "Disabled",
+		Variant:  uiinput.ButtonOutlined,
+		Disabled: true,
+	}
+	uiRow.Add(layout.Fixed(s.disabledButton.Base()))
+
+	s.choiceSelect = &uiinput.Select{
+		ID:       "input-focus-select",
+		Options:  []uiinput.SelectOption{{Key: "alpha", Label: "Alpha"}, {Key: "beta", Label: "Beta"}, {Key: "gamma", Label: "Gamma"}},
+		Selected: s.choiceValue,
+		Variant:  uiinput.SelectStandard,
+	}
+	uiRow.Add(layout.Fixed(s.choiceSelect.Base()))
+	col.AddChild(uiRow.Base())
 
 	return col
 }
@@ -235,6 +285,12 @@ func (s *InputFocusScene) Reset() {
 	s.focusedIndex = -1
 	s.logs = make([]string, 0)
 	s.focusableItems = make([]*focusableItem, 0)
+	if s.textValue.Store() != nil {
+		s.textValue.Set("caret")
+	}
+	if s.choiceValue.Store() != nil {
+		s.choiceValue.Set("alpha")
+	}
 	s.BaseScene.Reset()
 }
 
@@ -244,6 +300,8 @@ func (s *InputFocusScene) ExportState() map[string]any {
 		"scene_id":      s.id,
 		"focused_index": s.focusedIndex,
 		"log_count":     len(s.logs),
+		"text_value":    s.textValue.Get(),
+		"choice_value":  s.choiceValue.Get(),
 	}
 }
 

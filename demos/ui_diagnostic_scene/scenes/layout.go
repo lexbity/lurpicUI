@@ -4,7 +4,10 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/basic"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
+	textpkg "codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/ui_diagnostic_scene/scene"
 )
 
@@ -72,6 +75,55 @@ func (s *LayoutScene) BuildRoot() facet.FacetImpl {
 	deepStack := s.createNesting(s.nestingDepth)
 	col.AddChild(deepStack.Base())
 
+	// Clipped overflow probe using structure marks.
+	clip := &structure.Clip{
+		ID:     "layout-clip",
+		Shape:  structure.ClipRect,
+		Bounds: gfx.RectFromXYWH(16, 240, 170, 86),
+		Children: []marks.Mark{
+			&basic.Rect{
+				ID:     "layout-clip-backdrop",
+				Bounds: basic.BoundsProps{X: 0, Y: 0, W: 220, H: 120},
+				Style: basic.PrimitiveStyleProps{
+					Fill:    solidFill(gfx.ColorFromRGBA8(130, 180, 240, 255)),
+					Visible: true,
+					Opacity: 1,
+				},
+			},
+			&basic.Text{
+				ID:        "layout-clip-label",
+				Paragraph: textParagraph("Overflow clipped by structure.Clip"),
+				MaxWidth:  220,
+			},
+		},
+	}
+	col.AddChild(clip.Base())
+
+	viewport := &structure.ViewportHost{
+		ID: "layout-viewport",
+		Viewport: structure.ViewportModel{
+			Bounds:    gfx.RectFromXYWH(220, 232, 180, 96),
+			Transform: gfx.Translation(14, 10),
+		},
+		Children: []marks.Mark{
+			&basic.Rect{
+				ID:     "layout-viewport-box",
+				Bounds: basic.BoundsProps{X: 0, Y: 0, W: 120, H: 68},
+				Style: basic.PrimitiveStyleProps{
+					Fill:    solidFill(gfx.ColorFromRGBA8(180, 130, 220, 255)),
+					Visible: true,
+					Opacity: 1,
+				},
+			},
+			&basic.Text{
+				ID:        "layout-viewport-label",
+				Paragraph: textParagraph("Viewport host projection"),
+				MaxWidth:  180,
+			},
+		},
+	}
+	col.AddChild(viewport.Base())
+
 	return col
 }
 
@@ -115,6 +167,12 @@ func (s *LayoutScene) ExportState() map[string]any {
 	return map[string]any{
 		"scene_id":      s.id,
 		"nesting_depth": s.nestingDepth,
+	}
+}
+
+func textParagraph(value string) textpkg.Paragraph {
+	return textpkg.Paragraph{
+		Spans: []textpkg.TextSpan{{Text: value, Style: textpkg.TextStyle{Size: 12}}},
 	}
 }
 

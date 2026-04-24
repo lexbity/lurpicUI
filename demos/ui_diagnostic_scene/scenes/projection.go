@@ -6,7 +6,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/basic"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/ui_diagnostic_scene/scene"
 )
 
@@ -33,7 +35,7 @@ func NewProjectionScene() *ProjectionScene {
 		BaseScene: NewBaseScene(
 			"projection",
 			"Projection",
-			"Validates child transforms, hit regions, and viewport projection",
+			"Validates child transforms, anchor forwarding, hit regions, and viewport projection",
 			[]string{"structure"},
 		),
 		transforms:      make([]gfx.Transform, 0),
@@ -56,24 +58,44 @@ func (s *ProjectionScene) BuildRoot() facet.FacetImpl {
 	// Create a stack with nested transforms
 	stack := layout.NewStackLayout(layout.AlignStart)
 
-	// Base layer - untransformed
+	// Base layer - untransformed, wrapped by structure.Transform
 	base := s.createTransformedRect("base", gfx.Identity(), gfx.ColorFromRGBA8(200, 200, 200, 255))
-	stack.AddChild(base.Base())
+	baseTransform := &structure.Transform{
+		ID:       "projection-base-transform",
+		Matrix:   gfx.Identity(),
+		Children: []marks.Mark{base},
+	}
+	stack.AddChild(baseTransform.Base())
 
 	// Rotated layer
 	rotation := gfx.Rotation(15 * math.Pi / 180) // 15 degrees in radians
 	rotated := s.createTransformedRect("rotated", rotation, gfx.ColorFromRGBA8(255, 100, 100, 200))
-	stack.AddChild(rotated.Base())
+	rotatedTransform := &structure.Transform{
+		ID:       "projection-rotated-transform",
+		Matrix:   rotation,
+		Children: []marks.Mark{rotated},
+	}
+	stack.AddChild(rotatedTransform.Base())
 
 	// Scaled layer
 	scale := gfx.Scale(1.5, 0.8)
 	scaled := s.createTransformedRect("scaled", scale, gfx.ColorFromRGBA8(100, 255, 100, 200))
-	stack.AddChild(scaled.Base())
+	scaledTransform := &structure.Transform{
+		ID:       "projection-scaled-transform",
+		Matrix:   scale,
+		Children: []marks.Mark{scaled},
+	}
+	stack.AddChild(scaledTransform.Base())
 
 	// Translated layer
 	translation := gfx.Translation(50, 30)
 	translated := s.createTransformedRect("translated", translation, gfx.ColorFromRGBA8(100, 100, 255, 200))
-	stack.AddChild(translated.Base())
+	translatedTransform := &structure.Transform{
+		ID:       "projection-translated-transform",
+		Matrix:   translation,
+		Children: []marks.Mark{translated},
+	}
+	stack.AddChild(translatedTransform.Base())
 
 	// Combined transform (translate + rotate + scale)
 	// Apply transforms in reverse order of desired effect
@@ -82,9 +104,65 @@ func (s *ProjectionScene) BuildRoot() facet.FacetImpl {
 	scale2 := gfx.Scale(0.8, 1.2)
 	combined := translate.Multiply(rotate).Multiply(scale2)
 	complex := s.createTransformedRect("combined", combined, gfx.ColorFromRGBA8(255, 200, 100, 200))
-	stack.AddChild(complex.Base())
+	combinedTransform := &structure.Transform{
+		ID:       "projection-combined-transform",
+		Matrix:   combined,
+		Children: []marks.Mark{complex},
+	}
+	stack.AddChild(combinedTransform.Base())
 
 	col.AddChild(stack.Base())
+
+	viewport := &structure.ViewportHost{
+		ID: "projection-viewport",
+		Viewport: structure.ViewportModel{
+			Bounds:    gfx.RectFromXYWH(0, 0, 420, 320),
+			Transform: gfx.Translation(12, 12),
+		},
+		Children: []marks.Mark{
+			&basic.Rect{
+				ID:     "projection-viewport-box",
+				Bounds: basic.BoundsProps{X: 0, Y: 0, W: 160, H: 84},
+				Style: basic.PrimitiveStyleProps{
+					Fill:    solidFill(gfx.ColorFromRGBA8(220, 180, 240, 255)),
+					Visible: true,
+					Opacity: 1,
+				},
+			},
+			&basic.Text{
+				ID:        "projection-viewport-label",
+				Paragraph: textParagraph("Viewport host projection"),
+				MaxWidth:  200,
+			},
+		},
+	}
+	col.AddChild(viewport.Base())
+
+	anchorSource := &structure.Transform{
+		ID:     "projection-anchor-source",
+		Matrix: gfx.Translation(300, 160),
+		Children: []marks.Mark{
+			&basic.Rect{
+				ID:     "projection-anchor-box",
+				Bounds: basic.BoundsProps{X: 0, Y: 0, W: 90, H: 60},
+				Style: basic.PrimitiveStyleProps{
+					Fill:    solidFill(gfx.ColorFromRGBA8(240, 220, 120, 255)),
+					Visible: true,
+					Opacity: 1,
+				},
+			},
+		},
+	}
+	anchorProxy := &structure.AnchorProxy{
+		ID:     "projection-anchor-proxy",
+		Source: structure.AnchorSourceRef{MarkID: anchorSource.ID, Anchor: "bounds-center"},
+		RenameMap: map[string]string{
+			"bounds-center": "focus-center",
+		},
+		Offset:   gfx.Point{X: 28, Y: 12},
+		Children: []marks.Mark{anchorSource},
+	}
+	col.AddChild(anchorProxy.Base())
 
 	// Add hit test visualization layer
 	hitTestLayer := s.createHitTestVisualization()
@@ -103,26 +181,17 @@ func (s *ProjectionScene) createTransformedRect(id string, transform gfx.Transfo
 			Visible: true,
 			Opacity: 1,
 		},
-		Tx: basic.TransformProps{Transform: transform},
 	}
 
-	// Store transform for diagnostics
+	// Store the authored transform proxy for diagnostics; the structure wrapper applies the actual transform.
 	s.transforms = append(s.transforms, transform)
 
 	// Add hit role with debug logging
 	f := rect.Base()
 	hitRole := &facet.HitRole{
 		OnHitTest: func(p gfx.Point) facet.HitResult {
-			// Apply inverse transform to test in local space
-			inv, ok := transform.Inverse()
-			localPoint := p
-			if ok {
-				localPoint = inv.TransformPoint(p)
-			}
-
-			// Test against local bounds
 			localBounds := gfx.RectFromXYWH(0, 0, 100, 100)
-			hit := localBounds.Contains(localPoint)
+			hit := localBounds.Contains(p)
 
 			if s.showDiagnostics {
 				result := HitTestResult{

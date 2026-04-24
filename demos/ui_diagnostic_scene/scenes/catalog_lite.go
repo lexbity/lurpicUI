@@ -4,7 +4,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/basic"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/ui_diagnostic_scene/scene"
 
@@ -23,7 +25,7 @@ func NewCatalogLiteScene() *CatalogLiteScene {
 		BaseScene: NewBaseScene(
 			"catalog-lite",
 			"Catalog Lite",
-			"Verifies catalog inventory renders without diagnostic noise",
+			"Basic primitives in a grouped layout with text and surface contrast",
 			[]string{"basic", "structure"},
 		),
 	}
@@ -37,7 +39,6 @@ func (s *CatalogLiteScene) BuildRoot() facet.FacetImpl {
 
 	// Create a column layout with sample marks
 	col := layout.NewColumnLayout()
-	s.root = col
 
 	// Add a rect mark
 	rect := &basic.Rect{
@@ -50,7 +51,6 @@ func (s *CatalogLiteScene) BuildRoot() facet.FacetImpl {
 			Opacity: 1,
 		},
 	}
-	col.AddChild(rect.Base())
 
 	// Add an ellipse mark
 	ellipse := &basic.Ellipse{
@@ -62,7 +62,6 @@ func (s *CatalogLiteScene) BuildRoot() facet.FacetImpl {
 			Opacity: 1,
 		},
 	}
-	col.AddChild(ellipse.Base())
 
 	// Add a text label
 	textMark := &basic.Text{
@@ -75,7 +74,18 @@ func (s *CatalogLiteScene) BuildRoot() facet.FacetImpl {
 		MaxWidth:   300,
 		Selectable: true,
 	}
-	col.AddChild(textMark.Base())
+
+	group := &structure.Group{
+		ID: "catalog-lite-group",
+		Children: []marks.Mark{
+			rect,
+			ellipse,
+			textMark,
+		},
+	}
+	col.AddChild(group.Base())
+
+	s.root = col
 
 	return col
 }

@@ -57,7 +57,7 @@ func registerScenes(r *scene.Registry) {
 	r.Register(scene.Definition{
 		ID:          "catalog-lite",
 		DisplayName: "Catalog Lite",
-		Description: "Reduced catalog rendering without diagnostic noise",
+		Description: "Basic primitives in a nested layout, with text and surface contrast",
 		Families:    []string{"basic", "structure"},
 		Factory:     func() scene.Scene { return scenes.NewCatalogLiteScene() },
 	})
@@ -65,7 +65,7 @@ func registerScenes(r *scene.Registry) {
 	r.Register(scene.Definition{
 		ID:          "interaction",
 		DisplayName: "Interaction",
-		Description: "Hover, press, drag, click, selection, and focus transitions",
+		Description: "Hover, press, drag, click, selection, focus, and disabled input states",
 		Families:    []string{"uiinput"},
 		Factory:     func() scene.Scene { return scenes.NewInteractionScene() },
 	})
@@ -73,15 +73,23 @@ func registerScenes(r *scene.Registry) {
 	r.Register(scene.Definition{
 		ID:          "layout",
 		DisplayName: "Layout",
-		Description: "Constraint extremes, nesting, clipping, overflow handling",
+		Description: "Constraint extremes, nested groups, clipping, and overflow handling",
 		Families:    []string{"structure"},
 		Factory:     func() scene.Scene { return scenes.NewLayoutScene() },
 	})
 
 	r.Register(scene.Definition{
+		ID:          "input-focus",
+		DisplayName: "Input / Focus",
+		Description: "Keyboard routing, tab order, caret visibility, and disabled focus targets",
+		Families:    []string{"uiinput"},
+		Factory:     func() scene.Scene { return scenes.NewInputFocusScene() },
+	})
+
+	r.Register(scene.Definition{
 		ID:          "stress",
 		DisplayName: "Stress",
-		Description: "Survives repeated resize/theme/mount/unmount churn",
+		Description: "Survives repeated resize, theme, mount, and unmount churn",
 		Families:    []string{"basic", "structure", "uiinput"},
 		Factory:     func() scene.Scene { return scenes.NewStressScene() },
 	})
@@ -90,7 +98,7 @@ func registerScenes(r *scene.Registry) {
 	r.Register(scene.Definition{
 		ID:          "projection",
 		DisplayName: "Projection",
-		Description: "Child transforms, hit regions, and viewport projection",
+		Description: "Child transforms, anchor forwarding, hit regions, and viewport projection",
 		Families:    []string{"structure"},
 		Factory:     func() scene.Scene { return scenes.NewProjectionScene() },
 	})
@@ -99,41 +107,64 @@ func registerScenes(r *scene.Registry) {
 	r.Register(scene.Definition{
 		ID:          "animation",
 		DisplayName: "Animation / Ticking",
-		Description: "Tick delivery, timeline progression, frame jank detection",
+		Description: "Tick delivery, timeline progression, and frame jank detection",
 		Families:    []string{"basic"},
 		Factory:     func() scene.Scene { return scenes.NewAnimationScene() },
 	})
 
-	// Phase 7+ Placeholder scenes (to be implemented)
-	registerPlaceholderScene(r, "theme", "Theme", "Token propagation, state colors, density changes", []string{"basic"})
-	registerPlaceholderScene(r, "store-signal", "Store / Signal", "Invalidation, signal fanout", []string{"basic"})
-	registerPlaceholderScene(r, "text-ime", "Text / IME", "Text entry, composing state", []string{"uiinput"})
-	registerPlaceholderScene(r, "annotation", "Annotation", "Labels, connectors, badges", []string{"annotation"})
-	registerPlaceholderScene(r, "chart", "Chart", "Axes and scale-driven layout", []string{"chart"})
-}
-
-func registerPlaceholderScene(r *scene.Registry, id, name, desc string, families []string) {
 	r.Register(scene.Definition{
-		ID:          id,
-		DisplayName: name,
-		Description: desc,
-		Families:    families,
-		Factory:     func() scene.Scene { return &placeholderScene{id: id, name: name} },
+		ID:          "theme",
+		DisplayName: "Theme",
+		Description: "Token propagation, state colors, and density changes",
+		Families:    []string{"basic"},
+		Factory:     func() scene.Scene { return scenes.NewThemeScene() },
+	})
+
+	r.Register(scene.Definition{
+		ID:          "store-signal",
+		DisplayName: "Store / Signal",
+		Description: "Invalidation, store fanout, and state replay",
+		Families:    []string{"basic"},
+		Factory:     func() scene.Scene { return scenes.NewStoreSignalScene() },
+	})
+
+	r.Register(scene.Definition{
+		ID:          "text-ime",
+		DisplayName: "Text / IME",
+		Description: "Text entry, composing state, and caret movement",
+		Families:    []string{"uiinput"},
+		Factory:     func() scene.Scene { return scenes.NewTextIMEScene() },
+	})
+
+	r.Register(scene.Definition{
+		ID:          "annotation",
+		DisplayName: "Annotation",
+		Description: "Labels, connectors, badges, callouts, and handles",
+		Families:    []string{"annotation"},
+		Factory:     func() scene.Scene { return scenes.NewAnnotationScene() },
+	})
+
+	r.Register(scene.Definition{
+		ID:          "chart",
+		DisplayName: "Chart",
+		Description: "Axes, scaling, and density-aware chart layout",
+		Families:    []string{"chart"},
+		Factory:     func() scene.Scene { return scenes.NewChartScene() },
+	})
+
+	r.Register(scene.Definition{
+		ID:          "uinav",
+		DisplayName: "UI Navigation",
+		Description: "Tabs, drawer, menus, pagination, scrollbars, and speed-dial marks",
+		Families:    []string{"uinav"},
+		Factory:     func() scene.Scene { return scenes.NewUINavScene() },
+	})
+
+	r.Register(scene.Definition{
+		ID:          "uinotification",
+		DisplayName: "UI Notification",
+		Description: "Snackbar, dialog, and progress notification marks",
+		Families:    []string{"uinotification"},
+		Factory:     func() scene.Scene { return scenes.NewUINotificationScene() },
 	})
 }
-
-// placeholderScene is a minimal scene implementation for unimplemented phases
-type placeholderScene struct {
-	id   string
-	name string
-}
-
-func (p *placeholderScene) SceneID() string                   { return p.id }
-func (p *placeholderScene) DisplayName() string               { return p.name }
-func (p *placeholderScene) BuildRoot() facet.FacetImpl        { return nil }
-func (p *placeholderScene) Reset()                            {}
-func (p *placeholderScene) ApplyTheme(theme.Context)          {}
-func (p *placeholderScene) ApplyDensity(float32)              {}
-func (p *placeholderScene) Capabilities() scene.CapabilitySet { return scene.CapabilitySet{} }
-func (p *placeholderScene) ExportState() map[string]any       { return nil }
-func (p *placeholderScene) ImportState(map[string]any)        {}

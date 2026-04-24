@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"fmt"
+
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -16,7 +18,7 @@ type LogsPanelFacet struct {
 	shaper *text.Shaper
 
 	// Log entries
-	entries []LogEntry
+	entries    []LogEntry
 	maxEntries int
 }
 
@@ -25,6 +27,7 @@ type LogEntry struct {
 	Category string
 	Message  string
 	Time     string
+	Ordinal  int
 }
 
 // NewLogsPanelFacet constructs the logs panel
@@ -129,7 +132,11 @@ func (l *LogsPanelFacet) renderHeader(list *gfx.CommandList, bounds gfx.Rect, y 
 
 func (l *LogsPanelFacet) renderLogEntry(list *gfx.CommandList, bounds gfx.Rect, y float32, entry LogEntry) float32 {
 	// Format: [CATEGORY] message
-	text := "[" + entry.Category + "] " + entry.Message
+	text := ""
+	if entry.Ordinal > 0 {
+		text += fmt.Sprintf("#%04d ", entry.Ordinal)
+	}
+	text += "[" + entry.Category + "] " + entry.Message
 	style := l.theme.TextStyle(theme.TextMonoS)
 	layout := l.shaper.ShapeSimple(text, style)
 	if layout != nil && len(layout.Lines) > 0 {
@@ -171,4 +178,14 @@ func (l *LogsPanelFacet) SetMaxEntries(max int) {
 		l.entries = l.entries[len(l.entries)-max:]
 		l.Invalidate(facet.DirtyProjection)
 	}
+}
+
+// Entries returns a copy of the log entries in chronological order.
+func (l *LogsPanelFacet) Entries() []LogEntry {
+	if l == nil || len(l.entries) == 0 {
+		return nil
+	}
+	out := make([]LogEntry, len(l.entries))
+	copy(out, l.entries)
+	return out
 }

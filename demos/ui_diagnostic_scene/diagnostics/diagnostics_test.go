@@ -4,8 +4,9 @@ import (
 	"testing"
 	"time"
 
-	"codeburg.org/lexbit/lurpicui/diagnostics"
+	engdiag "codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
 func TestOverlayKind_String(t *testing.T) {
@@ -372,7 +373,7 @@ func TestAdapter_IsAvailable(t *testing.T) {
 
 	// Even with inspector, it's "available"
 	// (though specific features may not be)
-	a.SetInspector(diagnostics.NewInspector(nil))
+	a.SetInspector(engdiag.NewInspector(nil))
 	if !a.IsAvailable() {
 		t.Error("adapter with inspector should be available")
 	}
@@ -381,7 +382,7 @@ func TestAdapter_IsAvailable(t *testing.T) {
 func TestAdapter_UpdateFrameStats(t *testing.T) {
 	a := NewAdapter()
 
-	engineStats := diagnostics.FrameStats{
+	engineStats := engdiag.FrameStats{
 		FrameNumber:      1,
 		DirtyFacets:      5,
 		ProjectedFacets:  10,
@@ -456,3 +457,104 @@ func TestAdapter_GetAnchorSummary_noInspector(t *testing.T) {
 		t.Error("expected non-nil ByParent map")
 	}
 }
+
+func TestAdapter_summaries_from_tree(t *testing.T) {
+	root := newSummaryNode(true, false, false)
+	root.layout.Arrange(gfx.RectFromXYWH(0, 0, 200, 100))
+	root.Base().InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection, "test")
+
+	focus := newSummaryNode(true, true, true)
+	focus.layout.Arrange(gfx.RectFromXYWH(10, 10, 50, 20))
+	focus.Base().InvalidateWithSource(facet.DirtyProjection, "focus")
+
+	render := newSummaryNode(true, false, false)
+	render.layout.Arrange(gfx.RectFromXYWH(20, 20, 40, 40))
+
+	root.Base().AddChild(focus.Base())
+	root.Base().AddChild(render.Base())
+
+	a := NewAdapter()
+	a.SetInspector(engdiag.NewInspector(root))
+	a.SetSceneSummary(SceneCapabilitySummary{SceneID: "scene-a", SceneName: "Scene A", Families: []string{"basic"}, SupportsSnapshot: true})
+	overlays := NewActiveOverlays("scene-a")
+	overlays.SetEnabled(OverlayBounds, true)
+	a.SetActiveOverlays(overlays)
+
+	focusSummary := a.GetFocusSummary()
+	if !focusSummary.HasFocus {
+		t.Fatal("expected focus summary to report focus")
+	}
+	if len(focusSummary.TabOrder) != 1 {
+		t.Fatalf("expected one focusable facet, got %d", len(focusSummary.TabOrder))
+	}
+
+	hitSummary := a.GetHitSummary()
+	if hitSummary.TotalRegions == 0 {
+		t.Fatal("expected hit summary to report regions")
+	}
+
+	invSummary := a.GetInvalidationSummary()
+	if invSummary.TotalDirtyFacets == 0 {
+		t.Fatal("expected invalidation summary to report dirty facets")
+	}
+
+	renderSummary := a.GetRenderBatchSummary()
+	if renderSummary.TotalBatches == 0 {
+		t.Fatal("expected render summary to report batches")
+	}
+
+	anchorSummary := a.GetAnchorSummary()
+	if anchorSummary.TotalAnchors == 0 {
+		t.Fatal("expected anchor summary to report anchors")
+	}
+
+	sceneSummary := a.GetSceneSummary()
+	if sceneSummary.SceneID != "scene-a" {
+		t.Fatalf("expected scene summary scene-a, got %q", sceneSummary.SceneID)
+	}
+	if !a.GetActiveOverlays().IsEnabled(OverlayBounds) {
+		t.Fatal("expected overlay state to persist")
+	}
+}
+
+type summaryNode struct {
+	facet.Facet
+	layout facet.LayoutRole
+	render facet.RenderRole
+	hit    bool
+	focus  bool
+}
+
+func newSummaryNode(renderable, hit, focus bool) *summaryNode {
+	n := &summaryNode{Facet: facet.NewFacet()}
+	n.layout.OnMeasure = func(c facet.Constraints) gfx.Size { return c.MaxSize }
+	n.layout.OnArrange = func(bounds gfx.Rect) { n.layout.ArrangedBounds = bounds }
+	n.AddRole(&n.layout)
+	if renderable {
+		n.render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {}
+		n.AddRole(&n.render)
+	}
+	n.hit = hit
+	n.focus = focus
+	if hit {
+		n.AddRole(&facet.HitRole{OnHitTest: func(p gfx.Point) facet.HitResult {
+			return facet.HitResult{Hit: true}
+		}})
+	}
+	if focus {
+		n.AddRole(&facet.FocusRole{
+			Focusable: func() bool { return true },
+			TabIndex:  0,
+		})
+	}
+	return n
+}
+
+func (n *summaryNode) Base() *facet.Facet {
+	n.Facet.BindImpl(n)
+	return &n.Facet
+}
+func (n *summaryNode) OnAttach(facet.AttachContext) {}
+func (n *summaryNode) OnDetach()                    {}
+func (n *summaryNode) OnActivate()                  {}
+func (n *summaryNode) OnDeactivate()                {}

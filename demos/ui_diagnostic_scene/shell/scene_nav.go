@@ -12,10 +12,10 @@ import (
 // SceneNavFacet displays the list of available scenes
 type SceneNavFacet struct {
 	facet.Facet
-	layout facet.LayoutRole
-	render facet.RenderRole
-	theme  theme.Context
-	shaper *text.Shaper
+	layout   facet.LayoutRole
+	render   facet.RenderRole
+	theme    theme.Context
+	shaper   *text.Shaper
 	registry *scene.Registry
 
 	// Navigation state
