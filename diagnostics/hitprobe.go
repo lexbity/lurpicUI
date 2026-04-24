@@ -21,6 +21,14 @@ type HitProbe struct {
 	typeNames map[facet.FacetID]string
 }
 
+// HitProbeEntry is a stable snapshot of one hit-map entry.
+type HitProbeEntry struct {
+	FacetID   facet.FacetID
+	FacetType string
+	Transform gfx.Transform
+	Regions   []projection.HitRegion
+}
+
 // HitProbeSource provides a current hit-probe snapshot.
 type HitProbeSource interface {
 	HitProbe() *HitProbe
@@ -73,6 +81,29 @@ func (p *HitProbe) At(screenPoint gfx.Point) []HitProbeResult {
 				PassThrough: region.PassThrough,
 			})
 		}
+	}
+	return out
+}
+
+// Entries returns a stable snapshot of the current hit-map entries.
+func (p *HitProbe) Entries() []HitProbeEntry {
+	if p == nil || p.hitMap == nil {
+		return nil
+	}
+	entries := p.hitMap.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]HitProbeEntry, 0, len(entries))
+	for _, entry := range entries {
+		regions := make([]projection.HitRegion, len(entry.Regions))
+		copy(regions, entry.Regions)
+		out = append(out, HitProbeEntry{
+			FacetID:   entry.FacetID,
+			FacetType: p.typeNames[entry.FacetID],
+			Transform: entry.Transform,
+			Regions:   regions,
+		})
 	}
 	return out
 }
