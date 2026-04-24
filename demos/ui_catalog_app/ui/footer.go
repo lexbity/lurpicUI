@@ -8,29 +8,36 @@ import (
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/ui_catalog/model"
 	"codeburg.org/lexbit/ui_catalog/store"
 )
 
 // FooterFacet displays counts and status information.
 type FooterFacet struct {
 	facet.Facet
-	layout       facet.LayoutRole
-	render       facet.RenderRole
-	th           theme.Context
-	shaper       *text.Shaper
-	subscription signal.SubscriptionID
+	layout        facet.LayoutRole
+	render        facet.RenderRole
+	th            theme.Context
+	shaper        *text.Shaper
+	subscription  signal.SubscriptionID
+	layoutProfile LayoutProfile
 }
 
 // NewFooterFacet creates a new footer facet.
 func NewFooterFacet(th theme.Context, shaper *text.Shaper) *FooterFacet {
 	f := &FooterFacet{
-		Facet:  facet.NewFacet(),
-		th:     th,
-		shaper: shaper,
+		Facet:         facet.NewFacet(),
+		th:            th,
+		shaper:        shaper,
+		layoutProfile: DefaultLayoutProfile(),
 	}
 
 	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
-		return gfx.Size{W: c.MaxSize.W, H: footerHeight}
+		profile := f.layoutProfile
+		if profile.FooterHeight <= 0 {
+			profile = DefaultLayoutProfile()
+		}
+		return gfx.Size{W: c.MaxSize.W, H: profile.FooterHeight}
 	}
 
 	f.layout.OnArrange = func(bounds gfx.Rect) {
@@ -70,6 +77,15 @@ func (f *FooterFacet) OnActivate() {}
 // OnDeactivate handles deactivation.
 func (f *FooterFacet) OnDeactivate() {}
 
+// SetLayoutProfile updates density-driven footer geometry.
+func (f *FooterFacet) SetLayoutProfile(profile LayoutProfile) {
+	if f == nil {
+		return
+	}
+	f.layoutProfile = profile
+	f.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+}
+
 func (f *FooterFacet) renderFooter(list *gfx.CommandList, bounds gfx.Rect) {
 	if list == nil || bounds.IsEmpty() {
 		return
@@ -92,7 +108,11 @@ func (f *FooterFacet) renderFooter(list *gfx.CommandList, bounds gfx.Rect) {
 		return
 	}
 
-	inner := Inset(bounds, 8)
+	profile := f.layoutProfile
+	if profile.FooterInset <= 0 {
+		profile = DefaultLayoutProfile()
+	}
+	inner := Inset(bounds, profile.FooterInset)
 	if inner.IsEmpty() {
 		return
 	}
@@ -100,12 +120,21 @@ func (f *FooterFacet) renderFooter(list *gfx.CommandList, bounds gfx.Rect) {
 	counts := store.GetCounts()
 
 	// Left side: counts
-	leftText := fmt.Sprintf("%d / %d entries", counts.Filtered, counts.Total)
+	leftText := fmt.Sprintf("%d/%d entries | cov i:%d p:%d ph:%d m:%d t:%d l:%d",
+		counts.Filtered,
+		counts.Total,
+		counts.ByCoverage[model.CoverageImplemented],
+		counts.ByCoverage[model.CoveragePartial],
+		counts.ByCoverage[model.CoveragePlaceholder],
+		counts.ByCoverage[model.CoverageMissing],
+		counts.ByCoverage[model.CoverageThemeDependent],
+		counts.ByCoverage[model.CoverageLayoutDependent],
+	)
 	leftStyle := f.th.TextStyle(theme.TextLabelS)
 	leftLayout := f.shaper.ShapeSimple(leftText, leftStyle)
 	if leftLayout != nil && len(leftLayout.Lines) > 0 {
 		line := leftLayout.Lines[0]
-		f.drawTextLine(list, inner.Min.X, inner.Min.Y, line, f.th.Color(theme.ColorTextSecondary))
+		drawTextLine(list, inner.Min.X, inner.Min.Y, line, f.th.Color(theme.ColorTextSecondary))
 	}
 
 	// Right side: selection status
@@ -118,17 +147,6 @@ func (f *FooterFacet) renderFooter(list *gfx.CommandList, bounds gfx.Rect) {
 	if rightLayout != nil && len(rightLayout.Lines) > 0 {
 		line := rightLayout.Lines[0]
 		x := inner.Max.X - line.Bounds.Width()
-		f.drawTextLine(list, x, inner.Min.Y, line, f.th.Color(theme.ColorTextSecondary))
-	}
-}
-
-func (f *FooterFacet) drawTextLine(list *gfx.CommandList, x, y float32, line text.ShapedLine, color gfx.Color) {
-	origin := gfx.Point{X: x + line.Bounds.Min.X, Y: y + line.Baseline}
-	for _, run := range line.Runs {
-		list.Add(gfx.DrawGlyphRun{
-			Run:    run,
-			Origin: origin,
-			Brush:  gfx.SolidBrush(color),
-		})
+		drawTextLine(list, x, inner.Min.Y, line, f.th.Color(theme.ColorTextSecondary))
 	}
 }

@@ -115,6 +115,20 @@ func SetThemeSensitiveOnly(v bool) {
 	FilterStore.Set(current)
 }
 
+// SetShowVariants updates whether variant matrices should be shown in the UI.
+func SetShowVariants(v bool) {
+	current := FilterStore.Get()
+	current.ShowVariants = v
+	FilterStore.Set(current)
+}
+
+// SetShowStates updates whether state matrices should be shown in the UI.
+func SetShowStates(v bool) {
+	current := FilterStore.Get()
+	current.ShowStates = v
+	FilterStore.Set(current)
+}
+
 // SetSortMode updates the sort mode.
 func SetSortMode(mode model.SortMode) {
 	current := FilterStore.Get()

@@ -13,25 +13,25 @@ func TestNewStandardCatalog_ContainsAllExpectedEntries(t *testing.T) {
 	// Expected entries by family from the product plan
 	expectedEntries := map[string]Family{
 		// Basic family
-		"basic.rect":      FamilyBasic,
-		"basic.ellipse":   FamilyBasic,
-		"basic.polygon":   FamilyBasic,
-		"basic.polyline":  FamilyBasic,
-		"basic.line":      FamilyBasic,
-		"basic.path":      FamilyBasic,
-		"basic.image":     FamilyBasic,
-		"basic.text":      FamilyBasic,
+		"basic.rect":     FamilyBasic,
+		"basic.ellipse":  FamilyBasic,
+		"basic.polygon":  FamilyBasic,
+		"basic.polyline": FamilyBasic,
+		"basic.line":     FamilyBasic,
+		"basic.path":     FamilyBasic,
+		"basic.image":    FamilyBasic,
+		"basic.text":     FamilyBasic,
 
 		// Structure family
-		"structure.group":      FamilyStructure,
-		"structure.clip":       FamilyStructure,
-		"structure.transform":  FamilyStructure,
-		"structure.viewport":   FamilyStructure,
-		"structure.anchor":     FamilyStructure,
-		"structure.layer":      FamilyStructure,
+		"structure.group":     FamilyStructure,
+		"structure.clip":      FamilyStructure,
+		"structure.transform": FamilyStructure,
+		"structure.viewport":  FamilyStructure,
+		"structure.anchor":    FamilyStructure,
+		"structure.layer":     FamilyStructure,
 
 		// Annotation family
-		"annotation.label":      FamilyAnnotation,
+		"annotation.label":     FamilyAnnotation,
 		"annotation.connector": FamilyAnnotation,
 		"annotation.callout":   FamilyAnnotation,
 		"annotation.handle":    FamilyAnnotation,
@@ -42,27 +42,27 @@ func TestNewStandardCatalog_ContainsAllExpectedEntries(t *testing.T) {
 		"annotation.area":      FamilyAnnotation,
 
 		// UI Input family
-		"uiinput.button":      FamilyUIInput,
-		"uiinput.checkbox":    FamilyUIInput,
-		"uiinput.switch":      FamilyUIInput,
-		"uiinput.slider":      FamilyUIInput,
-		"uiinput.select":      FamilyUIInput,
-		"uiinput.textinput":   FamilyUIInput,
-		"uiinput.radiogroup":  FamilyUIInput,
+		"uiinput.button":     FamilyUIInput,
+		"uiinput.checkbox":   FamilyUIInput,
+		"uiinput.switch":     FamilyUIInput,
+		"uiinput.slider":     FamilyUIInput,
+		"uiinput.select":     FamilyUIInput,
+		"uiinput.textinput":  FamilyUIInput,
+		"uiinput.radiogroup": FamilyUIInput,
 
 		// UI Navigation family
-		"uinav.tabs":          FamilyUINav,
-		"uinav.breadcrumbs":   FamilyUINav,
-		"uinav.drawer":        FamilyUINav,
-		"uinav.menu":          FamilyUINav,
-		"uinav.pagination":    FamilyUINav,
-		"uinav.scrollbar":     FamilyUINav,
-		"uinav.speeddial":     FamilyUINav,
+		"uinav.tabs":        FamilyUINav,
+		"uinav.breadcrumbs": FamilyUINav,
+		"uinav.drawer":      FamilyUINav,
+		"uinav.menu":        FamilyUINav,
+		"uinav.pagination":  FamilyUINav,
+		"uinav.scrollbar":   FamilyUINav,
+		"uinav.speeddial":   FamilyUINav,
 
 		// UI Notification family
-		"uinotification.dialog":    FamilyUINotification,
-		"uinotification.snackbar":  FamilyUINotification,
-		"uinotification.progress":  FamilyUINotification,
+		"uinotification.dialog":   FamilyUINotification,
+		"uinotification.snackbar": FamilyUINotification,
+		"uinotification.progress": FamilyUINotification,
 
 		// Chart family
 		"chart.axis": FamilyChart,
@@ -182,9 +182,14 @@ func TestNewStandardCatalog_CoverageCounts(t *testing.T) {
 		t.Logf("  %s: %d", status.DisplayName(), counts[status])
 	}
 
-	// All entries should initially be placeholder (Phase 1-2 state)
-	if counts[CoveragePlaceholder] != c.Count() {
-		t.Logf("Note: %d entries are placeholder, %d total", counts[CoveragePlaceholder], c.Count())
+	if counts[CoverageThemeDependent] == 0 {
+		t.Error("Expected at least one theme-dependent entry")
+	}
+	if counts[CoverageLayoutDependent] == 0 {
+		t.Error("Expected at least one layout-dependent entry")
+	}
+	if counts[CoveragePlaceholder] == 0 {
+		t.Error("Expected at least one placeholder entry")
 	}
 }
 
@@ -233,6 +238,58 @@ func TestNewStandardCatalog_ThemeSensitiveFlags(t *testing.T) {
 	}
 
 	t.Logf("Theme-sensitive entries: %d/%d", themeSensitiveCount, c.Count())
+}
+
+// TestNewStandardCatalog_VariantAndStateMatrices verifies canonical inventory matrices are populated.
+func TestNewStandardCatalog_VariantAndStateMatrices(t *testing.T) {
+	c := NewStandardCatalog()
+
+	tests := []struct {
+		id              string
+		wantVariantsMin int
+		wantStatesMin   int
+		wantMissingMin  int
+	}{
+		{id: "basic.text", wantVariantsMin: 3, wantStatesMin: 3},
+		{id: "structure.group", wantVariantsMin: 2, wantStatesMin: 2},
+		{id: "annotation.label", wantVariantsMin: 2, wantStatesMin: 3},
+		{id: "uiinput.button", wantVariantsMin: 3, wantStatesMin: 5, wantMissingMin: 2},
+		{id: "uinav.tabs", wantVariantsMin: 3, wantStatesMin: 4},
+		{id: "uinotification.dialog", wantVariantsMin: 3, wantStatesMin: 3},
+		{id: "chart.axis", wantVariantsMin: 2, wantStatesMin: 2},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.id, func(t *testing.T) {
+			entry, ok := c.GetEntry(tt.id)
+			if !ok {
+				t.Fatalf("missing entry %q", tt.id)
+			}
+			if len(entry.Variants) < tt.wantVariantsMin {
+				t.Fatalf("entry %s has %d variants, want at least %d", tt.id, len(entry.Variants), tt.wantVariantsMin)
+			}
+			if len(entry.States) < tt.wantStatesMin {
+				t.Fatalf("entry %s has %d states, want at least %d", tt.id, len(entry.States), tt.wantStatesMin)
+			}
+			if tt.wantMissingMin > 0 && len(entry.MissingVariants) < tt.wantMissingMin {
+				t.Fatalf("entry %s has %d missing variants, want at least %d", tt.id, len(entry.MissingVariants), tt.wantMissingMin)
+			}
+			if len(entry.Variants) > 1 {
+				for i := 1; i < len(entry.Variants); i++ {
+					if entry.Variants[i].ID < entry.Variants[i-1].ID {
+						t.Fatalf("entry %s variants are not sorted by ID", tt.id)
+					}
+				}
+			}
+			if len(entry.States) > 1 {
+				for i := 1; i < len(entry.States); i++ {
+					if entry.States[i].ID < entry.States[i-1].ID {
+						t.Fatalf("entry %s states are not sorted by ID", tt.id)
+					}
+				}
+			}
+		})
+	}
 }
 
 // TestCatalogEntry_IsComplete verifies the IsComplete method.

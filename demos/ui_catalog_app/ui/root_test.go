@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/ui_catalog/model"
+	"codeburg.org/lexbit/ui_catalog/store"
 )
 
 func TestCatalogRootFacet_Creation(t *testing.T) {
@@ -106,7 +107,8 @@ func TestCatalogRootFacet_Arrange(t *testing.T) {
 	root.layout.Arrange(bounds)
 
 	// Verify shell bounds were computed
-	shell := CalculateShellBounds(bounds, sidebarWidthDefault, inspectorWidthDefault)
+	profile := DefaultLayoutProfile()
+	shell := CalculateShellBoundsWithProfile(bounds, profile.SidebarWidthDefault, profile.InspectorWidthDefault, profile)
 	if shell.Header.IsEmpty() {
 		t.Error("Header bounds is empty")
 	}
@@ -126,22 +128,23 @@ func TestCatalogRootFacet_Arrange(t *testing.T) {
 
 func TestCalculateShellBounds(t *testing.T) {
 	bounds := gfx.RectFromXYWH(0, 0, 1000, 600)
-	shell := CalculateShellBounds(bounds, 200, 250)
+	profile := LayoutProfileForDensity(store.DensityNormal)
+	shell := CalculateShellBoundsWithProfile(bounds, 200, 250, profile)
 
 	// Header should be at top
 	if shell.Header.Min.Y != 0 {
 		t.Errorf("Header.Min.Y = %v, want 0", shell.Header.Min.Y)
 	}
-	if shell.Header.Height() != headerHeight {
-		t.Errorf("Header.Height = %v, want %v", shell.Header.Height(), headerHeight)
+	if shell.Header.Height() != profile.HeaderHeight {
+		t.Errorf("Header.Height = %v, want %v", shell.Header.Height(), profile.HeaderHeight)
 	}
 
 	// Footer should be at bottom
 	if shell.Footer.Max.Y != 600 {
 		t.Errorf("Footer.Max.Y = %v, want 600", shell.Footer.Max.Y)
 	}
-	if shell.Footer.Height() != footerHeight {
-		t.Errorf("Footer.Height = %v, want %v", shell.Footer.Height(), footerHeight)
+	if shell.Footer.Height() != profile.FooterHeight {
+		t.Errorf("Footer.Height = %v, want %v", shell.Footer.Height(), profile.FooterHeight)
 	}
 
 	// Sidebar should be on left with requested width

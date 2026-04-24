@@ -34,12 +34,23 @@ type ExportMetadata struct {
 
 // EntryExport represents a single catalog entry in the export.
 type EntryExport struct {
-	ID                string `json:"id"`
-	DisplayName       string `json:"displayName"`
-	Family            string `json:"family"`
-	ConstructionClass string `json:"constructionClass"`
-	LogicalID         string `json:"logicalId"`
-	CoverageStatus    string `json:"coverageStatus"`
+	ID                  string          `json:"id"`
+	DisplayName         string          `json:"displayName"`
+	Family              string          `json:"family"`
+	Subcategory         string          `json:"subcategory"`
+	ConstructionClass   string          `json:"constructionClass"`
+	LogicalID           string          `json:"logicalId"`
+	CoverageStatus      string          `json:"coverageStatus"`
+	Interactive         bool            `json:"interactive"`
+	ThemeSensitive      bool            `json:"themeSensitive"`
+	LayoutSensitive     bool            `json:"layoutSensitive"`
+	Variants            []model.Variant `json:"variants"`
+	States              []model.State   `json:"states"`
+	MissingVariants     []string        `json:"missingVariants,omitempty"`
+	MissingStates       []string        `json:"missingStates,omitempty"`
+	UnsupportedVariants []string        `json:"unsupportedVariants,omitempty"`
+	UnsupportedStates   []string        `json:"unsupportedStates,omitempty"`
+	Notes               string          `json:"notes,omitempty"`
 }
 
 // exportInventory exports the complete inventory as JSON.
@@ -55,12 +66,23 @@ func (e *Exporter) exportInventory() Result {
 	exportEntries := make([]EntryExport, len(entries))
 	for i, entry := range entries {
 		exportEntries[i] = EntryExport{
-			ID:                entry.ID,
-			DisplayName:       entry.DisplayName,
-			Family:            entry.Family.String(),
-			ConstructionClass: entry.ConstructionClass.String(),
-			LogicalID:         entry.ID,
-			CoverageStatus:    entry.Coverage.String(),
+			ID:                  entry.ID,
+			DisplayName:         entry.DisplayName,
+			Family:              entry.Family.String(),
+			Subcategory:         entry.Subcategory,
+			ConstructionClass:   entry.ConstructionClass.String(),
+			LogicalID:           entry.ID,
+			CoverageStatus:      entry.Coverage.String(),
+			Interactive:         entry.Interactive,
+			ThemeSensitive:      entry.ThemeSensitive,
+			LayoutSensitive:     entry.LayoutSensitive,
+			Variants:            append([]model.Variant(nil), entry.Variants...),
+			States:              append([]model.State(nil), entry.States...),
+			MissingVariants:     append([]string(nil), entry.MissingVariants...),
+			MissingStates:       append([]string(nil), entry.MissingStates...),
+			UnsupportedVariants: append([]string(nil), entry.UnsupportedVariants...),
+			UnsupportedStates:   append([]string(nil), entry.UnsupportedStates...),
+			Notes:               entry.Notes,
 		}
 	}
 
@@ -99,12 +121,23 @@ func (e *Exporter) exportVisible() Result {
 	exportEntries := make([]EntryExport, len(entries))
 	for i, entry := range entries {
 		exportEntries[i] = EntryExport{
-			ID:                entry.ID,
-			DisplayName:       entry.DisplayName,
-			Family:            entry.Family.String(),
-			ConstructionClass: entry.ConstructionClass.String(),
-			LogicalID:         entry.ID,
-			CoverageStatus:    entry.Coverage.String(),
+			ID:                  entry.ID,
+			DisplayName:         entry.DisplayName,
+			Family:              entry.Family.String(),
+			Subcategory:         entry.Subcategory,
+			ConstructionClass:   entry.ConstructionClass.String(),
+			LogicalID:           entry.ID,
+			CoverageStatus:      entry.Coverage.String(),
+			Interactive:         entry.Interactive,
+			ThemeSensitive:      entry.ThemeSensitive,
+			LayoutSensitive:     entry.LayoutSensitive,
+			Variants:            append([]model.Variant(nil), entry.Variants...),
+			States:              append([]model.State(nil), entry.States...),
+			MissingVariants:     append([]string(nil), entry.MissingVariants...),
+			MissingStates:       append([]string(nil), entry.MissingStates...),
+			UnsupportedVariants: append([]string(nil), entry.UnsupportedVariants...),
+			UnsupportedStates:   append([]string(nil), entry.UnsupportedStates...),
+			Notes:               entry.Notes,
 		}
 	}
 
@@ -135,7 +168,7 @@ func (e *Exporter) exportCoverage() Result {
 	entries := store.CatalogInstance.AllEntries()
 
 	// Calculate coverage statistics
-	var total, implemented, partial, placeholder, missing int
+	var total, implemented, partial, placeholder, missing, themeDependent, layoutDependent int
 	for _, entry := range entries {
 		total++
 		switch entry.Coverage {
@@ -147,6 +180,10 @@ func (e *Exporter) exportCoverage() Result {
 			placeholder++
 		case model.CoverageMissing:
 			missing++
+		case model.CoverageThemeDependent:
+			themeDependent++
+		case model.CoverageLayoutDependent:
+			layoutDependent++
 		}
 	}
 
@@ -157,12 +194,14 @@ func (e *Exporter) exportCoverage() Result {
 			Count:     total,
 		},
 		Summary: CoverageSummary{
-			Total:       total,
-			Implemented: implemented,
-			Partial:     partial,
-			Placeholder: placeholder,
-			Missing:     missing,
-			Percent:     float64(implemented) / float64(total) * 100,
+			Total:           total,
+			Implemented:     implemented,
+			Partial:         partial,
+			Placeholder:     placeholder,
+			Missing:         missing,
+			ThemeDependent:  themeDependent,
+			LayoutDependent: layoutDependent,
+			Percent:         float64(implemented) / float64(total) * 100,
 		},
 	}
 
@@ -187,12 +226,14 @@ type CoverageReport struct {
 
 // CoverageSummary contains coverage statistics.
 type CoverageSummary struct {
-	Total       int     `json:"total"`
-	Implemented int     `json:"implemented"`
-	Partial     int     `json:"partial"`
-	Placeholder int     `json:"placeholder"`
-	Missing     int     `json:"missing"`
-	Percent     float64 `json:"percent"`
+	Total           int     `json:"total"`
+	Implemented     int     `json:"implemented"`
+	Partial         int     `json:"partial"`
+	Placeholder     int     `json:"placeholder"`
+	Missing         int     `json:"missing"`
+	ThemeDependent  int     `json:"themeDependent"`
+	LayoutDependent int     `json:"layoutDependent"`
+	Percent         float64 `json:"percent"`
 }
 
 // exportScreenshot exports a PNG screenshot (stub - requires render target access).

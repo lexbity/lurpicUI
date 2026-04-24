@@ -1,6 +1,8 @@
 package ui
 
 import (
+	"fmt"
+
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -9,27 +11,21 @@ import (
 	"codeburg.org/lexbit/ui_catalog/model"
 )
 
-// Card constants for stable sizing
-const (
-	cardWidth  = 160
-	cardHeight = 100
-	cardMargin = 12
-)
-
 // CardFacet renders a single catalog entry card.
 type CardFacet struct {
 	facet.Facet
-	layout   facet.LayoutRole
-	render   facet.RenderRole
-	hit      facet.HitRole
-	input    facet.InputRole
-	th       theme.Context
-	shaper   *text.Shaper
-	entry    *model.CatalogEntry
-	bounds   gfx.Rect
-	onClick  func()
-	selected bool
-	focused  bool
+	layout        facet.LayoutRole
+	render        facet.RenderRole
+	hit           facet.HitRole
+	input         facet.InputRole
+	th            theme.Context
+	shaper        *text.Shaper
+	entry         *model.CatalogEntry
+	bounds        gfx.Rect
+	onClick       func()
+	selected      bool
+	focused       bool
+	layoutProfile LayoutProfile
 }
 
 // SetSelected sets the selected state of the card.
@@ -51,14 +47,19 @@ func (f *CardFacet) SetFocused(focused bool) {
 // NewCardFacet creates a new card facet for the given entry.
 func NewCardFacet(th theme.Context, shaper *text.Shaper, entry *model.CatalogEntry) *CardFacet {
 	c := &CardFacet{
-		Facet:  facet.NewFacet(),
-		th:     th,
-		shaper: shaper,
-		entry:  entry,
+		Facet:         facet.NewFacet(),
+		th:            th,
+		shaper:        shaper,
+		entry:         entry,
+		layoutProfile: DefaultLayoutProfile(),
 	}
 
 	c.layout.OnMeasure = func(cons facet.Constraints) gfx.Size {
-		return gfx.Size{W: cardWidth, H: cardHeight}
+		profile := c.layoutProfile
+		if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+			profile = DefaultLayoutProfile()
+		}
+		return gfx.Size{W: profile.CardWidth, H: profile.CardHeight}
 	}
 
 	c.layout.OnArrange = func(bounds gfx.Rect) {
@@ -113,6 +114,15 @@ func (f *CardFacet) OnActivate() {}
 // OnDeactivate handles deactivation.
 func (f *CardFacet) OnDeactivate() {}
 
+// SetLayoutProfile updates density-driven geometry.
+func (f *CardFacet) SetLayoutProfile(profile LayoutProfile) {
+	if f == nil {
+		return
+	}
+	f.layoutProfile = profile
+	f.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+}
+
 // SetOnClick sets the click handler.
 func (f *CardFacet) SetOnClick(fn func()) {
 	f.onClick = fn
@@ -126,6 +136,11 @@ func (f *CardFacet) Entry() *model.CatalogEntry {
 func (f *CardFacet) renderCard(list *gfx.CommandList, bounds gfx.Rect) {
 	if list == nil || bounds.IsEmpty() || f.entry == nil || f.shaper == nil {
 		return
+	}
+
+	profile := f.layoutProfile
+	if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+		profile = DefaultLayoutProfile()
 	}
 
 	// Card background - highlight when selected
@@ -195,7 +210,7 @@ func (f *CardFacet) renderCard(list *gfx.CommandList, bounds gfx.Rect) {
 		})
 	}
 
-	inner := Inset(bounds, 8)
+	inner := Inset(bounds, profile.ContentPadding/2)
 	if inner.IsEmpty() {
 		return
 	}
@@ -207,7 +222,7 @@ func (f *CardFacet) renderCard(list *gfx.CommandList, bounds gfx.Rect) {
 	idLayout := f.shaper.ShapeSimple(idText, idStyle)
 	if idLayout != nil && len(idLayout.Lines) > 0 {
 		line := idLayout.Lines[0]
-		f.drawTextLine(list, inner.Min.X, y, line, f.th.Color(theme.ColorText))
+		drawTextLine(list, inner.Min.X, y, line, f.th.Color(theme.ColorText))
 		y += idLayout.Bounds.Height() + 4
 	}
 
@@ -217,7 +232,7 @@ func (f *CardFacet) renderCard(list *gfx.CommandList, bounds gfx.Rect) {
 	nameLayout := f.shaper.ShapeSimple(nameText, nameStyle)
 	if nameLayout != nil && len(nameLayout.Lines) > 0 {
 		line := nameLayout.Lines[0]
-		f.drawTextLine(list, inner.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
+		drawTextLine(list, inner.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
 		y += nameLayout.Bounds.Height() + 8
 	}
 
@@ -233,11 +248,26 @@ func (f *CardFacet) renderCard(list *gfx.CommandList, bounds gfx.Rect) {
 			covColor = f.th.Color(theme.ColorSuccess)
 		case model.CoveragePartial:
 			covColor = f.th.Color(theme.ColorWarning)
+		case model.CoverageThemeDependent:
+			covColor = f.th.Color(theme.ColorPrimary)
+		case model.CoverageLayoutDependent:
+			covColor = f.th.Color(theme.ColorTextSecondary)
 		case model.CoveragePlaceholder, model.CoverageMissing:
 			covColor = f.th.Color(theme.ColorError)
 		}
 		covY := inner.Max.Y - covLayout.Bounds.Height()
-		f.drawTextLine(list, inner.Min.X, covY, line, covColor)
+		drawTextLine(list, inner.Min.X, covY, line, covColor)
+	}
+
+	// Variant/state summary
+	if f.entry.HasVariants() || f.entry.HasStates() {
+		summary := fmt.Sprintf("v%d s%d", len(f.entry.Variants), len(f.entry.States))
+		summaryLayout := f.shaper.ShapeSimple(summary, f.th.TextStyle(theme.TextLabelS))
+		if summaryLayout != nil && len(summaryLayout.Lines) > 0 {
+			line := summaryLayout.Lines[0]
+			summaryY := y + 2
+			drawTextLine(list, inner.Max.X-line.Bounds.Width(), summaryY, line, f.th.Color(theme.ColorTextSecondary))
+		}
 	}
 
 	// Interactive indicator (if applicable)
@@ -249,7 +279,7 @@ func (f *CardFacet) renderCard(list *gfx.CommandList, bounds gfx.Rect) {
 			line := iconLayout.Lines[0]
 			iconX := inner.Max.X - line.Bounds.Width()
 			iconY := inner.Max.Y - iconLayout.Bounds.Height()
-			f.drawTextLine(list, iconX, iconY, line, f.th.Color(theme.ColorPrimary))
+			drawTextLine(list, iconX, iconY, line, f.th.Color(theme.ColorPrimary))
 		}
 	}
 }
@@ -308,15 +338,4 @@ func (f *CardFacet) truncateText(s string, maxWidth float32, token theme.TextTok
 	}
 	// If even single char + ellipsis doesn't fit, just return ellipsis
 	return ellipsis
-}
-
-func (f *CardFacet) drawTextLine(list *gfx.CommandList, x, y float32, line text.ShapedLine, color gfx.Color) {
-	origin := gfx.Point{X: x + line.Bounds.Min.X, Y: y + line.Baseline}
-	for _, run := range line.Runs {
-		list.Add(gfx.DrawGlyphRun{
-			Run:    run,
-			Origin: origin,
-			Brush:  gfx.SolidBrush(color),
-		})
-	}
 }

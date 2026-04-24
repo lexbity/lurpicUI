@@ -4,32 +4,114 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/ui_catalog/store"
 )
 
 // Shell layout constants.
 const (
-	// Header
-	headerHeight = 48
-
-	// Footer
-	footerHeight = 32
-
-	// Sidebar
-	sidebarWidthMin     = 200
-	sidebarWidthMax     = 320
-	sidebarWidthDefault = 240
-
-	// Inspector (right panel)
-	inspectorWidthMin     = 200
-	inspectorWidthMax     = 360
-	inspectorWidthDefault = 280
-
-	// Content area padding
-	contentPadding = 16
-
-	// Panel gaps
-	panelGap = 8
+	// Density scales are applied around the normal profile.
+	headerHeightNormal          = 48
+	footerHeightNormal          = 32
+	sidebarWidthMinNormal       = 200
+	sidebarWidthMaxNormal       = 320
+	sidebarWidthDefaultNormal   = 240
+	inspectorWidthMinNormal     = 200
+	inspectorWidthMaxNormal     = 360
+	inspectorWidthDefaultNormal = 280
+	contentPaddingNormal        = 16
+	panelGapNormal              = 8
+	cardWidthNormal             = 160
+	cardHeightNormal            = 100
+	cardMarginNormal            = 12
+	headerInsetNormal           = 16
+	footerInsetNormal           = 8
+	sidebarInsetNormal          = 12
+	inspectorInsetNormal        = 12
+	fieldGapNormal              = 4
+	fieldLabelWidthNormal       = 80
+	contentFamilyHeaderNormal   = 24
+	contentComparePadNormal     = 8
+	contentCompareGapNormal     = 16
 )
+
+// LayoutProfile captures density-adjusted geometry for the catalog shell.
+type LayoutProfile struct {
+	Density store.DensityMode
+	Scale   float32
+
+	HeaderHeight float32
+	FooterHeight float32
+
+	SidebarWidthMin     float32
+	SidebarWidthMax     float32
+	SidebarWidthDefault float32
+
+	InspectorWidthMin     float32
+	InspectorWidthMax     float32
+	InspectorWidthDefault float32
+
+	ContentPadding float32
+	PanelGap       float32
+
+	CardWidth  float32
+	CardHeight float32
+	CardMargin float32
+
+	HeaderInset        float32
+	FooterInset        float32
+	SidebarInset       float32
+	InspectorInset     float32
+	FieldGap           float32
+	FieldLabelWidth    float32
+	FamilyHeaderHeight float32
+	CompareInnerPad    float32
+	ComparePanelGap    float32
+}
+
+func LayoutProfileForDensity(mode store.DensityMode) LayoutProfile {
+	scale := mode.SpacingScale()
+	if scale <= 0 {
+		scale = 1
+	}
+
+	return LayoutProfile{
+		Density: mode,
+		Scale:   scale,
+
+		HeaderHeight: headerHeightNormal * scale,
+		FooterHeight: footerHeightNormal * scale,
+
+		SidebarWidthMin:     sidebarWidthMinNormal * scale,
+		SidebarWidthMax:     sidebarWidthMaxNormal * scale,
+		SidebarWidthDefault: sidebarWidthDefaultNormal * scale,
+
+		InspectorWidthMin:     inspectorWidthMinNormal * scale,
+		InspectorWidthMax:     inspectorWidthMaxNormal * scale,
+		InspectorWidthDefault: inspectorWidthDefaultNormal * scale,
+
+		ContentPadding: contentPaddingNormal * scale,
+		PanelGap:       panelGapNormal * scale,
+
+		CardWidth:  cardWidthNormal * scale,
+		CardHeight: cardHeightNormal * scale,
+		CardMargin: cardMarginNormal * scale,
+
+		HeaderInset:        headerInsetNormal * scale,
+		FooterInset:        footerInsetNormal * scale,
+		SidebarInset:       sidebarInsetNormal * scale,
+		InspectorInset:     inspectorInsetNormal * scale,
+		FieldGap:           fieldGapNormal * scale,
+		FieldLabelWidth:    fieldLabelWidthNormal * scale,
+		FamilyHeaderHeight: contentFamilyHeaderNormal * scale,
+		CompareInnerPad:    contentComparePadNormal * scale,
+		ComparePanelGap:    contentCompareGapNormal * scale,
+	}
+}
+
+// DefaultLayoutProfile returns the profile for the current density selection.
+func DefaultLayoutProfile() LayoutProfile {
+	return LayoutProfileForDensity(store.GetDensity())
+}
 
 // ShellBounds holds computed bounds for all shell regions.
 type ShellBounds struct {
@@ -42,13 +124,18 @@ type ShellBounds struct {
 
 // CalculateShellBounds computes layout regions from window bounds.
 func CalculateShellBounds(window gfx.Rect, sidebarWidth, inspectorWidth float32) ShellBounds {
+	return CalculateShellBoundsWithProfile(window, sidebarWidth, inspectorWidth, DefaultLayoutProfile())
+}
+
+// CalculateShellBoundsWithProfile computes layout regions from window bounds.
+func CalculateShellBoundsWithProfile(window gfx.Rect, sidebarWidth, inspectorWidth float32, profile LayoutProfile) ShellBounds {
 	var s ShellBounds
 
 	// Header at top
-	s.Header = gfx.RectFromXYWH(window.Min.X, window.Min.Y, window.Width(), headerHeight)
+	s.Header = gfx.RectFromXYWH(window.Min.X, window.Min.Y, window.Width(), profile.HeaderHeight)
 
 	// Footer at bottom
-	s.Footer = gfx.RectFromXYWH(window.Min.X, window.Max.Y-footerHeight, window.Width(), footerHeight)
+	s.Footer = gfx.RectFromXYWH(window.Min.X, window.Max.Y-profile.FooterHeight, window.Width(), profile.FooterHeight)
 
 	// Available vertical space
 	contentTop := s.Header.Max.Y
@@ -56,27 +143,27 @@ func CalculateShellBounds(window gfx.Rect, sidebarWidth, inspectorWidth float32)
 	contentHeight := contentBottom - contentTop
 
 	// Sidebar on left
-	if sidebarWidth < sidebarWidthMin {
-		sidebarWidth = sidebarWidthMin
+	if sidebarWidth < profile.SidebarWidthMin {
+		sidebarWidth = profile.SidebarWidthMin
 	}
-	if sidebarWidth > sidebarWidthMax {
-		sidebarWidth = sidebarWidthMax
+	if sidebarWidth > profile.SidebarWidthMax {
+		sidebarWidth = profile.SidebarWidthMax
 	}
 	s.Sidebar = gfx.RectFromXYWH(window.Min.X, contentTop, sidebarWidth, contentHeight)
 
 	// Inspector on right
-	if inspectorWidth < inspectorWidthMin {
-		inspectorWidth = inspectorWidthMin
+	if inspectorWidth < profile.InspectorWidthMin {
+		inspectorWidth = profile.InspectorWidthMin
 	}
-	if inspectorWidth > inspectorWidthMax {
-		inspectorWidth = inspectorWidthMax
+	if inspectorWidth > profile.InspectorWidthMax {
+		inspectorWidth = profile.InspectorWidthMax
 	}
 	inspectorX := window.Max.X - inspectorWidth
 	s.Inspector = gfx.RectFromXYWH(inspectorX, contentTop, inspectorWidth, contentHeight)
 
 	// Content in middle
-	contentX := s.Sidebar.Max.X + panelGap
-	contentWidth := s.Inspector.Min.X - contentX - panelGap
+	contentX := s.Sidebar.Max.X + profile.PanelGap
+	contentWidth := s.Inspector.Min.X - contentX - profile.PanelGap
 	if contentWidth < 0 {
 		contentWidth = 0
 	}

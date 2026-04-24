@@ -195,35 +195,39 @@ func (c ConstructionClass) String() string {
 
 // Variant describes a supported variant of a mark.
 type Variant struct {
-	ID            string
-	Label         string
-	SizeClass     string
-	StateClass    string
-	ThemeClass    string
-	ScreenshotKey string
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	SizeClass     string `json:"sizeClass"`
+	StateClass    string `json:"stateClass"`
+	ThemeClass    string `json:"themeClass"`
+	ScreenshotKey string `json:"screenshotKey"`
 }
 
 // State describes a supported state of a mark.
 type State struct {
-	ID            string
-	Label         string
-	ScreenshotKey string
+	ID            string `json:"id"`
+	Label         string `json:"label"`
+	ScreenshotKey string `json:"screenshotKey"`
 }
 
 // CatalogEntry describes one mark type in the catalog.
 type CatalogEntry struct {
-	ID                string
-	DisplayName       string
-	Family            Family
-	Subcategory       string
-	ConstructionClass ConstructionClass
-	Interactive       bool
-	ThemeSensitive    bool
-	LayoutSensitive   bool
-	Coverage          CoverageStatus
-	Notes             string
-	Variants          []Variant
-	States            []State
+	ID                  string
+	DisplayName         string
+	Family              Family
+	Subcategory         string
+	ConstructionClass   ConstructionClass
+	Interactive         bool
+	ThemeSensitive      bool
+	LayoutSensitive     bool
+	Coverage            CoverageStatus
+	Notes               string
+	Variants            []Variant
+	States              []State
+	MissingVariants     []string
+	MissingStates       []string
+	UnsupportedVariants []string
+	UnsupportedStates   []string
 }
 
 // IsComplete returns true if the entry is fully implemented.
@@ -232,6 +236,40 @@ func (e *CatalogEntry) IsComplete() bool {
 		return false
 	}
 	return e.Coverage == CoverageImplemented
+}
+
+// HasVariants reports whether the entry has any supported variants.
+func (e *CatalogEntry) HasVariants() bool {
+	return e != nil && len(e.Variants) > 0
+}
+
+// HasStates reports whether the entry has any supported states.
+func (e *CatalogEntry) HasStates() bool {
+	return e != nil && len(e.States) > 0
+}
+
+// VariantIDs returns the canonical IDs for supported variants.
+func (e *CatalogEntry) VariantIDs() []string {
+	if e == nil || len(e.Variants) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(e.Variants))
+	for _, variant := range e.Variants {
+		out = append(out, variant.ID)
+	}
+	return out
+}
+
+// StateIDs returns the canonical IDs for supported states.
+func (e *CatalogEntry) StateIDs() []string {
+	if e == nil || len(e.States) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(e.States))
+	for _, state := range e.States {
+		out = append(out, state.ID)
+	}
+	return out
 }
 
 // Catalog provides access to all inventory entries.

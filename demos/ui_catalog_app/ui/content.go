@@ -21,28 +21,44 @@ const (
 	ViewDetail                 // Detail view for selected entry
 )
 
+type contentLayoutState struct {
+	bounds   gfx.Rect
+	inner    gfx.Rect
+	columns  int
+	sections []contentSectionLayout
+}
+
+type contentSectionLayout struct {
+	family model.Family
+	header gfx.Rect
+	cards  []gfx.Rect
+}
+
 // ContentFacet displays the main content area with a grid of cards.
 type ContentFacet struct {
 	facet.Facet
-	layout       facet.LayoutRole
-	render       facet.RenderRole
-	input        facet.InputRole
-	th           theme.Context
-	shaper       *text.Shaper
-	filterSub    signal.SubscriptionID
-	selectionSub signal.SubscriptionID
-	cards        []*CardFacet
-	viewMode     ViewMode
-	focusedCard  int  // Index of currently focused card for keyboard navigation
-	loading      bool // Show loading state
+	layout        facet.LayoutRole
+	render        facet.RenderRole
+	input         facet.InputRole
+	th            theme.Context
+	shaper        *text.Shaper
+	filterSub     signal.SubscriptionID
+	selectionSub  signal.SubscriptionID
+	cards         []*CardFacet
+	viewMode      ViewMode
+	focusedCard   int  // Index of currently focused card for keyboard navigation
+	loading       bool // Show loading state
+	layoutState   contentLayoutState
+	layoutProfile LayoutProfile
 }
 
 // NewContentFacet creates a new content facet.
 func NewContentFacet(th theme.Context, shaper *text.Shaper) *ContentFacet {
 	c := &ContentFacet{
-		Facet:  facet.NewFacet(),
-		th:     th,
-		shaper: shaper,
+		Facet:         facet.NewFacet(),
+		th:            th,
+		shaper:        shaper,
+		layoutProfile: DefaultLayoutProfile(),
 	}
 
 	c.layout.OnMeasure = func(cons facet.Constraints) gfx.Size {
@@ -51,7 +67,7 @@ func NewContentFacet(th theme.Context, shaper *text.Shaper) *ContentFacet {
 
 	c.layout.OnArrange = func(bounds gfx.Rect) {
 		c.layout.ArrangedBounds = bounds
-		c.updateCardPositions(bounds)
+		c.reflow(bounds)
 	}
 	c.AddRole(&c.layout)
 
@@ -108,6 +124,18 @@ func (f *ContentFacet) SetViewMode(mode ViewMode) {
 	}
 }
 
+// SetLayoutProfile updates density-driven layout geometry.
+func (f *ContentFacet) SetLayoutProfile(profile LayoutProfile) {
+	if f == nil {
+		return
+	}
+	f.layoutProfile = profile
+	for _, card := range f.cards {
+		card.SetLayoutProfile(profile)
+	}
+	f.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+}
+
 // OnActivate handles activation.
 func (f *ContentFacet) OnActivate() {}
 
@@ -127,18 +155,24 @@ func (f *ContentFacet) syncCards() {
 	}
 
 	selectedID := store.SelectionStore.Get()
+	profile := f.layoutProfile
+	if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+		profile = DefaultLayoutProfile()
+	}
 
 	// Build new card list
 	newCards := make([]*CardFacet, 0, len(entries))
 	for _, entry := range entries {
 		if card, ok := existingCards[entry.ID]; ok {
 			// Update selection state
+			card.SetLayoutProfile(profile)
 			card.SetSelected(entry.ID == selectedID)
 			newCards = append(newCards, card)
 			delete(existingCards, entry.ID)
 		} else {
 			// Create new card
 			card := NewCardFacet(f.th, f.shaper, entry)
+			card.SetLayoutProfile(profile)
 			card.SetSelected(entry.ID == selectedID)
 			card.SetOnClick(func() {
 				store.SelectEntry(entry.ID)
@@ -153,26 +187,33 @@ func (f *ContentFacet) syncCards() {
 	}
 
 	f.cards = newCards
-	f.updateCardPositions(f.layout.ArrangedBounds)
+	f.reflow(f.layout.ArrangedBounds)
 }
 
-// updateCardPositions calculates grid layout for cards.
-func (f *ContentFacet) updateCardPositions(bounds gfx.Rect) {
+// reflow calculates the local content viewport and card placement.
+func (f *ContentFacet) reflow(bounds gfx.Rect) {
+	f.layoutState = contentLayoutState{bounds: bounds}
+	profile := f.layoutProfile
+	if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+		profile = DefaultLayoutProfile()
+	}
 	if bounds.IsEmpty() {
 		return
 	}
 
-	inner := Inset(bounds, contentPadding)
+	inner := Inset(bounds, profile.ContentPadding)
 	if inner.IsEmpty() {
 		return
 	}
+	f.layoutState.inner = inner
 
 	// Calculate grid dimensions
 	availableWidth := inner.Width()
-	cols := int(availableWidth / (cardWidth + cardMargin))
+	cols := int(availableWidth / (profile.CardWidth + profile.CardMargin))
 	if cols < 1 {
 		cols = 1
 	}
+	f.layoutState.columns = cols
 
 	// Group cards by family
 	cardsByFamily := make(map[model.Family][]*CardFacet)
@@ -187,7 +228,7 @@ func (f *ContentFacet) updateCardPositions(bounds gfx.Rect) {
 
 	// Layout cards with family headers
 	y := inner.Min.Y
-	headerHeight := float32(24)
+	sections := make([]contentSectionLayout, 0, len(familyOrder))
 
 	for _, family := range familyOrder {
 		cards := cardsByFamily[family]
@@ -195,9 +236,11 @@ func (f *ContentFacet) updateCardPositions(bounds gfx.Rect) {
 			continue
 		}
 
-		// Family header position (rendered in renderGridView)
-		_ = gfx.RectFromXYWH(inner.Min.X, y, inner.Width(), headerHeight)
-		y += headerHeight + 4
+		section := contentSectionLayout{
+			family: family,
+			header: gfx.RectFromXYWH(inner.Min.X, y, inner.Width(), profile.FamilyHeaderHeight),
+		}
+		y += profile.FamilyHeaderHeight + profile.FieldGap
 
 		// Layout cards in this family
 		x := inner.Min.X
@@ -205,18 +248,22 @@ func (f *ContentFacet) updateCardPositions(bounds gfx.Rect) {
 			if i > 0 && i%cols == 0 {
 				// New row
 				x = inner.Min.X
-				y += cardHeight + cardMargin
+				y += profile.CardHeight + profile.CardMargin
 			}
 
-			cardBounds := gfx.RectFromXYWH(x, y, cardWidth, cardHeight)
+			cardBounds := gfx.RectFromXYWH(x, y, profile.CardWidth, profile.CardHeight)
 			card.layout.ArrangedBounds = cardBounds
+			section.cards = append(section.cards, cardBounds)
 
-			x += cardWidth + cardMargin
+			x += profile.CardWidth + profile.CardMargin
 		}
 
 		// Add spacing after family group
-		y += cardHeight + cardMargin + 16
+		y += profile.CardHeight + profile.CardMargin + profile.FieldGap*4
+		sections = append(sections, section)
 	}
+
+	f.layoutState.sections = sections
 }
 
 func (f *ContentFacet) renderContent(list *gfx.CommandList, bounds gfx.Rect) {
@@ -224,7 +271,12 @@ func (f *ContentFacet) renderContent(list *gfx.CommandList, bounds gfx.Rect) {
 		return
 	}
 
-	inner := Inset(bounds, contentPadding)
+	profile := f.layoutProfile
+	if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+		profile = DefaultLayoutProfile()
+	}
+
+	inner := Inset(bounds, profile.ContentPadding)
 	if inner.IsEmpty() {
 		return
 	}
@@ -235,32 +287,32 @@ func (f *ContentFacet) renderContent(list *gfx.CommandList, bounds gfx.Rect) {
 
 	// Loading state
 	if f.loading {
-		f.renderLoadingState(list, inner)
+		f.renderLoadingState(list, inner, profile)
 		return
 	}
 
 	// Empty state
 	if len(f.cards) == 0 {
-		f.renderEmptyState(list, inner)
+		f.renderEmptyState(list, inner, profile)
 		return
 	}
 
 	switch f.viewMode {
 	case ViewDetail:
-		f.renderDetailView(list, inner)
+		f.renderDetailView(list, inner, profile)
 	default:
-		f.renderGridView(list, inner)
+		f.renderGridView(list, inner, profile)
 	}
 }
 
-func (f *ContentFacet) renderGridView(list *gfx.CommandList, bounds gfx.Rect) {
+func (f *ContentFacet) renderGridView(list *gfx.CommandList, bounds gfx.Rect, profile LayoutProfile) {
 	// Render header with count
 	countText := fmt.Sprintf("%d entries", len(f.cards))
 	countStyle := f.th.TextStyle(theme.TextBodyM)
 	countLayout := f.shaper.ShapeSimple(countText, countStyle)
 	if countLayout != nil && len(countLayout.Lines) > 0 {
 		line := countLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, bounds.Min.Y, line, f.th.Color(theme.ColorText))
+		drawTextLine(list, bounds.Min.X, bounds.Min.Y, line, f.th.Color(theme.ColorText))
 	}
 
 	// Render cards
@@ -269,7 +321,7 @@ func (f *ContentFacet) renderGridView(list *gfx.CommandList, bounds gfx.Rect) {
 	}
 }
 
-func (f *ContentFacet) renderDetailView(list *gfx.CommandList, bounds gfx.Rect) {
+func (f *ContentFacet) renderDetailView(list *gfx.CommandList, bounds gfx.Rect, profile LayoutProfile) {
 	// Get selected entry
 	selectedID := store.SelectionStore.Get()
 	var selectedEntry *model.CatalogEntry
@@ -282,7 +334,7 @@ func (f *ContentFacet) renderDetailView(list *gfx.CommandList, bounds gfx.Rect) 
 
 	if selectedEntry == nil {
 		// No selection, show grid instead
-		f.renderGridView(list, bounds)
+		f.renderGridView(list, bounds, profile)
 		return
 	}
 
@@ -299,7 +351,7 @@ func (f *ContentFacet) renderDetailView(list *gfx.CommandList, bounds gfx.Rect) 
 	hintLayout := f.shaper.ShapeSimple(hintText, hintStyle)
 	if hintLayout != nil && len(hintLayout.Lines) > 0 {
 		line := hintLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
 		y += hintLayout.Bounds.Height() + 16
 	}
 
@@ -308,7 +360,7 @@ func (f *ContentFacet) renderDetailView(list *gfx.CommandList, bounds gfx.Rect) 
 	titleLayout := f.shaper.ShapeSimple(selectedEntry.ID, titleStyle)
 	if titleLayout != nil && len(titleLayout.Lines) > 0 {
 		line := titleLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorPrimary))
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorPrimary))
 		y += titleLayout.Bounds.Height() + 8
 	}
 
@@ -317,46 +369,46 @@ func (f *ContentFacet) renderDetailView(list *gfx.CommandList, bounds gfx.Rect) 
 	nameLayout := f.shaper.ShapeSimple(selectedEntry.DisplayName, nameStyle)
 	if nameLayout != nil && len(nameLayout.Lines) > 0 {
 		line := nameLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorText))
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorText))
 		y += nameLayout.Bounds.Height() + 16
 	}
 
 	// Render properties
-	y = f.renderDetailProperty(list, bounds, y, "Family", selectedEntry.Family.DisplayName())
-	y = f.renderDetailProperty(list, bounds, y, "Coverage", selectedEntry.Coverage.DisplayName())
-	y = f.renderDetailProperty(list, bounds, y, "Interactive", fmt.Sprintf("%v", selectedEntry.Interactive))
-	y = f.renderDetailProperty(list, bounds, y, "Theme Sensitive", fmt.Sprintf("%v", selectedEntry.ThemeSensitive))
+	y = f.renderDetailProperty(list, bounds, y, "Family", selectedEntry.Family.DisplayName(), profile)
+	y = f.renderDetailProperty(list, bounds, y, "Coverage", selectedEntry.Coverage.DisplayName(), profile)
+	y = f.renderDetailProperty(list, bounds, y, "Interactive", fmt.Sprintf("%v", selectedEntry.Interactive), profile)
+	y = f.renderDetailProperty(list, bounds, y, "Theme Sensitive", fmt.Sprintf("%v", selectedEntry.ThemeSensitive), profile)
 
 	// Notes
 	if selectedEntry.Notes != "" {
-		y += 16
+		y += profile.FieldGap * 4
 		notesLabelStyle := f.th.TextStyle(theme.TextLabelS)
 		notesLabelLayout := f.shaper.ShapeSimple("Notes:", notesLabelStyle)
 		if notesLabelLayout != nil && len(notesLabelLayout.Lines) > 0 {
 			line := notesLabelLayout.Lines[0]
-			f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
-			y += notesLabelLayout.Bounds.Height() + 4
+			drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
+			y += notesLabelLayout.Bounds.Height() + profile.FieldGap
 		}
 
 		notesStyle := f.th.TextStyle(theme.TextBodyS)
 		notesLayout := f.shaper.ShapeSimple(selectedEntry.Notes, notesStyle)
 		if notesLayout != nil {
 			for _, line := range notesLayout.Lines {
-				f.drawTextLine(list, bounds.Min.X+16, y, line, f.th.Color(theme.ColorText))
+				drawTextLine(list, bounds.Min.X+profile.FieldLabelWidth/5, y, line, f.th.Color(theme.ColorText))
 				y += notesLayout.Bounds.Height()
 			}
 		}
 	}
 }
 
-func (f *ContentFacet) renderDetailProperty(list *gfx.CommandList, bounds gfx.Rect, y float32, name, value string) float32 {
+func (f *ContentFacet) renderDetailProperty(list *gfx.CommandList, bounds gfx.Rect, y float32, name, value string, profile LayoutProfile) float32 {
 	// Name
 	nameStyle := f.th.TextStyle(theme.TextLabelS)
 	nameText := name + ":"
 	nameLayout := f.shaper.ShapeSimple(nameText, nameStyle)
 	if nameLayout != nil && len(nameLayout.Lines) > 0 {
 		line := nameLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
 	}
 
 	// Value
@@ -364,17 +416,17 @@ func (f *ContentFacet) renderDetailProperty(list *gfx.CommandList, bounds gfx.Re
 	valueLayout := f.shaper.ShapeSimple(value, valueStyle)
 	if valueLayout != nil && len(valueLayout.Lines) > 0 {
 		line := valueLayout.Lines[0]
-		x := bounds.Min.X + 120
-		f.drawTextLine(list, x, y, line, f.th.Color(theme.ColorText))
+		x := bounds.Min.X + profile.FieldLabelWidth
+		drawTextLine(list, x, y, line, f.th.Color(theme.ColorText))
 		if valueLayout.Bounds.Height() > nameLayout.Bounds.Height() {
-			return y + valueLayout.Bounds.Height() + 8
+			return y + valueLayout.Bounds.Height() + profile.FieldGap*2
 		}
 	}
 
-	return y + nameLayout.Bounds.Height() + 8
+	return y + nameLayout.Bounds.Height() + profile.FieldGap*2
 }
 
-func (f *ContentFacet) renderLoadingState(list *gfx.CommandList, bounds gfx.Rect) {
+func (f *ContentFacet) renderLoadingState(list *gfx.CommandList, bounds gfx.Rect, profile LayoutProfile) {
 	// Loading spinner (simple rotating indicator)
 	centerX := bounds.Min.X + bounds.Width()/2
 	centerY := bounds.Min.Y + bounds.Height()/2
@@ -394,12 +446,12 @@ func (f *ContentFacet) renderLoadingState(list *gfx.CommandList, bounds gfx.Rect
 	if msgLayout != nil && len(msgLayout.Lines) > 0 {
 		line := msgLayout.Lines[0]
 		x := bounds.Min.X + (bounds.Width()-line.Bounds.Width())/2
-		y := centerY + spinnerRadius + 20
-		f.drawTextLine(list, x, y, line, f.th.Color(theme.ColorTextSecondary))
+		y := centerY + spinnerRadius + profile.FieldGap*4
+		drawTextLine(list, x, y, line, f.th.Color(theme.ColorTextSecondary))
 	}
 }
 
-func (f *ContentFacet) renderEmptyState(list *gfx.CommandList, bounds gfx.Rect) {
+func (f *ContentFacet) renderEmptyState(list *gfx.CommandList, bounds gfx.Rect, profile LayoutProfile) {
 	// Empty icon (simple square outline)
 	centerX := bounds.Min.X + bounds.Width()/2
 	centerY := bounds.Min.Y + bounds.Height()/2 - 20
@@ -431,17 +483,8 @@ func (f *ContentFacet) renderEmptyState(list *gfx.CommandList, bounds gfx.Rect) 
 	if msgLayout != nil && len(msgLayout.Lines) > 0 {
 		line := msgLayout.Lines[0]
 		x := bounds.Min.X + (bounds.Width()-line.Bounds.Width())/2
-		y := centerY + iconSize/2 + 16
-		f.drawTextLine(list, x, y, line, f.th.Color(theme.ColorTextSecondary))
-	}
-}
-
-func (f *ContentFacet) drawTextLine(list *gfx.CommandList, x, y float32, line text.ShapedLine, color gfx.Color) {
-	origin := gfx.Point{X: x + line.Bounds.Min.X, Y: y + line.Baseline}
-	for _, run := range line.Runs {
-		// Draw glyphs...
-		_ = run
-		_ = origin
+		y := centerY + iconSize/2 + profile.FieldGap*4
+		drawTextLine(list, x, y, line, f.th.Color(theme.ColorTextSecondary))
 	}
 }
 
@@ -454,8 +497,12 @@ func (f *ContentFacet) handleKeyEvent(e facet.KeyEvent) bool {
 
 	// Calculate columns based on card width and margin
 	bounds := f.layout.ArrangedBounds
-	availableWidth := bounds.Width() - 2*contentPadding
-	columns := int(availableWidth / (cardWidth + cardMargin))
+	profile := f.layoutProfile
+	if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+		profile = DefaultLayoutProfile()
+	}
+	availableWidth := bounds.Width() - 2*profile.ContentPadding
+	columns := int(availableWidth / (profile.CardWidth + profile.CardMargin))
 	if columns < 1 {
 		columns = 1
 	}
@@ -508,7 +555,7 @@ func (f *ContentFacet) renderCompareView(list *gfx.CommandList, bounds gfx.Rect,
 	hintLayout := f.shaper.ShapeSimple(hintText, hintStyle)
 	if hintLayout != nil && len(hintLayout.Lines) > 0 {
 		line := hintLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
 		y += hintLayout.Bounds.Height() + 16
 	}
 
@@ -520,80 +567,98 @@ func (f *ContentFacet) renderCompareView(list *gfx.CommandList, bounds gfx.Rect,
 	titleLayout := f.shaper.ShapeSimple(title, titleStyle)
 	if titleLayout != nil && len(titleLayout.Lines) > 0 {
 		line := titleLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorPrimary))
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorPrimary))
 		y += titleLayout.Bounds.Height() + 16
 	}
 
 	// Calculate available space for cards
 	availableHeight := bounds.Max.Y - y - 16
-	if availableHeight < cardHeight {
-		availableHeight = cardHeight
+	profile := f.layoutProfile
+	if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+		profile = DefaultLayoutProfile()
 	}
+	if availableHeight < profile.CardHeight {
+		availableHeight = profile.CardHeight
+	}
+	currentThemeLayout := f.shaper.ShapeSimple(store.GetTheme().String(), f.th.TextStyle(theme.TextLabelS))
+	compareThemeLayout := f.shaper.ShapeSimple(compareTheme.String(), f.th.TextStyle(theme.TextLabelS))
 
 	switch compareMode {
 	case store.CompareSideBySide:
 		// Side by side: current theme | compare theme
-		halfWidth := (bounds.Width() - 32) / 2
+		availableWidth := bounds.Width() - (profile.CompareInnerPad * 2) - profile.ComparePanelGap
+		halfWidth := availableWidth / 2
 
 		// Left panel - current theme
-		leftBounds := gfx.RectFromXYWH(bounds.Min.X+8, y, halfWidth, availableHeight)
+		leftBounds := gfx.RectFromXYWH(bounds.Min.X+profile.CompareInnerPad, y, halfWidth, availableHeight)
 		list.Add(gfx.FillRect{
 			Rect:  leftBounds,
 			Brush: gfx.SolidBrush(f.th.Color(theme.ColorSurface)),
 		})
-		f.drawTextLine(list, leftBounds.Min.X+8, y+8,
-			f.shaper.ShapeSimple(store.GetTheme().String(), f.th.TextStyle(theme.TextLabelS)).Lines[0],
-			f.th.Color(theme.ColorText))
+		if currentThemeLayout != nil && len(currentThemeLayout.Lines) > 0 {
+			drawTextLine(list, leftBounds.Min.X+profile.CompareInnerPad, y+profile.CompareInnerPad,
+				currentThemeLayout.Lines[0],
+				f.th.Color(theme.ColorText))
+		}
 		// Draw a simplified card representation
-		cardBounds := gfx.RectFromXYWH(leftBounds.Min.X+8, y+24, cardWidth, cardHeight)
-		f.renderMiniCard(list, cardBounds, entry, f.th)
+		cardBounds := gfx.RectFromXYWH(leftBounds.Min.X+profile.CompareInnerPad, y+profile.HeaderInset*1.5, profile.CardWidth, profile.CardHeight)
+		f.renderMiniCard(list, cardBounds, entry, f.th, profile)
 
 		// Right panel - compare theme
-		rightBounds := gfx.RectFromXYWH(bounds.Min.X+halfWidth+24, y, halfWidth, availableHeight)
+		rightBounds := gfx.RectFromXYWH(bounds.Min.X+profile.CompareInnerPad+halfWidth+profile.ComparePanelGap, y, halfWidth, availableHeight)
 		list.Add(gfx.FillRect{
 			Rect:  rightBounds,
 			Brush: gfx.SolidBrush(f.th.Color(theme.ColorSurface)),
 		})
-		f.drawTextLine(list, rightBounds.Min.X+8, y+8,
-			f.shaper.ShapeSimple(compareTheme.String(), f.th.TextStyle(theme.TextLabelS)).Lines[0],
-			f.th.Color(theme.ColorText))
+		if compareThemeLayout != nil && len(compareThemeLayout.Lines) > 0 {
+			drawTextLine(list, rightBounds.Min.X+profile.CompareInnerPad, y+profile.CompareInnerPad,
+				compareThemeLayout.Lines[0],
+				f.th.Color(theme.ColorText))
+		}
 		// Draw the same card with different theme indication
-		compareBounds := gfx.RectFromXYWH(rightBounds.Min.X+8, y+24, cardWidth, cardHeight)
-		f.renderMiniCard(list, compareBounds, entry, f.th)
+		compareBounds := gfx.RectFromXYWH(rightBounds.Min.X+profile.CompareInnerPad, y+profile.HeaderInset*1.5, profile.CardWidth, profile.CardHeight)
+		f.renderMiniCard(list, compareBounds, entry, f.th, profile)
 
 	case store.CompareStacked:
 		// Stacked: current on top, compare below
-		halfHeight := (availableHeight - 16) / 2
+		halfHeight := (availableHeight - profile.ComparePanelGap) / 2
 
 		// Top panel - current theme
-		topBounds := gfx.RectFromXYWH(bounds.Min.X+8, y, bounds.Width()-16, halfHeight)
+		topBounds := gfx.RectFromXYWH(bounds.Min.X+profile.CompareInnerPad, y, bounds.Width()-profile.CompareInnerPad*2, halfHeight)
 		list.Add(gfx.FillRect{
 			Rect:  topBounds,
 			Brush: gfx.SolidBrush(f.th.Color(theme.ColorSurface)),
 		})
-		f.drawTextLine(list, topBounds.Min.X+8, y+8,
-			f.shaper.ShapeSimple(store.GetTheme().String(), f.th.TextStyle(theme.TextLabelS)).Lines[0],
-			f.th.Color(theme.ColorText))
-		cardBounds := gfx.RectFromXYWH(topBounds.Min.X+8, y+24, cardWidth, cardHeight)
-		f.renderMiniCard(list, cardBounds, entry, f.th)
+		if currentThemeLayout != nil && len(currentThemeLayout.Lines) > 0 {
+			drawTextLine(list, topBounds.Min.X+profile.CompareInnerPad, y+profile.CompareInnerPad,
+				currentThemeLayout.Lines[0],
+				f.th.Color(theme.ColorText))
+		}
+		cardBounds := gfx.RectFromXYWH(topBounds.Min.X+profile.CompareInnerPad, y+profile.HeaderInset*1.5, profile.CardWidth, profile.CardHeight)
+		f.renderMiniCard(list, cardBounds, entry, f.th, profile)
 
 		// Bottom panel - compare theme
-		bottomY := y + halfHeight + 16
-		bottomBounds := gfx.RectFromXYWH(bounds.Min.X+8, bottomY, bounds.Width()-16, halfHeight)
+		bottomY := y + halfHeight + profile.ComparePanelGap
+		bottomBounds := gfx.RectFromXYWH(bounds.Min.X+profile.CompareInnerPad, bottomY, bounds.Width()-profile.CompareInnerPad*2, halfHeight)
 		list.Add(gfx.FillRect{
 			Rect:  bottomBounds,
 			Brush: gfx.SolidBrush(f.th.Color(theme.ColorSurface)),
 		})
-		f.drawTextLine(list, bottomBounds.Min.X+8, bottomY+8,
-			f.shaper.ShapeSimple(compareTheme.String(), f.th.TextStyle(theme.TextLabelS)).Lines[0],
-			f.th.Color(theme.ColorText))
-		compareBounds := gfx.RectFromXYWH(bottomBounds.Min.X+8, bottomY+24, cardWidth, cardHeight)
-		f.renderMiniCard(list, compareBounds, entry, f.th)
+		if compareThemeLayout != nil && len(compareThemeLayout.Lines) > 0 {
+			drawTextLine(list, bottomBounds.Min.X+profile.CompareInnerPad, bottomY+profile.CompareInnerPad,
+				compareThemeLayout.Lines[0],
+				f.th.Color(theme.ColorText))
+		}
+		compareBounds := gfx.RectFromXYWH(bottomBounds.Min.X+profile.CompareInnerPad, bottomY+profile.HeaderInset*1.5, profile.CardWidth, profile.CardHeight)
+		f.renderMiniCard(list, compareBounds, entry, f.th, profile)
 	}
 }
 
 // renderMiniCard renders a simplified card view for compare mode.
-func (f *ContentFacet) renderMiniCard(list *gfx.CommandList, bounds gfx.Rect, entry *model.CatalogEntry, th theme.Context) {
+func (f *ContentFacet) renderMiniCard(list *gfx.CommandList, bounds gfx.Rect, entry *model.CatalogEntry, th theme.Context, profile LayoutProfile) {
+	if profile.CardWidth <= 0 || profile.CardHeight <= 0 {
+		profile = DefaultLayoutProfile()
+	}
 	// Card background
 	list.Add(gfx.FillRect{
 		Rect:  bounds,
@@ -623,7 +688,7 @@ func (f *ContentFacet) renderMiniCard(list *gfx.CommandList, bounds gfx.Rect, en
 	textLayout := f.shaper.ShapeSimple(entry.ID, textStyle)
 	if textLayout != nil && len(textLayout.Lines) > 0 {
 		line := textLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X+8, bounds.Min.Y+12, line, th.Color(theme.ColorText))
+		drawTextLine(list, bounds.Min.X+profile.CompareInnerPad, bounds.Min.Y+profile.HeaderInset, line, th.Color(theme.ColorText))
 	}
 
 	// Family badge
@@ -632,8 +697,23 @@ func (f *ContentFacet) renderMiniCard(list *gfx.CommandList, bounds gfx.Rect, en
 	familyLayout := f.shaper.ShapeSimple(familyText, familyStyle)
 	if familyLayout != nil && len(familyLayout.Lines) > 0 {
 		line := familyLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X+8, bounds.Min.Y+32, line, th.Color(theme.ColorPrimary))
+		drawTextLine(list, bounds.Min.X+profile.CompareInnerPad, bounds.Min.Y+profile.HeaderInset*2, line, th.Color(theme.ColorPrimary))
 	}
+}
+
+// LayoutState returns the cached local layout model for tests.
+func (f *ContentFacet) LayoutState() contentLayoutState {
+	return f.layoutState
+}
+
+// CardBounds returns the arranged bounds for the card with the given ID.
+func (f *ContentFacet) CardBounds(id string) (gfx.Rect, bool) {
+	for _, card := range f.cards {
+		if card.Entry() != nil && card.Entry().ID == id {
+			return card.layout.ArrangedBounds, true
+		}
+	}
+	return gfx.Rect{}, false
 }
 
 // selectFocusedCard selects the currently focused card

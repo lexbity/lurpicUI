@@ -252,7 +252,7 @@ func GenerateCoverageReport(entries []*CatalogEntry, requiredIDs []string) Cover
 	report.DriftDetected = gate.DriftDetected
 
 	// Calculate summary stats
-	var total, implemented, partial, placeholder, missing int
+	var total, implemented, partial, placeholder, missing, themeDependent, layoutDependent int
 	for _, entry := range entries {
 		total++
 
@@ -272,6 +272,10 @@ func GenerateCoverageReport(entries []*CatalogEntry, requiredIDs []string) Cover
 			placeholder++
 		case CoverageMissing:
 			missing++
+		case CoverageThemeDependent:
+			themeDependent++
+		case CoverageLayoutDependent:
+			layoutDependent++
 		}
 
 		report.ByFamily[familyStr] = familyReport
@@ -286,12 +290,14 @@ func GenerateCoverageReport(entries []*CatalogEntry, requiredIDs []string) Cover
 	}
 
 	report.Summary = CoverageSummary{
-		Total:       total,
-		Implemented: implemented,
-		Partial:     partial,
-		Placeholder: placeholder,
-		Missing:     missing,
-		Percent:     0,
+		Total:           total,
+		Implemented:     implemented,
+		Partial:         partial,
+		Placeholder:     placeholder,
+		Missing:         missing,
+		ThemeDependent:  themeDependent,
+		LayoutDependent: layoutDependent,
+		Percent:         0,
 	}
 
 	if total > 0 {
@@ -305,10 +311,12 @@ func GenerateCoverageReport(entries []*CatalogEntry, requiredIDs []string) Cover
 
 // CoverageSummary provides high-level coverage statistics.
 type CoverageSummary struct {
-	Total       int     `json:"total"`
-	Implemented int     `json:"implemented"`
-	Partial     int     `json:"partial"`
-	Placeholder int     `json:"placeholder"`
-	Missing     int     `json:"missing"`
-	Percent     float64 `json:"percent"`
+	Total           int     `json:"total"`
+	Implemented     int     `json:"implemented"`
+	Partial         int     `json:"partial"`
+	Placeholder     int     `json:"placeholder"`
+	Missing         int     `json:"missing"`
+	ThemeDependent  int     `json:"themeDependent"`
+	LayoutDependent int     `json:"layoutDependent"`
+	Percent         float64 `json:"percent"`
 }

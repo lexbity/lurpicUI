@@ -17,6 +17,7 @@ type HeaderFacet struct {
 	facet.Facet
 	layout   facet.LayoutRole
 	render   facet.RenderRole
+	hit      facet.HitRole
 	th       theme.Context
 	shaper   *text.Shaper
 	meta     model.BuildMetadata
@@ -45,6 +46,12 @@ func NewHeaderFacet(th theme.Context, shaper *text.Shaper, meta model.BuildMetad
 		h.renderHeader(list, bounds)
 	}
 	h.AddRole(&h.render)
+
+	// Hit role for interactive elements
+	h.hit.OnHit = func(ev facet.HitEvent) bool {
+		return h.handleHit(ev)
+	}
+	h.AddRole(&h.hit)
 
 	return h
 }

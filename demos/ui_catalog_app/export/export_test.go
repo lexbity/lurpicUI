@@ -181,6 +181,22 @@ func TestExporter_exportInventory(t *testing.T) {
 		t.Errorf("Metadata.Count (%d) != len(Entries) (%d)", export.Metadata.Count, len(export.Entries))
 	}
 
+	if len(export.Entries) == 0 {
+		t.Fatal("inventory export should include entries")
+	}
+	foundMatrix := false
+	for _, entry := range export.Entries {
+		if entry.Subcategory == "" {
+			t.Errorf("entry %s missing subcategory export", entry.ID)
+		}
+		if len(entry.Variants) > 0 && len(entry.States) > 0 {
+			foundMatrix = true
+		}
+	}
+	if !foundMatrix {
+		t.Error("expected at least one entry to export variants and states")
+	}
+
 	// Check entries are sorted by ID
 	for i := 1; i < len(export.Entries); i++ {
 		if export.Entries[i].ID < export.Entries[i-1].ID {
@@ -247,12 +263,20 @@ func TestExporter_exportCoverage(t *testing.T) {
 
 	// Check percentages add up
 	total := report.Summary.Implemented + report.Summary.Partial +
-		report.Summary.Placeholder + report.Summary.Missing
+		report.Summary.Placeholder + report.Summary.Missing +
+		report.Summary.ThemeDependent + report.Summary.LayoutDependent
 	if total != report.Summary.Total {
-		t.Errorf("Summary counts don't add up: %d + %d + %d + %d = %d, want %d",
+		t.Errorf("Summary counts don't add up: %d + %d + %d + %d + %d + %d = %d, want %d",
 			report.Summary.Implemented, report.Summary.Partial,
 			report.Summary.Placeholder, report.Summary.Missing,
+			report.Summary.ThemeDependent, report.Summary.LayoutDependent,
 			total, report.Summary.Total)
+	}
+	if report.Summary.ThemeDependent == 0 {
+		t.Error("expected at least one theme-dependent entry in coverage report")
+	}
+	if report.Summary.LayoutDependent == 0 {
+		t.Error("expected at least one layout-dependent entry in coverage report")
 	}
 
 	// Check percentage calculation

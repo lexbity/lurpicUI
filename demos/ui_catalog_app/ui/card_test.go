@@ -38,6 +38,7 @@ func TestCardFacet_Measure(t *testing.T) {
 	th := theme.Default()
 	shaper := text.NewShaper(nil)
 	shaper.SetContentScale(1.0)
+	profile := DefaultLayoutProfile()
 
 	entry := &model.CatalogEntry{
 		ID:       "basic.rect",
@@ -47,11 +48,11 @@ func TestCardFacet_Measure(t *testing.T) {
 	card := NewCardFacet(th, shaper, entry)
 	size := card.layout.OnMeasure(facet.Constraints{})
 
-	if size.W != cardWidth {
-		t.Errorf("Card width = %v, want %v", size.W, cardWidth)
+	if size.W != profile.CardWidth {
+		t.Errorf("Card width = %v, want %v", size.W, profile.CardWidth)
 	}
-	if size.H != cardHeight {
-		t.Errorf("Card height = %v, want %v", size.H, cardHeight)
+	if size.H != profile.CardHeight {
+		t.Errorf("Card height = %v, want %v", size.H, profile.CardHeight)
 	}
 }
 
@@ -140,19 +141,21 @@ func newTestShaper(t *testing.T) *text.Shaper {
 }
 
 func TestCardFacet_Constants(t *testing.T) {
+	profile := DefaultLayoutProfile()
+
 	// Verify card dimensions are reasonable
-	if cardWidth <= 0 {
-		t.Error("cardWidth must be positive")
+	if profile.CardWidth <= 0 {
+		t.Error("CardWidth must be positive")
 	}
-	if cardHeight <= 0 {
-		t.Error("cardHeight must be positive")
+	if profile.CardHeight <= 0 {
+		t.Error("CardHeight must be positive")
 	}
-	if cardMargin < 0 {
-		t.Error("cardMargin must be non-negative")
+	if profile.CardMargin < 0 {
+		t.Error("CardMargin must be non-negative")
 	}
 
 	// Verify card aspect ratio is reasonable (wider than tall)
-	if cardWidth <= cardHeight {
-		t.Logf("Warning: cardWidth (%v) <= cardHeight (%v)", cardWidth, cardHeight)
+	if profile.CardWidth <= profile.CardHeight {
+		t.Logf("Warning: CardWidth (%v) <= CardHeight (%v)", profile.CardWidth, profile.CardHeight)
 	}
 }

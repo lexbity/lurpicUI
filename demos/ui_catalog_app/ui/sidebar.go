@@ -15,25 +15,31 @@ import (
 // SidebarFacet displays family navigation and filters.
 type SidebarFacet struct {
 	facet.Facet
-	layout       facet.LayoutRole
-	render       facet.RenderRole
-	th           theme.Context
-	shaper       *text.Shaper
-	subscription signal.SubscriptionID
+	layout        facet.LayoutRole
+	render        facet.RenderRole
+	th            theme.Context
+	shaper        *text.Shaper
+	subscription  signal.SubscriptionID
+	layoutProfile LayoutProfile
 }
 
 // NewSidebarFacet creates a new sidebar facet.
 func NewSidebarFacet(th theme.Context, shaper *text.Shaper) *SidebarFacet {
 	s := &SidebarFacet{
-		Facet:  facet.NewFacet(),
-		th:     th,
-		shaper: shaper,
+		Facet:         facet.NewFacet(),
+		th:            th,
+		shaper:        shaper,
+		layoutProfile: DefaultLayoutProfile(),
 	}
 
 	s.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
+		profile := s.layoutProfile
+		if profile.SidebarWidthDefault <= 0 {
+			profile = DefaultLayoutProfile()
+		}
 		w := c.MaxSize.W
 		if w <= 0 {
-			w = sidebarWidthDefault
+			w = profile.SidebarWidthDefault
 		}
 		return gfx.Size{W: w, H: c.MaxSize.H}
 	}
@@ -76,6 +82,15 @@ func (f *SidebarFacet) OnActivate() {}
 // OnDeactivate handles deactivation.
 func (f *SidebarFacet) OnDeactivate() {}
 
+// SetLayoutProfile updates density-driven sidebar geometry.
+func (f *SidebarFacet) SetLayoutProfile(profile LayoutProfile) {
+	if f == nil {
+		return
+	}
+	f.layoutProfile = profile
+	f.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+}
+
 func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 	if list == nil || bounds.IsEmpty() {
 		return
@@ -98,7 +113,11 @@ func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 		return
 	}
 
-	inner := Inset(bounds, 12)
+	profile := f.layoutProfile
+	if profile.SidebarInset <= 0 {
+		profile = DefaultLayoutProfile()
+	}
+	inner := Inset(bounds, profile.SidebarInset)
 	if inner.IsEmpty() {
 		return
 	}
@@ -119,21 +138,23 @@ func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 	}
 
 	// Section: Filter Options
-	y += 16
+	y += profile.FieldGap * 4
 	y = f.renderSectionHeader(list, inner, y, "Filters")
 	y = f.renderFilterToggle(list, inner, y, "Interactive Only", filter.InteractiveOnly)
 	y = f.renderFilterToggle(list, inner, y, "Theme Sensitive", filter.ThemeSensitiveOnly)
 
 	// Section: Coverage Status
-	y += 16
+	y += profile.FieldGap * 4
 	y = f.renderSectionHeader(list, inner, y, "Coverage")
 	y = f.renderCoverageFilter(list, inner, y, "Implemented", model.CoverageImplemented, filter)
 	y = f.renderCoverageFilter(list, inner, y, "Partial", model.CoveragePartial, filter)
 	y = f.renderCoverageFilter(list, inner, y, "Placeholder", model.CoveragePlaceholder, filter)
 	y = f.renderCoverageFilter(list, inner, y, "Missing", model.CoverageMissing, filter)
+	y = f.renderCoverageFilter(list, inner, y, "Theme Dependent", model.CoverageThemeDependent, filter)
+	y = f.renderCoverageFilter(list, inner, y, "Layout Dependent", model.CoverageLayoutDependent, filter)
 
 	// Section: Search
-	y += 16
+	y += profile.FieldGap * 4
 	y = f.renderSectionHeader(list, inner, y, "Search")
 	if filter.Query != "" {
 		y = f.renderSearchQuery(list, inner, y, filter.Query)
@@ -146,29 +167,41 @@ func (f *SidebarFacet) renderCoverageFilter(list *gfx.CommandList, bounds gfx.Re
 }
 
 func (f *SidebarFacet) renderSearchQuery(list *gfx.CommandList, bounds gfx.Rect, y float32, query string) float32 {
+	profile := f.layoutProfile
+	if profile.SidebarInset <= 0 {
+		profile = DefaultLayoutProfile()
+	}
 	label := fmt.Sprintf("Query: %s", query)
 	style := f.th.TextStyle(theme.TextBodyS)
 	layout := f.shaper.ShapeSimple(label, style)
 	if layout != nil && len(layout.Lines) > 0 {
 		line := layout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
-		return y + layout.Bounds.Height() + 4
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
+		return y + layout.Bounds.Height() + profile.FieldGap
 	}
-	return y + 16
+	return y + profile.FieldGap*4
 }
 
 func (f *SidebarFacet) renderSectionHeader(list *gfx.CommandList, bounds gfx.Rect, y float32, label string) float32 {
+	profile := f.layoutProfile
+	if profile.SidebarInset <= 0 {
+		profile = DefaultLayoutProfile()
+	}
 	style := f.th.TextStyle(theme.TextLabelS)
 	layout := f.shaper.ShapeSimple(label, style)
 	if layout != nil && len(layout.Lines) > 0 {
 		line := layout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
-		return y + layout.Bounds.Height() + 8
+		drawTextLine(list, bounds.Min.X, y, line, f.th.Color(theme.ColorTextSecondary))
+		return y + layout.Bounds.Height() + profile.FieldGap*2
 	}
-	return y + 16
+	return y + profile.FieldGap*4
 }
 
 func (f *SidebarFacet) renderFamilyItem(list *gfx.CommandList, bounds gfx.Rect, y float32, fam model.Family, selected bool, count int) float32 {
+	profile := f.layoutProfile
+	if profile.SidebarInset <= 0 {
+		profile = DefaultLayoutProfile()
+	}
 	label := fam.DisplayName()
 	token := theme.TextBodyS
 	color := f.th.Color(theme.ColorText)
@@ -180,7 +213,7 @@ func (f *SidebarFacet) renderFamilyItem(list *gfx.CommandList, bounds gfx.Rect, 
 	layout := f.shaper.ShapeSimple(label, style)
 	if layout != nil && len(layout.Lines) > 0 {
 		line := layout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X+8, y, line, color)
+		drawTextLine(list, bounds.Min.X+profile.SidebarInset/2, y, line, color)
 
 		// Count badge
 		countText := fmt.Sprintf("%d", count)
@@ -189,15 +222,19 @@ func (f *SidebarFacet) renderFamilyItem(list *gfx.CommandList, bounds gfx.Rect, 
 		if countLayout != nil && len(countLayout.Lines) > 0 {
 			countLine := countLayout.Lines[0]
 			countX := bounds.Max.X - countLine.Bounds.Width()
-			f.drawTextLine(list, countX, y, countLine, f.th.Color(theme.ColorTextSecondary))
+			drawTextLine(list, countX, y, countLine, f.th.Color(theme.ColorTextSecondary))
 		}
 
-		return y + layout.Bounds.Height() + 4
+		return y + layout.Bounds.Height() + profile.FieldGap
 	}
-	return y + 20
+	return y + profile.FieldGap*5
 }
 
 func (f *SidebarFacet) renderFilterToggle(list *gfx.CommandList, bounds gfx.Rect, y float32, label string, checked bool) float32 {
+	profile := f.layoutProfile
+	if profile.SidebarInset <= 0 {
+		profile = DefaultLayoutProfile()
+	}
 	// Checkbox indicator
 	checkChar := "☐"
 	if checked {
@@ -208,7 +245,7 @@ func (f *SidebarFacet) renderFilterToggle(list *gfx.CommandList, bounds gfx.Rect
 	checkLayout := f.shaper.ShapeSimple(checkChar, checkStyle)
 	if checkLayout != nil && len(checkLayout.Lines) > 0 {
 		checkLine := checkLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X, y, checkLine, f.th.Color(theme.ColorText))
+		drawTextLine(list, bounds.Min.X, y, checkLine, f.th.Color(theme.ColorText))
 	}
 
 	// Label
@@ -216,19 +253,8 @@ func (f *SidebarFacet) renderFilterToggle(list *gfx.CommandList, bounds gfx.Rect
 	labelLayout := f.shaper.ShapeSimple(label, labelStyle)
 	if labelLayout != nil && len(labelLayout.Lines) > 0 {
 		labelLine := labelLayout.Lines[0]
-		f.drawTextLine(list, bounds.Min.X+24, y, labelLine, f.th.Color(theme.ColorText))
+		drawTextLine(list, bounds.Min.X+profile.FieldLabelWidth/4, y, labelLine, f.th.Color(theme.ColorText))
 		return y + labelLayout.Bounds.Height() + 8
 	}
-	return y + 24
-}
-
-func (f *SidebarFacet) drawTextLine(list *gfx.CommandList, x, y float32, line text.ShapedLine, color gfx.Color) {
-	origin := gfx.Point{X: x + line.Bounds.Min.X, Y: y + line.Baseline}
-	for _, run := range line.Runs {
-		list.Add(gfx.DrawGlyphRun{
-			Run:    run,
-			Origin: origin,
-			Brush:  gfx.SolidBrush(color),
-		})
-	}
+	return y + profile.FieldGap*6
 }

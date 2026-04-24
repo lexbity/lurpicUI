@@ -7,9 +7,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/ui_catalog/model"
+	"codeburg.org/lexbit/ui_catalog/store"
 )
 
 // CatalogRootFacet is the root facet managing the catalog shell layout.
@@ -30,13 +32,17 @@ type CatalogRootFacet struct {
 	footer    *FooterFacet
 
 	// Runtime services
-	adder          facetChildAdder
-	frameRequester interface{ RequestFrame() }
+	adder           facetChildAdder
+	frameRequester  interface{ RequestFrame() }
+	themeSub        signal.SubscriptionID
+	densitySub      signal.SubscriptionID
+	compareSub      signal.SubscriptionID
+	compareThemeSub signal.SubscriptionID
 
 	// Layout state
-	shellBounds    ShellBounds
 	sidebarWidth   float32
 	inspectorWidth float32
+	layoutProfile  LayoutProfile
 
 	// Error state
 	hasError bool
@@ -50,8 +56,9 @@ func NewCatalogRootFacet(th theme.Context, shaper *text.Shaper, meta model.Build
 		th:             th,
 		shaper:         shaper,
 		meta:           meta,
-		sidebarWidth:   sidebarWidthDefault,
-		inspectorWidth: inspectorWidthDefault,
+		sidebarWidth:   sidebarWidthDefaultNormal,
+		inspectorWidth: inspectorWidthDefaultNormal,
+		layoutProfile:  DefaultLayoutProfile(),
 	}
 
 	// Create child facets
@@ -60,6 +67,7 @@ func NewCatalogRootFacet(th theme.Context, shaper *text.Shaper, meta model.Build
 	root.content = NewContentFacet(th, shaper)
 	root.inspector = NewInspectorFacet(th, shaper)
 	root.footer = NewFooterFacet(th, shaper)
+	root.applyLayoutProfile(root.layoutProfile)
 
 	// Configure layout role
 	root.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
@@ -141,6 +149,22 @@ func (f *CatalogRootFacet) OnAttach(ctx facet.AttachContext) {
 	if req, ok := ctx.Runtime.(interface{ RequestFrame() }); ok {
 		f.frameRequester = req
 	}
+	f.themeSub = store.ThemeStore.OnChange.Subscribe(func(change signal.Change[store.ThemeMode]) {
+		f.RequestFrame()
+	})
+	f.densitySub = store.DensityStore.OnChange.Subscribe(func(change signal.Change[store.DensityMode]) {
+		f.applyLayoutProfile(LayoutProfileForDensity(change.New))
+		if !f.layout.ArrangedBounds.IsEmpty() {
+			f.arrangeShell(f.layout.ArrangedBounds)
+		}
+		f.RequestFrame()
+	})
+	f.compareSub = store.CompareStore.OnChange.Subscribe(func(change signal.Change[store.CompareMode]) {
+		f.RequestFrame()
+	})
+	f.compareThemeSub = store.CompareThemeStore.OnChange.Subscribe(func(change signal.Change[store.ThemeMode]) {
+		f.RequestFrame()
+	})
 
 	// Attach children with their respective layer specs
 	attachChild(&f.Facet, f, f.header, f.adder, layout.ChildAttachment{LayerID: 1})
@@ -151,7 +175,12 @@ func (f *CatalogRootFacet) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnDetach handles detachment.
-func (f *CatalogRootFacet) OnDetach() {}
+func (f *CatalogRootFacet) OnDetach() {
+	store.ThemeStore.OnChange.Unsubscribe(f.themeSub)
+	store.DensityStore.OnChange.Unsubscribe(f.densitySub)
+	store.CompareStore.OnChange.Unsubscribe(f.compareSub)
+	store.CompareThemeStore.OnChange.Unsubscribe(f.compareThemeSub)
+}
 
 // OnActivate handles activation.
 func (f *CatalogRootFacet) OnActivate() {}
@@ -166,7 +195,7 @@ func (f *CatalogRootFacet) OnLayerSpecs() []layout.LayerSpec {
 		return nil
 	}
 
-	shell := CalculateShellBounds(bounds, f.sidebarWidth, f.inspectorWidth)
+	shell := CalculateShellBoundsWithProfile(bounds, f.sidebarWidth, f.inspectorWidth, f.layoutProfile)
 
 	return []layout.LayerSpec{
 		{
@@ -228,22 +257,22 @@ func (f *CatalogRootFacet) arrangeShell(bounds gfx.Rect) {
 		return
 	}
 
-	f.shellBounds = CalculateShellBounds(bounds, f.sidebarWidth, f.inspectorWidth)
+	shell := CalculateShellBoundsWithProfile(bounds, f.sidebarWidth, f.inspectorWidth, f.layoutProfile)
 
 	if f.header != nil {
-		f.header.layout.Arrange(f.shellBounds.Header)
+		f.header.layout.Arrange(shell.Header)
 	}
 	if f.sidebar != nil {
-		f.sidebar.layout.Arrange(f.shellBounds.Sidebar)
+		f.sidebar.layout.Arrange(shell.Sidebar)
 	}
 	if f.content != nil {
-		f.content.layout.Arrange(f.shellBounds.Content)
+		f.content.layout.Arrange(shell.Content)
 	}
 	if f.inspector != nil {
-		f.inspector.layout.Arrange(f.shellBounds.Inspector)
+		f.inspector.layout.Arrange(shell.Inspector)
 	}
 	if f.footer != nil {
-		f.footer.layout.Arrange(f.shellBounds.Footer)
+		f.footer.layout.Arrange(shell.Footer)
 	}
 }
 
@@ -334,14 +363,7 @@ func (f *CatalogRootFacet) renderErrorState(list *gfx.CommandList, bounds gfx.Re
 			line := titleLayout.Lines[0]
 			x := bounds.Min.X + (bounds.Width()-line.Bounds.Width())/2
 			y := bounds.Min.Y + bounds.Height()/3
-			origin := gfx.Point{X: x, Y: y}
-			for _, run := range line.Runs {
-				list.Add(gfx.DrawGlyphRun{
-					Run:    run,
-					Origin: origin,
-					Brush:  gfx.SolidBrush(f.th.Color(theme.ColorText)),
-				})
-			}
+			drawTextLine(list, x, y, line, f.th.Color(theme.ColorText))
 		}
 
 		// Error message
@@ -355,15 +377,30 @@ func (f *CatalogRootFacet) renderErrorState(list *gfx.CommandList, bounds gfx.Re
 				}
 				x := bounds.Min.X + 20
 				y := bounds.Min.Y + bounds.Height()/2 + float32(i)*20
-				origin := gfx.Point{X: x, Y: y}
-				for _, run := range line.Runs {
-					list.Add(gfx.DrawGlyphRun{
-						Run:    run,
-						Origin: origin,
-						Brush:  gfx.SolidBrush(f.th.Color(theme.ColorText)),
-					})
-				}
+				drawTextLine(list, x, y, line, f.th.Color(theme.ColorText))
 			}
 		}
+	}
+}
+
+func (f *CatalogRootFacet) applyLayoutProfile(profile LayoutProfile) {
+	if f == nil {
+		return
+	}
+	f.layoutProfile = profile
+	if f.sidebar != nil {
+		f.sidebar.SetLayoutProfile(profile)
+	}
+	if f.content != nil {
+		f.content.SetLayoutProfile(profile)
+	}
+	if f.inspector != nil {
+		f.inspector.SetLayoutProfile(profile)
+	}
+	if f.footer != nil {
+		f.footer.SetLayoutProfile(profile)
+	}
+	if f.header != nil {
+		f.header.SetLayoutProfile(profile)
 	}
 }

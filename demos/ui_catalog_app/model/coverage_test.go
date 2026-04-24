@@ -275,8 +275,8 @@ func TestGenerateCoverageReport(t *testing.T) {
 	requiredIDs := []string{"mark-1", "mark-2", "mark-3"}
 	entries := []*CatalogEntry{
 		{ID: "mark-1", Coverage: CoverageImplemented, Family: FamilyBasic},
-		{ID: "mark-2", Coverage: CoveragePlaceholder, Family: FamilyBasic},
-		{ID: "mark-3", Coverage: CoveragePartial, Family: FamilyChart},
+		{ID: "mark-2", Coverage: CoverageThemeDependent, Family: FamilyBasic},
+		{ID: "mark-3", Coverage: CoverageLayoutDependent, Family: FamilyChart},
 	}
 
 	report := GenerateCoverageReport(entries, requiredIDs)
@@ -287,11 +287,17 @@ func TestGenerateCoverageReport(t *testing.T) {
 	if report.Summary.Implemented != 1 {
 		t.Errorf("Summary.Implemented = %d, want 1", report.Summary.Implemented)
 	}
-	if report.Summary.Placeholder != 1 {
-		t.Errorf("Summary.Placeholder = %d, want 1", report.Summary.Placeholder)
+	if report.Summary.ThemeDependent != 1 {
+		t.Errorf("Summary.ThemeDependent = %d, want 1", report.Summary.ThemeDependent)
 	}
-	if report.Summary.Partial != 1 {
-		t.Errorf("Summary.Partial = %d, want 1", report.Summary.Partial)
+	if report.Summary.LayoutDependent != 1 {
+		t.Errorf("Summary.LayoutDependent = %d, want 1", report.Summary.LayoutDependent)
+	}
+	if report.Summary.Partial != 0 {
+		t.Errorf("Summary.Partial = %d, want 0", report.Summary.Partial)
+	}
+	if report.Summary.Placeholder != 0 {
+		t.Errorf("Summary.Placeholder = %d, want 0", report.Summary.Placeholder)
 	}
 
 	if len(report.ByFamily) != 2 {
