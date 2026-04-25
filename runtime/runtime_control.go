@@ -5,7 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
-// ClearInputState resets pointer, hover, focus, and pending input state.
+// ClearInputState resets pointer, touch, hover, focus, and pending input state.
 func (rt *Runtime) ClearInputState() {
 	if rt == nil {
 		return
@@ -17,6 +17,7 @@ func (rt *Runtime) ClearInputState() {
 	if rt.focusManager != nil {
 		rt.focusManager.ClearFocus()
 	}
+	rt.setIMEVisible(false)
 	rt.pendingEvents = nil
 }
 
@@ -40,6 +41,7 @@ func (rt *Runtime) ClearFocus() {
 	if rt.inputSystem != nil {
 		rt.inputSystem.ClearFocus()
 	}
+	rt.setIMEVisible(false)
 	rt.RequestFrame()
 }
 

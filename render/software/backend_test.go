@@ -53,6 +53,17 @@ type shrinkingSurface struct {
 	shrunk    bool
 }
 
+type genericSurface struct {
+	w int
+	h int
+}
+
+func (s *genericSurface) Size() (width, height int) { return s.w, s.h }
+func (s *genericSurface) Resize(width, height int) {
+	s.w = width
+	s.h = height
+}
+
 func (s *shrinkingSurface) Lock() error {
 	if !s.shrunk {
 		s.Resize(s.shrinkToW, s.shrinkToH)
@@ -103,6 +114,32 @@ func TestSoftwareRenderer_fillrect_solid(t *testing.T) {
 	}
 	if got := pxAt(s, 15, 15); got != (color.RGBA{}) {
 		t.Fatalf("outside pixel mismatch: %#v", got)
+	}
+}
+
+func TestSoftwareRenderer_evict_caches_clears_recoverable_state(t *testing.T) {
+	r, _ := newRenderer(t, 20, 20)
+	r.RenderBatchCache[1] = &RenderBatchCacheEntry{buffer: image.NewRGBA(image.Rect(0, 0, 1, 1))}
+	r.rasterizeCount = 3
+	r.EvictCaches()
+	if len(r.RenderBatchCache) != 0 {
+		t.Fatalf("expected render batch cache cleared, got %d", len(r.RenderBatchCache))
+	}
+	if r.diffCache == nil {
+		t.Fatal("expected diff cache reinitialized")
+	}
+	if r.glyphAtlas == nil || len(r.glyphAtlas.entries) != 0 {
+		t.Fatal("expected glyph atlas cleared")
+	}
+	if r.rasterizeCount != 0 {
+		t.Fatalf("expected rasterize count reset, got %d", r.rasterizeCount)
+	}
+}
+
+func TestSoftwareRenderer_initialize_rejects_generic_surface(t *testing.T) {
+	r := NewSoftwareRenderer()
+	if err := r.Initialize(&genericSurface{w: 20, h: 20}); err == nil {
+		t.Fatal("expected initialize to reject a non-software surface")
 	}
 }
 

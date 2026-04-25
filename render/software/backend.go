@@ -23,11 +23,7 @@ var _ = text.GlyphRun{}
 var _ = gotextrender.Renderer{}
 
 type blitSurface interface {
-	render.Surface
-	Buffer() []byte
-	Stride() int
-	Lock() error
-	Unlock([]gfx.Rect) error
+	render.SoftwareSurface
 }
 
 type RenderBatchCacheEntry struct {
@@ -88,7 +84,7 @@ func (r *SoftwareRenderer) Initialize(surface render.Surface) error {
 	}
 	blit, ok := surface.(blitSurface)
 	if !ok {
-		return errors.New("software renderer: surface must implement platform.Surface")
+		return errors.New("software renderer: surface must implement render.SoftwareSurface")
 	}
 
 	r.mu.Lock()
@@ -124,6 +120,16 @@ func (r *SoftwareRenderer) Destroy() {
 	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
 	r.diffCache = renderutil.NewRenderBatchCache()
 	r.glyphAtlas = &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)}
+}
+
+// EvictCaches releases recoverable renderer caches without dropping the surface.
+func (r *SoftwareRenderer) EvictCaches() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
+	r.diffCache = renderutil.NewRenderBatchCache()
+	r.glyphAtlas = &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)}
+	r.rasterizeCount = 0
 }
 
 func (r *SoftwareRenderer) RasterizeCount() int {

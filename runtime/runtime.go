@@ -3,6 +3,7 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	goruntime "runtime"
 	"sort"
 	"sync"
 	"time"
@@ -61,6 +62,12 @@ type Runtime struct {
 	phase1Hooks      []func(time.Duration)
 	shutdownHooksMu  sync.RWMutex
 	shutdownHooks    []func()
+	lifecycleMu      sync.Mutex
+	lifecycleCond    *sync.Cond
+	paused           bool
+	lifecycleBound   bool
+	surfaceReady     bool
+	imeVisible       bool
 
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
@@ -117,8 +124,13 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		doneCh:           make(chan struct{}),
 		log:              config.Logger,
 		diag:             config.DiagnosticsHook,
+		surfaceReady:     true,
 	}
+	rt.lifecycleCond = sync.NewCond(&rt.lifecycleMu)
 	rt.inputSystem.SetFocusManager(rt.focusManager)
+	if cap, ok := platform.PointerCapableOf(platformApp); ok {
+		rt.inputSystem.SetHoverSupported(cap.SupportsHover())
+	}
 	return rt, nil
 }
 
@@ -140,6 +152,9 @@ func (rt *Runtime) Run() error {
 		return err
 	}
 	for {
+		if !rt.waitIfPausedOrStopped() {
+			return nil
+		}
 		select {
 		case <-rt.shutdownCh:
 			<-rt.doneCh
@@ -181,6 +196,12 @@ func (rt *Runtime) Shutdown() {
 		close(rt.doneCh)
 		return
 	}
+	rt.lifecycleMu.Lock()
+	rt.paused = false
+	if rt.lifecycleCond != nil {
+		rt.lifecycleCond.Broadcast()
+	}
+	rt.lifecycleMu.Unlock()
 	select {
 	case <-rt.shutdownCh:
 	default:
@@ -209,6 +230,7 @@ func (rt *Runtime) start() error {
 		store.SetSignalQueueHook(rt.queueSignal)
 		go (&renderThread{pipeline: rt.renderPipeline}).run()
 		rt.jobPool.Start()
+		rt.bindLifecycleCallbacks()
 		rt.contentScale = rt.effectiveContentScale()
 		rt.attachTree(rt.root)
 		rt.activateTree(rt.root)
@@ -219,6 +241,39 @@ func (rt *Runtime) start() error {
 		rt.shutdownMu.Unlock()
 	})
 	return startErr
+}
+
+func (rt *Runtime) bindLifecycleCallbacks() {
+	if rt == nil || rt.platformApp == nil {
+		return
+	}
+	lc, ok := platform.LifecycleCapableOf(rt.platformApp)
+	if !ok || lc == nil {
+		return
+	}
+	rt.lifecycleMu.Lock()
+	if rt.lifecycleBound {
+		rt.lifecycleMu.Unlock()
+		return
+	}
+	rt.lifecycleBound = true
+	rt.lifecycleMu.Unlock()
+
+	lc.OnPause(func() {
+		rt.handlePlatformPause()
+	})
+	lc.OnResume(func() {
+		rt.handlePlatformResume()
+	})
+	lc.OnLowMemory(func() {
+		rt.handlePlatformLowMemory()
+	})
+	lc.OnSurfaceLost(func() {
+		rt.handleSurfaceLost()
+	})
+	lc.OnSurfaceCreated(func(surface platform.Surface) {
+		rt.handleSurfaceCreated(surface)
+	})
 }
 
 func (rt *Runtime) superviseShutdown() {
@@ -250,6 +305,9 @@ func (rt *Runtime) shutdown() error {
 
 func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	if rt == nil {
+		return
+	}
+	if rt.isPaused() {
 		return
 	}
 	rt.frameNumber++
@@ -324,7 +382,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 
 	renderStart := time.Now()
-	if rt.renderPipeline != nil && frameOut != nil {
+	if rt.renderPipeline != nil && frameOut != nil && rt.isSurfaceReady() {
 		frame := rt.assembleFrame(frameOut, dirtySnapshot)
 		if diag := rt.diagnosticsHook(); diag != nil {
 			if oi, ok := diag.(overlayInjector); ok {
@@ -365,6 +423,10 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 	out := events[:0]
 	for _, ev := range events {
 		switch e := ev.(type) {
+		case platform.LifecycleEvent:
+			continue
+		case platform.WindowEvent:
+			continue
 		case platform.EventWindowClose:
 			rt.initiateShutdown()
 		case platform.EventWindowResize:
@@ -372,16 +434,164 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 		case platform.EventWindowFocus:
 			if !e.Focused {
 				rt.inputSystem.ClearPointerState()
-				if rt.focusManager != nil {
-					rt.focusManager.ClearFocus()
-				}
-				rt.inputSystem.ClearFocus()
+				rt.ClearFocus()
 			}
 		default:
 			out = append(out, ev)
 		}
 	}
 	return out
+}
+
+func (rt *Runtime) handlePlatformPause() {
+	if rt == nil {
+		return
+	}
+	rt.lifecycleMu.Lock()
+	rt.paused = true
+	if rt.lifecycleCond != nil {
+		rt.lifecycleCond.Broadcast()
+	}
+	rt.lifecycleMu.Unlock()
+	if rt.jobPool != nil {
+		rt.jobPool.Pause()
+		rt.jobPool.CancelAll()
+	}
+	rt.setIMEVisible(false)
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
+func (rt *Runtime) handlePlatformResume() {
+	if rt == nil {
+		return
+	}
+	rt.lifecycleMu.Lock()
+	rt.paused = false
+	if rt.lifecycleCond != nil {
+		rt.lifecycleCond.Broadcast()
+	}
+	rt.lifecycleMu.Unlock()
+	if rt.jobPool != nil {
+		rt.jobPool.Resume()
+	}
+	rt.markTreeDirty(rt.root, facet.DirtyAll)
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
+func (rt *Runtime) handlePlatformLowMemory() {
+	if rt == nil {
+		return
+	}
+	if rt.log != nil {
+		rt.log.Warn("runtime: android low memory event received")
+	}
+	rt.clearRecoverableCaches()
+	goruntime.GC()
+}
+
+func (rt *Runtime) clearRecoverableCaches() {
+	if rt == nil {
+		return
+	}
+	if rt.projectionSystem != nil {
+		rt.projectionSystem.Reset()
+	}
+	if len(rt.anchorCaches) > 0 {
+		for id, cache := range rt.anchorCaches {
+			if cache != nil {
+				_ = cache.Reset()
+			}
+			delete(rt.anchorCaches, id)
+		}
+	}
+	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil {
+		if evictor, ok := rt.renderPipeline.backend.(render.CacheEvictor); ok {
+			evictor.EvictCaches()
+		}
+	}
+	rt.frameTimer.RequestFrame()
+	rt.markTreeDirty(rt.root, facet.DirtyAll)
+}
+
+func (rt *Runtime) handleSurfaceLost() {
+	if rt == nil {
+		return
+	}
+	rt.lifecycleMu.Lock()
+	rt.surfaceReady = false
+	rt.lifecycleMu.Unlock()
+	rt.setIMEVisible(false)
+	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil {
+		rt.renderPipeline.backend.Destroy()
+	}
+	rt.markTreeDirty(rt.root, facet.DirtyAll)
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
+func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
+	if rt == nil {
+		return
+	}
+	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil && surface != nil {
+		if err := rt.renderPipeline.backend.Initialize(surface); err != nil {
+			if rt.log != nil {
+				rt.log.Error("runtime: reinitialize render backend after surface creation failed", "error", err)
+			}
+		} else {
+			rt.lifecycleMu.Lock()
+			rt.surfaceReady = true
+			rt.lifecycleMu.Unlock()
+		}
+	}
+	rt.markTreeDirty(rt.root, facet.DirtyAll)
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
+func (rt *Runtime) waitIfPausedOrStopped() bool {
+	if rt == nil {
+		return false
+	}
+	rt.lifecycleMu.Lock()
+	for rt.paused {
+		rt.lifecycleCond.Wait()
+		select {
+		case <-rt.shutdownCh:
+			rt.lifecycleMu.Unlock()
+			<-rt.doneCh
+			return false
+		default:
+		}
+	}
+	rt.lifecycleMu.Unlock()
+	return true
+}
+
+func (rt *Runtime) isPaused() bool {
+	if rt == nil {
+		return false
+	}
+	rt.lifecycleMu.Lock()
+	paused := rt.paused
+	rt.lifecycleMu.Unlock()
+	return paused
+}
+
+func (rt *Runtime) isSurfaceReady() bool {
+	if rt == nil {
+		return false
+	}
+	rt.lifecycleMu.Lock()
+	ready := rt.surfaceReady
+	rt.lifecycleMu.Unlock()
+	return ready
 }
 
 func (rt *Runtime) handleResize(w, h int) {
@@ -404,15 +614,26 @@ func (rt *Runtime) handleResize(w, h int) {
 }
 
 func (rt *Runtime) updateIMECursorRect() {
-	if rt == nil || rt.window == nil || rt.focusManager == nil {
+	if rt == nil || rt.focusManager == nil {
+		rt.setIMEVisible(false)
 		return
 	}
 	focused := rt.focusManager.FocusedImpl()
 	if focused == nil || focused.Base() == nil {
+		rt.setIMEVisible(false)
 		return
 	}
 	tr := focused.Base().TextRole()
-	if tr == nil || !tr.CaretVisible || tr.Layout == nil {
+	if tr == nil || !tr.IMEEnabled {
+		rt.setIMEVisible(false)
+		return
+	}
+	rt.setIMEVisible(true)
+	if rt.window == nil {
+		return
+	}
+	if !tr.CaretVisible || tr.Layout == nil {
+		rt.window.SetIMECursorRect(gfx.Rect{})
 		return
 	}
 	caret := tr.Layout.CaretRect(tr.CaretPosition)
@@ -426,6 +647,23 @@ func (rt *Runtime) updateIMECursorRect() {
 		caret.Width(),
 		caret.Height(),
 	))
+}
+
+func (rt *Runtime) setIMEVisible(visible bool) {
+	if rt == nil {
+		return
+	}
+	if visible == rt.imeVisible {
+		return
+	}
+	if cap, ok := platform.IMECapableOf(rt.platformApp); ok && cap != nil {
+		if visible {
+			cap.ShowSoftKeyboard()
+		} else {
+			cap.HideSoftKeyboard()
+		}
+	}
+	rt.imeVisible = visible
 }
 
 // AddFacet attaches a new child facet at runtime with layer metadata.

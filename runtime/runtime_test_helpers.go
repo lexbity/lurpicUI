@@ -37,8 +37,11 @@ func (s *stubBackend) Resize(width, height int) error          { return nil }
 func (s *stubBackend) Destroy()                                {}
 
 type recordingBackend struct {
-	last        *render.Frame
-	submitCount int
+	last            *render.Frame
+	submitCount     int
+	initializeCount int
+	destroyCount    int
+	lastSurface     render.Surface
 }
 
 type countingDiagHook struct {
@@ -49,14 +52,20 @@ func (h *countingDiagHook) OnFrame(stats diagnostics.FrameStats) {
 	h.count++
 }
 
-func (r *recordingBackend) Initialize(surface render.Surface) error { return nil }
+func (r *recordingBackend) Initialize(surface render.Surface) error {
+	r.initializeCount++
+	r.lastSurface = surface
+	return nil
+}
 func (r *recordingBackend) Submit(frame *render.Frame) error {
 	r.submitCount++
 	r.last = frame
 	return nil
 }
 func (r *recordingBackend) Resize(width, height int) error { return nil }
-func (r *recordingBackend) Destroy()                       {}
+func (r *recordingBackend) Destroy() {
+	r.destroyCount++
+}
 
 type runtimeTestFacet struct {
 	facet.Facet
@@ -124,6 +133,11 @@ type runtimeFocusFacet struct {
 	facet.Facet
 	focus facet.FocusRole
 	text  facet.TextRole
+}
+
+func (f *runtimeFocusFacet) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
 }
 
 type layoutCountLeaf struct {
@@ -610,6 +624,24 @@ func mustRuntimeWithBackend(t *testing.T, root facet.FacetImpl, backend render.B
 	return rt
 }
 
+func mustRuntimeWithApp(t *testing.T, app platform.App, root facet.FacetImpl) *Runtime {
+	t.Helper()
+	rt, err := New(DefaultConfig(), app, nil, &stubBackend{}, root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	return rt
+}
+
+func mustRuntimeWithAppAndBackend(t *testing.T, app platform.App, root facet.FacetImpl, backend render.Backend) *Runtime {
+	t.Helper()
+	rt, err := New(DefaultConfig(), app, nil, backend, root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	return rt
+}
+
 type testWindow struct {
 	width        int
 	height       int
@@ -636,7 +668,5 @@ var _ platform.App = (*nilApp)(nil)
 
 type nilApp struct{}
 
-func (n *nilApp) NewWindow(platform.WindowOptions) (platform.Window, error) { return nil, nil }
-func (n *nilApp) Events() platform.EventQueue                               { return nil }
-func (n *nilApp) Clipboard() platform.Clipboard                             { return nil }
-func (n *nilApp) Destroy()                                                  {}
+func (n *nilApp) Events() platform.EventQueue { return nil }
+func (n *nilApp) Destroy()                    {}

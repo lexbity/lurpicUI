@@ -12,6 +12,22 @@ type Surface interface {
 	Resize(width, height int)
 }
 
+// VulkanSurface exposes backend-specific native surface creation for Vulkan-capable surfaces.
+type VulkanSurface interface {
+	Surface
+	VulkanInstanceExtensions() []string
+	CreateVulkanSurface(instance uintptr) (uintptr, error)
+}
+
+// SoftwareSurface extends Surface with direct pixel access for the software renderer.
+type SoftwareSurface interface {
+	Surface
+	Buffer() []byte
+	Stride() int
+	Lock() error
+	Unlock(dirtyRects []gfx.Rect) error
+}
+
 type RenderBatchID uint64
 
 type RenderBatch struct {
@@ -45,4 +61,11 @@ type Backend interface {
 	Submit(frame *Frame) error
 	Resize(width, height int) error
 	Destroy()
+}
+
+// CacheEvictor is implemented by render backends that retain recoverable caches.
+// It allows the runtime to ask the backend to release memory under pressure
+// without tearing the backend down completely.
+type CacheEvictor interface {
+	EvictCaches()
 }
