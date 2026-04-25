@@ -10,6 +10,7 @@
 //	lurpic build android --release    # produces a release-signed APK
 //	lurpic run android                # builds, installs, launches on connected device
 //	lurpic run android --emulator     # launches an emulator if not running, then run
+//	lurpic validate demos             # runs demo validation suites
 //	lurpic clean                      # removes build artifacts
 //	lurpic version                    # prints version information
 package main
@@ -32,6 +33,8 @@ func main() {
 		os.Exit(cmdBuild(os.Args[2:]))
 	case "run":
 		os.Exit(cmdRun(os.Args[2:]))
+	case "validate":
+		os.Exit(cmdValidate(os.Args[2:]))
 	case "clean":
 		os.Exit(cmdClean(os.Args[2:]))
 	case "doctor":
@@ -58,6 +61,7 @@ Usage:
 	lurpic run android [flags]      Build, install, and run on Android device
 	lurpic doctor [platform]         Diagnose toolchain setup
   lurpic android-ci [frame|replay] Android CI validation helpers
+  lurpic validate demos            Run shared marks and demo module validation suites
   lurpic clean                     Remove build artifacts
   lurpic version                   Print version information
   lurpic help                      Show this help message

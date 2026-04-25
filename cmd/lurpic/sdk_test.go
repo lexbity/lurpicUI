@@ -98,9 +98,14 @@ name = "Test App"
 func TestFindProjectRoot_NoConfig(t *testing.T) {
 	// Create a temporary directory without config
 	tmpDir := t.TempDir()
+	originalWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	defer os.Chdir(originalWd)
 	os.Chdir(tmpDir)
 
-	_, err := findProjectRoot()
+	_, err = findProjectRoot()
 	if err == nil {
 		t.Error("expected error when no lurpic.toml found")
 	}

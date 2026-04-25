@@ -21,12 +21,36 @@ type WindowConfig struct {
 	Resizable bool
 }
 
+// RenderBackendKind selects the preferred renderer implementation.
+type RenderBackendKind uint8
+
+const (
+	RenderBackendVulkan RenderBackendKind = iota
+	RenderBackendSoftware
+)
+
+func (k RenderBackendKind) String() string {
+	switch k {
+	case RenderBackendVulkan:
+		return "vulkan"
+	case RenderBackendSoftware:
+		return "software"
+	default:
+		return "unknown"
+	}
+}
+
 // Config configures the application entry point.
 type Config struct {
 	Window  WindowConfig
 	Runtime runtime.Config
 	Fonts   []FontSource
 	Theme   theme.Context
+	// Render selects the preferred renderer. Vulkan is the default; software
+	// is used as a fallback when Vulkan initialization fails.
+	Render RenderBackendKind
+	// OnBackendSelected reports the renderer that actually initialized.
+	OnBackendSelected func(RenderBackendKind)
 }
 
 // BuildContext is passed to the root builder after engine startup.
@@ -50,5 +74,6 @@ func DefaultConfig(title string, w, h int) Config {
 			Resizable: true,
 		},
 		Runtime: runtime.DefaultConfig(),
+		Render:  RenderBackendVulkan,
 	}
 }

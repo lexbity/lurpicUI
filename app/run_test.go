@@ -1,6 +1,7 @@
 package app
 
 import (
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type fakeSurface struct {
 func (s *fakeSurface) Buffer() []byte           { return nil }
 func (s *fakeSurface) Stride() int              { return 0 }
 func (s *fakeSurface) Size() (int, int)         { return s.width, s.height }
+func (s *fakeSurface) Scale() float32           { return 1 }
 func (s *fakeSurface) Resize(width, height int) { s.width, s.height = width, height }
 func (s *fakeSurface) Lock() error              { return nil }
 func (s *fakeSurface) Unlock([]gfx.Rect) error  { return nil }
@@ -51,6 +53,7 @@ func (w *fakeWindow) Destroy()                       { w.destroyed = true }
 
 type fakeEventQueue struct{}
 
+func (q *fakeEventQueue) Push(platform.Event)                         {}
 func (q *fakeEventQueue) Poll() []platform.Event                      { return nil }
 func (q *fakeEventQueue) Wait(timeout time.Duration) []platform.Event { return nil }
 
@@ -76,16 +79,22 @@ func (a *fakeApp) Events() platform.EventQueue   { return &fakeEventQueue{} }
 func (a *fakeApp) Clipboard() platform.Clipboard { return &fakeClipboard{} }
 func (a *fakeApp) Destroy()                      { a.destroyed = true }
 
+type minimalApp struct{}
+
+func (a *minimalApp) Events() platform.EventQueue { return &fakeEventQueue{} }
+func (a *minimalApp) Destroy()                    {}
+
 type fakeBackend struct {
 	initialized bool
 	surface     render.Surface
 	destroyed   bool
+	initErr     error
 }
 
 func (b *fakeBackend) Initialize(surface render.Surface) error {
 	b.initialized = true
 	b.surface = surface
-	return nil
+	return b.initErr
 }
 func (b *fakeBackend) Submit(frame *render.Frame) error { return nil }
 func (b *fakeBackend) Resize(width, height int) error   { return nil }
@@ -104,6 +113,9 @@ func TestDefaultConfig_non_zero_fps(t *testing.T) {
 	if cfg.Runtime.TargetFPS <= 0 {
 		t.Fatalf("TargetFPS = %d", cfg.Runtime.TargetFPS)
 	}
+	if cfg.Render != RenderBackendVulkan {
+		t.Fatalf("Render = %v, want vulkan", cfg.Render)
+	}
 }
 
 func TestRun_nil_builder_errors(t *testing.T) {
@@ -112,10 +124,22 @@ func TestRun_nil_builder_errors(t *testing.T) {
 	}
 }
 
+func TestRun_platform_without_window_capability_errors(t *testing.T) {
+	restoreHooks(t)
+	newPlatformApp = func() (platform.App, error) { return &minimalApp{}, nil }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	if err := Run(DefaultConfig("title", 10, 20), func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
 func TestRun_builder_returning_nil_errors(t *testing.T) {
 	restoreHooks(t)
 	newPlatformApp = func() (platform.App, error) { return &fakeApp{}, nil }
-	newBackend = func() render.Backend { return &fakeBackend{} }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 	primeRuntime = func(rt *runtime.Runtime) {}
 
@@ -127,7 +151,7 @@ func TestRun_builder_returning_nil_errors(t *testing.T) {
 func TestRun_invalid_font_path_errors(t *testing.T) {
 	restoreHooks(t)
 	newPlatformApp = func() (platform.App, error) { return &fakeApp{}, nil }
-	newBackend = func() render.Backend { return &fakeBackend{} }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 	primeRuntime = func(rt *runtime.Runtime) {}
 
@@ -142,7 +166,7 @@ func TestRun_window_title_set(t *testing.T) {
 	restoreHooks(t)
 	app := &fakeApp{}
 	newPlatformApp = func() (platform.App, error) { return app, nil }
-	newBackend = func() render.Backend { return &fakeBackend{} }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	primeRuntime = func(rt *runtime.Runtime) {}
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 
@@ -164,7 +188,7 @@ func TestRun_window_shown_after_first_frame(t *testing.T) {
 	observedHidden := false
 	observedShown := false
 	newPlatformApp = func() (platform.App, error) { return app, nil }
-	newBackend = func() render.Backend { return &fakeBackend{} }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	primeRuntime = func(rt *runtime.Runtime) {
 		observedHidden = !app.window.shown
 	}
@@ -194,7 +218,7 @@ func TestRun_build_context_content_scale(t *testing.T) {
 	}
 	var observed float32
 	newPlatformApp = func() (platform.App, error) { return app, nil }
-	newBackend = func() render.Backend { return &fakeBackend{} }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	primeRuntime = func(rt *runtime.Runtime) {}
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 
@@ -214,7 +238,7 @@ func TestRun_build_context_theme_passthrough(t *testing.T) {
 	restoreHooks(t)
 	app := &fakeApp{}
 	newPlatformApp = func() (platform.App, error) { return app, nil }
-	newBackend = func() render.Backend { return &fakeBackend{} }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	primeRuntime = func(rt *runtime.Runtime) {}
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 
@@ -239,7 +263,7 @@ func TestRun_build_context_theme_passthrough(t *testing.T) {
 func TestRun_font_data_requires_name(t *testing.T) {
 	restoreHooks(t)
 	newPlatformApp = func() (platform.App, error) { return &fakeApp{}, nil }
-	newBackend = func() render.Backend { return &fakeBackend{} }
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 	primeRuntime = func(rt *runtime.Runtime) {}
 
@@ -247,6 +271,61 @@ func TestRun_font_data_requires_name(t *testing.T) {
 	cfg.Fonts = []FontSource{{Data: []byte("abc")}}
 	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestRun_default_backend_prefers_vulkan(t *testing.T) {
+	restoreHooks(t)
+	app := &fakeApp{}
+	var selected RenderBackendKind
+	var requested []RenderBackendKind
+	newPlatformApp = func() (platform.App, error) { return app, nil }
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		requested = append(requested, kind)
+		return &fakeBackend{}
+	}
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	cfg := DefaultConfig("hello", 640, 480)
+	cfg.OnBackendSelected = func(kind RenderBackendKind) { selected = kind }
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if selected != RenderBackendVulkan {
+		t.Fatalf("selected backend = %v, want vulkan", selected)
+	}
+	if len(requested) == 0 || requested[0] != RenderBackendVulkan {
+		t.Fatalf("requested backends = %#v, want vulkan first", requested)
+	}
+}
+
+func TestRun_vulkan_falls_back_to_software(t *testing.T) {
+	restoreHooks(t)
+	app := &fakeApp{}
+	var selected RenderBackendKind
+	var requested []RenderBackendKind
+	newPlatformApp = func() (platform.App, error) { return app, nil }
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		requested = append(requested, kind)
+		if kind == RenderBackendVulkan {
+			return &fakeBackend{initErr: errors.New("vulkan unavailable")}
+		}
+		return &fakeBackend{}
+	}
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	cfg := DefaultConfig("hello", 640, 480)
+	cfg.OnBackendSelected = func(kind RenderBackendKind) { selected = kind }
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if selected != RenderBackendSoftware {
+		t.Fatalf("selected backend = %v, want software", selected)
+	}
+	if len(requested) != 2 || requested[0] != RenderBackendVulkan || requested[1] != RenderBackendSoftware {
+		t.Fatalf("requested backends = %#v, want vulkan then software", requested)
 	}
 }
 

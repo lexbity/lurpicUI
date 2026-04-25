@@ -10,13 +10,23 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform/linux"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/render/vulkan"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 var newPlatformApp = linux.NewApp
-var newBackend = func() render.Backend { return software.NewSoftwareRenderer() }
+var newBackend = func(kind RenderBackendKind) render.Backend {
+	switch kind {
+	case RenderBackendVulkan:
+		return &vulkan.Backend{}
+	case RenderBackendSoftware:
+		return software.NewSoftwareRenderer()
+	default:
+		return software.NewSoftwareRenderer()
+	}
+}
 var newFontRegistry = func() (*text.FontRegistry, error) {
 	return text.NewFontRegistry()
 }
@@ -47,7 +57,12 @@ func Run(config Config, builder RootBuilder) error {
 	}
 	defer platformApp.Destroy()
 
-	window, err := platformApp.NewWindow(platform.WindowOptions{
+	provider, ok := platform.WindowCapableOf(platformApp)
+	if !ok {
+		return errors.New("app: platform does not provide window creation")
+	}
+
+	window, err := provider.NewWindow(platform.WindowOptions{
 		Title:     config.Window.Title,
 		Width:     config.Window.Width,
 		Height:    config.Window.Height,
@@ -73,9 +88,16 @@ func Run(config Config, builder RootBuilder) error {
 		return err
 	}
 
-	backend := newBackend()
-	if backend == nil {
-		return errors.New("app: backend constructor returned nil")
+	surface := window.Surface()
+	if surface == nil {
+		return errors.New("app: window surface is nil")
+	}
+	backend, selectedRender, err := initBackend(config.Render, surface, config.Runtime.Logger)
+	if err != nil {
+		return err
+	}
+	if config.OnBackendSelected != nil {
+		config.OnBackendSelected(selectedRender)
 	}
 	backendOwnedByRuntime := false
 	defer func() {
@@ -83,17 +105,6 @@ func Run(config Config, builder RootBuilder) error {
 			backend.Destroy()
 		}
 	}()
-	surface := window.Surface()
-	if surface == nil {
-		return errors.New("app: window surface is nil")
-	}
-	renderSurface, ok := surface.(render.Surface)
-	if !ok {
-		return errors.New("app: window surface does not implement render.Surface")
-	}
-	if err := backend.Initialize(renderSurface); err != nil {
-		return fmt.Errorf("app: render: %w", err)
-	}
 
 	w, h := window.Size()
 	themeContext := config.Theme
@@ -122,6 +133,42 @@ func Run(config Config, builder RootBuilder) error {
 	primeRuntime(rt)
 	window.Show()
 	return runRuntime(rt)
+}
+
+func initBackend(preferred RenderBackendKind, surface render.Surface, logger runtime.Logger) (render.Backend, RenderBackendKind, error) {
+	if surface == nil {
+		return nil, preferred, errors.New("app: window surface is nil")
+	}
+	attempt := func(kind RenderBackendKind) (render.Backend, error) {
+		backend := newBackend(kind)
+		if backend == nil {
+			return nil, errors.New("app: backend constructor returned nil")
+		}
+		if err := backend.Initialize(surface); err != nil {
+			backend.Destroy()
+			return nil, err
+		}
+		return backend, nil
+	}
+
+	backend, err := attempt(preferred)
+	if err == nil {
+		return backend, preferred, nil
+	}
+	if preferred != RenderBackendVulkan {
+		return nil, preferred, fmt.Errorf("app: render: %w", err)
+	}
+	if _, ok := surface.(render.SoftwareSurface); !ok {
+		return nil, preferred, fmt.Errorf("app: render: %w", err)
+	}
+	if logger != nil {
+		logger.Warn("app: vulkan backend unavailable; falling back to software", "error", err)
+	}
+	fallback, fallbackErr := attempt(RenderBackendSoftware)
+	if fallbackErr != nil {
+		return nil, RenderBackendSoftware, fmt.Errorf("app: vulkan init failed: %w; software fallback failed: %v", err, fallbackErr)
+	}
+	return fallback, RenderBackendSoftware, nil
 }
 
 func normalizeConfig(config *Config) {
