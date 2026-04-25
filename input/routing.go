@@ -91,6 +91,10 @@ type TextInputEvent struct {
 	Composing bool
 }
 
+type TouchInputEvent struct {
+	Event facet.TouchEvent
+}
+
 type FocusGainedEvent struct{}
 type FocusLostEvent struct{}
 
@@ -102,12 +106,156 @@ func (PointerLeaveEvent) isDeliveredEvent()   {}
 func (ScrollEvent) isDeliveredEvent()         {}
 func (KeyInputEvent) isDeliveredEvent()       {}
 func (TextInputEvent) isDeliveredEvent()      {}
+func (TouchInputEvent) isDeliveredEvent()     {}
 func (ClickEvent) isDeliveredEvent()          {}
 func (DragStartEvent) isDeliveredEvent()      {}
 func (DragMoveEvent) isDeliveredEvent()       {}
 func (DragEndEvent) isDeliveredEvent()        {}
 func (FocusGainedEvent) isDeliveredEvent()    {}
 func (FocusLostEvent) isDeliveredEvent()      {}
+
+func (s *System) processTouch(e platform.TouchEvent, hitMap *projection.HitMap) []RoutedEvent {
+	if s == nil {
+		return nil
+	}
+	touch := s.getOrCreateTouch(e.SequenceID)
+	if touch == nil {
+		return nil
+	}
+
+	screenPos := gfx.Point{X: e.X, Y: e.Y}
+	var targetID facet.FacetID
+	var markID facet.MarkID
+
+	switch e.Phase {
+	case platform.TouchDown:
+		priorActive := s.activeTouchCount()
+		touch.Active = true
+		touch.SequenceID = e.SequenceID
+		touch.Position = screenPos
+		touch.StartPosition = screenPos
+		touch.ScreenStart = screenPos
+		if hitMap != nil {
+			hit := hitMap.HitTest(screenPos)
+			if hit != nil {
+				if s.focusTree != nil {
+					if refined := refineHitTest(s.focusTree, hit.FacetID, s.transformToLocal(screenPos, hit.FacetID, hitMap)); refined != nil {
+						if !refined.Hit {
+							hit = nil
+						} else {
+							hit.MarkID = refined.MarkID
+						}
+					}
+				}
+			}
+			if hit != nil {
+				targetID = hit.FacetID
+				markID = hit.MarkID
+				touch.Target = hit.FacetID
+				touch.MarkID = hit.MarkID
+			}
+		}
+		touch.SyntheticPointer = false
+		if touch.Target != 0 && priorActive == 0 && !touchSyntheticSuppressed(touch.Target, s.focusTree) {
+			touch.SyntheticPointer = true
+		}
+	case platform.TouchMove, platform.TouchUp, platform.TouchCancel:
+		if !touch.Active {
+			return nil
+		}
+		touch.Position = screenPos
+		targetID = touch.Target
+		markID = touch.MarkID
+	default:
+		return nil
+	}
+
+	if targetID != 0 {
+		localPos := s.transformToLocal(screenPos, targetID, hitMap)
+		localStart := s.transformToLocal(touch.StartPosition, targetID, hitMap)
+		routed := []RoutedEvent{{
+			Target: targetID,
+			Event: TouchInputEvent{Event: facet.TouchEvent{
+				SequenceID:  e.SequenceID,
+				Phase:       e.Phase,
+				Position:    localPos,
+				ScreenPos:   screenPos,
+				StartPos:    localStart,
+				ScreenStart: touch.ScreenStart,
+				Pressure:    e.Pressure,
+				MarkID:      markID,
+			}},
+		}}
+		if touch.SyntheticPointer {
+			routed = append(routed, s.syntheticPointerEvents(touch, e, hitMap)...)
+		}
+		if e.Phase == platform.TouchUp || e.Phase == platform.TouchCancel {
+			touch.Active = false
+			touch.SyntheticPointer = false
+			touch.Target = 0
+			touch.MarkID = 0
+		}
+		return routed
+	}
+
+	if touch.SyntheticPointer {
+		routed := s.syntheticPointerEvents(touch, e, hitMap)
+		if e.Phase == platform.TouchUp || e.Phase == platform.TouchCancel {
+			touch.Active = false
+			touch.SyntheticPointer = false
+			touch.Target = 0
+			touch.MarkID = 0
+		}
+		return routed
+	}
+
+	if e.Phase == platform.TouchUp || e.Phase == platform.TouchCancel {
+		touch.Active = false
+		touch.Target = 0
+		touch.MarkID = 0
+	}
+	return nil
+}
+
+func (s *System) syntheticPointerEvents(touch *TouchState, e platform.TouchEvent, hitMap *projection.HitMap) []RoutedEvent {
+	if s == nil || touch == nil || !touch.SyntheticPointer {
+		return nil
+	}
+	ptrEvent := platform.EventPointer{Position: gfx.Point{X: e.X, Y: e.Y}}
+	switch e.Phase {
+	case platform.TouchDown:
+		ptrEvent.Kind = platform.PointerPress
+		ptrEvent.Button = platform.PointerLeft
+	case platform.TouchMove:
+		ptrEvent.Kind = platform.PointerMove
+	case platform.TouchUp:
+		ptrEvent.Kind = platform.PointerRelease
+		ptrEvent.Button = platform.PointerLeft
+	case platform.TouchCancel:
+		s.handleCancel(s.getOrCreatePointer(0))
+		touch.SyntheticPointer = false
+		return nil
+	default:
+		return nil
+	}
+	return s.processPointer(ptrEvent, hitMap)
+}
+
+func touchSyntheticSuppressed(target facet.FacetID, tree facet.FacetImpl) bool {
+	if tree == nil || target == 0 {
+		return false
+	}
+	path := findFacetPath(tree, target)
+	if len(path) == 0 {
+		return false
+	}
+	base := path[len(path)-1].Base()
+	if base == nil {
+		return false
+	}
+	role := base.InputRole()
+	return role != nil && role.SuppressSyntheticPointer
+}
 
 // processPointer converts a raw pointer event into routed events.
 func (s *System) processPointer(e platform.EventPointer, hitMap *projection.HitMap) []RoutedEvent {
@@ -262,6 +410,10 @@ func (s *System) handleMove(ptr *PointerState, e platform.EventPointer, hitMap *
 		}}
 	}
 
+	if s != nil && !s.hoverEnabled {
+		ptr.Position = e.Position
+		return nil
+	}
 	if hitMap == nil {
 		ptr.Position = e.Position
 		return nil
@@ -331,6 +483,15 @@ func (s *System) handleRelease(ptr *PointerState, e platform.EventPointer, hitMa
 	ptr.PressedButton = platform.PointerNone
 	ptr.Position = e.Position
 	return out
+}
+
+func (s *System) handleCancel(ptr *PointerState) {
+	if s == nil || ptr == nil {
+		return
+	}
+	ptr.PressTarget = nil
+	ptr.DragActive = false
+	ptr.PressedButton = platform.PointerNone
 }
 
 func (s *System) processScroll(e platform.EventScroll, hitMap *projection.HitMap) []RoutedEvent {
@@ -545,6 +706,9 @@ func (s *System) TickHover(now time.Time) []RoutedEvent {
 	if s == nil {
 		return nil
 	}
+	if !s.hoverEnabled {
+		return nil
+	}
 	return s.hover.Tick(now, s.config)
 }
 
@@ -558,6 +722,8 @@ func (s *System) Process(events []platform.Event, hitMap *projection.HitMap, tre
 		switch ev := e.(type) {
 		case platform.EventPointer:
 			routed = append(routed, s.processPointer(ev, hitMap)...)
+		case platform.TouchEvent:
+			routed = append(routed, s.processTouch(ev, hitMap)...)
 		case platform.EventScroll:
 			routed = append(routed, s.processScroll(ev, hitMap)...)
 		case platform.EventKey:
@@ -738,6 +904,12 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 			return false
 		}
 		return role.OnText(facet.TextEvent{Text: ev.Text, Composing: ev.Composing})
+	case TouchInputEvent:
+		role := base.InputRole()
+		if role == nil || role.OnTouch == nil {
+			return false
+		}
+		return role.OnTouch(ev.Event)
 	case FocusGainedEvent:
 		if role := base.FocusRole(); role != nil && role.OnFocusGained != nil {
 			role.OnFocusGained()

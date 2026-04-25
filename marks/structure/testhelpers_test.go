@@ -151,6 +151,7 @@ func newMemSurface(width, height int) *memSurface {
 func (s *memSurface) Buffer() []byte   { return s.buf }
 func (s *memSurface) Stride() int      { return s.width * 4 }
 func (s *memSurface) Size() (int, int) { return s.width, s.height }
+func (s *memSurface) Scale() float32   { return 1 }
 func (s *memSurface) Lock() error      { return nil }
 func (s *memSurface) Unlock([]gfx.Rect) error {
 	return nil

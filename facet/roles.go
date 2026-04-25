@@ -117,6 +117,18 @@ type PointerEvent struct {
 	MarkID    MarkID
 }
 
+// TouchEvent is delivered to facets during touch routing.
+type TouchEvent struct {
+	SequenceID  uint64
+	Phase       platform.TouchPhase
+	Position    gfx.Point
+	ScreenPos   gfx.Point
+	StartPos    gfx.Point
+	ScreenStart gfx.Point
+	Pressure    float32
+	MarkID      MarkID
+}
+
 // ScrollEvent is delivered to facets during scroll routing.
 type ScrollEvent struct {
 	Position  gfx.Point
@@ -142,9 +154,13 @@ type TextEvent struct {
 // InputRole participates in direct input handling.
 type InputRole struct {
 	OnPointer func(e PointerEvent) bool
+	OnTouch   func(e TouchEvent) bool
 	OnScroll  func(e ScrollEvent) bool
 	OnKey     func(e KeyEvent) bool
 	OnText    func(e TextEvent) bool
+
+	// SuppressSyntheticPointer opts out of touch-to-pointer fallback for this facet.
+	SuppressSyntheticPointer bool
 }
 
 // FocusRole participates in keyboard focus management.
@@ -238,6 +254,7 @@ type TextRole struct {
 	Selection     text.TextRange
 	CaretPosition text.TextPosition
 	CaretVisible  bool
+	IMEEnabled    bool
 }
 
 // CollectSelectionGeometry computes selection and caret geometry from the current text layout.

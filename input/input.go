@@ -29,6 +29,18 @@ type PointerState struct {
 	clickCount    int
 }
 
+// TouchState tracks the persistent state of one touch sequence.
+type TouchState struct {
+	SequenceID       uint64
+	Target           facet.FacetID
+	MarkID           facet.MarkID
+	StartPosition    gfx.Point
+	ScreenStart      gfx.Point
+	Position         gfx.Point
+	SyntheticPointer bool
+	Active           bool
+}
+
 // GestureConfig controls gesture recognition thresholds.
 type GestureConfig struct {
 	DragThreshold       float32
@@ -146,10 +158,12 @@ type clickHistory struct {
 type System struct {
 	config       GestureConfig
 	pointers     map[PointerID]*PointerState
+	touches      map[uint64]*TouchState
 	focus        FocusState
 	focusManager *facet.FocusManager
 	focusTree    facet.FacetImpl
 	hover        HoverState
+	hoverEnabled bool
 	clickHistory clickHistory
 }
 
@@ -171,12 +185,14 @@ func NewSystem(config GestureConfig) *System {
 		config.ScrollMultiplier = DefaultGestureConfig().ScrollMultiplier
 	}
 	return &System{
-		config:   config,
-		pointers: make(map[PointerID]*PointerState),
+		config:       config,
+		pointers:     make(map[PointerID]*PointerState),
+		touches:      make(map[uint64]*TouchState),
+		hoverEnabled: true,
 	}
 }
 
-// ClearPointerState clears pointer capture and drag state.
+// ClearPointerState clears pointer, touch, and hover state.
 func (s *System) ClearPointerState() {
 	if s == nil {
 		return
@@ -189,8 +205,17 @@ func (s *System) ClearPointerState() {
 		ptr.PressTarget = nil
 		ptr.DragActive = false
 	}
+	s.ClearTouchState()
 	s.hover.Clear()
 	s.clickHistory = clickHistory{}
+}
+
+// ClearTouchState clears active touch sequence state.
+func (s *System) ClearTouchState() {
+	if s == nil {
+		return
+	}
+	s.touches = make(map[uint64]*TouchState)
 }
 
 // ClearFocus clears the cached keyboard focus.
@@ -200,6 +225,17 @@ func (s *System) ClearFocus() {
 	}
 	s.focus.Clear()
 	s.focusTree = nil
+}
+
+// SetHoverSupported toggles hover event generation for pointer moves.
+func (s *System) SetHoverSupported(supported bool) {
+	if s == nil {
+		return
+	}
+	s.hoverEnabled = supported
+	if !supported {
+		s.hover.Clear()
+	}
 }
 
 // SetFocusManager installs the runtime-owned focus manager.
@@ -224,6 +260,36 @@ func (s *System) getOrCreatePointer(id PointerID) *PointerState {
 	ptr := &PointerState{ID: id}
 	s.pointers[id] = ptr
 	return ptr
+}
+
+// getOrCreateTouch returns the state for one touch sequence ID.
+func (s *System) getOrCreateTouch(id uint64) *TouchState {
+	if s == nil {
+		return nil
+	}
+	if s.touches == nil {
+		s.touches = make(map[uint64]*TouchState)
+	}
+	if touch, ok := s.touches[id]; ok {
+		return touch
+	}
+	touch := &TouchState{SequenceID: id}
+	s.touches[id] = touch
+	return touch
+}
+
+// activeTouchCount returns the number of touch sequences currently active.
+func (s *System) activeTouchCount() int {
+	if s == nil || len(s.touches) == 0 {
+		return 0
+	}
+	count := 0
+	for _, touch := range s.touches {
+		if touch != nil && touch.Active {
+			count++
+		}
+	}
+	return count
 }
 
 // resolveClickCount returns 1, 2, or 3 based on timing and distance.

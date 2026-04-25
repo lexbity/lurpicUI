@@ -76,6 +76,11 @@ func (s *MemorySurface) Size() (int, int) {
 	return s.width, s.height
 }
 
+// Scale reports the platform content scale for the surface.
+func (s *MemorySurface) Scale() float32 {
+	return 1
+}
+
 // Lock marks the surface as writable and copies the last presented frame into the buffer.
 func (s *MemorySurface) Lock() error {
 	s.mu.Lock()

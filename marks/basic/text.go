@@ -121,6 +121,7 @@ func (t *Text) ensureInit() {
 		}}
 		t.textRole = &facet.TextRole{
 			CaretVisible: t.Selectable,
+			IMEEnabled:   t.Selectable,
 		}
 		attachPrimitiveRoles(&t.base, t.layoutRole, t.viewportRole, t.projectionRole, t.hitRole)
 		t.base.AddRole(t.textRole)

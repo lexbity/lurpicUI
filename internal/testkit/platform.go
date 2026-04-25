@@ -29,13 +29,28 @@ func (c *NullClipboard) WriteText(text string) error {
 
 // nullEventQueue is a FIFO queue of synthetic events.
 type nullEventQueue struct {
-	mu     sync.Mutex
-	events []platform.Event
+	mu       sync.Mutex
+	cond     *sync.Cond
+	events   []platform.Event
+	capacity int
+}
+
+func newNullEventQueue(capacity int) *nullEventQueue {
+	if capacity <= 0 {
+		capacity = 64
+	}
+	q := &nullEventQueue{capacity: capacity}
+	q.cond = sync.NewCond(&q.mu)
+	return q
 }
 
 func (q *nullEventQueue) Push(e platform.Event) {
 	q.mu.Lock()
+	for len(q.events) >= q.capacity {
+		q.cond.Wait()
+	}
 	q.events = append(q.events, e)
+	q.cond.Broadcast()
 	q.mu.Unlock()
 }
 
@@ -47,12 +62,43 @@ func (q *nullEventQueue) Poll() []platform.Event {
 	}
 	out := append([]platform.Event(nil), q.events...)
 	q.events = q.events[:0]
+	q.cond.Broadcast()
 	return out
 }
 
 func (q *nullEventQueue) Wait(timeout time.Duration) []platform.Event {
-	_ = timeout
-	return q.Poll()
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if len(q.events) > 0 {
+		out := append([]platform.Event(nil), q.events...)
+		q.events = q.events[:0]
+		q.cond.Broadcast()
+		return out
+	}
+	if timeout == 0 {
+		return nil
+	}
+	expired := false
+	var timer *time.Timer
+	if timeout > 0 {
+		timer = time.AfterFunc(timeout, func() {
+			q.mu.Lock()
+			expired = true
+			q.cond.Broadcast()
+			q.mu.Unlock()
+		})
+		defer timer.Stop()
+	}
+	for len(q.events) == 0 && !expired {
+		q.cond.Wait()
+	}
+	if len(q.events) == 0 {
+		return nil
+	}
+	out := append([]platform.Event(nil), q.events...)
+	q.events = q.events[:0]
+	q.cond.Broadcast()
+	return out
 }
 
 // NullWindow is an in-memory platform.Window implementation.
@@ -117,7 +163,7 @@ func (w *NullWindow) Destroy() {
 type NullApp struct {
 	mu        sync.Mutex
 	windows   []*NullWindow
-	queue     nullEventQueue
+	queue     *nullEventQueue
 	clipboard NullClipboard
 	width     int
 	height    int
@@ -126,7 +172,7 @@ type NullApp struct {
 
 // NewNullApp constructs a headless app with a default window size.
 func NewNullApp(width, height int) *NullApp {
-	return &NullApp{width: width, height: height}
+	return &NullApp{width: width, height: height, queue: newNullEventQueue(64)}
 }
 
 func (a *NullApp) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
@@ -148,7 +194,9 @@ func (a *NullApp) NewWindow(opts platform.WindowOptions) (platform.Window, error
 	return window, nil
 }
 
-func (a *NullApp) Events() platform.EventQueue { return &a.queue }
+func (a *NullApp) Events() platform.EventQueue {
+	return a.ensureQueue()
+}
 
 func (a *NullApp) Clipboard() platform.Clipboard { return &a.clipboard }
 
@@ -166,10 +214,21 @@ func (a *NullApp) Destroy() {
 
 // InjectEvent appends an event to be returned by the next Poll call.
 func (a *NullApp) InjectEvent(e platform.Event) {
-	a.queue.Push(e)
+	a.ensureQueue().Push(e)
+}
+
+func (a *NullApp) ensureQueue() *nullEventQueue {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.queue == nil {
+		a.queue = newNullEventQueue(64)
+	}
+	return a.queue
 }
 
 var _ platform.App = (*NullApp)(nil)
+var _ platform.WindowCapable = (*NullApp)(nil)
+var _ platform.ClipboardCapable = (*NullApp)(nil)
 var _ platform.Window = (*NullWindow)(nil)
 var _ platform.Clipboard = (*NullClipboard)(nil)
 var _ platform.EventQueue = (*nullEventQueue)(nil)

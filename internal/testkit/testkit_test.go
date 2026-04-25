@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -138,6 +139,82 @@ func TestNullApp_inject_event_polled_next_frame(t *testing.T) {
 	}
 	if _, ok := got[0].(platform.EventPointer); !ok {
 		t.Fatalf("unexpected event type %T", got[0])
+	}
+}
+
+func TestNullApp_event_queue_accepts_cross_thread_push(t *testing.T) {
+	app := NewNullApp(640, 480)
+	done := make(chan struct{})
+	go func() {
+		app.InjectEvent(platform.EventText{Text: "async"})
+		close(done)
+	}()
+	got := app.Events().Wait(250 * time.Millisecond)
+	<-done
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if ev, ok := got[0].(platform.EventText); !ok || ev.Text != "async" {
+		t.Fatalf("unexpected event %#v", got[0])
+	}
+}
+
+func TestNullEventQueue_preserves_fifo_order(t *testing.T) {
+	q := newNullEventQueue(8)
+	q.Push(platform.EventText{Text: "one"})
+	q.Push(platform.EventText{Text: "two"})
+	q.Push(platform.EventText{Text: "three"})
+	got := q.Poll()
+	if len(got) != 3 {
+		t.Fatalf("len = %d", len(got))
+	}
+	for i, want := range []string{"one", "two", "three"} {
+		ev, ok := got[i].(platform.EventText)
+		if !ok || ev.Text != want {
+			t.Fatalf("event %d = %#v, want %q", i, got[i], want)
+		}
+	}
+}
+
+func TestNullEventQueue_blocks_when_full(t *testing.T) {
+	q := newNullEventQueue(1)
+	q.Push(platform.EventText{Text: "first"})
+
+	started := make(chan struct{})
+	done := make(chan struct{})
+	go func() {
+		close(started)
+		q.Push(platform.EventText{Text: "second"})
+		close(done)
+	}()
+
+	<-started
+	select {
+	case <-done:
+		t.Fatal("push returned before capacity was freed")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	got := q.Poll()
+	if len(got) != 1 {
+		t.Fatalf("poll len = %d", len(got))
+	}
+	if ev, ok := got[0].(platform.EventText); !ok || ev.Text != "first" {
+		t.Fatalf("unexpected first event %#v", got[0])
+	}
+
+	select {
+	case <-done:
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("push did not unblock after poll")
+	}
+
+	got = q.Poll()
+	if len(got) != 1 {
+		t.Fatalf("second poll len = %d", len(got))
+	}
+	if ev, ok := got[0].(platform.EventText); !ok || ev.Text != "second" {
+		t.Fatalf("unexpected second event %#v", got[0])
 	}
 }
 

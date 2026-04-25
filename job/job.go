@@ -131,6 +131,10 @@ type Pool struct {
 	active map[JobID]*CancelToken
 	closed bool
 
+	pauseMu   sync.Mutex
+	pauseCond *sync.Cond
+	paused    bool
+
 	wg sync.WaitGroup
 
 	onDrain signal.Signal[signal.Unit]
@@ -138,6 +142,32 @@ type Pool struct {
 
 // Start is retained for runtime compatibility. Worker goroutines already start in NewPool.
 func (p *Pool) Start() {}
+
+// Pause stops workers from pulling new jobs until Resume is called.
+func (p *Pool) Pause() {
+	if p == nil {
+		return
+	}
+	p.pauseMu.Lock()
+	p.paused = true
+	if p.pauseCond != nil {
+		p.pauseCond.Broadcast()
+	}
+	p.pauseMu.Unlock()
+}
+
+// Resume allows workers to pull jobs again.
+func (p *Pool) Resume() {
+	if p == nil {
+		return
+	}
+	p.pauseMu.Lock()
+	p.paused = false
+	if p.pauseCond != nil {
+		p.pauseCond.Broadcast()
+	}
+	p.pauseMu.Unlock()
+}
 
 // NewPool creates a pool with workerCount workers.
 func NewPool(workerCount int) *Pool {
@@ -157,6 +187,7 @@ func NewPool(workerCount int) *Pool {
 		shutdown:    make(chan struct{}),
 		active:      make(map[JobID]*CancelToken),
 	}
+	p.pauseCond = sync.NewCond(&p.pauseMu)
 	for i := 0; i < workerCount; i++ {
 		p.wg.Add(1)
 		go p.worker()
@@ -314,6 +345,13 @@ func (p *Pool) Shutdown() {
 	}
 	p.mu.Unlock()
 
+	p.pauseMu.Lock()
+	p.paused = false
+	if p.pauseCond != nil {
+		p.pauseCond.Broadcast()
+	}
+	p.pauseMu.Unlock()
+
 	p.cancel()
 	close(p.shutdown)
 	p.wg.Wait()
@@ -322,6 +360,12 @@ func (p *Pool) Shutdown() {
 func (p *Pool) worker() {
 	defer p.wg.Done()
 	for {
+		p.pauseMu.Lock()
+		for p.paused {
+			p.pauseCond.Wait()
+		}
+		p.pauseMu.Unlock()
+
 		select {
 		case <-p.shutdown:
 			return

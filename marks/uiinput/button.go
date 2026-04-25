@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/annotation"
+	"codeburg.org/lexbit/lurpicui/marks/interaction"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -131,33 +132,13 @@ func (b *Button) handlePointer(e facet.PointerEvent) bool {
 	if b.Disabled {
 		return false
 	}
-	switch e.Kind {
-	case platform.PointerPress:
-		b.state.hovered = true
-		b.state.pressed = true
+	if interaction.HoverState(&b.state.hovered, &b.state.pressed, b.Disabled, e.Kind, true) {
+		invalidate(&b.base, facet.DirtyProjection, "button-hover")
+		return true
+	}
+	if interaction.PressReleaseState(&b.state.pressed, b.Disabled, e, b.activate) {
 		invalidate(&b.base, facet.DirtyProjection, "button-press")
 		return true
-	case platform.PointerEnter:
-		b.state.hovered = true
-		invalidate(&b.base, facet.DirtyProjection, "button-hover")
-		return true
-	case platform.PointerMove:
-		b.state.hovered = true
-		invalidate(&b.base, facet.DirtyProjection, "button-hover")
-		return true
-	case platform.PointerLeave:
-		b.state.hovered = false
-		b.state.pressed = false
-		invalidate(&b.base, facet.DirtyProjection, "button-hover")
-		return true
-	case platform.PointerRelease:
-		wasPressed := b.state.pressed
-		b.state.pressed = false
-		invalidate(&b.base, facet.DirtyProjection, "button-release")
-		if wasPressed {
-			b.activate()
-			return true
-		}
 	}
 	return false
 }

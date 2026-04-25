@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/interaction"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -95,21 +96,10 @@ func (c *Checkbox) handlePointer(e facet.PointerEvent) bool {
 	if c.Disabled {
 		return false
 	}
-	switch e.Kind {
-	case platform.PointerPress:
-		c.state.pressed = true
+	if interaction.TogglePressReleaseState(&c.state.pressed, c.Disabled, e, c.toggle) {
 		return true
-	case platform.PointerRelease:
-		wasPressed := c.state.pressed
-		c.state.pressed = false
-		if wasPressed {
-			c.toggle()
-			return true
-		}
-		return false
-	default:
-		return false
 	}
+	return false
 }
 
 func (c *Checkbox) handleKey(e facet.KeyEvent) bool {

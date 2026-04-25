@@ -97,6 +97,38 @@ func TestPool_schedule_and_drain(t *testing.T) {
 	}
 }
 
+func TestPool_pause_and_resume_blocks_job_execution(t *testing.T) {
+	p := NewPool(1)
+	defer p.Shutdown()
+
+	p.Pause()
+	started := make(chan struct{}, 1)
+	if err := Schedule(p, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(1, 1),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			started <- struct{}{}
+			return snap.Data, nil
+		},
+	}, func(int) {}); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+
+	select {
+	case <-started:
+		t.Fatal("job started while pool paused")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	p.Resume()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("job did not start after resume")
+	}
+}
+
 func TestPool_job_cancelled_by_same_id(t *testing.T) {
 	p := NewPool(1)
 	defer p.Shutdown()

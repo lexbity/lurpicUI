@@ -678,6 +678,190 @@ func TestProcess_dispatches_all_event_types(t *testing.T) {
 	}
 }
 
+func TestProcessTouch_delivers_touch_and_synthetic_pointer(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	var touches []facet.TouchEvent
+	var pointers []facet.PointerEvent
+	child.AddRole(&facet.InputRole{
+		OnTouch: func(e facet.TouchEvent) bool {
+			touches = append(touches, e)
+			return true
+		},
+		OnPointer: func(e facet.PointerEvent) bool {
+			pointers = append(pointers, e)
+			return true
+		},
+	})
+	sys.focusTree = &root
+	hitMap := newHitMapFor(child.ID(), gfx.Identity(), projection.HitRegion{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), MarkID: 77})
+	got := sys.Process([]platform.Event{platform.TouchEvent{
+		SequenceID: 1,
+		Phase:      platform.TouchDown,
+		X:          1,
+		Y:          1,
+		Pressure:   0.5,
+	}}, hitMap, &root)
+	if len(got) != 2 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if _, ok := got[0].Event.(TouchInputEvent); !ok {
+		t.Fatalf("event0 = %T", got[0].Event)
+	}
+	if _, ok := got[1].Event.(PointerPressEvent); !ok {
+		t.Fatalf("event1 = %T", got[1].Event)
+	}
+	for _, routed := range got {
+		if !Deliver(routed, &root) {
+			t.Fatalf("event not delivered: %#v", routed)
+		}
+	}
+	if len(touches) != 1 || touches[0].SequenceID != 1 || touches[0].Phase != platform.TouchDown {
+		t.Fatalf("touches = %#v", touches)
+	}
+	if len(pointers) != 1 || pointers[0].Kind != platform.PointerPress {
+		t.Fatalf("pointers = %#v", pointers)
+	}
+}
+
+func TestProcessTouch_suppression_skips_synthetic_pointer(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	var touches []facet.TouchEvent
+	var pointers []facet.PointerEvent
+	child.AddRole(&facet.InputRole{
+		OnTouch: func(e facet.TouchEvent) bool {
+			touches = append(touches, e)
+			return true
+		},
+		OnPointer: func(e facet.PointerEvent) bool {
+			pointers = append(pointers, e)
+			return true
+		},
+		SuppressSyntheticPointer: true,
+	})
+	sys.focusTree = &root
+	hitMap := newHitMapFor(child.ID(), gfx.Identity(), projection.HitRegion{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), MarkID: 77})
+	got := sys.Process([]platform.Event{platform.TouchEvent{
+		SequenceID: 1,
+		Phase:      platform.TouchDown,
+		X:          1,
+		Y:          1,
+	}}, hitMap, &root)
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if _, ok := got[0].Event.(TouchInputEvent); !ok {
+		t.Fatalf("event = %T", got[0].Event)
+	}
+	for _, routed := range got {
+		if !Deliver(routed, &root) {
+			t.Fatalf("event not delivered: %#v", routed)
+		}
+	}
+	if len(touches) != 1 {
+		t.Fatalf("touches = %#v", touches)
+	}
+	if len(pointers) != 0 {
+		t.Fatalf("expected no synthetic pointer, got %#v", pointers)
+	}
+}
+
+func TestProcessTouch_second_contact_skips_synthetic_pointer(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	var pointers []facet.PointerEvent
+	child.AddRole(&facet.InputRole{
+		OnTouch: func(e facet.TouchEvent) bool {
+			return true
+		},
+		OnPointer: func(e facet.PointerEvent) bool {
+			pointers = append(pointers, e)
+			return true
+		},
+	})
+	sys.focusTree = &root
+	hitMap := newHitMapFor(child.ID(), gfx.Identity(), projection.HitRegion{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), MarkID: 77})
+	first := sys.Process([]platform.Event{platform.TouchEvent{
+		SequenceID: 1,
+		Phase:      platform.TouchDown,
+		X:          1,
+		Y:          1,
+	}}, hitMap, &root)
+	second := sys.Process([]platform.Event{platform.TouchEvent{
+		SequenceID: 2,
+		Phase:      platform.TouchDown,
+		X:          2,
+		Y:          2,
+	}}, hitMap, &root)
+	if len(first) != 2 {
+		t.Fatalf("first len = %d", len(first))
+	}
+	if len(second) != 1 {
+		t.Fatalf("second len = %d", len(second))
+	}
+	if _, ok := second[0].Event.(TouchInputEvent); !ok {
+		t.Fatalf("event = %T", second[0].Event)
+	}
+	for _, routed := range append(first, second...) {
+		if !Deliver(routed, &root) {
+			t.Fatalf("event not delivered: %#v", routed)
+		}
+	}
+	if len(pointers) != 1 {
+		t.Fatalf("expected one synthetic pointer, got %#v", pointers)
+	}
+}
+
+func TestProcessTouch_cancel_does_not_release_pointer(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	var pointers []facet.PointerEvent
+	child.AddRole(&facet.InputRole{
+		OnTouch: func(e facet.TouchEvent) bool {
+			return true
+		},
+		OnPointer: func(e facet.PointerEvent) bool {
+			pointers = append(pointers, e)
+			return true
+		},
+	})
+	sys.focusTree = &root
+	hitMap := newHitMapFor(child.ID(), gfx.Identity(), projection.HitRegion{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), MarkID: 77})
+	got := sys.Process([]platform.Event{
+		platform.TouchEvent{SequenceID: 1, Phase: platform.TouchDown, X: 1, Y: 1},
+		platform.TouchEvent{SequenceID: 1, Phase: platform.TouchCancel, X: 1, Y: 1},
+	}, hitMap, &root)
+	if len(got) != 3 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if _, ok := got[0].Event.(TouchInputEvent); !ok {
+		t.Fatalf("event0 = %T", got[0].Event)
+	}
+	if _, ok := got[1].Event.(PointerPressEvent); !ok {
+		t.Fatalf("event1 = %T", got[1].Event)
+	}
+	if _, ok := got[2].Event.(TouchInputEvent); !ok {
+		t.Fatalf("event2 = %T", got[2].Event)
+	}
+	for _, routed := range got {
+		if !Deliver(routed, &root) {
+			t.Fatalf("event not delivered: %#v", routed)
+		}
+	}
+	if len(pointers) != 1 {
+		t.Fatalf("expected no pointer release on cancel, got %#v", pointers)
+	}
+}
+
 func TestTickHover_returns_hover_after_delay(t *testing.T) {
 	sys := NewSystem(DefaultGestureConfig())
 	sys.hover.OnMove(11, 22, time.Unix(0, 0))
