@@ -30,7 +30,7 @@ func RustCrateRoot() (string, error) {
 	if !ok {
 		return "", errors.New("vulkan: unable to determine repository root")
 	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..")), nil
+	return filepath.Clean(filepath.Dir(file)), nil
 }
 
 func RustCrateManifestPath() (string, error) {

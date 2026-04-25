@@ -95,7 +95,7 @@ func defaultRustLibraryPath() (string, error) {
 	if !ok {
 		return "", errors.New("vulkan: unable to determine repository root")
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	root := filepath.Clean(filepath.Dir(file))
 	candidates := []string{
 		filepath.Join(root, "crates", "lurpic_render", "target", "debug", rustSharedLibraryName()),
 		filepath.Join(root, "crates", "lurpic_render", "target", "release", rustSharedLibraryName()),
