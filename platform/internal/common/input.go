@@ -1,6 +1,4 @@
-//go:build linux && cgo
-
-package linux
+package common
 
 import "codeburg.org/lexbit/lurpicui/platform"
 
@@ -20,7 +18,8 @@ const (
 	keysymEnd       = 0xff57
 )
 
-func keyFromKeysym(sym uint32) platform.Key {
+// KeyFromKeysym translates a keysym into the universal platform key enum.
+func KeyFromKeysym(sym uint32) platform.Key {
 	switch sym {
 	case keysymLeft:
 		return platform.KeyLeft
@@ -49,7 +48,6 @@ func keyFromKeysym(sym uint32) platform.Key {
 	case keysymBackSpace:
 		return platform.KeyBackspace
 	}
-
 	if sym >= 'A' && sym <= 'Z' {
 		return platform.Key(int(sym-'A') + int(platform.KeyA))
 	}
@@ -59,7 +57,8 @@ func keyFromKeysym(sym uint32) platform.Key {
 	return platform.KeyUnknown
 }
 
-func textFromKeysym(sym uint32) (string, bool) {
+// TextFromKeysym maps keysym values to printable text when available.
+func TextFromKeysym(sym uint32) (string, bool) {
 	if sym >= ' ' && sym <= '~' {
 		return string(rune(sym)), true
 	}
@@ -72,7 +71,8 @@ func textFromKeysym(sym uint32) (string, bool) {
 	return "", false
 }
 
-func modifiersFromState(state uint16) platform.ModifierKeys {
+// ModifiersFromState converts XCB-style modifier bits into universal modifiers.
+func ModifiersFromState(state uint16) platform.ModifierKeys {
 	var mods platform.ModifierKeys
 	const (
 		xcbModShift   = 1 << 0

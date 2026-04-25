@@ -415,6 +415,25 @@ func TestProjectionSystem_cache_key_changes_on_store_version(t *testing.T) {
 	}
 }
 
+func TestProjectionSystem_Reset_clears_cached_outputs(t *testing.T) {
+	s := NewSystem()
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 10, 10))
+	s.Run(root, FrameInfo{})
+	if len(s.outputCache) == 0 {
+		t.Fatal("expected cache populated after run")
+	}
+	s.Reset()
+	if len(s.outputCache) != 0 {
+		t.Fatalf("expected output cache cleared, got %d", len(s.outputCache))
+	}
+	if len(s.dirtySet) != 0 {
+		t.Fatalf("expected dirty set cleared, got %d", len(s.dirtySet))
+	}
+	if s.currentHitMap != nil {
+		t.Fatal("expected hit map cleared")
+	}
+}
+
 func TestProjectionSystem_tree_order_parent_before_child(t *testing.T) {
 	order := make([]facet.FacetID, 0, 2)
 	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))

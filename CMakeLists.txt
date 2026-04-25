@@ -66,6 +66,11 @@ function(_lurpic_reject_unknown_options)
     LURPIC_VULKAN_LIBRARY
     LURPIC_VULKAN_GLSLC
     LURPIC_VULKAN_HINT
+    LURPIC_HAVE_RUST
+    LURPIC_CARGO_EXECUTABLE
+    LURPIC_RUSTC_EXECUTABLE
+    LURPIC_CARGO_VERSION
+    LURPIC_RUSTC_VERSION
     LURPIC_PACKAGE_VERSION
     LURPIC_VCS_REVISION
     LURPIC_BUILD_TIMESTAMP
@@ -101,6 +106,19 @@ lurpic_detect_race()
 include(DetectVulkan)
 lurpic_detect_vulkan()
 
+if(LURPIC_BACKEND_VULKAN)
+  include(FindRustToolchain)
+  lurpic_find_rust_toolchain()
+  add_custom_target(build-render-vulkan-rust
+    COMMAND "${LURPIC_CARGO_EXECUTABLE}"
+      build
+      --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/crates/lurpic_render/Cargo.toml"
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Build the lurpic_render Rust bridge crate"
+    VERBATIM
+  )
+endif()
+
 if(NOT LURPIC_BACKEND_SOFTWARE AND NOT LURPIC_BACKEND_VULKAN)
   message(FATAL_ERROR "At least one backend must be enabled. Set LURPIC_BACKEND_SOFTWARE=ON and/or LURPIC_BACKEND_VULKAN=ON.")
 endif()
@@ -134,6 +152,7 @@ if(LURPIC_BACKEND_VULKAN)
     PACKAGES ./render/vulkan/...
     DESCRIPTION "Go build Vulkan backend packages"
   )
+  add_dependencies(build-backend-vulkan build-render-vulkan-rust)
 endif()
 
 function(_lurpic_add_test_suite_target)

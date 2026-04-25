@@ -147,6 +147,20 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	return out
 }
 
+// Reset clears cached projection outputs and invalidation state.
+// It is used by low-memory handling to shed recoverable projection caches.
+func (s *System) Reset() {
+	if s == nil {
+		return
+	}
+	s.outputCache = make(map[facet.FacetID]*ProjectionOutput)
+	s.frameOutputs = nil
+	s.dirtySet = make(map[facet.FacetID]struct{})
+	s.currentHitMap = nil
+	s.ProjectedFacets = 0
+	s.CacheHits = 0
+}
+
 // CurrentHitMap returns the hit map computed during the most recent run.
 func (s *System) CurrentHitMap() *HitMap {
 	if s == nil {

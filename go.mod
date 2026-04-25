@@ -3,6 +3,7 @@ module codeburg.org/lexbit/lurpicui
 go 1.22
 
 require (
+	github.com/BurntSushi/toml v1.6.0
 	github.com/go-text/render v0.2.0
 	github.com/go-text/typesetting v0.2.0
 	golang.org/x/image v0.18.0

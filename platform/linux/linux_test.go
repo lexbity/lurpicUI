@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/platform"
+	platformcommon "codeburg.org/lexbit/lurpicui/platform/internal/common"
 )
 
 func TestLinuxNewApp_no_display_returns_error(t *testing.T) {
@@ -36,7 +37,7 @@ func TestLinuxClipboard_andApp_nilSafety(t *testing.T) {
 
 func TestKeyTranslation_all_alpha_keys(t *testing.T) {
 	for ch := 'A'; ch <= 'Z'; ch++ {
-		got := keyFromKeysym(uint32(ch))
+		got := platformcommon.KeyFromKeysym(uint32(ch))
 		want := platform.Key(int(ch-'A') + int(platform.KeyA))
 		if got != want {
 			t.Fatalf("keysym %q mapped to %v, want %v", ch, got, want)
@@ -46,29 +47,29 @@ func TestKeyTranslation_all_alpha_keys(t *testing.T) {
 
 func TestKeyTranslation_navigation_keys(t *testing.T) {
 	cases := map[uint32]platform.Key{
-		keysymLeft:      platform.KeyLeft,
-		keysymRight:     platform.KeyRight,
-		keysymUp:        platform.KeyUp,
-		keysymDown:      platform.KeyDown,
-		keysymHome:      platform.KeyHome,
-		keysymEnd:       platform.KeyEnd,
-		keysymPageUp:    platform.KeyPageUp,
-		keysymPageDown:  platform.KeyPageDown,
-		keysymEscape:    platform.KeyEscape,
-		keysymReturn:    platform.KeyEnter,
-		keysymSpace:     platform.KeySpace,
-		keysymTab:       platform.KeyTab,
-		keysymBackSpace: platform.KeyBackspace,
+		0xff51: platform.KeyLeft,
+		0xff53: platform.KeyRight,
+		0xff52: platform.KeyUp,
+		0xff54: platform.KeyDown,
+		0xff50: platform.KeyHome,
+		0xff57: platform.KeyEnd,
+		0xff55: platform.KeyPageUp,
+		0xff56: platform.KeyPageDown,
+		0xff1b: platform.KeyEscape,
+		0xff0d: platform.KeyEnter,
+		0x20:   platform.KeySpace,
+		0xff09: platform.KeyTab,
+		0xff08: platform.KeyBackspace,
 	}
 	for sym, want := range cases {
-		if got := keyFromKeysym(sym); got != want {
+		if got := platformcommon.KeyFromKeysym(sym); got != want {
 			t.Fatalf("keysym %#x mapped to %v, want %v", sym, got, want)
 		}
 	}
 }
 
 func TestModifierMapping_shift_ctrl_alt(t *testing.T) {
-	mods := modifiersFromState((1 << 0) | (1 << 2) | (1 << 3))
+	mods := platformcommon.ModifiersFromState((1 << 0) | (1 << 2) | (1 << 3))
 	want := platform.ModShift | platform.ModControl | platform.ModAlt
 	if mods != want {
 		t.Fatalf("unexpected modifiers: got %v want %v", mods, want)

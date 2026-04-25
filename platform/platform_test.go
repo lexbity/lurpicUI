@@ -24,6 +24,13 @@ func (s *memSurface) Stride() int    { return s.stride }
 func (s *memSurface) Size() (width, height int) {
 	return s.w, s.h
 }
+func (s *memSurface) Scale() float32 { return 1 }
+func (s *memSurface) Resize(width, height int) {
+	s.w = width
+	s.h = height
+	s.stride = width * 4
+	s.buf = make([]byte, width*height*4)
+}
 func (s *memSurface) Lock() error {
 	s.locked = true
 	return nil
@@ -49,6 +56,7 @@ func (w *stubWindow) Destroy()                       {}
 
 type stubQueue struct{}
 
+func (stubQueue) Push(platform.Event)                         {}
 func (stubQueue) Poll() []platform.Event                      { return nil }
 func (stubQueue) Wait(timeout time.Duration) []platform.Event { return nil }
 
@@ -62,17 +70,33 @@ func (c *stubClipboard) WriteText(text string) error {
 	return nil
 }
 
-type stubApp struct {
-	queue stubQueue
-	clip  stubClipboard
+type capableApp struct {
+	queue        stubQueue
+	clip         stubClipboard
+	window       *stubWindow
+	imeShowCount int
+	imeHideCount int
 }
 
-func (a *stubApp) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
-	return &stubWindow{surface: &memSurface{}}, nil
+func (a *capableApp) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
+	if a.window == nil {
+		a.window = &stubWindow{surface: &memSurface{w: opts.Width, h: opts.Height}}
+	}
+	return a.window, nil
 }
-func (a *stubApp) Events() platform.EventQueue   { return a.queue }
-func (a *stubApp) Clipboard() platform.Clipboard { return &a.clip }
-func (a *stubApp) Destroy()                      {}
+func (a *capableApp) Events() platform.EventQueue   { return a.queue }
+func (a *capableApp) Clipboard() platform.Clipboard { return &a.clip }
+func (a *capableApp) SupportsHover() bool           { return true }
+func (a *capableApp) ShowSoftKeyboard()             { a.imeShowCount++ }
+func (a *capableApp) HideSoftKeyboard()             { a.imeHideCount++ }
+func (a *capableApp) Destroy()                      {}
+
+type plainApp struct {
+	queue stubQueue
+}
+
+func (a *plainApp) Events() platform.EventQueue { return a.queue }
+func (a *plainApp) Destroy()                    {}
 
 func TestPlatformSurfaceInterface_implementable(t *testing.T) {
 	var _ platform.Surface = (*memSurface)(nil)
@@ -89,24 +113,56 @@ func TestPlatformSurfaceInterface_implementable(t *testing.T) {
 }
 
 func TestPlatformAppInterface_implementable(t *testing.T) {
-	var _ platform.App = (*stubApp)(nil)
+	var _ platform.App = (*capableApp)(nil)
 	var _ platform.Window = (*stubWindow)(nil)
 	var _ platform.EventQueue = stubQueue{}
 	var _ platform.Clipboard = (*stubClipboard)(nil)
+	var _ platform.WindowCapable = (*capableApp)(nil)
+	var _ platform.ClipboardCapable = (*capableApp)(nil)
+	var _ platform.App = (*plainApp)(nil)
 
-	app := &stubApp{}
-	win, err := app.NewWindow(platform.WindowOptions{})
-	if err != nil {
-		t.Fatalf("new window: %v", err)
-	}
-	if win == nil {
-		t.Fatal("expected window")
-	}
+	app := &capableApp{}
 	if q := app.Events(); q == nil {
 		t.Fatal("expected event queue")
 	}
-	if clip := app.Clipboard(); clip == nil {
-		t.Fatal("expected clipboard")
+	win, err := app.NewWindow(platform.WindowOptions{Width: 12, Height: 8})
+	if err != nil {
+		t.Fatalf("new window: %v", err)
+	}
+	if win == nil || win.Surface() == nil {
+		t.Fatal("expected window surface")
+	}
+	if wc, ok := platform.WindowCapableOf(app); !ok || wc == nil {
+		t.Fatal("expected window capability")
+	}
+	clipCap, ok := platform.ClipboardCapableOf(app)
+	if !ok || clipCap == nil {
+		t.Fatal("expected clipboard capability")
+	}
+	if pc, ok := platform.PointerCapableOf(app); !ok || pc == nil || !pc.SupportsHover() {
+		t.Fatal("expected pointer capability")
+	}
+	if ic, ok := platform.IMECapableOf(app); !ok || ic == nil {
+		t.Fatal("expected ime capability")
+	}
+	clip := clipCap.Clipboard()
+	if err := clip.WriteText("x"); err != nil {
+		t.Fatalf("clipboard write: %v", err)
+	}
+	if got, err := clip.ReadText(); err != nil || got != "x" {
+		t.Fatalf("clipboard roundtrip = %q, %v", got, err)
+	}
+	if _, ok := platform.WindowCapableOf(&plainApp{}); ok {
+		t.Fatal("expected plain app to lack window capability")
+	}
+	if _, ok := platform.ClipboardCapableOf(&plainApp{}); ok {
+		t.Fatal("expected plain app to lack clipboard capability")
+	}
+	if _, ok := platform.PointerCapableOf(&plainApp{}); ok {
+		t.Fatal("expected plain app to lack pointer capability")
+	}
+	if _, ok := platform.IMECapableOf(&plainApp{}); ok {
+		t.Fatal("expected plain app to lack ime capability")
 	}
 }
 
@@ -170,6 +226,15 @@ func TestAndroidNewApp_returns_error(t *testing.T) {
 	}
 	if err.Error() == "" {
 		t.Fatal("expected descriptive error")
+	}
+}
+
+func TestAndroidPermissionAPI_unavailable_on_non_android(t *testing.T) {
+	if ch, err := android.RequestPermission(android.PermissionCamera); err == nil || ch != nil {
+		t.Fatalf("expected request permission to fail on non-android, got chan=%v err=%v", ch, err)
+	}
+	if got, err := android.CheckPermission(android.PermissionCamera); err == nil || got != android.PermissionDenied {
+		t.Fatalf("expected check permission to fail on non-android, got result=%v err=%v", got, err)
 	}
 }
 

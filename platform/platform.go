@@ -1,17 +1,14 @@
 package platform
 
 import (
-	"time"
-
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/render"
 )
 
+// Surface is backend-neutral; software-specific pixel access lives on render.SoftwareSurface.
 type Surface interface {
-	Buffer() []byte
-	Stride() int
-	Size() (width, height int)
-	Lock() error
-	Unlock(dirtyRects []gfx.Rect) error
+	render.Surface
+	Scale() float32
 }
 
 type Window interface {
@@ -26,20 +23,13 @@ type Window interface {
 	Destroy()
 }
 
-type EventQueue interface {
-	Poll() []Event
-	Wait(timeout time.Duration) []Event
-}
-
 type Clipboard interface {
 	ReadText() (string, error)
 	WriteText(text string) error
 }
 
 type App interface {
-	NewWindow(opts WindowOptions) (Window, error)
 	Events() EventQueue
-	Clipboard() Clipboard
 	Destroy()
 }
 
@@ -186,6 +176,61 @@ const (
 	ModSuper
 )
 
+// LifecycleEvent represents Android lifecycle state changes
+type LifecycleEvent struct {
+	Kind LifecycleKind
+}
+
+// LifecycleKind represents the specific lifecycle state
+type LifecycleKind int
+
+const (
+	LifecycleStart LifecycleKind = iota
+	LifecycleResume
+	LifecyclePause
+	LifecycleStop
+	LifecycleDestroy
+	LifecycleLowMemory
+)
+
+// WindowEvent represents window-related events on Android
+type WindowEvent struct {
+	Kind   WindowEventKind
+	Window uintptr
+	Width  int
+	Height int
+}
+
+// WindowEventKind represents the specific window event type
+type WindowEventKind int
+
+const (
+	WindowCreated WindowEventKind = iota
+	WindowResized
+	WindowDestroyed
+	WindowFocusGained
+	WindowFocusLost
+)
+
+// TouchEvent represents a touch contact event on Android.
+// Multiple TouchEvents with the same SequenceID belong to one finger's gesture.
+type TouchEvent struct {
+	SequenceID uint64     // identifies this contact across down/move/up
+	Phase      TouchPhase // Down, Move, Up, Cancel
+	X, Y       float32    // surface-relative position
+	Pressure   float32    // 0.0 to 1.0
+}
+
+// TouchPhase represents the phase of a touch event
+type TouchPhase int
+
+const (
+	TouchDown TouchPhase = iota
+	TouchMove
+	TouchUp
+	TouchCancel // OS canceled the gesture (e.g., system gesture took over)
+)
+
 func (EventWindowClose) isEvent()  {}
 func (EventWindowResize) isEvent() {}
 func (EventWindowFocus) isEvent()  {}
@@ -195,3 +240,6 @@ func (EventKey) isEvent()          {}
 func (EventText) isEvent()         {}
 func (EventIMECompose) isEvent()   {}
 func (EventIMECommit) isEvent()    {}
+func (LifecycleEvent) isEvent()    {}
+func (WindowEvent) isEvent()       {}
+func (TouchEvent) isEvent()        {}

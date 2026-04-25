@@ -8,6 +8,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
+	platformcommon "codeburg.org/lexbit/lurpicui/platform/internal/common"
 )
 
 func TestLinuxPureWindowGuards(t *testing.T) {
@@ -58,51 +59,51 @@ func TestLinuxPureAppGuards(t *testing.T) {
 
 func TestLinuxPureKeyAndTextMappings(t *testing.T) {
 	cases := map[uint32]platform.Key{
-		keysymLeft:      platform.KeyLeft,
-		keysymRight:     platform.KeyRight,
-		keysymUp:        platform.KeyUp,
-		keysymDown:      platform.KeyDown,
-		keysymHome:      platform.KeyHome,
-		keysymEnd:       platform.KeyEnd,
-		keysymPageUp:    platform.KeyPageUp,
-		keysymPageDown:  platform.KeyPageDown,
-		keysymEscape:    platform.KeyEscape,
-		keysymReturn:    platform.KeyEnter,
-		keysymSpace:     platform.KeySpace,
-		keysymTab:       platform.KeyTab,
-		keysymBackSpace: platform.KeyBackspace,
+		0xff51: platform.KeyLeft,
+		0xff53: platform.KeyRight,
+		0xff52: platform.KeyUp,
+		0xff54: platform.KeyDown,
+		0xff50: platform.KeyHome,
+		0xff57: platform.KeyEnd,
+		0xff55: platform.KeyPageUp,
+		0xff56: platform.KeyPageDown,
+		0xff1b: platform.KeyEscape,
+		0xff0d: platform.KeyEnter,
+		0x20:   platform.KeySpace,
+		0xff09: platform.KeyTab,
+		0xff08: platform.KeyBackspace,
 	}
 	for sym, want := range cases {
-		if got := keyFromKeysym(sym); got != want {
+		if got := platformcommon.KeyFromKeysym(sym); got != want {
 			t.Fatalf("keysym %#x mapped to %v, want %v", sym, got, want)
 		}
 	}
-	if got := keyFromKeysym('Z'); got != platform.KeyZ {
+	if got := platformcommon.KeyFromKeysym('Z'); got != platform.KeyZ {
 		t.Fatalf("keyFromKeysym(Z) = %v", got)
 	}
-	if got := keyFromKeysym(0); got != platform.KeyUnknown {
+	if got := platformcommon.KeyFromKeysym(0); got != platform.KeyUnknown {
 		t.Fatalf("keyFromKeysym(0) = %v", got)
 	}
 
 	textCases := map[uint32]string{
-		keysymSpace:  " ",
-		keysymTab:    "\t",
-		keysymReturn: "\n",
+		0x20:   " ",
+		0xff09: "\t",
+		0xff0d: "\n",
 	}
 	for sym, want := range textCases {
-		got, ok := textFromKeysym(sym)
+		got, ok := platformcommon.TextFromKeysym(sym)
 		if !ok || got != want {
 			t.Fatalf("textFromKeysym(%#x) = %q, %v", sym, got, ok)
 		}
 	}
-	if got, ok := textFromKeysym(keysymBackSpace); ok || got != "" {
+	if got, ok := platformcommon.TextFromKeysym(0xff08); ok || got != "" {
 		t.Fatalf("textFromKeysym(backspace) = %q, %v", got, ok)
 	}
-	if got, ok := textFromKeysym(0); ok || got != "" {
+	if got, ok := platformcommon.TextFromKeysym(0); ok || got != "" {
 		t.Fatalf("textFromKeysym(0) = %q, %v", got, ok)
 	}
 
-	mods := modifiersFromState((1 << 0) | (1 << 2) | (1 << 3) | (1 << 6))
+	mods := platformcommon.ModifiersFromState((1 << 0) | (1 << 2) | (1 << 3) | (1 << 6))
 	wantMods := platform.ModShift | platform.ModControl | platform.ModAlt | platform.ModSuper
 	if mods != wantMods {
 		t.Fatalf("modifiersFromState = %v, want %v", mods, wantMods)
