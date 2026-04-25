@@ -2,11 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"runtime"
 	"runtime/debug"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/ui_replay/engine"
@@ -33,7 +35,14 @@ type ReplayRootFacet struct {
 	adder          facetChildAdder
 	frameRequester interface{ RequestFrame() }
 
-	shellBounds ShellBounds
+	shellBounds    ShellBounds
+	responsive     structure.ResponsiveLayout
+	headerPanel    structure.PanelToggleState
+	sidebarPanel   structure.PanelToggleState
+	contentPanel   structure.PanelToggleState
+	inspectorPanel structure.PanelToggleState
+	footerPanel    structure.PanelToggleState
+	mobilePanel    string
 
 	hasError bool
 	errorMsg string
@@ -78,6 +87,7 @@ func NewReplayRootFacet(th theme.Context, shaper *text.Shaper, meta model.BuildM
 
 	root.layout.OnArrange = func(bounds gfx.Rect) {
 		root.layout.ArrangedBounds = bounds
+		root.syncResponsiveLayout(bounds)
 		root.arrangeShell(bounds)
 	}
 	root.AddRole(&root.layout)
@@ -138,6 +148,23 @@ func (f *ReplayRootFacet) OnAttach(ctx facet.AttachContext) {
 	attachChild(&f.Facet, f, f.content, f.adder, layout.ChildAttachment{LayerID: 3})
 	attachChild(&f.Facet, f, f.inspector, f.adder, layout.ChildAttachment{LayerID: 4})
 	attachChild(&f.Facet, f, f.footer, f.adder, layout.ChildAttachment{LayerID: 5})
+
+	if f.header != nil {
+		f.header.OnToggleScenarios.Subscribe(func(_ struct{}) { f.setMobilePanel("scenarios") })
+		f.header.OnToggleDetails.Subscribe(func(_ struct{}) { f.setMobilePanel("details") })
+		f.header.OnToggleArtifacts.Subscribe(func(_ struct{}) { f.setMobilePanel("artifacts") })
+		f.header.OnRun.Subscribe(func(_ struct{}) {
+			if f.runner != nil && store.ExecutionStateStore.Get().CanStart() {
+				_ = f.ReloadScenario()
+			}
+		})
+		f.header.OnCancel.Subscribe(func(_ struct{}) {
+			_ = f.CancelRun()
+		})
+		f.header.OnExport.Subscribe(func(_ struct{}) {
+			_ = f.ExportBundle("")
+		})
+	}
 }
 
 // OnDetach handles detachment.
@@ -156,7 +183,10 @@ func (f *ReplayRootFacet) OnLayerSpecs() []layout.LayerSpec {
 		return nil
 	}
 
-	shell := CalculateShellBounds(bounds)
+	shell := f.shellBounds
+	if shell.Header.IsEmpty() {
+		shell = f.currentShellBounds(bounds)
+	}
 
 	return []layout.LayerSpec{
 		{
@@ -218,7 +248,7 @@ func (f *ReplayRootFacet) arrangeShell(bounds gfx.Rect) {
 		return
 	}
 
-	f.shellBounds = CalculateShellBounds(bounds)
+	f.shellBounds = f.currentShellBounds(bounds)
 
 	if f.header != nil {
 		f.header.layout.Arrange(f.shellBounds.Header)
@@ -237,11 +267,118 @@ func (f *ReplayRootFacet) arrangeShell(bounds gfx.Rect) {
 	}
 }
 
+func (f *ReplayRootFacet) currentShellBounds(bounds gfx.Rect) ShellBounds {
+	if f == nil {
+		return ShellBounds{}
+	}
+	if f.responsive.Variant == "" {
+		f.syncResponsiveLayout(bounds)
+	}
+	switch f.responsive.Variant {
+	case structure.ShellVariantMobilePortrait:
+		headerH := float32(headerHeight)
+		header := gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), headerH)
+		remaining := gfx.RectFromXYWH(bounds.Min.X, header.Max.Y, bounds.Width(), bounds.Max.Y-header.Max.Y)
+		switch f.mobilePanel {
+		case "details":
+			return ShellBounds{
+				Header:    header,
+				Content:   remaining,
+				Sidebar:   gfx.Rect{},
+				Inspector: gfx.Rect{},
+				Footer:    gfx.Rect{},
+			}
+		case "artifacts":
+			footerH := float32(footerHeight)
+			inspectorH := remaining.Height() - footerH - 8
+			if inspectorH < 0 {
+				inspectorH = 0
+			}
+			inspector := gfx.RectFromXYWH(bounds.Min.X, header.Max.Y, bounds.Width(), inspectorH)
+			footer := gfx.RectFromXYWH(bounds.Min.X, inspector.Max.Y+8, bounds.Width(), remaining.Max.Y-inspector.Max.Y-8)
+			return ShellBounds{
+				Header:    header,
+				Content:   gfx.Rect{},
+				Sidebar:   gfx.Rect{},
+				Inspector: inspector,
+				Footer:    footer,
+			}
+		default:
+			return ShellBounds{
+				Header:  header,
+				Sidebar: remaining,
+			}
+		}
+	default:
+		return CalculateShellBounds(bounds)
+	}
+}
+
+func (f *ReplayRootFacet) syncResponsiveLayout(bounds gfx.Rect) {
+	if f == nil {
+		return
+	}
+	caps := structure.Capabilities{
+		Touch:    runtime.GOOS == "android" || bounds.Width() <= 900,
+		Hover:    runtime.GOOS != "android",
+		Keyboard: true,
+		IME:      runtime.GOOS == "android",
+	}
+	f.responsive = structure.ResponsiveLayoutForViewport(structure.Viewport{Width: int(bounds.Width()), Height: int(bounds.Height())}, caps)
+	if f.responsive.Variant == structure.ShellVariantMobilePortrait {
+		if f.mobilePanel == "" {
+			f.mobilePanel = "scenarios"
+		}
+		switch f.mobilePanel {
+		case "details":
+			f.headerPanel.Expand()
+			f.sidebarPanel.Collapse()
+			f.contentPanel.Expand()
+			f.inspectorPanel.Collapse()
+			f.footerPanel.Collapse()
+		case "artifacts":
+			f.headerPanel.Expand()
+			f.sidebarPanel.Collapse()
+			f.contentPanel.Collapse()
+			f.inspectorPanel.Expand()
+			f.footerPanel.Expand()
+		default:
+			f.mobilePanel = "scenarios"
+			f.headerPanel.Expand()
+			f.sidebarPanel.Expand()
+			f.contentPanel.Collapse()
+			f.inspectorPanel.Collapse()
+			f.footerPanel.Collapse()
+		}
+		return
+	}
+	f.headerPanel.Expand()
+	f.sidebarPanel.Expand()
+	f.contentPanel.Expand()
+	f.inspectorPanel.Expand()
+	f.footerPanel.Expand()
+}
+
 // RequestFrame requests a new frame render.
 func (f *ReplayRootFacet) RequestFrame() {
 	if f.frameRequester != nil {
 		f.frameRequester.RequestFrame()
 	}
+}
+
+func (f *ReplayRootFacet) setMobilePanel(mode string) {
+	if f == nil {
+		return
+	}
+	if mode == "" {
+		mode = "scenarios"
+	}
+	f.mobilePanel = mode
+	if !f.layout.ArrangedBounds.IsEmpty() {
+		f.syncResponsiveLayout(f.layout.ArrangedBounds)
+		f.arrangeShell(f.layout.ArrangedBounds)
+	}
+	f.RequestFrame()
 }
 
 // renderErrorState draws an error overlay when a panic occurs

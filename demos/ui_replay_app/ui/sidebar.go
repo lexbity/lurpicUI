@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -17,20 +18,24 @@ type SidebarFacet struct {
 	facet.Facet
 	layout       facet.LayoutRole
 	render       facet.RenderRole
+	input        facet.InputRole
 	th           theme.Context
 	shaper       *text.Shaper
 	registrySub  signal.SubscriptionID
 	selectionSub signal.SubscriptionID
 	execSub      signal.SubscriptionID
 	historySub   signal.SubscriptionID
+	itemRects    map[string]gfx.Rect
+	activeID     string
 }
 
 // NewSidebarFacet creates a new sidebar facet.
 func NewSidebarFacet(th theme.Context, shaper *text.Shaper) *SidebarFacet {
 	s := &SidebarFacet{
-		Facet:  facet.NewFacet(),
-		th:     th,
-		shaper: shaper,
+		Facet:     facet.NewFacet(),
+		th:        th,
+		shaper:    shaper,
+		itemRects: make(map[string]gfx.Rect),
 	}
 
 	s.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
@@ -40,6 +45,28 @@ func NewSidebarFacet(th theme.Context, shaper *text.Shaper) *SidebarFacet {
 		s.layout.ArrangedBounds = bounds
 	}
 	s.AddRole(&s.layout)
+
+	s.input.OnPointer = func(e facet.PointerEvent) bool {
+		switch e.Kind {
+		case platform.PointerPress:
+			id := s.hitScenarioAt(e.Position)
+			if id != "" {
+				s.activeID = id
+				return true
+			}
+		case platform.PointerRelease:
+			id := s.hitScenarioAt(e.Position)
+			if id != "" && id == s.activeID {
+				store.SelectScenario(model.ScenarioID(id))
+			}
+			s.activeID = ""
+			if id != "" {
+				return true
+			}
+		}
+		return false
+	}
+	s.AddRole(&s.input)
 
 	s.render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		s.renderSidebar(list, bounds)
@@ -88,6 +115,12 @@ func (f *SidebarFacet) OnDeactivate() {}
 func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 	if list == nil || bounds.IsEmpty() {
 		return
+	}
+	if f.itemRects == nil {
+		f.itemRects = make(map[string]gfx.Rect)
+	}
+	for k := range f.itemRects {
+		delete(f.itemRects, k)
 	}
 
 	list.Add(gfx.FillRect{
@@ -182,6 +215,10 @@ func (f *SidebarFacet) renderScenarioItem(list *gfx.CommandList, bounds gfx.Rect
 	if scenario == nil {
 		return y + 20
 	}
+	rect := gfx.RectFromXYWH(bounds.Min.X, y, bounds.Width(), 36)
+	if f.itemRects != nil {
+		f.itemRects[string(scenario.ID)] = rect
+	}
 
 	itemStyle := f.th.TextStyle(theme.TextBodyS)
 	color := f.th.Color(theme.ColorText)
@@ -193,7 +230,7 @@ func (f *SidebarFacet) renderScenarioItem(list *gfx.CommandList, bounds gfx.Rect
 	if layout != nil && len(layout.Lines) > 0 {
 		line := layout.Lines[0]
 		x := bounds.Min.X + 8
-		origin := gfx.Point{X: x, Y: y}
+		origin := gfx.Point{X: x, Y: y + 20}
 		for _, run := range line.Runs {
 			list.Add(gfx.DrawGlyphRun{
 				Run:    run,
@@ -201,9 +238,18 @@ func (f *SidebarFacet) renderScenarioItem(list *gfx.CommandList, bounds gfx.Rect
 				Brush:  gfx.SolidBrush(color),
 			})
 		}
-		return y + layout.Bounds.Height() + 8
+		return y + 36
 	}
-	return y + 20
+	return y + 36
+}
+
+func (f *SidebarFacet) hitScenarioAt(p gfx.Point) string {
+	for id, rect := range f.itemRects {
+		if rect.Contains(p) {
+			return id
+		}
+	}
+	return ""
 }
 
 func (f *SidebarFacet) renderRunHistory(list *gfx.CommandList, bounds gfx.Rect, y *float32) {

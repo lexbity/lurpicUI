@@ -2,11 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"runtime"
 	"runtime/debug"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -43,6 +45,12 @@ type CatalogRootFacet struct {
 	sidebarWidth   float32
 	inspectorWidth float32
 	layoutProfile  LayoutProfile
+	responsive     structure.ResponsiveLayout
+	shellBounds    ShellBounds
+	sidebarPanel   structure.PanelToggleState
+	inspectorPanel structure.PanelToggleState
+	footerPanel    structure.PanelToggleState
+	mobilePanel    string
 
 	// Error state
 	hasError bool
@@ -90,6 +98,7 @@ func NewCatalogRootFacet(th theme.Context, shaper *text.Shaper, meta model.Build
 
 	root.layout.OnArrange = func(bounds gfx.Rect) {
 		root.layout.ArrangedBounds = bounds
+		root.syncResponsiveLayout(bounds)
 		root.arrangeShell(bounds)
 	}
 	root.AddRole(&root.layout)
@@ -172,6 +181,11 @@ func (f *CatalogRootFacet) OnAttach(ctx facet.AttachContext) {
 	attachChild(&f.Facet, f, f.content, f.adder, layout.ChildAttachment{LayerID: 3})
 	attachChild(&f.Facet, f, f.inspector, f.adder, layout.ChildAttachment{LayerID: 4})
 	attachChild(&f.Facet, f, f.footer, f.adder, layout.ChildAttachment{LayerID: 5})
+
+	if f.header != nil {
+		f.header.OnToggleBrowse.Subscribe(func(_ struct{}) { f.setMobilePanel("browse") })
+		f.header.OnToggleDetails.Subscribe(func(_ struct{}) { f.setMobilePanel("details") })
+	}
 }
 
 // OnDetach handles detachment.
@@ -195,7 +209,7 @@ func (f *CatalogRootFacet) OnLayerSpecs() []layout.LayerSpec {
 		return nil
 	}
 
-	shell := CalculateShellBoundsWithProfile(bounds, f.sidebarWidth, f.inspectorWidth, f.layoutProfile)
+	shell := f.currentShellBounds(bounds)
 
 	return []layout.LayerSpec{
 		{
@@ -257,7 +271,8 @@ func (f *CatalogRootFacet) arrangeShell(bounds gfx.Rect) {
 		return
 	}
 
-	shell := CalculateShellBoundsWithProfile(bounds, f.sidebarWidth, f.inspectorWidth, f.layoutProfile)
+	shell := f.currentShellBounds(bounds)
+	f.shellBounds = shell
 
 	if f.header != nil {
 		f.header.layout.Arrange(shell.Header)
@@ -274,6 +289,118 @@ func (f *CatalogRootFacet) arrangeShell(bounds gfx.Rect) {
 	if f.footer != nil {
 		f.footer.layout.Arrange(shell.Footer)
 	}
+}
+
+func (f *CatalogRootFacet) currentShellBounds(bounds gfx.Rect) ShellBounds {
+	if f == nil {
+		return ShellBounds{}
+	}
+	if f.responsive.Variant == "" {
+		f.syncResponsiveLayout(bounds)
+	}
+	switch f.responsive.Variant {
+	case structure.ShellVariantMobilePortrait:
+		headerH := f.layoutProfile.HeaderHeight
+		header := gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), headerH)
+		contentTop := header.Max.Y
+		remaining := gfx.RectFromXYWH(bounds.Min.X, contentTop, bounds.Width(), bounds.Max.Y-contentTop)
+		switch f.mobilePanel {
+		case "details":
+			inspectorH := remaining.Height() * 0.38
+			if inspectorH < 220 {
+				inspectorH = 220
+			}
+			if inspectorH > remaining.Height() {
+				inspectorH = remaining.Height()
+			}
+			content := gfx.RectFromXYWH(bounds.Min.X, contentTop, bounds.Width(), remaining.Height()-inspectorH)
+			inspector := gfx.RectFromXYWH(bounds.Min.X, content.Max.Y, bounds.Width(), inspectorH)
+			return ShellBounds{
+				Header:    header,
+				Content:   content,
+				Sidebar:   gfx.Rect{},
+				Inspector: inspector,
+				Footer:    gfx.Rect{},
+			}
+		default:
+			sidebarH := remaining.Height() * 0.42
+			if sidebarH < 240 {
+				sidebarH = 240
+			}
+			if sidebarH > remaining.Height() {
+				sidebarH = remaining.Height()
+			}
+			sidebar := gfx.RectFromXYWH(bounds.Min.X, contentTop, bounds.Width(), sidebarH)
+			content := gfx.RectFromXYWH(bounds.Min.X, sidebar.Max.Y, bounds.Width(), remaining.Height()-sidebarH)
+			return ShellBounds{
+				Header:    header,
+				Sidebar:   sidebar,
+				Content:   content,
+				Inspector: gfx.Rect{},
+				Footer:    gfx.Rect{},
+			}
+		}
+	default:
+		shell := CalculateShellBoundsWithProfile(bounds, f.sidebarWidth, f.inspectorWidth, f.layoutProfile)
+		if !f.sidebarPanel.Visible(true) {
+			shell.Sidebar = gfx.Rect{}
+		}
+		if !f.inspectorPanel.Visible(true) {
+			shell.Inspector = gfx.Rect{}
+		}
+		if !f.footerPanel.Visible(true) {
+			shell.Footer = gfx.Rect{}
+		}
+		return shell
+	}
+}
+
+func (f *CatalogRootFacet) syncResponsiveLayout(bounds gfx.Rect) {
+	if f == nil {
+		return
+	}
+	caps := structure.Capabilities{
+		Touch:    runtime.GOOS == "android" || bounds.Width() <= 900,
+		Hover:    runtime.GOOS != "android",
+		Keyboard: true,
+		IME:      runtime.GOOS == "android",
+	}
+	f.responsive = structure.ResponsiveLayoutForViewport(structure.Viewport{Width: int(bounds.Width()), Height: int(bounds.Height())}, caps)
+	if f.responsive.Variant == structure.ShellVariantMobilePortrait {
+		if f.mobilePanel == "" {
+			f.mobilePanel = "browse"
+		}
+		switch f.mobilePanel {
+		case "details":
+			f.sidebarPanel.Collapse()
+			f.inspectorPanel.Expand()
+			f.footerPanel.Collapse()
+		default:
+			f.mobilePanel = "browse"
+			f.sidebarPanel.Expand()
+			f.inspectorPanel.Collapse()
+			f.footerPanel.Collapse()
+		}
+		return
+	}
+	f.sidebarPanel.Expand()
+	f.inspectorPanel.Expand()
+	f.footerPanel.Expand()
+}
+
+func (f *CatalogRootFacet) setMobilePanel(mode string) {
+	if f == nil {
+		return
+	}
+	if mode == "" {
+		mode = "browse"
+	}
+	f.mobilePanel = mode
+	if !f.layout.ArrangedBounds.IsEmpty() {
+		f.syncResponsiveLayout(f.layout.ArrangedBounds)
+		f.arrangeShell(f.layout.ArrangedBounds)
+	}
+	f.RequestFrame()
 }
 
 // RequestFrame requests a new frame render.

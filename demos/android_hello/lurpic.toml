@@ -1,0 +1,12 @@
+[app]
+id = "org.lurpic.hello"
+name = "Hello Lurpic"
+version = "1.0.0"
+
+[android]
+min_sdk = 29
+target_sdk = 33
+
+[android.permissions]
+required = []
+optional = []

@@ -5,6 +5,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/ui_catalog/model"
@@ -160,6 +162,119 @@ func TestCalculateShellBounds(t *testing.T) {
 	// Inspector should end at window right
 	if shell.Inspector.Max.X != 1000 {
 		t.Errorf("Inspector.Max.X = %v, want 1000", shell.Inspector.Max.X)
+	}
+}
+
+func TestCatalogRootFacet_ResponsiveMobilePortraitCollapsesPanels(t *testing.T) {
+	th := theme.Default()
+	shaper := text.NewShaper(nil)
+	shaper.SetContentScale(1.0)
+	meta := model.DefaultBuildMetadata()
+
+	root := NewCatalogRootFacet(th, shaper, meta)
+	bounds := gfx.RectFromXYWH(0, 0, 720, 1280)
+	root.layout.OnArrange(bounds)
+
+	if root.responsive.Variant != structure.ShellVariantMobilePortrait {
+		t.Fatalf("responsive.Variant = %v, want %v", root.responsive.Variant, structure.ShellVariantMobilePortrait)
+	}
+	if root.shellBounds.Header.IsEmpty() {
+		t.Fatal("expected header bounds to remain visible")
+	}
+	if root.shellBounds.Sidebar.IsEmpty() {
+		t.Fatal("expected sidebar bounds to remain visible in browse mode")
+	}
+	if root.shellBounds.Content.IsEmpty() {
+		t.Fatal("expected content bounds to remain visible in browse mode")
+	}
+	if !root.shellBounds.Inspector.IsEmpty() {
+		t.Fatal("expected inspector bounds to collapse on mobile portrait")
+	}
+	if !root.shellBounds.Footer.IsEmpty() {
+		t.Fatal("expected footer bounds to collapse on mobile portrait")
+	}
+}
+
+func TestCatalogRootFacet_MobileBrowseDetailsSwitchesPanels(t *testing.T) {
+	th := theme.Default()
+	shaper := text.NewShaper(nil)
+	shaper.SetContentScale(1.0)
+	meta := model.DefaultBuildMetadata()
+
+	resetCatalogStores(t)
+	root := NewCatalogRootFacet(th, shaper, meta)
+	facet.Attach(root, facet.AttachContext{Theme: th})
+	defer facet.Dispose(root)
+
+	root.layout.Arrange(gfx.RectFromXYWH(0, 0, 720, 1280))
+
+	if root.header == nil {
+		t.Fatal("expected header")
+	}
+	var browseRect, detailsRect gfx.Rect
+	for _, control := range root.header.layoutControls(root.header.layout.ArrangedBounds) {
+		switch control.kind {
+		case "browse":
+			browseRect = control.rect
+		case "details":
+			detailsRect = control.rect
+		}
+	}
+	if browseRect.IsEmpty() || detailsRect.IsEmpty() {
+		t.Fatal("expected mobile browse and details controls")
+	}
+	detailsCenter := gfx.Point{X: (detailsRect.Min.X + detailsRect.Max.X) / 2, Y: (detailsRect.Min.Y + detailsRect.Max.Y) / 2}
+	if !root.header.input.OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: detailsCenter, Button: platform.PointerLeft}) {
+		t.Fatal("expected details toggle to be handled")
+	}
+	if root.mobilePanel != "details" {
+		t.Fatalf("mobilePanel = %q, want details", root.mobilePanel)
+	}
+	if root.shellBounds.Inspector.IsEmpty() {
+		t.Fatal("expected inspector bounds in details mode")
+	}
+	if !root.shellBounds.Sidebar.IsEmpty() {
+		t.Fatal("expected sidebar to collapse in details mode")
+	}
+
+	browseCenter := gfx.Point{X: (browseRect.Min.X + browseRect.Max.X) / 2, Y: (browseRect.Min.Y + browseRect.Max.Y) / 2}
+	if !root.header.input.OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: browseCenter, Button: platform.PointerLeft}) {
+		t.Fatal("expected browse toggle to be handled")
+	}
+	if root.mobilePanel != "browse" {
+		t.Fatalf("mobilePanel = %q, want browse", root.mobilePanel)
+	}
+	if root.shellBounds.Sidebar.IsEmpty() {
+		t.Fatal("expected sidebar bounds in browse mode")
+	}
+}
+
+func TestCatalogRootFacet_SelectionPersistsAcrossMobileModeChanges(t *testing.T) {
+	th := theme.Default()
+	shaper := text.NewShaper(nil)
+	shaper.SetContentScale(1.0)
+	meta := model.DefaultBuildMetadata()
+
+	resetCatalogStores(t)
+	store.SelectEntry("basic.rect")
+
+	root := NewCatalogRootFacet(th, shaper, meta)
+	facet.Attach(root, facet.AttachContext{Theme: th})
+	defer facet.Dispose(root)
+
+	root.layout.Arrange(gfx.RectFromXYWH(0, 0, 720, 1280))
+	if got, ok := store.SelectedEntry(store.CatalogInstance); !ok || got == nil || got.ID != "basic.rect" {
+		t.Fatalf("expected basic.rect selected, got %#v", got)
+	}
+
+	root.setMobilePanel("details")
+	if got, ok := store.SelectedEntry(store.CatalogInstance); !ok || got == nil || got.ID != "basic.rect" {
+		t.Fatalf("expected selection to persist in details mode, got %#v", got)
+	}
+
+	root.setMobilePanel("browse")
+	if got, ok := store.SelectedEntry(store.CatalogInstance); !ok || got == nil || got.ID != "basic.rect" {
+		t.Fatalf("expected selection to persist in browse mode, got %#v", got)
 	}
 }
 

@@ -1,16 +1,29 @@
 {
   "id": "basic.test",
-  "display_name": "Basic Test Scenario",
+  "display_name": "Basic Runtime Contract",
   "schema": "1.0",
+  "family": "basic",
+  "description": "Exercises the basic scene load path with explicit environment, capability, and expected-state metadata.",
   "required_scene": "basic",
   "environment": {
     "theme": "baseline",
     "density": "default",
     "backend": "software",
+    "platform": "linux",
     "window_size": {
       "width": 800,
       "height": 600
     }
+  },
+  "capabilities": [
+    "scene_load",
+    "screenshots",
+    "assertions"
+  ],
+  "expected_state": {
+    "scene_id": "basic",
+    "theme": "baseline",
+    "density": "default"
   },
   "actions": [
     {
@@ -38,6 +51,18 @@
       "params": {
         "expected": "basic"
       }
+    },
+    {
+      "type": "theme_state",
+      "params": {
+        "expected": "baseline"
+      }
+    },
+    {
+      "type": "density_state",
+      "params": {
+        "expected": "default"
+      }
     }
   ],
   "artifacts": [
@@ -47,5 +72,9 @@
       "required": true
     }
   ],
-  "tags": ["basic", "smoke-test"]
+  "tags": [
+    "basic",
+    "smoke-test",
+    "runtime-contract"
+  ]
 }

@@ -1,0 +1,49 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-25T15:44:24.878990296-07:00",
+  "scenario_id": "test.assertions.pass",
+  "scenario_name": "Assertions Pass",
+  "schema_version": "1.0",
+  "run_result": "passed",
+  "action_count": 2,
+  "assertion_count": 4,
+  "artifact_count": 0,
+  "assertion_results": [
+    {
+      "step": 3,
+      "type": "scene_id",
+      "passed": true,
+      "reason": "scene_id: expected 'basic', got 'basic'"
+    },
+    {
+      "step": 4,
+      "type": "theme_state",
+      "passed": true,
+      "reason": "theme: expected 'baseline', got 'baseline'"
+    },
+    {
+      "step": 5,
+      "type": "density_state",
+      "passed": true,
+      "reason": "density: expected 'default', got 'default'"
+    },
+    {
+      "step": 6,
+      "type": "frame_count",
+      "passed": true,
+      "reason": "frame count: expected [1, 1], got 1"
+    }
+  ],
+  "environment": {
+    "theme": "",
+    "density": "",
+    "backend": "",
+    "window_width": 0,
+    "window_height": 0
+  },
+  "artifacts": [],
+  "provenance": {
+    "build_time": "0001-01-01T00:00:00Z",
+    "platform": "linux"
+  }
+}

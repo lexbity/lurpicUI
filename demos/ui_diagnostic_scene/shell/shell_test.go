@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -23,6 +24,134 @@ func TestNewRootFacet(t *testing.T) {
 	}
 	if root.Base() == nil {
 		t.Fatal("expected non-nil base facet")
+	}
+}
+
+func TestRootFacet_ResponsiveMobilePortraitCollapsesPanels(t *testing.T) {
+	shaper := &text.Shaper{}
+	registry := scene.NewRegistry()
+	root := NewRootFacet(theme.Default(), shaper, registry)
+
+	root.layout.OnArrange(gfx.RectFromXYWH(0, 0, 720, 1280))
+
+	if root.responsive.Variant != structure.ShellVariantMobilePortrait {
+		t.Fatalf("responsive.Variant = %v, want %v", root.responsive.Variant, structure.ShellVariantMobilePortrait)
+	}
+	if root.shellBounds.TopBar.IsEmpty() {
+		t.Fatal("expected top bar bounds to remain visible")
+	}
+	if root.shellBounds.SceneHost.IsEmpty() {
+		t.Fatal("expected scene host bounds to remain visible")
+	}
+	if root.shellBounds.LeftNav.IsEmpty() {
+		t.Fatal("expected left nav bounds to remain visible in mobile scenes mode")
+	}
+	if !root.shellBounds.Right.IsEmpty() {
+		t.Fatal("expected diagnostics panel bounds to stay collapsed in mobile scenes mode")
+	}
+	if !root.shellBounds.Bottom.IsEmpty() {
+		t.Fatal("expected logs panel bounds to stay collapsed in mobile scenes mode")
+	}
+}
+
+func TestRootFacet_MobileSceneSwitchingViaTouch(t *testing.T) {
+	registry := scene.NewRegistry()
+	first := newCountingScene("alpha")
+	second := newCountingScene("beta")
+	registry.Register(scene.Definition{
+		ID:          "alpha",
+		DisplayName: "Alpha",
+		Factory:     func() scene.Scene { return first },
+	})
+	registry.Register(scene.Definition{
+		ID:          "beta",
+		DisplayName: "Beta",
+		Factory:     func() scene.Scene { return second },
+	})
+
+	root := NewRootFacet(theme.Default(), &text.Shaper{}, registry)
+	facet.Attach(root, facet.AttachContext{})
+	facet.Activate(root)
+	root.layout.OnArrange(gfx.RectFromXYWH(0, 0, 720, 1280))
+
+	scenesRect, ok := root.topBar.buttonRects["scenes"]
+	if !ok || scenesRect.IsEmpty() {
+		t.Fatal("expected mobile scenes toggle button")
+	}
+	center := gfx.Point{X: (scenesRect.Min.X + scenesRect.Max.X) / 2, Y: (scenesRect.Min.Y + scenesRect.Max.Y) / 2}
+	if !root.topBar.input.OnPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: center, Button: platform.PointerLeft}) {
+		t.Fatal("expected scenes button press to be handled")
+	}
+	if !root.topBar.input.OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: center, Button: platform.PointerLeft}) {
+		t.Fatal("expected scenes button release to be handled")
+	}
+
+	root.leftNav.layout.OnArrange(root.shellBounds.LeftNav)
+	root.leftNav.renderNav(&gfx.CommandList{}, root.leftNav.layout.ArrangedBounds)
+	betaRect, ok := root.leftNav.itemRects["beta"]
+	if !ok || betaRect.IsEmpty() {
+		t.Fatal("expected beta scene rect in mobile scene list")
+	}
+	betaCenter := gfx.Point{X: (betaRect.Min.X + betaRect.Max.X) / 2, Y: (betaRect.Min.Y + betaRect.Max.Y) / 2}
+	if !root.leftNav.input.OnPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: betaCenter, Button: platform.PointerLeft}) {
+		t.Fatal("expected beta press to be handled")
+	}
+	if !root.leftNav.input.OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: betaCenter, Button: platform.PointerLeft}) {
+		t.Fatal("expected beta release to be handled")
+	}
+	if got := root.SelectedSceneID().Get(); got != "beta" {
+		t.Fatalf("expected beta selected after touch, got %q", got)
+	}
+	if got := root.sceneHost.CurrentSceneID(); got != "beta" {
+		t.Fatalf("expected scene host to switch to beta, got %q", got)
+	}
+}
+
+func TestRootFacet_MobileDiagnosticsToggleAndOverlays(t *testing.T) {
+	registry := scene.NewRegistry()
+	registry.Register(scene.Definition{
+		ID:          "alpha",
+		DisplayName: "Alpha",
+		Factory:     func() scene.Scene { return newCountingScene("alpha") },
+	})
+
+	root := NewRootFacet(theme.Default(), &text.Shaper{}, registry)
+	facet.Attach(root, facet.AttachContext{})
+	facet.Activate(root)
+	root.layout.OnArrange(gfx.RectFromXYWH(0, 0, 720, 1280))
+
+	diagRect, ok := root.topBar.buttonRects["diag"]
+	if !ok || diagRect.IsEmpty() {
+		t.Fatal("expected mobile diagnostics toggle button")
+	}
+	center := gfx.Point{X: (diagRect.Min.X + diagRect.Max.X) / 2, Y: (diagRect.Min.Y + diagRect.Max.Y) / 2}
+	if !root.topBar.input.OnPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: center, Button: platform.PointerLeft}) {
+		t.Fatal("expected diagnostics button press to be handled")
+	}
+	if !root.topBar.input.OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: center, Button: platform.PointerLeft}) {
+		t.Fatal("expected diagnostics button release to be handled")
+	}
+
+	if root.rightPanelSet.Visible(false) == false {
+		t.Fatal("expected diagnostics panel to be selected on mobile")
+	}
+	if root.shellBounds.Right.IsEmpty() {
+		t.Fatal("expected diagnostics panel bounds to be visible in mobile stacked mode")
+	}
+
+	boundsRect, ok := root.topBar.buttonRects["bounds"]
+	if !ok || boundsRect.IsEmpty() {
+		t.Fatal("expected mobile bounds toggle button")
+	}
+	boundsCenter := gfx.Point{X: (boundsRect.Min.X + boundsRect.Max.X) / 2, Y: (boundsRect.Min.Y + boundsRect.Max.Y) / 2}
+	if !root.topBar.input.OnPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: boundsCenter, Button: platform.PointerLeft}) {
+		t.Fatal("expected bounds button press to be handled")
+	}
+	if !root.topBar.input.OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: boundsCenter, Button: platform.PointerLeft}) {
+		t.Fatal("expected bounds button release to be handled")
+	}
+	if !root.rightPanel.showBounds {
+		t.Fatal("expected bounds overlay to be enabled in stacked mobile mode")
 	}
 }
 

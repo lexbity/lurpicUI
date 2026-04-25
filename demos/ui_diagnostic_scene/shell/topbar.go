@@ -23,15 +23,20 @@ type TopBarFacet struct {
 	buttons      []topBarButton
 	buttonRects  map[string]gfx.Rect
 	activeButton string
+	compact      bool
+	visible      []topBarButton
 
 	// Commands
-	OnReset        signal.Signal[struct{}]
-	OnThemeNext    signal.Signal[struct{}]
-	OnDensityNext  signal.Signal[struct{}]
-	OnToggleBounds signal.Signal[struct{}]
-	OnToggleHit    signal.Signal[struct{}]
-	OnToggleFocus  signal.Signal[struct{}]
-	OnToggleStress signal.Signal[struct{}]
+	OnToggleScenes      signal.Signal[struct{}]
+	OnToggleDiagnostics signal.Signal[struct{}]
+	OnToggleLogs        signal.Signal[struct{}]
+	OnReset             signal.Signal[struct{}]
+	OnThemeNext         signal.Signal[struct{}]
+	OnDensityNext       signal.Signal[struct{}]
+	OnToggleBounds      signal.Signal[struct{}]
+	OnToggleHit         signal.Signal[struct{}]
+	OnToggleFocus       signal.Signal[struct{}]
+	OnToggleStress      signal.Signal[struct{}]
 }
 
 type topBarButton struct {
@@ -113,12 +118,30 @@ func (t *TopBarFacet) layoutButtons(bounds gfx.Rect) {
 	if t.buttonRects == nil {
 		t.buttonRects = make(map[string]gfx.Rect)
 	}
+	t.visible = t.visible[:0]
+	t.compact = bounds.Width() < 900
+	if t.compact {
+		t.visible = append(t.visible,
+			topBarButton{ID: "scenes", Label: "Scenes"},
+			topBarButton{ID: "diag", Label: "Diag"},
+			topBarButton{ID: "logs", Label: "Logs"},
+			topBarButton{ID: "reset", Label: "Reset"},
+			topBarButton{ID: "theme", Label: "Theme"},
+			topBarButton{ID: "bounds", Label: "Bounds"},
+			topBarButton{ID: "hit", Label: "Hit"},
+			topBarButton{ID: "focus", Label: "Focus"},
+		)
+	} else {
+		t.visible = append(t.visible, t.buttons...)
+	}
 	inner := bounds.Inset(12, 4)
 	right := inner.Max.X
-	for i := len(t.buttons) - 1; i >= 0; i-- {
-		button := t.buttons[i]
+	for i := len(t.visible) - 1; i >= 0; i-- {
+		button := t.visible[i]
 		width := float32(68)
-		if len(button.Label) > 6 {
+		if t.compact {
+			width = 56
+		} else if len(button.Label) > 6 {
 			width = float32(76 + len(button.Label)*2)
 		}
 		rect := gfx.RectFromXYWH(right-width, inner.Min.Y+4, width, inner.Height()-8)
@@ -128,7 +151,7 @@ func (t *TopBarFacet) layoutButtons(bounds gfx.Rect) {
 }
 
 func (t *TopBarFacet) hitButtonAt(p gfx.Point) string {
-	for _, button := range t.buttons {
+	for _, button := range t.visible {
 		if rect, ok := t.buttonRects[button.ID]; ok && rect.Contains(p) {
 			return button.ID
 		}
@@ -138,6 +161,12 @@ func (t *TopBarFacet) hitButtonAt(p gfx.Point) string {
 
 func (t *TopBarFacet) emitButton(id string) {
 	switch id {
+	case "scenes":
+		t.OnToggleScenes.Emit(struct{}{})
+	case "diag":
+		t.OnToggleDiagnostics.Emit(struct{}{})
+	case "logs":
+		t.OnToggleLogs.Emit(struct{}{})
 	case "reset":
 		t.OnReset.Emit(struct{}{})
 	case "theme":
@@ -176,18 +205,20 @@ func (t *TopBarFacet) renderTopBar(list *gfx.CommandList, bounds gfx.Rect) {
 		return
 	}
 
-	// Text and metadata
-	style := t.theme.TextStyle(theme.TextLabelS)
-	layout := t.shaper.ShapeSimple(t.text, style)
-	if layout != nil && len(layout.Lines) > 0 {
-		line := layout.Lines[0]
-		origin := gfx.Point{X: bounds.Min.X + 12, Y: bounds.Min.Y + 20}
-		for _, run := range line.Runs {
-			list.Add(gfx.DrawGlyphRun{
-				Run:    run,
-				Origin: origin,
-				Brush:  gfx.SolidBrush(t.theme.Color(theme.ColorText)),
-			})
+	if !t.compact {
+		// Text and metadata
+		style := t.theme.TextStyle(theme.TextLabelS)
+		layout := t.shaper.ShapeSimple(t.text, style)
+		if layout != nil && len(layout.Lines) > 0 {
+			line := layout.Lines[0]
+			origin := gfx.Point{X: bounds.Min.X + 12, Y: bounds.Min.Y + 20}
+			for _, run := range line.Runs {
+				list.Add(gfx.DrawGlyphRun{
+					Run:    run,
+					Origin: origin,
+					Brush:  gfx.SolidBrush(t.theme.Color(theme.ColorText)),
+				})
+			}
 		}
 	}
 
@@ -196,7 +227,7 @@ func (t *TopBarFacet) renderTopBar(list *gfx.CommandList, bounds gfx.Rect) {
 		_ = meta
 	}
 
-	for _, button := range t.buttons {
+	for _, button := range t.visible {
 		rect := t.buttonRects[button.ID]
 		if rect.IsEmpty() {
 			continue

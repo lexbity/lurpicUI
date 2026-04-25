@@ -37,11 +37,7 @@ func TestHeaderFacet_ControlsMutateStores(t *testing.T) {
 			if !header.hit.HitTest(center).Hit {
 				t.Fatalf("expected hit for control %q", kind)
 			}
-			if !header.input.OnPointer(facet.PointerEvent{
-				Kind:     platform.PointerRelease,
-				Position: center,
-				Button:   platform.PointerLeft,
-			}) {
+			if !header.input.OnPointer(pointerRelease(center)) {
 				t.Fatalf("expected pointer handler to accept control %q", kind)
 			}
 			return
@@ -52,8 +48,6 @@ func TestHeaderFacet_ControlsMutateStores(t *testing.T) {
 	t.Run("theme", func(t *testing.T) {
 		store.SetTheme(store.ThemeSystem)
 		store.SetDensity(store.DensityNormal)
-		store.SetCompareMode(store.CompareOff)
-		store.SetCompareTheme(store.ThemeDark)
 		click("theme")
 		if got := store.GetTheme(); got != store.ThemeLight {
 			t.Fatalf("theme = %v, want %v", got, store.ThemeLight)
@@ -63,33 +57,17 @@ func TestHeaderFacet_ControlsMutateStores(t *testing.T) {
 	t.Run("density", func(t *testing.T) {
 		store.SetTheme(store.ThemeSystem)
 		store.SetDensity(store.DensityNormal)
-		store.SetCompareMode(store.CompareOff)
-		store.SetCompareTheme(store.ThemeDark)
 		click("density")
 		if got := store.GetDensity(); got != store.DensityComfortable {
 			t.Fatalf("density = %v, want %v", got, store.DensityComfortable)
 		}
 	})
+}
 
-	t.Run("compare", func(t *testing.T) {
-		store.SetTheme(store.ThemeSystem)
-		store.SetDensity(store.DensityNormal)
-		store.SetCompareMode(store.CompareOff)
-		store.SetCompareTheme(store.ThemeDark)
-		click("compare")
-		if got := store.GetCompareMode(); got != store.CompareSideBySide {
-			t.Fatalf("compare mode = %v, want %v", got, store.CompareSideBySide)
-		}
-	})
-
-	t.Run("compare-theme", func(t *testing.T) {
-		store.SetTheme(store.ThemeSystem)
-		store.SetDensity(store.DensityNormal)
-		store.SetCompareMode(store.CompareOff)
-		store.SetCompareTheme(store.ThemeDark)
-		click("compare-theme")
-		if got := store.GetCompareTheme(); got != store.ThemeSystem {
-			t.Fatalf("compare theme = %v, want %v", got, store.ThemeSystem)
-		}
-	})
+func pointerRelease(center gfx.Point) facet.PointerEvent {
+	return facet.PointerEvent{
+		Kind:     platform.PointerRelease,
+		Position: center,
+		Button:   platform.PointerLeft,
+	}
 }

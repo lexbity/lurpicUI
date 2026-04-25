@@ -1,0 +1,31 @@
+{
+  "version": "1.0",
+  "created_at": "2026-04-25T15:44:24.88035127-07:00",
+  "scenario_id": "test.assertions.fail",
+  "scenario_name": "Assertions Fail",
+  "schema_version": "1.0",
+  "run_result": "failed",
+  "action_count": 0,
+  "assertion_count": 1,
+  "artifact_count": 0,
+  "assertion_results": [
+    {
+      "step": 1,
+      "type": "focus_owner",
+      "passed": false,
+      "reason": "focus: expected '42', got '0'"
+    }
+  ],
+  "environment": {
+    "theme": "",
+    "density": "",
+    "backend": "",
+    "window_width": 0,
+    "window_height": 0
+  },
+  "artifacts": [],
+  "provenance": {
+    "build_time": "0001-01-01T00:00:00Z",
+    "platform": "linux"
+  }
+}

@@ -8,7 +8,9 @@ import (
 
 	engdiag "codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -29,6 +31,7 @@ type RootLogEntry struct {
 // RootFacet is the main shell facet containing all UI panels
 type RootFacet struct {
 	facet.Facet
+	layout facet.LayoutRole
 
 	// Core dependencies
 	baseTheme   theme.Context
@@ -52,13 +55,27 @@ type RootFacet struct {
 	maxLogs         int
 
 	// Layout
-	rootLayout   *layout.ColumnLayout
 	topBar       *TopBarFacet
 	contentSplit *layout.SplitLayout
 	leftNav      *SceneNavFacet
 	sceneHost    *SceneHostFacet
 	rightPanel   *DiagnosticsPanelFacet
 	bottomPanel  *LogsPanelFacet
+	responsive   structure.ResponsiveLayout
+	shellBounds  struct {
+		TopBar    gfx.Rect
+		Content   gfx.Rect
+		LeftNav   gfx.Rect
+		SceneHost gfx.Rect
+		Right     gfx.Rect
+		Bottom    gfx.Rect
+	}
+	leftNavPanel   structure.PanelToggleState
+	rightPanelSet  structure.PanelToggleState
+	bottomPanelSet structure.PanelToggleState
+	adder          facetChildAdder
+	frameRequester interface{ RequestFrame() }
+	mobilePanel    string
 
 	// Signals
 	OnSceneSelected signal.Signal[string]
@@ -88,6 +105,7 @@ func NewRootFacet(th theme.Context, shaper *text.Shaper, registry *scene.Registr
 	r.setupSignals()
 	r.syncShellTheme()
 	r.syncDiagnostics()
+	r.mobilePanel = "scenes"
 	return r
 }
 
@@ -97,15 +115,15 @@ func (r *RootFacet) Base() *facet.Facet {
 }
 
 func (r *RootFacet) OnAttach(ctx facet.AttachContext) {
-	if r.topBar != nil {
-		r.Base().AddChildRuntime(r.topBar.Base())
+	if adder, ok := ctx.Runtime.(facetChildAdder); ok {
+		r.adder = adder
 	}
-	if r.contentSplit != nil {
-		r.Base().AddChildRuntime(r.contentSplit.Base())
+	if req, ok := ctx.Runtime.(interface{ RequestFrame() }); ok {
+		r.frameRequester = req
 	}
-	if r.bottomPanel != nil {
-		r.Base().AddChildRuntime(r.bottomPanel.Base())
-	}
+	attachChild(&r.Facet, r, r.topBar, r.adder, layout.ChildAttachment{LayerID: 1})
+	attachChild(&r.Facet, r, r.contentSplit, r.adder, layout.ChildAttachment{LayerID: 2})
+	attachChild(&r.Facet, r, r.bottomPanel, r.adder, layout.ChildAttachment{LayerID: 3})
 	r.syncShellTheme()
 	r.syncDiagnostics()
 }
@@ -119,6 +137,47 @@ func (r *RootFacet) OnActivate() {
 		if len(defs) > 0 {
 			r.leftNav.SelectScene(defs[0].ID)
 		}
+	}
+}
+
+func (r *RootFacet) OnLayerSpecs() []layout.LayerSpec {
+	bounds := r.layout.ArrangedBounds
+	if bounds.IsEmpty() {
+		return nil
+	}
+	r.syncResponsiveLayout(bounds)
+	r.arrangeResponsiveShell(bounds)
+	return []layout.LayerSpec{
+		{
+			ID:          1,
+			Placement:   layout.PlacementFree,
+			Measurement: layout.MeasureNonStructural,
+			CoordSpace:  layout.CoordParentLayout,
+			CoordLimits: layout.CoordLimits{Bounds: r.shellBounds.TopBar},
+			HitPolicy:   layout.HitNormal,
+			RenderOrder: 0,
+			ClipPolicy:  layout.ClipToParent,
+		},
+		{
+			ID:          2,
+			Placement:   layout.PlacementFree,
+			Measurement: layout.MeasureNonStructural,
+			CoordSpace:  layout.CoordParentLayout,
+			CoordLimits: layout.CoordLimits{Bounds: r.shellBounds.Content},
+			HitPolicy:   layout.HitNormal,
+			RenderOrder: 1,
+			ClipPolicy:  layout.ClipToParent,
+		},
+		{
+			ID:          3,
+			Placement:   layout.PlacementFree,
+			Measurement: layout.MeasureNonStructural,
+			CoordSpace:  layout.CoordParentLayout,
+			CoordLimits: layout.CoordLimits{Bounds: r.shellBounds.Bottom},
+			HitPolicy:   layout.HitNormal,
+			RenderOrder: 2,
+			ClipPolicy:  layout.ClipToParent,
+		},
 	}
 }
 
@@ -162,11 +221,50 @@ func (r *RootFacet) buildUI() {
 	// Bottom logs panel
 	r.bottomPanel = NewLogsPanelFacet(r.activeTheme, r.shaper)
 
+	r.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
+		w := c.MaxSize.W
+		if w <= 0 {
+			w = c.MinSize.W
+		}
+		if w <= 0 {
+			w = 1
+		}
+		h := c.MaxSize.H
+		if h <= 0 {
+			h = c.MinSize.H
+		}
+		if h <= 0 {
+			h = 1
+		}
+		return gfx.Size{W: w, H: h}
+	}
+	r.layout.OnArrange = func(bounds gfx.Rect) {
+		r.layout.ArrangedBounds = bounds
+		r.syncResponsiveLayout(bounds)
+		r.arrangeResponsiveShell(bounds)
+	}
+	r.AddRole(&r.layout)
+
 	// Wire up scene selection
 	r.leftNav.OnSceneSelected.Subscribe(func(id string) {
 		r.selectedSceneID.Set(id)
 		r.OnSceneSelected.Emit(id)
 	})
+}
+
+type facetChildAdder interface {
+	AddFacet(parent, child facet.FacetImpl, attachment layout.ChildAttachment)
+}
+
+func attachChild(parent *facet.Facet, parentImpl facet.FacetImpl, child facet.FacetImpl, adder facetChildAdder, attachment layout.ChildAttachment) {
+	if parent == nil || child == nil {
+		return
+	}
+	if adder != nil {
+		adder.AddFacet(parentImpl, child, attachment)
+		return
+	}
+	parent.AddChildRuntime(child.Base())
 }
 
 func (r *RootFacet) setupSignals() {
@@ -183,6 +281,15 @@ func (r *RootFacet) setupSignals() {
 	})
 
 	if r.topBar != nil {
+		r.topBar.OnToggleScenes.Subscribe(func(_ struct{}) {
+			r.setMobilePanel("scenes")
+		})
+		r.topBar.OnToggleDiagnostics.Subscribe(func(_ struct{}) {
+			r.setMobilePanel("diagnostics")
+		})
+		r.topBar.OnToggleLogs.Subscribe(func(_ struct{}) {
+			r.setMobilePanel("logs")
+		})
 		r.topBar.OnReset.Subscribe(func(_ struct{}) {
 			r.OnReset.Emit(struct{}{})
 		})
@@ -229,6 +336,13 @@ func (r *RootFacet) log(category, message string) {
 	r.bottomPanel.AppendLog(panelEntry)
 }
 
+func (r *RootFacet) RequestFrame() {
+	if r == nil || r.frameRequester == nil {
+		return
+	}
+	r.frameRequester.RequestFrame()
+}
+
 func (r *RootFacet) syncDiagnostics() {
 	if r == nil || r.adapter == nil {
 		return
@@ -243,6 +357,182 @@ func (r *RootFacet) syncDiagnostics() {
 		r.rightPanel.SetShowHitRegions(r.rightPanel.showHitRegions)
 		r.rightPanel.SetShowFocus(r.rightPanel.showFocus)
 	}
+}
+
+func (r *RootFacet) syncResponsiveLayout(bounds gfx.Rect) {
+	if r == nil {
+		return
+	}
+	caps := structure.Capabilities{
+		Touch:    runtime.GOOS == "android" || bounds.Width() <= 900,
+		Hover:    runtime.GOOS != "android",
+		Keyboard: true,
+		IME:      runtime.GOOS == "android",
+	}
+	r.responsive = structure.ResponsiveLayoutForViewport(structure.Viewport{Width: int(bounds.Width()), Height: int(bounds.Height())}, caps)
+	if r.responsive.Variant == structure.ShellVariantMobilePortrait {
+		if r.mobilePanel == "" {
+			r.mobilePanel = "scenes"
+		}
+		switch r.mobilePanel {
+		case "diagnostics":
+			r.leftNavPanel.Collapse()
+			r.rightPanelSet.Expand()
+			r.bottomPanelSet.Collapse()
+		case "logs":
+			r.leftNavPanel.Collapse()
+			r.rightPanelSet.Collapse()
+			r.bottomPanelSet.Expand()
+		default:
+			r.mobilePanel = "scenes"
+			r.leftNavPanel.Expand()
+			r.rightPanelSet.Collapse()
+			r.bottomPanelSet.Collapse()
+		}
+		return
+	}
+	r.leftNavPanel.Expand()
+	r.rightPanelSet.Expand()
+	r.bottomPanelSet.Expand()
+}
+
+func (r *RootFacet) arrangeResponsiveShell(bounds gfx.Rect) {
+	if r == nil {
+		return
+	}
+	topH := float32(48)
+	if r.topBar != nil {
+		r.topBar.layout.Arrange(gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), topH))
+	}
+	contentTop := bounds.Min.Y + topH
+	bottomH := float32(32)
+	if !r.bottomPanelSet.Visible(true) {
+		bottomH = 0
+	}
+	contentBottom := bounds.Max.Y - bottomH
+	contentBounds := gfx.RectFromXYWH(bounds.Min.X, contentTop, bounds.Width(), contentBottom-contentTop)
+	r.shellBounds.TopBar = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), topH)
+	r.shellBounds.Content = contentBounds
+	if r.responsive.Variant == structure.ShellVariantMobilePortrait {
+		auxHeight := float32(0)
+		switch r.mobilePanel {
+		case "diagnostics":
+			auxHeight = contentBounds.Height() * 0.28
+			if auxHeight < 180 {
+				auxHeight = 180
+			}
+		case "logs":
+			auxHeight = contentBounds.Height() * 0.22
+			if auxHeight < 140 {
+				auxHeight = 140
+			}
+		default:
+			auxHeight = contentBounds.Height() * 0.26
+			if auxHeight < 160 {
+				auxHeight = 160
+			}
+		}
+		if auxHeight > contentBounds.Height()*0.45 {
+			auxHeight = contentBounds.Height() * 0.45
+		}
+		if auxHeight < 0 {
+			auxHeight = 0
+		}
+		auxBounds := gfx.RectFromXYWH(bounds.Min.X, contentTop, bounds.Width(), auxHeight)
+		sceneBounds := gfx.RectFromXYWH(bounds.Min.X, auxBounds.Max.Y+8, bounds.Width(), contentBounds.Max.Y-auxBounds.Max.Y-8)
+		if sceneBounds.Height() < 0 {
+			sceneBounds = gfx.RectFromXYWH(bounds.Min.X, auxBounds.Max.Y, bounds.Width(), 0)
+		}
+		r.shellBounds.SceneHost = sceneBounds
+		r.shellBounds.LeftNav = gfx.Rect{}
+		r.shellBounds.Right = gfx.Rect{}
+		r.shellBounds.Bottom = gfx.Rect{}
+		switch r.mobilePanel {
+		case "diagnostics":
+			r.shellBounds.Right = auxBounds
+			r.shellBounds.SceneHost = sceneBounds
+			if r.leftNav != nil {
+				r.leftNav.layout.Arrange(gfx.Rect{})
+			}
+			if r.rightPanel != nil {
+				r.rightPanel.layout.Arrange(auxBounds)
+			}
+			if r.bottomPanel != nil {
+				r.bottomPanel.layout.Arrange(gfx.Rect{})
+			}
+		case "logs":
+			r.shellBounds.Bottom = auxBounds
+			r.shellBounds.SceneHost = sceneBounds
+			if r.leftNav != nil {
+				r.leftNav.layout.Arrange(gfx.Rect{})
+			}
+			if r.rightPanel != nil {
+				r.rightPanel.layout.Arrange(gfx.Rect{})
+			}
+			if r.bottomPanel != nil {
+				r.bottomPanel.layout.Arrange(auxBounds)
+			}
+		default:
+			r.shellBounds.LeftNav = auxBounds
+			r.shellBounds.SceneHost = sceneBounds
+			if r.leftNav != nil {
+				r.leftNav.layout.Arrange(auxBounds)
+			}
+			if r.rightPanel != nil {
+				r.rightPanel.layout.Arrange(gfx.Rect{})
+			}
+			if r.bottomPanel != nil {
+				r.bottomPanel.layout.Arrange(gfx.Rect{})
+			}
+		}
+		if r.sceneHost != nil {
+			r.sceneHost.layout.Arrange(sceneBounds)
+		}
+		return
+	}
+	leftWidth := bounds.Width() * 0.15
+	rightWidth := bounds.Width() * 0.35
+	if leftWidth < 150 {
+		leftWidth = 150
+	}
+	if rightWidth < 250 {
+		rightWidth = 250
+	}
+	leftBounds := gfx.RectFromXYWH(bounds.Min.X, contentTop, leftWidth, contentBounds.Height())
+	rightBounds := gfx.RectFromXYWH(bounds.Max.X-rightWidth, contentTop, rightWidth, contentBounds.Height())
+	sceneBounds := gfx.RectFromXYWH(leftBounds.Max.X+4, contentTop, rightBounds.Min.X-leftBounds.Max.X-8, contentBounds.Height())
+	bottomBounds := gfx.RectFromXYWH(bounds.Min.X, contentBottom, bounds.Width(), bottomH)
+	r.shellBounds.LeftNav = leftBounds
+	r.shellBounds.SceneHost = sceneBounds
+	r.shellBounds.Right = rightBounds
+	r.shellBounds.Bottom = bottomBounds
+	if r.leftNav != nil {
+		r.leftNav.layout.Arrange(leftBounds)
+	}
+	if r.sceneHost != nil {
+		r.sceneHost.layout.Arrange(sceneBounds)
+	}
+	if r.rightPanel != nil {
+		r.rightPanel.layout.Arrange(rightBounds)
+	}
+	if r.bottomPanel != nil {
+		r.bottomPanel.layout.Arrange(bottomBounds)
+	}
+}
+
+func (r *RootFacet) setMobilePanel(mode string) {
+	if r == nil {
+		return
+	}
+	if mode == "" {
+		mode = "scenes"
+	}
+	r.mobilePanel = mode
+	if !r.layout.ArrangedBounds.IsEmpty() {
+		r.syncResponsiveLayout(r.layout.ArrangedBounds)
+		r.arrangeResponsiveShell(r.layout.ArrangedBounds)
+	}
+	r.RequestFrame()
 }
 
 func (r *RootFacet) syncShellTheme() {
