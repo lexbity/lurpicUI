@@ -27,6 +27,46 @@ func syncViewport(viewport *facet.ViewportRole, transform gfx.Transform) {
 	viewport.Transform = transform
 }
 
+// arrangeChildrenWithinBounds measures and arranges direct children inside the
+// supplied local bounds rectangle.
+func arrangeChildrenWithinBounds(parent *facet.Facet, bounds gfx.Rect) {
+	if parent == nil {
+		return
+	}
+	origin := bounds.Min
+	loose := layout.Loose(gfx.Size{W: bounds.Width(), H: bounds.Height()})
+	for _, child := range parent.Children() {
+		if child == nil {
+			continue
+		}
+		role := child.LayoutRole()
+		if role == nil {
+			continue
+		}
+		size := role.Measure(loose)
+		if size.W <= 0 || size.H <= 0 {
+			size = role.MeasuredSize
+		}
+		if size.W <= 0 {
+			size.W = bounds.Width()
+		}
+		if size.H <= 0 {
+			size.H = bounds.Height()
+		}
+		role.Arrange(gfx.RectFromXYWH(origin.X, origin.Y, size.W, size.H))
+	}
+}
+
+// arrangeChildToBounds mounts a single child directly into the supplied bounds.
+func arrangeChildToBounds(child *facet.Facet, bounds gfx.Rect) {
+	if child == nil {
+		return
+	}
+	if role := child.LayoutRole(); role != nil {
+		role.Arrange(bounds)
+	}
+}
+
 func attachChildMarks(parent *facet.Facet, children []marks.Mark) {
 	if parent == nil {
 		return

@@ -197,7 +197,12 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 				traceLayer := diagnostics.LayerHitTrace{
 					ParentID:    parentID,
 					LayerID:     layerID,
+					CoordSpace:  layout.CoordSpace(layer.CoordSpace),
+					RenderOrder: layer.RenderOrder,
 					HitPolicy:   policy,
+					Bounds:      layer.Bounds,
+					ClipRect:    layer.ClipRect,
+					Transform:   layer.Transform,
 					TestedCount: 0,
 					StoppedHere: policy == layout.HitBlockBelow,
 				}
@@ -221,7 +226,12 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 		traceLayer := diagnostics.LayerHitTrace{
 			ParentID:    parentID,
 			LayerID:     layerID,
+			CoordSpace:  layout.CoordSpace(layer.CoordSpace),
+			RenderOrder: layer.RenderOrder,
 			HitPolicy:   policy,
+			Bounds:      layer.Bounds,
+			ClipRect:    layer.ClipRect,
+			Transform:   layer.Transform,
 			TestedCount: tested,
 		}
 		if !hit {

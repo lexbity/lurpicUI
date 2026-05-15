@@ -32,6 +32,25 @@ func TestLayerMount_places_child_in_target_layer(t *testing.T) {
 	}
 }
 
+func TestLayerMount_arranges_mounted_child_with_host_bounds(t *testing.T) {
+	child := &basic.Rect{
+		Bounds: basic.BoundsProps{X: 0, Y: 0, W: 10, H: 10},
+		Style:  basic.PrimitiveStyleProps{Visible: true, Opacity: 1},
+	}
+	root := &LayerMount{
+		TargetLayer: 7,
+		Child:       child,
+	}
+	attachStructureTree(t, root)
+
+	hostBounds := gfx.RectFromXYWH(24, 36, 120, 80)
+	root.Base().LayoutRole().Arrange(hostBounds)
+
+	if got := child.Base().LayoutRole().ArrangedBounds; got != hostBounds {
+		t.Fatalf("child arranged bounds = %#v, want %#v", got, hostBounds)
+	}
+}
+
 func TestLayerMount_missing_target_reports_diagnostic(t *testing.T) {
 	child := &basic.Rect{
 		Bounds: basic.BoundsProps{X: 0, Y: 0, W: 10, H: 10},

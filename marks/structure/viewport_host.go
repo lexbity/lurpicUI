@@ -15,7 +15,7 @@ type ViewportModel struct {
 	Transform gfx.Transform
 }
 
-// ViewportHost establishes a projected/world-space subtree root.
+// ViewportHost establishes an explicit nested viewport boundary for descendants.
 type ViewportHost struct {
 	ID       string
 	Viewport ViewportModel

@@ -9,7 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 )
 
-// Transform is a semantic variant of Group that emphasizes authored transform intent.
+// Transform is a composition-only authored mark that emphasizes local transform intent.
 type Transform struct {
 	ID       string
 	Matrix   gfx.Transform
@@ -80,6 +80,10 @@ func (t *Transform) ensureInit() {
 					return gfx.Size{}
 				}
 				return gfx.Size{W: bounds.Width(), H: bounds.Height()}
+			},
+			OnArrange: func(bounds gfx.Rect) {
+				t.layoutRole.ArrangedBounds = bounds
+				arrangeChildrenWithinBounds(&t.base, bounds)
 			},
 		}
 		t.viewportRole = &facet.ViewportRole{Transform: normaliseTransform(t.Matrix)}

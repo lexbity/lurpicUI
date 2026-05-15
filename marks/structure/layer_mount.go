@@ -9,8 +9,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 )
 
-// LayerMount mounts one child into a specific parent-scoped layer.
-// It panics if TargetLayer is zero because that is always a programming error.
+// LayerMount mounts one child into a specific parent-scoped layer contract.
+// It does not define placement for the parent shell; it only binds the child to
+// a target layer and arranges that child within the host bounds.
 type LayerMount struct {
 	ID          string
 	TargetLayer layout.LayerID
@@ -101,6 +102,10 @@ func (m *LayerMount) ensureInit() {
 				}
 				return gfx.Size{}
 			},
+			OnArrange: func(bounds gfx.Rect) {
+				m.layoutRole.ArrangedBounds = bounds
+				arrangeChildToBounds(m.childBase(), bounds)
+			},
 		}
 		m.viewportRole = &facet.ViewportRole{Transform: gfx.Identity()}
 		m.projectionRole = &facet.ProjectionRole{OnProject: func(ctx facet.ProjectionContext) *gfx.CommandList {
@@ -128,7 +133,7 @@ func (m *LayerMount) localBounds() gfx.Rect {
 	return bounds
 }
 
-func (m *LayerMount) childImpl() facet.FacetImpl {
+func (m *LayerMount) childBase() *facet.Facet {
 	if m == nil || m.base.ID() == 0 {
 		return nil
 	}
@@ -136,5 +141,13 @@ func (m *LayerMount) childImpl() facet.FacetImpl {
 	if len(children) == 0 {
 		return nil
 	}
-	return children[0].Impl()
+	return children[0]
+}
+
+func (m *LayerMount) childImpl() facet.FacetImpl {
+	child := m.childBase()
+	if child == nil {
+		return nil
+	}
+	return child.Impl()
 }

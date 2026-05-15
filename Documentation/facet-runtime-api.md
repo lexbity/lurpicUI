@@ -52,6 +52,8 @@ attachment over manipulating base fields directly.
 The runtime separates layout and projection:
 
 - layout measures and arranges the tree
+- layers own coordinate ownership and the resolved child space inside a parent
+- viewport roles provide local authored transforms inside that layer contract
 - projection converts layout state into render batches and hit maps
 - render submission happens only after projection has produced a frame
 
@@ -90,6 +92,7 @@ The runtime can expose:
 - anchor snapshots
 - hit traces
 - synchronous inspector snapshots
+- resolved layer frames and coordinate ownership
 
 Diagnostics are designed for tooling and testing, not for mutating runtime
 state.

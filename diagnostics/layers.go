@@ -25,6 +25,17 @@ type LayerSnapshot struct {
 	AnchorCacheCount   int
 }
 
+// LayerFrame describes the resolved spatial frame for one layer.
+type LayerFrame struct {
+	LayerID     layout.LayerID
+	CoordSpace  layout.CoordSpace
+	Bounds      gfx.Rect
+	ClipRect    gfx.Rect
+	Transform   gfx.Transform
+	RenderOrder int
+	HitPolicy   layout.LayerHitPolicy
+}
+
 // AnchorSnapshot describes the exported anchors for one parent facet.
 type AnchorSnapshot struct {
 	ParentID facet.FacetID
@@ -65,15 +76,40 @@ type HitTestTrace struct {
 type LayerHitTrace struct {
 	ParentID    facet.FacetID
 	LayerID     layout.LayerID
+	CoordSpace  layout.CoordSpace
+	RenderOrder int
 	HitPolicy   layout.LayerHitPolicy
+	Bounds      gfx.Rect
+	ClipRect    gfx.Rect
+	Transform   gfx.Transform
 	TestedCount int
 	HitFacetID  facet.FacetID
 	StoppedHere bool
 }
 
 func (s LayerSnapshot) String() string {
-	return fmt.Sprintf("LayerID=%d Placement=%d Measurement=%d CoordSpace=%d RenderOrder=%d HitPolicy=%d Bounds=%v ClipRect=%v Children=%d AnchorCache=%d@v%d",
-		s.LayerID, s.Placement, s.Measurement, s.CoordSpace, s.RenderOrder, s.HitPolicy, s.Bounds, s.ClipRect, s.ChildCount, s.AnchorCacheCount, s.AnchorCacheVersion)
+	frame := s.Frame()
+	return fmt.Sprintf("Frame=%s Placement=%d Measurement=%d Children=%d AnchorCache=%d@v%d",
+		frame.String(), s.Placement, s.Measurement, s.ChildCount, s.AnchorCacheCount, s.AnchorCacheVersion)
+}
+
+// Frame returns the resolved spatial frame for this snapshot.
+func (s LayerSnapshot) Frame() LayerFrame {
+	return LayerFrame{
+		LayerID:     s.LayerID,
+		CoordSpace:  s.CoordSpace,
+		Bounds:      s.Bounds,
+		ClipRect:    s.ClipRect,
+		Transform:   s.Transform,
+		RenderOrder: s.RenderOrder,
+		HitPolicy:   s.HitPolicy,
+	}
+}
+
+// String returns a human-readable description of the resolved layer frame.
+func (f LayerFrame) String() string {
+	return fmt.Sprintf("LayerID=%d CoordSpace=%d Bounds=%v ClipRect=%v Transform=%v RenderOrder=%d HitPolicy=%d",
+		f.LayerID, f.CoordSpace, f.Bounds, f.ClipRect, f.Transform, f.RenderOrder, f.HitPolicy)
 }
 
 // String returns a human-readable anchor snapshot summary.
@@ -104,6 +140,6 @@ func (t HitTestTrace) String() string {
 
 // String returns a human-readable description of one tested layer.
 func (t LayerHitTrace) String() string {
-	return fmt.Sprintf("ParentID=%d LayerID=%d HitPolicy=%d Tested=%d HitFacetID=%d StoppedHere=%t",
-		t.ParentID, t.LayerID, t.HitPolicy, t.TestedCount, t.HitFacetID, t.StoppedHere)
+	return fmt.Sprintf("ParentID=%d LayerID=%d CoordSpace=%d Bounds=%v ClipRect=%v Transform=%v RenderOrder=%d HitPolicy=%d Tested=%d HitFacetID=%d StoppedHere=%t",
+		t.ParentID, t.LayerID, t.CoordSpace, t.Bounds, t.ClipRect, t.Transform, t.RenderOrder, t.HitPolicy, t.TestedCount, t.HitFacetID, t.StoppedHere)
 }

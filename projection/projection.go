@@ -305,11 +305,7 @@ func (s *System) project(
 		if hasLayer {
 			ctx.Layer = layerCtx
 		} else {
-			ctx.Layer = facet.ProjectionLayer{
-				Bounds:    bounds,
-				Transform: resolvedTransform,
-				ClipRect:  bounds,
-			}
+			ctx.Layer = ctx.ResolvedLayer()
 		}
 		if cmds := pr.Project(ctx); cmds != nil {
 			output.Commands = *cmds

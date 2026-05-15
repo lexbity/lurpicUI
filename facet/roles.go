@@ -18,7 +18,7 @@ var nextRenderBatchID atomic.Uint64
 // Constraints is the shared layout constraint type.
 type Constraints = space.Constraints
 
-// LayoutRole participates in measurement and arrangement.
+// LayoutRole participates in measurement and arrangement inside the resolved layer contract.
 type LayoutRole struct {
 	Constraints    Constraints
 	MeasuredSize   gfx.Size
@@ -52,7 +52,7 @@ func (r *LayoutRole) Arrange(bounds gfx.Rect) {
 	}
 }
 
-// RenderRole participates in command collection.
+// RenderRole participates in command collection inside the resolved layer contract.
 type RenderRole struct {
 	RenderBatchID gfx.RenderBatchCacheID
 	OnCollect     func(list *gfx.CommandList, bounds gfx.Rect)
@@ -94,7 +94,7 @@ type HitResult struct {
 	Cursor CursorShape
 }
 
-// HitRole participates in hit testing.
+// HitRole participates in hit testing inside the resolved layer contract.
 type HitRole struct {
 	OnHitTest func(p gfx.Point) HitResult
 }
@@ -151,7 +151,7 @@ type TextEvent struct {
 	Composing bool
 }
 
-// InputRole participates in direct input handling.
+// InputRole participates in direct input handling inside the resolved layer contract.
 type InputRole struct {
 	OnPointer func(e PointerEvent) bool
 	OnTouch   func(e TouchEvent) bool
@@ -163,7 +163,7 @@ type InputRole struct {
 	SuppressSyntheticPointer bool
 }
 
-// FocusRole participates in keyboard focus management.
+// FocusRole participates in keyboard focus management inside the resolved layer contract.
 type FocusRole struct {
 	Focusable     func() bool
 	OnFocusGained func()
@@ -171,7 +171,7 @@ type FocusRole struct {
 	TabIndex      int
 }
 
-// ViewportRole defines a local-to-world coordinate transform.
+// ViewportRole defines an authored local transform inside the resolved layer contract.
 type ViewportRole struct {
 	Transform   gfx.Transform
 	WorldBounds gfx.Rect
@@ -182,12 +182,13 @@ type ProjectionLayer struct {
 	Bounds      gfx.Rect
 	Transform   gfx.Transform
 	ClipRect    gfx.Rect
+	CoordSpace  uint8
 	RenderOrder int
 	HitPolicy   uint8
 }
 
-// ScreenToWorld converts a screen-space point to world space.
-func (v *ViewportRole) ScreenToWorld(screenPt gfx.Point) (worldPt gfx.Point, ok bool) {
+// LayerToLocal converts a point in layer space back into authored local space.
+func (v *ViewportRole) LayerToLocal(layerPt gfx.Point) (localPt gfx.Point, ok bool) {
 	if v == nil {
 		return gfx.Point{}, false
 	}
@@ -195,15 +196,15 @@ func (v *ViewportRole) ScreenToWorld(screenPt gfx.Point) (worldPt gfx.Point, ok 
 	if !ok {
 		return gfx.Point{}, false
 	}
-	return inv.TransformPoint(screenPt), true
+	return inv.TransformPoint(layerPt), true
 }
 
-// WorldToScreen converts a world-space point to screen space.
-func (v *ViewportRole) WorldToScreen(worldPt gfx.Point) gfx.Point {
+// LocalToLayer converts an authored local point into layer space.
+func (v *ViewportRole) LocalToLayer(localPt gfx.Point) gfx.Point {
 	if v == nil {
 		return gfx.Point{}
 	}
-	return v.Transform.TransformPoint(worldPt)
+	return v.Transform.TransformPoint(localPt)
 }
 
 // SetPanZoom updates the transform from pan and zoom.
@@ -219,7 +220,10 @@ func (v *ViewportRole) SetPanZoom(pan gfx.Point, zoom float32) {
 	}
 }
 
-// ProjectionContext provides the minimal inputs for projection.
+// ProjectionContext provides the minimal inputs for projection within a resolved layer.
+// Layer is authoritative when populated; helper methods fall back to the local
+// bounds and viewport transform only when projection is invoked without a
+// resolved runtime snapshot.
 type ProjectionContext struct {
 	Bounds   gfx.Rect
 	Viewport *ViewportRole
@@ -227,7 +231,7 @@ type ProjectionContext struct {
 	Layer    ProjectionLayer
 }
 
-// ProjectionRole participates in projection output collection.
+// ProjectionRole consumes the resolved layer contract and participates in projection output collection.
 type ProjectionRole struct {
 	OnProject   func(ctx ProjectionContext) *gfx.CommandList
 	OnJobResult func(result job.AnyResult)

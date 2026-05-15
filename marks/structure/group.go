@@ -9,7 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 )
 
-// Group is a composition-first authored mark that hosts child marks under a shared transform.
+// Group is a composition-only authored mark that applies a shared local transform to descendants.
 type Group struct {
 	ID        string
 	Transform gfx.Transform
@@ -84,27 +84,7 @@ func (g *Group) ensureInit() {
 			},
 			OnArrange: func(bounds gfx.Rect) {
 				g.layoutRole.ArrangedBounds = bounds
-				origin := bounds.Min
-				for _, child := range g.base.Children() {
-					if child == nil {
-						continue
-					}
-					lr := child.LayoutRole()
-					if lr == nil {
-						continue
-					}
-					size := lr.Measure(layout.Loose(gfx.Size{W: bounds.Width(), H: bounds.Height()}))
-					if size.W <= 0 || size.H <= 0 {
-						size = lr.MeasuredSize
-					}
-					if size.W <= 0 {
-						size.W = bounds.Width()
-					}
-					if size.H <= 0 {
-						size.H = bounds.Height()
-					}
-					lr.Arrange(gfx.RectFromXYWH(origin.X, origin.Y, size.W, size.H))
-				}
+				arrangeChildrenWithinBounds(&g.base, bounds)
 			},
 		}
 		g.viewportRole = &facet.ViewportRole{Transform: normaliseTransform(g.Transform)}

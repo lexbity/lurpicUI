@@ -185,23 +185,23 @@ func TestRoleInterface_not_implementable_externally(t *testing.T) {
 	}
 }
 
-func TestViewportRole_screento_world_roundtrip(t *testing.T) {
+func TestViewportRole_local_to_layer_roundtrip(t *testing.T) {
 	v := &ViewportRole{}
 	v.SetPanZoom(gfx.Point{X: 10, Y: -4}, 2)
-	screen := v.WorldToScreen(gfx.Point{X: 3, Y: 7})
-	world, ok := v.ScreenToWorld(screen)
+	layer := v.LocalToLayer(gfx.Point{X: 3, Y: 7})
+	local, ok := v.LayerToLocal(layer)
 	if !ok {
 		t.Fatal("expected invertible transform")
 	}
-	if world != (gfx.Point{X: 3, Y: 7}) {
-		t.Fatalf("unexpected roundtrip result: %#v", world)
+	if local != (gfx.Point{X: 3, Y: 7}) {
+		t.Fatalf("unexpected roundtrip result: %#v", local)
 	}
 }
 
-func TestViewportRole_screento_world_degenerate(t *testing.T) {
+func TestViewportRole_layer_to_local_degenerate(t *testing.T) {
 	v := &ViewportRole{}
 	v.Transform = gfx.Scale(0, 0)
-	if _, ok := v.ScreenToWorld(gfx.Point{}); ok {
+	if _, ok := v.LayerToLocal(gfx.Point{}); ok {
 		t.Fatal("expected degenerate transform to fail")
 	}
 }

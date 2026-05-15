@@ -9,7 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 )
 
-// AnchorProxy forwards anchors from another mark and can rename or offset them.
+// AnchorProxy forwards anchors from another mark and can rename or offset them within the resolved layer contract.
 type AnchorProxy struct {
 	ID        string
 	Source    AnchorSourceRef

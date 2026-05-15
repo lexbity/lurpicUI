@@ -722,6 +722,25 @@ func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
 	}
 }
 
+// UpdateChildAttachment updates the runtime metadata for an already attached child facet.
+func (rt *Runtime) UpdateChildAttachment(child facet.FacetImpl, attachment layout.ChildAttachment) {
+	if rt == nil || child == nil || child.Base() == nil {
+		return
+	}
+	if rt.childAttachments == nil {
+		rt.childAttachments = make(map[facet.FacetID]layout.ChildAttachment)
+	}
+	rt.childAttachments[child.Base().ID()] = attachment
+	if parent := child.Base().Parent(); parent != nil {
+		parent.InvalidateWithSource(facet.DirtyLayout, "runtime.UpdateChildAttachment")
+		rt.dirtyFacets[parent.ID()] |= facet.DirtyLayout
+		rt.dirtySources[parent.ID()] = "runtime.UpdateChildAttachment"
+	}
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
 func (rt *Runtime) initiateShutdown() {
 	if rt == nil {
 		return
@@ -1087,6 +1106,19 @@ func (rt *Runtime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source s
 		}
 		if rt.root != nil && rt.root.Base() != nil && rt.root.Base().ID() == id {
 			rt.root.Base().InvalidateWithSource(flags, source)
+		}
+	})
+}
+
+// MarkTreeDirty marks a facet subtree dirty from the runtime thread.
+func (rt *Runtime) MarkTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
+	if rt == nil || root == nil {
+		return
+	}
+	rt.queueSignal(func() {
+		rt.markTreeDirty(root, flags)
+		if rt.frameTimer != nil {
+			rt.frameTimer.RequestFrame()
 		}
 	})
 }

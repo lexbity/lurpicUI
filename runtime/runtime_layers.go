@@ -387,16 +387,7 @@ func (rt *Runtime) resolveComposedLayers(parent facet.FacetImpl, composer LayerC
 	}
 	layerBoundsStart := time.Now()
 	for _, spec := range specs {
-		resolved := layout.ResolvedLayer{
-			LayerID:     spec.ID,
-			Bounds:      resolveLayerBounds(parentBounds, spec),
-			CoordLimits: spec.CoordLimits,
-			HitPolicy:   spec.HitPolicy,
-			RenderOrder: spec.RenderOrder,
-			CoordSpace:  spec.CoordSpace,
-		}
-		resolved.Transform = resolveLayerTransform(accumulated, spec)
-		resolved.ClipRect = resolveClipRect(resolved, spec, parent.Base(), accumulated)
+		resolved := resolveLayerFrame(parentBounds, spec, parent.Base(), accumulated)
 		state.layers = append(state.layers, resolved)
 		state.childCounts = append(state.childCounts, len(childrenByLayer[spec.ID]))
 	}
@@ -464,6 +455,7 @@ func (rt *Runtime) resolveComposedLayers(parent facet.FacetImpl, composer LayerC
 				Bounds:      arranged,
 				Transform:   resolved.Transform,
 				ClipRect:    resolved.ClipRect,
+				CoordSpace:  uint8(resolved.CoordSpace),
 				RenderOrder: resolved.RenderOrder,
 				HitPolicy:   uint8(resolved.HitPolicy),
 			}
@@ -479,6 +471,20 @@ func resolveLayerBounds(parentBounds gfx.Rect, spec layout.LayerSpec) gfx.Rect {
 		return spec.CoordLimits.Bounds
 	}
 	return parentBounds
+}
+
+func resolveLayerFrame(parentBounds gfx.Rect, spec layout.LayerSpec, parent *facet.Facet, accumulated gfx.Transform) layout.ResolvedLayer {
+	layer := layout.ResolvedLayer{
+		LayerID:     spec.ID,
+		Bounds:      resolveLayerBounds(parentBounds, spec),
+		CoordLimits: spec.CoordLimits,
+		HitPolicy:   spec.HitPolicy,
+		RenderOrder: spec.RenderOrder,
+		CoordSpace:  spec.CoordSpace,
+	}
+	layer.Transform = resolveLayerTransform(accumulated, spec)
+	layer.ClipRect = resolveClipRect(layer, spec, parent, accumulated)
+	return layer
 }
 
 func resolveLayerTransform(accumulated gfx.Transform, spec layout.LayerSpec) gfx.Transform {

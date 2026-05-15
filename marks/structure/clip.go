@@ -24,7 +24,7 @@ type AnchorSourceRef struct {
 	Anchor string
 }
 
-// Clip constrains descendant rendering and hit testing to a local clipping region.
+// Clip constrains descendant rendering and hit testing to a local clipping region owned by the layer contract.
 type Clip struct {
 	ID       string
 	Shape    ClipShape

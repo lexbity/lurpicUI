@@ -105,6 +105,9 @@ func ParseConstructionClass(s string) (ConstructionClass, bool) {
 type TypeName string
 
 // Descriptor describes one mark type for diagnostics and tooling.
+//
+// Descriptors classify authored marks; they do not define shell placement or
+// layer ownership.
 type Descriptor struct {
 	Family            Family
 	ConstructionClass ConstructionClass
@@ -116,7 +119,7 @@ type Descriptor struct {
 	Customizable      bool
 }
 
-// Mark is the base authored-object contract.
+// Mark is the base authored-object contract for authored geometry.
 type Mark interface {
 	Descriptor() Descriptor
 	AuthoredID() string

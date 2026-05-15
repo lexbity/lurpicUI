@@ -31,7 +31,7 @@ const (
 	MeasureHybrid
 )
 
-// CoordSpace describes the coordinate system children inhabit within a layer.
+// CoordSpace describes the coordinate contract children inhabit within a layer.
 type CoordSpace uint8
 
 const (
@@ -61,7 +61,7 @@ const (
 	ClipToViewport
 )
 
-// CoordLimits constrains the operating extent of a layer's coordinate space.
+// CoordLimits constrains the operating extent of a layer's coordinate contract.
 type CoordLimits struct {
 	Bounds        gfx.Rect
 	AllowOverflow bool
@@ -118,7 +118,7 @@ type ChildAttachment struct {
 	ZPriority int
 }
 
-// LayerSpec describes one composition layer owned by a parent facet.
+// LayerSpec describes one parent-owned composition layer.
 type LayerSpec struct {
 	ID           LayerID
 	Placement    PlacementMode
@@ -158,6 +158,8 @@ type AnchorChange struct {
 }
 
 // ResolvedLayer is the runtime result of resolving a LayerSpec for a frame.
+//
+// It is the authoritative runtime record of layer-owned spatial state.
 type ResolvedLayer struct {
 	LayerID     LayerID
 	Bounds      gfx.Rect

@@ -17,7 +17,7 @@ func SyncLayout(layoutRole *facet.LayoutRole, bounds gfx.Rect) {
 	layoutRole.MeasuredSize = gfx.Size{W: bounds.Width(), H: bounds.Height()}
 }
 
-// SyncViewport applies a transform to a viewport role.
+// SyncViewport applies an authored local transform to a viewport role.
 func SyncViewport(viewport *facet.ViewportRole, transform gfx.Transform) {
 	if viewport == nil {
 		return
