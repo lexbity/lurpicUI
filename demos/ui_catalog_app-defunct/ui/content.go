@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -34,12 +35,24 @@ type contentSectionLayout struct {
 	cards  []gfx.Rect
 }
 
+const contentCardsLayerID layout.LayerID = 1
+
+type contentRuntime interface {
+	AddFacet(parent, child facet.FacetImpl, attachment layout.ChildAttachment)
+	RemoveFacet(child facet.FacetImpl)
+	ResolveChildAttachment(id facet.FacetID) (layout.ChildAttachment, bool)
+	UpdateChildAttachment(child facet.FacetImpl, attachment layout.ChildAttachment)
+	RequestFrame()
+}
+
 // ContentFacet displays the main content area with a grid of cards.
 type ContentFacet struct {
 	facet.Facet
 	layout        facet.LayoutRole
 	render        facet.RenderRole
 	input         facet.InputRole
+	hit           facet.HitRole
+	focus         facet.FocusRole
 	th            theme.Context
 	shaper        *text.Shaper
 	filterSub     signal.SubscriptionID
@@ -48,8 +61,11 @@ type ContentFacet struct {
 	viewMode      ViewMode
 	focusedCard   int  // Index of currently focused card for keyboard navigation
 	loading       bool // Show loading state
+	scrollOffset  float32
+	maxScroll     float32
 	layoutState   contentLayoutState
 	layoutProfile LayoutProfile
+	runtime       contentRuntime
 }
 
 // NewContentFacet creates a new content facet.
@@ -76,11 +92,43 @@ func NewContentFacet(th theme.Context, shaper *text.Shaper) *ContentFacet {
 	}
 	c.AddRole(&c.render)
 
+	c.hit.OnHitTest = func(p gfx.Point) facet.HitResult {
+		if c.layout.ArrangedBounds.Contains(p) {
+			cursor := facet.CursorDefault
+			if c.hitCardAt(p) >= 0 {
+				cursor = facet.CursorPointer
+			}
+			return facet.HitResult{Hit: true, Cursor: cursor}
+		}
+		return facet.HitResult{}
+	}
+	c.AddRole(&c.hit)
+
 	// Keyboard navigation
 	c.input.OnKey = func(e facet.KeyEvent) bool {
 		return c.handleKeyEvent(e)
 	}
+	c.input.OnPointer = func(e facet.PointerEvent) bool {
+		if e.Kind != platform.PointerRelease || e.Button != platform.PointerLeft {
+			return false
+		}
+		if idx := c.hitCardAt(e.Position); idx >= 0 {
+			c.selectCardIndex(idx)
+			return true
+		}
+		return c.layout.ArrangedBounds.Contains(e.Position)
+	}
+	c.input.OnScroll = func(e facet.ScrollEvent) bool {
+		return c.handleScrollEvent(e)
+	}
 	c.AddRole(&c.input)
+
+	c.focus.Focusable = func() bool { return true }
+	c.focus.OnFocusGained = func() {
+		c.syncFocusedCardFromSelection()
+	}
+	c.focus.OnFocusLost = func() {}
+	c.AddRole(&c.focus)
 
 	return c
 }
@@ -93,6 +141,9 @@ func (f *ContentFacet) Base() *facet.Facet {
 
 // OnAttach handles attachment.
 func (f *ContentFacet) OnAttach(ctx facet.AttachContext) {
+	if rt, ok := ctx.Runtime.(contentRuntime); ok {
+		f.runtime = rt
+	}
 	// Subscribe to filter changes
 	f.filterSub = store.FilterStore.OnChange.Subscribe(func(change signal.Change[store.FilterState]) {
 		f.syncCards()
@@ -100,6 +151,7 @@ func (f *ContentFacet) OnAttach(ctx facet.AttachContext) {
 	})
 	// Subscribe to selection changes
 	f.selectionSub = store.SelectionStore.OnChange.Subscribe(func(change signal.Change[string]) {
+		f.syncCards()
 		f.Invalidate(facet.DirtyProjection)
 	})
 	f.syncCards()
@@ -109,11 +161,15 @@ func (f *ContentFacet) OnAttach(ctx facet.AttachContext) {
 func (f *ContentFacet) OnDetach() {
 	store.FilterStore.OnChange.Unsubscribe(f.filterSub)
 	store.SelectionStore.OnChange.Unsubscribe(f.selectionSub)
-	// Clean up cards
-	for _, card := range f.cards {
-		card.OnDetach()
+	if f.runtime != nil {
+		for _, card := range f.cards {
+			if card != nil {
+				f.runtime.RemoveFacet(card)
+			}
+		}
 	}
 	f.cards = nil
+	f.runtime = nil
 }
 
 // SetViewMode switches between grid and detail views.
@@ -134,6 +190,28 @@ func (f *ContentFacet) SetLayoutProfile(profile LayoutProfile) {
 		card.SetLayoutProfile(profile)
 	}
 	f.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+}
+
+// OnLayerSpecs exposes a child layer for the live card facets.
+func (f *ContentFacet) OnLayerSpecs() []layout.LayerSpec {
+	bounds := f.layout.ArrangedBounds
+	if bounds.IsEmpty() {
+		return nil
+	}
+	inner := Inset(bounds, f.layoutProfile.ContentPadding)
+	if inner.IsEmpty() {
+		return nil
+	}
+	return []layout.LayerSpec{{
+		ID:          contentCardsLayerID,
+		Placement:   layout.PlacementFree,
+		Measurement: layout.MeasureNonStructural,
+		CoordSpace:  layout.CoordParentLayout,
+		CoordLimits: layout.CoordLimits{Bounds: inner},
+		HitPolicy:   layout.HitNormal,
+		RenderOrder: 10,
+		ClipPolicy:  layout.ClipToParent,
+	}}
 }
 
 // OnActivate handles activation.
@@ -167,6 +245,7 @@ func (f *ContentFacet) syncCards() {
 			// Update selection state
 			card.SetLayoutProfile(profile)
 			card.SetSelected(entry.ID == selectedID)
+			card.SetFocused(false)
 			newCards = append(newCards, card)
 			delete(existingCards, entry.ID)
 		} else {
@@ -174,20 +253,31 @@ func (f *ContentFacet) syncCards() {
 			card := NewCardFacet(f.th, f.shaper, entry)
 			card.SetLayoutProfile(profile)
 			card.SetSelected(entry.ID == selectedID)
+			card.SetFocused(false)
 			card.SetOnClick(func() {
 				store.SelectEntry(entry.ID)
 			})
+			if f.runtime != nil {
+				f.runtime.AddFacet(f, card, contentCardAttachment(f.layout.ArrangedBounds, card.layout.ArrangedBounds))
+			}
 			newCards = append(newCards, card)
 		}
 	}
 
 	// Dispose unused cards
 	for _, card := range existingCards {
-		card.OnDetach()
+		if f.runtime != nil {
+			f.runtime.RemoveFacet(card)
+		} else {
+			card.OnDetach()
+		}
 	}
 
 	f.cards = newCards
 	f.reflow(f.layout.ArrangedBounds)
+	f.syncFocusedCardFromSelection()
+	selectedID = store.SelectionStore.Get()
+	f.syncCardStates(selectedID)
 }
 
 // reflow calculates the local content viewport and card placement.
@@ -253,6 +343,8 @@ func (f *ContentFacet) reflow(bounds gfx.Rect) {
 
 			cardBounds := gfx.RectFromXYWH(x, y, profile.CardWidth, profile.CardHeight)
 			card.layout.ArrangedBounds = cardBounds
+			card.bounds = cardBounds
+			f.updateCardAttachment(card, inner, cardBounds)
 			section.cards = append(section.cards, cardBounds)
 
 			x += profile.CardWidth + profile.CardMargin
@@ -264,6 +356,9 @@ func (f *ContentFacet) reflow(bounds gfx.Rect) {
 	}
 
 	f.layoutState.sections = sections
+	f.maxScroll = totalContentHeight(inner, y)
+	f.clampScrollOffset()
+	f.applyScrollOffset()
 }
 
 func (f *ContentFacet) renderContent(list *gfx.CommandList, bounds gfx.Rect) {
@@ -315,9 +410,133 @@ func (f *ContentFacet) renderGridView(list *gfx.CommandList, bounds gfx.Rect, pr
 		drawTextLine(list, bounds.Min.X, bounds.Min.Y, line, f.th.Color(theme.ColorText))
 	}
 
-	// Render cards
+	for _, section := range f.layoutState.sections {
+		if section.header.IsEmpty() {
+			continue
+		}
+		label := section.family.DisplayName()
+		labelLayout := f.shaper.ShapeSimple(label, f.th.TextStyle(theme.TextLabelS))
+		if labelLayout != nil && len(labelLayout.Lines) > 0 {
+			line := labelLayout.Lines[0]
+			drawTextLine(list, section.header.Min.X, section.header.Min.Y, line, f.th.Color(theme.ColorTextSecondary))
+		}
+	}
+}
+
+func (f *ContentFacet) applyScrollOffset() {
+	offset := f.scrollOffset
+	for _, section := range f.layoutState.sections {
+		section.header = section.header.Offset(0, -offset)
+		for i := range section.cards {
+			section.cards[i] = section.cards[i].Offset(0, -offset)
+		}
+	}
 	for _, card := range f.cards {
-		card.render.OnCollect(list, card.layout.ArrangedBounds)
+		if card == nil || card.layout.ArrangedBounds.IsEmpty() {
+			continue
+		}
+		card.layout.ArrangedBounds = card.layout.ArrangedBounds.Offset(0, -offset)
+		card.bounds = card.layout.ArrangedBounds
+		f.updateCardAttachment(card, f.layoutState.inner, card.layout.ArrangedBounds)
+	}
+}
+
+func (f *ContentFacet) clampScrollOffset() {
+	if f.maxScroll < 0 {
+		f.maxScroll = 0
+	}
+	if f.scrollOffset < 0 {
+		f.scrollOffset = 0
+	}
+	if f.scrollOffset > f.maxScroll {
+		f.scrollOffset = f.maxScroll
+	}
+}
+
+func (f *ContentFacet) handleScrollEvent(e facet.ScrollEvent) bool {
+	if f == nil || f.layout.ArrangedBounds.IsEmpty() {
+		return false
+	}
+	if e.DeltaY == 0 {
+		return false
+	}
+	next := f.scrollOffset - e.DeltaY*32
+	if next < 0 {
+		next = 0
+	}
+	if next > f.maxScroll {
+		next = f.maxScroll
+	}
+	if next == f.scrollOffset {
+		return false
+	}
+	f.scrollOffset = next
+	f.applyScrollOffset()
+	f.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+	return true
+}
+
+func (f *ContentFacet) syncCardStates(selectedID string) {
+	focusedIndex := f.focusedCard
+	if selectedID != "" {
+		for i, card := range f.cards {
+			if card.Entry() != nil && card.Entry().ID == selectedID {
+				focusedIndex = i
+				break
+			}
+		}
+	}
+	for i, card := range f.cards {
+		selected := card.Entry() != nil && card.Entry().ID == selectedID
+		card.SetSelected(selected)
+		card.SetFocused(i == focusedIndex && focusedIndex >= 0)
+	}
+	if focusedIndex >= 0 && focusedIndex < len(f.cards) {
+		f.focusedCard = focusedIndex
+	}
+}
+
+func contentCardAttachment(layerBounds, cardBounds gfx.Rect) layout.ChildAttachment {
+	offset := gfx.Point{}
+	if !layerBounds.IsEmpty() && !cardBounds.IsEmpty() {
+		offset = gfx.Point{
+			X: cardBounds.Min.X - layerBounds.Min.X,
+			Y: cardBounds.Min.Y - layerBounds.Min.Y,
+		}
+	}
+	return layout.ChildAttachment{
+		LayerID: contentCardsLayerID,
+		Placement: layout.PlacementHints{
+			FreeAnchor: layout.FreeTopLeft,
+			Offset:     offset,
+		},
+	}
+}
+
+func (f *ContentFacet) updateCardAttachment(card *CardFacet, layerBounds, cardBounds gfx.Rect) {
+	if f == nil || f.runtime == nil || card == nil || card.Base() == nil {
+		return
+	}
+	next := contentCardAttachment(layerBounds, cardBounds)
+	if current, ok := f.runtime.ResolveChildAttachment(card.Base().ID()); ok && current == next {
+		return
+	}
+	f.runtime.UpdateChildAttachment(card, next)
+}
+
+func (f *ContentFacet) syncFocusedCardFromSelection() {
+	selectedID := store.SelectionStore.Get()
+	if selectedID == "" {
+		if f.focusedCard >= len(f.cards) {
+			f.focusedCard = -1
+		}
+		return
+	}
+	for i, card := range f.cards {
+		if card.Entry() != nil && card.Entry().ID == selectedID {
+			f.focusedCard = i
+			return
+		}
 	}
 }
 
@@ -494,6 +713,21 @@ func (f *ContentFacet) handleKeyEvent(e facet.KeyEvent) bool {
 	if len(entries) == 0 {
 		return false
 	}
+	if f.focusedCard < 0 || f.focusedCard >= len(entries) {
+		selectedID := store.SelectionStore.Get()
+		f.focusedCard = -1
+		if selectedID != "" {
+			for i, entry := range entries {
+				if entry.ID == selectedID {
+					f.focusedCard = i
+					break
+				}
+			}
+		}
+		if f.focusedCard < 0 {
+			f.focusedCard = 0
+		}
+	}
 
 	// Calculate columns based on card width and margin
 	bounds := f.layout.ArrangedBounds
@@ -544,6 +778,15 @@ func (f *ContentFacet) handleKeyEvent(e facet.KeyEvent) bool {
 		}
 	}
 	return false
+}
+
+func (f *ContentFacet) hitCardAt(p gfx.Point) int {
+	for i, card := range f.cards {
+		if card != nil && card.layout.ArrangedBounds.Contains(p) {
+			return i
+		}
+	}
+	return -1
 }
 
 // renderCompareView renders the selected entry in side-by-side comparison mode.
@@ -724,5 +967,29 @@ func (f *ContentFacet) selectFocusedCard(entries []*model.CatalogEntry) {
 		for i, card := range f.cards {
 			card.SetFocused(i == f.focusedCard)
 		}
+	}
+}
+
+func totalContentHeight(inner gfx.Rect, y float32) float32 {
+	if inner.IsEmpty() {
+		return 0
+	}
+	h := y - inner.Min.Y
+	if h < 0 {
+		return 0
+	}
+	return h
+}
+
+func (f *ContentFacet) selectCardIndex(index int) {
+	if index < 0 || index >= len(f.cards) {
+		return
+	}
+	f.focusedCard = index
+	if entry := f.cards[index].Entry(); entry != nil {
+		store.SelectEntry(entry.ID)
+	}
+	for i, card := range f.cards {
+		card.SetFocused(i == index)
 	}
 }

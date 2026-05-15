@@ -121,6 +121,14 @@ func (f *InspectorFacet) renderInspector(list *gfx.CommandList, bounds gfx.Rect)
 		return
 	}
 
+	previewBounds := detailPreviewBounds(bounds, profile)
+	if !previewBounds.IsEmpty() {
+		previewBottom := previewBounds.Max.Y + profile.FieldGap*4
+		if previewBottom > inner.Min.Y {
+			inner.Min.Y = previewBottom
+		}
+	}
+
 	// Get selected entry
 	entry, ok := store.SelectedEntry(store.CatalogInstance)
 	if !ok {

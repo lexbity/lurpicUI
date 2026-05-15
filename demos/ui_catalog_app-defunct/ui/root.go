@@ -30,12 +30,16 @@ type CatalogRootFacet struct {
 	header    *HeaderFacet
 	sidebar   *SidebarFacet
 	content   *ContentFacet
+	preview   *PreviewFacet
 	inspector *InspectorFacet
 	footer    *FooterFacet
 
 	// Runtime services
-	adder           facetChildAdder
-	frameRequester  interface{ RequestFrame() }
+	adder          facetChildAdder
+	frameRequester interface{ RequestFrame() }
+	treeDirtier    interface {
+		MarkTreeDirty(facet.FacetImpl, facet.DirtyFlags)
+	}
 	themeSub        signal.SubscriptionID
 	densitySub      signal.SubscriptionID
 	compareSub      signal.SubscriptionID
@@ -73,6 +77,7 @@ func NewCatalogRootFacet(th theme.Context, shaper *text.Shaper, meta model.Build
 	root.header = NewHeaderFacet(th, shaper, meta)
 	root.sidebar = NewSidebarFacet(th, shaper)
 	root.content = NewContentFacet(th, shaper)
+	root.preview = NewPreviewFacet(th, shaper)
 	root.inspector = NewInspectorFacet(th, shaper)
 	root.footer = NewFooterFacet(th, shaper)
 	root.applyLayoutProfile(root.layoutProfile)
@@ -158,8 +163,13 @@ func (f *CatalogRootFacet) OnAttach(ctx facet.AttachContext) {
 	if req, ok := ctx.Runtime.(interface{ RequestFrame() }); ok {
 		f.frameRequester = req
 	}
+	if dirty, ok := ctx.Runtime.(interface {
+		MarkTreeDirty(facet.FacetImpl, facet.DirtyFlags)
+	}); ok {
+		f.treeDirtier = dirty
+	}
 	f.themeSub = store.ThemeStore.OnChange.Subscribe(func(change signal.Change[store.ThemeMode]) {
-		f.RequestFrame()
+		f.invalidateTree(facet.DirtyLayout | facet.DirtyProjection)
 	})
 	f.densitySub = store.DensityStore.OnChange.Subscribe(func(change signal.Change[store.DensityMode]) {
 		f.applyLayoutProfile(LayoutProfileForDensity(change.New))
@@ -172,7 +182,7 @@ func (f *CatalogRootFacet) OnAttach(ctx facet.AttachContext) {
 		f.RequestFrame()
 	})
 	f.compareThemeSub = store.CompareThemeStore.OnChange.Subscribe(func(change signal.Change[store.ThemeMode]) {
-		f.RequestFrame()
+		f.invalidateTree(facet.DirtyLayout | facet.DirtyProjection)
 	})
 
 	// Attach children with their respective layer specs
@@ -181,6 +191,7 @@ func (f *CatalogRootFacet) OnAttach(ctx facet.AttachContext) {
 	attachChild(&f.Facet, f, f.content, f.adder, layout.ChildAttachment{LayerID: 3})
 	attachChild(&f.Facet, f, f.inspector, f.adder, layout.ChildAttachment{LayerID: 4})
 	attachChild(&f.Facet, f, f.footer, f.adder, layout.ChildAttachment{LayerID: 5})
+	attachChild(&f.Facet, f, f.preview, f.adder, layout.ChildAttachment{LayerID: 6})
 
 	if f.header != nil {
 		f.header.OnToggleBrowse.Subscribe(func(_ struct{}) { f.setMobilePanel("browse") })
@@ -201,6 +212,18 @@ func (f *CatalogRootFacet) OnActivate() {}
 
 // OnDeactivate handles deactivation.
 func (f *CatalogRootFacet) OnDeactivate() {}
+
+func (f *CatalogRootFacet) invalidateTree(flags facet.DirtyFlags) {
+	if f == nil {
+		return
+	}
+	if f.treeDirtier != nil {
+		f.treeDirtier.MarkTreeDirty(f, flags)
+		return
+	}
+	f.Invalidate(flags)
+	f.RequestFrame()
+}
 
 // OnLayerSpecs returns layer specifications for child facets.
 func (f *CatalogRootFacet) OnLayerSpecs() []layout.LayerSpec {
@@ -262,6 +285,16 @@ func (f *CatalogRootFacet) OnLayerSpecs() []layout.LayerSpec {
 			RenderOrder: 4,
 			ClipPolicy:  layout.ClipToParent,
 		},
+		{
+			ID:          6,
+			Placement:   layout.PlacementFree,
+			Measurement: layout.MeasureNonStructural,
+			CoordSpace:  layout.CoordParentLayout,
+			CoordLimits: layout.CoordLimits{Bounds: detailPreviewBounds(shell.Inspector, f.layoutProfile)},
+			HitPolicy:   layout.HitNormal,
+			RenderOrder: 5,
+			ClipPolicy:  layout.ClipToParent,
+		},
 	}
 }
 
@@ -282,6 +315,9 @@ func (f *CatalogRootFacet) arrangeShell(bounds gfx.Rect) {
 	}
 	if f.content != nil {
 		f.content.layout.Arrange(shell.Content)
+	}
+	if f.preview != nil {
+		f.preview.layout.Arrange(detailPreviewBounds(shell.Inspector, f.layoutProfile))
 	}
 	if f.inspector != nil {
 		f.inspector.layout.Arrange(shell.Inspector)
@@ -520,6 +556,9 @@ func (f *CatalogRootFacet) applyLayoutProfile(profile LayoutProfile) {
 	}
 	if f.content != nil {
 		f.content.SetLayoutProfile(profile)
+	}
+	if f.preview != nil {
+		f.preview.SetLayoutProfile(profile)
 	}
 	if f.inspector != nil {
 		f.inspector.SetLayoutProfile(profile)

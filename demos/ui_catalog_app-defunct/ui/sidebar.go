@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -17,10 +18,15 @@ type SidebarFacet struct {
 	facet.Facet
 	layout        facet.LayoutRole
 	render        facet.RenderRole
+	input         facet.InputRole
+	hit           facet.HitRole
 	th            theme.Context
 	shaper        *text.Shaper
 	subscription  signal.SubscriptionID
 	layoutProfile LayoutProfile
+	itemRects     map[string]gfx.Rect
+	itemActions   map[string]func()
+	activeItem    string
 }
 
 // NewSidebarFacet creates a new sidebar facet.
@@ -30,6 +36,8 @@ func NewSidebarFacet(th theme.Context, shaper *text.Shaper) *SidebarFacet {
 		th:            th,
 		shaper:        shaper,
 		layoutProfile: DefaultLayoutProfile(),
+		itemRects:     make(map[string]gfx.Rect),
+		itemActions:   make(map[string]func()),
 	}
 
 	s.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
@@ -53,6 +61,41 @@ func NewSidebarFacet(th theme.Context, shaper *text.Shaper) *SidebarFacet {
 		s.renderSidebar(list, bounds)
 	}
 	s.AddRole(&s.render)
+
+	s.hit.OnHitTest = func(p gfx.Point) facet.HitResult {
+		if !s.layout.ArrangedBounds.Contains(p) {
+			return facet.HitResult{}
+		}
+		cursor := facet.CursorDefault
+		if s.hitActionAt(p) != "" {
+			cursor = facet.CursorPointer
+		}
+		return facet.HitResult{Hit: true, Cursor: cursor}
+	}
+	s.AddRole(&s.hit)
+
+	s.input.OnPointer = func(e facet.PointerEvent) bool {
+		switch e.Kind {
+		case platform.PointerPress:
+			if key := s.hitActionAt(e.Position); key != "" {
+				s.activeItem = key
+				return true
+			}
+		case platform.PointerRelease:
+			key := s.hitActionAt(e.Position)
+			if key != "" && key == s.activeItem {
+				if action := s.itemActions[key]; action != nil {
+					action()
+				}
+			}
+			s.activeItem = ""
+			if key != "" {
+				return true
+			}
+		}
+		return false
+	}
+	s.AddRole(&s.input)
 
 	return s
 }
@@ -95,6 +138,18 @@ func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 	if list == nil || bounds.IsEmpty() {
 		return
 	}
+	if f.itemRects == nil {
+		f.itemRects = make(map[string]gfx.Rect)
+	}
+	if f.itemActions == nil {
+		f.itemActions = make(map[string]func())
+	}
+	for k := range f.itemRects {
+		delete(f.itemRects, k)
+	}
+	for k := range f.itemActions {
+		delete(f.itemActions, k)
+	}
 
 	// Background
 	list.Add(gfx.FillRect{
@@ -131,7 +186,11 @@ func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 	for _, fam := range model.AllFamilies() {
 		selected := filter.IsFamilySelected(fam)
 		count := store.CatalogInstance.CountByFamily(fam)
-		y = f.renderFamilyItem(list, inner, y, fam, selected, count)
+		key := "family:" + fam.String()
+		y = f.renderFamilyItem(list, inner, y, key, fam, selected, count)
+		f.registerItemAction(key, func(fam model.Family) func() {
+			return func() { store.ToggleFamily(fam) }
+		}(fam))
 		if y > inner.Max.Y {
 			break
 		}
@@ -140,18 +199,26 @@ func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 	// Section: Filter Options
 	y += profile.FieldGap * 4
 	y = f.renderSectionHeader(list, inner, y, "Filters")
-	y = f.renderFilterToggle(list, inner, y, "Interactive Only", filter.InteractiveOnly)
-	y = f.renderFilterToggle(list, inner, y, "Theme Sensitive", filter.ThemeSensitiveOnly)
+	y = f.renderFilterToggle(list, inner, y, "filter:interactive", "Interactive Only", filter.InteractiveOnly)
+	f.registerItemAction("filter:interactive", func() { store.SetInteractiveOnly(!filter.InteractiveOnly) })
+	y = f.renderFilterToggle(list, inner, y, "filter:theme", "Theme Sensitive", filter.ThemeSensitiveOnly)
+	f.registerItemAction("filter:theme", func() { store.SetThemeSensitiveOnly(!filter.ThemeSensitiveOnly) })
 
 	// Section: Coverage Status
 	y += profile.FieldGap * 4
 	y = f.renderSectionHeader(list, inner, y, "Coverage")
-	y = f.renderCoverageFilter(list, inner, y, "Implemented", model.CoverageImplemented, filter)
-	y = f.renderCoverageFilter(list, inner, y, "Partial", model.CoveragePartial, filter)
-	y = f.renderCoverageFilter(list, inner, y, "Placeholder", model.CoveragePlaceholder, filter)
-	y = f.renderCoverageFilter(list, inner, y, "Missing", model.CoverageMissing, filter)
-	y = f.renderCoverageFilter(list, inner, y, "Theme Dependent", model.CoverageThemeDependent, filter)
-	y = f.renderCoverageFilter(list, inner, y, "Layout Dependent", model.CoverageLayoutDependent, filter)
+	y = f.renderCoverageFilter(list, inner, y, "coverage:implemented", "Implemented", model.CoverageImplemented, filter)
+	f.registerItemAction("coverage:implemented", func() { store.ToggleCoverageFilter(model.CoverageImplemented) })
+	y = f.renderCoverageFilter(list, inner, y, "coverage:partial", "Partial", model.CoveragePartial, filter)
+	f.registerItemAction("coverage:partial", func() { store.ToggleCoverageFilter(model.CoveragePartial) })
+	y = f.renderCoverageFilter(list, inner, y, "coverage:placeholder", "Placeholder", model.CoveragePlaceholder, filter)
+	f.registerItemAction("coverage:placeholder", func() { store.ToggleCoverageFilter(model.CoveragePlaceholder) })
+	y = f.renderCoverageFilter(list, inner, y, "coverage:missing", "Missing", model.CoverageMissing, filter)
+	f.registerItemAction("coverage:missing", func() { store.ToggleCoverageFilter(model.CoverageMissing) })
+	y = f.renderCoverageFilter(list, inner, y, "coverage:theme", "Theme Dependent", model.CoverageThemeDependent, filter)
+	f.registerItemAction("coverage:theme", func() { store.ToggleCoverageFilter(model.CoverageThemeDependent) })
+	y = f.renderCoverageFilter(list, inner, y, "coverage:layout", "Layout Dependent", model.CoverageLayoutDependent, filter)
+	f.registerItemAction("coverage:layout", func() { store.ToggleCoverageFilter(model.CoverageLayoutDependent) })
 
 	// Section: Search
 	y += profile.FieldGap * 4
@@ -161,9 +228,9 @@ func (f *SidebarFacet) renderSidebar(list *gfx.CommandList, bounds gfx.Rect) {
 	}
 }
 
-func (f *SidebarFacet) renderCoverageFilter(list *gfx.CommandList, bounds gfx.Rect, y float32, label string, coverage model.CoverageStatus, filter store.FilterState) float32 {
+func (f *SidebarFacet) renderCoverageFilter(list *gfx.CommandList, bounds gfx.Rect, y float32, key, label string, coverage model.CoverageStatus, filter store.FilterState) float32 {
 	checked := filter.IsCoverageSelected(coverage)
-	return f.renderFilterToggle(list, bounds, y, label, checked)
+	return f.renderFilterToggle(list, bounds, y, key, label, checked)
 }
 
 func (f *SidebarFacet) renderSearchQuery(list *gfx.CommandList, bounds gfx.Rect, y float32, query string) float32 {
@@ -197,7 +264,7 @@ func (f *SidebarFacet) renderSectionHeader(list *gfx.CommandList, bounds gfx.Rec
 	return y + profile.FieldGap*4
 }
 
-func (f *SidebarFacet) renderFamilyItem(list *gfx.CommandList, bounds gfx.Rect, y float32, fam model.Family, selected bool, count int) float32 {
+func (f *SidebarFacet) renderFamilyItem(list *gfx.CommandList, bounds gfx.Rect, y float32, key string, fam model.Family, selected bool, count int) float32 {
 	profile := f.layoutProfile
 	if profile.SidebarInset <= 0 {
 		profile = DefaultLayoutProfile()
@@ -225,12 +292,14 @@ func (f *SidebarFacet) renderFamilyItem(list *gfx.CommandList, bounds gfx.Rect, 
 			drawTextLine(list, countX, y, countLine, f.th.Color(theme.ColorTextSecondary))
 		}
 
+		f.registerItemRect(key, gfx.RectFromXYWH(bounds.Min.X, y-2, bounds.Width(), layout.Bounds.Height()+4))
+
 		return y + layout.Bounds.Height() + profile.FieldGap
 	}
 	return y + profile.FieldGap*5
 }
 
-func (f *SidebarFacet) renderFilterToggle(list *gfx.CommandList, bounds gfx.Rect, y float32, label string, checked bool) float32 {
+func (f *SidebarFacet) renderFilterToggle(list *gfx.CommandList, bounds gfx.Rect, y float32, key, label string, checked bool) float32 {
 	profile := f.layoutProfile
 	if profile.SidebarInset <= 0 {
 		profile = DefaultLayoutProfile()
@@ -254,7 +323,41 @@ func (f *SidebarFacet) renderFilterToggle(list *gfx.CommandList, bounds gfx.Rect
 	if labelLayout != nil && len(labelLayout.Lines) > 0 {
 		labelLine := labelLayout.Lines[0]
 		drawTextLine(list, bounds.Min.X+profile.FieldLabelWidth/4, y, labelLine, f.th.Color(theme.ColorText))
+		itemHeight := labelLayout.Bounds.Height()
+		if checkLayout != nil && len(checkLayout.Lines) > 0 && checkLayout.Bounds.Height() > itemHeight {
+			itemHeight = checkLayout.Bounds.Height()
+		}
+		f.registerItemRect(key, gfx.RectFromXYWH(bounds.Min.X, y-2, bounds.Width(), itemHeight+4))
 		return y + labelLayout.Bounds.Height() + 8
 	}
 	return y + profile.FieldGap*6
+}
+
+func (f *SidebarFacet) registerItemRect(key string, rect gfx.Rect) {
+	if key == "" {
+		return
+	}
+	if f.itemRects == nil {
+		f.itemRects = make(map[string]gfx.Rect)
+	}
+	f.itemRects[key] = rect
+}
+
+func (f *SidebarFacet) registerItemAction(key string, action func()) {
+	if key == "" {
+		return
+	}
+	if f.itemActions == nil {
+		f.itemActions = make(map[string]func())
+	}
+	f.itemActions[key] = action
+}
+
+func (f *SidebarFacet) hitActionAt(p gfx.Point) string {
+	for key, rect := range f.itemRects {
+		if rect.Contains(p) {
+			return key
+		}
+	}
+	return ""
 }

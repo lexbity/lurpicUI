@@ -8,7 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/text"
-	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/ui_catalog/model"
 	"codeburg.org/lexbit/ui_catalog/ui"
 )
@@ -22,7 +21,7 @@ func main() {
 
 	config := app.DefaultConfig("UI Catalog", *windowWidth, *windowHeight)
 	config.Fonts = defaultFontSources()
-	config.Theme = theme.Default()
+	config.Theme = ui.NewCatalogThemeContext()
 
 	meta := model.DefaultBuildMetadata()
 
