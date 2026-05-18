@@ -26,8 +26,9 @@ func (rt *Runtime) SetFocus(target facet.FacetImpl) {
 	if rt == nil || rt.focusManager == nil {
 		return
 	}
-	rt.focusManager.SetFocus(target)
-	rt.RequestFrame()
+	if rt.focusManager.SetFocus(target) {
+		rt.RequestFrame()
+	}
 }
 
 // ClearFocus removes the current focus target.

@@ -275,26 +275,30 @@ func (t *rstarTree) Query(region gfx.Rect) []EntityID {
 		return nil
 	}
 	var out []EntityID
-	t.queryNode(t.rootIdx, region, &out)
-	return out
-}
-
-func (t *rstarTree) queryNode(idx int32, region gfx.Rect, out *[]EntityID) {
-	node := &t.nodes[idx]
-	if !node.bounds.Intersects(region) {
-		return
-	}
-	if node.leaf {
-		for i := int32(0); i < node.eN; i++ {
-			if node.eBounds[i].Intersects(region) {
-				*out = append(*out, node.eids[i])
+	stack := []int32{t.rootIdx}
+	for len(stack) > 0 {
+		idx := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		node := &t.nodes[idx]
+		if !node.bounds.Intersects(region) {
+			continue
+		}
+		if node.leaf {
+			for i := int32(0); i < node.eN; i++ {
+				if node.eBounds[i].Intersects(region) {
+					out = append(out, node.eids[i])
+				}
+			}
+			continue
+		}
+		for i := int32(node.cN - 1); i >= 0; i-- {
+			stack = append(stack, node.cids[i])
+			if i == 0 {
+				break
 			}
 		}
-		return
 	}
-	for i := int32(0); i < node.cN; i++ {
-		t.queryNode(node.cids[i], region, out)
-	}
+	return out
 }
 
 func (t *rstarTree) QueryPoint(p gfx.Point, radius float32) (EntityID, bool) {
@@ -339,66 +343,69 @@ func (t *rstarTree) QueryLOD(viewport gfx.Rect, pixelsPerUnit float32) LODResult
 	if t == nil || len(t.nodes) == 0 {
 		return out
 	}
-	t.queryLODNode(t.rootIdx, viewport, pixelsPerUnit, &out)
+	stack := []int32{t.rootIdx}
+	for len(stack) > 0 {
+		idx := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		node := &t.nodes[idx]
+		if !node.bounds.Intersects(viewport) {
+			continue
+		}
+		if node.bounds.Width()*pixelsPerUnit < MinIndividualPixels {
+			area := node.bounds.Width() * node.bounds.Height()
+			density := float32(0)
+			if area > 0 {
+				density = float32(node.total) / area
+			}
+			out.Clusters = append(out.Clusters, ClusterEntity{
+				Bounds:         node.bounds,
+				Center:         gfx.Point{X: node.cx, Y: node.cy},
+				Count:          int(node.total),
+				Density:        density,
+				Representative: node.rep,
+			})
+			continue
+		}
+		if node.leaf {
+			for i := int32(0); i < node.eN; i++ {
+				b := node.eBounds[i]
+				if !b.Intersects(viewport) {
+					continue
+				}
+				var cx, cy float32
+				if ei, ok := t.byID[node.eids[i]]; ok {
+					cx = t.entities[ei].cx
+					cy = t.entities[ei].cy
+				} else {
+					cx = (b.Min.X + b.Max.X) * 0.5
+					cy = (b.Min.Y + b.Max.Y) * 0.5
+				}
+				if b.Width()*pixelsPerUnit >= MinIndividualPixels {
+					out.Individuals = append(out.Individuals, IndividualEntity{
+						ID:     node.eids[i],
+						Bounds: b,
+						Center: gfx.Point{X: cx, Y: cy},
+					})
+				} else {
+					out.Clusters = append(out.Clusters, ClusterEntity{
+						Bounds:         b,
+						Center:         gfx.Point{X: cx, Y: cy},
+						Count:          1,
+						Density:        1,
+						Representative: node.eids[i],
+					})
+				}
+			}
+			continue
+		}
+		for i := int32(node.cN - 1); i >= 0; i-- {
+			stack = append(stack, node.cids[i])
+			if i == 0 {
+				break
+			}
+		}
+	}
 	return out
-}
-
-func (t *rstarTree) queryLODNode(idx int32, viewport gfx.Rect, pixelsPerUnit float32, out *LODResult) {
-	node := &t.nodes[idx]
-	if !node.bounds.Intersects(viewport) {
-		return
-	}
-	// If the whole subtree is too small on screen, collapse to cluster.
-	if node.bounds.Width()*pixelsPerUnit < MinIndividualPixels {
-		area := node.bounds.Width() * node.bounds.Height()
-		density := float32(0)
-		if area > 0 {
-			density = float32(node.total) / area
-		}
-		out.Clusters = append(out.Clusters, ClusterEntity{
-			Bounds:         node.bounds,
-			Center:         gfx.Point{X: node.cx, Y: node.cy},
-			Count:          int(node.total),
-			Density:        density,
-			Representative: node.rep,
-		})
-		return
-	}
-	if node.leaf {
-		for i := int32(0); i < node.eN; i++ {
-			b := node.eBounds[i]
-			if !b.Intersects(viewport) {
-				continue
-			}
-			var cx, cy float32
-			if ei, ok := t.byID[node.eids[i]]; ok {
-				cx = t.entities[ei].cx
-				cy = t.entities[ei].cy
-			} else {
-				cx = (b.Min.X + b.Max.X) * 0.5
-				cy = (b.Min.Y + b.Max.Y) * 0.5
-			}
-			if b.Width()*pixelsPerUnit >= MinIndividualPixels {
-				out.Individuals = append(out.Individuals, IndividualEntity{
-					ID:     node.eids[i],
-					Bounds: b,
-					Center: gfx.Point{X: cx, Y: cy},
-				})
-			} else {
-				out.Clusters = append(out.Clusters, ClusterEntity{
-					Bounds:         b,
-					Center:         gfx.Point{X: cx, Y: cy},
-					Count:          1,
-					Density:        1,
-					Representative: node.eids[i],
-				})
-			}
-		}
-		return
-	}
-	for i := int32(0); i < node.cN; i++ {
-		t.queryLODNode(node.cids[i], viewport, pixelsPerUnit, out)
-	}
 }
 
 func max(a, b int) int {

@@ -19,6 +19,8 @@ type LayerSnapshot struct {
 	CoordSpace         layout.CoordSpace
 	RenderOrder        int
 	HitPolicy          layout.LayerHitPolicy
+	FocusTrap          bool
+	FocusRestore       facet.FocusRestoreMode
 	RootPolicyKind     string
 	RecipeVersion      uint64
 	Materialized       bool
@@ -44,6 +46,8 @@ type LayerFrame struct {
 	Transform      gfx.Transform
 	RenderOrder    int
 	HitPolicy      layout.LayerHitPolicy
+	FocusTrap      bool
+	FocusRestore   facet.FocusRestoreMode
 	RootPolicyKind string
 	RecipeVersion  uint64
 	Materialized   bool
@@ -122,8 +126,8 @@ type LayerHitTrace struct {
 
 func (s LayerSnapshot) String() string {
 	frame := s.Frame()
-	return fmt.Sprintf("Frame=%s Placement=%d Measurement=%d Children=%d Arranged=%d Materialized=%t Cmds=%d Hits=%d AnchorCache=%d@v%d",
-		frame.String(), s.Placement, s.Measurement, s.ChildCount, len(s.ArrangedChildren), s.Materialized, s.CommandCount, s.HitRegionCount, s.AnchorCacheCount, s.AnchorCacheVersion)
+	return fmt.Sprintf("Frame=%s Placement=%d Measurement=%d Children=%d Arranged=%d Materialized=%t Cmds=%d Hits=%d FocusTrap=%t FocusRestore=%d AnchorCache=%d@v%d",
+		frame.String(), s.Placement, s.Measurement, s.ChildCount, len(s.ArrangedChildren), s.Materialized, s.CommandCount, s.HitRegionCount, s.FocusTrap, s.FocusRestore, s.AnchorCacheCount, s.AnchorCacheVersion)
 }
 
 // Frame returns the resolved spatial frame for this snapshot.
@@ -138,6 +142,8 @@ func (s LayerSnapshot) Frame() LayerFrame {
 		Transform:      s.Transform,
 		RenderOrder:    s.RenderOrder,
 		HitPolicy:      s.HitPolicy,
+		FocusTrap:      s.FocusTrap,
+		FocusRestore:   s.FocusRestore,
 		RootPolicyKind: s.RootPolicyKind,
 		RecipeVersion:  s.RecipeVersion,
 		Materialized:   s.Materialized,
@@ -148,8 +154,8 @@ func (s LayerSnapshot) Frame() LayerFrame {
 
 // String returns a human-readable description of the resolved layer frame.
 func (f LayerFrame) String() string {
-	return fmt.Sprintf("LayerID=%d LayerName=%q WindowBinding=%q CoordSpace=%d Bounds=%v ClipRect=%v Transform=%v RenderOrder=%d HitPolicy=%d RootPolicyKind=%s RecipeVersion=%d Materialized=%t Cmds=%d Hits=%d",
-		f.LayerID, f.LayerName, f.WindowBinding, f.CoordSpace, f.Bounds, f.ClipRect, f.Transform, f.RenderOrder, f.HitPolicy, f.RootPolicyKind, f.RecipeVersion, f.Materialized, f.CommandCount, f.HitRegionCount)
+	return fmt.Sprintf("LayerID=%d LayerName=%q WindowBinding=%q CoordSpace=%d Bounds=%v ClipRect=%v Transform=%v RenderOrder=%d HitPolicy=%d FocusTrap=%t FocusRestore=%d RootPolicyKind=%s RecipeVersion=%d Materialized=%t Cmds=%d Hits=%d",
+		f.LayerID, f.LayerName, f.WindowBinding, f.CoordSpace, f.Bounds, f.ClipRect, f.Transform, f.RenderOrder, f.HitPolicy, f.FocusTrap, f.FocusRestore, f.RootPolicyKind, f.RecipeVersion, f.Materialized, f.CommandCount, f.HitRegionCount)
 }
 
 // String returns a human-readable description of one arranged child snapshot.

@@ -168,6 +168,8 @@ func TestInspector_describe_includes_layers_and_anchors(t *testing.T) {
 				CoordSpace:     layout.CoordParentLayout,
 				RenderOrder:    3,
 				HitPolicy:      layout.HitPassThrough,
+				FocusTrap:      true,
+				FocusRestore:   facet.FocusRestorePrevious,
 				RootPolicyKind: "grid",
 				RecipeVersion:  11,
 				Materialized:   true,
@@ -211,6 +213,9 @@ func TestInspector_describe_includes_layers_and_anchors(t *testing.T) {
 	}
 	if info.Layers[0].LayerName != "root-layer" || !info.Layers[0].Materialized || info.Layers[0].CommandCount != 2 || info.Layers[0].HitRegionCount != 4 {
 		t.Fatalf("layer metadata = %#v", info.Layers[0])
+	}
+	if !info.Layers[0].FocusTrap || info.Layers[0].FocusRestore != facet.FocusRestorePrevious {
+		t.Fatalf("focus metadata = %#v", info.Layers[0])
 	}
 	if len(info.Layers[0].ArrangedChildren) != 1 || info.Layers[0].ArrangedChildren[0].FacetID != child.ID() {
 		t.Fatalf("arranged children = %#v", info.Layers[0].ArrangedChildren)

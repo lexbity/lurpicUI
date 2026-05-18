@@ -165,6 +165,8 @@ type ProjectionLayer struct {
 	HitPolicy     uint8
 	ClipPolicy    ClipPolicy
 	Dismissal     DismissalScope
+	FocusTrap     bool
+	FocusRestore  FocusRestoreMode
 	RecipeVersion uint64
 }
 

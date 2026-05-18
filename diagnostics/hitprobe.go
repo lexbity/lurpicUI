@@ -53,17 +53,19 @@ func NewHitProbe(root facet.FacetImpl, hitMap *projection.HitMap) *HitProbe {
 	probe := &HitProbe{hitMap: hitMap}
 	if root != nil {
 		probe.typeNames = make(map[facet.FacetID]string)
-		var walk func(facet.FacetImpl)
-		walk = func(node facet.FacetImpl) {
+		stack := []facet.FacetImpl{root}
+		for len(stack) > 0 {
+			node := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
 			if node == nil || node.Base() == nil {
-				return
+				continue
 			}
 			probe.typeNames[node.Base().ID()] = typeName(node)
-			for _, child := range node.Base().Children() {
-				walk(child)
+			children := node.Base().Children()
+			for i := len(children) - 1; i >= 0; i-- {
+				stack = append(stack, children[i])
 			}
 		}
-		walk(root)
 	}
 	return probe
 }

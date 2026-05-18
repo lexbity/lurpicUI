@@ -3,6 +3,8 @@ package layout
 import (
 	"fmt"
 	"sort"
+
+	"codeburg.org/lexbit/lurpicui/facet"
 )
 
 // LayerID is the canonical globally registered layer identifier.
@@ -106,6 +108,8 @@ type LayerDescriptor struct {
 	HitPolicy     LayerHitPolicy
 	ClipPolicy    ClipPolicy
 	Dismissal     DismissalScope
+	FocusTrap     bool
+	FocusRestore  facet.FocusRestoreMode
 	LayoutRecipe  LayerLayoutRecipeRef
 }
 
@@ -118,6 +122,8 @@ type LayerRegistration struct {
 	HitPolicy     LayerHitPolicy
 	ClipPolicy    ClipPolicy
 	Dismissal     DismissalScope
+	FocusTrap     bool
+	FocusRestore  facet.FocusRestoreMode
 	LayoutRecipe  LayerLayoutRecipeRef
 }
 
@@ -234,6 +240,8 @@ func (b *LayerRegistryBuilder) RegisterLayer(spec LayerRegistration) (LayerID, e
 		HitPolicy:     spec.HitPolicy,
 		ClipPolicy:    spec.ClipPolicy,
 		Dismissal:     spec.Dismissal,
+		FocusTrap:     spec.FocusTrap,
+		FocusRestore:  spec.FocusRestore,
 		LayoutRecipe:  spec.LayoutRecipe,
 	}
 	b.descriptors = append(b.descriptors, desc)

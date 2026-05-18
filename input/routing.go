@@ -717,12 +717,16 @@ func (s *System) requestFocus(targetID facet.FacetID, tree facet.FacetImpl) face
 		if !focusable {
 			continue
 		}
-		s.focus.SetFocused(base.ID())
 		if s.focusManager != nil {
-			s.focusManager.SetFocus(path[i])
+			if !s.focusManager.SetFocus(path[i]) {
+				continue
+			}
+			s.focus.SetFocused(s.focusManager.Focused())
+		} else {
+			s.focus.SetFocused(base.ID())
 		}
 		s.focusTree = tree
-		return base.ID()
+		return s.focus.Focused()
 	}
 	return 0
 }
@@ -1061,14 +1065,16 @@ func focusableFacetIDs(root facet.FacetImpl) []facet.FacetID {
 	}
 	var entries []entry
 	order := 0
-	var walk func(facet.FacetImpl)
-	walk = func(impl facet.FacetImpl) {
+	stack := []facet.FacetImpl{root}
+	for len(stack) > 0 {
+		impl := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
 		if impl == nil {
-			return
+			continue
 		}
 		base := impl.Base()
 		if base == nil {
-			return
+			continue
 		}
 		if role := base.FocusRole(); role != nil {
 			focusable := true
@@ -1080,11 +1086,11 @@ func focusableFacetIDs(root facet.FacetImpl) []facet.FacetID {
 			}
 		}
 		order++
-		for _, child := range base.Children() {
-			walk(child)
+		children := base.Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, children[i])
 		}
 	}
-	walk(root)
 	sort.SliceStable(entries, func(i, j int) bool {
 		if entries[i].index != entries[j].index {
 			return entries[i].index < entries[j].index

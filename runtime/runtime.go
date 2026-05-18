@@ -379,15 +379,16 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.ArrangeDuration = phaseStats.arrange
 
 	projStart := time.Now()
+	if rt.focusManager != nil {
+		rt.focusManager.RebuildTabOrder(rt.root)
+	}
+	rt.syncFocusTraps()
 	rt.projectionSystem.SetRuntime(rt)
 	frameOut := rt.projectionSystem.Run(rt.root, projection.FrameInfo{
 		Number:    rt.frameNumber,
 		DeltaTime: now.Sub(rt.frameTimer.lastFrame),
 		WallTime:  now,
 	})
-	if rt.focusManager != nil {
-		rt.focusManager.RebuildTabOrder(rt.root)
-	}
 	stats.ProjectDuration = time.Since(projStart)
 	stats.ProjectedFacets = rt.projectionSystem.ProjectedFacets
 	stats.CacheHits = rt.projectionSystem.CacheHits

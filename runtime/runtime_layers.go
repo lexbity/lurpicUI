@@ -403,10 +403,10 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		policy := layout.ResolveLayerLayoutPolicy(recipe)
 		stats.specResolution += time.Since(recipeStart)
 		layerCtx := facet.LayerContext{
-			ID:         facet.LayerID(group.desc.ID),
-			HitPolicy:  facet.HitPolicy(group.desc.HitPolicy),
-			ClipPolicy: facet.ClipPolicy(group.desc.ClipPolicy),
-			Dismissal: facet.DismissalScope{
+			ID:           facet.LayerID(group.desc.ID),
+			HitPolicy:    facet.HitPolicy(group.desc.HitPolicy),
+			ClipPolicy:   facet.ClipPolicy(group.desc.ClipPolicy),
+			Dismissal:    facet.DismissalScope{
 				Enabled: group.desc.Dismissal.Enabled,
 				BehindOrders: facet.OrderRange{
 					Min: group.desc.Dismissal.BehindOrders.Min,
@@ -414,7 +414,9 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 				},
 				Triggers: facet.DismissalTriggerSet(group.desc.Dismissal.Triggers),
 			},
-			Order: int32(group.desc.Order),
+			FocusTrap:   group.desc.FocusTrap,
+			FocusRestore: group.desc.FocusRestore,
+			Order:       int32(group.desc.Order),
 		}
 		measureCtx := layout.LayerMeasureContext{
 			Runtime:          rt,
@@ -553,6 +555,8 @@ func (rt *Runtime) resolveLayerFrame(parentBounds gfx.Rect, desc layout.LayerDes
 		},
 		Triggers: facet.DismissalTriggerSet(desc.Dismissal.Triggers),
 	}
+	layer.FocusTrap = desc.FocusTrap
+	layer.FocusRestore = desc.FocusRestore
 	layer.RecipeVersion = layerRecipeVersion(desc, recipe)
 	return layer
 }
@@ -564,6 +568,12 @@ func layerRecipeVersion(desc layout.LayerDescriptor, recipe layout.ResolvedLayer
 	h.WriteUint64(uint64(desc.Order))
 	h.WriteString(desc.LayoutRecipe.Family)
 	h.WriteString(desc.LayoutRecipe.Name)
+	if desc.FocusTrap {
+		h.WriteUint8(1)
+	} else {
+		h.WriteUint8(0)
+	}
+	h.WriteUint8(uint8(desc.FocusRestore))
 	h.WriteUint8(uint8(recipe.PolicyKind))
 	h.WriteUint8(uint8(recipe.Clip))
 	h.WriteUint64(uint64(recipe.Grid.Columns))
@@ -745,6 +755,8 @@ func (rt *Runtime) LayerSnapshots(parent facet.FacetID) []diagnostics.LayerSnaps
 				CoordSpace:       desc.CoordSpace,
 				RenderOrder:      int(desc.Order),
 				HitPolicy:        desc.HitPolicy,
+				FocusTrap:        desc.FocusTrap,
+				FocusRestore:     desc.FocusRestore,
 				RootPolicyKind:   resolvedRecipe.PolicyKind.String(),
 				RecipeVersion:    layerSnap.LayerRecipeVersion,
 				Materialized:     layerSnap.Materialized,

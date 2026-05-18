@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 )
@@ -19,6 +20,8 @@ func TestLayerSnapshot_Frame_exposes_resolved_spatial_contract(t *testing.T) {
 		Transform:      gfx.Translation(15, 25),
 		RenderOrder:    9,
 		HitPolicy:      layout.HitPassThrough,
+		FocusTrap:      true,
+		FocusRestore:   facet.FocusRestorePrevious,
 		RootPolicyKind: "grid",
 		Materialized:   true,
 		CommandCount:   3,
@@ -40,7 +43,7 @@ func TestLayerSnapshot_Frame_exposes_resolved_spatial_contract(t *testing.T) {
 	}
 
 	s := snap.String()
-	if !strings.Contains(s, "Frame=") || !strings.Contains(s, "CoordSpace=") || !strings.Contains(s, "ClipRect=") || !strings.Contains(s, "Materialized=true") {
+	if !strings.Contains(s, "Frame=") || !strings.Contains(s, "CoordSpace=") || !strings.Contains(s, "ClipRect=") || !strings.Contains(s, "Materialized=true") || !strings.Contains(s, "FocusTrap=true") {
 		t.Fatalf("snapshot string = %q", s)
 	}
 }

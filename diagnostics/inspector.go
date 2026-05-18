@@ -165,13 +165,26 @@ func (i *Inspector) walkFacet(node facet.FacetImpl, depth int, fn func(depth int
 	if node == nil || fn == nil {
 		return
 	}
-	base := node.Base()
-	if base == nil {
-		return
+	type walkFrame struct {
+		node  facet.FacetImpl
+		depth int
 	}
-	fn(depth, i.facetInfoFor(node))
-	for _, child := range base.Children() {
-		i.walkFacet(child, depth+1, fn)
+	stack := []walkFrame{{node: node, depth: depth}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.node == nil {
+			continue
+		}
+		base := frame.node.Base()
+		if base == nil {
+			continue
+		}
+		fn(frame.depth, i.facetInfoFor(frame.node))
+		children := base.Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			stack = append(stack, walkFrame{node: children[i], depth: frame.depth + 1})
+		}
 	}
 }
 

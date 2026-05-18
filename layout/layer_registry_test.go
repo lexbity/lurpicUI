@@ -1,6 +1,10 @@
 package layout
 
-import "testing"
+import (
+	"testing"
+
+	"codeburg.org/lexbit/lurpicui/facet"
+)
 
 func TestLayerRegistryBuilder_standardLayers_haveReservedIDsAndOrders(t *testing.T) {
 	b := NewLayerRegistryBuilder()
@@ -73,6 +77,33 @@ func TestLayerRegistryBuilder_windowBindingValidation(t *testing.T) {
 	}
 	if _, err := b.RegisterLayer(LayerRegistration{Name: "bad-named", Order: 2700, WindowBinding: WindowBinding{Kind: WindowBindingNamed}}); err == nil {
 		t.Fatal("expected empty named window binding to be rejected")
+	}
+}
+
+func TestLayerRegistryBuilder_preservesFocusTrapMetadata(t *testing.T) {
+	b := NewLayerRegistryBuilder()
+	if _, err := b.RegisterLayer(LayerRegistration{
+		Name:         "modal",
+		Order:        2500,
+		WindowBinding: WindowBinding{Kind: WindowBindingPrimary},
+		FocusTrap:    true,
+		FocusRestore: facet.FocusRestoreFirstFocusable,
+	}); err != nil {
+		t.Fatalf("register modal: %v", err)
+	}
+	reg, err := b.Freeze()
+	if err != nil {
+		t.Fatalf("freeze: %v", err)
+	}
+	desc, ok := reg.LookupName("modal")
+	if !ok {
+		t.Fatal("missing modal layer")
+	}
+	if !desc.FocusTrap {
+		t.Fatal("focus trap flag was not preserved")
+	}
+	if desc.FocusRestore != facet.FocusRestoreFirstFocusable {
+		t.Fatalf("focus restore = %v, want %v", desc.FocusRestore, facet.FocusRestoreFirstFocusable)
 	}
 }
 
