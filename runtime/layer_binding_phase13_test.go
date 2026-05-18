@@ -30,7 +30,7 @@ func TestRuntimeNew_primaryWindowBinding_defaulted(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = reg
 	root := facet.NewFacet()
-	rt, err := New(cfg, &nilApp{}, &testWindow{width: 640, height: 480}, &stubBackend{}, &root)
+	rt, err := New(cfg, &nilApp{}, &testWindow{width: 640, height: 480}, &backendFixture{}, &root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -61,7 +61,7 @@ func TestRuntimeNew_rejects_unknown_named_windowBinding(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = reg
 	root := facet.NewFacet()
-	if _, err := New(cfg, &nilApp{}, &testWindow{width: 640, height: 480}, &stubBackend{}, &root); err == nil {
+	if _, err := New(cfg, &nilApp{}, &testWindow{width: 640, height: 480}, &backendFixture{}, &root); err == nil {
 		t.Fatal("expected named window binding rejection")
 	}
 }

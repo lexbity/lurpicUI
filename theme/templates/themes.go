@@ -2,7 +2,7 @@ package templates
 
 import (
 	"codeburg.org/lexbit/lurpicui/gfx"
-	legacytheme "codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // UneNuit returns the balanced dark shipped template theme.
@@ -259,19 +259,19 @@ func shippedTheme(spec ThemeSpec) TemplateTheme {
 	}
 }
 
-func shippedMaterials(colors ColorTokens) *legacytheme.MaterialRegistry {
-	reg := legacytheme.NewMaterialRegistry()
-	reg.Define("background", legacytheme.FromToken(colors.Background))
-	reg.Define("surface", legacytheme.FromToken(colors.Surface))
-	reg.Define("surface-variant", legacytheme.FromToken(colors.SurfaceVariant))
-	reg.Define("surface-container", legacytheme.FromToken(colors.SurfaceContainer))
-	reg.Define("primary", legacytheme.FromToken(colors.Primary))
-	reg.Define("secondary", legacytheme.FromToken(colors.Secondary))
-	reg.Define("tertiary", legacytheme.FromToken(colors.Tertiary))
-	reg.Define("error", legacytheme.FromToken(colors.Error))
-	reg.Define("warning", legacytheme.FromToken(colors.Warning))
-	reg.Define("success", legacytheme.FromToken(colors.Success))
-	reg.Define("info", legacytheme.FromToken(colors.Info))
+func shippedMaterials(colors ColorTokens) *theme.MaterialRegistry {
+	reg := theme.NewMaterialRegistry()
+	reg.Define("background", theme.FromToken(colors.Background))
+	reg.Define("surface", theme.FromToken(colors.Surface))
+	reg.Define("surface-variant", theme.FromToken(colors.SurfaceVariant))
+	reg.Define("surface-container", theme.FromToken(colors.SurfaceContainer))
+	reg.Define("primary", theme.FromToken(colors.Primary))
+	reg.Define("secondary", theme.FromToken(colors.Secondary))
+	reg.Define("tertiary", theme.FromToken(colors.Tertiary))
+	reg.Define("error", theme.FromToken(colors.Error))
+	reg.Define("warning", theme.FromToken(colors.Warning))
+	reg.Define("success", theme.FromToken(colors.Success))
+	reg.Define("info", theme.FromToken(colors.Info))
 	return reg
 }
 

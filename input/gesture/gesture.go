@@ -6,7 +6,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/platform"
 )
 
@@ -97,7 +96,7 @@ func (p *GesturePipeline) DrainQueuedSignals() {
 }
 
 // Process routes one raw input event to the hit facet and its ancestors.
-func (p *GesturePipeline) Process(event input.Event, hitFacet facet.FacetID, tree facet.Tree) {
+func (p *GesturePipeline) Process(event platform.Event, hitFacet facet.FacetID, tree facet.Tree) {
 	if p == nil || tree == nil || hitFacet == 0 {
 		return
 	}

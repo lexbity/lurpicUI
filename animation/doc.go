@@ -4,5 +4,5 @@
 // state. It exposes interpolatable values, easing registries, animated value
 // wrappers, and timeline playback controls. Runtime-bound timelines register
 // phase-1 hooks on the runtime; standalone timelines may be ticked by tests or
-// legacy callers through the nil-runtime registry.
+// by callers that do not attach a runtime.
 package animation

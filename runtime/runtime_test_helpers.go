@@ -25,7 +25,7 @@ func testLayerRegistry(t *testing.T) *layout.LayerRegistry {
 	return r
 }
 
-type stubBackend struct {
+type backendFixture struct {
 	submitErr error
 }
 
@@ -40,10 +40,10 @@ func (l *recordingLogger) Warn(msg string, args ...any) {
 }
 func (l *recordingLogger) Error(string, ...any) {}
 
-func (s *stubBackend) Initialize(surface render.Surface) error { return nil }
-func (s *stubBackend) Submit(frame *render.Frame) error        { return s.submitErr }
-func (s *stubBackend) Resize(width, height int) error          { return nil }
-func (s *stubBackend) Destroy()                                {}
+func (s *backendFixture) Initialize(surface render.Surface) error { return nil }
+func (s *backendFixture) Submit(frame *render.Frame) error        { return s.submitErr }
+func (s *backendFixture) Resize(width, height int) error          { return nil }
+func (s *backendFixture) Destroy()                                {}
 
 type recordingBackend struct {
 	last            *render.Frame
@@ -556,7 +556,7 @@ func mustRuntime(t *testing.T) *Runtime {
 	root := facet.NewFacet()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, nil, nil, &stubBackend{}, &root)
+	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -567,7 +567,7 @@ func mustRuntimeTree(t *testing.T, root facet.FacetImpl) *Runtime {
 	t.Helper()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, nil, nil, &stubBackend{}, root)
+	rt, err := New(cfg, nil, nil, &backendFixture{}, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -589,7 +589,7 @@ func mustRuntimeWithApp(t *testing.T, app platform.App, root facet.FacetImpl) *R
 	t.Helper()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, app, nil, &stubBackend{}, root)
+	rt, err := New(cfg, app, nil, &backendFixture{}, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}

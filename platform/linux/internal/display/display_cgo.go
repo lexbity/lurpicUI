@@ -129,7 +129,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
-	platformcommon "codeburg.org/lexbit/lurpicui/platform/internal/common"
+	"codeburg.org/lexbit/lurpicui/platform/internal/common"
 	rendervulkan "codeburg.org/lexbit/lurpicui/render/vulkan"
 )
 
@@ -845,8 +845,8 @@ func (a *app) translateKeyEvent(ev *C.xcb_generic_event_t, press bool) []platfor
 	if a.keysyms != nil {
 		keysym = C.xcb_key_symbols_get_keysym(a.keysyms, C.xcb_keycode_t(k.detail), 0)
 	}
-	key := platformcommon.KeyFromKeysym(uint32(keysym))
-	mod := platformcommon.ModifiersFromState(uint16(k.state))
+	key := common.KeyFromKeysym(uint32(keysym))
+	mod := common.ModifiersFromState(uint16(k.state))
 	kind := platform.KeyRelease
 	if press {
 		kind = platform.KeyPress
@@ -855,7 +855,7 @@ func (a *app) translateKeyEvent(ev *C.xcb_generic_event_t, press bool) []platfor
 		platform.EventKey{Kind: kind, Key: key, Modifiers: mod},
 	}
 	if press {
-		if text, ok := platformcommon.TextFromKeysym(uint32(keysym)); ok {
+		if text, ok := common.TextFromKeysym(uint32(keysym)); ok {
 			out = append(out, platform.EventText{Text: text})
 		}
 	}
@@ -882,7 +882,7 @@ func (a *app) translatePointerButton(ev *C.xcb_generic_event_t, press bool) []pl
 			Kind:      kind,
 			Button:    button,
 			Position:  gfx.Point{X: float32(b.event_x), Y: float32(b.event_y)},
-			Modifiers: platformcommon.ModifiersFromState(uint16(b.state)),
+			Modifiers: common.ModifiersFromState(uint16(b.state)),
 		},
 	}
 }
@@ -893,7 +893,7 @@ func (a *app) translateMotion(ev *C.xcb_generic_event_t) []platform.Event {
 		platform.EventPointer{
 			Kind:      platform.PointerMove,
 			Position:  gfx.Point{X: float32(m.event_x), Y: float32(m.event_y)},
-			Modifiers: platformcommon.ModifiersFromState(uint16(m.state)),
+			Modifiers: common.ModifiersFromState(uint16(m.state)),
 		},
 	}
 }
@@ -908,7 +908,7 @@ func (a *app) translateEnterLeave(ev *C.xcb_generic_event_t, enter bool) []platf
 		platform.EventPointer{
 			Kind:      kind,
 			Position:  gfx.Point{X: float32(e.event_x), Y: float32(e.event_y)},
-			Modifiers: platformcommon.ModifiersFromState(uint16(e.state)),
+			Modifiers: common.ModifiersFromState(uint16(e.state)),
 		},
 	}
 }

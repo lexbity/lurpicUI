@@ -99,7 +99,7 @@ func TestLayerResolution_usesViewportTransformAndResolvedSnapshot(t *testing.T) 
 	childA := newCoordinateHitFacet(gfx.Size{W: 300, H: 300})
 	childB := newRuntimeRenderFacet("screen-aligned", gfx.RectFromXYWH(0, 0, 40, 20), color.RGBA{A: 255})
 
-	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{})
 	reg := testRegistryWithOrders(t, 7, 8)
 	rt.config.LayerRegistry = reg
 	rt.layerRegistry = reg

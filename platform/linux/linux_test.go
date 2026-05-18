@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/platform"
-	platformcommon "codeburg.org/lexbit/lurpicui/platform/internal/common"
+	"codeburg.org/lexbit/lurpicui/platform/internal/common"
 )
 
 func TestLinuxNewApp_no_display_returns_error(t *testing.T) {
@@ -37,7 +37,7 @@ func TestLinuxClipboard_andApp_nilSafety(t *testing.T) {
 
 func TestKeyTranslation_all_alpha_keys(t *testing.T) {
 	for ch := 'A'; ch <= 'Z'; ch++ {
-		got := platformcommon.KeyFromKeysym(uint32(ch))
+		got := common.KeyFromKeysym(uint32(ch))
 		want := platform.Key(int(ch-'A') + int(platform.KeyA))
 		if got != want {
 			t.Fatalf("keysym %q mapped to %v, want %v", ch, got, want)
@@ -62,14 +62,14 @@ func TestKeyTranslation_navigation_keys(t *testing.T) {
 		0xff08: platform.KeyBackspace,
 	}
 	for sym, want := range cases {
-		if got := platformcommon.KeyFromKeysym(sym); got != want {
+		if got := common.KeyFromKeysym(sym); got != want {
 			t.Fatalf("keysym %#x mapped to %v, want %v", sym, got, want)
 		}
 	}
 }
 
 func TestModifierMapping_shift_ctrl_alt(t *testing.T) {
-	mods := platformcommon.ModifiersFromState((1 << 0) | (1 << 2) | (1 << 3))
+	mods := common.ModifiersFromState((1 << 0) | (1 << 2) | (1 << 3))
 	want := platform.ModShift | platform.ModControl | platform.ModAlt
 	if mods != want {
 		t.Fatalf("unexpected modifiers: got %v want %v", mods, want)

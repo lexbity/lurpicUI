@@ -117,8 +117,8 @@ func Run(config Config, builder RootBuilder) error {
 
 	w, h := window.Size()
 	themeContext := config.Theme
-	if themeContext == nil {
-		themeContext = theme.Default()
+	if themeContext.Resolver == nil && themeContext.Materials == nil && themeContext.ContentScale == 0 && themeContext.Depth == 0 {
+		themeContext = theme.DefaultResolvedContext()
 	}
 
 	root := builder(BuildContext{

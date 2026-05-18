@@ -2,6 +2,7 @@ package theme
 
 import (
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
@@ -61,23 +62,8 @@ const (
 	RadiusL
 )
 
-// Context provides named visual tokens.
-type Context interface {
-	Color(t ColorToken) gfx.Color
-	Spacing(t SpacingToken) float32
-	TextStyle(t TextToken) text.TextStyle
-	Radius(t RadiusToken) float32
-}
-
 type defaultContext struct {
 	tokens Tokens
-}
-
-var _ Context = defaultContext{}
-
-// Default returns the default theme context.
-func Default() Context {
-	return defaultContext{tokens: DefaultTokens()}
 }
 
 func (c defaultContext) Color(t ColorToken) gfx.Color {
@@ -132,20 +118,20 @@ func colorWithAlpha(c gfx.Color, a float32) gfx.Color {
 	}
 }
 
-func (c defaultContext) Spacing(t SpacingToken) float32 {
+func (c defaultContext) Spacing(t SpacingToken) layout.ResolvedScalar {
 	switch t {
 	case SpacingXS:
-		return c.tokens.Spacing.XS
+		return layout.ResolvedScalar(c.tokens.Spacing.XS)
 	case SpacingS:
-		return c.tokens.Spacing.SM
+		return layout.ResolvedScalar(c.tokens.Spacing.SM)
 	case SpacingM:
-		return c.tokens.Spacing.MD
+		return layout.ResolvedScalar(c.tokens.Spacing.MD)
 	case SpacingL:
-		return c.tokens.Spacing.LG
+		return layout.ResolvedScalar(c.tokens.Spacing.LG)
 	case SpacingXL:
-		return c.tokens.Spacing.XL
+		return layout.ResolvedScalar(c.tokens.Spacing.XL)
 	case SpacingXXL:
-		return c.tokens.Spacing.XXL
+		return layout.ResolvedScalar(c.tokens.Spacing.XXL)
 	default:
 		return 0
 	}
@@ -172,16 +158,16 @@ func (c defaultContext) TextStyle(t TextToken) text.TextStyle {
 	}
 }
 
-func (c defaultContext) Radius(t RadiusToken) float32 {
+func (c defaultContext) Radius(t RadiusToken) layout.ResolvedScalar {
 	switch t {
 	case RadiusNone:
-		return c.tokens.Radius.None
+		return layout.ResolvedScalar(c.tokens.Radius.None)
 	case RadiusS:
-		return c.tokens.Radius.SM
+		return layout.ResolvedScalar(c.tokens.Radius.SM)
 	case RadiusM:
-		return c.tokens.Radius.MD
+		return layout.ResolvedScalar(c.tokens.Radius.MD)
 	case RadiusL:
-		return c.tokens.Radius.LG
+		return layout.ResolvedScalar(c.tokens.Radius.LG)
 	default:
 		return 0
 	}

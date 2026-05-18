@@ -13,7 +13,7 @@ func TestInspector_spatial_snapshot_shows_resolved_layer_frame(t *testing.T) {
 	root := newCoordinateRootFacet(gfx.Translation(15, 25), gfx.RectFromXYWH(0, 0, 200, 200))
 	child := newCoordinateHitFacet(gfx.Size{W: 60, H: 40})
 
-	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{})
 	rt.window = &testWindow{width: 400, height: 300}
 	rt.AddFacet(root, child, facet.Attachment{LayerID: facet.LayerID(1)})
 	rt.RunOneFrame()

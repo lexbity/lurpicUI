@@ -31,7 +31,6 @@ type pendingSignal struct{ deliver func() }
 type Runtime struct {
 	config Config
 
-	layoutSystem     *layout.System
 	projectionSystem *projection.System
 	inputSystem      *input.System
 	focusManager     *facet.FocusManager
@@ -110,7 +109,6 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	}
 	rt := &Runtime{
 		config:           config,
-		layoutSystem:     layout.NewSystem(),
 		projectionSystem: projection.NewSystem(),
 		inputSystem:      input.NewSystem(config.GestureConfig),
 		focusManager:     facet.NewFocusManager(),
@@ -243,7 +241,6 @@ func (rt *Runtime) start() error {
 		}
 		store.SetSignalQueueHook(rt.queueSignal)
 		go (&renderThread{pipeline: rt.renderPipeline}).run()
-		rt.jobPool.Start()
 		rt.bindLifecycleCallbacks()
 		rt.contentScale = rt.effectiveContentScale()
 		rt.attachTree(rt.root)
@@ -345,9 +342,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	rt.tickFacets(dt)
 
 	currentHitMap := rt.layeredHitMap(rt.projectionSystem.CurrentHitMap())
+	dismissalEvents := rt.dismissalEventsForPointerPresses(rt.pendingEvents, currentHitMap)
 	routedEvents := rt.inputSystem.Process(rt.pendingEvents, currentHitMap, rt.root)
 	rt.pendingEvents = rt.pendingEvents[:0]
-	routedEvents = rt.withDismissalEvents(routedEvents, currentHitMap)
+	routedEvents = append(dismissalEvents, routedEvents...)
 	routedEvents = append(routedEvents, hoverEvents...)
 	for _, re := range routedEvents {
 		_ = input.Deliver(re, rt.root)
@@ -361,14 +359,14 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 
 	dirtySnapshot := rt.copyDirtyFacets()
+	stats.DirtyFacets = len(dirtySnapshot)
+
 	layoutStart := time.Now()
 	if rt.hasLayoutDirty() {
-		rt.markLayoutDirtyFacets()
 		w, h := rt.windowSize()
-		rt.layoutSystem.Run(gfx.Size{W: float32(w), H: float32(h)})
+		rt.runLayoutPass(gfx.Size{W: float32(w), H: float32(h)})
 	}
 	stats.LayoutDuration = time.Since(layoutStart)
-	stats.DirtyFacets = len(dirtySnapshot)
 
 	layerStart := time.Now()
 	phaseStats := rt.resolveLayerTree()
@@ -440,6 +438,33 @@ func (rt *Runtime) withDismissalEvents(routed []input.RoutedEvent, hitMap *proje
 			out = append(out, rt.dismissalEventsForPress(re.Target, press, hitMap)...)
 		}
 		out = append(out, re)
+	}
+	return out
+}
+
+func (rt *Runtime) dismissalEventsForPointerPresses(events []platform.Event, hitMap *projection.HitMap) []input.RoutedEvent {
+	if rt == nil || hitMap == nil || len(events) == 0 {
+		return nil
+	}
+	out := make([]input.RoutedEvent, 0)
+	for _, ev := range events {
+		press, ok := ev.(platform.EventPointer)
+		if !ok || press.Kind != platform.PointerPress {
+			continue
+		}
+		targetID := facet.FacetID(0)
+		markID := facet.MarkID(0)
+		if hit := hitMap.HitTest(gfx.Point{X: press.Position.X, Y: press.Position.Y}); hit != nil {
+			targetID = hit.FacetID
+			markID = hit.MarkID
+		}
+		out = append(out, rt.dismissalEventsForPress(targetID, input.PointerPressEvent{
+			Position:  gfx.Point{X: press.Position.X, Y: press.Position.Y},
+			ScreenPos: gfx.Point{X: press.Position.X, Y: press.Position.Y},
+			Button:    press.Button,
+			Modifiers: press.Modifiers,
+			MarkID:    markID,
+		}, hitMap)...)
 	}
 	return out
 }
@@ -1005,18 +1030,100 @@ func (rt *Runtime) hasLayoutDirty() bool {
 	return false
 }
 
-func (rt *Runtime) markLayoutDirtyFacets() {
-	if rt == nil || rt.layoutSystem == nil {
+func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
+	if rt == nil || len(rt.dirtyFacets) == 0 {
 		return
 	}
-	for id, flags := range rt.dirtyFacets {
-		if flags&facet.DirtyLayout == 0 {
+	roots := rt.selectedLayoutRoots()
+	for _, root := range roots {
+		if root == nil || root.Base() == nil {
 			continue
 		}
+		bounds := gfx.RectFromXYWH(0, 0, windowSize.W, windowSize.H)
+		if root.Base().Parent() != nil {
+			layoutRole := root.Base().LayoutRole()
+			if layoutRole != nil && !layoutRole.ArrangedBounds.IsEmpty() {
+				bounds = layoutRole.ArrangedBounds
+			}
+		}
+		rt.measureLayoutChild(root, layout.Loose(gfx.Size{W: bounds.Width(), H: bounds.Height()}))
+		rt.arrangeLayoutChild(root, bounds)
+		rt.clearLayoutDirtyTree(root)
+	}
+}
+
+func (rt *Runtime) selectedLayoutRoots() []facet.FacetImpl {
+	if len(rt.dirtyFacets) == 0 {
+		return nil
+	}
+	roots := make([]facet.FacetImpl, 0, len(rt.dirtyFacets))
+	for id := range rt.dirtyFacets {
 		if f := rt.findFacetByID(rt.root, id); f != nil {
-			rt.layoutSystem.MarkDirty(f)
+			roots = append(roots, f)
 		}
 	}
+	sort.SliceStable(roots, func(i, j int) bool {
+		return roots[i].Base().ID() < roots[j].Base().ID()
+	})
+	filtered := roots[:0]
+	for _, f := range roots {
+		if !rt.hasLayoutDirtyAncestor(f) {
+			filtered = append(filtered, f)
+		}
+	}
+	return filtered
+}
+
+func (rt *Runtime) hasLayoutDirtyAncestor(f facet.FacetImpl) bool {
+	if rt == nil || f == nil || f.Base() == nil {
+		return false
+	}
+	for parent := f.Base().Parent(); parent != nil; parent = parent.Parent() {
+		if flags := rt.dirtyFacets[parent.ID()]; flags&facet.DirtyLayout != 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (rt *Runtime) clearLayoutDirtyTree(f facet.FacetImpl) {
+	if rt == nil || f == nil || f.Base() == nil {
+		return
+	}
+	if flags := f.Base().DirtyFlags(); flags&facet.DirtyLayout != 0 {
+		f.Base().ClearDirty(facet.DirtyLayout)
+	}
+	for _, child := range f.Base().Children() {
+		if child != nil {
+			rt.clearLayoutDirtyTree(child)
+		}
+	}
+}
+
+func (rt *Runtime) measureLayoutChild(f facet.FacetImpl, c layout.Constraints) gfx.Size {
+	if f == nil || f.Base() == nil {
+		return gfx.Size{}
+	}
+	role := f.Base().LayoutRole()
+	if role == nil {
+		return gfx.Size{}
+	}
+	return role.Measure(facet.MeasureContext{}, c).Size
+}
+
+func (rt *Runtime) arrangeLayoutChild(f facet.FacetImpl, bounds gfx.Rect) {
+	if f == nil || f.Base() == nil {
+		return
+	}
+	role := f.Base().LayoutRole()
+	if role == nil {
+		return
+	}
+	role.Arrange(facet.ArrangeContext{}, bounds)
+}
+
+func boundsSize(bounds gfx.Rect) gfx.Size {
+	return gfx.Size{W: bounds.Width(), H: bounds.Height()}
 }
 
 func (rt *Runtime) tickFacets(dt time.Duration) {

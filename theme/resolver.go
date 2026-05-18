@@ -145,6 +145,11 @@ func DefaultResolvedContext() ResolvedContext {
 	}
 }
 
+// Default returns the canonical resolved theme context.
+func Default() ResolvedContext {
+	return DefaultResolvedContext()
+}
+
 // TokenSet returns the underlying token table.
 func (c ResolvedContext) TokenSet() Tokens {
 	return c.defaultContext.tokens
@@ -156,14 +161,14 @@ func (c ResolvedContext) Color(t ColorToken) gfx.Color {
 }
 
 // Radius resolves a radius token.
-func (c ResolvedContext) Radius(t RadiusToken) float32 {
+func (c ResolvedContext) Radius(t RadiusToken) layout.ResolvedScalar {
 	return c.defaultContext.Radius(t)
 }
 
 // Spacing resolves a spacing token through the selected density scale.
-func (c ResolvedContext) Spacing(t SpacingToken) float32 {
+func (c ResolvedContext) Spacing(t SpacingToken) layout.ResolvedScalar {
 	if c.Density.Spacing != (SpacingTokens{}) {
-		return c.Density.ResolveSpacing(t)
+		return layout.ResolvedScalar(c.Density.ResolveSpacing(t))
 	}
 	return c.defaultContext.Spacing(t)
 }

@@ -46,7 +46,7 @@ type Config struct {
 	Window  WindowConfig
 	Runtime runtime.Config
 	Fonts   []FontSource
-	Theme   theme.Context
+	Theme   theme.ResolvedContext
 	// PlatformApp reuses an existing platform application instead of creating one internally.
 	PlatformApp platform.App
 	// Render selects the preferred renderer. Vulkan is the default; software
@@ -61,7 +61,7 @@ type BuildContext struct {
 	FontRegistry *text.FontRegistry
 	WindowSize   gfx.Size
 	ContentScale float32
-	Theme        theme.Context
+	Theme        theme.ResolvedContext
 }
 
 // RootBuilder constructs the root facet after all engine systems are ready.

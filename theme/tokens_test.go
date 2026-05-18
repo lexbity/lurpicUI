@@ -90,18 +90,18 @@ func TestDarkTokens_contrastAndLuminance(t *testing.T) {
 func TestTokens_helpers(t *testing.T) {
 	tokens := DefaultTokens()
 
-	if got := tokens.ColorFor("background"); got != tokens.Color.Background {
+	if got := tokens.colorFor("background"); got != tokens.Color.Background {
 		t.Fatalf("unexpected background color: %#v", got)
 	}
-	if got := tokens.TextStyleFor("body-medium"); got != tokens.Typography.BodyMedium {
+	if got := tokens.textStyleFor("body-medium"); got != tokens.Typography.BodyMedium {
 		t.Fatalf("unexpected body-medium style: %#v", got)
 	}
-	if got := tokens.SpacingFor("touch-target"); got != tokens.Spacing.TouchTarget {
+	if got := tokens.spacingFor("touch-target"); got != tokens.Spacing.TouchTarget {
 		t.Fatalf("unexpected touch-target spacing: %v", got)
 	}
 
-	assertPanicsContains(t, func() { _ = tokens.ColorFor("no-such-color") }, "no-such-color")
-	assertPanicsContains(t, func() { _ = tokens.SpacingFor("no-such-spacing") }, "no-such-spacing")
+	assertPanicsContains(t, func() { _ = tokens.colorFor("no-such-color") }, "no-such-color")
+	assertPanicsContains(t, func() { _ = tokens.spacingFor("no-such-spacing") }, "no-such-spacing")
 }
 
 func TestTokens_densityScaling(t *testing.T) {

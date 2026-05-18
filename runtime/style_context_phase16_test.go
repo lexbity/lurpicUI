@@ -9,7 +9,7 @@ import (
 
 func TestRuntime_rootStyleContext_installed_and_dirty_on_change(t *testing.T) {
 	root := facet.NewFacet()
-	rt := mustRuntimeWithBackend(t, &root, &stubBackend{})
+	rt := mustRuntimeWithBackend(t, &root, &backendFixture{})
 
 	store, ok := rt.RootStyleContext().(*theme.StyleContextStore)
 	if !ok || store == nil {

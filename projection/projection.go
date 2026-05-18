@@ -59,6 +59,7 @@ type HitRegion struct {
 	Bounds      gfx.Rect
 	Shape       *gfx.Path
 	MarkID      facet.MarkID
+	FacetID     facet.FacetID
 	Cursor      facet.CursorShape
 	PassThrough bool
 	LayerID     facet.LayerID
@@ -758,6 +759,11 @@ func NewHitMap(entries ...HitMapEntry) *HitMap {
 	for _, entry := range entries {
 		regions := make([]HitRegion, len(entry.Regions))
 		copy(regions, entry.Regions)
+		for i := range regions {
+			if regions[i].FacetID == 0 {
+				regions[i].FacetID = entry.FacetID
+			}
+		}
 		out.entries = append(out.entries, hitEntry{
 			facetID:    entry.FacetID,
 			layerID:    entry.LayerID,
@@ -843,8 +849,12 @@ func (m *HitMap) HitTest(screenPoint gfx.Point) *HitTestResult {
 				if region.PassThrough || entry.hitPolicy == facet.HitPassThrough {
 					continue
 				}
+				facetID := entry.facetID
+				if region.FacetID != 0 {
+					facetID = region.FacetID
+				}
 				return &HitTestResult{
-					FacetID: entry.facetID,
+					FacetID: facetID,
 					MarkID:  region.MarkID,
 					Cursor:  region.Cursor,
 				}
@@ -852,8 +862,12 @@ func (m *HitMap) HitTest(screenPoint gfx.Point) *HitTestResult {
 		}
 		if hit && entry.hitPolicy == facet.HitBlockBelow {
 			if hitRegion != nil {
+				facetID := entry.facetID
+				if hitRegion.FacetID != 0 {
+					facetID = hitRegion.FacetID
+				}
 				return &HitTestResult{
-					FacetID: entry.facetID,
+					FacetID: facetID,
 					MarkID:  hitRegion.MarkID,
 					Cursor:  hitRegion.Cursor,
 				}
@@ -880,6 +894,7 @@ func buildHitMap(outputs []*ProjectionOutput) *HitMap {
 		regions := make([]HitRegion, len(po.HitRegions))
 		copy(regions, po.HitRegions)
 		for i := range regions {
+			regions[i].FacetID = po.FacetID
 			regions[i].LayerID = po.LayerID
 			regions[i].Placement = po.Placement
 			regions[i].HitPolicy = po.LayerHitPolicy

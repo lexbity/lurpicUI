@@ -228,11 +228,15 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 			}
 		}
 		hit := false
+		hitFacetID := entry.FacetID
 		tested := 0
 		for _, region := range entry.Regions {
 			tested++
 			if projection.HitRegionContains(region, local) {
 				hit = true
+				if region.FacetID != 0 {
+					hitFacetID = region.FacetID
+				}
 				break
 			}
 		}
@@ -260,16 +264,16 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 			}
 			continue
 		}
-		traceLayer.HitFacetID = entry.FacetID
+		traceLayer.HitFacetID = hitFacetID
 		switch policy {
 		case layout.HitPassThrough:
-			passthrough = entry.FacetID
+			passthrough = hitFacetID
 			trace.TestedLayers = append(trace.TestedLayers, traceLayer)
 		case layout.HitNormal, layout.HitBlockBelow:
 			traceLayer.StoppedHere = true
 			trace.TestedLayers = append(trace.TestedLayers, traceLayer)
-			trace.Result = entry.FacetID
-			return entry.FacetID, trace
+			trace.Result = hitFacetID
+			return hitFacetID, trace
 		}
 	}
 	trace.Result = passthrough

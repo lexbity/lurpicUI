@@ -24,24 +24,24 @@ func TestRuntimeNew_validation(t *testing.T) {
 	}
 	cfg.LayerRegistry = layerRegistry
 	cfg.FontRegistry = nil
-	if _, err := New(cfg, nil, nil, &stubBackend{}, &facet.Facet{}); err == nil {
+	if _, err := New(cfg, nil, nil, &backendFixture{}, &facet.Facet{}); err == nil {
 		t.Fatal("expected error for nil font registry")
 	}
 	cfg = DefaultConfig()
 	cfg.LayerRegistry = layerRegistry
 	cfg.LayerRegistry = nil
-	if _, err := New(cfg, nil, nil, &stubBackend{}, &facet.Facet{}); err == nil {
+	if _, err := New(cfg, nil, nil, &backendFixture{}, &facet.Facet{}); err == nil {
 		t.Fatal("expected error for nil layer registry")
 	}
 	cfg = DefaultConfig()
 	cfg.LayerRegistry = layerRegistry
 	cfg.TargetFPS = 0
-	if _, err := New(cfg, nil, nil, &stubBackend{}, &facet.Facet{}); err == nil {
+	if _, err := New(cfg, nil, nil, &backendFixture{}, &facet.Facet{}); err == nil {
 		t.Fatal("expected error for zero target fps")
 	}
 	cfg = DefaultConfig()
 	cfg.LayerRegistry = layerRegistry
-	if _, err := New(cfg, nil, nil, &stubBackend{}, nil); err == nil {
+	if _, err := New(cfg, nil, nil, &backendFixture{}, nil); err == nil {
 		t.Fatal("expected error for nil root")
 	}
 }
@@ -57,7 +57,7 @@ func TestFrameTimer_basics(t *testing.T) {
 }
 
 func TestRenderPipeline_submit_blocks_on_full(t *testing.T) {
-	pipe := newRenderPipeline(&stubBackend{})
+	pipe := newRenderPipeline(&backendFixture{})
 	pipe.Submit(&render.Frame{})
 	done := make(chan struct{})
 	go func() {
@@ -78,7 +78,7 @@ func TestRenderPipeline_submit_blocks_on_full(t *testing.T) {
 }
 
 func TestRenderPipeline_fatalch_readable(t *testing.T) {
-	pipe := newRenderPipeline(&stubBackend{})
+	pipe := newRenderPipeline(&backendFixture{})
 	err := errors.New("boom")
 	pipe.fatalCh <- err
 	select {
@@ -328,7 +328,7 @@ func newPhase17Runtime(t *testing.T, root facet.FacetImpl) (*Runtime, *queueApp)
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = phase17Registry(t)
 	window := &testWindow{width: 400, height: 400}
-	rt, err := New(cfg, app, window, &stubBackend{}, root)
+	rt, err := New(cfg, app, window, &backendFixture{}, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -498,7 +498,7 @@ func TestRuntime_crossSeam_layout_projection_input_diagnostics(t *testing.T) {
 
 func TestRuntime_run_returns_render_error(t *testing.T) {
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
-	rt := mustRuntimeWithBackend(t, root, &stubBackend{submitErr: errors.New("boom")})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{submitErr: errors.New("boom")})
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- rt.Run()

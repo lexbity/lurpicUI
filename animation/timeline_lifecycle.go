@@ -61,7 +61,7 @@ func (tl *Timeline) dispose() {
 }
 
 // dispatchTimelines advances all timeline instances registered without a runtime.
-// It is used by tests and legacy callers.
+// It is used by tests and by callers that do not attach a runtime.
 func dispatchTimelines(dt time.Duration) {
 	timelineMu.RLock()
 	snapshot := append([]*Timeline(nil), timelines...)

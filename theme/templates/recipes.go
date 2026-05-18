@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
-	legacytheme "codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // RecipeContext groups the resolved template inputs used to build recipe bundles.
@@ -20,7 +20,7 @@ type RecipeContext struct {
 	Fonts      FontRoles
 	Chart      ChartTokens
 
-	Materials *legacytheme.MaterialRegistry
+	Materials *theme.MaterialRegistry
 }
 
 // RecipeDiagnostics describes the active template and bundle provenance.
@@ -152,7 +152,7 @@ func DefaultTemplateTheme(name string) TemplateTheme {
 		Name:      name,
 		Tokens:    DefaultTemplateTokens(),
 		Fonts:     DefaultFontRoles(),
-		Materials: legacytheme.NewMaterialRegistry(),
+		Materials: theme.NewMaterialRegistry(),
 		Recipes:   DefaultRecipeBundle(),
 		Metadata: ThemeMetadata{
 			BaselineDensity:     DensityRegular,

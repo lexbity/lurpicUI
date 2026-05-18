@@ -2,7 +2,6 @@ package gesture
 
 import (
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/platform"
 )
 
@@ -10,7 +9,7 @@ import (
 type TapSignal struct {
 	Position  gfx.Point
 	TapCount  int
-	Modifiers input.Modifiers
+	Modifiers platform.ModifierKeys
 }
 
 // LongPressSignal reports long-press lifecycle changes.

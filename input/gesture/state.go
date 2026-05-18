@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/input"
+	"codeburg.org/lexbit/lurpicui/platform"
 )
 
 // RecognizerID identifies one gesture recognizer instance.
@@ -27,7 +27,7 @@ type Touch struct {
 
 // InputEvent carries input metadata shared across recognizers.
 type InputEvent struct {
-	Modifiers input.Modifiers
+	Modifiers platform.ModifierKeys
 	Timestamp time.Duration
 }
 

@@ -7,7 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
-	platformcommon "codeburg.org/lexbit/lurpicui/platform/internal/common"
+	"codeburg.org/lexbit/lurpicui/platform/internal/common"
 )
 
 const (
@@ -291,8 +291,8 @@ func (a *app) translateEvent(ev *testEvent) []platform.Event {
 }
 
 func (a *app) translateKeyEvent(ev *testEvent, press bool) []platform.Event {
-	key := platformcommon.KeyFromKeysym(uint32(ev.detail))
-	mod := platformcommon.ModifiersFromState(ev.state)
+	key := common.KeyFromKeysym(uint32(ev.detail))
+	mod := common.ModifiersFromState(ev.state)
 	kind := platform.KeyRelease
 	if press {
 		kind = platform.KeyPress
@@ -321,7 +321,7 @@ func (a *app) translatePointerButton(ev *testEvent, press bool) []platform.Event
 			Kind:      kind,
 			Button:    button,
 			Position:  gfx.Point{X: float32(ev.eventX), Y: float32(ev.eventY)},
-			Modifiers: platformcommon.ModifiersFromState(ev.state),
+			Modifiers: common.ModifiersFromState(ev.state),
 		},
 	}
 }
@@ -331,7 +331,7 @@ func (a *app) translateMotion(ev *testEvent) []platform.Event {
 		platform.EventPointer{
 			Kind:      platform.PointerMove,
 			Position:  gfx.Point{X: float32(ev.eventX), Y: float32(ev.eventY)},
-			Modifiers: platformcommon.ModifiersFromState(ev.state),
+			Modifiers: common.ModifiersFromState(ev.state),
 		},
 	}
 }
@@ -345,7 +345,7 @@ func (a *app) translateEnterLeave(ev *testEvent, enter bool) []platform.Event {
 		platform.EventPointer{
 			Kind:      kind,
 			Position:  gfx.Point{X: float32(ev.eventX), Y: float32(ev.eventY)},
-			Modifiers: platformcommon.ModifiersFromState(ev.state),
+			Modifiers: common.ModifiersFromState(ev.state),
 		},
 	}
 }

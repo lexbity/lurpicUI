@@ -10,7 +10,7 @@ import (
 
 func TestAndroidRunner_run_onRunningEmulator(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("test uses a shell script adb stub")
+		t.Skip("test uses a shell script adb helper")
 	}
 
 	sdk := t.TempDir()
@@ -44,12 +44,12 @@ func TestAndroidRunner_run_onRunningEmulator(t *testing.T) {
 		"    ;;\n" +
 		"esac\n"
 	if err := os.WriteFile(adbPath, []byte(adbScript), 0o755); err != nil {
-		t.Fatalf("write adb stub: %v", err)
+		t.Fatalf("write adb helper: %v", err)
 	}
 
 	apkPath := filepath.Join(t.TempDir(), "app.apk")
 	if err := os.WriteFile(apkPath, []byte("fake apk"), 0o644); err != nil {
-		t.Fatalf("write apk stub: %v", err)
+		t.Fatalf("write apk helper: %v", err)
 	}
 
 	runner := &androidRunner{
@@ -77,7 +77,7 @@ func TestAndroidRunner_run_onRunningEmulator(t *testing.T) {
 
 func TestSelectAndroidAVD_createsDefaultWhenNoneExist(t *testing.T) {
 	if runtime.GOOS == "windows" {
-		t.Skip("test uses shell script tool stubs")
+		t.Skip("test uses shell script tool helpers")
 	}
 
 	sdk := t.TempDir()

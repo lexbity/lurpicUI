@@ -9,12 +9,11 @@ import (
 
 func TestDefaultResolvedContext_providesContextAndDensity(t *testing.T) {
 	ctx := DefaultResolvedContext()
-	var _ Context = ctx
 
 	if got := ctx.Color(ColorBackground); got == (gfx.Color{}) {
 		t.Fatal("background color should not be zero")
 	}
-	if got := ctx.Spacing(SpacingXS); got <= 0 {
+	if got := ctx.Spacing(SpacingXS).Float32(); got <= 0 {
 		t.Fatalf("expected positive spacing, got %v", got)
 	}
 	if got := ctx.TextStyle(TextBodyM); got.Size <= 0 {

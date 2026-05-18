@@ -7,7 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/text"
-	legacytheme "codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // DensityMode identifies the template density profile.
@@ -460,7 +460,7 @@ type TemplateTheme struct {
 	Name      string
 	Tokens    Tokens
 	Fonts     FontRoles
-	Materials *legacytheme.MaterialRegistry
+	Materials *theme.MaterialRegistry
 	Recipes   RecipeBundle
 	Metadata  ThemeMetadata
 	Charts    ChartInheritance

@@ -58,7 +58,7 @@ func TestRuntime_materializesOnlyTargetedLayerPolicies(t *testing.T) {
 		cfg.LayerRegistry = reg
 		cfg.ThemeResolver = resolver
 		return cfg
-	}(), nil, nil, &stubBackend{}, root)
+	}(), nil, nil, &backendFixture{}, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}

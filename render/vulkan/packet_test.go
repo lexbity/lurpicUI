@@ -46,7 +46,7 @@ func TestEncodeFramePacket_solidRectBatch(t *testing.T) {
 func TestEncodeFramePacket_drawImageBatch(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
-	uploader := &stubImageUploader{handle: 99}
+	uploader := &fakeImageUploader{handle: 99}
 	frame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{
 			{
@@ -81,12 +81,12 @@ func TestEncodeFramePacket_drawImageBatch(t *testing.T) {
 	}
 }
 
-type stubImageUploader struct {
+type fakeImageUploader struct {
 	handle uint64
 	calls  int
 }
 
-func (s *stubImageUploader) ensureImage(img *image.RGBA) (uint64, error) {
+func (s *fakeImageUploader) ensureImage(img *image.RGBA) (uint64, error) {
 	s.calls++
 	return s.handle, nil
 }

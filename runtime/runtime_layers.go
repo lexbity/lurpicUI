@@ -333,6 +333,8 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			parentBounds = lr.ArrangedBounds
 		} else if lr.MeasuredSize.W > 0 || lr.MeasuredSize.H > 0 {
 			parentBounds = gfx.RectFromXYWH(0, 0, lr.MeasuredSize.W, lr.MeasuredSize.H)
+		} else if w, h := rt.windowSize(); w > 0 || h > 0 {
+			parentBounds = gfx.RectFromXYWH(0, 0, float32(w), float32(h))
 		}
 	} else if w, h := rt.windowSize(); w > 0 || h > 0 {
 		parentBounds = gfx.RectFromXYWH(0, 0, float32(w), float32(h))

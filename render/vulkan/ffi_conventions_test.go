@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	vkinternal "codeburg.org/lexbit/lurpicui/render/vulkan/internal"
+	"codeburg.org/lexbit/lurpicui/render/vulkan/internal"
 )
 
 func TestFFIResultTranslation(t *testing.T) {
@@ -23,7 +23,7 @@ func TestFFIResultTranslation(t *testing.T) {
 	}
 
 	err := testResultError()
-	var initErr *vkinternal.InitFailedError
+	var initErr *internal.InitFailedError
 	if !errors.As(err, &initErr) {
 		t.Fatalf("expected InitFailedError, got %T: %v", err, err)
 	}
@@ -32,7 +32,7 @@ func TestFFIResultTranslation(t *testing.T) {
 	}
 
 	err = testResultPanic()
-	var panicErr *vkinternal.PanicError
+	var panicErr *internal.PanicError
 	if !errors.As(err, &panicErr) {
 		t.Fatalf("expected PanicError, got %T: %v", err, err)
 	}
@@ -70,8 +70,8 @@ func TestFFIHandleRegistry(t *testing.T) {
 		t.Fatalf("testHandleUse(valid): %v", err)
 	}
 
-	invalidErr := testHandleUse(vkinternal.Handle(0xdeadbeef))
-	if !vkinternal.IsInvalidHandle(invalidErr) {
+	invalidErr := testHandleUse(internal.Handle(0xdeadbeef))
+	if !internal.IsInvalidHandle(invalidErr) {
 		t.Fatalf("expected invalid handle error, got %T: %v", invalidErr, invalidErr)
 	}
 	if err := testResultOK(); err != nil {
@@ -93,7 +93,7 @@ func TestFFIHandleRegistry(t *testing.T) {
 		t.Fatalf("testHandleDestroy: %v", err)
 	}
 
-	if err := testHandleUse(handle); !vkinternal.IsInvalidHandle(err) {
+	if err := testHandleUse(handle); !internal.IsInvalidHandle(err) {
 		t.Fatalf("expected destroyed handle to be invalid, got %T: %v", err, err)
 	}
 	if err := testResultOK(); err != nil {

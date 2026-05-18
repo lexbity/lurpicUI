@@ -4,7 +4,7 @@
 // - LurpicNativeActivity.java: Java NativeActivity extension
 // - lurpic_android.c: C bridge with JNI glue
 // - bridge_android.go: Go implementation (android build tag)
-// - bridge_stub.go: Stub implementation (!android build tag)
+// - bridge_unavailable.go: Non-Android fallback (!android build tag)
 //
 // The bridge follows the Android threading model:
 //   - Android UI thread: Receives OS callbacks, pushes events to queue

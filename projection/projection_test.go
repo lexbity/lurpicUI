@@ -659,6 +659,27 @@ func TestHitMap_hitTest_passThroughPolicyFallsThrough(t *testing.T) {
 	}
 }
 
+func TestHitMap_regionsCarryFacetIdentity(t *testing.T) {
+	hm := NewHitMap(HitMapEntry{
+		FacetID:   77,
+		Transform: gfx.Identity(),
+		Regions: []HitRegion{{
+			Bounds: gfx.RectFromXYWH(0, 0, 10, 10),
+			MarkID: 9,
+		}},
+	})
+	entries := hm.Entries()
+	if len(entries) != 1 || len(entries[0].Regions) != 1 {
+		t.Fatalf("entries = %#v", entries)
+	}
+	if entries[0].Regions[0].FacetID != 77 {
+		t.Fatalf("region facet id = %d, want 77", entries[0].Regions[0].FacetID)
+	}
+	if got := hm.HitTest(gfx.Point{X: 1, Y: 1}); got == nil || got.FacetID != 77 {
+		t.Fatalf("hit test should return region facet id, got %#v", got)
+	}
+}
+
 func TestHitMap_hitTest_blockBelowStopsTraversal(t *testing.T) {
 	hm := NewHitMap(
 		HitMapEntry{

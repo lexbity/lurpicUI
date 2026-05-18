@@ -96,9 +96,13 @@ func (p *HitProbe) At(screenPoint gfx.Point) []HitProbeResult {
 			if !projection.HitRegionContains(region, local) {
 				continue
 			}
+			facetID := entry.FacetID
+			if region.FacetID != 0 {
+				facetID = region.FacetID
+			}
 			out = append(out, HitProbeResult{
-				FacetID:       entry.FacetID,
-				FacetType:     p.typeNames[entry.FacetID],
+				FacetID:       facetID,
+				FacetType:     p.typeNames[facetID],
 				LayerID:       entry.LayerID,
 				LayerOrder:    entry.LayerOrder,
 				Placement:     entry.Placement,
@@ -128,6 +132,11 @@ func (p *HitProbe) Entries() []HitProbeEntry {
 	for _, entry := range entries {
 		regions := make([]projection.HitRegion, len(entry.Regions))
 		copy(regions, entry.Regions)
+		for i := range regions {
+			if regions[i].FacetID == 0 {
+				regions[i].FacetID = entry.FacetID
+			}
+		}
 		out = append(out, HitProbeEntry{
 			FacetID:    entry.FacetID,
 			FacetType:  p.typeNames[entry.FacetID],

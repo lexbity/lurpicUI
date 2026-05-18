@@ -11,7 +11,7 @@
 //
 // Build tags:
 //   - android: Builds the real Android implementation with CGO
-//   - !android: Builds a stub that returns errors (for testing on other platforms)
+//   - !android: Builds the non-Android fallback that returns platform errors
 //
 // Architecture:
 //

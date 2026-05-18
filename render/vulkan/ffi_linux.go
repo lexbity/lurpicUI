@@ -61,7 +61,7 @@ import (
 	"sync"
 	"unsafe"
 
-	vkinternal "codeburg.org/lexbit/lurpicui/render/vulkan/internal"
+	"codeburg.org/lexbit/lurpicui/render/vulkan/internal"
 )
 
 type Capabilities struct {
@@ -321,28 +321,28 @@ func testResultPanic() error {
 	return translateStatus(C.lurpic_render_test_panic())
 }
 
-func testHandleCreate() (vkinternal.Handle, error) {
+func testHandleCreate() (internal.Handle, error) {
 	if err := loadRustLibrary(); err != nil {
 		return 0, err
 	}
-	handle := vkinternal.Handle(C.lurpic_render_test_handle_create())
+	handle := internal.Handle(C.lurpic_render_test_handle_create())
 	if msg := cErrorMessage(); msg != "" {
-		return 0, vkinternal.TranslateResult(vkinternal.ResultUnknown, msg)
+		return 0, internal.TranslateResult(internal.ResultUnknown, msg)
 	}
 	if handle == 0 {
-		return 0, vkinternal.TranslateResult(vkinternal.ResultInvalidHandle, "Rust returned a zero handle")
+		return 0, internal.TranslateResult(internal.ResultInvalidHandle, "Rust returned a zero handle")
 	}
 	return handle, nil
 }
 
-func testHandleUse(handle vkinternal.Handle) error {
+func testHandleUse(handle internal.Handle) error {
 	if err := loadRustLibrary(); err != nil {
 		return err
 	}
 	return translateStatus(C.lurpic_render_test_handle_use(C.ulonglong(handle)))
 }
 
-func testHandleDestroy(handle vkinternal.Handle) error {
+func testHandleDestroy(handle internal.Handle) error {
 	if err := loadRustLibrary(); err != nil {
 		return err
 	}
@@ -447,7 +447,7 @@ func testImageDestroyCount() (uint64, error) {
 }
 
 func translateStatus(code C.int) error {
-	return vkinternal.TranslateResult(vkinternal.ResultCode(code), cErrorMessage())
+	return internal.TranslateResult(internal.ResultCode(code), cErrorMessage())
 }
 
 func cErrorMessage() string {

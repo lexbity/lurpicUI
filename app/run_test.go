@@ -242,8 +242,8 @@ func TestRun_build_context_theme_passthrough(t *testing.T) {
 	primeRuntime = func(rt *runtime.Runtime) {}
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 
-	customTheme := theme.Default()
-	var observed theme.Context
+	customTheme := theme.DefaultResolvedContext()
+	var observed theme.ResolvedContext
 	cfg := DefaultConfig("hello", 640, 480)
 	cfg.Theme = customTheme
 	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
@@ -251,9 +251,6 @@ func TestRun_build_context_theme_passthrough(t *testing.T) {
 		return &fakeRoot{}
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
-	}
-	if observed == nil {
-		t.Fatal("expected a non-nil theme context")
 	}
 	if got, want := observed.Color(theme.ColorPrimary), customTheme.Color(theme.ColorPrimary); got != want {
 		t.Fatalf("Theme passthrough failed: got %#v want %#v", got, want)

@@ -33,7 +33,7 @@ func TestLayerResolution_hitTraversal_respectsRegistryOrderAndPassThrough(t *tes
 	base := newCoordinateHitFacet(gfx.Size{W: 100, H: 100})
 	custom := newCoordinateHitFacet(gfx.Size{W: 100, H: 100})
 
-	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{})
 	reg := testRegistryWithCustomLayer(t, layout.LayerName("app.tooltip"), 2500, layout.HitPassThrough)
 	rt.config.LayerRegistry = reg
 	rt.layerRegistry = reg
@@ -56,7 +56,7 @@ func TestLayerResolution_hitTraversal_blocksLowerLayersWhenClipped(t *testing.T)
 	base := newCoordinateHitFacet(gfx.Size{W: 100, H: 100})
 	blocker := newCoordinateHitFacet(gfx.Size{W: 100, H: 100})
 
-	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{})
 	reg := testRegistryWithCustomLayer(t, layout.LayerName("app.modal"), 2500, layout.HitBlockBelow)
 	rt.config.LayerRegistry = reg
 	rt.layerRegistry = reg

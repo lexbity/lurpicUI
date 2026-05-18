@@ -40,47 +40,47 @@ func (s *memSurface) Unlock(dirtyRects []gfx.Rect) error {
 	return nil
 }
 
-type stubWindow struct {
+type fakeWindow struct {
 	surface platform.Surface
 }
 
-func (w *stubWindow) Surface() platform.Surface      { return w.surface }
-func (w *stubWindow) SetTitle(title string)          {}
-func (w *stubWindow) Size() (width, height int)      { return 0, 0 }
-func (w *stubWindow) ContentScale() float32          { return 1 }
-func (w *stubWindow) SetIMECursorRect(rect gfx.Rect) {}
-func (w *stubWindow) Show()                          {}
-func (w *stubWindow) Hide()                          {}
-func (w *stubWindow) Close()                         {}
-func (w *stubWindow) Destroy()                       {}
+func (w *fakeWindow) Surface() platform.Surface      { return w.surface }
+func (w *fakeWindow) SetTitle(title string)          {}
+func (w *fakeWindow) Size() (width, height int)      { return 0, 0 }
+func (w *fakeWindow) ContentScale() float32          { return 1 }
+func (w *fakeWindow) SetIMECursorRect(rect gfx.Rect) {}
+func (w *fakeWindow) Show()                          {}
+func (w *fakeWindow) Hide()                          {}
+func (w *fakeWindow) Close()                         {}
+func (w *fakeWindow) Destroy()                       {}
 
-type stubQueue struct{}
+type fakeQueue struct{}
 
-func (stubQueue) Push(platform.Event)                         {}
-func (stubQueue) Poll() []platform.Event                      { return nil }
-func (stubQueue) Wait(timeout time.Duration) []platform.Event { return nil }
+func (fakeQueue) Push(platform.Event)                         {}
+func (fakeQueue) Poll() []platform.Event                      { return nil }
+func (fakeQueue) Wait(timeout time.Duration) []platform.Event { return nil }
 
-type stubClipboard struct {
+type fakeClipboard struct {
 	text string
 }
 
-func (c *stubClipboard) ReadText() (string, error) { return c.text, nil }
-func (c *stubClipboard) WriteText(text string) error {
+func (c *fakeClipboard) ReadText() (string, error) { return c.text, nil }
+func (c *fakeClipboard) WriteText(text string) error {
 	c.text = text
 	return nil
 }
 
 type capableApp struct {
-	queue        stubQueue
-	clip         stubClipboard
-	window       *stubWindow
+	queue        fakeQueue
+	clip         fakeClipboard
+	window       *fakeWindow
 	imeShowCount int
 	imeHideCount int
 }
 
 func (a *capableApp) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 	if a.window == nil {
-		a.window = &stubWindow{surface: &memSurface{w: opts.Width, h: opts.Height}}
+		a.window = &fakeWindow{surface: &memSurface{w: opts.Width, h: opts.Height}}
 	}
 	return a.window, nil
 }
@@ -92,7 +92,7 @@ func (a *capableApp) HideSoftKeyboard()             { a.imeHideCount++ }
 func (a *capableApp) Destroy()                      {}
 
 type plainApp struct {
-	queue stubQueue
+	queue fakeQueue
 }
 
 func (a *plainApp) Events() platform.EventQueue { return a.queue }
@@ -114,9 +114,9 @@ func TestPlatformSurfaceInterface_implementable(t *testing.T) {
 
 func TestPlatformAppInterface_implementable(t *testing.T) {
 	var _ platform.App = (*capableApp)(nil)
-	var _ platform.Window = (*stubWindow)(nil)
-	var _ platform.EventQueue = stubQueue{}
-	var _ platform.Clipboard = (*stubClipboard)(nil)
+	var _ platform.Window = (*fakeWindow)(nil)
+	var _ platform.EventQueue = fakeQueue{}
+	var _ platform.Clipboard = (*fakeClipboard)(nil)
 	var _ platform.WindowCapable = (*capableApp)(nil)
 	var _ platform.ClipboardCapable = (*capableApp)(nil)
 	var _ platform.App = (*plainApp)(nil)
@@ -167,7 +167,7 @@ func TestPlatformAppInterface_implementable(t *testing.T) {
 }
 
 func TestPlatform_ContentScale_default(t *testing.T) {
-	win := &stubWindow{surface: &memSurface{}}
+	win := &fakeWindow{surface: &memSurface{}}
 	if got := win.ContentScale(); got != 1 {
 		t.Fatalf("ContentScale = %v, want 1", got)
 	}

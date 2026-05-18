@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
@@ -20,12 +21,12 @@ func TestDefault_all_color_tokens_non_zero(t *testing.T) {
 func TestDefault_spacing_tokens_increasing(t *testing.T) {
 	ctx := Default()
 	values := []float32{
-		ctx.Spacing(SpacingXS),
-		ctx.Spacing(SpacingS),
-		ctx.Spacing(SpacingM),
-		ctx.Spacing(SpacingL),
-		ctx.Spacing(SpacingXL),
-		ctx.Spacing(SpacingXXL),
+		ctx.Spacing(SpacingXS).Float32(),
+		ctx.Spacing(SpacingS).Float32(),
+		ctx.Spacing(SpacingM).Float32(),
+		ctx.Spacing(SpacingL).Float32(),
+		ctx.Spacing(SpacingXL).Float32(),
+		ctx.Spacing(SpacingXXL).Float32(),
 	}
 	for i := 1; i < len(values); i++ {
 		if values[i] <= values[i-1] {
@@ -47,14 +48,14 @@ func TestDefault_text_mono_is_monospace_family(t *testing.T) {
 }
 
 func TestDefault_radius_none_is_zero(t *testing.T) {
-	if got := Default().Radius(RadiusNone); got != 0 {
+	if got := Default().Radius(RadiusNone); got != layout.ResolvedScalar(0) {
 		t.Fatalf("radius none should be zero, got %v", got)
 	}
 }
 
 func TestDefault_radius_tokens_increasing(t *testing.T) {
 	ctx := Default()
-	if !(ctx.Radius(RadiusS) < ctx.Radius(RadiusM) && ctx.Radius(RadiusM) < ctx.Radius(RadiusL)) {
+	if !(ctx.Radius(RadiusS).Float32() < ctx.Radius(RadiusM).Float32() && ctx.Radius(RadiusM).Float32() < ctx.Radius(RadiusL).Float32()) {
 		t.Fatalf("radius tokens not increasing")
 	}
 }
@@ -70,11 +71,10 @@ func TestColorToken_constants_distinct(t *testing.T) {
 }
 
 func TestContext_interface_satisfied_by_default(t *testing.T) {
-	var _ Context = Default()
-	if _, ok := Default().(defaultContext); ok {
-		return
+	ctx := Default()
+	if _, ok := any(ctx).(ResolvedContext); !ok {
+		t.Fatalf("default context should be a resolved context, got %T", ctx)
 	}
-	t.Fatalf("default context should be backed by defaultContext")
 }
 
 func TestDefault_text_styles_are_stable(t *testing.T) {

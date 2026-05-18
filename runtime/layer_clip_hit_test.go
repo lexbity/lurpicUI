@@ -12,7 +12,7 @@ func TestLayerResolution_hitTraversal_respectsResolvedClip(t *testing.T) {
 
 	child := newCoordinateHitFacet(gfx.Size{W: 300, H: 300})
 
-	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{})
 	rt.window = &testWindow{width: 400, height: 300}
 	rt.AddFacet(root, child, facet.Attachment{LayerID: facet.LayerID(1)})
 	rt.RunOneFrame()
@@ -33,7 +33,7 @@ func TestLayerResolution_hitTraversal_respectsGroupClip(t *testing.T) {
 	root.layout.Parent = facet.GroupParentContract{Clipping: facet.GroupClipBounds}
 	child := newCoordinateHitFacet(gfx.Size{W: 300, H: 300})
 
-	rt := mustRuntimeWithBackend(t, root, &stubBackend{})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{})
 	rt.window = &testWindow{width: 400, height: 300}
 	rt.AddFacet(root, child, facet.Attachment{LayerID: facet.LayerID(1)})
 	rt.RunOneFrame()

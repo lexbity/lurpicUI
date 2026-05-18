@@ -39,7 +39,7 @@ import (
 	"errors"
 	"unsafe"
 
-	vkinternal "codeburg.org/lexbit/lurpicui/render/vulkan/internal"
+	"codeburg.org/lexbit/lurpicui/render/vulkan/internal"
 )
 
 type Capabilities struct {
@@ -173,7 +173,7 @@ func DestroyImage(handle uint64) error {
 func resetRustLibraryLoaderForTest() {}
 
 func translateStatus(code C.int) error {
-	return vkinternal.TranslateResult(vkinternal.ResultCode(code), cErrorMessage())
+	return internal.TranslateResult(internal.ResultCode(code), cErrorMessage())
 }
 
 func cErrorMessage() string {

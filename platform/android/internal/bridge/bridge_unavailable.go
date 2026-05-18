@@ -12,22 +12,13 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 )
 
-// Stub implementations for non-Android builds.
-// This allows the package to be imported on any platform,
-// though the actual functionality only works on Android.
+// Non-Android fallback implementations.
+// This keeps the package importable on any platform while returning
+// explicit platform errors for Android-only operations.
 
 type EventType int
 type TouchPhase int
 
-// Event category constants for type dispatching
-const (
-	EventLifecycle EventType = iota
-	EventWindow
-	EventTouch
-	EventKey
-)
-
-// Legacy event type constants (for backward compatibility)
 const (
 	EventTypeStart EventType = iota
 	EventTypeResume
@@ -80,7 +71,7 @@ type Event struct {
 	CursorPos  int
 }
 
-// EventQueue is a stub for non-Android builds.
+// EventQueue is the non-Android event queue.
 type EventQueue struct {
 	mu     sync.Mutex
 	cond   *sync.Cond

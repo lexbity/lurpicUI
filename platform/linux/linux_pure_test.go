@@ -8,7 +8,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
-	platformcommon "codeburg.org/lexbit/lurpicui/platform/internal/common"
+	"codeburg.org/lexbit/lurpicui/platform/internal/common"
 )
 
 func TestLinuxPureWindowGuards(t *testing.T) {
@@ -74,14 +74,14 @@ func TestLinuxPureKeyAndTextMappings(t *testing.T) {
 		0xff08: platform.KeyBackspace,
 	}
 	for sym, want := range cases {
-		if got := platformcommon.KeyFromKeysym(sym); got != want {
+		if got := common.KeyFromKeysym(sym); got != want {
 			t.Fatalf("keysym %#x mapped to %v, want %v", sym, got, want)
 		}
 	}
-	if got := platformcommon.KeyFromKeysym('Z'); got != platform.KeyZ {
+	if got := common.KeyFromKeysym('Z'); got != platform.KeyZ {
 		t.Fatalf("keyFromKeysym(Z) = %v", got)
 	}
-	if got := platformcommon.KeyFromKeysym(0); got != platform.KeyUnknown {
+	if got := common.KeyFromKeysym(0); got != platform.KeyUnknown {
 		t.Fatalf("keyFromKeysym(0) = %v", got)
 	}
 
@@ -91,19 +91,19 @@ func TestLinuxPureKeyAndTextMappings(t *testing.T) {
 		0xff0d: "\n",
 	}
 	for sym, want := range textCases {
-		got, ok := platformcommon.TextFromKeysym(sym)
+		got, ok := common.TextFromKeysym(sym)
 		if !ok || got != want {
 			t.Fatalf("textFromKeysym(%#x) = %q, %v", sym, got, ok)
 		}
 	}
-	if got, ok := platformcommon.TextFromKeysym(0xff08); ok || got != "" {
+	if got, ok := common.TextFromKeysym(0xff08); ok || got != "" {
 		t.Fatalf("textFromKeysym(backspace) = %q, %v", got, ok)
 	}
-	if got, ok := platformcommon.TextFromKeysym(0); ok || got != "" {
+	if got, ok := common.TextFromKeysym(0); ok || got != "" {
 		t.Fatalf("textFromKeysym(0) = %q, %v", got, ok)
 	}
 
-	mods := platformcommon.ModifiersFromState((1 << 0) | (1 << 2) | (1 << 3) | (1 << 6))
+	mods := common.ModifiersFromState((1 << 0) | (1 << 2) | (1 << 3) | (1 << 6))
 	wantMods := platform.ModShift | platform.ModControl | platform.ModAlt | platform.ModSuper
 	if mods != wantMods {
 		t.Fatalf("modifiersFromState = %v, want %v", mods, wantMods)

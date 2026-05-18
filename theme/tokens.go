@@ -227,8 +227,7 @@ func DarkTokens() Tokens {
 	return tokens
 }
 
-// ColorFor returns the color for a semantic role name.
-func (t Tokens) ColorFor(role string) gfx.Color {
+func (t Tokens) colorFor(role string) gfx.Color {
 	switch normalizeTokenName(role) {
 	case "background":
 		return t.Color.Background
@@ -271,8 +270,7 @@ func (t Tokens) ColorFor(role string) gfx.Color {
 	}
 }
 
-// TextStyleFor returns the text style for a semantic scale name.
-func (t Tokens) TextStyleFor(scale string) text.TextStyle {
+func (t Tokens) textStyleFor(scale string) text.TextStyle {
 	switch normalizeTokenName(scale) {
 	case "displaylarge":
 		return t.Typography.DisplayLarge
@@ -317,8 +315,7 @@ func (t Tokens) TextStyleFor(scale string) text.TextStyle {
 	}
 }
 
-// SpacingFor returns the spacing value for a semantic size name.
-func (t Tokens) SpacingFor(size string) float32 {
+func (t Tokens) spacingFor(size string) float32 {
 	switch normalizeTokenName(size) {
 	case "xxs":
 		return t.Spacing.XXS

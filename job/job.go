@@ -140,9 +140,6 @@ type Pool struct {
 	onDrain signal.Signal[signal.Unit]
 }
 
-// Start is retained for runtime compatibility. Worker goroutines already start in NewPool.
-func (p *Pool) Start() {}
-
 // Pause stops workers from pulling new jobs until Resume is called.
 func (p *Pool) Pause() {
 	if p == nil {
