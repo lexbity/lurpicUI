@@ -113,7 +113,7 @@ func measureChild(f facet.FacetImpl, c Constraints) gfx.Size {
 	if role == nil {
 		return gfx.Size{}
 	}
-	return role.Measure(c)
+	return role.Measure(facet.MeasureContext{}, c).Size
 }
 
 // arrangeChild runs the arrange pass on one child facet.
@@ -125,7 +125,7 @@ func arrangeChild(f facet.FacetImpl, bounds gfx.Rect) {
 	if role == nil {
 		return
 	}
-	role.Arrange(bounds)
+	role.Arrange(facet.ArrangeContext{}, bounds)
 }
 
 // deflateConstraints reduces available size by padding.

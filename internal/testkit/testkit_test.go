@@ -11,6 +11,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -28,12 +29,13 @@ func newTestRenderFacet() *testRenderFacet {
 	f.hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return facet.HitResult{}
 	}
-	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
-		return c.MaxSize
+	f.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: c.MaxSize}
 	}
-	f.layout.OnArrange = func(bounds gfx.Rect) {
+	f.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		f.layout.ArrangedBounds = bounds
 	}
+	f.layout.Child.SupportedPlacement = facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear
 	f.render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		list.Add(gfx.FillRect{
 			Rect:  bounds,
@@ -45,6 +47,60 @@ func newTestRenderFacet() *testRenderFacet {
 	f.AddRole(&f.layout)
 	f.AddRole(&f.render)
 	return f
+}
+
+func testHarnessConfig(t testing.TB) HarnessConfig {
+	t.Helper()
+	reg, err := layout.StandardLayerRegistry()
+	if err != nil {
+		t.Fatalf("standard layer registry: %v", err)
+	}
+	cfg := DefaultHarnessConfig()
+	cfg.LayerRegistry = reg
+	return cfg
+}
+
+func customInsertionRegistry(t testing.TB) *layout.LayerRegistry {
+	t.Helper()
+	b := layout.NewLayerRegistryBuilder()
+	if err := b.RegisterStandardLayers(); err != nil {
+		t.Fatalf("register standard layers: %v", err)
+	}
+	if _, err := b.RegisterLayer(layout.LayerRegistration{
+		Name:  "app.card",
+		Order: 2500,
+	}); err != nil {
+		t.Fatalf("register custom layer: %v", err)
+	}
+	reg, err := b.Freeze()
+	if err != nil {
+		t.Fatalf("freeze registry: %v", err)
+	}
+	return reg
+}
+
+func newColoredRenderFacet(fill color.RGBA) *testRenderFacet {
+	f := newTestRenderFacet()
+	f.render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+		list.Add(gfx.FillRect{
+			Rect:  bounds,
+			Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(fill.R, fill.G, fill.B, fill.A)),
+		})
+	}
+	return f
+}
+
+func TestHarnessConfig_usesFrozenStandardRegistry(t *testing.T) {
+	cfg := testHarnessConfig(t)
+	if cfg.LayerRegistry == nil {
+		t.Fatal("expected layer registry")
+	}
+	if got := len(cfg.LayerRegistry.OrderedLayers()); got == 0 {
+		t.Fatal("expected frozen standard layers")
+	}
+	if _, ok := cfg.LayerRegistry.LookupName(layout.StandardLayerBase); !ok {
+		t.Fatal("missing standard base layer")
+	}
 }
 
 func (f *testRenderFacet) Base() *facet.Facet {
@@ -230,7 +286,7 @@ func TestNullClipboard_write_read_roundtrip(t *testing.T) {
 }
 
 func TestHarness_run_frame_increments_count(t *testing.T) {
-	h := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+	h := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	h.RunFrame()
 	h.RunFrame()
 	if h.FrameCount != 2 {
@@ -244,6 +300,13 @@ func TestHarness_creates_without_panic(t *testing.T) {
 		Width:  320,
 		Height: 240,
 		Fonts:  []text.FontSource{{Name: "noto-sans", Data: data}},
+		LayerRegistry: func() *layout.LayerRegistry {
+			reg, err := layout.StandardLayerRegistry()
+			if err != nil {
+				t.Fatalf("standard layer registry: %v", err)
+			}
+			return reg
+		}(),
 	}, newTestRenderFacet())
 	if h == nil || h.Runtime() == nil || h.Surface() == nil {
 		t.Fatal("expected initialized harness")
@@ -256,7 +319,7 @@ func TestHarness_creates_without_panic(t *testing.T) {
 func TestHarness_cleanup_registered(t *testing.T) {
 	var h *Harness
 	t.Run("sub", func(t *testing.T) {
-		h = NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+		h = NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	})
 	if h == nil || h.app == nil || !h.app.destroyed {
 		t.Fatal("expected cleanup to destroy app")
@@ -264,7 +327,7 @@ func TestHarness_cleanup_registered(t *testing.T) {
 }
 
 func TestHarness_run_until_returns_true_on_condition(t *testing.T) {
-	h := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+	h := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	calls := 0
 	if !h.RunUntil(func() bool {
 		calls++
@@ -275,7 +338,7 @@ func TestHarness_run_until_returns_true_on_condition(t *testing.T) {
 }
 
 func TestHarness_run_until_returns_false_on_timeout(t *testing.T) {
-	h := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+	h := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	if h.RunUntil(func() bool { return false }, 2) {
 		t.Fatal("expected false")
 	}
@@ -291,7 +354,7 @@ func TestHarness_inject_event_visible_next_frame(t *testing.T) {
 		got++
 		return true
 	}
-	h := NewHarness(t, DefaultHarnessConfig(), root)
+	h := NewHarness(t, testHarnessConfig(t), root)
 	h.RunFrame()
 	before := got
 	h.InjectEvent(PointerMove(10, 20))
@@ -302,13 +365,13 @@ func TestHarness_inject_event_visible_next_frame(t *testing.T) {
 }
 
 func TestHarness_initial_frame_renders(t *testing.T) {
-	h := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+	h := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	h.RunFrame()
 	AssertNotBlank(t, h.Surface())
 }
 
 func TestHarness_frame_stats_populated(t *testing.T) {
-	h := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+	h := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	h.RunFrame()
 	stats := h.LastFrameStats()
 	if stats.RenderBatchCount == 0 {
@@ -320,8 +383,8 @@ func TestHarness_frame_stats_populated(t *testing.T) {
 }
 
 func TestHarness_multiple_independent_instances(t *testing.T) {
-	a := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
-	b := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+	a := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
+	b := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	a.RunFrame()
 	b.RunFrame()
 	if a.FrameCount != 1 || b.FrameCount != 1 {
@@ -333,7 +396,7 @@ func TestHarness_multiple_independent_instances(t *testing.T) {
 }
 
 func TestHarness_projection_cache_stable(t *testing.T) {
-	h := NewHarness(t, DefaultHarnessConfig(), newTestRenderFacet())
+	h := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	h.RunFrame()
 	first := h.LastFrameStats()
 	h.RunFrame()
@@ -344,6 +407,53 @@ func TestHarness_projection_cache_stable(t *testing.T) {
 	if second.ProjectedFacets != 0 {
 		t.Fatalf("expected cache reuse on second frame, got %#v", second)
 	}
+}
+
+func TestGoldenOrdering_standardStack(t *testing.T) {
+	root := newColoredRenderFacet(color.RGBA{R: 248, G: 248, B: 248, A: 255})
+	base := newColoredRenderFacet(color.RGBA{R: 75, G: 140, B: 255, A: 220})
+	floating := newColoredRenderFacet(color.RGBA{R: 255, G: 120, B: 64, A: 180})
+	modal := newColoredRenderFacet(color.RGBA{R: 80, G: 200, B: 120, A: 180})
+
+	h := NewHarness(t, testHarnessConfig(t), root)
+	rt := h.Runtime()
+	rt.AddFacet(root, base, facet.Attachment{LayerID: facet.LayerID(layout.StandardLayerIDBase)})
+	rt.AddFacet(root, floating, facet.Attachment{LayerID: facet.LayerID(layout.StandardLayerIDFloating)})
+	rt.AddFacet(root, modal, facet.Attachment{LayerID: facet.LayerID(layout.StandardLayerIDModal)})
+	h.RunFrame()
+
+	AssertGolden(t, h.Surface(), "ordering_standard_stack")
+}
+
+func TestGoldenOrdering_customInsertion(t *testing.T) {
+	root := newColoredRenderFacet(color.RGBA{R: 246, G: 246, B: 246, A: 255})
+	base := newColoredRenderFacet(color.RGBA{R: 64, G: 128, B: 224, A: 220})
+	card := newColoredRenderFacet(color.RGBA{R: 122, G: 196, B: 96, A: 190})
+	floating := newColoredRenderFacet(color.RGBA{R: 230, G: 96, B: 72, A: 180})
+
+	cfg := testHarnessConfig(t)
+	cfg.LayerRegistry = customInsertionRegistry(t)
+	h := NewHarness(t, cfg, root)
+	rt := h.Runtime()
+	reg := cfg.LayerRegistry
+	baseLayer, ok := reg.LookupName(layout.StandardLayerBase)
+	if !ok {
+		t.Fatal("missing base layer")
+	}
+	cardLayer, ok := reg.LookupName("app.card")
+	if !ok {
+		t.Fatal("missing custom card layer")
+	}
+	floatingLayer, ok := reg.LookupName(layout.StandardLayerFloating)
+	if !ok {
+		t.Fatal("missing floating layer")
+	}
+	rt.AddFacet(root, base, facet.Attachment{LayerID: facet.LayerID(baseLayer.ID)})
+	rt.AddFacet(root, card, facet.Attachment{LayerID: facet.LayerID(cardLayer.ID)})
+	rt.AddFacet(root, floating, facet.Attachment{LayerID: facet.LayerID(floatingLayer.ID)})
+	h.RunFrame()
+
+	AssertGolden(t, h.Surface(), "ordering_custom_insertion")
 }
 
 func TestAssertPixelColor_passes_on_match(t *testing.T) {

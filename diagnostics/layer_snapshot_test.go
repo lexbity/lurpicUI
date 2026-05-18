@@ -10,13 +10,19 @@ import (
 
 func TestLayerSnapshot_Frame_exposes_resolved_spatial_contract(t *testing.T) {
 	snap := LayerSnapshot{
-		LayerID:     7,
-		CoordSpace:  layout.CoordViewport,
-		Bounds:      gfx.RectFromXYWH(10, 20, 30, 40),
-		ClipRect:    gfx.RectFromXYWH(10, 20, 30, 40),
-		Transform:   gfx.Translation(15, 25),
-		RenderOrder: 9,
-		HitPolicy:   layout.HitPassThrough,
+		LayerID:        7,
+		LayerName:      "test",
+		WindowBinding:  "primary",
+		CoordSpace:     layout.CoordViewport,
+		Bounds:         gfx.RectFromXYWH(10, 20, 30, 40),
+		ClipRect:       gfx.RectFromXYWH(10, 20, 30, 40),
+		Transform:      gfx.Translation(15, 25),
+		RenderOrder:    9,
+		HitPolicy:      layout.HitPassThrough,
+		RootPolicyKind: "grid",
+		Materialized:   true,
+		CommandCount:   3,
+		HitRegionCount: 2,
 	}
 
 	frame := snap.Frame()
@@ -34,7 +40,7 @@ func TestLayerSnapshot_Frame_exposes_resolved_spatial_contract(t *testing.T) {
 	}
 
 	s := snap.String()
-	if !strings.Contains(s, "Frame=") || !strings.Contains(s, "CoordSpace=") || !strings.Contains(s, "ClipRect=") {
+	if !strings.Contains(s, "Frame=") || !strings.Contains(s, "CoordSpace=") || !strings.Contains(s, "ClipRect=") || !strings.Contains(s, "Materialized=true") {
 		t.Fatalf("snapshot string = %q", s)
 	}
 }

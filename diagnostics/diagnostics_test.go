@@ -48,8 +48,8 @@ func buildDiagTree(t *testing.T) (*diagTestFacet, *diagTestFacet, *diagTestFacet
 	child.AddChild(&grand.Facet)
 	root.AddRole(&facet.LayoutRole{
 		ArrangedBounds: gfx.RectFromXYWH(0, 0, 100, 100),
-		OnMeasure: func(c facet.Constraints) gfx.Size {
-			return gfx.Size{W: 100, H: 100}
+		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+			return facet.MeasureResult{Size: gfx.Size{W: 100, H: 100}}
 		},
 	})
 	child.AddRole(&facet.RenderRole{})
@@ -160,13 +160,32 @@ func TestInspector_describe_includes_layers_and_anchors(t *testing.T) {
 	insp.SetLayerSource(fakeLayerSource{
 		layers: map[facet.FacetID][]LayerSnapshot{
 			root.ID(): {{
-				LayerID:     7,
-				Placement:   layout.PlacementStack,
-				Measurement: layout.MeasureStructural,
-				CoordSpace:  layout.CoordParentLayout,
-				RenderOrder: 3,
-				HitPolicy:   layout.HitPassThrough,
-				Bounds:      gfx.RectFromXYWH(1, 2, 3, 4),
+				LayerID:        7,
+				LayerName:      "root-layer",
+				WindowBinding:  "primary",
+				Placement:      layout.PlacementStack,
+				Measurement:    layout.MeasureStructural,
+				CoordSpace:     layout.CoordParentLayout,
+				RenderOrder:    3,
+				HitPolicy:      layout.HitPassThrough,
+				RootPolicyKind: "grid",
+				RecipeVersion:  11,
+				Materialized:   true,
+				CommandCount:   2,
+				HitRegionCount: 4,
+				Bounds:         gfx.RectFromXYWH(1, 2, 3, 4),
+				ArrangedChildren: []ArrangedChildSnapshot{{
+					FacetID:       child.ID(),
+					LayerID:       8,
+					WindowBinding: "primary",
+					Placement:     facet.PlacementFree,
+					HitPolicy:     facet.HitNormal,
+					ClipPolicy:    facet.ClipToParent,
+					ZPriority:     1,
+					Bounds:        gfx.RectFromXYWH(5, 6, 7, 8),
+					ClipRect:      gfx.RectFromXYWH(5, 6, 7, 8),
+					Materialized:  true,
+				}},
 			}},
 		},
 	})
@@ -190,8 +209,14 @@ func TestInspector_describe_includes_layers_and_anchors(t *testing.T) {
 	if len(info.Layers) != 1 || info.Layers[0].LayerID != 7 {
 		t.Fatalf("layers = %#v", info.Layers)
 	}
+	if info.Layers[0].LayerName != "root-layer" || !info.Layers[0].Materialized || info.Layers[0].CommandCount != 2 || info.Layers[0].HitRegionCount != 4 {
+		t.Fatalf("layer metadata = %#v", info.Layers[0])
+	}
+	if len(info.Layers[0].ArrangedChildren) != 1 || info.Layers[0].ArrangedChildren[0].FacetID != child.ID() {
+		t.Fatalf("arranged children = %#v", info.Layers[0].ArrangedChildren)
+	}
 	desc := insp.Describe()
-	if desc == "" || !strings.Contains(desc, "Layers:") || !strings.Contains(desc, "mark") {
+	if desc == "" || !strings.Contains(desc, "Layers:") || !strings.Contains(desc, "ArrangedChildren:") || !strings.Contains(desc, "mark") {
 		t.Fatalf("describe output = %q", desc)
 	}
 }
@@ -221,8 +246,15 @@ func TestHitProbe_at_returns_all_RenderBatchs(t *testing.T) {
 	root, child, _ := buildDiagTree(t)
 	hitMap := projection.NewHitMap(
 		projection.HitMapEntry{
-			FacetID:   root.ID(),
-			Transform: gfx.Identity(),
+			FacetID:    root.ID(),
+			LayerID:    9,
+			LayerOrder: 9000,
+			Placement:  facet.PlacementFree,
+			HitPolicy:  facet.HitPassThrough,
+			ClipPolicy: facet.ClipToParent,
+			ZPriority:  7,
+			Transform:  gfx.Identity(),
+			ClipRect:   gfx.RectFromXYWH(0, 0, 50, 50),
 			Regions: []projection.HitRegion{{
 				Bounds:      gfx.RectFromXYWH(0, 0, 50, 50),
 				MarkID:      1,
@@ -247,6 +279,55 @@ func TestHitProbe_at_returns_all_RenderBatchs(t *testing.T) {
 	}
 	if !got[0].PassThrough || got[0].FacetID != root.ID() || got[1].FacetID != child.ID() {
 		t.Fatalf("hits order = %#v", got)
+	}
+	if got[0].LayerID != 9 || got[0].LayerOrder != 9000 || got[0].Placement != facet.PlacementFree || got[0].HitPolicy != facet.HitPassThrough || got[0].ClipPolicy != facet.ClipToParent || got[0].ZPriority != 7 || got[0].EffectiveClip != (gfx.RectFromXYWH(0, 0, 50, 50)) {
+		t.Fatalf("metadata = %#v", got[0])
+	}
+}
+
+func TestHitProbe_at_respects_clip_and_reports_effective_clip(t *testing.T) {
+	root, _, _ := buildDiagTree(t)
+	hitMap := projection.NewHitMap(projection.HitMapEntry{
+		FacetID:    root.ID(),
+		LayerID:    7,
+		LayerOrder: 7000,
+		Placement:  facet.PlacementFree,
+		HitPolicy:  facet.HitNormal,
+		ClipPolicy: facet.ClipToParent,
+		Transform:  gfx.Identity(),
+		ClipRect:   gfx.RectFromXYWH(0, 0, 20, 20),
+		Regions: []projection.HitRegion{{
+			Bounds: gfx.RectFromXYWH(0, 0, 50, 50),
+			MarkID: 1,
+		}},
+	})
+	probe := NewHitProbe(root, hitMap)
+	if got := probe.At(gfx.Point{X: 30, Y: 30}); len(got) != 0 {
+		t.Fatalf("expected clipped-out point to miss, got %#v", got)
+	}
+	got := probe.At(gfx.Point{X: 10, Y: 10})
+	if len(got) != 1 {
+		t.Fatalf("hits = %#v", got)
+	}
+	if got[0].EffectiveClip != (gfx.RectFromXYWH(0, 0, 20, 20)) {
+		t.Fatalf("effective clip = %#v", got[0].EffectiveClip)
+	}
+}
+
+func TestPanicContext_String_includes_actionable_context(t *testing.T) {
+	got := ContractViolationMessage(PanicContext{
+		FacetID:    42,
+		MarkID:     7,
+		LayerID:    9,
+		LayerName:  "overlay",
+		LayerOrder: 6000,
+		Placement:  facet.PlacementFree,
+		HitPolicy:  "pass-through",
+		ClipPolicy: "clip",
+		Guidance:   "use grid placement",
+	})
+	if got != "layout contract violation: facet 42; mark 7; layer 9 (overlay); order 6000; placement 2; hit policy pass-through; clip policy clip; use grid placement" {
+		t.Fatalf("panic context = %q", got)
 	}
 }
 
@@ -336,7 +417,9 @@ func buildOverlayTree(t *testing.T) (*diagTestFacet, *diagTestFacet, *diagTestFa
 	makeLayout := func(x, y float32) *facet.LayoutRole {
 		return &facet.LayoutRole{
 			ArrangedBounds: gfx.RectFromXYWH(x, y, 40, 40),
-			OnMeasure:      func(c facet.Constraints) gfx.Size { return gfx.Size{W: 40, H: 40} },
+			OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+				return facet.MeasureResult{Size: gfx.Size{W: 40, H: 40}}
+			},
 		}
 	}
 	root := newDiagTestFacet("root")

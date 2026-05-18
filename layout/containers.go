@@ -19,8 +19,12 @@ type StackLayout struct {
 // NewStackLayout constructs a stack layout.
 func NewStackLayout(alignment Alignment) *StackLayout {
 	s := &StackLayout{Facet: facet.NewFacet(), Alignment: alignment}
-	s.layout.OnMeasure = s.onMeasure
-	s.layout.OnArrange = s.onArrange
+	s.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: s.onMeasure(c)}
+	}
+	s.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.onArrange(bounds)
+	}
 	s.AddRole(&s.layout)
 	return s
 }
@@ -100,8 +104,12 @@ type RowLayout struct {
 // NewRowLayout constructs a row layout.
 func NewRowLayout() *RowLayout {
 	r := &RowLayout{Facet: facet.NewFacet()}
-	r.layout.OnMeasure = r.onMeasure
-	r.layout.OnArrange = r.onArrange
+	r.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: r.onMeasure(c)}
+	}
+	r.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		r.onArrange(bounds)
+	}
 	r.AddRole(&r.layout)
 	return r
 }
@@ -129,8 +137,12 @@ type ColumnLayout struct {
 // NewColumnLayout constructs a column layout.
 func NewColumnLayout() *ColumnLayout {
 	c := &ColumnLayout{Facet: facet.NewFacet()}
-	c.layout.OnMeasure = c.onMeasure
-	c.layout.OnArrange = c.onArrange
+	c.layout.OnMeasure = func(ctx facet.MeasureContext, cons Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: c.onMeasure(cons)}
+	}
+	c.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		c.onArrange(bounds)
+	}
 	c.AddRole(&c.layout)
 	return c
 }
@@ -363,8 +375,12 @@ type PaddingLayout struct {
 // NewPaddingLayout constructs a padding layout.
 func NewPaddingLayout(child facet.FacetImpl, padding gfx.Insets) *PaddingLayout {
 	p := &PaddingLayout{Facet: facet.NewFacet(), Child: child, Padding: padding}
-	p.layout.OnMeasure = p.onMeasure
-	p.layout.OnArrange = p.onArrange
+	p.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: p.onMeasure(c)}
+	}
+	p.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		p.onArrange(bounds)
+	}
 	p.AddRole(&p.layout)
 	if child != nil {
 		p.AddChild(child.Base())
@@ -408,8 +424,12 @@ type SizedBox struct {
 // NewSizedBox constructs a sized box.
 func NewSizedBox(w, h float32, child facet.FacetImpl) *SizedBox {
 	s := &SizedBox{Facet: facet.NewFacet(), Child: child, Width: w, Height: h}
-	s.layout.OnMeasure = s.onMeasure
-	s.layout.OnArrange = s.onArrange
+	s.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: s.onMeasure(c)}
+	}
+	s.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.onArrange(bounds)
+	}
 	s.AddRole(&s.layout)
 	if child != nil {
 		s.AddChild(child.Base())
@@ -457,8 +477,12 @@ type SplitLayout struct {
 // NewSplitLayout constructs a split layout.
 func NewSplitLayout(axis SplitAxis, fraction float32) *SplitLayout {
 	s := &SplitLayout{Facet: facet.NewFacet(), Axis: axis, SplitFraction: fraction}
-	s.layout.OnMeasure = s.onMeasure
-	s.layout.OnArrange = s.onArrange
+	s.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: s.onMeasure(c)}
+	}
+	s.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.onArrange(bounds)
+	}
 	s.AddRole(&s.layout)
 	return s
 }
@@ -556,8 +580,12 @@ type ScrollLayout struct {
 // NewScrollLayout constructs a scroll layout.
 func NewScrollLayout(axes ScrollAxes, child facet.FacetImpl) *ScrollLayout {
 	s := &ScrollLayout{Facet: facet.NewFacet(), Child: child, ScrollAxes: axes}
-	s.layout.OnMeasure = s.onMeasure
-	s.layout.OnArrange = s.onArrange
+	s.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: s.onMeasure(c)}
+	}
+	s.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.onArrange(bounds)
+	}
 	s.AddRole(&s.layout)
 	if child != nil {
 		s.AddChild(child.Base())

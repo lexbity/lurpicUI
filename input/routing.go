@@ -91,6 +91,21 @@ type TextInputEvent struct {
 	Composing bool
 }
 
+type DismissEvent struct {
+	Trigger    facet.DismissalTrigger
+	ScreenPos  gfx.Point
+	HitFacetID facet.FacetID
+	HitMarkID  facet.MarkID
+	HitLayerID facet.LayerID
+	HitOrder   int
+}
+
+type resolvedHitTarget struct {
+	FacetID facet.FacetID
+	MarkID  facet.MarkID
+	Local   gfx.Point
+}
+
 type TouchInputEvent struct {
 	Event facet.TouchEvent
 }
@@ -106,6 +121,7 @@ func (PointerLeaveEvent) isDeliveredEvent()   {}
 func (ScrollEvent) isDeliveredEvent()         {}
 func (KeyInputEvent) isDeliveredEvent()       {}
 func (TextInputEvent) isDeliveredEvent()      {}
+func (DismissEvent) isDeliveredEvent()        {}
 func (TouchInputEvent) isDeliveredEvent()     {}
 func (ClickEvent) isDeliveredEvent()          {}
 func (DragStartEvent) isDeliveredEvent()      {}
@@ -118,6 +134,7 @@ func (s *System) processTouch(e platform.TouchEvent, hitMap *projection.HitMap) 
 	if s == nil {
 		return nil
 	}
+	s.SetInputModality(facet.InputModalityTouch)
 	touch := s.getOrCreateTouch(e.SequenceID)
 	if touch == nil {
 		return nil
@@ -136,19 +153,7 @@ func (s *System) processTouch(e platform.TouchEvent, hitMap *projection.HitMap) 
 		touch.StartPosition = screenPos
 		touch.ScreenStart = screenPos
 		if hitMap != nil {
-			hit := hitMap.HitTest(screenPos)
-			if hit != nil {
-				if s.focusTree != nil {
-					if refined := refineHitTest(s.focusTree, hit.FacetID, s.transformToLocal(screenPos, hit.FacetID, hitMap)); refined != nil {
-						if !refined.Hit {
-							hit = nil
-						} else {
-							hit.MarkID = refined.MarkID
-						}
-					}
-				}
-			}
-			if hit != nil {
+			if hit := s.resolveHitTarget(hitMap, screenPos); hit != nil {
 				targetID = hit.FacetID
 				markID = hit.MarkID
 				touch.Target = hit.FacetID
@@ -221,6 +226,8 @@ func (s *System) syntheticPointerEvents(touch *TouchState, e platform.TouchEvent
 	if s == nil || touch == nil || !touch.SyntheticPointer {
 		return nil
 	}
+	modality := s.CurrentInputModality()
+	s.SetInputModality(facet.InputModalityPointer)
 	ptrEvent := platform.EventPointer{Position: gfx.Point{X: e.X, Y: e.Y}}
 	switch e.Phase {
 	case platform.TouchDown:
@@ -234,11 +241,15 @@ func (s *System) syntheticPointerEvents(touch *TouchState, e platform.TouchEvent
 	case platform.TouchCancel:
 		s.handleCancel(s.getOrCreatePointer(0))
 		touch.SyntheticPointer = false
+		s.SetInputModality(modality)
 		return nil
 	default:
+		s.SetInputModality(modality)
 		return nil
 	}
-	return s.processPointer(ptrEvent, hitMap)
+	routed := s.processPointer(ptrEvent, hitMap)
+	s.SetInputModality(modality)
+	return routed
 }
 
 func touchSyntheticSuppressed(target facet.FacetID, tree facet.FacetImpl) bool {
@@ -262,6 +273,7 @@ func (s *System) processPointer(e platform.EventPointer, hitMap *projection.HitM
 	if s == nil {
 		return nil
 	}
+	s.SetInputModality(facet.InputModalityPointer)
 	ptr := s.getOrCreatePointer(0)
 	ptr.Position = e.Position
 	ptr.LastMoveTime = time.Now()
@@ -293,7 +305,7 @@ func (s *System) handlePress(ptr *PointerState, e platform.EventPointer, hitMap 
 		ptr.DragActive = false
 		return nil
 	}
-	hit := hitMap.HitTest(e.Position)
+	hit := s.resolveHitTarget(hitMap, e.Position)
 	if hit == nil {
 		ptr.PressedButton = e.Button
 		ptr.PressTarget = nil
@@ -304,19 +316,7 @@ func (s *System) handlePress(ptr *PointerState, e platform.EventPointer, hitMap 
 	ptr.PressPosition = e.Position
 	ptr.DragActive = false
 	ptr.clickCount = s.resolveClickCount(e.Position, time.Now())
-	local := s.transformToLocal(e.Position, hit.FacetID, hitMap)
-
-	// Allow the facet's OnHitTest to refine the MarkID and filter transparent hits.
-	if s.focusTree != nil {
-		if refined := refineHitTest(s.focusTree, hit.FacetID, local); refined != nil {
-			if !refined.Hit {
-				// OnHitTest reports nothing at this position; treat as a miss.
-				ptr.PressTarget = nil
-				return nil
-			}
-			hit.MarkID = refined.MarkID
-		}
-	}
+	local := hit.Local
 
 	ptr.PressTarget = &CaptureTarget{FacetID: hit.FacetID, MarkID: hit.MarkID}
 	return []RoutedEvent{{
@@ -330,21 +330,6 @@ func (s *System) handlePress(ptr *PointerState, e platform.EventPointer, hitMap 
 			ClickCount: ptr.clickCount,
 		},
 	}}
-}
-
-// refineHitTest calls a facet's OnHitTest (if any) to resolve the per-element MarkID
-// at localPos. Returns nil when the facet has no OnHitTest.
-func refineHitTest(tree facet.FacetImpl, id facet.FacetID, localPos gfx.Point) *facet.HitResult {
-	path := findFacetPath(tree, id)
-	if len(path) == 0 {
-		return nil
-	}
-	hr := path[len(path)-1].Base().HitRole()
-	if hr == nil || hr.OnHitTest == nil {
-		return nil
-	}
-	result := hr.HitTest(localPos)
-	return &result
 }
 
 func (s *System) handleMove(ptr *PointerState, e platform.EventPointer, hitMap *projection.HitMap) []RoutedEvent {
@@ -418,7 +403,7 @@ func (s *System) handleMove(ptr *PointerState, e platform.EventPointer, hitMap *
 		ptr.Position = e.Position
 		return nil
 	}
-	hit := hitMap.HitTest(e.Position)
+	hit := s.resolveHitTarget(hitMap, e.Position)
 	if hit == nil {
 		if s.hover.currentFacet != 0 {
 			out := []RoutedEvent{{Target: s.hover.currentFacet, Event: PointerLeaveEvent{MarkID: s.hover.currentMark}}}
@@ -435,11 +420,9 @@ func (s *System) handleMove(ptr *PointerState, e platform.EventPointer, hitMap *
 		out = append(out, RoutedEvent{Target: s.hover.currentFacet, Event: PointerLeaveEvent{MarkID: s.hover.currentMark}})
 	}
 	if s.hover.currentFacet != hit.FacetID {
-		local := s.transformToLocal(e.Position, hit.FacetID, hitMap)
-		out = append(out, RoutedEvent{Target: hit.FacetID, Event: PointerEnterEvent{Position: local, ScreenPos: e.Position, MarkID: hit.MarkID}})
+		out = append(out, RoutedEvent{Target: hit.FacetID, Event: PointerEnterEvent{Position: hit.Local, ScreenPos: e.Position, MarkID: hit.MarkID}})
 	}
-	local := s.transformToLocal(e.Position, hit.FacetID, hitMap)
-	out = append(out, RoutedEvent{Target: hit.FacetID, Event: PointerMoveEvent{Position: local, ScreenPos: e.Position, Modifiers: e.Modifiers, MarkID: hit.MarkID}})
+	out = append(out, RoutedEvent{Target: hit.FacetID, Event: PointerMoveEvent{Position: hit.Local, ScreenPos: e.Position, Modifiers: e.Modifiers, MarkID: hit.MarkID}})
 	s.hover.OnMove(hit.FacetID, hit.MarkID, time.Now())
 	ptr.Position = e.Position
 	return out
@@ -498,6 +481,7 @@ func (s *System) processScroll(e platform.EventScroll, hitMap *projection.HitMap
 	if s == nil {
 		return nil
 	}
+	s.SetInputModality(facet.InputModalityPointer)
 	ptr := s.getOrCreatePointer(0)
 	var targetID facet.FacetID
 	var markID facet.MarkID
@@ -505,7 +489,7 @@ func (s *System) processScroll(e platform.EventScroll, hitMap *projection.HitMap
 		targetID = ptr.PressTarget.FacetID
 		markID = ptr.PressTarget.MarkID
 	} else if hitMap != nil {
-		if hit := hitMap.HitTest(e.Position); hit != nil {
+		if hit := s.resolveHitTarget(hitMap, e.Position); hit != nil {
 			targetID = hit.FacetID
 			markID = hit.MarkID
 		}
@@ -527,10 +511,94 @@ func (s *System) processScroll(e platform.EventScroll, hitMap *projection.HitMap
 	}}
 }
 
+func (s *System) resolveHitTarget(hitMap *projection.HitMap, screenPos gfx.Point) *resolvedHitTarget {
+	if s == nil || hitMap == nil {
+		return nil
+	}
+	entries := hitMap.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	var passthrough *resolvedHitTarget
+	for _, entry := range entries {
+		if entry.HitPolicy == facet.HitDisabled {
+			continue
+		}
+		local := screenPos
+		if inv, ok := entry.Transform.Inverse(); ok {
+			local = inv.TransformPoint(screenPos)
+		}
+		if !entry.ClipRect.IsEmpty() {
+			clip := entry.ClipRect
+			if inv, ok := entry.Transform.Inverse(); ok {
+				clip = inv.TransformRect(clip)
+			}
+			if !clip.Contains(local) {
+				if entry.HitPolicy == facet.HitBlockBelow {
+					return passthrough
+				}
+				continue
+			}
+		}
+		matched := false
+		for _, region := range entry.Regions {
+			if !projection.HitRegionContains(region, local) {
+				continue
+			}
+			matched = true
+			markID, accepted := s.resolveHitMark(entry.FacetID, local, region.MarkID)
+			if !accepted {
+				if entry.HitPolicy == facet.HitBlockBelow {
+					return passthrough
+				}
+				continue
+			}
+			target := &resolvedHitTarget{
+				FacetID: entry.FacetID,
+				MarkID:  markID,
+				Local:   local,
+			}
+			if entry.HitPolicy == facet.HitPassThrough || region.PassThrough {
+				if passthrough == nil {
+					passthrough = target
+				}
+				continue
+			}
+			return target
+		}
+		if entry.HitPolicy == facet.HitBlockBelow {
+			return passthrough
+		}
+		if !matched && entry.HitPolicy == facet.HitPassThrough && passthrough == nil {
+			// Continue looking below. If nothing consumes, the first pass-through hit
+			// stays as the fallback target.
+		}
+	}
+	return passthrough
+}
+
+func (s *System) resolveHitMark(target facet.FacetID, localPos gfx.Point, regionMark facet.MarkID) (facet.MarkID, bool) {
+	if s == nil {
+		return regionMark, true
+	}
+	result := refineHitTest(s.focusTree, target, localPos)
+	if result == nil {
+		return regionMark, true
+	}
+	if !result.Hit {
+		return 0, false
+	}
+	if result.MarkID != 0 {
+		return result.MarkID, true
+	}
+	return regionMark, true
+}
+
 func (s *System) processKey(e platform.EventKey) []RoutedEvent {
 	if s == nil {
 		return nil
 	}
+	s.SetInputModality(facet.InputModalityKeyboard)
 	targetID := s.focus.Focused()
 	if s.focusManager != nil && s.focusManager.Focused() != 0 {
 		targetID = s.focusManager.Focused()
@@ -569,6 +637,7 @@ func (s *System) processText(e platform.EventText) []RoutedEvent {
 	if s == nil {
 		return nil
 	}
+	s.SetInputModality(facet.InputModalityKeyboard)
 	targetID := s.focus.Focused()
 	if s.focusManager != nil && s.focusManager.Focused() != 0 {
 		targetID = s.focusManager.Focused()
@@ -586,6 +655,7 @@ func (s *System) processIMEText(text string, composing bool) []RoutedEvent {
 	if s == nil {
 		return nil
 	}
+	s.SetInputModality(facet.InputModalityKeyboard)
 	var focused facet.FacetImpl
 	if s.focusManager != nil {
 		focused = s.focusManager.FocusedImpl()
@@ -606,6 +676,21 @@ func (s *System) processIMEText(text string, composing bool) []RoutedEvent {
 		Target: focused.Base().ID(),
 		Event:  TextInputEvent{Text: text, Composing: composing},
 	}}
+}
+
+// refineHitTest calls a facet's OnHitTest (if any) to resolve the per-element MarkID
+// at localPos. Returns nil when the facet has no OnHitTest.
+func refineHitTest(tree facet.FacetImpl, id facet.FacetID, localPos gfx.Point) *facet.HitResult {
+	path := findFacetPath(tree, id)
+	if len(path) == 0 {
+		return nil
+	}
+	hr := path[len(path)-1].Base().HitRole()
+	if hr == nil || hr.OnHitTest == nil {
+		return nil
+	}
+	result := hr.HitTest(localPos)
+	return &result
 }
 
 func (s *System) requestFocus(targetID facet.FacetID, tree facet.FacetImpl) facet.FacetID {
@@ -738,6 +823,7 @@ func (s *System) Process(events []platform.Event, hitMap *projection.HitMap, tre
 			if !ev.Focused {
 				s.ClearPointerState()
 				s.focus.Clear()
+				s.SetInputModality(facet.InputModalityUnknown)
 			}
 		}
 	}
@@ -904,6 +990,19 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 			return false
 		}
 		return role.OnText(facet.TextEvent{Text: ev.Text, Composing: ev.Composing})
+	case DismissEvent:
+		role := base.InputRole()
+		if role == nil || role.OnDismiss == nil {
+			return false
+		}
+		return role.OnDismiss(facet.DismissEvent{
+			Trigger:    ev.Trigger,
+			ScreenPos:  ev.ScreenPos,
+			HitFacetID: ev.HitFacetID,
+			HitMarkID:  ev.HitMarkID,
+			HitLayerID: ev.HitLayerID,
+			HitOrder:   ev.HitOrder,
+		})
 	case TouchInputEvent:
 		role := base.InputRole()
 		if role == nil || role.OnTouch == nil {
@@ -944,7 +1043,7 @@ func deliverPointer(base *facet.Facet, kind platform.PointerEventKind, local, sc
 
 func isBubbling(e DeliveredEvent) bool {
 	switch e.(type) {
-	case PointerEnterEvent, PointerLeaveEvent, HoverSettledEvent, FocusGainedEvent, FocusLostEvent:
+	case PointerEnterEvent, PointerLeaveEvent, HoverSettledEvent, FocusGainedEvent, FocusLostEvent, DismissEvent:
 		return false
 	default:
 		return true

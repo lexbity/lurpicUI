@@ -3,6 +3,7 @@ package app
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -46,6 +47,8 @@ type Config struct {
 	Runtime runtime.Config
 	Fonts   []FontSource
 	Theme   theme.Context
+	// PlatformApp reuses an existing platform application instead of creating one internally.
+	PlatformApp platform.App
 	// Render selects the preferred renderer. Vulkan is the default; software
 	// is used as a fallback when Vulkan initialization fails.
 	Render RenderBackendKind

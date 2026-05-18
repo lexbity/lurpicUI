@@ -11,16 +11,16 @@ func (k VariantKey) String() string {
 	return string(k)
 }
 
-// RecipeResolver resolves a typed recipe for a style context and variant.
+// RecipeResolver resolves a typed recipe for a resolved theme context and variant.
 type RecipeResolver[T any] interface {
-	Resolve(ctx StyleContext, variant VariantKey) T
+	Resolve(ctx ResolvedContext, variant VariantKey) T
 }
 
 // RecipeFunc adapts a function to RecipeResolver.
-type RecipeFunc[T any] func(ctx StyleContext, variant VariantKey) T
+type RecipeFunc[T any] func(ctx ResolvedContext, variant VariantKey) T
 
 // Resolve implements RecipeResolver.
-func (f RecipeFunc[T]) Resolve(ctx StyleContext, variant VariantKey) T {
+func (f RecipeFunc[T]) Resolve(ctx ResolvedContext, variant VariantKey) T {
 	return f(ctx, variant)
 }
 

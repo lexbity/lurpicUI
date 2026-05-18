@@ -146,6 +146,12 @@ func (i *Inspector) Describe() string {
 			fmt.Fprintf(&b, "%s  Layers:\n", indent)
 			for _, layer := range info.Layers {
 				fmt.Fprintf(&b, "%s    %s\n", indent, layer.String())
+				if len(layer.ArrangedChildren) > 0 {
+					fmt.Fprintf(&b, "%s      ArrangedChildren:\n", indent)
+					for _, child := range layer.ArrangedChildren {
+						fmt.Fprintf(&b, "%s        %s\n", indent, child.String())
+					}
+				}
 			}
 		}
 		if snap, ok := i.AnchorSnapshot(info.ID); ok {

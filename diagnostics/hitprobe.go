@@ -8,11 +8,18 @@ import (
 
 // HitProbeResult is a fully expanded hit-map entry for inspection.
 type HitProbeResult struct {
-	FacetID     facet.FacetID
-	FacetType   string
-	MarkID      facet.MarkID
-	Region      gfx.Rect
-	PassThrough bool
+	FacetID       facet.FacetID
+	FacetType     string
+	LayerID       facet.LayerID
+	LayerOrder    int
+	Placement     facet.PlacementMode
+	HitPolicy     facet.HitPolicy
+	ClipPolicy    facet.ClipPolicy
+	ZPriority     int32
+	MarkID        facet.MarkID
+	Bounds        gfx.Rect
+	EffectiveClip gfx.Rect
+	PassThrough   bool
 }
 
 // HitProbe exposes the complete set of hit results for a point.
@@ -23,10 +30,17 @@ type HitProbe struct {
 
 // HitProbeEntry is a stable snapshot of one hit-map entry.
 type HitProbeEntry struct {
-	FacetID   facet.FacetID
-	FacetType string
-	Transform gfx.Transform
-	Regions   []projection.HitRegion
+	FacetID    facet.FacetID
+	FacetType  string
+	LayerID    facet.LayerID
+	LayerOrder int
+	Placement  facet.PlacementMode
+	HitPolicy  facet.HitPolicy
+	ClipPolicy facet.ClipPolicy
+	ZPriority  int32
+	Transform  gfx.Transform
+	ClipRect   gfx.Rect
+	Regions    []projection.HitRegion
 }
 
 // HitProbeSource provides a current hit-probe snapshot.
@@ -69,16 +83,32 @@ func (p *HitProbe) At(screenPoint gfx.Point) []HitProbeResult {
 		if inv, ok := entry.Transform.Inverse(); ok {
 			local = inv.TransformPoint(screenPoint)
 		}
+		clip := entry.ClipRect
+		if !clip.IsEmpty() {
+			if inv, ok := entry.Transform.Inverse(); ok {
+				clip = inv.TransformRect(clip)
+			}
+			if !clip.Contains(local) {
+				continue
+			}
+		}
 		for _, region := range entry.Regions {
 			if !projection.HitRegionContains(region, local) {
 				continue
 			}
 			out = append(out, HitProbeResult{
-				FacetID:     entry.FacetID,
-				FacetType:   p.typeNames[entry.FacetID],
-				MarkID:      region.MarkID,
-				Region:      region.Bounds,
-				PassThrough: region.PassThrough,
+				FacetID:       entry.FacetID,
+				FacetType:     p.typeNames[entry.FacetID],
+				LayerID:       entry.LayerID,
+				LayerOrder:    entry.LayerOrder,
+				Placement:     entry.Placement,
+				HitPolicy:     entry.HitPolicy,
+				ClipPolicy:    entry.ClipPolicy,
+				ZPriority:     entry.ZPriority,
+				MarkID:        region.MarkID,
+				Bounds:        region.Bounds,
+				EffectiveClip: clip,
+				PassThrough:   region.PassThrough,
 			})
 		}
 	}
@@ -99,10 +129,17 @@ func (p *HitProbe) Entries() []HitProbeEntry {
 		regions := make([]projection.HitRegion, len(entry.Regions))
 		copy(regions, entry.Regions)
 		out = append(out, HitProbeEntry{
-			FacetID:   entry.FacetID,
-			FacetType: p.typeNames[entry.FacetID],
-			Transform: entry.Transform,
-			Regions:   regions,
+			FacetID:    entry.FacetID,
+			FacetType:  p.typeNames[entry.FacetID],
+			LayerID:    entry.LayerID,
+			LayerOrder: entry.LayerOrder,
+			Placement:  entry.Placement,
+			HitPolicy:  entry.HitPolicy,
+			ClipPolicy: entry.ClipPolicy,
+			ZPriority:  entry.ZPriority,
+			Transform:  entry.Transform,
+			ClipRect:   entry.ClipRect,
+			Regions:    regions,
 		})
 	}
 	return out

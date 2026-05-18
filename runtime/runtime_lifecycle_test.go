@@ -318,10 +318,10 @@ func newRuntimeIMEFacet() *runtimeIMEFacet {
 	f.focus.Focusable = func() bool { return true }
 	f.text.CaretVisible = true
 	f.text.IMEEnabled = true
-	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
-		return gfx.Size{W: 8, H: 8}
+	f.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: 8, H: 8}}
 	}
-	f.layout.OnArrange = func(bounds gfx.Rect) {
+	f.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		f.layout.ArrangedBounds = bounds
 	}
 	f.AddRole(&f.focus)

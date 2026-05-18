@@ -8,9 +8,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/hashutil"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/layout"
-	projectedpolicy "codeburg.org/lexbit/lurpicui/layout/projected"
+	"codeburg.org/lexbit/lurpicui/projection"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type layoutPhaseStats struct {
@@ -19,11 +21,6 @@ type layoutPhaseStats struct {
 	structuralMeasure     time.Duration
 	layerBoundsResolution time.Duration
 	arrange               time.Duration
-}
-
-type layerChildRef struct {
-	base       *facet.Facet
-	attachment layout.ChildAttachment
 }
 
 func (rt *Runtime) resolveLayerTree() layoutPhaseStats {
@@ -146,18 +143,7 @@ func (rt *Runtime) reconcileAnchorExports(parent facet.FacetImpl) {
 		return
 	}
 	parentID := parent.Base().ID()
-	state := rt.layerStates[parentID]
 	cache := rt.anchorCaches[parentID]
-	if state == nil && cache == nil {
-		return
-	}
-	var layerKinds map[layout.LayerID]layout.PlacementMode
-	if state != nil {
-		layerKinds = make(map[layout.LayerID]layout.PlacementMode, len(state.specs))
-		for _, spec := range state.specs {
-			layerKinds[spec.ID] = spec.Placement
-		}
-	}
 	anchorChildren := make(map[layout.AnchorID][]facet.FacetID)
 	exporters := make([]facet.FacetImpl, 0)
 	for _, childBase := range parent.Base().Children() {
@@ -165,28 +151,17 @@ func (rt *Runtime) reconcileAnchorExports(parent facet.FacetImpl) {
 			continue
 		}
 		attachment, ok := rt.childAttachments[childBase.ID()]
-		if ok {
-			layerID := attachment.LayerID
-			if layerID == 0 && state != nil && len(state.specs) > 0 {
-				layerID = state.specs[0].ID
-			}
-			if attachment.Placement.AnchorRef != "" && layerKinds != nil && layerKinds[layerID] == layout.PlacementAnchor {
-				anchorChildren[attachment.Placement.AnchorRef] = append(anchorChildren[attachment.Placement.AnchorRef], childBase.ID())
-			}
+		if ok && attachment.LayerID != 0 && attachment.Placement.Anchor.AnchorRef != "" {
+			anchorID := layout.AnchorID(attachment.Placement.Anchor.AnchorRef)
+			anchorChildren[anchorID] = append(anchorChildren[anchorID], childBase.ID())
 		}
 		child := rt.findFacetByID(rt.root, childBase.ID())
 		if child == nil {
 			continue
 		}
 		if _, ok := child.(layout.AnchorExporter); ok {
-			if attachment, ok := rt.childAttachments[childBase.ID()]; ok && state != nil {
-				layerID := attachment.LayerID
-				if layerID == 0 && len(state.specs) > 0 {
-					layerID = state.specs[0].ID
-				}
-				if _, ok := state.resolvedLayer(layerID); ok {
-					exporters = append(exporters, child)
-				}
+			if attachment, ok := rt.childAttachments[childBase.ID()]; ok && attachment.LayerID != 0 {
+				exporters = append(exporters, child)
 			}
 		}
 	}
@@ -215,16 +190,27 @@ func (rt *Runtime) reconcileAnchorExports(parent facet.FacetImpl) {
 	for _, exporterFacet := range exporters {
 		exporter := exporterFacet.(layout.AnchorExporter)
 		attachment, ok := rt.childAttachments[exporterFacet.Base().ID()]
-		if !ok {
+		if !ok || attachment.LayerID == 0 {
 			continue
 		}
-		layerID := attachment.LayerID
-		if layerID == 0 && len(state.specs) > 0 {
-			layerID = state.specs[0].ID
-		}
-		resolved, ok := state.resolvedLayer(layerID)
-		if !ok {
+		if rt.layerRegistry == nil {
 			continue
+		}
+		if _, ok := rt.layerRegistry.Lookup(layout.LayerID(attachment.LayerID)); !ok {
+			continue
+		}
+		resolved := layout.ResolvedLayer{LayerID: layout.LayerID(attachment.LayerID)}
+		if lr := exporterFacet.Base().LayoutRole(); lr != nil {
+			resolved.Bounds = lr.ArrangedBounds
+		}
+		if viewport := exporterFacet.Base().ViewportRole(); viewport != nil {
+			resolved.Transform = viewport.Transform
+			if !viewport.WorldBounds.IsEmpty() {
+				resolved.ClipRect = viewport.WorldBounds
+			}
+		}
+		if resolved.ClipRect.IsEmpty() {
+			resolved.ClipRect = resolved.Bounds
 		}
 		ctx := layout.AnchorExportContext{
 			ResolvedLayer: resolved,
@@ -241,11 +227,16 @@ func (rt *Runtime) reconcileAnchorExports(parent facet.FacetImpl) {
 	if len(changes) == 0 {
 		return
 	}
-	for _, change := range changes {
-		if refs := anchorChildren[change.ID]; len(refs) > 0 {
-			rt.markFacetGroupDirty(refs, facet.DirtyLayout, anchorChangeSource(change))
+	childIDs := make([]facet.FacetID, 0, len(parent.Base().Children()))
+	for _, childBase := range parent.Base().Children() {
+		if childBase == nil {
+			continue
+		}
+		if attachment, ok := rt.childAttachments[childBase.ID()]; ok && attachment.LayerID != 0 {
+			childIDs = append(childIDs, childBase.ID())
 		}
 	}
+	rt.markFacetGroupDirty(childIDs, facet.DirtyLayout, anchorChangeSource(changes[0]))
 	if rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()
 	}
@@ -314,14 +305,7 @@ func (rt *Runtime) walkLayerTree(node facet.FacetImpl, accumulated gfx.Transform
 		if viewport := frame.node.Base().ViewportRole(); viewport != nil {
 			current = current.Multiply(viewport.Transform)
 		}
-		if composer, ok := frame.node.(LayerComposer); ok {
-			childStats := rt.resolveComposedLayers(frame.node, composer, current)
-			stats.specResolution += childStats.specResolution
-			stats.anchorExport += childStats.anchorExport
-			stats.structuralMeasure += childStats.structuralMeasure
-			stats.layerBoundsResolution += childStats.layerBoundsResolution
-			stats.arrange += childStats.arrange
-		}
+		stats = stats.add(rt.resolveAttachedLayers(frame.node, current))
 		children := frame.node.Base().Children()
 		for i := len(children) - 1; i >= 0; i-- {
 			stack = append(stack, layerFrame{node: children[i], transform: current})
@@ -330,32 +314,19 @@ func (rt *Runtime) walkLayerTree(node facet.FacetImpl, accumulated gfx.Transform
 	return stats
 }
 
-func (rt *Runtime) resolveComposedLayers(parent facet.FacetImpl, composer LayerComposer, accumulated gfx.Transform) layoutPhaseStats {
-	if rt == nil || parent == nil || parent.Base() == nil || composer == nil {
+func (s layoutPhaseStats) add(other layoutPhaseStats) layoutPhaseStats {
+	s.specResolution += other.specResolution
+	s.anchorExport += other.anchorExport
+	s.structuralMeasure += other.structuralMeasure
+	s.layerBoundsResolution += other.layerBoundsResolution
+	s.arrange += other.arrange
+	return s
+}
+
+func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx.Transform) layoutPhaseStats {
+	if rt == nil || parent == nil || parent.Base() == nil {
 		return layoutPhaseStats{}
 	}
-	var stats layoutPhaseStats
-	specStart := time.Now()
-	specs := composer.OnLayerSpecs()
-	stats.specResolution += time.Since(specStart)
-	if len(specs) == 0 {
-		delete(rt.layerStates, parent.Base().ID())
-		return stats
-	}
-	for _, spec := range specs {
-		if err := layout.ValidateLayerSpec(spec); err != nil {
-			panic(err)
-		}
-	}
-	parentID := parent.Base().ID()
-	state := rt.layerStates[parentID]
-	if state == nil {
-		state = &resolvedLayerSet{}
-		rt.layerStates[parentID] = state
-	}
-	state.specs = append(state.specs[:0], specs...)
-	state.layers = state.layers[:0]
-	state.childCounts = state.childCounts[:0]
 	parentBounds := gfx.Rect{}
 	if lr := parent.Base().LayoutRole(); lr != nil {
 		if !lr.ArrangedBounds.IsEmpty() {
@@ -366,154 +337,263 @@ func (rt *Runtime) resolveComposedLayers(parent facet.FacetImpl, composer LayerC
 	} else if w, h := rt.windowSize(); w > 0 || h > 0 {
 		parentBounds = gfx.RectFromXYWH(0, 0, float32(w), float32(h))
 	}
-	if parentBounds.IsEmpty() {
-		return stats
+	if rt.layerRegistry == nil {
+		return layoutPhaseStats{}
 	}
-	childrenByLayer := make(map[layout.LayerID][]layerChildRef, len(parent.Base().Children()))
+	type layerGroup struct {
+		desc     layout.LayerDescriptor
+		children []layout.LayerChild
+	}
+	groupMap := make(map[facet.LayerID]*layerGroup)
+	ordered := make([]facet.LayerID, 0)
 	for _, childBase := range parent.Base().Children() {
 		if childBase == nil {
 			continue
 		}
-		child := childBase
-		attachment := rt.childAttachments[child.ID()]
-		layerID := attachment.LayerID
-		if layerID == 0 && len(specs) > 0 {
-			layerID = specs[0].ID
+		attachment, ok := rt.childAttachments[childBase.ID()]
+		if !ok || attachment.LayerID == 0 {
+			continue
 		}
-		childrenByLayer[layerID] = append(childrenByLayer[layerID], layerChildRef{
-			base:       child,
-			attachment: attachment,
+		desc, ok := rt.layerRegistry.Lookup(layout.LayerID(attachment.LayerID))
+		if !ok {
+			continue
+		}
+		layerID := facet.LayerID(desc.ID)
+		group := groupMap[layerID]
+		if group == nil {
+			group = &layerGroup{desc: desc}
+			groupMap[layerID] = group
+			ordered = append(ordered, layerID)
+		}
+		layoutRole := childBase.LayoutRole()
+		var contract facet.GroupChildContract
+		if layoutRole != nil {
+			contract = layoutRole.Child
+		}
+		group.children = append(group.children, layout.LayerChild{
+			FacetID:    childBase.ID(),
+			Attachment: attachment,
+			Layout:     layoutRole,
+			Descriptor: contract,
 		})
 	}
-	layerBoundsStart := time.Now()
-	for _, spec := range specs {
-		resolved := resolveLayerFrame(parentBounds, spec, parent.Base(), accumulated)
-		state.layers = append(state.layers, resolved)
-		state.childCounts = append(state.childCounts, len(childrenByLayer[spec.ID]))
+	if len(ordered) == 0 {
+		return layoutPhaseStats{}
 	}
-	stats.layerBoundsResolution += time.Since(layerBoundsStart)
-	anchorStart := time.Now()
-	rt.reconcileAnchorExports(parent)
-	stats.anchorExport += time.Since(anchorStart)
-	cache := rt.anchorCaches[parentID]
-	for i := range state.layers {
-		if state.specs[i].Placement == layout.PlacementAnchor {
-			state.layers[i].AnchorCache = cache
+	sort.SliceStable(ordered, func(i, j int) bool {
+		left, _ := rt.layerRegistry.Lookup(layout.LayerID(ordered[i]))
+		right, _ := rt.layerRegistry.Lookup(layout.LayerID(ordered[j]))
+		if left.Order != right.Order {
+			return left.Order < right.Order
 		}
-	}
-	arrangeStart := time.Now()
-	for i, spec := range state.specs {
-		layerChildren := childrenByLayer[spec.ID]
-		policy := rt.policyRegistry.MustPolicy(spec.Placement)
-		nodes := make([]layout.ChildNode, 0, len(layerChildren))
-		handles := make([]layout.ChildArrangeHandle, len(layerChildren))
-		resolved := state.layers[i]
-		for j := range layerChildren {
-			ref := layerChildren[j]
-			intrinsic := gfx.Size{}
-			node := layout.ChildNode{
-				FacetID:       ref.base.ID(),
-				Attachment:    ref.attachment,
-				IntrinsicSize: intrinsic,
-			}
-			if spec.Placement == layout.PlacementProjected {
-				if childImpl := rt.findFacetByID(rt.root, ref.base.ID()); childImpl != nil {
-					if wp, ok := childImpl.(projectedpolicy.WorldPositioned); ok {
-						node.WorldPosition = wp.WorldPosition()
-						node.WorldSize = wp.WorldSize()
-						node.HasWorldSpace = true
-					} else if rt.log != nil {
-						rt.log.Warn("layout/projected missing WorldPositioned", "facetID", ref.base.ID(), "layerID", spec.ID)
-					}
+		return left.ID < right.ID
+	})
+	stats := layoutPhaseStats{}
+	parentViewport := parent.Base().ViewportRole()
+	cache := rt.anchorCaches[parent.Base().ID()]
+	for _, layerID := range ordered {
+		group := groupMap[layerID]
+		if group == nil {
+			continue
+		}
+		recipeStart := time.Now()
+		recipe := rt.resolveLayerRecipe(group.desc, parentBounds)
+		policy := layout.ResolveLayerLayoutPolicy(recipe)
+		stats.specResolution += time.Since(recipeStart)
+		layerCtx := facet.LayerContext{
+			ID:         facet.LayerID(group.desc.ID),
+			HitPolicy:  facet.HitPolicy(group.desc.HitPolicy),
+			ClipPolicy: facet.ClipPolicy(group.desc.ClipPolicy),
+			Dismissal: facet.DismissalScope{
+				Enabled: group.desc.Dismissal.Enabled,
+				BehindOrders: facet.OrderRange{
+					Min: group.desc.Dismissal.BehindOrders.Min,
+					Max: group.desc.Dismissal.BehindOrders.Max,
+				},
+				Triggers: facet.DismissalTriggerSet(group.desc.Dismissal.Triggers),
+			},
+			Order: int32(group.desc.Order),
+		}
+		measureCtx := layout.LayerMeasureContext{
+			Runtime:          rt,
+			Theme:            rt.themeContext(parentBounds),
+			Layer:            layerCtx,
+			Bounds:           parentBounds,
+			Recipe:           recipe,
+			ContentScale:     rt.contentScale,
+			WritingDirection: facet.WritingDirectionLTR,
+			AnchorCache:      cache,
+		}
+		measureStart := time.Now()
+		measureResult, err := policy.MeasureLayer(measureCtx, group.children)
+		if err != nil {
+			panic(err)
+		}
+		stats.structuralMeasure += time.Since(measureStart)
+		layerBounds := parentBounds
+		if measureResult.Size.W > 0 || measureResult.Size.H > 0 {
+			layerBounds = gfx.RectFromXYWH(parentBounds.Min.X, parentBounds.Min.Y, measureResult.Size.W, measureResult.Size.H)
+		}
+		if layerBounds.IsEmpty() {
+			layerBounds = parentBounds
+		}
+		layerFrame := rt.resolveLayerFrame(layerBounds, group.desc, recipe, accumulated)
+		layerFrame.Bounds = layerBounds
+		if parentViewport != nil && !parentViewport.WorldBounds.IsEmpty() {
+			layerFrame.ClipRect = accumulated.TransformRect(parentViewport.WorldBounds)
+		} else if group.desc.ClipPolicy != layout.ClipNone {
+			layerFrame.ClipRect = layerBounds
+		}
+		arrangeCtx := layout.LayerArrangeContext{
+			LayerMeasureContext: measureCtx,
+			ClipRect:            layerFrame.ClipRect,
+		}
+		arrangeStart := time.Now()
+		arranged, err := policy.ArrangeLayer(arrangeCtx, group.children)
+		if err != nil {
+			panic(err)
+		}
+		stats.arrange += time.Since(arrangeStart)
+		if len(arranged) == 0 {
+			for _, child := range group.children {
+				if child.Layout != nil {
+					child.Layout.Arrange(facet.ArrangeContext{
+						Runtime:     rt,
+						Theme:       measureCtx.Theme,
+						Layer:       layerCtx,
+						ParentGroup: child.Layout.Parent,
+						ChildGroup:  child.Layout.Child,
+						Placement:   child.Attachment.Placement,
+					}, layerBounds)
 				}
-			} else if lr := ref.base.LayoutRole(); lr != nil {
-				intrinsic = lr.Measure(layout.Loose(gfx.Size{
-					W: parentBounds.Width(),
-					H: parentBounds.Height(),
-				}))
-				node.IntrinsicSize = intrinsic
+				childLayer := layerFrame
+				childLayer.Bounds = layerBounds
+				rt.projectionLayers[child.FacetID] = childLayer
 			}
-			node.AttachArrangeHandle(&handles[j])
-			nodes = append(nodes, node)
+			continue
 		}
-		if spec.Measurement == layout.MeasureStructural {
-			measureStart := time.Now()
-			_ = policy.Measure(nodes, gfx.Size{W: resolved.Bounds.Width(), H: resolved.Bounds.Height()})
-			stats.structuralMeasure += time.Since(measureStart)
-		}
-		policy.Arrange(nodes, resolved)
-		for j := range layerChildren {
-			ref := layerChildren[j]
-			arranged := gfx.Rect{}
-			if bounds, ok := handles[j].Bounds(); ok {
-				arranged = bounds
-				if lr := ref.base.LayoutRole(); lr != nil {
-					lr.Arrange(bounds)
-				}
+		for _, arrangedChild := range arranged {
+			child, ok := findLayerChild(group.children, arrangedChild.FacetID)
+			if !ok {
+				continue
 			}
-			rt.projectionLayers[ref.base.ID()] = facet.ProjectionLayer{
-				Bounds:      arranged,
-				Transform:   resolved.Transform,
-				ClipRect:    resolved.ClipRect,
-				CoordSpace:  uint8(resolved.CoordSpace),
-				RenderOrder: resolved.RenderOrder,
-				HitPolicy:   uint8(resolved.HitPolicy),
+			if child.Layout != nil {
+				child.Layout.Arrange(facet.ArrangeContext{
+					Runtime:     rt,
+					Theme:       measureCtx.Theme,
+					Layer:       layerCtx,
+					ParentGroup: child.Layout.Parent,
+					ChildGroup:  child.Layout.Child,
+					Placement:   child.Attachment.Placement,
+				}, arrangedChild.Bounds)
 			}
+			childLayer := layerFrame
+			childLayer.Bounds = arrangedChild.Bounds
+			rt.projectionLayers[arrangedChild.FacetID] = childLayer
 		}
-		state.layers[i] = resolved
 	}
-	stats.arrange += time.Since(arrangeStart)
 	return stats
 }
 
-func resolveLayerBounds(parentBounds gfx.Rect, spec layout.LayerSpec) gfx.Rect {
-	if !spec.CoordLimits.Bounds.IsEmpty() {
-		return spec.CoordLimits.Bounds
+func findLayerChild(children []layout.LayerChild, id facet.FacetID) (layout.LayerChild, bool) {
+	for i := range children {
+		if children[i].FacetID == id {
+			return children[i], true
+		}
 	}
-	return parentBounds
+	return layout.LayerChild{}, false
 }
 
-func resolveLayerFrame(parentBounds gfx.Rect, spec layout.LayerSpec, parent *facet.Facet, accumulated gfx.Transform) layout.ResolvedLayer {
-	layer := layout.ResolvedLayer{
-		LayerID:     spec.ID,
-		Bounds:      resolveLayerBounds(parentBounds, spec),
-		CoordLimits: spec.CoordLimits,
-		HitPolicy:   spec.HitPolicy,
-		RenderOrder: spec.RenderOrder,
-		CoordSpace:  spec.CoordSpace,
+func (rt *Runtime) themeContext(parentBounds gfx.Rect) theme.ResolvedContext {
+	ctx := theme.DefaultResolvedContext()
+	if rt != nil && rt.config.ThemeResolver != nil {
+		ctx = ctx.WithResolver(rt.config.ThemeResolver)
 	}
-	layer.Transform = resolveLayerTransform(accumulated, spec)
-	layer.ClipRect = resolveClipRect(layer, spec, parent, accumulated)
+	ctx = ctx.WithViewport(gfx.Size{W: parentBounds.Width(), H: parentBounds.Height()})
+	if rt != nil {
+		ctx.ContentScale = rt.contentScale
+	}
+	return ctx
+}
+
+func (rt *Runtime) resolveLayerRecipe(desc layout.LayerDescriptor, parentBounds gfx.Rect) layout.ResolvedLayerLayoutRecipe {
+	if rt != nil && rt.config.ThemeResolver != nil && (desc.LayoutRecipe.Family != "" || desc.LayoutRecipe.Name != "") {
+		ctx := rt.themeContext(parentBounds)
+		if recipe, ok := ctx.ResolveLayerLayoutRecipe(desc.LayoutRecipe); ok {
+			return recipe
+		}
+	}
+	return layout.DefaultLayerLayoutRecipe()
+}
+
+func (rt *Runtime) resolveLayerFrame(parentBounds gfx.Rect, desc layout.LayerDescriptor, recipe layout.ResolvedLayerLayoutRecipe, accumulated gfx.Transform) facet.ProjectionLayer {
+	layer := facet.ProjectionLayer{}
+	layer.LayerID = facet.LayerID(desc.ID)
+	layer.CoordSpace = uint8(desc.CoordSpace)
+	if desc.CoordSpace == layout.CoordScreenAligned {
+		layer.Transform = gfx.Identity()
+	} else {
+		layer.Transform = accumulated
+	}
+	layer.RenderOrder = int(desc.Order)
+	if desc.HitPolicy != layout.HitNormal {
+		layer.HitPolicy = uint8(desc.HitPolicy)
+	}
+	if desc.ClipPolicy != layout.ClipNone {
+		layer.ClipRect = parentBounds
+	}
+	layer.ClipPolicy = facet.ClipPolicy(desc.ClipPolicy)
+	layer.Dismissal = facet.DismissalScope{
+		Enabled: desc.Dismissal.Enabled,
+		BehindOrders: facet.OrderRange{
+			Min: desc.Dismissal.BehindOrders.Min,
+			Max: desc.Dismissal.BehindOrders.Max,
+		},
+		Triggers: facet.DismissalTriggerSet(desc.Dismissal.Triggers),
+	}
+	layer.RecipeVersion = layerRecipeVersion(desc, recipe)
 	return layer
 }
 
-func resolveLayerTransform(accumulated gfx.Transform, spec layout.LayerSpec) gfx.Transform {
-	switch spec.CoordSpace {
-	case layout.CoordViewport:
-		return accumulated
-	case layout.CoordScreenAligned:
-		return gfx.Identity()
-	case layout.CoordParentLayout, layout.CoordContent:
-		return gfx.Identity()
-	default:
-		return gfx.Identity()
+func layerRecipeVersion(desc layout.LayerDescriptor, recipe layout.ResolvedLayerLayoutRecipe) uint64 {
+	h := hashutil.NewCacheKeyBuilder()
+	h.WriteString(string(desc.Name))
+	h.WriteUint64(uint64(desc.ID))
+	h.WriteUint64(uint64(desc.Order))
+	h.WriteString(desc.LayoutRecipe.Family)
+	h.WriteString(desc.LayoutRecipe.Name)
+	h.WriteUint8(uint8(recipe.PolicyKind))
+	h.WriteUint8(uint8(recipe.Clip))
+	h.WriteUint64(uint64(recipe.Grid.Columns))
+	h.WriteUint64(uint64(recipe.Grid.Rows))
+	h.WriteFloat32(float32(recipe.Grid.ColumnGap))
+	h.WriteFloat32(float32(recipe.Grid.RowGap))
+	h.WriteFloat32(recipe.Grid.Margin.Top)
+	h.WriteFloat32(recipe.Grid.Margin.Right)
+	h.WriteFloat32(recipe.Grid.Margin.Bottom)
+	h.WriteFloat32(recipe.Grid.Margin.Left)
+	h.WriteFloat32(float32(recipe.Anchor.Gap))
+	h.WriteFloat32(float32(recipe.Anchor.OffsetX))
+	h.WriteFloat32(float32(recipe.Anchor.OffsetY))
+	h.WriteFloat32(float32(recipe.Free.X))
+	h.WriteFloat32(float32(recipe.Free.Y))
+	h.WriteFloat32(float32(recipe.Free.Width.Value))
+	if recipe.Free.Width.Valid {
+		h.WriteUint8(1)
+	} else {
+		h.WriteUint8(0)
 	}
-}
-
-func resolveClipRect(layer layout.ResolvedLayer, spec layout.LayerSpec, parent *facet.Facet, accumulated gfx.Transform) gfx.Rect {
-	switch spec.ClipPolicy {
-	case layout.ClipNone:
-		return gfx.Rect{}
-	case layout.ClipToParent, layout.ClipToContent, layout.ClipToViewport:
-		if spec.ClipPolicy == layout.ClipToViewport && parent != nil {
-			if vr := parent.ViewportRole(); vr != nil && !vr.WorldBounds.IsEmpty() {
-				return accumulated.TransformRect(vr.WorldBounds)
-			}
-		}
-		return layer.Bounds
-	default:
-		return layer.Bounds
+	h.WriteFloat32(float32(recipe.Free.Height.Value))
+	if recipe.Free.Height.Valid {
+		h.WriteUint8(1)
+	} else {
+		h.WriteUint8(0)
 	}
+	h.WriteFloat32(float32(recipe.Insets.Top))
+	h.WriteFloat32(float32(recipe.Insets.Right))
+	h.WriteFloat32(float32(recipe.Insets.Bottom))
+	h.WriteFloat32(float32(recipe.Insets.Left))
+	return h.Sum()
 }
 
 // ResolveProjectionLayer returns the current projection-layer snapshot for a facet.
@@ -526,12 +606,47 @@ func (rt *Runtime) ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLay
 }
 
 // ResolveChildAttachment returns the stored attachment metadata for a child facet.
-func (rt *Runtime) ResolveChildAttachment(id facet.FacetID) (layout.ChildAttachment, bool) {
+func (rt *Runtime) ResolveChildAttachment(id facet.FacetID) (facet.Attachment, bool) {
 	if rt == nil || id == 0 || rt.childAttachments == nil {
-		return layout.ChildAttachment{}, false
+		return facet.Attachment{}, false
 	}
 	attachment, ok := rt.childAttachments[id]
 	return attachment, ok
+}
+
+// ResolveWindowBinding returns the registered window binding for a facet, if any.
+func (rt *Runtime) ResolveWindowBinding(id facet.FacetID) (layout.WindowBinding, bool) {
+	if rt == nil || id == 0 || rt.layerRegistry == nil {
+		return layout.WindowBinding{}, false
+	}
+	layer, ok := rt.projectionLayers[id]
+	if !ok {
+		return layout.WindowBinding{}, false
+	}
+	desc, ok := rt.layerRegistry.Lookup(layout.LayerID(layer.LayerID))
+	if !ok {
+		return layout.WindowBinding{}, false
+	}
+	return desc.WindowBinding, true
+}
+
+// CurrentContentScale returns the runtime's effective content scale.
+func (rt *Runtime) CurrentContentScale() float32 {
+	if rt == nil {
+		return 0
+	}
+	return rt.contentScale
+}
+
+// CurrentInputModality returns the runtime's current input modality snapshot.
+func (rt *Runtime) CurrentInputModality() facet.InputModality {
+	if rt == nil {
+		return facet.InputModalityUnknown
+	}
+	if rt.inputSystem == nil {
+		return facet.InputModalityUnknown
+	}
+	return rt.inputSystem.CurrentInputModality()
 }
 
 // LayerSnapshots returns diagnostics layer summaries for a parent facet.
@@ -539,47 +654,145 @@ func (rt *Runtime) LayerSnapshots(parent facet.FacetID) []diagnostics.LayerSnaps
 	if rt == nil || parent == 0 {
 		return nil
 	}
-	state := rt.layerStates[parent]
-	if state == nil || len(state.specs) == 0 {
+	if rt.layerRegistry == nil {
 		return nil
 	}
-	snapshots := make([]diagnostics.LayerSnapshot, 0, len(state.specs))
-	cache := rt.anchorCaches[parent]
-	for i := range state.specs {
-		spec := state.specs[i]
-		layer := layout.ResolvedLayer{}
-		if i < len(state.layers) {
-			layer = state.layers[i]
-		}
-		snapshots = append(snapshots, diagnostics.LayerSnapshot{
-			LayerID:     spec.ID,
-			Placement:   spec.Placement,
-			Measurement: spec.Measurement,
-			CoordSpace:  spec.CoordSpace,
-			RenderOrder: spec.RenderOrder,
-			HitPolicy:   spec.HitPolicy,
-			Bounds:      layer.Bounds,
-			ClipRect:    layer.ClipRect,
-			Transform:   layer.Transform,
-			ChildCount:  0,
-			AnchorCacheVersion: func() uint64 {
-				if cache == nil {
-					return 0
-				}
-				return cache.Version()
-			}(),
-			AnchorCacheCount: func() int {
-				if cache == nil {
-					return 0
-				}
-				return cache.Len()
-			}(),
-		})
-		if i < len(state.childCounts) {
-			snapshots[i].ChildCount = state.childCounts[i]
+	parentFacet := rt.findFacetByID(rt.root, parent)
+	if parentFacet == nil || parentFacet.Base() == nil {
+		return nil
+	}
+	parentLayer := rt.projectionLayers[parent]
+	outputs := make(map[facet.FacetID]projection.OutputSnapshot)
+	if rt.projectionSystem != nil {
+		for _, snap := range rt.projectionSystem.OutputSnapshots() {
+			outputs[snap.FacetID] = snap
 		}
 	}
-	return snapshots
+	type orderedSnapshot struct {
+		order int
+		id    facet.FacetID
+		snap  diagnostics.LayerSnapshot
+	}
+	snapshots := make([]orderedSnapshot, 0, len(parentFacet.Base().Children()))
+	cache := rt.anchorCaches[parent]
+	for _, childBase := range parentFacet.Base().Children() {
+		if childBase == nil {
+			continue
+		}
+		attachment, ok := rt.childAttachments[childBase.ID()]
+		if !ok || attachment.LayerID == 0 {
+			continue
+		}
+		desc, ok := rt.layerRegistry.Lookup(layout.LayerID(attachment.LayerID))
+		if !ok {
+			continue
+		}
+		layer := rt.projectionLayers[childBase.ID()]
+		layerSnap := outputs[childBase.ID()]
+		placement := layout.PlacementGrid
+		switch attachment.Placement.Mode {
+		case facet.PlacementAnchor:
+			placement = layout.PlacementAnchor
+		case facet.PlacementFree:
+			placement = layout.PlacementFree
+		case facet.PlacementLinear:
+			placement = layout.PlacementSplit
+		default:
+			placement = layout.PlacementGrid
+		}
+		arrangedChildren := make([]diagnostics.ArrangedChildSnapshot, 0, len(childBase.Children()))
+		for _, grandChildBase := range childBase.Children() {
+			if grandChildBase == nil {
+				continue
+			}
+			grandAttachment, ok := rt.childAttachments[grandChildBase.ID()]
+			if !ok || grandAttachment.LayerID == 0 {
+				continue
+			}
+			grandLayer, _ := rt.projectionLayers[grandChildBase.ID()]
+			grandDesc, _ := rt.layerRegistry.Lookup(layout.LayerID(grandAttachment.LayerID))
+			arrangedChildren = append(arrangedChildren, diagnostics.ArrangedChildSnapshot{
+				FacetID:       grandChildBase.ID(),
+				LayerID:       layout.LayerID(grandAttachment.LayerID),
+				WindowBinding: windowBindingString(grandDesc.WindowBinding),
+				Placement:     grandAttachment.Placement.Mode,
+				HitPolicy:     facet.HitPolicy(grandLayer.HitPolicy),
+				ClipPolicy:    grandLayer.ClipPolicy,
+				ZPriority:     grandAttachment.ZPriority,
+				Bounds:        grandLayer.Bounds,
+				ClipRect:      grandLayer.ClipRect,
+				Materialized:  grandLayer.LayerID != 0,
+			})
+		}
+		sort.SliceStable(arrangedChildren, func(i, j int) bool {
+			if arrangedChildren[i].LayerID != arrangedChildren[j].LayerID {
+				return arrangedChildren[i].LayerID < arrangedChildren[j].LayerID
+			}
+			return arrangedChildren[i].FacetID < arrangedChildren[j].FacetID
+		})
+		resolvedRecipe := rt.resolveLayerRecipe(desc, parentLayer.Bounds)
+		snapshots = append(snapshots, orderedSnapshot{
+			order: int(desc.Order),
+			id:    childBase.ID(),
+			snap: diagnostics.LayerSnapshot{
+				LayerID:          desc.ID,
+				LayerName:        string(desc.Name),
+				WindowBinding:    windowBindingString(desc.WindowBinding),
+				Placement:        placement,
+				Measurement:      layout.MeasureNonStructural,
+				CoordSpace:       desc.CoordSpace,
+				RenderOrder:      int(desc.Order),
+				HitPolicy:        desc.HitPolicy,
+				RootPolicyKind:   resolvedRecipe.PolicyKind.String(),
+				RecipeVersion:    layerSnap.LayerRecipeVersion,
+				Materialized:     layerSnap.Materialized,
+				CommandCount:     layerSnap.CommandCount,
+				HitRegionCount:   layerSnap.HitRegionCount,
+				Bounds:           layer.Bounds,
+				ClipRect:         layer.ClipRect,
+				Transform:        layer.Transform,
+				ChildCount:       len(childBase.Children()),
+				ArrangedChildren: arrangedChildren,
+				AnchorCacheVersion: func() uint64 {
+					if cache == nil {
+						return 0
+					}
+					return cache.Version()
+				}(),
+				AnchorCacheCount: func() int {
+					if cache == nil {
+						return 0
+					}
+					return cache.Len()
+				}(),
+			},
+		})
+	}
+	sort.SliceStable(snapshots, func(i, j int) bool {
+		if snapshots[i].order != snapshots[j].order {
+			return snapshots[i].order < snapshots[j].order
+		}
+		return snapshots[i].id < snapshots[j].id
+	})
+	out := make([]diagnostics.LayerSnapshot, 0, len(snapshots))
+	for _, item := range snapshots {
+		out = append(out, item.snap)
+	}
+	return out
+}
+
+func windowBindingString(binding layout.WindowBinding) string {
+	switch binding.Kind {
+	case layout.WindowBindingNamed:
+		if binding.Name != "" {
+			return binding.Name
+		}
+		return "named"
+	case layout.WindowBindingPrimary:
+		fallthrough
+	default:
+		return "primary"
+	}
 }
 
 // AnchorSnapshot returns diagnostics data for a parent's anchor cache.
@@ -601,10 +814,11 @@ func (rt *Runtime) AnchorSnapshot(parent facet.FacetID) (diagnostics.AnchorSnaps
 			continue
 		}
 		attachment, ok := rt.childAttachments[childBase.ID()]
-		if !ok || attachment.Placement.AnchorRef == "" {
+		if !ok || attachment.Placement.Anchor.AnchorRef == "" {
 			continue
 		}
-		childRefs[attachment.Placement.AnchorRef] = append(childRefs[attachment.Placement.AnchorRef], childBase.ID())
+		anchorID := layout.AnchorID(attachment.Placement.Anchor.AnchorRef)
+		childRefs[anchorID] = append(childRefs[anchorID], childBase.ID())
 	}
 	snapshot := diagnostics.AnchorSnapshot{
 		ParentID: parent,

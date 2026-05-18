@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/platform/linux"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -51,11 +52,19 @@ func Run(config Config, builder RootBuilder) error {
 	}
 	normalizeConfig(&config)
 
-	platformApp, err := newPlatformApp()
-	if err != nil {
-		return fmt.Errorf("app: platform: %w", err)
+	platformApp := config.PlatformApp
+	createdPlatformApp := false
+	if platformApp == nil {
+		var err error
+		platformApp, err = newPlatformApp()
+		if err != nil {
+			return fmt.Errorf("app: platform: %w", err)
+		}
+		createdPlatformApp = true
 	}
-	defer platformApp.Destroy()
+	if createdPlatformApp {
+		defer platformApp.Destroy()
+	}
 
 	provider, ok := platform.WindowCapableOf(platformApp)
 	if !ok {
@@ -124,6 +133,13 @@ func Run(config Config, builder RootBuilder) error {
 
 	rtConfig := config.Runtime
 	rtConfig.FontRegistry = fontRegistry
+	if rtConfig.LayerRegistry == nil {
+		layerRegistry, err := layout.StandardLayerRegistry()
+		if err != nil {
+			return fmt.Errorf("app: layer registry: %w", err)
+		}
+		rtConfig.LayerRegistry = layerRegistry
+	}
 	rt, err := newRuntime(rtConfig, platformApp, window, backend, root)
 	if err != nil {
 		return fmt.Errorf("app: runtime: %w", err)

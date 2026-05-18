@@ -8,9 +8,21 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/graph/canvas"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
 )
+
+func testHarnessConfig(t *testing.T) testkit.HarnessConfig {
+	t.Helper()
+	reg, err := layout.StandardLayerRegistry()
+	if err != nil {
+		t.Fatalf("standard layer registry: %v", err)
+	}
+	cfg := testkit.DefaultHarnessConfig()
+	cfg.LayerRegistry = reg
+	return cfg
+}
 
 // nodeID returns a function usable as CollectionStore's identify for GraphNode.
 func nodeIdentify(n canvas.GraphNode) store.ItemID { return n.ID }
@@ -47,7 +59,7 @@ var nodeRGBA = color.RGBA{R: 100, G: 150, B: 220, A: 255}
 func TestGraphCanvas_initial_frame_shows_placeholder(t *testing.T) {
 	gs, es, vs := defaultStores()
 	f := canvas.NewGraphCanvasFacet(gs, es, vs)
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 	h.RunFrame()
 	// Before any Replace, nodeIndex is nil → placeholder color.
 	testkit.AssertRegionColor(t, h.Surface(),
@@ -58,7 +70,7 @@ func TestGraphCanvas_initial_frame_shows_placeholder(t *testing.T) {
 func TestGraphCanvas_index_builds_and_commits(t *testing.T) {
 	gs, es, vs := defaultStores()
 	f := canvas.NewGraphCanvasFacet(gs, es, vs)
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 
 	h.RunFrame() // trigger OnAttach
 	gs.Replace([]canvas.GraphNode{testNode(1, 100, 100)})
@@ -72,7 +84,7 @@ func TestGraphCanvas_index_builds_and_commits(t *testing.T) {
 func TestGraphCanvas_nodes_visible_after_index(t *testing.T) {
 	gs, es, vs := defaultStores()
 	f := canvas.NewGraphCanvasFacet(gs, es, vs)
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 
 	h.RunFrame() // trigger OnAttach so subscriptions are set up
 	// Place a node at screen position ~(100,100) with default zoom=1.
@@ -86,7 +98,7 @@ func TestGraphCanvas_nodes_visible_after_index(t *testing.T) {
 func TestGraphCanvas_store_change_triggers_rebuild(t *testing.T) {
 	gs, es, vs := defaultStores()
 	f := canvas.NewGraphCanvasFacet(gs, es, vs)
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 	h.RunFrame()
 
 	before := f.BuildCount()
@@ -101,7 +113,7 @@ func TestGraphCanvas_store_change_triggers_rebuild(t *testing.T) {
 func TestGraphCanvas_viewport_change_no_rebuild(t *testing.T) {
 	gs, es, vs := defaultStores()
 	f := canvas.NewGraphCanvasFacet(gs, es, vs)
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 
 	gs.Replace([]canvas.GraphNode{testNode(1, 0, 0)})
 	h.RunUntil(func() bool { return f.NodeIndex() != nil }, 30)
@@ -125,7 +137,7 @@ func TestGraphCanvas_hit_test_finds_node(t *testing.T) {
 		return true
 	})
 
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 
 	h.RunFrame() // trigger OnAttach
 	gs.Replace([]canvas.GraphNode{testNode(1, 100, 100)})
@@ -150,7 +162,7 @@ func TestGraphCanvas_hit_test_misses_gap(t *testing.T) {
 		return true
 	})
 
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 
 	h.RunFrame() // trigger OnAttach
 	gs.Replace([]canvas.GraphNode{testNode(1, 100, 100)})
@@ -168,7 +180,7 @@ func TestGraphCanvas_hit_test_misses_gap(t *testing.T) {
 func TestGraphCanvas_lod_clusters_at_low_zoom(t *testing.T) {
 	gs, es, vs := defaultStores()
 	f := canvas.NewGraphCanvasFacet(gs, es, vs)
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 
 	h.RunFrame() // trigger OnAttach
 	// Place many small nodes close together so they cluster at low zoom.
@@ -193,7 +205,7 @@ func TestGraphCanvas_lod_clusters_at_low_zoom(t *testing.T) {
 func TestGraphCanvas_stale_index_discarded(t *testing.T) {
 	gs, es, vs := defaultStores()
 	f := canvas.NewGraphCanvasFacet(gs, es, vs)
-	h := testkit.NewHarness(t, testkit.DefaultHarnessConfig(), f)
+	h := testkit.NewHarness(t, testHarnessConfig(t), f)
 	h.RunFrame() // trigger OnAttach
 
 	// Trigger two rapid replacements; only the second set should be visible.

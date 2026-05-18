@@ -13,7 +13,7 @@ type FrameStats struct {
 	JobsDiscarded             int
 	LayoutDuration            time.Duration
 	LayoutResolveDuration     time.Duration
-	LayerSpecDuration         time.Duration
+	LayerResolutionDuration   time.Duration
 	AnchorExportDuration      time.Duration
 	StructuralMeasureDuration time.Duration
 	LayerBoundsDuration       time.Duration

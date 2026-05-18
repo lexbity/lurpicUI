@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/hashutil"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -18,14 +19,40 @@ var _ store.Version
 type ProjectionCacheKey uint64
 
 type ProjectionOutput struct {
-	FacetID           facet.FacetID
-	Bounds            gfx.Rect
-	Transform         gfx.Transform
-	Commands          gfx.CommandList
-	HitRegions        []HitRegion
-	ChildContext      *ChildProjectionContext
-	SelectionGeometry *SelectionGeometry
-	CacheKey          ProjectionCacheKey
+	LayerID            facet.LayerID
+	LayerRecipeVersion uint64
+	InputModality      facet.InputModality
+	ContentScale       float32
+	LayerClipPolicy    facet.ClipPolicy
+	LayerHitPolicy     facet.HitPolicy
+	Placement          facet.PlacementMode
+	FacetID            facet.FacetID
+	Bounds             gfx.Rect
+	ClipRect           gfx.Rect
+	Transform          gfx.Transform
+	Commands           gfx.CommandList
+	HitRegions         []HitRegion
+	ChildContext       *ChildProjectionContext
+	SelectionGeometry  *SelectionGeometry
+	CacheKey           ProjectionCacheKey
+}
+
+// OutputSnapshot is a read-only summary of one projected facet in the current frame.
+type OutputSnapshot struct {
+	FacetID            facet.FacetID
+	LayerID            facet.LayerID
+	LayerRecipeVersion uint64
+	InputModality      facet.InputModality
+	ContentScale       float32
+	LayerClipPolicy    facet.ClipPolicy
+	LayerHitPolicy     facet.HitPolicy
+	Placement          facet.PlacementMode
+	Bounds             gfx.Rect
+	ClipRect           gfx.Rect
+	Transform          gfx.Transform
+	CommandCount       int
+	HitRegionCount     int
+	Materialized       bool
 }
 
 type HitRegion struct {
@@ -34,6 +61,11 @@ type HitRegion struct {
 	MarkID      facet.MarkID
 	Cursor      facet.CursorShape
 	PassThrough bool
+	LayerID     facet.LayerID
+	Placement   facet.PlacementMode
+	HitPolicy   facet.HitPolicy
+	ClipPolicy  facet.ClipPolicy
+	ZPriority   int32
 }
 
 type ChildProjectionContext struct {
@@ -77,6 +109,11 @@ type System struct {
 	CacheHits       int
 	runtime         facet.RuntimeServices
 	layerResolver   LayerResolver
+}
+
+type runtimeStateSource interface {
+	CurrentContentScale() float32
+	CurrentInputModality() facet.InputModality
 }
 
 // LayerResolver provides resolved layer snapshots to the projection pass.
@@ -167,6 +204,36 @@ func (s *System) CurrentHitMap() *HitMap {
 		return nil
 	}
 	return s.currentHitMap
+}
+
+// OutputSnapshots returns a stable snapshot of the current frame outputs.
+func (s *System) OutputSnapshots() []OutputSnapshot {
+	if s == nil || len(s.frameOutputs) == 0 {
+		return nil
+	}
+	out := make([]OutputSnapshot, 0, len(s.frameOutputs))
+	for _, po := range s.frameOutputs {
+		if po == nil {
+			continue
+		}
+		out = append(out, OutputSnapshot{
+			FacetID:            po.FacetID,
+			LayerID:            po.LayerID,
+			LayerRecipeVersion: po.LayerRecipeVersion,
+			InputModality:      po.InputModality,
+			ContentScale:       po.ContentScale,
+			LayerClipPolicy:    po.LayerClipPolicy,
+			LayerHitPolicy:     po.LayerHitPolicy,
+			Placement:          po.Placement,
+			Bounds:             po.Bounds,
+			ClipRect:           po.ClipRect,
+			Transform:          po.Transform,
+			CommandCount:       po.Commands.Len(),
+			HitRegionCount:     len(po.HitRegions),
+			Materialized:       true,
+		})
+	}
+	return out
 }
 
 // SetCurrentHitMap replaces the cached hit map. It is used by runtime tests and
@@ -298,14 +365,14 @@ func (s *System) project(
 	}
 	if pr := base.ProjectionRole(); pr != nil && pr.OnProject != nil {
 		ctx := facet.ProjectionContext{
-			Bounds:   bounds,
-			Viewport: base.ViewportRole(),
-			Runtime:  s.runtime,
+			Bounds:        bounds,
+			Viewport:      base.ViewportRole(),
+			Runtime:       s.runtime,
+			ContentScale:  s.currentContentScale(),
+			InputModality: s.currentInputModality(),
 		}
 		if hasLayer {
 			ctx.Layer = layerCtx
-		} else {
-			ctx.Layer = ctx.ResolvedLayer()
 		}
 		if cmds := pr.Project(ctx); cmds != nil {
 			output.Commands = *cmds
@@ -325,19 +392,49 @@ func (s *System) project(
 	if tr := base.TextRole(); tr != nil {
 		output.SelectionGeometry = selectionGeometryFromTextRole(tr)
 	}
+	worldBounds := resolvedTransform.TransformRect(bounds)
+	effectiveClip, hasClip := s.resolveEffectiveClip(base, resolvedTransform, bounds, worldBounds, parentChildCtx, layerCtx, hasLayer)
+	if hasLayer {
+		output.LayerID = layerCtx.LayerID
+		output.LayerRecipeVersion = layerCtx.RecipeVersion
+		output.LayerClipPolicy = layerCtx.ClipPolicy
+		output.LayerHitPolicy = facet.HitPolicy(layerCtx.HitPolicy)
+	}
+	if hasClip {
+		output.ClipRect = effectiveClip
+	}
+	output.ContentScale = s.currentContentScale()
+	output.InputModality = s.currentInputModality()
 	if base.ViewportRole() != nil || len(base.Children()) > 0 {
 		childCtx := &ChildProjectionContext{
 			Transform:   resolvedTransform,
 			WorldBounds: resolvedTransform.TransformRect(bounds),
 		}
-		if !bounds.IsEmpty() {
-			b := bounds
-			childCtx.ClipBounds = &b
+		if hasClip {
+			clip := effectiveClip
+			childCtx.ClipBounds = &clip
 		}
 		output.ChildContext = childCtx
 	} else if parentChildCtx != nil {
 		clone := *parentChildCtx
 		output.ChildContext = &clone
+	}
+	if hasClip && output.Commands.Len() > 0 {
+		localClip, ok := clipToLocal(effectiveClip, resolvedTransform)
+		if ok && !localClip.IsEmpty() {
+			output.Commands = wrapCommandsWithClip(output.Commands, localClip)
+		}
+	}
+	if hasClip && len(output.HitRegions) > 0 {
+		localClip, ok := clipToLocal(effectiveClip, resolvedTransform)
+		if ok && !localClip.IsEmpty() {
+			for i := range output.HitRegions {
+				if output.HitRegions[i].Shape != nil {
+					continue
+				}
+				output.HitRegions[i].Bounds = intersectRects(output.HitRegions[i].Bounds, localClip)
+			}
+		}
 	}
 	if output.Commands.Len() == 0 && len(output.HitRegions) == 0 {
 		output.SelectionGeometry = nil
@@ -434,12 +531,17 @@ func (s *System) computeCacheKey(
 	}
 	if hasLayer {
 		h.WriteUint8(1)
+		h.WriteUint64(uint64(layerCtx.LayerID))
 		hashRect(&h, layerCtx.Bounds)
 		hashTransform(&h, layerCtx.Transform)
 		hashRect(&h, layerCtx.ClipRect)
+		h.WriteUint8(uint8(layerCtx.ClipPolicy))
+		h.WriteUint64(layerCtx.RecipeVersion)
 	} else {
 		h.WriteUint8(0)
 	}
+	h.WriteFloat32(s.currentContentScale())
+	h.WriteUint8(uint8(s.currentInputModality()))
 	if layout := base.LayoutRole(); layout != nil {
 		h.WriteUint8(1)
 		hashRect(&h, layout.ArrangedBounds)
@@ -495,21 +597,146 @@ func (s *System) resolveLayerContext(impl facet.FacetImpl, parentTransform gfx.T
 	} else {
 		layer.Transform = parentTransform
 	}
-	layer.ClipRect = layer.Bounds
+	if !layer.Bounds.IsEmpty() {
+		layer.ClipRect = layer.Transform.TransformRect(layer.Bounds)
+	}
 	return layer, false
 }
 
+func (s *System) currentContentScale() float32 {
+	if s == nil || s.runtime == nil {
+		return 0
+	}
+	if src, ok := s.runtime.(runtimeStateSource); ok {
+		return src.CurrentContentScale()
+	}
+	return 0
+}
+
+func (s *System) currentInputModality() facet.InputModality {
+	if s == nil || s.runtime == nil {
+		return facet.InputModalityUnknown
+	}
+	if src, ok := s.runtime.(runtimeStateSource); ok {
+		return src.CurrentInputModality()
+	}
+	return facet.InputModalityUnknown
+}
+
+func (s *System) resolveEffectiveClip(
+	base *facet.Facet,
+	resolvedTransform gfx.Transform,
+	bounds gfx.Rect,
+	worldBounds gfx.Rect,
+	parentChildCtx *ChildProjectionContext,
+	layerCtx facet.ProjectionLayer,
+	hasLayer bool,
+) (gfx.Rect, bool) {
+	var clip gfx.Rect
+	hasClip := false
+	if parentChildCtx != nil && parentChildCtx.ClipBounds != nil && !parentChildCtx.ClipBounds.IsEmpty() {
+		clip = *parentChildCtx.ClipBounds
+		hasClip = true
+	}
+	if hasLayer && !layerCtx.ClipRect.IsEmpty() {
+		clip, hasClip = layout.IntersectClipRects(clip, hasClip, layerCtx.ClipRect)
+	}
+	if base != nil {
+		if layoutRole := base.LayoutRole(); layoutRole != nil {
+			if groupClip, ok := layout.GroupClipRect(worldBounds, layoutRole.Parent); ok {
+				clip, hasClip = layout.IntersectClipRects(clip, hasClip, groupClip)
+			}
+		} else if base.ViewportRole() != nil || len(base.Children()) > 0 {
+			clip, hasClip = layout.IntersectClipRects(clip, hasClip, worldBounds)
+		}
+	}
+	if hasClip {
+		return clip, true
+	}
+	_ = resolvedTransform
+	_ = bounds
+	return gfx.Rect{}, false
+}
+
+func clipToLocal(clipWorld gfx.Rect, transform gfx.Transform) (gfx.Rect, bool) {
+	if clipWorld.IsEmpty() {
+		return gfx.Rect{}, false
+	}
+	inv, ok := transform.Inverse()
+	if !ok {
+		return clipWorld, true
+	}
+	return inv.TransformRect(clipWorld), true
+}
+
+func wrapCommandsWithClip(cmds gfx.CommandList, clip gfx.Rect) gfx.CommandList {
+	if clip.IsEmpty() || cmds.Len() == 0 {
+		return cmds
+	}
+	wrapped := gfx.CommandList{}
+	wrapped.Add(gfx.PushClipRect{Rect: clip})
+	for _, cmd := range cmds.Commands {
+		wrapped.Add(cmd)
+	}
+	wrapped.Add(gfx.PopClip{})
+	return wrapped
+}
+
+func intersectRects(a, b gfx.Rect) gfx.Rect {
+	if a.IsEmpty() {
+		return b
+	}
+	if b.IsEmpty() {
+		return a
+	}
+	minX := a.Min.X
+	if b.Min.X > minX {
+		minX = b.Min.X
+	}
+	minY := a.Min.Y
+	if b.Min.Y > minY {
+		minY = b.Min.Y
+	}
+	maxX := a.Max.X
+	if b.Max.X < maxX {
+		maxX = b.Max.X
+	}
+	maxY := a.Max.Y
+	if b.Max.Y < maxY {
+		maxY = b.Max.Y
+	}
+	rect := gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY)
+	if rect.IsEmpty() {
+		return gfx.Rect{}
+	}
+	return rect
+}
+
 type hitEntry struct {
-	facetID   facet.FacetID
-	transform gfx.Transform
-	regions   []HitRegion
+	facetID    facet.FacetID
+	layerID    facet.LayerID
+	layerOrder int
+	placement  facet.PlacementMode
+	hitPolicy  facet.HitPolicy
+	clipPolicy facet.ClipPolicy
+	zPriority  int32
+	clipRect   gfx.Rect
+	transform  gfx.Transform
+	regions    []HitRegion
 }
 
 // HitMapEntry is a synthetic hit-map entry used by tests and input routing helpers.
 type HitMapEntry struct {
-	FacetID   facet.FacetID
-	Transform gfx.Transform
-	Regions   []HitRegion
+	FacetID    facet.FacetID
+	LayerID    facet.LayerID
+	LayerOrder int
+	Placement  facet.PlacementMode
+	HitPolicy  facet.HitPolicy
+	ClipPolicy facet.ClipPolicy
+	ZPriority  int32
+	ClipRect   gfx.Rect
+	Transform  gfx.Transform
+	Regions    []HitRegion
 }
 
 type HitMap struct {
@@ -532,9 +759,16 @@ func NewHitMap(entries ...HitMapEntry) *HitMap {
 		regions := make([]HitRegion, len(entry.Regions))
 		copy(regions, entry.Regions)
 		out.entries = append(out.entries, hitEntry{
-			facetID:   entry.FacetID,
-			transform: entry.Transform,
-			regions:   regions,
+			facetID:    entry.FacetID,
+			layerID:    entry.LayerID,
+			layerOrder: entry.LayerOrder,
+			placement:  entry.Placement,
+			hitPolicy:  entry.HitPolicy,
+			clipPolicy: entry.ClipPolicy,
+			zPriority:  entry.ZPriority,
+			clipRect:   entry.ClipRect,
+			transform:  entry.Transform,
+			regions:    regions,
 		})
 	}
 	return out
@@ -563,9 +797,16 @@ func (m *HitMap) Entries() []HitMapEntry {
 		regions := make([]HitRegion, len(entry.regions))
 		copy(regions, entry.regions)
 		out = append(out, HitMapEntry{
-			FacetID:   entry.facetID,
-			Transform: entry.transform,
-			Regions:   regions,
+			FacetID:    entry.facetID,
+			LayerID:    entry.layerID,
+			LayerOrder: entry.layerOrder,
+			Placement:  entry.placement,
+			HitPolicy:  entry.hitPolicy,
+			ClipPolicy: entry.clipPolicy,
+			ZPriority:  entry.zPriority,
+			ClipRect:   entry.clipRect,
+			Transform:  entry.transform,
+			Regions:    regions,
 		})
 	}
 	return out
@@ -580,9 +821,26 @@ func (m *HitMap) HitTest(screenPoint gfx.Point) *HitTestResult {
 		if inv, ok := entry.transform.Inverse(); ok {
 			local = inv.TransformPoint(screenPoint)
 		}
+		if !entry.clipRect.IsEmpty() {
+			clip := entry.clipRect
+			if inv, ok := entry.transform.Inverse(); ok {
+				clip = inv.TransformRect(clip)
+			}
+			if !clip.Contains(local) {
+				if entry.hitPolicy == facet.HitBlockBelow {
+					return nil
+				}
+				continue
+			}
+		}
+		hit := false
+		var hitRegion *HitRegion
 		for _, region := range entry.regions {
 			if HitRegionContains(region, local) {
-				if region.PassThrough {
+				hit = true
+				regionCopy := region
+				hitRegion = &regionCopy
+				if region.PassThrough || entry.hitPolicy == facet.HitPassThrough {
 					continue
 				}
 				return &HitTestResult{
@@ -591,6 +849,19 @@ func (m *HitMap) HitTest(screenPoint gfx.Point) *HitTestResult {
 					Cursor:  region.Cursor,
 				}
 			}
+		}
+		if hit && entry.hitPolicy == facet.HitBlockBelow {
+			if hitRegion != nil {
+				return &HitTestResult{
+					FacetID: entry.facetID,
+					MarkID:  hitRegion.MarkID,
+					Cursor:  hitRegion.Cursor,
+				}
+			}
+			return &HitTestResult{FacetID: entry.facetID}
+		}
+		if !hit && entry.hitPolicy == facet.HitBlockBelow {
+			return nil
 		}
 	}
 	return nil
@@ -608,10 +879,20 @@ func buildHitMap(outputs []*ProjectionOutput) *HitMap {
 		}
 		regions := make([]HitRegion, len(po.HitRegions))
 		copy(regions, po.HitRegions)
+		for i := range regions {
+			regions[i].LayerID = po.LayerID
+			regions[i].Placement = po.Placement
+			regions[i].HitPolicy = po.LayerHitPolicy
+			regions[i].ClipPolicy = po.LayerClipPolicy
+		}
 		entries = append(entries, hitEntry{
-			facetID:   po.FacetID,
-			transform: po.Transform,
-			regions:   regions,
+			facetID:    po.FacetID,
+			layerID:    po.LayerID,
+			placement:  po.Placement,
+			hitPolicy:  po.LayerHitPolicy,
+			clipPolicy: po.LayerClipPolicy,
+			transform:  po.Transform,
+			regions:    regions,
 		})
 	}
 	return &HitMap{entries: entries}

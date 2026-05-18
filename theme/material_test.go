@@ -210,7 +210,7 @@ func TestValidateMaterial_limits(t *testing.T) {
 	}
 }
 
-func TestElevationTokens_stub_replaced(t *testing.T) {
+func TestElevationTokens_default_scale(t *testing.T) {
 	e := DefaultTokens().Elevation
 	if e.Level0.Width != 0 || e.Level0.BlurRadius != 0 {
 		t.Fatalf("level0 should be zero, got %#v", e.Level0)

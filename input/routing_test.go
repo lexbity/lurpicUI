@@ -93,6 +93,130 @@ func TestPointerPress_no_hit_returns_nothing(t *testing.T) {
 	}
 }
 
+func TestPointerPress_passThrough_reaches_lower_layer(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	tooltip := facet.NewFacet()
+	base := facet.NewFacet()
+	root.AddChild(&tooltip)
+	root.AddChild(&base)
+
+	var calls []string
+	tooltip.AddRole(&facet.InputRole{OnPointer: func(e facet.PointerEvent) bool {
+		calls = append(calls, "tooltip")
+		return true
+	}})
+	base.AddRole(&facet.InputRole{OnPointer: func(e facet.PointerEvent) bool {
+		calls = append(calls, "base")
+		return true
+	}})
+	sys.focusTree = &root
+
+	hitMap := projection.NewHitMap(
+		projection.HitMapEntry{
+			FacetID:   tooltip.ID(),
+			Transform: gfx.Identity(),
+			HitPolicy: facet.HitPassThrough,
+			Regions: []projection.HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+				MarkID: 1,
+			}},
+		},
+		projection.HitMapEntry{
+			FacetID:   base.ID(),
+			Transform: gfx.Identity(),
+			HitPolicy: facet.HitNormal,
+			Regions: []projection.HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+				MarkID: 2,
+			}},
+		},
+	)
+
+	got := sys.processPointer(platform.EventPointer{
+		Kind:     platform.PointerPress,
+		Position: gfx.Point{X: 10, Y: 10},
+		Button:   platform.PointerLeft,
+	}, hitMap)
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if got[0].Target != base.ID() {
+		t.Fatalf("target = %d", got[0].Target)
+	}
+	if _, ok := got[0].Event.(PointerPressEvent); !ok {
+		t.Fatalf("event = %T", got[0].Event)
+	}
+	if !Deliver(got[0], &root) {
+		t.Fatal("expected event delivery")
+	}
+	if len(calls) != 1 || calls[0] != "base" {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
+func TestPointerPress_blockBelow_prevents_lower_layer(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	modal := facet.NewFacet()
+	base := facet.NewFacet()
+	root.AddChild(&modal)
+	root.AddChild(&base)
+
+	var calls []string
+	modal.AddRole(&facet.InputRole{OnPointer: func(e facet.PointerEvent) bool {
+		calls = append(calls, "modal")
+		return true
+	}})
+	base.AddRole(&facet.InputRole{OnPointer: func(e facet.PointerEvent) bool {
+		calls = append(calls, "base")
+		return true
+	}})
+	sys.focusTree = &root
+
+	hitMap := projection.NewHitMap(
+		projection.HitMapEntry{
+			FacetID:   modal.ID(),
+			Transform: gfx.Identity(),
+			HitPolicy: facet.HitBlockBelow,
+			Regions: []projection.HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+				MarkID: 1,
+			}},
+		},
+		projection.HitMapEntry{
+			FacetID:   base.ID(),
+			Transform: gfx.Identity(),
+			HitPolicy: facet.HitNormal,
+			Regions: []projection.HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+				MarkID: 2,
+			}},
+		},
+	)
+
+	got := sys.processPointer(platform.EventPointer{
+		Kind:     platform.PointerPress,
+		Position: gfx.Point{X: 10, Y: 10},
+		Button:   platform.PointerLeft,
+	}, hitMap)
+	if len(got) != 1 {
+		t.Fatalf("len = %d", len(got))
+	}
+	if got[0].Target != modal.ID() {
+		t.Fatalf("target = %d", got[0].Target)
+	}
+	if _, ok := got[0].Event.(PointerPressEvent); !ok {
+		t.Fatalf("event = %T", got[0].Event)
+	}
+	if !Deliver(got[0], &root) {
+		t.Fatal("expected event delivery")
+	}
+	if len(calls) != 1 || calls[0] != "modal" {
+		t.Fatalf("calls = %#v", calls)
+	}
+}
+
 func TestPointerMove_captured_goes_to_press_target(t *testing.T) {
 	sys := NewSystem(DefaultGestureConfig())
 	ptr := sys.getOrCreatePointer(0)
@@ -391,6 +515,34 @@ func TestDeliver_missing_target_safe(t *testing.T) {
 	}
 }
 
+func TestDeliver_routes_dismiss_event(t *testing.T) {
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	var got facet.DismissEvent
+	child.AddRole(&facet.InputRole{OnDismiss: func(e facet.DismissEvent) bool {
+		got = e
+		return true
+	}})
+	routed := RoutedEvent{
+		Target: child.ID(),
+		Event: DismissEvent{
+			Trigger:    facet.DismissalTriggerPointer,
+			ScreenPos:  gfx.Point{X: 10, Y: 20},
+			HitFacetID: 99,
+			HitMarkID:  77,
+			HitLayerID: 5,
+			HitOrder:   6000,
+		},
+	}
+	if !Deliver(routed, &root) {
+		t.Fatal("expected consumed event")
+	}
+	if got.HitFacetID != 99 || got.HitMarkID != 77 || got.HitLayerID != 5 || got.HitOrder != 6000 {
+		t.Fatalf("got = %#v", got)
+	}
+}
+
 func TestProcessKey_no_focus_returns_nothing(t *testing.T) {
 	sys := NewSystem(DefaultGestureConfig())
 	if got := sys.processKey(platform.EventKey{Kind: platform.KeyPress, Key: platform.KeyA}); len(got) != 0 {
@@ -552,6 +704,29 @@ func TestFocusFollowsClick_walks_ancestors(t *testing.T) {
 	_ = sys.processPointer(platform.EventPointer{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}, hitMap)
 	if sys.focus.Focused() != parent.ID() {
 		t.Fatalf("focus = %d", sys.focus.Focused())
+	}
+}
+
+func TestCurrentInputModality_tracks_last_input_family(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	root := facet.NewFacet()
+	child := facet.NewFacet()
+	root.AddChild(&child)
+	hitMap := newHitMapFor(child.ID(), gfx.Identity(), projection.HitRegion{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), MarkID: 77})
+
+	_ = sys.processPointer(platform.EventPointer{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}, hitMap)
+	if got := sys.CurrentInputModality(); got != facet.InputModalityPointer {
+		t.Fatalf("modality after pointer = %v", got)
+	}
+
+	_ = sys.processKey(platform.EventKey{Kind: platform.KeyPress, Key: platform.KeyA})
+	if got := sys.CurrentInputModality(); got != facet.InputModalityKeyboard {
+		t.Fatalf("modality after key = %v", got)
+	}
+
+	_ = sys.processTouch(platform.TouchEvent{SequenceID: 1, Phase: platform.TouchDown, X: 1, Y: 1}, hitMap)
+	if got := sys.CurrentInputModality(); got != facet.InputModalityTouch {
+		t.Fatalf("modality after touch = %v", got)
 	}
 }
 

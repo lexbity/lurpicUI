@@ -29,15 +29,15 @@ func newTestLeafWithMeasure(size gfx.Size, fn func(Constraints) gfx.Size) *testL
 		measuredSize: size,
 		measureFn:    fn,
 	}
-	l.layout.OnMeasure = func(c Constraints) gfx.Size {
+	l.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
 		l.measureCount++
 		l.lastConstraints = c
 		if l.measureFn != nil {
-			return l.measureFn(c)
+			return facet.MeasureResult{Size: l.measureFn(c)}
 		}
-		return l.measuredSize
+		return facet.MeasureResult{Size: l.measuredSize}
 	}
-	l.layout.OnArrange = func(bounds gfx.Rect) {
+	l.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		l.arrangeCount++
 		l.arrangedBounds = bounds
 	}

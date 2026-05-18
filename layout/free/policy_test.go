@@ -1,168 +1,119 @@
 package free
 
 import (
+	"math"
+	"strings"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/layout"
 )
 
-func newNode(anchor layout.FreeAnchor, offset gfx.Point) (layout.ChildNode, *layout.ChildArrangeHandle) {
-	handle := &layout.ChildArrangeHandle{}
-	node := layout.ChildNode{
-		FacetID: facet.FacetID(1),
-		Attachment: layout.ChildAttachment{
-			Placement: layout.PlacementHints{
-				FreeAnchor: anchor,
-				Offset:     offset,
+func newChild(id facet.FacetID, placement facet.FreePlacement, size gfx.Size) Child {
+	role := &facet.LayoutRole{}
+	role.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: size}
+	}
+	role.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		role.ArrangedBounds = bounds
+	}
+	role.Child.SupportedPlacement = facet.SupportsFree
+	return Child{
+		FacetID: id,
+		Attachment: facet.Attachment{
+			Placement: facet.Placement{
+				Mode: facet.PlacementFree,
+				Free: placement,
 			},
 		},
-		IntrinsicSize: gfx.Size{W: 20, H: 10},
-	}
-	node.AttachArrangeHandle(handle)
-	return node, handle
-}
-
-func TestMeasureReturnsZero(t *testing.T) {
-	p := New()
-	if got := p.Measure([]layout.ChildNode{{}}, gfx.Size{W: 100, H: 100}); got != (gfx.Size{}) {
-		t.Fatalf("unexpected size: %#v", got)
+		Layout:   role,
+		Contract: role.Child,
 	}
 }
 
-func TestAllAnchors(t *testing.T) {
-	cases := []struct {
-		name   string
-		anchor layout.FreeAnchor
-		want   gfx.Rect
-	}{
-		{name: "top-left", anchor: layout.FreeTopLeft, want: gfx.RectFromXYWH(10, 20, 20, 10)},
-		{name: "top-center", anchor: layout.FreeTopCenter, want: gfx.RectFromXYWH(50, 20, 20, 10)},
-		{name: "top-right", anchor: layout.FreeTopRight, want: gfx.RectFromXYWH(90, 20, 20, 10)},
-		{name: "center-left", anchor: layout.FreeCenterLeft, want: gfx.RectFromXYWH(10, 65, 20, 10)},
-		{name: "center", anchor: layout.FreeCenter, want: gfx.RectFromXYWH(50, 65, 20, 10)},
-		{name: "center-right", anchor: layout.FreeCenterRight, want: gfx.RectFromXYWH(90, 65, 20, 10)},
-		{name: "bottom-left", anchor: layout.FreeBottomLeft, want: gfx.RectFromXYWH(10, 110, 20, 10)},
-		{name: "bottom-center", anchor: layout.FreeBottomCenter, want: gfx.RectFromXYWH(50, 110, 20, 10)},
-		{name: "bottom-right", anchor: layout.FreeBottomRight, want: gfx.RectFromXYWH(90, 110, 20, 10)},
-	}
+func TestPolicyArrange_usesExactCoordinates(t *testing.T) {
 	p := New()
-	for _, tc := range cases {
-		child, handle := newNode(tc.anchor, gfx.Point{})
-		p.Arrange([]layout.ChildNode{child}, layout.ResolvedLayer{Bounds: gfx.RectFromXYWH(10, 20, 100, 100)})
-		got, ok := handle.Bounds()
-		if !ok || got != tc.want {
-			t.Fatalf("%s: unexpected bounds %#v", tc.name, got)
+	child := newChild(1, facet.FreePlacement{X: facet.ResolvedScalar(12), Y: facet.ResolvedScalar(34)}, gfx.Size{W: 30, H: 40})
+	arranged, err := p.Arrange([]Child{child}, gfx.RectFromXYWH(10, 20, 100, 100), false)
+	if err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	if arranged[0].Bounds != (gfx.RectFromXYWH(22, 54, 30, 40)) {
+		t.Fatalf("bounds = %#v", arranged[0].Bounds)
+	}
+}
+
+func TestPolicyArrange_usesOptionalSize(t *testing.T) {
+	p := New()
+	child := newChild(1, facet.FreePlacement{
+		X:      facet.ResolvedScalar(5),
+		Y:      facet.ResolvedScalar(7),
+		Width:  facet.OptionalScalar(80),
+		Height: facet.OptionalScalar(60),
+	}, gfx.Size{W: 30, H: 40})
+	arranged, err := p.Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 200, 200), false)
+	if err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	if arranged[0].Bounds != (gfx.RectFromXYWH(5, 7, 80, 60)) {
+		t.Fatalf("bounds = %#v", arranged[0].Bounds)
+	}
+}
+
+func TestPolicyArrange_clampsWhenOverflowDisabled(t *testing.T) {
+	p := New()
+	child := newChild(1, facet.FreePlacement{X: facet.ResolvedScalar(-20), Y: facet.ResolvedScalar(-10)}, gfx.Size{W: 30, H: 40})
+	arranged, err := p.Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 50, 50), false)
+	if err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	if arranged[0].Bounds.Min != (gfx.Point{}) {
+		t.Fatalf("bounds = %#v", arranged[0].Bounds)
+	}
+}
+
+func TestPolicyArrange_allowsOverflowWhenEnabled(t *testing.T) {
+	p := New()
+	child := newChild(1, facet.FreePlacement{X: facet.ResolvedScalar(-20), Y: facet.ResolvedScalar(-10)}, gfx.Size{W: 30, H: 40})
+	arranged, err := p.Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 50, 50), true)
+	if err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	if arranged[0].Bounds.Min != (gfx.Point{X: -20, Y: -10}) {
+		t.Fatalf("bounds = %#v", arranged[0].Bounds)
+	}
+}
+
+func TestPolicyArrange_panicsOnNonFiniteCoordinates(t *testing.T) {
+	p := New()
+	child := newChild(1, facet.FreePlacement{
+		X: facet.ResolvedScalar(float32(math.NaN())),
+		Y: facet.ResolvedScalar(0),
+	}, gfx.Size{W: 10, H: 10})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for NaN coordinate")
+		} else if msg, ok := r.(string); !ok || !strings.Contains(msg, "layout contract violation") || !strings.Contains(msg, "free placement requires finite coordinates") {
+			t.Fatalf("panic = %#v", r)
 		}
-	}
+	}()
+	_, _ = p.Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 100, 100), false)
 }
 
-func TestOffsetApplication(t *testing.T) {
+func TestPolicyArrange_panicsOnNonFiniteSize(t *testing.T) {
 	p := New()
-	child, handle := newNode(layout.FreeTopLeft, gfx.Point{X: 5, Y: 7})
-	p.Arrange([]layout.ChildNode{child}, layout.ResolvedLayer{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)})
-	got, ok := handle.Bounds()
-	if !ok || got.Min != (gfx.Point{X: 5, Y: 7}) {
-		t.Fatalf("unexpected offset result %#v", got)
-	}
-}
-
-func TestBottomRightNegativeOffset(t *testing.T) {
-	p := New()
-	child, handle := newNode(layout.FreeBottomRight, gfx.Point{X: -8, Y: -8})
-	p.Arrange([]layout.ChildNode{child}, layout.ResolvedLayer{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)})
-	got, ok := handle.Bounds()
-	if !ok || got.Max != (gfx.Point{X: 92, Y: 92}) {
-		t.Fatalf("unexpected inset bounds %#v", got)
-	}
-}
-
-func TestClampToBounds(t *testing.T) {
-	p := New()
-	child, handle := newNode(layout.FreeTopLeft, gfx.Point{X: -20, Y: -20})
-	p.Arrange([]layout.ChildNode{child}, layout.ResolvedLayer{Bounds: gfx.RectFromXYWH(0, 0, 50, 50)})
-	got, ok := handle.Bounds()
-	if !ok || got.Min != (gfx.Point{}) {
-		t.Fatalf("unexpected clamp bounds %#v", got)
-	}
-}
-
-func TestAllowOverflow_skips_clamp(t *testing.T) {
-	p := New()
-	child, handle := newNode(layout.FreeTopLeft, gfx.Point{X: -20, Y: -20})
-	p.Arrange([]layout.ChildNode{child}, layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 50, 50),
-		CoordLimits: layout.CoordLimits{AllowOverflow: true},
-	})
-	got, ok := handle.Bounds()
-	if !ok || got.Min != (gfx.Point{X: -20, Y: -20}) {
-		t.Fatalf("unexpected overflow bounds %#v", got)
-	}
-}
-
-func TestMultipleChildrenDifferentAnchors(t *testing.T) {
-	p := New()
-	left, leftHandle := newNode(layout.FreeTopLeft, gfx.Point{})
-	right, rightHandle := newNode(layout.FreeBottomRight, gfx.Point{})
-	p.Arrange([]layout.ChildNode{left, right}, layout.ResolvedLayer{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)})
-
-	leftBounds, ok := leftHandle.Bounds()
-	if !ok || leftBounds.Min != (gfx.Point{X: 0, Y: 0}) {
-		t.Fatalf("unexpected left bounds %#v", leftBounds)
-	}
-
-	rightBounds, ok := rightHandle.Bounds()
-	if !ok || rightBounds.Max != (gfx.Point{X: 100, Y: 100}) {
-		t.Fatalf("unexpected right bounds %#v", rightBounds)
-	}
-}
-
-func TestMultipleChildrenSameAnchor(t *testing.T) {
-	p := New()
-	first, firstHandle := newNode(layout.FreeCenter, gfx.Point{})
-	second, secondHandle := newNode(layout.FreeCenter, gfx.Point{})
-	p.Arrange([]layout.ChildNode{first, second}, layout.ResolvedLayer{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)})
-
-	firstBounds, ok := firstHandle.Bounds()
-	if !ok || firstBounds != (gfx.RectFromXYWH(40, 45, 20, 10)) {
-		t.Fatalf("unexpected first bounds %#v", firstBounds)
-	}
-
-	secondBounds, ok := secondHandle.Bounds()
-	if !ok || secondBounds != firstBounds {
-		t.Fatalf("unexpected second bounds %#v", secondBounds)
-	}
-}
-
-func BenchmarkPolicyArrange(b *testing.B) {
-	p := New()
-	children := make([]layout.ChildNode, 3)
-	handles := make([]layout.ChildArrangeHandle, 3)
-	anchors := []layout.FreeAnchor{
-		layout.FreeTopLeft,
-		layout.FreeCenter,
-		layout.FreeBottomRight,
-	}
-	for i := range children {
-		children[i] = layout.ChildNode{
-			FacetID: facet.FacetID(i + 1),
-			Attachment: layout.ChildAttachment{
-				Placement: layout.PlacementHints{
-					FreeAnchor: anchors[i],
-				},
-			},
-			IntrinsicSize: gfx.Size{W: 20, H: 10},
+	child := newChild(1, facet.FreePlacement{
+		X:      facet.ResolvedScalar(0),
+		Y:      facet.ResolvedScalar(0),
+		Width:  facet.ResolvedOptionalScalar{Valid: true, Value: facet.ResolvedScalar(float32(math.Inf(1)))},
+		Height: facet.OptionalScalar(10),
+	}, gfx.Size{W: 10, H: 10})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for infinite width")
+		} else if msg, ok := r.(string); !ok || !strings.Contains(msg, "layout contract violation") || !strings.Contains(msg, "free placement width must be finite") {
+			t.Fatalf("panic = %#v", r)
 		}
-		children[i].AttachArrangeHandle(&handles[i])
-	}
-
-	layer := layout.ResolvedLayer{Bounds: gfx.RectFromXYWH(0, 0, 100, 100)}
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		for j := range handles {
-			handles[j] = layout.ChildArrangeHandle{}
-		}
-		p.Arrange(children, layer)
-	}
+	}()
+	_, _ = p.Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 100, 100), false)
 }

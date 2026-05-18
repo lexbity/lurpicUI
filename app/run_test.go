@@ -329,6 +329,31 @@ func TestRun_vulkan_falls_back_to_software(t *testing.T) {
 	}
 }
 
+func TestRun_reuses_supplied_platform_app(t *testing.T) {
+	restoreHooks(t)
+	app := &fakeApp{}
+	calledConstructor := false
+	newPlatformApp = func() (platform.App, error) {
+		calledConstructor = true
+		return nil, errors.New("constructor should not be called when PlatformApp is supplied")
+	}
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	cfg := DefaultConfig("hello", 640, 480)
+	cfg.PlatformApp = app
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if calledConstructor {
+		t.Fatal("expected supplied platform app to bypass newPlatformApp")
+	}
+	if app.destroyed {
+		t.Fatal("expected supplied platform app to remain caller-owned")
+	}
+}
+
 func restoreHooks(t *testing.T) {
 	t.Helper()
 	oldNewPlatformApp := newPlatformApp

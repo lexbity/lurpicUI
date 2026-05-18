@@ -121,7 +121,7 @@ func TestTokens_densityScaling(t *testing.T) {
 	}
 }
 
-func TestElevationTokens_stub(t *testing.T) {
+func TestElevationTokens_scaling(t *testing.T) {
 	tokens := DefaultTokens().Elevation
 
 	if tokens.Level0.Width != 0 {

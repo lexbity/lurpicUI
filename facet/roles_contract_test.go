@@ -72,7 +72,7 @@ func TestProjectionContext_resolved_layer_prefers_layer_snapshot(t *testing.T) {
 	}
 }
 
-func TestProjectionContext_resolved_layer_falls_back_to_local_viewport(t *testing.T) {
+func TestProjectionContext_resolved_layer_requires_explicit_snapshot(t *testing.T) {
 	ctx := ProjectionContext{
 		Bounds: gfx.RectFromXYWH(1, 2, 3, 4),
 		Viewport: &ViewportRole{
@@ -80,13 +80,7 @@ func TestProjectionContext_resolved_layer_falls_back_to_local_viewport(t *testin
 		},
 	}
 	got := ctx.ResolvedLayer()
-	if got.Bounds != (gfx.RectFromXYWH(1, 2, 3, 4)) {
-		t.Fatalf("resolved bounds = %#v, want context bounds", got.Bounds)
-	}
-	if got.Transform != gfx.Translation(9, 10) {
-		t.Fatalf("resolved transform = %#v, want viewport transform", got.Transform)
-	}
-	if got.ClipRect != (gfx.RectFromXYWH(1, 2, 3, 4)) {
-		t.Fatalf("resolved clip = %#v, want bounds clip", got.ClipRect)
+	if got != (ProjectionLayer{}) {
+		t.Fatalf("resolved layer = %#v, want zero value when snapshot is absent", got)
 	}
 }

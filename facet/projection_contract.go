@@ -8,25 +8,8 @@ func (l ProjectionLayer) IsZero() bool {
 }
 
 // ResolvedLayer returns the layer contract that projection should consume.
-//
-// When a runtime has already resolved a layer, that resolved record wins.
-// When projection is invoked without a resolved layer snapshot, the context
-// falls back to the explicit local bounds and viewport transform supplied by
-// the facet.
 func (c ProjectionContext) ResolvedLayer() ProjectionLayer {
-	if !c.Layer.IsZero() {
-		return c.Layer
-	}
-	layer := ProjectionLayer{
-		Bounds:   c.Bounds,
-		ClipRect: c.Bounds,
-	}
-	if c.Viewport != nil {
-		layer.Transform = c.Viewport.Transform
-	} else {
-		layer.Transform = gfx.Identity()
-	}
-	return layer
+	return c.Layer
 }
 
 // LayerBounds returns the resolved layer bounds.
@@ -42,4 +25,14 @@ func (c ProjectionContext) LayerTransform() gfx.Transform {
 // LayerClipRect returns the resolved layer clip rect.
 func (c ProjectionContext) LayerClipRect() gfx.Rect {
 	return c.ResolvedLayer().ClipRect
+}
+
+// LayerID returns the resolved layer identifier, if available.
+func (c ProjectionContext) LayerID() LayerID {
+	return c.ResolvedLayer().LayerID
+}
+
+// LayerRecipeVersion returns the resolved layer recipe version.
+func (c ProjectionContext) LayerRecipeVersion() uint64 {
+	return c.ResolvedLayer().RecipeVersion
 }

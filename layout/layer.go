@@ -1,14 +1,9 @@
 package layout
 
 import (
-	"fmt"
-
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 )
-
-// LayerID is a parent-scoped stable identifier for a composition layer.
-type LayerID uint32
 
 // PlacementMode selects the algorithm used to arrange children inside a layer.
 type PlacementMode uint8
@@ -118,25 +113,6 @@ type ChildAttachment struct {
 	ZPriority int
 }
 
-// LayerSpec describes one parent-owned composition layer.
-type LayerSpec struct {
-	ID           LayerID
-	Placement    PlacementMode
-	Measurement  MeasurementMode
-	CoordSpace   CoordSpace
-	CoordLimits  CoordLimits
-	HitPolicy    LayerHitPolicy
-	RenderOrder  int
-	ClipPolicy   ClipPolicy
-	HybridInsets gfx.Insets
-}
-
-// LayerDiff reports the minimum invalidation needed when LayerSpecs change.
-type LayerDiff struct {
-	NeedsLayout     bool
-	NeedsProjection bool
-}
-
 // Viewport is a plain-data snapshot of viewport state.
 type Viewport struct {
 	Transform   gfx.Transform
@@ -157,9 +133,7 @@ type AnchorChange struct {
 	Removed bool
 }
 
-// ResolvedLayer is the runtime result of resolving a LayerSpec for a frame.
-//
-// It is the authoritative runtime record of layer-owned spatial state.
+// ResolvedLayer is the resolved spatial snapshot consumed by placement policies.
 type ResolvedLayer struct {
 	LayerID     LayerID
 	Bounds      gfx.Rect
@@ -238,7 +212,7 @@ func (h *ChildArrangeHandle) SetArrangedBounds(r gfx.Rect) {
 		return
 	}
 	if h.written {
-		panic("layout: SetArrangedBounds called twice for the same child in one Arrange pass")
+		panic("layout contract violation: SetArrangedBounds called twice for the same child in one Arrange pass; guidance: each child may only be arranged once per pass")
 	}
 	h.bounds = r
 	h.written = true
@@ -250,63 +224,6 @@ func (h *ChildArrangeHandle) Bounds() (gfx.Rect, bool) {
 		return gfx.Rect{}, false
 	}
 	return h.bounds, true
-}
-
-// ValidateLayerSpec reports contract violations in a layer declaration.
-func ValidateLayerSpec(s LayerSpec) error {
-	if s.ID == 0 {
-		return fmt.Errorf("layout: layer spec has zero LayerID")
-	}
-	if s.RenderOrder < 0 {
-		return fmt.Errorf("layout: layer %d has negative RenderOrder %d", s.ID, s.RenderOrder)
-	}
-	switch s.Placement {
-	case PlacementAnchor:
-		if s.Measurement != MeasureNonStructural {
-			return fmt.Errorf("layout: layer %d placement Anchor requires MeasureNonStructural", s.ID)
-		}
-	case PlacementProjected:
-		if s.Measurement != MeasureNonStructural {
-			return fmt.Errorf("layout: layer %d placement Projected requires MeasureNonStructural", s.ID)
-		}
-	}
-	return nil
-}
-
-// DiffLayerSpecs compares two layer spec slices and reports invalidation scope.
-func DiffLayerSpecs(oldSpecs, newSpecs []LayerSpec) LayerDiff {
-	if len(oldSpecs) != len(newSpecs) {
-		return LayerDiff{NeedsLayout: true, NeedsProjection: true}
-	}
-	var diff LayerDiff
-	for i := range oldSpecs {
-		oldSpec := oldSpecs[i]
-		newSpec := newSpecs[i]
-		if oldSpec.ID != newSpec.ID {
-			return LayerDiff{NeedsLayout: true, NeedsProjection: true}
-		}
-		if oldSpec.Placement != newSpec.Placement ||
-			oldSpec.Measurement != newSpec.Measurement ||
-			oldSpec.CoordSpace != newSpec.CoordSpace ||
-			oldSpec.HybridInsets != newSpec.HybridInsets {
-			diff.NeedsLayout = true
-			diff.NeedsProjection = true
-		}
-		if oldSpec.CoordLimits != newSpec.CoordLimits {
-			if oldSpec.Measurement == MeasureNonStructural && newSpec.Measurement == MeasureNonStructural {
-				diff.NeedsProjection = true
-			} else {
-				diff.NeedsLayout = true
-				diff.NeedsProjection = true
-			}
-		}
-		if oldSpec.HitPolicy != newSpec.HitPolicy ||
-			oldSpec.RenderOrder != newSpec.RenderOrder ||
-			oldSpec.ClipPolicy != newSpec.ClipPolicy {
-			diff.NeedsProjection = true
-		}
-	}
-	return diff
 }
 
 // AnchorPositionCache stores exported anchors for one parent facet.

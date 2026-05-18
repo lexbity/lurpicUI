@@ -5,7 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
-// ColorToken is a named color in the legacy theme palette.
+// ColorToken is a named color in the theme palette.
 type ColorToken uint8
 
 const (
@@ -62,9 +62,6 @@ const (
 )
 
 // Context provides named visual tokens.
-//
-// The legacy API is kept for compatibility while the richer Tokens API
-// introduced in Part 7 becomes the canonical theme representation.
 type Context interface {
 	Color(t ColorToken) gfx.Color
 	Spacing(t SpacingToken) float32

@@ -7,8 +7,11 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/input"
+	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/text"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // DiagnosticsHook receives per-frame diagnostic stats.
@@ -22,6 +25,9 @@ type Config struct {
 	GestureConfig   input.GestureConfig
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
+	LayerRegistry   *layout.LayerRegistry
+	WindowBindings  map[string]platform.Window
+	ThemeResolver   *theme.ThemeResolver
 	ContentScale    float32
 	Logger          Logger
 	DiagnosticsHook DiagnosticsHook

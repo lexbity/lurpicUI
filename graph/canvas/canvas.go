@@ -64,8 +64,8 @@ func NewGraphCanvasFacet(
 		viewportStore: viewportStore,
 	}
 
-	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
-		return c.MaxSize
+	f.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: c.MaxSize}
 	}
 
 	f.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {

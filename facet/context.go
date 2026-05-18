@@ -3,13 +3,12 @@ package facet
 import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
-	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // AttachContext carries the narrow set of services exposed during Attach.
 type AttachContext struct {
 	Runtime RuntimeServices
-	Theme   theme.Context
+	Theme   any
 }
 
 // RuntimeServices is the narrow subset of runtime capabilities facets may see.

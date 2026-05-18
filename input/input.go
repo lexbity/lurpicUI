@@ -164,6 +164,7 @@ type System struct {
 	focusTree    facet.FacetImpl
 	hover        HoverState
 	hoverEnabled bool
+	modality     facet.InputModality
 	clickHistory clickHistory
 }
 
@@ -189,6 +190,7 @@ func NewSystem(config GestureConfig) *System {
 		pointers:     make(map[PointerID]*PointerState),
 		touches:      make(map[uint64]*TouchState),
 		hoverEnabled: true,
+		modality:     facet.InputModalityUnknown,
 	}
 }
 
@@ -236,6 +238,22 @@ func (s *System) SetHoverSupported(supported bool) {
 	if !supported {
 		s.hover.Clear()
 	}
+}
+
+// SetInputModality records the most recent input family seen by the input system.
+func (s *System) SetInputModality(modality facet.InputModality) {
+	if s == nil {
+		return
+	}
+	s.modality = modality
+}
+
+// CurrentInputModality reports the last observed input family.
+func (s *System) CurrentInputModality() facet.InputModality {
+	if s == nil {
+		return facet.InputModalityUnknown
+	}
+	return s.modality
 }
 
 // SetFocusManager installs the runtime-owned focus manager.

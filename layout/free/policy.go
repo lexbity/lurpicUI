@@ -1,89 +1,101 @@
 package free
 
 import (
+	"fmt"
+	"math"
+
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/layout"
 )
 
-// Policy places children at absolute positions anchored to the layer bounds.
+// Child is the narrow view of a child facet participating in free placement.
+type Child struct {
+	FacetID    facet.FacetID
+	Attachment facet.Attachment
+	Layout     *facet.LayoutRole
+	Contract   facet.GroupChildContract
+}
+
+// ArrangedChild captures a child arranged by free placement.
+type ArrangedChild struct {
+	FacetID   facet.FacetID
+	Bounds    gfx.Rect
+	ZPriority int32
+	Contract  facet.GroupChildContract
+}
+
+// Policy places children at explicit coordinates inside the parent bounds.
 type Policy struct{}
 
 // New constructs a free-placement policy.
-func New() *Policy {
-	return &Policy{}
+func New() *Policy { return &Policy{} }
+
+// Measure returns zero size because free placement does not resize its parent.
+func (p *Policy) Measure(children []Child, constraints gfx.Size) (gfx.Size, error) {
+	return gfx.Size{}, nil
 }
 
-// Measure always returns zero size.
-func (p *Policy) Measure(children []layout.ChildNode, constraints gfx.Size) gfx.Size {
-	return gfx.Size{}
-}
-
-// Arrange positions each child relative to its declared free anchor.
-func (p *Policy) Arrange(children []layout.ChildNode, layer layout.ResolvedLayer) {
+// Arrange positions each child at its explicit coordinates.
+func (p *Policy) Arrange(children []Child, bounds gfx.Rect, allowOverflow bool) ([]ArrangedChild, error) {
 	if p == nil || len(children) == 0 {
-		return
+		return nil, nil
 	}
-	allowOverflow := layer.CoordLimits.AllowOverflow
-	bounds := layer.Bounds
+	arranged := make([]ArrangedChild, 0, len(children))
 	for i := range children {
 		child := children[i]
-		rect := place(bounds, child.IntrinsicSize, child.Attachment.Placement.FreeAnchor, child.Attachment.Placement.Offset)
+		if child.Layout == nil {
+			continue
+		}
+		if !child.Contract.SupportedPlacement.Has(facet.PlacementFree) {
+			panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement free; violated contract: unsupported placement mode; guidance: set SupportedPlacement to include free placement", child.FacetID, child.Attachment.LayerID))
+		}
+		free := child.Attachment.Placement.Free
+		x := float64(free.X)
+		y := float64(free.Y)
+		if !finite(x) || !finite(y) {
+			panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement free; violated contract: free placement requires finite coordinates; guidance: supply finite X and Y", child.FacetID, child.Attachment.LayerID))
+		}
+		size := child.Layout.MeasuredSize
+		if size == (gfx.Size{}) {
+			size = child.Layout.Measure(facet.MeasureContext{}, facet.Constraints{}).Size
+		}
+		if free.Width.Valid {
+			w := float64(free.Width.Value)
+			if !finite(w) {
+				panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement free; violated contract: free placement width must be finite; guidance: supply a finite width or omit it", child.FacetID, child.Attachment.LayerID))
+			}
+			size.W = float32(w)
+		}
+		if free.Height.Valid {
+			h := float64(free.Height.Value)
+			if !finite(h) {
+				panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement free; violated contract: free placement height must be finite; guidance: supply a finite height or omit it", child.FacetID, child.Attachment.LayerID))
+			}
+			size.H = float32(h)
+		}
+		rect := gfx.RectFromXYWH(bounds.Min.X+float32(x), bounds.Min.Y+float32(y), size.W, size.H)
 		if !allowOverflow {
 			rect = clampToBounds(rect, bounds)
 		}
-		children[i].SetArrangedBounds(rect)
+		child.Layout.Arrange(facet.ArrangeContext{Placement: child.Attachment.Placement}, rect)
+		arranged = append(arranged, ArrangedChild{
+			FacetID:   child.FacetID,
+			Bounds:    rect,
+			ZPriority: child.Attachment.ZPriority,
+			Contract:  child.Contract,
+		})
 	}
+	return arranged, nil
 }
 
-func place(bounds gfx.Rect, size gfx.Size, anchor layout.FreeAnchor, offset gfx.Point) gfx.Rect {
-	anchorPt := anchorPoint(bounds, anchor)
-	origin := gfx.Point{X: anchorPt.X + offset.X, Y: anchorPt.Y + offset.Y}
-	min := origin
-	switch anchor {
-	case layout.FreeTopLeft, layout.FreeTopCenter, layout.FreeTopRight:
-	case layout.FreeCenterLeft, layout.FreeCenter, layout.FreeCenterRight:
-		min.Y -= size.H / 2
-	case layout.FreeBottomLeft, layout.FreeBottomCenter, layout.FreeBottomRight:
-		min.Y -= size.H
-	}
-	switch anchor {
-	case layout.FreeTopLeft, layout.FreeCenterLeft, layout.FreeBottomLeft:
-	case layout.FreeTopCenter, layout.FreeCenter, layout.FreeBottomCenter:
-		min.X -= size.W / 2
-	case layout.FreeTopRight, layout.FreeCenterRight, layout.FreeBottomRight:
-		min.X -= size.W
-	}
-	return gfx.RectFromXYWH(min.X, min.Y, size.W, size.H)
-}
-
-func anchorPoint(bounds gfx.Rect, anchor layout.FreeAnchor) gfx.Point {
-	midX := (bounds.Min.X + bounds.Max.X) / 2
-	midY := (bounds.Min.Y + bounds.Max.Y) / 2
-	switch anchor {
-	case layout.FreeTopLeft:
-		return gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
-	case layout.FreeTopCenter:
-		return gfx.Point{X: midX, Y: bounds.Min.Y}
-	case layout.FreeTopRight:
-		return gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y}
-	case layout.FreeCenterLeft:
-		return gfx.Point{X: bounds.Min.X, Y: midY}
-	case layout.FreeCenter:
-		return gfx.Point{X: midX, Y: midY}
-	case layout.FreeCenterRight:
-		return gfx.Point{X: bounds.Max.X, Y: midY}
-	case layout.FreeBottomLeft:
-		return gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y}
-	case layout.FreeBottomCenter:
-		return gfx.Point{X: midX, Y: bounds.Max.Y}
-	case layout.FreeBottomRight:
-		return gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y}
-	default:
-		return gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
-	}
+func finite(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0)
 }
 
 func clampToBounds(rect, bounds gfx.Rect) gfx.Rect {
+	if rect.IsEmpty() || bounds.IsEmpty() {
+		return rect
+	}
 	width := rect.Width()
 	height := rect.Height()
 	if width > bounds.Width() {
@@ -107,4 +119,8 @@ func clampToBounds(rect, bounds gfx.Rect) gfx.Rect {
 		y = bounds.Max.Y - height
 	}
 	return gfx.RectFromXYWH(x, y, width, height)
+}
+
+func (a ArrangedChild) String() string {
+	return fmt.Sprintf("FacetID=%d Bounds=%v ZPriority=%d", a.FacetID, a.Bounds, a.ZPriority)
 }

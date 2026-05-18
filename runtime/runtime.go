@@ -20,7 +20,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type pendingSignal struct{ deliver func() }
@@ -35,11 +37,12 @@ type Runtime struct {
 	focusManager     *facet.FocusManager
 	jobPool          *job.Pool
 	renderPipeline   *RenderPipeline
-	policyRegistry   *PolicyRegistry
+	layerRegistry    *layout.LayerRegistry
 
-	platformApp platform.App
-	window      platform.Window
-	root        facet.FacetImpl
+	platformApp    platform.App
+	window         platform.Window
+	windowBindings map[string]platform.Window
+	root           facet.FacetImpl
 
 	frameNumber  uint64
 	frameTimer   *FrameTimer
@@ -47,17 +50,18 @@ type Runtime struct {
 
 	dirtyFacets      map[facet.FacetID]facet.DirtyFlags
 	dirtySources     map[facet.FacetID]string
-	childAttachments map[facet.FacetID]layout.ChildAttachment
-	layerStates      map[facet.FacetID]*resolvedLayerSet
+	childAttachments map[facet.FacetID]facet.Attachment
 	anchorCaches     map[facet.FacetID]*layout.AnchorPositionCache
 	projectionLayers map[facet.FacetID]facet.ProjectionLayer
 	lastHitTrace     diagnostics.HitTestTrace
 	hitTraceEnabled  bool
 	pendingEvents    []platform.Event
 	signalQueue      []pendingSignal
+	lastWindowFrames map[string]*render.Frame
 	diagMu           sync.RWMutex
 	diag             DiagnosticsHook
 	rootStyleContext any
+	rootStyleSubs    signal.Subscriptions
 	phase1HooksMu    sync.RWMutex
 	phase1Hooks      []func(time.Duration)
 	shutdownHooksMu  sync.RWMutex
@@ -89,6 +93,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if config.FontRegistry == nil {
 		return nil, errors.New("runtime: FontRegistry is required")
 	}
+	if config.LayerRegistry == nil {
+		return nil, errors.New("runtime: LayerRegistry is required")
+	}
 	if root == nil {
 		return nil, errors.New("runtime: root facet is required")
 	}
@@ -109,17 +116,18 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		focusManager:     facet.NewFocusManager(),
 		jobPool:          job.NewPool(config.WorkerCount),
 		renderPipeline:   newRenderPipeline(backend),
-		policyRegistry:   DefaultRegistry(),
+		layerRegistry:    config.LayerRegistry,
 		platformApp:      platformApp,
 		window:           window,
+		windowBindings:   copyWindowBindings(config.WindowBindings, window),
 		root:             root,
 		frameTimer:       NewFrameTimer(config.TargetFPS),
 		dirtyFacets:      make(map[facet.FacetID]facet.DirtyFlags),
 		dirtySources:     make(map[facet.FacetID]string),
-		childAttachments: make(map[facet.FacetID]layout.ChildAttachment),
-		layerStates:      make(map[facet.FacetID]*resolvedLayerSet),
+		childAttachments: make(map[facet.FacetID]facet.Attachment),
 		anchorCaches:     make(map[facet.FacetID]*layout.AnchorPositionCache),
 		projectionLayers: make(map[facet.FacetID]facet.ProjectionLayer),
+		lastWindowFrames: make(map[string]*render.Frame),
 		shutdownCh:       make(chan struct{}),
 		doneCh:           make(chan struct{}),
 		log:              config.Logger,
@@ -127,9 +135,15 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		surfaceReady:     true,
 	}
 	rt.lifecycleCond = sync.NewCond(&rt.lifecycleMu)
+	if rt.rootStyleContext == nil {
+		theme.NewRootStyleContext(rt, theme.DefaultTokens(), nil)
+	}
 	rt.inputSystem.SetFocusManager(rt.focusManager)
 	if cap, ok := platform.PointerCapableOf(platformApp); ok {
 		rt.inputSystem.SetHoverSupported(cap.SupportsHover())
+	}
+	if err := rt.validateWindowBindings(); err != nil {
+		return nil, err
 	}
 	return rt, nil
 }
@@ -292,6 +306,7 @@ func (rt *Runtime) shutdown() error {
 	rt.disposeTree(rt.root)
 	rt.jobPool.Shutdown()
 	rt.clearPhase1TickHooks()
+	rt.rootStyleSubs.Release()
 	if rt.renderPipeline != nil {
 		rt.renderPipeline.destroy()
 	}
@@ -332,6 +347,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	currentHitMap := rt.layeredHitMap(rt.projectionSystem.CurrentHitMap())
 	routedEvents := rt.inputSystem.Process(rt.pendingEvents, currentHitMap, rt.root)
 	rt.pendingEvents = rt.pendingEvents[:0]
+	routedEvents = rt.withDismissalEvents(routedEvents, currentHitMap)
 	routedEvents = append(routedEvents, hoverEvents...)
 	for _, re := range routedEvents {
 		_ = input.Deliver(re, rt.root)
@@ -358,7 +374,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	phaseStats := rt.resolveLayerTree()
 	stats.LayoutResolveDuration = time.Since(layerStart)
 	stats.LayoutDuration += stats.LayoutResolveDuration
-	stats.LayerSpecDuration = phaseStats.specResolution
+	stats.LayerResolutionDuration = phaseStats.specResolution
 	stats.AnchorExportDuration = phaseStats.anchorExport
 	stats.StructuralMeasureDuration = phaseStats.structuralMeasure
 	stats.LayerBoundsDuration = phaseStats.layerBoundsResolution
@@ -383,7 +399,12 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 
 	renderStart := time.Now()
 	if rt.renderPipeline != nil && frameOut != nil && rt.isSurfaceReady() {
-		frame := rt.assembleFrame(frameOut, dirtySnapshot)
+		windowFrames := rt.assembleWindowFrames(frameOut, dirtySnapshot)
+		rt.lastWindowFrames = windowFrames
+		frame := windowFrames[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})]
+		if frame == nil {
+			frame = &render.Frame{}
+		}
 		if diag := rt.diagnosticsHook(); diag != nil {
 			if oi, ok := diag.(overlayInjector); ok {
 				oi.InjectOverlay(frame, stats)
@@ -407,6 +428,91 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
 	rt.dirtySources = make(map[facet.FacetID]string)
+}
+
+func (rt *Runtime) withDismissalEvents(routed []input.RoutedEvent, hitMap *projection.HitMap) []input.RoutedEvent {
+	if rt == nil || hitMap == nil || len(routed) == 0 {
+		return routed
+	}
+	out := make([]input.RoutedEvent, 0, len(routed)*2)
+	for _, re := range routed {
+		if press, ok := re.Event.(input.PointerPressEvent); ok {
+			out = append(out, rt.dismissalEventsForPress(re.Target, press, hitMap)...)
+		}
+		out = append(out, re)
+	}
+	return out
+}
+
+func (rt *Runtime) dismissalEventsForPress(target facet.FacetID, press input.PointerPressEvent, hitMap *projection.HitMap) []input.RoutedEvent {
+	if rt == nil || hitMap == nil {
+		return nil
+	}
+	entries := hitMap.Entries()
+	if len(entries) == 0 {
+		return nil
+	}
+	targetOrder := int32(0)
+	targetLayerID := facet.LayerID(0)
+	for _, entry := range entries {
+		if entry.FacetID == target {
+			targetOrder = int32(entry.LayerOrder)
+			targetLayerID = facet.LayerID(entry.LayerID)
+			break
+		}
+	}
+	out := make([]input.RoutedEvent, 0, len(entries))
+	for _, entry := range entries {
+		layer, ok := rt.projectionLayers[entry.FacetID]
+		if !ok {
+			continue
+		}
+		scope := layer.Dismissal
+		if !scope.Enabled || !dismissalTriggerEnabled(scope, facet.DismissalTriggerPointer) {
+			continue
+		}
+		if entry.FacetID == target {
+			continue
+		}
+		if !dismissalBehindContains(scope.BehindOrders, targetOrder) {
+			continue
+		}
+		out = append(out, input.RoutedEvent{
+			Target: entry.FacetID,
+			Event: input.DismissEvent{
+				Trigger:    facet.DismissalTriggerPointer,
+				ScreenPos:  press.ScreenPos,
+				HitFacetID: target,
+				HitMarkID:  press.MarkID,
+				HitLayerID: targetLayerID,
+				HitOrder:   int(targetOrder),
+			},
+		})
+	}
+	return out
+}
+
+func dismissalTriggerEnabled(scope facet.DismissalScope, trigger facet.DismissalTrigger) bool {
+	if !scope.Enabled {
+		return false
+	}
+	if scope.Triggers == 0 {
+		return trigger == facet.DismissalTriggerPointer
+	}
+	switch trigger {
+	case facet.DismissalTriggerPointer:
+		return scope.Triggers&facet.DismissalTriggerSetPointer != 0
+	case facet.DismissalTriggerKey:
+		return scope.Triggers&facet.DismissalTriggerSetKey != 0
+	case facet.DismissalTriggerFocusLoss:
+		return scope.Triggers&facet.DismissalTriggerSetFocusLoss != 0
+	default:
+		return false
+	}
+}
+
+func dismissalBehindContains(r facet.OrderRange, order int32) bool {
+	return order >= r.Min && order < r.Max
 }
 
 func (rt *Runtime) collectPlatformEvents() []platform.Event {
@@ -555,6 +661,39 @@ func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
 	}
 }
 
+func (rt *Runtime) validateWindowBindings() error {
+	if rt == nil || rt.layerRegistry == nil {
+		return nil
+	}
+	descs := rt.layerRegistry.OrderedLayers()
+	for _, desc := range descs {
+		if desc.WindowBinding.Kind != layout.WindowBindingNamed {
+			continue
+		}
+		if rt.windowBindings == nil {
+			return fmt.Errorf("runtime: layer %q requires named window binding %q", desc.Name, desc.WindowBinding.Name)
+		}
+		if win, ok := rt.windowBindings[desc.WindowBinding.Name]; !ok || win == nil {
+			return fmt.Errorf("runtime: layer %q requires named window binding %q", desc.Name, desc.WindowBinding.Name)
+		}
+	}
+	return nil
+}
+
+func copyWindowBindings(src map[string]platform.Window, primary platform.Window) map[string]platform.Window {
+	out := make(map[string]platform.Window)
+	if primary != nil {
+		out[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})] = primary
+	}
+	for name, win := range src {
+		if name == "" {
+			continue
+		}
+		out[name] = win
+	}
+	return out
+}
+
 func (rt *Runtime) waitIfPausedOrStopped() bool {
 	if rt == nil {
 		return false
@@ -667,7 +806,7 @@ func (rt *Runtime) setIMEVisible(visible bool) {
 }
 
 // AddFacet attaches a new child facet at runtime with layer metadata.
-func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment layout.ChildAttachment) {
+func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment facet.Attachment) {
 	if rt == nil || parent == nil || child == nil {
 		return
 	}
@@ -678,7 +817,7 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment layout.Chi
 	}
 	parentBase.AddChildRuntime(childBase)
 	if rt.childAttachments == nil {
-		rt.childAttachments = make(map[facet.FacetID]layout.ChildAttachment)
+		rt.childAttachments = make(map[facet.FacetID]facet.Attachment)
 	}
 	rt.childAttachments[childBase.ID()] = attachment
 	if parentBase.State() == facet.StateCreated {
@@ -723,12 +862,12 @@ func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
 }
 
 // UpdateChildAttachment updates the runtime metadata for an already attached child facet.
-func (rt *Runtime) UpdateChildAttachment(child facet.FacetImpl, attachment layout.ChildAttachment) {
+func (rt *Runtime) UpdateChildAttachment(child facet.FacetImpl, attachment facet.Attachment) {
 	if rt == nil || child == nil || child.Base() == nil {
 		return
 	}
 	if rt.childAttachments == nil {
-		rt.childAttachments = make(map[facet.FacetID]layout.ChildAttachment)
+		rt.childAttachments = make(map[facet.FacetID]facet.Attachment)
 	}
 	rt.childAttachments[child.Base().ID()] = attachment
 	if parent := child.Base().Parent(); parent != nil {
@@ -944,9 +1083,22 @@ func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot m
 	return assembleFrameWithLayers(output, dirtySnapshot, rt)
 }
 
+// WindowFrames returns the most recent grouped per-window frame outputs.
+func (rt *Runtime) WindowFrames() map[string]*render.Frame {
+	if rt == nil || len(rt.lastWindowFrames) == 0 {
+		return nil
+	}
+	out := make(map[string]*render.Frame, len(rt.lastWindowFrames))
+	for k, v := range rt.lastWindowFrames {
+		out[k] = v
+	}
+	return out
+}
+
 type frameLayerResolver interface {
 	ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool)
-	ResolveChildAttachment(id facet.FacetID) (layout.ChildAttachment, bool)
+	ResolveChildAttachment(id facet.FacetID) (facet.Attachment, bool)
+	ResolveWindowBinding(id facet.FacetID) (layout.WindowBinding, bool)
 }
 
 type frameBatchItem struct {
@@ -999,7 +1151,7 @@ func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[f
 				item.clip = layer.ClipRect
 			}
 			if attachment, ok := resolver.ResolveChildAttachment(RenderBatch.FacetID); ok {
-				item.z = attachment.ZPriority
+				item.z = int(attachment.ZPriority)
 			}
 		}
 		items = append(items, item)
@@ -1040,6 +1192,65 @@ func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[f
 	}
 	out.DirtyRegions = computeDirtyRegions(output, dirtySnapshot)
 	return out
+}
+
+func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) map[string]*render.Frame {
+	if output == nil {
+		return nil
+	}
+	grouped := make(map[string]*projection.FrameOutput)
+	order := make([]string, 0)
+	for _, po := range output.RenderBatchs {
+		key := windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})
+		if rt != nil {
+			if binding, ok := rt.resolveWindowBindingForFacet(po.FacetID); ok {
+				key = windowBindingKey(binding)
+			}
+		}
+		group, ok := grouped[key]
+		if !ok {
+			group = &projection.FrameOutput{SelectionGeometries: make(map[facet.FacetID]*projection.SelectionGeometry)}
+			grouped[key] = group
+			order = append(order, key)
+		}
+		group.RenderBatchs = append(group.RenderBatchs, po)
+		if sel := output.SelectionGeometries[po.FacetID]; sel != nil {
+			if group.SelectionGeometries == nil {
+				group.SelectionGeometries = make(map[facet.FacetID]*projection.SelectionGeometry)
+			}
+			group.SelectionGeometries[po.FacetID] = sel
+		}
+	}
+	out := make(map[string]*render.Frame, len(grouped))
+	for _, key := range order {
+		group := grouped[key]
+		if group == nil {
+			continue
+		}
+		out[key] = assembleFrameWithLayers(group, dirtySnapshot, rt)
+	}
+	return out
+}
+
+func (rt *Runtime) resolveWindowBindingForFacet(id facet.FacetID) (layout.WindowBinding, bool) {
+	if rt == nil || id == 0 || rt.layerRegistry == nil {
+		return layout.WindowBinding{}, false
+	}
+	if layer, ok := rt.projectionLayers[id]; ok {
+		if desc, ok := rt.layerRegistry.Lookup(layout.LayerID(layer.LayerID)); ok {
+			return desc.WindowBinding, true
+		}
+	}
+	return layout.WindowBinding{}, false
+}
+
+func windowBindingKey(binding layout.WindowBinding) string {
+	switch binding.Kind {
+	case layout.WindowBindingNamed:
+		return binding.Name
+	default:
+		return "__primary__"
+	}
 }
 
 func computeDirtyRegions(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) []gfx.Rect {

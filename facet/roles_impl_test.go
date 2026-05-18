@@ -10,21 +10,21 @@ import (
 
 func TestLayoutRole_measure_called_with_constraints(t *testing.T) {
 	role := &LayoutRole{
-		OnMeasure: func(c Constraints) gfx.Size {
+		OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult {
 			if c.MinSize != (gfx.Size{W: 10, H: 20}) || c.MaxSize != (gfx.Size{W: 30, H: 40}) {
 				t.Fatalf("unexpected constraints: %#v", c)
 			}
-			return gfx.Size{W: 11, H: 22}
+			return MeasureResult{Size: gfx.Size{W: 11, H: 22}}
 		},
 	}
-	got := role.Measure(Constraints{
+	got := role.Measure(MeasureContext{}, Constraints{
 		MinSize: gfx.Size{W: 10, H: 20},
 		MaxSize: gfx.Size{W: 30, H: 40},
 	})
-	if got != (gfx.Size{W: 11, H: 22}) {
-		t.Fatalf("got %#v", got)
+	if got.Size != (gfx.Size{W: 11, H: 22}) {
+		t.Fatalf("got %#v", got.Size)
 	}
-	if role.MeasuredSize != got {
+	if role.MeasuredSize != got.Size {
 		t.Fatalf("cached size %#v", role.MeasuredSize)
 	}
 }
@@ -102,7 +102,9 @@ func TestTrackStore_registers_version_source(t *testing.T) {
 
 func TestFacetSubs_released_on_dispose(t *testing.T) {
 	f := &Facet{state: StateCreated, id: nextID()}
-	role := &LayoutRole{OnMeasure: func(Constraints) gfx.Size { return gfx.Size{W: 1, H: 1} }}
+	role := &LayoutRole{OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult {
+		return MeasureResult{Size: gfx.Size{W: 1, H: 1}}
+	}}
 	f.roles = []Role{role}
 	sig := signal.NewSignal[signal.Unit]("test")
 	To(Subscribe(f), &sig, func(signal.Unit) {})

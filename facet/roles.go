@@ -18,40 +18,6 @@ var nextRenderBatchID atomic.Uint64
 // Constraints is the shared layout constraint type.
 type Constraints = space.Constraints
 
-// LayoutRole participates in measurement and arrangement inside the resolved layer contract.
-type LayoutRole struct {
-	Constraints    Constraints
-	MeasuredSize   gfx.Size
-	ArrangedBounds gfx.Rect
-
-	OnMeasure func(c Constraints) gfx.Size
-	OnArrange func(bounds gfx.Rect)
-}
-
-// Measure updates the cached measurement and returns the measured size.
-func (r *LayoutRole) Measure(c Constraints) gfx.Size {
-	if r == nil {
-		return gfx.Size{}
-	}
-	r.Constraints = c
-	if r.OnMeasure == nil {
-		return gfx.Size{}
-	}
-	r.MeasuredSize = r.OnMeasure(c)
-	return r.MeasuredSize
-}
-
-// Arrange updates the arranged bounds and notifies the callback.
-func (r *LayoutRole) Arrange(bounds gfx.Rect) {
-	if r == nil {
-		return
-	}
-	r.ArrangedBounds = bounds
-	if r.OnArrange != nil {
-		r.OnArrange(bounds)
-	}
-}
-
 // RenderRole participates in command collection inside the resolved layer contract.
 type RenderRole struct {
 	RenderBatchID gfx.RenderBatchCacheID
@@ -151,6 +117,16 @@ type TextEvent struct {
 	Composing bool
 }
 
+// DismissEvent is delivered when a layer is dismissed by an outside interaction.
+type DismissEvent struct {
+	Trigger    DismissalTrigger
+	ScreenPos  gfx.Point
+	HitFacetID FacetID
+	HitMarkID  MarkID
+	HitLayerID LayerID
+	HitOrder   int
+}
+
 // InputRole participates in direct input handling inside the resolved layer contract.
 type InputRole struct {
 	OnPointer func(e PointerEvent) bool
@@ -158,6 +134,7 @@ type InputRole struct {
 	OnScroll  func(e ScrollEvent) bool
 	OnKey     func(e KeyEvent) bool
 	OnText    func(e TextEvent) bool
+	OnDismiss func(e DismissEvent) bool
 
 	// SuppressSyntheticPointer opts out of touch-to-pointer fallback for this facet.
 	SuppressSyntheticPointer bool
@@ -179,12 +156,16 @@ type ViewportRole struct {
 
 // ProjectionLayer carries the resolved spatial context for projection.
 type ProjectionLayer struct {
-	Bounds      gfx.Rect
-	Transform   gfx.Transform
-	ClipRect    gfx.Rect
-	CoordSpace  uint8
-	RenderOrder int
-	HitPolicy   uint8
+	LayerID       LayerID
+	Bounds        gfx.Rect
+	Transform     gfx.Transform
+	ClipRect      gfx.Rect
+	CoordSpace    uint8
+	RenderOrder   int
+	HitPolicy     uint8
+	ClipPolicy    ClipPolicy
+	Dismissal     DismissalScope
+	RecipeVersion uint64
 }
 
 // LayerToLocal converts a point in layer space back into authored local space.
@@ -225,10 +206,12 @@ func (v *ViewportRole) SetPanZoom(pan gfx.Point, zoom float32) {
 // bounds and viewport transform only when projection is invoked without a
 // resolved runtime snapshot.
 type ProjectionContext struct {
-	Bounds   gfx.Rect
-	Viewport *ViewportRole
-	Runtime  RuntimeServices
-	Layer    ProjectionLayer
+	Bounds        gfx.Rect
+	Viewport      *ViewportRole
+	Runtime       RuntimeServices
+	Layer         ProjectionLayer
+	ContentScale  float32
+	InputModality InputModality
 }
 
 // ProjectionRole consumes the resolved layer contract and participates in projection output collection.
@@ -344,18 +327,6 @@ func (r *TickRole) Reset() {
 	r.active = false
 }
 
-func (r *LayoutRole) onAttach(f *Facet) {
-	if r.OnMeasure == nil {
-		panic("facet: LayoutRole requires OnMeasure")
-	}
-}
-func (r *LayoutRole) onActivate(f *Facet)   {}
-func (r *LayoutRole) onDeactivate(f *Facet) {}
-func (r *LayoutRole) onDispose(f *Facet) {
-	r.OnMeasure = nil
-	r.OnArrange = nil
-}
-
 func (r *RenderRole) onAttach(f *Facet) {
 	if r.RenderBatchID == 0 {
 		r.RenderBatchID = gfx.RenderBatchCacheID(nextRenderBatchID.Add(1))
@@ -386,6 +357,7 @@ func (r *InputRole) onDispose(f *Facet) {
 	r.OnScroll = nil
 	r.OnKey = nil
 	r.OnText = nil
+	r.OnDismiss = nil
 }
 
 func (r *FocusRole) onAttach(f *Facet)     {}

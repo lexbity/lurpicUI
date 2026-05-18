@@ -1,98 +1,88 @@
 package anchor
 
 import (
+	"fmt"
+
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/layout"
 )
 
-// Policy places children relative to exported anchor positions.
+// Cache provides anchor lookup for a resolved parent.
+type Cache interface {
+	Get(id facet.AnchorID) (gfx.Point, bool)
+}
+
+// Child is the narrow view of a child facet participating in anchor placement.
+type Child struct {
+	FacetID    facet.FacetID
+	Attachment facet.Attachment
+	Layout     *facet.LayoutRole
+	Contract   facet.GroupChildContract
+}
+
+// ArrangedChild captures a child arranged by anchor placement.
+type ArrangedChild struct {
+	FacetID   facet.FacetID
+	Bounds    gfx.Rect
+	Placement facet.AnchorPlacement
+	ZPriority int32
+	Contract  facet.GroupChildContract
+}
+
+// Policy places children relative to exported anchors.
 type Policy struct{}
 
 // New constructs an anchor-placement policy.
-func New() *Policy {
-	return &Policy{}
-}
+func New() *Policy { return &Policy{} }
 
-// Measure always returns zero size.
-func (p *Policy) Measure(children []layout.ChildNode, constraints gfx.Size) gfx.Size {
-	return gfx.Size{}
+// Measure returns zero size because anchor placement is resolved against the parent layer bounds.
+func (p *Policy) Measure(children []Child, constraints gfx.Size) (gfx.Size, error) {
+	return gfx.Size{}, nil
 }
 
 // Arrange positions each child relative to its referenced anchor.
-func (p *Policy) Arrange(children []layout.ChildNode, layer layout.ResolvedLayer) {
+func (p *Policy) Arrange(children []Child, bounds gfx.Rect, cache Cache, allowOverflow bool) ([]ArrangedChild, error) {
 	if p == nil || len(children) == 0 {
-		return
+		return nil, nil
 	}
-	bounds := layer.Bounds
-	allowOverflow := layer.CoordLimits.AllowOverflow
-	cache := layer.AnchorCache
+	if cache == nil {
+		panic("layout/anchor: anchor placement requires an anchor cache")
+	}
+	arranged := make([]ArrangedChild, 0, len(children))
 	for i := range children {
 		child := children[i]
-		rect := gfx.Rect{}
-		if cache == nil {
-			children[i].SetArrangedBounds(rect)
+		if child.Layout == nil {
 			continue
 		}
-		anchorPt, ok := cache.Get(child.Attachment.Placement.AnchorRef)
+		if !child.Contract.SupportedPlacement.Has(facet.PlacementAnchor) {
+			panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement anchor; violated contract: unsupported placement mode; guidance: set SupportedPlacement to include anchor placement", child.FacetID, child.Attachment.LayerID))
+		}
+		ref := child.Attachment.Placement.Anchor.AnchorRef
+		if ref == "" {
+			panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement anchor; violated contract: missing anchor reference; guidance: export an anchor reference before arranging children", child.FacetID, child.Attachment.LayerID))
+		}
+		anchorPt, ok := cache.Get(ref)
 		if !ok {
-			children[i].SetArrangedBounds(rect)
-			continue
+			panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement anchor; violated contract: anchor %q does not exist; guidance: export the anchor before arranging children", child.FacetID, child.Attachment.LayerID, ref))
 		}
-		rect = anchorRect(anchorPt, child.IntrinsicSize, child.Attachment.Placement.AnchorSide, child.Attachment.Placement.AnchorGap)
+		size := child.Layout.MeasuredSize
+		if size == (gfx.Size{}) {
+			size = child.Layout.Measure(facet.MeasureContext{}, facet.Constraints{}).Size
+		}
+		rect := anchorRect(anchorPt, size, child.Attachment.Placement.Anchor.Side, float32(child.Attachment.Placement.Anchor.Gap))
+		rect.Min.X += float32(child.Attachment.Placement.Anchor.OffsetX)
+		rect.Min.Y += float32(child.Attachment.Placement.Anchor.OffsetY)
 		if !allowOverflow {
 			rect = clampToBounds(rect, bounds)
 		}
-		children[i].SetArrangedBounds(rect)
+		child.Layout.Arrange(facet.ArrangeContext{Placement: child.Attachment.Placement}, rect)
+		arranged = append(arranged, ArrangedChild{
+			FacetID:   child.FacetID,
+			Bounds:    rect,
+			Placement: child.Attachment.Placement.Anchor,
+			ZPriority: child.Attachment.ZPriority,
+			Contract:  child.Contract,
+		})
 	}
-}
-
-func anchorRect(anchorPt gfx.Point, size gfx.Size, side layout.AnchorSide, gap float32) gfx.Rect {
-	origin := gfx.Point{X: anchorPt.X, Y: anchorPt.Y}
-	switch side {
-	case layout.AnchorAbove:
-		origin.X -= size.W / 2
-		origin.Y -= size.H + gap
-	case layout.AnchorBelow:
-		origin.X -= size.W / 2
-		origin.Y += gap
-	case layout.AnchorLeft:
-		origin.X -= size.W + gap
-		origin.Y -= size.H / 2
-	case layout.AnchorRight:
-		origin.X += gap
-		origin.Y -= size.H / 2
-	case layout.AnchorCenter:
-		origin.X -= size.W / 2
-		origin.Y -= size.H / 2
-	default:
-		origin.X -= size.W / 2
-		origin.Y -= size.H + gap
-	}
-	return gfx.RectFromXYWH(origin.X, origin.Y, size.W, size.H)
-}
-
-func clampToBounds(rect, bounds gfx.Rect) gfx.Rect {
-	if rect.IsEmpty() || bounds.IsEmpty() {
-		return rect
-	}
-	w := rect.Width()
-	h := rect.Height()
-	if w > bounds.Width() || h > bounds.Height() {
-		return gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, w, h)
-	}
-	x := rect.Min.X
-	y := rect.Min.Y
-	if x < bounds.Min.X {
-		x = bounds.Min.X
-	}
-	if y < bounds.Min.Y {
-		y = bounds.Min.Y
-	}
-	if x+w > bounds.Max.X {
-		x = bounds.Max.X - w
-	}
-	if y+h > bounds.Max.Y {
-		y = bounds.Max.Y - h
-	}
-	return gfx.RectFromXYWH(x, y, w, h)
+	return arranged, nil
 }

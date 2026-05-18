@@ -9,6 +9,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // HitProbe returns a fresh hit probe for the current hit map.
@@ -48,7 +50,20 @@ func (rt *Runtime) SetRootStyleContext(ctx any) {
 	if rt == nil {
 		return
 	}
+	rt.rootStyleSubs.Release()
 	rt.rootStyleContext = ctx
+	if store, ok := ctx.(*theme.StyleContextStore); ok && store != nil {
+		signal.Track(&rt.rootStyleSubs, &store.OnChange, func(change signal.Change[theme.StyleContext]) {
+			_ = change
+			if rt.root == nil {
+				return
+			}
+			rt.markTreeDirty(rt.root, facet.DirtyLayout|facet.DirtyProjection)
+			if rt.frameTimer != nil {
+				rt.frameTimer.RequestFrame()
+			}
+		})
+	}
 }
 
 // EnableHitTrace toggles capture of the most recent hit traversal trace.
@@ -99,15 +114,33 @@ func (rt *Runtime) layeredHitMap(hitMap *projection.HitMap) *projection.HitMap {
 	}
 	items := make([]hitLayerEntry, 0, len(entries))
 	for _, entry := range entries {
+		order := entry.LayerOrder
+		if rt.layerRegistry != nil && entry.LayerID != 0 {
+			if desc, ok := rt.layerRegistry.Lookup(layout.LayerID(entry.LayerID)); ok {
+				order = int(desc.Order)
+			}
+		}
+		z := int(entry.ZPriority)
+		if z == 0 {
+			if attachment, ok := rt.childAttachments[entry.FacetID]; ok {
+				z = int(attachment.ZPriority)
+			}
+		}
 		layer, ok := rt.projectionLayers[entry.FacetID]
-		order := 0
 		if ok {
-			order = layer.RenderOrder
+			entry.LayerID = layer.LayerID
+			entry.HitPolicy = facet.HitPolicy(layer.HitPolicy)
+			entry.ClipPolicy = layer.ClipPolicy
+			entry.ClipRect = layer.ClipRect
 		}
-		z := 0
 		if attachment, ok := rt.childAttachments[entry.FacetID]; ok {
-			z = attachment.ZPriority
+			entry.Placement = attachment.Placement.Mode
+			if z == 0 {
+				z = int(attachment.ZPriority)
+			}
 		}
+		entry.LayerOrder = order
+		entry.ZPriority = int32(z)
 		items = append(items, hitLayerEntry{entry: entry, order: order, z: z})
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -134,75 +167,55 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 	if len(entries) == 0 {
 		return 0, diagnostics.HitTestTrace{}
 	}
-	type orderedEntry struct {
-		entry projection.HitMapEntry
-		order int
-		z     int
-	}
-	items := make([]orderedEntry, 0, len(entries))
-	for _, entry := range entries {
-		layer, ok := rt.projectionLayers[entry.FacetID]
-		order := 0
-		policy := layout.HitNormal
-		if ok {
-			order = layer.RenderOrder
-			policy = layout.LayerHitPolicy(layer.HitPolicy)
-		}
-		z := 0
-		if attachment, ok := rt.childAttachments[entry.FacetID]; ok {
-			z = attachment.ZPriority
-		}
-		if policy == layout.HitDisabled {
-			continue
-		}
-		items = append(items, orderedEntry{entry: entry, order: order, z: z})
-	}
-	sort.SliceStable(items, func(i, j int) bool {
-		if items[i].order != items[j].order {
-			return items[i].order > items[j].order
-		}
-		if items[i].z != items[j].z {
-			return items[i].z > items[j].z
-		}
-		return i < j
-	})
-	trace := diagnostics.HitTestTrace{TestedLayers: make([]diagnostics.LayerHitTrace, 0, len(items))}
+	trace := diagnostics.HitTestTrace{TestedLayers: make([]diagnostics.LayerHitTrace, 0, len(entries))}
 	var passthrough facet.FacetID
-	for _, item := range items {
-		layer, ok := rt.projectionLayers[item.entry.FacetID]
-		policy := layout.HitNormal
-		if ok {
+	for _, entry := range entries {
+		layer, hasLayer := rt.projectionLayers[entry.FacetID]
+		policy := layout.LayerHitPolicy(entry.HitPolicy)
+		if hasLayer {
 			policy = layout.LayerHitPolicy(layer.HitPolicy)
 		}
 		parentID := facet.FacetID(0)
-		layerID := layout.LayerID(0)
-		if child := rt.findFacetByID(rt.root, item.entry.FacetID); child != nil && child.Base() != nil {
+		if child := rt.findFacetByID(rt.root, entry.FacetID); child != nil && child.Base() != nil {
 			if parent := child.Base().Parent(); parent != nil {
 				parentID = parent.ID()
 			}
 		}
-		if attachment, ok := rt.childAttachments[item.entry.FacetID]; ok {
-			layerID = attachment.LayerID
-		}
 		local := screenPos
-		if inv, ok := item.entry.Transform.Inverse(); ok {
+		if inv, ok := entry.Transform.Inverse(); ok {
 			local = inv.TransformPoint(screenPos)
 		}
-		if !layer.ClipRect.IsEmpty() {
-			clip := layer.ClipRect
-			if inv, ok := item.entry.Transform.Inverse(); ok {
+		clipRect := entry.ClipRect
+		layerBounds := gfx.Rect{}
+		layerTransform := entry.Transform
+		layerCoordSpace := layout.CoordSpace(0)
+		if hasLayer {
+			if clipRect.IsEmpty() {
+				clipRect = layer.ClipRect
+			}
+			layerBounds = layer.Bounds
+			layerTransform = layer.Transform
+			layerCoordSpace = layout.CoordSpace(layer.CoordSpace)
+		}
+		if !clipRect.IsEmpty() {
+			clip := clipRect
+			if inv, ok := entry.Transform.Inverse(); ok {
 				clip = inv.TransformRect(clip)
 			}
 			if !clip.Contains(local) {
 				traceLayer := diagnostics.LayerHitTrace{
 					ParentID:    parentID,
-					LayerID:     layerID,
-					CoordSpace:  layout.CoordSpace(layer.CoordSpace),
-					RenderOrder: layer.RenderOrder,
+					LayerID:     layout.LayerID(entry.LayerID),
+					LayerOrder:  entry.LayerOrder,
+					RenderOrder: entry.LayerOrder,
+					CoordSpace:  layerCoordSpace,
 					HitPolicy:   policy,
-					Bounds:      layer.Bounds,
-					ClipRect:    layer.ClipRect,
-					Transform:   layer.Transform,
+					Bounds:      layerBounds,
+					ClipRect:    clipRect,
+					Transform:   layerTransform,
+					Placement:   entry.Placement,
+					ClipPolicy:  entry.ClipPolicy,
+					ZPriority:   entry.ZPriority,
 					TestedCount: 0,
 					StoppedHere: policy == layout.HitBlockBelow,
 				}
@@ -216,7 +229,7 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 		}
 		hit := false
 		tested := 0
-		for _, region := range item.entry.Regions {
+		for _, region := range entry.Regions {
 			tested++
 			if projection.HitRegionContains(region, local) {
 				hit = true
@@ -225,13 +238,17 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 		}
 		traceLayer := diagnostics.LayerHitTrace{
 			ParentID:    parentID,
-			LayerID:     layerID,
-			CoordSpace:  layout.CoordSpace(layer.CoordSpace),
-			RenderOrder: layer.RenderOrder,
+			LayerID:     layout.LayerID(entry.LayerID),
+			LayerOrder:  entry.LayerOrder,
+			RenderOrder: entry.LayerOrder,
+			CoordSpace:  layerCoordSpace,
 			HitPolicy:   policy,
-			Bounds:      layer.Bounds,
-			ClipRect:    layer.ClipRect,
-			Transform:   layer.Transform,
+			Bounds:      layerBounds,
+			ClipRect:    clipRect,
+			Transform:   layerTransform,
+			Placement:   entry.Placement,
+			ClipPolicy:  entry.ClipPolicy,
+			ZPriority:   entry.ZPriority,
 			TestedCount: tested,
 		}
 		if !hit {
@@ -243,16 +260,16 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 			}
 			continue
 		}
-		traceLayer.HitFacetID = item.entry.FacetID
+		traceLayer.HitFacetID = entry.FacetID
 		switch policy {
 		case layout.HitPassThrough:
-			passthrough = item.entry.FacetID
+			passthrough = entry.FacetID
 			trace.TestedLayers = append(trace.TestedLayers, traceLayer)
 		case layout.HitNormal, layout.HitBlockBelow:
 			traceLayer.StoppedHere = true
 			trace.TestedLayers = append(trace.TestedLayers, traceLayer)
-			trace.Result = item.entry.FacetID
-			return item.entry.FacetID, trace
+			trace.Result = entry.FacetID
+			return entry.FacetID, trace
 		}
 	}
 	trace.Result = passthrough

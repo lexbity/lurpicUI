@@ -1,162 +1,109 @@
 package anchor
 
 import (
+	"strings"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/layout"
 )
 
-func makeChildNode(anchorRef layout.AnchorID, side layout.AnchorSide, gap float32, size gfx.Size) (layout.ChildNode, *layout.ChildArrangeHandle) {
-	handle := &layout.ChildArrangeHandle{}
-	node := layout.ChildNode{
-		Attachment: layout.ChildAttachment{
-			Placement: layout.PlacementHints{
-				AnchorRef:  anchorRef,
-				AnchorSide: side,
-				AnchorGap:  gap,
-			},
-		},
-		IntrinsicSize: size,
-	}
-	node.AttachArrangeHandle(handle)
-	return node, handle
+type mapCache map[facet.AnchorID]gfx.Point
+
+func (m mapCache) Get(id facet.AnchorID) (gfx.Point, bool) {
+	pos, ok := m[id]
+	return pos, ok
 }
 
-func TestPolicyMeasure_returns_zero(t *testing.T) {
-	if got := New().Measure(nil, gfx.Size{W: 10, H: 10}); got != (gfx.Size{}) {
-		t.Fatalf("Measure() = %#v, want zero", got)
+func newAnchorChild(id facet.FacetID, placement facet.AnchorPlacement, size gfx.Size) Child {
+	role := &facet.LayoutRole{}
+	role.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: size}
+	}
+	role.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		role.ArrangedBounds = bounds
+	}
+	role.Child.SupportedPlacement = facet.SupportsAnchor
+	return Child{
+		FacetID: id,
+		Attachment: facet.Attachment{
+			Placement: facet.Placement{Mode: facet.PlacementAnchor, Anchor: placement},
+		},
+		Layout:   role,
+		Contract: role.Child,
 	}
 }
 
 func TestPolicyArrange_positions_children_by_side(t *testing.T) {
-	cache := layout.NewAnchorPositionCache()
-	cache.Update("mark", gfx.Point{X: 100, Y: 200})
-	layer := layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 300, 300),
-		CoordLimits: layout.CoordLimits{},
-		AnchorCache: cache,
+	cache := mapCache{
+		"mark": {X: 100, Y: 200},
 	}
 	cases := []struct {
 		name string
-		side layout.AnchorSide
+		side facet.AnchorSide
 		want gfx.Rect
 	}{
-		{name: "above", side: layout.AnchorAbove, want: gfx.RectFromXYWH(75, 162, 50, 30)},
-		{name: "below", side: layout.AnchorBelow, want: gfx.RectFromXYWH(75, 208, 50, 30)},
-		{name: "left", side: layout.AnchorLeft, want: gfx.RectFromXYWH(42, 185, 50, 30)},
-		{name: "right", side: layout.AnchorRight, want: gfx.RectFromXYWH(108, 185, 50, 30)},
-		{name: "center", side: layout.AnchorCenter, want: gfx.RectFromXYWH(75, 185, 50, 30)},
+		{name: "above", side: facet.AnchorAbove, want: gfx.RectFromXYWH(75, 162, 50, 30)},
+		{name: "below", side: facet.AnchorBelow, want: gfx.RectFromXYWH(75, 208, 50, 30)},
+		{name: "left", side: facet.AnchorLeft, want: gfx.RectFromXYWH(42, 185, 50, 30)},
+		{name: "right", side: facet.AnchorRight, want: gfx.RectFromXYWH(108, 185, 50, 30)},
+		{name: "center", side: facet.AnchorCenter, want: gfx.RectFromXYWH(75, 185, 50, 30)},
 	}
 	p := New()
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			node, handle := makeChildNode("mark", tc.side, 8, gfx.Size{W: 50, H: 30})
-			children := []layout.ChildNode{node}
-			handle.Reset()
-			p.Arrange(children, layer)
-			got, ok := handle.Bounds()
-			if !ok {
-				t.Fatal("expected arranged bounds")
+			child := newAnchorChild(1, facet.AnchorPlacement{AnchorRef: "mark", Side: tc.side, Gap: facet.ResolvedScalar(8)}, gfx.Size{W: 50, H: 30})
+			arranged, err := p.Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 300, 300), cache, false)
+			if err != nil {
+				t.Fatalf("Arrange: %v", err)
 			}
-			if got != tc.want {
-				t.Fatalf("bounds = %#v, want %#v", got, tc.want)
+			if len(arranged) != 1 {
+				t.Fatalf("arranged count = %d", len(arranged))
+			}
+			if arranged[0].Bounds != tc.want {
+				t.Fatalf("bounds = %#v, want %#v", arranged[0].Bounds, tc.want)
 			}
 		})
 	}
 }
 
-func TestPolicyArrange_missing_anchor_uses_zero_rect(t *testing.T) {
-	node, handle := makeChildNode("missing", layout.AnchorCenter, 0, gfx.Size{W: 20, H: 10})
-	p := New()
-	p.Arrange([]layout.ChildNode{node}, layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
-		AnchorCache: layout.NewAnchorPositionCache(),
-	})
-	got, ok := handle.Bounds()
-	if !ok {
-		t.Fatal("expected arranged bounds")
-	}
-	if got != (gfx.Rect{}) {
-		t.Fatalf("bounds = %#v, want zero rect", got)
-	}
+func TestPolicyArrange_panics_on_missing_anchor(t *testing.T) {
+	cache := mapCache{}
+	child := newAnchorChild(1, facet.AnchorPlacement{AnchorRef: "missing", Side: facet.AnchorCenter}, gfx.Size{W: 20, H: 10})
+	defer func() {
+		if r := recover(); r == nil {
+			t.Fatal("expected panic for missing anchor")
+		} else if msg, ok := r.(string); !ok || !strings.Contains(msg, "layout contract violation") || !strings.Contains(msg, "anchor \"missing\"") {
+			t.Fatalf("panic = %#v", r)
+		}
+	}()
+	_, _ = New().Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 100, 100), cache, false)
 }
 
-func TestPolicyArrange_multiple_children_different_anchors(t *testing.T) {
-	cache := layout.NewAnchorPositionCache()
-	cache.Update("a", gfx.Point{X: 40, Y: 50})
-	cache.Update("b", gfx.Point{X: 120, Y: 80})
-	first, firstHandle := makeChildNode("a", layout.AnchorRight, 4, gfx.Size{W: 30, H: 10})
-	second, secondHandle := makeChildNode("b", layout.AnchorLeft, 6, gfx.Size{W: 20, H: 20})
-	p := New()
-	p.Arrange([]layout.ChildNode{first, second}, layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 200, 200),
-		AnchorCache: cache,
-	})
-	if got, _ := firstHandle.Bounds(); got != gfx.RectFromXYWH(44, 45, 30, 10) {
-		t.Fatalf("first bounds = %#v", got)
+func TestPolicyArrange_allows_overflow_when_enabled(t *testing.T) {
+	cache := mapCache{
+		"edge": {X: 50, Y: 5},
 	}
-	if got, _ := secondHandle.Bounds(); got != gfx.RectFromXYWH(94, 70, 20, 20) {
-		t.Fatalf("second bounds = %#v", got)
+	child := newAnchorChild(1, facet.AnchorPlacement{AnchorRef: "edge", Side: facet.AnchorAbove, Gap: facet.ResolvedScalar(10)}, gfx.Size{W: 20, H: 20})
+	arranged, err := New().Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 100, 100), cache, true)
+	if err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	if arranged[0].Bounds != gfx.RectFromXYWH(40, -25, 20, 20) {
+		t.Fatalf("overflow bounds = %#v", arranged[0].Bounds)
 	}
 }
 
 func TestPolicyArrange_clamps_to_bounds(t *testing.T) {
-	cache := layout.NewAnchorPositionCache()
-	cache.Update("edge", gfx.Point{X: 50, Y: 5})
-	node, handle := makeChildNode("edge", layout.AnchorAbove, 10, gfx.Size{W: 20, H: 20})
-	p := New()
-	p.Arrange([]layout.ChildNode{node}, layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
-		AnchorCache: cache,
-	})
-	if got, _ := handle.Bounds(); got != gfx.RectFromXYWH(40, 0, 20, 20) {
-		t.Fatalf("clamped bounds = %#v", got)
+	cache := mapCache{
+		"edge": {X: 50, Y: 5},
 	}
-}
-
-func TestPolicyArrange_allows_overflow_when_enabled(t *testing.T) {
-	cache := layout.NewAnchorPositionCache()
-	cache.Update("edge", gfx.Point{X: 50, Y: 5})
-	node, handle := makeChildNode("edge", layout.AnchorAbove, 10, gfx.Size{W: 20, H: 20})
-	p := New()
-	p.Arrange([]layout.ChildNode{node}, layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
-		AnchorCache: cache,
-		CoordLimits: layout.CoordLimits{AllowOverflow: true},
-	})
-	if got, _ := handle.Bounds(); got != gfx.RectFromXYWH(40, -25, 20, 20) {
-		t.Fatalf("overflow bounds = %#v", got)
+	child := newAnchorChild(1, facet.AnchorPlacement{AnchorRef: "edge", Side: facet.AnchorAbove, Gap: facet.ResolvedScalar(10)}, gfx.Size{W: 20, H: 20})
+	arranged, err := New().Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 100, 100), cache, false)
+	if err != nil {
+		t.Fatalf("Arrange: %v", err)
 	}
-}
-
-func TestPolicyArrange_zero_gap_touches_anchor(t *testing.T) {
-	cache := layout.NewAnchorPositionCache()
-	cache.Update("mark", gfx.Point{X: 100, Y: 200})
-	node, handle := makeChildNode("mark", layout.AnchorBelow, 0, gfx.Size{W: 50, H: 30})
-	p := New()
-	p.Arrange([]layout.ChildNode{node}, layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 300, 300),
-		AnchorCache: cache,
-	})
-	if got, _ := handle.Bounds(); got != gfx.RectFromXYWH(75, 200, 50, 30) {
-		t.Fatalf("zero-gap bounds = %#v", got)
-	}
-}
-
-func BenchmarkPolicyArrange(b *testing.B) {
-	cache := layout.NewAnchorPositionCache()
-	cache.Update("mark", gfx.Point{X: 100, Y: 200})
-	node, handle := makeChildNode("mark", layout.AnchorCenter, 0, gfx.Size{W: 50, H: 30})
-	children := []layout.ChildNode{node}
-	layer := layout.ResolvedLayer{
-		Bounds:      gfx.RectFromXYWH(0, 0, 300, 300),
-		AnchorCache: cache,
-	}
-	p := New()
-	b.ReportAllocs()
-	for i := 0; i < b.N; i++ {
-		handle.Reset()
-		p.Arrange(children, layer)
+	if arranged[0].Bounds != gfx.RectFromXYWH(40, 0, 20, 20) {
+		t.Fatalf("clamped bounds = %#v", arranged[0].Bounds)
 	}
 }

@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/runtime"
@@ -15,6 +16,7 @@ import (
 type HarnessConfig struct {
 	Width, Height int
 	Fonts         []text.FontSource
+	LayerRegistry *layout.LayerRegistry
 }
 
 // DefaultHarnessConfig returns an 800x600 harness config.
@@ -64,6 +66,9 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 		t.Fatalf("new window: %v", err)
 	}
 	window := win.(*NullWindow)
+	if config.LayerRegistry == nil {
+		t.Fatal("testkit: LayerRegistry is required")
+	}
 	surface := window.surface
 	backend := software.NewSoftwareRenderer()
 	if err := backend.Initialize(surface); err != nil {
@@ -71,6 +76,7 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	}
 	rtcfg := runtime.DefaultConfig()
 	rtcfg.FontRegistry = fonts
+	rtcfg.LayerRegistry = config.LayerRegistry
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {
 		t.Fatalf("runtime: %v", err)

@@ -32,6 +32,20 @@ func (s projectionLayerRuntimeStub) ResolveProjectionLayer(id facet.FacetID) (fa
 	return layer, ok
 }
 
+type projectionStateRuntimeStub struct {
+	projectionLayerRuntimeStub
+	contentScale  float32
+	inputModality facet.InputModality
+}
+
+func (s projectionStateRuntimeStub) CurrentContentScale() float32 {
+	return s.contentScale
+}
+
+func (s projectionStateRuntimeStub) CurrentInputModality() facet.InputModality {
+	return s.inputModality
+}
+
 type projectionTestFacet struct {
 	facet.Facet
 
@@ -56,8 +70,8 @@ func newProjectionTestFacet(name string, bounds gfx.Rect) *projectionTestFacet {
 		name:  name,
 	}
 	f.layout.ArrangedBounds = bounds
-	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
-		return gfx.Size{W: bounds.Width(), H: bounds.Height()}
+	f.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: bounds.Width(), H: bounds.Height()}}
 	}
 	f.render.OnCollect = func(list *gfx.CommandList, b gfx.Rect) {
 		f.collectCalls++
@@ -95,8 +109,8 @@ func newRenderOnlyFacet(name string, bounds gfx.Rect) *projectionTestFacet {
 		name:  name,
 	}
 	f.layout.ArrangedBounds = bounds
-	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
-		return gfx.Size{W: bounds.Width(), H: bounds.Height()}
+	f.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: bounds.Width(), H: bounds.Height()}}
 	}
 	f.render.OnCollect = func(list *gfx.CommandList, b gfx.Rect) {
 		f.collectCalls++
@@ -123,8 +137,8 @@ func newHitOnlyFacet(name string, bounds gfx.Rect) *projectionTestFacet {
 		name:  name,
 	}
 	f.layout.ArrangedBounds = bounds
-	f.layout.OnMeasure = func(c facet.Constraints) gfx.Size {
-		return gfx.Size{W: bounds.Width(), H: bounds.Height()}
+	f.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: bounds.Width(), H: bounds.Height()}}
 	}
 	f.hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		if !bounds.Contains(p) {
@@ -263,9 +277,12 @@ func TestProjectionContext_layer_is_populated(t *testing.T) {
 	sys.SetRuntime(projectionLayerRuntimeStub{
 		layers: map[facet.FacetID]facet.ProjectionLayer{
 			child.ID(): {
-				Bounds:    gfx.RectFromXYWH(10, 20, 30, 40),
-				Transform: gfx.Translation(12, 18),
-				ClipRect:  gfx.RectFromXYWH(10, 20, 30, 40),
+				LayerID:       facet.LayerID(22),
+				Bounds:        gfx.RectFromXYWH(10, 20, 30, 40),
+				Transform:     gfx.Translation(12, 18),
+				ClipRect:      gfx.RectFromXYWH(10, 20, 30, 40),
+				ClipPolicy:    facet.ClipToParent,
+				RecipeVersion: 99,
 			},
 		},
 	})
@@ -279,6 +296,15 @@ func TestProjectionContext_layer_is_populated(t *testing.T) {
 	}
 	if got := child.lastCtx.Layer.ClipRect; got != (gfx.RectFromXYWH(10, 20, 30, 40)) {
 		t.Fatalf("layer clip = %#v", got)
+	}
+	if got := child.lastCtx.Layer.LayerID; got != facet.LayerID(22) {
+		t.Fatalf("layer id = %#v", got)
+	}
+	if got := child.lastCtx.Layer.ClipPolicy; got != facet.ClipToParent {
+		t.Fatalf("layer clip policy = %#v", got)
+	}
+	if got := child.lastCtx.Layer.RecipeVersion; got != 99 {
+		t.Fatalf("layer recipe version = %#v", got)
 	}
 }
 
@@ -294,6 +320,7 @@ func TestProjectionContext_layer_transform_overrides_viewport(t *testing.T) {
 	sys.SetRuntime(projectionLayerRuntimeStub{
 		layers: map[facet.FacetID]facet.ProjectionLayer{
 			child.ID(): {
+				LayerID:   facet.LayerID(22),
 				Bounds:    gfx.RectFromXYWH(0, 0, 10, 10),
 				Transform: gfx.Identity(),
 				ClipRect:  gfx.RectFromXYWH(0, 0, 10, 10),
@@ -412,6 +439,73 @@ func TestProjectionSystem_cache_key_changes_on_store_version(t *testing.T) {
 	second := sys.outputCache[root.ID()].CacheKey
 	if first == second {
 		t.Fatal("expected cache key to change when store version changes")
+	}
+}
+
+func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
+	attachTree(root)
+
+	sys := NewSystem()
+	rt := projectionStateRuntimeStub{
+		projectionLayerRuntimeStub: projectionLayerRuntimeStub{
+			layers: map[facet.FacetID]facet.ProjectionLayer{
+				root.ID(): {
+					LayerID:       facet.LayerID(11),
+					Bounds:        gfx.RectFromXYWH(0, 0, 100, 100),
+					Transform:     gfx.Identity(),
+					ClipRect:      gfx.RectFromXYWH(0, 0, 100, 100),
+					ClipPolicy:    facet.ClipToParent,
+					RecipeVersion: 1,
+				},
+			},
+		},
+		contentScale:  1.25,
+		inputModality: facet.InputModalityPointer,
+	}
+	sys.SetRuntime(rt)
+	sys.Run(root, FrameInfo{})
+	first := sys.outputCache[root.ID()].CacheKey
+	if got := sys.outputCache[root.ID()].LayerID; got != facet.LayerID(11) {
+		t.Fatalf("LayerID = %#v, want 11", got)
+	}
+	if got := sys.outputCache[root.ID()].InputModality; got != facet.InputModalityPointer {
+		t.Fatalf("InputModality = %#v, want pointer", got)
+	}
+	if got := sys.outputCache[root.ID()].ContentScale; got != 1.25 {
+		t.Fatalf("ContentScale = %#v, want 1.25", got)
+	}
+
+	rt.layers[root.ID()] = facet.ProjectionLayer{
+		LayerID:       facet.LayerID(12),
+		Bounds:        gfx.RectFromXYWH(0, 0, 100, 100),
+		Transform:     gfx.Identity(),
+		ClipRect:      gfx.RectFromXYWH(0, 0, 100, 100),
+		ClipPolicy:    facet.ClipToParent,
+		RecipeVersion: 1,
+	}
+	sys.SetRuntime(rt)
+	sys.Run(root, FrameInfo{Number: 2})
+	if got := sys.outputCache[root.ID()].CacheKey; got == first {
+		t.Fatal("expected cache key to change when layer ID changes")
+	}
+	second := sys.outputCache[root.ID()].CacheKey
+
+	rt.layers[root.ID()] = facet.ProjectionLayer{
+		LayerID:       facet.LayerID(12),
+		Bounds:        gfx.RectFromXYWH(0, 0, 100, 100),
+		Transform:     gfx.Identity(),
+		ClipRect:      gfx.RectFromXYWH(0, 0, 100, 100),
+		ClipPolicy:    facet.ClipToViewport,
+		RecipeVersion: 2,
+	}
+	rt.contentScale = 2
+	rt.inputModality = facet.InputModalityTouch
+	sys.SetRuntime(rt)
+	sys.Run(root, FrameInfo{Number: 3})
+	third := sys.outputCache[root.ID()].CacheKey
+	if third == second {
+		t.Fatal("expected cache key to change when layer recipe and runtime state change")
 	}
 }
 
@@ -541,6 +635,55 @@ func TestHitMap_hitTest_passthroughregion(t *testing.T) {
 	}
 }
 
+func TestHitMap_hitTest_passThroughPolicyFallsThrough(t *testing.T) {
+	hm := NewHitMap(
+		HitMapEntry{
+			FacetID:   2,
+			Transform: gfx.Identity(),
+			HitPolicy: facet.HitPassThrough,
+			Regions: []HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+			}},
+		},
+		HitMapEntry{
+			FacetID:   1,
+			Transform: gfx.Identity(),
+			Regions: []HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+			}},
+		},
+	)
+	got := hm.HitTest(gfx.Point{X: 10, Y: 10})
+	if got == nil || got.FacetID != 1 {
+		t.Fatalf("expected pass-through to lower layer, got %#v", got)
+	}
+}
+
+func TestHitMap_hitTest_blockBelowStopsTraversal(t *testing.T) {
+	hm := NewHitMap(
+		HitMapEntry{
+			FacetID:   2,
+			Transform: gfx.Identity(),
+			HitPolicy: facet.HitBlockBelow,
+			ClipRect:  gfx.RectFromXYWH(0, 0, 5, 5),
+			Regions: []HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+			}},
+		},
+		HitMapEntry{
+			FacetID:   1,
+			Transform: gfx.Identity(),
+			Regions: []HitRegion{{
+				Bounds: gfx.RectFromXYWH(0, 0, 100, 100),
+			}},
+		},
+	)
+	got := hm.HitTest(gfx.Point{X: 10, Y: 10})
+	if got != nil {
+		t.Fatalf("expected traversal to stop at blocker, got %#v", got)
+	}
+}
+
 func TestHitMap_hitTest_no_hit_returns_nil(t *testing.T) {
 	root := newHitOnlyFacet("root", gfx.RectFromXYWH(0, 0, 10, 10))
 	attachTree(root)
@@ -609,6 +752,44 @@ func TestProjectionSystem_child_context_propagated(t *testing.T) {
 	}
 	if got.Transform != root.viewport.Transform {
 		t.Fatalf("unexpected child transform: %#v", got.Transform)
+	}
+}
+
+func TestProjectionSystem_group_clip_wraps_commands_and_child_context(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
+	child := newProjectionTestFacet("child", gfx.RectFromXYWH(10, 10, 20, 20))
+	root.layout.Parent = facet.GroupParentContract{Clipping: facet.GroupClipBounds}
+	root.render.OnCollect = func(list *gfx.CommandList, b gfx.Rect) {
+		list.Add(gfx.FillRect{
+			Rect:  gfx.RectFromXYWH(0, 0, 220, 220),
+			Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(128, 64, 255, 255)),
+		})
+	}
+	root.AddChild(&child.Facet)
+	attachTree(root)
+
+	sys := NewSystem()
+	out := sys.Run(root, FrameInfo{})
+
+	if out.RenderBatchs == nil || len(out.RenderBatchs) == 0 {
+		t.Fatal("expected render batch")
+	}
+	cmds := out.RenderBatchs[0].Commands.Commands
+	if len(cmds) < 3 {
+		t.Fatalf("expected clipped command wrapper, got %d commands", len(cmds))
+	}
+	if _, ok := cmds[0].(gfx.PushClipRect); !ok {
+		t.Fatalf("first command = %T, want PushClipRect", cmds[0])
+	}
+	if _, ok := cmds[len(cmds)-1].(gfx.PopClip); !ok {
+		t.Fatalf("last command = %T, want PopClip", cmds[len(cmds)-1])
+	}
+	ctx := sys.outputCache[root.ID()].ChildContext
+	if ctx == nil || ctx.ClipBounds == nil {
+		t.Fatal("expected child clip bounds")
+	}
+	if got := *ctx.ClipBounds; got != (gfx.RectFromXYWH(0, 0, 100, 100)) {
+		t.Fatalf("child clip bounds = %#v, want root bounds", got)
 	}
 }
 
