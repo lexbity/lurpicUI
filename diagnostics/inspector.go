@@ -16,6 +16,7 @@ type FacetInfo struct {
 	State             facet.LifecycleState
 	Roles             []string
 	Layers            []LayerSnapshot
+	Icon              *IconSnapshot
 	ArrangedBounds    gfx.Rect
 	DirtyFlags        facet.DirtyFlags
 	ChildCount        int
@@ -154,6 +155,9 @@ func (i *Inspector) Describe() string {
 				}
 			}
 		}
+		if info.Icon != nil {
+			fmt.Fprintf(&b, "%s  Icon: %s\n", indent, info.Icon.String())
+		}
 		if snap, ok := i.AnchorSnapshot(info.ID); ok {
 			fmt.Fprintf(&b, "%s  AnchorCache: %s\n", indent, snap.String())
 		}
@@ -200,10 +204,28 @@ func (i *Inspector) facetInfoFor(node facet.FacetImpl) FacetInfo {
 		ArrangedBounds:    arrangedBounds(base),
 		Roles:             roleNames(base),
 	}
+	if icon, ok := iconDiagnostics(node); ok {
+		info.Icon = &icon
+	}
 	if i != nil && i.layerSource != nil {
 		info.Layers = i.layerSource.LayerSnapshots(base.ID())
 	}
 	return info
+}
+
+type iconDiagnosticProvider interface {
+	DiagnosticIcon() IconSnapshot
+}
+
+func iconDiagnostics(node facet.FacetImpl) (IconSnapshot, bool) {
+	if node == nil {
+		return IconSnapshot{}, false
+	}
+	provider, ok := node.(iconDiagnosticProvider)
+	if !ok {
+		return IconSnapshot{}, false
+	}
+	return provider.DiagnosticIcon(), true
 }
 
 func typeName(v any) string {

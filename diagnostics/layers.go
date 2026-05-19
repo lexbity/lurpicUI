@@ -35,6 +35,23 @@ type LayerSnapshot struct {
 	AnchorCacheCount   int
 }
 
+// IconSnapshot describes icon-specific diagnostic state for a facet.
+type IconSnapshot struct {
+	Source          string
+	SourceKind      string
+	Resolved        bool
+	Size            gfx.Size
+	Bounds          gfx.Rect
+	ColorSlot       string
+	DensityBehavior string
+	PreserveAspect  string
+	Decorative      bool
+	AccessibleName  string
+	CacheKey        string
+	CommandCount    int
+	Missing         bool
+}
+
 // LayerFrame describes the resolved spatial frame for one layer.
 type LayerFrame struct {
 	LayerID        layout.LayerID
@@ -128,6 +145,12 @@ func (s LayerSnapshot) String() string {
 	frame := s.Frame()
 	return fmt.Sprintf("Frame=%s Placement=%d Measurement=%d Children=%d Arranged=%d Materialized=%t Cmds=%d Hits=%d FocusTrap=%t FocusRestore=%d AnchorCache=%d@v%d",
 		frame.String(), s.Placement, s.Measurement, s.ChildCount, len(s.ArrangedChildren), s.Materialized, s.CommandCount, s.HitRegionCount, s.FocusTrap, s.FocusRestore, s.AnchorCacheCount, s.AnchorCacheVersion)
+}
+
+// String returns a human-readable description of the icon snapshot.
+func (s IconSnapshot) String() string {
+	return fmt.Sprintf("Source=%q SourceKind=%s Resolved=%t Size=%v Bounds=%v ColorSlot=%s DensityBehavior=%s PreserveAspect=%s Decorative=%t AccessibleName=%q CacheKey=%s Commands=%d Missing=%t",
+		s.Source, s.SourceKind, s.Resolved, s.Size, s.Bounds, s.ColorSlot, s.DensityBehavior, s.PreserveAspect, s.Decorative, s.AccessibleName, s.CacheKey, s.CommandCount, s.Missing)
 }
 
 // Frame returns the resolved spatial frame for this snapshot.
