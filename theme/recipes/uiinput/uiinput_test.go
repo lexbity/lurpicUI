@@ -21,7 +21,7 @@ func TestButtonRecipe_default_variant_returns_all_slots(t *testing.T) {
 	if report.Variant != theme.VariantKey("filled") {
 		t.Fatalf("variant = %q", report.Variant)
 	}
-	if len(report.SlotNames()) != 4 {
+	if len(report.SlotNames()) != 7 {
 		t.Fatalf("slot names = %v", report.SlotNames())
 	}
 }
@@ -41,11 +41,28 @@ func TestButtonRecipe_subtree_override_changes_container_only(t *testing.T) {
 	if !reflect.DeepEqual(base.Label, got.Label) {
 		t.Fatal("label should not change")
 	}
-	if !reflect.DeepEqual(base.Icon, got.Icon) {
-		t.Fatal("icon should not change")
+	if !reflect.DeepEqual(base.OptionalLeadingIcon, got.OptionalLeadingIcon) {
+		t.Fatal("leading icon should not change")
 	}
 	if source, ok := report.SlotSource("Container"); !ok || source != theme.SlotSourceInstanceOverride && source != theme.SlotSourceVariantDefault {
 		t.Fatalf("unexpected container source: %v %v", source, ok)
+	}
+}
+
+func TestIconButtonRecipe_all_slots_present(t *testing.T) {
+	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
+	slots, report := ResolveIconButtonRecipe(ctx)
+	if !allFieldsPresent(slots) {
+		t.Fatalf("icon button slots contain zero values: %#v", slots)
+	}
+	if report.Family != "uiinput" {
+		t.Fatalf("family = %q", report.Family)
+	}
+	if report.Variant != theme.VariantKey("default") {
+		t.Fatalf("variant = %q", report.Variant)
+	}
+	if len(report.SlotNames()) != 5 {
+		t.Fatalf("slot names = %v", report.SlotNames())
 	}
 }
 
@@ -60,6 +77,57 @@ func TestTextInputRecipe_all_slots_present(t *testing.T) {
 	}
 }
 
+func TestCheckboxRecipe_all_slots_present(t *testing.T) {
+	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
+	slots, report := ResolveCheckboxRecipe(ctx, CheckboxStandard)
+	if !allFieldsPresent(slots) {
+		t.Fatalf("checkbox slots contain zero values: %#v", slots)
+	}
+	if report.Family != "uiinput" {
+		t.Fatalf("family = %q", report.Family)
+	}
+	if report.Variant != theme.VariantKey("standard") {
+		t.Fatalf("variant = %q", report.Variant)
+	}
+	if len(report.SlotNames()) != 7 {
+		t.Fatalf("slot names = %v", report.SlotNames())
+	}
+}
+
+func TestRadioGroupRecipe_all_slots_present(t *testing.T) {
+	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
+	slots, report := ResolveRadioGroupRecipe(ctx, RadioGroupStandard)
+	if !allFieldsPresent(slots) {
+		t.Fatalf("radio group slots contain zero values: %#v", slots)
+	}
+	if report.Family != "uiinput" {
+		t.Fatalf("family = %q", report.Family)
+	}
+	if report.Variant != theme.VariantKey("standard") {
+		t.Fatalf("variant = %q", report.Variant)
+	}
+	if len(report.SlotNames()) != 6 {
+		t.Fatalf("slot names = %v", report.SlotNames())
+	}
+}
+
+func TestSwitchRecipe_all_slots_present(t *testing.T) {
+	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
+	slots, report := ResolveSwitchRecipe(ctx, SwitchStandard)
+	if !allFieldsPresent(slots) {
+		t.Fatalf("switch slots contain zero values: %#v", slots)
+	}
+	if report.Family != "uiinput" {
+		t.Fatalf("family = %q", report.Family)
+	}
+	if report.Variant != theme.VariantKey("standard") {
+		t.Fatalf("variant = %q", report.Variant)
+	}
+	if len(report.SlotNames()) != 6 {
+		t.Fatalf("slot names = %v", report.SlotNames())
+	}
+}
+
 func TestSliderRecipe_variant_changes_thumb_and_track(t *testing.T) {
 	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
 	standard, _ := ResolveSliderRecipe(ctx, SliderStandard)
@@ -67,8 +135,25 @@ func TestSliderRecipe_variant_changes_thumb_and_track(t *testing.T) {
 	if reflect.DeepEqual(standard.Thumb, compact.Thumb) {
 		t.Fatal("thumb should differ across variants")
 	}
-	if reflect.DeepEqual(standard.Track, compact.Track) {
-		t.Fatal("track should differ across variants")
+	if reflect.DeepEqual(standard.ActiveTrack, compact.ActiveTrack) {
+		t.Fatal("active track should differ across variants")
+	}
+}
+
+func TestListItemRecipe_all_slots_present(t *testing.T) {
+	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
+	slots, report := ResolveListItemRecipe(ctx, ListItemStandard)
+	if !allFieldsPresent(slots) {
+		t.Fatalf("list item slots contain zero values: %#v", slots)
+	}
+	if report.Family != "uiinput" {
+		t.Fatalf("family = %q", report.Family)
+	}
+	if report.Variant != theme.VariantKey("standard") {
+		t.Fatalf("variant = %q", report.Variant)
+	}
+	if len(report.SlotNames()) != 7 {
+		t.Fatalf("slot names = %v", report.SlotNames())
 	}
 }
 

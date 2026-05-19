@@ -45,6 +45,26 @@ func (rt *Runtime) RootStyleContext() any {
 	return rt.rootStyleContext
 }
 
+// IconResolver exposes the configured icon resolver to mark implementations.
+func (rt *Runtime) IconResolver() IconResolver {
+	if rt == nil {
+		return nil
+	}
+	return rt.config.IconResolver
+}
+
+// ResolveIcon resolves an icon asset through the configured runtime resolver.
+func (rt *Runtime) ResolveIcon(ref string) (IconAsset, bool) {
+	if rt == nil || rt.config.IconResolver == nil {
+		return IconAsset{}, false
+	}
+	asset, ok := rt.config.IconResolver.ResolveIcon(ref)
+	if !ok {
+		return IconAsset{}, false
+	}
+	return asset.Clone(), true
+}
+
 // SetRootStyleContext installs the root style context object used by tree helpers.
 func (rt *Runtime) SetRootStyleContext(ctx any) {
 	if rt == nil {

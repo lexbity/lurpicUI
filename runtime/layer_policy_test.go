@@ -15,18 +15,18 @@ func TestRuntime_materializesOnlyTargetedLayerPolicies(t *testing.T) {
 	layerARef := layout.LayerLayoutRecipeRef{Family: "app", Name: "layer-a"}
 	layerBRef := layout.LayerLayoutRecipeRef{Family: "app", Name: "layer-b"}
 	if _, err := b.RegisterLayer(layout.LayerRegistration{
-		Name:         "a",
-		Order:        100,
+		Name:          "a",
+		Order:         100,
 		WindowBinding: layout.WindowBinding{Kind: layout.WindowBindingPrimary},
-		LayoutRecipe: layerARef,
+		LayoutRecipe:  layerARef,
 	}); err != nil {
 		t.Fatalf("register layer a: %v", err)
 	}
 	if _, err := b.RegisterLayer(layout.LayerRegistration{
-		Name:         "b",
-		Order:        200,
+		Name:          "b",
+		Order:         200,
 		WindowBinding: layout.WindowBinding{Kind: layout.WindowBindingPrimary},
-		LayoutRecipe: layerBRef,
+		LayoutRecipe:  layerBRef,
 	}); err != nil {
 		t.Fatalf("register layer b: %v", err)
 	}

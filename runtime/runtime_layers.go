@@ -403,10 +403,10 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		policy := layout.ResolveLayerLayoutPolicy(recipe)
 		stats.specResolution += time.Since(recipeStart)
 		layerCtx := facet.LayerContext{
-			ID:           facet.LayerID(group.desc.ID),
-			HitPolicy:    facet.HitPolicy(group.desc.HitPolicy),
-			ClipPolicy:   facet.ClipPolicy(group.desc.ClipPolicy),
-			Dismissal:    facet.DismissalScope{
+			ID:         facet.LayerID(group.desc.ID),
+			HitPolicy:  facet.HitPolicy(group.desc.HitPolicy),
+			ClipPolicy: facet.ClipPolicy(group.desc.ClipPolicy),
+			Dismissal: facet.DismissalScope{
 				Enabled: group.desc.Dismissal.Enabled,
 				BehindOrders: facet.OrderRange{
 					Min: group.desc.Dismissal.BehindOrders.Min,
@@ -414,9 +414,9 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 				},
 				Triggers: facet.DismissalTriggerSet(group.desc.Dismissal.Triggers),
 			},
-			FocusTrap:   group.desc.FocusTrap,
+			FocusTrap:    group.desc.FocusTrap,
 			FocusRestore: group.desc.FocusRestore,
-			Order:       int32(group.desc.Order),
+			Order:        int32(group.desc.Order),
 		}
 		measureCtx := layout.LayerMeasureContext{
 			Runtime:          rt,

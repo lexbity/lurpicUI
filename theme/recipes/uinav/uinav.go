@@ -66,6 +66,33 @@ func ResolveBreadcrumbRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatc
 	return resolved, report
 }
 
+// ResolveNavDrawerRecipe resolves navigation drawer styling.
+func ResolveNavDrawerRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.NavDrawerSlots]) (shared.NavDrawerSlots, theme.RecipeReport) {
+	slots := navDrawerBase(ctx)
+	report := newReport("uinav", theme.VariantKey("standard"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolveNavRailRecipe resolves navigation rail styling.
+func ResolveNavRailRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.NavRailSlots]) (shared.NavRailSlots, theme.RecipeReport) {
+	slots := navRailBase(ctx)
+	report := newReport("uinav", theme.VariantKey("standard"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolveTreeNavigatorRecipe resolves tree navigator styling.
+func ResolveTreeNavigatorRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.TreeNavigatorSlots]) (shared.TreeNavigatorSlots, theme.RecipeReport) {
+	slots := treeNavigatorBase(ctx)
+	report := newReport("uinav", theme.VariantKey("standard"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
 // ResolvePaginationRecipe resolves pagination styling.
 func ResolvePaginationRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.PaginationSlots]) (shared.PaginationSlots, theme.RecipeReport) {
 	slots := paginationBase(ctx)
@@ -116,17 +143,23 @@ func tabsBase(ctx theme.StyleContext, variant TabsVariant) shared.TabsSlots {
 	switch variant {
 	case TabsCompact:
 		return shared.TabsSlots{
-			Tab:       markStyleFromColor(tokens.Color.SurfaceVariant),
-			Current:   markStyleFromColor(tokens.Color.Primary),
-			Indicator: strokeStyle(tokens.Color.Primary, 2),
-			Panel:     markStyleFromColor(tokens.Color.Surface),
+			Root:            markStyleFromColor(tokens.Color.Surface),
+			TabList:         markStyleFromColor(tokens.Color.Surface),
+			Tab:             markStyleFromColor(tokens.Color.SurfaceVariant),
+			TabLabel:        markStyleFromColor(tokens.Color.OnSurface),
+			ActiveIndicator: strokeStyle(tokens.Color.Primary, 2),
+			PanelAnchor:     markStyleFromColor(tokens.Color.SurfaceVariant),
+			FocusRing:       strokeStyle(tokens.Color.Primary, 2),
 		}
 	default:
 		return shared.TabsSlots{
-			Tab:       markStyleFromColor(tokens.Color.Surface),
-			Current:   markStyleFromColor(tokens.Color.Primary),
-			Indicator: strokeStyle(tokens.Color.Primary, 3),
-			Panel:     markStyleFromColor(tokens.Color.Surface),
+			Root:            markStyleFromColor(tokens.Color.Surface),
+			TabList:         markStyleFromColor(tokens.Color.Surface),
+			Tab:             markStyleFromColor(tokens.Color.Surface),
+			TabLabel:        markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			ActiveIndicator: strokeStyle(tokens.Color.Primary, 3),
+			PanelAnchor:     markStyleFromColor(tokens.Color.SurfaceVariant),
+			FocusRing:       strokeStyle(tokens.Color.Primary, 2),
 		}
 	}
 }
@@ -134,9 +167,52 @@ func tabsBase(ctx theme.StyleContext, variant TabsVariant) shared.TabsSlots {
 func breadcrumbBase(ctx theme.StyleContext) shared.BreadcrumbSlots {
 	tokens := ctx.Tokens
 	return shared.BreadcrumbSlots{
-		Item:      markStyleFromColor(tokens.Color.OnSurface),
-		Current:   markStyleFromColor(tokens.Color.Primary),
-		Separator: fadedStyle(tokens.Color.OnSurfaceVariant, 0.6),
+		Root:           markStyleFromColor(tokens.Color.Surface),
+		SegmentList:    markStyleFromColor(tokens.Color.Surface),
+		SegmentLink:    markStyleFromColor(tokens.Color.Primary),
+		Separator:      fadedStyle(tokens.Color.OnSurfaceVariant, 0.6),
+		CurrentSegment: markStyleFromColor(tokens.Color.Primary),
+		FocusRing:      strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func navDrawerBase(ctx theme.StyleContext) shared.NavDrawerSlots {
+	tokens := ctx.Tokens
+	return shared.NavDrawerSlots{
+		Root:          theme.MarkStyle{},
+		ScrimOptional: fadedStyle(tokens.Color.Background, 0.36),
+		DrawerSurface: markStyleFromColor(tokens.Color.Surface),
+		Header:        markStyleFromColor(tokens.Color.OnSurface),
+		NavItems:      markStyleFromColor(tokens.Color.Surface),
+		SectionLabels: markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		FocusRing:     strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func navRailBase(ctx theme.StyleContext) shared.NavRailSlots {
+	tokens := ctx.Tokens
+	return shared.NavRailSlots{
+		Root:            theme.MarkStyle{},
+		RailSurface:     markStyleFromColor(tokens.Color.Surface),
+		NavItems:        markStyleFromColor(tokens.Color.Surface),
+		ActiveIndicator: fadedStyle(tokens.Color.Primary, 0.18),
+		Icon:            markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		Label:           markStyleFromColor(tokens.Color.OnSurface),
+		FocusRing:       strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func treeNavigatorBase(ctx theme.StyleContext) shared.TreeNavigatorSlots {
+	tokens := ctx.Tokens
+	return shared.TreeNavigatorSlots{
+		Root:               theme.MarkStyle{},
+		Tree:               markStyleFromColor(tokens.Color.Surface),
+		TreeItem:           markStyleFromColor(tokens.Color.Surface),
+		Disclosure:         markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		Icon:               markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		Label:              markStyleFromColor(tokens.Color.OnSurface),
+		SelectionIndicator: fadedStyle(tokens.Color.Primary, 0.18),
+		FocusRing:          strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 

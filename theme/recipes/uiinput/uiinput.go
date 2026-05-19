@@ -139,12 +139,29 @@ type SelectVariant uint8
 
 const (
 	// SelectStandard uses the default trigger and popup styling.
-SelectStandard SelectVariant = iota
+	SelectStandard SelectVariant = iota
 )
 
 func (v SelectVariant) String() string {
 	switch v {
 	case SelectStandard:
+		return "standard"
+	default:
+		return "unknown"
+	}
+}
+
+// ListItemVariant selects the list-item recipe shape.
+type ListItemVariant uint8
+
+const (
+	// ListItemStandard uses the default list-item styling.
+	ListItemStandard ListItemVariant = iota
+)
+
+func (v ListItemVariant) String() string {
+	switch v {
+	case ListItemStandard:
 		return "standard"
 	default:
 		return "unknown"
@@ -160,10 +177,28 @@ func ResolveButtonRecipe(ctx theme.StyleContext, variant ButtonVariant, override
 	return resolved, report
 }
 
+// ResolveIconButtonRecipe resolves the icon-button slots and provenance.
+func ResolveIconButtonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.IconButtonSlots]) (shared.IconButtonSlots, theme.RecipeReport) {
+	slots := iconButtonBase(ctx)
+	report := newReport("uiinput", theme.VariantKey("default"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
 // ResolveTextInputRecipe resolves the text input slots and provenance.
 func ResolveTextInputRecipe(ctx theme.StyleContext, variant TextInputVariant, overrides ...theme.SlotPatch[shared.TextInputSlots]) (shared.TextInputSlots, theme.RecipeReport) {
 	slots := textInputBase(ctx, variant)
 	report := newReport("uiinput", theme.VariantKey(variant.String()), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolveNumberFieldRecipe resolves the number field slots and provenance.
+func ResolveNumberFieldRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.NumberFieldSlots]) (shared.NumberFieldSlots, theme.RecipeReport) {
+	slots := numberFieldBase(ctx)
+	report := newReport("uiinput", theme.VariantKey("default"), slots)
 	resolved := theme.ResolveSlot(slots, overrides...)
 	annotateOverrides(&report, slots, resolved)
 	return resolved, report
@@ -214,41 +249,71 @@ func ResolveSelectRecipe(ctx theme.StyleContext, variant SelectVariant, override
 	return resolved, report
 }
 
+// ResolveListItemRecipe resolves the list-item slots and provenance.
+func ResolveListItemRecipe(ctx theme.StyleContext, variant ListItemVariant, overrides ...theme.SlotPatch[shared.ListItemSlots]) (shared.ListItemSlots, theme.RecipeReport) {
+	slots := listItemBase(ctx, variant)
+	report := newReport("uiinput", theme.VariantKey(variant.String()), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
 func buttonBase(ctx theme.StyleContext, variant ButtonVariant) shared.ButtonSlots {
 	tokens := ctx.Tokens
-	rootSource := sourceForContext(ctx)
 	switch variant {
 	case ButtonFilled:
 		return shared.ButtonSlots{
-			Container: markStyleFromColor(tokens.Color.Primary),
-			Label:     markStyleFromColor(tokens.Color.OnPrimary),
-			Icon:      markStyleFromColor(tokens.Color.OnPrimary),
-			FocusRing: strokeStyle(tokens.Color.Primary, 2),
+			Root:                 transparentStyle(),
+			Container:            markStyleFromColor(tokens.Color.Primary),
+			Label:                markStyleFromColor(tokens.Color.OnPrimary),
+			OptionalLeadingIcon:  markStyleFromColor(tokens.Color.OnPrimary),
+			OptionalTrailingIcon: markStyleFromColor(tokens.Color.OnPrimary),
+			FocusRing:            strokeStyle(tokens.Color.Primary, 2),
+			StateLayer:           stateLayerStyle(tokens.Color.OnPrimary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 		}
 	case ButtonOutlined:
 		return shared.ButtonSlots{
-			Container: markStyleFromColor(tokens.Color.Surface),
-			Label:     markStyleFromColor(tokens.Color.Primary),
-			Icon:      markStyleFromColor(tokens.Color.Primary),
-			FocusRing: strokeStyle(tokens.Color.Primary, 2),
+			Root:                 transparentStyle(),
+			Container:            markStyleFromColor(tokens.Color.Surface),
+			Label:                markStyleFromColor(tokens.Color.Primary),
+			OptionalLeadingIcon:  markStyleFromColor(tokens.Color.Primary),
+			OptionalTrailingIcon: markStyleFromColor(tokens.Color.Primary),
+			FocusRing:            strokeStyle(tokens.Color.Primary, 2),
+			StateLayer:           stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 		}
 	case ButtonText:
 		return shared.ButtonSlots{
-			Container: transparentStyle(),
-			Label:     markStyleFromColor(tokens.Color.Primary),
-			Icon:      markStyleFromColor(tokens.Color.Primary),
-			FocusRing: strokeStyle(tokens.Color.Primary, 2),
+			Root:                 transparentStyle(),
+			Container:            transparentStyle(),
+			Label:                markStyleFromColor(tokens.Color.Primary),
+			OptionalLeadingIcon:  markStyleFromColor(tokens.Color.Primary),
+			OptionalTrailingIcon: markStyleFromColor(tokens.Color.Primary),
+			FocusRing:            strokeStyle(tokens.Color.Primary, 2),
+			StateLayer:           stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 		}
 	case ButtonTonal:
 		return shared.ButtonSlots{
-			Container: markStyleFromColor(tokens.Color.SecondaryVariant),
-			Label:     markStyleFromColor(tokens.Color.OnSecondary),
-			Icon:      markStyleFromColor(tokens.Color.OnSecondary),
-			FocusRing: strokeStyle(tokens.Color.Secondary, 2),
+			Root:                 transparentStyle(),
+			Container:            markStyleFromColor(tokens.Color.SecondaryVariant),
+			Label:                markStyleFromColor(tokens.Color.OnSecondary),
+			OptionalLeadingIcon:  markStyleFromColor(tokens.Color.OnSecondary),
+			OptionalTrailingIcon: markStyleFromColor(tokens.Color.OnSecondary),
+			FocusRing:            strokeStyle(tokens.Color.Secondary, 2),
+			StateLayer:           stateLayerStyle(tokens.Color.OnSecondary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 		}
 	default:
-		_ = rootSource
 		return shared.ButtonSlots{}
+	}
+}
+
+func iconButtonBase(ctx theme.StyleContext) shared.IconButtonSlots {
+	tokens := ctx.Tokens
+	return shared.IconButtonSlots{
+		Root:       transparentStyle(),
+		Container:  markStyleFromColor(tokens.Color.Primary),
+		Icon:       markStyleFromColor(tokens.Color.OnPrimary),
+		FocusRing:  strokeStyle(tokens.Color.OnPrimary, 2),
+		StateLayer: stateLayerStyle(tokens.Color.OnPrimary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 	}
 }
 
@@ -257,39 +322,63 @@ func textInputBase(ctx theme.StyleContext, variant TextInputVariant) shared.Text
 	switch variant {
 	case TextInputOutlined:
 		return shared.TextInputSlots{
-			Field:         markStyleFromColor(tokens.Color.Surface),
-			Text:          markStyleFromColor(tokens.Color.OnSurface),
-			Placeholder:   fadedStyle(tokens.Color.OnSurfaceVariant, 0.58),
-			Caret:         markStyleFromColor(tokens.Color.Primary),
-			Selection:     fadedStyle(tokens.Color.Primary, 0.2),
-			Outline:       markStyleFromColor(tokens.Color.OnSurfaceVariant),
-			FocusRing:     strokeStyle(tokens.Color.Primary, 2),
-			AssistiveText: markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			Root:           transparentStyle(),
+			FieldContainer: outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+			Label:          markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			InputText:      markStyleFromColor(tokens.Color.OnSurface),
+			Placeholder:    fadedStyle(tokens.Color.OnSurfaceVariant, 0.58),
+			HelperText:     markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			ErrorText:      markStyleFromColor(tokens.Color.Error),
+			Caret:          markStyleFromColor(tokens.Color.Primary),
+			SelectionRange: fadedStyle(tokens.Color.Primary, tokens.Color.SelectedOverlay),
+			FocusRing:      strokeStyle(tokens.Color.Primary, 2),
 		}
 	case TextInputFilled:
 		return shared.TextInputSlots{
-			Field:         markStyleFromColor(tokens.Color.SurfaceVariant),
-			Text:          markStyleFromColor(tokens.Color.OnSurface),
-			Placeholder:   fadedStyle(tokens.Color.OnSurfaceVariant, 0.58),
-			Caret:         markStyleFromColor(tokens.Color.Primary),
-			Selection:     fadedStyle(tokens.Color.Primary, 0.2),
-			Outline:       transparentStyle(),
-			FocusRing:     strokeStyle(tokens.Color.Primary, 2),
-			AssistiveText: markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			Root:           transparentStyle(),
+			FieldContainer: filledFieldContainer(tokens.Color.SurfaceVariant),
+			Label:          markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			InputText:      markStyleFromColor(tokens.Color.OnSurface),
+			Placeholder:    fadedStyle(tokens.Color.OnSurfaceVariant, 0.58),
+			HelperText:     markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			ErrorText:      markStyleFromColor(tokens.Color.Error),
+			Caret:          markStyleFromColor(tokens.Color.Primary),
+			SelectionRange: fadedStyle(tokens.Color.Primary, tokens.Color.SelectedOverlay),
+			FocusRing:      strokeStyle(tokens.Color.Primary, 2),
 		}
 	case TextInputUnderlined:
 		return shared.TextInputSlots{
-			Field:         transparentStyle(),
-			Text:          markStyleFromColor(tokens.Color.OnSurface),
-			Placeholder:   fadedStyle(tokens.Color.OnSurfaceVariant, 0.58),
-			Caret:         markStyleFromColor(tokens.Color.Primary),
-			Selection:     fadedStyle(tokens.Color.Primary, 0.2),
-			Outline:       markStyleFromColor(tokens.Color.Primary),
-			FocusRing:     strokeStyle(tokens.Color.Primary, 2),
-			AssistiveText: markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			Root:           transparentStyle(),
+			FieldContainer: underlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+			Label:          markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			InputText:      markStyleFromColor(tokens.Color.OnSurface),
+			Placeholder:    fadedStyle(tokens.Color.OnSurfaceVariant, 0.58),
+			HelperText:     markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			ErrorText:      markStyleFromColor(tokens.Color.Error),
+			Caret:          markStyleFromColor(tokens.Color.Primary),
+			SelectionRange: fadedStyle(tokens.Color.Primary, tokens.Color.SelectedOverlay),
+			FocusRing:      strokeStyle(tokens.Color.Primary, 2),
 		}
 	default:
 		return shared.TextInputSlots{}
+	}
+}
+
+func numberFieldBase(ctx theme.StyleContext) shared.NumberFieldSlots {
+	tokens := ctx.Tokens
+	return shared.NumberFieldSlots{
+		Root:           transparentStyle(),
+		FieldContainer: outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+		Label:          markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		InputText:      markStyleFromColor(tokens.Color.OnSurface),
+		Placeholder:    fadedStyle(tokens.Color.OnSurfaceVariant, 0.58),
+		StepperUp:      markStyleFromColor(tokens.Color.Primary),
+		StepperDown:    markStyleFromColor(tokens.Color.Primary),
+		HelperText:     markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		ErrorText:      markStyleFromColor(tokens.Color.Error),
+		Caret:          markStyleFromColor(tokens.Color.Primary),
+		SelectionRange: fadedStyle(tokens.Color.Primary, tokens.Color.SelectedOverlay),
+		FocusRing:      strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 
@@ -298,21 +387,23 @@ func sliderBase(ctx theme.StyleContext, variant SliderVariant) shared.SliderSlot
 	switch variant {
 	case SliderStandard:
 		return shared.SliderSlots{
-			Track:     fadedStyle(tokens.Color.OnSurfaceVariant, 0.24),
-			Fill:      markStyleFromColor(tokens.Color.Primary),
-			Thumb:     markStyleFromColor(tokens.Color.Primary),
-			Tick:      fadedStyle(tokens.Color.OnSurfaceVariant, 0.4),
-			ValueText: markStyleFromColor(tokens.Color.OnSurface),
-			FocusRing: strokeStyle(tokens.Color.Primary, 2),
+			Root:        transparentStyle(),
+			Track:       fadedStyle(tokens.Color.OnSurfaceVariant, 0.24),
+			ActiveTrack: markStyleFromColor(tokens.Color.Primary),
+			Thumb:       markStyleFromColor(tokens.Color.Primary),
+			TickMarks:   fadedStyle(tokens.Color.OnSurfaceVariant, 0.4),
+			ValueLabel:  markStyleFromColor(tokens.Color.OnSurface),
+			FocusRing:   strokeStyle(tokens.Color.Primary, 2),
 		}
 	case SliderCompact:
 		return shared.SliderSlots{
-			Track:     fadedStyle(tokens.Color.Primary, 0.32),
-			Fill:      markStyleFromColor(tokens.Color.PrimaryVariant),
-			Thumb:     markStyleFromColor(tokens.Color.OnPrimary),
-			Tick:      fadedStyle(tokens.Color.OnSurfaceVariant, 0.5),
-			ValueText: markStyleFromColor(tokens.Color.OnSurfaceVariant),
-			FocusRing: strokeStyle(tokens.Color.Primary, 2),
+			Root:        transparentStyle(),
+			Track:       fadedStyle(tokens.Color.Primary, 0.32),
+			ActiveTrack: markStyleFromColor(tokens.Color.PrimaryVariant),
+			Thumb:       markStyleFromColor(tokens.Color.OnPrimary),
+			TickMarks:   fadedStyle(tokens.Color.OnSurfaceVariant, 0.5),
+			ValueLabel:  markStyleFromColor(tokens.Color.OnSurfaceVariant),
+			FocusRing:   strokeStyle(tokens.Color.Primary, 2),
 		}
 	default:
 		return shared.SliderSlots{}
@@ -323,10 +414,50 @@ func checkboxBase(ctx theme.StyleContext, variant CheckboxVariant) shared.Checkb
 	tokens := ctx.Tokens
 	_ = variant
 	return shared.CheckboxSlots{
-		Box:       markStyleFromColor(tokens.Color.Surface),
-		Check:     markStyleFromColor(tokens.Color.Primary),
-		Label:     markStyleFromColor(tokens.Color.OnSurface),
-		FocusRing: strokeStyle(tokens.Color.Primary, 2),
+		Root: transparentStyle(),
+		ControlBox: theme.MarkStyle{
+			Base: theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.Surface,
+					Opacity: 1,
+				}},
+				Strokes: []theme.MaterialStroke{{
+					Paint: theme.Fill{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.OnSurfaceVariant,
+						Opacity: 1,
+					},
+					Width: 1,
+					Cap:   theme.CapRound,
+					Join:  theme.JoinRound,
+				}},
+				Opacity: 1,
+			},
+			Selected: &theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.Primary,
+					Opacity: 1,
+				}},
+				Strokes: []theme.MaterialStroke{{
+					Paint: theme.Fill{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.Primary,
+						Opacity: 1,
+					},
+					Width: 1,
+					Cap:   theme.CapRound,
+					Join:  theme.JoinRound,
+				}},
+				Opacity: 1,
+			},
+		},
+		Checkmark:  strokeStyle(tokens.Color.OnPrimary, 2.25),
+		Label:      markStyleFromColor(tokens.Color.OnSurface),
+		HelperText: markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		FocusRing:  strokeStyle(tokens.Color.Primary, 2),
+		StateLayer: stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 	}
 }
 
@@ -334,10 +465,62 @@ func switchBase(ctx theme.StyleContext, variant SwitchVariant) shared.SwitchSlot
 	tokens := ctx.Tokens
 	_ = variant
 	return shared.SwitchSlots{
-		Track:     fadedStyle(tokens.Color.OnSurfaceVariant, 0.32),
-		Thumb:     markStyleFromColor(tokens.Color.Primary),
-		Label:     markStyleFromColor(tokens.Color.OnSurface),
-		FocusRing: strokeStyle(tokens.Color.Primary, 2),
+		Root: transparentStyle(),
+		Track: theme.MarkStyle{
+			Base: theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.OnSurfaceVariant,
+					Opacity: 1,
+				}},
+				Opacity: 1,
+			},
+			Selected: &theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.Primary,
+					Opacity: 1,
+				}},
+				Opacity: 1,
+			},
+			Disabled: &theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.OnSurfaceVariant,
+					Opacity: tokens.Color.DisabledOpacity,
+				}},
+				Opacity: tokens.Color.DisabledOpacity,
+			},
+		},
+		Thumb: theme.MarkStyle{
+			Base: theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.Surface,
+					Opacity: 1,
+				}},
+				Opacity: 1,
+			},
+			Selected: &theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.OnPrimary,
+					Opacity: 1,
+				}},
+				Opacity: 1,
+			},
+			Disabled: &theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.SurfaceVariant,
+					Opacity: tokens.Color.DisabledOpacity,
+				}},
+				Opacity: tokens.Color.DisabledOpacity,
+			},
+		},
+		Label:      markStyleFromColor(tokens.Color.OnSurface),
+		FocusRing:  strokeStyle(tokens.Color.Primary, 2),
+		StateLayer: stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 	}
 }
 
@@ -345,9 +528,38 @@ func radioGroupBase(ctx theme.StyleContext, variant RadioGroupVariant) shared.Ra
 	tokens := ctx.Tokens
 	_ = variant
 	return shared.RadioGroupSlots{
-		Option:    markStyleFromColor(tokens.Color.Surface),
-		Indicator: markStyleFromColor(tokens.Color.Primary),
-		Label:     markStyleFromColor(tokens.Color.OnSurface),
+		Root:       transparentStyle(),
+		GroupLabel: markStyleFromColor(tokens.Color.OnSurface),
+		RadioItems: transparentStyle(),
+		RadioControl: theme.MarkStyle{
+			Base: theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.Surface,
+					Opacity: 1,
+				}},
+				Strokes: []theme.MaterialStroke{{
+					Paint: theme.Fill{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.OnSurfaceVariant,
+						Opacity: 1,
+					},
+					Width: 1,
+					Cap:   theme.CapRound,
+					Join:  theme.JoinRound,
+				}},
+				Opacity: 1,
+			},
+			Selected: &theme.Material{
+				Fills: []theme.Fill{{
+					Type:    theme.FillSolid,
+					Color:   tokens.Color.Primary,
+					Opacity: 1,
+				}},
+				Opacity: 1,
+			},
+		},
+		ItemLabel: markStyleFromColor(tokens.Color.OnSurface),
 		FocusRing: strokeStyle(tokens.Color.Primary, 2),
 	}
 }
@@ -356,11 +568,27 @@ func selectBase(ctx theme.StyleContext, variant SelectVariant) shared.SelectSlot
 	tokens := ctx.Tokens
 	_ = variant
 	return shared.SelectSlots{
-		Field:     markStyleFromColor(tokens.Color.Surface),
-		Value:     markStyleFromColor(tokens.Color.OnSurface),
-		Popup:     markStyleFromColor(tokens.Color.Surface),
-		Arrow:     markStyleFromColor(tokens.Color.OnSurfaceVariant),
-		FocusRing: strokeStyle(tokens.Color.Primary, 2),
+		Root:               transparentStyle(),
+		Trigger:            outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+		SelectedValueLabel: markStyleFromColor(tokens.Color.OnSurface),
+		Chevron:            markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		FloatingListbox:    outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+		OptionItems:        markStyleFromColor(tokens.Color.OnSurface),
+		FocusRing:          strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func listItemBase(ctx theme.StyleContext, variant ListItemVariant) shared.ListItemSlots {
+	tokens := ctx.Tokens
+	_ = variant
+	return shared.ListItemSlots{
+		Root:              transparentStyle(),
+		ItemContainer:     outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+		LeadingIcon:       markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		Label:             markStyleFromColor(tokens.Color.OnSurface),
+		SupportingText:    markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		SelectionIndicator: markStyleFromColor(tokens.Color.Primary),
+		FocusRing:         strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 
@@ -440,6 +668,24 @@ func transparentStyle() theme.MarkStyle {
 	}
 }
 
+func stateLayerStyle(color gfx.Color, hoverOpacity, pressedOpacity, focusOpacity, disabledOpacity float32) theme.MarkStyle {
+	mk := func(opacity float32) *theme.Material {
+		if opacity <= 0 {
+			return nil
+		}
+		m := theme.FromToken(color)
+		m.Opacity = opacity
+		return &m
+	}
+	return theme.MarkStyle{
+		Base:     theme.Material{Opacity: 0},
+		Hover:    mk(hoverOpacity),
+		Pressed:  mk(pressedOpacity),
+		Focused:  mk(focusOpacity),
+		Disabled: mk(disabledOpacity),
+	}
+}
+
 func strokeStyle(color gfx.Color, width float32) theme.MarkStyle {
 	return theme.MarkStyle{
 		Base: theme.Material{
@@ -452,6 +698,65 @@ func strokeStyle(color gfx.Color, width float32) theme.MarkStyle {
 				Width: width,
 				Cap:   theme.CapRound,
 				Join:  theme.JoinRound,
+			}},
+			Opacity: 1,
+		},
+	}
+}
+
+func outlinedFieldContainer(fill, outline gfx.Color) theme.MarkStyle {
+	return theme.MarkStyle{
+		Base: theme.Material{
+			Fills: []theme.Fill{{
+				Type:    theme.FillSolid,
+				Color:   fill,
+				Opacity: 1,
+			}},
+			Strokes: []theme.MaterialStroke{{
+				Paint: theme.Fill{
+					Type:    theme.FillSolid,
+					Color:   outline,
+					Opacity: 1,
+				},
+				Width: 1,
+				Cap:   theme.CapRound,
+				Join:  theme.JoinRound,
+			}},
+			Opacity: 1,
+		},
+	}
+}
+
+func filledFieldContainer(fill gfx.Color) theme.MarkStyle {
+	return theme.MarkStyle{
+		Base: theme.Material{
+			Fills: []theme.Fill{{
+				Type:    theme.FillSolid,
+				Color:   fill,
+				Opacity: 1,
+			}},
+			Opacity: 1,
+		},
+	}
+}
+
+func underlinedFieldContainer(fill, underline gfx.Color) theme.MarkStyle {
+	return theme.MarkStyle{
+		Base: theme.Material{
+			Fills: []theme.Fill{{
+				Type:    theme.FillSolid,
+				Color:   fill,
+				Opacity: 1,
+			}},
+			Strokes: []theme.MaterialStroke{{
+				Paint: theme.Fill{
+					Type:    theme.FillSolid,
+					Color:   underline,
+					Opacity: 1,
+				},
+				Width: 1,
+				Cap:   theme.CapSquare,
+				Join:  theme.JoinMiter,
 			}},
 			Opacity: 1,
 		},

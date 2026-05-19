@@ -25,6 +25,7 @@ type Config struct {
 	GestureConfig   input.GestureConfig
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
+	IconResolver    IconResolver
 	LayerRegistry   *layout.LayerRegistry
 	WindowBindings  map[string]platform.Window
 	ThemeResolver   *theme.ThemeResolver
