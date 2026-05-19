@@ -3,6 +3,7 @@
 /build
 /lurpic
 /render/vulkan/crates/lurpic_render/target/
+marks/**/**/testdata/
 .claude
 .windsurf
 .github
