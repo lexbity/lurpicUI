@@ -9,9 +9,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type testSurface struct {
@@ -225,6 +229,50 @@ func TestSoftwareRenderer_strokepath_rasterizes(t *testing.T) {
 	}
 }
 
+func TestSoftwareRenderer_rendersPrimitiveIcon(t *testing.T) {
+	tokens := theme.DefaultTokens()
+	tokens.Color.Primary = gfx.ColorFromRGBA8(18, 52, 86, 255)
+	rt := iconRenderRuntime{rootStyle: theme.NewRootStyleContext(nil, tokens, nil)}
+	icon := primitive.NewIcon(primitive.IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="currentColor"><path d="M1 1H9V9H1Z"/></svg>`))
+	icon.SetAccessibleName("Square")
+	icon.SetColorSlot(theme.ColorPrimary)
+	facet.Attach(icon, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	size := icon.Base().LayoutRole().Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 64, H: 64}}).Size
+	bounds := gfx.RectFromXYWH(0, 0, size.W, size.H)
+	icon.Base().LayoutRole().Arrange(facet.ArrangeContext{}, bounds)
+	cmds := icon.Base().ProjectionRole().Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || len(cmds.Commands) == 0 {
+		t.Fatal("expected icon commands")
+	}
+	r, s := newRenderer(t, int(size.W), int(size.H))
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{
+			{
+				ID:          1,
+				Bounds:      bounds,
+				Opacity:     1,
+				CommandHash: 1,
+				Commands:    *cmds,
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	got := pxAt(s, int(size.W/2), int(size.H/2))
+	if got.A == 0 {
+		t.Fatalf("expected icon output to render opaque pixels, got %#v", got)
+	}
+}
+
 func TestSoftwareRenderer_transform_stack_translates(t *testing.T) {
 	r, s := newRenderer(t, 150, 150)
 	frame := &render.Frame{
@@ -250,6 +298,19 @@ func TestSoftwareRenderer_transform_stack_translates(t *testing.T) {
 	if got := pxAt(s, 5, 5); got != (color.RGBA{}) {
 		t.Fatalf("unexpected pixel before translation: %#v", got)
 	}
+}
+
+type iconRenderRuntime struct {
+	rootStyle any
+}
+
+func (s iconRenderRuntime) Schedule(j job.AnyJob)  {}
+func (s iconRenderRuntime) CancelJob(id job.JobID) {}
+func (s iconRenderRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
+}
+func (s iconRenderRuntime) RootStyleContext() any { return s.rootStyle }
+func (s iconRenderRuntime) FacetByID(id facet.FacetID) facet.FacetImpl {
+	return nil
 }
 
 func TestSoftwareRenderer_batch_bounds_are_localized(t *testing.T) {

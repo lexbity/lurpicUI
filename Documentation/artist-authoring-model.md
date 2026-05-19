@@ -19,13 +19,16 @@ resolved into facet trees and runtime behavior.
 
 The standard library groups marks by family:
 
-- `basic` for primitives such as rects, paths, text, and images
-- `structure` for groups, clips, transforms, and hosting constructs
-- `annotation` for labels, connectors, callouts, symbols, handles, and badges
-- `uiinput` for interactive controls
-- `uinav` for navigation surfaces
-- `uinotification` for transient feedback
-- `chart` for scales, axes, and chart-adjacent constructs
+- `primitive` for leaf geometry and control, including `primitive.text` and `primitive.icon`
+- `action` for interactive controls such as buttons
+- `input` for text-field and editing surfaces
+
+The broader mark model still uses the same authoring vocabulary for other
+families, but iconography is intentionally split out at the primitive level:
+
+- standard consumers use `primitive.icon`
+- custom SVG authors use the documented raw SVG facet contract
+- SVG support is therefore a mark contract, not just a renderer capability
 
 Each family should own its own authored vocabulary while sharing the same core
 descriptor and runtime contracts.
@@ -37,6 +40,15 @@ Construction class expresses how a mark is created:
 - primitive marks correspond closely to renderable geometry
 - generated marks are typically produced by theme recipe resolution or composition
 - composed marks may host children and attach them to specific runtime layers
+
+For primitive marks, the iconography boundary is explicit:
+
+- `primitive.text` is the canonical text primitive
+- `primitive.icon` is the canonical SVG icon primitive
+- multi-color or higher-control SVG authored geometry belongs to the raw SVG
+  facet contract instead of the standard icon mark
+- the raw SVG facet helper lives in `gfx/svg.SVGFacet` for authors who want
+  normalized SVG geometry without adopting `primitive.icon`
 
 This is important because it lets the runtime and tooling distinguish between
 directly authored geometry and generated presentation artifacts.
@@ -94,6 +106,7 @@ When adding a new mark:
 4. Export anchors for meaningful attachment points.
 5. Add tests for hit testing, projection, and anchor behavior.
 6. Keep the mark family free of unrelated sibling-family imports unless composition requires it.
+7. If the mark consumes SVG, document whether it is a standard icon mark or a raw SVG facet.
 
 The authoring model should make it easy to describe intent and hard to
 accidentally embed runtime policy into the mark itself.

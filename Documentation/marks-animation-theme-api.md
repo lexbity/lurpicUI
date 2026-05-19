@@ -15,15 +15,19 @@ Important concepts:
 - `Mark` is the common authored interface.
 - `FocusableMark`, `AnchorExportingMark`, and `CustomizableMark` are capability interfaces.
 
-The standard families provide concrete authored types under:
+The current standard authored packages are:
 
-- `marks/basic`
-- `marks/structure`
-- `marks/annotation`
-- `marks/uiinput`
-- `marks/uinav`
-- `marks/uinotification`
-- `marks/chart`
+- `marks/primitive`
+- `marks/action`
+- `marks/input`
+
+The primitive family is where leaf geometry lives. It currently includes
+`primitive.text` and defines `primitive.icon` as the canonical standard icon
+mark. That split matters:
+
+- ordinary consumers should use `primitive.icon`
+- custom SVG authors should use the documented raw SVG facet contract
+- renderer details should not leak into the public mark vocabulary
 
 ### How to use marks
 
@@ -31,6 +35,7 @@ The standard families provide concrete authored types under:
 - prefer theme recipes for stylistic variation
 - prefer anchors for relative attachment
 - keep behavioral logic inside the family that owns the interaction
+- treat SVG iconography as a mark contract, not as a renderer-only concern
 
 ## Animation API
 
@@ -67,6 +72,14 @@ Theme is intentionally split between:
 - materials and interpolatable presentation state, which may animate
 - recipe resolution, which maps semantic slots to actual theme values
 
+Iconography follows the same split:
+
+- `primitive.icon` resolves source, size, color slot, and density behavior through
+  the standard mark contract
+- the raw SVG facet contract exists for custom marks that need richer SVG control
+  through `gfx/svg.SVGFacet`
+- theme remains responsible for token resolution, not SVG parsing
+
 ### Theme flow
 
 1. Tokens define the global palette, spacing, typography, and motion values.
@@ -81,6 +94,7 @@ Theme is intentionally split between:
 - theme describes presentation intent
 - animation interpolates values used by marks and theme
 - runtime orchestrates the frame loop that keeps them all moving
+- raw SVG facets describe lower-level vector geometry contracts for custom marks
 
 The intended layering is:
 
