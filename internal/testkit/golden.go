@@ -1,21 +1,31 @@
 package testkit
 
 import (
+	"bytes"
+	"crypto/sha256"
 	"flag"
 	"image"
+	"image/draw"
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
+	"fmt"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "regenerate golden images")
-var goldenBaseDir = filepath.Join("testdata", "golden")
+var goldenBaseDir string
 
 // AssertGolden compares the surface against testdata/golden/<name>.png.
 func AssertGolden(t reporter, surface *MemorySurface, name string) {
 	t.Helper()
-	wantPath := filepath.Join(goldenBaseDir, name+".png")
-	actualPath := filepath.Join(goldenBaseDir, name+"_actual.png")
+	baseDir := resolveGoldenBaseDir(t)
+	if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
+		fmt.Fprintf(os.Stderr, "golden baseDir=%s name=%s update=%v\n", baseDir, name, *updateGolden)
+	}
+	wantPath := filepath.Join(baseDir, name+".png")
+	actualPath := filepath.Join(baseDir, name+"_actual.png")
 
 	if err := os.MkdirAll(filepath.Dir(wantPath), 0o755); err != nil {
 		t.Fatalf("mkdir golden: %v", err)
@@ -23,6 +33,9 @@ func AssertGolden(t reporter, surface *MemorySurface, name string) {
 
 	got := surface.Capture()
 	if *updateGolden {
+		if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "golden update name=%s got=%x %s\n", name, imageDigest(got), firstPixelValue(got))
+		}
 		writePNGOrFail(t, wantPath, got)
 		return
 	}
@@ -33,9 +46,38 @@ func AssertGolden(t reporter, surface *MemorySurface, name string) {
 		return
 	}
 	if !imagesClose(got, want, 2) {
+		if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
+			fmt.Fprintf(os.Stderr, "golden diff name=%s bounds=%v want=%x got=%x %s\n", name, got.Bounds(), imageDigest(want), imageDigest(got), firstPixelDiff(want, got))
+		}
 		writePNGOrFail(t, actualPath, got)
 		t.Errorf("golden mismatch for %s", name)
 	}
+}
+
+func resolveGoldenBaseDir(t reporter) string {
+	if goldenBaseDir != "" {
+		return goldenBaseDir
+	}
+	pcs := make([]uintptr, 16)
+	n := runtime.Callers(2, pcs)
+	frames := runtime.CallersFrames(pcs[:n])
+	for {
+		frame, more := frames.Next()
+		if frame.File != "" &&
+			strings.HasSuffix(frame.File, "_test.go") &&
+			!strings.Contains(frame.File, string(filepath.Separator)+"internal"+string(filepath.Separator)+"testkit"+string(filepath.Separator)) {
+			return filepath.Join(filepath.Dir(frame.File), "testdata", "golden")
+		}
+		if !more {
+			break
+		}
+	}
+	return filepath.Join("testdata", "golden")
+}
+
+// GoldenBaseDirForCaller exposes the resolved golden directory for diagnostics and tests.
+func GoldenBaseDirForCaller() string {
+	return resolveGoldenBaseDir(nil)
 }
 
 func readPNG(path string) (*image.RGBA, error) {
@@ -65,12 +107,14 @@ func writePNGOrFail(t reporter, path string, img image.Image) {
 		t.Fatalf("create golden: %v", err)
 	}
 	defer f.Close()
-	if err := png.Encode(f, img); err != nil {
+	if err := png.Encode(f, flattenOnWhite(img)); err != nil {
 		t.Fatalf("encode golden: %v", err)
 	}
 }
 
 func imagesClose(a, b image.Image, tol uint8) bool {
+	a = flattenOnWhite(a)
+	b = flattenOnWhite(b)
 	if !a.Bounds().Eq(b.Bounds()) {
 		return false
 	}
@@ -95,4 +139,52 @@ func abs16(a, b uint16) uint16 {
 		return a - b
 	}
 	return b - a
+}
+
+func imageDigest(img image.Image) [32]byte {
+	if img == nil {
+		return [32]byte{}
+	}
+	var buf bytes.Buffer
+	_ = png.Encode(&buf, img)
+	return sha256.Sum256(buf.Bytes())
+}
+
+func firstPixelDiff(a, b image.Image) string {
+	a = flattenOnWhite(a)
+	b = flattenOnWhite(b)
+	if a == nil || b == nil {
+		return "nil-image"
+	}
+	bounds := a.Bounds()
+	for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+		for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			ar, ag, ab, aa := a.At(x, y).RGBA()
+			br, bg, bb, ba := b.At(x, y).RGBA()
+			if ar != br || ag != bg || ab != bb || aa != ba {
+				return fmt.Sprintf("first-diff=(%d,%d) want=(%d,%d,%d,%d) got=(%d,%d,%d,%d)",
+					x, y, br>>8, bg>>8, bb>>8, ba>>8, ar>>8, ag>>8, ab>>8, aa>>8)
+			}
+		}
+	}
+	return "no-pixel-diff"
+}
+
+func firstPixelValue(img image.Image) string {
+	if img == nil {
+		return "nil-image"
+	}
+	r, g, b, a := img.At(img.Bounds().Min.X, img.Bounds().Min.Y).RGBA()
+	return fmt.Sprintf("first-pixel=(%d,%d,%d,%d)", r>>8, g>>8, b>>8, a>>8)
+}
+
+func flattenOnWhite(img image.Image) image.Image {
+	if img == nil {
+		return nil
+	}
+	bounds := img.Bounds()
+	out := image.NewRGBA(bounds)
+	draw.Draw(out, bounds, &image.Uniform{C: image.White}, image.Point{}, draw.Src)
+	draw.Draw(out, bounds, img, bounds.Min, draw.Over)
+	return out
 }

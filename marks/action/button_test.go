@@ -1,0 +1,283 @@
+package action
+
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"testing"
+
+	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/platform"
+	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/text"
+	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
+)
+
+type buttonRuntimeStub struct {
+	rootStyle any
+	fonts     *text.FontRegistry
+	icons     runtimepkg.IconResolver
+}
+
+func (s buttonRuntimeStub) Schedule(j job.AnyJob)  {}
+func (s buttonRuntimeStub) CancelJob(id job.JobID) {}
+func (s buttonRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
+}
+func (s buttonRuntimeStub) RootStyleContext() any { return s.rootStyle }
+func (s buttonRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
+	return nil
+}
+func (s buttonRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s buttonRuntimeStub) IconResolver() runtimepkg.IconResolver {
+	return s.icons
+}
+
+type buttonIconResolverStub map[string]runtimepkg.IconAsset
+
+func (r buttonIconResolverStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+	asset, ok := r[ref]
+	return asset, ok
+}
+
+func TestButtonMeasureProjectHitAndAnchors(t *testing.T) {
+	btn, rt := newTestButton(t, true)
+	if got := btn.AccessibilityRole(); got != "button" {
+		t.Fatalf("accessibility role = %q, want button", got)
+	}
+	if got := btn.AccessibleName(); got != "Save changes" {
+		t.Fatalf("accessible name = %q, want Save changes", got)
+	}
+
+	facet.Attach(btn, facet.AttachContext{
+		Runtime: rt,
+		Theme:   theme.DefaultResolvedContext(),
+	})
+
+	result := btn.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 800, H: 200}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+
+	bounds := gfx.RectFromXYWH(12, 24, result.Size.W, result.Size.H)
+	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
+
+	if btn.cachedLeadingBox.IsEmpty() || btn.cachedTrailingBox.IsEmpty() {
+		t.Fatalf("expected icon hit boxes, got leading=%#v trailing=%#v", btn.cachedLeadingBox, btn.cachedTrailingBox)
+	}
+
+	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projected commands")
+	}
+	var sawGlyphRun, sawFillPath bool
+	for _, cmd := range cmds.Commands {
+		switch cmd.(type) {
+		case gfx.DrawGlyphRun:
+			sawGlyphRun = true
+		case gfx.FillPath:
+			sawFillPath = true
+		}
+	}
+	if !sawGlyphRun {
+		t.Fatal("expected glyph commands for label")
+	}
+	if !sawFillPath {
+		t.Fatal("expected fill path commands for icon or surface content")
+	}
+
+	anchors := btn.ExportAnchors(layoutAnchorContext(bounds))
+	for _, name := range []layout.AnchorID{"bounds_center", "bounds_top_left", "bounds_top_right", "bounds_bottom_left", "bounds_bottom_right", "baseline"} {
+		if _, ok := anchors[name]; !ok {
+			t.Fatalf("missing anchor %q", name)
+		}
+	}
+
+	leading := btn.hitRole.HitTest(gfx.Point{X: btn.cachedLeadingBox.Min.X + 1, Y: btn.cachedLeadingBox.Min.Y + 1})
+	if !leading.Hit || leading.MarkID != buttonMarkIDLeading {
+		t.Fatalf("expected leading hit, got %#v", leading)
+	}
+	label := btn.hitRole.HitTest(gfx.Point{X: btn.cachedLabelBounds.Min.X + 1, Y: btn.cachedLabelBounds.Min.Y + 1})
+	if !label.Hit || label.MarkID != buttonMarkIDLabel {
+		t.Fatalf("expected label hit, got %#v", label)
+	}
+	trailing := btn.hitRole.HitTest(gfx.Point{X: btn.cachedTrailingBox.Min.X + 1, Y: btn.cachedTrailingBox.Min.Y + 1})
+	if !trailing.Hit || trailing.MarkID != buttonMarkIDTrailing {
+		t.Fatalf("expected trailing hit, got %#v", trailing)
+	}
+	container := btn.hitRole.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
+	if !container.Hit || container.MarkID != buttonMarkIDContainer {
+		t.Fatalf("expected container hit, got %#v", container)
+	}
+}
+
+func TestButtonActivatesFromPointerAndKeyboard(t *testing.T) {
+	btn, rt := newTestButton(t, false)
+
+	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	result := btn.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 400, H: 200}})
+	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
+	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
+
+	activated := 0
+	btn.Activated.Subscribe(func(signal.Unit) {
+		activated++
+	})
+
+	center := gfx.Point{X: bounds.Min.X + bounds.Width()/2, Y: bounds.Min.Y + bounds.Height()/2}
+	if !btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: center, Button: platform.PointerLeft}) {
+		t.Fatal("expected pointer press to be handled")
+	}
+	if !btn.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: center, Button: platform.PointerLeft}) {
+		t.Fatal("expected pointer release to be handled")
+	}
+	if activated != 1 {
+		t.Fatalf("expected one pointer activation, got %d", activated)
+	}
+
+	if !btn.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeySpace}) {
+		t.Fatal("expected space key press to be handled")
+	}
+	if !btn.onKey(facet.KeyEvent{Kind: platform.KeyRelease, Key: platform.KeySpace}) {
+		t.Fatal("expected space key release to be handled")
+	}
+	if activated != 2 {
+		t.Fatalf("expected space to activate once, got %d", activated)
+	}
+
+	if !btn.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEnter}) {
+		t.Fatal("expected enter key press to be handled")
+	}
+	if !btn.onKey(facet.KeyEvent{Kind: platform.KeyRelease, Key: platform.KeyEnter}) {
+		t.Fatal("expected enter key release to be handled")
+	}
+	if activated != 3 {
+		t.Fatalf("expected enter to activate once, got %d", activated)
+	}
+}
+
+func TestButtonFocusVisibleAndDisabledBehavior(t *testing.T) {
+	btn, rt := newTestButton(t, false)
+
+	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	result := btn.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 400, H: 200}})
+	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
+	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
+
+	btn.onFocusGained()
+	if !btn.focusedVisible {
+		t.Fatal("expected keyboard focus to show focus ring")
+	}
+	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projected commands")
+	}
+	var sawStroke bool
+	for _, cmd := range cmds.Commands {
+		if _, ok := cmd.(gfx.StrokePath); ok {
+			sawStroke = true
+			break
+		}
+	}
+	if !sawStroke {
+		t.Fatal("expected focus ring stroke in projection")
+	}
+
+	btn.SetDisabled(true)
+	if btn.focusRole.Focusable() {
+		t.Fatal("expected disabled button to be unfocusable")
+	}
+	if btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {
+		t.Fatal("expected disabled button to ignore pointer input")
+	}
+	if btn.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeySpace}) {
+		t.Fatal("expected disabled button to ignore keyboard input")
+	}
+}
+
+func newTestButton(t *testing.T, withIcons bool) (*Button, buttonRuntimeStub) {
+	t.Helper()
+	btn := NewButton("Save changes", uiinput.ButtonFilled)
+	rt := buttonRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		fonts:     mustButtonTextRegistry(t),
+	}
+	if withIcons {
+		rt.icons = buttonIconResolverStub{
+			"leading":  {Path: gfx.RectPath(gfx.RectFromXYWH(0, 0, 24, 24)), ViewBox: gfx.RectFromXYWH(0, 0, 24, 24)},
+			"trailing": {Path: gfx.RectPath(gfx.RectFromXYWH(0, 0, 24, 24)), ViewBox: gfx.RectFromXYWH(0, 0, 24, 24)},
+		}
+		btn.SetLeadingIconRef("leading")
+		btn.SetTrailingIconRef("trailing")
+	}
+	return btn, rt
+}
+
+func layoutAnchorContext(bounds gfx.Rect) layout.AnchorExportContext {
+	return layout.AnchorExportContext{
+		ResolvedLayer: layout.ResolvedLayer{Bounds: bounds},
+	}
+}
+
+func mustButtonTextRegistry(t *testing.T) *text.FontRegistry {
+	t.Helper()
+	reg, err := text.NewFontRegistry()
+	if err != nil {
+		t.Fatalf("new font registry: %v", err)
+	}
+	data := mustReadButtonFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
+		t.Fatalf("load font: %v", err)
+	}
+	return reg
+}
+
+func mustReadButtonFont(t *testing.T, rel string) []byte {
+	t.Helper()
+	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatalf("go env GOMODCACHE: %v", err)
+	}
+	path := filepath.Join(string(bytesTrim(out)), rel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read font %q: %v", path, err)
+	}
+	return data
+}
+
+func bytesTrim(in []byte) []byte {
+	for len(in) > 0 {
+		switch in[len(in)-1] {
+		case '\n', '\r', '\t', ' ':
+			in = in[:len(in)-1]
+		default:
+			return in
+		}
+	}
+	return in
+}
