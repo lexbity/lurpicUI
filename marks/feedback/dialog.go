@@ -608,7 +608,6 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if content.IsEmpty() {
 		content = d.cachedSurfaceBounds
 	}
-	y := content.Min.Y
 	closeSize := gfx.Size{}
 	if d.cachedCloseButton != nil {
 		closeSize = d.cachedCloseButton.Base().LayoutRole().MeasuredSize
@@ -622,41 +621,46 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if d.cachedActionsFacet != nil {
 		actionsSize = d.cachedActionsFacet.Base().LayoutRole().MeasuredSize
 	}
+	headerH := maxFloat(titleSize.H, closeSize.H)
+	rowRects := layout.ArrangeVerticalFlowAligned(content, 0, d.cachedRowGap, []gfx.Size{
+		{W: content.Width(), H: headerH},
+		{W: content.Width(), H: bodySize.H},
+		{W: content.Width(), H: actionsSize.H},
+	}, d.cachedWritingDirection == facet.WritingDirectionRTL, layout.AlignStart)
+	headerRect := rowRects[0]
 	if closeSize.W > 0 || closeSize.H > 0 {
-		closeX := content.Max.X - closeSize.W
-		titleX := content.Min.X
+		closeX := headerRect.Max.X - closeSize.W
+		titleX := headerRect.Min.X
 		if d.cachedWritingDirection == facet.WritingDirectionRTL {
-			closeX = content.Min.X
-			titleX = content.Min.X + closeSize.W + d.cachedGap
+			closeX = headerRect.Min.X
+			titleX = headerRect.Min.X + closeSize.W + d.cachedGap
 		}
-		closeRect := gfx.RectFromXYWH(closeX, y, closeSize.W, closeSize.H)
+		closeRect := gfx.RectFromXYWH(closeX, headerRect.Min.Y, closeSize.W, closeSize.H)
 		d.cachedCloseButton.Base().LayoutRole().Arrange(ctx, closeRect)
 		d.cachedCloseBounds = closeRect
-		titleW := maxFloat(0, content.Width()-closeSize.W-d.cachedGap)
-		titleRect := gfx.RectFromXYWH(titleX, y, titleW, titleSize.H)
+		titleW := maxFloat(0, headerRect.Width()-closeSize.W-d.cachedGap)
+		titleRect := gfx.RectFromXYWH(titleX, headerRect.Min.Y, titleW, titleSize.H)
 		d.cachedTitleFacet.Base().LayoutRole().Arrange(ctx, titleRect)
 		d.cachedTitleBounds = titleRect
-		y += maxFloat(titleSize.H, closeSize.H)
 	} else {
-		titleRect := gfx.RectFromXYWH(content.Min.X, y, content.Width(), titleSize.H)
+		titleRect := gfx.RectFromXYWH(headerRect.Min.X, headerRect.Min.Y, headerRect.Width(), titleSize.H)
 		d.cachedTitleFacet.Base().LayoutRole().Arrange(ctx, titleRect)
 		d.cachedTitleBounds = titleRect
-		y += titleSize.H
 	}
 	if d.cachedBodyGroup != nil && bodySize.H > 0 {
-		y += d.cachedRowGap
-		bodyRect := gfx.RectFromXYWH(content.Min.X, y, content.Width(), bodySize.H)
+		bodyRect := gfx.RectFromXYWH(rowRects[1].Min.X, rowRects[1].Min.Y, rowRects[1].Width(), bodySize.H)
 		d.cachedBodyGroup.Base().LayoutRole().Arrange(ctx, bodyRect)
 		d.cachedBodyBounds = bodyRect
-		y += bodySize.H
 	}
 	if d.cachedActionsFacet != nil && actionsSize.H > 0 {
-		y += d.cachedRowGap
-		actionsX := content.Min.X
-		if d.cachedWritingDirection != facet.WritingDirectionRTL {
-			actionsX = content.Max.X - actionsSize.W
+		actionsRect := gfx.RectFromXYWH(rowRects[2].Min.X, rowRects[2].Min.Y, actionsSize.W, actionsSize.H)
+		if d.cachedWritingDirection == facet.WritingDirectionRTL {
+			actionsRect.Min.X = content.Min.X
+			actionsRect.Max.X = actionsRect.Min.X + actionsSize.W
+		} else {
+			actionsRect.Min.X = content.Max.X - actionsSize.W
+			actionsRect.Max.X = content.Max.X
 		}
-		actionsRect := gfx.RectFromXYWH(actionsX, y, actionsSize.W, actionsSize.H)
 		d.cachedActionsFacet.Base().LayoutRole().Arrange(ctx, actionsRect)
 		d.cachedActionsBounds = actionsRect
 	}

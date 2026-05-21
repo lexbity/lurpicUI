@@ -1281,16 +1281,9 @@ func (it *buttonGroupItem) measure(ctx facet.MeasureContext, constraints facet.C
 			WritingDirection: ctx.WritingDirection,
 		}, facet.Constraints{MaxSize: gfx.Size{W: maxTextWidth, H: constraints.MaxSize.H}}).Size
 	}
-	contentW := labelSize.W
-	if it.iconMark != nil {
-		contentW += iconSize.W
-		if labelSize.W > 0 {
-			contentW += it.cachedGap
-		}
-	}
-	contentH := maxFloat(iconSize.H, labelSize.H)
-	width := contentW + it.cachedPadX*2
-	height := contentH + it.cachedPadY*2
+	content := layout.InlineFlowSize([]gfx.Size{iconSize, labelSize}, it.cachedGap)
+	width := content.W + it.cachedPadX*2
+	height := content.H + it.cachedPadY*2
 	minHeight := resolved.Density.Scale(36)
 	if height < minHeight {
 		height = minHeight
@@ -1328,49 +1321,21 @@ func (it *buttonGroupItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if inner.IsEmpty() {
 		inner = bounds
 	}
-	iconW := float32(0)
-	iconH := float32(0)
+	iconSize := gfx.Size{}
 	if it.iconMark != nil {
-		iconW = it.iconMark.Base().LayoutRole().MeasuredSize.W
-		iconH = it.iconMark.Base().LayoutRole().MeasuredSize.H
+		iconSize = it.iconMark.Base().LayoutRole().MeasuredSize
 	}
-	labelW := float32(0)
-	labelH := float32(0)
+	labelSize := gfx.Size{}
 	if it.labelMark != nil {
-		labelW = it.labelMark.Base().LayoutRole().MeasuredSize.W
-		labelH = it.labelMark.Base().LayoutRole().MeasuredSize.H
+		labelSize = it.labelMark.Base().LayoutRole().MeasuredSize
 	}
-	contentW := labelW
+	rects := layout.ArrangeInlineFlow(inner, it.cachedPadX, it.cachedGap, []gfx.Size{iconSize, labelSize}, it.cachedWritingDirection == facet.WritingDirectionRTL)
 	if it.iconMark != nil {
-		contentW += iconW
-		if labelW > 0 {
-			contentW += it.cachedGap
-		}
-	}
-	contentH := maxFloat(iconH, labelH)
-	x := inner.Min.X + maxFloat(0, (inner.Width()-contentW)*0.5)
-	y := inner.Min.Y + maxFloat(0, (inner.Height()-contentH)*0.5)
-	if it.cachedWritingDirection == facet.WritingDirectionRTL {
-		if it.labelMark != nil {
-			it.cachedLabelBounds = gfx.RectFromXYWH(x+iconW+it.cachedGap, y+(contentH-labelH)*0.5, labelW, labelH)
-			it.labelMark.Base().LayoutRole().Arrange(ctx, it.cachedLabelBounds)
-		}
-		if it.iconMark != nil {
-			it.cachedIconBounds = gfx.RectFromXYWH(x, y+(contentH-iconH)*0.5, iconW, iconH)
-			it.iconMark.Base().LayoutRole().Arrange(ctx, it.cachedIconBounds)
-		}
-		return
-	}
-	if it.iconMark != nil {
-		it.cachedIconBounds = gfx.RectFromXYWH(x, y+(contentH-iconH)*0.5, iconW, iconH)
+		it.cachedIconBounds = rects[0]
 		it.iconMark.Base().LayoutRole().Arrange(ctx, it.cachedIconBounds)
-		x += iconW
-		if labelW > 0 {
-			x += it.cachedGap
-		}
 	}
 	if it.labelMark != nil {
-		it.cachedLabelBounds = gfx.RectFromXYWH(x, y+(contentH-labelH)*0.5, labelW, labelH)
+		it.cachedLabelBounds = rects[1]
 		it.labelMark.Base().LayoutRole().Arrange(ctx, it.cachedLabelBounds)
 	}
 }

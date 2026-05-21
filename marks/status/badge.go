@@ -380,7 +380,7 @@ func (b *Badge) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if inner.IsEmpty() {
 		inner = bounds
 	}
-	y := inner.Min.Y
+	sizes := make([]gfx.Size, 0, len(children))
 	for i := range children {
 		child := children[i]
 		if child.Layout == nil {
@@ -395,21 +395,21 @@ func (b *Badge) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 				WritingDirection: b.cachedWritingDirection,
 			}, facet.Constraints{MaxSize: gfx.Size{W: inner.Width(), H: inner.Height()}}).Size
 		}
-		x := inner.Min.X
-		if b.cachedWritingDirection == facet.WritingDirectionRTL {
-			x = inner.Max.X - size.W
+		sizes = append(sizes, size)
+	}
+	rects := layout.ArrangeVerticalFlowAligned(inner, 0, b.cachedGap, sizes, b.cachedWritingDirection == facet.WritingDirectionRTL, layout.AlignStart)
+	for i := range children {
+		child := children[i]
+		if child.Layout == nil {
+			continue
 		}
-		rect := gfx.RectFromXYWH(x, y, size.W, size.H)
+		rect := rects[i]
 		child.Layout.ArrangedBounds = rect
 		switch child.MarkID {
 		case badgeMarkIDOptionalIcon:
 			b.cachedIconBounds = rect
 		case badgeMarkIDLabel:
 			b.cachedLabelBounds = rect
-		}
-		y += size.H
-		if i < len(children)-1 {
-			y += b.cachedGap
 		}
 	}
 }

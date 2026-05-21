@@ -1328,6 +1328,124 @@ func TestBaseline_positive(t *testing.T) {
 	}
 }
 
+// TestLineBounds_stackVertically verifies that multi-line layouts preserve
+// distinct vertical line offsets instead of collapsing every line to y=0.
+func TestLineBounds_stackVertically(t *testing.T) {
+	layout := shapedASCII(t, "Line 1\nLine 2")
+	if layout == nil || layout.LineCount() != 2 {
+		t.Fatalf("expected 2 lines, got %#v", layout)
+	}
+	first := layout.Lines[0]
+	second := layout.Lines[1]
+	if first.Bounds.IsEmpty() || second.Bounds.IsEmpty() {
+		t.Fatalf("expected non-empty line bounds, got first=%#v second=%#v", first.Bounds, second.Bounds)
+	}
+	if second.Bounds.Min.Y <= first.Bounds.Min.Y {
+		t.Fatalf("expected second line to be stacked below first, got first=%#v second=%#v", first.Bounds, second.Bounds)
+	}
+	if diff := second.Bounds.Min.Y - first.Bounds.Max.Y; diff < -0.01 || diff > 0.01 {
+		t.Fatalf("expected stacked line bounds, got first=%#v second=%#v", first.Bounds, second.Bounds)
+	}
+}
+
+// TestLineBoxContract_keeps_content_box_baseline_and_line_box_distinct verifies
+// that authored line height expands the line box without changing the baseline
+// contract or collapsing the layout into glyph-ink bounds.
+func TestLineBoxContract_keeps_content_box_baseline_and_line_box_distinct(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	style.LineHeight = 3
+
+	layout := shaper.ShapeSimple("gyp", style)
+	if layout == nil || layout.LineCount() != 1 {
+		t.Fatalf("expected one shaped line, got %#v", layout)
+	}
+
+	line := layout.Lines[0]
+	naturalH := line.Metrics.Ascent - line.Metrics.Descent
+	if line.Bounds.Min.X != 0 || line.Bounds.Min.Y != 0 {
+		t.Fatalf("line bounds = %#v, want origin-aligned line box", line.Bounds)
+	}
+	if layout.Bounds.Min.X != 0 || layout.Bounds.Min.Y != 0 {
+		t.Fatalf("layout bounds = %#v, want origin-aligned content box", layout.Bounds)
+	}
+	if line.Bounds.Height() <= naturalH {
+		t.Fatalf("line box height = %v, want > natural height %v", line.Bounds.Height(), naturalH)
+	}
+	if diff := math.Abs(float64(layout.Bounds.Height() - line.Bounds.Height())); diff > 0.01 {
+		t.Fatalf("layout height = %v, line height = %v (diff %v)", layout.Bounds.Height(), line.Bounds.Height(), diff)
+	}
+	if line.Baseline <= 0 || line.Baseline >= line.Bounds.Height() {
+		t.Fatalf("baseline = %v, want inside line box height %v", line.Baseline, line.Bounds.Height())
+	}
+	wantBaseline := line.Metrics.Ascent + (line.Metrics.LineHeight-naturalH)*0.5
+	if diff := math.Abs(float64(line.Baseline - wantBaseline)); diff > 0.01 {
+		t.Fatalf("baseline = %v, want %v (diff %v)", line.Baseline, wantBaseline, diff)
+	}
+}
+
+// TestLineBoxContract_stacks_multiline_boxes_without_recomputing_baselines
+// verifies that multi-line shaping preserves line boxes and reuses the shaped
+// baseline contract on each line.
+func TestLineBoxContract_stacks_multiline_boxes_without_recomputing_baselines(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	style.LineHeight = 2.5
+
+	layout := shaper.Shape(Paragraph{
+		Spans: []TextSpan{{Text: "Line 1\nLine 2", Style: style}},
+	})
+	if layout == nil || layout.LineCount() != 2 {
+		t.Fatalf("expected 2 lines, got %#v", layout)
+	}
+
+	first := layout.Lines[0]
+	second := layout.Lines[1]
+	if diff := math.Abs(float64(second.Bounds.Min.Y - first.Bounds.Max.Y)); diff > 0.01 {
+		t.Fatalf("expected stacked line boxes, got first=%#v second=%#v", first.Bounds, second.Bounds)
+	}
+	if diff := math.Abs(float64(first.Baseline - second.Baseline)); diff > 0.01 {
+		t.Fatalf("expected shared baseline offset, got first=%v second=%v", first.Baseline, second.Baseline)
+	}
+	if diff := math.Abs(float64(layout.Bounds.Height() - (first.Bounds.Height() + second.Bounds.Height()))); diff > 0.01 {
+		t.Fatalf("layout height = %v, want stacked line heights %v", layout.Bounds.Height(), first.Bounds.Height()+second.Bounds.Height())
+	}
+}
+
+// TestShapeTruncated_preserves_vertical_metrics verifies truncation only
+// changes horizontal shaping, not the vertical line-box contract.
+func TestShapeTruncated_preserves_vertical_metrics(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+
+	full := shaper.ShapeSimple("Hello world", style)
+	if full == nil {
+		t.Fatal("expected full layout")
+	}
+	truncated := shaper.ShapeTruncated("Hello world", style, full.Bounds.Width()*0.4)
+	if truncated == nil {
+		t.Fatal("expected truncated layout")
+	}
+	if truncated.Source == full.Source {
+		t.Fatal("expected truncation to change the source text")
+	}
+	if diff := math.Abs(float64(full.LineHeight - truncated.LineHeight)); diff > 0.01 {
+		t.Fatalf("line height changed across truncation: full=%v truncated=%v", full.LineHeight, truncated.LineHeight)
+	}
+	if diff := math.Abs(float64(full.Baseline - truncated.Baseline)); diff > 0.01 {
+		t.Fatalf("baseline changed across truncation: full=%v truncated=%v", full.Baseline, truncated.Baseline)
+	}
+	if diff := math.Abs(float64(full.Bounds.Height() - truncated.Bounds.Height())); diff > 0.01 {
+		t.Fatalf("layout height changed across truncation: full=%v truncated=%v", full.Bounds.Height(), truncated.Bounds.Height())
+	}
+}
+
 // TestLineHeight_extra_leading_centers_baseline verifies that extra authored
 // line height is distributed around the line instead of being placed only
 // below the baseline.

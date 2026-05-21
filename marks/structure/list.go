@@ -386,32 +386,38 @@ func (l *List) syncChildren() {
 	l.cachedRowOrder = nextOrder
 	content := make([]ScrollRegionChild, 0, len(nextOrder)+2)
 	if l.cachedHeaderMark != nil {
-		content = append(content, ScrollRegionChild{
-			Facet:     l.cachedHeaderMark,
-			MarkID:    listMarkIDSectionHeaderOptional,
-			Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: len(content), CrossAxisAlign: facet.CrossAxisStretch}},
-		})
+		content = append(content, listScrollChild(l.cachedHeaderMark, listMarkIDSectionHeaderOptional, len(content)))
 	}
 	for _, key := range nextOrder {
 		row := nextRows[key]
 		if row == nil {
 			continue
 		}
-		content = append(content, ScrollRegionChild{
-			Facet:     row,
-			MarkID:    listMarkIDListItems,
-			Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: len(content), CrossAxisAlign: facet.CrossAxisStretch}},
-		})
+		content = append(content, listScrollChild(row, listMarkIDListItems, len(content)))
 	}
 	if l.cachedEmptyMark != nil {
-		content = append(content, ScrollRegionChild{
-			Facet:     l.cachedEmptyMark,
-			MarkID:    listMarkIDEmptyStateOptional,
-			Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: len(content), CrossAxisAlign: facet.CrossAxisStretch}},
-		})
+		content = append(content, listScrollChild(l.cachedEmptyMark, listMarkIDEmptyStateOptional, len(content)))
 	}
 	l.scrollRegion.SetGap(l.cachedGap)
 	l.scrollRegion.SetChildren(content)
+}
+
+func listScrollChild(mark facet.FacetImpl, markID facet.MarkID, order int) ScrollRegionChild {
+	base := childFacetID(mark)
+	if base == 0 {
+		return ScrollRegionChild{}
+	}
+	return ScrollRegionChild{
+		Facet:  mark,
+		MarkID: markID,
+		Placement: facet.Placement{
+			Mode: facet.PlacementLinear,
+			Linear: facet.LinearPlacement{
+				Order:          order,
+				CrossAxisAlign: facet.CrossAxisStretch,
+			},
+		},
+	}
 }
 
 func stableListKey(entry ListEntry, index int) string {

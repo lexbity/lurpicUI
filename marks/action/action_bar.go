@@ -76,7 +76,6 @@ type ActionBar struct {
 	cachedWritingDirection facet.WritingDirection
 	cachedLabelLayout      *text.TextLayout
 	cachedLabelStyle       text.TextStyle
-	cachedLabelBrush       gfx.Brush
 	cachedItems            []*actionBarItem
 }
 
@@ -454,27 +453,19 @@ func (a *ActionBar) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	}
 
 	a.syncItems()
-	childCount := 0
-	totalChildWidth := float32(0)
-	childHeight := float32(0)
+	childSizes := make([]gfx.Size, 0, len(a.cachedItems))
 	for i := range a.cachedItems {
 		child := a.cachedItems[i]
 		if child == nil {
 			continue
 		}
 		size := child.measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: constraints.MaxSize.W, H: constraints.MaxSize.H}})
-		if childCount > 0 {
-			totalChildWidth += a.cachedGap
-		}
-		totalChildWidth += size.W
-		if size.H > childHeight {
-			childHeight = size.H
-		}
-		childCount++
+		childSizes = append(childSizes, size)
 	}
 
-	labelMaxWidth := constraints.MaxSize.W - a.cachedPadX*2 - totalChildWidth
-	if labelLayout != nil && childCount > 0 {
+	childFlow := layout.InlineFlowSize(childSizes, a.cachedGap)
+	labelMaxWidth := constraints.MaxSize.W - a.cachedPadX*2 - childFlow.W
+	if labelLayout != nil && len(childSizes) > 0 {
 		labelMaxWidth -= a.cachedLabelGap
 	}
 	if labelMaxWidth < 0 {
@@ -491,23 +482,31 @@ func (a *ActionBar) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		}
 	}
 
-	labelW := float32(0)
-	labelH := float32(0)
+	segments := make([]layout.InlineFlowSegment, 0, len(childSizes)+1)
 	if a.cachedLabelLayout != nil {
-		labelW = a.cachedLabelLayout.Bounds.Width()
-		labelH = a.cachedLabelLayout.Bounds.Height()
-	}
-	contentW := totalChildWidth
-	if labelW > 0 {
-		contentW += labelW
-		if childCount > 0 {
-			contentW += a.cachedLabelGap
+		labelSegment := layout.InlineFlowSegment{
+			Size: gfx.Size{
+				W: a.cachedLabelLayout.Bounds.Width(),
+				H: a.cachedLabelLayout.Bounds.Height(),
+			},
 		}
+		if len(childSizes) > 0 {
+			labelSegment.GapAfter = a.cachedLabelGap
+		}
+		segments = append(segments, labelSegment)
 	}
-	contentH := maxFloat(labelH, childHeight)
+	for i, size := range childSizes {
+		segment := layout.InlineFlowSegment{Size: size}
+		if i < len(childSizes)-1 {
+			segment.GapAfter = a.cachedGap
+		}
+		segments = append(segments, segment)
+	}
+	content := layout.InlineFlowSegmentsSize(segments)
+	contentH := content.H
 	minHeight := maxFloat(resolved.Density.Scale(36), a.cachedPadY*2+contentH)
 	size := gfx.Size{
-		W: maxFloat(resolved.Density.Scale(120), contentW+a.cachedPadX*2),
+		W: maxFloat(resolved.Density.Scale(120), content.W+a.cachedPadX*2),
 		H: minHeight,
 	}
 	size = constraints.Constrain(size)
@@ -532,84 +531,60 @@ func (a *ActionBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	a.cachedRootBounds = bounds
 	a.cachedSurfaceBounds = bounds
 	a.layoutRole.ArrangedBounds = bounds
+	a.cachedLabelBounds = gfx.Rect{}
 	if bounds.IsEmpty() {
 		a.cachedActionBounds = nil
 		return
 	}
 	a.syncItems()
-	inner := bounds.Inset(a.cachedPadX, a.cachedPadY)
-	if inner.IsEmpty() {
-		inner = bounds
-	}
 	labelLayout := a.cachedLabelLayout
-	labelW := float32(0)
-	labelH := float32(0)
-	if labelLayout != nil {
-		labelW = labelLayout.Bounds.Width()
-		labelH = labelLayout.Bounds.Height()
-	}
-	childHeights := make([]float32, len(a.cachedItems))
-	totalChildWidth := float32(0)
+	childSizes := make([]gfx.Size, 0, len(a.cachedItems))
 	for i := range a.cachedItems {
 		child := a.cachedItems[i]
 		if child == nil {
 			continue
 		}
-		if i > 0 {
-			totalChildWidth += a.cachedGap
-		}
-		size := child.measureSize()
-		totalChildWidth += size.W
-		childHeights[i] = size.H
+		childSizes = append(childSizes, child.measureSize())
 	}
-
-	contentH := maxFloat(labelH, maxFloatSlice(childHeights))
-	contentTop := text.CenterY(inner, contentH)
-	labelY := contentTop + maxFloat(0, (contentH-labelH)/2)
+	segments := make([]layout.InlineFlowSegment, 0, len(childSizes)+1)
+	if labelLayout != nil {
+		labelSegment := layout.InlineFlowSegment{
+			Size: gfx.Size{
+				W: labelLayout.Bounds.Width(),
+				H: labelLayout.Bounds.Height(),
+			},
+		}
+		if len(childSizes) > 0 {
+			labelSegment.GapAfter = a.cachedLabelGap
+		}
+		segments = append(segments, labelSegment)
+	}
+	for i, size := range childSizes {
+		segment := layout.InlineFlowSegment{Size: size}
+		if i < len(childSizes)-1 {
+			segment.GapAfter = a.cachedGap
+		}
+		segments = append(segments, segment)
+	}
 	rtl := a.cachedWritingDirection == facet.WritingDirectionRTL
-	if rtl {
-		x := inner.Max.X
-		if labelW > 0 {
-			x -= labelW
-			a.cachedLabelBounds = gfx.RectFromXYWH(x, labelY, labelW, labelH)
-			x -= a.cachedLabelGap
+	rects := layout.ArrangeInlineFlowSegments(bounds, a.cachedPadX, segments, rtl)
+	a.cachedActionBounds = a.cachedActionBounds[:0]
+	childOffset := 0
+	if labelLayout != nil && len(rects) > 0 {
+		a.cachedLabelBounds = rects[0]
+		childOffset = 1
+	}
+	childRectIndex := 0
+	for i := range a.cachedItems {
+		child := a.cachedItems[i]
+		if child == nil {
+			a.cachedActionBounds = append(a.cachedActionBounds, gfx.Rect{})
+			continue
 		}
-		a.cachedActionBounds = a.cachedActionBounds[:0]
-		for i := range a.cachedItems {
-			child := a.cachedItems[i]
-			if child == nil {
-				a.cachedActionBounds = append(a.cachedActionBounds, gfx.Rect{})
-				continue
-			}
-			size := child.measureSize()
-			x -= size.W
-			rect := text.CenterRect(gfx.RectFromXYWH(x, contentTop, size.W, contentH), size.W, size.H)
-			child.arrange(ctx, rect)
-			a.cachedActionBounds = append(a.cachedActionBounds, rect)
-			x -= a.cachedGap
-		}
-	} else {
-		left := inner.Min.X
-		if labelW > 0 {
-			a.cachedLabelBounds = gfx.RectFromXYWH(left, labelY, labelW, labelH)
-			left += labelW + a.cachedLabelGap
-		}
-		a.cachedActionBounds = a.cachedActionBounds[:0]
-		for i := range a.cachedItems {
-			child := a.cachedItems[i]
-			if child == nil {
-				a.cachedActionBounds = append(a.cachedActionBounds, gfx.Rect{})
-				continue
-			}
-			if i > 0 {
-				left += a.cachedGap
-			}
-			size := child.measureSize()
-			rect := text.CenterRect(gfx.RectFromXYWH(left, contentTop, size.W, contentH), size.W, size.H)
-			child.arrange(ctx, rect)
-			a.cachedActionBounds = append(a.cachedActionBounds, rect)
-			left += size.W
-		}
+		rect := rects[childRectIndex+childOffset]
+		childRectIndex++
+		child.arrange(ctx, rect)
+		a.cachedActionBounds = append(a.cachedActionBounds, rect)
 	}
 }
 
@@ -670,7 +645,7 @@ func (a *ActionBar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, a.cachedRadius), surface)...)
 	}
 	if a.cachedLabelLayout != nil {
-		cmds = append(cmds, labelCommands(a.cachedLabelLayout, a.cachedLabelBounds, label)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(a.cachedLabelLayout, a.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	for i := range a.cachedItems {
 		child := a.cachedItems[i]
@@ -686,28 +661,6 @@ func (a *ActionBar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		inset := maxFloat(1, a.cachedPadY*0.5)
 		ringBounds := bounds.Inset(-inset, -inset)
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, a.cachedRadius+inset), focus)...)
-	}
-	return cmds
-}
-
-func labelCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil {
-		return nil
-	}
-	color := materialColor(material)
-	brush := gfx.SolidBrush(color)
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{
-				Run:    run,
-				Origin: runOrigin,
-				Brush:  brush,
-			})
-		}
 	}
 	return cmds
 }

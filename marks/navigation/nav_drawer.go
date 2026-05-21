@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -51,7 +52,6 @@ type NavDrawer struct {
 	hitRole        facet.HitRole
 	inputRole      facet.InputRole
 	focusRole      facet.FocusRole
-	textRole       facet.TextRole
 
 	Activated signal.Signal[int]
 
@@ -77,15 +77,6 @@ type NavDrawer struct {
 	cachedNavBounds        gfx.Rect
 	cachedSectionBounds    []gfx.Rect
 	cachedItemBounds       []gfx.Rect
-	cachedItemLabelBounds  []gfx.Rect
-	cachedItemLabelLayouts []*text.TextLayout
-	cachedHeaderLayout     *text.TextLayout
-	cachedSubtitleLayout   *text.TextLayout
-	cachedSectionLayouts   []*text.TextLayout
-	cachedHeaderStyle      text.TextStyle
-	cachedSectionStyle     text.TextStyle
-	cachedItemStyle        text.TextStyle
-	cachedSubTitleStyle    text.TextStyle
 	cachedItemGap          float32
 	cachedSectionGap       float32
 	cachedPadX             float32
@@ -97,6 +88,10 @@ type NavDrawer struct {
 	cachedIconBounds       []gfx.Rect
 	cachedFlatSectionIndex []int
 	cachedFlatItems        []NavDrawerItem
+	cachedHeaderFacet      *primitive.Text
+	cachedSubtitleFacet    *primitive.Text
+	cachedSectionFacets    []*primitive.Text
+	cachedItemLabelFacets  []*primitive.Text
 
 	groupHeaderFacet    facet.Facet
 	groupNavItemsFacet  facet.Facet
@@ -174,14 +169,12 @@ func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
 	d.focusRole.TabIndex = 0
 	d.focusRole.OnFocusGained = func() { d.onFocusGained() }
 	d.focusRole.OnFocusLost = func() { d.onFocusLost() }
-	d.textRole.IMEEnabled = false
 	d.AddRole(&d.layoutRole)
 	d.AddRole(&d.renderRole)
 	d.AddRole(&d.projectionRole)
 	d.AddRole(&d.hitRole)
 	d.AddRole(&d.inputRole)
 	d.AddRole(&d.focusRole)
-	d.AddRole(&d.textRole)
 	return d
 }
 
@@ -302,10 +295,11 @@ func (d *NavDrawer) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorS
 		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
 		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
-	if d.cachedHeaderLayout != nil && !d.cachedHeaderBounds.IsEmpty() {
-		out["baseline"] = gfx.Point{
-			X: d.cachedHeaderBounds.Min.X,
-			Y: d.cachedHeaderBounds.Min.Y + d.cachedHeaderLayout.Baseline,
+	if d.cachedHeaderFacet != nil {
+		if anchors := d.cachedHeaderFacet.ExportAnchors(ctx); anchors != nil {
+			if baseline, ok := anchors["baseline"]; ok {
+				out["baseline"] = baseline
+			}
 		}
 	}
 	return out
@@ -375,15 +369,6 @@ func (d *NavDrawer) OnDetach() {
 	d.cachedNavBounds = gfx.Rect{}
 	d.cachedSectionBounds = nil
 	d.cachedItemBounds = nil
-	d.cachedItemLabelBounds = nil
-	d.cachedItemLabelLayouts = nil
-	d.cachedHeaderLayout = nil
-	d.cachedSubtitleLayout = nil
-	d.cachedSectionLayouts = nil
-	d.cachedHeaderStyle = text.TextStyle{}
-	d.cachedSectionStyle = text.TextStyle{}
-	d.cachedItemStyle = text.TextStyle{}
-	d.cachedSubTitleStyle = text.TextStyle{}
 	d.cachedItemGap = 0
 	d.cachedSectionGap = 0
 	d.cachedPadX = 0
@@ -394,6 +379,10 @@ func (d *NavDrawer) OnDetach() {
 	d.cachedIconBounds = nil
 	d.cachedFlatSectionIndex = nil
 	d.cachedFlatItems = nil
+	d.cachedHeaderFacet = nil
+	d.cachedSubtitleFacet = nil
+	d.cachedSectionFacets = nil
+	d.cachedItemLabelFacets = nil
 	d.groupHeaderLayout = facet.LayoutRole{}
 	d.groupNavItemsLayout = facet.LayoutRole{}
 }
@@ -403,6 +392,81 @@ func (d *NavDrawer) invalidate(flags facet.DirtyFlags) {
 		return
 	}
 	d.Base().Invalidate(flags)
+}
+
+func (d *NavDrawer) syncTextFacets(maxWidth float32) {
+	if d == nil {
+		return
+	}
+	if maxWidth < 0 {
+		maxWidth = 0
+	}
+	if d.cachedHeaderFacet == nil {
+		d.cachedHeaderFacet = primitive.NewText(d.Label)
+	}
+	d.cachedHeaderFacet.SetContent(d.Label)
+	d.cachedHeaderFacet.SetTypography(theme.TextHeadingS)
+	d.cachedHeaderFacet.SetForeground(theme.ColorText)
+	d.cachedHeaderFacet.SetDisabled(d.Disabled)
+	d.cachedHeaderFacet.SetOverflow(primitive.TextOverflowTruncate)
+	d.cachedHeaderFacet.SetMaxWidth(maxWidth)
+
+	if d.cachedSubtitleFacet == nil {
+		d.cachedSubtitleFacet = primitive.NewText(d.Subtitle)
+	}
+	d.cachedSubtitleFacet.SetContent(d.Subtitle)
+	d.cachedSubtitleFacet.SetTypography(theme.TextBodyM)
+	d.cachedSubtitleFacet.SetForeground(theme.ColorTextSecondary)
+	d.cachedSubtitleFacet.SetDisabled(d.Disabled)
+	d.cachedSubtitleFacet.SetOverflow(primitive.TextOverflowTruncate)
+	d.cachedSubtitleFacet.SetMaxWidth(maxWidth)
+
+	if len(d.cachedSectionFacets) != len(d.Sections) {
+		d.cachedSectionFacets = make([]*primitive.Text, len(d.Sections))
+	}
+	for i := range d.Sections {
+		if d.cachedSectionFacets[i] == nil {
+			d.cachedSectionFacets[i] = primitive.NewText(d.Sections[i].Label)
+		}
+		d.cachedSectionFacets[i].SetContent(d.Sections[i].Label)
+		d.cachedSectionFacets[i].SetTypography(theme.TextLabelM)
+		d.cachedSectionFacets[i].SetForeground(theme.ColorTextSecondary)
+		d.cachedSectionFacets[i].SetDisabled(d.Disabled)
+		d.cachedSectionFacets[i].SetOverflow(primitive.TextOverflowTruncate)
+		d.cachedSectionFacets[i].SetMaxWidth(maxWidth)
+	}
+
+	if len(d.cachedItemLabelFacets) != len(d.cachedFlatItems) {
+		d.cachedItemLabelFacets = make([]*primitive.Text, len(d.cachedFlatItems))
+	}
+	for i := range d.cachedFlatItems {
+		if d.cachedItemLabelFacets[i] == nil {
+			d.cachedItemLabelFacets[i] = primitive.NewText(d.cachedFlatItems[i].Label)
+		}
+		d.cachedItemLabelFacets[i].SetContent(d.cachedFlatItems[i].Label)
+		d.cachedItemLabelFacets[i].SetTypography(theme.TextLabelM)
+		d.cachedItemLabelFacets[i].SetForeground(theme.ColorText)
+		d.cachedItemLabelFacets[i].SetDisabled(d.Disabled || d.cachedFlatItems[i].Disabled)
+		d.cachedItemLabelFacets[i].SetOverflow(primitive.TextOverflowTruncate)
+		d.cachedItemLabelFacets[i].SetMaxWidth(maxWidth)
+	}
+}
+
+func measurePrimitiveTextFacet(f *primitive.Text, ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
+	if f == nil {
+		return gfx.Size{}
+	}
+	return f.Base().LayoutRole().Measure(ctx, constraints).Size
+}
+
+func appendProjectedTextFacet(cmds []gfx.Command, f *primitive.Text, runtime facet.RuntimeServices, bounds gfx.Rect, contentScale float32) []gfx.Command {
+	if f == nil || bounds.IsEmpty() {
+		return cmds
+	}
+	if projected := f.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtime, Bounds: bounds, ContentScale: contentScale}); projected != nil {
+		cmds = append(cmds, projected.Commands...)
+	}
+	return cmds
 }
 
 func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -421,31 +485,20 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	d.cachedSectionGap = float32(resolved.Spacing(theme.SpacingL))
 	d.cachedItemHeight = maxFloat(resolved.Density.Scale(44), resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
 	d.cachedDrawerWidth = d.drawerWidth(resolved)
-	d.cachedHeaderStyle = resolved.TextStyle(theme.TextHeadingS)
-	d.cachedSubTitleStyle = resolved.TextStyle(theme.TextBodyM)
-	d.cachedSectionStyle = resolved.TextStyle(theme.TextLabelM)
-	d.cachedItemStyle = resolved.TextStyle(theme.TextLabelM)
-	shaper := d.newShaper(ctx.Runtime)
-	if shaper == nil {
-		d.cachedHeaderLayout = nil
-		d.cachedSubtitleLayout = nil
-		d.cachedItemLabelLayouts = nil
-		d.cachedSectionLayouts = nil
-		return facet.MeasureResult{}
-	}
-	shaper.SetContentScale(ctx.ContentScale)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(420)
 	}
-	d.cachedHeaderLayout = shaper.ShapeTruncated(d.Label, d.cachedHeaderStyle, maxWidth)
-	d.cachedSubtitleLayout = shaper.ShapeTruncated(d.Subtitle, d.cachedSubTitleStyle, maxWidth)
+	d.syncTextFacets(maxWidth)
+	headerSize := measurePrimitiveTextFacet(d.cachedHeaderFacet, ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
+	subtitleSize := measurePrimitiveTextFacet(d.cachedSubtitleFacet, ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
 	flatCount := len(d.cachedFlatItems)
-	d.cachedItemLabelLayouts = make([]*text.TextLayout, flatCount)
 	d.cachedIconAssets = make([]runtimepkg.IconAsset, flatCount)
 	d.cachedIconBounds = make([]gfx.Rect, flatCount)
 	for i := range d.cachedFlatItems {
-		d.cachedItemLabelLayouts[i] = shaper.ShapeTruncated(d.cachedFlatItems[i].Label, d.cachedItemStyle, maxWidth)
+		if i < len(d.cachedItemLabelFacets) {
+			measurePrimitiveTextFacet(d.cachedItemLabelFacets[i], ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
+		}
 		if d.cachedFlatItems[i].IconRef != "" {
 			if asset, ok := d.resolveIcon(ctx.Runtime, d.cachedFlatItems[i].IconRef); ok {
 				d.cachedIconAssets[i] = asset
@@ -459,36 +512,35 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 			d.cachedIconBounds[i] = gfx.RectFromXYWH(0, 0, size, size)
 		}
 	}
-	headerH := text.Height(d.cachedHeaderLayout)
-	subtitleH := text.Height(d.cachedSubtitleLayout)
 	itemsH := float32(0)
-	sectionLabels := make([]*text.TextLayout, len(d.Sections))
 	for i, section := range d.Sections {
-		if section.Label != "" {
-			sectionLabels[i] = shaper.ShapeTruncated(section.Label, d.cachedSectionStyle, maxWidth)
+		sectionSize := gfx.Size{}
+		if i < len(d.cachedSectionFacets) {
+			sectionSize = measurePrimitiveTextFacet(d.cachedSectionFacets[i], ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
 		}
 		if i > 0 {
 			itemsH += d.cachedSectionGap
 		}
-		if sectionLabels[i] != nil {
-			itemsH += text.Height(sectionLabels[i]) + d.cachedItemGap
+		if sectionSize != (gfx.Size{}) {
+			itemsH += sectionSize.H + d.cachedItemGap
 		}
 		itemsH += float32(len(section.Items)) * d.cachedItemHeight
 		if len(section.Items) > 0 {
 			itemsH += float32(len(section.Items)-1) * d.cachedItemGap
 		}
 	}
-	drawerW := maxFloat(d.cachedDrawerWidth, maxFloat(text.Width(d.cachedHeaderLayout), text.Width(d.cachedSubtitleLayout))+d.cachedPadX*2)
-	for i := range d.cachedItemLabelLayouts {
-		w := text.Width(d.cachedItemLabelLayouts[i]) + d.cachedPadX*2 + d.cachedItemHeight
+	drawerW := maxFloat(d.cachedDrawerWidth, maxFloat(headerSize.W, subtitleSize.W)+d.cachedPadX*2)
+	for i := range d.cachedItemLabelFacets {
+		itemSize := d.cachedItemLabelFacets[i].Base().LayoutRole().MeasuredSize
+		w := itemSize.W + d.cachedPadX*2 + d.cachedItemHeight
 		if w > drawerW {
 			drawerW = w
 		}
 	}
 	contentW := maxFloat(0, drawerW-d.cachedPadX*2)
-	headerSize := gfx.Size{W: contentW, H: headerH}
-	if d.cachedSubtitleLayout != nil && headerH > 0 && subtitleH > 0 {
-		headerSize.H += float32(resolved.Spacing(theme.SpacingXS)) + subtitleH
+	headerSize = gfx.Size{W: contentW, H: headerSize.H}
+	if d.cachedSubtitleFacet != nil && headerSize.H > 0 && subtitleSize.H > 0 {
+		headerSize.H += float32(resolved.Spacing(theme.SpacingXS)) + subtitleSize.H
 	}
 	itemsSize := gfx.Size{W: contentW, H: itemsH}
 	d.groupHeaderLayout.MeasuredSize = headerSize
@@ -514,7 +566,6 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		}
 	}
 	measured := constraints.Constrain(gfx.Size{W: measuredW, H: measuredH})
-	d.cachedSectionLayouts = sectionLabels
 	d.layoutRole.MeasuredSize = measured
 	d.layoutRole.MeasuredResult = facet.MeasureResult{
 		Size: measured,
@@ -525,10 +576,6 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		},
 		Constraints: constraints,
 	}
-	d.textRole.Layout = d.cachedHeaderLayout
-	d.textRole.Selection = text.TextRange{}
-	d.textRole.CaretVisible = false
-	d.textRole.CaretPosition = text.TextPosition{}
 	return d.layoutRole.MeasuredResult
 }
 
@@ -544,7 +591,6 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	d.cachedNavBounds = gfx.Rect{}
 	d.cachedSectionBounds = nil
 	d.cachedItemBounds = nil
-	d.cachedItemLabelBounds = nil
 	d.layoutRole.ArrangedBounds = bounds
 	if bounds.IsEmpty() || !d.Open {
 		return
@@ -590,6 +636,16 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			}
 		}
 	}
+	if d.cachedHeaderFacet != nil && !d.cachedHeaderBounds.IsEmpty() {
+		d.cachedHeaderFacet.Base().LayoutRole().Arrange(ctx, d.cachedHeaderBounds)
+		if d.cachedSubtitleFacet != nil {
+			subtitleH := d.cachedSubtitleFacet.Base().LayoutRole().MeasuredSize.H
+			if subtitleH > 0 {
+				subBounds := gfx.RectFromXYWH(d.cachedHeaderBounds.Min.X, d.cachedHeaderBounds.Max.Y+float32(d.cachedItemGap)*0.5, d.cachedHeaderBounds.Width(), subtitleH)
+				d.cachedSubtitleFacet.Base().LayoutRole().Arrange(ctx, subBounds)
+			}
+		}
+	}
 	x := d.cachedNavBounds.Min.X
 	y := d.cachedNavBounds.Min.Y
 	if d.cachedHeaderBounds.IsEmpty() {
@@ -600,14 +656,14 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	sectionY := y
 	d.cachedSectionBounds = make([]gfx.Rect, len(d.Sections))
 	d.cachedItemBounds = make([]gfx.Rect, len(d.cachedFlatItems))
-	d.cachedItemLabelBounds = make([]gfx.Rect, len(d.cachedFlatItems))
 	for si, section := range d.Sections {
 		if si > 0 {
 			sectionY += d.cachedSectionGap
 		}
-		if d.cachedSectionLayouts != nil && si < len(d.cachedSectionLayouts) && d.cachedSectionLayouts[si] != nil {
-			sh := text.Height(d.cachedSectionLayouts[si])
+		if si < len(d.cachedSectionFacets) && d.cachedSectionFacets[si] != nil {
+			sh := d.cachedSectionFacets[si].Base().LayoutRole().MeasuredSize.H
 			d.cachedSectionBounds[si] = gfx.RectFromXYWH(x, sectionY, d.cachedDrawerBounds.Width()-d.cachedPadX*2, sh)
+			d.cachedSectionFacets[si].Base().LayoutRole().Arrange(ctx, d.cachedSectionBounds[si])
 			sectionY += sh + d.cachedItemGap
 		}
 		for ii := range section.Items {
@@ -618,15 +674,21 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 				iconRect = gfx.RectFromXYWH(row.Min.X+d.cachedPadX, row.Min.Y+(row.Height()-d.cachedIconBounds[flatIndex].Height())*0.5, d.cachedIconBounds[flatIndex].Width(), d.cachedIconBounds[flatIndex].Height())
 				d.cachedIconBounds[flatIndex] = iconRect
 			}
-			labelLayout := d.cachedItemLabelLayouts[flatIndex]
-			labelW := text.Width(labelLayout)
-			labelH := text.Height(labelLayout)
+			labelFacet := d.cachedItemLabelFacets[flatIndex]
+			labelW := float32(0)
+			labelH := float32(0)
+			if labelFacet != nil {
+				labelW = labelFacet.Base().LayoutRole().MeasuredSize.W
+				labelH = labelFacet.Base().LayoutRole().MeasuredSize.H
+			}
 			labelX := row.Min.X + d.cachedPadX*1.5 + iconRect.Width()
 			if d.cachedWritingDirection == facet.WritingDirectionRTL {
 				labelX = row.Max.X - d.cachedPadX*1.5 - iconRect.Width() - labelW
 			}
-			labelY := text.CenterY(row, labelH)
-			d.cachedItemLabelBounds[flatIndex] = gfx.RectFromXYWH(labelX-labelLayout.Bounds.Min.X, labelY-labelLayout.Bounds.Min.Y, labelW, labelH)
+			labelRect := text.AlignRectY(gfx.RectFromXYWH(labelX, row.Min.Y, labelW, labelH), row.Min.Y, row.Height())
+			if labelFacet != nil {
+				labelFacet.Base().LayoutRole().Arrange(ctx, labelRect)
+			}
 			sectionY += d.cachedItemHeight
 			if ii < len(section.Items)-1 {
 				sectionY += d.cachedItemGap
@@ -634,15 +696,6 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			flatIndex++
 		}
 	}
-	if len(d.cachedFlatItems) > 0 {
-		idx := d.clampedFocusedIndex()
-		if idx >= 0 && idx < len(d.cachedItemLabelLayouts) {
-			d.textRole.Layout = d.cachedItemLabelLayouts[idx]
-		}
-	}
-	d.textRole.Selection = text.TextRange{}
-	d.textRole.CaretVisible = false
-	d.textRole.CaretPosition = text.TextPosition{}
 }
 
 func (d *NavDrawer) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.NavDrawerSlots) {
@@ -674,7 +727,6 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	drawer := slots.DrawerSurface.Resolve(d.rootState(), tokens)
 	header := slots.Header.Resolve(d.headerState(), tokens)
 	items := slots.NavItems.Resolve(d.itemState(), tokens)
-	section := slots.SectionLabels.Resolve(theme.StateDefault, tokens)
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 96)
@@ -690,16 +742,17 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if !isTransparentMaterial(header) && !d.cachedHeaderBounds.IsEmpty() {
 		cmds = append(cmds, materialCommands(gfx.RectPath(d.cachedHeaderBounds), header)...)
 	}
-	if d.cachedHeaderLayout != nil && !isTransparentMaterial(header) {
-		cmds = append(cmds, textCommandsForLayout(d.cachedHeaderLayout, d.cachedHeaderBounds, header)...)
-	}
-	if d.cachedSubtitleLayout != nil && !d.cachedHeaderBounds.IsEmpty() {
-		subBounds := gfx.RectFromXYWH(d.cachedHeaderBounds.Min.X, d.cachedHeaderBounds.Max.Y+float32(d.cachedItemGap)*0.5, d.cachedHeaderBounds.Width(), d.cachedSubtitleLayout.Bounds.Height())
-		cmds = append(cmds, textCommandsForLayout(d.cachedSubtitleLayout, subBounds, section)...)
+	cmds = appendProjectedTextFacet(cmds, d.cachedHeaderFacet, runtimeServicesOrNil(runtime), d.cachedHeaderBounds, 1)
+	if d.cachedSubtitleFacet != nil && !d.cachedHeaderBounds.IsEmpty() {
+		subtitleH := d.cachedSubtitleFacet.Base().LayoutRole().MeasuredSize.H
+		if subtitleH > 0 {
+			subBounds := gfx.RectFromXYWH(d.cachedHeaderBounds.Min.X, d.cachedHeaderBounds.Max.Y+float32(d.cachedItemGap)*0.5, d.cachedHeaderBounds.Width(), subtitleH)
+			cmds = appendProjectedTextFacet(cmds, d.cachedSubtitleFacet, runtimeServicesOrNil(runtime), subBounds, 1)
+		}
 	}
 	for si := range d.Sections {
-		if si < len(d.cachedSectionBounds) && !d.cachedSectionBounds[si].IsEmpty() && d.cachedSectionLayouts != nil && si < len(d.cachedSectionLayouts) && d.cachedSectionLayouts[si] != nil {
-			cmds = append(cmds, textCommandsForLayout(d.cachedSectionLayouts[si], d.cachedSectionBounds[si], section)...)
+		if si < len(d.cachedSectionBounds) && !d.cachedSectionBounds[si].IsEmpty() && si < len(d.cachedSectionFacets) {
+			cmds = appendProjectedTextFacet(cmds, d.cachedSectionFacets[si], runtimeServicesOrNil(runtime), d.cachedSectionBounds[si], 1)
 		}
 	}
 	for i := range d.cachedFlatItems {
@@ -731,8 +784,8 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		if len(d.cachedIconAssets) > i && len(d.cachedIconAssets[i].Path.Segments) > 0 && len(d.cachedIconBounds) > i && !d.cachedIconBounds[i].IsEmpty() {
 			cmds = append(cmds, d.iconCommands(d.cachedIconAssets[i], d.cachedIconBounds[i], items)...)
 		}
-		if label := d.cachedItemLabelLayouts[i]; label != nil && len(d.cachedItemLabelBounds) > i && !isTransparentMaterial(items) {
-			cmds = append(cmds, textCommandsForLayout(label, d.cachedItemLabelBounds[i], items)...)
+		if i < len(d.cachedItemLabelFacets) && !isTransparentMaterial(items) && !d.cachedItemBounds[i].IsEmpty() {
+			cmds = appendProjectedTextFacet(cmds, d.cachedItemLabelFacets[i], runtimeServicesOrNil(runtime), d.cachedItemLabelFacets[i].Base().LayoutRole().ArrangedBounds, 1)
 		}
 	}
 	if d.focusedVisible && !isTransparentMaterial(focus) {

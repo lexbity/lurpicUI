@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -426,8 +427,8 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			if b.cachedSeparatorLayout != nil && vi < len(visualIndices)-1 {
 				sepW := text.Width(b.cachedSeparatorLayout)
 				curX -= sepW
-				sepY := text.CenterY(gfx.RectFromXYWH(listBounds.Min.X, listBounds.Min.Y, listBounds.Width(), stripH), text.Height(b.cachedSeparatorLayout))
-				b.cachedSeparatorBounds[separatorIndex] = gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, sepY-b.cachedSeparatorLayout.Bounds.Min.Y, sepW, stripH)
+				sepRect := text.AlignRectY(gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, listBounds.Min.Y, sepW, text.Height(b.cachedSeparatorLayout)), listBounds.Min.Y, stripH)
+				b.cachedSeparatorBounds[separatorIndex] = sepRect
 				curX -= b.cachedGap
 				separatorIndex++
 			}
@@ -437,8 +438,8 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			if b.cachedSeparatorLayout != nil && vi < len(visualIndices)-1 {
 				curX += b.cachedGap
 				sepW := text.Width(b.cachedSeparatorLayout)
-				sepY := text.CenterY(gfx.RectFromXYWH(listBounds.Min.X, listBounds.Min.Y, listBounds.Width(), stripH), text.Height(b.cachedSeparatorLayout))
-				b.cachedSeparatorBounds[separatorIndex] = gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, sepY-b.cachedSeparatorLayout.Bounds.Min.Y, sepW, stripH)
+				sepRect := text.AlignRectY(gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, listBounds.Min.Y, sepW, text.Height(b.cachedSeparatorLayout)), listBounds.Min.Y, stripH)
+				b.cachedSeparatorBounds[separatorIndex] = sepRect
 				curX += sepW + b.cachedGap
 				separatorIndex++
 			}
@@ -446,8 +447,7 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		b.cachedItemBounds[index] = itemRect
 		if labelLayout != nil {
 			labelX := itemRect.Min.X + maxFloat(0, (itemRect.Width()-labelW)*0.5)
-			labelY := text.CenterY(itemRect, labelH)
-			b.cachedLabelBounds[index] = gfx.RectFromXYWH(labelX-labelLayout.Bounds.Min.X, labelY-labelLayout.Bounds.Min.Y, labelW, labelH)
+			b.cachedLabelBounds[index] = text.AlignRectY(gfx.RectFromXYWH(labelX-labelLayout.Bounds.Min.X, itemRect.Min.Y, labelW, labelH), itemRect.Min.Y, itemRect.Height())
 		}
 	}
 	if len(b.cachedLabelLayouts) > 0 {
@@ -536,14 +536,14 @@ func (b *Breadcrumbs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 			}
 		}
 		if label := b.cachedLabelLayouts[i]; label != nil && !isTransparentMaterial(material) {
-			cmds = append(cmds, textCommandsForLayout(label, b.cachedLabelBounds[i], material)...)
+			cmds = append(cmds, primitive.TextLayoutCommands(label, b.cachedLabelBounds[i], gfx.SolidBrush(materialColor(material)))...)
 		}
 	}
 	for i := range b.cachedSeparatorBounds {
 		if b.cachedSeparatorLayout == nil || b.cachedSeparatorBounds[i].IsEmpty() || isTransparentMaterial(separator) {
 			continue
 		}
-		cmds = append(cmds, textCommandsForLayout(b.cachedSeparatorLayout, b.cachedSeparatorBounds[i], separator)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedSeparatorLayout, b.cachedSeparatorBounds[i], gfx.SolidBrush(materialColor(separator)))...)
 	}
 	if b.focusedVisible && !isTransparentMaterial(focus) && b.focusedIndex >= 0 && b.focusedIndex < len(b.cachedItemBounds) {
 		active := b.cachedItemBounds[b.focusedIndex]
@@ -954,23 +954,6 @@ func resolvedHeightFallback(labels []*text.TextLayout, sep *text.TextLayout) flo
 		h = 20
 	}
 	return h
-}
-
-func textCommandsForLayout(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
-		}
-	}
-	return cmds
 }
 
 type breadcrumbsGroupPolicy struct{}

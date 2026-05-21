@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -484,16 +485,17 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 		if shaper != nil && label != "" {
 			layouts[i].labelLayout = shaper.ShapeTruncated(label, itemStyle, maxWidth)
 		}
-		leadW := float32(0)
-		if strings.TrimSpace(item.IconRef) != "" {
-			leadW = s.cachedMenuIconSize + s.cachedGap
-		}
-		labelW := text.Width(layouts[i].labelLayout)
-		layouts[i].width = maxFloat(resolved.Density.Scale(192), s.cachedPadX*2+leadW+labelW)
-		layouts[i].height = maxFloat(resolved.Density.Scale(30), text.Height(layouts[i].labelLayout))
-		if layouts[i].height < s.cachedMenuIconSize+s.cachedPadY {
-			layouts[i].height = s.cachedMenuIconSize + s.cachedPadY
-		}
+	sizes := []gfx.Size{}
+	if strings.TrimSpace(item.IconRef) != "" {
+		sizes = append(sizes, gfx.Size{W: s.cachedMenuIconSize, H: s.cachedMenuIconSize})
+	}
+	sizes = append(sizes, gfx.Size{W: text.Width(layouts[i].labelLayout), H: text.Height(layouts[i].labelLayout)})
+	content := layout.InlineFlowSize(sizes, s.cachedGap)
+	layouts[i].width = maxFloat(resolved.Density.Scale(192), s.cachedPadX*2+content.W)
+	layouts[i].height = maxFloat(resolved.Density.Scale(30), content.H)
+	if layouts[i].height < s.cachedMenuIconSize+s.cachedPadY {
+		layouts[i].height = s.cachedMenuIconSize + s.cachedPadY
+	}
 		if layouts[i].width > maxItemW {
 			maxItemW = layouts[i].width
 		}
@@ -504,17 +506,14 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	}
 	s.cachedItemLayouts = layouts
 
-	primaryW := s.cachedPadX * 2
+	primarySizes := []gfx.Size{}
 	if strings.TrimSpace(s.PrimaryIconRef) != "" {
-		primaryW += s.cachedPrimaryIconSize + s.cachedGap
+		primarySizes = append(primarySizes, gfx.Size{W: s.cachedPrimaryIconSize, H: s.cachedPrimaryIconSize})
 	}
-	primaryW += text.Width(primaryLayout)
-	if text.Width(primaryLayout) > 0 {
-		primaryW += s.cachedGap
-	}
-	primaryW = maxFloat(primaryW, resolved.Density.Scale(96))
-	primaryH := maxFloat(s.cachedControlHeight, maxFloat(text.Height(primaryLayout), s.cachedPrimaryIconSize))
-	primaryH += s.cachedPadY * 2
+	primarySizes = append(primarySizes, gfx.Size{W: text.Width(primaryLayout), H: text.Height(primaryLayout)})
+	primaryContent := layout.InlineFlowSize(primarySizes, s.cachedGap)
+	primaryW := maxFloat(resolved.Density.Scale(96), s.cachedPadX*2+primaryContent.W)
+	primaryH := maxFloat(s.cachedControlHeight, primaryContent.H) + s.cachedPadY*2
 	s.cachedControlHeight = primaryH
 	triggerW := maxFloat(resolved.Density.Scale(44), s.cachedChevronSize+s.cachedPadX*2)
 	triggerH := primaryH
@@ -603,36 +602,20 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 	}
 	s.cachedPrimaryBounds = primaryBounds
 	s.cachedTriggerBounds = triggerBounds
+	primaryIconPresent := strings.TrimSpace(s.PrimaryIconRef) != ""
+	primarySizes := []gfx.Size{}
+	if primaryIconPresent {
+		primarySizes = append(primarySizes, gfx.Size{W: s.cachedPrimaryIconSize, H: s.cachedPrimaryIconSize})
+	}
 	if s.cachedPrimaryLayout != nil {
-		textH := text.Height(s.cachedPrimaryLayout)
-		contentY := text.CenterY(primaryBounds, textH)
-		iconY := text.CenterY(primaryBounds, s.cachedPrimaryIconSize)
-		if rtl {
-			x := primaryBounds.Max.X - s.cachedPadX
-			labelW := s.cachedPrimaryLayout.Bounds.Width()
-			x -= labelW
-			s.cachedPrimaryLabel = gfx.RectFromXYWH(x, contentY, labelW, textH)
-			x -= s.cachedGap
-			if strings.TrimSpace(s.PrimaryIconRef) != "" {
-				x -= s.cachedPrimaryIconSize
-				s.cachedPrimaryIcon = gfx.RectFromXYWH(x, iconY, s.cachedPrimaryIconSize, s.cachedPrimaryIconSize)
-			}
-		} else {
-			x := primaryBounds.Min.X + s.cachedPadX
-			if strings.TrimSpace(s.PrimaryIconRef) != "" {
-				s.cachedPrimaryIcon = gfx.RectFromXYWH(x, iconY, s.cachedPrimaryIconSize, s.cachedPrimaryIconSize)
-				x += s.cachedPrimaryIconSize + s.cachedGap
-			}
-			labelW := s.cachedPrimaryLayout.Bounds.Width()
-			s.cachedPrimaryLabel = gfx.RectFromXYWH(x, contentY, labelW, textH)
-		}
-	} else if strings.TrimSpace(s.PrimaryIconRef) != "" {
-		iconY := text.CenterY(primaryBounds, s.cachedPrimaryIconSize)
-		if rtl {
-			s.cachedPrimaryIcon = gfx.RectFromXYWH(primaryBounds.Max.X-s.cachedPadX-s.cachedPrimaryIconSize, iconY, s.cachedPrimaryIconSize, s.cachedPrimaryIconSize)
-		} else {
-			s.cachedPrimaryIcon = gfx.RectFromXYWH(primaryBounds.Min.X+s.cachedPadX, iconY, s.cachedPrimaryIconSize, s.cachedPrimaryIconSize)
-		}
+		primarySizes = append(primarySizes, gfx.Size{W: text.Width(s.cachedPrimaryLayout), H: text.Height(s.cachedPrimaryLayout)})
+	}
+	primaryRects := layout.ArrangeInlineFlow(primaryBounds, s.cachedPadX, s.cachedGap, primarySizes, rtl)
+	if primaryIconPresent && len(primaryRects) > 0 {
+		s.cachedPrimaryIcon = primaryRects[0]
+	}
+	if len(primaryRects) > 0 {
+		s.cachedPrimaryLabel = primaryRects[len(primaryRects)-1]
 	}
 	chevronX := triggerBounds.Min.X + maxFloat(0, (triggerBounds.Width()-s.cachedChevronSize)*0.5)
 	if rtl {
@@ -659,24 +642,16 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 		for i := range s.cachedItemLayouts {
 			entry := &s.cachedItemLayouts[i]
 			entry.bounds = gfx.RectFromXYWH(s.cachedMenuBounds.Min.X, rowY, s.cachedMenuBounds.Width(), entry.height)
-			labelH := text.Height(entry.labelLayout)
-			labelW := text.Width(entry.labelLayout)
-			leadX := entry.bounds.Min.X + s.cachedPadX
-			if rtl {
-				leadX = entry.bounds.Max.X - s.cachedPadX
-				if entry.item.IconRef != "" {
-					leadX -= s.cachedMenuIconSize
-					entry.iconBounds = text.CenterRect(gfx.RectFromXYWH(leadX, rowY, s.cachedMenuIconSize, entry.height), s.cachedMenuIconSize, s.cachedMenuIconSize)
-					leadX -= s.cachedGap
-				}
-				entry.labelBounds = gfx.RectFromXYWH(leadX-labelW, text.CenterY(gfx.RectFromXYWH(s.cachedMenuBounds.Min.X, rowY, s.cachedMenuBounds.Width(), entry.height), labelH), labelW, labelH)
-			} else {
-				if entry.item.IconRef != "" {
-					entry.iconBounds = text.CenterRect(gfx.RectFromXYWH(leadX, rowY, s.cachedMenuIconSize, entry.height), s.cachedMenuIconSize, s.cachedMenuIconSize)
-					leadX += s.cachedMenuIconSize + s.cachedGap
-				}
-				entry.labelBounds = gfx.RectFromXYWH(leadX, text.CenterY(gfx.RectFromXYWH(s.cachedMenuBounds.Min.X, rowY, s.cachedMenuBounds.Width(), entry.height), labelH), labelW, labelH)
+			sizes := []gfx.Size{}
+			if entry.item.IconRef != "" {
+				sizes = append(sizes, gfx.Size{W: s.cachedMenuIconSize, H: s.cachedMenuIconSize})
 			}
+			sizes = append(sizes, gfx.Size{W: text.Width(entry.labelLayout), H: text.Height(entry.labelLayout)})
+			rects := layout.ArrangeInlineFlow(entry.bounds, s.cachedPadX, s.cachedGap, sizes, rtl)
+			if entry.item.IconRef != "" {
+				entry.iconBounds = rects[0]
+			}
+			entry.labelBounds = rects[len(rects)-1]
 			rowY += entry.height + s.cachedRowGap
 		}
 	}
@@ -715,7 +690,7 @@ func (s *SplitButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 		cmds = append(cmds, materialCommands(splitButtonRightSegmentPath(s.cachedTriggerBounds, s.cachedRadius), trigger)...)
 	}
 	if !isTransparentMaterial(primaryLabel) {
-		cmds = append(cmds, labelCommands(s.cachedPrimaryLayout, s.cachedPrimaryLabel, primaryLabel)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(s.cachedPrimaryLayout, s.cachedPrimaryLabel, gfx.SolidBrush(materialColor(primaryLabel)))...)
 	}
 	if !isTransparentMaterial(primaryLabel) && strings.TrimSpace(s.PrimaryIconRef) != "" && !s.cachedPrimaryIcon.IsEmpty() {
 		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), s.PrimaryIconRef, s.cachedPrimaryIcon, primaryLabel); len(iconCmds) > 0 {
@@ -761,7 +736,7 @@ func (s *SplitButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 				}
 			}
 			if entry.labelLayout != nil && !isTransparentMaterial(menuItems) {
-				cmds = append(cmds, labelCommands(entry.labelLayout, entry.labelBounds, menuItems)...)
+				cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(materialColor(menuItems)))...)
 			}
 		}
 	}

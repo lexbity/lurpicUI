@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -427,7 +428,7 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if supportingH > 0 {
 		contentH += li.cachedGap
 	}
-	textY := text.CenterY(inner, contentH)
+	textY := text.AlignRectY(gfx.RectFromXYWH(inner.Min.X, inner.Min.Y, inner.Width(), contentH), inner.Min.Y, inner.Height()).Min.Y
 	textX := inner.Min.X
 	labelW := float32(0)
 	if li.ShowLabel {
@@ -440,6 +441,7 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if li.ShowLeadingIcon && li.LeadingIconRef != "" {
 		leadingReserve = leadingSize + li.cachedGap
 	}
+	textWidth := maxFloat(0, inner.Width()-leadingReserve)
 	if li.cachedWritingDirection == facet.WritingDirectionRTL {
 		textX = inner.Max.X - labelW
 		if li.ShowLeadingIcon && li.LeadingIconRef != "" {
@@ -448,33 +450,37 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	} else if li.ShowLeadingIcon && li.LeadingIconRef != "" {
 		textX = inner.Min.X + leadingReserve
 	}
+	textRects := layout.ArrangeVerticalFlow(
+		gfx.RectFromXYWH(textX, textY, textWidth, contentH),
+		0,
+		li.cachedGap,
+		[]gfx.Size{
+			{W: textWidth, H: labelH},
+			{W: textWidth, H: supportingH},
+		},
+		li.cachedWritingDirection == facet.WritingDirectionRTL,
+	)
+	li.cachedLabelBounds = gfx.Rect{}
+	li.cachedSupportingBounds = gfx.Rect{}
 	if li.ShowLabel && li.cachedLabelLayout != nil {
-		li.cachedLabelBounds = gfx.RectFromXYWH(textX, textY+maxFloat(0, (contentH-labelH)*0.5), labelW, labelH)
+		li.cachedLabelBounds = textRects[0]
 	}
 	if supportingH > 0 {
-		supportY := textY + maxFloat(0, (contentH-supportingH)*0.5)
-		if li.ShowLabel && li.cachedLabelLayout != nil {
-			supportY = li.cachedLabelBounds.Max.Y + li.cachedGap
-		}
-		supportW := text.Width(li.cachedSupportingLayout)
-		if supportW <= 0 {
-			supportW = labelW
-		}
-		li.cachedSupportingBounds = gfx.RectFromXYWH(textX, supportY, supportW, supportingH)
+		li.cachedSupportingBounds = textRects[1]
 	}
 	if li.ShowSelectionIndicator {
-		indicatorY := text.CenterY(bounds, indicatorSize)
+		indicatorBounds := text.AlignRectY(gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, indicatorSize, indicatorSize), bounds.Min.Y, bounds.Height())
 		if li.cachedWritingDirection == facet.WritingDirectionRTL {
-			li.cachedSelectionBounds = gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, indicatorY, indicatorSize, indicatorSize)
+			li.cachedSelectionBounds = gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, indicatorBounds.Min.Y, indicatorSize, indicatorSize)
 		} else {
-			li.cachedSelectionBounds = gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-indicatorSize, indicatorY, indicatorSize, indicatorSize)
+			li.cachedSelectionBounds = gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-indicatorSize, indicatorBounds.Min.Y, indicatorSize, indicatorSize)
 		}
 	}
 	if li.ShowLeadingIcon && li.LeadingIconRef != "" {
 		if li.cachedWritingDirection == facet.WritingDirectionRTL {
-			li.cachedLeadingBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-leadingSize, bounds.Min.Y, leadingSize, bounds.Height()), leadingSize, leadingSize)
+			li.cachedLeadingBounds = text.AlignRectY(gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-leadingSize, bounds.Min.Y, leadingSize, leadingSize), bounds.Min.Y, bounds.Height())
 		} else {
-			li.cachedLeadingBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, bounds.Min.Y, leadingSize, bounds.Height()), leadingSize, leadingSize)
+			li.cachedLeadingBounds = text.AlignRectY(gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, bounds.Min.Y, leadingSize, leadingSize), bounds.Min.Y, bounds.Height())
 		}
 	}
 	li.cachedItemBounds = inner
@@ -526,10 +532,10 @@ func (li *ListItem) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, li.cachedRadius), container)...)
 	}
 	if li.ShowLabel && !isTransparentMaterial(label) && li.cachedLabelLayout != nil {
-		cmds = append(cmds, li.textCommands(li.cachedLabelLayout, li.cachedLabelBounds, label)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedLabelLayout, li.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	if !isTransparentMaterial(supporting) && li.cachedSupportingLayout != nil {
-		cmds = append(cmds, li.textCommands(li.cachedSupportingLayout, li.cachedSupportingBounds, supporting)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedSupportingLayout, li.cachedSupportingBounds, gfx.SolidBrush(materialColor(supporting)))...)
 	}
 	if li.ShowSelectionIndicator && li.Selected && !isTransparentMaterial(indicator) && !li.cachedSelectionBounds.IsEmpty() {
 		r := maxFloat(3, li.cachedSelectionBounds.Width()*0.5)
@@ -544,23 +550,6 @@ func (li *ListItem) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if li.LeadingIconRef != "" {
 		if iconCmds := li.leadingIconCommands(runtime, slots.LeadingIcon.Resolve(state, tokens)); len(iconCmds) > 0 {
 			cmds = append(cmds, iconCmds...)
-		}
-	}
-	return cmds
-}
-
-func (li *ListItem) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds

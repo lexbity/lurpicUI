@@ -35,7 +35,7 @@ func TestMaxWidthAndHeightIgnoreNilLayouts(t *testing.T) {
 	}
 }
 
-func TestCenterHelpersWorkWithGfxRects(t *testing.T) {
+func TestCenterHelpersWorkWithTestRects(t *testing.T) {
 	bounds := testRect{Min: testPoint{X: 10, Y: 20}, Max: testPoint{X: 90, Y: 60}}
 	if got := CenterY(bounds, 10); got != 35 {
 		t.Fatalf("CenterY = %v, want 35", got)
@@ -52,5 +52,22 @@ func TestCenterHelpersWorkWithGfxRects(t *testing.T) {
 	aligned := AlignRectY(testRect{Min: testPoint{X: 2, Y: 4}, Max: testPoint{X: 12, Y: 10}}, 20, 30)
 	if aligned.Min.Y != 32 || aligned.Max.Y != 38 {
 		t.Fatalf("AlignRectY = %#v, want vertical span 32..38", aligned)
+	}
+}
+
+func TestCenterHelpersClampOversizeContent(t *testing.T) {
+	bounds := testRect{Min: testPoint{X: 5, Y: 8}, Max: testPoint{X: 25, Y: 18}}
+	if got := CenterY(bounds, 20); got != 8 {
+		t.Fatalf("CenterY oversize = %v, want 8", got)
+	}
+
+	centered := CenterRect(bounds, 30, 12)
+	if centered.Min.X != 5 || centered.Min.Y != 8 {
+		t.Fatalf("CenterRect oversize = %#v, want unchanged origin", centered)
+	}
+
+	aligned := AlignRectY(testRect{Min: testPoint{X: 7, Y: 9}, Max: testPoint{X: 17, Y: 15}}, 8, 4)
+	if aligned.Min.Y != 8 || aligned.Max.Y != 14 {
+		t.Fatalf("AlignRectY oversize = %#v, want clamped to top edge", aligned)
 	}
 }

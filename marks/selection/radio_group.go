@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -448,16 +449,26 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		rg.focusedIndex = selected
 	}
 	groupLabelH := text.Height(rg.cachedGroupLabel)
-	itemsTop := bounds.Min.Y
-	if groupLabelH > 0 {
-		rg.cachedGroupLabelRect = gfx.RectFromXYWH(bounds.Min.X, itemsTop, bounds.Width(), groupLabelH)
-		itemsTop += groupLabelH + rg.cachedGroupGap
-	}
 	rowHeight := maxFloat(rg.cachedControlSize, resolvedItemRowHeight(rg))
 	items := make([]gfx.Rect, 0, len(rg.Options))
 	controls := make([]gfx.Rect, 0, len(rg.Options))
 	labels := make([]gfx.Rect, 0, len(rg.Options))
 	focusRects := make([]gfx.Rect, 0, len(rg.Options))
+	totalItemHeight := float32(0)
+	for i := range rg.Options {
+		totalItemHeight += rowHeight
+		if i+1 < len(rg.Options) {
+			totalItemHeight += rg.cachedItemGap
+		}
+	}
+	stack := layout.ArrangeVerticalFlow(bounds, 0, rg.cachedGroupGap, []gfx.Size{
+		{W: bounds.Width(), H: groupLabelH},
+		{W: bounds.Width(), H: totalItemHeight},
+	}, rg.cachedWritingDirection == facet.WritingDirectionRTL)
+	if rg.cachedGroupLabel != nil {
+		rg.cachedGroupLabelRect = stack[0]
+	}
+	itemsTop := stack[1].Min.Y
 	for i, opt := range rg.Options {
 		labelLayout := rg.cachedItemLayouts[i]
 		labelW := float32(0)
@@ -539,7 +550,7 @@ func (rg *RadioGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 		cmds = append(cmds, materialCommands(gfx.RectPath(rg.cachedItemsRect), radioItems)...)
 	}
 	if rg.cachedGroupLabel != nil {
-		cmds = append(cmds, rg.textCommands(rg.cachedGroupLabel, rg.cachedGroupLabelRect, groupLabel)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(rg.cachedGroupLabel, rg.cachedGroupLabelRect, gfx.SolidBrush(materialColor(groupLabel)))...)
 	}
 	for i := range rg.Options {
 		state := rg.optionState(i)
@@ -553,29 +564,12 @@ func (rg *RadioGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 			cmds = append(cmds, materialCommands(gfx.CirclePath(rectCenterPoint(rg.cachedItemControls[i]), dotRadius), theme.FromToken(tokens.Color.OnPrimary))...)
 		}
 		if i < len(rg.cachedItemLayouts) && rg.cachedItemLayouts[i] != nil {
-			cmds = append(cmds, rg.textCommands(rg.cachedItemLayouts[i], rg.cachedItemLabels[i], labelMaterial)...)
+			cmds = append(cmds, primitive.TextLayoutCommands(rg.cachedItemLayouts[i], rg.cachedItemLabels[i], gfx.SolidBrush(materialColor(labelMaterial)))...)
 		}
 		if rg.focusedVisible && i == rg.focusedIndex && !isTransparentMaterial(focus) {
 			inset := maxFloat(1, rg.cachedItemGap*0.5)
 			ringBounds := rg.cachedItemFocusRing[i].Inset(-inset, -inset)
 			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, rg.cachedControlSize*0.5+inset), focus)...)
-		}
-	}
-	return cmds
-}
-
-func (rg *RadioGroup) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds

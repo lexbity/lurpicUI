@@ -2,6 +2,7 @@ package structure
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"unsafe"
 
@@ -15,6 +16,54 @@ import (
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
+
+func TestListGeometryContracts(t *testing.T) {
+	list := NewList("Geometry list", []ListEntry{
+		{Key: "one", Label: "One"},
+		{Key: "two", Label: "Two", SupportingText: strings.Join([]string{"Line one", "Line two"}, "\n")},
+	})
+	list.SetSectionHeader("Heading")
+	rt := listRuntimeStub{
+		cardRuntimeStub: cardRuntimeStub{fonts: mustCardFontRegistry(t)},
+		icons:           map[string]runtimepkg.IconAsset{},
+	}
+	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+
+	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
+	result := list.layoutRole.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            ctx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 220}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+	bounds := gfx.RectFromXYWH(12, 12, 320, 180)
+	list.layoutRole.Arrange(facet.ArrangeContext{
+		Runtime:     rt,
+		Theme:       ctx,
+		ParentGroup: list.layoutRole.Parent,
+		ChildGroup:  list.layoutRole.Child,
+	}, bounds)
+
+	headerBounds := list.cachedHeaderBounds
+	rowOneBounds := list.cachedRowBounds["one"]
+	rowTwoBounds := list.cachedRowBounds["two"]
+	if headerBounds.IsEmpty() || rowOneBounds.IsEmpty() || rowTwoBounds.IsEmpty() {
+		t.Fatalf("expected arranged row bounds, got header=%#v row1=%#v row2=%#v", headerBounds, rowOneBounds, rowTwoBounds)
+	}
+	if rowOneBounds.Min.Y <= headerBounds.Max.Y {
+		t.Fatalf("expected row spacing below header, got header=%#v row1=%#v", headerBounds, rowOneBounds)
+	}
+	if rowTwoBounds.Min.Y <= rowOneBounds.Max.Y {
+		t.Fatalf("expected row spacing between items, got row1=%#v row2=%#v", rowOneBounds, rowTwoBounds)
+	}
+	if rowTwoBounds.Height() <= rowOneBounds.Height() {
+		t.Fatalf("expected multiline supporting text to expand row height, got row1=%#v row2=%#v", rowOneBounds, rowTwoBounds)
+	}
+}
 
 type listRuntimeStub struct {
 	cardRuntimeStub

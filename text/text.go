@@ -193,6 +193,11 @@ type PositionedGlyph struct {
 }
 
 // ShapedLine is one wrapped line within a layout.
+//
+// Bounds is the line box in layout-local coordinates. It includes the authored
+// line height and any alignment shift; it is not a glyph-ink bounds estimate.
+// Baseline is the line-local vertical offset from Bounds.Min.Y to the text
+// baseline derived from the shaped line metrics.
 type ShapedLine struct {
 	Runs       []GlyphRun
 	Bounds     Rect
@@ -207,6 +212,10 @@ type ShapedLine struct {
 }
 
 // TextLayout is the shaped and wrapped result of a paragraph.
+//
+// Bounds is the content box for the whole shaped paragraph in layout-local
+// coordinates. Individual ShapedLine values retain their own line boxes and
+// baselines inside that content box.
 type TextLayout struct {
 	Lines      []ShapedLine
 	Bounds     Rect

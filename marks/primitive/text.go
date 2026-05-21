@@ -342,32 +342,7 @@ func (t *Text) fontRegistry(runtime any) *text.FontRegistry {
 }
 
 func (t *Text) cachedLayoutCommands() []gfx.Command {
-	if t == nil || t.cachedLayout == nil {
-		return nil
-	}
-	cmds := make([]gfx.Command, 0, len(t.cachedLayout.Lines))
-	color := t.cachedBrush.Color
-	if len(t.cachedLayout.Lines) == 0 {
-		return nil
-	}
-	for _, line := range t.cachedLayout.Lines {
-		lineOrigin := gfx.Point{
-			X: t.layoutRole.ArrangedBounds.Min.X + line.Bounds.Min.X,
-			Y: t.layoutRole.ArrangedBounds.Min.Y + line.Bounds.Min.Y + line.Baseline,
-		}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{
-				X: lineOrigin.X + run.Bounds.Min.X,
-				Y: lineOrigin.Y + run.Bounds.Min.Y,
-			}
-			cmds = append(cmds, gfx.DrawGlyphRun{
-				Run:    run,
-				Origin: runOrigin,
-				Brush:  gfx.SolidBrush(color),
-			})
-		}
-	}
-	return cmds
+	return TextLayoutCommands(t.cachedLayout, t.layoutRole.ArrangedBounds, t.cachedBrush)
 }
 
 func (t *Text) project(ctx facet.ProjectionContext) *gfx.CommandList {
@@ -383,6 +358,39 @@ func (t *Text) project(ctx facet.ProjectionContext) *gfx.CommandList {
 	list := &gfx.CommandList{Commands: cmds}
 	t.cachedLayout = t.textRole.Layout
 	return list
+}
+
+// TextLayoutCommands converts a shaped text layout into draw commands positioned within bounds.
+//
+// Each draw origin is resolved from the arranged content box plus the shaped
+// line box and baseline. The projection path does not recompute its own text
+// metrics or baseline placement.
+func TextLayoutCommands(layout *text.TextLayout, bounds gfx.Rect, brush gfx.Brush) []gfx.Command {
+	if layout == nil || bounds.IsEmpty() || brush.Color.A == 0 {
+		return nil
+	}
+	if len(layout.Lines) == 0 {
+		return nil
+	}
+	cmds := make([]gfx.Command, 0, len(layout.Lines))
+	for _, line := range layout.Lines {
+		lineOrigin := gfx.Point{
+			X: bounds.Min.X + layout.Bounds.Min.X + line.Bounds.Min.X,
+			Y: bounds.Min.Y + layout.Bounds.Min.Y + line.Bounds.Min.Y + line.Baseline,
+		}
+		for _, run := range line.Runs {
+			runOrigin := gfx.Point{
+				X: lineOrigin.X + run.Bounds.Min.X,
+				Y: lineOrigin.Y + run.Bounds.Min.Y,
+			}
+			cmds = append(cmds, gfx.DrawGlyphRun{
+				Run:    run,
+				Origin: runOrigin,
+				Brush:  brush,
+			})
+		}
+	}
+	return cmds
 }
 
 func (t *Text) resolveBrushColor(runtime any) gfx.Color {

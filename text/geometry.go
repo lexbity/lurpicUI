@@ -84,6 +84,8 @@ func AlignRectY[T interface {
 	return rectFromXYWH(r, minX, top+delta, r.Width(), r.Height())
 }
 
+// InlineFlowSize returns the occupied width and maximum height of a horizontal
+// flow of boxes separated by the supplied gap.
 func rectMinXY[T any](r T) (float32, float32, bool) {
 	rv := reflect.ValueOf(r)
 	if !rv.IsValid() {

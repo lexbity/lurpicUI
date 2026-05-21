@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -728,16 +729,13 @@ func (p *Pagination) paintText(bounds gfx.Rect, material theme.Material, label s
 	if bounds.IsEmpty() || paginationIsTransparentMaterial(material) || layout == nil {
 		return nil
 	}
-	brush := gfx.SolidBrush(paginationMaterialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + (bounds.Width()-layout.Bounds.Width())*0.5 + layout.Bounds.Min.X, Y: bounds.Min.Y + (bounds.Height()-layout.Bounds.Height())*0.5 + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
-		}
-	}
+	origin := gfx.RectFromXYWH(
+		bounds.Min.X+(bounds.Width()-layout.Bounds.Width())*0.5,
+		bounds.Min.Y+(bounds.Height()-layout.Bounds.Height())*0.5,
+		bounds.Width(),
+		bounds.Height(),
+	)
+	cmds := primitive.TextLayoutCommands(layout, origin, gfx.SolidBrush(paginationMaterialColor(material)))
 	if len(cmds) == 0 && label != "" {
 		// Fallback to a no-op layout when shaping is unavailable.
 		_ = label

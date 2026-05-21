@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -538,7 +539,7 @@ func (g *ActionGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 				}
 			}
 			if item.labelLayout != nil && !isTransparentMaterial(slots.ActionItems.Resolve(state, tokens)) {
-				cmds = append(cmds, labelCommands(item.labelLayout, item.labelBounds, slots.ActionItems.Resolve(state, tokens))...)
+				cmds = append(cmds, primitive.TextLayoutCommands(item.labelLayout, item.labelBounds, gfx.SolidBrush(materialColor(slots.ActionItems.Resolve(state, tokens))))...)
 			}
 		}
 		sepMat := slots.Separators.Resolve(theme.StateDefault, tokens)

@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -507,25 +508,25 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			contentH = iconRect.Height()
 		}
 		contentX := t.cachedTabBounds[i].Min.X + maxFloat(0, (t.cachedTabBounds[i].Width()-contentW)*0.5)
-		contentY := text.CenterY(t.cachedTabBounds[i], contentH)
+		contentRect := text.CenterRect(t.cachedTabBounds[i], contentW, contentH)
 		if t.cachedWritingDirection == facet.WritingDirectionRTL {
 			contentX = t.cachedTabBounds[i].Max.X - maxFloat(0, (t.cachedTabBounds[i].Width()-contentW)*0.5) - contentW
 		}
 		if !iconRect.IsEmpty() {
 			if t.cachedWritingDirection == facet.WritingDirectionRTL {
-				iconRect = text.CenterRect(gfx.RectFromXYWH(contentX+labelW+t.cachedTabGap, contentY, iconRect.Width(), contentH), iconRect.Width(), iconRect.Height())
+				iconRect = text.AlignRectY(gfx.RectFromXYWH(contentX+labelW+t.cachedTabGap, contentRect.Min.Y, iconRect.Width(), iconRect.Height()), contentRect.Min.Y, contentRect.Height())
 				if labelLayout != nil {
-					t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(contentX, text.CenterY(t.cachedTabBounds[i], labelH), labelW, labelH)
+					t.cachedTabLabelBounds[i] = text.AlignRectY(gfx.RectFromXYWH(contentX, contentRect.Min.Y, labelW, labelH), contentRect.Min.Y, contentRect.Height())
 				}
 			} else {
-				iconRect = text.CenterRect(gfx.RectFromXYWH(contentX, contentY, iconRect.Width(), contentH), iconRect.Width(), iconRect.Height())
+				iconRect = text.AlignRectY(gfx.RectFromXYWH(contentX, contentRect.Min.Y, iconRect.Width(), iconRect.Height()), contentRect.Min.Y, contentRect.Height())
 				if labelLayout != nil {
-					t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(iconRect.Max.X+t.cachedTabGap, text.CenterY(t.cachedTabBounds[i], labelH), labelW, labelH)
+					t.cachedTabLabelBounds[i] = text.AlignRectY(gfx.RectFromXYWH(iconRect.Max.X+t.cachedTabGap, contentRect.Min.Y, labelW, labelH), contentRect.Min.Y, contentRect.Height())
 				}
 			}
 			t.cachedIconBounds[i] = iconRect
 		} else if labelLayout != nil {
-			t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(contentX, text.CenterY(t.cachedTabBounds[i], labelH), labelW, labelH)
+			t.cachedTabLabelBounds[i] = text.AlignRectY(gfx.RectFromXYWH(contentX, contentRect.Min.Y, labelW, labelH), contentRect.Min.Y, contentRect.Height())
 		}
 	}
 	if len(t.cachedTabLabelLayouts) > 0 {
@@ -1022,20 +1023,7 @@ func (t *Tabs) fontRegistry(runtime any) *text.FontRegistry {
 }
 
 func (t *Tabs) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
-		}
-	}
-	return cmds
+	return primitive.TextLayoutCommands(layout, bounds, gfx.SolidBrush(materialColor(material)))
 }
 
 func (t *Tabs) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, material theme.Material) []gfx.Command {

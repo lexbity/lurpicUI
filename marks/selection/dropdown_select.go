@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -440,12 +441,14 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		resolved = theme.DefaultResolvedContext()
 	}
 	labelH := text.Height(ds.textRole.Layout)
-	y := bounds.Min.Y
-	if labelH > 0 {
-		ds.cachedLabelBounds = gfx.RectFromXYWH(bounds.Min.X, y, bounds.Width(), labelH)
-		y += labelH + float32(resolved.Spacing(theme.SpacingXS))
+	rects := layout.ArrangeVerticalFlow(bounds, 0, float32(resolved.Spacing(theme.SpacingXS)), []gfx.Size{
+		{W: bounds.Width(), H: labelH},
+		{W: bounds.Width(), H: ds.cachedTriggerHeight},
+	}, ds.cachedWritingDirection == facet.WritingDirectionRTL)
+	if ds.textRole.Layout != nil {
+		ds.cachedLabelBounds = rects[0]
 	}
-	ds.cachedTriggerBounds = gfx.RectFromXYWH(bounds.Min.X, y, bounds.Width(), ds.cachedTriggerHeight)
+	ds.cachedTriggerBounds = rects[1]
 	padding := maxFloat(12, ds.cachedTriggerBounds.Height()*0.28)
 	chevronSize := maxFloat(10, ds.cachedTriggerBounds.Height()*0.22)
 	textWidth := maxFloat(0, ds.cachedTriggerBounds.Width()-padding*3-chevronSize)
@@ -454,20 +457,16 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		valueLayout = nil
 	}
 	valueH := text.Height(valueLayout)
-	valueY := text.CenterY(ds.cachedTriggerBounds, valueH)
-	if valueY < ds.cachedTriggerBounds.Min.Y {
-		valueY = ds.cachedTriggerBounds.Min.Y + padding*0.5
-	}
 	valueX := ds.cachedTriggerBounds.Min.X + padding
 	if ds.cachedWritingDirection == facet.WritingDirectionRTL {
 		valueX = ds.cachedTriggerBounds.Max.X - padding - textWidth
 	}
-	ds.cachedValueBounds = gfx.RectFromXYWH(valueX, valueY, textWidth, maxFloat(valueH, 0))
+	ds.cachedValueBounds = text.AlignRectY(gfx.RectFromXYWH(valueX, ds.cachedTriggerBounds.Min.Y, textWidth, maxFloat(valueH, 0)), ds.cachedTriggerBounds.Min.Y, ds.cachedTriggerBounds.Height())
 	chevronX := ds.cachedTriggerBounds.Max.X - padding - chevronSize
 	if ds.cachedWritingDirection == facet.WritingDirectionRTL {
 		chevronX = ds.cachedTriggerBounds.Min.X + padding
 	}
-	ds.cachedChevronBounds = text.CenterRect(gfx.RectFromXYWH(chevronX, ds.cachedTriggerBounds.Min.Y, chevronSize, ds.cachedTriggerBounds.Height()), chevronSize, chevronSize)
+	ds.cachedChevronBounds = text.AlignRectY(gfx.RectFromXYWH(chevronX, ds.cachedTriggerBounds.Min.Y, chevronSize, chevronSize), ds.cachedTriggerBounds.Min.Y, ds.cachedTriggerBounds.Height())
 	if ds.open && len(ds.Options) > 0 {
 		ds.cachedListboxBounds = gfx.RectFromXYWH(bounds.Min.X, ds.cachedTriggerBounds.Max.Y+float32(resolved.Spacing(theme.SpacingXS)), bounds.Width(), ds.optionListHeight(resolved, ds.cachedTriggerBounds.Height()))
 		ds.cachedOptionRects = ds.layoutOptionRects(ds.cachedListboxBounds, resolved)
@@ -518,7 +517,7 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 	}
 	if !isTransparentMaterial(label) && !ds.cachedLabelBounds.IsEmpty() {
 		if ds.cachedLabelLayout != nil {
-			cmds = append(cmds, ds.textCommands(ds.cachedLabelLayout, ds.cachedLabelBounds, label)...)
+			cmds = append(cmds, primitive.TextLayoutCommands(ds.cachedLabelLayout, ds.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 		}
 	}
 	if !isTransparentMaterial(chevron) && !ds.cachedChevronBounds.IsEmpty() {
@@ -566,23 +565,6 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 		inset := maxFloat(1, ds.cachedTriggerBounds.Height()*0.08)
 		ringBounds := ds.cachedTriggerBounds.Inset(-inset, -inset)
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, ds.cachedTriggerRadius+inset), focus)...)
-	}
-	return cmds
-}
-
-func (ds *DropdownSelect) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
-		}
 	}
 	return cmds
 }

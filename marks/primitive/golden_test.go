@@ -33,6 +33,14 @@ func TestPrimitiveTextGoldenAlphabet(t *testing.T) {
 	renderAndAssertPrimitiveTextGolden(t, "primitive_text_alphabet", "AaBbCcDdEeFfGgHhIiJjLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz", 960, 1040, 160)
 }
 
+func TestPrimitiveTextGoldenAlphabetAnatomy(t *testing.T) {
+	renderAndAssertPrimitiveTextGoldenWithGuides(t, "primitive_text_alphabet_anatomy", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 960, 1040, 160)
+}
+
+func TestPrimitiveTextGoldenAnatomyTwo(t *testing.T) {
+	renderAndAssertPrimitiveTextGoldenWithGuides(t, "primitive_text_alphabet_anatomy_two", "AaBbCcDdEeFfGgHhIiJjLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz", 960, 1040, 160)
+}
+
 func TestPrimitiveTextGoldenChinese(t *testing.T) {
 	renderAndAssertPrimitiveTextGolden(t, "primitive_text_chinese", "你好，世界", 320, 320, 120)
 }

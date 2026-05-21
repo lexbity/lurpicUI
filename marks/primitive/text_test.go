@@ -145,6 +145,54 @@ func TestTextMark_wrap_and_truncate(t *testing.T) {
 	}
 }
 
+func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
+	mark := NewText("Centered")
+	mark.SetOverflow(TextOverflowWrap)
+	mark.SetAlignment(text.AlignCenter)
+	mark.SetMaxWidth(300)
+
+	rt := textRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		fonts:     mustTextRegistry(t),
+	}
+
+	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	result := mark.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 300, H: 120}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+
+	arranged := gfx.RectFromXYWH(17, 23, result.Size.W, result.Size.H)
+	mark.layoutRole.Arrange(facet.ArrangeContext{}, arranged)
+
+	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       arranged,
+		ContentScale: 1,
+	})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projection commands")
+	}
+	draw, ok := cmds.Commands[0].(gfx.DrawGlyphRun)
+	if !ok {
+		t.Fatalf("expected DrawGlyphRun, got %T", cmds.Commands[0])
+	}
+	if mark.cachedLayout == nil || len(mark.cachedLayout.Lines) == 0 || len(mark.cachedLayout.Lines[0].Runs) == 0 {
+		t.Fatalf("expected cached shaped layout, got %#v", mark.cachedLayout)
+	}
+	line := mark.cachedLayout.Lines[0]
+	run := line.Runs[0]
+	wantX := arranged.Min.X + mark.cachedLayout.Bounds.Min.X + line.Bounds.Min.X + run.Bounds.Min.X
+	wantY := arranged.Min.Y + mark.cachedLayout.Bounds.Min.Y + line.Bounds.Min.Y + line.Baseline + run.Bounds.Min.Y
+	if draw.Origin.X != wantX || draw.Origin.Y != wantY {
+		t.Fatalf("origin = %#v, want (%v,%v)", draw.Origin, wantX, wantY)
+	}
+}
+
 func mustTextRegistry(t *testing.T) *text.FontRegistry {
 	t.Helper()
 	reg, err := text.NewFontRegistry()

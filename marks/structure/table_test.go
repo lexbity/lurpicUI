@@ -1,6 +1,7 @@
 package structure
 
 import (
+	"strings"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -11,6 +12,118 @@ import (
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
+
+func TestTableGeometryContracts(t *testing.T) {
+	table := NewTable("Geometry table", TableData{
+		Columns: []TableColumn{
+			{Key: "id", Label: "ID", Align: facet.AlignEnd},
+			{Key: "name", Label: "Name"},
+			{Key: "status", Label: "Status", Align: facet.AlignCenter},
+		},
+		Rows: []TableRow{
+			{Key: "row-1", Cells: []string{"001", "Short title", "Open"}},
+			{Key: "row-2", Cells: []string{"002", strings.Join([]string{"Line one", "Line two"}, "\n"), "Closed"}, Selected: true},
+		},
+		SortColumnKey: "name",
+	})
+	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+
+	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
+	result := table.layoutRole.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            ctx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 180}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+	bounds := gfx.RectFromXYWH(16, 16, 320, 160)
+	table.layoutRole.Arrange(facet.ArrangeContext{
+		Runtime:     rt,
+		Theme:       ctx,
+		ParentGroup: table.layoutRole.Parent,
+		ChildGroup:  table.layoutRole.Child,
+	}, bounds)
+
+	headerNameBounds, ok := tableChildBounds(table, "header:name")
+	if !ok {
+		t.Fatal("missing header cell bounds for name")
+	}
+	bodyNameRow1Bounds, ok := tableChildBounds(table, "body:row-1:name")
+	if !ok {
+		t.Fatal("missing row-1 body cell bounds for name")
+	}
+	bodyNameRow2Bounds, ok := tableChildBounds(table, "body:row-2:name")
+	if !ok {
+		t.Fatal("missing row-2 body cell bounds for name")
+	}
+	sortBounds, ok := tableChildBounds(table, "sort:name")
+	if !ok {
+		t.Fatal("missing sort indicator bounds for name")
+	}
+	selectionHeaderBounds, ok := tableChildBounds(table, "selection:header")
+	if !ok {
+		t.Fatal("missing selection header bounds")
+	}
+	selectionRowBounds, ok := tableChildBounds(table, "selection:row-2")
+	if !ok {
+		t.Fatal("missing row-2 selection bounds")
+	}
+
+	if headerNameBounds.Min.X != bodyNameRow1Bounds.Min.X || headerNameBounds.Width() != bodyNameRow1Bounds.Width() {
+		t.Fatalf("expected header/body alignment to match, got header=%#v body=%#v", headerNameBounds, bodyNameRow1Bounds)
+	}
+	if bodyNameRow1Bounds.Min.X != bodyNameRow2Bounds.Min.X || bodyNameRow1Bounds.Width() != bodyNameRow2Bounds.Width() {
+		t.Fatalf("expected body cells to share alignment, got row1=%#v row2=%#v", bodyNameRow1Bounds, bodyNameRow2Bounds)
+	}
+	if sortBounds.Min.X < headerNameBounds.Min.X || sortBounds.Max.X > headerNameBounds.Max.X {
+		t.Fatalf("expected sort indicator inside header cell, got sort=%#v header=%#v", sortBounds, headerNameBounds)
+	}
+	if sortBounds.Min.X < headerNameBounds.Min.X+headerNameBounds.Width()*0.5 {
+		t.Fatalf("expected sort indicator to be end-aligned, got sort=%#v header=%#v", sortBounds, headerNameBounds)
+	}
+	selectionColumnBounds := table.cachedColumnBounds["__selection__"]
+	if selectionColumnBounds.IsEmpty() {
+		t.Fatal("missing selection column bounds")
+	}
+	selectionColumnCenter := (selectionColumnBounds.Min.X + selectionColumnBounds.Max.X) * 0.5
+	selectionHeaderCenter := (selectionHeaderBounds.Min.X + selectionHeaderBounds.Max.X) * 0.5
+	selectionRowCenter := (selectionRowBounds.Min.X + selectionRowBounds.Max.X) * 0.5
+	if selectionHeaderBounds.Min.X < selectionColumnBounds.Min.X || selectionHeaderBounds.Max.X > selectionColumnBounds.Max.X {
+		t.Fatalf("expected selection header inside selection column, got header=%#v column=%#v", selectionHeaderBounds, selectionColumnBounds)
+	}
+	if selectionRowBounds.Min.X < selectionColumnBounds.Min.X || selectionRowBounds.Max.X > selectionColumnBounds.Max.X {
+		t.Fatalf("expected selection row indicator inside selection column, got row=%#v column=%#v", selectionRowBounds, selectionColumnBounds)
+	}
+	if selectionHeaderCenter-selectionColumnCenter > 0.01 || selectionColumnCenter-selectionHeaderCenter > 0.01 || selectionRowCenter-selectionColumnCenter > 0.01 || selectionColumnCenter-selectionRowCenter > 0.01 {
+		t.Fatalf("expected selection cells to be centered in the selection column, got header=%#v row=%#v column=%#v", selectionHeaderBounds, selectionRowBounds, selectionColumnBounds)
+	}
+
+	headerRowBounds := table.cachedRowBounds["__header__"]
+	if headerRowBounds.IsEmpty() {
+		t.Fatalf("expected header row bounds, got %#v", headerRowBounds)
+	}
+	if bodyNameRow2Bounds.Height() <= bodyNameRow1Bounds.Height() {
+		t.Fatalf("expected multiline row to be taller, got row1=%#v row2=%#v", bodyNameRow1Bounds, bodyNameRow2Bounds)
+	}
+	if bodyNameRow1Bounds.Min.Y <= headerRowBounds.Max.Y {
+		t.Fatalf("expected row 1 below header with gap, got header=%#v row1=%#v", headerRowBounds, bodyNameRow1Bounds)
+	}
+	if bodyNameRow2Bounds.Min.Y <= headerRowBounds.Max.Y {
+		t.Fatalf("expected row 2 below header with gap, got header=%#v row2=%#v", headerRowBounds, bodyNameRow2Bounds)
+	}
+	upperRowBounds := bodyNameRow1Bounds
+	lowerRowBounds := bodyNameRow2Bounds
+	if bodyNameRow2Bounds.Min.Y < bodyNameRow1Bounds.Min.Y {
+		upperRowBounds, lowerRowBounds = bodyNameRow2Bounds, bodyNameRow1Bounds
+	}
+	if lowerRowBounds.Min.Y <= upperRowBounds.Max.Y {
+		t.Fatalf("expected row gap between sorted rows, got upper=%#v lower=%#v", upperRowBounds, lowerRowBounds)
+	}
+}
 
 func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	table := newTableFixture()
@@ -108,14 +221,14 @@ func TestTableGoldenRTL(t *testing.T) {
 
 func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Table)) {
 	t.Helper()
-	table := newTableFixture()
+	table := newTableGoldenFixture()
 	if mutate != nil {
 		mutate(table)
 	}
 	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
 	ctx := listResolvedContext(tokens, density, direction)
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
-	canvas := gfx.RectFromXYWH(16, 16, 240, 160)
+	canvas := gfx.RectFromXYWH(16, 16, 2136, 810)
 	_ = table.layoutRole.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
@@ -138,7 +251,7 @@ func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
-	surface := testkit.NewMemorySurface(272, 192)
+	surface := testkit.NewMemorySurface(2170, 842)
 	renderer := softwarerenderer.NewSoftwareRenderer()
 	if err := renderer.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
@@ -181,4 +294,44 @@ func newTableFixture() *Table {
 		SortColumnKey:  "name",
 		SortDescending: false,
 	})
+}
+
+func newTableGoldenFixture() *Table {
+	return NewTable("Load balancer table", TableData{
+		Columns: []TableColumn{
+			{Key: "name", Label: "Name"},
+			{Key: "rule", Label: "Rule"},
+			{Key: "status", Label: "Status"},
+			{Key: "other", Label: "Other"},
+			{Key: "example", Label: "Example"},
+		},
+		Rows: []TableRow{
+			{Key: "row-1", Cells: []string{"Load Balancer 1", "Round robin", "Starting", "Test", "22"}},
+			{Key: "row-2", Cells: []string{"Load Balancer 2", "DNS delegation", "Active", "Test", "22"}},
+			{Key: "row-3", Cells: []string{"Load Balancer 3", "Round robin", "Disabled", "Test", "22"}},
+			{Key: "row-4", Cells: []string{"Load Balancer 4", "Round robin", "Disabled", "Test", "22"}},
+			{Key: "row-5", Cells: []string{"Load Balancer 5", "Round robin", "Disabled", "Test", "22"}},
+			{Key: "row-6", Cells: []string{"Load Balancer 6", "Round robin", "Disabled", "Test", "22"}},
+			{Key: "row-7", Cells: []string{"Load Balancer 7", "Round robin", "Disabled", "Test", "22"}},
+		},
+	})
+}
+
+func tableChildBounds(table *Table, key string) (gfx.Rect, bool) {
+	if table == nil {
+		return gfx.Rect{}, false
+	}
+	for i := range table.cachedChildSpecs {
+		spec := table.cachedChildSpecs[i]
+		if spec.Key != key || spec.Facet == nil {
+			continue
+		}
+		base := spec.Facet.Base()
+		if base == nil {
+			return gfx.Rect{}, false
+		}
+		bounds, ok := table.cachedCellBounds[base.ID()]
+		return bounds, ok
+	}
+	return gfx.Rect{}, false
 }

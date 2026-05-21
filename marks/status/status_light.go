@@ -7,7 +7,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
-	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uistatus"
@@ -305,21 +304,14 @@ func (s *StatusLight) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			labelBounds = gfx.RectFromXYWH(0, 0, size.W, size.H)
 		}
 	}
-	indicatorY := text.CenterY(inner, s.cachedIndicatorSize)
-	var indicatorX float32
-	var labelX float32
-	if s.cachedWritingDirection == facet.WritingDirectionRTL && !labelBounds.IsEmpty() {
-		labelX = inner.Min.X
-		indicatorX = inner.Max.X - s.cachedIndicatorSize
-		s.cachedLabelBounds = text.CenterRect(gfx.RectFromXYWH(labelX, inner.Min.Y, labelBounds.Width(), inner.Height()), labelBounds.Width(), labelBounds.Height())
-	} else {
-		indicatorX = inner.Min.X
-		if !labelBounds.IsEmpty() {
-			labelX = indicatorX + s.cachedIndicatorSize + s.cachedGap
-			s.cachedLabelBounds = text.CenterRect(gfx.RectFromXYWH(labelX, inner.Min.Y, labelBounds.Width(), inner.Height()), labelBounds.Width(), labelBounds.Height())
-		}
+	rects := layout.ArrangeInlineFlow(inner, 0, s.cachedGap, []gfx.Size{
+		{W: s.cachedIndicatorSize, H: s.cachedIndicatorSize},
+		{W: labelBounds.Width(), H: labelBounds.Height()},
+	}, s.cachedWritingDirection == facet.WritingDirectionRTL)
+	s.cachedIndicatorBounds = rects[0]
+	if s.cachedLabelFacet != nil {
+		s.cachedLabelBounds = rects[1]
 	}
-	s.cachedIndicatorBounds = gfx.RectFromXYWH(indicatorX, indicatorY, s.cachedIndicatorSize, s.cachedIndicatorSize)
 	if s.cachedLabelFacet != nil {
 		s.cachedLabelFacet.Base().LayoutRole().ArrangedBounds = s.cachedLabelBounds
 	}

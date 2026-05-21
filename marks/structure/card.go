@@ -275,26 +275,16 @@ func (c *Card) Children() []facet.GroupChild {
 		if base == nil || base.LayoutRole() == nil {
 			continue
 		}
-		placement := spec.Grid
-		if placement == (facet.GridPlacement{}) {
-			placement = c.defaultGridPlacement(i, len(specs))
-		}
 		markID := spec.MarkID
 		if markID == 0 {
 			markID = cardMarkIDFirstChild + facet.MarkID(i)
 		}
 		out = append(out, facet.GroupChild{
-			FacetID: base.ID(),
-			MarkID:  markID,
-			Attachment: facet.Attachment{
-				Placement: facet.Placement{
-					Mode: facet.PlacementGrid,
-					Grid: placement,
-				},
-				ZPriority: spec.ZPriority,
-			},
-			Layout:   base.LayoutRole(),
-			Contract: base.LayoutRole().Child,
+			FacetID:    base.ID(),
+			MarkID:     markID,
+			Attachment: c.gridChildAttachment(spec, i, len(specs)),
+			Layout:     base.LayoutRole(),
+			Contract:   base.LayoutRole().Child,
 		})
 	}
 	return out
@@ -420,23 +410,8 @@ func (c *Card) measureChildren(ctx facet.MeasureContext, constraints facet.Const
 		if base == nil || base.LayoutRole() == nil {
 			continue
 		}
-		placement := spec.Grid
-		if placement == (facet.GridPlacement{}) {
-			placement = c.defaultGridPlacement(i, len(children))
-		}
 		base.LayoutRole().Measure(ctx, facet.Constraints{MaxSize: constraints.MaxSize})
-		out = append(out, layoutgrid.Child{
-			FacetID: base.ID(),
-			Attachment: facet.Attachment{
-				Placement: facet.Placement{
-					Mode: facet.PlacementGrid,
-					Grid: placement,
-				},
-				ZPriority: spec.ZPriority,
-			},
-			Layout:   base.LayoutRole(),
-			Contract: base.LayoutRole().Child,
-		})
+		out = append(out, c.gridLayoutChild(spec, i, len(children)))
 	}
 	return out
 }
@@ -517,24 +492,39 @@ func (c *Card) arrangeChildren(ctx facet.ArrangeContext, bounds gfx.Rect, childr
 		if base == nil || base.LayoutRole() == nil {
 			continue
 		}
-		placement := spec.Grid
-		if placement == (facet.GridPlacement{}) {
-			placement = c.defaultGridPlacement(i, len(children))
-		}
-		out = append(out, layoutgrid.Child{
-			FacetID: base.ID(),
-			Attachment: facet.Attachment{
-				Placement: facet.Placement{
-					Mode: facet.PlacementGrid,
-					Grid: placement,
-				},
-				ZPriority: spec.ZPriority,
-			},
-			Layout:   base.LayoutRole(),
-			Contract: base.LayoutRole().Child,
-		})
+		out = append(out, c.gridLayoutChild(spec, i, len(children)))
 	}
 	return out
+}
+
+func (c *Card) gridChildAttachment(spec CardChild, index, count int) facet.Attachment {
+	placement := spec.Grid
+	if placement == (facet.GridPlacement{}) {
+		placement = c.defaultGridPlacement(index, count)
+	}
+	return facet.Attachment{
+		Placement: facet.Placement{
+			Mode: facet.PlacementGrid,
+			Grid: placement,
+		},
+		ZPriority: spec.ZPriority,
+	}
+}
+
+func (c *Card) gridLayoutChild(spec CardChild, index, count int) layoutgrid.Child {
+	if spec.Facet == nil {
+		return layoutgrid.Child{}
+	}
+	base := spec.Facet.Base()
+	if base == nil || base.LayoutRole() == nil {
+		return layoutgrid.Child{}
+	}
+	return layoutgrid.Child{
+		FacetID:    base.ID(),
+		Attachment: c.gridChildAttachment(spec, index, count),
+		Layout:     base.LayoutRole(),
+		Contract:   base.LayoutRole().Child,
+	}
 }
 
 func (c *Card) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {

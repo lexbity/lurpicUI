@@ -359,6 +359,7 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 
 	labelHeight := float32(0)
+	ringSide := minFloat(inner.Width(), inner.Height())
 	if p.cachedLabelFacet != nil {
 		labelSize := p.cachedLabelFacet.Base().LayoutRole().MeasuredSize
 		if labelSize == (gfx.Size{}) {
@@ -369,23 +370,18 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if ringAreaHeight < 0 {
 			ringAreaHeight = 0
 		}
-		ringSide := minFloat(inner.Width(), ringAreaHeight)
+		ringSide = minFloat(inner.Width(), ringAreaHeight)
 		if ringSide <= 0 {
 			ringSide = minFloat(inner.Width(), inner.Height())
 		}
-		ringX := inner.Min.X + (inner.Width()-ringSide)*0.5
-		ringY := inner.Min.Y
-		p.cachedTrackBounds = gfx.RectFromXYWH(ringX, ringY, ringSide, ringSide)
-		if p.cachedWritingDirection == facet.WritingDirectionRTL {
-			p.cachedLabelBounds = gfx.RectFromXYWH(inner.Min.X, inner.Max.Y-labelHeight, inner.Width(), labelHeight)
-		} else {
-			p.cachedLabelBounds = gfx.RectFromXYWH(inner.Min.X, inner.Max.Y-labelHeight, inner.Width(), labelHeight)
-		}
-	} else {
-		ringSide := minFloat(inner.Width(), inner.Height())
-		ringX := inner.Min.X + (inner.Width()-ringSide)*0.5
-		ringY := text.CenterY(inner, ringSide)
-		p.cachedTrackBounds = gfx.RectFromXYWH(ringX, ringY, ringSide, ringSide)
+	}
+	rows := layout.ArrangeVerticalFlowAligned(inner, 0, p.cachedGap, []gfx.Size{
+		{W: ringSide, H: ringSide},
+		{W: inner.Width(), H: labelHeight},
+	}, p.cachedWritingDirection == facet.WritingDirectionRTL, layout.AlignCenter)
+	p.cachedTrackBounds = rows[0]
+	if p.cachedLabelFacet != nil {
+		p.cachedLabelBounds = rows[1]
 	}
 	if p.cachedTrackBounds.IsEmpty() {
 		return

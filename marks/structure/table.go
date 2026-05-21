@@ -454,7 +454,7 @@ func (t *Table) syncChildren() {
 		childSpecs = append(childSpecs, tableChildSpec{
 			Facet:     header,
 			MarkID:    tableMarkIDSelectionColumn,
-			Placement: facet.Placement{Mode: facet.PlacementGrid, Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}, Align: facet.AlignCenter},
+			Placement: tableSelectionPlacement(0),
 			Key:       "selection:header",
 		})
 	}
@@ -480,7 +480,7 @@ func (t *Table) syncChildren() {
 		childSpecs = append(childSpecs, tableChildSpec{
 			Facet:     cell,
 			MarkID:    tableMarkIDHeaderCell,
-			Placement: facet.Placement{Mode: facet.PlacementGrid, Grid: facet.GridPlacement{ColStart: colIndex + selectionOffset, RowStart: 0, ColSpan: 1, RowSpan: 1}, Align: alignForColumn(col.Align)},
+			Placement: tableCellPlacement(colIndex+selectionOffset, 0, col.Align),
 			Key:       "header:" + key,
 		})
 		if data.SortColumnKey == key {
@@ -506,7 +506,7 @@ func (t *Table) syncChildren() {
 			childSpecs = append(childSpecs, tableChildSpec{
 				Facet:     indicator,
 				MarkID:    tableMarkIDSortIndicator,
-				Placement: facet.Placement{Mode: facet.PlacementGrid, Grid: facet.GridPlacement{ColStart: colIndex, RowStart: 0, ColSpan: 1, RowSpan: 1}, Align: facet.AlignEnd},
+				Placement: tableSortIndicatorPlacement(colIndex+selectionOffset, 0),
 				ZPriority: 1,
 				Key:       "sort:" + key,
 			})
@@ -517,7 +517,7 @@ func (t *Table) syncChildren() {
 		row := visibleRows[rowIndex]
 		key := stableTableKey(row.Key, "", rowIndex)
 		rowKeys = append(rowKeys, key)
-		rowCells := bodyCells[key]
+		rowCells := t.cachedBodyCells[key]
 		if rowCells == nil {
 			rowCells = make(map[string]*primitive.Text, len(data.Columns))
 		}
@@ -545,7 +545,7 @@ func (t *Table) syncChildren() {
 			childSpecs = append(childSpecs, tableChildSpec{
 				Facet:     indicator,
 				MarkID:    tableMarkIDSelectionColumn,
-				Placement: facet.Placement{Mode: facet.PlacementGrid, Grid: facet.GridPlacement{ColStart: 0, RowStart: rowIndex + 1, ColSpan: 1, RowSpan: 1}, Align: facet.AlignCenter},
+				Placement: tableSelectionPlacement(rowIndex + 1),
 				Key:       "selection:" + selectionKey,
 			})
 		}
@@ -562,7 +562,7 @@ func (t *Table) syncChildren() {
 			} else {
 				cell.SetContent(content)
 			}
-			cell.SetTypography(theme.TextBodyS)
+			cell.SetTypography(theme.TextBodyM)
 			cell.SetForeground(theme.ColorText)
 			cell.SetOverflow(primitive.TextOverflowTruncate)
 			if row.Selected {
@@ -577,7 +577,7 @@ func (t *Table) syncChildren() {
 			childSpecs = append(childSpecs, tableChildSpec{
 				Facet:     cell,
 				MarkID:    tableMarkIDBodyCell,
-				Placement: facet.Placement{Mode: facet.PlacementGrid, Grid: facet.GridPlacement{ColStart: colIndex + selectionOffset, RowStart: rowIndex + 1, ColSpan: 1, RowSpan: 1}, Align: alignForColumn(col.Align)},
+				Placement: tableCellPlacement(colIndex+selectionOffset, rowIndex+1, col.Align),
 				Key:       "body:" + cellKey,
 			})
 		}
@@ -1346,6 +1346,45 @@ func alignForColumn(align facet.Alignment) facet.Alignment {
 		return facet.AlignStretch
 	}
 	return align
+}
+
+func tableCellPlacement(colStart, rowStart int, align facet.Alignment) facet.Placement {
+	return facet.Placement{
+		Mode: facet.PlacementGrid,
+		Grid: facet.GridPlacement{
+			ColStart: colStart,
+			RowStart: rowStart,
+			ColSpan:  1,
+			RowSpan:  1,
+		},
+		Align: alignForColumn(align),
+	}
+}
+
+func tableSelectionPlacement(rowStart int) facet.Placement {
+	return facet.Placement{
+		Mode: facet.PlacementGrid,
+		Grid: facet.GridPlacement{
+			ColStart: 0,
+			RowStart: rowStart,
+			ColSpan:  1,
+			RowSpan:  1,
+		},
+		Align: facet.AlignCenter,
+	}
+}
+
+func tableSortIndicatorPlacement(colStart, rowStart int) facet.Placement {
+	return facet.Placement{
+		Mode: facet.PlacementGrid,
+		Grid: facet.GridPlacement{
+			ColStart: colStart,
+			RowStart: rowStart,
+			ColSpan:  1,
+			RowSpan:  1,
+		},
+		Align: facet.AlignEnd,
+	}
 }
 
 func stableTableKey(primary, fallback string, index int) string {

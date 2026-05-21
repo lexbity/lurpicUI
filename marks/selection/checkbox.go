@@ -5,6 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -566,27 +567,10 @@ func (c *Checkbox) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		}
 	}
 	if c.cachedLabelLayout != nil {
-		cmds = append(cmds, c.textCommands(c.cachedLabelLayout, c.cachedLabelBounds, label)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(c.cachedLabelLayout, c.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	if c.cachedHelperLayout != nil {
-		cmds = append(cmds, c.textCommands(c.cachedHelperLayout, c.cachedHelperBounds, helper)...)
-	}
-	return cmds
-}
-
-func (c *Checkbox) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
-		}
+		cmds = append(cmds, primitive.TextLayoutCommands(c.cachedHelperLayout, c.cachedHelperBounds, gfx.SolidBrush(materialColor(helper)))...)
 	}
 	return cmds
 }

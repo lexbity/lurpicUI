@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -52,7 +53,6 @@ type Button struct {
 
 	cachedLayout        *text.TextLayout
 	cachedLabelStyle    text.TextStyle
-	cachedLabelBrush    gfx.Brush
 	cachedLabelBounds   gfx.Rect
 	cachedLeadingBox    gfx.Rect
 	cachedTrailingBox   gfx.Rect
@@ -262,7 +262,6 @@ func (b *Button) OnDeactivate()                    {}
 func (b *Button) OnDetach() {
 	b.cachedLayout = nil
 	b.cachedLabelStyle = text.TextStyle{}
-	b.cachedLabelBrush = gfx.Brush{}
 	b.cachedLabelBounds = gfx.Rect{}
 	b.cachedLeadingBox = gfx.Rect{}
 	b.cachedTrailingBox = gfx.Rect{}
@@ -319,26 +318,13 @@ func (b *Button) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	b.cachedGap = gap
 	b.cachedRadius = radius
 
-	naturalWidth := padX*2 + labelLayout.Bounds.Width()
-	if !leadingBox.IsEmpty() {
-		naturalWidth += leadingBox.Width()
-		if labelLayout.Bounds.Width() > 0 {
-			naturalWidth += gap
-		}
-	}
-	if !trailingBox.IsEmpty() {
-		naturalWidth += trailingBox.Width()
-		if labelLayout.Bounds.Width() > 0 || !leadingBox.IsEmpty() {
-			naturalWidth += gap
-		}
-	}
-	naturalHeight := labelLayout.Bounds.Height() + padY*2
-	if !leadingBox.IsEmpty() && leadingBox.Height()+padY*2 > naturalHeight {
-		naturalHeight = leadingBox.Height() + padY*2
-	}
-	if !trailingBox.IsEmpty() && trailingBox.Height()+padY*2 > naturalHeight {
-		naturalHeight = trailingBox.Height() + padY*2
-	}
+	content := layout.InlineFlowSize([]gfx.Size{
+		{W: leadingBox.Width(), H: leadingBox.Height()},
+		{W: labelLayout.Bounds.Width(), H: labelLayout.Bounds.Height()},
+		{W: trailingBox.Width(), H: trailingBox.Height()},
+	}, gap)
+	naturalWidth := content.W + padX*2
+	naturalHeight := content.H + padY*2
 	measured := constraints.Constrain(gfx.Size{W: naturalWidth, H: naturalHeight})
 	b.layoutRole.MeasuredSize = measured
 	b.layoutRole.MeasuredResult = facet.MeasureResult{
@@ -361,19 +347,11 @@ func (b *Button) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Co
 func (b *Button) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	padX := b.cachedPadX
 	gap := b.cachedGap
-	labelH := float32(0)
-	labelW := b.cachedLabelBounds.Width()
+	labelSize := gfx.Size{W: b.cachedLabelBounds.Width(), H: 0}
 	if b.cachedLayout != nil {
-		labelH = b.cachedLayout.Bounds.Height()
-		labelW = b.cachedLayout.Bounds.Width()
+		labelSize.H = b.cachedLayout.Bounds.Height()
+		labelSize.W = b.cachedLayout.Bounds.Width()
 	}
-	leadingW := b.cachedLeadingBox.Width()
-	leadingH := b.cachedLeadingBox.Height()
-	trailingW := b.cachedTrailingBox.Width()
-	trailingH := b.cachedTrailingBox.Height()
-	contentH := maxFloat(labelH, maxFloat(leadingH, trailingH))
-	contentTop := text.CenterY(bounds, contentH)
-	labelY := contentTop + maxFloat(0, (contentH-labelH)/2)
 	writingDirection := layout.WritingDirectionLTR
 	if ctx.Theme != nil {
 		if resolved, ok := ctx.Theme.(theme.ResolvedContext); ok {
@@ -381,36 +359,14 @@ func (b *Button) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 	}
 	rtl := writingDirection == layout.WritingDirectionRTL
-	if rtl {
-		right := bounds.Max.X - padX
-		if trailingW > 0 {
-			right -= trailingW
-			b.cachedTrailingBox = text.AlignRectY(gfx.RectFromXYWH(right, contentTop, trailingW, trailingH), contentTop, contentH)
-			right -= gap
-		}
-		if labelW > 0 {
-			right -= labelW
-			b.cachedLabelBounds = gfx.RectFromXYWH(right, labelY, labelW, labelH)
-			right -= gap
-		}
-		if leadingW > 0 {
-			right -= leadingW
-			b.cachedLeadingBox = text.AlignRectY(gfx.RectFromXYWH(right, contentTop, leadingW, leadingH), contentTop, contentH)
-		}
-	} else {
-		left := bounds.Min.X + padX
-		if leadingW > 0 {
-			b.cachedLeadingBox = text.AlignRectY(gfx.RectFromXYWH(left, contentTop, leadingW, leadingH), contentTop, contentH)
-			left += leadingW + gap
-		}
-		if labelW > 0 {
-			b.cachedLabelBounds = gfx.RectFromXYWH(left, labelY, labelW, labelH)
-			left += labelW + gap
-		}
-		if trailingW > 0 {
-			b.cachedTrailingBox = text.AlignRectY(gfx.RectFromXYWH(left, contentTop, trailingW, trailingH), contentTop, contentH)
-		}
-	}
+	rects := layout.ArrangeInlineFlow(bounds, padX, gap, []gfx.Size{
+		{W: b.cachedLeadingBox.Width(), H: b.cachedLeadingBox.Height()},
+		labelSize,
+		{W: b.cachedTrailingBox.Width(), H: b.cachedTrailingBox.Height()},
+	}, rtl)
+	b.cachedLeadingBox = rects[0]
+	b.cachedLabelBounds = rects[1]
+	b.cachedTrailingBox = rects[2]
 
 	b.layoutRole.ArrangedBounds = bounds
 }
@@ -566,7 +522,9 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if !isTransparentMaterial(stateLayer) {
 		cmds = append(cmds, materialCommands(path, stateLayer)...)
 	}
-	cmds = append(cmds, b.labelCommands(label)...)
+	if !isTransparentMaterial(label) {
+		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedLayout, b.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+	}
 	cmds = append(cmds, b.iconCommands(leading, true)...)
 	cmds = append(cmds, b.iconCommands(trailing, false)...)
 	if b.focusedVisible && !isTransparentMaterial(focus) {
@@ -576,28 +534,6 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	}
 	return cmds
 }
-func (b *Button) labelCommands(material theme.Material) []gfx.Command {
-	if b.cachedLayout == nil {
-		return nil
-	}
-	color := materialColor(material)
-	b.cachedLabelBrush = gfx.SolidBrush(color)
-	baseOrigin := gfx.Point{X: b.cachedLabelBounds.Min.X + b.cachedLayout.Bounds.Min.X, Y: b.cachedLabelBounds.Min.Y + b.cachedLayout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(b.cachedLayout.Lines))
-	for _, line := range b.cachedLayout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{
-				Run:    run,
-				Origin: runOrigin,
-				Brush:  b.cachedLabelBrush,
-			})
-		}
-	}
-	return cmds
-}
-
 func (b *Button) iconCommands(style theme.Material, leading bool) []gfx.Command {
 	ref := b.LeadingIconRef
 	box := b.cachedLeadingBox

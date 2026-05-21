@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -359,28 +360,21 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	labelH := text.Height(s.cachedLabelLayout)
 	controlH := maxFloat(s.cachedControlHeight, resolvedTouchHeight(bounds.Height(), s))
-	controlTop := bounds.Min.Y
+	rects := layout.ArrangeVerticalFlow(bounds, 0, s.cachedLabelGap, []gfx.Size{
+		{W: bounds.Width(), H: labelH},
+		{W: s.cachedControlWidth, H: controlH},
+	}, s.cachedWritingDirection == facet.WritingDirectionRTL)
 	if s.cachedLabelLayout != nil {
-		s.cachedLabelBounds = gfx.RectFromXYWH(bounds.Min.X, controlTop, bounds.Width(), labelH)
-		controlTop += labelH + s.cachedLabelGap
+		s.cachedLabelBounds = rects[0]
 	}
-	controlLeft := bounds.Min.X
-	if s.cachedWritingDirection == facet.WritingDirectionRTL {
-		controlLeft = bounds.Max.X - s.cachedControlWidth
-	}
-	s.cachedControlBounds = gfx.RectFromXYWH(controlLeft, controlTop, s.cachedControlWidth, controlH)
-	trackY := text.CenterY(gfx.RectFromXYWH(controlLeft, controlTop, s.cachedControlWidth, controlH), s.cachedControlHeight)
-	trackX := controlLeft
-	if s.cachedWritingDirection == facet.WritingDirectionRTL {
-		trackX = controlLeft
-	}
-	s.cachedTrackBounds = gfx.RectFromXYWH(trackX, trackY, s.cachedControlWidth, s.cachedControlHeight)
+	s.cachedControlBounds = rects[1]
+	s.cachedTrackBounds = text.AlignRectY(gfx.RectFromXYWH(s.cachedControlBounds.Min.X, s.cachedControlBounds.Min.Y, s.cachedControlWidth, s.cachedControlHeight), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	if s.isChecked() {
 		thumbX := s.cachedTrackBounds.Max.X - s.cachedThumbSize - maxFloat(2, s.cachedTrackRadius*0.2)
-		s.cachedThumbBounds = text.CenterRect(gfx.RectFromXYWH(thumbX, trackY, s.cachedThumbSize, s.cachedControlHeight), s.cachedThumbSize, s.cachedThumbSize)
+		s.cachedThumbBounds = text.AlignRectY(gfx.RectFromXYWH(thumbX, s.cachedControlBounds.Min.Y, s.cachedThumbSize, s.cachedThumbSize), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	} else {
 		thumbX := s.cachedTrackBounds.Min.X + maxFloat(2, s.cachedTrackRadius*0.2)
-		s.cachedThumbBounds = text.CenterRect(gfx.RectFromXYWH(thumbX, trackY, s.cachedThumbSize, s.cachedControlHeight), s.cachedThumbSize, s.cachedThumbSize)
+		s.cachedThumbBounds = text.AlignRectY(gfx.RectFromXYWH(thumbX, s.cachedControlBounds.Min.Y, s.cachedThumbSize, s.cachedThumbSize), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	}
 	s.layoutRole.ArrangedBounds = bounds
 }
@@ -432,29 +426,12 @@ func (s *Switch) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		cmds = append(cmds, materialCommands(gfx.CirclePath(rectCenterPoint(s.cachedThumbBounds), s.cachedThumbBounds.Width()*0.5), thumb)...)
 	}
 	if s.cachedLabelLayout != nil {
-		cmds = append(cmds, s.textCommands(s.cachedLabelLayout, s.cachedLabelBounds, label)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(s.cachedLabelLayout, s.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	if s.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, s.cachedRowGap*0.5)
 		ringBounds := bounds.Inset(-inset, -inset)
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, s.cachedTrackRadius+inset), focus)...)
-	}
-	return cmds
-}
-
-func (s *Switch) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
-		for _, run := range line.Runs {
-			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
-		}
 	}
 	return cmds
 }

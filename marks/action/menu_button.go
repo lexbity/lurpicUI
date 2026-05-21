@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -473,8 +474,9 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 			if shaper != nil && label != "" {
 				layouts[i].labelLayout = shaper.ShapeTruncated(label, sectionStyle, maxWidth)
 			}
-			layouts[i].height = maxFloat(m.cachedSectionHeight, text.Height(layouts[i].labelLayout)+m.cachedPadY)
-			layouts[i].width = text.Width(layouts[i].labelLayout) + m.cachedPadX*2
+			size := layout.InlineFlowSize([]gfx.Size{{W: text.Width(layouts[i].labelLayout), H: text.Height(layouts[i].labelLayout)}}, m.cachedGap)
+			layouts[i].height = maxFloat(m.cachedSectionHeight, size.H+m.cachedPadY)
+			layouts[i].width = size.W + m.cachedPadX*2
 			if layouts[i].width < resolved.Density.Scale(120) {
 				layouts[i].width = resolved.Density.Scale(120)
 			}
@@ -487,28 +489,23 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 			if shaper != nil && short != "" {
 				layouts[i].shortcutLayout = shaper.ShapeTruncated(short, shortcutStyle, maxWidth)
 			}
-			leadW := float32(0)
+			sizes := []gfx.Size{}
 			if entry.Selected {
-				leadW += m.cachedCheckSize
-				leadW += m.cachedGap
+				sizes = append(sizes, gfx.Size{W: m.cachedCheckSize, H: m.cachedCheckSize})
 			}
 			if strings.TrimSpace(entry.IconRef) != "" {
-				if leadW > 0 {
-					leadW += m.cachedGap
-				}
-				leadW += m.cachedMenuIconSize
-				leadW += m.cachedGap
+				sizes = append(sizes, gfx.Size{W: m.cachedMenuIconSize, H: m.cachedMenuIconSize})
 			}
-			labelW := text.Width(layouts[i].labelLayout)
-			shortW := text.Width(layouts[i].shortcutLayout)
-			rowW := m.cachedPadX*2 + leadW + labelW
-			if shortW > 0 {
-				rowW += m.cachedGap + shortW
+			sizes = append(sizes, gfx.Size{W: text.Width(layouts[i].labelLayout), H: text.Height(layouts[i].labelLayout)})
+			if shortW := text.Width(layouts[i].shortcutLayout); shortW > 0 {
+				sizes = append(sizes, gfx.Size{W: shortW, H: text.Height(layouts[i].shortcutLayout)})
 			}
+			content := layout.InlineFlowSize(sizes, m.cachedGap)
+			rowW := m.cachedPadX*2 + content.W
 			if rowW < resolved.Density.Scale(160) {
 				rowW = resolved.Density.Scale(160)
 			}
-			rowH := maxFloat(m.cachedRowHeight, maxFloat(text.Height(layouts[i].labelLayout), text.Height(layouts[i].shortcutLayout)))
+			rowH := maxFloat(m.cachedRowHeight, content.H)
 			if rowH < m.cachedMenuIconSize+m.cachedPadY {
 				rowH = m.cachedMenuIconSize + m.cachedPadY
 			}
@@ -522,18 +519,16 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	}
 	m.cachedEntryLayouts = layouts
 
-	triggerContentW := m.cachedPadX * 2
-	if m.TriggerIconRef != "" {
-		triggerContentW += m.cachedTriggerIconSize + m.cachedGap
+	triggerIconPresent := m.TriggerIconRef != ""
+	triggerSizes := []gfx.Size{}
+	if triggerIconPresent {
+		triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedTriggerIconSize, H: m.cachedTriggerIconSize})
 	}
-	triggerContentW += text.Width(triggerLabelLayout)
-	if text.Width(triggerLabelLayout) > 0 {
-		triggerContentW += m.cachedGap
-	}
-	triggerContentW += m.cachedChevronSize
+	triggerSizes = append(triggerSizes, gfx.Size{W: text.Width(triggerLabelLayout), H: text.Height(triggerLabelLayout)})
+	triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedChevronSize, H: m.cachedChevronSize})
+	triggerContentW := m.cachedPadX*2 + layout.InlineFlowSize(triggerSizes, m.cachedGap).W
 	triggerW := maxFloat(resolved.Density.Scale(120), triggerContentW)
-	triggerH := maxFloat(m.cachedTriggerHeight, maxFloat(text.Height(triggerLabelLayout), m.cachedTriggerIconSize))
-	triggerH = maxFloat(triggerH, m.cachedChevronSize)
+		triggerH := maxFloat(m.cachedTriggerHeight, layout.InlineFlowSize(triggerSizes, m.cachedGap).H)
 	triggerH += m.cachedPadY * 2
 	m.cachedTriggerMeasuredW = triggerW
 	m.cachedTriggerMeasuredH = triggerH
@@ -618,46 +613,23 @@ func (m *MenuButton) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	} else {
 		m.cachedTriggerBounds = gfx.RectFromXYWH(startX, triggerY, triggerW, triggerH)
 	}
-	if m.cachedTriggerLabelLayout != nil {
-		textH := text.Height(m.cachedTriggerLabelLayout)
-		contentY := text.CenterY(m.cachedTriggerBounds, textH)
-		if rtl {
-			x := m.cachedTriggerBounds.Max.X - m.cachedPadX
-			if m.cachedChevronSize > 0 {
-				x -= m.cachedChevronSize + m.cachedGap
-				m.cachedChevronBounds = text.CenterRect(gfx.RectFromXYWH(x, m.cachedTriggerBounds.Min.Y, m.cachedChevronSize, m.cachedTriggerBounds.Height()), m.cachedChevronSize, m.cachedChevronSize)
-				x -= m.cachedGap
-			}
-			labelW := m.cachedTriggerLabelLayout.Bounds.Width()
-			x -= labelW
-			m.cachedTriggerLabelBounds = gfx.RectFromXYWH(x, contentY, labelW, textH)
-			x -= m.cachedGap
-			if strings.TrimSpace(m.TriggerIconRef) != "" {
-				x -= m.cachedTriggerIconSize
-				m.cachedTriggerIconBounds = text.CenterRect(gfx.RectFromXYWH(x, m.cachedTriggerBounds.Min.Y, m.cachedTriggerIconSize, m.cachedTriggerBounds.Height()), m.cachedTriggerIconSize, m.cachedTriggerIconSize)
-			}
-		} else {
-			x := m.cachedTriggerBounds.Min.X + m.cachedPadX
-			if strings.TrimSpace(m.TriggerIconRef) != "" {
-				m.cachedTriggerIconBounds = text.CenterRect(gfx.RectFromXYWH(x, m.cachedTriggerBounds.Min.Y, m.cachedTriggerIconSize, m.cachedTriggerBounds.Height()), m.cachedTriggerIconSize, m.cachedTriggerIconSize)
-				x += m.cachedTriggerIconSize + m.cachedGap
-			}
-			labelW := m.cachedTriggerLabelLayout.Bounds.Width()
-			m.cachedTriggerLabelBounds = gfx.RectFromXYWH(x, contentY, labelW, textH)
-			x += labelW + m.cachedGap
-			m.cachedChevronBounds = text.CenterRect(gfx.RectFromXYWH(m.cachedTriggerBounds.Max.X-m.cachedPadX-m.cachedChevronSize, m.cachedTriggerBounds.Min.Y, m.cachedChevronSize, m.cachedTriggerBounds.Height()), m.cachedChevronSize, m.cachedChevronSize)
-		}
-	} else {
-		if rtl {
-			x := m.cachedTriggerBounds.Max.X - m.cachedPadX
-			if m.cachedChevronSize > 0 {
-				x -= m.cachedChevronSize
-				m.cachedChevronBounds = text.CenterRect(gfx.RectFromXYWH(x, m.cachedTriggerBounds.Min.Y, m.cachedChevronSize, m.cachedTriggerBounds.Height()), m.cachedChevronSize, m.cachedChevronSize)
-			}
-		} else {
-			m.cachedChevronBounds = text.CenterRect(gfx.RectFromXYWH(m.cachedTriggerBounds.Max.X-m.cachedPadX-m.cachedChevronSize, m.cachedTriggerBounds.Min.Y, m.cachedChevronSize, m.cachedTriggerBounds.Height()), m.cachedChevronSize, m.cachedChevronSize)
-		}
+	triggerLabelLayout := m.cachedTriggerLabelLayout
+	triggerIconPresent := strings.TrimSpace(m.TriggerIconRef) != ""
+	triggerSizes := []gfx.Size{}
+	if triggerIconPresent {
+		triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedTriggerIconSize, H: m.cachedTriggerIconSize})
 	}
+	triggerSizes = append(triggerSizes, gfx.Size{W: text.Width(triggerLabelLayout), H: text.Height(triggerLabelLayout)})
+	triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedChevronSize, H: m.cachedChevronSize})
+	triggerRects := layout.ArrangeInlineFlow(m.cachedTriggerBounds, m.cachedPadX, m.cachedGap, triggerSizes, rtl)
+	idx := 0
+	if triggerIconPresent {
+		m.cachedTriggerIconBounds = triggerRects[idx]
+		idx++
+	}
+	m.cachedTriggerLabelBounds = triggerRects[idx]
+	idx++
+	m.cachedChevronBounds = triggerRects[idx]
 	menuY := m.cachedTriggerBounds.Max.Y + m.cachedGap
 	if m.Open && len(m.cachedEntryLayouts) > 0 {
 		menuW := m.cachedMenuMeasuredW
@@ -687,55 +659,36 @@ func (m *MenuButton) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 				rowY += entry.height + m.cachedRowGap
 			case MenuButtonEntrySection:
 				entry.bounds = gfx.RectFromXYWH(m.cachedMenuBounds.Min.X+m.cachedPadX, rowY, m.cachedMenuBounds.Width()-m.cachedPadX*2, entry.height)
-				labelH := text.Height(entry.labelLayout)
-				labelW := text.Width(entry.labelLayout)
-				labelY := text.CenterY(gfx.RectFromXYWH(m.cachedMenuBounds.Min.X, rowY, m.cachedMenuBounds.Width(), entry.height), labelH)
-				if rtl {
-					entry.labelBounds = gfx.RectFromXYWH(m.cachedMenuBounds.Max.X-m.cachedPadX-labelW, labelY, labelW, labelH)
-				} else {
-					entry.labelBounds = gfx.RectFromXYWH(m.cachedMenuBounds.Min.X+m.cachedPadX, labelY, labelW, labelH)
-				}
+				rects := layout.ArrangeInlineFlow(entry.bounds, m.cachedPadX, m.cachedGap, []gfx.Size{{W: text.Width(entry.labelLayout), H: text.Height(entry.labelLayout)}}, rtl)
+				entry.labelBounds = rects[0]
 				rowY += entry.height + m.cachedRowGap
 			default:
 				entry.bounds = gfx.RectFromXYWH(m.cachedMenuBounds.Min.X, rowY, m.cachedMenuBounds.Width(), entry.height)
-				labelH := text.Height(entry.labelLayout)
-				shortH := text.Height(entry.shortcutLayout)
-				labelW := text.Width(entry.labelLayout)
-				shortW := text.Width(entry.shortcutLayout)
-				leadX := entry.bounds.Min.X + m.cachedPadX
-				trailX := entry.bounds.Max.X - m.cachedPadX
-				rowMidY := entry.bounds.Min.Y + entry.bounds.Height()*0.5
-				if rtl {
-					if shortW > 0 {
-						trailX -= shortW
-						entry.shortcutBounds = gfx.RectFromXYWH(trailX, rowMidY-shortH*0.5, shortW, shortH)
-						trailX -= m.cachedGap
-					}
-					labelX := trailX - labelW
-					entry.labelBounds = gfx.RectFromXYWH(labelX, rowMidY-labelH*0.5, labelW, labelH)
-					leadX = entry.bounds.Max.X - m.cachedPadX
-					if entry.entry.Selected {
-						leadX -= m.cachedCheckSize
-						entry.checkBounds = gfx.RectFromXYWH(leadX, rowMidY-m.cachedCheckSize*0.5, m.cachedCheckSize, m.cachedCheckSize)
-						leadX -= m.cachedGap
-					}
-					if strings.TrimSpace(entry.entry.IconRef) != "" {
-						leadX -= m.cachedMenuIconSize
-						entry.iconBounds = gfx.RectFromXYWH(leadX, rowMidY-m.cachedMenuIconSize*0.5, m.cachedMenuIconSize, m.cachedMenuIconSize)
-					}
-				} else {
-					if entry.entry.Selected {
-						entry.checkBounds = gfx.RectFromXYWH(leadX, rowMidY-m.cachedCheckSize*0.5, m.cachedCheckSize, m.cachedCheckSize)
-						leadX += m.cachedCheckSize + m.cachedGap
-					}
-					if strings.TrimSpace(entry.entry.IconRef) != "" {
-						entry.iconBounds = gfx.RectFromXYWH(leadX, rowMidY-m.cachedMenuIconSize*0.5, m.cachedMenuIconSize, m.cachedMenuIconSize)
-						leadX += m.cachedMenuIconSize + m.cachedGap
-					}
-					entry.labelBounds = gfx.RectFromXYWH(leadX, rowMidY-labelH*0.5, labelW, labelH)
-					if shortW > 0 {
-						entry.shortcutBounds = gfx.RectFromXYWH(trailX-shortW, rowMidY-shortH*0.5, shortW, shortH)
-					}
+				sizes := []gfx.Size{}
+				if entry.entry.Selected {
+					sizes = append(sizes, gfx.Size{W: m.cachedCheckSize, H: m.cachedCheckSize})
+				}
+				if strings.TrimSpace(entry.entry.IconRef) != "" {
+					sizes = append(sizes, gfx.Size{W: m.cachedMenuIconSize, H: m.cachedMenuIconSize})
+				}
+				sizes = append(sizes, gfx.Size{W: text.Width(entry.labelLayout), H: text.Height(entry.labelLayout)})
+				if text.Width(entry.shortcutLayout) > 0 {
+					sizes = append(sizes, gfx.Size{W: text.Width(entry.shortcutLayout), H: text.Height(entry.shortcutLayout)})
+				}
+				rects := layout.ArrangeInlineFlow(entry.bounds, m.cachedPadX, m.cachedGap, sizes, rtl)
+				next := 0
+				if entry.entry.Selected {
+					entry.checkBounds = rects[next]
+					next++
+				}
+				if strings.TrimSpace(entry.entry.IconRef) != "" {
+					entry.iconBounds = rects[next]
+					next++
+				}
+				entry.labelBounds = rects[next]
+				next++
+				if text.Width(entry.shortcutLayout) > 0 {
+					entry.shortcutBounds = rects[next]
 				}
 				rowY += entry.height + m.cachedRowGap
 			}
@@ -792,7 +745,7 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(m.cachedMenuBounds, m.cachedRadius), menuSurface)...)
 	}
 	if m.cachedTriggerLabelLayout != nil && !isTransparentMaterial(label) {
-		cmds = append(cmds, labelCommands(m.cachedTriggerLabelLayout, m.cachedTriggerLabelBounds, label)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(m.cachedTriggerLabelLayout, m.cachedTriggerLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	if !m.cachedTriggerIconBounds.IsEmpty() && m.TriggerIconRef != "" {
 		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), m.TriggerIconRef, m.cachedTriggerIconBounds, triggerIcon); len(iconCmds) > 0 {
@@ -815,7 +768,7 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 				cmds = append(cmds, materialCommands(gfx.RectPath(entry.bounds), div.Resolve(theme.StateDefault, tokens))...)
 			case MenuButtonEntrySection:
 				if !isTransparentMaterial(menuItems) && entry.labelLayout != nil {
-					cmds = append(cmds, labelCommands(entry.labelLayout, entry.labelBounds, menuItems)...)
+					cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(materialColor(menuItems)))...)
 				}
 			default:
 				rowMaterial := theme.Material{Opacity: 0}
@@ -858,10 +811,10 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 					}
 				}
 				if entry.labelLayout != nil && !isTransparentMaterial(menuItems) {
-					cmds = append(cmds, labelCommands(entry.labelLayout, entry.labelBounds, menuItems)...)
+					cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(materialColor(menuItems)))...)
 				}
 				if entry.shortcutLayout != nil && !entry.shortcutBounds.IsEmpty() {
-					cmds = append(cmds, labelCommands(entry.shortcutLayout, entry.shortcutBounds, menuItems)...)
+					cmds = append(cmds, primitive.TextLayoutCommands(entry.shortcutLayout, entry.shortcutBounds, gfx.SolidBrush(materialColor(menuItems)))...)
 				}
 			}
 		}

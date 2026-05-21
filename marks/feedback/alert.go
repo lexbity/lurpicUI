@@ -609,9 +609,13 @@ func (a *Alert) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if inner.IsEmpty() {
 		inner = bounds
 	}
-	y := inner.Min.Y
 	titleSize := a.cachedTitleFacet.Base().LayoutRole().MeasuredSize
 	messageSize := a.cachedMessageFacet.Base().LayoutRole().MeasuredSize
+	actionSize := gfx.Size{}
+	if a.cachedActionButton != nil {
+		actionSize = a.cachedActionButton.Base().LayoutRole().MeasuredSize
+	}
+	headerH := titleSize.H
 	if a.cachedIconFacet != nil || a.cachedCloseButton != nil {
 		iconSize := a.cachedIconSize
 		if a.cachedIconFacet != nil {
@@ -621,28 +625,45 @@ func (a *Alert) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if a.cachedCloseButton != nil {
 			closeSize = a.cachedCloseButton.Base().LayoutRole().MeasuredSize.W
 		}
-		headerH := maxFloat(iconSize, titleSize.H)
+		headerH = maxFloat(headerH, iconSize)
 		headerH = maxFloat(headerH, closeSize)
-		iconX := inner.Min.X
-		closeX := inner.Max.X - closeSize
-		titleX := iconX
+	}
+	rowRects := layout.ArrangeVerticalFlowAligned(inner, 0, a.cachedRowGap, []gfx.Size{
+		{W: inner.Width(), H: headerH},
+		{W: inner.Width(), H: messageSize.H},
+		{W: inner.Width(), H: actionSize.H},
+	}, a.cachedWritingDirection == facet.WritingDirectionRTL, layout.AlignStart)
+	headerRect := rowRects[0]
+	messageRect := rowRects[1]
+	actionRect := rowRects[2]
+	if a.cachedIconFacet != nil || a.cachedCloseButton != nil {
+		iconSize := a.cachedIconSize
+		if a.cachedIconFacet != nil {
+			iconSize = a.cachedIconFacet.Base().LayoutRole().MeasuredSize.W
+		}
+		closeSize := a.cachedCloseSize
+		if a.cachedCloseButton != nil {
+			closeSize = a.cachedCloseButton.Base().LayoutRole().MeasuredSize.W
+		}
+		iconX := headerRect.Min.X
+		closeX := headerRect.Max.X - closeSize
+		titleX := headerRect.Min.X
 		if a.cachedWritingDirection == facet.WritingDirectionRTL {
-			iconX = inner.Max.X - iconSize
-			closeX = inner.Min.X
-			titleX = inner.Min.X
+			iconX = headerRect.Max.X - iconSize
+			closeX = headerRect.Min.X
 		}
 		if a.cachedIconFacet != nil {
-			iconRect := gfx.RectFromXYWH(iconX, y+(headerH-iconSize)*0.5, iconSize, iconSize)
+			iconRect := gfx.RectFromXYWH(iconX, headerRect.Min.Y+(headerRect.Height()-iconSize)*0.5, iconSize, iconSize)
 			a.cachedIconFacet.Base().LayoutRole().Arrange(ctx, iconRect)
 			a.cachedIconBounds = iconRect
 			if a.cachedWritingDirection == facet.WritingDirectionRTL {
-				titleX = inner.Min.X + closeSize + a.cachedGap
+				titleX = headerRect.Min.X + closeSize + a.cachedGap
 			} else {
-				titleX = inner.Min.X + iconSize + a.cachedGap
+				titleX = headerRect.Min.X + iconSize + a.cachedGap
 			}
 		}
 		if a.cachedCloseButton != nil {
-			closeRect := gfx.RectFromXYWH(closeX, y+(headerH-closeSize)*0.5, closeSize, closeSize)
+			closeRect := gfx.RectFromXYWH(closeX, headerRect.Min.Y+(headerRect.Height()-closeSize)*0.5, closeSize, closeSize)
 			a.cachedCloseButton.Base().LayoutRole().Arrange(ctx, closeRect)
 			a.cachedCloseBounds = closeRect
 			if a.cachedWritingDirection == facet.WritingDirectionRTL {
@@ -653,29 +674,25 @@ func (a *Alert) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if a.cachedCloseButton != nil && a.cachedWritingDirection != facet.WritingDirectionRTL {
 			titleW = maxFloat(0, closeX-a.cachedGap-titleX)
 		}
-		titleRect := gfx.RectFromXYWH(titleX, y, titleW, titleSize.H)
+		titleRect := gfx.RectFromXYWH(titleX, headerRect.Min.Y, titleW, titleSize.H)
 		a.cachedTitleFacet.Base().LayoutRole().Arrange(ctx, titleRect)
 		a.cachedTitleBounds = titleRect
-		y += headerH
 	}
 	if messageSize.W > 0 || messageSize.H > 0 {
-		y += a.cachedRowGap
-		messageRect := gfx.RectFromXYWH(inner.Min.X, y, inner.Width(), messageSize.H)
 		a.cachedMessageFacet.Base().LayoutRole().Arrange(ctx, messageRect)
 		a.cachedMessageBounds = messageRect
-		y += messageSize.H
 	}
 	if a.cachedActionButton != nil {
-		y += a.cachedRowGap
-		actionSize := a.cachedActionButton.Base().LayoutRole().MeasuredSize
-		actionX := inner.Max.X - actionSize.W
+		actionRect = gfx.RectFromXYWH(actionRect.Min.X, actionRect.Min.Y, actionSize.W, actionSize.H)
 		if a.cachedWritingDirection == facet.WritingDirectionRTL {
-			actionX = inner.Min.X
+			actionRect.Min.X = inner.Min.X
+			actionRect.Max.X = actionRect.Min.X + actionSize.W
+		} else {
+			actionRect.Min.X = inner.Max.X - actionSize.W
+			actionRect.Max.X = inner.Max.X
 		}
-		actionRect := gfx.RectFromXYWH(actionX, y, actionSize.W, actionSize.H)
 		a.cachedActionButton.Base().LayoutRole().Arrange(ctx, actionRect)
 		a.cachedActionBounds = actionRect
-		y += actionSize.H
 	}
 }
 
