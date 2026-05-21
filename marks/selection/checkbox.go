@@ -1,8 +1,6 @@
 package selection
 
 import (
-	"strings"
-
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
@@ -98,7 +96,7 @@ var _ facet.FacetImpl = (*Checkbox)(nil)
 var _ layout.AnchorExporter = (*Checkbox)(nil)
 
 var (
-	checkboxTickDocument = mustParseCheckboxTickDocument()
+	checkboxTickDocument  = mustParseCheckboxTickDocument()
 	checkboxMixedDocument = mustParseCheckboxMixedDocument()
 )
 
@@ -390,8 +388,8 @@ func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constrain
 	c.cachedTextRowSize = rowResult.Size
 	c.cachedLabelLayout = row.cachedLabelLayout
 	c.cachedHelperLayout = row.cachedSupportingLayout
-	labelH := layoutHeight(c.cachedLabelLayout)
-	helperH := layoutHeight(c.cachedHelperLayout)
+	labelH := text.Height(c.cachedLabelLayout)
+	helperH := text.Height(c.cachedHelperLayout)
 	rowH := maxFloat(c.cachedControlSize, labelH)
 	if rowH <= 0 {
 		rowH = c.cachedControlSize
@@ -461,8 +459,8 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	row.Label = c.Label
 	row.SupportingText = c.HelperText
 	row.Variant = uiinput.ListItemStandard
-	labelH := layoutHeight(c.cachedLabelLayout)
-	helperH := layoutHeight(c.cachedHelperLayout)
+	labelH := text.Height(c.cachedLabelLayout)
+	helperH := text.Height(c.cachedHelperLayout)
 	rowH := maxFloat(c.cachedControlSize, labelH)
 	if rowH <= 0 {
 		rowH = c.cachedControlSize
@@ -483,11 +481,11 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if c.cachedWritingDirection == facet.WritingDirectionRTL {
 		textBounds = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, textWidth, textBlockH)
 		row.arrange(ctx, textBounds)
-		c.cachedControlBounds = gfx.RectFromXYWH(bounds.Max.X-c.cachedControlSize, bounds.Min.Y+(rowH-c.cachedControlSize)*0.5, c.cachedControlSize, c.cachedControlSize)
+		c.cachedControlBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Max.X-c.cachedControlSize, bounds.Min.Y, c.cachedControlSize, rowH), c.cachedControlSize, c.cachedControlSize)
 	} else {
 		textBounds = gfx.RectFromXYWH(bounds.Min.X+c.cachedControlSize+c.cachedRowGap, bounds.Min.Y, textWidth, textBlockH)
 		row.arrange(ctx, textBounds)
-		c.cachedControlBounds = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+(rowH-c.cachedControlSize)*0.5, c.cachedControlSize, c.cachedControlSize)
+		c.cachedControlBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, c.cachedControlSize, rowH), c.cachedControlSize, c.cachedControlSize)
 	}
 	c.cachedLabelBounds = row.cachedLabelBounds
 	c.cachedHelperBounds = row.cachedSupportingBounds
@@ -584,9 +582,10 @@ func (c *Checkbox) textCommands(layout *text.TextLayout, bounds gfx.Rect, materi
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds
@@ -861,45 +860,6 @@ func (c *Checkbox) fontRegistry(runtime any) *text.FontRegistry {
 		return provider.FontRegistry()
 	}
 	return nil
-}
-
-func (c *Checkbox) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return nil
-	}
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	if len(runes) == 0 {
-		return nil
-	}
-	ellipsis := shaper.ShapeSimple("…", style)
-	if ellipsis == nil {
-		return layout
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return ellipsis
-	}
-	truncated := shaper.ShapeSimple(string(runes[:best])+"…", style)
-	if truncated == nil {
-		return ellipsis
-	}
-	return truncated
 }
 
 func checkboxControlSize(resolved theme.ResolvedContext) float32 {

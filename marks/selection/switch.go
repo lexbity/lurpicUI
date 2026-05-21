@@ -1,8 +1,6 @@
 package selection
 
 import (
-	"strings"
-
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -305,11 +303,11 @@ func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	}
 	if shaper != nil {
 		shaper.SetContentScale(ctx.ContentScale)
-		s.cachedLabelLayout = s.shapeTruncated(shaper, s.cachedLabelStyle, s.Label, maxWidth)
+		s.cachedLabelLayout = shaper.ShapeTruncated(s.Label, s.cachedLabelStyle, maxWidth)
 	} else {
 		s.cachedLabelLayout = nil
 	}
-	labelH := layoutHeight(s.cachedLabelLayout)
+	labelH := text.Height(s.cachedLabelLayout)
 	controlH := maxFloat(s.cachedControlHeight, resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
 	width := s.cachedControlWidth
 	if s.cachedLabelLayout != nil {
@@ -359,7 +357,7 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if s.cachedLayout == nil || bounds.IsEmpty() {
 		return
 	}
-	labelH := layoutHeight(s.cachedLabelLayout)
+	labelH := text.Height(s.cachedLabelLayout)
 	controlH := maxFloat(s.cachedControlHeight, resolvedTouchHeight(bounds.Height(), s))
 	controlTop := bounds.Min.Y
 	if s.cachedLabelLayout != nil {
@@ -371,7 +369,7 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		controlLeft = bounds.Max.X - s.cachedControlWidth
 	}
 	s.cachedControlBounds = gfx.RectFromXYWH(controlLeft, controlTop, s.cachedControlWidth, controlH)
-	trackY := controlTop + (controlH-s.cachedControlHeight)*0.5
+	trackY := text.CenterY(gfx.RectFromXYWH(controlLeft, controlTop, s.cachedControlWidth, controlH), s.cachedControlHeight)
 	trackX := controlLeft
 	if s.cachedWritingDirection == facet.WritingDirectionRTL {
 		trackX = controlLeft
@@ -379,10 +377,10 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	s.cachedTrackBounds = gfx.RectFromXYWH(trackX, trackY, s.cachedControlWidth, s.cachedControlHeight)
 	if s.isChecked() {
 		thumbX := s.cachedTrackBounds.Max.X - s.cachedThumbSize - maxFloat(2, s.cachedTrackRadius*0.2)
-		s.cachedThumbBounds = gfx.RectFromXYWH(thumbX, trackY+(s.cachedControlHeight-s.cachedThumbSize)*0.5, s.cachedThumbSize, s.cachedThumbSize)
+		s.cachedThumbBounds = text.CenterRect(gfx.RectFromXYWH(thumbX, trackY, s.cachedThumbSize, s.cachedControlHeight), s.cachedThumbSize, s.cachedThumbSize)
 	} else {
 		thumbX := s.cachedTrackBounds.Min.X + maxFloat(2, s.cachedTrackRadius*0.2)
-		s.cachedThumbBounds = gfx.RectFromXYWH(thumbX, trackY+(s.cachedControlHeight-s.cachedThumbSize)*0.5, s.cachedThumbSize, s.cachedThumbSize)
+		s.cachedThumbBounds = text.CenterRect(gfx.RectFromXYWH(thumbX, trackY, s.cachedThumbSize, s.cachedControlHeight), s.cachedThumbSize, s.cachedThumbSize)
 	}
 	s.layoutRole.ArrangedBounds = bounds
 }
@@ -452,9 +450,10 @@ func (s *Switch) textCommands(layout *text.TextLayout, bounds gfx.Rect, material
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds
@@ -640,42 +639,6 @@ func (s *Switch) fontRegistry(runtime any) *text.FontRegistry {
 		return provider.FontRegistry()
 	}
 	return nil
-}
-
-func (s *Switch) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	content = strings.TrimSpace(content)
-	if content == "" || shaper == nil {
-		return nil
-	}
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	ellipsis := shaper.ShapeSimple("…", style)
-	if ellipsis == nil {
-		return layout
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return ellipsis
-	}
-	truncated := shaper.ShapeSimple(string(runes[:best])+"…", style)
-	if truncated == nil {
-		return ellipsis
-	}
-	return truncated
 }
 
 func switchControlWidth(resolved theme.ResolvedContext) float32 {

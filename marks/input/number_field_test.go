@@ -166,6 +166,23 @@ func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 	}
 }
 
+func TestNumberFieldGraphemeBackspaceDeletesWholeCluster(t *testing.T) {
+	nf := NewNumberField("Amount")
+	nf.editing = true
+	nf.editingText = "12"
+	nf.cachedValueLayout = textLayoutForTest(t, "12")
+	nf.caret = text.GraphemePosition(2, text.AffinityDownstream)
+	if !nf.deleteBackward() {
+		t.Fatal("expected deleteBackward to handle grapheme cluster")
+	}
+	if got := nf.currentDisplayText(); got != "1" {
+		t.Fatalf("display text = %q, want 1", got)
+	}
+	if nf.caret.Unit != text.TextUnitGrapheme || nf.caret.Index != 1 {
+		t.Fatalf("caret = %#v", nf.caret)
+	}
+}
+
 func TestNumberFieldRecipe_allSlotsPresent(t *testing.T) {
 	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
 	slots, report := uiinput.ResolveNumberFieldRecipe(ctx)

@@ -438,14 +438,14 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(420)
 	}
-	d.cachedHeaderLayout = shapeTruncatedText(shaper, d.cachedHeaderStyle, d.Label, maxWidth)
-	d.cachedSubtitleLayout = shapeTruncatedText(shaper, d.cachedSubTitleStyle, d.Subtitle, maxWidth)
+	d.cachedHeaderLayout = shaper.ShapeTruncated(d.Label, d.cachedHeaderStyle, maxWidth)
+	d.cachedSubtitleLayout = shaper.ShapeTruncated(d.Subtitle, d.cachedSubTitleStyle, maxWidth)
 	flatCount := len(d.cachedFlatItems)
 	d.cachedItemLabelLayouts = make([]*text.TextLayout, flatCount)
 	d.cachedIconAssets = make([]runtimepkg.IconAsset, flatCount)
 	d.cachedIconBounds = make([]gfx.Rect, flatCount)
 	for i := range d.cachedFlatItems {
-		d.cachedItemLabelLayouts[i] = shapeTruncatedText(shaper, d.cachedItemStyle, d.cachedFlatItems[i].Label, maxWidth)
+		d.cachedItemLabelLayouts[i] = shaper.ShapeTruncated(d.cachedFlatItems[i].Label, d.cachedItemStyle, maxWidth)
 		if d.cachedFlatItems[i].IconRef != "" {
 			if asset, ok := d.resolveIcon(ctx.Runtime, d.cachedFlatItems[i].IconRef); ok {
 				d.cachedIconAssets[i] = asset
@@ -459,28 +459,28 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 			d.cachedIconBounds[i] = gfx.RectFromXYWH(0, 0, size, size)
 		}
 	}
-	headerH := layoutHeight(d.cachedHeaderLayout)
-	subtitleH := layoutHeight(d.cachedSubtitleLayout)
+	headerH := text.Height(d.cachedHeaderLayout)
+	subtitleH := text.Height(d.cachedSubtitleLayout)
 	itemsH := float32(0)
 	sectionLabels := make([]*text.TextLayout, len(d.Sections))
 	for i, section := range d.Sections {
 		if section.Label != "" {
-			sectionLabels[i] = shapeTruncatedText(shaper, d.cachedSectionStyle, section.Label, maxWidth)
+			sectionLabels[i] = shaper.ShapeTruncated(section.Label, d.cachedSectionStyle, maxWidth)
 		}
 		if i > 0 {
 			itemsH += d.cachedSectionGap
 		}
 		if sectionLabels[i] != nil {
-			itemsH += layoutHeight(sectionLabels[i]) + d.cachedItemGap
+			itemsH += text.Height(sectionLabels[i]) + d.cachedItemGap
 		}
 		itemsH += float32(len(section.Items)) * d.cachedItemHeight
 		if len(section.Items) > 0 {
 			itemsH += float32(len(section.Items)-1) * d.cachedItemGap
 		}
 	}
-	drawerW := maxFloat(d.cachedDrawerWidth, maxFloat(layoutWidth(d.cachedHeaderLayout), layoutWidth(d.cachedSubtitleLayout))+d.cachedPadX*2)
+	drawerW := maxFloat(d.cachedDrawerWidth, maxFloat(text.Width(d.cachedHeaderLayout), text.Width(d.cachedSubtitleLayout))+d.cachedPadX*2)
 	for i := range d.cachedItemLabelLayouts {
-		w := layoutWidth(d.cachedItemLabelLayouts[i]) + d.cachedPadX*2 + d.cachedItemHeight
+		w := text.Width(d.cachedItemLabelLayouts[i]) + d.cachedPadX*2 + d.cachedItemHeight
 		if w > drawerW {
 			drawerW = w
 		}
@@ -606,7 +606,7 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			sectionY += d.cachedSectionGap
 		}
 		if d.cachedSectionLayouts != nil && si < len(d.cachedSectionLayouts) && d.cachedSectionLayouts[si] != nil {
-			sh := layoutHeight(d.cachedSectionLayouts[si])
+			sh := text.Height(d.cachedSectionLayouts[si])
 			d.cachedSectionBounds[si] = gfx.RectFromXYWH(x, sectionY, d.cachedDrawerBounds.Width()-d.cachedPadX*2, sh)
 			sectionY += sh + d.cachedItemGap
 		}
@@ -619,13 +619,13 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 				d.cachedIconBounds[flatIndex] = iconRect
 			}
 			labelLayout := d.cachedItemLabelLayouts[flatIndex]
-			labelW := layoutWidth(labelLayout)
-			labelH := layoutHeight(labelLayout)
+			labelW := text.Width(labelLayout)
+			labelH := text.Height(labelLayout)
 			labelX := row.Min.X + d.cachedPadX*1.5 + iconRect.Width()
 			if d.cachedWritingDirection == facet.WritingDirectionRTL {
 				labelX = row.Max.X - d.cachedPadX*1.5 - iconRect.Width() - labelW
 			}
-			labelY := row.Min.Y + maxFloat(0, (row.Height()-labelH)*0.5)
+			labelY := text.CenterY(row, labelH)
 			d.cachedItemLabelBounds[flatIndex] = gfx.RectFromXYWH(labelX-labelLayout.Bounds.Min.X, labelY-labelLayout.Bounds.Min.Y, labelW, labelH)
 			sectionY += d.cachedItemHeight
 			if ii < len(section.Items)-1 {

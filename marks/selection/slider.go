@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -55,8 +56,6 @@ type Slider struct {
 	dragging         bool
 
 	cachedLayout           *text.TextLayout
-	cachedLabelLayout      *text.TextLayout
-	cachedValueLayout      *text.TextLayout
 	cachedTokens           theme.Tokens
 	cachedRecipe           shared.SliderSlots
 	cachedRootBounds       gfx.Rect
@@ -70,11 +69,12 @@ type Slider struct {
 	cachedThumbSize        float32
 	cachedTickSize         float32
 	cachedGap              float32
-	cachedLabelStyle       text.TextStyle
-	cachedValueStyle       text.TextStyle
 	cachedWritingDirection facet.WritingDirection
 	cachedMinWidth         float32
 	cachedMinHeight        float32
+
+	cachedLabelFacet *primitive.Text
+	cachedValueFacet *primitive.Text
 }
 
 var _ facet.FacetImpl = (*Slider)(nil)
@@ -92,8 +92,9 @@ func NewSlider(label string, min, max, step float64) *Slider {
 		Precision: -1,
 	}
 	s.layoutRole.Parent = facet.GroupParentContract{
-		Kind:   facet.GroupLayoutLinearVertical,
-		Policy: sliderGroupPolicy{},
+		Kind:     facet.GroupLayoutLinearVertical,
+		Policy:   sliderGroupPolicy{slider: s},
+		Children: s,
 	}
 	s.layoutRole.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
@@ -124,14 +125,14 @@ func NewSlider(label string, min, max, step float64) *Slider {
 		if list == nil {
 			return
 		}
-		cmds := s.buildCommands(bounds, nil)
+		cmds := s.buildCommands(bounds, nil, 1)
 		if len(cmds) == 0 {
 			return
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
 	s.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := s.buildCommands(s.layoutRole.ArrangedBounds, ctx.Runtime)
+		cmds := s.buildCommands(s.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 		if len(cmds) == 0 {
 			return nil
 		}
@@ -164,6 +165,7 @@ func NewSlider(label string, min, max, step float64) *Slider {
 	s.AddRole(&s.inputRole)
 	s.AddRole(&s.focusRole)
 	s.AddRole(&s.textRole)
+	s.syncChildren()
 	return s
 }
 
@@ -192,6 +194,7 @@ func (s *Slider) SetLabel(label string) {
 		return
 	}
 	s.Label = label
+	s.syncChildren()
 	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
@@ -203,6 +206,7 @@ func (s *Slider) SetValue(value float64) {
 	clamped := s.clampValue(value)
 	if s.Value == nil {
 		s.Value = store.NewValueStore[float64](clamped)
+		s.syncChildren()
 		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return
 	}
@@ -210,6 +214,7 @@ func (s *Slider) SetValue(value float64) {
 		return
 	}
 	s.Value.Set(clamped)
+	s.syncChildren()
 	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
@@ -262,6 +267,7 @@ func (s *Slider) SetDisabled(disabled bool) {
 		s.focusedVisible = false
 		s.focusFromPointer = false
 	}
+	s.syncChildren()
 	s.invalidate(facet.DirtyProjection | facet.DirtyHit)
 }
 
@@ -284,10 +290,14 @@ func (s *Slider) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
 		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
-	if s.cachedLabelLayout != nil {
-		out["baseline"] = gfx.Point{X: s.cachedLabelBounds.Min.X, Y: s.cachedLabelBounds.Min.Y + s.cachedLabelLayout.Baseline}
-	} else if s.cachedValueLayout != nil {
-		out["baseline"] = gfx.Point{X: s.cachedValueLabelBounds.Min.X, Y: s.cachedValueLabelBounds.Min.Y + s.cachedValueLayout.Baseline}
+	if s.cachedLabelFacet != nil && s.Label != "" {
+		if tr := s.cachedLabelFacet.Base().TextRole(); tr != nil && tr.Layout != nil {
+			out["baseline"] = gfx.Point{X: s.cachedLabelBounds.Min.X, Y: s.cachedLabelBounds.Min.Y + tr.Layout.Baseline}
+		}
+	} else if s.cachedValueFacet != nil {
+		if tr := s.cachedValueFacet.Base().TextRole(); tr != nil && tr.Layout != nil {
+			out["baseline"] = gfx.Point{X: s.cachedValueLabelBounds.Min.X, Y: s.cachedValueLabelBounds.Min.Y + tr.Layout.Baseline}
+		}
 	} else {
 		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	}
@@ -295,13 +305,27 @@ func (s *Slider) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 }
 
 // Children returns the facet's immediate child list.
-func (s *Slider) Children() []facet.GroupChild { return nil }
+func (s *Slider) Children() []facet.GroupChild {
+	if s == nil {
+		return nil
+	}
+	s.syncChildren()
+	out := make([]facet.GroupChild, 0, 2)
+	if s.cachedLabelFacet != nil && s.Label != "" {
+		out = append(out, s.sliderGroupChild(s.cachedLabelFacet.Base(), sliderMarkIDRoot, 0))
+	}
+	if s.cachedValueFacet != nil {
+		out = append(out, s.sliderGroupChild(s.cachedValueFacet.Base(), sliderMarkIDValueLabel, 1))
+	}
+	return out
+}
 
 // OnAttach wires store invalidation for the bound value store.
 func (s *Slider) OnAttach(ctx facet.AttachContext) {
 	if s.Value == nil {
 		s.Value = store.NewValueStore[float64](s.clampValue(s.Min))
 	}
+	s.syncChildren()
 	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[float64]) {
 		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	})
@@ -316,8 +340,6 @@ func (s *Slider) OnDeactivate() {}
 // OnDetach clears cached projection state.
 func (s *Slider) OnDetach() {
 	s.cachedLayout = nil
-	s.cachedLabelLayout = nil
-	s.cachedValueLayout = nil
 	s.cachedTokens = theme.Tokens{}
 	s.cachedRecipe = shared.SliderSlots{}
 	s.cachedRootBounds = gfx.Rect{}
@@ -331,8 +353,8 @@ func (s *Slider) OnDetach() {
 	s.cachedThumbSize = 0
 	s.cachedTickSize = 0
 	s.cachedGap = 0
-	s.cachedLabelStyle = text.TextStyle{}
-	s.cachedValueStyle = text.TextStyle{}
+	s.cachedLabelFacet = nil
+	s.cachedValueFacet = nil
 }
 
 func (s *Slider) invalidate(flags facet.DirtyFlags) {
@@ -340,6 +362,65 @@ func (s *Slider) invalidate(flags facet.DirtyFlags) {
 		return
 	}
 	s.Base().Invalidate(flags)
+}
+
+func (s *Slider) syncChildren() {
+	if s == nil {
+		return
+	}
+	if s.cachedLabelFacet == nil {
+		s.cachedLabelFacet = primitive.NewText(s.Label)
+	} else {
+		s.cachedLabelFacet.SetContent(s.Label)
+	}
+	s.cachedLabelFacet.SetTypography(theme.TextLabelM)
+	s.cachedLabelFacet.SetOverflow(primitive.TextOverflowTruncate)
+
+	valText := s.valueLabelText()
+	if s.cachedValueFacet == nil {
+		s.cachedValueFacet = primitive.NewText(valText)
+	} else {
+		s.cachedValueFacet.SetContent(valText)
+	}
+	s.cachedValueFacet.SetTypography(theme.TextBodyS)
+	s.cachedValueFacet.SetOverflow(primitive.TextOverflowTruncate)
+
+	labelFG := theme.ColorText
+	valueFG := theme.ColorText
+	if len(s.cachedRecipe.ValueLabel.Base.Fills) > 0 {
+		fillColor := s.cachedRecipe.ValueLabel.Base.Fills[0].Color
+		if fillColor == s.cachedTokens.Color.OnSurfaceVariant {
+			labelFG = theme.ColorTextSecondary
+			valueFG = theme.ColorTextSecondary
+		}
+	}
+
+	s.cachedLabelFacet.SetForeground(labelFG)
+	s.cachedValueFacet.SetForeground(valueFG)
+
+	s.cachedLabelFacet.SetDisabled(s.Disabled)
+	s.cachedValueFacet.SetDisabled(s.Disabled)
+}
+
+func (s *Slider) sliderGroupChild(base *facet.Facet, markID facet.MarkID, order int) facet.GroupChild {
+	if base == nil || base.LayoutRole() == nil {
+		return facet.GroupChild{}
+	}
+	return facet.GroupChild{
+		FacetID: base.ID(),
+		MarkID:  markID,
+		Attachment: facet.Attachment{
+			Placement: facet.Placement{
+				Mode: facet.PlacementLinear,
+				Linear: facet.LinearPlacement{
+					Order:          order,
+					CrossAxisAlign: facet.CrossAxisStart,
+				},
+			},
+		},
+		Layout:   base.LayoutRole(),
+		Contract: base.LayoutRole().Child,
+	}
 }
 
 func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -357,38 +438,43 @@ func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	s.cachedThumbSize = sliderThumbSize(resolved)
 	s.cachedTickSize = sliderTickSize(resolved)
 	s.cachedGap = sliderGap(resolved)
-	s.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
-	s.cachedValueStyle = resolved.TextStyle(theme.TextBodyS)
-	shaper := s.newShaper(ctx.Runtime)
-	if shaper == nil {
-		s.cachedLayout = nil
-		s.cachedLabelLayout = nil
-		s.cachedValueLayout = nil
-		return facet.MeasureResult{}
-	}
-	shaper.SetContentScale(ctx.ContentScale)
+
+	s.syncChildren()
+
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = sliderDefaultMinWidth(resolved)
 	}
-	labelLayout := s.shapeTruncated(shaper, s.cachedLabelStyle, s.Label, maxWidth)
-	valueLayout := s.shapeTruncated(shaper, s.cachedValueStyle, s.valueLabelText(), maxWidth)
-	labelH := layoutHeight(labelLayout)
-	valueH := layoutHeight(valueLayout)
+
+	var labelSize gfx.Size
+	if s.Label != "" && s.cachedLabelFacet != nil {
+		labelSize = s.cachedLabelFacet.Base().LayoutRole().Measure(ctx, facet.Constraints{
+			MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H},
+		}).Size
+	}
+
+	var valueSize gfx.Size
+	if s.cachedValueFacet != nil {
+		valueSize = s.cachedValueFacet.Base().LayoutRole().Measure(ctx, facet.Constraints{
+			MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H},
+		}).Size
+	}
+
 	controlH := maxFloat(s.cachedThumbSize, s.cachedTrackThickness+s.cachedTickSize*2)
 	totalH := controlH
-	if valueH > 0 {
-		totalH += valueH + s.cachedGap
+	if valueSize.H > 0 {
+		totalH += valueSize.H + s.cachedGap
 	}
-	if labelH > 0 {
-		totalH += labelH + s.cachedGap
+	if labelSize.H > 0 {
+		totalH += labelSize.H + s.cachedGap
 	}
+
 	minWidth := sliderDefaultMinWidth(resolved)
-	if labelLayout != nil {
-		minWidth = maxFloat(minWidth, labelLayout.Bounds.Width())
+	if labelSize.W > 0 {
+		minWidth = maxFloat(minWidth, labelSize.W)
 	}
-	if valueLayout != nil {
-		minWidth = maxFloat(minWidth, valueLayout.Bounds.Width()+sliderThumbInset(resolved)*2)
+	if valueSize.W > 0 {
+		minWidth = maxFloat(minWidth, valueSize.W+sliderThumbInset(resolved)*2)
 	}
 	if constraints.MaxSize.W > 0 {
 		minWidth = minFloat(minWidth, constraints.MaxSize.W)
@@ -397,16 +483,25 @@ func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	if constraints.MaxSize.W > 0 {
 		width = minFloat(width, constraints.MaxSize.W)
 	}
+
 	s.cachedLayout = &text.TextLayout{Bounds: text.RectFromXYWH(0, 0, width, totalH), LineHeight: totalH, Baseline: 0}
-	s.cachedLabelLayout = labelLayout
-	s.cachedValueLayout = valueLayout
-	s.textRole.Layout = valueLayout
+	if s.cachedValueFacet != nil {
+		s.textRole.Layout = s.cachedValueFacet.Base().TextRole().Layout
+	} else if s.cachedLabelFacet != nil {
+		s.textRole.Layout = s.cachedLabelFacet.Base().TextRole().Layout
+	} else {
+		s.textRole.Layout = nil
+	}
 	s.textRole.Selection = text.TextRange{}
 	s.textRole.CaretVisible = false
 	s.textRole.CaretPosition = text.TextPosition{}
 	size := gfx.Size{W: width, H: totalH}
 	s.layoutRole.MeasuredSize = size
-	s.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+	s.layoutRole.MeasuredResult = facet.MeasureResult{
+		Size:        size,
+		Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
+		Constraints: constraints,
+	}
 	return s.layoutRole.MeasuredResult
 }
 
@@ -426,14 +521,26 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if s.cachedLayout == nil || bounds.IsEmpty() {
 		return
 	}
-	labelH := layoutHeight(s.cachedLabelLayout)
-	valueH := layoutHeight(s.cachedValueLayout)
+
+	var labelH float32
+	if s.Label != "" && s.cachedLabelFacet != nil {
+		labelH = s.cachedLabelFacet.Base().LayoutRole().MeasuredSize.H
+	}
+
+	var valueH float32
+	if s.cachedValueFacet != nil {
+		valueH = s.cachedValueFacet.Base().LayoutRole().MeasuredSize.H
+	}
+
 	trackH := maxFloat(s.cachedTrackThickness, s.cachedThumbSize)
 	controlTop := bounds.Min.Y
-	if labelH > 0 {
+
+	if labelH > 0 && s.cachedLabelFacet != nil {
 		s.cachedLabelBounds = gfx.RectFromXYWH(bounds.Min.X, controlTop, bounds.Width(), labelH)
+		s.cachedLabelFacet.Base().LayoutRole().Arrange(ctx, s.cachedLabelBounds)
 		controlTop += labelH + s.cachedGap
 	}
+
 	controlH := valueH
 	if controlH > 0 {
 		controlH += s.cachedGap
@@ -475,8 +582,9 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	s.cachedActiveBounds = gfx.RectFromXYWH(activeLeft, s.cachedTrackBounds.Min.Y, maxFloat(0, activeRight-activeLeft), s.cachedTrackBounds.Height())
 	s.cachedThumbBounds = gfx.RectFromXYWH(thumbCenterX-thumbSize*0.5, trackY-thumbSize*0.5, thumbSize, thumbSize)
-	if s.cachedValueLayout != nil {
-		valueW := s.cachedValueLayout.Bounds.Width()
+
+	if valueH > 0 && s.cachedValueFacet != nil {
+		valueW := s.cachedValueFacet.Base().LayoutRole().MeasuredSize.W
 		valueLeft := thumbCenterX - valueW*0.5
 		minLeft := bounds.Min.X
 		maxLeft := bounds.Max.X - valueW
@@ -485,10 +593,10 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		valueLeft = clampFloat(valueLeft, minLeft, maxLeft)
 		valueY := controlTop
-		if valueH > 0 {
-			s.cachedValueLabelBounds = gfx.RectFromXYWH(valueLeft, valueY, valueW, valueH)
-		}
+		s.cachedValueLabelBounds = gfx.RectFromXYWH(valueLeft, valueY, valueW, valueH)
+		s.cachedValueFacet.Base().LayoutRole().Arrange(ctx, s.cachedValueLabelBounds)
 	}
+
 	tickRects := s.tickRects(trackLeft, trackRight, trackY)
 	s.cachedTickRects = tickRects
 	s.layoutRole.ArrangedBounds = bounds
@@ -522,7 +630,7 @@ func (s *Slider) resolveProjectionTheme(runtime any) (theme.StyleContext, shared
 	return theme.StyleContext{Tokens: s.cachedTokens}, s.cachedRecipe
 }
 
-func (s *Slider) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
+func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
 	if s == nil || bounds.IsEmpty() || s.cachedLayout == nil {
 		return nil
 	}
@@ -550,11 +658,38 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if s.cachedThumbBounds.IsEmpty() == false && !isTransparentMaterial(thumb) {
 		cmds = append(cmds, materialCommands(gfx.CirclePath(gfx.Point{X: (s.cachedThumbBounds.Min.X + s.cachedThumbBounds.Max.X) * 0.5, Y: (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5}, s.cachedThumbBounds.Width()*0.5), thumb)...)
 	}
-	if s.cachedLabelLayout != nil {
-		cmds = append(cmds, s.textCommands(s.cachedLabelLayout, s.cachedLabelBounds, valueLabel)...)
+
+	textColor := materialColor(valueLabel)
+
+	if s.Label != "" && s.cachedLabelFacet != nil {
+		if projected := s.cachedLabelFacet.Base().ProjectionRole().Project(facet.ProjectionContext{
+			Runtime:      runtimeServicesOrNil(runtime),
+			Bounds:       s.cachedLabelBounds,
+			ContentScale: contentScale,
+		}); projected != nil {
+			for i := range projected.Commands {
+				if run, ok := projected.Commands[i].(gfx.DrawGlyphRun); ok {
+					run.Brush = gfx.SolidBrush(textColor)
+					projected.Commands[i] = run
+				}
+			}
+			cmds = append(cmds, projected.Commands...)
+		}
 	}
-	if s.cachedValueLayout != nil {
-		cmds = append(cmds, s.textCommands(s.cachedValueLayout, s.cachedValueLabelBounds, valueLabel)...)
+	if s.cachedValueFacet != nil {
+		if projected := s.cachedValueFacet.Base().ProjectionRole().Project(facet.ProjectionContext{
+			Runtime:      runtimeServicesOrNil(runtime),
+			Bounds:       s.cachedValueLabelBounds,
+			ContentScale: contentScale,
+		}); projected != nil {
+			for i := range projected.Commands {
+				if run, ok := projected.Commands[i].(gfx.DrawGlyphRun); ok {
+					run.Brush = gfx.SolidBrush(textColor)
+					projected.Commands[i] = run
+				}
+			}
+			cmds = append(cmds, projected.Commands...)
+		}
 	}
 	if s.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, s.cachedGap*0.5)
@@ -574,22 +709,6 @@ func (s *Slider) tickCommands(material theme.Material) []gfx.Command {
 			continue
 		}
 		cmds = append(cmds, materialCommands(gfx.RectPath(rect), material)...)
-	}
-	return cmds
-}
-
-func (s *Slider) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if layout == nil || isTransparentMaterial(material) {
-		return nil
-	}
-	brush := gfx.SolidBrush(materialColor(material))
-	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
-		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
-		}
 	}
 	return cmds
 }
@@ -956,75 +1075,6 @@ func (s *Slider) tickRects(trackLeft, trackRight, trackY float32) []gfx.Rect {
 	return rects
 }
 
-func (s *Slider) newShaper(runtime any) *text.Shaper {
-	registry := s.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (s *Slider) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
-}
-
-func (s *Slider) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil {
-		return nil
-	}
-	if content == "" || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	if len(runes) == 0 {
-		return layout
-	}
-	if ellipsis := shaper.ShapeSimple("…", style); ellipsis != nil && ellipsis.Bounds.Width() <= maxWidth {
-		best := 0
-		lo, hi := 0, len(runes)
-		for lo <= hi {
-			mid := (lo + hi) / 2
-			candidate := shaper.ShapeSimple(string(runes[:mid])+"…", style)
-			if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-				best = mid
-				lo = mid + 1
-				continue
-			}
-			hi = mid - 1
-		}
-		if best > 0 {
-			return shaper.ShapeSimple(string(runes[:best])+"…", style)
-		}
-		return ellipsis
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return layout
-	}
-	return shaper.ShapeSimple(string(runes[:best]), style)
-}
-
 func sliderRecipeVariant(resolved theme.ResolvedContext) uiinput.SliderVariant {
 	switch resolved.Density.ID {
 	case theme.DensityIDCompact:
@@ -1131,13 +1181,6 @@ func sliderThumbInsetFromSize(size float32) float32 {
 	return size * 0.5
 }
 
-func layoutHeight(layout *text.TextLayout) float32 {
-	if layout == nil {
-		return 0
-	}
-	return layout.Bounds.Height()
-}
-
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
 	if isTransparentMaterial(material) {
 		return nil
@@ -1224,12 +1267,37 @@ func maxFloat(a, b float32) float32 {
 	return b
 }
 
-type sliderGroupPolicy struct{}
-
-func (sliderGroupPolicy) Kind() facet.GroupLayoutKind { return facet.GroupLayoutLinearVertical }
-func (sliderGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children []facet.GroupChild) (facet.GroupMeasureResult, error) {
-	return facet.GroupMeasureResult{}, nil
+type sliderGroupPolicy struct {
+	slider *Slider
 }
-func (sliderGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []facet.GroupChild) ([]facet.ArrangedGroupChild, error) {
-	return nil, nil
+
+func (p sliderGroupPolicy) Kind() facet.GroupLayoutKind { return facet.GroupLayoutLinearVertical }
+
+func (p sliderGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children []facet.GroupChild) (facet.GroupMeasureResult, error) {
+	if p.slider == nil {
+		return facet.GroupMeasureResult{}, nil
+	}
+	return facet.GroupMeasureResult{Size: p.slider.measure(ctx.MeasureContext, facet.Constraints{MaxSize: gfx.Size{W: ctx.Bounds.Width(), H: ctx.Bounds.Height()}}).Size}, nil
+}
+
+func (p sliderGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []facet.GroupChild) ([]facet.ArrangedGroupChild, error) {
+	if p.slider == nil {
+		return nil, nil
+	}
+	p.slider.arrange(ctx.ArrangeContext, ctx.Bounds)
+	arranged := make([]facet.ArrangedGroupChild, 0, len(children))
+	for _, child := range children {
+		if child.Layout == nil {
+			continue
+		}
+		arranged = append(arranged, facet.ArrangedGroupChild{
+			FacetID:   child.FacetID,
+			MarkID:    child.MarkID,
+			Bounds:    child.Layout.ArrangedBounds,
+			Placement: child.Attachment.Placement,
+			ZPriority: child.Attachment.ZPriority,
+			Contract:  child.Contract,
+		})
+	}
+	return arranged, nil
 }

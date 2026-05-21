@@ -371,21 +371,21 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	valueLayout := (*text.TextLayout)(nil)
 	if shaper != nil {
 		shaper.SetContentScale(ctx.ContentScale)
-		labelLayout = ds.shapeTruncated(shaper, ds.cachedLabelStyle, ds.Label, maxWidth)
+		labelLayout = shaper.ShapeTruncated(ds.Label, ds.cachedLabelStyle, maxWidth)
 		selected := ds.displayValue()
 		if selected == "" {
 			selected = ds.Placeholder
 		}
-		valueLayout = ds.shapeTruncated(shaper, ds.cachedValueStyle, selected, maxWidth)
+		valueLayout = shaper.ShapeTruncated(selected, ds.cachedValueStyle, maxWidth)
 	}
 	ds.textRole.Layout = valueLayout
 	ds.textRole.Selection = text.TextRange{}
 	ds.textRole.CaretVisible = false
 	ds.textRole.CaretPosition = text.TextPosition{}
-	labelH := layoutHeight(labelLayout)
-	valueH := layoutHeight(valueLayout)
+	labelH := text.Height(labelLayout)
+	valueH := text.Height(valueLayout)
 	triggerH := maxFloat(ds.cachedTriggerHeight, maxFloat(valueH, resolved.Density.Scale(36)))
-	width := maxFloat(240, maxFloat(layoutWidth(labelLayout), layoutWidth(valueLayout))+resolved.Density.Scale(48))
+	width := maxFloat(240, maxFloat(text.Width(labelLayout), text.Width(valueLayout))+resolved.Density.Scale(48))
 	if width <= 0 {
 		width = resolved.Density.Scale(240)
 	}
@@ -439,7 +439,7 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if !ok {
 		resolved = theme.DefaultResolvedContext()
 	}
-	labelH := layoutHeight(ds.textRole.Layout)
+	labelH := text.Height(ds.textRole.Layout)
 	y := bounds.Min.Y
 	if labelH > 0 {
 		ds.cachedLabelBounds = gfx.RectFromXYWH(bounds.Min.X, y, bounds.Width(), labelH)
@@ -453,8 +453,8 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if valueLayout == nil {
 		valueLayout = nil
 	}
-	valueH := layoutHeight(valueLayout)
-	valueY := ds.cachedTriggerBounds.Min.Y + (ds.cachedTriggerBounds.Height()-valueH)*0.5
+	valueH := text.Height(valueLayout)
+	valueY := text.CenterY(ds.cachedTriggerBounds, valueH)
 	if valueY < ds.cachedTriggerBounds.Min.Y {
 		valueY = ds.cachedTriggerBounds.Min.Y + padding*0.5
 	}
@@ -467,7 +467,7 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if ds.cachedWritingDirection == facet.WritingDirectionRTL {
 		chevronX = ds.cachedTriggerBounds.Min.X + padding
 	}
-	ds.cachedChevronBounds = gfx.RectFromXYWH(chevronX, ds.cachedTriggerBounds.Min.Y+(ds.cachedTriggerBounds.Height()-chevronSize)*0.5, chevronSize, chevronSize)
+	ds.cachedChevronBounds = text.CenterRect(gfx.RectFromXYWH(chevronX, ds.cachedTriggerBounds.Min.Y, chevronSize, ds.cachedTriggerBounds.Height()), chevronSize, chevronSize)
 	if ds.open && len(ds.Options) > 0 {
 		ds.cachedListboxBounds = gfx.RectFromXYWH(bounds.Min.X, ds.cachedTriggerBounds.Max.Y+float32(resolved.Spacing(theme.SpacingXS)), bounds.Width(), ds.optionListHeight(resolved, ds.cachedTriggerBounds.Height()))
 		ds.cachedOptionRects = ds.layoutOptionRects(ds.cachedListboxBounds, resolved)
@@ -578,9 +578,10 @@ func (ds *DropdownSelect) textCommands(layout *text.TextLayout, bounds gfx.Rect,
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds
@@ -995,7 +996,7 @@ func (ds *DropdownSelect) shapeOptionLabel(runtime any, i int, maxWidth float32)
 		return nil
 	}
 	shaper.SetContentScale(1)
-	return ds.shapeTruncated(shaper, ds.cachedValueStyle, ds.Options[i].Label, maxWidth)
+	return shaper.ShapeTruncated(ds.Options[i].Label, ds.cachedValueStyle, maxWidth)
 }
 
 func (ds *DropdownSelect) chevronPath(bounds gfx.Rect) gfx.Path {
@@ -1037,55 +1038,12 @@ func (ds *DropdownSelect) fontRegistry(runtime any) *text.FontRegistry {
 	return nil
 }
 
-func (ds *DropdownSelect) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	content = strings.TrimSpace(content)
-	if content == "" || shaper == nil {
-		return nil
-	}
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	ellipsis := shaper.ShapeSimple("…", style)
-	if ellipsis == nil {
-		return layout
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return ellipsis
-	}
-	truncated := shaper.ShapeSimple(string(runes[:best])+"…", style)
-	if truncated == nil {
-		return ellipsis
-	}
-	return truncated
-}
-
 func (ds *DropdownSelect) onKeyDownOrUp(key platform.Key) bool {
 	if !ds.open || len(ds.Options) == 0 {
 		return false
 	}
 	ds.navigateKey(key)
 	return true
-}
-
-func layoutWidth(layout *text.TextLayout) float32 {
-	if layout == nil {
-		return 0
-	}
-	return layout.Bounds.Width()
 }
 
 func minInt(a, b int) int {

@@ -327,10 +327,10 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	if shaper != nil {
 		shaper.SetContentScale(ctx.ContentScale)
 		if li.ShowLabel {
-			labelLayout = li.shapeTruncated(shaper, resolved.TextStyle(theme.TextBodyM), li.Label, maxWidth)
+			labelLayout = shaper.ShapeTruncated(li.Label, resolved.TextStyle(theme.TextBodyM), maxWidth)
 		}
 		if strings.TrimSpace(li.SupportingText) != "" {
-			supportingLayout = li.shapeTruncated(shaper, resolved.TextStyle(theme.TextBodyS), li.SupportingText, maxWidth)
+			supportingLayout = shaper.ShapeTruncated(li.SupportingText, resolved.TextStyle(theme.TextBodyS), maxWidth)
 		}
 	}
 	li.cachedLabelLayout = labelLayout
@@ -341,9 +341,9 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	li.textRole.Selection = text.TextRange{}
 	li.textRole.CaretVisible = false
 	li.textRole.CaretPosition = text.TextPosition{}
-	contentW := layoutWidth(supportingLayout)
+	contentW := text.Width(supportingLayout)
 	if li.ShowLabel {
-		contentW = maxFloat(contentW, layoutWidth(labelLayout))
+		contentW = maxFloat(contentW, text.Width(labelLayout))
 	}
 	leadingReserve := float32(0)
 	if li.ShowLeadingIcon && li.LeadingIconRef != "" {
@@ -361,17 +361,17 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	}
 	if !li.ShowContainer && !li.ShowLeadingIcon && !li.ShowSelectionIndicator && li.ShowLabel {
 		minWidth = contentW + li.cachedPadX*2
-		minHeight = layoutHeight(supportingLayout) + li.cachedPadY*2
+		minHeight = text.Height(supportingLayout) + li.cachedPadY*2
 		if supportingLayout != nil {
 			minHeight += li.cachedGap
 		}
 		if labelLayout != nil {
-			minHeight += layoutHeight(labelLayout)
+			minHeight += text.Height(labelLayout)
 		}
 	}
 	itemSize := gfx.Size{
 		W: maxFloat(minWidth, contentW+li.cachedPadX*2+leadingReserve+selectionReserve),
-		H: maxFloat(minHeight, layoutHeight(supportingLayout)+li.cachedPadY*2+li.cachedGap),
+		H: maxFloat(minHeight, text.Height(supportingLayout)+li.cachedPadY*2+li.cachedGap),
 	}
 	if itemSize.W <= 0 {
 		itemSize.W = resolved.Density.Scale(160)
@@ -420,18 +420,18 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	labelH := float32(0)
 	if li.ShowLabel {
-		labelH = layoutHeight(li.cachedLabelLayout)
+		labelH = text.Height(li.cachedLabelLayout)
 	}
-	supportingH := layoutHeight(li.cachedSupportingLayout)
+	supportingH := text.Height(li.cachedSupportingLayout)
 	contentH := labelH + supportingH
 	if supportingH > 0 {
 		contentH += li.cachedGap
 	}
-	textY := inner.Min.Y + maxFloat(0, (inner.Height()-contentH)*0.5)
+	textY := text.CenterY(inner, contentH)
 	textX := inner.Min.X
 	labelW := float32(0)
 	if li.ShowLabel {
-		labelW = layoutWidth(li.cachedLabelLayout)
+		labelW = text.Width(li.cachedLabelLayout)
 	}
 	if labelW <= 0 {
 		labelW = maxFloat(0, inner.Width()-li.cachedPadX*2)
@@ -449,18 +449,21 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		textX = inner.Min.X + leadingReserve
 	}
 	if li.ShowLabel && li.cachedLabelLayout != nil {
-		li.cachedLabelBounds = gfx.RectFromXYWH(textX, textY, labelW, labelH)
+		li.cachedLabelBounds = gfx.RectFromXYWH(textX, textY+maxFloat(0, (contentH-labelH)*0.5), labelW, labelH)
 	}
 	if supportingH > 0 {
-		supportY := textY + labelH + li.cachedGap
-		supportW := layoutWidth(li.cachedSupportingLayout)
+		supportY := textY + maxFloat(0, (contentH-supportingH)*0.5)
+		if li.ShowLabel && li.cachedLabelLayout != nil {
+			supportY = li.cachedLabelBounds.Max.Y + li.cachedGap
+		}
+		supportW := text.Width(li.cachedSupportingLayout)
 		if supportW <= 0 {
 			supportW = labelW
 		}
 		li.cachedSupportingBounds = gfx.RectFromXYWH(textX, supportY, supportW, supportingH)
 	}
 	if li.ShowSelectionIndicator {
-		indicatorY := bounds.Min.Y + (bounds.Height()-indicatorSize)*0.5
+		indicatorY := text.CenterY(bounds, indicatorSize)
 		if li.cachedWritingDirection == facet.WritingDirectionRTL {
 			li.cachedSelectionBounds = gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, indicatorY, indicatorSize, indicatorSize)
 		} else {
@@ -469,9 +472,9 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	if li.ShowLeadingIcon && li.LeadingIconRef != "" {
 		if li.cachedWritingDirection == facet.WritingDirectionRTL {
-			li.cachedLeadingBounds = gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-leadingSize, bounds.Min.Y+(bounds.Height()-leadingSize)*0.5, leadingSize, leadingSize)
+			li.cachedLeadingBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-leadingSize, bounds.Min.Y, leadingSize, bounds.Height()), leadingSize, leadingSize)
 		} else {
-			li.cachedLeadingBounds = gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, bounds.Min.Y+(bounds.Height()-leadingSize)*0.5, leadingSize, leadingSize)
+			li.cachedLeadingBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, bounds.Min.Y, leadingSize, bounds.Height()), leadingSize, leadingSize)
 		}
 	}
 	li.cachedItemBounds = inner
@@ -554,9 +557,10 @@ func (li *ListItem) textCommands(layout *text.TextLayout, bounds gfx.Rect, mater
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds
@@ -762,42 +766,6 @@ func (li *ListItem) fontRegistry(runtime any) *text.FontRegistry {
 		return provider.FontRegistry()
 	}
 	return nil
-}
-
-func (li *ListItem) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	content = strings.TrimSpace(content)
-	if content == "" || shaper == nil {
-		return nil
-	}
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	ellipsis := shaper.ShapeSimple("…", style)
-	if ellipsis == nil {
-		return layout
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return ellipsis
-	}
-	truncated := shaper.ShapeSimple(string(runes[:best])+"…", style)
-	if truncated == nil {
-		return ellipsis
-	}
-	return truncated
 }
 
 type listItemGroupPolicy struct{}

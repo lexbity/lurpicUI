@@ -174,6 +174,23 @@ func TestTextFieldStoreChangeAndEditing(t *testing.T) {
 	}
 }
 
+func TestTextFieldGraphemeBackspaceDeletesWholeCluster(t *testing.T) {
+	tf := NewTextField("Name", uiinput.TextInputFilled)
+	content := "a\u0301b"
+	tf.Value.Set(content)
+	tf.cachedValueLayout = textLayoutForTest(t, content)
+	tf.caret = text.GraphemePosition(1, text.AffinityDownstream)
+	if !tf.deleteBackward() {
+		t.Fatal("expected deleteBackward to handle grapheme cluster")
+	}
+	if got := tf.currentValue(); got != "b" {
+		t.Fatalf("value = %q, want b", got)
+	}
+	if tf.caret.Unit != text.TextUnitGrapheme || tf.caret.Index != 0 {
+		t.Fatalf("caret = %#v", tf.caret)
+	}
+}
+
 func TestTextFieldGoldenDefault(t *testing.T) {
 	AssertTextFieldGolden(t, "default", func(tf *TextField) {})
 }
@@ -232,6 +249,15 @@ func mustTextFieldRegistry(t *testing.T) *text.FontRegistry {
 		t.Fatalf("load font: %v", err)
 	}
 	return reg
+}
+
+func textLayoutForTest(t *testing.T, content string) *text.TextLayout {
+	t.Helper()
+	reg := mustTextFieldRegistry(t)
+	shaper := text.NewShaper(reg)
+	style := text.DefaultStyle()
+	style.Family = "noto-sans-regular"
+	return shaper.ShapeSimple(content, style)
 }
 
 func mustReadTextFieldFont(t *testing.T, rel string) []byte {

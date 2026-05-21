@@ -355,8 +355,8 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	if maxWidth <= 0 {
 		maxWidth = radioGroupDefaultMaxWidth(resolved)
 	}
-	groupLabelLayout := rg.shapeTruncated(shaper, rg.cachedGroupLabelStyle, rg.Label, maxWidth)
-	groupLabelH := layoutHeight(groupLabelLayout)
+	groupLabelLayout := shaper.ShapeTruncated(rg.Label, rg.cachedGroupLabelStyle, maxWidth)
+	groupLabelH := text.Height(groupLabelLayout)
 	itemLayouts := make([]*text.TextLayout, len(rg.Options))
 	itemWidths := make([]float32, len(rg.Options))
 	itemHeights := make([]float32, len(rg.Options))
@@ -365,7 +365,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	for i, opt := range rg.Options {
 		if shaper != nil {
 			shaper.SetContentScale(ctx.ContentScale)
-			itemLayouts[i] = rg.shapeTruncated(shaper, rg.cachedItemLabelStyle, opt.Label, itemMaxTextWidth)
+			itemLayouts[i] = shaper.ShapeTruncated(opt.Label, rg.cachedItemLabelStyle, itemMaxTextWidth)
 		}
 		if itemLayouts[i] != nil {
 			itemWidths[i] = itemLayouts[i].Bounds.Width()
@@ -447,7 +447,7 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if rg.focusedIndex < 0 || rg.focusedIndex >= len(rg.Options) {
 		rg.focusedIndex = selected
 	}
-	groupLabelH := layoutHeight(rg.cachedGroupLabel)
+	groupLabelH := text.Height(rg.cachedGroupLabel)
 	itemsTop := bounds.Min.Y
 	if groupLabelH > 0 {
 		rg.cachedGroupLabelRect = gfx.RectFromXYWH(bounds.Min.X, itemsTop, bounds.Width(), groupLabelH)
@@ -572,9 +572,10 @@ func (rg *RadioGroup) textCommands(layout *text.TextLayout, bounds gfx.Rect, mat
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds
@@ -882,42 +883,6 @@ func (rg *RadioGroup) fontRegistry(runtime any) *text.FontRegistry {
 		return provider.FontRegistry()
 	}
 	return nil
-}
-
-func (rg *RadioGroup) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	content = strings.TrimSpace(content)
-	if content == "" || shaper == nil {
-		return nil
-	}
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	ellipsis := shaper.ShapeSimple("…", style)
-	if ellipsis == nil {
-		return layout
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return ellipsis
-	}
-	truncated := shaper.ShapeSimple(string(runes[:best])+"…", style)
-	if truncated == nil {
-		return ellipsis
-	}
-	return truncated
 }
 
 func radioControlSize(resolved theme.ResolvedContext) float32 {

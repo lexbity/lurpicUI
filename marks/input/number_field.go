@@ -473,8 +473,8 @@ func (nf *NumberField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if nf.cachedLabelLayout != nil {
 		labelH = nf.cachedLabelLayout.Bounds.Height()
 	}
-	valueH := layoutHeight(nf.cachedValueLayout, nf.cachedPlaceholderLayout)
-	helperH := layoutHeight(nf.cachedHelperLayout, nf.cachedErrorLayout)
+	valueH := text.MaxHeight(nf.cachedValueLayout, nf.cachedPlaceholderLayout)
+	helperH := text.MaxHeight(nf.cachedHelperLayout, nf.cachedErrorLayout)
 	gap := nf.cachedGap
 	labelY := bounds.Min.Y
 	if nf.cachedLabelLayout != nil {
@@ -550,12 +550,12 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 	valueStyle := resolved.TextStyle(theme.TextBodyM)
 	helperStyle := resolved.TextStyle(theme.TextBodyS)
 	displayText := nf.displayText()
-	labelLayout := nf.shapeTruncated(shaper, labelStyle, nf.Label, nf.availableWidth(constraints, resolved))
-	valueLayout := nf.shapeTruncated(shaper, valueStyle, displayText, nf.availableWidth(constraints, resolved)-nf.cachedStepperWidth)
-	placeholderLayout := nf.shapeTruncated(shaper, valueStyle, nf.Placeholder, nf.availableWidth(constraints, resolved)-nf.cachedStepperWidth)
+	labelLayout := shaper.ShapeTruncated(nf.Label, labelStyle, nf.availableWidth(constraints, resolved))
+	valueLayout := shaper.ShapeTruncated(displayText, valueStyle, nf.availableWidth(constraints, resolved)-nf.cachedStepperWidth)
+	placeholderLayout := shaper.ShapeTruncated(nf.Placeholder, valueStyle, nf.availableWidth(constraints, resolved)-nf.cachedStepperWidth)
 	helperText := nf.auxiliaryText()
-	helperLayout := nf.shapeTruncated(shaper, helperStyle, helperText, nf.availableWidth(constraints, resolved))
-	errorLayout := nf.shapeTruncated(shaper, helperStyle, nf.errorText(), nf.availableWidth(constraints, resolved))
+	helperLayout := shaper.ShapeTruncated(helperText, helperStyle, nf.availableWidth(constraints, resolved))
+	errorLayout := shaper.ShapeTruncated(nf.errorText(), helperStyle, nf.availableWidth(constraints, resolved))
 	valueLayout = nf.ensureTextLayout(valueLayout, valueStyle, true)
 	if valueLayout == nil {
 		return nil, nil, nil, nil, nil, nil
@@ -574,8 +574,8 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 	if fieldInnerWidth < 0 {
 		fieldInnerWidth = 0
 	}
-	valueLayout = nf.shapeTruncated(shaper, valueStyle, displayText, fieldInnerWidth)
-	placeholderLayout = nf.shapeTruncated(shaper, valueStyle, nf.Placeholder, fieldInnerWidth)
+	valueLayout = shaper.ShapeTruncated(displayText, valueStyle, fieldInnerWidth)
+	placeholderLayout = shaper.ShapeTruncated(nf.Placeholder, valueStyle, fieldInnerWidth)
 	valueLayout = nf.ensureTextLayout(valueLayout, valueStyle, true)
 	placeholderLayout = nf.ensureTextLayout(placeholderLayout, valueStyle, true)
 	fieldH := valueLayout.Bounds.Height() + nf.cachedPadY*2
@@ -671,57 +671,6 @@ func (nf *NumberField) ensureTextLayout(layout *text.TextLayout, style text.Text
 		return emptyCaretLayout(style)
 	}
 	return nil
-}
-
-func (nf *NumberField) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil {
-		return nil
-	}
-	if len(content) == 0 {
-		return layout
-	}
-	if maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	if len(runes) == 0 {
-		return layout
-	}
-	if ellipsis := shaper.ShapeSimple("…", style); ellipsis != nil && ellipsis.Bounds.Width() <= maxWidth {
-		best := 0
-		lo, hi := 0, len(runes)
-		for lo <= hi {
-			mid := (lo + hi) / 2
-			candidate := shaper.ShapeSimple(string(runes[:mid])+"…", style)
-			if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-				best = mid
-				lo = mid + 1
-				continue
-			}
-			hi = mid - 1
-		}
-		if best > 0 {
-			return shaper.ShapeSimple(string(runes[:best])+"…", style)
-		}
-		return ellipsis
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return layout
-	}
-	return shaper.ShapeSimple(string(runes[:best]), style)
 }
 
 func (nf *NumberField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
@@ -825,9 +774,10 @@ func (nf *NumberField) textCommands(layout *text.TextLayout, bounds gfx.Rect, ma
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds
@@ -1223,10 +1173,10 @@ func (nf *NumberField) currentSelection(layout *text.TextLayout) text.TextRange 
 		if start > end {
 			start, end = end, start
 		}
-		return text.TextRange{Start: start, End: end}
+		return text.GraphemeRange(start, end)
 	}
 	if !nf.textRole.Selection.IsEmpty() {
-		return clampRange(nf.textRole.Selection, layout.RuneCount())
+		return clampRange(nf.textRole.Selection, layout.GraphemeCount())
 	}
 	return text.TextRange{}
 }
@@ -1236,10 +1186,13 @@ func (nf *NumberField) currentCaret(layout *text.TextLayout) text.TextPosition {
 		return text.TextPosition{}
 	}
 	if nf.caret.Index < 0 {
-		return text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+		return text.GraphemePosition(0, text.AffinityDownstream)
 	}
-	if nf.caret.Index > layout.RuneCount() {
-		return text.TextPosition{Index: layout.RuneCount(), Affinity: text.AffinityUpstream}
+	if nf.caret.Unit == text.TextUnitGrapheme && nf.caret.Index > layout.GraphemeCount() {
+		return text.GraphemePosition(layout.GraphemeCount(), text.AffinityUpstream)
+	}
+	if nf.caret.Unit != text.TextUnitGrapheme && nf.caret.Index > layout.RuneCount() {
+		return text.RunePosition(layout.RuneCount(), text.AffinityUpstream)
 	}
 	return nf.caret
 }
@@ -1260,11 +1213,11 @@ func (nf *NumberField) selectAll() {
 	if nf.cachedValueLayout == nil {
 		return
 	}
-	count := nf.cachedValueLayout.RuneCount()
-	nf.caret = text.TextPosition{Index: count, Affinity: text.AffinityUpstream}
-	nf.selectionAnchor = text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+	count := nf.cachedValueLayout.GraphemeCount()
+	nf.caret = text.GraphemePosition(count, text.AffinityUpstream)
+	nf.selectionAnchor = text.GraphemePosition(0, text.AffinityDownstream)
 	nf.selecting = true
-	nf.textRole.Selection = text.TextRange{Start: 0, End: count}
+	nf.textRole.Selection = text.GraphemeRange(0, count)
 	nf.textRole.CaretPosition = nf.caret
 	nf.textRole.CaretVisible = true
 	nf.invalidate(facet.DirtyProjection)
@@ -1272,7 +1225,7 @@ func (nf *NumberField) selectAll() {
 
 func (nf *NumberField) setCaretAtStart(extend bool) {
 	nf.ensureCaretLayout()
-	nf.caret = text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+	nf.caret = text.GraphemePosition(0, text.AffinityDownstream)
 	nf.applyCaretMove(extend)
 }
 
@@ -1321,11 +1274,14 @@ func (nf *NumberField) deleteBackward() bool {
 	runes := []rune(nf.currentDisplayText())
 	sel := nf.currentSelection(nf.cachedValueLayout).Normalized()
 	if !sel.IsEmpty() {
-		runes = append(runes[:sel.Start], runes[sel.End:]...)
+		start, end := text.GraphemeRuneBoundsString(nf.currentDisplayText(), sel)
+		runes = append(runes[:start], runes[end:]...)
+		nf.caret = text.GraphemePosition(sel.Start, text.AffinityDownstream)
 	} else if nf.caret.Index > 0 {
-		idx := nf.caret.Index - 1
-		runes = append(runes[:idx], runes[nf.caret.Index:]...)
-		nf.caret = text.TextPosition{Index: idx, Affinity: text.AffinityDownstream}
+		prevCaret := text.GraphemePosition(nf.caret.Index-1, text.AffinityDownstream)
+		prevRune, caretRune := text.GraphemeRuneBoundsString(nf.currentDisplayText(), text.GraphemeRange(prevCaret.Index, nf.caret.Index))
+		runes = append(runes[:prevRune], runes[caretRune:]...)
+		nf.caret = prevCaret
 	}
 	nf.editing = true
 	nf.editingText = string(runes)
@@ -1349,9 +1305,10 @@ func (nf *NumberField) insertText(textValue string) {
 			sel.End = nf.caret.Index
 		}
 		insert := []rune(textValue)
-		next := append(append([]rune(nil), current[:sel.Start]...), append(insert, current[sel.End:]...)...)
+		start, end := text.GraphemeRuneBoundsString(nf.currentDisplayText(), sel)
+		next := append(append([]rune(nil), current[:start]...), append(insert, current[end:]...)...)
 		nf.editingText = string(next)
-		nf.caret = text.TextPosition{Index: sel.Start + len(insert), Affinity: text.AffinityUpstream}
+		nf.caret = text.GraphemePosition(sel.Start+text.GraphemeCountString(textValue), text.AffinityUpstream)
 		nf.selectionAnchor = nf.caret
 		nf.textRole.Selection = text.TextRange{}
 		nf.textRole.CaretPosition = nf.caret
@@ -1388,12 +1345,12 @@ func (nf *NumberField) ensureCaretLayout() {
 	if nf.cachedValueLayout != nil {
 		return
 	}
-	nf.caret = text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+	nf.caret = text.GraphemePosition(0, text.AffinityDownstream)
 }
 
 func (nf *NumberField) endCaret() text.TextPosition {
 	if nf.cachedValueLayout == nil {
-		return text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+		return text.GraphemePosition(0, text.AffinityDownstream)
 	}
 	return nf.cachedValueLayout.PositionAtLineEnd(nf.cachedValueLayout.LineCount() - 1)
 }

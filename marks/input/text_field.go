@@ -433,8 +433,8 @@ func (tf *TextField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if tf.cachedLabelLayout != nil {
 		labelH = tf.cachedLabelLayout.Bounds.Height()
 	}
-	valueH := layoutHeight(tf.cachedValueLayout, tf.cachedPlaceholderLayout)
-	helperH := layoutHeight(tf.cachedHelperLayout, tf.cachedErrorLayout)
+	valueH := text.MaxHeight(tf.cachedValueLayout, tf.cachedPlaceholderLayout)
+	helperH := text.MaxHeight(tf.cachedHelperLayout, tf.cachedErrorLayout)
 	gap := tf.cachedGap
 
 	labelY := bounds.Min.Y
@@ -506,13 +506,13 @@ func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.
 	labelStyle := resolved.TextStyle(theme.TextLabelM)
 	valueStyle := resolved.TextStyle(theme.TextBodyM)
 	helperStyle := resolved.TextStyle(theme.TextBodyS)
-	labelLayout := tf.shapeTruncated(shaper, labelStyle, tf.Label, tf.availableWidth(constraints, resolved))
+	labelLayout := shaper.ShapeTruncated(tf.Label, labelStyle, tf.availableWidth(constraints, resolved))
 	valueText := tf.currentValue()
-	valueLayout := tf.shapeTruncated(shaper, valueStyle, valueText, tf.availableWidth(constraints, resolved))
-	placeholderLayout := tf.shapeTruncated(shaper, valueStyle, tf.placeholderText(), tf.availableWidth(constraints, resolved))
+	valueLayout := shaper.ShapeTruncated(valueText, valueStyle, tf.availableWidth(constraints, resolved))
+	placeholderLayout := shaper.ShapeTruncated(tf.placeholderText(), valueStyle, tf.availableWidth(constraints, resolved))
 	helperText := tf.auxiliaryText()
-	helperLayout := tf.shapeTruncated(shaper, helperStyle, helperText, tf.availableWidth(constraints, resolved))
-	errorLayout := tf.shapeTruncated(shaper, helperStyle, tf.errorText(), tf.availableWidth(constraints, resolved))
+	helperLayout := shaper.ShapeTruncated(helperText, helperStyle, tf.availableWidth(constraints, resolved))
+	errorLayout := shaper.ShapeTruncated(tf.errorText(), helperStyle, tf.availableWidth(constraints, resolved))
 	valueLayout = tf.ensureTextLayout(valueLayout, valueStyle, true)
 	if valueLayout == nil {
 		return nil, nil, nil, nil, nil, nil
@@ -535,8 +535,8 @@ func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.
 	if fieldInnerWidth < 0 {
 		fieldInnerWidth = 0
 	}
-	valueLayout = tf.shapeTruncated(shaper, valueStyle, valueText, fieldInnerWidth)
-	placeholderLayout = tf.shapeTruncated(shaper, valueStyle, tf.placeholderText(), fieldInnerWidth)
+	valueLayout = shaper.ShapeTruncated(valueText, valueStyle, fieldInnerWidth)
+	placeholderLayout = shaper.ShapeTruncated(tf.placeholderText(), valueStyle, fieldInnerWidth)
 	valueLayout = tf.ensureTextLayout(valueLayout, valueStyle, true)
 	placeholderLayout = tf.ensureTextLayout(placeholderLayout, valueStyle, true)
 
@@ -635,57 +635,6 @@ func (tf *TextField) ensureTextLayout(layout *text.TextLayout, style text.TextSt
 	return nil
 }
 
-func (tf *TextField) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil {
-		return nil
-	}
-	if len(content) == 0 {
-		return layout
-	}
-	if maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	if len(runes) == 0 {
-		return layout
-	}
-	if ellipsis := shaper.ShapeSimple("…", style); ellipsis != nil && ellipsis.Bounds.Width() <= maxWidth {
-		best := 0
-		lo, hi := 0, len(runes)
-		for lo <= hi {
-			mid := (lo + hi) / 2
-			candidate := shaper.ShapeSimple(string(runes[:mid])+"…", style)
-			if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-				best = mid
-				lo = mid + 1
-				continue
-			}
-			hi = mid - 1
-		}
-		if best > 0 {
-			return shaper.ShapeSimple(string(runes[:best])+"…", style)
-		}
-		return ellipsis
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return layout
-	}
-	return shaper.ShapeSimple(string(runes[:best]), style)
-}
-
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
 	if isTransparentMaterial(material) {
 		return nil
@@ -746,16 +695,6 @@ func isTransparentMaterial(material theme.Material) bool {
 		}
 	}
 	return true
-}
-
-func layoutHeight(primary, fallback *text.TextLayout) float32 {
-	if primary != nil {
-		return primary.Bounds.Height()
-	}
-	if fallback != nil {
-		return fallback.Bounds.Height()
-	}
-	return 0
 }
 
 func offsetTextRect(rect text.Rect, origin gfx.Point) gfx.Rect {
@@ -906,11 +845,12 @@ func (tf *TextField) textCommands(layout *text.TextLayout, bounds gfx.Rect, mate
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
 			cmds = append(cmds, gfx.DrawGlyphRun{
 				Run:    run,
-				Origin: lineOrigin,
+				Origin: runOrigin,
 				Brush:  brush,
 			})
 		}
@@ -1217,10 +1157,10 @@ func (tf *TextField) currentSelection(layout *text.TextLayout) text.TextRange {
 		if start > end {
 			start, end = end, start
 		}
-		return text.TextRange{Start: start, End: end}
+		return text.GraphemeRange(start, end)
 	}
 	if !tf.textRole.Selection.IsEmpty() {
-		return clampRange(tf.textRole.Selection, layout.RuneCount())
+		return clampRange(tf.textRole.Selection, layout.GraphemeCount())
 	}
 	return text.TextRange{}
 }
@@ -1230,10 +1170,13 @@ func (tf *TextField) currentCaret(layout *text.TextLayout) text.TextPosition {
 		return text.TextPosition{}
 	}
 	if tf.caret.Index < 0 {
-		return text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+		return text.GraphemePosition(0, text.AffinityDownstream)
 	}
-	if tf.caret.Index > layout.RuneCount() {
-		return text.TextPosition{Index: layout.RuneCount(), Affinity: text.AffinityUpstream}
+	if tf.caret.Unit == text.TextUnitGrapheme && tf.caret.Index > layout.GraphemeCount() {
+		return text.GraphemePosition(layout.GraphemeCount(), text.AffinityUpstream)
+	}
+	if tf.caret.Unit != text.TextUnitGrapheme && tf.caret.Index > layout.RuneCount() {
+		return text.RunePosition(layout.RuneCount(), text.AffinityUpstream)
 	}
 	return tf.caret
 }
@@ -1254,11 +1197,11 @@ func (tf *TextField) selectAll() {
 	if tf.cachedValueLayout == nil {
 		return
 	}
-	count := tf.cachedValueLayout.RuneCount()
-	tf.caret = text.TextPosition{Index: count, Affinity: text.AffinityUpstream}
-	tf.selectionAnchor = text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+	count := tf.cachedValueLayout.GraphemeCount()
+	tf.caret = text.GraphemePosition(count, text.AffinityUpstream)
+	tf.selectionAnchor = text.GraphemePosition(0, text.AffinityDownstream)
 	tf.selecting = true
-	tf.textRole.Selection = text.TextRange{Start: 0, End: count}
+	tf.textRole.Selection = text.GraphemeRange(0, count)
 	tf.textRole.CaretPosition = tf.caret
 	tf.textRole.CaretVisible = true
 	tf.invalidate(facet.DirtyProjection)
@@ -1266,7 +1209,7 @@ func (tf *TextField) selectAll() {
 
 func (tf *TextField) setCaretAtStart(extend bool) {
 	tf.ensureCaretLayout()
-	tf.caret = text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+	tf.caret = text.GraphemePosition(0, text.AffinityDownstream)
 	tf.applyCaretMove(extend)
 }
 
@@ -1315,8 +1258,9 @@ func (tf *TextField) deleteBackward() bool {
 	value := []rune(tf.currentValue())
 	sel := tf.currentSelection(tf.cachedValueLayout).Normalized()
 	if !sel.IsEmpty() {
-		tf.setValueRunes(append(value[:sel.Start], value[sel.End:]...))
-		tf.caret = text.TextPosition{Index: sel.Start, Affinity: text.AffinityDownstream}
+		start, end := text.GraphemeRuneBoundsString(tf.currentValue(), sel)
+		tf.setValueRunes(append(value[:start], value[end:]...))
+		tf.caret = text.GraphemePosition(sel.Start, text.AffinityDownstream)
 		tf.textRole.Selection = text.TextRange{}
 		tf.textRole.CaretPosition = tf.caret
 		tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
@@ -1325,9 +1269,10 @@ func (tf *TextField) deleteBackward() bool {
 	if tf.caret.Index <= 0 {
 		return true
 	}
-	idx := tf.caret.Index - 1
-	tf.setValueRunes(append(value[:idx], value[tf.caret.Index:]...))
-	tf.caret = text.TextPosition{Index: idx, Affinity: text.AffinityDownstream}
+	prevCaret := text.GraphemePosition(tf.caret.Index-1, text.AffinityDownstream)
+	prevRune, caretRune := text.GraphemeRuneBoundsString(tf.currentValue(), text.GraphemeRange(prevCaret.Index, tf.caret.Index))
+	tf.setValueRunes(append(value[:prevRune], value[caretRune:]...))
+	tf.caret = prevCaret
 	tf.textRole.Selection = text.TextRange{}
 	tf.textRole.CaretPosition = tf.caret
 	tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
@@ -1349,10 +1294,11 @@ func (tf *TextField) insertText(textValue string) {
 		sel.End = tf.caret.Index
 	}
 	insert := []rune(textValue)
-	next := append(append([]rune(nil), value[:sel.Start]...), append(insert, value[sel.End:]...)...)
+	start, end := text.GraphemeRuneBoundsString(tf.currentValue(), sel)
+	next := append(append([]rune(nil), value[:start]...), append(insert, value[end:]...)...)
 	tf.setValueRunes(next)
-	newIndex := sel.Start + len(insert)
-	tf.caret = text.TextPosition{Index: newIndex, Affinity: text.AffinityUpstream}
+	newIndex := sel.Start + text.GraphemeCountString(textValue)
+	tf.caret = text.GraphemePosition(newIndex, text.AffinityUpstream)
 	tf.textRole.Selection = text.TextRange{}
 	tf.textRole.CaretPosition = tf.caret
 	tf.textRole.CaretVisible = true
@@ -1370,12 +1316,12 @@ func (tf *TextField) ensureCaretLayout() {
 	if tf.cachedValueLayout != nil {
 		return
 	}
-	tf.caret = text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+	tf.caret = text.GraphemePosition(0, text.AffinityDownstream)
 }
 
 func (tf *TextField) endCaret() text.TextPosition {
 	if tf.cachedValueLayout == nil {
-		return text.TextPosition{Index: 0, Affinity: text.AffinityDownstream}
+		return text.GraphemePosition(0, text.AffinityDownstream)
 	}
 	return tf.cachedValueLayout.PositionAtLineEnd(tf.cachedValueLayout.LineCount() - 1)
 }

@@ -363,14 +363,14 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	tabHeights := make([]float32, len(t.Items))
 	for i := range t.Items {
 		item := t.Items[i]
-		labelLayouts[i] = t.shapeTruncated(shaper, t.cachedTabLabelStyle, item.Label, maxWidth)
+		labelLayouts[i] = shaper.ShapeTruncated(item.Label, t.cachedTabLabelStyle, maxWidth)
 		if item.IconRef != "" {
 			if asset, ok := t.resolveIcon(ctx.Runtime, item.IconRef); ok {
 				iconAssets[i] = asset
 			}
 		}
-		labelW := layoutWidth(labelLayouts[i])
-		labelH := layoutHeight(labelLayouts[i])
+		labelW := text.Width(labelLayouts[i])
+		labelH := text.Height(labelLayouts[i])
 		iconW := float32(0)
 		iconH := float32(0)
 		if item.IconRef != "" {
@@ -412,9 +412,9 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		stripH = resolved.Density.Scale(36)
 	}
 	panelText := t.activePanelText()
-	panelLayout := t.shapeTruncated(shaper, t.cachedPanelStyle, panelText, maxWidth)
-	panelTextW := layoutWidth(panelLayout)
-	panelTextH := layoutHeight(panelLayout)
+	panelLayout := shaper.ShapeTruncated(panelText, t.cachedPanelStyle, maxWidth)
+	panelTextW := text.Width(panelLayout)
+	panelTextH := text.Height(panelLayout)
 	panelH := panelTextH + t.cachedPanelPadY*2
 	if panelTextH <= 0 {
 		panelH = maxFloat(resolved.Density.Scale(84), stripH)
@@ -493,8 +493,8 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			curX += w + t.cachedTabGap
 		}
 		labelLayout := t.cachedTabLabelLayouts[i]
-		labelW := layoutWidth(labelLayout)
-		labelH := layoutHeight(labelLayout)
+		labelW := text.Width(labelLayout)
+		labelH := text.Height(labelLayout)
 		iconRect := t.cachedIconBounds[i]
 		contentW := labelW
 		if !iconRect.IsEmpty() && labelW > 0 {
@@ -507,25 +507,25 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			contentH = iconRect.Height()
 		}
 		contentX := t.cachedTabBounds[i].Min.X + maxFloat(0, (t.cachedTabBounds[i].Width()-contentW)*0.5)
-		contentY := t.cachedTabBounds[i].Min.Y + maxFloat(0, (t.cachedTabBounds[i].Height()-contentH)*0.5)
+		contentY := text.CenterY(t.cachedTabBounds[i], contentH)
 		if t.cachedWritingDirection == facet.WritingDirectionRTL {
 			contentX = t.cachedTabBounds[i].Max.X - maxFloat(0, (t.cachedTabBounds[i].Width()-contentW)*0.5) - contentW
 		}
 		if !iconRect.IsEmpty() {
 			if t.cachedWritingDirection == facet.WritingDirectionRTL {
-				iconRect = gfx.RectFromXYWH(contentX+labelW+t.cachedTabGap, contentY+(contentH-iconRect.Height())*0.5, iconRect.Width(), iconRect.Height())
+				iconRect = text.CenterRect(gfx.RectFromXYWH(contentX+labelW+t.cachedTabGap, contentY, iconRect.Width(), contentH), iconRect.Width(), iconRect.Height())
 				if labelLayout != nil {
-					t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(contentX, contentY+(contentH-labelH)*0.5, labelW, labelH)
+					t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(contentX, text.CenterY(t.cachedTabBounds[i], labelH), labelW, labelH)
 				}
 			} else {
-				iconRect = gfx.RectFromXYWH(contentX, contentY+(contentH-iconRect.Height())*0.5, iconRect.Width(), iconRect.Height())
+				iconRect = text.CenterRect(gfx.RectFromXYWH(contentX, contentY, iconRect.Width(), contentH), iconRect.Width(), iconRect.Height())
 				if labelLayout != nil {
-					t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(iconRect.Max.X+t.cachedTabGap, contentY+(contentH-labelH)*0.5, labelW, labelH)
+					t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(iconRect.Max.X+t.cachedTabGap, text.CenterY(t.cachedTabBounds[i], labelH), labelW, labelH)
 				}
 			}
 			t.cachedIconBounds[i] = iconRect
 		} else if labelLayout != nil {
-			t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(contentX, contentY+(contentH-labelH)*0.5, labelW, labelH)
+			t.cachedTabLabelBounds[i] = gfx.RectFromXYWH(contentX, text.CenterY(t.cachedTabBounds[i], labelH), labelW, labelH)
 		}
 	}
 	if len(t.cachedTabLabelLayouts) > 0 {
@@ -1021,42 +1021,6 @@ func (t *Tabs) fontRegistry(runtime any) *text.FontRegistry {
 	return nil
 }
 
-func (t *Tabs) shapeTruncated(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	content = strings.TrimSpace(content)
-	if content == "" || shaper == nil {
-		return nil
-	}
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	ellipsis := shaper.ShapeSimple("…", style)
-	if ellipsis == nil {
-		return layout
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return ellipsis
-	}
-	truncated := shaper.ShapeSimple(string(runes[:best])+"…", style)
-	if truncated == nil {
-		return ellipsis
-	}
-	return truncated
-}
-
 func (t *Tabs) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
 	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
 		return nil
@@ -1065,9 +1029,10 @@ func (t *Tabs) textCommands(layout *text.TextLayout, bounds gfx.Rect, material t
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds
@@ -1186,7 +1151,7 @@ func (t *Tabs) indexEnabledAt(index int) bool {
 }
 
 func tabItemHeight(layout *text.TextLayout, iconBounds gfx.Rect, padY float32) float32 {
-	labelH := layoutHeight(layout)
+	labelH := text.Height(layout)
 	iconH := iconBounds.Height()
 	if labelH < iconH {
 		labelH = iconH
@@ -1195,20 +1160,6 @@ func tabItemHeight(layout *text.TextLayout, iconBounds gfx.Rect, padY float32) f
 		labelH = 20
 	}
 	return labelH + padY*2
-}
-
-func layoutWidth(layout *text.TextLayout) float32 {
-	if layout == nil {
-		return 0
-	}
-	return layout.Bounds.Width()
-}
-
-func layoutHeight(layout *text.TextLayout) float32 {
-	if layout == nil {
-		return 0
-	}
-	return layout.Bounds.Height()
 }
 
 type tabsGroupPolicy struct{}

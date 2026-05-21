@@ -372,7 +372,7 @@ func (b *Button) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	trailingW := b.cachedTrailingBox.Width()
 	trailingH := b.cachedTrailingBox.Height()
 	contentH := maxFloat(labelH, maxFloat(leadingH, trailingH))
-	contentTop := bounds.Min.Y + maxFloat(0, (bounds.Height()-contentH)/2)
+	contentTop := text.CenterY(bounds, contentH)
 	labelY := contentTop + maxFloat(0, (contentH-labelH)/2)
 	writingDirection := layout.WritingDirectionLTR
 	if ctx.Theme != nil {
@@ -385,7 +385,7 @@ func (b *Button) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		right := bounds.Max.X - padX
 		if trailingW > 0 {
 			right -= trailingW
-			b.cachedTrailingBox = alignBoxY(gfx.RectFromXYWH(right, contentTop, trailingW, trailingH), contentTop, contentH)
+			b.cachedTrailingBox = text.AlignRectY(gfx.RectFromXYWH(right, contentTop, trailingW, trailingH), contentTop, contentH)
 			right -= gap
 		}
 		if labelW > 0 {
@@ -395,12 +395,12 @@ func (b *Button) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		if leadingW > 0 {
 			right -= leadingW
-			b.cachedLeadingBox = alignBoxY(gfx.RectFromXYWH(right, contentTop, leadingW, leadingH), contentTop, contentH)
+			b.cachedLeadingBox = text.AlignRectY(gfx.RectFromXYWH(right, contentTop, leadingW, leadingH), contentTop, contentH)
 		}
 	} else {
 		left := bounds.Min.X + padX
 		if leadingW > 0 {
-			b.cachedLeadingBox = alignBoxY(gfx.RectFromXYWH(left, contentTop, leadingW, leadingH), contentTop, contentH)
+			b.cachedLeadingBox = text.AlignRectY(gfx.RectFromXYWH(left, contentTop, leadingW, leadingH), contentTop, contentH)
 			left += leadingW + gap
 		}
 		if labelW > 0 {
@@ -408,7 +408,7 @@ func (b *Button) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			left += labelW + gap
 		}
 		if trailingW > 0 {
-			b.cachedTrailingBox = alignBoxY(gfx.RectFromXYWH(left, contentTop, trailingW, trailingH), contentTop, contentH)
+			b.cachedTrailingBox = text.AlignRectY(gfx.RectFromXYWH(left, contentTop, trailingW, trailingH), contentTop, contentH)
 		}
 	}
 
@@ -440,7 +440,7 @@ func (b *Button) resolveLabelLayout(ctx facet.MeasureContext, constraints facet.
 		return nil, text.TextStyle{}
 	}
 	shaper.SetContentScale(ctx.ContentScale)
-	layout := b.shapeTruncated(shaper, style, maxWidth)
+	layout := shaper.ShapeTruncated(b.Label, style, maxWidth)
 	if layout == nil {
 		return nil, text.TextStyle{}
 	}
@@ -540,51 +540,6 @@ func (b *Button) fontRegistry(runtime any) *text.FontRegistry {
 	return nil
 }
 
-func (b *Button) shapeTruncated(shaper *text.Shaper, style text.TextStyle, maxWidth float32) *text.TextLayout {
-	layout := shaper.ShapeSimple(b.Label, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(b.Label)
-	if len(runes) == 0 {
-		return layout
-	}
-	if ellipsis := shaper.ShapeSimple("…", style); ellipsis != nil && ellipsis.Bounds.Width() <= maxWidth {
-		best := 0
-		lo, hi := 0, len(runes)
-		for lo <= hi {
-			mid := (lo + hi) / 2
-			candidate := shaper.ShapeSimple(string(runes[:mid])+"…", style)
-			if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-				best = mid
-				lo = mid + 1
-				continue
-			}
-			hi = mid - 1
-		}
-		if best > 0 {
-			return shaper.ShapeSimple(string(runes[:best])+"…", style)
-		}
-		return ellipsis
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return layout
-	}
-	return shaper.ShapeSimple(string(runes[:best]), style)
-}
-
 func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if b == nil || bounds.IsEmpty() || b.cachedLayout == nil {
 		return nil
@@ -630,11 +585,12 @@ func (b *Button) labelCommands(material theme.Material) []gfx.Command {
 	baseOrigin := gfx.Point{X: b.cachedLabelBounds.Min.X + b.cachedLayout.Bounds.Min.X, Y: b.cachedLabelBounds.Min.Y + b.cachedLayout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(b.cachedLayout.Lines))
 	for _, line := range b.cachedLayout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
 			cmds = append(cmds, gfx.DrawGlyphRun{
 				Run:    run,
-				Origin: lineOrigin,
+				Origin: runOrigin,
 				Brush:  b.cachedLabelBrush,
 			})
 		}
@@ -889,16 +845,6 @@ func isTransparentMaterial(material theme.Material) bool {
 		}
 	}
 	return true
-}
-
-func alignBoxY(r gfx.Rect, top, contentH float32) gfx.Rect {
-	if r.IsEmpty() {
-		return r
-	}
-	delta := maxFloat(0, (contentH-r.Height())/2)
-	r.Min.Y = top + delta
-	r.Max.Y = r.Min.Y + r.Height()
-	return r
 }
 
 func minFloat(a, b float32) float32 {

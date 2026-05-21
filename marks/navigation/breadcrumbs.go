@@ -327,12 +327,12 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 		if i == b.clampedCurrentIndex() {
 			style = b.cachedCurrentStyle
 		}
-		labelLayouts[i] = shapeTruncatedText(shaper, style, b.Items[i].Label, maxWidth)
+		labelLayouts[i] = shaper.ShapeTruncated(b.Items[i].Label, style, maxWidth)
 		if labelLayouts[i] != nil {
 			labelBounds[i] = gfx.RectFromXYWH(0, 0, labelLayouts[i].Bounds.Width(), labelLayouts[i].Bounds.Height())
 		}
 	}
-	separatorLayout := shapeTruncatedText(shaper, b.cachedSeparatorStyle, "/", maxWidth)
+	separatorLayout := shaper.ShapeTruncated("/", b.cachedSeparatorStyle, maxWidth)
 	stripW := float32(0)
 	stripH := float32(0)
 	for i := range labelLayouts {
@@ -343,13 +343,13 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 			}
 			stripW += b.cachedGap
 		}
-		stripW += layoutWidth(labelLayouts[i])
-		if h := layoutHeight(labelLayouts[i]); h > stripH {
+		stripW += text.Width(labelLayouts[i])
+		if h := text.Height(labelLayouts[i]); h > stripH {
 			stripH = h
 		}
 	}
-	if separatorLayout != nil && layoutHeight(separatorLayout) > stripH {
-		stripH = layoutHeight(separatorLayout)
+	if separatorLayout != nil && text.Height(separatorLayout) > stripH {
+		stripH = text.Height(separatorLayout)
 	}
 	if stripH <= 0 {
 		stripH = resolved.Density.Scale(20)
@@ -416,17 +416,17 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	separatorIndex := 0
 	for vi, index := range visualIndices {
 		labelLayout := b.cachedLabelLayouts[index]
-		labelW := layoutWidth(labelLayout)
-		labelH := layoutHeight(labelLayout)
+		labelW := text.Width(labelLayout)
+		labelH := text.Height(labelLayout)
 		itemRect := gfx.Rect{}
 		if b.cachedWritingDirection == facet.WritingDirectionRTL {
 			curX -= labelW
 			itemRect = gfx.RectFromXYWH(curX, listBounds.Min.Y, labelW, stripH)
 			curX -= b.cachedGap
 			if b.cachedSeparatorLayout != nil && vi < len(visualIndices)-1 {
-				sepW := layoutWidth(b.cachedSeparatorLayout)
+				sepW := text.Width(b.cachedSeparatorLayout)
 				curX -= sepW
-				sepY := listBounds.Min.Y + maxFloat(0, (stripH-layoutHeight(b.cachedSeparatorLayout))*0.5)
+				sepY := text.CenterY(gfx.RectFromXYWH(listBounds.Min.X, listBounds.Min.Y, listBounds.Width(), stripH), text.Height(b.cachedSeparatorLayout))
 				b.cachedSeparatorBounds[separatorIndex] = gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, sepY-b.cachedSeparatorLayout.Bounds.Min.Y, sepW, stripH)
 				curX -= b.cachedGap
 				separatorIndex++
@@ -436,8 +436,8 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			curX += labelW
 			if b.cachedSeparatorLayout != nil && vi < len(visualIndices)-1 {
 				curX += b.cachedGap
-				sepW := layoutWidth(b.cachedSeparatorLayout)
-				sepY := listBounds.Min.Y + maxFloat(0, (stripH-layoutHeight(b.cachedSeparatorLayout))*0.5)
+				sepW := text.Width(b.cachedSeparatorLayout)
+				sepY := text.CenterY(gfx.RectFromXYWH(listBounds.Min.X, listBounds.Min.Y, listBounds.Width(), stripH), text.Height(b.cachedSeparatorLayout))
 				b.cachedSeparatorBounds[separatorIndex] = gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, sepY-b.cachedSeparatorLayout.Bounds.Min.Y, sepW, stripH)
 				curX += sepW + b.cachedGap
 				separatorIndex++
@@ -446,7 +446,7 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		b.cachedItemBounds[index] = itemRect
 		if labelLayout != nil {
 			labelX := itemRect.Min.X + maxFloat(0, (itemRect.Width()-labelW)*0.5)
-			labelY := itemRect.Min.Y + maxFloat(0, (itemRect.Height()-labelH)*0.5)
+			labelY := text.CenterY(itemRect, labelH)
 			b.cachedLabelBounds[index] = gfx.RectFromXYWH(labelX-labelLayout.Bounds.Min.X, labelY-labelLayout.Bounds.Min.Y, labelW, labelH)
 		}
 	}
@@ -943,7 +943,7 @@ func (b *Breadcrumbs) fontRegistry(runtime any) *text.FontRegistry {
 func resolvedHeightFallback(labels []*text.TextLayout, sep *text.TextLayout) float32 {
 	h := float32(0)
 	for _, l := range labels {
-		if hh := layoutHeight(l); hh > h {
+		if hh := text.Height(l); hh > h {
 			h = hh
 		}
 	}
@@ -956,42 +956,6 @@ func resolvedHeightFallback(labels []*text.TextLayout, sep *text.TextLayout) flo
 	return h
 }
 
-func shapeTruncatedText(shaper *text.Shaper, style text.TextStyle, content string, maxWidth float32) *text.TextLayout {
-	content = strings.TrimSpace(content)
-	if content == "" || shaper == nil {
-		return nil
-	}
-	layout := shaper.ShapeSimple(content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(content)
-	ellipsis := shaper.ShapeSimple("…", style)
-	if ellipsis == nil {
-		return layout
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return ellipsis
-	}
-	truncated := shaper.ShapeSimple(string(runes[:best])+"…", style)
-	if truncated == nil {
-		return ellipsis
-	}
-	return truncated
-}
-
 func textCommandsForLayout(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
 	if layout == nil || bounds.IsEmpty() || isTransparentMaterial(material) {
 		return nil
@@ -1000,9 +964,10 @@ func textCommandsForLayout(layout *text.TextLayout, bounds gfx.Rect, material th
 	baseOrigin := gfx.Point{X: bounds.Min.X + layout.Bounds.Min.X, Y: bounds.Min.Y + layout.Bounds.Min.Y}
 	cmds := make([]gfx.Command, 0, len(layout.Lines))
 	for _, line := range layout.Lines {
-		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{X: baseOrigin.X + line.Bounds.Min.X, Y: baseOrigin.Y + line.Bounds.Min.Y + line.Baseline}
 		for _, run := range line.Runs {
-			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: lineOrigin, Brush: brush})
+			runOrigin := gfx.Point{X: lineOrigin.X + run.Bounds.Min.X, Y: lineOrigin.Y + run.Bounds.Min.Y}
+			cmds = append(cmds, gfx.DrawGlyphRun{Run: run, Origin: runOrigin, Brush: brush})
 		}
 	}
 	return cmds

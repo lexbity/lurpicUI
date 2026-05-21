@@ -1,0 +1,341 @@
+package feedback
+
+import (
+	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"unsafe"
+
+	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/render"
+	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/text"
+	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme/recipes/uifeedback"
+)
+
+type alertRuntimeStub struct {
+	rootStyle any
+	fonts     *text.FontRegistry
+}
+
+func (s alertRuntimeStub) Schedule(j job.AnyJob)  {}
+func (s alertRuntimeStub) CancelJob(id job.JobID) {}
+func (s alertRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
+}
+func (s alertRuntimeStub) RootStyleContext() any { return s.rootStyle }
+func (s alertRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
+	return nil
+}
+func (s alertRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+
+func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
+	alert := newAlertFixture()
+	tokens := alertTokens()
+	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	rt := alertRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		fonts:     mustAlertFontRegistry(t),
+	}
+
+	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
+	result := alert.layoutRole.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            resolved,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 240}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
+	alert.layoutRole.Arrange(facet.ArrangeContext{
+		Runtime:     rt,
+		Theme:       resolved,
+		ParentGroup: alert.layoutRole.Parent,
+		ChildGroup:  alert.layoutRole.Child,
+		Placement:   facet.Placement{Mode: facet.PlacementLinear},
+	}, bounds)
+
+	if got := alert.AccessibilityRole(); got != "alert" {
+		t.Fatalf("accessibility role = %q, want alert", got)
+	}
+	if got := alert.AccessibleName(); got != "Network unavailable The system will retry automatically." {
+		t.Fatalf("accessible name = %q", got)
+	}
+	if len(alert.Children()) != 5 {
+		t.Fatalf("expected five child facets, got %d", len(alert.Children()))
+	}
+	if alert.cachedIconBounds.IsEmpty() || alert.cachedTitleBounds.IsEmpty() || alert.cachedMessageBounds.IsEmpty() {
+		t.Fatalf("expected arranged core geometry, got icon=%#v title=%#v message=%#v", alert.cachedIconBounds, alert.cachedTitleBounds, alert.cachedMessageBounds)
+	}
+	anchors := alert.ExportAnchors(layout.AnchorExportContext{ResolvedLayer: layout.ResolvedLayer{Bounds: bounds}})
+	for _, name := range []layout.AnchorID{"bounds_center", "bounds_top_left", "bounds_top_right", "bounds_bottom_left", "bounds_bottom_right", "alert_surface", "icon", "title", "message", "action", "close_button"} {
+		if _, ok := anchors[name]; !ok {
+			t.Fatalf("missing anchor %q", name)
+		}
+	}
+	cmds := alert.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projected commands")
+	}
+	var sawGlyphRun, sawFillPath bool
+	for _, cmd := range cmds.Commands {
+		switch cmd.(type) {
+		case gfx.DrawGlyphRun:
+			sawGlyphRun = true
+		case gfx.FillPath:
+			sawFillPath = true
+		}
+	}
+	if !sawGlyphRun {
+		t.Fatal("expected glyph commands")
+	}
+	if !sawFillPath {
+		t.Fatal("expected fill path commands")
+	}
+}
+
+func TestAlertInteractionsEmitActionAndDismiss(t *testing.T) {
+	alert := newAlertFixture()
+	tokens := alertTokens()
+	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	rt := alertRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		fonts:     mustAlertFontRegistry(t),
+	}
+
+	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
+	_ = alert.layoutRole.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            resolved,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 240}})
+	alert.layoutRole.Arrange(facet.ArrangeContext{
+		Runtime:     rt,
+		Theme:       resolved,
+		ParentGroup: alert.layoutRole.Parent,
+		ChildGroup:  alert.layoutRole.Child,
+		Placement:   facet.Placement{Mode: facet.PlacementLinear},
+	}, gfx.RectFromXYWH(0, 0, alert.layoutRole.MeasuredSize.W, alert.layoutRole.MeasuredSize.H))
+
+	var actioned, dismissed int
+	alert.Actioned.Subscribe(func(signal.Unit) { actioned++ })
+	alert.Dismissed.Subscribe(func(signal.Unit) { dismissed++ })
+
+	actionButton := alert.cachedActionButton
+	if actionButton == nil {
+		t.Fatal("expected action button")
+	}
+	actionBounds := alert.cachedActionBounds
+	if !actionButton.Base().InputRole().OnPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: actionBounds.Min, Button: platform.PointerLeft}) {
+		t.Fatal("expected action press to be handled")
+	}
+	if !actionButton.Base().InputRole().OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: actionBounds.Min, Button: platform.PointerLeft}) {
+		t.Fatal("expected action release to be handled")
+	}
+	if actioned != 1 {
+		t.Fatalf("expected one action emission, got %d", actioned)
+	}
+
+	if !alert.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEscape}) {
+		t.Fatal("expected escape to be handled")
+	}
+	if dismissed != 1 {
+		t.Fatalf("expected one dismiss emission, got %d", dismissed)
+	}
+}
+
+func TestAlertRecipe_exposes_expected_slots(t *testing.T) {
+	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
+	slots, report := uifeedback.ResolveAlertRecipe(ctx, uifeedback.AlertDefault)
+	if report.Family != "uifeedback" {
+		t.Fatalf("family = %q", report.Family)
+	}
+	if report.Variant != theme.VariantKey("default") {
+		t.Fatalf("variant = %q", report.Variant)
+	}
+	for _, name := range []string{"Root", "AlertSurface", "Icon", "Title", "Message", "Action", "CloseButton"} {
+		if _, ok := report.SlotSource(name); !ok {
+			t.Fatalf("expected slot source for %s", name)
+		}
+	}
+	if slots.Root.Base.Opacity != 0 {
+		t.Fatal("expected transparent root slot")
+	}
+	if slots.AlertSurface.Base.Fills == nil {
+		t.Fatal("expected alert surface fill")
+	}
+}
+
+func TestAlertGoldenDefault(t *testing.T) {
+	AssertAlertGolden(t, "default", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {})
+}
+
+func TestAlertGoldenCompact(t *testing.T) {
+	AssertAlertGolden(t, "compact", alertTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(a *Alert) {})
+}
+
+func TestAlertGoldenComfortable(t *testing.T) {
+	AssertAlertGolden(t, "comfortable", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {})
+}
+
+func TestAlertGoldenDisabled(t *testing.T) {
+	AssertAlertGolden(t, "disabled", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {
+		a.SetDisabled(true)
+	})
+}
+
+func TestAlertGoldenHighContrast(t *testing.T) {
+	AssertAlertGolden(t, "high_contrast", alertHighContrastTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {})
+}
+
+func TestAlertGoldenHovered(t *testing.T) {
+	AssertAlertGolden(t, "hovered", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {
+		a.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: gfx.Point{X: 8, Y: 8}})
+	})
+}
+
+func TestAlertGoldenPressed(t *testing.T) {
+	AssertAlertGolden(t, "pressed", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {
+		a.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 8, Y: 8}, Button: platform.PointerLeft})
+	})
+}
+
+func TestAlertGoldenRTL(t *testing.T) {
+	AssertAlertGolden(t, "rtl", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(a *Alert) {})
+}
+
+func AssertAlertGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Alert)) {
+	t.Helper()
+	alert := newAlertFixture()
+	if mutate != nil {
+		mutate(alert)
+	}
+	rt := alertRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		fonts:     mustAlertFontRegistry(t),
+	}
+	resolved := alertResolvedContext(tokens, density, direction)
+	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
+	canvas := gfx.RectFromXYWH(16, 16, 360, 240)
+	_ = alert.layoutRole.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            resolved,
+		ContentScale:     1,
+		Density:          facet.DensityID(density),
+		WritingDirection: facet.WritingDirection(direction),
+	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
+	alert.layoutRole.Arrange(facet.ArrangeContext{
+		Runtime:     rt,
+		Theme:       resolved,
+		ParentGroup: alert.layoutRole.Parent,
+		ChildGroup:  alert.layoutRole.Child,
+		Placement:   facet.Placement{Mode: facet.PlacementLinear},
+	}, canvas)
+	cmds := alert.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	if cmds == nil {
+		t.Fatal("expected projected commands")
+	}
+	surface := testkit.NewMemorySurface(392, 272)
+	renderer := softwarerenderer.NewSoftwareRenderer()
+	if err := renderer.Initialize(surface); err != nil {
+		t.Fatalf("initialize renderer: %v", err)
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:          1,
+			Bounds:      canvas,
+			Opacity:     1,
+			Commands:    *cmds,
+			CommandHash: 1,
+		}},
+	}
+	if err := renderer.Submit(frame); err != nil {
+		t.Fatalf("submit frame: %v", err)
+	}
+	testkit.AssertGolden(t, surface, "alert_"+name)
+}
+
+func newAlertFixture() *Alert {
+	alert := NewAlert("Network unavailable", "The system will retry automatically.")
+	alert.SetActionLabel("Retry")
+	alert.SetCloseButtonLabel("Dismiss")
+	return alert
+}
+
+func alertTokens() theme.Tokens {
+	tokens := theme.DefaultTokens()
+	tokens.Color.Background = gfx.ColorFromRGBA8(247, 248, 252, 255)
+	tokens.Color.Surface = gfx.ColorFromRGBA8(255, 255, 255, 255)
+	tokens.Color.SurfaceVariant = gfx.ColorFromRGBA8(245, 247, 250, 255)
+	tokens.Color.OnBackground = gfx.ColorFromRGBA8(29, 30, 36, 255)
+	tokens.Color.OnSurface = gfx.ColorFromRGBA8(29, 30, 36, 255)
+	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(93, 99, 117, 255)
+	tokens.Color.Primary = gfx.ColorFromRGBA8(70, 98, 220, 255)
+	tokens.Color.OnPrimary = gfx.ColorFromRGBA8(255, 255, 255, 255)
+	tokens.Color.DisabledOpacity = 0.42
+	return tokens
+}
+
+func alertHighContrastTokens() theme.Tokens {
+	tokens := alertTokens()
+	tokens.Color.Primary = gfx.ColorFromRGBA8(0, 74, 173, 255)
+	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(0, 0, 0, 255)
+	return tokens
+}
+
+func alertResolvedContext(tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) theme.ResolvedContext {
+	ctx := theme.DefaultResolvedContext()
+	rv := reflect.ValueOf(&ctx).Elem()
+	field := rv.FieldByName("defaultContext")
+	fieldCopy := reflect.NewAt(field.Type(), unsafe.Pointer(field.UnsafeAddr())).Elem()
+	tokensField := fieldCopy.FieldByName("tokens")
+	reflect.NewAt(tokensField.Type(), unsafe.Pointer(tokensField.UnsafeAddr())).Elem().Set(reflect.ValueOf(tokens))
+	ctx = ctx.WithDensity(theme.DefaultDensityScale(density, tokens))
+	ctx = ctx.WithWritingDirection(direction)
+	return ctx
+}
+
+func mustAlertFontRegistry(t *testing.T) *text.FontRegistry {
+	t.Helper()
+	reg, err := text.NewFontRegistry()
+	if err != nil {
+		t.Fatalf("new font registry: %v", err)
+	}
+	data := mustReadAlertFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
+		t.Fatalf("load font: %v", err)
+	}
+	return reg
+}
+
+func mustReadAlertFont(t *testing.T, rel string) []byte {
+	t.Helper()
+	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
+	if err != nil {
+		t.Fatalf("go env GOMODCACHE: %v", err)
+	}
+	path := filepath.Join(string(bytes.TrimSpace(out)), rel)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read font %q: %v", path, err)
+	}
+	return data
+}

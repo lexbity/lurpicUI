@@ -293,7 +293,7 @@ func (t *Text) resolveLayout(ctx facet.MeasureContext, constraints facet.Constra
 		})
 		return layout, style, layout != nil
 	case TextOverflowTruncate:
-		layout := t.shapeTruncated(shaper, style, maxWidth)
+		layout := shaper.ShapeTruncated(t.Content, style, maxWidth)
 		return layout, style, layout != nil
 	case TextOverflowScroll, TextOverflowClip:
 		fallthrough
@@ -301,51 +301,6 @@ func (t *Text) resolveLayout(ctx facet.MeasureContext, constraints facet.Constra
 		layout := shaper.ShapeSimple(t.Content, style)
 		return layout, style, layout != nil
 	}
-}
-
-func (t *Text) shapeTruncated(shaper *text.Shaper, style text.TextStyle, maxWidth float32) *text.TextLayout {
-	layout := shaper.ShapeSimple(t.Content, style)
-	if layout == nil || maxWidth <= 0 || layout.Bounds.Width() <= maxWidth {
-		return layout
-	}
-	runes := []rune(t.Content)
-	if len(runes) == 0 {
-		return layout
-	}
-	if ellipsis := shaper.ShapeSimple("…", style); ellipsis != nil && ellipsis.Bounds.Width() <= maxWidth {
-		best := 0
-		lo, hi := 0, len(runes)
-		for lo <= hi {
-			mid := (lo + hi) / 2
-			candidate := shaper.ShapeSimple(string(runes[:mid])+"…", style)
-			if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-				best = mid
-				lo = mid + 1
-				continue
-			}
-			hi = mid - 1
-		}
-		if best > 0 {
-			return shaper.ShapeSimple(string(runes[:best])+"…", style)
-		}
-		return ellipsis
-	}
-	best := 0
-	lo, hi := 0, len(runes)
-	for lo <= hi {
-		mid := (lo + hi) / 2
-		candidate := shaper.ShapeSimple(string(runes[:mid]), style)
-		if candidate != nil && candidate.Bounds.Width() <= maxWidth {
-			best = mid
-			lo = mid + 1
-			continue
-		}
-		hi = mid - 1
-	}
-	if best == 0 {
-		return layout
-	}
-	return shaper.ShapeSimple(string(runes[:best]), style)
 }
 
 func (t *Text) effectiveMaxWidth(constraints facet.Constraints) float32 {
@@ -396,11 +351,18 @@ func (t *Text) cachedLayoutCommands() []gfx.Command {
 		return nil
 	}
 	for _, line := range t.cachedLayout.Lines {
-		baseOrigin := gfx.Point{X: t.layoutRole.ArrangedBounds.Min.X + line.Bounds.Min.X, Y: t.layoutRole.ArrangedBounds.Min.Y + line.Bounds.Min.Y}
+		lineOrigin := gfx.Point{
+			X: t.layoutRole.ArrangedBounds.Min.X + line.Bounds.Min.X,
+			Y: t.layoutRole.ArrangedBounds.Min.Y + line.Bounds.Min.Y + line.Baseline,
+		}
 		for _, run := range line.Runs {
+			runOrigin := gfx.Point{
+				X: lineOrigin.X + run.Bounds.Min.X,
+				Y: lineOrigin.Y + run.Bounds.Min.Y,
+			}
 			cmds = append(cmds, gfx.DrawGlyphRun{
 				Run:    run,
-				Origin: baseOrigin,
+				Origin: runOrigin,
 				Brush:  gfx.SolidBrush(color),
 			})
 		}
