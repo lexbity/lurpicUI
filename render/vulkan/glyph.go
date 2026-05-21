@@ -1,26 +1,25 @@
 package vulkan
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/jpeg"
+	_ "image/png"
 	"math"
 	"sync"
 
+	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/text"
 	gotextrender "github.com/go-text/render"
 	"github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
+	_ "golang.org/x/image/tiff"
 	"golang.org/x/image/vector"
 )
 
 var _ = gotextrender.Renderer{}
-
-type glyphKey struct {
-	glyphID  uint32
-	faceKey  uint64
-	sizeBits uint32
-}
 
 type glyphEntry struct {
 	bitmap  *image.Alpha
@@ -30,30 +29,20 @@ type glyphEntry struct {
 
 type glyphAtlas struct {
 	mu             sync.Mutex
-	entries        map[glyphKey]*glyphEntry
+	entries        map[renderutil.GlyphAtlasKey]*glyphEntry
 	rasterizeCount int
 }
 
 func newGlyphAtlas() *glyphAtlas {
-	return &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)}
+	return &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
 }
 
 func (a *glyphAtlas) getOrRasterize(run text.GlyphRun, glyph text.PositionedGlyph) *glyphEntry {
 	if a == nil {
 		return nil
 	}
-	size := run.Size
-	if size <= 0 {
-		size = run.Style.Size
-	}
-	if size <= 0 {
-		size = 14
-	}
-	key := glyphKey{
-		glyphID:  glyph.GlyphID,
-		faceKey:  run.Face.CacheKey(),
-		sizeBits: math.Float32bits(size),
-	}
+	key := renderutil.GlyphAtlasKeyFromRun(run, glyph.GlyphID)
+	size := math.Float32frombits(key.SizeBits)
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -73,14 +62,7 @@ func uploadGlyphRun(run text.GlyphRun) error {
 	if run.Face.CacheKey() == 0 || len(run.Glyphs) == 0 {
 		return nil
 	}
-	size := run.Size
-	if size <= 0 {
-		size = run.Style.Size
-	}
-	if size <= 0 {
-		size = 14
-	}
-	sizeBits := math.Float32bits(size)
+	sizeBits := renderutil.GlyphSizeBits(run)
 	for _, glyph := range run.Glyphs {
 		if err := uploadGlyphEntry(run, glyph, sizeBits); err != nil {
 			return err
@@ -124,17 +106,20 @@ func rasterizeGlyphEntry(run text.GlyphRun, glyph text.PositionedGlyph, size flo
 
 	switch gd := data.(type) {
 	case font.GlyphOutline:
-		return rasterizeOutlineGlyph(gd, scale)
+		extents, ok := goFace.GlyphExtents(gid)
+		return rasterizeOutlineGlyph(gd, extents, ok, scale)
 	case font.GlyphSVG:
-		return rasterizeOutlineGlyph(gd.Outline, scale)
+		extents, ok := goFace.GlyphExtents(gid)
+		return rasterizeOutlineGlyph(gd.Outline, extents, ok, scale)
 	case font.GlyphBitmap:
-		return rasterizeBitmapGlyph(gd, scale)
+		extents, ok := goFace.GlyphExtents(gid)
+		return rasterizeBitmapGlyph(gd, extents, ok, scale)
 	default:
 		return nil
 	}
 }
 
-func rasterizeOutlineGlyph(outline font.GlyphOutline, scale float32) *glyphEntry {
+func rasterizeOutlineGlyph(outline font.GlyphOutline, extents font.GlyphExtents, hasExtents bool, scale float32) *glyphEntry {
 	if len(outline.Segments) == 0 {
 		return &glyphEntry{bitmap: image.NewAlpha(image.Rect(0, 0, 1, 1))}
 	}
@@ -164,38 +149,66 @@ func rasterizeOutlineGlyph(outline font.GlyphOutline, scale float32) *glyphEntry
 		}
 	}
 	ras.Draw(bmp, bmp.Bounds(), image.NewUniform(color.Alpha{A: 255}), image.Point{})
-	return &glyphEntry{
-		bitmap:  bmp,
-		offsetX: minX - 1,
-		offsetY: -maxY + 1,
+	entry := &glyphEntry{bitmap: bmp}
+	if hasExtents {
+		entry.offsetX = extents.XBearing*scale - 1
+		entry.offsetY = -extents.YBearing*scale - 1
+		return entry
 	}
+	entry.offsetX = minX - 1
+	entry.offsetY = -maxY - 1
+	return entry
 }
 
-func rasterizeBitmapGlyph(gd font.GlyphBitmap, scale float32) *glyphEntry {
-	w := maxInt(1, int(math.Ceil(float64(float32(gd.Width)*scale)))+2)
-	h := maxInt(1, int(math.Ceil(float64(float32(gd.Height)*scale)))+2)
-	bmp := image.NewAlpha(image.Rect(0, 0, w, h))
+func rasterizeBitmapGlyph(gd font.GlyphBitmap, extents font.GlyphExtents, hasExtents bool, scale float32) *glyphEntry {
 	if gd.Width <= 0 || gd.Height <= 0 {
-		return &glyphEntry{bitmap: bmp}
+		return &glyphEntry{bitmap: image.NewAlpha(image.Rect(0, 0, 1, 1))}
 	}
-	if gd.Format == font.BlackAndWhite {
-		for y := 0; y < h; y++ {
-			sy := clampInt(int(float32(y-1)/scale), 0, gd.Height-1)
-			for x := 0; x < w; x++ {
-				sx := clampInt(int(float32(x-1)/scale), 0, gd.Width-1)
-				idx := sy*gd.Width + sx
-				if idx < 0 || idx >= gd.Width*gd.Height {
-					continue
-				}
+
+	bmp := image.NewAlpha(image.Rect(0, 0, gd.Width, gd.Height))
+	switch gd.Format {
+	case font.BlackAndWhite:
+		if len(gd.Data) < ((gd.Width*gd.Height)+7)/8 {
+			return &glyphEntry{bitmap: bmp}
+		}
+		for y := 0; y < gd.Height; y++ {
+			for x := 0; x < gd.Width; x++ {
+				idx := y*gd.Width + x
 				bit := gd.Data[idx/8] >> uint(7-(idx%8))
 				if bit&1 == 1 {
 					bmp.SetAlpha(x, y, color.Alpha{A: 255})
 				}
 			}
 		}
-		return &glyphEntry{bitmap: bmp}
+	default:
+		src, _, err := image.Decode(bytes.NewReader(gd.Data))
+		if err != nil {
+			return &glyphEntry{bitmap: bmp}
+		}
+		bounds := src.Bounds()
+		if bounds.Empty() {
+			return &glyphEntry{bitmap: bmp}
+		}
+		bmp = image.NewAlpha(image.Rect(0, 0, bounds.Dx(), bounds.Dy()))
+		for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
+			for x := bounds.Min.X; x < bounds.Max.X; x++ {
+				bmp.SetAlpha(x-bounds.Min.X, y-bounds.Min.Y, color.Alpha{A: alphaFromColor(src.At(x, y))})
+			}
+		}
 	}
-	return &glyphEntry{bitmap: bmp}
+
+	entry := &glyphEntry{bitmap: bmp}
+	if gd.Outline != nil {
+		minX, _, _, maxY := outlineBounds(*gd.Outline, scale)
+		entry.offsetX = minX
+		entry.offsetY = -maxY
+		return entry
+	}
+	if hasExtents {
+		entry.offsetX = extents.XBearing * scale
+		entry.offsetY = -extents.YBearing * scale
+	}
+	return entry
 }
 
 func outlineBounds(outline font.GlyphOutline, scale float32) (minX, minY, maxX, maxY float32) {
@@ -245,4 +258,14 @@ func clampInt(v, min, max int) int {
 		return max
 	}
 	return v
+}
+
+func alphaFromColor(c color.Color) uint8 {
+	_, _, _, a := c.RGBA()
+	if a != 0 {
+		return uint8(a >> 8)
+	}
+	r, g, b, _ := c.RGBA()
+	gray := uint32((r*299 + g*587 + b*114) / 1000)
+	return uint8(gray >> 8)
 }

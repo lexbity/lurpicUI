@@ -117,8 +117,8 @@ func (cmd DrawPoints) isCommand()         {}
 func (cmd DrawGlyphRun) isCommand()       {}
 func (cmd DrawSelectionRects) isCommand() {}
 func (cmd DrawImage) isCommand()          {}
-func (cmd BeginRenderBatch) isCommand()         {}
-func (cmd EndRenderBatch) isCommand()           {}
+func (cmd BeginRenderBatch) isCommand()   {}
+func (cmd EndRenderBatch) isCommand()     {}
 
 func (cl *CommandList) Add(cmd Command) {
 	if cl == nil {

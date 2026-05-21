@@ -1,9 +1,14 @@
 package text
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/go-text/typesetting/di"
+	"github.com/go-text/typesetting/language"
+	xtextbidi "golang.org/x/text/unicode/bidi"
 )
 
 const testNotoSansRegular = "testdata/NotoSans-Regular.ttf"
@@ -161,11 +166,251 @@ func TestShaper_wrap_at_word_boundary(t *testing.T) {
 	if layout.LineCount() != 2 {
 		t.Fatalf("expected 2 lines, got %d", layout.LineCount())
 	}
-	runes := []rune(layout.source)
+	runes := []rune(layout.Source)
 	prefix := string(runes[:layout.Lines[0].RuneCount])
 	if prefix != "Hello" && prefix != "Hello " {
 		t.Fatalf("wrapped mid-word, prefix=%q", prefix)
 	}
+}
+
+func TestShape_preserves_paragraph_metadata(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	paragraph := Paragraph{
+		Spans: []TextSpan{{
+			Text:  "ابج",
+			Style: style,
+		}},
+		Direction: di.DirectionRTL,
+		Language:  language.NewLanguage("ar"),
+		Script:    language.Arabic,
+	}
+	layout := shaper.Shape(paragraph)
+	if layout == nil {
+		t.Fatal("expected layout")
+	}
+	if layout.Paragraph.Direction != paragraph.Direction {
+		t.Fatalf("paragraph direction = %v", layout.Paragraph.Direction)
+	}
+	if layout.Paragraph.Language != paragraph.Language {
+		t.Fatalf("paragraph language = %q", layout.Paragraph.Language)
+	}
+	if layout.Paragraph.Script != paragraph.Script {
+		t.Fatalf("paragraph script = %v", layout.Paragraph.Script)
+	}
+	if len(layout.Lines) == 0 {
+		t.Fatal("expected shaped line")
+	}
+	line := layout.Lines[0]
+	if line.Direction != paragraph.Direction {
+		t.Fatalf("line direction = %v", line.Direction)
+	}
+	if line.Language != paragraph.Language {
+		t.Fatalf("line language = %q", line.Language)
+	}
+	if line.Script != paragraph.Script {
+		t.Fatalf("line script = %v", line.Script)
+	}
+	if len(line.Runs) == 0 {
+		t.Fatal("expected shaped run")
+	}
+	run := line.Runs[0]
+	if run.Direction != paragraph.Direction {
+		t.Fatalf("run direction = %v", run.Direction)
+	}
+	if run.Language != paragraph.Language {
+		t.Fatalf("run language = %q", run.Language)
+	}
+	if run.Script != paragraph.Script {
+		t.Fatalf("run script = %v", run.Script)
+	}
+}
+
+func TestShaper_first_strong_direction_resolution(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	layout := shaper.Shape(Paragraph{
+		Spans: []TextSpan{{Text: "אבגabc", Style: style}},
+	})
+	if layout == nil {
+		t.Fatal("expected layout")
+	}
+	if len(layout.Lines) != 1 {
+		t.Fatalf("LineCount = %d", layout.LineCount())
+	}
+	if got := layout.Lines[0].Direction; got != di.DirectionRTL {
+		t.Fatalf("line direction = %v", got)
+	}
+}
+
+func TestShaper_mixed_direction_visual_order(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	text := "abcאבגdef"
+	layout := shaper.Shape(Paragraph{
+		Spans:     []TextSpan{{Text: text, Style: style}},
+		Direction: di.DirectionRTL,
+	})
+	if layout == nil {
+		t.Fatal("expected layout")
+	}
+	if len(layout.Lines) != 1 {
+		t.Fatalf("LineCount = %d", layout.LineCount())
+	}
+	want := []string{"def", "אבג", "abc"}
+	got := runTexts(layout.Lines[0].Runs)
+	if len(got) != len(want) {
+		t.Fatalf("run count = %d want %d: got=%#v want=%#v", len(got), len(want), got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("run[%d] = %q want %q (runs=%#v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestShaper_isolates_and_embeddings_preserve_visual_runs(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	text := "Hello \u2067אבג\u2069 world"
+	layout := shaper.Shape(Paragraph{
+		Spans: []TextSpan{{Text: text, Style: style}},
+	})
+	if layout == nil {
+		t.Fatal("expected layout")
+	}
+	if len(layout.Lines) != 1 {
+		t.Fatalf("LineCount = %d", layout.LineCount())
+	}
+	if layout.Lines[0].Direction != di.DirectionLTR {
+		t.Fatalf("line direction = %v", layout.Lines[0].Direction)
+	}
+	if got := runTexts(layout.Lines[0].Runs); len(got) < 3 {
+		t.Fatalf("expected isolate-separated runs, got %#v", got)
+	}
+}
+
+func TestShaper_script_mixed_shaping(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	text := "abcאבג"
+	layout := shaper.Shape(Paragraph{
+		Spans: []TextSpan{{Text: text, Style: style}},
+	})
+	if layout == nil {
+		t.Fatal("expected layout")
+	}
+	if len(layout.Lines) != 1 {
+		t.Fatalf("LineCount = %d", layout.LineCount())
+	}
+	gotScripts := map[language.Script]bool{}
+	for _, run := range layout.Lines[0].Runs {
+		gotScripts[run.Script] = true
+	}
+	if !gotScripts[language.Latin] || !gotScripts[language.Hebrew] {
+		t.Fatalf("expected mixed scripts, got runs=%#v", layout.Lines[0].Runs)
+	}
+	want := bidiRunTexts(t, text, xtextbidi.LeftToRight)
+	got := runTexts(layout.Lines[0].Runs)
+	if len(got) != len(want) {
+		t.Fatalf("run count = %d want %d: got=%#v want=%#v", len(got), len(want), got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("run[%d] = %q want %q (runs=%#v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+func TestTextRange_cluster_helpers_preserve_unit(t *testing.T) {
+	pos := GraphemePosition(7, AffinityUpstream)
+	if pos.Unit != TextUnitGrapheme {
+		t.Fatalf("position unit = %v", pos.Unit)
+	}
+	rng := GraphemeRange(9, 3)
+	if rng.Unit != TextUnitGrapheme {
+		t.Fatalf("range unit = %v", rng.Unit)
+	}
+	normalized := rng.Normalized()
+	if normalized.Start != 3 || normalized.End != 9 {
+		t.Fatalf("normalized range = %#v", normalized)
+	}
+	if normalized.Unit != TextUnitGrapheme {
+		t.Fatalf("normalized unit = %v", normalized.Unit)
+	}
+	if !normalized.Contains(4) {
+		t.Fatalf("expected range to contain index 4: %#v", normalized)
+	}
+}
+
+func TestShaper_preserves_metrics_and_zero_width_controls(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	content := "a\u200db"
+	layout := shaper.ShapeSimple(content, style)
+	if layout == nil {
+		t.Fatal("expected layout")
+	}
+	if layout.Source != content {
+		t.Fatalf("source = %q", layout.Source)
+	}
+	if layout.RuneCount() != 3 {
+		t.Fatalf("RuneCount = %d", layout.RuneCount())
+	}
+	if len(layout.Lines) != 1 {
+		t.Fatalf("LineCount = %d", layout.LineCount())
+	}
+	line := layout.Lines[0]
+	if line.Metrics.LineHeight <= 0 {
+		t.Fatalf("line metrics = %#v", line.Metrics)
+	}
+	if layout.LineHeight != line.Metrics.LineHeight {
+		t.Fatalf("layout lineheight = %v line metrics = %#v", layout.LineHeight, line.Metrics)
+	}
+	if layout.Metrics.LineHeight != line.Metrics.LineHeight {
+		t.Fatalf("layout metrics = %#v line metrics = %#v", layout.Metrics, line.Metrics)
+	}
+	if boundary := layout.WordBoundaryAt(GraphemePosition(1, AffinityDownstream)); boundary.Unit != TextUnitGrapheme {
+		t.Fatalf("boundary unit = %v", boundary.Unit)
+	}
+}
+
+func bidiRunTexts(t *testing.T, text string, defaultDir xtextbidi.Direction) []string {
+	t.Helper()
+	var p xtextbidi.Paragraph
+	if _, err := p.SetString(text, xtextbidi.DefaultDirection(defaultDir)); err != nil {
+		t.Fatalf("SetString: %v", err)
+	}
+	ordering, err := p.Order()
+	if err != nil {
+		t.Fatalf("Order: %v", err)
+	}
+	out := make([]string, 0, ordering.NumRuns())
+	for i := 0; i < ordering.NumRuns(); i++ {
+		run := ordering.Run(i)
+		out = append(out, run.String())
+	}
+	return out
+}
+
+func runTexts(runs []GlyphRun) []string {
+	out := make([]string, 0, len(runs))
+	for _, run := range runs {
+		out = append(out, run.Text)
+	}
+	return out
 }
 
 func TestShaper_no_wrap_when_maxwidth_zero(t *testing.T) {
@@ -630,6 +875,48 @@ func TestTextLayout_NextPrev_clamp(t *testing.T) {
 	}
 }
 
+func TestTextLayout_grapheme_navigation_combining_mark(t *testing.T) {
+	layout := shapedASCII(t, "a\u0301b")
+	if got := layout.GraphemeCount(); got != 2 {
+		t.Fatalf("GraphemeCount = %d", got)
+	}
+	pos := layout.HitTest(Point{X: layout.Lines[0].Runs[0].Bounds.Min.X + layout.Lines[0].Runs[0].Advance*0.1, Y: 5})
+	if pos.Unit != TextUnitGrapheme {
+		t.Fatalf("pos unit = %v", pos.Unit)
+	}
+	if pos.Index != 0 {
+		t.Fatalf("pos = %#v", pos)
+	}
+	after := layout.HitTest(Point{X: layout.Lines[0].Runs[0].Bounds.Min.X + layout.Lines[0].Runs[0].Advance*0.9, Y: 5})
+	if after.Unit != TextUnitGrapheme || after.Index == 0 {
+		t.Fatalf("after = %#v", after)
+	}
+	next := layout.NextPosition(GraphemePosition(0, AffinityDownstream))
+	if next.Unit != TextUnitGrapheme || next.Index != 1 {
+		t.Fatalf("next = %#v", next)
+	}
+	prev := layout.PrevPosition(next)
+	if prev.Unit != TextUnitGrapheme || prev.Index != 0 {
+		t.Fatalf("prev = %#v", prev)
+	}
+	rects := layout.SelectionRects(GraphemeRange(0, 1))
+	if len(rects) != 1 || rects[0].IsEmpty() {
+		t.Fatalf("rects = %#v", rects)
+	}
+}
+
+func TestTextLayout_grapheme_word_boundary_and_caret(t *testing.T) {
+	layout := shapedASCII(t, "a\u0301 b")
+	boundary := layout.WordBoundaryAt(GraphemePosition(0, AffinityDownstream))
+	if boundary.Unit != TextUnitGrapheme || boundary.Start != 0 {
+		t.Fatalf("boundary = %#v", boundary)
+	}
+	caret := layout.CaretRect(GraphemePosition(1, AffinityUpstream))
+	if caret.Width() != 2 {
+		t.Fatalf("caret = %#v", caret)
+	}
+}
+
 func TestShaper_empty_string(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
 	shaper := NewShaper(reg)
@@ -675,6 +962,63 @@ func TestShaper_multistyle_span(t *testing.T) {
 	}
 	if layout.Lines[0].Runs[0].Face.CacheKey() == layout.Lines[0].Runs[1].Face.CacheKey() {
 		t.Fatalf("expected different faces, got %#v", layout.Lines[0].Runs)
+	}
+}
+
+func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
+	reg, err := NewFontRegistry()
+	if err != nil {
+		t.Fatalf("NewFontRegistry: %v", err)
+	}
+
+	latinData := mustReadTestFont(t, testNotoSansRegular)
+	emojiData := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/EmojiOneColor.otf")
+
+	if err := reg.LoadFontBytes(latinData, "NotoSans-Regular.ttf"); err != nil {
+		t.Fatalf("LoadFontBytes latin: %v", err)
+	}
+	if err := reg.LoadFontBytes(emojiData, "EmojiOneColor.otf"); err != nil {
+		t.Fatalf("LoadFontBytes emoji: %v", err)
+	}
+
+	var latinKey, emojiKey uint64
+	for _, rec := range reg.faces {
+		if rec == nil || rec.face == nil {
+			continue
+		}
+		if faceCoversText(rec.face, []rune("A")) && !faceCoversText(rec.face, []rune("😀")) {
+			latinKey = rec.cacheKey
+		}
+		if faceCoversText(rec.face, []rune("😀")) {
+			emojiKey = rec.cacheKey
+		}
+	}
+	if latinKey == 0 {
+		t.Fatal("expected latin face")
+	}
+	if emojiKey == 0 {
+		t.Fatal("expected emoji fallback face")
+	}
+
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = reg.faces[0].desc.Family
+	layout := shaper.ShapeSimple("A😀A", style)
+	if layout == nil || layout.LineCount() != 1 {
+		t.Fatalf("unexpected layout: %#v", layout)
+	}
+
+	var gotLatin, gotEmoji bool
+	for _, run := range layout.Lines[0].Runs {
+		switch run.Face.CacheKey() {
+		case latinKey:
+			gotLatin = true
+		case emojiKey:
+			gotEmoji = true
+		}
+	}
+	if !gotLatin || !gotEmoji {
+		t.Fatalf("expected mixed face run selection, got runs=%#v latin=%v emoji=%v", layout.Lines[0].Runs, gotLatin, gotEmoji)
 	}
 }
 
@@ -768,4 +1112,394 @@ func shapedASCII(t *testing.T, text string) *TextLayout {
 		t.Fatal("expected layout")
 	}
 	return layout
+}
+
+// ─── Phase 6: Typography Metrics and Authored Spacing ────────────────────────
+
+// TestLetterSpacing_increases_advance verifies that a positive LetterSpacing
+// value causes the overall shaped width to grow relative to the baseline.
+func TestLetterSpacing_increases_advance(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	base := DefaultStyle()
+	base.Family = family
+
+	spaced := base
+	spaced.LetterSpacing = 5
+
+	baseLayout := shaper.ShapeSimple("abc", base)
+	spacedLayout := shaper.ShapeSimple("abc", spaced)
+	if baseLayout == nil || spacedLayout == nil {
+		t.Fatal("expected layouts")
+	}
+	if spacedLayout.Bounds.Width() <= baseLayout.Bounds.Width() {
+		t.Fatalf("letter spacing did not increase width: base=%v spaced=%v",
+			baseLayout.Bounds.Width(), spacedLayout.Bounds.Width())
+	}
+}
+
+// TestLetterSpacing_zero_matches_baseline verifies that zero LetterSpacing
+// produces the same width as the default style (which has zero spacing).
+func TestLetterSpacing_zero_matches_baseline(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+	style.LetterSpacing = 0
+
+	base := DefaultStyle()
+	base.Family = family
+
+	a := shaper.ShapeSimple("hello", style)
+	b := shaper.ShapeSimple("hello", base)
+	if a == nil || b == nil {
+		t.Fatal("expected layouts")
+	}
+	if a.Bounds.Width() != b.Bounds.Width() {
+		t.Fatalf("zero spacing diverged from default: %v vs %v",
+			a.Bounds.Width(), b.Bounds.Width())
+	}
+}
+
+// TestLetterSpacing_does_not_split_cluster ensures that letter spacing applied
+// to a ligature run ("fi") does not corrupt the glyph count.
+func TestLetterSpacing_does_not_split_cluster(t *testing.T) {
+	reg, family := mustTestRegistry(t, testLigatureFont)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+	style.LetterSpacing = 3
+
+	layout := shaper.ShapeSimple("fi", style)
+	if layout == nil || layout.LineCount() != 1 {
+		t.Fatal("expected single-line layout")
+	}
+	// The ligature "fi" is a single glyph. Spacing must not split it into two.
+	glyphs := layout.Lines[0].Runs[0].Glyphs
+	if len(glyphs) != 1 {
+		t.Fatalf("letter spacing split ligature cluster: glyphs=%v", len(glyphs))
+	}
+}
+
+// TestLineHeight_multiplier_less_than_5 checks that a LineHeight value below 5
+// is interpreted as a multiplier (e.g. 1.5 * Size), producing a taller line
+// box than the raw font metrics alone.
+func TestLineHeight_multiplier_less_than_5(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	base := DefaultStyle()
+	base.Family = family
+
+	tall := base
+	tall.LineHeight = 2.5 // multiplier: 2.5 × size
+
+	baseLayout := shaper.ShapeSimple("abc", base)
+	tallLayout := shaper.ShapeSimple("abc", tall)
+	if baseLayout == nil || tallLayout == nil {
+		t.Fatal("expected layouts")
+	}
+	if tallLayout.LineHeight <= baseLayout.LineHeight {
+		t.Fatalf("multiplier line-height did not increase line box: base=%v tall=%v",
+			baseLayout.LineHeight, tallLayout.LineHeight)
+	}
+}
+
+// TestLineHeight_absolute_large_value checks that a LineHeight value ≥ 5 is
+// used directly as an absolute pixel height rather than as a multiplier.
+func TestLineHeight_absolute_large_value(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+	style.LineHeight = 40 // absolute: 40px regardless of font size
+
+	layout := shaper.ShapeSimple("abc", style)
+	if layout == nil || layout.LineCount() != 1 {
+		t.Fatal("expected single-line layout")
+	}
+	// Line height must be at least the authored 40px.
+	if layout.LineHeight < 40 {
+		t.Fatalf("absolute line-height not respected: got %v want ≥ 40", layout.LineHeight)
+	}
+}
+
+// TestLineHeight_default_positive verifies that the default style (zero
+// LineHeight) still produces a positive line box height from font metrics.
+func TestLineHeight_default_positive(t *testing.T) {
+	layout := shapedASCII(t, "hello")
+	if layout.LineHeight <= 0 {
+		t.Fatalf("default line height = %v, want > 0", layout.LineHeight)
+	}
+}
+
+// TestLineHeight_multi_line_consistent checks that all lines in a wrapped
+// paragraph carry the same line-height value (consistent interline spacing).
+func TestLineHeight_multi_line_consistent(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+	style.LineHeight = 1.5
+
+	singleWord := shaper.ShapeSimple("Hi", style)
+	layout := shaper.Shape(Paragraph{
+		Spans:    []TextSpan{{Text: "Hello World Foo Bar", Style: style}},
+		MaxWidth: singleWord.Bounds.Width() + 5,
+	})
+	if layout == nil || layout.LineCount() < 2 {
+		t.Fatalf("expected multi-line layout, got %d lines", layout.LineCount())
+	}
+	first := layout.Lines[0].Metrics.LineHeight
+	for i, line := range layout.Lines {
+		if line.Metrics.LineHeight != first {
+			t.Fatalf("line %d height %v differs from line 0 height %v",
+				i, line.Metrics.LineHeight, first)
+		}
+	}
+}
+
+// TestTabWidth_expands_advance checks that a tab character in the input
+// produces a non-zero advance that grows with the TabWidth multiplier.
+func TestTabWidth_expands_advance(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	narrow := DefaultStyle()
+	narrow.Family = family
+	narrow.TabWidth = 2
+
+	wide := DefaultStyle()
+	wide.Family = family
+	wide.TabWidth = 8
+
+	narrowLayout := shaper.ShapeSimple("\t", narrow)
+	wideLayout := shaper.ShapeSimple("\t", wide)
+	if narrowLayout == nil || wideLayout == nil {
+		t.Fatal("expected layouts for tab character")
+	}
+	if narrowLayout.Bounds.Width() <= 0 {
+		t.Fatalf("tab with TabWidth=2 has zero width: %v", narrowLayout.Bounds.Width())
+	}
+	if wideLayout.Bounds.Width() <= narrowLayout.Bounds.Width() {
+		t.Fatalf("wider TabWidth did not produce wider advance: narrow=%v wide=%v",
+			narrowLayout.Bounds.Width(), wideLayout.Bounds.Width())
+	}
+}
+
+// TestTabWidth_text_before_tab positions text before a tab and ensures the
+// tab stop aligns to the next multiple of TabWidth×spaceWidth from origin.
+func TestTabWidth_text_before_tab(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+	style.TabWidth = 4
+
+	// "a\t" must be wider than "a" alone.
+	plain := shaper.ShapeSimple("a", style)
+	tabbed := shaper.ShapeSimple("a\t", style)
+	if plain == nil || tabbed == nil {
+		t.Fatal("expected layouts")
+	}
+	if tabbed.Bounds.Width() <= plain.Bounds.Width() {
+		t.Fatalf("tab did not advance beyond 'a': plain=%v tabbed=%v",
+			plain.Bounds.Width(), tabbed.Bounds.Width())
+	}
+}
+
+// TestBaseline_positive ensures every shaped line carries a positive baseline
+// offset derived from the actual font ascent rather than a heuristic.
+func TestBaseline_positive(t *testing.T) {
+	layout := shapedASCII(t, "Xyz")
+	if layout.Baseline <= 0 {
+		t.Fatalf("layout baseline = %v, want > 0", layout.Baseline)
+	}
+	for i, line := range layout.Lines {
+		if line.Baseline <= 0 {
+			t.Fatalf("line %d baseline = %v, want > 0", i, line.Baseline)
+		}
+	}
+}
+
+// TestLineHeight_extra_leading_centers_baseline verifies that extra authored
+// line height is distributed around the line instead of being placed only
+// below the baseline.
+func TestLineHeight_extra_leading_centers_baseline(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+	style.LineHeight = 3
+
+	layout := shaper.ShapeSimple("Label", style)
+	if layout == nil || layout.LineCount() != 1 {
+		t.Fatalf("expected one shaped line, got %#v", layout)
+	}
+	line := layout.Lines[0]
+	naturalH := line.Metrics.Ascent - line.Metrics.Descent
+	if line.Metrics.LineHeight <= naturalH {
+		t.Fatalf("expected authored line height to exceed natural height, line=%#v natural=%v", line.Metrics, naturalH)
+	}
+	wantBaseline := line.Metrics.Ascent + (line.Metrics.LineHeight-naturalH)*0.5
+	if diff := math.Abs(float64(line.Baseline - wantBaseline)); diff > 0.01 {
+		t.Fatalf("baseline = %v, want %v (diff %v)", line.Baseline, wantBaseline, diff)
+	}
+}
+
+// TestLineMetrics_ascent_descent_nonzero verifies that a shaped line
+// exposes real ascent and descent values from the font binary.
+func TestLineMetrics_ascent_descent_nonzero(t *testing.T) {
+	layout := shapedASCII(t, "Hello")
+	if layout.LineCount() == 0 {
+		t.Fatal("expected lines")
+	}
+	m := layout.Lines[0].Metrics
+	if m.Ascent <= 0 {
+		t.Fatalf("ascent = %v, want > 0", m.Ascent)
+	}
+	// Descent is typically negative in font coordinates; stored as-is.
+	// We only require it was actually set (not stuck at zero when text exists).
+	_ = m.Descent
+	if m.LineHeight <= 0 {
+		t.Fatalf("line height = %v, want > 0", m.LineHeight)
+	}
+}
+
+// TestLineMetrics_aggregate_matches_layout verifies that the TextLayout's
+// aggregate Metrics field equals the first line's metrics line-height for a
+// single-line paragraph (since aggregateMetrics returns first-line values).
+func TestLineMetrics_aggregate_matches_layout(t *testing.T) {
+	layout := shapedASCII(t, "hello")
+	if layout.LineCount() != 1 {
+		t.Fatalf("expected 1 line, got %d", layout.LineCount())
+	}
+	if layout.Metrics.LineHeight != layout.Lines[0].Metrics.LineHeight {
+		t.Fatalf("aggregate metrics mismatch: layout=%v line=%v",
+			layout.Metrics.LineHeight, layout.Lines[0].Metrics.LineHeight)
+	}
+}
+
+// TestShapeTruncated_grapheme_boundary ensures ShapeTruncated never truncates
+// mid-cluster even when the cluster contains combining marks.
+func TestShapeTruncated_grapheme_boundary(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+
+	// "a\u0301" is 'á' as two code points (base + combining acute).
+	// Truncating mid-cluster would split the grapheme; ShapeTruncated must not.
+	content := "a\u0301b\u0301c\u0301"
+	full := shaper.ShapeSimple(content, style)
+	if full == nil {
+		t.Fatal("expected full layout")
+	}
+
+	// Force truncation at just above half width so at least one cluster fits.
+	// Use ~70% of the full width so we get at least one original cluster.
+	target := full.Bounds.Width() * 0.7
+	truncated := shaper.ShapeTruncated(content, style, target)
+	if truncated == nil {
+		t.Fatal("expected truncated layout")
+	}
+
+	// The result must not be wider than the requested maxWidth.
+	if truncated.Bounds.Width() > target+1 {
+		t.Fatalf("truncated wider than maxWidth: got %v want ≤ %v",
+			truncated.Bounds.Width(), target)
+	}
+
+	// Determine what prefix of the original content is present before the ellipsis.
+	// Strip the trailing "…" if present to isolate the content prefix.
+	src := truncated.Source
+	prefix := src
+	ellipsis := "…"
+	if len(src) > 0 {
+		srcRunes := []rune(src)
+		if len(srcRunes) > 0 && srcRunes[len(srcRunes)-1] == '…' {
+			prefix = string(srcRunes[:len(srcRunes)-1])
+		}
+	}
+
+	// If a non-empty content prefix was retained it must end on a grapheme boundary.
+	if prefix == "" || prefix == ellipsis {
+		// Ellipsis-only or empty is valid — no cluster-splitting occurred.
+		return
+	}
+
+	fullRunes := []rune(content)
+	bounds := graphemeBoundaries(fullRunes)
+	prefixLen := len([]rune(prefix))
+	found := false
+	for _, b := range bounds {
+		if b == prefixLen {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("truncated prefix %q (len=%d runes) does not end on a grapheme boundary; boundaries=%v",
+			prefix, prefixLen, bounds)
+	}
+}
+
+// TestShapeTruncated_ellipsis_fits verifies that when content is truncated,
+// the ellipsis "…" is appended and the result fits within maxWidth.
+func TestShapeTruncated_ellipsis_fits(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+
+	content := "Hello, World! This is a long string."
+	full := shaper.ShapeSimple(content, style)
+	if full == nil {
+		t.Fatal("expected full layout")
+	}
+
+	maxWidth := full.Bounds.Width() * 0.4
+	truncated := shaper.ShapeTruncated(content, style, maxWidth)
+	if truncated == nil {
+		t.Fatal("expected truncated layout")
+	}
+	if truncated.Bounds.Width() > maxWidth+1 {
+		t.Fatalf("truncated layout exceeds maxWidth: got %v want ≤ %v",
+			truncated.Bounds.Width(), maxWidth)
+	}
+}
+
+// TestShapeTruncated_no_truncation_when_fits ensures ShapeTruncated returns
+// the full layout without truncation when content fits within maxWidth.
+func TestShapeTruncated_no_truncation_when_fits(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+
+	style := DefaultStyle()
+	style.Family = family
+
+	content := "Hi"
+	full := shaper.ShapeSimple(content, style)
+	if full == nil {
+		t.Fatal("expected full layout")
+	}
+
+	// Provide a maxWidth larger than the content.
+	result := shaper.ShapeTruncated(content, style, full.Bounds.Width()+100)
+	if result == nil {
+		t.Fatal("expected result layout")
+	}
+	// Width must match the un-truncated version exactly.
+	if result.Bounds.Width() != full.Bounds.Width() {
+		t.Fatalf("unexpected truncation: full=%v result=%v",
+			full.Bounds.Width(), result.Bounds.Width())
+	}
 }

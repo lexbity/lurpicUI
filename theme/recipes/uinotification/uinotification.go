@@ -57,6 +57,15 @@ func ResolveProgressRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[
 	return resolved, report
 }
 
+// ResolveNotificationRecipe resolves notification styling.
+func ResolveNotificationRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.FeedbackNotificationSlots]) (shared.FeedbackNotificationSlots, theme.RecipeReport) {
+	slots := notificationBase(ctx)
+	report := newReport("uinotification", theme.VariantKey("standard"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
 func snackbarBase(ctx theme.StyleContext) shared.SnackbarSlots {
 	tokens := ctx.Tokens
 	return shared.SnackbarSlots{
@@ -111,6 +120,48 @@ func progressBase(ctx theme.StyleContext) shared.ProgressSlots {
 	}
 }
 
+func notificationBase(ctx theme.StyleContext) shared.FeedbackNotificationSlots {
+	tokens := ctx.Tokens
+	return shared.FeedbackNotificationSlots{
+		Root:          transparentStyle(),
+		StatusSurface: roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
+		Icon:          markStyleFromColor(tokens.Color.Primary),
+		Title:         markStyleFromColor(tokens.Color.OnSurface),
+		Message:       markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		Action:        markStyleFromColor(tokens.Color.Primary),
+		CloseButton:   markStyleFromColor(tokens.Color.OnSurfaceVariant),
+	}
+}
+
+func markStyleFromColor(color gfx.Color) theme.MarkStyle {
+	return theme.MarkStyle{Base: theme.FromToken(color)}
+}
+
+func transparentStyle() theme.MarkStyle {
+	return theme.MarkStyle{Base: theme.Material{Opacity: 0}}
+}
+
+func roundedSurfaceStyle(fill, stroke gfx.Color, width float32) theme.MarkStyle {
+	return theme.MarkStyle{
+		Base: theme.Material{
+			Fills: []theme.Fill{{
+				Type:  theme.FillSolid,
+				Color: fill,
+			}},
+			Strokes: []theme.MaterialStroke{{
+				Paint: theme.Fill{
+					Type:  theme.FillSolid,
+					Color: stroke,
+				},
+				Width: width,
+				Cap:   theme.CapRound,
+				Join:  theme.JoinRound,
+			}},
+			Opacity: 1,
+		},
+	}
+}
+
 func newReport(family string, variant theme.VariantKey, slots any) theme.RecipeReport {
 	report := theme.NewRecipeReport(family, variant)
 	recordSlotSources(&report, slots, theme.SlotSourceVariantDefault)
@@ -149,10 +200,6 @@ func annotateOverrides[T any](report *theme.RecipeReport, base, resolved T) {
 			report.SetSlotSource(typeOf.Field(i).Name, theme.SlotSourceInstanceOverride)
 		}
 	}
-}
-
-func markStyleFromColor(color gfx.Color) theme.MarkStyle {
-	return theme.MarkStyle{Base: theme.FromToken(color)}
 }
 
 func fadedStyle(color gfx.Color, opacity float32) theme.MarkStyle {

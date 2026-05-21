@@ -1,6 +1,8 @@
 package theme
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -42,8 +44,12 @@ func TestDefault_text_body_size_positive(t *testing.T) {
 }
 
 func TestDefault_text_mono_is_monospace_family(t *testing.T) {
-	if got := Default().TextStyle(TextMonoM); got.Family == "" {
+	got := Default().TextStyle(TextMonoM)
+	if got.Family == "" {
 		t.Fatalf("mono family should be non-empty")
+	}
+	if isGenericFamilyName(got.Family) {
+		t.Fatalf("mono family should be concrete, got %q", got.Family)
 	}
 }
 
@@ -85,4 +91,58 @@ func TestDefault_text_styles_are_stable(t *testing.T) {
 			t.Fatalf("text token %d returned zero style", tok)
 		}
 	}
+}
+
+func TestFontRoleResolve_prefers_loaded_family(t *testing.T) {
+	reg := mustThemeTestRegistry(t)
+	role := FontRole{
+		PreferredFamilies: []string{"Missing Family", "Noto Sans"},
+		DefaultStyle:      text.TextStyle{Size: 14, Weight: text.WeightRegular},
+	}
+	got := role.Resolve(reg)
+	if got.Family != "Noto Sans" {
+		t.Fatalf("family = %q", got.Family)
+	}
+}
+
+func TestFontRolesRejectGenericFamilies(t *testing.T) {
+	role := FontRole{PreferredFamilies: []string{"sans-serif"}, DefaultStyle: text.TextStyle{Size: 14}}
+	if err := role.Validate("UISans"); err == nil {
+		t.Fatal("expected generic family validation failure")
+	}
+}
+
+func mustThemeTestRegistry(t *testing.T) *text.FontRegistry {
+	t.Helper()
+	reg, err := text.NewFontRegistry()
+	if err != nil {
+		t.Fatalf("NewFontRegistry: %v", err)
+	}
+	data := mustThemeTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	if err := reg.LoadFontBytes(data, "Noto Sans"); err != nil {
+		t.Fatalf("LoadFontBytes: %v", err)
+	}
+	return reg
+}
+
+func mustThemeTestFont(t *testing.T, path string) []byte {
+	t.Helper()
+	candidates := []string{path}
+	if gomodcache := os.Getenv("GOMODCACHE"); gomodcache != "" {
+		candidates = append(candidates, filepath.Join(gomodcache, path))
+	}
+	if gopath := os.Getenv("GOPATH"); gopath != "" {
+		candidates = append(candidates, filepath.Join(gopath, "pkg", "mod", path))
+	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		candidates = append(candidates, filepath.Join(home, "go", "pkg", "mod", path))
+	}
+	for _, candidate := range candidates {
+		data, err := os.ReadFile(candidate)
+		if err == nil {
+			return data
+		}
+	}
+	t.Fatalf("read font %q: no candidate found", path)
+	return nil
 }

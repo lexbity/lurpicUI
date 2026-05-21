@@ -16,7 +16,7 @@ type Canceller interface {
 
 // entity is an internal representation of a spatial entity.
 type entity struct {
-	id    EntityID
+	id     EntityID
 	bounds gfx.Rect
 	cx, cy float32
 }
@@ -268,7 +268,7 @@ func (t *rstarTree) makeInternal(childIdxs []int32) int32 {
 // ── SpatialIndex implementation ──────────────────────────────────────────────
 
 func (t *rstarTree) Bounds() gfx.Rect { return t.allBounds }
-func (t *rstarTree) Len() int          { return t.totalLen }
+func (t *rstarTree) Len() int         { return t.totalLen }
 
 func (t *rstarTree) Query(region gfx.Rect) []EntityID {
 	if t == nil || len(t.nodes) == 0 {

@@ -38,3 +38,18 @@ func TestResolveProgressRecipe_reports_slots(t *testing.T) {
 		t.Fatal("expected progress slots to be populated")
 	}
 }
+
+func TestResolveNotificationRecipe_reports_slots(t *testing.T) {
+	slots, report := ResolveNotificationRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()})
+	if report.Variant != theme.VariantKey("standard") {
+		t.Fatalf("variant = %q, want standard", report.Variant)
+	}
+	for _, name := range []string{"Root", "StatusSurface", "Icon", "Title", "Message", "Action", "CloseButton"} {
+		if _, ok := report.SlotSource(name); !ok {
+			t.Fatalf("expected notification slot source for %s", name)
+		}
+	}
+	if slots.StatusSurface.Base.Fills == nil || slots.Icon.Base.Fills == nil {
+		t.Fatal("expected notification slots to be populated")
+	}
+}

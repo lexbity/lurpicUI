@@ -527,6 +527,55 @@ mod tests {
     }
 
     #[test]
+    fn rasterizes_text_run_applies_origin_and_glyph_offsets() {
+        reset_atlas();
+        upload_glyph(
+            11,
+            77,
+            18,
+            GlyphBitmap {
+                width: 1,
+                height: 1,
+                pixels: vec![255],
+                offset_x: 2.0,
+                offset_y: 3.0,
+                advance: 1.0,
+            },
+        );
+        let frame = DecodedFrame {
+            stats: FrameStats::default(),
+            batches: vec![DecodedBatch {
+                id: 4,
+                vertices: vec![],
+                text_runs: vec![DecodedTextRun {
+                    font_id: 11,
+                    size_bits: 18,
+                    origin: Point { x: 10.0, y: 12.0 },
+                    color: Color {
+                        r: 1.0,
+                        g: 0.0,
+                        b: 0.0,
+                        a: 1.0,
+                    },
+                    glyphs: vec![DecodedGlyph {
+                        glyph_id: 77,
+                        x: 4.0,
+                        y: 5.0,
+                    }],
+                }],
+                image_draws: vec![],
+                command_count: 1,
+                opacity: 1.0,
+                clip: None,
+            }],
+        };
+
+        let pixels = rasterize_frame(Some(&frame), 32, 32);
+        let idx = ((20 * 32 + 16) * 4) as usize;
+        assert!(pixels[idx + 2] > 0);
+    }
+
+    #[test]
     fn sdf_lookup_prefers_large_text() {
         reset_atlas();
         upload_glyph(

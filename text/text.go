@@ -1,24 +1,12 @@
 package text
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"errors"
-	"fmt"
-	"math"
-	"os"
-	"path/filepath"
 	"sort"
-	"strings"
-	"sync"
-	"unicode"
 
 	"github.com/go-text/typesetting/di"
 	"github.com/go-text/typesetting/font"
 	"github.com/go-text/typesetting/language"
 	textsegmenter "github.com/go-text/typesetting/segmenter"
-	gotextshaping "github.com/go-text/typesetting/shaping"
-	"golang.org/x/image/math/fixed"
 )
 
 // Weight encodes font weight values in CSS-like increments.
@@ -43,6 +31,22 @@ const (
 	StyleOblique
 )
 
+// TextUnit identifies the indexing unit used by a position or range.
+type TextUnit uint8
+
+const (
+	TextUnitRune TextUnit = iota
+	TextUnitGrapheme
+)
+
+// LineMetrics captures the shaped metrics for a line box.
+type LineMetrics struct {
+	Ascent     float32
+	Descent    float32
+	Leading    float32
+	LineHeight float32
+}
+
 // TextStyle describes the styling to apply to a span of text.
 type TextStyle struct {
 	Family        string
@@ -65,8 +69,11 @@ func DefaultStyle() TextStyle {
 
 // TextSpan represents a run of text with a uniform style.
 type TextSpan struct {
-	Text  string
-	Style TextStyle
+	Text      string
+	Style     TextStyle
+	Direction di.Direction
+	Language  language.Language
+	Script    language.Script
 }
 
 // TextAlignment controls paragraph alignment.
@@ -83,6 +90,9 @@ type Paragraph struct {
 	Spans     []TextSpan
 	MaxWidth  float32
 	Alignment TextAlignment
+	Direction di.Direction
+	Language  language.Language
+	Script    language.Script
 }
 
 // Point is a lightweight 2D coordinate used by text layout.
@@ -157,13 +167,20 @@ type FontFace struct {
 // Phase 1 keeps the shape intentionally minimal. Later phases expand it into a
 // full positioned glyph sequence.
 type GlyphRun struct {
-	Glyphs  []PositionedGlyph
-	Face    FontFace
-	Size    float32
-	Style   TextStyle
-	Bounds  Rect
-	Advance float32
-	Text    string
+	Glyphs           []PositionedGlyph
+	Face             FontFace
+	Size             float32
+	Style            TextStyle
+	Bounds           Rect
+	Advance          float32
+	Text             string
+	Direction        di.Direction
+	Level            int
+	GraphemeAdvances []float32
+	Language         language.Language
+	Script           language.Script
+	Metrics          LineMetrics
+	LogicalIndex     int
 }
 
 // PositionedGlyph is a shaped glyph positioned within a run.
@@ -182,6 +199,10 @@ type ShapedLine struct {
 	Baseline   float32
 	FirstRune  int
 	RuneCount  int
+	Direction  di.Direction
+	Language   language.Language
+	Script     language.Script
+	Metrics    LineMetrics
 	clusterMap []float32
 }
 
@@ -191,7 +212,11 @@ type TextLayout struct {
 	Bounds     Rect
 	LineHeight float32
 	Baseline   float32
+	Paragraph  Paragraph
+	Metrics    LineMetrics
+	Source     string
 	source     string
+	graphemes  []int
 }
 
 // Affinity resolves cursor placement at line boundaries.
@@ -205,6 +230,7 @@ const (
 // TextPosition identifies a cursor location within a shaped layout.
 type TextPosition struct {
 	Index    int
+	Unit     TextUnit
 	Affinity Affinity
 }
 
@@ -212,6 +238,7 @@ type TextPosition struct {
 type TextRange struct {
 	Start int
 	End   int
+	Unit  TextUnit
 }
 
 // IsEmpty reports whether the range contains no runes.
@@ -230,7 +257,27 @@ func (r TextRange) Normalized() TextRange {
 	if r.Start <= r.End {
 		return r
 	}
-	return TextRange{Start: r.End, End: r.Start}
+	return TextRange{Start: r.End, End: r.Start, Unit: r.Unit}
+}
+
+// RunePosition constructs a rune-indexed text position.
+func RunePosition(index int, affinity Affinity) TextPosition {
+	return TextPosition{Index: index, Unit: TextUnitRune, Affinity: affinity}
+}
+
+// GraphemePosition constructs a grapheme-indexed text position.
+func GraphemePosition(index int, affinity Affinity) TextPosition {
+	return TextPosition{Index: index, Unit: TextUnitGrapheme, Affinity: affinity}
+}
+
+// RuneRange constructs a rune-indexed text range.
+func RuneRange(start, end int) TextRange {
+	return TextRange{Start: start, End: end, Unit: TextUnitRune}
+}
+
+// GraphemeRange constructs a grapheme-indexed text range.
+func GraphemeRange(start, end int) TextRange {
+	return TextRange{Start: start, End: end, Unit: TextUnitGrapheme}
 }
 
 // LineCount returns the number of shaped lines.
@@ -253,26 +300,62 @@ func (l *TextLayout) RuneCount() int {
 	return total
 }
 
+// GraphemeCount returns the total number of grapheme clusters represented by the layout.
+func (l *TextLayout) GraphemeCount() int {
+	if l == nil {
+		return 0
+	}
+	if len(l.graphemes) > 0 {
+		return len(l.graphemes) - 1
+	}
+	return l.RuneCount()
+}
+
+// RuneIndex returns the rune index for pos, converting grapheme positions when needed.
+func (l *TextLayout) RuneIndex(pos TextPosition) int {
+	if l == nil {
+		return 0
+	}
+	if pos.Unit != TextUnitGrapheme {
+		return clampInt(pos.Index, 0, l.RuneCount())
+	}
+	return l.runeIndexForGraphemeIndex(pos.Index)
+}
+
+// RuneBounds returns rune-based bounds for r, converting grapheme positions when needed.
+func (l *TextLayout) RuneBounds(r TextRange) (int, int) {
+	if l == nil {
+		return 0, 0
+	}
+	if r.Unit != TextUnitGrapheme {
+		r = r.Normalized()
+		return clampInt(r.Start, 0, l.RuneCount()), clampInt(r.End, 0, l.RuneCount())
+	}
+	r = r.Normalized()
+	return l.runeIndexForGraphemeIndex(r.Start), l.runeIndexForGraphemeIndex(r.End)
+}
+
 // HitTest maps a point in layout-local space to the nearest text position.
 func (l *TextLayout) HitTest(p Point) TextPosition {
 	if l == nil || len(l.Lines) == 0 {
-		return TextPosition{Index: 0, Affinity: AffinityDownstream}
+		return GraphemePosition(0, AffinityDownstream)
 	}
 	lineIndex := l.lineIndexForPoint(p)
 	line := &l.Lines[lineIndex]
 	if len(line.Runs) == 0 {
-		return TextPosition{Index: line.FirstRune, Affinity: AffinityDownstream}
+		return l.positionFromRuneIndex(line.FirstRune, AffinityDownstream)
 	}
 	if p.X <= line.Bounds.Min.X {
-		return TextPosition{Index: line.FirstRune, Affinity: AffinityDownstream}
+		return l.positionFromRuneIndex(line.FirstRune, AffinityDownstream)
 	}
 	if p.X >= line.Bounds.Max.X {
-		return TextPosition{Index: line.FirstRune + line.RuneCount, Affinity: AffinityUpstream}
+		return l.positionFromRuneIndex(line.FirstRune+line.RuneCount, AffinityUpstream)
 	}
-	if idx, ok := line.hitTestClusterIndex(p.X - line.Bounds.Min.X); ok {
-		return TextPosition{Index: line.FirstRune + idx, Affinity: AffinityUpstream}
+	if idx, ok := line.hitTestClusterIndex(p.X); ok {
+		lineFirstGrapheme := l.graphemeIndexForRuneIndex(line.FirstRune, AffinityDownstream)
+		return GraphemePosition(lineFirstGrapheme+idx, AffinityDownstream)
 	}
-	return TextPosition{Index: line.FirstRune + line.RuneCount, Affinity: AffinityUpstream}
+	return l.positionFromRuneIndex(line.FirstRune+line.RuneCount, AffinityUpstream)
 }
 
 // CaretRect returns the cursor rectangle for a text position.
@@ -283,7 +366,7 @@ func (l *TextLayout) CaretRect(pos TextPosition) Rect {
 	lineIndex := l.lineIndexForPosition(pos)
 	line := &l.Lines[lineIndex]
 	x := l.positionX(pos, lineIndex)
-	return RectFromXYWH(x, line.Bounds.Min.Y, 2, l.LineHeight)
+	return RectFromXYWH(x, line.Bounds.Min.Y, 2, line.Bounds.Height())
 }
 
 // SelectionRects returns rectangles covering the supplied range.
@@ -295,17 +378,18 @@ func (l *TextLayout) SelectionRects(r TextRange) []Rect {
 	if r.IsEmpty() {
 		return nil
 	}
+	startRune, endRune := l.RuneBounds(r)
 	var rects []Rect
 	for i := range l.Lines {
 		line := &l.Lines[i]
-		start := maxInt(r.Start, line.FirstRune)
-		end := minInt(r.End, line.FirstRune+line.RuneCount)
+		start := maxInt(startRune, line.FirstRune)
+		end := minInt(endRune, line.FirstRune+line.RuneCount)
 		if start >= end {
 			continue
 		}
-		x0 := l.positionX(TextPosition{Index: start, Affinity: AffinityDownstream}, i)
-		x1 := l.positionX(TextPosition{Index: end, Affinity: AffinityUpstream}, i)
-		rects = append(rects, RectFromXYWH(x0, line.Bounds.Min.Y, x1-x0, l.LineHeight))
+		x0 := l.positionX(l.positionFromRuneIndex(start, AffinityDownstream), i)
+		x1 := l.positionX(l.positionFromRuneIndex(end, AffinityUpstream), i)
+		rects = append(rects, RectFromXYWH(x0, line.Bounds.Min.Y, x1-x0, line.Bounds.Height()))
 	}
 	return rects
 }
@@ -318,66 +402,99 @@ func (l *TextLayout) LineAt(pos TextPosition) int {
 // PositionAtLineStart returns the first cursor position on line i.
 func (l *TextLayout) PositionAtLineStart(line int) TextPosition {
 	if l == nil || len(l.Lines) == 0 {
-		return TextPosition{}
+		return GraphemePosition(0, AffinityDownstream)
 	}
 	line = clampInt(line, 0, len(l.Lines)-1)
-	return TextPosition{Index: l.Lines[line].FirstRune, Affinity: AffinityDownstream}
+	return l.positionFromRuneIndex(l.Lines[line].FirstRune, AffinityDownstream)
 }
 
 // PositionAtLineEnd returns the last cursor position on line i.
 func (l *TextLayout) PositionAtLineEnd(line int) TextPosition {
 	if l == nil || len(l.Lines) == 0 {
-		return TextPosition{}
+		return GraphemePosition(0, AffinityDownstream)
 	}
 	line = clampInt(line, 0, len(l.Lines)-1)
 	ln := l.Lines[line]
-	return TextPosition{Index: ln.FirstRune + ln.RuneCount, Affinity: AffinityUpstream}
+	return l.positionFromRuneIndex(ln.FirstRune+ln.RuneCount, AffinityUpstream)
 }
 
-// NextPosition advances by one rune, clamping at the end of the document.
+// NextPosition advances by one unit, clamping at the end of the document.
 func (l *TextLayout) NextPosition(pos TextPosition) TextPosition {
+	if pos.Unit == TextUnitGrapheme {
+		count := l.GraphemeCount()
+		if pos.Index >= count {
+			return TextPosition{Index: count, Unit: pos.Unit, Affinity: AffinityUpstream}
+		}
+		return TextPosition{Index: pos.Index + 1, Unit: pos.Unit, Affinity: AffinityDownstream}
+	}
 	count := l.RuneCount()
 	if pos.Index >= count {
-		return TextPosition{Index: count, Affinity: AffinityUpstream}
+		return TextPosition{Index: count, Unit: pos.Unit, Affinity: AffinityUpstream}
 	}
-	return TextPosition{Index: pos.Index + 1, Affinity: AffinityDownstream}
+	return TextPosition{Index: pos.Index + 1, Unit: pos.Unit, Affinity: AffinityDownstream}
 }
 
-// PrevPosition moves back by one rune, clamping at the start.
+// PrevPosition moves back by one unit, clamping at the start.
 func (l *TextLayout) PrevPosition(pos TextPosition) TextPosition {
-	if pos.Index <= 0 {
-		return TextPosition{Index: 0, Affinity: AffinityDownstream}
+	if pos.Unit == TextUnitGrapheme {
+		if pos.Index <= 0 {
+			return TextPosition{Index: 0, Unit: pos.Unit, Affinity: AffinityDownstream}
+		}
+		return TextPosition{Index: pos.Index - 1, Unit: pos.Unit, Affinity: AffinityUpstream}
 	}
-	return TextPosition{Index: pos.Index - 1, Affinity: AffinityUpstream}
+	if pos.Index <= 0 {
+		return TextPosition{Index: 0, Unit: pos.Unit, Affinity: AffinityDownstream}
+	}
+	return TextPosition{Index: pos.Index - 1, Unit: pos.Unit, Affinity: AffinityUpstream}
 }
 
 // WordBoundaryAt returns the word containing pos.
 func (l *TextLayout) WordBoundaryAt(pos TextPosition) TextRange {
-	if l == nil || l.source == "" {
-		return TextRange{Start: pos.Index, End: pos.Index}
+	if l == nil || l.Source == "" {
+		return TextRange{Start: pos.Index, End: pos.Index, Unit: pos.Unit}
 	}
-	runes := []rune(l.source)
+	runes := []rune(l.Source)
 	if len(runes) == 0 {
-		return TextRange{Start: pos.Index, End: pos.Index}
+		return TextRange{Start: pos.Index, End: pos.Index, Unit: pos.Unit}
 	}
-	i := clampInt(pos.Index, 0, len(runes))
+	i := l.RuneIndex(pos)
 	words := wordRanges(runes)
 	if len(words) == 0 {
-		return TextRange{Start: i, End: i}
+		return TextRange{Start: i, End: i, Unit: pos.Unit}
 	}
 	for _, word := range words {
 		if i >= word.Start && i < word.End {
+			if pos.Unit == TextUnitGrapheme {
+				start, end := l.graphemeRangeForRuneBounds(word.Start, word.End)
+				return TextRange{Start: start, End: end, Unit: pos.Unit}
+			}
+			word.Unit = pos.Unit
 			return word
 		}
 	}
 	if i <= words[0].Start {
+		if pos.Unit == TextUnitGrapheme {
+			start, end := l.graphemeRangeForRuneBounds(words[0].Start, words[0].End)
+			return TextRange{Start: start, End: end, Unit: pos.Unit}
+		}
+		words[0].Unit = pos.Unit
 		return words[0]
 	}
 	for idx := 1; idx < len(words); idx++ {
 		if i < words[idx].Start {
+			if pos.Unit == TextUnitGrapheme {
+				start, end := l.graphemeRangeForRuneBounds(words[idx-1].Start, words[idx-1].End)
+				return TextRange{Start: start, End: end, Unit: pos.Unit}
+			}
+			words[idx-1].Unit = pos.Unit
 			return words[idx-1]
 		}
 	}
+	if pos.Unit == TextUnitGrapheme {
+		start, end := l.graphemeRangeForRuneBounds(words[len(words)-1].Start, words[len(words)-1].End)
+		return TextRange{Start: start, End: end, Unit: pos.Unit}
+	}
+	words[len(words)-1].Unit = pos.Unit
 	return words[len(words)-1]
 }
 
@@ -409,8 +526,9 @@ func (l *TextLayout) lineIndexForPosition(pos TextPosition) int {
 	if len(l.Lines) == 0 {
 		return 0
 	}
-	if pos.Index <= l.Lines[0].FirstRune {
-		if pos.Index == l.Lines[0].FirstRune && pos.Affinity == AffinityUpstream && len(l.Lines) > 1 {
+	posIndex := l.RuneIndex(pos)
+	if posIndex <= l.Lines[0].FirstRune {
+		if posIndex == l.Lines[0].FirstRune && pos.Affinity == AffinityUpstream && len(l.Lines) > 1 {
 			return 0
 		}
 		return 0
@@ -419,16 +537,16 @@ func (l *TextLayout) lineIndexForPosition(pos TextPosition) int {
 		line := l.Lines[i]
 		start := line.FirstRune
 		end := line.FirstRune + line.RuneCount
-		if pos.Index < end {
+		if posIndex < end {
 			return i
 		}
-		if pos.Index == end {
+		if posIndex == end {
 			if pos.Affinity == AffinityDownstream && i+1 < len(l.Lines) {
 				return i + 1
 			}
 			return i
 		}
-		if pos.Index >= start && pos.Index < end {
+		if posIndex >= start && posIndex < end {
 			return i
 		}
 	}
@@ -441,847 +559,153 @@ func (l *TextLayout) positionX(pos TextPosition, lineIndex int) float32 {
 	}
 	lineIndex = clampInt(lineIndex, 0, len(l.Lines)-1)
 	line := l.Lines[lineIndex]
-	if pos.Index <= line.FirstRune {
-		if pos.Index == line.FirstRune && pos.Affinity == AffinityUpstream && lineIndex > 0 {
-			prev := l.Lines[lineIndex-1]
-			return prev.Bounds.Max.X
-		}
+
+	gpos := pos
+	if pos.Unit != TextUnitGrapheme {
+		gpos = l.positionFromRuneIndex(pos.Index, pos.Affinity)
+	}
+
+	lineFirstGrapheme := l.graphemeIndexForRuneIndex(line.FirstRune, AffinityDownstream)
+	idx := gpos.Index - lineFirstGrapheme
+
+	if idx <= 0 {
 		return line.Bounds.Min.X
 	}
-	endIndex := line.FirstRune + line.RuneCount
-	if pos.Index >= endIndex {
+
+	lineGraphemesCount := l.graphemeIndexForRuneIndex(line.FirstRune+line.RuneCount, AffinityUpstream) - lineFirstGrapheme
+	if idx >= lineGraphemesCount {
 		return line.Bounds.Max.X
 	}
+
 	if len(line.clusterMap) > 0 {
-		idx := pos.Index - line.FirstRune
-		if idx < 0 {
-			idx = 0
-		}
 		if idx >= len(line.clusterMap) {
 			return line.Bounds.Max.X
 		}
-		return line.Bounds.Min.X + line.clusterMap[idx]
+		return line.clusterMap[idx]
 	}
-	for _, run := range line.Runs {
-		if len(run.Glyphs) == 0 {
-			continue
-		}
-		g := run.Glyphs[0]
-		if pos.Index <= g.RuneIndex {
-			return run.Bounds.Min.X
-		}
-		if pos.Index <= g.RuneIndex+1 {
-			return run.Bounds.Min.X + run.Advance
-		}
-	}
+
 	return line.Bounds.Max.X
 }
 
-// Shaper performs paragraph shaping and line wrapping.
-type Shaper struct {
-	registry     *FontRegistry
-	shaper       gotextshaping.HarfbuzzShaper
-	segmenter    gotextshaping.Segmenter
-	contentScale float32
-}
-
-// NewShaper constructs a shaper using the provided registry.
-func NewShaper(registry *FontRegistry) *Shaper {
-	return &Shaper{registry: registry, contentScale: 1}
-}
-
-// SetContentScale adjusts the pixels-per-em scale used while shaping.
-func (s *Shaper) SetContentScale(scale float32) {
-	if s == nil || scale <= 0 {
-		return
+func (l *TextLayout) positionFromRuneIndex(index int, affinity Affinity) TextPosition {
+	if l == nil {
+		return GraphemePosition(0, affinity)
 	}
-	s.contentScale = scale
+	if len(l.graphemes) > 0 {
+		return GraphemePosition(l.graphemeIndexForRuneIndex(index, affinity), affinity)
+	}
+	return RunePosition(clampInt(index, 0, l.RuneCount()), affinity)
 }
 
-// ShapeSimple shapes a single-span paragraph on one line.
-func (s *Shaper) ShapeSimple(text string, style TextStyle) *TextLayout {
-	return s.Shape(Paragraph{
-		Spans: []TextSpan{{Text: text, Style: style}},
+func (l *TextLayout) graphemeIndexForRuneIndex(index int, affinity Affinity) int {
+	if l == nil {
+		return 0
+	}
+	index = clampInt(index, 0, l.RuneCount())
+	if len(l.graphemes) == 0 {
+		return index
+	}
+	last := len(l.graphemes) - 1
+	if index <= l.graphemes[0] {
+		return 0
+	}
+	if index >= l.graphemes[last] {
+		return last
+	}
+	i := sort.Search(len(l.graphemes), func(i int) bool {
+		return l.graphemes[i] >= index
 	})
+	if i < len(l.graphemes) && l.graphemes[i] == index {
+		return i
+	}
+	if affinity == AffinityUpstream {
+		return i - 1
+	}
+	return i
 }
 
-// Shape converts a paragraph into a shaped layout.
-func (s *Shaper) Shape(p Paragraph) *TextLayout {
-	layout := &TextLayout{}
-	if s == nil || len(p.Spans) == 0 {
-		return layout
+func (l *TextLayout) runeIndexForGraphemeIndex(index int) int {
+	if l == nil {
+		return 0
 	}
-
-	availableFaces := s.registryFaces()
-	if len(availableFaces) == 0 {
-		return layout
+	if len(l.graphemes) == 0 {
+		return clampInt(index, 0, l.RuneCount())
 	}
-
-	var (
-		lines                 []ShapedLine
-		b                     lineBuilder
-		source                strings.Builder
-		totalRune             int
-		alignment             = p.Alignment
-		maxWidth              = p.MaxWidth
-		defaultLineH          = DefaultStyle().Size * 1.2
-		currentLineH          = defaultLineH
-		pendingBlankLine      bool
-		trimLeadingWhitespace bool
-	)
-
-	flushLine := func(force bool) {
-		if !force && !b.hasContent() {
-			return
-		}
-		if !b.hasContent() && len(lines) == 0 {
-			currentLineH = maxFloat32(currentLineH, defaultLineH)
-		}
-		line := b.finish(totalRune, currentLineH, alignment, maxWidth)
-		lines = append(lines, line)
-		totalRune += line.RuneCount
-		b.reset()
-		currentLineH = defaultLineH
-	}
-
-	addSoftSegment := func(seg softSegment, style TextStyle, availableFaces []*font.Face) {
-		if len(seg.Text) == 0 {
-			return
-		}
-		if trimLeadingWhitespace {
-			seg = trimSoftSegment(seg)
-			if len(seg.Text) == 0 {
-				return
-			}
-		}
-		segments := s.segmentRunes(seg.Text, availableFaces, style)
-		if len(segments) == 0 {
-			return
-		}
-		if pendingBlankLine {
-			pendingBlankLine = false
-		}
-		segmentWidth := float32(0)
-		for _, sub := range segments {
-			if sub.Face.IsZero() || len(sub.Text) == 0 {
-				continue
-			}
-			out := s.shapeSegment(sub, style)
-			if out == nil || len(out.Glyphs) == 0 {
-				continue
-			}
-			segmentWidth += float32(out.Advance) / 64
-		}
-		if maxWidth > 0 && b.hasContent() && b.width+segmentWidth > maxWidth {
-			flushLine(true)
-			trimLeadingWhitespace = true
-			seg = trimSoftSegment(seg)
-			if len(seg.Text) == 0 {
-				return
-			}
-			segments = s.segmentRunes(seg.Text, availableFaces, style)
-			if len(segments) == 0 {
-				return
-			}
-		}
-		for _, sub := range segments {
-			if sub.Face.IsZero() || len(sub.Text) == 0 {
-				continue
-			}
-			out := s.shapeSegment(sub, style)
-			if out == nil || len(out.Glyphs) == 0 {
-				continue
-			}
-			segmentLineH := float32(out.LineBounds.LineThickness()) / 64
-			if segmentLineH <= 0 {
-				segmentLineH = maxFloat32(style.Size*1.2, 1)
-			}
-			if segmentLineH > currentLineH {
-				currentLineH = segmentLineH
-			}
-			for i := 0; i < len(out.Glyphs); {
-				j := i + 1
-				for j < len(out.Glyphs) && out.Glyphs[j].ClusterIndex == out.Glyphs[i].ClusterIndex {
-					j++
-				}
-				cluster := out.Glyphs[i:j]
-				b.addCluster(sub, style, cluster)
-				i = j
-			}
-		}
-		trimLeadingWhitespace = false
-	}
-
-	for _, span := range p.Spans {
-		source.WriteString(span.Text)
-		style := span.Style
-		if style.Size <= 0 {
-			style = DefaultStyle()
-		}
-		runes := []rune(span.Text)
-		if len(runes) == 0 {
-			continue
-		}
-		for i := 0; i < len(runes); {
-			if runes[i] == '\r' || runes[i] == '\n' {
-				flushLine(true)
-				trimLeadingWhitespace = true
-				pendingBlankLine = true
-				if runes[i] == '\r' && i+1 < len(runes) && runes[i+1] == '\n' {
-					i += 2
-				} else {
-					i++
-				}
-				continue
-			}
-			j := i
-			for j < len(runes) && runes[j] != '\r' && runes[j] != '\n' {
-				j++
-			}
-			segments := s.breakSoftSegments(runes[i:j])
-			for _, seg := range segments {
-				addSoftSegment(seg, style, availableFaces)
-			}
-			i = j
-		}
-	}
-
-	if pendingBlankLine {
-		flushLine(true)
-		pendingBlankLine = false
-	}
-
-	if b.hasContent() {
-		flushLine(true)
-	}
-
-	if len(lines) == 0 {
-		return layout
-	}
-
-	layout.Lines = lines
-	layout.LineHeight = lineHeightFromLines(lines)
-	layout.Baseline = lines[0].Baseline
-	layout.source = source.String()
-	layout.Bounds = RectFromXYWH(0, 0, lineMaxWidth(lines), layout.LineHeight*float32(len(lines)))
-	if len(lines) == 1 && lines[0].RuneCount == 0 {
-		layout.LineHeight = defaultLineH
-		layout.Bounds = RectFromXYWH(0, 0, 0, layout.LineHeight)
-	}
-	return layout
+	return l.graphemes[clampInt(index, 0, len(l.graphemes)-1)]
 }
 
-func (s *Shaper) shapeSegment(seg resolvedSegment, style TextStyle) *gotextshaping.Output {
-	if s == nil {
-		return nil
+func (l *TextLayout) graphemeRangeForRuneBounds(start, end int) (int, int) {
+	if l == nil {
+		return 0, 0
 	}
-	in := seg.Run
-	size := style.Size
-	if size <= 0 {
-		size = DefaultStyle().Size
-	}
-	scale := s.contentScale
-	if scale <= 0 {
-		scale = 1
-	}
-	in.Size = fixed.I(int(math.Round(float64(size * scale))))
-	out := s.shaper.Shape(in)
-	return &out
+	return l.graphemeIndexForRuneIndex(start, AffinityDownstream), l.graphemeIndexForRuneIndex(end, AffinityUpstream)
 }
 
-func (s *Shaper) registryFaces() []*font.Face {
-	if s == nil || s.registry == nil {
-		return nil
+func (l *TextLayout) positionFromHit(line *ShapedLine, runeIndex int, x float32) TextPosition {
+	if l == nil || line == nil {
+		return GraphemePosition(0, AffinityDownstream)
 	}
-	s.registry.mu.RLock()
-	defer s.registry.mu.RUnlock()
-	faces := make([]*font.Face, 0, len(s.registry.faces))
-	for _, rec := range s.registry.faces {
-		if rec == nil || rec.face == nil {
-			continue
-		}
-		faces = append(faces, rec.face)
+	if len(l.graphemes) == 0 || line.RuneCount == 0 {
+		return l.positionFromRuneIndex(runeIndex, AffinityUpstream)
 	}
-	return faces
+	graphemeIndex := l.graphemeIndexForRuneIndex(runeIndex, AffinityUpstream)
+	if graphemeIndex >= l.GraphemeCount() {
+		return l.positionFromRuneIndex(line.FirstRune+line.RuneCount, AffinityUpstream)
+	}
+	startRune := l.runeIndexForGraphemeIndex(graphemeIndex)
+	endRune := l.runeIndexForGraphemeIndex(graphemeIndex + 1)
+	startLocal := clampInt(startRune-line.FirstRune, 0, len(line.clusterMap)-1)
+	endLocal := clampInt(endRune-line.FirstRune, 0, len(line.clusterMap)-1)
+	startX := line.Bounds.Min.X
+	if startLocal < len(line.clusterMap) {
+		startX += line.clusterMap[startLocal]
+	}
+	endX := line.Bounds.Max.X
+	if endLocal < len(line.clusterMap) {
+		endX = line.Bounds.Min.X + line.clusterMap[endLocal]
+	}
+	if x <= (startX+endX)/2 {
+		return GraphemePosition(graphemeIndex, AffinityUpstream)
+	}
+	return GraphemePosition(graphemeIndex+1, AffinityDownstream)
 }
 
-type resolvedSegment struct {
-	Text string
-	Face FontFace
-	Run  gotextshaping.Input
-}
-
-func (s *Shaper) segmentRunes(runes []rune, availableFaces []*font.Face, style TextStyle) []resolvedSegment {
-	if len(runes) == 0 || len(availableFaces) == 0 {
-		return nil
-	}
-	input := gotextshaping.Input{
-		Text:      runes,
-		RunStart:  0,
-		RunEnd:    len(runes),
-		Direction: di.DirectionLTR,
-		Script:    language.Common,
-	}
-	segs := s.segmenter.Split(input, registryFontMap{faces: availableFaces})
-	if len(segs) == 0 {
-		return nil
-	}
-	out := make([]resolvedSegment, 0, len(segs))
-	for _, seg := range segs {
-		if seg.Face == nil {
-			continue
-		}
-		selected := s.registry.Resolve(style)
-		if selected.IsZero() {
-			selected = s.fontFaceFor(seg.Face)
-		}
-		if selected.IsZero() {
-			continue
-		}
-		run := seg
-		run.Face = selected.face.face
-		out = append(out, resolvedSegment{
-			Text: string(runes[seg.RunStart:seg.RunEnd]),
-			Face: selected,
-			Run:  run,
-		})
-	}
-	return out
-}
-
-func (s *Shaper) fontFaceFor(face *font.Face) FontFace {
-	if s == nil || s.registry == nil || face == nil {
-		return FontFace{}
-	}
-	s.registry.mu.RLock()
-	defer s.registry.mu.RUnlock()
-	for _, rec := range s.registry.faces {
-		if rec != nil && rec.face == face {
-			return FontFace{face: rec}
-		}
-	}
-	return FontFace{}
-}
-
-type softSegment struct {
-	Text []rune
-}
-
-type lineBreaker struct {
-	seg textsegmenter.Segmenter
-}
-
-func (lb *lineBreaker) breakOpportunities(text []rune) []int {
-	if lb == nil || len(text) == 0 {
-		return nil
-	}
-	lb.seg.Init(text)
-	iter := lb.seg.LineIterator()
-	out := make([]int, 0, len(text))
-	for iter.Next() {
-		line := iter.Line()
-		out = append(out, line.Offset+len(line.Text))
-	}
-	if len(out) == 0 || out[len(out)-1] != len(text) {
-		out = append(out, len(text))
-	}
-	return out
-}
-
-func (s *Shaper) breakSoftSegments(text []rune) []softSegment {
-	if len(text) == 0 {
-		return nil
-	}
-	lb := lineBreaker{}
-	breaks := lb.breakOpportunities(text)
-	if len(breaks) == 0 {
-		return []softSegment{{Text: append([]rune(nil), text...)}}
-	}
-	out := make([]softSegment, 0, len(breaks))
-	start := 0
-	for _, end := range breaks {
-		if end < start {
-			continue
-		}
-		if end > len(text) {
-			end = len(text)
-		}
-		out = append(out, softSegment{Text: append([]rune(nil), text[start:end]...)})
-		start = end
-	}
-	if start < len(text) {
-		out = append(out, softSegment{Text: append([]rune(nil), text[start:]...)})
-	}
-	return out
-}
-
-func trimSoftSegment(seg softSegment) softSegment {
-	if len(seg.Text) == 0 {
-		return seg
-	}
-	i := 0
-	for i < len(seg.Text) && unicode.IsSpace(seg.Text[i]) {
-		i++
-	}
-	if i == 0 {
-		return seg
-	}
-	return softSegment{Text: append([]rune(nil), seg.Text[i:]...)}
-}
-
-type registryFontMap struct {
-	faces []*font.Face
-}
-
-func (m registryFontMap) ResolveFace(r rune) *font.Face {
-	if len(m.faces) == 0 {
-		return nil
-	}
-	for _, face := range m.faces {
-		if face == nil {
-			continue
-		}
-		if _, has := face.NominalGlyph(r); has {
-			return face
-		}
-	}
-	return m.faces[0]
-}
-
-type lineBuilder struct {
-	runs       []GlyphRun
-	cur        *runBuilder
-	width      float32
-	runeCount  int
-	clusterMap []float32
-}
-
-type runBuilder struct {
-	face     FontFace
-	style    TextStyle
-	text     string
-	glyphs   []PositionedGlyph
-	startX   float32
-	advance  float32
-	runeText int
-}
-
-func (b *lineBuilder) hasContent() bool {
-	return b != nil && (b.cur != nil || len(b.runs) > 0 || b.width > 0 || b.runeCount > 0)
-}
-
-func (b *lineBuilder) reset() {
-	if b == nil {
-		return
-	}
-	b.runs = b.runs[:0]
-	b.cur = nil
-	b.width = 0
-	b.runeCount = 0
-	b.clusterMap = b.clusterMap[:0]
-}
-
-func (b *lineBuilder) ensureRun(seg resolvedSegment, style TextStyle) {
-	if b == nil {
-		return
-	}
-	if b.cur != nil && b.cur.face == seg.Face && sameStyle(b.cur.style, style) {
-		return
-	}
-	b.flushRun()
-	b.cur = &runBuilder{
-		face:   seg.Face,
-		style:  style,
-		text:   seg.Text,
-		startX: b.width,
-	}
-}
-
-func (b *lineBuilder) addCluster(seg resolvedSegment, style TextStyle, glyphs []gotextshaping.Glyph) {
-	if b == nil {
-		return
-	}
-	b.ensureRun(seg, style)
-	if b.cur == nil {
-		return
-	}
-	if len(glyphs) == 0 {
-		return
-	}
-	clusterStart := b.runeCount
-	clusterRuneCount := glyphs[0].RuneCount
-	clusterAdvance := float32(0)
-	for _, g := range glyphs {
-		clusterAdvance += float32(g.XAdvance) / 64
-	}
-	startX := b.cur.advance
-	for _, g := range glyphs {
-		adv := float32(g.XAdvance) / 64
-		glyph := PositionedGlyph{
-			GlyphID:   uint32(g.GlyphID),
-			Advance:   adv,
-			RuneIndex: clusterStart,
-			X:         b.cur.advance,
-			Y:         float32(g.YOffset) / 64,
-		}
-		b.cur.glyphs = append(b.cur.glyphs, glyph)
-		b.cur.advance += adv
-	}
-	if clusterRuneCount > 0 {
-		if len(b.clusterMap) == 0 {
-			b.clusterMap = append(b.clusterMap, 0)
-		}
-		for i := 0; i < clusterRuneCount; i++ {
-			b.clusterMap = append(b.clusterMap, startX+clusterAdvance*float32(i+1)/float32(clusterRuneCount))
-		}
-		b.runeCount += clusterRuneCount
-	}
-	b.width = b.cur.startX + b.cur.advance
-}
-
-func (b *lineBuilder) flushRun() {
-	if b == nil || b.cur == nil {
-		return
-	}
-	run := GlyphRun{
-		Glyphs:  append([]PositionedGlyph(nil), b.cur.glyphs...),
-		Face:    b.cur.face,
-		Size:    b.cur.style.Size,
-		Style:   b.cur.style,
-		Bounds:  RectFromXYWH(b.cur.startX, 0, b.cur.advance, maxFloat32(b.cur.style.Size*1.2, 1)),
-		Advance: b.cur.advance,
-		Text:    b.cur.text,
-	}
-	b.runs = append(b.runs, run)
-	b.cur = nil
-}
-
-func (b *lineBuilder) finish(firstRune int, lineHeight float32, alignment TextAlignment, maxWidth float32) ShapedLine {
-	if b == nil {
-		return ShapedLine{}
-	}
-	b.flushRun()
-	runs := append([]GlyphRun(nil), b.runs...)
-	line := ShapedLine{
-		Runs:       runs,
-		Bounds:     RectFromXYWH(0, 0, b.width, maxFloat32(lineHeight, 1)),
-		Baseline:   maxFloat32(lineHeight*0.8, 1),
-		FirstRune:  firstRune,
-		RuneCount:  b.runeCount,
-		clusterMap: append([]float32(nil), b.clusterMap...),
-	}
-	if len(line.clusterMap) == 0 {
-		line.clusterMap = []float32{0}
-	}
-	shiftLine(&line, alignment, maxWidth)
-	return line
-}
-
-func (l *ShapedLine) hitTestClusterIndex(x float32) (int, bool) {
-	if l == nil || len(l.clusterMap) < 2 {
-		return 0, false
-	}
-	if x <= 0 {
-		return 0, true
-	}
-	last := len(l.clusterMap) - 1
-	if x >= l.clusterMap[last] {
-		return last, true
-	}
-	idx := sort.Search(len(l.clusterMap), func(i int) bool {
-		return l.clusterMap[i] >= x
-	})
-	if idx <= 0 {
-		return 0, true
-	}
-	if idx >= len(l.clusterMap) {
-		return last, true
-	}
-	left := l.clusterMap[idx-1]
-	right := l.clusterMap[idx]
-	if x-left <= right-x {
-		return idx - 1, true
-	}
-	return idx, true
-}
-
-func wordRanges(runes []rune) []TextRange {
+func graphemeBoundaries(runes []rune) []int {
 	if len(runes) == 0 {
-		return nil
+		return []int{0}
 	}
 	var seg textsegmenter.Segmenter
 	seg.Init(runes)
-	iter := seg.WordIterator()
-	var out []TextRange
+	iter := seg.GraphemeIterator()
+	out := make([]int, 0, len(runes)+1)
+	out = append(out, 0)
 	for iter.Next() {
-		word := iter.Word()
-		start := word.Offset
-		end := word.Offset + len(word.Text)
-		if start < end {
-			out = append(out, TextRange{Start: start, End: end})
+		g := iter.Grapheme()
+		end := g.Offset + len(g.Text)
+		if end > out[len(out)-1] {
+			out = append(out, end)
 		}
+	}
+	if out[len(out)-1] != len(runes) {
+		out = append(out, len(runes))
 	}
 	return out
 }
 
-func sameStyle(a, b TextStyle) bool {
-	return a.Family == b.Family &&
-		a.Size == b.Size &&
-		a.Weight == b.Weight &&
-		a.Style == b.Style &&
-		a.LineHeight == b.LineHeight &&
-		a.LetterSpacing == b.LetterSpacing &&
-		a.TabWidth == b.TabWidth
+// GraphemeCountString returns the number of grapheme clusters in s.
+func GraphemeCountString(s string) int {
+	return len(graphemeBoundaries([]rune(s))) - 1
 }
 
-func lineHeightFromLines(lines []ShapedLine) float32 {
-	var maxH float32
-	for _, line := range lines {
-		if h := line.Bounds.Height(); h > maxH {
-			maxH = h
-		}
+// GraphemeRuneBoundsString converts a grapheme range into rune offsets for s.
+func GraphemeRuneBoundsString(s string, r TextRange) (int, int) {
+	if r.Unit != TextUnitGrapheme {
+		r = r.Normalized()
+		return r.Start, r.End
 	}
-	if maxH <= 0 {
-		return DefaultStyle().Size * 1.2
-	}
-	return maxH
-}
-
-func lineMaxWidth(lines []ShapedLine) float32 {
-	var maxW float32
-	for _, line := range lines {
-		if w := line.Bounds.Width(); w > maxW {
-			maxW = w
-		}
-	}
-	return maxW
-}
-
-func shiftLine(line *ShapedLine, alignment TextAlignment, maxWidth float32) {
-	if line == nil {
-		return
-	}
-	shift := float32(0)
-	if maxWidth > 0 {
-		switch alignment {
-		case AlignCenter:
-			shift = (maxWidth - line.Bounds.Width()) / 2
-		case AlignRight:
-			shift = maxWidth - line.Bounds.Width()
-		}
-	}
-	if shift == 0 {
-		return
-	}
-	for i := range line.Runs {
-		for j := range line.Runs[i].Glyphs {
-			line.Runs[i].Glyphs[j].X += shift
-		}
-		line.Runs[i].Bounds.Min.X += shift
-		line.Runs[i].Bounds.Max.X += shift
-	}
-	line.Bounds.Min.X += shift
-	line.Bounds.Max.X += shift
-}
-
-func maxFloat32(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func clampInt(v, min, max int) int {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxInt(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// FontRegistry manages loaded font sources and face resolution.
-type FontRegistry struct {
-	mu    sync.RWMutex
-	faces []*fontFaceRecord
-}
-
-// NewFontRegistry creates an empty registry.
-func NewFontRegistry() (*FontRegistry, error) {
-	return &FontRegistry{}, nil
-}
-
-// LoadFontFile loads a font from disk and stores it in the registry.
-func (r *FontRegistry) LoadFontFile(path string) error {
-	if r == nil {
-		return errors.New("text: nil registry")
-	}
-	if path == "" {
-		return errors.New("text: empty font path")
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("text: load font %q: %w", filepath.Clean(path), err)
-	}
-	return r.LoadFontBytes(data, filepath.Base(path))
-}
-
-// LoadFontBytes loads a font from memory and stores it in the registry.
-func (r *FontRegistry) LoadFontBytes(data []byte, name string) error {
-	if r == nil {
-		return errors.New("text: nil registry")
-	}
-	if len(data) == 0 {
-		return errors.New("text: empty font data")
-	}
-	if strings.TrimSpace(name) == "" {
-		return errors.New("text: font data requires name")
-	}
-	faces, err := font.ParseTTC(bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("text: parse font %q: %w", name, err)
-	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for i, face := range faces {
-		if face == nil || face.Font == nil {
-			continue
-		}
-		rec := &fontFaceRecord{
-			face:     face,
-			desc:     face.Font.Describe(),
-			source:   FontSource{Name: name, Data: append([]byte(nil), data...)},
-			cacheKey: computeFontCacheKey(data, i),
-		}
-		r.faces = append(r.faces, rec)
-	}
-	return nil
-}
-
-// Sources returns a copy of the loaded font sources.
-func (r *FontRegistry) Sources() []FontSource {
-	if r == nil {
-		return nil
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	out := make([]FontSource, 0, len(r.faces))
-	for _, face := range r.faces {
-		if face == nil {
-			continue
-		}
-		out = append(out, face.source)
-	}
-	return out
-}
-
-// Resolve finds the best available face for the given style.
-func (r *FontRegistry) Resolve(style TextStyle) FontFace {
-	if r == nil {
-		return FontFace{}
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	if face := r.resolveLocked(style); face != nil {
-		return FontFace{face: face}
-	}
-	return FontFace{}
-}
-
-func (r *FontRegistry) resolveLocked(style TextStyle) *fontFaceRecord {
-	if r == nil {
-		return nil
-	}
-	targetFamily := font.NormalizeFamily(style.Family)
-	if targetFamily == "" {
-		return nil
-	}
-	var (
-		best      *fontFaceRecord
-		bestScore int
-	)
-	for _, face := range r.faces {
-		if face == nil || face.face == nil {
-			continue
-		}
-		if font.NormalizeFamily(face.desc.Family) != targetFamily {
-			continue
-		}
-		score := faceMatchScore(face.desc.Aspect, style)
-		if best == nil || score < bestScore {
-			best = face
-			bestScore = score
-		}
-	}
-	return best
-}
-
-// IsZero reports whether the face wraps an unresolved record.
-func (f FontFace) IsZero() bool {
-	return f.face == nil
-}
-
-// GoFace returns the underlying go-text font face.
-func (f FontFace) GoFace() *font.Face {
-	if f.face == nil {
-		return nil
-	}
-	return f.face.face
-}
-
-// CacheKey returns a stable identifier suitable for glyph atlas keys.
-func (f FontFace) CacheKey() uint64 {
-	if f.face == nil {
-		return 0
-	}
-	return f.face.cacheKey
-}
-
-func computeFontCacheKey(data []byte, index int) uint64 {
-	sum := sha256.Sum256(append(append([]byte(nil), data...), byte(index>>24), byte(index>>16), byte(index>>8), byte(index)))
-	return binaryToUint64(sum[:8])
-}
-
-func binaryToUint64(b []byte) uint64 {
-	if len(b) < 8 {
-		return 0
-	}
-	return uint64(b[0])<<56 | uint64(b[1])<<48 | uint64(b[2])<<40 | uint64(b[3])<<32 |
-		uint64(b[4])<<24 | uint64(b[5])<<16 | uint64(b[6])<<8 | uint64(b[7])
-}
-
-func faceMatchScore(aspect font.Aspect, style TextStyle) int {
-	score := 0
-	wantStyle := font.StyleNormal
-	if style.Style != StyleNormal {
-		wantStyle = font.StyleItalic
-	}
-	if aspect.Style != wantStyle {
-		score += 1000
-	}
-	wantWeight := font.Weight(style.Weight)
-	if wantWeight == 0 {
-		wantWeight = font.WeightNormal
-	}
-	diff := aspect.Weight - wantWeight
-	if diff < 0 {
-		diff = -diff
-	}
-	score += int(diff)
-	return score
+	r = r.Normalized()
+	bounds := graphemeBoundaries([]rune(s))
+	start := clampInt(r.Start, 0, len(bounds)-1)
+	end := clampInt(r.End, 0, len(bounds)-1)
+	return bounds[start], bounds[end]
 }

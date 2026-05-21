@@ -9,4 +9,3 @@ type externalCommand struct{}
 func (externalCommand) isCommand() {}
 
 var _ gfx.Command = externalCommand{}
-

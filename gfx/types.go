@@ -15,4 +15,3 @@ type Rect struct {
 type Insets struct {
 	Top, Right, Bottom, Left float32
 }
-

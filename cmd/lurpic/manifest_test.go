@@ -11,14 +11,14 @@ import (
 
 func TestManifestTemplate_ValidData(t *testing.T) {
 	data := ManifestData{
-		Package:     "com.example.testapp",
-		VersionCode: 42,
-		VersionName: "1.2.3",
-		MinSDK:      29,
-		TargetSDK:   33,
-		Permissions: []string{"android.permission.INTERNET", "android.permission.CAMERA"},
-		AppName:     "Test App",
-		HasIcon:     true,
+		Package:            "com.example.testapp",
+		VersionCode:        42,
+		VersionName:        "1.2.3",
+		MinSDK:             29,
+		TargetSDK:          33,
+		Permissions:        []string{"android.permission.INTERNET", "android.permission.CAMERA"},
+		AppName:            "Test App",
+		HasIcon:            true,
 		UsesLurpicActivity: true,
 	}
 
@@ -72,14 +72,14 @@ func TestManifestTemplate_ValidData(t *testing.T) {
 
 func TestManifestTemplate_NoIcon(t *testing.T) {
 	data := ManifestData{
-		Package:     "com.example.noicon",
-		VersionCode: 1,
-		VersionName: "1.0.0",
-		MinSDK:      29,
-		TargetSDK:   33,
-		Permissions: []string{},
-		AppName:     "No Icon App",
-		HasIcon:     false,
+		Package:            "com.example.noicon",
+		VersionCode:        1,
+		VersionName:        "1.0.0",
+		MinSDK:             29,
+		TargetSDK:          33,
+		Permissions:        []string{},
+		AppName:            "No Icon App",
+		HasIcon:            false,
 		UsesLurpicActivity: true,
 	}
 
@@ -103,14 +103,14 @@ func TestManifestTemplate_NoIcon(t *testing.T) {
 
 func TestManifestTemplate_NoPermissions(t *testing.T) {
 	data := ManifestData{
-		Package:     "com.example.noperm",
-		VersionCode: 1,
-		VersionName: "1.0.0",
-		MinSDK:      29,
-		TargetSDK:   33,
-		Permissions: []string{},
-		AppName:     "No Permissions App",
-		HasIcon:     false,
+		Package:            "com.example.noperm",
+		VersionCode:        1,
+		VersionName:        "1.0.0",
+		MinSDK:             29,
+		TargetSDK:          33,
+		Permissions:        []string{},
+		AppName:            "No Permissions App",
+		HasIcon:            false,
 		UsesLurpicActivity: true,
 	}
 
@@ -197,14 +197,14 @@ required = ["android.permission.INTERNET"]
 
 func TestManifestTemplate_WellFormedXML(t *testing.T) {
 	data := ManifestData{
-		Package:     "com.example.xmltest",
-		VersionCode: 1,
-		VersionName: "1.0",
-		MinSDK:      29,
-		TargetSDK:   33,
-		Permissions: []string{"android.permission.INTERNET"},
-		AppName:     "XML Test",
-		HasIcon:     true,
+		Package:            "com.example.xmltest",
+		VersionCode:        1,
+		VersionName:        "1.0",
+		MinSDK:             29,
+		TargetSDK:          33,
+		Permissions:        []string{"android.permission.INTERNET"},
+		AppName:            "XML Test",
+		HasIcon:            true,
 		UsesLurpicActivity: true,
 	}
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"image"
 	"image/color"
+	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +17,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"github.com/go-text/typesetting/font"
+	ot "github.com/go-text/typesetting/font/opentype"
 )
 
 type testSurface struct {
@@ -770,6 +773,149 @@ func TestSoftwareRenderer_drawglyphrun_translated(t *testing.T) {
 	}
 	if hasNonBlankPixels(s, 0, 0, 20, 20) {
 		t.Fatalf("unexpected pixels before translation")
+	}
+}
+
+func TestRasterizeBitmapGlyph_uses_native_size_and_extents(t *testing.T) {
+	entry := rasterizeBitmapGlyph(
+		font.GlyphBitmap{
+			Data:   []byte{0b10000100},
+			Format: font.BlackAndWhite,
+			Width:  2,
+			Height: 3,
+		},
+		font.GlyphExtents{XBearing: 10, YBearing: 20},
+		true,
+		1,
+	)
+	if entry == nil || entry.bitmap == nil {
+		t.Fatal("expected rasterized bitmap entry")
+	}
+	if got := entry.bitmap.Rect.Dx(); got != 2 {
+		t.Fatalf("bitmap width mismatch: got %d want 2", got)
+	}
+	if got := entry.bitmap.Rect.Dy(); got != 3 {
+		t.Fatalf("bitmap height mismatch: got %d want 3", got)
+	}
+	if entry.offsetX != 10 {
+		t.Fatalf("offsetX mismatch: got %v want 10", entry.offsetX)
+	}
+	if entry.offsetY != -20 {
+		t.Fatalf("offsetY mismatch: got %v want -20", entry.offsetY)
+	}
+	if got := entry.bitmap.AlphaAt(0, 0).A; got == 0 {
+		t.Fatal("expected decoded alpha coverage at top-left")
+	}
+	if got := entry.bitmap.AlphaAt(1, 2).A; got == 0 {
+		t.Fatal("expected decoded alpha coverage at bottom-right")
+	}
+}
+
+func TestRasterizeOutlineGlyph_offsets_include_padding(t *testing.T) {
+	entry := rasterizeOutlineGlyph(
+		font.GlyphOutline{
+			Segments: []ot.Segment{
+				{
+					Op: ot.SegmentOpMoveTo,
+					Args: [3]ot.SegmentPoint{
+						{X: 0, Y: 0},
+					},
+				},
+				{
+					Op: ot.SegmentOpLineTo,
+					Args: [3]ot.SegmentPoint{
+						{X: 10, Y: 0},
+					},
+				},
+				{
+					Op: ot.SegmentOpLineTo,
+					Args: [3]ot.SegmentPoint{
+						{X: 10, Y: 10},
+					},
+				},
+				{
+					Op: ot.SegmentOpLineTo,
+					Args: [3]ot.SegmentPoint{
+						{X: 0, Y: 10},
+					},
+				},
+			},
+		},
+		font.GlyphExtents{XBearing: 0, YBearing: 10},
+		true,
+		1,
+	)
+	if entry == nil || entry.bitmap == nil {
+		t.Fatal("expected rasterized outline entry")
+	}
+	if entry.offsetX != -1 {
+		t.Fatalf("offsetX mismatch: got %v want -1", entry.offsetX)
+	}
+	if entry.offsetY != -11 {
+		t.Fatalf("offsetY mismatch: got %v want -11", entry.offsetY)
+	}
+}
+
+func TestRasterizeBitmapGlyph_preserves_color_images(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, 1, 1))
+	src.SetNRGBA(0, 0, color.NRGBA{R: 10, G: 20, B: 30, A: 255})
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, src); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+
+	entry := rasterizeBitmapGlyph(
+		font.GlyphBitmap{
+			Data:   encoded.Bytes(),
+			Format: font.PNG,
+			Width:  1,
+			Height: 1,
+		},
+		font.GlyphExtents{XBearing: 4, YBearing: 7},
+		true,
+		1,
+	)
+	if entry == nil || !entry.color || entry.image == nil {
+		t.Fatal("expected color bitmap entry")
+	}
+	if entry.offsetX != 4 {
+		t.Fatalf("offsetX mismatch: got %v want 4", entry.offsetX)
+	}
+	if entry.offsetY != -7 {
+		t.Fatalf("offsetY mismatch: got %v want -7", entry.offsetY)
+	}
+	r, g, b, a := entry.image.At(0, 0).RGBA()
+	if r == 0 || g == 0 || b == 0 || a == 0 {
+		t.Fatalf("expected preserved source color, got %d %d %d %d", r, g, b, a)
+	}
+}
+
+func TestRasterizeBitmapGlyph_uses_raw_black_and_white_size(t *testing.T) {
+	entry := rasterizeBitmapGlyph(
+		font.GlyphBitmap{
+			Data:   []byte{0b10010000},
+			Format: font.BlackAndWhite,
+			Width:  2,
+			Height: 2,
+		},
+		font.GlyphExtents{},
+		false,
+		1,
+	)
+	if entry == nil || entry.bitmap == nil {
+		t.Fatal("expected rasterized bitmap entry")
+	}
+	if got := entry.bitmap.Rect.Dx(); got != 2 {
+		t.Fatalf("bitmap width mismatch: got %d want 2", got)
+	}
+	if got := entry.bitmap.Rect.Dy(); got != 2 {
+		t.Fatalf("bitmap height mismatch: got %d want 2", got)
+	}
+	if got := entry.bitmap.AlphaAt(0, 0).A; got == 0 {
+		t.Fatal("expected first bit to be set")
+	}
+	if got := entry.bitmap.AlphaAt(1, 1).A; got == 0 {
+		t.Fatal("expected second bit to be set")
 	}
 }
 

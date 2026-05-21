@@ -156,9 +156,9 @@ func TestLODIndex_partial_lod_at_medium_zoom(t *testing.T) {
 	// pixelsPerUnit=0.2: 50*0.2=10 ≥ 8 → individual
 	// Small nodes (1x1): 1*0.2=0.2 < 8 → cluster
 	idx := buildIndex(t,
-		1, 0, 0, 50, 50,    // individual
-		2, 100, 0, 50, 50,  // individual
-		3, 200, 0, 1, 1,    // cluster
+		1, 0, 0, 50, 50, // individual
+		2, 100, 0, 50, 50, // individual
+		3, 200, 0, 1, 1, // cluster
 	)
 	result := idx.QueryLOD(gfx.RectFromXYWH(-100, -100, 2000, 2000), 0.2)
 	if len(result.Individuals) == 0 {

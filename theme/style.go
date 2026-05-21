@@ -76,6 +76,7 @@ type StyleContext struct {
 type StyleContextOverride struct {
 	Colors     *ColorTokens
 	Typography *TypographyTokens
+	Fonts      *FontRoles
 	Spacing    *SpacingTokens
 	Motion     *MotionTokens
 	Density    *DensityTokens
@@ -95,6 +96,10 @@ func (ctx StyleContext) Derive(overrides StyleContextOverride) StyleContext {
 	}
 	if overrides.Typography != nil {
 		next.Tokens.Typography = *overrides.Typography
+		changed = true
+	}
+	if overrides.Fonts != nil {
+		next.Tokens.Fonts = *overrides.Fonts
 		changed = true
 	}
 	if overrides.Spacing != nil {

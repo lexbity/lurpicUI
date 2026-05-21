@@ -138,24 +138,7 @@ func (c defaultContext) Spacing(t SpacingToken) layout.ResolvedScalar {
 }
 
 func (c defaultContext) TextStyle(t TextToken) text.TextStyle {
-	switch t {
-	case TextBodyS:
-		return c.tokens.Typography.BodySmall
-	case TextLabelM:
-		return c.tokens.Typography.LabelMedium
-	case TextLabelS:
-		return c.tokens.Typography.LabelSmall
-	case TextHeadingS:
-		return c.tokens.Typography.HeadlineSmall
-	case TextMonoM:
-		return c.tokens.Typography.DataLabel
-	case TextMonoS:
-		return c.tokens.Typography.DataAnnotation
-	case TextBodyM:
-		fallthrough
-	default:
-		return c.tokens.Typography.BodyMedium
-	}
+	return c.tokens.resolveTextStyle(t, nil)
 }
 
 func (c defaultContext) Radius(t RadiusToken) layout.ResolvedScalar {

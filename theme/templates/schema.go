@@ -459,7 +459,7 @@ func (c ChartInheritance) HasOverrides() bool {
 type TemplateTheme struct {
 	Name      string
 	Tokens    Tokens
-	Fonts     FontRoles
+	Fonts     theme.FontRoles
 	Materials *theme.MaterialRegistry
 	Recipes   RecipeBundle
 	Metadata  ThemeMetadata

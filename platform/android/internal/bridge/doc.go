@@ -12,9 +12,9 @@
 //   - JNI thread attachment: Managed via pthread thread-local storage
 //
 // Event flow:
-//   1. Android OS calls ANativeActivity callback (UI thread)
-//   2. C bridge function pushes event to Go queue
-//   3. Go runtime drains queue and dispatches events
+//  1. Android OS calls ANativeActivity callback (UI thread)
+//  2. C bridge function pushes event to Go queue
+//  3. Go runtime drains queue and dispatches events
 //
 // This is an internal package; external code should not import it.
 package bridge

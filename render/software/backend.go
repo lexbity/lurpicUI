@@ -1,10 +1,13 @@
 package software
 
 import (
+	"bytes"
 	"errors"
 	"image"
 	"image/color"
 	"image/draw"
+	_ "image/jpeg"
+	_ "image/png"
 	"math"
 	"sync"
 
@@ -16,6 +19,7 @@ import (
 	gotextrender "github.com/go-text/render"
 	"github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
+	_ "golang.org/x/image/tiff"
 	"golang.org/x/image/vector"
 )
 
@@ -32,21 +36,17 @@ type RenderBatchCacheEntry struct {
 	buffer      *image.RGBA
 }
 
-type glyphKey struct {
-	glyphID  uint32
-	faceKey  uint64
-	sizeBits uint32
-}
-
 type glyphEntry struct {
 	bitmap  *image.Alpha
+	image   image.Image
+	color   bool
 	offsetX float32
 	offsetY float32
 }
 
 type glyphAtlas struct {
 	mu             sync.Mutex
-	entries        map[glyphKey]*glyphEntry
+	entries        map[renderutil.GlyphAtlasKey]*glyphEntry
 	rasterizeCount int
 }
 
@@ -74,7 +74,7 @@ func NewSoftwareRenderer() *SoftwareRenderer {
 	return &SoftwareRenderer{
 		RenderBatchCache: make(map[render.RenderBatchID]*RenderBatchCacheEntry),
 		diffCache:        renderutil.NewRenderBatchCache(),
-		glyphAtlas:       &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)},
+		glyphAtlas:       &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)},
 	}
 }
 
@@ -119,7 +119,7 @@ func (r *SoftwareRenderer) Destroy() {
 	r.height = 0
 	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
 	r.diffCache = renderutil.NewRenderBatchCache()
-	r.glyphAtlas = &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)}
+	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
 }
 
 // EvictCaches releases recoverable renderer caches without dropping the surface.
@@ -128,7 +128,7 @@ func (r *SoftwareRenderer) EvictCaches() {
 	defer r.mu.Unlock()
 	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
 	r.diffCache = renderutil.NewRenderBatchCache()
-	r.glyphAtlas = &glyphAtlas{entries: make(map[glyphKey]*glyphEntry)}
+	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
 	r.rasterizeCount = 0
 }
 
@@ -466,19 +466,22 @@ func fillPath(target *image.RGBA, state renderState, path gfx.Path, brush gfx.Br
 }
 
 func strokePath(target *image.RGBA, state renderState, path gfx.Path, stroke gfx.StrokeStyle, brush gfx.Brush) {
-	rasterizePath(target, state, strokePathOutline(path, stroke), brush, 1)
+	if len(path.Segments) == 0 || stroke.Width <= 0 {
+		return
+	}
+	rasterizeStrokePath(target, state, path, stroke.Width, brush)
 }
 
 func drawPolyline(target *image.RGBA, state renderState, pts []gfx.Point, stroke gfx.StrokeStyle, brush gfx.Brush, closed bool) {
-	if len(pts) == 0 {
+	if len(pts) == 0 || stroke.Width <= 0 {
 		return
 	}
-	bounds := pointsBounds(pts)
-	if bounds.IsEmpty() {
-		return
+	for i := 0; i < len(pts)-1; i++ {
+		rasterizeSegment(target, state, pts[i], pts[i+1], stroke.Width, brush)
 	}
-	fillRect(target, state, bounds.Inset(-stroke.Width/2, -stroke.Width/2), brush)
-	_ = closed
+	if closed && len(pts) >= 2 {
+		rasterizeSegment(target, state, pts[len(pts)-1], pts[0], stroke.Width, brush)
+	}
 }
 
 func drawPoints(target *image.RGBA, state renderState, pts []gfx.Point, radius float32, brush gfx.Brush) {
@@ -488,6 +491,162 @@ func drawPoints(target *image.RGBA, state renderState, pts []gfx.Point, radius f
 	for _, p := range pts {
 		fillRect(target, state, gfx.RectFromXYWH(p.X-radius, p.Y-radius, radius*2, radius*2), brush)
 	}
+}
+
+// rasterizeStrokePath renders a closed-path stroke as an annular fill by feeding
+// the outer-expanded and inner-contracted contours with opposite winding into a
+// single rasterizer. golang.org/x/image/vector uses non-zero winding, so the
+// opposing windings cancel in the interior, leaving only the ring band filled.
+func rasterizeStrokePath(target *image.RGBA, state renderState, path gfx.Path, width float32, brush gfx.Brush) {
+	half := width / 2
+	if half <= 0 {
+		return
+	}
+
+	// Build the annular path: outer contour CW then inner contour CCW.
+	// The rasterizer accumulates winding counts; opposite windings cancel
+	// inside the inner contour, so only the band between outer and inner fills.
+	outerSegs := offsetPathContour(path.Segments, half)
+	innerSegs := offsetPathContour(path.Segments, -half)
+
+	if len(outerSegs) == 0 {
+		return
+	}
+
+	// Combine into one path: outer (CW) followed by inner reversed (CCW).
+	annular := gfx.Path{Segments: append(outerSegs, reverseContour(innerSegs)...)}
+	rasterizePath(target, state, annular, brush, 1)
+}
+
+// offsetPathContour produces a uniformly offset version of a simple closed
+// contour by moving each control point outward (positive d) or inward
+// (negative d) along the axis-aligned normal. For the axis-aligned rectangular
+// and rounded-rect shapes used by focus rings and borders this is exact.
+// For general curves the control points are translated radially, which is a
+// close approximation for small widths relative to curvature.
+func offsetPathContour(segs []gfx.PathSegment, d float32) []gfx.PathSegment {
+	if len(segs) == 0 {
+		return nil
+	}
+
+	// Compute centroid to determine outward direction per point.
+	var cx, cy float32
+	var n int
+	for _, seg := range segs {
+		count := segPointCount(seg.Verb)
+		for i := 0; i < count; i++ {
+			cx += seg.Pts[i].X
+			cy += seg.Pts[i].Y
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	cx /= float32(n)
+	cy /= float32(n)
+
+	out := make([]gfx.PathSegment, len(segs))
+	for i, seg := range segs {
+		out[i].Verb = seg.Verb
+		count := segPointCount(seg.Verb)
+		for j := 0; j < count; j++ {
+			p := seg.Pts[j]
+			dx := p.X - cx
+			dy := p.Y - cy
+			len2 := dx*dx + dy*dy
+			if len2 > 0 {
+				l := float32(math.Sqrt(float64(len2)))
+				out[i].Pts[j] = gfx.Point{X: p.X + dx/l*d, Y: p.Y + dy/l*d}
+			} else {
+				out[i].Pts[j] = p
+			}
+		}
+	}
+	return out
+}
+
+// reverseContour reverses segment order and re-winds a closed contour so it
+// has opposite winding from the original. This is used to cut the interior
+// out of the outer stroke contour.
+func reverseContour(segs []gfx.PathSegment) []gfx.PathSegment {
+	if len(segs) == 0 {
+		return nil
+	}
+
+	// Collect the actual point sequence in forward order (skip Close/MoveTo verbs
+	// as control-flow rather than point-bearing).
+	type ptVerb struct {
+		verb gfx.PathVerb
+		pts  [3]gfx.Point
+	}
+	var pts []ptVerb
+	for _, seg := range segs {
+		if seg.Verb == gfx.PathClose {
+			continue
+		}
+		pts = append(pts, ptVerb{verb: seg.Verb, pts: seg.Pts})
+	}
+	if len(pts) == 0 {
+		return nil
+	}
+
+	// Reverse the sequence.
+	for i, j := 0, len(pts)-1; i < j; i, j = i+1, j-1 {
+		pts[i], pts[j] = pts[j], pts[i]
+	}
+
+	out := make([]gfx.PathSegment, 0, len(pts)+2)
+	// Start at the last point of the reversed sequence (first original point).
+	start := segs[0].Pts[0] // original start
+	out = append(out, gfx.PathSegment{Verb: gfx.PathMoveTo, Pts: [3]gfx.Point{start}})
+	for _, pv := range pts {
+		out = append(out, gfx.PathSegment{Verb: gfx.PathLineTo, Pts: pv.pts})
+	}
+	out = append(out, gfx.PathSegment{Verb: gfx.PathClose})
+	return out
+}
+
+func segPointCount(v gfx.PathVerb) int {
+	switch v {
+	case gfx.PathMoveTo, gfx.PathLineTo:
+		return 1
+	case gfx.PathQuadTo:
+		return 2
+	case gfx.PathCubicTo:
+		return 3
+	default:
+		return 0
+	}
+}
+
+// rasterizeSegment strokes a single line segment A→B with the given half-width
+// by rasterizing an axis-aligned rectangle around it.
+func rasterizeSegment(target *image.RGBA, state renderState, a, b gfx.Point, width float32, brush gfx.Brush) {
+	half := width / 2
+	dx := b.X - a.X
+	dy := b.Y - a.Y
+	l := float32(math.Sqrt(float64(dx*dx + dy*dy)))
+	if l <= 0 {
+		// Degenerate segment — draw a square cap.
+		fillRect(target, state, gfx.RectFromXYWH(a.X-half, a.Y-half, width, width), brush)
+		return
+	}
+	// Perpendicular unit vector.
+	nx := -dy / l
+	ny := dx / l
+	p1 := gfx.Point{X: a.X + nx*half, Y: a.Y + ny*half}
+	p2 := gfx.Point{X: a.X - nx*half, Y: a.Y - ny*half}
+	p3 := gfx.Point{X: b.X - nx*half, Y: b.Y - ny*half}
+	p4 := gfx.Point{X: b.X + nx*half, Y: b.Y + ny*half}
+	path := gfx.NewPath().
+		MoveTo(p1).
+		LineTo(p2).
+		LineTo(p3).
+		LineTo(p4).
+		Close().
+		Build()
+	rasterizePath(target, state, path, brush, 1)
 }
 
 func (r *SoftwareRenderer) drawGlyphRun(target *image.RGBA, state renderState, cmd gfx.DrawGlyphRun) {
@@ -507,7 +666,7 @@ func (r *SoftwareRenderer) drawGlyphRun(target *image.RGBA, state renderState, c
 			X: cmd.Origin.X + glyph.X + entry.offsetX,
 			Y: cmd.Origin.Y + glyph.Y + entry.offsetY,
 		})
-		drawGlyphBitmap(target, state, entry.bitmap, pos, cmd.Brush)
+		drawGlyphBitmap(target, state, entry, pos, cmd.Brush)
 	}
 }
 
@@ -579,29 +738,12 @@ func rasterizePath(target *image.RGBA, state renderState, path gfx.Path, brush g
 	}
 }
 
-func strokePathOutline(path gfx.Path, stroke gfx.StrokeStyle) gfx.Path {
-	if len(path.Segments) == 0 || stroke.Width <= 0 {
-		return gfx.Path{}
-	}
-	return gfx.RectPath(pathBounds(path).Inset(stroke.Width/2, stroke.Width/2))
-}
-
 func (a *glyphAtlas) getOrRasterize(run text.GlyphRun, glyph text.PositionedGlyph) *glyphEntry {
 	if a == nil {
 		return nil
 	}
-	size := run.Size
-	if size <= 0 {
-		size = run.Style.Size
-	}
-	if size <= 0 {
-		size = 14
-	}
-	key := glyphKey{
-		glyphID:  glyph.GlyphID,
-		faceKey:  run.Face.CacheKey(),
-		sizeBits: math.Float32bits(size),
-	}
+	key := renderutil.GlyphAtlasKeyFromRun(run, glyph.GlyphID)
+	size := math.Float32frombits(key.SizeBits)
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -631,17 +773,20 @@ func rasterizeGlyphEntry(run text.GlyphRun, glyph text.PositionedGlyph, size flo
 
 	switch gd := data.(type) {
 	case font.GlyphOutline:
-		return rasterizeOutlineGlyph(gd, scale)
+		extents, ok := goFace.GlyphExtents(gid)
+		return rasterizeOutlineGlyph(gd, extents, ok, scale)
 	case font.GlyphSVG:
-		return rasterizeOutlineGlyph(gd.Outline, scale)
+		extents, ok := goFace.GlyphExtents(gid)
+		return rasterizeOutlineGlyph(gd.Outline, extents, ok, scale)
 	case font.GlyphBitmap:
-		return rasterizeBitmapGlyph(gd, scale)
+		extents, ok := goFace.GlyphExtents(gid)
+		return rasterizeBitmapGlyph(gd, extents, ok, scale)
 	default:
 		return nil
 	}
 }
 
-func rasterizeOutlineGlyph(outline font.GlyphOutline, scale float32) *glyphEntry {
+func rasterizeOutlineGlyph(outline font.GlyphOutline, extents font.GlyphExtents, hasExtents bool, scale float32) *glyphEntry {
 	if len(outline.Segments) == 0 {
 		return &glyphEntry{bitmap: image.NewAlpha(image.Rect(0, 0, 1, 1))}
 	}
@@ -671,38 +816,69 @@ func rasterizeOutlineGlyph(outline font.GlyphOutline, scale float32) *glyphEntry
 		}
 	}
 	ras.Draw(bmp, bmp.Bounds(), image.NewUniform(color.Alpha{A: 255}), image.Point{})
-	return &glyphEntry{
-		bitmap:  bmp,
-		offsetX: minX - 1,
-		offsetY: -maxY + 1,
+	entry := &glyphEntry{bitmap: bmp}
+	if hasExtents {
+		entry.offsetX = extents.XBearing*scale - 1
+		entry.offsetY = -extents.YBearing*scale - 1
+		return entry
 	}
+	entry.offsetX = minX - 1
+	entry.offsetY = -maxY - 1
+	return entry
 }
 
-func rasterizeBitmapGlyph(gd font.GlyphBitmap, scale float32) *glyphEntry {
-	w := maxInt(1, int(math.Ceil(float64(float32(gd.Width)*scale)))+2)
-	h := maxInt(1, int(math.Ceil(float64(float32(gd.Height)*scale)))+2)
-	bmp := image.NewAlpha(image.Rect(0, 0, w, h))
+func rasterizeBitmapGlyph(gd font.GlyphBitmap, extents font.GlyphExtents, hasExtents bool, scale float32) *glyphEntry {
 	if gd.Width <= 0 || gd.Height <= 0 {
-		return &glyphEntry{bitmap: bmp}
+		return &glyphEntry{bitmap: image.NewAlpha(image.Rect(0, 0, 1, 1))}
 	}
-	if gd.Format == font.BlackAndWhite {
-		for y := 0; y < h; y++ {
-			sy := clampInt(int(float32(y-1)/scale), 0, gd.Height-1)
-			for x := 0; x < w; x++ {
-				sx := clampInt(int(float32(x-1)/scale), 0, gd.Width-1)
-				idx := sy*gd.Width + sx
-				if idx < 0 || idx >= gd.Width*gd.Height {
-					continue
-				}
+
+	bmp := image.NewAlpha(image.Rect(0, 0, gd.Width, gd.Height))
+	switch gd.Format {
+	case font.BlackAndWhite:
+		if len(gd.Data) < ((gd.Width*gd.Height)+7)/8 {
+			return &glyphEntry{bitmap: bmp}
+		}
+		for y := 0; y < gd.Height; y++ {
+			for x := 0; x < gd.Width; x++ {
+				idx := y*gd.Width + x
 				bit := gd.Data[idx/8] >> uint(7-(idx%8))
 				if bit&1 == 1 {
 					bmp.SetAlpha(x, y, color.Alpha{A: 255})
 				}
 			}
 		}
-		return &glyphEntry{bitmap: bmp}
+	default:
+		src, _, err := image.Decode(bytes.NewReader(gd.Data))
+		if err != nil {
+			return &glyphEntry{bitmap: bmp}
+		}
+		bounds := src.Bounds()
+		if bounds.Empty() {
+			return &glyphEntry{bitmap: bmp}
+		}
+		entry := &glyphEntry{
+			image: src,
+			color: true,
+		}
+		if hasExtents {
+			entry.offsetX = extents.XBearing * scale
+			entry.offsetY = -extents.YBearing * scale
+		}
+		return entry
 	}
-	return &glyphEntry{bitmap: bmp}
+
+	entry := &glyphEntry{bitmap: bmp}
+	if gd.Outline != nil {
+		minX, _, _, maxY := outlineBounds(*gd.Outline, scale)
+		entry.offsetX = minX
+		entry.offsetY = -maxY
+		return entry
+	}
+	if hasExtents {
+		entry.offsetX = extents.XBearing * scale
+		entry.offsetY = -extents.YBearing * scale
+	}
+	return entry
 }
 
 func outlineBounds(outline font.GlyphOutline, scale float32) (minX, minY, maxX, maxY float32) {
@@ -737,12 +913,48 @@ func outlineBounds(outline font.GlyphOutline, scale float32) (minX, minY, maxX, 
 	return
 }
 
-func drawGlyphBitmap(target *image.RGBA, state renderState, bmp *image.Alpha, pos gfx.Point, brush gfx.Brush) {
-	if target == nil || bmp == nil {
+func drawGlyphBitmap(target *image.RGBA, state renderState, entry *glyphEntry, pos gfx.Point, brush gfx.Brush) {
+	if target == nil || entry == nil {
 		return
 	}
 	ox := int(math.Round(float64(pos.X)))
 	oy := int(math.Round(float64(pos.Y)))
+	if entry.color && entry.image != nil {
+		bounds := entry.image.Bounds()
+		for sy := 0; sy < bounds.Dy(); sy++ {
+			dy := oy + sy
+			if dy < 0 || dy >= target.Bounds().Dy() || dy < int(state.clip.Min.Y) || dy >= int(state.clip.Max.Y) {
+				continue
+			}
+			for sx := 0; sx < bounds.Dx(); sx++ {
+				dx := ox + sx
+				if dx < 0 || dx >= target.Bounds().Dx() || dx < int(state.clip.Min.X) || dx >= int(state.clip.Max.X) {
+					continue
+				}
+				cr, cg, cb, ca := entry.image.At(bounds.Min.X+sx, bounds.Min.Y+sy).RGBA()
+				if ca == 0 {
+					continue
+				}
+				c := gfx.Color{
+					R: float32(cr) / 65535,
+					G: float32(cg) / 65535,
+					B: float32(cb) / 65535,
+					A: float32(ca) / 65535 * state.opacity,
+				}.Premultiply()
+				sr, sg, sb, sa := colorToBytes(c, 1)
+				off := target.PixOffset(dx, dy)
+				if off < 0 || off+3 >= len(target.Pix) {
+					continue
+				}
+				blendPremul(target.Pix[off:off+4], []byte{sr, sg, sb, sa}, 1)
+			}
+		}
+		return
+	}
+	bmp := entry.bitmap
+	if bmp == nil {
+		return
+	}
 	bounds := bmp.Bounds()
 	for sy := 0; sy < bounds.Dy(); sy++ {
 		dy := oy + sy

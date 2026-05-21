@@ -83,11 +83,11 @@ func TestLayerRegistryBuilder_windowBindingValidation(t *testing.T) {
 func TestLayerRegistryBuilder_preservesFocusTrapMetadata(t *testing.T) {
 	b := NewLayerRegistryBuilder()
 	if _, err := b.RegisterLayer(LayerRegistration{
-		Name:         "modal",
-		Order:        2500,
+		Name:          "modal",
+		Order:         2500,
 		WindowBinding: WindowBinding{Kind: WindowBindingPrimary},
-		FocusTrap:    true,
-		FocusRestore: facet.FocusRestoreFirstFocusable,
+		FocusTrap:     true,
+		FocusRestore:  facet.FocusRestoreFirstFocusable,
 	}); err != nil {
 		t.Fatalf("register modal: %v", err)
 	}

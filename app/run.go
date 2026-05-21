@@ -120,6 +120,10 @@ func Run(config Config, builder RootBuilder) error {
 	if themeContext.Resolver == nil && themeContext.Materials == nil && themeContext.ContentScale == 0 && themeContext.Depth == 0 {
 		themeContext = theme.DefaultResolvedContext()
 	}
+	themeContext = themeContext.WithFontRegistry(fontRegistry)
+	if err := themeContext.TokenSet().Fonts.Validate(); err != nil {
+		return err
+	}
 
 	root := builder(BuildContext{
 		FontRegistry: fontRegistry,

@@ -17,7 +17,7 @@ type RecipeContext struct {
 	Metrics    ResolvedMetricTokens
 	Shape      ShapeTokens
 	Motion     MotionTokens
-	Fonts      FontRoles
+	Fonts      theme.FontRoles
 	Chart      ChartTokens
 
 	Materials *theme.MaterialRegistry
@@ -137,6 +137,7 @@ func UINotificationRecipeBundle() FamilyRecipeBundle {
 		"dialog/standard",
 		"dialog/destructive",
 		"dialog/fullscreen",
+		"notification/standard",
 		"progress/standard",
 	)
 }
@@ -154,7 +155,7 @@ func DefaultTemplateTheme(name string) TemplateTheme {
 	return TemplateTheme{
 		Name:      name,
 		Tokens:    DefaultTemplateTokens(),
-		Fonts:     DefaultFontRoles(),
+		Fonts:     theme.DefaultFontRoles(),
 		Materials: theme.NewMaterialRegistry(),
 		Recipes:   DefaultRecipeBundle(),
 		Metadata: ThemeMetadata{

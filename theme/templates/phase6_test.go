@@ -3,6 +3,8 @@ package templates
 import (
 	"strings"
 	"testing"
+
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func TestValidationReport_detectsMissingTokens(t *testing.T) {
@@ -11,7 +13,7 @@ func TestValidationReport_detectsMissingTokens(t *testing.T) {
 		Tokens: Tokens{
 			Color: ColorTokens{},
 		},
-		Fonts:   DefaultFontRoles(),
+		Fonts:   theme.DefaultFontRoles(),
 		Recipes: DefaultRecipeBundle(),
 		Metadata: ThemeMetadata{
 			BaselineDensity: DensityRegular,

@@ -110,4 +110,3 @@ func (t Transform) Inverse() (Transform, bool) {
 func (t Transform) IsIdentity() bool {
 	return t == Identity()
 }
-

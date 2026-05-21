@@ -177,6 +177,15 @@ func ResolveButtonRecipe(ctx theme.StyleContext, variant ButtonVariant, override
 	return resolved, report
 }
 
+// ResolveButtonGroupRecipe resolves the button-group slots and provenance.
+func ResolveButtonGroupRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.ButtonGroupSlots]) (shared.ButtonGroupSlots, theme.RecipeReport) {
+	slots := buttonGroupBase(ctx)
+	report := newReport("selection", theme.VariantKey("standard"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
 // ResolveIconButtonRecipe resolves the icon-button slots and provenance.
 func ResolveIconButtonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.IconButtonSlots]) (shared.IconButtonSlots, theme.RecipeReport) {
 	slots := iconButtonBase(ctx)
@@ -303,6 +312,17 @@ func buttonBase(ctx theme.StyleContext, variant ButtonVariant) shared.ButtonSlot
 		}
 	default:
 		return shared.ButtonSlots{}
+	}
+}
+
+func buttonGroupBase(ctx theme.StyleContext) shared.ButtonGroupSlots {
+	tokens := ctx.Tokens
+	return shared.ButtonGroupSlots{
+		Root:              transparentStyle(),
+		GroupSurface:      outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+		OptionButtons:     outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+		SelectedIndicator: markStyleFromColor(tokens.Color.Primary),
+		FocusRing:         strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 
@@ -582,13 +602,13 @@ func listItemBase(ctx theme.StyleContext, variant ListItemVariant) shared.ListIt
 	tokens := ctx.Tokens
 	_ = variant
 	return shared.ListItemSlots{
-		Root:              transparentStyle(),
-		ItemContainer:     outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
-		LeadingIcon:       markStyleFromColor(tokens.Color.OnSurfaceVariant),
-		Label:             markStyleFromColor(tokens.Color.OnSurface),
-		SupportingText:    markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		Root:               transparentStyle(),
+		ItemContainer:      outlinedFieldContainer(tokens.Color.Surface, tokens.Color.OnSurfaceVariant),
+		LeadingIcon:        markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		Label:              markStyleFromColor(tokens.Color.OnSurface),
+		SupportingText:     markStyleFromColor(tokens.Color.OnSurfaceVariant),
 		SelectionIndicator: markStyleFromColor(tokens.Color.Primary),
-		FocusRing:         strokeStyle(tokens.Color.Primary, 2),
+		FocusRing:          strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 

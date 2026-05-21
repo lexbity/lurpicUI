@@ -79,6 +79,21 @@ func TestResolveTreeNavigatorRecipe_exposes_expected_slots(t *testing.T) {
 	}
 }
 
+func TestResolvePaginationRecipe_exposes_expected_slots(t *testing.T) {
+	slots, report := ResolvePaginationRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()})
+	if report.Variant != theme.VariantKey("standard") {
+		t.Fatalf("pagination variant = %q, want standard", report.Variant)
+	}
+	for _, name := range []string{"Root", "Page", "Current", "Nav", "Separator", "FocusRing"} {
+		if _, ok := report.SlotSource(name); !ok {
+			t.Fatalf("expected pagination slot source for %s", name)
+		}
+	}
+	if slots.Page.Base.Fills == nil || slots.Current.Base.Fills == nil || slots.Nav.Base.Fills == nil {
+		t.Fatal("expected pagination slots to be populated")
+	}
+}
+
 func TestResolveDrawerAndSpeedDialRecipes_expose_expected_slots(t *testing.T) {
 	drawer, drawerReport := ResolveDrawerRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()})
 	if drawerReport.Variant != theme.VariantKey("standard") {

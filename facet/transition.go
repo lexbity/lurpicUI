@@ -91,7 +91,7 @@ func Deactivate(f FacetImpl) {
 // Dispose transitions a facet into the terminal Disposed state.
 func Dispose(f FacetImpl) {
 	type disposeFrame struct {
-		impl   FacetImpl
+		impl    FacetImpl
 		entered bool
 	}
 	stack := []disposeFrame{{impl: f}}

@@ -68,4 +68,3 @@ func (r Rect) Offset(dx, dy float32) Rect {
 		Max: Point{X: r.Max.X + dx, Y: r.Max.Y + dy},
 	}
 }
-

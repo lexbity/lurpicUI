@@ -66,6 +66,16 @@ func TestDefaultTokens_completeness(t *testing.T) {
 		t.Fatalf("data palette too short: %d", len(tokens.Color.DataPalette))
 	}
 	assertDataPaletteHueSeparation(t, tokens.Color.DataPalette, 20)
+
+	if err := tokens.Fonts.Validate(); err != nil {
+		t.Fatalf("fonts validate: %v", err)
+	}
+	if tokens.Fonts.UISans.PreferredFamilies[0] == "" || tokens.Fonts.Mono.PreferredFamilies[0] == "" {
+		t.Fatal("expected explicit font families")
+	}
+	if isGenericFamilyName(tokens.Fonts.UISans.PreferredFamilies[0]) || isGenericFamilyName(tokens.Fonts.Mono.PreferredFamilies[0]) {
+		t.Fatalf("expected concrete family names, got %#v", tokens.Fonts)
+	}
 }
 
 func TestDarkTokens_contrastAndLuminance(t *testing.T) {

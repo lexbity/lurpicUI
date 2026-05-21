@@ -20,9 +20,17 @@ type ConnectorSlots struct {
 
 // BadgeSlots describes styling for a badge mark.
 type BadgeSlots struct {
-	Container theme.MarkStyle
-	Text      theme.MarkStyle
-	Icon      theme.MarkStyle
+	Root           theme.MarkStyle
+	BadgeContainer theme.MarkStyle
+	Label          theme.MarkStyle
+	OptionalIcon   theme.MarkStyle
+}
+
+// StatusLightSlots describes styling for a status light mark.
+type StatusLightSlots struct {
+	Root          theme.MarkStyle
+	Indicator     theme.MarkStyle
+	LabelOptional theme.MarkStyle
 }
 
 // CalloutSlots describes styling for a callout mark.
@@ -50,6 +58,58 @@ type ButtonSlots struct {
 	OptionalTrailingIcon theme.MarkStyle
 	FocusRing            theme.MarkStyle
 	StateLayer           theme.MarkStyle
+}
+
+// ActionBarSlots describes styling for an action bar mark.
+type ActionBarSlots struct {
+	Root         theme.MarkStyle
+	BarSurface   theme.MarkStyle
+	ContextLabel theme.MarkStyle
+	ActionItems  theme.MarkStyle
+	OverflowMenu theme.MarkStyle
+	FocusRing    theme.MarkStyle
+}
+
+// ActionGroupSlots describes styling for an action group mark.
+type ActionGroupSlots struct {
+	Root         theme.MarkStyle
+	GroupSurface theme.MarkStyle
+	ActionItems  theme.MarkStyle
+	Separators   theme.MarkStyle
+	FocusRing    theme.MarkStyle
+}
+
+// MenuButtonSlots describes styling for a menu button mark.
+type MenuButtonSlots struct {
+	Root                theme.MarkStyle
+	Trigger             theme.MarkStyle
+	TriggerLabel        theme.MarkStyle
+	TriggerIcon         theme.MarkStyle
+	Chevron             theme.MarkStyle
+	FloatingMenuSurface theme.MarkStyle
+	MenuItems           theme.MarkStyle
+	FocusRing           theme.MarkStyle
+}
+
+// SplitButtonSlots describes styling for a split button mark.
+type SplitButtonSlots struct {
+	Root                theme.MarkStyle
+	PrimaryButton       theme.MarkStyle
+	PrimaryLabel        theme.MarkStyle
+	MenuTrigger         theme.MarkStyle
+	Chevron             theme.MarkStyle
+	FloatingMenuSurface theme.MarkStyle
+	MenuItems           theme.MarkStyle
+	FocusRing           theme.MarkStyle
+}
+
+// ButtonGroupSlots describes styling for a segmented button-group mark.
+type ButtonGroupSlots struct {
+	Root              theme.MarkStyle
+	GroupSurface      theme.MarkStyle
+	OptionButtons     theme.MarkStyle
+	SelectedIndicator theme.MarkStyle
+	FocusRing         theme.MarkStyle
 }
 
 // IconButtonSlots describes styling for an icon button mark.
@@ -217,12 +277,58 @@ type MenuSlots struct {
 	FocusRing theme.MarkStyle
 }
 
+// CardSlots describes styling for a structure card mark.
+type CardSlots struct {
+	Root              theme.MarkStyle
+	CardSurface       theme.MarkStyle
+	HeaderOptional    theme.MarkStyle
+	MediaOptional     theme.MarkStyle
+	Body              theme.MarkStyle
+	ActionsOptional   theme.MarkStyle
+	FocusRingOptional theme.MarkStyle
+}
+
+// ListSlots describes styling for a structure list mark.
+type ListSlots struct {
+	Root                  theme.MarkStyle
+	ListContainer         theme.MarkStyle
+	ListItems             theme.MarkStyle
+	SectionHeaderOptional theme.MarkStyle
+	EmptyStateOptional    theme.MarkStyle
+}
+
+// TableSlots describes styling for a structure table mark.
+type TableSlots struct {
+	Root                    theme.MarkStyle
+	TableSurface            theme.MarkStyle
+	HeaderRow               theme.MarkStyle
+	HeaderCell              theme.MarkStyle
+	BodyRows                theme.MarkStyle
+	BodyCell                theme.MarkStyle
+	SelectionColumnOptional theme.MarkStyle
+	SortIndicator           theme.MarkStyle
+	FocusRing               theme.MarkStyle
+}
+
+// ScrollRegionSlots describes styling for a scroll region mark.
+type ScrollRegionSlots struct {
+	Root                        theme.MarkStyle
+	Viewport                    theme.MarkStyle
+	Content                     theme.MarkStyle
+	ScrollbarVerticalOptional   theme.MarkStyle
+	ScrollbarHorizontalOptional theme.MarkStyle
+	ScrollShadowsOptional       theme.MarkStyle
+	FocusRingOptional           theme.MarkStyle
+}
+
 // PaginationSlots describes styling for a pagination mark.
 type PaginationSlots struct {
+	Root      theme.MarkStyle
 	Page      theme.MarkStyle
 	Current   theme.MarkStyle
 	Nav       theme.MarkStyle
 	Separator theme.MarkStyle
+	FocusRing theme.MarkStyle
 }
 
 // SpeedDialSlots describes styling for a speed-dial mark.
@@ -258,6 +364,36 @@ type SnackbarSlots struct {
 	Action    theme.MarkStyle
 }
 
+// FeedbackAlertSlots describes styling for a feedback.alert mark.
+type FeedbackAlertSlots struct {
+	Root         theme.MarkStyle
+	AlertSurface theme.MarkStyle
+	Icon         theme.MarkStyle
+	Title        theme.MarkStyle
+	Message      theme.MarkStyle
+	Action       theme.MarkStyle
+	CloseButton  theme.MarkStyle
+}
+
+// FeedbackTooltipSlots describes styling for a feedback.tooltip mark.
+type FeedbackTooltipSlots struct {
+	Root           theme.MarkStyle
+	TooltipSurface theme.MarkStyle
+	Content        theme.MarkStyle
+	AnchorArrow    theme.MarkStyle
+}
+
+// FeedbackNotificationSlots describes styling for a feedback.notification mark.
+type FeedbackNotificationSlots struct {
+	Root          theme.MarkStyle
+	StatusSurface theme.MarkStyle
+	Icon          theme.MarkStyle
+	Title         theme.MarkStyle
+	Message       theme.MarkStyle
+	Action        theme.MarkStyle
+	CloseButton   theme.MarkStyle
+}
+
 // DialogSlots describes styling for a dialog mark.
 type DialogSlots struct {
 	Scrim      theme.MarkStyle
@@ -269,11 +405,39 @@ type DialogSlots struct {
 	Shadow     theme.MarkStyle
 }
 
+// FeedbackDialogSlots describes styling for a feedback.dialog mark.
+type FeedbackDialogSlots struct {
+	Root         theme.MarkStyle
+	Backdrop     theme.MarkStyle
+	ModalSurface theme.MarkStyle
+	Title        theme.MarkStyle
+	Body         theme.MarkStyle
+	Actions      theme.MarkStyle
+	CloseButton  theme.MarkStyle
+	FocusRing    theme.MarkStyle
+}
+
 // ProgressSlots describes styling for a progress mark.
 type ProgressSlots struct {
 	Track     theme.MarkStyle
 	Indicator theme.MarkStyle
 	Label     theme.MarkStyle
+}
+
+// StatusProgressBarSlots describes styling for a status.progress_bar mark.
+type StatusProgressBarSlots struct {
+	Root          theme.MarkStyle
+	Track         theme.MarkStyle
+	Indicator     theme.MarkStyle
+	OptionalLabel theme.MarkStyle
+}
+
+// StatusProgressRingSlots describes styling for a status.progress_ring mark.
+type StatusProgressRingSlots struct {
+	Root          theme.MarkStyle
+	TrackArc      theme.MarkStyle
+	IndicatorArc  theme.MarkStyle
+	OptionalLabel theme.MarkStyle
 }
 
 // AxisSlots describes styling for a chart axis mark.

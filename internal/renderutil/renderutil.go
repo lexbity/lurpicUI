@@ -24,17 +24,17 @@ type RenderBatchDiff struct {
 }
 
 type FrameDiff struct {
-	RenderBatchs              map[render.RenderBatchID]RenderBatchDiff
+	RenderBatchs        map[render.RenderBatchID]RenderBatchDiff
 	CompositeDirtyRects []gfx.Rect
 }
 
 type RenderBatchCache struct {
 	RenderBatchs map[render.RenderBatchID]RenderBatchSnapshot
-	order  []render.RenderBatchID
+	order        []render.RenderBatchID
 }
 
 type RenderBatchSnapshot struct {
-	RenderBatch       render.RenderBatch
+	RenderBatch render.RenderBatch
 	commands    []gfx.Command
 	order       int
 	complexMove bool
@@ -126,7 +126,7 @@ func (c *RenderBatchCache) Update(frame *render.Frame, rasterBuffers map[render.
 		cmds := make([]gfx.Command, len(RenderBatch.Commands.Commands))
 		copy(cmds, RenderBatch.Commands.Commands)
 		snap := RenderBatchSnapshot{
-			RenderBatch:       RenderBatch,
+			RenderBatch: RenderBatch,
 			commands:    cmds,
 			order:       idx,
 			complexMove: hasComplexTransforms(cmds),

@@ -219,10 +219,12 @@ func treeNavigatorBase(ctx theme.StyleContext) shared.TreeNavigatorSlots {
 func paginationBase(ctx theme.StyleContext) shared.PaginationSlots {
 	tokens := ctx.Tokens
 	return shared.PaginationSlots{
-		Page:      markStyleFromColor(tokens.Color.Surface),
-		Current:   markStyleFromColor(tokens.Color.Primary),
+		Root:      theme.MarkStyle{},
+		Page:      markStyleFromColor(tokens.Color.OnSurface),
+		Current:   markStyleFromColor(tokens.Color.OnSurface),
 		Nav:       markStyleFromColor(tokens.Color.OnSurface),
-		Separator: fadedStyle(tokens.Color.OnSurfaceVariant, 0.5),
+		Separator: fadedStyle(tokens.Color.OnSurfaceVariant, 0.65),
+		FocusRing: strokeStyle(tokens.Color.OnSurfaceVariant, 1.5),
 	}
 }
 

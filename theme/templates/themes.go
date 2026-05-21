@@ -245,7 +245,7 @@ func shippedTheme(spec ThemeSpec) TemplateTheme {
 	return TemplateTheme{
 		Name:      spec.Name,
 		Tokens:    Tokens{Color: spec.Colors, Typography: DefaultTypographyTokens(), Metrics: DefaultMetricTokens(), Shape: defaultShapeTokens(), Motion: defaultMotionTokens()},
-		Fonts:     DefaultFontRoles(),
+		Fonts:     theme.DefaultFontRoles(),
 		Materials: shippedMaterials(spec.Colors),
 		Recipes:   DefaultRecipeBundle(),
 		Metadata: ThemeMetadata{

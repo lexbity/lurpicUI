@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"flag"
+	"fmt"
 	"image"
 	"image/draw"
 	"image/png"
@@ -11,7 +12,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
-	"fmt"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "regenerate golden images")

@@ -134,6 +134,7 @@ type DensityTokens struct {
 type Tokens struct {
 	Color      ColorTokens
 	Typography TypographyTokens
+	Fonts      FontRoles
 	Spacing    SpacingTokens
 	Radius     RadiusTokens
 	Elevation  ElevationTokens
@@ -143,29 +144,31 @@ type Tokens struct {
 
 // DefaultTokens returns the default theme token set.
 func DefaultTokens() Tokens {
+	fonts := DefaultFontRoles()
 	return Tokens{
 		Color: defaultColorTokens(),
 		Typography: TypographyTokens{
-			DisplayLarge:   textStyle("sans-serif", 57, text.WeightRegular, 1.05),
-			DisplayMedium:  textStyle("sans-serif", 45, text.WeightRegular, 1.05),
-			DisplaySmall:   textStyle("sans-serif", 36, text.WeightRegular, 1.08),
-			HeadlineLarge:  textStyle("sans-serif", 32, text.WeightSemiBold, 1.1),
-			HeadlineMedium: textStyle("sans-serif", 28, text.WeightSemiBold, 1.1),
-			HeadlineSmall:  textStyle("sans-serif", 24, text.WeightSemiBold, 1.12),
-			TitleLarge:     textStyle("sans-serif", 22, text.WeightMedium, 1.12),
-			TitleMedium:    textStyle("sans-serif", 16, text.WeightMedium, 1.2),
-			TitleSmall:     textStyle("sans-serif", 14, text.WeightMedium, 1.2),
-			BodyLarge:      textStyle("sans-serif", 16, text.WeightRegular, 1.35),
-			BodyMedium:     textStyle("sans-serif", 14, text.WeightRegular, 1.35),
-			BodySmall:      textStyle("sans-serif", 12, text.WeightRegular, 1.35),
-			LabelLarge:     textStyle("sans-serif", 14, text.WeightMedium, 1.2),
-			LabelMedium:    textStyle("sans-serif", 12, text.WeightMedium, 1.2),
-			LabelSmall:     textStyle("sans-serif", 11, text.WeightMedium, 1.18),
-			DataLabel:      textStyle("monospace", 13, text.WeightRegular, 1.15),
-			DataAnnotation: textStyle("monospace", 11, text.WeightRegular, 1.15),
-			ChartTitle:     textStyle("sans-serif", 20, text.WeightSemiBold, 1.12),
-			ChartSubtitle:  textStyle("sans-serif", 13, text.WeightRegular, 1.2),
+			DisplayLarge:   textStyle(57, text.WeightRegular, 1.05),
+			DisplayMedium:  textStyle(45, text.WeightRegular, 1.05),
+			DisplaySmall:   textStyle(36, text.WeightRegular, 1.08),
+			HeadlineLarge:  textStyle(32, text.WeightSemiBold, 1.1),
+			HeadlineMedium: textStyle(28, text.WeightSemiBold, 1.1),
+			HeadlineSmall:  textStyle(24, text.WeightSemiBold, 1.12),
+			TitleLarge:     textStyle(22, text.WeightMedium, 1.12),
+			TitleMedium:    textStyle(16, text.WeightMedium, 1.2),
+			TitleSmall:     textStyle(14, text.WeightMedium, 1.2),
+			BodyLarge:      textStyle(16, text.WeightRegular, 1.35),
+			BodyMedium:     textStyle(14, text.WeightRegular, 1.35),
+			BodySmall:      textStyle(12, text.WeightRegular, 1.35),
+			LabelLarge:     textStyle(14, text.WeightMedium, 1.2),
+			LabelMedium:    textStyle(12, text.WeightMedium, 1.2),
+			LabelSmall:     textStyle(11, text.WeightMedium, 1.18),
+			DataLabel:      textStyle(13, text.WeightRegular, 1.15),
+			DataAnnotation: textStyle(11, text.WeightRegular, 1.15),
+			ChartTitle:     textStyle(20, text.WeightSemiBold, 1.12),
+			ChartSubtitle:  textStyle(13, text.WeightRegular, 1.2),
 		},
+		Fonts: fonts,
 		Spacing: SpacingTokens{
 			XXS:           2,
 			XS:            4,
@@ -315,6 +318,11 @@ func (t Tokens) textStyleFor(scale string) text.TextStyle {
 	}
 }
 
+func (t Tokens) resolveTextStyle(token TextToken, reg *text.FontRegistry) text.TextStyle {
+	style := t.textStyleToken(token)
+	return t.Fonts.ResolveTextStyle(token, style, reg)
+}
+
 func (t Tokens) spacingFor(size string) float32 {
 	switch normalizeTokenName(size) {
 	case "xxs":
@@ -344,6 +352,27 @@ func (t Tokens) spacingFor(size string) float32 {
 	}
 }
 
+func (t Tokens) textStyleToken(token TextToken) text.TextStyle {
+	switch token {
+	case TextBodyS:
+		return t.Typography.BodySmall
+	case TextLabelM:
+		return t.Typography.LabelMedium
+	case TextLabelS:
+		return t.Typography.LabelSmall
+	case TextHeadingS:
+		return t.Typography.HeadlineSmall
+	case TextMonoM:
+		return t.Typography.DataLabel
+	case TextMonoS:
+		return t.Typography.DataAnnotation
+	case TextBodyM:
+		fallthrough
+	default:
+		return t.Typography.BodyMedium
+	}
+}
+
 // Scale multiplies the value by the density scale factor.
 //
 // Touch mode enforces a minimum touch target size when a scaled value would
@@ -356,9 +385,8 @@ func (t Tokens) Scale(value float32) float32 {
 	return scaled
 }
 
-func textStyle(family string, size float32, weight text.Weight, lineHeight float32) text.TextStyle {
+func textStyle(size float32, weight text.Weight, lineHeight float32) text.TextStyle {
 	return text.TextStyle{
-		Family:     family,
 		Size:       size,
 		Weight:     weight,
 		Style:      text.StyleNormal,

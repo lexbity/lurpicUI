@@ -114,4 +114,3 @@ func clampFloat(value, min, max float32) float32 {
 	}
 	return value
 }
-

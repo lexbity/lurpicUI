@@ -120,9 +120,10 @@ func DefaultDensityScales(tokens Tokens) map[DensityID]DensityScale {
 type ResolvedContext struct {
 	defaultContext
 
-	Materials *MaterialRegistry
-	Density   DensityScale
-	Viewport  gfx.Size
+	Materials    *MaterialRegistry
+	Density      DensityScale
+	Viewport     gfx.Size
+	FontRegistry *text.FontRegistry
 
 	ContentScale     float32
 	WritingDirection layout.WritingDirection
@@ -139,6 +140,7 @@ func DefaultResolvedContext() ResolvedContext {
 		defaultContext:   defaultContext{tokens: tokens},
 		Materials:        materials,
 		Density:          scales[DensityIDComfortable],
+		FontRegistry:     nil,
 		ContentScale:     1,
 		WritingDirection: layout.WritingDirectionLTR,
 		Resolver:         DefaultThemeResolver(tokens),
@@ -176,7 +178,8 @@ func (c ResolvedContext) Spacing(t SpacingToken) layout.ResolvedScalar {
 // TextStyle resolves a text token through the selected density scale.
 func (c ResolvedContext) TextStyle(t TextToken) text.TextStyle {
 	if c.Density.Type != (TypographyTokens{}) {
-		return c.Density.ResolveTextStyle(t)
+		style := c.Density.ResolveTextStyle(t)
+		return c.defaultContext.tokens.Fonts.ResolveTextStyle(t, style, c.FontRegistry)
 	}
 	return c.defaultContext.TextStyle(t)
 }
@@ -208,6 +211,12 @@ func (c ResolvedContext) WithWritingDirection(direction layout.WritingDirection)
 // WithMaterials returns a copy with a different material registry.
 func (c ResolvedContext) WithMaterials(materials *MaterialRegistry) ResolvedContext {
 	c.Materials = materials
+	return c
+}
+
+// WithFontRegistry returns a copy with a different font registry.
+func (c ResolvedContext) WithFontRegistry(reg *text.FontRegistry) ResolvedContext {
+	c.FontRegistry = reg
 	return c
 }
 

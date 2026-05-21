@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/text"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func TestDefaultTypographyTokens_matchesPlan(t *testing.T) {
@@ -47,7 +48,7 @@ func TestScaleMetricsForDensity(t *testing.T) {
 }
 
 func TestFontRoleResolveUsesFallbackChain(t *testing.T) {
-	role := FontRole{
+	role := theme.FontRole{
 		PreferredFamilies: []string{"Missing Font", "Also Missing"},
 		DefaultStyle:      text.TextStyle{Size: 14, Weight: text.WeightRegular},
 	}

@@ -346,13 +346,13 @@ type MeasureResult struct {
 
 // LayerContext carries resolved layer metadata into layout callbacks.
 type LayerContext struct {
-	ID          LayerID
-	HitPolicy   HitPolicy
-	ClipPolicy  ClipPolicy
-	Dismissal   DismissalScope
-	FocusTrap   bool
+	ID           LayerID
+	HitPolicy    HitPolicy
+	ClipPolicy   ClipPolicy
+	Dismissal    DismissalScope
+	FocusTrap    bool
 	FocusRestore FocusRestoreMode
-	Order       int32
+	Order        int32
 }
 
 // GroupMeasureContext carries parent group snapshot data during measurement.

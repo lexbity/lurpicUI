@@ -4,8 +4,8 @@ import (
 	"reflect"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
-	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme"
+	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 )
 
 // LabelVariant selects the label recipe shape.
