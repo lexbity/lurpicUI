@@ -74,11 +74,7 @@ func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	anchors := card.ExportAnchors(layout.AnchorExportContext{ResolvedLayer: layout.ResolvedLayer{Bounds: bounds}})
-	for _, name := range []layout.AnchorID{"bounds_center", "bounds_top_left", "bounds_top_right", "bounds_bottom_left", "bounds_bottom_right", "baseline"} {
-		if _, ok := anchors[name]; !ok {
-			t.Fatalf("missing anchor %q", name)
-		}
-	}
+	expectBoundsAnchors(t, anchors, bounds)
 
 	cmds := card.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {

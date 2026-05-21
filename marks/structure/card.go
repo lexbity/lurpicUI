@@ -227,13 +227,7 @@ func (c *Card) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	out := boundsAnchorSet(bounds)
 	active := c.activeChildren()
 	for i := range active {
 		spec := active[i]
@@ -252,7 +246,7 @@ func (c *Card) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	for _, b := range c.cachedChildBounds {
 		if !b.IsEmpty() {
-			out["baseline"] = gfx.Point{X: b.Min.X, Y: b.Min.Y}
+			out["baseline"] = b.Min
 			break
 		}
 	}

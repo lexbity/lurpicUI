@@ -37,6 +37,14 @@ func TestPrimitiveTextGoldenAlphabetAnatomy(t *testing.T) {
 	renderAndAssertPrimitiveTextGoldenWithGuides(t, "primitive_text_alphabet_anatomy", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 960, 1040, 160)
 }
 
+func TestPrimitiveTextGoldenAlphabetAnatomyCompact(t *testing.T) {
+	renderAndAssertPrimitiveTextGoldenWithGuidesAtDensity(t, "primitive_text_alphabet_anatomy_compact", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 960, 1040, 160, theme.DensityIDCompact)
+}
+
+func TestPrimitiveTextGoldenAlphabetAnatomyComfortable(t *testing.T) {
+	renderAndAssertPrimitiveTextGoldenWithGuidesAtDensity(t, "primitive_text_alphabet_anatomy_comfortable", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 960, 1040, 160, theme.DensityIDComfortable)
+}
+
 func TestPrimitiveTextGoldenAnatomyTwo(t *testing.T) {
 	renderAndAssertPrimitiveTextGoldenWithGuides(t, "primitive_text_alphabet_anatomy_two", "AaBbCcDdEeFfGgHhIiJjLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz", 960, 1040, 160)
 }
@@ -100,15 +108,33 @@ func renderAndAssertPrimitiveTextGoldenWithGuides(t *testing.T, goldenName, cont
 	testkit.AssertGolden(t, surface, goldenName)
 }
 
-func renderPrimitiveText(t *testing.T, mark *Text, rt textRuntimeStub, goldenName string, maxWidth float32, surfaceWidth, surfaceHeight int) *testkit.MemorySurface {
+func renderAndAssertPrimitiveTextGoldenWithGuidesAtDensity(t *testing.T, goldenName, content string, maxWidth float32, surfaceWidth, surfaceHeight int, density theme.DensityID) {
 	t.Helper()
-	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	mark := NewText(content)
+	mark.SetTypography(theme.TextBodyM)
+	tokens := primitiveGoldenTokens()
+	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens))
+	rt := textRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		fonts:     mustPrimitiveTextRegistry(t),
+	}
+	surface := renderPrimitiveTextWithGuidesResolved(t, mark, rt, goldenName, maxWidth, surfaceWidth, surfaceHeight, resolved)
+	testkit.AssertGolden(t, surface, goldenName)
+}
+
+func renderPrimitiveText(t *testing.T, mark *Text, rt textRuntimeStub, goldenName string, maxWidth float32, surfaceWidth, surfaceHeight int) *testkit.MemorySurface {
+	return renderPrimitiveTextResolved(t, mark, rt, goldenName, maxWidth, surfaceWidth, surfaceHeight, theme.DefaultResolvedContext())
+}
+
+func renderPrimitiveTextResolved(t *testing.T, mark *Text, rt textRuntimeStub, goldenName string, maxWidth float32, surfaceWidth, surfaceHeight int, resolved theme.ResolvedContext) *testkit.MemorySurface {
+	t.Helper()
+	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: resolved})
 	if maxWidth > 0 {
 		mark.SetMaxWidth(maxWidth)
 	}
 	result := mark.layoutRole.Measure(facet.MeasureContext{
 		Runtime:      rt,
-		Theme:        theme.DefaultResolvedContext(),
+		Theme:        resolved,
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: float32(surfaceWidth), H: float32(surfaceHeight)}})
 	if result.Size.W <= 0 || result.Size.H <= 0 {
@@ -130,14 +156,18 @@ func renderPrimitiveText(t *testing.T, mark *Text, rt textRuntimeStub, goldenNam
 }
 
 func renderPrimitiveTextWithGuides(t *testing.T, mark *Text, rt textRuntimeStub, goldenName string, maxWidth float32, surfaceWidth, surfaceHeight int) *testkit.MemorySurface {
+	return renderPrimitiveTextWithGuidesResolved(t, mark, rt, goldenName, maxWidth, surfaceWidth, surfaceHeight, theme.DefaultResolvedContext())
+}
+
+func renderPrimitiveTextWithGuidesResolved(t *testing.T, mark *Text, rt textRuntimeStub, goldenName string, maxWidth float32, surfaceWidth, surfaceHeight int, resolved theme.ResolvedContext) *testkit.MemorySurface {
 	t.Helper()
-	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: resolved})
 	if maxWidth > 0 {
 		mark.SetMaxWidth(maxWidth)
 	}
 	result := mark.layoutRole.Measure(facet.MeasureContext{
 		Runtime:      rt,
-		Theme:        theme.DefaultResolvedContext(),
+		Theme:        resolved,
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: float32(surfaceWidth), H: float32(surfaceHeight)}})
 	if result.Size.W <= 0 || result.Size.H <= 0 {

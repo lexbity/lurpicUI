@@ -654,9 +654,31 @@ func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	n.syncChildren()
 	margin := maxFloat(n.cachedPadX, n.cachedPadY)
+	contentWidth := float32(0)
+	contentHeight := float32(0)
+	if n.cachedIconFacet != nil {
+		size := n.cachedIconFacet.Base().LayoutRole().MeasuredSize
+		contentWidth = maxFloat(contentWidth, size.W)
+		contentHeight = maxFloat(contentHeight, size.H)
+	}
+	if n.cachedContentGroup != nil {
+		size := n.cachedContentGroup.Base().LayoutRole().MeasuredSize
+		contentWidth = maxFloat(contentWidth, size.W)
+		contentHeight = maxFloat(contentHeight, size.H)
+	}
+	if n.cachedActionButton != nil {
+		size := n.cachedActionButton.Base().LayoutRole().MeasuredSize
+		contentWidth = maxFloat(contentWidth, size.W)
+		contentHeight = maxFloat(contentHeight, size.H)
+	}
+	if n.cachedCloseButton != nil {
+		size := n.cachedCloseButton.Base().LayoutRole().MeasuredSize
+		contentWidth = maxFloat(contentWidth, size.W)
+		contentHeight = maxFloat(contentHeight, size.H)
+	}
 	surfaceSize := gfx.Size{
-		W: maxFloat(n.cachedPadX*2+resolvedNotificationContentWidth(n), resolvedNotificationMinWidth(n)),
-		H: maxFloat(n.cachedPadY*2+resolvedNotificationContentHeight(n), resolvedNotificationMinHeight(n)),
+		W: maxFloat(n.cachedPadX*2+contentWidth, 280),
+		H: maxFloat(n.cachedPadY*2+contentHeight, 72),
 	}
 	surfaceSize.W = minFloat(surfaceSize.W, maxFloat(0, bounds.Width()-margin*2))
 	surfaceSize.H = minFloat(surfaceSize.H, maxFloat(0, bounds.Height()-margin*2))
@@ -1565,58 +1587,4 @@ func (p notificationContentGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeConte
 		})
 	}
 	return arranged, nil
-}
-
-func resolvedNotificationContentWidth(n *Notification) float32 {
-	if n == nil {
-		return 0
-	}
-	width := float32(0)
-	if n.cachedIconFacet != nil {
-		width = maxFloat(width, n.cachedIconFacet.Base().LayoutRole().MeasuredSize.W)
-	}
-	if n.cachedContentGroup != nil {
-		width = maxFloat(width, n.cachedContentGroup.Base().LayoutRole().MeasuredSize.W)
-	}
-	if n.cachedActionButton != nil {
-		width = maxFloat(width, n.cachedActionButton.Base().LayoutRole().MeasuredSize.W)
-	}
-	if n.cachedCloseButton != nil {
-		width = maxFloat(width, n.cachedCloseButton.Base().LayoutRole().MeasuredSize.W)
-	}
-	return width
-}
-
-func resolvedNotificationContentHeight(n *Notification) float32 {
-	if n == nil {
-		return 0
-	}
-	height := float32(0)
-	if n.cachedIconFacet != nil {
-		height = maxFloat(height, n.cachedIconFacet.Base().LayoutRole().MeasuredSize.H)
-	}
-	if n.cachedContentGroup != nil {
-		height = maxFloat(height, n.cachedContentGroup.Base().LayoutRole().MeasuredSize.H)
-	}
-	if n.cachedActionButton != nil {
-		height = maxFloat(height, n.cachedActionButton.Base().LayoutRole().MeasuredSize.H)
-	}
-	if n.cachedCloseButton != nil {
-		height = maxFloat(height, n.cachedCloseButton.Base().LayoutRole().MeasuredSize.H)
-	}
-	return height
-}
-
-func resolvedNotificationMinWidth(n *Notification) float32 {
-	if n == nil {
-		return 0
-	}
-	return maxFloat(280, n.cachedPadX*2+resolvedNotificationContentWidth(n))
-}
-
-func resolvedNotificationMinHeight(n *Notification) float32 {
-	if n == nil {
-		return 0
-	}
-	return maxFloat(72, n.cachedPadY*2+resolvedNotificationContentHeight(n))
 }

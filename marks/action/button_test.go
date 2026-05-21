@@ -1,6 +1,7 @@
 package action
 
 import (
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -120,6 +121,47 @@ func TestButtonMeasureProjectHitAndAnchors(t *testing.T) {
 	container := btn.hitRole.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
 	if !container.Hit || container.MarkID != buttonMarkIDContainer {
 		t.Fatalf("expected container hit, got %#v", container)
+	}
+}
+
+func TestButtonAndSplitButtonLabelBaselineReference(t *testing.T) {
+	btn, btnRT := newTestButton(t, false)
+	btn.SetLabel("Label")
+
+	split, splitRT := newSplitButtonFixture(t)
+	split.SetLabel("Label")
+	split.SetPrimaryIconRef("")
+
+	ctx := theme.DefaultResolvedContext()
+
+	facet.Attach(btn, facet.AttachContext{Runtime: btnRT, Theme: ctx})
+	facet.Attach(split, facet.AttachContext{Runtime: splitRT, Theme: ctx})
+
+	btnResult := btn.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      btnRT,
+		Theme:        ctx,
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 800, H: 240}})
+	splitResult := split.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      splitRT,
+		Theme:        ctx,
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 800, H: 240}})
+	if btnResult.Size.W <= 0 || btnResult.Size.H <= 0 || splitResult.Size.W <= 0 || splitResult.Size.H <= 0 {
+		t.Fatalf("expected measurable layouts, button=%#v split=%#v", btnResult.Size, splitResult.Size)
+	}
+
+	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: ctx}, gfx.RectFromXYWH(0, 0, btnResult.Size.W, btnResult.Size.H))
+	split.layoutRole.Arrange(facet.ArrangeContext{Runtime: splitRT, Theme: ctx, ParentGroup: split.layoutRole.Parent, ChildGroup: split.layoutRole.Child}, gfx.RectFromXYWH(0, 0, splitResult.Size.W, splitResult.Size.H))
+
+	if btn.cachedLayout == nil || split.cachedPrimaryLayout == nil {
+		t.Fatalf("expected shaped label layouts, button=%#v split=%#v", btn.cachedLayout, split.cachedPrimaryLayout)
+	}
+	if diff := math.Abs(float64(btn.cachedLayout.Baseline - split.cachedPrimaryLayout.Baseline)); diff > 0.01 {
+		t.Fatalf("label baseline mismatch: button=%v split=%v (diff %v)", btn.cachedLayout.Baseline, split.cachedPrimaryLayout.Baseline, diff)
+	}
+	if diff := math.Abs(float64(btn.cachedLayout.LineHeight - split.cachedPrimaryLayout.LineHeight)); diff > 0.01 {
+		t.Fatalf("label line height mismatch: button=%v split=%v (diff %v)", btn.cachedLayout.LineHeight, split.cachedPrimaryLayout.LineHeight, diff)
 	}
 }
 

@@ -771,50 +771,38 @@ func (tf *TextField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	}
 	if tf.valueIsEmpty() {
 		if tf.cachedPlaceholderLayout != nil && !isTransparentMaterial(placeholder) {
-			cmds = append(cmds, tf.textCommands(tf.cachedPlaceholderLayout, tf.cachedValueBounds, placeholder)...)
+			cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedPlaceholderLayout, tf.cachedValueBounds, gfx.SolidBrush(materialColor(placeholder)))...)
 		}
 	} else if tf.cachedValueLayout != nil && !isTransparentMaterial(inputText) {
-		cmds = append(cmds, tf.textCommands(tf.cachedValueLayout, tf.cachedValueBounds, inputText)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedValueLayout, tf.cachedValueBounds, gfx.SolidBrush(materialColor(inputText)))...)
 	}
 	if tf.focusedVisible && tf.shouldShowCaret() && tf.cachedValueLayout != nil && !isTransparentMaterial(caretStyle) {
 		caretRect := tf.cachedValueLayout.CaretRect(tf.caret)
 		cmds = append(cmds, rectCommands(offsetTextRect(caretRect, tf.cachedValueBounds.Min), caretStyle)...)
 	}
 	if tf.cachedLabelLayout != nil && !isTransparentMaterial(label) {
-		cmds = append(cmds, tf.textCommands(tf.cachedLabelLayout, tf.cachedLabelBounds, label)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedLabelLayout, tf.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	if tf.cachedHelperBounds != (gfx.Rect{}) && tf.cachedHelperLayout != nil {
-		cmds = append(cmds, tf.textCommands(tf.helperLayoutForState(), tf.cachedHelperBounds, tf.helperStyleForState(helper, errorStyle, tokens))...)
+		helperLayout := tf.cachedHelperLayout
+		helperMaterial := helper
+		switch tf.Validation {
+		case TextFieldValidationWarning:
+			if tf.WarningText != "" {
+				helperMaterial = themedMaterialFromColor(tokens.Color.Warning)
+			}
+		case TextFieldValidationInvalid:
+			if tf.ErrorText != "" {
+				helperLayout = tf.cachedErrorLayout
+				helperMaterial = errorStyle
+			}
+		}
+		cmds = append(cmds, primitive.TextLayoutCommands(helperLayout, tf.cachedHelperBounds, gfx.SolidBrush(materialColor(helperMaterial)))...)
 	}
 	if tf.cachedErrorBounds != (gfx.Rect{}) && tf.cachedErrorLayout != nil {
-		cmds = append(cmds, tf.textCommands(tf.cachedErrorLayout, tf.cachedErrorBounds, errorStyle)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedErrorLayout, tf.cachedErrorBounds, gfx.SolidBrush(materialColor(errorStyle)))...)
 	}
 	return cmds
-}
-
-func (tf *TextField) helperLayoutForState() *text.TextLayout {
-	switch tf.Validation {
-	case TextFieldValidationWarning:
-		if tf.WarningText != "" {
-			return tf.cachedHelperLayout
-		}
-	case TextFieldValidationInvalid:
-		if tf.ErrorText != "" {
-			return tf.cachedErrorLayout
-		}
-	}
-	return tf.cachedHelperLayout
-}
-
-func (tf *TextField) helperStyleForState(helper, errorStyle theme.Material, tokens theme.Tokens) theme.Material {
-	switch tf.Validation {
-	case TextFieldValidationWarning:
-		return themedMaterialFromColor(tokens.Color.Warning)
-	case TextFieldValidationInvalid:
-		return errorStyle
-	default:
-		return helper
-	}
 }
 
 func themedMaterialFromColor(color gfx.Color) theme.Material {
@@ -835,10 +823,6 @@ func errorRingMaterial(tokens theme.Tokens) theme.Material {
 		}},
 		Opacity: 1,
 	}
-}
-
-func (tf *TextField) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	return primitive.TextLayoutCommands(layout, bounds, gfx.SolidBrush(materialColor(material)))
 }
 
 func selectionCommands(rects []gfx.Rect, material theme.Material) []gfx.Command {

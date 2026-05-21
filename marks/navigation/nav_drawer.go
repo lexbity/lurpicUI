@@ -452,23 +452,6 @@ func (d *NavDrawer) syncTextFacets(maxWidth float32) {
 	}
 }
 
-func measurePrimitiveTextFacet(f *primitive.Text, ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
-	if f == nil {
-		return gfx.Size{}
-	}
-	return f.Base().LayoutRole().Measure(ctx, constraints).Size
-}
-
-func appendProjectedTextFacet(cmds []gfx.Command, f *primitive.Text, runtime facet.RuntimeServices, bounds gfx.Rect, contentScale float32) []gfx.Command {
-	if f == nil || bounds.IsEmpty() {
-		return cmds
-	}
-	if projected := f.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtime, Bounds: bounds, ContentScale: contentScale}); projected != nil {
-		cmds = append(cmds, projected.Commands...)
-	}
-	return cmds
-}
-
 func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
 	if !ok {
@@ -490,14 +473,22 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		maxWidth = resolved.Density.Scale(420)
 	}
 	d.syncTextFacets(maxWidth)
-	headerSize := measurePrimitiveTextFacet(d.cachedHeaderFacet, ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
-	subtitleSize := measurePrimitiveTextFacet(d.cachedSubtitleFacet, ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
+	headerSize := gfx.Size{}
+	if d.cachedHeaderFacet != nil && d.cachedHeaderFacet.Base() != nil && d.cachedHeaderFacet.Base().LayoutRole() != nil {
+		headerSize = d.cachedHeaderFacet.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}}).Size
+	}
+	subtitleSize := gfx.Size{}
+	if d.cachedSubtitleFacet != nil && d.cachedSubtitleFacet.Base() != nil && d.cachedSubtitleFacet.Base().LayoutRole() != nil {
+		subtitleSize = d.cachedSubtitleFacet.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}}).Size
+	}
 	flatCount := len(d.cachedFlatItems)
 	d.cachedIconAssets = make([]runtimepkg.IconAsset, flatCount)
 	d.cachedIconBounds = make([]gfx.Rect, flatCount)
 	for i := range d.cachedFlatItems {
 		if i < len(d.cachedItemLabelFacets) {
-			measurePrimitiveTextFacet(d.cachedItemLabelFacets[i], ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
+			if f := d.cachedItemLabelFacets[i]; f != nil && f.Base() != nil && f.Base().LayoutRole() != nil {
+				_ = f.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
+			}
 		}
 		if d.cachedFlatItems[i].IconRef != "" {
 			if asset, ok := d.resolveIcon(ctx.Runtime, d.cachedFlatItems[i].IconRef); ok {
@@ -516,7 +507,9 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	for i, section := range d.Sections {
 		sectionSize := gfx.Size{}
 		if i < len(d.cachedSectionFacets) {
-			sectionSize = measurePrimitiveTextFacet(d.cachedSectionFacets[i], ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
+			if f := d.cachedSectionFacets[i]; f != nil && f.Base() != nil && f.Base().LayoutRole() != nil {
+				sectionSize = f.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}}).Size
+			}
 		}
 		if i > 0 {
 			itemsH += d.cachedSectionGap
@@ -742,17 +735,25 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if !isTransparentMaterial(header) && !d.cachedHeaderBounds.IsEmpty() {
 		cmds = append(cmds, materialCommands(gfx.RectPath(d.cachedHeaderBounds), header)...)
 	}
-	cmds = appendProjectedTextFacet(cmds, d.cachedHeaderFacet, runtimeServicesOrNil(runtime), d.cachedHeaderBounds, 1)
+	if d.cachedHeaderFacet != nil && !d.cachedHeaderBounds.IsEmpty() {
+		if projected := d.cachedHeaderFacet.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: d.cachedHeaderBounds, ContentScale: 1}); projected != nil {
+			cmds = append(cmds, projected.Commands...)
+		}
+	}
 	if d.cachedSubtitleFacet != nil && !d.cachedHeaderBounds.IsEmpty() {
 		subtitleH := d.cachedSubtitleFacet.Base().LayoutRole().MeasuredSize.H
 		if subtitleH > 0 {
 			subBounds := gfx.RectFromXYWH(d.cachedHeaderBounds.Min.X, d.cachedHeaderBounds.Max.Y+float32(d.cachedItemGap)*0.5, d.cachedHeaderBounds.Width(), subtitleH)
-			cmds = appendProjectedTextFacet(cmds, d.cachedSubtitleFacet, runtimeServicesOrNil(runtime), subBounds, 1)
+			if projected := d.cachedSubtitleFacet.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: subBounds, ContentScale: 1}); projected != nil {
+				cmds = append(cmds, projected.Commands...)
+			}
 		}
 	}
 	for si := range d.Sections {
 		if si < len(d.cachedSectionBounds) && !d.cachedSectionBounds[si].IsEmpty() && si < len(d.cachedSectionFacets) {
-			cmds = appendProjectedTextFacet(cmds, d.cachedSectionFacets[si], runtimeServicesOrNil(runtime), d.cachedSectionBounds[si], 1)
+			if projected := d.cachedSectionFacets[si].Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: d.cachedSectionBounds[si], ContentScale: 1}); projected != nil {
+				cmds = append(cmds, projected.Commands...)
+			}
 		}
 	}
 	for i := range d.cachedFlatItems {
@@ -785,7 +786,9 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 			cmds = append(cmds, d.iconCommands(d.cachedIconAssets[i], d.cachedIconBounds[i], items)...)
 		}
 		if i < len(d.cachedItemLabelFacets) && !isTransparentMaterial(items) && !d.cachedItemBounds[i].IsEmpty() {
-			cmds = appendProjectedTextFacet(cmds, d.cachedItemLabelFacets[i], runtimeServicesOrNil(runtime), d.cachedItemLabelFacets[i].Base().LayoutRole().ArrangedBounds, 1)
+			if projected := d.cachedItemLabelFacets[i].Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: d.cachedItemLabelFacets[i].Base().LayoutRole().ArrangedBounds, ContentScale: 1}); projected != nil {
+				cmds = append(cmds, projected.Commands...)
+			}
 		}
 	}
 	if d.focusedVisible && !isTransparentMaterial(focus) {

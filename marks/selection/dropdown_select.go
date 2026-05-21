@@ -398,7 +398,16 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	if ds.open {
 		if len(ds.Options) > 0 {
 			height += float32(resolved.Spacing(theme.SpacingXS))
-			height += ds.optionListHeight(resolved, triggerH)
+			itemH := maxFloat(float32(resolved.Density.Scale(32)), triggerH*0.72)
+			if itemH < 28 {
+				itemH = 28
+			}
+			ds.cachedOptionHeight = itemH
+			count := len(ds.Options)
+			if count > 6 {
+				count = 6
+			}
+			height += float32(count)*itemH + float32(count-1)*float32(resolved.Spacing(theme.SpacingXS))
 		}
 	}
 	if height <= 0 {
@@ -468,7 +477,19 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	ds.cachedChevronBounds = text.AlignRectY(gfx.RectFromXYWH(chevronX, ds.cachedTriggerBounds.Min.Y, chevronSize, chevronSize), ds.cachedTriggerBounds.Min.Y, ds.cachedTriggerBounds.Height())
 	if ds.open && len(ds.Options) > 0 {
-		ds.cachedListboxBounds = gfx.RectFromXYWH(bounds.Min.X, ds.cachedTriggerBounds.Max.Y+float32(resolved.Spacing(theme.SpacingXS)), bounds.Width(), ds.optionListHeight(resolved, ds.cachedTriggerBounds.Height()))
+		itemH := ds.cachedOptionHeight
+		if itemH <= 0 {
+			itemH = maxFloat(float32(resolved.Density.Scale(32)), ds.cachedTriggerBounds.Height()*0.72)
+			if itemH < 28 {
+				itemH = 28
+			}
+		}
+		count := len(ds.Options)
+		if count > 6 {
+			count = 6
+		}
+		listboxH := float32(count)*itemH + float32(count-1)*float32(resolved.Spacing(theme.SpacingXS))
+		ds.cachedListboxBounds = gfx.RectFromXYWH(bounds.Min.X, ds.cachedTriggerBounds.Max.Y+float32(resolved.Spacing(theme.SpacingXS)), bounds.Width(), listboxH)
 		ds.cachedOptionRects = ds.layoutOptionRects(ds.cachedListboxBounds, resolved)
 	}
 }
@@ -927,23 +948,6 @@ func (ds *DropdownSelect) optionIndexAt(p gfx.Point) (int, bool) {
 		}
 	}
 	return -1, false
-}
-
-func (ds *DropdownSelect) optionListHeight(resolved theme.ResolvedContext, triggerHeight float32) float32 {
-	if len(ds.Options) == 0 {
-		return 0
-	}
-	itemH := maxFloat(float32(resolved.Density.Scale(32)), triggerHeight*0.72)
-	if itemH < 28 {
-		itemH = 28
-	}
-	ds.cachedOptionHeight = itemH
-	maxVisible := 6
-	count := len(ds.Options)
-	if count > maxVisible {
-		count = maxVisible
-	}
-	return float32(count)*itemH + float32(count-1)*float32(resolved.Spacing(theme.SpacingXS))
 }
 
 func (ds *DropdownSelect) layoutOptionRects(listbox gfx.Rect, resolved theme.ResolvedContext) []gfx.Rect {

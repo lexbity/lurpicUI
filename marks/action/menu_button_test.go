@@ -15,6 +15,7 @@ import (
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
+	"github.com/go-text/typesetting/di"
 )
 
 func TestMenuButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
@@ -308,6 +309,43 @@ func TestMenuButtonGoldenDestructiveHover(t *testing.T) {
 		btn.SetOpen(true)
 		btn.hoveredIndex = 8
 	})
+}
+
+func TestMenuButtonMixedDirectionLabelAndEntriesUseSharedTextLayout(t *testing.T) {
+	btn, rt := newMenuButtonFixture(t)
+	btn.SetLabel("הגדרות Settings")
+	btn.SetEntries([]MenuButtonEntry{
+		{Kind: MenuButtonEntrySection, Label: "פעולות Actions"},
+		{Key: "rename", Label: "שינוי שם Rename", Shortcut: "Cmd+R"},
+	})
+
+	ctx := theme.DefaultResolvedContext()
+	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: ctx})
+	result := btn.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        ctx,
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 1080, H: 720}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+
+	if btn.cachedTriggerLabelLayout == nil || len(btn.cachedTriggerLabelLayout.Lines) == 0 {
+		t.Fatal("expected trigger label layout")
+	}
+	if got := btn.cachedTriggerLabelLayout.Lines[0].Direction; got != di.DirectionRTL {
+		t.Fatalf("trigger label direction = %v, want RTL", got)
+	}
+	if len(btn.cachedEntryLayouts) == 0 || btn.cachedEntryLayouts[1].labelLayout == nil {
+		t.Fatal("expected entry label layout")
+	}
+	if got := btn.cachedEntryLayouts[1].labelLayout.Lines[0].Direction; got != di.DirectionRTL {
+		t.Fatalf("entry label direction = %v, want RTL", got)
+	}
+	if btn.cachedTriggerIconBounds.IsEmpty() || btn.cachedTriggerLabelBounds.IsEmpty() {
+		t.Fatalf("expected icon-plus-text trigger geometry, got icon=%#v label=%#v", btn.cachedTriggerIconBounds, btn.cachedTriggerLabelBounds)
+	}
 }
 
 func AssertMenuButtonGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*MenuButton)) {

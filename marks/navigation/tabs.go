@@ -464,7 +464,15 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	tabY := bounds.Min.Y
 	stripH := float32(0)
 	for i := range t.cachedTabLabelLayouts {
-		if h := tabItemHeight(t.cachedTabLabelLayouts[i], t.cachedIconBounds[i], t.cachedTabPadY); h > stripH {
+		h := text.Height(t.cachedTabLabelLayouts[i])
+		if iconH := t.cachedIconBounds[i].Height(); iconH > h {
+			h = iconH
+		}
+		if h <= 0 {
+			h = 20
+		}
+		h += t.cachedTabPadY * 2
+		if h > stripH {
 			stripH = h
 		}
 	}
@@ -1136,18 +1144,6 @@ func isTransparentMaterial(material theme.Material) bool {
 
 func (t *Tabs) indexEnabledAt(index int) bool {
 	return index >= 0 && index < len(t.Items) && !t.Items[index].Disabled && !t.Disabled
-}
-
-func tabItemHeight(layout *text.TextLayout, iconBounds gfx.Rect, padY float32) float32 {
-	labelH := text.Height(layout)
-	iconH := iconBounds.Height()
-	if labelH < iconH {
-		labelH = iconH
-	}
-	if labelH <= 0 {
-		labelH = 20
-	}
-	return labelH + padY*2
 }
 
 type tabsGroupPolicy struct{}

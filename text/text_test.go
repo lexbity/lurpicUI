@@ -516,6 +516,74 @@ func TestShaper_wrap_alignment_right(t *testing.T) {
 	}
 }
 
+func TestShaper_kerning_pair_changes_glyph_positions(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+
+	for _, pair := range []string{"AV", "To", "Ta", "WA"} {
+		runes := []rune(pair)
+		if len(runes) != 2 {
+			continue
+		}
+		layout := shaper.ShapeSimple(pair, style)
+		if layout == nil || layout.LineCount() == 0 || len(layout.Lines[0].Runs) == 0 || len(layout.Lines[0].Runs[0].Glyphs) < 2 {
+			continue
+		}
+		run := layout.Lines[0].Runs[0]
+		left := shaper.ShapeSimple(string(runes[0]), style)
+		right := shaper.ShapeSimple(string(runes[1]), style)
+		if left == nil || right == nil || left.LineCount() == 0 || right.LineCount() == 0 {
+			continue
+		}
+		if len(left.Lines[0].Runs) == 0 || len(right.Lines[0].Runs) == 0 {
+			continue
+		}
+		if run.Glyphs[1].X+0.01 >= left.Lines[0].Runs[0].Advance {
+			continue
+		}
+		if layout.Bounds.Width()+0.01 >= left.Bounds.Width()+right.Bounds.Width() {
+			continue
+		}
+		return
+	}
+	t.Fatal("expected at least one kerning pair to tighten glyph spacing")
+}
+
+func TestShaper_alignment_center_mixed_case_preserves_baseline(t *testing.T) {
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
+	shaper := NewShaper(reg)
+	style := DefaultStyle()
+	style.Family = family
+
+	left := shaper.Shape(Paragraph{
+		Spans:     []TextSpan{{Text: "AaBbCcGgJjQq", Style: style}},
+		MaxWidth:  240,
+		Alignment: AlignLeft,
+	})
+	center := shaper.Shape(Paragraph{
+		Spans:     []TextSpan{{Text: "AaBbCcGgJjQq", Style: style}},
+		MaxWidth:  240,
+		Alignment: AlignCenter,
+	})
+	if left == nil || center == nil {
+		t.Fatal("expected layouts")
+	}
+	if len(left.Lines) == 0 || len(center.Lines) == 0 {
+		t.Fatal("expected shaped lines")
+	}
+	if center.Lines[0].Bounds.Min.X <= left.Lines[0].Bounds.Min.X {
+		t.Fatalf("center line bounds = %#v, left = %#v", center.Lines[0].Bounds, left.Lines[0].Bounds)
+	}
+	if diff := math.Abs(float64(center.Lines[0].Baseline - left.Lines[0].Baseline)); diff > 0.01 {
+		t.Fatalf("baseline changed across alignment: left=%v center=%v", left.Lines[0].Baseline, center.Lines[0].Baseline)
+	}
+	if center.Lines[0].Baseline <= 0 || center.Lines[0].Baseline >= center.Lines[0].Bounds.Height() {
+		t.Fatalf("center line baseline = %v, bounds=%#v", center.Lines[0].Baseline, center.Lines[0].Bounds)
+	}
+}
+
 func TestShaper_multi_line_bounds(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
 	shaper := NewShaper(reg)

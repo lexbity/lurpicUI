@@ -394,7 +394,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 			totalItemHeight += rg.cachedItemGap
 		}
 	}
-	width := maxFloat(groupLabelLayoutWidth(groupLabelLayout), maxItemWidth)
+	width := maxFloat(text.Width(groupLabelLayout), maxItemWidth)
 	if width <= 0 {
 		width = maxWidth
 	}
@@ -449,7 +449,7 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		rg.focusedIndex = selected
 	}
 	groupLabelH := text.Height(rg.cachedGroupLabel)
-	rowHeight := maxFloat(rg.cachedControlSize, resolvedItemRowHeight(rg))
+	rowHeight := maxFloat(rg.cachedControlSize, rg.cachedControlGap)
 	items := make([]gfx.Rect, 0, len(rg.Options))
 	controls := make([]gfx.Rect, 0, len(rg.Options))
 	labels := make([]gfx.Rect, 0, len(rg.Options))
@@ -893,20 +893,6 @@ func radioGroupDefaultMaxWidth(resolved theme.ResolvedContext) float32 {
 		width = 240
 	}
 	return width
-}
-
-func groupLabelLayoutWidth(layout *text.TextLayout) float32 {
-	if layout == nil {
-		return 0
-	}
-	return layout.Bounds.Width()
-}
-
-func resolvedItemRowHeight(rg *RadioGroup) float32 {
-	if rg == nil {
-		return 0
-	}
-	return maxFloat(rg.cachedControlSize, rg.cachedControlGap)
 }
 
 type radioGroupPolicy struct{}

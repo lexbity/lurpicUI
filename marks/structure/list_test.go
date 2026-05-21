@@ -131,10 +131,11 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	anchors := list.ExportAnchors(layout.AnchorExportContext{ResolvedLayer: layout.ResolvedLayer{Bounds: bounds}})
-	for _, name := range []layout.AnchorID{"bounds_center", "bounds_top_left", "bounds_top_right", "bounds_bottom_left", "bounds_bottom_right", "baseline"} {
-		if _, ok := anchors[name]; !ok {
-			t.Fatalf("missing anchor %q", name)
-		}
+	expectBoundsAnchors(t, anchors, bounds)
+	if got, ok := anchors["section_header"]; !ok {
+		t.Fatal("missing section_header anchor")
+	} else if want := rectCenter(list.cachedHeaderBounds); got != want {
+		t.Fatalf("section_header anchor = %#v, want %#v", got, want)
 	}
 
 	cmds := list.projectionRole.Project(facet.ProjectionContext{

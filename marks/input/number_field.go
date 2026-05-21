@@ -714,23 +714,36 @@ func (nf *NumberField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command
 	}
 	if nf.currentDisplayText() == "" {
 		if nf.cachedPlaceholderLayout != nil && !isTransparentMaterial(placeholder) {
-			cmds = append(cmds, nf.textCommands(nf.cachedPlaceholderLayout, nf.cachedValueBounds, placeholder)...)
+			cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedPlaceholderLayout, nf.cachedValueBounds, gfx.SolidBrush(materialColor(placeholder)))...)
 		}
 	} else if nf.cachedValueLayout != nil && !isTransparentMaterial(inputText) {
-		cmds = append(cmds, nf.textCommands(nf.cachedValueLayout, nf.cachedValueBounds, inputText)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedValueLayout, nf.cachedValueBounds, gfx.SolidBrush(materialColor(inputText)))...)
 	}
 	if nf.focusedVisible && nf.shouldShowCaret() && nf.cachedValueLayout != nil && !isTransparentMaterial(caretStyle) {
 		caretRect := nf.cachedValueLayout.CaretRect(nf.caret)
 		cmds = append(cmds, rectCommands(offsetTextRect(caretRect, nf.cachedValueBounds.Min), caretStyle)...)
 	}
 	if nf.cachedLabelLayout != nil && !isTransparentMaterial(label) {
-		cmds = append(cmds, nf.textCommands(nf.cachedLabelLayout, nf.cachedLabelBounds, label)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedLabelLayout, nf.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	if nf.cachedHelperBounds != (gfx.Rect{}) && nf.cachedHelperLayout != nil {
-		cmds = append(cmds, nf.textCommands(nf.helperLayoutForState(), nf.cachedHelperBounds, nf.helperStyleForState(helper, errorStyle, tokens))...)
+		helperLayout := nf.cachedHelperLayout
+		helperMaterial := helper
+		switch nf.Validation {
+		case NumberFieldValidationWarning:
+			if nf.WarningText != "" {
+				helperMaterial = themedMaterialFromColor(tokens.Color.Warning)
+			}
+		case NumberFieldValidationInvalid:
+			if nf.errorText() != "" {
+				helperLayout = nf.cachedErrorLayout
+				helperMaterial = errorStyle
+			}
+		}
+		cmds = append(cmds, primitive.TextLayoutCommands(helperLayout, nf.cachedHelperBounds, gfx.SolidBrush(materialColor(helperMaterial)))...)
 	}
 	if nf.cachedErrorBounds != (gfx.Rect{}) && nf.cachedErrorLayout != nil {
-		cmds = append(cmds, nf.textCommands(nf.cachedErrorLayout, nf.cachedErrorBounds, errorStyle)...)
+		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedErrorLayout, nf.cachedErrorBounds, gfx.SolidBrush(materialColor(errorStyle)))...)
 	}
 	if !isTransparentMaterial(stepperUp) {
 		cmds = append(cmds, materialCommands(nf.stepperArrowPath(nf.cachedStepperUpBounds, true), stepperUp)...)
@@ -739,35 +752,6 @@ func (nf *NumberField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command
 		cmds = append(cmds, materialCommands(nf.stepperArrowPath(nf.cachedStepperDownBounds, false), stepperDown)...)
 	}
 	return cmds
-}
-
-func (nf *NumberField) helperLayoutForState() *text.TextLayout {
-	switch nf.Validation {
-	case NumberFieldValidationWarning:
-		if nf.WarningText != "" {
-			return nf.cachedHelperLayout
-		}
-	case NumberFieldValidationInvalid:
-		if nf.errorText() != "" {
-			return nf.cachedErrorLayout
-		}
-	}
-	return nf.cachedHelperLayout
-}
-
-func (nf *NumberField) helperStyleForState(helper, errorStyle theme.Material, tokens theme.Tokens) theme.Material {
-	switch nf.Validation {
-	case NumberFieldValidationWarning:
-		return themedMaterialFromColor(tokens.Color.Warning)
-	case NumberFieldValidationInvalid:
-		return errorStyle
-	default:
-		return helper
-	}
-}
-
-func (nf *NumberField) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	return primitive.TextLayoutCommands(layout, bounds, gfx.SolidBrush(materialColor(material)))
 }
 
 func (nf *NumberField) stepperArrowPath(bounds gfx.Rect, up bool) gfx.Path {

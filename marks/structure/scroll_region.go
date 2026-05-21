@@ -256,19 +256,13 @@ func (sr *ScrollRegion) ExportAnchors(ctx layout.AnchorExportContext) layout.Anc
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-		"baseline":            gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y},
-	}
+	out := boundsAnchorSet(bounds)
+	out["baseline"] = bounds.Min
 	if !sr.cachedViewportBounds.IsEmpty() {
-		out["viewport"] = gfx.Point{X: (sr.cachedViewportBounds.Min.X + sr.cachedViewportBounds.Max.X) * 0.5, Y: (sr.cachedViewportBounds.Min.Y + sr.cachedViewportBounds.Max.Y) * 0.5}
+		out["viewport"] = rectCenter(sr.cachedViewportBounds)
 	}
 	if !sr.cachedContentBounds.IsEmpty() {
-		out["content"] = gfx.Point{X: (sr.cachedContentBounds.Min.X + sr.cachedContentBounds.Max.X) * 0.5, Y: (sr.cachedContentBounds.Min.Y + sr.cachedContentBounds.Max.Y) * 0.5}
+		out["content"] = rectCenter(sr.cachedContentBounds)
 	}
 	return out
 }

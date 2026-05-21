@@ -390,20 +390,6 @@ func (b *Button) resolveLabelLayout(ctx facet.MeasureContext, constraints facet.
 		return nil, text.TextStyle{}
 	}
 	style := resolved.TextStyle(theme.TextLabelM)
-	maxWidth := b.effectiveLabelWidth(ctx, resolved, constraints, recipe)
-	shaper := b.newShaper(ctx.Runtime)
-	if shaper == nil {
-		return nil, text.TextStyle{}
-	}
-	shaper.SetContentScale(ctx.ContentScale)
-	layout := shaper.ShapeTruncated(b.Label, style, maxWidth)
-	if layout == nil {
-		return nil, text.TextStyle{}
-	}
-	return layout, style
-}
-
-func (b *Button) effectiveLabelWidth(ctx facet.MeasureContext, resolved theme.ResolvedContext, constraints facet.Constraints, recipe shared.ButtonSlots) float32 {
 	padX := float32(resolved.Spacing(theme.SpacingM))
 	gap := float32(resolved.Spacing(theme.SpacingS))
 	leadingBox, trailingBox := b.resolveIconBoxes(ctx, recipe)
@@ -421,9 +407,18 @@ func (b *Button) effectiveLabelWidth(ctx facet.MeasureContext, resolved theme.Re
 		}
 	}
 	if maxWidth < 0 {
-		return 0
+		maxWidth = 0
 	}
-	return maxWidth
+	shaper := b.newShaper(ctx.Runtime)
+	if shaper == nil {
+		return nil, text.TextStyle{}
+	}
+	shaper.SetContentScale(ctx.ContentScale)
+	layout := shaper.ShapeTruncated(b.Label, style, maxWidth)
+	if layout == nil {
+		return nil, text.TextStyle{}
+	}
+	return layout, style
 }
 
 func (b *Button) resolveIconBoxes(ctx facet.MeasureContext, recipe shared.ButtonSlots) (gfx.Rect, gfx.Rect) {

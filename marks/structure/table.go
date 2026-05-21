@@ -329,19 +329,13 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-		"baseline":            gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y},
-	}
+	out := boundsAnchorSet(bounds)
+	out["baseline"] = bounds.Min
 	if !t.cachedViewportBounds.IsEmpty() {
-		out["viewport"] = gfx.Point{X: (t.cachedViewportBounds.Min.X + t.cachedViewportBounds.Max.X) * 0.5, Y: (t.cachedViewportBounds.Min.Y + t.cachedViewportBounds.Max.Y) * 0.5}
+		out["viewport"] = rectCenter(t.cachedViewportBounds)
 	}
 	if !t.cachedContentBounds.IsEmpty() {
-		out["content"] = gfx.Point{X: (t.cachedContentBounds.Min.X + t.cachedContentBounds.Max.X) * 0.5, Y: (t.cachedContentBounds.Min.Y + t.cachedContentBounds.Max.Y) * 0.5}
+		out["content"] = rectCenter(t.cachedContentBounds)
 	}
 	return out
 }
@@ -711,10 +705,10 @@ func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		order = append(order, child.FacetID)
 		if child.Placement.RowStart >= 0 && child.Placement.RowStart < len(t.cachedVisibleRows)+1 {
 			rowKey := t.visibleTableRowKeyAtIndex(child.Placement.RowStart)
-			rowBounds[rowKey] = unionRect(rowBounds[rowKey], child.Bounds)
+			rowBounds[rowKey] = rowBounds[rowKey].Union(child.Bounds)
 		}
 		if t.cachedShowSelectionColumn && child.Placement.ColStart == 0 {
-			columnBounds["__selection__"] = unionRect(columnBounds["__selection__"], child.Bounds)
+			columnBounds["__selection__"] = columnBounds["__selection__"].Union(child.Bounds)
 			continue
 		}
 		colStart := child.Placement.ColStart
@@ -724,7 +718,7 @@ func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if colStart >= 0 && colStart < len(data.Columns) {
 			col := data.Columns[colStart]
 			colKey := stableTableKey(col.Key, col.Label, colStart)
-			columnBounds[colKey] = unionRect(columnBounds[colKey], child.Bounds)
+			columnBounds[colKey] = columnBounds[colKey].Union(child.Bounds)
 		}
 	}
 	t.cachedChildOrder = order
@@ -1341,14 +1335,10 @@ func tableRowKeyForIndex(data TableData, index int) string {
 	return stableTableKey(data.Rows[rowIndex].Key, "", rowIndex)
 }
 
-func alignForColumn(align facet.Alignment) facet.Alignment {
-	if align == 0 {
-		return facet.AlignStretch
-	}
-	return align
-}
-
 func tableCellPlacement(colStart, rowStart int, align facet.Alignment) facet.Placement {
+	if align == 0 {
+		align = facet.AlignStretch
+	}
 	return facet.Placement{
 		Mode: facet.PlacementGrid,
 		Grid: facet.GridPlacement{
@@ -1357,7 +1347,7 @@ func tableCellPlacement(colStart, rowStart int, align facet.Alignment) facet.Pla
 			ColSpan:  1,
 			RowSpan:  1,
 		},
-		Align: alignForColumn(align),
+		Align: align,
 	}
 }
 
@@ -1479,32 +1469,6 @@ func cloneTableCells(in []string) []string {
 	out := make([]string, len(in))
 	copy(out, in)
 	return out
-}
-
-func unionRect(existing, next gfx.Rect) gfx.Rect {
-	if existing.IsEmpty() {
-		return next
-	}
-	if next.IsEmpty() {
-		return existing
-	}
-	minX := existing.Min.X
-	minY := existing.Min.Y
-	maxX := existing.Max.X
-	maxY := existing.Max.Y
-	if next.Min.X < minX {
-		minX = next.Min.X
-	}
-	if next.Min.Y < minY {
-		minY = next.Min.Y
-	}
-	if next.Max.X > maxX {
-		maxX = next.Max.X
-	}
-	if next.Max.Y > maxY {
-		maxY = next.Max.Y
-	}
-	return gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY)
 }
 
 type tableGroupPolicy struct {

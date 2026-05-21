@@ -1,6 +1,7 @@
 package primitive
 
 import (
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -78,6 +79,17 @@ func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
+	wantBaseline := gfx.Point{X: 10, Y: 20 + mark.cachedLayout.Baseline}
+	gotBaseline, ok := anchors["baseline"]
+	if !ok {
+		t.Fatal("expected baseline anchor")
+	}
+	if diff := math.Abs(float64(gotBaseline.X - wantBaseline.X)); diff > 0.01 {
+		t.Fatalf("baseline anchor x = %v, want %v (diff %v)", gotBaseline.X, wantBaseline.X, diff)
+	}
+	if diff := math.Abs(float64(gotBaseline.Y - wantBaseline.Y)); diff > 0.01 {
+		t.Fatalf("baseline anchor y = %v, want %v (diff %v)", gotBaseline.Y, wantBaseline.Y, diff)
+	}
 }
 
 func TestTextMark_disabled_uses_disabled_color(t *testing.T) {
@@ -146,7 +158,7 @@ func TestTextMark_wrap_and_truncate(t *testing.T) {
 }
 
 func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
-	mark := NewText("Centered")
+	mark := NewText("AaBbCcGgJjQq")
 	mark.SetOverflow(TextOverflowWrap)
 	mark.SetAlignment(text.AlignCenter)
 	mark.SetMaxWidth(300)
@@ -190,6 +202,49 @@ func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
 	wantY := arranged.Min.Y + mark.cachedLayout.Bounds.Min.Y + line.Bounds.Min.Y + line.Baseline + run.Bounds.Min.Y
 	if draw.Origin.X != wantX || draw.Origin.Y != wantY {
 		t.Fatalf("origin = %#v, want (%v,%v)", draw.Origin, wantX, wantY)
+	}
+}
+
+func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testing.T) {
+	mark := NewText("First line\nSecond line")
+	mark.SetOverflow(TextOverflowWrap)
+	mark.SetMaxWidth(300)
+
+	rt := textRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		fonts:     mustTextRegistry(t),
+	}
+
+	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	result := mark.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 300, H: 200}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+
+	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
+	mark.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
+	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || len(cmds.Commands) < 2 {
+		t.Fatalf("expected multiline projection commands, got %#v", cmds)
+	}
+	first, ok := cmds.Commands[0].(gfx.DrawGlyphRun)
+	if !ok {
+		t.Fatalf("expected first command to be DrawGlyphRun, got %T", cmds.Commands[0])
+	}
+	second, ok := cmds.Commands[1].(gfx.DrawGlyphRun)
+	if !ok {
+		t.Fatalf("expected second command to be DrawGlyphRun, got %T", cmds.Commands[1])
+	}
+	if second.Origin.Y <= first.Origin.Y {
+		t.Fatalf("expected second line below first, first=%#v second=%#v", first.Origin, second.Origin)
 	}
 }
 

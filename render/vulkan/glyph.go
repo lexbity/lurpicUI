@@ -124,39 +124,36 @@ func rasterizeOutlineGlyph(outline font.GlyphOutline, extents font.GlyphExtents,
 		return &glyphEntry{bitmap: image.NewAlpha(image.Rect(0, 0, 1, 1))}
 	}
 	minX, minY, maxX, maxY := outlineBounds(outline, scale)
-	w := maxInt(1, int(math.Ceil(float64(maxX-minX)))+2)
-	h := maxInt(1, int(math.Ceil(float64(maxY-minY)))+2)
+	originX := float32(math.Floor(float64(minX)))
+	originY := float32(math.Floor(float64(minY)))
+	w := maxInt(1, int(math.Ceil(float64(maxX)))-int(originX)+2)
+	h := maxInt(1, int(math.Ceil(float64(maxY)))-int(originY)+2)
 	bmp := image.NewAlpha(image.Rect(0, 0, w, h))
 	ras := vector.NewRasterizer(w, h)
 	ras.DrawOp = draw.Src
 	for _, seg := range outline.Segments {
 		switch seg.Op {
 		case ot.SegmentOpMoveTo:
-			ras.MoveTo(seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1))
+			ras.MoveTo(seg.Args[0].X*scale-originX+1, float32(h)-(seg.Args[0].Y*scale-originY+1))
 		case ot.SegmentOpLineTo:
-			ras.LineTo(seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1))
+			ras.LineTo(seg.Args[0].X*scale-originX+1, float32(h)-(seg.Args[0].Y*scale-originY+1))
 		case ot.SegmentOpQuadTo:
 			ras.QuadTo(
-				seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1),
-				seg.Args[1].X*scale-minX+1, float32(h)-(seg.Args[1].Y*scale-minY+1),
+				seg.Args[0].X*scale-originX+1, float32(h)-(seg.Args[0].Y*scale-originY+1),
+				seg.Args[1].X*scale-originX+1, float32(h)-(seg.Args[1].Y*scale-originY+1),
 			)
 		case ot.SegmentOpCubeTo:
 			ras.CubeTo(
-				seg.Args[0].X*scale-minX+1, float32(h)-(seg.Args[0].Y*scale-minY+1),
-				seg.Args[1].X*scale-minX+1, float32(h)-(seg.Args[1].Y*scale-minY+1),
-				seg.Args[2].X*scale-minX+1, float32(h)-(seg.Args[2].Y*scale-minY+1),
+				seg.Args[0].X*scale-originX+1, float32(h)-(seg.Args[0].Y*scale-originY+1),
+				seg.Args[1].X*scale-originX+1, float32(h)-(seg.Args[1].Y*scale-originY+1),
+				seg.Args[2].X*scale-originX+1, float32(h)-(seg.Args[2].Y*scale-originY+1),
 			)
 		}
 	}
 	ras.Draw(bmp, bmp.Bounds(), image.NewUniform(color.Alpha{A: 255}), image.Point{})
 	entry := &glyphEntry{bitmap: bmp}
-	if hasExtents {
-		entry.offsetX = extents.XBearing*scale - 1
-		entry.offsetY = -extents.YBearing*scale - 1
-		return entry
-	}
-	entry.offsetX = minX - 1
-	entry.offsetY = -maxY - 1
+	entry.offsetX = originX - 1
+	entry.offsetY = -originY - float32(h) + 1
 	return entry
 }
 

@@ -162,9 +162,17 @@ func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	anchors := table.ExportAnchors(layout.AnchorExportContext{ResolvedLayer: layout.ResolvedLayer{Bounds: bounds}})
-	for _, name := range []layout.AnchorID{"bounds_center", "bounds_top_left", "bounds_top_right", "bounds_bottom_left", "bounds_bottom_right", "baseline"} {
-		if _, ok := anchors[name]; !ok {
-			t.Fatalf("missing anchor %q", name)
+	expectBoundsAnchors(t, anchors, bounds)
+	if got, ok := anchors["viewport"]; !ok {
+		t.Fatal("missing viewport anchor")
+	} else if want := rectCenter(bounds); got != want {
+		t.Fatalf("viewport anchor = %#v, want %#v", got, want)
+	}
+	if !table.cachedContentBounds.IsEmpty() {
+		if got, ok := anchors["content"]; !ok {
+			t.Fatal("missing content anchor")
+		} else if want := rectCenter(table.cachedContentBounds); got != want {
+			t.Fatalf("content anchor = %#v, want %#v", got, want)
 		}
 	}
 

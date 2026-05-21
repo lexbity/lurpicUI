@@ -407,7 +407,13 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		stripH = maxFloat(bounds.Height()-b.cachedPadY*2, 0)
 	}
 	if stripH <= 0 {
-		stripH = resolvedHeightFallback(b.cachedLabelLayouts, b.cachedSeparatorLayout)
+		stripH = text.MaxHeight(b.cachedLabelLayouts...)
+		if h := text.Height(b.cachedSeparatorLayout); h > stripH {
+			stripH = h
+		}
+		if stripH <= 0 {
+			stripH = 20
+		}
 	}
 	curX := listBounds.Min.X
 	if b.cachedWritingDirection == facet.WritingDirectionRTL {
@@ -938,22 +944,6 @@ func (b *Breadcrumbs) fontRegistry(runtime any) *text.FontRegistry {
 		return provider.FontRegistry()
 	}
 	return nil
-}
-
-func resolvedHeightFallback(labels []*text.TextLayout, sep *text.TextLayout) float32 {
-	h := float32(0)
-	for _, l := range labels {
-		if hh := text.Height(l); hh > h {
-			h = hh
-		}
-	}
-	if sep != nil && sep.Bounds.Height() > h {
-		h = sep.Bounds.Height()
-	}
-	if h <= 0 {
-		h = 20
-	}
-	return h
 }
 
 type breadcrumbsGroupPolicy struct{}

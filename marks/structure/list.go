@@ -259,16 +259,16 @@ func (l *List) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	}
 	out := l.scrollRegion.ExportAnchors(ctx)
 	if !l.cachedHeaderBounds.IsEmpty() {
-		out["section_header"] = gfx.Point{X: (l.cachedHeaderBounds.Min.X + l.cachedHeaderBounds.Max.X) * 0.5, Y: (l.cachedHeaderBounds.Min.Y + l.cachedHeaderBounds.Max.Y) * 0.5}
+		out["section_header"] = rectCenter(l.cachedHeaderBounds)
 	}
 	if !l.cachedEmptyBounds.IsEmpty() {
-		out["empty_state"] = gfx.Point{X: (l.cachedEmptyBounds.Min.X + l.cachedEmptyBounds.Max.X) * 0.5, Y: (l.cachedEmptyBounds.Min.Y + l.cachedEmptyBounds.Max.Y) * 0.5}
+		out["empty_state"] = rectCenter(l.cachedEmptyBounds)
 	}
 	for key, b := range l.cachedRowBounds {
 		if b.IsEmpty() {
 			continue
 		}
-		out[layout.AnchorID("item_"+key)] = gfx.Point{X: (b.Min.X + b.Max.X) * 0.5, Y: (b.Min.Y + b.Max.Y) * 0.5}
+		out[layout.AnchorID("item_"+key)] = rectCenter(b)
 	}
 	return out
 }
