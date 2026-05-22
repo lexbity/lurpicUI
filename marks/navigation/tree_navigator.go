@@ -851,29 +851,45 @@ func (t *TreeNavigator) nodesSnapshot() []TreeNode {
 }
 
 func (t *TreeNavigator) walkVisible(nodes []TreeNode, depth int, parentPath string, out *[]treeNavigatorVisibleNode) {
-	for i := range nodes {
-		node := nodes[i]
+	type walkFrame struct {
+		nodes      []TreeNode
+		depth      int
+		parentPath string
+		index      int
+	}
+	stack := []walkFrame{{nodes: nodes, depth: depth, parentPath: parentPath}}
+	for len(stack) > 0 {
+		frame := &stack[len(stack)-1]
+		if frame.index >= len(frame.nodes) {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		node := frame.nodes[frame.index]
+		frame.index++
 		key := strings.TrimSpace(node.Key)
 		if key == "" {
 			key = "node_" + strings.ReplaceAll(strings.TrimSpace(node.Label), " ", "_")
 			if key == "node_" {
 				key = "node"
 			}
-			key = key + "_" + strings.TrimSpace(parentPath)
+			key = key + "_" + strings.TrimSpace(frame.parentPath)
 		}
 		path := key
-		if parentPath != "" {
-			path = parentPath + "/" + key
+		if frame.parentPath != "" {
+			path = frame.parentPath + "/" + key
 		}
-		entry := treeNavigatorVisibleNode{
+		*out = append(*out, treeNavigatorVisibleNode{
 			Path:        path,
-			Depth:       depth,
+			Depth:       frame.depth,
 			Node:        node,
 			HasChildren: len(node.Children) > 0,
-		}
-		*out = append(*out, entry)
+		})
 		if node.Expanded && len(node.Children) > 0 {
-			t.walkVisible(node.Children, depth+1, path, out)
+			stack = append(stack, walkFrame{
+				nodes:      node.Children,
+				depth:      frame.depth + 1,
+				parentPath: path,
+			})
 		}
 	}
 }
@@ -1087,10 +1103,22 @@ func parentPath(path string) string {
 }
 
 func clearSelection(nodes []TreeNode) {
-	for i := range nodes {
-		nodes[i].Selected = false
-		if len(nodes[i].Children) > 0 {
-			clearSelection(nodes[i].Children)
+	type clearFrame struct {
+		nodes []TreeNode
+		index int
+	}
+	stack := []clearFrame{{nodes: nodes}}
+	for len(stack) > 0 {
+		frame := &stack[len(stack)-1]
+		if frame.index >= len(frame.nodes) {
+			stack = stack[:len(stack)-1]
+			continue
+		}
+		node := &frame.nodes[frame.index]
+		frame.index++
+		node.Selected = false
+		if len(node.Children) > 0 {
+			stack = append(stack, clearFrame{nodes: node.Children})
 		}
 	}
 }
@@ -1120,57 +1148,72 @@ func toggleExpandedByPath(nodes []TreeNode, path string) bool {
 }
 
 func setSelectionByPathSegments(nodes []TreeNode, segments []string, selected bool) bool {
-	if len(segments) == 0 {
-		return false
-	}
-	for i := range nodes {
-		if strings.TrimSpace(nodes[i].Key) != segments[0] {
-			continue
+	current := nodes
+	for len(segments) > 0 {
+		found := false
+		for i := range current {
+			if strings.TrimSpace(current[i].Key) != segments[0] {
+				continue
+			}
+			if len(segments) == 1 {
+				current[i].Selected = selected
+				return true
+			}
+			current = current[i].Children
+			segments = segments[1:]
+			found = true
+			break
 		}
-		if len(segments) == 1 {
-			nodes[i].Selected = selected
-			return true
-		}
-		if len(nodes[i].Children) > 0 && setSelectionByPathSegments(nodes[i].Children, segments[1:], selected) {
-			return true
+		if !found {
+			return false
 		}
 	}
 	return false
 }
 
 func setExpandedByPathSegments(nodes []TreeNode, segments []string, expanded bool) bool {
-	if len(segments) == 0 {
-		return false
-	}
-	for i := range nodes {
-		if strings.TrimSpace(nodes[i].Key) != segments[0] {
-			continue
+	current := nodes
+	for len(segments) > 0 {
+		found := false
+		for i := range current {
+			if strings.TrimSpace(current[i].Key) != segments[0] {
+				continue
+			}
+			if len(segments) == 1 {
+				current[i].Expanded = expanded
+				return true
+			}
+			current = current[i].Children
+			segments = segments[1:]
+			found = true
+			break
 		}
-		if len(segments) == 1 {
-			nodes[i].Expanded = expanded
-			return true
-		}
-		if len(nodes[i].Children) > 0 && setExpandedByPathSegments(nodes[i].Children, segments[1:], expanded) {
-			return true
+		if !found {
+			return false
 		}
 	}
 	return false
 }
 
 func toggleExpandedByPathSegments(nodes []TreeNode, segments []string) bool {
-	if len(segments) == 0 {
-		return false
-	}
-	for i := range nodes {
-		if strings.TrimSpace(nodes[i].Key) != segments[0] {
-			continue
+	current := nodes
+	for len(segments) > 0 {
+		found := false
+		for i := range current {
+			if strings.TrimSpace(current[i].Key) != segments[0] {
+				continue
+			}
+			if len(segments) == 1 {
+				current[i].Expanded = !current[i].Expanded
+				return true
+			}
+			current = current[i].Children
+			segments = segments[1:]
+			found = true
+			break
 		}
-		if len(segments) == 1 {
-			nodes[i].Expanded = !nodes[i].Expanded
-			return true
-		}
-		if len(nodes[i].Children) > 0 && toggleExpandedByPathSegments(nodes[i].Children, segments[1:]) {
-			return true
+		if !found {
+			return false
 		}
 	}
 	return false
@@ -1197,14 +1240,28 @@ func cloneTreeNodes(nodes []TreeNode) []TreeNode {
 		return nil
 	}
 	out := make([]TreeNode, len(nodes))
-	copy(out, nodes)
-	for i := range out {
-		if len(out[i].Children) > 0 {
-			out[i].Children = cloneTreeNodes(out[i].Children)
+	type cloneFrame struct {
+		src []TreeNode
+		dst []TreeNode
+	}
+	stack := []cloneFrame{{src: nodes, dst: out}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for i := range frame.src {
+			frame.dst[i].Selected = frame.src[i].Selected
+			frame.dst[i].Expanded = frame.src[i].Expanded
+			frame.dst[i].Disabled = frame.src[i].Disabled
+			frame.dst[i].Key = strings.TrimSpace(frame.src[i].Key)
+			frame.dst[i].Label = strings.TrimSpace(frame.src[i].Label)
+			frame.dst[i].IconRef = strings.TrimSpace(frame.src[i].IconRef)
+			if len(frame.src[i].Children) == 0 {
+				frame.dst[i].Children = nil
+				continue
+			}
+			frame.dst[i].Children = make([]TreeNode, len(frame.src[i].Children))
+			stack = append(stack, cloneFrame{src: frame.src[i].Children, dst: frame.dst[i].Children})
 		}
-		out[i].Key = strings.TrimSpace(out[i].Key)
-		out[i].Label = strings.TrimSpace(out[i].Label)
-		out[i].IconRef = strings.TrimSpace(out[i].IconRef)
 	}
 	return out
 }

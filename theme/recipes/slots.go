@@ -79,6 +79,28 @@ type ActionGroupSlots struct {
 	FocusRing    theme.MarkStyle
 }
 
+// ToolbarSlots describes styling for an action toolbar mark.
+type ToolbarSlots struct {
+	Root           theme.MarkStyle
+	ToolbarSurface theme.MarkStyle
+	ActionItems    theme.MarkStyle
+	Groups         theme.MarkStyle
+	Separators     theme.MarkStyle
+	OverflowMenu   theme.MarkStyle
+	FocusRing      theme.MarkStyle
+}
+
+// RibbonSlots describes styling for an action ribbon mark.
+type RibbonSlots struct {
+	Root             theme.MarkStyle
+	RibbonSurface    theme.MarkStyle
+	Groups           theme.MarkStyle
+	GroupLabels      theme.MarkStyle
+	ActionItems      theme.MarkStyle
+	OverflowControls theme.MarkStyle
+	FocusRing        theme.MarkStyle
+}
+
 // MenuButtonSlots describes styling for a menu button mark.
 type MenuButtonSlots struct {
 	Root                theme.MarkStyle
@@ -103,6 +125,39 @@ type SplitButtonSlots struct {
 	FocusRing           theme.MarkStyle
 }
 
+// CommandPaletteSlots describes styling for a command palette mark.
+type CommandPaletteSlots struct {
+	Root          theme.MarkStyle
+	Backdrop      theme.MarkStyle
+	ModalSurface  theme.MarkStyle
+	SearchField   theme.MarkStyle
+	ResultsList   theme.MarkStyle
+	ResultItem    theme.MarkStyle
+	ShortcutLabel theme.MarkStyle
+	EmptyState    theme.MarkStyle
+	FocusRing     theme.MarkStyle
+}
+
+// PopupPaletteSlots describes styling for an anchored popup palette mark.
+type PopupPaletteSlots struct {
+	Root           theme.MarkStyle
+	PaletteSurface theme.MarkStyle
+	ToolItems      theme.MarkStyle
+	ToolGroup      theme.MarkStyle
+	AnchorArrow    theme.MarkStyle
+	FocusRing      theme.MarkStyle
+}
+
+// RadialMenuSlots describes styling for a composed radial menu mark.
+type RadialMenuSlots struct {
+	Root        theme.MarkStyle
+	Surface     theme.MarkStyle
+	CenterSlot  theme.MarkStyle
+	RadialTrack theme.MarkStyle
+	AnchorArrow theme.MarkStyle
+	FocusRing   theme.MarkStyle
+}
+
 // ButtonGroupSlots describes styling for a segmented button-group mark.
 type ButtonGroupSlots struct {
 	Root              theme.MarkStyle
@@ -119,6 +174,15 @@ type IconButtonSlots struct {
 	Icon       theme.MarkStyle
 	FocusRing  theme.MarkStyle
 	StateLayer theme.MarkStyle
+}
+
+// ColorPickerSlots describes styling for a color picker mark.
+type ColorPickerSlots struct {
+	Root      theme.MarkStyle
+	Wheel     theme.MarkStyle
+	Triangle  theme.MarkStyle
+	Handle    theme.MarkStyle
+	FocusRing theme.MarkStyle
 }
 
 // CheckboxSlots describes styling for a checkbox mark.

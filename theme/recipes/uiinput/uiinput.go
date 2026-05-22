@@ -134,6 +134,23 @@ func (v RadioGroupVariant) String() string {
 	}
 }
 
+// ColorPickerVariant selects the color picker recipe shape.
+type ColorPickerVariant uint8
+
+const (
+	// ColorPickerStandard uses the default hue-wheel picker styling.
+	ColorPickerStandard ColorPickerVariant = iota
+)
+
+func (v ColorPickerVariant) String() string {
+	switch v {
+	case ColorPickerStandard:
+		return "standard"
+	default:
+		return "unknown"
+	}
+}
+
 // SelectVariant selects the select recipe shape.
 type SelectVariant uint8
 
@@ -190,6 +207,15 @@ func ResolveButtonGroupRecipe(ctx theme.StyleContext, overrides ...theme.SlotPat
 func ResolveIconButtonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.IconButtonSlots]) (shared.IconButtonSlots, theme.RecipeReport) {
 	slots := iconButtonBase(ctx)
 	report := newReport("uiinput", theme.VariantKey("default"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolveColorPickerRecipe resolves the color picker slots and provenance.
+func ResolveColorPickerRecipe(ctx theme.StyleContext, variant ColorPickerVariant, overrides ...theme.SlotPatch[shared.ColorPickerSlots]) (shared.ColorPickerSlots, theme.RecipeReport) {
+	slots := colorPickerBase(ctx, variant)
+	report := newReport("uiinput", theme.VariantKey(variant.String()), slots)
 	resolved := theme.ResolveSlot(slots, overrides...)
 	annotateOverrides(&report, slots, resolved)
 	return resolved, report
@@ -334,6 +360,18 @@ func iconButtonBase(ctx theme.StyleContext) shared.IconButtonSlots {
 		Icon:       markStyleFromColor(tokens.Color.OnPrimary),
 		FocusRing:  strokeStyle(tokens.Color.OnPrimary, 2),
 		StateLayer: stateLayerStyle(tokens.Color.OnPrimary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+	}
+}
+
+func colorPickerBase(ctx theme.StyleContext, variant ColorPickerVariant) shared.ColorPickerSlots {
+	tokens := ctx.Tokens
+	_ = variant
+	return shared.ColorPickerSlots{
+		Root:      transparentStyle(),
+		Wheel:     strokeStyle(tokens.Color.OnSurfaceVariant, 1.5),
+		Triangle:  strokeStyle(tokens.Color.OnSurfaceVariant, 1.5),
+		Handle:    theme.MarkStyle{Base: theme.SolidMaterial(tokens.Color.Surface, tokens.Color.Primary, 1.5)},
+		FocusRing: strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 

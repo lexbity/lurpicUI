@@ -3,6 +3,7 @@ package input
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -637,65 +638,15 @@ func (tf *TextField) ensureTextLayout(layout *text.TextLayout, style text.TextSt
 }
 
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	if isTransparentMaterial(material) {
-		return nil
-	}
-	cmds := make([]gfx.Command, 0, len(material.Fills)+len(material.Strokes))
-	for _, fill := range material.Fills {
-		if fill.Type != theme.FillSolid || fill.Color.A <= 0 || fill.Opacity <= 0 {
-			continue
-		}
-		cmds = append(cmds, gfx.FillPath{Path: path, Brush: gfx.SolidBrush(fill.Color)})
-	}
-	for _, stroke := range material.Strokes {
-		if stroke.Paint.Type != theme.FillSolid || stroke.Paint.Color.A <= 0 || stroke.Width <= 0 {
-			continue
-		}
-		cmds = append(cmds, gfx.StrokePath{
-			Path:  path,
-			Brush: gfx.SolidBrush(stroke.Paint.Color),
-			Stroke: gfx.StrokeStyle{
-				Width:      stroke.Width,
-				Cap:        gfx.LineCapRound,
-				Join:       gfx.LineJoinRound,
-				MiterLimit: 10,
-				Dash:       append([]float32(nil), stroke.Dash...),
-				DashOffset: stroke.DashOffset,
-			},
-		})
-	}
-	return cmds
+	return gfxmaterial.Commands(path, material)
 }
 
 func materialColor(material theme.Material) gfx.Color {
-	for _, fill := range material.Fills {
-		if fill.Type == theme.FillSolid && fill.Color.A > 0 {
-			return fill.Color
-		}
-	}
-	for _, stroke := range material.Strokes {
-		if stroke.Paint.Type == theme.FillSolid && stroke.Paint.Color.A > 0 {
-			return stroke.Paint.Color
-		}
-	}
-	return gfx.Color{}
+	return theme.Color(material)
 }
 
 func isTransparentMaterial(material theme.Material) bool {
-	if material.Opacity <= 0 {
-		return true
-	}
-	for _, fill := range material.Fills {
-		if fill.Type == theme.FillSolid && fill.Color.A > 0 && fill.Opacity > 0 {
-			return false
-		}
-	}
-	for _, stroke := range material.Strokes {
-		if stroke.Paint.Type == theme.FillSolid && stroke.Paint.Color.A > 0 && stroke.Width > 0 {
-			return false
-		}
-	}
-	return true
+	return theme.Transparent(material)
 }
 
 func offsetTextRect(rect text.Rect, origin gfx.Point) gfx.Rect {

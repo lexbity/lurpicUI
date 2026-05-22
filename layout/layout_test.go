@@ -253,6 +253,28 @@ func TestPaddingLayout_deflates_constraints(t *testing.T) {
 	}
 }
 
+func TestSystem_clearLayoutDirtyIterative(t *testing.T) {
+	const depth = 2048
+	root := newTestLeaf(gfx.Size{W: 10, H: 10})
+	current := root
+	for i := 1; i < depth; i++ {
+		child := newTestLeaf(gfx.Size{W: 10, H: 10})
+		current.AddChild(&child.Facet)
+		current = child
+	}
+
+	root.Base().Invalidate(facet.DirtyLayout)
+	current.Base().Invalidate(facet.DirtyLayout)
+	runLayout(root, gfx.Size{W: 100, H: 100})
+
+	if got := root.Base().DirtyFlags(); got&facet.DirtyLayout != 0 {
+		t.Fatalf("expected root layout dirtiness to be cleared, got %#v", got)
+	}
+	if got := current.Base().DirtyFlags(); got != 0 {
+		t.Fatalf("expected deep leaf dirtiness to be cleared, got %#v", got)
+	}
+}
+
 func TestSizedBox_forces_width_and_height(t *testing.T) {
 	child := newTestLeafWithMeasure(gfx.Size{}, func(c Constraints) gfx.Size {
 		return gfx.Size{W: c.MaxSize.W, H: c.MaxSize.H}

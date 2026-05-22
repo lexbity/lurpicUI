@@ -66,6 +66,23 @@ func TestIconButtonRecipe_all_slots_present(t *testing.T) {
 	}
 }
 
+func TestColorPickerRecipe_all_slots_present(t *testing.T) {
+	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
+	slots, report := ResolveColorPickerRecipe(ctx, ColorPickerStandard)
+	if !allFieldsPresent(slots) {
+		t.Fatalf("color picker slots contain zero values: %#v", slots)
+	}
+	if report.Family != "uiinput" {
+		t.Fatalf("family = %q", report.Family)
+	}
+	if report.Variant != theme.VariantKey("standard") {
+		t.Fatalf("variant = %q", report.Variant)
+	}
+	if len(report.SlotNames()) != 5 {
+		t.Fatalf("slot names = %v", report.SlotNames())
+	}
+}
+
 func TestTextInputRecipe_all_slots_present(t *testing.T) {
 	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
 	slots, report := ResolveTextInputRecipe(ctx, TextInputOutlined)

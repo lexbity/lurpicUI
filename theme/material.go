@@ -122,6 +122,47 @@ type Material struct {
 	Opacity float32
 }
 
+// Color returns the first visible color from a material, including opacity.
+func Color(material Material) gfx.Color {
+	materialOpacity := clamp01(material.Opacity)
+	for _, fill := range material.Fills {
+		if fill.Type == FillSolid && fill.Color.A > 0 && fill.Opacity > 0 {
+			return scaleColor(fill.Color, materialOpacity*fill.Opacity)
+		}
+	}
+	for _, stroke := range material.Strokes {
+		if stroke.Paint.Type == FillSolid && stroke.Paint.Color.A > 0 && stroke.Paint.Opacity > 0 {
+			return scaleColor(stroke.Paint.Color, materialOpacity*stroke.Paint.Opacity)
+		}
+	}
+	return gfx.Color{}
+}
+
+// Transparent reports whether a material would render any visible output.
+func Transparent(material Material) bool {
+	if material.Opacity <= 0 {
+		return true
+	}
+	for _, fill := range material.Fills {
+		switch fill.Type {
+		case FillSolid:
+			if fill.Color.A > 0 && fill.Opacity > 0 {
+				return false
+			}
+		case FillGradient:
+			if fill.Opacity > 0 && fill.Gradient.Type == GradientLinear && len(fill.Gradient.Stops) > 0 {
+				return false
+			}
+		}
+	}
+	for _, stroke := range material.Strokes {
+		if stroke.Width > 0 && stroke.Paint.Type == FillSolid && stroke.Paint.Color.A > 0 && stroke.Paint.Opacity > 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // SolidMaterial returns a simple fill/stroke material.
 func SolidMaterial(fill gfx.Color, stroke gfx.Color, strokeWidth float32) Material {
 	m := Material{
@@ -168,6 +209,17 @@ func ValidateMaterial(m Material) error {
 		return fmt.Errorf("theme: material has %d strokes; maximum is 3", len(m.Strokes))
 	}
 	return nil
+}
+
+func scaleColor(c gfx.Color, opacity float32) gfx.Color {
+	opacity = clamp01(opacity)
+	if opacity <= 0 {
+		return gfx.Color{}
+	}
+	if opacity >= 1 {
+		return c
+	}
+	return gfx.Color{R: c.R * opacity, G: c.G * opacity, B: c.B * opacity, A: c.A * opacity}
 }
 
 // Lerp returns a blended fill.

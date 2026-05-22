@@ -53,10 +53,21 @@ func indexSVGNodes(node *svgNode, index map[string]*svgNode) {
 	if node == nil {
 		return
 	}
-	if id := node.Attrs["id"]; id != "" {
-		index[id] = node
+	type indexFrame struct {
+		node *svgNode
 	}
-	for _, child := range node.Children {
-		indexSVGNodes(child, index)
+	stack := []indexFrame{{node: node}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.node == nil {
+			continue
+		}
+		if id := frame.node.Attrs["id"]; id != "" {
+			index[id] = frame.node
+		}
+		for i := len(frame.node.Children) - 1; i >= 0; i-- {
+			stack = append(stack, indexFrame{node: frame.node.Children[i]})
+		}
 	}
 }

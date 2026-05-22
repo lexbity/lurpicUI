@@ -82,3 +82,21 @@ func TestLayoutRole_arrange_rejects_unsupported_placement(t *testing.T) {
 		}, gfx.RectFromXYWH(0, 0, 10, 10))
 	})
 }
+
+func TestLayoutRole_arrange_accepts_radial_placement(t *testing.T) {
+	called := false
+	role := &LayoutRole{
+		OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult { return MeasureResult{} },
+		OnArrange: func(ctx ArrangeContext, bounds gfx.Rect) {
+			called = true
+		},
+		Child: GroupChildContract{SupportedPlacement: SupportsRadial},
+	}
+
+	role.Arrange(ArrangeContext{
+		Placement: Placement{Mode: PlacementRadial, Radial: RadialPlacement{Angle: 0}},
+	}, gfx.RectFromXYWH(0, 0, 10, 10))
+	if !called {
+		t.Fatal("expected arrange callback to run for radial placement")
+	}
+}

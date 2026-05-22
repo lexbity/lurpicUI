@@ -149,7 +149,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		Policy: menuButtonGroupPolicy{button: m},
 	}
 	m.layoutRole.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := m.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -528,7 +528,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedChevronSize, H: m.cachedChevronSize})
 	triggerContentW := m.cachedPadX*2 + layout.InlineFlowSize(triggerSizes, m.cachedGap).W
 	triggerW := maxFloat(resolved.Density.Scale(120), triggerContentW)
-		triggerH := maxFloat(m.cachedTriggerHeight, layout.InlineFlowSize(triggerSizes, m.cachedGap).H)
+	triggerH := maxFloat(m.cachedTriggerHeight, layout.InlineFlowSize(triggerSizes, m.cachedGap).H)
 	triggerH += m.cachedPadY * 2
 	m.cachedTriggerMeasuredW = triggerW
 	m.cachedTriggerMeasuredH = triggerH

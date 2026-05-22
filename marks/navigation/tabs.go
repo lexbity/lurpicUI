@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -1076,70 +1077,15 @@ func (t *Tabs) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, bool)
 }
 
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	if isTransparentMaterial(material) {
-		return nil
-	}
-	cmds := make([]gfx.Command, 0, len(material.Fills)+len(material.Strokes))
-	for _, fill := range material.Fills {
-		if fill.Type != theme.FillSolid || fill.Opacity <= 0 {
-			continue
-		}
-		cmds = append(cmds, gfx.FillPath{Path: path, Brush: gfx.SolidBrush(fill.Color.WithAlpha(fill.Opacity))})
-	}
-	for _, stroke := range material.Strokes {
-		if stroke.Width <= 0 {
-			continue
-		}
-		if stroke.Paint.Type != theme.FillSolid || stroke.Paint.Opacity <= 0 {
-			continue
-		}
-		cmds = append(cmds, gfx.StrokePath{
-			Path: path,
-			Stroke: gfx.StrokeStyle{
-				Width:      stroke.Width,
-				Cap:        gfx.LineCapRound,
-				Join:       gfx.LineJoinRound,
-				MiterLimit: 10,
-			},
-			Brush: gfx.SolidBrush(stroke.Paint.Color.WithAlpha(stroke.Paint.Opacity)),
-		})
-	}
-	return cmds
+	return gfxmaterial.Commands(path, material)
 }
 
 func materialColor(material theme.Material) gfx.Color {
-	if len(material.Fills) > 0 && material.Fills[0].Type == theme.FillSolid {
-		c := material.Fills[0].Color
-		if material.Fills[0].Opacity > 0 && material.Fills[0].Opacity < 1 {
-			c = c.WithAlpha(material.Fills[0].Opacity)
-		}
-		return c
-	}
-	if len(material.Strokes) > 0 && material.Strokes[0].Paint.Type == theme.FillSolid {
-		c := material.Strokes[0].Paint.Color
-		if material.Strokes[0].Paint.Opacity > 0 && material.Strokes[0].Paint.Opacity < 1 {
-			c = c.WithAlpha(material.Strokes[0].Paint.Opacity)
-		}
-		return c
-	}
-	return gfx.Color{}
+	return theme.Color(material)
 }
 
 func isTransparentMaterial(material theme.Material) bool {
-	if len(material.Fills) == 0 && len(material.Strokes) == 0 {
-		return true
-	}
-	if len(material.Fills) > 0 {
-		fill := material.Fills[0]
-		if fill.Type == theme.FillNone || fill.Opacity <= 0 {
-			return true
-		}
-	}
-	if len(material.Strokes) == 0 {
-		return false
-	}
-	stroke := material.Strokes[0]
-	return stroke.Width <= 0 || stroke.Paint.Type == theme.FillNone || stroke.Paint.Opacity <= 0
+	return theme.Transparent(material)
 }
 
 func (t *Tabs) indexEnabledAt(index int) bool {

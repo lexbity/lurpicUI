@@ -146,6 +146,14 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	return rt, nil
 }
 
+// CommandRegistry exposes the configured command registry, if one was installed.
+func (rt *Runtime) CommandRegistry() *CommandRegistry {
+	if rt == nil {
+		return nil
+	}
+	return rt.config.CommandRegistry
+}
+
 // RunOneFrame executes a single frame pass synchronously.
 func (rt *Runtime) RunOneFrame() {
 	if rt == nil {

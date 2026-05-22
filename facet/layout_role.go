@@ -56,6 +56,7 @@ const (
 	GroupLayoutLinearVertical
 	GroupLayoutAnchor
 	GroupLayoutFree
+	GroupLayoutRadial
 )
 
 // OverflowPolicy governs how content outside bounds is handled.
@@ -156,6 +157,7 @@ const (
 	PlacementAnchor
 	PlacementFree
 	PlacementLinear
+	PlacementRadial
 )
 
 // PlacementModeSet is a bitset of supported placement modes.
@@ -166,6 +168,7 @@ const (
 	SupportsAnchor
 	SupportsFree
 	SupportsLinear
+	SupportsRadial
 )
 
 // Has reports whether the set supports a placement mode.
@@ -179,6 +182,8 @@ func (s PlacementModeSet) Has(mode PlacementMode) bool {
 		return s&SupportsFree != 0
 	case PlacementLinear:
 		return s&SupportsLinear != 0
+	case PlacementRadial:
+		return s&SupportsRadial != 0
 	default:
 		return false
 	}
@@ -244,6 +249,14 @@ type LinearPlacement struct {
 	MainAxisSize   MainAxisSize
 }
 
+// RadialPlacement describes angular and orbital participation in a radial group.
+type RadialPlacement struct {
+	Angle        float64
+	RadiusTrack  float32
+	RadiusOffset float32
+	Rotated      bool
+}
+
 // Placement selects the arrangement contract for a child.
 type Placement struct {
 	Mode   PlacementMode
@@ -251,6 +264,7 @@ type Placement struct {
 	Anchor AnchorPlacement
 	Free   FreePlacement
 	Linear LinearPlacement
+	Radial RadialPlacement
 	Align  Alignment
 }
 

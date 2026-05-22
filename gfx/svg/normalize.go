@@ -258,47 +258,62 @@ func (n *svgNormalizer) collectDefinitions(node *svgNode, state svgStyleState, t
 	if node == nil {
 		return nil
 	}
-	switch node.Name {
-	case "svg", "g":
-		nextState := state
-		nextTransform := transform
-		if node != n.root {
-			var err error
-			nextState, err = applyStyleAttrs(node.Attrs, state)
+	type walkFrame struct {
+		node      *svgNode
+		state     svgStyleState
+		transform Transform
+	}
+	stack := []walkFrame{{node: node, state: state, transform: transform}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.node == nil {
+			continue
+		}
+		switch frame.node.Name {
+		case "svg", "g":
+			nextState := frame.state
+			nextTransform := frame.transform
+			if frame.node != n.root {
+				var err error
+				nextState, err = applyStyleAttrs(frame.node.Attrs, frame.state)
+				if err != nil {
+					return err
+				}
+				nextTransform = frame.transform.Multiply(parseTransformAttr(frame.node.Attrs["transform"]))
+			}
+			for i := len(frame.node.Children) - 1; i >= 0; i-- {
+				stack = append(stack, walkFrame{
+					node:      frame.node.Children[i],
+					state:     nextState,
+					transform: nextTransform,
+				})
+			}
+		case "defs":
+			for i := len(frame.node.Children) - 1; i >= 0; i-- {
+				stack = append(stack, walkFrame{
+					node:      frame.node.Children[i],
+					state:     frame.state,
+					transform: frame.transform,
+				})
+			}
+		case "clipPath":
+			def, err := n.normalizeClipPath(frame.node, frame.state, frame.transform)
 			if err != nil {
 				return err
 			}
-			nextTransform = transform.Multiply(parseTransformAttr(node.Attrs["transform"]))
-		}
-		for _, child := range node.Children {
-			if child.Name == "defs" {
-				if err := n.collectDefinitionChildren(child, nextState, nextTransform); err != nil {
-					return err
-				}
-				continue
-			}
-			if err := n.collectDefinitions(child, nextState, nextTransform); err != nil {
+			n.definitions[def.ID] = def
+		case "linearGradient":
+			def, err := n.normalizeLinearGradient(frame.node, frame.transform)
+			if err != nil {
 				return err
 			}
-		}
-	case "defs":
-		return n.collectDefinitionChildren(node, state, transform)
-	case "clipPath":
-		def, err := n.normalizeClipPath(node, state, transform)
-		if err != nil {
-			return err
-		}
-		n.definitions[def.ID] = def
-	case "linearGradient":
-		def, err := n.normalizeLinearGradient(node, transform)
-		if err != nil {
-			return err
-		}
-		n.definitions[def.ID] = def
-	default:
-		// Shapes and use nodes are not definitions, but they may carry ids.
-		if id := node.Attrs["id"]; id != "" && !isDefinitionOnlyNode(node.Name) {
-			// Keep the node indexed for <use> resolution.
+			n.definitions[def.ID] = def
+		default:
+			// Shapes and use nodes are not definitions, but they may carry ids.
+			if id := frame.node.Attrs["id"]; id != "" && !isDefinitionOnlyNode(frame.node.Name) {
+				// Keep the node indexed for <use> resolution.
+			}
 		}
 	}
 	return nil
@@ -332,65 +347,83 @@ func (n *svgNormalizer) collectVisible(node *svgNode, state svgStyleState, trans
 	if node == nil {
 		return nil
 	}
-
-	switch node.Name {
-	case "svg", "g":
-		nextState := state
-		nextTransform := transform
-		nextClip := clipRef
-		if node != n.root {
-			var err error
-			nextState, err = applyStyleAttrs(node.Attrs, state)
-			if err != nil {
-				return err
-			}
-			nextTransform = transform.Multiply(parseTransformAttr(node.Attrs["transform"]))
-			if clip := node.Attrs["clip-path"]; clip != "" {
-				ref, err := parseURLReference(clip)
+	type walkFrame struct {
+		node      *svgNode
+		state     svgStyleState
+		transform Transform
+		clipRef   string
+		cleanup   string
+	}
+	stack := []walkFrame{{node: node, state: state, transform: transform, clipRef: clipRef}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.cleanup != "" {
+			delete(n.visiting, frame.cleanup)
+			continue
+		}
+		if frame.node == nil {
+			continue
+		}
+		switch frame.node.Name {
+		case "svg", "g":
+			nextState := frame.state
+			nextTransform := frame.transform
+			nextClip := frame.clipRef
+			if frame.node != n.root {
+				var err error
+				nextState, err = applyStyleAttrs(frame.node.Attrs, frame.state)
 				if err != nil {
 					return err
 				}
-				nextClip = ref
+				nextTransform = frame.transform.Multiply(parseTransformAttr(frame.node.Attrs["transform"]))
+				if clip := frame.node.Attrs["clip-path"]; clip != "" {
+					ref, err := parseURLReference(clip)
+					if err != nil {
+						return err
+					}
+					nextClip = ref
+				}
 			}
-		}
-		for _, child := range node.Children {
-			if child.Name == "defs" {
-				continue
+			for i := len(frame.node.Children) - 1; i >= 0; i-- {
+				child := frame.node.Children[i]
+				if child == nil || child.Name == "defs" {
+					continue
+				}
+				stack = append(stack, walkFrame{
+					node:      child,
+					state:     nextState,
+					transform: nextTransform,
+					clipRef:   nextClip,
+				})
 			}
-			if err := n.collectVisible(child, nextState, nextTransform, nextClip, doc); err != nil {
+		case "defs", "clipPath", "linearGradient", "stop", "title", "desc":
+			continue
+		case "use":
+			target, nextState, nextTransform, nextClip, ref, err := n.prepareUseExpansion(frame.node, frame.state, frame.transform, frame.clipRef)
+			if err != nil {
 				return err
 			}
+			stack = append(stack, walkFrame{cleanup: ref})
+			stack = append(stack, walkFrame{
+				node:      target,
+				state:     nextState,
+				transform: nextTransform,
+				clipRef:   nextClip,
+			})
+		default:
+			if isShapeNode(frame.node.Name) {
+				el, err := n.normalizeShape(frame.node, frame.state, frame.transform, frame.clipRef)
+				if err != nil {
+					return err
+				}
+				doc.Elements = append(doc.Elements, el)
+				continue
+			}
+			return fmt.Errorf("svg: unsupported element <%s>", frame.node.Name)
 		}
-		return nil
-	case "defs":
-		return nil
-	case "clipPath":
-		return nil
-	case "linearGradient":
-		return nil
-	case "stop":
-		return nil
-	case "title", "desc":
-		return nil
-	case "use":
-		els, err := n.instantiateUse(node, state, transform, clipRef)
-		if err != nil {
-			return err
-		}
-		doc.Elements = append(doc.Elements, els...)
-		return nil
 	}
-
-	if isShapeNode(node.Name) {
-		el, err := n.normalizeShape(node, state, transform, clipRef)
-		if err != nil {
-			return err
-		}
-		doc.Elements = append(doc.Elements, el)
-		return nil
-	}
-
-	return fmt.Errorf("svg: unsupported element <%s>", node.Name)
+	return nil
 }
 
 func (n *svgNormalizer) normalizeClipPath(node *svgNode, state svgStyleState, transform Transform) (SVGDefinition, error) {
@@ -567,100 +600,135 @@ func (n *svgNormalizer) collectNodeElements(node *svgNode, state svgStyleState, 
 	if node == nil {
 		return nil, nil
 	}
-	switch node.Name {
-	case "svg", "g":
-		nextState := state
-		nextTransform := transform
-		nextClip := clipRef
-		if node != n.root {
-			var err error
-			nextState, err = applyStyleAttrs(node.Attrs, state)
-			if err != nil {
-				return nil, err
-			}
-			nextTransform = transform.Multiply(parseTransformAttr(node.Attrs["transform"]))
-			if clip := node.Attrs["clip-path"]; clip != "" {
-				ref, err := parseURLReference(clip)
+	type walkFrame struct {
+		node      *svgNode
+		state     svgStyleState
+		transform Transform
+		clipRef   string
+		cleanup   string
+	}
+	out := make([]SVGElement, 0, 8)
+	stack := []walkFrame{{node: node, state: state, transform: transform, clipRef: clipRef}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.cleanup != "" {
+			delete(n.visiting, frame.cleanup)
+			continue
+		}
+		if frame.node == nil {
+			continue
+		}
+		switch frame.node.Name {
+		case "svg", "g":
+			nextState := frame.state
+			nextTransform := frame.transform
+			nextClip := frame.clipRef
+			if frame.node != n.root {
+				var err error
+				nextState, err = applyStyleAttrs(frame.node.Attrs, frame.state)
 				if err != nil {
 					return nil, err
 				}
-				nextClip = ref
+				nextTransform = frame.transform.Multiply(parseTransformAttr(frame.node.Attrs["transform"]))
+				if clip := frame.node.Attrs["clip-path"]; clip != "" {
+					ref, err := parseURLReference(clip)
+					if err != nil {
+						return nil, err
+					}
+					nextClip = ref
+				}
 			}
-		}
-		var out []SVGElement
-		for _, child := range node.Children {
-			if child.Name == "defs" {
-				continue
+			for i := len(frame.node.Children) - 1; i >= 0; i-- {
+				child := frame.node.Children[i]
+				if child == nil || child.Name == "defs" {
+					continue
+				}
+				stack = append(stack, walkFrame{
+					node:      child,
+					state:     nextState,
+					transform: nextTransform,
+					clipRef:   nextClip,
+				})
 			}
-			els, err := n.collectNodeElements(child, nextState, nextTransform, nextClip, emit)
+		case "defs", "title", "desc", "clipPath", "linearGradient", "stop":
+			continue
+		case "use":
+			target, nextState, nextTransform, nextClip, ref, err := n.prepareUseExpansion(frame.node, frame.state, frame.transform, frame.clipRef)
 			if err != nil {
 				return nil, err
 			}
-			out = append(out, els...)
+			stack = append(stack, walkFrame{cleanup: ref})
+			stack = append(stack, walkFrame{
+				node:      target,
+				state:     nextState,
+				transform: nextTransform,
+				clipRef:   nextClip,
+			})
+		default:
+			if isShapeNode(frame.node.Name) {
+				el, err := n.normalizeShape(frame.node, frame.state, frame.transform, frame.clipRef)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, el)
+				continue
+			}
+			return nil, fmt.Errorf("svg: unsupported element <%s>", frame.node.Name)
 		}
-		return out, nil
-	case "defs", "title", "desc":
-		return nil, nil
-	case "clipPath", "linearGradient":
-		return nil, nil
-	case "use":
-		return n.instantiateUse(node, state, transform, clipRef)
 	}
-	if isShapeNode(node.Name) {
-		el, err := n.normalizeShape(node, state, transform, clipRef)
-		if err != nil {
-			return nil, err
-		}
-		return []SVGElement{el}, nil
-	}
-	return nil, fmt.Errorf("svg: unsupported element <%s>", node.Name)
+	return out, nil
 }
 
-func (n *svgNormalizer) instantiateUse(node *svgNode, state svgStyleState, transform Transform, clipRef string) ([]SVGElement, error) {
-	ref, err := useReference(node)
+func (n *svgNormalizer) prepareUseExpansion(node *svgNode, state svgStyleState, transform Transform, clipRef string) (*svgNode, svgStyleState, Transform, string, string, error) {
+	useRef, err := useReference(node)
 	if err != nil {
-		return nil, err
+		return nil, svgStyleState{}, Transform{}, "", "", err
 	}
-	target, ok := n.nodeIndex[ref]
+	target, ok := n.nodeIndex[useRef]
 	if !ok {
-		return nil, fmt.Errorf("svg: unknown use reference %q", ref)
+		return nil, svgStyleState{}, Transform{}, "", "", fmt.Errorf("svg: unknown use reference %q", useRef)
 	}
-	if n.visiting[ref] {
-		return nil, fmt.Errorf("svg: use reference cycle involving %q", ref)
+	if n.visiting[useRef] {
+		return nil, svgStyleState{}, Transform{}, "", "", fmt.Errorf("svg: use reference cycle involving %q", useRef)
 	}
-	n.visiting[ref] = true
-	defer delete(n.visiting, ref)
+	n.visiting[useRef] = true
 
 	localTransform := transform.Multiply(parseTransformAttr(node.Attrs["transform"]))
 	if x, ok, err := parseLength(node.Attrs["x"]); err != nil {
-		return nil, err
+		delete(n.visiting, useRef)
+		return nil, svgStyleState{}, Transform{}, "", "", err
 	} else if ok {
 		if y, ok, err := parseLength(node.Attrs["y"]); err != nil {
-			return nil, err
+			delete(n.visiting, useRef)
+			return nil, svgStyleState{}, Transform{}, "", "", err
 		} else if ok {
 			localTransform = localTransform.Multiply(Translation(x, y))
 		} else {
 			localTransform = localTransform.Multiply(Translation(x, 0))
 		}
 	} else if y, ok, err := parseLength(node.Attrs["y"]); err != nil {
-		return nil, err
+		delete(n.visiting, useRef)
+		return nil, svgStyleState{}, Transform{}, "", "", err
 	} else if ok {
 		localTransform = localTransform.Multiply(Translation(0, y))
 	}
 
 	nextState, err := applyStyleAttrs(node.Attrs, state)
 	if err != nil {
-		return nil, err
+		delete(n.visiting, useRef)
+		return nil, svgStyleState{}, Transform{}, "", "", err
 	}
 	nextClip := clipRef
 	if clip := node.Attrs["clip-path"]; clip != "" {
-		ref, err := parseURLReference(clip)
+		clipRefValue, err := parseURLReference(clip)
 		if err != nil {
-			return nil, err
+			delete(n.visiting, useRef)
+			return nil, svgStyleState{}, Transform{}, "", "", err
 		}
-		nextClip = ref
+		nextClip = clipRefValue
 	}
-	return n.collectNodeElements(target, nextState, localTransform, nextClip, false)
+	return target, nextState, localTransform, nextClip, useRef, nil
 }
 
 func (n *svgNormalizer) shapeToPath(node *svgNode) (Path, error) {
@@ -742,7 +810,7 @@ func (n *svgNormalizer) shapeToPath(node *svgNode) (Path, error) {
 		} else if ok {
 			cy = v
 		}
-		return ellipsePath(Point{cx, cy}, r, r), nil
+		return ellipsePath(Point{X: cx, Y: cy}, r, r), nil
 	case "ellipse":
 		cx := float32(0)
 		cy := float32(0)
@@ -770,7 +838,7 @@ func (n *svgNormalizer) shapeToPath(node *svgNode) (Path, error) {
 		} else if ok {
 			cy = v
 		}
-		return ellipsePath(Point{cx, cy}, rx, ry), nil
+		return ellipsePath(Point{X: cx, Y: cy}, rx, ry), nil
 	case "line":
 		x1, ok, err := parseLength(node.Attrs["x1"])
 		if err != nil {
@@ -800,7 +868,7 @@ func (n *svgNormalizer) shapeToPath(node *svgNode) (Path, error) {
 		if !ok {
 			return Path{}, errors.New("svg: line requires y2")
 		}
-		return NewPath().MoveTo(Point{x1, y1}).LineTo(Point{x2, y2}).Build(), nil
+		return NewPath().MoveTo(Point{X: x1, Y: y1}).LineTo(Point{X: x2, Y: y2}).Build(), nil
 	case "polyline", "polygon":
 		pts, err := parsePoints(node.Attrs["points"])
 		if err != nil {

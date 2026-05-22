@@ -26,6 +26,24 @@ func ResolveActionGroupRecipe(ctx theme.StyleContext, overrides ...theme.SlotPat
 	return resolved, report
 }
 
+// ResolveToolbarRecipe resolves the action toolbar slots and provenance.
+func ResolveToolbarRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.ToolbarSlots]) (shared.ToolbarSlots, theme.RecipeReport) {
+	slots := toolbarBase(ctx)
+	report := newReport("uiaction", theme.VariantKey("default"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolveRibbonRecipe resolves the action ribbon slots and provenance.
+func ResolveRibbonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.RibbonSlots]) (shared.RibbonSlots, theme.RecipeReport) {
+	slots := ribbonBase(ctx)
+	report := newReport("uiaction", theme.VariantKey("default"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
 // ResolveMenuButtonRecipe resolves the menu button slots and provenance.
 func ResolveMenuButtonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.MenuButtonSlots]) (shared.MenuButtonSlots, theme.RecipeReport) {
 	slots := menuButtonBase(ctx)
@@ -38,6 +56,33 @@ func ResolveMenuButtonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatc
 // ResolveSplitButtonRecipe resolves the split button slots and provenance.
 func ResolveSplitButtonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.SplitButtonSlots]) (shared.SplitButtonSlots, theme.RecipeReport) {
 	slots := splitButtonBase(ctx)
+	report := newReport("uiaction", theme.VariantKey("default"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolveCommandPaletteRecipe resolves the command palette slots and provenance.
+func ResolveCommandPaletteRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.CommandPaletteSlots]) (shared.CommandPaletteSlots, theme.RecipeReport) {
+	slots := commandPaletteBase(ctx)
+	report := newReport("uiaction", theme.VariantKey("default"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolvePopupPaletteRecipe resolves the popup palette slots and provenance.
+func ResolvePopupPaletteRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.PopupPaletteSlots]) (shared.PopupPaletteSlots, theme.RecipeReport) {
+	slots := popupPaletteBase(ctx)
+	report := newReport("uiaction", theme.VariantKey("default"), slots)
+	resolved := theme.ResolveSlot(slots, overrides...)
+	annotateOverrides(&report, slots, resolved)
+	return resolved, report
+}
+
+// ResolveRadialMenuRecipe resolves the radial menu slots and provenance.
+func ResolveRadialMenuRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.RadialMenuSlots]) (shared.RadialMenuSlots, theme.RecipeReport) {
+	slots := radialMenuBase(ctx)
 	report := newReport("uiaction", theme.VariantKey("default"), slots)
 	resolved := theme.ResolveSlot(slots, overrides...)
 	annotateOverrides(&report, slots, resolved)
@@ -67,6 +112,32 @@ func actionGroupBase(ctx theme.StyleContext) shared.ActionGroupSlots {
 	}
 }
 
+func toolbarBase(ctx theme.StyleContext) shared.ToolbarSlots {
+	tokens := ctx.Tokens
+	return shared.ToolbarSlots{
+		Root:           transparentStyle(),
+		ToolbarSurface: roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
+		ActionItems:    markStyleFromColor(tokens.Color.OnSurface),
+		Groups:         markStyleFromColor(tokens.Color.Surface),
+		Separators:     strokeStyle(tokens.Color.OnSurfaceVariant, 1),
+		OverflowMenu:   markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		FocusRing:      strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func ribbonBase(ctx theme.StyleContext) shared.RibbonSlots {
+	tokens := ctx.Tokens
+	return shared.RibbonSlots{
+		Root:             transparentStyle(),
+		RibbonSurface:    roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
+		Groups:           roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
+		GroupLabels:      markStyleFromColor(tokens.Color.OnSurface),
+		ActionItems:      markStyleFromColor(tokens.Color.OnSurface),
+		OverflowControls: markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		FocusRing:        strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
 func menuButtonBase(ctx theme.StyleContext) shared.MenuButtonSlots {
 	tokens := ctx.Tokens
 	return shared.MenuButtonSlots{
@@ -92,6 +163,52 @@ func splitButtonBase(ctx theme.StyleContext) shared.SplitButtonSlots {
 		FloatingMenuSurface: roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
 		MenuItems:           markStyleFromColor(tokens.Color.OnSurface),
 		FocusRing:           strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func commandPaletteBase(ctx theme.StyleContext) shared.CommandPaletteSlots {
+	tokens := ctx.Tokens
+	return shared.CommandPaletteSlots{
+		Root: transparentStyle(),
+		Backdrop: theme.MarkStyle{Base: theme.Material{
+			Fills: []theme.Fill{{
+				Type:    theme.FillSolid,
+				Color:   tokens.Color.Background,
+				Opacity: 1,
+			}},
+			Opacity: 0.56,
+		}},
+		ModalSurface:  roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
+		SearchField:   roundedSurfaceStyle(tokens.Color.SurfaceVariant, tokens.Color.OnSurfaceVariant, 1),
+		ResultsList:   transparentStyle(),
+		ResultItem:    markStyleFromColor(tokens.Color.OnSurface),
+		ShortcutLabel: markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		EmptyState:    markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		FocusRing:     strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func popupPaletteBase(ctx theme.StyleContext) shared.PopupPaletteSlots {
+	tokens := ctx.Tokens
+	return shared.PopupPaletteSlots{
+		Root:           transparentStyle(),
+		PaletteSurface: roundedSurfaceStyle(tokens.Color.SurfaceInverse, tokens.Color.OnSurfaceVariant, 1),
+		ToolItems:      markStyleFromColor(tokens.Color.OnSurface),
+		ToolGroup:      markStyleFromColor(tokens.Color.OnSurfaceVariant),
+		AnchorArrow:    strokeStyle(tokens.Color.Primary, 2),
+		FocusRing:      strokeStyle(tokens.Color.Primary, 2),
+	}
+}
+
+func radialMenuBase(ctx theme.StyleContext) shared.RadialMenuSlots {
+	tokens := ctx.Tokens
+	return shared.RadialMenuSlots{
+		Root:        transparentStyle(),
+		Surface:     roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
+		CenterSlot:  roundedSurfaceStyle(tokens.Color.SurfaceVariant, tokens.Color.OnSurfaceVariant, 1),
+		RadialTrack: strokeStyle(tokens.Color.OnSurfaceVariant, 1),
+		AnchorArrow: strokeStyle(tokens.Color.Primary, 2),
+		FocusRing:   strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 

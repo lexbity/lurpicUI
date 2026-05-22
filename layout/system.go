@@ -90,12 +90,24 @@ func clearLayoutDirty(f facet.FacetImpl) {
 	if f == nil || f.Base() == nil {
 		return
 	}
-	if flags := f.Base().DirtyFlags(); flags&facet.DirtyLayout != 0 {
-		f.Base().ClearDirty(facet.DirtyLayout)
+	type clearFrame struct {
+		node facet.FacetImpl
 	}
-	for _, child := range f.Base().Children() {
-		if child != nil {
-			clearLayoutDirty(child)
+	stack := []clearFrame{{node: f}}
+	for len(stack) > 0 {
+		frame := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if frame.node == nil || frame.node.Base() == nil {
+			continue
+		}
+		if flags := frame.node.Base().DirtyFlags(); flags&facet.DirtyLayout != 0 {
+			frame.node.Base().ClearDirty(facet.DirtyLayout)
+		}
+		children := frame.node.Base().Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			if children[i] != nil {
+				stack = append(stack, clearFrame{node: children[i]})
+			}
 		}
 	}
 }

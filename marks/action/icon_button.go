@@ -97,7 +97,7 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 		Policy: iconButtonGroupPolicy{},
 	}
 	i.layoutRole.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := i.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -668,7 +668,11 @@ func (i *IconButton) onPointer(e facet.PointerEvent) bool {
 		wasPressed := i.pressed
 		i.pressed = false
 		i.invalidate(facet.DirtyProjection)
-		if wasPressed && i.layoutRole.ArrangedBounds.Contains(e.Position) {
+		hitBounds := i.layoutRole.ArrangedBounds
+		if pad := i.effectiveHitPadding(); pad > 0 {
+			hitBounds = hitBounds.Inset(-pad, -pad)
+		}
+		if wasPressed && hitBounds.Contains(e.Position) {
 			i.Activated.Emit(signal.Fired)
 			return true
 		}

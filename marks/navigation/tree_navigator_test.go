@@ -1,6 +1,8 @@
 package navigation
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -11,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -167,6 +170,55 @@ func TestTreeNavigatorPointerKeyboardAndScroll(t *testing.T) {
 	}
 }
 
+func TestTreeNavigatorDeepTreeHelpersIterative(t *testing.T) {
+	const depth = 2048
+	nodes := deepTreeNodes(depth)
+	cloned := cloneTreeNodes(nodes)
+
+	nodes[0].Label = "mutated-root"
+	nodes[0].Children[0].Label = "mutated-child"
+	if cloned[0].Label != "node-0000" {
+		t.Fatalf("expected cloned root label to remain stable, got %q", cloned[0].Label)
+	}
+	if cloned[0].Children[0].Label != "node-0001" {
+		t.Fatalf("expected cloned child label to remain stable, got %q", cloned[0].Children[0].Label)
+	}
+
+	clearSelection(nodes)
+	deepLeafPath := deepTreePath(depth - 1)
+	if !setSelectionByPath(nodes, deepLeafPath, true) {
+		t.Fatalf("expected selection path %q to resolve", deepLeafPath)
+	}
+	if !selectedAtPath(nodes, deepLeafPath) {
+		t.Fatalf("expected selection path %q to be selected", deepLeafPath)
+	}
+	parentPath := deepTreePath(depth - 2)
+	if !setExpandedByPath(nodes, parentPath, false) {
+		t.Fatalf("expected expansion path %q to resolve", parentPath)
+	}
+	if expandedAtPath(nodes, parentPath) {
+		t.Fatalf("expected expansion path %q to be collapsed", parentPath)
+	}
+	if !toggleExpandedByPath(nodes, parentPath) {
+		t.Fatalf("expected toggle path %q to resolve", parentPath)
+	}
+	if !expandedAtPath(nodes, parentPath) {
+		t.Fatalf("expected expansion path %q to be expanded", parentPath)
+	}
+
+	tree := &TreeNavigator{Data: store.NewValueStore(cloneTreeNodes(nodes))}
+	tree.rebuildVisibleNodes()
+	if got := len(tree.cachedVisibleNodes); got != depth {
+		t.Fatalf("visible node count = %d, want %d", got, depth)
+	}
+	if got := tree.cachedVisibleNodes[0].Path; got != deepTreePath(0) {
+		t.Fatalf("first visible path = %q, want %q", got, deepTreePath(0))
+	}
+	if got := tree.cachedVisibleNodes[len(tree.cachedVisibleNodes)-1].Path; got != deepLeafPath {
+		t.Fatalf("last visible path = %q, want %q", got, deepLeafPath)
+	}
+}
+
 func TestTreeNavigatorGoldenDefault(t *testing.T) {
 	AssertTreeNavigatorGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tn *TreeNavigator) {})
 }
@@ -309,4 +361,84 @@ func newTreeNavigatorTestFixture(t *testing.T, tokens theme.Tokens, density them
 
 func treeNavigatorIconAsset(ref string, path gfx.Path) runtimepkg.IconAsset {
 	return runtimepkg.NewIconAsset(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
+}
+
+func deepTreeNodes(depth int) []TreeNode {
+	if depth <= 0 {
+		return nil
+	}
+	children := []TreeNode(nil)
+	for i := depth - 1; i >= 0; i-- {
+		node := TreeNode{
+			Key:      nodeKey(i),
+			Label:    nodeKey(i),
+			Expanded: true,
+			Children: children,
+		}
+		children = []TreeNode{node}
+	}
+	return children
+}
+
+func deepTreePath(depth int) string {
+	if depth < 0 {
+		return ""
+	}
+	parts := make([]string, 0, depth+1)
+	for i := 0; i <= depth; i++ {
+		parts = append(parts, nodeKey(i))
+	}
+	return strings.Join(parts, "/")
+}
+
+func nodeKey(i int) string {
+	return fmt.Sprintf("node-%04d", i)
+}
+
+func selectedAtPath(nodes []TreeNode, path string) bool {
+	segments := splitPath(path)
+	current := nodes
+	for len(segments) > 0 {
+		found := false
+		for i := range current {
+			if strings.TrimSpace(current[i].Key) != segments[0] {
+				continue
+			}
+			if len(segments) == 1 {
+				return current[i].Selected
+			}
+			current = current[i].Children
+			segments = segments[1:]
+			found = true
+			break
+		}
+		if !found {
+			return false
+		}
+	}
+	return false
+}
+
+func expandedAtPath(nodes []TreeNode, path string) bool {
+	segments := splitPath(path)
+	current := nodes
+	for len(segments) > 0 {
+		found := false
+		for i := range current {
+			if strings.TrimSpace(current[i].Key) != segments[0] {
+				continue
+			}
+			if len(segments) == 1 {
+				return current[i].Expanded
+			}
+			current = current[i].Children
+			segments = segments[1:]
+			found = true
+			break
+		}
+		if !found {
+			return false
+		}
+	}
+	return false
 }

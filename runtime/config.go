@@ -26,6 +26,7 @@ type Config struct {
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
 	IconResolver    IconResolver
+	CommandRegistry *CommandRegistry
 	LayerRegistry   *layout.LayerRegistry
 	WindowBindings  map[string]platform.Window
 	ThemeResolver   *theme.ThemeResolver

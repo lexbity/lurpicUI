@@ -128,7 +128,7 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		Policy: splitButtonGroupPolicy{},
 	}
 	s.layoutRole.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := s.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -485,17 +485,17 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 		if shaper != nil && label != "" {
 			layouts[i].labelLayout = shaper.ShapeTruncated(label, itemStyle, maxWidth)
 		}
-	sizes := []gfx.Size{}
-	if strings.TrimSpace(item.IconRef) != "" {
-		sizes = append(sizes, gfx.Size{W: s.cachedMenuIconSize, H: s.cachedMenuIconSize})
-	}
-	sizes = append(sizes, gfx.Size{W: text.Width(layouts[i].labelLayout), H: text.Height(layouts[i].labelLayout)})
-	content := layout.InlineFlowSize(sizes, s.cachedGap)
-	layouts[i].width = maxFloat(resolved.Density.Scale(192), s.cachedPadX*2+content.W)
-	layouts[i].height = maxFloat(resolved.Density.Scale(30), content.H)
-	if layouts[i].height < s.cachedMenuIconSize+s.cachedPadY {
-		layouts[i].height = s.cachedMenuIconSize + s.cachedPadY
-	}
+		sizes := []gfx.Size{}
+		if strings.TrimSpace(item.IconRef) != "" {
+			sizes = append(sizes, gfx.Size{W: s.cachedMenuIconSize, H: s.cachedMenuIconSize})
+		}
+		sizes = append(sizes, gfx.Size{W: text.Width(layouts[i].labelLayout), H: text.Height(layouts[i].labelLayout)})
+		content := layout.InlineFlowSize(sizes, s.cachedGap)
+		layouts[i].width = maxFloat(resolved.Density.Scale(192), s.cachedPadX*2+content.W)
+		layouts[i].height = maxFloat(resolved.Density.Scale(30), content.H)
+		if layouts[i].height < s.cachedMenuIconSize+s.cachedPadY {
+			layouts[i].height = s.cachedMenuIconSize + s.cachedPadY
+		}
 		if layouts[i].width > maxItemW {
 			maxItemW = layouts[i].width
 		}

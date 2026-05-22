@@ -672,7 +672,7 @@ func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{
 						Run:    run,
-						Origin: gfx.Point{X: 8, Y: 8},
+						Origin: gfx.Point{X: 8, Y: 24},
 						Brush:  gfx.SolidBrush(gfx.Color{R: 1, A: 1}),
 					},
 				}},

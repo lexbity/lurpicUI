@@ -3,6 +3,7 @@ package svg
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "codeburg.org/lexbit/lurpicui/gfx"
@@ -144,6 +145,37 @@ func TestParseSVG_rejectsUnsupportedConstructs(t *testing.T) {
 				t.Fatal("expected parse failure")
 			}
 		})
+	}
+}
+
+func TestParseSVG_deepNestedUseAndIndexingIterative(t *testing.T) {
+	const depth = 2048
+	var b strings.Builder
+	b.WriteString(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1">`)
+	for i := 0; i < depth; i++ {
+		b.WriteString("<g>")
+	}
+	b.WriteString(`<rect id="leaf" x="0" y="0" width="1" height="1"/>`)
+	for i := 0; i < depth; i++ {
+		b.WriteString("</g>")
+	}
+	b.WriteString(`<use href="#leaf"/>`)
+	b.WriteString(`</svg>`)
+
+	doc, err := ParseSVG([]byte(b.String()))
+	if err != nil {
+		t.Fatalf("parse deep svg: %v", err)
+	}
+	if len(doc.Elements) != 2 {
+		t.Fatalf("expected 2 visible elements, got %d", len(doc.Elements))
+	}
+	for i, el := range doc.Elements {
+		if el.ID != "leaf" {
+			t.Fatalf("element %d id = %q, want leaf", i, el.ID)
+		}
+		if el.Bounds.IsEmpty() {
+			t.Fatalf("element %d bounds should be non-empty", i)
+		}
 	}
 }
 

@@ -116,6 +116,8 @@ func modeString(mode facet.PlacementMode) string {
 		return "free"
 	case facet.PlacementLinear:
 		return "linear"
+	case facet.PlacementRadial:
+		return "radial"
 	case facet.PlacementGrid:
 		fallthrough
 	default:
