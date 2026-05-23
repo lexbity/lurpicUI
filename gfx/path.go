@@ -167,3 +167,11 @@ func PolylinePath(pts []Point, closed bool) Path {
 	}
 	return builder.Build()
 }
+
+func LinePath(start, end Point) Path {
+	return NewPath().
+		MoveTo(start).
+		LineTo(end).
+		Build()
+}
+

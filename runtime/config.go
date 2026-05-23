@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -26,6 +27,8 @@ type Config struct {
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
 	IconResolver    IconResolver
+	AssetManager    assets.Manager
+	AssetRegistry   *assets.AssetRegistryStore
 	CommandRegistry *CommandRegistry
 	LayerRegistry   *layout.LayerRegistry
 	WindowBindings  map[string]platform.Window

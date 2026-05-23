@@ -3,6 +3,7 @@ package runtime
 import (
 	"sort"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -63,6 +64,22 @@ func (rt *Runtime) ResolveIcon(ref string) (IconAsset, bool) {
 		return IconAsset{}, false
 	}
 	return asset.Clone(), true
+}
+
+// AssetManager exposes the configured runtime asset manager, if any.
+func (rt *Runtime) AssetManager() assets.Manager {
+	if rt == nil {
+		return nil
+	}
+	return rt.assetManager
+}
+
+// AssetRegistry exposes the configured asset registry, if any.
+func (rt *Runtime) AssetRegistry() *assets.AssetRegistryStore {
+	if rt == nil {
+		return nil
+	}
+	return rt.config.AssetRegistry
 }
 
 // SetRootStyleContext installs the root style context object used by tree helpers.

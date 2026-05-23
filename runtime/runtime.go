@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -37,6 +38,7 @@ type Runtime struct {
 	jobPool          *job.Pool
 	renderPipeline   *RenderPipeline
 	layerRegistry    *layout.LayerRegistry
+	assetManager     assets.Manager
 
 	platformApp    platform.App
 	window         platform.Window
@@ -115,6 +117,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		jobPool:          job.NewPool(config.WorkerCount),
 		renderPipeline:   newRenderPipeline(backend),
 		layerRegistry:    config.LayerRegistry,
+		assetManager:     config.AssetManager,
 		platformApp:      platformApp,
 		window:           window,
 		windowBindings:   copyWindowBindings(config.WindowBindings, window),
@@ -340,6 +343,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	newEvents := rt.collectPlatformEvents()
 	rt.pendingEvents = append(rt.pendingEvents, newEvents...)
 	rt.pendingEvents = rt.handleWindowEvents(rt.pendingEvents)
+	if drainer, ok := rt.assetManager.(interface{ DrainInvalidations() int }); ok {
+		if count := drainer.DrainInvalidations(); count > 0 && rt.frameTimer != nil {
+			rt.frameTimer.RequestFrame()
+		}
+	}
 
 	hoverEvents := rt.inputSystem.TickHover(now)
 	dt := time.Duration(0)
@@ -929,8 +937,19 @@ func (rt *Runtime) initiateShutdown() {
 }
 
 func (rt *Runtime) drainJobResults() (committed int, discarded int) {
-	if rt == nil || rt.jobPool == nil {
+	if rt == nil {
 		return 0, 0
+	}
+	if drainer, ok := rt.assetManager.(interface{ DrainCompleted() int }); ok {
+		if count := drainer.DrainCompleted(); count > 0 {
+			committed += count
+			if rt.frameTimer != nil {
+				rt.frameTimer.RequestFrame()
+			}
+		}
+	}
+	if rt.jobPool == nil {
+		return committed, 0
 	}
 	results := rt.jobPool.Drain()
 	for _, r := range results {
@@ -991,7 +1010,11 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 	if rt == nil || root == nil {
 		return
 	}
-	facet.Attach(root, facet.AttachContext{Runtime: rt})
+	facet.Attach(root, facet.AttachContext{
+		Runtime: rt,
+		Assets:  facet.AssetServices{Manager: rt.assetManager},
+		Stores:  facet.StoreServices{AssetRegistry: rt.config.AssetRegistry},
+	})
 }
 
 func (rt *Runtime) activateTree(root facet.FacetImpl) {
@@ -1043,6 +1066,7 @@ func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
 	if rt == nil || len(rt.dirtyFacets) == 0 {
 		return
 	}
+	rt.invalidateDirtyLayoutCaches()
 	roots := rt.selectedLayoutRoots()
 	for _, root := range roots {
 		if root == nil || root.Base() == nil {
@@ -1067,6 +1091,9 @@ func (rt *Runtime) selectedLayoutRoots() []facet.FacetImpl {
 	}
 	roots := make([]facet.FacetImpl, 0, len(rt.dirtyFacets))
 	for id := range rt.dirtyFacets {
+		if rt.dirtyFacets[id]&facet.DirtyLayout == 0 {
+			continue
+		}
 		if f := rt.findFacetByID(rt.root, id); f != nil {
 			roots = append(roots, f)
 		}
@@ -1081,6 +1108,22 @@ func (rt *Runtime) selectedLayoutRoots() []facet.FacetImpl {
 		}
 	}
 	return filtered
+}
+
+func (rt *Runtime) invalidateDirtyLayoutCaches() {
+	if rt == nil || rt.root == nil {
+		return
+	}
+	for id, flags := range rt.dirtyFacets {
+		if flags&facet.DirtyLayout == 0 {
+			continue
+		}
+		if f := rt.findFacetByID(rt.root, id); f != nil && f.Base() != nil {
+			if role := f.Base().LayoutRole(); role != nil {
+				role.InvalidateCache()
+			}
+		}
+	}
 }
 
 func (rt *Runtime) hasLayoutDirtyAncestor(f facet.FacetImpl) bool {
@@ -1117,7 +1160,18 @@ func (rt *Runtime) measureLayoutChild(f facet.FacetImpl, c layout.Constraints) g
 	if role == nil {
 		return gfx.Size{}
 	}
-	return role.Measure(facet.MeasureContext{}, c).Size
+	parentBounds := gfx.RectFromXYWH(0, 0, c.MaxSize.W, c.MaxSize.H)
+	var themeCtx any
+	var contentScale float32 = 1
+	if rt != nil {
+		themeCtx = rt.themeContext(parentBounds)
+		contentScale = rt.contentScale
+	}
+	return role.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        themeCtx,
+		ContentScale: contentScale,
+	}, c).Size
 }
 
 func (rt *Runtime) arrangeLayoutChild(f facet.FacetImpl, bounds gfx.Rect) {
@@ -1128,7 +1182,14 @@ func (rt *Runtime) arrangeLayoutChild(f facet.FacetImpl, bounds gfx.Rect) {
 	if role == nil {
 		return
 	}
-	role.Arrange(facet.ArrangeContext{}, bounds)
+	var themeCtx any
+	if rt != nil {
+		themeCtx = rt.themeContext(bounds)
+	}
+	role.Arrange(facet.ArrangeContext{
+		Runtime: rt,
+		Theme:   themeCtx,
+	}, bounds)
 }
 
 func boundsSize(bounds gfx.Rect) gfx.Size {

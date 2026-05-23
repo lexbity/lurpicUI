@@ -35,6 +35,11 @@ func (c Constraints) IsTight() bool {
 	return c.MinSize == c.MaxSize
 }
 
+// Equals reports whether two constraint sets have identical bounds.
+func (c Constraints) Equals(o Constraints) bool {
+	return c.MinSize == o.MinSize && c.MaxSize == o.MaxSize
+}
+
 // WithMaxWidth returns a copy with a different maximum width.
 func (c Constraints) WithMaxWidth(w float32) Constraints {
 	c.MaxSize.W = w

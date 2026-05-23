@@ -1,6 +1,7 @@
 package projection
 
 import (
+	"sync"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -89,6 +90,89 @@ type RenderBatchOutput struct {
 	Opacity   float32
 }
 
+const projectionForkThreshold = 8
+
+type subtreeResult struct {
+	outputs []*ProjectionOutput
+}
+
+// ProjectionOutputPartition is an isolated append-only slice of projection outputs.
+// Each worker or sequential walk can own one partition and merge later.
+type ProjectionOutputPartition struct {
+	Outputs []*ProjectionOutput
+}
+
+// Append adds an output to the partition.
+func (p *ProjectionOutputPartition) Append(output *ProjectionOutput) {
+	if p == nil || output == nil {
+		return
+	}
+	p.Outputs = append(p.Outputs, output)
+}
+
+// ProjectionOutputPartitions groups isolated output partitions for later merging.
+type ProjectionOutputPartitions struct {
+	Partitions []*ProjectionOutputPartition
+}
+
+// NewPartition appends and returns a fresh partition.
+func (p *ProjectionOutputPartitions) NewPartition() *ProjectionOutputPartition {
+	if p == nil {
+		return nil
+	}
+	part := &ProjectionOutputPartition{}
+	p.Partitions = append(p.Partitions, part)
+	return part
+}
+
+// Flatten merges all partition outputs in encounter order.
+func (p *ProjectionOutputPartitions) Flatten() []*ProjectionOutput {
+	if p == nil || len(p.Partitions) == 0 {
+		return nil
+	}
+	var total int
+	for _, part := range p.Partitions {
+		if part != nil {
+			total += len(part.Outputs)
+		}
+	}
+	if total == 0 {
+		return nil
+	}
+	out := make([]*ProjectionOutput, 0, total)
+	for _, part := range p.Partitions {
+		if part == nil || len(part.Outputs) == 0 {
+			continue
+		}
+		out = append(out, part.Outputs...)
+	}
+	return out
+}
+
+func mergePreOrderOutputs(dst []*ProjectionOutput, results []subtreeResult) []*ProjectionOutput {
+	total := len(dst)
+	for i := range results {
+		total += len(results[i].outputs)
+	}
+	if total == len(dst) {
+		if len(dst) == 0 {
+			return nil
+		}
+		out := make([]*ProjectionOutput, len(dst))
+		copy(out, dst)
+		return out
+	}
+	out := make([]*ProjectionOutput, 0, total)
+	out = append(out, dst...)
+	for i := range results {
+		if len(results[i].outputs) == 0 {
+			continue
+		}
+		out = append(out, results[i].outputs...)
+	}
+	return out
+}
+
 type FrameOutput struct {
 	RenderBatchs        []RenderBatchOutput
 	HitMap              *HitMap
@@ -110,6 +194,8 @@ type System struct {
 	CacheHits       int
 	runtime         facet.RuntimeServices
 	layerResolver   LayerResolver
+	cacheMu         sync.Mutex
+	statsMu         sync.Mutex
 }
 
 type runtimeStateSource interface {
@@ -176,7 +262,10 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	if rootNode != nil {
 		dirty := s.collectDirtyFlags(rootNode)
 		s.propagateDirty(rootNode, dirty)
-		s.walkNode(rootNode, gfx.Identity(), nil, dirty)
+		partitions := ProjectionOutputPartitions{}
+		partition := partitions.NewPartition()
+		s.walkNode(rootNode, gfx.Identity(), nil, dirty, partition)
+		s.frameOutputs = partitions.Flatten()
 		s.clearTreeDirty(rootNode)
 	}
 	out := s.assembleFrameOutput()
@@ -293,7 +382,7 @@ func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 	return node
 }
 
-func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags) {
+func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags, partition *ProjectionOutputPartition) {
 	if node == nil || node.base == nil || node.impl == nil {
 		return
 	}
@@ -327,17 +416,33 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 		}
 
 		cacheKey := s.computeCacheKey(frame.node.impl, resolvedTransform, frame.parentChildCtx, layerCtx, hasLayer)
-		output := s.outputCache[facetID]
+		output := s.loadCachedOutput(facetID)
 		if output == nil || output.CacheKey != cacheKey || s.isDirtyWithMap(facetID, dirty) {
 			output = s.project(frame.node.impl, resolvedTransform, bounds, frame.parentChildCtx, cacheKey, layerCtx, hasLayer)
-			s.outputCache[facetID] = output
-			s.ProjectedFacets++
+			s.storeCachedOutput(facetID, output)
+			s.addProjectedFacet()
 		} else {
-			s.CacheHits++
+			s.addCacheHit()
 		}
-		s.frameOutputs = append(s.frameOutputs, output)
+		if partition != nil {
+			partition.Append(output)
+		} else {
+			s.frameOutputs = append(s.frameOutputs, output)
+		}
 		childCtx := output.ChildContext
 		children := frame.node.children
+		if len(children) == 0 {
+			continue
+		}
+		if s.shouldForkChildren(frame.node) {
+			results := s.walkChildSubtrees(children, resolvedTransform, childCtx, dirty)
+			if partition != nil {
+				partition.Outputs = mergePreOrderOutputs(partition.Outputs, results)
+			} else {
+				s.frameOutputs = mergePreOrderOutputs(s.frameOutputs, results)
+			}
+			continue
+		}
 		for i := len(children) - 1; i >= 0; i-- {
 			stack = append(stack, walkFrame{
 				node:            children[i],
@@ -346,6 +451,100 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 			})
 		}
 	}
+}
+
+func (s *System) walkChildSubtrees(children []*projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags) []subtreeResult {
+	if len(children) == 0 {
+		return nil
+	}
+	results := make([]subtreeResult, len(children))
+	var wg sync.WaitGroup
+	for i := range children {
+		child := children[i]
+		if child == nil {
+			continue
+		}
+		wg.Add(1)
+		go func(idx int, node *projectionNode) {
+			defer wg.Done()
+			results[idx] = s.walkSubtree(node, parentTransform, parentChildCtx, dirty)
+		}(i, child)
+	}
+	wg.Wait()
+	return results
+}
+
+func (s *System) walkSubtree(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags) subtreeResult {
+	part := &ProjectionOutputPartition{}
+	s.walkNode(node, parentTransform, parentChildCtx, dirty, part)
+	outputs := append([]*ProjectionOutput(nil), part.Outputs...)
+	return subtreeResult{outputs: outputs}
+}
+
+func (s *System) shouldForkChildren(node *projectionNode) bool {
+	if node == nil {
+		return false
+	}
+	if len(node.children) <= 1 {
+		return false
+	}
+	return countProjectionNodes(node) > projectionForkThreshold
+}
+
+func countProjectionNodes(node *projectionNode) int {
+	if node == nil {
+		return 0
+	}
+	total := 0
+	stack := []*projectionNode{node}
+	for len(stack) > 0 {
+		n := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if n == nil || n.base == nil {
+			continue
+		}
+		total++
+		for i := len(n.children) - 1; i >= 0; i-- {
+			stack = append(stack, n.children[i])
+		}
+	}
+	return total
+}
+
+func (s *System) loadCachedOutput(id facet.FacetID) *ProjectionOutput {
+	if s == nil || id == 0 {
+		return nil
+	}
+	s.cacheMu.Lock()
+	defer s.cacheMu.Unlock()
+	return s.outputCache[id]
+}
+
+func (s *System) storeCachedOutput(id facet.FacetID, output *ProjectionOutput) {
+	if s == nil || id == 0 || output == nil {
+		return
+	}
+	s.cacheMu.Lock()
+	s.outputCache[id] = output
+	s.cacheMu.Unlock()
+}
+
+func (s *System) addProjectedFacet() {
+	if s == nil {
+		return
+	}
+	s.statsMu.Lock()
+	s.ProjectedFacets++
+	s.statsMu.Unlock()
+}
+
+func (s *System) addCacheHit() {
+	if s == nil {
+		return
+	}
+	s.statsMu.Lock()
+	s.CacheHits++
+	s.statsMu.Unlock()
 }
 
 func (s *System) project(

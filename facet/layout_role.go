@@ -1,6 +1,10 @@
 package facet
 
-import "codeburg.org/lexbit/lurpicui/gfx"
+import (
+	"reflect"
+
+	"codeburg.org/lexbit/lurpicui/gfx"
+)
 
 // LayerID identifies a globally registered layer in layout participation data.
 type LayerID uint64
@@ -426,6 +430,15 @@ type GroupParentContract struct {
 	Children ChildSource
 }
 
+// Equals reports whether the parent-group contract is structurally identical.
+func (p GroupParentContract) Equals(o GroupParentContract) bool {
+	return p.Kind == o.Kind &&
+		p.Overflow == o.Overflow &&
+		p.Clipping == o.Clipping &&
+		equalDynamicValue(p.Policy, o.Policy) &&
+		equalDynamicValue(p.Children, o.Children)
+}
+
 // GroupChildContract describes how a facet participates in its parent group.
 type GroupChildContract struct {
 	SupportedPlacement PlacementModeSet
@@ -433,6 +446,15 @@ type GroupChildContract struct {
 	Constraints        ConstraintPolicy
 	Stretch            StretchPolicy
 	Baseline           BaselinePolicy
+}
+
+// Equals reports whether the child-group contract is structurally identical.
+func (c GroupChildContract) Equals(o GroupChildContract) bool {
+	return c.SupportedPlacement == o.SupportedPlacement &&
+		c.Constraints == o.Constraints &&
+		c.Stretch == o.Stretch &&
+		c.Baseline == o.Baseline &&
+		equalFuncValue(c.Intrinsic, o.Intrinsic)
 }
 
 // Attachment records the layer/placement contract for a child.
@@ -444,10 +466,27 @@ type Attachment struct {
 
 // LayoutRole participates in measurement and arrangement inside the resolved layer contract.
 type LayoutRole struct {
-	Constraints    Constraints
-	MeasuredResult MeasureResult
-	MeasuredSize   gfx.Size
-	ArrangedBounds gfx.Rect
+	Constraints                 Constraints
+	MeasuredResult              MeasureResult
+	MeasuredSize                gfx.Size
+	ArrangedBounds              gfx.Rect
+	lastConstraints             Constraints
+	lastParentGroup             GroupParentContract
+	lastChildGroup              GroupChildContract
+	lastMeasureRuntime          any
+	lastMeasureTheme            any
+	lastMeasureContentScale     float32
+	lastMeasureDensity          DensityID
+	lastMeasureWritingDirection WritingDirection
+	lastArrangeRuntime          any
+	lastArrangeTheme            any
+	lastMeasuredResult          MeasureResult
+	lastMeasuredSize            gfx.Size
+	lastArrangedBounds          gfx.Rect
+	lastArrangedConstraints     Constraints
+	lastPlacement               Placement
+	hasValidCache               bool
+	hasValidArrangeCache        bool
 
 	OnMeasure func(ctx MeasureContext, constraints Constraints) MeasureResult
 	OnArrange func(ctx ArrangeContext, bounds gfx.Rect)
@@ -461,22 +500,57 @@ func (r *LayoutRole) Measure(ctx MeasureContext, c Constraints) MeasureResult {
 	if r == nil {
 		return MeasureResult{}
 	}
-	r.Constraints = c
 	if ctx.ParentGroup == (GroupParentContract{}) {
 		ctx.ParentGroup = r.Parent
 	}
 	if isZeroGroupChildContract(ctx.ChildGroup) {
 		ctx.ChildGroup = r.Child
 	}
+	if r.hasValidCache &&
+		r.lastConstraints.Equals(c) &&
+		r.lastParentGroup.Equals(ctx.ParentGroup) &&
+		r.lastChildGroup.Equals(ctx.ChildGroup) &&
+		r.lastMeasureContextMatches(ctx) {
+		r.Constraints = r.lastConstraints
+		r.MeasuredResult = r.lastMeasuredResult
+		r.MeasuredSize = r.lastMeasuredSize
+		return r.MeasuredResult
+	}
+	r.Constraints = c
 	if r.OnMeasure == nil {
 		r.MeasuredResult = MeasureResult{Constraints: c}
 		r.MeasuredSize = gfx.Size{}
+		r.lastConstraints = c
+		r.lastParentGroup = ctx.ParentGroup
+		r.lastChildGroup = ctx.ChildGroup
+		r.lastMeasureRuntime = ctx.Runtime
+		r.lastMeasureTheme = ctx.Theme
+		r.lastMeasureContentScale = ctx.ContentScale
+		r.lastMeasureDensity = ctx.Density
+		r.lastMeasureWritingDirection = ctx.WritingDirection
+		r.lastMeasuredResult = r.MeasuredResult
+		r.lastMeasuredSize = r.MeasuredSize
+		r.lastArrangedBounds = r.ArrangedBounds
+		r.hasValidCache = true
 		return r.MeasuredResult
 	}
 	result := r.OnMeasure(ctx, c)
 	result.Constraints = c
 	r.MeasuredResult = result
 	r.MeasuredSize = result.Size
+	r.lastConstraints = c
+	r.lastParentGroup = ctx.ParentGroup
+	r.lastChildGroup = ctx.ChildGroup
+	r.lastMeasureRuntime = ctx.Runtime
+	r.lastMeasureTheme = ctx.Theme
+	r.lastMeasureContentScale = ctx.ContentScale
+	r.lastMeasureDensity = ctx.Density
+	r.lastMeasureWritingDirection = ctx.WritingDirection
+	r.lastMeasuredResult = result
+	r.lastMeasuredSize = result.Size
+	r.lastArrangedBounds = r.ArrangedBounds
+	r.hasValidCache = true
+	r.hasValidArrangeCache = false
 	return result
 }
 
@@ -494,10 +568,37 @@ func (r *LayoutRole) Arrange(ctx ArrangeContext, bounds gfx.Rect) {
 	if ctx.ChildGroup.SupportedPlacement != 0 && !ctx.ChildGroup.SupportedPlacement.Has(ctx.Placement.Mode) {
 		panic("facet contract violation: unsupported placement mode; guidance: update SupportedPlacement to include the requested placement mode")
 	}
+	if r.hasValidArrangeCache &&
+		r.lastArrangedConstraints.Equals(r.Constraints) &&
+		r.lastParentGroup.Equals(ctx.ParentGroup) &&
+		r.lastChildGroup.Equals(ctx.ChildGroup) &&
+		r.lastArrangeContextMatches(ctx) &&
+		r.lastPlacement == ctx.Placement &&
+		r.lastArrangedBounds == bounds {
+		r.ArrangedBounds = r.lastArrangedBounds
+		return
+	}
 	r.ArrangedBounds = bounds
 	if r.OnArrange != nil {
 		r.OnArrange(ctx, bounds)
 	}
+	r.lastParentGroup = ctx.ParentGroup
+	r.lastChildGroup = ctx.ChildGroup
+	r.lastArrangeRuntime = ctx.Runtime
+	r.lastArrangeTheme = ctx.Theme
+	r.lastArrangedBounds = bounds
+	r.lastArrangedConstraints = r.Constraints
+	r.lastPlacement = ctx.Placement
+	r.hasValidArrangeCache = true
+}
+
+// InvalidateCache clears the cached layout results so the next pass recomputes.
+func (r *LayoutRole) InvalidateCache() {
+	if r == nil {
+		return
+	}
+	r.hasValidCache = false
+	r.hasValidArrangeCache = false
 }
 
 func (r *LayoutRole) onAttach(f *Facet) {
@@ -522,8 +623,73 @@ func (r *LayoutRole) onDispose(f *Facet) {
 	r.MeasuredResult = MeasureResult{}
 	r.MeasuredSize = gfx.Size{}
 	r.ArrangedBounds = gfx.Rect{}
+	r.lastConstraints = Constraints{}
+	r.lastParentGroup = GroupParentContract{}
+	r.lastChildGroup = GroupChildContract{}
+	r.lastMeasureRuntime = nil
+	r.lastMeasureTheme = nil
+	r.lastMeasureContentScale = 0
+	r.lastMeasureDensity = ""
+	r.lastMeasureWritingDirection = WritingDirectionLTR
+	r.lastArrangeRuntime = nil
+	r.lastArrangeTheme = nil
+	r.lastMeasuredResult = MeasureResult{}
+	r.lastMeasuredSize = gfx.Size{}
+	r.lastArrangedBounds = gfx.Rect{}
+	r.lastArrangedConstraints = Constraints{}
+	r.lastPlacement = Placement{}
+	r.hasValidCache = false
+	r.hasValidArrangeCache = false
 }
 
 func isZeroGroupChildContract(c GroupChildContract) bool {
 	return c.SupportedPlacement == 0 && c.Intrinsic == nil && c.Constraints == (ConstraintPolicy{}) && c.Stretch == (StretchPolicy{}) && c.Baseline == BaselineNone
+}
+
+func equalDynamicValue(a, b any) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	av := reflect.ValueOf(a)
+	bv := reflect.ValueOf(b)
+	if av.Type() != bv.Type() {
+		return false
+	}
+	switch av.Kind() {
+	case reflect.Func:
+		return av.Pointer() == bv.Pointer()
+	default:
+		return reflect.DeepEqual(a, b)
+	}
+}
+
+func equalFuncValue(a, b any) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	av := reflect.ValueOf(a)
+	bv := reflect.ValueOf(b)
+	if av.Type() != bv.Type() || av.Kind() != reflect.Func {
+		return false
+	}
+	return av.Pointer() == bv.Pointer()
+}
+
+func (r *LayoutRole) lastMeasureContextMatches(ctx MeasureContext) bool {
+	if r == nil {
+		return false
+	}
+	return equalDynamicValue(r.lastMeasureRuntime, ctx.Runtime) &&
+		equalDynamicValue(r.lastMeasureTheme, ctx.Theme) &&
+		r.lastMeasureContentScale == ctx.ContentScale &&
+		r.lastMeasureDensity == ctx.Density &&
+		r.lastMeasureWritingDirection == ctx.WritingDirection
+}
+
+func (r *LayoutRole) lastArrangeContextMatches(ctx ArrangeContext) bool {
+	if r == nil {
+		return false
+	}
+	return equalDynamicValue(r.lastArrangeRuntime, ctx.Runtime) &&
+		equalDynamicValue(r.lastArrangeTheme, ctx.Theme)
 }

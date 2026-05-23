@@ -13,9 +13,10 @@ type frameHandoff struct {
 
 // RenderPipeline hands frames to the render backend with capacity-1 backpressure.
 type RenderPipeline struct {
-	backend   render.Backend
-	handoffCh chan frameHandoff
-	fatalCh   chan error
+	backend     render.Backend
+	uploadQueue *render.UploadQueue
+	handoffCh   chan frameHandoff
+	fatalCh     chan error
 }
 
 type renderThread struct {
@@ -23,11 +24,15 @@ type renderThread struct {
 }
 
 func newRenderPipeline(backend render.Backend) *RenderPipeline {
-	return &RenderPipeline{
+	p := &RenderPipeline{
 		backend:   backend,
 		handoffCh: make(chan frameHandoff, 1),
 		fatalCh:   make(chan error, 1),
 	}
+	if tb, ok := backend.(render.TextureBackend); ok {
+		p.uploadQueue = render.NewUploadQueue(tb, 1024)
+	}
+	return p
 }
 
 // Submit sends a frame to the render backend pipeline.
@@ -58,6 +63,9 @@ func (rt *renderThread) run() {
 				close(handoff.doneCh)
 			}
 			continue
+		}
+		if rt.pipeline.uploadQueue != nil {
+			rt.pipeline.uploadQueue.DrainBudget()
 		}
 		if err := rt.pipeline.backend.Submit(handoff.frame); err != nil {
 			select {

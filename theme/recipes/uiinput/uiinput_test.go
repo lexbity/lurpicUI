@@ -51,14 +51,14 @@ func TestButtonRecipe_subtree_override_changes_container_only(t *testing.T) {
 
 func TestIconButtonRecipe_all_slots_present(t *testing.T) {
 	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
-	slots, report := ResolveIconButtonRecipe(ctx)
+	slots, report := ResolveIconButtonRecipe(ctx, IconButtonStandard)
 	if !allFieldsPresent(slots) {
 		t.Fatalf("icon button slots contain zero values: %#v", slots)
 	}
 	if report.Family != "uiinput" {
 		t.Fatalf("family = %q", report.Family)
 	}
-	if report.Variant != theme.VariantKey("default") {
+	if report.Variant != theme.VariantKey("standard") {
 		t.Fatalf("variant = %q", report.Variant)
 	}
 	if len(report.SlotNames()) != 5 {

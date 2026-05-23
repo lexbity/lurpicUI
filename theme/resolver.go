@@ -124,6 +124,7 @@ type ResolvedContext struct {
 	Density      DensityScale
 	Viewport     gfx.Size
 	FontRegistry *text.FontRegistry
+	Lighting     LightingContext
 
 	ContentScale     float32
 	WritingDirection layout.WritingDirection
@@ -133,7 +134,11 @@ type ResolvedContext struct {
 
 // DefaultResolvedContext returns the canonical resolved theme context.
 func DefaultResolvedContext() ResolvedContext {
-	tokens := DefaultTokens()
+	return NewResolvedContext(DefaultTokens())
+}
+
+// NewResolvedContext returns a resolved theme context using the custom tokens.
+func NewResolvedContext(tokens Tokens) ResolvedContext {
 	scales := DefaultDensityScales(tokens)
 	materials := NewMaterialRegistry()
 	return ResolvedContext{
@@ -141,6 +146,12 @@ func DefaultResolvedContext() ResolvedContext {
 		Materials:        materials,
 		Density:          scales[DensityIDComfortable],
 		FontRegistry:     nil,
+		Lighting: LightingContext{
+			Enabled:   true,
+			Angle:     135,
+			Intensity: 1.0,
+			Ambient:   0.2,
+		},
 		ContentScale:     1,
 		WritingDirection: layout.WritingDirectionLTR,
 		Resolver:         DefaultThemeResolver(tokens),
@@ -217,6 +228,12 @@ func (c ResolvedContext) WithMaterials(materials *MaterialRegistry) ResolvedCont
 // WithFontRegistry returns a copy with a different font registry.
 func (c ResolvedContext) WithFontRegistry(reg *text.FontRegistry) ResolvedContext {
 	c.FontRegistry = reg
+	return c
+}
+
+// WithLighting returns a copy with a different global lighting context.
+func (c ResolvedContext) WithLighting(lighting LightingContext) ResolvedContext {
+	c.Lighting = lighting
 	return c
 }
 

@@ -90,3 +90,24 @@ func (b *Backend) EvictCaches() {
 
 var _ render.Backend = (*Backend)(nil)
 var _ render.CacheEvictor = (*Backend)(nil)
+var _ render.TextureBackend = (*Backend)(nil)
+
+func (b *Backend) UploadTexture(req render.TextureUploadRequest) (render.TextureID, error) {
+	vb := render.NewVulkanBackend(0)
+	return vb.UploadTexture(req)
+}
+
+func (b *Backend) FreeTexture(id render.TextureID) {
+	vb := render.NewVulkanBackend(0)
+	vb.FreeTexture(id)
+}
+
+func (b *Backend) UploadBudgetBytesPerFrame() int {
+	vb := render.NewVulkanBackend(0)
+	return vb.UploadBudgetBytesPerFrame()
+}
+
+func (b *Backend) TranscodeTarget() render.TextureFormat {
+	vb := render.NewVulkanBackend(0)
+	return vb.TranscodeTarget()
+}

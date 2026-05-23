@@ -9,6 +9,22 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
+// LightingContext defines a global light source setting for skeuomorphic rendering.
+type LightingContext struct {
+	Enabled   bool
+	Angle     float32 // angle in degrees, e.g., 135 for top-left
+	Intensity float32 // light intensity factor (0.0 to 1.0)
+	Ambient   float32 // ambient light minimum (0.0 to 1.0)
+}
+
+// GlobalLighting is the active global light source context, which can be modified at startup or resolution.
+var GlobalLighting = LightingContext{
+	Enabled:   true,
+	Angle:     135,
+	Intensity: 1.0,
+	Ambient:   0.2,
+}
+
 // Fill describes how the interior of a mark is painted.
 type Fill struct {
 	Type     FillType

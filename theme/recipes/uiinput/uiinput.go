@@ -20,6 +20,8 @@ const (
 	ButtonText
 	// ButtonTonal uses a softer semantic container.
 	ButtonTonal
+	// ButtonSkeuomorphic uses 3D double strokes and tactile materials.
+	ButtonSkeuomorphic
 )
 
 func (v ButtonVariant) String() string {
@@ -32,6 +34,29 @@ func (v ButtonVariant) String() string {
 		return "text"
 	case ButtonTonal:
 		return "tonal"
+	case ButtonSkeuomorphic:
+		return "skeuomorphic"
+	default:
+		return "unknown"
+	}
+}
+
+// IconButtonVariant selects the icon button recipe shape.
+type IconButtonVariant uint8
+
+const (
+	// IconButtonStandard uses a standard flat container.
+	IconButtonStandard IconButtonVariant = iota
+	// IconButtonSkeuomorphic uses 3D double strokes and tactile materials.
+	IconButtonSkeuomorphic
+)
+
+func (v IconButtonVariant) String() string {
+	switch v {
+	case IconButtonStandard:
+		return "standard"
+	case IconButtonSkeuomorphic:
+		return "skeuomorphic"
 	default:
 		return "unknown"
 	}
@@ -70,6 +95,8 @@ const (
 	SliderStandard SliderVariant = iota
 	// SliderCompact uses denser feedback and a smaller thumb.
 	SliderCompact
+	// SliderSkeuomorphic uses an engraved track and tactile thumb.
+	SliderSkeuomorphic
 )
 
 func (v SliderVariant) String() string {
@@ -78,6 +105,8 @@ func (v SliderVariant) String() string {
 		return "standard"
 	case SliderCompact:
 		return "compact"
+	case SliderSkeuomorphic:
+		return "skeuomorphic"
 	default:
 		return "unknown"
 	}
@@ -106,12 +135,16 @@ type SwitchVariant uint8
 const (
 	// SwitchStandard uses the default switch styling.
 	SwitchStandard SwitchVariant = iota
+	// SwitchSkeuomorphic uses an engraved track and tactile toggle slider.
+	SwitchSkeuomorphic
 )
 
 func (v SwitchVariant) String() string {
 	switch v {
 	case SwitchStandard:
 		return "standard"
+	case SwitchSkeuomorphic:
+		return "skeuomorphic"
 	default:
 		return "unknown"
 	}
@@ -204,9 +237,9 @@ func ResolveButtonGroupRecipe(ctx theme.StyleContext, overrides ...theme.SlotPat
 }
 
 // ResolveIconButtonRecipe resolves the icon-button slots and provenance.
-func ResolveIconButtonRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.IconButtonSlots]) (shared.IconButtonSlots, theme.RecipeReport) {
-	slots := iconButtonBase(ctx)
-	report := newReport("uiinput", theme.VariantKey("default"), slots)
+func ResolveIconButtonRecipe(ctx theme.StyleContext, variant IconButtonVariant, overrides ...theme.SlotPatch[shared.IconButtonSlots]) (shared.IconButtonSlots, theme.RecipeReport) {
+	slots := iconButtonBase(ctx, variant)
+	report := newReport("uiinput", theme.VariantKey(variant.String()), slots)
 	resolved := theme.ResolveSlot(slots, overrides...)
 	annotateOverrides(&report, slots, resolved)
 	return resolved, report
@@ -336,6 +369,68 @@ func buttonBase(ctx theme.StyleContext, variant ButtonVariant) shared.ButtonSlot
 			FocusRing:            strokeStyle(tokens.Color.Secondary, 2),
 			StateLayer:           stateLayerStyle(tokens.Color.OnSecondary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
 		}
+	case ButtonSkeuomorphic:
+		return shared.ButtonSlots{
+			Root: transparentStyle(),
+			Container: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureMicroNoise, Repeat: theme.RepeatTile},
+							Opacity: 0.15,
+						},
+						{
+							Type:    theme.FillGradient,
+							Gradient: theme.Gradient{
+								Type:  theme.GradientLinear,
+								Start: gfx.Point{X: 0, Y: 0},
+								End:   gfx.Point{X: 0, Y: 1},
+								Stops: []theme.GradientStop{
+									{Position: 0.0, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}},
+									{Position: 0.35, Color: gfx.Color{R: 237, G: 243, B: 248, A: 255}},
+									{Position: 0.7, Color: gfx.Color{R: 203, G: 216, B: 227, A: 255}},
+									{Position: 1.0, Color: gfx.Color{R: 189, G: 204, B: 217, A: 255}},
+								},
+							},
+							Opacity: 1.0,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{ // Bottom-right diffuse shadow
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 156, G: 176, B: 196, A: 255}, Opacity: 0.85},
+							Width:      0,
+							BlurRadius: 12,
+							Offset:     gfx.Point{X: 7, Y: 7},
+						},
+						{ // Top-left specular highlight
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.85},
+							Width:      0,
+							BlurRadius: 12,
+							Offset:     gfx.Point{X: -7, Y: -7},
+						},
+						{ // Top-left inner bevel
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.85},
+							Width:  0.75,
+							Offset: gfx.Point{X: -0.75, Y: -0.75},
+							Inner:  true,
+						},
+						{ // Bottom-right inner bevel
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 91, G: 108, B: 124, A: 255}, Opacity: 0.3},
+							Width:  0.75,
+							Offset: gfx.Point{X: 0.75, Y: 0.75},
+							Inner:  true,
+						},
+					},
+					Opacity: 1.0,
+				},
+			},
+			Label:                markStyleFromColor(tokens.Color.OnSurface),
+			OptionalLeadingIcon:  markStyleFromColor(tokens.Color.OnSurface),
+			OptionalTrailingIcon: markStyleFromColor(tokens.Color.OnSurface),
+			FocusRing:            strokeStyle(tokens.Color.Primary, 2),
+			StateLayer:           stateLayerStyle(tokens.Color.OnSurface, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+		}
 	default:
 		return shared.ButtonSlots{}
 	}
@@ -352,14 +447,77 @@ func buttonGroupBase(ctx theme.StyleContext) shared.ButtonGroupSlots {
 	}
 }
 
-func iconButtonBase(ctx theme.StyleContext) shared.IconButtonSlots {
+func iconButtonBase(ctx theme.StyleContext, variant IconButtonVariant) shared.IconButtonSlots {
 	tokens := ctx.Tokens
-	return shared.IconButtonSlots{
-		Root:       transparentStyle(),
-		Container:  markStyleFromColor(tokens.Color.Primary),
-		Icon:       markStyleFromColor(tokens.Color.OnPrimary),
-		FocusRing:  strokeStyle(tokens.Color.OnPrimary, 2),
-		StateLayer: stateLayerStyle(tokens.Color.OnPrimary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+	switch variant {
+	case IconButtonSkeuomorphic:
+		return shared.IconButtonSlots{
+			Root: transparentStyle(),
+			Container: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureMicroNoise, Repeat: theme.RepeatTile},
+							Opacity: 0.15,
+						},
+						{
+							Type:    theme.FillGradient,
+							Gradient: theme.Gradient{
+								Type:  theme.GradientLinear,
+								Start: gfx.Point{X: 0, Y: 0},
+								End:   gfx.Point{X: 0, Y: 1},
+								Stops: []theme.GradientStop{
+									{Position: 0.0, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}},
+									{Position: 0.35, Color: gfx.Color{R: 237, G: 243, B: 248, A: 255}},
+									{Position: 0.7, Color: gfx.Color{R: 203, G: 216, B: 227, A: 255}},
+									{Position: 1.0, Color: gfx.Color{R: 189, G: 204, B: 217, A: 255}},
+								},
+							},
+							Opacity: 1.0,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{ // Bottom-right diffuse shadow
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 156, G: 176, B: 196, A: 255}, Opacity: 0.85},
+							Width:      0,
+							BlurRadius: 12,
+							Offset:     gfx.Point{X: 7, Y: 7},
+						},
+						{ // Top-left specular highlight
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.85},
+							Width:      0,
+							BlurRadius: 12,
+							Offset:     gfx.Point{X: -7, Y: -7},
+						},
+						{ // Top-left inner bevel
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.85},
+							Width:  0.75,
+							Offset: gfx.Point{X: -0.75, Y: -0.75},
+							Inner:  true,
+						},
+						{ // Bottom-right inner bevel
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 91, G: 108, B: 124, A: 255}, Opacity: 0.3},
+							Width:  0.75,
+							Offset: gfx.Point{X: 0.75, Y: 0.75},
+							Inner:  true,
+						},
+					},
+					Opacity: 1.0,
+				},
+			},
+			Icon:       markStyleFromColor(tokens.Color.Primary),
+			FocusRing:  strokeStyle(tokens.Color.Primary, 2),
+			StateLayer: stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+		}
+	default:
+		return shared.IconButtonSlots{
+			Root:       transparentStyle(),
+			Container:  markStyleFromColor(tokens.Color.Primary),
+			Icon:       markStyleFromColor(tokens.Color.OnPrimary),
+			FocusRing:  strokeStyle(tokens.Color.OnPrimary, 2),
+			StateLayer: stateLayerStyle(tokens.Color.OnPrimary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+		}
 	}
 }
 
@@ -463,6 +621,151 @@ func sliderBase(ctx theme.StyleContext, variant SliderVariant) shared.SliderSlot
 			ValueLabel:  markStyleFromColor(tokens.Color.OnSurfaceVariant),
 			FocusRing:   strokeStyle(tokens.Color.Primary, 2),
 		}
+	case SliderSkeuomorphic:
+		return shared.SliderSlots{
+			Root: transparentStyle(),
+			Track: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureMicroNoise, Repeat: theme.RepeatTile},
+							Opacity: 0.15,
+						},
+						{
+							Type:    theme.FillSolid,
+							Color:   gfx.Color{R: 18, G: 20, B: 24, A: 255},
+							Opacity: 1,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{ // Inset bevel shadow: Black (#000000, opacity 0.75, blur 4, offset {1, 1}, Inner: true)
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.75},
+							Width:      1.5,
+							BlurRadius: 4,
+							Offset:     gfx.Point{X: 1, Y: 1},
+							Inner:      true,
+						},
+						{ // Inset bevel reflection: Soft highlight (#ffffff, opacity 0.25, blur 2, offset {-1, -1}, Inner: true)
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.25},
+							Width:      1.0,
+							BlurRadius: 2,
+							Offset:     gfx.Point{X: -1, Y: -1},
+							Inner:      true,
+						},
+					},
+					Opacity: 1,
+				},
+			},
+			ActiveTrack: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.Primary,
+						Opacity: 1,
+					}},
+					Strokes: []theme.MaterialStroke{
+						{
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.4},
+							Width:      1.0,
+							BlurRadius: 2,
+							Offset:     gfx.Point{X: 0.5, Y: 0.5},
+							Inner:      true,
+						},
+					},
+					Opacity: 1,
+				},
+			},
+			Thumb: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureBrushedMetal, Repeat: theme.RepeatTile},
+							Opacity: 0.9,
+						},
+						{
+							Type:    theme.FillGradient,
+							Gradient: theme.Gradient{
+								Type:  theme.GradientLinear,
+								Start: gfx.Point{X: 0, Y: 0},
+								End:   gfx.Point{X: 0, Y: 1},
+								Stops: []theme.GradientStop{
+									{Position: 0.0, Color: gfx.Color{R: 240, G: 240, B: 240, A: 255}},
+									{Position: 0.5, Color: gfx.Color{R: 200, G: 200, B: 200, A: 255}},
+									{Position: 1.0, Color: gfx.Color{R: 160, G: 160, B: 160, A: 255}},
+								},
+							},
+							Opacity: 1,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.4},
+							Width:      0,
+							BlurRadius: 5,
+							Offset:     gfx.Point{X: 1.5, Y: 1.5},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.8},
+							Width:  1.5,
+							Offset: gfx.Point{X: -1, Y: -1},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.3},
+							Width:  1.5,
+							Offset: gfx.Point{X: 1, Y: 1},
+						},
+					},
+					Opacity: 1,
+				},
+				Pressed: &theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureBrushedMetal, Repeat: theme.RepeatTile},
+							Opacity: 0.9,
+						},
+						{
+							Type:    theme.FillGradient,
+							Gradient: theme.Gradient{
+								Type:  theme.GradientLinear,
+								Start: gfx.Point{X: 0, Y: 0},
+								End:   gfx.Point{X: 0, Y: 1},
+								Stops: []theme.GradientStop{
+									{Position: 0.0, Color: gfx.Color{R: 210, G: 210, B: 210, A: 255}},
+									{Position: 0.5, Color: gfx.Color{R: 180, G: 180, B: 180, A: 255}},
+									{Position: 1.0, Color: gfx.Color{R: 140, G: 140, B: 140, A: 255}},
+								},
+							},
+							Opacity: 1,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.45},
+							Width:      0,
+							BlurRadius: 3,
+							Offset:     gfx.Point{X: 0.8, Y: 0.8},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.7},
+							Width:  1.5,
+							Offset: gfx.Point{X: -0.8, Y: -0.8},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.35},
+							Width:  1.5,
+							Offset: gfx.Point{X: 0.8, Y: 0.8},
+						},
+					},
+					Opacity: 1,
+				},
+			},
+			TickMarks:  fadedStyle(tokens.Color.OnSurfaceVariant, 0.4),
+			ValueLabel: markStyleFromColor(tokens.Color.OnSurface),
+			FocusRing:  strokeStyle(tokens.Color.Primary, 2),
+		}
 	default:
 		return shared.SliderSlots{}
 	}
@@ -521,64 +824,207 @@ func checkboxBase(ctx theme.StyleContext, variant CheckboxVariant) shared.Checkb
 
 func switchBase(ctx theme.StyleContext, variant SwitchVariant) shared.SwitchSlots {
 	tokens := ctx.Tokens
-	_ = variant
-	return shared.SwitchSlots{
-		Root: transparentStyle(),
-		Track: theme.MarkStyle{
-			Base: theme.Material{
-				Fills: []theme.Fill{{
-					Type:    theme.FillSolid,
-					Color:   tokens.Color.OnSurfaceVariant,
+	switch variant {
+	case SwitchSkeuomorphic:
+		return shared.SwitchSlots{
+			Root: transparentStyle(),
+			Track: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureMicroNoise, Repeat: theme.RepeatTile},
+							Opacity: 0.15,
+						},
+						{
+							Type:    theme.FillSolid,
+							Color:   gfx.Color{R: 18, G: 20, B: 24, A: 255},
+							Opacity: 1,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{ // Inset bevel shadow: Black (#000000, opacity 0.75, blur 4, offset {1, 1}, Inner: true)
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.75},
+							Width:      1.5,
+							BlurRadius: 4,
+							Offset:     gfx.Point{X: 1, Y: 1},
+							Inner:      true,
+						},
+						{ // Inset bevel reflection: Soft highlight (#ffffff, opacity 0.25, blur 2, offset {-1, -1}, Inner: true)
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.25},
+							Width:      1.0,
+							BlurRadius: 2,
+							Offset:     gfx.Point{X: -1, Y: -1},
+							Inner:      true,
+						},
+					},
 					Opacity: 1,
-				}},
-				Opacity: 1,
-			},
-			Selected: &theme.Material{
-				Fills: []theme.Fill{{
-					Type:    theme.FillSolid,
-					Color:   tokens.Color.Primary,
+				},
+				Selected: &theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.Primary,
+						Opacity: 0.85,
+					}},
+					Strokes: []theme.MaterialStroke{
+						{
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.75},
+							Width:      1.5,
+							BlurRadius: 4,
+							Offset:     gfx.Point{X: 1, Y: 1},
+							Inner:      true,
+						},
+					},
 					Opacity: 1,
-				}},
-				Opacity: 1,
+				},
 			},
-			Disabled: &theme.Material{
-				Fills: []theme.Fill{{
-					Type:    theme.FillSolid,
-					Color:   tokens.Color.OnSurfaceVariant,
+			Thumb: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureBrushedMetal, Repeat: theme.RepeatTile},
+							Opacity: 0.95,
+						},
+						{
+							Type:    theme.FillGradient,
+							Gradient: theme.Gradient{
+								Type:  theme.GradientLinear,
+								Start: gfx.Point{X: 0, Y: 0},
+								End:   gfx.Point{X: 0, Y: 1},
+								Stops: []theme.GradientStop{
+									{Position: 0.0, Color: gfx.Color{R: 245, G: 245, B: 245, A: 255}},
+									{Position: 1.0, Color: gfx.Color{R: 170, G: 170, B: 170, A: 255}},
+								},
+							},
+							Opacity: 1.0,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.45},
+							Width:      0,
+							BlurRadius: 5,
+							Offset:     gfx.Point{X: 1.5, Y: 1.5},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.85},
+							Width:  1.5,
+							Offset: gfx.Point{X: -1, Y: -1},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.35},
+							Width:  1.5,
+							Offset: gfx.Point{X: 1, Y: 1},
+						},
+					},
+					Opacity: 1,
+				},
+				Selected: &theme.Material{
+					Fills: []theme.Fill{
+						{
+							Type:    theme.FillTexture,
+							Texture: theme.TextureFill{Ref: theme.TextureBrushedMetal, Repeat: theme.RepeatTile},
+							Opacity: 0.95,
+						},
+						{
+							Type:    theme.FillGradient,
+							Gradient: theme.Gradient{
+								Type:  theme.GradientLinear,
+								Start: gfx.Point{X: 0, Y: 0},
+								End:   gfx.Point{X: 0, Y: 1},
+								Stops: []theme.GradientStop{
+									{Position: 0.0, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}},
+									{Position: 1.0, Color: gfx.Color{R: 190, G: 190, B: 190, A: 255}},
+								},
+							},
+							Opacity: 1.0,
+						},
+					},
+					Strokes: []theme.MaterialStroke{
+						{
+							Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.45},
+							Width:      0,
+							BlurRadius: 5,
+							Offset:     gfx.Point{X: 1.5, Y: 1.5},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 255, G: 255, B: 255, A: 255}, Opacity: 0.85},
+							Width:  1.5,
+							Offset: gfx.Point{X: -1, Y: -1},
+						},
+						{
+							Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.Color{R: 0, G: 0, B: 0, A: 255}, Opacity: 0.35},
+							Width:  1.5,
+							Offset: gfx.Point{X: 1, Y: 1},
+						},
+					},
+					Opacity: 1,
+				},
+			},
+			Label:      markStyleFromColor(tokens.Color.OnSurface),
+			FocusRing:  strokeStyle(tokens.Color.Primary, 2),
+			StateLayer: stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+		}
+	default:
+		return shared.SwitchSlots{
+			Root: transparentStyle(),
+			Track: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.OnSurfaceVariant,
+						Opacity: 1,
+					}},
+					Opacity: 1,
+				},
+				Selected: &theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.Primary,
+						Opacity: 1,
+					}},
+					Opacity: 1,
+				},
+				Disabled: &theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.OnSurfaceVariant,
+						Opacity: tokens.Color.DisabledOpacity,
+					}},
 					Opacity: tokens.Color.DisabledOpacity,
-				}},
-				Opacity: tokens.Color.DisabledOpacity,
+				},
 			},
-		},
-		Thumb: theme.MarkStyle{
-			Base: theme.Material{
-				Fills: []theme.Fill{{
-					Type:    theme.FillSolid,
-					Color:   tokens.Color.Surface,
+			Thumb: theme.MarkStyle{
+				Base: theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.Surface,
+						Opacity: 1,
+					}},
 					Opacity: 1,
-				}},
-				Opacity: 1,
-			},
-			Selected: &theme.Material{
-				Fills: []theme.Fill{{
-					Type:    theme.FillSolid,
-					Color:   tokens.Color.OnPrimary,
+				},
+				Selected: &theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.OnPrimary,
+						Opacity: 1,
+					}},
 					Opacity: 1,
-				}},
-				Opacity: 1,
-			},
-			Disabled: &theme.Material{
-				Fills: []theme.Fill{{
-					Type:    theme.FillSolid,
-					Color:   tokens.Color.SurfaceVariant,
+				},
+				Disabled: &theme.Material{
+					Fills: []theme.Fill{{
+						Type:    theme.FillSolid,
+						Color:   tokens.Color.SurfaceVariant,
+						Opacity: tokens.Color.DisabledOpacity,
+					}},
 					Opacity: tokens.Color.DisabledOpacity,
-				}},
-				Opacity: tokens.Color.DisabledOpacity,
+				},
 			},
-		},
-		Label:      markStyleFromColor(tokens.Color.OnSurface),
-		FocusRing:  strokeStyle(tokens.Color.Primary, 2),
-		StateLayer: stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+			Label:      markStyleFromColor(tokens.Color.OnSurface),
+			FocusRing:  strokeStyle(tokens.Color.Primary, 2),
+			StateLayer: stateLayerStyle(tokens.Color.Primary, tokens.Color.HoverLighten, tokens.Color.PressedDarken, tokens.Color.SelectedOverlay, tokens.Color.DisabledOpacity),
+		}
 	}
 }
 
@@ -820,3 +1266,41 @@ func underlinedFieldContainer(fill, underline gfx.Color) theme.MarkStyle {
 		},
 	}
 }
+
+func darkenColor(c gfx.Color, factor float32) gfx.Color {
+	r, g, b, a := c.ToRGBA8()
+	if a == 0 {
+		return c
+	}
+	scale := 1 - factor
+	return gfx.ColorFromRGBA8(
+		clampByte(float32(r)*scale),
+		clampByte(float32(g)*scale),
+		clampByte(float32(b)*scale),
+		a,
+	)
+}
+
+func lightenColor(c gfx.Color, factor float32) gfx.Color {
+	r, g, b, a := c.ToRGBA8()
+	if a == 0 {
+		return c
+	}
+	return gfx.ColorFromRGBA8(
+		clampByte(float32(r)+(255-float32(r))*factor),
+		clampByte(float32(g)+(255-float32(g))*factor),
+		clampByte(float32(b)+(255-float32(b))*factor),
+		a,
+	)
+}
+
+func clampByte(v float32) uint8 {
+	if v < 0 {
+		return 0
+	}
+	if v > 255 {
+		return 255
+	}
+	return uint8(v)
+}
+

@@ -89,6 +89,22 @@ type DrawImage struct {
 	Opacity  float32
 }
 
+type DrawTexture struct {
+	TextureID uint64
+	DestRect  Rect
+	SrcRect   Rect
+	Sampling  SamplingMode
+	Opacity   float32
+}
+
+type DrawBlurredShadow struct {
+	Path       Path
+	Color      Color
+	BlurRadius float32
+	Offset     Point
+	Inner      bool
+}
+
 type RenderBatchCacheID uint64
 
 type BeginRenderBatch struct {
@@ -117,6 +133,8 @@ func (cmd DrawPoints) isCommand()         {}
 func (cmd DrawGlyphRun) isCommand()       {}
 func (cmd DrawSelectionRects) isCommand() {}
 func (cmd DrawImage) isCommand()          {}
+func (cmd DrawTexture) isCommand()        {}
+func (cmd DrawBlurredShadow) isCommand()  {}
 func (cmd BeginRenderBatch) isCommand()   {}
 func (cmd EndRenderBatch) isCommand()     {}
 

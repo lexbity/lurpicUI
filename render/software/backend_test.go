@@ -1102,3 +1102,67 @@ func approxRGBA(a, b color.RGBA, tol uint8) bool {
 	}
 	return d(a.R, b.R) <= tol && d(a.G, b.G) <= tol && d(a.B, b.B) <= tol && d(a.A, b.A) <= tol
 }
+
+func TestSoftwareRenderer_drawtexture(t *testing.T) {
+	r, s := newRenderer(t, 8, 8)
+	
+	// Create texture data (2x2 pixel red/blue texture)
+	pixels := []byte{
+		255, 0, 0, 255, // Top-left: Red
+		0, 0, 255, 255, // Top-right: Blue
+		0, 0, 255, 255, // Bottom-left: Blue
+		255, 0, 0, 255, // Bottom-right: Red
+	}
+	
+	texID, err := r.UploadTexture(render.TextureUploadRequest{
+		Width:     2,
+		Height:    2,
+		PixelData: pixels,
+	})
+	if err != nil {
+		t.Fatalf("UploadTexture failed: %v", err)
+	}
+	
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{
+			{
+				ID:          1,
+				Bounds:      gfx.RectFromXYWH(0, 0, 8, 8),
+				Opacity:     1,
+				CommandHash: 1,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.DrawTexture{
+						TextureID: uint64(texID),
+						DestRect:  gfx.RectFromXYWH(0, 0, 4, 4),
+						SrcRect:   gfx.RectFromXYWH(0, 0, 2, 2),
+						Sampling:  gfx.SamplingNearest,
+						Opacity:   1,
+					},
+				}},
+			},
+		},
+	}
+	
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
+	
+	// Check the nearest-neighbor sampled quadrants on the 4x4 blitted surface
+	if got := pxAt(s, 0, 0); got.R != 255 || got.B != 0 {
+		t.Fatalf("top-left pixel mismatch: expected red, got %#v", got)
+	}
+	if got := pxAt(s, 3, 0); got.B != 255 || got.R != 0 {
+		t.Fatalf("top-right pixel mismatch: expected blue, got %#v", got)
+	}
+	if got := pxAt(s, 0, 3); got.B != 255 || got.R != 0 {
+		t.Fatalf("bottom-left pixel mismatch: expected blue, got %#v", got)
+	}
+	if got := pxAt(s, 3, 3); got.R != 255 || got.B != 0 {
+		t.Fatalf("bottom-right pixel mismatch: expected red, got %#v", got)
+	}
+	
+	// Outside the DestRect should be clear/transparent
+	if got := pxAt(s, 5, 5); got != (color.RGBA{}) {
+		t.Fatalf("outside pixel mismatch: expected transparent, got %#v", got)
+	}
+}

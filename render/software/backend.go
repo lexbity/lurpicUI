@@ -57,10 +57,10 @@ type renderState struct {
 }
 
 type SoftwareRenderer struct {
-	mu      sync.RWMutex
-	surface blitSurface
-	output  *image.RGBA
-
+	mu               sync.RWMutex
+	surface          blitSurface
+	output           *image.RGBA
+	texBackend       *render.SoftwareBackend
 	RenderBatchCache map[render.RenderBatchID]*RenderBatchCacheEntry
 	diffCache        *renderutil.RenderBatchCache
 	glyphAtlas       *glyphAtlas
@@ -75,6 +75,7 @@ func NewSoftwareRenderer() *SoftwareRenderer {
 		RenderBatchCache: make(map[render.RenderBatchID]*RenderBatchCacheEntry),
 		diffCache:        renderutil.NewRenderBatchCache(),
 		glyphAtlas:       &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)},
+		texBackend:       &render.SoftwareBackend{},
 	}
 }
 
@@ -421,6 +422,8 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch 
 			}
 		case gfx.DrawImage:
 			drawImage(target, state, c)
+		case gfx.DrawTexture:
+			r.drawTexture(target, state, c)
 		case gfx.BeginRenderBatch, gfx.EndRenderBatch:
 		}
 	}
@@ -1287,4 +1290,87 @@ func scaleByte(v uint8, opacity float32) uint8 {
 		return v
 	}
 	return uint8(math.Round(float64(float32(v) * opacity)))
+}
+
+var _ render.TextureBackend = (*SoftwareRenderer)(nil)
+
+func (r *SoftwareRenderer) UploadTexture(req render.TextureUploadRequest) (render.TextureID, error) {
+	if r.texBackend == nil {
+		return 0, errors.New("software renderer: no texture backend")
+	}
+	return r.texBackend.UploadTexture(req)
+}
+
+func (r *SoftwareRenderer) FreeTexture(id render.TextureID) {
+	if r.texBackend != nil {
+		r.texBackend.FreeTexture(id)
+	}
+}
+
+func (r *SoftwareRenderer) UploadBudgetBytesPerFrame() int {
+	if r.texBackend == nil {
+		return math.MaxInt
+	}
+	return r.texBackend.UploadBudgetBytesPerFrame()
+}
+
+func (r *SoftwareRenderer) TranscodeTarget() render.TextureFormat {
+	if r.texBackend == nil {
+		return render.TextureFormatRGBA8
+	}
+	return r.texBackend.TranscodeTarget()
+}
+
+func (r *SoftwareRenderer) drawTexture(target *image.RGBA, state renderState, cmd gfx.DrawTexture) {
+	if r.texBackend == nil {
+		return
+	}
+	pixels, w, h, ok := r.texBackend.GetTexture(render.TextureID(cmd.TextureID))
+	if !ok || len(pixels) == 0 {
+		return
+	}
+
+	dest := intersectRects(state.transform.TransformRect(cmd.DestRect), state.clip)
+	if dest.IsEmpty() {
+		return
+	}
+
+	srcRect := cmd.SrcRect
+	if srcRect.IsEmpty() {
+		srcRect = gfx.RectFromXYWH(0, 0, float32(w), float32(h))
+	}
+
+	minX := clampInt(int(math.Floor(float64(dest.Min.X))), 0, target.Bounds().Dx())
+	minY := clampInt(int(math.Floor(float64(dest.Min.Y))), 0, target.Bounds().Dy())
+	maxX := clampInt(int(math.Ceil(float64(dest.Max.X))), 0, target.Bounds().Dx())
+	maxY := clampInt(int(math.Ceil(float64(dest.Max.Y))), 0, target.Bounds().Dy())
+	if minX >= maxX || minY >= maxY {
+		return
+	}
+
+	dstW := dest.Width()
+	dstH := dest.Height()
+	if dstW == 0 || dstH == 0 {
+		return
+	}
+
+	srcW := srcRect.Width()
+	srcH := srcRect.Height()
+
+	for y := minY; y < maxY; y++ {
+		ty := (float32(y) + 0.5 - dest.Min.Y) / dstH
+		sy := srcRect.Min.Y + ty*srcH
+		for x := minX; x < maxX; x++ {
+			tx := (float32(x) + 0.5 - dest.Min.X) / dstW
+			sx := srcRect.Min.X + tx*srcW
+
+			px := clampInt(int(math.Round(float64(sx))), 0, int(w)-1)
+			py := clampInt(int(math.Round(float64(sy))), 0, int(h)-1)
+			off := (py*int(w) + px) * 4
+			if off >= 0 && off+3 < len(pixels) {
+				col := colorFromBytes(pixels[off], pixels[off+1], pixels[off+2], pixels[off+3])
+				blendAt(target, x, y, col, state.opacity*cmd.Opacity)
+			}
+		}
+	}
 }

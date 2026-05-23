@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
@@ -386,3 +387,30 @@ func (b *evictingBackend) EvictCaches() {
 
 var _ render.Backend = (*evictingBackend)(nil)
 var _ render.CacheEvictor = (*evictingBackend)(nil)
+
+type mockAssetManager struct {
+	assets.Manager
+	drainCount int
+}
+
+func (m *mockAssetManager) DrainCompleted() int {
+	m.drainCount++
+	return 5
+}
+
+func TestRuntime_drainJobResults_drains_assetManager(t *testing.T) {
+	rt := mustRuntime(t)
+	mgr := &mockAssetManager{}
+	rt.assetManager = mgr
+
+	committed, discarded := rt.drainJobResults()
+	if mgr.drainCount != 1 {
+		t.Fatalf("expected DrainCompleted to be called once, got %d", mgr.drainCount)
+	}
+	if committed != 5 {
+		t.Fatalf("expected committed count to include 5 from assets manager, got %d", committed)
+	}
+	if discarded != 0 {
+		t.Fatalf("expected 0 discarded, got %d", discarded)
+	}
+}

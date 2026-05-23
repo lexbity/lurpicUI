@@ -238,6 +238,9 @@ func (f *Facet) InvalidateWithSource(flags DirtyFlags, source string) {
 	}
 	if flags&DirtyLayout != 0 {
 		f.dirtyLayout = true
+		if role := f.LayoutRole(); role != nil {
+			role.InvalidateCache()
+		}
 	}
 	if flags&DirtyProjection != 0 {
 		f.dirtyProjection = true

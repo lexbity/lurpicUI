@@ -157,6 +157,11 @@ type layoutCountLeaf struct {
 	size         gfx.Size
 }
 
+func (f *layoutCountLeaf) Base() *facet.Facet {
+	f.Facet.BindImpl(f)
+	return &f.Facet
+}
+
 type runtimeJobFacet struct {
 	facet.Facet
 	projection facet.ProjectionRole

@@ -33,6 +33,7 @@ const (
 	packetCmdPopOpacity
 	packetCmdDrawGlyphRun
 	packetCmdDrawImage
+	packetCmdDrawTexture
 )
 
 type packetWriter struct {
@@ -252,6 +253,14 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 			}
 			w.writeU8(packetCmdDrawImage)
 			w.writeU64(handle)
+			w.writeRect(c.DestRect)
+			w.writeRect(c.SrcRect)
+			w.writeU8(uint8(c.Sampling))
+			w.writeF32(c.Opacity)
+		case gfx.DrawTexture:
+			commands++
+			w.writeU8(packetCmdDrawTexture)
+			w.writeU64(c.TextureID)
 			w.writeRect(c.DestRect)
 			w.writeRect(c.SrcRect)
 			w.writeU8(uint8(c.Sampling))
