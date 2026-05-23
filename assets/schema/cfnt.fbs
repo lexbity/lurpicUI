@@ -1,0 +1,36 @@
+namespace lurpic.cfnt;
+
+table GlyphMetric {
+  codepoint: uint32;
+  glyph_id: uint16;
+  advance_width: float32;
+  lsb: float32;
+  bounds_xmin: float32;
+  bounds_ymin: float32;
+  bounds_xmax: float32;
+  bounds_ymax: float32;
+}
+
+table KernPair {
+  left: uint16;
+  right: uint16;
+  kern: float32;
+}
+
+table FontMetrics {
+  units_per_em: uint16;
+  ascent: float32;
+  descent: float32;
+  line_gap: float32;
+  cap_height: float32;
+  x_height: float32;
+}
+
+table CFNTDocument {
+  metrics: FontMetrics;
+  glyphs: [GlyphMetric];
+  kern_pairs: [KernPair];
+  sfnt_bytes: [uint8];
+}
+
+root_type CFNTDocument;

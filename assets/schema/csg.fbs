@@ -1,0 +1,29 @@
+namespace lurpic.csg;
+
+struct Vec2 {
+  x: float32;
+  y: float32;
+}
+
+struct Rect {
+  min: Vec2;
+  max: Vec2;
+}
+
+enum Verb : byte { MoveTo = 0, LineTo = 1, CubicTo = 2, QuadTo = 3, Close = 4 }
+
+table Shape {
+  fill: uint32;
+  stroke: uint32;
+  stroke_width: float32;
+  verbs: [Verb];
+  coords: [float32];
+  bounds: Rect;
+}
+
+table Document {
+  bounds: Rect;
+  shapes: [Shape];
+}
+
+root_type Document;
