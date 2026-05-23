@@ -17,6 +17,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uifeedback"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 type dialogRuntimeStub struct {
@@ -403,22 +404,9 @@ func assertDialogContentLayout(t *testing.T, dialog *Dialog, mode DialogContentL
 }
 
 func dialogTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.ColorFromRGBA8(232, 236, 244, 255)
-	tokens.Color.Surface = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.SurfaceVariant = gfx.ColorFromRGBA8(242, 245, 250, 255)
-	tokens.Color.OnBackground = gfx.ColorFromRGBA8(27, 31, 39, 255)
-	tokens.Color.OnSurface = gfx.ColorFromRGBA8(27, 31, 39, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(94, 101, 117, 255)
-	tokens.Color.Primary = gfx.ColorFromRGBA8(61, 97, 228, 255)
-	tokens.Color.OnPrimary = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.DisabledOpacity = 0.42
-	return tokens
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func dialogHighContrastTokens() theme.Tokens {
-	tokens := dialogTokens()
-	tokens.Color.Primary = gfx.ColorFromRGBA8(0, 61, 145, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(0, 0, 0, 255)
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }

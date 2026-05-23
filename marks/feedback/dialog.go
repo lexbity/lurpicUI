@@ -627,6 +627,25 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		{W: content.Width(), H: bodySize.H},
 		{W: content.Width(), H: actionsSize.H},
 	}, d.cachedWritingDirection == facet.WritingDirectionRTL, layout.AlignStart)
+
+	totalHeight := headerH
+	if bodySize.H > 0 {
+		totalHeight += d.cachedRowGap + bodySize.H
+	}
+	if actionsSize.H > 0 {
+		totalHeight += d.cachedRowGap + actionsSize.H
+	}
+
+	if content.Height() > totalHeight {
+		if len(rowRects) > 2 && actionsSize.H > 0 {
+			rowRects[2].Min.Y = content.Max.Y - actionsSize.H
+			rowRects[2].Max.Y = content.Max.Y
+		}
+		if len(rowRects) > 1 && bodySize.H > 0 {
+			rowRects[1].Min.Y = content.Min.Y + headerH + d.cachedRowGap
+			rowRects[1].Max.Y = rowRects[1].Min.Y + bodySize.H
+		}
+	}
 	headerRect := rowRects[0]
 	if closeSize.W > 0 || closeSize.H > 0 {
 		closeX := headerRect.Max.X - closeSize.W

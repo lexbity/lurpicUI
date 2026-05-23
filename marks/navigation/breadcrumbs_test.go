@@ -13,6 +13,7 @@ import (
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 type breadcrumbRuntimeStub struct {
@@ -291,14 +292,9 @@ func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.
 }
 
 func defaultBreadcrumbTokens() theme.Tokens {
-	return defaultTabsTokens()
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func highContrastBreadcrumbTokens() theme.Tokens {
-	t := defaultBreadcrumbTokens()
-	t.Color.Surface = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	t.Color.OnSurface = gfx.ColorFromRGBA8(0, 0, 0, 255)
-	t.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(40, 40, 40, 255)
-	t.Color.Primary = gfx.ColorFromRGBA8(0, 90, 220, 255)
-	return t
+	return toThemeTokens(templates.UneNuit().Tokens)
 }

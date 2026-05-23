@@ -482,14 +482,21 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if c.cachedWritingDirection == facet.WritingDirectionRTL {
 		textBounds = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, textWidth, textBlockH)
 		row.arrange(ctx, textBounds)
-		c.cachedControlBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Max.X-c.cachedControlSize, bounds.Min.Y, c.cachedControlSize, rowH), c.cachedControlSize, c.cachedControlSize)
 	} else {
 		textBounds = gfx.RectFromXYWH(bounds.Min.X+c.cachedControlSize+c.cachedRowGap, bounds.Min.Y, textWidth, textBlockH)
 		row.arrange(ctx, textBounds)
-		c.cachedControlBounds = text.CenterRect(gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, c.cachedControlSize, rowH), c.cachedControlSize, c.cachedControlSize)
 	}
 	c.cachedLabelBounds = row.cachedLabelBounds
 	c.cachedHelperBounds = row.cachedSupportingBounds
+
+	var controlX float32
+	if c.cachedWritingDirection == facet.WritingDirectionRTL {
+		controlX = bounds.Max.X - c.cachedControlSize
+	} else {
+		controlX = bounds.Min.X
+	}
+	controlY := c.cachedLabelBounds.Min.Y + (c.cachedLabelBounds.Height()-c.cachedControlSize)*0.5
+	c.cachedControlBounds = gfx.RectFromXYWH(controlX, controlY, c.cachedControlSize, c.cachedControlSize)
 	c.cachedTickBounds()
 	c.layoutRole.ArrangedBounds = bounds
 }

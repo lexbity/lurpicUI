@@ -6,7 +6,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -718,11 +717,11 @@ func colorPickerSectorPath(center gfx.Point, innerRadius, outerRadius, startAngl
 }
 
 func colorPickerMaterialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }
 
 func colorPickerIsTransparentMaterial(material theme.Material) bool {
-	return theme.Transparent(material)
+	return theme.IsTransparentMaterial(material)
 }
 
 func pointOnCircle(center gfx.Point, radius float32, angle float64) gfx.Point {

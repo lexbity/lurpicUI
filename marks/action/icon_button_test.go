@@ -11,6 +11,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/render"
+	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -211,14 +213,14 @@ func TestIconButtonDensityBehaviorChangesSize(t *testing.T) {
 
 func TestIconButtonRecipe_allSlotsPresent(t *testing.T) {
 	ctx := theme.StyleContext{Tokens: theme.DefaultTokens()}
-	slots, report := uiinput.ResolveIconButtonRecipe(ctx)
+	slots, report := uiinput.ResolveIconButtonRecipe(ctx, uiinput.IconButtonStandard)
 	if !allIconButtonFieldsPresent(slots) {
 		t.Fatalf("icon button slots contain zero values: %#v", slots)
 	}
 	if report.Family != "uiinput" {
 		t.Fatalf("family = %q", report.Family)
 	}
-	if report.Variant != theme.VariantKey("default") {
+	if report.Variant != theme.VariantKey("standard") {
 		t.Fatalf("variant = %q", report.Variant)
 	}
 	if len(report.SlotNames()) != 5 {
@@ -252,6 +254,95 @@ func TestIconButtonGoldenDisabled(t *testing.T) {
 	assertIconButtonGolden(t, "disabled", func(btn *IconButton) {
 		btn.SetDisabled(true)
 	})
+}
+
+func TestIconButtonGoldenSkeuomorphic(t *testing.T) {
+	assertIconButtonSkeuomorphicGolden(t, "skeuomorphic", func(btn *IconButton) {
+		btn.SetVariant(uiinput.IconButtonSkeuomorphic)
+	})
+}
+
+func TestIconButtonGoldenSkeuomorphicPressed(t *testing.T) {
+	assertIconButtonSkeuomorphicGolden(t, "skeuomorphic_pressed", func(btn *IconButton) {
+		btn.SetVariant(uiinput.IconButtonSkeuomorphic)
+		btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft})
+	})
+}
+
+func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*IconButton)) {
+	t.Helper()
+	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
+	btn.SetAccessibleName("Add")
+	btn.SetSize(24)
+	if mutate != nil {
+		mutate(btn)
+	}
+
+	measureCtx := theme.DefaultResolvedContext()
+	rt := iconButtonRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+	}
+	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: measureCtx})
+
+	result := btn.layoutRole.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            measureCtx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirection(layout.WritingDirectionLTR),
+	}, facet.Constraints{MaxSize: gfx.Size{W: 320, H: 120}})
+
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+
+	surfaceW := 96
+	surfaceH := 96
+	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
+	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
+	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
+
+	btn.layoutRole.Arrange(facet.ArrangeContext{
+		Runtime: rt,
+		Theme:   measureCtx,
+	}, bounds)
+
+	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projected commands for golden")
+	}
+
+	surface := testkit.NewMemorySurface(surfaceW, surfaceH)
+	r := softwarerenderer.NewSoftwareRenderer()
+	if err := r.Initialize(surface); err != nil {
+		t.Fatalf("initialize renderer: %v", err)
+	}
+
+	bgPath := gfx.RectPath(gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)))
+	bgColor := measureCtx.TokenSet().Color.Background
+	bgBrush := gfx.SolidBrush(bgColor)
+	bgCmd := gfx.FillPath{Path: bgPath, Brush: bgBrush}
+
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:          1,
+			Bounds:      gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)),
+			Opacity:     1,
+			CommandHash: 1,
+			Commands:    gfx.CommandList{Commands: append([]gfx.Command{bgCmd}, cmds.Commands...)},
+		}},
+	}
+
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit frame: %v", err)
+	}
+
+	testkit.AssertGolden(t, surface, "icon_button_"+name)
 }
 
 func assertIconButtonGolden(t *testing.T, name string, mutate func(*IconButton)) {

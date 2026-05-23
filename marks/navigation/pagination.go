@@ -5,7 +5,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -1070,15 +1069,15 @@ func childLabelForKind(p *Pagination, kind paginationChildKind, index int, label
 }
 
 func paginationMaterialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }
 
 func paginationMaterialColor(material theme.Material) gfx.Color {
-	return theme.Color(material)
+	return theme.MaterialColor(material)
 }
 
 func paginationIsTransparentMaterial(material theme.Material) bool {
-	return theme.Transparent(material)
+	return theme.IsTransparentMaterial(material)
 }
 
 func paginationMaxFloat(a, b float32) float32 {

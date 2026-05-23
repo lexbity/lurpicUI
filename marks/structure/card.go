@@ -6,7 +6,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -631,11 +630,11 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 }
 
 func isTransparentMaterial(material theme.Material) bool {
-	return theme.Transparent(material)
+	return theme.IsTransparentMaterial(material)
 }
 
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }
 
 func maxFloat(a, b float32) float32 {

@@ -22,6 +22,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uinotification"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 type notificationRuntimeStub struct {
@@ -302,24 +303,11 @@ func newNotificationFixture() *Notification {
 }
 
 func notificationTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.ColorFromRGBA8(244, 247, 252, 255)
-	tokens.Color.Surface = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.SurfaceVariant = gfx.ColorFromRGBA8(242, 245, 250, 255)
-	tokens.Color.OnBackground = gfx.ColorFromRGBA8(26, 30, 36, 255)
-	tokens.Color.OnSurface = gfx.ColorFromRGBA8(26, 30, 36, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(91, 99, 118, 255)
-	tokens.Color.Primary = gfx.ColorFromRGBA8(61, 98, 229, 255)
-	tokens.Color.OnPrimary = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.DisabledOpacity = 0.42
-	return tokens
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func notificationHighContrastTokens() theme.Tokens {
-	tokens := notificationTokens()
-	tokens.Color.Primary = gfx.ColorFromRGBA8(0, 66, 158, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(0, 0, 0, 255)
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
 func notificationResolvedContext(tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) theme.ResolvedContext {

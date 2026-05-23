@@ -6,7 +6,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/layout/radial"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -871,7 +870,7 @@ func (m *RadialMenu) detachChild(child facet.FacetImpl) {
 }
 
 func radialMenuMaterialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }
 
 func toRadialChildren(children []facet.GroupChild) []radial.Child {

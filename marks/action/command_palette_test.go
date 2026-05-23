@@ -17,6 +17,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 type commandPaletteRuntimeStub struct {
@@ -335,20 +336,11 @@ func newCommandPaletteGoldenFixture(t *testing.T, tokens theme.Tokens, density t
 }
 
 func defaultCommandPaletteTokens() theme.Tokens {
-	return theme.DefaultTokens()
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func highContrastCommandPaletteTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	tokens.Color.Surface = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	tokens.Color.SurfaceVariant = gfx.Color{R: 0.12, G: 0.12, B: 0.12, A: 1}
-	tokens.Color.OnBackground = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.OnSurface = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.OnSurfaceVariant = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.Primary = gfx.Color{R: 1, G: 1, B: 0, A: 1}
-	tokens.Color.OnPrimary = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
 func allCommandPaletteFieldsPresent[T any](value T) bool {

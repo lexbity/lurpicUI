@@ -14,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uifeedback"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
@@ -269,24 +270,9 @@ func newTooltipFixture() *Tooltip {
 }
 
 func tooltipTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.ColorFromRGBA8(247, 248, 252, 255)
-	tokens.Color.Surface = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.SurfaceVariant = gfx.ColorFromRGBA8(36, 39, 49, 255)
-	tokens.Color.SurfaceInverse = gfx.ColorFromRGBA8(36, 39, 49, 255)
-	tokens.Color.OnBackground = gfx.ColorFromRGBA8(29, 30, 36, 255)
-	tokens.Color.OnSurface = gfx.ColorFromRGBA8(29, 30, 36, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(97, 103, 122, 255)
-	tokens.Color.Primary = gfx.ColorFromRGBA8(70, 98, 220, 255)
-	tokens.Color.OnPrimary = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.DisabledOpacity = 0.42
-	return tokens
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func tooltipHighContrastTokens() theme.Tokens {
-	tokens := tooltipTokens()
-	tokens.Color.SurfaceVariant = gfx.ColorFromRGBA8(0, 0, 0, 255)
-	tokens.Color.SurfaceInverse = gfx.ColorFromRGBA8(0, 0, 0, 255)
-	tokens.Color.OnSurface = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }

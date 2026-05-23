@@ -5,7 +5,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -1077,15 +1076,15 @@ func (t *Tabs) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, bool)
 }
 
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }
 
 func materialColor(material theme.Material) gfx.Color {
-	return theme.Color(material)
+	return theme.MaterialColor(material)
 }
 
 func isTransparentMaterial(material theme.Material) bool {
-	return theme.Transparent(material)
+	return theme.IsTransparentMaterial(material)
 }
 
 func (t *Tabs) indexEnabledAt(index int) bool {

@@ -5,7 +5,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -955,9 +954,9 @@ func maxFloat(a, b float32) float32 {
 }
 
 func isTransparentMaterial(material theme.Material) bool {
-	return theme.Transparent(material)
+	return theme.IsTransparentMaterial(material)
 }
 
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }

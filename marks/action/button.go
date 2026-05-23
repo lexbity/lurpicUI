@@ -3,7 +3,6 @@ package action
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -507,8 +506,35 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 	stateLayer := slots.StateLayer.Resolve(state, tokens)
 
+	labelBounds := b.cachedLabelBounds
+	leadingBox := b.cachedLeadingBox
+	trailingBox := b.cachedTrailingBox
+
+	if b.Variant == uiinput.ButtonSkeuomorphic && state == theme.StatePressed {
+		// Copy container strokes to invert offsets and set inner = true
+		strokesCopy := make([]theme.MaterialStroke, len(container.Strokes))
+		for idx, stroke := range container.Strokes {
+			stroke.Offset.X = -stroke.Offset.X
+			stroke.Offset.Y = -stroke.Offset.Y
+			if !stroke.Inner {
+				stroke.Inner = true
+			}
+			strokesCopy[idx] = stroke
+		}
+		container.Strokes = strokesCopy
+
+		// Displace label and icons by 1.5px
+		labelBounds = labelBounds.Offset(1.5, 1.5)
+		leadingBox = leadingBox.Offset(1.5, 1.5)
+		trailingBox = trailingBox.Offset(1.5, 1.5)
+	}
+
 	cmds := make([]gfx.Command, 0, 16)
-	path := gfx.RoundedRectPath(bounds, b.cachedRadius)
+	radius := b.cachedRadius
+	if b.Variant == uiinput.ButtonSkeuomorphic {
+		radius = bounds.Height() * 0.5
+	}
+	path := gfx.RoundedRectPath(bounds, radius)
 	if !isTransparentMaterial(root) {
 		cmds = append(cmds, materialCommands(path, root)...)
 	}
@@ -519,10 +545,10 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		cmds = append(cmds, materialCommands(path, stateLayer)...)
 	}
 	if !isTransparentMaterial(label) {
-		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedLayout, b.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedLayout, labelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
-	cmds = append(cmds, b.iconCommands(leading, true)...)
-	cmds = append(cmds, b.iconCommands(trailing, false)...)
+	cmds = append(cmds, b.iconCommands(leading, true, leadingBox)...)
+	cmds = append(cmds, b.iconCommands(trailing, false, trailingBox)...)
 	if b.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, b.cachedPadY*0.5)
 		ringBounds := bounds.Inset(-inset, -inset)
@@ -530,13 +556,11 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	}
 	return cmds
 }
-func (b *Button) iconCommands(style theme.Material, leading bool) []gfx.Command {
+func (b *Button) iconCommands(style theme.Material, leading bool, box gfx.Rect) []gfx.Command {
 	ref := b.LeadingIconRef
-	box := b.cachedLeadingBox
 	asset := b.cachedLeadingAsset
 	if !leading {
 		ref = b.TrailingIconRef
-		box = b.cachedTrailingBox
 		asset = b.cachedTrailingAsset
 	}
 	if ref == "" || box.IsEmpty() || len(asset.Path.Segments) == 0 {
@@ -718,15 +742,15 @@ func (b *Button) interactionState() theme.InteractionState {
 }
 
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }
 
 func materialColor(material theme.Material) gfx.Color {
-	return theme.Color(material)
+	return theme.MaterialColor(material)
 }
 
 func isTransparentMaterial(material theme.Material) bool {
-	return theme.Transparent(material)
+	return theme.IsTransparentMaterial(material)
 }
 
 func minFloat(a, b float32) float32 {

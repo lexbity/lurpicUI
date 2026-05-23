@@ -2,9 +2,12 @@ package primitive
 
 import (
 	"fmt"
+	"image"
 	"math"
 	"strings"
 
+	"codeburg.org/lexbit/lurpicui/assets"
+	csg "codeburg.org/lexbit/lurpicui/assets/schema/lurpic/csg"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -37,6 +40,11 @@ type IconSVG string
 
 func (IconRef) isIconSource() {}
 func (IconSVG) isIconSource() {}
+
+// IconAssetPath resolves through the runtime asset manager and supports progressive LODs.
+type IconAssetPath string
+
+func (IconAssetPath) isIconSource() {}
 
 const (
 	IconMarkIDRoot    facet.MarkID = 1
@@ -75,15 +83,17 @@ type iconResolvedSourceKind uint8
 const (
 	iconSourceNone iconResolvedSourceKind = iota
 	iconSourceAsset
+	iconSourceManagedAsset
 	iconSourceSVG
 )
 
 type iconResolvedSource struct {
-	kind  iconResolvedSourceKind
-	asset runtimepkg.IconAsset
-	doc   svgnorm.SVGDocument
-	box   gfx.Rect
-	key   string
+	kind    iconResolvedSourceKind
+	asset   runtimepkg.IconAsset
+	managed assets.Handle
+	doc     svgnorm.SVGDocument
+	box     gfx.Rect
+	key     string
 }
 
 var _ facet.FacetImpl = (*Icon)(nil)
@@ -531,6 +541,43 @@ func (i *Icon) resolveSourceWithKey(runtime any) (string, iconResolvedSource, bo
 		}
 		key := fmt.Sprintf("ref:%s:%d:%0.4f:%0.4f:%0.4f:%0.4f:%d", asset.SourceRef, asset.Revision, box.Min.X, box.Min.Y, box.Max.X, box.Max.Y, len(asset.Path.Segments))
 		return key, iconResolvedSource{kind: iconSourceAsset, asset: asset, box: box, key: key}, true
+	case IconAssetPath:
+		path := strings.TrimSpace(string(src))
+		if path == "" || runtime == nil {
+			return "", iconResolvedSource{}, false
+		}
+		type assetManagerProvider interface {
+			AssetManager() assets.Manager
+		}
+		type assetRegistryProvider interface {
+			AssetRegistry() *assets.AssetRegistryStore
+		}
+		provider, okProvider := runtime.(assetManagerProvider)
+		if !okProvider || provider.AssetManager() == nil {
+			return "", iconResolvedSource{}, false
+		}
+		handle := provider.AssetManager().LoadSVG(path)
+		if handle.IsZero() {
+			return "", iconResolvedSource{}, false
+		}
+		key := fmt.Sprintf("asset:%s:%d", path, handle.AvailableLOD())
+		box := gfx.RectFromXYWH(0, 0, 1, 1)
+		if regProvider, okReg := runtime.(assetRegistryProvider); okReg {
+			if reg := regProvider.AssetRegistry(); reg != nil {
+				if entry := reg.Get(handle.ID); entry != nil {
+					key = fmt.Sprintf("asset:%s:%d:%d", path, entry.EntryVersion, handle.AvailableLOD())
+					if entry.LODHandles[0] != nil {
+						if lod0, ok := entry.LODHandles[0].(*assets.DecodedSVGLOD0); ok && len(lod0.Data) > 0 {
+							doc := csg.GetRootAsDocument(lod0.Data, 0)
+							if bounds := csgDocumentBounds(doc); !bounds.IsEmpty() {
+								box = bounds
+							}
+						}
+					}
+				}
+			}
+		}
+		return key, iconResolvedSource{kind: iconSourceManagedAsset, managed: handle, box: box, key: key}, true
 	case IconSVG:
 		srcText := strings.TrimSpace(string(src))
 		if srcText == "" {
@@ -598,6 +645,8 @@ func buildIconCommands(src iconResolvedSource, target gfx.Rect, color gfx.Color,
 			gfx.FillPath{Path: src.asset.Path, Brush: gfx.SolidBrush(color)},
 			gfx.PopTransform{},
 		}
+	case iconSourceManagedAsset:
+		return buildManagedAssetCommands(src.managed, target, color, transform)
 	case iconSourceSVG:
 		out := make([]gfx.Command, 0, len(src.doc.Elements)*4)
 		for _, el := range src.doc.Elements {
@@ -626,6 +675,161 @@ func buildIconCommands(src iconResolvedSource, target gfx.Rect, color gfx.Color,
 	default:
 		return nil
 	}
+}
+
+func buildManagedAssetCommands(handle assets.Handle, target gfx.Rect, color gfx.Color, transform gfx.Transform) []gfx.Command {
+	if handle.IsZero() {
+		return nil
+	}
+	reg := handle.Registry()
+	if reg == nil {
+		return nil
+	}
+	entry := reg.Get(handle.ID)
+	lod := handle.AvailableLOD()
+	switch lod {
+	case 2:
+		if entry != nil {
+			if lod2, ok := entry.LODHandles[2].(*assets.DecodedSVGLOD2); ok {
+				fill := gfx.ColorFromRGBA8(
+					uint8(lod2.DominantColor),
+					uint8(lod2.DominantColor>>8),
+					uint8(lod2.DominantColor>>16),
+					uint8(lod2.DominantColor>>24),
+				)
+				return []gfx.Command{
+					gfx.PushTransform{Matrix: transform},
+					gfx.FillRect{Rect: target, Brush: gfx.SolidBrush(fill)},
+					gfx.PopTransform{},
+				}
+			}
+		}
+	case 1:
+		if entry != nil {
+			if lod1, ok := entry.LODHandles[1].(*assets.DecodedSVGLOD1); ok {
+				img := rgbaFromBytes(lod1.RGBA, 32, 32)
+				if img == nil {
+					return nil
+				}
+				return []gfx.Command{
+					gfx.PushTransform{Matrix: transform},
+					gfx.DrawImage{Image: img, DestRect: target, SrcRect: gfx.RectFromXYWH(0, 0, 32, 32), Sampling: gfx.SamplingBilinear, Opacity: 1},
+					gfx.PopTransform{},
+				}
+			}
+		}
+	case 0:
+		if entry != nil {
+			if lod0, ok := entry.LODHandles[0].(*assets.DecodedSVGLOD0); ok {
+				return buildCSGCommands(lod0.Data, target, color, transform)
+			}
+		}
+	}
+	return nil
+}
+
+func rgbaFromBytes(src []byte, width, height int) *image.RGBA {
+	if len(src) < width*height*4 {
+		return nil
+	}
+	img := image.NewRGBA(image.Rect(0, 0, width, height))
+	copy(img.Pix, src[:width*height*4])
+	return img
+}
+
+func buildCSGCommands(data []byte, target gfx.Rect, color gfx.Color, transform gfx.Transform) []gfx.Command {
+	if len(data) == 0 {
+		return nil
+	}
+	_ = target
+	doc := csg.GetRootAsDocument(data, 0)
+	out := []gfx.Command{gfx.PushTransform{Matrix: transform}}
+	var shape csg.Shape
+	for i := 0; i < doc.ShapesLength(); i++ {
+		if !doc.Shapes(&shape, i) {
+			continue
+		}
+		path := shapeToGFXPath(&shape)
+		if len(path.Segments) == 0 {
+			continue
+		}
+		out = append(out, gfx.FillPath{Path: path, Brush: gfx.SolidBrush(color)})
+	}
+	out = append(out, gfx.PopTransform{})
+	return out
+}
+
+func csgDocumentBounds(doc *csg.Document) gfx.Rect {
+	if doc == nil {
+		return gfx.Rect{}
+	}
+	var bounds csg.Rect
+	if doc.Bounds(&bounds) == nil {
+		return gfx.Rect{}
+	}
+	var min, max csg.Vec2
+	bounds.Min(&min)
+	bounds.Max(&max)
+	return gfx.RectFromXYWH(min.X(), min.Y(), max.X()-min.X(), max.Y()-min.Y())
+}
+
+func shapeToGFXPath(shape *csg.Shape) gfx.Path {
+	if shape == nil {
+		return gfx.Path{}
+	}
+	var path gfx.Path
+	coordIndex := 0
+	for i := 0; i < shape.VerbsLength(); i++ {
+		verb := shape.Verbs(i)
+		switch verb {
+		case csg.VerbMoveTo:
+			if coordIndex+1 >= shape.CoordsLength() {
+				continue
+			}
+			path.Segments = append(path.Segments, gfx.PathSegment{
+				Verb: gfx.PathMoveTo,
+				Pts:  [3]gfx.Point{{X: shape.Coords(coordIndex), Y: shape.Coords(coordIndex + 1)}},
+			})
+			coordIndex += 2
+		case csg.VerbLineTo:
+			if coordIndex+1 >= shape.CoordsLength() {
+				continue
+			}
+			path.Segments = append(path.Segments, gfx.PathSegment{
+				Verb: gfx.PathLineTo,
+				Pts:  [3]gfx.Point{{X: shape.Coords(coordIndex), Y: shape.Coords(coordIndex + 1)}},
+			})
+			coordIndex += 2
+		case csg.VerbQuadTo:
+			if coordIndex+3 >= shape.CoordsLength() {
+				continue
+			}
+			path.Segments = append(path.Segments, gfx.PathSegment{
+				Verb: gfx.PathQuadTo,
+				Pts: [3]gfx.Point{
+					{X: shape.Coords(coordIndex), Y: shape.Coords(coordIndex + 1)},
+					{X: shape.Coords(coordIndex + 2), Y: shape.Coords(coordIndex + 3)},
+				},
+			})
+			coordIndex += 4
+		case csg.VerbCubicTo:
+			if coordIndex+5 >= shape.CoordsLength() {
+				continue
+			}
+			path.Segments = append(path.Segments, gfx.PathSegment{
+				Verb: gfx.PathCubicTo,
+				Pts: [3]gfx.Point{
+					{X: shape.Coords(coordIndex), Y: shape.Coords(coordIndex + 1)},
+					{X: shape.Coords(coordIndex + 2), Y: shape.Coords(coordIndex + 3)},
+					{X: shape.Coords(coordIndex + 4), Y: shape.Coords(coordIndex + 5)},
+				},
+			})
+			coordIndex += 6
+		case csg.VerbClose:
+			path.Segments = append(path.Segments, gfx.PathSegment{Verb: gfx.PathClose})
+		}
+	}
+	return path
 }
 
 func convertStrokeStyle(st svgnorm.SVGStroke) gfx.StrokeStyle {

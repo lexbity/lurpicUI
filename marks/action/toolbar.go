@@ -802,6 +802,8 @@ func (t *Toolbar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		segments = append(segments, segment)
 	}
+	content := layout.InlineFlowSegmentsSize(segments)
+	contentTop := bounds.Min.Y + maxFloat(0, (bounds.Height()-content.H)*0.5)
 	rects := layout.ArrangeInlineFlowSegments(bounds, t.cachedPadX, segments, rtl)
 	t.cachedChildBounds = t.cachedChildBounds[:0]
 	for i := range t.cachedChildren {
@@ -810,6 +812,10 @@ func (t *Toolbar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if child == nil {
 			t.cachedChildBounds = append(t.cachedChildBounds, gfx.Rect{})
 			continue
+		}
+		if !rect.IsEmpty() {
+			rect.Min.Y = contentTop
+			rect.Max.Y = contentTop + content.H
 		}
 		child.arrange(ctx, rect)
 		t.cachedChildBounds = append(t.cachedChildBounds, rect)

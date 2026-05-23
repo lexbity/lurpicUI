@@ -15,6 +15,7 @@ import (
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 func TestListGeometryContracts(t *testing.T) {
@@ -264,23 +265,11 @@ func mustListIconAsset(t *testing.T, ref string, src string) runtimepkg.IconAsse
 }
 
 func listTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.Surface = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.SurfaceVariant = gfx.ColorFromRGBA8(243, 244, 247, 255)
-	tokens.Color.OnBackground = gfx.ColorFromRGBA8(27, 28, 33, 255)
-	tokens.Color.OnSurface = gfx.ColorFromRGBA8(27, 28, 33, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(99, 102, 119, 255)
-	tokens.Color.Primary = gfx.ColorFromRGBA8(79, 101, 216, 255)
-	tokens.Color.OnPrimary = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	return tokens
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func highContrastListTokens() theme.Tokens {
-	tokens := listTokens()
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(0, 0, 0, 255)
-	tokens.Color.Primary = gfx.ColorFromRGBA8(0, 87, 184, 255)
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
 func listResolvedContext(tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) theme.ResolvedContext {

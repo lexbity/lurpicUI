@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
@@ -258,6 +259,82 @@ func TestSwitchGoldenFocused(t *testing.T) {
 func TestSwitchGoldenRTL(t *testing.T) {
 	AssertSwitchGolden(t, "rtl", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(s *Switch) {})
 }
+
+func TestSwitchGoldenSkeuomorphic(t *testing.T) {
+	assertSwitchSkeuomorphicGolden(t, "skeuomorphic", func(s *Switch) {
+		s.SetVariant(uiinput.SwitchSkeuomorphic)
+	})
+}
+
+func TestSwitchGoldenSkeuomorphicPressed(t *testing.T) {
+	assertSwitchSkeuomorphicGolden(t, "skeuomorphic_pressed", func(s *Switch) {
+		s.SetVariant(uiinput.SwitchSkeuomorphic)
+		s.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 10, Y: 10}, Button: platform.PointerLeft})
+	})
+}
+
+func assertSwitchSkeuomorphicGolden(t *testing.T, name string, mutate func(*Switch)) {
+	t.Helper()
+	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	sw.SetLabel("Label")
+	sw.SetChecked(true)
+	if mutate != nil {
+		mutate(sw)
+	}
+
+	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
+	result := sw.layoutRole.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            measureCtx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirection(layout.WritingDirectionLTR),
+	}, facet.Constraints{MaxSize: gfx.Size{W: 320, H: 80}})
+
+	surfaceW := 360
+	surfaceH := 120
+	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
+	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
+	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
+
+	sw.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+
+	cmds := sw.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projected commands for golden")
+	}
+
+	surface := testkit.NewMemorySurface(surfaceW, surfaceH)
+	r := softwarerenderer.NewSoftwareRenderer()
+	if err := r.Initialize(surface); err != nil {
+		t.Fatalf("initialize renderer: %v", err)
+	}
+
+	bgPath := gfx.RectPath(gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)))
+	// Premium matte dark charcoal background color for synthesizer layout
+	bgColor := gfx.ColorFromRGBA8(26, 29, 36, 255) // #1a1d24
+	bgBrush := gfx.SolidBrush(bgColor)
+	bgCmd := gfx.FillPath{Path: bgPath, Brush: bgBrush}
+
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:          1,
+			Bounds:      gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)),
+			Opacity:     1,
+			CommandHash: 1,
+			Commands:    gfx.CommandList{Commands: append([]gfx.Command{bgCmd}, cmds.Commands...)},
+		}},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit frame: %v", err)
+	}
+	testkit.AssertGolden(t, surface, "switch_"+name)
+}
+
 
 func AssertSwitchGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Switch)) {
 	t.Helper()

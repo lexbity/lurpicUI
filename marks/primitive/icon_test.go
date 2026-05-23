@@ -1,8 +1,10 @@
 package primitive
 
 import (
+	"io/fs"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
@@ -12,8 +14,10 @@ import (
 )
 
 type iconRuntimeStub struct {
-	rootStyle any
-	icons     map[string]runtimepkg.IconAsset
+	rootStyle     any
+	icons         map[string]runtimepkg.IconAsset
+	assetManager  assets.Manager
+	assetRegistry *assets.AssetRegistryStore
 }
 
 func (s iconRuntimeStub) Schedule(j job.AnyJob)  {}
@@ -24,10 +28,37 @@ func (s iconRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s iconRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
+func (s iconRuntimeStub) AssetManager() assets.Manager              { return s.assetManager }
+func (s iconRuntimeStub) AssetRegistry() *assets.AssetRegistryStore { return s.assetRegistry }
 func (s iconRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
 	asset, ok := s.icons[ref]
 	return asset, ok
 }
+
+type iconAssetManagerStub struct {
+	reg *assets.AssetRegistryStore
+	id  assets.AssetID
+}
+
+func (m iconAssetManagerStub) Open(name string) (fs.File, error) { return nil, fs.ErrNotExist }
+func (m iconAssetManagerStub) LoadSVG(path string) assets.Handle {
+	return assets.NewHandle(m.id, m.reg)
+}
+func (m iconAssetManagerStub) LoadImage(path string) assets.Handle {
+	return assets.NewHandle(m.id, m.reg)
+}
+func (m iconAssetManagerStub) LoadTexture(path string) assets.Handle {
+	return assets.NewHandle(m.id, m.reg)
+}
+func (m iconAssetManagerStub) LoadFont(path string) assets.Handle {
+	return assets.NewHandle(m.id, m.reg)
+}
+func (m iconAssetManagerStub) LoadConfig(path string, dst any) assets.Handle {
+	return assets.NewHandle(m.id, m.reg)
+}
+func (m iconAssetManagerStub) Prefetch(paths ...string)   {}
+func (m iconAssetManagerStub) Invalidate(path string)     {}
+func (m iconAssetManagerStub) Stats() assets.ManagerStats { return assets.ManagerStats{} }
 
 func TestIconMark_defaultsSizeAndMissingSourceFallback(t *testing.T) {
 	mark := NewIcon(nil)
@@ -215,6 +246,72 @@ func TestIconMark_densityBehaviorsAndInlineSVG(t *testing.T) {
 	}
 	if _, ok := cmds[1].(gfx.StrokePath); !ok {
 		t.Fatalf("expected stroke projection for inline SVG, got %T", cmds[1])
+	}
+}
+
+func TestIconMark_progressiveAssetLOD2UsesColorFill(t *testing.T) {
+	reg := assets.NewAssetRegistryStore()
+	id := assets.AssetID{1}
+	reg.SetLODReady(id, 2, &assets.DecodedSVGLOD2{DominantColor: 0x44332211}, 1)
+
+	rt := iconRuntimeStub{
+		rootStyle:     theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		assetManager:  iconAssetManagerStub{reg: reg, id: id},
+		assetRegistry: reg,
+	}
+
+	mark := NewIcon(IconAssetPath("icons/check.svg"))
+	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	size := mark.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}}).Size
+	mark.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, size.W, size.H))
+
+	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       gfx.RectFromXYWH(0, 0, size.W, size.H),
+		ContentScale: 1,
+	})
+	if cmds == nil || len(cmds.Commands) != 3 {
+		t.Fatalf("expected fill-rect progressive path, got %#v", cmds)
+	}
+	if _, ok := cmds.Commands[1].(gfx.FillRect); !ok {
+		t.Fatalf("expected LOD2 fill rect, got %T", cmds.Commands[1])
+	}
+}
+
+func TestIconMark_progressiveAssetLOD1UsesImage(t *testing.T) {
+	reg := assets.NewAssetRegistryStore()
+	id := assets.AssetID{2}
+	reg.SetLODReady(id, 1, &assets.DecodedSVGLOD1{RGBA: make([]byte, 32*32*4)}, 1)
+
+	rt := iconRuntimeStub{
+		rootStyle:     theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		assetManager:  iconAssetManagerStub{reg: reg, id: id},
+		assetRegistry: reg,
+	}
+
+	mark := NewIcon(IconAssetPath("icons/check.svg"))
+	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	size := mark.layoutRole.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}}).Size
+	mark.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, size.W, size.H))
+
+	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       gfx.RectFromXYWH(0, 0, size.W, size.H),
+		ContentScale: 1,
+	})
+	if cmds == nil || len(cmds.Commands) != 3 {
+		t.Fatalf("expected image progressive path, got %#v", cmds)
+	}
+	if _, ok := cmds.Commands[1].(gfx.DrawImage); !ok {
+		t.Fatalf("expected LOD1 image draw, got %T", cmds.Commands[1])
 	}
 }
 

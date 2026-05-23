@@ -59,8 +59,8 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected control hit, got %#v", controlHit)
 	}
 	labelHit := rg.hitRole.HitTest(gfx.Point{
-		X: rg.cachedItemLabels[1].Min.X + 1,
-		Y: rg.cachedItemLabels[1].Min.Y + 1,
+		X: rg.cachedItemLabels[1].Min.X + rg.cachedItemLabels[1].Width()*0.5,
+		Y: rg.cachedItemLabels[1].Min.Y + rg.cachedItemLabels[1].Height()*0.5,
 	})
 	if !labelHit.Hit || labelHit.MarkID != radioGroupMarkIDItemLabel {
 		t.Fatalf("expected item label hit, got %#v", labelHit)

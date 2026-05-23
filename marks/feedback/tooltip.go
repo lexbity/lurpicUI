@@ -399,21 +399,36 @@ func (t *Tooltip) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if contentFacet == nil || contentFacet.Base().LayoutRole() == nil {
 		return
 	}
+	
+	w := t.layoutRole.MeasuredSize.W
+	h := t.layoutRole.MeasuredSize.H
+	if w <= 0 || h <= 0 {
+		w = bounds.Width()
+		h = bounds.Height()
+	}
+	if w > bounds.Width() {
+		w = bounds.Width()
+	}
+	if h > bounds.Height() {
+		h = bounds.Height()
+	}
+	activeBounds := text.CenterRect(bounds, w, h)
+
 	arrow := t.cachedArrowSize
-	surface := bounds
+	surface := activeBounds
 	switch t.Placement.Side {
 	case facet.AnchorBelow:
-		surface = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+arrow, bounds.Width(), bounds.Height()-arrow)
-		t.cachedArrowBounds = gfx.RectFromXYWH(bounds.Min.X+bounds.Width()*0.5-arrow*0.5, bounds.Min.Y, arrow, arrow)
+		surface = gfx.RectFromXYWH(activeBounds.Min.X, activeBounds.Min.Y+arrow, activeBounds.Width(), activeBounds.Height()-arrow)
+		t.cachedArrowBounds = gfx.RectFromXYWH(activeBounds.Min.X+activeBounds.Width()*0.5-arrow*0.5, activeBounds.Min.Y, arrow, arrow)
 	case facet.AnchorLeft:
-		surface = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width()-arrow, bounds.Height())
-		t.cachedArrowBounds = gfx.RectFromXYWH(bounds.Max.X-arrow, bounds.Min.Y+bounds.Height()*0.5-arrow*0.5, arrow, arrow)
+		surface = gfx.RectFromXYWH(activeBounds.Min.X, activeBounds.Min.Y, activeBounds.Width()-arrow, activeBounds.Height())
+		t.cachedArrowBounds = gfx.RectFromXYWH(activeBounds.Max.X-arrow, activeBounds.Min.Y+activeBounds.Height()*0.5-arrow*0.5, arrow, arrow)
 	case facet.AnchorRight:
-		surface = gfx.RectFromXYWH(bounds.Min.X+arrow, bounds.Min.Y, bounds.Width()-arrow, bounds.Height())
-		t.cachedArrowBounds = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+bounds.Height()*0.5-arrow*0.5, arrow, arrow)
+		surface = gfx.RectFromXYWH(activeBounds.Min.X+arrow, activeBounds.Min.Y, activeBounds.Width()-arrow, activeBounds.Height())
+		t.cachedArrowBounds = gfx.RectFromXYWH(activeBounds.Min.X, activeBounds.Min.Y+activeBounds.Height()*0.5-arrow*0.5, arrow, arrow)
 	default:
-		surface = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), bounds.Height()-arrow)
-		t.cachedArrowBounds = gfx.RectFromXYWH(bounds.Min.X+bounds.Width()*0.5-arrow*0.5, bounds.Max.Y-arrow, arrow, arrow)
+		surface = gfx.RectFromXYWH(activeBounds.Min.X, activeBounds.Min.Y, activeBounds.Width(), activeBounds.Height()-arrow)
+		t.cachedArrowBounds = gfx.RectFromXYWH(activeBounds.Min.X+activeBounds.Width()*0.5-arrow*0.5, activeBounds.Max.Y-arrow, arrow, arrow)
 	}
 	t.cachedSurfaceBounds = surface
 	contentBounds := surface.Inset(t.cachedPadX, t.cachedPadY)

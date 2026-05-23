@@ -616,7 +616,7 @@ func (r *Ribbon) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		curX = inner.Max.X
 	}
 	toolbarRowH := float32(0)
-	for i, toolbar := range r.cachedSectionToolbars {
+	for _, toolbar := range r.cachedSectionToolbars {
 		if toolbar == nil || toolbar.Base() == nil || toolbar.Base().LayoutRole() == nil {
 			continue
 		}
@@ -624,14 +624,20 @@ func (r *Ribbon) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if size.H > toolbarRowH {
 			toolbarRowH = size.H
 		}
+	}
+	for i, toolbar := range r.cachedSectionToolbars {
+		if toolbar == nil || toolbar.Base() == nil || toolbar.Base().LayoutRole() == nil {
+			continue
+		}
+		size := toolbar.Base().LayoutRole().MeasuredSize
 		if r.cachedWritingDirection == facet.WritingDirectionRTL {
 			curX -= size.W
-			rect := gfx.RectFromXYWH(curX, toolbarY, size.W, size.H)
+			rect := gfx.RectFromXYWH(curX, toolbarY, size.W, toolbarRowH)
 			r.cachedToolbarBounds[i] = rect
 			toolbar.Base().LayoutRole().Arrange(ctx, rect)
 			curX -= r.cachedToolbarGap
 		} else {
-			rect := gfx.RectFromXYWH(curX, toolbarY, size.W, size.H)
+			rect := gfx.RectFromXYWH(curX, toolbarY, size.W, toolbarRowH)
 			r.cachedToolbarBounds[i] = rect
 			toolbar.Base().LayoutRole().Arrange(ctx, rect)
 			curX += size.W + r.cachedToolbarGap

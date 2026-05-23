@@ -45,6 +45,7 @@ type IconButton struct {
 	DensityBehavior primitive.IconDensityBehavior
 	HitPadding      float32
 	Disabled        bool
+	Variant         uiinput.IconButtonVariant
 
 	hovered          bool
 	pressed          bool
@@ -182,6 +183,15 @@ func (i *IconButton) AccessibleName() string {
 		return ""
 	}
 	return i.AccessibleLabel
+}
+
+// SetVariant updates the authored icon button variant.
+func (i *IconButton) SetVariant(variant uiinput.IconButtonVariant) {
+	if i == nil || i.Variant == variant {
+		return
+	}
+	i.Variant = variant
+	i.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 }
 
 // SetSource updates the authored icon source.
@@ -356,7 +366,7 @@ func (i *IconButton) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedConte
 		Materials: resolved.Materials,
 		Depth:     resolved.Depth,
 	}
-	slots, _ := uiinput.ResolveIconButtonRecipe(style)
+	slots, _ := uiinput.ResolveIconButtonRecipe(style, i.Variant)
 	return resolved, slots, true
 }
 
@@ -366,7 +376,7 @@ func (i *IconButton) resolveProjectionTheme(runtime any) (theme.StyleContext, sh
 	}
 	if store := theme.NearestStyleContext(runtime, i.Base().ID()); store != nil {
 		style := store.Get()
-		slots, _ := uiinput.ResolveIconButtonRecipe(style)
+		slots, _ := uiinput.ResolveIconButtonRecipe(style, i.Variant)
 		return style, slots
 	}
 	return theme.StyleContext{Tokens: i.cachedTokens}, i.cachedRecipe
@@ -447,6 +457,25 @@ func (i *IconButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	focus := recipe.FocusRing.Resolve(theme.StateFocused, tokens)
 	stateLayer := recipe.StateLayer.Resolve(state, tokens)
 
+	iconBounds := i.cachedIconBounds
+
+	if i.Variant == uiinput.IconButtonSkeuomorphic && state == theme.StatePressed {
+		// Copy container strokes to invert offsets and set inner = true
+		strokesCopy := make([]theme.MaterialStroke, len(container.Strokes))
+		for idx, stroke := range container.Strokes {
+			stroke.Offset.X = -stroke.Offset.X
+			stroke.Offset.Y = -stroke.Offset.Y
+			if !stroke.Inner {
+				stroke.Inner = true
+			}
+			strokesCopy[idx] = stroke
+		}
+		container.Strokes = strokesCopy
+
+		// Displace icon bounds
+		iconBounds = iconBounds.Offset(1.5, 1.5)
+	}
+
 	cmds := make([]gfx.Command, 0, 16)
 	if !isTransparentMaterial(root) {
 		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
@@ -459,7 +488,7 @@ func (i *IconButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		cmds = append(cmds, materialCommands(containerPath, stateLayer)...)
 	}
 	if !isTransparentMaterial(iconStyle) {
-		cmds = append(cmds, i.iconCommands(i.cachedIconBounds, iconStyle, src)...)
+		cmds = append(cmds, i.iconCommands(iconBounds, iconStyle, src)...)
 	}
 	if i.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, i.cachedTouchPad*0.25)

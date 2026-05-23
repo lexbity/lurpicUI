@@ -7,7 +7,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxmaterial "codeburg.org/lexbit/lurpicui/gfx/material"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -49,6 +48,7 @@ type Slider struct {
 	Step      float64
 	Precision int
 	Disabled  bool
+	Variant   uiinput.SliderVariant
 
 	hovered          bool
 	pressed          bool
@@ -187,6 +187,15 @@ func (s *Slider) AccessibleName() string {
 		return ""
 	}
 	return s.Label
+}
+
+// SetVariant updates the slider variant.
+func (s *Slider) SetVariant(variant uiinput.SliderVariant) {
+	if s == nil || s.Variant == variant {
+		return
+	}
+	s.Variant = variant
+	s.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 }
 
 // SetLabel updates the authored label text.
@@ -430,7 +439,7 @@ func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	variant := sliderRecipeVariant(resolved)
+	variant := s.sliderRecipeVariant(resolved)
 	slots, _ := uiinput.ResolveSliderRecipe(style, variant)
 	s.cachedTokens = resolved.TokenSet()
 	s.cachedRecipe = slots
@@ -609,7 +618,7 @@ func (s *Slider) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedContext, 
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uiinput.ResolveSliderRecipe(style, sliderRecipeVariant(resolved))
+	slots, _ := uiinput.ResolveSliderRecipe(style, s.sliderRecipeVariant(resolved))
 	return resolved, slots, true
 }
 
@@ -624,7 +633,7 @@ func (s *Slider) resolveProjectionTheme(runtime any) (theme.StyleContext, shared
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, s.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uiinput.ResolveSliderRecipe(style, sliderRecipeVariantForDensity(styleContextDensity(style)))
+			slots, _ := uiinput.ResolveSliderRecipe(style, s.sliderRecipeVariantForDensity(styleContextDensity(style)))
 			return style, slots
 		}
 	}
@@ -649,15 +658,43 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	if !isTransparentMaterial(root) {
 		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
 	}
+	trackPath := gfx.RectPath(s.cachedTrackBounds)
+	activePath := gfx.RectPath(s.cachedActiveBounds)
+	if s.Variant == uiinput.SliderSkeuomorphic {
+		trackRadius := s.cachedTrackThickness * 0.5
+		trackPath = gfx.RoundedRectPath(s.cachedTrackBounds, trackRadius)
+		activePath = gfx.RoundedRectPath(s.cachedActiveBounds, trackRadius)
+	}
+
 	if !isTransparentMaterial(track) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(s.cachedTrackBounds), track)...)
+		cmds = append(cmds, materialCommands(trackPath, track)...)
 	}
 	if !isTransparentMaterial(active) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(s.cachedActiveBounds), active)...)
+		cmds = append(cmds, materialCommands(activePath, active)...)
 	}
 	cmds = append(cmds, s.tickCommands(ticks)...)
 	if s.cachedThumbBounds.IsEmpty() == false && !isTransparentMaterial(thumb) {
-		cmds = append(cmds, materialCommands(gfx.CirclePath(gfx.Point{X: (s.cachedThumbBounds.Min.X + s.cachedThumbBounds.Max.X) * 0.5, Y: (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5}, s.cachedThumbBounds.Width()*0.5), thumb)...)
+		var thumbPath gfx.Path
+		if s.Variant == uiinput.SliderSkeuomorphic {
+			thumbPath = gfx.RoundedRectPath(s.cachedThumbBounds, 2)
+		} else {
+			thumbPath = gfx.CirclePath(gfx.Point{X: (s.cachedThumbBounds.Min.X + s.cachedThumbBounds.Max.X) * 0.5, Y: (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5}, s.cachedThumbBounds.Width()*0.5)
+		}
+		cmds = append(cmds, materialCommands(thumbPath, thumb)...)
+
+		if s.Variant == uiinput.SliderSkeuomorphic {
+			// Draw notch line
+			centerY := (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5
+			notchLine := gfx.LinePath(
+				gfx.Point{X: s.cachedThumbBounds.Min.X + 2, Y: centerY},
+				gfx.Point{X: s.cachedThumbBounds.Max.X - 2, Y: centerY},
+			)
+			cmds = append(cmds, gfx.StrokePath{
+				Path:  notchLine,
+				Brush: gfx.SolidBrush(gfx.Color{R: 255, G: 255, B: 255, A: 255}),
+				Stroke: gfx.StrokeStyle{Width: 1.5},
+			})
+		}
 	}
 
 	textColor := materialColor(valueLabel)
@@ -1076,7 +1113,10 @@ func (s *Slider) tickRects(trackLeft, trackRight, trackY float32) []gfx.Rect {
 	return rects
 }
 
-func sliderRecipeVariant(resolved theme.ResolvedContext) uiinput.SliderVariant {
+func (s *Slider) sliderRecipeVariant(resolved theme.ResolvedContext) uiinput.SliderVariant {
+	if s.Variant != uiinput.SliderStandard {
+		return s.Variant
+	}
 	switch resolved.Density.ID {
 	case theme.DensityIDCompact:
 		return uiinput.SliderCompact
@@ -1085,7 +1125,10 @@ func sliderRecipeVariant(resolved theme.ResolvedContext) uiinput.SliderVariant {
 	}
 }
 
-func sliderRecipeVariantForDensity(id theme.DensityID) uiinput.SliderVariant {
+func (s *Slider) sliderRecipeVariantForDensity(id theme.DensityID) uiinput.SliderVariant {
+	if s.Variant != uiinput.SliderStandard {
+		return s.Variant
+	}
 	switch id {
 	case theme.DensityIDCompact:
 		return uiinput.SliderCompact
@@ -1183,15 +1226,15 @@ func sliderThumbInsetFromSize(size float32) float32 {
 }
 
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return gfxmaterial.Commands(path, material)
+	return theme.MaterialCommands(path, material)
 }
 
 func materialColor(material theme.Material) gfx.Color {
-	return theme.Color(material)
+	return theme.MaterialColor(material)
 }
 
 func isTransparentMaterial(material theme.Material) bool {
-	return theme.Transparent(material)
+	return theme.IsTransparentMaterial(material)
 }
 
 func clampFloat(v, minV, maxV float32) float32 {

@@ -1,6 +1,7 @@
 package selection
 
 import (
+	"math"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -1405,7 +1406,7 @@ func (it *buttonGroupItem) buildCommands(bounds gfx.Rect, runtime any, contentSc
 	selected := slots.SelectedIndicator.Resolve(theme.StateSelected, tokens)
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
-	path := buttonGroupItemPath(bounds, it.cachedRadius, it.index, len(it.parent.cachedItems))
+	path := buttonGroupItemPath(bounds, it.cachedRadius, it.index, len(it.parent.cachedItems), it.parent.cachedWritingDirection == facet.WritingDirectionRTL)
 	cmds := make([]gfx.Command, 0, 16)
 	if !isTransparentMaterial(option) {
 		cmds = append(cmds, materialCommands(path, option)...)
@@ -1690,17 +1691,81 @@ func (p buttonGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children 
 	return arranged, nil
 }
 
-func buttonGroupItemPath(bounds gfx.Rect, radius float32, index, total int) gfx.Path {
+func buttonGroupItemPath(bounds gfx.Rect, radius float32, index, total int, rtl bool) gfx.Path {
 	if bounds.IsEmpty() {
 		return gfx.RectPath(bounds)
 	}
 	if total <= 1 {
 		return gfx.RoundedRectPath(bounds, radius)
 	}
-	if index == 0 || index == total-1 {
-		return gfx.RoundedRectPath(bounds, radius)
+	if index == 0 {
+		if rtl {
+			return rightRoundedRectPath(bounds, radius)
+		}
+		return leftRoundedRectPath(bounds, radius)
+	}
+	if index == total-1 {
+		if rtl {
+			return leftRoundedRectPath(bounds, radius)
+		}
+		return rightRoundedRectPath(bounds, radius)
 	}
 	return gfx.RectPath(bounds)
+}
+
+func leftRoundedRectPath(r gfx.Rect, radius float32) gfx.Path {
+	if r.IsEmpty() {
+		return gfx.Path{}
+	}
+	maxRadius := float32(math.Min(float64(r.Width()), float64(r.Height()))) / 2
+	if radius <= 0 {
+		return gfx.RectPath(r)
+	}
+	if radius > maxRadius {
+		radius = maxRadius
+	}
+	minX, minY := r.Min.X, r.Min.Y
+	maxX, maxY := r.Max.X, r.Max.Y
+	rx := radius
+	ry := radius
+
+	return gfx.NewPath().
+		MoveTo(gfx.Point{X: minX + rx, Y: minY}).
+		LineTo(gfx.Point{X: maxX, Y: minY}).
+		LineTo(gfx.Point{X: maxX, Y: maxY}).
+		LineTo(gfx.Point{X: minX + rx, Y: maxY}).
+		QuadTo(gfx.Point{X: minX, Y: maxY}, gfx.Point{X: minX, Y: maxY - ry}).
+		LineTo(gfx.Point{X: minX, Y: minY + ry}).
+		QuadTo(gfx.Point{X: minX, Y: minY}, gfx.Point{X: minX + rx, Y: minY}).
+		Close().
+		Build()
+}
+
+func rightRoundedRectPath(r gfx.Rect, radius float32) gfx.Path {
+	if r.IsEmpty() {
+		return gfx.Path{}
+	}
+	maxRadius := float32(math.Min(float64(r.Width()), float64(r.Height()))) / 2
+	if radius <= 0 {
+		return gfx.RectPath(r)
+	}
+	if radius > maxRadius {
+		radius = maxRadius
+	}
+	minX, minY := r.Min.X, r.Min.Y
+	maxX, maxY := r.Max.X, r.Max.Y
+	rx := radius
+	ry := radius
+
+	return gfx.NewPath().
+		MoveTo(gfx.Point{X: minX, Y: minY}).
+		LineTo(gfx.Point{X: maxX - rx, Y: minY}).
+		QuadTo(gfx.Point{X: maxX, Y: minY}, gfx.Point{X: maxX, Y: minY + ry}).
+		LineTo(gfx.Point{X: maxX, Y: maxY - ry}).
+		QuadTo(gfx.Point{X: maxX, Y: maxY}, gfx.Point{X: maxX - rx, Y: maxY}).
+		LineTo(gfx.Point{X: minX, Y: maxY}).
+		Close().
+		Build()
 }
 
 func runtimeServicesOrNil(runtime any) facet.RuntimeServices {

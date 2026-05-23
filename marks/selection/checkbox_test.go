@@ -12,6 +12,7 @@ import (
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 func TestCheckboxMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
@@ -349,7 +350,7 @@ func mustCheckboxFontRegistry(t *testing.T) *text.FontRegistry {
 }
 
 func defaultCheckboxTokens() theme.Tokens {
-	return theme.DefaultTokens()
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func centerPoint(bounds gfx.Rect) gfx.Point {

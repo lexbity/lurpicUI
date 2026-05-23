@@ -15,6 +15,7 @@ import (
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 func TestSplitButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
@@ -413,23 +414,11 @@ func newSplitButtonGoldenFixture(t *testing.T, tokens theme.Tokens, density them
 }
 
 func defaultSplitButtonTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Primary = gfx.Color{R: 103.0 / 255.0, G: 80.0 / 255.0, B: 164.0 / 255.0, A: 1}
-	tokens.Color.OnPrimary = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	return tokens
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func highContrastSplitButtonTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	tokens.Color.Surface = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	tokens.Color.SurfaceVariant = gfx.Color{R: 0.12, G: 0.12, B: 0.12, A: 1}
-	tokens.Color.OnBackground = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.OnSurface = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.OnSurfaceVariant = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.Primary = gfx.Color{R: 1, G: 1, B: 0, A: 1}
-	tokens.Color.OnPrimary = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
 func allSplitButtonFieldsPresent[T any](value T) bool {

@@ -1,6 +1,8 @@
 package action
 
 import (
+	"bytes"
+	"image"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -12,6 +14,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
+	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 func TestActionBarGoldenDefault(t *testing.T) {
@@ -134,6 +138,32 @@ func AssertActionBarGolden(t *testing.T, name string, tokens theme.Tokens, densi
 func renderActionBarToSurface(t *testing.T, bar *ActionBar, rt actionBarRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(bar, facet.AttachContext{Runtime: rt, Theme: measureCtx})
+
+	baselineSurface, baselineImage := renderActionBarPass(t, bar, rt, measureCtx, density, direction)
+	// Exercise the local child graph multiple times using equivalent action
+	// slices so layout cache reuse cannot perturb the rendered output.
+	variants := []func(*ActionBar){
+		func(*ActionBar) {},
+		func(a *ActionBar) {
+			a.SetActions(cloneActionBarActions(a.Actions))
+		},
+		func(a *ActionBar) {
+			a.SetActions(equivalentActionBarActions(a.Actions))
+		},
+	}
+	for i := 1; i < len(variants); i++ {
+		variants[i](bar)
+		_, got := renderActionBarPass(t, bar, rt, measureCtx, density, direction)
+		if !actionBarImagesEqual(baselineImage, got) {
+			t.Fatalf("action bar golden layout pass %d changed rendered output", i+1)
+		}
+	}
+
+	testkit.AssertGolden(t, baselineSurface, "action_bar_"+goldenName)
+}
+
+func renderActionBarPass(t *testing.T, bar *ActionBar, rt actionBarRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection) (*testkit.MemorySurface, *image.RGBA) {
+	t.Helper()
 	result := bar.layoutRole.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
@@ -185,7 +215,40 @@ func renderActionBarToSurface(t *testing.T, bar *ActionBar, rt actionBarRuntimeS
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
-	testkit.AssertGolden(t, surface, "action_bar_"+goldenName)
+	return surface, surface.Capture()
+}
+
+func actionBarImagesEqual(a, b *image.RGBA) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+	if !a.Bounds().Eq(b.Bounds()) {
+		return false
+	}
+	return bytes.Equal(a.Pix, b.Pix)
+}
+
+func cloneActionBarActions(actions []ActionBarAction) []ActionBarAction {
+	if len(actions) == 0 {
+		return nil
+	}
+	out := make([]ActionBarAction, len(actions))
+	copy(out, actions)
+	return out
+}
+
+func equivalentActionBarActions(actions []ActionBarAction) []ActionBarAction {
+	out := cloneActionBarActions(actions)
+	for i := range out {
+		if out[i].Variant == 0 {
+			out[i].Variant = defaultActionBarButtonVariant()
+		}
+	}
+	return out
+}
+
+func defaultActionBarButtonVariant() uiinput.ButtonVariant {
+	return uiinput.ButtonText
 }
 
 func newActionBarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*ActionBar, actionBarRuntimeStub, theme.ResolvedContext) {
@@ -223,20 +286,11 @@ func newButtonGroupGroupFixture(t *testing.T) *selection.ButtonGroup {
 }
 
 func defaultActionBarTokens() theme.Tokens {
-	return theme.DefaultTokens()
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func highContrastActionBarTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	tokens.Color.Surface = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	tokens.Color.SurfaceVariant = gfx.Color{R: 0.12, G: 0.12, B: 0.12, A: 1}
-	tokens.Color.OnBackground = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.OnSurface = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.OnSurfaceVariant = gfx.Color{R: 1, G: 1, B: 1, A: 1}
-	tokens.Color.Primary = gfx.Color{R: 1, G: 1, B: 0, A: 1}
-	tokens.Color.OnPrimary = gfx.Color{R: 0, G: 0, B: 0, A: 1}
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
 func actionBarDensityToTemplateMode(density theme.DensityID) theme.DensityMode {
@@ -248,4 +302,52 @@ func actionBarDensityToTemplateMode(density theme.DensityID) theme.DensityMode {
 	default:
 		return theme.DensityComfortable
 	}
+}
+
+func toThemeTokens(t templates.Tokens) theme.Tokens {
+	tokens := theme.DefaultTokens()
+	tokens.Color.Background = t.Color.Background
+	tokens.Color.Surface = t.Color.Surface
+	tokens.Color.SurfaceVariant = t.Color.SurfaceVariant
+	tokens.Color.SurfaceInverse = t.Color.SurfaceInverse
+	tokens.Color.OnBackground = t.Color.OnBackground
+	tokens.Color.OnSurface = t.Color.OnSurface
+	tokens.Color.OnSurfaceVariant = t.Color.OnSurfaceVariant
+	tokens.Color.Primary = t.Color.Primary
+	tokens.Color.OnPrimary = t.Color.OnPrimary
+	tokens.Color.Secondary = t.Color.Secondary
+	tokens.Color.OnSecondary = t.Color.OnSecondary
+	tokens.Color.Error = t.Color.Error
+	tokens.Color.Warning = t.Color.Warning
+	tokens.Color.Success = t.Color.Success
+	tokens.Color.OnError = t.Color.OnError
+	tokens.Color.DisabledOpacity = t.Color.DisabledOpacity
+	tokens.Color.HoverLighten = t.Color.HoverOpacity
+	tokens.Color.PressedDarken = t.Color.PressedOpacity
+	tokens.Color.SelectedOverlay = t.Color.SelectionOpacity
+
+	tokens.Typography.DisplayLarge = t.Typography.DisplayLarge
+	tokens.Typography.DisplayMedium = t.Typography.DisplayMedium
+	tokens.Typography.DisplaySmall = t.Typography.DisplaySmall
+	tokens.Typography.HeadlineLarge = t.Typography.HeadlineLarge
+	tokens.Typography.HeadlineMedium = t.Typography.HeadlineMedium
+	tokens.Typography.HeadlineSmall = t.Typography.HeadlineSmall
+	tokens.Typography.TitleLarge = t.Typography.TitleLarge
+	tokens.Typography.TitleMedium = t.Typography.TitleMedium
+	tokens.Typography.TitleSmall = t.Typography.TitleSmall
+	tokens.Typography.LabelLarge = t.Typography.LabelLarge
+	tokens.Typography.LabelMedium = t.Typography.LabelMedium
+	tokens.Typography.LabelSmall = t.Typography.LabelSmall
+	tokens.Typography.BodyLarge = t.Typography.BodyLarge
+	tokens.Typography.BodyMedium = t.Typography.BodyMedium
+	tokens.Typography.BodySmall = t.Typography.BodySmall
+
+	tokens.Radius.None = t.Shape.RadiusNone
+	tokens.Radius.XS = t.Shape.RadiusXS
+	tokens.Radius.SM = t.Shape.RadiusSM
+	tokens.Radius.MD = t.Shape.RadiusMD
+	tokens.Radius.LG = t.Shape.RadiusLG
+	tokens.Radius.Full = t.Shape.RadiusFull
+
+	return tokens
 }

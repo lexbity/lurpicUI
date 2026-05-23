@@ -21,6 +21,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uifeedback"
+	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 type alertRuntimeStub struct {
@@ -281,24 +282,11 @@ func newAlertFixture() *Alert {
 }
 
 func alertTokens() theme.Tokens {
-	tokens := theme.DefaultTokens()
-	tokens.Color.Background = gfx.ColorFromRGBA8(247, 248, 252, 255)
-	tokens.Color.Surface = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.SurfaceVariant = gfx.ColorFromRGBA8(245, 247, 250, 255)
-	tokens.Color.OnBackground = gfx.ColorFromRGBA8(29, 30, 36, 255)
-	tokens.Color.OnSurface = gfx.ColorFromRGBA8(29, 30, 36, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(93, 99, 117, 255)
-	tokens.Color.Primary = gfx.ColorFromRGBA8(70, 98, 220, 255)
-	tokens.Color.OnPrimary = gfx.ColorFromRGBA8(255, 255, 255, 255)
-	tokens.Color.DisabledOpacity = 0.42
-	return tokens
+	return toThemeTokens(templates.Notes().Tokens)
 }
 
 func alertHighContrastTokens() theme.Tokens {
-	tokens := alertTokens()
-	tokens.Color.Primary = gfx.ColorFromRGBA8(0, 74, 173, 255)
-	tokens.Color.OnSurfaceVariant = gfx.ColorFromRGBA8(0, 0, 0, 255)
-	return tokens
+	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
 func alertResolvedContext(tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) theme.ResolvedContext {
@@ -338,4 +326,52 @@ func mustReadAlertFont(t *testing.T, rel string) []byte {
 		t.Fatalf("read font %q: %v", path, err)
 	}
 	return data
+}
+
+func toThemeTokens(t templates.Tokens) theme.Tokens {
+	tokens := theme.DefaultTokens()
+	tokens.Color.Background = t.Color.Background
+	tokens.Color.Surface = t.Color.Surface
+	tokens.Color.SurfaceVariant = t.Color.SurfaceVariant
+	tokens.Color.SurfaceInverse = t.Color.SurfaceInverse
+	tokens.Color.OnBackground = t.Color.OnBackground
+	tokens.Color.OnSurface = t.Color.OnSurface
+	tokens.Color.OnSurfaceVariant = t.Color.OnSurfaceVariant
+	tokens.Color.Primary = t.Color.Primary
+	tokens.Color.OnPrimary = t.Color.OnPrimary
+	tokens.Color.Secondary = t.Color.Secondary
+	tokens.Color.OnSecondary = t.Color.OnSecondary
+	tokens.Color.Error = t.Color.Error
+	tokens.Color.Warning = t.Color.Warning
+	tokens.Color.Success = t.Color.Success
+	tokens.Color.OnError = t.Color.OnError
+	tokens.Color.DisabledOpacity = t.Color.DisabledOpacity
+	tokens.Color.HoverLighten = t.Color.HoverOpacity
+	tokens.Color.PressedDarken = t.Color.PressedOpacity
+	tokens.Color.SelectedOverlay = t.Color.SelectionOpacity
+
+	tokens.Typography.DisplayLarge = t.Typography.DisplayLarge
+	tokens.Typography.DisplayMedium = t.Typography.DisplayMedium
+	tokens.Typography.DisplaySmall = t.Typography.DisplaySmall
+	tokens.Typography.HeadlineLarge = t.Typography.HeadlineLarge
+	tokens.Typography.HeadlineMedium = t.Typography.HeadlineMedium
+	tokens.Typography.HeadlineSmall = t.Typography.HeadlineSmall
+	tokens.Typography.TitleLarge = t.Typography.TitleLarge
+	tokens.Typography.TitleMedium = t.Typography.TitleMedium
+	tokens.Typography.TitleSmall = t.Typography.TitleSmall
+	tokens.Typography.LabelLarge = t.Typography.LabelLarge
+	tokens.Typography.LabelMedium = t.Typography.LabelMedium
+	tokens.Typography.LabelSmall = t.Typography.LabelSmall
+	tokens.Typography.BodyLarge = t.Typography.BodyLarge
+	tokens.Typography.BodyMedium = t.Typography.BodyMedium
+	tokens.Typography.BodySmall = t.Typography.BodySmall
+
+	tokens.Radius.None = t.Shape.RadiusNone
+	tokens.Radius.XS = t.Shape.RadiusXS
+	tokens.Radius.SM = t.Shape.RadiusSM
+	tokens.Radius.MD = t.Shape.RadiusMD
+	tokens.Radius.LG = t.Shape.RadiusLG
+	tokens.Radius.Full = t.Shape.RadiusFull
+
+	return tokens
 }
