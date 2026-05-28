@@ -108,7 +108,7 @@ func (d *Derived[T]) sourcesChangedLocked() bool {
 
 func (d *Derived[T]) snapshotSourceVersionsLocked() []Version {
 	if len(d.sources) == 0 {
-		return nil
+		return []Version{}
 	}
 	out := make([]Version, len(d.sources))
 	for i, src := range d.sources {

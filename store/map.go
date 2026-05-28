@@ -69,7 +69,7 @@ func (s *MapStore[K, V]) Snapshot() map[K]V {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.entries) == 0 {
-		return nil
+		return map[K]V{}
 	}
 	out := make(map[K]V, len(s.entries))
 	for k, v := range s.entries {

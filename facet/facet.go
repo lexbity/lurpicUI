@@ -51,7 +51,7 @@ func (f *Facet) Parent() *Facet {
 // Children returns a copy of the current child list.
 func (f *Facet) Children() []*Facet {
 	if len(f.children) == 0 {
-		return nil
+		return []*Facet{}
 	}
 	out := make([]*Facet, len(f.children))
 	copy(out, f.children)
@@ -99,7 +99,7 @@ func (f *Facet) Subs() *signal.Subscriptions {
 // SubscribedVersions returns a copy of the versions registered for cache keys.
 func (f *Facet) SubscribedVersions() []store.Version {
 	if len(f.subscribedVersions) == 0 {
-		return nil
+		return []store.Version{}
 	}
 	out := make([]store.Version, len(f.subscribedVersions))
 	copy(out, f.subscribedVersions)
@@ -394,7 +394,7 @@ func (f *Facet) setState(state LifecycleState) {
 
 func (f *Facet) rolesSnapshot() []Role {
 	if len(f.roles) == 0 {
-		return nil
+		return []Role{}
 	}
 	out := make([]Role, len(f.roles))
 	copy(out, f.roles)
@@ -403,7 +403,7 @@ func (f *Facet) rolesSnapshot() []Role {
 
 func (f *Facet) childrenSnapshot() []*Facet {
 	if len(f.children) == 0 {
-		return nil
+		return []*Facet{}
 	}
 	out := make([]*Facet, len(f.children))
 	copy(out, f.children)

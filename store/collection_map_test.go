@@ -165,7 +165,7 @@ func TestCollectionStore_accessors_and_subscribe(t *testing.T) {
 	if s.Len() != 0 {
 		t.Fatalf("len = %d", s.Len())
 	}
-	if got := s.All(); got != nil {
+	if got := s.All(); len(got) != 0 {
 		t.Fatalf("all = %#v", got)
 	}
 	if _, ok := s.Get(99); ok {
@@ -292,7 +292,7 @@ func TestMapStore_accessors_and_version(t *testing.T) {
 	if s.Len() != 0 {
 		t.Fatalf("len = %d", s.Len())
 	}
-	if got := s.Snapshot(); got != nil {
+	if got := s.Snapshot(); len(got) != 0 {
 		t.Fatalf("snapshot = %#v", got)
 	}
 	if got := s.Version(); got != 0 {

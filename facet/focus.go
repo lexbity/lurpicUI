@@ -255,7 +255,7 @@ func (m *FocusManager) RebuildTabOrder(root FacetImpl) {
 
 func (m *FocusManager) filteredTabOrder() []FacetID {
 	if m == nil {
-		return nil
+		return []FacetID{}
 	}
 	if len(m.traps) == 0 {
 		return m.tabOrder

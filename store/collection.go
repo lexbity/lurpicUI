@@ -86,7 +86,7 @@ func (s *CollectionStore[T]) All() []T {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.items) == 0 {
-		return nil
+		return []T{}
 	}
 	out := make([]T, len(s.items))
 	copy(out, s.items)
