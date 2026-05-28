@@ -3,6 +3,7 @@ package runtime
 import (
 	"image/color"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
@@ -26,7 +27,13 @@ func testLayerRegistry(t *testing.T) *layout.LayerRegistry {
 }
 
 type backendFixture struct {
-	submitErr error
+	initializeErr   error
+	submitErr       error
+	submitFailAfter atomic.Int32 // fail Submit after this many calls; 0 = never
+	initCount       atomic.Int32
+	submitCount     atomic.Int32
+	destroyCount    atomic.Int32
+	lastFrame       atomic.Pointer[render.Frame]
 }
 
 type recordingLogger struct {
@@ -40,10 +47,20 @@ func (l *recordingLogger) Warn(msg string, args ...any) {
 }
 func (l *recordingLogger) Error(string, ...any) {}
 
-func (s *backendFixture) Initialize(surface render.Surface) error { return nil }
-func (s *backendFixture) Submit(frame *render.Frame) error        { return s.submitErr }
+func (s *backendFixture) Initialize(surface render.Surface) error {
+	s.initCount.Add(1)
+	return s.initializeErr
+}
+func (s *backendFixture) Submit(frame *render.Frame) error {
+	s.submitCount.Add(1)
+	s.lastFrame.Store(frame)
+	if s.submitFailAfter.Load() > 0 && s.submitCount.Load() >= s.submitFailAfter.Load() && s.submitErr != nil {
+		return s.submitErr
+	}
+	return s.submitErr
+}
 func (s *backendFixture) Resize(width, height int) error          { return nil }
-func (s *backendFixture) Destroy()                                {}
+func (s *backendFixture) Destroy()                                { s.destroyCount.Add(1) }
 
 type recordingBackend struct {
 	last            *render.Frame

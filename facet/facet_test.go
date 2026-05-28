@@ -1,6 +1,7 @@
 package facet
 
 import (
+	"strings"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -244,6 +245,236 @@ func TestFacetSubs_attach_detach_reattach_clean(t *testing.T) {
 	if got := next.Subs().Len(); got != 0 {
 		t.Fatalf("expected fresh facet to start clean, got %d", got)
 	}
+}
+
+// --- AddChild panics ---
+
+func TestFacetTree_addchild_nil_parent_panics(t *testing.T) {
+	mustPanicContains(t, "nil parent in AddChild", func() {
+		var f *Facet
+		child := NewFacet()
+		f.AddChild(&child)
+	})
+}
+
+func TestFacetTree_addchild_nil_child_panics(t *testing.T) {
+	mustPanicContains(t, "nil child in AddChild", func() {
+		f := NewFacet()
+		f.AddChild(nil)
+	})
+}
+
+func TestFacetTree_addchild_self_panics(t *testing.T) {
+	f := NewFacet()
+	mustPanicContains(t, "cannot add facet as its own child", func() {
+		f.AddChild(&f)
+	})
+}
+
+func TestFacetTree_addchild_cycle_panics(t *testing.T) {
+	a := NewFacet()
+	b := NewFacet()
+	a.AddChild(&b)
+	mustPanicContains(t, "would create a cycle", func() {
+		b.AddChild(&a)
+	})
+}
+
+func TestFacetTree_addchild_already_has_parent_panics(t *testing.T) {
+	a := NewFacet()
+	b := NewFacet()
+	c := NewFacet()
+	a.AddChild(&c)
+	mustPanicContains(t, "child already has a parent", func() {
+		b.AddChild(&c)
+	})
+}
+
+// --- AddChildRuntime panics ---
+
+func TestFacetTree_addchild_runtime_nil_parent_panics(t *testing.T) {
+	mustPanicContains(t, "nil parent in AddChildRuntime", func() {
+		var f *Facet
+		child := NewFacet()
+		f.AddChildRuntime(&child)
+	})
+}
+
+func TestFacetTree_addchild_runtime_nil_child_panics(t *testing.T) {
+	f := NewFacet()
+	mustPanicContains(t, "nil child in AddChildRuntime", func() {
+		f.AddChildRuntime(nil)
+	})
+}
+
+func TestFacetTree_addchild_runtime_self_panics(t *testing.T) {
+	f := NewFacet()
+	mustPanicContains(t, "cannot add facet as its own child", func() {
+		f.AddChildRuntime(&f)
+	})
+}
+
+func TestFacetTree_addchild_runtime_cycle_panics(t *testing.T) {
+	a := NewFacet()
+	b := NewFacet()
+	a.AddChildRuntime(&b)
+	mustPanicContains(t, "would create a cycle", func() {
+		b.AddChildRuntime(&a)
+	})
+}
+
+func TestFacetTree_addchild_runtime_already_has_parent_panics(t *testing.T) {
+	a := NewFacet()
+	b := NewFacet()
+	c := NewFacet()
+	a.AddChildRuntime(&c)
+	mustPanicContains(t, "child already has a parent", func() {
+		b.AddChildRuntime(&c)
+	})
+}
+
+func TestFacetTree_addchild_runtime_on_disposed_parent_panics(t *testing.T) {
+	f := newTestFacet()
+	Attach(f, AttachContext{})
+	Activate(f)
+	Deactivate(f)
+	Dispose(f)
+	child := NewFacet()
+	mustPanicContains(t, "AddChildRuntime on disposed parent", func() {
+		f.AddChildRuntime(&child)
+	})
+}
+
+func TestFacetTree_addchild_runtime_requires_created_child_panics(t *testing.T) {
+	f := newTestFacet()
+	Attach(f, AttachContext{})
+	child := NewFacet()
+	// Manually set child state to something other than Created
+	child.setState(StateAttached)
+	mustPanicContains(t, "requires a created child", func() {
+		f.AddChildRuntime(&child)
+	})
+}
+
+// --- RemoveChild panics ---
+
+func TestFacetTree_removechild_nil_parent_panics(t *testing.T) {
+	mustPanicContains(t, "nil parent in RemoveChild", func() {
+		var f *Facet
+		child := NewFacet()
+		f.RemoveChild(&child)
+	})
+}
+
+func TestFacetTree_removechild_non_child_panics(t *testing.T) {
+	parent := NewFacet()
+	child := NewFacet()
+	mustPanicContains(t, "RemoveChild called for non-child", func() {
+		parent.RemoveChild(&child)
+	})
+}
+
+// --- Invalidate panics ---
+
+func TestFacet_invalidate_nil_facet_panics(t *testing.T) {
+	mustPanicContains(t, "nil facet in Invalidate", func() {
+		var f *Facet
+		f.Invalidate(DirtyLayout)
+	})
+}
+
+func TestFacet_invalidate_after_dispose_panics(t *testing.T) {
+	f := newTestFacet()
+	Attach(f, AttachContext{})
+	Activate(f)
+	Deactivate(f)
+	Dispose(f)
+	mustPanicContains(t, "Invalidate after dispose", func() {
+		f.Invalidate(DirtyLayout)
+	})
+}
+
+// --- ClearDirty panics ---
+
+func TestFacet_cleardirty_nil_facet_panics(t *testing.T) {
+	mustPanicContains(t, "nil facet in ClearDirty", func() {
+		var f *Facet
+		f.ClearDirty(DirtyLayout)
+	})
+}
+
+func TestFacet_cleardirty_after_dispose_panics(t *testing.T) {
+	f := newTestFacet()
+	Attach(f, AttachContext{})
+	Activate(f)
+	Deactivate(f)
+	Dispose(f)
+	mustPanicContains(t, "ClearDirty after dispose", func() {
+		f.ClearDirty(DirtyLayout)
+	})
+}
+
+// --- AddRole panics ---
+
+func TestFacet_addrole_nil_facet_panics(t *testing.T) {
+	mustPanicContains(t, "nil facet in AddRole", func() {
+		var f *Facet
+		f.AddRole(&testRole{})
+	})
+}
+
+func TestFacet_addrole_nil_role_panics(t *testing.T) {
+	f := NewFacet()
+	mustPanicContains(t, "nil role in AddRole", func() {
+		f.AddRole(nil)
+	})
+}
+
+func TestFacet_addrole_after_attach_panics(t *testing.T) {
+	f := newTestFacet()
+	Attach(f, AttachContext{})
+	mustPanicContains(t, "AddRole after attach", func() {
+		f.AddRole(&testRole{})
+	})
+}
+
+func TestFacet_addrole_duplicate_panics(t *testing.T) {
+	f := NewFacet()
+	r := &testRole{}
+	f.AddRole(r)
+	mustPanicContains(t, "duplicate role registration", func() {
+		f.AddRole(r)
+	})
+}
+
+// --- BindImpl panics ---
+
+func TestFacet_bindimpl_different_impl_panics(t *testing.T) {
+	f := NewFacet()
+	f.BindImpl(newTestFacet())
+	mustPanicContains(t, "BindImpl called with a different implementation", func() {
+		f.BindImpl(newTestFacet())
+	})
+}
+
+// --- nil receiver on exported methods ---
+
+func mustPanicContains(t *testing.T, substr string, fn func()) {
+	t.Helper()
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatalf("expected panic containing %q, but no panic occurred", substr)
+		}
+		msg, ok := r.(string)
+		if !ok {
+			t.Fatalf("panic not a string: %T %v", r, r)
+		}
+		if !strings.Contains(msg, substr) {
+			t.Fatalf("panic %q does not contain %q", msg, substr)
+		}
+	}()
+	fn()
 }
 
 func mustPanic(t *testing.T, fn func()) {

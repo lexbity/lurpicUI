@@ -90,6 +90,68 @@ func TestProjectionRole_missing_onproject_panics_on_attach(t *testing.T) {
 	mustPanic(t, func() { Attach(f, AttachContext{}) })
 }
 
+func TestLayoutRole_missing_parent_policy_panics_on_attach(t *testing.T) {
+	f := &Facet{state: StateCreated}
+	role := &LayoutRole{
+		OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult {
+			return MeasureResult{Size: gfx.Size{W: 1, H: 1}}
+		},
+		Parent: GroupParentContract{
+			Kind: GroupLayoutGrid,
+		},
+	}
+	f.roles = []Role{role}
+	mustPanicContains(t, "parent group requires Policy", func() {
+		Attach(f, AttachContext{})
+	})
+}
+
+func TestLayoutRole_missing_child_placement_contract_panics_on_attach(t *testing.T) {
+	f := &Facet{state: StateCreated}
+	role := &LayoutRole{
+		OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult {
+			return MeasureResult{Size: gfx.Size{W: 1, H: 1}}
+		},
+		Parent: GroupParentContract{
+			Kind:   GroupLayoutGrid,
+			Policy: gridGroupPolicy{},
+		},
+	}
+	f.roles = []Role{role}
+	mustPanicContains(t, "child placement contract", func() {
+		Attach(f, AttachContext{})
+	})
+}
+
+type gridGroupPolicy struct{}
+
+func (gridGroupPolicy) Kind() GroupLayoutKind { return GroupLayoutGrid }
+func (gridGroupPolicy) MeasureGroup(GroupMeasureContext, []GroupChild) (GroupMeasureResult, error) {
+	return GroupMeasureResult{}, nil
+}
+func (gridGroupPolicy) ArrangeGroup(GroupArrangeContext, []GroupChild) ([]ArrangedGroupChild, error) {
+	return nil, nil
+}
+
+func TestLayoutRole_unsupported_placement_mode_panics(t *testing.T) {
+	f := &Facet{state: StateCreated, id: nextID()}
+	role := &LayoutRole{
+		OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult {
+			return MeasureResult{Size: gfx.Size{W: 1, H: 1}}
+		},
+		Child: GroupChildContract{
+			SupportedPlacement: SupportsLinear,
+		},
+	}
+	f.roles = []Role{role}
+	Attach(f, AttachContext{})
+
+	// Arrange with an unsupported placement mode.
+	mustPanicContains(t, "unsupported placement mode", func() {
+		role.Arrange(ArrangeContext{}, gfx.Rect{Min: gfx.Point{X: 0, Y: 0}, Max: gfx.Point{X: 10, Y: 10}})
+	})
+}
+
 func TestTrackStore_registers_version_source(t *testing.T) {
 	f := NewFacet()
 	v := store.NewValueStore(1)

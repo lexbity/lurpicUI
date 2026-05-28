@@ -66,14 +66,22 @@ func resolveGoldenBaseDir(t reporter) string {
 		if frame.File != "" &&
 			strings.HasSuffix(frame.File, "_test.go") &&
 			!strings.Contains(frame.File, string(filepath.Separator)+"internal"+string(filepath.Separator)+"testkit"+string(filepath.Separator)) {
-			return filepath.Join(filepath.Dir(frame.File), "testdata", "golden")
+			return filepath.Join(filepath.Dir(frame.File), "testdata", "golden", platformSuffix)
 		}
 		if !more {
 			break
 		}
 	}
-	return filepath.Join("testdata", "golden")
+	return filepath.Join("testdata", "golden", platformSuffix)
 }
+
+var platformSuffix = func() string {
+	goos := os.Getenv("GOOS")
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	return goos
+}()
 
 // GoldenBaseDirForCaller exposes the resolved golden directory for diagnostics and tests.
 func GoldenBaseDirForCaller() string {

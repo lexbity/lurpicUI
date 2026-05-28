@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -17,6 +18,7 @@ type HarnessConfig struct {
 	Width, Height int
 	Fonts         []text.FontSource
 	LayerRegistry *layout.LayerRegistry
+	Backend       render.Backend // optional; defaults to software renderer
 }
 
 // DefaultHarnessConfig returns an 800x600 harness config.
@@ -70,7 +72,10 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 		t.Fatal("testkit: LayerRegistry is required")
 	}
 	surface := window.surface
-	backend := software.NewSoftwareRenderer()
+	backend := config.Backend
+	if backend == nil {
+		backend = software.NewSoftwareRenderer()
+	}
 	if err := backend.Initialize(surface); err != nil {
 		t.Fatalf("initialize backend: %v", err)
 	}
@@ -149,4 +154,38 @@ func (h *Harness) LastFrameStats() diagnostics.FrameStats {
 		return diagnostics.FrameStats{}
 	}
 	return h.rt.LastFrameStats()
+}
+
+// SimulateSurfaceLost triggers the surface lost callback registered by the runtime.
+// After this, render submits will be skipped until SimulateSurfaceRestore is called.
+func (h *Harness) SimulateSurfaceLost() {
+	if h == nil || h.app == nil {
+		return
+	}
+	h.app.TriggerSurfaceLost()
+}
+
+// SimulateSurfaceRestore triggers the surface created callback, passing the
+// current surface so the render backend can reinitialize.
+func (h *Harness) SimulateSurfaceRestore() {
+	if h == nil || h.app == nil || h.surface == nil {
+		return
+	}
+	h.app.TriggerSurfaceCreated(h.surface)
+}
+
+// SimulatePause triggers the pause callback registered by the runtime.
+func (h *Harness) SimulatePause() {
+	if h == nil || h.app == nil {
+		return
+	}
+	h.app.TriggerPause()
+}
+
+// SimulateResume triggers the resume callback registered by the runtime.
+func (h *Harness) SimulateResume() {
+	if h == nil || h.app == nil {
+		return
+	}
+	h.app.TriggerResume()
 }

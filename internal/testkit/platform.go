@@ -168,6 +168,13 @@ type NullApp struct {
 	width     int
 	height    int
 	destroyed bool
+
+	lifecycleMu  sync.Mutex
+	onPause      func()
+	onResume     func()
+	onLowMemory  func()
+	onSurfaceLost func()
+	onSurfaceCreated func(platform.Surface)
 }
 
 // NewNullApp constructs a headless app with a default window size.
@@ -217,6 +224,78 @@ func (a *NullApp) InjectEvent(e platform.Event) {
 	a.ensureQueue().Push(e)
 }
 
+// Lifecycle callbacks for test simulation.
+
+func (a *NullApp) OnPause(fn func()) {
+	a.lifecycleMu.Lock()
+	a.onPause = fn
+	a.lifecycleMu.Unlock()
+}
+
+func (a *NullApp) OnResume(fn func()) {
+	a.lifecycleMu.Lock()
+	a.onResume = fn
+	a.lifecycleMu.Unlock()
+}
+
+func (a *NullApp) OnLowMemory(fn func()) {
+	a.lifecycleMu.Lock()
+	a.onLowMemory = fn
+	a.lifecycleMu.Unlock()
+}
+
+func (a *NullApp) OnSurfaceLost(fn func()) {
+	a.lifecycleMu.Lock()
+	a.onSurfaceLost = fn
+	a.lifecycleMu.Unlock()
+}
+
+func (a *NullApp) OnSurfaceCreated(fn func(platform.Surface)) {
+	a.lifecycleMu.Lock()
+	a.onSurfaceCreated = fn
+	a.lifecycleMu.Unlock()
+}
+
+// TriggerSurfaceLost fires the registered onSurfaceLost callback (if any).
+func (a *NullApp) TriggerSurfaceLost() {
+	a.lifecycleMu.Lock()
+	fn := a.onSurfaceLost
+	a.lifecycleMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+// TriggerSurfaceCreated fires the registered onSurfaceCreated callback (if any).
+func (a *NullApp) TriggerSurfaceCreated(surface platform.Surface) {
+	a.lifecycleMu.Lock()
+	fn := a.onSurfaceCreated
+	a.lifecycleMu.Unlock()
+	if fn != nil {
+		fn(surface)
+	}
+}
+
+// TriggerPause fires the registered onPause callback (if any).
+func (a *NullApp) TriggerPause() {
+	a.lifecycleMu.Lock()
+	fn := a.onPause
+	a.lifecycleMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
+// TriggerResume fires the registered onResume callback (if any).
+func (a *NullApp) TriggerResume() {
+	a.lifecycleMu.Lock()
+	fn := a.onResume
+	a.lifecycleMu.Unlock()
+	if fn != nil {
+		fn()
+	}
+}
+
 func (a *NullApp) ensureQueue() *nullEventQueue {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -229,6 +308,7 @@ func (a *NullApp) ensureQueue() *nullEventQueue {
 var _ platform.App = (*NullApp)(nil)
 var _ platform.WindowCapable = (*NullApp)(nil)
 var _ platform.ClipboardCapable = (*NullApp)(nil)
+var _ platform.LifecycleCapable = (*NullApp)(nil)
 var _ platform.Window = (*NullWindow)(nil)
 var _ platform.Clipboard = (*NullClipboard)(nil)
 var _ platform.EventQueue = (*nullEventQueue)(nil)
