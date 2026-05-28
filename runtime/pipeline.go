@@ -39,7 +39,7 @@ func newRenderPipeline(backend render.Backend) *RenderPipeline {
 
 // Submit sends a frame to the render backend pipeline.
 func (p *RenderPipeline) Submit(frame *render.Frame) {
-	if p == nil || p.backend == nil {
+	if p.backend == nil {
 		return
 	}
 	p.handoffCh <- frameHandoff{frame: frame}
@@ -47,7 +47,7 @@ func (p *RenderPipeline) Submit(frame *render.Frame) {
 
 // SubmitAndWait hands a frame to the renderer and waits for completion.
 func (p *RenderPipeline) SubmitAndWait(frame *render.Frame) {
-	if p == nil || p.backend == nil {
+	if p.backend == nil {
 		return
 	}
 	done := make(chan struct{})
@@ -56,9 +56,7 @@ func (p *RenderPipeline) SubmitAndWait(frame *render.Frame) {
 }
 
 func (rt *renderThread) run() {
-	if rt == nil || rt.pipeline == nil {
-		return
-	}
+
 	for handoff := range rt.pipeline.handoffCh {
 		if rt.pipeline.backend == nil || handoff.frame == nil {
 			if handoff.doneCh != nil {
@@ -82,9 +80,7 @@ func (rt *renderThread) run() {
 }
 
 func (p *RenderPipeline) destroy() {
-	if p == nil {
-		return
-	}
+
 	p.destroyOnce.Do(func() {
 		close(p.handoffCh)
 	})

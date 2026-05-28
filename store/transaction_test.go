@@ -196,12 +196,12 @@ func TestTransaction_commit_is_atomic_under_concurrent_access(t *testing.T) {
 	}
 }
 
-func TestVersionSource_nil_safe(t *testing.T) {
+func TestVersionSource_nil_panics(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic from nil VersionSource")
+		}
+	}()
 	var vs *VersionSource
-	if got := vs.Current(); got != 0 {
-		t.Fatalf("current = %d", got)
-	}
-	if got := vs.Increment(); got != 0 {
-		t.Fatalf("increment = %d", got)
-	}
+	vs.Current()
 }

@@ -157,26 +157,19 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 
 // CommandRegistry exposes the configured command registry, if one was installed.
 func (rt *Runtime) CommandRegistry() *CommandRegistry {
-	if rt == nil {
-		return nil
-	}
 	return rt.config.CommandRegistry
 }
 
 // RunOneFrame executes a single frame pass synchronously.
 func (rt *Runtime) RunOneFrame() {
-	if rt == nil {
-		return
-	}
+
 	_ = rt.start()
 	rt.runFrame(time.Now(), true)
 }
 
 // Run executes frames until Shutdown is requested.
 func (rt *Runtime) Run() error {
-	if rt == nil {
-		return nil
-	}
+
 	if err := rt.start(); err != nil {
 		return err
 	}
@@ -207,9 +200,7 @@ func (rt *Runtime) Run() error {
 
 // Shutdown stops the runtime and waits for cleanup.
 func (rt *Runtime) Shutdown() {
-	if rt == nil {
-		return
-	}
+
 	rt.shutdownMu.Lock()
 	if rt.stopping {
 		rt.shutdownMu.Unlock()
@@ -241,16 +232,12 @@ func (rt *Runtime) Shutdown() {
 
 // LastFrameStats reports the most recent frame summary.
 func (rt *Runtime) LastFrameStats() diagnostics.FrameStats {
-	if rt == nil {
-		return diagnostics.FrameStats{}
-	}
+
 	return rt.lastStats
 }
 
 func (rt *Runtime) start() error {
-	if rt == nil {
-		return nil
-	}
+
 	var startErr error
 	rt.startOnce.Do(func() {
 		if !syncutil.OnRuntimeThread() {
@@ -272,7 +259,7 @@ func (rt *Runtime) start() error {
 }
 
 func (rt *Runtime) bindLifecycleCallbacks() {
-	if rt == nil || rt.platformApp == nil {
+	if rt.platformApp == nil {
 		return
 	}
 	lc, ok := platform.LifecycleCapableOf(rt.platformApp)
@@ -311,9 +298,7 @@ func (rt *Runtime) superviseShutdown() {
 }
 
 func (rt *Runtime) shutdown() error {
-	if rt == nil {
-		return nil
-	}
+
 	rt.jobPool.CancelAll()
 	rt.runShutdownHooks()
 	rt.clearShutdownHooks()
@@ -333,9 +318,7 @@ func (rt *Runtime) shutdown() error {
 }
 
 func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
-	if rt == nil {
-		return
-	}
+
 	if rt.isPaused() {
 		return
 	}
@@ -456,7 +439,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 }
 
 func (rt *Runtime) withDismissalEvents(routed []input.RoutedEvent, hitMap *projection.HitMap) []input.RoutedEvent {
-	if rt == nil || hitMap == nil || len(routed) == 0 {
+	if hitMap == nil || len(routed) == 0 {
 		return routed
 	}
 	out := make([]input.RoutedEvent, 0, len(routed)*2)
@@ -470,7 +453,7 @@ func (rt *Runtime) withDismissalEvents(routed []input.RoutedEvent, hitMap *proje
 }
 
 func (rt *Runtime) dismissalEventsForPointerPresses(events []platform.Event, hitMap *projection.HitMap) []input.RoutedEvent {
-	if rt == nil || hitMap == nil || len(events) == 0 {
+	if hitMap == nil || len(events) == 0 {
 		return nil
 	}
 	out := make([]input.RoutedEvent, 0)
@@ -497,7 +480,7 @@ func (rt *Runtime) dismissalEventsForPointerPresses(events []platform.Event, hit
 }
 
 func (rt *Runtime) dismissalEventsForPress(target facet.FacetID, press input.PointerPressEvent, hitMap *projection.HitMap) []input.RoutedEvent {
-	if rt == nil || hitMap == nil {
+	if hitMap == nil {
 		return nil
 	}
 	entries := hitMap.Entries()
@@ -568,14 +551,14 @@ func dismissalBehindContains(r facet.OrderRange, order int32) bool {
 }
 
 func (rt *Runtime) collectPlatformEvents() []platform.Event {
-	if rt == nil || rt.platformApp == nil || rt.platformApp.Events() == nil {
+	if rt.platformApp == nil || rt.platformApp.Events() == nil {
 		return nil
 	}
 	return rt.platformApp.Events().Poll()
 }
 
 func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event {
-	if rt == nil || len(events) == 0 {
+	if len(events) == 0 {
 		return events[:0]
 	}
 	out := events[:0]
@@ -602,9 +585,7 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 }
 
 func (rt *Runtime) handlePlatformPause() {
-	if rt == nil {
-		return
-	}
+
 	rt.lifecycleMu.Lock()
 	rt.paused = true
 	if rt.lifecycleCond != nil {
@@ -622,9 +603,7 @@ func (rt *Runtime) handlePlatformPause() {
 }
 
 func (rt *Runtime) handlePlatformResume() {
-	if rt == nil {
-		return
-	}
+
 	rt.lifecycleMu.Lock()
 	rt.paused = false
 	if rt.lifecycleCond != nil {
@@ -641,9 +620,7 @@ func (rt *Runtime) handlePlatformResume() {
 }
 
 func (rt *Runtime) handlePlatformLowMemory() {
-	if rt == nil {
-		return
-	}
+
 	if rt.log != nil {
 		rt.log.Warn("runtime: android low memory event received")
 	}
@@ -652,9 +629,7 @@ func (rt *Runtime) handlePlatformLowMemory() {
 }
 
 func (rt *Runtime) clearRecoverableCaches() {
-	if rt == nil {
-		return
-	}
+
 	if rt.projectionSystem != nil {
 		rt.projectionSystem.Reset()
 	}
@@ -676,9 +651,7 @@ func (rt *Runtime) clearRecoverableCaches() {
 }
 
 func (rt *Runtime) handleSurfaceLost() {
-	if rt == nil {
-		return
-	}
+
 	rt.lifecycleMu.Lock()
 	rt.surfaceReady = false
 	rt.lifecycleMu.Unlock()
@@ -693,9 +666,7 @@ func (rt *Runtime) handleSurfaceLost() {
 }
 
 func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
-	if rt == nil {
-		return
-	}
+
 	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil && surface != nil {
 		if err := rt.renderPipeline.backend.Initialize(surface); err != nil {
 			if rt.log != nil {
@@ -714,7 +685,7 @@ func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
 }
 
 func (rt *Runtime) validateWindowBindings() error {
-	if rt == nil || rt.layerRegistry == nil {
+	if rt.layerRegistry == nil {
 		return nil
 	}
 	descs := rt.layerRegistry.OrderedLayers()
@@ -747,9 +718,7 @@ func copyWindowBindings(src map[string]platform.Window, primary platform.Window)
 }
 
 func (rt *Runtime) waitIfPausedOrStopped() bool {
-	if rt == nil {
-		return false
-	}
+
 	rt.lifecycleMu.Lock()
 	for rt.paused {
 		rt.lifecycleCond.Wait()
@@ -766,9 +735,7 @@ func (rt *Runtime) waitIfPausedOrStopped() bool {
 }
 
 func (rt *Runtime) isPaused() bool {
-	if rt == nil {
-		return false
-	}
+
 	rt.lifecycleMu.Lock()
 	paused := rt.paused
 	rt.lifecycleMu.Unlock()
@@ -776,9 +743,7 @@ func (rt *Runtime) isPaused() bool {
 }
 
 func (rt *Runtime) isSurfaceReady() bool {
-	if rt == nil {
-		return false
-	}
+
 	rt.lifecycleMu.Lock()
 	ready := rt.surfaceReady
 	rt.lifecycleMu.Unlock()
@@ -786,9 +751,7 @@ func (rt *Runtime) isSurfaceReady() bool {
 }
 
 func (rt *Runtime) handleResize(w, h int) {
-	if rt == nil {
-		return
-	}
+
 	if rt.window != nil {
 		if resizable, ok := rt.window.(interface{ Resize(int, int) }); ok {
 			resizable.Resize(w, h)
@@ -805,7 +768,7 @@ func (rt *Runtime) handleResize(w, h int) {
 }
 
 func (rt *Runtime) updateIMECursorRect() {
-	if rt == nil || rt.focusManager == nil {
+	if rt.focusManager == nil {
 		rt.setIMEVisible(false)
 		return
 	}
@@ -841,9 +804,7 @@ func (rt *Runtime) updateIMECursorRect() {
 }
 
 func (rt *Runtime) setIMEVisible(visible bool) {
-	if rt == nil {
-		return
-	}
+
 	if visible == rt.imeVisible {
 		return
 	}
@@ -859,7 +820,7 @@ func (rt *Runtime) setIMEVisible(visible bool) {
 
 // AddFacet attaches a new child facet at runtime with layer metadata.
 func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment facet.Attachment) {
-	if rt == nil || parent == nil || child == nil {
+	if parent == nil || child == nil {
 		return
 	}
 	parentBase := parent.Base()
@@ -891,7 +852,7 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment facet.Atta
 
 // RemoveFacet detaches and disposes a runtime child facet.
 func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
-	if rt == nil || child == nil || child.Base() == nil {
+	if child == nil || child.Base() == nil {
 		return
 	}
 	parent := child.Base().Parent()
@@ -915,7 +876,7 @@ func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
 
 // UpdateChildAttachment updates the runtime metadata for an already attached child facet.
 func (rt *Runtime) UpdateChildAttachment(child facet.FacetImpl, attachment facet.Attachment) {
-	if rt == nil || child == nil || child.Base() == nil {
+	if child == nil || child.Base() == nil {
 		return
 	}
 	if rt.childAttachments == nil {
@@ -933,9 +894,7 @@ func (rt *Runtime) UpdateChildAttachment(child facet.FacetImpl, attachment facet
 }
 
 func (rt *Runtime) initiateShutdown() {
-	if rt == nil {
-		return
-	}
+
 	if rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()
 	}
@@ -947,9 +906,7 @@ func (rt *Runtime) initiateShutdown() {
 }
 
 func (rt *Runtime) drainJobResults() (committed int, discarded int) {
-	if rt == nil {
-		return 0, 0
-	}
+
 	if drainer, ok := rt.assetManager.(interface{ DrainCompleted() int }); ok {
 		if count := drainer.DrainCompleted(); count > 0 {
 			committed += count
@@ -1000,14 +957,14 @@ func (rt *Runtime) deliverSignals() {
 }
 
 func (rt *Runtime) queueSignal(deliver func()) {
-	if rt == nil || deliver == nil {
+	if deliver == nil {
 		return
 	}
 	rt.signalQueue = append(rt.signalQueue, pendingSignal{deliver: deliver})
 }
 
 func (rt *Runtime) copyDirtyFacets() map[facet.FacetID]facet.DirtyFlags {
-	if rt == nil || len(rt.dirtyFacets) == 0 {
+	if len(rt.dirtyFacets) == 0 {
 		return nil
 	}
 	out := make(map[facet.FacetID]facet.DirtyFlags, len(rt.dirtyFacets))
@@ -1023,7 +980,7 @@ func (rt *Runtime) copyDirtyFacets() map[facet.FacetID]facet.DirtyFlags {
 }
 
 func (rt *Runtime) attachTree(root facet.FacetImpl) {
-	if rt == nil || root == nil {
+	if root == nil {
 		return
 	}
 	facet.Attach(root, facet.AttachContext{
@@ -1034,21 +991,21 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 }
 
 func (rt *Runtime) activateTree(root facet.FacetImpl) {
-	if rt == nil || root == nil {
+	if root == nil {
 		return
 	}
 	facet.Activate(root)
 }
 
 func (rt *Runtime) disposeTree(root facet.FacetImpl) {
-	if rt == nil || root == nil {
+	if root == nil {
 		return
 	}
 	facet.Dispose(root)
 }
 
 func (rt *Runtime) markTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
-	if rt == nil || root == nil {
+	if root == nil {
 		return
 	}
 	stack := []facet.FacetImpl{root}
@@ -1079,7 +1036,7 @@ func (rt *Runtime) hasLayoutDirty() bool {
 }
 
 func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
-	if rt == nil || len(rt.dirtyFacets) == 0 {
+	if len(rt.dirtyFacets) == 0 {
 		return
 	}
 	rt.invalidateDirtyLayoutCaches()
@@ -1127,7 +1084,7 @@ func (rt *Runtime) selectedLayoutRoots() []facet.FacetImpl {
 }
 
 func (rt *Runtime) invalidateDirtyLayoutCaches() {
-	if rt == nil || rt.root == nil {
+	if rt.root == nil {
 		return
 	}
 	for id, flags := range rt.dirtyFacets {
@@ -1143,7 +1100,7 @@ func (rt *Runtime) invalidateDirtyLayoutCaches() {
 }
 
 func (rt *Runtime) hasLayoutDirtyAncestor(f facet.FacetImpl) bool {
-	if rt == nil || f == nil || f.Base() == nil {
+	if f == nil || f.Base() == nil {
 		return false
 	}
 	for parent := f.Base().Parent(); parent != nil; parent = parent.Parent() {
@@ -1155,7 +1112,7 @@ func (rt *Runtime) hasLayoutDirtyAncestor(f facet.FacetImpl) bool {
 }
 
 func (rt *Runtime) clearLayoutDirtyTree(f facet.FacetImpl) {
-	if rt == nil || f == nil || f.Base() == nil {
+	if f == nil || f.Base() == nil {
 		return
 	}
 	if flags := f.Base().DirtyFlags(); flags&facet.DirtyLayout != 0 {
@@ -1226,7 +1183,7 @@ func (rt *Runtime) tickFacets(dt time.Duration) {
 }
 
 func (rt *Runtime) walkActive(root facet.FacetImpl, fn func(facet.FacetImpl)) {
-	if rt == nil || root == nil || fn == nil {
+	if root == nil || fn == nil {
 		return
 	}
 	stack := []facet.FacetImpl{root}
@@ -1247,16 +1204,14 @@ func (rt *Runtime) walkActive(root facet.FacetImpl, fn func(facet.FacetImpl)) {
 }
 
 func (rt *Runtime) windowSize() (int, int) {
-	if rt == nil || rt.window == nil {
+	if rt.window == nil {
 		return 0, 0
 	}
 	return rt.window.Size()
 }
 
 func (rt *Runtime) effectiveContentScale() float32 {
-	if rt == nil {
-		return 1
-	}
+
 	if rt.config.ContentScale > 0 {
 		return rt.config.ContentScale
 	}
@@ -1278,7 +1233,7 @@ func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot m
 
 // WindowFrames returns the most recent grouped per-window frame outputs.
 func (rt *Runtime) WindowFrames() map[string]*render.Frame {
-	if rt == nil || len(rt.lastWindowFrames) == 0 {
+	if len(rt.lastWindowFrames) == 0 {
 		return nil
 	}
 	out := make(map[string]*render.Frame, len(rt.lastWindowFrames))
@@ -1426,7 +1381,7 @@ func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySna
 }
 
 func (rt *Runtime) resolveWindowBindingForFacet(id facet.FacetID) (layout.WindowBinding, bool) {
-	if rt == nil || id == 0 || rt.layerRegistry == nil {
+	if id == 0 || rt.layerRegistry == nil {
 		return layout.WindowBinding{}, false
 	}
 	if layer, ok := rt.projectionLayers[id]; ok {
@@ -1469,7 +1424,7 @@ func computeDirtyRegions(output *projection.FrameOutput, dirtySnapshot map[facet
 
 // RuntimeServices hooks used by facets during attach.
 func (rt *Runtime) Schedule(j job.AnyJob) {
-	if rt == nil || j == nil || rt.jobPool == nil {
+	if j == nil || rt.jobPool == nil {
 		return
 	}
 	ownerID := facet.FacetID(j.OwnerID())
@@ -1493,16 +1448,14 @@ func (rt *Runtime) Schedule(j job.AnyJob) {
 }
 
 func (rt *Runtime) CancelJob(id job.JobID) {
-	if rt == nil || rt.jobPool == nil {
+	if rt.jobPool == nil {
 		return
 	}
 	rt.jobPool.CancelJob(id)
 }
 
 func (rt *Runtime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-	if rt == nil {
-		return
-	}
+
 	rt.queueSignal(func() {
 		rt.dirtyFacets[id] |= flags
 		if source != "" {
@@ -1516,7 +1469,7 @@ func (rt *Runtime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source s
 
 // MarkTreeDirty marks a facet subtree dirty from the runtime thread.
 func (rt *Runtime) MarkTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
-	if rt == nil || root == nil {
+	if root == nil {
 		return
 	}
 	rt.queueSignal(func() {
@@ -1529,7 +1482,7 @@ func (rt *Runtime) MarkTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
 
 // RequestFrame wakes the runtime's frame timer for an immediate pass.
 func (rt *Runtime) RequestFrame() {
-	if rt == nil || rt.frameTimer == nil {
+	if rt.frameTimer == nil {
 		return
 	}
 	rt.frameTimer.RequestFrame()

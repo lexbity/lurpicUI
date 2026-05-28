@@ -49,10 +49,6 @@ func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
 
 // Get returns the current derived value, recomputing if dirty or stale.
 func (d *Derived[T]) Get() T {
-	if d == nil {
-		var zero T
-		return zero
-	}
 	d.mu.RLock()
 	if d.initialized && !d.dirty && !d.sourcesChangedLocked() {
 		value := d.value
@@ -89,16 +85,10 @@ func (d *Derived[T]) Get() T {
 
 // Version returns the version of the last computed value.
 func (d *Derived[T]) Version() Version {
-	if d == nil {
-		return 0
-	}
 	return d.version.Current()
 }
 
 func (d *Derived[T]) markDirty() {
-	if d == nil {
-		return
-	}
 	d.mu.Lock()
 	d.dirty = true
 	d.mu.Unlock()
@@ -128,7 +118,7 @@ func (d *Derived[T]) snapshotSourceVersionsLocked() []Version {
 }
 
 func (d *Derived[T]) addInvalidationTarget(fn func()) {
-	if d == nil || fn == nil {
+	if fn == nil {
 		return
 	}
 	d.mu.Lock()

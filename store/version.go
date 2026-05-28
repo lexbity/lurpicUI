@@ -12,16 +12,10 @@ type VersionSource struct {
 
 // Increment bumps the version and returns the new value.
 func (v *VersionSource) Increment() Version {
-	if v == nil {
-		return 0
-	}
 	return Version(v.current.Add(1))
 }
 
 // Current returns the current version without incrementing.
 func (v *VersionSource) Current() Version {
-	if v == nil {
-		return 0
-	}
 	return Version(v.current.Load())
 }

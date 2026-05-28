@@ -43,10 +43,6 @@ func NewMapStore[K comparable, V any]() *MapStore[K, V] {
 
 // Get returns the value for a key.
 func (s *MapStore[K, V]) Get(key K) (V, bool) {
-	if s == nil {
-		var zero V
-		return zero, false
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	value, ok := s.entries[key]
@@ -55,9 +51,6 @@ func (s *MapStore[K, V]) Get(key K) (V, bool) {
 
 // Has reports whether a key exists.
 func (s *MapStore[K, V]) Has(key K) bool {
-	if s == nil {
-		return false
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	_, ok := s.entries[key]
@@ -66,9 +59,6 @@ func (s *MapStore[K, V]) Has(key K) bool {
 
 // Len returns the number of entries.
 func (s *MapStore[K, V]) Len() int {
-	if s == nil {
-		return 0
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.entries)
@@ -76,9 +66,6 @@ func (s *MapStore[K, V]) Len() int {
 
 // Snapshot returns a copy of the underlying map.
 func (s *MapStore[K, V]) Snapshot() map[K]V {
-	if s == nil {
-		return nil
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.entries) == 0 {
@@ -93,9 +80,6 @@ func (s *MapStore[K, V]) Snapshot() map[K]V {
 
 // Version returns the current store version.
 func (s *MapStore[K, V]) Version() Version {
-	if s == nil {
-		return 0
-	}
 	return s.version.Current()
 }
 
@@ -133,15 +117,9 @@ func (s *MapStore[K, V]) ClearTx(tx *Transaction) {
 }
 
 func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 	s.mu.Lock()
 	previous, ok := s.entries[key]
-	if s.entries == nil {
-		s.entries = make(map[K]V)
-	}
 	s.entries[key] = value
 	s.version.Increment()
 	invalidations := append([]func(){}, s.invalidations...)
@@ -163,9 +141,6 @@ func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
 }
 
 func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 	s.mu.Lock()
 	value, ok := s.entries[key]
@@ -194,9 +169,6 @@ func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
 }
 
 func (s *MapStore[K, V]) clear(tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 	s.mu.Lock()
 	if len(s.entries) == 0 {
@@ -224,7 +196,7 @@ func (s *MapStore[K, V]) clear(tx *Transaction) {
 }
 
 func (s *MapStore[K, V]) addInvalidationTarget(fn func()) {
-	if s == nil || fn == nil {
+	if fn == nil {
 		return
 	}
 	s.mu.Lock()

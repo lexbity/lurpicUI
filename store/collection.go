@@ -57,10 +57,6 @@ func NewCollectionStore[T any](identify func(T) ItemID) *CollectionStore[T] {
 
 // Get returns the item with the given ID.
 func (s *CollectionStore[T]) Get(id ItemID) (T, bool) {
-	if s == nil {
-		var zero T
-		return zero, false
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	idx, ok := s.index[id]
@@ -73,10 +69,6 @@ func (s *CollectionStore[T]) Get(id ItemID) (T, bool) {
 
 // At returns the item at index i.
 func (s *CollectionStore[T]) At(i int) T {
-	if s == nil {
-		var zero T
-		return zero
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.items[i]
@@ -84,9 +76,6 @@ func (s *CollectionStore[T]) At(i int) T {
 
 // Len returns the number of items in the collection.
 func (s *CollectionStore[T]) Len() int {
-	if s == nil {
-		return 0
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.items)
@@ -94,9 +83,6 @@ func (s *CollectionStore[T]) Len() int {
 
 // All returns a snapshot copy of the collection.
 func (s *CollectionStore[T]) All() []T {
-	if s == nil {
-		return nil
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.items) == 0 {
@@ -109,9 +95,6 @@ func (s *CollectionStore[T]) All() []T {
 
 // Version returns the current store version.
 func (s *CollectionStore[T]) Version() Version {
-	if s == nil {
-		return 0
-	}
 	return s.version.Current()
 }
 
@@ -160,9 +143,6 @@ func (s *CollectionStore[T]) ReplaceTx(items []T, tx *Transaction) {
 }
 
 func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 	id := s.identify(item)
 	s.mu.Lock()
@@ -211,9 +191,6 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 }
 
 func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 	s.mu.Lock()
 	idx, ok := s.index[id]
@@ -247,9 +224,6 @@ func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 }
 
 func (s *CollectionStore[T]) update(item T, tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 	id := s.identify(item)
 	s.mu.Lock()
@@ -280,9 +254,6 @@ func (s *CollectionStore[T]) update(item T, tx *Transaction) {
 }
 
 func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 	s.mu.Lock()
 	s.items = append([]T(nil), items...)
@@ -310,7 +281,7 @@ func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
 }
 
 func (s *CollectionStore[T]) addInvalidationTarget(fn func()) {
-	if s == nil || fn == nil {
+	if fn == nil {
 		return
 	}
 	s.mu.Lock()
@@ -320,9 +291,6 @@ func (s *CollectionStore[T]) addInvalidationTarget(fn func()) {
 
 // OnReplaceSubscribe subscribes handler to Replace events and returns an unsubscribe function.
 func (s *CollectionStore[T]) OnReplaceSubscribe(handler func(signal.Unit)) func() {
-	if s == nil {
-		return func() {}
-	}
 	id := s.onReplace.Subscribe(handler)
 	return func() { s.onReplace.Unsubscribe(id) }
 }

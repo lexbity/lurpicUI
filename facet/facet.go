@@ -35,31 +35,22 @@ func NewFacet() Facet {
 
 // ID returns the facet identity.
 func (f *Facet) ID() FacetID {
-	if f == nil {
-		return 0
-	}
 	return f.id
 }
 
 // State returns the current lifecycle state.
 func (f *Facet) State() LifecycleState {
-	if f == nil {
-		return StateDisposed
-	}
 	return f.state
 }
 
 // Parent returns the parent facet, if any.
 func (f *Facet) Parent() *Facet {
-	if f == nil {
-		return nil
-	}
 	return f.parent
 }
 
 // Children returns a copy of the current child list.
 func (f *Facet) Children() []*Facet {
-	if f == nil || len(f.children) == 0 {
+	if len(f.children) == 0 {
 		return nil
 	}
 	out := make([]*Facet, len(f.children))
@@ -71,7 +62,7 @@ func (f *Facet) Children() []*Facet {
 // Concrete facets call this from their Base method so lifecycle traversal can
 // dispatch to the real implementation when they are nested as children.
 func (f *Facet) BindImpl(impl FacetImpl) {
-	if f == nil || impl == nil {
+	if impl == nil {
 		return
 	}
 	if f.impl != nil && f.impl != impl {
@@ -82,17 +73,11 @@ func (f *Facet) BindImpl(impl FacetImpl) {
 
 // Impl returns the bound concrete implementation, if one has been recorded.
 func (f *Facet) Impl() FacetImpl {
-	if f == nil {
-		return nil
-	}
 	return f.impl
 }
 
 // DirtyFlags reports the current dirty bits.
 func (f *Facet) DirtyFlags() DirtyFlags {
-	if f == nil {
-		return 0
-	}
 	var flags DirtyFlags
 	if f.dirtyLayout {
 		flags |= DirtyLayout
@@ -108,15 +93,12 @@ func (f *Facet) DirtyFlags() DirtyFlags {
 
 // Subs returns the facet-owned subscription bag.
 func (f *Facet) Subs() *signal.Subscriptions {
-	if f == nil {
-		return nil
-	}
 	return &f.subs
 }
 
 // SubscribedVersions returns a copy of the versions registered for cache keys.
 func (f *Facet) SubscribedVersions() []store.Version {
-	if f == nil || len(f.subscribedVersions) == 0 {
+	if len(f.subscribedVersions) == 0 {
 		return nil
 	}
 	out := make([]store.Version, len(f.subscribedVersions))
@@ -127,7 +109,7 @@ func (f *Facet) SubscribedVersions() []store.Version {
 // TrackVersion registers the current version from versionFn and returns its slot.
 // External packages use the returned slot to keep the version source updated.
 func (f *Facet) TrackVersion(versionFn func() store.Version) int {
-	if f == nil || versionFn == nil {
+	if versionFn == nil {
 		return -1
 	}
 	f.subscribedVersions = append(f.subscribedVersions, versionFn())
@@ -136,7 +118,7 @@ func (f *Facet) TrackVersion(versionFn func() store.Version) int {
 
 // UpdateTrackedVersion refreshes a previously registered version slot.
 func (f *Facet) UpdateTrackedVersion(index int, versionFn func() store.Version) {
-	if f == nil || index < 0 || index >= len(f.subscribedVersions) || versionFn == nil {
+	if index < 0 || index >= len(f.subscribedVersions) || versionFn == nil {
 		return
 	}
 	f.subscribedVersions[index] = versionFn()
@@ -296,17 +278,11 @@ func (f *Facet) AddRole(r Role) {
 
 // LastInvalidatedBy reports the source tag of the last invalidation.
 func (f *Facet) LastInvalidatedBy() string {
-	if f == nil {
-		return ""
-	}
 	return f.lastInvalidatedBy
 }
 
 // LayoutRole returns the registered layout role, if any.
 func (f *Facet) LayoutRole() *LayoutRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*LayoutRole); ok {
 			return typed
@@ -317,9 +293,6 @@ func (f *Facet) LayoutRole() *LayoutRole {
 
 // RenderRole returns the registered render role, if any.
 func (f *Facet) RenderRole() *RenderRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*RenderRole); ok {
 			return typed
@@ -330,9 +303,6 @@ func (f *Facet) RenderRole() *RenderRole {
 
 // HitRole returns the registered hit role, if any.
 func (f *Facet) HitRole() *HitRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*HitRole); ok {
 			return typed
@@ -343,9 +313,6 @@ func (f *Facet) HitRole() *HitRole {
 
 // InputRole returns the registered input role, if any.
 func (f *Facet) InputRole() *InputRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*InputRole); ok {
 			return typed
@@ -356,9 +323,6 @@ func (f *Facet) InputRole() *InputRole {
 
 // FocusRole returns the registered focus role, if any.
 func (f *Facet) FocusRole() *FocusRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*FocusRole); ok {
 			return typed
@@ -369,9 +333,6 @@ func (f *Facet) FocusRole() *FocusRole {
 
 // ViewportRole returns the registered viewport role, if any.
 func (f *Facet) ViewportRole() *ViewportRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*ViewportRole); ok {
 			return typed
@@ -382,9 +343,6 @@ func (f *Facet) ViewportRole() *ViewportRole {
 
 // ProjectionRole returns the registered projection role, if any.
 func (f *Facet) ProjectionRole() *ProjectionRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*ProjectionRole); ok {
 			return typed
@@ -395,9 +353,6 @@ func (f *Facet) ProjectionRole() *ProjectionRole {
 
 // TextRole returns the registered text role, if any.
 func (f *Facet) TextRole() *TextRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*TextRole); ok {
 			return typed
@@ -408,9 +363,6 @@ func (f *Facet) TextRole() *TextRole {
 
 // TickRole returns the registered tick role, if any.
 func (f *Facet) TickRole() *TickRole {
-	if f == nil {
-		return nil
-	}
 	for _, role := range f.roles {
 		if typed, ok := role.(*TickRole); ok {
 			return typed

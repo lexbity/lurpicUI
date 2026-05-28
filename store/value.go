@@ -32,10 +32,6 @@ func NewValueStore[T any](initial T) *ValueStore[T] {
 
 // Get returns the current value.
 func (s *ValueStore[T]) Get() T {
-	if s == nil {
-		var zero T
-		return zero
-	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.value
@@ -57,16 +53,10 @@ func (s *ValueStore[T]) SetTx(value T, tx *Transaction) {
 
 // Version returns the current store version.
 func (s *ValueStore[T]) Version() Version {
-	if s == nil {
-		return 0
-	}
 	return s.version.Current()
 }
 
 func (s *ValueStore[T]) set(value T, tx *Transaction) {
-	if s == nil {
-		return
-	}
 	assertNotProjecting()
 
 	s.mu.Lock()
@@ -93,7 +83,7 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 }
 
 func (s *ValueStore[T]) addInvalidationTarget(fn func()) {
-	if s == nil || fn == nil {
+	if fn == nil {
 		return
 	}
 	s.mu.Lock()

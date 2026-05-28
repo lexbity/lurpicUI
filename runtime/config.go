@@ -76,9 +76,7 @@ func NewFrameTimer(targetFPS int) *FrameTimer {
 
 // Wait blocks until the next frame should begin.
 func (t *FrameTimer) Wait() time.Time {
-	if t == nil {
-		return time.Now()
-	}
+
 	tick := time.Now()
 	t.mu.Lock()
 	last := t.lastFrame
@@ -110,9 +108,7 @@ func (t *FrameTimer) Wait() time.Time {
 
 // RequestFrame wakes the timer for an immediate frame if no request is pending.
 func (t *FrameTimer) RequestFrame() {
-	if t == nil {
-		return
-	}
+
 	select {
 	case t.requestCh <- struct{}{}:
 	default:
