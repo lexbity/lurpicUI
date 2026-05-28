@@ -11,26 +11,26 @@ import (
 // PointerID identifies a pointer device. Mouse is 0.
 type PointerID uint32
 
-// CaptureTarget records which facet has captured the pointer.
-type CaptureTarget struct {
+// captureTarget records which facet has captured the pointer.
+type captureTarget struct {
 	FacetID facet.FacetID
 	MarkID  facet.MarkID
 }
 
-// PointerState tracks the persistent state of one pointer.
-type PointerState struct {
+// pointerState tracks the persistent state of one pointer.
+type pointerState struct {
 	ID            PointerID
 	Position      gfx.Point
 	PressedButton platform.PointerButton
 	PressPosition gfx.Point
-	PressTarget   *CaptureTarget
+	PressTarget   *captureTarget
 	DragActive    bool
 	LastMoveTime  time.Time
 	clickCount    int
 }
 
-// TouchState tracks the persistent state of one touch sequence.
-type TouchState struct {
+// touchState tracks the persistent state of one touch sequence.
+type touchState struct {
 	SequenceID       uint64
 	Target           facet.FacetID
 	MarkID           facet.MarkID
@@ -77,8 +77,8 @@ type RoutedEvent struct {
 	Event  DeliveredEvent
 }
 
-// HoverState tracks hover firing for the current idle period.
-type HoverState struct {
+// hoverState tracks hover firing for the current idle period.
+type hoverState struct {
 	currentFacet  facet.FacetID
 	currentMark   facet.MarkID
 	lastMoveTime  time.Time
@@ -86,7 +86,7 @@ type HoverState struct {
 }
 
 // Tick returns hover events once the pointer has been idle long enough.
-func (h *HoverState) Tick(now time.Time, cfg GestureConfig) []RoutedEvent {
+func (h *hoverState) Tick(now time.Time, cfg GestureConfig) []RoutedEvent {
 	if h == nil || h.currentFacet == 0 || h.firedThisIdle {
 		return nil
 	}
@@ -101,7 +101,7 @@ func (h *HoverState) Tick(now time.Time, cfg GestureConfig) []RoutedEvent {
 }
 
 // OnMove records the current hover target and resets idle firing.
-func (h *HoverState) OnMove(facetID facet.FacetID, markID facet.MarkID, now time.Time) {
+func (h *hoverState) OnMove(facetID facet.FacetID, markID facet.MarkID, now time.Time) {
 	if h == nil {
 		return
 	}
@@ -112,20 +112,20 @@ func (h *HoverState) OnMove(facetID facet.FacetID, markID facet.MarkID, now time
 }
 
 // Clear resets the hover tracker.
-func (h *HoverState) Clear() {
+func (h *hoverState) Clear() {
 	if h == nil {
 		return
 	}
-	*h = HoverState{}
+	*h = hoverState{}
 }
 
-// FocusState is the input system's view of keyboard focus.
-type FocusState struct {
+// focusState is the input system's view of keyboard focus.
+type focusState struct {
 	focused facet.FacetID
 }
 
 // SetFocused updates the cached focus target.
-func (f *FocusState) SetFocused(id facet.FacetID) {
+func (f *focusState) SetFocused(id facet.FacetID) {
 	if f == nil {
 		return
 	}
@@ -133,7 +133,7 @@ func (f *FocusState) SetFocused(id facet.FacetID) {
 }
 
 // Focused reports the cached focus target.
-func (f *FocusState) Focused() facet.FacetID {
+func (f *focusState) Focused() facet.FacetID {
 	if f == nil {
 		return 0
 	}
@@ -141,7 +141,7 @@ func (f *FocusState) Focused() facet.FacetID {
 }
 
 // Clear removes the focused facet.
-func (f *FocusState) Clear() {
+func (f *focusState) Clear() {
 	if f == nil {
 		return
 	}
@@ -157,12 +157,12 @@ type clickHistory struct {
 // System stores input gesture state without performing routing yet.
 type System struct {
 	config       GestureConfig
-	pointers     map[PointerID]*PointerState
-	touches      map[uint64]*TouchState
-	focus        FocusState
+	pointers     map[PointerID]*pointerState
+	touches      map[uint64]*touchState
+	focus        focusState
 	focusManager *facet.FocusManager
 	focusTree    facet.FacetImpl
-	hover        HoverState
+	hover        hoverState
 	hoverEnabled bool
 	modality     facet.InputModality
 	clickHistory clickHistory
@@ -187,8 +187,8 @@ func NewSystem(config GestureConfig) *System {
 	}
 	return &System{
 		config:       config,
-		pointers:     make(map[PointerID]*PointerState),
-		touches:      make(map[uint64]*TouchState),
+		pointers:     make(map[PointerID]*pointerState),
+		touches:      make(map[uint64]*touchState),
 		hoverEnabled: true,
 		modality:     facet.InputModalityUnknown,
 	}
@@ -217,7 +217,7 @@ func (s *System) ClearTouchState() {
 	if s == nil {
 		return
 	}
-	s.touches = make(map[uint64]*TouchState)
+	s.touches = make(map[uint64]*touchState)
 }
 
 // ClearFocus clears the cached keyboard focus.
@@ -265,33 +265,33 @@ func (s *System) SetFocusManager(m *facet.FocusManager) {
 }
 
 // getOrCreatePointer returns the state for one pointer ID.
-func (s *System) getOrCreatePointer(id PointerID) *PointerState {
+func (s *System) getOrCreatePointer(id PointerID) *pointerState {
 	if s == nil {
 		return nil
 	}
 	if s.pointers == nil {
-		s.pointers = make(map[PointerID]*PointerState)
+		s.pointers = make(map[PointerID]*pointerState)
 	}
 	if ptr, ok := s.pointers[id]; ok {
 		return ptr
 	}
-	ptr := &PointerState{ID: id}
+	ptr := &pointerState{ID: id}
 	s.pointers[id] = ptr
 	return ptr
 }
 
 // getOrCreateTouch returns the state for one touch sequence ID.
-func (s *System) getOrCreateTouch(id uint64) *TouchState {
+func (s *System) getOrCreateTouch(id uint64) *touchState {
 	if s == nil {
 		return nil
 	}
 	if s.touches == nil {
-		s.touches = make(map[uint64]*TouchState)
+		s.touches = make(map[uint64]*touchState)
 	}
 	if touch, ok := s.touches[id]; ok {
 		return touch
 	}
-	touch := &TouchState{SequenceID: id}
+	touch := &touchState{SequenceID: id}
 	s.touches[id] = touch
 	return touch
 }

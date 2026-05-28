@@ -29,7 +29,7 @@ func TestGestureConfig_defaults(t *testing.T) {
 }
 
 func TestPointerState_initial_values(t *testing.T) {
-	var state PointerState
+	var state pointerState
 	if state.Position != (gfx.Point{}) {
 		t.Fatalf("position = %#v", state.Position)
 	}
@@ -66,8 +66,8 @@ func TestSystem_clearPointerState_nils_all_captures(t *testing.T) {
 	sys := NewSystem(DefaultGestureConfig())
 	a := sys.getOrCreatePointer(0)
 	b := sys.getOrCreatePointer(1)
-	a.PressTarget = &CaptureTarget{FacetID: 11, MarkID: 22}
-	b.PressTarget = &CaptureTarget{FacetID: 33, MarkID: 44}
+	a.PressTarget = &captureTarget{FacetID: 11, MarkID: 22}
+	b.PressTarget = &captureTarget{FacetID: 33, MarkID: 44}
 	a.DragActive = true
 	b.DragActive = true
 	a.PressedButton = platform.PointerLeft
@@ -131,7 +131,7 @@ func TestResolveClickCount_resets_on_distance(t *testing.T) {
 }
 
 func TestHoverState_fires_after_delay(t *testing.T) {
-	var h HoverState
+	var h hoverState
 	cfg := DefaultGestureConfig()
 	base := time.Unix(0, 0)
 	h.OnMove(11, 22, base)
@@ -151,7 +151,7 @@ func TestHoverState_fires_after_delay(t *testing.T) {
 }
 
 func TestHoverState_does_not_fire_before_delay(t *testing.T) {
-	var h HoverState
+	var h hoverState
 	cfg := DefaultGestureConfig()
 	base := time.Unix(0, 0)
 	h.OnMove(11, 22, base)
@@ -161,7 +161,7 @@ func TestHoverState_does_not_fire_before_delay(t *testing.T) {
 }
 
 func TestHoverState_resets_on_move(t *testing.T) {
-	var h HoverState
+	var h hoverState
 	cfg := DefaultGestureConfig()
 	base := time.Unix(0, 0)
 	h.OnMove(11, 22, base)
@@ -178,7 +178,7 @@ func TestHoverState_resets_on_move(t *testing.T) {
 }
 
 func TestHoverState_fires_once_per_idle(t *testing.T) {
-	var h HoverState
+	var h hoverState
 	cfg := DefaultGestureConfig()
 	base := time.Unix(0, 0)
 	h.OnMove(11, 22, base)
@@ -194,7 +194,7 @@ func TestHoverState_fires_once_per_idle(t *testing.T) {
 }
 
 func TestFocusState_roundtrip(t *testing.T) {
-	var f FocusState
+	var f focusState
 	if got := f.Focused(); got != 0 {
 		t.Fatalf("got %d", got)
 	}
@@ -220,7 +220,7 @@ func TestResolveClickCount_caps_at_three(t *testing.T) {
 }
 
 func TestHoverState_clear(t *testing.T) {
-	var h HoverState
+	var h hoverState
 	h.OnMove(11, 22, time.Unix(0, 0))
 	h.Clear()
 	if got := h.Tick(time.Unix(0, 0).Add(time.Second), DefaultGestureConfig()); len(got) != 0 {
