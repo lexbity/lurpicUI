@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/hashutil"
+	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -75,7 +76,7 @@ type Runtime struct {
 	doneCh     chan struct{}
 
 	lastStats diagnostics.FrameStats
-	log       Logger
+	log       log.Logger
 
 	startOnce  sync.Once
 	shutdownMu sync.Mutex
@@ -105,7 +106,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		config.WorkerCount = DefaultConfig().WorkerCount
 	}
 	if config.Logger == nil {
-		config.Logger = NopLogger{}
+		config.Logger = log.NopLogger{}
 	}
 	rt := &Runtime{
 		config:           config,

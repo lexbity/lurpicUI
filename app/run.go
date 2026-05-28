@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/platform/linux"
@@ -155,7 +156,7 @@ func Run(config Config, builder RootBuilder) error {
 	return runRuntime(rt)
 }
 
-func initBackend(preferred RenderBackendKind, surface render.Surface, logger runtime.Logger) (render.Backend, RenderBackendKind, error) {
+func initBackend(preferred RenderBackendKind, surface render.Surface, logger log.Logger) (render.Backend, RenderBackendKind, error) {
 	if surface == nil {
 		return nil, preferred, errors.New("app: window surface is nil")
 	}

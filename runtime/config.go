@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/input"
+	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
@@ -34,7 +35,7 @@ type Config struct {
 	WindowBindings  map[string]platform.Window
 	ThemeResolver   *theme.ThemeResolver
 	ContentScale    float32
-	Logger          Logger
+	Logger          log.Logger
 	DiagnosticsHook DiagnosticsHook
 }
 

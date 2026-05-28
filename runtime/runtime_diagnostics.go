@@ -12,10 +12,10 @@ func (rt *Runtime) LastFrameStats() diagnostics.FrameStats {
 }
 
 func (rt *Runtime) handlePlatformLowMemory() {
-
-	if rt.log != nil {
-		rt.log.Warn("runtime: android low memory event received")
-	}
+	rt.log.Warn("runtime: android low memory event received")
 	rt.clearRecoverableCaches()
+	// Android's LowMemoryNotification signals that the OS may kill background
+	// processes. We force a GC here to reduce our RSS before the Android OOM
+	// killer evaluates our process. This is per Android NDK guidelines.
 	goruntime.GC()
 }

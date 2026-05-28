@@ -8,8 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout/space"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
-	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
@@ -274,32 +272,6 @@ func (r *TextRole) CollectSelectionGeometry() *TextSelectionGeometry {
 		}
 	}
 	return out
-}
-
-// TrackStore is deprecated. Use Store with a Subscribe builder instead.
-// TrackStore subscribes to a signal and appends the store version to versions.
-func TrackStore[T any](
-	bag *signal.Subscriptions,
-	versions *[]store.Version,
-	versionFn func() store.Version,
-	sig *signal.Signal[T],
-	handler func(T),
-) {
-	if sig == nil {
-		return
-	}
-	if versions != nil && versionFn != nil {
-		idx := len(*versions)
-		*versions = append(*versions, versionFn())
-		signal.Track(bag, sig, func(v T) {
-			(*versions)[idx] = versionFn()
-			if handler != nil {
-				handler(v)
-			}
-		})
-		return
-	}
-	signal.Track(bag, sig, handler)
 }
 
 // TickRole receives per-frame updates.
