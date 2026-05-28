@@ -1,7 +1,6 @@
 package store
 
 import (
-	"reflect"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
@@ -72,10 +71,6 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 
 	s.mu.Lock()
 	old := s.value
-	if reflect.DeepEqual(old, value) {
-		s.mu.Unlock()
-		return
-	}
 	s.value = value
 	s.version.Increment()
 	invalidations := append([]func(){}, s.invalidations...)

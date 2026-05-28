@@ -50,17 +50,17 @@ func TestDerived_lazy_does_not_recompute_until_get(t *testing.T) {
 	}
 }
 
-func TestDerived_no_signal_if_value_unchanged(t *testing.T) {
+func TestDerived_recomputation_always_emits(t *testing.T) {
 	a := NewValueStore(1)
 	d := NewDerived(func() int { return a.Get() % 2 }, a)
 	_ = d.Get()
-	called := 0
+	var called int32
 	d.OnChange.Subscribe(func(signal.Change[int]) { called++ })
 	a.Set(3)
 	_ = d.Get()
 
-	if called != 0 {
-		t.Fatalf("called = %d", called)
+	if called == 0 {
+		t.Fatal("expected signal from recomputed derived value")
 	}
 }
 

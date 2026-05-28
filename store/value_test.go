@@ -51,19 +51,15 @@ func TestValueStore_set_changes_value(t *testing.T) {
 	}
 }
 
-func TestValueStore_set_noop_no_signal(t *testing.T) {
+func TestValueStore_set_same_value_emits_signal(t *testing.T) {
 	s := NewValueStore(42)
-	called := 0
+	var called int32
 	s.OnChange.Subscribe(func(signal.Change[int]) { called++ })
-	ver := s.Version()
 
 	s.Set(42)
 
-	if got := s.Version(); got != ver {
-		t.Fatalf("version changed: %d -> %d", ver, got)
-	}
-	if called != 0 {
-		t.Fatalf("called = %d", called)
+	if called == 0 {
+		t.Fatal("expected signal even when setting same value")
 	}
 }
 
@@ -88,15 +84,15 @@ func TestValueStore_onchange_fires_with_old_and_new(t *testing.T) {
 	}
 }
 
-func TestValueStore_onchange_not_fired_on_noop(t *testing.T) {
+func TestValueStore_onchange_fired_on_same_value(t *testing.T) {
 	s := NewValueStore(10)
-	called := 0
+	var called int32
 	s.OnChange.Subscribe(func(signal.Change[int]) { called++ })
 
 	s.Set(10)
 
-	if called != 0 {
-		t.Fatalf("called = %d", called)
+	if called == 0 {
+		t.Fatal("expected signal even when setting same value")
 	}
 }
 

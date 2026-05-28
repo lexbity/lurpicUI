@@ -1,7 +1,6 @@
 package store
 
 import (
-	"reflect"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -70,24 +69,21 @@ func (d *Derived[T]) Get() T {
 	next := d.compute()
 	d.mu.Lock()
 	old := d.value
-	changed := !d.initialized || !reflect.DeepEqual(old, next)
 	d.value = next
 	d.initialized = true
 	d.dirty = false
 	d.sourceVersions = d.snapshotSourceVersionsLocked()
+	d.version.Increment()
 	invalidations := append([]func(){}, d.invalidations...)
 	d.mu.Unlock()
-	if changed {
-		d.version.Increment()
-		for _, fn := range invalidations {
-			if fn != nil {
-				fn()
-			}
+	for _, fn := range invalidations {
+		if fn != nil {
+			fn()
 		}
-		enqueueSignal(func() {
-			d.OnChange.Emit(signal.Change[T]{Old: old, New: next})
-		})
 	}
+	enqueueSignal(func() {
+		d.OnChange.Emit(signal.Change[T]{Old: old, New: next})
+	})
 	return next
 }
 
