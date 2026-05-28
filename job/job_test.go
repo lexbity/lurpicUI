@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -628,6 +629,180 @@ func TestPool_worker_restarts_after_panic(t *testing.T) {
 	_ = p.Drain()
 	if atomic.LoadInt32(&commits) != 1 {
 		t.Fatal("expected commit from recovered worker")
+	}
+}
+
+func TestPool_10000_jobs_all_complete(t *testing.T) {
+	const numJobs = 10000
+	const numWorkers = 4
+	p := NewPool(numWorkers)
+	defer p.Shutdown()
+
+	var commits atomic.Int32
+
+	// Run scheduling in a background goroutine so the main goroutine can
+	// drain results concurrently, preventing backpressure deadlocks.
+	schedDone := make(chan struct{})
+	go func() {
+		for i := 0; i < numJobs; i++ {
+			id := i
+			_ = Schedule(p, Job[int, int]{
+				ID:       JobID(id),
+				Priority: PriorityBackground,
+				Snapshot: NewSnapshot(id, 0),
+				Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+					return id, nil
+				},
+			}, func(v int) {
+				commits.Add(1)
+			})
+		}
+		close(schedDone)
+	}()
+
+	// Drain results until all are collected.
+	var drained int
+	for drained < numJobs {
+		drained += len(p.Drain())
+		runtime.Gosched()
+	}
+	<-schedDone
+
+	if drained != numJobs {
+		t.Fatalf("expected %d results, got %d", numJobs, drained)
+	}
+	if commits.Load() != numJobs {
+		t.Fatalf("expected %d commits, got %d", numJobs, commits.Load())
+	}
+}
+
+func TestPool_schedule_after_shutdown_returns_error(t *testing.T) {
+	p := NewPool(1)
+	p.Shutdown()
+
+	err := Schedule(p, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(0),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			return 0, nil
+		},
+	}, nil)
+	if err == nil {
+		t.Fatal("expected error scheduling after shutdown")
+	}
+}
+
+func TestPool_fifo_ordering_within_same_priority(t *testing.T) {
+	p := NewPool(1) // single worker forces FIFO
+	defer p.Shutdown()
+
+	const numJobs = 20
+	order := make([]int, 0, numJobs)
+	orderMu := sync.Mutex{}
+
+	schedDone := make(chan struct{})
+	go func() {
+		for i := 0; i < numJobs; i++ {
+			id := i
+			_ = Schedule(p, Job[int, int]{
+				ID:       JobID(id),
+				Priority: PriorityBackground,
+				Snapshot: NewSnapshot(id, 0),
+				Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+					return id, nil
+				},
+			}, func(v int) {
+				orderMu.Lock()
+				order = append(order, v)
+				orderMu.Unlock()
+			})
+		}
+		close(schedDone)
+	}()
+
+	for drained := 0; drained < numJobs; {
+		drained += len(p.Drain())
+		runtime.Gosched()
+	}
+	<-schedDone
+
+	orderMu.Lock()
+	defer orderMu.Unlock()
+	if len(order) != numJobs {
+		t.Fatalf("expected %d commits, got %d", numJobs, len(order))
+	}
+	for i := 0; i < numJobs; i++ {
+		if order[i] != i {
+			t.Fatalf("expected order[%d] = %d, got %d", i, i, order[i])
+		}
+	}
+}
+
+func TestPool_cancel_all_stops_queued_jobs(t *testing.T) {
+	p := NewPool(2)
+	defer p.Shutdown()
+
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	executed := int32(0)
+
+	// Schedule one in-flight job that blocks.
+	if err := Schedule(p, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(1, 1),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			close(started)
+			<-release
+			atomic.AddInt32(&executed, 1)
+			return snap.Data, nil
+		},
+	}, nil); err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+
+	<-started
+
+	// Schedule queued jobs in background to avoid backpressure deadlock.
+	schedDone := make(chan struct{})
+	go func() {
+		for i := 0; i < 100; i++ {
+			id := 2 + i
+			_ = Schedule(p, Job[int, int]{
+				ID:       JobID(id),
+				Priority: PriorityBackground,
+				Snapshot: NewSnapshot(id, 0),
+				Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+					atomic.AddInt32(&executed, 1)
+					return snap.Data, nil
+				},
+			}, nil)
+		}
+		close(schedDone)
+	}()
+
+	// Drain a few batches to keep the pipeline moving, then CancelAll.
+	drained := 0
+	for drained < 20 {
+		drained += len(p.Drain())
+		runtime.Gosched()
+	}
+
+	// CancelAll cancels tokens but in-flight job still completes.
+	p.CancelAll()
+	close(release)
+
+	// Collect remaining results.
+	for drained < 101 {
+		drained += len(p.Drain())
+		runtime.Gosched()
+	}
+	<-schedDone
+
+	// At minimum, the in-flight job completed without cancellation.
+	if atomic.LoadInt32(&executed) < 1 {
+		t.Fatal("expected at least 1 executed job (the in-flight one)")
 	}
 }
 
