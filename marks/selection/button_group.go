@@ -1,6 +1,7 @@
 package selection
 
 import (
+	"reflect"
 	"math"
 	"strings"
 
@@ -1772,8 +1773,18 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	if runtime == nil {
 		return nil
 	}
-	if services, ok := runtime.(facet.RuntimeServices); ok {
-		return services
+	services, ok := runtime.(facet.RuntimeServices)
+	if !ok {
+		return nil
 	}
-	return nil
+	// reflect check catches typed nil (non-nil interface wrapping nil *Runtime).
+	// Only applicable for nil-able kinds (ptr, slice, map, chan, func, iface).
+	v := reflect.ValueOf(services)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		if v.IsNil() {
+			return nil
+		}
+	}
+	return services
 }

@@ -1,6 +1,7 @@
 package structure
 
 import (
+	"reflect"
 	"math"
 	"strings"
 
@@ -566,12 +567,8 @@ func (c *Card) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.C
 	if runtime == nil {
 		return theme.StyleContext{Tokens: c.cachedTokens}, c.cachedRecipe
 	}
-	type styleTree interface {
-		RootStyleContext() any
-		FacetByID(id facet.FacetID) facet.FacetImpl
-	}
-	if tree, ok := runtime.(styleTree); ok {
-		if store := theme.NearestStyleContext(tree, c.Base().ID()); store != nil {
+	if rt, ok := runtime.(ProjectionRuntime); ok {
+		if store := resolveStyleContext(rt, c.Base().ID()); store != nil {
 			style := store.Get()
 			slots, _ := uistruct.ResolveCardRecipe(style)
 			return style, slots
@@ -623,10 +620,20 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	if runtime == nil {
 		return nil
 	}
-	if services, ok := runtime.(facet.RuntimeServices); ok {
-		return services
+	services, ok := runtime.(facet.RuntimeServices)
+	if !ok {
+		return nil
 	}
-	return nil
+	// reflect check catches typed nil (non-nil interface wrapping nil *Runtime).
+	// Only applicable for nil-able kinds (ptr, slice, map, chan, func, iface).
+	v := reflect.ValueOf(services)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+		if v.IsNil() {
+			return nil
+		}
+	}
+	return services
 }
 
 func isTransparentMaterial(material theme.Material) bool {
