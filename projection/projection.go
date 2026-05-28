@@ -382,6 +382,12 @@ func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 	return node
 }
 
+// Safety: walkNode is called from the runtime goroutine during the projection
+// phase (phase 8 of the frame pipeline). The facet tree is read-only during
+// this phase — signal delivery (phase 6) and layout (phase 7) both complete
+// before projection begins. The runtime sets projectionInProgress to true at
+// the start of phase 8 and false at the end; any store mutation during
+// projection panics via store.SetProjectionActiveCheck.
 func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags, partition *ProjectionOutputPartition) {
 	if node == nil || node.base == nil || node.impl == nil {
 		return

@@ -147,7 +147,6 @@ func (d *DevFS) Close() error {
 		d.mu.Lock()
 		d.watchClosed = true
 		watcher := d.watcher
-		d.watcher = nil
 		d.mu.Unlock()
 		if watcher != nil {
 			err = watcher.Close()

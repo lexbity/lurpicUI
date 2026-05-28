@@ -136,6 +136,7 @@ func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 	s.mu.Lock()
 	previous, ok := s.entries[key]
 	if s.entries == nil {
@@ -165,6 +166,7 @@ func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 	s.mu.Lock()
 	value, ok := s.entries[key]
 	if !ok {
@@ -195,6 +197,7 @@ func (s *MapStore[K, V]) clear(tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 	s.mu.Lock()
 	if len(s.entries) == 0 {
 		s.mu.Unlock()

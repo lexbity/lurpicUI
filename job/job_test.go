@@ -8,15 +8,11 @@ import (
 	"testing"
 	"time"
 
-	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
 func TestMain(m *testing.M) {
-	syncutil.ResetRuntimeThreadForTest()
-	syncutil.RegisterRuntimeThread()
 	code := m.Run()
-	syncutil.ResetRuntimeThreadForTest()
 	os.Exit(code)
 }
 
@@ -555,6 +551,83 @@ func TestBindJob_afterCommit_not_called_on_error(t *testing.T) {
 	}
 	if onCommitCalled || afterCommitCalled {
 		t.Fatalf("callbacks should not run on error: commit=%v after=%v", onCommitCalled, afterCommitCalled)
+	}
+}
+
+func TestPool_workers_exit_cleanly_when_results_full(t *testing.T) {
+	workerCount := 4
+	p := NewPool(workerCount)
+
+	// Schedule enough jobs to overflow the results channel (capacity = workerCount * 4).
+	// Run scheduling in a background goroutine so the test goroutine can call Shutdown
+	// even if Schedule blocks on a full background queue (which happens once all
+	// workers are stuck on the full results channel).
+	jobCount := workerCount * 20
+	schedDone := make(chan struct{})
+	go func() {
+		for i := 0; i < jobCount; i++ {
+			id := i
+			_ = Schedule(p, Job[int, int]{
+				ID:       JobID(id),
+				Priority: PriorityBackground,
+				Snapshot: NewSnapshot(0),
+				Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+					return id, nil
+				},
+			}, nil)
+		}
+		close(schedDone)
+	}()
+
+	// Shutdown will close p.shutdown and cancel p.ctx, unblocking any worker
+	// stuck on a full results channel send, and any Schedule stuck on a full
+	// background queue.
+	p.Shutdown()
+	<-schedDone
+}
+
+func TestPool_worker_restarts_after_panic(t *testing.T) {
+	p := NewPool(1)
+	defer p.Shutdown()
+
+	err := Schedule(p, Job[int, int]{
+		ID:       1,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(0),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			panic("simulated worker panic")
+		},
+	}, nil)
+	if err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+
+	// The panicked job produces no result. Wait briefly for recovery, then
+	// verify a second job completes — proves the worker restarted.
+	time.Sleep(50 * time.Millisecond)
+
+	commits := int32(0)
+	err = Schedule(p, Job[int, int]{
+		ID:       2,
+		Priority: PriorityBackground,
+		Snapshot: NewSnapshot(42),
+		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
+			return snap.Data, nil
+		},
+	}, func(v int) {
+		if v != 42 {
+			t.Fatalf("got %d", v)
+		}
+		atomic.AddInt32(&commits, 1)
+	})
+	if err != nil {
+		t.Fatalf("schedule: %v", err)
+	}
+
+	waitForResults(t, p, 1)
+	_ = p.Drain()
+	if atomic.LoadInt32(&commits) != 1 {
+		t.Fatal("expected commit from recovered worker")
 	}
 }
 

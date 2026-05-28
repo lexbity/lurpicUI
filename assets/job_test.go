@@ -34,10 +34,7 @@ func (s captureScheduler) Schedule(job *AssetLoadJob) error {
 }
 
 func (s *blockingSource) ReadLOD(id AssetID, lod int) ([]byte, error) {
-	if s.started != nil {
-		close(s.started)
-		s.started = nil
-	}
+	close(s.started)
 	<-s.release
 	return append([]byte(nil), s.payload...), nil
 }

@@ -68,6 +68,7 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 
 	s.mu.Lock()
 	old := s.value

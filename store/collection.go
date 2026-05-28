@@ -163,6 +163,7 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 	id := s.identify(item)
 	s.mu.Lock()
 	if idx, ok := s.index[id]; ok {
@@ -213,6 +214,7 @@ func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 	s.mu.Lock()
 	idx, ok := s.index[id]
 	if !ok || idx < 0 || idx >= len(s.items) {
@@ -248,6 +250,7 @@ func (s *CollectionStore[T]) update(item T, tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 	id := s.identify(item)
 	s.mu.Lock()
 	idx, ok := s.index[id]
@@ -280,6 +283,7 @@ func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
 	if s == nil {
 		return
 	}
+	assertNotProjecting()
 	s.mu.Lock()
 	s.items = append([]T(nil), items...)
 	s.index = make(map[ItemID]int, len(items))

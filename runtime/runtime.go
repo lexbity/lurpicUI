@@ -6,6 +6,7 @@ import (
 	goruntime "runtime"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/assets"
@@ -84,6 +85,8 @@ type Runtime struct {
 	shutdownMu sync.Mutex
 	started    bool
 	stopping   bool
+
+	projectionInProgress atomic.Bool
 }
 
 // New constructs a runtime with the provided config and roots.
@@ -146,6 +149,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if err := rt.validateWindowBindings(); err != nil {
 		return nil, err
 	}
+	store.SetProjectionActiveCheck(func() bool {
+		return rt.projectionInProgress.Load()
+	})
 	return rt, nil
 }
 
@@ -400,11 +406,15 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 	rt.syncFocusTraps()
 	rt.projectionSystem.SetRuntime(rt)
+
+	rt.projectionInProgress.Store(true)
 	frameOut := rt.projectionSystem.Run(rt.root, projection.FrameInfo{
 		Number:    rt.frameNumber,
 		DeltaTime: now.Sub(rt.frameTimer.lastFrame),
 		WallTime:  now,
 	})
+	rt.projectionInProgress.Store(false)
+
 	stats.ProjectDuration = time.Since(projStart)
 	stats.ProjectedFacets = rt.projectionSystem.ProjectedFacets
 	stats.CacheHits = rt.projectionSystem.CacheHits
@@ -972,7 +982,13 @@ func (rt *Runtime) drainJobResults() (committed int, discarded int) {
 
 func (rt *Runtime) deliverSignals() {
 	const maxIterations = 16
-	for i := 0; i < maxIterations && len(rt.signalQueue) > 0; i++ {
+	for i := 0; ; i++ {
+		if len(rt.signalQueue) == 0 {
+			return
+		}
+		if i >= maxIterations {
+			panic("runtime: signal delivery exceeded 16 iterations in one frame — likely a signal cycle; check store mutation inside signal handlers")
+		}
 		batch := rt.signalQueue
 		rt.signalQueue = rt.signalQueue[:0]
 		for _, s := range batch {

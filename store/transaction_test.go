@@ -1,6 +1,8 @@
 package store
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -164,6 +166,33 @@ func TestSignalQueueHook_defers_until_invoked_and_nil_restores_immediate(t *test
 	enqueueSignal(func() { called++ })
 	if called != 2 {
 		t.Fatalf("called after restore = %d", called)
+	}
+}
+
+func TestTransaction_commit_is_atomic_under_concurrent_access(t *testing.T) {
+	tx := &Transaction{}
+	var successes atomic.Int64
+	var panics atomic.Int64
+	var wg sync.WaitGroup
+	for i := 0; i < 10; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			defer func() {
+				if r := recover(); r != nil {
+					panics.Add(1)
+				}
+			}()
+			tx.Commit()
+			successes.Add(1)
+		}()
+	}
+	wg.Wait()
+	if successes.Load() != 1 {
+		t.Fatalf("expected exactly 1 successful commit, got %d", successes.Load())
+	}
+	if panics.Load() != 9 {
+		t.Fatalf("expected 9 panics from concurrent commits, got %d", panics.Load())
 	}
 }
 

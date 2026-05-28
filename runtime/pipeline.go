@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"sync"
 
 	"codeburg.org/lexbit/lurpicui/render"
 )
@@ -17,6 +18,7 @@ type RenderPipeline struct {
 	uploadQueue *render.UploadQueue
 	handoffCh   chan frameHandoff
 	fatalCh     chan error
+	destroyOnce sync.Once
 }
 
 type renderThread struct {
@@ -83,7 +85,9 @@ func (p *RenderPipeline) destroy() {
 	if p == nil {
 		return
 	}
-	close(p.handoffCh)
+	p.destroyOnce.Do(func() {
+		close(p.handoffCh)
+	})
 }
 
 var errPipelineClosed = errors.New("runtime: render pipeline closed")

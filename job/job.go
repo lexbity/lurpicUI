@@ -355,7 +355,13 @@ func (p *Pool) Shutdown() {
 }
 
 func (p *Pool) worker() {
-	defer p.wg.Done()
+	defer func() {
+		p.wg.Done()
+		if r := recover(); r != nil {
+			p.wg.Add(1)
+			go p.worker()
+		}
+	}()
 	for {
 		p.pauseMu.Lock()
 		for p.paused {

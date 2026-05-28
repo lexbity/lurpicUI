@@ -1,5 +1,3 @@
-//go:build lurpic_debug
-
 package store
 
 import (
