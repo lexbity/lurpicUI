@@ -51,7 +51,7 @@ func DefaultEasingRegistry() *EasingRegistry {
 
 // Register stores or replaces an easing function.
 func (r *EasingRegistry) Register(name string, fn EasingFunc) {
-	if r == nil || fn == nil {
+	if fn == nil {
 		return
 	}
 	r.mu.Lock()
@@ -64,9 +64,6 @@ func (r *EasingRegistry) Register(name string, fn EasingFunc) {
 
 // Get returns the easing function for the supplied name.
 func (r *EasingRegistry) Get(name string) (EasingFunc, bool) {
-	if r == nil {
-		return nil, false
-	}
 	r.mu.RLock()
 	fn, ok := r.funcs[normalizeEasingName(name)]
 	r.mu.RUnlock()

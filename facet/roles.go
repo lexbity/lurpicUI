@@ -23,6 +23,7 @@ type RenderRole struct {
 }
 
 // Collect appends draw commands for the given bounds.
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *RenderRole) Collect(bounds gfx.Rect) *gfx.CommandList {
 	if r == nil {
 		return nil
@@ -281,6 +282,7 @@ type TickRole struct {
 }
 
 // RequestTick keeps the role active for the next frame.
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *TickRole) RequestTick() {
 	if r == nil {
 		return
@@ -294,6 +296,7 @@ func (r *TickRole) IsActive() bool {
 }
 
 // Reset clears the active flag. The runtime calls this once per frame.
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *TickRole) Reset() {
 	if r == nil {
 		return

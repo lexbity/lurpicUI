@@ -118,9 +118,6 @@ func (t *FrameTimer) RequestFrame() {
 
 // FrameInfo constructs projection timing info.
 func (t *FrameTimer) FrameInfo(n uint64, now time.Time) projection.FrameInfo {
-	if t == nil {
-		return projection.FrameInfo{Number: n, WallTime: now}
-	}
 	t.mu.Lock()
 	last := t.lastFrame
 	t.mu.Unlock()

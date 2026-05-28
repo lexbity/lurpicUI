@@ -7,9 +7,6 @@ import (
 
 // ClearInputState resets pointer, touch, hover, focus, and pending input state.
 func (rt *Runtime) ClearInputState() {
-	if rt == nil {
-		return
-	}
 	if rt.inputSystem != nil {
 		rt.inputSystem.ClearPointerState()
 		rt.inputSystem.ClearFocus()
@@ -23,7 +20,7 @@ func (rt *Runtime) ClearInputState() {
 
 // SetFocus grants focus to a concrete facet implementation.
 func (rt *Runtime) SetFocus(target facet.FacetImpl) {
-	if rt == nil || rt.focusManager == nil {
+	if rt.focusManager == nil {
 		return
 	}
 	if rt.focusManager.SetFocus(target) {
@@ -33,9 +30,6 @@ func (rt *Runtime) SetFocus(target facet.FacetImpl) {
 
 // ClearFocus removes the current focus target.
 func (rt *Runtime) ClearFocus() {
-	if rt == nil {
-		return
-	}
 	if rt.focusManager != nil {
 		rt.focusManager.ClearFocus()
 	}
@@ -48,7 +42,7 @@ func (rt *Runtime) ClearFocus() {
 
 // FocusedID returns the currently focused facet ID, if any.
 func (rt *Runtime) FocusedID() facet.FacetID {
-	if rt == nil || rt.focusManager == nil {
+	if rt.focusManager == nil {
 		return 0
 	}
 	return rt.focusManager.Focused()
@@ -56,9 +50,6 @@ func (rt *Runtime) FocusedID() facet.FacetID {
 
 // ResizeWindow updates the platform window size if supported and marks the tree dirty.
 func (rt *Runtime) ResizeWindow(width, height int) {
-	if rt == nil {
-		return
-	}
 	if rt.window != nil {
 		if resizable, ok := rt.window.(interface{ Resize(int, int) }); ok {
 			resizable.Resize(width, height)
@@ -74,17 +65,11 @@ func (rt *Runtime) ResizeWindow(width, height int) {
 
 // WindowSize returns the current window size.
 func (rt *Runtime) WindowSize() (int, int) {
-	if rt == nil {
-		return 0, 0
-	}
 	return rt.windowSize()
 }
 
 // UpdateIMECursorRect allows callers to refresh the IME cursor rectangle after state changes.
 func (rt *Runtime) UpdateIMECursorRect() {
-	if rt == nil {
-		return
-	}
 	rt.updateIMECursorRect()
 }
 

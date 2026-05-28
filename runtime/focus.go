@@ -8,7 +8,7 @@ import (
 )
 
 func (rt *Runtime) syncFocusTraps() {
-	if rt == nil || rt.focusManager == nil {
+	if rt.focusManager == nil {
 		return
 	}
 	if rt.layerRegistry == nil || len(rt.projectionLayers) == 0 {

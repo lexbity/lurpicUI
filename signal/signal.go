@@ -23,17 +23,11 @@ func NewSignal[T any](name string) Signal[T] {
 
 // Name returns the diagnostics name associated with the signal.
 func (s *Signal[T]) Name() string {
-	if s == nil {
-		return ""
-	}
 	return s.name
 }
 
 // Subscribe registers a handler and returns its subscription ID.
 func (s *Signal[T]) Subscribe(handler func(T)) SubscriptionID {
-	if s == nil {
-		return 0
-	}
 	s.nextID++
 	id := s.nextID
 	s.subscribers = append(s.subscribers, subscription[T]{id: id, handler: handler})
@@ -42,7 +36,7 @@ func (s *Signal[T]) Subscribe(handler func(T)) SubscriptionID {
 
 // Unsubscribe removes a handler by ID.
 func (s *Signal[T]) Unsubscribe(id SubscriptionID) {
-	if s == nil || id == 0 {
+	if id == 0 {
 		return
 	}
 	for i := range s.subscribers {
@@ -55,20 +49,17 @@ func (s *Signal[T]) Unsubscribe(id SubscriptionID) {
 
 // UnsubscribeAll removes all handlers.
 func (s *Signal[T]) UnsubscribeAll() {
-	if s == nil {
-		return
-	}
 	s.subscribers = s.subscribers[:0]
 }
 
 // HasSubscribers reports whether any handlers are currently registered.
 func (s *Signal[T]) HasSubscribers() bool {
-	return s != nil && len(s.subscribers) > 0
+	return len(s.subscribers) > 0
 }
 
 // Emit delivers value to all subscribers in registration order.
 func (s *Signal[T]) Emit(value T) {
-	if s == nil || len(s.subscribers) == 0 {
+	if len(s.subscribers) == 0 {
 		return
 	}
 	snapshot := append([]subscription[T](nil), s.subscribers...)

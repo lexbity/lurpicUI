@@ -16,7 +16,7 @@ import (
 
 // HitProbe returns a fresh hit probe for the current hit map.
 func (rt *Runtime) HitProbe() *diagnostics.HitProbe {
-	if rt == nil || rt.projectionSystem == nil {
+	if rt.projectionSystem == nil {
 		return nil
 	}
 	return diagnostics.NewHitProbe(rt.root, rt.layeredHitMap(rt.projectionSystem.CurrentHitMap()))
@@ -24,39 +24,27 @@ func (rt *Runtime) HitProbe() *diagnostics.HitProbe {
 
 // HitTrace returns the most recent hit traversal trace.
 func (rt *Runtime) HitTrace() diagnostics.HitTestTrace {
-	if rt == nil {
-		return diagnostics.HitTestTrace{}
-	}
 	return rt.lastHitTrace
 }
 
 // FacetByID returns the facet implementation with the given ID, if present.
 func (rt *Runtime) FacetByID(id facet.FacetID) facet.FacetImpl {
-	if rt == nil {
-		return nil
-	}
 	return rt.findFacetByID(rt.root, id)
 }
 
 // RootStyleContext returns the application root style context, if one has been installed.
 func (rt *Runtime) RootStyleContext() any {
-	if rt == nil {
-		return nil
-	}
 	return rt.rootStyleContext
 }
 
 // IconResolver exposes the configured icon resolver to mark implementations.
 func (rt *Runtime) IconResolver() IconResolver {
-	if rt == nil {
-		return nil
-	}
 	return rt.config.IconResolver
 }
 
 // ResolveIcon resolves an icon asset through the configured runtime resolver.
 func (rt *Runtime) ResolveIcon(ref string) (IconAsset, bool) {
-	if rt == nil || rt.config.IconResolver == nil {
+	if rt.config.IconResolver == nil {
 		return IconAsset{}, false
 	}
 	asset, ok := rt.config.IconResolver.ResolveIcon(ref)
@@ -68,25 +56,16 @@ func (rt *Runtime) ResolveIcon(ref string) (IconAsset, bool) {
 
 // AssetManager exposes the configured runtime asset manager, if any.
 func (rt *Runtime) AssetManager() assets.Manager {
-	if rt == nil {
-		return nil
-	}
 	return rt.assetManager
 }
 
 // AssetRegistry exposes the configured asset registry, if any.
 func (rt *Runtime) AssetRegistry() *assets.AssetRegistryStore {
-	if rt == nil {
-		return nil
-	}
 	return rt.config.AssetRegistry
 }
 
 // SetRootStyleContext installs the root style context object used by tree helpers.
 func (rt *Runtime) SetRootStyleContext(ctx any) {
-	if rt == nil {
-		return
-	}
 	rt.rootStyleSubs.Release()
 	rt.rootStyleContext = ctx
 	if store, ok := ctx.(*theme.StyleContextStore); ok && store != nil {
@@ -105,9 +84,6 @@ func (rt *Runtime) SetRootStyleContext(ctx any) {
 
 // EnableHitTrace toggles capture of the most recent hit traversal trace.
 func (rt *Runtime) EnableHitTrace(enabled bool) {
-	if rt == nil {
-		return
-	}
 	rt.hitTraceEnabled = enabled
 	if !enabled {
 		rt.lastHitTrace = diagnostics.HitTestTrace{}
@@ -116,7 +92,7 @@ func (rt *Runtime) EnableHitTrace(enabled bool) {
 
 // HitTest resolves the topmost facet hit at the given screen point.
 func (rt *Runtime) HitTest(screenPos gfx.Point) facet.FacetID {
-	if rt == nil || rt.projectionSystem == nil {
+	if rt.projectionSystem == nil {
 		if rt != nil && rt.hitTraceEnabled {
 			rt.lastHitTrace = diagnostics.HitTestTrace{}
 		}
@@ -137,7 +113,7 @@ func (rt *Runtime) HitTest(screenPos gfx.Point) facet.FacetID {
 }
 
 func (rt *Runtime) layeredHitMap(hitMap *projection.HitMap) *projection.HitMap {
-	if rt == nil || hitMap == nil {
+	if hitMap == nil {
 		return hitMap
 	}
 	entries := hitMap.Entries()
@@ -197,7 +173,7 @@ func (rt *Runtime) layeredHitMap(hitMap *projection.HitMap) *projection.HitMap {
 }
 
 func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point) (facet.FacetID, diagnostics.HitTestTrace) {
-	if rt == nil || hitMap == nil {
+	if hitMap == nil {
 		return 0, diagnostics.HitTestTrace{}
 	}
 	entries := hitMap.Entries()

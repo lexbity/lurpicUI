@@ -42,9 +42,6 @@ func NewFocusManager() *FocusManager {
 
 // SetFocus grants focus to the given facet, revoking it from the current holder.
 func (m *FocusManager) SetFocus(target FacetImpl) bool {
-	if m == nil {
-		return false
-	}
 	if target == nil {
 		m.ClearFocus()
 		return true
@@ -77,9 +74,6 @@ func (m *FocusManager) SetFocus(target FacetImpl) bool {
 
 // ClearFocus removes focus from any currently focused facet.
 func (m *FocusManager) ClearFocus() {
-	if m == nil {
-		return
-	}
 	if m.focusedImpl != nil {
 		if role := m.focusedImpl.Base().FocusRole(); role != nil && role.OnFocusLost != nil {
 			role.OnFocusLost()
@@ -91,23 +85,17 @@ func (m *FocusManager) ClearFocus() {
 
 // Focused returns the currently focused FacetID, or 0 if none.
 func (m *FocusManager) Focused() FacetID {
-	if m == nil {
-		return 0
-	}
 	return m.focused
 }
 
 // FocusedImpl returns the currently focused facet implementation, if any.
 func (m *FocusManager) FocusedImpl() FacetImpl {
-	if m == nil {
-		return nil
-	}
 	return m.focusedImpl
 }
 
 // ActiveTrap returns the topmost focus-trap scope, if any.
 func (m *FocusManager) ActiveTrap() FacetID {
-	if m == nil || len(m.traps) == 0 {
+	if len(m.traps) == 0 {
 		return 0
 	}
 	return m.traps[len(m.traps)-1].scope
@@ -115,9 +103,6 @@ func (m *FocusManager) ActiveTrap() FacetID {
 
 // SyncFocusTraps updates the active trap stack to match the provided scopes.
 func (m *FocusManager) SyncFocusTraps(traps []FocusTrapState) {
-	if m == nil {
-		return
-	}
 	normalized := make([]focusTrapFrame, 0, len(traps))
 	seen := make(map[FacetID]struct{}, len(traps))
 	for _, trap := range traps {
@@ -148,7 +133,7 @@ func (m *FocusManager) SyncFocusTraps(traps []FocusTrapState) {
 
 // TabNext moves focus to the next focusable facet in tab order.
 func (m *FocusManager) TabNext() {
-	if m == nil || len(m.tabOrder) == 0 {
+	if len(m.tabOrder) == 0 {
 		return
 	}
 	order := m.filteredTabOrder()
@@ -165,7 +150,7 @@ func (m *FocusManager) TabNext() {
 
 // TabPrev moves focus to the previous focusable facet in tab order.
 func (m *FocusManager) TabPrev() {
-	if m == nil || len(m.tabOrder) == 0 {
+	if len(m.tabOrder) == 0 {
 		return
 	}
 	order := m.filteredTabOrder()
@@ -183,9 +168,6 @@ func (m *FocusManager) TabPrev() {
 // RebuildTabOrder walks the tree and re-collects tab order.
 // Called by the runtime after layout and projection each frame.
 func (m *FocusManager) RebuildTabOrder(root FacetImpl) {
-	if m == nil {
-		return
-	}
 	m.tabOrder = m.tabOrder[:0]
 	m.byID = make(map[FacetID]FacetImpl)
 	if root == nil {
@@ -254,9 +236,6 @@ func (m *FocusManager) RebuildTabOrder(root FacetImpl) {
 }
 
 func (m *FocusManager) filteredTabOrder() []FacetID {
-	if m == nil {
-		return []FacetID{}
-	}
 	if len(m.traps) == 0 {
 		return m.tabOrder
 	}
@@ -270,7 +249,7 @@ func (m *FocusManager) filteredTabOrder() []FacetID {
 }
 
 func (m *FocusManager) indexOfFocused(order []FacetID) int {
-	if m == nil || m.focused == 0 {
+	if m.focused == 0 {
 		return -1
 	}
 	for i, id := range order {
@@ -282,7 +261,7 @@ func (m *FocusManager) indexOfFocused(order []FacetID) int {
 }
 
 func (m *FocusManager) focusByID(id FacetID) {
-	if m == nil || id == 0 {
+	if id == 0 {
 		return
 	}
 	if impl, ok := m.byID[id]; ok {
@@ -291,7 +270,7 @@ func (m *FocusManager) focusByID(id FacetID) {
 }
 
 func (m *FocusManager) pushTrap(frame focusTrapFrame) {
-	if m == nil || frame.scope == 0 {
+	if frame.scope == 0 {
 		return
 	}
 	frame.restoreID = m.focused
@@ -306,7 +285,7 @@ func (m *FocusManager) pushTrap(frame focusTrapFrame) {
 }
 
 func (m *FocusManager) popTrap() {
-	if m == nil || len(m.traps) == 0 {
+	if len(m.traps) == 0 {
 		return
 	}
 	frame := m.traps[len(m.traps)-1]
@@ -342,9 +321,6 @@ func (m *FocusManager) popTrap() {
 }
 
 func (m *FocusManager) firstFocusableInActiveTraps() (FacetImpl, bool) {
-	if m == nil {
-		return nil, false
-	}
 	for _, id := range m.tabOrder {
 		if impl, ok := m.byID[id]; ok && m.canFocus(impl) {
 			return impl, true
@@ -354,9 +330,6 @@ func (m *FocusManager) firstFocusableInActiveTraps() (FacetImpl, bool) {
 }
 
 func (m *FocusManager) isAllowedInActiveTraps(base *Facet) bool {
-	if m == nil {
-		return false
-	}
 	if len(m.traps) == 0 {
 		return true
 	}
@@ -369,7 +342,7 @@ func (m *FocusManager) isAllowedInActiveTraps(base *Facet) bool {
 }
 
 func (m *FocusManager) isAllowedInActiveTrapsByID(id FacetID) bool {
-	if m == nil || id == 0 {
+	if id == 0 {
 		return false
 	}
 	impl, ok := m.byID[id]
@@ -395,7 +368,7 @@ func (m *FocusManager) isWithinScope(base *Facet, scope FacetID) bool {
 }
 
 func (m *FocusManager) isFocusable(target FacetImpl) bool {
-	if m == nil || target == nil || target.Base() == nil {
+	if target == nil || target.Base() == nil {
 		return false
 	}
 	role := target.Base().FocusRole()
@@ -410,7 +383,7 @@ func (m *FocusManager) isFocusable(target FacetImpl) bool {
 }
 
 func (m *FocusManager) canFocus(target FacetImpl) bool {
-	if m == nil || !m.isFocusable(target) {
+	if !m.isFocusable(target) {
 		return false
 	}
 	return m.isAllowedInActiveTraps(target.Base())

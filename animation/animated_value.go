@@ -48,25 +48,17 @@ func NewAnimatedValue[T Interpolatable[T]](source func() T, spec TransitionSpec,
 
 // Current returns the rendered value.
 func (av *AnimatedValue[T]) Current() T {
-	if av == nil {
-		var zero T
-		return zero
-	}
 	return av.current
 }
 
 // Target returns the current authoritative target value.
 func (av *AnimatedValue[T]) Target() T {
-	if av == nil {
-		var zero T
-		return zero
-	}
 	return av.target
 }
 
 // Progress reports the current transition progress.
 func (av *AnimatedValue[T]) Progress() float32 {
-	if av == nil || !av.started || !av.animating {
+	if !av.started || !av.animating {
 		return 1
 	}
 	return av.progress
@@ -74,14 +66,11 @@ func (av *AnimatedValue[T]) Progress() float32 {
 
 // IsAnimating reports whether a transition is in flight.
 func (av *AnimatedValue[T]) IsAnimating() bool {
-	return av != nil && av.animating
+	return av.animating
 }
 
 // Tick advances the animation and reports whether the rendered value changed.
 func (av *AnimatedValue[T]) Tick(dt time.Duration) bool {
-	if av == nil {
-		return false
-	}
 	observed := av.observeSource()
 	if !av.started {
 		av.seed(observed)
@@ -98,9 +87,6 @@ func (av *AnimatedValue[T]) Tick(dt time.Duration) bool {
 
 // SnapToTarget synchronizes the current rendered value with the source.
 func (av *AnimatedValue[T]) SnapToTarget() {
-	if av == nil {
-		return
-	}
 	observed := av.observeSource()
 	av.current = observed
 	av.target = observed
@@ -116,14 +102,11 @@ func (av *AnimatedValue[T]) SnapToTarget() {
 
 // SetSpec updates the default transition spec for future retargets.
 func (av *AnimatedValue[T]) SetSpec(spec TransitionSpec) {
-	if av == nil {
-		return
-	}
 	av.spec = normalizeSpec(spec)
 }
 
 func (av *AnimatedValue[T]) observeSource() T {
-	if av == nil || av.source == nil {
+	if av.source == nil {
 		var zero T
 		return zero
 	}

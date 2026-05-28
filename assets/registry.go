@@ -64,9 +64,6 @@ func NewAssetRegistryStore() *AssetRegistryStore {
 
 // GlobalVersion returns the current store version.
 func (r *AssetRegistryStore) GlobalVersion() uint64 {
-	if r == nil {
-		return 0
-	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	return r.globalVersion
@@ -74,9 +71,6 @@ func (r *AssetRegistryStore) GlobalVersion() uint64 {
 
 // GetOrCreate returns the entry for id, creating it if needed.
 func (r *AssetRegistryStore) GetOrCreate(id AssetID) *RegistryEntry {
-	if r == nil {
-		return nil
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.getOrCreateLocked(id)
@@ -84,9 +78,6 @@ func (r *AssetRegistryStore) GetOrCreate(id AssetID) *RegistryEntry {
 
 // Get returns the entry for id, or nil if it does not exist.
 func (r *AssetRegistryStore) Get(id AssetID) *RegistryEntry {
-	if r == nil {
-		return nil
-	}
 	r.mu.RLock()
 	entry := r.entries[id]
 	r.mu.RUnlock()
@@ -95,7 +86,7 @@ func (r *AssetRegistryStore) Get(id AssetID) *RegistryEntry {
 
 // SetLODReady commits a decoded LOD result.
 func (r *AssetRegistryStore) SetLODReady(id AssetID, lod int, handle DecodedAsset, loadNs int64) {
-	if r == nil || lod < 0 || lod >= len((&RegistryEntry{}).LODHandles) {
+	if lod < 0 || lod >= len((&RegistryEntry{}).LODHandles) {
 		return
 	}
 
@@ -127,7 +118,7 @@ func (r *AssetRegistryStore) SetLODReady(id AssetID, lod int, handle DecodedAsse
 
 // ClearLOD clears one LOD result and updates state/version bookkeeping.
 func (r *AssetRegistryStore) ClearLOD(id AssetID, lod int) {
-	if r == nil || lod < 0 || lod >= len((&RegistryEntry{}).LODHandles) {
+	if lod < 0 || lod >= len((&RegistryEntry{}).LODHandles) {
 		return
 	}
 
@@ -159,9 +150,6 @@ func (r *AssetRegistryStore) ClearLOD(id AssetID, lod int) {
 
 // Invalidate clears all LODs for the given asset and emits an invalidation signal.
 func (r *AssetRegistryStore) Invalidate(id AssetID) {
-	if r == nil {
-		return
-	}
 	r.mu.Lock()
 	entry := r.getOrCreateLocked(id)
 	for i := range entry.LODHandles {
@@ -187,9 +175,6 @@ func (r *AssetRegistryStore) Invalidate(id AssetID) {
 // SubscribeAsset registers callbacks for asset ready and invalidation signals.
 // The returned release function is idempotent and decrements the asset refcount.
 func (r *AssetRegistryStore) SubscribeAsset(id AssetID, onReady func(AssetReadySignal), onInvalidated func(AssetInvalidatedSignal)) func() {
-	if r == nil {
-		return func() {}
-	}
 	r.mu.Lock()
 	entry := r.getOrCreateLocked(id)
 	for i := range entry.LODRefCounts {
@@ -245,9 +230,6 @@ func (r *AssetRegistryStore) getOrCreateLocked(id AssetID) *RegistryEntry {
 }
 
 func (r *AssetRegistryStore) signalSetLocked(id AssetID) *AssetSignalSet {
-	if r == nil {
-		return nil
-	}
 	if sig, ok := r.signals[id]; ok {
 		return sig
 	}

@@ -12,16 +12,10 @@ var (
 
 // Dispose unregisters the timeline from its tick source.
 func (tl *Timeline) Dispose() {
-	if tl == nil {
-		return
-	}
 	tl.dispose()
 }
 
 func (tl *Timeline) bind() {
-	if tl == nil {
-		return
-	}
 	if tl.runtime != nil {
 		tl.unregister = tl.runtime.RegisterPhase1TickHook(tl.tick)
 		tl.unregisterShutdown = tl.runtime.RegisterShutdownHook(tl.dispose)
@@ -42,9 +36,6 @@ func (tl *Timeline) bind() {
 }
 
 func (tl *Timeline) dispose() {
-	if tl == nil {
-		return
-	}
 	if tl.disposed {
 		return
 	}

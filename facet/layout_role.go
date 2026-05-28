@@ -496,6 +496,7 @@ type LayoutRole struct {
 }
 
 // Measure updates the cached measurement and returns the measurement result.
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *LayoutRole) Measure(ctx MeasureContext, c Constraints) MeasureResult {
 	if r == nil {
 		return MeasureResult{}
@@ -555,6 +556,7 @@ func (r *LayoutRole) Measure(ctx MeasureContext, c Constraints) MeasureResult {
 }
 
 // Arrange updates the arranged bounds and notifies the callback.
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *LayoutRole) Arrange(ctx ArrangeContext, bounds gfx.Rect) {
 	if r == nil {
 		return
@@ -593,6 +595,7 @@ func (r *LayoutRole) Arrange(ctx ArrangeContext, bounds gfx.Rect) {
 }
 
 // InvalidateCache clears the cached layout results so the next pass recomputes.
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *LayoutRole) InvalidateCache() {
 	if r == nil {
 		return
@@ -675,6 +678,7 @@ func equalFuncValue(a, b any) bool {
 	return av.Pointer() == bv.Pointer()
 }
 
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *LayoutRole) lastMeasureContextMatches(ctx MeasureContext) bool {
 	if r == nil {
 		return false
@@ -686,6 +690,7 @@ func (r *LayoutRole) lastMeasureContextMatches(ctx MeasureContext) bool {
 		r.lastMeasureWritingDirection == ctx.WritingDirection
 }
 
+// Nil role means the capability is not registered; callers treat this as a no-op.
 func (r *LayoutRole) lastArrangeContextMatches(ctx ArrangeContext) bool {
 	if r == nil {
 		return false

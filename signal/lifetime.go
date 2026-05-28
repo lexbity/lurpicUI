@@ -8,7 +8,7 @@ type Subscriptions struct {
 
 // Add registers a cleanup function for one subscription.
 func (s *Subscriptions) Add(release func()) {
-	if s == nil || release == nil {
+	if release == nil {
 		return
 	}
 	s.entries = append(s.entries, release)
@@ -17,7 +17,7 @@ func (s *Subscriptions) Add(release func()) {
 // Release unsubscribes all registered subscriptions and clears the bag.
 // It is idempotent.
 func (s *Subscriptions) Release() {
-	if s == nil || len(s.entries) == 0 {
+	if len(s.entries) == 0 {
 		return
 	}
 	entries := s.entries
@@ -31,9 +31,6 @@ func (s *Subscriptions) Release() {
 
 // Len returns the number of active subscriptions tracked.
 func (s *Subscriptions) Len() int {
-	if s == nil {
-		return 0
-	}
 	return len(s.entries)
 }
 

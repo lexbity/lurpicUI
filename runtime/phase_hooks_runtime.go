@@ -44,9 +44,6 @@ func (rt *Runtime) RegisterShutdownHook(fn func()) func() {
 	if fn == nil {
 		return func() {}
 	}
-	if rt == nil {
-		return func() {}
-	}
 	rt.shutdownHooksMu.Lock()
 	rt.shutdownHooks = append(rt.shutdownHooks, fn)
 	index := len(rt.shutdownHooks) - 1
@@ -61,9 +58,6 @@ func (rt *Runtime) RegisterShutdownHook(fn func()) func() {
 }
 
 func (rt *Runtime) runShutdownHooks() {
-	if rt == nil {
-		return
-	}
 	rt.shutdownHooksMu.RLock()
 	hooks := append([]func(){}, rt.shutdownHooks...)
 	rt.shutdownHooksMu.RUnlock()
@@ -75,9 +69,6 @@ func (rt *Runtime) runShutdownHooks() {
 }
 
 func (rt *Runtime) clearShutdownHooks() {
-	if rt == nil {
-		return
-	}
 	rt.shutdownHooksMu.Lock()
 	rt.shutdownHooks = nil
 	rt.shutdownHooksMu.Unlock()

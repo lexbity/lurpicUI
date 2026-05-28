@@ -81,7 +81,7 @@ func NewTimeline(rt *runtime.Runtime, cfg TimelineConfig) *Timeline {
 
 // Play starts or resumes playback.
 func (tl *Timeline) Play() {
-	if tl == nil || tl.State == nil {
+	if tl.State == nil {
 		return
 	}
 	tl.State.Set(PlaybackPlaying)
@@ -89,7 +89,7 @@ func (tl *Timeline) Play() {
 
 // Pause pauses playback without changing T.
 func (tl *Timeline) Pause() {
-	if tl == nil || tl.State == nil {
+	if tl.State == nil {
 		return
 	}
 	tl.State.Set(PlaybackPaused)
@@ -97,9 +97,6 @@ func (tl *Timeline) Pause() {
 
 // Stop stops playback and rewinds to zero.
 func (tl *Timeline) Stop() {
-	if tl == nil {
-		return
-	}
 	if tl.T != nil {
 		tl.T.Set(0)
 	}
@@ -111,7 +108,7 @@ func (tl *Timeline) Stop() {
 
 // Seek moves the playhead to an absolute position.
 func (tl *Timeline) Seek(t float64) {
-	if tl == nil || tl.T == nil {
+	if tl.T == nil {
 		return
 	}
 	tl.T.Set(tl.clampT(t))
@@ -119,15 +116,12 @@ func (tl *Timeline) Seek(t float64) {
 
 // SetSpeed changes playback speed.
 func (tl *Timeline) SetSpeed(speed float32) {
-	if tl == nil {
-		return
-	}
 	tl.speed = speed
 }
 
 // tick advances playback on the runtime thread.
 func (tl *Timeline) tick(dt time.Duration) {
-	if tl == nil || tl.T == nil || tl.State == nil {
+	if tl.T == nil || tl.State == nil {
 		return
 	}
 	if tl.State.Get() != PlaybackPlaying {
@@ -209,9 +203,6 @@ func (ks *KeyframeSequence[T]) AsSource(tl *Timeline) func() T {
 }
 
 func (tl *Timeline) clampT(t float64) float64 {
-	if tl == nil {
-		return 0
-	}
 	if tl.cfg.Duration <= 0 {
 		if t < 0 {
 			return 0
@@ -228,7 +219,7 @@ func (tl *Timeline) clampT(t float64) float64 {
 }
 
 func (tl *Timeline) advanceInfinite(delta float64) {
-	if tl == nil || tl.T == nil {
+	if tl.T == nil {
 		return
 	}
 	current := tl.T.Get() + delta

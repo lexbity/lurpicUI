@@ -24,7 +24,7 @@ type layoutPhaseStats struct {
 }
 
 func (rt *Runtime) resolveLayerTree() layoutPhaseStats {
-	if rt == nil || rt.root == nil {
+	if rt.root == nil {
 		return layoutPhaseStats{}
 	}
 	rt.projectionLayers = make(map[facet.FacetID]facet.ProjectionLayer)
@@ -33,9 +33,6 @@ func (rt *Runtime) resolveLayerTree() layoutPhaseStats {
 
 // EnableDiagnostics replaces the runtime diagnostics hook.
 func (rt *Runtime) EnableDiagnostics(d DiagnosticsHook) {
-	if rt == nil {
-		return
-	}
 	rt.diagMu.Lock()
 	rt.diag = d
 	rt.diagMu.Unlock()
@@ -55,7 +52,7 @@ func (rt *Runtime) EnableDiagnostics(d DiagnosticsHook) {
 
 // Inspect runs fn with a synchronous inspector snapshot.
 func (rt *Runtime) Inspect(fn func(*diagnostics.Inspector)) {
-	if rt == nil || fn == nil {
+	if fn == nil {
 		return
 	}
 	inspector := diagnostics.NewInspector(rt.root)
@@ -66,16 +63,13 @@ func (rt *Runtime) Inspect(fn func(*diagnostics.Inspector)) {
 }
 
 func (rt *Runtime) diagnosticsHook() DiagnosticsHook {
-	if rt == nil {
-		return nil
-	}
 	rt.diagMu.RLock()
 	defer rt.diagMu.RUnlock()
 	return rt.diag
 }
 
 func (rt *Runtime) findFacetByID(root facet.FacetImpl, id facet.FacetID) facet.FacetImpl {
-	if rt == nil || root == nil || root.Base() == nil {
+	if root == nil || root.Base() == nil {
 		return nil
 	}
 	stack := []facet.FacetImpl{root}
@@ -102,7 +96,7 @@ func (rt *Runtime) findFacetByID(root facet.FacetImpl, id facet.FacetID) facet.F
 }
 
 func (rt *Runtime) resolveAnchorExports() {
-	if rt == nil || rt.root == nil {
+	if rt.root == nil {
 		return
 	}
 	endGuard := syncutil.BeginAnchorExport()
@@ -117,7 +111,7 @@ func (rt *Runtime) resolveAnchorExports() {
 }
 
 func (rt *Runtime) walkAnchorExportTree(node facet.FacetImpl, visited map[facet.FacetID]struct{}) {
-	if rt == nil || node == nil || node.Base() == nil {
+	if node == nil || node.Base() == nil {
 		return
 	}
 	stack := []facet.FacetImpl{node}
@@ -139,7 +133,7 @@ func (rt *Runtime) walkAnchorExportTree(node facet.FacetImpl, visited map[facet.
 }
 
 func (rt *Runtime) reconcileAnchorExports(parent facet.FacetImpl) {
-	if rt == nil || parent == nil || parent.Base() == nil {
+	if parent == nil || parent.Base() == nil {
 		return
 	}
 	parentID := parent.Base().ID()
@@ -253,7 +247,7 @@ func anchorChangeSource(change layout.AnchorChange) string {
 }
 
 func (rt *Runtime) markAnchorChildrenDirty(anchorChildren map[layout.AnchorID][]facet.FacetID, source string) {
-	if rt == nil || len(anchorChildren) == 0 {
+	if len(anchorChildren) == 0 {
 		return
 	}
 	ids := make([]facet.FacetID, 0)
@@ -264,16 +258,13 @@ func (rt *Runtime) markAnchorChildrenDirty(anchorChildren map[layout.AnchorID][]
 }
 
 func (rt *Runtime) markFacetGroupDirty(ids []facet.FacetID, flags facet.DirtyFlags, source string) {
-	if rt == nil {
-		return
-	}
 	for _, id := range ids {
 		rt.markFacetDirtyByID(id, flags, source)
 	}
 }
 
 func (rt *Runtime) markFacetDirtyByID(id facet.FacetID, flags facet.DirtyFlags, source string) {
-	if rt == nil || id == 0 {
+	if id == 0 {
 		return
 	}
 	rt.dirtyFacets[id] |= flags
@@ -286,7 +277,7 @@ func (rt *Runtime) markFacetDirtyByID(id facet.FacetID, flags facet.DirtyFlags, 
 }
 
 func (rt *Runtime) walkLayerTree(node facet.FacetImpl, accumulated gfx.Transform) layoutPhaseStats {
-	if rt == nil || node == nil || node.Base() == nil {
+	if node == nil || node.Base() == nil {
 		return layoutPhaseStats{}
 	}
 	var stats layoutPhaseStats
@@ -324,7 +315,7 @@ func (s layoutPhaseStats) add(other layoutPhaseStats) layoutPhaseStats {
 }
 
 func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx.Transform) layoutPhaseStats {
-	if rt == nil || parent == nil || parent.Base() == nil {
+	if parent == nil || parent.Base() == nil {
 		return layoutPhaseStats{}
 	}
 	parentBounds := gfx.Rect{}
@@ -610,7 +601,7 @@ func layerRecipeVersion(desc layout.LayerDescriptor, recipe layout.ResolvedLayer
 
 // ResolveProjectionLayer returns the current projection-layer snapshot for a facet.
 func (rt *Runtime) ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool) {
-	if rt == nil || id == 0 {
+	if id == 0 {
 		return facet.ProjectionLayer{}, false
 	}
 	layer, ok := rt.projectionLayers[id]
@@ -619,7 +610,7 @@ func (rt *Runtime) ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLay
 
 // ResolveChildAttachment returns the stored attachment metadata for a child facet.
 func (rt *Runtime) ResolveChildAttachment(id facet.FacetID) (facet.Attachment, bool) {
-	if rt == nil || id == 0 || rt.childAttachments == nil {
+	if id == 0 || rt.childAttachments == nil {
 		return facet.Attachment{}, false
 	}
 	attachment, ok := rt.childAttachments[id]
@@ -628,7 +619,7 @@ func (rt *Runtime) ResolveChildAttachment(id facet.FacetID) (facet.Attachment, b
 
 // ResolveWindowBinding returns the registered window binding for a facet, if any.
 func (rt *Runtime) ResolveWindowBinding(id facet.FacetID) (layout.WindowBinding, bool) {
-	if rt == nil || id == 0 || rt.layerRegistry == nil {
+	if id == 0 || rt.layerRegistry == nil {
 		return layout.WindowBinding{}, false
 	}
 	layer, ok := rt.projectionLayers[id]
@@ -644,17 +635,11 @@ func (rt *Runtime) ResolveWindowBinding(id facet.FacetID) (layout.WindowBinding,
 
 // CurrentContentScale returns the runtime's effective content scale.
 func (rt *Runtime) CurrentContentScale() float32 {
-	if rt == nil {
-		return 0
-	}
 	return rt.contentScale
 }
 
 // CurrentInputModality returns the runtime's current input modality snapshot.
 func (rt *Runtime) CurrentInputModality() facet.InputModality {
-	if rt == nil {
-		return facet.InputModalityUnknown
-	}
 	if rt.inputSystem == nil {
 		return facet.InputModalityUnknown
 	}
@@ -663,7 +648,7 @@ func (rt *Runtime) CurrentInputModality() facet.InputModality {
 
 // LayerSnapshots returns diagnostics layer summaries for a parent facet.
 func (rt *Runtime) LayerSnapshots(parent facet.FacetID) []diagnostics.LayerSnapshot {
-	if rt == nil || parent == 0 {
+	if parent == 0 {
 		return nil
 	}
 	if rt.layerRegistry == nil {
@@ -811,7 +796,7 @@ func windowBindingString(binding layout.WindowBinding) string {
 
 // AnchorSnapshot returns diagnostics data for a parent's anchor cache.
 func (rt *Runtime) AnchorSnapshot(parent facet.FacetID) (diagnostics.AnchorSnapshot, bool) {
-	if rt == nil || parent == 0 {
+	if parent == 0 {
 		return diagnostics.AnchorSnapshot{}, false
 	}
 	cache := rt.anchorCaches[parent]

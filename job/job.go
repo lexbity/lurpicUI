@@ -19,13 +19,10 @@ type CancelToken struct {
 
 // Cancelled reports whether the token has been cancelled.
 func (t *CancelToken) Cancelled() bool {
-	return t != nil && t.cancelled.Load()
+	return t.cancelled.Load()
 }
 
 func (t *CancelToken) cancel() {
-	if t == nil {
-		return
-	}
 	t.cancelled.Store(true)
 }
 
@@ -142,9 +139,6 @@ type Pool struct {
 
 // Pause stops workers from pulling new jobs until Resume is called.
 func (p *Pool) Pause() {
-	if p == nil {
-		return
-	}
 	p.pauseMu.Lock()
 	p.paused = true
 	if p.pauseCond != nil {
@@ -155,9 +149,6 @@ func (p *Pool) Pause() {
 
 // Resume allows workers to pull jobs again.
 func (p *Pool) Resume() {
-	if p == nil {
-		return
-	}
 	p.pauseMu.Lock()
 	p.paused = false
 	if p.pauseCond != nil {
@@ -281,9 +272,6 @@ func (p *Pool) SubmitAny(j AnyJob, afterCommit func(AnyResult)) error {
 
 // Drain returns all available completed results without blocking.
 func (p *Pool) Drain() []anyResult {
-	if p == nil {
-		return nil
-	}
 	var out []anyResult
 	for {
 		select {
@@ -300,9 +288,6 @@ func (p *Pool) Drain() []anyResult {
 
 // CancelJob cancels a specific job by ID.
 func (p *Pool) CancelJob(id JobID) {
-	if p == nil {
-		return
-	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if token := p.active[id]; token != nil {
@@ -312,9 +297,6 @@ func (p *Pool) CancelJob(id JobID) {
 
 // CancelAll cancels all active and queued jobs.
 func (p *Pool) CancelAll() {
-	if p == nil {
-		return
-	}
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	for _, token := range p.active {
@@ -326,9 +308,6 @@ func (p *Pool) CancelAll() {
 
 // Shutdown cancels running jobs and waits for workers to exit.
 func (p *Pool) Shutdown() {
-	if p == nil {
-		return
-	}
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
