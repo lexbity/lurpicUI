@@ -104,21 +104,10 @@ func TestBadgeMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
-	var sawGlyphRun, sawFillPath bool
-	for _, cmd := range cmds.Commands {
-		switch cmd.(type) {
-		case gfx.DrawGlyphRun:
-			sawGlyphRun = true
-		case gfx.FillPath:
-			sawFillPath = true
-		}
-	}
-	if !sawGlyphRun {
-		t.Fatal("expected glyph commands")
-	}
-	if !sawFillPath {
-		t.Fatal("expected fill path commands")
-	}
+	var capture testkit.CommandCapture
+	capture.Capture(cmds)
+	capture.AssertHasGlyphRun(t)
+	capture.AssertHasFillPath(t)
 }
 
 func TestBadgeGoldenDefault(t *testing.T) {

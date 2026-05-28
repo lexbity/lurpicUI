@@ -9,6 +9,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -83,21 +84,11 @@ func TestButtonMeasureProjectHitAndAnchors(t *testing.T) {
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
-	var sawGlyphRun, sawFillPath bool
-	for _, cmd := range cmds.Commands {
-		switch cmd.(type) {
-		case gfx.DrawGlyphRun:
-			sawGlyphRun = true
-		case gfx.FillPath:
-			sawFillPath = true
-		}
-	}
-	if !sawGlyphRun {
-		t.Fatal("expected glyph commands for label")
-	}
-	if !sawFillPath {
-		t.Fatal("expected fill path commands for icon or surface content")
-	}
+	var capture testkit.CommandCapture
+	capture.Capture(cmds)
+	capture.AssertHasGlyphRun(t)
+	capture.AssertHasFillPath(t)
+	capture.AssertGlyphRunText(t, "Save")
 
 	anchors := btn.ExportAnchors(layoutAnchorContext(bounds))
 	for _, name := range []layout.AnchorID{"bounds_center", "bounds_top_left", "bounds_top_right", "bounds_bottom_left", "bounds_bottom_right", "baseline"} {
