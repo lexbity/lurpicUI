@@ -297,16 +297,9 @@ func (b *androidBuilder) generateManifest() error {
 	permissions = append(permissions, b.config.Android.Permissions.Required...)
 	permissions = append(permissions, b.config.Android.Permissions.Optional...)
 
-	// Parse version code from version string (e.g., "1.2.3" -> 1)
-	versionCode := 1
-	parts := strings.Split(b.config.App.Version, ".")
-	if len(parts) > 0 {
-		fmt.Sscanf(parts[0], "%d", &versionCode)
-	}
-
 	data := ManifestData{
 		Package:            b.config.App.ID,
-		VersionCode:        versionCode,
+		VersionCode:        b.config.Android.VersionCode,
 		VersionName:        b.config.App.Version,
 		MinSDK:             b.config.Android.MinSDK,
 		TargetSDK:          b.config.Android.TargetSDK,

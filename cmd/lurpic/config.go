@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -36,6 +38,7 @@ type IconConfig struct {
 type AndroidConfig struct {
 	MinSDK      int              `toml:"min_sdk"`
 	TargetSDK   int              `toml:"target_sdk"`
+	VersionCode int              `toml:"version_code"`
 	ABIs        []string         `toml:"abis"`
 	Permissions PermissionConfig `toml:"permissions"`
 	Keystore    KeystoreConfig   `toml:"keystore"`
@@ -105,6 +108,15 @@ func loadConfig(projectRoot string) (*Config, error) {
 		config.Android.ABIs = []string{"x86_64", "arm64-v8a"}
 	}
 
+	// Derive versionCode from semver if not explicitly set
+	if config.Android.VersionCode == 0 {
+		code, err := deriveVersionCode(config.App.Version)
+		if err != nil {
+			return nil, fmt.Errorf("app.version %q: %w", config.App.Version, err)
+		}
+		config.Android.VersionCode = code
+	}
+
 	// Validate required fields
 	if config.App.ID == "" {
 		return nil, fmt.Errorf("app.id is required in lurpic.toml")
@@ -114,4 +126,36 @@ func loadConfig(projectRoot string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// deriveVersionCode parses a semver string and produces a monotonic version code.
+// Format: "major.minor.patch" → major*1_000_000 + minor*1_000 + patch.
+// Returns an error if the version is not valid semver or any component exceeds 999.
+func deriveVersionCode(version string) (int, error) {
+	parts := strings.Split(version, ".")
+	if len(parts) != 3 {
+		return 0, fmt.Errorf("expected semver \"major.minor.patch\", got %q", version)
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, fmt.Errorf("major version %q is not a number", parts[0])
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, fmt.Errorf("minor version %q is not a number", parts[1])
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, fmt.Errorf("patch version %q is not a number", parts[2])
+	}
+	if major < 0 || major > 999 {
+		return 0, fmt.Errorf("major version %d out of range (0-999)", major)
+	}
+	if minor < 0 || minor > 999 {
+		return 0, fmt.Errorf("minor version %d out of range (0-999)", minor)
+	}
+	if patch < 0 || patch > 999 {
+		return 0, fmt.Errorf("patch version %d out of range (0-999)", patch)
+	}
+	return major*1_000_000 + minor*1_000 + patch, nil
 }

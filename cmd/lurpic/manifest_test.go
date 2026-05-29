@@ -132,6 +132,94 @@ func TestManifestTemplate_NoPermissions(t *testing.T) {
 	}
 }
 
+func TestDeriveVersionCode_1_2_3(t *testing.T) {
+	code, err := deriveVersionCode("1.2.3")
+	if err != nil {
+		t.Fatalf("deriveVersionCode: %v", err)
+	}
+	if code != 1002003 {
+		t.Fatalf("expected 1002003, got %d", code)
+	}
+}
+
+func TestDeriveVersionCode_1_9_0_vs_1_2_3(t *testing.T) {
+	code1, _ := deriveVersionCode("1.9.0")
+	code2, _ := deriveVersionCode("1.2.3")
+	if code1 == code2 {
+		t.Fatal("1.9.0 and 1.2.3 must produce distinct version codes")
+	}
+	if code1 != 1009000 {
+		t.Fatalf("1.9.0 expected 1009000, got %d", code1)
+	}
+	if code2 != 1002003 {
+		t.Fatalf("1.2.3 expected 1002003, got %d", code2)
+	}
+}
+
+func TestDeriveVersionCode_0_0_0(t *testing.T) {
+	code, err := deriveVersionCode("0.0.0")
+	if err != nil {
+		t.Fatalf("deriveVersionCode: %v", err)
+	}
+	if code != 0 {
+		t.Fatalf("expected 0, got %d", code)
+	}
+}
+
+func TestDeriveVersionCode_malformedTooFewParts(t *testing.T) {
+	_, err := deriveVersionCode("1.2")
+	if err == nil {
+		t.Fatal("expected error for '1.2'")
+	}
+}
+
+func TestDeriveVersionCode_malformedTooManyParts(t *testing.T) {
+	_, err := deriveVersionCode("1.2.3.4")
+	if err == nil {
+		t.Fatal("expected error for '1.2.3.4'")
+	}
+}
+
+func TestDeriveVersionCode_malformedNonNumeric(t *testing.T) {
+	_, err := deriveVersionCode("1.x.3")
+	if err == nil {
+		t.Fatal("expected error for '1.x.3'")
+	}
+}
+
+func TestDeriveVersionCode_malformedEmpty(t *testing.T) {
+	_, err := deriveVersionCode("")
+	if err == nil {
+		t.Fatal("expected error for empty string")
+	}
+}
+
+func TestDeriveVersionCode_oversizedComponent(t *testing.T) {
+	_, err := deriveVersionCode("1000.0.0")
+	if err == nil {
+		t.Fatal("expected error for major > 999")
+	}
+	_, err = deriveVersionCode("0.1000.0")
+	if err == nil {
+		t.Fatal("expected error for minor > 999")
+	}
+	_, err = deriveVersionCode("0.0.1000")
+	if err == nil {
+		t.Fatal("expected error for patch > 999")
+	}
+}
+
+func TestDeriveVersionCode_monotonicity(t *testing.T) {
+	// Verify ordering: higher semver → higher version code
+	v1, _ := deriveVersionCode("1.0.0")
+	v2, _ := deriveVersionCode("1.0.1")
+	v3, _ := deriveVersionCode("1.1.0")
+	v4, _ := deriveVersionCode("2.0.0")
+	if !(v1 < v2 && v2 < v3 && v3 < v4) {
+		t.Fatal("version codes must be monotonically increasing with semver")
+	}
+}
+
 func TestAppConfig_HasIcon(t *testing.T) {
 	// Icon configured
 	config := AppConfig{

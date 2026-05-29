@@ -170,6 +170,79 @@ abis = ["x86_64", "arm64-v8a", "armeabi-v7a"]
 	}
 }
 
+func TestLoadConfig_versionCodeDerived(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.vc"
+name = "VC Test"
+version = "3.2.1"
+
+[android]
+min_sdk = 29
+target_sdk = 33
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if config.Android.VersionCode != 3002001 {
+		t.Fatalf("expected versionCode 3002001 from '3.2.1', got %d", config.Android.VersionCode)
+	}
+}
+
+func TestLoadConfig_versionCodeExplicit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.vc"
+name = "VC Explicit"
+version = "1.0.0"
+
+[android]
+min_sdk = 29
+target_sdk = 33
+version_code = 99999
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if config.Android.VersionCode != 99999 {
+		t.Fatalf("expected versionCode 99999 (explicit), got %d", config.Android.VersionCode)
+	}
+}
+
+func TestLoadConfig_malformedVersionIsError(t *testing.T) {
+	cases := []string{"1", "1.2", "1.2.3.4", "x.y.z", "1.x.3"}
+	for _, ver := range cases {
+		tmpDir2 := t.TempDir()
+		cfg := `[app]
+id = "com.test.bad"
+name = "Bad"
+version = "` + ver + `"
+
+[android]
+min_sdk = 29
+target_sdk = 33
+`
+		configPath := filepath.Join(tmpDir2, "lurpic.toml")
+		os.WriteFile(configPath, []byte(cfg), 0644)
+		_, err := loadConfig(tmpDir2)
+		if err == nil {
+			t.Fatalf("expected error for version %q", ver)
+		}
+	}
+}
+
 func TestLoadConfig_MissingID(t *testing.T) {
 	tmpDir := t.TempDir()
 
