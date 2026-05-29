@@ -143,6 +143,7 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 	}
 
 	builder := &androidBuilder{
+		runner:      newExecRunner(),
 		sdk:         sdk,
 		ndk:         ndk,
 		projectRoot: projectRoot,

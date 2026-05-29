@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 // androidBuilder orchestrates the Android APK build process
 type androidBuilder struct {
+	runner      Runner
 	sdk         string
 	ndk         string
 	projectRoot string
@@ -126,13 +126,14 @@ func (b *androidBuilder) buildGoLibrary() error {
 		args = append(args, ".")
 	}
 
-	cmd := exec.Command("go", args...)
-	cmd.Dir = b.projectRoot
-	cmd.Env = env
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	if err := b.runner.Run(CommandSpec{
+		Path:   "go",
+		Args:   args,
+		Dir:    b.projectRoot,
+		Env:    env,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return fmt.Errorf("go build failed: %w", err)
 	}
 
@@ -192,24 +193,28 @@ func (b *androidBuilder) buildRustCrate(cratePath, name string) error {
 	}
 
 	// Use cargo-ndk if available, otherwise manual configuration
-	cargoNdk, err := exec.LookPath("cargo-ndk")
+	cargoNdk, err := b.runner.Look("cargo-ndk")
 	if err == nil {
-		cmd := exec.Command(cargoNdk, "-t", "arm64-v8a", "build", "--release")
-		cmd.Dir = cratePath
-		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := b.runner.Run(CommandSpec{
+			Path:   cargoNdk,
+			Args:   []string{"-t", "arm64-v8a", "build", "--release"},
+			Dir:    cratePath,
+			Env:    env,
+			Stdout: os.Stdout,
+			Stderr: os.Stderr,
+		}); err != nil {
 			return fmt.Errorf("cargo-ndk build failed: %w", err)
 		}
 	} else {
 		// Manual cargo build with target
-		cmd := exec.Command("cargo", "build", "--release", "--target", target)
-		cmd.Dir = cratePath
-		cmd.Env = env
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		if err := b.runner.Run(CommandSpec{
+			Path:   "cargo",
+			Args:   []string{"build", "--release", "--target", target},
+			Dir:    cratePath,
+			Env:    env,
+			Stdout: os.Stdout,
+			Stderr: os.Stderr,
+		}); err != nil {
 			return fmt.Errorf("cargo build failed: %w", err)
 		}
 	}
@@ -376,10 +381,12 @@ func (b *androidBuilder) compileResources() (string, error) {
 		}
 	}
 
-	cmd := exec.Command(aapt2, linkArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := b.runner.Run(CommandSpec{
+		Path:   aapt2,
+		Args:   linkArgs,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return "", fmt.Errorf("aapt2 link failed: %w", err)
 	}
 
@@ -412,10 +419,12 @@ func (b *androidBuilder) compileIcons(aapt2, compiledResDir string) error {
 	}
 
 	// Compile the resource
-	cmd := exec.Command(aapt2, "compile", "-o", compiledResDir, destIcon)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return b.runner.Run(CommandSpec{
+		Path:   aapt2,
+		Args:   []string{"compile", "-o", compiledResDir, destIcon},
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
 }
 
 // assembleAPK creates the final APK by combining base APK with native libs and assets
@@ -483,11 +492,13 @@ func (b *androidBuilder) assembleAPKManual() error {
 
 	// Create APK zip
 	os.Remove(unsignedApk)
-	cmd := exec.Command("zip", "-r", unsignedApk, ".")
-	cmd.Dir = apkDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := b.runner.Run(CommandSpec{
+		Path:   "zip",
+		Args:   []string{"-r", unsignedApk, "."},
+		Dir:    apkDir,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return fmt.Errorf("failed to create APK: %w", err)
 	}
 
@@ -497,12 +508,13 @@ func (b *androidBuilder) assembleAPKManual() error {
 
 // addToApk adds files to an existing APK using zip
 func (b *androidBuilder) addToApk(apkPath, srcDir, destPath string) error {
-	// Use zip to add files to existing APK
-	cmd := exec.Command("zip", "-r", apkPath, destPath)
-	cmd.Dir = b.buildDir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return b.runner.Run(CommandSpec{
+		Path:   "zip",
+		Args:   []string{"-r", apkPath, destPath},
+		Dir:    b.buildDir,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
 }
 
 // signAPK signs the APK with debug or release keystore
@@ -576,11 +588,12 @@ func (b *androidBuilder) signAPK() error {
 		signArgs = append(signArgs, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true")
 	}
 
-	cmd := exec.Command(apksigner, signArgs...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	if err := b.runner.Run(CommandSpec{
+		Path:   apksigner,
+		Args:   signArgs,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return fmt.Errorf("apk signing failed: %w", err)
 	}
 
@@ -605,11 +618,12 @@ func (b *androidBuilder) alignAPK(input, output string) error {
 	os.Remove(output)
 
 	// zipalign -p 4 = page alignment (4 bytes)
-	cmd := exec.Command(zipalign, "-p", "4", input, output)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
+	if err := b.runner.Run(CommandSpec{
+		Path:   zipalign,
+		Args:   []string{"-p", "4", input, output},
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return fmt.Errorf("zipalign failed: %w", err)
 	}
 
@@ -637,8 +651,10 @@ func (b *androidBuilder) verifyAPK() error {
 		return fmt.Errorf("apksigner not found: %w", err)
 	}
 
-	cmd := exec.Command(apksigner, "verify", "--verbose", b.outputPath)
-	output, err := cmd.CombinedOutput()
+	output, err := b.runner.Output(CommandSpec{
+		Path: apksigner,
+		Args: []string{"verify", "--verbose", b.outputPath},
+	})
 	if err != nil {
 		return fmt.Errorf("verification failed: %w\n%s", err, output)
 	}
@@ -723,22 +739,18 @@ func (b *androidBuilder) getDebugKeystore() string {
 	}
 	if _, err := os.Stat(keytool); err != nil {
 		// Try to find keytool in PATH
-		keytool, _ = exec.LookPath("keytool")
+		if found, lookErr := b.runner.Look("keytool"); lookErr == nil {
+			keytool = found
+		}
 	}
 
 	if keytool != "" {
-		cmd := exec.Command(keytool, "-genkey", "-v",
-			"-keystore", keystore,
-			"-alias", "androiddebugkey",
-			"-storepass", "android",
-			"-keypass", "android",
-			"-keyalg", "RSA",
-			"-validity", "10000",
-			"-dname", "CN=Android Debug,O=Android,C=US",
-		)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Run() // Ignore errors - we'll try to use it anyway
+		_ = b.runner.Run(CommandSpec{
+			Path:   keytool,
+			Args:   []string{"-genkey", "-v", "-keystore", keystore, "-alias", "androiddebugkey", "-storepass", "android", "-keypass", "android", "-keyalg", "RSA", "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"},
+			Stdout: os.Stdout,
+			Stderr: os.Stderr,
+		})
 	}
 
 	return keystore

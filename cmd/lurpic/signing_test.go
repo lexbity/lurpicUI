@@ -153,7 +153,7 @@ func TestGetDebugKeystore_CreatesNew(t *testing.T) {
 	os.Setenv("HOME", tmpHome)
 	defer os.Setenv("HOME", originalHome)
 
-	b := &androidBuilder{}
+	b := &androidBuilder{runner: newExecRunner()}
 
 	// First call should create the keystore
 	keystore := b.getDebugKeystore()
@@ -187,7 +187,7 @@ func TestGetDebugKeystore_ReusesExisting(t *testing.T) {
 	fakeKeystore := filepath.Join(keystoreDir, "debug.keystore")
 	os.WriteFile(fakeKeystore, []byte("fake keystore data"), 0644)
 
-	b := &androidBuilder{}
+	b := &androidBuilder{runner: newExecRunner()}
 	keystore := b.getDebugKeystore()
 
 	if keystore != fakeKeystore {
