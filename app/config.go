@@ -51,6 +51,8 @@ type Config struct {
 	PlatformApp platform.App
 	// Render selects the preferred renderer. Vulkan is the default; software
 	// is used as a fallback when Vulkan initialization fails.
+	// The LURPIC_RENDER_BACKEND environment variable (values: "vulkan", "software")
+	// overrides this field at runtime and takes highest precedence.
 	Render RenderBackendKind
 	// OnBackendSelected reports the renderer that actually initialized.
 	OnBackendSelected func(RenderBackendKind)

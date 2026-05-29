@@ -3,6 +3,7 @@ package app
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -159,6 +160,18 @@ func Run(config Config, builder RootBuilder) error {
 func initBackend(preferred RenderBackendKind, surface render.Surface, logger log.Logger) (render.Backend, RenderBackendKind, error) {
 	if surface == nil {
 		return nil, preferred, errors.New("app: window surface is nil")
+	}
+
+	// LURPIC_RENDER_BACKEND env overrides the config default.
+	if env := os.Getenv("LURPIC_RENDER_BACKEND"); env != "" {
+		switch env {
+		case "vulkan":
+			preferred = RenderBackendVulkan
+		case "software":
+			preferred = RenderBackendSoftware
+		default:
+			return nil, preferred, fmt.Errorf("app: LURPIC_RENDER_BACKEND=%q is invalid (use \"vulkan\" or \"software\")", env)
+		}
 	}
 	attempt := func(kind RenderBackendKind) (render.Backend, error) {
 		backend := newBackend(kind)

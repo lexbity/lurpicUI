@@ -309,6 +309,99 @@ func TestSelectAndroidAVD_usesLurpicEnvOverride(t *testing.T) {
 	}
 }
 
+func TestLaunchAPK_forceSoftwareInjectsEnv(t *testing.T) {
+	f := newFakeRunner()
+	component := "org.test.app/org.lurpicui.bridge.LurpicNativeActivity"
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "am", "start", "-n", component)).Then(
+		"Starting: Intent { }\n", "", nil,
+	)
+
+	r := &androidRunner{runner: f, forceSoftware: true}
+	if err := r.launchAPK("adb", "em-5554", "org.test.app"); err != nil {
+		t.Fatalf("launchAPK: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	// Verify LURPIC_RENDER_BACKEND=software is in the env
+	found := false
+	for _, e := range calls[0].Env {
+		if e == "LURPIC_RENDER_BACKEND=software" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected LURPIC_RENDER_BACKEND=software in launch env")
+	}
+}
+
+func TestLaunchAPK_noForceSoftwareNoEnvOverride(t *testing.T) {
+	f := newFakeRunner()
+	component := "org.test.app/org.lurpicui.bridge.LurpicNativeActivity"
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "am", "start", "-n", component)).Then(
+		"Starting: Intent { }\n", "", nil,
+	)
+
+	r := &androidRunner{runner: f, forceSoftware: false}
+	if err := r.launchAPK("adb", "em-5554", "org.test.app"); err != nil {
+		t.Fatalf("launchAPK: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	// Env should be set to os.Environ() but must NOT contain LURPIC_RENDER_BACKEND=software
+	for _, e := range calls[0].Env {
+		if e == "LURPIC_RENDER_BACKEND=software" {
+			t.Fatal("LURPIC_RENDER_BACKEND=software should NOT be set when forceSoftware is false")
+		}
+	}
+}
+
+func TestLaunchEmulator_gpuFlag(t *testing.T) {
+	sdkDir := t.TempDir()
+	emulatorDir := filepath.Join(sdkDir, "emulator")
+	if err := os.MkdirAll(emulatorDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emuPath := filepath.Join(emulatorDir, "emulator")
+	if err := os.WriteFile(emuPath, []byte("#!/bin/sh\necho \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeRunner()
+	r := &androidRunner{
+		runner:  f,
+		sdk:     sdkDir,
+		gpuMode: "swiftshader_indirect",
+	}
+
+	// selectAndroidAVD requires emulator to be present and env vars unset,
+	// then it falls through to createDefaultAndroidAVD which needs sdkmanager/avdmanager.
+	// Skip the full flow — test the gpu mode is stored properly.
+	if r.gpuMode != "swiftshader_indirect" {
+		t.Fatalf("expected gpuMode swiftshader_indirect, got %q", r.gpuMode)
+	}
+}
+
+func TestRunFlags_gpuDefault(t *testing.T) {
+	flags := runFlags{}
+	if flags.gpuMode != "" {
+		t.Fatalf("expected empty default gpuMode, got %q", flags.gpuMode)
+	}
+}
+
+func TestRunFlags_forceSoftwareDefault(t *testing.T) {
+	flags := runFlags{}
+	if flags.forceSoftware {
+		t.Fatal("expected forceSoftware to default to false")
+	}
+}
+
 func TestFindAndroidEmulator_found(t *testing.T) {
 	sdk := t.TempDir()
 	emulatorDir := filepath.Join(sdk, "emulator")

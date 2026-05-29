@@ -20,10 +20,12 @@ const (
 )
 
 type runFlags struct {
-	emulator     bool
-	release      bool
-	bootTimeout  time.Duration
-	deviceSerial string
+	emulator      bool
+	release       bool
+	bootTimeout   time.Duration
+	deviceSerial  string
+	forceSoftware bool
+	gpuMode       string
 }
 
 func cmdRun(args []string) int {
@@ -33,6 +35,8 @@ func cmdRun(args []string) int {
 	fs.BoolVar(&flags.release, "release", false, "Build release APK")
 	fs.DurationVar(&flags.bootTimeout, "boot-timeout", 5*time.Minute, "Emulator boot timeout (e.g. 10m, 300s)")
 	fs.StringVar(&flags.deviceSerial, "device", "", "Target device serial (e.g. emulator-5554)")
+	fs.BoolVar(&flags.forceSoftware, "force-software", false, "Force software renderer (sets LURPIC_RENDER_BACKEND=software)")
+	fs.StringVar(&flags.gpuMode, "gpu", "auto", "Emulator GPU mode (auto, host, swiftshader_indirect)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
@@ -67,13 +71,15 @@ func runAndroid(flags runFlags) int {
 	}
 
 	runner := &androidRunner{
-		runner:       newExecRunner(),
-		emulator:     flags.emulator,
-		sdk:          builder.sdk,
-		apkPath:      builder.outputPath,
-		packageName:  builder.config.App.ID,
-		bootTimeout:  flags.bootTimeout,
-		deviceSerial: flags.deviceSerial,
+		runner:        newExecRunner(),
+		emulator:      flags.emulator,
+		sdk:           builder.sdk,
+		apkPath:       builder.outputPath,
+		packageName:   builder.config.App.ID,
+		bootTimeout:   flags.bootTimeout,
+		deviceSerial:  flags.deviceSerial,
+		forceSoftware: flags.forceSoftware,
+		gpuMode:       flags.gpuMode,
 	}
 	if err := runner.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Run failed: %v\n", err)
@@ -84,13 +90,15 @@ func runAndroid(flags runFlags) int {
 }
 
 type androidRunner struct {
-	runner       Runner
-	emulator     bool
-	sdk          string
-	apkPath      string
-	packageName  string
-	bootTimeout  time.Duration
-	deviceSerial string
+	runner        Runner
+	emulator      bool
+	sdk           string
+	apkPath       string
+	packageName   string
+	bootTimeout   time.Duration
+	deviceSerial  string
+	forceSoftware bool
+	gpuMode       string
 }
 
 // adbArgs prepends -s <serial> to adb arguments when a serial is known.
@@ -203,9 +211,10 @@ func (r *androidRunner) launchEmulator() error {
 	}
 
 	fmt.Printf("Launching emulator %q...\n", avd)
+	emuArgs := []string{"-avd", avd, "-no-snapshot-save", "-no-boot-anim", "-gpu", r.gpuMode}
 	_, err = r.runner.Start(CommandSpec{
 		Path:   emulator,
-		Args:   []string{"-avd", avd, "-no-snapshot-save", "-no-boot-anim"},
+		Args:   emuArgs,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	})
@@ -254,9 +263,16 @@ func (r *androidRunner) installAPK(adb, serial, apkPath string) error {
 func (r *androidRunner) launchAPK(adb, serial, packageName string) error {
 	component := fmt.Sprintf("%s/org.lurpicui.bridge.LurpicNativeActivity", packageName)
 	fmt.Printf("Launching app: %s\n", component)
+
+	env := os.Environ()
+	if r.forceSoftware {
+		env = append(env, "LURPIC_RENDER_BACKEND=software")
+	}
+
 	output, err := r.runner.Output(CommandSpec{
 		Path: adb,
 		Args: adbArgs(serial, "shell", "am", "start", "-n", component),
+		Env:  env,
 	})
 	if err != nil {
 		return fmt.Errorf("adb shell am start failed: %w\n%s", err, output)

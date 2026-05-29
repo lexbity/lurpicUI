@@ -326,6 +326,81 @@ func TestRun_vulkan_falls_back_to_software(t *testing.T) {
 	}
 }
 
+func TestInitBackend_envOverrideVulkan(t *testing.T) {
+	t.Setenv("LURPIC_RENDER_BACKEND", "vulkan")
+	var requested []RenderBackendKind
+	restoreHooks(t)
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		requested = append(requested, kind)
+		return &fakeBackend{}
+	}
+
+	backend, kind, err := initBackend(RenderBackendSoftware, &fakeSurface{}, nil)
+	if err != nil {
+		t.Fatalf("initBackend: %v", err)
+	}
+	if kind != RenderBackendVulkan {
+		t.Fatalf("expected vulkan, got %v", kind)
+	}
+	if len(requested) == 0 || requested[0] != RenderBackendVulkan {
+		t.Fatalf("expected vulkan backend request, got %v", requested)
+	}
+	_ = backend
+}
+
+func TestInitBackend_envOverrideSoftware(t *testing.T) {
+	t.Setenv("LURPIC_RENDER_BACKEND", "software")
+	var requested []RenderBackendKind
+	restoreHooks(t)
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		requested = append(requested, kind)
+		return &fakeBackend{}
+	}
+
+	backend, kind, err := initBackend(RenderBackendVulkan, &fakeSurface{}, nil)
+	if err != nil {
+		t.Fatalf("initBackend: %v", err)
+	}
+	if kind != RenderBackendSoftware {
+		t.Fatalf("expected software, got %v", kind)
+	}
+	if len(requested) == 0 || requested[0] != RenderBackendSoftware {
+		t.Fatalf("expected software backend request, got %v", requested)
+	}
+	_ = backend
+}
+
+func TestInitBackend_envOverrideInvalid(t *testing.T) {
+	t.Setenv("LURPIC_RENDER_BACKEND", "invalid_value")
+
+	_, _, err := initBackend(RenderBackendVulkan, &fakeSurface{}, nil)
+	if err == nil {
+		t.Fatal("expected error for invalid LURPIC_RENDER_BACKEND value")
+	}
+}
+
+func TestInitBackend_envUnsetUsesDefault(t *testing.T) {
+	var requested []RenderBackendKind
+	restoreHooks(t)
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		requested = append(requested, kind)
+		return &fakeBackend{}
+	}
+
+	// Not setting LURPIC_RENDER_BACKEND — should use the preferred value
+	backend, kind, err := initBackend(RenderBackendSoftware, &fakeSurface{}, nil)
+	if err != nil {
+		t.Fatalf("initBackend: %v", err)
+	}
+	if kind != RenderBackendSoftware {
+		t.Fatalf("expected software (preferred), got %v", kind)
+	}
+	if len(requested) == 0 || requested[0] != RenderBackendSoftware {
+		t.Fatalf("expected software backend request, got %v", requested)
+	}
+	_ = backend
+}
+
 func TestRun_reuses_supplied_platform_app(t *testing.T) {
 	restoreHooks(t)
 	app := &fakeApp{}
