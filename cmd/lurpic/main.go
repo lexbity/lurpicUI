@@ -39,8 +39,6 @@ func main() {
 		os.Exit(cmdClean(os.Args[2:]))
 	case "doctor":
 		os.Exit(cmdDoctor(os.Args[2:]))
-	case "android-ci":
-		os.Exit(cmdAndroidCI(os.Args[2:]))
 	case "version":
 		os.Exit(cmdVersion())
 	case "help", "-h", "--help":
@@ -57,14 +55,13 @@ func printUsage() {
 	fmt.Print(`lurpic - build tool for lurpicUI applications
 
 Usage:
-	lurpic build android [flags]    Build an Android APK
-	lurpic run android [flags]      Build, install, and run on Android device
-	lurpic doctor [platform]         Diagnose toolchain setup
-  lurpic android-ci [frame|replay] Android CI validation helpers
-  lurpic validate demos            Run shared marks and demo module validation suites
-  lurpic clean                     Remove build artifacts
-  lurpic version                   Print version information
-  lurpic help                      Show this help message
+  lurpic build android [flags]    Build an Android APK
+  lurpic run android [flags]      Build, install, and run on Android device
+  lurpic doctor [platform]        Diagnose toolchain setup
+  lurpic validate demos           Run shared marks and demo module validation suites
+  lurpic clean                    Remove build artifacts
+  lurpic version                  Print version information
+  lurpic help                     Show this help message
 
 Build flags:
   --release                        Build release APK (requires keystore config)
@@ -80,10 +77,6 @@ Run flags:
 Doctor:
   lurpic doctor android            Check Android toolchain
   lurpic doctor --verbose          Show detailed information
-
-Android CI helpers:
-  lurpic android-ci frame          Validate a captured screenshot against the launch baseline
-  lurpic android-ci replay         Validate a logcat capture contains the expected touch sequence
 
 Configuration hierarchy (highest to lowest):
   1. Command-line flags (--sdk-path, etc.)
