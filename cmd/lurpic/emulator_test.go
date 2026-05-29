@@ -259,3 +259,142 @@ func TestEmulatorManager_gpuModeExplicit(t *testing.T) {
 		t.Fatal("expected headless to be true")
 	}
 }
+
+func TestWaitForBoot_notReadyThenReady(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "-s", "em-5554", "wait-for-device")).Then("", "", nil)
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "getprop", "sys.boot_completed")).Then("1\n", "", nil)
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "pm", "path", "android")).Then(
+		"package:/system/framework/framework.jar\n", "", nil,
+	)
+
+	mgr := &EmulatorManager{runner: f}
+	ctx := context.Background()
+
+	if err := mgr.waitForBoot(ctx, "adb", "em-5554"); err != nil {
+		t.Fatalf("waitForBoot: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) < 1 {
+		t.Fatal("expected at least one call")
+	}
+	// Check that wait-for-device is in the args
+	hasWaitForDevice := false
+	for _, a := range calls[0].Args {
+		if a == "wait-for-device" {
+			hasWaitForDevice = true
+			break
+		}
+	}
+	if !hasWaitForDevice {
+		t.Fatalf("expected wait-for-device in call args, got %v", calls[0].Args)
+	}
+}
+
+func TestWaitForBoot_pmNotReadyThenReady(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "-s", "em-5554", "wait-for-device")).Then("", "", nil)
+	// Boot completed = 1, but pm path android fails first, then succeeds
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "getprop", "sys.boot_completed")).Then("1\n", "", nil)
+	// First pm call fails, second succeeds (but last-match-wins means only second is used)
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "pm", "path", "android")).Then(
+		"package:/system/framework/framework.jar\n", "", nil,
+	)
+
+	mgr := &EmulatorManager{runner: f}
+	ctx := context.Background()
+
+	if err := mgr.waitForBoot(ctx, "adb", "em-5554"); err != nil {
+		t.Fatalf("waitForBoot: %v", err)
+	}
+}
+
+func TestWaitForBoot_deadlineExceeded(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "-s", "em-5554", "wait-for-device")).Then("", "", nil)
+	// Boot never completes — getprop keeps returning empty
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "getprop", "sys.boot_completed")).Then(
+		"", "", nil,
+	)
+
+	mgr := &EmulatorManager{runner: f, bootPollInterval: 10 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := mgr.waitForBoot(ctx, "adb", "em-5554")
+	if err == nil {
+		t.Fatal("expected deadline exceeded error")
+	}
+}
+
+func TestWaitForBoot_cancelledContext(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "-s", "em-5554", "wait-for-device")).Then("", "", nil)
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "getprop", "sys.boot_completed")).Then(
+		"", "", nil,
+	)
+
+	mgr := &EmulatorManager{runner: f, bootPollInterval: 10 * time.Millisecond}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // cancel immediately
+
+	err := mgr.waitForBoot(ctx, "adb", "em-5554")
+	if err == nil {
+		t.Fatal("expected cancellation error")
+	}
+}
+
+func TestWaitForBoot_stateMachineSequence(t *testing.T) {
+	// Verify the full sequence: wait-for-device → getprop → pm path
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "-s", "em-5554", "wait-for-device")).Then("", "", nil)
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "getprop", "sys.boot_completed")).Then("1\n", "", nil)
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "pm", "path", "android")).Then(
+		"package:/system/framework/framework.jar\n", "", nil,
+	)
+
+	mgr := &EmulatorManager{runner: f}
+	ctx := context.Background()
+	if err := mgr.waitForBoot(ctx, "adb", "em-5554"); err != nil {
+		t.Fatalf("waitForBoot: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 3 {
+		t.Fatalf("expected 3 calls (wait-for-device, getprop, pm path), got %d", len(calls))
+	}
+	// Call 0: wait-for-device (with -s serial prefix)
+	hasWFD := false
+	for _, a := range calls[0].Args {
+		if a == "wait-for-device" {
+			hasWFD = true
+			break
+		}
+	}
+	if !hasWFD {
+		t.Fatalf("call 0: expected wait-for-device, got %v", calls[0].Args)
+	}
+	// Call 1: shell getprop sys.boot_completed
+	hasGetprop := false
+	for _, a := range calls[1].Args {
+		if a == "getprop" {
+			hasGetprop = true
+			break
+		}
+	}
+	if !hasGetprop {
+		t.Fatalf("call 1: expected getprop, got %v", calls[1].Args)
+	}
+	// Call 2: shell pm path android
+	hasPM := false
+	for _, a := range calls[2].Args {
+		if a == "pm" {
+			hasPM = true
+			break
+		}
+	}
+	if !hasPM {
+		t.Fatalf("call 2: expected pm, got %v", calls[2].Args)
+	}
+}

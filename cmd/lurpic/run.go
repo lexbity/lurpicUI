@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
@@ -19,8 +20,9 @@ const (
 )
 
 type runFlags struct {
-	emulator bool
-	release  bool
+	emulator    bool
+	release     bool
+	bootTimeout time.Duration
 }
 
 func cmdRun(args []string) int {
@@ -28,6 +30,7 @@ func cmdRun(args []string) int {
 	var flags runFlags
 	fs.BoolVar(&flags.emulator, "emulator", false, "Launch on emulator")
 	fs.BoolVar(&flags.release, "release", false, "Build release APK")
+	fs.DurationVar(&flags.bootTimeout, "boot-timeout", 5*time.Minute, "Emulator boot timeout (e.g. 10m, 300s)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
@@ -67,6 +70,7 @@ func runAndroid(flags runFlags) int {
 		sdk:         builder.sdk,
 		apkPath:     builder.outputPath,
 		packageName: builder.config.App.ID,
+		bootTimeout: flags.bootTimeout,
 	}
 	if err := runner.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Run failed: %v\n", err)
@@ -82,6 +86,7 @@ type androidRunner struct {
 	sdk         string
 	apkPath     string
 	packageName string
+	bootTimeout time.Duration
 }
 
 func (r *androidRunner) run() error {
@@ -99,7 +104,11 @@ func (r *androidRunner) run() error {
 			if err := r.launchEmulator(); err != nil {
 				return err
 			}
-			if err := r.waitForEmulatorBoot(adb, 5*time.Minute); err != nil {
+			serial := "emulator-5554"
+			mgr := &EmulatorManager{runner: r.runner}
+			ctx, cancel := context.WithTimeout(context.Background(), r.bootTimeout)
+			defer cancel()
+			if err := mgr.waitForBoot(ctx, adb, serial); err != nil {
 				return err
 			}
 		}
@@ -150,32 +159,6 @@ func (r *androidRunner) hasRunningEmulator(adb string) (bool, error) {
 		}
 	}
 	return false, nil
-}
-
-func (r *androidRunner) waitForEmulatorBoot(adb string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	if err := r.runner.Run(CommandSpec{
-		Path: adb,
-		Args: []string{"wait-for-device"},
-	}); err != nil {
-		return fmt.Errorf("adb wait-for-device failed: %w", err)
-	}
-
-	for time.Now().Before(deadline) {
-		out, err := r.runner.Output(CommandSpec{
-			Path: adb,
-			Args: []string{"shell", "getprop", "sys.boot_completed"},
-		})
-		if err == nil && strings.TrimSpace(string(out)) == "1" {
-			_ = r.runner.Run(CommandSpec{
-				Path: adb,
-				Args: []string{"shell", "input", "keyevent", "82"},
-			})
-			return nil
-		}
-		time.Sleep(5 * time.Second)
-	}
-	return fmt.Errorf("timed out waiting for emulator boot")
 }
 
 func (r *androidRunner) installAPK(adb, apkPath string) error {

@@ -15,12 +15,13 @@ const (
 )
 
 type EmulatorManager struct {
-	runner   Runner
-	sdk      string
-	apiLevel int
-	arch     Architecture
-	gpuMode  string
-	headless bool
+	runner          Runner
+	sdk             string
+	apiLevel        int
+	arch            Architecture
+	gpuMode         string
+	headless        bool
+	bootPollInterval time.Duration
 }
 
 type EmulatorSession struct {
@@ -46,12 +47,13 @@ func NewEmulatorManager(runner Runner, sdk string, apiLevel int, arch Architectu
 		gpu = "auto"
 	}
 	return &EmulatorManager{
-		runner:   runner,
-		sdk:      sdk,
-		apiLevel: apiLevel,
-		arch:     arch,
-		gpuMode:  gpu,
-		headless: headless,
+		runner:           runner,
+		sdk:              sdk,
+		apiLevel:         apiLevel,
+		arch:             arch,
+		gpuMode:          gpu,
+		headless:         headless,
+		bootPollInterval: defaultBootPollInterval,
 	}
 }
 
@@ -245,7 +247,7 @@ func (m *EmulatorManager) waitForBoot(ctx context.Context, adb, serial string) e
 				return nil
 			}
 		}
-		time.Sleep(defaultBootPollInterval)
+		time.Sleep(m.bootPollInterval)
 	}
 	return fmt.Errorf("timed out waiting for emulator %s to boot", serial)
 }
