@@ -372,12 +372,12 @@ func newNavDrawerTestFixture(t *testing.T, tokens theme.Tokens, density theme.De
 func navDrawerTestIcons() map[string]runtimepkg.IconAsset {
 	return map[string]runtimepkg.IconAsset{
 		"inbox":              navDrawerIconAsset("inbox", gfx.NewPath().MoveTo(gfx.Point{X: 4, Y: 7}).LineTo(gfx.Point{X: 20, Y: 7}).LineTo(gfx.Point{X: 20, Y: 17}).LineTo(gfx.Point{X: 4, Y: 17}).Close().Build()),
-		"outbox":             navDrawerIconAsset("outbox", gfx.PolylinePath([]gfx.Point{{4, 12}, {20, 6}, {17, 12}, {20, 18}}, true)),
+		"outbox":             navDrawerIconAsset("outbox", gfx.PolylinePath([]gfx.Point{{X: 4, Y: 12}, {X: 20, Y: 6}, {X: 17, Y: 12}, {X: 20, Y: 18}}, true)),
 		"heart":              navDrawerIconAsset("heart", gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6)),
 		"archive":            navDrawerIconAsset("archive", gfx.RoundedRectPath(gfx.RectFromXYWH(5, 6, 14, 12), 2)),
 		"trash":              navDrawerIconAsset("trash", gfx.RectPath(gfx.RectFromXYWH(7, 5, 10, 14))),
 		"exclamation-circle": navDrawerIconAsset("exclamation-circle", gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 7)),
-		"bookmark":           navDrawerIconAsset("bookmark", gfx.PolylinePath([]gfx.Point{{7, 4}, {17, 4}, {17, 20}, {12, 16}, {7, 20}}, true)),
+		"bookmark":           navDrawerIconAsset("bookmark", gfx.PolylinePath([]gfx.Point{{X: 7, Y: 4}, {X: 17, Y: 4}, {X: 17, Y: 20}, {X: 12, Y: 16}, {X: 7, Y: 20}}, true)),
 		"cog":                navDrawerIconAsset("cog", gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 7)),
 	}
 }

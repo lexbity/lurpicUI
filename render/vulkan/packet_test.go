@@ -137,6 +137,9 @@ func TestEncodeFramePacket_primitiveIconCommands(t *testing.T) {
 }
 
 func TestEncodeFramePacket_drawGlyphRun_preserves_origin_and_glyph_positions(t *testing.T) {
+	if _, err := Version(); err != nil {
+		t.Skip("vulkan FFI not available:", err)
+	}
 	reg := mustPacketFontRegistry(t)
 	data := mustPacketTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
 	if err := reg.LoadFontBytes(data, "noto-regular"); err != nil {

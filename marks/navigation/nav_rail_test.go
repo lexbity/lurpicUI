@@ -337,7 +337,7 @@ func navRailTestIcons() map[string]runtimepkg.IconAsset {
 		"user":                       navRailIconAsset("user", gfx.CirclePath(gfx.Point{X: 12, Y: 9}, 4.5)),
 		"home":                       navRailIconAsset("home", gfx.NewPath().MoveTo(gfx.Point{X: 5, Y: 12}).LineTo(gfx.Point{X: 12, Y: 6}).LineTo(gfx.Point{X: 19, Y: 12}).LineTo(gfx.Point{X: 19, Y: 19}).LineTo(gfx.Point{X: 13, Y: 19}).LineTo(gfx.Point{X: 13, Y: 14}).LineTo(gfx.Point{X: 11, Y: 14}).LineTo(gfx.Point{X: 11, Y: 19}).LineTo(gfx.Point{X: 5, Y: 19}).Close().Build()),
 		"bell":                       navRailIconAsset("bell", gfx.CirclePath(gfx.Point{X: 12, Y: 10}, 5.5)),
-		"bookmark":                   navRailIconAsset("bookmark", gfx.PolylinePath([]gfx.Point{{7, 5}, {17, 5}, {17, 19}, {12, 15}, {7, 19}}, true)),
+		"bookmark":                   navRailIconAsset("bookmark", gfx.PolylinePath([]gfx.Point{{X: 7, Y: 5}, {X: 17, Y: 5}, {X: 17, Y: 19}, {X: 12, Y: 15}, {X: 7, Y: 19}}, true)),
 		"envelope":                   navRailIconAsset("envelope", gfx.NewPath().MoveTo(gfx.Point{X: 5, Y: 7}).LineTo(gfx.Point{X: 19, Y: 7}).LineTo(gfx.Point{X: 19, Y: 17}).LineTo(gfx.Point{X: 5, Y: 17}).Close().Build()),
 		"moon":                       navRailIconAsset("moon", gfx.CirclePath(gfx.Point{X: 13, Y: 12}, 5.5)),
 		"cog":                        navRailIconAsset("cog", gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6.5)),

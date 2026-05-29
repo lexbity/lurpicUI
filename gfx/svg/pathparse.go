@@ -216,9 +216,9 @@ func parsePathData(data string) (Path, error) {
 					x += current.X
 					y += current.Y
 				}
-				builder.CubicTo(Point{x1, y1}, Point{x2, y2}, Point{x, y})
-				current = Point{x, y}
-				lastCubicCtrl = Point{x2, y2}
+			builder.CubicTo(Point{X: x1, Y: y1}, Point{X: x2, Y: y2}, Point{X: x, Y: y})
+			current = Point{X: x, Y: y}
+			lastCubicCtrl = Point{X: x2, Y: y2}
 				hasCubicCtrl = true
 				hasQuadCtrl = false
 			}
@@ -255,9 +255,9 @@ func parsePathData(data string) (Path, error) {
 					x += current.X
 					y += current.Y
 				}
-				builder.CubicTo(c1, Point{x2, y2}, Point{x, y})
-				current = Point{x, y}
-				lastCubicCtrl = Point{x2, y2}
+				builder.CubicTo(c1, Point{X: x2, Y: y2}, Point{X: x, Y: y})
+				current = Point{X: x, Y: y}
+				lastCubicCtrl = Point{X: x2, Y: y2}
 				hasCubicCtrl = true
 				hasQuadCtrl = false
 			}
@@ -290,9 +290,9 @@ func parsePathData(data string) (Path, error) {
 					x += current.X
 					y += current.Y
 				}
-				builder.QuadTo(Point{x1, y1}, Point{x, y})
-				current = Point{x, y}
-				lastQuadCtrl = Point{x1, y1}
+				builder.QuadTo(Point{X: x1, Y: y1}, Point{X: x, Y: y})
+				current = Point{X: x, Y: y}
+				lastQuadCtrl = Point{X: x1, Y: y1}
 				hasQuadCtrl = true
 				hasCubicCtrl = false
 			}
@@ -319,8 +319,8 @@ func parsePathData(data string) (Path, error) {
 					x += current.X
 					y += current.Y
 				}
-				builder.QuadTo(ctrl, Point{x, y})
-				current = Point{x, y}
+				builder.QuadTo(ctrl, Point{X: x, Y: y})
+				current = Point{X: x, Y: y}
 				lastQuadCtrl = ctrl
 				hasQuadCtrl = true
 				hasCubicCtrl = false
@@ -364,7 +364,7 @@ func parsePathData(data string) (Path, error) {
 					x += current.X
 					y += current.Y
 				}
-				segs, err := arcToCubics(current, Point{x, y}, rx, ry, rot, largeArc != 0, sweep != 0)
+				segs, err := arcToCubics(current, Point{X: x, Y: y}, rx, ry, rot, largeArc != 0, sweep != 0)
 				if err != nil {
 					return Path{}, err
 				}
@@ -382,7 +382,7 @@ func parsePathData(data string) (Path, error) {
 						builder.Close()
 					}
 				}
-				current = Point{x, y}
+				current = Point{X: x, Y: y}
 				hasCubicCtrl = false
 				hasQuadCtrl = false
 			}

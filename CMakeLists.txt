@@ -403,5 +403,13 @@ endif()
 include(LurpicPackaging)
 lurpic_setup_packaging()
 
+add_custom_target(lurpic-host-tests
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} vet ./...
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} build ./...
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} test ./...
+  COMMENT "Run host tests with CGO_ENABLED=0 (vet, build, test)"
+  VERBATIM
+)
+
 lurpic_emit_configuration_summary()
 lurpic_add_configuration_summary_target()
