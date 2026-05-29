@@ -44,9 +44,15 @@ func (b *androidBuilder) build() error {
 		}
 	}
 
-	// Step 2: Build Rust library
-	if err := b.buildRustLibrary(); err != nil {
-		return fmt.Errorf("Rust build failed: %w", err)
+	// Step 2: Build Rust library for each configured ABI
+	for _, abi := range b.config.Android.ABIs {
+		arch, ok := ArchitectureByABI(abi)
+		if !ok {
+			return fmt.Errorf("unsupported ABI: %s", abi)
+		}
+		if err := b.buildRustLibrary(arch); err != nil {
+			return fmt.Errorf("Rust build failed for %s: %w", abi, err)
+		}
 	}
 
 	// Step 3: Generate AndroidManifest.xml
@@ -150,22 +156,19 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 	return nil
 }
 
-// buildRustLibrary cross-compiles the Rust code for Android
-func (b *androidBuilder) buildRustLibrary() error {
-	fmt.Println("Building Rust library...")
+// buildRustLibrary cross-compiles Rust code for Android for the given architecture.
+func (b *androidBuilder) buildRustLibrary(arch Architecture) error {
+	fmt.Printf("Building Rust library for %s...\n", arch.ABI)
 
-	// Check if there's a Rust crate to build
 	cargoToml := filepath.Join(b.projectRoot, "Cargo.toml")
 	if _, err := os.Stat(cargoToml); os.IsNotExist(err) {
-		// Check for crates/ subdirectory
 		cratesDir := filepath.Join(b.projectRoot, "crates")
 		if entries, err := os.ReadDir(cratesDir); err == nil && len(entries) > 0 {
-			// Build each crate
 			for _, entry := range entries {
 				if entry.IsDir() {
 					cratePath := filepath.Join(cratesDir, entry.Name())
 					if _, err := os.Stat(filepath.Join(cratePath, "Cargo.toml")); err == nil {
-						if err := b.buildRustCrate(cratePath, entry.Name()); err != nil {
+						if err := b.buildRustCrate(arch, cratePath, entry.Name()); err != nil {
 							return err
 						}
 					}
@@ -177,36 +180,35 @@ func (b *androidBuilder) buildRustLibrary() error {
 		return nil
 	}
 
-	return b.buildRustCrate(b.projectRoot, "main")
+	return b.buildRustCrate(arch, b.projectRoot, "main")
 }
 
-// buildRustCrate builds a single Rust crate for Android
-func (b *androidBuilder) buildRustCrate(cratePath, name string) error {
-	libDir := filepath.Join(b.buildDir, "lib", "arm64-v8a")
+// buildRustCrate builds a single Rust crate for Android for the given architecture.
+func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name string) error {
+	libDir := filepath.Join(b.buildDir, "lib", arch.ABI)
 	if err := os.MkdirAll(libDir, 0755); err != nil {
 		return err
 	}
 
-	// Set up NDK environment for cargo
-	target := "aarch64-linux-android"
+	target := arch.CargoTarget
 	env := os.Environ()
 
-	// Find NDK toolchain
-	toolchain := b.findNDKToolchain(target)
+	toolchain := b.findNDKToolchain(arch.NDKTriple)
 	if toolchain != "" {
+		clangName := fmt.Sprintf("%s%d-clang", arch.NDKTriple, b.apiLevel)
+		clangPath := filepath.Join(toolchain, clangName)
 		env = append(env,
-			fmt.Sprintf("CC_%s=%s", target, filepath.Join(toolchain, "clang")),
-			fmt.Sprintf("CXX_%s=%s", target, filepath.Join(toolchain, "clang++")),
+			fmt.Sprintf("CC_%s=%s", target, clangPath),
+			fmt.Sprintf("CXX_%s=%s", target, filepath.Join(toolchain, strings.Replace(clangName, "-clang", "++", 1))),
 			fmt.Sprintf("AR_%s=%s", target, filepath.Join(toolchain, "llvm-ar")),
 		)
 	}
 
-	// Use cargo-ndk if available, otherwise manual configuration
 	cargoNdk, err := b.runner.Look("cargo-ndk")
 	if err == nil {
 		if err := b.runner.Run(CommandSpec{
 			Path:   cargoNdk,
-			Args:   []string{"-t", "arm64-v8a", "build", "--release"},
+			Args:   []string{"-t", arch.ABI, "build", "--release"},
 			Dir:    cratePath,
 			Env:    env,
 			Stdout: os.Stdout,
@@ -215,7 +217,6 @@ func (b *androidBuilder) buildRustCrate(cratePath, name string) error {
 			return fmt.Errorf("cargo-ndk build failed: %w", err)
 		}
 	} else {
-		// Manual cargo build with target
 		if err := b.runner.Run(CommandSpec{
 			Path:   "cargo",
 			Args:   []string{"build", "--release", "--target", target},
@@ -228,9 +229,20 @@ func (b *androidBuilder) buildRustCrate(cratePath, name string) error {
 		}
 	}
 
-	// Copy the resulting library to libDir
-	// TODO: Find and copy the actual built .so file
-	fmt.Printf("  Built Rust crate: %s\n", name)
+	// Copy the built .so artifact(s) to the jniLibs directory
+	pattern := filepath.Join(cratePath, "target", target, "release", "lib*.so")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) == 0 {
+		return fmt.Errorf("no Rust shared library found after building crate %q (expected pattern: %s)", name, pattern)
+	}
+	for _, src := range matches {
+		dst := filepath.Join(libDir, filepath.Base(src))
+		if err := copyFile(src, dst); err != nil {
+			return fmt.Errorf("failed to copy Rust library %s: %w", src, err)
+		}
+		fmt.Printf("  Copied: %s\n", dst)
+	}
+
 	return nil
 }
 

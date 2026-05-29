@@ -405,6 +405,104 @@ func TestAndroidBuilder_signAPK_releaseNeedsKeystoreConfig(t *testing.T) {
 	}
 }
 
+func TestAndroidBuilder_buildRustCrate_artifactCopied(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	// Create a fake crate with Cargo.toml
+	cratePath := filepath.Join(projectRoot, "crates", "lurpic_render")
+	if err := os.MkdirAll(cratePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cargoToml := filepath.Join(cratePath, "Cargo.toml")
+	if err := os.WriteFile(cargoToml, []byte("[package]\nname = \"lurpic_render\"\n[lib]\ncrate-type = [\"cdylib\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the Cargo.toml at project root to trigger the root crate path
+	rootCargo := filepath.Join(projectRoot, "Cargo.toml")
+	if err := os.WriteFile(rootCargo, []byte("[workspace]\nmembers = [\"crates/*\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create the expected build artifact before calling buildRustCrate
+	arch := DefaultEmulatorArchitecture()
+	targetDir := filepath.Join(cratePath, "target", arch.CargoTarget, "release")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(targetDir, "liblurpic_render.so")
+	if err := os.WriteFile(artifactPath, []byte("fake rust so"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:      f,
+		projectRoot: projectRoot,
+		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		config: &Config{
+			App:     AppConfig{ID: "org.test.app"},
+			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
+		},
+		apiLevel: 33,
+	}
+
+	// Ensure cargo-ndk is not found so the test takes the plain cargo path
+	f.WhenLook("cargo-ndk").Returns("", fmt.Errorf("not found"))
+	f.When(MatchCommand("cargo")).Then("", "", nil)
+
+	if err := b.buildRustCrate(arch, cratePath, "lurpic_render"); err != nil {
+		t.Fatalf("buildRustCrate: %v", err)
+	}
+
+	// Verify the .so was copied to lib/<abi>/
+	destPath := filepath.Join(projectRoot, "build", "android", "lib", arch.ABI, "liblurpic_render.so")
+	data, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("expected artifact at %s: %v", destPath, err)
+	}
+	if string(data) != "fake rust so" {
+		t.Fatalf("expected artifact content 'fake rust so', got %q", string(data))
+	}
+}
+
+func TestAndroidBuilder_buildRustCrate_missingArtifactIsFatal(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	// Create a fake crate
+	cratePath := filepath.Join(projectRoot, "crates", "missing_render")
+	if err := os.MkdirAll(cratePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cargoToml := filepath.Join(cratePath, "Cargo.toml")
+	if err := os.WriteFile(cargoToml, []byte("[package]\nname = \"missing_render\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// DO NOT create the target build artifact
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:      f,
+		projectRoot: projectRoot,
+		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		config: &Config{
+			App:     AppConfig{ID: "org.test.app"},
+			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
+		},
+	}
+
+	// Ensure cargo-ndk is not found so the test takes the plain cargo path
+	f.WhenLook("cargo-ndk").Returns("", fmt.Errorf("not found"))
+	f.When(MatchCommand("cargo")).Then("", "", nil)
+	f.When(MatchCommand("cargo-ndk")).Then("", "", nil)
+
+	err := b.buildRustCrate(DefaultEmulatorArchitecture(), cratePath, "missing_render")
+	if err == nil {
+		t.Fatal("expected error for missing Rust artifact, got nil")
+	}
+}
+
 func TestAndroidBuilder_build_unsupportedABI(t *testing.T) {
 	b := &androidBuilder{
 		config: &Config{

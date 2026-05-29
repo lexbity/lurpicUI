@@ -128,9 +128,15 @@ func MatchCommand(path string, args ...string) CallMatcher {
 }
 
 type fakeRunner struct {
-	mu      sync.Mutex
-	calls   []CommandSpec
-	results []cannedResult
+	mu          sync.Mutex
+	calls       []CommandSpec
+	results     []cannedResult
+	lookResults map[string]lookResult
+}
+
+type lookResult struct {
+	path string
+	err  error
 }
 
 type cannedResult struct {
@@ -141,7 +147,9 @@ type cannedResult struct {
 }
 
 func newFakeRunner() *fakeRunner {
-	return &fakeRunner{}
+	return &fakeRunner{
+		lookResults: make(map[string]lookResult),
+	}
 }
 
 func (f *fakeRunner) When(matcher CallMatcher) *fakeResultBuilder {
@@ -218,7 +226,34 @@ func (f *fakeRunner) Start(spec CommandSpec) (ProcessHandle, error) {
 	return &fakeProcessHandle{err: result.err}, nil
 }
 
+func (f *fakeRunner) WhenLook(name string) *fakeLookBuilder {
+	return &fakeLookBuilder{
+		runner: f,
+		name:   name,
+	}
+}
+
+type fakeLookBuilder struct {
+	runner *fakeRunner
+	name   string
+}
+
+func (b *fakeLookBuilder) Returns(path string, err error) {
+	b.runner.mu.Lock()
+	defer b.runner.mu.Unlock()
+	b.runner.lookResults[b.name] = lookResult{path: path, err: err}
+}
+
 func (f *fakeRunner) Look(name string) (string, error) {
+	f.mu.Lock()
+	result, ok := f.lookResults[name]
+	f.mu.Unlock()
+	if ok {
+		if result.err != nil {
+			return "", result.err
+		}
+		return result.path, nil
+	}
 	path, err := exec.LookPath(name)
 	if err != nil {
 		return "", fmt.Errorf("executable %q not found on PATH: %w", name, err)
