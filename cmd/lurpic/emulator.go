@@ -4,14 +4,27 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 )
 
 const (
-	defaultEmulatorPort    = 5554
-	defaultBootTimeout     = 5 * time.Minute
-	defaultBootPollInterval = 3 * time.Second
+	defaultEmulatorPort     = 5554
+	defaultBootTimeout      = 5 * time.Minute
+	defaultBootPollInterval  = 3 * time.Second
+
+	// documentedAVDStdin is the stdin sent to avdmanager create avd to decline
+	// the custom hardware profile prompt.
+	documentedAVDStdin = "no\n"
+
+	// documentedLicenseStdin is the stdin sent to sdkmanager --licenses to accept
+	// all license agreements.
+	documentedLicenseStdin = "y\n"
+
+	// documentedPackageStdin is the stdin sent to sdkmanager install to confirm
+	// package download and installation.
+	documentedPackageStdin = "y\n"
 )
 
 type EmulatorManager struct {
@@ -140,24 +153,24 @@ func (m *EmulatorManager) findRunningEmulator(adb string) (string, error) {
 }
 
 func (m *EmulatorManager) resolveAVD(emulatorPath string) (string, error) {
-	if avd := os.Getenv("ANDROID_AVD_NAME"); avd != "" {
-		return avd, nil
-	}
 	if avd := os.Getenv("LURPIC_ANDROID_AVD"); avd != "" {
 		return avd, nil
 	}
-	output, err := m.runner.Output(CommandSpec{
-		Path: emulatorPath,
-		Args: []string{"-list-avds"},
-	})
-	if err != nil {
-		return "", fmt.Errorf("list avds failed: %w\n%s", err, output)
+	if avd := os.Getenv("ANDROID_AVD_NAME"); avd != "" {
+		return avd, nil
 	}
-	for _, line := range strings.Split(string(output), "\n") {
-		name := strings.TrimSpace(line)
-		if name != "" {
-			return name, nil
-		}
+	return m.managedAVD()
+}
+
+func (m *EmulatorManager) managedAVDName() string {
+	return fmt.Sprintf("lurpic_api%d_google_apis_%s", m.apiLevel, m.arch.EmulatorABI)
+}
+
+func (m *EmulatorManager) managedAVD() (string, error) {
+	avdName := m.managedAVDName()
+	avdDir := filepath.Join(os.Getenv("HOME"), ".android", "avd", avdName+".avd")
+	if _, err := os.Stat(avdDir); err == nil {
+		return avdName, nil
 	}
 	return m.createDefaultAVD()
 }
@@ -178,17 +191,28 @@ func (m *EmulatorManager) createDefaultAVD() (string, error) {
 		}
 	}
 
+	// Accept SDK licenses non-interactively
+	if err := m.runner.Run(CommandSpec{
+		Path:   sdkmanager,
+		Args:   []string{"--licenses"},
+		Stdin:  strings.NewReader(documentedLicenseStdin),
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
+		return "", fmt.Errorf("sdkmanager --licenses failed: %w", err)
+	}
+
 	systemImage := fmt.Sprintf("system-images;android-%d;google_apis;%s", m.apiLevel, m.arch.EmulatorABI)
 	if err := m.ensurePackage(sdkmanager, systemImage); err != nil {
 		return "", err
 	}
 
-	avdName := fmt.Sprintf("lurpic_api%d_google_apis_%s", m.apiLevel, m.arch.EmulatorABI)
+	avdName := m.managedAVDName()
 	fmt.Printf("Creating default Android Virtual Device %q...\n", avdName)
 	if err := m.runner.Run(CommandSpec{
 		Path:   avdmanager,
 		Args:   []string{"create", "avd", "-n", avdName, "-k", systemImage, "-d", "pixel_6", "--force"},
-		Stdin:  strings.NewReader("no\n"),
+		Stdin:  strings.NewReader(documentedAVDStdin),
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}); err != nil {
@@ -201,7 +225,7 @@ func (m *EmulatorManager) ensurePackage(sdkmanager, pkg string) error {
 	if err := m.runner.Run(CommandSpec{
 		Path:   sdkmanager,
 		Args:   []string{pkg},
-		Stdin:  strings.NewReader("y\n"),
+		Stdin:  strings.NewReader(documentedPackageStdin),
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}); err != nil {

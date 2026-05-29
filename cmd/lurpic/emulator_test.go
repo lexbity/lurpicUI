@@ -2,9 +2,11 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -342,6 +344,117 @@ func TestWaitForBoot_cancelledContext(t *testing.T) {
 	err := mgr.waitForBoot(ctx, "adb", "em-5554")
 	if err == nil {
 		t.Fatal("expected cancellation error")
+	}
+}
+
+func TestManagedAVDName_usesEmulatorABI(t *testing.T) {
+	mgr := NewEmulatorManager(newFakeRunner(), "/sdk", 33, DefaultEmulatorArchitecture(), "auto", false)
+	name := mgr.managedAVDName()
+	expected := "lurpic_api33_google_apis_x86_64"
+	if name != expected {
+		t.Fatalf("expected %q, got %q", expected, name)
+	}
+}
+
+func TestManagedAVDName_pinnedToEmulatorArch(t *testing.T) {
+	armArch := Architecture{ABI: "arm64-v8a", EmulatorABI: "arm64-v8a"}
+	mgr := NewEmulatorManager(newFakeRunner(), "/sdk", 33, armArch, "auto", false)
+	name := mgr.managedAVDName()
+	expected := "lurpic_api33_google_apis_arm64-v8a"
+	if name != expected {
+		t.Fatalf("expected %q, got %q", expected, name)
+	}
+}
+
+func TestResolveAVD_precedence_LURPIC_ANDROID_AVD(t *testing.T) {
+	t.Setenv("LURPIC_ANDROID_AVD", "my_lurpic_avd")
+	t.Setenv("ANDROID_AVD_NAME", "should_not_win")
+
+	f := newFakeRunner()
+	mgr := NewEmulatorManager(f, "/sdk", 33, DefaultEmulatorArchitecture(), "auto", false)
+
+	avd, err := mgr.resolveAVD("emulator")
+	if err != nil {
+		t.Fatalf("resolveAVD: %v", err)
+	}
+	if avd != "my_lurpic_avd" {
+		t.Fatalf("expected 'my_lurpic_avd', got %q", avd)
+	}
+}
+
+func TestResolveAVD_precedence_ANDROID_AVD_NAME(t *testing.T) {
+	t.Setenv("ANDROID_AVD_NAME", "my_env_avd")
+
+	f := newFakeRunner()
+	mgr := NewEmulatorManager(f, "/sdk", 33, DefaultEmulatorArchitecture(), "auto", false)
+
+	avd, err := mgr.resolveAVD("emulator")
+	if err != nil {
+		t.Fatalf("resolveAVD: %v", err)
+	}
+	if avd != "my_env_avd" {
+		t.Fatalf("expected 'my_env_avd', got %q", avd)
+	}
+}
+
+func TestResolveAVD_noEnvUsesManaged(t *testing.T) {
+	sdkDir := t.TempDir()
+	createFakeSDK(t, sdkDir)
+
+	f := newFakeRunner()
+	mgr := NewEmulatorManager(f, sdkDir, 33, DefaultEmulatorArchitecture(), "auto", false)
+
+	// No env vars set → should attempt to create managed AVD
+	sdkmanagerPath := filepath.Join(sdkDir, "cmdline-tools", "latest", "bin", "sdkmanager")
+	avdmanagerPath := filepath.Join(sdkDir, "cmdline-tools", "latest", "bin", "avdmanager")
+	emuTool := filepath.Join(sdkDir, "emulator", "emulator")
+
+	// The managedAVD check first looks for the AVD directory via os.Stat.
+	// It won't exist, so it falls through to createDefaultAVD.
+	// createDefaultAVD runs: sdkmanager --licenses, sdkmanager install, avdmanager create
+	f.When(MatchCommand(sdkmanagerPath, "--licenses")).Then("", "", nil)
+	f.When(MatchCommand(sdkmanagerPath)).Then("", "", nil)
+	f.When(MatchCommand(avdmanagerPath)).Then("", "", nil)
+	f.When(MatchCommand(emuTool)).Then("", "", nil)
+
+	avd, err := mgr.resolveAVD(emuTool)
+	if err != nil {
+		t.Fatalf("resolveAVD: %v", err)
+	}
+	expected := "lurpic_api33_google_apis_x86_64"
+	if avd != expected {
+		t.Fatalf("expected %q, got %q", expected, avd)
+	}
+
+	calls := f.Calls()
+	// Should have at least: sdkmanager --licenses, sdkmanager <pkg>, avdmanager create
+	if len(calls) < 3 {
+		t.Fatalf("expected at least 3 provisioning calls, got %d", len(calls))
+	}
+
+	// Call 0: sdkmanager --licenses
+	if calls[0].Args[0] != "--licenses" {
+		t.Fatalf("call 0: expected --licenses, got %v", calls[0].Args)
+	}
+
+	// Call 1: sdkmanager install system image
+	systemImage := fmt.Sprintf("system-images;android-%d;google_apis;%s", 33, DefaultEmulatorArchitecture().EmulatorABI)
+
+	// Call 2: avdmanager create
+	hasCreate := false
+	for _, a := range calls[2].Args {
+		if a == "create" {
+			hasCreate = true
+			break
+		}
+	}
+	if !hasCreate {
+		t.Fatalf("call 2: expected avdmanager create, got %v", calls[2].Args)
+	}
+
+	// Verify the system image string is pinned to google_apis x86_64
+	if !strings.Contains(systemImage, "google_apis") || !strings.Contains(systemImage, "x86_64") {
+		t.Fatalf("system image should be 'google_apis' and 'x86_64', got %q", systemImage)
 	}
 }
 

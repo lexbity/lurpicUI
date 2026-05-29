@@ -313,7 +313,7 @@ func (r *androidRunner) createDefaultAndroidAVD() (string, error) {
 	if err := r.runner.Run(CommandSpec{
 		Path:   avdmanager,
 		Args:   []string{"create", "avd", "-n", avdName, "-k", systemImage, "-d", defaultAndroidAVDDevice, "--force"},
-		Stdin:  strings.NewReader("no\n"),
+		Stdin:  strings.NewReader(documentedAVDStdin),
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}); err != nil {
@@ -326,7 +326,7 @@ func (r *androidRunner) ensureAndroidPackage(sdkmanager string, pkg string) erro
 	if err := r.runner.Run(CommandSpec{
 		Path:   sdkmanager,
 		Args:   []string{pkg},
-		Stdin:  strings.NewReader("y\n"),
+		Stdin:  strings.NewReader(documentedPackageStdin),
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}); err != nil {
