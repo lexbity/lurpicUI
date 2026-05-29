@@ -192,3 +192,27 @@ func findSDKTool(sdk, tool string) (string, error) {
 
 	return "", fmt.Errorf("tool '%s' not found in SDK", tool)
 }
+
+// findEmulatorTool finds the emulator binary in the SDK.
+func findEmulatorTool(sdk string) (string, error) {
+	candidate := filepath.Join(sdk, "emulator", "emulator")
+	if runtime.GOOS == "windows" {
+		candidate += ".exe"
+	}
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+	return "", fmt.Errorf("emulator binary not found in Android SDK")
+}
+
+// findCmdlineTool finds a tool in the SDK's cmdline-tools directory.
+func findCmdlineTool(sdk, tool string) (string, error) {
+	candidate := filepath.Join(sdk, "cmdline-tools", "latest", "bin", tool)
+	if runtime.GOOS == "windows" {
+		candidate += ".bat"
+	}
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+	return "", fmt.Errorf("tool '%s' not found in SDK cmdline-tools", tool)
+}

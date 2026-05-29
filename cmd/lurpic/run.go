@@ -123,7 +123,7 @@ func (r *androidRunner) launchEmulator() error {
 	}
 
 	fmt.Printf("Launching emulator %q...\n", avd)
-	handle, err := r.runner.Start(CommandSpec{
+	_, err = r.runner.Start(CommandSpec{
 		Path:   emulator,
 		Args:   []string{"-avd", avd, "-no-snapshot-save", "-no-boot-anim"},
 		Stdout: os.Stdout,
@@ -132,9 +132,6 @@ func (r *androidRunner) launchEmulator() error {
 	if err != nil {
 		return fmt.Errorf("start emulator: %w", err)
 	}
-	go func() {
-		_ = handle.Wait()
-	}()
 	return nil
 }
 
