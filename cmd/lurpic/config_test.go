@@ -86,6 +86,90 @@ name = "Minimal App"
 	}
 }
 
+func TestLoadConfig_ABIDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.abis"
+name = "ABI Test"
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if len(config.Android.ABIs) != 2 {
+		t.Fatalf("expected 2 default ABIs, got %d", len(config.Android.ABIs))
+	}
+	if config.Android.ABIs[0] != "x86_64" {
+		t.Fatalf("expected ABIs[0] = x86_64, got %q", config.Android.ABIs[0])
+	}
+	if config.Android.ABIs[1] != "arm64-v8a" {
+		t.Fatalf("expected ABIs[1] = arm64-v8a, got %q", config.Android.ABIs[1])
+	}
+}
+
+func TestLoadConfig_ABIExplicit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.abis"
+name = "Explicit ABI Test"
+
+[android]
+abis = ["x86_64"]
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if len(config.Android.ABIs) != 1 {
+		t.Fatalf("expected 1 ABI, got %d", len(config.Android.ABIs))
+	}
+	if config.Android.ABIs[0] != "x86_64" {
+		t.Fatalf("expected ABIs[0] = x86_64, got %q", config.Android.ABIs[0])
+	}
+}
+
+func TestLoadConfig_ABIAllArches(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.abis"
+name = "All ABIs"
+
+[android]
+abis = ["x86_64", "arm64-v8a", "armeabi-v7a"]
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if len(config.Android.ABIs) != 3 {
+		t.Fatalf("expected 3 ABIs, got %d", len(config.Android.ABIs))
+	}
+	if config.Android.ABIs[2] != "armeabi-v7a" {
+		t.Fatalf("expected ABIs[2] = armeabi-v7a, got %q", config.Android.ABIs[2])
+	}
+}
+
 func TestLoadConfig_MissingID(t *testing.T) {
 	tmpDir := t.TempDir()
 

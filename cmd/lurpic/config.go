@@ -36,6 +36,7 @@ type IconConfig struct {
 type AndroidConfig struct {
 	MinSDK      int              `toml:"min_sdk"`
 	TargetSDK   int              `toml:"target_sdk"`
+	ABIs        []string         `toml:"abis"`
 	Permissions PermissionConfig `toml:"permissions"`
 	Keystore    KeystoreConfig   `toml:"keystore"`
 	SDK         SDKConfig        `toml:"sdk"`
@@ -100,6 +101,10 @@ func loadConfig(projectRoot string) (*Config, error) {
 	}
 	if config.Android.TargetSDK == 0 {
 		config.Android.TargetSDK = 33
+	}
+
+	if config.Android.ABIs == nil {
+		config.Android.ABIs = []string{"x86_64", "arm64-v8a"}
 	}
 
 	// Validate required fields
