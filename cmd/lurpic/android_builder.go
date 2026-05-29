@@ -22,6 +22,7 @@ type androidBuilder struct {
 	config      *Config
 	release     bool
 	outputPath  string
+	apiLevel    int
 }
 
 // build executes the full Android build pipeline
@@ -32,9 +33,15 @@ func (b *androidBuilder) build() error {
 		return err
 	}
 
-	// Step 1: Build Go shared library
-	if err := b.buildGoLibrary(); err != nil {
-		return fmt.Errorf("Go build failed: %w", err)
+	// Step 1: Build Go shared library for each configured ABI
+	for _, abi := range b.config.Android.ABIs {
+		arch, ok := ArchitectureByABI(abi)
+		if !ok {
+			return fmt.Errorf("unsupported ABI: %s", abi)
+		}
+		if err := b.buildGoLibrary(arch); err != nil {
+			return fmt.Errorf("Go build failed for %s: %w", abi, err)
+		}
 	}
 
 	// Step 2: Build Rust library
@@ -70,22 +77,23 @@ func (b *androidBuilder) selectAndroidAPI() error {
 	if !ok || impl == nil {
 		return fmt.Errorf("no Android API implementation registered for target SDK %d", b.config.Android.TargetSDK)
 	}
-	fmt.Printf("Selected Android API level %d for target SDK %d\n", impl.APILevel(), b.config.Android.TargetSDK)
+	b.apiLevel = impl.APILevel()
+	fmt.Printf("Selected Android API level %d for target SDK %d\n", b.apiLevel, b.config.Android.TargetSDK)
 	return nil
 }
 
-// buildGoLibrary cross-compiles the Go code for Android
-func (b *androidBuilder) buildGoLibrary() error {
-	fmt.Println("Building Go library...")
+// buildGoLibrary cross-compiles the Go code for Android for the given architecture.
+func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
+	fmt.Printf("Building Go library for %s...\n", arch.ABI)
 
-	// Find NDK compiler
-	clang := b.findNDKCompiler("aarch64-linux-android", "clang")
+	// Find NDK compiler using the triple+api-level clang name
+	clang := b.findNDKCompiler(arch)
 	if clang == "" {
-		return fmt.Errorf("cannot find NDK clang compiler for arm64")
+		return fmt.Errorf("cannot find NDK clang compiler for %s", arch.ABI)
 	}
 
 	// Create output directory for native libs
-	libDir := filepath.Join(b.buildDir, "lib", "arm64-v8a")
+	libDir := filepath.Join(b.buildDir, "lib", arch.ABI)
 	if err := os.MkdirAll(libDir, 0755); err != nil {
 		return err
 	}
@@ -94,22 +102,23 @@ func (b *androidBuilder) buildGoLibrary() error {
 	env := os.Environ()
 	env = append(env,
 		"GOOS=android",
-		"GOARCH=arm64",
+		"GOARCH="+arch.GOARCH,
 		"CGO_ENABLED=1",
 		fmt.Sprintf("CC=%s", clang),
 	)
+	if arch.GOARM != "" {
+		env = append(env, "GOARM="+arch.GOARM)
+	}
 
 	// Find the main package
 	mainPath := filepath.Join(b.projectRoot, "main.go")
 	if _, err := os.Stat(mainPath); os.IsNotExist(err) {
-		// Look for cmd/ structure
 		mainPath = filepath.Join(b.projectRoot, "cmd", b.config.App.ID, "main.go")
 	}
 
-	// If no main.go found, skip Go build (for minimal tests)
+	// Missing main.go is a fatal error
 	if _, err := os.Stat(mainPath); os.IsNotExist(err) {
-		fmt.Println("  No main.go found, skipping Go build")
-		return nil
+		return fmt.Errorf("no main.go found at %s or cmd/%s/main.go", filepath.Join(b.projectRoot, "main.go"), b.config.App.ID)
 	}
 
 	output := filepath.Join(libDir, "libgo.so")
@@ -676,14 +685,16 @@ func (b *androidBuilder) verifyAPK() error {
 	return nil
 }
 
-// findNDKCompiler finds the NDK clang compiler for a given target
-func (b *androidBuilder) findNDKCompiler(target, compiler string) string {
-	toolchain := b.findNDKToolchain(target)
+// findNDKCompiler finds the NDK clang compiler for the given architecture.
+// The compiler binary is named <triple><api>-clang (e.g. aarch64-linux-android33-clang).
+func (b *androidBuilder) findNDKCompiler(arch Architecture) string {
+	toolchain := b.findNDKToolchain(arch.NDKTriple)
 	if toolchain == "" {
 		return ""
 	}
 
-	compilerPath := filepath.Join(toolchain, compiler)
+	compilerName := fmt.Sprintf("%s%d-clang", arch.NDKTriple, b.apiLevel)
+	compilerPath := filepath.Join(toolchain, compilerName)
 	if runtime.GOOS == "windows" {
 		compilerPath += ".exe"
 	}

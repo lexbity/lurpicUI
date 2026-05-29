@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -20,7 +21,6 @@ func createSDKWithTool(t *testing.T, sdkDir, tool string) (toolPath string) {
 	if err := os.WriteFile(toolPath, []byte("#!/bin/sh\nexit 0"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_ = filepath.Join(sdkDir, "platform-tools", "adb")
 	return toolPath
 }
 
@@ -38,6 +38,29 @@ func createSDKWithPlatform(t *testing.T, sdkDir string, api int) {
 	if err := os.MkdirAll(adbDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func createNDKWithCompiler(t *testing.T, ndkDir, triple string, apiLevel int) (clangPath string) {
+	t.Helper()
+	host := "linux-x86_64"
+	if runtime.GOOS == "darwin" {
+		host = "darwin-x86_64"
+	} else if runtime.GOOS == "windows" {
+		host = "windows-x86_64"
+	}
+	toolchainDir := filepath.Join(ndkDir, "toolchains", "llvm", "prebuilt", host, "bin")
+	if err := os.MkdirAll(toolchainDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	clangName := fmt.Sprintf("%s%d-clang", triple, apiLevel)
+	if runtime.GOOS == "windows" {
+		clangName += ".exe"
+	}
+	clangPath = filepath.Join(toolchainDir, clangName)
+	if err := os.WriteFile(clangPath, []byte("#!/bin/sh\necho \"$@\"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return clangPath
 }
 
 func TestAndroidBuilder_selectAndroidAPI(t *testing.T) {
@@ -134,7 +157,6 @@ func TestAndroidBuilder_signAPK_debug_argv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Set HOME so debug keystore resolves to a temp location
 	homeDir := t.TempDir()
 	t.Setenv("HOME", homeDir)
 	debugKeystore := filepath.Join(homeDir, ".android", "debug.keystore")
@@ -155,7 +177,6 @@ func TestAndroidBuilder_signAPK_debug_argv(t *testing.T) {
 		release:    false,
 	}
 
-	// zipalign and apksigner sign should succeed
 	f.When(MatchCommand(zipalignPath)).Then("", "", nil)
 	f.When(MatchCommand(apksignerPath)).Then("", "", nil)
 
@@ -164,15 +185,12 @@ func TestAndroidBuilder_signAPK_debug_argv(t *testing.T) {
 	}
 
 	calls := f.Calls()
-	// We expect: zipalign, apksigner sign, apksigner verify
 	if len(calls) < 2 {
 		t.Fatalf("expected at least 2 calls, got %d", len(calls))
 	}
-	// First call should be zipalign
 	if calls[0].Path != zipalignPath {
 		t.Fatalf("call 0 expected %q, got %q", zipalignPath, calls[0].Path)
 	}
-	// Second call should be apksigner sign
 	if calls[1].Path != apksignerPath {
 		t.Fatalf("call 1 expected %q, got %q", apksignerPath, calls[1].Path)
 	}
@@ -181,26 +199,18 @@ func TestAndroidBuilder_signAPK_debug_argv(t *testing.T) {
 	}
 }
 
-func TestAndroidBuilder_buildGoLibrary_argv(t *testing.T) {
+func TestAndroidBuilder_buildGoLibrary_x86_64_argv(t *testing.T) {
 	sdkDir := t.TempDir()
 	ndkDir := t.TempDir()
 	projectRoot := t.TempDir()
 
-	// Create a minimal main.go in the project root
 	mainGo := filepath.Join(projectRoot, "main.go")
 	if err := os.WriteFile(mainGo, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Create NDK toolchain directory
-	toolchainDir := filepath.Join(ndkDir, "toolchains", "llvm", "prebuilt", "linux-x86_64", "bin")
-	if err := os.MkdirAll(toolchainDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	clangPath := filepath.Join(toolchainDir, "clang")
-	if err := os.WriteFile(clangPath, []byte("#!/bin/sh\nexit 0"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	// Create NDK clang for x86_64-linux-android
+	createNDKWithCompiler(t, ndkDir, "x86_64-linux-android", 33)
 
 	f := newFakeRunner()
 	b := &androidBuilder{
@@ -209,18 +219,18 @@ func TestAndroidBuilder_buildGoLibrary_argv(t *testing.T) {
 		ndk:         ndkDir,
 		projectRoot: projectRoot,
 		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		apiLevel:    33,
 		config: &Config{
 			App:     AppConfig{ID: "org.test.app", Name: "TestApp"},
 			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
 		},
-		release:    false,
 		outputPath: filepath.Join(projectRoot, "build", "android", "output.apk"),
 	}
 
-	// buildGoLibrary spawns "go build -buildmode=c-shared -o ..."
 	f.When(MatchCommand("go")).Then("", "", nil)
 
-	if err := b.buildGoLibrary(); err != nil {
+	arch := DefaultEmulatorArchitecture()
+	if err := b.buildGoLibrary(arch); err != nil {
 		t.Fatalf("buildGoLibrary: %v", err)
 	}
 
@@ -231,21 +241,122 @@ func TestAndroidBuilder_buildGoLibrary_argv(t *testing.T) {
 	if calls[0].Path != "go" {
 		t.Fatalf("expected 'go', got %q", calls[0].Path)
 	}
-	// Verify it's using c-shared build mode
-	if calls[0].Args[0] != "build" {
-		t.Fatalf("expected build subcommand, got %v", calls[0].Args)
-	}
 
-	// Verify the CC env is set
-	ccSet := false
+	// Verify GOARCH=amd64 for x86_64 ABI
+	foundGOARCH := false
+	foundGOOS := false
+	foundCC := false
 	for _, e := range calls[0].Env {
+		if e == "GOARCH=amd64" {
+			foundGOARCH = true
+		}
 		if e == "GOOS=android" {
-			ccSet = true
-			break
+			foundGOOS = true
+		}
+		if e == "CGO_ENABLED=1" {
+			foundCC = true
 		}
 	}
-	if !ccSet {
+	if !foundGOARCH {
+		t.Fatal("expected GOARCH=amd64 in environment")
+	}
+	if !foundGOOS {
 		t.Fatal("expected GOOS=android in environment")
+	}
+	if !foundCC {
+		t.Fatal("expected CGO_ENABLED=1 in environment")
+	}
+
+	// Verify output path uses the ABI directory
+	expectedOutput := filepath.Join(projectRoot, "build", "android", "lib", "x86_64", "libgo.so")
+	if calls[0].Args[2] != "-o" || calls[0].Args[3] != expectedOutput {
+		t.Fatalf("expected output %q, got args: %v", expectedOutput, calls[0].Args)
+	}
+}
+
+func TestAndroidBuilder_buildGoLibrary_arm64_argv(t *testing.T) {
+	sdkDir := t.TempDir()
+	ndkDir := t.TempDir()
+	projectRoot := t.TempDir()
+
+	mainGo := filepath.Join(projectRoot, "main.go")
+	if err := os.WriteFile(mainGo, []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	createNDKWithCompiler(t, ndkDir, "aarch64-linux-android", 33)
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:      f,
+		sdk:         sdkDir,
+		ndk:         ndkDir,
+		projectRoot: projectRoot,
+		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		apiLevel:    33,
+		config: &Config{
+			App:     AppConfig{ID: "org.test.app", Name: "TestApp"},
+			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
+		},
+		outputPath: filepath.Join(projectRoot, "build", "android", "output.apk"),
+	}
+
+	f.When(MatchCommand("go")).Then("", "", nil)
+
+	arch, ok := ArchitectureByABI("arm64-v8a")
+	if !ok {
+		t.Fatal("arm64-v8a architecture not found")
+	}
+	if err := b.buildGoLibrary(arch); err != nil {
+		t.Fatalf("buildGoLibrary(arm64-v8a): %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+
+	foundGOARCH := false
+	foundGOOS := false
+	for _, e := range calls[0].Env {
+		if e == "GOARCH=arm64" {
+			foundGOARCH = true
+		}
+		if e == "GOOS=android" {
+			foundGOOS = true
+		}
+	}
+	if !foundGOARCH {
+		t.Fatal("expected GOARCH=arm64 in environment")
+	}
+	if !foundGOOS {
+		t.Fatal("expected GOOS=android in environment")
+	}
+
+	// Verify output path uses arm64-v8a ABI directory
+	expectedOutput := filepath.Join(projectRoot, "build", "android", "lib", "arm64-v8a", "libgo.so")
+	if calls[0].Args[2] != "-o" || calls[0].Args[3] != expectedOutput {
+		t.Fatalf("expected output %q, got args: %v", expectedOutput, calls[0].Args)
+	}
+}
+
+func TestAndroidBuilder_buildGoLibrary_noMainIsFatal(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:      f,
+		projectRoot: projectRoot,
+		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		config: &Config{
+			App:     AppConfig{ID: "org.test.app"},
+			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
+		},
+	}
+
+	err := b.buildGoLibrary(DefaultEmulatorArchitecture())
+	if err == nil {
+		t.Fatal("expected error for missing main.go, got nil")
 	}
 }
 
@@ -265,26 +376,6 @@ func TestAndroidBuilder_compileResources_failsWithoutAapt2(t *testing.T) {
 	_, err := b.compileResources()
 	if err == nil {
 		t.Fatal("expected error when aapt2 is missing")
-	}
-}
-
-func TestAndroidBuilder_buildGoLibrary_noMainIsFatal(t *testing.T) {
-	projectRoot := t.TempDir()
-
-	f := newFakeRunner()
-	b := &androidBuilder{
-		runner:      f,
-		projectRoot: projectRoot,
-		buildDir:    filepath.Join(projectRoot, "build", "android"),
-		config: &Config{
-			App:     AppConfig{ID: "org.test.app"},
-			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
-		},
-	}
-
-	err := b.buildGoLibrary()
-	if err == nil {
-		t.Fatal("expected error for missing main.go, got nil")
 	}
 }
 
@@ -311,5 +402,21 @@ func TestAndroidBuilder_signAPK_releaseNeedsKeystoreConfig(t *testing.T) {
 	err := b.signAPK()
 	if err == nil {
 		t.Fatal("expected error for missing keystore config in release mode")
+	}
+}
+
+func TestAndroidBuilder_build_unsupportedABI(t *testing.T) {
+	b := &androidBuilder{
+		config: &Config{
+			Android: AndroidConfig{
+				TargetSDK: 33,
+				ABIs:      []string{"riscv64"},
+			},
+		},
+	}
+
+	err := b.build()
+	if err == nil {
+		t.Fatal("expected error for unsupported ABI")
 	}
 }
