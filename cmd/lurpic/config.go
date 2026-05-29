@@ -59,14 +59,12 @@ type JDKConfig struct {
 	Path string `toml:"path"`
 }
 
-// KeystoreConfig contains release signing configuration
-// For security, the password can also be provided via:
-// - Environment variable: LURPIC_KEYSTORE_PASSWORD
-// - Command line flag: --keystore-password
+// KeystoreConfig contains release signing configuration.
+// The password must be supplied via --ks-pass flag, LURPIC_KEYSTORE_PASSWORD env,
+// or an interactive secure prompt — never stored in lurpic.toml.
 type KeystoreConfig struct {
-	Path     string `toml:"path"`
-	Alias    string `toml:"alias"`
-	Password string `toml:"password"`
+	Path  string `toml:"path"`
+	Alias string `toml:"alias"`
 }
 
 // HasIcon returns true if any icon path is configured

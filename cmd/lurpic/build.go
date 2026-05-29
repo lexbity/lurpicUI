@@ -131,15 +131,13 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 		outputPath = filepath.Join(buildDir, fmt.Sprintf("%s-%s.apk", config.App.ID, suffix))
 	}
 
-	// Apply command-line overrides to config for keystore
+	// Apply command-line overrides to config for keystore path and alias
+	// (password is NOT stored in config — passed via the ksPassword field instead)
 	if flags.keystore != "" {
 		config.Android.Keystore.Path = flags.keystore
 	}
 	if flags.ksAlias != "" {
 		config.Android.Keystore.Alias = flags.ksAlias
-	}
-	if flags.ksPassword != "" {
-		config.Android.Keystore.Password = flags.ksPassword
 	}
 
 	builder := &androidBuilder{
@@ -151,6 +149,7 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 		config:      config,
 		release:     flags.release,
 		outputPath:  outputPath,
+		ksPassword:  flags.ksPassword,
 	}
 	return builder, nil
 }

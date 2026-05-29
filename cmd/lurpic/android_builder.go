@@ -10,6 +10,7 @@ import (
 	"text/template"
 
 	"codeburg.org/lexbit/lurpicui/platform/android"
+	"golang.org/x/term"
 )
 
 // androidBuilder orchestrates the Android APK build process
@@ -23,6 +24,7 @@ type androidBuilder struct {
 	release     bool
 	outputPath  string
 	apiLevel    int
+	ksPassword  string
 }
 
 // build executes the full Android build pipeline
@@ -545,10 +547,16 @@ func (b *androidBuilder) signAPK() error {
 	var keystorePath, keystoreAlias, keystorePass string
 
 	if b.release {
-		// Release signing - requires keystore configuration
+		// Release signing - requires keystore configuration or command-line overrides
 		keystorePath = b.config.Android.Keystore.Path
 		keystoreAlias = b.config.Android.Keystore.Alias
-		keystorePass = b.getKeystorePassword()
+		keystorePass = b.ksPassword
+		if keystorePass == "" {
+			keystorePass = os.Getenv("LURPIC_KEYSTORE_PASSWORD")
+		}
+		if keystorePass == "" {
+			keystorePass = b.promptPassword()
+		}
 
 		if keystorePath == "" {
 			return fmt.Errorf("release signing requires keystore.path in lurpic.toml or --keystore flag")
@@ -557,7 +565,7 @@ func (b *androidBuilder) signAPK() error {
 			return fmt.Errorf("release signing requires keystore.alias in lurpic.toml or --ks-alias flag")
 		}
 		if keystorePass == "" {
-			return fmt.Errorf("release signing requires keystore password. Set in lurpic.toml, use --ks-pass flag, or set LURPIC_KEYSTORE_PASSWORD environment variable")
+			return fmt.Errorf("release signing requires keystore password. Use --ks-pass flag, or set LURPIC_KEYSTORE_PASSWORD environment variable")
 		}
 
 		// Validate keystore exists
@@ -568,24 +576,28 @@ func (b *androidBuilder) signAPK() error {
 		fmt.Printf("  Using release keystore: %s (alias: %s)\n", keystorePath, keystoreAlias)
 	} else {
 		// Debug signing
-		keystorePath = b.getDebugKeystore()
+		var err error
+		keystorePath, err = b.getDebugKeystore()
+		if err != nil {
+			return fmt.Errorf("debug keystore: %w", err)
+		}
 		keystoreAlias = "androiddebugkey"
 		keystorePass = "android"
 		fmt.Printf("  Using debug keystore: %s\n", keystorePath)
 	}
 
-	// Build apksigner command
+	// Build apksigner command — password is passed on the command line to apksigner,
+	// but we take care never to log it or store it in config.
 	signArgs := []string{
 		"sign",
 		"--ks", keystorePath,
 		"--ks-key-alias", keystoreAlias,
 		"--ks-pass", "pass:" + keystorePass,
-		"--key-pass", "pass:" + keystorePass,
 		"--in", alignedApk,
 		"--out", b.outputPath,
 	}
 
-	// For release builds, add additional verification
+	// For release builds, enable v1/v2 signing schemes
 	if b.release {
 		signArgs = append(signArgs, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true")
 	}
@@ -601,9 +613,9 @@ func (b *androidBuilder) signAPK() error {
 
 	fmt.Printf("  Signed: %s\n", b.outputPath)
 
-	// Step 3: Verify the signed APK
+	// Step 3: Verify the signed APK (fatal on failure)
 	if err := b.verifyAPK(); err != nil {
-		fmt.Printf("  Warning: APK verification failed: %v\n", err)
+		return fmt.Errorf("APK verification failed: %w", err)
 	}
 
 	return nil
@@ -632,18 +644,18 @@ func (b *androidBuilder) alignAPK(input, output string) error {
 	return nil
 }
 
-// getKeystorePassword returns the keystore password from config, env, or prompt
-func (b *androidBuilder) getKeystorePassword() string {
-	// Priority: 1) Config file, 2) Environment variable, 3) Empty (will fail validation)
-	if b.config.Android.Keystore.Password != "" {
-		return b.config.Android.Keystore.Password
+// promptPassword reads a keystore password from the terminal with echo disabled.
+// Returns empty string if the terminal is not available.
+func (b *androidBuilder) promptPassword() string {
+	fmt.Fprint(os.Stderr, "Enter keystore password: ")
+	pass, err := term.ReadPassword(int(os.Stdin.Fd()))
+	if err != nil {
+		return ""
 	}
-
-	if pass := os.Getenv("LURPIC_KEYSTORE_PASSWORD"); pass != "" {
-		return pass
-	}
-
-	return ""
+	fmt.Fprintln(os.Stderr)
+	passStr := string(pass)
+	b.ksPassword = passStr
+	return passStr
 }
 
 // verifyAPK verifies the signed APK using apksigner
@@ -722,19 +734,24 @@ func (b *androidBuilder) findNDKToolchain(target string) string {
 	return ""
 }
 
-// getDebugKeystore returns the path to the debug keystore, creating it if necessary
-func (b *androidBuilder) getDebugKeystore() string {
-	// Use user-local debug keystore
-	home, _ := os.UserHomeDir()
+// getDebugKeystore returns the path to the debug keystore, creating it if necessary.
+// Returns an error if keytool is not found or the keystore cannot be created.
+func (b *androidBuilder) getDebugKeystore() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("cannot determine home directory: %w", err)
+	}
 	keystoreDir := filepath.Join(home, ".android")
 	keystore := filepath.Join(keystoreDir, "debug.keystore")
 
 	if _, err := os.Stat(keystore); err == nil {
-		return keystore
+		return keystore, nil
 	}
 
 	// Create the debug keystore
-	os.MkdirAll(keystoreDir, 0755)
+	if err := os.MkdirAll(keystoreDir, 0755); err != nil {
+		return "", fmt.Errorf("cannot create .android directory: %w", err)
+	}
 
 	// Find keytool
 	keytool := filepath.Join(os.Getenv("JAVA_HOME"), "bin", "keytool")
@@ -742,22 +759,23 @@ func (b *androidBuilder) getDebugKeystore() string {
 		keytool += ".exe"
 	}
 	if _, err := os.Stat(keytool); err != nil {
-		// Try to find keytool in PATH
 		if found, lookErr := b.runner.Look("keytool"); lookErr == nil {
 			keytool = found
+		} else {
+			return "", fmt.Errorf("keytool not found: install a JDK or set JAVA_HOME")
 		}
 	}
 
-	if keytool != "" {
-		_ = b.runner.Run(CommandSpec{
-			Path:   keytool,
-			Args:   []string{"-genkey", "-v", "-keystore", keystore, "-alias", "androiddebugkey", "-storepass", "android", "-keypass", "android", "-keyalg", "RSA", "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"},
-			Stdout: os.Stdout,
-			Stderr: os.Stderr,
-		})
+	if err := b.runner.Run(CommandSpec{
+		Path:   keytool,
+		Args:   []string{"-genkey", "-v", "-keystore", keystore, "-alias", "androiddebugkey", "-storepass", "android", "-keypass", "android", "-keyalg", "RSA", "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"},
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
+		return "", fmt.Errorf("failed to generate debug keystore with keytool: %w", err)
 	}
 
-	return keystore
+	return keystore, nil
 }
 
 // Helper functions
