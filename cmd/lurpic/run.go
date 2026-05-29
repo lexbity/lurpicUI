@@ -6,17 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"time"
-)
-
-const (
-	defaultAndroidAPIVersion    = "33"
-	defaultAndroidAVDDevice     = "pixel_6"
-	defaultAndroidAVDTarget     = "google_apis"
-	defaultAndroidAVDArchX86_64 = "x86_64"
-	defaultAndroidAVDArchArm64  = "arm64-v8a"
 )
 
 type runFlags struct {
@@ -24,19 +15,23 @@ type runFlags struct {
 	release       bool
 	bootTimeout   time.Duration
 	deviceSerial  string
-	forceSoftware bool
+	avdName       string
+	abi           string
 	gpuMode       string
+	forceSoftware bool
 }
 
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ExitOnError)
 	var flags runFlags
-	fs.BoolVar(&flags.emulator, "emulator", false, "Launch on emulator")
-	fs.BoolVar(&flags.release, "release", false, "Build release APK")
-	fs.DurationVar(&flags.bootTimeout, "boot-timeout", 5*time.Minute, "Emulator boot timeout (e.g. 10m, 300s)")
+	fs.BoolVar(&flags.emulator, "emulator", false, "Launch on emulator (starts if not running)")
+	fs.BoolVar(&flags.release, "release", false, "Build release APK before running")
+	fs.DurationVar(&flags.bootTimeout, "boot-timeout", 5*time.Minute, "Emulator boot timeout")
 	fs.StringVar(&flags.deviceSerial, "device", "", "Target device serial (e.g. emulator-5554)")
-	fs.BoolVar(&flags.forceSoftware, "force-software", false, "Force software renderer (sets LURPIC_RENDER_BACKEND=software)")
-	fs.StringVar(&flags.gpuMode, "gpu", "auto", "Emulator GPU mode (auto, host, swiftshader_indirect)")
+	fs.StringVar(&flags.avdName, "avd", "", "AVD name (emulator only)")
+	fs.StringVar(&flags.abi, "abi", "", "Target ABI (e.g. x86_64, arm64-v8a; emulator defaults to x86_64)")
+	fs.StringVar(&flags.gpuMode, "gpu", "auto", "Emulator GPU mode")
+	fs.BoolVar(&flags.forceSoftware, "force-software", false, "Force software renderer")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
@@ -59,7 +54,12 @@ func cmdRun(args []string) int {
 }
 
 func runAndroid(flags runFlags) int {
-	builder, err := prepareAndroidBuild(buildFlags{release: flags.release})
+	buildAbi := flags.abi
+	if flags.emulator && buildAbi == "" {
+		buildAbi = "x86_64"
+	}
+
+	builder, err := prepareAndroidBuild(buildFlags{release: flags.release, abi: buildAbi})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
@@ -70,107 +70,87 @@ func runAndroid(flags runFlags) int {
 		return 1
 	}
 
-	runner := &androidRunner{
-		runner:        newExecRunner(),
-		emulator:      flags.emulator,
-		sdk:           builder.sdk,
-		apkPath:       builder.outputPath,
-		packageName:   builder.config.App.ID,
-		bootTimeout:   flags.bootTimeout,
-		deviceSerial:  flags.deviceSerial,
-		forceSoftware: flags.forceSoftware,
-		gpuMode:       flags.gpuMode,
+	execRunner := newExecRunner()
+	adb, err := findSDKTool(builder.sdk, "adb")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
 	}
-	if err := runner.run(); err != nil {
-		fmt.Fprintf(os.Stderr, "Run failed: %v\n", err)
+
+	serial := flags.deviceSerial
+
+	if serial == "" && flags.emulator {
+		sess, err := resolveEmulator(execRunner, builder, flags)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+		serial = sess.Serial
+		if sess.spawned {
+			defer func() {
+				if closeErr := sess.Close(); closeErr != nil {
+					fmt.Fprintf(os.Stderr, "Warning: emulator cleanup: %v\n", closeErr)
+				}
+			}()
+		}
+	}
+
+	if serial == "" && !flags.emulator {
+		serial, err = resolveDeviceSerial(execRunner, adb)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 1
+		}
+	}
+
+	if serial == "" {
+		fmt.Fprintln(os.Stderr, "Error: no target device found; use --device <serial> or --emulator")
+		return 1
+	}
+
+	if err := installAPK(execRunner, adb, serial, builder.outputPath); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		return 1
+	}
+
+	if err := launchAPK(execRunner, adb, serial, builder.config.App.ID, flags.forceSoftware); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		return 1
 	}
 
 	return 0
 }
 
-type androidRunner struct {
-	runner        Runner
-	emulator      bool
-	sdk           string
-	apkPath       string
-	packageName   string
-	bootTimeout   time.Duration
-	deviceSerial  string
-	forceSoftware bool
-	gpuMode       string
-}
-
-// adbArgs prepends -s <serial> to adb arguments when a serial is known.
-func adbArgs(serial string, args ...string) []string {
-	if serial != "" {
-		return append([]string{"-s", serial}, args...)
-	}
-	return args
-}
-
-func (r *androidRunner) run() error {
-	adb, err := findSDKTool(r.sdk, "adb")
-	if err != nil {
-		return fmt.Errorf("adb not found: %w", err)
-	}
-
-	serial := r.deviceSerial
-
-	if serial == "" && r.emulator {
-		serial, err = r.resolveEmulatorSerial(adb)
-		if err != nil {
-			return err
+// resolveEmulator provisions, boots an emulator and returns an EmulatorSession.
+func resolveEmulator(runner Runner, builder *androidBuilder, flags runFlags) (*EmulatorSession, error) {
+	arch := DefaultEmulatorArchitecture()
+	if flags.abi != "" {
+		a, ok := ArchitectureByABI(flags.abi)
+		if !ok {
+			return nil, fmt.Errorf("unsupported ABI: %s", flags.abi)
 		}
+		arch = a
 	}
 
-	if serial == "" && !r.emulator {
-		serial, err = r.resolveDeviceSerial(adb)
-		if err != nil {
-			return err
-		}
+	// Pass --avd flag as env var so EmulatorManager.resolveAVD picks it up
+	if flags.avdName != "" {
+		os.Setenv("LURPIC_ANDROID_AVD", flags.avdName)
 	}
 
-	if serial == "" {
-		return fmt.Errorf("no target device or emulator found; use --device <serial> or --emulator")
-	}
-
-	if err := r.installAPK(adb, serial, r.apkPath); err != nil {
-		return err
-	}
-	return r.launchAPK(adb, serial, r.packageName)
-}
-
-// resolveEmulatorSerial finds or spawns an emulator and returns its serial.
-func (r *androidRunner) resolveEmulatorSerial(adb string) (string, error) {
-	serial, count, err := r.listRunningEmulators(adb)
-	if err != nil {
-		return "", err
-	}
-	if count > 1 {
-		return "", fmt.Errorf("multiple emulators running; use --device <serial> to select one")
-	}
-	if count == 1 {
-		return serial, nil
-	}
-
-	// No emulator running — spawn one
-	if err := r.launchEmulator(); err != nil {
-		return "", err
-	}
-	serial = "emulator-5554"
-	mgr := &EmulatorManager{runner: r.runner}
-	ctx, cancel := context.WithTimeout(context.Background(), r.bootTimeout)
+	mgr := NewEmulatorManager(runner, builder.sdk, builder.apiLevel, arch, flags.gpuMode, false)
+	ctx, cancel := context.WithTimeout(context.Background(), flags.bootTimeout)
 	defer cancel()
-	if err := mgr.waitForBoot(ctx, adb, serial); err != nil {
-		return "", err
+
+	sess, err := mgr.EnsureRunning(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("emulator: %w", err)
 	}
-	return serial, nil
+	return sess, nil
 }
 
-// resolveDeviceSerial finds a single connected physical device (non-emulator).
-func (r *androidRunner) resolveDeviceSerial(adb string) (string, error) {
-	output, err := r.runner.Output(CommandSpec{
+// resolveDeviceSerial finds a single connected physical device.
+func resolveDeviceSerial(runner Runner, adb string) (string, error) {
+	output, err := runner.Output(CommandSpec{
 		Path: adb,
 		Args: []string{"devices"},
 	})
@@ -199,58 +179,17 @@ func (r *androidRunner) resolveDeviceSerial(adb string) (string, error) {
 	return candidates[0], nil
 }
 
-func (r *androidRunner) launchEmulator() error {
-	emulator, err := findAndroidEmulator(r.sdk)
-	if err != nil {
-		return err
+// adbArgs prepends -s <serial> to adb arguments when serial is known.
+func adbArgs(serial string, args ...string) []string {
+	if serial != "" {
+		return append([]string{"-s", serial}, args...)
 	}
-
-	avd, err := r.selectAndroidAVD(emulator)
-	if err != nil {
-		return err
-	}
-
-	fmt.Printf("Launching emulator %q...\n", avd)
-	emuArgs := []string{"-avd", avd, "-no-snapshot-save", "-no-boot-anim", "-gpu", r.gpuMode}
-	_, err = r.runner.Start(CommandSpec{
-		Path:   emulator,
-		Args:   emuArgs,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	})
-	if err != nil {
-		return fmt.Errorf("start emulator: %w", err)
-	}
-	return nil
+	return args
 }
 
-func (r *androidRunner) listRunningEmulators(adb string) (serial string, count int, err error) {
-	output, err := r.runner.Output(CommandSpec{
-		Path: adb,
-		Args: []string{"devices"},
-	})
-	if err != nil {
-		return "", 0, fmt.Errorf("adb devices failed: %w\n%s", err, output)
-	}
-
-	var serials []string
-	for _, line := range strings.Split(string(output), "\n") {
-		if strings.HasPrefix(line, "emulator-") && strings.Contains(line, "\tdevice") {
-			parts := strings.SplitN(line, "\t", 2)
-			if len(parts) > 0 {
-				serials = append(serials, strings.TrimSpace(parts[0]))
-			}
-		}
-	}
-	if len(serials) == 0 {
-		return "", 0, nil
-	}
-	return serials[0], len(serials), nil
-}
-
-func (r *androidRunner) installAPK(adb, serial, apkPath string) error {
+func installAPK(runner Runner, adb, serial, apkPath string) error {
 	fmt.Printf("Installing APK: %s\n", apkPath)
-	output, err := r.runner.Output(CommandSpec{
+	output, err := runner.Output(CommandSpec{
 		Path: adb,
 		Args: adbArgs(serial, "install", "-r", apkPath),
 	})
@@ -260,16 +199,16 @@ func (r *androidRunner) installAPK(adb, serial, apkPath string) error {
 	return nil
 }
 
-func (r *androidRunner) launchAPK(adb, serial, packageName string) error {
+func launchAPK(runner Runner, adb, serial, packageName string, forceSoftware bool) error {
 	component := fmt.Sprintf("%s/org.lurpicui.bridge.LurpicNativeActivity", packageName)
 	fmt.Printf("Launching app: %s\n", component)
 
 	env := os.Environ()
-	if r.forceSoftware {
+	if forceSoftware {
 		env = append(env, "LURPIC_RENDER_BACKEND=software")
 	}
 
-	output, err := r.runner.Output(CommandSpec{
+	output, err := runner.Output(CommandSpec{
 		Path: adb,
 		Args: adbArgs(serial, "shell", "am", "start", "-n", component),
 		Env:  env,
@@ -281,91 +220,9 @@ func (r *androidRunner) launchAPK(adb, serial, packageName string) error {
 }
 
 func findAndroidEmulator(sdk string) (string, error) {
-	candidates := []string{
-		filepath.Join(sdk, "emulator", "emulator"),
+	candidate := filepath.Join(sdk, "emulator", "emulator")
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
 	}
-	if runtime.GOOS == "windows" {
-		candidates[0] += ".exe"
-	}
-
-	for _, candidate := range candidates {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate, nil
-		}
-	}
-
 	return "", fmt.Errorf("emulator binary not found in Android SDK")
-}
-
-func (r *androidRunner) selectAndroidAVD(emulator string) (string, error) {
-	if avd := os.Getenv("ANDROID_AVD_NAME"); avd != "" {
-		return avd, nil
-	}
-	if avd := os.Getenv("LURPIC_ANDROID_AVD"); avd != "" {
-		return avd, nil
-	}
-
-	return r.createDefaultAndroidAVD()
-}
-
-func (r *androidRunner) createDefaultAndroidAVD() (string, error) {
-	avdmanager, err := findSDKTool(r.sdk, "avdmanager")
-	if err != nil {
-		return "", fmt.Errorf("avdmanager not found: %w", err)
-	}
-
-	sdkmanager, err := findSDKTool(r.sdk, "sdkmanager")
-	if err != nil {
-		return "", fmt.Errorf("sdkmanager not found: %w", err)
-	}
-
-	systemImage := defaultAndroidSystemImage()
-	if err := r.ensureAndroidPackage(sdkmanager, systemImage); err != nil {
-		return "", err
-	}
-
-	avdName := defaultAndroidAVDName()
-	fmt.Printf("Creating default Android Virtual Device %q...\n", avdName)
-	if err := r.runner.Run(CommandSpec{
-		Path:   avdmanager,
-		Args:   []string{"create", "avd", "-n", avdName, "-k", systemImage, "-d", defaultAndroidAVDDevice, "--force"},
-		Stdin:  strings.NewReader(documentedAVDStdin),
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	}); err != nil {
-		return "", fmt.Errorf("create avd failed: %w", err)
-	}
-	return avdName, nil
-}
-
-func (r *androidRunner) ensureAndroidPackage(sdkmanager string, pkg string) error {
-	if err := r.runner.Run(CommandSpec{
-		Path:   sdkmanager,
-		Args:   []string{pkg},
-		Stdin:  strings.NewReader(documentedPackageStdin),
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	}); err != nil {
-		return fmt.Errorf("sdkmanager install %s failed: %w", pkg, err)
-	}
-	return nil
-}
-
-func defaultAndroidSystemImage() string {
-	arch := defaultAndroidAVDArchX86_64
-	if runtime.GOARCH == "arm64" {
-		arch = defaultAndroidAVDArchArm64
-	}
-	return fmt.Sprintf("system-images;android-%s;%s;%s", defaultAndroidAPIVersion, defaultAndroidAVDTarget, arch)
-}
-
-func defaultAndroidAVDName() string {
-	return fmt.Sprintf("lurpic_api%s_%s_%s", defaultAndroidAPIVersion, defaultAndroidAVDTarget, defaultAndroidAVDArch())
-}
-
-func defaultAndroidAVDArch() string {
-	if runtime.GOARCH == "arm64" {
-		return defaultAndroidAVDArchArm64
-	}
-	return defaultAndroidAVDArchX86_64
 }

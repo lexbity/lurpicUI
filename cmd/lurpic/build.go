@@ -16,6 +16,7 @@ type buildFlags struct {
 	sdkPath    string
 	ndkPath    string
 	jdkPath    string
+	abi        string
 }
 
 func cmdBuild(args []string) int {
@@ -30,6 +31,7 @@ func cmdBuild(args []string) int {
 	fs.StringVar(&flags.sdkPath, "sdk-path", "", "Android SDK path (overrides config/env)")
 	fs.StringVar(&flags.ndkPath, "ndk-path", "", "Android NDK path (overrides config/env)")
 	fs.StringVar(&flags.jdkPath, "jdk-path", "", "JDK path (overrides config/env)")
+	fs.StringVar(&flags.abi, "abi", "", "Target ABI (default: all configured in lurpic.toml)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
@@ -129,6 +131,14 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 			suffix = "release"
 		}
 		outputPath = filepath.Join(buildDir, fmt.Sprintf("%s-%s.apk", config.App.ID, suffix))
+	}
+
+	// If --abi flag is set, restrict build to that single ABI
+	if flags.abi != "" {
+		if _, ok := ArchitectureByABI(flags.abi); !ok {
+			return nil, fmt.Errorf("unsupported ABI: %s", flags.abi)
+		}
+		config.Android.ABIs = []string{flags.abi}
 	}
 
 	// Apply command-line overrides to config for keystore path and alias
