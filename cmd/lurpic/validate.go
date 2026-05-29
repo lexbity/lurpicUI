@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 )
 
@@ -78,11 +77,13 @@ func cmdValidateDemos(args []string) int {
 
 var runGoTestSuite = func(dir string, args ...string) error {
 	cmdArgs := append([]string{"test"}, args...)
-	cmd := exec.Command("go", cmdArgs...)
-	cmd.Dir = dir
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
+	return newExecRunner().Run(CommandSpec{
+		Path:   "go",
+		Args:   cmdArgs,
+		Dir:    dir,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
 }
 
 func findGoModuleRoot() (string, error) {

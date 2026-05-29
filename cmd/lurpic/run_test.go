@@ -103,31 +103,7 @@ func TestLaunchAPK_failure(t *testing.T) {
 	}
 }
 
-func TestFindAndroidEmulator_found(t *testing.T) {
-	sdk := t.TempDir()
-	emulatorDir := filepath.Join(sdk, "emulator")
-	if err := os.MkdirAll(emulatorDir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	emuPath := filepath.Join(emulatorDir, "emulator")
-	if err := os.WriteFile(emuPath, []byte("#!/bin/sh\nexit 0"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	path, err := findAndroidEmulator(sdk)
-	if err != nil {
-		t.Fatalf("findAndroidEmulator: %v", err)
-	}
-	if path != emuPath {
-		t.Fatalf("expected %q, got %q", emuPath, path)
-	}
-}
 
-func TestFindAndroidEmulator_notFound(t *testing.T) {
-	_, err := findAndroidEmulator(t.TempDir())
-	if err == nil {
-		t.Fatal("expected error")
-	}
-}
 
 func TestResolveDeviceSerial_parsesSingleDevice(t *testing.T) {
 	f := newFakeRunner()

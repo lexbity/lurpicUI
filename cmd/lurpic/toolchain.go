@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -17,6 +16,9 @@ import (
 // 4. Environment variables (ANDROID_HOME, ANDROID_NDK_HOME, JAVA_HOME)
 // 5. Auto-detection (common install paths)
 type ToolchainDetector struct {
+	// Runner for executing external commands (optional; used only for PATH lookups).
+	Runner Runner
+
 	// Command-line flags (highest priority)
 	FlagSDK string
 	FlagNDK string
@@ -210,10 +212,14 @@ func (d *ToolchainDetector) DetectJDK() (string, string, error) {
 	}
 
 	// Check if java is in PATH and try to find JAVA_HOME from it
-	if javaPath, err := exec.LookPath("java"); err == nil {
-		// Try to resolve the JDK path from the java binary
+	var javaPath string
+	if d.Runner != nil {
+		javaPath, _ = d.Runner.Look("java")
+	} else {
+		javaPath, _ = lookPathFallback("java")
+	}
+	if javaPath != "" {
 		javaPath, _ = filepath.EvalSymlinks(javaPath)
-		// java is usually at $JAVA_HOME/bin/java
 		possibleJDK := filepath.Dir(filepath.Dir(javaPath))
 		if isValidJDK(possibleJDK) {
 			return possibleJDK, "auto-detection (from PATH)", nil
@@ -221,6 +227,21 @@ func (d *ToolchainDetector) DetectJDK() (string, string, error) {
 	}
 
 	return "", "", fmt.Errorf("JDK not found\n\nTo fix this, you can (in order of recommendation):\n1. Set JAVA_HOME environment variable\n2. Add to your user config: lurpic config set android.jdk-path /path/to/jdk\n3. Install JDK via your package manager or from https://adoptium.net/")
+}
+
+// lookPathFallback finds an executable on PATH without relying on os/exec.
+func lookPathFallback(name string) (string, error) {
+	pathEnv := os.Getenv("PATH")
+	for _, dir := range filepath.SplitList(pathEnv) {
+		candidate := filepath.Join(dir, name)
+		if runtime.GOOS == "windows" {
+			candidate += ".exe"
+		}
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("executable %q not found on PATH", name)
 }
 
 // isValidJDK checks if a directory looks like a valid JDK

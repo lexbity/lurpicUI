@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 )
@@ -219,10 +218,4 @@ func launchAPK(runner Runner, adb, serial, packageName string, forceSoftware boo
 	return nil
 }
 
-func findAndroidEmulator(sdk string) (string, error) {
-	candidate := filepath.Join(sdk, "emulator", "emulator")
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate, nil
-	}
-	return "", fmt.Errorf("emulator binary not found in Android SDK")
-}
+

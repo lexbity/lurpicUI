@@ -4,7 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
@@ -36,35 +36,27 @@ func doctorAndroid(verbose bool) int {
 	fmt.Println("Checking Android toolchain...")
 	fmt.Println()
 
-	// Check Go version
-	checkGo(verbose)
+	runner := newExecRunner()
 
-	// Check Rust version
-	checkRust(verbose)
+	checkGo(runner, verbose)
+	checkRust(runner, verbose)
+	checkCargoNdk(runner, verbose)
+	checkEmulatorToolchain(runner, verbose)
 
-	// Check cargo-ndk
-	checkCargoNdk(verbose)
-
-	// Check Android toolchains
 	fmt.Println()
 
-	// Load user config if available
 	userConfig, _ := loadUserConfig()
-
-	// Create detector without flags (for doctor we want to see actual detection sources)
 	detector := &ToolchainDetector{
+		Runner:     runner,
 		UserConfig: userConfig,
 	}
 
-	// Get full toolchain report
 	report, _ := detector.GetToolchainReport()
 
-	// Check SDK components in detail if SDK is found
 	if report.SDK.OK && verbose {
 		checkSDKComponents(report.SDK.Path)
 	}
 
-	// Print summary
 	fmt.Print(report.String())
 
 	if report.CanBuild() {
@@ -73,16 +65,15 @@ func doctorAndroid(verbose bool) int {
 	return 1
 }
 
-func checkGo(verbose bool) {
-	cmd := exec.Command("go", "version")
-	output, err := cmd.Output()
+func checkGo(runner Runner, verbose bool) {
+	out, err := runner.Output(CommandSpec{Path: "go", Args: []string{"version"}})
 	if err != nil {
 		fmt.Println("✗ Go not found")
 		fmt.Println("  Install: https://go.dev/dl/ or use your package manager")
 		return
 	}
 
-	version := strings.TrimSpace(string(output))
+	version := strings.TrimSpace(string(out))
 	if verbose {
 		fmt.Printf("✓ %s\n", version)
 	} else {
@@ -90,16 +81,15 @@ func checkGo(verbose bool) {
 	}
 }
 
-func checkRust(verbose bool) {
-	cmd := exec.Command("rustc", "--version")
-	output, err := cmd.Output()
+func checkRust(runner Runner, verbose bool) {
+	out, err := runner.Output(CommandSpec{Path: "rustc", Args: []string{"--version"}})
 	if err != nil {
 		fmt.Println("✗ Rust not found")
 		fmt.Println("  Install: https://rustup.rs/")
 		return
 	}
 
-	version := strings.TrimSpace(string(output))
+	version := strings.TrimSpace(string(out))
 	if verbose {
 		fmt.Printf("✓ %s\n", version)
 	} else {
@@ -107,16 +97,15 @@ func checkRust(verbose bool) {
 	}
 }
 
-func checkCargoNdk(verbose bool) {
-	cmd := exec.Command("cargo", "ndk", "--version")
-	output, err := cmd.Output()
+func checkCargoNdk(runner Runner, verbose bool) {
+	out, err := runner.Output(CommandSpec{Path: "cargo", Args: []string{"ndk", "--version"}})
 	if err != nil {
 		fmt.Println("✗ cargo-ndk not found")
 		fmt.Println("  Install: cargo install cargo-ndk")
 		return
 	}
 
-	version := strings.TrimSpace(string(output))
+	version := strings.TrimSpace(string(out))
 	if verbose {
 		fmt.Printf("✓ %s\n", version)
 	} else {
@@ -124,10 +113,97 @@ func checkCargoNdk(verbose bool) {
 	}
 }
 
+func checkEmulatorToolchain(runner Runner, verbose bool) {
+	sdk := os.Getenv("ANDROID_HOME")
+	if sdk == "" {
+		sdk = os.Getenv("ANDROID_SDK")
+	}
+	if sdk == "" {
+		if verbose {
+			fmt.Println("✗ Android SDK not set (ANDROID_HOME)")
+		}
+		return
+	}
+
+	fmt.Println()
+	fmt.Println("Emulator toolchain:")
+
+	// Check emulator binary
+	emuTool, err := findEmulatorTool(sdk)
+	if err == nil {
+		fmt.Println("  ✓ emulator binary")
+		if verbose {
+			fmt.Printf("    Path: %s\n", emuTool)
+		}
+	} else {
+		fmt.Println("  ✗ emulator binary not found")
+		fmt.Println("    Install via SDK Manager: sdkmanager \"emulator\"")
+	}
+
+	// Check sdkmanager
+	_, err = findCmdlineTool(sdk, "sdkmanager")
+	if err == nil {
+		fmt.Println("  ✓ sdkmanager")
+	} else {
+		fmt.Println("  ✗ sdkmanager not found")
+	}
+
+	// Check avdmanager
+	_, err = findCmdlineTool(sdk, "avdmanager")
+	if err == nil {
+		fmt.Println("  ✓ avdmanager")
+	} else {
+		fmt.Println("  ✗ avdmanager not found")
+	}
+
+	// Check for x86_64 google_apis system image
+	sysImage := fmt.Sprintf("system-images;android-33;google_apis;x86_64")
+	_ = sysImage
+	if verbose {
+		imageFound := checkSystemImage(sdk, 33, "x86_64")
+		if imageFound {
+			fmt.Printf("  ✓ system image: android-33 google_apis x86_64\n")
+		} else {
+			fmt.Printf("  ✗ system image not found: system-images;android-33;google_apis;x86_64\n")
+		}
+	}
+
+	// Check managed AVD
+	avdDir := fmt.Sprintf("lurpic_api33_google_apis_x86_64")
+	_ = avdDir
+	if verbose {
+		avdFound := checkManagedAVD("lurpic_api33_google_apis_x86_64")
+		if avdFound {
+			fmt.Println("  ✓ managed AVD: lurpic_api33_google_apis_x86_64")
+		} else {
+			fmt.Println("  ✗ managed AVD not found (will be created on first run)")
+		}
+	}
+}
+
+func checkSystemImage(sdk string, api int, abi string) bool {
+	imageDir := filepath.Join(sdk, "system-images", fmt.Sprintf("android-%d", api), "google_apis", abi)
+	if _, err := os.Stat(imageDir); err == nil {
+		return true
+	}
+	return false
+}
+
+func checkManagedAVD(name string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	avdDir := filepath.Join(home, ".android", "avd", name+".avd")
+	if _, err := os.Stat(avdDir); err == nil {
+		return true
+	}
+	return false
+}
+
 func checkSDKComponents(sdkPath string) {
 	fmt.Println("  SDK Components:")
 
-	// Check platforms
 	platformsDir := sdkPath + "/platforms"
 	if entries, err := os.ReadDir(platformsDir); err == nil {
 		for _, entry := range entries {
@@ -137,7 +213,6 @@ func checkSDKComponents(sdkPath string) {
 		}
 	}
 
-	// Check build-tools
 	buildToolsDir := sdkPath + "/build-tools"
 	if entries, err := os.ReadDir(buildToolsDir); err == nil {
 		for _, entry := range entries {
@@ -147,7 +222,6 @@ func checkSDKComponents(sdkPath string) {
 		}
 	}
 
-	// Check platform-tools
 	adbPath := sdkPath + "/platform-tools/adb"
 	if runtime.GOOS == "windows" {
 		adbPath += ".exe"

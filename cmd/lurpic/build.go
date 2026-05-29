@@ -86,6 +86,7 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 
 	// Create toolchain detector with all sources
 	detector := &ToolchainDetector{
+		Runner:     newExecRunner(),
 		FlagSDK:    flags.sdkPath,
 		FlagNDK:    flags.ndkPath,
 		FlagJDK:    flags.jdkPath,
