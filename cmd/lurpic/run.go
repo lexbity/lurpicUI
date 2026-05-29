@@ -20,9 +20,10 @@ const (
 )
 
 type runFlags struct {
-	emulator    bool
-	release     bool
-	bootTimeout time.Duration
+	emulator     bool
+	release      bool
+	bootTimeout  time.Duration
+	deviceSerial string
 }
 
 func cmdRun(args []string) int {
@@ -31,6 +32,7 @@ func cmdRun(args []string) int {
 	fs.BoolVar(&flags.emulator, "emulator", false, "Launch on emulator")
 	fs.BoolVar(&flags.release, "release", false, "Build release APK")
 	fs.DurationVar(&flags.bootTimeout, "boot-timeout", 5*time.Minute, "Emulator boot timeout (e.g. 10m, 300s)")
+	fs.StringVar(&flags.deviceSerial, "device", "", "Target device serial (e.g. emulator-5554)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
@@ -65,12 +67,13 @@ func runAndroid(flags runFlags) int {
 	}
 
 	runner := &androidRunner{
-		runner:      newExecRunner(),
-		emulator:    flags.emulator,
-		sdk:         builder.sdk,
-		apkPath:     builder.outputPath,
-		packageName: builder.config.App.ID,
-		bootTimeout: flags.bootTimeout,
+		runner:       newExecRunner(),
+		emulator:     flags.emulator,
+		sdk:          builder.sdk,
+		apkPath:      builder.outputPath,
+		packageName:  builder.config.App.ID,
+		bootTimeout:  flags.bootTimeout,
+		deviceSerial: flags.deviceSerial,
 	}
 	if err := runner.run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Run failed: %v\n", err)
@@ -81,12 +84,21 @@ func runAndroid(flags runFlags) int {
 }
 
 type androidRunner struct {
-	runner      Runner
-	emulator    bool
-	sdk         string
-	apkPath     string
-	packageName string
-	bootTimeout time.Duration
+	runner       Runner
+	emulator     bool
+	sdk          string
+	apkPath      string
+	packageName  string
+	bootTimeout  time.Duration
+	deviceSerial string
+}
+
+// adbArgs prepends -s <serial> to adb arguments when a serial is known.
+func adbArgs(serial string, args ...string) []string {
+	if serial != "" {
+		return append([]string{"-s", serial}, args...)
+	}
+	return args
 }
 
 func (r *androidRunner) run() error {
@@ -95,29 +107,88 @@ func (r *androidRunner) run() error {
 		return fmt.Errorf("adb not found: %w", err)
 	}
 
-	if r.emulator {
-		running, err := r.hasRunningEmulator(adb)
+	serial := r.deviceSerial
+
+	if serial == "" && r.emulator {
+		serial, err = r.resolveEmulatorSerial(adb)
 		if err != nil {
 			return err
 		}
-		if !running {
-			if err := r.launchEmulator(); err != nil {
-				return err
-			}
-			serial := "emulator-5554"
-			mgr := &EmulatorManager{runner: r.runner}
-			ctx, cancel := context.WithTimeout(context.Background(), r.bootTimeout)
-			defer cancel()
-			if err := mgr.waitForBoot(ctx, adb, serial); err != nil {
-				return err
-			}
+	}
+
+	if serial == "" && !r.emulator {
+		serial, err = r.resolveDeviceSerial(adb)
+		if err != nil {
+			return err
 		}
 	}
 
-	if err := r.installAPK(adb, r.apkPath); err != nil {
+	if serial == "" {
+		return fmt.Errorf("no target device or emulator found; use --device <serial> or --emulator")
+	}
+
+	if err := r.installAPK(adb, serial, r.apkPath); err != nil {
 		return err
 	}
-	return r.launchAPK(adb, r.packageName)
+	return r.launchAPK(adb, serial, r.packageName)
+}
+
+// resolveEmulatorSerial finds or spawns an emulator and returns its serial.
+func (r *androidRunner) resolveEmulatorSerial(adb string) (string, error) {
+	serial, count, err := r.listRunningEmulators(adb)
+	if err != nil {
+		return "", err
+	}
+	if count > 1 {
+		return "", fmt.Errorf("multiple emulators running; use --device <serial> to select one")
+	}
+	if count == 1 {
+		return serial, nil
+	}
+
+	// No emulator running — spawn one
+	if err := r.launchEmulator(); err != nil {
+		return "", err
+	}
+	serial = "emulator-5554"
+	mgr := &EmulatorManager{runner: r.runner}
+	ctx, cancel := context.WithTimeout(context.Background(), r.bootTimeout)
+	defer cancel()
+	if err := mgr.waitForBoot(ctx, adb, serial); err != nil {
+		return "", err
+	}
+	return serial, nil
+}
+
+// resolveDeviceSerial finds a single connected physical device (non-emulator).
+func (r *androidRunner) resolveDeviceSerial(adb string) (string, error) {
+	output, err := r.runner.Output(CommandSpec{
+		Path: adb,
+		Args: []string{"devices"},
+	})
+	if err != nil {
+		return "", fmt.Errorf("adb devices failed: %w\n%s", err, output)
+	}
+
+	var candidates []string
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "List of") || strings.HasPrefix(line, "* ") {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) == 2 && parts[1] == "device" && !strings.HasPrefix(parts[0], "emulator-") {
+			candidates = append(candidates, parts[0])
+		}
+	}
+
+	if len(candidates) == 0 {
+		return "", fmt.Errorf("no connected devices found; connect a device via USB or use --emulator")
+	}
+	if len(candidates) > 1 {
+		return "", fmt.Errorf("multiple devices connected (%s); use --device <serial> to select one", strings.Join(candidates, ", "))
+	}
+	return candidates[0], nil
 }
 
 func (r *androidRunner) launchEmulator() error {
@@ -144,28 +215,35 @@ func (r *androidRunner) launchEmulator() error {
 	return nil
 }
 
-func (r *androidRunner) hasRunningEmulator(adb string) (bool, error) {
+func (r *androidRunner) listRunningEmulators(adb string) (serial string, count int, err error) {
 	output, err := r.runner.Output(CommandSpec{
 		Path: adb,
 		Args: []string{"devices"},
 	})
 	if err != nil {
-		return false, fmt.Errorf("adb devices failed: %w\n%s", err, output)
+		return "", 0, fmt.Errorf("adb devices failed: %w\n%s", err, output)
 	}
 
+	var serials []string
 	for _, line := range strings.Split(string(output), "\n") {
 		if strings.HasPrefix(line, "emulator-") && strings.Contains(line, "\tdevice") {
-			return true, nil
+			parts := strings.SplitN(line, "\t", 2)
+			if len(parts) > 0 {
+				serials = append(serials, strings.TrimSpace(parts[0]))
+			}
 		}
 	}
-	return false, nil
+	if len(serials) == 0 {
+		return "", 0, nil
+	}
+	return serials[0], len(serials), nil
 }
 
-func (r *androidRunner) installAPK(adb, apkPath string) error {
+func (r *androidRunner) installAPK(adb, serial, apkPath string) error {
 	fmt.Printf("Installing APK: %s\n", apkPath)
 	output, err := r.runner.Output(CommandSpec{
 		Path: adb,
-		Args: []string{"install", "-r", apkPath},
+		Args: adbArgs(serial, "install", "-r", apkPath),
 	})
 	if err != nil {
 		return fmt.Errorf("adb install failed: %w\n%s", err, output)
@@ -173,12 +251,12 @@ func (r *androidRunner) installAPK(adb, apkPath string) error {
 	return nil
 }
 
-func (r *androidRunner) launchAPK(adb, packageName string) error {
+func (r *androidRunner) launchAPK(adb, serial, packageName string) error {
 	component := fmt.Sprintf("%s/org.lurpicui.bridge.LurpicNativeActivity", packageName)
 	fmt.Printf("Launching app: %s\n", component)
 	output, err := r.runner.Output(CommandSpec{
 		Path: adb,
-		Args: []string{"shell", "am", "start", "-n", component},
+		Args: adbArgs(serial, "shell", "am", "start", "-n", component),
 	})
 	if err != nil {
 		return fmt.Errorf("adb shell am start failed: %w\n%s", err, output)
@@ -209,21 +287,6 @@ func (r *androidRunner) selectAndroidAVD(emulator string) (string, error) {
 	}
 	if avd := os.Getenv("LURPIC_ANDROID_AVD"); avd != "" {
 		return avd, nil
-	}
-
-	output, err := r.runner.Output(CommandSpec{
-		Path: emulator,
-		Args: []string{"-list-avds"},
-	})
-	if err != nil {
-		return "", fmt.Errorf("list avds failed: %w\n%s", err, output)
-	}
-
-	for _, line := range strings.Split(string(output), "\n") {
-		name := strings.TrimSpace(line)
-		if name != "" {
-			return name, nil
-		}
 	}
 
 	return r.createDefaultAndroidAVD()

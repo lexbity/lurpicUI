@@ -24,6 +24,10 @@ func TestAndroidRunner_run_onRunningEmulator(t *testing.T) {
 	adbPath := filepath.Join(platformTools, "adb")
 	adbScript := "#!/bin/sh\n" +
 		"log_file=\"" + logPath + "\"\n" +
+		"# Skip -s <serial> prefix if present\n" +
+		"if [ \"$1\" = \"-s\" ]; then\n" +
+		"  shift 2\n" +
+		"fi\n" +
 		"case \"$1\" in\n" +
 		"  devices)\n" +
 		"    printf 'List of devices attached\\n'\n" +
@@ -102,10 +106,6 @@ func TestSelectAndroidAVD_createsDefaultWhenNoneExist(t *testing.T) {
 
 	writeTool(filepath.Join(emulatorDir, "emulator"), "#!/bin/sh\n"+
 		"log_file=\""+logPath+"\"\n"+
-		"if [ \"$1\" = \"-list-avds\" ]; then\n"+
-		"  printf '\\n'\n"+
-		"  exit 0\n"+
-		"fi\n"+
 		"printf 'emulator %s\\n' \"$*\" >> \"$log_file\"\n")
 
 	writeTool(filepath.Join(cmdlineTools, "sdkmanager"), "#!/bin/sh\n"+
@@ -143,7 +143,7 @@ func TestSelectAndroidAVD_createsDefaultWhenNoneExist(t *testing.T) {
 	}
 }
 
-func TestHasRunningEmulator_parsesDeviceOutput(t *testing.T) {
+func TestListRunningEmulators_parsesDeviceOutput(t *testing.T) {
 	f := newFakeRunner()
 	f.When(MatchCommand("adb", "devices")).Then(
 		"List of devices attached\nemulator-5554\tdevice\n",
@@ -152,16 +152,19 @@ func TestHasRunningEmulator_parsesDeviceOutput(t *testing.T) {
 	)
 
 	r := &androidRunner{runner: f}
-	running, err := r.hasRunningEmulator("adb")
+	serial, count, err := r.listRunningEmulators("adb")
 	if err != nil {
-		t.Fatalf("hasRunningEmulator: %v", err)
+		t.Fatalf("listRunningEmulators: %v", err)
 	}
-	if !running {
-		t.Fatal("expected running emulator")
+	if count != 1 {
+		t.Fatalf("expected count 1, got %d", count)
+	}
+	if serial != "emulator-5554" {
+		t.Fatalf("expected serial emulator-5554, got %q", serial)
 	}
 }
 
-func TestHasRunningEmulator_noDevice(t *testing.T) {
+func TestListRunningEmulators_noDevice(t *testing.T) {
 	f := newFakeRunner()
 	f.When(MatchCommand("adb", "devices")).Then(
 		"List of devices attached\n\n",
@@ -170,16 +173,16 @@ func TestHasRunningEmulator_noDevice(t *testing.T) {
 	)
 
 	r := &androidRunner{runner: f}
-	running, err := r.hasRunningEmulator("adb")
+	_, count, err := r.listRunningEmulators("adb")
 	if err != nil {
-		t.Fatalf("hasRunningEmulator: %v", err)
+		t.Fatalf("listRunningEmulators: %v", err)
 	}
-	if running {
-		t.Fatal("expected no running emulator")
+	if count != 0 {
+		t.Fatalf("expected count 0, got %d", count)
 	}
 }
 
-func TestHasRunningEmulator_offlineDevice(t *testing.T) {
+func TestListRunningEmulators_offlineDevice(t *testing.T) {
 	f := newFakeRunner()
 	f.When(MatchCommand("adb", "devices")).Then(
 		"List of devices attached\nemulator-5554\toffline\n",
@@ -188,25 +191,25 @@ func TestHasRunningEmulator_offlineDevice(t *testing.T) {
 	)
 
 	r := &androidRunner{runner: f}
-	running, err := r.hasRunningEmulator("adb")
+	_, count, err := r.listRunningEmulators("adb")
 	if err != nil {
-		t.Fatalf("hasRunningEmulator: %v", err)
+		t.Fatalf("listRunningEmulators: %v", err)
 	}
-	if running {
-		t.Fatal("expected offline device not to count as running")
+	if count != 0 {
+		t.Fatalf("expected count 0 (offline not counted), got %d", count)
 	}
 }
 
 func TestInstallAPK_argv(t *testing.T) {
 	f := newFakeRunner()
-	f.When(MatchCommand("adb", "install", "-r", "/path/to/app.apk")).Then(
+	f.When(MatchCommand("adb", "-s", "em-5554", "install", "-r", "/path/to/app.apk")).Then(
 		"Success\n",
 		"",
 		nil,
 	)
 
 	r := &androidRunner{runner: f}
-	if err := r.installAPK("adb", "/path/to/app.apk"); err != nil {
+	if err := r.installAPK("adb", "em-5554", "/path/to/app.apk"); err != nil {
 		t.Fatalf("installAPK: %v", err)
 	}
 
@@ -217,18 +220,22 @@ func TestInstallAPK_argv(t *testing.T) {
 	if calls[0].Path != "adb" {
 		t.Fatalf("expected adb, got %q", calls[0].Path)
 	}
+	// Verify -s serial is included
+	if len(calls[0].Args) < 2 || calls[0].Args[0] != "-s" || calls[0].Args[1] != "em-5554" {
+		t.Fatalf("expected adb args to start with -s em-5554, got %v", calls[0].Args)
+	}
 }
 
 func TestInstallAPK_failure(t *testing.T) {
 	f := newFakeRunner()
-	f.When(MatchCommand("adb", "install", "-r", "bad.apk")).Then(
+	f.When(MatchCommand("adb", "-s", "em-5554", "install", "-r", "bad.apk")).Then(
 		"adb: failed to install bad.apk",
 		"",
 		errors.New("exit status 1"),
 	)
 
 	r := &androidRunner{runner: f}
-	err := r.installAPK("adb", "bad.apk")
+	err := r.installAPK("adb", "em-5554", "bad.apk")
 	if err == nil {
 		t.Fatal("expected error for failed install")
 	}
@@ -236,7 +243,7 @@ func TestInstallAPK_failure(t *testing.T) {
 
 func TestLaunchAPK_argv(t *testing.T) {
 	f := newFakeRunner()
-	f.When(MatchCommand("adb", "shell", "am", "start", "-n",
+	f.When(MatchCommand("adb", "-s", "em-5554", "shell", "am", "start", "-n",
 		"org.test.app/org.lurpicui.bridge.LurpicNativeActivity")).Then(
 		"Starting: Intent { }\n",
 		"",
@@ -244,7 +251,7 @@ func TestLaunchAPK_argv(t *testing.T) {
 	)
 
 	r := &androidRunner{runner: f}
-	if err := r.launchAPK("adb", "org.test.app"); err != nil {
+	if err := r.launchAPK("adb", "em-5554", "org.test.app"); err != nil {
 		t.Fatalf("launchAPK: %v", err)
 	}
 
@@ -255,11 +262,14 @@ func TestLaunchAPK_argv(t *testing.T) {
 	if calls[0].Path != "adb" {
 		t.Fatalf("expected adb, got %q", calls[0].Path)
 	}
+	if len(calls[0].Args) < 2 || calls[0].Args[0] != "-s" || calls[0].Args[1] != "em-5554" {
+		t.Fatalf("expected adb args to start with -s em-5554, got %v", calls[0].Args)
+	}
 }
 
 func TestLaunchAPK_failure(t *testing.T) {
 	f := newFakeRunner()
-	f.When(MatchCommand("adb", "shell", "am", "start", "-n",
+	f.When(MatchCommand("adb", "-s", "dev-1234", "shell", "am", "start", "-n",
 		"org.test.app/org.lurpicui.bridge.LurpicNativeActivity")).Then(
 		"Error: Activity not started",
 		"",
@@ -267,7 +277,7 @@ func TestLaunchAPK_failure(t *testing.T) {
 	)
 
 	r := &androidRunner{runner: f}
-	err := r.launchAPK("adb", "org.test.app")
+	err := r.launchAPK("adb", "dev-1234", "org.test.app")
 	if err == nil {
 		t.Fatal("expected error for failed launch")
 	}
