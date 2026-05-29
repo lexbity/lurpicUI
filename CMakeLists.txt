@@ -407,9 +407,25 @@ add_custom_target(lurpic-host-tests
   COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} vet ./...
   COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} build ./...
   COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} test ./...
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Run host tests with CGO_ENABLED=0 (vet, build, test)"
   VERBATIM
 )
+
+add_custom_target(build-lurpic-cli
+  COMMAND ${LURPIC_GO_EXECUTABLE} build -o "${CMAKE_CURRENT_BINARY_DIR}/lurpic" ./cmd/lurpic/...
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Build the lurpic CLI binary"
+  VERBATIM
+)
+
+add_custom_target(android-emulator
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpic" run android --emulator
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Build and run the app in an Android emulator"
+  VERBATIM
+)
+add_dependencies(android-emulator build-lurpic-cli)
 
 lurpic_emit_configuration_summary()
 lurpic_add_configuration_summary_target()

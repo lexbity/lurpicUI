@@ -74,6 +74,30 @@
       }
     },
     {
+      "name": "host-tests",
+      "inherits": "base-software",
+      "displayName": "Host tests",
+      "description": "Minimal preset for running lurpic-host-tests (CGO_ENABLED=0).",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LURPIC_BUILD_EXAMPLES": "OFF",
+        "LURPIC_BUILD_TESTS": "ON",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "OFF"
+      }
+    },
+    {
+      "name": "android-emulator",
+      "inherits": "base-software",
+      "displayName": "Android emulator",
+      "description": "Preset for the android-emulator convenience target.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "LURPIC_BUILD_EXAMPLES": "OFF",
+        "LURPIC_BUILD_TESTS": "OFF",
+        "LURPIC_INCLUDE_TEMPLATE_THEMES": "OFF"
+      }
+    },
+    {
       "name": "dev-software",
       "inherits": "base-software",
       "displayName": "Developer software",
@@ -178,6 +202,20 @@
     }
   ],
   "buildPresets": [
+    {
+      "name": "build-host-tests",
+      "configurePreset": "host-tests",
+      "displayName": "Build host tests",
+      "description": "Run lurpic-host-tests (vet, build, test with CGO_ENABLED=0).",
+      "targets": ["lurpic-host-tests"]
+    },
+    {
+      "name": "build-android-emulator",
+      "configurePreset": "android-emulator",
+      "displayName": "Build android-emulator",
+      "description": "Build the lurpic CLI and run the app in an Android emulator.",
+      "targets": ["android-emulator"]
+    },
     {
       "name": "build-ci-software-headless",
       "configurePreset": "ci-software-headless",
