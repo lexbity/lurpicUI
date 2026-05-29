@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -373,7 +374,8 @@ func TestAndroidBuilder_compileResources_failsWithoutAapt2(t *testing.T) {
 		buildDir: buildDir,
 	}
 
-	_, err := b.compileResources()
+	// Calling assembly as a whole should fail because aapt2 is missing
+	err := b.assembleAPK()
 	if err == nil {
 		t.Fatal("expected error when aapt2 is missing")
 	}
@@ -500,6 +502,103 @@ func TestAndroidBuilder_buildRustCrate_missingArtifactIsFatal(t *testing.T) {
 	err := b.buildRustCrate(DefaultEmulatorArchitecture(), cratePath, "missing_render")
 	if err == nil {
 		t.Fatal("expected error for missing Rust artifact, got nil")
+	}
+}
+
+func TestAndroidBuilder_aapt2Link_argv(t *testing.T) {
+	sdkDir := t.TempDir()
+	createSDKWithPlatform(t, sdkDir, 33)
+	buildDir := t.TempDir()
+
+	// Create aapt2 tool in build-tools
+	aapt2Path := filepath.Join(sdkDir, "build-tools", "99.0.0", "aapt2")
+	if err := os.MkdirAll(filepath.Dir(aapt2Path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(aapt2Path, []byte("#!/bin/sh\nexit 0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:   f,
+		sdk:      sdkDir,
+		buildDir: buildDir,
+		apiLevel: 33,
+		config: &Config{
+			App:     AppConfig{ID: "org.test.app", Name: "Test", Version: "1.0.0"},
+			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
+		},
+	}
+
+	// Generate manifest so it exists for aapt2 link
+	if err := b.generateManifest(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Register aapt2 to succeed
+	f.When(MatchCommand(aapt2Path)).Then("", "", nil)
+
+	_, err := b.compileResources(aapt2Path)
+	if err != nil {
+		t.Fatalf("compileResources: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) < 1 {
+		t.Fatalf("expected at least 1 call, got %d", len(calls))
+	}
+
+	linkCall := calls[0]
+	if linkCall.Path != aapt2Path {
+		t.Fatalf("expected aapt2 path, got %q", linkCall.Path)
+	}
+	if len(linkCall.Args) < 2 || linkCall.Args[0] != "link" {
+		t.Fatalf("expected args starting with 'link', got %v", linkCall.Args)
+	}
+
+	hasManifest := false
+	hasBaseApk := false
+	hasAndroidJar := false
+	for _, a := range linkCall.Args {
+		if strings.HasSuffix(a, "AndroidManifest.xml") {
+			hasManifest = true
+		}
+		if strings.HasSuffix(a, "base.apk") {
+			hasBaseApk = true
+		}
+		if strings.HasSuffix(a, "android.jar") {
+			hasAndroidJar = true
+		}
+	}
+	if !hasManifest {
+		t.Fatal("aapt2 link args missing --manifest")
+	}
+	if !hasBaseApk {
+		t.Fatal("aapt2 link args missing -o base.apk")
+	}
+	if !hasAndroidJar {
+		t.Fatal("aapt2 link args missing -I android.jar")
+	}
+}
+
+func TestAndroidBuilder_assembleAPK_failsWithoutAapt2(t *testing.T) {
+	sdkDir := t.TempDir()
+	createSDKWithPlatform(t, sdkDir, 33)
+	buildDir := t.TempDir()
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:     f,
+		sdk:        sdkDir,
+		buildDir:   buildDir,
+		config:     &Config{App: AppConfig{ID: "org.test"}, Android: AndroidConfig{TargetSDK: 33, MinSDK: 29}},
+		outputPath: filepath.Join(buildDir, "out.apk"),
+	}
+
+	err := b.assembleAPK()
+	if err == nil {
+		t.Fatal("expected error when aapt2 is missing")
 	}
 }
 

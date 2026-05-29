@@ -353,14 +353,10 @@ func (b *androidBuilder) bundleAssets() error {
 	return nil
 }
 
-// compileResources uses aapt2 to compile resources and link the APK
-func (b *androidBuilder) compileResources() (string, error) {
+// compileResources uses aapt2 to compile resources and link the APK.
+// The caller must resolve the aapt2 path first.
+func (b *androidBuilder) compileResources(aapt2 string) (string, error) {
 	fmt.Println("Compiling resources with aapt2...")
-
-	aapt2, err := findSDKTool(b.sdk, "aapt2")
-	if err != nil {
-		return "", fmt.Errorf("aapt2 not found: %w", err)
-	}
 
 	compiledResDir := filepath.Join(b.buildDir, "resCompiled")
 	os.MkdirAll(compiledResDir, 0755)
@@ -448,16 +444,20 @@ func (b *androidBuilder) compileIcons(aapt2, compiledResDir string) error {
 	})
 }
 
-// assembleAPK creates the final APK by combining base APK with native libs and assets
+// assembleAPK creates the final APK by combining base APK with native libs and assets.
+// Requires aapt2 — there is no fallback assembly path.
 func (b *androidBuilder) assembleAPK() error {
 	fmt.Println("Assembling APK...")
 
-	// Step 1: Compile resources and get base APK
-	baseApk, err := b.compileResources()
+	aapt2, err := findSDKTool(b.sdk, "aapt2")
 	if err != nil {
-		// Fall back to manual assembly if aapt2 fails
-		fmt.Printf("  Resource compilation failed, falling back to manual assembly: %v\n", err)
-		return b.assembleAPKManual()
+		return fmt.Errorf("aapt2 not found: %w", err)
+	}
+
+	// Step 1: Compile resources and get base APK
+	baseApk, err := b.compileResources(aapt2)
+	if err != nil {
+		return fmt.Errorf("resource compilation failed: %w", err)
 	}
 
 	unsignedApk := filepath.Join(b.buildDir, "unsigned.apk")
@@ -467,19 +467,19 @@ func (b *androidBuilder) assembleAPK() error {
 		return fmt.Errorf("failed to copy base APK: %w", err)
 	}
 
-	// Step 3: Add native libraries to APK
+	// Step 3: Add native libraries to APK using aapt2 add
 	libSrc := filepath.Join(b.buildDir, "lib")
 	if _, err := os.Stat(libSrc); err == nil {
-		if err := b.addToApk(unsignedApk, libSrc, "lib"); err != nil {
-			return fmt.Errorf("failed to add native libs: %w", err)
+		if err := addFilesToAPK(b.runner, aapt2, unsignedApk, libSrc); err != nil {
+			return fmt.Errorf("failed to add native libs to APK: %w", err)
 		}
 	}
 
-	// Step 4: Add assets to APK
+	// Step 4: Add assets to APK using aapt2 add
 	assetsSrc := filepath.Join(b.buildDir, "assets")
 	if _, err := os.Stat(assetsSrc); err == nil {
-		if err := b.addToApk(unsignedApk, assetsSrc, "assets"); err != nil {
-			return fmt.Errorf("failed to add assets: %w", err)
+		if err := addFilesToAPK(b.runner, aapt2, unsignedApk, assetsSrc); err != nil {
+			return fmt.Errorf("failed to add assets to APK: %w", err)
 		}
 	}
 
@@ -487,52 +487,33 @@ func (b *androidBuilder) assembleAPK() error {
 	return nil
 }
 
-// assembleAPKManual creates APK manually without aapt2 (fallback)
-func (b *androidBuilder) assembleAPKManual() error {
-	unsignedApk := filepath.Join(b.buildDir, "unsigned.apk")
-
-	apkDir := filepath.Join(b.buildDir, "apk-staging")
-	os.RemoveAll(apkDir)
-	os.MkdirAll(apkDir, 0755)
-
-	// Copy AndroidManifest.xml
-	manifestSrc := filepath.Join(b.buildDir, "AndroidManifest.xml")
-	copyFile(manifestSrc, filepath.Join(apkDir, "AndroidManifest.xml"))
-
-	// Copy native libraries
-	libSrc := filepath.Join(b.buildDir, "lib")
-	if _, err := os.Stat(libSrc); err == nil {
-		copyDir(libSrc, filepath.Join(apkDir, "lib"))
-	}
-
-	// Copy assets
-	assetsSrc := filepath.Join(b.buildDir, "assets")
-	if _, err := os.Stat(assetsSrc); err == nil {
-		copyDir(assetsSrc, filepath.Join(apkDir, "assets"))
-	}
-
-	// Create APK zip
-	os.Remove(unsignedApk)
-	if err := b.runner.Run(CommandSpec{
-		Path:   "zip",
-		Args:   []string{"-r", unsignedApk, "."},
-		Dir:    apkDir,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
+// addFilesToAPK walks srcDir and adds every file to the given APK via aapt2 add,
+// preserving the relative directory structure as APK entry paths.
+func addFilesToAPK(runner Runner, aapt2, apkPath, srcDir string) error {
+	var args = []string{"add", apkPath}
+	if err := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(srcDir, path)
+		if err != nil {
+			return err
+		}
+		args = append(args, rel)
+		return nil
 	}); err != nil {
-		return fmt.Errorf("failed to create APK: %w", err)
+		return err
 	}
-
-	fmt.Printf("  Assembled: %s\n", unsignedApk)
-	return nil
-}
-
-// addToApk adds files to an existing APK using zip
-func (b *androidBuilder) addToApk(apkPath, srcDir, destPath string) error {
-	return b.runner.Run(CommandSpec{
-		Path:   "zip",
-		Args:   []string{"-r", apkPath, destPath},
-		Dir:    b.buildDir,
+	if len(args) == 2 {
+		return nil
+	}
+	return runner.Run(CommandSpec{
+		Path:   aapt2,
+		Args:   args,
+		Dir:    srcDir,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	})
