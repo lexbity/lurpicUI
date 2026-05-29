@@ -4,7 +4,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -63,6 +62,7 @@ func runAndroid(flags runFlags) int {
 	}
 
 	runner := &androidRunner{
+		runner:      newExecRunner(),
 		emulator:    flags.emulator,
 		sdk:         builder.sdk,
 		apkPath:     builder.outputPath,
@@ -77,6 +77,7 @@ func runAndroid(flags runFlags) int {
 }
 
 type androidRunner struct {
+	runner      Runner
 	emulator    bool
 	sdk         string
 	apkPath     string
@@ -90,7 +91,7 @@ func (r *androidRunner) run() error {
 	}
 
 	if r.emulator {
-		running, err := hasRunningEmulator(adb)
+		running, err := r.hasRunningEmulator(adb)
 		if err != nil {
 			return err
 		}
@@ -98,16 +99,16 @@ func (r *androidRunner) run() error {
 			if err := r.launchEmulator(); err != nil {
 				return err
 			}
-			if err := waitForEmulatorBoot(adb, 5*time.Minute); err != nil {
+			if err := r.waitForEmulatorBoot(adb, 5*time.Minute); err != nil {
 				return err
 			}
 		}
 	}
 
-	if err := installAPK(adb, r.apkPath); err != nil {
+	if err := r.installAPK(adb, r.apkPath); err != nil {
 		return err
 	}
-	return launchAPK(adb, r.packageName)
+	return r.launchAPK(adb, r.packageName)
 }
 
 func (r *androidRunner) launchEmulator() error {
@@ -116,27 +117,32 @@ func (r *androidRunner) launchEmulator() error {
 		return err
 	}
 
-	avd, err := selectAndroidAVD(emulator, r.sdk)
+	avd, err := r.selectAndroidAVD(emulator)
 	if err != nil {
 		return err
 	}
 
 	fmt.Printf("Launching emulator %q...\n", avd)
-	cmd := exec.Command(emulator, "-avd", avd, "-no-snapshot-save", "-no-boot-anim")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Start(); err != nil {
+	handle, err := r.runner.Start(CommandSpec{
+		Path:   emulator,
+		Args:   []string{"-avd", avd, "-no-snapshot-save", "-no-boot-anim"},
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
+	if err != nil {
 		return fmt.Errorf("start emulator: %w", err)
 	}
 	go func() {
-		_ = cmd.Wait()
+		_ = handle.Wait()
 	}()
 	return nil
 }
 
-func hasRunningEmulator(adb string) (bool, error) {
-	cmd := exec.Command(adb, "devices")
-	output, err := cmd.CombinedOutput()
+func (r *androidRunner) hasRunningEmulator(adb string) (bool, error) {
+	output, err := r.runner.Output(CommandSpec{
+		Path: adb,
+		Args: []string{"devices"},
+	})
 	if err != nil {
 		return false, fmt.Errorf("adb devices failed: %w\n%s", err, output)
 	}
@@ -149,17 +155,25 @@ func hasRunningEmulator(adb string) (bool, error) {
 	return false, nil
 }
 
-func waitForEmulatorBoot(adb string, timeout time.Duration) error {
+func (r *androidRunner) waitForEmulatorBoot(adb string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
-	if err := exec.Command(adb, "wait-for-device").Run(); err != nil {
+	if err := r.runner.Run(CommandSpec{
+		Path: adb,
+		Args: []string{"wait-for-device"},
+	}); err != nil {
 		return fmt.Errorf("adb wait-for-device failed: %w", err)
 	}
 
 	for time.Now().Before(deadline) {
-		cmd := exec.Command(adb, "shell", "getprop", "sys.boot_completed")
-		out, err := cmd.Output()
+		out, err := r.runner.Output(CommandSpec{
+			Path: adb,
+			Args: []string{"shell", "getprop", "sys.boot_completed"},
+		})
 		if err == nil && strings.TrimSpace(string(out)) == "1" {
-			_ = exec.Command(adb, "shell", "input", "keyevent", "82").Run()
+			_ = r.runner.Run(CommandSpec{
+				Path: adb,
+				Args: []string{"shell", "input", "keyevent", "82"},
+			})
 			return nil
 		}
 		time.Sleep(5 * time.Second)
@@ -167,21 +181,25 @@ func waitForEmulatorBoot(adb string, timeout time.Duration) error {
 	return fmt.Errorf("timed out waiting for emulator boot")
 }
 
-func installAPK(adb, apkPath string) error {
+func (r *androidRunner) installAPK(adb, apkPath string) error {
 	fmt.Printf("Installing APK: %s\n", apkPath)
-	cmd := exec.Command(adb, "install", "-r", apkPath)
-	output, err := cmd.CombinedOutput()
+	output, err := r.runner.Output(CommandSpec{
+		Path: adb,
+		Args: []string{"install", "-r", apkPath},
+	})
 	if err != nil {
 		return fmt.Errorf("adb install failed: %w\n%s", err, output)
 	}
 	return nil
 }
 
-func launchAPK(adb, packageName string) error {
+func (r *androidRunner) launchAPK(adb, packageName string) error {
 	component := fmt.Sprintf("%s/org.lurpicui.bridge.LurpicNativeActivity", packageName)
 	fmt.Printf("Launching app: %s\n", component)
-	cmd := exec.Command(adb, "shell", "am", "start", "-n", component)
-	output, err := cmd.CombinedOutput()
+	output, err := r.runner.Output(CommandSpec{
+		Path: adb,
+		Args: []string{"shell", "am", "start", "-n", component},
+	})
 	if err != nil {
 		return fmt.Errorf("adb shell am start failed: %w\n%s", err, output)
 	}
@@ -205,7 +223,7 @@ func findAndroidEmulator(sdk string) (string, error) {
 	return "", fmt.Errorf("emulator binary not found in Android SDK")
 }
 
-func selectAndroidAVD(emulator, sdk string) (string, error) {
+func (r *androidRunner) selectAndroidAVD(emulator string) (string, error) {
 	if avd := os.Getenv("ANDROID_AVD_NAME"); avd != "" {
 		return avd, nil
 	}
@@ -213,8 +231,10 @@ func selectAndroidAVD(emulator, sdk string) (string, error) {
 		return avd, nil
 	}
 
-	cmd := exec.Command(emulator, "-list-avds")
-	output, err := cmd.CombinedOutput()
+	output, err := r.runner.Output(CommandSpec{
+		Path: emulator,
+		Args: []string{"-list-avds"},
+	})
 	if err != nil {
 		return "", fmt.Errorf("list avds failed: %w\n%s", err, output)
 	}
@@ -226,43 +246,47 @@ func selectAndroidAVD(emulator, sdk string) (string, error) {
 		}
 	}
 
-	return createDefaultAndroidAVD(sdk)
+	return r.createDefaultAndroidAVD()
 }
 
-func createDefaultAndroidAVD(sdk string) (string, error) {
-	avdmanager, err := findSDKTool(sdk, "avdmanager")
+func (r *androidRunner) createDefaultAndroidAVD() (string, error) {
+	avdmanager, err := findSDKTool(r.sdk, "avdmanager")
 	if err != nil {
 		return "", fmt.Errorf("avdmanager not found: %w", err)
 	}
 
-	sdkmanager, err := findSDKTool(sdk, "sdkmanager")
+	sdkmanager, err := findSDKTool(r.sdk, "sdkmanager")
 	if err != nil {
 		return "", fmt.Errorf("sdkmanager not found: %w", err)
 	}
 
 	systemImage := defaultAndroidSystemImage()
-	if err := ensureAndroidPackage(sdkmanager, systemImage); err != nil {
+	if err := r.ensureAndroidPackage(sdkmanager, systemImage); err != nil {
 		return "", err
 	}
 
 	avdName := defaultAndroidAVDName()
 	fmt.Printf("Creating default Android Virtual Device %q...\n", avdName)
-	cmd := exec.Command(avdmanager, "create", "avd", "-n", avdName, "-k", systemImage, "-d", defaultAndroidAVDDevice, "--force")
-	cmd.Stdin = strings.NewReader("no\n")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	if err := r.runner.Run(CommandSpec{
+		Path:   avdmanager,
+		Args:   []string{"create", "avd", "-n", avdName, "-k", systemImage, "-d", defaultAndroidAVDDevice, "--force"},
+		Stdin:  strings.NewReader("no\n"),
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return "", fmt.Errorf("create avd failed: %w", err)
 	}
 	return avdName, nil
 }
 
-func ensureAndroidPackage(sdkmanager string, pkg string) error {
-	cmd := exec.Command(sdkmanager, pkg)
-	cmd.Stdin = strings.NewReader("y\n")
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+func (r *androidRunner) ensureAndroidPackage(sdkmanager string, pkg string) error {
+	if err := r.runner.Run(CommandSpec{
+		Path:   sdkmanager,
+		Args:   []string{pkg},
+		Stdin:  strings.NewReader("y\n"),
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
 		return fmt.Errorf("sdkmanager install %s failed: %w", pkg, err)
 	}
 	return nil

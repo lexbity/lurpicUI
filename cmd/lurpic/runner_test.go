@@ -419,3 +419,78 @@ func TestExecRunner_Output_stdinIsNotSentToStderr(t *testing.T) {
 		t.Fatal("stdin content leaked into output")
 	}
 }
+
+func TestExecRunner_Start_thenWait(t *testing.T) {
+	r := newExecRunner()
+	handle, err := r.Start(CommandSpec{
+		Path: "go",
+		Args: []string{"version"},
+	})
+	if err != nil {
+		t.Fatalf("Start go version: %v", err)
+	}
+	if err := handle.Wait(); err != nil {
+		t.Fatalf("Wait go version: %v", err)
+	}
+}
+
+func TestExecRunner_Start_kill(t *testing.T) {
+	r := newExecRunner()
+	handle, err := r.Start(CommandSpec{
+		Path: "sleep",
+		Args: []string{"60"},
+	})
+	if err != nil {
+		t.Fatalf("Start sleep: %v", err)
+	}
+	if err := handle.Kill(); err != nil {
+		t.Fatalf("Kill sleep: %v", err)
+	}
+	if err := handle.Wait(); err == nil {
+		t.Log("killed process may return nil or non-nil error on Wait")
+	}
+}
+
+func TestFakeRunner_Start_recordsCall(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("emulator")).Then("", "", nil)
+
+	handle, err := f.Start(CommandSpec{
+		Path: "emulator",
+		Args: []string{"-avd", "test"},
+	})
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Path != "emulator" {
+		t.Fatalf("expected emulator, got %q", calls[0].Path)
+	}
+
+	// ProcessHandle should be a no-op fake
+	if err := handle.Kill(); err != nil {
+		t.Fatalf("Kill: %v", err)
+	}
+	if err := handle.Wait(); err != nil {
+		t.Fatalf("Wait: %v", err)
+	}
+}
+
+func TestFakeRunner_Start_returnsErrorOnNoMatch(t *testing.T) {
+	f := newFakeRunner()
+	// Don't register any match - Start should still succeed (returns fake handle)
+	// but the fake handle's Wait will return an error
+	handle, err := f.Start(CommandSpec{
+		Path: "nonexistent",
+	})
+	if err != nil {
+		t.Fatalf("Start should not fail even without match: %v", err)
+	}
+	if err := handle.Wait(); err == nil {
+		t.Fatal("expected Wait to return error for unmatched command")
+	}
+}

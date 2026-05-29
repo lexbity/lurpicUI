@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -53,6 +54,7 @@ func TestAndroidRunner_run_onRunningEmulator(t *testing.T) {
 	}
 
 	runner := &androidRunner{
+		runner:      newExecRunner(),
 		emulator:    true,
 		sdk:         sdk,
 		apkPath:     apkPath,
@@ -114,7 +116,11 @@ func TestSelectAndroidAVD_createsDefaultWhenNoneExist(t *testing.T) {
 		"log_file=\""+logPath+"\"\n"+
 		"printf 'avdmanager %s\\n' \"$*\" >> \"$log_file\"\n")
 
-	avd, err := selectAndroidAVD(filepath.Join(emulatorDir, "emulator"), sdk)
+	r := &androidRunner{
+		runner: newExecRunner(),
+		sdk:    sdk,
+	}
+	avd, err := r.selectAndroidAVD(filepath.Join(emulatorDir, "emulator"))
 	if err != nil {
 		t.Fatalf("selectAndroidAVD() error = %v", err)
 	}
@@ -134,5 +140,188 @@ func TestSelectAndroidAVD_createsDefaultWhenNoneExist(t *testing.T) {
 	}
 	if !strings.Contains(logs, "avdmanager create avd -n "+want) {
 		t.Fatalf("expected avdmanager create call, got:\n%s", logs)
+	}
+}
+
+func TestHasRunningEmulator_parsesDeviceOutput(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "devices")).Then(
+		"List of devices attached\nemulator-5554\tdevice\n",
+		"",
+		nil,
+	)
+
+	r := &androidRunner{runner: f}
+	running, err := r.hasRunningEmulator("adb")
+	if err != nil {
+		t.Fatalf("hasRunningEmulator: %v", err)
+	}
+	if !running {
+		t.Fatal("expected running emulator")
+	}
+}
+
+func TestHasRunningEmulator_noDevice(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "devices")).Then(
+		"List of devices attached\n\n",
+		"",
+		nil,
+	)
+
+	r := &androidRunner{runner: f}
+	running, err := r.hasRunningEmulator("adb")
+	if err != nil {
+		t.Fatalf("hasRunningEmulator: %v", err)
+	}
+	if running {
+		t.Fatal("expected no running emulator")
+	}
+}
+
+func TestHasRunningEmulator_offlineDevice(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "devices")).Then(
+		"List of devices attached\nemulator-5554\toffline\n",
+		"",
+		nil,
+	)
+
+	r := &androidRunner{runner: f}
+	running, err := r.hasRunningEmulator("adb")
+	if err != nil {
+		t.Fatalf("hasRunningEmulator: %v", err)
+	}
+	if running {
+		t.Fatal("expected offline device not to count as running")
+	}
+}
+
+func TestInstallAPK_argv(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "install", "-r", "/path/to/app.apk")).Then(
+		"Success\n",
+		"",
+		nil,
+	)
+
+	r := &androidRunner{runner: f}
+	if err := r.installAPK("adb", "/path/to/app.apk"); err != nil {
+		t.Fatalf("installAPK: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Path != "adb" {
+		t.Fatalf("expected adb, got %q", calls[0].Path)
+	}
+}
+
+func TestInstallAPK_failure(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "install", "-r", "bad.apk")).Then(
+		"adb: failed to install bad.apk",
+		"",
+		errors.New("exit status 1"),
+	)
+
+	r := &androidRunner{runner: f}
+	err := r.installAPK("adb", "bad.apk")
+	if err == nil {
+		t.Fatal("expected error for failed install")
+	}
+}
+
+func TestLaunchAPK_argv(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "shell", "am", "start", "-n",
+		"org.test.app/org.lurpicui.bridge.LurpicNativeActivity")).Then(
+		"Starting: Intent { }\n",
+		"",
+		nil,
+	)
+
+	r := &androidRunner{runner: f}
+	if err := r.launchAPK("adb", "org.test.app"); err != nil {
+		t.Fatalf("launchAPK: %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) != 1 {
+		t.Fatalf("expected 1 call, got %d", len(calls))
+	}
+	if calls[0].Path != "adb" {
+		t.Fatalf("expected adb, got %q", calls[0].Path)
+	}
+}
+
+func TestLaunchAPK_failure(t *testing.T) {
+	f := newFakeRunner()
+	f.When(MatchCommand("adb", "shell", "am", "start", "-n",
+		"org.test.app/org.lurpicui.bridge.LurpicNativeActivity")).Then(
+		"Error: Activity not started",
+		"",
+		errors.New("exit status 1"),
+	)
+
+	r := &androidRunner{runner: f}
+	err := r.launchAPK("adb", "org.test.app")
+	if err == nil {
+		t.Fatal("expected error for failed launch")
+	}
+}
+
+func TestSelectAndroidAVD_usesEnvOverride(t *testing.T) {
+	r := &androidRunner{runner: newFakeRunner()}
+	t.Setenv("ANDROID_AVD_NAME", "my_custom_avd")
+
+	avd, err := r.selectAndroidAVD("emulator")
+	if err != nil {
+		t.Fatalf("selectAndroidAVD: %v", err)
+	}
+	if avd != "my_custom_avd" {
+		t.Fatalf("expected 'my_custom_avd', got %q", avd)
+	}
+}
+
+func TestSelectAndroidAVD_usesLurpicEnvOverride(t *testing.T) {
+	r := &androidRunner{runner: newFakeRunner()}
+	t.Setenv("LURPIC_ANDROID_AVD", "lurpic_custom")
+
+	avd, err := r.selectAndroidAVD("emulator")
+	if err != nil {
+		t.Fatalf("selectAndroidAVD: %v", err)
+	}
+	if avd != "lurpic_custom" {
+		t.Fatalf("expected 'lurpic_custom', got %q", avd)
+	}
+}
+
+func TestFindAndroidEmulator_found(t *testing.T) {
+	sdk := t.TempDir()
+	emulatorDir := filepath.Join(sdk, "emulator")
+	if err := os.MkdirAll(emulatorDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	emulatorPath := filepath.Join(emulatorDir, "emulator")
+	if err := os.WriteFile(emulatorPath, []byte("#!/bin/sh\nexit 0"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	path, err := findAndroidEmulator(sdk)
+	if err != nil {
+		t.Fatalf("findAndroidEmulator: %v", err)
+	}
+	if path != emulatorPath {
+		t.Fatalf("expected %q, got %q", emulatorPath, path)
+	}
+}
+
+func TestFindAndroidEmulator_notFound(t *testing.T) {
+	_, err := findAndroidEmulator(t.TempDir())
+	if err == nil {
+		t.Fatal("expected error when emulator not found")
 	}
 }

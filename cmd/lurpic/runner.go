@@ -26,6 +26,7 @@ type ProcessHandle interface {
 
 type Runner interface {
 	Run(spec CommandSpec) error
+	Start(spec CommandSpec) (ProcessHandle, error)
 	Output(spec CommandSpec) ([]byte, error)
 	Look(name string) (string, error)
 }
@@ -61,6 +62,39 @@ func (*execRunner) Output(spec CommandSpec) ([]byte, error) {
 	cmd.Stderr = &buf
 	err := cmd.Run()
 	return buf.Bytes(), err
+}
+
+type execCmdHandle struct {
+	cmd *exec.Cmd
+}
+
+func (h *execCmdHandle) Kill() error {
+	if h.cmd != nil && h.cmd.Process != nil {
+		return h.cmd.Process.Kill()
+	}
+	return nil
+}
+
+func (h *execCmdHandle) Wait() error {
+	if h.cmd == nil {
+		return nil
+	}
+	return h.cmd.Wait()
+}
+
+func (*execRunner) Start(spec CommandSpec) (ProcessHandle, error) {
+	cmd := exec.Command(spec.Path, spec.Args...)
+	cmd.Dir = spec.Dir
+	if spec.Env != nil {
+		cmd.Env = spec.Env
+	}
+	cmd.Stdin = spec.Stdin
+	cmd.Stdout = spec.Stdout
+	cmd.Stderr = spec.Stderr
+	if err := cmd.Start(); err != nil {
+		return nil, err
+	}
+	return &execCmdHandle{cmd: cmd}, nil
 }
 
 func (*execRunner) Look(name string) (string, error) {
@@ -165,6 +199,23 @@ func (f *fakeRunner) Output(spec CommandSpec) ([]byte, error) {
 		return buf.Bytes(), result.err
 	}
 	return buf.Bytes(), nil
+}
+
+type fakeProcessHandle struct {
+	err error
+}
+
+func (h *fakeProcessHandle) Kill() error { return nil }
+
+func (h *fakeProcessHandle) Wait() error { return h.err }
+
+func (f *fakeRunner) Start(spec CommandSpec) (ProcessHandle, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, spec)
+	result := f.match(spec)
+	f.mu.Unlock()
+
+	return &fakeProcessHandle{err: result.err}, nil
 }
 
 func (f *fakeRunner) Look(name string) (string, error) {
