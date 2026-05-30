@@ -32,6 +32,10 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 				rt.inputSystem.ClearPointerState()
 				rt.ClearFocus()
 			}
+		case platform.VsyncEvent:
+			if rt.frameTimer != nil {
+				rt.frameTimer.Vsync(e.FrameTimeNanos)
+			}
 		case platform.AudioFocusEvent:
 			rt.handleAudioFocusChange(e)
 		case platform.ConfigurationChangedEvent:

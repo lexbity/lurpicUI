@@ -315,6 +315,25 @@ func TestWindowInsetsEvent_fields(t *testing.T) {
 	}
 }
 
+func TestVsyncEvent_fields(t *testing.T) {
+	q := NewEventQueue()
+
+	q.Push(Event{Type: EventTypeVsync, FrameTimeNanos: 1000000000}) // 1 second
+	q.Push(Event{Type: EventTypeVsync, FrameTimeNanos: 1016666666}) // ~16.6ms later (60 Hz)
+
+	events := q.Poll()
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+
+	if events[0].FrameTimeNanos != 1000000000 {
+		t.Errorf("expected FrameTimeNanos=1000000000, got %d", events[0].FrameTimeNanos)
+	}
+	if events[1].FrameTimeNanos != 1016666666 {
+		t.Errorf("expected FrameTimeNanos=1016666666, got %d", events[1].FrameTimeNanos)
+	}
+}
+
 func TestAudioFocusEvent_fields(t *testing.T) {
 	q := NewEventQueue()
 

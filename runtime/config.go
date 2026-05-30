@@ -60,6 +60,7 @@ type FrameTimer struct {
 	targetPeriod time.Duration
 	lastFrame    time.Time
 	requestCh    chan struct{}
+	vsyncCh      chan int64 // receives vsync frameTimeNanos from platform
 	mu           sync.Mutex
 }
 
@@ -72,12 +73,39 @@ func NewFrameTimer(targetFPS int) *FrameTimer {
 		targetFPS:    targetFPS,
 		targetPeriod: time.Second / time.Duration(targetFPS),
 		requestCh:    make(chan struct{}, 1),
+		vsyncCh:      make(chan int64, 1),
 	}
 }
 
-// Wait blocks until the next frame should begin.
+// Vsync delivers a vsync timestamp to the timer for alignment. Called from
+// the runtime's event handler when a platform VsyncEvent arrives.
+func (t *FrameTimer) Vsync(frameTimeNanos int64) {
+	select {
+	case t.vsyncCh <- frameTimeNanos:
+	default:
+	}
+}
+
+// Wait blocks until the next frame should begin. It prefers vsync timing
+// from the platform when available, falling back to timer-based pacing.
 func (t *FrameTimer) Wait() time.Time {
 
+	if t == nil {
+		return time.Now()
+	}
+
+	// Try to receive a vsync timestamp first (non-blocking).
+	select {
+	case frameTimeNanos := <-t.vsyncCh:
+		now := time.Unix(0, frameTimeNanos)
+		t.mu.Lock()
+		t.lastFrame = now
+		t.mu.Unlock()
+		return now
+	default:
+	}
+
+	// Fall back to timer-based pacing.
 	tick := time.Now()
 	t.mu.Lock()
 	last := t.lastFrame
@@ -92,11 +120,23 @@ func (t *FrameTimer) Wait() time.Time {
 	if delay := time.Until(next); delay > 0 {
 		select {
 		case <-t.requestCh:
+		case frameTimeNanos := <-t.vsyncCh:
+			now := time.Unix(0, frameTimeNanos)
+			t.mu.Lock()
+			t.lastFrame = now
+			t.mu.Unlock()
+			return now
 		case <-time.After(delay):
 		}
 	} else {
 		select {
 		case <-t.requestCh:
+		case frameTimeNanos := <-t.vsyncCh:
+			now := time.Unix(0, frameTimeNanos)
+			t.mu.Lock()
+			t.lastFrame = now
+			t.mu.Unlock()
+			return now
 		default:
 		}
 	}

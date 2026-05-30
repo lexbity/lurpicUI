@@ -105,18 +105,21 @@ func (a *App) HideSoftKeyboard() {
 	bridge.HideSoftKeyboard()
 }
 
-// dispatchLifecycleEvent delivers lifecycle events to registered callbacks.
+// dispatchLifecycleEvent delivers lifecycle events to registered callbacks
+// and manages Choreographer vsync state.
 func (a *App) dispatchLifecycleEvent(kind platform.LifecycleKind) {
 	if a == nil {
 		return
 	}
 	switch kind {
-	case platform.LifecyclePause:
-		for _, f := range a.lifecycleHandlers.onPause {
+	case platform.LifecycleResume:
+		bridge.StartVsync()
+		for _, f := range a.lifecycleHandlers.onResume {
 			f()
 		}
-	case platform.LifecycleResume:
-		for _, f := range a.lifecycleHandlers.onResume {
+	case platform.LifecyclePause:
+		bridge.StopVsync()
+		for _, f := range a.lifecycleHandlers.onPause {
 			f()
 		}
 	case platform.LifecycleLowMemory:
@@ -385,6 +388,8 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 			Key:       e.Key,
 			Modifiers: e.Modifiers,
 		}
+	case bridge.EventTypeVsync:
+		return platform.VsyncEvent{FrameTimeNanos: e.FrameTimeNanos}
 	case bridge.EventTypeAudioFocusChange:
 		// Audio focus changes are handled by the audio subsystem through
 		// the platform.Audio interface. Convert and route as a lifecycle

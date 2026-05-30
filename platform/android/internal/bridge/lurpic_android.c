@@ -8,6 +8,7 @@
  * - Provides the ANativeActivity_onCreate entry point
  */
 
+#include <android/choreographer.h>
 #include <android/configuration.h>
 #include <android/native_activity.h>
 #include <android/native_window.h>
@@ -61,6 +62,7 @@ extern void goDeliverWindowInsets(int32_t top, int32_t bottom, int32_t left, int
 extern void goDeliverIMECompose(char* text, int32_t cursorPos);
 extern void goDeliverIMECommit(char* text);
 extern void goDeliverAudioFocusChange(int32_t focusChange);
+extern void goDeliverVsync(int64_t frameTimeNanos);
 extern void goDeliverConfigurationChanged(int32_t orientation, int32_t screenWidthDp,
                                            int32_t screenHeightDp, int32_t density,
                                            int32_t uiModeNight, float fontScale,
@@ -224,6 +226,52 @@ static void onInputQueueDestroyed(ANativeActivity* activity, AInputQueue* queue)
     goOnInputQueueDestroyed(activity, queue);
     /* Stop the input thread and detach the queue from its looper. */
     stop_input_thread();
+}
+
+/* ── Choreographer / vsync ──────────────────────────────────────────── */
+/*
+ * AChoreographer provides vsync-aligned frame callbacks for smooth
+ * frame pacing. The callback fires on the Choreographer's dedicated
+ * thread approximately once per vsync period (typically 16.6ms at 60 Hz,
+ * 8.3ms at 120 Hz, etc.).
+ */
+
+static int g_vsync_registered = 0;
+
+static void vsync_frame_callback(long frameTimeNanos, void* data) {
+    (void)data;
+    goDeliverVsync((int64_t)frameTimeNanos);
+
+    /* Re-register for the next frame so we get continuous vsync events.
+     * AChoreographer_postFrameCallback is thread-safe and can be called
+     * from any thread. */
+    if (g_vsync_registered) {
+        AChoreographer* choreographer = AChoreographer_getInstance();
+        if (choreographer != NULL) {
+            AChoreographer_postFrameCallback(choreographer, vsync_frame_callback, NULL);
+        }
+    }
+}
+
+/* Start receiving vsync callbacks. Should be called when the app is
+ * visible and actively rendering (e.g., onResume / onWindowFocusChanged). */
+static void start_vsync(void) {
+    if (g_vsync_registered) return;
+    AChoreographer* choreographer = AChoreographer_getInstance();
+    if (choreographer == NULL) {
+        LOGW("Choreographer not available (pre-API 24 or no main looper)");
+        return;
+    }
+    g_vsync_registered = 1;
+    AChoreographer_postFrameCallback(choreographer, vsync_frame_callback, NULL);
+    LOGI("Vsync callbacks started");
+}
+
+/* Stop receiving vsync callbacks. Should be called when the app is
+ * paused or no longer visible. */
+static void stop_vsync(void) {
+    g_vsync_registered = 0;
+    LOGI("Vsync callbacks stopped");
 }
 
 /* ── Input thread ────────────────────────────────────────────────────── */
@@ -692,6 +740,14 @@ jint bridgeCheckPermission(const char* permission) {
 
 jint bridgeIsPermissionDeclared(const char* permission) {
     return call_activity_has_declared_permission(permission);
+}
+
+void bridgeVsyncStart(void) {
+    start_vsync();
+}
+
+void bridgeVsyncStop(void) {
+    stop_vsync();
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeImeCompose(

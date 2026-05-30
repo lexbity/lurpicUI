@@ -54,6 +54,7 @@ const (
 	EventTypeConfigurationChanged
 	EventTypeWindowInsets
 	EventTypeAudioFocusChange
+	EventTypeVsync
 )
 
 // Event represents an Android lifecycle or input event.
@@ -99,6 +100,8 @@ type Event struct {
 	CutoutBottom int32
 	// Audio focus field
 	FocusChange int32
+	// Vsync field
+	FrameTimeNanos int64
 	// Configuration fields
 	Orientation   int32
 	ScreenWidthDp int32
@@ -480,6 +483,15 @@ func goDeliverIMECommit(text *C.char) {
 	GetEventQueue().Push(event)
 }
 
+//export goDeliverVsync
+func goDeliverVsync(frameTimeNanos C.int64_t) {
+	event := Event{
+		Type:           EventTypeVsync,
+		FrameTimeNanos: int64(frameTimeNanos),
+	}
+	GetEventQueue().Push(event)
+}
+
 //export goDeliverAudioFocusChange
 func goDeliverAudioFocusChange(focusChange C.int32_t) {
 	event := Event{
@@ -687,6 +699,18 @@ func androidLogInfo(format string, args ...interface{}) {
 	// The C bridge logs before calling these Go functions.
 	_ = format
 	_ = args
+}
+
+// StartVsync enables Choreographer vsync callbacks. Should be called when
+// the app is visible and actively rendering.
+func StartVsync() {
+	C.bridgeVsyncStart()
+}
+
+// StopVsync disables Choreographer vsync callbacks. Should be called when
+// the app is paused or no longer visible.
+func StopVsync() {
+	C.bridgeVsyncStop()
 }
 
 // Init initializes the bridge. Called from the Android platform package.

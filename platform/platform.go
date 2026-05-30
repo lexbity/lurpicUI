@@ -213,6 +213,12 @@ const (
 	WindowFocusLost
 )
 
+// VsyncEvent is emitted by the Android Choreographer on each vsync.
+// frameTimeNanos is the expected presentation time in nanoseconds.
+type VsyncEvent struct {
+	FrameTimeNanos int64
+}
+
 // AudioFocusEvent is emitted when the Android audio focus changes.
 // The runtime delivers this to the audio subsystem to pause/resume/duck playback.
 type AudioFocusEvent struct {
@@ -251,6 +257,8 @@ const (
 	TouchUp
 	TouchCancel // OS canceled the gesture (e.g., system gesture took over)
 )
+
+func (VsyncEvent) isEvent()             {}
 
 func (AudioFocusEvent) isEvent()         {}
 

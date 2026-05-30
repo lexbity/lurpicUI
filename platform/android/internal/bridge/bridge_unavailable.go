@@ -41,6 +41,7 @@ const (
 	EventTypeConfigurationChanged
 	EventTypeWindowInsets
 	EventTypeAudioFocusChange
+	EventTypeVsync
 )
 
 const (
@@ -80,6 +81,7 @@ type Event struct {
 	Text        string
 	CursorPos   int
 	FocusChange int32
+	FrameTimeNanos int64
 	InsetTop    int32
 	InsetBottom int32
 	InsetLeft   int32

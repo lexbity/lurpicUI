@@ -46,6 +46,22 @@ func TestRuntimeNew_validation(t *testing.T) {
 	}
 }
 
+func TestFrameTimer_vsyncWake(t *testing.T) {
+	timer := NewFrameTimer(60)
+
+	// Send a vsync timestamp — Wait should return immediately.
+	timer.Vsync(1000000000)
+	start := time.Now()
+	_ = timer.Wait()
+	if time.Since(start) > 5*time.Millisecond {
+		t.Fatal("expected immediate wake from vsync")
+	}
+
+	// Send another vsync with a later timestamp.
+	timer.Vsync(1016666666)
+	_ = timer.Wait()
+}
+
 func TestFrameTimer_basics(t *testing.T) {
 	timer := NewFrameTimer(60)
 	timer.RequestFrame()
