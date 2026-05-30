@@ -2,6 +2,7 @@ package app
 
 import (
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -528,4 +529,73 @@ func restoreHooks(t *testing.T) {
 		runRuntime = oldRunRuntime
 		initAssetManager = oldInitAssetManager
 	})
+}
+
+func TestAsset_smallFileReturnsData(t *testing.T) {
+	dir := t.TempDir()
+	content := []byte("small-config")
+	if err := os.WriteFile(filepath.Join(dir, "test.toml"), content, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	// Asset looks in ./assets/<path>. Set up the expected path.
+	assetsDir := filepath.Join(dir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "test.toml"), content, 0o644); err != nil {
+		t.Fatalf("write asset: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	data, err := Asset("test.toml")
+	if err != nil {
+		t.Fatalf("Asset: %v", err)
+	}
+	if string(data) != "small-config" {
+		t.Fatalf("got %q, want %q", data, content)
+	}
+}
+
+func TestAsset_largeFileWarns(t *testing.T) {
+	dir := t.TempDir()
+	assetsDir := filepath.Join(dir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// Create a file larger than maxBootstrapAssetSize (1 MiB).
+	large := make([]byte, maxBootstrapAssetSize+1)
+	for i := range large {
+		large[i] = byte(i)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "big.bin"), large, 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	// Must succeed (the warning is a diagnostic, not a hard error).
+	data, err := Asset("big.bin")
+	if err != nil {
+		t.Fatalf("Asset: %v", err)
+	}
+	if len(data) != len(large) {
+		t.Fatalf("got %d bytes, want %d", len(data), len(large))
+	}
+}
+
+func TestAsset_missingFileErrors(t *testing.T) {
+	dir := t.TempDir()
+	origDir, _ := os.Getwd()
+	os.Chdir(dir)
+	defer os.Chdir(origDir)
+
+	_, err := Asset("nonexistent.dat")
+	if err == nil {
+		t.Fatal("expected error for missing asset")
+	}
 }

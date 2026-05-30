@@ -1,10 +1,12 @@
 //go:build android
-// +build android
 
 package app
 
 import (
 	"fmt"
+	"os"
+
+	"codeburg.org/lexbit/lurpicui/platform/android"
 )
 
 // #cgo LDFLAGS: -landroid
@@ -13,26 +15,22 @@ import (
 // #include <android/asset_manager_jni.h>
 import "C"
 
-import (
-	"unsafe"
+import "unsafe"
 
-	"codeburg.org/lexbit/lurpicui/platform/android"
-)
+const maxBootstrapAssetSize = 1 << 20 // 1 MB
 
 // Asset reads a bundled asset file from the APK's assets directory.
 //
-// On Android, this uses the native AssetManager to read files that were
-// bundled into the APK during the build process. The asset path should be
-// relative to the assets/ directory in the project.
+// **Bootstrap-only API.** Use this only for small files (configs, fonts)
+// needed before the runtime's asset pipeline (Manager + PakFS) is
+// available. All large media (images, textures, audio) must be loaded
+// through the Manager via facet asset handles so they benefit from
+// streaming, progressive LODs, cache budgeting, and eviction.
 //
-// Example:
-//
-//	data, err := app.Asset("fonts/regular.ttf")
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
+// On Android this reads from the APK via AAssetManager, bypassing the
+// streaming/cache/budget system entirely. Files larger than
+// MaxBootstrapAssetSize (1 MiB) produce a diagnostic warning on stderr.
 func Asset(path string) ([]byte, error) {
-	// Get the AssetManager via the public platform/android accessor.
 	mgr := android.AssetManager()
 	if mgr == nil {
 		return nil, fmt.Errorf("asset manager not available")
@@ -41,28 +39,28 @@ func Asset(path string) ([]byte, error) {
 	cPath := C.CString(path)
 	defer C.free(unsafe.Pointer(cPath))
 
-	// Open the asset
 	asset := C.AAssetManager_open((*C.AAssetManager)(mgr), cPath, C.AASSET_MODE_STREAMING)
 	if asset == nil {
 		return nil, fmt.Errorf("asset not found: %s", path)
 	}
 	defer C.AAsset_close(asset)
 
-	// Get the length
 	length := C.AAsset_getLength(asset)
 	if length < 0 {
 		return nil, fmt.Errorf("failed to get asset length: %s", path)
 	}
 
-	// Read the data
 	buf := make([]byte, length)
 	if length > 0 {
 		read := C.AAsset_read(asset, unsafe.Pointer(&buf[0]), C.size_t(length))
 		if read < 0 {
 			return nil, fmt.Errorf("failed to read asset: %s", path)
 		}
-		// Adjust buffer to actual bytes read
 		buf = buf[:read]
+	}
+
+	if len(buf) > maxBootstrapAssetSize {
+		fmt.Fprintf(os.Stderr, "app: Asset(%q) read %d bytes — large media should use the asset manager (Manager.LoadImage etc.)\n", path, len(buf))
 	}
 
 	return buf, nil

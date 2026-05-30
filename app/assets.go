@@ -1,5 +1,4 @@
 //go:build !android
-// +build !android
 
 package app
 
@@ -9,27 +8,28 @@ import (
 	"path/filepath"
 )
 
-// Asset reads a bundled asset file.
+const maxBootstrapAssetSize = 1 << 20 // 1 MB
+
+// Asset reads a bundled asset file as a single byte slice.
 //
-// On desktop platforms (Linux, macOS, Windows), this reads from the
-// application's assets/ directory relative to the executable or working directory.
+// **Bootstrap-only API.** Use this only for small files (configs, fonts)
+// needed before the runtime's asset pipeline (Manager + PakFS/DevFS) is
+// available. All large media (images, textures, audio) must be loaded
+// through the Manager via facet asset handles so they benefit from
+// streaming, progressive LODs, cache budgeting, and eviction.
 //
-// On Android, this would use AssetManager via JNI (see assets_android.go).
+// The function reads the entire file into memory at once — it bypasses
+// the asset system entirely. Files larger than MaxBootstrapAssetSize
+// (1 MiB) produce a diagnostic warning at Info level.
 //
-// Example:
-//
-//	data, err := app.Asset("fonts/regular.ttf")
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
+// File resolution order:
+//  1. ./assets/<path> (relative to working directory)
+//  2. <exe-dir>/assets/<path>
+//  3. ../../assets/<path> (project-root relative during development)
 func Asset(path string) ([]byte, error) {
-	// Try multiple locations for the assets directory
 	possiblePaths := []string{
-		// Relative to working directory
 		filepath.Join("assets", path),
-		// Relative to executable (if we can determine it)
 		filepath.Join(getExeDir(), "assets", path),
-		// In a standard location relative to project root
 		filepath.Join("..", "..", "assets", path),
 	}
 
@@ -37,6 +37,9 @@ func Asset(path string) ([]byte, error) {
 	for _, p := range possiblePaths {
 		data, err := os.ReadFile(p)
 		if err == nil {
+			if len(data) > maxBootstrapAssetSize {
+				fmt.Fprintf(os.Stderr, "app: Asset(%q) read %d bytes — large media should use the asset manager (Manager.LoadImage etc.)\n", path, len(data))
+			}
 			return data, nil
 		}
 		lastErr = err
@@ -45,7 +48,6 @@ func Asset(path string) ([]byte, error) {
 	return nil, fmt.Errorf("asset not found: %s (last error: %w)", path, lastErr)
 }
 
-// getExeDir returns the directory of the current executable
 func getExeDir() string {
 	exe, err := os.Executable()
 	if err != nil {
