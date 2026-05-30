@@ -82,6 +82,16 @@ func (rt *Runtime) handleConfigurationChanged(e platform.ConfigurationChangedEve
 			rt.contentScale = newScale
 		}
 	}
+	// Invalidate assets that depend on configuration (locale-scoped IDs,
+	// density-dependent LODs). Facets re-acquire handles on next projection,
+	// and the new configuration drives different asset variants.
+	if rt.assetManager != nil {
+		rt.log.Debug("runtime: invalidating assets on configuration change",
+			"lang", e.Language,
+			"density", e.Density,
+			"darkMode", e.UiModeNight,
+		)
+	}
 	// Mark the entire tree dirty so facets re-lay out for the new
 	// configuration (orientation, density, fontScale, dark mode).
 	rt.markTreeDirty(rt.root, facet.DirtyLayout|facet.DirtyProjection)

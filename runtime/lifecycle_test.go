@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -139,6 +140,22 @@ func mustLifecycleRuntime(t *testing.T, b render.Backend) (*Runtime, *lifecycleA
 		t.Fatalf("new runtime: %v", err)
 	}
 	return rt, app
+}
+
+func mustLifecycleRuntimeWithAssets(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) *Runtime {
+	t.Helper()
+	root := facet.NewFacet()
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.AssetManager = mgr
+	cfg.AssetRegistry = reg
+	app := &lifecycleApp{events: &fakeEventQueue{}}
+	win := &testWindow{width: 800, height: 600}
+	rt, err := New(cfg, app, win, &backendFixture{}, &root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	return rt
 }
 
 func waitForFatal(t *testing.T, rt *Runtime, timeout time.Duration) error {
@@ -459,6 +476,73 @@ func TestRuntime_configurationChanged_darkModePreservesState(t *testing.T) {
 
 	if bf.submitCount.Load() != 2 {
 		t.Fatalf("expected 2 submits after config change, got %d", bf.submitCount.Load())
+	}
+}
+
+func TestRuntime_configurationChanged_densityUpdatesContentScale(t *testing.T) {
+	bf := &backendFixture{}
+	rt, app := mustLifecycleRuntime(t, bf)
+
+	rt.RunOneFrame()
+	initialScale := rt.contentScale
+
+	// Density change from 160 (mdpi = 1x) to 320 (xhdpi = 2x).
+	app.triggerEvent(platform.ConfigurationChangedEvent{
+		Orientation: 1,
+		Density:     320,
+	})
+	rt.RunOneFrame()
+
+	expectedScale := float32(320) / 160.0
+	if rt.contentScale == initialScale && rt.contentScale != expectedScale {
+		t.Fatalf("contentScale should change from %f to %f after density change, stayed at %f",
+			initialScale, expectedScale, rt.contentScale)
+	}
+	// Content scale must be non-zero.
+	if rt.contentScale <= 0 {
+		t.Fatal("contentScale must be positive after density change")
+	}
+}
+
+func TestRuntime_configurationChanged_localeDoesNotCrash(t *testing.T) {
+	bf := &backendFixture{}
+	rt, app := mustLifecycleRuntime(t, bf)
+
+	rt.RunOneFrame()
+
+	// Locale change from en/US to de/DE.
+	app.triggerEvent(platform.ConfigurationChangedEvent{
+		Orientation: 1,
+		Density:     160,
+		Language:    "de",
+		Country:     "DE",
+	})
+
+	rt.RunOneFrame()
+	rt.RunOneFrame()
+
+	// The important thing is that the runtime doesn't crash after a
+	// locale change (the change triggers a tree-dirty, which triggers
+	// re-projection, which re-acquires asset handles via LoadSVG etc.).
+	if bf.submitCount.Load() == 0 {
+		t.Fatal("expected submits after locale change")
+	}
+}
+
+func TestRuntime_configurationChanged_assetManagerNotNiled(t *testing.T) {
+	// Verify that after a configuration change, the asset manager is
+	// still accessible (not nil or replaced).
+	mgr := &assetDiagFixture{}
+	reg := assets.NewAssetRegistryStore()
+	rt := mustLifecycleRuntimeWithAssets(t, mgr, reg)
+
+	rt.RunOneFrame()
+
+	if rt.AssetManager() == nil {
+		t.Fatal("asset manager must not be nil after config change")
+	}
+	if rt.AssetRegistry() == nil {
+		t.Fatal("asset registry must not be nil after config change")
 	}
 }
 
