@@ -102,10 +102,10 @@ func loadConfig(projectRoot string) (*Config, error) {
 		config.App.Version = "1.0.0"
 	}
 	if config.Android.MinSDK == 0 {
-		config.Android.MinSDK = 29
+		config.Android.MinSDK = 24
 	}
 	if config.Android.TargetSDK == 0 {
-		config.Android.TargetSDK = 33
+		config.Android.TargetSDK = 36
 	}
 
 	if config.Android.ABIs == nil {
@@ -146,6 +146,38 @@ func loadConfig(projectRoot string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// validateAndroidConfigForRelease checks that the Android config meets
+// Google Play policy requirements. Returns an error suitable for display
+// during release builds.
+func validateAndroidConfigForRelease(config *Config) error {
+	if config == nil {
+		return fmt.Errorf("android config is nil")
+	}
+	if config.Android.TargetSDK < 35 {
+		return fmt.Errorf(
+			"android.target_sdk = %d is too low for release builds; "+
+				"Google Play requires targetSdk >= 35 (set android.target_sdk to 35 or higher in lurpic.toml)",
+			config.Android.TargetSDK,
+		)
+	}
+	if config.Android.MinSDK < 21 {
+		return fmt.Errorf(
+			"android.min_sdk = %d is too low; lurpicUI requires at least API 21 (Android 5.0)",
+			config.Android.MinSDK,
+		)
+	}
+	if config.Android.VersionCode <= 0 {
+		return fmt.Errorf("android.version_code must be positive (got %d)", config.Android.VersionCode)
+	}
+	if config.App.ID == "" {
+		return fmt.Errorf("app.id is required for release builds")
+	}
+	if config.App.Name == "" {
+		return fmt.Errorf("app.name is required for release builds")
+	}
+	return nil
 }
 
 // validateAndroidPackageName enforces the Android applicationId / manifest

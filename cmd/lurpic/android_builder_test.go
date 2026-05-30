@@ -549,7 +549,7 @@ func TestAndroidBuilder_aapt2Link_argv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Register aapt2 to succeed
+	// Register aapt2 to succeed for compile and link.
 	f.When(MatchCommand(aapt2Path)).Then("", "", nil)
 
 	_, err := b.compileResources(aapt2Path)
@@ -558,16 +558,19 @@ func TestAndroidBuilder_aapt2Link_argv(t *testing.T) {
 	}
 
 	calls := f.Calls()
-	if len(calls) < 1 {
-		t.Fatalf("expected at least 1 call, got %d", len(calls))
+	// Find the link call (it may be preceded by compile calls for XML resources).
+	var linkCall *CommandSpec
+	for i := range calls {
+		if len(calls[i].Args) > 0 && calls[i].Args[0] == "link" {
+			linkCall = &calls[i]
+			break
+		}
 	}
-
-	linkCall := calls[0]
+	if linkCall == nil {
+		t.Fatalf("expected a 'link' call among %d calls", len(calls))
+	}
 	if linkCall.Path != aapt2Path {
 		t.Fatalf("expected aapt2 path, got %q", linkCall.Path)
-	}
-	if len(linkCall.Args) < 2 || linkCall.Args[0] != "link" {
-		t.Fatalf("expected args starting with 'link', got %v", linkCall.Args)
 	}
 
 	hasManifest := false

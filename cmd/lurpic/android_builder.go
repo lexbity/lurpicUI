@@ -424,6 +424,10 @@ type ManifestData struct {
 	AppName            string
 	HasIcon            bool
 	UsesLurpicActivity bool
+	ExtractNativeLibs  bool
+	UsesVulkan         bool
+	UsesGLES           bool
+	AllowBackup        bool
 }
 
 const manifestTemplate = `<?xml version="1.0" encoding="utf-8"?>
@@ -435,15 +439,21 @@ const manifestTemplate = `<?xml version="1.0" encoding="utf-8"?>
     <uses-sdk android:minSdkVersion="{{.MinSDK}}" android:targetSdkVersion="{{.TargetSDK}}" />
 {{range .Permissions}}
     <uses-permission android:name="{{.}}" />{{end}}
+{{if .UsesVulkan}}
+    <uses-feature android:name="android.hardware.vulkan.level" android:required="false" />{{end}}
+{{if .UsesGLES}}
+    <uses-feature android:glEsVersion="0x00020000" android:required="false" />{{end}}
 
     <application
         android:label="{{.AppName}}"
         android:hasCode="true"
-        android:extractNativeLibs="true"
+        android:extractNativeLibs="{{.ExtractNativeLibs}}"
+        android:allowBackup="{{.AllowBackup}}"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         {{if .HasIcon}}android:icon="@mipmap/ic_launcher"{{end}}>
         <activity android:name="org.lurpicui.bridge.LurpicNativeActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden">
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|layoutDirection|uiMode|fontScale">
             <meta-data android:name="android.app.lib_name" android:value="go" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -472,6 +482,10 @@ func (b *androidBuilder) generateManifest() error {
 		AppName:            b.config.App.Name,
 		HasIcon:            b.config.App.HasIcon(),
 		UsesLurpicActivity: true,
+		ExtractNativeLibs:  false, // 16 KB page alignment requires uncompressed libs
+		UsesVulkan:         true,  // framework has a Vulkan renderer
+		UsesGLES:           true,  // software fallback uses GLES-compatible pipeline
+		AllowBackup:        false, // no backup by default; enable via config
 	}
 
 	tmpl, err := template.New("manifest").Parse(manifestTemplate)
@@ -490,6 +504,38 @@ func (b *androidBuilder) generateManifest() error {
 	}
 
 	fmt.Printf("  Generated: %s\n", manifestPath)
+
+	// Generate data extraction rules (required when allowBackup is set).
+	if err := b.generateDataExtractionRules(); err != nil {
+		return fmt.Errorf("data extraction rules: %w", err)
+	}
+
+	return nil
+}
+
+// generateDataExtractionRules creates the @xml/data_extraction_rules resource
+// referenced by the manifest. This is required for Android 12+ (API 31+) when
+// android:allowBackup is set. The default rules preserve no data on backup.
+func (b *androidBuilder) generateDataExtractionRules() error {
+	resDir := filepath.Join(b.buildDir, "res", "xml")
+	if err := os.MkdirAll(resDir, 0755); err != nil {
+		return err
+	}
+	rules := `<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" path="" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" path="" />
+    </device-transfer>
+</data-extraction-rules>
+`
+	rulesPath := filepath.Join(resDir, "data_extraction_rules.xml")
+	if err := os.WriteFile(rulesPath, []byte(rules), 0644); err != nil {
+		return fmt.Errorf("write data_extraction_rules.xml: %w", err)
+	}
+	fmt.Printf("  Generated: %s\n", rulesPath)
 	return nil
 }
 
@@ -526,6 +572,11 @@ func (b *androidBuilder) compileResources(aapt2 string) (string, error) {
 		if err := b.compileIcons(aapt2, compiledResDir); err != nil {
 			fmt.Printf("  Warning: icon compilation failed: %v\n", err)
 		}
+	}
+
+	// Compile XML resources (data_extraction_rules, etc.)
+	if err := b.compileXmlResources(aapt2, compiledResDir); err != nil {
+		fmt.Printf("  Warning: XML resource compilation failed: %v\n", err)
 	}
 
 	// Link resources and create base APK
@@ -569,6 +620,35 @@ func (b *androidBuilder) compileResources(aapt2 string) (string, error) {
 
 	fmt.Printf("  Compiled resources: %s\n", baseApk)
 	return baseApk, nil
+}
+
+// compileXmlResources compiles XML resources (e.g. data_extraction_rules.xml)
+// from the build directory's res/xml/ using aapt2.
+func (b *androidBuilder) compileXmlResources(aapt2, compiledResDir string) error {
+	xmlDir := filepath.Join(b.buildDir, "res", "xml")
+	entries, err := os.ReadDir(xmlDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // no XML resources to compile
+		}
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".xml") {
+			continue
+		}
+		src := filepath.Join(xmlDir, entry.Name())
+		if err := b.runner.Run(CommandSpec{
+			Path:   aapt2,
+			Args:   []string{"compile", "-o", compiledResDir, src},
+			Stdout: os.Stdout,
+			Stderr: os.Stderr,
+		}); err != nil {
+			return fmt.Errorf("aapt2 compile %s: %w", entry.Name(), err)
+		}
+		fmt.Printf("  Compiled XML resource: %s\n", src)
+	}
+	return nil
 }
 
 // compileIcons compiles icon resources using aapt2

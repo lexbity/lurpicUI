@@ -17,7 +17,7 @@ version = "1.2.3"
 
 [android]
 min_sdk = 29
-target_sdk = 33
+target_sdk = 36
 
 [android.permissions]
 required = ["android.permission.INTERNET"]
@@ -45,8 +45,8 @@ optional = ["android.permission.CAMERA"]
 	if config.Android.MinSDK != 29 {
 		t.Errorf("expected min_sdk 29, got %d", config.Android.MinSDK)
 	}
-	if config.Android.TargetSDK != 33 {
-		t.Errorf("expected target_sdk 33, got %d", config.Android.TargetSDK)
+	if config.Android.TargetSDK != 36 {
+		t.Errorf("expected target_sdk 36, got %d", config.Android.TargetSDK)
 	}
 	if len(config.Android.Permissions.Required) != 1 || config.Android.Permissions.Required[0] != "android.permission.INTERNET" {
 		t.Errorf("expected required permissions [android.permission.INTERNET], got %v", config.Android.Permissions.Required)
@@ -78,11 +78,11 @@ name = "Minimal App"
 	if config.App.Version != "1.0.0" {
 		t.Errorf("expected default version '1.0.0', got '%s'", config.App.Version)
 	}
-	if config.Android.MinSDK != 29 {
-		t.Errorf("expected default min_sdk 29, got %d", config.Android.MinSDK)
+	if config.Android.MinSDK != 24 {
+		t.Errorf("expected default min_sdk 24, got %d", config.Android.MinSDK)
 	}
-	if config.Android.TargetSDK != 33 {
-		t.Errorf("expected default target_sdk 33, got %d", config.Android.TargetSDK)
+	if config.Android.TargetSDK != 36 {
+		t.Errorf("expected default target_sdk 36, got %d", config.Android.TargetSDK)
 	}
 }
 
@@ -284,7 +284,7 @@ version = "3.2.1"
 
 [android]
 min_sdk = 29
-target_sdk = 33
+target_sdk = 36
 `
 	configPath := filepath.Join(tmpDir, "lurpic.toml")
 	os.WriteFile(configPath, []byte(configContent), 0644)
@@ -309,7 +309,7 @@ version = "1.0.0"
 
 [android]
 min_sdk = 29
-target_sdk = 33
+target_sdk = 36
 version_code = 99999
 `
 	configPath := filepath.Join(tmpDir, "lurpic.toml")
@@ -336,7 +336,7 @@ version = "` + ver + `"
 
 [android]
 min_sdk = 29
-target_sdk = 33
+target_sdk = 36
 `
 		configPath := filepath.Join(tmpDir2, "lurpic.toml")
 		os.WriteFile(configPath, []byte(cfg), 0644)

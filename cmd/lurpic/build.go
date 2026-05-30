@@ -69,6 +69,14 @@ func buildAndroid(flags buildFlags) int {
 		return 1
 	}
 
+	// Validate config for release builds (Google Play policy checks).
+	if flags.release {
+		if err := validateAndroidConfigForRelease(builder.config); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: release validation failed: %v\n", err)
+			return 1
+		}
+	}
+
 	if err := builder.build(); err != nil {
 		fmt.Fprintf(os.Stderr, "Build failed: %v\n", err)
 		return 1

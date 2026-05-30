@@ -14,12 +14,16 @@ func TestManifestTemplate_ValidData(t *testing.T) {
 		Package:            "com.example.testapp",
 		VersionCode:        42,
 		VersionName:        "1.2.3",
-		MinSDK:             29,
-		TargetSDK:          33,
+		MinSDK:             24,
+		TargetSDK:          36,
 		Permissions:        []string{"android.permission.INTERNET", "android.permission.CAMERA"},
 		AppName:            "Test App",
 		HasIcon:            true,
 		UsesLurpicActivity: true,
+		ExtractNativeLibs:  false,
+		UsesVulkan:         true,
+		UsesGLES:           true,
+		AllowBackup:        false,
 	}
 
 	tmpl, err := template.New("manifest").Parse(manifestTemplate)
@@ -44,10 +48,10 @@ func TestManifestTemplate_ValidData(t *testing.T) {
 	if !strings.Contains(manifest, `android:versionName="1.2.3"`) {
 		t.Error("manifest missing correct version name")
 	}
-	if !strings.Contains(manifest, `minSdkVersion="29"`) {
+	if !strings.Contains(manifest, `minSdkVersion="24"`) {
 		t.Error("manifest missing correct min SDK")
 	}
-	if !strings.Contains(manifest, `targetSdkVersion="33"`) {
+	if !strings.Contains(manifest, `targetSdkVersion="36"`) {
 		t.Error("manifest missing correct target SDK")
 	}
 	if !strings.Contains(manifest, `android:label="Test App"`) {
@@ -68,6 +72,18 @@ func TestManifestTemplate_ValidData(t *testing.T) {
 	if !strings.Contains(manifest, `android:exported="true"`) {
 		t.Error("manifest missing exported attribute")
 	}
+	if !strings.Contains(manifest, `extractNativeLibs="false"`) {
+		t.Error("manifest missing extractNativeLibs=false")
+	}
+	if !strings.Contains(manifest, `android:allowBackup="false"`) {
+		t.Error("manifest missing allowBackup=false")
+	}
+	if !strings.Contains(manifest, `android.hardware.vulkan.level`) {
+		t.Error("manifest missing vulkan uses-feature")
+	}
+	if !strings.Contains(manifest, `data_extraction_rules`) {
+		t.Error("manifest missing dataExtractionRules reference")
+	}
 }
 
 func TestManifestTemplate_NoIcon(t *testing.T) {
@@ -75,12 +91,16 @@ func TestManifestTemplate_NoIcon(t *testing.T) {
 		Package:            "com.example.noicon",
 		VersionCode:        1,
 		VersionName:        "1.0.0",
-		MinSDK:             29,
-		TargetSDK:          33,
+		MinSDK:             24,
+		TargetSDK:          36,
 		Permissions:        []string{},
 		AppName:            "No Icon App",
 		HasIcon:            false,
 		UsesLurpicActivity: true,
+		ExtractNativeLibs:  false,
+		UsesVulkan:         true,
+		UsesGLES:           true,
+		AllowBackup:        false,
 	}
 
 	tmpl, err := template.New("manifest").Parse(manifestTemplate)
@@ -106,12 +126,16 @@ func TestManifestTemplate_NoPermissions(t *testing.T) {
 		Package:            "com.example.noperm",
 		VersionCode:        1,
 		VersionName:        "1.0.0",
-		MinSDK:             29,
-		TargetSDK:          33,
+		MinSDK:             24,
+		TargetSDK:          36,
 		Permissions:        []string{},
 		AppName:            "No Permissions App",
 		HasIcon:            false,
 		UsesLurpicActivity: true,
+		ExtractNativeLibs:  false,
+		UsesVulkan:         true,
+		UsesGLES:           true,
+		AllowBackup:        false,
 	}
 
 	tmpl, err := template.New("manifest").Parse(manifestTemplate)
@@ -283,17 +307,97 @@ required = ["android.permission.INTERNET"]
 	}
 }
 
+func TestValidateAndroidConfigForRelease_rejectsTargetSdkBelow35(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App: AppConfig{ID: "com.example", Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 34, MinSDK: 24, VersionCode: 1},
+	})
+	if err == nil {
+		t.Fatal("expected error for targetSdk < 35")
+	}
+	if !strings.Contains(err.Error(), "targetSdk") {
+		t.Errorf("expected error mentioning targetSdk, got: %v", err)
+	}
+}
+
+func TestValidateAndroidConfigForRelease_acceptsTargetSdk35(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App: AppConfig{ID: "com.example", Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1},
+	})
+	if err != nil {
+		t.Fatalf("expected no error for targetSdk 35, got: %v", err)
+	}
+}
+
+func TestValidateAndroidConfigForRelease_acceptsTargetSdk36(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App: AppConfig{ID: "com.example", Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 36, MinSDK: 24, VersionCode: 1},
+	})
+	if err != nil {
+		t.Fatalf("expected no error for targetSdk 36, got: %v", err)
+	}
+}
+
+func TestValidateAndroidConfigForRelease_rejectsLowMinSdk(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App: AppConfig{ID: "com.example", Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 19, VersionCode: 1},
+	})
+	if err == nil {
+		t.Fatal("expected error for minSdk < 21")
+	}
+	if !strings.Contains(err.Error(), "min_sdk") {
+		t.Errorf("expected error mentioning min_sdk, got: %v", err)
+	}
+}
+
+func TestValidateAndroidConfigForRelease_rejectsEmptyAppID(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App:     AppConfig{Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1},
+	})
+	if err == nil {
+		t.Fatal("expected error for empty app id")
+	}
+}
+
+func TestValidateAndroidConfigForRelease_rejectsEmptyAppName(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App:     AppConfig{ID: "com.example"},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1},
+	})
+	if err == nil {
+		t.Fatal("expected error for empty app name")
+	}
+}
+
+func TestValidateAndroidConfigForRelease_rejectsZeroVersionCode(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App:     AppConfig{ID: "com.example", Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 0},
+	})
+	if err == nil {
+		t.Fatal("expected error for zero version code")
+	}
+}
+
 func TestManifestTemplate_WellFormedXML(t *testing.T) {
 	data := ManifestData{
 		Package:            "com.example.xmltest",
 		VersionCode:        1,
 		VersionName:        "1.0",
-		MinSDK:             29,
-		TargetSDK:          33,
+		MinSDK:             24,
+		TargetSDK:          36,
 		Permissions:        []string{"android.permission.INTERNET"},
 		AppName:            "XML Test",
 		HasIcon:            true,
 		UsesLurpicActivity: true,
+		ExtractNativeLibs:  false,
+		UsesVulkan:         true,
+		UsesGLES:           true,
+		AllowBackup:        false,
 	}
 
 	tmpl, err := template.New("manifest").Parse(manifestTemplate)
