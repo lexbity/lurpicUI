@@ -63,6 +63,8 @@ extern void goDeliverIMECompose(char* text, int32_t cursorPos);
 extern void goDeliverIMECommit(char* text);
 extern void goDeliverAudioFocusChange(int32_t focusChange);
 extern void goDeliverVsync(int64_t frameTimeNanos);
+extern int  goGetSavedState(char** outData, int32_t* outLen);
+extern void goSetSavedState(const char* data, int32_t len);
 extern void goDeliverConfigurationChanged(int32_t orientation, int32_t screenWidthDp,
                                            int32_t screenHeightDp, int32_t density,
                                            int32_t uiModeNight, float fontScale,
@@ -790,6 +792,35 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeImeKe
     goDeliverKeyEvent(keyCode, action, metaState,
                       0x101 /* AINPUT_SOURCE_KEYBOARD = 0x101 */,
                       0, now);
+}
+
+JNIEXPORT jbyteArray JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeGetSavedState(
+    JNIEnv* env, jobject thiz) {
+    (void)thiz;
+    char* data = NULL;
+    int32_t len = 0;
+    int hasData = goGetSavedState(&data, &len);
+    if (!hasData || data == NULL || len <= 0) {
+        return NULL;
+    }
+    jbyteArray result = (*env)->NewByteArray(env, len);
+    if (result != NULL) {
+        (*env)->SetByteArrayRegion(env, result, 0, len, (jbyte*)data);
+    }
+    free(data);
+    return result;
+}
+
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeSetSavedState(
+    JNIEnv* env, jobject thiz, jbyteArray state) {
+    (void)thiz;
+    if (state == NULL) return;
+    jsize len = (*env)->GetArrayLength(env, state);
+    if (len <= 0) return;
+    jbyte* data = (*env)->GetByteArrayElements(env, state, NULL);
+    if (data == NULL) return;
+    goSetSavedState((const char*)data, (int32_t)len);
+    (*env)->ReleaseByteArrayElements(env, state, data, JNI_ABORT);
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnAudioFocusChange(

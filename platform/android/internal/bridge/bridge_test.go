@@ -315,6 +315,53 @@ func TestWindowInsetsEvent_fields(t *testing.T) {
 	}
 }
 
+func TestSavedState_roundTrip(t *testing.T) {
+	ClearSavedState()
+	data := GetSavedState()
+	if data != nil {
+		t.Fatal("expected nil before any save")
+	}
+
+	testData := []byte("test view state data")
+	SetSavedState(testData)
+
+	retrieved := GetSavedState()
+	if string(retrieved) != string(testData) {
+		t.Fatalf("expected %q, got %q", string(testData), string(retrieved))
+	}
+
+	ClearSavedState()
+	if cleared := GetSavedState(); cleared != nil {
+		t.Fatal("expected nil after clear")
+	}
+}
+
+func TestSavedState_emptyDataIsNoOp(t *testing.T) {
+	ClearSavedState()
+	SetSavedState([]byte{})
+	if data := GetSavedState(); data != nil {
+		t.Fatal("expected nil for empty data")
+	}
+}
+
+func TestSavedState_concurrentAccess(t *testing.T) {
+	ClearSavedState()
+	done := make(chan struct{})
+	go func() {
+		SetSavedState([]byte("concurrent"))
+		_ = GetSavedState()
+		done <- struct{}{}
+	}()
+	go func() {
+		SetSavedState([]byte("access"))
+		_ = GetSavedState()
+		done <- struct{}{}
+	}()
+	<-done
+	<-done
+	// Should not race or panic.
+}
+
 func TestPermissionResult_routing(t *testing.T) {
 	q := NewEventQueue()
 

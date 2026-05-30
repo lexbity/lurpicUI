@@ -108,6 +108,30 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
     }
 
     @Override
+    protected void onSaveInstanceState(Bundle outState) {
+        Log.i(TAG, "onSaveInstanceState called");
+        super.onSaveInstanceState(outState);
+        // Fetch serialized view state from the Go runtime and store it
+        // in the bundle so it survives process death.
+        byte[] state = nativeGetSavedState();
+        if (state != null && state.length > 0) {
+            outState.putByteArray("lurpic_view_state", state);
+        }
+    }
+
+    @Override
+    protected void onRestoreInstanceState(Bundle savedInstanceState) {
+        Log.i(TAG, "onRestoreInstanceState called");
+        super.onRestoreInstanceState(savedInstanceState);
+        if (savedInstanceState != null) {
+            byte[] state = savedInstanceState.getByteArray("lurpic_view_state");
+            if (state != null) {
+                nativeSetSavedState(state);
+            }
+        }
+    }
+
+    @Override
     protected void onStart() {
         Log.i(TAG, "onStart called");
         super.onStart();
@@ -263,6 +287,8 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
                                               int cutoutLeft, int cutoutTop,
                                               int cutoutRight, int cutoutBottom);
     private native void nativeOnAudioFocusChange(int focusChange);
+    private native byte[] nativeGetSavedState();
+    private native void nativeSetSavedState(byte[] state);
     private native void nativePermissionResult(int requestCode, boolean granted, boolean permanent);
 
     private static final class ImeInputView extends View {

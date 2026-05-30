@@ -42,6 +42,7 @@ const (
 	EventTypeWindowInsets
 	EventTypeAudioFocusChange
 	EventTypeVsync
+	EventTypeSavedState
 )
 
 const (
@@ -82,6 +83,7 @@ type Event struct {
 	CursorPos   int
 	FocusChange int32
 	FrameTimeNanos int64
+	SavedState  []byte
 	InsetTop    int32
 	InsetBottom int32
 	InsetLeft   int32
@@ -186,9 +188,42 @@ func IsPermissionDeclared(permission string) bool {
 }
 
 // GetAssetManager returns nil on non-Android platforms.
-// On Android, this returns the AAssetManager* for JNI asset access.
 func GetAssetManager() unsafe.Pointer {
 	return nil
+}
+
+// Saved state — works on all platforms for testing.
+var (
+	testSavedStateMu sync.Mutex
+	testSavedState   []byte
+)
+
+func GetSavedState() []byte {
+	testSavedStateMu.Lock()
+	defer testSavedStateMu.Unlock()
+	if len(testSavedState) == 0 {
+		return nil
+	}
+	out := make([]byte, len(testSavedState))
+	copy(out, testSavedState)
+	return out
+}
+
+func SetSavedState(data []byte) {
+	testSavedStateMu.Lock()
+	if len(data) == 0 {
+		testSavedState = nil
+	} else {
+		testSavedState = make([]byte, len(data))
+		copy(testSavedState, data)
+	}
+	testSavedStateMu.Unlock()
+}
+
+func ClearSavedState() {
+	testSavedStateMu.Lock()
+	testSavedState = nil
+	testSavedStateMu.Unlock()
 }
 
 // ErrNotAndroid is returned when Android-specific functions are called on non-Android platforms.

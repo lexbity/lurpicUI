@@ -55,6 +55,7 @@ const (
 	EventTypeWindowInsets
 	EventTypeAudioFocusChange
 	EventTypeVsync
+	EventTypeSavedState
 )
 
 // Event represents an Android lifecycle or input event.
@@ -102,6 +103,8 @@ type Event struct {
 	FocusChange int32
 	// Vsync field
 	FrameTimeNanos int64
+	// Saved state fields (for process death restoration)
+	SavedState []byte
 	// Configuration fields
 	Orientation   int32
 	ScreenWidthDp int32
@@ -481,6 +484,67 @@ func goDeliverIMECommit(text *C.char) {
 		Text: contents,
 	}
 	GetEventQueue().Push(event)
+}
+
+// Saved state for process death restoration.
+var (
+	savedStateMu sync.RWMutex
+	savedState   []byte
+)
+
+//export goGetSavedState
+func goGetSavedState(outData **C.char, outLen *C.int32_t) C.int {
+	savedStateMu.RLock()
+	defer savedStateMu.RUnlock()
+	if len(savedState) == 0 {
+		return 0
+	}
+	data := C.CBytes(savedState)
+	*outData = (*C.char)(data)
+	*outLen = C.int32_t(len(savedState))
+	return 1
+}
+
+//export goSetSavedState
+func goSetSavedState(data *C.char, len C.int32_t) {
+	if data == nil || len <= 0 {
+		return
+	}
+	savedStateMu.Lock()
+	savedState = C.GoBytes(unsafe.Pointer(data), len)
+	savedStateMu.Unlock()
+}
+
+// GetSavedState returns the most recently saved view state, or nil.
+func GetSavedState() []byte {
+	savedStateMu.RLock()
+	defer savedStateMu.RUnlock()
+	if len(savedState) == 0 {
+		return nil
+	}
+	out := make([]byte, len(savedState))
+	copy(out, savedState)
+	return out
+}
+
+// SetSavedState stores view state that will be returned by GetSavedState
+// and delivered to the runtime for restoration.
+func SetSavedState(data []byte) {
+	savedStateMu.Lock()
+	if len(data) == 0 {
+		savedState = nil
+	} else {
+		savedState = make([]byte, len(data))
+		copy(savedState, data)
+	}
+	savedStateMu.Unlock()
+}
+
+// ClearSavedState removes any stored saved state.
+func ClearSavedState() {
+	savedStateMu.Lock()
+	savedState = nil
+	savedStateMu.Unlock()
 }
 
 //export goDeliverVsync

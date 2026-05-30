@@ -32,6 +32,7 @@ type App struct {
 	currentSurface    platform.Surface
 	currentInsets     EdgeInsets
 	audioBackend      *audio.Backend
+	savedInstanceState []byte
 }
 
 // lifecycleCallbacks stores registered lifecycle callbacks
@@ -229,6 +230,16 @@ var _ platform.Surface = (*androidSurface)(nil)
 var _ render.VulkanSurface = (*androidSurface)(nil)
 var _ platform.IMECapable = (*App)(nil)
 
+// GetSavedState returns the saved instance state from a prior lifecycle,
+// or nil if this is a fresh start. This is populated from onSaveInstanceState
+// and is used by the runtime to restore view state after process death.
+func (a *App) GetSavedState() []byte {
+	if a == nil {
+		return nil
+	}
+	return a.savedInstanceState
+}
+
 // SafeInsets returns the current window safe-area insets. The runtime layout
 // system uses these values to avoid drawing under system bars, cutouts, and IME.
 // Values are in pixels and are updated whenever the window insets change.
@@ -424,6 +435,11 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 		}
 		// Window insets are consumed by the App, they don't need to be
 		// routed as a platform.Event to the runtime event loop.
+		return nil
+	case bridge.EventTypeSavedState:
+		if a != nil {
+			a.savedInstanceState = e.SavedState
+		}
 		return nil
 	case bridge.EventTypeConfigurationChanged:
 		return platform.ConfigurationChangedEvent{
