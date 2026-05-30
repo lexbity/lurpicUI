@@ -51,19 +51,25 @@ type AndroidConfig struct {
 	JDK         JDKConfig        `toml:"jdk"`
 }
 
-// SDKConfig contains Android SDK path configuration
+// SDKConfig contains Android SDK path configuration and optional version pins
+// for reproducible builds.
 type SDKConfig struct {
-	Path string `toml:"path"`
+	Path    string `toml:"path"`
+	Version string `toml:"version,omitempty"` // pinned SDK version (e.g. "35")
 }
 
-// NDKConfig contains Android NDK path configuration
+// NDKConfig contains Android NDK path configuration and optional version pins
+// for reproducible builds.
 type NDKConfig struct {
-	Path string `toml:"path"`
+	Path    string `toml:"path"`
+	Version string `toml:"version,omitempty"` // pinned NDK version (e.g. "27.0.12077973")
 }
 
-// JDKConfig contains JDK path configuration for Java tooling
+// JDKConfig contains JDK path configuration for Java tooling and optional
+// version pins for reproducible builds.
 type JDKConfig struct {
-	Path string `toml:"path"`
+	Path    string `toml:"path"`
+	Version string `toml:"version,omitempty"` // pinned JDK version (e.g. "17")
 }
 
 // KeystoreConfig contains release signing configuration.
@@ -146,6 +152,53 @@ func loadConfig(projectRoot string) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+// checkToolchainPins verifies that the configured SDK, NDK, and build-tools
+// versions match the pinned versions in config (when set). Returns a list of
+// warnings; an empty list means all pins match.
+func checkToolchainPins(config *Config, sdkPath, ndkPath string) []string {
+	var warnings []string
+
+	// Check SDK version pin.
+	if config != nil && config.Android.SDK.Version != "" {
+		// SDK versions are stored in platforms/android-<api>/source.properties
+		sdkProp := filepath.Join(sdkPath, "platforms", fmt.Sprintf("android-%d", config.Android.TargetSDK), "source.properties")
+		if prop, err := os.ReadFile(sdkProp); err == nil {
+			if !strings.Contains(string(prop), "Pkg.Revision="+config.Android.SDK.Version) {
+				warnings = append(warnings, fmt.Sprintf(
+					"SDK platform version %s configured but installed version does not match (check %s)",
+					config.Android.SDK.Version, sdkProp,
+				))
+			}
+		}
+	}
+
+	// Check NDK version pin.
+	if config != nil && config.Android.NDK.Version != "" {
+		ndkProp := filepath.Join(ndkPath, "source.properties")
+		if prop, err := os.ReadFile(ndkProp); err == nil {
+			if !strings.Contains(string(prop), "Pkg.Revision="+config.Android.NDK.Version) {
+				warnings = append(warnings, fmt.Sprintf(
+					"NDK version %s configured but installed version does not match (check %s)",
+					config.Android.NDK.Version, ndkProp,
+				))
+			}
+		}
+	}
+
+	// Check build-tools version pin (inferred from SDK path).
+	if config != nil && config.Android.TargetSDK > 0 {
+		btDir := filepath.Join(sdkPath, "build-tools", fmt.Sprintf("%d.0.0", config.Android.TargetSDK))
+		if _, err := os.Stat(btDir); os.IsNotExist(err) {
+			warnings = append(warnings, fmt.Sprintf(
+				"build-tools %d.0.0 not found at %s (install via sdkmanager \"build-tools;%d.0.0\")",
+				config.Android.TargetSDK, btDir, config.Android.TargetSDK,
+			))
+		}
+	}
+
+	return warnings
 }
 
 // validateAndroidConfigForRelease checks that the Android config meets

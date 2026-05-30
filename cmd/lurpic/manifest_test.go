@@ -1,12 +1,14 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"text/template"
+	"time"
 )
 
 func TestManifestTemplate_ValidData(t *testing.T) {
@@ -241,6 +243,34 @@ func TestDeriveVersionCode_monotonicity(t *testing.T) {
 	v4, _ := deriveVersionCode("2.0.0")
 	if !(v1 < v2 && v2 < v3 && v3 < v4) {
 		t.Fatal("version codes must be monotonically increasing with semver")
+	}
+}
+
+func TestDeterministicZipTime_usesSourceDateEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
+	dt := deterministicZipTime()
+	expected := time.Unix(1700000000, 0).UTC()
+	if !dt.Equal(expected) {
+		t.Fatalf("expected %v, got %v", expected, dt)
+	}
+}
+
+func TestDeterministicZipTime_defaultsToEpoch(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "")
+	dt := deterministicZipTime()
+	expected := time.Unix(0, 0).UTC()
+	if !dt.Equal(expected) {
+		t.Fatalf("expected %v, got %v", expected, dt)
+	}
+}
+
+func TestSetZipHeaderTime_setsModified(t *testing.T) {
+	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
+	hdr := &zip.FileHeader{Name: "test.so"}
+	setZipHeaderTime(hdr)
+	expected := time.Unix(1700000000, 0).UTC()
+	if !hdr.Modified.Equal(expected) {
+		t.Fatalf("expected %v, got %v", expected, hdr.Modified)
 	}
 }
 

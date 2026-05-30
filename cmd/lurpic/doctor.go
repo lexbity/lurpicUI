@@ -57,6 +57,20 @@ func doctorAndroid(verbose bool) int {
 		checkSDKComponents(report.SDK.Path)
 	}
 
+	// Check toolchain version pins if a project config exists.
+	projectRoot, err := findProjectRoot()
+	if err == nil {
+		if cfg, loadErr := loadConfig(projectRoot); loadErr == nil && cfg != nil {
+			if warnings := checkToolchainPins(cfg, report.SDK.Path, report.NDK.Path); len(warnings) > 0 {
+				fmt.Println()
+				fmt.Println("Toolchain version pin warnings:")
+				for _, w := range warnings {
+					fmt.Printf("  ! %s\n", w)
+				}
+			}
+		}
+	}
+
 	fmt.Print(report.String())
 
 	if report.CanBuild() {

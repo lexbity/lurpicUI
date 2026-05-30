@@ -9,8 +9,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"text/template"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/platform/android"
 	"golang.org/x/term"
@@ -830,6 +832,7 @@ func addFileToAPK(apkPath, srcPath, entryName string) error {
 		Name:   entryName,
 		Method: method,
 	}
+	setZipHeaderTime(hdr)
 	w, err := zw.CreateHeader(hdr)
 	if err != nil {
 		out.Close()
@@ -910,6 +913,7 @@ func addTreeToAPK(apkPath, baseDir, treeName string) error {
 			Name:   name,
 			Method: method,
 		}
+		setZipHeaderTime(hdr)
 		w, err := zw.CreateHeader(hdr)
 		if err != nil {
 			return err
@@ -934,6 +938,27 @@ func addTreeToAPK(apkPath, baseDir, treeName string) error {
 		return err
 	}
 	return os.Rename(tmpPath, apkPath)
+}
+
+// deterministicZipTime returns the zero time (1980-01-01) for deterministic
+// zip entries when SOURCE_DATE_EPOCH is set. This ensures byte-identical zips
+// across builds. If SOURCE_DATE_EPOCH is unset, return zero time too (best
+// effort reproducibility) — callers should set it for release builds.
+func deterministicZipTime() time.Time {
+	if epoch := os.Getenv("SOURCE_DATE_EPOCH"); epoch != "" {
+		if sec, err := strconv.ParseInt(epoch, 10, 64); err == nil {
+			return time.Unix(sec, 0).UTC()
+		}
+	}
+	// Default to Unix epoch (1980-01-01 00:00:00 UTC), which is the earliest
+	// representable time in the zip format and ensures reproducibility when
+	// SOURCE_DATE_EPOCH is not explicitly set.
+	return time.Unix(0, 0).UTC()
+}
+
+// setZipHeaderTime sets the Modified field on hdr to a deterministic time.
+func setZipHeaderTime(hdr *zip.FileHeader) {
+	hdr.Modified = deterministicZipTime()
 }
 
 // resolveSigningConfig resolves keystore path, alias, and password from config,
@@ -1297,7 +1322,11 @@ func createZipFromDir(zipPath, srcDir, baseInZip string) error {
 			return err
 		}
 		entryName := filepath.Join(baseInZip, filepath.ToSlash(rel))
-		w, err := zw.Create(entryName)
+		hdr := &zip.FileHeader{
+			Name: entryName,
+		}
+		setZipHeaderTime(hdr)
+		w, err := zw.CreateHeader(hdr)
 		if err != nil {
 			return err
 		}

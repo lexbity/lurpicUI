@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -383,6 +384,43 @@ func TestLoadConfig_NotFound(t *testing.T) {
 	_, err := loadConfig(tmpDir)
 	if err == nil {
 		t.Error("expected error when config file not found")
+	}
+}
+
+func TestCheckToolchainPins_missingBuildTools(t *testing.T) {
+	sdkDir := t.TempDir()
+	ndkDir := t.TempDir()
+
+	warnings := checkToolchainPins(&Config{
+		Android: AndroidConfig{TargetSDK: 35},
+	}, sdkDir, ndkDir)
+
+	found := false
+	for _, w := range warnings {
+		if strings.Contains(w, "build-tools 35.0.0") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("expected warning about missing build-tools 35.0.0")
+	}
+}
+
+func TestCheckToolchainPins_quietWhenBuildToolsExist(t *testing.T) {
+	sdkDir := t.TempDir()
+	btDir := filepath.Join(sdkDir, "build-tools", "35.0.0")
+	os.MkdirAll(btDir, 0755)
+	ndkDir := t.TempDir()
+
+	warnings := checkToolchainPins(&Config{
+		Android: AndroidConfig{TargetSDK: 35},
+	}, sdkDir, ndkDir)
+
+	for _, w := range warnings {
+		if strings.Contains(w, "build-tools") {
+			t.Fatalf("unexpected build-tools warning: %s", w)
+		}
 	}
 }
 
