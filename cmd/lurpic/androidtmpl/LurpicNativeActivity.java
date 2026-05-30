@@ -245,8 +245,28 @@ public class LurpicNativeActivity extends NativeActivity {
 
         @Override
         public boolean performEditorAction(int actionCode) {
-            activity.nativeImeKeyEvent(KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_DOWN, 0);
-            activity.nativeImeKeyEvent(KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_UP, 0);
+            int keyCode;
+            int metaState = 0;
+            switch (actionCode) {
+                case EditorInfo.IME_ACTION_DONE:
+                case EditorInfo.IME_ACTION_GO:
+                case EditorInfo.IME_ACTION_SEND:
+                case EditorInfo.IME_ACTION_SEARCH:
+                    keyCode = KeyEvent.KEYCODE_ENTER;
+                    break;
+                case EditorInfo.IME_ACTION_NEXT:
+                    keyCode = KeyEvent.KEYCODE_TAB;
+                    break;
+                case EditorInfo.IME_ACTION_PREVIOUS:
+                    keyCode = KeyEvent.KEYCODE_TAB;
+                    metaState = KeyEvent.META_SHIFT_ON;
+                    break;
+                default:
+                    keyCode = KeyEvent.KEYCODE_ENTER;
+                    break;
+            }
+            activity.nativeImeKeyEvent(keyCode, KeyEvent.ACTION_DOWN, metaState);
+            activity.nativeImeKeyEvent(keyCode, KeyEvent.ACTION_UP, metaState);
             return true;
         }
     }

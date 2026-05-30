@@ -273,6 +273,142 @@ func TestTouchCancelPhase(t *testing.T) {
 	}
 }
 
+func TestIMEComposeCommit_orderingPreserved(t *testing.T) {
+	q := NewEventQueue()
+
+	// Simulate a typical IME composition session:
+	// 1. Begin composing "hel"
+	// 2. Update composition to "hell"
+	// 3. Keyboard key press (hardware key interleaved)
+	// 4. Update composition to "hello"
+	// 5. Commit "hello"
+	// 6. Keyboard key press (Enter)
+	q.Push(Event{Type: EventTypeIMECompose, Text: "hel", CursorPos: 3})
+	q.Push(Event{Type: EventTypeIMECompose, Text: "hell", CursorPos: 4})
+	q.Push(Event{Type: EventTypeKey, KeyCode: 62, Action: 0}) // hardware key interleaved
+	q.Push(Event{Type: EventTypeIMECompose, Text: "hello", CursorPos: 5})
+	q.Push(Event{Type: EventTypeIMECommit, Text: "hello"})
+	q.Push(Event{Type: EventTypeKey, KeyCode: 66, Action: 0}) // Enter key
+
+	events := q.Poll()
+	if len(events) != 6 {
+		t.Fatalf("expected 6 events, got %d", len(events))
+	}
+
+	expected := []struct {
+		typ  EventType
+		text string
+	}{
+		{EventTypeIMECompose, "hel"},
+		{EventTypeIMECompose, "hell"},
+		{EventTypeKey, ""},
+		{EventTypeIMECompose, "hello"},
+		{EventTypeIMECommit, "hello"},
+		{EventTypeKey, ""},
+	}
+	for i, exp := range expected {
+		if events[i].Type != exp.typ {
+			t.Errorf("event %d: expected Type %v, got %v", i, exp.typ, events[i].Type)
+		}
+		if exp.text != "" && events[i].Text != exp.text {
+			t.Errorf("event %d: expected Text %q, got %q", i, exp.text, events[i].Text)
+		}
+	}
+}
+
+func TestIMEKeyEvent_hardwareAndSoft_useSamePath(t *testing.T) {
+	q := NewEventQueue()
+
+	// IME sendKeyEvent (from soft keyboard action keys)
+	q.Push(Event{Type: EventTypeKey, KeyCode: 66, Action: 0, Key: platform.KeyEnter, Source: 0x101})
+	// Hardware key event (from physical keyboard)
+	q.Push(Event{Type: EventTypeKey, KeyCode: 66, Action: 0, Key: platform.KeyEnter, Source: 0x101, DeviceID: 1})
+
+	events := q.Poll()
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].Type != EventTypeKey || events[1].Type != EventTypeKey {
+		t.Fatal("both events should be EventTypeKey")
+	}
+	if events[0].KeyCode != 66 || events[1].KeyCode != 66 {
+		t.Fatal("both events should have KeyCode 66 (Enter)")
+	}
+}
+
+func TestIMEAction_performEditorAction(t *testing.T) {
+	q := NewEventQueue()
+
+	// Simulate performEditorAction for IME_ACTION_DONE → KEYCODE_ENTER (DOWN + UP)
+	q.Push(Event{Type: EventTypeKey, KeyCode: 66, Action: 0, Key: platform.KeyEnter})
+	q.Push(Event{Type: EventTypeKey, KeyCode: 66, Action: 1, Key: platform.KeyEnter})
+
+	// Simulate performEditorAction for IME_ACTION_NEXT → KEYCODE_TAB (DOWN + UP)
+	q.Push(Event{Type: EventTypeKey, KeyCode: 61, Action: 0, Key: platform.KeyTab})
+	q.Push(Event{Type: EventTypeKey, KeyCode: 61, Action: 1, Key: platform.KeyTab})
+
+	events := q.Poll()
+	if len(events) != 4 {
+		t.Fatalf("expected 4 events, got %d", len(events))
+	}
+
+	// Done → Enter (DOWN)
+	if events[0].KeyCode != 66 || events[0].Action != 0 {
+		t.Errorf("event 0: expected KeyCode=66 (Enter) Action=0, got KeyCode=%d Action=%d", events[0].KeyCode, events[0].Action)
+	}
+	// Done → Enter (UP)
+	if events[1].KeyCode != 66 || events[1].Action != 1 {
+		t.Errorf("event 1: expected KeyCode=66 (Enter) Action=1, got KeyCode=%d Action=%d", events[1].KeyCode, events[1].Action)
+	}
+	// Next → Tab (DOWN)
+	if events[2].KeyCode != 61 || events[2].Action != 0 {
+		t.Errorf("event 2: expected KeyCode=61 (Tab) Action=0, got KeyCode=%d Action=%d", events[2].KeyCode, events[2].Action)
+	}
+	// Next → Tab (UP)
+	if events[3].KeyCode != 61 || events[3].Action != 1 {
+		t.Errorf("event 3: expected KeyCode=61 (Tab) Action=1, got KeyCode=%d Action=%d", events[3].KeyCode, events[3].Action)
+	}
+}
+
+func TestIMEInterleaving_composeAndHardwareKey(t *testing.T) {
+	q := NewEventQueue()
+
+	// User types "a" via IME, then presses hardware arrow key, then types "b" via IME.
+	// Order must be preserved.
+	q.Push(Event{Type: EventTypeIMECompose, Text: "a", CursorPos: 1})
+	q.Push(Event{Type: EventTypeIMECommit, Text: "a"})
+	q.Push(Event{Type: EventTypeKey, KeyCode: 21, Action: 0, Key: platform.KeyLeft})  // hardware left arrow
+	q.Push(Event{Type: EventTypeKey, KeyCode: 21, Action: 1, Key: platform.KeyLeft})
+	q.Push(Event{Type: EventTypeIMECompose, Text: "b", CursorPos: 1})
+	q.Push(Event{Type: EventTypeIMECommit, Text: "b"})
+
+	events := q.Poll()
+	if len(events) != 6 {
+		t.Fatalf("expected 6 events, got %d", len(events))
+	}
+
+	// Verify order: compose(a), commit(a), key(LEFT_DOWN), key(LEFT_UP), compose(b), commit(b)
+	types := make([]EventType, 6)
+	texts := make([]string, 6)
+	for i, e := range events {
+		types[i] = e.Type
+		texts[i] = e.Text
+	}
+	expectedTypes := []EventType{
+		EventTypeIMECompose, EventTypeIMECommit,
+		EventTypeKey, EventTypeKey,
+		EventTypeIMECompose, EventTypeIMECommit,
+	}
+	for i, et := range expectedTypes {
+		if types[i] != et {
+			t.Errorf("event %d: expected Type %v, got %v", i, et, types[i])
+		}
+	}
+	if texts[0] != "a" || texts[1] != "a" || texts[4] != "b" || texts[5] != "b" {
+		t.Errorf("unexpected text sequence: %v", texts)
+	}
+}
+
 func TestMultiTouchPointerIDs(t *testing.T) {
 	q := NewEventQueue()
 
