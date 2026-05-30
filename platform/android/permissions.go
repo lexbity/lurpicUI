@@ -15,9 +15,12 @@ import (
 type Permission string
 
 const (
-	PermissionCamera     Permission = "android.permission.CAMERA"
-	PermissionMicrophone Permission = "android.permission.RECORD_AUDIO"
-	PermissionStorage    Permission = "android.permission.READ_EXTERNAL_STORAGE"
+	PermissionCamera              Permission = "android.permission.CAMERA"
+	PermissionMicrophone          Permission = "android.permission.RECORD_AUDIO"
+	PermissionStorage             Permission = "android.permission.READ_EXTERNAL_STORAGE"
+	PermissionPostNotifications   Permission = "android.permission.POST_NOTIFICATIONS"
+	PermissionLocationFine        Permission = "android.permission.ACCESS_FINE_LOCATION"
+	PermissionLocationCoarse      Permission = "android.permission.ACCESS_COARSE_LOCATION"
 )
 
 // PermissionResult reports the current state of a runtime permission request.
@@ -29,14 +32,81 @@ const (
 	PermissionDeniedPermanent
 )
 
+// DeniedCallback is called when a permission request is denied. The permanent
+// flag indicates the system will not prompt again. Apps should use this to
+// show rationale UI or degrade functionality gracefully.
+type DeniedCallback func(permission Permission, permanent bool)
+
+type pendingRequest struct {
+	ch         chan PermissionResult
+	permission Permission
+}
+
 var (
-	pendingPermissionMu sync.Mutex
-	pendingPermissions        = make(map[int32]chan PermissionResult)
-	nextPermissionCode  int32 = 1
+	pendingPermissionMu  sync.Mutex
+	pendingPermissions   = make(map[int32]pendingRequest)
+	nextPermissionCode   int32 = 1
+	deniedHooksMu        sync.RWMutex
+	deniedHooks          []DeniedCallback
 )
 
 func init() {
 	bridge.SetPermissionResultHandler(handlePermissionResult)
+}
+
+// OnPermissionDenied registers a callback invoked when any permission request
+// is denied. Multiple callbacks may be registered; they are called in order.
+func OnPermissionDenied(cb DeniedCallback) {
+	if cb == nil {
+		return
+	}
+	deniedHooksMu.Lock()
+	deniedHooks = append(deniedHooks, cb)
+	deniedHooksMu.Unlock()
+}
+
+// RequestLocationWithPrecision requests location permission at the specified
+// precision level. Coarse (city-block) requires ACCESS_COARSE_LOCATION; fine
+// (meter-level) requires ACCESS_FINE_LOCATION. If the precise permission is
+// denied but coarse would be granted, the function falls back to coarse
+// automatically.
+func RequestLocationWithPrecision(precise bool) <-chan PermissionResult {
+	result := make(chan PermissionResult, 1)
+	if precise {
+		ch, err := RequestPermission(PermissionLocationFine)
+		if err != nil {
+			result <- PermissionDenied
+			close(result)
+			return result
+		}
+		go func() {
+			r := <-ch
+			if r == PermissionDenied || r == PermissionDeniedPermanent {
+				// Fall back to coarse location.
+				coarseCh, cerr := RequestPermission(PermissionLocationCoarse)
+				if cerr != nil {
+					result <- PermissionDenied
+				} else {
+					result <- <-coarseCh
+				}
+			} else {
+				result <- r
+			}
+			close(result)
+		}()
+		return result
+	}
+	ch, err := RequestPermission(PermissionLocationCoarse)
+	if err != nil {
+		result <- PermissionDenied
+		close(result)
+		return result
+	}
+	go func() {
+		result <- <-ch
+		close(result)
+	}()
+	return result
 }
 
 // RequestPermission asks Android to grant the supplied runtime permission.
@@ -57,7 +127,7 @@ func RequestPermission(permission Permission) (<-chan PermissionResult, error) {
 	}
 	requestCode := nextPermissionRequestCode()
 	pendingPermissionMu.Lock()
-	pendingPermissions[requestCode] = ch
+	pendingPermissions[requestCode] = pendingRequest{ch: ch, permission: permission}
 	pendingPermissionMu.Unlock()
 	if err := bridge.RequestPermission(string(permission), requestCode); err != nil {
 		pendingPermissionMu.Lock()
@@ -97,12 +167,10 @@ func nextPermissionRequestCode() int32 {
 
 func handlePermissionResult(requestCode int32, granted bool, permanent bool) {
 	pendingPermissionMu.Lock()
-	ch := pendingPermissions[requestCode]
+	pReq := pendingPermissions[requestCode]
 	delete(pendingPermissions, requestCode)
 	pendingPermissionMu.Unlock()
-	if ch == nil {
-		return
-	}
+
 	result := PermissionDenied
 	switch {
 	case granted:
@@ -110,6 +178,21 @@ func handlePermissionResult(requestCode int32, granted bool, permanent bool) {
 	case permanent:
 		result = PermissionDeniedPermanent
 	}
-	ch <- result
-	close(ch)
+
+	// Invoke denied callbacks on denial with the permission name.
+	if !granted {
+		deniedHooksMu.RLock()
+		hooks := make([]DeniedCallback, len(deniedHooks))
+		copy(hooks, deniedHooks)
+		deniedHooksMu.RUnlock()
+		for _, hook := range hooks {
+			hook(pReq.permission, permanent)
+		}
+	}
+
+	if pReq.ch == nil {
+		return
+	}
+	pReq.ch <- result
+	close(pReq.ch)
 }
