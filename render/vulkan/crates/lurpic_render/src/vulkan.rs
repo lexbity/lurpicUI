@@ -144,6 +144,7 @@ type VkDevice = *mut c_void;
 type VkQueue = *mut c_void;
 type VkSurfaceKHR = *mut c_void;
 type VkSwapchainKHR = *mut c_void;
+type VkPipelineCache = *mut c_void;
 type VkImage = *mut c_void;
 type VkCommandPool = *mut c_void;
 type VkCommandBuffer = *mut c_void;
@@ -195,6 +196,7 @@ const VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO: VkStructureType = 12;
 const VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO: VkStructureType = 5;
 const VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER: VkStructureType = 45;
 const VK_STRUCTURE_TYPE_PRESENT_INFO_KHR: VkStructureType = 1000001001;
+const VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO: VkStructureType = 0;
 const VK_STRUCTURE_TYPE_SUBMIT_INFO: VkStructureType = 4;
 
 const VK_API_VERSION_1_0: u32 = 1 << 22;
@@ -264,6 +266,14 @@ struct VulkanState {
     device: VkDevice,
     queue: VkQueue,
     debug_messenger: VkDebugUtilsMessengerEXT,
+    pipeline_cache: VkPipelineCache,
+
+    // Profiling counters
+    frame_count: u64,
+    last_frame_time: u64, // nanoseconds
+    total_frame_time: u64, // cumulative nanoseconds
+    max_frame_time: u64,
+    min_frame_time: u64,
     surface: VkSurfaceKHR,
     swapchain: VkSwapchainKHR,
     command_pool: VkCommandPool,
@@ -295,6 +305,15 @@ unsafe impl Sync for VulkanState {}
 impl VulkanState {
     unsafe fn shutdown(&mut self) {
         self.destroy_swapchain_resources();
+        if !self.pipeline_cache.is_null() {
+            if let Ok(destroy_cache) = self._loader.load_device_proc::<PfnVkDestroyPipelineCache>(
+                self.device,
+                cstr(b"vkDestroyPipelineCache\0"),
+            ) {
+                destroy_cache(self.device, self.pipeline_cache, ptr::null());
+            }
+            self.pipeline_cache = ptr::null_mut();
+        }
         self.pending_frame = None;
         self.last_frame = None;
         self.destroy_staging_resources();
@@ -1304,6 +1323,23 @@ type PfnVkGetPhysicalDeviceSurfacePresentModesKHR = unsafe extern "system" fn(
     *mut VkPresentModeKHR,
 ) -> VkResult;
 type PfnVkDestroyImageView = unsafe extern "system" fn(VkDevice, *mut c_void, *const c_void);
+type PfnVkCreatePipelineCache = unsafe extern "system" fn(
+    VkDevice,
+    *const VkPipelineCacheCreateInfo,
+    *const c_void,
+    *mut VkPipelineCache,
+) -> VkResult;
+type PfnVkDestroyPipelineCache = unsafe extern "system" fn(
+    VkDevice,
+    VkPipelineCache,
+    *const c_void,
+) -> VkResult;
+type PfnVkGetPipelineCacheData = unsafe extern "system" fn(
+    VkDevice,
+    VkPipelineCache,
+    *mut usize,
+    *mut c_void,
+) -> VkResult;
 type PfnVkGetPhysicalDeviceMemoryProperties =
     unsafe extern "system" fn(VkPhysicalDevice, *mut VkPhysicalDeviceMemoryProperties);
 type PfnVkCreateBuffer = unsafe extern "system" fn(
@@ -1452,6 +1488,16 @@ struct VkXcbSurfaceCreateInfoKHR {
     flags: VkFlags,
     connection: *mut c_void,
     window: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct VkPipelineCacheCreateInfo {
+    s_type: VkStructureType,
+    p_next: *const c_void,
+    flags: VkFlags,
+    initial_data_size: usize,
+    p_initial_data: *const c_void,
 }
 
 #[cfg(target_os = "android")]
@@ -1962,15 +2008,26 @@ unsafe fn init_with_loader(loader: VulkanLoader) -> Result<VulkanState, (RenderR
     }
 
     let mut enabled_extensions: Vec<*const c_char> = Vec::new();
-    enabled_extensions.push(cstr_ptr("VK_KHR_surface"));
-    #[cfg(target_os = "android")]
-    {
-        enabled_extensions.push(cstr_ptr("VK_KHR_android_surface"));
+
+    // Validate and enable required instance extensions.
+    let required_extensions: &[&str] = &[
+        "VK_KHR_surface",
+        #[cfg(target_os = "android")]
+        "VK_KHR_android_surface",
+        #[cfg(not(target_os = "android"))]
+        "VK_KHR_xcb_surface",
+    ];
+    for &ext in required_extensions {
+        if !extension_available(&loader, None, ext)? {
+            return Err((
+                RenderResult::Unsupported,
+                format!("required instance extension not available: {}", ext),
+            ));
+        }
+        enabled_extensions.push(cstr_ptr(ext));
     }
-    #[cfg(not(target_os = "android"))]
-    {
-        enabled_extensions.push(cstr_ptr("VK_KHR_xcb_surface"));
-    }
+
+    // Optional extensions (validated before enabling).
     if extension_available(&loader, None, "VK_EXT_debug_utils")? {
         enabled_extensions.push(cstr_ptr("VK_EXT_debug_utils"));
     }
@@ -2174,6 +2231,64 @@ unsafe fn init_with_loader(loader: VulkanLoader) -> Result<VulkanState, (RenderR
         destroy_debug_utils_messenger = Some(destroy_debug_utils_messenger_fn);
     }
 
+    // Create VkPipelineCache for shader compilation caching.
+    let create_pipeline_cache: PfnVkCreatePipelineCache = match loader
+        .load_device_proc(device, cstr(b"vkCreatePipelineCache\0"))
+    {
+        Ok(proc) => proc,
+        Err(_) => {
+            // Pipeline cache is optional; proceed without it.
+            return Ok(VulkanState {
+                _loader: loader,
+                instance,
+                physical_device,
+                device,
+                queue,
+                destroy_device,
+                destroy_instance,
+                debug_messenger,
+                pipeline_cache: ptr::null_mut(),
+                surface: ptr::null_mut(),
+                swapchain: ptr::null_mut(),
+                command_pool: ptr::null_mut(),
+                command_buffer: ptr::null_mut(),
+                requested_width: 1,
+                requested_height: 1,
+                swapchain_extent_width: 0,
+                swapchain_extent_height: 0,
+                swapchain_format: 0,
+                swapchain_images: Vec::new(),
+                swapchain_image_views: Vec::new(),
+                staging_buffer: ptr::null_mut(),
+                staging_memory: ptr::null_mut(),
+                staging_mapped: ptr::null_mut(),
+                staging_size: 0,
+                memory_properties,
+                pending_frame: None,
+                last_frame: None,
+                destroy_debug_utils_messenger,
+                capabilities,
+                frame_count: 0,
+                last_frame_time: 0,
+                total_frame_time: 0,
+                max_frame_time: 0,
+                min_frame_time: 0,
+            });
+        }
+    };
+    let cache_create_info = VkPipelineCacheCreateInfo {
+        s_type: VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO,
+        p_next: ptr::null(),
+        flags: 0,
+        initial_data_size: 0,
+        p_initial_data: ptr::null(),
+    };
+    let mut pipeline_cache: VkPipelineCache = ptr::null_mut();
+    let rc = create_pipeline_cache(device, &cache_create_info, ptr::null(), &mut pipeline_cache);
+    if rc != VK_SUCCESS {
+        pipeline_cache = ptr::null_mut();
+    }
+
     Ok(VulkanState {
         _loader: loader,
         instance,
@@ -2183,6 +2298,7 @@ unsafe fn init_with_loader(loader: VulkanLoader) -> Result<VulkanState, (RenderR
         destroy_device,
         destroy_instance,
         debug_messenger,
+        pipeline_cache,
         surface: ptr::null_mut(),
         swapchain: ptr::null_mut(),
         command_pool: ptr::null_mut(),
@@ -2203,6 +2319,11 @@ unsafe fn init_with_loader(loader: VulkanLoader) -> Result<VulkanState, (RenderR
         last_frame: None,
         destroy_debug_utils_messenger,
         capabilities,
+        frame_count: 0,
+        last_frame_time: 0,
+        total_frame_time: 0,
+        max_frame_time: 0,
+        min_frame_time: 0,
     })
 }
 
@@ -2471,6 +2592,7 @@ fn cstr_ptr(s: &'static str) -> *const c_char {
     match s {
         "VK_KHR_surface" => cstr(b"VK_KHR_surface\0").as_ptr(),
         "VK_KHR_xcb_surface" => cstr(b"VK_KHR_xcb_surface\0").as_ptr(),
+        "VK_KHR_android_surface" => cstr(b"VK_KHR_android_surface\0").as_ptr(),
         "VK_EXT_debug_utils" => cstr(b"VK_EXT_debug_utils\0").as_ptr(),
         _ => ptr::null(),
     }

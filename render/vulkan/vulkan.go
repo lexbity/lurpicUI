@@ -8,6 +8,37 @@ import (
 	"codeburg.org/lexbit/lurpicui/render/vulkan/internal"
 )
 
+// DeviceInfo summarizes the Vulkan physical device capabilities.
+type DeviceInfo struct {
+	Name                  string
+	DeviceType            int32
+	APIVersion            uint32
+	DriverVersion         uint32
+	MaxTextureDimension2D uint32
+}
+
+func (d DeviceInfo) String() string {
+	typeNames := map[int32]string{
+		0: "other",
+		1: "integrated",
+		2: "discrete",
+		3: "virtual",
+		4: "cpu",
+	}
+	tname := typeNames[d.DeviceType]
+	if tname == "" {
+		tname = "unknown"
+	}
+	return fmt.Sprintf("Vulkan %d.%d.%d | %s | driver 0x%x | %s GPU",
+		d.APIVersion>>22,
+		(d.APIVersion>>12)&0x3ff,
+		d.APIVersion&0xfff,
+		d.Name,
+		d.DriverVersion,
+		tname,
+	)
+}
+
 // IsUnsupported reports whether err indicates the Vulkan backend is not
 // available on this system (no ICD, no Vulkan 1.1+, etc.).
 func IsUnsupported(err error) bool {
@@ -126,6 +157,25 @@ func (b *Backend) Destroy() {
 		b.initialized = false
 		b.hasSurface = false
 	}
+}
+
+// DeviceInfo returns the Vulkan physical device capabilities, or an error
+// if the backend is not initialized or the device is inaccessible.
+func (b *Backend) DeviceInfo() (DeviceInfo, error) {
+	if !b.initialized {
+		return DeviceInfo{}, errors.New("vulkan backend: not initialized")
+	}
+	caps, err := QueryCapabilities()
+	if err != nil {
+		return DeviceInfo{}, err
+	}
+	return DeviceInfo{
+		Name:                  caps.DeviceName,
+		DeviceType:            caps.DeviceType,
+		APIVersion:            caps.APIVersion,
+		DriverVersion:         caps.DriverVersion,
+		MaxTextureDimension2D: caps.MaxTextureDimension2D,
+	}, nil
 }
 
 // EvictCaches releases recoverable image caches without destroying the backend.
