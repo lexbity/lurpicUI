@@ -46,6 +46,12 @@ extern void goDeliverTouchEvent(int32_t pointerId, int32_t phase, float x, float
                                 float pressure, float major, float minor,
                                 int32_t source, int32_t deviceId, int32_t toolType,
                                 int32_t buttonState, int64_t eventTime);
+extern void goDeliverPointerEvent(int32_t pointerId, int32_t action, float x, float y,
+                                  float pressure, float size,
+                                  int32_t source, int32_t deviceId, int32_t toolType,
+                                  int32_t buttonState, int64_t eventTime);
+extern void goDeliverScrollEvent(float x, float y, float hScroll, float vScroll,
+                                 int32_t source, int32_t deviceId, int64_t eventTime);
 extern void goDeliverKeyEvent(int32_t keyCode, int32_t action, int32_t metaState,
                               int32_t source, int32_t deviceId, int64_t eventTime);
 extern void goDeliverIMECompose(char* text, int32_t cursorPos);
@@ -306,113 +312,238 @@ static void start_input_thread(AInputQueue* queue) {
     LOGI("Input thread started for queue %p", (void*)queue);
 }
 
+/* ── Source classifier ───────────────────────────────────────────────── */
+/* Classify the motion event source to determine routing. Touchscreen events
+ * go through the touch pipeline (multi-touch, gesture recognition) while
+ * mouse, stylus, and trackpad events go through the pointer pipeline (click,
+ * right-click, hover, scroll, pressure/tilt). */
+#define SOURCE_CLASS_TOUCH     0  /* AINPUT_SOURCE_TOUCHSCREEN */
+#define SOURCE_CLASS_POINTER   1  /* AINPUT_SOURCE_MOUSE, _STYLUS, _TOUCHPAD */
+#define SOURCE_CLASS_UNKNOWN   2
+
+static int source_class(int32_t source) {
+    if (source & 0x00001002) return SOURCE_CLASS_TOUCH;   /* AINPUT_SOURCE_TOUCHSCREEN (0x1002) */
+    if (source & 0x00002002) return SOURCE_CLASS_POINTER; /* AINPUT_SOURCE_MOUSE (0x2002) */
+    if (source & 0x00004002) return SOURCE_CLASS_POINTER; /* AINPUT_SOURCE_STYLUS (0x4002) */
+    if (source == 0x100008)  return SOURCE_CLASS_POINTER; /* AINPUT_SOURCE_TOUCHPAD */
+    if (source & 0x00000001) return SOURCE_CLASS_POINTER; /* AINPUT_SOURCE_CLASS_POINTER */
+    return SOURCE_CLASS_UNKNOWN;
+}
+
+/* ── Button helper ────────────────────────────────────────────────────── */
+static int pointer_button_from_bstate(int32_t buttonState) {
+    /* Android button state bits map directly to AMOTION_EVENT_BUTTON_*
+     * constants: PRIMARY (1), SECONDARY (2), TERTIARY (4), BACK (8), FORWARD (16). */
+    if (buttonState & 1) return 0;  /* Left/Primary */
+    if (buttonState & 2) return 1;  /* Right/Secondary */
+    if (buttonState & 4) return 2;  /* Middle/Tertiary */
+    return 0;
+}
+
+/* ── Shared event-time helper ─────────────────────────────────────────── */
+static int64_t get_event_time_ns(AInputEvent* event) {
+#if defined(__ANDROID_API__) && __ANDROID_API__ >= 9
+    return (int64_t)AInputEvent_getEventTime(event);
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+#endif
+}
+
+/* ── Historical sample delivery for touch events ──────────────────────── */
+static void deliver_touch_historical(AInputEvent* event, int32_t source,
+                                     int32_t deviceId, int32_t buttonState) {
+    size_t historySize = AMotionEvent_getHistorySize(event);
+    int32_t pointerCount = AMotionEvent_getPointerCount(event);
+    for (size_t h = 0; h < historySize; h++) {
+        float histEventTime = AMotionEvent_getHistoricalEventTime(event, h);
+        for (int32_t i = 0; i < pointerCount; i++) {
+            int32_t pointerId = AMotionEvent_getPointerId(event, i);
+            goDeliverTouchEvent(
+                pointerId, 1 /* TouchMove */,
+                AMotionEvent_getHistoricalX(event, i, h),
+                AMotionEvent_getHistoricalY(event, i, h),
+                AMotionEvent_getHistoricalPressure(event, i, h),
+                AMotionEvent_getHistoricalTouchMajor(event, i, h),
+                AMotionEvent_getHistoricalTouchMinor(event, i, h),
+                source, deviceId,
+                AMotionEvent_getHistoricalToolType(event, i, h),
+                buttonState, (int64_t)histEventTime);
+        }
+    }
+}
+
+/* ── Historical sample delivery for pointer events (mouse/stylus) ─────── */
+static void deliver_pointer_historical(AInputEvent* event, int32_t action,
+                                       int32_t source, int32_t deviceId,
+                                       int32_t buttonState) {
+    size_t historySize = AMotionEvent_getHistorySize(event);
+    int32_t pointerCount = AMotionEvent_getPointerCount(event);
+    for (size_t h = 0; h < historySize; h++) {
+        float histEventTime = AMotionEvent_getHistoricalEventTime(event, h);
+        for (int32_t i = 0; i < pointerCount; i++) {
+            int32_t pointerId = AMotionEvent_getPointerId(event, i);
+            goDeliverPointerEvent(
+                pointerId, action,
+                AMotionEvent_getHistoricalX(event, i, h),
+                AMotionEvent_getHistoricalY(event, i, h),
+                AMotionEvent_getHistoricalPressure(event, i, h),
+                AMotionEvent_getHistoricalSize(event, i, h),
+                source, deviceId,
+                AMotionEvent_getHistoricalToolType(event, i, h),
+                buttonState, (int64_t)histEventTime);
+        }
+    }
+}
+
 /* Input event processing */
 static int32_t handle_input_event(AInputEvent* event) {
     int32_t type = AInputEvent_getType(event);
     int32_t source = AInputEvent_getSource(event);
     int32_t deviceId = AInputEvent_getDeviceId(event);
+    int64_t eventTime = get_event_time_ns(event);
 
     LOGV("handle_input_event: type=%d source=0x%x deviceId=%d",
          type, source, deviceId);
 
-    /* AInputEvent_getEventTime is available since API 9.
-     * NDK exposes this in <android/input.h>. */
-    int64_t eventTime = 0;
-#if defined(__ANDROID_API__) && __ANDROID_API__ >= 9
-    eventTime = (int64_t)AInputEvent_getEventTime(event);
-#else
-    {
-        struct timespec ts;
-        clock_gettime(CLOCK_MONOTONIC, &ts);
-        eventTime = (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
-    }
-#endif
-
     if (type == AINPUT_EVENT_TYPE_MOTION) {
         int32_t action = AMotionEvent_getAction(event);
+        int32_t actionMasked = action & AMOTION_EVENT_ACTION_MASK;
+        int32_t actionPointerIndex = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
+                                     AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
         int32_t pointerCount = AMotionEvent_getPointerCount(event);
         int32_t buttonState = AMotionEvent_getButtonState(event);
+        int cls = source_class(source);
 
-        for (int32_t i = 0; i < pointerCount; i++) {
-            int32_t pointerId = AMotionEvent_getPointerId(event, i);
-            float x = AMotionEvent_getX(event, i);
-            float y = AMotionEvent_getY(event, i);
-            float pressure = AMotionEvent_getPressure(event, i);
-            float major = AMotionEvent_getTouchMajor(event, i);
-            float minor = AMotionEvent_getTouchMinor(event, i);
-            int32_t toolType = AMotionEvent_getToolType(event, i);
-
-            /* Determine phase from action */
-            int32_t actionMasked = action & AMOTION_EVENT_ACTION_MASK;
-            int32_t actionPointerIndex = (action & AMOTION_EVENT_ACTION_POINTER_INDEX_MASK) >>
-                                         AMOTION_EVENT_ACTION_POINTER_INDEX_SHIFT;
-
-            int phase = 0; /* TouchDown */
-            switch (actionMasked) {
-                case AMOTION_EVENT_ACTION_DOWN:
-                case AMOTION_EVENT_ACTION_POINTER_DOWN:
-                    if (i == actionPointerIndex) {
-                        phase = 0; /* TouchDown */
-                    } else {
-                        phase = 1; /* TouchMove */
-                    }
-                    break;
-                case AMOTION_EVENT_ACTION_MOVE:
-                    phase = 1; /* TouchMove */
-                    break;
-                case AMOTION_EVENT_ACTION_UP:
-                case AMOTION_EVENT_ACTION_POINTER_UP:
-                    if (i == actionPointerIndex) {
-                        phase = 2; /* TouchUp */
-                    } else {
-                        phase = 1; /* TouchMove */
-                    }
-                    break;
-                case AMOTION_EVENT_ACTION_CANCEL:
-                    phase = 3; /* TouchCancel */
-                    break;
-            }
-
-            /* Call Go function to deliver touch event with full metadata */
-            goDeliverTouchEvent(pointerId, phase, x, y, pressure, major, minor,
-                                source, deviceId, toolType, buttonState, eventTime);
+        /* ── SCROLL (mouse wheel / trackpad two-finger) ────────────── */
+        if (actionMasked == AMOTION_EVENT_ACTION_SCROLL) {
+            float vScroll = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_VSCROLL, 0);
+            float hScroll = AMotionEvent_getAxisValue(event, AMOTION_EVENT_AXIS_HSCROLL, 0);
+            float x = AMotionEvent_getX(event, 0);
+            float y = AMotionEvent_getY(event, 0);
+            goDeliverScrollEvent(x, y, hScroll, vScroll, source, deviceId, eventTime);
+            return 1;
         }
 
-        /* Deliver historical motion samples for smoother gesture tracking.
-         * Historical samples are only available on ACTION_MOVE events.
-         */
-        {
-            int32_t actionMasked = action & AMOTION_EVENT_ACTION_MASK;
-            if (actionMasked == AMOTION_EVENT_ACTION_MOVE) {
-                size_t historySize = AMotionEvent_getHistorySize(event);
-                for (size_t h = 0; h < historySize; h++) {
-                    float histEventTime = AMotionEvent_getHistoricalEventTime(event, h);
-                    for (int32_t i = 0; i < pointerCount; i++) {
-                        int32_t pointerId = AMotionEvent_getPointerId(event, i);
-                        float hx = AMotionEvent_getHistoricalX(event, i, h);
-                        float hy = AMotionEvent_getHistoricalY(event, i, h);
-                        float hp = AMotionEvent_getHistoricalPressure(event, i, h);
-                        float hmajor = AMotionEvent_getHistoricalTouchMajor(event, i, h);
-                        float hminor = AMotionEvent_getHistoricalTouchMinor(event, i, h);
-                        int32_t htool = AMotionEvent_getHistoricalToolType(event, i, h);
+        /* ── HOVER (stylus hover, mouse move without button) ───────── */
+        if (actionMasked == AMOTION_EVENT_ACTION_HOVER_MOVE ||
+            actionMasked == AMOTION_EVENT_ACTION_HOVER_ENTER ||
+            actionMasked == AMOTION_EVENT_ACTION_HOVER_EXIT) {
+            for (int32_t i = 0; i < pointerCount && i < 1; i++) {
+                int32_t pointerId = AMotionEvent_getPointerId(event, i);
+                float x = AMotionEvent_getX(event, i);
+                float y = AMotionEvent_getY(event, i);
+                float pressure = AMotionEvent_getPressure(event, i);
+                float size = AMotionEvent_getSize(event, i);
+                int32_t toolType = AMotionEvent_getToolType(event, i);
+                /* Hover events carry 0 for buttonState; use ACTION_MOVE
+                 * as the hover action kind and let Go distinguish hover
+                 * from drag via the source class. */
+                goDeliverPointerEvent(pointerId, actionMasked,
+                                      x, y, pressure, size,
+                                      source, deviceId, toolType,
+                                      0, eventTime);
+            }
+            return 1;
+        }
 
-                        goDeliverTouchEvent(pointerId,
-                                            1, /* TouchMove for historical samples */
-                                            hx, hy, hp, hmajor, hminor,
-                                            source, deviceId, htool,
-                                            buttonState, (int64_t)histEventTime);
-                    }
+        /* ── TOUCH / POINTER (down, move, up, cancel) ─────────────── */
+        if (cls == SOURCE_CLASS_POINTER) {
+            /* Mouse and stylus events → pointer pipeline. */
+            for (int32_t i = 0; i < pointerCount && i < 1; i++) {
+                int32_t pointerId = AMotionEvent_getPointerId(event, i);
+                float x = AMotionEvent_getX(event, i);
+                float y = AMotionEvent_getY(event, i);
+                float pressure = AMotionEvent_getPressure(event, i);
+                float size = AMotionEvent_getSize(event, i);
+                int32_t toolType = AMotionEvent_getToolType(event, i);
+
+                /* Determine the pointer action: for POINTER_DOWN/UP the
+                 * action encodes which pointer index; for our single-pointer
+                 * mouse/stylus we map DOWN→PRESS, UP→RELEASE, MOVE→MOVE. */
+                int ptrAction;
+                switch (actionMasked) {
+                    case AMOTION_EVENT_ACTION_DOWN:
+                    case AMOTION_EVENT_ACTION_POINTER_DOWN:
+                        ptrAction = 0; /* PointerPress */
+                        break;
+                    case AMOTION_EVENT_ACTION_UP:
+                    case AMOTION_EVENT_ACTION_POINTER_UP:
+                        ptrAction = 1; /* PointerRelease */
+                        break;
+                    case AMOTION_EVENT_ACTION_MOVE:
+                        ptrAction = 2; /* PointerMove */
+                        break;
+                    case AMOTION_EVENT_ACTION_CANCEL:
+                        ptrAction = 3; /* PointerCancel */
+                        break;
+                    default:
+                        ptrAction = 2; /* PointerMove fallback */
+                        break;
                 }
+
+                goDeliverPointerEvent(pointerId, ptrAction,
+                                      x, y, pressure, size,
+                                      source, deviceId, toolType,
+                                      buttonState, eventTime);
+            }
+
+            /* Historical samples for pointer events. */
+            if (actionMasked == AMOTION_EVENT_ACTION_MOVE) {
+                deliver_pointer_historical(event, 2 /* PointerMove */,
+                                           source, deviceId, buttonState);
+            }
+        } else {
+            /* Touchscreen → touch pipeline (multi-touch with pointer IDs). */
+            for (int32_t i = 0; i < pointerCount; i++) {
+                int32_t pointerId = AMotionEvent_getPointerId(event, i);
+                float x = AMotionEvent_getX(event, i);
+                float y = AMotionEvent_getY(event, i);
+                float pressure = AMotionEvent_getPressure(event, i);
+                float major = AMotionEvent_getTouchMajor(event, i);
+                float minor = AMotionEvent_getTouchMinor(event, i);
+                int32_t toolType = AMotionEvent_getToolType(event, i);
+
+                int phase;
+                switch (actionMasked) {
+                    case AMOTION_EVENT_ACTION_DOWN:
+                    case AMOTION_EVENT_ACTION_POINTER_DOWN:
+                        phase = (i == actionPointerIndex) ? 0 : 1;
+                        break;
+                    case AMOTION_EVENT_ACTION_MOVE:
+                        phase = 1;
+                        break;
+                    case AMOTION_EVENT_ACTION_UP:
+                    case AMOTION_EVENT_ACTION_POINTER_UP:
+                        phase = (i == actionPointerIndex) ? 2 : 1;
+                        break;
+                    case AMOTION_EVENT_ACTION_CANCEL:
+                        phase = 3;
+                        break;
+                    default:
+                        phase = 1;
+                        break;
+                }
+
+                goDeliverTouchEvent(pointerId, phase, x, y, pressure, major, minor,
+                                    source, deviceId, toolType, buttonState, eventTime);
+            }
+
+            /* Historical samples for touch events. */
+            if (actionMasked == AMOTION_EVENT_ACTION_MOVE) {
+                deliver_touch_historical(event, source, deviceId, buttonState);
             }
         }
-        return 1; /* Event handled */
+        return 1;
+
     } else if (type == AINPUT_EVENT_TYPE_KEY) {
         int32_t keyCode = AKeyEvent_getKeyCode(event);
         int32_t action = AKeyEvent_getAction(event);
         int32_t metaState = AKeyEvent_getMetaState(event);
 
         goDeliverKeyEvent(keyCode, action, metaState, source, deviceId, eventTime);
-        return 1; /* Event handled */
+        return 1;
     }
 
     return 0; /* Event not handled */

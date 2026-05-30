@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/projection"
 )
 
 func TestGestureConfig_defaults(t *testing.T) {
@@ -238,5 +239,295 @@ func TestSystem_clearPointerState_keeps_positions(t *testing.T) {
 		t.Fatalf("positions changed: %#v %#v", ptr.Position, ptr.PressPosition)
 	}
 }
+
+func TestPointer_rightClickRoutesCorrectly(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	hitMap := singleHitMap(42)
+	tree := newRootWithFacet(42)
+
+	// Right-click press
+	events := sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerPress,
+			Position: gfx.Point{X: 100, Y: 200},
+			Button:   platform.PointerRight,
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for right-click press")
+	}
+	press, ok := events[0].Event.(PointerPressEvent)
+	if !ok {
+		t.Fatalf("expected PointerPressEvent, got %T", events[0].Event)
+	}
+	if press.Button != platform.PointerRight {
+		t.Fatalf("expected right button, got %v", press.Button)
+	}
+
+	// Right-click release
+	events = sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerRelease,
+			Position: gfx.Point{X: 100, Y: 200},
+			Button:   platform.PointerRight,
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for right-click release")
+	}
+	release, ok := events[0].Event.(ClickEvent)
+	if !ok {
+		t.Fatalf("expected ClickEvent, got %T", events[0].Event)
+	}
+	if release.Button != platform.PointerRight {
+		t.Fatalf("expected right button, got %v", release.Button)
+	}
+}
+
+func TestPointer_middleClickRoutesCorrectly(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	hitMap := singleHitMap(42)
+	tree := newRootWithFacet(42)
+
+	events := sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerPress,
+			Position: gfx.Point{X: 150, Y: 250},
+			Button:   platform.PointerMiddle,
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for middle-click press")
+	}
+	press, ok := events[0].Event.(PointerPressEvent)
+	if !ok {
+		t.Fatalf("expected PointerPressEvent, got %T", events[0].Event)
+	}
+	if press.Button != platform.PointerMiddle {
+		t.Fatalf("expected middle button, got %v", press.Button)
+	}
+
+	events = sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerRelease,
+			Position: gfx.Point{X: 150, Y: 250},
+			Button:   platform.PointerMiddle,
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for middle-click release")
+	}
+	release, ok := events[0].Event.(ClickEvent)
+	if !ok {
+		t.Fatalf("expected ClickEvent, got %T", events[0].Event)
+	}
+	if release.Button != platform.PointerMiddle {
+		t.Fatalf("expected middle button, got %v", release.Button)
+	}
+}
+
+func TestScroll_eventRoutedToHitFacet(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	hitMap := singleHitMap(42)
+	tree := newRootWithFacet(42)
+
+	// Scroll over the hit target
+	events := sys.Process([]platform.Event{
+		platform.EventScroll{
+			Position: gfx.Point{X: 100, Y: 100},
+			DeltaX:   0,
+			DeltaY:   -50,
+			Precise:  true,
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for scroll")
+	}
+	scroll, ok := events[0].Event.(ScrollEvent)
+	if !ok {
+		t.Fatalf("expected ScrollEvent, got %T", events[0].Event)
+	}
+	if scroll.DeltaY != -50 {
+		t.Fatalf("expected DeltaY -50, got %f", scroll.DeltaY)
+	}
+	if scroll.Precise != true {
+		t.Fatal("expected precise scroll")
+	}
+	if events[0].Target != 42 {
+		t.Fatalf("expected target 42, got %d", events[0].Target)
+	}
+}
+
+func TestScroll_horizontalDeltaPassedThrough(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	hitMap := singleHitMap(42)
+	tree := newRootWithFacet(42)
+
+	events := sys.Process([]platform.Event{
+		platform.EventScroll{
+			Position: gfx.Point{X: 100, Y: 100},
+			DeltaX:   30,
+			DeltaY:   0,
+			Precise:  true,
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for horizontal scroll")
+	}
+	scroll, ok := events[0].Event.(ScrollEvent)
+	if !ok {
+		t.Fatalf("expected ScrollEvent, got %T", events[0].Event)
+	}
+	if scroll.DeltaX != 30 {
+		t.Fatalf("expected DeltaX 30, got %f", scroll.DeltaX)
+	}
+}
+
+func TestPointerCancel_clearsPressState(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	hitMap := singleHitMap(42)
+	tree := newRootWithFacet(42)
+
+	sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerPress,
+			Position: gfx.Point{X: 100, Y: 100},
+			Button:   platform.PointerLeft,
+		},
+	}, hitMap, tree)
+	ptr := sys.getOrCreatePointer(0)
+	if ptr.PressTarget == nil {
+		t.Fatal("expected press target after down")
+	}
+
+	sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerCancel,
+			Position: gfx.Point{X: 100, Y: 100},
+		},
+	}, hitMap, tree)
+	if ptr.PressTarget != nil {
+		t.Fatal("expected nil press target after cancel")
+	}
+	if ptr.PressedButton != platform.PointerNone {
+		t.Fatal("expected PointerNone after cancel")
+	}
+}
+
+func TestTouchCancel_clearsTouchState(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	hitMap := singleHitMap(42)
+	tree := newRootWithFacet(42)
+
+	sys.Process([]platform.Event{
+		platform.TouchEvent{SequenceID: 1, Phase: platform.TouchDown, X: 100, Y: 100, Pressure: 0.8},
+	}, hitMap, tree)
+	touch := sys.getOrCreateTouch(1)
+	if !touch.Active {
+		t.Fatal("expected active touch after down")
+	}
+
+	sys.Process([]platform.Event{
+		platform.TouchEvent{SequenceID: 1, Phase: platform.TouchCancel, X: 100, Y: 100},
+	}, hitMap, tree)
+	if touch.Active {
+		t.Fatal("expected inactive touch after cancel")
+	}
+	if touch.Target != 0 {
+		t.Fatal("expected zero target after cancel")
+	}
+}
+
+func TestStylusPressure_routedThroughPointer(t *testing.T) {
+	sys := NewSystem(DefaultGestureConfig())
+	hitMap := singleHitMap(42)
+	tree := newRootWithFacet(42)
+
+	events := sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerPress,
+			Position: gfx.Point{X: 200, Y: 300},
+			Button:   platform.PointerLeft,
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for stylus press")
+	}
+	press, ok := events[0].Event.(PointerPressEvent)
+	if !ok {
+		t.Fatalf("expected PointerPressEvent, got %T", events[0].Event)
+	}
+	if press.Position.X != 200 || press.Position.Y != 300 {
+		t.Fatalf("expected position (200,300), got (%f,%f)", press.Position.X, press.Position.Y)
+	}
+	if press.Button != platform.PointerLeft {
+		t.Fatalf("expected left button, got %v", press.Button)
+	}
+
+	events = sys.Process([]platform.Event{
+		platform.EventPointer{
+			Kind:     platform.PointerMove,
+			Position: gfx.Point{X: 210, Y: 310},
+		},
+	}, hitMap, tree)
+	if len(events) == 0 {
+		t.Fatal("expected routed event for stylus move")
+	}
+	// The move may trigger a DragStartEvent first (crossing drag threshold).
+	switch ev := events[0].Event.(type) {
+	case DragMoveEvent:
+		if ev.Position.X != 210 || ev.Position.Y != 310 {
+			t.Fatalf("expected position (210,310), got (%f,%f)", ev.Position.X, ev.Position.Y)
+		}
+	case DragStartEvent:
+		if len(events) >= 2 {
+			move, ok := events[1].Event.(DragMoveEvent)
+			if !ok {
+				t.Fatalf("expected second event to be DragMoveEvent, got %T", events[1].Event)
+			}
+			if move.Position.X != 210 || move.Position.Y != 310 {
+				t.Fatalf("expected position (210,310), got (%f,%f)", move.Position.X, move.Position.Y)
+			}
+		}
+	default:
+		t.Fatalf("expected DragStartEvent or DragMoveEvent, got %T", events[0].Event)
+	}
+}
+
+// singleHitMap returns a HitMap with a single entry for the given facetID
+// at full-surface clip with identity transform.
+func singleHitMap(facetID facet.FacetID) *projection.HitMap {
+	return projection.NewHitMap(projection.HitMapEntry{
+		FacetID:   facetID,
+		Transform: gfx.Identity(),
+		ClipRect:  gfx.Rect{Max: gfx.Point{X: 1000, Y: 1000}},
+		Regions: []projection.HitRegion{{
+			Bounds: gfx.Rect{Max: gfx.Point{X: 1000, Y: 1000}},
+		}},
+		LayerOrder: 1,
+		HitPolicy:  facet.HitNormal,
+	})
+}
+
+// newRootWithFacet creates a minimal facet tree for tests. The tree is a
+// single facet.FacetImpl that the input system can pass as the focus tree.
+// The hit map determines routing, not this tree, so the tree only needs to
+// satisfy the FacetImpl interface without panicking. requestFocus will not
+// find the target ID (since the real facet has an auto-assigned ID), so
+// focus transitions are skipped — acceptable for these routing tests.
+func newRootWithFacet(_ facet.FacetID) facet.FacetImpl {
+	f := facet.NewFacet()
+	return &simpleFacet{base: &f}
+}
+
+type simpleFacet struct {
+	base *facet.Facet
+}
+
+func (s *simpleFacet) Base() *facet.Facet          { return s.base }
+func (s *simpleFacet) OnAttach(facet.AttachContext) {}
+func (s *simpleFacet) OnDetach()                    {}
+func (s *simpleFacet) OnActivate()                  {}
+func (s *simpleFacet) OnDeactivate()                {}
 
 var _ = facet.FacetID(0)

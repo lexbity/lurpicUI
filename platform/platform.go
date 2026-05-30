@@ -78,6 +78,7 @@ const (
 	PointerRelease
 	PointerEnter
 	PointerLeave
+	PointerCancel
 )
 
 type EventPointer struct {

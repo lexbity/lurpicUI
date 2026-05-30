@@ -7,6 +7,7 @@ import (
 	"time"
 	"unsafe"
 
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/platform/android/internal/bridge"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -68,9 +69,12 @@ func (a *App) OnSurfaceCreated(f func(platform.Surface)) {
 	a.lifecycleHandlers.onSurfaceCreated = append(a.lifecycleHandlers.onSurfaceCreated, f)
 }
 
-// SupportsHover reports whether Android hover interactions should be enabled.
+// SupportsHover reports that Android supports hover interactions via stylus,
+// mouse, and other pointer devices. The input system enables hover events
+// when this returns true, allowing enter/leave/move tracking without a
+// pressed button.
 func (a *App) SupportsHover() bool {
-	return false
+	return true
 }
 
 // ShowSoftKeyboard asks the native bridge to display the soft keyboard.
@@ -291,6 +295,38 @@ func convertBridgeEvent(e bridge.Event) platform.Event {
 			X:          e.X,
 			Y:          e.Y,
 			Pressure:   e.Pressure,
+		}
+	case bridge.EventTypePointer:
+		ptrKind := platform.PointerMove
+		switch e.Action {
+		case 0:
+			ptrKind = platform.PointerPress
+		case 1:
+			ptrKind = platform.PointerRelease
+		case 3:
+			ptrKind = platform.PointerCancel
+		}
+		btn := platform.PointerLeft
+		if e.Action == 0 || e.Action == 1 {
+			switch e.ButtonState {
+			case 2:
+				btn = platform.PointerRight
+			case 4:
+				btn = platform.PointerMiddle
+			}
+		}
+		return platform.EventPointer{
+			Kind:      ptrKind,
+			Position:  gfx.Point{X: e.X, Y: e.Y},
+			Button:    btn,
+			Modifiers: 0,
+		}
+	case bridge.EventTypeScroll:
+		return platform.EventScroll{
+			Position: gfx.Point{X: e.X, Y: e.Y},
+			DeltaX:   e.Major,
+			DeltaY:   e.Minor,
+			Precise:  true,
 		}
 	case bridge.EventTypeKey:
 		kind := platform.KeyPress

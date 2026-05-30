@@ -46,6 +46,8 @@ const (
 	EventTypeInputQueueDestroyed
 	EventTypeLowMemory
 	EventTypeTouch
+	EventTypePointer
+	EventTypeScroll
 	EventTypeKey
 	EventTypeIMECompose
 	EventTypeIMECommit
@@ -368,6 +370,45 @@ func goDeliverTouchEvent(pointerID C.int32_t, phase C.int32_t, x C.float, y C.fl
 		ToolType:    int32(toolType),
 		ButtonState: int32(buttonState),
 		EventTime:   int64(eventTime),
+	}
+	GetEventQueue().Push(event)
+}
+
+//export goDeliverPointerEvent
+func goDeliverPointerEvent(pointerID C.int32_t, action C.int32_t, x C.float, y C.float,
+	pressure C.float, size C.float,
+	source C.int32_t, deviceID C.int32_t, toolType C.int32_t,
+	buttonState C.int32_t, eventTime C.int64_t) {
+	event := Event{
+		Type:        EventTypePointer,
+		PointerID:   int32(pointerID),
+		Action:      int32(action),
+		X:           float32(x),
+		Y:           float32(y),
+		Pressure:    float32(pressure),
+		Major:       float32(size),
+		Minor:       float32(size),
+		Source:      int32(source),
+		DeviceID:    int32(deviceID),
+		ToolType:    int32(toolType),
+		ButtonState: int32(buttonState),
+		EventTime:   int64(eventTime),
+	}
+	GetEventQueue().Push(event)
+}
+
+//export goDeliverScrollEvent
+func goDeliverScrollEvent(x C.float, y C.float, hScroll C.float, vScroll C.float,
+	source C.int32_t, deviceID C.int32_t, eventTime C.int64_t) {
+	event := Event{
+		Type:      EventTypeScroll,
+		X:         float32(x),
+		Y:         float32(y),
+		Major:     float32(hScroll),
+		Minor:     float32(vScroll),
+		Source:    int32(source),
+		DeviceID:  int32(deviceID),
+		EventTime: int64(eventTime),
 	}
 	GetEventQueue().Push(event)
 }

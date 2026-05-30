@@ -33,6 +33,8 @@ const (
 	EventTypeInputQueueDestroyed
 	EventTypeLowMemory
 	EventTypeTouch
+	EventTypePointer
+	EventTypeScroll
 	EventTypeKey
 	EventTypeIMECompose
 	EventTypeIMECommit

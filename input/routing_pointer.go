@@ -33,6 +33,9 @@ func (s *System) processPointer(e platform.EventPointer, hitMap *projection.HitM
 		return s.handleMove(ptr, e, hitMap)
 	case platform.PointerRelease:
 		return s.handleRelease(ptr, e, hitMap)
+	case platform.PointerCancel:
+		s.handleCancel(ptr)
+		return nil
 	default:
 		return nil
 	}
