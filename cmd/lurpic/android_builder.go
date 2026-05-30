@@ -95,12 +95,21 @@ func (b *androidBuilder) build() error {
 		return fmt.Errorf("java/dex build failed: %w", err)
 	}
 
-	// Step 6: Assemble APK
+	// Step 6: Emit native debug symbols zip (release-only, unstripped copies).
+	// This runs before APK assembly so the symbol bundle captures the full
+	// unstripped set independent of the stripped libs in the APK.
+	if b.release {
+		if err := b.emitDebugSymbolsZip(); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: debug symbols zip failed: %v\n", err)
+		}
+	}
+
+	// Step 7: Assemble APK
 	if err := b.assembleAPK(); err != nil {
 		return fmt.Errorf("APK assembly failed: %w", err)
 	}
 
-	// Step 7: Sign APK
+	// Step 8: Sign APK
 	if err := b.signAPK(); err != nil {
 		return fmt.Errorf("APK signing failed: %w", err)
 	}
@@ -176,8 +185,25 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 		"-buildmode=c-shared",
 		"-overlay", overlayPath,
 		"-o", output,
-		"./" + filepath.ToSlash(mainPkg),
 	}
+
+	// Release builds: strip symbols and remove path metadata for smaller
+	// APK size and to avoid leaking host paths. Unstripped copies are
+	// retained separately for crash symbolication (see emitDebugSymbolsZip).
+	if b.release {
+		args = append(args, "-trimpath")
+	}
+
+	// Use -ldflags to strip debug info in release builds only.
+	ldflags := ""
+	if b.release {
+		ldflags = "-s -w"
+	}
+	if ldflags != "" {
+		args = append(args, "-ldflags", ldflags)
+	}
+
+	args = append(args, "./"+filepath.ToSlash(mainPkg))
 
 	if err := b.runner.Run(CommandSpec{
 		Path:   "go",
@@ -188,6 +214,16 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 		Stderr: os.Stderr,
 	}); err != nil {
 		return fmt.Errorf("go build failed: %w", err)
+	}
+
+	// For release builds, retain an unstripped copy before stripping.
+	if b.release {
+		if err := b.retainUnstrippedSO(libDir, "libgo.so"); err != nil {
+			return fmt.Errorf("retain unstripped libgo.so: %w", err)
+		}
+		if err := b.stripSO(libDir, "libgo.so"); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: strip libgo.so failed: %v\n", err)
+		}
 	}
 
 	fmt.Printf("  Built: %s\n", output)
@@ -299,6 +335,16 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 		return fmt.Errorf("stage liblurpic_render.so: %w", err)
 	}
 	fmt.Printf("  Built: %s\n", filepath.Join(libDir, "liblurpic_render.so"))
+
+	// For release builds, retain an unstripped copy before stripping.
+	if b.release {
+		if err := b.retainUnstrippedSO(libDir, "liblurpic_render.so"); err != nil {
+			return fmt.Errorf("retain unstripped liblurpic_render.so: %w", err)
+		}
+		if err := b.stripSO(libDir, "liblurpic_render.so"); err != nil {
+			fmt.Fprintf(os.Stderr, "  Warning: strip liblurpic_render.so failed: %v\n", err)
+		}
+	}
 	return nil
 }
 
@@ -1069,6 +1115,114 @@ func (b *androidBuilder) findNDKToolchain(target string) string {
 	}
 
 	return ""
+}
+
+// findLLVMStrip locates llvm-strip in the NDK toolchain.
+func (b *androidBuilder) findLLVMStrip() (string, error) {
+	toolchain := filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt")
+	host := runtime.GOOS
+	if host == "darwin" {
+		host = "darwin-x86_64"
+	} else if host == "linux" {
+		host = "linux-x86_64"
+	} else if host == "windows" {
+		host = "windows-x86_64"
+	}
+	candidate := filepath.Join(toolchain, host, "bin", "llvm-strip")
+	if runtime.GOOS == "windows" {
+		candidate += ".exe"
+	}
+	if _, err := os.Stat(candidate); err == nil {
+		return candidate, nil
+	}
+	return "", fmt.Errorf("llvm-strip not found at %s", candidate)
+}
+
+// retainUnstrippedSO copies the built .so to the debug symbols directory
+// before stripping. The copy is stored under build/android/native-debug-symbols/<abi>/.
+func (b *androidBuilder) retainUnstrippedSO(libDir, name string) error {
+	symDir := filepath.Join(b.buildDir, "native-debug-symbols", filepath.Base(libDir))
+	if err := os.MkdirAll(symDir, 0755); err != nil {
+		return err
+	}
+	src := filepath.Join(libDir, name)
+	dst := filepath.Join(symDir, name)
+	return copyFile(src, dst)
+}
+
+// stripSO runs llvm-strip --strip-unneeded on the .so in libDir.
+// Stripped libs produce smaller APKs; unstripped copies are retained
+// separately via retainUnstrippedSO for crash symbolication.
+func (b *androidBuilder) stripSO(libDir, name string) error {
+	stripPath, err := b.findLLVMStrip()
+	if err != nil {
+		return err
+	}
+	target := filepath.Join(libDir, name)
+	out, err := b.runner.Output(CommandSpec{
+		Path: stripPath,
+		Args: []string{"--strip-unneeded", target},
+	})
+	if err != nil {
+		return fmt.Errorf("llvm-strip %s: %w\n%s", name, err, string(out))
+	}
+	return nil
+}
+
+// emitDebugSymbolsZip creates build/android/native-debug-symbols.zip from the
+// unstripped .so files in build/android/native-debug-symbols/<abi>/. The zip
+// is intended for upload to Play Console as a debug symbols artifact.
+func (b *androidBuilder) emitDebugSymbolsZip() error {
+	symRoot := filepath.Join(b.buildDir, "native-debug-symbols")
+	if _, err := os.Stat(symRoot); os.IsNotExist(err) {
+		return nil // no debug symbols to bundle
+	}
+	zipPath := filepath.Join(b.buildDir, "native-debug-symbols.zip")
+	return createZipFromDir(zipPath, symRoot, ".")
+}
+
+// createZipFromDir creates a new zip file at zipPath containing all files
+// from srcDir, storing entries relative to baseInZip. The output is a
+// standalone zip (not an APK), suitable for symbol artifact uploads.
+func createZipFromDir(zipPath, srcDir, baseInZip string) error {
+	out, err := os.Create(zipPath)
+	if err != nil {
+		return fmt.Errorf("create %s: %w", zipPath, err)
+	}
+	defer out.Close()
+
+	zw := zip.NewWriter(out)
+	defer zw.Close()
+
+	absSrc, err := filepath.Abs(srcDir)
+	if err != nil {
+		return err
+	}
+
+	return filepath.Walk(absSrc, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			return nil
+		}
+		rel, err := filepath.Rel(absSrc, path)
+		if err != nil {
+			return err
+		}
+		entryName := filepath.Join(baseInZip, filepath.ToSlash(rel))
+		w, err := zw.Create(entryName)
+		if err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		_, err = io.Copy(w, in)
+		return err
+	})
 }
 
 // getDebugKeystore returns the path to the debug keystore, creating it if necessary.

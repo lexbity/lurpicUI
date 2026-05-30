@@ -108,6 +108,29 @@ func TestFindSymbolSet_multipleABIs(t *testing.T) {
 	}
 }
 
+func TestSymbolSet_prefersDebugSymbolsOverLib(t *testing.T) {
+	buildDir := t.TempDir()
+
+	// Create lib/<abi> with a stripped-looking file.
+	libRoot := filepath.Join(buildDir, "android", "lib", "arm64-v8a")
+	os.MkdirAll(libRoot, 0755)
+	os.WriteFile(filepath.Join(libRoot, "libgo.so"), []byte("stripped"), 0644)
+
+	// Create native-debug-symbols/<abi> with an unstripped copy.
+	symRoot := filepath.Join(buildDir, "android", "native-debug-symbols", "arm64-v8a")
+	os.MkdirAll(symRoot, 0755)
+	os.WriteFile(filepath.Join(symRoot, "libgo.so"), []byte("unstripped"), 0644)
+
+	syms, err := findSymbolSet(buildDir)
+	if err != nil {
+		t.Fatalf("findSymbolSet: %v", err)
+	}
+	symDir := syms.symbolDirForNDKStack("arm64-v8a")
+	if !strings.HasSuffix(symDir, "native-debug-symbols/arm64-v8a") {
+		t.Fatalf("expected native-debug-symbols dir, got %s", symDir)
+	}
+}
+
 func TestFindSymbolSet_noBuildDir(t *testing.T) {
 	_, err := findSymbolSet("/does/not/exist")
 	if err == nil {

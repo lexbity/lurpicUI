@@ -696,6 +696,76 @@ func TestAndroidBuilder_rustProfile_releaseAddsFlag(t *testing.T) {
 	}
 }
 
+func TestAndroidBuilder_releaseStripsGoLibrary(t *testing.T) {
+	projectRoot := t.TempDir()
+	buildDir := filepath.Join(projectRoot, "build", "android")
+	libDir := filepath.Join(buildDir, "lib", "arm64-v8a")
+	os.MkdirAll(libDir, 0o755)
+
+	// Create a fake .so that "looks like" an unstripped ELF (just a marker).
+	soPath := filepath.Join(libDir, "libgo.so")
+	os.WriteFile(soPath, []byte("fake ELF so content for stripping test"), 0644)
+
+	f := newFakeRunner()
+	// Mock llvm-strip to succeed (it just rewrites the file to indicate stripping).
+	stripPath := "/fake/llvm-strip"
+	f.When(MatchCommand(stripPath)).Then("", "", nil)
+
+	b := &androidBuilder{
+		runner:    f,
+		buildDir:  buildDir,
+		release:   true,
+		ndk:       "/fake/ndk",
+		config:    &Config{Android: AndroidConfig{TargetSDK: 33, MinSDK: 29}},
+	}
+
+	// Test retainUnstrippedSO
+	if err := b.retainUnstrippedSO(libDir, "libgo.so"); err != nil {
+		t.Fatalf("retainUnstrippedSO: %v", err)
+	}
+	symDir := filepath.Join(buildDir, "native-debug-symbols", "arm64-v8a")
+	symPath := filepath.Join(symDir, "libgo.so")
+	if _, err := os.Stat(symPath); os.IsNotExist(err) {
+		t.Fatalf("unstripped copy not retained at %s", symPath)
+	}
+
+	// Test emitDebugSymbolsZip
+	if err := b.emitDebugSymbolsZip(); err != nil {
+		t.Fatalf("emitDebugSymbolsZip: %v", err)
+	}
+	zipPath := filepath.Join(buildDir, "native-debug-symbols.zip")
+	if _, err := os.Stat(zipPath); os.IsNotExist(err) {
+		t.Fatalf("debug symbols zip not found at %s", zipPath)
+	}
+}
+
+func TestAndroidBuilder_retainUnstrippedSO_createsSymDir(t *testing.T) {
+	buildDir := t.TempDir()
+	libDir := filepath.Join(buildDir, "lib", "x86_64")
+	os.MkdirAll(libDir, 0o755)
+	soPath := filepath.Join(libDir, "libtest.so")
+	os.WriteFile(soPath, []byte("test so data"), 0644)
+
+	b := &androidBuilder{
+		buildDir: buildDir,
+		release:  true,
+	}
+
+	if err := b.retainUnstrippedSO(libDir, "libtest.so"); err != nil {
+		t.Fatalf("retainUnstrippedSO: %v", err)
+	}
+
+	symPath := filepath.Join(buildDir, "native-debug-symbols", "x86_64", "libtest.so")
+	if _, err := os.Stat(symPath); os.IsNotExist(err) {
+		t.Fatalf("expected unstripped copy at %s", symPath)
+	}
+
+	// Verify the debug symbols zip includes the saved copy.
+	if err := b.emitDebugSymbolsZip(); err != nil {
+		t.Fatalf("emitDebugSymbolsZip: %v", err)
+	}
+}
+
 func TestAndroidBuilder_rustProfile_debugOmitsFlag(t *testing.T) {
 	projectRoot := t.TempDir()
 
