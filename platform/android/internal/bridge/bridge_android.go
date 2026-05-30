@@ -51,6 +51,7 @@ const (
 	EventTypeKey
 	EventTypeIMECompose
 	EventTypeIMECommit
+	EventTypeConfigurationChanged
 )
 
 // Event represents an Android lifecycle or input event.
@@ -85,6 +86,15 @@ type Event struct {
 	// IME fields
 	Text      string
 	CursorPos int
+	// Configuration fields
+	Orientation   int32
+	ScreenWidthDp int32
+	ScreenHeightDp int32
+	Density       int32
+	UiModeNight   int32
+	FontScale     float32
+	Language      string
+	Country       string
 }
 
 // TouchPhase represents the phase of a touch event.
@@ -453,6 +463,28 @@ func goDeliverIMECommit(text *C.char) {
 	event := Event{
 		Type: EventTypeIMECommit,
 		Text: contents,
+	}
+	GetEventQueue().Push(event)
+}
+
+//export goDeliverConfigurationChanged
+func goDeliverConfigurationChanged(orientation C.int32_t, screenWidthDp C.int32_t,
+	screenHeightDp C.int32_t, density C.int32_t, uiModeNight C.int32_t,
+	fontScale C.float, language *C.char, country *C.char) {
+	event := Event{
+		Type:          EventTypeConfigurationChanged,
+		Orientation:   int32(orientation),
+		ScreenWidthDp: int32(screenWidthDp),
+		ScreenHeightDp: int32(screenHeightDp),
+		Density:       int32(density),
+		UiModeNight:   int32(uiModeNight),
+		FontScale:     float32(fontScale),
+	}
+	if language != nil {
+		event.Language = C.GoString(language)
+	}
+	if country != nil {
+		event.Country = C.GoString(country)
 	}
 	GetEventQueue().Push(event)
 }

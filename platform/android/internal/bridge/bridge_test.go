@@ -273,6 +273,56 @@ func TestTouchCancelPhase(t *testing.T) {
 	}
 }
 
+func TestConfigurationChangedEvent_fields(t *testing.T) {
+	q := NewEventQueue()
+
+	q.Push(Event{
+		Type:          EventTypeConfigurationChanged,
+		Orientation:   2, // ACONFIGURATION_ORIENTATION_LAND
+		ScreenWidthDp: 800,
+		ScreenHeightDp: 480,
+		Density:       320, // ACONFIGURATION_DENSITY_XHIGH
+		UiModeNight:   2,   // ACONFIGURATION_UI_MODE_NIGHT_YES
+		FontScale:     1.25,
+		Language:      "fr",
+		Country:       "CA",
+	})
+
+	events := q.Poll()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.Type != EventTypeConfigurationChanged {
+		t.Errorf("expected EventTypeConfigurationChanged, got %v", e.Type)
+	}
+	if e.Orientation != 2 {
+		t.Errorf("expected Orientation=2 (landscape), got %d", e.Orientation)
+	}
+	if e.ScreenWidthDp != 800 {
+		t.Errorf("expected ScreenWidthDp=800, got %d", e.ScreenWidthDp)
+	}
+	if e.ScreenHeightDp != 480 {
+		t.Errorf("expected ScreenHeightDp=480, got %d", e.ScreenHeightDp)
+	}
+	if e.Density != 320 {
+		t.Errorf("expected Density=320, got %d", e.Density)
+	}
+	if e.UiModeNight != 2 {
+		t.Errorf("expected UiModeNight=2 (night), got %d", e.UiModeNight)
+	}
+	if e.FontScale != 1.25 {
+		t.Errorf("expected FontScale=1.25, got %f", e.FontScale)
+	}
+	if e.Language != "fr" {
+		t.Errorf("expected Language='fr', got %q", e.Language)
+	}
+	if e.Country != "CA" {
+		t.Errorf("expected Country='CA', got %q", e.Country)
+	}
+}
+
 func TestIMEComposeCommit_orderingPreserved(t *testing.T) {
 	q := NewEventQueue()
 

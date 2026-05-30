@@ -8,6 +8,7 @@
  * - Provides the ANativeActivity_onCreate entry point
  */
 
+#include <android/configuration.h>
 #include <android/native_activity.h>
 #include <android/native_window.h>
 #include <android/input.h>
@@ -56,6 +57,10 @@ extern void goDeliverKeyEvent(int32_t keyCode, int32_t action, int32_t metaState
                               int32_t source, int32_t deviceId, int64_t eventTime);
 extern void goDeliverIMECompose(char* text, int32_t cursorPos);
 extern void goDeliverIMECommit(char* text);
+extern void goDeliverConfigurationChanged(int32_t orientation, int32_t screenWidthDp,
+                                           int32_t screenHeightDp, int32_t density,
+                                           int32_t uiModeNight, float fontScale,
+                                           const char* language, const char* country);
 extern void goDeliverPermissionResult(int32_t requestCode, int32_t granted, int32_t permanent);
 
 /* Thread-local storage for JNI environment */
@@ -135,9 +140,44 @@ static void onStop(ANativeActivity* activity) {
 
 static void onConfigurationChanged(ANativeActivity* activity) {
     LOGI("C: onConfigurationChanged called");
-    /* Configuration changes (orientation, density, fontScale, uiMode) are
-     * handled through the Go lifecycle bridge and re-layout mechanism.
-     * The C layer just logs the event for diagnostics. */
+
+    if (activity == NULL || activity->assetManager == NULL) {
+        LOGW("onConfigurationChanged: no asset manager available");
+        return;
+    }
+
+    AConfiguration* config = AConfiguration_new();
+    if (config == NULL) {
+        LOGE("onConfigurationChanged: AConfiguration_new failed");
+        return;
+    }
+
+    AConfiguration_fromAssetManager(config, activity->assetManager);
+
+    int32_t orientation   = AConfiguration_getOrientation(config);
+    int32_t screenWidthDp = AConfiguration_getScreenWidthDp(config);
+    int32_t screenHeightDp = AConfiguration_getScreenHeightDp(config);
+    int32_t density       = AConfiguration_getDensity(config);
+    int32_t uiModeNight   = AConfiguration_getUiModeNight(config);
+    float   fontScale     = 0.0f; /* AConfiguration does not provide fontScale; default to 0 (unknown) */
+
+    char language[3] = {0, 0, 0};
+    char country[3]  = {0, 0, 0};
+    AConfiguration_getLanguage(config, language); /* fills up to 2 chars + NUL */
+    AConfiguration_getCountry(config, country);
+
+    AConfiguration_delete(config);
+
+    LOGI("onConfigurationChanged: orientation=%d density=%d uiModeNight=%d "
+         "screen=%dx%ddp lang=%s country=%s",
+         orientation, density, uiModeNight,
+         screenWidthDp, screenHeightDp,
+         language[0] ? language : "(none)",
+         country[0] ? country : "(none)");
+
+    goDeliverConfigurationChanged(orientation, screenWidthDp, screenHeightDp,
+                                  density, uiModeNight, fontScale,
+                                  language, country);
 }
 
 static void onWindowFocusChanged(ANativeActivity* activity, int focused) {

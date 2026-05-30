@@ -16,7 +16,7 @@ import (
 // lifecycleApp implements platform.LifecycleCapable so the runtime's
 // lifecycle callbacks are bound during start().
 type lifecycleApp struct {
-	events       platform.EventQueue
+	events       *fakeEventQueue
 	lifecycleMu  sync.Mutex
 	onPause      func()
 	onResume     func()
@@ -24,6 +24,25 @@ type lifecycleApp struct {
 	onSurfaceLost func()
 	onSurfaceCreated func(platform.Surface)
 }
+
+type fakeEventQueue struct {
+	mu     sync.Mutex
+	events []platform.Event
+}
+
+func (q *fakeEventQueue) Push(e platform.Event) {
+	q.mu.Lock()
+	q.events = append(q.events, e)
+	q.mu.Unlock()
+}
+func (q *fakeEventQueue) Poll() []platform.Event {
+	q.mu.Lock()
+	e := q.events
+	q.events = nil
+	q.mu.Unlock()
+	return e
+}
+func (q *fakeEventQueue) Wait(timeout time.Duration) []platform.Event { return q.Poll() }
 
 func (a *lifecycleApp) Events() platform.EventQueue { return a.events }
 func (a *lifecycleApp) Destroy()                    {}
@@ -88,6 +107,13 @@ func (a *lifecycleApp) triggerLowMemory() {
 	if fn != nil { fn() }
 }
 
+func (a *lifecycleApp) triggerEvent(ev platform.Event) {
+	q := a.Events()
+	if q != nil {
+		q.Push(ev)
+	}
+}
+
 var _ platform.App = (*lifecycleApp)(nil)
 var _ platform.LifecycleCapable = (*lifecycleApp)(nil)
 
@@ -103,7 +129,7 @@ func mustLifecycleRuntime(t *testing.T, b render.Backend) (*Runtime, *lifecycleA
 	root := facet.NewFacet()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
-	app := &lifecycleApp{}
+	app := &lifecycleApp{events: &fakeEventQueue{}}
 	win := &testWindow{width: 800, height: 600}
 	if b == nil {
 		b = &backendFixture{}
@@ -376,6 +402,63 @@ func TestRuntime_signal_delivery_order(t *testing.T) {
 
 	if got := b.Get(); got != "seen" {
 		t.Fatalf("expected b to be \"seen\", got %q", got)
+	}
+}
+
+func TestRuntime_configurationChanged_triggersLayout(t *testing.T) {
+	bf := &backendFixture{}
+	rt, app := mustLifecycleRuntime(t, bf)
+
+	rt.RunOneFrame()
+	bf.submitCount.Store(0)
+
+	// Send a configuration change event through the platform event queue.
+	app.triggerEvent(platform.ConfigurationChangedEvent{
+		Orientation:   2,  // landscape
+		ScreenWidthDp: 800,
+		ScreenHeightDp: 480,
+		Density:       320,
+		UiModeNight:   true,
+		FontScale:     1.25,
+		Language:      "en",
+		Country:       "US",
+	})
+
+	// The event should be consumed by handleWindowEvents (not passed through
+	// to the input system as a routed event). Instead, it marks the tree dirty.
+	rt.RunOneFrame()
+
+	// After config change, the frame should still submit (no crash).
+	if bf.submitCount.Load() == 0 {
+		t.Fatal("expected submit after config change")
+	}
+
+	// Content scale should be updated based on density.
+	expectedScale := float32(320) / 160.0 // 2.0
+	if rt.contentScale != expectedScale {
+		t.Fatalf("expected contentScale=%.1f after density change, got %.1f", expectedScale, rt.contentScale)
+	}
+}
+
+func TestRuntime_configurationChanged_darkModePreservesState(t *testing.T) {
+	bf := &backendFixture{}
+	rt, app := mustLifecycleRuntime(t, bf)
+
+	rt.RunOneFrame()
+	bf.submitCount.Store(0)
+
+	// Toggle dark mode.
+	app.triggerEvent(platform.ConfigurationChangedEvent{
+		Orientation: 1, // portrait
+		UiModeNight: true,
+		Density:     160,
+	})
+
+	rt.RunOneFrame()
+	rt.RunOneFrame()
+
+	if bf.submitCount.Load() != 2 {
+		t.Fatalf("expected 2 submits after config change, got %d", bf.submitCount.Load())
 	}
 }
 

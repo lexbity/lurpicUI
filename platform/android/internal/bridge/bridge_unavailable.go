@@ -38,6 +38,7 @@ const (
 	EventTypeKey
 	EventTypeIMECompose
 	EventTypeIMECommit
+	EventTypeConfigurationChanged
 )
 
 const (
@@ -76,6 +77,14 @@ type Event struct {
 	MetaState   int32
 	Text        string
 	CursorPos   int
+	Orientation   int32
+	ScreenWidthDp int32
+	ScreenHeightDp int32
+	Density       int32
+	UiModeNight   int32
+	FontScale     float32
+	Language      string
+	Country       string
 }
 
 // EventQueue is the non-Android event queue.

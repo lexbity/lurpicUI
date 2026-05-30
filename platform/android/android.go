@@ -357,6 +357,17 @@ func convertBridgeEvent(e bridge.Event) platform.Event {
 		return platform.EventIMECompose{Text: e.Text, CursorPos: e.CursorPos}
 	case bridge.EventTypeIMECommit:
 		return platform.EventIMECommit{Text: e.Text}
+	case bridge.EventTypeConfigurationChanged:
+		return platform.ConfigurationChangedEvent{
+			Orientation:   int(e.Orientation),
+			ScreenWidthDp: int(e.ScreenWidthDp),
+			ScreenHeightDp: int(e.ScreenHeightDp),
+			Density:       int(e.Density),
+			UiModeNight:   e.UiModeNight != 0,
+			FontScale:     e.FontScale,
+			Language:      e.Language,
+			Country:       e.Country,
+		}
 	default:
 		return nil
 	}
