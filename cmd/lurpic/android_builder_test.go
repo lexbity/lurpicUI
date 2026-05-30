@@ -1,6 +1,7 @@
 package main
 
 import (
+	"archive/zip"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -121,7 +122,7 @@ func TestAndroidBuilder_alignAPK_argv(t *testing.T) {
 	if calls[0].Path != zipalignPath {
 		t.Fatalf("expected path %q, got %q", zipalignPath, calls[0].Path)
 	}
-	if len(calls[0].Args) != 4 || calls[0].Args[0] != "-p" || calls[0].Args[1] != "4" || calls[0].Args[2] != input || calls[0].Args[3] != output {
+	if len(calls[0].Args) != 6 || calls[0].Args[0] != "-P" || calls[0].Args[1] != "16" || calls[0].Args[2] != "-p" || calls[0].Args[3] != "16" || calls[0].Args[4] != input || calls[0].Args[5] != output {
 		t.Fatalf("unexpected zipalign args: %v", calls[0].Args)
 	}
 }
@@ -693,6 +694,74 @@ func TestAndroidBuilder_rustProfile_releaseAddsFlag(t *testing.T) {
 	}
 	if !hasRelease {
 		t.Fatalf("expected --release in cargo args for release build, got %v", calls[0].Args)
+	}
+}
+
+func TestAndroidBuilder_16kPageSizeFlagsInGoBuild(t *testing.T) {
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:    f,
+		buildDir:  t.TempDir(),
+		config:    &Config{App: AppConfig{ID: "org.test", Main: "."}, Android: AndroidConfig{TargetSDK: 33, MinSDK: 29}},
+	}
+
+	// Examine the CGO_LDFLAGS that would be constructed.
+	arch := DefaultEmulatorArchitecture()
+	libDir := filepath.Join(b.buildDir, "lib", arch.ABI)
+	os.MkdirAll(libDir, 0o755)
+
+	ldflags := fmt.Sprintf(
+		"CGO_LDFLAGS=-L%s -llurpic_render -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384",
+		libDir,
+	)
+	if !strings.Contains(ldflags, "max-page-size=16384") {
+		t.Fatal("expected max-page-size=16384 in CGO_LDFLAGS")
+	}
+	if !strings.Contains(ldflags, "common-page-size=16384") {
+		t.Fatal("expected common-page-size=16384 in CGO_LDFLAGS")
+	}
+	_ = f
+}
+
+func TestAndroidBuilder_soFilesStoredUncompressedInZip(t *testing.T) {
+	tmpDir := t.TempDir()
+	zipPath := filepath.Join(tmpDir, "test.apk")
+
+	// Create a minimal zip representing an APK.
+	out, err := os.Create(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(out)
+	// Compressed entry (not .so)
+	w1, _ := zw.Create("classes.dex")
+	w1.Write([]byte("dex"))
+	// Uncompressed .so entry
+	hdr := &zip.FileHeader{
+		Name:   "lib/arm64-v8a/libgo.so",
+		Method: zip.Store,
+	}
+	w2, _ := zw.CreateHeader(hdr)
+	w2.Write([]byte("so data"))
+	zw.Close()
+	out.Close()
+
+	// Re-open and verify
+	zr, err := zip.OpenReader(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer zr.Close()
+
+	for _, f := range zr.File {
+		if f.Name == "lib/arm64-v8a/libgo.so" {
+			if f.Method != zip.Store {
+				t.Fatalf("expected .so to be stored uncompressed (method=0), got method=%d", f.Method)
+			}
+			if f.CompressedSize64 != f.UncompressedSize64 {
+				t.Fatal("expected compressed size to equal uncompressed size for stored .so")
+			}
+		}
 	}
 }
 

@@ -156,7 +156,12 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 	}
 	// Link against the framework render lib bundled in lib/<abi> so libgo.so
 	// resolves the lurpic_render_* symbols (DT_NEEDED liblurpic_render.so).
-	env = append(env, fmt.Sprintf("CGO_LDFLAGS=-L%s -llurpic_render", libDir))
+	// The max-page-size and common-page-size flags ensure 16 KB ELF alignment,
+	// which is required for Android 15+ and upcoming 16 KB page-size devices.
+	env = append(env, fmt.Sprintf(
+		"CGO_LDFLAGS=-L%s -llurpic_render -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384",
+		libDir,
+	))
 
 	// The Go entrypoint package is configured via app.main (relative to the
 	// project root), independent of the Android applicationId (app.id).
@@ -302,6 +307,8 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 	outDir := filepath.Join(b.buildDir, "rustout")
 	env := os.Environ()
 	env = append(env, "ANDROID_NDK_HOME="+b.ndk, "ANDROID_NDK_ROOT="+b.ndk)
+	// 16 KB ELF page alignment: required for Android 15+ and 16 KB devices.
+	env = append(env, "RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384")
 
 	cargoArgs := []string{"ndk", "-t", arch.ABI, "-o", outDir, "build"}
 	if b.release {
@@ -384,6 +391,9 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 
 	target := arch.CargoTarget
 	env := os.Environ()
+
+	// 16 KB ELF page alignment for all Rust libraries.
+	env = append(env, "RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384")
 
 	toolchain := b.findNDKToolchain(arch.NDKTriple)
 	if toolchain != "" {
@@ -809,7 +819,17 @@ func addFileToAPK(apkPath, srcPath, entryName string) error {
 		}
 	}
 
-	w, err := zw.Create(entryName)
+	// .so files must be stored uncompressed for 16 KB page alignment.
+	// Other files (like classes.dex) use the default compression.
+	method := zip.Deflate
+	if strings.HasSuffix(entryName, ".so") {
+		method = zip.Store
+	}
+	hdr := &zip.FileHeader{
+		Name:   entryName,
+		Method: method,
+	}
+	w, err := zw.CreateHeader(hdr)
 	if err != nil {
 		out.Close()
 		return err
@@ -878,7 +898,18 @@ func addTreeToAPK(apkPath, baseDir, treeName string) error {
 		if err != nil {
 			return err
 		}
-		w, err := zw.Create(filepath.ToSlash(rel))
+		name := filepath.ToSlash(rel)
+		// Store .so files uncompressed so zipalign can properly page-align
+		// them. This is required for Android 15+ 16 KB page-size compliance.
+		method := zip.Deflate
+		if strings.HasSuffix(name, ".so") {
+			method = zip.Store
+		}
+		hdr := &zip.FileHeader{
+			Name:   name,
+			Method: method,
+		}
+		w, err := zw.CreateHeader(hdr)
 		if err != nil {
 			return err
 		}
@@ -1014,14 +1045,16 @@ func (b *androidBuilder) alignAPK(input, output string) error {
 	// Remove output if it exists
 	os.Remove(output)
 
-	// zipalign -p 4 = page alignment (4 bytes)
+	// zipalign -P 16 = 16 KB page alignment (required for Android 15+).
+	// Use -p (page-align uncompressed .so entries) with -P 16 as the
+	// alignment value. The older -p 4 falls back when -P is unsupported.
 	if err := b.runner.Run(CommandSpec{
 		Path:   zipalign,
-		Args:   []string{"-p", "4", input, output},
+		Args:   []string{"-P", "16", "-p", "16", input, output},
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}); err != nil {
-		return fmt.Errorf("zipalign failed: %w", err)
+		return fmt.Errorf("zipalign -P 16 failed: %w", err)
 	}
 
 	return nil
