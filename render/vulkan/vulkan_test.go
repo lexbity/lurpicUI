@@ -70,6 +70,52 @@ func TestBackendInitializeAndDestroy(t *testing.T) {
 	backend.Destroy()
 }
 
+func TestBackendRecreate_afterInitialize(t *testing.T) {
+	surface := &fakeVulkanSurface{width: 640, height: 480}
+	var backend vulkan.Backend
+	if err := backend.Initialize(surface); err != nil {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "vkresult -9") || strings.Contains(msg, "vkresult -3") || strings.Contains(msg, "no suitable vulkan physical device") || strings.Contains(msg, "no vulkan physical devices") || strings.Contains(msg, "no vulkan loader") || strings.Contains(msg, "unsupported") {
+			t.Skipf("Vulkan unavailable on this machine: %v", err)
+		}
+		t.Fatalf("Initialize: %v", err)
+	}
+	defer backend.Destroy()
+
+	// Recreate with a new surface (simulates Android surface recreation).
+	newSurface := &fakeVulkanSurface{width: 800, height: 600}
+	if err := backend.Recreate(newSurface); err != nil {
+		t.Fatalf("Recreate: %v", err)
+	}
+	if !newSurface.created {
+		t.Fatal("expected new Vulkan surface creation to be requested")
+	}
+}
+
+func TestBackendRecreate_failsWhenNotInitialized(t *testing.T) {
+	var backend vulkan.Backend
+	if err := backend.Recreate(&fakeVulkanSurface{width: 640, height: 480}); err == nil {
+		t.Fatal("expected error when recreating uninitialized backend")
+	}
+}
+
+func TestBackendRecreate_failsWithoutVulkanSurface(t *testing.T) {
+	var backend vulkan.Backend
+	if err := backend.Initialize(nil); err != nil {
+		msg := strings.ToLower(err.Error())
+		if strings.Contains(msg, "vkresult -9") || strings.Contains(msg, "vkresult -3") || strings.Contains(msg, "no suitable vulkan physical device") || strings.Contains(msg, "no vulkan physical devices") || strings.Contains(msg, "no vulkan loader") || strings.Contains(msg, "unsupported") {
+			t.Skipf("Vulkan unavailable on this machine: %v", err)
+		}
+		t.Fatalf("Initialize: %v", err)
+	}
+	defer backend.Destroy()
+
+	// A nil surface (no VulkanSurface interface) should fail.
+	if err := backend.Recreate(nil); err == nil {
+		t.Fatal("expected error when recreating with nil surface")
+	}
+}
+
 func TestBackendInitializeUsesVulkanSurfaceWhenAvailable(t *testing.T) {
 	surface := &fakeVulkanSurface{width: 640, height: 480}
 	var backend vulkan.Backend

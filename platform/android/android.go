@@ -189,6 +189,18 @@ func (s *androidSurface) CreateVulkanSurface(instance uintptr) (uintptr, error) 
 	if s == nil || s.window == 0 {
 		return 0, nil
 	}
+	// When the Vulkan renderer is already initialized (instance != 0) and
+	// this is being called to recreate the surface after a pause/resume or
+	// configuration change, use the recreate path which properly destroys
+	// the old surface and rebuilds the swapchain.
+	if instance != 0 && vulkan.InstanceHandle() != 0 {
+		if err := vulkan.RecreateAndroidSurface(s.window, uint32(s.width), uint32(s.height)); err != nil {
+			return 0, err
+		}
+		// Return the instance as a non-zero handle to signal success;
+		// the Rust-side handles surface tracking internally.
+		return instance, nil
+	}
 	return vulkan.CreateAndroidSurface(s.window, instance, uint32(s.width), uint32(s.height))
 }
 

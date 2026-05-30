@@ -1,5 +1,8 @@
 use std::collections::HashMap;
-use std::ffi::{c_char, c_void};
+use std::ffi::c_char;
+
+#[cfg(target_os = "android")]
+use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -360,6 +363,7 @@ pub extern "C" fn lurpic_render_create_xcb_surface(
     })
 }
 
+#[cfg(target_os = "android")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_create_surface_android(
     android_window: *mut c_void,
@@ -369,17 +373,29 @@ pub extern "C" fn lurpic_render_create_surface_android(
     out_surface: *mut usize,
 ) -> RenderResult {
     catch_render_result("create_surface_android", || {
-        let _ = (android_window, instance, width, height);
         if out_surface.is_null() {
             return Err((
                 RenderResult::InvalidHandle,
                 "surface output pointer is null".to_string(),
             ));
         }
-        Err((
-            RenderResult::InitFailed,
-            "android surface creation is not implemented yet".to_string(),
-        ))
+        let surface = vulkan::create_android_surface(instance, android_window, width, height)?;
+        unsafe {
+            *out_surface = surface;
+        }
+        Ok(())
+    })
+}
+
+#[cfg(target_os = "android")]
+#[no_mangle]
+pub extern "C" fn lurpic_render_recreate_surface_android(
+    android_window: *mut c_void,
+    width: u32,
+    height: u32,
+) -> RenderResult {
+    catch_render_result("recreate_surface_android", || {
+        vulkan::recreate_surface_android(android_window, width, height)
     })
 }
 

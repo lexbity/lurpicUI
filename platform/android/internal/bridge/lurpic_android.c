@@ -162,9 +162,10 @@ static void onNativeWindowResized(ANativeActivity* activity, ANativeWindow* wind
 
 static void onNativeWindowRedrawNeeded(ANativeActivity* activity, ANativeWindow* window) {
     LOGI("C: onNativeWindowRedrawNeeded called");
-    /* Redraw is driven by the frame pipeline; surface recreation and resize
-     * are handled through the native window callbacks. This callback serves
-     * as a hint that the window content needs repainting. */
+    /* Surface recreation, swapchain rebuild, and redraw are driven by the
+     * Vulkan backend's recreate path (lurpic_render_recreate_surface_android)
+     * through the native window lifecycle callbacks. This callback serves as
+     * an additional hint that the window content needs repainting. */
 }
 
 static void onInputQueueCreated(ANativeActivity* activity, AInputQueue* queue) {

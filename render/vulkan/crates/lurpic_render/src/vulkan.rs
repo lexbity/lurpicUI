@@ -184,6 +184,9 @@ const VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO: VkStructureType = 2;
 const VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO: VkStructureType = 3;
 const VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT: VkStructureType = 1000128004;
 const VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR: VkStructureType = 1000005000;
+
+#[cfg(target_os = "android")]
+const VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR: VkStructureType = 1000008000;
 const VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR: VkStructureType = 1000001000;
 const VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO: VkStructureType = 39;
 const VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO: VkStructureType = 40;
@@ -613,6 +616,184 @@ impl VulkanState {
         Ok(surface)
     }
 
+    #[cfg(target_os = "android")]
+    unsafe fn create_android_surface(
+        &mut self,
+        android_window: *mut c_void,
+        width: u32,
+        height: u32,
+    ) -> Result<VkSurfaceKHR, (RenderResult, String)> {
+        if self.device.is_null() || self.instance.is_null() {
+            return Err((
+                RenderResult::InitFailed,
+                "renderer is not initialized".to_string(),
+            ));
+        }
+        if !self.surface.is_null() {
+            return Ok(self.surface);
+        }
+
+        let create_android_surface_khr: PfnVkCreateAndroidSurfaceKHR = self
+            ._loader
+            .load_instance_proc(self.instance, cstr(b"vkCreateAndroidSurfaceKHR\0"))?;
+        let get_surface_support: PfnVkGetPhysicalDeviceSurfaceSupportKHR =
+            self._loader.load_instance_proc(
+                self.instance,
+                cstr(b"vkGetPhysicalDeviceSurfaceSupportKHR\0"),
+            )?;
+
+        let create_info = VkAndroidSurfaceCreateInfoKHR {
+            s_type: VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
+            p_next: ptr::null(),
+            flags: 0,
+            window: android_window,
+        };
+        let mut surface: VkSurfaceKHR = ptr::null_mut();
+        let rc = create_android_surface_khr(
+            self.instance,
+            &create_info,
+            ptr::null(),
+            &mut surface,
+        );
+        if rc != VK_SUCCESS {
+            return Err(vk_error("vkCreateAndroidSurfaceKHR", rc));
+        }
+
+        let mut supported = 0u32;
+        let rc = get_surface_support(
+            self.physical_device,
+            self.capabilities.graphics_queue_family_index,
+            surface,
+            &mut supported,
+        );
+        if rc != VK_SUCCESS {
+            if let Ok(destroy_surface) = self._loader.load_instance_proc::<PfnVkDestroySurfaceKHR>(
+                self.instance,
+                cstr(b"vkDestroySurfaceKHR\0"),
+            ) {
+                destroy_surface(self.instance, surface, ptr::null());
+            }
+            return Err(vk_error("vkGetPhysicalDeviceSurfaceSupportKHR", rc));
+        }
+        if supported == 0 {
+            if let Ok(destroy_surface) = self._loader.load_instance_proc::<PfnVkDestroySurfaceKHR>(
+                self.instance,
+                cstr(b"vkDestroySurfaceKHR\0"),
+            ) {
+                destroy_surface(self.instance, surface, ptr::null());
+            }
+            return Err((
+                RenderResult::InitFailed,
+                "graphics queue family cannot present to the Android surface".to_string(),
+            ));
+        }
+
+        self.surface = surface;
+        self.requested_width = width;
+        self.requested_height = height;
+        if let Err(err) = self.recreate_swapchain() {
+            if let Ok(destroy_surface) = self._loader.load_instance_proc::<PfnVkDestroySurfaceKHR>(
+                self.instance,
+                cstr(b"vkDestroySurfaceKHR\0"),
+            ) {
+                destroy_surface(self.instance, surface, ptr::null());
+            }
+            self.surface = ptr::null_mut();
+            return Err(err);
+        }
+        Ok(surface)
+    }
+
+    /// Rebuilds the surface and swapchain from a new ANativeWindow pointer.
+    /// Used on Android when the surface is recreated after a pause/resume cycle.
+    #[cfg(target_os = "android")]
+    unsafe fn recreate_surface_android(
+        &mut self,
+        android_window: *mut c_void,
+        width: u32,
+        height: u32,
+    ) -> Result<(), (RenderResult, String)> {
+        if self.device.is_null() || self.instance.is_null() {
+            return Err((
+                RenderResult::InitFailed,
+                "renderer is not initialized".to_string(),
+            ));
+        }
+
+        // Destroy the old surface (and its swapchain) before creating the new one.
+        self.destroy_swapchain_resources();
+        if !self.surface.is_null() {
+            if let Ok(destroy_surface) = self._loader.load_instance_proc::<PfnVkDestroySurfaceKHR>(
+                self.instance,
+                cstr(b"vkDestroySurfaceKHR\0"),
+            ) {
+                destroy_surface(self.instance, self.surface, ptr::null());
+            }
+            self.surface = ptr::null_mut();
+        }
+
+        // Create new surface from the new ANativeWindow.
+        let create_android_surface_khr: PfnVkCreateAndroidSurfaceKHR = self
+            ._loader
+            .load_instance_proc(self.instance, cstr(b"vkCreateAndroidSurfaceKHR\0"))?;
+        let get_surface_support: PfnVkGetPhysicalDeviceSurfaceSupportKHR =
+            self._loader.load_instance_proc(
+                self.instance,
+                cstr(b"vkGetPhysicalDeviceSurfaceSupportKHR\0"),
+            )?;
+
+        let create_info = VkAndroidSurfaceCreateInfoKHR {
+            s_type: VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR,
+            p_next: ptr::null(),
+            flags: 0,
+            window: android_window,
+        };
+        let mut new_surface: VkSurfaceKHR = ptr::null_mut();
+        let rc = create_android_surface_khr(
+            self.instance,
+            &create_info,
+            ptr::null(),
+            &mut new_surface,
+        );
+        if rc != VK_SUCCESS {
+            return Err(vk_error("vkCreateAndroidSurfaceKHR (recreate)", rc));
+        }
+
+        let mut supported = 0u32;
+        let rc = get_surface_support(
+            self.physical_device,
+            self.capabilities.graphics_queue_family_index,
+            new_surface,
+            &mut supported,
+        );
+        if rc != VK_SUCCESS {
+            if let Ok(destroy_surface) = self._loader.load_instance_proc::<PfnVkDestroySurfaceKHR>(
+                self.instance,
+                cstr(b"vkDestroySurfaceKHR\0"),
+            ) {
+                destroy_surface(self.instance, new_surface, ptr::null());
+            }
+            return Err(vk_error("vkGetPhysicalDeviceSurfaceSupportKHR (recreate)", rc));
+        }
+        if supported == 0 {
+            if let Ok(destroy_surface) = self._loader.load_instance_proc::<PfnVkDestroySurfaceKHR>(
+                self.instance,
+                cstr(b"vkDestroySurfaceKHR\0"),
+            ) {
+                destroy_surface(self.instance, new_surface, ptr::null());
+            }
+            return Err((
+                RenderResult::InitFailed,
+                "queue family cannot present to the recreated Android surface".to_string(),
+            ));
+        }
+
+        self.surface = new_surface;
+        self.requested_width = width;
+        self.requested_height = height;
+        self.recreate_swapchain()
+    }
+
     unsafe fn resize(&mut self, width: u32, height: u32) -> Result<(), (RenderResult, String)> {
         if self.surface.is_null() {
             self.requested_width = width;
@@ -684,6 +865,12 @@ impl VulkanState {
         if rc == VK_ERROR_OUT_OF_DATE_KHR || rc == VK_SUBOPTIMAL_KHR {
             self.recreate_swapchain()?;
             return Ok(());
+        }
+        if rc == VK_ERROR_DEVICE_LOST {
+            return Err((
+                RenderResult::VulkanError,
+                "device lost during vkAcquireNextImageKHR".to_string(),
+            ));
         }
         if rc != VK_SUCCESS {
             return Err(vk_error("vkAcquireNextImageKHR", rc));
@@ -833,6 +1020,12 @@ impl VulkanState {
         if rc == VK_ERROR_OUT_OF_DATE_KHR || rc == VK_SUBOPTIMAL_KHR {
             self.recreate_swapchain()?;
             return Ok(());
+        }
+        if rc == VK_ERROR_DEVICE_LOST {
+            return Err((
+                RenderResult::VulkanError,
+                "device lost during vkQueuePresentKHR".to_string(),
+            ));
         }
         if rc != VK_SUCCESS {
             return Err(vk_error("vkQueuePresentKHR", rc));
@@ -1261,6 +1454,24 @@ struct VkXcbSurfaceCreateInfoKHR {
     window: u32,
 }
 
+#[cfg(target_os = "android")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct VkAndroidSurfaceCreateInfoKHR {
+    s_type: VkStructureType,
+    p_next: *const c_void,
+    flags: VkFlags,
+    window: *mut c_void, // ANativeWindow*
+}
+
+#[cfg(target_os = "android")]
+type PfnVkCreateAndroidSurfaceKHR = unsafe extern "system" fn(
+    VkInstance,
+    *const VkAndroidSurfaceCreateInfoKHR,
+    *const c_void,
+    *mut VkSurfaceKHR,
+) -> VkResult;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct VkSurfaceCapabilitiesKHR {
@@ -1612,6 +1823,51 @@ pub fn create_xcb_surface(
     }
 }
 
+#[cfg(target_os = "android")]
+pub fn create_android_surface(
+    instance: usize,
+    android_window: *mut c_void,
+    width: u32,
+    height: u32,
+) -> Result<usize, (RenderResult, String)> {
+    let mut guard = state_lock();
+    let Some(state) = guard.as_mut() else {
+        return Err((
+            RenderResult::InitFailed,
+            "renderer is not initialized".to_string(),
+        ));
+    };
+    if state.instance_handle() != instance {
+        return Err((
+            RenderResult::InvalidHandle,
+            "instance handle does not match the active renderer".to_string(),
+        ));
+    }
+    unsafe {
+        let surface =
+            state.create_android_surface(android_window, width, height)?;
+        Ok(surface as usize)
+    }
+}
+
+#[cfg(target_os = "android")]
+pub fn recreate_surface_android(
+    android_window: *mut c_void,
+    width: u32,
+    height: u32,
+) -> Result<(), (RenderResult, String)> {
+    let mut guard = state_lock();
+    let Some(state) = guard.as_mut() else {
+        return Err((
+            RenderResult::InitFailed,
+            "renderer is not initialized".to_string(),
+        ));
+    };
+    unsafe {
+        state.recreate_surface_android(android_window, width, height)
+    }
+}
+
 pub fn resize(width: i32, height: i32) -> Result<(), (RenderResult, String)> {
     let mut guard = state_lock();
     let Some(state) = guard.as_mut() else {
@@ -1707,7 +1963,14 @@ unsafe fn init_with_loader(loader: VulkanLoader) -> Result<VulkanState, (RenderR
 
     let mut enabled_extensions: Vec<*const c_char> = Vec::new();
     enabled_extensions.push(cstr_ptr("VK_KHR_surface"));
-    enabled_extensions.push(cstr_ptr("VK_KHR_xcb_surface"));
+    #[cfg(target_os = "android")]
+    {
+        enabled_extensions.push(cstr_ptr("VK_KHR_android_surface"));
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        enabled_extensions.push(cstr_ptr("VK_KHR_xcb_surface"));
+    }
     if extension_available(&loader, None, "VK_EXT_debug_utils")? {
         enabled_extensions.push(cstr_ptr("VK_EXT_debug_utils"));
     }

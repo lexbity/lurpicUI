@@ -29,6 +29,7 @@ int lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t siz
 int lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle);
 int lurpic_render_destroy_image(uint64_t handle);
 int lurpic_render_create_surface_android(void *android_window, uintptr_t instance, uint32_t width, uint32_t height, uintptr_t *out_surface);
+int lurpic_render_recreate_surface_android(void *android_window, uint32_t width, uint32_t height);
 int lurpic_render_resize(int width, int height);
 int lurpic_render_present(void);
 void lurpic_render_unload(void);
@@ -109,6 +110,14 @@ func CreateAndroidSurface(window uintptr, instance uintptr, width, height uint32
 		return 0, errors.New("vulkan: Rust returned a zero surface handle")
 	}
 	return uintptr(out), nil
+}
+
+func RecreateAndroidSurface(window uintptr, width, height uint32) error {
+	return translateStatus(C.lurpic_render_recreate_surface_android(
+		unsafe.Pointer(window),
+		C.uint32_t(width),
+		C.uint32_t(height),
+	))
 }
 
 func Resize(width, height int) error {

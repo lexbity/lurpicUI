@@ -69,6 +69,43 @@ func (b *Backend) Submit(f *render.Frame) error {
 	return Present()
 }
 
+// Recreate rebuilds the Vulkan surface + swapchain for a new platform Surface.
+// Used on Android when the native window is recreated after pause/resume or
+// configuration change. On desktop this calls the platform's CreateVulkanSurface
+// to recreate the surface for the new window, then Resize to rebuild the swapchain.
+func (b *Backend) Recreate(s render.Surface) error {
+	if !b.initialized {
+		return errors.New("vulkan backend: not initialized")
+	}
+	vs, ok := s.(render.VulkanSurface)
+	if !ok {
+		return errors.New("vulkan backend: surface does not support Vulkan")
+	}
+	instance := InstanceHandle()
+	if instance == 0 {
+		return errors.New("vulkan backend: instance unavailable")
+	}
+	w, h := s.Size()
+
+	// Destroy the old surface state and create a fresh one. On Android this
+	// calls into Rust which does lurpic_render_recreate_surface_android.
+	surface, err := vs.CreateVulkanSurface(instance)
+	if err != nil {
+		return fmt.Errorf("vulkan backend: recreate surface: %w", err)
+	}
+	if surface == 0 {
+		b.hasSurface = false
+		return errors.New("vulkan backend: recreate returned zero surface")
+	}
+	b.hasSurface = true
+
+	// Resize the swapchain to match the new surface dimensions.
+	if err := Resize(w, h); err != nil {
+		return fmt.Errorf("vulkan backend: recreate resize: %w", err)
+	}
+	return nil
+}
+
 func (b *Backend) Resize(w, h int) error {
 	if !b.initialized {
 		return errNotImplemented
