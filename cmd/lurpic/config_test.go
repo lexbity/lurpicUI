@@ -387,6 +387,39 @@ func TestLoadConfig_NotFound(t *testing.T) {
 	}
 }
 
+func TestAssetConfig_defaultNoCompressIncludesPak(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.defaults"
+name = "Defaults Test"
+
+[android]
+target_sdk = 35
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if config.Android.Assets.NoCompress == nil {
+		t.Fatal("expected NoCompress to have a default value")
+	}
+	foundPak := false
+	for _, p := range config.Android.Assets.NoCompress {
+		if p == "*.pak" {
+			foundPak = true
+			break
+		}
+	}
+	if !foundPak {
+		t.Fatalf("expected NoCompress to contain '*.pak', got %v", config.Android.Assets.NoCompress)
+	}
+}
+
 func TestAssetConfig_noCompressParsing(t *testing.T) {
 	tmpDir := t.TempDir()
 

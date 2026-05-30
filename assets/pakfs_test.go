@@ -200,6 +200,116 @@ func TestPakFSConcurrentLoadAndClose(t *testing.T) {
 	}
 }
 
+func TestNewPakFSFromFDReadsLODs(t *testing.T) {
+	imageID, err := assets.ParseAssetID("01234567-89ab-cdef-0123-456789abcdef")
+	if err != nil {
+		t.Fatalf("parse image id: %v", err)
+	}
+	fontID, err := assets.ParseAssetID("01234567-89ab-cdef-0123-456789abcdee")
+	if err != nil {
+		t.Fatalf("parse font id: %v", err)
+	}
+
+	tree := &cook.DependencyTree{
+		Leaves: []cook.AssetNode{
+			{ID: imageID, Path: "assets/image.png", Type: assets.AssetTypeImage, LODs: []cook.CompiledLOD{{Level: 0, Data: []byte("image-lod0")}}},
+			{ID: fontID, Path: "assets/font.ttf", Type: assets.AssetTypeFont, LODs: []cook.CompiledLOD{{Level: 0, Data: []byte("font-lod0-data")}}},
+		},
+	}
+	pak, err := (&cook.Packer{}).Pack(tree)
+	if err != nil {
+		t.Fatalf("pack tree: %v", err)
+	}
+
+	dir := t.TempDir()
+	pakPath := filepath.Join(dir, "assets.pak")
+	if err := os.WriteFile(pakPath, pak, 0o644); err != nil {
+		t.Fatalf("write pak: %v", err)
+	}
+
+	// Open the file to get an fd, then create PakFS from fd.
+	f, err := os.Open(pakPath)
+	if err != nil {
+		t.Fatalf("open pak: %v", err)
+	}
+	defer f.Close()
+
+	fi, err := f.Stat()
+	if err != nil {
+		t.Fatalf("stat: %v", err)
+	}
+
+	pfs, err := assets.NewPakFSFromFD(int(f.Fd()), 0, fi.Size())
+	if err != nil {
+		t.Fatalf("NewPakFSFromFD: %v", err)
+	}
+	defer pfs.Close()
+
+	// ReadLOD must work on fd-based PakFS.
+	rawImage, err := pfs.ReadLOD(imageID, 0)
+	if err != nil {
+		t.Fatalf("read raw image lod: %v", err)
+	}
+	if !bytes.Equal(rawImage, []byte("image-lod0")) {
+		t.Fatalf("unexpected raw image bytes: %q", rawImage)
+	}
+
+	// fs.FS must work on fd-based PakFS.
+	imageFile, err := fs.ReadFile(pfs, imageID.String())
+	if err != nil {
+		t.Fatalf("read image via fs: %v", err)
+	}
+	if !bytes.Equal(imageFile, []byte("image-lod0")) {
+		t.Fatalf("unexpected decoded image bytes: %q", imageFile)
+	}
+
+	// Root directory listing.
+	entries, err := fs.ReadDir(pfs, ".")
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Fatalf("unexpected root entry count: %d", len(entries))
+	}
+
+	// Close and verify no double-close panic.
+	if err := pfs.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := pfs.Close(); err != nil {
+		t.Fatalf("double close: %v", err)
+	}
+
+	// Reads after close must fail.
+	_, err = pfs.ReadLOD(imageID, 0)
+	if err == nil {
+		t.Fatal("expected error reading after close")
+	}
+}
+
+func TestNewPakFSFromFDRejectsInvalid(t *testing.T) {
+	dir := t.TempDir()
+	pakPath := filepath.Join(dir, "assets.pak")
+	if err := os.WriteFile(pakPath, []byte{}, 0o644); err != nil {
+		t.Fatalf("write empty: %v", err)
+	}
+	f, err := os.Open(pakPath)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	defer f.Close()
+
+	// Zero length should fail.
+	if _, err := assets.NewPakFSFromFD(int(f.Fd()), 0, 0); err == nil {
+		t.Fatal("expected error for zero length")
+	}
+
+	// Negative length should fail.
+	if _, err := assets.NewPakFSFromFD(int(f.Fd()), 0, -1); err == nil {
+		t.Fatal("expected error for negative length")
+	}
+}
+
 func TestPakFSManagerRoundTrip(t *testing.T) {
 	imageID, err := assets.ParseAssetID("01234567-89ab-cdef-0123-456789abcdef")
 	if err != nil {

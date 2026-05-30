@@ -61,6 +61,51 @@ func (c *fakeAndroidExtractionContext) SetExtractionProgress(progress float32) {
 	c.mu.Unlock()
 }
 
+// fdExtractionContext is like fakeAndroidExtractionContext but also
+// implements APKFDSource, returning an fd to the bundled data.
+type fdExtractionContext struct {
+	fakeAndroidExtractionContext
+	pakPath string // real file path for fd access
+}
+
+func (c *fdExtractionContext) OpenAPKAssetFD(name string) (int, int64, int64, error) {
+	if name != "assets.pak" || c.pakPath == "" {
+		return -1, 0, 0, os.ErrNotExist
+	}
+	f, err := os.Open(c.pakPath)
+	if err != nil {
+		return -1, 0, 0, err
+	}
+	fi, err := f.Stat()
+	if err != nil {
+		f.Close()
+		return -1, 0, 0, err
+	}
+	return int(f.Fd()), 0, fi.Size(), nil
+}
+
+func TestOpenAndroidPakFDFallback(t *testing.T) {
+	dir := t.TempDir()
+	// A completely empty bundle — extraction succeeds but NewPakFS rejects it.
+	payload := []byte{}
+
+	ctx := &fakeAndroidExtractionContext{
+		dir:    dir,
+		bundle: payload,
+	}
+	// Does NOT implement APKFDSource — must fall back to extraction.
+	// The extraction creates an empty file, which NewPakFS rejects.
+	_, err := OpenAndroidPak(ctx)
+	if err == nil {
+		t.Fatal("expected error for empty pak data (extraction should still have run)")
+	}
+	// Verify extraction actually happened (file was created).
+	dest := filepath.Join(dir, "assets.pak")
+	if _, statErr := os.Stat(dest); statErr != nil {
+		t.Fatalf("extracted file not found: %v", statErr)
+	}
+}
+
 func TestExtractPakIfNeededHashesAndCopiesBundledPak(t *testing.T) {
 	dir := t.TempDir()
 	ctx := &fakeAndroidExtractionContext{
