@@ -125,6 +125,88 @@ func TestAssetDiagnostics_FrameStatsPopulated(t *testing.T) {
 	rt.Shutdown()
 }
 
+func TestAssetDiagnostics_ProcessDeathHandleRestore(t *testing.T) {
+	// Simulate process death: create a manager, load assets, then create
+	// a new manager (as happens after process death) and verify the new
+	// handles work independently.
+	id := assets.AssetID{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
+
+	// First "lifetime" — create a registry and register an asset.
+	reg1 := assets.NewAssetRegistryStore()
+	reg1.SetLODReady(id, 0, &assets.DecodedSVGLOD0{Data: []byte("icon")}, 1)
+
+	mgr1 := &assetDiagFixtureWithID{id: id, reg: reg1}
+	if rt1 := rtWithManager(t, mgr1, reg1); rt1 != nil {
+		handle1 := rt1.AssetManager().LoadSVG("icons/check.svg")
+		if handle1.IsZero() {
+			t.Fatal("handle1 should be valid in first lifetime")
+		}
+		rt1.Shutdown()
+	}
+
+	// "Process death" — new registry, new manager (simulates restart).
+	reg2 := assets.NewAssetRegistryStore()
+	reg2.SetLODReady(id, 0, &assets.DecodedSVGLOD0{Data: []byte("icon")}, 1)
+
+	mgr2 := &assetDiagFixtureWithID{id: id, reg: reg2}
+	if rt2 := rtWithManager(t, mgr2, reg2); rt2 != nil {
+		handle2 := rt2.AssetManager().LoadSVG("icons/check.svg")
+		if handle2.IsZero() {
+			t.Fatal("handle2 should be valid after process death (new lifetime)")
+		}
+		// Handle2 must reference reg2 (the new registry), not reg1.
+		if handle2.Registry() != reg2 {
+			t.Fatal("handle2 must reference the new registry after process death")
+		}
+		if handle2.Registry() == reg1 {
+			t.Fatal("handle2 must NOT reference the old registry (process death)")
+		}
+		rt2.Shutdown()
+	}
+}
+
+// assetDiagFixtureWithID implements assets.Manager returning a fixed handle.
+type assetDiagFixtureWithID struct {
+	id  assets.AssetID
+	reg *assets.AssetRegistryStore
+}
+
+func (f *assetDiagFixtureWithID) Open(name string) (fs.File, error) { return nil, fs.ErrNotExist }
+func (f *assetDiagFixtureWithID) LoadSVG(path string) assets.Handle {
+	return assets.NewHandle(f.id, f.reg)
+}
+func (f *assetDiagFixtureWithID) LoadImage(path string) assets.Handle {
+	return assets.NewHandle(f.id, f.reg)
+}
+func (f *assetDiagFixtureWithID) LoadTexture(path string) assets.Handle {
+	return assets.NewHandle(f.id, f.reg)
+}
+func (f *assetDiagFixtureWithID) LoadFont(path string) assets.Handle {
+	return assets.NewHandle(f.id, f.reg)
+}
+func (f *assetDiagFixtureWithID) LoadConfig(path string, dst any) assets.Handle {
+	return assets.NewHandle(f.id, f.reg)
+}
+func (f *assetDiagFixtureWithID) Prefetch(paths ...string) {}
+func (f *assetDiagFixtureWithID) Invalidate(path string)   {}
+func (f *assetDiagFixtureWithID) Close() error             { return nil }
+func (f *assetDiagFixtureWithID) DrainCompleted() int      { return 0 }
+func (f *assetDiagFixtureWithID) Stats() assets.ManagerStats { return assets.ManagerStats{} }
+
+func rtWithManager(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) *Runtime {
+	t.Helper()
+	root := facet.NewFacet()
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.AssetManager = mgr
+	cfg.AssetRegistry = reg
+	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	return rt
+}
+
 func TestAssetDiagnostics_ManagerAccessors(t *testing.T) {
 	fixture := &assetDiagFixture{}
 	root := facet.NewFacet()
