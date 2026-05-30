@@ -1,4 +1,4 @@
-//go:build android
+//go:build android && cgo
 // +build android
 
 // Package bridge provides the Go-side implementation of the Android native bridge.

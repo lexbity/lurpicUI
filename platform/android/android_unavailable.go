@@ -1,4 +1,4 @@
-//go:build !android
+//go:build !android || (android && !cgo)
 // +build !android
 
 package android
@@ -6,6 +6,7 @@ package android
 import (
 	"errors"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/platform"
 )
 
@@ -52,3 +53,9 @@ func RequestLocationWithPrecision(precise bool) <-chan PermissionResult {
 	close(ch)
 	return ch
 }
+
+// OpenPlatformPak is a stub on non-Android / no-CGO builds.
+func OpenPlatformPak() (*assets.PakFS, error) {
+	return nil, errors.New("android: platform pak requires CGO (android NDK)")
+}
+
