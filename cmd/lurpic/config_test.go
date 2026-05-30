@@ -104,14 +104,42 @@ name = "ABI Test"
 		t.Fatalf("loadConfig: %v", err)
 	}
 
+	if len(config.Android.ABIs) != 1 {
+		t.Fatalf("expected 1 default ABI, got %d: %v", len(config.Android.ABIs), config.Android.ABIs)
+	}
+	if config.Android.ABIs[0] != "arm64-v8a" {
+		t.Fatalf("expected default ABI arm64-v8a, got %q", config.Android.ABIs[0])
+	}
+}
+
+func TestLoadConfig_ABIExplicitIncludesX86_64(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.abis"
+name = "ABI Test"
+
+[android]
+abis = ["arm64-v8a", "x86_64"]
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
 	if len(config.Android.ABIs) != 2 {
-		t.Fatalf("expected 2 default ABIs, got %d", len(config.Android.ABIs))
+		t.Fatalf("expected 2 ABIs, got %d: %v", len(config.Android.ABIs), config.Android.ABIs)
 	}
-	if config.Android.ABIs[0] != "x86_64" {
-		t.Fatalf("expected ABIs[0] = x86_64, got %q", config.Android.ABIs[0])
+	if config.Android.ABIs[0] != "arm64-v8a" {
+		t.Fatalf("expected ABIs[0] = arm64-v8a, got %q", config.Android.ABIs[0])
 	}
-	if config.Android.ABIs[1] != "arm64-v8a" {
-		t.Fatalf("expected ABIs[1] = arm64-v8a, got %q", config.Android.ABIs[1])
+	if config.Android.ABIs[1] != "x86_64" {
+		t.Fatalf("expected ABIs[1] = x86_64, got %q", config.Android.ABIs[1])
 	}
 }
 

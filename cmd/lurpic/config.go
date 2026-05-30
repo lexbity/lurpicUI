@@ -129,7 +129,9 @@ func loadConfig(projectRoot string) (*Config, error) {
 	}
 
 	if config.Android.ABIs == nil {
-		config.Android.ABIs = []string{"x86_64", "arm64-v8a"}
+		// arm64-v8a is the mandatory release ABI. x86_64 is available for
+		// emulator and Chromebook testing but must be explicitly configured.
+		config.Android.ABIs = []string{"arm64-v8a"}
 	}
 
 	// *.pak files must be stored uncompressed so the APK fd can be mmap'd
@@ -250,6 +252,12 @@ func validateAndroidConfigForRelease(config *Config) error {
 	if config.App.Name == "" {
 		return fmt.Errorf("app.name is required for release builds")
 	}
+	if !containsABI(config.Android.ABIs, "arm64-v8a") {
+		return fmt.Errorf(
+			"release builds must include arm64-v8a in android.abis; "+
+				"x86_64 is available for emulator/Chromebook testing but must be explicitly added",
+		)
+	}
 	return nil
 }
 
@@ -258,6 +266,15 @@ func validateAndroidConfigForRelease(config *Config) error {
 // letter and containing only letters, digits, or underscores. aapt2 rejects
 // anything else, so this fails fast with a clear message instead of deep in the
 // build.
+func containsABI(abis []string, target string) bool {
+	for _, a := range abis {
+		if a == target {
+			return true
+		}
+	}
+	return false
+}
+
 func validateAndroidPackageName(id string) error {
 	segments := strings.Split(id, ".")
 	if len(segments) < 2 {

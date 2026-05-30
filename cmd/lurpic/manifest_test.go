@@ -340,7 +340,7 @@ required = ["android.permission.INTERNET"]
 func TestValidateAndroidConfigForRelease_rejectsTargetSdkBelow35(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
 		App: AppConfig{ID: "com.example", Name: "Test"},
-		Android: AndroidConfig{TargetSDK: 34, MinSDK: 24, VersionCode: 1},
+		Android: AndroidConfig{TargetSDK: 34, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for targetSdk < 35")
@@ -353,7 +353,7 @@ func TestValidateAndroidConfigForRelease_rejectsTargetSdkBelow35(t *testing.T) {
 func TestValidateAndroidConfigForRelease_acceptsTargetSdk35(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
 		App: AppConfig{ID: "com.example", Name: "Test"},
-		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err != nil {
 		t.Fatalf("expected no error for targetSdk 35, got: %v", err)
@@ -363,7 +363,7 @@ func TestValidateAndroidConfigForRelease_acceptsTargetSdk35(t *testing.T) {
 func TestValidateAndroidConfigForRelease_acceptsTargetSdk36(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
 		App: AppConfig{ID: "com.example", Name: "Test"},
-		Android: AndroidConfig{TargetSDK: 36, MinSDK: 24, VersionCode: 1},
+		Android: AndroidConfig{TargetSDK: 36, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err != nil {
 		t.Fatalf("expected no error for targetSdk 36, got: %v", err)
@@ -373,7 +373,7 @@ func TestValidateAndroidConfigForRelease_acceptsTargetSdk36(t *testing.T) {
 func TestValidateAndroidConfigForRelease_rejectsLowMinSdk(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
 		App: AppConfig{ID: "com.example", Name: "Test"},
-		Android: AndroidConfig{TargetSDK: 35, MinSDK: 19, VersionCode: 1},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 19, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for minSdk < 21")
@@ -386,7 +386,7 @@ func TestValidateAndroidConfigForRelease_rejectsLowMinSdk(t *testing.T) {
 func TestValidateAndroidConfigForRelease_rejectsEmptyAppID(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
 		App:     AppConfig{Name: "Test"},
-		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for empty app id")
@@ -396,7 +396,7 @@ func TestValidateAndroidConfigForRelease_rejectsEmptyAppID(t *testing.T) {
 func TestValidateAndroidConfigForRelease_rejectsEmptyAppName(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
 		App:     AppConfig{ID: "com.example"},
-		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for empty app name")
@@ -406,10 +406,33 @@ func TestValidateAndroidConfigForRelease_rejectsEmptyAppName(t *testing.T) {
 func TestValidateAndroidConfigForRelease_rejectsZeroVersionCode(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
 		App:     AppConfig{ID: "com.example", Name: "Test"},
-		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 0},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 0, ABIs: []string{"arm64-v8a"}},
 	})
 	if err == nil {
 		t.Fatal("expected error for zero version code")
+	}
+}
+
+func TestValidateAndroidConfigForRelease_rejectsMissingArm64(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App:     AppConfig{ID: "com.example", Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1, ABIs: []string{"x86_64"}},
+	})
+	if err == nil {
+		t.Fatal("expected error for ABIs missing arm64-v8a")
+	}
+	if !strings.Contains(err.Error(), "arm64-v8a") {
+		t.Errorf("expected error mentioning arm64-v8a, got: %v", err)
+	}
+}
+
+func TestValidateAndroidConfigForRelease_acceptsMultiABI(t *testing.T) {
+	err := validateAndroidConfigForRelease(&Config{
+		App:     AppConfig{ID: "com.example", Name: "Test"},
+		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a", "x86_64"}},
+	})
+	if err != nil {
+		t.Fatalf("expected no error for arm64-v8a + x86_64, got: %v", err)
 	}
 }
 
