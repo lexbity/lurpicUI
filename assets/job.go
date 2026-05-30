@@ -3,6 +3,7 @@ package assets
 import (
 	"encoding/binary"
 	"fmt"
+	"io"
 	"io/fs"
 	"sync"
 	"time"
@@ -135,6 +136,34 @@ func (m *ManagerImpl) Invalidate(path string) {
 	if id := m.idReg.Lookup(path); id != (AssetID{}) {
 		m.registry.Invalidate(id)
 	}
+}
+
+// Close drains all pending results and closes the underlying AssetSource.
+// After Close, the ManagerImpl must not be used for further scheduling.
+// This is the ordered teardown sequence: drain results → close source.
+func (m *ManagerImpl) Close() error {
+	if m == nil {
+		return nil
+	}
+	// Drain any remaining results from in-flight jobs.
+	for {
+		select {
+		case job := <-m.results:
+			if job != nil {
+				m.commitJob(job)
+			}
+		default:
+			goto closeSource
+		}
+	}
+closeSource:
+	// Close the underlying source if it supports io.Closer (e.g. PakFS).
+	if m.source != nil {
+		if closer, ok := m.source.(io.Closer); ok {
+			return closer.Close()
+		}
+	}
+	return nil
 }
 
 // DrainCompleted commits any jobs that have completed since the last drain.

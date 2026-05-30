@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/assets/cook"
@@ -120,6 +121,82 @@ func TestNewPakFSReadsRawAndDecodedBlocks(t *testing.T) {
 	}
 	if statFont.Size() != int64(len("font-lod0-data")) {
 		t.Fatalf("unexpected stat size: %d", statFont.Size())
+	}
+}
+
+func TestPakFSConcurrentLoadAndClose(t *testing.T) {
+	imageID := mustParseID(t, "01234567-89ab-cdef-0123-456789000001")
+	fontID := mustParseID(t, "01234567-89ab-cdef-0123-456789000002")
+	configID := mustParseID(t, "01234567-89ab-cdef-0123-456789000003")
+
+	tree := &cook.DependencyTree{
+		Leaves: []cook.AssetNode{
+			{ID: imageID, Path: "img/a.png", Type: assets.AssetTypeImage, LODs: []cook.CompiledLOD{
+				{Level: 0, Data: []byte("image-lod0")},
+				{Level: 1, Data: []byte("image-lod1")},
+			}},
+			{ID: fontID, Path: "fonts/a.ttf", Type: assets.AssetTypeFont, LODs: []cook.CompiledLOD{
+				{Level: 0, Data: make([]byte, 10000)},
+			}},
+			{ID: configID, Path: "cfg/a.toml", Type: assets.AssetTypeConfig, LODs: []cook.CompiledLOD{
+				{Level: 0, Data: []byte("key=val")},
+			}},
+		},
+	}
+	pak, err := (&cook.Packer{}).Pack(tree)
+	if err != nil {
+		t.Fatalf("Pack: %v", err)
+	}
+	dir := t.TempDir()
+	pakPath := filepath.Join(dir, "assets.pak")
+	if err := os.WriteFile(pakPath, pak, 0o644); err != nil {
+		t.Fatalf("write pak: %v", err)
+	}
+
+	pfs, err := assets.NewPakFS(pakPath)
+	if err != nil {
+		t.Fatalf("NewPakFS: %v", err)
+	}
+
+	// Launch concurrent readers.
+	var readWg sync.WaitGroup
+	errs := make(chan error, 20)
+	readIDs := []assets.AssetID{imageID, fontID, configID}
+	for i := 0; i < 10; i++ {
+		readWg.Add(1)
+		go func(n int) {
+			defer readWg.Done()
+			id := readIDs[n%len(readIDs)]
+			// Only LOD 0 is guaranteed to exist for all three types.
+			_, err := pfs.ReadLOD(id, 0)
+			if err != nil && err.Error() != "pakfs closed" {
+				errs <- err
+			}
+		}(i)
+	}
+
+	// Close while reads are in-flight.
+	time.Sleep(time.Millisecond)
+	closeErr := pfs.Close()
+	if closeErr != nil {
+		t.Fatalf("Close: %v", closeErr)
+	}
+
+	readWg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Errorf("concurrent read error: %v", err)
+	}
+
+	// Reads after close must fail.
+	_, err = pfs.ReadLOD(imageID, 0)
+	if err == nil {
+		t.Error("expected error reading after close")
+	}
+
+	// Double-close must not panic.
+	if err := pfs.Close(); err != nil {
+		t.Errorf("double close: %v", err)
 	}
 }
 

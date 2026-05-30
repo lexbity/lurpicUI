@@ -15,6 +15,7 @@ type Manager interface {
 	Invalidate(path string)
 	DrainCompleted() int
 	Stats() ManagerStats
+	Close() error
 }
 
 // PathIDRegistry resolves canonical asset paths to stable IDs.

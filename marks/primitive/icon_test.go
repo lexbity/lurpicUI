@@ -56,6 +56,8 @@ func (m iconAssetManagerStub) LoadFont(path string) assets.Handle {
 func (m iconAssetManagerStub) LoadConfig(path string, dst any) assets.Handle {
 	return assets.NewHandle(m.id, m.reg)
 }
+func (m iconAssetManagerStub) Close() error               { return nil }
+func (m iconAssetManagerStub) DrainCompleted() int        { return 0 }
 func (m iconAssetManagerStub) Prefetch(paths ...string)   {}
 func (m iconAssetManagerStub) Invalidate(path string)     {}
 func (m iconAssetManagerStub) Stats() assets.ManagerStats { return assets.ManagerStats{} }

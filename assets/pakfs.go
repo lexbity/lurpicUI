@@ -24,13 +24,19 @@ var errPakFSClosed = errors.New("pakfs closed")
 // PakFS implements fs.FS and AssetSource for release builds backed by a
 // memory-mapped pak file. It provides no network, scheduling, or cache
 // logic — those live in ManagerImpl, which wraps a PakFS as an AssetSource.
+//
+// Concurrency: ReadLOD increments an in-flight counter so Close can wait
+// for all active reads to finish before munmap. Every ReadLOD call copies
+// the requested bytes out of the mmap before returning, so jobs that hold
+// the returned slice do not keep a reference to the mapping.
 type PakFS struct {
-	mu     sync.RWMutex
-	data   []byte
-	header *PakHeader
-	toc    []PakTOCEntry
-	deps   []AssetID
-	closed bool
+	mu       sync.RWMutex
+	data     []byte
+	header   *PakHeader
+	toc      []PakTOCEntry
+	deps     []AssetID
+	closed   bool
+	inFlight sync.WaitGroup
 }
 
 type pakFile struct {
@@ -131,17 +137,28 @@ func (p *PakFS) init() error {
 	return nil
 }
 
-// Close releases the mmap backing the filesystem.
+// Close releases the mmap backing the filesystem. It waits for any in-flight
+// ReadLOD calls to complete before munmap. Callers should first quiesce the
+// ManagerImpl (drain jobs, cancel pending) before closing the underlying source.
 func (p *PakFS) Close() error {
 	if p == nil {
 		return nil
 	}
+
+	// Mark closed under write lock so new ReadLOD calls see the closed flag.
 	p.mu.Lock()
-	defer p.mu.Unlock()
 	if p.closed {
+		p.mu.Unlock()
 		return nil
 	}
 	p.closed = true
+	p.mu.Unlock()
+
+	// Wait for any in-flight ReadLOD calls to finish. After this returns,
+	// no ReadLOD call is touching the mmap and no new one can start
+	// (they all check p.closed under the read lock).
+	p.inFlight.Wait()
+
 	if p.data == nil {
 		return nil
 	}
@@ -172,7 +189,11 @@ func filepathExt(path string) string {
 }
 
 // ReadLOD returns the raw compressed bytes for the requested asset LOD.
+// The returned slice is a copy of the mmap data, safe to use after Close.
 func (p *PakFS) ReadLOD(id AssetID, lod int) ([]byte, error) {
+	p.inFlight.Add(1)
+	defer p.inFlight.Done()
+
 	entry, err := p.findEntry(id, lod)
 	if err != nil {
 		return nil, err
@@ -182,7 +203,16 @@ func (p *PakFS) ReadLOD(id AssetID, lod int) ([]byte, error) {
 	if p.closed {
 		return nil, errPakFSClosed
 	}
-	return p.readBlock(entry), nil
+	raw := p.readBlock(entry)
+	if raw == nil {
+		return nil, fs.ErrNotExist
+	}
+	// Copy out of the mmap so the caller can safely use the bytes after the
+	// RUnlock and even after the mmap is closed. The copy is small compared
+	// to the downstream decompression work.
+	out := make([]byte, len(raw))
+	copy(out, raw)
+	return out, nil
 }
 
 // Open implements fs.FS. Files are addressed by UUID string and optional `.lodN` suffix.
