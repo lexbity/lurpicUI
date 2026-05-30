@@ -48,6 +48,8 @@ unsigned long long lurpic_render_test_glyph_atlas_count(void);
 unsigned long long lurpic_render_test_glyph_atlas_evictions(void);
 unsigned long long lurpic_render_test_image_count(void);
 unsigned long long lurpic_render_test_image_destroy_count(void);
+unsigned long long lurpic_render_device_generation(void) __attribute__((weak));
+unsigned long long lurpic_render_device_generation(void) { return 0; }
 void lurpic_render_unload(void);
 */
 import "C"
@@ -176,6 +178,15 @@ func InstanceHandle() uintptr {
 		return 0
 	}
 	return uintptr(C.lurpic_render_instance_handle())
+}
+
+func DeviceGeneration() uint64 {
+	if err := loadRustLibrary(); err != nil {
+		return 0
+	}
+	// The weak stub above returns 0 when the Rust library hasn't been rebuilt
+	// with this symbol. Once rebuilt, the Rust implementation overrides the stub.
+	return uint64(C.lurpic_render_device_generation())
 }
 
 func QueryCapabilities() (Capabilities, error) {

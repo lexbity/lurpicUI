@@ -18,12 +18,13 @@ type assetLODKey struct {
 // assetCache manages the in-memory budget for decoded asset data.
 // Runtime-thread-only; no synchronisation needed.
 type assetCache struct {
-	registry    *AssetRegistryStore
-	backend     textureReleaser
-	budgetBytes int64
-	usedBytes   int64
-	gpuBudget   int64
-	gpuUsed     int64
+	registry         *AssetRegistryStore
+	backend          textureReleaser
+	budgetBytes      int64
+	usedBytes        int64
+	gpuBudget        int64
+	gpuUsed          int64
+	deviceGeneration uint64
 
 	lruHeap lodLRUHeap
 	entries map[assetLODKey]*lodCacheEntry
@@ -190,6 +191,42 @@ func (c *assetCache) EvictToWatermark(fraction float64) int {
 		c.evictionsThisFrame++
 	}
 	return count
+}
+
+// CheckDeviceGeneration compares the renderer's current device generation
+// against the cached generation. If the generation has changed (device lost
+// + recreate), all GPU-resident LODs are invalidated. CPU data survives and
+// will be lazily re-uploaded on next use. Returns true when a generation
+// change was detected and GPU LODs were cleared.
+func (c *assetCache) CheckDeviceGeneration(currentGen uint64) bool {
+	if c == nil {
+		return false
+	}
+	if c.deviceGeneration == currentGen {
+		return false
+	}
+	c.deviceGeneration = currentGen
+	// Invalidate all GPU-resident LODs. CPU data survives.
+	for key, entry := range c.entries {
+		if entry.gpuBytes > 0 || entry.textureID != 0 {
+			if c.backend != nil && entry.textureID != 0 {
+				c.backend.FreeTexture(entry.textureID)
+			}
+			c.gpuUsed -= entry.gpuBytes
+			entry.gpuBytes = 0
+			entry.textureID = 0
+			if entry.sizeBytes > 0 {
+				// GPU-only entry → fully evict.
+				c.usedBytes -= entry.sizeBytes
+				delete(c.entries, key)
+				if c.registry != nil {
+					c.registry.ClearLOD(entry.assetID, entry.lod)
+				}
+			}
+			c.evictionsThisFrame++
+		}
+	}
+	return true
 }
 
 // TrimLevelFraction maps Android onTrimMemory levels to a budget fraction.

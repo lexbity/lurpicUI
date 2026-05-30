@@ -32,6 +32,7 @@ int lurpic_render_create_surface_android(void *android_window, uintptr_t instanc
 int lurpic_render_recreate_surface_android(void *android_window, uint32_t width, uint32_t height);
 int lurpic_render_resize(int width, int height);
 int lurpic_render_present(void);
+unsigned long long lurpic_render_device_generation(void);
 void lurpic_render_unload(void);
 */
 import "C"
@@ -76,6 +77,10 @@ func Shutdown() error {
 
 func InstanceHandle() uintptr {
 	return uintptr(C.lurpic_render_instance_handle())
+}
+
+func DeviceGeneration() uint64 {
+	return uint64(C.lurpic_render_device_generation())
 }
 
 func QueryCapabilities() (Capabilities, error) {

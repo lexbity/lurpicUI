@@ -133,6 +133,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.RenderDuration = time.Since(renderStart)
 	rt.updateIMECursorRect()
 
+	// Check for device generation change (device lost + recreate).
+	// When the generation bumps, all GPU-cached texture IDs become invalid
+	// and are lazily re-uploaded on next use.
+	rt.checkDeviceGeneration()
+
 	// Collect asset manager diagnostics for the frame.
 	if rt.assetManager != nil {
 		astats := rt.assetManager.Stats()

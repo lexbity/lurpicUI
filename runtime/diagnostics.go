@@ -6,11 +6,30 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/render"
 )
 
 func (rt *Runtime) LastFrameStats() diagnostics.FrameStats {
 
 	return rt.lastStats
+}
+
+// checkDeviceGeneration queries the render backend's device generation and
+// notifies the asset manager when the generation changes (device lost event).
+func (rt *Runtime) checkDeviceGeneration() {
+	if rt.renderPipeline == nil || rt.assetManager == nil {
+		return
+	}
+	// The device generation is an optional interface on the backend.
+	if dg, ok := rt.renderPipeline.backend.(render.DeviceGenerationProvider); ok {
+		gen := dg.DeviceGeneration()
+		if ev, ok := rt.assetManager.(interface{ CheckDeviceGeneration(uint64) bool }); ok {
+			if ev.CheckDeviceGeneration(gen) {
+				rt.log.Info("runtime: device generation changed; GPU LODs invalidated",
+					"generation", gen)
+			}
+		}
+	}
 }
 
 func (rt *Runtime) handlePlatformLowMemory() {

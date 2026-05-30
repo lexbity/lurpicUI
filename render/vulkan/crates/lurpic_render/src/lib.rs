@@ -48,6 +48,7 @@ const VERSION: &[u8] = b"lurpic_render 0.2.0\0";
 
 static LAST_ERROR: OnceLock<Mutex<Vec<u8>>> = OnceLock::new();
 static REGISTRY: OnceLock<HandleRegistry> = OnceLock::new();
+static DEVICE_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 fn last_error() -> &'static Mutex<Vec<u8>> {
     LAST_ERROR.get_or_init(|| Mutex::new(vec![0]))
@@ -296,7 +297,11 @@ pub extern "C" fn lurpic_render_last_error() -> *const c_char {
 
 #[no_mangle]
 pub extern "C" fn lurpic_render_init() -> RenderResult {
-    catch_render_result("init", || vulkan::init())
+    let result = catch_render_result("init", || vulkan::init());
+    if result == RenderResult::Ok {
+        DEVICE_GENERATION.fetch_add(1, Ordering::SeqCst);
+    }
+    result
 }
 
 #[no_mangle]
@@ -394,9 +399,13 @@ pub extern "C" fn lurpic_render_recreate_surface_android(
     width: u32,
     height: u32,
 ) -> RenderResult {
-    catch_render_result("recreate_surface_android", || {
+    let result = catch_render_result("recreate_surface_android", || {
         vulkan::recreate_surface_android(android_window, width, height)
-    })
+    });
+    if result == RenderResult::Ok {
+        DEVICE_GENERATION.fetch_add(1, Ordering::SeqCst);
+    }
+    result
 }
 
 #[no_mangle]
@@ -560,6 +569,11 @@ pub extern "C" fn lurpic_render_test_last_command_count() -> u64 {
 pub extern "C" fn lurpic_render_test_last_vertex_count() -> u64 {
     clear_last_error();
     vulkan::frame_stats().vertex_count as u64
+}
+
+#[no_mangle]
+pub extern "C" fn lurpic_render_device_generation() -> u64 {
+    DEVICE_GENERATION.load(Ordering::SeqCst)
 }
 
 #[cfg(test)]

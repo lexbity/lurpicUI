@@ -162,6 +162,17 @@ func (m *ManagerImpl) TrimMemory(level int) int {
 	return 0
 }
 
+// CheckDeviceGeneration compares the renderer's device generation against
+// the cached generation. On mismatch (device lost + recreate), all GPU LODs
+// are invalidated but CPU data survives for lazy re-upload. Returns true if
+// GPU LODs were cleared. The runtime calls this each frame.
+func (m *ManagerImpl) CheckDeviceGeneration(currentGen uint64) bool {
+	if m == nil || m.cache == nil {
+		return false
+	}
+	return m.cache.CheckDeviceGeneration(currentGen)
+}
+
 // Close drains all pending results and closes the underlying AssetSource.
 // After Close, the ManagerImpl must not be used for further scheduling.
 // This is the ordered teardown sequence: drain results → close source.

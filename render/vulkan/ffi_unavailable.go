@@ -20,6 +20,10 @@ func InstanceHandle() uintptr {
 	return 0
 }
 
+func DeviceGeneration() uint64 {
+	return 0
+}
+
 func SubmitFrame([]byte) error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
 }

@@ -178,6 +178,14 @@ func (b *Backend) DeviceInfo() (DeviceInfo, error) {
 	}, nil
 }
 
+// DeviceGeneration returns a monotonically-increasing counter that increments
+// on every device init and surface/swapchain recreation. The runtime compares
+// this across frames to detect device-lost conditions and invalidate GPU-cached
+// texture IDs that reference dead resources.
+func (b *Backend) DeviceGeneration() uint64 {
+	return DeviceGeneration()
+}
+
 // EvictCaches releases recoverable image caches without destroying the backend.
 func (b *Backend) EvictCaches() {
 	if b == nil || b.images == nil {

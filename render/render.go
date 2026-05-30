@@ -77,3 +77,11 @@ type CacheEvictor interface {
 type RecreatableBackend interface {
 	Recreate(surface Surface) error
 }
+
+// DeviceGenerationProvider is optionally implemented by render backends that
+// expose a monotonically-increasing device generation counter. The runtime
+// compares this across frames to detect device-lost / swapchain-rebuild events
+// and invalidate GPU-cached texture IDs that reference dead resources.
+type DeviceGenerationProvider interface {
+	DeviceGeneration() uint64
+}
