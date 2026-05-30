@@ -1,9 +1,11 @@
 package runtime
 
 import (
+	"os"
 	goruntime "runtime"
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
+	"codeburg.org/lexbit/lurpicui/platform"
 )
 
 func (rt *Runtime) LastFrameStats() diagnostics.FrameStats {
@@ -19,3 +21,24 @@ func (rt *Runtime) handlePlatformLowMemory() {
 	// killer evaluates our process. This is per Android NDK guidelines.
 	goruntime.GC()
 }
+
+// handleTrimMemory processes Android onTrimMemory levels.
+//
+// Level-to-eviction mapping:
+//
+//	UI_HIDDEN / BACKGROUND (20, 40)     → evict GPU LODs to low watermark
+//	RUNNING_CRITICAL / COMPLETE (15, 80) → evict to minimum, drop all non-pinned LODs
+//	Other                                → log and continue
+func (rt *Runtime) handleTrimMemory(e platform.TrimMemoryEvent) {
+	rt.log.Info("runtime: trim memory", "level", e.Level)
+	if mgr := rt.assetManager; mgr != nil {
+		if ev, ok := mgr.(interface{ TrimMemory(int) int }); ok {
+			evicted := ev.TrimMemory(e.Level)
+			rt.log.Debug("runtime: trim memory eviction", "evicted", evicted)
+		}
+	}
+	rt.clearRecoverableCaches()
+	goruntime.GC()
+	_ = os.Getpid()
+}
+

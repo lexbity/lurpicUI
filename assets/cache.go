@@ -162,6 +162,59 @@ func (c *assetCache) popMinEvictable() *lodCacheEntry {
 	return nil
 }
 
+// EvictToWatermark evicts cache entries until used bytes are at or below the
+// given fraction of the original budget (0.0–1.0). Setting fraction to 0 evicts
+// all unpinned entries. The returned count is the number of LODs evicted.
+func (c *assetCache) EvictToWatermark(fraction float64) int {
+	if c == nil || c.budgetBytes <= 0 {
+		return 0
+	}
+	targetBytes := int64(float64(c.budgetBytes) * fraction)
+	targetGPU := int64(float64(c.gpuBudget) * fraction)
+	count := 0
+	for (c.usedBytes > targetBytes) || (c.gpuBudget > 0 && c.gpuUsed > targetGPU) {
+		victim := c.popMinEvictable()
+		if victim == nil {
+			break
+		}
+		if c.backend != nil && victim.textureID != 0 {
+			c.backend.FreeTexture(victim.textureID)
+		}
+		c.usedBytes -= victim.sizeBytes
+		c.gpuUsed -= victim.gpuBytes
+		delete(c.entries, assetLODKey{id: victim.assetID, lod: victim.lod})
+		if c.registry != nil {
+			c.registry.ClearLOD(victim.assetID, victim.lod)
+		}
+		count++
+		c.evictionsThisFrame++
+	}
+	return count
+}
+
+// TrimLevelFraction maps Android onTrimMemory levels to a budget fraction.
+// A higher fraction means less aggressive eviction.
+func TrimLevelFraction(level int) float64 {
+	switch {
+	case level >= 80: // TRIM_MEMORY_COMPLETE
+		return 0.0
+	case level >= 60: // TRIM_MEMORY_MODERATE
+		return 0.1
+	case level >= 40: // TRIM_MEMORY_BACKGROUND
+		return 0.25
+	case level >= 20: // TRIM_MEMORY_UI_HIDDEN
+		return 0.50
+	case level >= 15: // TRIM_MEMORY_RUNNING_CRITICAL
+		return 0.0
+	case level >= 10: // TRIM_MEMORY_RUNNING_LOW
+		return 0.25
+	case level >= 5: // TRIM_MEMORY_RUNNING_MODERATE
+		return 0.50
+	default:
+		return 0.75
+	}
+}
+
 // evictIfNeeded runs at the end of Phase 1 after job commits for the frame.
 func (c *assetCache) evictIfNeeded(currentFrame int64) {
 	if c == nil {

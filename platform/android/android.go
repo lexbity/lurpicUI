@@ -315,6 +315,9 @@ func (a *eventQueueAdapter) dispatchSideEffects(e platform.Event) {
 		a.app.dispatchLifecycleEvent(ev.Kind)
 	case platform.WindowEvent:
 		a.app.dispatchWindowEvent(ev)
+	case platform.TrimMemoryEvent:
+		// Trim memory events flow through to the runtime's event loop
+		// and do not require immediate side effects in the platform layer.
 	}
 }
 
@@ -334,6 +337,8 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 		return platform.LifecycleEvent{Kind: platform.LifecycleDestroy}
 	case bridge.EventTypeLowMemory:
 		return platform.LifecycleEvent{Kind: platform.LifecycleLowMemory}
+	case bridge.EventTypeTrimMemory:
+		return platform.TrimMemoryEvent{Level: int(e.TrimLevel)}
 	case bridge.EventTypeNativeWindowCreated:
 		return platform.WindowEvent{Kind: platform.WindowCreated, Window: uintptr(e.Window), Width: e.Width, Height: e.Height}
 	case bridge.EventTypeNativeWindowResized:

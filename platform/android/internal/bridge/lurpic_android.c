@@ -72,6 +72,7 @@ extern void goDeliverConfigurationChanged(int32_t orientation, int32_t screenWid
                                            int32_t uiModeNight, float fontScale,
                                            const char* language, const char* country);
 extern void goDeliverPermissionResult(int32_t requestCode, int32_t granted, int32_t permanent);
+extern void goOnTrimMemory(int32_t level);
 
 /* Thread-local storage for JNI environment */
 static pthread_key_t jni_env_key;
@@ -870,6 +871,13 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnWin
     (void)thiz;
     goDeliverWindowInsets(top, bottom, left, right,
                           cutoutLeft, cutoutTop, cutoutRight, cutoutBottom);
+}
+
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnTrimMemory(
+    JNIEnv* env, jobject thiz, jint level) {
+    (void)env;
+    (void)thiz;
+    goOnTrimMemory((int32_t)level);
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativePermissionResult(

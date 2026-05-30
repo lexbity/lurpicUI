@@ -229,6 +229,12 @@ type AudioFocusEvent struct {
 	Change AudioFocusChange
 }
 
+// TrimMemoryEvent is delivered when the platform signals memory pressure
+// with a severity level (e.g., Android's onTrimMemory).
+type TrimMemoryEvent struct {
+	Level int
+}
+
 // ConfigurationChangedEvent is emitted when the Android device configuration
 // changes (orientation, density, fontScale, dark mode, locale). The runtime
 // uses it to trigger re-layout and theme updates without losing view state.
@@ -269,6 +275,8 @@ func (VsyncEvent) isEvent()             {}
 func (AudioFocusEvent) isEvent()         {}
 
 func (ConfigurationChangedEvent) isEvent() {}
+
+func (TrimMemoryEvent) isEvent()    {}
 
 func (EventWindowClose) isEvent()  {}
 func (EventWindowResize) isEvent() {}

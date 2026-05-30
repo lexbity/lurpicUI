@@ -28,6 +28,7 @@ import (
 // int bridgeCheckPermission(const char* permission);
 // int bridgeIsPermissionDeclared(const char* permission);
 // void bridgeSetExtractionProgress(float progress);
+// void goOnTrimMemory(int32_t level);
 import "C"
 
 // EventType represents the type of Android event.
@@ -46,6 +47,7 @@ const (
 	EventTypeInputQueueCreated
 	EventTypeInputQueueDestroyed
 	EventTypeLowMemory
+	EventTypeTrimMemory
 	EventTypeTouch
 	EventTypePointer
 	EventTypeScroll
@@ -104,6 +106,8 @@ type Event struct {
 	CutoutBottom int32
 	// Audio focus field
 	FocusChange int32
+	// Trim memory level (from onTrimMemory)
+	TrimLevel int32
 	// Vsync field
 	FrameTimeNanos int64
 	// Saved state fields (for process death restoration)
@@ -400,6 +404,16 @@ func goOnLowMemory(activity *C.ANativeActivity) {
 	}
 	GetEventQueue().Push(event)
 	androidLogInfo("onLowMemory called")
+}
+
+//export goOnTrimMemory
+func goOnTrimMemory(level C.int32_t) {
+	event := Event{
+		Type:      EventTypeTrimMemory,
+		TrimLevel: int32(level),
+	}
+	GetEventQueue().Push(event)
+	androidLogInfo("onTrimMemory called: level=%d", int32(level))
 }
 
 //export goDeliverTouchEvent

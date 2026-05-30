@@ -79,6 +79,7 @@ type ManagerImpl struct {
 	backendType BackendType
 	scheduler   JobScheduler
 	results     chan *AssetLoadJob
+	cache       *assetCache
 	depTree     ConfigDependencyTree
 
 	mu      sync.Mutex
@@ -88,6 +89,13 @@ type ManagerImpl struct {
 // NewManager returns an asset manager that wraps the given source.
 // When scheduler is nil, a default async goroutine scheduler is created.
 func NewManager(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler, idReg PathIDRegistry) *ManagerImpl {
+	return NewManagerWithCache(registry, source, backend, scheduler, idReg, nil, 0, 0)
+}
+
+// NewManagerWithCache is like NewManager but also accepts cache configuration.
+// When cacheBytes is > 0, the manager creates an LRU-backed asset cache that
+// evicts under memory pressure. gpuCacheBytes limits GPU-resident data.
+func NewManagerWithCache(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler, idReg PathIDRegistry, textureReleaser textureReleaser, cacheBytes, gpuCacheBytes int64) *ManagerImpl {
 	m := &ManagerImpl{
 		registry:    registry,
 		source:      source,
@@ -95,6 +103,9 @@ func NewManager(registry *AssetRegistryStore, source AssetSource, backend Backen
 		backendType: backend,
 		results:     make(chan *AssetLoadJob, 32),
 		waiting:     make(waitingOn),
+	}
+	if cacheBytes > 0 {
+		m.cache = newAssetCache(registry, textureReleaser, cacheBytes, gpuCacheBytes)
 	}
 	if scheduler == nil {
 		m.scheduler = NewAsyncJobScheduler(m.results)
@@ -136,6 +147,19 @@ func (m *ManagerImpl) Invalidate(path string) {
 	if id := m.idReg.Lookup(path); id != (AssetID{}) {
 		m.registry.Invalidate(id)
 	}
+}
+
+// TrimMemory responds to onTrimMemory from the platform. It translates the
+// Android trim level to a budget fraction and evicts the cache accordingly.
+// A nil receiver is safe-to-call.
+func (m *ManagerImpl) TrimMemory(level int) int {
+	if m == nil {
+		return 0
+	}
+	if m.cache != nil {
+		return m.cache.EvictToWatermark(TrimLevelFraction(level))
+	}
+	return 0
 }
 
 // Close drains all pending results and closes the underlying AssetSource.
@@ -193,7 +217,6 @@ func (m *ManagerImpl) Stats() ManagerStats {
 	}
 	stats := ManagerStats{}
 	m.registry.mu.RLock()
-	defer m.registry.mu.RUnlock()
 	stats.TotalEntries = len(m.registry.entries)
 	for _, entry := range m.registry.entries {
 		switch entry.State {
@@ -217,6 +240,15 @@ func (m *ManagerImpl) Stats() ManagerStats {
 			LoadTimeNs:      entry.LoadTimeNs,
 			LastUsedFrame:   entry.LastUse,
 		})
+	}
+	m.registry.mu.RUnlock()
+
+	if m.cache != nil {
+		stats.CPUUsedBytes = m.cache.usedBytes
+		stats.CPUBudgetBytes = m.cache.budgetBytes
+		stats.GPUUsedBytes = m.cache.gpuUsed
+		stats.GPUBudgetBytes = m.cache.gpuBudget
+		stats.EvictionsThisFrame = m.cache.evictionsThisFrame
 	}
 	return stats
 }

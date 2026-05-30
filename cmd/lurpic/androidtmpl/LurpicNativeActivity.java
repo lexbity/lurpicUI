@@ -252,6 +252,7 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
     public void onTrimMemory(int level) {
         Log.i(TAG, "onTrimMemory called: level=" + level);
         super.onTrimMemory(level);
+        nativeOnTrimMemory(level);
     }
 
     @Override
@@ -366,6 +367,8 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
             }
         });
     }
+
+    private native void nativeOnTrimMemory(int level);
 
     private native void nativeImeCompose(String text, int cursorPos);
     private native void nativeImeCommit(String text);

@@ -47,6 +47,8 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 			rt.handleAudioFocusChange(e)
 		case platform.ConfigurationChangedEvent:
 			rt.handleConfigurationChanged(e)
+		case platform.TrimMemoryEvent:
+			rt.handleTrimMemory(e)
 		default:
 			out = append(out, ev)
 		}
