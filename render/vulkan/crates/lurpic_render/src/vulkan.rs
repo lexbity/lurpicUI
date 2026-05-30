@@ -268,11 +268,16 @@ struct VulkanState {
     debug_messenger: VkDebugUtilsMessengerEXT,
     pipeline_cache: VkPipelineCache,
 
-    // Profiling counters
+    // Profiling counters (reserved for future frame timing instrumentation)
+    #[allow(dead_code)]
     frame_count: u64,
-    last_frame_time: u64, // nanoseconds
-    total_frame_time: u64, // cumulative nanoseconds
+    #[allow(dead_code)]
+    last_frame_time: u64,
+    #[allow(dead_code)]
+    total_frame_time: u64,
+    #[allow(dead_code)]
     max_frame_time: u64,
+    #[allow(dead_code)]
     min_frame_time: u64,
     surface: VkSurfaceKHR,
     swapchain: VkSwapchainKHR,
@@ -1333,12 +1338,6 @@ type PfnVkDestroyPipelineCache = unsafe extern "system" fn(
     VkDevice,
     VkPipelineCache,
     *const c_void,
-) -> VkResult;
-type PfnVkGetPipelineCacheData = unsafe extern "system" fn(
-    VkDevice,
-    VkPipelineCache,
-    *mut usize,
-    *mut c_void,
 ) -> VkResult;
 type PfnVkGetPhysicalDeviceMemoryProperties =
     unsafe extern "system" fn(VkPhysicalDevice, *mut VkPhysicalDeviceMemoryProperties);

@@ -176,7 +176,7 @@ func cmdLogcat(args []string) int {
 
 	filt := *filter
 	if filt == "" {
-		filt = "LurpicBridge:V LurpicNativeActivity:V AndroidRuntime:V *:W"
+		filt = "LurpicAsset:V LurpicBridge:V LurpicNativeActivity:V AndroidRuntime:V *:W"
 	}
 	filterParts := strings.Fields(filt)
 

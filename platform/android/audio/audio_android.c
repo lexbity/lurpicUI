@@ -175,18 +175,13 @@ int aaudio_available(void) {
 void* aaudio_stream_open(int sampleRate, int channels, int bitsPerSample, int lowLatency) {
     if (!load_aaudio()) return NULL;
 
-    /* AAudio uses a builder pattern. We approximate through the API. */
-    /* For now, we return an opaque handle. Full builder integration
-     * requires the full AAudio API. This is a minimal implementation
-     * that validates the approach. */
-
-    /* Create a builder and configure it */
-    /* Note: full AAudio API requires AAudioStreamBuilder which is
-     * a C++ object. For C compatibility, we use the C bindings. */
-
-    /* Placeholder: signal that AAudio is available and the stream
-     * would be configured. */
-    return (void*)(intptr_t)1;
+    /* AAudio stream creation requires a full builder API which is
+     * C++-based (AAudioStreamBuilder). The C bindings support the
+     * stream operations directly but constructing the builder requires
+     * the C++ API. For now, AAudio is detected as available and will
+     * be used once the builder wrapper is implemented. Fall back to
+     * OpenSL ES for actual audio output. */
+    return NULL;
 }
 
 int aaudio_stream_write(void* handle, const int16_t* samples, int frameCount) {

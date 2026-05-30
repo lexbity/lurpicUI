@@ -37,6 +37,13 @@ type Config struct {
 	ContentScale    float32
 	Logger          log.Logger
 	DiagnosticsHook DiagnosticsHook
+
+	// AssetDiagnosticsEnabled controls whether asset-path events (mount,
+	// extract, stream, evict) are logged through the runtime logger.
+	// When false (default), asset diagnostics are collected in FrameStats
+	// but no per-event log output is produced. Set via Config or the
+	// LURPIC_ASSET_DIAGNOSTICS environment variable ("true" / "1").
+	AssetDiagnosticsEnabled bool
 }
 
 // DefaultConfig returns a valid runtime configuration.

@@ -474,19 +474,20 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 
 // ManifestData contains data for the manifest template
 type ManifestData struct {
-	Package            string
-	VersionCode        int
-	VersionName        string
-	MinSDK             int
-	TargetSDK          int
-	Permissions        []string
-	AppName            string
-	HasIcon            bool
-	UsesLurpicActivity bool
-	ExtractNativeLibs  bool
-	UsesVulkan         bool
-	UsesGLES           bool
-	AllowBackup        bool
+	Package             string
+	VersionCode         int
+	VersionName         string
+	MinSDK              int
+	TargetSDK           int
+	Permissions         []string
+	AppName             string
+	HasIcon             bool
+	UsesLurpicActivity  bool
+	ExtractNativeLibs   bool
+	UsesVulkan          bool
+	UsesGLES            bool
+	AllowBackup         bool
+	NetworkSecurityConfig string
 }
 
 const manifestTemplate = `<?xml version="1.0" encoding="utf-8"?>
@@ -509,6 +510,7 @@ const manifestTemplate = `<?xml version="1.0" encoding="utf-8"?>
         android:extractNativeLibs="{{.ExtractNativeLibs}}"
         android:allowBackup="{{.AllowBackup}}"
         android:dataExtractionRules="@xml/data_extraction_rules"
+        {{if .NetworkSecurityConfig}}android:networkSecurityConfig="{{.NetworkSecurityConfig}}"{{end}}
         {{if .HasIcon}}android:icon="@mipmap/ic_launcher"{{end}}>
         <activity android:name="org.lurpicui.bridge.LurpicNativeActivity"
             android:exported="true"
@@ -544,7 +546,8 @@ func (b *androidBuilder) generateManifest() error {
 		ExtractNativeLibs:  false, // 16 KB page alignment requires uncompressed libs
 		UsesVulkan:         true,  // framework has a Vulkan renderer
 		UsesGLES:           true,  // software fallback uses GLES-compatible pipeline
-		AllowBackup:        false, // no backup by default; enable via config
+		AllowBackup:           false, // no backup by default; enable via config
+		NetworkSecurityConfig: b.config.Android.NetworkSecurityConfig,
 	}
 
 	tmpl, err := template.New("manifest").Parse(manifestTemplate)

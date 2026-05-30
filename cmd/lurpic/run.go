@@ -235,7 +235,7 @@ func streamLogcat(runner Runner, adb, serial string) {
 	_ = runner.Run(CommandSpec{
 		Path: adb,
 		Args: adbArgs(serial, "logcat", "-v", "time",
-			"LurpicBridge:V", "LurpicNativeActivity:V", "AndroidRuntime:V", "*:W"),
+			"LurpicAsset:V", "LurpicBridge:V", "LurpicNativeActivity:V", "AndroidRuntime:V", "*:W"),
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	})

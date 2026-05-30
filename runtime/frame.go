@@ -133,6 +133,24 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.RenderDuration = time.Since(renderStart)
 	rt.updateIMECursorRect()
 
+	// Collect asset manager diagnostics for the frame.
+	if rt.assetManager != nil {
+		astats := rt.assetManager.Stats()
+		stats.AssetTotalEntries = astats.TotalEntries
+		stats.AssetLoadingEntries = astats.LoadingEntries
+		stats.AssetReadyEntries = astats.ReadyEntries
+		stats.AssetPartialEntries = astats.PartialEntries
+		stats.AssetFailedEntries = astats.FailedEntries
+		stats.AssetCPUUsedBytes = astats.CPUUsedBytes
+		stats.AssetCPUBudgetBytes = astats.CPUBudgetBytes
+		stats.AssetGPUUsedBytes = astats.GPUUsedBytes
+		stats.AssetGPUBudgetBytes = astats.GPUBudgetBytes
+		stats.AssetEvictionsThisFrame = astats.EvictionsThisFrame
+		stats.AssetUploadsThisFrame = astats.UploadsThisFrame
+		stats.AssetJobsInFlight = astats.JobsInFlight
+		stats.AssetCacheHitRate = astats.CacheHitRate
+	}
+
 	rt.lastStats = stats
 	if diag := rt.diagnosticsHook(); diag != nil {
 		diag.OnFrame(stats)

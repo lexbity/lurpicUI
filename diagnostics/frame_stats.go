@@ -20,4 +20,19 @@ type FrameStats struct {
 	ArrangeDuration           time.Duration
 	ProjectDuration           time.Duration
 	RenderDuration            time.Duration
+
+	// Asset system diagnostics — populated when an asset manager is configured.
+	AssetTotalEntries       int
+	AssetLoadingEntries     int
+	AssetReadyEntries       int
+	AssetPartialEntries     int
+	AssetFailedEntries      int
+	AssetCPUUsedBytes       int64
+	AssetCPUBudgetBytes     int64
+	AssetGPUUsedBytes       int64
+	AssetGPUBudgetBytes     int64
+	AssetEvictionsThisFrame int
+	AssetUploadsThisFrame   int
+	AssetJobsInFlight       int
+	AssetCacheHitRate       float64
 }

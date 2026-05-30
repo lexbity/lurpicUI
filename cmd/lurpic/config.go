@@ -50,6 +50,11 @@ type AndroidConfig struct {
 	NDK         NDKConfig        `toml:"ndk"`
 	JDK         JDKConfig        `toml:"jdk"`
 	Assets      AssetConfig      `toml:"assets"`
+	// NetworkSecurityConfig optionally points to an XML resource file
+	// that configures Android's network security policy (cleartext traffic,
+	// certificate pinning, etc.). If set, the manifest references it via
+	// android:networkSecurityConfig.
+	NetworkSecurityConfig string `toml:"network_security_config,omitempty"`
 }
 
 // AssetConfig controls how project assets are packaged.
