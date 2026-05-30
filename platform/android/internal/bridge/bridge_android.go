@@ -206,6 +206,8 @@ var (
 	permissionHook  func(requestCode int32, granted bool, permanent bool)
 	assetManagerMu  sync.RWMutex
 	assetManagerPtr unsafe.Pointer
+	activityMu      sync.RWMutex
+	activityPtr     unsafe.Pointer
 )
 
 // setAssetManager records the AAssetManager* supplied by the NativeActivity.
@@ -213,6 +215,21 @@ func setAssetManager(p unsafe.Pointer) {
 	assetManagerMu.Lock()
 	assetManagerPtr = p
 	assetManagerMu.Unlock()
+}
+
+// setActivity records the ANativeActivity* supplied by onCreate.
+func setActivity(p unsafe.Pointer) {
+	activityMu.Lock()
+	activityPtr = p
+	activityMu.Unlock()
+}
+
+// GetActivity returns the ANativeActivity* captured from the NativeActivity
+// onCreate callback. It returns nil before the activity has been created.
+func GetActivity() unsafe.Pointer {
+	activityMu.RLock()
+	defer activityMu.RUnlock()
+	return activityPtr
 }
 
 // GetAssetManager returns the AAssetManager* captured from the NativeActivity
@@ -239,9 +256,11 @@ func goANativeActivityOnCreate(activity *C.ANativeActivity, savedState unsafe.Po
 	}
 	GetEventQueue().Push(event)
 
-	// Capture the AAssetManager* so app.Asset can read bundled APK assets.
+	// Capture the AAssetManager* and ANativeActivity* so app.Asset can read
+	// bundled APK assets and the extraction pipeline can access storage paths.
 	if activity != nil {
 		setAssetManager(unsafe.Pointer(activity.assetManager))
+		setActivity(unsafe.Pointer(activity))
 	}
 
 	// Log that we received the create event

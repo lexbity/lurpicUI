@@ -75,6 +75,12 @@ func newStorage(activity unsafe.Pointer) *Storage {
 	return &Storage{activity: (*C.ANativeActivity)(activity)}
 }
 
+// NewStorage creates a Storage from the ANativeActivity pointer obtained
+// via bridge.GetActivity(). Callers should verify the pointer is non-nil.
+func NewStorage(activity unsafe.Pointer) *Storage {
+	return newStorage(activity)
+}
+
 const (
 	_storageFilesDir       = 0
 	_storageCacheDir       = 1
