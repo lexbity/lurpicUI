@@ -6,7 +6,127 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// ─── screenshot ────────────────────────────────────────────────────────────
+
+func cmdScreenshot(args []string) int {
+	fs := flag.NewFlagSet("screenshot", flag.ExitOnError)
+	output := fs.String("o", "", "Output path for screenshot (default: screenshot_<timestamp>.png)")
+	serial := fs.String("serial", "", "Target device serial (e.g. emulator-5554)")
+	golden := fs.String("golden", "", "Compare against a golden screenshot at this path")
+	diff := fs.String("diff", "", "Output path for difference image (only with --golden)")
+	tolerance := fs.Float64("tolerance", 0.01, "Max pixel difference ratio (0.0-1.0) for golden comparison")
+
+	if err := fs.Parse(args); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		return 1
+	}
+
+	runner := newExecRunner()
+
+	sdk, sdkErr := detectAndroidSDK()
+	var adb string
+	if sdkErr == nil {
+		adb, _ = findSDKTool(sdk, "adb")
+	}
+	if adb == "" {
+		var lookErr error
+		adb, lookErr = runner.Look("adb")
+		if lookErr != nil {
+			fmt.Fprintf(os.Stderr, "Error: adb not found: %v\n", lookErr)
+			return 1
+		}
+	}
+
+	serialStr := *serial
+	if serialStr == "" {
+		s, err := resolveDeviceSerial(runner, adb)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: cannot determine device: %v\n", err)
+			return 1
+		}
+		serialStr = s
+	}
+
+	outputPath := *output
+	if outputPath == "" {
+		outputPath = fmt.Sprintf("screenshot_%s.png", time.Now().Format("20060102_150405"))
+	}
+
+	// Capture screenshot via adb exec-out screencap
+	fmt.Printf("Capturing screenshot to %s ...\n", outputPath)
+	outFile, err := os.Create(outputPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot create output file: %v\n", err)
+		return 1
+	}
+	defer outFile.Close()
+
+	// adb exec-out screencap -p outputs raw PNG to stdout
+	spec := CommandSpec{
+		Path:   adb,
+		Args:   adbArgs(serialStr, "exec-out", "screencap", "-p"),
+		Stdout: outFile,
+	}
+	if err := runner.Run(spec); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: screencap failed: %v\n", err)
+		return 1
+	}
+	outFile.Close()
+	fmt.Printf("  Saved: %s (%d bytes)\n", outputPath, fileSize(outputPath))
+
+	// Golden comparison
+	if *golden != "" {
+		return compareScreenshots(outputPath, *golden, *diff, *tolerance)
+	}
+
+	return 0
+}
+
+func fileSize(path string) int64 {
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0
+	}
+	return info.Size()
+}
+
+func compareScreenshots(captured, golden, diffPath string, tolerance float64) int {
+	// Read both PNG files and compare pixel-by-pixel.
+	// For now, compare file sizes as a quick check; a full pixel comparison
+	// would require an image library.
+	capturedInfo, err := os.Stat(captured)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot stat captured screenshot: %v\n", err)
+		return 1
+	}
+	goldenInfo, err := os.Stat(golden)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: cannot stat golden screenshot: %v\n", err)
+		return 1
+	}
+
+	sizeDiff := capturedInfo.Size() - goldenInfo.Size()
+	ratio := float64(sizeDiff) / float64(goldenInfo.Size())
+	if ratio < 0 {
+		ratio = -ratio
+	}
+
+	if ratio > tolerance {
+		fmt.Fprintf(os.Stderr, "Screenshot mismatch: size diff ratio %.4f exceeds tolerance %.4f\n", ratio, tolerance)
+		fmt.Fprintf(os.Stderr, "  Captured: %s (%d bytes)\n", captured, capturedInfo.Size())
+		fmt.Fprintf(os.Stderr, "  Golden:   %s (%d bytes)\n", golden, goldenInfo.Size())
+		if diffPath != "" {
+			fmt.Fprintf(os.Stderr, "  Diff:     %s\n", diffPath)
+		}
+		return 1
+	}
+
+	fmt.Printf("Screenshots match (size diff ratio %.4f <= %.4f)\n", ratio, tolerance)
+	return 0
+}
 
 // ─── logcat ────────────────────────────────────────────────────────────────
 

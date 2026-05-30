@@ -43,6 +43,8 @@ func main() {
 		os.Exit(cmdLogcat(os.Args[2:]))
 	case "crash":
 		os.Exit(cmdCrash(os.Args[2:]))
+	case "screenshot":
+		os.Exit(cmdScreenshot(os.Args[2:]))
 	case "version":
 		os.Exit(cmdVersion())
 	case "help", "-h", "--help":
@@ -65,6 +67,7 @@ Usage:
   lurpic validate demos           Run shared marks and demo module validation suites
   lurpic logcat [flags]           Stream or clear device logcat
   lurpic crash [flags]            Pull tombstones and symbolicate crash dumps
+  lurpic screenshot [flags]       Capture device screenshot for golden testing
   lurpic clean                    Remove build artifacts
   lurpic version                  Print version information
   lurpic help                     Show this help message
