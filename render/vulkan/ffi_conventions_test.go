@@ -10,6 +10,24 @@ import (
 	"codeburg.org/lexbit/lurpicui/render/vulkan/internal"
 )
 
+func TestIsUnsupported_detection(t *testing.T) {
+	err := internal.TranslateResult(internal.ResultUnsupported, "no ICD")
+	if !vulkanIsUnsupportedHelper(err) {
+		t.Fatalf("expected IsUnsupported to return true for UnsupportedError, got %v", err)
+	}
+	if vulkanIsUnsupportedHelper(errors.New("some other error")) {
+		t.Fatal("expected IsUnsupported to return false for generic error")
+	}
+	if vulkanIsUnsupportedHelper(nil) {
+		t.Fatal("expected IsUnsupported to return false for nil")
+	}
+}
+
+// vulkanIsUnsupportedHelper calls the package-level IsUnsupported function.
+func vulkanIsUnsupportedHelper(err error) bool {
+	return IsUnsupported(err)
+}
+
 func TestFFIResultTranslation(t *testing.T) {
 	if err := BuildRustLibrary(); err != nil {
 		t.Fatalf("BuildRustLibrary: %v", err)

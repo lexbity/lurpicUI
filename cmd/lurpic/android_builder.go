@@ -267,9 +267,17 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 	env := os.Environ()
 	env = append(env, "ANDROID_NDK_HOME="+b.ndk, "ANDROID_NDK_ROOT="+b.ndk)
 
+	cargoArgs := []string{"ndk", "-t", arch.ABI, "-o", outDir, "build"}
+	if b.release {
+		cargoArgs = append(cargoArgs, "--release")
+	}
+	// On debug builds (no --release), the Rust dev profile is used, which
+	// enables debug assertions, panic=unwind, and no optimizations — matching
+	// the debuggability expectations for development APKs. Release builds
+	// use the release profile (panic=unwind, LTO thin, opt-level 2).
 	if err := b.runner.Run(CommandSpec{
 		Path:   "cargo",
-		Args:   []string{"ndk", "-t", arch.ABI, "-o", outDir, "build", "--release"},
+		Args:   cargoArgs,
 		Dir:    crateDir,
 		Env:    env,
 		Stdout: os.Stdout,
@@ -342,11 +350,22 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 		)
 	}
 
+	// For the user's Rust crate, debug builds use the dev profile
+	// (debug assertions + unwind), release builds use release (unwind + LTO).
+	profileFlag := ""
+	if b.release {
+		profileFlag = "--release"
+	}
+
 	cargoNdk, err := b.runner.Look("cargo-ndk")
 	if err == nil {
+		args := []string{"-t", arch.ABI, "build"}
+		if profileFlag != "" {
+			args = append(args, profileFlag)
+		}
 		if err := b.runner.Run(CommandSpec{
 			Path:   cargoNdk,
-			Args:   []string{"-t", arch.ABI, "build", "--release"},
+			Args:   args,
 			Dir:    cratePath,
 			Env:    env,
 			Stdout: os.Stdout,
@@ -355,9 +374,14 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 			return fmt.Errorf("cargo-ndk build failed: %w", err)
 		}
 	} else {
+		args := []string{"build"}
+		if profileFlag != "" {
+			args = append(args, profileFlag)
+		}
+		args = append(args, "--target", target)
 		if err := b.runner.Run(CommandSpec{
 			Path:   "cargo",
-			Args:   []string{"build", "--release", "--target", target},
+			Args:   args,
 			Dir:    cratePath,
 			Env:    env,
 			Stdout: os.Stdout,
@@ -367,8 +391,13 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 		}
 	}
 
-	// Copy the built .so artifact(s) to the jniLibs directory
-	pattern := filepath.Join(cratePath, "target", target, "release", "lib*.so")
+	// Copy the built .so artifact(s) to the jniLibs directory.
+	// Without --release, Cargo builds to the debug profile directory.
+	profileDir := "release"
+	if !b.release {
+		profileDir = "debug"
+	}
+	pattern := filepath.Join(cratePath, "target", target, profileDir, "lib*.so")
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) == 0 {
 		return fmt.Errorf("no Rust shared library found after building crate %q (expected pattern: %s)", name, pattern)

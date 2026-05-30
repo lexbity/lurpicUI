@@ -2053,7 +2053,7 @@ fn pick_physical_device(
     }
     if count == 0 {
         return Err((
-            RenderResult::InitFailed,
+            RenderResult::Unsupported,
             "no Vulkan physical devices found".to_string(),
         ));
     }
@@ -2085,7 +2085,7 @@ fn pick_physical_device(
 
     best.map(|(_, device)| device).ok_or_else(|| {
         (
-            RenderResult::InitFailed,
+            RenderResult::Unsupported,
             "no suitable Vulkan physical device found".to_string(),
         )
     })
@@ -2252,8 +2252,8 @@ fn vk_error(op: &str, code: VkResult) -> (RenderResult, String) {
         VK_ERROR_INITIALIZATION_FAILED
         | VK_ERROR_LAYER_NOT_PRESENT
         | VK_ERROR_EXTENSION_NOT_PRESENT
-        | VK_ERROR_FEATURE_NOT_PRESENT
-        | VK_ERROR_INCOMPATIBLE_DRIVER => RenderResult::InitFailed,
+        | VK_ERROR_FEATURE_NOT_PRESENT => RenderResult::InitFailed,
+        VK_ERROR_INCOMPATIBLE_DRIVER => RenderResult::Unsupported,
         VK_ERROR_DEVICE_LOST => RenderResult::VulkanError,
         VK_ERROR_TOO_MANY_OBJECTS | VK_ERROR_FORMAT_NOT_SUPPORTED => RenderResult::VulkanError,
         _ if code == VK_SUCCESS => RenderResult::Ok,
@@ -2266,11 +2266,11 @@ fn last_dl_error(context: impl AsRef<str>) -> (RenderResult, String) {
     unsafe {
         let ptr = dlerror();
         if ptr.is_null() {
-            return (RenderResult::InitFailed, context.as_ref().to_string());
+            return (RenderResult::Unsupported, context.as_ref().to_string());
         }
         let msg = CStr::from_ptr(ptr).to_string_lossy().into_owned();
         (
-            RenderResult::InitFailed,
+            RenderResult::Unsupported,
             format!("{}: {}", context.as_ref(), msg),
         )
     }

@@ -21,6 +21,7 @@ pub enum RenderResult {
     OutOfMemory = 2,
     InvalidHandle = 3,
     VulkanError = 4,
+    Unsupported = 5,
     Panic = 1000,
     Unknown = 1001,
 }
@@ -33,6 +34,7 @@ impl RenderResult {
             RenderResult::OutOfMemory => "out_of_memory",
             RenderResult::InvalidHandle => "invalid_handle",
             RenderResult::VulkanError => "vulkan_error",
+            RenderResult::Unsupported => "unsupported",
             RenderResult::Panic => "panic",
             RenderResult::Unknown => "unknown",
         }
@@ -48,8 +50,12 @@ fn last_error() -> &'static Mutex<Vec<u8>> {
     LAST_ERROR.get_or_init(|| Mutex::new(vec![0]))
 }
 
+fn lock_last_error() -> std::sync::MutexGuard<'static, Vec<u8>> {
+    last_error().lock().unwrap_or_else(|e| e.into_inner())
+}
+
 fn set_last_error(message: impl AsRef<str>) {
-    let mut buf = last_error().lock().expect("last_error mutex poisoned");
+    let mut buf = lock_last_error();
     buf.clear();
     buf.extend_from_slice(message.as_ref().as_bytes());
     buf.push(0);
@@ -60,7 +66,7 @@ fn clear_last_error() {
 }
 
 fn last_error_ptr() -> *const c_char {
-    let buf = last_error().lock().expect("last_error mutex poisoned");
+    let buf = lock_last_error();
     buf.as_ptr() as *const c_char
 }
 
@@ -122,9 +128,13 @@ impl HandleRegistry {
         }
     }
 
+    fn lock_entries(&self) -> std::sync::MutexGuard<'_, HashMap<RenderHandle, TestResource>> {
+        self.entries.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn create_test_handle(&self) -> RenderHandle {
         let handle = self.next.fetch_add(1, Ordering::Relaxed);
-        let mut entries = self.entries.lock().expect("registry mutex poisoned");
+        let mut entries = self.lock_entries();
         entries.insert(
             handle,
             TestResource {
@@ -136,7 +146,7 @@ impl HandleRegistry {
     }
 
     fn use_handle(&self, handle: RenderHandle) -> Result<(), (RenderResult, String)> {
-        let entries = self.entries.lock().expect("registry mutex poisoned");
+        let entries = self.lock_entries();
         if entries.contains_key(&handle) {
             return Ok(());
         }
@@ -147,7 +157,7 @@ impl HandleRegistry {
     }
 
     fn destroy_handle(&self, handle: RenderHandle) -> Result<(), (RenderResult, String)> {
-        let mut entries = self.entries.lock().expect("registry mutex poisoned");
+        let mut entries = self.lock_entries();
         let Some(mut resource) = entries.remove(&handle) else {
             return Err((
                 RenderResult::InvalidHandle,

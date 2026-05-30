@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -219,6 +220,8 @@ func initBackend(preferred RenderBackendKind, surface render.Surface, logger log
 	}
 
 	// LURPIC_RENDER_BACKEND env overrides the config default.
+	// On Android emulators without a Vulkan ICD, setting this to "software"
+	// avoids the costly Vulkan init failure path entirely.
 	if env := os.Getenv("LURPIC_RENDER_BACKEND"); env != "" {
 		switch env {
 		case "vulkan":
@@ -229,6 +232,20 @@ func initBackend(preferred RenderBackendKind, surface render.Surface, logger log
 			return nil, preferred, fmt.Errorf("app: LURPIC_RENDER_BACKEND=%q is invalid (use \"vulkan\" or \"software\")", env)
 		}
 	}
+
+	// On Android, if the surface does not support Vulkan at all, skip the
+	// expensive init attempt and go straight to software.
+	if preferred == RenderBackendVulkan && goruntime.GOOS == "android" {
+		if vs, ok := surface.(render.VulkanSurface); ok {
+			if len(vs.VulkanInstanceExtensions()) == 0 {
+				if logger != nil {
+					logger.Info("app: surface reports no Vulkan extensions; using software renderer")
+				}
+				preferred = RenderBackendSoftware
+			}
+		}
+	}
+
 	attempt := func(kind RenderBackendKind) (render.Backend, error) {
 		backend := newBackend(kind)
 		if backend == nil {
@@ -248,11 +265,23 @@ func initBackend(preferred RenderBackendKind, surface render.Surface, logger log
 	if preferred != RenderBackendVulkan {
 		return nil, preferred, fmt.Errorf("app: render: %w", err)
 	}
-	if _, ok := surface.(render.SoftwareSurface); !ok {
+	// Check if this surface can fall back to software.
+	hasSoftware, surfaceSupportsSW := surface.(render.SoftwareSurface)
+	if !surfaceSupportsSW {
 		return nil, preferred, fmt.Errorf("app: render: %w", err)
 	}
+	_ = hasSoftware
+
 	if logger != nil {
-		logger.Warn("app: vulkan backend unavailable; falling back to software", "error", err)
+		isUnsupported := vulkan.IsUnsupported(err)
+		switch {
+		case isUnsupported:
+			logger.Info("app: vulkan not supported on this device; falling back to software",
+				"error", err)
+		default:
+			logger.Warn("app: vulkan backend unavailable; falling back to software",
+				"error", err)
+		}
 	}
 	fallback, fallbackErr := attempt(RenderBackendSoftware)
 	if fallbackErr != nil {

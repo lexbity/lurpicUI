@@ -401,6 +401,90 @@ func TestInitBackend_envUnsetUsesDefault(t *testing.T) {
 	_ = backend
 }
 
+// lifecycleApp implements both platform.App and surfaceProvider, simulating
+// the Android lifecycle model where the surface is delivered through events
+// rather than created via NewWindow.
+type lifecycleApp struct {
+	destroyed bool
+	surface   *fakeSurface
+}
+
+func (a *lifecycleApp) Events() platform.EventQueue { return &fakeEventQueue{} }
+func (a *lifecycleApp) Destroy()                    { a.destroyed = true }
+func (a *lifecycleApp) Surface() platform.Surface   { return a.surface }
+
+func TestRun_lifecycleSurface_waitsForSurface(t *testing.T) {
+	restoreHooks(t)
+	app := &lifecycleApp{surface: &fakeSurface{width: 400, height: 300}}
+	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	cfg := DefaultConfig("test", 400, 300)
+	cfg.PlatformApp = app
+	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
+		return &fakeRoot{}
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+}
+
+func TestRun_lifecycleSurface_vulkanFallback(t *testing.T) {
+	restoreHooks(t)
+	app := &lifecycleApp{surface: &fakeSurface{width: 400, height: 300}}
+	var requested []RenderBackendKind
+	var selected RenderBackendKind
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		requested = append(requested, kind)
+		if kind == RenderBackendVulkan {
+			return &fakeBackend{initErr: errors.New("vulkan: no ICD found")}
+		}
+		return &fakeBackend{}
+	}
+	primeRuntime = func(rt *runtime.Runtime) {}
+	runRuntime = func(rt *runtime.Runtime) error { return nil }
+
+	cfg := DefaultConfig("test", 400, 300)
+	cfg.PlatformApp = app
+	cfg.OnBackendSelected = func(kind RenderBackendKind) { selected = kind }
+	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
+		return &fakeRoot{}
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if selected != RenderBackendSoftware {
+		t.Fatalf("selected backend = %v, want software", selected)
+	}
+	if len(requested) != 2 || requested[0] != RenderBackendVulkan || requested[1] != RenderBackendSoftware {
+		t.Fatalf("requested backends = %#v, want vulkan then software", requested)
+	}
+}
+
+func TestInitBackend_androidVulkanFallbackOnAnyError(t *testing.T) {
+	restoreHooks(t)
+	surface := &fakeSurface{width: 400, height: 300}
+	var requested []RenderBackendKind
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		requested = append(requested, kind)
+		if kind == RenderBackendVulkan {
+			return &fakeBackend{initErr: errors.New("vulkan: init failed, no ICD")}
+		}
+		return &fakeBackend{}
+	}
+
+	backend, kind, err := initBackend(RenderBackendVulkan, surface, nil)
+	if err != nil {
+		t.Fatalf("initBackend: %v", err)
+	}
+	if kind != RenderBackendSoftware {
+		t.Fatalf("expected software fallback, got %v", kind)
+	}
+	if len(requested) != 2 || requested[0] != RenderBackendVulkan || requested[1] != RenderBackendSoftware {
+		t.Fatalf("requested backends = %#v, want vulkan then software", requested)
+	}
+	_ = backend
+}
+
 func TestRun_reuses_supplied_platform_app(t *testing.T) {
 	restoreHooks(t)
 	app := &fakeApp{}

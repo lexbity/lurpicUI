@@ -2,9 +2,17 @@ package vulkan
 
 import (
 	"errors"
+	"fmt"
 
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/render/vulkan/internal"
 )
+
+// IsUnsupported reports whether err indicates the Vulkan backend is not
+// available on this system (no ICD, no Vulkan 1.1+, etc.).
+func IsUnsupported(err error) bool {
+	return internal.IsUnsupported(err)
+}
 
 var errNotImplemented = errors.New("vulkan backend: not implemented")
 
@@ -19,7 +27,10 @@ func (b *Backend) Initialize(s render.Surface) error {
 		b.Destroy()
 	}
 	if err := Init(); err != nil {
-		return err
+		if internal.IsUnsupported(err) {
+			return err
+		}
+		return fmt.Errorf("vulkan backend: init: %w", err)
 	}
 	b.images = newImageCache()
 	if vs, ok := s.(render.VulkanSurface); ok {

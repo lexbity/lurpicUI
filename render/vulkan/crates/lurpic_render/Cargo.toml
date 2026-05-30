@@ -12,4 +12,14 @@ crate-type = ["cdylib", "staticlib"]
 panic = "unwind"
 
 [profile.release]
-panic = "abort"
+panic = "unwind"
+lto = "thin"
+codegen-units = 1
+opt-level = 2
+
+# Android-specific release profile — less aggressive optimizations for
+# compatibility across GPU vendors and ICD-less emulators.
+[profile.release-android]
+inherits = "release"
+panic = "unwind"
+opt-level = 2

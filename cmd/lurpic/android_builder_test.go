@@ -437,9 +437,10 @@ func TestAndroidBuilder_buildRustCrate_artifactCopied(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Create the expected build artifact before calling buildRustCrate
+	// Create the expected build artifact before calling buildRustCrate.
+	// Since b.release defaults to false, the code looks in the debug profile dir.
 	arch := DefaultEmulatorArchitecture()
-	targetDir := filepath.Join(cratePath, "target", arch.CargoTarget, "release")
+	targetDir := filepath.Join(cratePath, "target", arch.CargoTarget, "debug")
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -453,6 +454,7 @@ func TestAndroidBuilder_buildRustCrate_artifactCopied(t *testing.T) {
 		runner:      f,
 		projectRoot: projectRoot,
 		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		release:     false,
 		config: &Config{
 			App:     AppConfig{ID: "org.test.app"},
 			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
@@ -626,5 +628,124 @@ func TestAndroidBuilder_build_unsupportedABI(t *testing.T) {
 	err := b.build()
 	if err == nil {
 		t.Fatal("expected error for unsupported ABI")
+	}
+}
+
+func TestAndroidBuilder_rustProfile_releaseAddsFlag(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	cratePath := filepath.Join(projectRoot, "crates", "testcrate")
+	if err := os.MkdirAll(cratePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cargoToml := filepath.Join(cratePath, "Cargo.toml")
+	if err := os.WriteFile(cargoToml, []byte("[package]\nname = \"testcrate\"\n[lib]\ncrate-type = [\"cdylib\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCargo := filepath.Join(projectRoot, "Cargo.toml")
+	if err := os.WriteFile(rootCargo, []byte("[workspace]\nmembers = [\"crates/*\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	arch := DefaultEmulatorArchitecture()
+	targetDir := filepath.Join(cratePath, "target", arch.CargoTarget, "release")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(targetDir, "libtestcrate.so")
+	if err := os.WriteFile(artifactPath, []byte("fake rust so"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:      f,
+		projectRoot: projectRoot,
+		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		release:     true,
+		config: &Config{
+			App:     AppConfig{ID: "org.test.app"},
+			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
+		},
+	}
+
+	f.WhenLook("cargo-ndk").Returns("", fmt.Errorf("not found"))
+	f.When(MatchCommand("cargo")).Then("", "", nil)
+
+	if err := b.buildRustCrate(arch, cratePath, "testcrate"); err != nil {
+		t.Fatalf("buildRustCrate (release): %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) == 0 {
+		t.Fatal("expected at least 1 cargo call")
+	}
+	hasRelease := false
+	for _, a := range calls[0].Args {
+		if a == "--release" {
+			hasRelease = true
+			break
+		}
+	}
+	if !hasRelease {
+		t.Fatalf("expected --release in cargo args for release build, got %v", calls[0].Args)
+	}
+}
+
+func TestAndroidBuilder_rustProfile_debugOmitsFlag(t *testing.T) {
+	projectRoot := t.TempDir()
+
+	cratePath := filepath.Join(projectRoot, "crates", "testcrate2")
+	if err := os.MkdirAll(cratePath, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cargoToml := filepath.Join(cratePath, "Cargo.toml")
+	if err := os.WriteFile(cargoToml, []byte("[package]\nname = \"testcrate2\"\n[lib]\ncrate-type = [\"cdylib\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	rootCargo := filepath.Join(projectRoot, "Cargo.toml")
+	if err := os.WriteFile(rootCargo, []byte("[workspace]\nmembers = [\"crates/*\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	arch := DefaultEmulatorArchitecture()
+	targetDir := filepath.Join(cratePath, "target", arch.CargoTarget, "debug")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	artifactPath := filepath.Join(targetDir, "libtestcrate2.so")
+	if err := os.WriteFile(artifactPath, []byte("fake rust so debug"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	f := newFakeRunner()
+	b := &androidBuilder{
+		runner:      f,
+		projectRoot: projectRoot,
+		buildDir:    filepath.Join(projectRoot, "build", "android"),
+		release:     false,
+		config: &Config{
+			App:     AppConfig{ID: "org.test.app"},
+			Android: AndroidConfig{TargetSDK: 33, MinSDK: 29},
+		},
+	}
+
+	f.WhenLook("cargo-ndk").Returns("", fmt.Errorf("not found"))
+	f.When(MatchCommand("cargo")).Then("", "", nil)
+
+	if err := b.buildRustCrate(arch, cratePath, "testcrate2"); err != nil {
+		t.Fatalf("buildRustCrate (debug): %v", err)
+	}
+
+	calls := f.Calls()
+	if len(calls) == 0 {
+		t.Fatal("expected at least 1 cargo call")
+	}
+	for _, a := range calls[0].Args {
+		if a == "--release" {
+			t.Fatalf("unexpected --release in cargo args for debug build, got %v", calls[0].Args)
+		}
 	}
 }

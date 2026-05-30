@@ -11,6 +11,7 @@ const (
 	ResultOutOfMemory   ResultCode = 2
 	ResultInvalidHandle ResultCode = 3
 	ResultVulkanError   ResultCode = 4
+	ResultUnsupported   ResultCode = 5
 	ResultPanic         ResultCode = 1000
 	ResultUnknown       ResultCode = 1001
 )
@@ -40,6 +41,7 @@ func (e baseResultError) ResultCode() ResultCode { return e.code }
 type InitFailedError struct{ baseResultError }
 type OutOfMemoryError struct{ baseResultError }
 type InvalidHandleError struct{ baseResultError }
+type UnsupportedError struct{ baseResultError }
 type VulkanError struct{ baseResultError }
 type PanicError struct{ baseResultError }
 type UnknownError struct{ baseResultError }
@@ -54,6 +56,8 @@ func (c ResultCode) String() string {
 		return "out_of_memory"
 	case ResultInvalidHandle:
 		return "invalid_handle"
+	case ResultUnsupported:
+		return "unsupported"
 	case ResultVulkanError:
 		return "vulkan_error"
 	case ResultPanic:
@@ -75,6 +79,8 @@ func TranslateResult(code ResultCode, message string) error {
 		return &OutOfMemoryError{baseResultError{code: code, message: message}}
 	case ResultInvalidHandle:
 		return &InvalidHandleError{baseResultError{code: code, message: message}}
+	case ResultUnsupported:
+		return &UnsupportedError{baseResultError{code: code, message: message}}
 	case ResultVulkanError:
 		return &VulkanError{baseResultError{code: code, message: message}}
 	case ResultPanic:
@@ -92,6 +98,8 @@ func ErrorCode(err error) (ResultCode, bool) {
 		return e.code, true
 	case *InvalidHandleError:
 		return e.code, true
+	case *UnsupportedError:
+		return e.code, true
 	case *VulkanError:
 		return e.code, true
 	case *PanicError:
@@ -108,4 +116,9 @@ func ErrorCode(err error) (ResultCode, bool) {
 func IsInvalidHandle(err error) bool {
 	code, ok := ErrorCode(err)
 	return ok && code == ResultInvalidHandle
+}
+
+func IsUnsupported(err error) bool {
+	code, ok := ErrorCode(err)
+	return ok && code == ResultUnsupported
 }
