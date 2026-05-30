@@ -165,7 +165,24 @@ var (
 	globalQueueOnce sync.Once
 	permissionMu    sync.RWMutex
 	permissionHook  func(requestCode int32, granted bool, permanent bool)
+	assetManagerMu  sync.RWMutex
+	assetManagerPtr unsafe.Pointer
 )
+
+// setAssetManager records the AAssetManager* supplied by the NativeActivity.
+func setAssetManager(p unsafe.Pointer) {
+	assetManagerMu.Lock()
+	assetManagerPtr = p
+	assetManagerMu.Unlock()
+}
+
+// GetAssetManager returns the AAssetManager* captured from the NativeActivity
+// for JNI asset access. It returns nil before the activity has been created.
+func GetAssetManager() unsafe.Pointer {
+	assetManagerMu.RLock()
+	defer assetManagerMu.RUnlock()
+	return assetManagerPtr
+}
 
 // GetEventQueue returns the singleton event queue.
 func GetEventQueue() *EventQueue {
@@ -182,6 +199,11 @@ func goANativeActivityOnCreate(activity *C.ANativeActivity, savedState unsafe.Po
 		Activity: unsafe.Pointer(activity),
 	}
 	GetEventQueue().Push(event)
+
+	// Capture the AAssetManager* so app.Asset can read bundled APK assets.
+	if activity != nil {
+		setAssetManager(unsafe.Pointer(activity.assetManager))
+	}
 
 	// Log that we received the create event
 	androidLogInfo("ANativeActivity_onCreate called, activity=%p", unsafe.Pointer(activity))

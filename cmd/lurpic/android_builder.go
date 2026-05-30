@@ -1,8 +1,11 @@
 package main
 
 import (
+	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -12,6 +15,19 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform/android"
 	"golang.org/x/term"
 )
+
+// androidEntrySource is injected into the app's main package (android build only)
+// via go build -overlay. Under -buildmode=c-shared the Go runtime runs package
+// init at library load but never calls main(); this starts main() on a dedicated
+// goroutine so app.Run executes and waits for the NativeActivity surface.
+const androidEntrySource = `//go:build android
+
+package main
+
+func init() {
+	go main()
+}
+`
 
 // androidBuilder orchestrates the Android APK build process
 type androidBuilder struct {
@@ -25,6 +41,9 @@ type androidBuilder struct {
 	outputPath  string
 	apiLevel    int
 	ksPassword  string
+	jdk         string
+
+	cachedModuleDir string
 }
 
 // build executes the full Android build pipeline
@@ -35,18 +54,22 @@ func (b *androidBuilder) build() error {
 		return err
 	}
 
-	// Step 1: Build Go shared library for each configured ABI
+	// Step 1: Build the framework render Rust lib, then the Go shared library
+	// (which links against it), for each configured ABI.
 	for _, abi := range b.config.Android.ABIs {
 		arch, ok := ArchitectureByABI(abi)
 		if !ok {
 			return fmt.Errorf("unsupported ABI: %s", abi)
+		}
+		if err := b.buildRenderRustLib(arch); err != nil {
+			return fmt.Errorf("render Rust build failed for %s: %w", abi, err)
 		}
 		if err := b.buildGoLibrary(arch); err != nil {
 			return fmt.Errorf("Go build failed for %s: %w", abi, err)
 		}
 	}
 
-	// Step 2: Build Rust library for each configured ABI
+	// Step 2: Build the app's own Rust library (if present) for each ABI.
 	for _, abi := range b.config.Android.ABIs {
 		arch, ok := ArchitectureByABI(abi)
 		if !ok {
@@ -67,12 +90,17 @@ func (b *androidBuilder) build() error {
 		return fmt.Errorf("asset bundling failed: %w", err)
 	}
 
-	// Step 5: Assemble APK
+	// Step 5: Compile + dex the Java NativeActivity
+	if err := b.buildJavaDex(); err != nil {
+		return fmt.Errorf("java/dex build failed: %w", err)
+	}
+
+	// Step 6: Assemble APK
 	if err := b.assembleAPK(); err != nil {
 		return fmt.Errorf("APK assembly failed: %w", err)
 	}
 
-	// Step 6: Sign APK
+	// Step 7: Sign APK
 	if err := b.signAPK(); err != nil {
 		return fmt.Errorf("APK signing failed: %w", err)
 	}
@@ -117,30 +145,38 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 	if arch.GOARM != "" {
 		env = append(env, "GOARM="+arch.GOARM)
 	}
+	// Link against the framework render lib bundled in lib/<abi> so libgo.so
+	// resolves the lurpic_render_* symbols (DT_NEEDED liblurpic_render.so).
+	env = append(env, fmt.Sprintf("CGO_LDFLAGS=-L%s -llurpic_render", libDir))
 
-	// Find the main package
-	mainPath := filepath.Join(b.projectRoot, "main.go")
-	if _, err := os.Stat(mainPath); os.IsNotExist(err) {
-		mainPath = filepath.Join(b.projectRoot, "cmd", b.config.App.ID, "main.go")
+	// The Go entrypoint package is configured via app.main (relative to the
+	// project root), independent of the Android applicationId (app.id).
+	mainPkg := b.config.App.Main
+	if mainPkg == "" {
+		mainPkg = "."
 	}
 
-	// Missing main.go is a fatal error
+	// Missing main.go in the configured package is a fatal error.
+	mainPath := filepath.Join(b.projectRoot, mainPkg, "main.go")
 	if _, err := os.Stat(mainPath); os.IsNotExist(err) {
-		return fmt.Errorf("no main.go found at %s or cmd/%s/main.go", filepath.Join(b.projectRoot, "main.go"), b.config.App.ID)
+		return fmt.Errorf("no main.go found at %s (app.main = %q)", mainPath, mainPkg)
+	}
+
+	// Under -buildmode=c-shared, main() is not invoked at load; only package
+	// init runs. Inject an android-only init that starts main() on a goroutine,
+	// via -overlay so the app's source tree is never modified.
+	overlayPath, err := b.writeAndroidEntryOverlay(mainPkg)
+	if err != nil {
+		return err
 	}
 
 	output := filepath.Join(libDir, "libgo.so")
 	args := []string{
 		"build",
 		"-buildmode=c-shared",
+		"-overlay", overlayPath,
 		"-o", output,
-	}
-
-	// If main.go is in cmd/subdir, we need to build that package
-	if filepath.Base(filepath.Dir(mainPath)) != b.projectRoot {
-		args = append(args, filepath.Join("cmd", b.config.App.ID))
-	} else {
-		args = append(args, ".")
+		"./" + filepath.ToSlash(mainPkg),
 	}
 
 	if err := b.runner.Run(CommandSpec{
@@ -155,6 +191,106 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 	}
 
 	fmt.Printf("  Built: %s\n", output)
+	return nil
+}
+
+// writeAndroidEntryOverlay writes the android entry source and a go build
+// overlay that maps it into the app's main package without touching the source
+// tree. It returns the overlay JSON path.
+func (b *androidBuilder) writeAndroidEntryOverlay(mainPkg string) (string, error) {
+	contentPath := filepath.Join(b.buildDir, "android_entry.go")
+	if err := os.WriteFile(contentPath, []byte(androidEntrySource), 0644); err != nil {
+		return "", fmt.Errorf("write android entry: %w", err)
+	}
+
+	// The injected (virtual) file lives inside the main package directory.
+	mainDir := filepath.Join(b.projectRoot, mainPkg)
+	injected := filepath.Join(mainDir, "zz_lurpic_android_entry.go")
+	if _, err := os.Stat(injected); err == nil {
+		return "", fmt.Errorf("cannot inject android entry: %s already exists", injected)
+	}
+
+	overlay := struct {
+		Replace map[string]string `json:"Replace"`
+	}{Replace: map[string]string{injected: contentPath}}
+
+	data, err := json.Marshal(overlay)
+	if err != nil {
+		return "", err
+	}
+	overlayPath := filepath.Join(b.buildDir, "overlay.json")
+	if err := os.WriteFile(overlayPath, data, 0644); err != nil {
+		return "", fmt.Errorf("write overlay: %w", err)
+	}
+	return overlayPath, nil
+}
+
+// moduleDir resolves the on-disk directory of the lurpicui framework module, so
+// the build can locate framework assets (the render crate) regardless of where
+// the user's project lives.
+func (b *androidBuilder) moduleDir() (string, error) {
+	if b.cachedModuleDir != "" {
+		return b.cachedModuleDir, nil
+	}
+	out, err := b.runner.Output(CommandSpec{
+		Path: "go",
+		Args: []string{"list", "-m", "-f", "{{.Dir}}", "codeburg.org/lexbit/lurpicui"},
+		Dir:  b.projectRoot,
+	})
+	if err != nil {
+		return "", fmt.Errorf("locate lurpicui module: %w\n%s", err, out)
+	}
+	dir := strings.TrimSpace(string(out))
+	if dir == "" {
+		return "", fmt.Errorf("could not resolve lurpicui module directory")
+	}
+	b.cachedModuleDir = dir
+	return dir, nil
+}
+
+// buildRenderRustLib builds the framework's lurpic_render crate for the given ABI
+// with cargo-ndk and stages liblurpic_render.so into lib/<abi> so the Go shared
+// library can link and load it.
+func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
+	fmt.Printf("Building render Rust library for %s...\n", arch.ABI)
+
+	moduleDir, err := b.moduleDir()
+	if err != nil {
+		return err
+	}
+	crateDir := filepath.Join(moduleDir, "render", "vulkan", "crates", "lurpic_render")
+	if _, err := os.Stat(filepath.Join(crateDir, "Cargo.toml")); err != nil {
+		return fmt.Errorf("render crate not found at %s: %w", crateDir, err)
+	}
+
+	outDir := filepath.Join(b.buildDir, "rustout")
+	env := os.Environ()
+	env = append(env, "ANDROID_NDK_HOME="+b.ndk, "ANDROID_NDK_ROOT="+b.ndk)
+
+	if err := b.runner.Run(CommandSpec{
+		Path:   "cargo",
+		Args:   []string{"ndk", "-t", arch.ABI, "-o", outDir, "build", "--release"},
+		Dir:    crateDir,
+		Env:    env,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	}); err != nil {
+		return fmt.Errorf("cargo ndk build failed: %w", err)
+	}
+
+	produced := filepath.Join(outDir, arch.ABI, "liblurpic_render.so")
+	if _, err := os.Stat(produced); err != nil {
+		return fmt.Errorf("cargo ndk did not produce %s: %w", produced, err)
+	}
+
+	libDir := filepath.Join(b.buildDir, "lib", arch.ABI)
+	if err := os.MkdirAll(libDir, 0o755); err != nil {
+		return err
+	}
+	if err := copyFile(produced, filepath.Join(libDir, "liblurpic_render.so")); err != nil {
+		return fmt.Errorf("stage liblurpic_render.so: %w", err)
+	}
+	fmt.Printf("  Built: %s\n", filepath.Join(libDir, "liblurpic_render.so"))
 	return nil
 }
 
@@ -462,56 +598,155 @@ func (b *androidBuilder) assembleAPK() error {
 		return fmt.Errorf("failed to copy base APK: %w", err)
 	}
 
-	// Step 3: Add native libraries to APK using aapt2 add
+	// Step 3: Add native libraries to the APK (lib/<abi>/...).
 	libSrc := filepath.Join(b.buildDir, "lib")
 	if _, err := os.Stat(libSrc); err == nil {
-		if err := addFilesToAPK(b.runner, aapt2, unsignedApk, libSrc); err != nil {
+		if err := addTreeToAPK(unsignedApk, b.buildDir, "lib"); err != nil {
 			return fmt.Errorf("failed to add native libs to APK: %w", err)
 		}
 	}
 
-	// Step 4: Add assets to APK using aapt2 add
+	// Step 4: Add assets to the APK (assets/...).
 	assetsSrc := filepath.Join(b.buildDir, "assets")
 	if _, err := os.Stat(assetsSrc); err == nil {
-		if err := addFilesToAPK(b.runner, aapt2, unsignedApk, assetsSrc); err != nil {
+		if err := addTreeToAPK(unsignedApk, b.buildDir, "assets"); err != nil {
 			return fmt.Errorf("failed to add assets to APK: %w", err)
 		}
+	}
+
+	// Step 5: Add the dexed Java code at the APK root (classes.dex).
+	dexPath := filepath.Join(b.buildDir, "classes.dex")
+	if _, err := os.Stat(dexPath); err != nil {
+		return fmt.Errorf("classes.dex not found (java/dex stage must run before assembly): %w", err)
+	}
+	if err := addFileToAPK(unsignedApk, dexPath, "classes.dex"); err != nil {
+		return fmt.Errorf("failed to add classes.dex to APK: %w", err)
 	}
 
 	fmt.Printf("  Assembled: %s\n", unsignedApk)
 	return nil
 }
 
-// addFilesToAPK walks srcDir and adds every file to the given APK via aapt2 add,
-// preserving the relative directory structure as APK entry paths.
-func addFilesToAPK(runner Runner, aapt2, apkPath, srcDir string) error {
-	var args = []string{"add", apkPath}
-	if err := filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+// addFileToAPK injects a single file into the APK at the given entry name (e.g.
+// "classes.dex" at the archive root), rewriting the archive atomically.
+func addFileToAPK(apkPath, srcPath, entryName string) error {
+	src, err := zip.OpenReader(apkPath)
+	if err != nil {
+		return fmt.Errorf("open apk: %w", err)
+	}
+	defer src.Close()
+
+	tmpPath := apkPath + ".tmp"
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpPath)
+	zw := zip.NewWriter(out)
+
+	for _, f := range src.File {
+		if f.Name == entryName {
+			continue // replace any existing entry
+		}
+		if err := zw.Copy(f); err != nil {
+			out.Close()
+			return fmt.Errorf("copy entry %q: %w", f.Name, err)
+		}
+	}
+
+	w, err := zw.Create(entryName)
+	if err != nil {
+		out.Close()
+		return err
+	}
+	in, err := os.Open(srcPath)
+	if err != nil {
+		out.Close()
+		return err
+	}
+	if _, err := io.Copy(w, in); err != nil {
+		in.Close()
+		out.Close()
+		return err
+	}
+	in.Close()
+
+	if err := zw.Close(); err != nil {
+		out.Close()
+		return err
+	}
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, apkPath)
+}
+
+// addTreeToAPK injects a staged directory tree (e.g. "lib" or "assets") into the
+// linked APK at the matching top-level entry path. An APK is a zip archive and
+// aapt2 has no "add" subcommand, so the tree is merged in-process with
+// archive/zip — avoiding a dependency on an external zip binary. Entry paths are
+// taken relative to baseDir so they carry the correct prefix (lib/<abi>/libgo.so,
+// assets/...). The APK is rewritten atomically via a temp file + rename.
+func addTreeToAPK(apkPath, baseDir, treeName string) error {
+	src, err := zip.OpenReader(apkPath)
+	if err != nil {
+		return fmt.Errorf("open apk: %w", err)
+	}
+	defer src.Close()
+
+	tmpPath := apkPath + ".tmp"
+	out, err := os.Create(tmpPath)
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmpPath)
+	zw := zip.NewWriter(out)
+
+	// Preserve existing entries verbatim (no recompression).
+	for _, f := range src.File {
+		if err := zw.Copy(f); err != nil {
+			out.Close()
+			return fmt.Errorf("copy entry %q: %w", f.Name, err)
+		}
+	}
+
+	// Add the staged tree.
+	root := filepath.Join(baseDir, treeName)
+	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
 		if info.IsDir() {
 			return nil
 		}
-		rel, err := filepath.Rel(srcDir, path)
+		rel, err := filepath.Rel(baseDir, path)
 		if err != nil {
 			return err
 		}
-		args = append(args, rel)
-		return nil
+		w, err := zw.Create(filepath.ToSlash(rel))
+		if err != nil {
+			return err
+		}
+		in, err := os.Open(path)
+		if err != nil {
+			return err
+		}
+		defer in.Close()
+		_, err = io.Copy(w, in)
+		return err
 	}); err != nil {
+		out.Close()
 		return err
 	}
-	if len(args) == 2 {
-		return nil
+
+	if err := zw.Close(); err != nil {
+		out.Close()
+		return err
 	}
-	return runner.Run(CommandSpec{
-		Path:   aapt2,
-		Args:   args,
-		Dir:    srcDir,
-		Stdout: os.Stdout,
-		Stderr: os.Stderr,
-	})
+	if err := out.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmpPath, apkPath)
 }
 
 // signAPK signs the APK with debug or release keystore

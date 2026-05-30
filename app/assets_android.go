@@ -8,6 +8,7 @@ import (
 )
 
 // #cgo LDFLAGS: -landroid
+// #include <stdlib.h>
 // #include <android/asset_manager.h>
 // #include <android/asset_manager_jni.h>
 import "C"
@@ -15,7 +16,7 @@ import "C"
 import (
 	"unsafe"
 
-	"codeburg.org/lexbit/lurpicui/platform/android/internal/bridge"
+	"codeburg.org/lexbit/lurpicui/platform/android"
 )
 
 // Asset reads a bundled asset file from the APK's assets directory.
@@ -31,8 +32,8 @@ import (
 //	    log.Fatal(err)
 //	}
 func Asset(path string) ([]byte, error) {
-	// Get the AssetManager from the bridge
-	mgr := bridge.GetAssetManager()
+	// Get the AssetManager via the public platform/android accessor.
+	mgr := android.AssetManager()
 	if mgr == nil {
 		return nil, fmt.Errorf("asset manager not available")
 	}
@@ -41,7 +42,7 @@ func Asset(path string) ([]byte, error) {
 	defer C.free(unsafe.Pointer(cPath))
 
 	// Open the asset
-	asset := C.AAssetManager_open(mgr, cPath, C.AASSET_MODE_STREAMING)
+	asset := C.AAssetManager_open((*C.AAssetManager)(mgr), cPath, C.AASSET_MODE_STREAMING)
 	if asset == nil {
 		return nil, fmt.Errorf("asset not found: %s", path)
 	}

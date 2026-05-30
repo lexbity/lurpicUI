@@ -5,6 +5,7 @@ package android
 
 import (
 	"time"
+	"unsafe"
 
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/platform/android/internal/bridge"
@@ -135,6 +136,13 @@ type androidSurface struct {
 	width  int
 	height int
 	scale  float32
+
+	// Software present state (see surface_android.go). The pixel buffer is owned
+	// by the ANativeWindow between Lock and Unlock.
+	locked      bool
+	bits        unsafe.Pointer
+	strideBytes int
+	geomSet     bool
 }
 
 func newAndroidSurface(window uintptr, width, height int) platform.Surface {
@@ -158,6 +166,8 @@ func (s *androidSurface) Resize(width, height int) {
 	}
 	s.width = width
 	s.height = height
+	// Force the buffer geometry to be reapplied on the next Lock.
+	s.geomSet = false
 }
 
 func (s *androidSurface) Scale() float32 {
@@ -181,6 +191,13 @@ func (s *androidSurface) CreateVulkanSurface(instance uintptr) (uintptr, error) 
 var _ platform.Surface = (*androidSurface)(nil)
 var _ render.VulkanSurface = (*androidSurface)(nil)
 var _ platform.IMECapable = (*App)(nil)
+
+// Surface returns the current native window surface, or nil if not yet available.
+// On Android the surface is created by the system as part of the Activity lifecycle
+// and delivered via a WindowCreated event through the bridge.
+func (a *App) Surface() platform.Surface {
+	return a.currentSurface
+}
 
 // Events returns the platform event queue.
 func (a *App) Events() platform.EventQueue {

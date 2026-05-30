@@ -12,7 +12,7 @@ import (
 const (
 	defaultEmulatorPort     = 5554
 	defaultBootTimeout      = 5 * time.Minute
-	defaultBootPollInterval  = 3 * time.Second
+	defaultBootPollInterval = 3 * time.Second
 
 	// documentedAVDStdin is the stdin sent to avdmanager create avd to decline
 	// the custom hardware profile prompt.
@@ -28,12 +28,12 @@ const (
 )
 
 type EmulatorManager struct {
-	runner          Runner
-	sdk             string
-	apiLevel        int
-	arch            Architecture
-	gpuMode         string
-	headless        bool
+	runner           Runner
+	sdk              string
+	apiLevel         int
+	arch             Architecture
+	gpuMode          string
+	headless         bool
 	bootPollInterval time.Duration
 }
 
@@ -178,17 +178,11 @@ func (m *EmulatorManager) managedAVD() (string, error) {
 func (m *EmulatorManager) createDefaultAVD() (string, error) {
 	avdmanager, err := findCmdlineTool(m.sdk, "avdmanager")
 	if err != nil {
-		avdmanager, err = findSDKTool(m.sdk, "avdmanager")
-		if err != nil {
-			return "", fmt.Errorf("avdmanager not found: %w", err)
-		}
+		return "", err
 	}
 	sdkmanager, err := findCmdlineTool(m.sdk, "sdkmanager")
 	if err != nil {
-		sdkmanager, err = findSDKTool(m.sdk, "sdkmanager")
-		if err != nil {
-			return "", fmt.Errorf("sdkmanager not found: %w", err)
-		}
+		return "", err
 	}
 
 	// Accept SDK licenses non-interactively

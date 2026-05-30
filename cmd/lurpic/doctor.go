@@ -114,13 +114,13 @@ func checkCargoNdk(runner Runner, verbose bool) {
 }
 
 func checkEmulatorToolchain(runner Runner, verbose bool) {
-	sdk := os.Getenv("ANDROID_HOME")
-	if sdk == "" {
-		sdk = os.Getenv("ANDROID_SDK")
-	}
-	if sdk == "" {
+	// Use full auto-detection (env vars + common install paths), matching how
+	// the build/run commands resolve the SDK, so the emulator checks run even
+	// when ANDROID_HOME is unset.
+	sdk, err := detectAndroidSDK()
+	if err != nil {
 		if verbose {
-			fmt.Println("✗ Android SDK not set (ANDROID_HOME)")
+			fmt.Printf("✗ Android SDK not found; skipping emulator checks: %v\n", err)
 		}
 		return
 	}

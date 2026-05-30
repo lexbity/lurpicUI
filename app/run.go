@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/platform/linux"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
@@ -19,7 +19,15 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
-var newPlatformApp = linux.NewApp
+// surfaceProvider is implemented by platforms (e.g. Android) that provide a
+// render surface directly through their lifecycle instead of through a window.
+type surfaceProvider interface {
+	Surface() platform.Surface
+}
+
+// newPlatformApp constructs the platform App for the current build target.
+// It is assigned in build-tagged files (run_default.go for desktop,
+// run_android.go for Android) so platform packages are only linked where valid.
 var newBackend = func(kind RenderBackendKind) render.Backend {
 	switch kind {
 	case RenderBackendVulkan:
@@ -47,7 +55,14 @@ var runRuntime = func(rt *runtime.Runtime) error {
 	return rt.Run()
 }
 
+// surfaceWaitTimeout is how long Run waits for a surface to become available
+// on lifecycle-based platforms (e.g. Android) before giving up.
+const surfaceWaitTimeout = 15 * time.Second
+
 // Run initialises the engine, builds the root facet, and starts the main loop.
+// It supports two platform models:
+//   - Desktop: platform provides WindowCapable (Linux, Windows, macOS)
+//   - Lifecycle-based: platform provides a Surface() method (Android)
 func Run(config Config, builder RootBuilder) error {
 	if builder == nil {
 		return errors.New("app: RootBuilder is required")
@@ -68,30 +83,74 @@ func Run(config Config, builder RootBuilder) error {
 		defer platformApp.Destroy()
 	}
 
-	provider, ok := platform.WindowCapableOf(platformApp)
-	if !ok {
-		return errors.New("app: platform does not provide window creation")
-	}
+	// ── Resolve window / surface ──
 
-	window, err := provider.NewWindow(platform.WindowOptions{
-		Title:     config.Window.Title,
-		Width:     config.Window.Width,
-		Height:    config.Window.Height,
-		Resizable: config.Window.Resizable,
-		MinSize:   config.Window.MinSize,
-		MaxSize:   config.Window.MaxSize,
-	})
-	if err != nil {
-		return fmt.Errorf("app: window: %w", err)
-	}
-	defer window.Destroy()
-	window.SetTitle(config.Window.Title)
-	contentScale := config.Runtime.ContentScale
-	if contentScale <= 0 {
-		contentScale = window.ContentScale()
-	}
-	if contentScale <= 0 {
-		contentScale = 1
+	var (
+		window       platform.Window
+		surface      render.Surface
+		contentScale float32
+		w, h         int
+	)
+
+	if provider, ok := platform.WindowCapableOf(platformApp); ok {
+		// Desktop path: create a window and get its surface.
+		var err error
+		window, err = provider.NewWindow(platform.WindowOptions{
+			Title:     config.Window.Title,
+			Width:     config.Window.Width,
+			Height:    config.Window.Height,
+			Resizable: config.Window.Resizable,
+			MinSize:   config.Window.MinSize,
+			MaxSize:   config.Window.MaxSize,
+		})
+		if err != nil {
+			return fmt.Errorf("app: window: %w", err)
+		}
+		defer window.Destroy()
+		window.SetTitle(config.Window.Title)
+		contentScale = config.Runtime.ContentScale
+		if contentScale <= 0 {
+			contentScale = window.ContentScale()
+		}
+		if contentScale <= 0 {
+			contentScale = 1
+		}
+		surface = window.Surface()
+		if surface == nil {
+			return errors.New("app: window surface is nil")
+		}
+		w, h = window.Size()
+	} else if sp, ok := platformApp.(surfaceProvider); ok {
+		// Lifecycle-based path (e.g. Android): the surface is created by the
+		// system and delivered through the event queue. Poll events once to
+		// dispatch any already-queued WindowCreated events, then wait.
+		surface = sp.Surface()
+		if surface == nil {
+			// Drain any already-queued WindowCreated event.
+			platformApp.Events().Poll()
+			surface = sp.Surface()
+		}
+		if surface == nil {
+			// Pump the event queue until the system delivers the surface. The
+			// adapter sets the current surface as a side effect of draining the
+			// WindowCreated event, so we must keep draining — blocking on a bare
+			// callback here would deadlock, since nothing else drains the queue.
+			deadline := time.Now().Add(surfaceWaitTimeout)
+			for surface == nil && time.Now().Before(deadline) {
+				platformApp.Events().Wait(surfaceWaitTimeout)
+				surface = sp.Surface()
+			}
+			if surface == nil {
+				return errors.New("app: timeout waiting for platform surface")
+			}
+		}
+		w, h = surface.Size()
+		contentScale = config.Runtime.ContentScale
+		if contentScale <= 0 {
+			contentScale = 1
+		}
+	} else {
+		return errors.New("app: platform does not provide window or surface")
 	}
 
 	fontRegistry, err := loadFontRegistry(config.Fonts)
@@ -99,10 +158,6 @@ func Run(config Config, builder RootBuilder) error {
 		return err
 	}
 
-	surface := window.Surface()
-	if surface == nil {
-		return errors.New("app: window surface is nil")
-	}
 	backend, selectedRender, err := initBackend(config.Render, surface, config.Runtime.Logger)
 	if err != nil {
 		return err
@@ -117,7 +172,6 @@ func Run(config Config, builder RootBuilder) error {
 		}
 	}()
 
-	w, h := window.Size()
 	themeContext := config.Theme
 	if themeContext.Resolver == nil && themeContext.Materials == nil && themeContext.ContentScale == 0 && themeContext.Depth == 0 {
 		themeContext = theme.DefaultResolvedContext()
@@ -153,7 +207,9 @@ func Run(config Config, builder RootBuilder) error {
 	backendOwnedByRuntime = true
 
 	primeRuntime(rt)
-	window.Show()
+	if window != nil {
+		window.Show()
+	}
 	return runRuntime(rt)
 }
 

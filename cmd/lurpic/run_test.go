@@ -103,8 +103,6 @@ func TestLaunchAPK_failure(t *testing.T) {
 	}
 }
 
-
-
 func TestResolveDeviceSerial_parsesSingleDevice(t *testing.T) {
 	f := newFakeRunner()
 	f.When(MatchCommand("adb", "devices")).Then(
@@ -167,6 +165,13 @@ func TestRunFlags_parsed(t *testing.T) {
 }
 
 func TestRunAndroid_orchestration_fakeRunner(t *testing.T) {
+	// Isolate the environment so the managed-AVD lookup (which checks
+	// $HOME/.android/avd) cannot find a real AVD and therefore exercises the
+	// provisioning path deterministically.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LURPIC_ANDROID_AVD", "")
+	t.Setenv("ANDROID_AVD_NAME", "")
+
 	sdkDir := t.TempDir()
 	buildDir := t.TempDir()
 	f := newFakeRunner()

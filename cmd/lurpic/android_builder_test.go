@@ -9,6 +9,17 @@ import (
 	"testing"
 )
 
+// argFlagValue returns the argument following flag in args (e.g. the value of
+// "-o"), or "" if not present. Used so argv assertions tolerate added flags.
+func argFlagValue(args []string, flag string) string {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
 func createSDKWithTool(t *testing.T, sdkDir, tool string) (toolPath string) {
 	t.Helper()
 	buildTools := filepath.Join(sdkDir, "build-tools", "99.0.0")
@@ -270,7 +281,7 @@ func TestAndroidBuilder_buildGoLibrary_x86_64_argv(t *testing.T) {
 
 	// Verify output path uses the ABI directory
 	expectedOutput := filepath.Join(projectRoot, "build", "android", "lib", "x86_64", "libgo.so")
-	if calls[0].Args[2] != "-o" || calls[0].Args[3] != expectedOutput {
+	if got := argFlagValue(calls[0].Args, "-o"); got != expectedOutput {
 		t.Fatalf("expected output %q, got args: %v", expectedOutput, calls[0].Args)
 	}
 }
@@ -336,7 +347,7 @@ func TestAndroidBuilder_buildGoLibrary_arm64_argv(t *testing.T) {
 
 	// Verify output path uses arm64-v8a ABI directory
 	expectedOutput := filepath.Join(projectRoot, "build", "android", "lib", "arm64-v8a", "libgo.so")
-	if calls[0].Args[2] != "-o" || calls[0].Args[3] != expectedOutput {
+	if got := argFlagValue(calls[0].Args, "-o"); got != expectedOutput {
 		t.Fatalf("expected output %q, got args: %v", expectedOutput, calls[0].Args)
 	}
 }

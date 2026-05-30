@@ -43,16 +43,10 @@ func TestIsValidNDK(t *testing.T) {
 		t.Error("empty directory should not be a valid NDK")
 	}
 
-	// Create required directories
-	os.MkdirAll(filepath.Join(tmpDir, "toolchains"), 0755)
-	os.MkdirAll(filepath.Join(tmpDir, "platforms"), 0755)
-
-	// Create ndk-build script
-	ndkBuild := "ndk-build"
-	if runtime.GOOS == "windows" {
-		ndkBuild = "ndk-build.cmd"
-	}
-	os.WriteFile(filepath.Join(tmpDir, ndkBuild), []byte(""), 0755)
+	// Create the markers a modern NDK (r19+) actually carries: the
+	// source.properties package descriptor and the LLVM prebuilt toolchain.
+	os.MkdirAll(filepath.Join(tmpDir, "toolchains", "llvm", "prebuilt"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "source.properties"), []byte("Pkg.Revision = 30.0.14904198\n"), 0644)
 
 	// Now it should be valid
 	if !isValidNDK(tmpDir) {
@@ -161,15 +155,9 @@ func TestDetectAndroidNDK_FromEnv(t *testing.T) {
 	// Create a fake NDK
 	tmpDir := t.TempDir()
 
-	// Create NDK structure
-	os.MkdirAll(filepath.Join(tmpDir, "toolchains"), 0755)
-	os.MkdirAll(filepath.Join(tmpDir, "platforms"), 0755)
-
-	ndkBuild := "ndk-build"
-	if runtime.GOOS == "windows" {
-		ndkBuild = "ndk-build.cmd"
-	}
-	os.WriteFile(filepath.Join(tmpDir, ndkBuild), []byte(""), 0755)
+	// Create NDK structure (modern r19+ layout)
+	os.MkdirAll(filepath.Join(tmpDir, "toolchains", "llvm", "prebuilt"), 0755)
+	os.WriteFile(filepath.Join(tmpDir, "source.properties"), []byte("Pkg.Revision = 30.0.14904198\n"), 0644)
 
 	// Set environment variable
 	os.Setenv("ANDROID_NDK_HOME", tmpDir)
@@ -190,15 +178,9 @@ func TestDetectAndroidNDK_InsideSDK(t *testing.T) {
 	ndkVersion := "25.2.9519653"
 	ndkDir := filepath.Join(sdkDir, "ndk", ndkVersion)
 
-	// Create NDK structure
-	os.MkdirAll(filepath.Join(ndkDir, "toolchains"), 0755)
-	os.MkdirAll(filepath.Join(ndkDir, "platforms"), 0755)
-
-	ndkBuild := "ndk-build"
-	if runtime.GOOS == "windows" {
-		ndkBuild = "ndk-build.cmd"
-	}
-	os.WriteFile(filepath.Join(ndkDir, ndkBuild), []byte(""), 0755)
+	// Create NDK structure (modern r19+ layout)
+	os.MkdirAll(filepath.Join(ndkDir, "toolchains", "llvm", "prebuilt"), 0755)
+	os.WriteFile(filepath.Join(ndkDir, "source.properties"), []byte("Pkg.Revision = 30.0.14904198\n"), 0644)
 
 	// Clear NDK environment variables
 	os.Unsetenv("ANDROID_NDK_HOME")

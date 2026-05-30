@@ -1,10 +1,15 @@
 // Package bridge provides the JNI bridge between Android and Go.
 //
 // This package contains:
-// - LurpicNativeActivity.java: Java NativeActivity extension
 // - lurpic_android.c: C bridge with JNI glue
 // - bridge_android.go: Go implementation (android build tag)
 // - bridge_unavailable.go: Non-Android fallback (!android build tag)
+//
+// The matching Java NativeActivity extension (LurpicNativeActivity.java) is
+// owned by the build tool, which compiles and dexes it into the APK; see
+// cmd/lurpic/androidtmpl/LurpicNativeActivity.java. Its package and class name
+// (org.lurpicui.bridge.LurpicNativeActivity) are a contract shared with the JNI
+// symbols defined here.
 //
 // The bridge follows the Android threading model:
 //   - Android UI thread: Receives OS callbacks, pushes events to queue

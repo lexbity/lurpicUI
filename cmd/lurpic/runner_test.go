@@ -404,9 +404,9 @@ func TestMatchCommand_pathOnly(t *testing.T) {
 func TestExecRunner_Output_stdinIsNotSentToStderr(t *testing.T) {
 	r := newExecRunner()
 	out, err := r.Output(CommandSpec{
-		Path:   "go",
-		Args:   []string{"env", "GOARCH"},
-		Stdin:  strings.NewReader("should not appear in output"),
+		Path:  "go",
+		Args:  []string{"env", "GOARCH"},
+		Stdin: strings.NewReader("should not appear in output"),
 	})
 	if err != nil {
 		t.Fatalf("go env GOARCH failed: %v", err)

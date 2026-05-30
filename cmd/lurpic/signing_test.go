@@ -102,9 +102,9 @@ func TestSignAPK_passwordFlagPrecedence(t *testing.T) {
 
 	f := newFakeRunner()
 	b := &androidBuilder{
-		runner:    f,
+		runner:     f,
 		ksPassword: "flag-password",
-		release:   true,
+		release:    true,
 		config: &Config{
 			Android: AndroidConfig{
 				Keystore: KeystoreConfig{

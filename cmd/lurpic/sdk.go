@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 )
 
 // defaultSDKSearchPaths returns the default SDK search paths for the current OS.
@@ -128,18 +129,19 @@ func detectAndroidNDK(sdk string) (string, error) {
 	return "", fmt.Errorf("Android NDK not found. Set ANDROID_NDK_HOME or install NDK via SDK Manager")
 }
 
-// isValidNDK checks if a directory looks like a valid Android NDK
+// isValidNDK checks if a directory looks like a valid Android NDK.
+//
+// Validity is keyed on the markers that both identify an NDK package and that
+// the build actually depends on, rather than legacy layout. source.properties
+// is the canonical NDK package descriptor (carries Pkg.Revision), and
+// toolchains/llvm/prebuilt holds the Clang toolchain the cross-compile resolves
+// via findNDKToolchain. The "platforms" directory is intentionally NOT checked:
+// it was removed in NDK r19 (2019) when the per-API sysroot was unified into
+// toolchains/llvm/prebuilt/<host>/sysroot, so requiring it rejects every modern NDK.
 func isValidNDK(path string) bool {
-	// Check for key NDK components
 	requiredFiles := []string{
-		"ndk-build",
-		"toolchains",
-		"platforms",
-	}
-
-	// On Windows, ndk-build has .cmd extension
-	if runtime.GOOS == "windows" {
-		requiredFiles[0] = "ndk-build.cmd"
+		"source.properties",
+		filepath.Join("toolchains", "llvm", "prebuilt"),
 	}
 
 	for _, file := range requiredFiles {
@@ -181,13 +183,9 @@ func findSDKTool(sdk, tool string) (string, error) {
 		return candidate, nil
 	}
 
-	// Check cmdline-tools
-	cmdlineTools := filepath.Join(sdk, "cmdline-tools", "latest", "bin", tool)
-	if runtime.GOOS == "windows" {
-		cmdlineTools += ".bat"
-	}
-	if _, err := os.Stat(cmdlineTools); err == nil {
-		return cmdlineTools, nil
+	// Check cmdline-tools (sdkmanager, avdmanager, ...) and the legacy tools/bin.
+	if found, err := findCmdlineTool(sdk, tool); err == nil {
+		return found, nil
 	}
 
 	return "", fmt.Errorf("tool '%s' not found in SDK", tool)
@@ -205,14 +203,43 @@ func findEmulatorTool(sdk string) (string, error) {
 	return "", fmt.Errorf("emulator binary not found in Android SDK")
 }
 
-// findCmdlineTool finds a tool in the SDK's cmdline-tools directory.
+// findCmdlineTool finds a tool (e.g. sdkmanager, avdmanager) from the "Android
+// SDK Command-line Tools" package. These live under cmdline-tools/<channel>/bin,
+// where <channel> is "latest" or a version like "13.0"; older SDKs placed them in
+// tools/bin. "latest" is preferred, then versioned directories in descending
+// order, then the legacy location.
 func findCmdlineTool(sdk, tool string) (string, error) {
-	candidate := filepath.Join(sdk, "cmdline-tools", "latest", "bin", tool)
+	name := tool
 	if runtime.GOOS == "windows" {
-		candidate += ".bat"
+		name += ".bat"
 	}
-	if _, err := os.Stat(candidate); err == nil {
-		return candidate, nil
+
+	var binDirs []string
+	cmdlineRoot := filepath.Join(sdk, "cmdline-tools")
+	if entries, err := os.ReadDir(cmdlineRoot); err == nil {
+		var versioned []string
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			if e.Name() == "latest" {
+				binDirs = append(binDirs, filepath.Join(cmdlineRoot, "latest", "bin"))
+			} else {
+				versioned = append(versioned, e.Name())
+			}
+		}
+		sort.Sort(sort.Reverse(sort.StringSlice(versioned)))
+		for _, v := range versioned {
+			binDirs = append(binDirs, filepath.Join(cmdlineRoot, v, "bin"))
+		}
 	}
-	return "", fmt.Errorf("tool '%s' not found in SDK cmdline-tools", tool)
+	binDirs = append(binDirs, filepath.Join(sdk, "tools", "bin")) // legacy layout
+
+	for _, dir := range binDirs {
+		candidate := filepath.Join(dir, name)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("tool %q not found; install the \"Android SDK Command-line Tools\" package (e.g. via Android Studio's SDK Manager, or sdkmanager \"cmdline-tools;latest\")", tool)
 }

@@ -398,6 +398,12 @@ func TestResolveAVD_precedence_ANDROID_AVD_NAME(t *testing.T) {
 }
 
 func TestResolveAVD_noEnvUsesManaged(t *testing.T) {
+	// Isolate HOME so the managed-AVD directory check cannot find a real AVD,
+	// forcing the createDefaultAVD provisioning path.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LURPIC_ANDROID_AVD", "")
+	t.Setenv("ANDROID_AVD_NAME", "")
+
 	sdkDir := t.TempDir()
 	createFakeSDK(t, sdkDir)
 

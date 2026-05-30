@@ -22,6 +22,10 @@ type AppConfig struct {
 	Name    string `toml:"name"`
 	Version string `toml:"version"`
 	Icon    string `toml:"icon"`
+	// Main is the Go package to cross-compile, relative to the project root
+	// (e.g. "cmd/quick_square_app"). It is independent of ID, which is the
+	// Android applicationId. Defaults to "." (the project root package).
+	Main string `toml:"main"`
 }
 
 // IconConfig contains icon paths for different densities
@@ -117,15 +121,59 @@ func loadConfig(projectRoot string) (*Config, error) {
 		config.Android.VersionCode = code
 	}
 
+	// Normalize the Go entrypoint package. Default to the project root package.
+	if config.App.Main == "" {
+		config.App.Main = "."
+	} else {
+		config.App.Main = filepath.Clean(config.App.Main)
+		if filepath.IsAbs(config.App.Main) {
+			return nil, fmt.Errorf("app.main %q must be a path relative to the project root", config.App.Main)
+		}
+		if config.App.Main == ".." || strings.HasPrefix(config.App.Main, ".."+string(filepath.Separator)) {
+			return nil, fmt.Errorf("app.main %q must not escape the project root", config.App.Main)
+		}
+	}
+
 	// Validate required fields
 	if config.App.ID == "" {
 		return nil, fmt.Errorf("app.id is required in lurpic.toml")
+	}
+	if err := validateAndroidPackageName(config.App.ID); err != nil {
+		return nil, fmt.Errorf("app.id %q is not a valid Android applicationId: %w", config.App.ID, err)
 	}
 	if config.App.Name == "" {
 		return nil, fmt.Errorf("app.name is required in lurpic.toml")
 	}
 
 	return &config, nil
+}
+
+// validateAndroidPackageName enforces the Android applicationId / manifest
+// package rules: at least two dot-separated segments, each starting with a
+// letter and containing only letters, digits, or underscores. aapt2 rejects
+// anything else, so this fails fast with a clear message instead of deep in the
+// build.
+func validateAndroidPackageName(id string) error {
+	segments := strings.Split(id, ".")
+	if len(segments) < 2 {
+		return fmt.Errorf("must contain at least two segments separated by '.' (e.g. org.example.app)")
+	}
+	for _, seg := range segments {
+		if seg == "" {
+			return fmt.Errorf("segments must not be empty")
+		}
+		for i, r := range seg {
+			isLetter := (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
+			isDigit := r >= '0' && r <= '9'
+			if i == 0 && !isLetter {
+				return fmt.Errorf("segment %q must start with a letter", seg)
+			}
+			if !isLetter && !isDigit && r != '_' {
+				return fmt.Errorf("segment %q contains invalid character %q (allowed: letters, digits, underscore)", seg, r)
+			}
+		}
+	}
+	return nil
 }
 
 // deriveVersionCode parses a semver string and produces a monotonic version code.

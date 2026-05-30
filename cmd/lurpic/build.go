@@ -17,6 +17,7 @@ type buildFlags struct {
 	ndkPath    string
 	jdkPath    string
 	abi        string
+	project    string
 }
 
 func cmdBuild(args []string) int {
@@ -32,6 +33,7 @@ func cmdBuild(args []string) int {
 	fs.StringVar(&flags.ndkPath, "ndk-path", "", "Android NDK path (overrides config/env)")
 	fs.StringVar(&flags.jdkPath, "jdk-path", "", "JDK path (overrides config/env)")
 	fs.StringVar(&flags.abi, "abi", "", "Target ABI (default: all configured in lurpic.toml)")
+	fs.StringVar(&flags.project, "project", "", "Project directory containing lurpic.toml (default: search upward from cwd)")
 
 	if err := fs.Parse(args); err != nil {
 		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
@@ -47,6 +49,13 @@ func cmdBuild(args []string) int {
 	platform := fs.Arg(0)
 	if platform != "android" {
 		fmt.Fprintf(os.Stderr, "Error: unsupported platform '%s' (only 'android' supported)\n", platform)
+		return 1
+	}
+
+	// Parse any flags that appeared after the platform token (the standard flag
+	// parser stops at the first non-flag argument), so flag order is free.
+	if err := fs.Parse(fs.Args()[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
 		return 1
 	}
 
@@ -70,10 +79,11 @@ func buildAndroid(flags buildFlags) int {
 }
 
 func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
-	// Detect project root and load configuration
-	projectRoot, err := findProjectRoot()
+	// Resolve the project root: an explicit --project directory takes
+	// precedence, otherwise search upward from the current directory.
+	projectRoot, err := resolveProjectRoot(flags.project)
 	if err != nil {
-		return nil, fmt.Errorf("cannot find project root: %w", err)
+		return nil, err
 	}
 
 	config, err := loadConfig(projectRoot)
@@ -161,8 +171,38 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 		release:     flags.release,
 		outputPath:  outputPath,
 		ksPassword:  flags.ksPassword,
+		jdk:         jdk,
 	}
 	return builder, nil
+}
+
+// resolveProjectRoot returns the project root. When projectDir is non-empty it
+// is used directly (and must contain a lurpic.toml); otherwise the current
+// directory tree is searched upward.
+func resolveProjectRoot(projectDir string) (string, error) {
+	if projectDir == "" {
+		root, err := findProjectRoot()
+		if err != nil {
+			return "", fmt.Errorf("cannot find project root: %w", err)
+		}
+		return root, nil
+	}
+
+	abs, err := filepath.Abs(projectDir)
+	if err != nil {
+		return "", fmt.Errorf("cannot resolve project path %q: %w", projectDir, err)
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		return "", fmt.Errorf("project path %q: %w", projectDir, err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("project path %q is not a directory", projectDir)
+	}
+	if _, err := os.Stat(filepath.Join(abs, "lurpic.toml")); err != nil {
+		return "", fmt.Errorf("no lurpic.toml in project path %q", projectDir)
+	}
+	return abs, nil
 }
 
 func findProjectRoot() (string, error) {

@@ -114,6 +114,110 @@ name = "ABI Test"
 	}
 }
 
+func TestValidateAndroidPackageName(t *testing.T) {
+	valid := []string{"org.example.app", "com.a.b", "org.lurpicui.quicksquare", "a.b.c_d", "x.y2"}
+	for _, id := range valid {
+		if err := validateAndroidPackageName(id); err != nil {
+			t.Errorf("expected %q valid, got error: %v", id, err)
+		}
+	}
+	invalid := []string{
+		"",                 // empty
+		"app",              // single segment
+		"quick_square_app", // single segment with underscores
+		"com.",             // empty trailing segment
+		".com.app",         // empty leading segment
+		"com.1abc.app",     // segment starts with digit
+		"com.ab-c.app",     // hyphen not allowed
+		"com.a b.app",      // space not allowed
+	}
+	for _, id := range invalid {
+		if err := validateAndroidPackageName(id); err == nil {
+			t.Errorf("expected %q invalid, got no error", id)
+		}
+	}
+}
+
+func TestLoadConfig_RejectsInvalidAppID(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "quick_square_app"
+name = "Bad ID"
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := loadConfig(tmpDir); err == nil {
+		t.Fatal("expected loadConfig to reject single-segment app.id")
+	}
+}
+
+func TestLoadConfig_MainDefault(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.app"
+name = "Main Default Test"
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if config.App.Main != "." {
+		t.Fatalf("expected app.main default %q, got %q", ".", config.App.Main)
+	}
+}
+
+func TestLoadConfig_MainExplicit(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "org.lurpicui.quicksquare"
+name = "Quick Square"
+main = "cmd/quick_square_app/"
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	// Cleaned: trailing separator removed, independent of the reverse-DNS id.
+	if config.App.Main != filepath.Join("cmd", "quick_square_app") {
+		t.Fatalf("expected cleaned app.main, got %q", config.App.Main)
+	}
+}
+
+func TestLoadConfig_MainRejectsEscape(t *testing.T) {
+	cases := map[string]string{
+		"absolute": "/etc",
+		"parent":   "..",
+		"escaping": "../sibling",
+	}
+	for name, main := range cases {
+		t.Run(name, func(t *testing.T) {
+			tmpDir := t.TempDir()
+			configContent := "[app]\nid = \"com.test.app\"\nname = \"Escape Test\"\nmain = \"" + main + "\"\n"
+			configPath := filepath.Join(tmpDir, "lurpic.toml")
+			if err := os.WriteFile(configPath, []byte(configContent), 0644); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			if _, err := loadConfig(tmpDir); err == nil {
+				t.Fatalf("expected error for app.main = %q", main)
+			}
+		})
+	}
+}
+
 func TestLoadConfig_ABIExplicit(t *testing.T) {
 	tmpDir := t.TempDir()
 
