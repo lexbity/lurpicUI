@@ -63,12 +63,17 @@ type Event struct {
 	Queue    unsafe.Pointer
 	Focused  bool
 	// Touch fields
-	PointerID int32
-	Phase     TouchPhase
-	X, Y      float32
-	Pressure  float32
-	Major     float32
-	Minor     float32
+	PointerID   int32
+	Phase       TouchPhase
+	X, Y        float32
+	Pressure    float32
+	Major       float32
+	Minor       float32
+	Source      int32
+	DeviceID    int32
+	ToolType    int32
+	ButtonState int32
+	EventTime   int64
 	// Key fields
 	KeyCode   int32
 	Action    int32
@@ -346,22 +351,30 @@ func goOnLowMemory(activity *C.ANativeActivity) {
 
 //export goDeliverTouchEvent
 func goDeliverTouchEvent(pointerID C.int32_t, phase C.int32_t, x C.float, y C.float,
-	pressure C.float, major C.float, minor C.float) {
+	pressure C.float, major C.float, minor C.float,
+	source C.int32_t, deviceID C.int32_t, toolType C.int32_t,
+	buttonState C.int32_t, eventTime C.int64_t) {
 	event := Event{
-		Type:      EventTypeTouch,
-		PointerID: int32(pointerID),
-		Phase:     TouchPhase(phase),
-		X:         float32(x),
-		Y:         float32(y),
-		Pressure:  float32(pressure),
-		Major:     float32(major),
-		Minor:     float32(minor),
+		Type:        EventTypeTouch,
+		PointerID:   int32(pointerID),
+		Phase:       TouchPhase(phase),
+		X:           float32(x),
+		Y:           float32(y),
+		Pressure:    float32(pressure),
+		Major:       float32(major),
+		Minor:       float32(minor),
+		Source:      int32(source),
+		DeviceID:    int32(deviceID),
+		ToolType:    int32(toolType),
+		ButtonState: int32(buttonState),
+		EventTime:   int64(eventTime),
 	}
 	GetEventQueue().Push(event)
 }
 
 //export goDeliverKeyEvent
-func goDeliverKeyEvent(keyCode C.int32_t, action C.int32_t, metaState C.int32_t) {
+func goDeliverKeyEvent(keyCode C.int32_t, action C.int32_t, metaState C.int32_t,
+	source C.int32_t, deviceID C.int32_t, eventTime C.int64_t) {
 	event := Event{
 		Type:      EventTypeKey,
 		KeyCode:   int32(keyCode),
@@ -369,6 +382,9 @@ func goDeliverKeyEvent(keyCode C.int32_t, action C.int32_t, metaState C.int32_t)
 		MetaState: int32(metaState),
 		Key:       mapAndroidKeyCode(keyCode),
 		Modifiers: mapAndroidMetaState(metaState),
+		Source:    int32(source),
+		DeviceID:  int32(deviceID),
+		EventTime: int64(eventTime),
 	}
 	GetEventQueue().Push(event)
 }

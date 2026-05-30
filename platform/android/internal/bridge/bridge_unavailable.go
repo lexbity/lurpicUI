@@ -46,29 +46,34 @@ const (
 )
 
 type Event struct {
-	Type       EventType
-	Kind       int // Event subtype (lifecycle kind, window kind, key kind, etc.)
-	Timestamp  time.Time
-	Activity   unsafe.Pointer
-	Window     unsafe.Pointer
-	Width      int
-	Height     int
-	Queue      unsafe.Pointer
-	Focused    bool
-	PointerID  int32
-	SequenceID uint64 // For touch events
-	Phase      TouchPhase
-	X, Y       float32
-	Pressure   float32
-	Major      float32
-	Minor      float32
-	KeyCode    int32
-	Key        platform.Key
-	Modifiers  platform.ModifierKeys
-	Action     int32
-	MetaState  int32
-	Text       string
-	CursorPos  int
+	Type        EventType
+	Kind        int // Event subtype (lifecycle kind, window kind, key kind, etc.)
+	Timestamp   time.Time
+	Activity    unsafe.Pointer
+	Window      unsafe.Pointer
+	Width       int
+	Height      int
+	Queue       unsafe.Pointer
+	Focused     bool
+	PointerID   int32
+	SequenceID  uint64 // For touch events
+	Phase       TouchPhase
+	X, Y        float32
+	Pressure    float32
+	Major       float32
+	Minor       float32
+	Source      int32
+	DeviceID    int32
+	ToolType    int32
+	ButtonState int32
+	EventTime   int64
+	KeyCode     int32
+	Key         platform.Key
+	Modifiers   platform.ModifierKeys
+	Action      int32
+	MetaState   int32
+	Text        string
+	CursorPos   int
 }
 
 // EventQueue is the non-Android event queue.

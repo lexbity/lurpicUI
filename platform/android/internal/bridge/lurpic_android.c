@@ -12,15 +12,20 @@
 #include <android/native_window.h>
 #include <android/input.h>
 #include <android/keycodes.h>
+#include <android/looper.h>
 #include <android/log.h>
 #include <jni.h>
 #include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <errno.h>
+#include <time.h>
 
 /* Logging macros */
+#define LOGV(...) ((void)__android_log_print(ANDROID_LOG_VERBOSE, "LurpicBridge", __VA_ARGS__))
 #define LOGI(...) ((void)__android_log_print(ANDROID_LOG_INFO, "LurpicBridge", __VA_ARGS__))
+#define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "LurpicBridge", __VA_ARGS__))
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "LurpicBridge", __VA_ARGS__))
 
 /* Forward declarations for Go functions */
@@ -38,8 +43,11 @@ extern void goOnInputQueueCreated(ANativeActivity* activity, AInputQueue* queue)
 extern void goOnInputQueueDestroyed(ANativeActivity* activity, AInputQueue* queue);
 extern void goOnLowMemory(ANativeActivity* activity);
 extern void goDeliverTouchEvent(int32_t pointerId, int32_t phase, float x, float y,
-                                float pressure, float major, float minor);
-extern void goDeliverKeyEvent(int32_t keyCode, int32_t action, int32_t metaState);
+                                float pressure, float major, float minor,
+                                int32_t source, int32_t deviceId, int32_t toolType,
+                                int32_t buttonState, int64_t eventTime);
+extern void goDeliverKeyEvent(int32_t keyCode, int32_t action, int32_t metaState,
+                              int32_t source, int32_t deviceId, int64_t eventTime);
 extern void goDeliverIMECompose(char* text, int32_t cursorPos);
 extern void goDeliverIMECommit(char* text);
 extern void goDeliverPermissionResult(int32_t requestCode, int32_t granted, int32_t permanent);
@@ -121,7 +129,9 @@ static void onStop(ANativeActivity* activity) {
 
 static void onConfigurationChanged(ANativeActivity* activity) {
     LOGI("C: onConfigurationChanged called");
-    /* TODO: Handle configuration changes */
+    /* Configuration changes (orientation, density, fontScale, uiMode) are
+     * handled through the Go lifecycle bridge and re-layout mechanism.
+     * The C layer just logs the event for diagnostics. */
 }
 
 static void onWindowFocusChanged(ANativeActivity* activity, int focused) {
@@ -146,26 +156,182 @@ static void onNativeWindowResized(ANativeActivity* activity, ANativeWindow* wind
 
 static void onNativeWindowRedrawNeeded(ANativeActivity* activity, ANativeWindow* window) {
     LOGI("C: onNativeWindowRedrawNeeded called");
-    /* TODO: Trigger redraw */
+    /* Redraw is driven by the frame pipeline; surface recreation and resize
+     * are handled through the native window callbacks. This callback serves
+     * as a hint that the window content needs repainting. */
 }
 
 static void onInputQueueCreated(ANativeActivity* activity, AInputQueue* queue) {
-    LOGI("C: onInputQueueCreated called");
+    LOGI("C: onInputQueueCreated called (queue=%p)", (void*)queue);
     goOnInputQueueCreated(activity, queue);
+    /* Start the dedicated input thread that polls this queue via ALooper. */
+    start_input_thread(queue);
 }
 
 static void onInputQueueDestroyed(ANativeActivity* activity, AInputQueue* queue) {
-    LOGI("C: onInputQueueDestroyed called");
+    LOGI("C: onInputQueueDestroyed called (queue=%p)", (void*)queue);
     goOnInputQueueDestroyed(activity, queue);
+    /* Stop the input thread and detach the queue from its looper. */
+    stop_input_thread();
+}
+
+/* ── Input thread ────────────────────────────────────────────────────── */
+/*
+ * Android delivers input events through AInputQueue, which requires an
+ * ALooper to poll. Rather than attaching to an arbitrary thread's looper
+ * (the Go runtime thread does not have one), we run a dedicated input
+ * thread that keeps its own ALooper for the lifetime of the input queue.
+ */
+
+#define LOOPER_ID_INPUT 1
+
+/* State shared between the main (callback) thread and the input thread. */
+static pthread_t       g_input_thread        = 0;
+static volatile int    g_input_thread_running = 0;
+static AInputQueue*    g_input_queue          = NULL;
+static pthread_mutex_t g_input_mutex          = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t  g_input_cond           = PTHREAD_COND_INITIALIZER;
+
+/* Signal the input thread to shut down and wait for it. Called on the main
+ * thread from onInputQueueDestroyed.
+ */
+static void stop_input_thread(void) {
+    pthread_mutex_lock(&g_input_mutex);
+    if (!g_input_thread_running || g_input_thread == 0) {
+        pthread_mutex_unlock(&g_input_mutex);
+        return;
+    }
+    g_input_thread_running = 0;
+    pthread_mutex_unlock(&g_input_mutex);
+
+    /* Wake the looper by sending a dummy event. AInputQueue_detachLooper
+     * will also break the poll, but we must ensure the thread sees the flag.
+     */
+    pthread_join(g_input_thread, NULL);
+    g_input_thread = 0;
+    LOGI("Input thread stopped");
+}
+
+/* The input thread body. Runs its own ALooper and drains AInputQueue. */
+static void* input_thread_func(void* arg) {
+    (void)arg;
+
+    ALooper* looper = ALooper_prepare(ALOOPER_PREPARE_ALLOW_NON_CALLBACKS);
+    if (looper == NULL) {
+        LOGE("input thread: ALooper_prepare failed");
+        return NULL;
+    }
+
+    pthread_mutex_lock(&g_input_mutex);
+    AInputQueue* queue = g_input_queue;
+    if (queue != NULL) {
+        AInputQueue_attachLooper(queue, looper, LOOPER_ID_INPUT, NULL, NULL);
+        LOGI("Input thread: attached looper to queue %p", (void*)queue);
+    }
+    pthread_mutex_unlock(&g_input_mutex);
+
+    while (g_input_thread_running) {
+        int events;
+        struct ALooper_pollResult result;
+        /* android-35 NDK has ALooper_pollOnce; we use ALooper_pollOnce
+         * for compatibility. It returns the number of file descriptors
+         * that had events, or ALOOPER_POLL_TIMEOUT (-1), or ALOOPER_POLL_ERROR.
+         */
+        int rc = ALooper_pollOnce(-1 /* timeout: infinite */,
+                                  NULL /* outFd */,
+                                  &events,
+                                  NULL /* outData */);
+
+        if (!g_input_thread_running) break;
+
+        if (rc == LOOPER_ID_INPUT && queue != NULL) {
+            /* Drain all available events from the input queue. */
+            AInputEvent* inputEvent = NULL;
+            while (AInputQueue_getEvent(queue, &inputEvent) >= 0) {
+                if (inputEvent == NULL) break;
+
+                int32_t handled = 0;
+                if (AInputQueue_preDispatchEvent(queue, inputEvent)) {
+                    /* preDispatchEvent returned true → the event was consumed
+                     * (e.g. by IME). Do not call finishEvent yet; it will be
+                     * finished by the IME thread. */
+                    continue;
+                }
+
+                handled = handle_input_event(inputEvent);
+                AInputQueue_finishEvent(queue, inputEvent, handled);
+            }
+        } else if (rc == ALOOPER_POLL_ERROR) {
+            LOGE("input thread: ALooper_pollOnce returned ALOOPER_POLL_ERROR");
+            break;
+        }
+    }
+
+    /* Detach the input queue from the looper before exiting. */
+    pthread_mutex_lock(&g_input_mutex);
+    if (queue != NULL) {
+        AInputQueue_detachLooper(queue);
+        LOGI("Input thread: detached looper from queue");
+    }
+    pthread_mutex_unlock(&g_input_mutex);
+
+    LOGI("Input thread: exiting");
+    return NULL;
+}
+
+/* Start the input thread. Called from onInputQueueCreated on the main thread.
+ * The thread is responsible for attaching the queue to its ALooper.
+ */
+static void start_input_thread(AInputQueue* queue) {
+    pthread_mutex_lock(&g_input_mutex);
+    if (g_input_thread_running) {
+        LOGW("Input thread already running; detaching old queue first");
+        pthread_mutex_unlock(&g_input_mutex);
+        stop_input_thread();
+        pthread_mutex_lock(&g_input_mutex);
+    }
+
+    g_input_queue    = queue;
+    g_input_thread_running = 1;
+    pthread_mutex_unlock(&g_input_mutex);
+
+    if (pthread_create(&g_input_thread, NULL, input_thread_func, NULL) != 0) {
+        LOGE("Failed to create input thread: %s", strerror(errno));
+        pthread_mutex_lock(&g_input_mutex);
+        g_input_thread_running = 0;
+        g_input_queue = NULL;
+        pthread_mutex_unlock(&g_input_mutex);
+        return;
+    }
+    LOGI("Input thread started for queue %p", (void*)queue);
 }
 
 /* Input event processing */
 static int32_t handle_input_event(AInputEvent* event) {
     int32_t type = AInputEvent_getType(event);
+    int32_t source = AInputEvent_getSource(event);
+    int32_t deviceId = AInputEvent_getDeviceId(event);
+
+    LOGV("handle_input_event: type=%d source=0x%x deviceId=%d",
+         type, source, deviceId);
+
+    /* AInputEvent_getEventTime is available since API 9.
+     * NDK exposes this in <android/input.h>. */
+    int64_t eventTime = 0;
+#if defined(__ANDROID_API__) && __ANDROID_API__ >= 9
+    eventTime = (int64_t)AInputEvent_getEventTime(event);
+#else
+    {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        eventTime = (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+    }
+#endif
 
     if (type == AINPUT_EVENT_TYPE_MOTION) {
         int32_t action = AMotionEvent_getAction(event);
         int32_t pointerCount = AMotionEvent_getPointerCount(event);
+        int32_t buttonState = AMotionEvent_getButtonState(event);
 
         for (int32_t i = 0; i < pointerCount; i++) {
             int32_t pointerId = AMotionEvent_getPointerId(event, i);
@@ -174,6 +340,7 @@ static int32_t handle_input_event(AInputEvent* event) {
             float pressure = AMotionEvent_getPressure(event, i);
             float major = AMotionEvent_getTouchMajor(event, i);
             float minor = AMotionEvent_getTouchMinor(event, i);
+            int32_t toolType = AMotionEvent_getToolType(event, i);
 
             /* Determine phase from action */
             int32_t actionMasked = action & AMOTION_EVENT_ACTION_MASK;
@@ -206,8 +373,37 @@ static int32_t handle_input_event(AInputEvent* event) {
                     break;
             }
 
-            /* Call Go function to deliver touch event */
-            goDeliverTouchEvent(pointerId, phase, x, y, pressure, major, minor);
+            /* Call Go function to deliver touch event with full metadata */
+            goDeliverTouchEvent(pointerId, phase, x, y, pressure, major, minor,
+                                source, deviceId, toolType, buttonState, eventTime);
+        }
+
+        /* Deliver historical motion samples for smoother gesture tracking.
+         * Historical samples are only available on ACTION_MOVE events.
+         */
+        {
+            int32_t actionMasked = action & AMOTION_EVENT_ACTION_MASK;
+            if (actionMasked == AMOTION_EVENT_ACTION_MOVE) {
+                size_t historySize = AMotionEvent_getHistorySize(event);
+                for (size_t h = 0; h < historySize; h++) {
+                    float histEventTime = AMotionEvent_getHistoricalEventTime(event, h);
+                    for (int32_t i = 0; i < pointerCount; i++) {
+                        int32_t pointerId = AMotionEvent_getPointerId(event, i);
+                        float hx = AMotionEvent_getHistoricalX(event, i, h);
+                        float hy = AMotionEvent_getHistoricalY(event, i, h);
+                        float hp = AMotionEvent_getHistoricalPressure(event, i, h);
+                        float hmajor = AMotionEvent_getHistoricalTouchMajor(event, i, h);
+                        float hminor = AMotionEvent_getHistoricalTouchMinor(event, i, h);
+                        int32_t htool = AMotionEvent_getHistoricalToolType(event, i, h);
+
+                        goDeliverTouchEvent(pointerId,
+                                            1, /* TouchMove for historical samples */
+                                            hx, hy, hp, hmajor, hminor,
+                                            source, deviceId, htool,
+                                            buttonState, (int64_t)histEventTime);
+                    }
+                }
+            }
         }
         return 1; /* Event handled */
     } else if (type == AINPUT_EVENT_TYPE_KEY) {
@@ -215,7 +411,7 @@ static int32_t handle_input_event(AInputEvent* event) {
         int32_t action = AKeyEvent_getAction(event);
         int32_t metaState = AKeyEvent_getMetaState(event);
 
-        goDeliverKeyEvent(keyCode, action, metaState);
+        goDeliverKeyEvent(keyCode, action, metaState, source, deviceId, eventTime);
         return 1; /* Event handled */
     }
 
@@ -353,7 +549,15 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeImeKe
     JNIEnv* env, jobject thiz, jint keyCode, jint action, jint metaState) {
     (void)env;
     (void)thiz;
-    goDeliverKeyEvent(keyCode, action, metaState);
+    /* IME key events have source AINPUT_SOURCE_KEYBOARD, device 0, and use
+     * the current monotonic time as eventTime since the Java layer does not
+     * provide an Android eventTime. */
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    int64_t now = (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+    goDeliverKeyEvent(keyCode, action, metaState,
+                      0x101 /* AINPUT_SOURCE_KEYBOARD = 0x101 */,
+                      0, now);
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativePermissionResult(

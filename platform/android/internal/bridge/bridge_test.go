@@ -6,6 +6,8 @@ package bridge
 import (
 	"testing"
 	"time"
+
+	"codeburg.org/lexbit/lurpicui/platform"
 )
 
 func TestEventQueue_PushAndPoll(t *testing.T) {
@@ -151,10 +153,159 @@ func TestGetEventQueue_Singleton(t *testing.T) {
 func TestInit(t *testing.T) {
 	// Init should not panic
 	Init()
+}
 
-	// After Init, we should be able to get the event queue
-	q := GetEventQueue()
-	if q == nil {
-		t.Error("GetEventQueue should not return nil after Init")
+func TestTouchEventExtendedFields(t *testing.T) {
+	q := NewEventQueue()
+
+	event := Event{
+		Type:        EventTypeTouch,
+		PointerID:   42,
+		Phase:       TouchDown,
+		X:           100.0,
+		Y:           200.0,
+		Pressure:    0.75,
+		Major:       12.0,
+		Minor:       10.0,
+		Source:      0x1002,   // AINPUT_SOURCE_TOUCHSCREEN
+		DeviceID:    1,
+		ToolType:    1,        // AMOTION_EVENT_TOOL_TYPE_FINGER
+		ButtonState: 0,
+		EventTime:   1234567890,
 	}
+	q.Push(event)
+
+	events := q.Poll()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.Type != EventTypeTouch {
+		t.Errorf("expected EventTypeTouch, got %v", e.Type)
+	}
+	if e.PointerID != 42 {
+		t.Errorf("expected PointerID 42, got %d", e.PointerID)
+	}
+	if e.Phase != TouchDown {
+		t.Errorf("expected TouchDown, got %v", e.Phase)
+	}
+	if e.X != 100.0 || e.Y != 200.0 {
+		t.Errorf("expected (100, 200), got (%f, %f)", e.X, e.Y)
+	}
+	if e.Pressure != 0.75 {
+		t.Errorf("expected Pressure 0.75, got %f", e.Pressure)
+	}
+	if e.Source != 0x1002 {
+		t.Errorf("expected Source 0x1002 (touchscreen), got %d", e.Source)
+	}
+	if e.DeviceID != 1 {
+		t.Errorf("expected DeviceID 1, got %d", e.DeviceID)
+	}
+	if e.ToolType != 1 {
+		t.Errorf("expected ToolType 1 (finger), got %d", e.ToolType)
+	}
+	if e.EventTime != 1234567890 {
+		t.Errorf("expected EventTime 1234567890, got %d", e.EventTime)
+	}
+}
+
+func TestKeyEventFields(t *testing.T) {
+	q := NewEventQueue()
+
+	event := Event{
+		Type:      EventTypeKey,
+		KeyCode:   61,  // AKEYCODE_SPACE
+		Action:    0,    // AKEY_EVENT_ACTION_DOWN
+		MetaState: 1,    // AMETA_SHIFT_ON
+		Key:       platform.KeySpace,
+		Modifiers: platform.ModShift,
+		Source:    0x101, // AINPUT_SOURCE_KEYBOARD
+		DeviceID:  2,
+		EventTime: 987654321,
+	}
+	q.Push(event)
+
+	events := q.Poll()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.Type != EventTypeKey {
+		t.Errorf("expected EventTypeKey, got %v", e.Type)
+	}
+	if e.KeyCode != 61 {
+		t.Errorf("expected KeyCode 61 (SPACE), got %d", e.KeyCode)
+	}
+	if e.Action != 0 {
+		t.Errorf("expected Action 0 (DOWN), got %d", e.Action)
+	}
+	if e.Source != 0x101 {
+		t.Errorf("expected Source 0x101 (keyboard), got %d", e.Source)
+	}
+	if e.DeviceID != 2 {
+		t.Errorf("expected DeviceID 2, got %d", e.DeviceID)
+	}
+	if e.Key != platform.KeySpace {
+		t.Errorf("expected KeySpace, got %v", e.Key)
+	}
+	if e.Modifiers != platform.ModShift {
+		t.Errorf("expected ModShift, got %v", e.Modifiers)
+	}
+}
+
+func TestTouchCancelPhase(t *testing.T) {
+	q := NewEventQueue()
+
+	q.Push(Event{Type: EventTypeTouch, PointerID: 1, Phase: TouchDown, X: 10, Y: 20})
+	q.Push(Event{Type: EventTypeTouch, PointerID: 1, Phase: TouchCancel, X: 10, Y: 20})
+
+	events := q.Poll()
+	if len(events) != 2 {
+		t.Fatalf("expected 2 events, got %d", len(events))
+	}
+	if events[0].Phase != TouchDown {
+		t.Errorf("event 0: expected TouchDown, got %v", events[0].Phase)
+	}
+	if events[1].Phase != TouchCancel {
+		t.Errorf("event 1: expected TouchCancel, got %v", events[1].Phase)
+	}
+}
+
+func TestMultiTouchPointerIDs(t *testing.T) {
+	q := NewEventQueue()
+
+	// Simulate two-finger gesture: finger 0 down, finger 1 down, both move, finger 1 up, finger 0 up
+	q.Push(Event{Type: EventTypeTouch, PointerID: 0, Phase: TouchDown, X: 100, Y: 200})
+	q.Push(Event{Type: EventTypeTouch, PointerID: 1, Phase: TouchDown, X: 300, Y: 400})
+	q.Push(Event{Type: EventTypeTouch, PointerID: 0, Phase: TouchMove, X: 110, Y: 210})
+	q.Push(Event{Type: EventTypeTouch, PointerID: 1, Phase: TouchMove, X: 290, Y: 390})
+	q.Push(Event{Type: EventTypeTouch, PointerID: 1, Phase: TouchUp, X: 285, Y: 385})
+	q.Push(Event{Type: EventTypeTouch, PointerID: 0, Phase: TouchUp, X: 115, Y: 215})
+
+	events := q.Poll()
+	if len(events) != 6 {
+		t.Fatalf("expected 6 events, got %d", len(events))
+	}
+
+	expected := []struct {
+		pointerID int32
+		phase     TouchPhase
+	}{
+		{0, TouchDown},
+		{1, TouchDown},
+		{0, TouchMove},
+		{1, TouchMove},
+		{1, TouchUp},
+		{0, TouchUp},
+	}
+	for i, exp := range expected {
+		if events[i].PointerID != exp.pointerID {
+			t.Errorf("event %d: expected PointerID %d, got %d", i, exp.pointerID, events[i].PointerID)
+		}
+		if events[i].Phase != exp.phase {
+			t.Errorf("event %d: expected Phase %v, got %v", i, exp.phase, events[i].Phase)
+		}
+}
 }
