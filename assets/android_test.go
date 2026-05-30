@@ -3,6 +3,8 @@ package assets
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sync"
@@ -24,6 +26,7 @@ func (a *fakeAPKAsset) Length() int64 {
 type fakeAndroidExtractionContext struct {
 	dir      string
 	bundle   []byte
+	metaHash string // hex-encoded SHA-256 of bundle; empty means no sidecar in APK
 	progress []float32
 	mu       sync.Mutex
 }
@@ -31,10 +34,25 @@ type fakeAndroidExtractionContext struct {
 func (c *fakeAndroidExtractionContext) FilesDir() string { return c.dir }
 
 func (c *fakeAndroidExtractionContext) OpenAPKAsset(name string) (APKAsset, error) {
-	if name != "assets.pak" {
+	switch name {
+	case "assets.pak":
+		return &fakeAPKAsset{Reader: bytes.NewReader(append([]byte(nil), c.bundle...))}, nil
+	case "assets.pak.meta":
+		if c.metaHash == "" {
+			return nil, os.ErrNotExist
+		}
+		m := pakMetaJSON{V: 1, Bh: c.metaHash}
+		data, _ := json.Marshal(m)
+		return &fakeAPKAsset{Reader: bytes.NewReader(data)}, nil
+	default:
 		return nil, os.ErrNotExist
 	}
-	return &fakeAPKAsset{Reader: bytes.NewReader(append([]byte(nil), c.bundle...))}, nil
+}
+
+// pakMetaJSON is the JSON sidecar structure used in tests.
+type pakMetaJSON struct {
+	V  int    `json:"v"`
+	Bh string `json:"bh"`
 }
 
 func (c *fakeAndroidExtractionContext) SetExtractionProgress(progress float32) {
@@ -165,15 +183,120 @@ func TestExtractPakConcurrentSingleWriter(t *testing.T) {
 		t.Fatal("extracted content mismatch after concurrent extraction")
 	}
 
-	// Verify only one final file exists (no stray temp files).
+	// Verify no stray temp files remain (sidecar is expected).
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		t.Fatalf("read dir: %v", err)
 	}
 	for _, e := range entries {
-		if e.Name() != "assets.pak" {
+		if e.Name() != "assets.pak" && e.Name() != "assets.pak.meta" {
 			t.Errorf("unexpected leftover file: %s", e.Name())
 		}
+	}
+}
+
+func TestExtractPakSidecarGateFastPath(t *testing.T) {
+	dir := t.TempDir()
+	payload := []byte("this-is-the-pak-content")
+	wantHash := sha256.Sum256(payload)
+
+	// First extraction: no sidecar stored yet, should extract.
+	ctx := &fakeAndroidExtractionContext{
+		dir:      dir,
+		bundle:   payload,
+		metaHash: hex.EncodeToString(wantHash[:]),
+	}
+	if err := ExtractPakIfNeeded(ctx); err != nil {
+		t.Fatalf("first extract: %v", err)
+	}
+	if len(ctx.progress) == 0 {
+		t.Fatal("expected progress updates during first extraction")
+	}
+
+	// Second call: sidecar matches, extracted file exists → fast path.
+	progressCount := len(ctx.progress)
+	if err := ExtractPakIfNeeded(ctx); err != nil {
+		t.Fatalf("second extract (fast path): %v", err)
+	}
+	if len(ctx.progress) != progressCount {
+		t.Fatalf("expected no progress on fast path: got %d progress events, want %d",
+			len(ctx.progress), progressCount)
+	}
+
+	// Verify the pak content is correct.
+	got, err := os.ReadFile(filepath.Join(dir, "assets.pak"))
+	if err != nil {
+		t.Fatalf("read pak: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("pak content = %q, want %q", got, payload)
+	}
+}
+
+func TestExtractPakSidecarGateMismatch(t *testing.T) {
+	dir := t.TempDir()
+	payload := []byte("correct-content")
+	correctHash := sha256.Sum256(payload)
+	wrongHash := sha256.Sum256([]byte("wrong-content"))
+
+	// Store a sidecar with the WRONG hash to simulate an update.
+	if err := writePakMeta(filepath.Join(dir, "assets.pak"), wrongHash); err != nil {
+		t.Fatalf("write mismatched sidecar: %v", err)
+	}
+	// Also place a file with the wrong content.
+	if err := os.WriteFile(filepath.Join(dir, "assets.pak"), []byte("old-content"), 0o644); err != nil {
+		t.Fatalf("write old pak: %v", err)
+	}
+
+	ctx := &fakeAndroidExtractionContext{
+		dir:      dir,
+		bundle:   payload,
+		metaHash: hex.EncodeToString(correctHash[:]),
+	}
+	if err := ExtractPakIfNeeded(ctx); err != nil {
+		t.Fatalf("extract after mismatch: %v", err)
+	}
+	if len(ctx.progress) == 0 {
+		t.Fatal("expected progress during re-extraction after hash mismatch")
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "assets.pak"))
+	if err != nil {
+		t.Fatalf("read extracted pak: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("pak content = %q, want %q", got, payload)
+	}
+}
+
+func TestExtractPakSidecarGateMissingFile(t *testing.T) {
+	dir := t.TempDir()
+	payload := []byte("pak-with-missing-file")
+	wantHash := sha256.Sum256(payload)
+
+	// Store a sidecar but NO pak file.
+	if err := writePakMeta(filepath.Join(dir, "assets.pak"), wantHash); err != nil {
+		t.Fatalf("write sidecar: %v", err)
+	}
+
+	ctx := &fakeAndroidExtractionContext{
+		dir:      dir,
+		bundle:   payload,
+		metaHash: hex.EncodeToString(wantHash[:]),
+	}
+	if err := ExtractPakIfNeeded(ctx); err != nil {
+		t.Fatalf("extract when pak missing: %v", err)
+	}
+	if len(ctx.progress) == 0 {
+		t.Fatal("expected progress when pak file was missing")
+	}
+
+	got, err := os.ReadFile(filepath.Join(dir, "assets.pak"))
+	if err != nil {
+		t.Fatalf("read extracted pak: %v", err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("pak content = %q, want %q", got, payload)
 	}
 }
 

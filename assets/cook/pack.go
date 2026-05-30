@@ -2,8 +2,13 @@ package cook
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -256,6 +261,58 @@ func writePakHeader(dst []byte, header assets.PakHeader) {
 	binary.LittleEndian.PutUint32(dst[16:20], header.TOCCount)
 	binary.LittleEndian.PutUint64(dst[20:28], header.DepsOffset)
 	binary.LittleEndian.PutUint32(dst[28:32], header.DepsCount)
+}
+
+// PakContentHash computes the SHA-256 of a packed archive for use in the
+// extraction sidecar (assets.pak.meta). The build tool calls this after Pack
+// and writes the result alongside the .pak file.
+func PakContentHash(pakData []byte) [32]byte {
+	return sha256.Sum256(pakData)
+}
+
+// WritePak writes the pak archive and its sidecar metadata to destDir.
+// The sidecar (assets.pak.meta) carries the content hash so the runtime's
+// extraction gate can decide whether to re-extract without hashing the
+// entire file. Each call produces:
+//   <destDir>/assets.pak
+//   <destDir>/assets.pak.meta
+func WritePak(destDir string, pakData []byte) error {
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return fmt.Errorf("write pak mkdir: %w", err)
+	}
+	pakPath := filepath.Join(destDir, "assets.pak")
+	if err := os.WriteFile(pakPath, pakData, 0o644); err != nil {
+		return fmt.Errorf("write pak: %w", err)
+	}
+	meta := newPakSidecar(PakContentHash(pakData))
+	metaPath := filepath.Join(destDir, "assets.pak.meta")
+	f, err := os.Create(metaPath)
+	if err != nil {
+		return fmt.Errorf("create meta: %w", err)
+	}
+	if err := json.NewEncoder(f).Encode(meta); err != nil {
+		f.Close()
+		os.Remove(metaPath)
+		return fmt.Errorf("encode meta: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(metaPath)
+		return fmt.Errorf("close meta: %w", err)
+	}
+	return nil
+}
+
+// pakSidecar mirrors assets.PakMeta for JSON encoding without a circular dep.
+type pakSidecar struct {
+	Version int    `json:"v"`
+	Hash    string `json:"bh"`
+}
+
+func newPakSidecar(hash [32]byte) pakSidecar {
+	return pakSidecar{
+		Version: 1,
+		Hash:    hex.EncodeToString(hash[:]),
+	}
 }
 
 func writePakTOCEntry(dst []byte, entry assets.PakTOCEntry) {
