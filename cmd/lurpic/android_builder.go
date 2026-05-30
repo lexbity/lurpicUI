@@ -777,7 +777,7 @@ func (b *androidBuilder) assembleAPK() error {
 	// Step 4: Add assets to the APK (assets/...).
 	assetsSrc := filepath.Join(b.buildDir, "assets")
 	if _, err := os.Stat(assetsSrc); err == nil {
-		if err := addTreeToAPK(unsignedApk, b.buildDir, "assets"); err != nil {
+		if err := addTreeToAPK(unsignedApk, b.buildDir, "assets", b.config.Android.Assets.NoCompress); err != nil {
 			return fmt.Errorf("failed to add assets to APK: %w", err)
 		}
 	}
@@ -860,13 +860,27 @@ func addFileToAPK(apkPath, srcPath, entryName string) error {
 	return os.Rename(tmpPath, apkPath)
 }
 
+// isNoCompress checks if a filename matches any of the no-compress globs.
+func isNoCompress(name string, globs []string) bool {
+	for _, g := range globs {
+		if matched, _ := filepath.Match(g, filepath.Base(name)); matched {
+			return true
+		}
+		if matched, _ := filepath.Match(g, name); matched {
+			return true
+		}
+	}
+	return false
+}
+
 // addTreeToAPK injects a staged directory tree (e.g. "lib" or "assets") into the
 // linked APK at the matching top-level entry path. An APK is a zip archive and
 // aapt2 has no "add" subcommand, so the tree is merged in-process with
 // archive/zip — avoiding a dependency on an external zip binary. Entry paths are
 // taken relative to baseDir so they carry the correct prefix (lib/<abi>/libgo.so,
 // assets/...). The APK is rewritten atomically via a temp file + rename.
-func addTreeToAPK(apkPath, baseDir, treeName string) error {
+// noCompress lists glob patterns for files that should be stored uncompressed.
+func addTreeToAPK(apkPath, baseDir, treeName string, noCompress ...[]string) error {
 	src, err := zip.OpenReader(apkPath)
 	if err != nil {
 		return fmt.Errorf("open apk: %w", err)
@@ -889,6 +903,12 @@ func addTreeToAPK(apkPath, baseDir, treeName string) error {
 		}
 	}
 
+	// Merge no-compress globs from the variadic arg.
+	var noCompressGlobs []string
+	if len(noCompress) > 0 {
+		noCompressGlobs = noCompress[0]
+	}
+
 	// Add the staged tree.
 	root := filepath.Join(baseDir, treeName)
 	if err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -903,10 +923,10 @@ func addTreeToAPK(apkPath, baseDir, treeName string) error {
 			return err
 		}
 		name := filepath.ToSlash(rel)
-		// Store .so files uncompressed so zipalign can properly page-align
-		// them. This is required for Android 15+ 16 KB page-size compliance.
+		// .so files must be stored uncompressed for 16 KB page alignment.
+		// Additional no-compress patterns can be configured via assets.no_compress.
 		method := zip.Deflate
-		if strings.HasSuffix(name, ".so") {
+		if strings.HasSuffix(name, ".so") || isNoCompress(name, noCompressGlobs) {
 			method = zip.Store
 		}
 		hdr := &zip.FileHeader{

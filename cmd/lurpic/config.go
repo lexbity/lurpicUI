@@ -49,6 +49,15 @@ type AndroidConfig struct {
 	SDK         SDKConfig        `toml:"sdk"`
 	NDK         NDKConfig        `toml:"ndk"`
 	JDK         JDKConfig        `toml:"jdk"`
+	Assets      AssetConfig      `toml:"assets"`
+}
+
+// AssetConfig controls how project assets are packaged.
+type AssetConfig struct {
+	// NoCompress lists glob patterns for files that should be stored
+	// uncompressed in the APK. Patterns are matched against the asset
+	// path relative to the assets directory. Example: ["*.mp4", "*.png"]
+	NoCompress []string `toml:"no_compress"`
 }
 
 // SDKConfig contains Android SDK path configuration and optional version pins

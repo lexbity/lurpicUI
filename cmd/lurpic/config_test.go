@@ -387,6 +387,54 @@ func TestLoadConfig_NotFound(t *testing.T) {
 	}
 }
 
+func TestAssetConfig_noCompressParsing(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	configContent := `[app]
+id = "com.test.assets"
+name = "Asset Test"
+
+[android]
+target_sdk = 35
+
+[android.assets]
+no_compress = ["*.png", "*.mp4", "fonts/*.ttf"]
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if len(config.Android.Assets.NoCompress) != 3 {
+		t.Fatalf("expected 3 no_compress patterns, got %d", len(config.Android.Assets.NoCompress))
+	}
+	if config.Android.Assets.NoCompress[0] != "*.png" {
+		t.Errorf("expected no_compress[0]='*.png', got %q", config.Android.Assets.NoCompress[0])
+	}
+	if config.Android.Assets.NoCompress[1] != "*.mp4" {
+		t.Errorf("expected no_compress[1]='*.mp4', got %q", config.Android.Assets.NoCompress[1])
+	}
+}
+
+func TestIsNoCompress_matchesGlob(t *testing.T) {
+	globs := []string{"*.png", "*.mp4"}
+	if !isNoCompress("icon.png", globs) {
+		t.Fatal("expected icon.png to match *.png")
+	}
+	if !isNoCompress("video.mp4", globs) {
+		t.Fatal("expected video.mp4 to match *.mp4")
+	}
+	if isNoCompress("data.bin", globs) {
+		t.Fatal("expected data.bin not to match")
+	}
+	if isNoCompress("icon.PNG", globs) {
+		t.Fatal("expected case-sensitive no match")
+	}
+}
+
 func TestCheckToolchainPins_missingBuildTools(t *testing.T) {
 	sdkDir := t.TempDir()
 	ndkDir := t.TempDir()
