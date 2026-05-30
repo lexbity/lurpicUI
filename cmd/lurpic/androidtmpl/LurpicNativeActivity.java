@@ -4,6 +4,7 @@ import android.app.NativeActivity;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.content.res.Configuration;
 import android.media.AudioAttributes;
 import android.media.AudioFocusRequest;
 import android.media.AudioManager;
@@ -19,6 +20,13 @@ import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
+import android.window.WindowMetrics;
+import android.graphics.Rect;
+import android.view.Display;
+import android.view.DisplayInfo;
+import android.view.WindowManager;
 import android.widget.FrameLayout;
 
 /**
@@ -85,6 +93,19 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
                 return v.onApplyWindowInsets(insets);
             }
         );
+
+        // Register predictive back callback (API 33+). The system shows an
+        // animated back arrow/gesture and calls onBackInvoked when the user
+        // completes the back gesture.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                () -> {
+                    Log.i(TAG, "Predictive back invoked");
+                    nativeOnBackInvoked();
+                }
+            );
+        }
 
         // Set up audio focus listener for interruption handling.
         audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -165,6 +186,38 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
     public void onWindowFocusChanged(boolean hasFocus) {
         Log.i(TAG, "onWindowFocusChanged: " + hasFocus);
         super.onWindowFocusChanged(hasFocus);
+    }
+
+    @Override
+    public void onMultiWindowModeChanged(boolean isInMultiWindowMode, Configuration newConfig) {
+        Log.i(TAG, "onMultiWindowModeChanged: " + isInMultiWindowMode);
+        super.onMultiWindowModeChanged(isInMultiWindowMode, newConfig);
+        // The activity may be resized in multi-window mode. Forward the
+        // configuration so the runtime can re-layout.
+        reportCurrentMetrics();
+    }
+
+    @Override
+    public void onPictureInPictureModeChanged(boolean isInPictureInPictureMode, Configuration newConfig) {
+        Log.i(TAG, "onPictureInPictureModeChanged: " + isInPictureInPictureMode);
+        super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
+    }
+
+    private void reportCurrentMetrics() {
+        WindowManager wm = (WindowManager) getSystemService(Context.WINDOW_SERVICE);
+        if (wm == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            WindowMetrics metrics = wm.getCurrentWindowMetrics();
+            Rect bounds = metrics.getBounds();
+            nativeOnWindowMetricsChanged(bounds.width(), bounds.height());
+        } else {
+            Display display = wm.getDefaultDisplay();
+            DisplayInfo info = new DisplayInfo();
+            if (display != null) {
+                display.getDisplayInfo(info);
+                nativeOnWindowMetricsChanged(info.logicalWidth, info.logicalHeight);
+            }
+        }
     }
 
     @Override
@@ -287,6 +340,8 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
                                               int cutoutLeft, int cutoutTop,
                                               int cutoutRight, int cutoutBottom);
     private native void nativeOnAudioFocusChange(int focusChange);
+    private native void nativeOnBackInvoked();
+    private native void nativeOnWindowMetricsChanged(int width, int height);
     private native byte[] nativeGetSavedState();
     private native void nativeSetSavedState(byte[] state);
     private native void nativePermissionResult(int requestCode, boolean granted, boolean permanent);

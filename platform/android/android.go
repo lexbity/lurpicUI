@@ -401,6 +401,14 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 		}
 	case bridge.EventTypeVsync:
 		return platform.VsyncEvent{FrameTimeNanos: e.FrameTimeNanos}
+	case bridge.EventTypeBackInvoked:
+		return platform.BackEvent{}
+	case bridge.EventTypeWindowMetricsChanged:
+		if a != nil && a.currentSurface != nil {
+			a.currentSurface.Resize(e.Width, e.Height)
+		}
+		// Also return a window resize event so the runtime re-layouts.
+		return platform.WindowEvent{Kind: platform.WindowResized, Width: e.Width, Height: e.Height}
 	case bridge.EventTypeAudioFocusChange:
 		// Audio focus changes are handled by the audio subsystem through
 		// the platform.Audio interface. Convert and route as a lifecycle

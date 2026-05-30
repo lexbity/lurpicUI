@@ -56,6 +56,8 @@ const (
 	EventTypeAudioFocusChange
 	EventTypeVsync
 	EventTypeSavedState
+	EventTypeBackInvoked
+	EventTypeWindowMetricsChanged
 )
 
 // Event represents an Android lifecycle or input event.
@@ -552,6 +554,21 @@ func goDeliverVsync(frameTimeNanos C.int64_t) {
 	event := Event{
 		Type:           EventTypeVsync,
 		FrameTimeNanos: int64(frameTimeNanos),
+	}
+	GetEventQueue().Push(event)
+}
+
+//export goDeliverBackInvoked
+func goDeliverBackInvoked() {
+	GetEventQueue().Push(Event{Type: EventTypeBackInvoked})
+}
+
+//export goDeliverWindowMetricsChanged
+func goDeliverWindowMetricsChanged(width C.int32_t, height C.int32_t) {
+	event := Event{
+		Type:   EventTypeWindowMetricsChanged,
+		Width:  int(width),
+		Height: int(height),
 	}
 	GetEventQueue().Push(event)
 }

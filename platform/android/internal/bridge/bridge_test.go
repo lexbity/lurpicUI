@@ -362,6 +362,33 @@ func TestSavedState_concurrentAccess(t *testing.T) {
 	// Should not race or panic.
 }
 
+func TestBackInvoked_eventDelivery(t *testing.T) {
+	q := NewEventQueue()
+	q.Push(Event{Type: EventTypeBackInvoked})
+	events := q.Poll()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != EventTypeBackInvoked {
+		t.Errorf("expected EventTypeBackInvoked, got %v", events[0].Type)
+	}
+}
+
+func TestWindowMetricsChanged_eventDelivery(t *testing.T) {
+	q := NewEventQueue()
+	q.Push(Event{Type: EventTypeWindowMetricsChanged, Width: 1200, Height: 800})
+	events := q.Poll()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].Type != EventTypeWindowMetricsChanged {
+		t.Errorf("expected EventTypeWindowMetricsChanged, got %v", events[0].Type)
+	}
+	if events[0].Width != 1200 || events[0].Height != 800 {
+		t.Errorf("expected (1200,800), got (%d,%d)", events[0].Width, events[0].Height)
+	}
+}
+
 func TestPermissionResult_routing(t *testing.T) {
 	q := NewEventQueue()
 

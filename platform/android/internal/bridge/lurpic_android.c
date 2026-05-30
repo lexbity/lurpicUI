@@ -62,6 +62,8 @@ extern void goDeliverWindowInsets(int32_t top, int32_t bottom, int32_t left, int
 extern void goDeliverIMECompose(char* text, int32_t cursorPos);
 extern void goDeliverIMECommit(char* text);
 extern void goDeliverAudioFocusChange(int32_t focusChange);
+extern void goDeliverBackInvoked(void);
+extern void goDeliverWindowMetricsChanged(int32_t width, int32_t height);
 extern void goDeliverVsync(int64_t frameTimeNanos);
 extern int  goGetSavedState(char** outData, int32_t* outLen);
 extern void goSetSavedState(const char* data, int32_t len);
@@ -821,6 +823,20 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeSetSa
     if (data == NULL) return;
     goSetSavedState((const char*)data, (int32_t)len);
     (*env)->ReleaseByteArrayElements(env, state, data, JNI_ABORT);
+}
+
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnBackInvoked(
+    JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    goDeliverBackInvoked();
+}
+
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnWindowMetricsChanged(
+    JNIEnv* env, jobject thiz, jint width, jint height) {
+    (void)env;
+    (void)thiz;
+    goDeliverWindowMetricsChanged(width, height);
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnAudioFocusChange(

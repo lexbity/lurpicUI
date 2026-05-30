@@ -32,6 +32,13 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 				rt.inputSystem.ClearPointerState()
 				rt.ClearFocus()
 			}
+		case platform.BackEvent:
+			// Route back as an Escape key press + release to trigger
+			// navigation-back behaviour in the facet system.
+			rt.pendingEvents = append(rt.pendingEvents,
+				platform.EventKey{Kind: platform.KeyPress, Key: platform.KeyEscape},
+				platform.EventKey{Kind: platform.KeyRelease, Key: platform.KeyEscape},
+			)
 		case platform.VsyncEvent:
 			if rt.frameTimer != nil {
 				rt.frameTimer.Vsync(e.FrameTimeNanos)

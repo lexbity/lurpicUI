@@ -43,6 +43,8 @@ const (
 	EventTypeAudioFocusChange
 	EventTypeVsync
 	EventTypeSavedState
+	EventTypeBackInvoked
+	EventTypeWindowMetricsChanged
 )
 
 const (

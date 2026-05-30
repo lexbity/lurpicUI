@@ -219,6 +219,10 @@ type VsyncEvent struct {
 	FrameTimeNanos int64
 }
 
+// BackEvent is emitted when the system back gesture/button is invoked.
+// On Android 33+ this uses the predictive back animation (OnBackInvokedCallback).
+type BackEvent struct{}
+
 // AudioFocusEvent is emitted when the Android audio focus changes.
 // The runtime delivers this to the audio subsystem to pause/resume/duck playback.
 type AudioFocusEvent struct {
@@ -257,6 +261,8 @@ const (
 	TouchUp
 	TouchCancel // OS canceled the gesture (e.g., system gesture took over)
 )
+
+func (BackEvent) isEvent()              {}
 
 func (VsyncEvent) isEvent()             {}
 
