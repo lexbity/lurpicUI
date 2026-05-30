@@ -69,3 +69,11 @@ type Backend interface {
 type CacheEvictor interface {
 	EvictCaches()
 }
+
+// RecreatableBackend is optionally implemented by render backends that can
+// rebuild their surface + swapchain in-place without a full re-initialization.
+// This is used on lifecycle-based platforms (e.g. Android) where the native
+// window surface is destroyed and recreated during pause/resume cycles.
+type RecreatableBackend interface {
+	Recreate(surface Surface) error
+}

@@ -31,6 +31,7 @@ type backendFixture struct {
 	submitErr       error
 	submitFailAfter atomic.Int32 // fail Submit after this many calls; 0 = never
 	initCount       atomic.Int32
+	recreateCount   atomic.Int32
 	submitCount     atomic.Int32
 	destroyCount    atomic.Int32
 	lastFrame       atomic.Pointer[render.Frame]
@@ -61,6 +62,20 @@ func (s *backendFixture) Submit(frame *render.Frame) error {
 }
 func (s *backendFixture) Resize(width, height int) error          { return nil }
 func (s *backendFixture) Destroy()                                { s.destroyCount.Add(1) }
+
+// recreatableBackend is like backendFixture but also implements
+// render.RecreatableBackend for testing the Recreate path.
+type recreatableBackend struct {
+	backendFixture
+	recreateCount atomic.Int32
+}
+
+func (b *recreatableBackend) Recreate(surface render.Surface) error {
+	b.recreateCount.Add(1)
+	return nil
+}
+
+var _ render.RecreatableBackend = (*recreatableBackend)(nil)
 
 type recordingBackend struct {
 	last            *render.Frame

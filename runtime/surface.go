@@ -84,7 +84,16 @@ func (rt *Runtime) handleSurfaceLost() {
 func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
 
 	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil && surface != nil {
-		if err := rt.renderPipeline.backend.Initialize(surface); err != nil {
+		// Prefer the lighter Recreate path (surface+swapchain only) over the
+		// full Initialize (re-creates instance + device). This avoids tearing
+		// down the entire GPU context during transient pause/resume cycles.
+		var err error
+		if recreatable, ok := rt.renderPipeline.backend.(render.RecreatableBackend); ok {
+			err = recreatable.Recreate(surface)
+		} else {
+			err = rt.renderPipeline.backend.Initialize(surface)
+		}
+		if err != nil {
 			if rt.log != nil {
 				rt.log.Error("runtime: reinitialize render backend after surface creation failed", "error", err)
 			}

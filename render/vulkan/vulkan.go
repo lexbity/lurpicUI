@@ -138,6 +138,7 @@ func (b *Backend) EvictCaches() {
 
 var _ render.Backend = (*Backend)(nil)
 var _ render.CacheEvictor = (*Backend)(nil)
+var _ render.RecreatableBackend = (*Backend)(nil)
 var _ render.TextureBackend = (*Backend)(nil)
 
 func (b *Backend) UploadTexture(req render.TextureUploadRequest) (render.TextureID, error) {

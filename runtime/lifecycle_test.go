@@ -213,6 +213,56 @@ func TestRuntime_shutdown_blocks_until_started(t *testing.T) {
 	}
 }
 
+func TestRuntime_surface_loss_prevents_submit(t *testing.T) {
+	rb := &recreatableBackend{}
+	rt, app := mustLifecycleRuntime(t, rb)
+
+	rt.RunOneFrame()
+	preLoss := rb.submitCount.Load()
+	if preLoss == 0 {
+		t.Fatal("expected at least 1 submit before loss")
+	}
+
+	// Surface loss — destroy is called, surfaceReady becomes false.
+	app.triggerSurfaceLost()
+
+	if rb.destroyCount.Load() != 1 {
+		t.Fatalf("expected 1 destroy, got %d", rb.destroyCount.Load())
+	}
+	if rt.isSurfaceReady() {
+		t.Fatal("expected surfaceReady=false after surface loss")
+	}
+
+	// Frames during surface loss should NOT submit (surface not ready).
+	rb.submitCount.Store(0)
+	rt.RunOneFrame()
+	rt.RunOneFrame()
+	if rb.submitCount.Load() != 0 {
+		t.Fatalf("expected 0 submits while surface absent, got %d", rb.submitCount.Load())
+	}
+
+	// Surface restore — Recreate is called instead of Initialize.
+	app.triggerSurfaceCreated(&testSurface{})
+
+	if rb.recreateCount.Load() != 1 {
+		t.Fatalf("expected 1 recreate after restore, got %d", rb.recreateCount.Load())
+	}
+	if rb.initCount.Load() != 0 {
+		t.Fatalf("expected 0 init calls (used Recreate), got %d", rb.initCount.Load())
+	}
+	if !rt.isSurfaceReady() {
+		t.Fatal("expected surfaceReady=true after surface restore")
+	}
+
+	// Frames after restore submit again.
+	rb.submitCount.Store(0)
+	rt.RunOneFrame()
+	rt.RunOneFrame()
+	if rb.submitCount.Load() != 2 {
+		t.Fatalf("expected 2 submits after restore, got %d", rb.submitCount.Load())
+	}
+}
+
 func TestRuntime_surface_loss_and_recovery(t *testing.T) {
 	bf := &backendFixture{}
 	rt, app := mustLifecycleRuntime(t, bf)
