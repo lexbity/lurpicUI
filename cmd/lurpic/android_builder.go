@@ -936,6 +936,87 @@ func addTreeToAPK(apkPath, baseDir, treeName string) error {
 	return os.Rename(tmpPath, apkPath)
 }
 
+// resolveSigningConfig resolves keystore path, alias, and password from config,
+// command-line flags, env vars, or interactive prompt. Returns (path, alias, password).
+func (b *androidBuilder) resolveSigningConfig() (keystorePath, keystoreAlias, keystorePass string, err error) {
+	if b.release {
+		keystorePath = b.config.Android.Keystore.Path
+		keystoreAlias = b.config.Android.Keystore.Alias
+		keystorePass = b.ksPassword
+		if keystorePass == "" {
+			keystorePass = os.Getenv("LURPIC_KEYSTORE_PASSWORD")
+		}
+		if keystorePass == "" {
+			keystorePass = b.promptPassword()
+		}
+
+		if keystorePath == "" {
+			return "", "", "", fmt.Errorf("release signing requires keystore.path in lurpic.toml or --keystore flag")
+		}
+		if keystoreAlias == "" {
+			return "", "", "", fmt.Errorf("release signing requires keystore.alias in lurpic.toml or --ks-alias flag")
+		}
+		if keystorePass == "" {
+			return "", "", "", fmt.Errorf("release signing requires keystore password. Use --ks-pass flag, LURPIC_KEYSTORE_PASSWORD env, or stdin")
+		}
+		if _, err := os.Stat(keystorePath); err != nil {
+			return "", "", "", fmt.Errorf("keystore not found at %s: %w", keystorePath, err)
+		}
+		fmt.Printf("  Using release keystore: %s (alias: %s)\n", keystorePath, keystoreAlias)
+	} else {
+		var derr error
+		keystorePath, derr = b.getDebugKeystore()
+		if derr != nil {
+			return "", "", "", fmt.Errorf("debug keystore: %w", derr)
+		}
+		keystoreAlias = "androiddebugkey"
+		keystorePass = "android"
+		fmt.Printf("  Using debug keystore: %s\n", keystorePath)
+	}
+	return keystorePath, keystoreAlias, keystorePass, nil
+}
+
+// signingSchemeFlags returns apksigner flags for all enabled signing schemes.
+// Debug builds use v1+v2; release builds use v1+v2+v3+v4 to support key
+// rotation (v3) and incremental APKs (v4).
+func signingSchemeFlags(release bool) []string {
+	flags := []string{
+		"--v1-signing-enabled", "true",
+		"--v2-signing-enabled", "true",
+	}
+	if release {
+		// v3 enables signing key rotation — required for Play App Signing.
+		flags = append(flags, "--v3-signing-enabled", "true")
+		// v4 adds incremental APK support and a separate .idsig signature file.
+		flags = append(flags, "--v4-signing-enabled", "true")
+	}
+	return flags
+}
+
+// buildSignArgs constructs the apksigner argument list for signing a given file.
+// Password is supplied via --ks-pass with a "pass:" prefix. In CI environments
+// the password can be read from a file via "pass:file:<path>" to avoid secret
+// exposure in process listings.
+func (b *androidBuilder) buildSignArgs(input, output, keystorePath, keystoreAlias, keystorePass string) []string {
+	// If the password looks like a file path, use pass:file: prefix to avoid
+	// putting the secret in the process command line visible via ps.
+	passPrefix := "pass:"
+	if keystorePass != "" && keystorePass[0] == '/' {
+		passPrefix = "pass:file:"
+	}
+
+	args := []string{
+		"sign",
+		"--ks", keystorePath,
+		"--ks-key-alias", keystoreAlias,
+		"--ks-pass", passPrefix + keystorePass,
+		"--in", input,
+		"--out", output,
+	}
+	args = append(args, signingSchemeFlags(b.release)...)
+	return args
+}
+
 // signAPK signs the APK with debug or release keystore
 func (b *androidBuilder) signAPK() error {
 	fmt.Println("Signing APK...")
@@ -958,65 +1039,14 @@ func (b *androidBuilder) signAPK() error {
 		alignedApk = unsignedApk
 	}
 
-	// Step 2: Sign the APK
-	var keystorePath, keystoreAlias, keystorePass string
-
-	if b.release {
-		// Release signing - requires keystore configuration or command-line overrides
-		keystorePath = b.config.Android.Keystore.Path
-		keystoreAlias = b.config.Android.Keystore.Alias
-		keystorePass = b.ksPassword
-		if keystorePass == "" {
-			keystorePass = os.Getenv("LURPIC_KEYSTORE_PASSWORD")
-		}
-		if keystorePass == "" {
-			keystorePass = b.promptPassword()
-		}
-
-		if keystorePath == "" {
-			return fmt.Errorf("release signing requires keystore.path in lurpic.toml or --keystore flag")
-		}
-		if keystoreAlias == "" {
-			return fmt.Errorf("release signing requires keystore.alias in lurpic.toml or --ks-alias flag")
-		}
-		if keystorePass == "" {
-			return fmt.Errorf("release signing requires keystore password. Use --ks-pass flag, or set LURPIC_KEYSTORE_PASSWORD environment variable")
-		}
-
-		// Validate keystore exists
-		if _, err := os.Stat(keystorePath); err != nil {
-			return fmt.Errorf("keystore not found at %s: %w", keystorePath, err)
-		}
-
-		fmt.Printf("  Using release keystore: %s (alias: %s)\n", keystorePath, keystoreAlias)
-	} else {
-		// Debug signing
-		var err error
-		keystorePath, err = b.getDebugKeystore()
-		if err != nil {
-			return fmt.Errorf("debug keystore: %w", err)
-		}
-		keystoreAlias = "androiddebugkey"
-		keystorePass = "android"
-		fmt.Printf("  Using debug keystore: %s\n", keystorePath)
+	// Step 2: Resolve signing config
+	keystorePath, keystoreAlias, keystorePass, err := b.resolveSigningConfig()
+	if err != nil {
+		return err
 	}
 
-	// Build apksigner command — password is passed on the command line to apksigner,
-	// but we take care never to log it or store it in config.
-	signArgs := []string{
-		"sign",
-		"--ks", keystorePath,
-		"--ks-key-alias", keystoreAlias,
-		"--ks-pass", "pass:" + keystorePass,
-		"--in", alignedApk,
-		"--out", b.outputPath,
-	}
-
-	// For release builds, enable v1/v2 signing schemes
-	if b.release {
-		signArgs = append(signArgs, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true")
-	}
-
+	// Step 3: Sign
+	signArgs := b.buildSignArgs(alignedApk, b.outputPath, keystorePath, keystoreAlias, keystorePass)
 	if err := b.runner.Run(CommandSpec{
 		Path:   apksigner,
 		Args:   signArgs,
@@ -1028,7 +1058,7 @@ func (b *androidBuilder) signAPK() error {
 
 	fmt.Printf("  Signed: %s\n", b.outputPath)
 
-	// Step 3: Verify the signed APK (fatal on failure)
+	// Step 4: Verify the signed APK (fatal on failure)
 	if err := b.verifyAPK(); err != nil {
 		return fmt.Errorf("APK verification failed: %w", err)
 	}
@@ -1044,55 +1074,15 @@ func (b *androidBuilder) signFile(input string) error {
 		return fmt.Errorf("apksigner not found: %w", err)
 	}
 
-	var keystorePath, keystoreAlias, keystorePass string
-	if b.release {
-		keystorePath = b.config.Android.Keystore.Path
-		keystoreAlias = b.config.Android.Keystore.Alias
-		keystorePass = b.ksPassword
-		if keystorePass == "" {
-			keystorePass = os.Getenv("LURPIC_KEYSTORE_PASSWORD")
-		}
-		if keystorePass == "" {
-			keystorePass = b.promptPassword()
-		}
-		if keystorePath == "" {
-			return fmt.Errorf("release signing requires keystore.path in lurpic.toml or --keystore flag")
-		}
-		if keystoreAlias == "" {
-			return fmt.Errorf("release signing requires keystore.alias in lurpic.toml or --ks-alias flag")
-		}
-		if keystorePass == "" {
-			return fmt.Errorf("release signing requires keystore password")
-		}
-		if _, err := os.Stat(keystorePath); err != nil {
-			return fmt.Errorf("keystore not found at %s: %w", keystorePath, err)
-		}
-		fmt.Printf("  Using release keystore: %s (alias: %s)\n", keystorePath, keystoreAlias)
-	} else {
-		keystorePath, err = b.getDebugKeystore()
-		if err != nil {
-			return fmt.Errorf("debug keystore: %w", err)
-		}
-		keystoreAlias = "androiddebugkey"
-		keystorePass = "android"
-		fmt.Printf("  Using debug keystore: %s\n", keystorePath)
+	keystorePath, keystoreAlias, keystorePass, err := b.resolveSigningConfig()
+	if err != nil {
+		return err
 	}
 
-	args := []string{
-		"sign",
-		"--ks", keystorePath,
-		"--ks-key-alias", keystoreAlias,
-		"--ks-pass", "pass:" + keystorePass,
-		"--in", input,
-		"--out", b.outputPath,
-	}
-	if b.release {
-		args = append(args, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true")
-	}
-
+	signArgs := b.buildSignArgs(input, b.outputPath, keystorePath, keystoreAlias, keystorePass)
 	return b.runner.Run(CommandSpec{
 		Path:   apksigner,
-		Args:   args,
+		Args:   signArgs,
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	})

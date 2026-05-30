@@ -760,6 +760,23 @@ func TestAndroidBuilder_buildBundleModule_hasCorrectStructure(t *testing.T) {
 	}
 }
 
+func TestSplitDimensions_includesABIAndDensity(t *testing.T) {
+	dims := defaultSplitDimensions()
+	hasABI := false
+	hasDensity := false
+	for _, d := range dims {
+		if d == SplitABI {
+			hasABI = true
+		}
+		if d == SplitDensity {
+			hasDensity = true
+		}
+	}
+	if !hasABI || !hasDensity {
+		t.Fatalf("expected ABI and DENSITY splits, got %v", dims)
+	}
+}
+
 func TestBundleConfig_default_hasUncompressedGlob(t *testing.T) {
 	cfg := defaultBundleConfig()
 	found := false

@@ -8,6 +8,88 @@ import (
 	"testing"
 )
 
+func TestSigningSchemeFlags_releaseEnablesV3V4(t *testing.T) {
+	flags := signingSchemeFlags(true)
+	hasV3 := false
+	hasV4 := false
+	for i, f := range flags {
+		if f == "--v3-signing-enabled" && i+1 < len(flags) && flags[i+1] == "true" {
+			hasV3 = true
+		}
+		if f == "--v4-signing-enabled" && i+1 < len(flags) && flags[i+1] == "true" {
+			hasV4 = true
+		}
+	}
+	if !hasV3 {
+		t.Fatal("expected --v3-signing-enabled true for release")
+	}
+	if !hasV4 {
+		t.Fatal("expected --v4-signing-enabled true for release")
+	}
+}
+
+func TestSigningSchemeFlags_debugOmitsV3V4(t *testing.T) {
+	flags := signingSchemeFlags(false)
+	for i, f := range flags {
+		if f == "--v3-signing-enabled" || f == "--v4-signing-enabled" {
+			if i+1 < len(flags) && flags[i+1] == "true" {
+				t.Fatalf("unexpected %s in debug signing flags: %v", f, flags)
+			}
+		}
+	}
+}
+
+func TestBuildSignArgs_usesPassFileForAbsolutePassword(t *testing.T) {
+	b := &androidBuilder{release: true}
+	args := b.buildSignArgs("in.apk", "out.apk", "/path/to/ks", "alias", "/path/to/pass.txt")
+	foundPassFile := false
+	for _, a := range args {
+		if strings.HasPrefix(a, "pass:file:") {
+			foundPassFile = true
+			if a != "pass:file:/path/to/pass.txt" {
+				t.Fatalf("expected pass:file:/path/to/pass.txt, got %q", a)
+			}
+		}
+	}
+	if !foundPassFile {
+		t.Fatalf("expected pass:file argument in buildSignArgs: %v", args)
+	}
+}
+
+func TestBuildSignArgs_usesPassPrefixForNonPathPassword(t *testing.T) {
+	b := &androidBuilder{release: false}
+	args := b.buildSignArgs("in.apk", "out.apk", "/path/to/ks", "alias", "mypassword")
+	foundPassPrefix := false
+	for _, a := range args {
+		if strings.HasPrefix(a, "pass:") && !strings.HasPrefix(a, "pass:file:") {
+			foundPassPrefix = true
+			if a != "pass:mypassword" {
+				t.Fatalf("expected pass:mypassword, got %q", a)
+			}
+		}
+	}
+	if !foundPassPrefix {
+		t.Fatalf("expected pass:mypassword in buildSignArgs: %v", args)
+	}
+}
+
+func TestBuildSignArgs_passwordNotInArgList(t *testing.T) {
+	b := &androidBuilder{release: false}
+	args := b.buildSignArgs("in.apk", "out.apk", "/path/to/ks", "alias", "mypassword")
+	for _, a := range args {
+		if a == "mypassword" && !strings.Contains(a, ":") {
+			t.Fatalf("password appears as standalone arg: %q", a)
+		}
+	}
+	b2 := &androidBuilder{release: true}
+	args2 := b2.buildSignArgs("in.apk", "out.apk", "/path/to/ks", "alias", "/secret/pass.txt")
+	for _, a := range args2 {
+		if a == "/secret/pass.txt" && !strings.Contains(a, "pass:file:") {
+			t.Fatalf("password path appears as standalone arg: %q", a)
+		}
+	}
+}
+
 func TestKeystoreConfig_Valid(t *testing.T) {
 	tmpDir := t.TempDir()
 

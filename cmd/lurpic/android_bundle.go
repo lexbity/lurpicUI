@@ -54,12 +54,19 @@ func defaultBundleConfig() BundleConfig {
 		},
 		Optimizations: BundleOptimizations{
 			SplitsConfig: &SplitConfig{
-				SplitDimension: []SplitDimension{
-					SplitABI,
-					SplitDensity,
-				},
+				SplitDimension: defaultSplitDimensions(),
 			},
 		},
+	}
+}
+
+// defaultSplitDimensions returns the recommended split dimensions for
+// optimized Play Store delivery. ABI + density ensures users download
+// only the APK matching their device architecture and screen density.
+func defaultSplitDimensions() []SplitDimension {
+	return []SplitDimension{
+		SplitABI,
+		SplitDensity,
 	}
 }
 
