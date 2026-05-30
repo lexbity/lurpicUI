@@ -40,6 +40,7 @@ const (
 	EventTypeIMECommit
 	EventTypeConfigurationChanged
 	EventTypeWindowInsets
+	EventTypeAudioFocusChange
 )
 
 const (
@@ -78,6 +79,7 @@ type Event struct {
 	MetaState   int32
 	Text        string
 	CursorPos   int
+	FocusChange int32
 	InsetTop    int32
 	InsetBottom int32
 	InsetLeft   int32

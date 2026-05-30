@@ -4,6 +4,9 @@ import android.app.NativeActivity;
 import android.content.Context;
 import android.content.pm.PackageInfo;
 import android.content.pm.PackageManager;
+import android.media.AudioAttributes;
+import android.media.AudioFocusRequest;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -22,11 +25,13 @@ import android.widget.FrameLayout;
  * LurpicNativeActivity extends NativeActivity to provide the entry point
  * for lurpicUI applications on Android.
  */
-public class LurpicNativeActivity extends NativeActivity {
+public class LurpicNativeActivity extends NativeActivity implements AudioManager.OnAudioFocusChangeListener {
     private static final String TAG = "LurpicNativeActivity";
 
     private FrameLayout imeRoot;
     private ImeInputView imeView;
+    private AudioManager audioManager;
+    private AudioFocusRequest audioFocusRequest;
 
     static {
         try {
@@ -80,6 +85,19 @@ public class LurpicNativeActivity extends NativeActivity {
                 return v.onApplyWindowInsets(insets);
             }
         );
+
+        // Set up audio focus listener for interruption handling.
+        audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            AudioAttributes attrs = new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_GAME)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
+                .build();
+            audioFocusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                .setAudioAttributes(attrs)
+                .setOnAudioFocusChangeListener(this)
+                .build();
+        }
 
         imeView = new ImeInputView(this);
         imeRoot = new FrameLayout(this);
@@ -212,12 +230,39 @@ public class LurpicNativeActivity extends NativeActivity {
         });
     }
 
+    @Override
+    public void onAudioFocusChange(int focusChange) {
+        Log.i(TAG, "onAudioFocusChange: " + focusChange);
+        nativeOnAudioFocusChange(focusChange);
+    }
+
+    public void requestAudioFocus() {
+        Log.i(TAG, "requestAudioFocus");
+        if (audioManager == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
+            audioManager.requestAudioFocus(audioFocusRequest);
+        } else {
+            audioManager.requestAudioFocus(this, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN);
+        }
+    }
+
+    public void abandonAudioFocus() {
+        Log.i(TAG, "abandonAudioFocus");
+        if (audioManager == null) return;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && audioFocusRequest != null) {
+            audioManager.abandonAudioFocusRequest(audioFocusRequest);
+        } else {
+            audioManager.abandonAudioFocus(this);
+        }
+    }
+
     private native void nativeImeCompose(String text, int cursorPos);
     private native void nativeImeCommit(String text);
     private native void nativeImeKeyEvent(int keyCode, int action, int metaState);
     private native void nativeOnWindowInsets(int top, int bottom, int left, int right,
                                               int cutoutLeft, int cutoutTop,
                                               int cutoutRight, int cutoutBottom);
+    private native void nativeOnAudioFocusChange(int focusChange);
     private native void nativePermissionResult(int requestCode, boolean granted, boolean permanent);
 
     private static final class ImeInputView extends View {

@@ -32,6 +32,8 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 				rt.inputSystem.ClearPointerState()
 				rt.ClearFocus()
 			}
+		case platform.AudioFocusEvent:
+			rt.handleAudioFocusChange(e)
 		case platform.ConfigurationChangedEvent:
 			rt.handleConfigurationChanged(e)
 		default:
@@ -39,6 +41,24 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 		}
 	}
 	return out
+}
+
+func (rt *Runtime) handleAudioFocusChange(e platform.AudioFocusEvent) {
+	// Forward audio focus changes to the audio subsystem if available.
+	if a := platform.AudioCapableOf(rt.platformApp); a != nil {
+		a.OnFocusChange(func(change platform.AudioFocusChange) {
+			switch change {
+			case platform.AudioFocusLoss:
+				rt.log.Info("runtime: audio focus lost permanently")
+			case platform.AudioFocusLossTransient:
+				rt.log.Info("runtime: audio focus lost transiently — pausing audio")
+			case platform.AudioFocusLossTransientCanDuck:
+				rt.log.Info("runtime: audio focus lost — ducking audio")
+			case platform.AudioFocusGain, platform.AudioFocusGainTransient:
+				rt.log.Info("runtime: audio focus regained")
+			}
+		})
+	}
 }
 
 func (rt *Runtime) handleConfigurationChanged(e platform.ConfigurationChangedEvent) {

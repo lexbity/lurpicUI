@@ -213,6 +213,12 @@ const (
 	WindowFocusLost
 )
 
+// AudioFocusEvent is emitted when the Android audio focus changes.
+// The runtime delivers this to the audio subsystem to pause/resume/duck playback.
+type AudioFocusEvent struct {
+	Change AudioFocusChange
+}
+
 // ConfigurationChangedEvent is emitted when the Android device configuration
 // changes (orientation, density, fontScale, dark mode, locale). The runtime
 // uses it to trigger re-layout and theme updates without losing view state.
@@ -245,6 +251,8 @@ const (
 	TouchUp
 	TouchCancel // OS canceled the gesture (e.g., system gesture took over)
 )
+
+func (AudioFocusEvent) isEvent()         {}
 
 func (ConfigurationChangedEvent) isEvent() {}
 

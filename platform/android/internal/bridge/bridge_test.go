@@ -315,6 +315,29 @@ func TestWindowInsetsEvent_fields(t *testing.T) {
 	}
 }
 
+func TestAudioFocusEvent_fields(t *testing.T) {
+	q := NewEventQueue()
+
+	q.Push(Event{Type: EventTypeAudioFocusChange, FocusChange: -2}) // AUDIOFOCUS_LOSS_TRANSIENT
+	q.Push(Event{Type: EventTypeAudioFocusChange, FocusChange: 1})  // AUDIOFOCUS_GAIN
+	q.Push(Event{Type: EventTypeAudioFocusChange, FocusChange: -3}) // AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+
+	events := q.Poll()
+	if len(events) != 3 {
+		t.Fatalf("expected 3 events, got %d", len(events))
+	}
+
+	if events[0].FocusChange != -2 {
+		t.Errorf("expected FocusChange=-2 (transient loss), got %d", events[0].FocusChange)
+	}
+	if events[1].FocusChange != 1 {
+		t.Errorf("expected FocusChange=1 (gain), got %d", events[1].FocusChange)
+	}
+	if events[2].FocusChange != -3 {
+		t.Errorf("expected FocusChange=-3 (can duck), got %d", events[2].FocusChange)
+	}
+}
+
 func TestConfigurationChangedEvent_fields(t *testing.T) {
 	q := NewEventQueue()
 

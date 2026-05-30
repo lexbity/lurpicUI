@@ -53,6 +53,7 @@ const (
 	EventTypeIMECommit
 	EventTypeConfigurationChanged
 	EventTypeWindowInsets
+	EventTypeAudioFocusChange
 )
 
 // Event represents an Android lifecycle or input event.
@@ -96,6 +97,8 @@ type Event struct {
 	CutoutTop   int32
 	CutoutRight int32
 	CutoutBottom int32
+	// Audio focus field
+	FocusChange int32
 	// Configuration fields
 	Orientation   int32
 	ScreenWidthDp int32
@@ -473,6 +476,15 @@ func goDeliverIMECommit(text *C.char) {
 	event := Event{
 		Type: EventTypeIMECommit,
 		Text: contents,
+	}
+	GetEventQueue().Push(event)
+}
+
+//export goDeliverAudioFocusChange
+func goDeliverAudioFocusChange(focusChange C.int32_t) {
+	event := Event{
+		Type:        EventTypeAudioFocusChange,
+		FocusChange: int32(focusChange),
 	}
 	GetEventQueue().Push(event)
 }

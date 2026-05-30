@@ -9,6 +9,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/platform/android/audio"
 	"codeburg.org/lexbit/lurpicui/platform/android/internal/bridge"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
@@ -23,12 +24,14 @@ type EdgeInsets struct {
 }
 
 // App implements the platform.App interface for Android.
-// It also implements platform.LifecycleCapable for lifecycle event handling.
+// It also implements platform.LifecycleCapable for lifecycle event handling
+// and provides an Audio() method for the platform.Audio interface.
 type App struct {
 	events            *bridge.EventQueue
 	lifecycleHandlers lifecycleCallbacks
 	currentSurface    platform.Surface
 	currentInsets     EdgeInsets
+	audioBackend      *audio.Backend
 }
 
 // lifecycleCallbacks stores registered lifecycle callbacks
@@ -47,10 +50,16 @@ func NewApp() (platform.App, error) {
 	bridge.Init()
 
 	app := &App{
-		events: bridge.GetEventQueue(),
+		events:       bridge.GetEventQueue(),
+		audioBackend: audio.NewBackend(),
 	}
 
 	return app, nil
+}
+
+// Audio returns the Android audio backend for sound output and focus management.
+func (a *App) Audio() platform.Audio {
+	return a.audioBackend
 }
 
 // OnPause registers a callback for Android onPause events.
@@ -376,6 +385,25 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 			Key:       e.Key,
 			Modifiers: e.Modifiers,
 		}
+	case bridge.EventTypeAudioFocusChange:
+		// Audio focus changes are handled by the audio subsystem through
+		// the platform.Audio interface. Convert and route as a lifecycle
+		// hint so the runtime can pause/resume audio.
+		var change platform.AudioFocusChange
+		switch e.FocusChange {
+		case 1:
+			change = platform.AudioFocusGain
+		case -1:
+			change = platform.AudioFocusLoss
+		case -2:
+			change = platform.AudioFocusLossTransient
+		case -3:
+			change = platform.AudioFocusLossTransientCanDuck
+		default:
+			change = platform.AudioFocusGain
+		}
+		// Deliver to the registered audio focus callback if any.
+		return platform.AudioFocusEvent{Change: change}
 	case bridge.EventTypeIMECompose:
 		return platform.EventIMECompose{Text: e.Text, CursorPos: e.CursorPos}
 	case bridge.EventTypeIMECommit:

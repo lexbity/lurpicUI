@@ -60,6 +60,7 @@ extern void goDeliverWindowInsets(int32_t top, int32_t bottom, int32_t left, int
                                    int32_t cutoutRight, int32_t cutoutBottom);
 extern void goDeliverIMECompose(char* text, int32_t cursorPos);
 extern void goDeliverIMECommit(char* text);
+extern void goDeliverAudioFocusChange(int32_t focusChange);
 extern void goDeliverConfigurationChanged(int32_t orientation, int32_t screenWidthDp,
                                            int32_t screenHeightDp, int32_t density,
                                            int32_t uiModeNight, float fontScale,
@@ -733,6 +734,13 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeImeKe
     goDeliverKeyEvent(keyCode, action, metaState,
                       0x101 /* AINPUT_SOURCE_KEYBOARD = 0x101 */,
                       0, now);
+}
+
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnAudioFocusChange(
+    JNIEnv* env, jobject thiz, jint focusChange) {
+    (void)env;
+    (void)thiz;
+    goDeliverAudioFocusChange(focusChange);
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnWindowInsets(
