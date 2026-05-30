@@ -64,6 +64,26 @@ type pakFileInfo struct {
 	modTime time.Time
 }
 
+// NewPakFSFromFD memory-maps a file descriptor at the given offset and
+// length and returns an AssetSource + fs.FS backed by the mapping. The
+// caller must close the PakFS (which munmaps) and close the fd separately.
+// This is used on Android to mmap uncompressed APK assets directly.
+func NewPakFSFromFD(fd int, offset, length int64) (*PakFS, error) {
+	if length <= 0 {
+		return nil, fmt.Errorf("PakFS fd: invalid length %d", length)
+	}
+	data, err := syscall.Mmap(fd, offset, int(length), syscall.PROT_READ, syscall.MAP_SHARED)
+	if err != nil {
+		return nil, fmt.Errorf("PakFS fd mmap: %w", err)
+	}
+	p := &PakFS{data: data}
+	if err := p.init(); err != nil {
+		_ = syscall.Munmap(data)
+		return nil, err
+	}
+	return p, nil
+}
+
 // NewPakFS memory-maps pakPath and returns an AssetSource + fs.FS backed by it.
 func NewPakFS(pakPath string) (*PakFS, error) {
 	f, err := os.Open(pakPath)

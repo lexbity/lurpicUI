@@ -9,6 +9,7 @@
 package bridge
 
 import (
+	"fmt"
 	"sync"
 	"time"
 	"unsafe"
@@ -29,6 +30,7 @@ import (
 // int bridgeIsPermissionDeclared(const char* permission);
 // void bridgeSetExtractionProgress(float progress);
 // void goOnTrimMemory(int32_t level);
+// int64_t bridgeOpenAPKAssetFD(const char* path, int64_t* outOffset, int64_t* outLength);
 import "C"
 
 // EventType represents the type of Android event.
@@ -811,6 +813,22 @@ func IsPermissionDeclared(permission string) bool {
 // so the splash screen can update.
 func SetExtractionProgress(progress float32) {
 	C.bridgeSetExtractionProgress(C.float(progress))
+}
+
+// OpenAPKAssetFD opens an APK asset by name and returns a dup'd file
+// descriptor with the offset and length of the asset data within the APK.
+// Returns -1 fd when the asset is compressed or not found. The caller
+// owns the returned fd and must close it. When the asset is stored
+// uncompressed, the fd allows mmap directly into the APK contents.
+func OpenAPKAssetFD(name string) (fd int, offset, length int64, err error) {
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+	var cOffset, cLength C.int64_t
+	cFd := C.bridgeOpenAPKAssetFD(cName, &cOffset, &cLength)
+	if cFd < 0 {
+		return -1, 0, 0, fmt.Errorf("apk bridge: %s not available as fd", name)
+	}
+	return int(cFd), int64(cOffset), int64(cLength), nil
 }
 
 // androidLogInfo logs an info message via Android's log system.

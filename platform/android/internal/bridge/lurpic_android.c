@@ -23,6 +23,7 @@
 #include <stdint.h>
 #include <errno.h>
 #include <time.h>
+#include <unistd.h>
 
 /* Logging macros */
 #define LOGV(...) ((void)__android_log_print(ANDROID_LOG_VERBOSE, "LurpicBridge", __VA_ARGS__))
@@ -741,6 +742,36 @@ void bridgeSetExtractionProgress(float progress) {
         (*env)->CallVoidMethod(env, g_activity_object, method, (jfloat)progress);
     }
     (*env)->DeleteLocalRef(env, cls);
+}
+
+/* Open an APK asset and return a dup'd fd with offset and length.
+ * Returns -1 on error (asset not found or compressed). The caller owns
+ * the returned fd and must close it. For uncompressed assets the fd
+ * points directly into the APK zip entry, allowing mmap without copy. */
+int64_t bridgeOpenAPKAssetFD(const char* path, int64_t* outOffset, int64_t* outLength) {
+    if (g_activity == NULL || g_activity->assetManager == NULL) {
+        return -1;
+    }
+    AAsset* asset = AAssetManager_open(g_activity->assetManager, path, AASSET_MODE_UNKNOWN);
+    if (asset == NULL) {
+        return -1;
+    }
+    off_t start = 0, length = 0;
+    int fd = AAsset_openFileDescriptor(asset, &start, &length);
+    if (fd < 0) {
+        LOGW("AAsset_openFileDescriptor failed (compressed?) for %s", path);
+        AAsset_close(asset);
+        return -1;
+    }
+    int dupFd = dup(fd);
+    AAsset_close(asset);
+    if (dupFd < 0) {
+        LOGE("dup failed for APK asset fd: %s", strerror(errno));
+        return -1;
+    }
+    *outOffset = (int64_t)start;
+    *outLength = (int64_t)length;
+    return (int64_t)dupFd;
 }
 
 void bridgeShowSoftKeyboard(void) {

@@ -109,6 +109,10 @@ func (c *androidExtractionContext) SetExtractionProgress(progress float32) {
 	bridge.SetExtractionProgress(progress)
 }
 
+func (c *androidExtractionContext) OpenAPKAssetFD(name string) (fd int, offset int64, length int64, err error) {
+	return bridge.OpenAPKAssetFD(name)
+}
+
 // OpenPlatformPak extracts assets.pak from the APK (if changed) and returns
 // a PakFS AssetSource. Call this during Android boot before creating the
 // runtime, then pass the result to NewManager.

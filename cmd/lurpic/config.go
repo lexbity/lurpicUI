@@ -132,6 +132,12 @@ func loadConfig(projectRoot string) (*Config, error) {
 		config.Android.ABIs = []string{"x86_64", "arm64-v8a"}
 	}
 
+	// *.pak files must be stored uncompressed so the APK fd can be mmap'd
+	// directly for zero-copy asset access. Compressed paks require extraction.
+	if config.Android.Assets.NoCompress == nil {
+		config.Android.Assets.NoCompress = []string{"*.pak"}
+	}
+
 	// Derive versionCode from semver if not explicitly set
 	if config.Android.VersionCode == 0 {
 		code, err := deriveVersionCode(config.App.Version)

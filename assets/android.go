@@ -267,13 +267,34 @@ func processExists(pid int) bool {
 	return p.Signal(os.Signal(syscall.Signal(0))) == nil
 }
 
-// OpenAndroidPak extracts assets.pak from the APK (if changed) and returns
-// an AssetSource backed by the extracted file. Pass the result to NewManager
-// to create the runtime-facing asset access surface.
+// APKFDSource is an optional interface for AndroidExtractionContext
+// implementations that support direct file-descriptor access to bundled
+// APK assets. When available, uncompressed assets can be mmap'd directly
+// from the APK zip entry, avoiding a copy to internal storage.
+type APKFDSource interface {
+	OpenAPKAssetFD(name string) (fd int, offset, length int64, err error)
+}
+
+// OpenAndroidPak opens assets.pak from the APK and returns an AssetSource.
+// It tries direct-fd mmap first (for uncompressed paks). If the pak is
+// compressed or the fd path is unavailable, it falls back to extracting
+// to internal storage and opening the extracted file.
 func OpenAndroidPak(ctx AndroidExtractionContext) (*PakFS, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("open android pak: nil context")
 	}
+	// Try direct-fd mmap first — avoids a copy for uncompressed paks.
+	if fdSrc, ok := ctx.(APKFDSource); ok {
+		fd, offset, length, err := fdSrc.OpenAPKAssetFD("assets.pak")
+		if err == nil && fd >= 0 {
+			pak, pakErr := NewPakFSFromFD(fd, offset, length)
+			if pakErr == nil {
+				return pak, nil
+			}
+			// fd mmap failed; close fd and fall back to extraction.
+		}
+	}
+	// Fall back: extract to internal storage, then open the file.
 	if err := ExtractPakIfNeeded(ctx); err != nil {
 		return nil, fmt.Errorf("open android pak: %w", err)
 	}
