@@ -726,6 +726,22 @@ static jint call_activity_has_declared_permission(const char* permission) {
     return result;
 }
 
+void bridgeSetExtractionProgress(float progress) {
+    JNIEnv* env = get_jni_env();
+    if (env == NULL || g_activity == NULL || g_activity_object == NULL) {
+        return;
+    }
+    jclass cls = (*env)->GetObjectClass(env, g_activity_object);
+    if (cls == NULL) {
+        return;
+    }
+    jmethodID method = (*env)->GetMethodID(env, cls, "setExtractionProgress", "(F)V");
+    if (method != NULL) {
+        (*env)->CallVoidMethod(env, g_activity_object, method, (jfloat)progress);
+    }
+    (*env)->DeleteLocalRef(env, cls);
+}
+
 void bridgeShowSoftKeyboard(void) {
     call_activity_method("showSoftKeyboard", "()V");
 }

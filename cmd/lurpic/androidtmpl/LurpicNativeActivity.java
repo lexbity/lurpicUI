@@ -28,6 +28,7 @@ import android.view.Display;
 import android.view.DisplayInfo;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
+import android.widget.TextView;
 
 /**
  * LurpicNativeActivity extends NativeActivity to provide the entry point
@@ -38,6 +39,8 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
 
     private FrameLayout imeRoot;
     private ImeInputView imeView;
+    private FrameLayout splashRoot;
+    private TextView splashText;
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
 
@@ -120,11 +123,30 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
                 .build();
         }
 
+        splashText = new TextView(this);
+        splashText.setText("Loading...");
+        splashText.setTextSize(18);
+        splashText.setTextColor(0xFFFFFFFF);
+        splashText.setGravity(android.view.Gravity.CENTER);
+        splashText.setVisibility(android.view.View.GONE);
+
+        splashRoot = new FrameLayout(this);
+        splashRoot.setBackgroundColor(0xFF1A1A2E);
+        splashRoot.addView(splashText, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            FrameLayout.LayoutParams.WRAP_CONTENT,
+            android.view.Gravity.CENTER
+        ));
+
         imeView = new ImeInputView(this);
         imeRoot = new FrameLayout(this);
         imeRoot.setFocusable(false);
         imeRoot.setFocusableInTouchMode(false);
         imeRoot.addView(imeView, new FrameLayout.LayoutParams(1, 1));
+        imeRoot.addView(splashRoot, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT,
+            FrameLayout.LayoutParams.MATCH_PARENT
+        ));
         setContentView(imeRoot);
     }
 
@@ -331,6 +353,18 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
         } else {
             audioManager.abandonAudioFocus(this);
         }
+    }
+
+    public void setExtractionProgress(final float progress) {
+        runOnUiThread(() -> {
+            if (splashText == null) return;
+            splashText.setVisibility(android.view.View.VISIBLE);
+            int pct = Math.round(progress * 100);
+            splashText.setText("Extracting assets... " + pct + "%");
+            if (progress >= 1.0f) {
+                splashText.setVisibility(android.view.View.GONE);
+            }
+        });
     }
 
     private native void nativeImeCompose(String text, int cursorPos);

@@ -27,6 +27,7 @@ import (
 // void bridgeRequestPermission(const char* permission, int requestCode);
 // int bridgeCheckPermission(const char* permission);
 // int bridgeIsPermissionDeclared(const char* permission);
+// void bridgeSetExtractionProgress(float progress);
 import "C"
 
 // EventType represents the type of Android event.
@@ -771,6 +772,12 @@ func IsPermissionDeclared(permission string) bool {
 	cPermission := C.CString(permission)
 	defer C.free(unsafe.Pointer(cPermission))
 	return C.bridgeIsPermissionDeclared(cPermission) != 0
+}
+
+// SetExtractionProgress reports extraction progress to the Java UI layer
+// so the splash screen can update.
+func SetExtractionProgress(progress float32) {
+	C.bridgeSetExtractionProgress(C.float(progress))
 }
 
 // androidLogInfo logs an info message via Android's log system.

@@ -1,11 +1,14 @@
 package assets
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"syscall"
 )
 
 // APKAsset abstracts the bundled APK asset stream used during extraction.
@@ -22,7 +25,21 @@ type AndroidExtractionContext interface {
 	SetExtractionProgress(progress float32)
 }
 
-// ExtractPakIfNeeded extracts assets.pak to internal storage when the bundled asset changed.
+// extractPakTempSuffix returns a unique temp file suffix incorporating the
+// PID and a random uint32 so concurrent callers within the same process do
+// not collide.
+func extractPakTempSuffix() string {
+	var buf [4]byte
+	if _, err := rand.Read(buf[:]); err == nil {
+		return fmt.Sprintf(".tmp.%d.%08x", os.Getpid(), buf)
+	}
+	return fmt.Sprintf(".tmp.%d", os.Getpid())
+}
+
+// ExtractPakIfNeeded extracts assets.pak atomically from the APK to internal
+// storage. It writes to a pid-tagged temp file, syncs, then atomically renames
+// to the final path. Stale temp files from previous crashes are cleaned up
+// before extraction begins.
 func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	if ctx == nil {
 		return fmt.Errorf("extract pak: nil context")
@@ -31,8 +48,17 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	if internalDir == "" {
 		return fmt.Errorf("extract pak: empty files dir")
 	}
-	destPath := filepath.Join(internalDir, "assets.pak")
+	if err := os.MkdirAll(internalDir, 0o755); err != nil {
+		return fmt.Errorf("extract pak: mkdir: %w", err)
+	}
 
+	destPath := filepath.Join(internalDir, "assets.pak")
+	tmpPath := destPath + extractPakTempSuffix()
+
+	// Clean up stale temp files from previous crashed extractions.
+	cleanStaleTempFiles(destPath)
+
+	// Fast path: already up to date.
 	bundledHash, err := hashAPKAsset(ctx, "assets.pak")
 	if err != nil {
 		return fmt.Errorf("hash bundled pak: %w", err)
@@ -41,20 +67,26 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 		return nil
 	}
 
+	// Open bundled asset from APK.
 	src, err := ctx.OpenAPKAsset("assets.pak")
 	if err != nil {
 		return fmt.Errorf("open bundled pak: %w", err)
 	}
 	defer src.Close()
 
-	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
-		return fmt.Errorf("create internal dir: %w", err)
-	}
-	dst, err := os.Create(destPath)
+	// Write to a unique temp file (pid-suffixed) so concurrent extractions
+	// from different processes do not share a temp path.
+	dst, err := os.Create(tmpPath)
 	if err != nil {
-		return fmt.Errorf("create extracted pak: %w", err)
+		return fmt.Errorf("create temp: %w", err)
 	}
-	defer dst.Close()
+	closeFailed := true
+	defer func() {
+		dst.Close()
+		if closeFailed {
+			os.Remove(tmpPath)
+		}
+	}()
 
 	total := src.Length()
 	if total <= 0 {
@@ -65,8 +97,8 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	for {
 		n, readErr := src.Read(buf)
 		if n > 0 {
-			if _, err := dst.Write(buf[:n]); err != nil {
-				return fmt.Errorf("write extracted pak: %w", err)
+			if _, wErr := dst.Write(buf[:n]); wErr != nil {
+				return fmt.Errorf("write temp: %w", wErr)
 			}
 			copied += int64(n)
 			ctx.SetExtractionProgress(float32(copied) / float32(total))
@@ -78,10 +110,76 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 			return fmt.Errorf("read bundled pak: %w", readErr)
 		}
 	}
+
 	if err := dst.Sync(); err != nil {
-		return fmt.Errorf("sync extracted pak: %w", err)
+		return fmt.Errorf("sync temp: %w", err)
 	}
+
+	// Atomic rename — on the same filesystem this is a metadata operation.
+	// Readers see either the old file or the complete new file, never a
+	// partial write.
+	closeFailed = false
+	if err := dst.Close(); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("close temp: %w", err)
+	}
+	if err := os.Rename(tmpPath, destPath); err != nil {
+		os.Remove(tmpPath)
+		return fmt.Errorf("rename pak: %w", err)
+	}
+
 	return nil
+}
+
+// cleanStaleTempFiles removes temp files from processes that are no longer
+// alive. Files from the current process (recognised by matching PID) are
+// preserved because a concurrent in-process extraction may be using them.
+func cleanStaleTempFiles(destPath string) {
+	dir := filepath.Dir(destPath)
+	base := filepath.Base(destPath)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	myPID := os.Getpid()
+	prefix := base + ".tmp."
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), prefix) {
+			continue
+		}
+		// Extract PID from suffix: .tmp.<PID>.<random>
+		rest := strings.TrimPrefix(e.Name(), prefix)
+		pidStr, _, _ := strings.Cut(rest, ".")
+		pid, err := parseInt(pidStr)
+		if err != nil || pid == myPID {
+			continue // current process, could be in-flight
+		}
+		// Try to check if the process is still alive.
+		if processExists(pid) {
+			continue
+		}
+		os.Remove(filepath.Join(dir, e.Name()))
+	}
+}
+
+func parseInt(s string) (int, error) {
+	var n int
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0, fmt.Errorf("not a number: %s", s)
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n, nil
+}
+
+func processExists(pid int) bool {
+	p, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	// On Unix, FindProcess always succeeds. Send signal 0 to check liveness.
+	return p.Signal(os.Signal(syscall.Signal(0))) == nil
 }
 
 // OpenAndroidPak extracts assets.pak from the APK (if changed) and returns
