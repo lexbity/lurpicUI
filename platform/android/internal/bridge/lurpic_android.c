@@ -55,6 +55,9 @@ extern void goDeliverScrollEvent(float x, float y, float hScroll, float vScroll,
                                  int32_t source, int32_t deviceId, int64_t eventTime);
 extern void goDeliverKeyEvent(int32_t keyCode, int32_t action, int32_t metaState,
                               int32_t source, int32_t deviceId, int64_t eventTime);
+extern void goDeliverWindowInsets(int32_t top, int32_t bottom, int32_t left, int32_t right,
+                                   int32_t cutoutLeft, int32_t cutoutTop,
+                                   int32_t cutoutRight, int32_t cutoutBottom);
 extern void goDeliverIMECompose(char* text, int32_t cursorPos);
 extern void goDeliverIMECommit(char* text);
 extern void goDeliverConfigurationChanged(int32_t orientation, int32_t screenWidthDp,
@@ -730,6 +733,16 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeImeKe
     goDeliverKeyEvent(keyCode, action, metaState,
                       0x101 /* AINPUT_SOURCE_KEYBOARD = 0x101 */,
                       0, now);
+}
+
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnWindowInsets(
+    JNIEnv* env, jobject thiz,
+    jint top, jint bottom, jint left, jint right,
+    jint cutoutLeft, jint cutoutTop, jint cutoutRight, jint cutoutBottom) {
+    (void)env;
+    (void)thiz;
+    goDeliverWindowInsets(top, bottom, left, right,
+                          cutoutLeft, cutoutTop, cutoutRight, cutoutBottom);
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativePermissionResult(

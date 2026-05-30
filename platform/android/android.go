@@ -14,12 +14,21 @@ import (
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 )
 
+// EdgeInsets represents the safe-area insets for the current window.
+type EdgeInsets struct {
+	Top    int
+	Bottom int
+	Left   int
+	Right  int
+}
+
 // App implements the platform.App interface for Android.
 // It also implements platform.LifecycleCapable for lifecycle event handling.
 type App struct {
 	events            *bridge.EventQueue
 	lifecycleHandlers lifecycleCallbacks
 	currentSurface    platform.Surface
+	currentInsets     EdgeInsets
 }
 
 // lifecycleCallbacks stores registered lifecycle callbacks
@@ -208,6 +217,16 @@ var _ platform.Surface = (*androidSurface)(nil)
 var _ render.VulkanSurface = (*androidSurface)(nil)
 var _ platform.IMECapable = (*App)(nil)
 
+// SafeInsets returns the current window safe-area insets. The runtime layout
+// system uses these values to avoid drawing under system bars, cutouts, and IME.
+// Values are in pixels and are updated whenever the window insets change.
+func (a *App) SafeInsets() EdgeInsets {
+	if a == nil {
+		return EdgeInsets{}
+	}
+	return a.currentInsets
+}
+
 // Surface returns the current native window surface, or nil if not yet available.
 // On Android the surface is created by the system as part of the Activity lifecycle
 // and delivered via a WindowCreated event through the bridge.
@@ -236,11 +255,15 @@ func (a *eventQueueAdapter) Push(e platform.Event) {
 	// Events from Android come through the bridge, not this method
 }
 
+func (a *eventQueueAdapter) convert(e bridge.Event) platform.Event {
+	return convertBridgeEvent(a.app, e)
+}
+
 func (a *eventQueueAdapter) Poll() []platform.Event {
 	bridgeEvents := a.queue.Poll()
 	events := make([]platform.Event, 0, len(bridgeEvents))
 	for _, be := range bridgeEvents {
-		if pe := convertBridgeEvent(be); pe != nil {
+		if pe := a.convert(be); pe != nil {
 			a.dispatchSideEffects(pe)
 			events = append(events, pe)
 		}
@@ -249,11 +272,10 @@ func (a *eventQueueAdapter) Poll() []platform.Event {
 }
 
 func (a *eventQueueAdapter) Wait(timeout time.Duration) []platform.Event {
-	// TODO: Implement timeout-based waiting
 	bridgeEvents := a.queue.Wait()
 	events := make([]platform.Event, 0, len(bridgeEvents))
 	for _, be := range bridgeEvents {
-		if pe := convertBridgeEvent(be); pe != nil {
+		if pe := a.convert(be); pe != nil {
 			a.dispatchSideEffects(pe)
 			events = append(events, pe)
 		}
@@ -274,7 +296,8 @@ func (a *eventQueueAdapter) dispatchSideEffects(e platform.Event) {
 }
 
 // convertBridgeEvent converts a bridge event to a platform event.
-func convertBridgeEvent(e bridge.Event) platform.Event {
+// The app parameter is used for side effects like storing window insets.
+func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 	switch e.Type {
 	case bridge.EventTypeStart:
 		return platform.LifecycleEvent{Kind: platform.LifecycleStart}
@@ -357,6 +380,18 @@ func convertBridgeEvent(e bridge.Event) platform.Event {
 		return platform.EventIMECompose{Text: e.Text, CursorPos: e.CursorPos}
 	case bridge.EventTypeIMECommit:
 		return platform.EventIMECommit{Text: e.Text}
+	case bridge.EventTypeWindowInsets:
+		if a != nil {
+			a.currentInsets = EdgeInsets{
+				Top:    int(e.InsetTop),
+				Bottom: int(e.InsetBottom),
+				Left:   int(e.InsetLeft),
+				Right:  int(e.InsetRight),
+			}
+		}
+		// Window insets are consumed by the App, they don't need to be
+		// routed as a platform.Event to the runtime event loop.
+		return nil
 	case bridge.EventTypeConfigurationChanged:
 		return platform.ConfigurationChangedEvent{
 			Orientation:   int(e.Orientation),

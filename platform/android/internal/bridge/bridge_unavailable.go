@@ -39,6 +39,7 @@ const (
 	EventTypeIMECompose
 	EventTypeIMECommit
 	EventTypeConfigurationChanged
+	EventTypeWindowInsets
 )
 
 const (
@@ -77,6 +78,14 @@ type Event struct {
 	MetaState   int32
 	Text        string
 	CursorPos   int
+	InsetTop    int32
+	InsetBottom int32
+	InsetLeft   int32
+	InsetRight  int32
+	CutoutLeft  int32
+	CutoutTop   int32
+	CutoutRight int32
+	CutoutBottom int32
 	Orientation   int32
 	ScreenWidthDp int32
 	ScreenHeightDp int32

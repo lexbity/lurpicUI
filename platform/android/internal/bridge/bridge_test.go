@@ -273,6 +273,48 @@ func TestTouchCancelPhase(t *testing.T) {
 	}
 }
 
+func TestWindowInsetsEvent_fields(t *testing.T) {
+	q := NewEventQueue()
+
+	q.Push(Event{
+		Type:         EventTypeWindowInsets,
+		InsetTop:     100,  // status bar
+		InsetBottom:  168,  // nav bar on gesture nav
+		InsetLeft:    0,
+		InsetRight:   0,
+		CutoutLeft:   0,
+		CutoutTop:    80,   // display cutout (notch)
+		CutoutRight:  0,
+		CutoutBottom: 0,
+	})
+
+	events := q.Poll()
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+
+	e := events[0]
+	if e.Type != EventTypeWindowInsets {
+		t.Errorf("expected EventTypeWindowInsets, got %v", e.Type)
+	}
+	if e.InsetTop != 100 {
+		t.Errorf("expected InsetTop=100, got %d", e.InsetTop)
+	}
+	if e.InsetBottom != 168 {
+		t.Errorf("expected InsetBottom=168, got %d", e.InsetBottom)
+	}
+	if e.InsetLeft != 0 || e.InsetRight != 0 {
+		t.Errorf("expected zero horizontal insets, got left=%d right=%d", e.InsetLeft, e.InsetRight)
+	}
+	if e.CutoutTop != 80 {
+		t.Errorf("expected CutoutTop=80, got %d", e.CutoutTop)
+	}
+	if e.CutoutLeft != 0 || e.CutoutRight != 0 || e.CutoutBottom != 0 {
+		t.Errorf("expected zero cutout for other sides, got L=%d R=%d B=%d",
+			e.CutoutLeft, e.CutoutRight, e.CutoutBottom)
+	}
+}
+
 func TestConfigurationChangedEvent_fields(t *testing.T) {
 	q := NewEventQueue()
 

@@ -52,6 +52,7 @@ const (
 	EventTypeIMECompose
 	EventTypeIMECommit
 	EventTypeConfigurationChanged
+	EventTypeWindowInsets
 )
 
 // Event represents an Android lifecycle or input event.
@@ -86,6 +87,15 @@ type Event struct {
 	// IME fields
 	Text      string
 	CursorPos int
+	// Window inset fields
+	InsetTop    int32
+	InsetBottom int32
+	InsetLeft   int32
+	InsetRight  int32
+	CutoutLeft  int32
+	CutoutTop   int32
+	CutoutRight int32
+	CutoutBottom int32
 	// Configuration fields
 	Orientation   int32
 	ScreenWidthDp int32
@@ -463,6 +473,23 @@ func goDeliverIMECommit(text *C.char) {
 	event := Event{
 		Type: EventTypeIMECommit,
 		Text: contents,
+	}
+	GetEventQueue().Push(event)
+}
+
+//export goDeliverWindowInsets
+func goDeliverWindowInsets(top C.int32_t, bottom C.int32_t, left C.int32_t, right C.int32_t,
+	cutoutLeft C.int32_t, cutoutTop C.int32_t, cutoutRight C.int32_t, cutoutBottom C.int32_t) {
+	event := Event{
+		Type:         EventTypeWindowInsets,
+		InsetTop:     int32(top),
+		InsetBottom:  int32(bottom),
+		InsetLeft:    int32(left),
+		InsetRight:   int32(right),
+		CutoutLeft:   int32(cutoutLeft),
+		CutoutTop:    int32(cutoutTop),
+		CutoutRight:  int32(cutoutRight),
+		CutoutBottom: int32(cutoutBottom),
 	}
 	GetEventQueue().Push(event)
 }
