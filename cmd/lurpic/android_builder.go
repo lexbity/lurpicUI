@@ -38,6 +38,7 @@ type androidBuilder struct {
 	buildDir    string
 	config      *Config
 	release     bool
+	aab         bool
 	outputPath  string
 	apiLevel    int
 	ksPassword  string
@@ -1033,6 +1034,68 @@ func (b *androidBuilder) signAPK() error {
 	}
 
 	return nil
+}
+
+// signFile signs an arbitrary file (APK or AAB) using apksigner with the
+// configured keystore. It is the generic version of signAPK used for AAB signing.
+func (b *androidBuilder) signFile(input string) error {
+	apksigner, err := findSDKTool(b.sdk, "apksigner")
+	if err != nil {
+		return fmt.Errorf("apksigner not found: %w", err)
+	}
+
+	var keystorePath, keystoreAlias, keystorePass string
+	if b.release {
+		keystorePath = b.config.Android.Keystore.Path
+		keystoreAlias = b.config.Android.Keystore.Alias
+		keystorePass = b.ksPassword
+		if keystorePass == "" {
+			keystorePass = os.Getenv("LURPIC_KEYSTORE_PASSWORD")
+		}
+		if keystorePass == "" {
+			keystorePass = b.promptPassword()
+		}
+		if keystorePath == "" {
+			return fmt.Errorf("release signing requires keystore.path in lurpic.toml or --keystore flag")
+		}
+		if keystoreAlias == "" {
+			return fmt.Errorf("release signing requires keystore.alias in lurpic.toml or --ks-alias flag")
+		}
+		if keystorePass == "" {
+			return fmt.Errorf("release signing requires keystore password")
+		}
+		if _, err := os.Stat(keystorePath); err != nil {
+			return fmt.Errorf("keystore not found at %s: %w", keystorePath, err)
+		}
+		fmt.Printf("  Using release keystore: %s (alias: %s)\n", keystorePath, keystoreAlias)
+	} else {
+		keystorePath, err = b.getDebugKeystore()
+		if err != nil {
+			return fmt.Errorf("debug keystore: %w", err)
+		}
+		keystoreAlias = "androiddebugkey"
+		keystorePass = "android"
+		fmt.Printf("  Using debug keystore: %s\n", keystorePath)
+	}
+
+	args := []string{
+		"sign",
+		"--ks", keystorePath,
+		"--ks-key-alias", keystoreAlias,
+		"--ks-pass", "pass:" + keystorePass,
+		"--in", input,
+		"--out", b.outputPath,
+	}
+	if b.release {
+		args = append(args, "--v1-signing-enabled", "true", "--v2-signing-enabled", "true")
+	}
+
+	return b.runner.Run(CommandSpec{
+		Path:   apksigner,
+		Args:   args,
+		Stdout: os.Stdout,
+		Stderr: os.Stderr,
+	})
 }
 
 // alignAPK aligns the APK using zipalign

@@ -9,6 +9,7 @@ import (
 
 type buildFlags struct {
 	release    bool
+	aab        bool
 	output     string
 	keystore   string
 	ksAlias    string
@@ -23,9 +24,10 @@ type buildFlags struct {
 func cmdBuild(args []string) int {
 	fs := flag.NewFlagSet("build", flag.ExitOnError)
 	var flags buildFlags
-	fs.BoolVar(&flags.release, "release", false, "Build release APK")
-	fs.StringVar(&flags.output, "o", "", "Output path for APK")
-	fs.StringVar(&flags.output, "output", "", "Output path for APK")
+	fs.BoolVar(&flags.release, "release", false, "Build release APK/AAB")
+	fs.BoolVar(&flags.aab, "aab", false, "Build Android App Bundle instead of APK")
+	fs.StringVar(&flags.output, "o", "", "Output path for APK/AAB")
+	fs.StringVar(&flags.output, "output", "", "Output path for APK/AAB")
 	fs.StringVar(&flags.keystore, "keystore", "", "Release keystore path (overrides config)")
 	fs.StringVar(&flags.ksAlias, "ks-alias", "", "Release keystore alias (overrides config)")
 	fs.StringVar(&flags.ksPassword, "ks-pass", "", "Release keystore password (overrides config)")
@@ -82,7 +84,15 @@ func buildAndroid(flags buildFlags) int {
 		return 1
 	}
 
-	fmt.Printf("APK built: %s\n", builder.outputPath)
+	if flags.aab {
+		if err := builder.assembleAAB(); err != nil {
+			fmt.Fprintf(os.Stderr, "AAB build failed: %v\n", err)
+			return 1
+		}
+		fmt.Printf("AAB built: %s\n", builder.outputPath)
+	} else {
+		fmt.Printf("APK built: %s\n", builder.outputPath)
+	}
 	return 0
 }
 
@@ -149,7 +159,11 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 		if flags.release {
 			suffix = "release"
 		}
-		outputPath = filepath.Join(buildDir, fmt.Sprintf("%s-%s.apk", config.App.ID, suffix))
+		ext := ".apk"
+		if flags.aab {
+			ext = ".aab"
+		}
+		outputPath = filepath.Join(buildDir, fmt.Sprintf("%s-%s%s", config.App.ID, suffix, ext))
 	}
 
 	// If --abi flag is set, restrict build to that single ABI
@@ -177,6 +191,7 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 		buildDir:    buildDir,
 		config:      config,
 		release:     flags.release,
+		aab:         flags.aab,
 		outputPath:  outputPath,
 		ksPassword:  flags.ksPassword,
 		jdk:         jdk,

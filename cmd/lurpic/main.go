@@ -70,8 +70,9 @@ Usage:
   lurpic help                     Show this help message
 
 Build flags:
-  --release                        Build release APK (requires keystore config)
-  -o, --output PATH                Output path for the APK
+  --release                        Build release APK/AAB (requires keystore config)
+  --aab                            Build an Android App Bundle (.aab) instead of APK
+  -o, --output PATH                Output path for the APK/AAB
   --sdk-path PATH                  Android SDK path (highest priority)
   --ndk-path PATH                  Android NDK path (highest priority)
   --jdk-path PATH                  JDK path (highest priority)
