@@ -16,14 +16,14 @@ type ConfigNode struct {
 }
 
 // SetDependencyTree installs the runtime dependency tree used by config scheduling.
-func (m *managerImpl) SetDependencyTree(tree ConfigDependencyTree) {
+func (m *ManagerImpl) SetDependencyTree(tree ConfigDependencyTree) {
 	if m == nil {
 		return
 	}
 	m.depTree = tree
 }
 
-func (m *managerImpl) scheduleConfig(id AssetID, path string) {
+func (m *ManagerImpl) scheduleConfig(id AssetID, path string) {
 	if m == nil || m.depTree == nil || m.registry == nil {
 		return
 	}
@@ -46,7 +46,7 @@ func (m *managerImpl) scheduleConfig(id AssetID, path string) {
 	m.scheduleLOD(id, path, AssetTypeConfig, 0)
 }
 
-func (m *managerImpl) drainWaitingForLeaf(readyID AssetID) {
+func (m *ManagerImpl) drainWaitingForLeaf(readyID AssetID) {
 	if m == nil || m.depTree == nil {
 		return
 	}
@@ -69,7 +69,7 @@ func (m *managerImpl) drainWaitingForLeaf(readyID AssetID) {
 	}
 }
 
-func (m *managerImpl) enqueueWaiting(depID, configID AssetID) {
+func (m *ManagerImpl) enqueueWaiting(depID, configID AssetID) {
 	if m == nil {
 		return
 	}

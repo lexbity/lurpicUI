@@ -84,6 +84,20 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	return nil
 }
 
+// OpenAndroidPak extracts assets.pak from the APK (if changed) and returns
+// an AssetSource backed by the extracted file. Pass the result to NewManager
+// to create the runtime-facing asset access surface.
+func OpenAndroidPak(ctx AndroidExtractionContext) (*PakFS, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("open android pak: nil context")
+	}
+	if err := ExtractPakIfNeeded(ctx); err != nil {
+		return nil, fmt.Errorf("open android pak: %w", err)
+	}
+	pakPath := filepath.Join(ctx.FilesDir(), "assets.pak")
+	return NewPakFS(pakPath)
+}
+
 func hashAPKAsset(ctx AndroidExtractionContext, name string) ([32]byte, error) {
 	var zero [32]byte
 	src, err := ctx.OpenAPKAsset(name)

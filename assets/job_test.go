@@ -127,7 +127,7 @@ func TestManagerScheduleAndDrainAsync(t *testing.T) {
 		started: make(chan struct{}),
 		release: make(chan struct{}),
 	}
-	mgr := NewManagerImpl(reg, src, BackendSoftware, nil)
+	mgr := NewManager(reg, src, BackendSoftware, nil, nil)
 
 	start := time.Now()
 	mgr.scheduleLOD(id, "assets/theme.toml", AssetTypeConfig, 0)
@@ -169,7 +169,7 @@ func TestManagerScheduleAndDrainAsync(t *testing.T) {
 func TestCommitJobRejectsStaleVersion(t *testing.T) {
 	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abcdee")
 	reg := NewAssetRegistryStore()
-	mgr := NewManagerImpl(reg, staticSource{}, BackendSoftware, nil)
+	mgr := NewManager(reg, staticSource{}, BackendSoftware, nil, nil)
 
 	reg.SetLODReady(id, 0, &DecodedSVGLOD0{Data: []byte("current")}, 10)
 	entry := reg.Get(id)
@@ -208,7 +208,7 @@ func TestWaitingOnSchedulesConfigAfterLastDependency(t *testing.T) {
 
 	reg := NewAssetRegistryStore()
 	sched := captureScheduler{jobs: make(chan *AssetLoadJob, 4)}
-	mgr := NewManagerImpl(reg, staticSource{}, BackendSoftware, sched)
+	mgr := NewManager(reg, staticSource{}, BackendSoftware, sched, nil)
 	mgr.SetDependencyTree(fakeConfigTree{nodes: map[AssetID]*ConfigNode{
 		configID: {
 			ID:   configID,

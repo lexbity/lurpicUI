@@ -21,18 +21,16 @@ import (
 
 var errPakFSClosed = errors.New("pakfs closed")
 
-// PakFS implements fs.FS and raw LOD access for release builds.
+// PakFS implements fs.FS and AssetSource for release builds backed by a
+// memory-mapped pak file. It provides no network, scheduling, or cache
+// logic — those live in ManagerImpl, which wraps a PakFS as an AssetSource.
 type PakFS struct {
-	mu          sync.RWMutex
-	data        []byte
-	header      *PakHeader
-	toc         []PakTOCEntry
-	deps        []AssetID
-	closed      bool
-	manager     *managerImpl
-	idReg       PathIDRegistry
-	cache       *assetCache
-	backendType BackendType
+	mu     sync.RWMutex
+	data   []byte
+	header *PakHeader
+	toc    []PakTOCEntry
+	deps   []AssetID
+	closed bool
 }
 
 type pakFile struct {
@@ -60,9 +58,8 @@ type pakFileInfo struct {
 	modTime time.Time
 }
 
-// NewPakFS memory-maps pakPath and exposes its contents.
-// Extra arguments are accepted for forward compatibility with later runtime phases.
-func NewPakFS(pakPath string, extras ...any) (*PakFS, error) {
+// NewPakFS memory-maps pakPath and returns an AssetSource + fs.FS backed by it.
+func NewPakFS(pakPath string) (*PakFS, error) {
 	f, err := os.Open(pakPath)
 	if err != nil {
 		return nil, fmt.Errorf("PakFS open: %w", err)
@@ -82,32 +79,12 @@ func NewPakFS(pakPath string, extras ...any) (*PakFS, error) {
 		return nil, fmt.Errorf("PakFS mmap: %w", err)
 	}
 
-	fs := &PakFS{data: data, backendType: BackendSoftware}
-	var registry *AssetRegistryStore
-	var scheduler JobScheduler
-	for _, extra := range extras {
-		switch v := extra.(type) {
-		case *AssetRegistryStore:
-			registry = v
-		case JobScheduler:
-			scheduler = v
-		case BackendType:
-			fs.backendType = v
-		case PathIDRegistry:
-			fs.idReg = v
-		case *assetCache:
-			fs.cache = v
-		}
-	}
-	if err := fs.init(); err != nil {
+	p := &PakFS{data: data}
+	if err := p.init(); err != nil {
 		_ = syscall.Munmap(data)
 		return nil, err
 	}
-	if registry == nil {
-		registry = NewAssetRegistryStore()
-	}
-	fs.manager = NewManagerImpl(registry, fs, fs.backendType, scheduler)
-	return fs, nil
+	return p, nil
 }
 
 func (p *PakFS) init() error {
@@ -154,105 +131,6 @@ func (p *PakFS) init() error {
 	return nil
 }
 
-// LoadSVG schedules progressive LOD streaming for an SVG path.
-func (p *PakFS) LoadSVG(path string) Handle {
-	return p.loadByPath(path, AssetTypeSVG)
-}
-
-// LoadImage schedules progressive LOD streaming for a raster image path.
-func (p *PakFS) LoadImage(path string) Handle {
-	return p.loadByPath(path, AssetTypeImage)
-}
-
-// LoadTexture schedules progressive LOD streaming for a material texture path.
-func (p *PakFS) LoadTexture(path string) Handle {
-	return p.loadByPath(path, AssetTypeImage)
-}
-
-// LoadFont schedules progressive LOD streaming for a font path.
-func (p *PakFS) LoadFont(path string) Handle {
-	return p.loadByPath(path, AssetTypeFont)
-}
-
-// LoadConfig schedules loading for a config path.
-func (p *PakFS) LoadConfig(path string, _ any) Handle {
-	return p.loadByPath(path, AssetTypeConfig)
-}
-
-// Prefetch schedules assets without changing the caller's control flow.
-func (p *PakFS) Prefetch(paths ...string) {
-	for _, path := range paths {
-		p.loadByPath(path, assetTypeForPath(path))
-	}
-}
-
-// Invalidate marks an asset stale and clears any ready LODs from the registry.
-func (p *PakFS) Invalidate(path string) {
-	if p == nil || p.registry() == nil {
-		return
-	}
-	if id := p.lookupID(path); id != (AssetID{}) {
-		p.registry().Invalidate(id)
-	}
-}
-
-// DrainCompleted commits any jobs that have completed since the last drain.
-func (p *PakFS) DrainCompleted() int {
-	if p == nil || p.manager == nil {
-		return 0
-	}
-	return p.manager.DrainCompleted()
-}
-
-// Stats returns a snapshot of the registry and cache state.
-func (p *PakFS) Stats() ManagerStats {
-	if p == nil {
-		return ManagerStats{}
-	}
-	stats := ManagerStats{}
-	if reg := p.registry(); reg != nil {
-		reg.mu.RLock()
-		stats.TotalEntries = len(reg.entries)
-		for _, entry := range reg.entries {
-			switch entry.State {
-			case AssetStateLoading:
-				stats.LoadingEntries++
-			case AssetStateReady:
-				stats.ReadyEntries++
-			case AssetStateFailed:
-				stats.FailedEntries++
-			}
-			if entry.HighestReadyLOD >= 0 && entry.HighestReadyLOD < len(entry.LODHandles) {
-				if entry.HighestReadyLOD > 0 {
-					stats.PartialEntries++
-				}
-			}
-			stats.Entries = append(stats.Entries, AssetDiagEntry{
-				ID:              entry.ID,
-				Path:            entry.Path,
-				State:           entry.State,
-				HighestReadyLOD: entry.HighestReadyLOD,
-				RefCounts:       entry.LODRefCounts,
-				SizeBytes:       entry.SizeBytes,
-				LoadTimeNs:      entry.LoadTimeNs,
-				LastUsedFrame:   entry.LastUse,
-			})
-		}
-		reg.mu.RUnlock()
-	}
-	if p.cache != nil {
-		stats.CPUUsedBytes = p.cache.usedBytes
-		stats.CPUBudgetBytes = p.cache.budgetBytes
-		stats.GPUUsedBytes = p.cache.gpuUsed
-		stats.GPUBudgetBytes = p.cache.gpuBudget
-		stats.EvictionsThisFrame = p.cache.evictionsThisFrame
-	}
-	if p.manager != nil && p.manager.scheduler != nil {
-		stats.JobsInFlight = len(p.manager.results)
-	}
-	return stats
-}
-
 // Close releases the mmap backing the filesystem.
 func (p *PakFS) Close() error {
 	if p == nil {
@@ -268,32 +146,6 @@ func (p *PakFS) Close() error {
 		return nil
 	}
 	return syscall.Munmap(p.data)
-}
-
-func (p *PakFS) registry() *AssetRegistryStore {
-	if p == nil || p.manager == nil {
-		return nil
-	}
-	return p.manager.registry
-}
-
-func (p *PakFS) loadByPath(path string, typ AssetType) Handle {
-	if p == nil || p.manager == nil {
-		return Handle{}
-	}
-	id := p.lookupID(path)
-	if id == (AssetID{}) {
-		return Handle{}
-	}
-	p.manager.scheduleAllLODs(id, path, typ)
-	return NewHandle(id, p.manager.registry)
-}
-
-func (p *PakFS) lookupID(path string) AssetID {
-	if p == nil || p.idReg == nil {
-		return AssetID{}
-	}
-	return p.idReg.Lookup(path)
 }
 
 func assetTypeForPath(path string) AssetType {

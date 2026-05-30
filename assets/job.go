@@ -3,6 +3,7 @@ package assets
 import (
 	"encoding/binary"
 	"fmt"
+	"io/fs"
 	"sync"
 	"time"
 
@@ -67,10 +68,13 @@ func (s *asyncJobScheduler) Schedule(job *AssetLoadJob) error {
 	return nil
 }
 
-// managerImpl owns runtime-thread asset scheduling and commit orchestration.
-type managerImpl struct {
+// ManagerImpl owns runtime-thread asset scheduling and commit orchestration.
+// It is the single implementation of the Manager interface and must not be
+// embedded or wrapped — all storage backends feed into it via AssetSource.
+type ManagerImpl struct {
 	registry    *AssetRegistryStore
 	source      AssetSource
+	idReg       PathIDRegistry
 	backendType BackendType
 	scheduler   JobScheduler
 	results     chan *AssetLoadJob
@@ -80,11 +84,13 @@ type managerImpl struct {
 	waiting waitingOn
 }
 
-// NewManagerImpl returns a minimal asset manager orchestration object.
-func NewManagerImpl(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler) *managerImpl {
-	m := &managerImpl{
+// NewManager returns an asset manager that wraps the given source.
+// When scheduler is nil, a default async goroutine scheduler is created.
+func NewManager(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler, idReg PathIDRegistry) *ManagerImpl {
+	m := &ManagerImpl{
 		registry:    registry,
 		source:      source,
+		idReg:       idReg,
 		backendType: backend,
 		results:     make(chan *AssetLoadJob, 32),
 		waiting:     make(waitingOn),
@@ -97,8 +103,42 @@ func NewManagerImpl(registry *AssetRegistryStore, source AssetSource, backend Ba
 	return m
 }
 
+// ── Manager interface methods ──────────────────────────────────────────────
+
+// LoadSVG schedules progressive LOD streaming for an SVG asset.
+func (m *ManagerImpl) LoadSVG(path string) Handle { return m.loadByPath(path, AssetTypeSVG) }
+
+// LoadImage schedules progressive LOD streaming for a raster image asset.
+func (m *ManagerImpl) LoadImage(path string) Handle { return m.loadByPath(path, AssetTypeImage) }
+
+// LoadTexture schedules progressive LOD streaming for a material texture.
+func (m *ManagerImpl) LoadTexture(path string) Handle { return m.loadByPath(path, AssetTypeImage) }
+
+// LoadFont schedules progressive LOD streaming for a font asset.
+func (m *ManagerImpl) LoadFont(path string) Handle { return m.loadByPath(path, AssetTypeFont) }
+
+// LoadConfig schedules loading for a config asset.
+func (m *ManagerImpl) LoadConfig(path string, _ any) Handle { return m.loadByPath(path, AssetTypeConfig) }
+
+// Prefetch schedules load work for the given paths.
+func (m *ManagerImpl) Prefetch(paths ...string) {
+	for _, path := range paths {
+		m.loadByPath(path, assetTypeForPath(path))
+	}
+}
+
+// Invalidate marks an asset stale and clears ready LODs from the registry.
+func (m *ManagerImpl) Invalidate(path string) {
+	if m == nil || m.idReg == nil || m.registry == nil {
+		return
+	}
+	if id := m.idReg.Lookup(path); id != (AssetID{}) {
+		m.registry.Invalidate(id)
+	}
+}
+
 // DrainCompleted commits any jobs that have completed since the last drain.
-func (m *managerImpl) DrainCompleted() int {
+func (m *ManagerImpl) DrainCompleted() int {
 	if m == nil {
 		return 0
 	}
@@ -117,7 +157,65 @@ func (m *managerImpl) DrainCompleted() int {
 	}
 }
 
-func (m *managerImpl) scheduleLOD(id AssetID, path string, typ AssetType, lod int) {
+// Stats returns a snapshot of the registry and cache state.
+func (m *ManagerImpl) Stats() ManagerStats {
+	if m == nil || m.registry == nil {
+		return ManagerStats{}
+	}
+	stats := ManagerStats{}
+	m.registry.mu.RLock()
+	defer m.registry.mu.RUnlock()
+	stats.TotalEntries = len(m.registry.entries)
+	for _, entry := range m.registry.entries {
+		switch entry.State {
+		case AssetStateLoading:
+			stats.LoadingEntries++
+		case AssetStateReady:
+			stats.ReadyEntries++
+		case AssetStateFailed:
+			stats.FailedEntries++
+		}
+		if entry.HighestReadyLOD > 0 {
+			stats.PartialEntries++
+		}
+		stats.Entries = append(stats.Entries, AssetDiagEntry{
+			ID:              entry.ID,
+			Path:            entry.Path,
+			State:           entry.State,
+			HighestReadyLOD: entry.HighestReadyLOD,
+			RefCounts:       entry.LODRefCounts,
+			SizeBytes:       entry.SizeBytes,
+			LoadTimeNs:      entry.LoadTimeNs,
+			LastUsedFrame:   entry.LastUse,
+		})
+	}
+	return stats
+}
+
+// Open implements fs.FS by delegating to the underlying source.
+func (m *ManagerImpl) Open(name string) (fs.File, error) {
+	if m == nil || m.source == nil {
+		return nil, fs.ErrNotExist
+	}
+	if s, ok := m.source.(fs.FS); ok {
+		return s.Open(name)
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (m *ManagerImpl) loadByPath(path string, typ AssetType) Handle {
+	if m == nil || m.idReg == nil || m.registry == nil {
+		return Handle{}
+	}
+	id := m.idReg.Lookup(path)
+	if id == (AssetID{}) {
+		return Handle{}
+	}
+	m.scheduleAllLODs(id, path, typ)
+	return NewHandle(id, m.registry)
+}
+
+func (m *ManagerImpl) scheduleLOD(id AssetID, path string, typ AssetType, lod int) {
 	if m == nil || m.registry == nil || m.scheduler == nil {
 		return
 	}
@@ -150,7 +248,7 @@ func (m *managerImpl) scheduleLOD(id AssetID, path string, typ AssetType, lod in
 	_ = m.scheduler.Schedule(job)
 }
 
-func (m *managerImpl) scheduleAllLODs(id AssetID, path string, typ AssetType) {
+func (m *ManagerImpl) scheduleAllLODs(id AssetID, path string, typ AssetType) {
 	for lod := maxLODForType(typ); lod >= 0; lod-- {
 		m.scheduleLOD(id, path, typ, lod)
 	}
@@ -180,7 +278,7 @@ func (j *AssetLoadJob) Execute() {
 	}
 }
 
-func (m *managerImpl) commitJob(job *AssetLoadJob) {
+func (m *ManagerImpl) commitJob(job *AssetLoadJob) {
 	if m == nil || m.registry == nil || job == nil {
 		return
 	}
@@ -218,43 +316,8 @@ func (m *managerImpl) commitJob(job *AssetLoadJob) {
 	m.drainWaiting(job.ID)
 }
 
-func (m *managerImpl) drainWaiting(readyID AssetID) {
+func (m *ManagerImpl) drainWaiting(readyID AssetID) {
 	m.drainWaitingForLeaf(readyID)
-}
-
-// Stats returns a registry snapshot for diagnostics.
-func (m *managerImpl) Stats() ManagerStats {
-	if m == nil || m.registry == nil {
-		return ManagerStats{}
-	}
-	stats := ManagerStats{}
-	m.registry.mu.RLock()
-	defer m.registry.mu.RUnlock()
-	stats.TotalEntries = len(m.registry.entries)
-	for _, entry := range m.registry.entries {
-		switch entry.State {
-		case AssetStateLoading:
-			stats.LoadingEntries++
-		case AssetStateReady:
-			stats.ReadyEntries++
-		case AssetStateFailed:
-			stats.FailedEntries++
-		}
-		if entry.HighestReadyLOD > 0 {
-			stats.PartialEntries++
-		}
-		stats.Entries = append(stats.Entries, AssetDiagEntry{
-			ID:              entry.ID,
-			Path:            entry.Path,
-			State:           entry.State,
-			HighestReadyLOD: entry.HighestReadyLOD,
-			RefCounts:       entry.LODRefCounts,
-			SizeBytes:       entry.SizeBytes,
-			LoadTimeNs:      entry.LoadTimeNs,
-			LastUsedFrame:   entry.LastUse,
-		})
-	}
-	return stats
 }
 
 func maxLODForType(typ AssetType) int {

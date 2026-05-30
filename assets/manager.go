@@ -13,6 +13,7 @@ type Manager interface {
 	LoadConfig(path string, dst any) Handle
 	Prefetch(paths ...string)
 	Invalidate(path string)
+	DrainCompleted() int
 	Stats() ManagerStats
 }
 

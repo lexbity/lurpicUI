@@ -10,18 +10,16 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// DevFS is the development-mode asset manager.
-//
-// It watches a source tree for changes and enqueues invalidation work for the
-// runtime thread to drain at the start of the next frame.
+// DevFS is a development-mode AssetSource + fs.FS that watches a source tree
+// for changes and enqueues invalidation work for the runtime thread to drain
+// at the start of the next frame. It does not implement Manager — wrap it in
+// NewManager to create the runtime-facing asset access surface.
 type DevFS struct {
 	root      fs.FS
 	rootDir   string
 	registry  *AssetRegistryStore
-	scheduler JobScheduler
 	idReg     PathIDRegistry
-	source    AssetSource
-	manager   *managerImpl
+	source    AssetSource // optional override for ReadLOD
 
 	mu          sync.Mutex
 	pending     []string
@@ -40,40 +38,35 @@ func WithDevWatchRoot(rootDir string) DevFSOption {
 	}
 }
 
-// WithDevSource supplies an AssetSource used for loads.
+// WithDevSource supplies an AssetSource override used by ReadLOD.
+// When not provided, ReadLOD reads from the root filesystem via the registry.
 func WithDevSource(source AssetSource) DevFSOption {
 	return func(d *DevFS) {
 		d.source = source
 	}
 }
 
-// NewDevFS constructs a development asset manager.
-func NewDevFS(root fs.FS, registry *AssetRegistryStore, scheduler JobScheduler, idReg PathIDRegistry, opts ...DevFSOption) (*DevFS, error) {
-	d := &DevFS{
-		root:      root,
-		registry:  registry,
-		scheduler: scheduler,
-		idReg:     idReg,
+// NewDevFS constructs a DevFS source. The registry is used for reverse
+// path lookups in ReadLOD. Pass the same registry to NewManager so both
+// share the same asset state.
+func NewDevFS(root fs.FS, registry *AssetRegistryStore, idReg PathIDRegistry, opts ...DevFSOption) (*DevFS, error) {
+	if registry == nil {
+		registry = NewAssetRegistryStore()
 	}
-	for _, opt := range opts {
-		if opt != nil {
-			opt(d)
-		}
+	d := &DevFS{
+		root:     root,
+		registry: registry,
+		idReg:    idReg,
 	}
 	if d.source == nil {
 		if src, ok := root.(AssetSource); ok {
 			d.source = src
 		}
 	}
-	if registry == nil {
-		registry = NewAssetRegistryStore()
-		d.registry = registry
-	}
-	if d.scheduler == nil {
-		d.scheduler = NewAsyncJobScheduler(nil)
-	}
-	if d.source != nil {
-		d.manager = NewManagerImpl(registry, d.source, BackendSoftware, d.scheduler)
+	for _, opt := range opts {
+		if opt != nil {
+			opt(d)
+		}
 	}
 	if d.rootDir != "" {
 		if err := d.startWatcher(); err != nil {
@@ -82,6 +75,26 @@ func NewDevFS(root fs.FS, registry *AssetRegistryStore, scheduler JobScheduler, 
 		}
 	}
 	return d, nil
+}
+
+// ReadLOD implements AssetSource. It reads the asset file from the root
+// filesystem using the path stored in the registry.
+func (d *DevFS) ReadLOD(id AssetID, lod int) ([]byte, error) {
+	if d == nil {
+		return nil, fs.ErrNotExist
+	}
+	if d.source != nil {
+		return d.source.ReadLOD(id, lod)
+	}
+	entry := d.registry.Get(id)
+	if entry == nil || entry.Path == "" {
+		return nil, fmt.Errorf("devfs: unknown asset %s", id.String())
+	}
+	name := entry.Path
+	if lod > 0 {
+		name = fmt.Sprintf("%s.lod%d", name, lod)
+	}
+	return fs.ReadFile(d.root, name)
 }
 
 func (d *DevFS) startWatcher() error {
@@ -163,28 +176,6 @@ func (d *DevFS) Open(name string) (fs.File, error) {
 	return d.root.Open(name)
 }
 
-// LoadSVG schedules progressive LODs for an SVG asset.
-func (d *DevFS) LoadSVG(path string) Handle { return d.loadByPath(path, AssetTypeSVG) }
-
-// LoadImage schedules progressive LODs for a raster image asset.
-func (d *DevFS) LoadImage(path string) Handle { return d.loadByPath(path, AssetTypeImage) }
-
-// LoadTexture schedules progressive LODs for a material texture asset.
-func (d *DevFS) LoadTexture(path string) Handle { return d.loadByPath(path, AssetTypeImage) }
-
-// LoadFont schedules progressive LODs for a font asset.
-func (d *DevFS) LoadFont(path string) Handle { return d.loadByPath(path, AssetTypeFont) }
-
-// LoadConfig schedules a config asset.
-func (d *DevFS) LoadConfig(path string, _ any) Handle { return d.loadByPath(path, AssetTypeConfig) }
-
-// Prefetch queues load work ahead of time.
-func (d *DevFS) Prefetch(paths ...string) {
-	for _, path := range paths {
-		d.loadByPath(path, assetTypeForPath(path))
-	}
-}
-
 // Invalidate queues a path for runtime-thread invalidation.
 func (d *DevFS) Invalidate(path string) {
 	if d == nil || path == "" {
@@ -214,50 +205,15 @@ func (d *DevFS) DrainInvalidations() int {
 	}
 	count := 0
 	for _, path := range pending {
-		if id := d.lookupID(path); id != (AssetID{}) && d.registry != nil {
+		if d.idReg == nil || d.registry == nil {
+			continue
+		}
+		if id := d.idReg.Lookup(path); id != (AssetID{}) {
 			d.registry.Invalidate(id)
 			count++
 		}
 	}
 	return count
-}
-
-// Stats returns a snapshot of the registry and load queue.
-func (d *DevFS) Stats() ManagerStats {
-	if d == nil {
-		return ManagerStats{}
-	}
-	if d.manager != nil {
-		return d.manager.Stats()
-	}
-	return ManagerStats{}
-}
-
-// DrainCompleted commits any jobs that have completed since the last drain.
-func (d *DevFS) DrainCompleted() int {
-	if d == nil || d.manager == nil {
-		return 0
-	}
-	return d.manager.DrainCompleted()
-}
-
-func (d *DevFS) loadByPath(path string, typ AssetType) Handle {
-	if d == nil || d.manager == nil {
-		return Handle{}
-	}
-	id := d.lookupID(path)
-	if id == (AssetID{}) {
-		return Handle{}
-	}
-	d.manager.scheduleAllLODs(id, path, typ)
-	return NewHandle(id, d.manager.registry)
-}
-
-func (d *DevFS) lookupID(path string) AssetID {
-	if d == nil || d.idReg == nil {
-		return AssetID{}
-	}
-	return d.idReg.Lookup(d.canonicalPath(path))
 }
 
 func (d *DevFS) canonicalPath(path string) string {

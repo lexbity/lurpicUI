@@ -56,7 +56,7 @@ func TestDevFSInvalidateHotReload(t *testing.T) {
 	})
 	defer release()
 
-	devfs, err := NewDevFS(os.DirFS(dir), reg, nil, idReg, WithDevWatchRoot(dir))
+	devfs, err := NewDevFS(os.DirFS(dir), reg, idReg, WithDevWatchRoot(dir))
 	if err != nil {
 		t.Fatalf("new devfs: %v", err)
 	}
@@ -101,13 +101,14 @@ func TestDevFSDrainCompleted(t *testing.T) {
 	idReg := newPathRegistryStub()
 	reg := NewAssetRegistryStore()
 	
-	devfs, err := NewDevFS(os.DirFS(dir), reg, nil, idReg)
+	devfs, err := NewDevFS(os.DirFS(dir), reg, idReg)
 	if err != nil {
 		t.Fatalf("new devfs: %v", err)
 	}
 	defer devfs.Close()
-	
-	if n := devfs.DrainCompleted(); n != 0 {
+
+	mgr := NewManager(reg, devfs, BackendSoftware, nil, idReg)
+	if n := mgr.DrainCompleted(); n != 0 {
 		t.Errorf("DrainCompleted() = %d, want 0", n)
 	}
 }

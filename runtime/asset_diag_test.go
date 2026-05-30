@@ -23,6 +23,7 @@ func (f *assetDiagFixture) LoadFont(path string) assets.Handle { return assets.H
 func (f *assetDiagFixture) LoadConfig(path string, dst any) assets.Handle { return assets.Handle{} }
 func (f *assetDiagFixture) Prefetch(paths ...string) {}
 func (f *assetDiagFixture) Invalidate(path string) {}
+func (f *assetDiagFixture) DrainCompleted() int { return 0 }
 func (f *assetDiagFixture) Stats() assets.ManagerStats { return f.stats }
 
 // recordingLog captures log messages for assertion.

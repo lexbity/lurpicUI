@@ -5,11 +5,29 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/assets/cook"
 )
+
+// newPathIDs returns an assets.PathIDRegistry backed by the given map.
+func newPathIDs(t *testing.T, m map[string]assets.AssetID) assets.PathIDRegistry {
+	t.Helper()
+	return &pathIDsStub{paths: m}
+}
+
+type pathIDsStub struct {
+	mu    sync.Mutex
+	paths map[string]assets.AssetID
+}
+
+func (r *pathIDsStub) Lookup(path string) assets.AssetID {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.paths[path]
+}
 
 func TestNewPakFSReadsRawAndDecodedBlocks(t *testing.T) {
 	imageID, err := assets.ParseAssetID("01234567-89ab-cdef-0123-456789abcdef")
@@ -105,7 +123,7 @@ func TestNewPakFSReadsRawAndDecodedBlocks(t *testing.T) {
 	}
 }
 
-func TestPakFSDrainCompleted(t *testing.T) {
+func TestPakFSManagerRoundTrip(t *testing.T) {
 	imageID, err := assets.ParseAssetID("01234567-89ab-cdef-0123-456789abcdef")
 	if err != nil {
 		t.Fatalf("parse image id: %v", err)
@@ -131,7 +149,17 @@ func TestPakFSDrainCompleted(t *testing.T) {
 	}
 	defer pfs.Close()
 
-	if n := pfs.DrainCompleted(); n != 0 {
+	reg := assets.NewAssetRegistryStore()
+	pathIDs := newPathIDs(t, map[string]assets.AssetID{
+		"assets/image.png": imageID,
+	})
+	manager := assets.NewManager(reg, pfs, assets.BackendSoftware, nil, pathIDs)
+	defer func() {
+		if n := manager.DrainCompleted(); n != 0 {
+			t.Errorf("DrainCompleted() = %d, want 0", n)
+		}
+	}()
+	if n := manager.DrainCompleted(); n != 0 {
 		t.Errorf("DrainCompleted() = %d, want 0", n)
 	}
 }

@@ -344,8 +344,8 @@ func (rt *Runtime) setIMEVisible(visible bool) {
 
 func (rt *Runtime) drainJobResults() (committed int, discarded int) {
 
-	if drainer, ok := rt.assetManager.(interface{ DrainCompleted() int }); ok {
-		if count := drainer.DrainCompleted(); count > 0 {
+	if rt.assetManager != nil {
+		if count := rt.assetManager.DrainCompleted(); count > 0 {
 			committed += count
 			if rt.frameTimer != nil {
 				rt.frameTimer.RequestFrame()
