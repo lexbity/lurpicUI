@@ -119,6 +119,16 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		} else {
 			rt.renderPipeline.Submit(frame)
 		}
+		// First-frame marker: CI smoke tests grep logcat for this string to
+		// verify the app launched and rendered at least one frame. The marker
+		// fires exactly once (frameNumber 1) and is emitted regardless of
+		// platform so it works on both Android (logcat) and desktop (stderr).
+		if rt.frameNumber == 1 {
+			rt.log.Info("LURPIC_FIRST_FRAME",
+				"frame", rt.frameNumber,
+				"batches", stats.RenderBatchCount,
+			)
+		}
 	}
 	stats.RenderDuration = time.Since(renderStart)
 	rt.updateIMECursorRect()
