@@ -518,6 +518,7 @@ func restoreHooks(t *testing.T) {
 	oldNewRuntime := newRuntime
 	oldPrimeRuntime := primeRuntime
 	oldRunRuntime := runRuntime
+	oldInitAssetManager := initAssetManager
 	t.Cleanup(func() {
 		newPlatformApp = oldNewPlatformApp
 		newBackend = oldNewBackend
@@ -525,5 +526,6 @@ func restoreHooks(t *testing.T) {
 		newRuntime = oldNewRuntime
 		primeRuntime = oldPrimeRuntime
 		runRuntime = oldRunRuntime
+		initAssetManager = oldInitAssetManager
 	})
 }

@@ -124,6 +124,26 @@ func TestAssetDiagnostics_FrameStatsPopulated(t *testing.T) {
 	rt.Shutdown()
 }
 
+func TestAssetDiagnostics_ManagerAccessors(t *testing.T) {
+	fixture := &assetDiagFixture{}
+	root := facet.NewFacet()
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.AssetManager = fixture
+	cfg.AssetRegistry = assets.NewAssetRegistryStore()
+	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	if rt.AssetManager() == nil {
+		t.Fatal("AssetManager() returned nil")
+	}
+	if rt.AssetRegistry() == nil {
+		t.Fatal("AssetRegistry() returned nil")
+	}
+	rt.Shutdown()
+}
+
 func TestAssetDiagnostics_StatsAreZeroWithoutManager(t *testing.T) {
 	root := facet.NewFacet()
 	cfg := DefaultConfig()

@@ -8,6 +8,7 @@ import (
 	goruntime "runtime"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -19,6 +20,47 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
+
+// initAssetManager populates rtConfig.AssetManager and AssetRegistry when they
+// have not been set by the caller. The default implementation tries the
+// environment variables LURPIC_ASSETS_PAK and LURPIC_ASSETS_DIR, then falls
+// back to ./assets.pak and ./assets/. Platform-specific builds (Android)
+// override this variable to inject the platform asset manager.
+var initAssetManager = func(rtConfig *runtime.Config) {
+	if rtConfig.AssetManager != nil {
+		return
+	}
+	pakPath := os.Getenv("LURPIC_ASSETS_PAK")
+	if pakPath == "" {
+		if _, err := os.Stat("assets.pak"); err == nil {
+			pakPath = "assets.pak"
+		}
+	}
+	if pakPath != "" {
+		pak, err := assets.NewPakFS(pakPath)
+		if err == nil {
+			reg := assets.NewAssetRegistryStore()
+			rtConfig.AssetManager = assets.NewManager(reg, pak, assets.BackendSoftware, nil, nil)
+			rtConfig.AssetRegistry = reg
+			return
+		}
+	}
+	assetsDir := os.Getenv("LURPIC_ASSETS_DIR")
+	if assetsDir == "" {
+		if _, err := os.Stat("assets"); err == nil {
+			assetsDir = "assets"
+		}
+	}
+	if assetsDir != "" {
+		root := os.DirFS(assetsDir)
+		reg := assets.NewAssetRegistryStore()
+		dev, err := assets.NewDevFS(root, reg, nil)
+		if err == nil {
+			rtConfig.AssetManager = assets.NewManager(reg, dev, assets.BackendSoftware, nil, nil)
+			rtConfig.AssetRegistry = reg
+		}
+	}
+}
 
 // surfaceProvider is implemented by platforms (e.g. Android) that provide a
 // render surface directly through their lifecycle instead of through a window.
@@ -201,6 +243,7 @@ func Run(config Config, builder RootBuilder) error {
 		}
 		rtConfig.LayerRegistry = layerRegistry
 	}
+	initAssetManager(&rtConfig)
 	rt, err := newRuntime(rtConfig, platformApp, window, backend, root)
 	if err != nil {
 		return fmt.Errorf("app: runtime: %w", err)
