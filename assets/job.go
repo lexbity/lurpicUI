@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,44 @@ const (
 	BackendSoftware BackendType = iota
 	BackendVulkan
 )
+
+// ResidencyMode controls GPU residency for decoded assets.
+type ResidencyMode uint8
+
+const (
+	ResidencyCPUOnly ResidencyMode = iota
+	ResidencyGPUResident
+	ResidencyAuto
+)
+
+// ParseResidencyMode parses a string into a ResidencyMode.
+// Accepted values: "cpu" / "cpuonly", "gpu" / "gpuresident", "auto".
+// Returns ResidencyCPUOnly and an error for unrecognized strings.
+func ParseResidencyMode(s string) (ResidencyMode, error) {
+	switch strings.ToLower(s) {
+	case "cpu", "cpuonly":
+		return ResidencyCPUOnly, nil
+	case "gpu", "gpuresident":
+		return ResidencyGPUResident, nil
+	case "auto":
+		return ResidencyAuto, nil
+	default:
+		return ResidencyCPUOnly, fmt.Errorf("invalid residency mode %q (valid: cpu, gpu, auto)", s)
+	}
+}
+
+func (m ResidencyMode) String() string {
+	switch m {
+	case ResidencyCPUOnly:
+		return "cpu"
+	case ResidencyGPUResident:
+		return "gpu"
+	case ResidencyAuto:
+		return "auto"
+	default:
+		return "unknown"
+	}
+}
 
 // AssetLoadJob loads and decodes one LOD level of one asset.
 type AssetLoadJob struct {
@@ -77,6 +116,8 @@ type ManagerImpl struct {
 	source      AssetSource
 	idReg       PathIDRegistry
 	backendType BackendType
+	uploader    TextureUploader
+	residency   ResidencyMode
 	scheduler   JobScheduler
 	results     chan *AssetLoadJob
 	cache       *assetCache
@@ -88,30 +129,69 @@ type ManagerImpl struct {
 
 // NewManager returns an asset manager that wraps the given source.
 // When scheduler is nil, a default async goroutine scheduler is created.
+// This is a thin back-compat wrapper; new code should use NewManagerWithResidency.
 func NewManager(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler, idReg PathIDRegistry) *ManagerImpl {
-	return NewManagerWithCache(registry, source, backend, scheduler, idReg, nil, 0, 0)
+	m := NewManagerWithResidency(registry, source, idReg, scheduler, nil, ResidencyCPUOnly, 0, 0)
+	m.backendType = backend
+	return m
 }
 
 // NewManagerWithCache is like NewManager but also accepts cache configuration.
 // When cacheBytes is > 0, the manager creates an LRU-backed asset cache that
 // evicts under memory pressure. gpuCacheBytes limits GPU-resident data.
+// This is a thin back-compat wrapper; new code should use NewManagerWithResidency.
 func NewManagerWithCache(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler, idReg PathIDRegistry, textureReleaser textureReleaser, cacheBytes, gpuCacheBytes int64) *ManagerImpl {
+	m := NewManagerWithResidency(registry, source, idReg, scheduler, nil, ResidencyCPUOnly, 0, 0)
+	m.backendType = backend
+	if cacheBytes > 0 {
+		m.cache = newAssetCache(registry, textureReleaser, cacheBytes, gpuCacheBytes)
+	}
+	return m
+}
+
+// NewManagerWithResidency constructs a manager with GPU residency support.
+// The uploader is the seam to the render backend's GPU upload queue; when nil
+// or returning Budget() == 0, the manager is CPU-only regardless of mode.
+// cpuBudgetMB and gpuBudgetMB are fixed caps; 0 means no cache for that tier.
+func NewManagerWithResidency(registry *AssetRegistryStore, source AssetSource, idReg PathIDRegistry, scheduler JobScheduler, uploader TextureUploader, mode ResidencyMode, cpuBudgetMB, gpuBudgetMB int64) *ManagerImpl {
+	gpuCapable := uploader != nil && uploader.Budget() > 0
+
+	effectiveMode := mode
+	if !gpuCapable && mode != ResidencyCPUOnly {
+		effectiveMode = ResidencyCPUOnly
+	}
+
+	var bt BackendType
+	switch effectiveMode {
+	case ResidencyGPUResident, ResidencyAuto:
+		bt = BackendVulkan
+	default:
+		bt = BackendSoftware
+	}
+
 	m := &ManagerImpl{
 		registry:    registry,
 		source:      source,
 		idReg:       idReg,
-		backendType: backend,
+		backendType: bt,
+		uploader:    uploader,
+		residency:   mode,
 		results:     make(chan *AssetLoadJob, 32),
 		waiting:     make(waitingOn),
 	}
-	if cacheBytes > 0 {
-		m.cache = newAssetCache(registry, textureReleaser, cacheBytes, gpuCacheBytes)
+
+	cpuBytes := cpuBudgetMB * 1024 * 1024
+	gpuBytes := gpuBudgetMB * 1024 * 1024
+	if cpuBytes > 0 || gpuBytes > 0 {
+		m.cache = newAssetCache(registry, nil, cpuBytes, gpuBytes)
 	}
+
 	if scheduler == nil {
 		m.scheduler = NewAsyncJobScheduler(m.results)
 	} else {
 		m.scheduler = scheduler
 	}
+
 	return m
 }
 

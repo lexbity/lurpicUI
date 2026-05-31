@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"codeburg.org/lexbit/lurpicui/assets"
 )
 
 func TestLoadConfig_Valid(t *testing.T) {
@@ -529,6 +531,229 @@ func TestCheckToolchainPins_quietWhenBuildToolsExist(t *testing.T) {
 	for _, w := range warnings {
 		if strings.Contains(w, "build-tools") {
 			t.Fatalf("unexpected build-tools warning: %s", w)
+		}
+	}
+}
+
+func TestAssetResidencyConfig_defaults(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if config.Assets.ResidencyMode != "auto" {
+		t.Errorf("expected default residency_mode 'auto', got %q", config.Assets.ResidencyMode)
+	}
+	if config.Assets.CPUBudgetMB != 256 {
+		t.Errorf("expected default cpu_budget_mb 256, got %d", config.Assets.CPUBudgetMB)
+	}
+	if config.Assets.GPUBudgetMB != 192 {
+		t.Errorf("expected default gpu_budget_mb 192, got %d", config.Assets.GPUBudgetMB)
+	}
+	if config.Assets.UploadBudgetKBFrame != 4096 {
+		t.Errorf("expected default upload_budget_kb_frame 4096, got %d", config.Assets.UploadBudgetKBFrame)
+	}
+}
+
+func TestAssetResidencyConfig_parseAll(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+
+[assets]
+residency_mode = "gpu"
+cpu_budget_mb = 512
+gpu_budget_mb = 384
+upload_budget_kb_frame = 2048
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+
+	if config.Assets.ResidencyMode != "gpu" {
+		t.Errorf("expected residency_mode 'gpu', got %q", config.Assets.ResidencyMode)
+	}
+	if config.Assets.CPUBudgetMB != 512 {
+		t.Errorf("expected cpu_budget_mb 512, got %d", config.Assets.CPUBudgetMB)
+	}
+	if config.Assets.GPUBudgetMB != 384 {
+		t.Errorf("expected gpu_budget_mb 384, got %d", config.Assets.GPUBudgetMB)
+	}
+	if config.Assets.UploadBudgetKBFrame != 2048 {
+		t.Errorf("expected upload_budget_kb_frame 2048, got %d", config.Assets.UploadBudgetKBFrame)
+	}
+}
+
+func TestAssetResidencyConfig_rejectsInvalidMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+
+[assets]
+residency_mode = "quantum"
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	_, err := loadConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for invalid residency_mode")
+	}
+}
+
+func TestAssetResidencyConfig_requiresGPUBudgetWhenGPU(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+
+[assets]
+residency_mode = "gpu"
+gpu_budget_mb = 0
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	_, err := loadConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error when residency_mode is gpu but gpu_budget_mb is 0")
+	}
+}
+
+func TestAssetResidencyConfig_zeroGPUBudgetInCPUMode(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+
+[assets]
+residency_mode = "cpu"
+gpu_budget_mb = 0
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	_, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+}
+
+func TestAssetResidencyConfig_rejectsNegativeGPUBudget(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+
+[assets]
+gpu_budget_mb = -50
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	_, err := loadConfig(tmpDir)
+	if err == nil {
+		t.Fatal("expected error for negative gpu_budget_mb")
+	}
+}
+
+func TestAssetResidencyConfig_acceptsCPUResident(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+
+[assets]
+residency_mode = "cpu"
+cpu_budget_mb = 128
+gpu_budget_mb = 0
+upload_budget_kb_frame = 1024
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	if config.Assets.CPUBudgetMB != 128 {
+		t.Errorf("expected cpu_budget_mb 128, got %d", config.Assets.CPUBudgetMB)
+	}
+	if config.Assets.GPUBudgetMB != 0 {
+		t.Errorf("expected gpu_budget_mb 0, got %d", config.Assets.GPUBudgetMB)
+	}
+}
+
+func TestAssetResidencyConfig_autoDefaultAppliesGPUBudget(t *testing.T) {
+	tmpDir := t.TempDir()
+	configContent := `[app]
+id = "com.test.residency"
+name = "Residency Test"
+
+[assets]
+residency_mode = "auto"
+gpu_budget_mb = 0
+`
+	configPath := filepath.Join(tmpDir, "lurpic.toml")
+	os.WriteFile(configPath, []byte(configContent), 0644)
+
+	config, err := loadConfig(tmpDir)
+	if err != nil {
+		t.Fatalf("loadConfig: %v", err)
+	}
+	// In auto mode, a zero GPU budget should be defaulted to 192.
+	if config.Assets.GPUBudgetMB != 192 {
+		t.Errorf("expected gpu_budget_mb 192 (auto default), got %d", config.Assets.GPUBudgetMB)
+	}
+}
+
+func TestParseResidencyMode(t *testing.T) {
+	tests := []struct {
+		input   string
+		want    string
+		wantErr bool
+	}{
+		{"cpu", "cpu", false},
+		{"cpuonly", "cpu", false},
+		{"CPU", "cpu", false},
+		{"gpu", "gpu", false},
+		{"gpuresident", "gpu", false},
+		{"GPU", "gpu", false},
+		{"auto", "auto", false},
+		{"Auto", "auto", false},
+		{"AUTO", "auto", false},
+		{"", "cpu", true},
+		{"invalid", "cpu", true},
+		{"hybrid", "cpu", true},
+	}
+	for _, tt := range tests {
+		mode, err := assets.ParseResidencyMode(tt.input)
+		if tt.wantErr {
+			if err == nil {
+				t.Errorf("ParseResidencyMode(%q): expected error", tt.input)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("ParseResidencyMode(%q): unexpected error: %v", tt.input, err)
+			continue
+		}
+		if mode.String() != tt.want {
+			t.Errorf("ParseResidencyMode(%q) = %v, want %v", tt.input, mode, tt.want)
 		}
 	}
 }

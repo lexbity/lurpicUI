@@ -44,6 +44,16 @@ type Config struct {
 	// but no per-event log output is produced. Set via Config or the
 	// LURPIC_ASSET_DIAGNOSTICS environment variable ("true" / "1").
 	AssetDiagnosticsEnabled bool
+
+	// AssetsResidencyMode selects the GPU residency strategy for decoded
+	// assets: "auto" (GPU-capable backends get GPU residency), "cpu", or "gpu".
+	AssetsResidencyMode string
+	// AssetCPUBudgetMB is the cap for decoded CPU LOD cache.
+	AssetCPUBudgetMB int64
+	// AssetGPUBudgetMB is the cap for GPU-resident textures.
+	AssetGPUBudgetMB int64
+	// AssetUploadBudgetKBPerFrame is the per-frame ceiling for GPU uploads.
+	AssetUploadBudgetKBPerFrame int
 }
 
 // DefaultConfig returns a valid runtime configuration.
@@ -58,6 +68,11 @@ func DefaultConfig() Config {
 		GestureConfig: input.DefaultGestureConfig(),
 		WorkerCount:   workers,
 		FontRegistry:  reg,
+
+		AssetsResidencyMode:         "auto",
+		AssetCPUBudgetMB:            256,
+		AssetGPUBudgetMB:            192,
+		AssetUploadBudgetKBPerFrame: 4096,
 	}
 }
 

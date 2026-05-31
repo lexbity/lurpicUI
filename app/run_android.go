@@ -31,7 +31,8 @@ func openAndroidAssetManager(rtConfig *runtime.Config) {
 	// Load the UUID registry from the APK's assets when available.
 	// The cook pipeline produces uuid_registry.json alongside assets.pak.
 	idReg := loadAndroidIDRegistry()
-	rtConfig.AssetManager = assets.NewManager(reg, pak, assets.BackendSoftware, nil, idReg)
+	backendType := assetBackendFromRuntimeConfig(rtConfig)
+	rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
 	rtConfig.AssetRegistry = reg
 }
 

@@ -270,6 +270,208 @@ func (f fakeConfigTree) ConfigNode(id AssetID) *ConfigNode {
 	return f.nodes[id]
 }
 
+// ── Fake uploader for residency tests ──────────────────────────────────────
+
+type fakeUploader struct {
+	budget  int
+	results chan TextureUploadResult
+}
+
+func (u *fakeUploader) Enqueue(req TextureUploadRequest) bool {
+	return true
+}
+
+func (u *fakeUploader) Results() <-chan TextureUploadResult {
+	if u.results == nil {
+		u.results = make(chan TextureUploadResult, 8)
+	}
+	return u.results
+}
+
+func (u *fakeUploader) Budget() int { return u.budget }
+
+// ── Residency constructor tests ─────────────────────────────────────────────
+
+func TestNewManagerWithResidency_noBudgets_noCache(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyCPUOnly, 0, 0)
+	if m.cache != nil {
+		t.Fatal("expected nil cache when both budgets are 0")
+	}
+	if m.uploader != nil {
+		t.Fatal("expected nil uploader")
+	}
+	if m.backendType != BackendSoftware {
+		t.Fatalf("expected BackendSoftware, got %v", m.backendType)
+	}
+}
+
+func TestNewManagerWithResidency_cpuBudget_createsCache(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyCPUOnly, 64, 0)
+	if m.cache == nil {
+		t.Fatal("expected non-nil cache with cpuBudgetMB > 0")
+	}
+	if m.cache.budgetBytes != 64*1024*1024 {
+		t.Fatalf("expected budgetBytes %d, got %d", 64*1024*1024, m.cache.budgetBytes)
+	}
+	if m.cache.gpuBudget != 0 {
+		t.Fatalf("expected gpuBudget 0, got %d", m.cache.gpuBudget)
+	}
+}
+
+func TestNewManagerWithResidency_gpuBudget_createsCache(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyCPUOnly, 0, 128)
+	if m.cache == nil {
+		t.Fatal("expected non-nil cache with gpuBudgetMB > 0")
+	}
+	if m.cache.gpuBudget != 128*1024*1024 {
+		t.Fatalf("expected gpuBudget %d, got %d", 128*1024*1024, m.cache.gpuBudget)
+	}
+}
+
+func TestNewManagerWithResidency_nilUploader_isCPUOnly(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyGPUResident, 64, 128)
+	if m.backendType != BackendSoftware {
+		t.Fatal("expected BackendSoftware with nil uploader even in GPUResident mode")
+	}
+}
+
+func TestNewManagerWithResidency_zeroBudgetUploader_isCPUOnly(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	uploader := &fakeUploader{budget: 0}
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+	if m.backendType != BackendSoftware {
+		t.Fatal("expected BackendSoftware when uploader.Budget() == 0")
+	}
+}
+
+func TestNewManagerWithResidency_gpuMode_setsBackendVulkan(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	uploader := &fakeUploader{budget: 4096}
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+	if m.backendType != BackendVulkan {
+		t.Fatalf("expected BackendVulkan, got %v", m.backendType)
+	}
+	if m.uploader != uploader {
+		t.Fatal("uploader not stored")
+	}
+	if m.residency != ResidencyGPUResident {
+		t.Fatalf("expected residency GPUResident, got %v", m.residency)
+	}
+}
+
+func TestNewManagerWithResidency_cpuMode_staysSoftware(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	uploader := &fakeUploader{budget: 4096}
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyCPUOnly, 64, 128)
+	if m.backendType != BackendSoftware {
+		t.Fatalf("expected BackendSoftware, got %v", m.backendType)
+	}
+}
+
+func TestNewManagerWithResidency_autoMode_delegatesToGpuWhenCapable(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	uploader := &fakeUploader{budget: 4096}
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyAuto, 64, 128)
+	if m.backendType != BackendVulkan {
+		t.Fatalf("expected BackendVulkan in auto mode with capable uploader, got %v", m.backendType)
+	}
+}
+
+func TestNewManagerWithResidency_autoMode_fallsBackToSoftware(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyAuto, 64, 0)
+	if m.backendType != BackendSoftware {
+		t.Fatalf("expected BackendSoftware in auto mode with nil uploader, got %v", m.backendType)
+	}
+}
+
+func TestNewManager_backCompat_respectsBackend(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManager(reg, staticSource{}, BackendVulkan, nil, nil)
+	if m.backendType != BackendVulkan {
+		t.Fatalf("expected BackendVulkan from back-compat wrapper, got %v", m.backendType)
+	}
+	if m.cache != nil {
+		t.Fatal("expected nil cache from NewManager")
+	}
+}
+
+func TestNewManagerWithCache_backCompat_createsCache(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+	m := NewManagerWithCache(reg, staticSource{}, BackendSoftware, nil, nil, backend, 1000, 500)
+	if m.cache == nil {
+		t.Fatal("expected non-nil cache")
+	}
+	if m.cache.budgetBytes != 1000 {
+		t.Fatalf("expected budgetBytes 1000, got %d", m.cache.budgetBytes)
+	}
+	if m.cache.gpuBudget != 500 {
+		t.Fatalf("expected gpuBudget 500, got %d", m.cache.gpuBudget)
+	}
+}
+
+func TestNewManagerWithCache_backCompat_preservesReleaser(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+	m := NewManagerWithCache(reg, staticSource{}, BackendSoftware, nil, nil, backend, 100, 0)
+	if m.cache == nil {
+		t.Fatal("expected non-nil cache")
+	}
+	if m.cache.backend == nil {
+		t.Fatal("expected textureReleaser to be set on cache")
+	}
+	// Verify it's the same backend by calling FreeTexture through the chain.
+	m.cache.backend.FreeTexture(TextureID(42))
+	if len(backend.freed) != 1 || backend.freed[0] != TextureID(42) {
+		t.Fatal("textureReleaser not forwarded correctly")
+	}
+}
+
+// ── AssetResidency policy tests ─────────────────────────────────────────────
+
+func TestAssetResidency_policyTable(t *testing.T) {
+	tests := []struct {
+		typ        AssetType
+		mode       ResidencyMode
+		gpuCapable bool
+		want       Residency
+	}{
+		// Raster images → GPU when mode allows and backend is capable
+		{AssetTypeImage, ResidencyGPUResident, true, ResidencyGPU},
+		{AssetTypeImage, ResidencyAuto, true, ResidencyGPU},
+		{AssetTypeImage, ResidencyCPUOnly, true, ResidencyCPU},
+		{AssetTypeImage, ResidencyGPUResident, false, ResidencyCPU},
+
+		// SVG → always CPU
+		{AssetTypeSVG, ResidencyGPUResident, true, ResidencyCPU},
+		{AssetTypeSVG, ResidencyAuto, true, ResidencyCPU},
+		{AssetTypeSVG, ResidencyCPUOnly, true, ResidencyCPU},
+
+		// Font → CPU (Phase 13 promotes to GPU)
+		{AssetTypeFont, ResidencyGPUResident, true, ResidencyCPU},
+		{AssetTypeFont, ResidencyAuto, true, ResidencyCPU},
+
+		// Config → always CPU
+		{AssetTypeConfig, ResidencyGPUResident, true, ResidencyCPU},
+		{AssetTypeConfig, ResidencyCPUOnly, true, ResidencyCPU},
+
+		// No backend capability → always CPU regardless of type/mode
+		{AssetTypeImage, ResidencyGPUResident, false, ResidencyCPU},
+	}
+	for _, tt := range tests {
+		got := AssetResidency(tt.typ, tt.mode, tt.gpuCapable)
+		if got != tt.want {
+			t.Errorf("AssetResidency(%v, %v, gpuCapable=%v) = %v, want %v",
+				tt.typ, tt.mode, tt.gpuCapable, got, tt.want)
+		}
+	}
+}
+
 func mustAssetID(t *testing.T, s string) AssetID {
 	t.Helper()
 	id, err := ParseAssetID(s)

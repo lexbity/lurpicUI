@@ -21,6 +21,20 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
+// assetBackendFromRuntimeConfig maps the runtime residency mode to the
+// asset BackendType. The backend type selects decode paths and hooks; it
+// is derived from config, never hardcoded.
+func assetBackendFromRuntimeConfig(cfg *runtime.Config) assets.BackendType {
+	mode, err := assets.ParseResidencyMode(cfg.AssetsResidencyMode)
+	if err != nil {
+		return assets.BackendSoftware
+	}
+	if mode == assets.ResidencyGPUResident {
+		return assets.BackendVulkan
+	}
+	return assets.BackendSoftware
+}
+
 // initAssetManager populates rtConfig.AssetManager and AssetRegistry when they
 // have not been set by the caller. The default implementation tries the
 // environment variables LURPIC_ASSETS_PAK and LURPIC_ASSETS_DIR, then falls
@@ -30,6 +44,7 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 	if rtConfig.AssetManager != nil {
 		return
 	}
+	backendType := assetBackendFromRuntimeConfig(rtConfig)
 	pakPath := os.Getenv("LURPIC_ASSETS_PAK")
 	if pakPath == "" {
 		if _, err := os.Stat("assets.pak"); err == nil {
@@ -41,7 +56,7 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 		if err == nil {
 			reg := assets.NewAssetRegistryStore()
 			idReg := loadIDRegistry("assets/uuid_registry.json")
-			rtConfig.AssetManager = assets.NewManager(reg, pak, assets.BackendSoftware, nil, idReg)
+			rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
 			rtConfig.AssetRegistry = reg
 			return
 		}
@@ -58,7 +73,7 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 		dev, err := assets.NewDevFS(root, reg, nil)
 		if err == nil {
 			idReg := loadIDRegistry(filepath.Join(assetsDir, "uuid_registry.json"))
-			rtConfig.AssetManager = assets.NewManager(reg, dev, assets.BackendSoftware, nil, idReg)
+			rtConfig.AssetManager = assets.NewManager(reg, dev, backendType, nil, idReg)
 			rtConfig.AssetRegistry = reg
 		}
 	}

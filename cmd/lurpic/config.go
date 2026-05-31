@@ -12,8 +12,27 @@ import (
 
 // Config represents the lurpic.toml configuration file
 type Config struct {
-	App     AppConfig     `toml:"app"`
-	Android AndroidConfig `toml:"android"`
+	App     AppConfig            `toml:"app"`
+	Android AndroidConfig        `toml:"android"`
+	Assets  AssetResidencyConfig `toml:"assets"`
+}
+
+// AssetResidencyConfig configures the hybrid CPU/GPU asset residency.
+// Budgets are fixed caps — not heap-derived — and control how decoded
+// LOD data is cached (CPU) and uploaded (GPU).
+type AssetResidencyConfig struct {
+	// ResidencyMode selects the residency strategy:
+	//   "auto" — GPU-resident when the backend supports it, CPU-only otherwise (default)
+	//   "cpu"  — always CPU-only
+	//   "gpu"  — upload GPU-eligible asset types to the GPU
+	ResidencyMode string `toml:"residency_mode"`
+	// CPUBudgetMB is the cap for decoded CPU LOD cache (default 256).
+	CPUBudgetMB int64 `toml:"cpu_budget_mb"`
+	// GPUBudgetMB is the cap for GPU-resident textures (default 192).
+	// Set to 0 to disable GPU residency regardless of mode.
+	GPUBudgetMB int64 `toml:"gpu_budget_mb"`
+	// UploadBudgetKBFrame is the per-frame ceiling for GPU uploads (default 4096).
+	UploadBudgetKBFrame int `toml:"upload_budget_kb_frame"`
 }
 
 // AppConfig contains general application settings
@@ -176,6 +195,37 @@ func loadConfig(projectRoot string) (*Config, error) {
 		if config.App.Main == ".." || strings.HasPrefix(config.App.Main, ".."+string(filepath.Separator)) {
 			return nil, fmt.Errorf("app.main %q must not escape the project root", config.App.Main)
 		}
+	}
+
+	// Asset residency defaults
+	if config.Assets.ResidencyMode == "" {
+		config.Assets.ResidencyMode = "auto"
+	}
+	if config.Assets.CPUBudgetMB <= 0 {
+		config.Assets.CPUBudgetMB = 256
+	}
+	if config.Assets.UploadBudgetKBFrame <= 0 {
+		config.Assets.UploadBudgetKBFrame = 4096
+	}
+	residencyMode := strings.ToLower(config.Assets.ResidencyMode)
+	switch residencyMode {
+	case "cpu", "cpuonly", "gpu", "gpuresident", "auto":
+		// valid
+	default:
+		return nil, fmt.Errorf("assets.residency_mode %q is invalid (valid: cpu, gpu, auto)", config.Assets.ResidencyMode)
+	}
+	if config.Assets.GPUBudgetMB < 0 {
+		return nil, fmt.Errorf("assets.gpu_budget_mb must be non-negative (got %d)", config.Assets.GPUBudgetMB)
+	}
+	if config.Assets.GPUBudgetMB == 0 && (residencyMode == "gpu" || residencyMode == "gpuresident") {
+		return nil, fmt.Errorf("assets.gpu_budget_mb must be > 0 when residency_mode is %q", config.Assets.ResidencyMode)
+	}
+	if config.Assets.GPUBudgetMB > 4096 {
+		fmt.Fprintf(os.Stderr, "lurpic: warning: assets.gpu_budget_mb = %d exceeds recommended ceiling of 4096\n", config.Assets.GPUBudgetMB)
+	}
+	// Default GPU budget when mode enables GPU but no explicit value was given.
+	if config.Assets.GPUBudgetMB == 0 && (residencyMode == "auto") {
+		config.Assets.GPUBudgetMB = 192
 	}
 
 	// Validate required fields

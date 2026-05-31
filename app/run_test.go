@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -529,6 +530,46 @@ func restoreHooks(t *testing.T) {
 		runRuntime = oldRunRuntime
 		initAssetManager = oldInitAssetManager
 	})
+}
+
+func TestAssetBackendFromRuntimeConfig_autoReturnsSoftware(t *testing.T) {
+	cfg := &runtime.Config{
+		AssetsResidencyMode: "auto",
+	}
+	bt := assetBackendFromRuntimeConfig(cfg)
+	if bt != assets.BackendSoftware {
+		t.Fatalf("expected BackendSoftware, got %v", bt)
+	}
+}
+
+func TestAssetBackendFromRuntimeConfig_gpuReturnsVulkan(t *testing.T) {
+	cfg := &runtime.Config{
+		AssetsResidencyMode: "gpu",
+	}
+	bt := assetBackendFromRuntimeConfig(cfg)
+	if bt != assets.BackendVulkan {
+		t.Fatalf("expected BackendVulkan, got %v", bt)
+	}
+}
+
+func TestAssetBackendFromRuntimeConfig_cpuReturnsSoftware(t *testing.T) {
+	cfg := &runtime.Config{
+		AssetsResidencyMode: "cpu",
+	}
+	bt := assetBackendFromRuntimeConfig(cfg)
+	if bt != assets.BackendSoftware {
+		t.Fatalf("expected BackendSoftware, got %v", bt)
+	}
+}
+
+func TestAssetBackendFromRuntimeConfig_invalidReturnsSoftware(t *testing.T) {
+	cfg := &runtime.Config{
+		AssetsResidencyMode: "invalid",
+	}
+	bt := assetBackendFromRuntimeConfig(cfg)
+	if bt != assets.BackendSoftware {
+		t.Fatalf("expected BackendSoftware for invalid mode, got %v", bt)
+	}
 }
 
 func TestAsset_smallFileReturnsData(t *testing.T) {
