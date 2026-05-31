@@ -256,13 +256,17 @@ func (m *ManagerImpl) SetUploader(uploader TextureUploader) {
 
 // TrimMemory responds to onTrimMemory from the platform. It translates the
 // Android trim level to a budget fraction and evicts the cache accordingly.
-// A nil receiver is safe-to-call.
+// GPU textures are freed first (GPU-first eviction); CPU LODs are only
+// evicted under critical pressure. A nil receiver is safe-to-call.
 func (m *ManagerImpl) TrimMemory(level int) int {
 	if m == nil {
 		return 0
 	}
 	if m.cache != nil {
-		return m.cache.EvictToWatermark(TrimLevelFraction(level))
+		fraction := TrimLevelFraction(level)
+		gpuCount := m.cache.EvictGPUToWatermark(fraction)
+		cpuCount := m.cache.EvictToWatermark(fraction)
+		return gpuCount + cpuCount
 	}
 	return 0
 }

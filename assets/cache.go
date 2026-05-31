@@ -1,6 +1,9 @@
 package assets
 
-import "container/heap"
+import (
+	"container/heap"
+	"sort"
+)
 
 // TextureID identifies an uploaded texture resource.
 type TextureID uint64
@@ -163,6 +166,63 @@ func (c *assetCache) popMinEvictable() *lodCacheEntry {
 		heap.Push(&c.lruHeap, keep)
 	}
 	return nil
+}
+
+// EvictGPUToWatermark frees GPU textures from cache entries until GPU used
+// bytes are at or below the given fraction of the GPU budget (0.0–1.0).
+// CPU LOD data survives — entries stay in the cache and registry so assets
+// remain drawable from CPU. This is the GPU-first eviction path called on
+// moderate memory pressure before resorting to full CPU+GPU eviction.
+func (c *assetCache) EvictGPUToWatermark(fraction float64) int {
+	if c == nil || c.gpuBudget <= 0 || c.gpuUsed <= 0 {
+		return 0
+	}
+	targetGPU := int64(float64(c.gpuBudget) * fraction)
+	if c.gpuUsed <= targetGPU {
+		return 0
+	}
+
+	// Collect entries with GPU data, sorted by last-use (oldest first).
+	var candidates []*lodCacheEntry
+	for _, entry := range c.entries {
+		if entry.textureID != 0 || entry.gpuBytes > 0 {
+			candidates = append(candidates, entry)
+		}
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		return candidates[i].lastUse < candidates[j].lastUse
+	})
+
+	count := 0
+	for _, victim := range candidates {
+		if c.gpuUsed <= targetGPU {
+			break
+		}
+		if c.currentRefCount(victim) > 0 {
+			continue
+		}
+		if c.backend != nil && victim.textureID != 0 {
+			c.backend.FreeTexture(victim.textureID)
+		}
+		c.gpuUsed -= victim.gpuBytes
+		victim.gpuBytes = 0
+		victim.textureID = 0
+		// Update registry: clear GPU fields, keep CPU LOD data.
+		if c.registry != nil {
+			if regEntry := c.registry.Get(victim.assetID); regEntry != nil {
+				if victim.lod >= 0 && victim.lod < len(regEntry.LODGPUReady) {
+					regEntry.LODGPUReady[victim.lod] = false
+					regEntry.LODTextureIDs[victim.lod] = 0
+					regEntry.LODGPUBytes[victim.lod] = 0
+					regEntry.EntryVersion++
+					c.registry.globalVersion++
+				}
+			}
+		}
+		c.evictionsThisFrame++
+		count++
+	}
+	return count
 }
 
 // EvictToWatermark evicts cache entries until used bytes are at or below the

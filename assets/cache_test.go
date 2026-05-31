@@ -1,6 +1,10 @@
 package assets
 
-import "testing"
+import (
+	"fmt"
+	"math"
+	"testing"
+)
 
 type recordingBackend struct {
 	freed []TextureID
@@ -185,5 +189,194 @@ func TestAssetCacheCheckDeviceGenerationGPUOnlyEntriesFullyEvicted(t *testing.T)
 	}
 	if len(cache.entries) != 0 {
 		t.Fatalf("expected 0 cache entries after GPU-only eviction, got %d", len(cache.entries))
+	}
+}
+
+// ── GPU-first eviction tests ────────────────────────────────────────────────
+
+func TestEvictGPUToWatermark_freesOldestGPU(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+	cache := newAssetCache(reg, backend, 1000, 500)
+
+	a := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc010")
+	b := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc011")
+	c := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc012")
+
+	reg.SetLODReady(a, 0, &DecodedSVGLOD0{Data: []byte("a")}, 1)
+	reg.SetLODReady(b, 0, &DecodedSVGLOD0{Data: []byte("b")}, 1)
+	reg.SetLODReady(c, 0, &DecodedSVGLOD0{Data: []byte("c")}, 1)
+
+	reg.SetLODGPUReady(a, 0, TextureID(1), 50)
+	reg.SetLODGPUReady(b, 0, TextureID(2), 50)
+	reg.SetLODGPUReady(c, 0, TextureID(3), 50)
+
+	cache.trackLOD(a, 0, 100, 50, TextureID(1), 10)
+	cache.trackLOD(b, 0, 100, 50, TextureID(2), 20)
+	cache.trackLOD(c, 0, 100, 50, TextureID(3), 30)
+
+	// Evict GPU to 25% watermark → targetGPU = 500 * 0.25 = 125.
+	// gpuUsed starts at 150. Freeing oldest (a: 50) → 100. Below 125.
+	count := cache.EvictGPUToWatermark(0.25)
+	if count != 1 {
+		t.Fatalf("expected 1 GPU eviction, got %d", count)
+	}
+	if cache.gpuUsed != 100 {
+		t.Fatalf("gpuUsed = %d, want 100", cache.gpuUsed)
+	}
+	if len(backend.freed) != 1 || backend.freed[0] != TextureID(1) {
+		t.Fatalf("expected texture 1 freed, got %v", backend.freed)
+	}
+
+	// CPU data survives — entries stay in cache.
+	if len(cache.entries) != 3 {
+		t.Fatalf("expected 3 entries in cache (CPU data survives), got %d", len(cache.entries))
+	}
+	if cache.usedBytes != 300 {
+		t.Fatalf("usedBytes = %d, want 300 (CPU data unchanged)", cache.usedBytes)
+	}
+
+	// Registry: GPU fields cleared for 'a', CPU data intact.
+	entryA := reg.Get(a)
+	if entryA == nil {
+		t.Fatal("expected entry A to survive GPU-only eviction")
+	}
+	if entryA.LODHandles[0] == nil {
+		t.Fatal("expected CPU LOD data for A to survive")
+	}
+	if entryA.LODGPUReady[0] {
+		t.Fatal("expected LODGPUReady to be cleared for A")
+	}
+	if entryA.LODTextureIDs[0] != 0 {
+		t.Fatal("expected LODTextureID to be cleared for A")
+	}
+
+	// B and C are still GPU-ready.
+	entryB := reg.Get(b)
+	if !entryB.LODGPUReady[0] {
+		t.Fatal("expected B to remain GPU-ready")
+	}
+	entryC := reg.Get(c)
+	if !entryC.LODGPUReady[0] {
+		t.Fatal("expected C to remain GPU-ready")
+	}
+}
+
+func TestEvictGPUToWatermark_skipsReferencedEntries(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+	cache := newAssetCache(reg, backend, 1000, 100)
+
+	keep := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc013")
+	evict := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc014")
+
+	reg.SetLODReady(keep, 0, &DecodedSVGLOD0{Data: []byte("keep")}, 1)
+	reg.SetLODReady(evict, 0, &DecodedSVGLOD0{Data: []byte("evict")}, 1)
+
+	reg.GetOrCreate(keep).LODRefCounts[0] = 1
+
+	cache.trackLOD(keep, 0, 50, 50, TextureID(10), 1)
+	cache.trackLOD(evict, 0, 50, 50, TextureID(11), 2)
+
+	// GPU watermark at 0% → evict everything GPU.
+	count := cache.EvictGPUToWatermark(0)
+	if count != 1 {
+		t.Fatalf("expected 1 GPU eviction (only unreferenced), got %d", count)
+	}
+	if len(backend.freed) != 1 || backend.freed[0] != TextureID(11) {
+		t.Fatalf("expected only texture 11 freed (referenced skipped), got %v", backend.freed)
+	}
+	if cache.gpuUsed != 50 {
+		t.Fatalf("gpuUsed = %d, want 50 (referenced entry's GPU survives)", cache.gpuUsed)
+	}
+}
+
+func TestEvictGPUToWatermark_noOpWhenNoGPUData(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+	cache := newAssetCache(reg, backend, 1000, 100)
+
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc015")
+	reg.SetLODReady(id, 0, &DecodedSVGLOD0{Data: []byte("data")}, 1)
+	cache.trackLOD(id, 0, 50, 0, TextureID(0), 1)
+
+	count := cache.EvictGPUToWatermark(0)
+	if count != 0 {
+		t.Fatalf("expected 0 GPU evictions when no GPU data, got %d", count)
+	}
+	if len(backend.freed) != 0 {
+		t.Fatal("expected no frees when no GPU data")
+	}
+}
+
+func TestEvictGPUToWatermark_stopsAtWatermark(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+	cache := newAssetCache(reg, backend, 1000, 500)
+
+	for i := 0; i < 5; i++ {
+		id := mustAssetID(t, fmt.Sprintf("01234567-89ab-cdef-0123-456789abc02%d", i))
+		reg.SetLODReady(id, 0, &DecodedSVGLOD0{Data: []byte{byte(i)}}, 1)
+		cache.trackLOD(id, 0, 100, 100, TextureID(100+i), int64(i*10))
+	}
+
+	if cache.gpuUsed != 500 {
+		t.Fatalf("gpuUsed = %d, want 500", cache.gpuUsed)
+	}
+
+	// Evict to 50% watermark → targetGPU = 250. Need to free 250 bytes.
+	// Freeing oldest 3 entries (100+100+100=300) would overshoot.
+	// gpuUsed after 2 freed (100+100=200): 300. Still above 250.
+	// gpuUsed after 3 freed (100+100+100=300): 200. Below 250. Stop at 3.
+	count := cache.EvictGPUToWatermark(0.50)
+	// Need exactly 3 frees: 500 - 300 = 200 <= 250.
+	if count != 3 {
+		t.Fatalf("expected 3 GPU evictions to reach 50%% watermark, got %d", count)
+	}
+	if cache.gpuUsed > 250 {
+		t.Fatalf("gpuUsed = %d, want <= 250 after eviction to 50%%", cache.gpuUsed)
+	}
+	if len(backend.freed) != 3 {
+		t.Fatalf("expected 3 textures freed, got %d", len(backend.freed))
+	}
+	// CPU data for all 5 entries survives (usedBytes unchanged).
+	if cache.usedBytes != 500 {
+		t.Fatalf("usedBytes = %d, want 500 (CPU data unchanged)", cache.usedBytes)
+	}
+	if len(cache.entries) != 5 {
+		t.Fatalf("expected all 5 entries to survive GPU-only eviction, got %d", len(cache.entries))
+	}
+}
+
+// ── TrimLevelFraction mapping tests ──────────────────────────────────────────
+
+func TestTrimLevelFraction_mapping(t *testing.T) {
+	tests := []struct {
+		level int
+		want  float64
+		desc  string
+	}{
+		{0, 0.75, "unknown"},
+		{4, 0.75, "just below RUNNING_MODERATE"},
+		{5, 0.50, "TRIM_MEMORY_RUNNING_MODERATE"},
+		{9, 0.50, "just below RUNNING_LOW"},
+		{10, 0.25, "TRIM_MEMORY_RUNNING_LOW"},
+		{14, 0.25, "just below RUNNING_CRITICAL"},
+		{15, 0.0, "TRIM_MEMORY_RUNNING_CRITICAL"},
+		{19, 0.0, "just below UI_HIDDEN"},
+		{20, 0.50, "TRIM_MEMORY_UI_HIDDEN"},
+		{39, 0.50, "just below BACKGROUND"},
+		{40, 0.25, "TRIM_MEMORY_BACKGROUND"},
+		{59, 0.25, "just below MODERATE"},
+		{60, 0.10, "TRIM_MEMORY_MODERATE"},
+		{79, 0.10, "just below COMPLETE"},
+		{80, 0.0, "TRIM_MEMORY_COMPLETE"},
+		{100, 0.0, "above COMPLETE"},
+	}
+	for _, tt := range tests {
+		got := TrimLevelFraction(tt.level)
+		if math.Abs(got-tt.want) > 0.001 {
+			t.Errorf("TrimLevelFraction(%d) = %.2f, want %.2f (%s)", tt.level, got, tt.want, tt.desc)
+		}
 	}
 }

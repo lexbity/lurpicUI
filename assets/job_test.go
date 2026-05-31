@@ -1014,6 +1014,150 @@ func TestAssetResidency_policyTable(t *testing.T) {
 	}
 }
 
+// ── TrimMemory GPU-first eviction tests ─────────────────────────────────────
+
+func TestTrimMemory_gpuFirstEviction(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+
+	// Byte budgets: 5KB CPU, 3KB GPU. At 50%: targetCPU=2500, targetGPU=1500.
+	// Entries: id1 (CPU=4096, GPU=2048), id2 (CPU=1024, GPU=512).
+	// GPU used = 2560 > 1500 → GPU eviction.
+	// CPU used = 5120 > 2500 → CPU eviction.
+	m := NewManagerWithCache(reg, staticSource{}, BackendSoftware, nil, nil, backend, 5000, 3000)
+
+	id1 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc020")
+	id2 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc021")
+
+	entry1 := reg.GetOrCreate(id1)
+	entry1.Type = AssetTypeImage
+	entry2 := reg.GetOrCreate(id2)
+	entry2.Type = AssetTypeImage
+
+	reg.SetLODReady(id1, 0, &DecodedImageLOD{Data: []byte("img1-data"), Width: 32, Height: 32}, 100)
+	reg.SetLODReady(id2, 0, &DecodedImageLOD{Data: []byte("img2-data"), Width: 16, Height: 16}, 100)
+
+	reg.SetLODGPUReady(id1, 0, TextureID(30), 2048)
+	reg.SetLODGPUReady(id2, 0, TextureID(40), 512)
+
+	m.cache.trackLOD(id1, 0, 4096, 2048, TextureID(30), 10)
+	m.cache.trackLOD(id2, 0, 1024, 512, TextureID(40), 20)
+
+	if m.cache.gpuUsed != 2560 {
+		t.Fatalf("gpuUsed = %d, want 2560", m.cache.gpuUsed)
+	}
+	if m.cache.usedBytes != 5120 {
+		t.Fatalf("usedBytes = %d, want 5120", m.cache.usedBytes)
+	}
+
+	// RUNNING_MODERATE (5) → 50% → targetGPU=1500, targetCPU=2500.
+	// Both used > target → both eviction passes run.
+	count := m.TrimMemory(5)
+	if count == 0 {
+		t.Fatal("expected TrimMemory(5) to evict entries")
+	}
+	if len(backend.freed) == 0 {
+		t.Fatal("expected GPU textures to be freed during trim")
+	}
+	if m.cache.gpuUsed > 1500 {
+		t.Fatalf("gpuUsed = %d, want <= 1500 after 50%% watermark", m.cache.gpuUsed)
+	}
+	if m.cache.usedBytes > 2500 {
+		t.Fatalf("usedBytes = %d, want <= 2500 after 50%% watermark", m.cache.usedBytes)
+	}
+}
+
+func TestTrimMemory_moderatePressureFreesGPUBeforeCPU(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+
+	// Byte budgets: 8KB CPU, 2KB GPU.
+	// RUNNING_LOW (10) → 25% → targetCPU=2048, targetGPU=512.
+	// GPU used: 2560 > 512 → GPU eviction.
+	// CPU used: 5120 > 2048 → CPU eviction.
+	m := NewManagerWithCache(reg, staticSource{}, BackendSoftware, nil, nil, backend, 8000, 2048)
+
+	id1 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc022")
+	id2 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc023")
+
+	entry1 := reg.GetOrCreate(id1)
+	entry1.Type = AssetTypeImage
+	entry2 := reg.GetOrCreate(id2)
+	entry2.Type = AssetTypeImage
+
+	reg.SetLODReady(id1, 0, &DecodedImageLOD{Data: []byte("data1"), Width: 32, Height: 32}, 100)
+	reg.SetLODReady(id2, 0, &DecodedImageLOD{Data: []byte("data2"), Width: 16, Height: 16}, 100)
+
+	reg.SetLODGPUReady(id1, 0, TextureID(50), 2048)
+	reg.SetLODGPUReady(id2, 0, TextureID(60), 512)
+
+	m.cache.trackLOD(id1, 0, 4096, 2048, TextureID(50), 10)
+	m.cache.trackLOD(id2, 0, 1024, 512, TextureID(60), 20)
+
+	beforeGPU := m.cache.gpuUsed
+	count := m.TrimMemory(10)
+	if count == 0 {
+		t.Fatal("expected TrimMemory(10) to evict data")
+	}
+	if m.cache.gpuUsed >= beforeGPU {
+		t.Fatal("expected GPU used to decrease after trim")
+	}
+	if len(backend.freed) == 0 {
+		t.Fatal("expected GPU textures to be freed")
+	}
+}
+
+func TestTrimMemory_gpuFirstBeforeFullEviction(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+
+	// Byte budgets: large enough for CPU data to survive after GPU eviction.
+	// id1: sizeBytes=4096. COMPLETE (80) → 0% → evict everything.
+	m := NewManagerWithCache(reg, staticSource{}, BackendSoftware, nil, nil, backend, 8000, 3000)
+
+	id1 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc024")
+	id2 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc025")
+
+	entry1 := reg.GetOrCreate(id1)
+	entry1.Type = AssetTypeImage
+	entry2 := reg.GetOrCreate(id2)
+	entry2.Type = AssetTypeImage
+
+	reg.SetLODReady(id1, 0, &DecodedImageLOD{Data: []byte("data1"), Width: 32, Height: 32}, 100)
+	reg.SetLODReady(id2, 0, &DecodedImageLOD{Data: []byte("data2"), Width: 16, Height: 16}, 100)
+
+	reg.SetLODGPUReady(id1, 0, TextureID(70), 2048)
+	reg.SetLODGPUReady(id2, 0, TextureID(80), 512)
+
+	// id1 has CPU+GPU, id2 has only GPU.
+	m.cache.trackLOD(id1, 0, 4096, 2048, TextureID(70), 10)
+	m.cache.trackLOD(id2, 0, 0, 512, TextureID(80), 20)
+
+	if m.cache.gpuUsed != 2560 {
+		t.Fatalf("gpuUsed = %d, want 2560", m.cache.gpuUsed)
+	}
+
+	// COMPLETE → 0% → GPU eviction clears GPU from both, then EvictToWatermark
+	// evicts remaining CPU data (0% targetCPU = 0, usedBytes=4096).
+	count := m.TrimMemory(80)
+	if count == 0 {
+		t.Fatal("expected TrimMemory(80) to evict entries")
+	}
+
+	// Both GPU textures freed.
+	if len(backend.freed) != 2 {
+		t.Fatalf("expected 2 GPU textures freed, got %d: %v", len(backend.freed), backend.freed)
+	}
+
+	// At 0%, everything gets evicted (both GPU-only and CPU+GPU entries).
+	if m.cache.gpuUsed != 0 {
+		t.Fatalf("expected gpuUsed = 0 after complete trim, got %d", m.cache.gpuUsed)
+	}
+	if m.cache.usedBytes != 0 {
+		t.Fatalf("expected usedBytes = 0 after complete trim, got %d", m.cache.usedBytes)
+	}
+}
+
 func mustAssetID(t *testing.T, s string) AssetID {
 	t.Helper()
 	id, err := ParseAssetID(s)
