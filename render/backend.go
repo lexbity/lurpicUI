@@ -47,6 +47,7 @@ type TextureUploadResult struct {
 	AssetID   uint64
 	TextureID TextureID
 	LOD       int
+	GPUBytes  int64
 	Err       error
 }
 

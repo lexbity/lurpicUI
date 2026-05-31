@@ -53,10 +53,18 @@ func (u *assetUploader) Enqueue(req assets.TextureUploadRequest) bool {
 		PixelData: req.Pixels,
 		Width:     uint16(req.Width),
 		Height:    uint16(req.Height),
+		Format:    render.TextureFormat(req.Format),
 		MipLevels: uint8(req.MipLevels),
 		// ResultCh: nil → defaults to the upload queue's shared results channel.
 	}
 	return u.queue.Enqueue(rreq)
+}
+
+func (u *assetUploader) TargetFormat() uint32 {
+	if u == nil || u.queue == nil {
+		return uint32(render.TextureFormatRGBA8)
+	}
+	return uint32(u.queue.TargetFormat())
 }
 
 func (u *assetUploader) Results() <-chan assets.TextureUploadResult {
@@ -92,6 +100,7 @@ func (u *assetUploader) forwardResults() {
 				AssetID:   id,
 				LOD:       r.LOD,
 				TextureID: assets.TextureID(r.TextureID),
+				GPUBytes:  r.GPUBytes,
 				OK:        r.Err == nil,
 			}:
 			case <-u.done:

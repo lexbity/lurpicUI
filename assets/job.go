@@ -565,7 +565,7 @@ func (m *ManagerImpl) enqueueUpload(job *AssetLoadJob) {
 				Width:     int(img.Width),
 				Height:    int(img.Height),
 				MipLevels: 1,
-				Format:    img.Format,
+				Format:    m.uploader.TargetFormat(),
 			}
 			m.uploader.Enqueue(req)
 		}
@@ -613,7 +613,7 @@ func (m *ManagerImpl) RequestUpload(id AssetID, lod int) bool {
 			Width:     int(img.Width),
 			Height:    int(img.Height),
 			MipLevels: 1,
-			Format:    img.Format,
+			Format:    m.uploader.TargetFormat(),
 		}
 		return m.uploader.Enqueue(req)
 	}
@@ -693,7 +693,12 @@ func decodeJobPayload(typ AssetType, lod int, data []byte, backend BackendType) 
 			return &DecodedSVGLOD0{Data: append([]byte(nil), data...)}, nil
 		}
 	case AssetTypeImage:
-		return &DecodedImageLOD{Data: append([]byte(nil), data...)}, nil
+		d := &DecodedImageLOD{Data: append([]byte(nil), data...)}
+		if w, h, err := decodeImageHeader(data); err == nil {
+			d.Width = w
+			d.Height = h
+		}
+		return d, nil
 	case AssetTypeFont:
 		return &DecodedFontLOD{Data: append([]byte(nil), data...)}, nil
 	case AssetTypeConfig:

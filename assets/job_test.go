@@ -288,7 +288,8 @@ func (u *fakeUploader) Results() <-chan TextureUploadResult {
 	return u.results
 }
 
-func (u *fakeUploader) Budget() int { return u.budget }
+func (u *fakeUploader) Budget() int                { return u.budget }
+func (u *fakeUploader) TargetFormat() uint32       { return 0 }
 
 // ── Residency constructor tests ─────────────────────────────────────────────
 
@@ -457,7 +458,8 @@ func (u *resultUploader) Results() <-chan TextureUploadResult {
 	return u.results
 }
 
-func (u *resultUploader) Budget() int { return u.budget }
+func (u *resultUploader) Budget() int          { return u.budget }
+func (u *resultUploader) TargetFormat() uint32 { return 0 }
 
 func (u *resultUploader) send(id AssetID, lod int, texID TextureID, gpuBytes int64) {
 	u.results <- TextureUploadResult{
@@ -622,6 +624,8 @@ func (u *recordingUploader) Budget() int {
 	}
 	return u.budget
 }
+
+func (u *recordingUploader) TargetFormat() uint32 { return 0 }
 
 func TestCommitJob_enqueuesRasterInGPUMode(t *testing.T) {
 	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc001")

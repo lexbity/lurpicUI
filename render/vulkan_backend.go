@@ -25,7 +25,12 @@ func (b *VulkanBackend) UploadTexture(req TextureUploadRequest) (TextureID, erro
 	if len(req.PixelData) == 0 {
 		return 0, errors.New("vulkan backend: empty pixel data")
 	}
-	if req.Format != TextureFormatRGBA8 {
+	switch req.Format {
+	case TextureFormatRGBA8, TextureFormatASTC4x4, TextureFormatBC7:
+		// Accepted — the backend stores data as RGBA8 in host memory
+		// regardless of the upload format hint. The format is used
+		// for GPU budget accounting (see uploadGPUBytes).
+	default:
 		return 0, fmt.Errorf("vulkan backend: unsupported source format %s", req.Format)
 	}
 	hooks := currentVulkanHooks()

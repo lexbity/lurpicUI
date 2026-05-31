@@ -30,4 +30,8 @@ type TextureUploader interface {
 	Enqueue(req TextureUploadRequest) bool
 	Results() <-chan TextureUploadResult
 	Budget() int
+	// TargetFormat returns the backend's preferred GPU texture format
+	// as a TextureFormat uint32 (0=RGBA8, 1=ASTC4x4, 2=BC7). The
+	// manager uses this to compute the equivalent GPU byte footprint.
+	TargetFormat() uint32
 }
