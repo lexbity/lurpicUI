@@ -218,8 +218,22 @@ func (c *assetCache) CheckDeviceGeneration(currentGen uint64) bool {
 			entry.gpuBytes = 0
 			entry.textureID = 0
 			if entry.sizeBytes > 0 {
+				// Has CPU data → keep the entry, just clear GPU fields so
+				// the LOD stays CPU-ready. Update the registry to reflect
+				// the loss of GPU residency.
+				if c.registry != nil {
+					if regEntry := c.registry.Get(entry.assetID); regEntry != nil {
+						if entry.lod >= 0 && entry.lod < len(regEntry.LODGPUReady) {
+							regEntry.LODGPUReady[entry.lod] = false
+							regEntry.LODTextureIDs[entry.lod] = 0
+							regEntry.LODGPUBytes[entry.lod] = 0
+							regEntry.EntryVersion++
+							c.registry.globalVersion++
+						}
+					}
+				}
+			} else {
 				// GPU-only entry → fully evict.
-				c.usedBytes -= entry.sizeBytes
 				delete(c.entries, key)
 				if c.registry != nil {
 					c.registry.ClearLOD(entry.assetID, entry.lod)

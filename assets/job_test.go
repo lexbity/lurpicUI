@@ -786,6 +786,196 @@ func TestCommitJob_enqueuesWithCorrectAssetIDBytes(t *testing.T) {
 	}
 }
 
+// ── RequestUpload tests ──────────────────────────────────────────────────────
+
+func TestRequestUpload_enqueuesImageLOD(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc010")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 32*32*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 32, Height: 32}, 100)
+
+	ok := m.RequestUpload(id, 0)
+	if !ok {
+		t.Fatal("expected RequestUpload to return true")
+	}
+	if len(uploader.enqueued) != 1 {
+		t.Fatalf("expected 1 enqueue, got %d", len(uploader.enqueued))
+	}
+	if uploader.enqueued[0].AssetID != id {
+		t.Fatalf("unexpected AssetID: got %v, want %v", uploader.enqueued[0].AssetID, id)
+	}
+	if uploader.enqueued[0].LOD != 0 {
+		t.Fatalf("expected LOD 0, got %d", uploader.enqueued[0].LOD)
+	}
+}
+
+func TestRequestUpload_noOpWhenGPUReady(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc011")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 16*16*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 16, Height: 16}, 100)
+	reg.SetLODGPUReady(id, 0, TextureID(1), 512)
+
+	ok := m.RequestUpload(id, 0)
+	if ok {
+		t.Fatal("expected RequestUpload to return false for already GPU-ready LOD")
+	}
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 enqueues, got %d", len(uploader.enqueued))
+	}
+}
+
+func TestRequestUpload_noOpForSVG(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc012")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	reg.SetLODReady(id, 0, &DecodedSVGLOD0{Data: []byte("vector-data")}, 100)
+
+	ok := m.RequestUpload(id, 0)
+	if ok {
+		t.Fatal("expected RequestUpload to return false for SVG asset")
+	}
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 enqueues for SVG, got %d", len(uploader.enqueued))
+	}
+}
+
+func TestRequestUpload_noOpWhenNilUploader(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc013")
+	reg := NewAssetRegistryStore()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyGPUResident, 64, 128)
+
+	rgba := make([]byte, 8*8*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 8, Height: 8}, 100)
+
+	ok := m.RequestUpload(id, 0)
+	if ok {
+		t.Fatal("expected RequestUpload to return false with nil uploader")
+	}
+}
+
+func TestRequestUpload_noOpWhenCPUMode(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc014")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyCPUOnly, 64, 128)
+
+	rgba := make([]byte, 32*32*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 32, Height: 32}, 100)
+
+	ok := m.RequestUpload(id, 0)
+	if ok {
+		t.Fatal("expected RequestUpload to return false in CPU-only mode")
+	}
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 enqueues in CPU mode, got %d", len(uploader.enqueued))
+	}
+}
+
+func TestRequestUpload_noOpForMissingLOD(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc015")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	// Entry exists but no LOD data.
+	reg.GetOrCreate(id)
+
+	ok := m.RequestUpload(id, 0)
+	if ok {
+		t.Fatal("expected RequestUpload to return false when LOD has no data")
+	}
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 enqueues for missing LOD, got %d", len(uploader.enqueued))
+	}
+}
+
+func TestRequestUpload_noOpForMissingEntry(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc016")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	ok := m.RequestUpload(id, 0)
+	if ok {
+		t.Fatal("expected RequestUpload to return false for missing entry")
+	}
+}
+
+func TestRequestUpload_deviceLossRecoveryFullCycle(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc017")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+	backend := &recordingBackend{}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+	m.SetTextureReleaser(backend)
+	m.cache.deviceGeneration = 1
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 64*64*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 64, Height: 64}, 100)
+
+	// Track in cache and mark GPU-ready (simulating initial upload).
+	m.cache.trackLOD(id, 0, 16384, 4096, TextureID(42), 0)
+	reg.SetLODGPUReady(id, 0, TextureID(42), 4096)
+
+	// ── Device generation bump ───────────────────────────────────────────
+	changed := m.CheckDeviceGeneration(2)
+	if !changed {
+		t.Fatal("expected device generation change detection")
+	}
+
+	// GPU texture freed exactly once.
+	if len(backend.freed) != 1 || backend.freed[0] != TextureID(42) {
+		t.Fatalf("expected texture 42 freed once, got %v", backend.freed)
+	}
+
+	// LOD is CPU-ready but not GPU-ready after device loss.
+	entry = reg.Get(id)
+	if entry == nil {
+		t.Fatal("expected entry to survive device loss")
+	}
+	if entry.LODHandles[0] == nil {
+		t.Fatal("expected CPU LOD data to survive device loss")
+	}
+	if entry.LODGPUReady[0] {
+		t.Fatal("expected LOD to not be GPU-ready after device loss")
+	}
+
+	// ── Lazy re-upload ───────────────────────────────────────────────────
+	ok := m.RequestUpload(id, 0)
+	if !ok {
+		t.Fatal("expected RequestUpload to re-enqueue after device loss")
+	}
+	if len(uploader.enqueued) != 1 {
+		t.Fatalf("expected 1 re-enqueue, got %d", len(uploader.enqueued))
+	}
+	if uploader.enqueued[0].AssetID != id || uploader.enqueued[0].LOD != 0 {
+		t.Fatalf("unexpected enqueue: %+v", uploader.enqueued[0])
+	}
+}
+
 func TestAssetResidency_policyTable(t *testing.T) {
 	tests := []struct {
 		typ        AssetType

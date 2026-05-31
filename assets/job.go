@@ -568,6 +568,54 @@ func (m *ManagerImpl) enqueueUpload(job *AssetLoadJob) {
 	}
 }
 
+// RequestUpload enqueues a GPU upload for the given asset LOD when the
+// LOD is CPU-ready and should be GPU-resident according to residency policy.
+// Returns true if the upload was enqueued. No-op when:
+//   - the backend is not GPU-capable
+//   - the LOD is already GPU-ready or in-flight
+//   - the asset type is not GPU-eligible
+//   - the LOD has no decoded data
+//
+// This is the lazy re-upload path triggered by ResolveDrawable after
+// device-loss recovery or eviction.
+func (m *ManagerImpl) RequestUpload(id AssetID, lod int) bool {
+	gpuCapable := m != nil && m.uploader != nil && m.uploader.Budget() > 0 && m.registry != nil
+	if !gpuCapable {
+		return false
+	}
+
+	entry := m.registry.Get(id)
+	if entry == nil {
+		return false
+	}
+	if AssetResidency(entry.Type, m.residency, true) != ResidencyGPU {
+		return false
+	}
+	if lod < 0 || lod >= len(entry.LODHandles) {
+		return false
+	}
+	if entry.LODGPUReady[lod] {
+		return false
+	}
+	if entry.LODHandles[lod] == nil {
+		return false
+	}
+
+	if img, ok := entry.LODHandles[lod].(*DecodedImageLOD); ok && len(img.Data) > 0 {
+		req := TextureUploadRequest{
+			AssetID:   id,
+			LOD:       lod,
+			Pixels:    img.Data,
+			Width:     int(img.Width),
+			Height:    int(img.Height),
+			MipLevels: 1,
+			Format:    img.Format,
+		}
+		return m.uploader.Enqueue(req)
+	}
+	return false
+}
+
 func (m *ManagerImpl) drainWaiting(readyID AssetID) {
 	m.drainWaitingForLeaf(readyID)
 }

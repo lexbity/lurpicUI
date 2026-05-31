@@ -159,6 +159,12 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 			if q := rt.renderPipeline.UploadQueue(); q != nil {
 				m.SetUploader(newAssetUploader(q))
 			}
+			// Wire the device-loss re-upload callback so that ResolveDrawable
+			// can trigger a lazy re-upload when a GPU LOD was invalidated but
+			// the CPU data survives.
+			assets.SetGPUReuploadCallback(func(id assets.AssetID, lod int) {
+				m.RequestUpload(id, lod)
+			})
 		}
 	}
 

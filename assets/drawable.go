@@ -12,6 +12,20 @@ type Runtime interface {
 	AssetRegistry() *AssetRegistryStore
 }
 
+// gpuReuploadFn is the optional callback set by the runtime, called by
+// ResolveDrawable when a GPU-eligible LOD is CPU-ready but not GPU-ready,
+// requesting a re-upload (e.g. after device-loss or eviction). Must be
+// set once at startup and never unset. Nil means no re-upload is requested.
+var gpuReuploadFn func(id AssetID, lod int)
+
+// SetGPUReuploadCallback sets the function called by ResolveDrawable when
+// a GPU-eligible asset LOD is CPU-ready but not GPU-ready, requesting a
+// re-upload. This is used by the runtime after device-loss recovery and
+// must be called on the runtime thread during initialisation.
+func SetGPUReuploadCallback(fn func(id AssetID, lod int)) {
+	gpuReuploadFn = fn
+}
+
 // ResolveDrawable picks the highest-residency representation available for
 // handle: GPUTexture > CPUBitmap/Vector, falling back gracefully while a
 // GPU upload is still in flight. Pure; no allocation of GPU resources.
@@ -50,6 +64,11 @@ func ResolveDrawable(rt Runtime, handle Handle, typ AssetType) (gfx.DrawableRef,
 		switch typ {
 		case AssetTypeImage:
 			if img, ok := decoded.(*DecodedImageLOD); ok && len(img.Data) > 0 {
+				// Request GPU re-upload when the LOD is not GPU-ready
+				// (e.g. after device-loss recovery or eviction).
+				if gpuReuploadFn != nil && !entry.LODGPUReady[lod] {
+					gpuReuploadFn(entry.ID, lod)
+				}
 				return gfx.DrawableRef{
 					Kind:   gfx.DrawableCPUBitmap,
 					Bitmap: imageFromDecoded(img),

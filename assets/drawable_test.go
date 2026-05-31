@@ -194,3 +194,70 @@ func TestResolveDrawable_returnsNoneForZeroHandle(t *testing.T) {
 		t.Fatal("expected resolve to fail for zero handle")
 	}
 }
+
+func TestResolveDrawable_triggersReuploadCallbackWhenNotGPUReady(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc010")
+	handle := NewHandle(id, reg)
+
+	rgba := make([]byte, 16*16*4)
+	for i := range rgba {
+		rgba[i] = 128
+	}
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 16, Height: 16}, 100)
+
+	// Register a callback that records the call.
+	var calledID AssetID
+	var calledLOD int
+	prev := gpuReuploadFn
+	SetGPUReuploadCallback(func(aid AssetID, lod int) {
+		calledID = aid
+		calledLOD = lod
+	})
+	defer SetGPUReuploadCallback(prev)
+
+	rt := &fakeRuntime{reg: reg}
+	ref, ok := ResolveDrawable(rt, handle, AssetTypeImage)
+	if !ok {
+		t.Fatal("expected resolve to succeed (CPU fallback triggers re-upload)")
+	}
+	if ref.Kind != gfx.DrawableCPUBitmap {
+		t.Fatalf("expected CPUBitmap fallback, got %v", ref.Kind)
+	}
+
+	if calledID != id {
+		t.Fatalf("expected callback with ID %v, got %v", id, calledID)
+	}
+	if calledLOD != 0 {
+		t.Fatalf("expected callback with LOD 0, got %d", calledLOD)
+	}
+}
+
+func TestResolveDrawable_doesNotTriggerReuploadWhenGPUReady(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc011")
+	handle := NewHandle(id, reg)
+
+	rgba := make([]byte, 32*32*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 32, Height: 32}, 100)
+	reg.SetLODGPUReady(id, 0, TextureID(99), 2048)
+
+	var callbackCalled bool
+	prev := gpuReuploadFn
+	SetGPUReuploadCallback(func(aid AssetID, lod int) {
+		callbackCalled = true
+	})
+	defer SetGPUReuploadCallback(prev)
+
+	rt := &fakeRuntime{reg: reg}
+	ref, ok := ResolveDrawable(rt, handle, AssetTypeImage)
+	if !ok {
+		t.Fatal("expected resolve to succeed")
+	}
+	if ref.Kind != gfx.DrawableGPUTexture {
+		t.Fatalf("expected GPUTexture, got %v", ref.Kind)
+	}
+	if callbackCalled {
+		t.Fatal("expected no re-upload callback when LOD is already GPU-ready")
+	}
+}
