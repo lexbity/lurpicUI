@@ -88,12 +88,13 @@ const (
 )
 
 type iconResolvedSource struct {
-	kind    iconResolvedSourceKind
-	asset   runtimepkg.IconAsset
-	managed assets.Handle
-	doc     svgnorm.SVGDocument
-	box     gfx.Rect
-	key     string
+	kind     iconResolvedSourceKind
+	asset    runtimepkg.IconAsset
+	managed  assets.Handle
+	drawable gfx.DrawableRef
+	doc      svgnorm.SVGDocument
+	box      gfx.Rect
+	key      string
 }
 
 var _ facet.FacetImpl = (*Icon)(nil)
@@ -560,12 +561,27 @@ func (i *Icon) resolveSourceWithKey(runtime any) (string, iconResolvedSource, bo
 		if handle.IsZero() {
 			return "", iconResolvedSource{}, false
 		}
-		key := fmt.Sprintf("asset:%s:%d", path, handle.AvailableLOD())
+
+		// Resolve via shared drawable helper for canonical key and
+		// representation state. Falls back on UUID+version+LOD key
+		// when the helper cannot resolve (e.g. SVG LOD 2/1 only).
+		var ref gfx.DrawableRef
+		refOK := false
+		if rt, ok := runtime.(assets.Runtime); ok {
+			ref, refOK = assets.ResolveDrawable(rt, handle, assets.AssetTypeSVG)
+		}
+
 		box := gfx.RectFromXYWH(0, 0, 1, 1)
+		key := ""
 		if regProvider, okReg := runtime.(assetRegistryProvider); okReg {
 			if reg := regProvider.AssetRegistry(); reg != nil {
 				if entry := reg.Get(handle.ID); entry != nil {
-					key = fmt.Sprintf("asset:%s:%d:%d", path, entry.EntryVersion, handle.AvailableLOD())
+					if refOK {
+						key = ref.Key
+					} else {
+						lod := handle.AvailableLOD()
+						key = fmt.Sprintf("asset:%s:%d:%d", handle.ID.String(), entry.EntryVersion, lod)
+					}
 					if entry.LODHandles[0] != nil {
 						if lod0, ok := entry.LODHandles[0].(*assets.DecodedSVGLOD0); ok && len(lod0.Data) > 0 {
 							doc := csg.GetRootAsDocument(lod0.Data, 0)
@@ -577,7 +593,10 @@ func (i *Icon) resolveSourceWithKey(runtime any) (string, iconResolvedSource, bo
 				}
 			}
 		}
-		return key, iconResolvedSource{kind: iconSourceManagedAsset, managed: handle, box: box, key: key}, true
+		if key == "" {
+			return "", iconResolvedSource{}, false
+		}
+		return key, iconResolvedSource{kind: iconSourceManagedAsset, managed: handle, drawable: ref, box: box, key: key}, true
 	case IconSVG:
 		srcText := strings.TrimSpace(string(src))
 		if srcText == "" {
@@ -646,7 +665,7 @@ func buildIconCommands(src iconResolvedSource, target gfx.Rect, color gfx.Color,
 			gfx.PopTransform{},
 		}
 	case iconSourceManagedAsset:
-		return buildManagedAssetCommands(src.managed, target, color, transform)
+		return buildManagedAssetCommands(src.drawable, src.managed, target, color, transform)
 	case iconSourceSVG:
 		out := make([]gfx.Command, 0, len(src.doc.Elements)*4)
 		for _, el := range src.doc.Elements {
@@ -677,7 +696,7 @@ func buildIconCommands(src iconResolvedSource, target gfx.Rect, color gfx.Color,
 	}
 }
 
-func buildManagedAssetCommands(handle assets.Handle, target gfx.Rect, color gfx.Color, transform gfx.Transform) []gfx.Command {
+func buildManagedAssetCommands(ref gfx.DrawableRef, handle assets.Handle, target gfx.Rect, color gfx.Color, transform gfx.Transform) []gfx.Command {
 	if handle.IsZero() {
 		return nil
 	}
@@ -719,6 +738,13 @@ func buildManagedAssetCommands(handle assets.Handle, target gfx.Rect, color gfx.
 			}
 		}
 	case 0:
+		// Prefer DrawableRef Vector data from ResolveDrawable.
+		if ref.Kind == gfx.DrawableVector && ref.Vector != nil {
+			if lod0, ok := ref.Vector.(*assets.DecodedSVGLOD0); ok {
+				return buildCSGCommands(lod0.Data, target, color, transform)
+			}
+		}
+		// Fall back to direct registry access.
 		if entry != nil {
 			if lod0, ok := entry.LODHandles[0].(*assets.DecodedSVGLOD0); ok {
 				return buildCSGCommands(lod0.Data, target, color, transform)
