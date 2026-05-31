@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -12,6 +13,11 @@ import (
 	"strings"
 	"syscall"
 )
+
+// ErrExtractionNoSpace is returned when the target filesystem lacks enough
+// free space for the pak. It is a classified error (P11) — callers treat it
+// as a recoverable condition, log it, and continue without asset streaming.
+var ErrExtractionNoSpace = errors.New("extract pak: insufficient free space")
 
 // APKAsset abstracts the bundled APK asset stream used during extraction.
 type APKAsset interface {
@@ -25,6 +31,13 @@ type AndroidExtractionContext interface {
 	FilesDir() string
 	OpenAPKAsset(name string) (APKAsset, error)
 	SetExtractionProgress(progress float32)
+}
+
+// CacheDirProvider is an optional interface for extraction contexts that
+// provide a cache directory. When available, the extraction pipeline prefers
+// CacheDir over FilesDir so the OS can reclaim the pak under storage pressure.
+type CacheDirProvider interface {
+	CacheDir() string
 }
 
 // PakMeta is a sidecar file stored alongside the extracted assets.pak.
@@ -116,6 +129,38 @@ func extractPakTempSuffix() string {
 	return fmt.Sprintf(".tmp.%d", os.Getpid())
 }
 
+// checkFreeSpace verifies that the filesystem containing dir has at least
+// neededBytes available. Returns ErrExtractionNoSpace (classified, recoverable)
+// on shortfall.
+func checkFreeSpace(dir string, neededBytes int64) error {
+	if neededBytes <= 0 {
+		return nil
+	}
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(dir, &st); err != nil {
+		// If we can't check, assume there's space (safer to try and fail).
+		return nil
+	}
+	available := int64(st.Bavail) * int64(st.Bsize)
+	// Require 2x the pak size to account for temp file + final file + overhead.
+	if available < neededBytes*2 {
+		return fmt.Errorf("%w: have %d bytes, need at least %d",
+			ErrExtractionNoSpace, available, neededBytes*2)
+	}
+	return nil
+}
+
+// extractDir resolves the target directory for extraction, preferring CacheDir
+// when available (reclaimable by the OS) over FilesDir.
+func extractDir(ctx AndroidExtractionContext) string {
+	if cd, ok := ctx.(CacheDirProvider); ok {
+		if d := cd.CacheDir(); d != "" {
+			return d
+		}
+	}
+	return ctx.FilesDir()
+}
+
 // ExtractPakIfNeeded extracts assets.pak atomically from the APK to internal
 // storage. It writes to a pid-tagged temp file, syncs, then atomically renames
 // to the final path. Stale temp files from previous crashes are cleaned up
@@ -124,7 +169,11 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	if ctx == nil {
 		return fmt.Errorf("extract pak: nil context")
 	}
-	internalDir := ctx.FilesDir()
+	internalDir := extractDir(ctx)
+	if internalDir == "" {
+		// Fall back to FilesDir when CacheDir is unavailable.
+		internalDir = ctx.FilesDir()
+	}
 	if internalDir == "" {
 		return fmt.Errorf("extract pak: empty files dir")
 	}
@@ -150,6 +199,14 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	}
 	defer src.Close()
 
+	// Pre-flight free-space check.
+	total := src.Length()
+	if total > 0 {
+		if err := checkFreeSpace(internalDir, total); err != nil {
+			return err
+		}
+	}
+
 	// Write to a unique temp file (pid-suffixed) so concurrent extractions
 	// from different processes do not share a temp path.
 	dst, err := os.Create(tmpPath)
@@ -164,7 +221,6 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 		}
 	}()
 
-	total := src.Length()
 	if total <= 0 {
 		total = 1
 	}
@@ -295,10 +351,28 @@ func OpenAndroidPak(ctx AndroidExtractionContext) (*PakFS, error) {
 		}
 	}
 	// Fall back: extract to internal storage, then open the file.
+	// The extraction uses CacheDir when available (reclaimable by the OS).
 	if err := ExtractPakIfNeeded(ctx); err != nil {
 		return nil, fmt.Errorf("open android pak: %w", err)
 	}
-	pakPath := filepath.Join(ctx.FilesDir(), "assets.pak")
+	pakPath := filepath.Join(extractDir(ctx), "assets.pak")
+	if pakPath == "" {
+		pakPath = filepath.Join(ctx.FilesDir(), "assets.pak")
+	}
+	// Hash-before-mmap: verify the extracted file's content hash matches
+	// the expected hash from the APK sidecar. If mismatched (tampered or
+	// corrupt), re-extract once. This is a belt-and-suspenders check on
+	// top of the sidecar gate (Phase 4).
+	if apkHash, err := apkSidecarHash(ctx); err == nil {
+		if extractedHash, err := hashFile(pakPath); err == nil && extractedHash != apkHash {
+			// Corrupt or tampered: delete and retry.
+			os.Remove(pakPath)
+			os.Remove(sidecarPath(pakPath))
+			if err := ExtractPakIfNeeded(ctx); err != nil {
+				return nil, fmt.Errorf("open android pak (re-extract): %w", err)
+			}
+		}
+	}
 	return NewPakFS(pakPath)
 }
 

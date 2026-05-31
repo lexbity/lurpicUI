@@ -91,6 +91,13 @@ func (c *androidExtractionContext) FilesDir() string {
 	return c.storage.FilesDir()
 }
 
+func (c *androidExtractionContext) CacheDir() string {
+	if c == nil || c.storage == nil {
+		return ""
+	}
+	return c.storage.CacheDir()
+}
+
 func (c *androidExtractionContext) OpenAPKAsset(name string) (assets.APKAsset, error) {
 	if c == nil || c.mgr == nil {
 		return nil, fmt.Errorf("apk asset manager not available")

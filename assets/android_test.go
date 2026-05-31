@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"sync"
@@ -105,6 +106,49 @@ func TestOpenAndroidPakFDFallback(t *testing.T) {
 		t.Fatalf("extracted file not found: %v", statErr)
 	}
 }
+
+func TestCheckFreeSpace_acceptsSufficientSpace(t *testing.T) {
+	dir := t.TempDir()
+	// Small needed bytes should pass on any writable filesystem.
+	if err := checkFreeSpace(dir, 1024); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestCheckFreeSpace_rejectsAbsurdDemand(t *testing.T) {
+	dir := t.TempDir()
+	// Request more space than any filesystem could reasonably have.
+	err := checkFreeSpace(dir, 1<<60) // 1 exabyte
+	if err == nil {
+		t.Fatal("expected error for absurd space demand")
+	}
+	if !errors.Is(err, ErrExtractionNoSpace) {
+		t.Fatalf("expected ErrExtractionNoSpace, got %v", err)
+	}
+}
+
+func TestExtractDir_prefersCacheDir(t *testing.T) {
+	ctx := &fakeAndroidExtractionContext{dir: "/data/files"}
+	if got := extractDir(ctx); got != "/data/files" {
+		t.Fatalf("extractDir without CacheDirProvider = %q, want /data/files", got)
+	}
+
+	// Add CacheDir support.
+	cacheCtx := &fakeExtractionWithCache{
+		fakeAndroidExtractionContext: fakeAndroidExtractionContext{dir: "/data/files"},
+		cacheDir: "/data/cache",
+	}
+	if got := extractDir(cacheCtx); got != "/data/cache" {
+		t.Fatalf("extractDir with CacheDirProvider = %q, want /data/cache", got)
+	}
+}
+
+type fakeExtractionWithCache struct {
+	fakeAndroidExtractionContext
+	cacheDir string
+}
+
+func (c *fakeExtractionWithCache) CacheDir() string { return c.cacheDir }
 
 func TestExtractPakIfNeededHashesAndCopiesBundledPak(t *testing.T) {
 	dir := t.TempDir()
