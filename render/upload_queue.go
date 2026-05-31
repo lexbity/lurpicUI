@@ -81,6 +81,15 @@ func (q *UploadQueue) DrainBudget() {
 	}
 }
 
+// Budget returns the per-frame upload budget in bytes from the backend.
+// 0 means the backend is not GPU-capable or the queue is nil.
+func (q *UploadQueue) Budget() int {
+	if q == nil || q.backend == nil {
+		return 0
+	}
+	return q.backend.UploadBudgetBytesPerFrame()
+}
+
 // Results exposes the queue's fallback result channel.
 func (q *UploadQueue) Results() <-chan TextureUploadResult {
 	if q == nil {

@@ -423,16 +423,202 @@ func TestNewManagerWithCache_backCompat_preservesReleaser(t *testing.T) {
 		t.Fatal("expected non-nil cache")
 	}
 	if m.cache.backend == nil {
-		t.Fatal("expected textureReleaser to be set on cache")
+		t.Fatal("expected TextureReleaser to be set on cache")
 	}
 	// Verify it's the same backend by calling FreeTexture through the chain.
 	m.cache.backend.FreeTexture(TextureID(42))
 	if len(backend.freed) != 1 || backend.freed[0] != TextureID(42) {
-		t.Fatal("textureReleaser not forwarded correctly")
+		t.Fatal("TextureReleaser not forwarded correctly")
 	}
 }
 
 // ── AssetResidency policy tests ─────────────────────────────────────────────
+
+// ── Upload enqueue tests ────────────────────────────────────────────────────
+
+type recordingUploader struct {
+	enqueued []TextureUploadRequest
+	budget   int
+}
+
+func (u *recordingUploader) Enqueue(req TextureUploadRequest) bool {
+	u.enqueued = append(u.enqueued, req)
+	return true
+}
+
+func (u *recordingUploader) Results() <-chan TextureUploadResult {
+	return nil
+}
+
+func (u *recordingUploader) Budget() int {
+	if u == nil {
+		return 0
+	}
+	return u.budget
+}
+
+func TestCommitJob_enqueuesRasterInGPUMode(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc001")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	// Create and commit a raster image LOD.
+	reg.GetOrCreate(id)
+	job := &AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          0,
+		EntryVersion: 0,
+		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs:    100,
+	}
+	m.commitJob(job)
+
+	if len(uploader.enqueued) != 1 {
+		t.Fatalf("expected 1 enqueue, got %d", len(uploader.enqueued))
+	}
+	req := uploader.enqueued[0]
+	if req.AssetID != id {
+		t.Fatalf("expected AssetID %v, got %v", id, req.AssetID)
+	}
+	if req.LOD != 0 {
+		t.Fatalf("expected LOD 0, got %d", req.LOD)
+	}
+	if string(req.Pixels) != "pixel-data" {
+		t.Fatalf("expected pixels 'pixel-data', got %q", string(req.Pixels))
+	}
+	if req.Width != 64 {
+		t.Fatalf("expected Width 64, got %d", req.Width)
+	}
+	if req.Height != 32 {
+		t.Fatalf("expected Height 32, got %d", req.Height)
+	}
+}
+
+func TestCommitJob_doesNotEnqueueInCPUMode(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc002")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyCPUOnly, 64, 128)
+
+	reg.GetOrCreate(id)
+	job := &AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          0,
+		EntryVersion: 0,
+		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs:    100,
+	}
+	m.commitJob(job)
+
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 enqueues in CPU mode, got %d", len(uploader.enqueued))
+	}
+}
+
+func TestCommitJob_doesNotEnqueueSVG(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc003")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	reg.GetOrCreate(id)
+	job := &AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeSVG,
+		LOD:          0,
+		EntryVersion: 0,
+		Result:       &DecodedSVGLOD0{Data: []byte("vector-data")},
+		ElapsedNs:    100,
+	}
+	m.commitJob(job)
+
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 enqueues for SVG, got %d", len(uploader.enqueued))
+	}
+}
+
+func TestCommitJob_doesNotEnqueueWhenUploaderNil(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc004")
+	reg := NewAssetRegistryStore()
+
+	// Uploader is nil, so even GPUResident mode shouldn't enqueue.
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyGPUResident, 64, 128)
+
+	reg.GetOrCreate(id)
+	job := &AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          0,
+		EntryVersion: 0,
+		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs:    100,
+	}
+	m.commitJob(job)
+
+	if m.uploader != nil {
+		t.Fatal("expected nil uploader")
+	}
+}
+
+func TestCommitJob_doesNotEnqueueWhenUploaderBudgetZero(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc005")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 0}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	reg.GetOrCreate(id)
+	job := &AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          0,
+		EntryVersion: 0,
+		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs:    100,
+	}
+	m.commitJob(job)
+
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 enqueues when budget is 0, got %d", len(uploader.enqueued))
+	}
+}
+
+func TestCommitJob_enqueuesWithCorrectAssetIDBytes(t *testing.T) {
+	// Use a non-zero asset ID to verify the ID is passed through correctly.
+	id := mustAssetID(t, "fedcba98-7654-3210-fedc-ba9876543210")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	reg.GetOrCreate(id)
+	job := &AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          1,
+		EntryVersion: 0,
+		Result:       &DecodedImageLOD{Data: []byte("more-pixels"), Width: 128, Height: 64},
+		ElapsedNs:    200,
+	}
+	m.commitJob(job)
+
+	if len(uploader.enqueued) != 1 {
+		t.Fatalf("expected 1 enqueue, got %d", len(uploader.enqueued))
+	}
+	req := uploader.enqueued[0]
+	if req.AssetID != id {
+		t.Fatalf("AssetID mismatch: got %v, want %v", req.AssetID, id)
+	}
+	if req.LOD != 1 {
+		t.Fatalf("LOD mismatch: got %d, want 1", req.LOD)
+	}
+}
 
 func TestAssetResidency_policyTable(t *testing.T) {
 	tests := []struct {

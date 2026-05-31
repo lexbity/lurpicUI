@@ -86,4 +86,14 @@ func (p *RenderPipeline) destroy() {
 	})
 }
 
+// UploadQueue exposes the pipeline's upload queue for wiring into the
+// asset manager's uploader bridge. Returns nil when the backend does not
+// support textures or the pipeline has not been fully initialised.
+func (p *RenderPipeline) UploadQueue() *render.UploadQueue {
+	if p == nil {
+		return nil
+	}
+	return p.uploadQueue
+}
+
 var errPipelineClosed = errors.New("runtime: render pipeline closed")

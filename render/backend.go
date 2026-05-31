@@ -33,6 +33,7 @@ func (f TextureFormat) String() string {
 // TextureUploadRequest transfers pixel data to a backend texture store.
 type TextureUploadRequest struct {
 	AssetID   uint64
+	LOD       int
 	PixelData []byte
 	Width     uint16
 	Height    uint16

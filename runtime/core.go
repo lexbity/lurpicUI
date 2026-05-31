@@ -148,6 +148,20 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	store.SetProjectionActiveCheck(func() bool {
 		return rt.projectionInProgress.Load()
 	})
+
+	// Wire the GPU texture releaser and uploader bridges when the backend
+	// supports textures. The releaser lets the asset cache free GPU textures
+	// during eviction and device-loss recovery. The uploader enqueues decoded
+	// asset pixels for GPU upload.
+	if tb, ok := backend.(render.TextureBackend); ok && tb.UploadBudgetBytesPerFrame() > 0 {
+		if m, ok := rt.assetManager.(*assets.ManagerImpl); ok {
+			m.SetTextureReleaser(&assetTextureReleaser{backend: tb})
+			if q := rt.renderPipeline.UploadQueue(); q != nil {
+				m.SetUploader(newAssetUploader(q))
+			}
+		}
+	}
+
 	return rt, nil
 }
 

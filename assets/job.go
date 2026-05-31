@@ -140,11 +140,11 @@ func NewManager(registry *AssetRegistryStore, source AssetSource, backend Backen
 // When cacheBytes is > 0, the manager creates an LRU-backed asset cache that
 // evicts under memory pressure. gpuCacheBytes limits GPU-resident data.
 // This is a thin back-compat wrapper; new code should use NewManagerWithResidency.
-func NewManagerWithCache(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler, idReg PathIDRegistry, textureReleaser textureReleaser, cacheBytes, gpuCacheBytes int64) *ManagerImpl {
+func NewManagerWithCache(registry *AssetRegistryStore, source AssetSource, backend BackendType, scheduler JobScheduler, idReg PathIDRegistry, releaser TextureReleaser, cacheBytes, gpuCacheBytes int64) *ManagerImpl {
 	m := NewManagerWithResidency(registry, source, idReg, scheduler, nil, ResidencyCPUOnly, 0, 0)
 	m.backendType = backend
 	if cacheBytes > 0 {
-		m.cache = newAssetCache(registry, textureReleaser, cacheBytes, gpuCacheBytes)
+		m.cache = newAssetCache(registry, releaser, cacheBytes, gpuCacheBytes)
 	}
 	return m
 }
@@ -226,6 +226,29 @@ func (m *ManagerImpl) Invalidate(path string) {
 	}
 	if id := m.idReg.Lookup(path); id != (AssetID{}) {
 		m.registry.Invalidate(id)
+	}
+}
+
+// SetTextureReleaser injects the GPU backend's texture releaser into the cache.
+// Must be called before any GPU uploads. Safe to call on a nil manager or
+// when no cache has been configured.
+func (m *ManagerImpl) SetTextureReleaser(rl TextureReleaser) {
+	if m == nil || m.cache == nil {
+		return
+	}
+	m.cache.backend = rl
+}
+
+// SetUploader sets the TextureUploader after construction. The uploader is
+// typically nil at construction time (the render pipeline isn't ready yet)
+// and is wired by the runtime after the backend initialises.
+func (m *ManagerImpl) SetUploader(uploader TextureUploader) {
+	if m == nil {
+		return
+	}
+	m.uploader = uploader
+	if uploader != nil && uploader.Budget() > 0 {
+		m.backendType = BackendVulkan
 	}
 }
 
@@ -466,6 +489,38 @@ func (m *ManagerImpl) commitJob(job *AssetLoadJob) {
 
 	m.registry.SetLODReady(job.ID, job.LOD, job.Result, job.ElapsedNs)
 	m.drainWaiting(job.ID)
+
+	// Enqueue GPU upload for GPU-eligible LODs.
+	m.enqueueUpload(job)
+}
+
+func (m *ManagerImpl) enqueueUpload(job *AssetLoadJob) {
+	if m == nil || job == nil {
+		return
+	}
+	gpuCapable := m.uploader != nil && m.uploader.Budget() > 0
+	if !gpuCapable {
+		return
+	}
+	if AssetResidency(job.Type, m.residency, true) != ResidencyGPU {
+		return
+	}
+
+	// For raster images, enqueue the decoded pixels for upload.
+	if job.Result != nil {
+		if img, ok := job.Result.(*DecodedImageLOD); ok && len(img.Data) > 0 {
+			req := TextureUploadRequest{
+				AssetID:   job.ID,
+				LOD:       job.LOD,
+				Pixels:    img.Data,
+				Width:     int(img.Width),
+				Height:    int(img.Height),
+				MipLevels: 1,
+				Format:    img.Format,
+			}
+			m.uploader.Enqueue(req)
+		}
+	}
 }
 
 func (m *ManagerImpl) drainWaiting(readyID AssetID) {
@@ -566,9 +621,14 @@ type DecodedSVGLOD2 struct {
 	DominantColor uint32
 }
 
-// DecodedImageLOD contains cooked texture bytes.
+// DecodedImageLOD contains cooked texture bytes with dimension metadata.
+// Width, Height, and Format are populated by the decode path when the
+// cooked payload carries them; they default to 0 until Phase 11 plumbing.
 type DecodedImageLOD struct {
-	Data []byte
+	Data   []byte
+	Width  int32
+	Height int32
+	Format uint32
 }
 
 // DecodedFontLOD contains CFNT bytes.

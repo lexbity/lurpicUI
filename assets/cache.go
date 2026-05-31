@@ -5,8 +5,10 @@ import "container/heap"
 // TextureID identifies an uploaded texture resource.
 type TextureID uint64
 
-// textureReleaser is the minimal backend contract needed for eviction.
-type textureReleaser interface {
+// TextureReleaser is the minimal backend contract needed for eviction.
+// The runtime implements this over render.TextureBackend to bridge
+// the asset cache's GPU memory management to the real GPU backend.
+type TextureReleaser interface {
 	FreeTexture(TextureID)
 }
 
@@ -19,7 +21,7 @@ type assetLODKey struct {
 // Runtime-thread-only; no synchronisation needed.
 type assetCache struct {
 	registry         *AssetRegistryStore
-	backend          textureReleaser
+	backend          TextureReleaser
 	budgetBytes      int64
 	usedBytes        int64
 	gpuBudget        int64
@@ -80,7 +82,7 @@ func (h *lodLRUHeap) Pop() any {
 }
 
 // newAssetCache returns an initialized cache controller.
-func newAssetCache(registry *AssetRegistryStore, backend textureReleaser, budgetBytes, gpuBudget int64) *assetCache {
+func newAssetCache(registry *AssetRegistryStore, backend TextureReleaser, budgetBytes, gpuBudget int64) *assetCache {
 	return &assetCache{
 		registry:    registry,
 		backend:     backend,
