@@ -35,11 +35,15 @@ func openAndroidAssetManager(rtConfig *runtime.Config) {
 	rtConfig.AssetRegistry = reg
 }
 
-// loadAndroidIDRegistry reads the UUID registry from the APK's assets.
-// Returns nil when the file is not bundled (development builds without cook).
+// loadAndroidIDRegistry reads the UUID registry from the APK's assets. It
+// returns nil when the file is missing or unparseable, but warns first: a nil
+// registry means every path-based asset load resolves to an empty handle, so a
+// missing uuid_registry.json must not be silent.
 func loadAndroidIDRegistry() assets.PathIDRegistry {
 	data, err := android.ReadAPKAsset("uuid_registry.json")
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "app/android: uuid_registry.json not bundled (%v); "+
+			"path-based asset lookups will return empty handles\n", err)
 		return nil
 	}
 	reg, err := assets.ParseJSONPathRegistry(data)

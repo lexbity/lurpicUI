@@ -64,12 +64,17 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 	}
 }
 
-// loadIDRegistry tries to load a UUID registry JSON file. Returns nil if
-// the file doesn't exist or can't be parsed — the manager falls back to
-// returning empty handles for path-based lookups.
+// loadIDRegistry loads a UUID registry JSON file. It returns nil when the file
+// is missing or unparseable — but it does so loudly, because a nil registry
+// means every path-based asset load silently resolves to an empty handle. This
+// is the difference between "no assets configured" and "assets present but
+// unresolvable", which is otherwise invisible.
 func loadIDRegistry(path string) assets.PathIDRegistry {
 	reg, err := assets.LoadJSONPathRegistry(path)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "lurpic: no usable asset id registry at %q (%v); "+
+			"path-based asset lookups will return empty handles "+
+			"(run 'lurpic build' to generate %s)\n", path, err, "uuid_registry.json")
 		return nil
 	}
 	return reg

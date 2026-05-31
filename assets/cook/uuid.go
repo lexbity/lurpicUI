@@ -228,12 +228,11 @@ func (r *UUIDRegistry) Records() []AssetIDRecord {
 	return records
 }
 
+// canonicalizePath delegates to assets.CanonicalizePath so the build-time
+// registry and the runtime PathIDRegistry share one canonicalization, keeping
+// the keys written to uuid_registry.json identical to runtime lookup queries.
 func canonicalizePath(path string) (string, error) {
-	cleaned := filepath.Clean(path)
-	if cleaned == "." || cleaned == string(filepath.Separator) || cleaned == "" {
-		return "", fmt.Errorf("invalid canonical path %q", path)
-	}
-	return filepath.ToSlash(cleaned), nil
+	return assets.CanonicalizePath(path)
 }
 
 func generateUUIDv4() (assets.AssetID, error) {

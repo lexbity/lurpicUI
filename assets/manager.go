@@ -2,8 +2,10 @@ package assets
 
 import (
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
@@ -28,6 +30,20 @@ type PathIDRegistry interface {
 	Lookup(canonicalPath string) AssetID
 }
 
+// CanonicalizePath normalizes an asset path to the canonical slash-separated
+// form used as the lookup key for path→ID resolution. The cook pipeline
+// (build time, via UUIDRegistry) and the runtime PathIDRegistry MUST share
+// this single function so that the keys written into uuid_registry.json match
+// the queries issued at runtime — otherwise lookups silently miss and every
+// path-based asset load returns an empty handle.
+func CanonicalizePath(p string) (string, error) {
+	cleaned := filepath.Clean(p)
+	if cleaned == "." || cleaned == string(filepath.Separator) || cleaned == "" {
+		return "", fmt.Errorf("invalid canonical path %q", p)
+	}
+	return filepath.ToSlash(cleaned), nil
+}
+
 // JSONPathRegistry implements PathIDRegistry from a JSON file produced by
 // the cook pipeline's UUIDRegistry. The file format matches cook.AssetIDRecord.
 type JSONPathRegistry struct {
@@ -49,7 +65,8 @@ type pathIDFile struct {
 }
 
 // ParseJSONPathRegistry parses UUID registry JSON bytes and returns a
-// PathIDRegistry backed by them. The format matches the cook pipeline's
+// PathIDRegistry backed by them. Keys are canonicalized via CanonicalizePath
+// so they match runtime queries. The format matches the cook pipeline's
 // uuid_registry.json output.
 func ParseJSONPathRegistry(data []byte) (*JSONPathRegistry, error) {
 	var f pathIDFile
@@ -61,7 +78,11 @@ func ParseJSONPathRegistry(data []byte) (*JSONPathRegistry, error) {
 		if rec.CanonicalPath == "" || rec.ID.IsZero() {
 			continue
 		}
-		r.paths[rec.CanonicalPath] = rec.ID
+		key, err := CanonicalizePath(rec.CanonicalPath)
+		if err != nil {
+			continue
+		}
+		r.paths[key] = rec.ID
 	}
 	return r, nil
 }
@@ -74,32 +95,34 @@ func LoadJSONPathRegistry(path string) (*JSONPathRegistry, error) {
 	if err != nil {
 		return nil, err
 	}
-	var f pathIDFile
-	if err := json.Unmarshal(data, &f); err != nil {
-		return nil, err
-	}
-	r := &JSONPathRegistry{paths: make(map[string]AssetID, len(f.Records))}
-	for _, rec := range f.Records {
-		if rec.CanonicalPath == "" || rec.ID.IsZero() {
-			continue
-		}
-		r.paths[rec.CanonicalPath] = rec.ID
-	}
-	return r, nil
+	return ParseJSONPathRegistry(data)
 }
 
-// NewMapPathRegistry creates a PathIDRegistry from a static map.
+// NewMapPathRegistry creates a PathIDRegistry from a static map. Keys are
+// canonicalized so lookups resolve regardless of the caller's path form.
 func NewMapPathRegistry(m map[string]AssetID) *JSONPathRegistry {
-	return &JSONPathRegistry{paths: m}
+	paths := make(map[string]AssetID, len(m))
+	for k, v := range m {
+		key, err := CanonicalizePath(k)
+		if err != nil {
+			continue
+		}
+		paths[key] = v
+	}
+	return &JSONPathRegistry{paths: paths}
 }
 
 func (r *JSONPathRegistry) Lookup(canonicalPath string) AssetID {
 	if r == nil {
 		return AssetID{}
 	}
+	key, err := CanonicalizePath(canonicalPath)
+	if err != nil {
+		return AssetID{}
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return r.paths[canonicalPath]
+	return r.paths[key]
 }
 
 // Handle is a lightweight reference to a registry entry.

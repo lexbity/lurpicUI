@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -14,6 +15,7 @@ import (
 	"text/template"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/assets/cook"
 	"codeburg.org/lexbit/lurpicui/platform/android"
 	"golang.org/x/term"
 )
@@ -617,7 +619,73 @@ func (b *androidBuilder) bundleAssets() error {
 		return fmt.Errorf("failed to copy assets: %w", err)
 	}
 
+	// Generate (or refresh) the path→ID registry so the runtime can resolve
+	// asset paths to stable IDs. Without this, every path-based asset load
+	// returns an empty handle at runtime.
+	if err := generateAssetRegistry(assetsDir, destDir); err != nil {
+		return fmt.Errorf("failed to generate asset registry: %w", err)
+	}
+
 	fmt.Printf("  Bundled assets to: %s\n", destDir)
+	return nil
+}
+
+// assetRegistryName is the file the runtime PathIDRegistry loads from the
+// assets directory (and, on Android, from the APK).
+const assetRegistryName = "uuid_registry.json"
+
+// generateAssetRegistry assigns a stable UUID to every asset file under
+// stagedAssetsDir and writes uuid_registry.json into both the project assets
+// dir (the checked-in source of truth, so IDs stay stable across builds and
+// match any separately-cooked .pak) and the staged build dir (so it ships in
+// the APK alongside the assets). Existing assignments are preserved.
+//
+// It uses cook.UUIDRegistry, whose canonicalization is shared with the runtime
+// assets.JSONPathRegistry via assets.CanonicalizePath, so the keys written here
+// match the queries the runtime issues.
+func generateAssetRegistry(projectAssetsDir, stagedAssetsDir string) error {
+	projectRegistry := filepath.Join(projectAssetsDir, assetRegistryName)
+
+	reg, err := cook.LoadUUIDRegistry(projectRegistry)
+	if err != nil {
+		return fmt.Errorf("load registry %s: %w", projectRegistry, err)
+	}
+
+	walkErr := filepath.WalkDir(stagedAssetsDir, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		// Skip generated sidecars and the registry itself.
+		switch filepath.Base(p) {
+		case assetRegistryName, "assets.pak", "assets.pak.meta":
+			return nil
+		}
+		rel, err := filepath.Rel(stagedAssetsDir, p)
+		if err != nil {
+			return err
+		}
+		if _, err := reg.Assign(filepath.ToSlash(rel)); err != nil {
+			return fmt.Errorf("assign id for %s: %w", rel, err)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		return walkErr
+	}
+
+	// Persist to the project (stable source of truth) and stage into the build.
+	if err := reg.SaveTo(projectRegistry); err != nil {
+		return fmt.Errorf("save project registry: %w", err)
+	}
+	stagedRegistry := filepath.Join(stagedAssetsDir, assetRegistryName)
+	if err := reg.SaveTo(stagedRegistry); err != nil {
+		return fmt.Errorf("stage registry: %w", err)
+	}
+
+	fmt.Printf("  Asset registry: %d entries → %s\n", len(reg.Records()), stagedRegistry)
 	return nil
 }
 
