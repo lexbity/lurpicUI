@@ -25,6 +25,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.JobsCommitted = committed
 	stats.JobsDiscarded = discarded
 
+	// Drain completed GPU upload results from the previous frame.
+	// UploadQueue.DrainBudget runs on the render thread (triggered by
+	// frame submission), so results become available here on the next frame.
+	rt.drainGPUUploadResults()
+
 	newEvents := rt.collectPlatformEvents()
 	rt.pendingEvents = append(rt.pendingEvents, newEvents...)
 	rt.pendingEvents = rt.handleWindowEvents(rt.pendingEvents)
@@ -345,6 +350,15 @@ func (rt *Runtime) setIMEVisible(visible bool) {
 		}
 	}
 	rt.imeVisible = visible
+}
+
+func (rt *Runtime) drainGPUUploadResults() {
+	if rt.assetManager == nil {
+		return
+	}
+	if d, ok := rt.assetManager.(interface{ DrainUploadResults() int }); ok {
+		d.DrainUploadResults()
+	}
 }
 
 func (rt *Runtime) drainJobResults() (committed int, discarded int) {

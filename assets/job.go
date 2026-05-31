@@ -125,6 +125,8 @@ type ManagerImpl struct {
 
 	mu      sync.Mutex
 	waiting waitingOn
+
+	uploadsThisFrame int
 }
 
 // NewManager returns an asset manager that wraps the given source.
@@ -324,6 +326,47 @@ func (m *ManagerImpl) DrainCompleted() int {
 	}
 }
 
+// DrainUploadResults drains completed GPU upload results from the uploader
+// and commits them to the cache and registry. Must be called on the runtime
+// thread once per frame after UploadQueue.DrainBudget has had a chance to
+// process enqueued uploads (typically at the start of the next frame).
+// Returns the number of upload results committed.
+func (m *ManagerImpl) DrainUploadResults() int {
+	if m == nil || m.uploader == nil {
+		return 0
+	}
+	m.uploadsThisFrame = 0
+	count := 0
+	for {
+		select {
+		case result, ok := <-m.uploader.Results():
+			if !ok {
+				return count
+			}
+			if !result.OK || result.TextureID == 0 {
+				continue
+			}
+			// Look up the CPU LOD size from the registry.
+			var cpuBytes int64
+			if entry := m.registry.Get(result.AssetID); entry != nil {
+				if result.LOD >= 0 && result.LOD < len(entry.SizeBytes) {
+					cpuBytes = entry.SizeBytes[result.LOD]
+				}
+			}
+			// Track in the cache with GPU accounting.
+			if m.cache != nil {
+				m.cache.trackLOD(result.AssetID, result.LOD, cpuBytes, result.GPUBytes, result.TextureID, 0)
+			}
+			// Mark GPU-ready in the registry.
+			m.registry.SetLODGPUReady(result.AssetID, result.LOD, result.TextureID, result.GPUBytes)
+			count++
+		default:
+			m.uploadsThisFrame = count
+			return count
+		}
+	}
+}
+
 // Stats returns a snapshot of the registry and cache state.
 func (m *ManagerImpl) Stats() ManagerStats {
 	if m == nil || m.registry == nil {
@@ -356,6 +399,8 @@ func (m *ManagerImpl) Stats() ManagerStats {
 		})
 	}
 	m.registry.mu.RUnlock()
+
+	stats.UploadsThisFrame = m.uploadsThisFrame
 
 	if m.cache != nil {
 		stats.CPUUsedBytes = m.cache.usedBytes

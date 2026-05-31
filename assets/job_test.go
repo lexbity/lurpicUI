@@ -434,6 +434,172 @@ func TestNewManagerWithCache_backCompat_preservesReleaser(t *testing.T) {
 
 // ── AssetResidency policy tests ─────────────────────────────────────────────
 
+// ── Upload result drain tests ───────────────────────────────────────────────
+
+// resultUploader is a fake uploader that lets us inject results.
+type resultUploader struct {
+	results chan TextureUploadResult
+	budget  int
+}
+
+func newResultUploader() *resultUploader {
+	return &resultUploader{
+		results: make(chan TextureUploadResult, 16),
+		budget:  4096,
+	}
+}
+
+func (u *resultUploader) Enqueue(req TextureUploadRequest) bool {
+	return true
+}
+
+func (u *resultUploader) Results() <-chan TextureUploadResult {
+	return u.results
+}
+
+func (u *resultUploader) Budget() int { return u.budget }
+
+func (u *resultUploader) send(id AssetID, lod int, texID TextureID, gpuBytes int64) {
+	u.results <- TextureUploadResult{
+		AssetID:   id,
+		LOD:       lod,
+		TextureID: texID,
+		GPUBytes:  gpuBytes,
+		OK:        true,
+	}
+}
+
+func TestDrainUploadResults_increasesGPUBudget(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc001")
+	reg := NewAssetRegistryStore()
+	uploader := newResultUploader()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	// Prepare a CPU-ready entry so SizeBytes is set.
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: []byte("pixels")}, 100)
+	entry := reg.Get(id)
+	if entry == nil {
+		t.Fatal("expected entry")
+	}
+
+	// Send a GPU upload result.
+	uploader.send(id, 0, TextureID(42), 2048)
+
+	count := m.DrainUploadResults()
+	if count != 1 {
+		t.Fatalf("expected 1 drain result, got %d", count)
+	}
+
+	// GPU budget accounting should reflect the upload.
+	if m.cache == nil {
+		t.Fatal("expected non-nil cache")
+	}
+	if m.cache.gpuUsed != 2048 {
+		t.Fatalf("expected gpuUsed 2048, got %d", m.cache.gpuUsed)
+	}
+
+	// Registry should mark the LOD as GPU-ready.
+	entry = reg.Get(id)
+	if entry == nil {
+		t.Fatal("expected entry")
+	}
+	if !entry.LODGPUReady[0] {
+		t.Fatal("expected LOD 0 to be GPU-ready")
+	}
+	if entry.LODTextureIDs[0] != TextureID(42) {
+		t.Fatalf("expected TextureID 42, got %d", entry.LODTextureIDs[0])
+	}
+	if entry.LODGPUBytes[0] != 2048 {
+		t.Fatalf("expected GPUBytes 2048, got %d", entry.LODGPUBytes[0])
+	}
+}
+
+func TestDrainUploadResults_statsReflectCount(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc002")
+	reg := NewAssetRegistryStore()
+	uploader := newResultUploader()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: []byte("pixels")}, 100)
+	reg.SetLODReady(id, 1, &DecodedImageLOD{Data: []byte("lod1"), Width: 32, Height: 16}, 50)
+
+	uploader.send(id, 0, TextureID(10), 1024)
+	uploader.send(id, 1, TextureID(11), 512)
+
+	count := m.DrainUploadResults()
+	if count != 2 {
+		t.Fatalf("expected 2 drain results, got %d", count)
+	}
+
+	stats := m.Stats()
+	if stats.UploadsThisFrame != 2 {
+		t.Fatalf("expected UploadsThisFrame 2, got %d", stats.UploadsThisFrame)
+	}
+}
+
+func TestDrainUploadResults_multipleFramesResetCount(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc003")
+	reg := NewAssetRegistryStore()
+	uploader := newResultUploader()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: []byte("pixels")}, 100)
+	uploader.send(id, 0, TextureID(7), 256)
+
+	m.DrainUploadResults()
+	stats1 := m.Stats()
+	if stats1.UploadsThisFrame != 1 {
+		t.Fatalf("expected UploadsThisFrame 1, got %d", stats1.UploadsThisFrame)
+	}
+
+	// Second drain with no new results should reset to 0.
+	m.DrainUploadResults()
+	stats2 := m.Stats()
+	if stats2.UploadsThisFrame != 0 {
+		t.Fatalf("expected UploadsThisFrame 0 after drain with no results, got %d", stats2.UploadsThisFrame)
+	}
+}
+
+func TestDrainUploadResults_nilUploaderNoOp(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyCPUOnly, 64, 0)
+
+	count := m.DrainUploadResults()
+	if count != 0 {
+		t.Fatalf("expected 0 drain results with nil uploader, got %d", count)
+	}
+}
+
+func TestDrainUploadResults_GPUEntrySurvivesCPUFallback(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc004")
+	reg := NewAssetRegistryStore()
+	uploader := newResultUploader()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	// CPU LOD is set first.
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: []byte("cpu-pixels"), Width: 64, Height: 32}, 100)
+
+	// GPU upload completes.
+	uploader.send(id, 0, TextureID(99), 4096)
+	m.DrainUploadResults()
+
+	// CPU LOD handle should still be present.
+	entry := reg.Get(id)
+	if entry == nil {
+		t.Fatal("expected entry")
+	}
+	if entry.LODHandles[0] == nil {
+		t.Fatal("expected CPU LOD handle to survive GPU upload")
+	}
+	if !entry.LODGPUReady[0] {
+		t.Fatal("expected LOD to be GPU-ready")
+	}
+}
+
 // ── Upload enqueue tests ────────────────────────────────────────────────────
 
 type recordingUploader struct {

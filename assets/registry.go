@@ -36,7 +36,7 @@ type AssetRegistryStore struct {
 	globalVersion uint64
 }
 
-// RegistryEntry tracks per-asset, per-LOD state.
+// RegistryEntry tracks per-asset, per-LOD state including GPU residency.
 type RegistryEntry struct {
 	ID              AssetID
 	Path            string
@@ -46,6 +46,9 @@ type RegistryEntry struct {
 	LODRefCounts    [3]int32
 	LODInFlight     [3]bool
 	LODFailed       [3]bool
+	LODGPUReady     [3]bool
+	LODTextureIDs   [3]TextureID
+	LODGPUBytes     [3]int64
 	SizeBytes       [3]int64
 	HighestReadyLOD int
 	EntryVersion    uint64
@@ -116,6 +119,31 @@ func (r *AssetRegistryStore) SetLODReady(id AssetID, lod int, handle DecodedAsse
 	}
 }
 
+// SetLODGPUReady marks a LOD as having a GPU texture uploaded. The texture
+// ID and GPU byte size are recorded so consumers can select the GPU draw
+// path and the cache can account for GPU memory.
+func (r *AssetRegistryStore) SetLODGPUReady(id AssetID, lod int, textureID TextureID, gpuBytes int64) {
+	if lod < 0 || lod >= len((&RegistryEntry{}).LODHandles) {
+		return
+	}
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	entry := r.entries[id]
+	if entry == nil {
+		return
+	}
+	if lod >= len(entry.LODGPUReady) {
+		return
+	}
+	entry.LODGPUReady[lod] = true
+	entry.LODTextureIDs[lod] = textureID
+	entry.LODGPUBytes[lod] = gpuBytes
+	entry.EntryVersion++
+	r.globalVersion++
+}
+
 // ClearLOD clears one LOD result and updates state/version bookkeeping.
 func (r *AssetRegistryStore) ClearLOD(id AssetID, lod int) {
 	if lod < 0 || lod >= len((&RegistryEntry{}).LODHandles) {
@@ -132,6 +160,9 @@ func (r *AssetRegistryStore) ClearLOD(id AssetID, lod int) {
 	entry.LODHandles[lod] = nil
 	entry.LODInFlight[lod] = false
 	entry.LODFailed[lod] = false
+	entry.LODGPUReady[lod] = false
+	entry.LODTextureIDs[lod] = 0
+	entry.LODGPUBytes[lod] = 0
 	entry.LoadTimeNs[lod] = 0
 	entry.SizeBytes[lod] = 0
 	entry.Err = nil
@@ -156,6 +187,9 @@ func (r *AssetRegistryStore) Invalidate(id AssetID) {
 		entry.LODHandles[i] = nil
 		entry.LODInFlight[i] = false
 		entry.LODFailed[i] = false
+		entry.LODGPUReady[i] = false
+		entry.LODTextureIDs[i] = 0
+		entry.LODGPUBytes[i] = 0
 		entry.LoadTimeNs[i] = 0
 		entry.SizeBytes[i] = 0
 	}
