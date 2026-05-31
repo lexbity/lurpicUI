@@ -398,6 +398,8 @@ func (m *ManagerImpl) Stats() ManagerStats {
 			HighestReadyLOD: entry.HighestReadyLOD,
 			RefCounts:       entry.LODRefCounts,
 			SizeBytes:       entry.SizeBytes,
+			LODGPUReady:     entry.LODGPUReady,
+			LODGPUBytes:     entry.LODGPUBytes,
 			LoadTimeNs:      entry.LoadTimeNs,
 			LastUsedFrame:   entry.LastUse,
 		})

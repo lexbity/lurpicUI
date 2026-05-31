@@ -209,6 +209,8 @@ type AssetDiagEntry struct {
 	HighestReadyLOD int
 	RefCounts       [3]int32
 	SizeBytes       [3]int64
+	LODGPUReady     [3]bool
+	LODGPUBytes     [3]int64
 	LoadTimeNs      [3]int64
 	LastUsedFrame   int64
 }

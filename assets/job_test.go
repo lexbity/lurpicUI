@@ -1018,6 +1018,86 @@ func TestAssetResidency_policyTable(t *testing.T) {
 	}
 }
 
+// ── Stats residency diagnostics tests ────────────────────────────────────────
+
+func TestStats_entriesIncludeGPUResidency(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc030")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 16*16*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 16, Height: 16}, 100)
+	reg.SetLODGPUReady(id, 0, TextureID(99), 2048)
+
+	stats := m.Stats()
+
+	if len(stats.Entries) != 1 {
+		t.Fatalf("expected 1 entry in stats, got %d", len(stats.Entries))
+	}
+	de := stats.Entries[0]
+	if de.ID != id {
+		t.Fatalf("unexpected entry ID: %v", de.ID)
+	}
+	if !de.LODGPUReady[0] {
+		t.Fatal("expected LODGPUReady[0] = true in stats")
+	}
+	if de.LODGPUBytes[0] != 2048 {
+		t.Fatalf("expected LODGPUBytes[0] = 2048, got %d", de.LODGPUBytes[0])
+	}
+	if de.LODGPUReady[1] {
+		t.Fatal("expected LODGPUReady[1] = false for unset LOD")
+	}
+	if de.LODGPUBytes[1] != 0 {
+		t.Fatal("expected LODGPUBytes[1] = 0 for unset LOD")
+	}
+}
+
+func TestStats_entriesIncludeGPUResidencyForCPUAsset(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc031")
+	reg := NewAssetRegistryStore()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, nil, ResidencyCPUOnly, 64, 128)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeSVG
+	reg.SetLODReady(id, 0, &DecodedSVGLOD0{Data: []byte("vector")}, 100)
+
+	stats := m.Stats()
+	if len(stats.Entries) != 1 {
+		t.Fatalf("expected 1 entry in stats, got %d", len(stats.Entries))
+	}
+	de := stats.Entries[0]
+	if de.LODGPUReady[0] {
+		t.Fatal("expected LODGPUReady[0] = false for CPU-only SVG asset")
+	}
+	if de.LODGPUBytes[0] != 0 {
+		t.Fatal("expected LODGPUBytes[0] = 0 for CPU-only SVG asset")
+	}
+}
+
+func TestStats_gpuBudgetGauges(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	m := NewManagerWithCache(reg, staticSource{}, BackendSoftware, nil, nil, &recordingBackend{}, 10000, 5000)
+
+	stats := m.Stats()
+	if stats.CPUBudgetBytes != 10000 {
+		t.Fatalf("CPUBudgetBytes = %d, want 10000", stats.CPUBudgetBytes)
+	}
+	if stats.GPUBudgetBytes != 5000 {
+		t.Fatalf("GPUBudgetBytes = %d, want 5000", stats.GPUBudgetBytes)
+	}
+	if stats.CPUUsedBytes != 0 {
+		t.Fatalf("CPUUsedBytes = %d, want 0", stats.CPUUsedBytes)
+	}
+	if stats.GPUUsedBytes != 0 {
+		t.Fatalf("GPUUsedBytes = %d, want 0", stats.GPUUsedBytes)
+	}
+}
+
 // ── TrimMemory GPU-first eviction tests ─────────────────────────────────────
 
 func TestTrimMemory_gpuFirstEviction(t *testing.T) {

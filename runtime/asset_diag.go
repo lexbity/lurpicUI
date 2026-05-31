@@ -33,15 +33,25 @@ func (rt *Runtime) LogAssetExtract(progress float32, phase string) {
 	)
 }
 
-// LogAssetStream logs an asset load/stream event.
+// LogAssetStream logs an asset load/stream event, including GPU residency
+// state when the asset manager's registry has it.
 func (rt *Runtime) LogAssetStream(id assets.AssetID, typ assets.AssetType, lod int) {
 	if !rt.assetDiagEnabled() {
 		return
+	}
+	gpu := "cpu"
+	if reg := rt.AssetRegistry(); reg != nil {
+		if entry := reg.Get(id); entry != nil && lod >= 0 && lod < len(entry.LODGPUReady) {
+			if entry.LODGPUReady[lod] {
+				gpu = "gpu"
+			}
+		}
 	}
 	rt.log.Debug("asset.stream",
 		"id", id.String(),
 		"type", typ.String(),
 		"lod", lod,
+		"gpu", gpu,
 	)
 }
 
