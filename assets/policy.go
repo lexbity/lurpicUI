@@ -25,7 +25,7 @@ const (
 // and backend state via AssetResidency for the final decision.
 func GPUUploadEligible(t AssetType) bool {
 	switch t {
-	case AssetTypeImage:
+	case AssetTypeImage, AssetTypeFont:
 		return true
 	default:
 		return false

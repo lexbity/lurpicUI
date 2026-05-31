@@ -44,6 +44,7 @@ unsigned long long lurpic_render_test_drop_count(void);
 unsigned long long lurpic_render_test_last_batch_count(void);
 unsigned long long lurpic_render_test_last_command_count(void);
 unsigned long long lurpic_render_test_last_vertex_count(void);
+void lurpic_render_reset_atlas(void);
 unsigned long long lurpic_render_test_glyph_atlas_count(void);
 unsigned long long lurpic_render_test_glyph_atlas_evictions(void);
 unsigned long long lurpic_render_test_image_count(void);
@@ -246,6 +247,13 @@ func SubmitFrame(data []byte) error {
 		return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(nil), 0))
 	}
 	return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(unsafe.Pointer(&data[0])), C.uintptr_t(len(data))))
+}
+
+func ResetAtlas() {
+	if err := loadRustLibrary(); err != nil {
+		return
+	}
+	C.lurpic_render_reset_atlas()
 }
 
 func UploadGlyph(fontID uint64, glyphID uint32, sizeBits uint32, width, height int, offsetX, offsetY, advance float32, pixels []byte) error {

@@ -30,6 +30,7 @@ func DeviceGeneration() uint64          { return 0 }
 func SubmitFrame([]byte) error          { return errCGORequired }
 func Present() error                    { return errCGORequired }
 func Resize(int, int) error             { return errCGORequired }
+func ResetAtlas() {}
 func UploadGlyph(uint64, uint32, uint32, int, int, float32, float32, float32, []byte) error {
 	return errCGORequired
 }

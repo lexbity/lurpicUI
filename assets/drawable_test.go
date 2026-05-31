@@ -303,9 +303,9 @@ func TestGPUUploadEligible_svgIsNotEligible(t *testing.T) {
 	}
 }
 
-func TestGPUUploadEligible_fontIsNotEligible(t *testing.T) {
-	if GPUUploadEligible(AssetTypeFont) {
-		t.Fatal("expected AssetTypeFont to be CPU-only")
+func TestGPUUploadEligible_fontIsEligible(t *testing.T) {
+	if !GPUUploadEligible(AssetTypeFont) {
+		t.Fatal("expected AssetTypeFont to be GPU-eligible under Phase 13")
 	}
 }
 
@@ -321,7 +321,8 @@ func TestAssetResidency_matchesGPUUploadEligible(t *testing.T) {
 	// Verify that AssetResidency's result is consistent with GPUUploadEligible
 	// for all types in GPU-capable, GPUResident mode: only eligible types
 	// should get ResidencyGPU.
-	for typ := AssetTypeSVG; typ <= AssetTypeConfig; typ++ {
+	allTypes := []AssetType{AssetTypeSVG, AssetTypeImage, AssetTypeFont, AssetTypeConfig}
+	for _, typ := range allTypes {
 		res := AssetResidency(typ, ResidencyGPUResident, true)
 		eligible := GPUUploadEligible(typ)
 		if eligible && res != ResidencyGPU {

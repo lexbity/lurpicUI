@@ -35,6 +35,7 @@ static uint64_t (*lurpic_render_test_glyph_atlas_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_glyph_atlas_evictions_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_image_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_image_destroy_count_fn)(void) = NULL;
+static void (*lurpic_render_reset_atlas_fn)(void) = NULL;
 static char lurpic_render_error[512];
 
 static void set_error(const char *message) {
@@ -110,6 +111,7 @@ int lurpic_render_load(const char *library_path) {
   LOAD_SYM(lurpic_render_test_glyph_atlas_evictions_fn, "lurpic_render_test_glyph_atlas_evictions", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_image_count_fn, "lurpic_render_test_image_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_image_destroy_count_fn, "lurpic_render_test_image_destroy_count", uint64_t(*)(void));
+  LOAD_SYM(lurpic_render_reset_atlas_fn, "lurpic_render_reset_atlas", void(*)(void));
 
 #undef LOAD_SYM
 
@@ -258,6 +260,12 @@ int32_t lurpic_render_destroy_image(uint64_t handle) {
   return result;
 }
 
+void lurpic_render_reset_atlas(void) {
+  if (lurpic_render_reset_atlas_fn != NULL) {
+    lurpic_render_reset_atlas_fn();
+  }
+}
+
 uint64_t lurpic_render_test_image_count(void) {
   if (lurpic_render_test_image_count_fn == NULL) {
     set_error("vulkan: Rust library not loaded");
@@ -357,6 +365,7 @@ void lurpic_render_unload(void) {
   lurpic_render_test_last_vertex_count_fn = NULL;
   lurpic_render_test_glyph_atlas_count_fn = NULL;
   lurpic_render_test_glyph_atlas_evictions_fn = NULL;
+  lurpic_render_reset_atlas_fn = NULL;
   set_error("");
 }
 

@@ -12,9 +12,6 @@ type dummyTextureBackend struct {
 
 func (b *dummyTextureBackend) UploadTexture(req TextureUploadRequest) (TextureID, error) {
 	b.count++
-	if req.ResultCh != nil {
-		req.ResultCh <- TextureUploadResult{AssetID: req.AssetID, TextureID: TextureID(b.count), LOD: 0}
-	}
 	return TextureID(b.count), nil
 }
 

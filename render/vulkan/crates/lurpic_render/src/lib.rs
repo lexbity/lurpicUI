@@ -530,6 +530,11 @@ pub extern "C" fn lurpic_render_destroy_image(handle: u64) -> RenderResult {
 }
 
 #[no_mangle]
+pub extern "C" fn lurpic_render_reset_atlas() {
+    atlas::reset_atlas();
+}
+
+#[no_mangle]
 pub extern "C" fn lurpic_render_test_glyph_atlas_count() -> u64 {
     clear_last_error();
     atlas::atlas_stats().0 as u64

@@ -36,6 +36,7 @@ func Resize(int, int) error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
+func ResetAtlas() {}
 func UploadGlyph(fontID uint64, glyphID uint32, sizeBits uint32, width, height int, offsetX, offsetY, advance float32, pixels []byte) error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
 }

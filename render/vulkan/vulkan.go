@@ -186,12 +186,14 @@ func (b *Backend) DeviceGeneration() uint64 {
 	return DeviceGeneration()
 }
 
-// EvictCaches releases recoverable image caches without destroying the backend.
+// EvictCaches releases recoverable image and glyph caches without destroying
+// the backend. Clears both the image cache and the Rust-side glyph atlas.
 func (b *Backend) EvictCaches() {
 	if b == nil || b.images == nil {
 		return
 	}
 	b.images.destroyAll()
+	ResetAtlas()
 }
 
 var _ render.Backend = (*Backend)(nil)

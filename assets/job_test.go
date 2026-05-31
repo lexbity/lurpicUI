@@ -998,9 +998,10 @@ func TestAssetResidency_policyTable(t *testing.T) {
 		{AssetTypeSVG, ResidencyAuto, true, ResidencyCPU},
 		{AssetTypeSVG, ResidencyCPUOnly, true, ResidencyCPU},
 
-		// Font → CPU (Phase 13 promotes to GPU)
-		{AssetTypeFont, ResidencyGPUResident, true, ResidencyCPU},
-		{AssetTypeFont, ResidencyAuto, true, ResidencyCPU},
+		// Font → GPU when mode allows and backend is capable (Phase 13)
+		{AssetTypeFont, ResidencyGPUResident, true, ResidencyGPU},
+		{AssetTypeFont, ResidencyAuto, true, ResidencyGPU},
+		{AssetTypeFont, ResidencyCPUOnly, true, ResidencyCPU},
 
 		// Config → always CPU
 		{AssetTypeConfig, ResidencyGPUResident, true, ResidencyCPU},
