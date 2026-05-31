@@ -1,6 +1,11 @@
 package assets
 
-import "io/fs"
+import (
+	"encoding/json"
+	"io/fs"
+	"os"
+	"sync"
+)
 
 // Manager is the runtime-facing asset access surface.
 type Manager interface {
@@ -21,6 +26,80 @@ type Manager interface {
 // PathIDRegistry resolves canonical asset paths to stable IDs.
 type PathIDRegistry interface {
 	Lookup(canonicalPath string) AssetID
+}
+
+// JSONPathRegistry implements PathIDRegistry from a JSON file produced by
+// the cook pipeline's UUIDRegistry. The file format matches cook.AssetIDRecord.
+type JSONPathRegistry struct {
+	mu    sync.RWMutex
+	paths map[string]AssetID
+}
+
+// pathIDRecord is the JSON structure for one entry in the registry.
+type pathIDRecord struct {
+	ID            AssetID `json:"id"`
+	CreatedAt     int64   `json:"created_at,omitempty"`
+	CanonicalPath string  `json:"canonical_path"`
+}
+
+// pathIDFile is the top-level JSON structure.
+type pathIDFile struct {
+	Version int             `json:"version"`
+	Records []pathIDRecord  `json:"records"`
+}
+
+// ParseJSONPathRegistry parses UUID registry JSON bytes and returns a
+// PathIDRegistry backed by them. The format matches the cook pipeline's
+// uuid_registry.json output.
+func ParseJSONPathRegistry(data []byte) (*JSONPathRegistry, error) {
+	var f pathIDFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, err
+	}
+	r := &JSONPathRegistry{paths: make(map[string]AssetID, len(f.Records))}
+	for _, rec := range f.Records {
+		if rec.CanonicalPath == "" || rec.ID.IsZero() {
+			continue
+		}
+		r.paths[rec.CanonicalPath] = rec.ID
+	}
+	return r, nil
+}
+
+// LoadJSONPathRegistry reads a UUID registry JSON file and returns a
+// PathIDRegistry backed by it. The format matches the cook pipeline's
+// uuid_registry.json output.
+func LoadJSONPathRegistry(path string) (*JSONPathRegistry, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var f pathIDFile
+	if err := json.Unmarshal(data, &f); err != nil {
+		return nil, err
+	}
+	r := &JSONPathRegistry{paths: make(map[string]AssetID, len(f.Records))}
+	for _, rec := range f.Records {
+		if rec.CanonicalPath == "" || rec.ID.IsZero() {
+			continue
+		}
+		r.paths[rec.CanonicalPath] = rec.ID
+	}
+	return r, nil
+}
+
+// NewMapPathRegistry creates a PathIDRegistry from a static map.
+func NewMapPathRegistry(m map[string]AssetID) *JSONPathRegistry {
+	return &JSONPathRegistry{paths: m}
+}
+
+func (r *JSONPathRegistry) Lookup(canonicalPath string) AssetID {
+	if r == nil {
+		return AssetID{}
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.paths[canonicalPath]
 }
 
 // Handle is a lightweight reference to a registry entry.

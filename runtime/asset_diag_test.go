@@ -125,6 +125,75 @@ func TestAssetDiagnostics_FrameStatsPopulated(t *testing.T) {
 	rt.Shutdown()
 }
 
+func TestAssetDiagnostics_JSONPathRegistryLoadsMap(t *testing.T) {
+	// Simulate a uuid_registry.json as produced by the cook pipeline.
+	jsonData := `{
+		"version": 1,
+		"records": [
+			{"id": "01234567-89ab-cdef-0123-456789000001", "canonical_path": "ui/button.png"},
+			{"id": "01234567-89ab-cdef-0123-456789000002", "canonical_path": "fonts/regular.ttf"}
+		]
+	}`
+	reg, err := assets.ParseJSONPathRegistry([]byte(jsonData))
+	if err != nil {
+		t.Fatalf("ParseJSONPathRegistry: %v", err)
+	}
+
+	buttonID := assets.AssetID{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+		0x01, 0x23, 0x45, 0x67, 0x89, 0x00, 0x00, 0x01}
+	fontID := assets.AssetID{0x01, 0x23, 0x45, 0x67, 0x89, 0xab, 0xcd, 0xef,
+		0x01, 0x23, 0x45, 0x67, 0x89, 0x00, 0x00, 0x02}
+
+	if got := reg.Lookup("ui/button.png"); got != buttonID {
+		t.Fatalf("Lookup ui/button.png = %v, want %v", got, buttonID)
+	}
+	if got := reg.Lookup("fonts/regular.ttf"); got != fontID {
+		t.Fatalf("Lookup fonts/regular.ttf = %v, want %v", got, fontID)
+	}
+	if got := reg.Lookup("missing.png"); !got.IsZero() {
+		t.Fatalf("Lookup missing.png = %v, want zero", got)
+	}
+}
+
+func TestAssetDiagnostics_LoadImageWithPathIDRegistry(t *testing.T) {
+	id := assets.AssetID{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1}
+	path := "ui/button.png"
+	idReg := assets.NewMapPathRegistry(map[string]assets.AssetID{path: id})
+
+	reg := assets.NewAssetRegistryStore()
+	mgr := assets.NewManager(reg, &passthroughSource{}, assets.BackendSoftware, nil, idReg)
+
+	root := facet.NewFacet()
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.AssetManager = mgr
+	cfg.AssetRegistry = reg
+	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+
+	handle := rt.AssetManager().LoadImage(path)
+	if handle.IsZero() {
+		t.Fatal("LoadImage returned zero handle — PathIDRegistry not wired")
+	}
+	if handle.ID != id {
+		t.Fatalf("handle.ID = %v, want %v", handle.ID, id)
+	}
+	if handle.Registry() == nil {
+		t.Fatal("handle.Registry() is nil — AssetRegistry not wired")
+	}
+	rt.Shutdown()
+}
+
+// passthroughSource implements AssetSource returning an empty byte slice
+// for any LOD. Used in tests where the actual pak contents don't matter.
+type passthroughSource struct{}
+
+func (s passthroughSource) ReadLOD(id assets.AssetID, lod int) ([]byte, error) {
+	return []byte{}, nil
+}
+
 func TestAssetDiagnostics_ProcessDeathHandleRestore(t *testing.T) {
 	// Simulate process death: create a manager, load assets, then create
 	// a new manager (as happens after process death) and verify the new

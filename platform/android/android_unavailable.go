@@ -58,3 +58,8 @@ func OpenPlatformPak() (*assets.PakFS, error) {
 	return nil, errors.New("android: platform pak requires CGO (android NDK)")
 }
 
+// ReadAPKAsset is a stub on non-Android / no-CGO builds.
+func ReadAPKAsset(name string) ([]byte, error) {
+	return nil, errors.New("android: APK asset reading requires CGO (android NDK)")
+}
+

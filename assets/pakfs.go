@@ -211,17 +211,21 @@ func filepathExt(path string) string {
 // ReadLOD returns the raw compressed bytes for the requested asset LOD.
 // The returned slice is a copy of the mmap data, safe to use after Close.
 func (p *PakFS) ReadLOD(id AssetID, lod int) ([]byte, error) {
+	p.mu.RLock()
+	if p.closed {
+		p.mu.RUnlock()
+		return nil, errPakFSClosed
+	}
+	// Add in-flight while still under the read lock so Close's write-lock
+	// + Wait sequence cannot see a closed-but-in-flight state.
 	p.inFlight.Add(1)
+	p.mu.RUnlock()
+
 	defer p.inFlight.Done()
 
 	entry, err := p.findEntry(id, lod)
 	if err != nil {
 		return nil, err
-	}
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if p.closed {
-		return nil, errPakFSClosed
 	}
 	raw := p.readBlock(entry)
 	if raw == nil {

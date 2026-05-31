@@ -28,8 +28,24 @@ func openAndroidAssetManager(rtConfig *runtime.Config) {
 		return
 	}
 	reg := assets.NewAssetRegistryStore()
-	// PathIDRegistry is wired from the cooked asset manifest. When nil, the
-	// manager returns empty handles until the ID registry is set up (Phase 12).
-	rtConfig.AssetManager = assets.NewManager(reg, pak, assets.BackendSoftware, nil, nil)
+	// Load the UUID registry from the APK's assets when available.
+	// The cook pipeline produces uuid_registry.json alongside assets.pak.
+	idReg := loadAndroidIDRegistry()
+	rtConfig.AssetManager = assets.NewManager(reg, pak, assets.BackendSoftware, nil, idReg)
 	rtConfig.AssetRegistry = reg
+}
+
+// loadAndroidIDRegistry reads the UUID registry from the APK's assets.
+// Returns nil when the file is not bundled (development builds without cook).
+func loadAndroidIDRegistry() assets.PathIDRegistry {
+	data, err := android.ReadAPKAsset("uuid_registry.json")
+	if err != nil {
+		return nil
+	}
+	reg, err := assets.ParseJSONPathRegistry(data)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "app/android: invalid uuid_registry.json: %v\n", err)
+		return nil
+	}
+	return reg
 }

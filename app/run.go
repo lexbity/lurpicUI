@@ -40,7 +40,8 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 		pak, err := assets.NewPakFS(pakPath)
 		if err == nil {
 			reg := assets.NewAssetRegistryStore()
-			rtConfig.AssetManager = assets.NewManager(reg, pak, assets.BackendSoftware, nil, nil)
+			idReg := loadIDRegistry("assets/uuid_registry.json")
+			rtConfig.AssetManager = assets.NewManager(reg, pak, assets.BackendSoftware, nil, idReg)
 			rtConfig.AssetRegistry = reg
 			return
 		}
@@ -56,10 +57,22 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 		reg := assets.NewAssetRegistryStore()
 		dev, err := assets.NewDevFS(root, reg, nil)
 		if err == nil {
-			rtConfig.AssetManager = assets.NewManager(reg, dev, assets.BackendSoftware, nil, nil)
+			idReg := loadIDRegistry(filepath.Join(assetsDir, "uuid_registry.json"))
+			rtConfig.AssetManager = assets.NewManager(reg, dev, assets.BackendSoftware, nil, idReg)
 			rtConfig.AssetRegistry = reg
 		}
 	}
+}
+
+// loadIDRegistry tries to load a UUID registry JSON file. Returns nil if
+// the file doesn't exist or can't be parsed — the manager falls back to
+// returning empty handles for path-based lookups.
+func loadIDRegistry(path string) assets.PathIDRegistry {
+	reg, err := assets.LoadJSONPathRegistry(path)
+	if err != nil {
+		return nil
+	}
+	return reg
 }
 
 // surfaceProvider is implemented by platforms (e.g. Android) that provide a

@@ -120,6 +120,36 @@ func (c *androidExtractionContext) OpenAPKAssetFD(name string) (fd int, offset i
 	return bridge.OpenAPKAssetFD(name)
 }
 
+// ReadAPKAsset reads an entire APK asset file into memory. Returns nil + error
+// when the asset is not found. This is the bootstrap-only path for small files
+// (configs, UUID registry) needed before the runtime's Manager is available.
+func ReadAPKAsset(name string) ([]byte, error) {
+	amgr := bridge.GetAssetManager()
+	if amgr == nil {
+		return nil, fmt.Errorf("android: asset manager not available")
+	}
+	cName := C.CString(name)
+	defer C.free(unsafe.Pointer(cName))
+	handle := C.bridge_apkasset_open((*C.AAssetManager)(amgr), cName)
+	if handle == nil {
+		return nil, fmt.Errorf("android: asset not found: %s", name)
+	}
+	defer C.bridge_apkasset_close(handle)
+	length := int64(C.bridge_apkasset_length(handle))
+	if length <= 0 {
+		return nil, fmt.Errorf("android: zero-length asset: %s", name)
+	}
+	buf := make([]byte, length)
+	if length > 0 {
+		n := int64(C.bridge_apkasset_read(handle, unsafe.Pointer(&buf[0]), C.int64_t(length)))
+		if n <= 0 {
+			return nil, fmt.Errorf("android: failed to read asset: %s", name)
+		}
+		buf = buf[:n]
+	}
+	return buf, nil
+}
+
 // OpenPlatformPak extracts assets.pak from the APK (if changed) and returns
 // a PakFS AssetSource. Call this during Android boot before creating the
 // runtime, then pass the result to NewManager.
