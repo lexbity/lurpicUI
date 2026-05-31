@@ -63,6 +63,22 @@ type AssetConfig struct {
 	// uncompressed in the APK. Patterns are matched against the asset
 	// path relative to the assets directory. Example: ["*.mp4", "*.png"]
 	NoCompress []string `toml:"no_compress"`
+	// Packs defines named asset packs for Play Asset Delivery.
+	// Each pack becomes a separate AAB module with its own delivery type.
+	// Example:
+	//
+	//	[[android.assets.packs]]
+	//	name = "media"
+	//	delivery = "install_time"
+	Packs []AssetPackConfig `toml:"packs"`
+}
+
+// AssetPackConfig defines one Play Asset Delivery pack.
+type AssetPackConfig struct {
+	// Name is the pack identifier used in the AAB module and at runtime.
+	Name string `toml:"name"`
+	// Delivery is one of "install_time", "fast_follow", or "on_demand".
+	Delivery string `toml:"delivery"`
 }
 
 // SDKConfig contains Android SDK path configuration and optional version pins

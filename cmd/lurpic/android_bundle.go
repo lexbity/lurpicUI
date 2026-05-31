@@ -82,8 +82,18 @@ func (b *androidBuilder) assembleAAB() error {
 		return fmt.Errorf("bundle module: %w", err)
 	}
 
-	// Step 2: Write BundleConfig.json.
+	// Step 2: Generate asset-pack modules for Play Asset Delivery.
+	if len(b.config.Android.Assets.Packs) > 0 {
+		if err := b.buildAssetPackModules(moduleDir); err != nil {
+			return fmt.Errorf("asset pack modules: %w", err)
+		}
+	}
+
+	// Step 3: Write BundleConfig.json.
 	config := defaultBundleConfig()
+	if b.config.Android.Assets.Packs != nil {
+		// bundletool validates asset pack modules; no special config needed.
+	}
 	configPath := filepath.Join(moduleDir, "BundleConfig.json")
 	configData, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
@@ -94,7 +104,7 @@ func (b *androidBuilder) assembleAAB() error {
 	}
 	fmt.Printf("  BundleConfig: %s\n", configPath)
 
-	// Step 3: Run bundletool build-bundle.
+	// Step 4: Run bundletool build-bundle.
 	unsignedAab := filepath.Join(b.buildDir, "unsigned.aab")
 	bundleTool, err := findBundleTool(b.sdk)
 	if err != nil {
@@ -214,6 +224,80 @@ func (b *androidBuilder) buildBundleModule() (string, error) {
 
 	// The module root for bundletool is the parent directory of "base".
 	return filepath.Dir(moduleRoot), nil
+}
+
+// buildAssetPackModules creates asset-pack module directories for Play Asset
+// Delivery. Each pack becomes a module alongside the base module with its own
+// assets directory and a minimal manifest declaring the delivery type.
+// The modulesRoot is the parent directory containing the "base" module.
+func (b *androidBuilder) buildAssetPackModules(modulesRoot string) error {
+	assetsSrc := filepath.Join(b.buildDir, "assets")
+	if _, err := os.Stat(assetsSrc); err != nil {
+		return nil // no assets to distribute
+	}
+
+	for _, pack := range b.config.Android.Assets.Packs {
+		if pack.Name == "" {
+			continue
+		}
+		deliveryType := packDeliveryType(pack.Delivery)
+		moduleName := fmt.Sprintf("asset-pack-%s", pack.Name)
+		moduleRoot := filepath.Join(modulesRoot, moduleName)
+		if err := os.MkdirAll(moduleRoot, 0755); err != nil {
+			return fmt.Errorf("pack %q mkdir: %w", pack.Name, err)
+		}
+
+		// ── Manifest ──
+		// Asset pack manifests require the dist:module and dist:type attributes
+		// for bundletool to recognise them as asset packs.
+		manifestContent := fmt.Sprintf(`<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+          xmlns:dist="http://schemas.android.com/apk/distribution">
+    <dist:module dist:type="asset-pack">
+        <dist:delivery>
+            <dist:%s/>
+        </dist:delivery>
+        <dist:fusing dist:include="true"/>
+    </dist:module>
+</manifest>
+`, deliveryType)
+		manifestDir := filepath.Join(moduleRoot, "manifest")
+		if err := os.MkdirAll(manifestDir, 0755); err != nil {
+			return fmt.Errorf("pack %q manifest dir: %w", pack.Name, err)
+		}
+		manifestPath := filepath.Join(manifestDir, "AndroidManifest.xml")
+		if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
+			return fmt.Errorf("pack %q manifest: %w", pack.Name, err)
+		}
+
+		// ── Assets ──
+		// Copy the pack's assets from the build assets directory.
+		// The pack name matches the subdirectory under assets/.
+		packAssetsSrc := filepath.Join(assetsSrc, pack.Name)
+		if _, err := os.Stat(packAssetsSrc); err != nil {
+			fmt.Printf("  Pack %q: no assets directory %s, skipping\n", pack.Name, packAssetsSrc)
+			continue
+		}
+		packAssetsDir := filepath.Join(moduleRoot, "assets")
+		if err := copyDir(packAssetsSrc, packAssetsDir); err != nil {
+			return fmt.Errorf("pack %q assets: %w", pack.Name, err)
+		}
+		fmt.Printf("  Asset pack %q (%s): %s\n", pack.Name, pack.Delivery, packAssetsDir)
+	}
+	return nil
+}
+
+// packDeliveryType maps the config delivery string to the XML element name
+// used in the asset pack manifest.
+func packDeliveryType(delivery string) string {
+	switch delivery {
+	case "fast_follow":
+		return "fast-follow"
+	case "on_demand":
+		return "on-demand"
+	default:
+		return "install-time"
+	}
 }
 
 // compileManifestProto runs aapt2 link with --proto-format to produce a
