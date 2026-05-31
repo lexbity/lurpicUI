@@ -64,9 +64,10 @@ func ResolveDrawable(rt Runtime, handle Handle, typ AssetType) (gfx.DrawableRef,
 		switch typ {
 		case AssetTypeImage:
 			if img, ok := decoded.(*DecodedImageLOD); ok && len(img.Data) > 0 {
-				// Request GPU re-upload when the LOD is not GPU-ready
-				// (e.g. after device-loss recovery or eviction).
-				if gpuReuploadFn != nil && !entry.LODGPUReady[lod] {
+				// Request GPU re-upload per asset-type policy when the
+				// LOD is CPU-ready but not GPU-ready. Non-eligible types
+				// (SVG, config, font) never trigger re-upload here.
+				if gpuReuploadFn != nil && !entry.LODGPUReady[lod] && GPUUploadEligible(typ) {
 					gpuReuploadFn(entry.ID, lod)
 				}
 				return gfx.DrawableRef{

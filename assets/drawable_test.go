@@ -261,3 +261,74 @@ func TestResolveDrawable_doesNotTriggerReuploadWhenGPUReady(t *testing.T) {
 		t.Fatal("expected no re-upload callback when LOD is already GPU-ready")
 	}
 }
+
+func TestResolveDrawable_doesNotTriggerReuploadForSVG(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc012")
+	handle := NewHandle(id, reg)
+
+	reg.SetLODReady(id, 0, &DecodedSVGLOD0{Data: []byte("<svg>...</svg>")}, 100)
+
+	var callbackCalled bool
+	prev := gpuReuploadFn
+	SetGPUReuploadCallback(func(aid AssetID, lod int) {
+		callbackCalled = true
+	})
+	defer SetGPUReuploadCallback(prev)
+
+	rt := &fakeRuntime{reg: reg}
+	ref, ok := ResolveDrawable(rt, handle, AssetTypeSVG)
+	if !ok {
+		t.Fatal("expected resolve to succeed for SVG")
+	}
+	if ref.Kind != gfx.DrawableVector {
+		t.Fatalf("expected Vector for SVG, got %v", ref.Kind)
+	}
+	if callbackCalled {
+		t.Fatal("expected no re-upload callback for SVG (policy says CPU-only)")
+	}
+}
+
+// ── GPUUploadEligible tests ──────────────────────────────────────────────────
+
+func TestGPUUploadEligible_imageIsEligible(t *testing.T) {
+	if !GPUUploadEligible(AssetTypeImage) {
+		t.Fatal("expected AssetTypeImage to be GPU-eligible")
+	}
+}
+
+func TestGPUUploadEligible_svgIsNotEligible(t *testing.T) {
+	if GPUUploadEligible(AssetTypeSVG) {
+		t.Fatal("expected AssetTypeSVG to be CPU-only")
+	}
+}
+
+func TestGPUUploadEligible_fontIsNotEligible(t *testing.T) {
+	if GPUUploadEligible(AssetTypeFont) {
+		t.Fatal("expected AssetTypeFont to be CPU-only")
+	}
+}
+
+func TestGPUUploadEligible_configIsNotEligible(t *testing.T) {
+	if GPUUploadEligible(AssetTypeConfig) {
+		t.Fatal("expected AssetTypeConfig to be CPU-only")
+	}
+}
+
+// ── AssetResidency policy reconciliation tests ───────────────────────────────
+
+func TestAssetResidency_matchesGPUUploadEligible(t *testing.T) {
+	// Verify that AssetResidency's result is consistent with GPUUploadEligible
+	// for all types in GPU-capable, GPUResident mode: only eligible types
+	// should get ResidencyGPU.
+	for typ := AssetTypeSVG; typ <= AssetTypeConfig; typ++ {
+		res := AssetResidency(typ, ResidencyGPUResident, true)
+		eligible := GPUUploadEligible(typ)
+		if eligible && res != ResidencyGPU {
+			t.Errorf("AssetResidency(%v, GPUResident, capable) = %v, want GPU for eligible type", typ, res)
+		}
+		if !eligible && res != ResidencyCPU {
+			t.Errorf("AssetResidency(%v, GPUResident, capable) = %v, want CPU for ineligible type", typ, res)
+		}
+	}
+}
