@@ -1,5 +1,4 @@
 //go:build !android || (android && !cgo)
-// +build !android
 
 package bridge
 

@@ -44,6 +44,22 @@ func UploadImage(pixels []byte, width, height, stride int, format uint32) (uint6
 	return 0, errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
+// Capabilities mirrors the C struct from ffi_linux.go for type compatibility.
+type Capabilities struct {
+	DeviceName               string
+	DeviceType               int32
+	APIVersion               uint32
+	DriverVersion            uint32
+	MaxTextureDimension2D    uint32
+	GraphicsQueueFamilyIndex uint32
+	PresentQueueFamilyIndex  uint32
+	TransferQueueFamilyIndex uint32
+}
+
+func QueryCapabilities() (Capabilities, error) {
+	return Capabilities{}, errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
 func DestroyImage(handle uint64) error {
 	return nil
 }
