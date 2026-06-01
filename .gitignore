@@ -2,10 +2,11 @@
 /full-app-demos
 /build
 /lurpic
-/cmd/quick_square_app/
+/cmd/quick_square_app
 /render/vulkan/crates/lurpic_render/target/
 marks/**/**/testdata/
 .claude
+.codex
 .windsurf
 .github
 .tools
