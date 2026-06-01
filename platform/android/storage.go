@@ -65,19 +65,19 @@ import (
 	"unsafe"
 )
 
-// Storage provides access to Android app-specific storage directories.
-type Storage struct {
+// AppStorage provides access to Android app-specific storage directories.
+type AppStorage struct {
 	activity *C.ANativeActivity
 }
 
 // newStorage wraps the ANativeActivity pointer for storage path access.
-func newStorage(activity unsafe.Pointer) *Storage {
-	return &Storage{activity: (*C.ANativeActivity)(activity)}
+func newStorage(activity unsafe.Pointer) *AppStorage {
+	return &AppStorage{activity: (*C.ANativeActivity)(activity)}
 }
 
 // NewStorage creates a Storage from the ANativeActivity pointer obtained
 // via bridge.GetActivity(). Callers should verify the pointer is non-nil.
-func NewStorage(activity unsafe.Pointer) *Storage {
+func NewStorage(activity unsafe.Pointer) *AppStorage {
 	return newStorage(activity)
 }
 
@@ -87,7 +87,7 @@ const (
 	_storageExternalFiles  = 2
 )
 
-func (s *Storage) getPath(which int) string {
+func (s *AppStorage) getPath(which int) string {
 	if s == nil || s.activity == nil {
 		return ""
 	}
@@ -100,10 +100,10 @@ func (s *Storage) getPath(which int) string {
 }
 
 // FilesDir returns the internal files directory path, or "" if unavailable.
-func (s *Storage) FilesDir() string       { return s.getPath(_storageFilesDir) }
+func (s *AppStorage) FilesDir() string       { return s.getPath(_storageFilesDir) }
 
 // CacheDir returns the internal cache directory path, or "" if unavailable.
-func (s *Storage) CacheDir() string       { return s.getPath(_storageCacheDir) }
+func (s *AppStorage) CacheDir() string       { return s.getPath(_storageCacheDir) }
 
 // ExternalFilesDir returns the external files directory path, or "" if unavailable.
-func (s *Storage) ExternalFilesDir() string { return s.getPath(_storageExternalFiles) }
+func (s *AppStorage) ExternalFilesDir() string { return s.getPath(_storageExternalFiles) }

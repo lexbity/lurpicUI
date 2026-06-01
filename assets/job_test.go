@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/gfx"
+
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
 )
@@ -977,6 +979,280 @@ func TestRequestUpload_deviceLossRecoveryFullCycle(t *testing.T) {
 	}
 	if uploader.enqueued[0].AssetID != id || uploader.enqueued[0].LOD != 0 {
 		t.Fatalf("unexpected enqueue: %+v", uploader.enqueued[0])
+	}
+}
+
+// ── End-to-end hybrid path integration tests ────────────────────────────────
+
+func TestHybridPath_fullCycleUploadDrainResolve(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc050")
+	reg := NewAssetRegistryStore()
+	uploader := newResultUploader()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 64*64*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 64, Height: 64}, 100)
+
+	// 1. Verify enqueue was called by commitJob → enqueueUpload.
+	m.commitJob(&AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          0,
+		EntryVersion: entry.EntryVersion,
+		Result:       &DecodedImageLOD{Data: rgba, Width: 64, Height: 64},
+		ElapsedNs:    100,
+	})
+
+	// 2. Simulate upload result from backend.
+	uploader.send(id, 0, TextureID(42), 16384)
+
+	// 3. Drain results → GPUReady.
+	count := m.DrainUploadResults()
+	if count != 1 {
+		t.Fatalf("expected 1 drain result, got %d", count)
+	}
+
+	// 4. Verify GPU budget accounting.
+	entry = reg.Get(id)
+	if !entry.LODGPUReady[0] {
+		t.Fatal("expected LOD 0 to be GPU-ready after drain")
+	}
+	if entry.LODTextureIDs[0] != TextureID(42) {
+		t.Fatalf("expected TextureID 42, got %d", entry.LODTextureIDs[0])
+	}
+	if m.cache == nil || m.cache.gpuUsed <= 0 {
+		t.Fatal("expected gpuUsed > 0 after GPU upload")
+	}
+
+	// 5. ResolveDrawable returns GPUTexture.
+	rt := &fakeRuntime{reg: reg}
+	handle := NewHandle(id, reg)
+	ref, ok := ResolveDrawable(rt, handle, AssetTypeImage)
+	if !ok {
+		t.Fatal("expected ResolveDrawable to succeed after upload")
+	}
+	if ref.Kind != gfx.DrawableGPUTexture {
+		t.Fatalf("expected DrawableGPUTexture, got %v", ref.Kind)
+	}
+	if ref.TextureID != uint64(42) {
+		t.Fatalf("expected TextureID 42, got %d", ref.TextureID)
+	}
+}
+
+func TestHybridPath_deviceLossRecoveryCPUfallback(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc051")
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+	uploader := newResultUploader()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+	m.SetTextureReleaser(backend)
+	m.cache.deviceGeneration = 1
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 64*64*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 64, Height: 64}, 100)
+	reg.SetLODGPUReady(id, 0, TextureID(42), 16384)
+	m.cache.trackLOD(id, 0, 16384, 16384, TextureID(42), 0)
+
+	// 1. Simulate device generation bump.
+	changed := m.CheckDeviceGeneration(2)
+	if !changed {
+		t.Fatal("expected device generation change")
+	}
+	if len(backend.freed) != 1 || backend.freed[0] != TextureID(42) {
+		t.Fatalf("expected texture 42 freed once, got %v", backend.freed)
+	}
+
+	// 2. LOD is CPU-ready but not GPU-ready.
+	entry = reg.Get(id)
+	if entry.LODGPUReady[0] {
+		t.Fatal("expected LODGPUReady[0] to be false after device loss")
+	}
+	if entry.LODHandles[0] == nil {
+		t.Fatal("expected CPU LOD data to survive device loss")
+	}
+
+	// 3. ResolveDrawable falls back to CPUBitmap during recovery.
+	rt := &fakeRuntime{reg: reg}
+	handle := NewHandle(id, reg)
+	ref, ok := ResolveDrawable(rt, handle, AssetTypeImage)
+	if !ok {
+		t.Fatal("expected ResolveDrawable to succeed (CPU fallback)")
+	}
+	if ref.Kind != gfx.DrawableCPUBitmap {
+		t.Fatalf("expected CPUBitmap fallback, got %v", ref.Kind)
+	}
+	if ref.Bitmap == nil {
+		t.Fatal("expected non-nil Bitmap from CPU fallback")
+	}
+
+	// 4. RequestUpload re-enqueues the upload.
+	enqueued := m.RequestUpload(id, 0)
+	if !enqueued {
+		t.Fatal("expected RequestUpload to re-enqueue after device loss")
+	}
+
+	// 5. Simulate upload result → GPUReady restored.
+	uploader.send(id, 0, TextureID(43), 16384)
+	m.DrainUploadResults()
+	entry = reg.Get(id)
+	if !entry.LODGPUReady[0] {
+		t.Fatal("expected LODGPUReady[0] to be restored after re-upload")
+	}
+	if entry.LODTextureIDs[0] != TextureID(43) {
+		t.Fatalf("expected TextureID 43, got %d", entry.LODTextureIDs[0])
+	}
+}
+
+func TestHybridPath_trimMemoryGPUfirstCPUsurvives(t *testing.T) {
+	reg := NewAssetRegistryStore()
+	backend := &recordingBackend{}
+
+	m := NewManagerWithCache(reg, staticSource{}, BackendSoftware, nil, nil, backend, 10000, 5000)
+
+	id1 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc052")
+	id2 := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc053")
+
+	entry1 := reg.GetOrCreate(id1)
+	entry1.Type = AssetTypeImage
+	entry2 := reg.GetOrCreate(id2)
+	entry2.Type = AssetTypeImage
+
+	reg.SetLODReady(id1, 0, &DecodedImageLOD{Data: make([]byte, 4096), Width: 64, Height: 64}, 100)
+	reg.SetLODReady(id2, 0, &DecodedImageLOD{Data: make([]byte, 1024), Width: 32, Height: 32}, 100)
+
+	reg.SetLODGPUReady(id1, 0, TextureID(50), 2048)
+	reg.SetLODGPUReady(id2, 0, TextureID(60), 512)
+
+	m.cache.trackLOD(id1, 0, 4096, 2048, TextureID(50), 10)
+	m.cache.trackLOD(id2, 0, 1024, 512, TextureID(60), 20)
+
+	beforeCPU := m.cache.usedBytes
+	beforeGPU := m.cache.gpuUsed
+
+	// Moderate trim — COMPLETE level 80 → 0% → evict everything.
+	count := m.TrimMemory(80)
+	if count == 0 {
+		t.Fatal("expected TrimMemory to evict entries")
+	}
+
+	// GPU budget drops to 0.
+	if m.cache.gpuUsed != 0 {
+		t.Fatalf("expected gpuUsed=0 after complete trim, got %d", m.cache.gpuUsed)
+	}
+	if len(backend.freed) != 2 {
+		t.Fatalf("expected 2 textures freed, got %d", len(backend.freed))
+	}
+
+	// CPU budget also drops — both entries cleared at 0%.
+	if m.cache.usedBytes >= beforeCPU {
+		t.Fatalf("expected usedBytes to drop after trim, was %d now %d", beforeCPU, m.cache.usedBytes)
+	}
+	t.Logf("Trim: GPU %d → 0, CPU %d → %d, freed %v", beforeGPU, beforeCPU, m.cache.usedBytes, backend.freed)
+}
+
+func TestHybridPath_defaultCPUOnlyNoUploads(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc054")
+	reg := NewAssetRegistryStore()
+	uploader := &recordingUploader{budget: 4096}
+
+	// CPU-only mode even with capable uploader.
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyCPUOnly, 64, 128)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 32*32*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 32, Height: 32}, 100)
+
+	// commitJob with image type → enqueueUpload → no-op in CPU mode.
+	m.commitJob(&AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          0,
+		EntryVersion: entry.EntryVersion,
+		Result:       &DecodedImageLOD{Data: rgba, Width: 32, Height: 32},
+		ElapsedNs:    100,
+	})
+
+	if len(uploader.enqueued) != 0 {
+		t.Fatalf("expected 0 uploads in CPU-only mode, got %d", len(uploader.enqueued))
+	}
+
+	// RequestUpload also no-op in CPU mode.
+	if m.RequestUpload(id, 0) {
+		t.Fatal("expected RequestUpload to return false in CPU-only mode")
+	}
+
+	// ResolveDrawable returns CPUBitmap (no GPU path).
+	rt := &fakeRuntime{reg: reg}
+	handle := NewHandle(id, reg)
+	ref, ok := ResolveDrawable(rt, handle, AssetTypeImage)
+	if !ok {
+		t.Fatal("expected ResolveDrawable to succeed in CPU mode")
+	}
+	if ref.Kind != gfx.DrawableCPUBitmap {
+		t.Fatalf("expected CPUBitmap in CPU mode, got %v", ref.Kind)
+	}
+
+	// Stats show zero GPU usage.
+	stats := m.Stats()
+	if stats.GPUUsedBytes != 0 {
+		t.Fatalf("expected GPUUsedBytes=0 in CPU mode, got %d", stats.GPUUsedBytes)
+	}
+	if stats.UploadsThisFrame != 0 {
+		t.Fatalf("expected UploadsThisFrame=0 in CPU mode, got %d", stats.UploadsThisFrame)
+	}
+}
+
+func TestHybridPath_gpuBudgetAccounting(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abc055")
+	reg := NewAssetRegistryStore()
+	uploader := newResultUploader()
+
+	m := NewManagerWithResidency(reg, staticSource{}, nil, nil, uploader, ResidencyGPUResident, 64, 128)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	rgba := make([]byte, 64*64*4)
+	reg.SetLODReady(id, 0, &DecodedImageLOD{Data: rgba, Width: 64, Height: 64}, 100)
+
+	// Enqueue via commitJob.
+	m.commitJob(&AssetLoadJob{
+		ID:           id,
+		Type:         AssetTypeImage,
+		LOD:          0,
+		EntryVersion: entry.EntryVersion,
+		Result:       &DecodedImageLOD{Data: rgba, Width: 64, Height: 64},
+		ElapsedNs:    100,
+	})
+
+	// Send upload result with 16384 GPU bytes.
+	uploader.send(id, 0, TextureID(100), 16384)
+	m.DrainUploadResults()
+
+	// GPU budget reflects the result's GPUBytes.
+	if m.cache.gpuUsed != 16384 {
+		t.Fatalf("expected gpuUsed=16384, got %d", m.cache.gpuUsed)
+	}
+
+	// Registry tracks GPUBytes per LOD.
+	entry = reg.Get(id)
+	if entry.LODGPUBytes[0] != 16384 {
+		t.Fatalf("expected LODGPUBytes[0]=16384, got %d", entry.LODGPUBytes[0])
+	}
+
+	// Stats expose GPU budget gauges.
+	stats := m.Stats()
+	if stats.GPUUsedBytes != 16384 {
+		t.Fatalf("expected GPUUsedBytes=16384, got %d", stats.GPUUsedBytes)
+	}
+	if stats.GPUBudgetBytes == 0 {
+		t.Fatal("expected non-zero GPUBudgetBytes")
 	}
 }
 

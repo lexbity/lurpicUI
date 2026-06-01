@@ -81,7 +81,7 @@ func (a *apkAsset) Length() int64 {
 // the Android NativeActivity's files directory and AAssetManager.
 type androidExtractionContext struct {
 	mgr     *C.AAssetManager
-	storage *Storage
+	storage *AppStorage
 }
 
 func (c *androidExtractionContext) FilesDir() string {
@@ -118,6 +118,14 @@ func (c *androidExtractionContext) SetExtractionProgress(progress float32) {
 
 func (c *androidExtractionContext) OpenAPKAssetFD(name string) (fd int, offset int64, length int64, err error) {
 	return bridge.OpenAPKAssetFD(name)
+}
+
+// AssetManager returns the native AAssetManager pointer for the running
+// activity, or nil if unavailable. The pointer is owned by the platform and
+// must not be freed by the caller; it is used for bootstrap-only APK asset
+// access before the runtime's Manager is available.
+func AssetManager() unsafe.Pointer {
+	return bridge.GetAssetManager()
 }
 
 // ReadAPKAsset reads an entire APK asset file into memory. Returns nil + error

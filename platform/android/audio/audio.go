@@ -176,7 +176,7 @@ func (b *Backend) initOpenSLStream(s *stream, cfg platform.AudioConfig) error {
 }
 
 // OnFocusChange registers a callback for audio focus events from Java.
-func (b *Backend) OnFocusChange(cb func(platform.AudioFocusChange)) {
+func (b *Backend) OnFocusChange(cb platform.AudioFocusCallback) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.focusCB = cb

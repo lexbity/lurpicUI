@@ -31,6 +31,11 @@
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "LurpicBridge", __VA_ARGS__))
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "LurpicBridge", __VA_ARGS__))
 
+/* DEBUG: stack-pointer probe to locate main-thread stack consumption. */
+#define DBG_STACK(where) do { volatile char _sp; \
+    LOGW("DBG STACK %s tid=%d sp=%p", (where), (int)gettid(), (void*)&_sp); \
+} while (0)
+
 /* Forward declarations for Go functions */
 extern void goANativeActivityOnCreate(ANativeActivity* activity, void* savedState, size_t savedStateSize);
 extern void goOnStart(ANativeActivity* activity);
@@ -74,6 +79,12 @@ extern void goDeliverConfigurationChanged(int32_t orientation, int32_t screenWid
                                            const char* language, const char* country);
 extern void goDeliverPermissionResult(int32_t requestCode, int32_t granted, int32_t permanent);
 extern void goOnTrimMemory(int32_t level);
+
+/* Forward declarations for the dedicated input thread and dispatcher, which
+ * are used by the queue lifecycle callbacks above their definitions. */
+static void    start_input_thread(AInputQueue* queue);
+static void    stop_input_thread(void);
+static int32_t handle_input_event(AInputEvent* event);
 
 /* Thread-local storage for JNI environment */
 static pthread_key_t jni_env_key;
@@ -132,12 +143,16 @@ static void onDestroy(ANativeActivity* activity) {
 
 static void onStart(ANativeActivity* activity) {
     LOGI("C: onStart called");
+    DBG_STACK("onStart-before");
     goOnStart(activity);
+    DBG_STACK("onStart-after");
 }
 
 static void onResume(ANativeActivity* activity) {
     LOGI("C: onResume called");
+    DBG_STACK("onResume-before");
     goOnResume(activity);
+    DBG_STACK("onResume-after");
 }
 
 static void onPause(ANativeActivity* activity) {
@@ -199,7 +214,9 @@ static void onWindowFocusChanged(ANativeActivity* activity, int focused) {
 
 static void onNativeWindowCreated(ANativeActivity* activity, ANativeWindow* window) {
     LOGI("C: onNativeWindowCreated called");
+    DBG_STACK("onNativeWindowCreated-before");
     goOnNativeWindowCreated(activity, window);
+    DBG_STACK("onNativeWindowCreated-after");
 }
 
 static void onNativeWindowDestroyed(ANativeActivity* activity, ANativeWindow* window) {
@@ -214,6 +231,7 @@ static void onNativeWindowResized(ANativeActivity* activity, ANativeWindow* wind
 
 static void onNativeWindowRedrawNeeded(ANativeActivity* activity, ANativeWindow* window) {
     LOGI("C: onNativeWindowRedrawNeeded called");
+    DBG_STACK("onNativeWindowRedrawNeeded");
     /* Surface recreation, swapchain rebuild, and redraw are driven by the
      * Vulkan backend's recreate path (lurpic_render_recreate_surface_android)
      * through the native window lifecycle callbacks. This callback serves as
@@ -337,11 +355,8 @@ static void* input_thread_func(void* arg) {
 
     while (g_input_thread_running) {
         int events;
-        struct ALooper_pollResult result;
-        /* android-35 NDK has ALooper_pollOnce; we use ALooper_pollOnce
-         * for compatibility. It returns the number of file descriptors
-         * that had events, or ALOOPER_POLL_TIMEOUT (-1), or ALOOPER_POLL_ERROR.
-         */
+        /* ALooper_pollOnce returns the looper id (LOOPER_ID_INPUT here),
+         * ALOOPER_POLL_TIMEOUT (-1), or ALOOPER_POLL_ERROR. */
         int rc = ALooper_pollOnce(-1 /* timeout: infinite */,
                                   NULL /* outFd */,
                                   &events,
@@ -441,13 +456,19 @@ static int pointer_button_from_bstate(int32_t buttonState) {
 
 /* ── Shared event-time helper ─────────────────────────────────────────── */
 static int64_t get_event_time_ns(AInputEvent* event) {
-#if defined(__ANDROID_API__) && __ANDROID_API__ >= 9
-    return (int64_t)AInputEvent_getEventTime(event);
-#else
-    struct timespec ts;
-    clock_gettime(CLOCK_MONOTONIC, &ts);
-    return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
-#endif
+    /* There is no generic AInputEvent_getEventTime; the event time accessor
+     * is specific to the event type. */
+    switch (AInputEvent_getType(event)) {
+    case AINPUT_EVENT_TYPE_MOTION:
+        return (int64_t)AMotionEvent_getEventTime(event);
+    case AINPUT_EVENT_TYPE_KEY:
+        return (int64_t)AKeyEvent_getEventTime(event);
+    default: {
+        struct timespec ts;
+        clock_gettime(CLOCK_MONOTONIC, &ts);
+        return (int64_t)ts.tv_sec * 1000000000LL + (int64_t)ts.tv_nsec;
+    }
+    }
 }
 
 /* ── Historical sample delivery for touch events ──────────────────────── */
@@ -467,7 +488,7 @@ static void deliver_touch_historical(AInputEvent* event, int32_t source,
                 AMotionEvent_getHistoricalTouchMajor(event, i, h),
                 AMotionEvent_getHistoricalTouchMinor(event, i, h),
                 source, deviceId,
-                AMotionEvent_getHistoricalToolType(event, i, h),
+                AMotionEvent_getToolType(event, i),
                 buttonState, (int64_t)histEventTime);
         }
     }
@@ -490,7 +511,7 @@ static void deliver_pointer_historical(AInputEvent* event, int32_t action,
                 AMotionEvent_getHistoricalPressure(event, i, h),
                 AMotionEvent_getHistoricalSize(event, i, h),
                 source, deviceId,
-                AMotionEvent_getHistoricalToolType(event, i, h),
+                AMotionEvent_getToolType(event, i),
                 buttonState, (int64_t)histEventTime);
         }
     }
@@ -900,6 +921,7 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnWin
     jint cutoutLeft, jint cutoutTop, jint cutoutRight, jint cutoutBottom) {
     (void)env;
     (void)thiz;
+    DBG_STACK("JNI-nativeOnWindowInsets(from-Java)");
     goDeliverWindowInsets(top, bottom, left, right,
                           cutoutLeft, cutoutTop, cutoutRight, cutoutBottom);
 }
@@ -947,6 +969,6 @@ void ANativeActivity_onCreate(ANativeActivity* activity, void* savedState, size_
     activity->callbacks->onInputQueueCreated = onInputQueueCreated;
     activity->callbacks->onInputQueueDestroyed = onInputQueueDestroyed;
 
-    /* Call into Go to initialize the runtime */
+    /* Call into Go to initialize the runtime (off the UI thread). */
     goANativeActivityOnCreate(activity, savedState, savedStateSize);
 }

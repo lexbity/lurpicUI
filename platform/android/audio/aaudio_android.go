@@ -3,7 +3,29 @@
 package audio
 
 /*
-#include "audio_android.c"
+// Link the OpenSL ES and Android logging libraries. audio_android.c
+// references OpenSL ES symbols (SL_IID_BUFFERQUEUE, slCreateEngine, ...)
+// and __android_log_print; without these the symbols are unresolved and
+// dlopen of libgo.so fails at runtime with UnsatisfiedLinkError.
+#cgo LDFLAGS: -lOpenSLES -llog
+// audio_android.c is compiled automatically by cgo as a standalone
+// translation unit; declare only the prototypes here so the symbols are
+// not defined twice (which would cause duplicate-symbol link errors).
+#include <stdint.h>
+
+int   aaudio_available(void);
+void* aaudio_stream_open(int sampleRate, int channels, int bitsPerSample, int lowLatency);
+int   aaudio_stream_write(void* handle, const int16_t* samples, int frameCount);
+int   aaudio_stream_pause(void* handle);
+int   aaudio_stream_resume(void* handle);
+int   aaudio_stream_close(void* handle);
+int   aaudio_stream_latency(void* handle);
+
+void* opensl_stream_open(int sampleRate, int channels, int bitsPerSample);
+int   opensl_stream_write(void* handle, const int16_t* samples, int frameCount);
+int   opensl_stream_pause(void* handle);
+int   opensl_stream_resume(void* handle);
+int   opensl_stream_close(void* handle);
 */
 import "C"
 

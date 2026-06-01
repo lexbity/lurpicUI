@@ -30,6 +30,8 @@ import (
 // void bridgeSetExtractionProgress(float progress);
 // void goOnTrimMemory(int32_t level);
 // int64_t bridgeOpenAPKAssetFD(const char* path, int64_t* outOffset, int64_t* outLength);
+// void bridgeVsyncStart(void);
+// void bridgeVsyncStop(void);
 import "C"
 
 // EventType represents the type of Android event.

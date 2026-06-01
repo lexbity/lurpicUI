@@ -13,6 +13,7 @@ import android.os.Bundle;
 import android.util.Log;
 import android.text.InputType;
 import android.view.KeyEvent;
+import android.view.Menu;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -22,10 +23,10 @@ import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 import android.window.OnBackInvokedCallback;
 import android.window.OnBackInvokedDispatcher;
-import android.window.WindowMetrics;
+import android.view.WindowMetrics;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.view.Display;
-import android.view.DisplayInfo;
 import android.view.WindowManager;
 import android.widget.FrameLayout;
 import android.widget.TextView;
@@ -43,6 +44,10 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
     private TextView splashText;
     private AudioManager audioManager;
     private AudioFocusRequest audioFocusRequest;
+
+    // --- DEBUG instrumentation (recursion hunt) ---
+    private int dbgInsetsDepth = 0;
+    private int dbgPanelDepth = 0;
 
     static {
         try {
@@ -77,6 +82,15 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
         // forward them to the native bridge for the runtime's safe-area store.
         getWindow().getDecorView().setOnApplyWindowInsetsListener(
             (View v, WindowInsets insets) -> {
+                dbgInsetsDepth++;
+                if (dbgInsetsDepth <= 3 || dbgInsetsDepth % 50 == 0) {
+                    Log.w(TAG, "DBG insets listener depth=" + dbgInsetsDepth
+                            + " thread=" + Thread.currentThread().getName());
+                }
+                if (dbgInsetsDepth == 4) {
+                    Log.w(TAG, "DBG insets recursion stack:\n"
+                            + Log.getStackTraceString(new Throwable()));
+                }
                 int inTop    = insets.getSystemWindowInsetTop();
                 int inBottom = insets.getSystemWindowInsetBottom();
                 int inLeft   = insets.getSystemWindowInsetLeft();
@@ -93,7 +107,9 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
                 }
                 nativeOnWindowInsets(inTop, inBottom, inLeft, inRight,
                                      cutoutLeft, cutoutTop, cutoutRight, cutoutBottom);
-                return v.onApplyWindowInsets(insets);
+                WindowInsets dbgResult = v.onApplyWindowInsets(insets);
+                dbgInsetsDepth--;
+                return dbgResult;
             }
         );
 
@@ -148,6 +164,37 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
             FrameLayout.LayoutParams.MATCH_PARENT
         ));
         setContentView(imeRoot);
+    }
+
+    // --- DEBUG: panel/menu callbacks (recursion hunt) ---
+    @Override
+    public boolean onCreatePanelMenu(int featureId, Menu menu) {
+        dbgPanelDepth++;
+        if (dbgPanelDepth <= 3 || dbgPanelDepth % 50 == 0) {
+            Log.w(TAG, "DBG onCreatePanelMenu feature=" + featureId + " depth=" + dbgPanelDepth);
+        }
+        boolean r = super.onCreatePanelMenu(featureId, menu);
+        dbgPanelDepth--;
+        return r;
+    }
+
+    @Override
+    public boolean onPreparePanel(int featureId, View view, Menu menu) {
+        dbgPanelDepth++;
+        Log.w(TAG, "DBG onPreparePanel feature=" + featureId + " depth=" + dbgPanelDepth
+                + " javaFrames=" + Thread.currentThread().getStackTrace().length);
+        if (dbgPanelDepth == 4) {
+            Log.w(TAG, "DBG panel recursion stack:\n" + Log.getStackTraceString(new Throwable()));
+        }
+        boolean r = super.onPreparePanel(featureId, view, menu);
+        dbgPanelDepth--;
+        return r;
+    }
+
+    @Override
+    public void onContentChanged() {
+        Log.w(TAG, "DBG onContentChanged thread=" + Thread.currentThread().getName());
+        super.onContentChanged();
     }
 
     @Override
@@ -234,10 +281,10 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
             nativeOnWindowMetricsChanged(bounds.width(), bounds.height());
         } else {
             Display display = wm.getDefaultDisplay();
-            DisplayInfo info = new DisplayInfo();
             if (display != null) {
-                display.getDisplayInfo(info);
-                nativeOnWindowMetricsChanged(info.logicalWidth, info.logicalHeight);
+                Point size = new Point();
+                display.getRealSize(size);
+                nativeOnWindowMetricsChanged(size.x, size.y);
             }
         }
     }

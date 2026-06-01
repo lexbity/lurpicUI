@@ -7,14 +7,21 @@
     <uses-sdk android:minSdkVersion="29" android:targetSdkVersion="33" />
 
 
+    <uses-feature android:name="android.hardware.vulkan.level" android:required="false" />
+
+    <uses-feature android:glEsVersion="0x00020000" android:required="false" />
+
     <application
         android:label="Quick Square Demo"
         android:hasCode="true"
-        android:extractNativeLibs="true"
+        android:extractNativeLibs="false"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        
         >
         <activity android:name="org.lurpicui.bridge.LurpicNativeActivity"
             android:exported="true"
-            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden">
+            android:configChanges="orientation|screenSize|smallestScreenSize|density|keyboard|keyboardHidden|layoutDirection|uiMode|fontScale">
             <meta-data android:name="android.app.lib_name" android:value="go" />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
