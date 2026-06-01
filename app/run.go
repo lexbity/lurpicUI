@@ -327,9 +327,25 @@ func initBackend(preferred RenderBackendKind, surface render.Surface, logger log
 		if backend == nil {
 			return nil, errors.New("app: backend constructor returned nil")
 		}
+		if logger != nil {
+			logger.Info("app: backend initialize begin",
+				"kind", kind,
+				"surface", surface != nil,
+				"surfaceType", fmt.Sprintf("%T", surface))
+		}
 		if err := backend.Initialize(surface); err != nil {
+			if logger != nil {
+				logger.Warn("app: backend initialize failed",
+					"kind", kind,
+					"error", err)
+			}
 			backend.Destroy()
 			return nil, err
+		}
+		if logger != nil {
+			logger.Info("app: backend initialize complete",
+				"kind", kind,
+				"surface", surface != nil)
 		}
 		return backend, nil
 	}

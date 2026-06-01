@@ -36,6 +36,8 @@ func (s *androidSurface) Lock() error {
 	if s == nil || s.window == 0 {
 		return errors.New("android surface: no native window")
 	}
+	AndroidLogInfo("androidSurface.Lock enter window=%p geomSet=%v locked=%v size=%dx%d",
+		s.nativeWindow(), s.geomSet, s.locked, s.width, s.height)
 	win := s.nativeWindow()
 
 	if !s.geomSet {
@@ -55,6 +57,7 @@ func (s *androidSurface) Lock() error {
 	s.width = int(buf.width)
 	s.height = int(buf.height)
 	s.locked = true
+	AndroidLogInfo("androidSurface.Lock exit window=%p stride=%d size=%dx%d", win, s.strideBytes, s.width, s.height)
 	return nil
 }
 
@@ -81,10 +84,12 @@ func (s *androidSurface) Unlock(_ []gfx.Rect) error {
 	if s == nil || !s.locked {
 		return nil
 	}
+	AndroidLogInfo("androidSurface.Unlock enter window=%p stride=%d size=%dx%d", s.nativeWindow(), s.strideBytes, s.width, s.height)
 	s.locked = false
 	s.bits = nil
 	if rc := C.ANativeWindow_unlockAndPost(s.nativeWindow()); rc != 0 {
 		return fmt.Errorf("android surface: ANativeWindow_unlockAndPost failed (%d)", int(rc))
 	}
+	AndroidLogInfo("androidSurface.Unlock exit window=%p", s.nativeWindow())
 	return nil
 }

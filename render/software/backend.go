@@ -244,6 +244,13 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 		}
 	}
 
+	if len(r.output.Pix) >= 4 {
+		tl := sampleRGBAAt(r.output, 0, 0)
+		center := sampleRGBAAt(r.output, r.width/2, r.height/2)
+		androidTracef("software output sample w=%d h=%d tl=%02x%02x%02x%02x center=%02x%02x%02x%02x",
+			r.width, r.height, tl[0], tl[1], tl[2], tl[3], center[0], center[1], center[2], center[3])
+	}
+
 	if err := r.blitToSurface(); err != nil {
 		return err
 	}
@@ -335,6 +342,19 @@ func (r *SoftwareRenderer) blitToSurface() error {
 		copy(dst[dstOff:dstOff+n], r.output.Pix[srcOff:srcOff+n])
 	}
 	return nil
+}
+
+func sampleRGBAAt(img *image.RGBA, x, y int) [4]byte {
+	if img == nil || x < 0 || y < 0 || x >= img.Bounds().Dx() || y >= img.Bounds().Dy() {
+		return [4]byte{}
+	}
+	off := y*img.Stride + x*4
+	if off < 0 || off+4 > len(img.Pix) {
+		return [4]byte{}
+	}
+	var out [4]byte
+	copy(out[:], img.Pix[off:off+4])
+	return out
 }
 
 func (r *SoftwareRenderer) compositeRenderBatch(dst *image.RGBA, src *image.RGBA, offset gfx.Point, opacity float32) {

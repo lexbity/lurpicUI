@@ -102,6 +102,9 @@ func NewFrameTimer(targetFPS int) *FrameTimer {
 // Vsync delivers a vsync timestamp to the timer for alignment. Called from
 // the runtime's event handler when a platform VsyncEvent arrives.
 func (t *FrameTimer) Vsync(frameTimeNanos int64) {
+	if runtimeTraceActive() {
+		runtimeTracef("FrameTimer.Vsync ts=%d pending=%d", frameTimeNanos, len(t.vsyncCh))
+	}
 	select {
 	case t.vsyncCh <- frameTimeNanos:
 	default:
@@ -115,6 +118,9 @@ func (t *FrameTimer) Wait() time.Time {
 	if t == nil {
 		return time.Now()
 	}
+	if runtimeTraceActive() {
+		runtimeTracef("FrameTimer.Wait enter last=%v", t.lastFrame.IsZero())
+	}
 
 	// Try to receive a vsync timestamp first (non-blocking).
 	select {
@@ -123,6 +129,9 @@ func (t *FrameTimer) Wait() time.Time {
 		t.mu.Lock()
 		t.lastFrame = now
 		t.mu.Unlock()
+		if runtimeTraceActive() {
+			runtimeTracef("FrameTimer.Wait used-vsync now=%s", now.Format(time.RFC3339Nano))
+		}
 		return now
 	default:
 	}
@@ -136,6 +145,9 @@ func (t *FrameTimer) Wait() time.Time {
 		t.mu.Lock()
 		t.lastFrame = tick
 		t.mu.Unlock()
+		if runtimeTraceActive() {
+			runtimeTracef("FrameTimer.Wait first-tick now=%s", tick.Format(time.RFC3339Nano))
+		}
 		return tick
 	}
 	next := last.Add(t.targetPeriod)
@@ -147,6 +159,9 @@ func (t *FrameTimer) Wait() time.Time {
 			t.mu.Lock()
 			t.lastFrame = now
 			t.mu.Unlock()
+			if runtimeTraceActive() {
+				runtimeTracef("FrameTimer.Wait early-vsync now=%s", now.Format(time.RFC3339Nano))
+			}
 			return now
 		case <-time.After(delay):
 		}
@@ -158,6 +173,9 @@ func (t *FrameTimer) Wait() time.Time {
 			t.mu.Lock()
 			t.lastFrame = now
 			t.mu.Unlock()
+			if runtimeTraceActive() {
+				runtimeTracef("FrameTimer.Wait late-vsync now=%s", now.Format(time.RFC3339Nano))
+			}
 			return now
 		default:
 		}
@@ -166,12 +184,18 @@ func (t *FrameTimer) Wait() time.Time {
 	t.mu.Lock()
 	t.lastFrame = now
 	t.mu.Unlock()
+	if runtimeTraceActive() {
+		runtimeTracef("FrameTimer.Wait fallback now=%s", now.Format(time.RFC3339Nano))
+	}
 	return now
 }
 
 // RequestFrame wakes the timer for an immediate frame if no request is pending.
 func (t *FrameTimer) RequestFrame() {
 
+	if runtimeTraceActive() {
+		runtimeTracef("FrameTimer.RequestFrame pending=%d", len(t.requestCh))
+	}
 	select {
 	case t.requestCh <- struct{}{}:
 	default:

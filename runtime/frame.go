@@ -18,6 +18,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	if rt.isPaused() {
 		return
 	}
+	if runtimeTraceActive() {
+		runtimeTracef("runFrame start n=%d wait=%v pending=%d dirty=%d paused=%v surface=%v",
+			rt.frameNumber+1, waitForRender, len(rt.pendingEvents), len(rt.dirtyFacets), rt.isPaused(), rt.isSurfaceReady())
+	}
 	rt.frameNumber++
 	stats := diagnostics.FrameStats{FrameNumber: rt.frameNumber}
 
@@ -57,6 +61,9 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		_ = input.Deliver(re, rt.root)
 	}
 	rt.deliverSignals()
+	if runtimeTraceActive() {
+		runtimeTracef("runFrame after-signals n=%d pending=%d dirty=%d", rt.frameNumber, len(rt.pendingEvents), len(rt.dirtyFacets))
+	}
 	select {
 	case <-rt.shutdownCh:
 		rt.lastStats = stats
@@ -108,6 +115,17 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 
 	renderStart := time.Now()
 	if rt.renderPipeline != nil && frameOut != nil && rt.isSurfaceReady() {
+		if runtimeTraceActive() {
+			runtimeTracef("runFrame submit n=%d wait=%v surfaceReady=%v frameBatches=%d",
+				rt.frameNumber, waitForRender, rt.isSurfaceReady(), len(frameOut.RenderBatchs))
+		}
+		androidTracef("runFrame submit n=%d wait=%v surfaceReady=%v frameBatches=%d",
+			rt.frameNumber, waitForRender, rt.isSurfaceReady(), len(frameOut.RenderBatchs))
+		if rt.frameNumber == 1 && len(frameOut.RenderBatchs) > 0 {
+			b := frameOut.RenderBatchs[0]
+			androidTracef("runFrame first-batch bounds=%v commands=%d opacity=%.3f",
+				b.Bounds, len(b.Commands.Commands), b.Opacity)
+		}
 		windowFrames := rt.assembleWindowFrames(frameOut, dirtySnapshot)
 		rt.lastWindowFrames = windowFrames
 		frame := windowFrames[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})]
@@ -133,7 +151,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 				"frame", rt.frameNumber,
 				"batches", stats.RenderBatchCount,
 			)
+			androidTracef("LURPIC_FIRST_FRAME frame=%d batches=%d", rt.frameNumber, stats.RenderBatchCount)
 		}
+	} else {
+		androidTracef("runFrame skip n=%d surfaceReady=%v frameOut=%v renderPipeline=%v",
+			rt.frameNumber, rt.isSurfaceReady(), frameOut != nil, rt.renderPipeline != nil)
 	}
 	stats.RenderDuration = time.Since(renderStart)
 	rt.updateIMECursorRect()
@@ -170,6 +192,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
 	rt.dirtySources = make(map[facet.FacetID]string)
+	if runtimeTraceActive() {
+		runtimeTracef("runFrame end n=%d render=%s layout=%s dirty=%d",
+			rt.frameNumber, stats.RenderDuration, stats.LayoutDuration, len(rt.dirtyFacets))
+	}
 }
 
 func (rt *Runtime) withDismissalEvents(routed []input.RoutedEvent, hitMap *projection.HitMap) []input.RoutedEvent {
@@ -429,6 +455,11 @@ func (rt *Runtime) walkActive(root facet.FacetImpl, fn func(facet.FacetImpl)) {
 
 func (rt *Runtime) windowSize() (int, int) {
 	if rt.window == nil {
+		if sp, ok := rt.platformApp.(interface{ Surface() platform.Surface }); ok && sp != nil {
+			if surface := sp.Surface(); surface != nil {
+				return surface.Size()
+			}
+		}
 		return 0, 0
 	}
 	return rt.window.Size()

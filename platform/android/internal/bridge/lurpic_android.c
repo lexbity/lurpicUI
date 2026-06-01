@@ -31,6 +31,12 @@
 #define LOGW(...) ((void)__android_log_print(ANDROID_LOG_WARN, "LurpicBridge", __VA_ARGS__))
 #define LOGE(...) ((void)__android_log_print(ANDROID_LOG_ERROR, "LurpicBridge", __VA_ARGS__))
 
+void bridgeLogInfo(const char* msg) {
+    if (msg != NULL) {
+        LOGI("%s", msg);
+    }
+}
+
 /* DEBUG: stack-pointer probe to locate main-thread stack consumption. */
 #define DBG_STACK(where) do { volatile char _sp; \
     LOGW("DBG STACK %s tid=%d sp=%p", (where), (int)gettid(), (void*)&_sp); \
@@ -229,13 +235,19 @@ static void onNativeWindowResized(ANativeActivity* activity, ANativeWindow* wind
     goOnNativeWindowResized(activity, window);
 }
 
+static int g_redraw_needed_depth = 0;
+
 static void onNativeWindowRedrawNeeded(ANativeActivity* activity, ANativeWindow* window) {
     LOGI("C: onNativeWindowRedrawNeeded called");
+    g_redraw_needed_depth++;
+    LOGW("DBG redraw-needed depth=%d activity=%p window=%p tid=%d",
+         g_redraw_needed_depth, (void*)activity, (void*)window, (int)gettid());
     DBG_STACK("onNativeWindowRedrawNeeded");
     /* Surface recreation, swapchain rebuild, and redraw are driven by the
      * Vulkan backend's recreate path (lurpic_render_recreate_surface_android)
      * through the native window lifecycle callbacks. This callback serves as
      * an additional hint that the window content needs repainting. */
+    g_redraw_needed_depth--;
 }
 
 static void onInputQueueCreated(ANativeActivity* activity, AInputQueue* queue) {
@@ -961,11 +973,11 @@ void ANativeActivity_onCreate(ANativeActivity* activity, void* savedState, size_
     activity->callbacks->onPause = onPause;
     activity->callbacks->onStop = onStop;
     activity->callbacks->onConfigurationChanged = onConfigurationChanged;
-    activity->callbacks->onWindowFocusChanged = onWindowFocusChanged;
+    activity->callbacks->onWindowFocusChanged = NULL;
     activity->callbacks->onNativeWindowCreated = onNativeWindowCreated;
     activity->callbacks->onNativeWindowDestroyed = onNativeWindowDestroyed;
-    activity->callbacks->onNativeWindowResized = onNativeWindowResized;
-    activity->callbacks->onNativeWindowRedrawNeeded = onNativeWindowRedrawNeeded;
+    activity->callbacks->onNativeWindowResized = NULL;
+    activity->callbacks->onNativeWindowRedrawNeeded = NULL;
     activity->callbacks->onInputQueueCreated = onInputQueueCreated;
     activity->callbacks->onInputQueueDestroyed = onInputQueueDestroyed;
 

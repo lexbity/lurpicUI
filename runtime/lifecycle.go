@@ -10,6 +10,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
+const debugDisableSurfaceCreated = false
+
 func (rt *Runtime) RunOneFrame() {
 
 	_ = rt.start()
@@ -24,6 +26,9 @@ func (rt *Runtime) Run() error {
 	for {
 		if !rt.waitIfPausedOrStopped() {
 			return nil
+		}
+		if runtimeTraceActive() {
+			runtimeTracef("Run loop pre-wait frame=%d shutdown=%v", rt.frameNumber, isChannelClosed(rt.shutdownCh))
 		}
 		select {
 		case <-rt.shutdownCh:
@@ -42,6 +47,9 @@ func (rt *Runtime) Run() error {
 		default:
 		}
 		now := rt.frameTimer.Wait()
+		if runtimeTraceActive() {
+			runtimeTracef("Run loop got frame tick frame=%d now=%s", rt.frameNumber+1, now.Format(time.RFC3339Nano))
+		}
 		rt.runFrame(now, false)
 	}
 }
@@ -81,6 +89,9 @@ func (rt *Runtime) start() error {
 
 	var startErr error
 	rt.startOnce.Do(func() {
+		if runtimeTraceActive() {
+			runtimeTracef("start begin runtimeThread=%v", syncutil.OnRuntimeThread())
+		}
 		if !syncutil.OnRuntimeThread() {
 			syncutil.RegisterRuntimeThread()
 		}
@@ -95,6 +106,9 @@ func (rt *Runtime) start() error {
 		rt.shutdownMu.Lock()
 		rt.started = true
 		rt.shutdownMu.Unlock()
+		if runtimeTraceActive() {
+			runtimeTracef("start complete")
+		}
 	})
 	return startErr
 }
@@ -124,12 +138,14 @@ func (rt *Runtime) bindLifecycleCallbacks() {
 	lc.OnLowMemory(func() {
 		rt.handlePlatformLowMemory()
 	})
-	lc.OnSurfaceLost(func() {
-		rt.handleSurfaceLost()
-	})
-	lc.OnSurfaceCreated(func(surface platform.Surface) {
-		rt.handleSurfaceCreated(surface)
-	})
+	if !debugDisableSurfaceCreated {
+		lc.OnSurfaceLost(func() {
+			rt.handleSurfaceLost()
+		})
+		lc.OnSurfaceCreated(func(surface platform.Surface) {
+			rt.handleSurfaceCreated(surface)
+		})
+	}
 }
 
 func (rt *Runtime) superviseShutdown() {

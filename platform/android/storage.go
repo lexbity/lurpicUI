@@ -4,59 +4,55 @@ package android
 
 /*
 #cgo LDFLAGS: -landroid
-#include <jni.h>
 #include <android/native_activity.h>
 #include <stdlib.h>
 #include <string.h>
 
+// Return the activity storage path without going through JNI. Using the
+// direct ANativeActivity fields avoids any Java-side stack walking during
+// bootstrap and is sufficient for the app-specific directories we need.
+static char* android_storage_path_from_field(const char* path) {
+    return path == NULL ? NULL : strdup(path);
+}
+
+static char* android_cache_path_from_internal(const char* internalPath) {
+    if (internalPath == NULL) return NULL;
+
+    const char* filesSuffix = "/files";
+    const char* cacheSuffix = "/cache";
+    size_t internalLen = strlen(internalPath);
+    size_t filesSuffixLen = strlen(filesSuffix);
+    size_t cacheSuffixLen = strlen(cacheSuffix);
+
+    if (internalLen >= filesSuffixLen &&
+        strcmp(internalPath + internalLen - filesSuffixLen, filesSuffix) == 0) {
+        size_t prefixLen = internalLen - filesSuffixLen;
+        char* result = (char*)malloc(prefixLen + cacheSuffixLen + 1);
+        if (result == NULL) return NULL;
+        memcpy(result, internalPath, prefixLen);
+        memcpy(result + prefixLen, cacheSuffix, cacheSuffixLen + 1);
+        return result;
+    }
+
+    return strdup(internalPath);
+}
+
 // Call getFilesDir/getCacheDir/getExternalFilesDir on the activity and
 // return the absolute path. Returns NULL on failure (caller must free).
 char* android_storage_path(ANativeActivity* activity, int which) {
-    if (activity == NULL || activity->env == NULL || activity->clazz == NULL)
+    if (activity == NULL)
         return NULL;
 
-    JNIEnv* env = activity->env;
-    jclass cls = (*env)->GetObjectClass(env, activity->clazz);
-    if (cls == NULL) return NULL;
-
-    const char* methodName;
-    const char* methodSig;
     switch (which) {
-        case 0: methodName = "getFilesDir";        methodSig = "()Ljava/io/File;"; break;
-        case 1: methodName = "getCacheDir";        methodSig = "()Ljava/io/File;"; break;
-        case 2: methodName = "getExternalFilesDir"; methodSig = "(Ljava/lang/String;)Ljava/io/File;"; break;
-        default: (*env)->DeleteLocalRef(env, cls); return NULL;
+        case 0:
+            return android_storage_path_from_field(activity->internalDataPath);
+        case 1:
+            return android_cache_path_from_internal(activity->internalDataPath);
+        case 2:
+            return android_storage_path_from_field(activity->externalDataPath);
+        default:
+            return NULL;
     }
-
-    jmethodID mid = (*env)->GetMethodID(env, cls, methodName, methodSig);
-    if (mid == NULL) {
-        (*env)->DeleteLocalRef(env, cls);
-        return NULL;
-    }
-
-    jobject fileObj;
-    if (which == 2) {
-        fileObj = (*env)->CallObjectMethod(env, activity->clazz, mid, NULL);
-    } else {
-        fileObj = (*env)->CallObjectMethod(env, activity->clazz, mid);
-    }
-    if (fileObj == NULL) {
-        (*env)->DeleteLocalRef(env, cls);
-        return NULL;
-    }
-
-    jclass fileCls = (*env)->GetObjectClass(env, fileObj);
-    jmethodID absMid = (*env)->GetMethodID(env, fileCls, "getAbsolutePath", "()Ljava/lang/String;");
-    jstring pathStr = (*env)->CallObjectMethod(env, fileObj, absMid);
-
-    const char* utf = (*env)->GetStringUTFChars(env, pathStr, NULL);
-    char* result = strdup(utf);
-    (*env)->ReleaseStringUTFChars(env, pathStr, utf);
-
-    (*env)->DeleteLocalRef(env, fileCls);
-    (*env)->DeleteLocalRef(env, fileObj);
-    (*env)->DeleteLocalRef(env, cls);
-    return result;
 }
 */
 import "C"

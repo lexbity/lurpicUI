@@ -23,5 +23,8 @@ func (rt *Runtime) queueSignal(deliver func()) {
 	if deliver == nil {
 		return
 	}
+	if runtimeTraceActive() {
+		runtimeTracef("queueSignal pending=%d", len(rt.signalQueue)+1)
+	}
 	rt.signalQueue = append(rt.signalQueue, pendingSignal{deliver: deliver})
 }

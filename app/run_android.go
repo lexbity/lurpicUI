@@ -22,6 +22,10 @@ func openAndroidAssetManager(rtConfig *runtime.Config) {
 	if rtConfig.AssetManager != nil {
 		return
 	}
+	if os.Getenv("LURPIC_SKIP_ANDROID_PAK") == "1" {
+		fmt.Fprintln(os.Stderr, "app/android: skipping platform pak bootstrap via LURPIC_SKIP_ANDROID_PAK=1")
+		return
+	}
 	pak, err := android.OpenPlatformPak()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "app/android: open platform pak: %v\n", err)

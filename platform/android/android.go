@@ -3,6 +3,7 @@
 package android
 
 import (
+	"os"
 	"time"
 	"unsafe"
 
@@ -26,11 +27,11 @@ type EdgeInsets struct {
 // It also implements platform.LifecycleCapable for lifecycle event handling
 // and provides an Audio() method for the platform.Audio interface.
 type App struct {
-	events            *bridge.EventQueue
-	lifecycleHandlers lifecycleCallbacks
-	currentSurface    platform.Surface
-	currentInsets     EdgeInsets
-	audioBackend      *audio.Backend
+	events             *bridge.EventQueue
+	lifecycleHandlers  lifecycleCallbacks
+	currentSurface     platform.Surface
+	currentInsets      EdgeInsets
+	audioBackend       *audio.Backend
 	savedInstanceState []byte
 }
 
@@ -113,7 +114,9 @@ func (a *App) dispatchLifecycleEvent(kind platform.LifecycleKind) {
 	}
 	switch kind {
 	case platform.LifecycleResume:
-		bridge.StartVsync()
+		if os.Getenv("LURPIC_SKIP_VSYNC") != "1" {
+			bridge.StartVsync()
+		}
 		for _, f := range a.lifecycleHandlers.onResume {
 			f()
 		}
@@ -134,25 +137,29 @@ func (a *App) dispatchWindowEvent(e platform.WindowEvent) {
 	if a == nil {
 		return
 	}
+	bridge.AndroidLogInfo("dispatchWindowEvent kind=%d surface=%v", e.Kind, a.currentSurface != nil)
 	switch e.Kind {
 	case platform.WindowCreated:
+		bridge.AndroidLogInfo("dispatchWindowEvent WindowCreated enter width=%d height=%d", e.Width, e.Height)
 		surf := newAndroidSurface(e.Window, e.Width, e.Height)
 		a.currentSurface = surf
-		for _, f := range a.lifecycleHandlers.onSurfaceCreated {
-			f(surf)
-		}
+		bridge.AndroidLogInfo("dispatchWindowEvent WindowCreated exit surface=%v", a.currentSurface != nil)
 	case platform.WindowResized:
+		bridge.AndroidLogInfo("dispatchWindowEvent WindowResized enter width=%d height=%d surface=%v", e.Width, e.Height, a.currentSurface != nil)
 		if a.currentSurface != nil {
 			a.currentSurface.Resize(e.Width, e.Height)
 			for _, f := range a.lifecycleHandlers.onSurfaceCreated {
 				f(a.currentSurface)
 			}
 		}
+		bridge.AndroidLogInfo("dispatchWindowEvent WindowResized exit surface=%v", a.currentSurface != nil)
 	case platform.WindowDestroyed:
+		bridge.AndroidLogInfo("dispatchWindowEvent WindowDestroyed enter")
 		a.currentSurface = nil
 		for _, f := range a.lifecycleHandlers.onSurfaceLost {
 			f()
 		}
+		bridge.AndroidLogInfo("dispatchWindowEvent WindowDestroyed exit")
 	}
 }
 
@@ -323,6 +330,7 @@ func (a *eventQueueAdapter) dispatchSideEffects(e platform.Event) {
 // convertBridgeEvent converts a bridge event to a platform event.
 // The app parameter is used for side effects like storing window insets.
 func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
+	bridge.AndroidLogInfo("convertBridgeEvent type=%d surface=%v", e.Type, a != nil && a.currentSurface != nil)
 	switch e.Type {
 	case bridge.EventTypeStart:
 		return platform.LifecycleEvent{Kind: platform.LifecycleStart}
@@ -455,14 +463,14 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 		return nil
 	case bridge.EventTypeConfigurationChanged:
 		return platform.ConfigurationChangedEvent{
-			Orientation:   int(e.Orientation),
-			ScreenWidthDp: int(e.ScreenWidthDp),
+			Orientation:    int(e.Orientation),
+			ScreenWidthDp:  int(e.ScreenWidthDp),
 			ScreenHeightDp: int(e.ScreenHeightDp),
-			Density:       int(e.Density),
-			UiModeNight:   e.UiModeNight != 0,
-			FontScale:     e.FontScale,
-			Language:      e.Language,
-			Country:       e.Country,
+			Density:        int(e.Density),
+			UiModeNight:    e.UiModeNight != 0,
+			FontScale:      e.FontScale,
+			Language:       e.Language,
+			Country:        e.Country,
 		}
 	default:
 		return nil

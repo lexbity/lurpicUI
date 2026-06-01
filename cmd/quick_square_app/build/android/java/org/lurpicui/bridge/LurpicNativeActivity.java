@@ -11,6 +11,7 @@ import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
+import android.graphics.Canvas;
 import android.text.InputType;
 import android.view.KeyEvent;
 import android.view.Menu;
@@ -37,6 +38,7 @@ import android.widget.TextView;
  */
 public class LurpicNativeActivity extends NativeActivity implements AudioManager.OnAudioFocusChangeListener {
     private static final String TAG = "LurpicNativeActivity";
+    private static final boolean DEBUG_DISABLE_IME_VIEW = true;
 
     private FrameLayout imeRoot;
     private ImeInputView imeView;
@@ -46,8 +48,8 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
     private AudioFocusRequest audioFocusRequest;
 
     // --- DEBUG instrumentation (recursion hunt) ---
-    private int dbgInsetsDepth = 0;
-    private int dbgPanelDepth = 0;
+    private int dbgRootDrawDepth = 0;
+    private int dbgSplashDrawDepth = 0;
 
     static {
         try {
@@ -77,41 +79,6 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
                         | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
                 );
         }
-
-        // Listen for window insets (status bar, nav bar, cutout, IME) and
-        // forward them to the native bridge for the runtime's safe-area store.
-        getWindow().getDecorView().setOnApplyWindowInsetsListener(
-            (View v, WindowInsets insets) -> {
-                dbgInsetsDepth++;
-                if (dbgInsetsDepth <= 3 || dbgInsetsDepth % 50 == 0) {
-                    Log.w(TAG, "DBG insets listener depth=" + dbgInsetsDepth
-                            + " thread=" + Thread.currentThread().getName());
-                }
-                if (dbgInsetsDepth == 4) {
-                    Log.w(TAG, "DBG insets recursion stack:\n"
-                            + Log.getStackTraceString(new Throwable()));
-                }
-                int inTop    = insets.getSystemWindowInsetTop();
-                int inBottom = insets.getSystemWindowInsetBottom();
-                int inLeft   = insets.getSystemWindowInsetLeft();
-                int inRight  = insets.getSystemWindowInsetRight();
-                int cutoutLeft = 0, cutoutTop = 0, cutoutRight = 0, cutoutBottom = 0;
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-                    android.view.DisplayCutout cutout = insets.getDisplayCutout();
-                    if (cutout != null) {
-                        cutoutLeft   = cutout.getSafeInsetLeft();
-                        cutoutTop    = cutout.getSafeInsetTop();
-                        cutoutRight  = cutout.getSafeInsetRight();
-                        cutoutBottom = cutout.getSafeInsetBottom();
-                    }
-                }
-                nativeOnWindowInsets(inTop, inBottom, inLeft, inRight,
-                                     cutoutLeft, cutoutTop, cutoutRight, cutoutBottom);
-                WindowInsets dbgResult = v.onApplyWindowInsets(insets);
-                dbgInsetsDepth--;
-                return dbgResult;
-            }
-        );
 
         // Register predictive back callback (API 33+). The system shows an
         // animated back arrow/gesture and calls onBackInvoked when the user
@@ -146,7 +113,7 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
         splashText.setGravity(android.view.Gravity.CENTER);
         splashText.setVisibility(android.view.View.GONE);
 
-        splashRoot = new FrameLayout(this);
+        splashRoot = new DebugFrameLayout(this, "splashRoot");
         splashRoot.setBackgroundColor(0xFF1A1A2E);
         splashRoot.addView(splashText, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.WRAP_CONTENT,
@@ -154,41 +121,20 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
             android.view.Gravity.CENTER
         ));
 
-        imeView = new ImeInputView(this);
-        imeRoot = new FrameLayout(this);
+        imeRoot = new DebugFrameLayout(this, "imeRoot");
         imeRoot.setFocusable(false);
         imeRoot.setFocusableInTouchMode(false);
-        imeRoot.addView(imeView, new FrameLayout.LayoutParams(1, 1));
+        if (!DEBUG_DISABLE_IME_VIEW) {
+            imeView = new ImeInputView(this);
+            imeRoot.addView(imeView, new FrameLayout.LayoutParams(1, 1));
+        } else {
+            Log.w(TAG, "DBG skipping hidden IME view for isolation");
+        }
         imeRoot.addView(splashRoot, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.MATCH_PARENT
         ));
         setContentView(imeRoot);
-    }
-
-    // --- DEBUG: panel/menu callbacks (recursion hunt) ---
-    @Override
-    public boolean onCreatePanelMenu(int featureId, Menu menu) {
-        dbgPanelDepth++;
-        if (dbgPanelDepth <= 3 || dbgPanelDepth % 50 == 0) {
-            Log.w(TAG, "DBG onCreatePanelMenu feature=" + featureId + " depth=" + dbgPanelDepth);
-        }
-        boolean r = super.onCreatePanelMenu(featureId, menu);
-        dbgPanelDepth--;
-        return r;
-    }
-
-    @Override
-    public boolean onPreparePanel(int featureId, View view, Menu menu) {
-        dbgPanelDepth++;
-        Log.w(TAG, "DBG onPreparePanel feature=" + featureId + " depth=" + dbgPanelDepth
-                + " javaFrames=" + Thread.currentThread().getStackTrace().length);
-        if (dbgPanelDepth == 4) {
-            Log.w(TAG, "DBG panel recursion stack:\n" + Log.getStackTraceString(new Throwable()));
-        }
-        boolean r = super.onPreparePanel(featureId, view, menu);
-        dbgPanelDepth--;
-        return r;
     }
 
     @Override
@@ -443,11 +389,13 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
 
         @Override
         public boolean onCheckIsTextEditor() {
+            Log.w(TAG, "DBG ImeInputView.onCheckIsTextEditor");
             return true;
         }
 
         @Override
         public InputConnection onCreateInputConnection(EditorInfo outAttrs) {
+            Log.w(TAG, "DBG ImeInputView.onCreateInputConnection");
             outAttrs.inputType = InputType.TYPE_CLASS_TEXT
                     | InputType.TYPE_TEXT_FLAG_MULTI_LINE
                     | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS;
@@ -466,24 +414,28 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
 
         @Override
         public boolean setComposingText(CharSequence text, int newCursorPosition) {
+            Log.w(TAG, "DBG ImeInputConnection.setComposingText");
             activity.nativeImeCompose(text != null ? text.toString() : "", newCursorPosition);
             return true;
         }
 
         @Override
         public boolean commitText(CharSequence text, int newCursorPosition) {
+            Log.w(TAG, "DBG ImeInputConnection.commitText");
             activity.nativeImeCommit(text != null ? text.toString() : "");
             return true;
         }
 
         @Override
         public boolean finishComposingText() {
+            Log.w(TAG, "DBG ImeInputConnection.finishComposingText");
             activity.nativeImeCompose("", 0);
             return true;
         }
 
         @Override
         public boolean deleteSurroundingText(int beforeLength, int afterLength) {
+            Log.w(TAG, "DBG ImeInputConnection.deleteSurroundingText");
             activity.nativeImeKeyEvent(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_DOWN, 0);
             activity.nativeImeKeyEvent(KeyEvent.KEYCODE_DEL, KeyEvent.ACTION_UP, 0);
             return true;
@@ -494,12 +446,14 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
             if (event == null) {
                 return false;
             }
+            Log.w(TAG, "DBG ImeInputConnection.sendKeyEvent keyCode=" + event.getKeyCode());
             activity.nativeImeKeyEvent(event.getKeyCode(), event.getAction(), event.getMetaState());
             return true;
         }
 
         @Override
         public boolean performEditorAction(int actionCode) {
+            Log.w(TAG, "DBG ImeInputConnection.performEditorAction actionCode=" + actionCode);
             int keyCode;
             int metaState = 0;
             switch (actionCode) {
@@ -524,5 +478,61 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
             activity.nativeImeKeyEvent(keyCode, KeyEvent.ACTION_UP, metaState);
             return true;
         }
+    }
+
+    private final class DebugFrameLayout extends FrameLayout {
+        private final String dbgName;
+
+        DebugFrameLayout(LurpicNativeActivity activity, String dbgName) {
+            super(activity);
+            this.dbgName = dbgName;
+        }
+
+        @Override
+        protected void dispatchDraw(Canvas canvas) {
+            int depth = incrementDrawDepth(dbgName);
+            try {
+                super.dispatchDraw(canvas);
+            } finally {
+                decrementDrawDepth(dbgName);
+            }
+            if (depth == 1) {
+                Log.i(TAG, "DBG dispatchDraw completed for " + dbgName
+                        + " thread=" + Thread.currentThread().getName());
+            }
+        }
+    }
+
+    private int incrementDrawDepth(String name) {
+        if ("imeRoot".equals(name)) {
+            dbgRootDrawDepth++;
+            if (dbgRootDrawDepth <= 3 || dbgRootDrawDepth % 50 == 0) {
+                Log.w(TAG, "DBG draw depth " + name + "=" + dbgRootDrawDepth
+                        + " thread=" + Thread.currentThread().getName());
+            }
+            if (dbgRootDrawDepth == 4) {
+                Log.w(TAG, "DBG draw recursion stack for " + name + ":\n"
+                        + Log.getStackTraceString(new Throwable()));
+            }
+            return dbgRootDrawDepth;
+        }
+        dbgSplashDrawDepth++;
+        if (dbgSplashDrawDepth <= 3 || dbgSplashDrawDepth % 50 == 0) {
+            Log.w(TAG, "DBG draw depth " + name + "=" + dbgSplashDrawDepth
+                    + " thread=" + Thread.currentThread().getName());
+        }
+        if (dbgSplashDrawDepth == 4) {
+            Log.w(TAG, "DBG draw recursion stack for " + name + ":\n"
+                    + Log.getStackTraceString(new Throwable()));
+        }
+        return dbgSplashDrawDepth;
+    }
+
+    private void decrementDrawDepth(String name) {
+        if ("imeRoot".equals(name)) {
+            dbgRootDrawDepth--;
+            return;
+        }
+        dbgSplashDrawDepth--;
     }
 }

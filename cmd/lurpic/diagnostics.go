@@ -374,6 +374,37 @@ func checkLogcatForCrash(runner Runner, adb, serial string, symbols *symbolSet, 
 	}
 
 	lines := strings.Split(string(out), "\n")
+	interesting := []string{
+		"surfaceRedrawNeeded",
+		"dispatchSurfaceRedrawNeededAsync",
+		"performDraw",
+		"ViewRootImpl",
+		"Choreographer",
+		"SplashScreen",
+		"StackOverflowError",
+		"onNativeWindowRedrawNeeded",
+		"onCreatePanelMenu",
+		"onPreparePanel",
+		"onApplyWindowInsets",
+	}
+	var clues []string
+	for _, line := range lines {
+		for _, needle := range interesting {
+			if strings.Contains(line, needle) {
+				clues = append(clues, line)
+				break
+			}
+		}
+	}
+
+	if len(clues) > 0 {
+		fmt.Println("Focused crash clues:")
+		for _, l := range clues {
+			fmt.Println(l)
+		}
+		fmt.Println()
+	}
+
 	var crashLines []string
 	inCrash := false
 	for _, line := range lines {

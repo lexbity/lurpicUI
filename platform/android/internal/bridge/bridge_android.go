@@ -22,6 +22,7 @@ import (
 // #include <android/input.h>
 // #include <android/keycodes.h>
 // #include <stdlib.h>
+// void bridgeLogInfo(const char* msg);
 // void bridgeShowSoftKeyboard(void);
 // void bridgeHideSoftKeyboard(void);
 // void bridgeRequestPermission(const char* permission, int requestCode);
@@ -833,12 +834,16 @@ func OpenAPKAssetFD(name string) (fd int, offset, length int64, err error) {
 }
 
 // androidLogInfo logs an info message via Android's log system.
-// In a full implementation, this would call __android_log_print via C.
 func androidLogInfo(format string, args ...interface{}) {
-	// For now, this is a placeholder. The actual logging happens in C.
-	// The C bridge logs before calling these Go functions.
-	_ = format
-	_ = args
+	msg := fmt.Sprintf(format, args...)
+	cmsg := C.CString(msg)
+	defer C.free(unsafe.Pointer(cmsg))
+	C.bridgeLogInfo(cmsg)
+}
+
+// AndroidLogInfo exposes the Android log helper to other Android packages.
+func AndroidLogInfo(format string, args ...interface{}) {
+	androidLogInfo(format, args...)
 }
 
 // StartVsync enables Choreographer vsync callbacks. Should be called when
