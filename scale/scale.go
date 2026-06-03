@@ -116,6 +116,7 @@ type options struct {
 	hasRange  bool
 	clamp     *OutOfRange
 	base      *float64
+	exponent  *float64
 }
 
 // Option configures a scale during construction.
@@ -150,5 +151,12 @@ func WithClamp(c OutOfRange) Option {
 func WithBase(base float64) Option {
 	return func(o *options) {
 		o.base = &base
+	}
+}
+
+// WithExponent sets the power exponent for PowScale. Must be positive.
+func WithExponent(exp float64) Option {
+	return func(o *options) {
+		o.exponent = &exp
 	}
 }
