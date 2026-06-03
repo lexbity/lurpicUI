@@ -110,13 +110,17 @@ func (o OutOfRange) String() string {
 // Unexported so that Option values can only be constructed via the public
 // With* functions.
 type options struct {
-	domain    [2]float64
-	hasDomain bool
-	rng       [2]float64
-	hasRange  bool
-	clamp     *OutOfRange
-	base      *float64
-	exponent  *float64
+	domain        [2]float64
+	hasDomain     bool
+	strDomain     []string
+	rng           [2]float64
+	hasRange      bool
+	clamp         *OutOfRange
+	base          *float64
+	exponent      *float64
+	paddingInner  *float64
+	paddingOuter  *float64
+	align         *float64
 }
 
 // Option configures a scale during construction.
@@ -158,5 +162,29 @@ func WithBase(base float64) Option {
 func WithExponent(exp float64) Option {
 	return func(o *options) {
 		o.exponent = &exp
+	}
+}
+
+// WithPaddingInner sets the inner padding ratio for Band/Point scales.
+// 0 = no gap between bands, 1 = no band width (only gaps).
+func WithPaddingInner(p float64) Option {
+	return func(o *options) {
+		o.paddingInner = &p
+	}
+}
+
+// WithPaddingOuter sets the outer padding ratio for Band/Point scales.
+// 0 = no padding on range ends, higher values add more padding.
+func WithPaddingOuter(p float64) Option {
+	return func(o *options) {
+		o.paddingOuter = &p
+	}
+}
+
+// WithAlign sets the alignment for Band/Point scales: 0 = left/right-justified,
+// 0.5 = centered (default), 1 = right/left-justified.
+func WithAlign(a float64) Option {
+	return func(o *options) {
+		o.align = &a
 	}
 }
