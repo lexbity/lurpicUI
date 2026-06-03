@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/scale"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -217,6 +218,42 @@ func TestReactiveScale_log_with_options(t *testing.T) {
 	s := rs.Get()
 	if s.Kind() != scale.KindLog {
 		t.Fatalf("kind = %s, want KindLog", s.Kind())
+	}
+}
+
+func TestReactiveScale_onchange_fires(t *testing.T) {
+	// ReactiveScale's underlying store.Derived fires OnChange on recompute.
+	// We verify this by subscribing to the derived's OnChange directly.
+	domain := store.NewValueStore([2]float64{0, 100})
+	rng := store.NewValueStore([2]float64{0, 500})
+
+	fired := 0
+	derived := store.NewDerived(
+		func() scale.InvertibleScale {
+			d := domain.Get()
+			r := rng.Get()
+			return scale.NewLinear(
+				scale.WithDomain(d[0], d[1]),
+				scale.WithRange(r[0], r[1]),
+			)
+		},
+		domain, rng,
+	)
+	derived.OnChange.Subscribe(func(c signal.Change[scale.InvertibleScale]) {
+		fired++
+	})
+
+	derived.Get() // initial compute (fires OnChange)
+	if fired == 0 {
+		t.Fatal("expected OnChange to fire on initial compute")
+	}
+
+	// Change domain — triggers recompute on next Get
+	domain.Set([2]float64{0, 200})
+	before := fired
+	derived.Get()
+	if fired <= before {
+		t.Fatal("expected OnChange to fire after domain change")
 	}
 }
 

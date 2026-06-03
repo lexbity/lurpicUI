@@ -13,6 +13,7 @@ type TimeScale struct {
 	domain [2]float64
 	rng    [2]float64
 	clamp  OutOfRange
+	loc    *time.Location
 }
 
 // NewTime constructs a TimeScale with the given options. The domain values
@@ -30,6 +31,9 @@ func NewTime(opts ...Option) TimeScale {
 	}
 	if o.clamp != nil {
 		s.clamp = *o.clamp
+	}
+	if o.loc != nil {
+		s.loc = o.loc
 	}
 	return s
 }
@@ -91,7 +95,11 @@ func (s TimeScale) Ticks(count int) []Tick {
 	if lo > hi {
 		lo, hi = hi, lo
 	}
-	vals, iv := timeTicks(lo, hi, count, time.UTC)
+	loc := s.loc
+	if loc == nil {
+		loc = time.UTC
+	}
+	vals, iv := timeTicks(lo, hi, count, loc)
 	if len(vals) == 0 {
 		return nil
 	}

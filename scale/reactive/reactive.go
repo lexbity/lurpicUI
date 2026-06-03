@@ -2,6 +2,7 @@ package reactive
 
 import (
 	"codeburg.org/lexbit/lurpicui/scale"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -98,4 +99,53 @@ func NewTimeReactive(
 		domain, rng,
 	)
 	return &ReactiveScale{derived: derived}
+}
+
+// NewLinearReactiveFromDerived is like NewLinearReactive but accepts
+// *store.Derived sources, enabling chaining from DomainFromCollection.
+// OnChange on the source Deriveds is used to bridge to ValueStores for
+// version tracking.
+func NewLinearReactiveFromDerived(
+	domain *store.Derived[[2]float64],
+	rng *store.Derived[[2]float64],
+	opts ...scale.Option,
+) *ReactiveScale {
+	domainStore := bridgeDerived(domain)
+	rngStore := bridgeDerived(rng)
+	return NewLinearReactive(domainStore, rngStore, opts...)
+}
+
+// NewLogReactiveFromDerived is like NewLogReactive but accepts
+// *store.Derived sources.
+func NewLogReactiveFromDerived(
+	domain *store.Derived[[2]float64],
+	rng *store.Derived[[2]float64],
+	opts ...scale.Option,
+) *ReactiveScale {
+	domainStore := bridgeDerived(domain)
+	rngStore := bridgeDerived(rng)
+	return NewLogReactive(domainStore, rngStore, opts...)
+}
+
+// NewTimeReactiveFromDerived is like NewTimeReactive but accepts
+// *store.Derived sources.
+func NewTimeReactiveFromDerived(
+	domain *store.Derived[[2]float64],
+	rng *store.Derived[[2]float64],
+	opts ...scale.Option,
+) *ReactiveScale {
+	domainStore := bridgeDerived(domain)
+	rngStore := bridgeDerived(rng)
+	return NewTimeReactive(domainStore, rngStore, opts...)
+}
+
+// bridgeDerived creates a ValueStore that mirrors the Derived's value.
+// The Derived's OnChange signal is used to update the ValueStore whenever
+// the Derived recomputes (which happens when Get() is called while dirty).
+func bridgeDerived(d *store.Derived[[2]float64]) *store.ValueStore[[2]float64] {
+	vs := store.NewValueStore(d.Get())
+	d.OnChange.Subscribe(func(c signal.Change[[2]float64]) {
+		vs.Set(c.New)
+	})
+	return vs
 }

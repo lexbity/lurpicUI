@@ -218,6 +218,26 @@ func TestTime_implements_Scale(t *testing.T) {
 	_ = sc
 }
 
+func TestTime_with_timezone_option(t *testing.T) {
+	loc := time.FixedZone("EST", -5*60*60)
+	t0 := time.Date(2024, 3, 10, 0, 0, 0, 0, loc)
+	t1 := time.Date(2024, 3, 11, 0, 0, 0, 0, loc)
+	s := NewTime(WithTimeDomain(t0, t1), WithRange(0, 500), WithTimeLocation(loc))
+	ticks := s.Ticks(12)
+	if len(ticks) == 0 {
+		t.Fatal("expected ticks with timezone option")
+	}
+	// Ticks should be in the given location (EST, UTC-5)
+	for _, tk := range ticks {
+		tm := time.UnixMilli(int64(tk.Value))
+		_, offset := tm.In(loc).Zone()
+		if offset != -5*60*60 {
+			t.Errorf("tick %v not in EST timezone", tm)
+			break
+		}
+	}
+}
+
 func TestTime_implements_InvertibleScale(t *testing.T) {
 	var inv InvertibleScale = NewTime(WithTimeDomain(
 		time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC),

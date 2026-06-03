@@ -3,6 +3,7 @@ package scale
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 // Sentinel errors returned by scale constructors and methods.
@@ -121,6 +122,7 @@ type options struct {
 	paddingInner  *float64
 	paddingOuter  *float64
 	align         *float64
+	loc           *time.Location
 }
 
 // Option configures a scale during construction.
@@ -162,6 +164,14 @@ func WithBase(base float64) Option {
 func WithExponent(exp float64) Option {
 	return func(o *options) {
 		o.exponent = &exp
+	}
+}
+
+// WithTimeLocation sets the timezone for TimeScale tick generation.
+// Defaults to UTC if not specified.
+func WithTimeLocation(loc *time.Location) Option {
+	return func(o *options) {
+		o.loc = loc
 	}
 }
 

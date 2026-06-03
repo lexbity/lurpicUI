@@ -74,12 +74,18 @@ func TestRamp_midpoint_reasonable(t *testing.T) {
 }
 
 func TestRamp_oklab_vs_linear_midpoint_differs(t *testing.T) {
-	// Interpolation in different spaces should produce different midpoints
-	// for strongly nonlinear ramps like viridis.
-	ok := RampViridis.At(0.5, InterpolationOKLab)
-	lin := RampViridis.At(0.5, InterpolationLinearSRGB)
-	if ok.R == lin.R && ok.G == lin.G && ok.B == lin.B {
-		t.Log("midpoints are similar (not guaranteed to differ, but often does)")
+	// For a black→white ramp, OKLab and linear sRGB interpolation should
+	// produce measurably different midpoints (OKLab is perceptually uniform,
+	// placing the midpoint at ~0.39 sRGB, while linear sRGB gives ~0.74).
+	ok := RampGrayscale.At(0.5, InterpolationOKLab)
+	lin := RampGrayscale.At(0.5, InterpolationLinearSRGB)
+	// Compute RGB channel difference as a simple distance metric
+	rDiff := math.Abs(float64(ok.R - lin.R))
+	gDiff := math.Abs(float64(ok.G - lin.G))
+	bDiff := math.Abs(float64(ok.B - lin.B))
+	totalDiff := rDiff + gDiff + bDiff
+	if totalDiff < 0.1 {
+		t.Errorf("OKLab vs linear midpoints too similar: ok=%+v lin=%+v diff=%g", ok, lin, totalDiff)
 	}
 }
 
