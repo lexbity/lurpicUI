@@ -1,6 +1,8 @@
 package scale
 
-import "time"
+import (
+	"time"
+)
 
 // TimeScale maps a domain of Unix-millisecond timestamps (float64) to a
 // numeric range using linear interpolation. It implements Scale and
@@ -73,6 +75,36 @@ func (s TimeScale) Domain() (lo, hi float64) {
 // Range returns the output interval [lo, hi] in local pixels.
 func (s TimeScale) Range() (lo, hi float64) {
 	return s.rng[0], s.rng[1]
+}
+
+// Ticks returns approximately count calendar-aligned tick values spanning
+// the scale's domain. Tick values land on calendar boundaries (seconds,
+// minutes, hours, days, months, years) and labels elide redundant fields.
+func (s TimeScale) Ticks(count int) []Tick {
+	if count <= 0 {
+		return nil
+	}
+	lo, hi := s.domain[0], s.domain[1]
+	if lo == hi {
+		return nil
+	}
+	if lo > hi {
+		lo, hi = hi, lo
+	}
+	vals, iv := timeTicks(lo, hi, count, time.UTC)
+	if len(vals) == 0 {
+		return nil
+	}
+	out := make([]Tick, len(vals))
+	for i, v := range vals {
+		t := time.UnixMilli(int64(v))
+		var prev time.Time
+		if i > 0 {
+			prev = time.UnixMilli(int64(vals[i-1]))
+		}
+		out[i] = Tick{Value: v, Label: formatTimeTick(t, prev, iv)}
+	}
+	return out
 }
 
 // Kind returns KindTime.
