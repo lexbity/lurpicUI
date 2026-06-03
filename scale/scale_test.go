@@ -183,10 +183,19 @@ func TestSentinelErrors_are_distinct(t *testing.T) {
 	if ErrInvalidDomain == ErrEmptyMembers {
 		t.Fatal("sentinel errors must be distinct")
 	}
+	if ErrInvalidDomain == ErrDomainCrossesZero {
+		t.Fatal("sentinel errors must be distinct")
+	}
+	if ErrEmptyMembers == ErrDomainCrossesZero {
+		t.Fatal("sentinel errors must be distinct")
+	}
 	if ErrInvalidDomain == nil {
 		t.Fatal("ErrInvalidDomain must not be nil")
 	}
 	if ErrEmptyMembers == nil {
 		t.Fatal("ErrEmptyMembers must not be nil")
+	}
+	if ErrDomainCrossesZero == nil {
+		t.Fatal("ErrDomainCrossesZero must not be nil")
 	}
 }

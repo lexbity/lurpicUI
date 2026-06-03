@@ -242,7 +242,8 @@ func TestTickLabels_format(t *testing.T) {
 	if len(labels) != len(vals) {
 		t.Fatalf("len = %d, want %d", len(labels), len(vals))
 	}
-	wantLabels := []string{"0", "0.1", "0.5", "1", "10", "100", "1000"}
+	// autoPrecision(0.1) = 1 → all labels have 1 decimal place
+	wantLabels := []string{"0.0", "0.1", "0.5", "1.0", "10.0", "100.0", "1000.0"}
 	for i, tl := range labels {
 		if tl.Value != vals[i] {
 			t.Errorf("labels[%d].Value = %g, want %g", i, tl.Value, vals[i])

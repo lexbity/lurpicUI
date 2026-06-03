@@ -2,7 +2,6 @@ package scale
 
 import (
 	"math"
-	"strconv"
 )
 
 const maxTicks = 1000
@@ -83,17 +82,21 @@ func Nice(lo, hi float64, count int) (float64, float64) {
 	return math.Floor(lo/step) * step, math.Ceil(hi/step) * step
 }
 
-// tickLabels formats a slice of tick values as Tick structs using the
-// shortest unambiguous decimal representation.
+// tickLabels formats a slice of tick values as Tick structs with
+// auto-selected precision so adjacent labels are distinct but not noisy.
 func tickLabels(vals []float64) []Tick {
 	if len(vals) == 0 {
 		return nil
+	}
+	precision := 0
+	if len(vals) >= 2 {
+		precision = autoPrecision(math.Abs(vals[1] - vals[0]))
 	}
 	out := make([]Tick, len(vals))
 	for i, v := range vals {
 		out[i] = Tick{
 			Value: v,
-			Label: strconv.FormatFloat(v, 'f', -1, 64),
+			Label: FormatFixed(v, precision),
 		}
 	}
 	return out

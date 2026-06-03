@@ -7,8 +7,9 @@ import (
 
 // Sentinel errors returned by scale constructors and methods.
 var (
-	ErrInvalidDomain = errors.New("scale: invalid domain: lo must be less than hi")
-	ErrEmptyMembers  = errors.New("scale: empty member set")
+	ErrInvalidDomain   = errors.New("scale: invalid domain")
+	ErrDomainCrossesZero = errors.New("scale: log domain must not cross or include zero")
+	ErrEmptyMembers    = errors.New("scale: empty member set")
 )
 
 // Scale maps a data domain onto a numeric range expressed in local layer
@@ -114,6 +115,7 @@ type options struct {
 	rng       [2]float64
 	hasRange  bool
 	clamp     *OutOfRange
+	base      *float64
 }
 
 // Option configures a scale during construction.
@@ -141,5 +143,12 @@ func WithRange(lo, hi float64) Option {
 func WithClamp(c OutOfRange) Option {
 	return func(o *options) {
 		o.clamp = &c
+	}
+}
+
+// WithBase sets the logarithmic base for LogScale. Must be positive and not 1.
+func WithBase(base float64) Option {
+	return func(o *options) {
+		o.base = &base
 	}
 }
