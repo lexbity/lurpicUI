@@ -241,10 +241,6 @@ func TestDropdownSelectGoldenCompact(t *testing.T) {
 	AssertDropdownSelectGolden(t, "compact", defaultSliderTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(s *DropdownSelect) {})
 }
 
-func TestDropdownSelectGoldenComfortable(t *testing.T) {
-	AssertDropdownSelectGolden(t, "comfortable", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *DropdownSelect) {})
-}
-
 func TestDropdownSelectGoldenDisabled(t *testing.T) {
 	AssertDropdownSelectGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *DropdownSelect) {
 		s.Disabled = marks.Const(true)
@@ -351,7 +347,7 @@ func renderDropdownSelectToSurface(t *testing.T, sel *DropdownSelect, rt sliderR
 
 func newDropdownSelectTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*DropdownSelect, sliderRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustSliderFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

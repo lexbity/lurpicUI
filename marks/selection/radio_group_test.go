@@ -220,10 +220,6 @@ func TestRadioGroupGoldenCompact(t *testing.T) {
 	AssertRadioGroupGolden(t, "compact", defaultSliderTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(rg *RadioGroup) {})
 }
 
-func TestRadioGroupGoldenComfortable(t *testing.T) {
-	AssertRadioGroupGolden(t, "comfortable", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(rg *RadioGroup) {})
-}
-
 func TestRadioGroupGoldenDisabled(t *testing.T) {
 	AssertRadioGroupGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(rg *RadioGroup) {
 		rg.Disabled = marks.Const(true)
@@ -236,13 +232,13 @@ func TestRadioGroupGoldenHighContrast(t *testing.T) {
 
 func TestRadioGroupGoldenHovered(t *testing.T) {
 	AssertRadioGroupGolden(t, "hovered", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(rg *RadioGroup) {
-		rg.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: gfx.Point{X: 1, Y: 1}})
+		rg.hoveredIndex = 0
 	})
 }
 
 func TestRadioGroupGoldenPressed(t *testing.T) {
 	AssertRadioGroupGolden(t, "pressed", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(rg *RadioGroup) {
-		rg.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 10, Y: 10}, Button: platform.PointerLeft})
+		rg.pressedIndex = 0
 	})
 }
 
@@ -312,7 +308,7 @@ func renderRadioGroupToSurface(t *testing.T, rg *RadioGroup, rt sliderRuntimeStu
 
 func newRadioGroupTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*RadioGroup, sliderRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustSliderFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

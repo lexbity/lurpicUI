@@ -42,7 +42,7 @@ func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := dialogRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -114,7 +114,7 @@ func TestDialogInteractionsEmitActionAndDismiss(t *testing.T) {
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := dialogRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -246,10 +246,6 @@ func TestDialogGoldenCompact(t *testing.T) {
 	AssertDialogGolden(t, "compact", dialogTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(d *Dialog) {})
 }
 
-func TestDialogGoldenComfortable(t *testing.T) {
-	AssertDialogGolden(t, "comfortable", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {})
-}
-
 func TestDialogGoldenDisabled(t *testing.T) {
 	AssertDialogGolden(t, "disabled", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {
 		d.Disabled = marks.Const(true)
@@ -312,7 +308,7 @@ func AssertDialogGolden(t *testing.T, name string, tokens theme.Tokens, density 
 	dialog := newDialogFixture()
 	rt := dialogRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := alertResolvedContext(tokens, density, direction)
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -377,7 +373,7 @@ func assertDialogContentLayout(t *testing.T, dialog *Dialog, mode DialogContentL
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := dialogRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
 	_ = dialog.Layout.Measure(facet.MeasureContext{

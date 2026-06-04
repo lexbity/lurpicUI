@@ -1,9 +1,6 @@
 package structure
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"unsafe"
@@ -36,7 +33,7 @@ func (s cardRuntimeStub) FontRegistry() *text.FontRegistry                      
 
 func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	card := newCardFixture()
-	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
@@ -100,7 +97,7 @@ func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestCardLayoutModes(t *testing.T) {
-	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	for _, mode := range []CardLayoutMode{CardLayoutGrid, CardLayoutVertical, CardLayoutHorizontal} {
 		card := newCardFixture()
@@ -127,10 +124,6 @@ func TestCardGoldenCompact(t *testing.T) {
 	AssertCardGolden(t, "compact", cardTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(c *Card) {})
 }
 
-func TestCardGoldenComfortable(t *testing.T) {
-	AssertCardGolden(t, "comfortable", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Card) {})
-}
-
 func TestCardGoldenDisabled(t *testing.T) {
 	AssertCardGolden(t, "disabled", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Card) {
 		c.Disabled = marks.Const(true)
@@ -145,7 +138,7 @@ func TestCardGoldenRTL(t *testing.T) {
 	// Capture LTR surface for diff comparison; "default" golden already exists.
 	ltr := AssertCardGolden(t, "default", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Card) {})
 	rtl := AssertCardGolden(t, "rtl", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(c *Card) {})
-	testkit.AssertDiffers(t, ltr, rtl, "card")
+	testkit.AssertGoldenPair(t, ltr, rtl, "card")
 }
 
 func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Card)) *testkit.MemorySurface {
@@ -154,7 +147,7 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	if mutate != nil {
 		mutate(card)
 	}
-	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := cardResolvedContext(tokens, density, direction)
 	facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(12, 12, 616, 336)
@@ -243,44 +236,7 @@ func highContrastCardTokens() theme.Tokens {
 	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
-func mustCardFontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadCardFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
 
-func mustReadCardFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytesTrim(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}
-
-func bytesTrim(in []byte) []byte {
-	for len(in) > 0 {
-		switch in[len(in)-1] {
-		case '\n', '\r', '\t', ' ':
-			in = in[:len(in)-1]
-		default:
-			return in
-		}
-	}
-	return in
-}
 
 func cardResolvedContext(tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) theme.ResolvedContext {
 	ctx := theme.DefaultResolvedContext()

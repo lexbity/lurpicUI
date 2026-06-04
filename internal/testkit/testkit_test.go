@@ -1,11 +1,7 @@
 package testkit
 
 import (
-	"bytes"
 	"image/color"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -295,7 +291,7 @@ func TestHarness_run_frame_increments_count(t *testing.T) {
 }
 
 func TestHarness_creates_without_panic(t *testing.T) {
-	data := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	data := TestFontBytes()
 	h := NewHarness(t, HarnessConfig{
 		Width:  320,
 		Height: 240,
@@ -510,28 +506,7 @@ func TestAssertNotBlank_fails_on_blank_surface(t *testing.T) {
 
 
 
-func mustReadTestFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	path := mustTestFontPath(t, rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read test font %q: %v", path, err)
-	}
-	return data
-}
 
-func mustTestFontPath(t *testing.T, rel string) string {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytes.TrimSpace(out)), rel)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("test font path %q: %v", path, err)
-	}
-	return path
-}
 
 func TestSyntheticEvents_leftclick_is_press_release(t *testing.T) {
 	got := LeftClick(1, 2)

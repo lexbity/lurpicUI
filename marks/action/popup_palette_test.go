@@ -299,7 +299,7 @@ func newPopupPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.Den
 	}
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"brush":         mustMenuButtonIconAsset("brush"),
 			"eraser":        mustMenuButtonIconAsset("eraser"),

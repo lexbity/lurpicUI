@@ -466,7 +466,6 @@ func (t *TreeNavigator) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comman
 	tokens := style.Tokens
 	root := slots.Root.Resolve(theme.StateDefault, tokens)
 	tree := slots.Tree.Resolve(theme.StateDefault, tokens)
-	item := slots.TreeItem.Resolve(theme.StateDefault, tokens)
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 	disclosure := slots.Disclosure.Resolve(theme.StateDefault, tokens)
 	selectionMat := slots.SelectionIndicator.Resolve(theme.StateSelected, tokens)
@@ -497,8 +496,9 @@ func (t *TreeNavigator) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comman
 		case node.Node.Selected:
 			state = theme.StateSelected
 		}
-		if !isTransparentMaterial(item) && (state == theme.StateHover || state == theme.StatePressed || state == theme.StateFocused) {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(2, 2), float32(tokens.Radius.MD)), item)...)
+		rowItem := slots.TreeItem.Resolve(state, tokens)
+		if !isTransparentMaterial(rowItem) && (state == theme.StateHover || state == theme.StatePressed || state == theme.StateFocused) {
+			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(2, 2), float32(tokens.Radius.MD)), rowItem)...)
 		}
 		if node.HasChildren && !isTransparentMaterial(disclosure) && i < len(t.cachedRowLeadingBounds) && !t.cachedRowLeadingBounds[i].IsEmpty() {
 			icon := "chevron-right"

@@ -1,9 +1,6 @@
 package status
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"unsafe"
@@ -53,7 +50,7 @@ func TestBadgeMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	tokens := badgeTokens()
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: map[string]runtimepkg.IconAsset{
 			"status-dot": runtimepkg.NewIconAsset("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),
 		},
@@ -119,10 +116,6 @@ func TestBadgeGoldenCompact(t *testing.T) {
 	AssertBadgeGolden(t, "compact", badgeTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(b *Badge) {})
 }
 
-func TestBadgeGoldenComfortable(t *testing.T) {
-	AssertBadgeGolden(t, "comfortable", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Badge) {})
-}
-
 func TestBadgeGoldenDisabled(t *testing.T) {
 	AssertBadgeGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Badge) {
 		b.Disabled = marks.Const(true)
@@ -145,7 +138,7 @@ func AssertBadgeGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	}
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: map[string]runtimepkg.IconAsset{
 			"status-dot": runtimepkg.NewIconAsset("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),
 		},
@@ -211,44 +204,7 @@ func badgeResolvedContext(tokens theme.Tokens, density theme.DensityID, directio
 	return ctx
 }
 
-func mustBadgeFontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadBadgeFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
 
-func mustReadBadgeFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytesTrim(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}
-
-func bytesTrim(in []byte) []byte {
-	for len(in) > 0 {
-		switch in[len(in)-1] {
-		case '\n', '\r', '\t', ' ':
-			in = in[:len(in)-1]
-		default:
-			return in
-		}
-	}
-	return in
-}
 
 func toThemeTokens(t templates.Tokens) theme.Tokens {
 	tokens := theme.DefaultTokens()

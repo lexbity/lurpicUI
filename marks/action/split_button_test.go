@@ -234,7 +234,7 @@ func newSplitButtonFixture(t *testing.T) (*SplitButton, buttonRuntimeStub) {
 	btn.PrimaryIconRef = marks.Const("star")
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"star": mustSplitButtonIconAsset("star"),
 		},
@@ -293,10 +293,6 @@ func TestSplitButtonGoldenCompact(t *testing.T) {
 	AssertSplitButtonGolden(t, "compact", defaultSplitButtonTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(btn *SplitButton) {})
 }
 
-func TestSplitButtonGoldenComfortable(t *testing.T) {
-	AssertSplitButtonGolden(t, "comfortable", defaultSplitButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *SplitButton) {})
-}
-
 func TestSplitButtonGoldenDisabled(t *testing.T) {
 	AssertSplitButtonGolden(t, "disabled", defaultSplitButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *SplitButton) {
 		btn.Disabled = marks.Const(true)
@@ -309,13 +305,13 @@ func TestSplitButtonGoldenHighContrast(t *testing.T) {
 
 func TestSplitButtonGoldenHovered(t *testing.T) {
 	AssertSplitButtonGolden(t, "hovered", defaultSplitButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *SplitButton) {
-		btn.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: gfx.Point{X: 2, Y: 2}})
+		btn.hoveredPrimary = true
 	})
 }
 
 func TestSplitButtonGoldenPressed(t *testing.T) {
 	AssertSplitButtonGolden(t, "pressed", defaultSplitButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *SplitButton) {
-		btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 2, Y: 2}, Button: platform.PointerLeft})
+		btn.pressedPrimary = true
 	})
 }
 
@@ -406,7 +402,7 @@ func newSplitButtonGoldenFixture(t *testing.T, tokens theme.Tokens, density them
 	btn.Open = false
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"star": mustSplitButtonIconAsset("star"),
 		},

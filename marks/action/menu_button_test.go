@@ -225,7 +225,7 @@ func newMenuButtonFixture(t *testing.T) (*MenuButton, buttonRuntimeStub) {
 	btn.TriggerIconRef = marks.Const("settings")
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"settings": mustMenuButtonIconAsset("settings"),
 			"push":     mustMenuButtonIconAsset("push"),
@@ -262,10 +262,6 @@ func TestMenuButtonGoldenDefault(t *testing.T) {
 
 func TestMenuButtonGoldenCompact(t *testing.T) {
 	AssertMenuButtonGolden(t, "compact", defaultMenuButtonTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(btn *MenuButton) {})
-}
-
-func TestMenuButtonGoldenComfortable(t *testing.T) {
-	AssertMenuButtonGolden(t, "comfortable", defaultMenuButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *MenuButton) {})
 }
 
 func TestMenuButtonGoldenDisabled(t *testing.T) {
@@ -425,7 +421,7 @@ func newMenuButtonGoldenFixture(t *testing.T, tokens theme.Tokens, density theme
 	btn.TriggerIconRef = marks.Const("settings")
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"settings": mustMenuButtonIconAsset("settings"),
 			"push":     mustMenuButtonIconAsset("push"),

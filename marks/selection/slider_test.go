@@ -3,9 +3,6 @@ package selection
 import (
 	"image/color"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -266,10 +263,6 @@ func TestSliderGoldenCompact(t *testing.T) {
 	AssertSliderGolden(t, "compact", defaultSliderTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(s *Slider) {})
 }
 
-func TestSliderGoldenComfortable(t *testing.T) {
-	AssertSliderGolden(t, "comfortable", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *Slider) {})
-}
-
 func TestSliderGoldenDisabled(t *testing.T) {
 	AssertSliderGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *Slider) {
 		s.Disabled = marks.Const(true)
@@ -435,7 +428,7 @@ func renderSliderToSurface(t *testing.T, slider *Slider, rt sliderRuntimeStub, m
 
 func newSliderTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Slider, sliderRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustSliderFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
@@ -468,44 +461,7 @@ func colorToGfx(c color.RGBA) gfx.Color {
 	return gfx.Color{R: float32(c.R) / 255, G: float32(c.G) / 255, B: float32(c.B) / 255, A: float32(c.A) / 255}
 }
 
-func mustSliderFontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadSliderFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
 
-func mustReadSliderFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytesTrim(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}
-
-func bytesTrim(in []byte) []byte {
-	for len(in) > 0 {
-		switch in[len(in)-1] {
-		case '\n', '\r', '\t', ' ':
-			in = in[:len(in)-1]
-		default:
-			return in
-		}
-	}
-	return in
-}
 
 func toThemeTokens(t templates.Tokens) theme.Tokens {
 	tokens := theme.DefaultTokens()

@@ -224,10 +224,6 @@ func TestButtonGroupGoldenCompact(t *testing.T) {
 	AssertButtonGroupGolden(t, "compact", defaultSliderTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(bg *ButtonGroup) {})
 }
 
-func TestButtonGroupGoldenComfortable(t *testing.T) {
-	AssertButtonGroupGolden(t, "comfortable", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(bg *ButtonGroup) {})
-}
-
 func TestButtonGroupGoldenDisabled(t *testing.T) {
 	AssertButtonGroupGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(bg *ButtonGroup) {
 		bg.Disabled = marks.Const(true)
@@ -327,7 +323,7 @@ func renderButtonGroupToSurface(t *testing.T, bg *ButtonGroup, rt sliderRuntimeS
 
 func newButtonGroupTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*ButtonGroup, sliderRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustSliderFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

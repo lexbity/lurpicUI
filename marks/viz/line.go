@@ -125,6 +125,19 @@ func (l *Line[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 			Y: bounds.Min.Y + float32(ys.Map(l.Y(item))),
 		}
 	}
+	if len(pts) == 1 {
+		markerRadius := l.StrokeWidth.Get() * 1.5
+		if markerRadius < 3 {
+			markerRadius = 3
+		}
+		return []gfx.Command{
+			gfx.DrawPoints{
+				Points: pts,
+				Radius: markerRadius,
+				Brush:  gfx.SolidBrush(l.Color),
+			},
+		}
+	}
 	return []gfx.Command{
 		gfx.DrawPolyline{
 			Points: pts,

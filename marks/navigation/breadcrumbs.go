@@ -346,40 +346,22 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			stripH = 20
 		}
 	}
-	curX := listBounds.Min.X
-	if b.cachedWritingDirection == facet.WritingDirectionRTL {
-		curX = listBounds.Max.X
-	}
 	visualIndices := b.visualIndices()
 	separatorIndex := 0
+	curX := listBounds.Min.X
 	for vi, index := range visualIndices {
 		labelLayout := b.cachedLabelLayouts[index]
 		labelW := text.Width(labelLayout)
 		labelH := text.Height(labelLayout)
-		itemRect := gfx.Rect{}
-		if b.cachedWritingDirection == facet.WritingDirectionRTL {
-			curX -= labelW
-			itemRect = gfx.RectFromXYWH(curX, listBounds.Min.Y, labelW, stripH)
-			curX -= b.cachedGap
-			if b.cachedSeparatorLayout != nil && vi < len(visualIndices)-1 {
-				sepW := text.Width(b.cachedSeparatorLayout)
-				curX -= sepW
-				sepRect := text.AlignRectY(gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, listBounds.Min.Y, sepW, text.Height(b.cachedSeparatorLayout)), listBounds.Min.Y, stripH)
-				b.cachedSeparatorBounds[separatorIndex] = sepRect
-				curX -= b.cachedGap
-				separatorIndex++
-			}
-		} else {
-			itemRect = gfx.RectFromXYWH(curX, listBounds.Min.Y, labelW, stripH)
-			curX += labelW
-			if b.cachedSeparatorLayout != nil && vi < len(visualIndices)-1 {
-				curX += b.cachedGap
-				sepW := text.Width(b.cachedSeparatorLayout)
-				sepRect := text.AlignRectY(gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, listBounds.Min.Y, sepW, text.Height(b.cachedSeparatorLayout)), listBounds.Min.Y, stripH)
-				b.cachedSeparatorBounds[separatorIndex] = sepRect
-				curX += sepW + b.cachedGap
-				separatorIndex++
-			}
+		itemRect := gfx.RectFromXYWH(curX, listBounds.Min.Y, labelW, stripH)
+		curX += labelW
+		if b.cachedSeparatorLayout != nil && vi < len(visualIndices)-1 {
+			curX += b.cachedGap
+			sepW := text.Width(b.cachedSeparatorLayout)
+			sepRect := text.AlignRectY(gfx.RectFromXYWH(curX-b.cachedSeparatorLayout.Bounds.Min.X, listBounds.Min.Y, sepW, text.Height(b.cachedSeparatorLayout)), listBounds.Min.Y, stripH)
+			b.cachedSeparatorBounds[separatorIndex] = sepRect
+			curX += sepW + b.cachedGap
+			separatorIndex++
 		}
 		b.cachedItemBounds[index] = itemRect
 		if labelLayout != nil {

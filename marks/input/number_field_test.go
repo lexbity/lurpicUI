@@ -7,9 +7,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/render"
+	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -22,7 +25,7 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	nf.Value.Set(12.5)
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextFieldRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(nf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -97,7 +100,7 @@ func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 	nf.Value.Set(10)
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextFieldRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(nf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -210,10 +213,6 @@ func TestNumberFieldGoldenCompact(t *testing.T) {
 	})
 }
 
-func TestNumberFieldGoldenComfortable(t *testing.T) {
-	assertNumberFieldGolden(t, "comfortable", func(nf *NumberField) {})
-}
-
 func TestNumberFieldGoldenHovered(t *testing.T) {
 	assertNumberFieldGolden(t, "hovered", func(nf *NumberField) {
 		nf.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: gfx.Point{X: 1, Y: 1}})
@@ -239,10 +238,12 @@ func TestNumberFieldGoldenDisabled(t *testing.T) {
 }
 
 func TestNumberFieldGoldenRTL(t *testing.T) {
-	assertNumberFieldGolden(t, "rtl", func(nf *NumberField) {})
+	ltr := renderNumberFieldSurface(t, layout.WritingDirectionLTR, "number_field_default", func(nf *NumberField) {})
+	rtl := renderNumberFieldSurface(t, layout.WritingDirectionRTL, "number_field_rtl", func(nf *NumberField) {})
+	testkit.AssertGoldenPair(t, ltr, rtl, "number_field")
 }
 
-func assertNumberFieldGolden(t *testing.T, name string, mutate func(*NumberField)) {
+func renderNumberFieldSurface(t *testing.T, direction layout.WritingDirection, goldenName string, mutate func(*NumberField)) *testkit.MemorySurface {
 	t.Helper()
 	nf := NewNumberField("Amount")
 	nf.Precision = marks.Const(2)
@@ -252,16 +253,55 @@ func assertNumberFieldGolden(t *testing.T, name string, mutate func(*NumberField
 	if mutate != nil {
 		mutate(nf)
 	}
-	cfg := testkit.HarnessConfig{
-		Width:         480,
-		Height:        240,
-		LayerRegistry: mustTextFieldLayerRegistry(t),
-		Fonts:         []text.FontSource{{Name: "noto-sans-regular", Data: mustReadTextFieldFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")}},
+	reg := testkit.TestFontRegistry(t)
+	rt := numberFieldRuntimeStub{fonts: reg}
+	facet.Attach(nf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext().WithWritingDirection(direction)})
+	result := nf.Layout.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            theme.DefaultResolvedContext().WithWritingDirection(direction),
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirection(direction),
+	}, facet.Constraints{MaxSize: gfx.Size{W: 480, H: 240}})
+	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
+	nf.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext().WithWritingDirection(direction)}, bounds)
+	cmds := nf.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projected commands for golden")
 	}
-	h := testkit.NewHarness(t, cfg, nf)
-	h.RunFrame()
-	h.RunFrame()
-	testkit.AssertGolden(t, h.Surface(), "number_field_"+name)
+	surface := testkit.NewMemorySurface(int(result.Size.W), int(result.Size.H))
+	r := softwarerenderer.NewSoftwareRenderer()
+	if err := r.Initialize(surface); err != nil {
+		t.Fatalf("initialize renderer: %v", err)
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:          1,
+			Bounds:      bounds,
+			Opacity:     1,
+			CommandHash: 1,
+			Commands:    gfx.CommandList{Commands: cmds.Commands},
+		}},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit frame: %v", err)
+	}
+	return surface
+}
+
+type numberFieldRuntimeStub struct {
+	fonts *text.FontRegistry
+}
+
+func (numberFieldRuntimeStub) Schedule(j job.AnyJob)                        {}
+func (numberFieldRuntimeStub) CancelJob(id job.JobID)                       {}
+func (numberFieldRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+func (s numberFieldRuntimeStub) FontRegistry() *text.FontRegistry           { return s.fonts }
+
+func assertNumberFieldGolden(t *testing.T, name string, mutate func(*NumberField)) {
+	t.Helper()
+	surface := renderNumberFieldSurface(t, layout.WritingDirectionLTR, "number_field_"+name, mutate)
+	testkit.AssertGolden(t, surface, "number_field_"+name)
 }
 
 func allNumberFieldFieldsPresent[T any](value T) bool {

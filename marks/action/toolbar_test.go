@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -198,7 +199,7 @@ func newToolbarFixture(t *testing.T) (*Toolbar, buttonRuntimeStub) {
 	})
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"close":    mustActionGroupIconAsset("edit"),
 			"edit":     mustActionGroupIconAsset("edit"),

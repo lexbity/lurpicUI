@@ -195,10 +195,6 @@ func TestCommandPaletteGoldenCompact(t *testing.T) {
 	AssertCommandPaletteGolden(t, "compact", defaultCommandPaletteTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(*CommandPalette) {})
 }
 
-func TestCommandPaletteGoldenComfortable(t *testing.T) {
-	AssertCommandPaletteGolden(t, "comfortable", defaultCommandPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(*CommandPalette) {})
-}
-
 func TestCommandPaletteGoldenDisabled(t *testing.T) {
 	AssertCommandPaletteGolden(t, "disabled", defaultCommandPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *CommandPalette) {
 		p.Disabled = marks.Const(true)
@@ -326,7 +322,7 @@ func newCommandPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.D
 	palette := NewCommandPalette(marks.Const("Command palette"), registry)
 	rt := commandPaletteRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		registry:  registry,
 	}
 	return palette, rt, resolved

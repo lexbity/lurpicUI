@@ -480,8 +480,8 @@ func (p *CommandPalette) buildCommands(bounds gfx.Rect, runtime any, contentScal
 	}
 	if p.focusedVisible && !isTransparentMaterial(focusRing) && !p.cachedSurfaceBounds.IsEmpty() {
 		ringInset := maxFloat(1, p.cachedGap*0.5)
-		ringBounds := p.cachedSurfaceBounds.Inset(-ringInset, -ringInset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, p.cachedSurfaceRadius+ringInset), focusRing)...)
+		ringBounds := p.cachedSurfaceBounds.Inset(ringInset, ringInset)
+		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, p.cachedSurfaceRadius), focusRing)...)
 	}
 	if !p.cachedSurfaceBounds.IsEmpty() {
 		cmds = append(cmds, gfx.PushClipRect{Rect: p.cachedSurfaceBounds})

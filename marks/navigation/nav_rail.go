@@ -74,11 +74,13 @@ var _ marks.Mark = (*NavRail)(nil)
 // NewNavRail constructs a navigation.nav_rail mark with canonical defaults.
 func NewNavRail(label string, items []NavRailItem) *NavRail {
 	r := &NavRail{
-		Label:       marks.Const(label),
-		Collapsed:   marks.Const(false),
-		Disabled:    marks.Const(false),
-		ActiveIndex: marks.Const(-1),
+		Label:        marks.Const(label),
+		Collapsed:    marks.Const(false),
+		Disabled:     marks.Const(false),
+		ActiveIndex:  marks.Const(-1),
 		focusedIndex: -1,
+		hoveredIndex: -1,
+		pressedIndex: -1,
 	}
 	r.Core.Facet = facet.NewFacet()
 	r.AddBinding(r.Label)
@@ -427,16 +429,15 @@ func (r *NavRail) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 			if !isTransparentMaterial(nav) {
 				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(row.Width()*0.08, row.Height()*0.12), r.cachedRailRadius*0.55), nav)...)
 			}
-		case theme.StateFocused:
-			if !isTransparentMaterial(focus) {
-				inset := maxFloat(1, row.Height()*0.08)
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(-inset, -inset), r.cachedRailRadius+inset), focus)...)
-			}
 		}
 		childRuntime := runtimeServicesOrNil(runtime)
 		childCmds := r.cachedItemFacets[i].Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: childRuntime, Bounds: row, ContentScale: 1})
 		if childCmds != nil {
 			cmds = append(cmds, childCmds.Commands...)
+		}
+		if state == theme.StateFocused && !isTransparentMaterial(focus) {
+			inset := maxFloat(1, row.Height()*0.08)
+			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(inset, inset), r.cachedRailRadius), focus)...)
 		}
 	}
 	return cmds
@@ -599,9 +600,6 @@ func (r *NavRail) itemStateAt(index int) theme.InteractionState {
 	if r.Disabled.Get() || r.isDisabledIndex(index) {
 		return theme.StateDisabled
 	}
-	if index == r.clampedActiveIndex() {
-		return theme.StateSelected
-	}
 	if r.pressedIndex == index {
 		return theme.StatePressed
 	}
@@ -610,6 +608,9 @@ func (r *NavRail) itemStateAt(index int) theme.InteractionState {
 	}
 	if r.focusedVisible && r.clampedFocusedIndex() == index {
 		return theme.StateFocused
+	}
+	if index == r.clampedActiveIndex() {
+		return theme.StateSelected
 	}
 	return theme.StateDefault
 }

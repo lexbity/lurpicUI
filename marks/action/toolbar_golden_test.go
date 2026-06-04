@@ -21,10 +21,6 @@ func TestToolbarGoldenCompact(t *testing.T) {
 	AssertToolbarGolden(t, "compact", defaultActionBarTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(toolbar *Toolbar) {})
 }
 
-func TestToolbarGoldenComfortable(t *testing.T) {
-	AssertToolbarGolden(t, "comfortable", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(toolbar *Toolbar) {})
-}
-
 func TestToolbarGoldenDisabled(t *testing.T) {
 	AssertToolbarGolden(t, "disabled", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(toolbar *Toolbar) {
 		toolbar.Disabled = marks.Const(true)
@@ -54,20 +50,23 @@ func TestToolbarGoldenFocused(t *testing.T) {
 }
 
 func TestToolbarGoldenRTL(t *testing.T) {
-	AssertToolbarGolden(t, "rtl", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(toolbar *Toolbar) {})
+	ltr := renderToolbarSurface(t, defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(toolbar *Toolbar) {})
+	rtl := renderToolbarSurface(t, defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(toolbar *Toolbar) {})
+	testkit.AssertGoldenPair(t, ltr, rtl, "toolbar")
 }
 
 func AssertToolbarGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Toolbar)) {
+	t.Helper()
+	surface := renderToolbarSurface(t, tokens, density, direction, mutate)
+	testkit.AssertGolden(t, surface, "toolbar_"+name)
+}
+
+func renderToolbarSurface(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Toolbar)) *testkit.MemorySurface {
 	t.Helper()
 	toolbar, rt, measureCtx := newToolbarGoldenFixture(t, tokens, density, direction)
 	if mutate != nil {
 		mutate(toolbar)
 	}
-	renderToolbarToSurface(t, toolbar, rt, measureCtx, density, direction, name)
-}
-
-func renderToolbarToSurface(t *testing.T, toolbar *Toolbar, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
-	t.Helper()
 	facet.Attach(toolbar, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 	result := toolbar.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
@@ -120,7 +119,7 @@ func renderToolbarToSurface(t *testing.T, toolbar *Toolbar, rt buttonRuntimeStub
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
-	testkit.AssertGolden(t, surface, "toolbar_"+goldenName)
+	return surface
 }
 
 func newToolbarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Toolbar, buttonRuntimeStub, theme.ResolvedContext) {
@@ -154,7 +153,7 @@ func newToolbarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.De
 	})
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"close":    mustActionGroupIconAsset("edit"),
 			"edit":     mustActionGroupIconAsset("edit"),

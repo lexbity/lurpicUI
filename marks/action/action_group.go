@@ -496,10 +496,13 @@ func (g *ActionGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 			}
 		}
 	}
-	if g.focusedVisible && !isTransparentMaterial(slots.FocusRing.Resolve(theme.StateFocused, tokens)) {
-		inset := maxFloat(1, bounds.Height()*0.08)
-		ringBounds := bounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, g.cachedRadius+inset), slots.FocusRing.Resolve(theme.StateFocused, tokens))...)
+	if g.focusedVisible {
+		focusMat := slots.FocusRing.Resolve(theme.StateFocused, tokens)
+		if !isTransparentMaterial(focusMat) {
+			inset := maxFloat(1, bounds.Height()*0.08)
+			ringBounds := bounds.Inset(inset, inset)
+			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, g.cachedRadius), focusMat)...)
+		}
 	}
 	return cmds
 }

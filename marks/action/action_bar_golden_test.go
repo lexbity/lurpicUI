@@ -27,10 +27,6 @@ func TestActionBarGoldenCompact(t *testing.T) {
 	AssertActionBarGolden(t, "compact", defaultActionBarTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(a *ActionBar) {})
 }
 
-func TestActionBarGoldenComfortable(t *testing.T) {
-	AssertActionBarGolden(t, "comfortable", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *ActionBar) {})
-}
-
 func TestActionBarGoldenDisabled(t *testing.T) {
 	AssertActionBarGolden(t, "disabled", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *ActionBar) {
 		a.Disabled = marks.Const(true)
@@ -60,14 +56,16 @@ func TestActionBarGoldenFocused(t *testing.T) {
 }
 
 func TestActionBarGoldenRTL(t *testing.T) {
-	AssertActionBarGolden(t, "rtl", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(a *ActionBar) {})
+	ltr := renderActionBarSurface(t, defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *ActionBar) {})
+	rtl := renderActionBarSurface(t, defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(a *ActionBar) {})
+	testkit.AssertGoldenPair(t, ltr, rtl, "action_bar")
 }
 
 func TestActionBarComposesWithOtherGroupMarks(t *testing.T) {
 	tokens := defaultActionBarTokens()
 	rt := actionBarRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: actionBarIconResolverStub{
 			"close": mustActionBarIconAsset("close"),
 			"edit":  mustActionBarIconAsset("edit"),
@@ -130,14 +128,21 @@ func TestActionBarComposesWithOtherGroupMarks(t *testing.T) {
 
 func AssertActionBarGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*ActionBar)) {
 	t.Helper()
+	surface := renderActionBarSurface(t, tokens, density, direction, mutate)
+	testkit.AssertGolden(t, surface, "action_bar_"+name)
+}
+
+func renderActionBarSurface(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*ActionBar)) *testkit.MemorySurface {
+	t.Helper()
 	bar, rt, measureCtx := newActionBarGoldenFixture(t, tokens, density, direction)
 	if mutate != nil {
 		mutate(bar)
 	}
-	renderActionBarToSurface(t, bar, rt, measureCtx, density, direction, name)
+	surface := renderActionBarImage(t, bar, rt, measureCtx, density, direction)
+	return surface
 }
 
-func renderActionBarToSurface(t *testing.T, bar *ActionBar, rt actionBarRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
+func renderActionBarImage(t *testing.T, bar *ActionBar, rt actionBarRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection) *testkit.MemorySurface {
 	t.Helper()
 	facet.Attach(bar, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 
@@ -161,7 +166,7 @@ func renderActionBarToSurface(t *testing.T, bar *ActionBar, rt actionBarRuntimeS
 		}
 	}
 
-	testkit.AssertGolden(t, baselineSurface, "action_bar_"+goldenName)
+	return baselineSurface
 }
 
 func renderActionBarPass(t *testing.T, bar *ActionBar, rt actionBarRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection) (*testkit.MemorySurface, *image.RGBA) {
@@ -267,7 +272,7 @@ func newActionBarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.
 	})
 	rt := actionBarRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: actionBarIconResolverStub{
 			"close":  mustActionBarIconAsset("close"),
 			"edit":   mustActionBarIconAsset("edit"),

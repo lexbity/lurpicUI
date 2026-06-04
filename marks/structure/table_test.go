@@ -27,7 +27,7 @@ func TestTableGeometryContracts(t *testing.T) {
 		},
 		SortColumnKey: "name",
 	})
-	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
@@ -128,7 +128,7 @@ func TestTableGeometryContracts(t *testing.T) {
 
 func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	table := newTableFixture()
-	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
@@ -212,10 +212,6 @@ func TestTableGoldenCompact(t *testing.T) {
 	AssertTableGolden(t, "compact", listTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(table *Table) {})
 }
 
-func TestTableGoldenComfortable(t *testing.T) {
-	AssertTableGolden(t, "comfortable", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(table *Table) {})
-}
-
 func TestTableGoldenDisabled(t *testing.T) {
 	AssertTableGolden(t, "disabled", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(table *Table) {
 		table.Disabled = marks.Const(true)
@@ -229,7 +225,7 @@ func TestTableGoldenHighContrast(t *testing.T) {
 func TestTableGoldenRTL(t *testing.T) {
 	ltr := AssertTableGolden(t, "default", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(table *Table) {})
 	rtl := AssertTableGolden(t, "rtl", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(table *Table) {})
-	testkit.AssertDiffers(t, ltr, rtl, "table")
+	testkit.AssertGoldenPair(t, ltr, rtl, "table")
 }
 
 func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Table)) *testkit.MemorySurface {
@@ -238,7 +234,7 @@ func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	if mutate != nil {
 		mutate(table)
 	}
-	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := listResolvedContext(tokens, density, direction)
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(16, 16, 2136, 810)

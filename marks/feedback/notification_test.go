@@ -1,10 +1,6 @@
 package feedback
 
 import (
-	"bytes"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"unsafe"
@@ -47,7 +43,7 @@ func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	resolved := notificationResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := notificationRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustNotificationFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -118,7 +114,7 @@ func TestNotificationInteractionsEmitActionAndDismiss(t *testing.T) {
 	resolved := notificationResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := notificationRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustNotificationFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -197,10 +193,6 @@ func TestNotificationGoldenCompact(t *testing.T) {
 	AssertNotificationGolden(t, "compact", notificationTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(n *Notification) {})
 }
 
-func TestNotificationGoldenComfortable(t *testing.T) {
-	AssertNotificationGolden(t, "comfortable", notificationTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(n *Notification) {})
-}
-
 func TestNotificationGoldenDisabled(t *testing.T) {
 	AssertNotificationGolden(t, "disabled", notificationTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(n *Notification) {
 		n.Disabled = marks.Const(true)
@@ -251,7 +243,7 @@ func AssertNotificationGolden(t *testing.T, name string, tokens theme.Tokens, de
 	notification := newNotificationFixture()
 	rt := notificationRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustNotificationFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := notificationResolvedContext(tokens, density, direction)
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -324,29 +316,4 @@ func notificationResolvedContext(tokens theme.Tokens, density theme.DensityID, d
 	return ctx
 }
 
-func mustNotificationFontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadNotificationFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
 
-func mustReadNotificationFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytes.TrimSpace(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}

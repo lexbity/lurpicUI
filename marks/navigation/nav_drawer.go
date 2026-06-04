@@ -106,6 +106,8 @@ func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
 		CurrentIndex:       marks.Const(0),
 		Disabled:           marks.Const(false),
 		focusedIndex:       0,
+		hoveredIndex:       -1,
+		pressedIndex:       -1,
 		groupHeaderFacet:   facet.NewFacet(),
 		groupNavItemsFacet: facet.NewFacet(),
 	}

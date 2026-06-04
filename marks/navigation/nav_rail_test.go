@@ -208,10 +208,6 @@ func TestNavRailGoldenCompact(t *testing.T) {
 	})
 }
 
-func TestNavRailGoldenComfortable(t *testing.T) {
-	AssertNavRailGolden(t, "comfortable", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *NavRail) {})
-}
-
 func TestNavRailGoldenDisabled(t *testing.T) {
 	AssertNavRailGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *NavRail) {
 		r.Disabled = marks.Const(true)
@@ -311,7 +307,7 @@ func renderNavRailToSurface(t *testing.T, rail *NavRail, rt navRailRuntimeStub, 
 
 func newNavRailTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*NavRail, navRailRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustTabsFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

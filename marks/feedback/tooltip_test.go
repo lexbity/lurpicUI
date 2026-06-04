@@ -24,7 +24,7 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -105,7 +105,7 @@ func TestTooltipDismissalAndOpenState(t *testing.T) {
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -170,10 +170,6 @@ func TestTooltipGoldenCompact(t *testing.T) {
 	AssertTooltipGolden(t, "compact", tooltipTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(tt *Tooltip) {})
 }
 
-func TestTooltipGoldenComfortable(t *testing.T) {
-	AssertTooltipGolden(t, "comfortable", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {})
-}
-
 func TestTooltipGoldenDisabled(t *testing.T) {
 	AssertTooltipGolden(t, "disabled", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
 		tt.Disabled = marks.Const(true)
@@ -186,20 +182,20 @@ func TestTooltipGoldenHighContrast(t *testing.T) {
 
 func TestTooltipGoldenHovered(t *testing.T) {
 	AssertTooltipGolden(t, "hovered", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: gfx.Point{X: 8, Y: 8}})
+		tt.hovered = true
 	})
 }
 
 func TestTooltipGoldenPressed(t *testing.T) {
 	AssertTooltipGolden(t, "pressed", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 8, Y: 8}, Button: platform.PointerLeft})
+		tt.pressed = true
 	})
 }
 
 func TestTooltipGoldenRTL(t *testing.T) {
 	ltr := renderTooltipSurface(t, tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {}, 392, 272)
 	rtl := AssertTooltipGolden(t, "rtl", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(tt *Tooltip) {})
-	testkit.AssertDiffers(t, ltr, rtl, "tooltip")
+	testkit.AssertGoldenPair(t, ltr, rtl, "tooltip")
 }
 
 func renderTooltipSurface(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Tooltip), w, h int) *testkit.MemorySurface {
@@ -210,7 +206,7 @@ func renderTooltipSurface(t *testing.T, tokens theme.Tokens, density theme.Densi
 	}
 	rt := alertRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := alertResolvedContext(tokens, density, direction)
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})

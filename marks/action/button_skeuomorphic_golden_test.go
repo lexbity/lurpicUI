@@ -68,7 +68,7 @@ func AssertButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*Butt
 
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, toThemeTokens(templates.Notes().Tokens), nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"floppy-disk": mustSkeuoButtonIconAsset("floppy-disk", skeuoButtonFloppyDiskSVG),
 			"check":       mustSkeuoButtonIconAsset("check", skeuoButtonCheckSVG),

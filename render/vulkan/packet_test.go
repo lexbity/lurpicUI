@@ -1,18 +1,15 @@
 package vulkan
 
 import (
-	"bytes"
 	"encoding/binary"
 	"image"
 	"image/color"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -141,11 +138,7 @@ func TestEncodeFramePacket_drawGlyphRun_preserves_origin_and_glyph_positions(t *
 	if _, err := Version(); err != nil {
 		t.Skip("vulkan FFI not available:", err)
 	}
-	reg := mustPacketFontRegistry(t)
-	data := mustPacketTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
+	reg := fontdata.TestFontRegistry(t)
 	face := reg.Resolve(text.TextStyle{Family: "Noto Sans", Size: 18})
 	run := text.GlyphRun{
 		Face:  face,
@@ -245,30 +238,3 @@ func math32(b []byte) float32 {
 	return math.Float32frombits(binary.LittleEndian.Uint32(b))
 }
 
-func mustPacketFontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("NewFontRegistry: %v", err)
-	}
-	return reg
-}
-
-func mustPacketTestFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	path := mustPacketTestFontPath(t, rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read test font %q: %v", path, err)
-	}
-	return data
-}
-
-func mustPacketTestFontPath(t *testing.T, rel string) string {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	return filepath.Join(string(bytes.TrimSpace(out)), rel)
-}

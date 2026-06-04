@@ -585,8 +585,8 @@ func (a *ActionBar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	}
 	if a.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, a.cachedPadY*0.5)
-		ringBounds := bounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, a.cachedRadius+inset), focus)...)
+		ringBounds := bounds.Inset(inset, inset)
+		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, maxFloat(1, a.cachedRadius-inset)), focus)...)
 	}
 	return cmds
 }

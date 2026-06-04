@@ -17,7 +17,7 @@ func TestStatusLightMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	light := newStatusLightFixture()
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, badgeTokens(), nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -91,10 +91,6 @@ func TestStatusLightGoldenCompact(t *testing.T) {
 	AssertStatusLightGolden(t, "compact", badgeTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(s *StatusLight) {})
 }
 
-func TestStatusLightGoldenComfortable(t *testing.T) {
-	AssertStatusLightGolden(t, "comfortable", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *StatusLight) {})
-}
-
 func TestStatusLightGoldenDisabled(t *testing.T) {
 	AssertStatusLightGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *StatusLight) {
 		s.Disabled = marks.Const(true)
@@ -117,7 +113,7 @@ func AssertStatusLightGolden(t *testing.T, name string, tokens theme.Tokens, den
 	}
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, density, direction)
 	facet.Attach(light, facet.AttachContext{Runtime: rt, Theme: ctx})

@@ -26,7 +26,7 @@ func TestListGeometryContracts(t *testing.T) {
 	})
 	list.SectionHeader = marks.Const("Heading")
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: mustCardFontRegistry(t)},
+		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
 		icons:           map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -94,7 +94,7 @@ func (r listIconResolverStub) ResolveIcon(ref string) (runtimepkg.IconAsset, boo
 func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	list := newListFixture()
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: mustCardFontRegistry(t)},
+		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
 		icons:           map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -175,10 +175,6 @@ func TestListGoldenCompact(t *testing.T) {
 	AssertListGolden(t, "compact", listTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(l *List) {})
 }
 
-func TestListGoldenComfortable(t *testing.T) {
-	AssertListGolden(t, "comfortable", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(l *List) {})
-}
-
 func TestListGoldenDisabled(t *testing.T) {
 	AssertListGolden(t, "disabled", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(l *List) {
 		l.Disabled = marks.Const(true)
@@ -192,7 +188,7 @@ func TestListGoldenHighContrast(t *testing.T) {
 func TestListGoldenRTL(t *testing.T) {
 	ltr := AssertListGolden(t, "default", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(l *List) {})
 	rtl := AssertListGolden(t, "rtl", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(l *List) {})
-	testkit.AssertDiffers(t, ltr, rtl, "list")
+	testkit.AssertGoldenPair(t, ltr, rtl, "list")
 }
 
 func TestListGoldenEmpty(t *testing.T) {
@@ -208,7 +204,7 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 		mutate(list)
 	}
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: mustCardFontRegistry(t)},
+		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
 		icons:           map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(tokens, density, direction)

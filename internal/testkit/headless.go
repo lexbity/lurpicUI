@@ -19,6 +19,7 @@ type HarnessConfig struct {
 	Fonts         []text.FontSource
 	LayerRegistry *layout.LayerRegistry
 	Backend       render.Backend // optional; defaults to software renderer
+	WritingDirection layout.WritingDirection // empty defaults to LTR
 }
 
 // DefaultHarnessConfig returns an 800x600 harness config.

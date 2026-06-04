@@ -1,11 +1,10 @@
 package theme
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -94,7 +93,7 @@ func TestDefault_text_styles_are_stable(t *testing.T) {
 }
 
 func TestFontRoleResolve_prefers_loaded_family(t *testing.T) {
-	reg := mustThemeTestRegistry(t)
+	reg := fontdata.TestFontRegistry(t)
 	role := FontRole{
 		PreferredFamilies: []string{"Missing Family", "Noto Sans"},
 		DefaultStyle:      text.TextStyle{Size: 14, Weight: text.WeightRegular},
@@ -112,37 +111,4 @@ func TestFontRolesRejectGenericFamilies(t *testing.T) {
 	}
 }
 
-func mustThemeTestRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("NewFontRegistry: %v", err)
-	}
-	data := mustThemeTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "Noto Sans"); err != nil {
-		t.Fatalf("LoadFontBytes: %v", err)
-	}
-	return reg
-}
 
-func mustThemeTestFont(t *testing.T, path string) []byte {
-	t.Helper()
-	candidates := []string{path}
-	if gomodcache := os.Getenv("GOMODCACHE"); gomodcache != "" {
-		candidates = append(candidates, filepath.Join(gomodcache, path))
-	}
-	if gopath := os.Getenv("GOPATH"); gopath != "" {
-		candidates = append(candidates, filepath.Join(gopath, "pkg", "mod", path))
-	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		candidates = append(candidates, filepath.Join(home, "go", "pkg", "mod", path))
-	}
-	for _, candidate := range candidates {
-		data, err := os.ReadFile(candidate)
-		if err == nil {
-			return data
-		}
-	}
-	t.Fatalf("read font %q: no candidate found", path)
-	return nil
-}

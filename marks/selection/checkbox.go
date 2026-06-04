@@ -458,10 +458,16 @@ func (c *Checkbox) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	label := slots.Label.Resolve(c.labelState(), tokens)
 	helper := slots.HelperText.Resolve(c.labelState(), tokens)
 	stateLayer := slots.StateLayer.Resolve(c.stateLayerState(), tokens)
+	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 24)
 	if !isTransparentMaterial(root) {
 		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	}
+	if c.focusedVisible && !isTransparentMaterial(focus) && !c.cachedControlBounds.IsEmpty() {
+		inset := maxFloat(1, c.cachedControlBounds.Height()*0.12)
+		ringBounds := c.cachedControlBounds.Inset(-inset, -inset)
+		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, c.cachedControlRadius+inset), focus)...)
 	}
 	if !isTransparentMaterial(stateLayer) && !c.cachedControlBounds.IsEmpty() {
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(c.cachedControlBounds, c.cachedControlRadius), stateLayer)...)

@@ -2,13 +2,11 @@ package primitive
 
 import (
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -35,7 +33,7 @@ func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
 	mark := NewText(marks.Const("Hello world"))
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -98,7 +96,7 @@ func TestTextMark_disabled_uses_disabled_color(t *testing.T) {
 	mark.Disabled = marks.Const(true)
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -130,7 +128,7 @@ func TestTextMark_disabled_uses_disabled_color(t *testing.T) {
 func TestTextMark_wrap_and_truncate(t *testing.T) {
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	wrap := NewText(marks.Const("Hello world"))
@@ -166,7 +164,7 @@ func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
 
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -213,7 +211,7 @@ func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testin
 
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -249,41 +247,4 @@ func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testin
 	}
 }
 
-func mustTextRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
 
-func mustReadFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytesTrim(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}
-
-func bytesTrim(in []byte) []byte {
-	for len(in) > 0 {
-		switch in[len(in)-1] {
-		case '\n', '\r', '\t', ' ':
-			in = in[:len(in)-1]
-		default:
-			return in
-		}
-	}
-	return in
-}

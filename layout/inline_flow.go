@@ -32,7 +32,8 @@ func InlineFlowSize(sizes []gfx.Size, gap float32) gfx.Size {
 }
 
 // ArrangeInlineFlow lays out a sequence of boxes horizontally within bounds.
-// Zero-sized entries are skipped. In RTL mode, the logical order is reversed.
+// Zero-sized entries are skipped. In RTL mode, the logical order is reversed
+// so that the first logical item appears on the right.
 func ArrangeInlineFlow(bounds gfx.Rect, padX, gap float32, sizes []gfx.Size, rtl bool) []gfx.Rect {
 	rects := make([]gfx.Rect, len(sizes))
 	type item struct {
@@ -53,11 +54,11 @@ func ArrangeInlineFlow(bounds gfx.Rect, padX, gap float32, sizes []gfx.Size, rtl
 	contentTop := bounds.Min.Y + maxFloat(0, (bounds.Height()-content.H)*0.5)
 	if rtl {
 		x := bounds.Max.X - padX
-		for i := len(items) - 1; i >= 0; i-- {
-			size := items[i].size
-			x -= size.W
-			rects[items[i].index] = gfx.RectFromXYWH(x, contentTop+maxFloat(0, (content.H-size.H)*0.5), size.W, size.H)
-			if i > 0 {
+		for i := 0; i < len(items); i++ {
+			item := items[i]
+			x -= item.size.W
+			rects[item.index] = gfx.RectFromXYWH(x, contentTop+maxFloat(0, (content.H-item.size.H)*0.5), item.size.W, item.size.H)
+			if i < len(items)-1 {
 				x -= gap
 			}
 		}
@@ -100,7 +101,8 @@ func InlineFlowSegmentsSize(segments []InlineFlowSegment) gfx.Size {
 
 // ArrangeInlineFlowSegments lays out a sequence of boxes horizontally within
 // bounds using per-segment trailing gaps. Zero-sized entries are skipped. In
-// RTL mode, the logical order is reversed.
+// RTL mode, the logical order is reversed so that the first logical segment
+// appears on the right.
 func ArrangeInlineFlowSegments(bounds gfx.Rect, padX float32, segments []InlineFlowSegment, rtl bool) []gfx.Rect {
 	rects := make([]gfx.Rect, len(segments))
 	type item struct {
@@ -121,12 +123,12 @@ func ArrangeInlineFlowSegments(bounds gfx.Rect, padX float32, segments []InlineF
 	contentTop := bounds.Min.Y + maxFloat(0, (bounds.Height()-content.H)*0.5)
 	if rtl {
 		x := bounds.Max.X - padX
-		for i := len(items) - 1; i >= 0; i-- {
+		for i := 0; i < len(items); i++ {
 			segment := items[i].segment
 			x -= segment.Size.W
 			rects[items[i].index] = gfx.RectFromXYWH(x, contentTop+maxFloat(0, (content.H-segment.Size.H)*0.5), segment.Size.W, segment.Size.H)
-			if i > 0 {
-				x -= items[i-1].segment.GapAfter
+			if i < len(items)-1 {
+				x -= segment.GapAfter
 			}
 		}
 		return rects

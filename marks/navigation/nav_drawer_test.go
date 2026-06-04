@@ -225,10 +225,6 @@ func TestNavDrawerGoldenCompact(t *testing.T) {
 	AssertNavDrawerGolden(t, "compact", defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(d *NavDrawer) {})
 }
 
-func TestNavDrawerGoldenComfortable(t *testing.T) {
-	AssertNavDrawerGolden(t, "comfortable", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {})
-}
-
 func TestNavDrawerGoldenDisabled(t *testing.T) {
 	AssertNavDrawerGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {
 		d.Disabled = marks.Const(true)
@@ -247,7 +243,7 @@ func TestNavDrawerGoldenHovered(t *testing.T) {
 
 func TestNavDrawerGoldenPressed(t *testing.T) {
 	AssertNavDrawerGolden(t, "pressed", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {
-		d.pressedIndex = 0
+		d.pressedIndex = 2
 	})
 }
 
@@ -336,7 +332,7 @@ func renderNavDrawerToSurface(t *testing.T, drawer *NavDrawer, rt navDrawerRunti
 
 func newNavDrawerTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*NavDrawer, navDrawerRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustTabsFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

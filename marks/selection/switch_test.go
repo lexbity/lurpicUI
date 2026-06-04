@@ -214,10 +214,6 @@ func TestSwitchGoldenCompact(t *testing.T) {
 	AssertSwitchGolden(t, "compact", defaultSliderTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(s *Switch) {})
 }
 
-func TestSwitchGoldenComfortable(t *testing.T) {
-	AssertSwitchGolden(t, "comfortable", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *Switch) {})
-}
-
 func TestSwitchGoldenDisabled(t *testing.T) {
 	AssertSwitchGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *Switch) {
 		s.Disabled = marks.Const(true)
@@ -381,7 +377,7 @@ func renderSwitchToSurface(t *testing.T, sw *Switch, rt sliderRuntimeStub, measu
 
 func newSwitchTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Switch, sliderRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustSliderFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

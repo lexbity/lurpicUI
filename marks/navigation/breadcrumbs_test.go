@@ -194,10 +194,6 @@ func TestBreadcrumbsGoldenCompact(t *testing.T) {
 	AssertBreadcrumbsGolden(t, "compact", defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(b *Breadcrumbs) {})
 }
 
-func TestBreadcrumbsGoldenComfortable(t *testing.T) {
-	AssertBreadcrumbsGolden(t, "comfortable", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Breadcrumbs) {})
-}
-
 func TestBreadcrumbsGoldenDisabled(t *testing.T) {
 	AssertBreadcrumbsGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Breadcrumbs) {
 		b.Disabled = marks.Const(true)
@@ -221,20 +217,23 @@ func TestBreadcrumbsGoldenFocused(t *testing.T) {
 }
 
 func TestBreadcrumbsGoldenRTL(t *testing.T) {
-	AssertBreadcrumbsGolden(t, "rtl", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(b *Breadcrumbs) {})
+	ltr := renderBreadcrumbsSurface(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Breadcrumbs) {})
+	rtl := renderBreadcrumbsSurface(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(b *Breadcrumbs) {})
+	testkit.AssertGoldenPair(t, ltr, rtl, "breadcrumbs")
 }
 
 func AssertBreadcrumbsGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Breadcrumbs)) {
+	t.Helper()
+	surface := renderBreadcrumbsSurface(t, tokens, density, direction, mutate)
+	testkit.AssertGolden(t, surface, "breadcrumbs_"+name)
+}
+
+func renderBreadcrumbsSurface(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Breadcrumbs)) *testkit.MemorySurface {
 	t.Helper()
 	bc, rt, measureCtx := newBreadcrumbsTestFixture(t, tokens, density, direction)
 	if mutate != nil {
 		mutate(bc)
 	}
-	renderBreadcrumbsToSurface(t, bc, rt, measureCtx, density, direction, name)
-}
-
-func renderBreadcrumbsToSurface(t *testing.T, bc *Breadcrumbs, rt breadcrumbRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
-	t.Helper()
 	facet.Attach(bc, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 	result := bc.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
@@ -272,12 +271,12 @@ func renderBreadcrumbsToSurface(t *testing.T, bc *Breadcrumbs, rt breadcrumbRunt
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
-	testkit.AssertGolden(t, surface, "breadcrumbs_"+goldenName)
+	return surface
 }
 
 func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Breadcrumbs, breadcrumbRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustTabsFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

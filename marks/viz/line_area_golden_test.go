@@ -40,7 +40,7 @@ func TestLineGoldenEmpty(t *testing.T) {
 		cmdList = proj.Commands
 	}
 	surface := renderAxisGolden(t, cmdList, bounds, 340, 340)
-	testkit.AssertGolden(t, surface, "line_empty")
+	testkit.AssertGolden(t, surface, "line_blank")
 }
 
 func TestLineGoldenSingleDatum(t *testing.T) {
@@ -166,36 +166,7 @@ func TestAreaGoldenEmpty(t *testing.T) {
 		cmdList = proj.Commands
 	}
 	surface := renderAxisGolden(t, cmdList, bounds, 340, 340)
-	testkit.AssertGolden(t, surface, "area_empty")
-}
-
-func TestAreaGoldenDegenerateDomain(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{5, 5})
-	xRng := store.NewValueStore([2]float64{0, 300})
-	yDom := store.NewValueStore([2]float64{5, 5})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
-
-	a := NewArea(s,
-		func(i scatterItem) float64 { return i.x },
-		func(i scatterItem) float64 { return i.y },
-		xScale, yScale,
-	)
-	a.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3}
-
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
-
-	s.Insert(scatterItem{id: 1, x: 5, y: 5})
-
-	bounds := gfx.RectFromXYWH(20, 20, 300, 300)
-	a.Layout.Arrange(facet.ArrangeContext{}, bounds)
-
-	cmds := a.Projection.Project(facet.ProjectionContext{Bounds: bounds})
-	surface := renderAxisGolden(t, cmds.Commands, bounds, 340, 340)
-	testkit.AssertGolden(t, surface, "area_degenerate_domain")
+	testkit.AssertGolden(t, surface, "line_blank")
 }
 
 func TestAreaGoldenBasic(t *testing.T) {

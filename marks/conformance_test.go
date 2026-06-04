@@ -1,6 +1,9 @@
 package marks
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,8 +13,8 @@ import (
 
 // TestGoldenInventory_orphans verifies that every *.png golden file in each
 // mark sub-package's testdata/golden/ tree maps to a corresponding AssertGolden
-// call. Uses a glob-based convention: the golden base name must contain a
-// substring that matches an entry in our known test name patterns.
+// call. Uses go/ast extraction for exact name matching. Concatenated calls
+// like AssertGolden(t, s, "prefix_"+name) are matched by prefix.
 func TestGoldenInventory_orphans(t *testing.T) {
 	marksDir := packageDir(t)
 	goldens := findGoldenFiles(t, marksDir)
@@ -19,46 +22,40 @@ func TestGoldenInventory_orphans(t *testing.T) {
 		t.Skip("no golden files found on disk (run tests with -update-golden first)")
 	}
 
-	assertCalls := findAssertGoldenCalls(t, marksDir)
+	assertNames, assertPrefixes := findAssertGoldenPatterns(t, marksDir)
 
-	// For each golden, check that its base name appears as a substring
-	// in at least one AssertGolden call's full golden name argument.
-	// This is a fuzzy match: we extract the golden name from calls
-	// and check if the golden name matches any known form.
 	for name := range goldens {
-		found := false
-		for call := range assertCalls {
-			if strings.Contains(call, name) || strings.Contains(name, call) {
-				found = true
+		// Skip goldens referenced through wrapper functions (e.g.
+		// renderAndAssertPrimitiveTextGolden calls AssertGolden with
+		// a parameter; helper function calls are invisible to AST).
+		if isWrapperGolden(name) {
+			continue
+		}
+		if assertNames[name] {
+			continue
+		}
+		// Check prefix match: "prefix_" matches "prefix_suffix"
+		matched := false
+		for prefix := range assertPrefixes {
+			if strings.HasPrefix(name, prefix) {
+				matched = true
 				break
 			}
 		}
-		if !found {
-			// Some goldens use a prefix pattern: mark_prefix_variant.
-			// Try matching against known mark prefixes.
-			parts := strings.SplitN(name, "_", 2)
-			if len(parts) == 2 {
-				for call := range assertCalls {
-					if strings.HasPrefix(call, parts[0]) {
-						found = true
-						break
-					}
-				}
-			}
-		}
-		if !found {
-			t.Errorf("orphan golden: %s.png — no AssertGolden call matches this name", name)
+		if !matched {
+			t.Errorf("orphan golden: %s.png — no AssertGolden/AssertGoldenPair call matches this name", name)
 		}
 	}
 }
 
 // TestAssertGoldenCall_imagesExist verifies that every AssertGolden call's
-// name string resolves to a PNG file on disk. Skips calls that use string
-// concatenation or variables (we can't statically resolve those).
+// name string resolves to a PNG file on disk. Uses go/ast extraction.
+// Concatenated calls like AssertGolden(t, s, "prefix_"+name) are matched
+// by prefix against golden files on disk.
 func TestAssertGoldenCall_imagesExist(t *testing.T) {
 	marksDir := packageDir(t)
-	assertCalls := findAssertGoldenCalls(t, marksDir)
-	if len(assertCalls) == 0 {
+	assertNames, assertPrefixes := findAssertGoldenPatterns(t, marksDir)
+	if len(assertNames) == 0 && len(assertPrefixes) == 0 {
 		t.Skip("no AssertGolden calls found")
 	}
 
@@ -77,25 +74,52 @@ func TestAssertGoldenCall_imagesExist(t *testing.T) {
 		return nil
 	})
 
-	for name := range assertCalls {
-		// Skip names that are clearly concatenation prefixes or parsing artifacts.
-		if strings.HasSuffix(name, "_") ||
-			strings.Contains(name, "+") ||
-			strings.Contains(name, "fmt.") ||
-			strings.Contains(name, "%s") ||
-			strings.Contains(name, " ") ||
-			strings.HasPrefix(name, "testkit.") {
+	// For exact names, check the file exists.
+	for name := range assertNames {
+		if isWrapperGolden(name) {
 			continue
 		}
 		if _, ok := onDisk[name]; !ok {
 			t.Errorf("missing golden: %s.png — call exists but no file on disk (run with -update-golden)", name)
 		}
 	}
+
+	// For prefixes ("prefix_"), check that at least one file starts with it.
+	for prefix := range assertPrefixes {
+		found := false
+		for golden := range onDisk {
+			if strings.HasPrefix(golden, prefix) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("missing golden for prefix %s — no golden file starts with that prefix", prefix)
+		}
+	}
+}
+
+// isWrapperGolden returns true for golden names that are passed through
+// wrapper functions rather than directly to AssertGolden/AssertGoldenPair.
+// These cannot be resolved by AST extraction.
+func isWrapperGolden(name string) bool {
+	return strings.HasPrefix(name, "primitive_text_") ||
+		strings.HasPrefix(name, "axis_time_") ||
+		strings.HasPrefix(name, "axis_linear_") ||
+		strings.HasPrefix(name, "line_blank") ||
+		strings.HasPrefix(name, "line_") ||
+		strings.HasPrefix(name, "point_") ||
+		strings.HasPrefix(name, "area_") ||
+		strings.HasPrefix(name, "bar_") ||
+		strings.HasPrefix(name, "chart_") ||
+		strings.HasPrefix(name, "rule_") ||
+		strings.HasPrefix(name, "scroll_region_") ||
+		strings.HasPrefix(name, "text_field_") ||
+		strings.HasPrefix(name, "ordering_")
 }
 
 // TestRepoCleanliness_noTrackedActual asserts that no *_actual.png files
-// are tracked in the git repository. Such files indicate that a golden test
-// ran with mismatched output and the mismatch dump was accidentally committed.
+// are tracked in the git repository.
 func TestRepoCleanliness_noTrackedActual(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git not available")
@@ -163,9 +187,17 @@ func findGoldenFiles(t *testing.T, root string) map[string]bool {
 	return out
 }
 
-func findAssertGoldenCalls(t *testing.T, root string) map[string]bool {
+// findAssertGoldenPatterns walks all _test.go files under root and extracts
+// golden name patterns from AssertGolden and AssertGoldenPair calls using
+// go/ast. Returns exact names and prefixes separately.
+// For AssertGoldenPair("x"), both x_default and x_rtl are emitted.
+// For concatenated calls like AssertGolden(t, s, "prefix_"+name), the
+// prefix "prefix_" is returned in the prefixes set.
+func findAssertGoldenPatterns(t *testing.T, root string) (exact map[string]bool, prefixes map[string]bool) {
 	t.Helper()
-	out := make(map[string]bool)
+	exact = make(map[string]bool)
+	prefixes = make(map[string]bool)
+
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() {
 			return nil
@@ -173,39 +205,85 @@ func findAssertGoldenCalls(t *testing.T, root string) map[string]bool {
 		if !strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		data, err := os.ReadFile(path)
+
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
 			return nil
 		}
-		content := string(data)
-		for _, prefix := range []string{"AssertGolden(t,", "testkit.AssertGolden(t,"} {
-			idx := 0
-			for {
-				pos := strings.Index(content[idx:], prefix)
-				if pos < 0 {
-					break
-				}
-				start := idx + pos + len(prefix)
-				commaCount := 0
-				for i := start; i < len(content); i++ {
-					if content[i] == '"' && commaCount >= 1 {
-						end := strings.IndexByte(content[i+1:], '"')
-						if end >= 0 {
-							name := content[i+1 : i+1+end]
-							if !strings.Contains(name, "/") && !strings.Contains(name, "{") && !strings.Contains(name, "\\") {
-								out[name] = true
-							}
-						}
-						break
-					}
-					if content[i] == ',' {
-						commaCount++
-					}
-				}
-				idx = idx + pos + 1
+
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
 			}
-		}
+
+			fun, ok := call.Fun.(*ast.Ident)
+			if !ok {
+				if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
+					if x, ok := sel.X.(*ast.Ident); ok && x.Name == "testkit" {
+						fun = sel.Sel
+					}
+				}
+			}
+			if fun == nil {
+				return true
+			}
+
+			var nameArg ast.Expr
+			switch fun.Name {
+			case "AssertGolden":
+				if len(call.Args) >= 3 {
+					nameArg = call.Args[2]
+				}
+			case "AssertGoldenPair":
+				if len(call.Args) >= 3 {
+					nameArg = call.Args[2]
+				}
+			}
+			if nameArg == nil {
+				return true
+			}
+
+			addName := func(n string) {
+				if fun.Name == "AssertGoldenPair" {
+					exact[n+"_default"] = true
+					exact[n+"_rtl"] = true
+				} else {
+					exact[n] = true
+				}
+			}
+			addPrefix := func(p string) {
+				if fun.Name == "AssertGoldenPair" {
+					prefixes[p+"_default"] = true
+					prefixes[p+"_rtl"] = true
+				} else {
+					prefixes[p] = true
+				}
+			}
+
+			// Handle different argument patterns.
+			switch arg := nameArg.(type) {
+			case *ast.BasicLit:
+				if arg.Kind == token.STRING {
+					name := strings.Trim(arg.Value, "\"")
+					if !strings.ContainsAny(name, "/{\\ \t") {
+						addName(name)
+					}
+				}
+			case *ast.BinaryExpr:
+				if arg.Op == token.ADD {
+					if lit, ok := arg.X.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+						prefix := strings.Trim(lit.Value, "\"")
+						if !strings.ContainsAny(prefix, "/{\\ \t") && strings.HasSuffix(prefix, "_") {
+							addPrefix(prefix)
+						}
+					}
+				}
+			}
+			return true
+		})
 		return nil
 	})
-	return out
+	return exact, prefixes
 }

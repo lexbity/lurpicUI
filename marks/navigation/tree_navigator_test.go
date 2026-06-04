@@ -228,10 +228,6 @@ func TestTreeNavigatorGoldenCompact(t *testing.T) {
 	AssertTreeNavigatorGolden(t, "compact", defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(tn *TreeNavigator) {})
 }
 
-func TestTreeNavigatorGoldenComfortable(t *testing.T) {
-	AssertTreeNavigatorGolden(t, "comfortable", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tn *TreeNavigator) {})
-}
-
 func TestTreeNavigatorGoldenDisabled(t *testing.T) {
 	AssertTreeNavigatorGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tn *TreeNavigator) {
 		tn.Disabled = marks.Const(true)
@@ -325,7 +321,7 @@ func renderTreeNavigatorToSurface(t *testing.T, tree *TreeNavigator, rt treeNavi
 
 func newTreeNavigatorTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*TreeNavigator, treeNavigatorRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustTabsFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

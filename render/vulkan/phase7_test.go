@@ -3,13 +3,10 @@
 package vulkan
 
 import (
-	"bytes"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -27,11 +24,7 @@ func TestBackendSubmitGlyphRun_updatesGlyphAtlasAndPacketStats(t *testing.T) {
 		t.Fatalf("reset rust state: %v", err)
 	}
 
-	reg := mustPhase7FontRegistry(t)
-	fontData := mustPhase7TestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(fontData, "noto-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
+	reg := fontdata.TestFontRegistry(t)
 	face := reg.Resolve(text.TextStyle{Family: "Noto Sans", Size: 18})
 	run := text.GlyphRun{
 		Face:  face,
@@ -86,30 +79,3 @@ func TestBackendSubmitGlyphRun_updatesGlyphAtlasAndPacketStats(t *testing.T) {
 	}
 }
 
-func mustPhase7FontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("NewFontRegistry: %v", err)
-	}
-	return reg
-}
-
-func mustPhase7TestFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	path := mustPhase7TestFontPath(t, rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read test font %q: %v", path, err)
-	}
-	return data
-}
-
-func mustPhase7TestFontPath(t *testing.T, rel string) string {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	return filepath.Join(string(bytes.TrimSpace(out)), rel)
-}

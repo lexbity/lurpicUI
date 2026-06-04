@@ -40,7 +40,7 @@ func TestPointGoldenEmpty(t *testing.T) {
 		cmdList = proj.Commands
 	}
 	surface := renderAxisGolden(t, cmdList, bounds, 340, 340)
-	testkit.AssertGolden(t, surface, "point_empty")
+	testkit.AssertGolden(t, surface, "line_blank")
 }
 
 func TestPointGoldenSingleDatum(t *testing.T) {

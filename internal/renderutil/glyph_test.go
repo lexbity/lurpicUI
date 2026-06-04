@@ -1,13 +1,10 @@
 package renderutil
 
 import (
-	"bytes"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
@@ -29,8 +26,8 @@ func TestGlyphSizeBitsFallsBackToStyleThenDefault(t *testing.T) {
 
 func TestGlyphAtlasKeyFromRunStability(t *testing.T) {
 	reg := mustFontRegistry(t)
-	regular := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	bold := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Bold.ttf")
+	regular := fontdata.TestFontBytes()
+	bold := fontdata.TestFontBoldBytes()
 	if err := reg.LoadFontBytes(regular, "noto-regular"); err != nil {
 		t.Fatalf("load regular: %v", err)
 	}
@@ -68,21 +65,4 @@ func mustFontRegistry(t *testing.T) *text.FontRegistry {
 	return reg
 }
 
-func mustReadTestFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	path := mustTestFontPath(t, rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read test font %q: %v", path, err)
-	}
-	return data
-}
 
-func mustTestFontPath(t *testing.T, rel string) string {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	return filepath.Join(string(bytes.TrimSpace(out)), rel)
-}

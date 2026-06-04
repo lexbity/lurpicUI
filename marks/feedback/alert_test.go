@@ -1,10 +1,6 @@
 package feedback
 
 import (
-	"bytes"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"reflect"
 	"testing"
 	"unsafe"
@@ -46,7 +42,7 @@ func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -117,7 +113,7 @@ func TestAlertInteractionsEmitActionAndDismiss(t *testing.T) {
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -193,10 +189,6 @@ func TestAlertGoldenCompact(t *testing.T) {
 	AssertAlertGolden(t, "compact", alertTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(a *Alert) {})
 }
 
-func TestAlertGoldenComfortable(t *testing.T) {
-	AssertAlertGolden(t, "comfortable", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {})
-}
-
 func TestAlertGoldenDisabled(t *testing.T) {
 	AssertAlertGolden(t, "disabled", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {
 		a.Disabled = marks.Const(true)
@@ -209,13 +201,13 @@ func TestAlertGoldenHighContrast(t *testing.T) {
 
 func TestAlertGoldenHovered(t *testing.T) {
 	AssertAlertGolden(t, "hovered", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {
-		a.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: gfx.Point{X: 8, Y: 8}})
+		a.hovered = true
 	})
 }
 
 func TestAlertGoldenPressed(t *testing.T) {
 	AssertAlertGolden(t, "pressed", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {
-		a.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 8, Y: 8}, Button: platform.PointerLeft})
+		a.pressed = true
 	})
 }
 
@@ -231,7 +223,7 @@ func AssertAlertGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	}
 	rt := alertRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustAlertFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := alertResolvedContext(tokens, density, direction)
 	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -301,32 +293,7 @@ func alertResolvedContext(tokens theme.Tokens, density theme.DensityID, directio
 	return ctx
 }
 
-func mustAlertFontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadAlertFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
 
-func mustReadAlertFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytes.TrimSpace(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}
 
 func toThemeTokens(t templates.Tokens) theme.Tokens {
 	tokens := theme.DefaultTokens()

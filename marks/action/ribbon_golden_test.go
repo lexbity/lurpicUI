@@ -21,10 +21,6 @@ func TestRibbonGoldenCompact(t *testing.T) {
 	AssertRibbonGolden(t, "compact", defaultActionBarTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(r *Ribbon) {})
 }
 
-func TestRibbonGoldenComfortable(t *testing.T) {
-	AssertRibbonGolden(t, "comfortable", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *Ribbon) {})
-}
-
 func TestRibbonGoldenDisabled(t *testing.T) {
 	AssertRibbonGolden(t, "disabled", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *Ribbon) {
 		r.Disabled = marks.Const(true)

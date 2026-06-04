@@ -18,7 +18,7 @@ func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	bar := newProgressBarFixture()
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, badgeTokens(), nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -103,10 +103,6 @@ func TestProgressBarGoldenCompact(t *testing.T) {
 	AssertProgressBarGolden(t, "compact", badgeTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(b *ProgressBar) {})
 }
 
-func TestProgressBarGoldenComfortable(t *testing.T) {
-	AssertProgressBarGolden(t, "comfortable", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *ProgressBar) {})
-}
-
 func TestProgressBarGoldenDisabled(t *testing.T) {
 	AssertProgressBarGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *ProgressBar) {
 		b.Disabled = marks.Const(true)
@@ -129,7 +125,7 @@ func AssertProgressBarGolden(t *testing.T, name string, tokens theme.Tokens, den
 	}
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, density, direction)
 	facet.Attach(bar, facet.AttachContext{Runtime: rt, Theme: ctx})

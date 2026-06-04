@@ -620,8 +620,8 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	}
 	if s.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, s.cachedGap*0.5)
-		ringBounds := bounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, s.cachedThumbSize*0.5+inset), focus)...)
+		ringBounds := bounds.Inset(inset, inset)
+		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, s.cachedThumbSize*0.5), focus)...)
 	}
 	return cmds
 }

@@ -5,9 +5,6 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -20,6 +17,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme"
 	"github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
+
+	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 )
 
 type testSurface struct {
@@ -976,8 +975,8 @@ func TestGlyphAtlas_independent_per_face_and_size(t *testing.T) {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	regular := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	boldItalic := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Bold.ttf")
+	regular := fontdata.TestFontBytes()
+	boldItalic := fontdata.TestFontBoldBytes()
 	if err := reg.LoadFontBytes(regular, "roboto-regular"); err != nil {
 		t.Fatalf("load face one: %v", err)
 	}
@@ -1017,7 +1016,7 @@ func testGlyphRun(t *testing.T, label string, size float32) text.GlyphRun {
 	if err != nil {
 		t.Fatalf("registry: %v", err)
 	}
-	data := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	data := fontdata.TestFontBytes()
 	if err := reg.LoadFontBytes(data, "roboto-regular"); err != nil {
 		t.Fatalf("load font: %v", err)
 	}
@@ -1028,28 +1027,6 @@ func testGlyphRun(t *testing.T, label string, size float32) text.GlyphRun {
 	return layout.Lines[0].Runs[0]
 }
 
-func mustReadTestFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	path := mustTestFontPath(t, rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read test font %q: %v", path, err)
-	}
-	return data
-}
-
-func mustTestFontPath(t *testing.T, rel string) string {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytes.TrimSpace(out)), rel)
-	if _, err := os.Stat(path); err != nil {
-		t.Fatalf("test font path %q: %v", path, err)
-	}
-	return path
-}
 
 func hasNonBlankPixels(s *testSurface, x0, y0, x1, y1 int) bool {
 	for y := y0; y < y1; y++ {

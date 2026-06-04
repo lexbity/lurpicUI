@@ -17,12 +17,31 @@ import (
 var updateGolden = flag.Bool("update-golden", false, "regenerate golden images")
 var goldenBaseDir string
 
+// updateRequested reports whether the caller wants to regenerate golden files.
+// It checks two sources, in order of precedence:
+//
+//  1. The LURPICUI_UPDATE_GOLDEN environment variable (values "1", "true", "yes").
+//  2. The -update-golden command-line flag.
+//
+// The env form works across the whole module tree regardless of whether each
+// package imports testkit (it is silently ignored by packages that don't).
+func updateRequested() bool {
+	if updateGolden != nil && *updateGolden {
+		return true
+	}
+	switch os.Getenv("LURPICUI_UPDATE_GOLDEN") {
+	case "1", "true", "yes":
+		return true
+	}
+	return false
+}
+
 // AssertGolden compares the surface against testdata/golden/<name>.png.
 func AssertGolden(t reporter, surface *MemorySurface, name string) {
 	t.Helper()
 	baseDir := resolveGoldenBaseDir(t)
 	if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
-		fmt.Fprintf(os.Stderr, "golden baseDir=%s name=%s update=%v\n", baseDir, name, *updateGolden)
+		fmt.Fprintf(os.Stderr, "golden baseDir=%s name=%s update=%v\n", baseDir, name, updateRequested())
 	}
 	wantPath := filepath.Join(baseDir, name+".png")
 	actualPath := filepath.Join(baseDir, name+"_actual.png")
@@ -32,7 +51,7 @@ func AssertGolden(t reporter, surface *MemorySurface, name string) {
 	}
 
 	got := surface.Capture()
-	if *updateGolden {
+	if updateRequested() {
 		if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
 			fmt.Fprintf(os.Stderr, "golden update name=%s got=%x %s\n", name, imageDigest(got), firstPixelValue(got))
 		}

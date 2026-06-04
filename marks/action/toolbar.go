@@ -876,8 +876,8 @@ func (t *Toolbar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	}
 	if t.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, t.cachedPadY*0.5)
-		ringBounds := bounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, t.cachedRadius+inset), focus)...)
+		ringBounds := bounds.Inset(inset, inset)
+		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, t.cachedRadius), focus)...)
 	}
 	return cmds
 }

@@ -86,10 +86,12 @@ var _ marks.Mark = (*Tabs)(nil)
 // NewTabs constructs a navigation.tabs mark with canonical defaults.
 func NewTabs(label string, items []TabItem) *Tabs {
 	t := &Tabs{
-		Label:       marks.Const(label),
-		Variant:     marks.Const(uinav.TabsStandard),
-		Disabled:    marks.Const(false),
-		ActiveIndex: marks.Const(0),
+		Label:        marks.Const(label),
+		Variant:      marks.Const(uinav.TabsStandard),
+		Disabled:     marks.Const(false),
+		ActiveIndex:  marks.Const(0),
+		hoveredIndex: -1,
+		pressedIndex: -1,
 	}
 	t.Core.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)

@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -245,7 +246,7 @@ func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntime
 	})
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"paste":  mustActionGroupIconAsset("edit"),
 			"cut":    mustActionGroupIconAsset("delete"),

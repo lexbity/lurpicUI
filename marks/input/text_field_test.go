@@ -1,9 +1,6 @@
 package input
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -39,7 +36,7 @@ func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	tf.HelperText = marks.Const("We will not share this address.")
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextFieldRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(tf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -105,7 +102,7 @@ func TestTextFieldStoreChangeAndEditing(t *testing.T) {
 	tf := NewTextField("Name", uiinput.TextInputFilled)
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustTextFieldRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 
 	facet.Attach(tf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -207,7 +204,7 @@ func AssertTextFieldGolden(t *testing.T, name string, mutate func(*TextField)) {
 	if mutate != nil {
 		mutate(tf)
 	}
-	fontData := mustReadTextFieldFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	fontData := testkit.TestFontBytes()
 	cfg := testkit.HarnessConfig{
 		Width:         420,
 		Height:        220,
@@ -228,50 +225,13 @@ func mustTextFieldLayerRegistry(t *testing.T) *layout.LayerRegistry {
 	return reg
 }
 
-func mustTextFieldRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadTextFieldFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
-
 func textLayoutForTest(t *testing.T, content string) *text.TextLayout {
 	t.Helper()
-	reg := mustTextFieldRegistry(t)
+	reg := testkit.TestFontRegistry(t)
 	shaper := text.NewShaper(reg)
 	style := text.DefaultStyle()
 	style.Family = "noto-sans-regular"
 	return shaper.ShapeSimple(content, style)
 }
 
-func mustReadTextFieldFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytesTrim(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}
 
-func bytesTrim(in []byte) []byte {
-	for len(in) > 0 {
-		switch in[len(in)-1] {
-		case '\n', '\r', '\t', ' ':
-			in = in[:len(in)-1]
-		default:
-			return in
-		}
-	}
-	return in
-}

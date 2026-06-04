@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -205,7 +206,7 @@ func newActionBarFixture(t *testing.T) (*ActionBar, actionBarRuntimeStub) {
 	bar.Overflow = marks.Const(&ActionBarAction{Key: "more", AccessibleLabel: "More options", IconRef: "more"})
 	rt := actionBarRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: actionBarIconResolverStub{
 			"edit":   mustActionBarIconAsset("edit"),
 			"copy":   mustActionBarIconAsset("copy"),

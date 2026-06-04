@@ -49,7 +49,7 @@ func AssertScrollRegionGolden(t *testing.T, name string, direction ScrollDirecti
 	if mutate != nil {
 		mutate(sr)
 	}
-	rt := cardRuntimeStub{fonts: mustCardFontRegistry(t)}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(sr, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(16, 16, 240, 160)

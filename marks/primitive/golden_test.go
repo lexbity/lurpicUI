@@ -42,10 +42,6 @@ func TestPrimitiveTextGoldenAlphabetAnatomyCompact(t *testing.T) {
 	renderAndAssertPrimitiveTextGoldenWithGuidesAtDensity(t, "primitive_text_alphabet_anatomy_compact", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 960, 1040, 160, theme.DensityIDCompact)
 }
 
-func TestPrimitiveTextGoldenAlphabetAnatomyComfortable(t *testing.T) {
-	renderAndAssertPrimitiveTextGoldenWithGuidesAtDensity(t, "primitive_text_alphabet_anatomy_comfortable", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz", 960, 1040, 160, theme.DensityIDComfortable)
-}
-
 func TestPrimitiveTextGoldenAnatomyTwo(t *testing.T) {
 	renderAndAssertPrimitiveTextGoldenWithGuides(t, "primitive_text_alphabet_anatomy_two", "AaBbCcDdEeFfGgHhIiJjLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz", 960, 1040, 160)
 }
@@ -264,13 +260,8 @@ func mustPrimitiveTextRegistry(t *testing.T) *text.FontRegistry {
 	if err != nil {
 		t.Fatalf("new font registry: %v", err)
 	}
-	for _, rel := range []string{
-		"github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf",
-	} {
-		data := mustReadFont(t, rel)
-		if err := reg.LoadFontBytes(data, filepath.Base(rel)); err != nil {
-			t.Fatalf("load font %q: %v", rel, err)
-		}
+	if err := reg.LoadFontBytes(testkit.TestFontBytes(), "NotoSans-Regular.ttf"); err != nil {
+		t.Fatalf("load font: %v", err)
 	}
 	for _, family := range []string{
 		"Noto Color Emoji",

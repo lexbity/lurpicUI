@@ -132,7 +132,7 @@ func newRadialMenuGoldenFixture(t *testing.T, tokens theme.Tokens, density theme
 
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"star":   mustSplitButtonIconAsset("star"),
 			"more":   mustActionGroupIconAsset("more"),

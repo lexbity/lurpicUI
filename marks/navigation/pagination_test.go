@@ -152,10 +152,6 @@ func TestPaginationGoldenCompact(t *testing.T) {
 	AssertPaginationGolden(t, "compact", defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(p *Pagination) {})
 }
 
-func TestPaginationGoldenComfortable(t *testing.T) {
-	AssertPaginationGolden(t, "comfortable", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *Pagination) {})
-}
-
 func TestPaginationGoldenDisabled(t *testing.T) {
 	AssertPaginationGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *Pagination) {
 		p.Disabled = marks.Const(true)
@@ -255,7 +251,7 @@ func renderPaginationToSurface(t *testing.T, pagination *Pagination, rt tabsRunt
 
 func newPaginationTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Pagination, tabsRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustTabsFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)

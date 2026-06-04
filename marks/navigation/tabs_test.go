@@ -1,9 +1,6 @@
 package navigation
 
 import (
-	"os"
-	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -203,10 +200,6 @@ func TestTabsGoldenCompact(t *testing.T) {
 	AssertTabsGolden(t, "compact", defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(t *Tabs) {})
 }
 
-func TestTabsGoldenComfortable(t *testing.T) {
-	AssertTabsGolden(t, "comfortable", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {})
-}
-
 func TestTabsGoldenDisabled(t *testing.T) {
 	AssertTabsGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {
 		t.Disabled = marks.Const(true)
@@ -238,7 +231,7 @@ func TestTabsGoldenFocused(t *testing.T) {
 func TestTabsGoldenRTL(t *testing.T) {
 	ltr := AssertTabsGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {})
 	rtl := AssertTabsGolden(t, "rtl", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(t *Tabs) {})
-	testkit.AssertDiffers(t, ltr, rtl, "tabs")
+	testkit.AssertGoldenPair(t, ltr, rtl, "tabs")
 }
 
 func TestTabsGoldenSelected(t *testing.T) {
@@ -301,7 +294,7 @@ func renderTabsToSurface(t *testing.T, tabs *Tabs, rt tabsRuntimeStub, measureCt
 
 func newTabsTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Tabs, tabsRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
-	fonts := mustTabsFontRegistry(t)
+	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
@@ -316,44 +309,7 @@ func newTabsTestFixture(t *testing.T, tokens theme.Tokens, density theme.Density
 	return tabs, rt, resolved
 }
 
-func mustTabsFontRegistry(t *testing.T) *text.FontRegistry {
-	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	data := mustReadTabsFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	if err := reg.LoadFontBytes(data, "noto-sans-regular"); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	return reg
-}
 
-func mustReadTabsFont(t *testing.T, rel string) []byte {
-	t.Helper()
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytesTrim(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	return data
-}
-
-func bytesTrim(in []byte) []byte {
-	for len(in) > 0 {
-		switch in[len(in)-1] {
-		case '\n', '\r', '\t', ' ':
-			in = in[:len(in)-1]
-		default:
-			return in
-		}
-	}
-	return in
-}
 
 func defaultTabsTokens() theme.Tokens {
 	return toThemeTokens(templates.Notes().Tokens)

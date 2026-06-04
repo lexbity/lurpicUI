@@ -3,12 +3,11 @@
 package vulkan
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/perfscene"
+	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -82,7 +81,7 @@ func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 	if err != nil {
 		b.Fatalf("NewFontRegistry: %v", err)
 	}
-	fontData := mustReadBenchmarkFont(b, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	fontData := fontdata.TestFontBytes()
 	if err := reg.LoadFontBytes(fontData, "Noto Sans"); err != nil {
 		b.Fatalf("LoadFontBytes: %v", err)
 	}
@@ -116,54 +115,3 @@ func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 	}
 }
 
-func mustReadBenchmarkFont(b *testing.B, path string) []byte {
-	b.Helper()
-	for _, candidate := range benchmarkFontCandidates(path) {
-		if data, err := os.ReadFile(candidate); err == nil {
-			return data
-		}
-	}
-	b.Fatalf("read benchmark font %q: no candidate found", path)
-	return nil
-}
-
-func benchmarkFontCandidates(path string) []string {
-	candidates := []string{path}
-	if filepath.IsAbs(path) {
-		return candidates
-	}
-	roots := []string{}
-	if gomodcache := os.Getenv("GOMODCACHE"); gomodcache != "" {
-		roots = append(roots, gomodcache)
-	}
-	if gopath := os.Getenv("GOPATH"); gopath != "" {
-		roots = append(roots, filepath.Join(gopath, "pkg", "mod"))
-	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		roots = append(roots, filepath.Join(home, "go", "pkg", "mod"))
-	}
-	for _, root := range roots {
-		candidates = append(candidates, filepath.Join(root, path))
-		if len(path) >= len("testdata/") && path[:len("testdata/")] == "testdata/" {
-			candidates = append(candidates, filepath.Join(root, "github.com/go-text/render@v0.2.0", path))
-			candidates = append(candidates, filepath.Join(root, "github.com/go-text/typesetting-utils@v0.0.0-20240317173224-1986cbe96c66", "opentype", "common", filepath.Base(path)))
-		}
-	}
-	return uniqueBenchmarkPaths(candidates)
-}
-
-func uniqueBenchmarkPaths(paths []string) []string {
-	seen := make(map[string]struct{}, len(paths))
-	out := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if p == "" {
-			continue
-		}
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		out = append(out, p)
-	}
-	return out
-}

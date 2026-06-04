@@ -134,7 +134,7 @@ func newActionGroupFixture(t *testing.T) (*ActionGroup, buttonRuntimeStub) {
 	}))
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"edit":   mustActionGroupIconAsset("edit"),
 			"copy":   mustActionGroupIconAsset("copy"),
@@ -214,10 +214,6 @@ func TestActionGroupGoldenCompact(t *testing.T) {
 	AssertActionGroupGolden(t, "compact", defaultActionGroupTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(group *ActionGroup) {})
 }
 
-func TestActionGroupGoldenComfortable(t *testing.T) {
-	AssertActionGroupGolden(t, "comfortable", defaultActionGroupTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(group *ActionGroup) {})
-}
-
 func TestActionGroupGoldenDisabled(t *testing.T) {
 	AssertActionGroupGolden(t, "disabled", defaultActionGroupTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(group *ActionGroup) {
 		group.Disabled = marks.Const(true)
@@ -247,20 +243,23 @@ func TestActionGroupGoldenFocused(t *testing.T) {
 }
 
 func TestActionGroupGoldenRTL(t *testing.T) {
-	AssertActionGroupGolden(t, "rtl", defaultActionGroupTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(group *ActionGroup) {})
+	ltr := renderActionGroupSurface(t, defaultActionGroupTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(group *ActionGroup) {})
+	rtl := renderActionGroupSurface(t, defaultActionGroupTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(group *ActionGroup) {})
+	testkit.AssertGoldenPair(t, ltr, rtl, "action_group")
 }
 
 func AssertActionGroupGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*ActionGroup)) {
+	t.Helper()
+	surface := renderActionGroupSurface(t, tokens, density, direction, mutate)
+	testkit.AssertGolden(t, surface, "action_group_"+name)
+}
+
+func renderActionGroupSurface(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*ActionGroup)) *testkit.MemorySurface {
 	t.Helper()
 	group, rt, measureCtx := newActionGroupGoldenFixture(t, tokens, density, direction)
 	if mutate != nil {
 		mutate(group)
 	}
-	renderActionGroupToSurface(t, group, rt, measureCtx, density, direction, name)
-}
-
-func renderActionGroupToSurface(t *testing.T, group *ActionGroup, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
-	t.Helper()
 	facet.Attach(group, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 	result := group.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
@@ -302,7 +301,7 @@ func renderActionGroupToSurface(t *testing.T, group *ActionGroup, rt buttonRunti
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
-	testkit.AssertGolden(t, surface, "action_group_"+goldenName)
+	return surface
 }
 
 func newActionGroupGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*ActionGroup, buttonRuntimeStub, theme.ResolvedContext) {
@@ -319,7 +318,7 @@ func newActionGroupGoldenFixture(t *testing.T, tokens theme.Tokens, density them
 	}))
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
-		fonts:     mustButtonTextRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"edit":   mustActionGroupIconAsset("edit"),
 			"copy":   mustActionGroupIconAsset("copy"),

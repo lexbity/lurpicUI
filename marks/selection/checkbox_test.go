@@ -219,10 +219,6 @@ func TestCheckboxGoldenCompact(t *testing.T) {
 	AssertCheckboxGolden(t, "compact", defaultCheckboxTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(c *Checkbox) {})
 }
 
-func TestCheckboxGoldenComfortable(t *testing.T) {
-	AssertCheckboxGolden(t, "comfortable", defaultCheckboxTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Checkbox) {})
-}
-
 func TestCheckboxGoldenDisabled(t *testing.T) {
 	AssertCheckboxGolden(t, "disabled", defaultCheckboxTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Checkbox) {
 		c.Disabled = marks.Const(true)
@@ -336,7 +332,7 @@ func newCheckboxTestFixture(t *testing.T, tokens theme.Tokens, density theme.Den
 
 func mustCheckboxFontRegistry(t *testing.T) *text.FontRegistry {
 	t.Helper()
-	return mustSliderFontRegistry(t)
+	return testkit.TestFontRegistry(t)
 }
 
 func defaultCheckboxTokens() theme.Tokens {

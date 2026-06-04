@@ -80,9 +80,11 @@ var _ marks.Mark = (*RadioGroup)(nil)
 // NewRadioGroup constructs a selection.radio_group mark with canonical defaults.
 func NewRadioGroup(label string, options []RadioOption) *RadioGroup {
 	rg := &RadioGroup{
-		Variant:  marks.Const(uiinput.RadioGroupStandard),
-		Disabled: marks.Const(false),
-		Label:    label,
+		Variant:      marks.Const(uiinput.RadioGroupStandard),
+		Disabled:     marks.Const(false),
+		Label:        label,
+		hoveredIndex: -1,
+		pressedIndex: -1,
 	}
 	rg.Core.Facet = facet.NewFacet()
 	rg.AddBinding(rg.Variant)

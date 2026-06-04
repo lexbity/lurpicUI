@@ -96,7 +96,7 @@ func TestAxis_left_orientation_ticks(t *testing.T) {
 }
 
 func TestAxis_all_orientations_emit_ticks_and_labels(t *testing.T) {
-	fonts := mustVizFontRegistry(t)
+	fonts := (axisGoldenRuntime{}).FontRegistry()
 
 	for _, orient := range []AxisOrientation{AxisBottom, AxisTop, AxisLeft, AxisRight} {
 		domain := store.NewValueStore([2]float64{0, 100})
@@ -140,7 +140,7 @@ func TestAxis_all_orientations_emit_ticks_and_labels(t *testing.T) {
 }
 
 func TestAxis_label_collision_skips_overlapping(t *testing.T) {
-	fonts := mustVizFontRegistry(t)
+	fonts := (axisGoldenRuntime{}).FontRegistry()
 
 	// A narrow axis with many ticks ensures labels overlap.
 	domain := store.NewValueStore([2]float64{0, 100})

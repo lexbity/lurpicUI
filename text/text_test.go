@@ -1,6 +1,7 @@
 package text
 
 import (
+	_ "embed"
 	"math"
 	"os"
 	"path/filepath"
@@ -10,6 +11,15 @@ import (
 	"github.com/go-text/typesetting/language"
 	xtextbidi "golang.org/x/text/unicode/bidi"
 )
+
+//go:embed testdata/NotoSans-Regular.ttf
+var testFontBytes []byte
+
+//go:embed testdata/NotoSans-Bold.ttf
+var testFontBoldBytes []byte
+
+//go:embed testdata/EmojiOneColor.otf
+var testEmojiFontBytes []byte
 
 const testNotoSansRegular = "testdata/NotoSans-Regular.ttf"
 const testLigatureFont = "testdata/NotoSans-Regular.ttf"
@@ -52,7 +62,7 @@ func TestFontRegistry_load_font_file_missing(t *testing.T) {
 
 func TestFontRegistry_load_font_bytes(t *testing.T) {
 	reg, _ := NewFontRegistry()
-	data := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
+	data := testFontBytes
 	if err := reg.LoadFontBytes(data, "roboto"); err != nil {
 		t.Fatalf("LoadFontBytes: %v", err)
 	}
@@ -70,8 +80,8 @@ func TestFontRegistry_resolve_never_nil(t *testing.T) {
 
 func TestFontRegistry_resolve_respects_weight(t *testing.T) {
 	reg, _ := NewFontRegistry()
-	regularData := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf")
-	boldData := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/NotoSans-Bold.ttf")
+	regularData := testFontBytes
+	boldData := testFontBoldBytes
 	if err := reg.LoadFontBytes(regularData, "roboto-regular"); err != nil {
 		t.Fatalf("LoadFontBytes regular: %v", err)
 	}
@@ -105,7 +115,10 @@ func TestTextSpan_empty_string(t *testing.T) {
 
 func TestLoadFontFile_roundtrip(t *testing.T) {
 	reg, _ := NewFontRegistry()
-	path := mustResolveTestFontPath(t, testNotoSansRegular)
+	path := filepath.Join(t.TempDir(), "NotoSans-Regular.ttf")
+	if err := os.WriteFile(path, testFontBytes, 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
 	if err := reg.LoadFontFile(path); err != nil {
 		t.Fatalf("LoadFontFile: %v", err)
 	}
@@ -859,7 +872,7 @@ func TestShaper_rune_index_correct(t *testing.T) {
 }
 
 func TestShaper_ligature_single_glyph(t *testing.T) {
-	reg, family := mustTestRegistry(t, testLigatureFont)
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
 	shaper := NewShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
@@ -890,7 +903,7 @@ func TestTextLayout_HitTest_after_last_glyph(t *testing.T) {
 }
 
 func TestTextLayout_HitTest_ligature(t *testing.T) {
-	reg, family := mustTestRegistry(t, testLigatureFont)
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
 	shaper := NewShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
@@ -1008,7 +1021,7 @@ func TestShaper_newline_splits_line(t *testing.T) {
 
 func TestShaper_multistyle_span(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	if err := reg.LoadFontBytes(mustReadTestFont(t, "testdata/NotoSans-Bold.ttf"), "NotoSans-Bold.ttf"); err != nil {
+	if err := reg.LoadFontBytes(testFontBoldBytes, "NotoSans-Bold.ttf"); err != nil {
 		t.Fatalf("LoadFontBytes bold: %v", err)
 	}
 	shaper := NewShaper(reg)
@@ -1039,8 +1052,8 @@ func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
 		t.Fatalf("NewFontRegistry: %v", err)
 	}
 
-	latinData := mustReadTestFont(t, testNotoSansRegular)
-	emojiData := mustReadTestFont(t, "github.com/go-text/render@v0.2.0/testdata/EmojiOneColor.otf")
+	latinData := testFontBytes
+	emojiData := testEmojiFontBytes
 
 	if err := reg.LoadFontBytes(latinData, "NotoSans-Regular.ttf"); err != nil {
 		t.Fatalf("LoadFontBytes latin: %v", err)
@@ -1090,69 +1103,7 @@ func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
 	}
 }
 
-func mustReadTestFont(t *testing.T, path string) []byte {
-	t.Helper()
-	for _, candidate := range testFontCandidates(path) {
-		data, err := os.ReadFile(candidate)
-		if err == nil {
-			return data
-		}
-	}
-	t.Fatalf("read test font %q: no candidate found", path)
-	return nil
-}
 
-func mustResolveTestFontPath(t *testing.T, path string) string {
-	t.Helper()
-	for _, candidate := range testFontCandidates(path) {
-		if _, err := os.Stat(candidate); err == nil {
-			return candidate
-		}
-	}
-	t.Fatalf("resolve test font %q: no candidate found", path)
-	return ""
-}
-
-func testFontCandidates(path string) []string {
-	candidates := []string{path}
-	if filepath.IsAbs(path) {
-		return candidates
-	}
-	roots := []string{}
-	if gomodcache := os.Getenv("GOMODCACHE"); gomodcache != "" {
-		roots = append(roots, gomodcache)
-	}
-	if gopath := os.Getenv("GOPATH"); gopath != "" {
-		roots = append(roots, filepath.Join(gopath, "pkg", "mod"))
-	}
-	if home, err := os.UserHomeDir(); err == nil && home != "" {
-		roots = append(roots, filepath.Join(home, "go", "pkg", "mod"))
-	}
-	for _, root := range roots {
-		candidates = append(candidates, filepath.Join(root, path))
-		if len(path) >= len("testdata/") && path[:len("testdata/")] == "testdata/" {
-			candidates = append(candidates, filepath.Join(root, "github.com/go-text/render@v0.2.0", path))
-			candidates = append(candidates, filepath.Join(root, "github.com/go-text/typesetting-utils@v0.0.0-20240317173224-1986cbe96c66", "opentype", "common", filepath.Base(path)))
-		}
-	}
-	return uniquePaths(candidates)
-}
-
-func uniquePaths(paths []string) []string {
-	seen := make(map[string]struct{}, len(paths))
-	out := make([]string, 0, len(paths))
-	for _, p := range paths {
-		if p == "" {
-			continue
-		}
-		if _, ok := seen[p]; ok {
-			continue
-		}
-		seen[p] = struct{}{}
-		out = append(out, p)
-	}
-	return out
-}
 
 func mustTestRegistry(t *testing.T, path string) (*FontRegistry, string) {
 	t.Helper()
@@ -1160,13 +1111,10 @@ func mustTestRegistry(t *testing.T, path string) (*FontRegistry, string) {
 	if err != nil {
 		t.Fatalf("NewFontRegistry: %v", err)
 	}
-	if err := reg.LoadFontBytes(mustReadTestFont(t, path), filepath.Base(path)); err != nil {
+	if err := reg.LoadFontBytes(testFontBytes, "NotoSans-Regular.ttf"); err != nil {
 		t.Fatalf("LoadFontBytes: %v", err)
 	}
-	if len(reg.faces) == 0 || reg.faces[0] == nil {
-		t.Fatalf("expected loaded faces")
-	}
-	return reg, reg.faces[0].desc.Family
+	return reg, reg.FirstFamily()
 }
 
 func shapedASCII(t *testing.T, text string) *TextLayout {
@@ -1234,7 +1182,7 @@ func TestLetterSpacing_zero_matches_baseline(t *testing.T) {
 // TestLetterSpacing_does_not_split_cluster ensures that letter spacing applied
 // to a ligature run ("fi") does not corrupt the glyph count.
 func TestLetterSpacing_does_not_split_cluster(t *testing.T) {
-	reg, family := mustTestRegistry(t, testLigatureFont)
+	reg, family := mustTestRegistry(t, testNotoSansRegular)
 	shaper := NewShaper(reg)
 
 	style := DefaultStyle()

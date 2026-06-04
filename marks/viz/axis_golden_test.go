@@ -1,10 +1,7 @@
 package viz
 
 import (
-	"bytes"
-	"os"
-	"os/exec"
-	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -25,7 +22,7 @@ func TestAxisGoldenLinear(t *testing.T) {
 	rng := store.NewValueStore([2]float64{0, 300})
 	rs := reactive.NewLinearReactive(domain, rng)
 
-	fonts := mustVizFontRegistry(t)
+	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisBottom), fonts)
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
@@ -71,7 +68,7 @@ func TestAxisGoldenLinearLeft(t *testing.T) {
 	rng := store.NewValueStore([2]float64{0, 200})
 	rs := reactive.NewLinearReactive(domain, rng)
 
-	fonts := mustVizFontRegistry(t)
+	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisLeft), fonts)
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
@@ -99,7 +96,7 @@ func TestAxisGoldenLinearTop(t *testing.T) {
 	rng := store.NewValueStore([2]float64{0, 300})
 	rs := reactive.NewLinearReactive(domain, rng)
 
-	fonts := mustVizFontRegistry(t)
+	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisTop), fonts)
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
@@ -145,7 +142,7 @@ func TestAxisGoldenLinearRight(t *testing.T) {
 	rng := store.NewValueStore([2]float64{0, 200})
 	rs := reactive.NewLinearReactive(domain, rng)
 
-	fonts := mustVizFontRegistry(t)
+	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisRight), fonts)
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
@@ -178,7 +175,7 @@ func timeAxisFixture(t *testing.T, startMs, endMs float64, tickCount int, golden
 	rng := store.NewValueStore([2]float64{0, 300})
 	rs := reactive.NewTimeReactive(domain, rng)
 
-	fonts := mustVizFontRegistry(t)
+	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisBottom), fonts)
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
@@ -247,34 +244,19 @@ type axisGoldenRuntime struct{}
 func (axisGoldenRuntime) Schedule(j job.AnyJob)                            {}
 func (axisGoldenRuntime) CancelJob(id job.JobID)                           {}
 func (axisGoldenRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
-func (axisGoldenRuntime) FontRegistry() *text.FontRegistry                 { return mustVizFontRegistry(nil) }
+var vizFontRegistryOnce sync.Once
+var vizFontRegistryVal *text.FontRegistry
 
-var vizFontRegistry *text.FontRegistry
-
-func mustVizFontRegistry(t *testing.T) *text.FontRegistry {
-	if vizFontRegistry != nil {
-		return vizFontRegistry
-	}
-	if t == nil {
-		return nil
-	}
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("new font registry: %v", err)
-	}
-	rel := "github.com/go-text/render@v0.2.0/testdata/NotoSans-Regular.ttf"
-	out, err := exec.Command("go", "env", "GOMODCACHE").Output()
-	if err != nil {
-		t.Fatalf("go env GOMODCACHE: %v", err)
-	}
-	path := filepath.Join(string(bytes.TrimSpace(out)), rel)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read font %q: %v", path, err)
-	}
-	if err := reg.LoadFontBytes(data, filepath.Base(rel)); err != nil {
-		t.Fatalf("load font: %v", err)
-	}
-	vizFontRegistry = reg
-	return reg
+func (axisGoldenRuntime) FontRegistry() *text.FontRegistry {
+	vizFontRegistryOnce.Do(func() {
+		reg, err := text.NewFontRegistry()
+		if err != nil {
+			panic("testkit: NewFontRegistry: " + err.Error())
+		}
+		if err := reg.LoadFontBytes(testkit.TestFontBytes(), "NotoSans-Regular.ttf"); err != nil {
+			panic("testkit: LoadFontBytes: " + err.Error())
+		}
+		vizFontRegistryVal = reg
+	})
+	return vizFontRegistryVal
 }

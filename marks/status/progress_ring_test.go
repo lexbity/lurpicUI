@@ -18,7 +18,7 @@ func TestProgressRingMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ring := newProgressRingFixture()
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, badgeTokens(), nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -103,10 +103,6 @@ func TestProgressRingGoldenCompact(t *testing.T) {
 	AssertProgressRingGolden(t, "compact", badgeTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(r *ProgressRing) {})
 }
 
-func TestProgressRingGoldenComfortable(t *testing.T) {
-	AssertProgressRingGolden(t, "comfortable", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *ProgressRing) {})
-}
-
 func TestProgressRingGoldenDisabled(t *testing.T) {
 	AssertProgressRingGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *ProgressRing) {
 		r.Disabled = marks.Const(true)
@@ -129,7 +125,7 @@ func AssertProgressRingGolden(t *testing.T, name string, tokens theme.Tokens, de
 	}
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		fonts:     mustBadgeFontRegistry(t),
+		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, density, direction)
 	facet.Attach(ring, facet.AttachContext{Runtime: rt, Theme: ctx})
