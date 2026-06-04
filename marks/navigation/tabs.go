@@ -463,6 +463,16 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			t.cachedTabLabelBounds[i] = text.AlignRectY(gfx.RectFromXYWH(contentX, contentRect.Min.Y, labelW, labelH), contentRect.Min.Y, contentRect.Height())
 		}
 	}
+	if len(t.cachedTabBounds) > 0 && t.cachedWritingDirection == facet.WritingDirectionRTL {
+		leftmost := t.cachedTabBounds[len(t.cachedTabBounds)-1].Min.X
+		if leftmost < bounds.Min.X {
+			shift := bounds.Min.X - leftmost
+			for i := range t.cachedTabBounds {
+				t.cachedTabBounds[i].Min.X += shift
+				t.cachedTabBounds[i].Max.X += shift
+			}
+		}
+	}
 	if len(t.cachedTabLabelLayouts) > 0 {
 		idx := t.clampedActiveIndex()
 		if idx >= 0 && idx < len(t.cachedTabLabelLayouts) {

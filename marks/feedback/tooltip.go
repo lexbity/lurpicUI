@@ -382,6 +382,9 @@ func (t *Tooltip) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if contentBounds.IsEmpty() {
 		contentBounds = surface
 	}
+	if t.cachedWritingDirection == facet.WritingDirectionRTL {
+		contentBounds = gfx.RectFromXYWH(t.cachedBounds.Max.X-contentBounds.Width()-t.cachedPadX, contentBounds.Min.Y, contentBounds.Width(), contentBounds.Height())
+	}
 	contentFacet.Base().LayoutRole().Arrange(ctx, contentBounds)
 	t.cachedContentBounds = contentBounds
 }

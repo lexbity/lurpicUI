@@ -197,22 +197,12 @@ func TestTooltipGoldenPressed(t *testing.T) {
 }
 
 func TestTooltipGoldenRTL(t *testing.T) {
-	AssertTooltipGolden(t, "rtl", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(tt *Tooltip) {})
+	ltr := renderTooltipSurface(t, tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {}, 392, 272)
+	rtl := AssertTooltipGolden(t, "rtl", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(tt *Tooltip) {})
+	testkit.AssertDiffers(t, ltr, rtl, "tooltip")
 }
 
-func TestTooltipGoldenOpen(t *testing.T) {
-	AssertTooltipGolden(t, "open", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.Open = marks.Const(true)
-	})
-}
-
-func TestTooltipGoldenDismissed(t *testing.T) {
-	AssertTooltipGolden(t, "dismissed", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.Open = marks.Const(false)
-	})
-}
-
-func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Tooltip)) {
+func renderTooltipSurface(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Tooltip), w, h int) *testkit.MemorySurface {
 	t.Helper()
 	tt := newTooltipFixture()
 	if mutate != nil {
@@ -225,7 +215,7 @@ func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density
 	resolved := alertResolvedContext(tokens, density, direction)
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
 	canvas := gfx.RectFromXYWH(16, 16, 360, 240)
-	_ = 	tt.Layout.Measure(facet.MeasureContext{
+	tt.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -240,7 +230,7 @@ func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, canvas)
 	cmds := tt.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
-	surface := testkit.NewMemorySurface(392, 272)
+	surface := testkit.NewMemorySurface(w, h)
 	renderer := softwarerenderer.NewSoftwareRenderer()
 	if err := renderer.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
@@ -249,19 +239,33 @@ func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density
 	if cmds != nil {
 		frameCmds = *cmds
 	}
-	frame := &render.Frame{
+	if err := renderer.Submit(&render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      canvas,
-			Opacity:     1,
-			Commands:    frameCmds,
-			CommandHash: 1,
+			ID: 1, Bounds: canvas, Opacity: 1, Commands: frameCmds, CommandHash: 1,
 		}},
-	}
-	if err := renderer.Submit(frame); err != nil {
+	}); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
+	return surface
+}
+
+func TestTooltipGoldenOpen(t *testing.T) {
+	AssertTooltipGolden(t, "open", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
+		tt.Open = marks.Const(true)
+	})
+}
+
+func TestTooltipGoldenDismissed(t *testing.T) {
+	AssertTooltipGolden(t, "dismissed", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
+		tt.Open = marks.Const(false)
+	})
+}
+
+func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Tooltip)) *testkit.MemorySurface {
+	t.Helper()
+	surface := renderTooltipSurface(t, tokens, density, direction, mutate, 392, 272)
 	testkit.AssertGolden(t, surface, "tooltip_"+name)
+	return surface
 }
 
 func newTooltipFixture() *Tooltip {

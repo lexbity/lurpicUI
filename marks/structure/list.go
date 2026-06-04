@@ -15,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -282,6 +283,11 @@ func (l *List) syncChildren() {
 		l.cachedHeaderMark.Typography = marks.Const(theme.TextLabelM)
 		l.cachedHeaderMark.Foreground = marks.Const(theme.ColorTextSecondary)
 		l.cachedHeaderMark.Overflow = marks.Const(primitive.TextOverflowTruncate)
+		if l.cachedWritingDirection == facet.WritingDirectionRTL {
+			l.cachedHeaderMark.Alignment = marks.Const(text.AlignRight)
+		} else {
+			l.cachedHeaderMark.Alignment = marks.Const(text.AlignLeft)
+		}
 	} else {
 		l.cachedHeaderMark = nil
 	}

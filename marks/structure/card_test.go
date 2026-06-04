@@ -142,10 +142,13 @@ func TestCardGoldenHighContrast(t *testing.T) {
 }
 
 func TestCardGoldenRTL(t *testing.T) {
-	AssertCardGolden(t, "rtl", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(c *Card) {})
+	// Capture LTR surface for diff comparison; "default" golden already exists.
+	ltr := AssertCardGolden(t, "default", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Card) {})
+	rtl := AssertCardGolden(t, "rtl", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(c *Card) {})
+	testkit.AssertDiffers(t, ltr, rtl, "card")
 }
 
-func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Card)) {
+func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Card)) *testkit.MemorySurface {
 	t.Helper()
 	card := newCardFixture()
 	if mutate != nil {
@@ -186,6 +189,7 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 		t.Fatalf("submit frame: %v", err)
 	}
 	testkit.AssertGolden(t, surface, "card_"+name)
+	return surface
 }
 
 func newCardFixture() *Card {

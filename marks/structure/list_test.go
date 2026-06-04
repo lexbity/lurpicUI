@@ -190,7 +190,9 @@ func TestListGoldenHighContrast(t *testing.T) {
 }
 
 func TestListGoldenRTL(t *testing.T) {
-	AssertListGolden(t, "rtl", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(l *List) {})
+	ltr := AssertListGolden(t, "default", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(l *List) {})
+	rtl := AssertListGolden(t, "rtl", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(l *List) {})
+	testkit.AssertDiffers(t, ltr, rtl, "list")
 }
 
 func TestListGoldenEmpty(t *testing.T) {
@@ -199,7 +201,7 @@ func TestListGoldenEmpty(t *testing.T) {
 	})
 }
 
-func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*List)) {
+func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*List)) *testkit.MemorySurface {
 	t.Helper()
 	list := newListFixture()
 	if mutate != nil {
@@ -243,6 +245,7 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 		t.Fatalf("submit frame: %v", err)
 	}
 	testkit.AssertGolden(t, surface, "list_"+name)
+	return surface
 }
 
 func newListFixture() *List {

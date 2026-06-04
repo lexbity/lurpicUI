@@ -227,10 +227,12 @@ func TestTableGoldenHighContrast(t *testing.T) {
 }
 
 func TestTableGoldenRTL(t *testing.T) {
-	AssertTableGolden(t, "rtl", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(table *Table) {})
+	ltr := AssertTableGolden(t, "default", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(table *Table) {})
+	rtl := AssertTableGolden(t, "rtl", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(table *Table) {})
+	testkit.AssertDiffers(t, ltr, rtl, "table")
 }
 
-func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Table)) {
+func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Table)) *testkit.MemorySurface {
 	t.Helper()
 	table := newTableGoldenFixture()
 	if mutate != nil {
@@ -280,6 +282,7 @@ func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density t
 		t.Fatalf("submit frame: %v", err)
 	}
 	testkit.AssertGolden(t, surface, "table_"+name)
+	return surface
 }
 
 func newTableFixture() *Table {

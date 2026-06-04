@@ -407,10 +407,30 @@ func (c *Card) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if err != nil {
 		return
 	}
+	rtl := c.cachedWritingDir == facet.WritingDirectionRTL
 	c.cachedChildBounds = make(map[facet.FacetID]gfx.Rect, len(arranged))
 	for _, child := range arranged {
-		c.cachedChildBounds[child.FacetID] = child.Bounds
+		b := child.Bounds
+		if rtl {
+			b.Min.X = inner.Max.X - (child.Bounds.Min.X - inner.Min.X) - child.Bounds.Width()
+			b.Max.X = b.Min.X + child.Bounds.Width()
+		}
+		c.cachedChildBounds[child.FacetID] = b
+		if rtl {
+			if fl := facetByID(c, child.FacetID); fl != nil && fl.LayoutRole() != nil {
+				fl.LayoutRole().Arrange(ctx, b)
+			}
+		}
 	}
+}
+
+func facetByID(c *Card, id facet.FacetID) *facet.Facet {
+	for _, child := range c.activeChildren() {
+		if child.Facet != nil && child.Facet.Base().ID() == id {
+			return child.Facet.Base()
+		}
+	}
+	return nil
 }
 
 func (c *Card) arrangeChildren(ctx facet.ArrangeContext, bounds gfx.Rect, children []CardChild) []layoutgrid.Child {

@@ -236,7 +236,9 @@ func TestTabsGoldenFocused(t *testing.T) {
 }
 
 func TestTabsGoldenRTL(t *testing.T) {
-	AssertTabsGolden(t, "rtl", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(t *Tabs) {})
+	ltr := AssertTabsGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {})
+	rtl := AssertTabsGolden(t, "rtl", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionRTL, func(t *Tabs) {})
+	testkit.AssertDiffers(t, ltr, rtl, "tabs")
 }
 
 func TestTabsGoldenSelected(t *testing.T) {
@@ -245,16 +247,16 @@ func TestTabsGoldenSelected(t *testing.T) {
 	})
 }
 
-func AssertTabsGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Tabs)) {
+func AssertTabsGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Tabs)) *testkit.MemorySurface {
 	t.Helper()
 	tabs, rt, measureCtx := newTabsTestFixture(t, tokens, density, direction)
 	if mutate != nil {
 		mutate(tabs)
 	}
-	renderTabsToSurface(t, tabs, rt, measureCtx, density, direction, name)
+	return renderTabsToSurface(t, tabs, rt, measureCtx, density, direction, name)
 }
 
-func renderTabsToSurface(t *testing.T, tabs *Tabs, rt tabsRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
+func renderTabsToSurface(t *testing.T, tabs *Tabs, rt tabsRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) *testkit.MemorySurface {
 	t.Helper()
 	facet.Attach(tabs, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 	result := tabs.Layout.Measure(facet.MeasureContext{
@@ -294,6 +296,7 @@ func renderTabsToSurface(t *testing.T, tabs *Tabs, rt tabsRuntimeStub, measureCt
 		t.Fatalf("submit frame: %v", err)
 	}
 	testkit.AssertGolden(t, surface, "tabs_"+goldenName)
+	return surface
 }
 
 func newTabsTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Tabs, tabsRuntimeStub, theme.ResolvedContext) {

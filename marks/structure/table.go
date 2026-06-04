@@ -528,20 +528,21 @@ func (t *Table) buildGridPolicy(data TableData) *layoutgrid.Policy {
 	for i := range data.Columns {
 		col := data.Columns[i]
 		if col.Width > 0 {
-			columns[i+selectionOffset] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFixed, Value: col.Width}
+			columns[i+selectionOffset] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFixed, Value: col.Width, Min: 24}
 		} else {
-			columns[i+selectionOffset] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackIntrinsic}
+			columns[i+selectionOffset] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackIntrinsic, Min: 24}
 		}
 	}
 	rows := make([]layoutgrid.TrackDef, len(data.Rows)+1)
 	for i := range rows {
 		rows[i] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackIntrinsic}
 	}
+	colGap := maxFloat(t.gridGap(), 8)
 	return layoutgrid.New(layoutgrid.Config{
 		Columns:       columns,
 		Rows:          rows,
-		ColumnGap:     t.gridGap(),
-		RowGap:        t.gridGap(),
+		ColumnGap:     colGap,
+		RowGap:        colGap,
 		AutoPlacement: layoutgrid.AutoRowFirst,
 	})
 }
@@ -595,6 +596,15 @@ func (t *Table) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	return t.Layout.MeasuredResult
 }
 
+func tableFacetByID(t *Table, id facet.FacetID) *facet.Facet {
+	for _, spec := range t.cachedChildSpecs {
+		if spec.Facet != nil && spec.Facet.Base().ID() == id {
+			return spec.Facet.Base()
+		}
+	}
+	return nil
+}
+
 func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	contentSize := t.cachedContentBounds
 	t.cachedBounds = bounds
@@ -621,14 +631,25 @@ func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if err != nil {
 		return
 	}
+	rtl := t.cachedWritingDirection == facet.WritingDirectionRTL
 	childBounds := make(map[facet.FacetID]gfx.Rect, len(arranged))
 	order := make([]facet.FacetID, 0, len(arranged))
 	rowBounds := make(map[string]gfx.Rect, len(data.Rows)+1)
 	columnBounds := make(map[string]gfx.Rect, len(data.Columns))
 	cellBounds := make(map[facet.FacetID]gfx.Rect, len(arranged))
 	for _, child := range arranged {
-		childBounds[child.FacetID] = child.Bounds
-		cellBounds[child.FacetID] = child.Bounds
+		b := child.Bounds
+		if rtl {
+			b.Min.X = contentRect.Max.X - (child.Bounds.Min.X - contentRect.Min.X) - child.Bounds.Width()
+			b.Max.X = b.Min.X + child.Bounds.Width()
+		}
+		childBounds[child.FacetID] = b
+		cellBounds[child.FacetID] = b
+		if rtl {
+			if tfl := tableFacetByID(t, child.FacetID); tfl != nil && tfl.LayoutRole() != nil {
+				tfl.LayoutRole().Arrange(ctx, b)
+			}
+		}
 		order = append(order, child.FacetID)
 		if child.Placement.RowStart >= 0 && child.Placement.RowStart < len(t.cachedVisibleRows)+1 {
 			rowKey := t.visibleTableRowKeyAtIndex(child.Placement.RowStart)

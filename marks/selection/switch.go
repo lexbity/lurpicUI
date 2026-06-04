@@ -298,7 +298,8 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	s.cachedControlBounds = rects[1]
 	s.cachedTrackBounds = text.AlignRectY(gfx.RectFromXYWH(s.cachedControlBounds.Min.X, s.cachedControlBounds.Min.Y, s.cachedControlWidth, s.cachedControlHeight), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
-	if s.isChecked() {
+	rtl := s.cachedWritingDirection == facet.WritingDirectionRTL
+	if s.isChecked() != rtl {
 		thumbX := s.cachedTrackBounds.Max.X - s.cachedThumbSize - maxFloat(2, s.cachedTrackRadius*0.2)
 		s.cachedThumbBounds = text.AlignRectY(gfx.RectFromXYWH(thumbX, s.cachedControlBounds.Min.Y, s.cachedThumbSize, s.cachedThumbSize), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	} else {

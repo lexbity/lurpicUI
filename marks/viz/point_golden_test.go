@@ -11,6 +11,98 @@ import (
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
+func TestPointGoldenEmpty(t *testing.T) {
+	s := store.NewCollectionStore(scatterID)
+	xDom := store.NewValueStore([2]float64{0, 10})
+	xRng := store.NewValueStore([2]float64{0, 300})
+	yDom := store.NewValueStore([2]float64{0, 10})
+	yRng := store.NewValueStore([2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(xDom, xRng)
+	yScale := reactive.NewLinearReactive(yDom, yRng)
+
+	p := NewPoint(s,
+		func(i scatterItem) float64 { return i.x },
+		func(i scatterItem) float64 { return i.y },
+		xScale, yScale,
+	)
+	p.Radius = marks.Const[float32](5)
+	p.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}
+
+	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+
+	bounds := gfx.RectFromXYWH(20, 20, 300, 300)
+	p.Layout.Arrange(facet.ArrangeContext{}, bounds)
+
+	proj := p.Projection.Project(facet.ProjectionContext{Bounds: bounds})
+	var cmdList []gfx.Command
+	if proj != nil {
+		cmdList = proj.Commands
+	}
+	surface := renderAxisGolden(t, cmdList, bounds, 340, 340)
+	testkit.AssertGolden(t, surface, "point_empty")
+}
+
+func TestPointGoldenSingleDatum(t *testing.T) {
+	s := store.NewCollectionStore(scatterID)
+	xDom := store.NewValueStore([2]float64{0, 10})
+	xRng := store.NewValueStore([2]float64{0, 300})
+	yDom := store.NewValueStore([2]float64{0, 10})
+	yRng := store.NewValueStore([2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(xDom, xRng)
+	yScale := reactive.NewLinearReactive(yDom, yRng)
+
+	p := NewPoint(s,
+		func(i scatterItem) float64 { return i.x },
+		func(i scatterItem) float64 { return i.y },
+		xScale, yScale,
+	)
+	p.Radius = marks.Const[float32](5)
+	p.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}
+
+	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+
+	s.Insert(scatterItem{id: 1, x: 5, y: 5})
+
+	bounds := gfx.RectFromXYWH(20, 20, 300, 300)
+	p.Layout.Arrange(facet.ArrangeContext{}, bounds)
+
+	cmds := p.Projection.Project(facet.ProjectionContext{Bounds: bounds})
+	surface := renderAxisGolden(t, cmds.Commands, bounds, 340, 340)
+	testkit.AssertGolden(t, surface, "point_single")
+}
+
+func TestPointGoldenDegenerateDomain(t *testing.T) {
+	s := store.NewCollectionStore(scatterID)
+	xDom := store.NewValueStore([2]float64{5, 5})
+	xRng := store.NewValueStore([2]float64{0, 300})
+	yDom := store.NewValueStore([2]float64{5, 5})
+	yRng := store.NewValueStore([2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(xDom, xRng)
+	yScale := reactive.NewLinearReactive(yDom, yRng)
+
+	p := NewPoint(s,
+		func(i scatterItem) float64 { return i.x },
+		func(i scatterItem) float64 { return i.y },
+		xScale, yScale,
+	)
+	p.Radius = marks.Const[float32](5)
+	p.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}
+
+	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+
+	s.Insert(scatterItem{id: 1, x: 5, y: 5})
+
+	bounds := gfx.RectFromXYWH(20, 20, 300, 300)
+	p.Layout.Arrange(facet.ArrangeContext{}, bounds)
+
+	cmds := p.Projection.Project(facet.ProjectionContext{Bounds: bounds})
+	surface := renderAxisGolden(t, cmds.Commands, bounds, 340, 340)
+	testkit.AssertGolden(t, surface, "point_degenerate_domain")
+}
+
 func TestPointGoldenScatter(t *testing.T) {
 	s := store.NewCollectionStore(scatterID)
 	xDom := store.NewValueStore([2]float64{0, 10})

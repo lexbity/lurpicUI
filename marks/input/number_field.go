@@ -101,6 +101,7 @@ type NumberField struct {
 	cachedCaretWidth        float32
 	cachedMinFieldWidth     float32
 	cachedStepperWidth      float32
+	cachedWritingDirection  facet.WritingDirection
 }
 
 var _ facet.FacetImpl = (*NumberField)(nil)
@@ -279,6 +280,7 @@ func (nf *NumberField) measure(ctx facet.MeasureContext, constraints facet.Const
 	}
 	nf.cachedTokens = resolved.TokenSet()
 	nf.cachedRecipe = recipe
+	nf.cachedWritingDirection = ctx.WritingDirection
 	nf.cachedPadX = float32(resolved.Spacing(theme.SpacingM))
 	nf.cachedPadY = float32(resolved.Spacing(theme.SpacingS))
 	nf.cachedGap = float32(resolved.Spacing(theme.SpacingXS))
@@ -356,10 +358,18 @@ func (nf *NumberField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if valueW < 0 {
 		valueW = 0
 	}
-	nf.cachedValueBounds = gfx.RectFromXYWH(bounds.Min.X+nf.cachedPadX, contentTop, valueW, valueH)
-	stepperX := bounds.Max.X - stepperW
-	nf.cachedStepperUpBounds = gfx.RectFromXYWH(stepperX, fieldY, stepperW, fieldH*0.5)
-	nf.cachedStepperDownBounds = gfx.RectFromXYWH(stepperX, fieldY+fieldH*0.5, stepperW, fieldH*0.5)
+	rtl := nf.cachedWritingDirection == facet.WritingDirectionRTL
+	if rtl {
+		nf.cachedValueBounds = gfx.RectFromXYWH(bounds.Max.X-nf.cachedPadX-valueW, contentTop, valueW, valueH)
+		stepperX := bounds.Min.X
+		nf.cachedStepperUpBounds = gfx.RectFromXYWH(stepperX, fieldY, stepperW, fieldH*0.5)
+		nf.cachedStepperDownBounds = gfx.RectFromXYWH(stepperX, fieldY+fieldH*0.5, stepperW, fieldH*0.5)
+	} else {
+		nf.cachedValueBounds = gfx.RectFromXYWH(bounds.Min.X+nf.cachedPadX, contentTop, valueW, valueH)
+		stepperX := bounds.Max.X - stepperW
+		nf.cachedStepperUpBounds = gfx.RectFromXYWH(stepperX, fieldY, stepperW, fieldH*0.5)
+		nf.cachedStepperDownBounds = gfx.RectFromXYWH(stepperX, fieldY+fieldH*0.5, stepperW, fieldH*0.5)
+	}
 	if nf.Validation.Get() == NumberFieldValidationWarning && nf.WarningText.Get() != "" {
 		nf.cachedHelperBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY+fieldH+gap, bounds.Width(), helperH)
 	} else if nf.Validation.Get() == NumberFieldValidationInvalid && nf.errorText() != "" {
