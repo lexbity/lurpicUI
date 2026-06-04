@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -40,24 +41,17 @@ type ScrollRegionChild struct {
 
 // ScrollRegion implements the structure.scroll_region canonical mark.
 type ScrollRegion struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
-	viewportRole   facet.ViewportRole
-
-	Label       string
-	Disabled    bool
-	Direction   ScrollDirection
-	Gap         float32
-	ScrollToEnd bool
+	Label       marks.Binding[string]
+	Disabled    marks.Binding[bool]
+	Direction   marks.Binding[ScrollDirection]
+	Gap         marks.Binding[float32]
+	ScrollToEnd marks.Binding[bool]
 
 	children []ScrollRegionChild
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -86,23 +80,33 @@ type ScrollRegion struct {
 
 var _ facet.FacetImpl = (*ScrollRegion)(nil)
 var _ layout.AnchorExporter = (*ScrollRegion)(nil)
+var _ marks.Mark = (*ScrollRegion)(nil)
 
 // NewScrollRegion constructs a structure.scroll_region mark with canonical defaults.
 func NewScrollRegion(label string) *ScrollRegion {
 	sr := &ScrollRegion{
-		Facet:             facet.NewFacet(),
-		Label:             label,
-		Direction:         ScrollDirectionVertical,
+		Label:             marks.Const(label),
+		Disabled:          marks.Const(false),
+		Direction:         marks.Const(ScrollDirectionVertical),
+		Gap:               marks.Const(float32(0)),
+		ScrollToEnd:       marks.Const(false),
 		cachedChildBounds: make(map[facet.FacetID]gfx.Rect),
 	}
-	sr.layoutRole.Parent = facet.GroupParentContract{
+	sr.Core.Facet = facet.NewFacet()
+	sr.AddBinding(sr.Label)
+	sr.AddBinding(sr.Disabled)
+	sr.AddBinding(sr.Direction)
+	sr.AddBinding(sr.Gap)
+	sr.AddBinding(sr.ScrollToEnd)
+
+	sr.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   scrollRegionGroupPolicy{region: sr},
 		Children: sr,
 		Overflow: facet.OverflowScroll,
 		Clipping: facet.GroupClipBounds,
 	}
-	sr.layoutRole.Child = facet.GroupChildContract{
+	sr.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := sr.measure(ctx, constraints).Size
@@ -120,14 +124,14 @@ func NewScrollRegion(label string) *ScrollRegion {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	sr.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	sr.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return sr.measure(ctx, constraints)
 	}
-	sr.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		sr.layoutRole.ArrangedBounds = bounds
+	sr.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		sr.Layout.ArrangedBounds = bounds
 		sr.arrange(ctx, bounds)
 	}
-	sr.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	sr.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -137,28 +141,20 @@ func NewScrollRegion(label string) *ScrollRegion {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	sr.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := sr.buildCommands(sr.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	sr.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return sr.buildCommands(sr.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	sr.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return sr.hitTest(p) }
-	sr.inputRole.OnPointer = func(e facet.PointerEvent) bool { return sr.onPointer(e) }
-	sr.inputRole.OnScroll = func(e facet.ScrollEvent) bool { return sr.onScroll(e) }
-	sr.inputRole.OnKey = func(e facet.KeyEvent) bool { return sr.onKey(e) }
-	sr.focusRole.Focusable = func() bool { return !sr.Disabled }
-	sr.focusRole.TabIndex = 0
-	sr.focusRole.OnFocusGained = func() { sr.onFocusGained() }
-	sr.focusRole.OnFocusLost = func() { sr.onFocusLost() }
+	sr.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return sr.hitTest(p) }
+	sr.Input.OnPointer = func(e facet.PointerEvent) bool { return sr.onPointer(e) }
+	sr.Input.OnScroll = func(e facet.ScrollEvent) bool { return sr.onScroll(e) }
+	sr.Input.OnKey = func(e facet.KeyEvent) bool { return sr.onKey(e) }
+	sr.Focus.Focusable = func() bool { return !sr.Disabled.Get() }
+	sr.Focus.TabIndex = 0
+	sr.Focus.OnFocusGained = func() { sr.onFocusGained() }
+	sr.Focus.OnFocusLost = func() { sr.onFocusLost() }
 	sr.textRole.IMEEnabled = false
-	sr.AddRole(&sr.layoutRole)
-	sr.AddRole(&sr.renderRole)
-	sr.AddRole(&sr.projectionRole)
-	sr.AddRole(&sr.hitRole)
-	sr.AddRole(&sr.inputRole)
-	sr.AddRole(&sr.focusRole)
+	sr.RegisterRoles()
+	sr.AddRole(&sr.Viewport)
 	sr.AddRole(&sr.textRole)
 	sr.updateParentKind()
 	return sr
@@ -170,64 +166,42 @@ func (sr *ScrollRegion) Base() *facet.Facet {
 	return &sr.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (sr *ScrollRegion) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "structure", TypeName: "scroll_region"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (sr *ScrollRegion) AccessibilityRole() string { return "region" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (sr *ScrollRegion) AccessibleName() string { return strings.TrimSpace(sr.Label) }
+func (sr *ScrollRegion) AccessibleName() string { return strings.TrimSpace(sr.Label.Get()) }
 
-// SetLabel updates the authored accessible label.
-func (sr *ScrollRegion) SetLabel(label string) {
-	if sr == nil || sr.Label == label {
-		return
-	}
-	sr.Label = label
-	sr.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (sr *ScrollRegion) SetDisabled(disabled bool) {
-	if sr == nil || sr.Disabled == disabled {
-		return
-	}
-	sr.Disabled = disabled
-	if disabled {
-		sr.hovered = false
-		sr.pressed = false
-		sr.focusedVisible = false
-		sr.focusFromPointer = false
-		sr.dragging = false
-	}
-	sr.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDirection updates the primary content flow direction.
-func (sr *ScrollRegion) SetDirection(direction ScrollDirection) {
-	if sr == nil || sr.Direction == direction {
-		return
-	}
-	sr.Direction = direction
-	sr.updateParentKind()
-	sr.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetGap updates the spacing between sequential content children.
-func (sr *ScrollRegion) SetGap(gap float32) {
-	if sr == nil || sr.Gap == gap {
-		return
-	}
-	sr.Gap = gap
-	sr.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetChildren replaces the scrollable content children.
-func (sr *ScrollRegion) SetChildren(children []ScrollRegionChild) {
+// ExportAnchors publishes the scroll-region anchor set.
+func (sr *ScrollRegion) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if sr == nil {
-		return
+		return nil
 	}
+	bounds := sr.Layout.ArrangedBounds
+	out := sr.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
+		return nil
+	}
+	out["baseline"] = bounds.Min
+	if !sr.cachedViewportBounds.IsEmpty() {
+		out["viewport"] = rectCenter(sr.cachedViewportBounds)
+	}
+	if !sr.cachedContentBounds.IsEmpty() {
+		out["content"] = rectCenter(sr.cachedContentBounds)
+	}
+	return out
+}
+
+// SetChildren replaces the scrollable content children and invalidates layout.
+func (sr *ScrollRegion) SetChildren(children []ScrollRegionChild) {
 	next := append([]ScrollRegionChild(nil), children...)
 	sr.children = next
-	sr.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	sr.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // Children returns the facet's immediate child list.
@@ -244,40 +218,13 @@ func (sr *ScrollRegion) Children() []facet.GroupChild {
 	return out
 }
 
-// ExportAnchors publishes the scroll-region anchor set.
-func (sr *ScrollRegion) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if sr == nil {
-		return nil
-	}
-	bounds := sr.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
-		return nil
-	}
-	out := boundsAnchorSet(bounds)
-	out["baseline"] = bounds.Min
-	if !sr.cachedViewportBounds.IsEmpty() {
-		out["viewport"] = rectCenter(sr.cachedViewportBounds)
-	}
-	if !sr.cachedContentBounds.IsEmpty() {
-		out["content"] = rectCenter(sr.cachedContentBounds)
-	}
-	return out
-}
-
-// OnAttach is unused.
-func (sr *ScrollRegion) OnAttach(ctx facet.AttachContext) {}
-
-// OnActivate is unused.
-func (sr *ScrollRegion) OnActivate() {}
-
-// OnDeactivate is unused.
-func (sr *ScrollRegion) OnDeactivate() {}
+func (sr *ScrollRegion) OnAttach(ctx facet.AttachContext) { sr.Core.OnAttach() }
+func (sr *ScrollRegion) OnActivate()                      { sr.Core.OnActivate() }
+func (sr *ScrollRegion) OnDeactivate()                    { sr.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (sr *ScrollRegion) OnDetach() {
+	sr.Core.OnDetach()
 	sr.cachedTokens = theme.Tokens{}
 	sr.cachedRecipe = shared.ScrollRegionSlots{}
 	sr.cachedBounds = gfx.Rect{}
@@ -300,7 +247,7 @@ func (sr *ScrollRegion) invalidate(flags facet.DirtyFlags) {
 	if sr == nil {
 		return
 	}
-	sr.Base().Invalidate(flags)
+	sr.Facet.Invalidate(flags)
 }
 
 func (sr *ScrollRegion) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -318,9 +265,9 @@ func (sr *ScrollRegion) measure(ctx facet.MeasureContext, constraints facet.Cons
 	children := sr.Children()
 	if len(children) == 0 {
 		size := constraints.Constrain(gfx.Size{W: 0, H: 0})
-		sr.layoutRole.MeasuredSize = size
-		sr.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
-		return sr.layoutRole.MeasuredResult
+		sr.Layout.MeasuredSize = size
+		sr.Layout.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+		return sr.Layout.MeasuredResult
 	}
 	childMeasureCtx := facet.MeasureContext{
 		Runtime:          ctx.Runtime,
@@ -330,7 +277,7 @@ func (sr *ScrollRegion) measure(ctx facet.MeasureContext, constraints facet.Cons
 		WritingDirection: ctx.WritingDirection,
 	}
 	childConstraints := facet.Constraints{MaxSize: constraints.MaxSize}
-	if sr.Direction == ScrollDirectionHorizontal {
+	if sr.Direction.Get() == ScrollDirectionHorizontal {
 		childConstraints = childConstraints.WithMaxWidth(0)
 	} else {
 		childConstraints = childConstraints.WithMaxHeight(0)
@@ -342,7 +289,7 @@ func (sr *ScrollRegion) measure(ctx facet.MeasureContext, constraints facet.Cons
 			continue
 		}
 		size := children[i].Layout.Measure(childMeasureCtx, childConstraints).Size
-		if sr.Direction == ScrollDirectionHorizontal {
+		if sr.Direction.Get() == ScrollDirectionHorizontal {
 			contentW += size.W
 			if size.H > contentH {
 				contentH = size.H
@@ -354,22 +301,22 @@ func (sr *ScrollRegion) measure(ctx facet.MeasureContext, constraints facet.Cons
 			}
 		}
 		if i < len(children)-1 {
-			if sr.Direction == ScrollDirectionHorizontal {
-				contentW += sr.Gap
+			if sr.Direction.Get() == ScrollDirectionHorizontal {
+				contentW += sr.Gap.Get()
 			} else {
-				contentH += sr.Gap
+				contentH += sr.Gap.Get()
 			}
 		}
 	}
 	size := constraints.Constrain(gfx.Size{W: contentW, H: contentH})
 	sr.cachedContentSize = gfx.Size{W: contentW, H: contentH}
-	sr.layoutRole.MeasuredSize = size
-	sr.layoutRole.MeasuredResult = facet.MeasureResult{
+	sr.Layout.MeasuredSize = size
+	sr.Layout.MeasuredResult = facet.MeasureResult{
 		Size:        size,
 		Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 		Constraints: constraints,
 	}
-	return sr.layoutRole.MeasuredResult
+	return sr.Layout.MeasuredResult
 }
 
 func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -381,7 +328,7 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	sr.cachedHorizontalTrack = gfx.Rect{}
 	sr.cachedHorizontalThumb = gfx.Rect{}
 	sr.cachedFocusBounds = bounds.Inset(maxFloat(1, bounds.Width()*0.04), maxFloat(1, bounds.Height()*0.04))
-	sr.layoutRole.ArrangedBounds = bounds
+	sr.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -403,7 +350,7 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			measured = child.Layout.MeasuredResult.Size
 		}
 		childRect := gfx.RectFromXYWH(bounds.Min.X, cursorY, bounds.Width(), measured.H)
-		if sr.Direction == ScrollDirectionHorizontal {
+		if sr.Direction.Get() == ScrollDirectionHorizontal {
 			childRect = gfx.RectFromXYWH(cursorX, bounds.Min.Y, measured.W, bounds.Height())
 		}
 		placement := child.Attachment.Placement
@@ -428,10 +375,10 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}, childRect)
 		childBounds[child.FacetID] = childRect
 		order = append(order, child.FacetID)
-		if sr.Direction == ScrollDirectionHorizontal {
-			cursorX += measured.W + sr.Gap
+		if sr.Direction.Get() == ScrollDirectionHorizontal {
+			cursorX += measured.W + sr.Gap.Get()
 		} else {
-			cursorY += measured.H + sr.Gap
+			cursorY += measured.H + sr.Gap.Get()
 		}
 	}
 	sr.cachedChildBounds = childBounds
@@ -458,7 +405,7 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		sr.cachedContentBounds = gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY)
 	}
 	sr.updateScrollBounds(bounds)
-	sr.viewportRole.WorldBounds = bounds
+	sr.Viewport.WorldBounds = bounds
 }
 
 func (sr *ScrollRegion) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
@@ -468,7 +415,7 @@ func (sr *ScrollRegion) buildCommands(bounds gfx.Rect, runtime any, contentScale
 	style, slots := sr.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if sr.Disabled {
+	if sr.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -559,7 +506,7 @@ func (sr *ScrollRegion) resolveProjectionTheme(runtime any) (theme.StyleContext,
 }
 
 func (sr *ScrollRegion) hitTest(p gfx.Point) facet.HitResult {
-	if sr == nil || sr.layoutRole.ArrangedBounds.IsEmpty() || !sr.layoutRole.ArrangedBounds.Contains(p) {
+	if sr == nil || sr.Layout.ArrangedBounds.IsEmpty() || !sr.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := sr.cursorShape()
@@ -585,7 +532,7 @@ func (sr *ScrollRegion) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (sr *ScrollRegion) onPointer(e facet.PointerEvent) bool {
-	if sr.Disabled {
+	if sr.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -650,7 +597,7 @@ func (sr *ScrollRegion) onPointer(e facet.PointerEvent) bool {
 }
 
 func (sr *ScrollRegion) onScroll(e facet.ScrollEvent) bool {
-	if sr.Disabled {
+	if sr.Disabled.Get() {
 		return false
 	}
 	if e.DeltaX == 0 && e.DeltaY == 0 {
@@ -671,7 +618,7 @@ func (sr *ScrollRegion) onScroll(e facet.ScrollEvent) bool {
 }
 
 func (sr *ScrollRegion) onKey(e facet.KeyEvent) bool {
-	if sr.Disabled {
+	if sr.Disabled.Get() {
 		return false
 	}
 	if e.Kind != platform.KeyPress && e.Kind != platform.KeyRepeat {
@@ -718,11 +665,11 @@ func (sr *ScrollRegion) onFocusLost() {
 }
 
 func (sr *ScrollRegion) updateParentKind() {
-	switch sr.Direction {
+	switch sr.Direction.Get() {
 	case ScrollDirectionHorizontal:
-		sr.layoutRole.Parent.Kind = facet.GroupLayoutLinearHorizontal
+		sr.Layout.Parent.Kind = facet.GroupLayoutLinearHorizontal
 	default:
-		sr.layoutRole.Parent.Kind = facet.GroupLayoutLinearVertical
+		sr.Layout.Parent.Kind = facet.GroupLayoutLinearVertical
 	}
 }
 
@@ -845,7 +792,7 @@ func (sr *ScrollRegion) cachedChildBoundsIsValid() bool {
 }
 
 func (sr *ScrollRegion) cursorShape() facet.CursorShape {
-	if sr.Disabled {
+	if sr.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorDefault
@@ -918,7 +865,7 @@ type scrollRegionGroupPolicy struct {
 }
 
 func (p scrollRegionGroupPolicy) Kind() facet.GroupLayoutKind {
-	if p.region != nil && p.region.Direction == ScrollDirectionHorizontal {
+	if p.region != nil && p.region.Direction.Get() == ScrollDirectionHorizontal {
 		return facet.GroupLayoutLinearHorizontal
 	}
 	return facet.GroupLayoutLinearVertical

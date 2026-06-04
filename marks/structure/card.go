@@ -1,14 +1,15 @@
 package structure
 
 import (
-	"reflect"
 	"math"
+	"reflect"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uistruct"
@@ -43,22 +44,17 @@ type CardChild struct {
 
 // Card implements the structure.card canonical mark.
 type Card struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	textRole       facet.TextRole
-
-	Label string
-
-	Disabled bool
-
-	LayoutMode  CardLayoutMode
-	GridColumns int
-	GridRows    int
+	Label       marks.Binding[string]
+	Disabled    marks.Binding[bool]
+	LayoutMode  marks.Binding[CardLayoutMode]
+	GridColumns marks.Binding[int]
+	GridRows    marks.Binding[int]
 
 	ChildrenContent []CardChild
+
+	textRole facet.TextRole
 
 	cachedTokens     theme.Tokens
 	cachedRecipe     shared.CardSlots
@@ -75,22 +71,30 @@ type Card struct {
 
 var _ facet.FacetImpl = (*Card)(nil)
 var _ layout.AnchorExporter = (*Card)(nil)
+var _ marks.Mark = (*Card)(nil)
 
 // NewCard constructs a structure.card mark with canonical defaults.
 func NewCard(label string) *Card {
 	c := &Card{
-		Facet:       facet.NewFacet(),
-		Label:       label,
-		LayoutMode:  CardLayoutGrid,
-		GridColumns: 3,
-		GridRows:    3,
+		Label:       marks.Const(label),
+		Disabled:    marks.Const(false),
+		LayoutMode:  marks.Const(CardLayoutGrid),
+		GridColumns: marks.Const(3),
+		GridRows:    marks.Const(3),
 	}
-	c.layoutRole.Parent = facet.GroupParentContract{
+	c.Core.Facet = facet.NewFacet()
+	c.AddBinding(c.Label)
+	c.AddBinding(c.Disabled)
+	c.AddBinding(c.LayoutMode)
+	c.AddBinding(c.GridColumns)
+	c.AddBinding(c.GridRows)
+
+	c.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutGrid,
 		Policy:   cardGroupPolicy{card: c},
 		Children: c,
 	}
-	c.layoutRole.Child = facet.GroupChildContract{
+	c.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := c.measure(ctx, constraints).Size
@@ -108,14 +112,14 @@ func NewCard(label string) *Card {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	c.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	c.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return c.measure(ctx, constraints)
 	}
-	c.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		c.layoutRole.ArrangedBounds = bounds
+	c.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		c.Layout.ArrangedBounds = bounds
 		c.arrange(ctx, bounds)
 	}
-	c.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	c.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -125,17 +129,11 @@ func NewCard(label string) *Card {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	c.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := c.buildCommands(c.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	c.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return c.buildCommands(c.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
 	c.textRole.IMEEnabled = false
-	c.AddRole(&c.layoutRole)
-	c.AddRole(&c.renderRole)
-	c.AddRole(&c.projectionRole)
+	c.RegisterRoles()
 	c.AddRole(&c.textRole)
 	return c
 }
@@ -146,6 +144,11 @@ func (c *Card) Base() *facet.Facet {
 	return &c.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (c *Card) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "structure", TypeName: "card"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (c *Card) AccessibilityRole() string { return "group" }
 
@@ -154,66 +157,7 @@ func (c *Card) AccessibleName() string {
 	if c == nil {
 		return ""
 	}
-	return strings.TrimSpace(c.Label)
-}
-
-// SetLabel updates the authored accessible label.
-func (c *Card) SetLabel(label string) {
-	if c == nil || c.Label == label {
-		return
-	}
-	c.Label = label
-	c.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (c *Card) SetDisabled(disabled bool) {
-	if c == nil || c.Disabled == disabled {
-		return
-	}
-	c.Disabled = disabled
-	c.invalidate(facet.DirtyProjection)
-}
-
-// SetLayoutMode updates the local group composition mode.
-func (c *Card) SetLayoutMode(mode CardLayoutMode) {
-	if c == nil || c.LayoutMode == mode {
-		return
-	}
-	c.LayoutMode = mode
-	c.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetGrid defines the default grid tracks for the card body.
-func (c *Card) SetGrid(columns, rows int) {
-	if c == nil {
-		return
-	}
-	if columns < 1 {
-		columns = 1
-	}
-	if rows < 1 {
-		rows = 1
-	}
-	if c.GridColumns == columns && c.GridRows == rows {
-		return
-	}
-	c.GridColumns = columns
-	c.GridRows = rows
-	c.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetChildren updates the reusable child facet list.
-func (c *Card) SetChildren(children []CardChild) {
-	if c == nil {
-		return
-	}
-	next := append([]CardChild(nil), children...)
-	for i := range next {
-		next[i].Key = strings.TrimSpace(next[i].Key)
-	}
-	c.ChildrenContent = next
-	c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return strings.TrimSpace(c.Label.Get())
 }
 
 // ExportAnchors publishes the card anchor set.
@@ -221,14 +165,11 @@ func (c *Card) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if c == nil {
 		return nil
 	}
-	bounds := c.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := c.Layout.ArrangedBounds
+	out := c.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
 	}
-	out := boundsAnchorSet(bounds)
 	active := c.activeChildren()
 	for i := range active {
 		spec := active[i]
@@ -285,17 +226,13 @@ func (c *Card) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach is unused.
-func (c *Card) OnAttach(ctx facet.AttachContext) {}
-
-// OnActivate is unused.
-func (c *Card) OnActivate() {}
-
-// OnDeactivate is unused.
-func (c *Card) OnDeactivate() {}
+func (c *Card) OnAttach(ctx facet.AttachContext) { c.Core.OnAttach() }
+func (c *Card) OnActivate()                      { c.Core.OnActivate() }
+func (c *Card) OnDeactivate()                    { c.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (c *Card) OnDetach() {
+	c.Core.OnDetach()
 	c.cachedTokens = theme.Tokens{}
 	c.cachedRecipe = shared.CardSlots{}
 	c.cachedBounds = gfx.Rect{}
@@ -311,7 +248,7 @@ func (c *Card) invalidate(flags facet.DirtyFlags) {
 	if c == nil {
 		return
 	}
-	c.Base().Invalidate(flags)
+	c.Facet.Invalidate(flags)
 }
 
 func (c *Card) activeChildren() []CardChild {
@@ -325,17 +262,17 @@ func (c *Card) defaultGridPlacement(index, count int) facet.GridPlacement {
 	if count <= 0 {
 		return facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}
 	}
-	switch c.LayoutMode {
+	switch c.LayoutMode.Get() {
 	case CardLayoutVertical:
 		return facet.GridPlacement{ColStart: 0, RowStart: index, ColSpan: 1, RowSpan: 1}
 	case CardLayoutHorizontal:
 		return facet.GridPlacement{ColStart: index, RowStart: 0, ColSpan: 1, RowSpan: 1}
 	default:
-		cols := c.GridColumns
+		cols := c.GridColumns.Get()
 		if cols < 1 {
 			cols = 3
 		}
-		rows := c.GridRows
+		rows := c.GridRows.Get()
 		if rows < 1 {
 			rows = 3
 		}
@@ -380,8 +317,8 @@ func (c *Card) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		measured.H = resolved.Density.Scale(120)
 	}
 	measured = constraints.Constrain(measured)
-	c.layoutRole.MeasuredSize = measured
-	c.layoutRole.MeasuredResult = facet.MeasureResult{
+	c.Layout.MeasuredSize = measured
+	c.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -391,7 +328,7 @@ func (c *Card) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		Constraints: constraints,
 	}
 	c.textRole.Layout = nil
-	return c.layoutRole.MeasuredResult
+	return c.Layout.MeasuredResult
 }
 
 func (c *Card) measureChildren(ctx facet.MeasureContext, constraints facet.Constraints, children []CardChild) []layoutgrid.Child {
@@ -412,15 +349,15 @@ func (c *Card) measureChildren(ctx facet.MeasureContext, constraints facet.Const
 }
 
 func (c *Card) gridConfig(childCount int, resolved theme.ResolvedContext) layoutgrid.Config {
-	columns := c.GridColumns
-	rows := c.GridRows
+	columns := c.GridColumns.Get()
+	rows := c.GridRows.Get()
 	if columns < 1 {
 		columns = 3
 	}
 	if rows < 1 {
 		rows = 3
 	}
-	switch c.LayoutMode {
+	switch c.LayoutMode.Get() {
 	case CardLayoutVertical:
 		columns = 1
 		rows = maxInt(rows, maxInt(childCount, 1))
@@ -455,7 +392,7 @@ func flexibleTracks(count int) []layoutgrid.TrackDef {
 func (c *Card) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	c.cachedBounds = bounds
 	c.cachedChildBounds = map[facet.FacetID]gfx.Rect{}
-	c.layoutRole.ArrangedBounds = bounds
+	c.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -529,7 +466,7 @@ func (c *Card) buildCommands(bounds gfx.Rect, runtime any, contentScale float32)
 	style, slots := c.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if c.Disabled {
+	if c.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -624,8 +561,6 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	if !ok {
 		return nil
 	}
-	// reflect check catches typed nil (non-nil interface wrapping nil *Runtime).
-	// Only applicable for nil-able kinds (ptr, slice, map, chan, func, iface).
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
 	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:

@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -16,23 +17,16 @@ import (
 )
 
 type commandPaletteResultsGroup struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
-	viewportRole   facet.ViewportRole
+	Label       marks.Binding[string]
+	EmptyState  marks.Binding[string]
+	ItemVariant marks.Binding[uiinput.ListItemVariant]
+	Disabled    marks.Binding[bool]
 
 	Activated signal.Signal[int]
 
-	Label      string
-	EmptyState string
-	ItemVariant uiinput.ListItemVariant
-	Disabled   bool
+	textRole facet.TextRole
 
 	parent *CommandPalette
 
@@ -49,25 +43,33 @@ type commandPaletteResultsGroup struct {
 
 var _ facet.FacetImpl = (*commandPaletteResultsGroup)(nil)
 var _ layout.AnchorExporter = (*commandPaletteResultsGroup)(nil)
+var _ marks.Mark = (*commandPaletteResultsGroup)(nil)
 
 func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResultsGroup {
 	g := &commandPaletteResultsGroup{
-		Facet:        facet.NewFacet(),
-		EmptyState:    "No matching commands",
-		ItemVariant:   uiinput.ListItemStandard,
-		parent:        parent,
-		Activated:     signal.NewSignal[int]("command_palette_results_activated"),
-		activeIndex:   -1,
-		cachedRowGap:  0,
+		Label:       marks.Const("Command results"),
+		EmptyState:  marks.Const("No matching commands"),
+		ItemVariant: marks.Const(uiinput.ListItemStandard),
+		Disabled:    marks.Const(false),
+		parent:      parent,
+		Activated:   signal.NewSignal[int]("command_palette_results_activated"),
+		activeIndex: -1,
+		cachedRowGap: 0,
 	}
-	g.layoutRole.Parent = facet.GroupParentContract{
+	g.Core.Facet = facet.NewFacet()
+	g.AddBinding(g.Label)
+	g.AddBinding(g.EmptyState)
+	g.AddBinding(g.ItemVariant)
+	g.AddBinding(g.Disabled)
+
+	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   commandPaletteResultsGroupPolicy{group: g},
 		Children: g,
 		Overflow: facet.OverflowScroll,
 		Clipping: facet.GroupClipBounds,
 	}
-	g.layoutRole.Child = facet.GroupChildContract{
+	g.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := g.measure(ctx, constraints)
@@ -85,15 +87,15 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 		},
 		Baseline: facet.BaselineNone,
 	}
-	g.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	g.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		size := g.measure(ctx, constraints)
 		return facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
 	}
-	g.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		g.layoutRole.ArrangedBounds = bounds
+	g.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		g.Layout.ArrangedBounds = bounds
 		g.arrange(ctx, bounds)
 	}
-	g.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	g.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -103,32 +105,22 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	g.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := g.buildCommands(g.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return g.buildCommands(g.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	g.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return g.hitTest(p) }
-	g.inputRole.OnPointer = func(e facet.PointerEvent) bool { return g.onPointer(e) }
-	g.inputRole.OnScroll = func(e facet.ScrollEvent) bool { return g.onScroll(e) }
-	g.inputRole.OnKey = func(e facet.KeyEvent) bool { return g.onKey(e) }
-	g.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return g.onDismiss(e) }
-	g.focusRole.Focusable = func() bool { return !g.Disabled && len(g.rows) > 0 }
-	g.focusRole.TabIndex = 1
-	g.focusRole.OnFocusGained = func() { g.onFocusGained() }
-	g.focusRole.OnFocusLost = func() { g.onFocusLost() }
+	g.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return g.hitTest(p) }
+	g.Input.OnPointer = func(e facet.PointerEvent) bool { return g.onPointer(e) }
+	g.Input.OnScroll = func(e facet.ScrollEvent) bool { return g.onScroll(e) }
+	g.Input.OnKey = func(e facet.KeyEvent) bool { return g.onKey(e) }
+	g.Input.OnDismiss = func(e facet.DismissEvent) bool { return g.onDismiss(e) }
+	g.Focus.Focusable = func() bool { return !g.Disabled.Get() && len(g.rows) > 0 }
+	g.Focus.TabIndex = 1
+	g.Focus.OnFocusGained = func() { g.onFocusGained() }
+	g.Focus.OnFocusLost = func() { g.onFocusLost() }
 	g.textRole.IMEEnabled = false
-	g.viewportRole.Transform = gfx.Identity()
-	g.AddRole(&g.layoutRole)
-	g.AddRole(&g.renderRole)
-	g.AddRole(&g.projectionRole)
-	g.AddRole(&g.hitRole)
-	g.AddRole(&g.inputRole)
-	g.AddRole(&g.focusRole)
+	g.Viewport.Transform = gfx.Identity()
+	g.RegisterRoles()
 	g.AddRole(&g.textRole)
-	g.AddRole(&g.viewportRole)
 	return g
 }
 
@@ -137,50 +129,17 @@ func (g *commandPaletteResultsGroup) Base() *facet.Facet {
 	return &g.Facet
 }
 
+func (g *commandPaletteResultsGroup) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "command_palette_results_group"}
+}
+
 func (g *commandPaletteResultsGroup) AccessibilityRole() string { return "listbox" }
 
 func (g *commandPaletteResultsGroup) AccessibleName() string {
 	if g == nil {
 		return ""
 	}
-	return strings.TrimSpace(g.Label)
-}
-
-func (g *commandPaletteResultsGroup) SetLabel(label string) {
-	if g == nil || g.Label == label {
-		return
-	}
-	g.Label = label
-	g.invalidate(facet.DirtyProjection)
-}
-
-func (g *commandPaletteResultsGroup) SetEmptyState(text string) {
-	if g == nil || g.EmptyState == text {
-		return
-	}
-	g.EmptyState = text
-	g.syncRows(g.parent.cachedFiltered, g.activeIndex)
-	g.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-func (g *commandPaletteResultsGroup) SetDisabled(disabled bool) {
-	if g == nil || g.Disabled == disabled {
-		return
-	}
-	g.Disabled = disabled
-	if disabled {
-		g.focusRole.OnFocusLost()
-	}
-	g.syncRows(g.parent.cachedFiltered, g.activeIndex)
-	g.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-func (g *commandPaletteResultsGroup) SetEntries(entries []runtimepkg.CommandEntry, active int) {
-	if g == nil {
-		return
-	}
-	g.syncRows(entries, active)
-	g.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return strings.TrimSpace(g.Label.Get())
 }
 
 func (g *commandPaletteResultsGroup) Children() []facet.GroupChild {
@@ -197,28 +156,19 @@ func (g *commandPaletteResultsGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *commandPaletteResultsGroup) OnAttach(ctx facet.AttachContext) {}
-func (g *commandPaletteResultsGroup) OnActivate()                      {}
-func (g *commandPaletteResultsGroup) OnDeactivate()                    {}
-func (g *commandPaletteResultsGroup) OnDetach()                        {}
+func (g *commandPaletteResultsGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *commandPaletteResultsGroup) OnActivate()                      { g.Core.OnActivate() }
+func (g *commandPaletteResultsGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
+func (g *commandPaletteResultsGroup) OnDetach()                        { g.Core.OnDetach() }
 
 func (g *commandPaletteResultsGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if g == nil {
 		return nil
 	}
-	bounds := g.cachedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := g.Layout.ArrangedBounds
+	out := g.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if len(g.rowRects) > 0 {
 		active := clampInt(g.activeIndex, 0, len(g.rowRects)-1)
@@ -245,7 +195,7 @@ func (g *commandPaletteResultsGroup) invalidate(flags facet.DirtyFlags) {
 	if g == nil {
 		return
 	}
-	g.Base().Invalidate(flags)
+	g.Facet.Invalidate(flags)
 }
 
 func (g *commandPaletteResultsGroup) syncRows(entries []runtimepkg.CommandEntry, active int) {
@@ -260,12 +210,12 @@ func (g *commandPaletteResultsGroup) syncRows(entries []runtimepkg.CommandEntry,
 		g.rowRects = nil
 		g.activeIndex = -1
 		g.cachedContent = gfx.Rect{}
-		g.cachedEmpty = primitive.NewText(strings.TrimSpace(g.EmptyState))
-		g.cachedEmpty.SetTypography(theme.TextBodyS)
-		g.cachedEmpty.SetForeground(theme.ColorTextSecondary)
-		g.cachedEmpty.SetOverflow(primitive.TextOverflowTruncate)
-		if g.Disabled {
-			g.cachedEmpty.SetDisabled(true)
+		g.cachedEmpty = primitive.NewText(marks.Const(strings.TrimSpace(g.EmptyState.Get())))
+		g.cachedEmpty.Typography = marks.Const(theme.TextBodyS)
+		g.cachedEmpty.Foreground = marks.Const(theme.ColorTextSecondary)
+		g.cachedEmpty.Overflow = marks.Const(primitive.TextOverflowTruncate)
+		if g.Disabled.Get() {
+			g.cachedEmpty.Disabled = marks.Const(true)
 		}
 		return
 	}
@@ -278,18 +228,18 @@ func (g *commandPaletteResultsGroup) syncRows(entries []runtimepkg.CommandEntry,
 	nextRows := make([]*selection.ListItem, len(entries))
 	for i, entry := range entries {
 		row := g.rowsAt(entries, i)
-		row.SetLabel(commandPaletteDisplayLabel(entry))
-		row.SetSupportingText(entry.Shortcut)
-		row.SetLeadingIconRef(entry.IconRef)
-		row.SetDisabled(g.Disabled || entry.Disabled)
-		row.SetActive(i == active)
-		row.SetSelected(false)
-		row.Variant = g.ItemVariant
-		row.ShowContainer = true
-		row.ShowLeadingIcon = strings.TrimSpace(entry.IconRef) != ""
-		row.ShowSelectionIndicator = false
-		row.ShowFocusRing = false
-		row.ShowLabel = true
+		row.Label = marks.Const(commandPaletteDisplayLabel(entry))
+		row.SupportingText = marks.Const(entry.Shortcut)
+		row.LeadingIconRef = marks.Const(entry.IconRef)
+		row.Disabled = marks.Const(g.Disabled.Get() || entry.Disabled)
+		row.Active = marks.Const(i == active)
+		row.Selected = marks.Const(false)
+		row.Variant = marks.Const(g.ItemVariant.Get())
+		row.ShowContainer = marks.Const(true)
+		row.ShowLeadingIcon = marks.Const(strings.TrimSpace(entry.IconRef) != "")
+		row.ShowSelectionIndicator = marks.Const(false)
+		row.ShowFocusRing = marks.Const(false)
+		row.ShowLabel = marks.Const(true)
 		nextRows[i] = row
 	}
 	g.rows = nextRows
@@ -304,7 +254,7 @@ func (g *commandPaletteResultsGroup) rowsAt(entries []runtimepkg.CommandEntry, i
 	if index >= 0 && index < len(g.rows) && g.rows[index] != nil {
 		return g.rows[index]
 	}
-	return selection.NewListItem(commandPaletteDisplayLabel(entries[index]))
+	return selection.NewListItem(marks.Const(commandPaletteDisplayLabel(entries[index])))
 }
 
 func (g *commandPaletteResultsGroup) rebindRowSignals() {
@@ -326,7 +276,7 @@ func (g *commandPaletteResultsGroup) rebindRowSignals() {
 }
 
 func (g *commandPaletteResultsGroup) measure(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
-	if g == nil || g.Disabled {
+	if g == nil || g.Disabled.Get() {
 		return constraints.Constrain(gfx.Size{})
 	}
 	g.cachedWriting = ctx.WritingDirection
@@ -372,7 +322,7 @@ func (g *commandPaletteResultsGroup) arrange(ctx facet.ArrangeContext, bounds gf
 	g.cachedBounds = bounds
 	g.cachedContent = gfx.Rect{}
 	g.rowRects = g.rowRects[:0]
-	if bounds.IsEmpty() || g.Disabled {
+	if bounds.IsEmpty() || g.Disabled.Get() {
 		return
 	}
 	if len(g.rows) == 0 {
@@ -444,7 +394,7 @@ func (g *commandPaletteResultsGroup) buildCommands(bounds gfx.Rect, runtime any,
 }
 
 func (g *commandPaletteResultsGroup) hitTest(pt gfx.Point) facet.HitResult {
-	if g == nil || g.Disabled || g.cachedBounds.IsEmpty() || !g.cachedBounds.Contains(pt) {
+	if g == nil || g.Disabled.Get() || g.cachedBounds.IsEmpty() || !g.cachedBounds.Contains(pt) {
 		return facet.HitResult{}
 	}
 	if len(g.rows) == 0 {
@@ -470,7 +420,7 @@ func (g *commandPaletteResultsGroup) hitTest(pt gfx.Point) facet.HitResult {
 }
 
 func (g *commandPaletteResultsGroup) onPointer(e facet.PointerEvent) bool {
-	if g == nil || g.Disabled || e.Kind != platform.PointerPress {
+	if g == nil || g.Disabled.Get() || e.Kind != platform.PointerPress {
 		return false
 	}
 	hit := g.hitTest(e.Position)
@@ -484,7 +434,7 @@ func (g *commandPaletteResultsGroup) onPointer(e facet.PointerEvent) bool {
 }
 
 func (g *commandPaletteResultsGroup) onScroll(e facet.ScrollEvent) bool {
-	if g == nil || g.Disabled || len(g.rows) == 0 {
+	if g == nil || g.Disabled.Get() || len(g.rows) == 0 {
 		return false
 	}
 	delta := e.DeltaY
@@ -497,10 +447,10 @@ func (g *commandPaletteResultsGroup) onScroll(e facet.ScrollEvent) bool {
 }
 
 func (g *commandPaletteResultsGroup) onKey(e facet.KeyEvent) bool {
-	if g == nil || g.Disabled || len(g.rows) == 0 || e.Kind != platform.KeyPress {
+	if g == nil || g.Disabled.Get() || len(g.rows) == 0 || e.Kind != platform.KeyPress {
 		if g != nil && e.Kind == platform.KeyPress && e.Key == platform.KeyEscape {
 			if g.parent != nil {
-				g.parent.SetOpen(false)
+				g.parent.Open = false
 			}
 			return true
 		}
@@ -530,7 +480,7 @@ func (g *commandPaletteResultsGroup) onKey(e facet.KeyEvent) bool {
 		return true
 	case platform.KeyEscape:
 		if g.parent != nil {
-			g.parent.SetOpen(false)
+			g.parent.Open = false
 		}
 		return true
 	default:
@@ -540,17 +490,17 @@ func (g *commandPaletteResultsGroup) onKey(e facet.KeyEvent) bool {
 
 func (g *commandPaletteResultsGroup) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if g == nil || g.Disabled {
+	if g == nil || g.Disabled.Get() {
 		return false
 	}
 	if g.parent != nil {
-		g.parent.SetOpen(false)
+		g.parent.Open = false
 	}
 	return true
 }
 
 func (g *commandPaletteResultsGroup) onFocusGained() {
-	if g == nil || g.Disabled {
+	if g == nil || g.Disabled.Get() {
 		return
 	}
 	if g.parent != nil {
@@ -580,7 +530,7 @@ func (g *commandPaletteResultsGroup) setActive(index int) {
 		if row == nil {
 			continue
 		}
-		row.SetActive(i == index)
+		row.Active = marks.Const(i == index)
 	}
 	g.ensureActiveVisible()
 	g.invalidate(facet.DirtyProjection)

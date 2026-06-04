@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -36,22 +37,16 @@ type RibbonSection struct {
 
 // Ribbon implements the action.ribbon canonical mark.
 type Ribbon struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	Activated signal.Signal[int]
 
-	Label    string
-	Sections []RibbonSection
+	Label       string
+	Sections    []RibbonSection
 	ActiveIndex int
-	Disabled bool
+	Disabled    marks.Binding[bool]
 
 	hoveredTabIndex     int
 	pressedTabIndex     int
@@ -84,13 +79,15 @@ type Ribbon struct {
 
 var _ facet.FacetImpl = (*Ribbon)(nil)
 var _ layout.AnchorExporter = (*Ribbon)(nil)
+var _ marks.Mark = (*Ribbon)(nil)
 
 // NewRibbon constructs an action.ribbon mark with canonical defaults.
 func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 	r := &Ribbon{
-		Facet:               facet.NewFacet(),
+		Core:                marks.Core{Facet: facet.NewFacet()},
 		Label:               label,
 		Sections:            normalizeRibbonSections(sections),
+		Disabled:            marks.Const(false),
 		focusedTabIndex:     -1,
 		hoveredTabIndex:     -1,
 		pressedTabIndex:     -1,
@@ -98,13 +95,15 @@ func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 		pressedToolbarIndex: -1,
 		Activated:           signal.NewSignal[int]("ribbon_activated"),
 	}
-	r.layoutRole.Parent = facet.GroupParentContract{
+	r.AddBinding(r.Disabled)
+
+	r.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   ribbonGroupPolicy{ribbon: r},
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	r.layoutRole.Child = facet.GroupChildContract{
+	r.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := r.measureIntrinsic(ctx, constraints)
@@ -122,44 +121,23 @@ func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	r.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	r.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return r.measure(ctx, constraints)
 	}
-	r.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		r.layoutRole.ArrangedBounds = bounds
+	r.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		r.Layout.ArrangedBounds = bounds
 		r.arrange(ctx, bounds)
 	}
-	r.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := r.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	r.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return r.hitTest(p) }
+	r.Input.OnPointer = func(e facet.PointerEvent) bool { return r.onPointer(e) }
+	r.Input.OnKey = func(e facet.KeyEvent) bool { return r.onKey(e) }
+	r.Focus.Focusable = func() bool { return !r.Disabled.Get() && len(r.Sections) > 0 }
+	r.Focus.OnFocusGained = func() { r.onFocusGained() }
+	r.Focus.OnFocusLost = func() { r.onFocusLost() }
+	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return r.buildCommands(r.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	r.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := r.buildCommands(r.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	r.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return r.hitTest(p) }
-	r.inputRole.OnPointer = func(e facet.PointerEvent) bool { return r.onPointer(e) }
-	r.inputRole.OnKey = func(e facet.KeyEvent) bool { return r.onKey(e) }
-	r.focusRole.Focusable = func() bool { return !r.Disabled && len(r.Sections) > 0 }
-	r.focusRole.TabIndex = 0
-	r.focusRole.OnFocusGained = func() { r.onFocusGained() }
-	r.focusRole.OnFocusLost = func() { r.onFocusLost() }
-	r.textRole.IMEEnabled = false
-	r.AddRole(&r.layoutRole)
-	r.AddRole(&r.renderRole)
-	r.AddRole(&r.projectionRole)
-	r.AddRole(&r.hitRole)
-	r.AddRole(&r.inputRole)
-	r.AddRole(&r.focusRole)
+	r.RegisterRoles()
 	r.AddRole(&r.textRole)
 	r.syncChildren()
 	return r
@@ -169,6 +147,11 @@ func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 func (r *Ribbon) Base() *facet.Facet {
 	r.Facet.BindImpl(r)
 	return &r.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (r *Ribbon) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "ribbon"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -190,85 +173,15 @@ func (r *Ribbon) AccessibleName() string {
 	return ""
 }
 
-// SetLabel updates the authored accessible label.
-func (r *Ribbon) SetLabel(label string) {
-	if r == nil || r.Label == label {
-		return
-	}
-	r.Label = label
-	r.invalidate(facet.DirtyProjection)
-}
-
-// SetSections updates the section collection.
-func (r *Ribbon) SetSections(sections []RibbonSection) {
-	if r == nil {
-		return
-	}
-	r.Sections = normalizeRibbonSections(sections)
-	r.syncChildren()
-	r.clampIndices()
-	r.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetActiveIndex updates the authored active section.
-func (r *Ribbon) SetActiveIndex(index int) {
-	if r == nil {
-		return
-	}
-	index = r.clampSectionIndex(index)
-	if r.ActiveIndex == index {
-		return
-	}
-	r.ActiveIndex = index
-	r.syncChildren()
-	r.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (r *Ribbon) SetDisabled(disabled bool) {
-	if r == nil || r.Disabled == disabled {
-		return
-	}
-	r.Disabled = disabled
-	for _, btn := range r.cachedTabButtons {
-		if btn != nil {
-			btn.SetDisabled(disabled)
-		}
-	}
-	for _, toolbar := range r.cachedSectionToolbars {
-		if toolbar != nil {
-			toolbar.SetDisabled(disabled)
-		}
-	}
-	if disabled {
-		r.hoveredTabIndex = -1
-		r.pressedTabIndex = -1
-		r.hoveredToolbarIndex = -1
-		r.pressedToolbarIndex = -1
-		r.focusedVisible = false
-		r.focusFromPointer = false
-	}
-	r.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the ribbon anchor set.
 func (r *Ribbon) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if r == nil {
 		return nil
 	}
-	bounds := r.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := r.Layout.ArrangedBounds
+	out := r.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if r.textRole.Layout != nil {
 		out["baseline"] = gfx.Point{
@@ -332,17 +245,18 @@ func (r *Ribbon) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach is unused.
-func (r *Ribbon) OnAttach(ctx facet.AttachContext) {}
+// OnAttach subscribes binding sources.
+func (r *Ribbon) OnAttach(ctx facet.AttachContext) { r.Core.OnAttach() }
 
 // OnActivate is unused.
-func (r *Ribbon) OnActivate() {}
+func (r *Ribbon) OnActivate() { r.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (r *Ribbon) OnDeactivate() {}
+func (r *Ribbon) OnDeactivate() { r.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (r *Ribbon) OnDetach() {
+	r.Core.OnDetach()
 	r.cachedTokens = theme.Tokens{}
 	r.cachedRecipe = shared.RibbonSlots{}
 	r.cachedRootBounds = gfx.Rect{}
@@ -385,9 +299,9 @@ func (r *Ribbon) syncChildren() {
 		next := make([]*Button, len(r.Sections))
 		for i := range r.Sections {
 			section := r.Sections[i]
-			btn := NewButton(section.Label, uiinput.ButtonText)
-			btn.SetLeadingIconRef(section.IconRef)
-			btn.SetDisabled(r.Disabled || section.Disabled)
+			btn := NewButton(marks.Const(section.Label), marks.Const(uiinput.ButtonText))
+			btn.LeadingIconRef = marks.Const(section.IconRef)
+			btn.Disabled = marks.Const(r.Disabled.Get() || section.Disabled)
 			index := i
 			btn.Activated.Subscribe(func(signal.Unit) {
 				r.activateSection(index, true)
@@ -402,9 +316,20 @@ func (r *Ribbon) syncChildren() {
 				continue
 			}
 			section := r.Sections[i]
-			btn.SetLabel(section.Label)
-			btn.SetLeadingIconRef(section.IconRef)
-			btn.SetDisabled(r.Disabled || section.Disabled)
+			btn.Label = marks.Const(section.Label)
+			btn.LeadingIconRef = marks.Const(section.IconRef)
+			{
+				disabled := r.Disabled.Get() || section.Disabled
+				btn.Disabled = marks.Const(disabled)
+				if disabled {
+					btn.hovered = false
+					btn.pressed = false
+					btn.spaceDown = false
+					btn.enterDown = false
+					btn.focusedVisible = false
+				}
+				btn.Facet.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+			}
 		}
 	}
 	r.ActiveIndex = r.clampSectionIndex(r.ActiveIndex)
@@ -422,9 +347,11 @@ func (r *Ribbon) syncButtonVariants() {
 			continue
 		}
 		if i == r.ActiveIndex {
-			btn.SetVariant(uiinput.ButtonTonal)
+			btn.Variant = marks.Const(uiinput.ButtonTonal)
+			btn.Facet.Invalidate(facet.DirtyProjection)
 		} else {
-			btn.SetVariant(uiinput.ButtonText)
+			btn.Variant = marks.Const(uiinput.ButtonText)
+			btn.Facet.Invalidate(facet.DirtyProjection)
 		}
 	}
 }
@@ -442,7 +369,7 @@ func (r *Ribbon) syncToolbarChildren() {
 		if toolbar == nil {
 			continue
 		}
-		toolbar.SetDisabled(r.Disabled || section.Disabled)
+		toolbar.Disabled = marks.Const(r.Disabled.Get() || section.Disabled)
 		r.cachedSectionToolbars = append(r.cachedSectionToolbars, toolbar)
 	}
 }
@@ -471,7 +398,7 @@ func (r *Ribbon) measure(ctx facet.MeasureContext, constraints facet.Constraints
 
 	r.syncChildren()
 	if len(r.cachedTabButtons) == 0 {
-		r.layoutRole.MeasuredResult = facet.MeasureResult{}
+		r.Layout.MeasuredResult = facet.MeasureResult{}
 		return facet.MeasureResult{}
 	}
 	maxWidth := constraints.MaxSize.W
@@ -542,8 +469,8 @@ func (r *Ribbon) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	r.cachedTabBounds = make([]gfx.Rect, len(r.cachedTabButtons))
 	r.cachedToolbarBounds = make([]gfx.Rect, len(r.cachedSectionToolbars))
 	r.cachedButtonMargins = make([]gfx.Rect, len(r.cachedTabButtons))
-	r.layoutRole.MeasuredSize = measured
-	r.layoutRole.MeasuredResult = facet.MeasureResult{
+	r.Layout.MeasuredSize = measured
+	r.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -554,7 +481,7 @@ func (r *Ribbon) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	}
 	_ = tabSizes
 	_ = toolbarSizes
-	return r.layoutRole.MeasuredResult
+	return r.Layout.MeasuredResult
 }
 
 func (r *Ribbon) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -562,7 +489,7 @@ func (r *Ribbon) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	r.cachedTabStripBounds = gfx.Rect{}
 	r.cachedBodyBounds = gfx.Rect{}
 	r.cachedSurfaceBounds = gfx.Rect{}
-	r.layoutRole.ArrangedBounds = bounds
+	r.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -681,7 +608,7 @@ func (r *Ribbon) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	style, slots := r.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if r.Disabled {
+	if r.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -777,7 +704,7 @@ func (r *Ribbon) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (r *Ribbon) onPointer(e facet.PointerEvent) bool {
-	if r == nil || r.Disabled {
+	if r == nil || r.Disabled.Get() {
 		return false
 	}
 	for i, btn := range r.cachedTabButtons {
@@ -808,7 +735,7 @@ func (r *Ribbon) onPointer(e facet.PointerEvent) bool {
 }
 
 func (r *Ribbon) onKey(e facet.KeyEvent) bool {
-	if r == nil || r.Disabled || len(r.cachedTabButtons) == 0 {
+	if r == nil || r.Disabled.Get() || len(r.cachedTabButtons) == 0 {
 		return false
 	}
 	if e.Kind != platform.KeyPress && e.Kind != platform.KeyRelease {

@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -17,12 +18,12 @@ import (
 
 func TestCheckboxMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	cb, rt, measureCtx := newCheckboxTestFixture(t, defaultCheckboxTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	cb.SetLabel("Enable beta features")
-	cb.SetHelperText("This setting applies after restart.")
+	cb.Label = marks.Const("Enable beta features")
+	cb.HelperText = marks.Const("This setting applies after restart.")
 	cb.SetState(CheckboxStateOn)
 
 	facet.Attach(cb, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := cb.layoutRole.Measure(facet.MeasureContext{
+	result := cb.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -34,11 +35,11 @@ func TestCheckboxMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	cb.layoutRole.Arrange(facet.ArrangeContext{
+	cb.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: cb.layoutRole.Parent,
-		ChildGroup:  cb.layoutRole.Child,
+		ParentGroup: cb.Layout.Parent,
+		ChildGroup:  cb.Layout.Child,
 	}, bounds)
 	if !cb.isSemanticallySelected() {
 		t.Fatal("expected checkbox to be semantically selected")
@@ -57,21 +58,21 @@ func TestCheckboxMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected checkbox geometry, got control=%#v label=%#v helper=%#v", cb.cachedControlBounds, cb.cachedLabelBounds, cb.cachedHelperBounds)
 	}
 
-	labelHit := cb.hitRole.HitTest(gfx.Point{
+	labelHit := cb.Hit.HitTest(gfx.Point{
 		X: cb.cachedLabelBounds.Min.X + cb.cachedLabelBounds.Width()*0.5,
 		Y: cb.cachedLabelBounds.Min.Y + cb.cachedLabelBounds.Height()*0.5,
 	})
 	if !labelHit.Hit || labelHit.MarkID != checkboxMarkIDLabel {
 		t.Fatalf("expected label hit, got %#v", labelHit)
 	}
-	helperHit := cb.hitRole.HitTest(gfx.Point{
+	helperHit := cb.Hit.HitTest(gfx.Point{
 		X: cb.cachedHelperBounds.Min.X + cb.cachedHelperBounds.Width()*0.5,
 		Y: cb.cachedHelperBounds.Min.Y + cb.cachedHelperBounds.Height()*0.5,
 	})
 	if !helperHit.Hit || helperHit.MarkID != checkboxMarkIDHelperText {
 		t.Fatalf("expected helper hit, got %#v", helperHit)
 	}
-	controlHit := cb.hitRole.HitTest(gfx.Point{
+	controlHit := cb.Hit.HitTest(gfx.Point{
 		X: cb.cachedControlBounds.Min.X + 1,
 		Y: cb.cachedControlBounds.Min.Y + 1,
 	})
@@ -86,7 +87,7 @@ func TestCheckboxMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := cb.projectionRole.Project(facet.ProjectionContext{
+	cmds := cb.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -102,9 +103,9 @@ func TestCheckboxMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestCheckboxPointerAndKeyboardInteraction(t *testing.T) {
 	cb, rt, measureCtx := newCheckboxTestFixture(t, defaultCheckboxTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	cb.SetLabel("Enable beta features")
+	cb.Label = marks.Const("Enable beta features")
 	facet.Attach(cb, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := cb.layoutRole.Measure(facet.MeasureContext{
+	result := cb.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -112,7 +113,7 @@ func TestCheckboxPointerAndKeyboardInteraction(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	cb.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cb.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	center := gfx.Point{
 		X: cb.cachedControlBounds.Min.X + cb.cachedControlBounds.Width()*0.5,
@@ -156,7 +157,7 @@ func TestCheckboxPointerAndKeyboardInteraction(t *testing.T) {
 func TestCheckboxFocusAndDisabledBehavior(t *testing.T) {
 	cb, rt, measureCtx := newCheckboxTestFixture(t, defaultCheckboxTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(cb, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := cb.layoutRole.Measure(facet.MeasureContext{
+	result := cb.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -164,7 +165,7 @@ func TestCheckboxFocusAndDisabledBehavior(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	cb.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cb.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	cb.onFocusGained()
 	if !cb.focusedVisible {
@@ -174,8 +175,8 @@ func TestCheckboxFocusAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected edge point to land in focus ring")
 	}
 
-	cb.SetDisabled(true)
-	if cb.focusRole.Focusable() {
+	cb.Disabled = marks.Const(true)
+	if cb.Focus.Focusable() {
 		t.Fatal("expected disabled checkbox to be unfocusable")
 	}
 	if cb.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {
@@ -189,7 +190,7 @@ func TestCheckboxFocusAndDisabledBehavior(t *testing.T) {
 func TestCheckboxStoreInvalidation(t *testing.T) {
 	cb, rt, measureCtx := newCheckboxTestFixture(t, defaultCheckboxTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(cb, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	_ = cb.layoutRole.Measure(facet.MeasureContext{
+	_ = cb.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -224,7 +225,7 @@ func TestCheckboxGoldenComfortable(t *testing.T) {
 
 func TestCheckboxGoldenDisabled(t *testing.T) {
 	AssertCheckboxGolden(t, "disabled", defaultCheckboxTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Checkbox) {
-		c.SetDisabled(true)
+		c.Disabled = marks.Const(true)
 	})
 }
 
@@ -269,7 +270,7 @@ func TestCheckboxGoldenMixed(t *testing.T) {
 func AssertCheckboxGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Checkbox)) {
 	t.Helper()
 	cb, rt, measureCtx := newCheckboxTestFixture(t, tokens, density, direction)
-	cb.SetLabel("Checkbox")
+	cb.Label = marks.Const("Checkbox")
 	cb.SetState(CheckboxStateOff)
 	if mutate != nil {
 		mutate(cb)
@@ -280,7 +281,7 @@ func AssertCheckboxGolden(t *testing.T, name string, tokens theme.Tokens, densit
 func renderCheckboxToSurface(t *testing.T, cb *Checkbox, rt sliderRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(cb, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := cb.layoutRole.Measure(facet.MeasureContext{
+	result := cb.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -288,9 +289,9 @@ func renderCheckboxToSurface(t *testing.T, cb *Checkbox, rt sliderRuntimeStub, m
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	cb.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cb.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := cb.projectionRole.Project(facet.ProjectionContext{
+	cmds := cb.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

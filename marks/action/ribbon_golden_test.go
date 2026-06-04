@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -26,7 +27,7 @@ func TestRibbonGoldenComfortable(t *testing.T) {
 
 func TestRibbonGoldenDisabled(t *testing.T) {
 	AssertRibbonGolden(t, "disabled", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *Ribbon) {
-		r.SetDisabled(true)
+		r.Disabled = marks.Const(true)
 	})
 }
 
@@ -62,7 +63,7 @@ func TestRibbonGoldenRTL(t *testing.T) {
 
 func TestRibbonGoldenSelected(t *testing.T) {
 	AssertRibbonGolden(t, "selected", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *Ribbon) {
-		r.SetActiveIndex(1)
+		r.ActiveIndex = 1
 	})
 }
 
@@ -78,7 +79,7 @@ func AssertRibbonGolden(t *testing.T, name string, tokens theme.Tokens, density 
 func renderRibbonToSurface(t *testing.T, ribbon *Ribbon, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(ribbon, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := ribbon.layoutRole.Measure(facet.MeasureContext{
+	result := ribbon.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -94,14 +95,14 @@ func renderRibbonToSurface(t *testing.T, ribbon *Ribbon, rt buttonRuntimeStub, m
 	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
-	ribbon.layoutRole.Arrange(facet.ArrangeContext{
+	ribbon.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: ribbon.layoutRole.Parent,
-		ChildGroup:  ribbon.layoutRole.Child,
+		ParentGroup: ribbon.Layout.Parent,
+		ChildGroup:  ribbon.Layout.Child,
 	}, bounds)
 
-	cmds := ribbon.projectionRole.Project(facet.ProjectionContext{
+	cmds := ribbon.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

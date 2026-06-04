@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -32,7 +33,7 @@ func TestActionBarGoldenComfortable(t *testing.T) {
 
 func TestActionBarGoldenDisabled(t *testing.T) {
 	AssertActionBarGolden(t, "disabled", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *ActionBar) {
-		a.SetDisabled(true)
+		a.Disabled = marks.Const(true)
 	})
 }
 
@@ -73,10 +74,11 @@ func TestActionBarComposesWithOtherGroupMarks(t *testing.T) {
 		},
 	}
 	card := structure.NewCard("")
-	card.SetGrid(1, 2)
+	card.GridColumns = marks.Const(1)
+	card.GridRows = marks.Const(2)
 	bar, _, _ := newActionBarGoldenFixture(t, tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	group := newButtonGroupGroupFixture(t)
-	card.SetChildren([]structure.CardChild{
+	card.ChildrenContent = []structure.CardChild{
 		{
 			Key:    "action_bar",
 			Facet:  bar.Base(),
@@ -89,7 +91,7 @@ func TestActionBarComposesWithOtherGroupMarks(t *testing.T) {
 			MarkID: 101,
 			Grid:   facet.GridPlacement{ColStart: 0, RowStart: 1, ColSpan: 1, RowSpan: 1},
 		},
-	})
+	}
 
 	cardFacet := card.Base()
 	cardLayout := cardFacet.LayoutRole()
@@ -145,10 +147,10 @@ func renderActionBarToSurface(t *testing.T, bar *ActionBar, rt actionBarRuntimeS
 	variants := []func(*ActionBar){
 		func(*ActionBar) {},
 		func(a *ActionBar) {
-			a.SetActions(cloneActionBarActions(a.Actions))
+			a.Actions = marks.Const(cloneActionBarActions(a.Actions.Get()))
 		},
 		func(a *ActionBar) {
-			a.SetActions(equivalentActionBarActions(a.Actions))
+			a.Actions = marks.Const(equivalentActionBarActions(a.Actions.Get()))
 		},
 	}
 	for i := 1; i < len(variants); i++ {
@@ -164,7 +166,7 @@ func renderActionBarToSurface(t *testing.T, bar *ActionBar, rt actionBarRuntimeS
 
 func renderActionBarPass(t *testing.T, bar *ActionBar, rt actionBarRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection) (*testkit.MemorySurface, *image.RGBA) {
 	t.Helper()
-	result := bar.layoutRole.Measure(facet.MeasureContext{
+	result := bar.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -180,14 +182,14 @@ func renderActionBarPass(t *testing.T, bar *ActionBar, rt actionBarRuntimeStub, 
 	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
-	bar.layoutRole.Arrange(facet.ArrangeContext{
+	bar.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: bar.layoutRole.Parent,
-		ChildGroup:  bar.layoutRole.Child,
+		ParentGroup: bar.Layout.Parent,
+		ChildGroup:  bar.Layout.Child,
 	}, bounds)
 
-	cmds := bar.projectionRole.Project(facet.ProjectionContext{
+	cmds := bar.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

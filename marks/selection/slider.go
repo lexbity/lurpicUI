@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -30,15 +31,7 @@ const (
 
 // Slider implements the selection.slider standard mark.
 type Slider struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Value *store.ValueStore[float64]
 
@@ -47,8 +40,10 @@ type Slider struct {
 	Max       float64
 	Step      float64
 	Precision int
-	Disabled  bool
-	Variant   uiinput.SliderVariant
+	Disabled  marks.Binding[bool]
+	Variant   marks.Binding[uiinput.SliderVariant]
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -80,11 +75,13 @@ type Slider struct {
 
 var _ facet.FacetImpl = (*Slider)(nil)
 var _ layout.AnchorExporter = (*Slider)(nil)
+var _ marks.Mark = (*Slider)(nil)
 
 // NewSlider constructs a selection.slider mark with canonical defaults.
 func NewSlider(label string, min, max, step float64) *Slider {
 	s := &Slider{
-		Facet:     facet.NewFacet(),
+		Variant:   marks.Const[uiinput.SliderVariant](0),
+		Disabled:  marks.Const(false),
 		Value:     store.NewValueStore[float64](min),
 		Label:     label,
 		Min:       min,
@@ -92,12 +89,16 @@ func NewSlider(label string, min, max, step float64) *Slider {
 		Step:      step,
 		Precision: -1,
 	}
-	s.layoutRole.Parent = facet.GroupParentContract{
+	s.Core.Facet = facet.NewFacet()
+	s.AddBinding(s.Variant)
+	s.AddBinding(s.Disabled)
+
+	s.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   sliderGroupPolicy{slider: s},
 		Children: s,
 	}
-	s.layoutRole.Child = facet.GroupChildContract{
+	s.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := s.measureIntrinsic(ctx, constraints)
@@ -115,56 +116,37 @@ func NewSlider(label string, min, max, step float64) *Slider {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	s.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	s.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return s.measure(ctx, constraints)
 	}
-	s.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		s.layoutRole.ArrangedBounds = bounds
+	s.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.Layout.ArrangedBounds = bounds
 		s.arrange(ctx, bounds)
 	}
-	s.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := s.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	s.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return s.buildCommands(s.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	s.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := s.buildCommands(s.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	s.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	s.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return s.hitTest(p)
 	}
-	s.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	s.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return s.onPointer(e)
 	}
-	s.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	s.Input.OnKey = func(e facet.KeyEvent) bool {
 		return s.onKey(e)
 	}
-	s.focusRole.Focusable = func() bool {
-		return !s.Disabled
+	s.Focus.Focusable = func() bool {
+		return !s.Disabled.Get()
 	}
-	s.focusRole.TabIndex = 0
-	s.focusRole.OnFocusGained = func() {
+	s.Focus.TabIndex = 0
+	s.Focus.OnFocusGained = func() {
 		s.onFocusGained()
 	}
-	s.focusRole.OnFocusLost = func() {
+	s.Focus.OnFocusLost = func() {
 		s.onFocusLost()
 	}
 	s.textRole.IMEEnabled = false
-	s.AddRole(&s.layoutRole)
-	s.AddRole(&s.renderRole)
-	s.AddRole(&s.projectionRole)
-	s.AddRole(&s.hitRole)
-	s.AddRole(&s.inputRole)
-	s.AddRole(&s.focusRole)
+	s.RegisterRoles()
 	s.AddRole(&s.textRole)
 	s.syncChildren()
 	return s
@@ -174,6 +156,11 @@ func NewSlider(label string, min, max, step float64) *Slider {
 func (s *Slider) Base() *facet.Facet {
 	s.Facet.BindImpl(s)
 	return &s.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (s *Slider) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "slider"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -189,117 +176,16 @@ func (s *Slider) AccessibleName() string {
 	return s.Label
 }
 
-// SetVariant updates the slider variant.
-func (s *Slider) SetVariant(variant uiinput.SliderVariant) {
-	if s == nil || s.Variant == variant {
-		return
-	}
-	s.Variant = variant
-	s.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetLabel updates the authored label text.
-func (s *Slider) SetLabel(label string) {
-	if s == nil || s.Label == label {
-		return
-	}
-	s.Label = label
-	s.syncChildren()
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetValue updates the canonical numeric value.
-func (s *Slider) SetValue(value float64) {
-	if s == nil {
-		return
-	}
-	clamped := s.clampValue(value)
-	if s.Value == nil {
-		s.Value = store.NewValueStore[float64](clamped)
-		s.syncChildren()
-		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	if s.Value.Get() == clamped {
-		return
-	}
-	s.Value.Set(clamped)
-	s.syncChildren()
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetMin updates the minimum selectable value.
-func (s *Slider) SetMin(min float64) {
-	if s == nil || s.Min == min {
-		return
-	}
-	s.Min = min
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetMax updates the maximum selectable value.
-func (s *Slider) SetMax(max float64) {
-	if s == nil || s.Max == max {
-		return
-	}
-	s.Max = max
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetStep updates the authored increment.
-func (s *Slider) SetStep(step float64) {
-	if s == nil || s.Step == step {
-		return
-	}
-	s.Step = step
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetPrecision updates the explicit numeric precision.
-func (s *Slider) SetPrecision(precision int) {
-	if s == nil || s.Precision == precision {
-		return
-	}
-	s.Precision = precision
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (s *Slider) SetDisabled(disabled bool) {
-	if s == nil || s.Disabled == disabled {
-		return
-	}
-	s.Disabled = disabled
-	if disabled {
-		s.hovered = false
-		s.pressed = false
-		s.dragging = false
-		s.focusedVisible = false
-		s.focusFromPointer = false
-	}
-	s.syncChildren()
-	s.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the slider anchor set.
 func (s *Slider) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if s == nil {
-		return nil
-	}
-	bounds := s.layoutRole.ArrangedBounds
+	bounds := s.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	out := s.Core.DefaultAnchors(bounds, ctx)
 	if s.cachedLabelFacet != nil && s.Label != "" {
 		if tr := s.cachedLabelFacet.Base().TextRole(); tr != nil && tr.Layout != nil {
 			out["baseline"] = gfx.Point{X: s.cachedLabelBounds.Min.X, Y: s.cachedLabelBounds.Min.Y + tr.Layout.Baseline}
@@ -332,6 +218,7 @@ func (s *Slider) Children() []facet.GroupChild {
 
 // OnAttach wires store invalidation for the bound value store.
 func (s *Slider) OnAttach(ctx facet.AttachContext) {
+	s.Core.OnAttach()
 	if s.Value == nil {
 		s.Value = store.NewValueStore[float64](s.clampValue(s.Min))
 	}
@@ -342,13 +229,14 @@ func (s *Slider) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (s *Slider) OnActivate() {}
+func (s *Slider) OnActivate() { s.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (s *Slider) OnDeactivate() {}
+func (s *Slider) OnDeactivate() { s.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (s *Slider) OnDetach() {
+	s.Core.OnDetach()
 	s.cachedLayout = nil
 	s.cachedTokens = theme.Tokens{}
 	s.cachedRecipe = shared.SliderSlots{}
@@ -371,7 +259,7 @@ func (s *Slider) invalidate(flags facet.DirtyFlags) {
 	if s == nil {
 		return
 	}
-	s.Base().Invalidate(flags)
+	s.Facet.Invalidate(flags)
 }
 
 func (s *Slider) syncChildren() {
@@ -379,21 +267,23 @@ func (s *Slider) syncChildren() {
 		return
 	}
 	if s.cachedLabelFacet == nil {
-		s.cachedLabelFacet = primitive.NewText(s.Label)
+		s.cachedLabelFacet = primitive.NewText(marks.Const(s.Label))
 	} else {
-		s.cachedLabelFacet.SetContent(s.Label)
+		s.cachedLabelFacet.Content = marks.Const(s.Label)
+		s.cachedLabelFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	s.cachedLabelFacet.SetTypography(theme.TextLabelM)
-	s.cachedLabelFacet.SetOverflow(primitive.TextOverflowTruncate)
+	s.cachedLabelFacet.Typography = marks.Const(theme.TextLabelM)
+	s.cachedLabelFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
 
 	valText := s.valueLabelText()
 	if s.cachedValueFacet == nil {
-		s.cachedValueFacet = primitive.NewText(valText)
+		s.cachedValueFacet = primitive.NewText(marks.Const(valText))
 	} else {
-		s.cachedValueFacet.SetContent(valText)
+		s.cachedValueFacet.Content = marks.Const(valText)
+		s.cachedValueFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	s.cachedValueFacet.SetTypography(theme.TextBodyS)
-	s.cachedValueFacet.SetOverflow(primitive.TextOverflowTruncate)
+	s.cachedValueFacet.Typography = marks.Const(theme.TextBodyS)
+	s.cachedValueFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
 
 	labelFG := theme.ColorText
 	valueFG := theme.ColorText
@@ -405,11 +295,11 @@ func (s *Slider) syncChildren() {
 		}
 	}
 
-	s.cachedLabelFacet.SetForeground(labelFG)
-	s.cachedValueFacet.SetForeground(valueFG)
+	s.cachedLabelFacet.Foreground = marks.Const(labelFG)
+	s.cachedValueFacet.Foreground = marks.Const(valueFG)
 
-	s.cachedLabelFacet.SetDisabled(s.Disabled)
-	s.cachedValueFacet.SetDisabled(s.Disabled)
+	s.cachedLabelFacet.Disabled = marks.Const(s.Disabled.Get())
+	s.cachedValueFacet.Disabled = marks.Const(s.Disabled.Get())
 }
 
 func (s *Slider) sliderGroupChild(base *facet.Facet, markID facet.MarkID, order int) facet.GroupChild {
@@ -506,13 +396,13 @@ func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	s.textRole.CaretVisible = false
 	s.textRole.CaretPosition = text.TextPosition{}
 	size := gfx.Size{W: width, H: totalH}
-	s.layoutRole.MeasuredSize = size
-	s.layoutRole.MeasuredResult = facet.MeasureResult{
+	s.Layout.MeasuredSize = size
+	s.Layout.MeasuredResult = facet.MeasureResult{
 		Size:        size,
 		Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 		Constraints: constraints,
 	}
-	return s.layoutRole.MeasuredResult
+	return s.Layout.MeasuredResult
 }
 
 func (s *Slider) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -527,7 +417,7 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	s.cachedThumbBounds = gfx.Rect{}
 	s.cachedValueLabelBounds = gfx.Rect{}
 	s.cachedTickRects = nil
-	s.layoutRole.ArrangedBounds = bounds
+	s.Layout.ArrangedBounds = bounds
 	if s.cachedLayout == nil || bounds.IsEmpty() {
 		return
 	}
@@ -609,7 +499,7 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 
 	tickRects := s.tickRects(trackLeft, trackRight, trackY)
 	s.cachedTickRects = tickRects
-	s.layoutRole.ArrangedBounds = bounds
+	s.Layout.ArrangedBounds = bounds
 }
 
 func (s *Slider) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedContext, shared.SliderSlots, bool) {
@@ -660,7 +550,7 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	}
 	trackPath := gfx.RectPath(s.cachedTrackBounds)
 	activePath := gfx.RectPath(s.cachedActiveBounds)
-	if s.Variant == uiinput.SliderSkeuomorphic {
+	if s.Variant.Get() == uiinput.SliderSkeuomorphic {
 		trackRadius := s.cachedTrackThickness * 0.5
 		trackPath = gfx.RoundedRectPath(s.cachedTrackBounds, trackRadius)
 		activePath = gfx.RoundedRectPath(s.cachedActiveBounds, trackRadius)
@@ -675,15 +565,14 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	cmds = append(cmds, s.tickCommands(ticks)...)
 	if s.cachedThumbBounds.IsEmpty() == false && !isTransparentMaterial(thumb) {
 		var thumbPath gfx.Path
-		if s.Variant == uiinput.SliderSkeuomorphic {
+		if s.Variant.Get() == uiinput.SliderSkeuomorphic {
 			thumbPath = gfx.RoundedRectPath(s.cachedThumbBounds, 2)
 		} else {
 			thumbPath = gfx.CirclePath(gfx.Point{X: (s.cachedThumbBounds.Min.X + s.cachedThumbBounds.Max.X) * 0.5, Y: (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5}, s.cachedThumbBounds.Width()*0.5)
 		}
 		cmds = append(cmds, materialCommands(thumbPath, thumb)...)
 
-		if s.Variant == uiinput.SliderSkeuomorphic {
-			// Draw notch line
+		if s.Variant.Get() == uiinput.SliderSkeuomorphic {
 			centerY := (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5
 			notchLine := gfx.LinePath(
 				gfx.Point{X: s.cachedThumbBounds.Min.X + 2, Y: centerY},
@@ -752,7 +641,7 @@ func (s *Slider) tickCommands(material theme.Material) []gfx.Command {
 }
 
 func (s *Slider) hitTest(p gfx.Point) facet.HitResult {
-	if s == nil || s.layoutRole.ArrangedBounds.IsEmpty() || !s.layoutRole.ArrangedBounds.Contains(p) {
+	if s == nil || s.Layout.ArrangedBounds.IsEmpty() || !s.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := s.cursorShape()
@@ -783,7 +672,7 @@ func (s *Slider) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (s *Slider) pointInFocusRing(p gfx.Point) bool {
-	bounds := s.layoutRole.ArrangedBounds
+	bounds := s.Layout.ArrangedBounds
 	if bounds.IsEmpty() || !bounds.Contains(p) {
 		return false
 	}
@@ -802,7 +691,7 @@ func (s *Slider) pointInFocusRing(p gfx.Point) bool {
 }
 
 func (s *Slider) cursorShape() facet.CursorShape {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	if s.dragging || s.pressed {
@@ -812,7 +701,7 @@ func (s *Slider) cursorShape() facet.CursorShape {
 }
 
 func (s *Slider) onPointer(e facet.PointerEvent) bool {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -862,7 +751,7 @@ func (s *Slider) onPointer(e facet.PointerEvent) bool {
 }
 
 func (s *Slider) onKey(e facet.KeyEvent) bool {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -932,7 +821,7 @@ func (s *Slider) onFocusLost() {
 
 func (s *Slider) interactionState() theme.InteractionState {
 	switch {
-	case s.Disabled:
+	case s.Disabled.Get():
 		return theme.StateDisabled
 	case s.pressed || s.dragging:
 		return theme.StatePressed
@@ -1113,9 +1002,29 @@ func (s *Slider) tickRects(trackLeft, trackRight, trackY float32) []gfx.Rect {
 	return rects
 }
 
+// SetValue updates the canonical numeric value.
+func (s *Slider) SetValue(value float64) {
+	if s == nil {
+		return
+	}
+	clamped := s.clampValue(value)
+	if s.Value == nil {
+		s.Value = store.NewValueStore[float64](clamped)
+		s.syncChildren()
+		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		return
+	}
+	if s.Value.Get() == clamped {
+		return
+	}
+	s.Value.Set(clamped)
+	s.syncChildren()
+	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+}
+
 func (s *Slider) sliderRecipeVariant(resolved theme.ResolvedContext) uiinput.SliderVariant {
-	if s.Variant != uiinput.SliderStandard {
-		return s.Variant
+	if s.Variant.Get() != uiinput.SliderStandard {
+		return s.Variant.Get()
 	}
 	switch resolved.Density.ID {
 	case theme.DensityIDCompact:
@@ -1126,8 +1035,8 @@ func (s *Slider) sliderRecipeVariant(resolved theme.ResolvedContext) uiinput.Sli
 }
 
 func (s *Slider) sliderRecipeVariantForDensity(id theme.DensityID) uiinput.SliderVariant {
-	if s.Variant != uiinput.SliderStandard {
-		return s.Variant
+	if s.Variant.Get() != uiinput.SliderStandard {
+		return s.Variant.Get()
 	}
 	switch id {
 	case theme.DensityIDCompact:

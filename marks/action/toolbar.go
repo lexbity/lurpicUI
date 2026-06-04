@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -38,22 +39,16 @@ type ToolbarOverflow struct {
 
 // Toolbar implements the action.toolbar standard mark.
 type Toolbar struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Activated signal.Signal[string]
 
-	Label    string
+	Label    marks.Binding[string]
 	Groups   []ToolbarGroup
 	Overflow *ToolbarOverflow
-	Disabled bool
+	Disabled marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -96,24 +91,29 @@ type toolbarChild struct {
 
 var _ facet.FacetImpl = (*Toolbar)(nil)
 var _ layout.AnchorExporter = (*Toolbar)(nil)
+var _ marks.Mark = (*Toolbar)(nil)
 
 // NewToolbar constructs an action.toolbar mark with canonical defaults.
-func NewToolbar(label string, groups []ToolbarGroup, overflow *ToolbarOverflow) *Toolbar {
+func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *ToolbarOverflow) *Toolbar {
 	t := &Toolbar{
-		Facet:        facet.NewFacet(),
-		Label:        label,
-		Groups:       normalizeToolbarGroups(groups),
-		Overflow:     normalizeToolbarOverflow(overflow),
+		Label:       label,
+		Groups:      normalizeToolbarGroups(groups),
+		Overflow:    normalizeToolbarOverflow(overflow),
+		Disabled:    marks.Const(false),
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
-		Activated:    signal.NewSignal[string]("toolbar_activated"),
+		Activated:   signal.NewSignal[string]("toolbar_activated"),
 	}
-	t.layoutRole.Parent = facet.GroupParentContract{
+	t.Core.Facet = facet.NewFacet()
+	t.AddBinding(t.Label)
+	t.AddBinding(t.Disabled)
+
+	t.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: toolbarGroupPolicy{toolbar: t},
 	}
-	t.layoutRole.Child = facet.GroupChildContract{
+	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measureIntrinsic(ctx, constraints)
@@ -131,52 +131,33 @@ func NewToolbar(label string, groups []ToolbarGroup, overflow *ToolbarOverflow) 
 		},
 		Baseline: facet.BaselineNone,
 	}
-	t.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	t.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return t.measure(ctx, constraints)
 	}
-	t.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		t.layoutRole.ArrangedBounds = bounds
+	t.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		t.Layout.ArrangedBounds = bounds
 		t.arrange(ctx, bounds)
 	}
-	t.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := t.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	t.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := t.buildCommands(t.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	t.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	t.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return t.hitTest(p)
 	}
-	t.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	t.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return t.onPointer(e)
 	}
-	t.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	t.Input.OnKey = func(e facet.KeyEvent) bool {
 		return t.onKey(e)
 	}
-	t.focusRole.Focusable = func() bool {
-		return !t.Disabled && (len(t.Groups) > 0 || t.Overflow != nil)
+	t.Focus.Focusable = func() bool {
+		return !t.Disabled.Get() && (len(t.Groups) > 0 || t.Overflow != nil)
 	}
-	t.focusRole.TabIndex = 0
-	t.focusRole.OnFocusGained = func() { t.onFocusGained() }
-	t.focusRole.OnFocusLost = func() { t.onFocusLost() }
+	t.Focus.TabIndex = 0
+	t.Focus.OnFocusGained = func() { t.onFocusGained() }
+	t.Focus.OnFocusLost = func() { t.onFocusLost() }
 	t.textRole.IMEEnabled = false
-	t.AddRole(&t.layoutRole)
-	t.AddRole(&t.renderRole)
-	t.AddRole(&t.projectionRole)
-	t.AddRole(&t.hitRole)
-	t.AddRole(&t.inputRole)
-	t.AddRole(&t.focusRole)
+	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	t.RegisterRoles()
 	t.AddRole(&t.textRole)
 	t.syncChildren()
 	return t
@@ -188,6 +169,11 @@ func (t *Toolbar) Base() *facet.Facet {
 	return &t.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (t *Toolbar) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "toolbar"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (t *Toolbar) AccessibilityRole() string { return "toolbar" }
 
@@ -196,7 +182,7 @@ func (t *Toolbar) AccessibleName() string {
 	if t == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(t.Label); name != "" {
+	if name := strings.TrimSpace(t.Label.Get()); name != "" {
 		return name
 	}
 	for _, group := range t.Groups {
@@ -225,71 +211,15 @@ func (t *Toolbar) AccessibleName() string {
 	return ""
 }
 
-// SetLabel updates the authored label text used for accessibility.
-func (t *Toolbar) SetLabel(label string) {
-	if t == nil || t.Label == label {
-		return
-	}
-	t.Label = label
-	t.invalidate(facet.DirtyProjection)
-}
-
-// SetGroups replaces the toolbar action groups.
-func (t *Toolbar) SetGroups(groups []ToolbarGroup) {
-	if t == nil {
-		return
-	}
-	t.Groups = normalizeToolbarGroups(groups)
-	t.syncChildren()
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOverflow replaces the toolbar overflow menu.
-func (t *Toolbar) SetOverflow(overflow *ToolbarOverflow) {
-	if t == nil {
-		return
-	}
-	t.Overflow = normalizeToolbarOverflow(overflow)
-	t.syncChildren()
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (t *Toolbar) SetDisabled(disabled bool) {
-	if t == nil || t.Disabled == disabled {
-		return
-	}
-	t.Disabled = disabled
-	if disabled {
-		t.hovered = false
-		t.pressed = false
-		t.focusedVisible = false
-		t.focusFromPointer = false
-		t.hoveredIndex = -1
-		t.pressedIndex = -1
-	}
-	t.syncChildren()
-	t.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the toolbar anchor set.
 func (t *Toolbar) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if t == nil {
 		return nil
 	}
-	bounds := t.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := t.Layout.ArrangedBounds
+	out := t.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	out["baseline"] = t.baselinePoint(bounds)
 	return out
@@ -336,16 +266,17 @@ func (t *Toolbar) Children() []facet.GroupChild {
 }
 
 // OnAttach is unused.
-func (t *Toolbar) OnAttach(ctx facet.AttachContext) {}
+func (t *Toolbar) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
 
 // OnActivate is unused.
-func (t *Toolbar) OnActivate() {}
+func (t *Toolbar) OnActivate() { t.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (t *Toolbar) OnDeactivate() {}
+func (t *Toolbar) OnDeactivate() { t.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (t *Toolbar) OnDetach() {
+	t.Core.OnDetach()
 	t.cachedTokens = theme.Tokens{}
 	t.cachedRecipe = shared.ToolbarSlots{}
 	t.cachedRootBounds = gfx.Rect{}
@@ -364,7 +295,7 @@ func (t *Toolbar) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Facet.Invalidate(flags)
+	t.Invalidate(flags)
 }
 
 func (t *Toolbar) syncChildren() {
@@ -474,36 +405,61 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 	switch c.kind {
 	case toolbarChildGroup:
 		if c.group == nil {
-			c.group = NewActionGroup("", spec.group.Actions)
-			c.group.focusRole.Focusable = func() bool { return false }
+			c.group = NewActionGroup(marks.Const(""), marks.Const(spec.group.Actions))
+			c.group.Focus.Focusable = func() bool { return false }
 			c.subID = c.group.Activated.Subscribe(func(key string) {
 				if c.parent != nil {
 					c.parent.Activated.Emit(key)
 				}
 			})
 		} else {
-			c.group.SetLabel("")
-			c.group.SetActions(spec.group.Actions)
+			c.group.Label = marks.Const("")
+			c.group.Actions = marks.Const(normalizeActionGroupActions(spec.group.Actions))
+			c.group.syncFocusIndex()
+			c.group.Facet.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		}
-		c.group.SetDisabled(c.parent != nil && c.parent.Disabled)
+		{
+			disabled := c.parent != nil && c.parent.Disabled.Get()
+			c.group.Disabled = marks.Const(disabled)
+			if disabled {
+				c.group.hoveredIndex = -1
+				c.group.pressedIndex = -1
+				c.group.focusedVisible = false
+				c.group.focusFromPointer = false
+			}
+			c.group.Facet.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+		}
 	case toolbarChildOverflow:
 		if c.overflow == nil {
 			c.overflow = NewMenuButton("", spec.overflow.Entries)
-			c.overflow.TriggerIconRef = spec.overflow.TriggerIconRef
-			c.overflow.AccessibleLabel = spec.overflow.AccessibleLabel
-			c.overflow.focusRole.Focusable = func() bool { return false }
+			c.overflow.TriggerIconRef = marks.Const(spec.overflow.TriggerIconRef)
+			c.overflow.AccessibleLabel = marks.Const(spec.overflow.AccessibleLabel)
+			c.overflow.Focus.Focusable = func() bool { return false }
 			c.subID = c.overflow.Activated.Subscribe(func(key string) {
 				if c.parent != nil {
 					c.parent.Activated.Emit(key)
 				}
 			})
 		} else {
-			c.overflow.SetLabel("")
-			c.overflow.SetAccessibleLabel(spec.overflow.AccessibleLabel)
-			c.overflow.SetTriggerIconRef(spec.overflow.TriggerIconRef)
-			c.overflow.SetEntries(spec.overflow.Entries)
+			c.overflow.Label = marks.Const("")
+			c.overflow.AccessibleLabel = marks.Const(spec.overflow.AccessibleLabel)
+			c.overflow.TriggerIconRef = marks.Const(spec.overflow.TriggerIconRef)
+			c.overflow.Entries = normalizeMenuButtonEntries(spec.overflow.Entries)
+			c.overflow.focusedIndex = -1
+			c.overflow.hoveredIndex = -1
+			c.overflow.pressedIndex = -1
+			c.overflow.Facet.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		}
-		c.overflow.SetDisabled(c.parent != nil && c.parent.Disabled)
+		{
+			disabled := c.parent != nil && c.parent.Disabled.Get()
+			c.overflow.Disabled = marks.Const(disabled)
+			if disabled {
+				c.overflow.hovered = false
+				c.overflow.pressed = false
+				c.overflow.focusedVisible = false
+			}
+			c.overflow.Facet.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+		}
 	}
 }
 
@@ -730,7 +686,7 @@ func (t *Toolbar) measure(ctx facet.MeasureContext, constraints facet.Constraint
 
 	t.syncChildren()
 	if len(t.cachedChildren) == 0 {
-		t.layoutRole.MeasuredResult = facet.MeasureResult{}
+		t.Layout.MeasuredResult = facet.MeasureResult{}
 		return facet.MeasureResult{}
 	}
 	childSizes := make([]gfx.Size, len(t.cachedChildren))
@@ -762,8 +718,8 @@ func (t *Toolbar) measure(ctx facet.MeasureContext, constraints facet.Constraint
 		H: minHeight,
 	}
 	size = constraints.Constrain(size)
-	t.layoutRole.MeasuredSize = size
-	t.layoutRole.MeasuredResult = facet.MeasureResult{
+	t.Layout.MeasuredSize = size
+	t.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -772,7 +728,7 @@ func (t *Toolbar) measure(ctx facet.MeasureContext, constraints facet.Constraint
 		},
 		Constraints: constraints,
 	}
-	return t.layoutRole.MeasuredResult
+	return t.Layout.MeasuredResult
 }
 
 func (t *Toolbar) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -782,7 +738,7 @@ func (t *Toolbar) measureIntrinsic(ctx facet.MeasureContext, constraints facet.C
 func (t *Toolbar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	t.cachedRootBounds = bounds
 	t.cachedSurfaceBounds = bounds
-	t.layoutRole.ArrangedBounds = bounds
+	t.Layout.ArrangedBounds = bounds
 	t.cachedSeparatorBounds = t.cachedSeparatorBounds[:0]
 	if bounds.IsEmpty() {
 		t.cachedChildBounds = nil
@@ -927,7 +883,7 @@ func (t *Toolbar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (t *Toolbar) hitTest(p gfx.Point) facet.HitResult {
-	if t == nil || t.layoutRole.ArrangedBounds.IsEmpty() || !t.layoutRole.ArrangedBounds.Contains(p) {
+	if t == nil || t.Layout.ArrangedBounds.IsEmpty() || !t.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := t.cursorShape()
@@ -967,14 +923,14 @@ func (t *Toolbar) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (t *Toolbar) cursorShape() facet.CursorShape {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (t *Toolbar) onPointer(e facet.PointerEvent) bool {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return false
 	}
 	idx := t.childIndexAt(e.Position)
@@ -1039,7 +995,7 @@ func (t *Toolbar) onPointer(e facet.PointerEvent) bool {
 }
 
 func (t *Toolbar) onKey(e facet.KeyEvent) bool {
-	if t.Disabled || len(t.cachedChildren) == 0 {
+	if t.Disabled.Get() || len(t.cachedChildren) == 0 {
 		return false
 	}
 	child := t.focusedChild()
@@ -1105,7 +1061,7 @@ func (t *Toolbar) onFocusLost() {
 
 func (t *Toolbar) interactionState() theme.InteractionState {
 	switch {
-	case t.Disabled:
+	case t.Disabled.Get():
 		return theme.StateDisabled
 	case t.pressed:
 		return theme.StatePressed
@@ -1121,11 +1077,11 @@ func (t *Toolbar) interactionState() theme.InteractionState {
 }
 
 func (t *Toolbar) pointInFocusRing(p gfx.Point) bool {
-	if !t.layoutRole.ArrangedBounds.Contains(p) {
+	if !t.Layout.ArrangedBounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, t.layoutRole.ArrangedBounds.Height()*0.08)
-	inner := t.layoutRole.ArrangedBounds.Inset(inset, inset)
+	inset := maxFloat(1, t.Layout.ArrangedBounds.Height()*0.08)
+	inner := t.Layout.ArrangedBounds.Inset(inset, inset)
 	if inner.IsEmpty() {
 		return true
 	}
@@ -1217,9 +1173,9 @@ func (t *Toolbar) childEnabled(index int) bool {
 	}
 	switch child.kind {
 	case toolbarChildGroup:
-		return child.group != nil && !child.group.Disabled && len(child.group.Actions) > 0
+		return child.group != nil && !child.group.Disabled.Get() && len(child.group.Actions.Get()) > 0
 	case toolbarChildOverflow:
-		return child.overflow != nil && !child.overflow.Disabled && len(child.overflow.Entries) > 0
+		return child.overflow != nil && !child.overflow.Disabled.Get() && len(child.overflow.Entries) > 0
 	default:
 		return false
 	}

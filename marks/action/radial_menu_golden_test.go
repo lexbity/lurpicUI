@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	input "codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -49,7 +50,7 @@ func AssertRadialMenuGolden(t *testing.T, name string, tokens theme.Tokens, dens
 func renderRadialMenuToSurface(t *testing.T, menu *RadialMenu, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(menu, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := menu.layoutRole.Measure(facet.MeasureContext{
+	result := menu.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -61,9 +62,9 @@ func renderRadialMenuToSurface(t *testing.T, menu *RadialMenu, rt buttonRuntimeS
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	menu.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: menu.layoutRole.Parent, ChildGroup: menu.layoutRole.Child}, bounds)
+	menu.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: menu.Layout.Parent, ChildGroup: menu.Layout.Child}, bounds)
 
-	cmds := menu.projectionRole.Project(facet.ProjectionContext{
+	cmds := menu.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -106,21 +107,21 @@ func newRadialMenuGoldenFixture(t *testing.T, tokens theme.Tokens, density theme
 		{Key: "soft", Label: "Soft"},
 		{Key: "hard", Label: "Hard"},
 	})
-	split.SetKey("soft")
-	split.SetPrimaryIconRef("star")
+	split.Key = marks.Const("soft")
+	split.PrimaryIconRef = marks.Const("star")
 
-	group := NewActionGroup("Canvas", []ActionGroupAction{
+	group := NewActionGroup(marks.Const("Canvas"), marks.Const([]ActionGroupAction{
 		{Key: "edit", Label: "Edit", IconRef: "edit"},
 		{Key: "copy", Label: "Copy", IconRef: "copy"},
 		{Key: "delete", Label: "Delete", IconRef: "delete"},
-	})
+	}))
 
 	menu := NewMenuButton("Tools", []MenuButtonEntry{
 		{Kind: MenuButtonEntrySection, Label: "Actions"},
 		{Key: "mirror", Label: "Mirror", IconRef: "mirror"},
 		{Key: "canvas", Label: "Canvas", IconRef: "canvas"},
 	})
-	menu.SetTriggerIconRef("more")
+	menu.TriggerIconRef = marks.Const("more")
 
 	radial := NewRadialMenu("Radial menu", center, []RadialChild{
 		{Child: split, Placement: facet.RadialPlacement{Angle: -math.Pi / 2, RadiusTrack: 128}},

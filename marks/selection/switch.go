@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -25,21 +26,15 @@ const (
 
 // Switch implements the selection.switch standard mark.
 type Switch struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Value *store.ValueStore[bool]
 
 	Label    string
-	Variant  uiinput.SwitchVariant
-	Disabled bool
+	Variant  marks.Binding[uiinput.SwitchVariant]
+	Disabled marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -67,20 +62,25 @@ type Switch struct {
 
 var _ facet.FacetImpl = (*Switch)(nil)
 var _ layout.AnchorExporter = (*Switch)(nil)
+var _ marks.Mark = (*Switch)(nil)
 
 // NewSwitch constructs a selection.switch mark with canonical defaults.
 func NewSwitch(label string) *Switch {
 	s := &Switch{
-		Facet:   facet.NewFacet(),
-		Value:   store.NewValueStore[bool](false),
-		Label:   label,
-		Variant: uiinput.SwitchStandard,
+		Variant:  marks.Const(uiinput.SwitchStandard),
+		Disabled: marks.Const(false),
+		Value:    store.NewValueStore[bool](false),
+		Label:    label,
 	}
-	s.layoutRole.Parent = facet.GroupParentContract{
+	s.Core.Facet = facet.NewFacet()
+	s.AddBinding(s.Variant)
+	s.AddBinding(s.Disabled)
+
+	s.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: switchGroupPolicy{},
 	}
-	s.layoutRole.Child = facet.GroupChildContract{
+	s.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := s.measureIntrinsic(ctx, constraints)
@@ -98,44 +98,25 @@ func NewSwitch(label string) *Switch {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	s.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	s.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return s.measure(ctx, constraints)
 	}
-	s.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		s.layoutRole.ArrangedBounds = bounds
+	s.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.Layout.ArrangedBounds = bounds
 		s.arrange(ctx, bounds)
 	}
-	s.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := s.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	s.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return s.buildCommands(s.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	s.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := s.buildCommands(s.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	s.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return s.hitTest(p) }
-	s.inputRole.OnPointer = func(e facet.PointerEvent) bool { return s.onPointer(e) }
-	s.inputRole.OnKey = func(e facet.KeyEvent) bool { return s.onKey(e) }
-	s.focusRole.Focusable = func() bool { return !s.Disabled }
-	s.focusRole.TabIndex = 0
-	s.focusRole.OnFocusGained = func() { s.onFocusGained() }
-	s.focusRole.OnFocusLost = func() { s.onFocusLost() }
+	s.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return s.hitTest(p) }
+	s.Input.OnPointer = func(e facet.PointerEvent) bool { return s.onPointer(e) }
+	s.Input.OnKey = func(e facet.KeyEvent) bool { return s.onKey(e) }
+	s.Focus.Focusable = func() bool { return !s.Disabled.Get() }
+	s.Focus.TabIndex = 0
+	s.Focus.OnFocusGained = func() { s.onFocusGained() }
+	s.Focus.OnFocusLost = func() { s.onFocusLost() }
 	s.textRole.IMEEnabled = false
-	s.AddRole(&s.layoutRole)
-	s.AddRole(&s.renderRole)
-	s.AddRole(&s.projectionRole)
-	s.AddRole(&s.hitRole)
-	s.AddRole(&s.inputRole)
-	s.AddRole(&s.focusRole)
+	s.RegisterRoles()
 	s.AddRole(&s.textRole)
 	return s
 }
@@ -144,6 +125,11 @@ func NewSwitch(label string) *Switch {
 func (s *Switch) Base() *facet.Facet {
 	s.Facet.BindImpl(s)
 	return &s.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (s *Switch) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "switch"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -157,75 +143,16 @@ func (s *Switch) AccessibleName() string {
 	return s.Label
 }
 
-// SetLabel updates the authored label text.
-func (s *Switch) SetLabel(label string) {
-	if s == nil || s.Label == label {
-		return
-	}
-	s.Label = label
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetVariant updates the authored switch variant.
-func (s *Switch) SetVariant(variant uiinput.SwitchVariant) {
-	if s == nil || s.Variant == variant {
-		return
-	}
-	s.Variant = variant
-	s.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (s *Switch) SetDisabled(disabled bool) {
-	if s == nil || s.Disabled == disabled {
-		return
-	}
-	s.Disabled = disabled
-	if disabled {
-		s.hovered = false
-		s.pressed = false
-		s.focusedVisible = false
-		s.focusFromPointer = false
-	}
-	s.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetChecked updates the canonical switch value.
-func (s *Switch) SetChecked(checked bool) {
-	if s == nil {
-		return
-	}
-	if s.Value == nil {
-		s.Value = store.NewValueStore[bool](checked)
-		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	if s.Value.Get() == checked {
-		return
-	}
-	s.Value.Set(checked)
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the switch anchor set.
 func (s *Switch) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if s == nil {
-		return nil
-	}
-	bounds := s.layoutRole.ArrangedBounds
+	bounds := s.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	out := s.Core.DefaultAnchors(bounds, ctx)
 	if s.cachedLabelLayout != nil {
 		out["baseline"] = gfx.Point{X: s.cachedLabelBounds.Min.X, Y: s.cachedLabelBounds.Min.Y + s.cachedLabelLayout.Baseline}
 	} else {
@@ -239,6 +166,7 @@ func (s *Switch) Children() []facet.GroupChild { return nil }
 
 // OnAttach wires store invalidation for the bound value store.
 func (s *Switch) OnAttach(ctx facet.AttachContext) {
+	s.Core.OnAttach()
 	if s.Value == nil {
 		s.Value = store.NewValueStore[bool](false)
 	}
@@ -248,13 +176,14 @@ func (s *Switch) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (s *Switch) OnActivate() {}
+func (s *Switch) OnActivate() { s.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (s *Switch) OnDeactivate() {}
+func (s *Switch) OnDeactivate() { s.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (s *Switch) OnDetach() {
+	s.Core.OnDetach()
 	s.cachedLayout = nil
 	s.cachedLabelLayout = nil
 	s.cachedTokens = theme.Tokens{}
@@ -277,7 +206,7 @@ func (s *Switch) invalidate(flags facet.DirtyFlags) {
 	if s == nil {
 		return
 	}
-	s.Base().Invalidate(flags)
+	s.Facet.Invalidate(flags)
 }
 
 func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -286,7 +215,7 @@ func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uiinput.ResolveSwitchRecipe(style, s.Variant)
+	slots, _ := uiinput.ResolveSwitchRecipe(style, s.Variant.Get())
 	s.cachedTokens = resolved.TokenSet()
 	s.cachedRecipe = slots
 	s.cachedWritingDirection = ctx.WritingDirection
@@ -331,8 +260,8 @@ func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	s.textRole.CaretVisible = false
 	s.textRole.CaretPosition = text.TextPosition{}
 	size := gfx.Size{W: width, H: height}
-	s.layoutRole.MeasuredSize = size
-	s.layoutRole.MeasuredResult = facet.MeasureResult{
+	s.Layout.MeasuredSize = size
+	s.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -341,7 +270,7 @@ func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		},
 		Constraints: constraints,
 	}
-	return s.layoutRole.MeasuredResult
+	return s.Layout.MeasuredResult
 }
 
 func (s *Switch) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -354,7 +283,7 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	s.cachedControlBounds = gfx.Rect{}
 	s.cachedTrackBounds = gfx.Rect{}
 	s.cachedThumbBounds = gfx.Rect{}
-	s.layoutRole.ArrangedBounds = bounds
+	s.Layout.ArrangedBounds = bounds
 	if s.cachedLayout == nil || bounds.IsEmpty() {
 		return
 	}
@@ -376,7 +305,7 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		thumbX := s.cachedTrackBounds.Min.X + maxFloat(2, s.cachedTrackRadius*0.2)
 		s.cachedThumbBounds = text.AlignRectY(gfx.RectFromXYWH(thumbX, s.cachedControlBounds.Min.Y, s.cachedThumbSize, s.cachedThumbSize), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	}
-	s.layoutRole.ArrangedBounds = bounds
+	s.Layout.ArrangedBounds = bounds
 }
 
 func (s *Switch) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.SwitchSlots) {
@@ -390,7 +319,7 @@ func (s *Switch) resolveProjectionTheme(runtime any) (theme.StyleContext, shared
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, s.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uiinput.ResolveSwitchRecipe(style, s.Variant)
+			slots, _ := uiinput.ResolveSwitchRecipe(style, s.Variant.Get())
 			return style, slots
 		}
 	}
@@ -437,7 +366,7 @@ func (s *Switch) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (s *Switch) hitTest(p gfx.Point) facet.HitResult {
-	if s == nil || s.layoutRole.ArrangedBounds.IsEmpty() || !s.layoutRole.ArrangedBounds.Contains(p) {
+	if s == nil || s.Layout.ArrangedBounds.IsEmpty() || !s.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := s.cursorShape()
@@ -460,7 +389,7 @@ func (s *Switch) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (s *Switch) pointInFocusRing(p gfx.Point) bool {
-	bounds := s.layoutRole.ArrangedBounds
+	bounds := s.Layout.ArrangedBounds
 	if bounds.IsEmpty() || !bounds.Contains(p) {
 		return false
 	}
@@ -473,14 +402,14 @@ func (s *Switch) pointInFocusRing(p gfx.Point) bool {
 }
 
 func (s *Switch) cursorShape() facet.CursorShape {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (s *Switch) onPointer(e facet.PointerEvent) bool {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -512,7 +441,7 @@ func (s *Switch) onPointer(e facet.PointerEvent) bool {
 		wasPressed := s.pressed
 		s.pressed = false
 		s.invalidate(facet.DirtyProjection)
-		if wasPressed && s.layoutRole.ArrangedBounds.Contains(e.Position) {
+		if wasPressed && s.Layout.ArrangedBounds.Contains(e.Position) {
 			s.SetChecked(!s.isChecked())
 			return true
 		}
@@ -525,7 +454,7 @@ func (s *Switch) onPointer(e facet.PointerEvent) bool {
 }
 
 func (s *Switch) onKey(e facet.KeyEvent) bool {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -563,7 +492,7 @@ func (s *Switch) onFocusLost() {
 
 func (s *Switch) interactionState() theme.InteractionState {
 	switch {
-	case s.Disabled:
+	case s.Disabled.Get():
 		return theme.StateDisabled
 	case s.pressed:
 		return theme.StatePressed
@@ -584,10 +513,27 @@ func (s *Switch) selectedState() theme.InteractionState {
 }
 
 func (s *Switch) labelState() theme.InteractionState {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	return theme.StateDefault
+}
+
+// SetChecked updates the canonical switch value.
+func (s *Switch) SetChecked(checked bool) {
+	if s == nil {
+		return
+	}
+	if s.Value == nil {
+		s.Value = store.NewValueStore[bool](checked)
+		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		return
+	}
+	if s.Value.Get() == checked {
+		return
+	}
+	s.Value.Set(checked)
+	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 func (s *Switch) isChecked() bool {
@@ -671,3 +617,5 @@ func (switchGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children []
 func (switchGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []facet.GroupChild) ([]facet.ArrangedGroupChild, error) {
 	return nil, nil
 }
+
+

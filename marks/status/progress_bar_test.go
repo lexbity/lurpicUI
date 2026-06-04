@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -22,7 +23,7 @@ func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ctx := badgeResolvedContext(badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(bar, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := bar.layoutRole.Measure(facet.MeasureContext{
+	result := bar.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -33,11 +34,11 @@ func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	bar.layoutRole.Arrange(facet.ArrangeContext{
+	bar.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: bar.layoutRole.Parent,
-		ChildGroup:  bar.layoutRole.Child,
+		ParentGroup: bar.Layout.Parent,
+		ChildGroup:  bar.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementGrid},
 	}, bounds)
 	if got := bar.AccessibilityRole(); got != "progressbar" {
@@ -55,7 +56,7 @@ func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := bar.projectionRole.Project(facet.ProjectionContext{
+	cmds := bar.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -82,12 +83,13 @@ func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 
 func TestProgressBarTickRequestsAnimation(t *testing.T) {
 	bar := newProgressBarFixture()
-	bar.SetValue(0.85)
-	if !bar.tickRole.IsActive() {
+	bar.Value = marks.Const(float32(0.85))
+	bar.startPulse()
+	if !bar.Tick.IsActive() {
 		t.Fatal("expected tick role to request animation after value update")
 	}
 	before := bar.pulseRemaining
-	bar.tickRole.OnTick(16 * time.Millisecond)
+	bar.Tick.OnTick(16 * time.Millisecond)
 	if bar.pulseRemaining >= before {
 		t.Fatalf("expected pulse remaining to decrease, before=%v after=%v", before, bar.pulseRemaining)
 	}
@@ -107,7 +109,7 @@ func TestProgressBarGoldenComfortable(t *testing.T) {
 
 func TestProgressBarGoldenDisabled(t *testing.T) {
 	AssertProgressBarGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *ProgressBar) {
-		b.SetDisabled(true)
+		b.Disabled = marks.Const(true)
 	})
 }
 
@@ -132,21 +134,21 @@ func AssertProgressBarGolden(t *testing.T, name string, tokens theme.Tokens, den
 	ctx := badgeResolvedContext(tokens, density, direction)
 	facet.Attach(bar, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(16, 16, 280, 160)
-	_ = bar.layoutRole.Measure(facet.MeasureContext{
+	_ = bar.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	bar.layoutRole.Arrange(facet.ArrangeContext{
+	bar.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: bar.layoutRole.Parent,
-		ChildGroup:  bar.layoutRole.Child,
+		ParentGroup: bar.Layout.Parent,
+		ChildGroup:  bar.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementGrid},
 	}, canvas)
-	cmds := bar.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	cmds := bar.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
@@ -172,6 +174,6 @@ func AssertProgressBarGolden(t *testing.T, name string, tokens theme.Tokens, den
 
 func newProgressBarFixture() *ProgressBar {
 	bar := NewProgressBar("Uploading files")
-	bar.Value = 0.63
+	bar.Value = marks.Const(float32(0.63))
 	return bar
 }

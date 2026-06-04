@@ -82,6 +82,7 @@ func (f *fakeDataBoundMark) OnAttach(ctx facet.AttachContext) {}
 func (f *fakeDataBoundMark) OnDetach()                         {}
 func (f *fakeDataBoundMark) OnActivate()                       {}
 func (f *fakeDataBoundMark) OnDeactivate()                     {}
+func (f *fakeDataBoundMark) BoundData() any                    { return nil }
 
 type fakeHitTestableMark struct{ facet.Facet }
 
@@ -149,6 +150,9 @@ func TestDescribe_plain_mark_has_no_capabilities(t *testing.T) {
 	}
 	if d.HitTestable {
 		t.Fatal("expected HitTestable = false")
+	}
+	if d.DataBound {
+		t.Fatal("expected DataBound = false")
 	}
 }
 
@@ -230,5 +234,168 @@ func TestDescriptor_author_declares_family_and_typename(t *testing.T) {
 	}
 	if d.TypeName != "fakeFocusable" {
 		t.Fatalf("TypeName = %q, want %q", d.TypeName, "fakeFocusable")
+	}
+}
+
+// --- Core-based mark tests ---
+
+type corePlainMark struct{ Core }
+
+func (m *corePlainMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
+func (m *corePlainMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "plain"} }
+func (m *corePlainMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *corePlainMark) OnDetach()                         { m.Core.OnDetach() }
+func (m *corePlainMark) OnActivate()                       { m.Core.OnActivate() }
+func (m *corePlainMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+
+func TestDescribe_core_plain_mark_no_capabilities(t *testing.T) {
+	m := &corePlainMark{}
+	d := Describe(m)
+	if d.Focusable {
+		t.Error("expected Focusable = false")
+	}
+	if d.ExportsAnchors {
+		t.Error("expected ExportsAnchors = false")
+	}
+	if d.Accessible {
+		t.Error("expected Accessible = false")
+	}
+	if d.HostsChildren {
+		t.Error("expected HostsChildren = false")
+	}
+	if d.HitTestable {
+		t.Error("expected HitTestable = false")
+	}
+	if d.DataBound {
+		t.Error("expected DataBound = false")
+	}
+}
+
+type coreFocusableMark struct{ Core }
+
+func (m *coreFocusableMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
+func (m *coreFocusableMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "focusable"} }
+func (m *coreFocusableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreFocusableMark) OnDetach()                         { m.Core.OnDetach() }
+func (m *coreFocusableMark) OnActivate()                       { m.Core.OnActivate() }
+func (m *coreFocusableMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *coreFocusableMark) Focusable() bool { return true }
+
+func TestDescribe_core_focusable_mark(t *testing.T) {
+	m := &coreFocusableMark{}
+	d := Describe(m)
+	if !d.Focusable {
+		t.Fatal("expected Focusable = true")
+	}
+}
+
+type coreAnchorMark struct{ Core }
+
+func (m *coreAnchorMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
+func (m *coreAnchorMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "anchor"} }
+func (m *coreAnchorMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreAnchorMark) OnDetach()                         { m.Core.OnDetach() }
+func (m *coreAnchorMark) OnActivate()                       { m.Core.OnActivate() }
+func (m *coreAnchorMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *coreAnchorMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet { return nil }
+
+func TestDescribe_core_anchor_mark(t *testing.T) {
+	m := &coreAnchorMark{}
+	d := Describe(m)
+	if !d.ExportsAnchors {
+		t.Fatal("expected ExportsAnchors = true")
+	}
+}
+
+type coreCompositeMark struct{ Core }
+
+func (m *coreCompositeMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
+func (m *coreCompositeMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "composite"} }
+func (m *coreCompositeMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreCompositeMark) OnDetach()                         { m.Core.OnDetach() }
+func (m *coreCompositeMark) OnActivate()                       { m.Core.OnActivate() }
+func (m *coreCompositeMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *coreCompositeMark) ChildMarks() []Mark { return nil }
+
+func TestDescribe_core_composite_mark(t *testing.T) {
+	m := &coreCompositeMark{}
+	d := Describe(m)
+	if !d.HostsChildren {
+		t.Fatal("expected HostsChildren = true")
+	}
+}
+
+type coreHitTestableMark struct {
+	Core
+	hitRole facet.HitRole
+}
+
+func newCoreHitTestableMark() *coreHitTestableMark {
+	m := &coreHitTestableMark{}
+	m.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+		return facet.HitResult{Hit: false}
+	}
+	m.AddRole(&m.hitRole)
+	return m
+}
+
+func (m *coreHitTestableMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
+func (m *coreHitTestableMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "hittable"} }
+func (m *coreHitTestableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreHitTestableMark) OnDetach()                         { m.Core.OnDetach() }
+func (m *coreHitTestableMark) OnActivate()                       { m.Core.OnActivate() }
+func (m *coreHitTestableMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+
+func TestDescribe_core_hit_testable_mark(t *testing.T) {
+	m := newCoreHitTestableMark()
+	d := Describe(m)
+	if !d.HitTestable {
+		t.Fatal("expected HitTestable = true (via registered HitRole)")
+	}
+}
+
+type coreAllCapabilitiesMark struct {
+	Core
+	hitRole facet.HitRole
+}
+
+func newCoreAllCapabilitiesMark() *coreAllCapabilitiesMark {
+	m := &coreAllCapabilitiesMark{}
+	m.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+		return facet.HitResult{Hit: false}
+	}
+	m.AddRole(&m.hitRole)
+	return m
+}
+
+func (m *coreAllCapabilitiesMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
+func (m *coreAllCapabilitiesMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "all"} }
+func (m *coreAllCapabilitiesMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreAllCapabilitiesMark) OnDetach()                         { m.Core.OnDetach() }
+func (m *coreAllCapabilitiesMark) OnActivate()                       { m.Core.OnActivate() }
+func (m *coreAllCapabilitiesMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *coreAllCapabilitiesMark) Focusable() bool { return true }
+func (m *coreAllCapabilitiesMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
+	return nil
+}
+func (m *coreAllCapabilitiesMark) ChildMarks() []Mark { return nil }
+
+func TestDescribe_core_all_capabilities(t *testing.T) {
+	m := newCoreAllCapabilitiesMark()
+	d := Describe(m)
+	if !d.Focusable {
+		t.Error("expected Focusable = true")
+	}
+	if !d.ExportsAnchors {
+		t.Error("expected ExportsAnchors = true")
+	}
+	if !d.HostsChildren {
+		t.Error("expected HostsChildren = true")
+	}
+	if !d.HitTestable {
+		t.Error("expected HitTestable = true")
+	}
+	if d.DataBound {
+		t.Error("expected DataBound = false (not implemented)")
 	}
 }

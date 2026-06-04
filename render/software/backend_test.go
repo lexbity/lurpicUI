@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -237,8 +238,9 @@ func TestSoftwareRenderer_rendersPrimitiveIcon(t *testing.T) {
 	tokens.Color.Primary = gfx.ColorFromRGBA8(18, 52, 86, 255)
 	rt := iconRenderRuntime{rootStyle: theme.NewRootStyleContext(nil, tokens, nil)}
 	icon := primitive.NewIcon(primitive.IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="currentColor"><path d="M1 1H9V9H1Z"/></svg>`))
-	icon.SetAccessibleName("Square")
-	icon.SetColorSlot(theme.ColorPrimary)
+	icon.Decorative = marks.Const(false)
+	icon.AccessibleLabel = marks.Const("Square")
+	icon.ColorSlot = marks.Const(theme.ColorPrimary)
 	facet.Attach(icon, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
 	size := icon.Base().LayoutRole().Measure(facet.MeasureContext{
 		Runtime:      rt,

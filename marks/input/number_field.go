@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -44,31 +45,25 @@ const (
 
 // NumberField implements the input.number_field standard mark.
 type NumberField struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Value *store.ValueStore[float64]
 
-	Label       string
-	Placeholder string
-	HelperText  string
-	WarningText string
-	ErrorText   string
-	Min         float64
-	Max         float64
-	Step        float64
-	Precision   int
-	Validation  NumberFieldValidation
-	Required    bool
-	Disabled    bool
-	ReadOnly    bool
+	Label       marks.Binding[string]
+	Placeholder marks.Binding[string]
+	HelperText  marks.Binding[string]
+	WarningText marks.Binding[string]
+	ErrorText   marks.Binding[string]
+	Min         marks.Binding[float64]
+	Max         marks.Binding[float64]
+	Step        marks.Binding[float64]
+	Precision   marks.Binding[int]
+	Validation  marks.Binding[NumberFieldValidation]
+	Required    marks.Binding[bool]
+	Disabled    marks.Binding[bool]
+	ReadOnly    marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -110,21 +105,33 @@ type NumberField struct {
 
 var _ facet.FacetImpl = (*NumberField)(nil)
 var _ layout.AnchorExporter = (*NumberField)(nil)
+var _ marks.Mark = (*NumberField)(nil)
 
 // NewNumberField constructs an input.number_field mark with canonical defaults.
 func NewNumberField(label string) *NumberField {
 	nf := &NumberField{
-		Facet:     facet.NewFacet(),
-		Value:     store.NewValueStore[float64](0),
-		Label:     label,
-		Step:      1,
-		Precision: -1,
+		Label:       marks.Const(label),
+		Placeholder: marks.Const(""),
+		HelperText:  marks.Const(""),
+		WarningText: marks.Const(""),
+		ErrorText:   marks.Const(""),
+		Min:         marks.Const(float64(0)),
+		Max:         marks.Const(float64(0)),
+		Step:        marks.Const(float64(1)),
+		Precision:   marks.Const(-1),
+		Validation:  marks.Const(NumberFieldValidationDefault),
+		Required:    marks.Const(false),
+		Disabled:    marks.Const(false),
+		ReadOnly:    marks.Const(false),
+		Value:       store.NewValueStore[float64](0),
 	}
-	nf.layoutRole.Parent = facet.GroupParentContract{
+	nf.Core.Facet = facet.NewFacet()
+
+	nf.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: numberFieldGroupPolicy{},
 	}
-	nf.layoutRole.Child = facet.GroupChildContract{
+	nf.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := nf.measureIntrinsic(ctx, constraints)
@@ -142,45 +149,26 @@ func NewNumberField(label string) *NumberField {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	nf.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	nf.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return nf.measure(ctx, constraints)
 	}
-	nf.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		nf.layoutRole.ArrangedBounds = bounds
+	nf.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		nf.Layout.ArrangedBounds = bounds
 		nf.arrange(ctx, bounds)
 	}
-	nf.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := nf.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	nf.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return nf.hitTest(p) }
+	nf.Input.OnPointer = func(e facet.PointerEvent) bool { return nf.onPointer(e) }
+	nf.Input.OnKey = func(e facet.KeyEvent) bool { return nf.onKey(e) }
+	nf.Input.OnText = func(e facet.TextEvent) bool { return nf.onText(e) }
+	nf.Focus.Focusable = func() bool { return !nf.Disabled.Get() }
+	nf.Focus.TabIndex = 0
+	nf.Focus.OnFocusGained = func() { nf.onFocusGained() }
+	nf.Focus.OnFocusLost = func() { nf.onFocusLost() }
+	nf.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return nf.buildCommands(nf.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	nf.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := nf.buildCommands(nf.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	nf.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return nf.hitTest(p) }
-	nf.inputRole.OnPointer = func(e facet.PointerEvent) bool { return nf.onPointer(e) }
-	nf.inputRole.OnKey = func(e facet.KeyEvent) bool { return nf.onKey(e) }
-	nf.inputRole.OnText = func(e facet.TextEvent) bool { return nf.onText(e) }
-	nf.focusRole.Focusable = func() bool { return !nf.Disabled }
-	nf.focusRole.TabIndex = 0
-	nf.focusRole.OnFocusGained = func() { nf.onFocusGained() }
-	nf.focusRole.OnFocusLost = func() { nf.onFocusLost() }
 	nf.textRole.IMEEnabled = true
-	nf.AddRole(&nf.layoutRole)
-	nf.AddRole(&nf.renderRole)
-	nf.AddRole(&nf.projectionRole)
-	nf.AddRole(&nf.hitRole)
-	nf.AddRole(&nf.inputRole)
-	nf.AddRole(&nf.focusRole)
+	nf.RegisterRoles()
 	nf.AddRole(&nf.textRole)
 	return nf
 }
@@ -189,6 +177,11 @@ func NewNumberField(label string) *NumberField {
 func (nf *NumberField) Base() *facet.Facet {
 	nf.Facet.BindImpl(nf)
 	return &nf.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (nf *NumberField) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "input", TypeName: "number_field"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -201,134 +194,7 @@ func (nf *NumberField) AccessibleName() string {
 	if nf == nil {
 		return ""
 	}
-	return nf.Label
-}
-
-// SetValue stores a new canonical numeric value.
-func (nf *NumberField) SetValue(value float64) {
-	if nf == nil || nf.Value == nil || nf.Value.Get() == value {
-		return
-	}
-	nf.Value.Set(nf.clampValue(value))
-	nf.syncEditingText()
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetLabel updates the field label.
-func (nf *NumberField) SetLabel(label string) {
-	if nf == nil || nf.Label == label {
-		return
-	}
-	nf.Label = label
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetPlaceholder updates the placeholder text.
-func (nf *NumberField) SetPlaceholder(placeholder string) {
-	if nf == nil || nf.Placeholder == placeholder {
-		return
-	}
-	nf.Placeholder = placeholder
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetHelperText updates the helper text.
-func (nf *NumberField) SetHelperText(helper string) {
-	if nf == nil || nf.HelperText == helper {
-		return
-	}
-	nf.HelperText = helper
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetWarningText updates the warning text.
-func (nf *NumberField) SetWarningText(warning string) {
-	if nf == nil || nf.WarningText == warning {
-		return
-	}
-	nf.WarningText = warning
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetErrorText updates the error text.
-func (nf *NumberField) SetErrorText(err string) {
-	if nf == nil || nf.ErrorText == err {
-		return
-	}
-	nf.ErrorText = err
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetValidation updates the validation state.
-func (nf *NumberField) SetValidation(validation NumberFieldValidation) {
-	if nf == nil || nf.Validation == validation {
-		return
-	}
-	nf.Validation = validation
-	nf.invalidate(facet.DirtyProjection)
-}
-
-// SetMin updates the minimum bound.
-func (nf *NumberField) SetMin(min float64) {
-	if nf == nil || nf.Min == min {
-		return
-	}
-	nf.Min = min
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetMax updates the maximum bound.
-func (nf *NumberField) SetMax(max float64) {
-	if nf == nil || nf.Max == max {
-		return
-	}
-	nf.Max = max
-	nf.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetStep updates the authored step value.
-func (nf *NumberField) SetStep(step float64) {
-	if nf == nil || nf.Step == step {
-		return
-	}
-	nf.Step = step
-	nf.invalidate(facet.DirtyProjection)
-}
-
-// SetPrecision updates formatting precision. Negative values use compact formatting.
-func (nf *NumberField) SetPrecision(precision int) {
-	if nf == nil || nf.Precision == precision {
-		return
-	}
-	nf.Precision = precision
-	nf.syncEditingText()
-	nf.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles the disabled state.
-func (nf *NumberField) SetDisabled(disabled bool) {
-	if nf == nil || nf.Disabled == disabled {
-		return
-	}
-	nf.Disabled = disabled
-	if disabled {
-		nf.hovered = false
-		nf.pressed = false
-		nf.focusedVisible = false
-		nf.focusFromPointer = false
-		nf.selecting = false
-		nf.pressedStepper = 0
-	}
-	nf.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetReadOnly toggles read-only behavior.
-func (nf *NumberField) SetReadOnly(readOnly bool) {
-	if nf == nil || nf.ReadOnly == readOnly {
-		return
-	}
-	nf.ReadOnly = readOnly
-	nf.invalidate(facet.DirtyProjection)
+	return nf.Label.Get()
 }
 
 // ExportAnchors publishes the field anchor set.
@@ -336,24 +202,14 @@ func (nf *NumberField) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 	if nf == nil {
 		return nil
 	}
-	bounds := nf.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	out := nf.Core.DefaultAnchors(nf.Layout.ArrangedBounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if nf.textRole.Layout != nil {
 		out["baseline"] = gfx.Point{X: nf.cachedValueBounds.Min.X, Y: nf.cachedValueBounds.Min.Y + nf.textRole.Layout.Baseline}
 	} else {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
+		out["baseline"] = out["bounds_top_left"]
 	}
 	return out
 }
@@ -365,6 +221,7 @@ func (nf *NumberField) OnAttach(ctx facet.AttachContext) {
 	if nf.Value == nil {
 		nf.Value = store.NewValueStore[float64](0)
 	}
+	nf.Core.OnAttach()
 	nf.syncEditingText()
 	facet.Store(facet.Subscribe(nf), &nf.Value.OnChange, nf.Value.Version, func(signal.Change[float64]) {
 		if !nf.editing || !nf.parseError {
@@ -374,9 +231,10 @@ func (nf *NumberField) OnAttach(ctx facet.AttachContext) {
 	})
 }
 
-func (nf *NumberField) OnActivate()   {}
-func (nf *NumberField) OnDeactivate() {}
+func (nf *NumberField) OnActivate()   { nf.Core.OnActivate() }
+func (nf *NumberField) OnDeactivate() { nf.Core.OnDeactivate() }
 func (nf *NumberField) OnDetach() {
+	nf.Core.OnDetach()
 	nf.cachedLayout = nil
 	nf.cachedLabelLayout = nil
 	nf.cachedValueLayout = nil
@@ -448,9 +306,9 @@ func (nf *NumberField) measure(ctx facet.MeasureContext, constraints facet.Const
 	nf.textRole.CaretPosition = nf.currentCaret(valueLayout)
 	nf.textRole.CaretVisible = nf.shouldShowCaret()
 	size := gfx.Size{W: layout.Bounds.Width(), H: layout.Bounds.Height()}
-	nf.layoutRole.MeasuredSize = size
-	nf.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
-	return nf.layoutRole.MeasuredResult
+	nf.Layout.MeasuredSize = size
+	nf.Layout.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+	return nf.Layout.MeasuredResult
 }
 
 func (nf *NumberField) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -460,7 +318,7 @@ func (nf *NumberField) measureIntrinsic(ctx facet.MeasureContext, constraints fa
 func (nf *NumberField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	nf.cachedRootBounds = bounds
 	if nf.cachedLayout == nil {
-		nf.layoutRole.ArrangedBounds = bounds
+		nf.Layout.ArrangedBounds = bounds
 		return
 	}
 	nf.cachedLabelBounds = gfx.Rect{}
@@ -502,14 +360,14 @@ func (nf *NumberField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	stepperX := bounds.Max.X - stepperW
 	nf.cachedStepperUpBounds = gfx.RectFromXYWH(stepperX, fieldY, stepperW, fieldH*0.5)
 	nf.cachedStepperDownBounds = gfx.RectFromXYWH(stepperX, fieldY+fieldH*0.5, stepperW, fieldH*0.5)
-	if nf.Validation == NumberFieldValidationWarning && nf.WarningText != "" {
+	if nf.Validation.Get() == NumberFieldValidationWarning && nf.WarningText.Get() != "" {
 		nf.cachedHelperBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY+fieldH+gap, bounds.Width(), helperH)
-	} else if nf.Validation == NumberFieldValidationInvalid && nf.errorText() != "" {
+	} else if nf.Validation.Get() == NumberFieldValidationInvalid && nf.errorText() != "" {
 		nf.cachedErrorBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY+fieldH+gap, bounds.Width(), helperH)
 	} else if nf.cachedHelperLayout != nil {
 		nf.cachedHelperBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY+fieldH+gap, bounds.Width(), helperH)
 	}
-	nf.layoutRole.ArrangedBounds = bounds
+	nf.Layout.ArrangedBounds = bounds
 	_ = ctx
 }
 
@@ -551,9 +409,9 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 	valueStyle := resolved.TextStyle(theme.TextBodyM)
 	helperStyle := resolved.TextStyle(theme.TextBodyS)
 	displayText := nf.displayText()
-	labelLayout := shaper.ShapeTruncated(nf.Label, labelStyle, nf.availableWidth(constraints, resolved))
+	labelLayout := shaper.ShapeTruncated(nf.Label.Get(), labelStyle, nf.availableWidth(constraints, resolved))
 	valueLayout := shaper.ShapeTruncated(displayText, valueStyle, nf.availableWidth(constraints, resolved)-nf.cachedStepperWidth)
-	placeholderLayout := shaper.ShapeTruncated(nf.Placeholder, valueStyle, nf.availableWidth(constraints, resolved)-nf.cachedStepperWidth)
+	placeholderLayout := shaper.ShapeTruncated(nf.Placeholder.Get(), valueStyle, nf.availableWidth(constraints, resolved)-nf.cachedStepperWidth)
 	helperText := nf.auxiliaryText()
 	helperLayout := shaper.ShapeTruncated(helperText, helperStyle, nf.availableWidth(constraints, resolved))
 	errorLayout := shaper.ShapeTruncated(nf.errorText(), helperStyle, nf.availableWidth(constraints, resolved))
@@ -576,7 +434,7 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 		fieldInnerWidth = 0
 	}
 	valueLayout = shaper.ShapeTruncated(displayText, valueStyle, fieldInnerWidth)
-	placeholderLayout = shaper.ShapeTruncated(nf.Placeholder, valueStyle, fieldInnerWidth)
+	placeholderLayout = shaper.ShapeTruncated(nf.Placeholder.Get(), valueStyle, fieldInnerWidth)
 	valueLayout = nf.ensureTextLayout(valueLayout, valueStyle, true)
 	placeholderLayout = nf.ensureTextLayout(placeholderLayout, valueStyle, true)
 	fieldH := valueLayout.Bounds.Height() + nf.cachedPadY*2
@@ -591,9 +449,9 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 		labelH = labelLayout.Bounds.Height()
 	}
 	helperH := float32(0)
-	if nf.Validation == NumberFieldValidationInvalid && nf.errorText() != "" && errorLayout != nil {
+	if nf.Validation.Get() == NumberFieldValidationInvalid && nf.errorText() != "" && errorLayout != nil {
 		helperH = errorLayout.Bounds.Height()
-	} else if nf.Validation == NumberFieldValidationWarning && nf.warningText() != "" && helperLayout != nil {
+	} else if nf.Validation.Get() == NumberFieldValidationWarning && nf.warningText() != "" && helperLayout != nil {
 		helperH = helperLayout.Bounds.Height()
 	} else if helperLayout != nil {
 		helperH = helperLayout.Bounds.Height()
@@ -729,9 +587,9 @@ func (nf *NumberField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command
 	if nf.cachedHelperBounds != (gfx.Rect{}) && nf.cachedHelperLayout != nil {
 		helperLayout := nf.cachedHelperLayout
 		helperMaterial := helper
-		switch nf.Validation {
+		switch nf.Validation.Get() {
 		case NumberFieldValidationWarning:
-			if nf.WarningText != "" {
+			if nf.WarningText.Get() != "" {
 				helperMaterial = themedMaterialFromColor(tokens.Color.Warning)
 			}
 		case NumberFieldValidationInvalid:
@@ -782,7 +640,7 @@ func (nf *NumberField) stepperArrowPath(bounds gfx.Rect, up bool) gfx.Path {
 }
 
 func (nf *NumberField) hitTest(p gfx.Point) facet.HitResult {
-	if nf == nil || nf.layoutRole.ArrangedBounds.IsEmpty() || !nf.layoutRole.ArrangedBounds.Contains(p) {
+	if nf == nil || nf.Layout.ArrangedBounds.IsEmpty() || !nf.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := nf.cursorShape()
@@ -796,7 +654,7 @@ func (nf *NumberField) hitTest(p gfx.Point) facet.HitResult {
 		return facet.HitResult{Hit: true, MarkID: numberFieldMarkIDLabel, Cursor: cursor}
 	}
 	if nf.cachedHelperBounds.Contains(p) {
-		if nf.Validation == NumberFieldValidationInvalid {
+		if nf.Validation.Get() == NumberFieldValidationInvalid {
 			return facet.HitResult{Hit: true, MarkID: numberFieldMarkIDErrorText, Cursor: cursor}
 		}
 		return facet.HitResult{Hit: true, MarkID: numberFieldMarkIDHelperText, Cursor: cursor}
@@ -827,14 +685,14 @@ func (nf *NumberField) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (nf *NumberField) cursorShape() facet.CursorShape {
-	if nf.Disabled {
+	if nf.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorText
 }
 
 func (nf *NumberField) onPointer(e facet.PointerEvent) bool {
-	if nf.Disabled {
+	if nf.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -925,7 +783,7 @@ func (nf *NumberField) onPointer(e facet.PointerEvent) bool {
 }
 
 func (nf *NumberField) onKey(e facet.KeyEvent) bool {
-	if nf.Disabled {
+	if nf.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -947,12 +805,12 @@ func (nf *NumberField) onKey(e facet.KeyEvent) bool {
 		}
 	case platform.KeyHome:
 		if e.Kind == platform.KeyPress {
-			nf.setValueCanonical(nf.Min)
+			nf.setValueCanonical(nf.Min.Get())
 			return true
 		}
 	case platform.KeyEnd:
 		if e.Kind == platform.KeyPress {
-			nf.setValueCanonical(nf.Max)
+			nf.setValueCanonical(nf.Max.Get())
 			return true
 		}
 	case platform.KeyBackspace:
@@ -974,7 +832,7 @@ func (nf *NumberField) onKey(e facet.KeyEvent) bool {
 }
 
 func (nf *NumberField) onText(e facet.TextEvent) bool {
-	if nf.Disabled || nf.ReadOnly || e.Text == "" {
+	if nf.Disabled.Get() || nf.ReadOnly.Get() || e.Text == "" {
 		return false
 	}
 	nf.editing = true
@@ -1009,7 +867,7 @@ func (nf *NumberField) onFocusLost() {
 
 func (nf *NumberField) interactionState() theme.InteractionState {
 	switch {
-	case nf.Disabled:
+	case nf.Disabled.Get():
 		return theme.StateDisabled
 	case nf.pressed:
 		return theme.StatePressed
@@ -1038,19 +896,19 @@ func (nf *NumberField) formatValue(value float64) string {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		value = 0
 	}
-	if nf.Precision >= 0 {
-		return strconv.FormatFloat(value, 'f', nf.Precision, 64)
+	if nf.Precision.Get() >= 0 {
+		return strconv.FormatFloat(value, 'f', nf.Precision.Get(), 64)
 	}
 	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
 func (nf *NumberField) clampValue(value float64) float64 {
-	if nf.Min < nf.Max {
-		if value < nf.Min {
-			value = nf.Min
+	if nf.Min.Get() < nf.Max.Get() {
+		if value < nf.Min.Get() {
+			value = nf.Min.Get()
 		}
-		if value > nf.Max {
-			value = nf.Max
+		if value > nf.Max.Get() {
+			value = nf.Max.Get()
 		}
 	}
 	if math.IsNaN(value) || math.IsInf(value, 0) {
@@ -1073,7 +931,7 @@ func (nf *NumberField) setValueCanonical(value float64) {
 }
 
 func (nf *NumberField) incrementValue(direction float64) {
-	step := nf.Step
+	step := nf.Step.Get()
 	if step == 0 {
 		step = 1
 	}
@@ -1092,30 +950,30 @@ func (nf *NumberField) displayText() string {
 }
 
 func (nf *NumberField) auxiliaryText() string {
-	switch nf.Validation {
+	switch nf.Validation.Get() {
 	case NumberFieldValidationWarning:
-		if nf.WarningText != "" {
-			return nf.WarningText
+		if nf.WarningText.Get() != "" {
+			return nf.WarningText.Get()
 		}
 	case NumberFieldValidationInvalid:
-		if nf.ErrorText != "" {
-			return nf.ErrorText
+		if nf.ErrorText.Get() != "" {
+			return nf.ErrorText.Get()
 		}
 	}
 	if nf.parseError {
-		if nf.ErrorText != "" {
-			return nf.ErrorText
+		if nf.ErrorText.Get() != "" {
+			return nf.ErrorText.Get()
 		}
 		return "Invalid number"
 	}
-	return nf.HelperText
+	return nf.HelperText.Get()
 }
 
-func (nf *NumberField) warningText() string { return nf.WarningText }
-func (nf *NumberField) errorText() string   { return nf.ErrorText }
+func (nf *NumberField) warningText() string { return nf.WarningText.Get() }
+func (nf *NumberField) errorText() string   { return nf.ErrorText.Get() }
 
 func (nf *NumberField) hasErrorState() bool {
-	return nf.Validation == NumberFieldValidationInvalid || nf.parseError
+	return nf.Validation.Get() == NumberFieldValidationInvalid || nf.parseError
 }
 
 func (nf *NumberField) selectionHasContent() bool {
@@ -1169,7 +1027,7 @@ func (nf *NumberField) currentCaret(layout *text.TextLayout) text.TextPosition {
 }
 
 func (nf *NumberField) shouldShowCaret() bool {
-	return !nf.Disabled && nf.focusedVisible
+	return !nf.Disabled.Get() && nf.focusedVisible
 }
 
 func (nf *NumberField) clearSelection() {
@@ -1236,7 +1094,7 @@ func (nf *NumberField) applyCaretMove(extend bool) {
 }
 
 func (nf *NumberField) deleteBackward() bool {
-	if nf.ReadOnly {
+	if nf.ReadOnly.Get() {
 		return false
 	}
 	if nf.cachedValueLayout == nil {
@@ -1265,7 +1123,7 @@ func (nf *NumberField) deleteBackward() bool {
 }
 
 func (nf *NumberField) insertText(textValue string) {
-	if nf.ReadOnly {
+	if nf.ReadOnly.Get() {
 		return
 	}
 	current := []rune(nf.currentDisplayText())

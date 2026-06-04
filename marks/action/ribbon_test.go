@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -16,7 +17,7 @@ func TestRibbonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	ribbon, rt := newRibbonFixture(t, defaultActionBarTokens())
 
 	facet.Attach(ribbon, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := ribbon.layoutRole.Measure(facet.MeasureContext{
+	result := ribbon.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -26,7 +27,7 @@ func TestRibbonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H)
-	ribbon.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: ribbon.layoutRole.Parent, ChildGroup: ribbon.layoutRole.Child}, bounds)
+	ribbon.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: ribbon.Layout.Parent, ChildGroup: ribbon.Layout.Child}, bounds)
 
 	if got := ribbon.AccessibilityRole(); got != "toolbar" {
 		t.Fatalf("accessibility role = %q, want toolbar", got)
@@ -41,14 +42,14 @@ func TestRibbonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected arranged geometry, got root=%#v tabs=%#v toolbars=%#v", ribbon.cachedRootBounds, ribbon.cachedTabBounds, ribbon.cachedToolbarBounds)
 	}
 
-	tabHit := ribbon.hitRole.HitTest(gfx.Point{
+	tabHit := ribbon.Hit.HitTest(gfx.Point{
 		X: ribbon.cachedTabBounds[1].Min.X + ribbon.cachedTabBounds[1].Width()*0.5,
 		Y: ribbon.cachedTabBounds[1].Min.Y + ribbon.cachedTabBounds[1].Height()*0.5,
 	})
 	if !tabHit.Hit || tabHit.MarkID != ribbonMarkIDGroupLabels {
 		t.Fatalf("expected tab-label hit, got %#v", tabHit)
 	}
-	toolbarHit := ribbon.hitRole.HitTest(gfx.Point{
+	toolbarHit := ribbon.Hit.HitTest(gfx.Point{
 		X: ribbon.cachedToolbarBounds[0].Min.X + ribbon.cachedToolbarBounds[0].Width()*0.5,
 		Y: ribbon.cachedToolbarBounds[0].Min.Y + ribbon.cachedToolbarBounds[0].Height()*0.5,
 	})
@@ -63,7 +64,7 @@ func TestRibbonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := ribbon.projectionRole.Project(facet.ProjectionContext{
+	cmds := ribbon.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -92,13 +93,13 @@ func TestRibbonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	ribbon, rt := newRibbonFixture(t, defaultActionBarTokens())
 
 	facet.Attach(ribbon, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := ribbon.layoutRole.Measure(facet.MeasureContext{
+	result := ribbon.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1600, H: 560}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	ribbon.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: ribbon.layoutRole.Parent, ChildGroup: ribbon.layoutRole.Child}, bounds)
+	ribbon.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: ribbon.Layout.Parent, ChildGroup: ribbon.Layout.Child}, bounds)
 
 	activated := -1
 	ribbon.Activated.Subscribe(func(index int) {
@@ -148,8 +149,8 @@ func TestRibbonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected keyboard focus to show focus ring")
 	}
 
-	ribbon.SetDisabled(true)
-	if ribbon.focusRole.Focusable() {
+	ribbon.Disabled = marks.Const(true)
+	if ribbon.Focus.Focusable() {
 		t.Fatal("expected disabled ribbon to be unfocusable")
 	}
 	if ribbon.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: secondCenter, Button: platform.PointerLeft}) {
@@ -184,7 +185,7 @@ func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntime
 			Key:   "home",
 			Label: "Home",
 			Toolbars: []*Toolbar{
-				NewToolbar("Clipboard", []ToolbarGroup{
+				NewToolbar(marks.Const("Clipboard"), []ToolbarGroup{
 					{
 						Key: "primary",
 						Actions: []ActionGroupAction{
@@ -200,7 +201,7 @@ func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntime
 						{Key: "format", Label: "Format", IconRef: "edit"},
 					},
 				}),
-				NewToolbar("Editing", []ToolbarGroup{
+				NewToolbar(marks.Const("Editing"), []ToolbarGroup{
 					{
 						Key: "secondary",
 						Actions: []ActionGroupAction{
@@ -215,7 +216,7 @@ func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntime
 			Key:   "insert",
 			Label: "Insert",
 			Toolbars: []*Toolbar{
-				NewToolbar("Illustrations", []ToolbarGroup{
+				NewToolbar(marks.Const("Illustrations"), []ToolbarGroup{
 					{
 						Key: "art",
 						Actions: []ActionGroupAction{
@@ -230,7 +231,7 @@ func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntime
 			Key:   "view",
 			Label: "View",
 			Toolbars: []*Toolbar{
-				NewToolbar("Layout", []ToolbarGroup{
+				NewToolbar(marks.Const("Layout"), []ToolbarGroup{
 					{
 						Key: "view",
 						Actions: []ActionGroupAction{

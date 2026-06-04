@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -71,29 +72,23 @@ type DialogContentChild struct {
 
 // Dialog implements the feedback.dialog canonical mark.
 type Dialog struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	Actioned  signal.Signal[int]
 	Dismissed signal.Signal[signal.Unit]
 
-	Title              string
-	Body               string
-	ContentLayoutMode  DialogContentLayoutMode
-	ContentGridColumns int
-	ContentGridRows    int
-	Actions            []DialogAction
-	ContentChildren    []DialogContentChild
-	CloseButtonLabel   string
-	Disabled           bool
-	Open               bool
+	Title              marks.Binding[string]
+	Body               marks.Binding[string]
+	ContentLayoutMode  marks.Binding[DialogContentLayoutMode]
+	ContentGridColumns marks.Binding[int]
+	ContentGridRows    marks.Binding[int]
+	Actions            marks.Binding[[]DialogAction]
+	ContentChildren    marks.Binding[[]DialogContentChild]
+	CloseButtonLabel   marks.Binding[string]
+	Disabled           marks.Binding[bool]
+	Open               marks.Binding[bool]
 
 	hovered        bool
 	pressed        bool
@@ -122,27 +117,44 @@ type Dialog struct {
 
 var _ facet.FacetImpl = (*Dialog)(nil)
 var _ layout.AnchorExporter = (*Dialog)(nil)
+var _ marks.Mark = (*Dialog)(nil)
 
 const dialogDefaultCloseSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>`
 
 // NewDialog constructs a feedback.dialog mark with canonical defaults.
 func NewDialog(title, body string, actions []DialogAction) *Dialog {
 	d := &Dialog{
-		Facet:             facet.NewFacet(),
-		Title:             title,
-		Body:              body,
-		ContentLayoutMode: DialogContentLayoutVertical,
-		Actions:           append([]DialogAction(nil), actions...),
-		Open:              true,
+		Title:             marks.Const(title),
+		Body:              marks.Const(body),
+		ContentLayoutMode: marks.Const(DialogContentLayoutVertical),
+		ContentGridColumns: marks.Const(1),
+		ContentGridRows:    marks.Const(1),
+		Actions:            marks.Const(append([]DialogAction(nil), actions...)),
+		ContentChildren:    marks.Const[[]DialogContentChild](nil),
+		CloseButtonLabel:   marks.Const(""),
+		Disabled:           marks.Const(false),
+		Open:               marks.Const(true),
 	}
-	d.layoutRole.Parent = facet.GroupParentContract{
+	d.Core.Facet = facet.NewFacet()
+	d.AddBinding(d.Title)
+	d.AddBinding(d.Body)
+	d.AddBinding(d.ContentLayoutMode)
+	d.AddBinding(d.ContentGridColumns)
+	d.AddBinding(d.ContentGridRows)
+	d.AddBinding(d.Actions)
+	d.AddBinding(d.ContentChildren)
+	d.AddBinding(d.CloseButtonLabel)
+	d.AddBinding(d.Disabled)
+	d.AddBinding(d.Open)
+
+	d.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   dialogGroupPolicy{dialog: d},
 		Children: d,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	d.layoutRole.Child = facet.GroupChildContract{
+	d.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := d.measure(ctx, constraints).Size
@@ -160,14 +172,14 @@ func NewDialog(title, body string, actions []DialogAction) *Dialog {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	d.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	d.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return d.measure(ctx, constraints)
 	}
-	d.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		d.layoutRole.ArrangedBounds = bounds
+	d.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		d.Layout.ArrangedBounds = bounds
 		d.arrange(ctx, bounds)
 	}
-	d.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	d.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -177,28 +189,19 @@ func NewDialog(title, body string, actions []DialogAction) *Dialog {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	d.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := d.buildCommands(d.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	d.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return d.hitTest(p) }
-	d.inputRole.OnPointer = func(e facet.PointerEvent) bool { return d.onPointer(e) }
-	d.inputRole.OnKey = func(e facet.KeyEvent) bool { return d.onKey(e) }
-	d.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return d.onDismiss(e) }
-	d.focusRole.Focusable = func() bool { return !d.Disabled && d.Open }
-	d.focusRole.TabIndex = 0
-	d.focusRole.OnFocusGained = func() { d.OnFocusGained() }
-	d.focusRole.OnFocusLost = func() { d.OnFocusLost() }
+	d.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return d.hitTest(p) }
+	d.Input.OnPointer = func(e facet.PointerEvent) bool { return d.onPointer(e) }
+	d.Input.OnKey = func(e facet.KeyEvent) bool { return d.onKey(e) }
+	d.Input.OnDismiss = func(e facet.DismissEvent) bool { return d.onDismiss(e) }
+	d.Focus.Focusable = func() bool { return !d.Disabled.Get() && d.Open.Get() }
+	d.Focus.TabIndex = 0
+	d.Focus.OnFocusGained = func() { d.OnFocusGained() }
+	d.Focus.OnFocusLost = func() { d.OnFocusLost() }
 	d.textRole.IMEEnabled = false
-	d.AddRole(&d.layoutRole)
-	d.AddRole(&d.renderRole)
-	d.AddRole(&d.projectionRole)
-	d.AddRole(&d.hitRole)
-	d.AddRole(&d.inputRole)
-	d.AddRole(&d.focusRole)
+	d.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return d.buildCommands(d.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	d.RegisterRoles()
 	d.AddRole(&d.textRole)
 	d.syncChildren()
 	return d
@@ -210,6 +213,11 @@ func (d *Dialog) Base() *facet.Facet {
 	return &d.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (d *Dialog) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "feedback", TypeName: "dialog"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (d *Dialog) AccessibilityRole() string { return "dialog" }
 
@@ -218,125 +226,12 @@ func (d *Dialog) AccessibleName() string {
 	if d == nil {
 		return ""
 	}
-	return strings.TrimSpace(d.Title)
-}
-
-// SetTitle updates the authored dialog title.
-func (d *Dialog) SetTitle(title string) {
-	if d == nil || d.Title == title {
-		return
-	}
-	d.Title = title
-	d.syncChildren()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetBody updates the authored dialog body.
-func (d *Dialog) SetBody(body string) {
-	if d == nil || d.Body == body {
-		return
-	}
-	d.Body = body
-	d.syncChildren()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetContentLayoutMode updates how custom body content is arranged.
-func (d *Dialog) SetContentLayoutMode(mode DialogContentLayoutMode) {
-	if d == nil || d.ContentLayoutMode == mode {
-		return
-	}
-	d.ContentLayoutMode = mode
-	d.syncChildren()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetContentGrid defines the grid used when the body content layout is grid-based.
-func (d *Dialog) SetContentGrid(columns, rows int) {
-	if d == nil {
-		return
-	}
-	if columns < 1 {
-		columns = 1
-	}
-	if rows < 1 {
-		rows = 1
-	}
-	if d.ContentGridColumns == columns && d.ContentGridRows == rows {
-		return
-	}
-	d.ContentGridColumns = columns
-	d.ContentGridRows = rows
-	d.syncChildren()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetContentChildren updates the reusable body content facet list.
-func (d *Dialog) SetContentChildren(children []DialogContentChild) {
-	if d == nil {
-		return
-	}
-	next := append([]DialogContentChild(nil), children...)
-	for i := range next {
-		next[i].Key = strings.TrimSpace(next[i].Key)
-	}
-	d.ContentChildren = next
-	d.syncChildren()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetActions updates the authored dialog action buttons.
-func (d *Dialog) SetActions(actions []DialogAction) {
-	if d == nil {
-		return
-	}
-	d.Actions = append(d.Actions[:0], actions...)
-	d.syncChildren()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetCloseButtonLabel updates the authored close-button label.
-func (d *Dialog) SetCloseButtonLabel(label string) {
-	if d == nil || d.CloseButtonLabel == label {
-		return
-	}
-	d.CloseButtonLabel = label
-	d.syncChildren()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles the disabled state.
-func (d *Dialog) SetDisabled(disabled bool) {
-	if d == nil || d.Disabled == disabled {
-		return
-	}
-	d.Disabled = disabled
-	if disabled {
-		d.hovered = false
-		d.pressed = false
-		d.focusedVisible = false
-	}
-	d.syncChildren()
-	d.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen toggles the modal open state.
-func (d *Dialog) SetOpen(open bool) {
-	if d == nil || d.Open == open {
-		return
-	}
-	d.Open = open
-	if !open {
-		d.hovered = false
-		d.pressed = false
-		d.focusedVisible = false
-	}
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return strings.TrimSpace(d.Title.Get())
 }
 
 // Children returns the dialog's immediate semantic children.
 func (d *Dialog) Children() []facet.GroupChild {
-	if d == nil || !d.Open {
+	if d == nil || !d.Open.Get() {
 		return nil
 	}
 	d.syncChildren()
@@ -361,19 +256,10 @@ func (d *Dialog) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 	if d == nil {
 		return nil
 	}
-	bounds := d.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := d.Layout.ArrangedBounds
+	out := d.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if !d.cachedTitleBounds.IsEmpty() {
 		out["baseline"] = gfx.Point{X: d.cachedTitleBounds.Min.X, Y: d.cachedTitleBounds.Min.Y}
@@ -388,14 +274,14 @@ func (d *Dialog) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 	return out
 }
 
-// OnAttach is unused.
-func (d *Dialog) OnAttach(ctx facet.AttachContext) {}
+// OnAttach delegates to Core.
+func (d *Dialog) OnAttach(ctx facet.AttachContext) { d.Core.OnAttach() }
 
-// OnActivate is unused.
-func (d *Dialog) OnActivate() {}
+// OnActivate delegates to Core.
+func (d *Dialog) OnActivate() { d.Core.OnActivate() }
 
-// OnDeactivate is unused.
-func (d *Dialog) OnDeactivate() {}
+// OnDeactivate delegates to Core.
+func (d *Dialog) OnDeactivate() { d.Core.OnDeactivate() }
 
 // OnFocusGained marks the dialog as focus-visible.
 func (d *Dialog) OnFocusGained() {
@@ -411,6 +297,7 @@ func (d *Dialog) OnFocusLost() {
 
 // OnDetach clears cached projection state.
 func (d *Dialog) OnDetach() {
+	d.Core.OnDetach()
 	d.cachedTokens = theme.Tokens{}
 	d.cachedRecipe = shared.FeedbackDialogSlots{}
 	d.cachedBounds = gfx.Rect{}
@@ -435,63 +322,65 @@ func (d *Dialog) invalidate(flags facet.DirtyFlags) {
 	if d == nil {
 		return
 	}
-	d.Base().Invalidate(flags)
+	d.Facet.Invalidate(flags)
 }
 
 func (d *Dialog) syncChildren() {
 	if d == nil {
 		return
 	}
-	title := strings.TrimSpace(d.Title)
+	title := strings.TrimSpace(d.Title.Get())
 	if d.cachedTitleFacet == nil {
-		d.cachedTitleFacet = primitive.NewText(title)
+		d.cachedTitleFacet = primitive.NewText(marks.Const(title))
 	} else {
-		d.cachedTitleFacet.SetContent(title)
+		d.cachedTitleFacet.Content = marks.Const(title)
+		d.cachedTitleFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	d.cachedTitleFacet.SetTypography(theme.TextHeadingS)
-	d.cachedTitleFacet.SetOverflow(primitive.TextOverflowTruncate)
-	d.cachedTitleFacet.SetForeground(theme.ColorText)
-	if d.Disabled {
-		d.cachedTitleFacet.SetForeground(theme.ColorTextDisabled)
-		d.cachedTitleFacet.SetDisabled(true)
+	d.cachedTitleFacet.Typography = marks.Const(theme.TextHeadingS)
+	d.cachedTitleFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	d.cachedTitleFacet.Foreground = marks.Const(theme.ColorText)
+	if d.Disabled.Get() {
+		d.cachedTitleFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		d.cachedTitleFacet.Disabled = marks.Const(true)
 	} else {
-		d.cachedTitleFacet.SetDisabled(false)
+		d.cachedTitleFacet.Disabled = marks.Const(false)
 	}
 	if d.cachedBodyGroup == nil {
 		d.cachedBodyGroup = newDialogBodyGroup(d)
 	}
 	d.cachedBodyGroup.syncContent()
-	if len(d.Actions) == 0 {
+	actions := d.Actions.Get()
+	if len(actions) == 0 {
 		d.cachedActionsFacet = nil
 	} else {
 		if d.cachedActionsFacet == nil {
 			d.cachedActionsFacet = newDialogActionGroup(d)
 		}
-		d.cachedActionsFacet.syncActions(d.Actions, d.Disabled)
+		d.cachedActionsFacet.syncActions(actions, d.Disabled.Get())
 	}
-	if strings.TrimSpace(d.CloseButtonLabel) == "" {
+	if strings.TrimSpace(d.CloseButtonLabel.Get()) == "" {
 		d.cachedCloseButton = nil
 	} else {
 		if d.cachedCloseButton == nil {
 			d.cachedCloseButton = action.NewIconButton(primitive.IconSVG(dialogDefaultCloseSVG))
 			d.cachedCloseButton.Activated.Subscribe(func(signal.Unit) {
-				if d != nil && !d.Disabled && d.Open {
+				if d != nil && !d.Disabled.Get() && d.Open.Get() {
 					d.closeAndDismiss()
 				}
 			})
 		}
-		d.cachedCloseButton.SetSource(primitive.IconSVG(dialogDefaultCloseSVG))
-		d.cachedCloseButton.SetAccessibleName(strings.TrimSpace(d.CloseButtonLabel))
-		d.cachedCloseButton.SetDisabled(d.Disabled)
+		d.cachedCloseButton.Icon = primitive.IconSVG(dialogDefaultCloseSVG)
+		d.cachedCloseButton.AccessibleLabel = marks.Const(strings.TrimSpace(d.CloseButtonLabel.Get()))
+		d.cachedCloseButton.Disabled = marks.Const(d.Disabled.Get())
 	}
 }
 
 func (d *Dialog) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	if !d.Open {
+	if !d.Open.Get() {
 		size := constraints.Constrain(gfx.Size{})
-		d.layoutRole.MeasuredSize = size
-		d.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
-		return d.layoutRole.MeasuredResult
+		d.Layout.MeasuredSize = size
+		d.Layout.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+		return d.Layout.MeasuredResult
 	}
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
 	if !ok {
@@ -578,9 +467,9 @@ func (d *Dialog) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		size.H = constraints.MaxSize.H
 	}
 	measured := constraints.Constrain(size)
-	d.layoutRole.MeasuredSize = measured
-	d.layoutRole.MeasuredResult = facet.MeasureResult{Size: measured, Intrinsic: facet.IntrinsicSize{Min: measured, Preferred: measured, Max: measured}, Constraints: constraints}
-	return d.layoutRole.MeasuredResult
+	d.Layout.MeasuredSize = measured
+	d.Layout.MeasuredResult = facet.MeasureResult{Size: measured, Intrinsic: facet.IntrinsicSize{Min: measured, Preferred: measured, Max: measured}, Constraints: constraints}
+	return d.Layout.MeasuredResult
 }
 
 func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -591,8 +480,8 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	d.cachedBodyBounds = gfx.Rect{}
 	d.cachedActionsBounds = gfx.Rect{}
 	d.cachedCloseBounds = gfx.Rect{}
-	d.layoutRole.ArrangedBounds = bounds
-	if bounds.IsEmpty() || !d.Open {
+	d.Layout.ArrangedBounds = bounds
+	if bounds.IsEmpty() || !d.Open.Get() {
 		return
 	}
 	d.syncChildren()
@@ -686,7 +575,7 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 }
 
 func (d *Dialog) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if d == nil || bounds.IsEmpty() || !d.Open {
+	if d == nil || bounds.IsEmpty() || !d.Open.Get() {
 		return nil
 	}
 	style, slots := d.resolveProjectionTheme(runtime)
@@ -766,7 +655,7 @@ func (d *Dialog) dialogState() theme.InteractionState {
 	if d == nil {
 		return theme.StateDefault
 	}
-	if d.Disabled {
+	if d.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	if d.pressed {
@@ -785,7 +674,7 @@ func (d *Dialog) dialogVariant() uifeedback.DialogVariant {
 	if d == nil {
 		return uifeedback.DialogDefault
 	}
-	if d.Disabled {
+	if d.Disabled.Get() {
 		return uifeedback.DialogDisabled
 	}
 	if d.pressed {
@@ -797,14 +686,14 @@ func (d *Dialog) dialogVariant() uifeedback.DialogVariant {
 	if d.hovered {
 		return uifeedback.DialogHover
 	}
-	if d.Open {
+	if d.Open.Get() {
 		return uifeedback.DialogOpen
 	}
 	return uifeedback.DialogDefault
 }
 
 func (d *Dialog) hitTest(p gfx.Point) facet.HitResult {
-	if d == nil || !d.Open || d.cachedBounds.IsEmpty() || !d.cachedBounds.Contains(p) {
+	if d == nil || !d.Open.Get() || d.cachedBounds.IsEmpty() || !d.cachedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	switch {
@@ -824,7 +713,7 @@ func (d *Dialog) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (d *Dialog) onPointer(e facet.PointerEvent) bool {
-	if d == nil || d.Disabled || !d.Open {
+	if d == nil || d.Disabled.Get() || !d.Open.Get() {
 		return false
 	}
 	if !d.cachedBounds.Contains(e.Position) {
@@ -884,7 +773,7 @@ func (d *Dialog) onPointer(e facet.PointerEvent) bool {
 }
 
 func (d *Dialog) onKey(e facet.KeyEvent) bool {
-	if d == nil || d.Disabled || !d.Open {
+	if d == nil || d.Disabled.Get() || !d.Open.Get() {
 		return false
 	}
 	if e.Kind != platform.KeyPress {
@@ -905,7 +794,7 @@ func (d *Dialog) onKey(e facet.KeyEvent) bool {
 
 func (d *Dialog) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if d == nil || d.Disabled || !d.Open {
+	if d == nil || d.Disabled.Get() || !d.Open.Get() {
 		return false
 	}
 	d.closeAndDismiss()
@@ -913,7 +802,7 @@ func (d *Dialog) onDismiss(e facet.DismissEvent) bool {
 }
 
 func (d *Dialog) onAction(index int) {
-	if d == nil || d.Disabled || !d.Open {
+	if d == nil || d.Disabled.Get() || !d.Open.Get() {
 		return
 	}
 	d.Actioned.Emit(index)
@@ -921,10 +810,10 @@ func (d *Dialog) onAction(index int) {
 }
 
 func (d *Dialog) closeAndDismiss() {
-	if d == nil || !d.Open {
+	if d == nil || !d.Open.Get() {
 		return
 	}
-	d.Open = false
+	d.Open = marks.Const(false)
 	d.hovered = false
 	d.pressed = false
 	d.focusedVisible = false
@@ -990,9 +879,7 @@ func (p dialogGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children 
 }
 
 type dialogActionGroup struct {
-	facet.Facet
-
-	layoutRole facet.LayoutRole
+	marks.Core
 
 	parent  *Dialog
 	Buttons []*action.Button
@@ -1000,17 +887,17 @@ type dialogActionGroup struct {
 
 func newDialogActionGroup(parent *Dialog) *dialogActionGroup {
 	g := &dialogActionGroup{
-		Facet:  facet.NewFacet(),
 		parent: parent,
 	}
-	g.layoutRole.Parent = facet.GroupParentContract{
+	g.Core.Facet = facet.NewFacet()
+	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   dialogActionGroupPolicy{group: g},
 		Children: g,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	g.layoutRole.Child = facet.GroupChildContract{
+	g.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := g.measure(ctx, constraints)
@@ -1028,15 +915,15 @@ func newDialogActionGroup(parent *Dialog) *dialogActionGroup {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	g.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	g.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		size := g.measure(ctx, constraints)
 		return facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
 	}
-	g.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		g.layoutRole.ArrangedBounds = bounds
+	g.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		g.Layout.ArrangedBounds = bounds
 		g.arrange(ctx, bounds)
 	}
-	g.AddRole(&g.layoutRole)
+	g.RegisterRoles()
 	return g
 }
 
@@ -1059,10 +946,10 @@ func (g *dialogActionGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *dialogActionGroup) OnAttach(ctx facet.AttachContext) {}
-func (g *dialogActionGroup) OnActivate()                      {}
-func (g *dialogActionGroup) OnDeactivate()                    {}
-func (g *dialogActionGroup) OnDetach()                        {}
+func (g *dialogActionGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *dialogActionGroup) OnActivate()                      { g.Core.OnActivate() }
+func (g *dialogActionGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
+func (g *dialogActionGroup) OnDetach()                        { g.Core.OnDetach() }
 
 func (g *dialogActionGroup) syncActions(actions []DialogAction, disabled bool) {
 	if g == nil {
@@ -1078,7 +965,7 @@ func (g *dialogActionGroup) syncActions(actions []DialogAction, disabled bool) {
 	for i, spec := range actions {
 		btn := g.Buttons[i]
 		if btn == nil {
-			btn = action.NewButton(strings.TrimSpace(spec.Label), spec.variant())
+			btn = action.NewButton(marks.Const(strings.TrimSpace(spec.Label)), marks.Const(spec.variant()))
 			index := i
 			btn.Activated.Subscribe(func(signal.Unit) {
 				if g != nil && g.parent != nil {
@@ -1087,10 +974,10 @@ func (g *dialogActionGroup) syncActions(actions []DialogAction, disabled bool) {
 			})
 			g.Buttons[i] = btn
 		} else {
-			btn.SetLabel(strings.TrimSpace(spec.Label))
-			btn.SetVariant(spec.variant())
+			btn.Label = marks.Const(strings.TrimSpace(spec.Label))
+			btn.Variant = marks.Const(spec.variant())
 		}
-		btn.SetDisabled(disabled || spec.Disabled)
+		btn.Disabled = marks.Const(disabled || spec.Disabled)
 	}
 }
 
@@ -1193,12 +1080,9 @@ func (a DialogAction) variant() uiinput.ButtonVariant {
 }
 
 type dialogBodyGroup struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	parent *Dialog
 
@@ -1219,17 +1103,17 @@ type dialogBodyGroup struct {
 
 func newDialogBodyGroup(parent *Dialog) *dialogBodyGroup {
 	g := &dialogBodyGroup{
-		Facet:  facet.NewFacet(),
 		parent: parent,
 	}
-	g.layoutRole.Parent = facet.GroupParentContract{
+	g.Core.Facet = facet.NewFacet()
+	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   dialogBodyGroupPolicy{group: g},
 		Children: g,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	g.layoutRole.Child = facet.GroupChildContract{
+	g.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := g.measure(ctx, constraints)
@@ -1247,15 +1131,15 @@ func newDialogBodyGroup(parent *Dialog) *dialogBodyGroup {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	g.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	g.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		size := g.measure(ctx, constraints)
 		return facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
 	}
-	g.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		g.layoutRole.ArrangedBounds = bounds
+	g.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		g.Layout.ArrangedBounds = bounds
 		g.arrange(ctx, bounds)
 	}
-	g.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	g.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -1265,17 +1149,11 @@ func newDialogBodyGroup(parent *Dialog) *dialogBodyGroup {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	g.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := g.buildCommands(g.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
 	g.textRole.IMEEnabled = false
-	g.AddRole(&g.layoutRole)
-	g.AddRole(&g.renderRole)
-	g.AddRole(&g.projectionRole)
+	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return g.buildCommands(g.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	g.RegisterRoles()
 	g.AddRole(&g.textRole)
 	return g
 }
@@ -1286,7 +1164,7 @@ func (g *dialogBodyGroup) Base() *facet.Facet {
 }
 
 func (g *dialogBodyGroup) Children() []facet.GroupChild {
-	if g == nil || g.parent == nil || !g.parent.Open {
+	if g == nil || g.parent == nil || !g.parent.Open.Get() {
 		return nil
 	}
 	g.syncContent()
@@ -1312,18 +1190,18 @@ func (g *dialogBodyGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *dialogBodyGroup) OnAttach(ctx facet.AttachContext) {}
-func (g *dialogBodyGroup) OnActivate()                      {}
-func (g *dialogBodyGroup) OnDeactivate()                    {}
-func (g *dialogBodyGroup) OnDetach()                        {}
+func (g *dialogBodyGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *dialogBodyGroup) OnActivate()                      { g.Core.OnActivate() }
+func (g *dialogBodyGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
+func (g *dialogBodyGroup) OnDetach()                        { g.Core.OnDetach() }
 
 func (g *dialogBodyGroup) syncContent() {
 	if g == nil || g.parent == nil {
 		return
 	}
-	g.cachedLayoutMode = g.parent.ContentLayoutMode
-	g.cachedGridColumns = g.parent.ContentGridColumns
-	g.cachedGridRows = g.parent.ContentGridRows
+	g.cachedLayoutMode = g.parent.ContentLayoutMode.Get()
+	g.cachedGridColumns = g.parent.ContentGridColumns.Get()
+	g.cachedGridRows = g.parent.ContentGridRows.Get()
 	g.cachedWritingDir = g.parent.cachedWritingDirection
 	if g.cachedGridColumns < 1 {
 		g.cachedGridColumns = 1
@@ -1331,29 +1209,30 @@ func (g *dialogBodyGroup) syncContent() {
 	if g.cachedGridRows < 1 {
 		g.cachedGridRows = 1
 	}
-	if g.layoutRole.Parent.Policy != nil {
-		g.layoutRole.Parent.Kind = g.groupKind()
+	if g.Layout.Parent.Policy != nil {
+		g.Layout.Parent.Kind = g.groupKind()
 	}
-	body := strings.TrimSpace(g.parent.Body)
+	body := strings.TrimSpace(g.parent.Body.Get())
 	if body == "" {
 		g.cachedTextFacet = nil
 	} else {
 		if g.cachedTextFacet == nil {
-			g.cachedTextFacet = primitive.NewText(body)
+			g.cachedTextFacet = primitive.NewText(marks.Const(body))
 		} else {
-			g.cachedTextFacet.SetContent(body)
+			g.cachedTextFacet.Content = marks.Const(body)
+			g.cachedTextFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 		}
-		g.cachedTextFacet.SetTypography(theme.TextBodyM)
-		g.cachedTextFacet.SetOverflow(primitive.TextOverflowTruncate)
-		g.cachedTextFacet.SetForeground(theme.ColorTextSecondary)
-		if g.parent.Disabled {
-			g.cachedTextFacet.SetForeground(theme.ColorTextDisabled)
-			g.cachedTextFacet.SetDisabled(true)
+		g.cachedTextFacet.Typography = marks.Const(theme.TextBodyM)
+		g.cachedTextFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+		g.cachedTextFacet.Foreground = marks.Const(theme.ColorTextSecondary)
+		if g.parent.Disabled.Get() {
+			g.cachedTextFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+			g.cachedTextFacet.Disabled = marks.Const(true)
 		} else {
-			g.cachedTextFacet.SetDisabled(false)
+			g.cachedTextFacet.Disabled = marks.Const(false)
 		}
 	}
-	g.cachedChildren = append(g.cachedChildren[:0], g.parent.ContentChildren...)
+	g.cachedChildren = append(g.cachedChildren[:0], g.parent.ContentChildren.Get()...)
 }
 
 func (g *dialogBodyGroup) groupKind() facet.GroupLayoutKind {
@@ -1368,7 +1247,7 @@ func (g *dialogBodyGroup) groupKind() facet.GroupLayoutKind {
 }
 
 func (g *dialogBodyGroup) measure(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
-	if g == nil || g.parent == nil || !g.parent.Open {
+	if g == nil || g.parent == nil || !g.parent.Open.Get() {
 		return gfx.Size{}
 	}
 	g.syncContent()
@@ -1465,7 +1344,7 @@ func (g *dialogBodyGroup) measureContentSize(children []dialogBodyChildMeasure, 
 }
 
 func (g *dialogBodyGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
-	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open {
+	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open.Get() {
 		return
 	}
 	g.syncContent()
@@ -1605,7 +1484,7 @@ func (g *dialogBodyGroup) gridChildren(children []dialogBodyChildMeasure) []layo
 }
 
 func (g *dialogBodyGroup) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open {
+	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open.Get() {
 		return nil
 	}
 	if g.cachedTextFacet == nil && len(g.cachedChildren) == 0 {

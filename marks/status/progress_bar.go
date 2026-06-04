@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -23,16 +24,11 @@ const (
 
 // ProgressBar implements the status.progress_bar canonical mark.
 type ProgressBar struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	tickRole       facet.TickRole
-
-	Label    string
-	Value    float32
-	Disabled bool
+	Label    marks.Binding[string]
+	Value    marks.Binding[float32]
+	Disabled marks.Binding[bool]
 
 	cachedTokens           theme.Tokens
 	cachedRecipe           shared.StatusProgressBarSlots
@@ -59,15 +55,22 @@ type ProgressBar struct {
 
 var _ facet.FacetImpl = (*ProgressBar)(nil)
 var _ layout.AnchorExporter = (*ProgressBar)(nil)
+var _ marks.Mark = (*ProgressBar)(nil)
 
 // NewProgressBar constructs a status.progress_bar mark with canonical defaults.
 func NewProgressBar(label string) *ProgressBar {
 	p := &ProgressBar{
-		Facet: facet.NewFacet(),
-		Label: label,
+		Label:    marks.Const(label),
+		Value:    marks.Const(float32(0)),
+		Disabled: marks.Const(false),
 	}
-	p.layoutRole.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
-	p.layoutRole.Child = facet.GroupChildContract{
+	p.Core.Facet = facet.NewFacet()
+	p.AddBinding(p.Label)
+	p.AddBinding(p.Value)
+	p.AddBinding(p.Disabled)
+
+	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	p.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measure(ctx, constraints).Size
@@ -85,37 +88,20 @@ func NewProgressBar(label string) *ProgressBar {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	p.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return p.measure(ctx, constraints)
 	}
-	p.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		p.layoutRole.ArrangedBounds = bounds
+	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		p.Layout.ArrangedBounds = bounds
 		p.arrange(ctx, bounds)
 	}
-	p.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := p.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	p.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := p.buildCommands(p.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	p.tickRole.OnTick = func(dt time.Duration) {
+	p.Tick.OnTick = func(dt time.Duration) {
 		p.onTick(dt)
 	}
-	p.AddRole(&p.layoutRole)
-	p.AddRole(&p.renderRole)
-	p.AddRole(&p.projectionRole)
-	p.AddRole(&p.tickRole)
+	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	p.RegisterRoles()
 	p.syncLabelFacet()
 	return p
 }
@@ -126,70 +112,26 @@ func (p *ProgressBar) Base() *facet.Facet {
 	return &p.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (p *ProgressBar) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "status", TypeName: "progress_bar"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (p *ProgressBar) AccessibilityRole() string { return "progressbar" }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (p *ProgressBar) AccessibleName() string { return "" }
 
-// SetLabel updates the authored optional label.
-func (p *ProgressBar) SetLabel(label string) {
-	if p == nil || p.Label == label {
-		return
-	}
-	p.Label = label
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetValue updates the authored progress value and starts a short pulse.
-func (p *ProgressBar) SetValue(value float32) {
-	if p == nil {
-		return
-	}
-	value = clamp01(value)
-	if p.Value == value {
-		return
-	}
-	p.Value = value
-	if !p.Disabled {
-		p.startPulse()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (p *ProgressBar) SetDisabled(disabled bool) {
-	if p == nil || p.Disabled == disabled {
-		return
-	}
-	p.Disabled = disabled
-	if disabled {
-		p.pulseDuration = 0
-		p.pulseRemaining = 0
-		p.pulsePhase = 0
-		p.tickRole.Reset()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
 // ExportAnchors publishes the progress-bar anchor set.
 func (p *ProgressBar) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if p == nil {
 		return nil
 	}
-	bounds := p.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := p.Layout.ArrangedBounds
+	out := p.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if !p.cachedTrackBounds.IsEmpty() {
 		out["track"] = gfx.Point{X: (p.cachedTrackBounds.Min.X + p.cachedTrackBounds.Max.X) * 0.5, Y: (p.cachedTrackBounds.Min.Y + p.cachedTrackBounds.Max.Y) * 0.5}
@@ -204,16 +146,17 @@ func (p *ProgressBar) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 }
 
 // OnAttach is unused.
-func (p *ProgressBar) OnAttach(ctx facet.AttachContext) {}
+func (p *ProgressBar) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
 
 // OnActivate is unused.
-func (p *ProgressBar) OnActivate() {}
+func (p *ProgressBar) OnActivate() { p.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (p *ProgressBar) OnDeactivate() {}
+func (p *ProgressBar) OnDeactivate() { p.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (p *ProgressBar) OnDetach() {
+	p.Core.OnDetach()
 	p.cachedTokens = theme.Tokens{}
 	p.cachedRecipe = shared.StatusProgressBarSlots{}
 	p.cachedBounds = gfx.Rect{}
@@ -246,29 +189,30 @@ func (p *ProgressBar) syncLabelFacet() {
 	if p == nil {
 		return
 	}
-	label := strings.TrimSpace(p.Label)
+	label := strings.TrimSpace(p.Label.Get())
 	if !p.cachedShowLabel || label == "" {
 		p.cachedLabelFacet = nil
 		return
 	}
 	if p.cachedLabelFacet == nil {
-		p.cachedLabelFacet = primitive.NewText(label)
+		p.cachedLabelFacet = primitive.NewText(marks.Const(label))
 	} else {
-		p.cachedLabelFacet.SetContent(label)
+		p.cachedLabelFacet.Content = marks.Const(label)
+		p.cachedLabelFacet.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	p.cachedLabelFacet.SetTypography(theme.TextLabelM)
-	p.cachedLabelFacet.SetOverflow(primitive.TextOverflowTruncate)
+	p.cachedLabelFacet.Typography = marks.Const(theme.TextLabelM)
+	p.cachedLabelFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
 	if p.cachedWritingDirection == facet.WritingDirectionRTL {
-		p.cachedLabelFacet.SetAlignment(text.AlignRight)
+		p.cachedLabelFacet.Alignment = marks.Const(text.AlignRight)
 	} else {
-		p.cachedLabelFacet.SetAlignment(text.AlignLeft)
+		p.cachedLabelFacet.Alignment = marks.Const(text.AlignLeft)
 	}
-	if p.Disabled {
-		p.cachedLabelFacet.SetForeground(theme.ColorTextDisabled)
-		p.cachedLabelFacet.SetDisabled(true)
+	if p.Disabled.Get() {
+		p.cachedLabelFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		p.cachedLabelFacet.Disabled = marks.Const(true)
 	} else {
-		p.cachedLabelFacet.SetForeground(theme.ColorText)
-		p.cachedLabelFacet.SetDisabled(false)
+		p.cachedLabelFacet.Foreground = marks.Const(theme.ColorText)
+		p.cachedLabelFacet.Disabled = marks.Const(false)
 	}
 }
 
@@ -288,7 +232,7 @@ func (p *ProgressBar) measure(ctx facet.MeasureContext, constraints facet.Constr
 	p.cachedTrackHeight = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
 	p.cachedRootRadius = maxFloat(float32(resolved.Radius(theme.RadiusM).Float32()), p.cachedTrackHeight*0.75)
 	p.cachedTrackRadius = p.cachedTrackHeight * 0.5
-	p.cachedShowLabel = strings.TrimSpace(p.Label) != "" && resolved.Density.ID != theme.DensityIDCompact
+	p.cachedShowLabel = strings.TrimSpace(p.Label.Get()) != "" && resolved.Density.ID != theme.DensityIDCompact
 	p.syncLabelFacet()
 
 	availableWidth := constraints.MaxSize.W
@@ -329,8 +273,8 @@ func (p *ProgressBar) measure(ctx facet.MeasureContext, constraints facet.Constr
 		totalHeight += p.cachedTrackHeight
 	}
 	measured := constraints.Constrain(gfx.Size{W: contentWidth, H: totalHeight})
-	p.layoutRole.MeasuredSize = measured
-	p.layoutRole.MeasuredResult = facet.MeasureResult{
+	p.Layout.MeasuredSize = measured
+	p.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -339,7 +283,7 @@ func (p *ProgressBar) measure(ctx facet.MeasureContext, constraints facet.Constr
 		},
 		Constraints: constraints,
 	}
-	return p.layoutRole.MeasuredResult
+	return p.Layout.MeasuredResult
 }
 
 func (p *ProgressBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -347,7 +291,7 @@ func (p *ProgressBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedTrackBounds = gfx.Rect{}
 	p.cachedIndicatorBounds = gfx.Rect{}
 	p.cachedLabelBounds = gfx.Rect{}
-	p.layoutRole.ArrangedBounds = bounds
+	p.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -378,7 +322,7 @@ func (p *ProgressBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		trackTop = maxFloat(inner.Min.Y, inner.Max.Y-trackHeight)
 	}
 	p.cachedTrackBounds = gfx.RectFromXYWH(inner.Min.X, trackTop, inner.Width(), trackHeight)
-	progress := clamp01(p.Value)
+	progress := clamp01(p.Value.Get())
 	indicatorWidth := p.cachedTrackBounds.Width() * progress
 	if progress > 0 && indicatorWidth < 1 {
 		indicatorWidth = 1
@@ -391,7 +335,7 @@ func (p *ProgressBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		p.cachedLabelFacet.Base().LayoutRole().ArrangedBounds = p.cachedLabelBounds
 	}
 	if p.pulseRemaining > 0 {
-		p.tickRole.RequestTick()
+		p.Tick.RequestTick()
 	}
 }
 
@@ -402,7 +346,7 @@ func (p *ProgressBar) buildCommands(bounds gfx.Rect, runtime any, contentScale f
 	style, slots := p.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if p.Disabled {
+	if p.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -421,7 +365,7 @@ func (p *ProgressBar) buildCommands(bounds gfx.Rect, runtime any, contentScale f
 		indicatorRadius := minFloat(p.cachedIndicatorBounds.Height()*0.5, p.cachedTrackRadius)
 		cmds = append(cmds, progressMaterialCommands(gfx.RoundedRectPath(p.cachedIndicatorBounds, indicatorRadius), indicator)...)
 	}
-	if !p.Disabled && p.pulseRemaining > 0 && !p.cachedIndicatorBounds.IsEmpty() {
+	if !p.Disabled.Get() && p.pulseRemaining > 0 && !p.cachedIndicatorBounds.IsEmpty() {
 		stripeWidth := maxFloat(2, minFloat(p.cachedIndicatorBounds.Width()*0.18, p.cachedIndicatorBounds.Height()*0.8))
 		if stripeWidth > p.cachedIndicatorBounds.Width() {
 			stripeWidth = p.cachedIndicatorBounds.Width()
@@ -469,7 +413,7 @@ func (p *ProgressBar) resolveProjectionTheme(runtime any) (theme.StyleContext, s
 }
 
 func (p *ProgressBar) progressBarVariant() uistatus.ProgressBarVariant {
-	if p != nil && p.Disabled {
+	if p != nil && p.Disabled.Get() {
 		return uistatus.ProgressBarDisabled
 	}
 	return uistatus.ProgressBarDefault
@@ -486,12 +430,12 @@ func (p *ProgressBar) startPulse() {
 	p.pulseDuration = duration
 	p.pulseRemaining = duration
 	p.pulsePhase = 0
-	p.tickRole.RequestTick()
+	p.Tick.RequestTick()
 }
 
 func (p *ProgressBar) onTick(dt time.Duration) {
-	if p == nil || p.Disabled || p.pulseRemaining <= 0 {
-		p.tickRole.Reset()
+	if p == nil || p.Disabled.Get() || p.pulseRemaining <= 0 {
+		p.Tick.Reset()
 		return
 	}
 	p.pulseRemaining -= dt
@@ -506,9 +450,9 @@ func (p *ProgressBar) onTick(dt time.Duration) {
 	}
 	p.invalidate(facet.DirtyProjection)
 	if p.pulseRemaining > 0 {
-		p.tickRole.RequestTick()
+		p.Tick.RequestTick()
 	} else {
-		p.tickRole.Reset()
+		p.Tick.Reset()
 	}
 }
 

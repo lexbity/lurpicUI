@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -22,7 +23,7 @@ func TestProgressRingMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ctx := badgeResolvedContext(badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(ring, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := ring.layoutRole.Measure(facet.MeasureContext{
+	result := ring.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -33,11 +34,11 @@ func TestProgressRingMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	ring.layoutRole.Arrange(facet.ArrangeContext{
+	ring.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: ring.layoutRole.Parent,
-		ChildGroup:  ring.layoutRole.Child,
+		ParentGroup: ring.Layout.Parent,
+		ChildGroup:  ring.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementGrid},
 	}, bounds)
 	if got := ring.AccessibilityRole(); got != "progressbar" {
@@ -55,7 +56,7 @@ func TestProgressRingMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := ring.projectionRole.Project(facet.ProjectionContext{
+	cmds := ring.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -82,12 +83,13 @@ func TestProgressRingMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 
 func TestProgressRingTickRequestsAnimation(t *testing.T) {
 	ring := newProgressRingFixture()
-	ring.SetValue(0.82)
-	if !ring.tickRole.IsActive() {
+	ring.Value = marks.Const(float32(0.82))
+	ring.startPulse()
+	if !ring.Tick.IsActive() {
 		t.Fatal("expected tick role to request animation after value update")
 	}
 	before := ring.pulseRemaining
-	ring.tickRole.OnTick(16 * time.Millisecond)
+	ring.Tick.OnTick(16 * time.Millisecond)
 	if ring.pulseRemaining >= before {
 		t.Fatalf("expected pulse remaining to decrease, before=%v after=%v", before, ring.pulseRemaining)
 	}
@@ -107,7 +109,7 @@ func TestProgressRingGoldenComfortable(t *testing.T) {
 
 func TestProgressRingGoldenDisabled(t *testing.T) {
 	AssertProgressRingGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *ProgressRing) {
-		r.SetDisabled(true)
+		r.Disabled = marks.Const(true)
 	})
 }
 
@@ -132,21 +134,21 @@ func AssertProgressRingGolden(t *testing.T, name string, tokens theme.Tokens, de
 	ctx := badgeResolvedContext(tokens, density, direction)
 	facet.Attach(ring, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(16, 16, 240, 220)
-	_ = ring.layoutRole.Measure(facet.MeasureContext{
+	_ = ring.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	ring.layoutRole.Arrange(facet.ArrangeContext{
+	ring.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: ring.layoutRole.Parent,
-		ChildGroup:  ring.layoutRole.Child,
+		ParentGroup: ring.Layout.Parent,
+		ChildGroup:  ring.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementGrid},
 	}, canvas)
-	cmds := ring.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	cmds := ring.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
@@ -172,6 +174,6 @@ func AssertProgressRingGolden(t *testing.T, name string, tokens theme.Tokens, de
 
 func newProgressRingFixture() *ProgressRing {
 	ring := NewProgressRing("Syncing data")
-	ring.Value = 0.75
+	ring.Value = marks.Const(float32(0.75))
 	return ring
 }

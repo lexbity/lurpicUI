@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -16,7 +17,7 @@ func TestToolbarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	toolbar, rt := newToolbarFixture(t)
 
 	facet.Attach(toolbar, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := toolbar.layoutRole.Measure(facet.MeasureContext{
+	result := toolbar.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -26,7 +27,7 @@ func TestToolbarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H)
-	toolbar.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: toolbar.layoutRole.Parent, ChildGroup: toolbar.layoutRole.Child}, bounds)
+	toolbar.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: toolbar.Layout.Parent, ChildGroup: toolbar.Layout.Child}, bounds)
 
 	if got := toolbar.AccessibilityRole(); got != "toolbar" {
 		t.Fatalf("accessibility role = %q, want toolbar", got)
@@ -42,16 +43,16 @@ func TestToolbarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	itemBounds := toolbar.cachedChildren[0].group.cachedActionBounds[0]
-	itemHit := toolbar.hitRole.HitTest(gfx.Point{X: itemBounds.Min.X + 1, Y: itemBounds.Min.Y + 1})
+	itemHit := toolbar.Hit.HitTest(gfx.Point{X: itemBounds.Min.X + 1, Y: itemBounds.Min.Y + 1})
 	if !itemHit.Hit || itemHit.MarkID != toolbarMarkIDActionItems {
 		t.Fatalf("expected action-item hit, got %#v", itemHit)
 	}
 	sepPoint := gfx.Point{X: toolbar.cachedSeparatorBounds[0].Min.X + 1, Y: toolbar.cachedSeparatorBounds[0].Min.Y + 1}
-	sepHit := toolbar.hitRole.HitTest(sepPoint)
+	sepHit := toolbar.Hit.HitTest(sepPoint)
 	if !sepHit.Hit || sepHit.MarkID != toolbarMarkIDSeparators {
 		t.Fatalf("expected separator hit, got %#v", sepHit)
 	}
-	overflowHit := toolbar.hitRole.HitTest(gfx.Point{X: toolbar.cachedChildren[2].overflow.cachedTriggerBounds.Min.X + 1, Y: toolbar.cachedChildren[2].overflow.cachedTriggerBounds.Min.Y + 1})
+	overflowHit := toolbar.Hit.HitTest(gfx.Point{X: toolbar.cachedChildren[2].overflow.cachedTriggerBounds.Min.X + 1, Y: toolbar.cachedChildren[2].overflow.cachedTriggerBounds.Min.Y + 1})
 	if !overflowHit.Hit || overflowHit.MarkID != toolbarMarkIDOverflowMenu {
 		t.Fatalf("expected overflow hit, got %#v", overflowHit)
 	}
@@ -63,7 +64,7 @@ func TestToolbarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := toolbar.projectionRole.Project(facet.ProjectionContext{
+	cmds := toolbar.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -92,13 +93,13 @@ func TestToolbarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	toolbar, rt := newToolbarFixture(t)
 
 	facet.Attach(toolbar, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := toolbar.layoutRole.Measure(facet.MeasureContext{
+	result := toolbar.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 320}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	toolbar.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: toolbar.layoutRole.Parent, ChildGroup: toolbar.layoutRole.Child}, bounds)
+	toolbar.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: toolbar.Layout.Parent, ChildGroup: toolbar.Layout.Child}, bounds)
 
 	var activated string
 	toolbar.Activated.Subscribe(func(key string) {
@@ -141,8 +142,8 @@ func TestToolbarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatalf("expected edit activation from keyboard, got %q", activated)
 	}
 
-	toolbar.SetDisabled(true)
-	if toolbar.focusRole.Focusable() {
+	toolbar.Disabled = marks.Const(true)
+	if toolbar.Focus.Focusable() {
 		t.Fatal("expected disabled toolbar to be unfocusable")
 	}
 	if toolbar.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: firstActionBounds.Min.X + 1, Y: firstActionBounds.Min.Y + 1}, Button: platform.PointerLeft}) {
@@ -172,7 +173,7 @@ func TestToolbarRecipe_allSlotsPresent(t *testing.T) {
 
 func newToolbarFixture(t *testing.T) (*Toolbar, buttonRuntimeStub) {
 	t.Helper()
-	toolbar := NewToolbar("Actions", []ToolbarGroup{
+	toolbar := NewToolbar(marks.Const("Actions"), []ToolbarGroup{
 		{
 			Key: "primary",
 			Actions: []ActionGroupAction{

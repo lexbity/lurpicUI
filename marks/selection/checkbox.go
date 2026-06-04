@@ -5,6 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -49,22 +50,16 @@ func (s CheckboxState) String() string {
 
 // Checkbox implements the selection.checkbox standard mark.
 type Checkbox struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label      marks.Binding[string]
+	HelperText marks.Binding[string]
+	Variant    marks.Binding[uiinput.CheckboxVariant]
+	Disabled   marks.Binding[bool]
 
 	Value *store.ValueStore[CheckboxState]
 
-	Label      string
-	HelperText string
-	Variant    uiinput.CheckboxVariant
-	Disabled   bool
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -95,6 +90,7 @@ type Checkbox struct {
 
 var _ facet.FacetImpl = (*Checkbox)(nil)
 var _ layout.AnchorExporter = (*Checkbox)(nil)
+var _ marks.Mark = (*Checkbox)(nil)
 
 var (
 	checkboxTickDocument  = mustParseCheckboxTickDocument()
@@ -104,16 +100,23 @@ var (
 // NewCheckbox constructs a selection.checkbox mark with canonical defaults.
 func NewCheckbox(label string) *Checkbox {
 	c := &Checkbox{
-		Facet:   facet.NewFacet(),
-		Value:   store.NewValueStore[CheckboxState](CheckboxStateOff),
-		Label:   label,
-		Variant: uiinput.CheckboxStandard,
+		Label:      marks.Const(label),
+		HelperText: marks.Const(""),
+		Variant:    marks.Const(uiinput.CheckboxStandard),
+		Disabled:   marks.Const(false),
+		Value:      store.NewValueStore[CheckboxState](CheckboxStateOff),
 	}
-	c.layoutRole.Parent = facet.GroupParentContract{
+	c.Core.Facet = facet.NewFacet()
+	c.AddBinding(c.Label)
+	c.AddBinding(c.HelperText)
+	c.AddBinding(c.Variant)
+	c.AddBinding(c.Disabled)
+
+	c.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: checkboxGroupPolicy{},
 	}
-	c.layoutRole.Child = facet.GroupChildContract{
+	c.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := c.measureIntrinsic(ctx, constraints)
@@ -131,56 +134,37 @@ func NewCheckbox(label string) *Checkbox {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	c.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	c.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return c.measure(ctx, constraints)
 	}
-	c.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		c.layoutRole.ArrangedBounds = bounds
+	c.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		c.Layout.ArrangedBounds = bounds
 		c.arrange(ctx, bounds)
 	}
-	c.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := c.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	c.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return c.buildCommands(c.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	c.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := c.buildCommands(c.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	c.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	c.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return c.hitTest(p)
 	}
-	c.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	c.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return c.onPointer(e)
 	}
-	c.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	c.Input.OnKey = func(e facet.KeyEvent) bool {
 		return c.onKey(e)
 	}
-	c.focusRole.Focusable = func() bool {
-		return !c.Disabled
+	c.Focus.Focusable = func() bool {
+		return !c.Disabled.Get()
 	}
-	c.focusRole.TabIndex = 0
-	c.focusRole.OnFocusGained = func() {
+	c.Focus.TabIndex = 0
+	c.Focus.OnFocusGained = func() {
 		c.onFocusGained()
 	}
-	c.focusRole.OnFocusLost = func() {
+	c.Focus.OnFocusLost = func() {
 		c.onFocusLost()
 	}
 	c.textRole.IMEEnabled = false
-	c.AddRole(&c.layoutRole)
-	c.AddRole(&c.renderRole)
-	c.AddRole(&c.projectionRole)
-	c.AddRole(&c.hitRole)
-	c.AddRole(&c.inputRole)
-	c.AddRole(&c.focusRole)
+	c.RegisterRoles()
 	c.AddRole(&c.textRole)
 	return c
 }
@@ -189,6 +173,11 @@ func NewCheckbox(label string) *Checkbox {
 func (c *Checkbox) Base() *facet.Facet {
 	c.Facet.BindImpl(c)
 	return &c.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (c *Checkbox) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "checkbox"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -201,97 +190,19 @@ func (c *Checkbox) AccessibleName() string {
 	if c == nil {
 		return ""
 	}
-	return c.Label
-}
-
-// SetLabel updates the authored label text.
-func (c *Checkbox) SetLabel(label string) {
-	if c == nil || c.Label == label {
-		return
-	}
-	c.Label = label
-	c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetHelperText updates the authored helper text.
-func (c *Checkbox) SetHelperText(helper string) {
-	if c == nil || c.HelperText == helper {
-		return
-	}
-	c.HelperText = helper
-	c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetVariant updates the authored checkbox variant.
-func (c *Checkbox) SetVariant(variant uiinput.CheckboxVariant) {
-	if c == nil || c.Variant == variant {
-		return
-	}
-	c.Variant = variant
-	c.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (c *Checkbox) SetDisabled(disabled bool) {
-	if c == nil || c.Disabled == disabled {
-		return
-	}
-	c.Disabled = disabled
-	if disabled {
-		c.hovered = false
-		c.pressed = false
-		c.focusedVisible = false
-		c.focusFromPointer = false
-	}
-	c.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetState updates the canonical checkbox state.
-func (c *Checkbox) SetState(state CheckboxState) {
-	if c == nil {
-		return
-	}
-	state = normalizeCheckboxState(state)
-	if c.Value == nil {
-		c.Value = store.NewValueStore[CheckboxState](state)
-		c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	if c.Value.Get() == state {
-		return
-	}
-	c.Value.Set(state)
-	c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetChecked updates the checkbox to the on/off state.
-func (c *Checkbox) SetChecked(checked bool) {
-	if checked {
-		c.SetState(CheckboxStateOn)
-		return
-	}
-	c.SetState(CheckboxStateOff)
+	return c.Label.Get()
 }
 
 // ExportAnchors publishes the checkbox anchor set.
 func (c *Checkbox) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if c == nil {
-		return nil
-	}
-	bounds := c.layoutRole.ArrangedBounds
+	bounds := c.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	out := c.Core.DefaultAnchors(bounds, ctx)
 	if c.cachedLabelLayout != nil {
 		out["baseline"] = gfx.Point{X: c.cachedLabelBounds.Min.X, Y: c.cachedLabelBounds.Min.Y + c.cachedLabelLayout.Baseline}
 	} else if c.cachedHelperLayout != nil {
@@ -307,6 +218,7 @@ func (c *Checkbox) Children() []facet.GroupChild { return nil }
 
 // OnAttach wires store invalidation for the bound value store.
 func (c *Checkbox) OnAttach(ctx facet.AttachContext) {
+	c.Core.OnAttach()
 	if c.Value == nil {
 		c.Value = store.NewValueStore[CheckboxState](CheckboxStateOff)
 	}
@@ -316,13 +228,14 @@ func (c *Checkbox) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (c *Checkbox) OnActivate() {}
+func (c *Checkbox) OnActivate() { c.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (c *Checkbox) OnDeactivate() {}
+func (c *Checkbox) OnDeactivate() { c.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (c *Checkbox) OnDetach() {
+	c.Core.OnDetach()
 	c.cachedLayout = nil
 	c.cachedLabelLayout = nil
 	c.cachedHelperLayout = nil
@@ -348,7 +261,7 @@ func (c *Checkbox) invalidate(flags facet.DirtyFlags) {
 	if c == nil {
 		return
 	}
-	c.Base().Invalidate(flags)
+	c.Facet.Invalidate(flags)
 }
 
 func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -357,7 +270,7 @@ func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constrain
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uiinput.ResolveCheckboxRecipe(style, c.Variant)
+	slots, _ := uiinput.ResolveCheckboxRecipe(style, c.Variant.Get())
 	cachedTokens := resolved.TokenSet()
 	c.cachedTokens = cachedTokens
 	c.cachedRecipe = slots
@@ -373,16 +286,16 @@ func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constrain
 		maxWidth = checkboxDefaultMaxWidth(resolved)
 	}
 	row := c.ensureTextRow()
-	row.Label = c.Label
-	row.SupportingText = c.HelperText
-	row.Variant = uiinput.ListItemStandard
-	row.Disabled = c.Disabled
-	row.Selected = false
-	row.Active = false
-	row.ShowContainer = false
-	row.ShowLeadingIcon = false
-	row.ShowSelectionIndicator = false
-	row.ShowFocusRing = false
+	row.Label = marks.Const(c.Label.Get())
+	row.SupportingText = marks.Const(c.HelperText.Get())
+	row.Variant = marks.Const(uiinput.ListItemStandard)
+	row.Disabled = marks.Const(c.Disabled.Get())
+	row.Selected = marks.Const(false)
+	row.Active = marks.Const(false)
+	row.ShowContainer = marks.Const(false)
+	row.ShowLeadingIcon = marks.Const(false)
+	row.ShowSelectionIndicator = marks.Const(false)
+	row.ShowFocusRing = marks.Const(false)
 
 	textMaxWidth := maxFloat(0, maxWidth-c.cachedControlSize-c.cachedRowGap)
 	rowResult := row.measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: textMaxWidth, H: constraints.MaxSize.H}})
@@ -425,8 +338,8 @@ func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constrain
 	c.textRole.Selection = text.TextRange{}
 	c.textRole.CaretVisible = false
 	c.textRole.CaretPosition = text.TextPosition{}
-	c.layoutRole.MeasuredSize = size
-	c.layoutRole.MeasuredResult = facet.MeasureResult{
+	c.Layout.MeasuredSize = size
+	c.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -435,7 +348,7 @@ func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constrain
 		},
 		Constraints: constraints,
 	}
-	return c.layoutRole.MeasuredResult
+	return c.Layout.MeasuredResult
 }
 
 func (c *Checkbox) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -447,19 +360,19 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	c.cachedControlBounds = gfx.Rect{}
 	c.cachedLabelBounds = gfx.Rect{}
 	c.cachedHelperBounds = gfx.Rect{}
-	c.layoutRole.ArrangedBounds = bounds
+	c.Layout.ArrangedBounds = bounds
 	if c.cachedLayout == nil || bounds.IsEmpty() {
 		return
 	}
 	row := c.ensureTextRow()
-	row.ShowContainer = false
-	row.ShowLeadingIcon = false
-	row.ShowSelectionIndicator = false
-	row.ShowFocusRing = false
-	row.Disabled = c.Disabled
-	row.Label = c.Label
-	row.SupportingText = c.HelperText
-	row.Variant = uiinput.ListItemStandard
+	row.ShowContainer = marks.Const(false)
+	row.ShowLeadingIcon = marks.Const(false)
+	row.ShowSelectionIndicator = marks.Const(false)
+	row.ShowFocusRing = marks.Const(false)
+	row.Disabled = marks.Const(c.Disabled.Get())
+	row.Label = marks.Const(c.Label.Get())
+	row.SupportingText = marks.Const(c.HelperText.Get())
+	row.Variant = marks.Const(uiinput.ListItemStandard)
 	labelH := text.Height(c.cachedLabelLayout)
 	helperH := text.Height(c.cachedHelperLayout)
 	rowH := maxFloat(c.cachedControlSize, labelH)
@@ -498,16 +411,16 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	controlY := c.cachedLabelBounds.Min.Y + (c.cachedLabelBounds.Height()-c.cachedControlSize)*0.5
 	c.cachedControlBounds = gfx.RectFromXYWH(controlX, controlY, c.cachedControlSize, c.cachedControlSize)
 	c.cachedTickBounds()
-	c.layoutRole.ArrangedBounds = bounds
+	c.Layout.ArrangedBounds = bounds
 }
 
 func (c *Checkbox) ensureTextRow() *ListItem {
 	if c.cachedTextRow == nil {
-		row := NewListItem("")
-		row.ShowContainer = false
-		row.ShowLeadingIcon = false
-		row.ShowSelectionIndicator = false
-		row.ShowFocusRing = false
+		row := NewListItem(marks.Const(""))
+		row.ShowContainer = marks.Const(false)
+		row.ShowLeadingIcon = marks.Const(false)
+		row.ShowSelectionIndicator = marks.Const(false)
+		row.ShowFocusRing = marks.Const(false)
 		c.cachedTextRow = row
 	}
 	return c.cachedTextRow
@@ -524,7 +437,7 @@ func (c *Checkbox) resolveProjectionTheme(runtime any) (theme.StyleContext, shar
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, c.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uiinput.ResolveCheckboxRecipe(style, c.Variant)
+			slots, _ := uiinput.ResolveCheckboxRecipe(style, c.Variant.Get())
 			return style, slots
 		}
 	}
@@ -583,7 +496,7 @@ func (c *Checkbox) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (c *Checkbox) hitTest(p gfx.Point) facet.HitResult {
-	if c == nil || c.layoutRole.ArrangedBounds.IsEmpty() || !c.layoutRole.ArrangedBounds.Contains(p) {
+	if c == nil || c.Layout.ArrangedBounds.IsEmpty() || !c.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := c.cursorShape()
@@ -609,7 +522,7 @@ func (c *Checkbox) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (c *Checkbox) pointInFocusRing(p gfx.Point) bool {
-	bounds := c.layoutRole.ArrangedBounds
+	bounds := c.Layout.ArrangedBounds
 	if bounds.IsEmpty() || !bounds.Contains(p) {
 		return false
 	}
@@ -667,14 +580,14 @@ func (c *Checkbox) isSemanticallyMixed() bool {
 }
 
 func (c *Checkbox) cursorShape() facet.CursorShape {
-	if c.Disabled {
+	if c.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (c *Checkbox) onPointer(e facet.PointerEvent) bool {
-	if c.Disabled {
+	if c.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -706,7 +619,7 @@ func (c *Checkbox) onPointer(e facet.PointerEvent) bool {
 		wasPressed := c.pressed
 		c.pressed = false
 		c.invalidate(facet.DirtyProjection)
-		if wasPressed && c.layoutRole.ArrangedBounds.Contains(e.Position) {
+		if wasPressed && c.Layout.ArrangedBounds.Contains(e.Position) {
 			c.toggleState()
 			c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 			return true
@@ -720,7 +633,7 @@ func (c *Checkbox) onPointer(e facet.PointerEvent) bool {
 }
 
 func (c *Checkbox) onKey(e facet.KeyEvent) bool {
-	if c.Disabled {
+	if c.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -759,7 +672,7 @@ func (c *Checkbox) onFocusLost() {
 
 func (c *Checkbox) interactionState() theme.InteractionState {
 	switch {
-	case c.Disabled:
+	case c.Disabled.Get():
 		return theme.StateDisabled
 	case c.pressed:
 		return theme.StatePressed
@@ -781,7 +694,7 @@ func (c *Checkbox) selectedState() theme.InteractionState {
 
 func (c *Checkbox) stateLayerState() theme.InteractionState {
 	switch {
-	case c.Disabled:
+	case c.Disabled.Get():
 		return theme.StateDisabled
 	case c.pressed:
 		return theme.StatePressed
@@ -795,7 +708,7 @@ func (c *Checkbox) stateLayerState() theme.InteractionState {
 }
 
 func (c *Checkbox) labelState() theme.InteractionState {
-	if c.Disabled {
+	if c.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	return theme.StateDefault
@@ -830,6 +743,33 @@ func (c *Checkbox) toggleState() {
 	default:
 		c.SetState(CheckboxStateOn)
 	}
+}
+
+// SetState updates the canonical checkbox state.
+func (c *Checkbox) SetState(state CheckboxState) {
+	if c == nil {
+		return
+	}
+	state = normalizeCheckboxState(state)
+	if c.Value == nil {
+		c.Value = store.NewValueStore[CheckboxState](state)
+		c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		return
+	}
+	if c.Value.Get() == state {
+		return
+	}
+	c.Value.Set(state)
+	c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+}
+
+// SetChecked updates the checkbox to the on/off state.
+func (c *Checkbox) SetChecked(checked bool) {
+	if checked {
+		c.SetState(CheckboxStateOn)
+		return
+	}
+	c.SetState(CheckboxStateOff)
 }
 
 func (c *Checkbox) newShaper(runtime any) *text.Shaper {

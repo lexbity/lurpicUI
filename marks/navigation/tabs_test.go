@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -37,7 +38,7 @@ func (s tabsRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 func TestTabsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	tabs, rt, measureCtx := newTabsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(tabs, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := tabs.layoutRole.Measure(facet.MeasureContext{
+	result := tabs.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -49,11 +50,11 @@ func TestTabsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	tabs.layoutRole.Arrange(facet.ArrangeContext{
+	tabs.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: tabs.layoutRole.Parent,
-		ChildGroup:  tabs.layoutRole.Child,
+		ParentGroup: tabs.Layout.Parent,
+		ChildGroup:  tabs.Layout.Child,
 	}, bounds)
 
 	if got := tabs.AccessibilityRole(); got != "tablist" {
@@ -69,14 +70,14 @@ func TestTabsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected panel/tab-list geometry, got tablist=%#v panel=%#v", tabs.cachedTabListBounds, tabs.cachedPanelBounds)
 	}
 
-	firstHit := tabs.hitRole.HitTest(gfx.Point{
+	firstHit := tabs.Hit.HitTest(gfx.Point{
 		X: tabs.cachedTabBounds[0].Min.X + tabs.cachedTabBounds[0].Width()*0.5,
 		Y: tabs.cachedTabBounds[0].Min.Y + tabs.cachedTabBounds[0].Height()*0.5,
 	})
 	if !firstHit.Hit || (firstHit.MarkID != tabsMarkIDTab && firstHit.MarkID != tabsMarkIDTabLabel) {
 		t.Fatalf("expected tab or label hit, got %#v", firstHit)
 	}
-	panelHit := tabs.hitRole.HitTest(gfx.Point{
+	panelHit := tabs.Hit.HitTest(gfx.Point{
 		X: tabs.cachedPanelBounds.Min.X + tabs.cachedPanelBounds.Width()*0.5,
 		Y: tabs.cachedPanelBounds.Min.Y + tabs.cachedPanelBounds.Height()*0.5,
 	})
@@ -91,7 +92,7 @@ func TestTabsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := tabs.projectionRole.Project(facet.ProjectionContext{
+	cmds := tabs.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -119,7 +120,7 @@ func TestTabsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 	tabs, rt, measureCtx := newTabsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(tabs, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := tabs.layoutRole.Measure(facet.MeasureContext{
+	result := tabs.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -127,7 +128,7 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1400, H: 800}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	tabs.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	tabs.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	activated := -1
 	tabs.Activated.Subscribe(func(index int) {
@@ -144,7 +145,7 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 	if !tabs.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: secondCenter, Button: platform.PointerLeft}) {
 		t.Fatal("expected pointer release to be handled")
 	}
-	if got := tabs.ActiveIndex; got != 1 {
+	if got := tabs.ActiveIndex.Get(); got != 1 {
 		t.Fatalf("active index after pointer = %d, want 1", got)
 	}
 	if activated != 1 {
@@ -154,19 +155,19 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 	if !tabs.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyRight}) {
 		t.Fatal("expected right key to be handled")
 	}
-	if got := tabs.ActiveIndex; got != 2 {
+	if got := tabs.ActiveIndex.Get(); got != 2 {
 		t.Fatalf("active index after right = %d, want 2", got)
 	}
 	if !tabs.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyHome}) {
 		t.Fatal("expected home key to be handled")
 	}
-	if got := tabs.ActiveIndex; got != 0 {
+	if got := tabs.ActiveIndex.Get(); got != 0 {
 		t.Fatalf("active index after home = %d, want 0", got)
 	}
 	if !tabs.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEnd}) {
 		t.Fatal("expected end key to be handled")
 	}
-	if got := tabs.ActiveIndex; got != len(tabs.Items)-1 {
+	if got := tabs.ActiveIndex.Get(); got != len(tabs.Items)-1 {
 		t.Fatalf("active index after end = %d, want %d", got, len(tabs.Items)-1)
 	}
 	if !tabs.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeySpace}) {
@@ -182,8 +183,8 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 	if !tabs.focusedVisible {
 		t.Fatal("expected keyboard focus to show focus ring")
 	}
-	tabs.SetDisabled(true)
-	if tabs.focusRole.Focusable() {
+	tabs.Disabled = marks.Const(true)
+	if tabs.Focus.Focusable() {
 		t.Fatal("expected disabled tabs to be unfocusable")
 	}
 	if tabs.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: secondCenter, Button: platform.PointerLeft}) {
@@ -208,7 +209,7 @@ func TestTabsGoldenComfortable(t *testing.T) {
 
 func TestTabsGoldenDisabled(t *testing.T) {
 	AssertTabsGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {
-		t.SetDisabled(true)
+		t.Disabled = marks.Const(true)
 	})
 }
 
@@ -240,7 +241,7 @@ func TestTabsGoldenRTL(t *testing.T) {
 
 func TestTabsGoldenSelected(t *testing.T) {
 	AssertTabsGolden(t, "selected", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {
-		t.SetActiveIndex(1)
+		t.ActiveIndex = marks.Const(1)
 	})
 }
 
@@ -256,7 +257,7 @@ func AssertTabsGolden(t *testing.T, name string, tokens theme.Tokens, density th
 func renderTabsToSurface(t *testing.T, tabs *Tabs, rt tabsRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(tabs, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := tabs.layoutRole.Measure(facet.MeasureContext{
+	result := tabs.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -264,8 +265,8 @@ func renderTabsToSurface(t *testing.T, tabs *Tabs, rt tabsRuntimeStub, measureCt
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1800, H: 1200}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	tabs.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
-	cmds := tabs.projectionRole.Project(facet.ProjectionContext{
+	tabs.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cmds := tabs.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

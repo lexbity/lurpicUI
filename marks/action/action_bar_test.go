@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -45,7 +46,7 @@ func TestActionBarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	bar, rt := newActionBarFixture(t)
 
 	facet.Attach(bar, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := bar.layoutRole.Measure(facet.MeasureContext{
+	result := bar.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -55,7 +56,7 @@ func TestActionBarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H)
-	bar.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: bar.layoutRole.Parent, ChildGroup: bar.layoutRole.Child}, bounds)
+	bar.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: bar.Layout.Parent, ChildGroup: bar.Layout.Child}, bounds)
 
 	if got := bar.AccessibilityRole(); got != "toolbar" {
 		t.Fatalf("accessibility role = %q, want toolbar", got)
@@ -70,15 +71,15 @@ func TestActionBarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected arranged geometry, got label=%#v actions=%d", bar.cachedLabelBounds, len(bar.cachedActionBounds))
 	}
 
-	labelHit := bar.hitRole.HitTest(gfx.Point{X: bar.cachedLabelBounds.Min.X + 1, Y: bar.cachedLabelBounds.Min.Y + 1})
+	labelHit := bar.Hit.HitTest(gfx.Point{X: bar.cachedLabelBounds.Min.X + 1, Y: bar.cachedLabelBounds.Min.Y + 1})
 	if !labelHit.Hit || labelHit.MarkID != actionBarMarkIDContextLabel {
 		t.Fatalf("expected context-label hit, got %#v", labelHit)
 	}
-	actionHit := bar.hitRole.HitTest(gfx.Point{X: bar.cachedActionBounds[0].Min.X + 1, Y: bar.cachedActionBounds[0].Min.Y + 1})
+	actionHit := bar.Hit.HitTest(gfx.Point{X: bar.cachedActionBounds[0].Min.X + 1, Y: bar.cachedActionBounds[0].Min.Y + 1})
 	if !actionHit.Hit || actionHit.MarkID != actionBarMarkIDActionItems {
 		t.Fatalf("expected action-items hit, got %#v", actionHit)
 	}
-	overflowHit := bar.hitRole.HitTest(gfx.Point{X: bar.cachedActionBounds[3].Min.X + 1, Y: bar.cachedActionBounds[3].Min.Y + 1})
+	overflowHit := bar.Hit.HitTest(gfx.Point{X: bar.cachedActionBounds[3].Min.X + 1, Y: bar.cachedActionBounds[3].Min.Y + 1})
 	if !overflowHit.Hit || overflowHit.MarkID != actionBarMarkIDOverflowMenu {
 		t.Fatalf("expected overflow hit, got %#v", overflowHit)
 	}
@@ -90,7 +91,7 @@ func TestActionBarMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := bar.projectionRole.Project(facet.ProjectionContext{
+	cmds := bar.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -119,13 +120,13 @@ func TestActionBarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	bar, rt := newActionBarFixture(t)
 
 	facet.Attach(bar, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := bar.layoutRole.Measure(facet.MeasureContext{
+	result := bar.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 960, H: 160}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	bar.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
+	bar.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
 
 	activated := ""
 	bar.Activated.Subscribe(func(key string) {
@@ -165,8 +166,8 @@ func TestActionBarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatalf("expected copy activation from keyboard, got %q", activated)
 	}
 
-	bar.SetDisabled(true)
-	if bar.focusRole.Focusable() {
+	bar.Disabled = marks.Const(true)
+	if bar.Focus.Focusable() {
 		t.Fatal("expected disabled action bar to be unfocusable")
 	}
 	if bar.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: first, Button: platform.PointerLeft}) {
@@ -201,7 +202,7 @@ func newActionBarFixture(t *testing.T) (*ActionBar, actionBarRuntimeStub) {
 		{Key: "copy", Label: "Copy", IconRef: "copy"},
 		{Key: "delete", Label: "Delete", IconRef: "delete"},
 	})
-	bar.SetOverflow(&ActionBarAction{Key: "more", AccessibleLabel: "More options", IconRef: "more"})
+	bar.Overflow = marks.Const(&ActionBarAction{Key: "more", AccessibleLabel: "More options", IconRef: "more"})
 	rt := actionBarRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustButtonTextRegistry(t),

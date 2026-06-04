@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -20,7 +21,7 @@ func TestPopupPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	palette, rt, resolved := newPopupPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := palette.layoutRole.Measure(facet.MeasureContext{
+	result := palette.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -32,7 +33,7 @@ func TestPopupPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	palette.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.layoutRole.Parent, ChildGroup: palette.layoutRole.Child}, bounds)
+	palette.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child}, bounds)
 
 	if got := palette.AccessibilityRole(); got != "toolbar" {
 		t.Fatalf("accessibility role = %q, want toolbar", got)
@@ -44,15 +45,15 @@ func TestPopupPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected arranged geometry, got surface=%#v tools=%d history=%d", palette.cachedSurfaceBounds, len(palette.cachedToolItemBounds), len(palette.cachedHistoryBounds))
 	}
 
-	toolHit := palette.hitRole.HitTest(gfx.Point{X: palette.cachedToolItemBounds[0].Min.X + 1, Y: palette.cachedToolItemBounds[0].Min.Y + 1})
+	toolHit := palette.Hit.HitTest(gfx.Point{X: palette.cachedToolItemBounds[0].Min.X + 1, Y: palette.cachedToolItemBounds[0].Min.Y + 1})
 	if !toolHit.Hit || toolHit.MarkID != popupPaletteMarkIDToolItems {
 		t.Fatalf("expected tool-item hit, got %#v", toolHit)
 	}
-	groupHit := palette.hitRole.HitTest(gfx.Point{X: palette.cachedMirrorBounds.Min.X + 1, Y: palette.cachedMirrorBounds.Min.Y + 1})
+	groupHit := palette.Hit.HitTest(gfx.Point{X: palette.cachedMirrorBounds.Min.X + 1, Y: palette.cachedMirrorBounds.Min.Y + 1})
 	if !groupHit.Hit || groupHit.MarkID != popupPaletteMarkIDToolGroup {
 		t.Fatalf("expected tool-group hit, got %#v", groupHit)
 	}
-	surfaceHit := palette.hitRole.HitTest(gfx.Point{X: palette.cachedSurfaceBounds.Min.X + 2, Y: palette.cachedSurfaceBounds.Min.Y + 2})
+	surfaceHit := palette.Hit.HitTest(gfx.Point{X: palette.cachedSurfaceBounds.Min.X + 2, Y: palette.cachedSurfaceBounds.Min.Y + 2})
 	if !surfaceHit.Hit || surfaceHit.MarkID != popupPaletteMarkIDSurface {
 		t.Fatalf("expected surface hit, got %#v", surfaceHit)
 	}
@@ -64,7 +65,7 @@ func TestPopupPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := palette.projectionRole.Project(facet.ProjectionContext{
+	cmds := palette.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -91,8 +92,10 @@ func TestPopupPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestPopupPalettePointerKeyboardAndDisabledBehavior(t *testing.T) {
 	palette, rt, resolved := newPopupPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+
+	// Test enabled palette behavior first.
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := palette.layoutRole.Measure(facet.MeasureContext{
+	result := palette.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -100,7 +103,7 @@ func TestPopupPalettePointerKeyboardAndDisabledBehavior(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 960}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	palette.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.layoutRole.Parent, ChildGroup: palette.layoutRole.Child}, bounds)
+	palette.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child}, bounds)
 
 	var activated string
 	palette.Activated.Subscribe(func(key string) {
@@ -121,7 +124,7 @@ func TestPopupPalettePointerKeyboardAndDisabledBehavior(t *testing.T) {
 	if !palette.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyRight}) {
 		t.Fatal("expected right key to be handled")
 	}
-	if palette.SelectedIndex < 0 {
+	if palette.SelectedIndex.Get() < 0 {
 		t.Fatal("expected keyboard navigation to select a tool")
 	}
 	if !palette.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEnter}) {
@@ -138,8 +141,8 @@ func TestPopupPalettePointerKeyboardAndDisabledBehavior(t *testing.T) {
 	if !palette.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: gfx.Point{X: palette.cachedZoomBounds.Max.X, Y: zoomCenter.Y}, Button: platform.PointerLeft}) {
 		t.Fatal("expected zoom release to be handled")
 	}
-	if palette.Zoom <= 1 {
-		t.Fatalf("expected zoom change, got %v", palette.Zoom)
+	if palette.Zoom.Get() <= 1 {
+		t.Fatalf("expected zoom change, got %v", palette.Zoom.Get())
 	}
 
 	palette.onFocusLost()
@@ -149,14 +152,35 @@ func TestPopupPalettePointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected focus-visible state after focus gain")
 	}
 
-	palette.SetDisabled(true)
-	if palette.focusRole.Focusable() {
+	// Now create a disabled palette and verify it rejects all input.
+	palette2, rt2, resolved2 := newPopupPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	palette2.Disabled = marks.Const(true)
+	facet.Attach(palette2, facet.AttachContext{Runtime: rt2, Theme: resolved2})
+	result2 := palette2.Layout.Measure(facet.MeasureContext{
+		Runtime:          rt2,
+		Theme:            resolved2,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 960}})
+	palette2.Layout.Arrange(facet.ArrangeContext{Runtime: rt2, Theme: resolved2, ParentGroup: palette2.Layout.Parent, ChildGroup: palette2.Layout.Child}, gfx.RectFromXYWH(0, 0, result2.Size.W, result2.Size.H))
+
+	if palette2.Focus.Focusable() {
 		t.Fatal("expected disabled palette to be unfocusable")
 	}
-	if palette.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: toolCenter, Button: platform.PointerLeft}) {
-		t.Fatal("expected disabled palette to ignore pointer input")
+	var activated2 string
+	palette2.Activated.Subscribe(func(key string) {
+		activated2 = key
+	})
+	if palette2.cachedToolItemBounds != nil && len(palette2.cachedToolItemBounds) > 0 {
+		center := centerOfRect(palette2.cachedToolItemBounds[0])
+		palette2.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: center, Button: platform.PointerLeft})
+		palette2.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: center, Button: platform.PointerLeft})
 	}
-	if palette.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeySpace}) {
+	if activated2 != "" {
+		t.Fatal("expected disabled palette not to activate on pointer input")
+	}
+	if palette2.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeySpace}) {
 		t.Fatal("expected disabled palette to ignore keyboard input")
 	}
 }
@@ -190,7 +214,7 @@ func TestPopupPaletteGoldenCompact(t *testing.T) {
 
 func TestPopupPaletteGoldenDisabled(t *testing.T) {
 	AssertPopupPaletteGolden(t, "disabled", defaultPopupPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *PopupPalette) {
-		p.SetDisabled(true)
+		p.Disabled = marks.Const(true)
 	})
 }
 
@@ -210,7 +234,7 @@ func AssertPopupPaletteGolden(t *testing.T, name string, tokens theme.Tokens, de
 func renderPopupPaletteToSurface(t *testing.T, palette *PopupPalette, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := palette.layoutRole.Measure(facet.MeasureContext{
+	result := palette.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -221,9 +245,9 @@ func renderPopupPaletteToSurface(t *testing.T, palette *PopupPalette, rt buttonR
 	if result.Size.W > 0 && result.Size.H > 0 {
 		bounds = gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
 	}
-	palette.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: palette.layoutRole.Parent, ChildGroup: palette.layoutRole.Child}, bounds)
+	palette.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child}, bounds)
 
-	cmds := palette.projectionRole.Project(facet.ProjectionContext{
+	cmds := palette.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -268,11 +292,11 @@ func newPopupPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.Den
 		{Key: "slice", Label: "Slice", IconRef: "slice", Color: gfx.ColorFromRGBA8(255, 145, 87, 255)},
 		{Key: "hand", Label: "Hand", IconRef: "hand", Color: gfx.ColorFromRGBA8(128, 128, 128, 255)},
 	})
-	palette.SetHistory([]gfx.Color{
+	palette.History = []gfx.Color{
 		gfx.ColorFromRGBA8(255, 90, 90, 255),
 		gfx.ColorFromRGBA8(255, 179, 71, 255),
 		gfx.ColorFromRGBA8(103, 208, 118, 255),
-	})
+	}
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
 		fonts:     mustButtonTextRegistry(t),

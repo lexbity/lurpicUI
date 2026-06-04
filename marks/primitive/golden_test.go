@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -19,8 +20,8 @@ import (
 )
 
 func TestPrimitiveTextGolden(t *testing.T) {
-	mark := NewText("Hello ☺ world _ AaBbCcDdEeFfGgHhIiJjLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz")
-	mark.SetTypography(theme.TextBodyM)
+	mark := NewText(marks.Const("Hello ☺ world _ AaBbCcDdEeFfGgHhIiJjLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz"))
+	mark.Typography = marks.Const(theme.TextBodyM)
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, primitiveGoldenTokens(), nil),
 		fonts:     mustPrimitiveTextRegistry(t),
@@ -71,9 +72,9 @@ func TestPrimitiveTextGoldenAnatomy(t *testing.T) {
 
 func TestPrimitiveIconGolden(t *testing.T) {
 	mark := NewIcon(IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 6v12" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M8 10h8" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>`))
-	mark.SetDecorative(false)
-	mark.SetAccessibleName("Primitive icon")
-	mark.SetColorSlot(theme.ColorPrimary)
+	mark.Decorative = marks.Const(false)
+	mark.AccessibleLabel = marks.Const("Primitive icon")
+	mark.ColorSlot = marks.Const(theme.ColorPrimary)
 	tokens := primitiveGoldenTokens()
 	tokens.Color.Primary = gfx.ColorFromRGBA8(38, 82, 122, 255)
 	rt := iconRuntimeStub{
@@ -86,8 +87,8 @@ func TestPrimitiveIconGolden(t *testing.T) {
 
 func renderAndAssertPrimitiveTextGolden(t *testing.T, goldenName, content string, maxWidth float32, surfaceWidth, surfaceHeight int) {
 	t.Helper()
-	mark := NewText(content)
-	mark.SetTypography(theme.TextBodyM)
+	mark := NewText(marks.Const(content))
+	mark.Typography = marks.Const(theme.TextBodyM)
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, primitiveGoldenTokens(), nil),
 		fonts:     mustPrimitiveTextRegistry(t),
@@ -98,8 +99,8 @@ func renderAndAssertPrimitiveTextGolden(t *testing.T, goldenName, content string
 
 func renderAndAssertPrimitiveTextGoldenWithGuides(t *testing.T, goldenName, content string, maxWidth float32, surfaceWidth, surfaceHeight int) {
 	t.Helper()
-	mark := NewText(content)
-	mark.SetTypography(theme.TextBodyM)
+	mark := NewText(marks.Const(content))
+	mark.Typography = marks.Const(theme.TextBodyM)
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, primitiveGoldenTokens(), nil),
 		fonts:     mustPrimitiveTextRegistry(t),
@@ -110,8 +111,8 @@ func renderAndAssertPrimitiveTextGoldenWithGuides(t *testing.T, goldenName, cont
 
 func renderAndAssertPrimitiveTextGoldenWithGuidesAtDensity(t *testing.T, goldenName, content string, maxWidth float32, surfaceWidth, surfaceHeight int, density theme.DensityID) {
 	t.Helper()
-	mark := NewText(content)
-	mark.SetTypography(theme.TextBodyM)
+	mark := NewText(marks.Const(content))
+	mark.Typography = marks.Const(theme.TextBodyM)
 	tokens := primitiveGoldenTokens()
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens))
 	rt := textRuntimeStub{
@@ -130,9 +131,9 @@ func renderPrimitiveTextResolved(t *testing.T, mark *Text, rt textRuntimeStub, g
 	t.Helper()
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: resolved})
 	if maxWidth > 0 {
-		mark.SetMaxWidth(maxWidth)
+		mark.MaxWidth = marks.Const(maxWidth)
 	}
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        resolved,
 		ContentScale: 1,
@@ -141,8 +142,8 @@ func renderPrimitiveTextResolved(t *testing.T, mark *Text, rt textRuntimeStub, g
 		t.Fatalf("expected measurable primitive text for %s, got %#v", goldenName, result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	mark.Layout.Arrange(facet.ArrangeContext{}, bounds)
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -163,9 +164,9 @@ func renderPrimitiveTextWithGuidesResolved(t *testing.T, mark *Text, rt textRunt
 	t.Helper()
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: resolved})
 	if maxWidth > 0 {
-		mark.SetMaxWidth(maxWidth)
+		mark.MaxWidth = marks.Const(maxWidth)
 	}
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        resolved,
 		ContentScale: 1,
@@ -174,8 +175,8 @@ func renderPrimitiveTextWithGuidesResolved(t *testing.T, mark *Text, rt textRunt
 		t.Fatalf("expected measurable primitive text for %s, got %#v", goldenName, result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	mark.Layout.Arrange(facet.ArrangeContext{}, bounds)
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -213,7 +214,7 @@ func renderPrimitiveTextWithGuidesResolved(t *testing.T, mark *Text, rt textRunt
 func renderPrimitiveIcon(t *testing.T, mark *Icon, rt iconRuntimeStub, goldenName string) *testkit.MemorySurface {
 	t.Helper()
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -222,8 +223,8 @@ func renderPrimitiveIcon(t *testing.T, mark *Icon, rt iconRuntimeStub, goldenNam
 		t.Fatalf("expected measurable primitive icon for %s, got %#v", goldenName, result.Size)
 	}
 	bounds := gfx.RectFromXYWH(20, 20, result.Size.W, result.Size.H)
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	mark.Layout.Arrange(facet.ArrangeContext{}, bounds)
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

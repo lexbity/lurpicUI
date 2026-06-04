@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutlinear "codeburg.org/lexbit/lurpicui/layout/linear"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -41,24 +42,21 @@ type ListEntry struct {
 
 // List implements the structure.list canonical mark.
 type List struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Activated signal.Signal[int]
 
-	Label         string
-	SectionHeader string
-	EmptyState    string
-	Disabled      bool
-	ItemVariant   uiinput.ListItemVariant
+	Label         marks.Binding[string]
+	SectionHeader marks.Binding[string]
+	EmptyState    marks.Binding[string]
+	Disabled      marks.Binding[bool]
+	ItemVariant   marks.Binding[uiinput.ListItemVariant]
 	Data          *store.ValueStore[[]ListEntry]
 	scrollRegion  *ScrollRegion
 
 	cachedDataSub signal.SubscriptionID
+
+	textRole facet.TextRole
 
 	cachedTokens           theme.Tokens
 	cachedRecipe           shared.ListSlots
@@ -81,25 +79,34 @@ type List struct {
 
 var _ facet.FacetImpl = (*List)(nil)
 var _ layout.AnchorExporter = (*List)(nil)
+var _ marks.Mark = (*List)(nil)
 
 // NewList constructs a structure.list mark with canonical defaults.
 func NewList(label string, entries []ListEntry) *List {
 	l := &List{
-		Facet:           facet.NewFacet(),
-		Label:           label,
-		ItemVariant:     uiinput.ListItemStandard,
-		Data:            store.NewValueStore(cloneListEntries(entries)),
-		scrollRegion:    NewScrollRegion(label),
-		cachedRows:      make(map[string]*selection.ListItem),
+		Label:         marks.Const(label),
+		SectionHeader: marks.Const(""),
+		EmptyState:    marks.Const(""),
+		Disabled:      marks.Const(false),
+		ItemVariant:   marks.Const(uiinput.ListItemStandard),
+		Data:          store.NewValueStore(cloneListEntries(entries)),
+		scrollRegion:  NewScrollRegion(label),
+		cachedRows:    make(map[string]*selection.ListItem),
 		cachedRowBounds: make(map[string]gfx.Rect),
 	}
-	l.scrollRegion.SetDirection(ScrollDirectionVertical)
-	l.layoutRole.Parent = facet.GroupParentContract{
+	l.Core.Facet = facet.NewFacet()
+	l.AddBinding(l.Label)
+	l.AddBinding(l.SectionHeader)
+	l.AddBinding(l.EmptyState)
+	l.AddBinding(l.Disabled)
+	l.AddBinding(l.ItemVariant)
+
+	l.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   listGroupPolicy{list: l},
 		Children: l,
 	}
-	l.layoutRole.Child = facet.GroupChildContract{
+	l.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := l.measure(ctx, constraints).Size
@@ -117,14 +124,14 @@ func NewList(label string, entries []ListEntry) *List {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	l.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	l.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return l.measure(ctx, constraints)
 	}
-	l.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		l.layoutRole.ArrangedBounds = bounds
+	l.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		l.Layout.ArrangedBounds = bounds
 		l.arrange(ctx, bounds)
 	}
-	l.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	l.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -134,17 +141,11 @@ func NewList(label string, entries []ListEntry) *List {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	l.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := l.buildCommands(l.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	l.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return l.buildCommands(l.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
 	l.textRole.IMEEnabled = false
-	l.AddRole(&l.layoutRole)
-	l.AddRole(&l.renderRole)
-	l.AddRole(&l.projectionRole)
+	l.RegisterRoles()
 	l.AddRole(&l.textRole)
 	if l.Data != nil {
 		l.cachedDataSub = l.Data.OnChange.Subscribe(func(_ signal.Change[[]ListEntry]) {
@@ -161,6 +162,11 @@ func (l *List) Base() *facet.Facet {
 	return &l.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (l *List) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "structure", TypeName: "list"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (l *List) AccessibilityRole() string { return "list" }
 
@@ -169,75 +175,17 @@ func (l *List) AccessibleName() string {
 	if l == nil {
 		return ""
 	}
-	if strings.TrimSpace(l.Label) != "" {
-		return strings.TrimSpace(l.Label)
+	if strings.TrimSpace(l.Label.Get()) != "" {
+		return strings.TrimSpace(l.Label.Get())
 	}
-	if strings.TrimSpace(l.SectionHeader) != "" {
-		return strings.TrimSpace(l.SectionHeader)
+	if strings.TrimSpace(l.SectionHeader.Get()) != "" {
+		return strings.TrimSpace(l.SectionHeader.Get())
 	}
 	items := l.entries()
 	if len(items) > 0 {
 		return strings.TrimSpace(items[0].Label)
 	}
 	return ""
-}
-
-// SetLabel updates the authored accessible label.
-func (l *List) SetLabel(label string) {
-	if l == nil || l.Label == label {
-		return
-	}
-	l.Label = label
-	if l.scrollRegion != nil {
-		l.scrollRegion.SetLabel(label)
-	}
-	l.invalidate(facet.DirtyProjection)
-}
-
-// SetSectionHeader updates the authored section header.
-func (l *List) SetSectionHeader(header string) {
-	if l == nil || l.SectionHeader == header {
-		return
-	}
-	l.SectionHeader = header
-	l.syncChildren()
-	l.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetEmptyState updates the authored empty-state text.
-func (l *List) SetEmptyState(text string) {
-	if l == nil || l.EmptyState == text {
-		return
-	}
-	l.EmptyState = text
-	l.syncChildren()
-	l.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (l *List) SetDisabled(disabled bool) {
-	if l == nil || l.Disabled == disabled {
-		return
-	}
-	l.Disabled = disabled
-	if l.scrollRegion != nil {
-		l.scrollRegion.SetDisabled(disabled)
-	}
-	l.syncChildren()
-	l.invalidate(facet.DirtyProjection)
-}
-
-// SetEntries replaces the canonical data-store contents.
-func (l *List) SetEntries(entries []ListEntry) {
-	if l == nil {
-		return
-	}
-	if l.Data == nil {
-		l.Data = store.NewValueStore(cloneListEntries(entries))
-		l.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	l.Data.Set(cloneListEntries(entries))
 }
 
 // Children returns the immediate child list.
@@ -273,21 +221,17 @@ func (l *List) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return out
 }
 
-// OnAttach is unused.
-func (l *List) OnAttach(ctx facet.AttachContext) {}
-
-// OnActivate is unused.
-func (l *List) OnActivate() {}
-
-// OnDeactivate is unused.
-func (l *List) OnDeactivate() {}
+func (l *List) OnAttach(ctx facet.AttachContext) { l.Core.OnAttach() }
+func (l *List) OnActivate()                      { l.Core.OnActivate() }
+func (l *List) OnDeactivate()                    { l.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (l *List) OnDetach() {
-	if l != nil && l.Data != nil && l.cachedDataSub != 0 {
+	l.Core.OnDetach()
+	if l.Data != nil && l.cachedDataSub != 0 {
 		l.Data.OnChange.Unsubscribe(l.cachedDataSub)
 	}
-	if l != nil && l.scrollRegion != nil {
+	if l.scrollRegion != nil {
 		l.scrollRegion.OnDetach()
 	}
 	l.cachedTokens = theme.Tokens{}
@@ -309,7 +253,7 @@ func (l *List) invalidate(flags facet.DirtyFlags) {
 	if l == nil {
 		return
 	}
-	l.Base().Invalidate(flags)
+	l.Facet.Invalidate(flags)
 }
 
 func (l *List) entries() []ListEntry {
@@ -324,35 +268,36 @@ func (l *List) syncChildren() {
 		return
 	}
 	if l.scrollRegion == nil {
-		l.scrollRegion = NewScrollRegion(l.Label)
+		l.scrollRegion = NewScrollRegion("")
 	}
-	l.scrollRegion.SetLabel(l.Label)
-	l.scrollRegion.SetDisabled(l.Disabled)
-	l.scrollRegion.SetDirection(ScrollDirectionVertical)
-	if strings.TrimSpace(l.SectionHeader) != "" {
+	l.scrollRegion.Label = marks.Const(l.Label.Get())
+	l.scrollRegion.Disabled = marks.Const(l.Disabled.Get())
+	if strings.TrimSpace(l.SectionHeader.Get()) != "" {
 		if l.cachedHeaderMark == nil {
-			l.cachedHeaderMark = primitive.NewText(strings.TrimSpace(l.SectionHeader))
+			l.cachedHeaderMark = primitive.NewText(marks.Const(strings.TrimSpace(l.SectionHeader.Get())))
 		} else {
-			l.cachedHeaderMark.SetContent(strings.TrimSpace(l.SectionHeader))
+			l.cachedHeaderMark.Content = marks.Const(strings.TrimSpace(l.SectionHeader.Get()))
+			l.cachedHeaderMark.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 		}
-		l.cachedHeaderMark.SetTypography(theme.TextLabelM)
-		l.cachedHeaderMark.SetForeground(theme.ColorTextSecondary)
-		l.cachedHeaderMark.SetOverflow(primitive.TextOverflowTruncate)
+		l.cachedHeaderMark.Typography = marks.Const(theme.TextLabelM)
+		l.cachedHeaderMark.Foreground = marks.Const(theme.ColorTextSecondary)
+		l.cachedHeaderMark.Overflow = marks.Const(primitive.TextOverflowTruncate)
 	} else {
 		l.cachedHeaderMark = nil
 	}
 
 	entries := l.entries()
 	if len(entries) == 0 {
-		if strings.TrimSpace(l.EmptyState) != "" {
+		if strings.TrimSpace(l.EmptyState.Get()) != "" {
 			if l.cachedEmptyMark == nil {
-				l.cachedEmptyMark = primitive.NewText(strings.TrimSpace(l.EmptyState))
+				l.cachedEmptyMark = primitive.NewText(marks.Const(strings.TrimSpace(l.EmptyState.Get())))
 			} else {
-				l.cachedEmptyMark.SetContent(strings.TrimSpace(l.EmptyState))
+				l.cachedEmptyMark.Content = marks.Const(strings.TrimSpace(l.EmptyState.Get()))
+				l.cachedEmptyMark.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 			}
-			l.cachedEmptyMark.SetTypography(theme.TextBodyS)
-			l.cachedEmptyMark.SetForeground(theme.ColorTextSecondary)
-			l.cachedEmptyMark.SetOverflow(primitive.TextOverflowTruncate)
+			l.cachedEmptyMark.Typography = marks.Const(theme.TextBodyS)
+			l.cachedEmptyMark.Foreground = marks.Const(theme.ColorTextSecondary)
+			l.cachedEmptyMark.Overflow = marks.Const(primitive.TextOverflowTruncate)
 		}
 	} else {
 		l.cachedEmptyMark = nil
@@ -365,20 +310,20 @@ func (l *List) syncChildren() {
 		key := stableListKey(entry, i)
 		row := l.cachedRows[key]
 		if row == nil {
-			row = selection.NewListItem(entry.Label)
+			row = selection.NewListItem(marks.Const(entry.Label))
 		}
-		row.SetLabel(entry.Label)
-		row.SetSupportingText(entry.SupportingText)
-		row.SetLeadingIconRef(entry.LeadingIconRef)
-		row.SetSelected(entry.Selected)
-		row.SetActive(entry.Active)
-		row.SetDisabled(l.Disabled || entry.Disabled)
-		row.Variant = l.ItemVariant
-		row.ShowContainer = false
-		row.ShowSelectionIndicator = false
-		row.ShowFocusRing = false
-		row.ShowLeadingIcon = entry.LeadingIconRef != ""
-		row.ShowLabel = true
+		row.Label = marks.Const(entry.Label)
+		row.SupportingText = marks.Const(entry.SupportingText)
+		row.LeadingIconRef = marks.Const(entry.LeadingIconRef)
+		row.Selected = marks.Const(entry.Selected)
+		row.Active = marks.Const(entry.Active)
+		row.Disabled = marks.Const(l.Disabled.Get() || entry.Disabled)
+		row.Variant = marks.Const(l.ItemVariant.Get())
+		row.ShowContainer = marks.Const(false)
+		row.ShowSelectionIndicator = marks.Const(false)
+		row.ShowFocusRing = marks.Const(false)
+		row.ShowLeadingIcon = marks.Const(entry.LeadingIconRef != "")
+		row.ShowLabel = marks.Const(true)
 		nextRows[key] = row
 		nextOrder = append(nextOrder, key)
 	}
@@ -398,8 +343,8 @@ func (l *List) syncChildren() {
 	if l.cachedEmptyMark != nil {
 		content = append(content, listScrollChild(l.cachedEmptyMark, listMarkIDEmptyStateOptional, len(content)))
 	}
-	l.scrollRegion.SetGap(l.cachedGap)
-	l.scrollRegion.SetChildren(content)
+	l.scrollRegion.Gap = marks.Const(l.cachedGap)
+	l.scrollRegion.children = content
 }
 
 func listScrollChild(mark facet.FacetImpl, markID facet.MarkID, order int) ScrollRegionChild {
@@ -445,30 +390,29 @@ func (l *List) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	l.cachedGap = float32(resolved.Spacing(theme.SpacingS))
 	l.syncChildren()
 	if l.scrollRegion != nil {
-		l.scrollRegion.SetLabel(l.Label)
-		l.scrollRegion.SetDisabled(l.Disabled)
-		l.scrollRegion.SetDirection(ScrollDirectionVertical)
-		l.scrollRegion.SetGap(l.cachedGap)
-		result := l.scrollRegion.layoutRole.Measure(ctx, constraints)
-		l.layoutRole.MeasuredSize = result.Size
-		l.layoutRole.MeasuredResult = result
+		l.scrollRegion.Label = marks.Const(l.Label.Get())
+		l.scrollRegion.Disabled = marks.Const(l.Disabled.Get())
+		l.scrollRegion.Gap = marks.Const(l.cachedGap)
+		result := l.scrollRegion.Layout.Measure(ctx, constraints)
+		l.Layout.MeasuredSize = result.Size
+		l.Layout.MeasuredResult = result
 		l.textRole.Layout = nil
 		return result
 	}
 	size := constraints.Constrain(gfx.Size{})
-	l.layoutRole.MeasuredSize = size
-	l.layoutRole.MeasuredResult = facet.MeasureResult{
+	l.Layout.MeasuredSize = size
+	l.Layout.MeasuredResult = facet.MeasureResult{
 		Size:        size,
 		Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 		Constraints: constraints,
 	}
 	l.textRole.Layout = nil
-	return l.layoutRole.MeasuredResult
+	return l.Layout.MeasuredResult
 }
 
 func (l *List) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	l.cachedBounds = bounds
-	l.layoutRole.ArrangedBounds = bounds
+	l.Layout.ArrangedBounds = bounds
 	l.cachedRowBounds = make(map[string]gfx.Rect)
 	if l.scrollRegion == nil || bounds.IsEmpty() {
 		return

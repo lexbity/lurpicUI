@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -21,7 +22,7 @@ func TestStatusLightMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ctx := badgeResolvedContext(badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(light, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := light.layoutRole.Measure(facet.MeasureContext{
+	result := light.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -32,11 +33,11 @@ func TestStatusLightMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	light.layoutRole.Arrange(facet.ArrangeContext{
+	light.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: light.layoutRole.Parent,
-		ChildGroup:  light.layoutRole.Child,
+		ParentGroup: light.Layout.Parent,
+		ChildGroup:  light.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementGrid},
 	}, bounds)
 	if got := light.AccessibilityRole(); got != "status" {
@@ -57,7 +58,7 @@ func TestStatusLightMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := light.projectionRole.Project(facet.ProjectionContext{
+	cmds := light.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -96,7 +97,7 @@ func TestStatusLightGoldenComfortable(t *testing.T) {
 
 func TestStatusLightGoldenDisabled(t *testing.T) {
 	AssertStatusLightGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *StatusLight) {
-		s.SetDisabled(true)
+		s.Disabled = marks.Const(true)
 	})
 }
 
@@ -121,21 +122,21 @@ func AssertStatusLightGolden(t *testing.T, name string, tokens theme.Tokens, den
 	ctx := badgeResolvedContext(tokens, density, direction)
 	facet.Attach(light, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(16, 16, 240, 160)
-	_ = light.layoutRole.Measure(facet.MeasureContext{
+	_ = light.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	light.layoutRole.Arrange(facet.ArrangeContext{
+	light.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: light.layoutRole.Parent,
-		ChildGroup:  light.layoutRole.Child,
+		ParentGroup: light.Layout.Parent,
+		ChildGroup:  light.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementGrid},
 	}, canvas)
-	cmds := light.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	cmds := light.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}

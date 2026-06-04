@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -121,22 +122,16 @@ func (c *paginationChild) measure(ctx facet.MeasureContext, constraints facet.Co
 
 // Pagination implements the navigation.pagination canonical mark.
 type Pagination struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label        marks.Binding[string]
+	Items        []PaginationItem
+	CurrentIndex marks.Binding[int]
+	Disabled     marks.Binding[bool]
 
 	Activated signal.Signal[int]
 
-	Label        string
-	Items        []PaginationItem
-	CurrentIndex int
-	Disabled     bool
+	textRole facet.TextRole
 
 	hoveredEntryIndex int
 	pressedEntryIndex int
@@ -170,22 +165,27 @@ type Pagination struct {
 
 var _ facet.FacetImpl = (*Pagination)(nil)
 var _ layout.AnchorExporter = (*Pagination)(nil)
+var _ marks.Mark = (*Pagination)(nil)
 
 // NewPagination constructs a navigation.pagination mark with canonical defaults.
 func NewPagination(label string, items []PaginationItem) *Pagination {
 	p := &Pagination{
-		Facet:             facet.NewFacet(),
-		Label:             label,
-		CurrentIndex:      0,
+		Label:            marks.Const(label),
+		CurrentIndex:     marks.Const(0),
+		Disabled:         marks.Const(false),
 		focusedEntryIndex: 0,
 	}
+	p.Core.Facet = facet.NewFacet()
+	p.AddBinding(p.Label)
+	p.AddBinding(p.CurrentIndex)
+	p.AddBinding(p.Disabled)
 	p.SetItems(items)
-	p.layoutRole.Parent = facet.GroupParentContract{
+	p.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   paginationGroupPolicy{pagination: p},
 		Children: p,
 	}
-	p.layoutRole.Child = facet.GroupChildContract{
+	p.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measureIntrinsic(ctx, constraints)
@@ -203,44 +203,25 @@ func NewPagination(label string, items []PaginationItem) *Pagination {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	p.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return p.measure(ctx, constraints)
 	}
-	p.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		p.layoutRole.ArrangedBounds = bounds
+	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		p.Layout.ArrangedBounds = bounds
 		p.arrange(ctx, bounds)
 	}
-	p.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := p.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	p.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := p.buildCommands(p.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	p.hitRole.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
-	p.inputRole.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
-	p.inputRole.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
-	p.focusRole.Focusable = func() bool { return !p.Disabled && len(p.Items) > 0 }
-	p.focusRole.TabIndex = 0
-	p.focusRole.OnFocusGained = func() { p.onFocusGained() }
-	p.focusRole.OnFocusLost = func() { p.onFocusLost() }
+	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
+	p.Input.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
+	p.Input.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
+	p.Focus.Focusable = func() bool { return !p.Disabled.Get() && len(p.Items) > 0 }
+	p.Focus.TabIndex = 0
+	p.Focus.OnFocusGained = func() { p.onFocusGained() }
+	p.Focus.OnFocusLost = func() { p.onFocusLost() }
 	p.textRole.IMEEnabled = false
-	p.AddRole(&p.layoutRole)
-	p.AddRole(&p.renderRole)
-	p.AddRole(&p.projectionRole)
-	p.AddRole(&p.hitRole)
-	p.AddRole(&p.inputRole)
-	p.AddRole(&p.focusRole)
+	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	p.RegisterRoles()
 	p.AddRole(&p.textRole)
 	p.rebuildChildren()
 	return p
@@ -252,20 +233,16 @@ func (p *Pagination) Base() *facet.Facet {
 	return &p.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (p *Pagination) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "navigation", TypeName: "pagination"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (p *Pagination) AccessibilityRole() string { return "navigation" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (p *Pagination) AccessibleName() string { return p.Label }
-
-// SetLabel updates the authored accessible label.
-func (p *Pagination) SetLabel(label string) {
-	if p == nil || p.Label == label {
-		return
-	}
-	p.Label = label
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
+func (p *Pagination) AccessibleName() string { return p.Label.Get() }
 
 // SetItems updates the page list.
 func (p *Pagination) SetItems(items []PaginationItem) {
@@ -283,61 +260,15 @@ func (p *Pagination) SetItems(items []PaginationItem) {
 	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
-// SetCurrentIndex updates the authored current page.
-func (p *Pagination) SetCurrentIndex(index int) {
-	if p == nil {
-		return
-	}
-	if index < 0 {
-		index = 0
-	}
-	if len(p.Items) > 0 && index >= len(p.Items) {
-		index = len(p.Items) - 1
-	}
-	if len(p.Items) == 0 {
-		index = 0
-	}
-	if p.CurrentIndex == index {
-		return
-	}
-	p.CurrentIndex = index
-	p.clampIndices()
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (p *Pagination) SetDisabled(disabled bool) {
-	if p == nil || p.Disabled == disabled {
-		return
-	}
-	p.Disabled = disabled
-	if disabled {
-		p.hoveredEntryIndex = -1
-		p.pressedEntryIndex = -1
-		p.focusedVisible = false
-		p.focusFromPointer = false
-	}
-	p.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the pagination anchor set.
 func (p *Pagination) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if p == nil {
 		return nil
 	}
-	bounds := p.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := p.Layout.ArrangedBounds
+	out := p.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if idx := p.currentVisibleEntryIndex(); idx >= 0 && idx < len(p.cachedEntryBounds) {
 		rect := p.cachedEntryBounds[idx]
@@ -382,10 +313,11 @@ func (p *Pagination) Children() []facet.GroupChild {
 	return out
 }
 
-func (p *Pagination) OnAttach(ctx facet.AttachContext) {}
-func (p *Pagination) OnActivate()                      {}
-func (p *Pagination) OnDeactivate()                    {}
+func (p *Pagination) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
+func (p *Pagination) OnActivate()                      { p.Core.OnActivate() }
+func (p *Pagination) OnDeactivate()                    { p.Core.OnDeactivate() }
 func (p *Pagination) OnDetach() {
+	p.Core.OnDetach()
 	p.cachedTokens = theme.Tokens{}
 	p.cachedRecipe = shared.PaginationSlots{}
 	p.cachedRootBounds = gfx.Rect{}
@@ -407,7 +339,7 @@ func (p *Pagination) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Base().Invalidate(flags)
+	p.Facet.Invalidate(flags)
 }
 
 func (p *Pagination) rebuildChildren() {
@@ -415,16 +347,16 @@ func (p *Pagination) rebuildChildren() {
 		return
 	}
 	if p.prevChild == nil {
-		p.prevChild = newPaginationChild(p, paginationChildPrev, -1, "‹")
+		p.prevChild = newPaginationChild(p, paginationChildPrev, -1, "\u2039")
 	}
 	if p.nextChild == nil {
-		p.nextChild = newPaginationChild(p, paginationChildNext, -1, "›")
+		p.nextChild = newPaginationChild(p, paginationChildNext, -1, "\u203a")
 	}
 	if p.ellipsisLeft == nil {
-		p.ellipsisLeft = newPaginationChild(p, paginationChildEllipsis, -1, "…")
+		p.ellipsisLeft = newPaginationChild(p, paginationChildEllipsis, -1, "\u2026")
 	}
 	if p.ellipsisRight == nil {
-		p.ellipsisRight = newPaginationChild(p, paginationChildEllipsis, -1, "…")
+		p.ellipsisRight = newPaginationChild(p, paginationChildEllipsis, -1, "\u2026")
 	}
 	if len(p.pageChildren) != len(p.Items) {
 		p.pageChildren = make([]*paginationChild, len(p.Items))
@@ -541,8 +473,8 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 		maxH = paginationMaxFloat(maxH, size.H)
 	}
 	measured := constraints.Constrain(gfx.Size{W: totalW, H: maxH})
-	p.layoutRole.MeasuredSize = measured
-	p.layoutRole.MeasuredResult = facet.MeasureResult{
+	p.Layout.MeasuredSize = measured
+	p.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -551,7 +483,7 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 		},
 		Constraints: constraints,
 	}
-	return p.layoutRole.MeasuredResult
+	return p.Layout.MeasuredResult
 }
 
 func (p *Pagination) measureVisibleChild(ctx facet.MeasureContext, constraints facet.Constraints, child *paginationChild, shaper *text.Shaper, maxWidth float32) (gfx.Size, *text.TextLayout) {
@@ -625,7 +557,7 @@ func (p *Pagination) measureChildSize(ctx facet.MeasureContext, constraints face
 func (p *Pagination) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedRootBounds = bounds
 	p.cachedContentBounds = gfx.Rect{}
-	p.layoutRole.ArrangedBounds = bounds
+	p.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -737,7 +669,6 @@ func (p *Pagination) paintText(bounds gfx.Rect, material theme.Material, label s
 	)
 	cmds := primitive.TextLayoutCommands(layout, origin, gfx.SolidBrush(paginationMaterialColor(material)))
 	if len(cmds) == 0 && label != "" {
-		// Fallback to a no-op layout when shaping is unavailable.
 		_ = label
 	}
 	return cmds
@@ -762,7 +693,7 @@ func (p *Pagination) resolveProjectionTheme(runtime any) (theme.StyleContext, sh
 }
 
 func (p *Pagination) childInteractionState(entryIndex int) theme.InteractionState {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	switch {
@@ -778,11 +709,11 @@ func (p *Pagination) childInteractionState(entryIndex int) theme.InteractionStat
 }
 
 func (p *Pagination) hitTest(pt gfx.Point) facet.HitResult {
-	if p == nil || p.layoutRole.ArrangedBounds.IsEmpty() || !p.layoutRole.ArrangedBounds.Contains(pt) {
+	if p == nil || p.Layout.ArrangedBounds.IsEmpty() || !p.Layout.ArrangedBounds.Contains(pt) {
 		return facet.HitResult{}
 	}
 	cursor := facet.CursorPointer
-	if p.Disabled {
+	if p.Disabled.Get() {
 		cursor = facet.CursorDefault
 	}
 	if p.focusedVisible && p.currentVisibleEntryIndex() >= 0 {
@@ -813,7 +744,7 @@ func (p *Pagination) hitTest(pt gfx.Point) facet.HitResult {
 }
 
 func (p *Pagination) onPointer(e facet.PointerEvent) bool {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -859,7 +790,7 @@ func (p *Pagination) onPointer(e facet.PointerEvent) bool {
 }
 
 func (p *Pagination) onKey(e facet.KeyEvent) bool {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -875,7 +806,7 @@ func (p *Pagination) onKey(e facet.KeyEvent) bool {
 		}
 	case platform.KeyHome:
 		if e.Kind == platform.KeyPress {
-			p.SetCurrentIndex(0)
+			p.setCurrentIndex(0)
 			p.Activated.Emit(0)
 			return true
 		}
@@ -883,7 +814,7 @@ func (p *Pagination) onKey(e facet.KeyEvent) bool {
 		if e.Kind == platform.KeyPress {
 			if len(p.Items) > 0 {
 				last := len(p.Items) - 1
-				p.SetCurrentIndex(last)
+				p.setCurrentIndex(last)
 				p.Activated.Emit(last)
 				return true
 			}
@@ -914,6 +845,24 @@ func (p *Pagination) onKey(e facet.KeyEvent) bool {
 	return false
 }
 
+func (p *Pagination) setCurrentIndex(index int) {
+	if p == nil {
+		return
+	}
+	if index < 0 {
+		index = 0
+	}
+	if len(p.Items) > 0 && index >= len(p.Items) {
+		index = len(p.Items) - 1
+	}
+	if len(p.Items) == 0 {
+		index = 0
+	}
+	p.CurrentIndex = marks.Const(index)
+	p.clampIndices()
+	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+}
+
 func (p *Pagination) onFocusGained() {
 	p.focusedVisible = !p.focusFromPointer
 	p.focusFromPointer = false
@@ -939,7 +888,7 @@ func (p *Pagination) activateEntry(entryIndex int) {
 		p.moveCurrent(1)
 	case paginationChildPage:
 		if idx := p.cachedVisibleIndices[entryIndex]; idx >= 0 {
-			p.SetCurrentIndex(idx)
+			p.setCurrentIndex(idx)
 			p.Activated.Emit(idx)
 			p.focusedEntryIndex = entryIndex
 		}
@@ -957,7 +906,7 @@ func (p *Pagination) moveCurrent(delta int) {
 	if next >= len(p.Items) {
 		next = len(p.Items) - 1
 	}
-	p.SetCurrentIndex(next)
+	p.setCurrentIndex(next)
 	p.Activated.Emit(next)
 	p.focusedEntryIndex = p.currentVisibleEntryIndex()
 }
@@ -985,23 +934,24 @@ func (p *Pagination) clampedCurrentIndex() int {
 	if p == nil {
 		return 0
 	}
-	if p.CurrentIndex < 0 {
+	ci := p.CurrentIndex.Get()
+	if ci < 0 {
 		return 0
 	}
 	if len(p.Items) == 0 {
 		return 0
 	}
-	if p.CurrentIndex >= len(p.Items) {
+	if ci >= len(p.Items) {
 		return len(p.Items) - 1
 	}
-	return p.CurrentIndex
+	return ci
 }
 
 func (p *Pagination) clampIndices() {
 	if p == nil {
 		return
 	}
-	p.CurrentIndex = p.clampedCurrentIndex()
+	p.CurrentIndex = marks.Const(p.clampedCurrentIndex())
 	if p.focusedEntryIndex < 0 || p.focusedEntryIndex >= len(p.cachedVisibleChildren) {
 		p.focusedEntryIndex = p.currentVisibleEntryIndex()
 	}
@@ -1052,11 +1002,11 @@ func (p *Pagination) fontRegistry(runtime any) *text.FontRegistry {
 func childLabelForKind(p *Pagination, kind paginationChildKind, index int, label string) string {
 	switch kind {
 	case paginationChildPrev:
-		return "‹"
+		return "\u2039"
 	case paginationChildNext:
-		return "›"
+		return "\u203a"
 	case paginationChildEllipsis:
-		return "…"
+		return "\u2026"
 	case paginationChildPage:
 		if label != "" {
 			return label

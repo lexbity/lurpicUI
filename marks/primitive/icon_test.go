@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -46,13 +47,12 @@ func (m iconAssetManagerStub) LoadSVG(path string) assets.Handle {
 }
 func (m iconAssetManagerStub) LoadImage(path string) assets.Handle {
 	return assets.NewHandle(m.id, m.reg)
+
 }
 func (m iconAssetManagerStub) LoadTexture(path string) assets.Handle {
 	return assets.NewHandle(m.id, m.reg)
 }
-func (m iconAssetManagerStub) LoadFont(path string) assets.Handle {
-	return assets.NewHandle(m.id, m.reg)
-}
+func (m iconAssetManagerStub) LoadFont(path string) assets.Handle { return assets.NewHandle(m.id, m.reg) }
 func (m iconAssetManagerStub) LoadConfig(path string, dst any) assets.Handle {
 	return assets.NewHandle(m.id, m.reg)
 }
@@ -64,7 +64,7 @@ func (m iconAssetManagerStub) Stats() assets.ManagerStats { return assets.Manage
 
 func TestIconMark_defaultsSizeAndMissingSourceFallback(t *testing.T) {
 	mark := NewIcon(nil)
-	if !mark.Decorative {
+	if !mark.Decorative.Get() {
 		t.Fatal("expected icons to default to decorative")
 	}
 	if mark.AccessibilityRole() != "presentation" {
@@ -73,16 +73,16 @@ func TestIconMark_defaultsSizeAndMissingSourceFallback(t *testing.T) {
 	if mark.AccessibleName() != "" {
 		t.Fatalf("accessible name = %q, want empty for decorative icon", mark.AccessibleName())
 	}
-	if mark.ColorSlot != theme.ColorText {
-		t.Fatalf("color slot = %v, want ColorText", mark.ColorSlot)
+	if mark.ColorSlot.Get() != theme.ColorText {
+		t.Fatalf("color slot = %v, want ColorText", mark.ColorSlot.Get())
 	}
-	if mark.DensityBehavior != IconDensityScaleWithDensity {
-		t.Fatalf("density behavior = %v, want scale-with-density", mark.DensityBehavior)
+	if mark.DensityBehavior.Get() != IconDensityScaleWithDensity {
+		t.Fatalf("density behavior = %v, want scale-with-density", mark.DensityBehavior.Get())
 	}
 
 	rt := iconRuntimeStub{rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil)}
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -90,8 +90,8 @@ func TestIconMark_defaultsSizeAndMissingSourceFallback(t *testing.T) {
 	if !almostEqual(result.Size.W, 20) || !almostEqual(result.Size.H, 20) {
 		t.Fatalf("expected default icon size 20, got %#v", result.Size)
 	}
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
-	if cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	mark.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+	if cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H),
 		ContentScale: 1,
@@ -115,17 +115,18 @@ func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
 		},
 	}
 	mark := NewIcon(IconRef("chevron-down"))
-	mark.SetAccessibleName("Chevron down")
-	mark.SetColorSlot(theme.ColorPrimary)
+	mark.Decorative = marks.Const(false)
+	mark.AccessibleLabel = marks.Const("Chevron down")
+	mark.ColorSlot = marks.Const(theme.ColorPrimary)
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}})
 	bounds := gfx.RectFromXYWH(10, 20, result.Size.W, result.Size.H)
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
+	mark.Layout.Arrange(facet.ArrangeContext{}, bounds)
 
 	if got := mark.AccessibilityRole(); got != "img" {
 		t.Fatalf("accessibility role = %q, want img", got)
@@ -134,7 +135,7 @@ func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
 		t.Fatalf("accessible name = %q, want Chevron down", got)
 	}
 
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -156,7 +157,7 @@ func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	hit := mark.hitRole.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
+	hit := mark.Hit.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
 	if !hit.Hit {
 		t.Fatal("expected semantic icon to hit-test inside its bounds")
 	}
@@ -167,7 +168,7 @@ func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
 		rootStyle: theme.NewRootStyleContext(nil, updatedTokens, nil),
 		icons:     rt.icons,
 	}
-	cmds2 := mark.projectionRole.Project(facet.ProjectionContext{
+	cmds2 := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt2,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -187,9 +188,9 @@ func TestIconMark_densityBehaviorsAndInlineSVG(t *testing.T) {
 	baseRuntime := iconRuntimeStub{rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil)}
 
 	scaled := NewIcon(inline)
-	scaled.SetSize(16)
+	scaled.Size = marks.Const[float32](16)
 	facet.Attach(scaled, facet.AttachContext{Runtime: baseRuntime, Theme: compact})
-	gotScaled := scaled.layoutRole.Measure(facet.MeasureContext{
+	gotScaled := scaled.Layout.Measure(facet.MeasureContext{
 		Runtime:      baseRuntime,
 		Theme:        compact,
 		ContentScale: 1,
@@ -199,10 +200,10 @@ func TestIconMark_densityBehaviorsAndInlineSVG(t *testing.T) {
 	}
 
 	locked := NewIcon(inline)
-	locked.SetSize(16)
-	locked.SetDensityBehavior(IconDensityLockLogicalSize)
+	locked.Size = marks.Const[float32](16)
+	locked.DensityBehavior = marks.Const(IconDensityLockLogicalSize)
 	facet.Attach(locked, facet.AttachContext{Runtime: baseRuntime, Theme: compact})
-	gotLocked := locked.layoutRole.Measure(facet.MeasureContext{
+	gotLocked := locked.Layout.Measure(facet.MeasureContext{
 		Runtime:      baseRuntime,
 		Theme:        compact,
 		ContentScale: 1,
@@ -212,10 +213,10 @@ func TestIconMark_densityBehaviorsAndInlineSVG(t *testing.T) {
 	}
 
 	snapped := NewIcon(inline)
-	snapped.SetSize(16)
-	snapped.SetDensityBehavior(IconDensitySnapToDevicePixels)
+	snapped.Size = marks.Const[float32](16)
+	snapped.DensityBehavior = marks.Const(IconDensitySnapToDevicePixels)
 	facet.Attach(snapped, facet.AttachContext{Runtime: baseRuntime, Theme: compact})
-	gotSnapped := snapped.layoutRole.Measure(facet.MeasureContext{
+	gotSnapped := snapped.Layout.Measure(facet.MeasureContext{
 		Runtime:      baseRuntime,
 		Theme:        compact,
 		ContentScale: 2,
@@ -225,19 +226,20 @@ func TestIconMark_densityBehaviorsAndInlineSVG(t *testing.T) {
 	}
 
 	touch := NewIcon(inline)
-	touch.SetSize(16)
-	touch.SetDensityBehavior(IconDensityTouchAware)
-	touch.SetAccessibleName("Chevron")
-	touch.SetHitPadding(8)
+	touch.Size = marks.Const[float32](16)
+	touch.Decorative = marks.Const(false)
+	touch.DensityBehavior = marks.Const(IconDensityTouchAware)
+	touch.AccessibleLabel = marks.Const("Chevron")
+	touch.HitPadding = marks.Const[float32](8)
 	facet.Attach(touch, facet.AttachContext{Runtime: baseRuntime, Theme: compact})
-	touchSize := touch.layoutRole.Measure(facet.MeasureContext{
+	touchSize := touch.Layout.Measure(facet.MeasureContext{
 		Runtime:      baseRuntime,
 		Theme:        compact,
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}}).Size
 	touchBounds := gfx.RectFromXYWH(0, 0, touchSize.W, touchSize.H)
-	touch.layoutRole.Arrange(facet.ArrangeContext{}, touchBounds)
-	gotHit := touch.hitRole.HitTest(gfx.Point{X: touchBounds.Max.X + 2, Y: touchBounds.Min.Y + 2})
+	touch.Layout.Arrange(facet.ArrangeContext{}, touchBounds)
+	gotHit := touch.Hit.HitTest(gfx.Point{X: touchBounds.Max.X + 2, Y: touchBounds.Min.Y + 2})
 	if !gotHit.Hit {
 		t.Fatal("expected hit padding to expand icon hit bounds")
 	}
@@ -264,14 +266,14 @@ func TestIconMark_progressiveAssetLOD2UsesColorFill(t *testing.T) {
 
 	mark := NewIcon(IconAssetPath("icons/check.svg"))
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	size := mark.layoutRole.Measure(facet.MeasureContext{
+	size := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}}).Size
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, size.W, size.H))
+	mark.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, size.W, size.H))
 
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       gfx.RectFromXYWH(0, 0, size.W, size.H),
 		ContentScale: 1,
@@ -297,14 +299,14 @@ func TestIconMark_progressiveAssetLOD1UsesImage(t *testing.T) {
 
 	mark := NewIcon(IconAssetPath("icons/check.svg"))
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	size := mark.layoutRole.Measure(facet.MeasureContext{
+	size := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}}).Size
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, size.W, size.H))
+	mark.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, size.W, size.H))
 
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       gfx.RectFromXYWH(0, 0, size.W, size.H),
 		ContentScale: 1,
@@ -320,8 +322,8 @@ func TestIconMark_progressiveAssetLOD1UsesImage(t *testing.T) {
 func inlineProjectCommands(t *testing.T, mark *Icon, rt iconRuntimeStub, size gfx.Size) []gfx.Command {
 	t.Helper()
 	bounds := gfx.RectFromXYWH(0, 0, size.W, size.H)
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	mark.Layout.Arrange(facet.ArrangeContext{}, bounds)
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

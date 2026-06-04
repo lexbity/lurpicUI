@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -38,22 +39,16 @@ type ActionBarAction struct {
 
 // ActionBar implements the action.action_bar standard mark.
 type ActionBar struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label    marks.Binding[string]
+	Actions  marks.Binding[[]ActionBarAction]
+	Overflow marks.Binding[*ActionBarAction]
+	Disabled marks.Binding[bool]
 
 	Activated signal.Signal[string]
 
-	Label    string
-	Actions  []ActionBarAction
-	Overflow *ActionBarAction
-	Disabled bool
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -100,26 +95,34 @@ type actionBarItem struct {
 
 var _ facet.FacetImpl = (*ActionBar)(nil)
 var _ layout.AnchorExporter = (*ActionBar)(nil)
+var _ marks.Mark = (*ActionBar)(nil)
 
 // NewActionBar constructs an action.action_bar mark with canonical defaults.
 func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 	a := &ActionBar{
-		Facet:        facet.NewFacet(),
-		Label:        label,
-		Actions:      normalizeActionBarActions(actions),
+		Label:        marks.Const(label),
+		Actions:      marks.Const(normalizeActionBarActions(actions)),
+		Overflow:     marks.Const[*ActionBarAction](nil),
+		Disabled:     marks.Const(false),
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
 		Activated:    signal.NewSignal[string]("action_bar_activated"),
 	}
-	a.layoutRole.Parent = facet.GroupParentContract{
+	a.Core.Facet = facet.NewFacet()
+	a.AddBinding(a.Label)
+	a.AddBinding(a.Actions)
+	a.AddBinding(a.Overflow)
+	a.AddBinding(a.Disabled)
+
+	a.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   actionBarGroupPolicy{bar: a},
 		Children: a,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	a.layoutRole.Child = facet.GroupChildContract{
+	a.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := a.measureIntrinsic(ctx, constraints)
@@ -137,52 +140,34 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	a.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return a.measure(ctx, constraints)
 	}
-	a.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		a.layoutRole.ArrangedBounds = bounds
+	a.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		a.Layout.ArrangedBounds = bounds
 		a.arrange(ctx, bounds)
 	}
-	a.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := a.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	a.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := a.buildCommands(a.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	a.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	a.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return a.hitTest(p)
 	}
-	a.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	a.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return a.onPointer(e)
 	}
-	a.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	a.Input.OnKey = func(e facet.KeyEvent) bool {
 		return a.onKey(e)
 	}
-	a.focusRole.Focusable = func() bool {
-		return !a.Disabled && (strings.TrimSpace(a.Label) != "" || len(a.Actions) > 0 || a.Overflow != nil)
+	a.Focus.Focusable = func() bool {
+		return !a.Disabled.Get() && (strings.TrimSpace(a.Label.Get()) != "" || len(a.Actions.Get()) > 0 || a.Overflow.Get() != nil)
 	}
-	a.focusRole.TabIndex = 0
-	a.focusRole.OnFocusGained = func() { a.onFocusGained() }
-	a.focusRole.OnFocusLost = func() { a.onFocusLost() }
+	a.Focus.TabIndex = 0
+	a.Focus.OnFocusGained = func() { a.onFocusGained() }
+	a.Focus.OnFocusLost = func() { a.onFocusLost() }
 	a.textRole.IMEEnabled = false
-	a.AddRole(&a.layoutRole)
-	a.AddRole(&a.renderRole)
-	a.AddRole(&a.projectionRole)
-	a.AddRole(&a.hitRole)
-	a.AddRole(&a.inputRole)
-	a.AddRole(&a.focusRole)
+
+	a.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return a.buildCommands(a.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	a.RegisterRoles()
 	a.AddRole(&a.textRole)
 	a.syncItems()
 	return a
@@ -194,6 +179,11 @@ func (a *ActionBar) Base() *facet.Facet {
 	return &a.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (a *ActionBar) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "action_bar"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (a *ActionBar) AccessibilityRole() string { return "toolbar" }
 
@@ -202,10 +192,10 @@ func (a *ActionBar) AccessibleName() string {
 	if a == nil {
 		return ""
 	}
-	if strings.TrimSpace(a.Label) != "" {
-		return strings.TrimSpace(a.Label)
+	if strings.TrimSpace(a.Label.Get()) != "" {
+		return strings.TrimSpace(a.Label.Get())
 	}
-	for _, action := range a.Actions {
+	for _, action := range a.Actions.Get() {
 		if name := strings.TrimSpace(action.AccessibleLabel); name != "" {
 			return name
 		}
@@ -213,99 +203,15 @@ func (a *ActionBar) AccessibleName() string {
 			return name
 		}
 	}
-	if a.Overflow != nil {
-		if name := strings.TrimSpace(a.Overflow.AccessibleLabel); name != "" {
+	if overflow := a.Overflow.Get(); overflow != nil {
+		if name := strings.TrimSpace(overflow.AccessibleLabel); name != "" {
 			return name
 		}
-		if name := strings.TrimSpace(a.Overflow.Label); name != "" {
+		if name := strings.TrimSpace(overflow.Label); name != "" {
 			return name
 		}
 	}
 	return ""
-}
-
-// SetLabel updates the authored context label.
-func (a *ActionBar) SetLabel(label string) {
-	if a == nil || a.Label == label {
-		return
-	}
-	a.Label = label
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetActions replaces the bar actions.
-func (a *ActionBar) SetActions(actions []ActionBarAction) {
-	if a == nil {
-		return
-	}
-	a.Actions = normalizeActionBarActions(actions)
-	a.syncItems()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOverflow updates the optional overflow action.
-func (a *ActionBar) SetOverflow(action *ActionBarAction) {
-	if a == nil {
-		return
-	}
-	if action == nil {
-		if a.Overflow == nil {
-			return
-		}
-		a.Overflow = nil
-		a.syncItems()
-		a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	next := normalizeActionBarAction(*action)
-	a.Overflow = &next
-	a.syncItems()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (a *ActionBar) SetDisabled(disabled bool) {
-	if a == nil || a.Disabled == disabled {
-		return
-	}
-	a.Disabled = disabled
-	if disabled {
-		a.hovered = false
-		a.pressed = false
-		a.focusedVisible = false
-		a.focusFromPointer = false
-		a.hoveredIndex = -1
-		a.pressedIndex = -1
-	}
-	a.syncItems()
-	a.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// ExportAnchors publishes the action bar anchor set.
-func (a *ActionBar) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if a == nil {
-		return nil
-	}
-	bounds := a.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
-		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
-	if a.cachedLabelLayout != nil {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: a.cachedLabelBounds.Min.Y + a.cachedLabelLayout.Baseline}
-	} else {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
-	}
-	return out
 }
 
 // Children returns the facet's immediate child list.
@@ -345,17 +251,18 @@ func (a *ActionBar) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach is unused.
-func (a *ActionBar) OnAttach(ctx facet.AttachContext) {}
+// OnAttach subscribes binding sources.
+func (a *ActionBar) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach() }
 
 // OnActivate is unused.
-func (a *ActionBar) OnActivate() {}
+func (a *ActionBar) OnActivate() { a.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (a *ActionBar) OnDeactivate() {}
+func (a *ActionBar) OnDeactivate() { a.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (a *ActionBar) OnDetach() {
+	a.Core.OnDetach()
 	a.cachedTokens = theme.Tokens{}
 	a.cachedRecipe = shared.ActionBarSlots{}
 	a.cachedRootBounds = gfx.Rect{}
@@ -369,6 +276,23 @@ func (a *ActionBar) OnDetach() {
 	a.cachedRadius = 0
 	a.cachedLabelLayout = nil
 	a.cachedItems = nil
+}
+
+// ExportAnchors publishes the action bar anchor set.
+func (a *ActionBar) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
+	if a == nil {
+		return nil
+	}
+	out := a.Core.DefaultAnchors(a.Layout.ArrangedBounds, ctx)
+	if out == nil {
+		return nil
+	}
+	if a.cachedLabelLayout != nil {
+		out["baseline"] = gfx.Point{X: a.Layout.ArrangedBounds.Min.X, Y: a.cachedLabelBounds.Min.Y + a.cachedLabelLayout.Baseline}
+	} else {
+		out["baseline"] = gfx.Point{X: a.Layout.ArrangedBounds.Min.X, Y: a.Layout.ArrangedBounds.Min.Y}
+	}
+	return out
 }
 
 func (a *ActionBar) invalidate(flags facet.DirtyFlags) {
@@ -417,10 +341,11 @@ func (a *ActionBar) itemSpecs() []ActionBarAction {
 	if a == nil {
 		return nil
 	}
-	out := make([]ActionBarAction, 0, len(a.Actions)+1)
-	out = append(out, normalizeActionBarActions(a.Actions)...)
-	if a.Overflow != nil {
-		next := normalizeActionBarAction(*a.Overflow)
+	actions := a.Actions.Get()
+	out := make([]ActionBarAction, 0, len(actions)+1)
+	out = append(out, normalizeActionBarActions(actions)...)
+	if overflow := a.Overflow.Get(); overflow != nil {
+		next := normalizeActionBarAction(*overflow)
 		out = append(out, next)
 	}
 	return out
@@ -511,8 +436,8 @@ func (a *ActionBar) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		H: minHeight,
 	}
 	size = constraints.Constrain(size)
-	a.layoutRole.MeasuredSize = size
-	a.layoutRole.MeasuredResult = facet.MeasureResult{
+	a.Layout.MeasuredSize = size
+	a.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -521,7 +446,7 @@ func (a *ActionBar) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		},
 		Constraints: constraints,
 	}
-	return a.layoutRole.MeasuredResult
+	return a.Layout.MeasuredResult
 }
 
 func (a *ActionBar) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -531,7 +456,7 @@ func (a *ActionBar) measureIntrinsic(ctx facet.MeasureContext, constraints facet
 func (a *ActionBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	a.cachedRootBounds = bounds
 	a.cachedSurfaceBounds = bounds
-	a.layoutRole.ArrangedBounds = bounds
+	a.Layout.ArrangedBounds = bounds
 	a.cachedLabelBounds = gfx.Rect{}
 	if bounds.IsEmpty() {
 		a.cachedActionBounds = nil
@@ -614,7 +539,7 @@ func (a *ActionBar) resolveProjectionTheme(runtime any) shared.ActionBarSlots {
 }
 
 func (a *ActionBar) resolveLabelLayout(ctx facet.MeasureContext, resolved theme.ResolvedContext, style text.TextStyle, maxWidth float32) *text.TextLayout {
-	label := strings.TrimSpace(a.Label)
+	label := strings.TrimSpace(a.Label.Get())
 	if label == "" {
 		return nil
 	}
@@ -667,7 +592,7 @@ func (a *ActionBar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (a *ActionBar) hitTest(p gfx.Point) facet.HitResult {
-	if a == nil || a.layoutRole.ArrangedBounds.IsEmpty() || !a.layoutRole.ArrangedBounds.Contains(p) {
+	if a == nil || a.Layout.ArrangedBounds.IsEmpty() || !a.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := a.cursorShape()
@@ -690,14 +615,14 @@ func (a *ActionBar) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (a *ActionBar) cursorShape() facet.CursorShape {
-	if a.Disabled {
+	if a.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (a *ActionBar) onPointer(e facet.PointerEvent) bool {
-	if a.Disabled {
+	if a.Disabled.Get() {
 		return false
 	}
 	idx := a.indexAt(e.Position)
@@ -763,7 +688,7 @@ func (a *ActionBar) onPointer(e facet.PointerEvent) bool {
 }
 
 func (a *ActionBar) onKey(e facet.KeyEvent) bool {
-	if a.Disabled || len(a.cachedItems) == 0 {
+	if a.Disabled.Get() || len(a.cachedItems) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -816,7 +741,7 @@ func (a *ActionBar) onFocusLost() {
 
 func (a *ActionBar) interactionState() theme.InteractionState {
 	switch {
-	case a.Disabled:
+	case a.Disabled.Get():
 		return theme.StateDisabled
 	case a.pressed:
 		return theme.StatePressed
@@ -830,7 +755,7 @@ func (a *ActionBar) interactionState() theme.InteractionState {
 }
 
 func (a *ActionBar) pointInFocusRing(p gfx.Point) bool {
-	if !a.layoutRole.ArrangedBounds.Contains(p) {
+	if !a.Layout.ArrangedBounds.Contains(p) {
 		return false
 	}
 	inset := maxFloat(1, a.cachedPadY*0.5)
@@ -998,7 +923,7 @@ func (it *actionBarItem) dispose() {
 }
 
 func (it *actionBarItem) isOverflow() bool {
-	return it != nil && it.parent != nil && it.index >= len(it.parent.Actions)
+	return it != nil && it.parent != nil && it.index >= len(it.parent.Actions.Get())
 }
 
 func (it *actionBarItem) setSpec(spec ActionBarAction) {
@@ -1021,36 +946,36 @@ func (it *actionBarItem) setSpec(spec ActionBarAction) {
 	case actionBarItemIconButton:
 		if it.iconButton == nil {
 			it.iconButton = NewIconButton(primitive.IconRef(spec.IconRef))
-			it.iconButton.SetAccessibleName(spec.AccessibleLabel)
-			it.iconButton.focusRole.Focusable = func() bool { return false }
+			it.iconButton.AccessibleLabel = marks.Const(spec.AccessibleLabel)
+			it.iconButton.Focus.Focusable = func() bool { return false }
 			it.subID = it.iconButton.Activated.Subscribe(func(signal.Unit) {
 				if it.parent != nil {
 					it.parent.Activated.Emit(it.parent.itemKeyAt(it.index))
 				}
 			})
 		} else {
-			it.iconButton.SetSource(primitive.IconRef(spec.IconRef))
-			it.iconButton.SetAccessibleName(spec.AccessibleLabel)
+			it.iconButton.Icon = primitive.IconRef(spec.IconRef)
+			it.iconButton.AccessibleLabel = marks.Const(spec.AccessibleLabel)
 		}
-		it.iconButton.SetDisabled(it.parent != nil && it.parent.Disabled || spec.Disabled)
+		it.iconButton.Disabled = marks.Const(it.parent != nil && it.parent.Disabled.Get() || spec.Disabled)
 	case actionBarItemButton:
 		if it.button == nil {
-			it.button = NewButton(spec.Label, actionBarButtonVariant(spec))
+			it.button = NewButton(marks.Const(spec.Label), marks.Const(actionBarButtonVariant(spec)))
 			if strings.TrimSpace(spec.IconRef) != "" {
-				it.button.SetLeadingIconRef(spec.IconRef)
+				it.button.LeadingIconRef = marks.Const(spec.IconRef)
 			}
-			it.button.focusRole.Focusable = func() bool { return false }
+			it.button.Focus.Focusable = func() bool { return false }
 			it.subID = it.button.Activated.Subscribe(func(signal.Unit) {
 				if it.parent != nil {
 					it.parent.Activated.Emit(it.parent.itemKeyAt(it.index))
 				}
 			})
 		} else {
-			it.button.SetLabel(spec.Label)
-			it.button.SetVariant(actionBarButtonVariant(spec))
-			it.button.SetLeadingIconRef(spec.IconRef)
+			it.button.Label = marks.Const(spec.Label)
+			it.button.Variant = marks.Const(actionBarButtonVariant(spec))
+			it.button.LeadingIconRef = marks.Const(spec.IconRef)
 		}
-		it.button.SetDisabled(it.parent != nil && it.parent.Disabled || spec.Disabled)
+		it.button.Disabled = marks.Const(it.parent != nil && it.parent.Disabled.Get() || spec.Disabled)
 	}
 }
 

@@ -93,6 +93,11 @@ func (s *CollectionStore[T]) All() []T {
 	return out
 }
 
+// Identify returns the stable ItemID for the given item.
+func (s *CollectionStore[T]) Identify(item T) ItemID {
+	return s.identify(item)
+}
+
 // Version returns the current store version.
 func (s *CollectionStore[T]) Version() Version {
 	return s.version.Current()
@@ -287,6 +292,24 @@ func (s *CollectionStore[T]) addInvalidationTarget(fn func()) {
 	s.mu.Lock()
 	s.invalidations = append(s.invalidations, fn)
 	s.mu.Unlock()
+}
+
+// OnInsertSubscribe subscribes handler to Insert events and returns an unsubscribe function.
+func (s *CollectionStore[T]) OnInsertSubscribe(handler func(CollectionInsertEvent[T])) func() {
+	id := s.onInsert.Subscribe(handler)
+	return func() { s.onInsert.Unsubscribe(id) }
+}
+
+// OnRemoveSubscribe subscribes handler to Remove events and returns an unsubscribe function.
+func (s *CollectionStore[T]) OnRemoveSubscribe(handler func(CollectionRemoveEvent[T])) func() {
+	id := s.onRemove.Subscribe(handler)
+	return func() { s.onRemove.Unsubscribe(id) }
+}
+
+// OnUpdateSubscribe subscribes handler to Update events and returns an unsubscribe function.
+func (s *CollectionStore[T]) OnUpdateSubscribe(handler func(CollectionUpdateEvent[T])) func() {
+	id := s.onUpdate.Subscribe(handler)
+	return func() { s.onUpdate.Unsubscribe(id) }
 }
 
 // OnReplaceSubscribe subscribes handler to Replace events and returns an unsubscribe function.

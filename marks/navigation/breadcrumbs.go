@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -32,22 +33,16 @@ type BreadcrumbItem struct {
 
 // Breadcrumbs implements the navigation.breadcrumbs standard mark.
 type Breadcrumbs struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label        marks.Binding[string]
+	Items        []BreadcrumbItem
+	CurrentIndex marks.Binding[int]
+	Disabled     marks.Binding[bool]
 
 	Activated signal.Signal[int]
 
-	Label        string
-	Items        []BreadcrumbItem
-	CurrentIndex int
-	Disabled     bool
+	textRole facet.TextRole
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -75,21 +70,26 @@ type Breadcrumbs struct {
 
 var _ facet.FacetImpl = (*Breadcrumbs)(nil)
 var _ layout.AnchorExporter = (*Breadcrumbs)(nil)
+var _ marks.Mark = (*Breadcrumbs)(nil)
 
 // NewBreadcrumbs constructs a navigation.breadcrumbs mark with canonical defaults.
 func NewBreadcrumbs(label string, items []BreadcrumbItem) *Breadcrumbs {
 	b := &Breadcrumbs{
-		Facet:        facet.NewFacet(),
-		Label:        label,
-		CurrentIndex: len(items) - 1,
+		Label:        marks.Const(label),
+		CurrentIndex: marks.Const(len(items) - 1),
+		Disabled:     marks.Const(false),
 		focusedIndex: len(items) - 1,
 	}
+	b.Core.Facet = facet.NewFacet()
+	b.AddBinding(b.Label)
+	b.AddBinding(b.CurrentIndex)
+	b.AddBinding(b.Disabled)
 	b.SetItems(items)
-	b.layoutRole.Parent = facet.GroupParentContract{
+	b.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: breadcrumbsGroupPolicy{},
 	}
-	b.layoutRole.Child = facet.GroupChildContract{
+	b.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := b.measureIntrinsic(ctx, constraints)
@@ -107,44 +107,25 @@ func NewBreadcrumbs(label string, items []BreadcrumbItem) *Breadcrumbs {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	b.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	b.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return b.measure(ctx, constraints)
 	}
-	b.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		b.layoutRole.ArrangedBounds = bounds
+	b.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		b.Layout.ArrangedBounds = bounds
 		b.arrange(ctx, bounds)
 	}
-	b.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := b.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	b.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := b.buildCommands(b.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	b.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return b.hitTest(p) }
-	b.inputRole.OnPointer = func(e facet.PointerEvent) bool { return b.onPointer(e) }
-	b.inputRole.OnKey = func(e facet.KeyEvent) bool { return b.onKey(e) }
-	b.focusRole.Focusable = func() bool { return !b.Disabled && len(b.Items) > 0 }
-	b.focusRole.TabIndex = 0
-	b.focusRole.OnFocusGained = func() { b.onFocusGained() }
-	b.focusRole.OnFocusLost = func() { b.onFocusLost() }
+	b.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return b.hitTest(p) }
+	b.Input.OnPointer = func(e facet.PointerEvent) bool { return b.onPointer(e) }
+	b.Input.OnKey = func(e facet.KeyEvent) bool { return b.onKey(e) }
+	b.Focus.Focusable = func() bool { return !b.Disabled.Get() && len(b.Items) > 0 }
+	b.Focus.TabIndex = 0
+	b.Focus.OnFocusGained = func() { b.onFocusGained() }
+	b.Focus.OnFocusLost = func() { b.onFocusLost() }
 	b.textRole.IMEEnabled = false
-	b.AddRole(&b.layoutRole)
-	b.AddRole(&b.renderRole)
-	b.AddRole(&b.projectionRole)
-	b.AddRole(&b.hitRole)
-	b.AddRole(&b.inputRole)
-	b.AddRole(&b.focusRole)
+	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return b.buildCommands(b.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	b.RegisterRoles()
 	b.AddRole(&b.textRole)
 	return b
 }
@@ -155,20 +136,16 @@ func (b *Breadcrumbs) Base() *facet.Facet {
 	return &b.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (b *Breadcrumbs) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "navigation", TypeName: "breadcrumbs"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (b *Breadcrumbs) AccessibilityRole() string { return "navigation" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (b *Breadcrumbs) AccessibleName() string { return b.Label }
-
-// SetLabel updates the authored accessible label.
-func (b *Breadcrumbs) SetLabel(label string) {
-	if b == nil || b.Label == label {
-		return
-	}
-	b.Label = label
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
+func (b *Breadcrumbs) AccessibleName() string { return b.Label.Get() }
 
 // SetItems updates the breadcrumb items.
 func (b *Breadcrumbs) SetItems(items []BreadcrumbItem) {
@@ -184,61 +161,15 @@ func (b *Breadcrumbs) SetItems(items []BreadcrumbItem) {
 	b.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
-// SetCurrentIndex updates the authored current segment.
-func (b *Breadcrumbs) SetCurrentIndex(index int) {
-	if b == nil {
-		return
-	}
-	if index < 0 {
-		index = 0
-	}
-	if len(b.Items) > 0 && index >= len(b.Items) {
-		index = len(b.Items) - 1
-	}
-	if len(b.Items) == 0 {
-		index = 0
-	}
-	if b.CurrentIndex == index {
-		return
-	}
-	b.CurrentIndex = index
-	b.clampIndices()
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (b *Breadcrumbs) SetDisabled(disabled bool) {
-	if b == nil || b.Disabled == disabled {
-		return
-	}
-	b.Disabled = disabled
-	if disabled {
-		b.hoveredIndex = -1
-		b.pressedIndex = -1
-		b.focusedVisible = false
-		b.focusFromPointer = false
-	}
-	b.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the breadcrumbs anchor set.
 func (b *Breadcrumbs) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if b == nil {
 		return nil
 	}
-	bounds := b.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := b.Layout.ArrangedBounds
+	out := b.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if b.currentLayout() != nil {
 		layout := b.currentLayout()
@@ -256,16 +187,17 @@ func (b *Breadcrumbs) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 func (b *Breadcrumbs) Children() []facet.GroupChild { return nil }
 
 // OnAttach is unused beyond layout role setup.
-func (b *Breadcrumbs) OnAttach(ctx facet.AttachContext) {}
+func (b *Breadcrumbs) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach() }
 
 // OnActivate is unused.
-func (b *Breadcrumbs) OnActivate() {}
+func (b *Breadcrumbs) OnActivate() { b.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (b *Breadcrumbs) OnDeactivate() {}
+func (b *Breadcrumbs) OnDeactivate() { b.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (b *Breadcrumbs) OnDetach() {
+	b.Core.OnDetach()
 	b.cachedTokens = theme.Tokens{}
 	b.cachedRecipe = shared.BreadcrumbSlots{}
 	b.cachedRootBounds = gfx.Rect{}
@@ -287,7 +219,7 @@ func (b *Breadcrumbs) invalidate(flags facet.DirtyFlags) {
 	if b == nil {
 		return
 	}
-	b.Base().Invalidate(flags)
+	b.Facet.Invalidate(flags)
 }
 
 func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -307,7 +239,6 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	b.cachedCurrentStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedSeparatorStyle = resolved.TextStyle(theme.TextLabelM)
 	if b.cachedWritingDirection == facet.WritingDirectionRTL {
-		// Keep the same typography, but mirrored placement changes during arrange.
 	}
 	shaper := b.newShaper(ctx.Runtime)
 	if shaper == nil {
@@ -367,8 +298,8 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	} else {
 		b.cachedSeparatorBounds = nil
 	}
-	b.layoutRole.MeasuredSize = measured
-	b.layoutRole.MeasuredResult = facet.MeasureResult{
+	b.Layout.MeasuredSize = measured
+	b.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -383,7 +314,7 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	b.textRole.Selection = text.TextRange{}
 	b.textRole.CaretVisible = false
 	b.textRole.CaretPosition = text.TextPosition{}
-	return b.layoutRole.MeasuredResult
+	return b.Layout.MeasuredResult
 }
 
 func (b *Breadcrumbs) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -393,7 +324,7 @@ func (b *Breadcrumbs) measureIntrinsic(ctx facet.MeasureContext, constraints fac
 func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	b.cachedRootBounds = bounds
 	b.cachedSegmentListBounds = gfx.Rect{}
-	b.layoutRole.ArrangedBounds = bounds
+	b.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() || len(b.Items) == 0 {
 		return
 	}
@@ -562,7 +493,7 @@ func (b *Breadcrumbs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 }
 
 func (b *Breadcrumbs) hitTest(p gfx.Point) facet.HitResult {
-	if b == nil || b.layoutRole.ArrangedBounds.IsEmpty() || !b.layoutRole.ArrangedBounds.Contains(p) {
+	if b == nil || b.Layout.ArrangedBounds.IsEmpty() || !b.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := b.cursorShape()
@@ -590,7 +521,7 @@ func (b *Breadcrumbs) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (b *Breadcrumbs) onPointer(e facet.PointerEvent) bool {
-	if b.Disabled {
+	if b.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -645,7 +576,7 @@ func (b *Breadcrumbs) onPointer(e facet.PointerEvent) bool {
 }
 
 func (b *Breadcrumbs) onKey(e facet.KeyEvent) bool {
-	if b.Disabled || len(b.Items) == 0 {
+	if b.Disabled.Get() || len(b.Items) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -704,7 +635,7 @@ func (b *Breadcrumbs) onFocusLost() {
 
 func (b *Breadcrumbs) rootState() theme.InteractionState {
 	switch {
-	case b.Disabled:
+	case b.Disabled.Get():
 		return theme.StateDisabled
 	case b.pressedIndex >= 0:
 		return theme.StatePressed
@@ -718,7 +649,7 @@ func (b *Breadcrumbs) rootState() theme.InteractionState {
 }
 
 func (b *Breadcrumbs) itemState(index int) theme.InteractionState {
-	if b.Disabled || b.isDisabledIndex(index) {
+	if b.Disabled.Get() || b.isDisabledIndex(index) {
 		return theme.StateDisabled
 	}
 	if index == b.clampedCurrentIndex() {
@@ -798,16 +729,17 @@ func (b *Breadcrumbs) firstEnabledIndex() int {
 }
 
 func (b *Breadcrumbs) clampedCurrentIndex() int {
+	idx := b.CurrentIndex.Get()
 	if len(b.Items) == 0 {
 		return 0
 	}
-	if b.CurrentIndex < 0 {
+	if idx < 0 {
 		return 0
 	}
-	if b.CurrentIndex >= len(b.Items) {
+	if idx >= len(b.Items) {
 		return len(b.Items) - 1
 	}
-	return b.CurrentIndex
+	return idx
 }
 
 func (b *Breadcrumbs) clampedFocusedIndex() int {
@@ -825,15 +757,16 @@ func (b *Breadcrumbs) clampedFocusedIndex() int {
 
 func (b *Breadcrumbs) clampIndices() {
 	if len(b.Items) == 0 {
-		b.CurrentIndex = 0
+		b.CurrentIndex = marks.Const(0)
 		b.focusedIndex = 0
 		return
 	}
-	if b.CurrentIndex < 0 || b.CurrentIndex >= len(b.Items) {
-		b.CurrentIndex = len(b.Items) - 1
+	ci := b.CurrentIndex.Get()
+	if ci < 0 || ci >= len(b.Items) {
+		b.CurrentIndex = marks.Const(len(b.Items) - 1)
 	}
 	if b.focusedIndex < 0 || b.focusedIndex >= len(b.Items) {
-		b.focusedIndex = b.CurrentIndex
+		b.focusedIndex = ci
 	}
 	if b.isDisabledIndex(b.focusedIndex) {
 		for i := range b.Items {
@@ -849,7 +782,7 @@ func (b *Breadcrumbs) isDisabledIndex(index int) bool {
 	if index < 0 || index >= len(b.Items) {
 		return true
 	}
-	return b.Disabled || b.Items[index].Disabled
+	return b.Disabled.Get() || b.Items[index].Disabled
 }
 
 func (b *Breadcrumbs) indexAt(p gfx.Point) int {
@@ -862,14 +795,14 @@ func (b *Breadcrumbs) indexAt(p gfx.Point) int {
 }
 
 func (b *Breadcrumbs) cursorShape() facet.CursorShape {
-	if b.Disabled {
+	if b.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (b *Breadcrumbs) cursorForIndex(index int) facet.CursorShape {
-	if b.Disabled || b.isDisabledIndex(index) || index == b.clampedCurrentIndex() {
+	if b.Disabled.Get() || b.isDisabledIndex(index) || index == b.clampedCurrentIndex() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer

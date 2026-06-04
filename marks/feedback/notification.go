@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -63,30 +64,25 @@ type NotificationContentChild struct {
 
 // Notification implements the feedback.notification canonical mark.
 type Notification struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	Actioned  signal.Signal[signal.Unit]
 	Dismissed signal.Signal[signal.Unit]
 
-	Title              string
-	Message            string
-	IconRef            string
-	ActionLabel        string
-	ActionDisabled     bool
-	CloseButtonLabel   string
-	ContentLayoutMode  NotificationContentLayoutMode
-	ContentGridColumns int
-	ContentGridRows    int
-	ContentChildren    []NotificationContentChild
-	Disabled           bool
-	Open               bool
+	Title              marks.Binding[string]
+	Message            marks.Binding[string]
+	IconRef            marks.Binding[string]
+	ActionLabel        marks.Binding[string]
+	ActionDisabled     marks.Binding[bool]
+	CloseButtonLabel   marks.Binding[string]
+	ContentLayoutMode  marks.Binding[NotificationContentLayoutMode]
+	ContentGridColumns marks.Binding[int]
+	ContentGridRows    marks.Binding[int]
+	ContentChildren    marks.Binding[[]NotificationContentChild]
+	Disabled           marks.Binding[bool]
+	Open               marks.Binding[bool]
 
 	hovered        bool
 	pressed        bool
@@ -118,26 +114,48 @@ type Notification struct {
 
 var _ facet.FacetImpl = (*Notification)(nil)
 var _ layout.AnchorExporter = (*Notification)(nil)
+var _ marks.Mark = (*Notification)(nil)
 
 const notificationDefaultIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8 3.5 19.5h17L12 2.8z"/><path d="M12 9v4.5"/><circle cx="12" cy="16.5" r="1"/></svg>`
 
 // NewNotification constructs a feedback.notification mark with canonical defaults.
 func NewNotification(title, message string) *Notification {
 	n := &Notification{
-		Facet:             facet.NewFacet(),
-		Title:             title,
-		Message:           message,
-		ContentLayoutMode: NotificationContentLayoutVertical,
-		Open:              true,
+		Title:              marks.Const(title),
+		Message:            marks.Const(message),
+		IconRef:            marks.Const(""),
+		ActionLabel:        marks.Const(""),
+		ActionDisabled:     marks.Const(false),
+		CloseButtonLabel:   marks.Const(""),
+		ContentLayoutMode:  marks.Const(NotificationContentLayoutVertical),
+		ContentGridColumns: marks.Const(1),
+		ContentGridRows:    marks.Const(1),
+		ContentChildren:    marks.Const[[]NotificationContentChild](nil),
+		Disabled:           marks.Const(false),
+		Open:               marks.Const(true),
 	}
-	n.layoutRole.Parent = facet.GroupParentContract{
+	n.Core.Facet = facet.NewFacet()
+	n.AddBinding(n.Title)
+	n.AddBinding(n.Message)
+	n.AddBinding(n.IconRef)
+	n.AddBinding(n.ActionLabel)
+	n.AddBinding(n.ActionDisabled)
+	n.AddBinding(n.CloseButtonLabel)
+	n.AddBinding(n.ContentLayoutMode)
+	n.AddBinding(n.ContentGridColumns)
+	n.AddBinding(n.ContentGridRows)
+	n.AddBinding(n.ContentChildren)
+	n.AddBinding(n.Disabled)
+	n.AddBinding(n.Open)
+
+	n.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   notificationGroupPolicy{notification: n},
 		Children: n,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	n.layoutRole.Child = facet.GroupChildContract{
+	n.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := n.measure(ctx, constraints).Size
@@ -155,14 +173,14 @@ func NewNotification(title, message string) *Notification {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	n.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	n.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return n.measure(ctx, constraints)
 	}
-	n.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		n.layoutRole.ArrangedBounds = bounds
+	n.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		n.Layout.ArrangedBounds = bounds
 		n.arrange(ctx, bounds)
 	}
-	n.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	n.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -172,22 +190,14 @@ func NewNotification(title, message string) *Notification {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	n.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := n.buildCommands(n.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	n.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return n.hitTest(p) }
-	n.inputRole.OnPointer = func(e facet.PointerEvent) bool { return n.onPointer(e) }
-	n.inputRole.OnKey = func(e facet.KeyEvent) bool { return false }
+	n.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return n.hitTest(p) }
+	n.Input.OnPointer = func(e facet.PointerEvent) bool { return n.onPointer(e) }
+	n.Input.OnKey = func(e facet.KeyEvent) bool { return false }
 	n.textRole.IMEEnabled = false
-	n.AddRole(&n.layoutRole)
-	n.AddRole(&n.renderRole)
-	n.AddRole(&n.projectionRole)
-	n.AddRole(&n.hitRole)
-	n.AddRole(&n.inputRole)
+	n.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return n.buildCommands(n.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	n.RegisterRoles()
 	n.AddRole(&n.textRole)
 	n.syncChildren()
 	return n
@@ -199,6 +209,11 @@ func (n *Notification) Base() *facet.Facet {
 	return &n.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (n *Notification) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "feedback", TypeName: "notification"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (n *Notification) AccessibilityRole() string { return "status" }
 
@@ -207,146 +222,13 @@ func (n *Notification) AccessibleName() string {
 	if n == nil {
 		return ""
 	}
-	parts := []string{strings.TrimSpace(n.Title), strings.TrimSpace(n.Message)}
+	parts := []string{strings.TrimSpace(n.Title.Get()), strings.TrimSpace(n.Message.Get())}
 	return strings.TrimSpace(strings.Join(parts, " "))
-}
-
-// SetTitle updates the authored notification title.
-func (n *Notification) SetTitle(title string) {
-	if n == nil || n.Title == title {
-		return
-	}
-	n.Title = title
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetMessage updates the authored notification message.
-func (n *Notification) SetMessage(message string) {
-	if n == nil || n.Message == message {
-		return
-	}
-	n.Message = message
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetIconRef updates the authored notification icon source.
-func (n *Notification) SetIconRef(ref string) {
-	if n == nil || n.IconRef == ref {
-		return
-	}
-	n.IconRef = ref
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetActionLabel updates the authored action label.
-func (n *Notification) SetActionLabel(label string) {
-	if n == nil || n.ActionLabel == label {
-		return
-	}
-	n.ActionLabel = label
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetActionDisabled toggles the action affordance.
-func (n *Notification) SetActionDisabled(disabled bool) {
-	if n == nil || n.ActionDisabled == disabled {
-		return
-	}
-	n.ActionDisabled = disabled
-	n.syncChildren()
-	n.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetCloseButtonLabel updates the authored close-button label.
-func (n *Notification) SetCloseButtonLabel(label string) {
-	if n == nil || n.CloseButtonLabel == label {
-		return
-	}
-	n.CloseButtonLabel = label
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetContentLayoutMode updates how custom body content is arranged.
-func (n *Notification) SetContentLayoutMode(mode NotificationContentLayoutMode) {
-	if n == nil || n.ContentLayoutMode == mode {
-		return
-	}
-	n.ContentLayoutMode = mode
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetContentGrid defines the grid used when the body content layout is grid-based.
-func (n *Notification) SetContentGrid(columns, rows int) {
-	if n == nil {
-		return
-	}
-	if columns < 1 {
-		columns = 1
-	}
-	if rows < 1 {
-		rows = 1
-	}
-	if n.ContentGridColumns == columns && n.ContentGridRows == rows {
-		return
-	}
-	n.ContentGridColumns = columns
-	n.ContentGridRows = rows
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetContentChildren updates the reusable body content facet list.
-func (n *Notification) SetContentChildren(children []NotificationContentChild) {
-	if n == nil {
-		return
-	}
-	next := append([]NotificationContentChild(nil), children...)
-	for i := range next {
-		next[i].Key = strings.TrimSpace(next[i].Key)
-	}
-	n.ContentChildren = next
-	n.syncChildren()
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles the disabled state.
-func (n *Notification) SetDisabled(disabled bool) {
-	if n == nil || n.Disabled == disabled {
-		return
-	}
-	n.Disabled = disabled
-	if disabled {
-		n.hovered = false
-		n.pressed = false
-		n.focusedVisible = false
-	}
-	n.syncChildren()
-	n.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen toggles the notification visibility.
-func (n *Notification) SetOpen(open bool) {
-	if n == nil || n.Open == open {
-		return
-	}
-	n.Open = open
-	if !open {
-		n.hovered = false
-		n.pressed = false
-		n.focusedVisible = false
-	}
-	n.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // Children returns the notification's immediate semantic children.
 func (n *Notification) Children() []facet.GroupChild {
-	if n == nil || !n.Open {
+	if n == nil || !n.Open.Get() {
 		return nil
 	}
 	n.syncChildren()
@@ -371,19 +253,10 @@ func (n *Notification) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 	if n == nil {
 		return nil
 	}
-	bounds := n.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := n.Layout.ArrangedBounds
+	out := n.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if !n.cachedTitleBounds.IsEmpty() {
 		out["baseline"] = gfx.Point{X: n.cachedTitleBounds.Min.X, Y: n.cachedTitleBounds.Min.Y}
@@ -414,14 +287,14 @@ func (n *Notification) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 	return out
 }
 
-// OnAttach is unused.
-func (n *Notification) OnAttach(ctx facet.AttachContext) {}
+// OnAttach delegates to Core.
+func (n *Notification) OnAttach(ctx facet.AttachContext) { n.Core.OnAttach() }
 
-// OnActivate is unused.
-func (n *Notification) OnActivate() {}
+// OnActivate delegates to Core.
+func (n *Notification) OnActivate() { n.Core.OnActivate() }
 
-// OnDeactivate is unused.
-func (n *Notification) OnDeactivate() {}
+// OnDeactivate delegates to Core.
+func (n *Notification) OnDeactivate() { n.Core.OnDeactivate() }
 
 // OnFocusGained is unused.
 func (n *Notification) OnFocusGained() {}
@@ -431,6 +304,7 @@ func (n *Notification) OnFocusLost() {}
 
 // OnDetach clears cached projection state.
 func (n *Notification) OnDetach() {
+	n.Core.OnDetach()
 	n.cachedTokens = theme.Tokens{}
 	n.cachedRecipe = shared.FeedbackNotificationSlots{}
 	n.cachedBounds = gfx.Rect{}
@@ -458,95 +332,97 @@ func (n *Notification) invalidate(flags facet.DirtyFlags) {
 	if n == nil {
 		return
 	}
-	n.Base().Invalidate(flags)
+	n.Facet.Invalidate(flags)
 }
 
 func (n *Notification) syncChildren() {
 	if n == nil {
 		return
 	}
-	iconSource := strings.TrimSpace(n.IconRef)
+	iconSource := strings.TrimSpace(n.IconRef.Get())
 	if iconSource == "" {
 		iconSource = notificationDefaultIconSVG
 	}
 	if n.cachedIconFacet == nil {
 		n.cachedIconFacet = primitive.NewIcon(primitive.IconSVG(iconSource))
 	} else {
-		n.cachedIconFacet.SetSource(primitive.IconSVG(iconSource))
+		n.cachedIconFacet.Source = primitive.IconSVG(iconSource)
 	}
-	n.cachedIconFacet.SetDecorative(true)
-	title := strings.TrimSpace(n.Title)
+	n.cachedIconFacet.Decorative = marks.Const(true)
+	title := strings.TrimSpace(n.Title.Get())
 	if n.cachedTitleFacet == nil {
-		n.cachedTitleFacet = primitive.NewText(title)
+		n.cachedTitleFacet = primitive.NewText(marks.Const(title))
 	} else {
-		n.cachedTitleFacet.SetContent(title)
+		n.cachedTitleFacet.Content = marks.Const(title)
+		n.cachedTitleFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	n.cachedTitleFacet.SetTypography(theme.TextHeadingS)
-	n.cachedTitleFacet.SetOverflow(primitive.TextOverflowTruncate)
-	n.cachedTitleFacet.SetForeground(theme.ColorText)
-	if n.Disabled {
-		n.cachedTitleFacet.SetForeground(theme.ColorTextDisabled)
-		n.cachedTitleFacet.SetDisabled(true)
+	n.cachedTitleFacet.Typography = marks.Const(theme.TextHeadingS)
+	n.cachedTitleFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	n.cachedTitleFacet.Foreground = marks.Const(theme.ColorText)
+	if n.Disabled.Get() {
+		n.cachedTitleFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		n.cachedTitleFacet.Disabled = marks.Const(true)
 	} else {
-		n.cachedTitleFacet.SetDisabled(false)
+		n.cachedTitleFacet.Disabled = marks.Const(false)
 	}
-	message := strings.TrimSpace(n.Message)
+	message := strings.TrimSpace(n.Message.Get())
 	if n.cachedMessageFacet == nil {
-		n.cachedMessageFacet = primitive.NewText(message)
+		n.cachedMessageFacet = primitive.NewText(marks.Const(message))
 	} else {
-		n.cachedMessageFacet.SetContent(message)
+		n.cachedMessageFacet.Content = marks.Const(message)
+		n.cachedMessageFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	n.cachedMessageFacet.SetTypography(theme.TextBodyM)
-	n.cachedMessageFacet.SetOverflow(primitive.TextOverflowTruncate)
-	n.cachedMessageFacet.SetForeground(theme.ColorTextSecondary)
-	if n.Disabled {
-		n.cachedMessageFacet.SetForeground(theme.ColorTextDisabled)
-		n.cachedMessageFacet.SetDisabled(true)
+	n.cachedMessageFacet.Typography = marks.Const(theme.TextBodyM)
+	n.cachedMessageFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	n.cachedMessageFacet.Foreground = marks.Const(theme.ColorTextSecondary)
+	if n.Disabled.Get() {
+		n.cachedMessageFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		n.cachedMessageFacet.Disabled = marks.Const(true)
 	} else {
-		n.cachedMessageFacet.SetDisabled(false)
+		n.cachedMessageFacet.Disabled = marks.Const(false)
 	}
 	if n.cachedContentGroup == nil {
 		n.cachedContentGroup = newNotificationContentGroup(n)
 	}
 	n.cachedContentGroup.syncContent()
-	if strings.TrimSpace(n.ActionLabel) == "" {
+	if strings.TrimSpace(n.ActionLabel.Get()) == "" {
 		n.cachedActionButton = nil
 	} else {
 		if n.cachedActionButton == nil {
-			n.cachedActionButton = action.NewButton(strings.TrimSpace(n.ActionLabel), uiinput.ButtonText)
+			n.cachedActionButton = action.NewButton(marks.Const(strings.TrimSpace(n.ActionLabel.Get())), marks.Const(uiinput.ButtonText))
 			n.cachedActionButton.Activated.Subscribe(func(signal.Unit) {
-				if n != nil && !n.Disabled && n.Open {
+				if n != nil && !n.Disabled.Get() && n.Open.Get() {
 					n.Actioned.Emit(signal.Unit{})
 				}
 			})
 		}
-		n.cachedActionButton.SetLabel(strings.TrimSpace(n.ActionLabel))
-		n.cachedActionButton.SetVariant(uiinput.ButtonText)
-		n.cachedActionButton.SetDisabled(n.Disabled || n.ActionDisabled)
+		n.cachedActionButton.Label = marks.Const(strings.TrimSpace(n.ActionLabel.Get()))
+		n.cachedActionButton.Variant = marks.Const(uiinput.ButtonText)
+		n.cachedActionButton.Disabled = marks.Const(n.Disabled.Get() || n.ActionDisabled.Get())
 	}
-	if strings.TrimSpace(n.CloseButtonLabel) == "" {
+	if strings.TrimSpace(n.CloseButtonLabel.Get()) == "" {
 		n.cachedCloseButton = nil
 	} else {
 		if n.cachedCloseButton == nil {
 			n.cachedCloseButton = action.NewIconButton(primitive.IconSVG(dialogDefaultCloseSVG))
 			n.cachedCloseButton.Activated.Subscribe(func(signal.Unit) {
-				if n != nil && !n.Disabled && n.Open {
+				if n != nil && !n.Disabled.Get() && n.Open.Get() {
 					n.closeAndDismiss()
 				}
 			})
 		}
-		n.cachedCloseButton.SetSource(primitive.IconSVG(dialogDefaultCloseSVG))
-		n.cachedCloseButton.SetAccessibleName(strings.TrimSpace(n.CloseButtonLabel))
-		n.cachedCloseButton.SetDisabled(n.Disabled)
+		n.cachedCloseButton.Icon = primitive.IconSVG(dialogDefaultCloseSVG)
+		n.cachedCloseButton.AccessibleLabel = marks.Const(strings.TrimSpace(n.CloseButtonLabel.Get()))
+		n.cachedCloseButton.Disabled = marks.Const(n.Disabled.Get())
 	}
 }
 
 func (n *Notification) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	if !n.Open {
+	if !n.Open.Get() {
 		size := constraints.Constrain(gfx.Size{})
-		n.layoutRole.MeasuredSize = size
-		n.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
-		return n.layoutRole.MeasuredResult
+		n.Layout.MeasuredSize = size
+		n.Layout.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+		return n.Layout.MeasuredResult
 	}
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
 	if !ok {
@@ -634,9 +510,9 @@ func (n *Notification) measure(ctx facet.MeasureContext, constraints facet.Const
 		surfaceSize.H = minFloat(surfaceSize.H, constraints.MaxSize.H)
 	}
 	size := constraints.Constrain(surfaceSize)
-	n.layoutRole.MeasuredSize = size
-	n.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
-	return n.layoutRole.MeasuredResult
+	n.Layout.MeasuredSize = size
+	n.Layout.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+	return n.Layout.MeasuredResult
 }
 
 func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -648,8 +524,8 @@ func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	n.cachedContentBounds = gfx.Rect{}
 	n.cachedActionBounds = gfx.Rect{}
 	n.cachedCloseBounds = gfx.Rect{}
-	n.layoutRole.ArrangedBounds = bounds
-	if bounds.IsEmpty() || !n.Open {
+	n.Layout.ArrangedBounds = bounds
+	if bounds.IsEmpty() || !n.Open.Get() {
 		return
 	}
 	n.syncChildren()
@@ -771,7 +647,7 @@ func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 }
 
 func (n *Notification) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if n == nil || bounds.IsEmpty() || !n.Open {
+	if n == nil || bounds.IsEmpty() || !n.Open.Get() {
 		return nil
 	}
 	style, slots := n.resolveProjectionTheme(runtime)
@@ -855,7 +731,7 @@ func (n *Notification) notificationState() theme.InteractionState {
 	if n == nil {
 		return theme.StateDefault
 	}
-	if n.Disabled {
+	if n.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	if n.pressed {
@@ -871,7 +747,7 @@ func (n *Notification) notificationVariant() uifeedback.NotificationVariant {
 	if n == nil {
 		return uifeedback.NotificationDefault
 	}
-	if n.Disabled {
+	if n.Disabled.Get() {
 		return uifeedback.NotificationDisabled
 	}
 	if n.pressed {
@@ -880,7 +756,7 @@ func (n *Notification) notificationVariant() uifeedback.NotificationVariant {
 	if n.hovered {
 		return uifeedback.NotificationHover
 	}
-	if n.Open {
+	if n.Open.Get() {
 		return uifeedback.NotificationOpen
 	}
 	return uifeedback.NotificationDefault
@@ -923,7 +799,7 @@ func (p notificationGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, chi
 }
 
 func (n *Notification) hitTest(p gfx.Point) facet.HitResult {
-	if n == nil || !n.Open || n.cachedBounds.IsEmpty() || !n.cachedBounds.Contains(p) {
+	if n == nil || !n.Open.Get() || n.cachedBounds.IsEmpty() || !n.cachedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	switch {
@@ -943,7 +819,7 @@ func (n *Notification) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (n *Notification) onPointer(e facet.PointerEvent) bool {
-	if n == nil || n.Disabled || !n.Open {
+	if n == nil || n.Disabled.Get() || !n.Open.Get() {
 		return false
 	}
 	if !n.cachedBounds.Contains(e.Position) {
@@ -998,10 +874,10 @@ func (n *Notification) onDismiss(e facet.DismissEvent) bool {
 }
 
 func (n *Notification) closeAndDismiss() {
-	if n == nil || !n.Open {
+	if n == nil || !n.Open.Get() {
 		return
 	}
-	n.Open = false
+	n.Open = marks.Const(false)
 	n.hovered = false
 	n.pressed = false
 	n.focusedVisible = false
@@ -1040,12 +916,9 @@ func notificationContentGroupChild(base *facet.Facet, markID facet.MarkID, order
 }
 
 type notificationContentGroup struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	parent *Notification
 
@@ -1066,17 +939,17 @@ type notificationContentGroup struct {
 
 func newNotificationContentGroup(parent *Notification) *notificationContentGroup {
 	g := &notificationContentGroup{
-		Facet:  facet.NewFacet(),
 		parent: parent,
 	}
-	g.layoutRole.Parent = facet.GroupParentContract{
+	g.Core.Facet = facet.NewFacet()
+	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   notificationContentGroupPolicy{group: g},
 		Children: g,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	g.layoutRole.Child = facet.GroupChildContract{
+	g.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := g.measure(ctx, constraints)
@@ -1094,15 +967,15 @@ func newNotificationContentGroup(parent *Notification) *notificationContentGroup
 		},
 		Baseline: facet.BaselineNone,
 	}
-	g.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	g.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		size := g.measure(ctx, constraints)
 		return facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
 	}
-	g.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		g.layoutRole.ArrangedBounds = bounds
+	g.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		g.Layout.ArrangedBounds = bounds
 		g.arrange(ctx, bounds)
 	}
-	g.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	g.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -1112,17 +985,11 @@ func newNotificationContentGroup(parent *Notification) *notificationContentGroup
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	g.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := g.buildCommands(g.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
 	g.textRole.IMEEnabled = false
-	g.AddRole(&g.layoutRole)
-	g.AddRole(&g.renderRole)
-	g.AddRole(&g.projectionRole)
+	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return g.buildCommands(g.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	g.RegisterRoles()
 	g.AddRole(&g.textRole)
 	return g
 }
@@ -1133,7 +1000,7 @@ func (g *notificationContentGroup) Base() *facet.Facet {
 }
 
 func (g *notificationContentGroup) Children() []facet.GroupChild {
-	if g == nil || g.parent == nil || !g.parent.Open {
+	if g == nil || g.parent == nil || !g.parent.Open.Get() {
 		return nil
 	}
 	g.syncContent()
@@ -1159,58 +1026,60 @@ func (g *notificationContentGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *notificationContentGroup) OnAttach(ctx facet.AttachContext) {}
-func (g *notificationContentGroup) OnActivate()                      {}
-func (g *notificationContentGroup) OnDeactivate()                    {}
-func (g *notificationContentGroup) OnDetach()                        {}
+func (g *notificationContentGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *notificationContentGroup) OnActivate()                      { g.Core.OnActivate() }
+func (g *notificationContentGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
+func (g *notificationContentGroup) OnDetach()                        { g.Core.OnDetach() }
 
 func (g *notificationContentGroup) syncContent() {
 	if g == nil || g.parent == nil {
 		return
 	}
-	g.cachedLayoutMode = g.parent.ContentLayoutMode
-	g.cachedGridColumns = g.parent.ContentGridColumns
-	g.cachedGridRows = g.parent.ContentGridRows
+	g.cachedLayoutMode = g.parent.ContentLayoutMode.Get()
+	g.cachedGridColumns = g.parent.ContentGridColumns.Get()
+	g.cachedGridRows = g.parent.ContentGridRows.Get()
 	if g.cachedGridColumns < 1 {
 		g.cachedGridColumns = 1
 	}
 	if g.cachedGridRows < 1 {
 		g.cachedGridRows = 1
 	}
-	if g.layoutRole.Parent.Policy != nil {
-		g.layoutRole.Parent.Kind = g.groupKind()
+	if g.Layout.Parent.Policy != nil {
+		g.Layout.Parent.Kind = g.groupKind()
 	}
-	title := strings.TrimSpace(g.parent.Title)
+	title := strings.TrimSpace(g.parent.Title.Get())
 	if g.cachedTitleFacet == nil {
-		g.cachedTitleFacet = primitive.NewText(title)
+		g.cachedTitleFacet = primitive.NewText(marks.Const(title))
 	} else {
-		g.cachedTitleFacet.SetContent(title)
+		g.cachedTitleFacet.Content = marks.Const(title)
+		g.cachedTitleFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	g.cachedTitleFacet.SetTypography(theme.TextHeadingS)
-	g.cachedTitleFacet.SetOverflow(primitive.TextOverflowTruncate)
-	g.cachedTitleFacet.SetForeground(theme.ColorText)
-	if g.parent.Disabled {
-		g.cachedTitleFacet.SetForeground(theme.ColorTextDisabled)
-		g.cachedTitleFacet.SetDisabled(true)
+	g.cachedTitleFacet.Typography = marks.Const(theme.TextHeadingS)
+	g.cachedTitleFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	g.cachedTitleFacet.Foreground = marks.Const(theme.ColorText)
+	if g.parent.Disabled.Get() {
+		g.cachedTitleFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		g.cachedTitleFacet.Disabled = marks.Const(true)
 	} else {
-		g.cachedTitleFacet.SetDisabled(false)
+		g.cachedTitleFacet.Disabled = marks.Const(false)
 	}
-	message := strings.TrimSpace(g.parent.Message)
+	message := strings.TrimSpace(g.parent.Message.Get())
 	if g.cachedMessageFacet == nil {
-		g.cachedMessageFacet = primitive.NewText(message)
+		g.cachedMessageFacet = primitive.NewText(marks.Const(message))
 	} else {
-		g.cachedMessageFacet.SetContent(message)
+		g.cachedMessageFacet.Content = marks.Const(message)
+		g.cachedMessageFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	g.cachedMessageFacet.SetTypography(theme.TextBodyM)
-	g.cachedMessageFacet.SetOverflow(primitive.TextOverflowTruncate)
-	g.cachedMessageFacet.SetForeground(theme.ColorTextSecondary)
-	if g.parent.Disabled {
-		g.cachedMessageFacet.SetForeground(theme.ColorTextDisabled)
-		g.cachedMessageFacet.SetDisabled(true)
+	g.cachedMessageFacet.Typography = marks.Const(theme.TextBodyM)
+	g.cachedMessageFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	g.cachedMessageFacet.Foreground = marks.Const(theme.ColorTextSecondary)
+	if g.parent.Disabled.Get() {
+		g.cachedMessageFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		g.cachedMessageFacet.Disabled = marks.Const(true)
 	} else {
-		g.cachedMessageFacet.SetDisabled(false)
+		g.cachedMessageFacet.Disabled = marks.Const(false)
 	}
-	g.cachedChildren = append(g.cachedChildren[:0], g.parent.ContentChildren...)
+	g.cachedChildren = append(g.cachedChildren[:0], g.parent.ContentChildren.Get()...)
 }
 
 func (g *notificationContentGroup) groupKind() facet.GroupLayoutKind {
@@ -1225,7 +1094,7 @@ func (g *notificationContentGroup) groupKind() facet.GroupLayoutKind {
 }
 
 func (g *notificationContentGroup) measure(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
-	if g == nil || g.parent == nil || !g.parent.Open {
+	if g == nil || g.parent == nil || !g.parent.Open.Get() {
 		return gfx.Size{}
 	}
 	g.syncContent()
@@ -1323,7 +1192,7 @@ func (g *notificationContentGroup) measureContentSize(children []notificationCon
 }
 
 func (g *notificationContentGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
-	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open {
+	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open.Get() {
 		return
 	}
 	g.syncContent()
@@ -1449,12 +1318,13 @@ func (g *notificationContentGroup) gridChildren(children []notificationContentMe
 		if child.facet == nil || child.facet.LayoutRole() == nil {
 			continue
 		}
+		placement := child.grid
 		out = append(out, layoutgrid.Child{
 			FacetID: child.facet.ID(),
 			Attachment: facet.Attachment{
 				Placement: facet.Placement{
 					Mode: facet.PlacementGrid,
-					Grid: child.grid,
+					Grid: placement,
 				},
 				ZPriority: child.zPriority,
 			},
@@ -1466,7 +1336,7 @@ func (g *notificationContentGroup) gridChildren(children []notificationContentMe
 }
 
 func (g *notificationContentGroup) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open {
+	if g == nil || g.parent == nil || bounds.IsEmpty() || !g.parent.Open.Get() {
 		return nil
 	}
 	if g.cachedTitleFacet == nil && g.cachedMessageFacet == nil && len(g.cachedChildren) == 0 {

@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -23,7 +24,7 @@ func TestMenuButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	btn, rt := newMenuButtonFixture(t)
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -33,7 +34,7 @@ func TestMenuButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.Layout.Parent, ChildGroup: btn.Layout.Child}, bounds)
 
 	if got := btn.AccessibilityRole(); got != "button_with_menu" {
 		t.Fatalf("accessibility role = %q, want button_with_menu", got)
@@ -45,15 +46,15 @@ func TestMenuButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected trigger geometry, got trigger=%#v label=%#v chevron=%#v", btn.cachedTriggerBounds, btn.cachedTriggerLabelBounds, btn.cachedChevronBounds)
 	}
 
-	triggerLabelHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedTriggerLabelBounds.Min.X + 1, Y: btn.cachedTriggerLabelBounds.Min.Y + 1})
+	triggerLabelHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedTriggerLabelBounds.Min.X + 1, Y: btn.cachedTriggerLabelBounds.Min.Y + 1})
 	if !triggerLabelHit.Hit || triggerLabelHit.MarkID != menuButtonMarkIDTriggerLabel {
 		t.Fatalf("expected trigger label hit, got %#v", triggerLabelHit)
 	}
-	chevronHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedChevronBounds.Min.X + 1, Y: btn.cachedChevronBounds.Min.Y + 1})
+	chevronHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedChevronBounds.Min.X + 1, Y: btn.cachedChevronBounds.Min.Y + 1})
 	if !chevronHit.Hit || chevronHit.MarkID != menuButtonMarkIDChevron {
 		t.Fatalf("expected chevron hit, got %#v", chevronHit)
 	}
-	iconHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedTriggerIconBounds.Min.X + 1, Y: btn.cachedTriggerIconBounds.Min.Y + 1})
+	iconHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedTriggerIconBounds.Min.X + 1, Y: btn.cachedTriggerIconBounds.Min.Y + 1})
 	if !iconHit.Hit || iconHit.MarkID != menuButtonMarkIDTriggerIcon {
 		t.Fatalf("expected trigger icon hit, got %#v", iconHit)
 	}
@@ -65,27 +66,27 @@ func TestMenuButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	btn.SetOpen(true)
-	result = btn.layoutRole.Measure(facet.MeasureContext{
+	btn.Open = true
+	result = btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1080, H: 720}})
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H))
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.Layout.Parent, ChildGroup: btn.Layout.Child}, gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H))
 
 	if btn.cachedMenuBounds.IsEmpty() || len(btn.cachedEntryLayouts) == 0 {
 		t.Fatalf("expected open menu geometry, got menu=%#v entries=%d", btn.cachedMenuBounds, len(btn.cachedEntryLayouts))
 	}
-	itemHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedEntryLayouts[2].bounds.Min.X + 1, Y: btn.cachedEntryLayouts[2].bounds.Min.Y + 1})
+	itemHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedEntryLayouts[2].bounds.Min.X + 1, Y: btn.cachedEntryLayouts[2].bounds.Min.Y + 1})
 	if !itemHit.Hit || itemHit.MarkID != menuButtonMarkIDMenuItems {
 		t.Fatalf("expected menu item hit, got %#v", itemHit)
 	}
-	surfaceHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedMenuBounds.Min.X + 2, Y: btn.cachedMenuBounds.Min.Y + 2})
+	surfaceHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedMenuBounds.Min.X + 2, Y: btn.cachedMenuBounds.Min.Y + 2})
 	if !surfaceHit.Hit || (surfaceHit.MarkID != menuButtonMarkIDMenuItems && surfaceHit.MarkID != menuButtonMarkIDFloatingMenuSurface) {
 		t.Fatalf("expected menu surface hit, got %#v", surfaceHit)
 	}
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	cmds := btn.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
@@ -109,13 +110,13 @@ func TestMenuButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestMenuButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	btn, rt := newMenuButtonFixture(t)
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1080, H: 720}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
 
 	var activated string
 	btn.Activated.Subscribe(func(key string) {
@@ -133,12 +134,12 @@ func TestMenuButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected trigger click to open menu")
 	}
 
-	btn.layoutRole.Measure(facet.MeasureContext{
+	btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1080, H: 720}})
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, gfx.RectFromXYWH(0, 0, btn.layoutRole.MeasuredSize.W, btn.layoutRole.MeasuredSize.H))
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, gfx.RectFromXYWH(0, 0, btn.Layout.MeasuredSize.W, btn.Layout.MeasuredSize.H))
 
 	itemCenter := gfx.Point{X: btn.cachedEntryLayouts[5].bounds.Min.X + btn.cachedEntryLayouts[5].bounds.Width()*0.5, Y: btn.cachedEntryLayouts[5].bounds.Min.Y + btn.cachedEntryLayouts[5].bounds.Height()*0.5}
 	if !btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: itemCenter, Button: platform.PointerLeft}) {
@@ -179,8 +180,8 @@ func TestMenuButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected keyboard activation to emit a key")
 	}
 
-	btn.SetDisabled(true)
-	if btn.focusRole.Focusable() {
+	btn.Disabled = marks.Const(true)
+	if btn.Focus.Focusable() {
 		t.Fatal("expected disabled menu button to be unfocusable")
 	}
 	if btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: triggerCenter, Button: platform.PointerLeft}) {
@@ -221,7 +222,7 @@ func newMenuButtonFixture(t *testing.T) (*MenuButton, buttonRuntimeStub) {
 		{Key: "stop", Label: "Stop app"},
 		{Key: "delete", Label: "Delete app", Destructive: true},
 	})
-	btn.SetTriggerIconRef("settings")
+	btn.TriggerIconRef = marks.Const("settings")
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustButtonTextRegistry(t),
@@ -269,7 +270,7 @@ func TestMenuButtonGoldenComfortable(t *testing.T) {
 
 func TestMenuButtonGoldenDisabled(t *testing.T) {
 	AssertMenuButtonGolden(t, "disabled", defaultMenuButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *MenuButton) {
-		btn.SetDisabled(true)
+		btn.Disabled = marks.Const(true)
 	})
 }
 
@@ -301,28 +302,28 @@ func TestMenuButtonGoldenRTL(t *testing.T) {
 
 func TestMenuButtonGoldenOpen(t *testing.T) {
 	AssertMenuButtonGolden(t, "open", defaultMenuButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *MenuButton) {
-		btn.SetOpen(true)
+		btn.Open = true
 	})
 }
 
 func TestMenuButtonGoldenDestructiveHover(t *testing.T) {
 	AssertMenuButtonGolden(t, "destructive_hover", defaultMenuButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *MenuButton) {
-		btn.SetOpen(true)
+		btn.Open = true
 		btn.hoveredIndex = 8
 	})
 }
 
 func TestMenuButtonMixedDirectionLabelAndEntriesUseSharedTextLayout(t *testing.T) {
 	btn, rt := newMenuButtonFixture(t)
-	btn.SetLabel("הגדרות Settings")
-	btn.SetEntries([]MenuButtonEntry{
+	btn.Label = marks.Const("הגדרות Settings")
+	btn.Entries = []MenuButtonEntry{
 		{Kind: MenuButtonEntrySection, Label: "פעולות Actions"},
 		{Key: "rename", Label: "שינוי שם Rename", Shortcut: "Cmd+R"},
-	})
+	}
 
 	ctx := theme.DefaultResolvedContext()
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        ctx,
 		ContentScale: 1,
@@ -330,7 +331,7 @@ func TestMenuButtonMixedDirectionLabelAndEntriesUseSharedTextLayout(t *testing.T
 	if result.Size.W <= 0 || result.Size.H <= 0 {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: btn.Layout.Parent, ChildGroup: btn.Layout.Child}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	if btn.cachedTriggerLabelLayout == nil || len(btn.cachedTriggerLabelLayout.Lines) == 0 {
 		t.Fatal("expected trigger label layout")
@@ -361,7 +362,7 @@ func AssertMenuButtonGolden(t *testing.T, name string, tokens theme.Tokens, dens
 func renderMenuButtonToSurface(t *testing.T, btn *MenuButton, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -373,9 +374,9 @@ func renderMenuButtonToSurface(t *testing.T, btn *MenuButton, rt buttonRuntimeSt
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: btn.Layout.Parent, ChildGroup: btn.Layout.Child}, bounds)
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+	cmds := btn.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -421,7 +422,7 @@ func newMenuButtonGoldenFixture(t *testing.T, tokens theme.Tokens, density theme
 		{Key: "stop", Label: "Stop app"},
 		{Key: "delete", Label: "Delete app", Destructive: true},
 	})
-	btn.SetTriggerIconRef("settings")
+	btn.TriggerIconRef = marks.Const("settings")
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
 		fonts:     mustButtonTextRegistry(t),

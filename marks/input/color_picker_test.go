@@ -11,7 +11,7 @@ import (
 
 func TestColorPickerSetColorSyncsHSV(t *testing.T) {
 	picker := NewColorPicker("Palette")
-	picker.SetColor(gfx.ColorFromRGBA8(255, 0, 0, 255))
+	picker.setColor(gfx.ColorFromRGBA8(255, 0, 0, 255), false)
 
 	if !nearFloat64(picker.Hue, 0, 0.001) {
 		t.Fatalf("Hue = %.6f, want 0", picker.Hue)
@@ -35,7 +35,7 @@ func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
 	})
 
 	arrangeBounds := gfx.RectFromXYWH(0, 0, 200, 200)
-	picker.layoutRole.Arrange(facet.ArrangeContext{Placement: facet.Placement{Mode: facet.PlacementGrid}}, arrangeBounds)
+	picker.Layout.Arrange(facet.ArrangeContext{Placement: facet.Placement{Mode: facet.PlacementGrid}}, arrangeBounds)
 
 	wheelPoint := gfx.Point{X: 100, Y: 20}
 	if handled := picker.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: wheelPoint, Button: platform.PointerLeft}); !handled {
@@ -68,8 +68,8 @@ func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
 
 func TestColorPickerBuildCommandsProducesGeometry(t *testing.T) {
 	picker := NewColorPicker("Palette")
-	picker.layoutRole.Arrange(facet.ArrangeContext{Placement: facet.Placement{Mode: facet.PlacementGrid}}, gfx.RectFromXYWH(0, 0, 200, 200))
-	cmds := picker.buildCommands(picker.layoutRole.ArrangedBounds, nil)
+	picker.Layout.Arrange(facet.ArrangeContext{Placement: facet.Placement{Mode: facet.PlacementGrid}}, gfx.RectFromXYWH(0, 0, 200, 200))
+	cmds := picker.buildCommands(picker.Layout.ArrangedBounds, nil)
 	if len(cmds) == 0 {
 		t.Fatal("expected geometry commands")
 	}

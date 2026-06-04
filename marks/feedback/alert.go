@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -29,26 +30,21 @@ const (
 
 // Alert implements the feedback.alert canonical mark.
 type Alert struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	Actioned  signal.Signal[signal.Unit]
 	Dismissed signal.Signal[signal.Unit]
 
-	Title              string
-	Message            string
-	IconRef            string
-	ActionLabel        string
-	ActionIconRef      string
-	CloseButtonLabel   string
-	CloseButtonIconRef string
-	Disabled           bool
+	Title              marks.Binding[string]
+	Message            marks.Binding[string]
+	IconRef            marks.Binding[string]
+	ActionLabel        marks.Binding[string]
+	ActionIconRef      marks.Binding[string]
+	CloseButtonLabel   marks.Binding[string]
+	CloseButtonIconRef marks.Binding[string]
+	Disabled           marks.Binding[bool]
 
 	hovered        bool
 	pressed        bool
@@ -81,6 +77,7 @@ type Alert struct {
 
 var _ facet.FacetImpl = (*Alert)(nil)
 var _ layout.AnchorExporter = (*Alert)(nil)
+var _ marks.Mark = (*Alert)(nil)
 
 const (
 	alertDefaultIconSVG  = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2.6 20h18.8L12 3z"/><path d="M12 8v5"/><circle cx="12" cy="16.5" r="1"/></svg>`
@@ -90,18 +87,33 @@ const (
 // NewAlert constructs a feedback.alert mark with canonical defaults.
 func NewAlert(title, message string) *Alert {
 	a := &Alert{
-		Facet:   facet.NewFacet(),
-		Title:   title,
-		Message: message,
+		Title:             marks.Const(title),
+		Message:           marks.Const(message),
+		IconRef:           marks.Const(""),
+		ActionLabel:       marks.Const(""),
+		ActionIconRef:     marks.Const(""),
+		CloseButtonLabel:  marks.Const(""),
+		CloseButtonIconRef: marks.Const(""),
+		Disabled:          marks.Const(false),
 	}
-	a.layoutRole.Parent = facet.GroupParentContract{
+	a.Core.Facet = facet.NewFacet()
+	a.AddBinding(a.Title)
+	a.AddBinding(a.Message)
+	a.AddBinding(a.IconRef)
+	a.AddBinding(a.ActionLabel)
+	a.AddBinding(a.ActionIconRef)
+	a.AddBinding(a.CloseButtonLabel)
+	a.AddBinding(a.CloseButtonIconRef)
+	a.AddBinding(a.Disabled)
+
+	a.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   alertGroupPolicy{alert: a},
 		Children: a,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	a.layoutRole.Child = facet.GroupChildContract{
+	a.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := a.measure(ctx, constraints).Size
@@ -119,14 +131,14 @@ func NewAlert(title, message string) *Alert {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	a.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return a.measure(ctx, constraints)
 	}
-	a.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		a.layoutRole.ArrangedBounds = bounds
+	a.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		a.Layout.ArrangedBounds = bounds
 		a.arrange(ctx, bounds)
 	}
-	a.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	a.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -136,22 +148,14 @@ func NewAlert(title, message string) *Alert {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	a.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := a.buildCommands(a.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	a.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return a.hitTest(p) }
-	a.inputRole.OnPointer = func(e facet.PointerEvent) bool { return a.onPointer(e) }
-	a.inputRole.OnKey = func(e facet.KeyEvent) bool { return a.onKey(e) }
+	a.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return a.hitTest(p) }
+	a.Input.OnPointer = func(e facet.PointerEvent) bool { return a.onPointer(e) }
+	a.Input.OnKey = func(e facet.KeyEvent) bool { return a.onKey(e) }
 	a.textRole.IMEEnabled = false
-	a.AddRole(&a.layoutRole)
-	a.AddRole(&a.renderRole)
-	a.AddRole(&a.projectionRole)
-	a.AddRole(&a.hitRole)
-	a.AddRole(&a.inputRole)
+	a.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return a.buildCommands(a.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	a.RegisterRoles()
 	a.AddRole(&a.textRole)
 	a.syncChildren()
 	return a
@@ -163,6 +167,11 @@ func (a *Alert) Base() *facet.Facet {
 	return &a.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (a *Alert) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "feedback", TypeName: "alert"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (a *Alert) AccessibilityRole() string { return "alert" }
 
@@ -171,100 +180,15 @@ func (a *Alert) AccessibleName() string {
 	if a == nil {
 		return ""
 	}
-	parts := []string{strings.TrimSpace(a.Title), strings.TrimSpace(a.Message)}
+	parts := []string{strings.TrimSpace(a.Title.Get()), strings.TrimSpace(a.Message.Get())}
 	out := strings.TrimSpace(strings.Join(parts, " "))
 	if out != "" {
 		return out
 	}
-	if strings.TrimSpace(a.ActionLabel) != "" {
-		return strings.TrimSpace(a.ActionLabel)
+	if strings.TrimSpace(a.ActionLabel.Get()) != "" {
+		return strings.TrimSpace(a.ActionLabel.Get())
 	}
-	return strings.TrimSpace(a.CloseButtonLabel)
-}
-
-// SetTitle updates the authored title text.
-func (a *Alert) SetTitle(title string) {
-	if a == nil || a.Title == title {
-		return
-	}
-	a.Title = title
-	a.syncChildren()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetMessage updates the authored message text.
-func (a *Alert) SetMessage(message string) {
-	if a == nil || a.Message == message {
-		return
-	}
-	a.Message = message
-	a.syncChildren()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetIconRef updates the authored icon source.
-func (a *Alert) SetIconRef(ref string) {
-	if a == nil || a.IconRef == ref {
-		return
-	}
-	a.IconRef = ref
-	a.syncChildren()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetActionLabel updates the authored action label.
-func (a *Alert) SetActionLabel(label string) {
-	if a == nil || a.ActionLabel == label {
-		return
-	}
-	a.ActionLabel = label
-	a.syncChildren()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetActionIconRef updates the authored action icon source.
-func (a *Alert) SetActionIconRef(ref string) {
-	if a == nil || a.ActionIconRef == ref {
-		return
-	}
-	a.ActionIconRef = ref
-	a.syncChildren()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetCloseButtonLabel updates the authored close-button label.
-func (a *Alert) SetCloseButtonLabel(label string) {
-	if a == nil || a.CloseButtonLabel == label {
-		return
-	}
-	a.CloseButtonLabel = label
-	a.syncChildren()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetCloseButtonIconRef updates the authored close-button icon source.
-func (a *Alert) SetCloseButtonIconRef(ref string) {
-	if a == nil || a.CloseButtonIconRef == ref {
-		return
-	}
-	a.CloseButtonIconRef = ref
-	a.syncChildren()
-	a.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles the disabled state.
-func (a *Alert) SetDisabled(disabled bool) {
-	if a == nil || a.Disabled == disabled {
-		return
-	}
-	a.Disabled = disabled
-	if disabled {
-		a.hovered = false
-		a.pressed = false
-		a.surfacePressed = false
-	}
-	a.syncChildren()
-	a.invalidate(facet.DirtyProjection | facet.DirtyHit)
+	return strings.TrimSpace(a.CloseButtonLabel.Get())
 }
 
 // Children returns the alert's immediate child list.
@@ -308,19 +232,10 @@ func (a *Alert) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if a == nil {
 		return nil
 	}
-	bounds := a.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := a.Layout.ArrangedBounds
+	out := a.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if !a.cachedTitleBounds.IsEmpty() {
 		out["title"] = gfx.Point{X: (a.cachedTitleBounds.Min.X + a.cachedTitleBounds.Max.X) * 0.5, Y: a.cachedTitleBounds.Min.Y}
@@ -343,17 +258,18 @@ func (a *Alert) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return out
 }
 
-// OnAttach is unused.
-func (a *Alert) OnAttach(ctx facet.AttachContext) {}
+// OnAttach delegates to Core.
+func (a *Alert) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach() }
 
-// OnActivate is unused.
-func (a *Alert) OnActivate() {}
+// OnActivate delegates to Core.
+func (a *Alert) OnActivate() { a.Core.OnActivate() }
 
-// OnDeactivate is unused.
-func (a *Alert) OnDeactivate() {}
+// OnDeactivate delegates to Core.
+func (a *Alert) OnDeactivate() { a.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (a *Alert) OnDetach() {
+	a.Core.OnDetach()
 	a.cachedTokens = theme.Tokens{}
 	a.cachedRecipe = shared.FeedbackAlertSlots{}
 	a.cachedBounds = gfx.Rect{}
@@ -382,88 +298,90 @@ func (a *Alert) invalidate(flags facet.DirtyFlags) {
 	if a == nil {
 		return
 	}
-	a.Base().Invalidate(flags)
+	a.Facet.Invalidate(flags)
 }
 
 func (a *Alert) syncChildren() {
 	if a == nil {
 		return
 	}
-	iconRef := strings.TrimSpace(a.IconRef)
+	iconRef := strings.TrimSpace(a.IconRef.Get())
 	if iconRef == "" {
 		iconRef = alertDefaultIconSVG
 	}
 	if a.cachedIconFacet == nil {
 		a.cachedIconFacet = primitive.NewIcon(primitive.IconSVG(iconRef))
 	} else {
-		a.cachedIconFacet.SetSource(primitive.IconSVG(iconRef))
+		a.cachedIconFacet.Source = primitive.IconSVG(iconRef)
 	}
-	a.cachedIconFacet.SetDecorative(true)
-	a.cachedIconFacet.SetColorSlot(theme.ColorPrimary)
-	if a.Disabled {
-		a.cachedIconFacet.SetColorSlot(theme.ColorTextDisabled)
+	a.cachedIconFacet.Decorative = marks.Const(true)
+	a.cachedIconFacet.ColorSlot = marks.Const(theme.ColorPrimary)
+	if a.Disabled.Get() {
+		a.cachedIconFacet.ColorSlot = marks.Const(theme.ColorTextDisabled)
 	}
 
 	if a.cachedTitleFacet == nil {
-		a.cachedTitleFacet = primitive.NewText(strings.TrimSpace(a.Title))
+		a.cachedTitleFacet = primitive.NewText(marks.Const(strings.TrimSpace(a.Title.Get())))
 	} else {
-		a.cachedTitleFacet.SetContent(strings.TrimSpace(a.Title))
+		a.cachedTitleFacet.Content = marks.Const(strings.TrimSpace(a.Title.Get()))
+		a.cachedTitleFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	a.cachedTitleFacet.SetTypography(theme.TextHeadingS)
-	a.cachedTitleFacet.SetOverflow(primitive.TextOverflowTruncate)
-	a.cachedTitleFacet.SetForeground(theme.ColorText)
+	a.cachedTitleFacet.Typography = marks.Const(theme.TextHeadingS)
+	a.cachedTitleFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	a.cachedTitleFacet.Foreground = marks.Const(theme.ColorText)
 	if a.cachedDensity == theme.DensityIDCompact {
-		a.cachedTitleFacet.SetTypography(theme.TextLabelM)
+		a.cachedTitleFacet.Typography = marks.Const(theme.TextLabelM)
 	}
-	if a.Disabled {
-		a.cachedTitleFacet.SetForeground(theme.ColorTextDisabled)
-		a.cachedTitleFacet.SetDisabled(true)
+	if a.Disabled.Get() {
+		a.cachedTitleFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		a.cachedTitleFacet.Disabled = marks.Const(true)
 	} else {
-		a.cachedTitleFacet.SetDisabled(false)
+		a.cachedTitleFacet.Disabled = marks.Const(false)
 	}
 
 	if a.cachedMessageFacet == nil {
-		a.cachedMessageFacet = primitive.NewText(strings.TrimSpace(a.Message))
+		a.cachedMessageFacet = primitive.NewText(marks.Const(strings.TrimSpace(a.Message.Get())))
 	} else {
-		a.cachedMessageFacet.SetContent(strings.TrimSpace(a.Message))
+		a.cachedMessageFacet.Content = marks.Const(strings.TrimSpace(a.Message.Get()))
+		a.cachedMessageFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	a.cachedMessageFacet.SetTypography(theme.TextBodyM)
-	a.cachedMessageFacet.SetOverflow(primitive.TextOverflowTruncate)
-	a.cachedMessageFacet.SetForeground(theme.ColorTextSecondary)
+	a.cachedMessageFacet.Typography = marks.Const(theme.TextBodyM)
+	a.cachedMessageFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	a.cachedMessageFacet.Foreground = marks.Const(theme.ColorTextSecondary)
 	if a.cachedDensity == theme.DensityIDCompact {
-		a.cachedMessageFacet.SetTypography(theme.TextBodyS)
+		a.cachedMessageFacet.Typography = marks.Const(theme.TextBodyS)
 	}
-	if a.Disabled {
-		a.cachedMessageFacet.SetForeground(theme.ColorTextDisabled)
-		a.cachedMessageFacet.SetDisabled(true)
+	if a.Disabled.Get() {
+		a.cachedMessageFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		a.cachedMessageFacet.Disabled = marks.Const(true)
 	} else {
-		a.cachedMessageFacet.SetDisabled(false)
+		a.cachedMessageFacet.Disabled = marks.Const(false)
 	}
 
-	actionLabel := strings.TrimSpace(a.ActionLabel)
+	actionLabel := strings.TrimSpace(a.ActionLabel.Get())
 	if actionLabel == "" {
 		a.cachedActionButton = nil
 	} else {
 		if a.cachedActionButton == nil {
-			a.cachedActionButton = action.NewButton(actionLabel, uiinput.ButtonText)
+			a.cachedActionButton = action.NewButton(marks.Const(actionLabel), marks.Const(uiinput.ButtonText))
 			a.cachedActionButton.Activated.Subscribe(func(signal.Unit) {
 				if a != nil {
 					a.Actioned.Emit(signal.Unit{})
 				}
 			})
 		} else {
-			a.cachedActionButton.SetLabel(actionLabel)
-			a.cachedActionButton.SetVariant(uiinput.ButtonText)
+			a.cachedActionButton.Label = marks.Const(actionLabel)
+			a.cachedActionButton.Variant = marks.Const(uiinput.ButtonText)
 		}
-		if iconRef := strings.TrimSpace(a.ActionIconRef); iconRef != "" {
-			a.cachedActionButton.SetLeadingIconRef(iconRef)
+		if iconRef := strings.TrimSpace(a.ActionIconRef.Get()); iconRef != "" {
+			a.cachedActionButton.LeadingIconRef = marks.Const(iconRef)
 		} else {
-			a.cachedActionButton.SetLeadingIconRef("")
+			a.cachedActionButton.LeadingIconRef = marks.Const("")
 		}
-		a.cachedActionButton.SetDisabled(a.Disabled)
+		a.cachedActionButton.Disabled = marks.Const(a.Disabled.Get())
 	}
 
-	closeLabel := strings.TrimSpace(a.CloseButtonLabel)
+	closeLabel := strings.TrimSpace(a.CloseButtonLabel.Get())
 	if closeLabel == "" {
 		a.cachedCloseButton = nil
 	} else {
@@ -475,13 +393,13 @@ func (a *Alert) syncChildren() {
 				}
 			})
 		}
-		if iconRef := strings.TrimSpace(a.CloseButtonIconRef); iconRef != "" {
-			a.cachedCloseButton.SetSource(primitive.IconSVG(iconRef))
+		if iconRef := strings.TrimSpace(a.CloseButtonIconRef.Get()); iconRef != "" {
+			a.cachedCloseButton.Icon = primitive.IconSVG(iconRef)
 		} else {
-			a.cachedCloseButton.SetSource(primitive.IconSVG(alertDefaultCloseSVG))
+			a.cachedCloseButton.Icon = primitive.IconSVG(alertDefaultCloseSVG)
 		}
-		a.cachedCloseButton.SetAccessibleName(closeLabel)
-		a.cachedCloseButton.SetDisabled(a.Disabled)
+		a.cachedCloseButton.AccessibleLabel = marks.Const(closeLabel)
+		a.cachedCloseButton.Disabled = marks.Const(a.Disabled.Get())
 	}
 }
 
@@ -506,13 +424,13 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	children := a.Children()
 	if len(children) == 0 {
 		size := constraints.Constrain(gfx.Size{})
-		a.layoutRole.MeasuredSize = size
-		a.layoutRole.MeasuredResult = facet.MeasureResult{
+		a.Layout.MeasuredSize = size
+		a.Layout.MeasuredResult = facet.MeasureResult{
 			Size:        size,
 			Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 			Constraints: constraints,
 		}
-		return a.layoutRole.MeasuredResult
+		return a.Layout.MeasuredResult
 	}
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
@@ -539,7 +457,7 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 		titleWidth = 0
 	}
 	if a.cachedIconFacet != nil {
-		a.cachedIconFacet.SetSize(a.cachedIconSize)
+		a.cachedIconFacet.Size = marks.Const(a.cachedIconSize)
 		iconSize := a.cachedIconFacet.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: a.cachedIconSize, H: a.cachedIconSize}}).Size
 		contentWidth = maxFloat(contentWidth, iconSize.W)
 	}
@@ -547,8 +465,8 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	messageSize := a.cachedMessageFacet.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: innerWidth, H: constraints.MaxSize.H}}).Size
 	contentWidth = maxFloat(contentWidth, titleSize.W+a.cachedGap)
 	if a.cachedCloseButton != nil {
-		a.cachedCloseButton.SetSize(a.cachedCloseSize)
-		a.cachedCloseButton.SetHitPadding(maxFloat(resolved.Density.Scale(4), float32(resolved.Spacing(theme.SpacingXS))))
+		a.cachedCloseButton.Size = marks.Const(a.cachedCloseSize)
+		a.cachedCloseButton.HitPadding = maxFloat(resolved.Density.Scale(4), float32(resolved.Spacing(theme.SpacingXS)))
 		closeSize := a.cachedCloseButton.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: a.cachedCloseSize, H: a.cachedCloseSize}}).Size
 		contentWidth = maxFloat(contentWidth, closeSize.W)
 		if closeSize.H > innerHeight {
@@ -580,8 +498,8 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 		size.W = a.cachedIconSize + a.cachedPadX*2
 	}
 	measured := constraints.Constrain(size)
-	a.layoutRole.MeasuredSize = measured
-	a.layoutRole.MeasuredResult = facet.MeasureResult{
+	a.Layout.MeasuredSize = measured
+	a.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -590,7 +508,7 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 		},
 		Constraints: constraints,
 	}
-	return a.layoutRole.MeasuredResult
+	return a.Layout.MeasuredResult
 }
 
 func (a *Alert) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -601,7 +519,7 @@ func (a *Alert) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	a.cachedMessageBounds = gfx.Rect{}
 	a.cachedActionBounds = gfx.Rect{}
 	a.cachedCloseBounds = gfx.Rect{}
-	a.layoutRole.ArrangedBounds = bounds
+	a.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -704,7 +622,7 @@ func (a *Alert) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 	style, slots := a.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if a.Disabled {
+	if a.Disabled.Get() {
 		state = theme.StateDisabled
 	} else if a.pressed {
 		state = theme.StatePressed
@@ -790,7 +708,7 @@ func (a *Alert) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.
 }
 
 func (a *Alert) alertVariant() uifeedback.AlertVariant {
-	if a != nil && a.Disabled {
+	if a != nil && a.Disabled.Get() {
 		return uifeedback.AlertDisabled
 	}
 	if a != nil && a.pressed {
@@ -825,7 +743,7 @@ func (a *Alert) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (a *Alert) onPointer(e facet.PointerEvent) bool {
-	if a == nil || a.Disabled {
+	if a == nil || a.Disabled.Get() {
 		return false
 	}
 	if !a.cachedBounds.Contains(e.Position) {
@@ -869,11 +787,11 @@ func (a *Alert) onPointer(e facet.PointerEvent) bool {
 }
 
 func (a *Alert) onKey(e facet.KeyEvent) bool {
-	if a == nil || a.Disabled {
+	if a == nil || a.Disabled.Get() {
 		return false
 	}
 	if e.Kind == platform.KeyPress && e.Key == platform.KeyEscape {
-		if strings.TrimSpace(a.CloseButtonLabel) != "" {
+		if strings.TrimSpace(a.CloseButtonLabel.Get()) != "" {
 			a.Dismissed.Emit(signal.Unit{})
 			return true
 		}
@@ -945,8 +863,6 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	if !ok {
 		return nil
 	}
-	// reflect check catches typed nil (non-nil interface wrapping nil *Runtime).
-	// Only applicable for nil-able kinds (ptr, slice, map, chan, func, iface).
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
 	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:

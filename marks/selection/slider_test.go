@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -40,10 +41,10 @@ func (s sliderRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 func TestSliderMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	slider.SetValue(50)
-	slider.SetLabel("Volume")
+	slider.Label = "Volume"
 
 	facet.Attach(slider, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := slider.layoutRole.Measure(facet.MeasureContext{
+	result := slider.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -55,11 +56,11 @@ func TestSliderMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	slider.layoutRole.Arrange(facet.ArrangeContext{
+	slider.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: slider.layoutRole.Parent,
-		ChildGroup:  slider.layoutRole.Child,
+		ParentGroup: slider.LayoutRole().Parent,
+		ChildGroup:  slider.LayoutRole().Child,
 	}, bounds)
 
 	if got := slider.AccessibilityRole(); got != "slider" {
@@ -75,21 +76,21 @@ func TestSliderMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected track/thumb geometry, got track=%#v thumb=%#v", slider.cachedTrackBounds, slider.cachedThumbBounds)
 	}
 
-	thumbHit := slider.hitRole.HitTest(gfx.Point{
+	thumbHit := slider.HitRole().HitTest(gfx.Point{
 		X: (slider.cachedThumbBounds.Min.X + slider.cachedThumbBounds.Max.X) * 0.5,
 		Y: (slider.cachedThumbBounds.Min.Y + slider.cachedThumbBounds.Max.Y) * 0.5,
 	})
 	if !thumbHit.Hit || thumbHit.MarkID != sliderMarkIDThumb {
 		t.Fatalf("expected thumb hit, got %#v", thumbHit)
 	}
-	activeHit := slider.hitRole.HitTest(gfx.Point{
+	activeHit := slider.HitRole().HitTest(gfx.Point{
 		X: slider.cachedActiveBounds.Min.X + 1,
 		Y: slider.cachedActiveBounds.Min.Y + slider.cachedActiveBounds.Height()*0.5,
 	})
 	if !activeHit.Hit || activeHit.MarkID != sliderMarkIDActive {
 		t.Fatalf("expected active-track hit, got %#v", activeHit)
 	}
-	valueHit := slider.hitRole.HitTest(gfx.Point{
+	valueHit := slider.HitRole().HitTest(gfx.Point{
 		X: slider.cachedValueLabelBounds.Min.X + slider.cachedValueLabelBounds.Width()*0.5,
 		Y: slider.cachedValueLabelBounds.Min.Y + slider.cachedValueLabelBounds.Height()*0.5,
 	})
@@ -104,7 +105,7 @@ func TestSliderMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := slider.projectionRole.Project(facet.ProjectionContext{
+	cmds := slider.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -133,7 +134,7 @@ func TestSliderPointerAndKeyboardInteraction(t *testing.T) {
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	slider.SetValue(50)
 	facet.Attach(slider, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := slider.layoutRole.Measure(facet.MeasureContext{
+	result := slider.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -141,7 +142,7 @@ func TestSliderPointerAndKeyboardInteraction(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 640, H: 220}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	slider.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	slider.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	centerX := slider.cachedTrackBounds.Min.X + slider.cachedTrackBounds.Width()*0.25
 	centerY := slider.cachedTrackBounds.Min.Y + slider.cachedTrackBounds.Height()*0.5
@@ -203,7 +204,7 @@ func TestSliderPointerAndKeyboardInteraction(t *testing.T) {
 func TestSliderFocusAndDisabledBehavior(t *testing.T) {
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(slider, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := slider.layoutRole.Measure(facet.MeasureContext{
+	result := slider.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -211,7 +212,7 @@ func TestSliderFocusAndDisabledBehavior(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 640, H: 220}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	slider.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	slider.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	slider.onFocusGained()
 	if !slider.focusedVisible {
@@ -221,8 +222,8 @@ func TestSliderFocusAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected edge point to land in focus ring")
 	}
 
-	slider.SetDisabled(true)
-	if slider.focusRole.Focusable() {
+	slider.Disabled = marks.Const(true)
+	if slider.FocusRole().Focusable() {
 		t.Fatal("expected disabled slider to be unfocusable")
 	}
 	if slider.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {
@@ -236,7 +237,7 @@ func TestSliderFocusAndDisabledBehavior(t *testing.T) {
 func TestSliderStoreInvalidation(t *testing.T) {
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(slider, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	_ = slider.layoutRole.Measure(facet.MeasureContext{
+	_ = slider.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -271,7 +272,7 @@ func TestSliderGoldenComfortable(t *testing.T) {
 
 func TestSliderGoldenDisabled(t *testing.T) {
 	AssertSliderGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *Slider) {
-		s.SetDisabled(true)
+		s.Disabled = marks.Const(true)
 	})
 }
 
@@ -303,13 +304,13 @@ func TestSliderGoldenRTL(t *testing.T) {
 
 func TestSliderGoldenSkeuomorphic(t *testing.T) {
 	assertSliderSkeuomorphicGolden(t, "skeuomorphic", func(s *Slider) {
-		s.SetVariant(uiinput.SliderSkeuomorphic)
+		s.Variant = marks.Const(uiinput.SliderSkeuomorphic)
 	})
 }
 
 func TestSliderGoldenSkeuomorphicPressed(t *testing.T) {
 	assertSliderSkeuomorphicGolden(t, "skeuomorphic_pressed", func(s *Slider) {
-		s.SetVariant(uiinput.SliderSkeuomorphic)
+		s.Variant = marks.Const(uiinput.SliderSkeuomorphic)
 		s.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 64, Y: 64}, Button: platform.PointerLeft})
 	})
 }
@@ -317,14 +318,14 @@ func TestSliderGoldenSkeuomorphicPressed(t *testing.T) {
 func assertSliderSkeuomorphicGolden(t *testing.T, name string, mutate func(*Slider)) {
 	t.Helper()
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	slider.SetLabel("Slider")
+	slider.Label = "Slider"
 	slider.SetValue(50)
 	if mutate != nil {
 		mutate(slider)
 	}
 
 	facet.Attach(slider, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := slider.layoutRole.Measure(facet.MeasureContext{
+	result := slider.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -338,9 +339,9 @@ func assertSliderSkeuomorphicGolden(t *testing.T, name string, mutate func(*Slid
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
-	slider.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	slider.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := slider.projectionRole.Project(facet.ProjectionContext{
+	cmds := slider.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -380,7 +381,7 @@ func assertSliderSkeuomorphicGolden(t *testing.T, name string, mutate func(*Slid
 func AssertSliderGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Slider)) {
 	t.Helper()
 	slider, rt, measureCtx := newSliderTestFixture(t, tokens, density, direction)
-	slider.SetLabel("Slider")
+	slider.Label = "Slider"
 	slider.SetValue(50)
 	if mutate != nil {
 		mutate(slider)
@@ -391,7 +392,7 @@ func AssertSliderGolden(t *testing.T, name string, tokens theme.Tokens, density 
 func renderSliderToSurface(t *testing.T, slider *Slider, rt sliderRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(slider, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := slider.layoutRole.Measure(facet.MeasureContext{
+	result := slider.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -399,9 +400,9 @@ func renderSliderToSurface(t *testing.T, slider *Slider, rt sliderRuntimeStub, m
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	slider.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	slider.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := slider.projectionRole.Project(facet.ProjectionContext{
+	cmds := slider.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

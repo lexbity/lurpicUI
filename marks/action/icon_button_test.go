@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -41,14 +42,14 @@ const iconButtonTestSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 
 
 func TestIconButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
-	btn.SetAccessibleName("Add")
-	btn.SetSize(24)
+	btn.AccessibleLabel = marks.Const("Add")
+	btn.Size = marks.Const(float32(24))
 	rt := iconButtonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 	}
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -58,7 +59,7 @@ func TestIconButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 24, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{}, bounds)
 
 	if got := btn.AccessibilityRole(); got != "button" {
 		t.Fatalf("accessibility role = %q, want button", got)
@@ -74,7 +75,7 @@ func TestIconButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected icon bounds smaller than container, got icon=%#v container=%#v", btn.cachedIconBounds, bounds)
 	}
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+	cmds := btn.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -105,11 +106,11 @@ func TestIconButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	iconHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedIconBounds.Min.X + 1, Y: btn.cachedIconBounds.Min.Y + 1})
+	iconHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedIconBounds.Min.X + 1, Y: btn.cachedIconBounds.Min.Y + 1})
 	if !iconHit.Hit || iconHit.MarkID != iconButtonMarkIDIcon {
 		t.Fatalf("expected icon hit, got %#v", iconHit)
 	}
-	containerHit := btn.hitRole.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
+	containerHit := btn.Hit.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
 	if !containerHit.Hit || containerHit.MarkID != iconButtonMarkIDContainer {
 		t.Fatalf("expected container hit, got %#v", containerHit)
 	}
@@ -117,20 +118,20 @@ func TestIconButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestIconButtonActivatesFocusAndDisabledBehavior(t *testing.T) {
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
-	btn.SetAccessibleName("Add")
-	btn.SetSize(24)
+	btn.AccessibleLabel = marks.Const("Add")
+	btn.Size = marks.Const(float32(24))
 	rt := iconButtonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 	}
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{}, bounds)
 
 	var activated int
 	btn.Activated.Subscribe(func(signal.Unit) {
@@ -169,8 +170,8 @@ func TestIconButtonActivatesFocusAndDisabledBehavior(t *testing.T) {
 		t.Fatalf("expected pointer cursor, got %v", btn.cursorShape())
 	}
 
-	btn.SetDisabled(true)
-	if btn.focusRole.Focusable() {
+	btn.Disabled = marks.Const(true)
+	if btn.Focus.Focusable() {
 		t.Fatal("expected disabled icon button to be unfocusable")
 	}
 	if btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {
@@ -186,7 +187,7 @@ func TestIconButtonActivatesFocusAndDisabledBehavior(t *testing.T) {
 
 func TestIconButtonDensityBehaviorChangesSize(t *testing.T) {
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
-	btn.SetSize(24)
+	btn.Size = marks.Const(float32(24))
 	comfortable := theme.DefaultResolvedContext()
 	compact := comfortable.WithDensity(theme.DefaultDensityScale(theme.DensityIDCompact, theme.DefaultTokens()))
 	rt := iconButtonRuntimeStub{
@@ -194,13 +195,13 @@ func TestIconButtonDensityBehaviorChangesSize(t *testing.T) {
 	}
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: comfortable})
-	comfortableSize := btn.layoutRole.Measure(facet.MeasureContext{
+	comfortableSize := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        comfortable,
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 200, H: 200}}).Size
 
-	compactSize := btn.layoutRole.Measure(facet.MeasureContext{
+	compactSize := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        compact,
 		ContentScale: 1,
@@ -252,19 +253,19 @@ func TestIconButtonGoldenFocused(t *testing.T) {
 
 func TestIconButtonGoldenDisabled(t *testing.T) {
 	assertIconButtonGolden(t, "disabled", func(btn *IconButton) {
-		btn.SetDisabled(true)
+		btn.Disabled = marks.Const(true)
 	})
 }
 
 func TestIconButtonGoldenSkeuomorphic(t *testing.T) {
 	assertIconButtonSkeuomorphicGolden(t, "skeuomorphic", func(btn *IconButton) {
-		btn.SetVariant(uiinput.IconButtonSkeuomorphic)
+		btn.Variant = marks.Const(uiinput.IconButtonSkeuomorphic)
 	})
 }
 
 func TestIconButtonGoldenSkeuomorphicPressed(t *testing.T) {
 	assertIconButtonSkeuomorphicGolden(t, "skeuomorphic_pressed", func(btn *IconButton) {
-		btn.SetVariant(uiinput.IconButtonSkeuomorphic)
+		btn.Variant = marks.Const(uiinput.IconButtonSkeuomorphic)
 		btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft})
 	})
 }
@@ -272,8 +273,8 @@ func TestIconButtonGoldenSkeuomorphicPressed(t *testing.T) {
 func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*IconButton)) {
 	t.Helper()
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
-	btn.SetAccessibleName("Add")
-	btn.SetSize(24)
+	btn.AccessibleLabel = marks.Const("Add")
+	btn.Size = marks.Const(float32(24))
 	if mutate != nil {
 		mutate(btn)
 	}
@@ -284,7 +285,7 @@ func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*
 	}
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -302,12 +303,12 @@ func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
-	btn.layoutRole.Arrange(facet.ArrangeContext{
+	btn.Layout.Arrange(facet.ArrangeContext{
 		Runtime: rt,
 		Theme:   measureCtx,
 	}, bounds)
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+	cmds := btn.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -348,8 +349,8 @@ func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*
 func assertIconButtonGolden(t *testing.T, name string, mutate func(*IconButton)) {
 	t.Helper()
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
-	btn.SetAccessibleName("Add")
-	btn.SetSize(24)
+	btn.AccessibleLabel = marks.Const("Add")
+	btn.Size = marks.Const(float32(24))
 	if mutate != nil {
 		mutate(btn)
 	}

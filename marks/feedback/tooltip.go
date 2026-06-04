@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -24,20 +25,15 @@ const (
 
 // Tooltip implements the feedback.tooltip canonical mark.
 type Tooltip struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	Dismissed signal.Signal[signal.Unit]
 
-	Content   string
-	Open      bool
-	Disabled  bool
+	Content   marks.Binding[string]
+	Open      marks.Binding[bool]
+	Disabled  marks.Binding[bool]
 	Placement facet.AnchorPlacement
 
 	hovered bool
@@ -59,23 +55,29 @@ type Tooltip struct {
 
 var _ facet.FacetImpl = (*Tooltip)(nil)
 var _ layout.AnchorExporter = (*Tooltip)(nil)
+var _ marks.Mark = (*Tooltip)(nil)
 
 // NewTooltip constructs a feedback.tooltip mark with canonical defaults.
 func NewTooltip(content string) *Tooltip {
 	t := &Tooltip{
-		Facet:     facet.NewFacet(),
-		Content:   content,
-		Open:      true,
+		Content:   marks.Const(content),
+		Open:      marks.Const(true),
+		Disabled:  marks.Const(false),
 		Placement: facet.AnchorPlacement{Side: facet.AnchorAbove},
 	}
-	t.layoutRole.Parent = facet.GroupParentContract{
+	t.Core.Facet = facet.NewFacet()
+	t.AddBinding(t.Content)
+	t.AddBinding(t.Open)
+	t.AddBinding(t.Disabled)
+
+	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   tooltipGroupPolicy{tooltip: t},
 		Children: t,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	t.layoutRole.Child = facet.GroupChildContract{
+	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measure(ctx, constraints).Size
@@ -93,14 +95,14 @@ func NewTooltip(content string) *Tooltip {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	t.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	t.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return t.measure(ctx, constraints)
 	}
-	t.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		t.layoutRole.ArrangedBounds = bounds
+	t.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		t.Layout.ArrangedBounds = bounds
 		t.arrange(ctx, bounds)
 	}
-	t.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	t.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -110,23 +112,15 @@ func NewTooltip(content string) *Tooltip {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	t.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := t.buildCommands(t.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	t.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
-	t.inputRole.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
-	t.inputRole.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
-	t.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return t.onDismiss(e) }
+	t.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
+	t.Input.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
+	t.Input.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
+	t.Input.OnDismiss = func(e facet.DismissEvent) bool { return t.onDismiss(e) }
 	t.textRole.IMEEnabled = false
-	t.AddRole(&t.layoutRole)
-	t.AddRole(&t.renderRole)
-	t.AddRole(&t.projectionRole)
-	t.AddRole(&t.hitRole)
-	t.AddRole(&t.inputRole)
+	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	t.RegisterRoles()
 	t.AddRole(&t.textRole)
 	t.syncChildren()
 	return t
@@ -138,6 +132,11 @@ func (t *Tooltip) Base() *facet.Facet {
 	return &t.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (t *Tooltip) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "feedback", TypeName: "tooltip"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (t *Tooltip) AccessibilityRole() string { return "tooltip" }
 
@@ -146,57 +145,12 @@ func (t *Tooltip) AccessibleName() string {
 	if t == nil {
 		return ""
 	}
-	return strings.TrimSpace(t.Content)
-}
-
-// SetContent updates the authored tooltip body.
-func (t *Tooltip) SetContent(content string) {
-	if t == nil || t.Content == content {
-		return
-	}
-	t.Content = content
-	t.syncChildren()
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen toggles tooltip visibility.
-func (t *Tooltip) SetOpen(open bool) {
-	if t == nil || t.Open == open {
-		return
-	}
-	t.Open = open
-	if !open {
-		t.hovered = false
-		t.pressed = false
-	}
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles the disabled state.
-func (t *Tooltip) SetDisabled(disabled bool) {
-	if t == nil || t.Disabled == disabled {
-		return
-	}
-	t.Disabled = disabled
-	if disabled {
-		t.hovered = false
-		t.pressed = false
-	}
-	t.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetPlacement updates the anchor-relative placement contract.
-func (t *Tooltip) SetPlacement(placement facet.AnchorPlacement) {
-	if t == nil || t.Placement == placement {
-		return
-	}
-	t.Placement = placement
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return strings.TrimSpace(t.Content.Get())
 }
 
 // Children returns the tooltip's immediate child list.
 func (t *Tooltip) Children() []facet.GroupChild {
-	if t == nil || !t.Open {
+	if t == nil || !t.Open.Get() {
 		return nil
 	}
 	t.syncChildren()
@@ -211,19 +165,10 @@ func (t *Tooltip) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet
 	if t == nil {
 		return nil
 	}
-	bounds := t.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := t.Layout.ArrangedBounds
+	out := t.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if t.cachedContentFacet != nil && t.cachedContentFacet.Base().LayoutRole() != nil && t.cachedContentFacet.Base().LayoutRole().ArrangedBounds.Width() > 0 {
 		contentBounds := t.cachedContentFacet.Base().LayoutRole().ArrangedBounds
@@ -248,17 +193,18 @@ func (t *Tooltip) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet
 	return out
 }
 
-// OnAttach is unused.
-func (t *Tooltip) OnAttach(ctx facet.AttachContext) {}
+// OnAttach delegates to Core.
+func (t *Tooltip) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
 
-// OnActivate is unused.
-func (t *Tooltip) OnActivate() {}
+// OnActivate delegates to Core.
+func (t *Tooltip) OnActivate() { t.Core.OnActivate() }
 
-// OnDeactivate is unused.
-func (t *Tooltip) OnDeactivate() {}
+// OnDeactivate delegates to Core.
+func (t *Tooltip) OnDeactivate() { t.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (t *Tooltip) OnDetach() {
+	t.Core.OnDetach()
 	t.cachedTokens = theme.Tokens{}
 	t.cachedRecipe = shared.FeedbackTooltipSlots{}
 	t.cachedBounds = gfx.Rect{}
@@ -276,38 +222,39 @@ func (t *Tooltip) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Base().Invalidate(flags)
+	t.Facet.Invalidate(flags)
 }
 
 func (t *Tooltip) syncChildren() {
 	if t == nil {
 		return
 	}
-	content := strings.TrimSpace(t.Content)
+	content := strings.TrimSpace(t.Content.Get())
 	if content == "" {
 		t.cachedContentFacet = nil
 		return
 	}
 	if t.cachedContentFacet == nil {
-		t.cachedContentFacet = primitive.NewText(content)
+		t.cachedContentFacet = primitive.NewText(marks.Const(content))
 	} else {
-		t.cachedContentFacet.SetContent(content)
+		t.cachedContentFacet.Content = marks.Const(content)
+		t.cachedContentFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	t.cachedContentFacet.SetTypography(theme.TextBodyS)
-	t.cachedContentFacet.SetOverflow(primitive.TextOverflowTruncate)
-	t.cachedContentFacet.SetAlignment(text.AlignCenter)
+	t.cachedContentFacet.Typography = marks.Const(theme.TextBodyS)
+	t.cachedContentFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	t.cachedContentFacet.Alignment = marks.Const(text.AlignCenter)
 }
 
 func (t *Tooltip) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	if !t.Open {
+	if !t.Open.Get() {
 		size := constraints.Constrain(gfx.Size{})
-		t.layoutRole.MeasuredSize = size
-		t.layoutRole.MeasuredResult = facet.MeasureResult{
+		t.Layout.MeasuredSize = size
+		t.Layout.MeasuredResult = facet.MeasureResult{
 			Size:        size,
 			Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 			Constraints: constraints,
 		}
-		return t.layoutRole.MeasuredResult
+		return t.Layout.MeasuredResult
 	}
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
 	if !ok {
@@ -337,13 +284,13 @@ func (t *Tooltip) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	t.syncChildren()
 	if t.cachedContentFacet == nil || t.cachedContentFacet.Base().LayoutRole() == nil {
 		size := constraints.Constrain(gfx.Size{})
-		t.layoutRole.MeasuredSize = size
-		t.layoutRole.MeasuredResult = facet.MeasureResult{
+		t.Layout.MeasuredSize = size
+		t.Layout.MeasuredResult = facet.MeasureResult{
 			Size:        size,
 			Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 			Constraints: constraints,
 		}
-		return t.layoutRole.MeasuredResult
+		return t.Layout.MeasuredResult
 	}
 	contentConstraints := facet.Constraints{MaxSize: gfx.Size{W: constraints.MaxSize.W, H: constraints.MaxSize.H}}
 	if contentConstraints.MaxSize.W > 0 {
@@ -372,8 +319,8 @@ func (t *Tooltip) measure(ctx facet.MeasureContext, constraints facet.Constraint
 		size.H += t.cachedArrowSize
 	}
 	measured := constraints.Constrain(size)
-	t.layoutRole.MeasuredSize = measured
-	t.layoutRole.MeasuredResult = facet.MeasureResult{
+	t.Layout.MeasuredSize = measured
+	t.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -382,7 +329,7 @@ func (t *Tooltip) measure(ctx facet.MeasureContext, constraints facet.Constraint
 		},
 		Constraints: constraints,
 	}
-	return t.layoutRole.MeasuredResult
+	return t.Layout.MeasuredResult
 }
 
 func (t *Tooltip) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -390,8 +337,8 @@ func (t *Tooltip) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	t.cachedSurfaceBounds = gfx.Rect{}
 	t.cachedContentBounds = gfx.Rect{}
 	t.cachedArrowBounds = gfx.Rect{}
-	t.layoutRole.ArrangedBounds = bounds
-	if bounds.IsEmpty() || !t.Open {
+	t.Layout.ArrangedBounds = bounds
+	if bounds.IsEmpty() || !t.Open.Get() {
 		return
 	}
 	t.syncChildren()
@@ -399,9 +346,9 @@ func (t *Tooltip) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if contentFacet == nil || contentFacet.Base().LayoutRole() == nil {
 		return
 	}
-	
-	w := t.layoutRole.MeasuredSize.W
-	h := t.layoutRole.MeasuredSize.H
+
+	w := t.Layout.MeasuredSize.W
+	h := t.Layout.MeasuredSize.H
 	if w <= 0 || h <= 0 {
 		w = bounds.Width()
 		h = bounds.Height()
@@ -440,14 +387,14 @@ func (t *Tooltip) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 }
 
 func (t *Tooltip) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if t == nil || bounds.IsEmpty() || !t.Open {
+	if t == nil || bounds.IsEmpty() || !t.Open.Get() {
 		return nil
 	}
 	style, slots := t.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateSelected
 	switch {
-	case t.Disabled:
+	case t.Disabled.Get():
 		state = theme.StateDisabled
 	case t.pressed:
 		state = theme.StatePressed
@@ -502,10 +449,10 @@ func (t *Tooltip) resolveProjectionTheme(runtime any) (theme.StyleContext, share
 }
 
 func (t *Tooltip) tooltipVariant() uifeedback.TooltipVariant {
-	if t != nil && t.Disabled {
+	if t != nil && t.Disabled.Get() {
 		return uifeedback.TooltipDisabled
 	}
-	if t != nil && !t.Open {
+	if t != nil && !t.Open.Get() {
 		return uifeedback.TooltipDefault
 	}
 	if t != nil && t.pressed {
@@ -518,7 +465,7 @@ func (t *Tooltip) tooltipVariant() uifeedback.TooltipVariant {
 }
 
 func (t *Tooltip) hitTest(p gfx.Point) facet.HitResult {
-	if t == nil || !t.Open || t.cachedBounds.IsEmpty() || !t.cachedBounds.Contains(p) {
+	if t == nil || !t.Open.Get() || t.cachedBounds.IsEmpty() || !t.cachedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	switch {
@@ -534,7 +481,7 @@ func (t *Tooltip) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (t *Tooltip) onPointer(e facet.PointerEvent) bool {
-	if t == nil || t.Disabled || !t.Open {
+	if t == nil || t.Disabled.Get() || !t.Open.Get() {
 		return false
 	}
 	if !t.cachedBounds.Contains(e.Position) {
@@ -574,7 +521,7 @@ func (t *Tooltip) onPointer(e facet.PointerEvent) bool {
 }
 
 func (t *Tooltip) onKey(e facet.KeyEvent) bool {
-	if t == nil || t.Disabled || !t.Open {
+	if t == nil || t.Disabled.Get() || !t.Open.Get() {
 		return false
 	}
 	if e.Kind == platform.KeyPress && e.Key == platform.KeyEscape {
@@ -586,7 +533,7 @@ func (t *Tooltip) onKey(e facet.KeyEvent) bool {
 
 func (t *Tooltip) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if t == nil || t.Disabled || !t.Open {
+	if t == nil || t.Disabled.Get() || !t.Open.Get() {
 		return false
 	}
 	t.openFalseAndDismiss()
@@ -597,7 +544,7 @@ func (t *Tooltip) openFalseAndDismiss() {
 	if t == nil {
 		return
 	}
-	t.Open = false
+	t.Open = marks.Const(false)
 	t.hovered = false
 	t.pressed = false
 	t.Dismissed.Emit(signal.Unit{})

@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	input "codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -27,7 +28,6 @@ const (
 	popupPaletteMarkIDFocusRing   facet.MarkID = 6
 )
 
-// PopupPaletteTool describes one radial palette item.
 type PopupPaletteTool struct {
 	Key             string
 	Label           string
@@ -38,30 +38,23 @@ type PopupPaletteTool struct {
 	Disabled        bool
 }
 
-// PopupPalette implements the action.popup_palette standard mark.
 type PopupPalette struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Activated signal.Signal[string]
 
-	Label         string
+	Label         marks.Binding[string]
 	Tools         []PopupPaletteTool
 	History       []gfx.Color
-	Open          bool
-	Disabled      bool
-	ShowBottomBar bool
-	Zoom          float64
-	CanvasOnly    bool
-	MirrorCanvas  bool
-	SelectedIndex int
+	Open          marks.Binding[bool]
+	Disabled      marks.Binding[bool]
+	ShowBottomBar marks.Binding[bool]
+	Zoom          marks.Binding[float64]
+	CanvasOnly    marks.Binding[bool]
+	MirrorCanvas  marks.Binding[bool]
+	SelectedIndex marks.Binding[int]
+
+	textRole facet.TextRole
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -207,11 +200,11 @@ func (c *popupPaletteChild) setSpec(spec popupPaletteChildSpec) {
 			}
 		})
 	}
-	c.button.SetSource(primitive.IconRef(spec.iconRef))
-	c.button.SetAccessibleName(spec.accessibleLabel)
-	c.button.SetDisabled(spec.disabled)
-	c.button.SetSize(spec.innerSize)
-	c.button.SetHitPadding(spec.hitPadding)
+	c.button.Icon = primitive.IconRef(spec.iconRef)
+	c.button.AccessibleLabel = marks.Const(spec.accessibleLabel)
+	c.button.Disabled = marks.Const(spec.disabled)
+	c.button.Size = marks.Const(spec.innerSize)
+	c.button.HitPadding = spec.hitPadding
 }
 
 func (c *popupPaletteChild) measure(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -297,27 +290,39 @@ func (c *popupPaletteChild) bounds() gfx.Rect {
 
 var _ facet.FacetImpl = (*PopupPalette)(nil)
 var _ layout.AnchorExporter = (*PopupPalette)(nil)
+var _ marks.Mark = (*PopupPalette)(nil)
 
-// NewPopupPalette constructs an action.popup_palette mark with canonical defaults.
 func NewPopupPalette(label string, tools []PopupPaletteTool) *PopupPalette {
 	p := &PopupPalette{
-		Facet:         facet.NewFacet(),
-		Label:         label,
+		Label:         marks.Const(label),
 		Tools:         normalizePopupPaletteTools(tools),
-		Open:          true,
-		ShowBottomBar: true,
-		Zoom:          1,
-		SelectedIndex: -1,
+		Open:          marks.Const(true),
+		ShowBottomBar: marks.Const(true),
+		Zoom:          marks.Const[float64](1),
+		CanvasOnly:    marks.Const(false),
+		MirrorCanvas:  marks.Const(false),
+		SelectedIndex: marks.Const(-1),
+		Disabled:      marks.Const(false),
 		hoveredIndex:  -1,
 		pressedIndex:  -1,
 		Activated:     signal.NewSignal[string]("popup_palette_activated"),
 	}
-	p.layoutRole.Parent = facet.GroupParentContract{
+	p.Core.Facet = facet.NewFacet()
+	p.AddBinding(p.Label)
+	p.AddBinding(p.Open)
+	p.AddBinding(p.Disabled)
+	p.AddBinding(p.ShowBottomBar)
+	p.AddBinding(p.Zoom)
+	p.AddBinding(p.CanvasOnly)
+	p.AddBinding(p.MirrorCanvas)
+	p.AddBinding(p.SelectedIndex)
+
+	p.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: popupPaletteGroupPolicy{palette: p},
 		Children: p,
 	}
-	p.layoutRole.Child = facet.GroupChildContract{
+	p.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measure(ctx, constraints).Size
@@ -335,241 +340,84 @@ func NewPopupPalette(label string, tools []PopupPaletteTool) *PopupPalette {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	p.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return p.measure(ctx, constraints)
 	}
-	p.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		p.layoutRole.ArrangedBounds = bounds
+	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		p.Layout.ArrangedBounds = bounds
 		p.arrange(ctx, bounds)
 	}
-	p.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := p.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult {
+		return p.hitTest(pt)
 	}
-	p.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := p.buildCommands(p.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	p.Input.OnPointer = func(e facet.PointerEvent) bool {
+		return p.onPointer(e)
 	}
-	p.hitRole.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
-	p.inputRole.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
-	p.inputRole.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
-	p.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return p.onDismiss(e) }
-	p.focusRole.Focusable = func() bool { return !p.Disabled && len(p.Tools) > 0 }
-	p.focusRole.TabIndex = 0
-	p.focusRole.OnFocusGained = func() { p.onFocusGained() }
-	p.focusRole.OnFocusLost = func() { p.onFocusLost() }
+	p.Input.OnKey = func(e facet.KeyEvent) bool {
+		return p.onKey(e)
+	}
+	p.Input.OnDismiss = func(e facet.DismissEvent) bool {
+		return p.onDismiss(e)
+	}
+	p.Focus.Focusable = func() bool {
+		return !p.Disabled.Get() && len(p.Tools) > 0
+	}
+	p.Focus.TabIndex = 0
+	p.Focus.OnFocusGained = func() {
+		p.onFocusGained()
+	}
+	p.Focus.OnFocusLost = func() {
+		p.onFocusLost()
+	}
 	p.textRole.IMEEnabled = false
-	p.AddRole(&p.layoutRole)
-	p.AddRole(&p.renderRole)
-	p.AddRole(&p.projectionRole)
-	p.AddRole(&p.hitRole)
-	p.AddRole(&p.inputRole)
-	p.AddRole(&p.focusRole)
 	p.AddRole(&p.textRole)
+
+	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	p.RegisterRoles()
+
 	p.composition = newPopupPaletteComposition(p)
 	return p
 }
 
-// Base satisfies facet.FacetImpl.
 func (p *PopupPalette) Base() *facet.Facet {
 	p.Facet.BindImpl(p)
 	return &p.Facet
 }
 
-// AccessibilityRole reports the semantic role required by the spec.
+func (p *PopupPalette) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "popup_palette"}
+}
+
 func (p *PopupPalette) AccessibilityRole() string { return "toolbar" }
 
-// AccessibleName reports the semantic name source required by the spec.
 func (p *PopupPalette) AccessibleName() string {
 	if p == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(p.Label); name != "" {
+	if name := strings.TrimSpace(p.Label.Get()); name != "" {
 		return name
 	}
 	return "Popup palette"
 }
 
-// SetLabel updates the authored accessible label.
-func (p *PopupPalette) SetLabel(label string) {
-	if p == nil || p.Label == label {
-		return
-	}
-	p.Label = label
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetTools replaces the radial tools.
-func (p *PopupPalette) SetTools(tools []PopupPaletteTool) {
-	if p == nil {
-		return
-	}
-	p.Tools = normalizePopupPaletteTools(tools)
-	p.clampIndices()
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetHistory replaces the history swatches.
-func (p *PopupPalette) SetHistory(history []gfx.Color) {
-	if p == nil {
-		return
-	}
-	p.History = append([]gfx.Color(nil), history...)
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen toggles the overlay open state.
-func (p *PopupPalette) SetOpen(open bool) {
-	if p == nil || p.Open == open {
-		return
-	}
-	p.Open = open
-	if !open {
-		p.hoveredIndex = -1
-		p.pressedIndex = -1
-		p.hoveredControl = popupPaletteControlNone
-		p.pressedControl = popupPaletteControlNone
-		p.draggingZoom = false
-	} else if !p.Disabled {
-		p.focusedVisible = true
-	}
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles the disabled state.
-func (p *PopupPalette) SetDisabled(disabled bool) {
-	if p == nil || p.Disabled == disabled {
-		return
-	}
-	p.Disabled = disabled
-	if disabled {
-		p.hoveredIndex = -1
-		p.pressedIndex = -1
-		p.hoveredControl = popupPaletteControlNone
-		p.pressedControl = popupPaletteControlNone
-		p.focusedVisible = false
-		p.focusFromPointer = false
-		p.draggingZoom = false
-		p.Open = false
-	}
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetZoom updates the authored zoom value.
-func (p *PopupPalette) SetZoom(zoom float64) {
-	if p == nil {
-		return
-	}
-	zoom = clampPopupZoom(zoom)
-	if p.Zoom == zoom {
-		return
-	}
-	p.Zoom = zoom
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetCanvasOnly toggles canvas-only mode.
-func (p *PopupPalette) SetCanvasOnly(canvasOnly bool) {
-	if p == nil || p.CanvasOnly == canvasOnly {
-		return
-	}
-	p.CanvasOnly = canvasOnly
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetMirrorCanvas toggles mirrored canvas mode.
-func (p *PopupPalette) SetMirrorCanvas(mirror bool) {
-	if p == nil || p.MirrorCanvas == mirror {
-		return
-	}
-	p.MirrorCanvas = mirror
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetShowBottomBar toggles the bottom control strip.
-func (p *PopupPalette) SetShowBottomBar(show bool) {
-	if p == nil || p.ShowBottomBar == show {
-		return
-	}
-	p.ShowBottomBar = show
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetSelectedIndex updates the selected tool index.
-func (p *PopupPalette) SetSelectedIndex(index int) {
-	if p == nil {
-		return
-	}
-	index = p.clampToolIndex(index)
-	if p.SelectedIndex == index {
-		return
-	}
-	p.SelectedIndex = index
-	if p.composition != nil {
-		p.composition.sync()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
-// ExportAnchors publishes the popup palette anchor set.
 func (p *PopupPalette) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if p == nil {
 		return nil
 	}
 	if p.composition != nil {
-		if anchors := p.composition.exportAnchors(p.layoutRole.ArrangedBounds); len(anchors) > 0 {
+		if anchors := p.composition.exportAnchors(p.Layout.ArrangedBounds); len(anchors) > 0 {
 			return anchors
 		}
 	}
-	bounds := p.layoutRole.ArrangedBounds
+	bounds := p.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
-	if bounds.IsEmpty() {
+	out := p.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if !p.cachedAnchorBounds.IsEmpty() {
 		out["content_anchor"] = gfx.Point{X: p.cachedAnchorBounds.Min.X + p.cachedAnchorBounds.Width()*0.5, Y: p.cachedAnchorBounds.Min.Y + p.cachedAnchorBounds.Height()*0.5}
@@ -586,25 +434,21 @@ func (p *PopupPalette) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 	return out
 }
 
-// Children returns the facet's immediate child list.
 func (p *PopupPalette) Children() []facet.GroupChild {
-	if p == nil || p.Disabled || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() {
 		return nil
 	}
 	return nil
 }
 
-// OnAttach is unused.
-func (p *PopupPalette) OnAttach(ctx facet.AttachContext) {}
+func (p *PopupPalette) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
 
-// OnActivate is unused.
-func (p *PopupPalette) OnActivate() {}
+func (p *PopupPalette) OnActivate() { p.Core.OnActivate() }
 
-// OnDeactivate is unused.
-func (p *PopupPalette) OnDeactivate() {}
+func (p *PopupPalette) OnDeactivate() { p.Core.OnDeactivate() }
 
-// OnDetach clears cached projection state.
 func (p *PopupPalette) OnDetach() {
+	p.Core.OnDetach()
 	p.cachedTokens = theme.Tokens{}
 	p.cachedRecipe = shared.PopupPaletteSlots{}
 	p.cachedRootBounds = gfx.Rect{}
@@ -651,7 +495,7 @@ func (p *PopupPalette) syncChildren() {
 	if p == nil {
 		return
 	}
-	if p.Disabled || !p.Open {
+	if p.Disabled.Get() || !p.Open.Get() {
 		for _, child := range p.cachedChildren {
 			if child != nil {
 				child.dispose()
@@ -710,7 +554,7 @@ func (p *PopupPalette) syncChildArrangement(ctx facet.ArrangeContext) {
 }
 
 func (p *PopupPalette) childSpecs() []popupPaletteChildSpec {
-	if p == nil || p.Disabled || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() {
 		return nil
 	}
 	out := make([]popupPaletteChildSpec, 0, len(p.Tools))
@@ -724,12 +568,12 @@ func (p *PopupPalette) childSpecs() []popupPaletteChildSpec {
 			index:           i,
 			iconRef:         tool.IconRef,
 			accessibleLabel: tool.AccessibleLabel,
-			disabled:        p.Disabled || tool.Disabled,
+			disabled:        p.Disabled.Get() || tool.Disabled,
 			hitPadding:      maxFloat(0, (p.cachedToolSize-toolInner)*0.5),
 			innerSize:       toolInner,
 		})
 	}
-	if p.ShowBottomBar {
+	if p.ShowBottomBar.Get() {
 		controlInner := maxFloat(p.cachedToolSize*0.34, 16)
 		controls := []struct {
 			kind            popupPaletteChildKind
@@ -747,7 +591,7 @@ func (p *PopupPalette) childSpecs() []popupPaletteChildSpec {
 				kind:            control.kind,
 				iconRef:         control.iconRef,
 				accessibleLabel: control.accessibleLabel,
-				disabled:        p.Disabled || control.disabled,
+				disabled:        p.Disabled.Get() || control.disabled,
 				hitPadding:      maxFloat(0, (maxFloat(p.cachedToolSize*0.54, 24)-controlInner)*0.5),
 				innerSize:       controlInner,
 			})
@@ -830,9 +674,9 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 	}
 
 	shaper := p.newShaper(ctx.Runtime)
-	if shaper != nil && strings.TrimSpace(p.Label) != "" {
+	if shaper != nil && strings.TrimSpace(p.Label.Get()) != "" {
 		shaper.SetContentScale(ctx.ContentScale)
-		p.cachedLabelLayout = shaper.ShapeTruncated(strings.TrimSpace(p.Label), p.cachedLabelStyle, maxW)
+		p.cachedLabelLayout = shaper.ShapeTruncated(strings.TrimSpace(p.Label.Get()), p.cachedLabelStyle, maxW)
 	} else {
 		p.cachedLabelLayout = nil
 	}
@@ -841,7 +685,7 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 	p.textRole.CaretVisible = false
 	p.textRole.CaretPosition = text.TextPosition{}
 
-	if p.Disabled || !p.Open {
+	if p.Disabled.Get() || !p.Open.Get() {
 		w := maxFloat(resolved.Density.Scale(72), p.cachedPadX*2+p.cachedToolSize)
 		h := maxFloat(resolved.Density.Scale(72), p.cachedPadY*2+p.cachedToolSize)
 		if p.cachedLabelLayout != nil {
@@ -849,8 +693,8 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 			h += p.cachedLabelLayout.Bounds.Height()
 		}
 		size := constraints.Constrain(gfx.Size{W: minFloat(w, maxW), H: minFloat(h, maxH)})
-		p.layoutRole.MeasuredSize = size
-		p.layoutRole.MeasuredResult = facet.MeasureResult{
+		p.Layout.MeasuredSize = size
+		p.Layout.MeasuredResult = facet.MeasureResult{
 			Size: size,
 			Intrinsic: facet.IntrinsicSize{
 				Min:       size,
@@ -860,12 +704,12 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 			Constraints: constraints,
 		}
 		p.syncChildMeasurements(ctx, constraints)
-		return p.layoutRole.MeasuredResult
+		return p.Layout.MeasuredResult
 	}
 
 	surfaceDiameter := maxFloat(resolved.Density.Scale(320), p.cachedRingRadius*2+p.cachedToolSize)
 	bottomBarH := float32(0)
-	if p.ShowBottomBar {
+	if p.ShowBottomBar.Get() {
 		bottomBarH = p.cachedBottomBarHeight
 	}
 	w := maxFloat(surfaceDiameter+2*p.cachedPadX, resolved.Density.Scale(360))
@@ -873,12 +717,12 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 	if p.cachedLabelLayout != nil {
 		h += p.cachedLabelLayout.Bounds.Height() + p.cachedGap*0.5
 	}
-	if p.ShowBottomBar {
+	if p.ShowBottomBar.Get() {
 		h += p.cachedGap
 	}
 	size := constraints.Constrain(gfx.Size{W: minFloat(w, maxW), H: minFloat(h, maxH)})
-	p.layoutRole.MeasuredSize = size
-	p.layoutRole.MeasuredResult = facet.MeasureResult{
+	p.Layout.MeasuredSize = size
+	p.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -888,7 +732,7 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 		Constraints: constraints,
 	}
 	p.syncChildMeasurements(ctx, constraints)
-	return p.layoutRole.MeasuredResult
+	return p.Layout.MeasuredResult
 }
 
 func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -911,12 +755,12 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedClearBounds = gfx.Rect{}
 	p.cachedToggleBounds = gfx.Rect{}
 	p.cachedZoomBounds = gfx.Rect{}
-	p.layoutRole.ArrangedBounds = bounds
+	p.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
 
-	if p.Disabled || !p.Open {
+	if p.Disabled.Get() || !p.Open.Get() {
 		triggerSize := minFloat(bounds.Width(), bounds.Height())
 		if triggerSize <= 0 {
 			triggerSize = maxFloat(p.cachedToolSize, resolvedDefaultTriggerSize())
@@ -930,7 +774,7 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 
 	surfaceDiameter := minFloat(bounds.Width()-2*p.cachedPadX, bounds.Height()-2*p.cachedPadY)
 	bottomBarH := float32(0)
-	if p.ShowBottomBar {
+	if p.ShowBottomBar.Get() {
 		bottomBarH = p.cachedBottomBarHeight
 	}
 	if p.cachedLabelLayout != nil {
@@ -983,7 +827,7 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if p.cachedLabelLayout != nil {
 		toolGroupTop += p.cachedLabelLayout.Bounds.Height() + p.cachedGap*0.5
 	}
-	if p.ShowBottomBar {
+	if p.ShowBottomBar.Get() {
 		p.cachedToolGroupBounds = gfx.RectFromXYWH(bounds.Min.X+p.cachedPadX, toolGroupTop, bounds.Width()-2*p.cachedPadX, p.cachedBottomBarHeight)
 		inner := p.cachedToolGroupBounds.Inset(p.cachedPadX, p.cachedPadY*0.5)
 		sliderTrackW := maxFloat(inner.Width()*0.46, p.cachedToolSize*2.5)
@@ -992,7 +836,7 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		sliderTrackH := maxFloat(p.cachedPadY*0.25, 6)
 		p.cachedZoomBounds = gfx.RectFromXYWH(inner.Min.X, inner.Min.Y+(inner.Height()-sliderTrackH)*0.5, sliderTrackW, sliderTrackH)
-		thumbX := p.cachedZoomBounds.Min.X + clamp01Float(float32((p.Zoom-0.1)/3.9))*maxFloat(0, p.cachedZoomBounds.Width()-p.cachedToolSize*0.34)
+		thumbX := p.cachedZoomBounds.Min.X + clamp01Float(float32((p.Zoom.Get()-0.1)/3.9))*maxFloat(0, p.cachedZoomBounds.Width()-p.cachedToolSize*0.34)
 		p.cachedSliderThumb = gfx.RectFromXYWH(thumbX, p.cachedZoomBounds.Min.Y-(p.cachedToolSize*0.34-p.cachedZoomBounds.Height())*0.5, p.cachedToolSize*0.34, p.cachedToolSize*0.34)
 		buttonSize := maxFloat(p.cachedToolSize*0.54, 24)
 		buttonY := inner.Min.Y + (inner.Height()-buttonSize)*0.5
@@ -1053,7 +897,7 @@ func (p *PopupPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
 	}
 
-	if p.Disabled || !p.Open {
+	if p.Disabled.Get() || !p.Open.Get() {
 		if !isTransparentMaterial(surface) && !p.cachedTriggerBounds.IsEmpty() {
 			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(p.cachedTriggerBounds, p.cachedTriggerBounds.Height()*0.28), surface)...)
 		}
@@ -1103,12 +947,12 @@ func (p *PopupPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		case theme.StateFocused:
 			itemMaterial = theme.FromToken(tintColor(tokens.Color.Primary, 0.18))
 		}
-		if tool.Selected || i == p.SelectedIndex {
+		if tool.Selected || i == p.SelectedIndex.Get() {
 			itemMaterial = theme.FromToken(tintColor(tokens.Color.Primary, 0.26))
 		}
 		cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), itemMaterial)...)
 		strokeMat := theme.FromToken(tintColor(tokens.Color.OnSurfaceVariant, 0.36))
-		if tool.Selected || i == p.SelectedIndex {
+		if tool.Selected || i == p.SelectedIndex.Get() {
 			strokeMat = theme.FromToken(tokens.Color.Primary)
 		}
 		cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), theme.MarkStyle{Base: theme.Material{Fills: []theme.Fill{{Type: theme.FillNone, Opacity: 0}}, Strokes: []theme.MaterialStroke{{Paint: theme.Fill{Type: theme.FillSolid, Color: materialColor(strokeMat), Opacity: 1}, Width: maxFloat(1, bounds.Width()*0.08)}}}}.Resolve(theme.StateDefault, tokens))...)
@@ -1135,7 +979,7 @@ func (p *PopupPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), theme.MarkStyle{Base: theme.Material{Fills: []theme.Fill{{Type: theme.FillNone, Opacity: 0}}, Strokes: []theme.MaterialStroke{{Paint: theme.Fill{Type: theme.FillSolid, Color: materialColor(toolGroup), Opacity: 1}, Width: maxFloat(1, bounds.Width()*0.08)}}}}.Resolve(theme.StateDefault, tokens))...)
 	}
 
-	if p.ShowBottomBar && !p.cachedToolGroupBounds.IsEmpty() {
+	if p.ShowBottomBar.Get() && !p.cachedToolGroupBounds.IsEmpty() {
 		if !isTransparentMaterial(toolGroup) {
 			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(p.cachedToolGroupBounds, p.cachedToolGroupBounds.Height()*0.28), toolGroup)...)
 		}
@@ -1169,7 +1013,7 @@ func (p *PopupPalette) hitTest(pt gfx.Point) facet.HitResult {
 	if p != nil && p.composition != nil {
 		return p.composition.hitTest(pt)
 	}
-	if p == nil || p.layoutRole.ArrangedBounds.IsEmpty() || !p.layoutRole.ArrangedBounds.Contains(pt) {
+	if p == nil || p.Layout.ArrangedBounds.IsEmpty() || !p.Layout.ArrangedBounds.Contains(pt) {
 		return facet.HitResult{}
 	}
 	cursor := p.cursorShape()
@@ -1195,7 +1039,7 @@ func (p *PopupPalette) hitTest(pt gfx.Point) facet.HitResult {
 }
 
 func (p *PopupPalette) cursorShape() facet.CursorShape {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
@@ -1205,7 +1049,7 @@ func (p *PopupPalette) onPointer(e facet.PointerEvent) bool {
 	if p != nil && p.composition != nil {
 		return p.composition.onPointer(e)
 	}
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -1242,7 +1086,7 @@ func (p *PopupPalette) onPointer(e facet.PointerEvent) bool {
 		p.focusedVisible = false
 		p.hoveredIndex = p.toolIndexAt(e.Position)
 		p.hoveredControl = p.controlAt(e.Position)
-		if p.Disabled {
+		if p.Disabled.Get() {
 			return false
 		}
 		if p.hoveredIndex >= 0 {
@@ -1261,11 +1105,16 @@ func (p *PopupPalette) onPointer(e facet.PointerEvent) bool {
 			p.invalidate(facet.DirtyProjection)
 			return true
 		}
-		if p.Open && p.cachedSurfaceBounds.Contains(e.Position) {
+		if p.Open.Get() && p.cachedSurfaceBounds.Contains(e.Position) {
 			p.invalidate(facet.DirtyProjection)
 			return true
 		}
-		p.SetOpen(true)
+		p.Open = marks.Const(true)
+		p.focusedVisible = !p.Disabled.Get()
+		if p.composition != nil {
+			p.composition.sync()
+		}
+		p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return true
 	case platform.PointerRelease:
 		if e.Button != platform.PointerLeft {
@@ -1309,15 +1158,20 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			return true
 		}
 	}
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return false
 	}
-	if !p.Open {
+	if !p.Open.Get() {
 		switch e.Kind {
 		case platform.KeyPress:
 			switch e.Key {
 			case platform.KeyEnter, platform.KeySpace:
-				p.SetOpen(true)
+				p.Open = marks.Const(true)
+				p.focusedVisible = !p.Disabled.Get()
+				if p.composition != nil {
+					p.composition.sync()
+				}
+				p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 				return true
 			}
 		}
@@ -1327,7 +1181,16 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 	case platform.KeyPress, platform.KeyRepeat:
 		switch e.Key {
 		case platform.KeyEscape:
-			p.SetOpen(false)
+			p.Open = marks.Const(false)
+			p.hoveredIndex = -1
+			p.pressedIndex = -1
+			p.hoveredControl = popupPaletteControlNone
+			p.pressedControl = popupPaletteControlNone
+			p.draggingZoom = false
+			if p.composition != nil {
+				p.composition.sync()
+			}
+			p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 			return true
 		case platform.KeyLeft, platform.KeyUp:
 			p.navigateTools(-1)
@@ -1336,23 +1199,39 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			p.navigateTools(1)
 			return true
 		case platform.KeyHome:
-			p.SetSelectedIndex(0)
+			p.SelectedIndex = marks.Const(0)
+			if p.composition != nil {
+				p.composition.sync()
+			}
+			p.invalidate(facet.DirtyProjection)
 			return true
 		case platform.KeyEnd:
-			p.SetSelectedIndex(len(p.Tools) - 1)
+			p.SelectedIndex = marks.Const(len(p.Tools) - 1)
+			if p.composition != nil {
+				p.composition.sync()
+			}
+			p.invalidate(facet.DirtyProjection)
 			return true
 		case platform.KeyEnter, platform.KeySpace:
-			if p.SelectedIndex >= 0 && p.SelectedIndex < len(p.Tools) {
-				p.activateTool(p.SelectedIndex)
+			if p.SelectedIndex.Get() >= 0 && p.SelectedIndex.Get() < len(p.Tools) {
+				p.activateTool(p.SelectedIndex.Get())
 				return true
 			}
 		case platform.KeyPageUp:
-			p.SetZoom(p.Zoom + 0.05)
-			p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom*100))
+			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() + 0.05))
+			p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100))
+			if p.composition != nil {
+				p.composition.sync()
+			}
+			p.invalidate(facet.DirtyProjection)
 			return true
 		case platform.KeyPageDown:
-			p.SetZoom(p.Zoom - 0.05)
-			p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom*100))
+			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() - 0.05))
+			p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100))
+			if p.composition != nil {
+				p.composition.sync()
+			}
+			p.invalidate(facet.DirtyProjection)
 			return true
 		}
 	}
@@ -1364,15 +1243,24 @@ func (p *PopupPalette) onDismiss(e facet.DismissEvent) bool {
 		return p.composition.onDismiss(e)
 	}
 	_ = e
-	if p.Disabled || !p.Open {
+	if p.Disabled.Get() || !p.Open.Get() {
 		return false
 	}
-	p.SetOpen(false)
+	p.Open = marks.Const(false)
+	p.hoveredIndex = -1
+	p.pressedIndex = -1
+	p.hoveredControl = popupPaletteControlNone
+	p.pressedControl = popupPaletteControlNone
+	p.draggingZoom = false
+	if p.composition != nil {
+		p.composition.sync()
+	}
+	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	return true
 }
 
 func (p *PopupPalette) onFocusGained() {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return
 	}
 	p.focusedVisible = !p.focusFromPointer
@@ -1388,7 +1276,7 @@ func (p *PopupPalette) onFocusLost() {
 
 func (p *PopupPalette) interactionState() theme.InteractionState {
 	switch {
-	case p.Disabled:
+	case p.Disabled.Get():
 		return theme.StateDisabled
 	case p.pressedIndex >= 0 || p.pressedControl != popupPaletteControlNone:
 		return theme.StatePressed
@@ -1403,13 +1291,13 @@ func (p *PopupPalette) interactionState() theme.InteractionState {
 
 func (p *PopupPalette) itemState(index int) theme.InteractionState {
 	switch {
-	case p.Disabled || index < 0 || index >= len(p.Tools):
+	case p.Disabled.Get() || index < 0 || index >= len(p.Tools):
 		return theme.StateDisabled
 	case p.pressedIndex == index:
 		return theme.StatePressed
 	case p.hoveredIndex == index:
 		return theme.StateHover
-	case p.focusedVisible && p.SelectedIndex == index:
+	case p.focusedVisible && p.SelectedIndex.Get() == index:
 		return theme.StateFocused
 	default:
 		return theme.StateDefault
@@ -1420,13 +1308,17 @@ func (p *PopupPalette) navigateTools(delta int) {
 	if len(p.Tools) == 0 {
 		return
 	}
-	next := p.SelectedIndex
+	next := p.SelectedIndex.Get()
 	if next < 0 {
 		next = 0
 	} else {
 		next = (next + delta + len(p.Tools)) % len(p.Tools)
 	}
-	p.SetSelectedIndex(next)
+	p.SelectedIndex = marks.Const(next)
+	if p.composition != nil {
+		p.composition.sync()
+	}
+	p.invalidate(facet.DirtyProjection)
 }
 
 func (p *PopupPalette) activateTool(index int) {
@@ -1437,7 +1329,7 @@ func (p *PopupPalette) activateTool(index int) {
 	if tool.Disabled {
 		return
 	}
-	p.SelectedIndex = index
+	p.SelectedIndex = marks.Const(index)
 	if key := strings.TrimSpace(tool.Key); key != "" {
 		p.Activated.Emit(key)
 	} else if label := strings.TrimSpace(tool.Label); label != "" {
@@ -1452,18 +1344,18 @@ func (p *PopupPalette) activateTool(index int) {
 func (p *PopupPalette) activateControl(control popupPaletteControlKind, pt gfx.Point) bool {
 	switch control {
 	case popupPaletteControlMirror:
-		p.MirrorCanvas = !p.MirrorCanvas
+		p.MirrorCanvas = marks.Const(!p.MirrorCanvas.Get())
 		p.Activated.Emit("mirror")
 		p.invalidate(facet.DirtyProjection)
 		return true
 	case popupPaletteControlCanvasOnly:
-		p.CanvasOnly = !p.CanvasOnly
+		p.CanvasOnly = marks.Const(!p.CanvasOnly.Get())
 		p.Activated.Emit("canvas_only")
 		p.invalidate(facet.DirtyProjection)
 		return true
 	case popupPaletteControlZoom:
 		p.updateZoomFromPoint(pt)
-		p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom*100))
+		p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100))
 		return true
 	case popupPaletteControlClearHistory:
 		p.History = nil
@@ -1471,7 +1363,7 @@ func (p *PopupPalette) activateControl(control popupPaletteControlKind, pt gfx.P
 		p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return true
 	case popupPaletteControlToggleBar:
-		p.ShowBottomBar = !p.ShowBottomBar
+		p.ShowBottomBar = marks.Const(!p.ShowBottomBar.Get())
 		p.Activated.Emit("bottom_bar")
 		p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return true
@@ -1485,7 +1377,7 @@ func (p *PopupPalette) updateZoomFromPoint(pt gfx.Point) {
 		return
 	}
 	t := (pt.X - p.cachedZoomBounds.Min.X) / p.cachedZoomBounds.Width()
-	p.SetZoom(0.1 + float64(clamp01Float(t))*3.9)
+	p.Zoom = marks.Const(0.1 + float64(clamp01Float(t))*3.9)
 }
 
 func (p *PopupPalette) controlAt(pt gfx.Point) popupPaletteControlKind {
@@ -1565,7 +1457,7 @@ func (p *PopupPalette) clampToolIndex(index int) int {
 }
 
 func (p *PopupPalette) clampIndices() {
-	p.SelectedIndex = p.clampToolIndex(p.SelectedIndex)
+	p.SelectedIndex = marks.Const(p.clampToolIndex(p.SelectedIndex.Get()))
 	p.hoveredIndex = p.clampToolIndex(p.hoveredIndex)
 	p.pressedIndex = p.clampToolIndex(p.pressedIndex)
 }
@@ -1713,13 +1605,13 @@ type popupPaletteComposition struct {
 func newPopupPaletteComposition(p *PopupPalette) *popupPaletteComposition {
 	c := &popupPaletteComposition{palette: p}
 	c.center = input.NewColorPicker("Palette color")
-	c.center.SetDisabled(p.Disabled)
-	c.control = NewActionGroup("Palette controls", []ActionGroupAction{
+	c.center.Disabled = marks.Const(p.Disabled.Get())
+	c.control = NewActionGroup(marks.Const("Palette controls"), marks.Const([]ActionGroupAction{
 		{Key: "mirror", AccessibleLabel: "Mirror canvas", IconRef: "mirror"},
 		{Key: "canvas_only", AccessibleLabel: "Canvas only", IconRef: "canvas"},
 		{Key: "history_clear", AccessibleLabel: "Clear history", IconRef: "history-clear"},
 		{Key: "bottom_bar", AccessibleLabel: "Toggle bottom bar", IconRef: "chevron-up"},
-	})
+	}))
 	c.control.Activated.Subscribe(func(key string) {
 		if c.palette == nil {
 			return
@@ -1735,7 +1627,7 @@ func newPopupPaletteComposition(p *PopupPalette) *popupPaletteComposition {
 			c.palette.activateControl(popupPaletteControlToggleBar, gfx.Point{})
 		}
 	})
-	c.menu = NewRadialMenu(p.Label, c.center, nil)
+	c.menu = NewRadialMenu(p.Label.Get(), c.center, nil)
 	c.menu.DefaultTrackRadius = 120
 	c.sync()
 	return c
@@ -1746,12 +1638,12 @@ func (c *popupPaletteComposition) sync() {
 		return
 	}
 	p := c.palette
-	c.menu.SetLabel(p.Label)
-	c.menu.SetOpen(p.Open)
-	c.menu.SetDisabled(p.Disabled)
-	c.center.SetDisabled(p.Disabled)
-	c.control.SetDisabled(p.Disabled || !p.ShowBottomBar)
-	c.center.SetLabel(p.Label)
+	c.menu.Label = marks.Const(p.Label.Get())
+	c.menu.Open = p.Open.Get()
+	c.menu.Disabled = marks.Const(p.Disabled.Get())
+	c.center.Disabled = marks.Const(p.Disabled.Get())
+	c.control.Disabled = marks.Const(p.Disabled.Get() || !p.ShowBottomBar.Get())
+	c.center.Label = marks.Const(p.Label.Get())
 	c.center.SetColor(paletteSelectionColor(p))
 
 	c.cachedLabelStyle = text.TextStyle{}
@@ -1773,11 +1665,11 @@ func (c *popupPaletteComposition) sync() {
 				c.palette.activateTool(i)
 			}
 		})
-		btn.SetSource(primitive.IconRef(tool.IconRef))
-		btn.SetAccessibleName(tool.AccessibleLabel)
-		btn.SetDisabled(p.Disabled || tool.Disabled)
-		btn.SetSize(28)
-		btn.SetHitPadding(10)
+		btn.Icon = primitive.IconRef(tool.IconRef)
+		btn.AccessibleLabel = marks.Const(tool.AccessibleLabel)
+		btn.Disabled = marks.Const(p.Disabled.Get() || tool.Disabled)
+		btn.Size = marks.Const[float32](28)
+		btn.HitPadding = 10
 		toolButtons = append(toolButtons, btn)
 	}
 	c.toolButtons = toolButtons
@@ -1792,8 +1684,8 @@ func (c *popupPaletteComposition) sync() {
 			},
 		})
 	}
-	c.menu.SetCenterChild(c.center)
-	c.menu.SetRadialChildren(orbit)
+	c.menu.CenterChild = c.center
+	c.menu.RadialChildren = marks.Const(orbit)
 }
 
 func (c *popupPaletteComposition) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -1809,12 +1701,12 @@ func (c *popupPaletteComposition) measure(ctx facet.MeasureContext, constraints 
 	c.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
 	c.cachedHistorySize = maxFloat(resolved.Density.Scale(20), 16)
 	controlSize := c.control.measure(ctx, constraints).Size
-	if c.palette.Label != "" {
+	if p := c.palette.Label.Get(); p != "" {
 		shaper := c.palette.newShaper(ctx.Runtime)
 		if shaper != nil {
 			style := resolved.TextStyle(theme.TextLabelM)
 			shaper.SetContentScale(ctx.ContentScale)
-			c.cachedLabelLayout = shaper.ShapeTruncated(strings.TrimSpace(c.palette.Label), style, constraints.MaxSize.W)
+			c.cachedLabelLayout = shaper.ShapeTruncated(strings.TrimSpace(p), style, constraints.MaxSize.W)
 			c.cachedLabelStyle = style
 		}
 	}
@@ -1828,12 +1720,12 @@ func (c *popupPaletteComposition) measure(ctx facet.MeasureContext, constraints 
 	if len(c.palette.History) > 0 {
 		h += c.cachedHistorySize + c.cachedGap
 	}
-	if c.palette.ShowBottomBar && controlSize.H > 0 {
+	if c.palette.ShowBottomBar.Get() && controlSize.H > 0 {
 		h += controlSize.H + c.cachedGap
 	}
 	size := constraints.Constrain(gfx.Size{W: w, H: h})
-	c.palette.layoutRole.MeasuredSize = size
-	c.palette.layoutRole.MeasuredResult = facet.MeasureResult{
+	c.palette.Layout.MeasuredSize = size
+	c.palette.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -1842,7 +1734,7 @@ func (c *popupPaletteComposition) measure(ctx facet.MeasureContext, constraints 
 		},
 		Constraints: constraints,
 	}
-	return c.palette.layoutRole.MeasuredResult
+	return c.palette.Layout.MeasuredResult
 }
 
 func (c *popupPaletteComposition) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -1860,8 +1752,8 @@ func (c *popupPaletteComposition) arrange(ctx facet.ArrangeContext, bounds gfx.R
 		bottomReserve = c.cachedHistorySize + c.cachedGap
 	}
 	c.cachedControlBounds = gfx.Rect{}
-	if c.palette.ShowBottomBar {
-		controlSize := c.control.layoutRole.MeasuredSize
+	if c.palette.ShowBottomBar.Get() {
+		controlSize := c.control.Layout.MeasuredSize
 		if controlSize.H > 0 {
 			controlBounds := gfx.RectFromXYWH(bounds.Min.X+c.cachedPadX, bounds.Max.Y-c.cachedPadY-controlSize.H, bounds.Width()-2*c.cachedPadX, controlSize.H)
 			c.cachedControlBounds = controlBounds
@@ -1920,7 +1812,7 @@ func (c *popupPaletteComposition) arrange(ctx facet.ArrangeContext, bounds gfx.R
 	if len(c.palette.Tools) > 0 && len(c.palette.cachedToolItemBounds) > 0 {
 		c.palette.cachedSliderTrack = gfx.RectFromXYWH(bounds.Min.X+c.cachedPadX, bounds.Max.Y-c.cachedPadY-c.cachedHistorySize*0.5, bounds.Width()-2*c.cachedPadX, maxFloat(8, c.cachedHistorySize*0.28))
 		thumbW := maxFloat(12, c.cachedHistorySize*0.9)
-		thumbX := c.palette.cachedSliderTrack.Min.X + float32(c.palette.Zoom)*0.25*c.palette.cachedSliderTrack.Width()
+		thumbX := c.palette.cachedSliderTrack.Min.X + float32(c.palette.Zoom.Get())*0.25*c.palette.cachedSliderTrack.Width()
 		c.palette.cachedSliderThumb = gfx.RectFromXYWH(thumbX, c.palette.cachedSliderTrack.Min.Y-(thumbW-c.palette.cachedSliderTrack.Height())*0.5, thumbW, thumbW)
 		c.palette.cachedZoomBounds = c.palette.cachedSliderTrack
 	}
@@ -1938,21 +1830,21 @@ func (c *popupPaletteComposition) buildCommands(bounds gfx.Rect, runtime any, co
 		}
 	}
 	labelLayout := c.cachedLabelLayout
-	if labelLayout == nil && strings.TrimSpace(c.palette.Label) != "" {
+	if labelLayout == nil && strings.TrimSpace(c.palette.Label.Get()) != "" {
 		if shaper := c.palette.newShaper(runtime); shaper != nil {
 			shaper.SetContentScale(contentScale)
 			labelStyle := c.cachedLabelStyle
 			if labelStyle == (text.TextStyle{}) {
 				labelStyle = text.DefaultStyle()
 			}
-			labelLayout = shaper.ShapeTruncated(strings.TrimSpace(c.palette.Label), labelStyle, bounds.Width())
+			labelLayout = shaper.ShapeTruncated(strings.TrimSpace(c.palette.Label.Get()), labelStyle, bounds.Width())
 		}
 	}
 	if labelLayout != nil {
 		labelRect := gfx.RectFromXYWH(bounds.Min.X+c.cachedPadX, bounds.Min.Y+c.cachedPadY, labelLayout.Bounds.Width(), labelLayout.Bounds.Height())
 		cmds = append(cmds, primitive.TextLayoutCommands(labelLayout, labelRect, gfx.SolidBrush(tokens.Color.OnSurfaceVariant))...)
 	}
-	if !c.cachedControlBounds.IsEmpty() && c.palette.ShowBottomBar {
+	if !c.cachedControlBounds.IsEmpty() && c.palette.ShowBottomBar.Get() {
 		if controlCmds := c.control.buildCommands(c.cachedControlBounds, runtime); len(controlCmds) > 0 {
 			cmds = append(cmds, controlCmds...)
 		}
@@ -2006,7 +1898,7 @@ func (c *popupPaletteComposition) onPointer(e facet.PointerEvent) bool {
 		case platform.PointerPress, platform.PointerMove, platform.PointerRelease:
 			c.palette.updateZoomFromPoint(e.Position)
 			if e.Kind == platform.PointerRelease {
-				c.palette.Activated.Emit(fmt.Sprintf("zoom:%.0f", c.palette.Zoom*100))
+				c.palette.Activated.Emit(fmt.Sprintf("zoom:%.0f", c.palette.Zoom.Get()*100))
 			}
 			return true
 		}
@@ -2047,8 +1939,8 @@ func paletteSelectionColor(p *PopupPalette) gfx.Color {
 	if p == nil {
 		return gfx.Color{}
 	}
-	if p.SelectedIndex >= 0 && p.SelectedIndex < len(p.Tools) {
-		if color := p.Tools[p.SelectedIndex].Color; color.A > 0 {
+	if p.SelectedIndex.Get() >= 0 && p.SelectedIndex.Get() < len(p.Tools) {
+		if color := p.Tools[p.SelectedIndex.Get()].Color; color.A > 0 {
 			return color
 		}
 	}

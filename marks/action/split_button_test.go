@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -22,7 +23,7 @@ func TestSplitButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	btn, rt := newSplitButtonFixture(t)
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -32,7 +33,7 @@ func TestSplitButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.Layout.Parent, ChildGroup: btn.Layout.Child}, bounds)
 
 	if got := btn.AccessibilityRole(); got != "split_button" {
 		t.Fatalf("accessibility role = %q, want split_button", got)
@@ -44,19 +45,19 @@ func TestSplitButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected control geometry, got primary=%#v trigger=%#v label=%#v", btn.cachedPrimaryBounds, btn.cachedTriggerBounds, btn.cachedPrimaryLabel)
 	}
 
-	labelHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedPrimaryLabel.Min.X + 1, Y: btn.cachedPrimaryLabel.Min.Y + 1})
+	labelHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedPrimaryLabel.Min.X + 1, Y: btn.cachedPrimaryLabel.Min.Y + 1})
 	if !labelHit.Hit || labelHit.MarkID != splitButtonMarkIDPrimaryLabel {
 		t.Fatalf("expected primary label hit, got %#v", labelHit)
 	}
-	triggerHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedTriggerBounds.Min.X + 1, Y: btn.cachedTriggerBounds.Min.Y + 1})
+	triggerHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedTriggerBounds.Min.X + 1, Y: btn.cachedTriggerBounds.Min.Y + 1})
 	if !triggerHit.Hit || triggerHit.MarkID != splitButtonMarkIDMenuTrigger {
 		t.Fatalf("expected menu trigger hit, got %#v", triggerHit)
 	}
-	chevronHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedChevronBounds.Min.X + 1, Y: btn.cachedChevronBounds.Min.Y + 1})
+	chevronHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedChevronBounds.Min.X + 1, Y: btn.cachedChevronBounds.Min.Y + 1})
 	if !chevronHit.Hit || chevronHit.MarkID != splitButtonMarkIDChevron {
 		t.Fatalf("expected chevron hit, got %#v", chevronHit)
 	}
-	primaryHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedPrimaryBounds.Min.X + 1, Y: btn.cachedPrimaryBounds.Min.Y + 1})
+	primaryHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedPrimaryBounds.Min.X + 1, Y: btn.cachedPrimaryBounds.Min.Y + 1})
 	if !primaryHit.Hit || primaryHit.MarkID != splitButtonMarkIDPrimaryButton {
 		t.Fatalf("expected primary button hit, got %#v", primaryHit)
 	}
@@ -68,27 +69,27 @@ func TestSplitButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	btn.SetOpen(true)
-	result = btn.layoutRole.Measure(facet.MeasureContext{
+	btn.Open = true
+	result = btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1080, H: 720}})
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H))
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: btn.Layout.Parent, ChildGroup: btn.Layout.Child}, gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H))
 
 	if btn.cachedMenuBounds.IsEmpty() || len(btn.cachedItemLayouts) == 0 {
 		t.Fatalf("expected open menu geometry, got menu=%#v items=%d", btn.cachedMenuBounds, len(btn.cachedItemLayouts))
 	}
-	itemHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedItemLayouts[0].bounds.Min.X + 1, Y: btn.cachedItemLayouts[0].bounds.Min.Y + 1})
+	itemHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedItemLayouts[0].bounds.Min.X + 1, Y: btn.cachedItemLayouts[0].bounds.Min.Y + 1})
 	if !itemHit.Hit || itemHit.MarkID != splitButtonMarkIDMenuItems {
 		t.Fatalf("expected menu item hit, got %#v", itemHit)
 	}
-	surfaceHit := btn.hitRole.HitTest(gfx.Point{X: btn.cachedMenuBounds.Min.X + 2, Y: btn.cachedMenuBounds.Min.Y + 2})
+	surfaceHit := btn.Hit.HitTest(gfx.Point{X: btn.cachedMenuBounds.Min.X + 2, Y: btn.cachedMenuBounds.Min.Y + 2})
 	if !surfaceHit.Hit || (surfaceHit.MarkID != splitButtonMarkIDMenuItems && surfaceHit.MarkID != splitButtonMarkIDFloatingMenuSurface) {
 		t.Fatalf("expected menu surface hit, got %#v", surfaceHit)
 	}
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	cmds := btn.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
@@ -112,13 +113,13 @@ func TestSplitButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestSplitButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	btn, rt := newSplitButtonFixture(t)
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1080, H: 720}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
 
 	var activated string
 	btn.Activated.Subscribe(func(key string) {
@@ -147,12 +148,12 @@ func TestSplitButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected trigger click to open menu")
 	}
 
-	btn.layoutRole.Measure(facet.MeasureContext{
+	btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1080, H: 720}})
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, gfx.RectFromXYWH(0, 0, btn.layoutRole.MeasuredSize.W, btn.layoutRole.MeasuredSize.H))
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, gfx.RectFromXYWH(0, 0, btn.Layout.MeasuredSize.W, btn.Layout.MeasuredSize.H))
 
 	itemCenter := gfx.Point{X: btn.cachedItemLayouts[1].bounds.Min.X + btn.cachedItemLayouts[1].bounds.Width()*0.5, Y: btn.cachedItemLayouts[1].bounds.Min.Y + btn.cachedItemLayouts[1].bounds.Height()*0.5}
 	if !btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: itemCenter, Button: platform.PointerLeft}) {
@@ -193,8 +194,8 @@ func TestSplitButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected keyboard activation to emit a key")
 	}
 
-	btn.SetDisabled(true)
-	if btn.focusRole.Focusable() {
+	btn.Disabled = marks.Const(true)
+	if btn.Focus.Focusable() {
 		t.Fatal("expected disabled split button to be unfocusable")
 	}
 	if btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: primaryCenter, Button: platform.PointerLeft}) {
@@ -229,8 +230,8 @@ func newSplitButtonFixture(t *testing.T) (*SplitButton, buttonRuntimeStub) {
 		{Key: "duplicate", Label: "Duplicate"},
 		{Key: "archive", Label: "Archive"},
 	})
-	btn.SetKey("create")
-	btn.SetPrimaryIconRef("star")
+	btn.Key = marks.Const("create")
+	btn.PrimaryIconRef = marks.Const("star")
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustButtonTextRegistry(t),
@@ -298,7 +299,7 @@ func TestSplitButtonGoldenComfortable(t *testing.T) {
 
 func TestSplitButtonGoldenDisabled(t *testing.T) {
 	AssertSplitButtonGolden(t, "disabled", defaultSplitButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *SplitButton) {
-		btn.SetDisabled(true)
+		btn.Disabled = marks.Const(true)
 	})
 }
 
@@ -330,7 +331,7 @@ func TestSplitButtonGoldenRTL(t *testing.T) {
 
 func TestSplitButtonGoldenOpen(t *testing.T) {
 	AssertSplitButtonGolden(t, "open", defaultSplitButtonTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(btn *SplitButton) {
-		btn.SetOpen(true)
+		btn.Open = true
 	})
 }
 
@@ -346,7 +347,7 @@ func AssertSplitButtonGolden(t *testing.T, name string, tokens theme.Tokens, den
 func renderSplitButtonToSurface(t *testing.T, btn *SplitButton, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -358,9 +359,9 @@ func renderSplitButtonToSurface(t *testing.T, btn *SplitButton, rt buttonRuntime
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: btn.layoutRole.Parent, ChildGroup: btn.layoutRole.Child}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: btn.Layout.Parent, ChildGroup: btn.Layout.Child}, bounds)
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+	cmds := btn.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -400,9 +401,9 @@ func newSplitButtonGoldenFixture(t *testing.T, tokens theme.Tokens, density them
 		{Key: "duplicate", Label: "Duplicate"},
 		{Key: "archive", Label: "Archive"},
 	})
-	btn.SetKey("create")
-	btn.SetPrimaryIconRef("star")
-	btn.SetOpen(false)
+	btn.Key = marks.Const("create")
+	btn.PrimaryIconRef = marks.Const("star")
+	btn.Open = false
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
 		fonts:     mustButtonTextRegistry(t),

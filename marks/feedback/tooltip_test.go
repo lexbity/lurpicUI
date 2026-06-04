@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -27,7 +28,7 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := tt.layoutRole.Measure(facet.MeasureContext{
+	result := 	tt.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -38,11 +39,11 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	tt.layoutRole.Arrange(facet.ArrangeContext{
+	tt.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: tt.layoutRole.Parent,
-		ChildGroup:  tt.layoutRole.Child,
+		ParentGroup: tt.Layout.Parent,
+		ChildGroup:  tt.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, bounds)
 
@@ -58,7 +59,7 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if tt.cachedContentFacet == nil {
 		t.Fatal("expected cached text facet")
 	}
-	if got := tt.cachedContentFacet.Alignment; got != text.AlignCenter {
+	if got := tt.cachedContentFacet.Alignment.Get(); got != text.AlignCenter {
 		t.Fatalf("content alignment = %v, want center", got)
 	}
 	if textBounds := tt.cachedContentFacet.Base().LayoutRole().MeasuredSize; tt.cachedContentBounds.Width() <= textBounds.W {
@@ -73,7 +74,7 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := tt.projectionRole.Project(facet.ProjectionContext{
+	cmds := tt.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -108,20 +109,20 @@ func TestTooltipDismissalAndOpenState(t *testing.T) {
 	}
 
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = tt.layoutRole.Measure(facet.MeasureContext{
+	_ = 	tt.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 240}})
-	tt.layoutRole.Arrange(facet.ArrangeContext{
+	tt.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: tt.layoutRole.Parent,
-		ChildGroup:  tt.layoutRole.Child,
+		ParentGroup: tt.Layout.Parent,
+		ChildGroup:  tt.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
-	}, gfx.RectFromXYWH(0, 0, tt.layoutRole.MeasuredSize.W, tt.layoutRole.MeasuredSize.H))
+	}, gfx.RectFromXYWH(0, 0, 	tt.Layout.MeasuredSize.W, 	tt.Layout.MeasuredSize.H))
 
 	var dismissed int
 	tt.Dismissed.Subscribe(func(signal.Unit) { dismissed++ })
@@ -131,10 +132,10 @@ func TestTooltipDismissalAndOpenState(t *testing.T) {
 	if dismissed != 1 {
 		t.Fatalf("expected one dismiss emission, got %d", dismissed)
 	}
-	if tt.Open {
+	if tt.Open.Get() {
 		t.Fatal("expected tooltip to close after escape")
 	}
-	if tt.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: gfx.RectFromXYWH(0, 0, 1, 1), ContentScale: 1}) != nil {
+	if tt.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: gfx.RectFromXYWH(0, 0, 1, 1), ContentScale: 1}) != nil {
 		t.Fatal("expected closed tooltip to stop projecting commands")
 	}
 }
@@ -175,7 +176,7 @@ func TestTooltipGoldenComfortable(t *testing.T) {
 
 func TestTooltipGoldenDisabled(t *testing.T) {
 	AssertTooltipGolden(t, "disabled", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.SetDisabled(true)
+		tt.Disabled = marks.Const(true)
 	})
 }
 
@@ -201,13 +202,13 @@ func TestTooltipGoldenRTL(t *testing.T) {
 
 func TestTooltipGoldenOpen(t *testing.T) {
 	AssertTooltipGolden(t, "open", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.SetOpen(true)
+		tt.Open = marks.Const(true)
 	})
 }
 
 func TestTooltipGoldenDismissed(t *testing.T) {
 	AssertTooltipGolden(t, "dismissed", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.SetOpen(false)
+		tt.Open = marks.Const(false)
 	})
 }
 
@@ -224,21 +225,21 @@ func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density
 	resolved := alertResolvedContext(tokens, density, direction)
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
 	canvas := gfx.RectFromXYWH(16, 16, 360, 240)
-	_ = tt.layoutRole.Measure(facet.MeasureContext{
+	_ = 	tt.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	tt.layoutRole.Arrange(facet.ArrangeContext{
+	tt.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: tt.layoutRole.Parent,
-		ChildGroup:  tt.layoutRole.Child,
+		ParentGroup: tt.Layout.Parent,
+		ChildGroup:  tt.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, canvas)
-	cmds := tt.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	cmds := tt.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	surface := testkit.NewMemorySurface(392, 272)
 	renderer := softwarerenderer.NewSoftwareRenderer()
 	if err := renderer.Initialize(surface); err != nil {
@@ -265,7 +266,7 @@ func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density
 
 func newTooltipFixture() *Tooltip {
 	tt := NewTooltip("Press and hold for more details.")
-	tt.SetPlacement(facet.AnchorPlacement{Side: facet.AnchorAbove})
+	tt.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	return tt
 }
 

@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -34,7 +35,7 @@ func (s breadcrumbRuntimeStub) FontRegistry() *text.FontRegistry { return s.font
 func TestBreadcrumbsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	bc, rt, measureCtx := newBreadcrumbsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(bc, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bc.layoutRole.Measure(facet.MeasureContext{
+	result := bc.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -46,11 +47,11 @@ func TestBreadcrumbsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(10, 16, result.Size.W, result.Size.H)
-	bc.layoutRole.Arrange(facet.ArrangeContext{
+	bc.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: bc.layoutRole.Parent,
-		ChildGroup:  bc.layoutRole.Child,
+		ParentGroup: bc.Layout.Parent,
+		ChildGroup:  bc.Layout.Child,
 	}, bounds)
 
 	if got := bc.AccessibilityRole(); got != "navigation" {
@@ -66,21 +67,21 @@ func TestBreadcrumbsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected breadcrumb geometry, got list=%#v items=%d", bc.cachedSegmentListBounds, len(bc.cachedItemBounds))
 	}
 
-	linkHit := bc.hitRole.HitTest(gfx.Point{
+	linkHit := bc.Hit.HitTest(gfx.Point{
 		X: bc.cachedItemBounds[0].Min.X + bc.cachedItemBounds[0].Width()*0.5,
 		Y: bc.cachedItemBounds[0].Min.Y + bc.cachedItemBounds[0].Height()*0.5,
 	})
 	if !linkHit.Hit || linkHit.MarkID != breadcrumbsMarkIDSegmentLink {
 		t.Fatalf("expected link hit, got %#v", linkHit)
 	}
-	sepHit := bc.hitRole.HitTest(gfx.Point{
+	sepHit := bc.Hit.HitTest(gfx.Point{
 		X: bc.cachedSeparatorBounds[0].Min.X + bc.cachedSeparatorBounds[0].Width()*0.5,
 		Y: bc.cachedSeparatorBounds[0].Min.Y + bc.cachedSeparatorBounds[0].Height()*0.5,
 	})
 	if !sepHit.Hit || sepHit.MarkID != breadcrumbsMarkIDSeparator {
 		t.Fatalf("expected separator hit, got %#v", sepHit)
 	}
-	currentHit := bc.hitRole.HitTest(gfx.Point{
+	currentHit := bc.Hit.HitTest(gfx.Point{
 		X: bc.cachedItemBounds[3].Min.X + bc.cachedItemBounds[3].Width()*0.5,
 		Y: bc.cachedItemBounds[3].Min.Y + bc.cachedItemBounds[3].Height()*0.5,
 	})
@@ -95,7 +96,7 @@ func TestBreadcrumbsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := bc.projectionRole.Project(facet.ProjectionContext{
+	cmds := bc.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -123,7 +124,7 @@ func TestBreadcrumbsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestBreadcrumbsPointerAndKeyboardInteraction(t *testing.T) {
 	bc, rt, measureCtx := newBreadcrumbsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(bc, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bc.layoutRole.Measure(facet.MeasureContext{
+	result := bc.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -131,7 +132,7 @@ func TestBreadcrumbsPointerAndKeyboardInteraction(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 900, H: 240}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	bc.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	bc.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	activated := -1
 	bc.Activated.Subscribe(func(index int) {
@@ -199,7 +200,7 @@ func TestBreadcrumbsGoldenComfortable(t *testing.T) {
 
 func TestBreadcrumbsGoldenDisabled(t *testing.T) {
 	AssertBreadcrumbsGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Breadcrumbs) {
-		b.SetDisabled(true)
+		b.Disabled = marks.Const(true)
 	})
 }
 
@@ -235,7 +236,7 @@ func AssertBreadcrumbsGolden(t *testing.T, name string, tokens theme.Tokens, den
 func renderBreadcrumbsToSurface(t *testing.T, bc *Breadcrumbs, rt breadcrumbRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(bc, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bc.layoutRole.Measure(facet.MeasureContext{
+	result := bc.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -243,8 +244,8 @@ func renderBreadcrumbsToSurface(t *testing.T, bc *Breadcrumbs, rt breadcrumbRunt
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1800, H: 1200}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	bc.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
-	cmds := bc.projectionRole.Project(facet.ProjectionContext{
+	bc.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cmds := bc.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

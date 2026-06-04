@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	input "codeburg.org/lexbit/lurpicui/marks/input"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -16,7 +17,7 @@ func TestRadialMenuComposesExistingMarks(t *testing.T) {
 	split := NewSplitButton("Brush", []SplitButtonItem{
 		{Key: "soft", Label: "Soft", IconRef: "brush"},
 	})
-	toolbar := NewToolbar("Canvas", []ToolbarGroup{
+	toolbar := NewToolbar(marks.Const("Canvas"), []ToolbarGroup{
 		{
 			Key: "canvas",
 			Actions: []ActionGroupAction{
@@ -48,26 +49,26 @@ func TestRadialMenuComposesExistingMarks(t *testing.T) {
 	}
 
 	menu.arrange(facet.ArrangeContext{Theme: resolved, Placement: facet.Placement{Mode: facet.PlacementGrid}}, gfx.RectFromXYWH(0, 0, size.W, size.H))
-	if center.Base().LayoutRole().ArrangedBounds.IsEmpty() {
+	if 	center.Base().LayoutRole().ArrangedBounds.IsEmpty() {
 		t.Fatal("expected center child to be arranged")
 	}
-	if split.Base().LayoutRole().ArrangedBounds.IsEmpty() {
+	if 	split.Base().LayoutRole().ArrangedBounds.IsEmpty() {
 		t.Fatal("expected split button child to be arranged")
 	}
-	if toolbar.Base().LayoutRole().ArrangedBounds.IsEmpty() {
+	if 	toolbar.Base().LayoutRole().ArrangedBounds.IsEmpty() {
 		t.Fatal("expected toolbar child to be arranged")
 	}
 	if len(menu.cachedArrangedChildren) != 3 {
 		t.Fatalf("cached arranged count = %d, want 3", len(menu.cachedArrangedChildren))
 	}
-	if len(menu.buildCommands(menu.layoutRole.ArrangedBounds, nil, 1)) == 0 {
+	if len(menu.buildCommands(menu.Layout.ArrangedBounds, nil, 1)) == 0 {
 		t.Fatal("expected shell geometry commands")
 	}
 }
 
 func TestRadialMenuDismissals(t *testing.T) {
 	menu := NewRadialMenu("Radial", nil, nil)
-	menu.SetOpen(true)
+	menu.Open = true
 
 	if !menu.onDismiss(facet.DismissEvent{Trigger: facet.DismissalTriggerPointer}) {
 		t.Fatal("expected pointer dismissal to be handled")
@@ -76,7 +77,7 @@ func TestRadialMenuDismissals(t *testing.T) {
 		t.Fatal("expected menu to close on dismiss")
 	}
 
-	menu.SetOpen(true)
+	menu.Open = true
 	if !menu.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Button: platform.PointerLeft, Position: gfx.Point{X: 5, Y: 5}}) {
 		t.Fatal("expected outside press to dismiss the menu")
 	}
@@ -84,7 +85,7 @@ func TestRadialMenuDismissals(t *testing.T) {
 		t.Fatal("expected menu to close on outside press")
 	}
 
-	menu.SetOpen(true)
+	menu.Open = true
 	if !menu.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEscape}) {
 		t.Fatal("expected escape to dismiss the menu")
 	}

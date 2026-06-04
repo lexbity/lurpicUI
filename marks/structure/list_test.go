@@ -11,6 +11,7 @@ import (
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -23,7 +24,7 @@ func TestListGeometryContracts(t *testing.T) {
 		{Key: "one", Label: "One"},
 		{Key: "two", Label: "Two", SupportingText: strings.Join([]string{"Line one", "Line two"}, "\n")},
 	})
-	list.SetSectionHeader("Heading")
+	list.SectionHeader = marks.Const("Heading")
 	rt := listRuntimeStub{
 		cardRuntimeStub: cardRuntimeStub{fonts: mustCardFontRegistry(t)},
 		icons:           map[string]runtimepkg.IconAsset{},
@@ -31,7 +32,7 @@ func TestListGeometryContracts(t *testing.T) {
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := list.layoutRole.Measure(facet.MeasureContext{
+	result := list.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -42,11 +43,11 @@ func TestListGeometryContracts(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(12, 12, 320, 180)
-	list.layoutRole.Arrange(facet.ArrangeContext{
+	list.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: list.layoutRole.Parent,
-		ChildGroup:  list.layoutRole.Child,
+		ParentGroup: list.Layout.Parent,
+		ChildGroup:  list.Layout.Child,
 	}, bounds)
 
 	headerBounds := list.cachedHeaderBounds
@@ -99,7 +100,7 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := list.layoutRole.Measure(facet.MeasureContext{
+	result := list.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -111,11 +112,11 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	list.layoutRole.Arrange(facet.ArrangeContext{
+	list.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: list.layoutRole.Parent,
-		ChildGroup:  list.layoutRole.Child,
+		ParentGroup: list.Layout.Parent,
+		ChildGroup:  list.Layout.Child,
 	}, bounds)
 
 	if got := list.AccessibilityRole(); got != "list" {
@@ -139,7 +140,7 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("section_header anchor = %#v, want %#v", got, want)
 	}
 
-	cmds := list.projectionRole.Project(facet.ProjectionContext{
+	cmds := list.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -152,7 +153,7 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 func TestListStoreChangeInvalidatesStructure(t *testing.T) {
 	list := newListFixture()
 	oldVersion := list.Data.Version()
-	list.SetEntries([]ListEntry{
+	list.Data.Set([]ListEntry{
 		{Key: "a", Label: "test-item-1"},
 		{Key: "b", Label: "test-item-2"},
 		{Key: "c", Label: "test-item-3"},
@@ -180,7 +181,7 @@ func TestListGoldenComfortable(t *testing.T) {
 
 func TestListGoldenDisabled(t *testing.T) {
 	AssertListGolden(t, "disabled", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(l *List) {
-		l.SetDisabled(true)
+		l.Disabled = marks.Const(true)
 	})
 }
 
@@ -194,7 +195,7 @@ func TestListGoldenRTL(t *testing.T) {
 
 func TestListGoldenEmpty(t *testing.T) {
 	AssertListGolden(t, "empty", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(l *List) {
-		l.SetEntries(nil)
+		l.Data.Set(nil)
 	})
 }
 
@@ -211,7 +212,7 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	ctx := listResolvedContext(tokens, density, direction)
 	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(12, 12, 616, 336)
-	_ = list.layoutRole.Measure(facet.MeasureContext{
+	_ = list.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -219,8 +220,8 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
 	bounds := canvas
-	list.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: list.layoutRole.Parent, ChildGroup: list.layoutRole.Child}, bounds)
-	cmds := list.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	list.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: list.Layout.Parent, ChildGroup: list.Layout.Child}, bounds)
+	cmds := list.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
@@ -250,8 +251,8 @@ func newListFixture() *List {
 		{Key: "two", Label: "List item text"},
 		{Key: "three", Label: "List item text"},
 	})
-	list.SetSectionHeader("Heading")
-	list.SetEmptyState("No items")
+	list.SectionHeader = marks.Const("Heading")
+	list.EmptyState = marks.Const("No items")
 	return list
 }
 

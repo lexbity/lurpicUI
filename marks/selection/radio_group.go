@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -33,22 +34,16 @@ type RadioOption struct {
 
 // RadioGroup implements the selection.radio_group standard mark.
 type RadioGroup struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Value *store.ValueStore[string]
 
 	Label    string
 	Options  []RadioOption
-	Variant  uiinput.RadioGroupVariant
-	Disabled bool
+	Variant  marks.Binding[uiinput.RadioGroupVariant]
+	Disabled marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -80,20 +75,25 @@ type RadioGroup struct {
 
 var _ facet.FacetImpl = (*RadioGroup)(nil)
 var _ layout.AnchorExporter = (*RadioGroup)(nil)
+var _ marks.Mark = (*RadioGroup)(nil)
 
 // NewRadioGroup constructs a selection.radio_group mark with canonical defaults.
 func NewRadioGroup(label string, options []RadioOption) *RadioGroup {
 	rg := &RadioGroup{
-		Facet:   facet.NewFacet(),
-		Label:   label,
-		Variant: uiinput.RadioGroupStandard,
+		Variant:  marks.Const(uiinput.RadioGroupStandard),
+		Disabled: marks.Const(false),
+		Label:    label,
 	}
+	rg.Core.Facet = facet.NewFacet()
+	rg.AddBinding(rg.Variant)
+	rg.AddBinding(rg.Disabled)
 	rg.SetOptions(options)
-	rg.layoutRole.Parent = facet.GroupParentContract{
+
+	rg.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: radioGroupPolicy{},
 	}
-	rg.layoutRole.Child = facet.GroupChildContract{
+	rg.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := rg.measureIntrinsic(ctx, constraints)
@@ -111,46 +111,27 @@ func NewRadioGroup(label string, options []RadioOption) *RadioGroup {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	rg.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	rg.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return rg.measure(ctx, constraints)
 	}
-	rg.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		rg.layoutRole.ArrangedBounds = bounds
+	rg.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		rg.Layout.ArrangedBounds = bounds
 		rg.arrange(ctx, bounds)
 	}
-	rg.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := rg.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	rg.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return rg.buildCommands(rg.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	rg.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := rg.buildCommands(rg.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	rg.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	rg.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return rg.hitTest(p)
 	}
-	rg.inputRole.OnPointer = func(e facet.PointerEvent) bool { return rg.onPointer(e) }
-	rg.inputRole.OnKey = func(e facet.KeyEvent) bool { return rg.onKey(e) }
-	rg.focusRole.Focusable = func() bool { return !rg.Disabled && len(rg.Options) > 0 }
-	rg.focusRole.TabIndex = 0
-	rg.focusRole.OnFocusGained = func() { rg.onFocusGained() }
-	rg.focusRole.OnFocusLost = func() { rg.onFocusLost() }
+	rg.Input.OnPointer = func(e facet.PointerEvent) bool { return rg.onPointer(e) }
+	rg.Input.OnKey = func(e facet.KeyEvent) bool { return rg.onKey(e) }
+	rg.Focus.Focusable = func() bool { return !rg.Disabled.Get() && len(rg.Options) > 0 }
+	rg.Focus.TabIndex = 0
+	rg.Focus.OnFocusGained = func() { rg.onFocusGained() }
+	rg.Focus.OnFocusLost = func() { rg.onFocusLost() }
 	rg.textRole.IMEEnabled = false
-	rg.AddRole(&rg.layoutRole)
-	rg.AddRole(&rg.renderRole)
-	rg.AddRole(&rg.projectionRole)
-	rg.AddRole(&rg.hitRole)
-	rg.AddRole(&rg.inputRole)
-	rg.AddRole(&rg.focusRole)
+	rg.RegisterRoles()
 	rg.AddRole(&rg.textRole)
 	return rg
 }
@@ -159,6 +140,11 @@ func NewRadioGroup(label string, options []RadioOption) *RadioGroup {
 func (rg *RadioGroup) Base() *facet.Facet {
 	rg.Facet.BindImpl(rg)
 	return &rg.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (rg *RadioGroup) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "radio_group"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -172,104 +158,16 @@ func (rg *RadioGroup) AccessibleName() string {
 	return rg.Label
 }
 
-// SetLabel updates the authored group label.
-func (rg *RadioGroup) SetLabel(label string) {
-	if rg == nil || rg.Label == label {
-		return
-	}
-	rg.Label = label
-	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOptions updates the available radio options.
-func (rg *RadioGroup) SetOptions(options []RadioOption) {
-	if rg == nil {
-		return
-	}
-	next := append([]RadioOption(nil), options...)
-	if len(next) > 0 {
-		for i := range next {
-			next[i].Value = strings.TrimSpace(next[i].Value)
-			next[i].Label = strings.TrimSpace(next[i].Label)
-		}
-	}
-	rg.Options = next
-	if rg.Value == nil {
-		if len(next) > 0 {
-			rg.Value = store.NewValueStore[string](next[0].Value)
-		} else {
-			rg.Value = store.NewValueStore[string]("")
-		}
-	}
-	if len(next) > 0 {
-		if rg.optionIndexByValue(rg.Value.Get()) < 0 {
-			rg.Value.Set(next[0].Value)
-		}
-	}
-	rg.focusedIndex = rg.selectedIndex()
-	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetValue updates the canonical selected value.
-func (rg *RadioGroup) SetValue(value string) {
-	if rg == nil {
-		return
-	}
-	value = strings.TrimSpace(value)
-	if len(rg.Options) > 0 {
-		if idx := rg.optionIndexByValue(value); idx >= 0 {
-			value = rg.Options[idx].Value
-		} else {
-			value = rg.Options[0].Value
-		}
-	}
-	if rg.Value == nil {
-		rg.Value = store.NewValueStore[string](value)
-		rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	if rg.Value.Get() == value {
-		return
-	}
-	rg.Value.Set(value)
-	rg.focusedIndex = rg.selectedIndex()
-	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (rg *RadioGroup) SetDisabled(disabled bool) {
-	if rg == nil || rg.Disabled == disabled {
-		return
-	}
-	rg.Disabled = disabled
-	if disabled {
-		rg.hoveredIndex = -1
-		rg.pressedIndex = -1
-		rg.focusedVisible = false
-		rg.focusFromPointer = false
-	}
-	rg.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the radio-group anchor set.
 func (rg *RadioGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if rg == nil {
-		return nil
-	}
-	bounds := rg.layoutRole.ArrangedBounds
+	bounds := rg.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	out := rg.Core.DefaultAnchors(bounds, ctx)
 	if rg.cachedGroupLabel != nil {
 		out["baseline"] = gfx.Point{X: rg.cachedGroupLabelRect.Min.X, Y: rg.cachedGroupLabelRect.Min.Y + rg.cachedGroupLabel.Baseline}
 	} else if len(rg.cachedItemLabelLayouts) > 0 && rg.cachedItemLabelLayouts[0] != nil && len(rg.cachedItemLabels) > 0 {
@@ -285,6 +183,7 @@ func (rg *RadioGroup) Children() []facet.GroupChild { return nil }
 
 // OnAttach wires store invalidation for the bound value store.
 func (rg *RadioGroup) OnAttach(ctx facet.AttachContext) {
+	rg.Core.OnAttach()
 	if rg.Value == nil {
 		if len(rg.Options) > 0 {
 			rg.Value = store.NewValueStore[string](rg.Options[0].Value)
@@ -299,13 +198,14 @@ func (rg *RadioGroup) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (rg *RadioGroup) OnActivate() {}
+func (rg *RadioGroup) OnActivate() { rg.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (rg *RadioGroup) OnDeactivate() {}
+func (rg *RadioGroup) OnDeactivate() { rg.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (rg *RadioGroup) OnDetach() {
+	rg.Core.OnDetach()
 	rg.cachedLayout = nil
 	rg.cachedGroupLabel = nil
 	rg.cachedItemLayouts = nil
@@ -331,7 +231,7 @@ func (rg *RadioGroup) invalidate(flags facet.DirtyFlags) {
 	if rg == nil {
 		return
 	}
-	rg.Base().Invalidate(flags)
+	rg.Facet.Invalidate(flags)
 }
 
 func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -340,7 +240,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uiinput.ResolveRadioGroupRecipe(style, rg.Variant)
+	slots, _ := uiinput.ResolveRadioGroupRecipe(style, rg.Variant.Get())
 	rg.cachedTokens = resolved.TokenSet()
 	rg.cachedRecipe = slots
 	rg.cachedWritingDirection = ctx.WritingDirection
@@ -415,8 +315,8 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	rg.textRole.CaretVisible = false
 	rg.textRole.CaretPosition = text.TextPosition{}
 	size := gfx.Size{W: width, H: height}
-	rg.layoutRole.MeasuredSize = size
-	rg.layoutRole.MeasuredResult = facet.MeasureResult{
+	rg.Layout.MeasuredSize = size
+	rg.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -425,7 +325,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		},
 		Constraints: constraints,
 	}
-	return rg.layoutRole.MeasuredResult
+	return rg.Layout.MeasuredResult
 }
 
 func (rg *RadioGroup) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -440,7 +340,7 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	rg.cachedItemControls = nil
 	rg.cachedItemLabels = nil
 	rg.cachedItemFocusRing = nil
-	rg.layoutRole.ArrangedBounds = bounds
+	rg.Layout.ArrangedBounds = bounds
 	if rg.cachedLayout == nil || bounds.IsEmpty() {
 		return
 	}
@@ -509,7 +409,7 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	rg.cachedItemControls = controls
 	rg.cachedItemLabels = labels
 	rg.cachedItemFocusRing = focusRects
-	rg.layoutRole.ArrangedBounds = bounds
+	rg.Layout.ArrangedBounds = bounds
 }
 
 func (rg *RadioGroup) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.RadioGroupSlots) {
@@ -523,7 +423,7 @@ func (rg *RadioGroup) resolveProjectionTheme(runtime any) (theme.StyleContext, s
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, rg.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uiinput.ResolveRadioGroupRecipe(style, rg.Variant)
+			slots, _ := uiinput.ResolveRadioGroupRecipe(style, rg.Variant.Get())
 			return style, slots
 		}
 	}
@@ -576,7 +476,7 @@ func (rg *RadioGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 }
 
 func (rg *RadioGroup) hitTest(p gfx.Point) facet.HitResult {
-	if rg == nil || rg.layoutRole.ArrangedBounds.IsEmpty() || !rg.layoutRole.ArrangedBounds.Contains(p) {
+	if rg == nil || rg.Layout.ArrangedBounds.IsEmpty() || !rg.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := rg.cursorShape()
@@ -617,14 +517,14 @@ func (rg *RadioGroup) pointInFocusRing(p gfx.Point) bool {
 }
 
 func (rg *RadioGroup) cursorShape() facet.CursorShape {
-	if rg.Disabled {
+	if rg.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (rg *RadioGroup) onPointer(e facet.PointerEvent) bool {
-	if rg.Disabled {
+	if rg.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -684,7 +584,7 @@ func (rg *RadioGroup) onPointer(e facet.PointerEvent) bool {
 }
 
 func (rg *RadioGroup) onKey(e facet.KeyEvent) bool {
-	if rg.Disabled || len(rg.Options) == 0 {
+	if rg.Disabled.Get() || len(rg.Options) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -745,7 +645,7 @@ func (rg *RadioGroup) onFocusLost() {
 
 func (rg *RadioGroup) interactionState() theme.InteractionState {
 	switch {
-	case rg.Disabled:
+	case rg.Disabled.Get():
 		return theme.StateDisabled
 	case rg.pressedIndex >= 0:
 		return theme.StatePressed
@@ -759,7 +659,7 @@ func (rg *RadioGroup) interactionState() theme.InteractionState {
 }
 
 func (rg *RadioGroup) labelState() theme.InteractionState {
-	if rg.Disabled {
+	if rg.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	return theme.StateDefault
@@ -767,7 +667,7 @@ func (rg *RadioGroup) labelState() theme.InteractionState {
 
 func (rg *RadioGroup) optionState(idx int) theme.InteractionState {
 	switch {
-	case rg.Disabled:
+	case rg.Disabled.Get():
 		return theme.StateDisabled
 	case rg.pressedIndex == idx:
 		return theme.StatePressed
@@ -838,6 +738,61 @@ func (rg *RadioGroup) moveSelection(delta int) {
 		idx = len(rg.Options) - 1
 	}
 	rg.selectIndex(idx)
+}
+
+// SetValue updates the canonical selected value.
+func (rg *RadioGroup) SetValue(value string) {
+	if rg == nil {
+		return
+	}
+	value = strings.TrimSpace(value)
+	if len(rg.Options) > 0 {
+		if idx := rg.optionIndexByValue(value); idx >= 0 {
+			value = rg.Options[idx].Value
+		} else {
+			value = rg.Options[0].Value
+		}
+	}
+	if rg.Value == nil {
+		rg.Value = store.NewValueStore[string](value)
+		rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		return
+	}
+	if rg.Value.Get() == value {
+		return
+	}
+	rg.Value.Set(value)
+	rg.focusedIndex = rg.selectedIndex()
+	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+}
+
+// SetOptions updates the available radio options.
+func (rg *RadioGroup) SetOptions(options []RadioOption) {
+	if rg == nil {
+		return
+	}
+	next := append([]RadioOption(nil), options...)
+	if len(next) > 0 {
+		for i := range next {
+			next[i].Value = strings.TrimSpace(next[i].Value)
+			next[i].Label = strings.TrimSpace(next[i].Label)
+		}
+	}
+	rg.Options = next
+	if rg.Value == nil {
+		if len(next) > 0 {
+			rg.Value = store.NewValueStore[string](next[0].Value)
+		} else {
+			rg.Value = store.NewValueStore[string]("")
+		}
+	}
+	if len(next) > 0 {
+		if rg.optionIndexByValue(rg.Value.Get()) < 0 {
+			rg.Value.Set(next[0].Value)
+		}
+	}
+	rg.focusedIndex = rg.selectedIndex()
+	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 func (rg *RadioGroup) itemIndexAt(p gfx.Point) int {

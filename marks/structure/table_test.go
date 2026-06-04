@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -30,7 +31,7 @@ func TestTableGeometryContracts(t *testing.T) {
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := table.layoutRole.Measure(facet.MeasureContext{
+	result := table.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -41,11 +42,11 @@ func TestTableGeometryContracts(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, 320, 160)
-	table.layoutRole.Arrange(facet.ArrangeContext{
+	table.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: table.layoutRole.Parent,
-		ChildGroup:  table.layoutRole.Child,
+		ParentGroup: table.Layout.Parent,
+		ChildGroup:  table.Layout.Child,
 	}, bounds)
 
 	headerNameBounds, ok := tableChildBounds(table, "header:name")
@@ -131,7 +132,7 @@ func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := table.layoutRole.Measure(facet.MeasureContext{
+	result := table.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -142,11 +143,11 @@ func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, 240, 160)
-	table.layoutRole.Arrange(facet.ArrangeContext{
+	table.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: table.layoutRole.Parent,
-		ChildGroup:  table.layoutRole.Child,
+		ParentGroup: table.Layout.Parent,
+		ChildGroup:  table.Layout.Child,
 	}, bounds)
 	if got := table.AccessibilityRole(); got != "table" {
 		t.Fatalf("accessibility role = %q, want table", got)
@@ -176,7 +177,7 @@ func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := table.projectionRole.Project(facet.ProjectionContext{
+	cmds := table.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -189,10 +190,12 @@ func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 func TestTableStoreChangeInvalidatesStructure(t *testing.T) {
 	table := newTableFixture()
 	oldVersion := table.Data.Version()
-	table.SetRows([]TableRow{
+	data := table.Data.Get()
+	data.Rows = []TableRow{
 		{Key: "row-1", Cells: []string{"A", "B", "C", "D"}},
 		{Key: "row-2", Cells: []string{"E", "F", "G", "H"}},
-	})
+	}
+	table.Data.Set(data)
 	if got := table.Data.Version(); got == oldVersion {
 		t.Fatal("expected store version to change")
 	}
@@ -215,7 +218,7 @@ func TestTableGoldenComfortable(t *testing.T) {
 
 func TestTableGoldenDisabled(t *testing.T) {
 	AssertTableGolden(t, "disabled", listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(table *Table) {
-		table.SetDisabled(true)
+		table.Disabled = marks.Const(true)
 	})
 }
 
@@ -237,7 +240,7 @@ func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	ctx := listResolvedContext(tokens, density, direction)
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(16, 16, 2136, 810)
-	_ = table.layoutRole.Measure(facet.MeasureContext{
+	_ = table.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -245,13 +248,13 @@ func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density t
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
 	bounds := canvas
-	table.layoutRole.Arrange(facet.ArrangeContext{
+	table.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: table.layoutRole.Parent,
-		ChildGroup:  table.layoutRole.Child,
+		ParentGroup: table.Layout.Parent,
+		ChildGroup:  table.Layout.Child,
 	}, bounds)
-	cmds := table.projectionRole.Project(facet.ProjectionContext{
+	cmds := table.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

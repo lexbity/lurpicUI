@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -26,23 +27,17 @@ const (
 
 // Button implements the action.button standard mark.
 type Button struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label           marks.Binding[string]
+	Variant         marks.Binding[uiinput.ButtonVariant]
+	LeadingIconRef  marks.Binding[string]
+	TrailingIconRef marks.Binding[string]
+	Disabled        marks.Binding[bool]
 
 	Activated signal.Signal[signal.Unit]
 
-	Label           string
-	Variant         uiinput.ButtonVariant
-	LeadingIconRef  string
-	TrailingIconRef string
-	Disabled        bool
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -68,19 +63,29 @@ type Button struct {
 
 var _ facet.FacetImpl = (*Button)(nil)
 var _ layout.AnchorExporter = (*Button)(nil)
+var _ marks.Mark = (*Button)(nil)
 
 // NewButton constructs a button with canonical defaults.
-func NewButton(label string, variant uiinput.ButtonVariant) *Button {
+func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.ButtonVariant]) *Button {
 	b := &Button{
-		Facet:   facet.NewFacet(),
-		Label:   label,
-		Variant: variant,
+		Label:           label,
+		Variant:         variant,
+		LeadingIconRef:  marks.Const(""),
+		TrailingIconRef: marks.Const(""),
+		Disabled:        marks.Const(false),
 	}
-	b.layoutRole.Parent = facet.GroupParentContract{
+	b.Core.Facet = facet.NewFacet()
+	b.AddBinding(b.Label)
+	b.AddBinding(b.Variant)
+	b.AddBinding(b.LeadingIconRef)
+	b.AddBinding(b.TrailingIconRef)
+	b.AddBinding(b.Disabled)
+
+	b.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: buttonGroupPolicy{},
 	}
-	b.layoutRole.Child = facet.GroupChildContract{
+	b.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := b.measureIntrinsic(ctx, constraints)
@@ -98,54 +103,35 @@ func NewButton(label string, variant uiinput.ButtonVariant) *Button {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	b.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	b.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return b.measure(ctx, constraints)
 	}
-	b.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		b.layoutRole.ArrangedBounds = bounds
+	b.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		b.Layout.ArrangedBounds = bounds
 		b.arrange(ctx, bounds)
 	}
-	b.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := b.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	b.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := b.buildCommands(b.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	b.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	b.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return b.hitTest(p)
 	}
-	b.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	b.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return b.onPointer(e)
 	}
-	b.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	b.Input.OnKey = func(e facet.KeyEvent) bool {
 		return b.onKey(e)
 	}
-	b.focusRole.Focusable = func() bool {
-		return !b.Disabled
+	b.Focus.Focusable = func() bool {
+		return !b.Disabled.Get()
 	}
-	b.focusRole.OnFocusGained = func() {
+	b.Focus.OnFocusGained = func() {
 		b.onFocusGained()
 	}
-	b.focusRole.OnFocusLost = func() {
+	b.Focus.OnFocusLost = func() {
 		b.onFocusLost()
 	}
-	b.AddRole(&b.layoutRole)
-	b.AddRole(&b.renderRole)
-	b.AddRole(&b.projectionRole)
-	b.AddRole(&b.hitRole)
-	b.AddRole(&b.inputRole)
-	b.AddRole(&b.focusRole)
+	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return b.buildCommands(b.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	b.RegisterRoles()
 	b.AddRole(&b.textRole)
 	return b
 }
@@ -154,6 +140,11 @@ func NewButton(label string, variant uiinput.ButtonVariant) *Button {
 func (b *Button) Base() *facet.Facet {
 	b.Facet.BindImpl(b)
 	return &b.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (b *Button) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "button"}
 }
 
 // AccessibilityRole reports the semantic role required by the mark spec.
@@ -166,59 +157,7 @@ func (b *Button) AccessibleName() string {
 	if b == nil {
 		return ""
 	}
-	return b.Label
-}
-
-// SetLabel updates the authored label text.
-func (b *Button) SetLabel(label string) {
-	if b == nil || b.Label == label {
-		return
-	}
-	b.Label = label
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetVariant updates the authored button variant.
-func (b *Button) SetVariant(variant uiinput.ButtonVariant) {
-	if b == nil || b.Variant == variant {
-		return
-	}
-	b.Variant = variant
-	b.invalidate(facet.DirtyProjection)
-}
-
-// SetLeadingIconRef updates the leading icon asset reference.
-func (b *Button) SetLeadingIconRef(ref string) {
-	if b == nil || b.LeadingIconRef == ref {
-		return
-	}
-	b.LeadingIconRef = ref
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetTrailingIconRef updates the trailing icon asset reference.
-func (b *Button) SetTrailingIconRef(ref string) {
-	if b == nil || b.TrailingIconRef == ref {
-		return
-	}
-	b.TrailingIconRef = ref
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles the disabled state.
-func (b *Button) SetDisabled(disabled bool) {
-	if b == nil || b.Disabled == disabled {
-		return
-	}
-	b.Disabled = disabled
-	if disabled {
-		b.hovered = false
-		b.pressed = false
-		b.spaceDown = false
-		b.enterDown = false
-		b.focusedVisible = false
-	}
-	b.invalidate(facet.DirtyProjection | facet.DirtyHit)
+	return b.Label.Get()
 }
 
 // ExportAnchors publishes the button's semantic anchor set.
@@ -226,7 +165,7 @@ func (b *Button) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 	if b == nil {
 		return nil
 	}
-	bounds := b.layoutRole.ArrangedBounds
+	bounds := b.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
@@ -256,10 +195,11 @@ func (b *Button) Children() []facet.GroupChild {
 	return nil
 }
 
-func (b *Button) OnAttach(ctx facet.AttachContext) {}
-func (b *Button) OnActivate()                      {}
-func (b *Button) OnDeactivate()                    {}
+func (b *Button) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach() }
+func (b *Button) OnActivate()                      { b.Core.OnActivate() }
+func (b *Button) OnDeactivate()                    { b.Core.OnDeactivate() }
 func (b *Button) OnDetach() {
+	b.Core.OnDetach()
 	b.cachedLayout = nil
 	b.cachedLabelStyle = text.TextStyle{}
 	b.cachedLabelBounds = gfx.Rect{}
@@ -302,8 +242,8 @@ func (b *Button) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	b.textRole.Layout = labelLayout
 	b.cachedLabelBounds = gfx.RectFromXYWH(0, 0, labelLayout.Bounds.Width(), labelLayout.Bounds.Height())
 
-	leadingBox, leadingAsset := b.resolveIconBox(ctx, b.LeadingIconRef, recipe.OptionalLeadingIcon)
-	trailingBox, trailingAsset := b.resolveIconBox(ctx, b.TrailingIconRef, recipe.OptionalTrailingIcon)
+	leadingBox, leadingAsset := b.resolveIconBox(ctx, b.LeadingIconRef.Get(), recipe.OptionalLeadingIcon)
+	trailingBox, trailingAsset := b.resolveIconBox(ctx, b.TrailingIconRef.Get(), recipe.OptionalTrailingIcon)
 	b.cachedLeadingBox = leadingBox
 	b.cachedTrailingBox = trailingBox
 	b.cachedLeadingAsset = leadingAsset
@@ -326,8 +266,8 @@ func (b *Button) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	naturalWidth := content.W + padX*2
 	naturalHeight := content.H + padY*2
 	measured := constraints.Constrain(gfx.Size{W: naturalWidth, H: naturalHeight})
-	b.layoutRole.MeasuredSize = measured
-	b.layoutRole.MeasuredResult = facet.MeasureResult{
+	b.Layout.MeasuredSize = measured
+	b.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -336,7 +276,7 @@ func (b *Button) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		},
 		Constraints: constraints,
 	}
-	return b.layoutRole.MeasuredResult
+	return b.Layout.MeasuredResult
 }
 
 func (b *Button) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -368,7 +308,7 @@ func (b *Button) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	b.cachedLabelBounds = rects[1]
 	b.cachedTrailingBox = rects[2]
 
-	b.layoutRole.ArrangedBounds = bounds
+	b.Layout.ArrangedBounds = bounds
 }
 
 func (b *Button) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedContext, shared.ButtonSlots, bool) {
@@ -381,7 +321,7 @@ func (b *Button) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedContext, 
 		Materials: resolved.Materials,
 		Depth:     resolved.Depth,
 	}
-	slots, _ := uiinput.ResolveButtonRecipe(style, b.Variant)
+	slots, _ := uiinput.ResolveButtonRecipe(style, b.Variant.Get())
 	return resolved, slots, true
 }
 
@@ -396,13 +336,13 @@ func (b *Button) resolveLabelLayout(ctx facet.MeasureContext, constraints facet.
 	maxWidth := constraints.MaxSize.W - padX*2
 	if !leadingBox.IsEmpty() {
 		maxWidth -= leadingBox.Width()
-		if b.Label != "" {
+		if b.Label.Get() != "" {
 			maxWidth -= gap
 		}
 	}
 	if !trailingBox.IsEmpty() {
 		maxWidth -= trailingBox.Width()
-		if b.Label != "" || !leadingBox.IsEmpty() {
+		if b.Label.Get() != "" || !leadingBox.IsEmpty() {
 			maxWidth -= gap
 		}
 	}
@@ -414,7 +354,7 @@ func (b *Button) resolveLabelLayout(ctx facet.MeasureContext, constraints facet.
 		return nil, text.TextStyle{}
 	}
 	shaper.SetContentScale(ctx.ContentScale)
-	layout := shaper.ShapeTruncated(b.Label, style, maxWidth)
+	layout := shaper.ShapeTruncated(b.Label.Get(), style, maxWidth)
 	if layout == nil {
 		return nil, text.TextStyle{}
 	}
@@ -422,8 +362,8 @@ func (b *Button) resolveLabelLayout(ctx facet.MeasureContext, constraints facet.
 }
 
 func (b *Button) resolveIconBoxes(ctx facet.MeasureContext, recipe shared.ButtonSlots) (gfx.Rect, gfx.Rect) {
-	leading, _ := b.resolveIconBox(ctx, b.LeadingIconRef, recipe.OptionalLeadingIcon)
-	trailing, _ := b.resolveIconBox(ctx, b.TrailingIconRef, recipe.OptionalTrailingIcon)
+	leading, _ := b.resolveIconBox(ctx, b.LeadingIconRef.Get(), recipe.OptionalLeadingIcon)
+	trailing, _ := b.resolveIconBox(ctx, b.TrailingIconRef.Get(), recipe.OptionalTrailingIcon)
 	return leading, trailing
 }
 
@@ -510,8 +450,7 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	leadingBox := b.cachedLeadingBox
 	trailingBox := b.cachedTrailingBox
 
-	if b.Variant == uiinput.ButtonSkeuomorphic && state == theme.StatePressed {
-		// Copy container strokes to invert offsets and set inner = true
+	if b.Variant.Get() == uiinput.ButtonSkeuomorphic && state == theme.StatePressed {
 		strokesCopy := make([]theme.MaterialStroke, len(container.Strokes))
 		for idx, stroke := range container.Strokes {
 			stroke.Offset.X = -stroke.Offset.X
@@ -523,7 +462,6 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		}
 		container.Strokes = strokesCopy
 
-		// Displace label and icons by 1.5px
 		labelBounds = labelBounds.Offset(1.5, 1.5)
 		leadingBox = leadingBox.Offset(1.5, 1.5)
 		trailingBox = trailingBox.Offset(1.5, 1.5)
@@ -531,7 +469,7 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 
 	cmds := make([]gfx.Command, 0, 16)
 	radius := b.cachedRadius
-	if b.Variant == uiinput.ButtonSkeuomorphic {
+	if b.Variant.Get() == uiinput.ButtonSkeuomorphic {
 		radius = bounds.Height() * 0.5
 	}
 	path := gfx.RoundedRectPath(bounds, radius)
@@ -557,10 +495,10 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	return cmds
 }
 func (b *Button) iconCommands(style theme.Material, leading bool, box gfx.Rect) []gfx.Command {
-	ref := b.LeadingIconRef
+	ref := b.LeadingIconRef.Get()
 	asset := b.cachedLeadingAsset
 	if !leading {
-		ref = b.TrailingIconRef
+		ref = b.TrailingIconRef.Get()
 		asset = b.cachedTrailingAsset
 	}
 	if ref == "" || box.IsEmpty() || len(asset.Path.Segments) == 0 {
@@ -602,10 +540,10 @@ func iconTransform(viewBox gfx.Rect, target gfx.Rect) gfx.Transform {
 }
 
 func (b *Button) hitTest(p gfx.Point) facet.HitResult {
-	if b == nil || b.layoutRole.ArrangedBounds.IsEmpty() {
+	if b == nil || b.Layout.ArrangedBounds.IsEmpty() {
 		return facet.HitResult{}
 	}
-	if !b.layoutRole.ArrangedBounds.Contains(p) {
+	if !b.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	if b.cachedLeadingBox.Contains(p) {
@@ -621,14 +559,14 @@ func (b *Button) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (b *Button) cursorShape() facet.CursorShape {
-	if b.Disabled {
+	if b.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (b *Button) onPointer(e facet.PointerEvent) bool {
-	if b.Disabled {
+	if b.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -656,7 +594,7 @@ func (b *Button) onPointer(e facet.PointerEvent) bool {
 		wasPressed := b.pressed
 		b.pressed = false
 		b.invalidate(facet.DirtyProjection)
-		if wasPressed && b.layoutRole.ArrangedBounds.Contains(e.Position) {
+		if wasPressed && b.Layout.ArrangedBounds.Contains(e.Position) {
 			b.Activated.Emit(signal.Fired)
 			return true
 		}
@@ -669,7 +607,7 @@ func (b *Button) onPointer(e facet.PointerEvent) bool {
 }
 
 func (b *Button) onKey(e facet.KeyEvent) bool {
-	if b.Disabled {
+	if b.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -728,7 +666,7 @@ func (b *Button) onFocusLost() {
 
 func (b *Button) interactionState() theme.InteractionState {
 	switch {
-	case b.Disabled:
+	case b.Disabled.Get():
 		return theme.StateDisabled
 	case b.pressed:
 		return theme.StatePressed

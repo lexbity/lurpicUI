@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	svgnorm "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -28,24 +29,20 @@ const (
 
 // IconButton implements the action.icon_button standard mark.
 type IconButton struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
+	marks.Core
 
 	Activated signal.Signal[signal.Unit]
 
-	Source          primitive.IconSource
-	Size            float32
-	AccessibleLabel string
+	Icon            primitive.IconSource
 	DensityBehavior primitive.IconDensityBehavior
 	HitPadding      float32
-	Disabled        bool
-	Variant         uiinput.IconButtonVariant
+
+	Label           marks.Binding[string]
+	AccessibleLabel marks.Binding[string]
+	Variant         marks.Binding[uiinput.IconButtonVariant]
+	Disabled        marks.Binding[bool]
+	Size            marks.Binding[float32]
+	ColorSlot       marks.Binding[theme.ColorToken]
 
 	hovered          bool
 	pressed          bool
@@ -85,19 +82,33 @@ type iconButtonResolvedSource struct {
 
 var _ facet.FacetImpl = (*IconButton)(nil)
 var _ layout.AnchorExporter = (*IconButton)(nil)
+var _ marks.Mark = (*IconButton)(nil)
 
 // NewIconButton constructs an action.icon_button mark with canonical defaults.
 func NewIconButton(source primitive.IconSource) *IconButton {
 	i := &IconButton{
-		Facet:           facet.NewFacet(),
-		Source:          source,
+		Icon:            source,
 		DensityBehavior: primitive.IconDensityScaleWithDensity,
+		Label:           marks.Const(""),
+		AccessibleLabel: marks.Const(""),
+		Variant:         marks.Const[uiinput.IconButtonVariant](0),
+		Disabled:        marks.Const(false),
+		Size:            marks.Const[float32](0),
+		ColorSlot:       marks.Const(theme.ColorText),
 	}
-	i.layoutRole.Parent = facet.GroupParentContract{
+	i.Core.Facet = facet.NewFacet()
+	i.AddBinding(i.Label)
+	i.AddBinding(i.AccessibleLabel)
+	i.AddBinding(i.Variant)
+	i.AddBinding(i.Disabled)
+	i.AddBinding(i.Size)
+	i.AddBinding(i.ColorSlot)
+
+	i.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: iconButtonGroupPolicy{},
 	}
-	i.layoutRole.Child = facet.GroupChildContract{
+	i.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := i.measureIntrinsic(ctx, constraints)
@@ -115,54 +126,35 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	i.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	i.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return i.measure(ctx, constraints)
 	}
-	i.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		i.layoutRole.ArrangedBounds = bounds
+	i.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		i.Layout.ArrangedBounds = bounds
 		i.arrange(bounds)
 	}
-	i.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := i.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	i.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := i.buildCommands(i.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	i.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	i.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return i.hitTest(p)
 	}
-	i.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	i.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return i.onPointer(e)
 	}
-	i.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	i.Input.OnKey = func(e facet.KeyEvent) bool {
 		return i.onKey(e)
 	}
-	i.focusRole.Focusable = func() bool {
-		return !i.Disabled
+	i.Focus.Focusable = func() bool {
+		return !i.Disabled.Get()
 	}
-	i.focusRole.OnFocusGained = func() {
+	i.Focus.OnFocusGained = func() {
 		i.onFocusGained()
 	}
-	i.focusRole.OnFocusLost = func() {
+	i.Focus.OnFocusLost = func() {
 		i.onFocusLost()
 	}
-	i.AddRole(&i.layoutRole)
-	i.AddRole(&i.renderRole)
-	i.AddRole(&i.projectionRole)
-	i.AddRole(&i.hitRole)
-	i.AddRole(&i.inputRole)
-	i.AddRole(&i.focusRole)
+	i.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return i.buildCommands(i.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	i.RegisterRoles()
 	return i
 }
 
@@ -170,6 +162,11 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 func (i *IconButton) Base() *facet.Facet {
 	i.Facet.BindImpl(i)
 	return &i.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (i *IconButton) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "icon_button"}
 }
 
 // AccessibilityRole reports the semantic role required by the mark spec.
@@ -182,107 +179,20 @@ func (i *IconButton) AccessibleName() string {
 	if i == nil {
 		return ""
 	}
-	return i.AccessibleLabel
-}
-
-// SetVariant updates the authored icon button variant.
-func (i *IconButton) SetVariant(variant uiinput.IconButtonVariant) {
-	if i == nil || i.Variant == variant {
-		return
-	}
-	i.Variant = variant
-	i.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetSource updates the authored icon source.
-func (i *IconButton) SetSource(source primitive.IconSource) {
-	if i == nil || i.Source == source {
-		return
-	}
-	i.Source = source
-	i.cachedSource = iconButtonResolvedSource{}
-	i.cachedSourceKey = ""
-	i.cachedProjectionKey = ""
-	i.cachedCommands = nil
-	i.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetSize updates the authored icon size.
-func (i *IconButton) SetSize(size float32) {
-	if i == nil || i.Size == size {
-		return
-	}
-	i.Size = size
-	i.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetAccessibleName updates the accessible name.
-func (i *IconButton) SetAccessibleName(name string) {
-	if i == nil || i.AccessibleLabel == name {
-		return
-	}
-	i.AccessibleLabel = name
-	i.invalidate(facet.DirtyProjection)
-}
-
-// SetDensityBehavior updates how the icon size responds to density.
-func (i *IconButton) SetDensityBehavior(behavior primitive.IconDensityBehavior) {
-	if i == nil || i.DensityBehavior == behavior {
-		return
-	}
-	i.DensityBehavior = behavior
-	i.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetHitPadding updates the explicit extra hit padding around the visual bounds.
-func (i *IconButton) SetHitPadding(padding float32) {
-	if i == nil || i.HitPadding == padding {
-		return
-	}
-	i.HitPadding = padding
-	i.invalidate(facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (i *IconButton) SetDisabled(disabled bool) {
-	if i == nil || i.Disabled == disabled {
-		return
-	}
-	i.Disabled = disabled
-	if disabled {
-		i.hovered = false
-		i.pressed = false
-		i.focusedVisible = false
-		i.focusFromPointer = false
-	}
-	i.invalidate(facet.DirtyProjection | facet.DirtyHit)
+	return i.AccessibleLabel.Get()
 }
 
 // ExportAnchors publishes the icon button anchor set.
 func (i *IconButton) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if i == nil {
-		return nil
-	}
-	bounds := i.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
-		return nil
-	}
-	return layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	bounds := i.Layout.ArrangedBounds
+	return i.Core.DefaultAnchors(bounds, ctx)
 }
 
-func (i *IconButton) OnAttach(ctx facet.AttachContext) {}
-func (i *IconButton) OnActivate()                      {}
-func (i *IconButton) OnDeactivate()                    {}
+func (i *IconButton) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach() }
+func (i *IconButton) OnActivate()                      { i.Core.OnActivate() }
+func (i *IconButton) OnDeactivate()                    { i.Core.OnDeactivate() }
 func (i *IconButton) OnDetach() {
+	i.Core.OnDetach()
 	i.cachedSize = gfx.Size{}
 	i.cachedIconSize = gfx.Size{}
 	i.cachedTokens = theme.Tokens{}
@@ -318,8 +228,8 @@ func (i *IconButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	i.cachedIconSize = iconSize
 	i.cachedSize = size
 	i.cachedTouchPad = i.computeTouchPadding(ctx, size, resolved)
-	i.layoutRole.MeasuredSize = size
-	i.layoutRole.MeasuredResult = facet.MeasureResult{
+	i.Layout.MeasuredSize = size
+	i.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -329,7 +239,7 @@ func (i *IconButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 		Constraints: constraints,
 	}
 	_ = i.resolveSource(ctx.Runtime)
-	return i.layoutRole.MeasuredResult
+	return i.Layout.MeasuredResult
 }
 
 func (i *IconButton) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -366,7 +276,7 @@ func (i *IconButton) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedConte
 		Materials: resolved.Materials,
 		Depth:     resolved.Depth,
 	}
-	slots, _ := uiinput.ResolveIconButtonRecipe(style, i.Variant)
+	slots, _ := uiinput.ResolveIconButtonRecipe(style, i.Variant.Get())
 	return resolved, slots, true
 }
 
@@ -376,14 +286,14 @@ func (i *IconButton) resolveProjectionTheme(runtime any) (theme.StyleContext, sh
 	}
 	if store := theme.NearestStyleContext(runtime, i.Base().ID()); store != nil {
 		style := store.Get()
-		slots, _ := uiinput.ResolveIconButtonRecipe(style, i.Variant)
+		slots, _ := uiinput.ResolveIconButtonRecipe(style, i.Variant.Get())
 		return style, slots
 	}
 	return theme.StyleContext{Tokens: i.cachedTokens}, i.cachedRecipe
 }
 
 func (i *IconButton) resolveIconSize(ctx facet.MeasureContext, resolved theme.ResolvedContext) gfx.Size {
-	base := i.Size
+	base := i.Size.Get()
 	if base <= 0 {
 		base = resolved.TokenSet().Spacing.IconSize
 	}
@@ -459,8 +369,7 @@ func (i *IconButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 
 	iconBounds := i.cachedIconBounds
 
-	if i.Variant == uiinput.IconButtonSkeuomorphic && state == theme.StatePressed {
-		// Copy container strokes to invert offsets and set inner = true
+	if i.Variant.Get() == uiinput.IconButtonSkeuomorphic && state == theme.StatePressed {
 		strokesCopy := make([]theme.MaterialStroke, len(container.Strokes))
 		for idx, stroke := range container.Strokes {
 			stroke.Offset.X = -stroke.Offset.X
@@ -472,7 +381,6 @@ func (i *IconButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		}
 		container.Strokes = strokesCopy
 
-		// Displace icon bounds
 		iconBounds = iconBounds.Offset(1.5, 1.5)
 	}
 
@@ -555,10 +463,10 @@ func (i *IconButton) iconCommands(target gfx.Rect, style theme.Material, src ico
 }
 
 func (i *IconButton) resolveSource(runtime any) iconButtonResolvedSource {
-	if i == nil || i.Source == nil {
+	if i == nil || i.Icon == nil {
 		return iconButtonResolvedSource{}
 	}
-	switch src := i.Source.(type) {
+	switch src := i.Icon.(type) {
 	case primitive.IconRef:
 		ref := strings.TrimSpace(string(src))
 		if ref == "" {
@@ -629,10 +537,10 @@ func (i *IconButton) resolveSource(runtime any) iconButtonResolvedSource {
 }
 
 func (i *IconButton) hitTest(p gfx.Point) facet.HitResult {
-	if i == nil || i.layoutRole.ArrangedBounds.IsEmpty() {
+	if i == nil || i.Layout.ArrangedBounds.IsEmpty() {
 		return facet.HitResult{}
 	}
-	rootBounds := i.layoutRole.ArrangedBounds
+	rootBounds := i.Layout.ArrangedBounds
 	hitBounds := rootBounds
 	if pad := i.effectiveHitPadding(); pad > 0 {
 		hitBounds = hitBounds.Inset(-pad, -pad)
@@ -661,14 +569,14 @@ func (i *IconButton) effectiveHitPadding() float32 {
 }
 
 func (i *IconButton) cursorShape() facet.CursorShape {
-	if i.Disabled {
+	if i.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (i *IconButton) onPointer(e facet.PointerEvent) bool {
-	if i.Disabled {
+	if i.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -697,7 +605,7 @@ func (i *IconButton) onPointer(e facet.PointerEvent) bool {
 		wasPressed := i.pressed
 		i.pressed = false
 		i.invalidate(facet.DirtyProjection)
-		hitBounds := i.layoutRole.ArrangedBounds
+		hitBounds := i.Layout.ArrangedBounds
 		if pad := i.effectiveHitPadding(); pad > 0 {
 			hitBounds = hitBounds.Inset(-pad, -pad)
 		}
@@ -714,7 +622,7 @@ func (i *IconButton) onPointer(e facet.PointerEvent) bool {
 }
 
 func (i *IconButton) onKey(e facet.KeyEvent) bool {
-	if i.Disabled {
+	if i.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -752,7 +660,7 @@ func (i *IconButton) onFocusLost() {
 
 func (i *IconButton) interactionState() theme.InteractionState {
 	switch {
-	case i.Disabled:
+	case i.Disabled.Get():
 		return theme.StateDisabled
 	case i.pressed:
 		return theme.StatePressed

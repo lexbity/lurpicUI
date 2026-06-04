@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -16,16 +17,16 @@ import (
 
 func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	nf := NewNumberField("Amount")
-	nf.SetStep(0.5)
-	nf.SetPrecision(2)
-	nf.SetValue(12.5)
+	nf.Step = marks.Const(float64(0.5))
+	nf.Precision = marks.Const(2)
+	nf.Value.Set(12.5)
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustTextFieldRegistry(t),
 	}
 
 	facet.Attach(nf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := nf.layoutRole.Measure(facet.MeasureContext{
+	result := nf.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -35,7 +36,7 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(18, 24, result.Size.W, result.Size.H)
-	nf.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
+	nf.Layout.Arrange(facet.ArrangeContext{}, bounds)
 
 	if got := nf.AccessibilityRole(); got != "spinbutton" {
 		t.Fatalf("accessibility role = %q, want spinbutton", got)
@@ -50,9 +51,8 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected stepper bounds, got up=%#v down=%#v", nf.cachedStepperUpBounds, nf.cachedStepperDownBounds)
 	}
 
-	cmds := nf.projectionRole.Project(facet.ProjectionContext{
+	cmds := nf.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
-		Bounds:       bounds,
 		ContentScale: 1,
 	})
 	if cmds == nil || cmds.Len() == 0 {
@@ -81,11 +81,11 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	stepperUp := nf.hitRole.HitTest(gfx.Point{X: nf.cachedStepperUpBounds.Min.X + 1, Y: nf.cachedStepperUpBounds.Min.Y + 1})
+	stepperUp := nf.Hit.HitTest(gfx.Point{X: nf.cachedStepperUpBounds.Min.X + 1, Y: nf.cachedStepperUpBounds.Min.Y + 1})
 	if !stepperUp.Hit || stepperUp.MarkID != numberFieldMarkIDStepperUp {
 		t.Fatalf("expected stepper up hit, got %#v", stepperUp)
 	}
-	stepperDown := nf.hitRole.HitTest(gfx.Point{X: nf.cachedStepperDownBounds.Min.X + 1, Y: nf.cachedStepperDownBounds.Min.Y + 1})
+	stepperDown := nf.Hit.HitTest(gfx.Point{X: nf.cachedStepperDownBounds.Min.X + 1, Y: nf.cachedStepperDownBounds.Min.Y + 1})
 	if !stepperDown.Hit || stepperDown.MarkID != numberFieldMarkIDStepperDown {
 		t.Fatalf("expected stepper down hit, got %#v", stepperDown)
 	}
@@ -93,20 +93,20 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 	nf := NewNumberField("Amount")
-	nf.SetStep(2)
-	nf.SetValue(10)
+	nf.Step = marks.Const(float64(2))
+	nf.Value.Set(10)
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustTextFieldRegistry(t),
 	}
 
 	facet.Attach(nf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	_ = nf.layoutRole.Measure(facet.MeasureContext{
+	_ = nf.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 180}})
-	nf.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, nf.layoutRole.MeasuredSize.W, nf.layoutRole.MeasuredSize.H))
+	nf.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, nf.Layout.MeasuredSize.W, nf.Layout.MeasuredSize.H))
 
 	initialVersions := nf.Base().SubscribedVersions()
 	if len(initialVersions) != 1 {
@@ -122,12 +122,12 @@ func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 		t.Fatalf("expected tracked version to advance, before=%v after=%v", initialVersions, updatedVersions)
 	}
 
-	_ = nf.layoutRole.Measure(facet.MeasureContext{
+	_ = nf.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 180}})
-	nf.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, nf.layoutRole.MeasuredSize.W, nf.layoutRole.MeasuredSize.H))
+	nf.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, nf.Layout.MeasuredSize.W, nf.Layout.MeasuredSize.H))
 
 	if !nf.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: nf.cachedStepperUpBounds.Min.X + 1, Y: nf.cachedStepperUpBounds.Min.Y + 1}, Button: platform.PointerLeft}) {
 		t.Fatal("expected stepper press to be handled")
@@ -206,7 +206,7 @@ func TestNumberFieldGoldenDefault(t *testing.T) {
 
 func TestNumberFieldGoldenCompact(t *testing.T) {
 	assertNumberFieldGolden(t, "compact", func(nf *NumberField) {
-		nf.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, nf.layoutRole.MeasuredSize.W, nf.layoutRole.MeasuredSize.H))
+		nf.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, nf.Layout.MeasuredSize.W, nf.Layout.MeasuredSize.H))
 	})
 }
 
@@ -234,7 +234,7 @@ func TestNumberFieldGoldenFocused(t *testing.T) {
 
 func TestNumberFieldGoldenDisabled(t *testing.T) {
 	assertNumberFieldGolden(t, "disabled", func(nf *NumberField) {
-		nf.SetDisabled(true)
+		nf.Disabled = marks.Const(true)
 	})
 }
 
@@ -245,10 +245,10 @@ func TestNumberFieldGoldenRTL(t *testing.T) {
 func assertNumberFieldGolden(t *testing.T, name string, mutate func(*NumberField)) {
 	t.Helper()
 	nf := NewNumberField("Amount")
-	nf.SetPrecision(2)
-	nf.SetValue(123.45)
-	nf.SetHelperText("Enter a quantity.")
-	nf.SetWarningText("Quantity is advisory.")
+	nf.Precision = marks.Const(2)
+	nf.Value.Set(123.45)
+	nf.HelperText = marks.Const("Enter a quantity.")
+	nf.WarningText = marks.Const("Quantity is advisory.")
 	if mutate != nil {
 		mutate(nf)
 	}

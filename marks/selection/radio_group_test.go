@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -16,11 +17,11 @@ import (
 
 func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	rg.SetLabel("Size")
+	rg.Label = "Size"
 	rg.SetValue("medium")
 
 	facet.Attach(rg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rg.layoutRole.Measure(facet.MeasureContext{
+	result := rg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -32,7 +33,7 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	rg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: rg.layoutRole.Parent, ChildGroup: rg.layoutRole.Child}, bounds)
+	rg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: rg.LayoutRole().Parent, ChildGroup: rg.LayoutRole().Child}, bounds)
 
 	if got := rg.AccessibilityRole(); got != "radiogroup" {
 		t.Fatalf("accessibility role = %q, want radiogroup", got)
@@ -47,18 +48,18 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected item geometry, got label=%#v rows=%d", rg.cachedGroupLabelRect, len(rg.cachedItemRows))
 	}
 
-	groupHit := rg.hitRole.HitTest(gfx.Point{X: rg.cachedGroupLabelRect.Min.X + 1, Y: rg.cachedGroupLabelRect.Min.Y + 1})
+	groupHit := rg.HitRole().HitTest(gfx.Point{X: rg.cachedGroupLabelRect.Min.X + 1, Y: rg.cachedGroupLabelRect.Min.Y + 1})
 	if !groupHit.Hit || groupHit.MarkID != radioGroupMarkIDGroupLabel {
 		t.Fatalf("expected group label hit, got %#v", groupHit)
 	}
-	controlHit := rg.hitRole.HitTest(gfx.Point{
+	controlHit := rg.HitRole().HitTest(gfx.Point{
 		X: rg.cachedItemControls[1].Min.X + 1,
 		Y: rg.cachedItemControls[1].Min.Y + 1,
 	})
 	if !controlHit.Hit || controlHit.MarkID != radioGroupMarkIDControl {
 		t.Fatalf("expected control hit, got %#v", controlHit)
 	}
-	labelHit := rg.hitRole.HitTest(gfx.Point{
+	labelHit := rg.HitRole().HitTest(gfx.Point{
 		X: rg.cachedItemLabels[1].Min.X + rg.cachedItemLabels[1].Width()*0.5,
 		Y: rg.cachedItemLabels[1].Min.Y + rg.cachedItemLabels[1].Height()*0.5,
 	})
@@ -67,7 +68,7 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 	midX := rg.cachedItemRows[1].Min.X + rg.cachedControlSize + rg.cachedControlGap*0.5
 	midY := rg.cachedItemRows[1].Min.Y + rg.cachedItemRows[1].Height()*0.5
-	itemsHit := rg.hitRole.HitTest(gfx.Point{X: midX, Y: midY})
+	itemsHit := rg.HitRole().HitTest(gfx.Point{X: midX, Y: midY})
 	if !itemsHit.Hit || itemsHit.MarkID != radioGroupMarkIDRadioItems {
 		t.Fatalf("expected radio items hit, got %#v", itemsHit)
 	}
@@ -79,7 +80,7 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := rg.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	cmds := rg.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
@@ -102,9 +103,9 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestRadioGroupPointerAndKeyboardInteraction(t *testing.T) {
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	rg.SetLabel("Size")
+	rg.Label = "Size"
 	facet.Attach(rg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rg.layoutRole.Measure(facet.MeasureContext{
+	result := rg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -112,7 +113,7 @@ func TestRadioGroupPointerAndKeyboardInteraction(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	rg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	rg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	center := gfx.Point{X: rg.cachedItemControls[2].Min.X + rg.cachedItemControls[2].Width()*0.5, Y: rg.cachedItemControls[2].Min.Y + rg.cachedItemControls[2].Height()*0.5}
 	if !rg.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: center}) {
@@ -157,7 +158,7 @@ func TestRadioGroupPointerAndKeyboardInteraction(t *testing.T) {
 func TestRadioGroupFocusAndDisabledBehavior(t *testing.T) {
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(rg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rg.layoutRole.Measure(facet.MeasureContext{
+	result := rg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -165,7 +166,7 @@ func TestRadioGroupFocusAndDisabledBehavior(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	rg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	rg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	rg.onFocusGained()
 	if !rg.focusedVisible {
@@ -175,8 +176,8 @@ func TestRadioGroupFocusAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected edge point to land in focus ring")
 	}
 
-	rg.SetDisabled(true)
-	if rg.focusRole.Focusable() {
+	rg.Disabled = marks.Const(true)
+	if rg.FocusRole().Focusable() {
 		t.Fatal("expected disabled radio group to be unfocusable")
 	}
 	if rg.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {
@@ -190,7 +191,7 @@ func TestRadioGroupFocusAndDisabledBehavior(t *testing.T) {
 func TestRadioGroupStoreInvalidation(t *testing.T) {
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(rg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	_ = rg.layoutRole.Measure(facet.MeasureContext{
+	_ = rg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -225,7 +226,7 @@ func TestRadioGroupGoldenComfortable(t *testing.T) {
 
 func TestRadioGroupGoldenDisabled(t *testing.T) {
 	AssertRadioGroupGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(rg *RadioGroup) {
-		rg.SetDisabled(true)
+		rg.Disabled = marks.Const(true)
 	})
 }
 
@@ -264,7 +265,7 @@ func TestRadioGroupGoldenSelected(t *testing.T) {
 func AssertRadioGroupGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*RadioGroup)) {
 	t.Helper()
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, tokens, density, direction)
-	rg.SetLabel("Size")
+	rg.Label = "Size"
 	if mutate != nil {
 		mutate(rg)
 	}
@@ -274,7 +275,7 @@ func AssertRadioGroupGolden(t *testing.T, name string, tokens theme.Tokens, dens
 func renderRadioGroupToSurface(t *testing.T, rg *RadioGroup, rt sliderRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(rg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rg.layoutRole.Measure(facet.MeasureContext{
+	result := rg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -282,9 +283,9 @@ func renderRadioGroupToSurface(t *testing.T, rg *RadioGroup, rt sliderRuntimeStu
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	rg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	rg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := rg.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	cmds := rg.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands for golden")
 	}

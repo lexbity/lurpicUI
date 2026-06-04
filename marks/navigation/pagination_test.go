@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -17,7 +18,7 @@ import (
 func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	pagination, rt, measureCtx := newPaginationTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(pagination, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := pagination.layoutRole.Measure(facet.MeasureContext{
+	result := pagination.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -28,11 +29,11 @@ func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(14, 12, result.Size.W, result.Size.H)
-	pagination.layoutRole.Arrange(facet.ArrangeContext{
+	pagination.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: pagination.layoutRole.Parent,
-		ChildGroup:  pagination.layoutRole.Child,
+		ParentGroup: pagination.Layout.Parent,
+		ChildGroup:  pagination.Layout.Child,
 	}, bounds)
 	if got := pagination.AccessibilityRole(); got != "navigation" {
 		t.Fatalf("accessibility role = %q, want navigation", got)
@@ -40,7 +41,7 @@ func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := pagination.AccessibleName(); got != "Pages" {
 		t.Fatalf("accessible name = %q, want Pages", got)
 	}
-	if !pagination.focusRole.Focusable() {
+	if !pagination.Focus.Focusable() {
 		t.Fatal("expected pagination to be focusable")
 	}
 	if len(pagination.Children()) == 0 {
@@ -52,7 +53,7 @@ func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if idx := pagination.currentVisibleEntryIndex(); idx < 0 {
 		t.Fatal("expected current page to be visible")
 	}
-	pageHit := pagination.hitRole.HitTest(gfx.Point{
+	pageHit := pagination.Hit.HitTest(gfx.Point{
 		X: pagination.cachedEntryBounds[pagination.currentVisibleEntryIndex()].Min.X + 2,
 		Y: pagination.cachedEntryBounds[pagination.currentVisibleEntryIndex()].Min.Y + 2,
 	})
@@ -65,7 +66,7 @@ func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := pagination.projectionRole.Project(facet.ProjectionContext{
+	cmds := pagination.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -93,18 +94,18 @@ func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestPaginationPointerKeyboardAndFocus(t *testing.T) {
 	pagination, rt, measureCtx := newPaginationTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(pagination, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := pagination.layoutRole.Measure(facet.MeasureContext{
+	result := pagination.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1440, H: 320}})
-	pagination.layoutRole.Arrange(facet.ArrangeContext{
+	pagination.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: pagination.layoutRole.Parent,
-		ChildGroup:  pagination.layoutRole.Child,
+		ParentGroup: pagination.Layout.Parent,
+		ChildGroup:  pagination.Layout.Child,
 	}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	activated := -1
@@ -137,8 +138,8 @@ func TestPaginationPointerKeyboardAndFocus(t *testing.T) {
 	if !pagination.focusedVisible {
 		t.Fatal("expected keyboard focus to show focus ring")
 	}
-	pagination.SetDisabled(true)
-	if pagination.focusRole.Focusable() {
+	pagination.Disabled = marks.Const(true)
+	if pagination.Focus.Focusable() {
 		t.Fatal("expected disabled pagination to be unfocusable")
 	}
 }
@@ -157,7 +158,7 @@ func TestPaginationGoldenComfortable(t *testing.T) {
 
 func TestPaginationGoldenDisabled(t *testing.T) {
 	AssertPaginationGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *Pagination) {
-		p.SetDisabled(true)
+		p.Disabled = marks.Const(true)
 	})
 }
 
@@ -199,7 +200,7 @@ func AssertPaginationGolden(t *testing.T, name string, tokens theme.Tokens, dens
 func renderPaginationToSurface(t *testing.T, pagination *Pagination, rt tabsRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(pagination, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := pagination.layoutRole.Measure(facet.MeasureContext{
+	result := pagination.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -207,13 +208,13 @@ func renderPaginationToSurface(t *testing.T, pagination *Pagination, rt tabsRunt
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1440, H: 320}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	pagination.layoutRole.Arrange(facet.ArrangeContext{
+	pagination.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: pagination.layoutRole.Parent,
-		ChildGroup:  pagination.layoutRole.Child,
+		ParentGroup: pagination.Layout.Parent,
+		ChildGroup:  pagination.Layout.Child,
 	}, bounds)
-	cmds := pagination.projectionRole.Project(facet.ProjectionContext{
+	cmds := pagination.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -267,7 +268,7 @@ func newPaginationTestFixture(t *testing.T, tokens theme.Tokens, density theme.D
 		})
 	}
 	pagination := NewPagination("Pages", items)
-	pagination.SetCurrentIndex(4)
+	pagination.CurrentIndex = marks.Const(4)
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return pagination, rt, resolved
 }

@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -26,7 +27,7 @@ func TestToolbarGoldenComfortable(t *testing.T) {
 
 func TestToolbarGoldenDisabled(t *testing.T) {
 	AssertToolbarGolden(t, "disabled", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(toolbar *Toolbar) {
-		toolbar.SetDisabled(true)
+		toolbar.Disabled = marks.Const(true)
 	})
 }
 
@@ -68,7 +69,7 @@ func AssertToolbarGolden(t *testing.T, name string, tokens theme.Tokens, density
 func renderToolbarToSurface(t *testing.T, toolbar *Toolbar, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(toolbar, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := toolbar.layoutRole.Measure(facet.MeasureContext{
+	result := toolbar.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -84,14 +85,14 @@ func renderToolbarToSurface(t *testing.T, toolbar *Toolbar, rt buttonRuntimeStub
 	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
-	toolbar.layoutRole.Arrange(facet.ArrangeContext{
+	toolbar.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: toolbar.layoutRole.Parent,
-		ChildGroup:  toolbar.layoutRole.Child,
+		ParentGroup: toolbar.Layout.Parent,
+		ChildGroup:  toolbar.Layout.Child,
 	}, bounds)
 
-	cmds := toolbar.projectionRole.Project(facet.ProjectionContext{
+	cmds := toolbar.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -128,7 +129,7 @@ func newToolbarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.De
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	toolbar := NewToolbar("Actions", []ToolbarGroup{
+	toolbar := NewToolbar(marks.Const("Actions"), []ToolbarGroup{
 		{
 			Key: "primary",
 			Actions: []ActionGroupAction{

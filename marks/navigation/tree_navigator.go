@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -42,21 +43,14 @@ type TreeNode struct {
 
 // TreeNavigator implements the navigation.tree_navigator canonical mark.
 type TreeNavigator struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
-	viewportRole   facet.ViewportRole
+	marks.Core
 
 	Data *store.ValueStore[[]TreeNode]
 
-	Label    string
-	Disabled bool
+	Label    marks.Binding[string]
+	Disabled marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hoveredPath string
 	pressedPath string
@@ -96,20 +90,24 @@ type treeNavigatorVisibleNode struct {
 
 var _ facet.FacetImpl = (*TreeNavigator)(nil)
 var _ layout.AnchorExporter = (*TreeNavigator)(nil)
+var _ marks.Mark = (*TreeNavigator)(nil)
 
 // NewTreeNavigator constructs a navigation.tree_navigator mark with canonical defaults.
 func NewTreeNavigator(label string, nodes []TreeNode) *TreeNavigator {
 	t := &TreeNavigator{
-		Facet: facet.NewFacet(),
-		Label: label,
-		Data:  store.NewValueStore[[]TreeNode](cloneTreeNodes(nodes)),
+		Label:    marks.Const(label),
+		Disabled: marks.Const(false),
+		Data:     store.NewValueStore[[]TreeNode](cloneTreeNodes(nodes)),
 	}
-	t.layoutRole.Parent = facet.GroupParentContract{
+	t.Core.Facet = facet.NewFacet()
+	t.AddBinding(t.Label)
+	t.AddBinding(t.Disabled)
+	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   treeNavigatorGroupPolicy{tree: t},
 		Children: t,
 	}
-	t.layoutRole.Child = facet.GroupChildContract{
+	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measureIntrinsic(ctx, constraints)
@@ -127,48 +125,28 @@ func NewTreeNavigator(label string, nodes []TreeNode) *TreeNavigator {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	t.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	t.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return t.measure(ctx, constraints)
 	}
-	t.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		t.layoutRole.ArrangedBounds = bounds
+	t.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		t.Layout.ArrangedBounds = bounds
 		t.arrange(ctx, bounds)
 	}
-	t.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := t.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	t.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := t.buildCommands(t.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	t.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
-	t.inputRole.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
-	t.inputRole.OnScroll = func(e facet.ScrollEvent) bool { return t.onScroll(e) }
-	t.inputRole.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
-	t.focusRole.Focusable = func() bool { return !t.Disabled && len(t.cachedVisibleNodes) > 0 }
-	t.focusRole.TabIndex = 0
-	t.focusRole.OnFocusGained = func() { t.onFocusGained() }
-	t.focusRole.OnFocusLost = func() { t.onFocusLost() }
-	t.viewportRole.Transform = gfx.Identity()
+	t.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
+	t.Input.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
+	t.Input.OnScroll = func(e facet.ScrollEvent) bool { return t.onScroll(e) }
+	t.Input.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
+	t.Focus.Focusable = func() bool { return !t.Disabled.Get() && len(t.cachedVisibleNodes) > 0 }
+	t.Focus.TabIndex = 0
+	t.Focus.OnFocusGained = func() { t.onFocusGained() }
+	t.Focus.OnFocusLost = func() { t.onFocusLost() }
+	t.Viewport.Transform = gfx.Identity()
 	t.textRole.IMEEnabled = false
-	t.AddRole(&t.layoutRole)
-	t.AddRole(&t.renderRole)
-	t.AddRole(&t.projectionRole)
-	t.AddRole(&t.hitRole)
-	t.AddRole(&t.inputRole)
-	t.AddRole(&t.focusRole)
+	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	t.RegisterRoles()
 	t.AddRole(&t.textRole)
-	t.AddRole(&t.viewportRole)
 	return t
 }
 
@@ -176,6 +154,11 @@ func NewTreeNavigator(label string, nodes []TreeNode) *TreeNavigator {
 func (t *TreeNavigator) Base() *facet.Facet {
 	t.Facet.BindImpl(t)
 	return &t.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (t *TreeNavigator) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "navigation", TypeName: "tree_navigator"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -186,16 +169,7 @@ func (t *TreeNavigator) AccessibleName() string {
 	if t == nil {
 		return ""
 	}
-	return t.Label
-}
-
-// SetLabel updates the authored label.
-func (t *TreeNavigator) SetLabel(label string) {
-	if t == nil || t.Label == label {
-		return
-	}
-	t.Label = label
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return t.Label.Get()
 }
 
 // SetNodes updates the canonical tree data store.
@@ -209,21 +183,6 @@ func (t *TreeNavigator) SetNodes(nodes []TreeNode) {
 		return
 	}
 	t.Data.Set(cloneTreeNodes(nodes))
-}
-
-// SetDisabled toggles disabled state.
-func (t *TreeNavigator) SetDisabled(disabled bool) {
-	if t == nil || t.Disabled == disabled {
-		return
-	}
-	t.Disabled = disabled
-	if disabled {
-		t.hoveredPath = ""
-		t.pressedPath = ""
-		t.focusedVisible = false
-		t.focusFromPointer = false
-	}
-	t.invalidate(facet.DirtyProjection | facet.DirtyHit)
 }
 
 // SetSelectedPath updates the selected node path in the store data.
@@ -248,19 +207,10 @@ func (t *TreeNavigator) ExportAnchors(ctx layout.AnchorExportContext) layout.Anc
 	if t == nil {
 		return nil
 	}
-	bounds := t.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := t.Layout.ArrangedBounds
+	out := t.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if len(t.cachedRowBounds) > 0 {
 		idx := t.focusedRowIndex()
@@ -312,6 +262,7 @@ func (t *TreeNavigator) Children() []facet.GroupChild {
 
 // OnAttach wires store invalidation for the bound tree data store.
 func (t *TreeNavigator) OnAttach(ctx facet.AttachContext) {
+	t.Core.OnAttach()
 	if t.Data == nil {
 		t.Data = store.NewValueStore[[]TreeNode](nil)
 	}
@@ -321,13 +272,14 @@ func (t *TreeNavigator) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (t *TreeNavigator) OnActivate() {}
+func (t *TreeNavigator) OnActivate() { t.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (t *TreeNavigator) OnDeactivate() {}
+func (t *TreeNavigator) OnDeactivate() { t.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (t *TreeNavigator) OnDetach() {
+	t.Core.OnDetach()
 	t.cachedTokens = theme.Tokens{}
 	t.cachedRecipe = shared.TreeNavigatorSlots{}
 	t.cachedRootBounds = gfx.Rect{}
@@ -352,7 +304,7 @@ func (t *TreeNavigator) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Base().Invalidate(flags)
+	t.Facet.Invalidate(flags)
 }
 
 func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -379,22 +331,22 @@ func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Cons
 		if row == nil {
 			continue
 		}
-		row.SetDisabled(t.Disabled || t.cachedVisibleNodes[i].Node.Disabled)
-		row.SetSelected(t.cachedVisibleNodes[i].Node.Selected)
-		row.ShowContainer = false
-		row.ShowSelectionIndicator = true
-		row.ShowFocusRing = false
-		row.ShowLeadingIcon = t.cachedVisibleNodes[i].HasChildren || strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef) != ""
+		row.Disabled = marks.Const(t.Disabled.Get() || t.cachedVisibleNodes[i].Node.Disabled)
+		row.Selected = marks.Const(t.cachedVisibleNodes[i].Node.Selected)
+		row.ShowContainer = marks.Const(false)
+		row.ShowSelectionIndicator = marks.Const(true)
+		row.ShowFocusRing = marks.Const(false)
+		row.ShowLeadingIcon = marks.Const(t.cachedVisibleNodes[i].HasChildren || strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef) != "")
 		if t.cachedVisibleNodes[i].HasChildren {
 			if t.cachedVisibleNodes[i].Node.Expanded {
-				row.SetLeadingIconRef("chevron-down")
+				row.LeadingIconRef = marks.Const("chevron-down")
 			} else {
-				row.SetLeadingIconRef("chevron-right")
+				row.LeadingIconRef = marks.Const("chevron-right")
 			}
 		} else {
-			row.SetLeadingIconRef(strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef))
+			row.LeadingIconRef = marks.Const(strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef))
 		}
-		row.SetLabel(t.cachedVisibleNodes[i].Node.Label)
+		row.Label = marks.Const(t.cachedVisibleNodes[i].Node.Label)
 		layoutRole := row.Base().LayoutRole()
 		if layoutRole == nil {
 			continue
@@ -420,8 +372,8 @@ func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Cons
 		height = minFloat(height, constraints.MaxSize.H)
 	}
 	measured := constraints.Constrain(gfx.Size{W: width, H: height})
-	t.layoutRole.MeasuredSize = measured
-	t.layoutRole.MeasuredResult = facet.MeasureResult{
+	t.Layout.MeasuredSize = measured
+	t.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -431,7 +383,7 @@ func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Cons
 		Constraints: constraints,
 	}
 	t.textRole.Layout = nil
-	return t.layoutRole.MeasuredResult
+	return t.Layout.MeasuredResult
 }
 
 func (t *TreeNavigator) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -448,7 +400,7 @@ func (t *TreeNavigator) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	t.cachedRowPaths = nil
 	t.cachedRowHasChildren = nil
 	t.cachedRowSelection = nil
-	t.layoutRole.ArrangedBounds = bounds
+	t.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -485,7 +437,7 @@ func (t *TreeNavigator) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			y += t.cachedRowGap
 		}
 	}
-	t.viewportRole.WorldBounds = bounds
+	t.Viewport.WorldBounds = bounds
 }
 
 func (t *TreeNavigator) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.TreeNavigatorSlots) {
@@ -534,7 +486,7 @@ func (t *TreeNavigator) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comman
 		node := t.cachedVisibleNodes[i]
 		state := theme.StateDefault
 		switch {
-		case t.Disabled || node.Node.Disabled:
+		case t.Disabled.Get() || node.Node.Disabled:
 			state = theme.StateDisabled
 		case rowPath == t.pressedPath:
 			state = theme.StatePressed
@@ -578,7 +530,7 @@ func (t *TreeNavigator) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comman
 }
 
 func (t *TreeNavigator) hitTest(p gfx.Point) facet.HitResult {
-	if t == nil || t.layoutRole.ArrangedBounds.IsEmpty() || !t.layoutRole.ArrangedBounds.Contains(p) {
+	if t == nil || t.Layout.ArrangedBounds.IsEmpty() || !t.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := t.cursorShape()
@@ -604,7 +556,7 @@ func (t *TreeNavigator) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (t *TreeNavigator) onPointer(e facet.PointerEvent) bool {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -669,21 +621,21 @@ func (t *TreeNavigator) onPointer(e facet.PointerEvent) bool {
 }
 
 func (t *TreeNavigator) onScroll(e facet.ScrollEvent) bool {
-	if t.Disabled || len(t.cachedRowBounds) == 0 {
+	if t.Disabled.Get() || len(t.cachedRowBounds) == 0 {
 		return false
 	}
 	if e.DeltaY == 0 {
 		return false
 	}
 	t.scrollOffset -= e.DeltaY
-	maxOffset := maxFloat(0, t.cachedContentHeight-t.layoutRole.ArrangedBounds.Height())
+	maxOffset := maxFloat(0, t.cachedContentHeight-t.Layout.ArrangedBounds.Height())
 	t.scrollOffset = clampFloat(t.scrollOffset, 0, maxOffset)
 	t.invalidate(facet.DirtyProjection)
 	return true
 }
 
 func (t *TreeNavigator) onKey(e facet.KeyEvent) bool {
-	if t.Disabled || len(t.cachedVisibleNodes) == 0 {
+	if t.Disabled.Get() || len(t.cachedVisibleNodes) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -749,7 +701,7 @@ func (t *TreeNavigator) onFocusLost() {
 }
 
 func (t *TreeNavigator) rootState() theme.InteractionState {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	if t.pressedPath != "" {
@@ -781,7 +733,7 @@ func (t *TreeNavigator) pointInFocusRing(p gfx.Point) bool {
 }
 
 func (t *TreeNavigator) cursorShape() facet.CursorShape {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
@@ -807,22 +759,22 @@ func (t *TreeNavigator) syncRowFacets() {
 		if row == nil {
 			continue
 		}
-		row.SetLabel(t.cachedVisibleNodes[i].Node.Label)
-		row.SetDisabled(t.Disabled || t.cachedVisibleNodes[i].Node.Disabled)
-		row.SetSelected(t.cachedVisibleNodes[i].Node.Selected)
-		row.ShowLabel = true
-		row.ShowContainer = false
-		row.ShowLeadingIcon = t.cachedVisibleNodes[i].HasChildren || strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef) != ""
-		row.ShowSelectionIndicator = true
-		row.ShowFocusRing = false
+		row.Label = marks.Const(t.cachedVisibleNodes[i].Node.Label)
+		row.Disabled = marks.Const(t.Disabled.Get() || t.cachedVisibleNodes[i].Node.Disabled)
+		row.Selected = marks.Const(t.cachedVisibleNodes[i].Node.Selected)
+		row.ShowLabel = marks.Const(true)
+		row.ShowContainer = marks.Const(false)
+		row.ShowLeadingIcon = marks.Const(t.cachedVisibleNodes[i].HasChildren || strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef) != "")
+		row.ShowSelectionIndicator = marks.Const(true)
+		row.ShowFocusRing = marks.Const(false)
 		if t.cachedVisibleNodes[i].HasChildren {
 			if t.cachedVisibleNodes[i].Node.Expanded {
-				row.SetLeadingIconRef("chevron-down")
+				row.LeadingIconRef = marks.Const("chevron-down")
 			} else {
-				row.SetLeadingIconRef("chevron-right")
+				row.LeadingIconRef = marks.Const("chevron-right")
 			}
 		} else {
-			row.SetLeadingIconRef(strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef))
+			row.LeadingIconRef = marks.Const(strings.TrimSpace(t.cachedVisibleNodes[i].Node.IconRef))
 		}
 	}
 }
@@ -834,10 +786,10 @@ func (t *TreeNavigator) rowFacetForPath(path string) *selection.ListItem {
 	if row := t.cachedRowFacets[path]; row != nil {
 		return row
 	}
-	row := selection.NewListItem("")
-	row.ShowContainer = false
-	row.ShowSelectionIndicator = true
-	row.ShowFocusRing = false
+	row := selection.NewListItem(marks.Const(""))
+	row.ShowContainer = marks.Const(false)
+	row.ShowSelectionIndicator = marks.Const(true)
+	row.ShowFocusRing = marks.Const(false)
 	t.cachedRowFacets[path] = row
 	return row
 }
@@ -939,7 +891,7 @@ func (t *TreeNavigator) firstEnabledIndex() int {
 func (t *TreeNavigator) isDisabledPath(path string) bool {
 	for i := range t.cachedVisibleNodes {
 		if t.cachedVisibleNodes[i].Path == path {
-			return t.Disabled || t.cachedVisibleNodes[i].Node.Disabled
+			return t.Disabled.Get() || t.cachedVisibleNodes[i].Node.Disabled
 		}
 	}
 	return true

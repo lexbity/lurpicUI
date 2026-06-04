@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -24,16 +25,11 @@ const (
 
 // ProgressRing implements the status.progress_ring canonical mark.
 type ProgressRing struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	tickRole       facet.TickRole
-
-	Label    string
-	Value    float32
-	Disabled bool
+	Label    marks.Binding[string]
+	Value    marks.Binding[float32]
+	Disabled marks.Binding[bool]
 
 	cachedTokens           theme.Tokens
 	cachedRecipe           shared.StatusProgressRingSlots
@@ -60,15 +56,22 @@ type ProgressRing struct {
 
 var _ facet.FacetImpl = (*ProgressRing)(nil)
 var _ layout.AnchorExporter = (*ProgressRing)(nil)
+var _ marks.Mark = (*ProgressRing)(nil)
 
 // NewProgressRing constructs a status.progress_ring mark with canonical defaults.
 func NewProgressRing(label string) *ProgressRing {
 	p := &ProgressRing{
-		Facet: facet.NewFacet(),
-		Label: label,
+		Label:    marks.Const(label),
+		Value:    marks.Const(float32(0)),
+		Disabled: marks.Const(false),
 	}
-	p.layoutRole.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
-	p.layoutRole.Child = facet.GroupChildContract{
+	p.Core.Facet = facet.NewFacet()
+	p.AddBinding(p.Label)
+	p.AddBinding(p.Value)
+	p.AddBinding(p.Disabled)
+
+	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	p.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measure(ctx, constraints).Size
@@ -86,37 +89,20 @@ func NewProgressRing(label string) *ProgressRing {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	p.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return p.measure(ctx, constraints)
 	}
-	p.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		p.layoutRole.ArrangedBounds = bounds
+	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		p.Layout.ArrangedBounds = bounds
 		p.arrange(ctx, bounds)
 	}
-	p.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := p.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	p.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := p.buildCommands(p.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	p.tickRole.OnTick = func(dt time.Duration) {
+	p.Tick.OnTick = func(dt time.Duration) {
 		p.onTick(dt)
 	}
-	p.AddRole(&p.layoutRole)
-	p.AddRole(&p.renderRole)
-	p.AddRole(&p.projectionRole)
-	p.AddRole(&p.tickRole)
+	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	p.RegisterRoles()
 	p.syncLabelFacet()
 	return p
 }
@@ -127,85 +113,38 @@ func (p *ProgressRing) Base() *facet.Facet {
 	return &p.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (p *ProgressRing) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "status", TypeName: "progress_ring"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (p *ProgressRing) AccessibilityRole() string { return "progressbar" }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (p *ProgressRing) AccessibleName() string { return "" }
 
-// SetLabel updates the authored optional label.
-func (p *ProgressRing) SetLabel(label string) {
-	if p == nil || p.Label == label {
-		return
-	}
-	p.Label = label
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetValue updates the authored progress value and starts a short pulse.
-func (p *ProgressRing) SetValue(value float32) {
-	if p == nil {
-		return
-	}
-	value = clamp01(value)
-	if p.Value == value {
-		return
-	}
-	p.Value = value
-	if !p.Disabled {
-		p.startPulse()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (p *ProgressRing) SetDisabled(disabled bool) {
-	if p == nil || p.Disabled == disabled {
-		return
-	}
-	p.Disabled = disabled
-	if disabled {
-		p.pulseDuration = 0
-		p.pulseRemaining = 0
-		p.pulsePhase = 0
-		p.tickRole.Reset()
-	}
-	p.invalidate(facet.DirtyProjection)
-}
-
 // ExportAnchors publishes the progress-ring anchor set.
 func (p *ProgressRing) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if p == nil {
 		return nil
 	}
-	bounds := p.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
-		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
-	return out
+	bounds := p.Layout.ArrangedBounds
+	return p.Core.DefaultAnchors(bounds, ctx)
 }
 
 // OnAttach is unused.
-func (p *ProgressRing) OnAttach(ctx facet.AttachContext) {}
+func (p *ProgressRing) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
 
 // OnActivate is unused.
-func (p *ProgressRing) OnActivate() {}
+func (p *ProgressRing) OnActivate() { p.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (p *ProgressRing) OnDeactivate() {}
+func (p *ProgressRing) OnDeactivate() { p.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (p *ProgressRing) OnDetach() {
+	p.Core.OnDetach()
 	p.cachedTokens = theme.Tokens{}
 	p.cachedRecipe = shared.StatusProgressRingSlots{}
 	p.cachedBounds = gfx.Rect{}
@@ -239,25 +178,26 @@ func (p *ProgressRing) syncLabelFacet() {
 	if p == nil {
 		return
 	}
-	label := strings.TrimSpace(p.Label)
+	label := strings.TrimSpace(p.Label.Get())
 	if !p.cachedShowLabel || label == "" {
 		p.cachedLabelFacet = nil
 		return
 	}
 	if p.cachedLabelFacet == nil {
-		p.cachedLabelFacet = primitive.NewText(label)
+		p.cachedLabelFacet = primitive.NewText(marks.Const(label))
 	} else {
-		p.cachedLabelFacet.SetContent(label)
+		p.cachedLabelFacet.Content = marks.Const(label)
+		p.cachedLabelFacet.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	p.cachedLabelFacet.SetTypography(theme.TextLabelM)
-	p.cachedLabelFacet.SetOverflow(primitive.TextOverflowTruncate)
-	p.cachedLabelFacet.SetAlignment(text.AlignCenter)
-	if p.Disabled {
-		p.cachedLabelFacet.SetForeground(theme.ColorTextDisabled)
-		p.cachedLabelFacet.SetDisabled(true)
+	p.cachedLabelFacet.Typography = marks.Const(theme.TextLabelM)
+	p.cachedLabelFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	p.cachedLabelFacet.Alignment = marks.Const(text.AlignCenter)
+	if p.Disabled.Get() {
+		p.cachedLabelFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+		p.cachedLabelFacet.Disabled = marks.Const(true)
 	} else {
-		p.cachedLabelFacet.SetForeground(theme.ColorText)
-		p.cachedLabelFacet.SetDisabled(false)
+		p.cachedLabelFacet.Foreground = marks.Const(theme.ColorText)
+		p.cachedLabelFacet.Disabled = marks.Const(false)
 	}
 }
 
@@ -279,7 +219,7 @@ func (p *ProgressRing) measure(ctx facet.MeasureContext, constraints facet.Const
 		p.cachedRingThickness = resolved.Density.Scale(12)
 	}
 	p.cachedRootRadius = p.cachedRingThickness * 0.5
-	p.cachedShowLabel = strings.TrimSpace(p.Label) != "" && resolved.Density.ID != theme.DensityIDCompact
+	p.cachedShowLabel = strings.TrimSpace(p.Label.Get()) != "" && resolved.Density.ID != theme.DensityIDCompact
 	p.syncLabelFacet()
 
 	availableWidth := constraints.MaxSize.W
@@ -330,8 +270,8 @@ func (p *ProgressRing) measure(ctx facet.MeasureContext, constraints facet.Const
 		height += labelSize.H + p.cachedGap
 	}
 	measured := constraints.Constrain(gfx.Size{W: width, H: height})
-	p.layoutRole.MeasuredSize = measured
-	p.layoutRole.MeasuredResult = facet.MeasureResult{
+	p.Layout.MeasuredSize = measured
+	p.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -340,7 +280,7 @@ func (p *ProgressRing) measure(ctx facet.MeasureContext, constraints facet.Const
 		},
 		Constraints: constraints,
 	}
-	return p.layoutRole.MeasuredResult
+	return p.Layout.MeasuredResult
 }
 
 func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -348,7 +288,7 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedTrackBounds = gfx.Rect{}
 	p.cachedIndicatorBounds = gfx.Rect{}
 	p.cachedLabelBounds = gfx.Rect{}
-	p.layoutRole.ArrangedBounds = bounds
+	p.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -390,13 +330,13 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedRingOuterRadius = p.cachedRingSide * 0.5
 	p.cachedRingInnerRadius = maxFloat(1, p.cachedRingOuterRadius-p.cachedRingThickness)
 	center := gfx.Point{X: p.cachedTrackBounds.Min.X + p.cachedTrackBounds.Width()*0.5, Y: p.cachedTrackBounds.Min.Y + p.cachedTrackBounds.Height()*0.5}
-	progress := clamp01(p.Value)
+	progress := clamp01(p.Value.Get())
 	p.cachedIndicatorBounds = ringSegmentBounds(center, p.cachedRingOuterRadius, p.cachedRingInnerRadius, progress)
 	if p.cachedLabelFacet != nil {
 		p.cachedLabelFacet.Base().LayoutRole().ArrangedBounds = p.cachedLabelBounds
 	}
 	if p.pulseRemaining > 0 {
-		p.tickRole.RequestTick()
+		p.Tick.RequestTick()
 	}
 }
 
@@ -407,7 +347,7 @@ func (p *ProgressRing) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 	style, slots := p.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if p.Disabled {
+	if p.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -423,13 +363,13 @@ func (p *ProgressRing) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 	if !isTransparentMaterial(track) && !p.cachedTrackBounds.IsEmpty() {
 		cmds = append(cmds, progressMaterialCommands(ringPath(center, float64(p.cachedRingOuterRadius), float64(p.cachedRingInnerRadius), 0, 2*math.Pi), track)...)
 	}
-	progress := clamp01(p.Value)
+	progress := clamp01(p.Value.Get())
 	if !isTransparentMaterial(indicator) && !p.cachedTrackBounds.IsEmpty() && progress > 0 {
 		start := -math.Pi * 0.5
 		sweep := float64(progress) * 2 * math.Pi
 		cmds = append(cmds, progressMaterialCommands(ringPath(center, float64(p.cachedRingOuterRadius), float64(p.cachedRingInnerRadius), start, sweep), indicator)...)
 	}
-	if !p.Disabled && p.pulseRemaining > 0 && !p.cachedTrackBounds.IsEmpty() && progress > 0 {
+	if !p.Disabled.Get() && p.pulseRemaining > 0 && !p.cachedTrackBounds.IsEmpty() && progress > 0 {
 		start := -math.Pi * 0.5
 		sweep := float64(progress) * 2 * math.Pi
 		highlightSweep := math.Max(sweep*0.18, math.Pi/18)
@@ -477,7 +417,7 @@ func (p *ProgressRing) resolveProjectionTheme(runtime any) (theme.StyleContext, 
 }
 
 func (p *ProgressRing) progressRingVariant() uistatus.ProgressRingVariant {
-	if p != nil && p.Disabled {
+	if p != nil && p.Disabled.Get() {
 		return uistatus.ProgressRingDisabled
 	}
 	return uistatus.ProgressRingDefault
@@ -494,12 +434,12 @@ func (p *ProgressRing) startPulse() {
 	p.pulseDuration = duration
 	p.pulseRemaining = duration
 	p.pulsePhase = 0
-	p.tickRole.RequestTick()
+	p.Tick.RequestTick()
 }
 
 func (p *ProgressRing) onTick(dt time.Duration) {
-	if p == nil || p.Disabled || p.pulseRemaining <= 0 {
-		p.tickRole.Reset()
+	if p == nil || p.Disabled.Get() || p.pulseRemaining <= 0 {
+		p.Tick.Reset()
 		return
 	}
 	p.pulseRemaining -= dt
@@ -514,9 +454,9 @@ func (p *ProgressRing) onTick(dt time.Duration) {
 	}
 	p.invalidate(facet.DirtyProjection)
 	if p.pulseRemaining > 0 {
-		p.tickRole.RequestTick()
+		p.Tick.RequestTick()
 	} else {
-		p.tickRole.Reset()
+		p.Tick.Reset()
 	}
 }
 

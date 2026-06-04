@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -43,7 +44,7 @@ func TestCommandPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	palette, rt, resolved := newCommandPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := palette.layoutRole.Measure(facet.MeasureContext{
+	result := palette.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -55,7 +56,7 @@ func TestCommandPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	palette.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.layoutRole.Parent, ChildGroup: palette.layoutRole.Child}, bounds)
+	palette.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child}, bounds)
 
 	if got := palette.AccessibilityRole(); got != "dialog_combobox" {
 		t.Fatalf("accessibility role = %q, want dialog_combobox", got)
@@ -70,11 +71,11 @@ func TestCommandPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected arranged geometry, got surface=%#v search=%#v results=%#v", palette.cachedSurfaceBounds, palette.cachedSearchBounds, palette.cachedResultsBounds)
 	}
 
-	searchHit := palette.hitRole.HitTest(gfx.Point{X: palette.cachedSearchBounds.Min.X + 1, Y: palette.cachedSearchBounds.Min.Y + 1})
+	searchHit := palette.Hit.HitTest(gfx.Point{X: palette.cachedSearchBounds.Min.X + 1, Y: palette.cachedSearchBounds.Min.Y + 1})
 	if !searchHit.Hit || searchHit.MarkID != commandPaletteMarkIDSearchField {
 		t.Fatalf("expected search-field hit, got %#v", searchHit)
 	}
-	backdropHit := palette.hitRole.HitTest(gfx.Point{X: bounds.Max.X - 1, Y: bounds.Max.Y - 1})
+	backdropHit := palette.Hit.HitTest(gfx.Point{X: bounds.Max.X - 1, Y: bounds.Max.Y - 1})
 	if !backdropHit.Hit || backdropHit.MarkID != commandPaletteMarkIDBackdrop {
 		t.Fatalf("expected backdrop hit, got %#v", backdropHit)
 	}
@@ -86,7 +87,7 @@ func TestCommandPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := palette.projectionRole.Project(facet.ProjectionContext{
+	cmds := palette.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -114,12 +115,12 @@ func TestCommandPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestCommandPaletteSearchNavigationAndActivation(t *testing.T) {
 	palette, rt, resolved := newCommandPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = palette.layoutRole.Measure(facet.MeasureContext{
+	_ = palette.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        resolved,
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 720}})
-	palette.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.layoutRole.Parent, ChildGroup: palette.layoutRole.Child}, gfx.RectFromXYWH(0, 0, 1280, 720))
+	palette.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child}, gfx.RectFromXYWH(0, 0, 1280, 720))
 
 	var activated string
 	var executed string
@@ -155,8 +156,8 @@ func TestCommandPaletteSearchNavigationAndActivation(t *testing.T) {
 func TestCommandPaletteDisabledBehavior(t *testing.T) {
 	palette, rt, resolved := newCommandPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
-	palette.SetDisabled(true)
-	if palette.focusRole.Focusable() {
+	palette.Disabled = marks.Const(true)
+	if palette.Focus.Focusable() {
 		t.Fatal("expected disabled palette to be unfocusable")
 	}
 	if palette.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {
@@ -200,7 +201,7 @@ func TestCommandPaletteGoldenComfortable(t *testing.T) {
 
 func TestCommandPaletteGoldenDisabled(t *testing.T) {
 	AssertCommandPaletteGolden(t, "disabled", defaultCommandPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *CommandPalette) {
-		p.SetDisabled(true)
+		p.Disabled = marks.Const(true)
 	})
 }
 
@@ -232,13 +233,13 @@ func TestCommandPaletteGoldenRTL(t *testing.T) {
 
 func TestCommandPaletteGoldenOpen(t *testing.T) {
 	AssertCommandPaletteGolden(t, "open", defaultCommandPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *CommandPalette) {
-		p.SetOpen(true)
+		p.Open = true
 	})
 }
 
 func TestCommandPaletteGoldenDismissed(t *testing.T) {
 	AssertCommandPaletteGolden(t, "dismissed", defaultCommandPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *CommandPalette) {
-		p.SetOpen(false)
+		p.Open = false
 	})
 }
 
@@ -254,7 +255,7 @@ func AssertCommandPaletteGolden(t *testing.T, name string, tokens theme.Tokens, 
 func renderCommandPaletteToSurface(t *testing.T, palette *CommandPalette, rt commandPaletteRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := palette.layoutRole.Measure(facet.MeasureContext{
+	result := palette.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -265,9 +266,9 @@ func renderCommandPaletteToSurface(t *testing.T, palette *CommandPalette, rt com
 	if result.Size.W > 0 && result.Size.H > 0 {
 		bounds = gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
 	}
-	palette.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: palette.layoutRole.Parent, ChildGroup: palette.layoutRole.Child}, bounds)
+	palette.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child}, bounds)
 
-	cmds := palette.projectionRole.Project(facet.ProjectionContext{
+	cmds := palette.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -322,7 +323,7 @@ func newCommandPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.D
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	palette := NewCommandPalette("Command palette", registry)
+	palette := NewCommandPalette(marks.Const("Command palette"), registry)
 	rt := commandPaletteRuntimeStub{
 		rootStyle: rootStyle,
 		fonts:     mustButtonTextRegistry(t),

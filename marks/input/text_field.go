@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -38,28 +39,22 @@ const (
 
 // TextField implements the input.text_field standard mark.
 type TextField struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Value *store.ValueStore[string]
 
-	Label       string
-	Placeholder string
-	HelperText  string
-	WarningText string
-	ErrorText   string
-	Variant     uiinput.TextInputVariant
-	Validation  TextFieldValidation
-	Required    bool
-	Disabled    bool
-	ReadOnly    bool
+	Label       marks.Binding[string]
+	Placeholder marks.Binding[string]
+	HelperText  marks.Binding[string]
+	WarningText marks.Binding[string]
+	ErrorText   marks.Binding[string]
+	Variant     marks.Binding[uiinput.TextInputVariant]
+	Validation  marks.Binding[TextFieldValidation]
+	Required    marks.Binding[bool]
+	Disabled    marks.Binding[bool]
+	ReadOnly    marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -94,20 +89,30 @@ type TextField struct {
 
 var _ facet.FacetImpl = (*TextField)(nil)
 var _ layout.AnchorExporter = (*TextField)(nil)
+var _ marks.Mark = (*TextField)(nil)
 
 // NewTextField constructs an input.text_field mark with canonical defaults.
 func NewTextField(label string, variant uiinput.TextInputVariant) *TextField {
 	tf := &TextField{
-		Facet:   facet.NewFacet(),
-		Value:   store.NewValueStore(""),
-		Label:   label,
-		Variant: variant,
+		Label:       marks.Const(label),
+		Placeholder: marks.Const(""),
+		HelperText:  marks.Const(""),
+		WarningText: marks.Const(""),
+		ErrorText:   marks.Const(""),
+		Variant:     marks.Const(variant),
+		Validation:  marks.Const(TextFieldValidationDefault),
+		Required:    marks.Const(false),
+		Disabled:    marks.Const(false),
+		ReadOnly:    marks.Const(false),
+		Value:       store.NewValueStore(""),
 	}
-	tf.layoutRole.Parent = facet.GroupParentContract{
+	tf.Core.Facet = facet.NewFacet()
+
+	tf.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: textFieldGroupPolicy{},
 	}
-	tf.layoutRole.Child = facet.GroupChildContract{
+	tf.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := tf.measureIntrinsic(ctx, constraints)
@@ -125,59 +130,40 @@ func NewTextField(label string, variant uiinput.TextInputVariant) *TextField {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	tf.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	tf.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return tf.measure(ctx, constraints)
 	}
-	tf.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		tf.layoutRole.ArrangedBounds = bounds
+	tf.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		tf.Layout.ArrangedBounds = bounds
 		tf.arrange(ctx, bounds)
 	}
-	tf.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := tf.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	tf.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := tf.buildCommands(tf.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	tf.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	tf.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return tf.hitTest(p)
 	}
-	tf.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	tf.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return tf.onPointer(e)
 	}
-	tf.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	tf.Input.OnKey = func(e facet.KeyEvent) bool {
 		return tf.onKey(e)
 	}
-	tf.inputRole.OnText = func(e facet.TextEvent) bool {
+	tf.Input.OnText = func(e facet.TextEvent) bool {
 		return tf.onText(e)
 	}
-	tf.focusRole.Focusable = func() bool {
-		return !tf.Disabled
+	tf.Focus.Focusable = func() bool {
+		return !tf.Disabled.Get()
 	}
-	tf.focusRole.TabIndex = 0
-	tf.focusRole.OnFocusGained = func() {
+	tf.Focus.TabIndex = 0
+	tf.Focus.OnFocusGained = func() {
 		tf.onFocusGained()
 	}
-	tf.focusRole.OnFocusLost = func() {
+	tf.Focus.OnFocusLost = func() {
 		tf.onFocusLost()
 	}
+	tf.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return tf.buildCommands(tf.Layout.ArrangedBounds, ctx.Runtime)
+	}
 	tf.textRole.IMEEnabled = true
-	tf.AddRole(&tf.layoutRole)
-	tf.AddRole(&tf.renderRole)
-	tf.AddRole(&tf.projectionRole)
-	tf.AddRole(&tf.hitRole)
-	tf.AddRole(&tf.inputRole)
-	tf.AddRole(&tf.focusRole)
+	tf.RegisterRoles()
 	tf.AddRole(&tf.textRole)
 	return tf
 }
@@ -186,6 +172,11 @@ func NewTextField(label string, variant uiinput.TextInputVariant) *TextField {
 func (tf *TextField) Base() *facet.Facet {
 	tf.Facet.BindImpl(tf)
 	return &tf.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (tf *TextField) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "input", TypeName: "text_field"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -198,94 +189,7 @@ func (tf *TextField) AccessibleName() string {
 	if tf == nil {
 		return ""
 	}
-	return tf.Label
-}
-
-// SetLabel updates the field label.
-func (tf *TextField) SetLabel(label string) {
-	if tf == nil || tf.Label == label {
-		return
-	}
-	tf.Label = label
-	tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetPlaceholder updates the placeholder text.
-func (tf *TextField) SetPlaceholder(placeholder string) {
-	if tf == nil || tf.Placeholder == placeholder {
-		return
-	}
-	tf.Placeholder = placeholder
-	tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetHelperText updates the helper text.
-func (tf *TextField) SetHelperText(helper string) {
-	if tf == nil || tf.HelperText == helper {
-		return
-	}
-	tf.HelperText = helper
-	tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetWarningText updates the warning text.
-func (tf *TextField) SetWarningText(warning string) {
-	if tf == nil || tf.WarningText == warning {
-		return
-	}
-	tf.WarningText = warning
-	tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetErrorText updates the error text.
-func (tf *TextField) SetErrorText(err string) {
-	if tf == nil || tf.ErrorText == err {
-		return
-	}
-	tf.ErrorText = err
-	tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetValidation updates the validation state.
-func (tf *TextField) SetValidation(validation TextFieldValidation) {
-	if tf == nil || tf.Validation == validation {
-		return
-	}
-	tf.Validation = validation
-	tf.invalidate(facet.DirtyProjection)
-}
-
-// SetRequired toggles the required marker.
-func (tf *TextField) SetRequired(required bool) {
-	if tf == nil || tf.Required == required {
-		return
-	}
-	tf.Required = required
-	tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles the disabled state.
-func (tf *TextField) SetDisabled(disabled bool) {
-	if tf == nil || tf.Disabled == disabled {
-		return
-	}
-	tf.Disabled = disabled
-	if disabled {
-		tf.hovered = false
-		tf.pressed = false
-		tf.focusedVisible = false
-		tf.selecting = false
-	}
-	tf.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetReadOnly toggles read-only behavior.
-func (tf *TextField) SetReadOnly(readOnly bool) {
-	if tf == nil || tf.ReadOnly == readOnly {
-		return
-	}
-	tf.ReadOnly = readOnly
-	tf.invalidate(facet.DirtyProjection)
+	return tf.Label.Get()
 }
 
 // ExportAnchors publishes the field anchor set.
@@ -293,19 +197,9 @@ func (tf *TextField) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 	if tf == nil {
 		return nil
 	}
-	bounds := tf.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	out := tf.Core.DefaultAnchors(tf.Layout.ArrangedBounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if tf.textRole.Layout != nil {
 		out["baseline"] = gfx.Point{
@@ -313,7 +207,7 @@ func (tf *TextField) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 			Y: tf.cachedValueBounds.Min.Y + tf.textRole.Layout.Baseline,
 		}
 	} else {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
+		out["baseline"] = out["bounds_top_left"]
 	}
 	return out
 }
@@ -327,14 +221,16 @@ func (tf *TextField) OnAttach(ctx facet.AttachContext) {
 	if tf.Value == nil {
 		tf.Value = store.NewValueStore("")
 	}
+	tf.Core.OnAttach()
 	facet.Store(facet.Subscribe(tf), &tf.Value.OnChange, tf.Value.Version, func(signal.Change[string]) {
 		tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	})
 }
 
-func (tf *TextField) OnActivate()   {}
-func (tf *TextField) OnDeactivate() {}
+func (tf *TextField) OnActivate()   { tf.Core.OnActivate() }
+func (tf *TextField) OnDeactivate() { tf.Core.OnDeactivate() }
 func (tf *TextField) OnDetach() {
+	tf.Core.OnDetach()
 	tf.cachedLayout = nil
 	tf.cachedLabelLayout = nil
 	tf.cachedValueLayout = nil
@@ -400,8 +296,8 @@ func (tf *TextField) measure(ctx facet.MeasureContext, constraints facet.Constra
 	tf.textRole.CaretVisible = tf.shouldShowCaret()
 
 	size := gfx.Size{W: layout.Bounds.Width(), H: layout.Bounds.Height()}
-	tf.layoutRole.MeasuredSize = size
-	tf.layoutRole.MeasuredResult = facet.MeasureResult{
+	tf.Layout.MeasuredSize = size
+	tf.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -410,7 +306,7 @@ func (tf *TextField) measure(ctx facet.MeasureContext, constraints facet.Constra
 		},
 		Constraints: constraints,
 	}
-	return tf.layoutRole.MeasuredResult
+	return tf.Layout.MeasuredResult
 }
 
 func (tf *TextField) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -420,7 +316,7 @@ func (tf *TextField) measureIntrinsic(ctx facet.MeasureContext, constraints face
 func (tf *TextField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	tf.cachedRootBounds = bounds
 	if tf.cachedLayout == nil {
-		tf.layoutRole.ArrangedBounds = bounds
+		tf.Layout.ArrangedBounds = bounds
 		return
 	}
 	layout := tf.cachedLayout
@@ -455,14 +351,14 @@ func (tf *TextField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if tf.cachedValueBounds.Width() < 0 {
 		tf.cachedValueBounds = gfx.RectFromXYWH(bounds.Min.X, contentTop, 0, valueH)
 	}
-	if tf.Validation == TextFieldValidationWarning && tf.WarningText != "" {
+	if tf.Validation.Get() == TextFieldValidationWarning && tf.WarningText.Get() != "" {
 		tf.cachedHelperBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY+fieldH+gap, bounds.Width(), helperH)
-	} else if tf.Validation == TextFieldValidationInvalid && tf.ErrorText != "" {
+	} else if tf.Validation.Get() == TextFieldValidationInvalid && tf.ErrorText.Get() != "" {
 		tf.cachedErrorBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY+fieldH+gap, bounds.Width(), helperH)
 	} else if tf.cachedHelperLayout != nil {
 		tf.cachedHelperBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY+fieldH+gap, bounds.Width(), helperH)
 	}
-	tf.layoutRole.ArrangedBounds = bounds
+	tf.Layout.ArrangedBounds = bounds
 	_ = layout
 }
 
@@ -476,7 +372,7 @@ func (tf *TextField) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedConte
 		Materials: resolved.Materials,
 		Depth:     resolved.Depth,
 	}
-	slots, _ := uiinput.ResolveTextInputRecipe(style, tf.Variant)
+	slots, _ := uiinput.ResolveTextInputRecipe(style, tf.Variant.Get())
 	return resolved, slots, true
 }
 
@@ -491,7 +387,7 @@ func (tf *TextField) resolveProjectionTheme(runtime any) (theme.StyleContext, sh
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, tf.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uiinput.ResolveTextInputRecipe(style, tf.Variant)
+			slots, _ := uiinput.ResolveTextInputRecipe(style, tf.Variant.Get())
 			return style, slots
 		}
 	}
@@ -507,7 +403,7 @@ func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.
 	labelStyle := resolved.TextStyle(theme.TextLabelM)
 	valueStyle := resolved.TextStyle(theme.TextBodyM)
 	helperStyle := resolved.TextStyle(theme.TextBodyS)
-	labelLayout := shaper.ShapeTruncated(tf.Label, labelStyle, tf.availableWidth(constraints, resolved))
+	labelLayout := shaper.ShapeTruncated(tf.Label.Get(), labelStyle, tf.availableWidth(constraints, resolved))
 	valueText := tf.currentValue()
 	valueLayout := shaper.ShapeTruncated(valueText, valueStyle, tf.availableWidth(constraints, resolved))
 	placeholderLayout := shaper.ShapeTruncated(tf.placeholderText(), valueStyle, tf.availableWidth(constraints, resolved))
@@ -553,9 +449,9 @@ func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.
 		labelH = labelLayout.Bounds.Height()
 	}
 	helperH := float32(0)
-	if tf.Validation == TextFieldValidationInvalid && tf.errorText() != "" && errorLayout != nil {
+	if tf.Validation.Get() == TextFieldValidationInvalid && tf.errorText() != "" && errorLayout != nil {
 		helperH = errorLayout.Bounds.Height()
-	} else if tf.Validation == TextFieldValidationWarning && tf.warningText() != "" && helperLayout != nil {
+	} else if tf.Validation.Get() == TextFieldValidationWarning && tf.warningText() != "" && helperLayout != nil {
 		helperH = helperLayout.Bounds.Height()
 	} else if helperLayout != nil {
 		helperH = helperLayout.Bounds.Height()
@@ -699,7 +595,7 @@ func (tf *TextField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	caretStyle := recipe.Caret.Resolve(theme.StateFocused, tokens)
 	selectionStyle := recipe.SelectionRange.Resolve(theme.StateFocused, tokens)
 	focusRing := recipe.FocusRing.Resolve(theme.StateFocused, tokens)
-	if tf.Validation == TextFieldValidationInvalid {
+	if tf.Validation.Get() == TextFieldValidationInvalid {
 		focusRing = errorRingMaterial(tokens)
 	}
 	cmds := make([]gfx.Command, 0, 24)
@@ -736,13 +632,13 @@ func (tf *TextField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if tf.cachedHelperBounds != (gfx.Rect{}) && tf.cachedHelperLayout != nil {
 		helperLayout := tf.cachedHelperLayout
 		helperMaterial := helper
-		switch tf.Validation {
+		switch tf.Validation.Get() {
 		case TextFieldValidationWarning:
-			if tf.WarningText != "" {
+			if tf.WarningText.Get() != "" {
 				helperMaterial = themedMaterialFromColor(tokens.Color.Warning)
 			}
 		case TextFieldValidationInvalid:
-			if tf.ErrorText != "" {
+			if tf.ErrorText.Get() != "" {
 				helperLayout = tf.cachedErrorLayout
 				helperMaterial = errorStyle
 			}
@@ -816,7 +712,7 @@ func rectCommands(rect gfx.Rect, material theme.Material) []gfx.Command {
 }
 
 func (tf *TextField) hitTest(p gfx.Point) facet.HitResult {
-	if tf == nil || tf.layoutRole.ArrangedBounds.IsEmpty() || !tf.layoutRole.ArrangedBounds.Contains(p) {
+	if tf == nil || tf.Layout.ArrangedBounds.IsEmpty() || !tf.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := tf.cursorShape()
@@ -824,7 +720,7 @@ func (tf *TextField) hitTest(p gfx.Point) facet.HitResult {
 		return facet.HitResult{Hit: true, MarkID: textFieldMarkIDLabel, Cursor: cursor}
 	}
 	if tf.cachedHelperBounds.Contains(p) {
-		if tf.Validation == TextFieldValidationInvalid {
+		if tf.Validation.Get() == TextFieldValidationInvalid {
 			return facet.HitResult{Hit: true, MarkID: textFieldMarkIDErrorText, Cursor: cursor}
 		}
 		return facet.HitResult{Hit: true, MarkID: textFieldMarkIDHelperText, Cursor: cursor}
@@ -855,14 +751,14 @@ func (tf *TextField) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (tf *TextField) cursorShape() facet.CursorShape {
-	if tf.Disabled {
+	if tf.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorText
 }
 
 func (tf *TextField) onPointer(e facet.PointerEvent) bool {
-	if tf.Disabled {
+	if tf.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -921,7 +817,7 @@ func (tf *TextField) onPointer(e facet.PointerEvent) bool {
 }
 
 func (tf *TextField) onKey(e facet.KeyEvent) bool {
-	if tf.Disabled {
+	if tf.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -965,7 +861,7 @@ func (tf *TextField) onKey(e facet.KeyEvent) bool {
 }
 
 func (tf *TextField) onText(e facet.TextEvent) bool {
-	if tf.Disabled || tf.ReadOnly || e.Text == "" {
+	if tf.Disabled.Get() || tf.ReadOnly.Get() || e.Text == "" {
 		return false
 	}
 	tf.insertText(e.Text)
@@ -995,7 +891,7 @@ func (tf *TextField) onFocusLost() {
 
 func (tf *TextField) interactionState() theme.InteractionState {
 	switch {
-	case tf.Disabled:
+	case tf.Disabled.Get():
 		return theme.StateDisabled
 	case tf.pressed:
 		return theme.StatePressed
@@ -1020,29 +916,29 @@ func (tf *TextField) valueIsEmpty() bool {
 }
 
 func (tf *TextField) placeholderText() string {
-	return tf.Placeholder
+	return tf.Placeholder.Get()
 }
 
 func (tf *TextField) warningText() string {
-	return tf.WarningText
+	return tf.WarningText.Get()
 }
 
 func (tf *TextField) errorText() string {
-	return tf.ErrorText
+	return tf.ErrorText.Get()
 }
 
 func (tf *TextField) auxiliaryText() string {
-	switch tf.Validation {
+	switch tf.Validation.Get() {
 	case TextFieldValidationWarning:
-		if tf.WarningText != "" {
-			return tf.WarningText
+		if tf.WarningText.Get() != "" {
+			return tf.WarningText.Get()
 		}
 	case TextFieldValidationInvalid:
-		if tf.ErrorText != "" {
-			return tf.ErrorText
+		if tf.ErrorText.Get() != "" {
+			return tf.ErrorText.Get()
 		}
 	}
-	return tf.HelperText
+	return tf.HelperText.Get()
 }
 
 func (tf *TextField) selectionHasContent() bool {
@@ -1099,7 +995,7 @@ func (tf *TextField) currentCaret(layout *text.TextLayout) text.TextPosition {
 }
 
 func (tf *TextField) shouldShowCaret() bool {
-	return !tf.Disabled && tf.focusedVisible
+	return !tf.Disabled.Get() && tf.focusedVisible
 }
 
 func (tf *TextField) clearSelection() {
@@ -1166,7 +1062,7 @@ func (tf *TextField) applyCaretMove(extend bool) {
 }
 
 func (tf *TextField) deleteBackward() bool {
-	if tf.ReadOnly {
+	if tf.ReadOnly.Get() {
 		return false
 	}
 	if tf.cachedValueLayout == nil {
@@ -1197,7 +1093,7 @@ func (tf *TextField) deleteBackward() bool {
 }
 
 func (tf *TextField) insertText(textValue string) {
-	if tf.ReadOnly || tf.Value == nil {
+	if tf.ReadOnly.Get() || tf.Value == nil {
 		return
 	}
 	if tf.cachedValueLayout == nil {

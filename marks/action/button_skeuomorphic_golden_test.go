@@ -8,6 +8,7 @@ import (
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -42,13 +43,13 @@ func mustSkeuoButtonIconAsset(ref, svgSrc string) runtimepkg.IconAsset {
 
 func TestButtonGoldenSkeuomorphic(t *testing.T) {
 	AssertButtonSkeuomorphicGolden(t, "skeuomorphic", func(btn *Button) {
-		btn.SetVariant(uiinput.ButtonSkeuomorphic)
+		btn.Variant = marks.Const(uiinput.ButtonSkeuomorphic)
 	})
 }
 
 func TestButtonGoldenSkeuomorphicPressed(t *testing.T) {
 	AssertButtonSkeuomorphicGolden(t, "skeuomorphic_pressed", func(btn *Button) {
-		btn.SetVariant(uiinput.ButtonSkeuomorphic)
+		btn.Variant = marks.Const(uiinput.ButtonSkeuomorphic)
 		btn.onPointer(facet.PointerEvent{
 			Kind:     platform.PointerPress,
 			Position: gfx.Point{X: 1, Y: 1},
@@ -61,9 +62,9 @@ func AssertButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*Butt
 	t.Helper()
 
 	// Build button with real flowbite icon paths rather than placeholder rects.
-	btn := NewButton("Save changes", uiinput.ButtonFilled)
-	btn.SetLeadingIconRef("floppy-disk")
-	btn.SetTrailingIconRef("check")
+	btn := NewButton(marks.Const("Save changes"), marks.Const(uiinput.ButtonFilled))
+	btn.LeadingIconRef = marks.Const("floppy-disk")
+	btn.TrailingIconRef = marks.Const("check")
 
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, toThemeTokens(templates.Notes().Tokens), nil),
@@ -81,7 +82,7 @@ func AssertButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*Butt
 	measureCtx := theme.DefaultResolvedContext()
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -99,12 +100,12 @@ func AssertButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*Butt
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
-	btn.layoutRole.Arrange(facet.ArrangeContext{
+	btn.Layout.Arrange(facet.ArrangeContext{
 		Runtime: rt,
 		Theme:   measureCtx,
 	}, bounds)
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+	cmds := btn.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

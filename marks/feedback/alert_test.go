@@ -11,6 +11,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -49,7 +50,7 @@ func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := alert.layoutRole.Measure(facet.MeasureContext{
+	result := alert.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -60,14 +61,13 @@ func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	alert.layoutRole.Arrange(facet.ArrangeContext{
+	alert.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: alert.layoutRole.Parent,
-		ChildGroup:  alert.layoutRole.Child,
+		ParentGroup: alert.Layout.Parent,
+		ChildGroup:  alert.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, bounds)
-
 	if got := alert.AccessibilityRole(); got != "alert" {
 		t.Fatalf("accessibility role = %q, want alert", got)
 	}
@@ -86,7 +86,7 @@ func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := alert.projectionRole.Project(facet.ProjectionContext{
+	cmds := alert.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -121,20 +121,20 @@ func TestAlertInteractionsEmitActionAndDismiss(t *testing.T) {
 	}
 
 	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = alert.layoutRole.Measure(facet.MeasureContext{
+	_ = alert.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 240}})
-	alert.layoutRole.Arrange(facet.ArrangeContext{
+	alert.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: alert.layoutRole.Parent,
-		ChildGroup:  alert.layoutRole.Child,
+		ParentGroup: alert.Layout.Parent,
+		ChildGroup:  alert.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
-	}, gfx.RectFromXYWH(0, 0, alert.layoutRole.MeasuredSize.W, alert.layoutRole.MeasuredSize.H))
+	}, gfx.RectFromXYWH(0, 0, alert.Layout.MeasuredSize.W, alert.Layout.MeasuredSize.H))
 
 	var actioned, dismissed int
 	alert.Actioned.Subscribe(func(signal.Unit) { actioned++ })
@@ -199,7 +199,7 @@ func TestAlertGoldenComfortable(t *testing.T) {
 
 func TestAlertGoldenDisabled(t *testing.T) {
 	AssertAlertGolden(t, "disabled", alertTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(a *Alert) {
-		a.SetDisabled(true)
+		a.Disabled = marks.Const(true)
 	})
 }
 
@@ -236,21 +236,21 @@ func AssertAlertGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	resolved := alertResolvedContext(tokens, density, direction)
 	facet.Attach(alert, facet.AttachContext{Runtime: rt, Theme: resolved})
 	canvas := gfx.RectFromXYWH(16, 16, 360, 240)
-	_ = alert.layoutRole.Measure(facet.MeasureContext{
+	_ = alert.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	alert.layoutRole.Arrange(facet.ArrangeContext{
+	alert.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: alert.layoutRole.Parent,
-		ChildGroup:  alert.layoutRole.Child,
+		ParentGroup: alert.Layout.Parent,
+		ChildGroup:  alert.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, canvas)
-	cmds := alert.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	cmds := alert.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
@@ -276,8 +276,8 @@ func AssertAlertGolden(t *testing.T, name string, tokens theme.Tokens, density t
 
 func newAlertFixture() *Alert {
 	alert := NewAlert("Network unavailable", "The system will retry automatically.")
-	alert.SetActionLabel("Retry")
-	alert.SetCloseButtonLabel("Dismiss")
+	alert.ActionLabel = marks.Const("Retry")
+	alert.CloseButtonLabel = marks.Const("Dismiss")
 	return alert
 }
 

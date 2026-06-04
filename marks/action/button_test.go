@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -60,7 +61,7 @@ func TestButtonMeasureProjectHitAndAnchors(t *testing.T) {
 		Theme:   theme.DefaultResolvedContext(),
 	})
 
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -70,13 +71,13 @@ func TestButtonMeasureProjectHitAndAnchors(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 24, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
 
 	if btn.cachedLeadingBox.IsEmpty() || btn.cachedTrailingBox.IsEmpty() {
 		t.Fatalf("expected icon hit boxes, got leading=%#v trailing=%#v", btn.cachedLeadingBox, btn.cachedTrailingBox)
 	}
 
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+	cmds := btn.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -97,19 +98,19 @@ func TestButtonMeasureProjectHitAndAnchors(t *testing.T) {
 		}
 	}
 
-	leading := btn.hitRole.HitTest(gfx.Point{X: btn.cachedLeadingBox.Min.X + 1, Y: btn.cachedLeadingBox.Min.Y + 1})
+	leading := btn.Hit.HitTest(gfx.Point{X: btn.cachedLeadingBox.Min.X + 1, Y: btn.cachedLeadingBox.Min.Y + 1})
 	if !leading.Hit || leading.MarkID != buttonMarkIDLeading {
 		t.Fatalf("expected leading hit, got %#v", leading)
 	}
-	label := btn.hitRole.HitTest(gfx.Point{X: btn.cachedLabelBounds.Min.X + 1, Y: btn.cachedLabelBounds.Min.Y + 1})
+	label := btn.Hit.HitTest(gfx.Point{X: btn.cachedLabelBounds.Min.X + 1, Y: btn.cachedLabelBounds.Min.Y + 1})
 	if !label.Hit || label.MarkID != buttonMarkIDLabel {
 		t.Fatalf("expected label hit, got %#v", label)
 	}
-	trailing := btn.hitRole.HitTest(gfx.Point{X: btn.cachedTrailingBox.Min.X + 1, Y: btn.cachedTrailingBox.Min.Y + 1})
+	trailing := btn.Hit.HitTest(gfx.Point{X: btn.cachedTrailingBox.Min.X + 1, Y: btn.cachedTrailingBox.Min.Y + 1})
 	if !trailing.Hit || trailing.MarkID != buttonMarkIDTrailing {
 		t.Fatalf("expected trailing hit, got %#v", trailing)
 	}
-	container := btn.hitRole.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
+	container := btn.Hit.HitTest(gfx.Point{X: bounds.Min.X + 1, Y: bounds.Min.Y + 1})
 	if !container.Hit || container.MarkID != buttonMarkIDContainer {
 		t.Fatalf("expected container hit, got %#v", container)
 	}
@@ -117,23 +118,23 @@ func TestButtonMeasureProjectHitAndAnchors(t *testing.T) {
 
 func TestButtonAndSplitButtonLabelBaselineReference(t *testing.T) {
 	btn, btnRT := newTestButton(t, false)
-	btn.SetLabel("Label")
+	btn.Label = marks.Const("Label")
 
 	split, splitRT := newSplitButtonFixture(t)
-	split.SetLabel("Label")
-	split.SetPrimaryIconRef("")
+	split.Label = marks.Const("Label")
+	split.PrimaryIconRef = marks.Const("")
 
 	ctx := theme.DefaultResolvedContext()
 
 	facet.Attach(btn, facet.AttachContext{Runtime: btnRT, Theme: ctx})
 	facet.Attach(split, facet.AttachContext{Runtime: splitRT, Theme: ctx})
 
-	btnResult := btn.layoutRole.Measure(facet.MeasureContext{
+	btnResult := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      btnRT,
 		Theme:        ctx,
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 800, H: 240}})
-	splitResult := split.layoutRole.Measure(facet.MeasureContext{
+	splitResult := split.Layout.Measure(facet.MeasureContext{
 		Runtime:      splitRT,
 		Theme:        ctx,
 		ContentScale: 1,
@@ -142,8 +143,8 @@ func TestButtonAndSplitButtonLabelBaselineReference(t *testing.T) {
 		t.Fatalf("expected measurable layouts, button=%#v split=%#v", btnResult.Size, splitResult.Size)
 	}
 
-	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: ctx}, gfx.RectFromXYWH(0, 0, btnResult.Size.W, btnResult.Size.H))
-	split.layoutRole.Arrange(facet.ArrangeContext{Runtime: splitRT, Theme: ctx, ParentGroup: split.layoutRole.Parent, ChildGroup: split.layoutRole.Child}, gfx.RectFromXYWH(0, 0, splitResult.Size.W, splitResult.Size.H))
+	btn.Layout.Arrange(facet.ArrangeContext{Theme: ctx}, gfx.RectFromXYWH(0, 0, btnResult.Size.W, btnResult.Size.H))
+	split.Layout.Arrange(facet.ArrangeContext{Runtime: splitRT, Theme: ctx, ParentGroup: split.Layout.Parent, ChildGroup: split.Layout.Child}, gfx.RectFromXYWH(0, 0, splitResult.Size.W, splitResult.Size.H))
 
 	if btn.cachedLayout == nil || split.cachedPrimaryLayout == nil {
 		t.Fatalf("expected shaped label layouts, button=%#v split=%#v", btn.cachedLayout, split.cachedPrimaryLayout)
@@ -160,13 +161,13 @@ func TestButtonActivatesFromPointerAndKeyboard(t *testing.T) {
 	btn, rt := newTestButton(t, false)
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 400, H: 200}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
 
 	activated := 0
 	btn.Activated.Subscribe(func(signal.Unit) {
@@ -209,19 +210,19 @@ func TestButtonFocusVisibleAndDisabledBehavior(t *testing.T) {
 	btn, rt := newTestButton(t, false)
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := btn.layoutRole.Measure(facet.MeasureContext{
+	result := btn.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 400, H: 200}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	btn.layoutRole.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
+	btn.Layout.Arrange(facet.ArrangeContext{Theme: theme.DefaultResolvedContext()}, bounds)
 
 	btn.onFocusGained()
 	if !btn.focusedVisible {
 		t.Fatal("expected keyboard focus to show focus ring")
 	}
-	cmds := btn.projectionRole.Project(facet.ProjectionContext{
+	cmds := btn.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -240,8 +241,8 @@ func TestButtonFocusVisibleAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected focus ring stroke in projection")
 	}
 
-	btn.SetDisabled(true)
-	if btn.focusRole.Focusable() {
+	btn.Disabled = marks.Const(true)
+	if btn.Focus.Focusable() {
 		t.Fatal("expected disabled button to be unfocusable")
 	}
 	if btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {
@@ -254,7 +255,7 @@ func TestButtonFocusVisibleAndDisabledBehavior(t *testing.T) {
 
 func newTestButton(t *testing.T, withIcons bool) (*Button, buttonRuntimeStub) {
 	t.Helper()
-	btn := NewButton("Save changes", uiinput.ButtonFilled)
+	btn := NewButton(marks.Const("Save changes"), marks.Const(uiinput.ButtonFilled))
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustButtonTextRegistry(t),
@@ -264,8 +265,8 @@ func newTestButton(t *testing.T, withIcons bool) (*Button, buttonRuntimeStub) {
 			"leading":  {Path: gfx.RectPath(gfx.RectFromXYWH(0, 0, 24, 24)), ViewBox: gfx.RectFromXYWH(0, 0, 24, 24)},
 			"trailing": {Path: gfx.RectPath(gfx.RectFromXYWH(0, 0, 24, 24)), ViewBox: gfx.RectFromXYWH(0, 0, 24, 24)},
 		}
-		btn.SetLeadingIconRef("leading")
-		btn.SetTrailingIconRef("trailing")
+		btn.LeadingIconRef = marks.Const("leading")
+		btn.TrailingIconRef = marks.Const("trailing")
 	}
 	return btn, rt
 }

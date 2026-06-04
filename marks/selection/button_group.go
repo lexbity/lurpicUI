@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -56,23 +57,17 @@ type ButtonGroupOption struct {
 
 // ButtonGroup implements the selection.button_group standard mark.
 type ButtonGroup struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Activated signal.Signal[string]
 
-	Label    string
+	Label    marks.Binding[string]
 	Options  []ButtonGroupOption
 	Value    *store.ValueStore[[]string]
-	Mode     ButtonGroupMode
-	Disabled bool
+	Mode     marks.Binding[ButtonGroupMode]
+	Disabled marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -95,14 +90,9 @@ type ButtonGroup struct {
 }
 
 type buttonGroupItem struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	parent *ButtonGroup
 	index  int
@@ -128,26 +118,32 @@ type buttonGroupItem struct {
 
 var _ facet.FacetImpl = (*ButtonGroup)(nil)
 var _ layout.AnchorExporter = (*ButtonGroup)(nil)
+var _ marks.Mark = (*ButtonGroup)(nil)
 var _ facet.FacetImpl = (*buttonGroupItem)(nil)
 
 // NewButtonGroup constructs a selection.button_group mark with canonical defaults.
 func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
 	bg := &ButtonGroup{
-		Facet:        facet.NewFacet(),
-		Label:        label,
-		Mode:         ButtonGroupExclusive,
+		Label:       marks.Const(label),
+		Mode:        marks.Const(ButtonGroupExclusive),
+		Disabled:    marks.Const(false),
 		hoveredIndex: -1,
 		pressedIndex: -1,
 		focusedIndex: -1,
-		Value:        store.NewValueStore[[]string](nil),
+		Value:       store.NewValueStore[[]string](nil),
 	}
+	bg.Core.Facet = facet.NewFacet()
+	bg.AddBinding(bg.Label)
+	bg.AddBinding(bg.Mode)
+	bg.AddBinding(bg.Disabled)
 	bg.SetOptions(options)
-	bg.layoutRole.Parent = facet.GroupParentContract{
+
+	bg.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   buttonGroupPolicy{group: bg},
 		Children: bg,
 	}
-	bg.layoutRole.Child = facet.GroupChildContract{
+	bg.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := bg.measureIntrinsic(ctx, constraints)
@@ -165,14 +161,23 @@ func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	bg.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	bg.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return bg.measure(ctx, constraints)
 	}
-	bg.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		bg.layoutRole.ArrangedBounds = bounds
+	bg.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		bg.Layout.ArrangedBounds = bounds
 		bg.arrange(ctx, bounds)
 	}
-	bg.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	bg.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return bg.hitTest(p) }
+	bg.Input.OnPointer = func(e facet.PointerEvent) bool { return bg.onPointer(e) }
+	bg.Input.OnKey = func(e facet.KeyEvent) bool { return bg.onKey(e) }
+	bg.Focus.Focusable = func() bool { return !bg.Disabled.Get() && len(bg.Options) > 0 }
+	bg.Focus.TabIndex = 0
+	bg.Focus.OnFocusGained = func() { bg.onFocusGained() }
+	bg.Focus.OnFocusLost = func() { bg.onFocusLost() }
+	bg.textRole.IMEEnabled = false
+
+	bg.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -182,27 +187,10 @@ func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	bg.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := bg.buildCommands(bg.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	bg.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return bg.buildCommands(bg.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	bg.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return bg.hitTest(p) }
-	bg.inputRole.OnPointer = func(e facet.PointerEvent) bool { return bg.onPointer(e) }
-	bg.inputRole.OnKey = func(e facet.KeyEvent) bool { return bg.onKey(e) }
-	bg.focusRole.Focusable = func() bool { return !bg.Disabled && len(bg.Options) > 0 }
-	bg.focusRole.TabIndex = 0
-	bg.focusRole.OnFocusGained = func() { bg.onFocusGained() }
-	bg.focusRole.OnFocusLost = func() { bg.onFocusLost() }
-	bg.textRole.IMEEnabled = false
-	bg.AddRole(&bg.layoutRole)
-	bg.AddRole(&bg.renderRole)
-	bg.AddRole(&bg.projectionRole)
-	bg.AddRole(&bg.hitRole)
-	bg.AddRole(&bg.inputRole)
-	bg.AddRole(&bg.focusRole)
+	bg.RegisterRoles()
 	bg.AddRole(&bg.textRole)
 	bg.rebuildChildren()
 	return bg
@@ -214,31 +202,16 @@ func (bg *ButtonGroup) Base() *facet.Facet {
 	return &bg.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (bg *ButtonGroup) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "button_group"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (bg *ButtonGroup) AccessibilityRole() string { return "group" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (bg *ButtonGroup) AccessibleName() string { return bg.Label }
-
-// SetLabel updates the authored accessible label.
-func (bg *ButtonGroup) SetLabel(label string) {
-	if bg == nil || bg.Label == label {
-		return
-	}
-	bg.Label = label
-	bg.invalidate(facet.DirtyProjection)
-}
-
-// SetMode updates the selection behavior.
-func (bg *ButtonGroup) SetMode(mode ButtonGroupMode) {
-	if bg == nil || bg.Mode == mode {
-		return
-	}
-	bg.Mode = mode
-	bg.clampSelection()
-	bg.syncChildState()
-	bg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
+func (bg *ButtonGroup) AccessibleName() string { return bg.Label.Get() }
 
 // SetOptions updates the available buttons.
 func (bg *ButtonGroup) SetOptions(options []ButtonGroupOption) {
@@ -276,40 +249,15 @@ func (bg *ButtonGroup) SetSelectedKeys(keys ...string) {
 	bg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
-// SetDisabled toggles disabled state.
-func (bg *ButtonGroup) SetDisabled(disabled bool) {
-	if bg == nil || bg.Disabled == disabled {
-		return
-	}
-	bg.Disabled = disabled
-	if disabled {
-		bg.hoveredIndex = -1
-		bg.pressedIndex = -1
-		bg.focusedVisible = false
-		bg.focusFromPointer = false
-	}
-	bg.syncChildState()
-	bg.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the button-group anchor set.
 func (bg *ButtonGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if bg == nil {
 		return nil
 	}
-	bounds := bg.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := bg.Layout.ArrangedBounds
+	out := bg.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if len(bg.cachedOptionBounds) > 0 {
 		idx := bg.focusedIndex
@@ -366,6 +314,7 @@ func (bg *ButtonGroup) Children() []facet.GroupChild {
 
 // OnAttach wires store invalidation for the bound selection store.
 func (bg *ButtonGroup) OnAttach(ctx facet.AttachContext) {
+	bg.Core.OnAttach()
 	if bg.Value == nil {
 		bg.Value = store.NewValueStore[[]string](nil)
 	}
@@ -376,13 +325,14 @@ func (bg *ButtonGroup) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (bg *ButtonGroup) OnActivate() {}
+func (bg *ButtonGroup) OnActivate() { bg.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (bg *ButtonGroup) OnDeactivate() {}
+func (bg *ButtonGroup) OnDeactivate() { bg.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (bg *ButtonGroup) OnDetach() {
+	bg.Core.OnDetach()
 	bg.cachedTokens = theme.Tokens{}
 	bg.cachedRecipe = shared.ButtonGroupSlots{}
 	bg.cachedRootBounds = gfx.Rect{}
@@ -417,7 +367,7 @@ func (bg *ButtonGroup) rebuildChildren() {
 		child.index = i
 		child.setLabel(bg.Options[i].Label)
 		child.setIcon(bg.Options[i].Icon)
-		child.setDisabled(bg.Disabled || bg.Options[i].Disabled)
+		child.setDisabled(bg.Disabled.Get() || bg.Options[i].Disabled)
 		child.setSelected(bg.isSelectedKey(bg.Options[i].Key))
 		child.cachedWritingDirection = bg.cachedWritingDirection
 	}
@@ -434,7 +384,7 @@ func (bg *ButtonGroup) syncChildState() {
 		}
 		child.setLabel(bg.Options[i].Label)
 		child.setIcon(bg.Options[i].Icon)
-		child.setDisabled(bg.Disabled || bg.Options[i].Disabled)
+		child.setDisabled(bg.Disabled.Get() || bg.Options[i].Disabled)
 		child.setSelected(bg.isSelectedKey(bg.Options[i].Key))
 		child.cachedWritingDirection = bg.cachedWritingDirection
 	}
@@ -465,7 +415,7 @@ func (bg *ButtonGroup) measure(ctx facet.MeasureContext, constraints facet.Const
 		if child == nil {
 			continue
 		}
-		size := child.layoutRole.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxFloat(0, constraints.MaxSize.W), H: constraints.MaxSize.H}})
+		size := child.Layout.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxFloat(0, constraints.MaxSize.W), H: constraints.MaxSize.H}})
 		if size.Size.W > contentW {
 			contentW = size.Size.W
 		}
@@ -482,9 +432,9 @@ func (bg *ButtonGroup) measure(ctx facet.MeasureContext, constraints facet.Const
 			if i > 0 {
 				contentW += bg.cachedGap
 			}
-			contentW += bg.cachedItems[i].layoutRole.MeasuredSize.W
-			if bg.cachedItems[i].layoutRole.MeasuredSize.H > contentH {
-				contentH = bg.cachedItems[i].layoutRole.MeasuredSize.H
+			contentW += bg.cachedItems[i].Layout.MeasuredSize.W
+			if bg.cachedItems[i].Layout.MeasuredSize.H > contentH {
+				contentH = bg.cachedItems[i].Layout.MeasuredSize.H
 			}
 		}
 	}
@@ -501,18 +451,18 @@ func (bg *ButtonGroup) measure(ctx facet.MeasureContext, constraints facet.Const
 	if constraints.MaxSize.H > 0 {
 		size.H = minFloat(size.H, constraints.MaxSize.H)
 	}
-	bg.layoutRole.MeasuredSize = constraints.Constrain(size)
-	bg.layoutRole.MeasuredResult = facet.MeasureResult{
-		Size: bg.layoutRole.MeasuredSize,
+	bg.Layout.MeasuredSize = constraints.Constrain(size)
+	bg.Layout.MeasuredResult = facet.MeasureResult{
+		Size: bg.Layout.MeasuredSize,
 		Intrinsic: facet.IntrinsicSize{
-			Min:       bg.layoutRole.MeasuredSize,
-			Preferred: bg.layoutRole.MeasuredSize,
-			Max:       bg.layoutRole.MeasuredSize,
+			Min:       bg.Layout.MeasuredSize,
+			Preferred: bg.Layout.MeasuredSize,
+			Max:       bg.Layout.MeasuredSize,
 		},
 		Constraints: constraints,
 	}
 	bg.textRole.Layout = nil
-	return bg.layoutRole.MeasuredResult
+	return bg.Layout.MeasuredResult
 }
 
 func (bg *ButtonGroup) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -522,7 +472,7 @@ func (bg *ButtonGroup) measureIntrinsic(ctx facet.MeasureContext, constraints fa
 func (bg *ButtonGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	bg.cachedRootBounds = bounds
 	bg.cachedGroupSurface = bounds
-	bg.layoutRole.ArrangedBounds = bounds
+	bg.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		bg.cachedOptionBounds = nil
 		return
@@ -547,8 +497,8 @@ func (bg *ButtonGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if i > 0 {
 			totalW += bg.cachedGap
 		}
-		totalW += bg.cachedItems[i].layoutRole.MeasuredSize.W
-		if h := bg.cachedItems[i].layoutRole.MeasuredSize.H; h > maxH {
+		totalW += bg.cachedItems[i].Layout.MeasuredSize.W
+		if h := bg.cachedItems[i].Layout.MeasuredSize.H; h > maxH {
 			maxH = h
 		}
 	}
@@ -566,17 +516,17 @@ func (bg *ButtonGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if child == nil {
 			continue
 		}
-		w := child.layoutRole.MeasuredSize.W
+		w := child.Layout.MeasuredSize.W
 		h := maxH
 		y := inner.Min.Y + maxFloat(0, (inner.Height()-h)*0.5)
 		if bg.cachedWritingDirection == facet.WritingDirectionRTL {
 			rect := gfx.RectFromXYWH(curX, y, w, h)
-			child.layoutRole.Arrange(facet.ArrangeContext{Runtime: ctx.Runtime, Theme: ctx.Theme, ParentGroup: child.layoutRole.Parent, ChildGroup: child.layoutRole.Child, Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: i, CrossAxisAlign: facet.CrossAxisStretch}}}, rect)
+			child.Layout.Arrange(facet.ArrangeContext{Runtime: ctx.Runtime, Theme: ctx.Theme, ParentGroup: child.Layout.Parent, ChildGroup: child.Layout.Child, Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: i, CrossAxisAlign: facet.CrossAxisStretch}}}, rect)
 			arranged[i] = rect
 			curX += w + bg.cachedGap
 		} else {
 			rect := gfx.RectFromXYWH(curX, y, w, h)
-			child.layoutRole.Arrange(facet.ArrangeContext{Runtime: ctx.Runtime, Theme: ctx.Theme, ParentGroup: child.layoutRole.Parent, ChildGroup: child.layoutRole.Child, Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: i, CrossAxisAlign: facet.CrossAxisStretch}}}, rect)
+			child.Layout.Arrange(facet.ArrangeContext{Runtime: ctx.Runtime, Theme: ctx.Theme, ParentGroup: child.Layout.Parent, ChildGroup: child.Layout.Child, Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: i, CrossAxisAlign: facet.CrossAxisStretch}}}, rect)
 			arranged[i] = rect
 			curX += w + bg.cachedGap
 		}
@@ -624,7 +574,7 @@ func (bg *ButtonGroup) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		if bg.cachedItems[i] == nil {
 			continue
 		}
-		childCmds := bg.cachedItems[i].projectionRole.Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: bg.cachedOptionBounds[i], ContentScale: contentScale})
+		childCmds := bg.cachedItems[i].Projection.Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: bg.cachedOptionBounds[i], ContentScale: contentScale})
 		if childCmds != nil {
 			cmds = append(cmds, childCmds.Commands...)
 		}
@@ -638,7 +588,7 @@ func (bg *ButtonGroup) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 }
 
 func (bg *ButtonGroup) hitTest(p gfx.Point) facet.HitResult {
-	if bg == nil || bg.layoutRole.ArrangedBounds.IsEmpty() || !bg.layoutRole.ArrangedBounds.Contains(p) {
+	if bg == nil || bg.Layout.ArrangedBounds.IsEmpty() || !bg.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := bg.cursorShape()
@@ -676,14 +626,14 @@ func (bg *ButtonGroup) pointInFocusRing(p gfx.Point) bool {
 }
 
 func (bg *ButtonGroup) cursorShape() facet.CursorShape {
-	if bg.Disabled {
+	if bg.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (bg *ButtonGroup) onPointer(e facet.PointerEvent) bool {
-	if bg.Disabled {
+	if bg.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -743,7 +693,7 @@ func (bg *ButtonGroup) onPointer(e facet.PointerEvent) bool {
 }
 
 func (bg *ButtonGroup) onKey(e facet.KeyEvent) bool {
-	if bg.Disabled || len(bg.Options) == 0 {
+	if bg.Disabled.Get() || len(bg.Options) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -813,7 +763,7 @@ func (bg *ButtonGroup) onFocusLost() {
 
 func (bg *ButtonGroup) interactionState() theme.InteractionState {
 	switch {
-	case bg.Disabled:
+	case bg.Disabled.Get():
 		return theme.StateDisabled
 	case bg.pressedIndex >= 0:
 		return theme.StatePressed
@@ -828,7 +778,7 @@ func (bg *ButtonGroup) interactionState() theme.InteractionState {
 
 func (bg *ButtonGroup) optionState(idx int) theme.InteractionState {
 	switch {
-	case bg.Disabled || bg.isDisabledIndex(idx):
+	case bg.Disabled.Get() || bg.isDisabledIndex(idx):
 		return theme.StateDisabled
 	case bg.pressedIndex == idx:
 		return theme.StatePressed
@@ -886,7 +836,7 @@ func (bg *ButtonGroup) moveFocus(delta int) {
 		idx = len(bg.Options) - 1
 	}
 	bg.focusedIndex = idx
-	if bg.Mode == ButtonGroupExclusive {
+	if bg.Mode.Get() == ButtonGroupExclusive {
 		bg.activateIndex(idx)
 		return
 	}
@@ -902,7 +852,7 @@ func (bg *ButtonGroup) activateIndex(idx int) {
 		return
 	}
 	bg.focusedIndex = idx
-	if bg.Mode == ButtonGroupMultiple {
+	if bg.Mode.Get() == ButtonGroupMultiple {
 		bg.toggleKey(key)
 	} else {
 		bg.SetSelectedKeys(key)
@@ -965,7 +915,7 @@ func (bg *ButtonGroup) normalizeSelection(keys []string) []string {
 			}
 		}
 	}
-	if bg.Mode == ButtonGroupExclusive && len(out) > 1 {
+	if bg.Mode.Get() == ButtonGroupExclusive && len(out) > 1 {
 		return out[:1]
 	}
 	return out
@@ -1004,7 +954,7 @@ func (bg *ButtonGroup) isDisabledIndex(idx int) bool {
 	if idx < 0 || idx >= len(bg.Options) {
 		return true
 	}
-	return bg.Disabled || bg.Options[idx].Disabled
+	return bg.Disabled.Get() || bg.Options[idx].Disabled
 }
 
 func (bg *ButtonGroup) isDisabledKey(key string) bool {
@@ -1013,7 +963,7 @@ func (bg *ButtonGroup) isDisabledKey(key string) bool {
 	}
 	for i := range bg.Options {
 		if bg.Options[i].Key == key {
-			return bg.Disabled || bg.Options[i].Disabled
+			return bg.Disabled.Get() || bg.Options[i].Disabled
 		}
 	}
 	return true
@@ -1049,25 +999,25 @@ func sameStringSlice(a, b []string) bool {
 
 func newButtonGroupItem(parent *ButtonGroup, index int, option ButtonGroupOption) *buttonGroupItem {
 	it := &buttonGroupItem{
-		Facet:  facet.NewFacet(),
 		parent: parent,
 		index:  index,
 		label:  strings.TrimSpace(option.Label),
 		icon:   option.Icon,
 	}
-	it.labelMark = primitive.NewText(it.label)
-	it.labelMark.SetTypography(theme.TextLabelM)
-	it.labelMark.SetOverflow(primitive.TextOverflowTruncate)
+	it.Core.Facet = facet.NewFacet()
+	it.labelMark = primitive.NewText(marks.Const(it.label))
+	it.labelMark.Typography = marks.Const(theme.TextLabelM)
+	it.labelMark.Overflow = marks.Const(primitive.TextOverflowTruncate)
 	if it.icon != nil {
 		it.iconMark = primitive.NewIcon(it.icon)
-		it.iconMark.SetDecorative(true)
+		it.iconMark.Decorative = marks.Const(true)
 	}
-	it.layoutRole.Parent = facet.GroupParentContract{
+	it.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   buttonGroupItemPolicy{item: it},
 		Children: it,
 	}
-	it.layoutRole.Child = facet.GroupChildContract{
+	it.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := it.measure(ctx, constraints)
@@ -1085,7 +1035,7 @@ func newButtonGroupItem(parent *ButtonGroup, index int, option ButtonGroupOption
 		},
 		Baseline: facet.BaselineNone,
 	}
-	it.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	it.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		size := it.measure(ctx, constraints)
 		return facet.MeasureResult{
 			Size: size,
@@ -1097,11 +1047,15 @@ func newButtonGroupItem(parent *ButtonGroup, index int, option ButtonGroupOption
 			Constraints: constraints,
 		}
 	}
-	it.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		it.layoutRole.ArrangedBounds = bounds
+	it.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		it.Layout.ArrangedBounds = bounds
 		it.arrange(ctx, bounds)
 	}
-	it.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	it.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return it.hitTest(p) }
+	it.Input.OnPointer = func(e facet.PointerEvent) bool { return it.onPointer(e) }
+	it.textRole.IMEEnabled = false
+
+	it.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -1111,21 +1065,10 @@ func newButtonGroupItem(parent *ButtonGroup, index int, option ButtonGroupOption
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	it.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := it.buildCommands(it.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	it.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return it.buildCommands(it.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	it.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return it.hitTest(p) }
-	it.inputRole.OnPointer = func(e facet.PointerEvent) bool { return it.onPointer(e) }
-	it.textRole.IMEEnabled = false
-	it.AddRole(&it.layoutRole)
-	it.AddRole(&it.renderRole)
-	it.AddRole(&it.projectionRole)
-	it.AddRole(&it.hitRole)
-	it.AddRole(&it.inputRole)
+	it.RegisterRoles()
 	it.AddRole(&it.textRole)
 	return it
 }
@@ -1135,10 +1078,11 @@ func (it *buttonGroupItem) Base() *facet.Facet {
 	return &it.Facet
 }
 
-func (it *buttonGroupItem) OnAttach(ctx facet.AttachContext) {}
-func (it *buttonGroupItem) OnActivate()                      {}
-func (it *buttonGroupItem) OnDeactivate()                    {}
+func (it *buttonGroupItem) OnAttach(ctx facet.AttachContext) { it.Core.OnAttach() }
+func (it *buttonGroupItem) OnActivate()                      { it.Core.OnActivate() }
+func (it *buttonGroupItem) OnDeactivate()                    { it.Core.OnDeactivate() }
 func (it *buttonGroupItem) OnDetach() {
+	it.Core.OnDetach()
 	it.cachedTokens = theme.Tokens{}
 	it.cachedRecipe = shared.ButtonGroupSlots{}
 	it.cachedBounds = gfx.Rect{}
@@ -1156,9 +1100,10 @@ func (it *buttonGroupItem) setLabel(label string) {
 	}
 	it.label = label
 	if it.labelMark == nil {
-		it.labelMark = primitive.NewText(label)
+		it.labelMark = primitive.NewText(marks.Const(label))
 	} else {
-		it.labelMark.SetContent(label)
+		it.labelMark.Content = marks.Const(label)
+		it.labelMark.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
 	it.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
@@ -1172,9 +1117,9 @@ func (it *buttonGroupItem) setIcon(icon primitive.IconSource) {
 		it.iconMark = nil
 	} else if it.iconMark == nil {
 		it.iconMark = primitive.NewIcon(icon)
-		it.iconMark.SetDecorative(true)
+		it.iconMark.Decorative = marks.Const(true)
 	} else {
-		it.iconMark.SetSource(icon)
+		it.iconMark.Source = icon
 	}
 	it.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
@@ -1274,7 +1219,7 @@ func (it *buttonGroupItem) measure(ctx facet.MeasureContext, constraints facet.C
 		maxTextWidth = 0
 	}
 	if it.labelMark != nil {
-		it.labelMark.SetMaxWidth(maxTextWidth)
+		it.labelMark.MaxWidth = marks.Const(maxTextWidth)
 		labelSize = it.labelMark.Base().LayoutRole().Measure(facet.MeasureContext{
 			Runtime:          ctx.Runtime,
 			Theme:            resolved,
@@ -1294,8 +1239,8 @@ func (it *buttonGroupItem) measure(ctx facet.MeasureContext, constraints facet.C
 		width = resolved.Density.Scale(48)
 	}
 	size := gfx.Size{W: width, H: height}
-	it.layoutRole.MeasuredSize = size
-	it.layoutRole.MeasuredResult = facet.MeasureResult{
+	it.Layout.MeasuredSize = size
+	it.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -1315,7 +1260,7 @@ func (it *buttonGroupItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	it.cachedBounds = bounds
 	it.cachedIconBounds = gfx.Rect{}
 	it.cachedLabelBounds = gfx.Rect{}
-	it.layoutRole.ArrangedBounds = bounds
+	it.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -1357,21 +1302,22 @@ func (it *buttonGroupItem) syncChildVisuals(resolved theme.ResolvedContext, runt
 		iconToken = theme.ColorOnPrimary
 	}
 	if it.labelMark != nil {
-		it.labelMark.SetContent(it.label)
-		it.labelMark.SetTypography(theme.TextLabelM)
-		it.labelMark.SetForeground(labelToken)
-		it.labelMark.SetDisabled(it.disabled)
-		it.labelMark.SetOverflow(primitive.TextOverflowTruncate)
-		it.labelMark.SetMaxWidth(maxFloat(0, constraints.MaxSize.W))
+		it.labelMark.Content = marks.Const(it.label)
+		it.labelMark.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+		it.labelMark.Typography = marks.Const(theme.TextLabelM)
+		it.labelMark.Foreground = marks.Const(labelToken)
+		it.labelMark.Disabled = marks.Const(it.disabled)
+		it.labelMark.Overflow = marks.Const(primitive.TextOverflowTruncate)
+		it.labelMark.MaxWidth = marks.Const(maxFloat(0, constraints.MaxSize.W))
 	}
 	if it.iconMark != nil {
 		if it.iconMark.Source == nil && it.icon != nil {
-			it.iconMark.SetSource(it.icon)
+			it.iconMark.Source = it.icon
 		}
-		it.iconMark.SetDensityBehavior(primitive.IconDensityScaleWithDensity)
-		it.iconMark.SetSize(resolved.Density.Scale(16))
-		it.iconMark.SetColorSlot(iconToken)
-		it.iconMark.SetDecorative(true)
+		it.iconMark.DensityBehavior = marks.Const(primitive.IconDensityScaleWithDensity)
+		it.iconMark.Size = marks.Const(resolved.Density.Scale(16))
+		it.iconMark.ColorSlot = marks.Const(iconToken)
+		it.iconMark.Decorative = marks.Const(true)
 	}
 }
 
@@ -1433,7 +1379,7 @@ func (it *buttonGroupItem) buildCommands(bounds gfx.Rect, runtime any, contentSc
 }
 
 func (it *buttonGroupItem) hitTest(p gfx.Point) facet.HitResult {
-	if it == nil || it.layoutRole.ArrangedBounds.IsEmpty() || !it.layoutRole.ArrangedBounds.Contains(p) {
+	if it == nil || it.Layout.ArrangedBounds.IsEmpty() || !it.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := it.cursorShape()
@@ -1447,14 +1393,14 @@ func (it *buttonGroupItem) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (it *buttonGroupItem) cursorShape() facet.CursorShape {
-	if it == nil || it.disabled || (it.parent != nil && it.parent.Disabled) {
+	if it == nil || it.disabled || (it.parent != nil && it.parent.Disabled.Get()) {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (it *buttonGroupItem) onPointer(e facet.PointerEvent) bool {
-	if it == nil || it.parent == nil || it.disabled || it.parent.Disabled {
+	if it == nil || it.parent == nil || it.disabled || it.parent.Disabled.Get() {
 		return false
 	}
 	return it.parent.onChildPointer(it.index, e)
@@ -1465,7 +1411,7 @@ func (it *buttonGroupItem) interactionState() theme.InteractionState {
 		return theme.StateDefault
 	}
 	switch {
-	case it.disabled || (it.parent != nil && it.parent.Disabled):
+	case it.disabled || (it.parent != nil && it.parent.Disabled.Get()):
 		return theme.StateDisabled
 	case it.parent != nil && it.parent.pressedIndex == it.index:
 		return theme.StatePressed
@@ -1503,7 +1449,7 @@ func groupChildForFacet(base *facet.Facet, order int) facet.GroupChild {
 }
 
 func (bg *ButtonGroup) onChildPointer(index int, e facet.PointerEvent) bool {
-	if bg == nil || bg.Disabled || index < 0 || index >= len(bg.Options) || bg.isDisabledIndex(index) {
+	if bg == nil || bg.Disabled.Get() || index < 0 || index >= len(bg.Options) || bg.isDisabledIndex(index) {
 		return false
 	}
 	switch e.Kind {

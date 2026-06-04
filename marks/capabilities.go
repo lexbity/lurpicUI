@@ -30,7 +30,9 @@ type Composite interface {
 // DataBound is implemented by marks that bind a store.CollectionStore
 // together with associated scales.
 type DataBound interface {
-	// binds a *store.CollectionStore + scales (reserved for data-viz)
+	// BoundData returns the mark's bound data source.
+	// Implementations return the *store.CollectionStore or similar.
+	BoundData() any
 }
 
 // Channel describes a single encoding channel (x, y, color, size, shape, etc.)

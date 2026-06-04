@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -22,7 +23,7 @@ func TestActionGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	group, rt := newActionGroupFixture(t)
 
 	facet.Attach(group, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := group.layoutRole.Measure(facet.MeasureContext{
+	result := group.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -32,7 +33,7 @@ func TestActionGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 20, result.Size.W, result.Size.H)
-	group.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: group.layoutRole.Parent, ChildGroup: group.layoutRole.Child}, bounds)
+	group.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: group.Layout.Parent, ChildGroup: group.Layout.Child}, bounds)
 
 	if got := group.AccessibilityRole(); got != "group" {
 		t.Fatalf("accessibility role = %q, want group", got)
@@ -44,11 +45,11 @@ func TestActionGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected item and separator geometry, got actions=%d separators=%d", len(group.cachedActionBounds), len(group.cachedSeparatorBounds))
 	}
 
-	actionHit := group.hitRole.HitTest(gfx.Point{X: group.cachedActionBounds[0].Min.X + 1, Y: group.cachedActionBounds[0].Min.Y + 1})
+	actionHit := group.Hit.HitTest(gfx.Point{X: group.cachedActionBounds[0].Min.X + 1, Y: group.cachedActionBounds[0].Min.Y + 1})
 	if !actionHit.Hit || actionHit.MarkID != actionGroupMarkIDActionItems {
 		t.Fatalf("expected action item hit, got %#v", actionHit)
 	}
-	sepHit := group.hitRole.HitTest(gfx.Point{X: group.cachedSeparatorBounds[0].Min.X + 1, Y: group.cachedSeparatorBounds[0].Min.Y + 1})
+	sepHit := group.Hit.HitTest(gfx.Point{X: group.cachedSeparatorBounds[0].Min.X + 1, Y: group.cachedSeparatorBounds[0].Min.Y + 1})
 	if !sepHit.Hit || sepHit.MarkID != actionGroupMarkIDSeparators {
 		t.Fatalf("expected separator hit, got %#v", sepHit)
 	}
@@ -94,8 +95,8 @@ func TestActionGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatal("expected enter release to be handled")
 	}
 
-	group.SetDisabled(true)
-	if group.focusRole.Focusable() {
+	group.Disabled = marks.Const(true)
+	if group.Focus.Focusable() {
 		t.Fatal("expected disabled action group to be unfocusable")
 	}
 	if group.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: first, Button: platform.PointerLeft}) {
@@ -125,12 +126,12 @@ func TestActionGroupRecipe_allSlotsPresent(t *testing.T) {
 
 func newActionGroupFixture(t *testing.T) (*ActionGroup, buttonRuntimeStub) {
 	t.Helper()
-	group := NewActionGroup("Action group", []ActionGroupAction{
+	group := NewActionGroup(marks.Const("Action group"), marks.Const([]ActionGroupAction{
 		{Key: "edit", Label: "Edit", IconRef: "edit"},
 		{Key: "copy", Label: "Copy", IconRef: "copy"},
 		{Key: "delete", Label: "Delete", IconRef: "delete"},
 		{Key: "more", AccessibleLabel: "More options", IconRef: "more"},
-	})
+	}))
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustButtonTextRegistry(t),
@@ -219,7 +220,7 @@ func TestActionGroupGoldenComfortable(t *testing.T) {
 
 func TestActionGroupGoldenDisabled(t *testing.T) {
 	AssertActionGroupGolden(t, "disabled", defaultActionGroupTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(group *ActionGroup) {
-		group.SetDisabled(true)
+		group.Disabled = marks.Const(true)
 	})
 }
 
@@ -261,7 +262,7 @@ func AssertActionGroupGolden(t *testing.T, name string, tokens theme.Tokens, den
 func renderActionGroupToSurface(t *testing.T, group *ActionGroup, rt buttonRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(group, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := group.layoutRole.Measure(facet.MeasureContext{
+	result := group.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -273,9 +274,9 @@ func renderActionGroupToSurface(t *testing.T, group *ActionGroup, rt buttonRunti
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	group.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: group.layoutRole.Parent, ChildGroup: group.layoutRole.Child}, bounds)
+	group.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: group.Layout.Parent, ChildGroup: group.Layout.Child}, bounds)
 
-	cmds := group.projectionRole.Project(facet.ProjectionContext{
+	cmds := group.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -310,12 +311,12 @@ func newActionGroupGoldenFixture(t *testing.T, tokens theme.Tokens, density them
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	group := NewActionGroup("Action group", []ActionGroupAction{
+	group := NewActionGroup(marks.Const("Action group"), marks.Const([]ActionGroupAction{
 		{Key: "edit", Label: "Edit", IconRef: "edit"},
 		{Key: "copy", Label: "Copy", IconRef: "copy"},
 		{Key: "delete", Label: "Delete", IconRef: "delete"},
 		{Key: "more", AccessibleLabel: "More options", IconRef: "more"},
-	})
+	}))
 	rt := buttonRuntimeStub{
 		rootStyle: rootStyle,
 		fonts:     mustButtonTextRegistry(t),

@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -38,23 +39,17 @@ type TabItem struct {
 
 // Tabs implements the navigation.tabs standard mark.
 type Tabs struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label       marks.Binding[string]
+	Items       []TabItem
+	Variant     marks.Binding[uinav.TabsVariant]
+	Disabled    marks.Binding[bool]
+	ActiveIndex marks.Binding[int]
 
 	Activated signal.Signal[int]
 
-	Label       string
-	Items       []TabItem
-	Variant     uinav.TabsVariant
-	Disabled    bool
-	ActiveIndex int
+	textRole facet.TextRole
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -86,20 +81,27 @@ type Tabs struct {
 
 var _ facet.FacetImpl = (*Tabs)(nil)
 var _ layout.AnchorExporter = (*Tabs)(nil)
+var _ marks.Mark = (*Tabs)(nil)
 
 // NewTabs constructs a navigation.tabs mark with canonical defaults.
 func NewTabs(label string, items []TabItem) *Tabs {
 	t := &Tabs{
-		Facet:   facet.NewFacet(),
-		Label:   label,
-		Variant: uinav.TabsStandard,
+		Label:       marks.Const(label),
+		Variant:     marks.Const(uinav.TabsStandard),
+		Disabled:    marks.Const(false),
+		ActiveIndex: marks.Const(0),
 	}
+	t.Core.Facet = facet.NewFacet()
+	t.AddBinding(t.Label)
+	t.AddBinding(t.Variant)
+	t.AddBinding(t.Disabled)
+	t.AddBinding(t.ActiveIndex)
 	t.SetItems(items)
-	t.layoutRole.Parent = facet.GroupParentContract{
+	t.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: tabsGroupPolicy{},
 	}
-	t.layoutRole.Child = facet.GroupChildContract{
+	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measureIntrinsic(ctx, constraints)
@@ -117,44 +119,25 @@ func NewTabs(label string, items []TabItem) *Tabs {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	t.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	t.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return t.measure(ctx, constraints)
 	}
-	t.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		t.layoutRole.ArrangedBounds = bounds
+	t.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		t.Layout.ArrangedBounds = bounds
 		t.arrange(ctx, bounds)
 	}
-	t.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := t.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	t.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := t.buildCommands(t.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	t.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
-	t.inputRole.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
-	t.inputRole.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
-	t.focusRole.Focusable = func() bool { return !t.Disabled && len(t.Items) > 0 }
-	t.focusRole.TabIndex = 0
-	t.focusRole.OnFocusGained = func() { t.onFocusGained() }
-	t.focusRole.OnFocusLost = func() { t.onFocusLost() }
+	t.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
+	t.Input.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
+	t.Input.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
+	t.Focus.Focusable = func() bool { return !t.Disabled.Get() && len(t.Items) > 0 }
+	t.Focus.TabIndex = 0
+	t.Focus.OnFocusGained = func() { t.onFocusGained() }
+	t.Focus.OnFocusLost = func() { t.onFocusLost() }
 	t.textRole.IMEEnabled = false
-	t.AddRole(&t.layoutRole)
-	t.AddRole(&t.renderRole)
-	t.AddRole(&t.projectionRole)
-	t.AddRole(&t.hitRole)
-	t.AddRole(&t.inputRole)
-	t.AddRole(&t.focusRole)
+	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	t.RegisterRoles()
 	t.AddRole(&t.textRole)
 	return t
 }
@@ -165,20 +148,16 @@ func (t *Tabs) Base() *facet.Facet {
 	return &t.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (t *Tabs) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "navigation", TypeName: "tabs"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (t *Tabs) AccessibilityRole() string { return "tablist" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (t *Tabs) AccessibleName() string { return t.Label }
-
-// SetLabel updates the authored accessible label.
-func (t *Tabs) SetLabel(label string) {
-	if t == nil || t.Label == label {
-		return
-	}
-	t.Label = label
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
+func (t *Tabs) AccessibleName() string { return t.Label.Get() }
 
 // SetItems updates the tab item list.
 func (t *Tabs) SetItems(items []TabItem) {
@@ -197,69 +176,15 @@ func (t *Tabs) SetItems(items []TabItem) {
 	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
-// SetActiveIndex updates the authored active tab.
-func (t *Tabs) SetActiveIndex(index int) {
-	if t == nil {
-		return
-	}
-	if index < 0 {
-		index = 0
-	}
-	if len(t.Items) > 0 && index >= len(t.Items) {
-		index = len(t.Items) - 1
-	}
-	if len(t.Items) == 0 {
-		index = 0
-	}
-	if t.ActiveIndex == index {
-		return
-	}
-	t.ActiveIndex = index
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetVariant updates the authored tabs variant.
-func (t *Tabs) SetVariant(variant uinav.TabsVariant) {
-	if t == nil || t.Variant == variant {
-		return
-	}
-	t.Variant = variant
-	t.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (t *Tabs) SetDisabled(disabled bool) {
-	if t == nil || t.Disabled == disabled {
-		return
-	}
-	t.Disabled = disabled
-	if disabled {
-		t.hoveredIndex = -1
-		t.pressedIndex = -1
-		t.focusedVisible = false
-		t.focusFromPointer = false
-	}
-	t.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the tabs anchor set.
 func (t *Tabs) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if t == nil {
 		return nil
 	}
-	bounds := t.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := t.Layout.ArrangedBounds
+	out := t.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if t.cachedPanelLayout != nil {
 		out["baseline"] = gfx.Point{
@@ -279,16 +204,17 @@ func (t *Tabs) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 func (t *Tabs) Children() []facet.GroupChild { return nil }
 
 // OnAttach is unused beyond layout role setup.
-func (t *Tabs) OnAttach(ctx facet.AttachContext) {}
+func (t *Tabs) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
 
 // OnActivate is unused.
-func (t *Tabs) OnActivate() {}
+func (t *Tabs) OnActivate() { t.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (t *Tabs) OnDeactivate() {}
+func (t *Tabs) OnDeactivate() { t.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (t *Tabs) OnDetach() {
+	t.Core.OnDetach()
 	t.cachedTokens = theme.Tokens{}
 	t.cachedRecipe = shared.TabsSlots{}
 	t.cachedRootBounds = gfx.Rect{}
@@ -315,7 +241,7 @@ func (t *Tabs) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Base().Invalidate(flags)
+	t.Facet.Invalidate(flags)
 }
 
 func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -324,12 +250,12 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uinav.ResolveTabsRecipe(style, t.Variant)
+	slots, _ := uinav.ResolveTabsRecipe(style, t.Variant.Get())
 	t.cachedTokens = resolved.TokenSet()
 	t.cachedRecipe = slots
 	t.cachedWritingDirection = ctx.WritingDirection
 	t.cachedTabGap = float32(resolved.Spacing(theme.SpacingM))
-	if t.Variant == uinav.TabsCompact {
+	if t.Variant.Get() == uinav.TabsCompact {
 		t.cachedTabGap = float32(resolved.Spacing(theme.SpacingS))
 	}
 	t.cachedTabPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
@@ -342,7 +268,7 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		t.cachedIndicatorH = 2
 	}
 	t.cachedTabLabelStyle = resolved.TextStyle(theme.TextLabelM)
-	if t.Variant == uinav.TabsCompact {
+	if t.Variant.Get() == uinav.TabsCompact {
 		t.cachedTabLabelStyle = resolved.TextStyle(theme.TextLabelS)
 	}
 	t.cachedPanelStyle = resolved.TextStyle(theme.TextHeadingS)
@@ -436,8 +362,8 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	t.cachedIconBounds = iconBounds
 	t.cachedTabBounds = make([]gfx.Rect, len(t.Items))
 	t.cachedTabLabelBounds = make([]gfx.Rect, len(t.Items))
-	t.layoutRole.MeasuredSize = measured
-	t.layoutRole.MeasuredResult = facet.MeasureResult{
+	t.Layout.MeasuredSize = measured
+	t.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -446,7 +372,7 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		},
 		Constraints: constraints,
 	}
-	return t.layoutRole.MeasuredResult
+	return t.Layout.MeasuredResult
 }
 
 func (t *Tabs) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -457,7 +383,7 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	t.cachedRootBounds = bounds
 	t.cachedTabListBounds = gfx.Rect{}
 	t.cachedPanelBounds = gfx.Rect{}
-	t.layoutRole.ArrangedBounds = bounds
+	t.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() || len(t.Items) == 0 {
 		return
 	}
@@ -559,7 +485,7 @@ func (t *Tabs) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.T
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, t.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uinav.ResolveTabsRecipe(style, t.Variant)
+			slots, _ := uinav.ResolveTabsRecipe(style, t.Variant.Get())
 			return style, slots
 		}
 	}
@@ -631,7 +557,7 @@ func (t *Tabs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (t *Tabs) hitTest(p gfx.Point) facet.HitResult {
-	if t == nil || t.layoutRole.ArrangedBounds.IsEmpty() || !t.layoutRole.ArrangedBounds.Contains(p) {
+	if t == nil || t.Layout.ArrangedBounds.IsEmpty() || !t.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := t.cursorShape()
@@ -660,7 +586,7 @@ func (t *Tabs) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (t *Tabs) onPointer(e facet.PointerEvent) bool {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -715,7 +641,7 @@ func (t *Tabs) onPointer(e facet.PointerEvent) bool {
 }
 
 func (t *Tabs) onKey(e facet.KeyEvent) bool {
-	if t.Disabled || len(t.Items) == 0 {
+	if t.Disabled.Get() || len(t.Items) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -770,7 +696,7 @@ func (t *Tabs) onFocusLost() {
 
 func (t *Tabs) interactionState() theme.InteractionState {
 	switch {
-	case t.Disabled:
+	case t.Disabled.Get():
 		return theme.StateDisabled
 	case t.pressedIndex >= 0:
 		return theme.StatePressed
@@ -784,7 +710,7 @@ func (t *Tabs) interactionState() theme.InteractionState {
 }
 
 func (t *Tabs) itemState(index int) theme.InteractionState {
-	if t.Disabled || t.isDisabledIndex(index) {
+	if t.Disabled.Get() || t.isDisabledIndex(index) {
 		return theme.StateDisabled
 	}
 	if index == t.clampedActiveIndex() {
@@ -806,7 +732,7 @@ func (t *Tabs) itemState(index int) theme.InteractionState {
 }
 
 func (t *Tabs) labelState() theme.InteractionState {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	return theme.StateDefault
@@ -876,11 +802,11 @@ func (t *Tabs) activateIndex(index int) {
 	if index < 0 || index >= len(t.Items) || t.isDisabledIndex(index) {
 		return
 	}
-	if t.ActiveIndex == index {
+	if t.ActiveIndex.Get() == index {
 		t.Activated.Emit(index)
 		return
 	}
-	t.ActiveIndex = index
+	t.ActiveIndex = marks.Const(index)
 	t.Activated.Emit(index)
 	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
@@ -922,30 +848,33 @@ func (t *Tabs) setLastEnabled() {
 }
 
 func (t *Tabs) clampedActiveIndex() int {
+	ai := t.ActiveIndex.Get()
 	if len(t.Items) == 0 {
 		return 0
 	}
-	if t.ActiveIndex < 0 {
+	if ai < 0 {
 		return 0
 	}
-	if t.ActiveIndex >= len(t.Items) {
+	if ai >= len(t.Items) {
 		return len(t.Items) - 1
 	}
-	return t.ActiveIndex
+	return ai
 }
 
 func (t *Tabs) clampActiveIndex() {
 	if len(t.Items) == 0 {
-		t.ActiveIndex = 0
+		t.ActiveIndex = marks.Const(0)
 		return
 	}
-	if t.ActiveIndex < 0 || t.ActiveIndex >= len(t.Items) {
-		t.ActiveIndex = 0
+	ai := t.ActiveIndex.Get()
+	if ai < 0 || ai >= len(t.Items) {
+		t.ActiveIndex = marks.Const(0)
 	}
-	if t.isDisabledIndex(t.ActiveIndex) {
+	ai = t.ActiveIndex.Get()
+	if t.isDisabledIndex(ai) {
 		for i := range t.Items {
 			if !t.isDisabledIndex(i) {
-				t.ActiveIndex = i
+				t.ActiveIndex = marks.Const(i)
 				return
 			}
 		}
@@ -956,7 +885,7 @@ func (t *Tabs) isDisabledIndex(index int) bool {
 	if index < 0 || index >= len(t.Items) {
 		return true
 	}
-	return t.Disabled || t.Items[index].Disabled
+	return t.Disabled.Get() || t.Items[index].Disabled
 }
 
 func (t *Tabs) indexAt(p gfx.Point) int {
@@ -969,7 +898,7 @@ func (t *Tabs) indexAt(p gfx.Point) int {
 }
 
 func (t *Tabs) cursorShape() facet.CursorShape {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
@@ -986,20 +915,6 @@ func (t *Tabs) tabWidth(index int) float32 {
 		return w
 	}
 	return t.cachedTabPadX*2 + 48
-}
-
-func maxFloat(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func minFloat(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 func (t *Tabs) pointInTabLabel(index int, p gfx.Point) bool {
@@ -1075,6 +990,20 @@ func (t *Tabs) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, bool)
 	return runtimepkg.IconAsset{}, false
 }
 
+func maxFloat(a, b float32) float32 {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+func minFloat(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
 	return theme.MaterialCommands(path, material)
 }
@@ -1085,10 +1014,6 @@ func materialColor(material theme.Material) gfx.Color {
 
 func isTransparentMaterial(material theme.Material) bool {
 	return theme.IsTransparentMaterial(material)
-}
-
-func (t *Tabs) indexEnabledAt(index int) bool {
-	return index >= 0 && index < len(t.Items) && !t.Items[index].Disabled && !t.Disabled
 }
 
 type tabsGroupPolicy struct{}

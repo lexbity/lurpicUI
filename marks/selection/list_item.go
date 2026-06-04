@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -29,30 +30,24 @@ const (
 
 // ListItem implements the selection.list_item canonical mark.
 type ListItem struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	marks.Core
 
 	Activated signal.Signal[signal.Unit]
 
-	LeadingIconRef         string
-	Label                  string
-	SupportingText         string
-	Variant                uiinput.ListItemVariant
-	Selected               bool
-	Active                 bool
-	Disabled               bool
-	ShowLabel              bool
-	ShowContainer          bool
-	ShowLeadingIcon        bool
-	ShowSelectionIndicator bool
-	ShowFocusRing          bool
+	LeadingIconRef         marks.Binding[string]
+	Label                  marks.Binding[string]
+	SupportingText         marks.Binding[string]
+	Variant                marks.Binding[uiinput.ListItemVariant]
+	Selected               marks.Binding[bool]
+	Active                 marks.Binding[bool]
+	Disabled               marks.Binding[bool]
+	ShowLabel              marks.Binding[bool]
+	ShowContainer          marks.Binding[bool]
+	ShowLeadingIcon        marks.Binding[bool]
+	ShowSelectionIndicator marks.Binding[bool]
+	ShowFocusRing          marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -81,24 +76,43 @@ type ListItem struct {
 
 var _ facet.FacetImpl = (*ListItem)(nil)
 var _ layout.AnchorExporter = (*ListItem)(nil)
+var _ marks.Mark = (*ListItem)(nil)
 
 // NewListItem constructs a selection.list_item mark with canonical defaults.
-func NewListItem(label string) *ListItem {
+func NewListItem(label marks.Binding[string]) *ListItem {
 	li := &ListItem{
-		Facet:                  facet.NewFacet(),
 		Label:                  label,
-		Variant:                uiinput.ListItemStandard,
-		ShowLabel:              true,
-		ShowContainer:          true,
-		ShowLeadingIcon:        true,
-		ShowSelectionIndicator: true,
-		ShowFocusRing:          true,
+		LeadingIconRef:         marks.Const(""),
+		SupportingText:         marks.Const(""),
+		Variant:                marks.Const(uiinput.ListItemStandard),
+		Selected:               marks.Const(false),
+		Active:                 marks.Const(false),
+		Disabled:               marks.Const(false),
+		ShowLabel:              marks.Const(true),
+		ShowContainer:          marks.Const(true),
+		ShowLeadingIcon:        marks.Const(true),
+		ShowSelectionIndicator: marks.Const(true),
+		ShowFocusRing:          marks.Const(true),
 	}
-	li.layoutRole.Parent = facet.GroupParentContract{
+	li.Core.Facet = facet.NewFacet()
+	li.AddBinding(li.Label)
+	li.AddBinding(li.LeadingIconRef)
+	li.AddBinding(li.SupportingText)
+	li.AddBinding(li.Variant)
+	li.AddBinding(li.Selected)
+	li.AddBinding(li.Active)
+	li.AddBinding(li.Disabled)
+	li.AddBinding(li.ShowLabel)
+	li.AddBinding(li.ShowContainer)
+	li.AddBinding(li.ShowLeadingIcon)
+	li.AddBinding(li.ShowSelectionIndicator)
+	li.AddBinding(li.ShowFocusRing)
+
+	li.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: listItemGroupPolicy{},
 	}
-	li.layoutRole.Child = facet.GroupChildContract{
+	li.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := li.measureIntrinsic(ctx, constraints)
@@ -116,44 +130,25 @@ func NewListItem(label string) *ListItem {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	li.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	li.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return li.measure(ctx, constraints)
 	}
-	li.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		li.layoutRole.ArrangedBounds = bounds
+	li.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		li.Layout.ArrangedBounds = bounds
 		li.arrange(ctx, bounds)
 	}
-	li.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := li.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	li.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := li.buildCommands(li.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	li.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return li.hitTest(p) }
-	li.inputRole.OnPointer = func(e facet.PointerEvent) bool { return li.onPointer(e) }
-	li.inputRole.OnKey = func(e facet.KeyEvent) bool { return li.onKey(e) }
-	li.focusRole.Focusable = func() bool { return !li.Disabled }
-	li.focusRole.TabIndex = 0
-	li.focusRole.OnFocusGained = func() { li.onFocusGained() }
-	li.focusRole.OnFocusLost = func() { li.onFocusLost() }
+	li.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return li.hitTest(p) }
+	li.Input.OnPointer = func(e facet.PointerEvent) bool { return li.onPointer(e) }
+	li.Input.OnKey = func(e facet.KeyEvent) bool { return li.onKey(e) }
+	li.Focus.Focusable = func() bool { return !li.Disabled.Get() }
+	li.Focus.TabIndex = 0
+	li.Focus.OnFocusGained = func() { li.onFocusGained() }
+	li.Focus.OnFocusLost = func() { li.onFocusLost() }
 	li.textRole.IMEEnabled = false
-	li.AddRole(&li.layoutRole)
-	li.AddRole(&li.renderRole)
-	li.AddRole(&li.projectionRole)
-	li.AddRole(&li.hitRole)
-	li.AddRole(&li.inputRole)
-	li.AddRole(&li.focusRole)
+	li.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return li.buildCommands(li.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	li.RegisterRoles()
 	li.AddRole(&li.textRole)
 	return li
 }
@@ -164,6 +159,11 @@ func (li *ListItem) Base() *facet.Facet {
 	return &li.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (li *ListItem) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "list_item"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (li *ListItem) AccessibilityRole() string { return "option" }
 
@@ -172,112 +172,35 @@ func (li *ListItem) AccessibleName() string {
 	if li == nil {
 		return ""
 	}
-	return li.Label
-}
-
-// SetLabel updates the authored label.
-func (li *ListItem) SetLabel(label string) {
-	if li == nil || li.Label == label {
-		return
-	}
-	li.Label = label
-	li.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetSupportingText updates the authored supporting text.
-func (li *ListItem) SetSupportingText(text string) {
-	if li == nil || li.SupportingText == text {
-		return
-	}
-	li.SupportingText = text
-	li.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetLeadingIconRef updates the authored leading icon.
-func (li *ListItem) SetLeadingIconRef(ref string) {
-	if li == nil || li.LeadingIconRef == ref {
-		return
-	}
-	li.LeadingIconRef = ref
-	li.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetSelected toggles selected state.
-func (li *ListItem) SetSelected(selected bool) {
-	if li == nil || li.Selected == selected {
-		return
-	}
-	li.Selected = selected
-	li.invalidate(facet.DirtyProjection)
-}
-
-// SetActive toggles active-descendant style emphasis.
-func (li *ListItem) SetActive(active bool) {
-	if li == nil || li.Active == active {
-		return
-	}
-	li.Active = active
-	li.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (li *ListItem) SetDisabled(disabled bool) {
-	if li == nil || li.Disabled == disabled {
-		return
-	}
-	li.Disabled = disabled
-	if disabled {
-		li.hovered = false
-		li.pressed = false
-		li.focusedVisible = false
-		li.focusFromPointer = false
-	}
-	li.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetVariant updates the authored list-item variant.
-func (li *ListItem) SetVariant(variant uiinput.ListItemVariant) {
-	if li == nil || li.Variant == variant {
-		return
-	}
-	li.Variant = variant
-	li.invalidate(facet.DirtyProjection)
+	return li.Label.Get()
 }
 
 // ExportAnchors publishes the list-item anchor set.
 func (li *ListItem) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if li == nil {
-		return nil
-	}
-	bounds := li.layoutRole.ArrangedBounds
+	bounds := li.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	anchors := li.Core.DefaultAnchors(bounds, ctx)
 	if li.textRole.Layout != nil {
-		out["baseline"] = gfx.Point{X: li.cachedLabelBounds.Min.X, Y: li.cachedLabelBounds.Min.Y + li.textRole.Layout.Baseline}
+		anchors["baseline"] = gfx.Point{X: li.cachedLabelBounds.Min.X, Y: li.cachedLabelBounds.Min.Y + li.textRole.Layout.Baseline}
 	} else {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
+		anchors["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	}
-	return out
+	return anchors
 }
 
 // Children returns the facet's immediate child list.
 func (li *ListItem) Children() []facet.GroupChild { return nil }
 
-func (li *ListItem) OnAttach(ctx facet.AttachContext) {}
-func (li *ListItem) OnActivate()                      {}
-func (li *ListItem) OnDeactivate()                    {}
+func (li *ListItem) OnAttach(ctx facet.AttachContext) { li.Core.OnAttach() }
+func (li *ListItem) OnActivate()                      { li.Core.OnActivate() }
+func (li *ListItem) OnDeactivate()                    { li.Core.OnDeactivate() }
 func (li *ListItem) OnDetach() {
+	li.Core.OnDetach()
 	li.cachedTokens = theme.Tokens{}
 	li.cachedRecipe = shared.ListItemSlots{}
 	li.cachedRootBounds = gfx.Rect{}
@@ -310,7 +233,7 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uiinput.ResolveListItemRecipe(style, li.Variant)
+	slots, _ := uiinput.ResolveListItemRecipe(style, li.Variant.Get())
 	li.cachedTokens = resolved.TokenSet()
 	li.cachedRecipe = slots
 	li.cachedWritingDirection = ctx.WritingDirection
@@ -327,11 +250,11 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	supportingLayout := (*text.TextLayout)(nil)
 	if shaper != nil {
 		shaper.SetContentScale(ctx.ContentScale)
-		if li.ShowLabel {
-			labelLayout = shaper.ShapeTruncated(li.Label, resolved.TextStyle(theme.TextBodyM), maxWidth)
+		if li.ShowLabel.Get() {
+			labelLayout = shaper.ShapeTruncated(li.Label.Get(), resolved.TextStyle(theme.TextBodyM), maxWidth)
 		}
-		if strings.TrimSpace(li.SupportingText) != "" {
-			supportingLayout = shaper.ShapeTruncated(li.SupportingText, resolved.TextStyle(theme.TextBodyS), maxWidth)
+		if strings.TrimSpace(li.SupportingText.Get()) != "" {
+			supportingLayout = shaper.ShapeTruncated(li.SupportingText.Get(), resolved.TextStyle(theme.TextBodyS), maxWidth)
 		}
 	}
 	li.cachedLabelLayout = labelLayout
@@ -343,24 +266,24 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	li.textRole.CaretVisible = false
 	li.textRole.CaretPosition = text.TextPosition{}
 	contentW := text.Width(supportingLayout)
-	if li.ShowLabel {
+	if li.ShowLabel.Get() {
 		contentW = maxFloat(contentW, text.Width(labelLayout))
 	}
 	leadingReserve := float32(0)
-	if li.ShowLeadingIcon && li.LeadingIconRef != "" {
+	if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
 		leadingReserve = maxFloat(resolved.Density.Scale(16), resolved.Density.Scale(16)*0.42) + li.cachedGap
 	}
 	selectionReserve := float32(0)
-	if li.ShowSelectionIndicator {
+	if li.ShowSelectionIndicator.Get() {
 		selectionReserve = maxFloat(resolved.Density.Scale(24), resolved.Density.Scale(12))
 	}
 	minWidth := resolved.Density.Scale(160)
 	minHeight := resolved.Density.Scale(32)
-	if !li.ShowLabel && !li.ShowContainer && !li.ShowSelectionIndicator {
+	if !li.ShowLabel.Get() && !li.ShowContainer.Get() && !li.ShowSelectionIndicator.Get() {
 		minWidth = maxFloat(resolved.Density.Scale(56), leadingReserve+li.cachedPadX*2)
 		minHeight = maxFloat(resolved.Density.Scale(56), resolved.Density.Scale(20)+li.cachedPadY*2)
 	}
-	if !li.ShowContainer && !li.ShowLeadingIcon && !li.ShowSelectionIndicator && li.ShowLabel {
+	if !li.ShowContainer.Get() && !li.ShowLeadingIcon.Get() && !li.ShowSelectionIndicator.Get() && li.ShowLabel.Get() {
 		minWidth = contentW + li.cachedPadX*2
 		minHeight = text.Height(supportingLayout) + li.cachedPadY*2
 		if supportingLayout != nil {
@@ -380,8 +303,8 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	if itemSize.H <= 0 {
 		itemSize.H = resolved.Density.Scale(32)
 	}
-	li.layoutRole.MeasuredSize = itemSize
-	li.layoutRole.MeasuredResult = facet.MeasureResult{
+	li.Layout.MeasuredSize = itemSize
+	li.Layout.MeasuredResult = facet.MeasureResult{
 		Size: itemSize,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       itemSize,
@@ -390,7 +313,7 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		},
 		Constraints: constraints,
 	}
-	return li.layoutRole.MeasuredResult
+	return li.Layout.MeasuredResult
 }
 
 func (li *ListItem) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -405,7 +328,7 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	li.cachedSupportingBounds = gfx.Rect{}
 	li.cachedSelectionBounds = gfx.Rect{}
 	li.cachedFocusBounds = gfx.Rect{}
-	li.layoutRole.ArrangedBounds = bounds
+	li.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -420,7 +343,7 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		inner = bounds
 	}
 	labelH := float32(0)
-	if li.ShowLabel {
+	if li.ShowLabel.Get() {
 		labelH = text.Height(li.cachedLabelLayout)
 	}
 	supportingH := text.Height(li.cachedSupportingLayout)
@@ -431,23 +354,23 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	textY := text.AlignRectY(gfx.RectFromXYWH(inner.Min.X, inner.Min.Y, inner.Width(), contentH), inner.Min.Y, inner.Height()).Min.Y
 	textX := inner.Min.X
 	labelW := float32(0)
-	if li.ShowLabel {
+	if li.ShowLabel.Get() {
 		labelW = text.Width(li.cachedLabelLayout)
 	}
 	if labelW <= 0 {
 		labelW = maxFloat(0, inner.Width()-li.cachedPadX*2)
 	}
 	leadingReserve := float32(0)
-	if li.ShowLeadingIcon && li.LeadingIconRef != "" {
+	if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
 		leadingReserve = leadingSize + li.cachedGap
 	}
 	textWidth := maxFloat(0, inner.Width()-leadingReserve)
 	if li.cachedWritingDirection == facet.WritingDirectionRTL {
 		textX = inner.Max.X - labelW
-		if li.ShowLeadingIcon && li.LeadingIconRef != "" {
+		if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
 			textX = inner.Max.X - li.cachedPadX - leadingReserve - labelW
 		}
-	} else if li.ShowLeadingIcon && li.LeadingIconRef != "" {
+	} else if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
 		textX = inner.Min.X + leadingReserve
 	}
 	textRects := layout.ArrangeVerticalFlow(
@@ -462,13 +385,13 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	)
 	li.cachedLabelBounds = gfx.Rect{}
 	li.cachedSupportingBounds = gfx.Rect{}
-	if li.ShowLabel && li.cachedLabelLayout != nil {
+	if li.ShowLabel.Get() && li.cachedLabelLayout != nil {
 		li.cachedLabelBounds = textRects[0]
 	}
 	if supportingH > 0 {
 		li.cachedSupportingBounds = textRects[1]
 	}
-	if li.ShowSelectionIndicator {
+	if li.ShowSelectionIndicator.Get() {
 		indicatorBounds := text.AlignRectY(gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, indicatorSize, indicatorSize), bounds.Min.Y, bounds.Height())
 		if li.cachedWritingDirection == facet.WritingDirectionRTL {
 			li.cachedSelectionBounds = gfx.RectFromXYWH(bounds.Min.X+li.cachedPadX, indicatorBounds.Min.Y, indicatorSize, indicatorSize)
@@ -476,7 +399,7 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			li.cachedSelectionBounds = gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-indicatorSize, indicatorBounds.Min.Y, indicatorSize, indicatorSize)
 		}
 	}
-	if li.ShowLeadingIcon && li.LeadingIconRef != "" {
+	if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
 		if li.cachedWritingDirection == facet.WritingDirectionRTL {
 			li.cachedLeadingBounds = text.AlignRectY(gfx.RectFromXYWH(bounds.Max.X-li.cachedPadX-leadingSize, bounds.Min.Y, leadingSize, leadingSize), bounds.Min.Y, bounds.Height())
 		} else {
@@ -498,7 +421,7 @@ func (li *ListItem) resolveProjectionTheme(runtime any) (theme.StyleContext, sha
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, li.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uiinput.ResolveListItemRecipe(style, li.Variant)
+			slots, _ := uiinput.ResolveListItemRecipe(style, li.Variant.Get())
 			return style, slots
 		}
 	}
@@ -512,10 +435,10 @@ func (li *ListItem) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	style, slots := li.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := li.interactionState()
-	if li.Selected {
+	if li.Selected.Get() {
 		state = theme.StateSelected
 	}
-	if li.Active {
+	if li.Active.Get() {
 		state = theme.StateFocused
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -528,26 +451,26 @@ func (li *ListItem) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if !isTransparentMaterial(root) {
 		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if li.ShowContainer && !isTransparentMaterial(container) {
+	if li.ShowContainer.Get() && !isTransparentMaterial(container) {
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, li.cachedRadius), container)...)
 	}
-	if li.ShowLabel && !isTransparentMaterial(label) && li.cachedLabelLayout != nil {
+	if li.ShowLabel.Get() && !isTransparentMaterial(label) && li.cachedLabelLayout != nil {
 		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedLabelLayout, li.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
 	if !isTransparentMaterial(supporting) && li.cachedSupportingLayout != nil {
 		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedSupportingLayout, li.cachedSupportingBounds, gfx.SolidBrush(materialColor(supporting)))...)
 	}
-	if li.ShowSelectionIndicator && li.Selected && !isTransparentMaterial(indicator) && !li.cachedSelectionBounds.IsEmpty() {
+	if li.ShowSelectionIndicator.Get() && li.Selected.Get() && !isTransparentMaterial(indicator) && !li.cachedSelectionBounds.IsEmpty() {
 		r := maxFloat(3, li.cachedSelectionBounds.Width()*0.5)
 		center := gfx.Point{X: li.cachedSelectionBounds.Min.X + li.cachedSelectionBounds.Width()*0.5, Y: li.cachedSelectionBounds.Min.Y + li.cachedSelectionBounds.Height()*0.5}
 		cmds = append(cmds, materialCommands(gfx.CirclePath(center, r), indicator)...)
 	}
-	if li.ShowFocusRing && li.focusedVisible && !isTransparentMaterial(focus) {
+	if li.ShowFocusRing.Get() && li.focusedVisible && !isTransparentMaterial(focus) {
 		inset := maxFloat(1, li.cachedFocusBounds.Height()*0.08)
 		ringBounds := li.cachedFocusBounds.Inset(-inset, -inset)
 		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, li.cachedRadius+inset), focus)...)
 	}
-	if li.LeadingIconRef != "" {
+	if li.LeadingIconRef.Get() != "" {
 		if iconCmds := li.leadingIconCommands(runtime, slots.LeadingIcon.Resolve(state, tokens)); len(iconCmds) > 0 {
 			cmds = append(cmds, iconCmds...)
 		}
@@ -556,7 +479,7 @@ func (li *ListItem) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (li *ListItem) leadingIconCommands(runtime any, material theme.Material) []gfx.Command {
-	if li.LeadingIconRef == "" || isTransparentMaterial(material) {
+	if li.LeadingIconRef.Get() == "" || isTransparentMaterial(material) {
 		return nil
 	}
 	iconRect := li.cachedLeadingBounds
@@ -598,19 +521,19 @@ func (li *ListItem) resolveIcon(runtime any) (runtimepkg.IconAsset, bool) {
 	}
 	if provider, ok := runtime.(iconProvider); ok {
 		if resolver := provider.IconResolver(); resolver != nil {
-			return resolver.ResolveIcon(li.LeadingIconRef)
+			return resolver.ResolveIcon(li.LeadingIconRef.Get())
 		}
 	}
 	if resolver, ok := runtime.(interface {
 		ResolveIcon(string) (runtimepkg.IconAsset, bool)
 	}); ok {
-		return resolver.ResolveIcon(li.LeadingIconRef)
+		return resolver.ResolveIcon(li.LeadingIconRef.Get())
 	}
 	return runtimepkg.IconAsset{}, false
 }
 
 func (li *ListItem) hitTest(p gfx.Point) facet.HitResult {
-	if li == nil || li.layoutRole.ArrangedBounds.IsEmpty() || !li.layoutRole.ArrangedBounds.Contains(p) {
+	if li == nil || li.Layout.ArrangedBounds.IsEmpty() || !li.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := li.cursorShape()
@@ -636,14 +559,14 @@ func (li *ListItem) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (li *ListItem) cursorShape() facet.CursorShape {
-	if li.Disabled {
+	if li.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (li *ListItem) onPointer(e facet.PointerEvent) bool {
-	if li.Disabled {
+	if li.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -685,7 +608,7 @@ func (li *ListItem) onPointer(e facet.PointerEvent) bool {
 }
 
 func (li *ListItem) onKey(e facet.KeyEvent) bool {
-	if li.Disabled {
+	if li.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -723,7 +646,7 @@ func (li *ListItem) onFocusLost() {
 
 func (li *ListItem) interactionState() theme.InteractionState {
 	switch {
-	case li.Disabled:
+	case li.Disabled.Get():
 		return theme.StateDisabled
 	case li.pressed:
 		return theme.StatePressed

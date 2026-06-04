@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -29,20 +30,17 @@ const (
 
 // Text implements the primitive.text standard mark.
 type Text struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	textRole       facet.TextRole
+	Content    marks.Binding[string]
+	Typography marks.Binding[theme.TextToken]
+	Foreground marks.Binding[theme.ColorToken]
+	Disabled   marks.Binding[bool]
+	Overflow   marks.Binding[TextOverflow]
+	Alignment  marks.Binding[text.TextAlignment]
+	MaxWidth   marks.Binding[float32]
 
-	Content    string
-	Typography theme.TextToken
-	Foreground theme.ColorToken
-	Disabled   bool
-	Overflow   TextOverflow
-	Alignment  text.TextAlignment
-	MaxWidth   float32
+	textRole facet.TextRole
 
 	cachedLayout *text.TextLayout
 	cachedStyle  text.TextStyle
@@ -51,18 +49,30 @@ type Text struct {
 
 var _ facet.FacetImpl = (*Text)(nil)
 var _ layout.AnchorExporter = (*Text)(nil)
+var _ marks.Mark = (*Text)(nil)
 
 // NewText constructs a primitive.text mark with the canonical defaults.
-func NewText(content string) *Text {
+func NewText(content marks.Binding[string]) *Text {
 	t := &Text{
-		Facet:      facet.NewFacet(),
 		Content:    content,
-		Typography: theme.TextBodyM,
-		Foreground: theme.ColorText,
-		Overflow:   TextOverflowClip,
+		Typography: marks.Const(theme.TextBodyM),
+		Foreground: marks.Const(theme.ColorText),
+		Disabled:   marks.Const(false),
+		Overflow:   marks.Const(TextOverflowClip),
+		Alignment:  marks.Const(text.AlignLeft),
+		MaxWidth:   marks.Const[float32](0),
 	}
-	t.layoutRole.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
-	t.layoutRole.Child = facet.GroupChildContract{
+	t.Core.Facet = facet.NewFacet()
+	t.AddBinding(t.Content)
+	t.AddBinding(t.Typography)
+	t.AddBinding(t.Foreground)
+	t.AddBinding(t.Disabled)
+	t.AddBinding(t.Overflow)
+	t.AddBinding(t.Alignment)
+	t.AddBinding(t.MaxWidth)
+
+	t.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measureSize(ctx, constraints)
@@ -80,24 +90,16 @@ func NewText(content string) *Text {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	t.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	t.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return t.measure(ctx, constraints)
 	}
-	t.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		t.layoutRole.ArrangedBounds = bounds
+	t.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		t.Layout.ArrangedBounds = bounds
 	}
-	t.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil || len(t.cachedLayoutCommands()) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, t.cachedLayoutCommands()...)
+	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return t.buildCommands(ctx)
 	}
-	t.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		return t.project(ctx)
-	}
-	t.AddRole(&t.layoutRole)
-	t.AddRole(&t.renderRole)
-	t.AddRole(&t.projectionRole)
+	t.RegisterRoles()
 	t.AddRole(&t.textRole)
 	return t
 }
@@ -108,136 +110,41 @@ func (t *Text) Base() *facet.Facet {
 	return &t.Facet
 }
 
-// SetContent updates the authored text and invalidates layout/projection.
-func (t *Text) SetContent(content string) {
-	if t == nil || t.Content == content {
-		return
-	}
-	t.Content = content
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetTypography updates the text token used for shaping.
-func (t *Text) SetTypography(token theme.TextToken) {
-	if t == nil || t.Typography == token {
-		return
-	}
-	t.Typography = token
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetForeground updates the text color token used at projection time.
-func (t *Text) SetForeground(token theme.ColorToken) {
-	if t == nil || t.Foreground == token {
-		return
-	}
-	t.Foreground = token
-	t.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles the disabled projection state.
-func (t *Text) SetDisabled(disabled bool) {
-	if t == nil || t.Disabled == disabled {
-		return
-	}
-	t.Disabled = disabled
-	t.invalidate(facet.DirtyProjection)
-}
-
-// SetOverflow updates the overflow policy.
-func (t *Text) SetOverflow(overflow TextOverflow) {
-	if t == nil || t.Overflow == overflow {
-		return
-	}
-	t.Overflow = overflow
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetAlignment updates the paragraph alignment.
-func (t *Text) SetAlignment(alignment text.TextAlignment) {
-	if t == nil || t.Alignment == alignment {
-		return
-	}
-	t.Alignment = alignment
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetMaxWidth updates the authored wrap/truncate bound.
-func (t *Text) SetMaxWidth(maxWidth float32) {
-	if t == nil || t.MaxWidth == maxWidth {
-		return
-	}
-	t.MaxWidth = maxWidth
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetSelection updates the optional text selection state.
-func (t *Text) SetSelection(sel text.TextRange) {
-	if t == nil || t.textRole.Selection == sel {
-		return
-	}
-	t.textRole.Selection = sel
-	t.invalidate(facet.DirtyProjection)
-}
-
-// SetCaret updates the optional caret state.
-func (t *Text) SetCaret(pos text.TextPosition, visible bool) {
-	if t == nil {
-		return
-	}
-	if t.textRole.CaretPosition == pos && t.textRole.CaretVisible == visible {
-		return
-	}
-	t.textRole.CaretPosition = pos
-	t.textRole.CaretVisible = visible
-	t.invalidate(facet.DirtyProjection)
+// Descriptor satisfies marks.Mark.
+func (t *Text) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "primitive", TypeName: "text"}
 }
 
 // ExportAnchors publishes the primitive text anchor set.
 func (t *Text) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if t == nil {
-		return nil
-	}
-	bounds := t.layoutRole.ArrangedBounds
+	bounds := t.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	anchors := t.Core.DefaultAnchors(bounds, ctx)
 	if t.textRole.Layout != nil {
-		out["baseline"] = gfx.Point{
+		anchors["baseline"] = gfx.Point{
 			X: bounds.Min.X,
 			Y: bounds.Min.Y + t.textRole.Layout.Baseline,
 		}
 	} else {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
+		anchors["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	}
-	return out
+	return anchors
 }
 
-func (t *Text) OnAttach(ctx facet.AttachContext) {}
-func (t *Text) OnActivate()                      {}
-func (t *Text) OnDeactivate()                    {}
+func (t *Text) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
 func (t *Text) OnDetach() {
+	t.Core.OnDetach()
 	t.cachedLayout = nil
 	t.cachedStyle = text.TextStyle{}
 	t.cachedBrush = gfx.Brush{}
 }
-
-func (t *Text) invalidate(flags facet.DirtyFlags) {
-	if t == nil {
-		return
-	}
-	t.Facet.Invalidate(flags)
-}
+func (t *Text) OnActivate()   { t.Core.OnActivate() }
+func (t *Text) OnDeactivate() { t.Core.OnDeactivate() }
 
 func (t *Text) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	layout, style, ok := t.resolveLayout(ctx, constraints)
@@ -251,8 +158,8 @@ func (t *Text) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	t.cachedStyle = style
 	t.textRole.Layout = layout
 	size := gfx.Size{W: layout.Bounds.Width(), H: layout.Bounds.Height()}
-	t.layoutRole.MeasuredSize = size
-	t.layoutRole.MeasuredResult = facet.MeasureResult{
+	t.Layout.MeasuredSize = size
+	t.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -261,7 +168,7 @@ func (t *Text) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		},
 		Constraints: constraints,
 	}
-	return t.layoutRole.MeasuredResult
+	return t.Layout.MeasuredResult
 }
 
 func (t *Text) measureSize(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -270,48 +177,43 @@ func (t *Text) measureSize(ctx facet.MeasureContext, constraints facet.Constrain
 }
 
 func (t *Text) resolveLayout(ctx facet.MeasureContext, constraints facet.Constraints) (*text.TextLayout, text.TextStyle, bool) {
-	if t == nil {
-		return nil, text.TextStyle{}, false
-	}
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
 	if !ok {
 		resolved = theme.DefaultResolvedContext()
 	}
-	style := resolved.TextStyle(t.Typography)
+	style := resolved.TextStyle(t.Typography.Get())
 	maxWidth := t.effectiveMaxWidth(constraints)
 	shaper := t.newShaper(ctx.Runtime)
 	if shaper == nil {
 		return nil, text.TextStyle{}, false
 	}
 	shaper.SetContentScale(ctx.ContentScale)
-	switch t.Overflow {
+	switch t.Overflow.Get() {
 	case TextOverflowWrap:
-		layout := shaper.Shape(text.Paragraph{
-			Spans:     []text.TextSpan{{Text: t.Content, Style: style}},
+		l := shaper.Shape(text.Paragraph{
+			Spans:     []text.TextSpan{{Text: t.Content.Get(), Style: style}},
 			MaxWidth:  maxWidth,
-			Alignment: t.Alignment,
+			Alignment: t.Alignment.Get(),
 		})
-		return layout, style, layout != nil
+		return l, style, l != nil
 	case TextOverflowTruncate:
-		layout := shaper.ShapeTruncated(t.Content, style, maxWidth)
-		return layout, style, layout != nil
+		l := shaper.ShapeTruncated(t.Content.Get(), style, maxWidth)
+		return l, style, l != nil
 	case TextOverflowScroll, TextOverflowClip:
 		fallthrough
 	default:
-		layout := shaper.ShapeSimple(t.Content, style)
-		return layout, style, layout != nil
+		l := shaper.ShapeSimple(t.Content.Get(), style)
+		return l, style, l != nil
 	}
 }
 
 func (t *Text) effectiveMaxWidth(constraints facet.Constraints) float32 {
 	maxWidth := constraints.MaxSize.W
-	if t.MaxWidth > 0 {
+	if t.MaxWidth.Get() > 0 {
 		if maxWidth <= 0 {
-			maxWidth = t.MaxWidth
-		} else {
-			if t.MaxWidth < maxWidth {
-				maxWidth = t.MaxWidth
-			}
+			maxWidth = t.MaxWidth.Get()
+		} else if t.MaxWidth.Get() < maxWidth {
+			maxWidth = t.MaxWidth.Get()
 		}
 	}
 	if maxWidth < 0 {
@@ -341,23 +243,18 @@ func (t *Text) fontRegistry(runtime any) *text.FontRegistry {
 	return nil
 }
 
-func (t *Text) cachedLayoutCommands() []gfx.Command {
-	return TextLayoutCommands(t.cachedLayout, t.layoutRole.ArrangedBounds, t.cachedBrush)
-}
-
-func (t *Text) project(ctx facet.ProjectionContext) *gfx.CommandList {
-	if t == nil || t.cachedLayout == nil {
+func (t *Text) buildCommands(ctx facet.ProjectionContext) []gfx.Command {
+	if t.cachedLayout == nil {
 		return nil
 	}
 	color := t.resolveBrushColor(ctx.Runtime)
 	t.cachedBrush = gfx.SolidBrush(color)
-	cmds := t.cachedLayoutCommands()
+	cmds := TextLayoutCommands(t.cachedLayout, t.Layout.ArrangedBounds, t.cachedBrush)
 	if len(cmds) == 0 {
 		return nil
 	}
-	list := &gfx.CommandList{Commands: cmds}
 	t.cachedLayout = t.textRole.Layout
-	return list
+	return cmds
 }
 
 // TextLayoutCommands converts a shaped text layout into draw commands positioned within bounds.
@@ -365,18 +262,18 @@ func (t *Text) project(ctx facet.ProjectionContext) *gfx.CommandList {
 // Each draw origin is resolved from the arranged content box plus the shaped
 // line box and baseline. The projection path does not recompute its own text
 // metrics or baseline placement.
-func TextLayoutCommands(layout *text.TextLayout, bounds gfx.Rect, brush gfx.Brush) []gfx.Command {
-	if layout == nil || bounds.IsEmpty() || brush.Color.A == 0 {
+func TextLayoutCommands(l *text.TextLayout, bounds gfx.Rect, brush gfx.Brush) []gfx.Command {
+	if l == nil || bounds.IsEmpty() || brush.Color.A == 0 {
 		return nil
 	}
-	if len(layout.Lines) == 0 {
+	if len(l.Lines) == 0 {
 		return nil
 	}
-	cmds := make([]gfx.Command, 0, len(layout.Lines))
-	for _, line := range layout.Lines {
+	cmds := make([]gfx.Command, 0, len(l.Lines))
+	for _, line := range l.Lines {
 		lineOrigin := gfx.Point{
-			X: bounds.Min.X + layout.Bounds.Min.X + line.Bounds.Min.X,
-			Y: bounds.Min.Y + layout.Bounds.Min.Y + line.Bounds.Min.Y + line.Baseline,
+			X: bounds.Min.X + l.Bounds.Min.X + line.Bounds.Min.X,
+			Y: bounds.Min.Y + l.Bounds.Min.Y + line.Bounds.Min.Y + line.Baseline,
 		}
 		for _, run := range line.Runs {
 			runOrigin := gfx.Point{
@@ -395,10 +292,10 @@ func TextLayoutCommands(layout *text.TextLayout, bounds gfx.Rect, brush gfx.Brus
 
 func (t *Text) resolveBrushColor(runtime any) gfx.Color {
 	style := t.styleTokens(runtime)
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return colorWithAlpha(style.Color.OnSurfaceVariant, style.Color.DisabledOpacity)
 	}
-	return colorForToken(style, t.Foreground)
+	return colorForToken(style, t.Foreground.Get())
 }
 
 func (t *Text) styleTokens(runtime any) theme.Tokens {

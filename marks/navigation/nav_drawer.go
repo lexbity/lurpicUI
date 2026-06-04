@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -44,23 +45,16 @@ type NavDrawerSection struct {
 
 // NavDrawer implements the navigation.nav_drawer canonical mark.
 type NavDrawer struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
+	Label        marks.Binding[string]
+	Subtitle     marks.Binding[string]
+	Sections     []NavDrawerSection
+	Open         marks.Binding[bool]
+	Disabled     marks.Binding[bool]
+	CurrentIndex marks.Binding[int]
 
 	Activated signal.Signal[int]
-
-	Label        string
-	Subtitle     string
-	Sections     []NavDrawerSection
-	Open         bool
-	Disabled     bool
-	CurrentIndex int
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -101,25 +95,33 @@ type NavDrawer struct {
 
 var _ facet.FacetImpl = (*NavDrawer)(nil)
 var _ layout.AnchorExporter = (*NavDrawer)(nil)
+var _ marks.Mark = (*NavDrawer)(nil)
 
 // NewNavDrawer constructs a navigation.nav_drawer mark with canonical defaults.
 func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
 	d := &NavDrawer{
-		Facet:              facet.NewFacet(),
-		Label:              label,
-		Open:               true,
-		CurrentIndex:       0,
+		Label:              marks.Const(label),
+		Subtitle:           marks.Const(""),
+		Open:               marks.Const(true),
+		CurrentIndex:       marks.Const(0),
+		Disabled:           marks.Const(false),
 		focusedIndex:       0,
 		groupHeaderFacet:   facet.NewFacet(),
 		groupNavItemsFacet: facet.NewFacet(),
 	}
+	d.Core.Facet = facet.NewFacet()
+	d.AddBinding(d.Label)
+	d.AddBinding(d.Subtitle)
+	d.AddBinding(d.Open)
+	d.AddBinding(d.CurrentIndex)
+	d.AddBinding(d.Disabled)
 	d.SetSections(sections)
-	d.layoutRole.Parent = facet.GroupParentContract{
+	d.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   navDrawerGroupPolicy{drawer: d},
 		Children: d,
 	}
-	d.layoutRole.Child = facet.GroupChildContract{
+	d.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := d.measureIntrinsic(ctx, constraints)
@@ -137,44 +139,25 @@ func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	d.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	d.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return d.measure(ctx, constraints)
 	}
-	d.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		d.layoutRole.ArrangedBounds = bounds
+	d.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		d.Layout.ArrangedBounds = bounds
 		d.arrange(ctx, bounds)
 	}
-	d.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := d.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	d.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return d.hitTest(p) }
+	d.Input.OnPointer = func(e facet.PointerEvent) bool { return d.onPointer(e) }
+	d.Input.OnKey = func(e facet.KeyEvent) bool { return d.onKey(e) }
+	d.Input.OnDismiss = func(e facet.DismissEvent) bool { return d.onDismiss(e) }
+	d.Focus.Focusable = func() bool { return !d.Disabled.Get() && d.Open.Get() && len(d.cachedFlatItems) > 0 }
+	d.Focus.TabIndex = 0
+	d.Focus.OnFocusGained = func() { d.onFocusGained() }
+	d.Focus.OnFocusLost = func() { d.onFocusLost() }
+	d.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return d.buildCommands(d.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	d.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := d.buildCommands(d.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	d.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return d.hitTest(p) }
-	d.inputRole.OnPointer = func(e facet.PointerEvent) bool { return d.onPointer(e) }
-	d.inputRole.OnKey = func(e facet.KeyEvent) bool { return d.onKey(e) }
-	d.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return d.onDismiss(e) }
-	d.focusRole.Focusable = func() bool { return !d.Disabled && d.Open && len(d.cachedFlatItems) > 0 }
-	d.focusRole.TabIndex = 0
-	d.focusRole.OnFocusGained = func() { d.onFocusGained() }
-	d.focusRole.OnFocusLost = func() { d.onFocusLost() }
-	d.AddRole(&d.layoutRole)
-	d.AddRole(&d.renderRole)
-	d.AddRole(&d.projectionRole)
-	d.AddRole(&d.hitRole)
-	d.AddRole(&d.inputRole)
-	d.AddRole(&d.focusRole)
+	d.RegisterRoles()
 	return d
 }
 
@@ -184,29 +167,16 @@ func (d *NavDrawer) Base() *facet.Facet {
 	return &d.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (d *NavDrawer) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "navigation", TypeName: "nav_drawer"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (d *NavDrawer) AccessibilityRole() string { return "navigation" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (d *NavDrawer) AccessibleName() string { return d.Label }
-
-// SetLabel updates the authored accessible label.
-func (d *NavDrawer) SetLabel(label string) {
-	if d == nil || d.Label == label {
-		return
-	}
-	d.Label = label
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetSubtitle updates the authored subtitle.
-func (d *NavDrawer) SetSubtitle(subtitle string) {
-	if d == nil || d.Subtitle == subtitle {
-		return
-	}
-	d.Subtitle = subtitle
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
+func (d *NavDrawer) AccessibleName() string { return d.Label.Get() }
 
 // SetSections updates the drawer sections.
 func (d *NavDrawer) SetSections(sections []NavDrawerSection) {
@@ -228,72 +198,15 @@ func (d *NavDrawer) SetSections(sections []NavDrawerSection) {
 	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
-// SetOpen updates drawer disclosure state.
-func (d *NavDrawer) SetOpen(open bool) {
-	if d == nil || d.Open == open {
-		return
-	}
-	d.Open = open
-	if !open {
-		d.hoveredIndex = -1
-		d.pressedIndex = -1
-		d.focusedVisible = false
-		d.focusFromPointer = false
-	}
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (d *NavDrawer) SetDisabled(disabled bool) {
-	if d == nil || d.Disabled == disabled {
-		return
-	}
-	d.Disabled = disabled
-	if disabled {
-		d.hoveredIndex = -1
-		d.pressedIndex = -1
-		d.focusedVisible = false
-		d.focusFromPointer = false
-	}
-	d.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetCurrentIndex updates the authored current route index.
-func (d *NavDrawer) SetCurrentIndex(index int) {
-	if d == nil {
-		return
-	}
-	if index < 0 {
-		index = 0
-	}
-	if len(d.cachedFlatItems) > 0 && index >= len(d.cachedFlatItems) {
-		index = len(d.cachedFlatItems) - 1
-	}
-	if d.CurrentIndex == index {
-		return
-	}
-	d.CurrentIndex = index
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the drawer anchor set.
 func (d *NavDrawer) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if d == nil {
 		return nil
 	}
-	bounds := d.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := d.Layout.ArrangedBounds
+	out := d.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if d.cachedHeaderFacet != nil {
 		if anchors := d.cachedHeaderFacet.ExportAnchors(ctx); anchors != nil {
@@ -350,16 +263,17 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 }
 
 // OnAttach is unused beyond layout role setup.
-func (d *NavDrawer) OnAttach(ctx facet.AttachContext) {}
+func (d *NavDrawer) OnAttach(ctx facet.AttachContext) { d.Core.OnAttach() }
 
 // OnActivate is unused.
-func (d *NavDrawer) OnActivate() {}
+func (d *NavDrawer) OnActivate() { d.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (d *NavDrawer) OnDeactivate() {}
+func (d *NavDrawer) OnDeactivate() { d.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (d *NavDrawer) OnDetach() {
+	d.Core.OnDetach()
 	d.cachedTokens = theme.Tokens{}
 	d.cachedRecipe = shared.NavDrawerSlots{}
 	d.cachedRootBounds = gfx.Rect{}
@@ -391,7 +305,7 @@ func (d *NavDrawer) invalidate(flags facet.DirtyFlags) {
 	if d == nil {
 		return
 	}
-	d.Base().Invalidate(flags)
+	d.Facet.Invalidate(flags)
 }
 
 func (d *NavDrawer) syncTextFacets(maxWidth float32) {
@@ -402,38 +316,41 @@ func (d *NavDrawer) syncTextFacets(maxWidth float32) {
 		maxWidth = 0
 	}
 	if d.cachedHeaderFacet == nil {
-		d.cachedHeaderFacet = primitive.NewText(d.Label)
+		d.cachedHeaderFacet = primitive.NewText(marks.Const(d.Label.Get()))
 	}
-	d.cachedHeaderFacet.SetContent(d.Label)
-	d.cachedHeaderFacet.SetTypography(theme.TextHeadingS)
-	d.cachedHeaderFacet.SetForeground(theme.ColorText)
-	d.cachedHeaderFacet.SetDisabled(d.Disabled)
-	d.cachedHeaderFacet.SetOverflow(primitive.TextOverflowTruncate)
-	d.cachedHeaderFacet.SetMaxWidth(maxWidth)
+	d.cachedHeaderFacet.Content = marks.Const(d.Label.Get())
+	d.cachedHeaderFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+	d.cachedHeaderFacet.Typography = marks.Const(theme.TextHeadingS)
+	d.cachedHeaderFacet.Foreground = marks.Const(theme.ColorText)
+	d.cachedHeaderFacet.Disabled = marks.Const(d.Disabled.Get())
+	d.cachedHeaderFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	d.cachedHeaderFacet.MaxWidth = marks.Const(maxWidth)
 
 	if d.cachedSubtitleFacet == nil {
-		d.cachedSubtitleFacet = primitive.NewText(d.Subtitle)
+		d.cachedSubtitleFacet = primitive.NewText(marks.Const(d.Subtitle.Get()))
 	}
-	d.cachedSubtitleFacet.SetContent(d.Subtitle)
-	d.cachedSubtitleFacet.SetTypography(theme.TextBodyM)
-	d.cachedSubtitleFacet.SetForeground(theme.ColorTextSecondary)
-	d.cachedSubtitleFacet.SetDisabled(d.Disabled)
-	d.cachedSubtitleFacet.SetOverflow(primitive.TextOverflowTruncate)
-	d.cachedSubtitleFacet.SetMaxWidth(maxWidth)
+	d.cachedSubtitleFacet.Content = marks.Const(d.Subtitle.Get())
+	d.cachedSubtitleFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+	d.cachedSubtitleFacet.Typography = marks.Const(theme.TextBodyM)
+	d.cachedSubtitleFacet.Foreground = marks.Const(theme.ColorTextSecondary)
+	d.cachedSubtitleFacet.Disabled = marks.Const(d.Disabled.Get())
+	d.cachedSubtitleFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	d.cachedSubtitleFacet.MaxWidth = marks.Const(maxWidth)
 
 	if len(d.cachedSectionFacets) != len(d.Sections) {
 		d.cachedSectionFacets = make([]*primitive.Text, len(d.Sections))
 	}
 	for i := range d.Sections {
 		if d.cachedSectionFacets[i] == nil {
-			d.cachedSectionFacets[i] = primitive.NewText(d.Sections[i].Label)
+			d.cachedSectionFacets[i] = primitive.NewText(marks.Const(d.Sections[i].Label))
 		}
-		d.cachedSectionFacets[i].SetContent(d.Sections[i].Label)
-		d.cachedSectionFacets[i].SetTypography(theme.TextLabelM)
-		d.cachedSectionFacets[i].SetForeground(theme.ColorTextSecondary)
-		d.cachedSectionFacets[i].SetDisabled(d.Disabled)
-		d.cachedSectionFacets[i].SetOverflow(primitive.TextOverflowTruncate)
-		d.cachedSectionFacets[i].SetMaxWidth(maxWidth)
+		d.cachedSectionFacets[i].Content = marks.Const(d.Sections[i].Label)
+		d.cachedSectionFacets[i].Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+		d.cachedSectionFacets[i].Typography = marks.Const(theme.TextLabelM)
+		d.cachedSectionFacets[i].Foreground = marks.Const(theme.ColorTextSecondary)
+		d.cachedSectionFacets[i].Disabled = marks.Const(d.Disabled.Get())
+		d.cachedSectionFacets[i].Overflow = marks.Const(primitive.TextOverflowTruncate)
+		d.cachedSectionFacets[i].MaxWidth = marks.Const(maxWidth)
 	}
 
 	if len(d.cachedItemLabelFacets) != len(d.cachedFlatItems) {
@@ -441,14 +358,15 @@ func (d *NavDrawer) syncTextFacets(maxWidth float32) {
 	}
 	for i := range d.cachedFlatItems {
 		if d.cachedItemLabelFacets[i] == nil {
-			d.cachedItemLabelFacets[i] = primitive.NewText(d.cachedFlatItems[i].Label)
+			d.cachedItemLabelFacets[i] = primitive.NewText(marks.Const(d.cachedFlatItems[i].Label))
 		}
-		d.cachedItemLabelFacets[i].SetContent(d.cachedFlatItems[i].Label)
-		d.cachedItemLabelFacets[i].SetTypography(theme.TextLabelM)
-		d.cachedItemLabelFacets[i].SetForeground(theme.ColorText)
-		d.cachedItemLabelFacets[i].SetDisabled(d.Disabled || d.cachedFlatItems[i].Disabled)
-		d.cachedItemLabelFacets[i].SetOverflow(primitive.TextOverflowTruncate)
-		d.cachedItemLabelFacets[i].SetMaxWidth(maxWidth)
+		d.cachedItemLabelFacets[i].Content = marks.Const(d.cachedFlatItems[i].Label)
+		d.cachedItemLabelFacets[i].Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+		d.cachedItemLabelFacets[i].Typography = marks.Const(theme.TextLabelM)
+		d.cachedItemLabelFacets[i].Foreground = marks.Const(theme.ColorText)
+		d.cachedItemLabelFacets[i].Disabled = marks.Const(d.Disabled.Get() || d.cachedFlatItems[i].Disabled)
+		d.cachedItemLabelFacets[i].Overflow = marks.Const(primitive.TextOverflowTruncate)
+		d.cachedItemLabelFacets[i].MaxWidth = marks.Const(maxWidth)
 	}
 }
 
@@ -540,7 +458,7 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	d.groupHeaderLayout.MeasuredResult = facet.MeasureResult{Size: headerSize}
 	d.groupNavItemsLayout.MeasuredSize = itemsSize
 	d.groupNavItemsLayout.MeasuredResult = facet.MeasureResult{Size: itemsSize}
-	groupSize, err := d.layoutRole.Parent.Policy.MeasureGroup(facet.GroupMeasureContext{MeasureContext: facet.MeasureContext{}}, d.Children())
+	groupSize, err := d.Layout.Parent.Policy.MeasureGroup(facet.GroupMeasureContext{MeasureContext: facet.MeasureContext{}}, d.Children())
 	contentH := headerSize.H + itemsSize.H
 	if len(d.Children()) > 1 {
 		contentH += d.cachedSectionGap
@@ -550,7 +468,7 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	}
 	measuredW := drawerW
 	measuredH := contentH + d.cachedPadY*2
-	if d.Open {
+	if d.Open.Get() {
 		if constraints.MaxSize.W > 0 {
 			measuredW = maxFloat(measuredW, constraints.MaxSize.W)
 		}
@@ -559,8 +477,8 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		}
 	}
 	measured := constraints.Constrain(gfx.Size{W: measuredW, H: measuredH})
-	d.layoutRole.MeasuredSize = measured
-	d.layoutRole.MeasuredResult = facet.MeasureResult{
+	d.Layout.MeasuredSize = measured
+	d.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -569,7 +487,7 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		},
 		Constraints: constraints,
 	}
-	return d.layoutRole.MeasuredResult
+	return d.Layout.MeasuredResult
 }
 
 func (d *NavDrawer) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -584,8 +502,8 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	d.cachedNavBounds = gfx.Rect{}
 	d.cachedSectionBounds = nil
 	d.cachedItemBounds = nil
-	d.layoutRole.ArrangedBounds = bounds
-	if bounds.IsEmpty() || !d.Open {
+	d.Layout.ArrangedBounds = bounds
+	if bounds.IsEmpty() || !d.Open.Get() {
 		return
 	}
 	drawerW := d.cachedDrawerWidth
@@ -600,7 +518,7 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		drawerH = bounds.Height()
 	}
 	if drawerH <= 0 {
-		drawerH = d.layoutRole.MeasuredSize.H
+		drawerH = d.Layout.MeasuredSize.H
 	}
 	if drawerH <= 0 {
 		drawerH = 720
@@ -617,7 +535,7 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		maxFloat(0, d.cachedDrawerBounds.Width()-d.cachedPadX*2),
 		maxFloat(0, d.cachedDrawerBounds.Height()-d.cachedPadY*2),
 	)
-	if policy, ok := d.layoutRole.Parent.Policy.(navDrawerGroupPolicy); ok {
+	if policy, ok := d.Layout.Parent.Policy.(navDrawerGroupPolicy); ok {
 		if arranged, err := policy.ArrangeGroup(facet.GroupArrangeContext{ArrangeContext: facet.ArrangeContext{}, Bounds: contentBounds}, d.Children()); err == nil {
 			for _, child := range arranged {
 				switch child.MarkID {
@@ -710,7 +628,7 @@ func (d *NavDrawer) resolveProjectionTheme(runtime any) (theme.StyleContext, sha
 }
 
 func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
-	if d == nil || bounds.IsEmpty() || !d.Open {
+	if d == nil || bounds.IsEmpty() || !d.Open.Get() {
 		return nil
 	}
 	style, slots := d.resolveProjectionTheme(runtime)
@@ -805,7 +723,7 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (d *NavDrawer) hitTest(p gfx.Point) facet.HitResult {
-	if d == nil || d.layoutRole.ArrangedBounds.IsEmpty() || !d.layoutRole.ArrangedBounds.Contains(p) {
+	if d == nil || d.Layout.ArrangedBounds.IsEmpty() || !d.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := d.cursorShape()
@@ -835,7 +753,7 @@ func (d *NavDrawer) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
-	if d.Disabled {
+	if d.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -871,8 +789,8 @@ func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
 			d.invalidate(facet.DirtyProjection)
 			return true
 		}
-		if d.Open {
-			d.Open = false
+		if d.Open.Get() {
+			d.Open = marks.Const(false)
 			d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 			return true
 		}
@@ -888,7 +806,7 @@ func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
 		if wasPressed {
 			if hit := d.indexAt(e.Position); hit >= 0 && hit == idx && !d.isDisabledIndex(hit) {
 				d.activateIndex(hit)
-				d.Open = false
+				d.Open = marks.Const(false)
 				d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 				return true
 			}
@@ -910,7 +828,7 @@ func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
 }
 
 func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
-	if d.Disabled || !d.Open || len(d.cachedFlatItems) == 0 {
+	if d.Disabled.Get() || !d.Open.Get() || len(d.cachedFlatItems) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -931,7 +849,7 @@ func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
 				d.setLastFocus()
 				return true
 			case platform.KeyEscape:
-				d.Open = false
+				d.Open = marks.Const(false)
 				d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 				return true
 			case platform.KeySpace, platform.KeyEnter:
@@ -947,7 +865,7 @@ func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
 				d.invalidate(facet.DirtyProjection)
 				if wasPressed && idx >= 0 {
 					d.activateIndex(idx)
-					d.Open = false
+					d.Open = marks.Const(false)
 					d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 					return true
 				}
@@ -959,10 +877,10 @@ func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
 
 func (d *NavDrawer) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if d.Disabled || !d.Open {
+	if d.Disabled.Get() || !d.Open.Get() {
 		return false
 	}
-	d.Open = false
+	d.Open = marks.Const(false)
 	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	return true
 }
@@ -983,7 +901,7 @@ func (d *NavDrawer) onFocusLost() {
 
 func (d *NavDrawer) rootState() theme.InteractionState {
 	switch {
-	case d.Disabled:
+	case d.Disabled.Get():
 		return theme.StateDisabled
 	case d.pressedIndex >= 0:
 		return theme.StatePressed
@@ -997,14 +915,14 @@ func (d *NavDrawer) rootState() theme.InteractionState {
 }
 
 func (d *NavDrawer) headerState() theme.InteractionState {
-	if d.Disabled {
+	if d.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	return theme.StateDefault
 }
 
 func (d *NavDrawer) itemState() theme.InteractionState {
-	if d.Disabled {
+	if d.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	if d.pressedIndex >= 0 {
@@ -1020,7 +938,7 @@ func (d *NavDrawer) itemState() theme.InteractionState {
 }
 
 func (d *NavDrawer) itemStateAt(index int) theme.InteractionState {
-	if d.Disabled || d.isDisabledIndex(index) {
+	if d.Disabled.Get() || d.isDisabledIndex(index) {
 		return theme.StateDisabled
 	}
 	if index == d.clampedCurrentIndex() {
@@ -1087,22 +1005,23 @@ func (d *NavDrawer) activateIndex(index int) {
 	if index < 0 || index >= len(d.cachedFlatItems) || d.isDisabledIndex(index) {
 		return
 	}
-	d.CurrentIndex = index
+	d.CurrentIndex = marks.Const(index)
 	d.Activated.Emit(index)
 	d.invalidate(facet.DirtyProjection)
 }
 
 func (d *NavDrawer) clampedCurrentIndex() int {
+	idx := d.CurrentIndex.Get()
 	if len(d.cachedFlatItems) == 0 {
 		return 0
 	}
-	if d.CurrentIndex < 0 {
+	if idx < 0 {
 		return 0
 	}
-	if d.CurrentIndex >= len(d.cachedFlatItems) {
+	if idx >= len(d.cachedFlatItems) {
 		return len(d.cachedFlatItems) - 1
 	}
-	return d.CurrentIndex
+	return idx
 }
 
 func (d *NavDrawer) clampedFocusedIndex() int {
@@ -1120,15 +1039,16 @@ func (d *NavDrawer) clampedFocusedIndex() int {
 
 func (d *NavDrawer) clampIndices() {
 	if len(d.cachedFlatItems) == 0 {
-		d.CurrentIndex = 0
+		d.CurrentIndex = marks.Const(0)
 		d.focusedIndex = 0
 		return
 	}
-	if d.CurrentIndex < 0 || d.CurrentIndex >= len(d.cachedFlatItems) {
-		d.CurrentIndex = 0
+	ci := d.CurrentIndex.Get()
+	if ci < 0 || ci >= len(d.cachedFlatItems) {
+		d.CurrentIndex = marks.Const(0)
 	}
 	if d.focusedIndex < 0 || d.focusedIndex >= len(d.cachedFlatItems) {
-		d.focusedIndex = d.CurrentIndex
+		d.focusedIndex = ci
 	}
 	if d.isDisabledIndex(d.focusedIndex) {
 		d.focusedIndex = d.firstEnabledIndex()
@@ -1139,7 +1059,7 @@ func (d *NavDrawer) isDisabledIndex(index int) bool {
 	if index < 0 || index >= len(d.cachedFlatItems) {
 		return true
 	}
-	return d.Disabled || d.cachedFlatItems[index].Disabled
+	return d.Disabled.Get() || d.cachedFlatItems[index].Disabled
 }
 
 func (d *NavDrawer) indexAt(p gfx.Point) int {
@@ -1172,14 +1092,14 @@ func (d *NavDrawer) pointInFocusRing(p gfx.Point) bool {
 }
 
 func (d *NavDrawer) cursorShape() facet.CursorShape {
-	if d.Disabled {
+	if d.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (d *NavDrawer) cursorForItem(index int) facet.CursorShape {
-	if d.Disabled || d.isDisabledIndex(index) {
+	if d.Disabled.Get() || d.isDisabledIndex(index) {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer

@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -30,7 +31,7 @@ func (s treeNavigatorRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset,
 func TestTreeNavigatorMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	tree, rt, measureCtx := newTreeNavigatorTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(tree, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := tree.layoutRole.Measure(facet.MeasureContext{
+	result := tree.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -42,11 +43,11 @@ func TestTreeNavigatorMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(10, 14, result.Size.W, result.Size.H)
-	tree.layoutRole.Arrange(facet.ArrangeContext{
+	tree.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: tree.layoutRole.Parent,
-		ChildGroup:  tree.layoutRole.Child,
+		ParentGroup: tree.Layout.Parent,
+		ChildGroup:  tree.Layout.Child,
 	}, bounds)
 
 	if got := tree.AccessibilityRole(); got != "tree" {
@@ -55,7 +56,7 @@ func TestTreeNavigatorMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := tree.AccessibleName(); got != "Project tree" {
 		t.Fatalf("accessible name = %q, want Project tree", got)
 	}
-	if !tree.focusRole.Focusable() {
+	if !tree.Focus.Focusable() {
 		t.Fatal("expected tree navigator to be focusable")
 	}
 	if len(tree.Children()) != len(tree.cachedVisibleNodes) {
@@ -65,14 +66,14 @@ func TestTreeNavigatorMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected row geometry, got rows=%d content=%v", len(tree.cachedRowBounds), tree.cachedContentHeight)
 	}
 
-	rowHit := tree.hitRole.HitTest(gfx.Point{
+	rowHit := tree.Hit.HitTest(gfx.Point{
 		X: tree.cachedRowBounds[0].Min.X + tree.cachedRowBounds[0].Width()*0.5,
 		Y: tree.cachedRowBounds[0].Min.Y + tree.cachedRowBounds[0].Height()*0.5,
 	})
 	if !rowHit.Hit || (rowHit.MarkID != treeNavigatorMarkIDLabel && rowHit.MarkID != treeNavigatorMarkIDSelectionIndicator && rowHit.MarkID != treeNavigatorMarkIDTreeItem) {
 		t.Fatalf("expected row hit, got %#v", rowHit)
 	}
-	discHit := tree.hitRole.HitTest(gfx.Point{
+	discHit := tree.Hit.HitTest(gfx.Point{
 		X: tree.cachedRowLeadingBounds[0].Min.X + tree.cachedRowLeadingBounds[0].Width()*0.5,
 		Y: tree.cachedRowLeadingBounds[0].Min.Y + tree.cachedRowLeadingBounds[0].Height()*0.5,
 	})
@@ -87,7 +88,7 @@ func TestTreeNavigatorMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := tree.projectionRole.Project(facet.ProjectionContext{
+	cmds := tree.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -115,14 +116,14 @@ func TestTreeNavigatorMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestTreeNavigatorPointerKeyboardAndScroll(t *testing.T) {
 	tree, rt, measureCtx := newTreeNavigatorTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(tree, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := tree.layoutRole.Measure(facet.MeasureContext{
+	result := tree.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 760, H: 160}})
-	tree.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+	tree.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	if !tree.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: tree.cachedRowLeadingBounds[0].Min.X + 1, Y: tree.cachedRowLeadingBounds[0].Min.Y + 1}, Button: platform.PointerLeft}) {
 		t.Fatal("expected disclosure press to be handled")
@@ -233,7 +234,7 @@ func TestTreeNavigatorGoldenComfortable(t *testing.T) {
 
 func TestTreeNavigatorGoldenDisabled(t *testing.T) {
 	AssertTreeNavigatorGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tn *TreeNavigator) {
-		tn.SetDisabled(true)
+		tn.Disabled = marks.Const(true)
 	})
 }
 
@@ -275,7 +276,7 @@ func AssertTreeNavigatorGolden(t *testing.T, name string, tokens theme.Tokens, d
 func renderTreeNavigatorToSurface(t *testing.T, tree *TreeNavigator, rt treeNavigatorRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(tree, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := tree.layoutRole.Measure(facet.MeasureContext{
+	result := tree.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -283,8 +284,8 @@ func renderTreeNavigatorToSurface(t *testing.T, tree *TreeNavigator, rt treeNavi
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 760, H: 1000}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	tree.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
-	cmds := tree.projectionRole.Project(facet.ProjectionContext{
+	tree.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cmds := tree.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

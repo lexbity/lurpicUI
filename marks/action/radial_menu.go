@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/layout/radial"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -32,23 +33,16 @@ type RadialChild struct {
 
 // RadialMenu implements the action.radial_menu composed container.
 type RadialMenu struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
+	marks.Core
 
 	Activated signal.Signal[string]
 
-	Label              string
+	Label              marks.Binding[string]
 	DefaultTrackRadius float32
 	CenterChild        facet.FacetImpl
-	RadialChildren     []RadialChild
+	RadialChildren     marks.Binding[[]RadialChild]
 	Open               bool
-	Disabled           bool
+	Disabled           marks.Binding[bool]
 
 	hoveredRegion    radialMenuRegion
 	pressedRegion    radialMenuRegion
@@ -84,7 +78,7 @@ type radialMenuGroupPolicy struct {
 func (radialMenuGroupPolicy) Kind() facet.GroupLayoutKind { return facet.GroupLayoutRadial }
 
 func (p radialMenuGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children []facet.GroupChild) (facet.GroupMeasureResult, error) {
-	if p.menu == nil || p.menu.Disabled || !p.menu.Open {
+	if p.menu == nil || p.menu.Disabled.Get() || !p.menu.Open {
 		return facet.GroupMeasureResult{}, nil
 	}
 	policy := radial.New(radial.Config{
@@ -100,7 +94,7 @@ func (p radialMenuGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, child
 }
 
 func (p radialMenuGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []facet.GroupChild) ([]facet.ArrangedGroupChild, error) {
-	if p.menu == nil || p.menu.Disabled || !p.menu.Open {
+	if p.menu == nil || p.menu.Disabled.Get() || !p.menu.Open {
 		return nil, nil
 	}
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
@@ -140,24 +134,32 @@ func (p radialMenuGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, child
 
 var _ facet.FacetImpl = (*RadialMenu)(nil)
 var _ layout.AnchorExporter = (*RadialMenu)(nil)
+var _ marks.Mark = (*RadialMenu)(nil)
 
 // NewRadialMenu constructs an action.radial_menu mark with canonical defaults.
 func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild) *RadialMenu {
 	m := &RadialMenu{
-		Facet:              facet.NewFacet(),
-		Label:              strings.TrimSpace(label),
-		Open:               true,
+		Label:              marks.Const(strings.TrimSpace(label)),
 		DefaultTrackRadius: 0,
+		Open:               true,
+		Disabled:           marks.Const(false),
+		RadialChildren:     marks.Const(normalizeRadialChildren(children)),
 		focusFromPointer:   false,
+		Activated:          signal.NewSignal[string]("radial_menu_activated"),
 	}
-	m.layoutRole.Parent = facet.GroupParentContract{
+	m.Core.Facet = facet.NewFacet()
+	m.AddBinding(m.Label)
+	m.AddBinding(m.Disabled)
+	m.AddBinding(m.RadialChildren)
+
+	m.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutRadial,
 		Policy:   radialMenuGroupPolicy{menu: m},
 		Overflow: facet.OverflowVisible,
 		Clipping: facet.GroupClipVisible,
 		Children: m,
 	}
-	m.layoutRole.Child = facet.GroupChildContract{
+	m.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := m.measureIntrinsic(ctx, constraints)
@@ -175,46 +177,27 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 		},
 		Baseline: facet.BaselineNone,
 	}
-	m.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	m.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return m.measure(ctx, constraints)
 	}
-	m.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		m.layoutRole.ArrangedBounds = bounds
+	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		m.Layout.ArrangedBounds = bounds
 		m.arrange(ctx, bounds)
 	}
-	m.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := m.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	m.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return m.buildCommands(m.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	m.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := m.buildCommands(m.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	m.hitRole.OnHitTest = func(pt gfx.Point) facet.HitResult { return m.hitTest(pt) }
-	m.inputRole.OnPointer = func(e facet.PointerEvent) bool { return m.onPointer(e) }
-	m.inputRole.OnKey = func(e facet.KeyEvent) bool { return m.onKey(e) }
-	m.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return m.onDismiss(e) }
-	m.focusRole.Focusable = func() bool { return !m.Disabled && m.Open && len(m.Children()) > 0 }
-	m.focusRole.TabIndex = 0
-	m.focusRole.OnFocusGained = func() { m.onFocusGained() }
-	m.focusRole.OnFocusLost = func() { m.onFocusLost() }
-	m.AddRole(&m.layoutRole)
-	m.AddRole(&m.renderRole)
-	m.AddRole(&m.projectionRole)
-	m.AddRole(&m.hitRole)
-	m.AddRole(&m.inputRole)
-	m.AddRole(&m.focusRole)
-	m.SetCenterChild(center)
-	m.SetRadialChildren(children)
+	m.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult { return m.hitTest(pt) }
+	m.Input.OnPointer = func(e facet.PointerEvent) bool { return m.onPointer(e) }
+	m.Input.OnKey = func(e facet.KeyEvent) bool { return m.onKey(e) }
+	m.Input.OnDismiss = func(e facet.DismissEvent) bool { return m.onDismiss(e) }
+	m.Focus.Focusable = func() bool { return !m.Disabled.Get() && m.Open && len(m.Children()) > 0 }
+	m.Focus.TabIndex = 0
+	m.Focus.OnFocusGained = func() { m.onFocusGained() }
+	m.Focus.OnFocusLost = func() { m.onFocusLost() }
+	m.RegisterRoles()
+	m.attachCenterChild(center)
+	m.attachRadialChildren(children)
 	return m
 }
 
@@ -222,6 +205,11 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 func (m *RadialMenu) Base() *facet.Facet {
 	m.Facet.BindImpl(m)
 	return &m.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (m *RadialMenu) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "radial_menu"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -232,118 +220,10 @@ func (m *RadialMenu) AccessibleName() string {
 	if m == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(m.Label); name != "" {
+	if name := strings.TrimSpace(m.Label.Get()); name != "" {
 		return name
 	}
 	return "Radial menu"
-}
-
-// SetLabel updates the authored accessible label.
-func (m *RadialMenu) SetLabel(label string) {
-	if m == nil {
-		return
-	}
-	label = strings.TrimSpace(label)
-	if m.Label == label {
-		return
-	}
-	m.Label = label
-	m.invalidate(facet.DirtyProjection)
-}
-
-// SetCenterChild updates the center slot child.
-func (m *RadialMenu) SetCenterChild(child facet.FacetImpl) {
-	if m == nil {
-		return
-	}
-	if m.CenterChild == child {
-		return
-	}
-	m.detachChild(m.CenterChild)
-	m.CenterChild = child
-	m.attachChild(child)
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetRadialChildren replaces the radial orbit children.
-func (m *RadialMenu) SetRadialChildren(children []RadialChild) {
-	if m == nil {
-		return
-	}
-	for _, existing := range m.RadialChildren {
-		m.detachChild(existing.Child)
-	}
-	next := make([]RadialChild, 0, len(children))
-	for _, child := range children {
-		if child.Child == nil {
-			continue
-		}
-		m.attachChild(child.Child)
-		next = append(next, child)
-	}
-	m.RadialChildren = next
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// AddRadialChild appends a child to the radial orbit list.
-func (m *RadialMenu) AddRadialChild(child RadialChild) {
-	if m == nil || child.Child == nil {
-		return
-	}
-	m.attachChild(child.Child)
-	m.RadialChildren = append(m.RadialChildren, child)
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen updates the open state.
-func (m *RadialMenu) SetOpen(open bool) {
-	if m == nil || m.Open == open {
-		return
-	}
-	m.Open = open
-	if !open {
-		m.hoveredRegion = radialMenuRegionNone
-		m.pressedRegion = radialMenuRegionNone
-		m.focusedVisible = false
-		m.focusFromPointer = false
-	}
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (m *RadialMenu) SetDisabled(disabled bool) {
-	if m == nil || m.Disabled == disabled {
-		return
-	}
-	m.Disabled = disabled
-	if disabled {
-		m.hoveredRegion = radialMenuRegionNone
-		m.pressedRegion = radialMenuRegionNone
-		m.focusedVisible = false
-		m.focusFromPointer = false
-	}
-	m.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// OnAttach is unused.
-func (m *RadialMenu) OnAttach(ctx facet.AttachContext) {}
-
-// OnActivate is unused.
-func (m *RadialMenu) OnActivate() {}
-
-// OnDeactivate is unused.
-func (m *RadialMenu) OnDeactivate() {}
-
-// OnDetach clears cached projection state.
-func (m *RadialMenu) OnDetach() {
-	m.cachedTokens = theme.Tokens{}
-	m.cachedRecipe = shared.RadialMenuSlots{}
-	m.cachedBounds = gfx.Rect{}
-	m.cachedFocusBounds = gfx.Rect{}
-	m.cachedTrackRadius = 0
-	m.cachedSurfaceRadius = 0
-	m.cachedCenter = gfx.Point{}
-	m.cachedArrangedChildren = nil
 }
 
 // ExportAnchors publishes the radial menu anchor set.
@@ -351,19 +231,10 @@ func (m *RadialMenu) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 	if m == nil {
 		return nil
 	}
-	bounds := m.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := m.Layout.ArrangedBounds
+	out := m.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       centerOfRect(bounds),
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if m.cachedCenter != (gfx.Point{}) {
 		out["content_anchor"] = m.cachedCenter
@@ -376,10 +247,11 @@ func (m *RadialMenu) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 
 // Children returns the facet's immediate child list.
 func (m *RadialMenu) Children() []facet.GroupChild {
-	if m == nil || m.Disabled || !m.Open {
+	if m == nil || m.Disabled.Get() || !m.Open {
 		return nil
 	}
-	out := make([]facet.GroupChild, 0, len(m.RadialChildren)+1)
+	radialChildren := m.RadialChildren.Get()
+	out := make([]facet.GroupChild, 0, len(radialChildren)+1)
 	if m.CenterChild != nil && m.CenterChild.Base() != nil && m.CenterChild.Base().LayoutRole() != nil {
 		contract := m.CenterChild.Base().LayoutRole().Child
 		contract.SupportedPlacement |= facet.SupportsRadial
@@ -399,8 +271,8 @@ func (m *RadialMenu) Children() []facet.GroupChild {
 			Contract: contract,
 		})
 	}
-	for i := range m.RadialChildren {
-		child := m.RadialChildren[i]
+	for i := range radialChildren {
+		child := radialChildren[i]
 		if child.Child == nil || child.Child.Base() == nil || child.Child.Base().LayoutRole() == nil {
 			continue
 		}
@@ -422,17 +294,74 @@ func (m *RadialMenu) Children() []facet.GroupChild {
 	return out
 }
 
+// OnAttach subscribes dynamic bindings.
+func (m *RadialMenu) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+
+// OnActivate is unused.
+func (m *RadialMenu) OnActivate() { m.Core.OnActivate() }
+
+// OnDeactivate is unused.
+func (m *RadialMenu) OnDeactivate() { m.Core.OnDeactivate() }
+
+// OnDetach clears cached projection state.
+func (m *RadialMenu) OnDetach() {
+	m.Core.OnDetach()
+	m.cachedTokens = theme.Tokens{}
+	m.cachedRecipe = shared.RadialMenuSlots{}
+	m.cachedBounds = gfx.Rect{}
+	m.cachedFocusBounds = gfx.Rect{}
+	m.cachedTrackRadius = 0
+	m.cachedSurfaceRadius = 0
+	m.cachedCenter = gfx.Point{}
+	m.cachedArrangedChildren = nil
+}
+
+func (m *RadialMenu) setOpen(open bool) {
+	if m == nil || m.Open == open {
+		return
+	}
+	m.Open = open
+	if !open {
+		m.hoveredRegion = radialMenuRegionNone
+		m.pressedRegion = radialMenuRegionNone
+		m.focusedVisible = false
+		m.focusFromPointer = false
+	}
+	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+}
+
+func (m *RadialMenu) attachCenterChild(child facet.FacetImpl) {
+	if child == nil || child.Base() == nil {
+		return
+	}
+	m.CenterChild = child
+	if child.Base().Parent() != m.Base() {
+		m.attachChild(child)
+	}
+}
+
+func (m *RadialMenu) attachRadialChildren(children []RadialChild) {
+	for _, child := range children {
+		if child.Child == nil || child.Child.Base() == nil {
+			continue
+		}
+		if child.Child.Base().Parent() != m.Base() {
+			m.attachChild(child.Child)
+		}
+	}
+}
+
 func (m *RadialMenu) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	resolved, recipe, _ := m.resolveTheme(ctx)
 	m.cachedTokens = resolved.TokenSet()
 	m.cachedRecipe = recipe
 	m.cachedWritingDirection = ctx.WritingDirection
 	m.cachedTrackRadius = m.defaultTrackRadius(resolved)
-	if !m.Open || m.Disabled {
+	if !m.Open || m.Disabled.Get() {
 		size := constraints.Constrain(gfx.Size{})
-		m.layoutRole.MeasuredSize = size
-		m.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
-		return m.layoutRole.MeasuredResult
+		m.Layout.MeasuredSize = size
+		m.Layout.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+		return m.Layout.MeasuredResult
 	}
 	children := m.Children()
 	policy := radial.New(radial.Config{
@@ -459,8 +388,8 @@ func (m *RadialMenu) measure(ctx facet.MeasureContext, constraints facet.Constra
 		size.H = minSide
 	}
 	size = constraints.Constrain(size)
-	m.layoutRole.MeasuredSize = size
-	m.layoutRole.MeasuredResult = facet.MeasureResult{
+	m.Layout.MeasuredSize = size
+	m.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -469,7 +398,7 @@ func (m *RadialMenu) measure(ctx facet.MeasureContext, constraints facet.Constra
 		},
 		Constraints: constraints,
 	}
-	return m.layoutRole.MeasuredResult
+	return m.Layout.MeasuredResult
 }
 
 func (m *RadialMenu) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -481,8 +410,8 @@ func (m *RadialMenu) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	m.cachedFocusBounds = gfx.Rect{}
 	m.cachedCenter = centerOfRect(bounds)
 	m.cachedSurfaceRadius = maxFloat(0, minFloat(bounds.Width(), bounds.Height())*0.5-2)
-	m.layoutRole.ArrangedBounds = bounds
-	if bounds.IsEmpty() || !m.Open || m.Disabled {
+	m.Layout.ArrangedBounds = bounds
+	if bounds.IsEmpty() || !m.Open || m.Disabled.Get() {
 		m.cachedArrangedChildren = nil
 		return
 	}
@@ -637,7 +566,7 @@ func (m *RadialMenu) hitTest(pt gfx.Point) facet.HitResult {
 }
 
 func (m *RadialMenu) onPointer(e facet.PointerEvent) bool {
-	if m.Disabled {
+	if m.Disabled.Get() {
 		return false
 	}
 	region := m.regionAt(e.Position)
@@ -666,7 +595,7 @@ func (m *RadialMenu) onPointer(e facet.PointerEvent) bool {
 		}
 		if region == radialMenuRegionNone {
 			if m.Open {
-				m.SetOpen(false)
+				m.setOpen(false)
 				return true
 			}
 			return false
@@ -730,14 +659,14 @@ func (m *RadialMenu) dispatchPointerToChild(e facet.PointerEvent) bool {
 }
 
 func (m *RadialMenu) onKey(e facet.KeyEvent) bool {
-	if m.Disabled || e.Kind != platform.KeyPress && e.Kind != platform.KeyRepeat {
+	if m.Disabled.Get() || e.Kind != platform.KeyPress && e.Kind != platform.KeyRepeat {
 		return false
 	}
 	if e.Key != platform.KeyEscape {
 		return false
 	}
 	if m.Open {
-		m.SetOpen(false)
+		m.setOpen(false)
 		return true
 	}
 	return false
@@ -745,15 +674,15 @@ func (m *RadialMenu) onKey(e facet.KeyEvent) bool {
 
 func (m *RadialMenu) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if m.Disabled || !m.Open {
+	if m.Disabled.Get() || !m.Open {
 		return false
 	}
-	m.SetOpen(false)
+	m.setOpen(false)
 	return true
 }
 
 func (m *RadialMenu) onFocusGained() {
-	if m.Disabled {
+	if m.Disabled.Get() {
 		return
 	}
 	m.focusedVisible = !m.focusFromPointer
@@ -769,7 +698,7 @@ func (m *RadialMenu) onFocusLost() {
 
 func (m *RadialMenu) interactionState() theme.InteractionState {
 	switch {
-	case m.Disabled:
+	case m.Disabled.Get():
 		return theme.StateDisabled
 	case m.pressedRegion != radialMenuRegionNone:
 		return theme.StatePressed
@@ -867,6 +796,16 @@ func (m *RadialMenu) detachChild(child facet.FacetImpl) {
 		return
 	}
 	m.Base().RemoveChild(child.Base())
+}
+
+func normalizeRadialChildren(children []RadialChild) []RadialChild {
+	out := make([]RadialChild, 0, len(children))
+	for _, child := range children {
+		if child.Child != nil {
+			out = append(out, child)
+		}
+	}
+	return out
 }
 
 func radialMenuMaterialCommands(path gfx.Path, material theme.Material) []gfx.Command {

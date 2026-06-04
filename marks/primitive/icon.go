@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	svgnorm "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -38,8 +39,8 @@ type IconRef string
 // IconSVG carries inline SVG source for fully authored icon geometry.
 type IconSVG string
 
-func (IconRef) isIconSource() {}
-func (IconSVG) isIconSource() {}
+func (IconRef) isIconSource()  {}
+func (IconSVG) isIconSource()  {}
 
 // IconAssetPath resolves through the runtime asset manager and supports progressive LODs.
 type IconAssetPath string
@@ -54,21 +55,16 @@ const (
 
 // Icon implements the primitive.icon standard mark.
 type Icon struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
+	marks.Core
 
 	Source              IconSource
-	Size                float32
-	ColorSlot           theme.ColorToken
-	DensityBehavior     IconDensityBehavior
-	AccessibleLabel     string
-	Decorative          bool
-	HitPadding          float32
-	PreserveAspectRatio svgnorm.SVGPreserveAspectRatio
+	Size                marks.Binding[float32]
+	ColorSlot           marks.Binding[theme.ColorToken]
+	DensityBehavior     marks.Binding[IconDensityBehavior]
+	AccessibleLabel     marks.Binding[string]
+	Decorative          marks.Binding[bool]
+	HitPadding          marks.Binding[float32]
+	PreserveAspectRatio marks.Binding[svgnorm.SVGPreserveAspectRatio]
 
 	cachedSize      gfx.Size
 	cachedSourceKey string
@@ -99,19 +95,31 @@ type iconResolvedSource struct {
 
 var _ facet.FacetImpl = (*Icon)(nil)
 var _ layout.AnchorExporter = (*Icon)(nil)
+var _ marks.Mark = (*Icon)(nil)
 
 // NewIcon constructs a primitive.icon mark with canonical defaults.
 func NewIcon(source IconSource) *Icon {
 	i := &Icon{
-		Facet:               facet.NewFacet(),
 		Source:              source,
-		ColorSlot:           theme.ColorText,
-		DensityBehavior:     IconDensityScaleWithDensity,
-		Decorative:          true,
-		PreserveAspectRatio: defaultIconPreserveAspectRatio(),
+		Size:                marks.Const[float32](0),
+		ColorSlot:           marks.Const(theme.ColorText),
+		DensityBehavior:     marks.Const(IconDensityScaleWithDensity),
+		AccessibleLabel:     marks.Const(""),
+		Decorative:          marks.Const(true),
+		HitPadding:          marks.Const[float32](0),
+		PreserveAspectRatio: marks.Const(defaultIconPreserveAspectRatio()),
 	}
-	i.layoutRole.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
-	i.layoutRole.Child = facet.GroupChildContract{
+	i.Core.Facet = facet.NewFacet()
+	i.AddBinding(i.Size)
+	i.AddBinding(i.ColorSlot)
+	i.AddBinding(i.DensityBehavior)
+	i.AddBinding(i.AccessibleLabel)
+	i.AddBinding(i.Decorative)
+	i.AddBinding(i.HitPadding)
+	i.AddBinding(i.PreserveAspectRatio)
+
+	i.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	i.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := i.measureSize(ctx, constraints)
@@ -129,36 +137,19 @@ func NewIcon(source IconSource) *Icon {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	i.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	i.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return i.measure(ctx, constraints)
 	}
-	i.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		i.layoutRole.ArrangedBounds = bounds
+	i.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		i.Layout.ArrangedBounds = bounds
 	}
-	i.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := i.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	i.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := i.buildCommands(i.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	i.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	i.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return i.hitTest(p)
 	}
-	i.AddRole(&i.layoutRole)
-	i.AddRole(&i.renderRole)
-	i.AddRole(&i.projectionRole)
-	i.AddRole(&i.hitRole)
+	i.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return i.buildCommands(i.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	i.RegisterRoles()
 	return i
 }
 
@@ -168,9 +159,14 @@ func (i *Icon) Base() *facet.Facet {
 	return &i.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (i *Icon) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "primitive", TypeName: "icon"}
+}
+
 // AccessibilityRole reports the semantic role required by the mark.
 func (i *Icon) AccessibilityRole() string {
-	if i == nil || i.Decorative {
+	if i.Decorative.Get() {
 		return "presentation"
 	}
 	return "img"
@@ -178,11 +174,11 @@ func (i *Icon) AccessibilityRole() string {
 
 // AccessibleName reports the semantic name when the icon is not decorative.
 func (i *Icon) AccessibleName() string {
-	if i == nil || i.Decorative {
+	if i.Decorative.Get() {
 		return ""
 	}
-	if i.AccessibleLabel != "" {
-		return i.AccessibleLabel
+	if label := i.AccessibleLabel.Get(); label != "" {
+		return label
 	}
 	switch src := i.Source.(type) {
 	case IconRef:
@@ -199,9 +195,6 @@ func (i *Icon) AccessibleName() string {
 
 // DiagnosticIcon returns the current icon-specific diagnostic snapshot.
 func (i *Icon) DiagnosticIcon() diagnostics.IconSnapshot {
-	if i == nil {
-		return diagnostics.IconSnapshot{}
-	}
 	src := ""
 	sourceKind := "missing"
 	resolved := false
@@ -233,7 +226,7 @@ func (i *Icon) DiagnosticIcon() diagnostics.IconSnapshot {
 			}
 		}
 	}
-	bounds := i.layoutRole.ArrangedBounds
+	bounds := i.Layout.ArrangedBounds
 	if bounds.IsEmpty() {
 		bounds = gfx.RectFromXYWH(0, 0, i.cachedSize.W, i.cachedSize.H)
 	}
@@ -243,10 +236,10 @@ func (i *Icon) DiagnosticIcon() diagnostics.IconSnapshot {
 		Resolved:        resolved,
 		Size:            i.cachedSize,
 		Bounds:          bounds,
-		ColorSlot:       iconColorSlotName(i.ColorSlot),
-		DensityBehavior: iconDensityBehaviorName(i.DensityBehavior),
-		PreserveAspect:  iconPreserveAspectName(i.PreserveAspectRatio),
-		Decorative:      i.Decorative,
+		ColorSlot:       iconColorSlotName(i.ColorSlot.Get()),
+		DensityBehavior: iconDensityBehaviorName(i.DensityBehavior.Get()),
+		PreserveAspect:  iconPreserveAspectName(i.PreserveAspectRatio.Get()),
+		Decorative:      i.Decorative.Get(),
 		AccessibleName:  i.AccessibleName(),
 		CacheKey:        cacheKey,
 		CommandCount:    len(i.cachedCommands),
@@ -254,109 +247,21 @@ func (i *Icon) DiagnosticIcon() diagnostics.IconSnapshot {
 	}
 }
 
-// SetSource updates the authored icon source.
-func (i *Icon) SetSource(source IconSource) {
-	if i == nil || i.Source == source {
-		return
-	}
-	i.Source = source
-	i.cachedSource = iconResolvedSource{}
-	i.cachedSourceKey = ""
-	i.cachedCommands = nil
-	i.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetSize updates the authored icon size.
-func (i *Icon) SetSize(size float32) {
-	if i == nil || i.Size == size {
-		return
-	}
-	i.Size = size
-	i.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetColorSlot updates the theme color slot used for projection.
-func (i *Icon) SetColorSlot(slot theme.ColorToken) {
-	if i == nil || i.ColorSlot == slot {
-		return
-	}
-	i.ColorSlot = slot
-	i.invalidate(facet.DirtyProjection)
-}
-
-// SetDensityBehavior updates how the icon size responds to density.
-func (i *Icon) SetDensityBehavior(behavior IconDensityBehavior) {
-	if i == nil || i.DensityBehavior == behavior {
-		return
-	}
-	i.DensityBehavior = behavior
-	i.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetAccessibleName updates the accessible name and marks the icon semantic.
-func (i *Icon) SetAccessibleName(name string) {
-	if i == nil || i.AccessibleLabel == name {
-		return
-	}
-	i.AccessibleLabel = name
-	if name != "" {
-		i.Decorative = false
-	}
-	i.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDecorative updates the decorative flag.
-func (i *Icon) SetDecorative(decorative bool) {
-	if i == nil || i.Decorative == decorative {
-		return
-	}
-	i.Decorative = decorative
-	i.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetHitPadding updates the extra hit area around the icon bounds.
-func (i *Icon) SetHitPadding(padding float32) {
-	if i == nil || i.HitPadding == padding {
-		return
-	}
-	i.HitPadding = padding
-	i.invalidate(facet.DirtyHit)
-}
-
-// SetPreserveAspectRatio updates the fit mode used when projecting the source.
-func (i *Icon) SetPreserveAspectRatio(par svgnorm.SVGPreserveAspectRatio) {
-	if i == nil || i.PreserveAspectRatio == par {
-		return
-	}
-	i.PreserveAspectRatio = par
-	i.invalidate(facet.DirtyProjection)
-}
-
 // ExportAnchors publishes the icon anchor set.
 func (i *Icon) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if i == nil {
-		return nil
-	}
-	bounds := i.layoutRole.ArrangedBounds
+	bounds := i.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	return layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	return i.Core.DefaultAnchors(bounds, ctx)
 }
 
-func (i *Icon) OnAttach(ctx facet.AttachContext) {}
-func (i *Icon) OnActivate()                      {}
-func (i *Icon) OnDeactivate()                    {}
+func (i *Icon) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach() }
 func (i *Icon) OnDetach() {
+	i.Core.OnDetach()
 	i.cachedSize = gfx.Size{}
 	i.cachedSourceKey = ""
 	i.cachedSource = iconResolvedSource{}
@@ -364,20 +269,15 @@ func (i *Icon) OnDetach() {
 	i.cachedCommands = nil
 	i.cachedTouchPad = 0
 }
-
-func (i *Icon) invalidate(flags facet.DirtyFlags) {
-	if i == nil {
-		return
-	}
-	i.Facet.Invalidate(flags)
-}
+func (i *Icon) OnActivate()   { i.Core.OnActivate() }
+func (i *Icon) OnDeactivate() { i.Core.OnDeactivate() }
 
 func (i *Icon) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	size := i.resolveSize(ctx)
 	i.cachedSize = size
 	i.cachedTouchPad = i.computeTouchPadding(ctx, size)
-	i.layoutRole.MeasuredSize = size
-	i.layoutRole.MeasuredResult = facet.MeasureResult{
+	i.Layout.MeasuredSize = size
+	i.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -387,7 +287,7 @@ func (i *Icon) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		Constraints: constraints,
 	}
 	_ = i.resolveSource(ctx.Runtime)
-	return i.layoutRole.MeasuredResult
+	return i.Layout.MeasuredResult
 }
 
 func (i *Icon) measureSize(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -397,16 +297,16 @@ func (i *Icon) measureSize(ctx facet.MeasureContext, constraints facet.Constrain
 
 func (i *Icon) resolveSize(ctx facet.MeasureContext) gfx.Size {
 	resolved := i.resolvedTheme(ctx)
-	base := i.Size
+	base := i.Size.Get()
 	if base <= 0 {
 		base = resolved.TokenSet().Spacing.IconSize
 	}
-	switch i.DensityBehavior {
+	switch i.DensityBehavior.Get() {
 	case IconDensityLockLogicalSize:
 	case IconDensityTouchAware, IconDensityScaleWithDensity, IconDensitySnapToDevicePixels:
 		base = resolved.Density.Scale(base)
 	}
-	switch i.DensityBehavior {
+	switch i.DensityBehavior.Get() {
 	case IconDensityTouchAware:
 		touch := resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget)
 		if base < touch {
@@ -483,7 +383,7 @@ func (i *Icon) resolveSource(runtime any) iconResolvedSource {
 }
 
 func (i *Icon) resolveSourceWithoutRuntime() (string, iconResolvedSource, bool) {
-	if i == nil || i.Source == nil {
+	if i.Source == nil {
 		return "", iconResolvedSource{}, false
 	}
 	switch src := i.Source.(type) {
@@ -513,7 +413,7 @@ func (i *Icon) resolveSourceWithoutRuntime() (string, iconResolvedSource, bool) 
 }
 
 func (i *Icon) resolveSourceWithKey(runtime any) (string, iconResolvedSource, bool) {
-	if i == nil || i.Source == nil {
+	if i.Source == nil {
 		return "", iconResolvedSource{}, false
 	}
 	switch src := i.Source.(type) {
@@ -562,9 +462,6 @@ func (i *Icon) resolveSourceWithKey(runtime any) (string, iconResolvedSource, bo
 			return "", iconResolvedSource{}, false
 		}
 
-		// Resolve via shared drawable helper for canonical key and
-		// representation state. Falls back on UUID+version+LOD key
-		// when the helper cannot resolve (e.g. SVG LOD 2/1 only).
 		var ref gfx.DrawableRef
 		refOK := false
 		if rt, ok := runtime.(assets.Runtime); ok {
@@ -627,7 +524,7 @@ func (i *Icon) resolveSourceWithKey(runtime any) (string, iconResolvedSource, bo
 }
 
 func (i *Icon) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
-	if i == nil || bounds.IsEmpty() {
+	if bounds.IsEmpty() {
 		return nil
 	}
 	resolved := i.resolveSource(runtime)
@@ -635,11 +532,11 @@ func (i *Icon) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		return nil
 	}
 	color := i.resolveColor(runtime)
-	if len(i.cachedCommands) > 0 && resolved.key == i.cachedSourceKey && bounds == i.layoutRole.ArrangedBounds && color == i.cachedColor {
+	if len(i.cachedCommands) > 0 && resolved.key == i.cachedSourceKey && bounds == i.Layout.ArrangedBounds && color == i.cachedColor {
 		return append([]gfx.Command(nil), i.cachedCommands...)
 	}
 	i.cachedColor = color
-	cmds := buildIconCommands(resolved, bounds, color, i.PreserveAspectRatio)
+	cmds := buildIconCommands(resolved, bounds, color, i.PreserveAspectRatio.Get())
 	if len(cmds) == 0 {
 		return nil
 	}
@@ -649,7 +546,7 @@ func (i *Icon) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 
 func (i *Icon) resolveColor(runtime any) gfx.Color {
 	tokens := i.styleTokens(runtime)
-	return colorForToken(tokens, i.ColorSlot)
+	return colorForToken(tokens, i.ColorSlot.Get())
 }
 
 func buildIconCommands(src iconResolvedSource, target gfx.Rect, color gfx.Color, par svgnorm.SVGPreserveAspectRatio) []gfx.Command {
@@ -738,13 +635,11 @@ func buildManagedAssetCommands(ref gfx.DrawableRef, handle assets.Handle, target
 			}
 		}
 	case 0:
-		// Prefer DrawableRef Vector data from ResolveDrawable.
 		if ref.Kind == gfx.DrawableVector && ref.Vector != nil {
 			if lod0, ok := ref.Vector.(*assets.DecodedSVGLOD0); ok {
 				return buildCSGCommands(lod0.Data, target, color, transform)
 			}
 		}
-		// Fall back to direct registry access.
 		if entry != nil {
 			if lod0, ok := entry.LODHandles[0].(*assets.DecodedSVGLOD0); ok {
 				return buildCSGCommands(lod0.Data, target, color, transform)
@@ -971,10 +866,10 @@ func iconFitTransform(srcBox, target gfx.Rect, par svgnorm.SVGPreserveAspectRati
 }
 
 func (i *Icon) hitTest(p gfx.Point) facet.HitResult {
-	if i == nil || i.Decorative || i.layoutRole.ArrangedBounds.IsEmpty() {
+	if i.Decorative.Get() || i.Layout.ArrangedBounds.IsEmpty() {
 		return facet.HitResult{}
 	}
-	bounds := i.layoutRole.ArrangedBounds
+	bounds := i.Layout.ArrangedBounds
 	padding := i.effectiveHitPadding(bounds)
 	if padding > 0 {
 		bounds = bounds.Inset(-padding, -padding)
@@ -982,15 +877,15 @@ func (i *Icon) hitTest(p gfx.Point) facet.HitResult {
 	if !bounds.Contains(p) {
 		return facet.HitResult{}
 	}
-	if i.layoutRole.ArrangedBounds.Contains(p) {
+	if i.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{Hit: true, MarkID: IconMarkIDContent}
 	}
 	return facet.HitResult{Hit: true, MarkID: IconMarkIDHit}
 }
 
 func (i *Icon) effectiveHitPadding(bounds gfx.Rect) float32 {
-	padding := i.HitPadding
-	if i.DensityBehavior == IconDensityTouchAware {
+	padding := i.HitPadding.Get()
+	if i.DensityBehavior.Get() == IconDensityTouchAware {
 		if i.cachedTouchPad > padding {
 			padding = i.cachedTouchPad
 		}
@@ -1002,7 +897,7 @@ func (i *Icon) effectiveHitPadding(bounds gfx.Rect) float32 {
 }
 
 func (i *Icon) computeTouchPadding(ctx facet.MeasureContext, size gfx.Size) float32 {
-	if i == nil || i.DensityBehavior != IconDensityTouchAware {
+	if i.DensityBehavior.Get() != IconDensityTouchAware {
 		return 0
 	}
 	resolved := i.resolvedTheme(ctx)

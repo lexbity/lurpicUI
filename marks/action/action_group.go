@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -35,21 +36,15 @@ type ActionGroupAction struct {
 
 // ActionGroup implements the action.action_group standard mark.
 type ActionGroup struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label    marks.Binding[string]
+	Actions  marks.Binding[[]ActionGroupAction]
+	Disabled marks.Binding[bool]
 
 	Activated signal.Signal[string]
 
-	Label    string
-	Actions  []ActionGroupAction
-	Disabled bool
+	textRole facet.TextRole
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -87,23 +82,29 @@ type actionGroupItemLayout struct {
 
 var _ facet.FacetImpl = (*ActionGroup)(nil)
 var _ layout.AnchorExporter = (*ActionGroup)(nil)
+var _ marks.Mark = (*ActionGroup)(nil)
 
 // NewActionGroup constructs an action.action_group mark with canonical defaults.
-func NewActionGroup(label string, actions []ActionGroupAction) *ActionGroup {
+func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionGroupAction]) *ActionGroup {
 	g := &ActionGroup{
-		Facet:        facet.NewFacet(),
-		Label:        label,
-		Actions:      normalizeActionGroupActions(actions),
-		hoveredIndex: -1,
-		pressedIndex: -1,
-		focusedIndex: -1,
-		Activated:    signal.NewSignal[string]("action_group_activated"),
+		Label:         label,
+		Actions:       actions,
+		Disabled:      marks.Const(false),
+		hoveredIndex:  -1,
+		pressedIndex:  -1,
+		focusedIndex:  -1,
+		Activated:     signal.NewSignal[string]("action_group_activated"),
 	}
-	g.layoutRole.Parent = facet.GroupParentContract{
+	g.Core.Facet = facet.NewFacet()
+	g.AddBinding(g.Label)
+	g.AddBinding(g.Actions)
+	g.AddBinding(g.Disabled)
+
+	g.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: actionGroupPolicy{group: g},
 	}
-	g.layoutRole.Child = facet.GroupChildContract{
+	g.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := g.measureIntrinsic(ctx, constraints)
@@ -121,44 +122,24 @@ func NewActionGroup(label string, actions []ActionGroupAction) *ActionGroup {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	g.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	g.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return g.measure(ctx, constraints)
 	}
-	g.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		g.layoutRole.ArrangedBounds = bounds
+	g.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		g.Layout.ArrangedBounds = bounds
 		g.arrange(bounds)
 	}
-	g.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := g.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	g.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return g.hitTest(p) }
+	g.Input.OnPointer = func(e facet.PointerEvent) bool { return g.onPointer(e) }
+	g.Input.OnKey = func(e facet.KeyEvent) bool { return g.onKey(e) }
+	g.Focus.Focusable = func() bool { return !g.Disabled.Get() && len(g.Actions.Get()) > 0 }
+	g.Focus.TabIndex = 0
+	g.Focus.OnFocusGained = func() { g.onFocusGained() }
+	g.Focus.OnFocusLost = func() { g.onFocusLost() }
+	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return g.buildCommands(g.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	g.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := g.buildCommands(g.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	g.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return g.hitTest(p) }
-	g.inputRole.OnPointer = func(e facet.PointerEvent) bool { return g.onPointer(e) }
-	g.inputRole.OnKey = func(e facet.KeyEvent) bool { return g.onKey(e) }
-	g.focusRole.Focusable = func() bool { return !g.Disabled && len(g.Actions) > 0 }
-	g.focusRole.TabIndex = 0
-	g.focusRole.OnFocusGained = func() { g.onFocusGained() }
-	g.focusRole.OnFocusLost = func() { g.onFocusLost() }
-	g.textRole.IMEEnabled = false
-	g.AddRole(&g.layoutRole)
-	g.AddRole(&g.renderRole)
-	g.AddRole(&g.projectionRole)
-	g.AddRole(&g.hitRole)
-	g.AddRole(&g.inputRole)
-	g.AddRole(&g.focusRole)
+	g.RegisterRoles()
 	g.AddRole(&g.textRole)
 	return g
 }
@@ -169,6 +150,11 @@ func (g *ActionGroup) Base() *facet.Facet {
 	return &g.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (g *ActionGroup) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "action_group"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (g *ActionGroup) AccessibilityRole() string { return "group" }
 
@@ -177,10 +163,10 @@ func (g *ActionGroup) AccessibleName() string {
 	if g == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(g.Label); name != "" {
+	if name := strings.TrimSpace(g.Label.Get()); name != "" {
 		return name
 	}
-	for _, action := range g.Actions {
+	for _, action := range g.Actions.Get() {
 		if name := strings.TrimSpace(action.AccessibleLabel); name != "" {
 			return name
 		}
@@ -191,58 +177,14 @@ func (g *ActionGroup) AccessibleName() string {
 	return ""
 }
 
-// SetLabel updates the authored label text.
-func (g *ActionGroup) SetLabel(label string) {
-	if g == nil || g.Label == label {
-		return
-	}
-	g.Label = label
-	g.invalidate(facet.DirtyProjection)
-}
-
-// SetActions replaces the group actions.
-func (g *ActionGroup) SetActions(actions []ActionGroupAction) {
-	if g == nil {
-		return
-	}
-	g.Actions = normalizeActionGroupActions(actions)
-	g.syncFocusIndex()
-	g.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (g *ActionGroup) SetDisabled(disabled bool) {
-	if g == nil || g.Disabled == disabled {
-		return
-	}
-	g.Disabled = disabled
-	if disabled {
-		g.hoveredIndex = -1
-		g.pressedIndex = -1
-		g.focusedVisible = false
-		g.focusFromPointer = false
-	}
-	g.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the action group anchor set.
 func (g *ActionGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if g == nil {
 		return nil
 	}
-	bounds := g.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	out := g.DefaultAnchors(g.Layout.ArrangedBounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if len(g.cachedActionBounds) > 0 {
 		out["content_anchor"] = gfx.Point{
@@ -250,12 +192,16 @@ func (g *ActionGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 			Y: g.cachedActionBounds[0].Min.Y + g.cachedActionBounds[0].Height()*0.5,
 		}
 	} else {
+		bounds := g.Layout.ArrangedBounds
+		if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
+			bounds = ctx.ResolvedLayer.Bounds
+		}
 		out["content_anchor"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	}
 	if g.cachedItemLayouts != nil && len(g.cachedItemLayouts) > 0 && g.cachedItemLayouts[0].labelLayout != nil {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: g.cachedItemLayouts[0].labelBounds.Min.Y + g.cachedItemLayouts[0].labelLayout.Baseline}
+		out["baseline"] = gfx.Point{X: out["bounds_top_left"].X, Y: g.cachedItemLayouts[0].labelBounds.Min.Y + g.cachedItemLayouts[0].labelLayout.Baseline}
 	} else {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
+		out["baseline"] = out["bounds_top_left"]
 	}
 	return out
 }
@@ -264,16 +210,17 @@ func (g *ActionGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 func (g *ActionGroup) Children() []facet.GroupChild { return nil }
 
 // OnAttach is unused.
-func (g *ActionGroup) OnAttach(ctx facet.AttachContext) {}
+func (g *ActionGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
 
 // OnActivate is unused.
-func (g *ActionGroup) OnActivate() {}
+func (g *ActionGroup) OnActivate() { g.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (g *ActionGroup) OnDeactivate() {}
+func (g *ActionGroup) OnDeactivate() { g.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (g *ActionGroup) OnDetach() {
+	g.Core.OnDetach()
 	g.cachedTokens = theme.Tokens{}
 	g.cachedRecipe = shared.ActionGroupSlots{}
 	g.cachedRootBounds = gfx.Rect{}
@@ -364,11 +311,11 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(480)
 	}
-	layouts := make([]actionGroupItemLayout, len(g.Actions))
+	layouts := make([]actionGroupItemLayout, len(g.Actions.Get()))
 	maxItemW := float32(0)
 	maxItemH := float32(0)
-	for i := range g.Actions {
-		item := normalizeActionGroupItem(g.Actions[i])
+	for i := range g.Actions.Get() {
+		item := normalizeActionGroupItem(g.Actions.Get()[i])
 		layouts[i].item = item
 		if shaper != nil && strings.TrimSpace(item.Label) != "" {
 			shaper.SetContentScale(ctx.ContentScale)
@@ -418,8 +365,8 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		H: contentH,
 	}
 	size = constraints.Constrain(size)
-	g.layoutRole.MeasuredSize = size
-	g.layoutRole.MeasuredResult = facet.MeasureResult{
+	g.Layout.MeasuredSize = size
+	g.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -428,7 +375,7 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		},
 		Constraints: constraints,
 	}
-	return g.layoutRole.MeasuredResult
+	return g.Layout.MeasuredResult
 }
 
 func (g *ActionGroup) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -439,7 +386,7 @@ func (g *ActionGroup) arrange(bounds gfx.Rect) {
 	g.cachedRootBounds = bounds
 	g.cachedGroupBounds = gfx.Rect{}
 	g.cachedSeparatorBounds = g.cachedSeparatorBounds[:0]
-	g.layoutRole.ArrangedBounds = bounds
+	g.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -558,7 +505,7 @@ func (g *ActionGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 }
 
 func (g *ActionGroup) hitTest(p gfx.Point) facet.HitResult {
-	if g == nil || g.layoutRole.ArrangedBounds.IsEmpty() || !g.layoutRole.ArrangedBounds.Contains(p) {
+	if g == nil || g.Layout.ArrangedBounds.IsEmpty() || !g.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := g.cursorShape()
@@ -578,14 +525,14 @@ func (g *ActionGroup) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (g *ActionGroup) cursorShape() facet.CursorShape {
-	if g.Disabled {
+	if g.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (g *ActionGroup) onPointer(e facet.PointerEvent) bool {
-	if g.Disabled {
+	if g.Disabled.Get() {
 		return false
 	}
 	idx := g.indexAt(e.Position)
@@ -633,7 +580,7 @@ func (g *ActionGroup) onPointer(e facet.PointerEvent) bool {
 }
 
 func (g *ActionGroup) onKey(e facet.KeyEvent) bool {
-	if g.Disabled {
+	if g.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -673,7 +620,7 @@ func (g *ActionGroup) onFocusLost() {
 
 func (g *ActionGroup) interactionState() theme.InteractionState {
 	switch {
-	case g.Disabled:
+	case g.Disabled.Get():
 		return theme.StateDisabled
 	case g.pressedIndex >= 0:
 		return theme.StatePressed
@@ -708,11 +655,11 @@ func (g *ActionGroup) itemState(index int) theme.InteractionState {
 }
 
 func (g *ActionGroup) pointInFocusRing(p gfx.Point) bool {
-	if !g.layoutRole.ArrangedBounds.Contains(p) {
+	if !g.Layout.ArrangedBounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, g.layoutRole.ArrangedBounds.Height()*0.08)
-	inner := g.layoutRole.ArrangedBounds.Inset(inset, inset)
+	inset := maxFloat(1, g.Layout.ArrangedBounds.Height()*0.08)
+	inner := g.Layout.ArrangedBounds.Inset(inset, inset)
 	if inner.IsEmpty() {
 		return true
 	}

@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -17,11 +18,11 @@ import (
 
 func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	sw.SetLabel("Label")
+	sw.Label = "Label"
 	sw.SetChecked(true)
 
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sw.layoutRole.Measure(facet.MeasureContext{
+	result := sw.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -33,11 +34,11 @@ func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	sw.layoutRole.Arrange(facet.ArrangeContext{
+	sw.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: sw.layoutRole.Parent,
-		ChildGroup:  sw.layoutRole.Child,
+		ParentGroup: sw.LayoutRole().Parent,
+		ChildGroup:  sw.LayoutRole().Child,
 	}, bounds)
 
 	if got := sw.AccessibilityRole(); got != "switch" {
@@ -53,21 +54,21 @@ func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected switch geometry, got label=%#v track=%#v thumb=%#v", sw.cachedLabelBounds, sw.cachedTrackBounds, sw.cachedThumbBounds)
 	}
 
-	labelHit := sw.hitRole.HitTest(gfx.Point{
+	labelHit := sw.HitRole().HitTest(gfx.Point{
 		X: sw.cachedLabelBounds.Min.X + sw.cachedLabelBounds.Width()*0.5,
 		Y: sw.cachedLabelBounds.Min.Y + sw.cachedLabelBounds.Height()*0.5,
 	})
 	if !labelHit.Hit || labelHit.MarkID != switchMarkIDLabel {
 		t.Fatalf("expected label hit, got %#v", labelHit)
 	}
-	thumbHit := sw.hitRole.HitTest(gfx.Point{
+	thumbHit := sw.HitRole().HitTest(gfx.Point{
 		X: sw.cachedThumbBounds.Min.X + sw.cachedThumbBounds.Width()*0.5,
 		Y: sw.cachedThumbBounds.Min.Y + sw.cachedThumbBounds.Height()*0.5,
 	})
 	if !thumbHit.Hit || thumbHit.MarkID != switchMarkIDThumb {
 		t.Fatalf("expected thumb hit, got %#v", thumbHit)
 	}
-	trackHit := sw.hitRole.HitTest(gfx.Point{
+	trackHit := sw.HitRole().HitTest(gfx.Point{
 		X: sw.cachedTrackBounds.Min.X + 1,
 		Y: sw.cachedTrackBounds.Min.Y + sw.cachedTrackBounds.Height()*0.5,
 	})
@@ -82,7 +83,7 @@ func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := sw.projectionRole.Project(facet.ProjectionContext{
+	cmds := sw.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -98,9 +99,9 @@ func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestSwitchPointerAndKeyboardInteraction(t *testing.T) {
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	sw.SetLabel("Label")
+	sw.Label = "Label"
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sw.layoutRole.Measure(facet.MeasureContext{
+	result := sw.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -108,7 +109,7 @@ func TestSwitchPointerAndKeyboardInteraction(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	sw.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sw.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	center := gfx.Point{
 		X: sw.cachedTrackBounds.Min.X + sw.cachedTrackBounds.Width()*0.5,
@@ -151,7 +152,7 @@ func TestSwitchPointerAndKeyboardInteraction(t *testing.T) {
 func TestSwitchFocusAndDisabledBehavior(t *testing.T) {
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sw.layoutRole.Measure(facet.MeasureContext{
+	result := sw.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -159,7 +160,7 @@ func TestSwitchFocusAndDisabledBehavior(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	sw.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sw.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	sw.onFocusGained()
 	if !sw.focusedVisible {
@@ -169,8 +170,8 @@ func TestSwitchFocusAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected edge point to land in focus ring")
 	}
 
-	sw.SetDisabled(true)
-	if sw.focusRole.Focusable() {
+	sw.Disabled = marks.Const(true)
+	if sw.FocusRole().Focusable() {
 		t.Fatal("expected disabled switch to be unfocusable")
 	}
 	if sw.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {
@@ -184,7 +185,7 @@ func TestSwitchFocusAndDisabledBehavior(t *testing.T) {
 func TestSwitchStoreInvalidation(t *testing.T) {
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	_ = sw.layoutRole.Measure(facet.MeasureContext{
+	_ = sw.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -219,7 +220,7 @@ func TestSwitchGoldenComfortable(t *testing.T) {
 
 func TestSwitchGoldenDisabled(t *testing.T) {
 	AssertSwitchGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *Switch) {
-		s.SetDisabled(true)
+		s.Disabled = marks.Const(true)
 	})
 }
 
@@ -251,13 +252,13 @@ func TestSwitchGoldenRTL(t *testing.T) {
 
 func TestSwitchGoldenSkeuomorphic(t *testing.T) {
 	assertSwitchSkeuomorphicGolden(t, "skeuomorphic", func(s *Switch) {
-		s.SetVariant(uiinput.SwitchSkeuomorphic)
+		s.Variant = marks.Const(uiinput.SwitchSkeuomorphic)
 	})
 }
 
 func TestSwitchGoldenSkeuomorphicPressed(t *testing.T) {
 	assertSwitchSkeuomorphicGolden(t, "skeuomorphic_pressed", func(s *Switch) {
-		s.SetVariant(uiinput.SwitchSkeuomorphic)
+		s.Variant = marks.Const(uiinput.SwitchSkeuomorphic)
 		s.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 10, Y: 10}, Button: platform.PointerLeft})
 	})
 }
@@ -265,14 +266,14 @@ func TestSwitchGoldenSkeuomorphicPressed(t *testing.T) {
 func assertSwitchSkeuomorphicGolden(t *testing.T, name string, mutate func(*Switch)) {
 	t.Helper()
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	sw.SetLabel("Label")
+	sw.Label = "Label"
 	sw.SetChecked(true)
 	if mutate != nil {
 		mutate(sw)
 	}
 
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sw.layoutRole.Measure(facet.MeasureContext{
+	result := sw.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -286,9 +287,9 @@ func assertSwitchSkeuomorphicGolden(t *testing.T, name string, mutate func(*Swit
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
-	sw.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sw.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := sw.projectionRole.Project(facet.ProjectionContext{
+	cmds := sw.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -328,7 +329,7 @@ func assertSwitchSkeuomorphicGolden(t *testing.T, name string, mutate func(*Swit
 func AssertSwitchGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Switch)) {
 	t.Helper()
 	sw, rt, measureCtx := newSwitchTestFixture(t, tokens, density, direction)
-	sw.SetLabel("Label")
+	sw.Label = "Label"
 	sw.SetChecked(true)
 	if mutate != nil {
 		mutate(sw)
@@ -339,7 +340,7 @@ func AssertSwitchGolden(t *testing.T, name string, tokens theme.Tokens, density 
 func renderSwitchToSurface(t *testing.T, sw *Switch, rt sliderRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sw.layoutRole.Measure(facet.MeasureContext{
+	result := sw.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -347,9 +348,9 @@ func renderSwitchToSurface(t *testing.T, sw *Switch, rt sliderRuntimeStub, measu
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	sw.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sw.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := sw.projectionRole.Project(facet.ProjectionContext{
+	cmds := sw.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

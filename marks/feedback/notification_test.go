@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
@@ -50,7 +51,7 @@ func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := notification.layoutRole.Measure(facet.MeasureContext{
+	result := 	notification.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -61,11 +62,11 @@ func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	notification.layoutRole.Arrange(facet.ArrangeContext{
+	notification.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: notification.layoutRole.Parent,
-		ChildGroup:  notification.layoutRole.Child,
+		ParentGroup: notification.Layout.Parent,
+		ChildGroup:  notification.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, bounds)
 	if got := notification.AccessibilityRole(); got != "status" {
@@ -86,7 +87,7 @@ func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := notification.projectionRole.Project(facet.ProjectionContext{
+	cmds := notification.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -121,20 +122,20 @@ func TestNotificationInteractionsEmitActionAndDismiss(t *testing.T) {
 	}
 
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = notification.layoutRole.Measure(facet.MeasureContext{
+	_ = 	notification.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 440, H: 180}})
-	notification.layoutRole.Arrange(facet.ArrangeContext{
+	notification.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: notification.layoutRole.Parent,
-		ChildGroup:  notification.layoutRole.Child,
+		ParentGroup: notification.Layout.Parent,
+		ChildGroup:  notification.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
-	}, gfx.RectFromXYWH(0, 0, notification.layoutRole.MeasuredSize.W, notification.layoutRole.MeasuredSize.H))
+	}, gfx.RectFromXYWH(0, 0, 	notification.Layout.MeasuredSize.W, 	notification.Layout.MeasuredSize.H))
 
 	var actioned, dismissed int
 	notification.Actioned.Subscribe(func(signal.Unit) { actioned++ })
@@ -202,7 +203,7 @@ func TestNotificationGoldenComfortable(t *testing.T) {
 
 func TestNotificationGoldenDisabled(t *testing.T) {
 	AssertNotificationGolden(t, "disabled", notificationTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(n *Notification) {
-		n.SetDisabled(true)
+		n.Disabled = marks.Const(true)
 	})
 }
 
@@ -228,18 +229,19 @@ func TestNotificationGoldenRTL(t *testing.T) {
 
 func TestNotificationGoldenOpen(t *testing.T) {
 	AssertNotificationGolden(t, "open", notificationTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(n *Notification) {
-		n.SetOpen(true)
+		n.Open = marks.Const(true)
 	})
 }
 
 func TestNotificationGoldenGridContent(t *testing.T) {
 	AssertNotificationGolden(t, "content_grid", notificationTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(n *Notification) {
-		n.SetContentLayoutMode(NotificationContentLayoutGrid)
-		n.SetContentGrid(2, 2)
-		n.SetContentChildren([]NotificationContentChild{
-			{Key: "one", Facet: primitive.NewText("One")},
-			{Key: "two", Facet: primitive.NewText("Two")},
-			{Key: "three", Facet: primitive.NewText("Three")},
+		n.ContentLayoutMode = marks.Const(NotificationContentLayoutGrid)
+		n.ContentGridColumns = marks.Const(2)
+		n.ContentGridRows = marks.Const(2)
+		n.ContentChildren = marks.Const([]NotificationContentChild{
+			{Key: "one", Facet: primitive.NewText(marks.Const("One"))},
+			{Key: "two", Facet: primitive.NewText(marks.Const("Two"))},
+			{Key: "three", Facet: primitive.NewText(marks.Const("Three"))},
 		})
 	})
 }
@@ -254,24 +256,24 @@ func AssertNotificationGolden(t *testing.T, name string, tokens theme.Tokens, de
 	resolved := notificationResolvedContext(tokens, density, direction)
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
 	canvas := gfx.RectFromXYWH(0, 0, 440, 180)
-	_ = notification.layoutRole.Measure(facet.MeasureContext{
+	_ = 	notification.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	notification.layoutRole.Arrange(facet.ArrangeContext{
+	notification.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: notification.layoutRole.Parent,
-		ChildGroup:  notification.layoutRole.Child,
+		ParentGroup: notification.Layout.Parent,
+		ChildGroup:  notification.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, canvas)
 	if mutate != nil {
 		mutate(notification)
 	}
-	cmds := notification.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	cmds := notification.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	if cmds == nil {
 		cmds = &gfx.CommandList{}
 	}
@@ -297,8 +299,8 @@ func AssertNotificationGolden(t *testing.T, name string, tokens theme.Tokens, de
 
 func newNotificationFixture() *Notification {
 	notification := NewNotification("Saved", "Draft was synced successfully.")
-	notification.SetActionLabel("Undo")
-	notification.SetCloseButtonLabel("Dismiss")
+	notification.ActionLabel = marks.Const("Undo")
+	notification.CloseButtonLabel = marks.Const("Dismiss")
 	return notification
 }
 

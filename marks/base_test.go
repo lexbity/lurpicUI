@@ -212,11 +212,11 @@ func TestBase_default_anchors_returns_five_corners(t *testing.T) {
 		name string
 		want gfx.Point
 	}{
-		{"bounds_center", gfx.Point{60, 45}},
-		{"bounds_top_left", gfx.Point{10, 20}},
-		{"bounds_top_right", gfx.Point{110, 20}},
-		{"bounds_bottom_left", gfx.Point{10, 70}},
-		{"bounds_bottom_right", gfx.Point{110, 70}},
+		{"bounds_center", gfx.Point{X: 60, Y: 45}},
+		{"bounds_top_left", gfx.Point{X: 10, Y: 20}},
+		{"bounds_top_right", gfx.Point{X: 110, Y: 20}},
+		{"bounds_bottom_left", gfx.Point{X: 10, Y: 70}},
+		{"bounds_bottom_right", gfx.Point{X: 110, Y: 70}},
 	}
 	for _, c := range cases {
 		got, ok := anchors[layout.AnchorID(c.name)]
@@ -515,8 +515,8 @@ func TestBase_export_anchors_integration(t *testing.T) {
 	if len(anchors) != 5 {
 		t.Fatalf("expected 5 anchors from integration test, got %d", len(anchors))
 	}
-	if anchors["bounds_center"] != (gfx.Point{60, 45}) {
-		t.Fatalf("bounds_center = %v, want %v", anchors["bounds_center"], gfx.Point{60, 45})
+	if anchors["bounds_center"] != (gfx.Point{X: 60, Y: 45}) {
+		t.Fatalf("bounds_center = %v, want %v", anchors["bounds_center"], gfx.Point{X: 60, Y: 45})
 	}
 }
 

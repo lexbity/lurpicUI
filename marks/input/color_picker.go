@@ -6,6 +6,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -32,24 +34,17 @@ const (
 
 // ColorPicker implements the input.color_picker standard mark.
 type ColorPicker struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
+	marks.Core
 
 	ColorChanged signal.Signal[gfx.Color]
 
-	Label         string
+	Label         marks.Binding[string]
 	SelectedColor gfx.Color
 	Hue           float64
 	Saturation    float32
 	Value         float32
 	Alpha         float32
-	Disabled      bool
+	Disabled      marks.Binding[bool]
 
 	hoveredRegion    colorPickerRegion
 	pressedRegion    colorPickerRegion
@@ -72,12 +67,14 @@ type ColorPicker struct {
 }
 
 var _ facet.FacetImpl = (*ColorPicker)(nil)
+var _ marks.Mark = (*ColorPicker)(nil)
+var _ layout.AnchorExporter = (*ColorPicker)(nil)
 
 // NewColorPicker constructs a color picker with canonical defaults.
 func NewColorPicker(label string) *ColorPicker {
 	p := &ColorPicker{
-		Facet:            facet.NewFacet(),
-		Label:            strings.TrimSpace(label),
+		Label:            marks.Const(strings.TrimSpace(label)),
+		Disabled:         marks.Const(false),
 		Hue:              0,
 		Saturation:       1,
 		Value:            1,
@@ -85,8 +82,10 @@ func NewColorPicker(label string) *ColorPicker {
 		SelectedColor:    hsvToColor(0, 1, 1, 1),
 		focusFromPointer: false,
 	}
-	p.layoutRole.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
-	p.layoutRole.Child = facet.GroupChildContract{
+	p.Core.Facet = facet.NewFacet()
+
+	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	p.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measureIntrinsic(ctx, constraints)
@@ -104,43 +103,24 @@ func NewColorPicker(label string) *ColorPicker {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	p.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return p.measure(ctx, constraints)
 	}
-	p.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		p.layoutRole.ArrangedBounds = bounds
+	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		p.Layout.ArrangedBounds = bounds
 		p.arrange(ctx, bounds)
 	}
-	p.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := p.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
+	p.Input.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
+	p.Input.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
+	p.Focus.Focusable = func() bool { return !p.Disabled.Get() }
+	p.Focus.TabIndex = 0
+	p.Focus.OnFocusGained = func() { p.onFocusGained() }
+	p.Focus.OnFocusLost = func() { p.onFocusLost() }
+	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	p.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := p.buildCommands(p.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	p.hitRole.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
-	p.inputRole.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
-	p.inputRole.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
-	p.focusRole.Focusable = func() bool { return !p.Disabled }
-	p.focusRole.TabIndex = 0
-	p.focusRole.OnFocusGained = func() { p.onFocusGained() }
-	p.focusRole.OnFocusLost = func() { p.onFocusLost() }
-	p.AddRole(&p.layoutRole)
-	p.AddRole(&p.renderRole)
-	p.AddRole(&p.projectionRole)
-	p.AddRole(&p.hitRole)
-	p.AddRole(&p.inputRole)
-	p.AddRole(&p.focusRole)
+	p.RegisterRoles()
 	return p
 }
 
@@ -148,6 +128,11 @@ func NewColorPicker(label string) *ColorPicker {
 func (p *ColorPicker) Base() *facet.Facet {
 	p.Facet.BindImpl(p)
 	return &p.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (p *ColorPicker) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "input", TypeName: "color_picker"}
 }
 
 // AccessibilityRole reports the semantic role required by the mark spec.
@@ -158,47 +143,18 @@ func (p *ColorPicker) AccessibleName() string {
 	if p == nil {
 		return ""
 	}
-	if label := strings.TrimSpace(p.Label); label != "" {
+	if label := strings.TrimSpace(p.Label.Get()); label != "" {
 		return label
 	}
 	return "Color picker"
 }
 
-// SetLabel updates the accessible label.
-func (p *ColorPicker) SetLabel(label string) {
+// ExportAnchors publishes the color picker anchor set.
+func (p *ColorPicker) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if p == nil {
-		return
+		return nil
 	}
-	label = strings.TrimSpace(label)
-	if p.Label == label {
-		return
-	}
-	p.Label = label
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetColor updates the picker from a concrete color value.
-func (p *ColorPicker) SetColor(color gfx.Color) {
-	if p == nil {
-		return
-	}
-	p.setColor(color, false)
-}
-
-// SetDisabled toggles disabled state.
-func (p *ColorPicker) SetDisabled(disabled bool) {
-	if p == nil || p.Disabled == disabled {
-		return
-	}
-	p.Disabled = disabled
-	if disabled {
-		p.hoveredRegion = colorPickerRegionNone
-		p.pressedRegion = colorPickerRegionNone
-		p.dragging = false
-		p.focusedVisible = false
-		p.focusFromPointer = false
-	}
-	p.invalidate(facet.DirtyProjection | facet.DirtyHit)
+	return p.Core.DefaultAnchors(p.Layout.ArrangedBounds, ctx)
 }
 
 // CurrentColor returns the resolved selected color.
@@ -209,17 +165,18 @@ func (p *ColorPicker) CurrentColor() gfx.Color {
 	return p.SelectedColor
 }
 
-// OnAttach is unused.
-func (p *ColorPicker) OnAttach(ctx facet.AttachContext) {}
+// OnAttach wires the binding subscriptions.
+func (p *ColorPicker) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
 
 // OnActivate is unused.
-func (p *ColorPicker) OnActivate() {}
+func (p *ColorPicker) OnActivate() { p.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (p *ColorPicker) OnDeactivate() {}
+func (p *ColorPicker) OnDeactivate() { p.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (p *ColorPicker) OnDetach() {
+	p.Core.OnDetach()
 	p.cachedTokens = theme.Tokens{}
 	p.cachedRecipe = shared.ColorPickerSlots{}
 	p.cachedBounds = gfx.Rect{}
@@ -257,8 +214,8 @@ func (p *ColorPicker) measure(ctx facet.MeasureContext, constraints facet.Constr
 	if size.W <= 0 || size.H <= 0 {
 		size = gfx.Size{W: side, H: side}
 	}
-	p.layoutRole.MeasuredSize = size
-	p.layoutRole.MeasuredResult = facet.MeasureResult{
+	p.Layout.MeasuredSize = size
+	p.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -267,7 +224,7 @@ func (p *ColorPicker) measure(ctx facet.MeasureContext, constraints facet.Constr
 		},
 		Constraints: constraints,
 	}
-	return p.layoutRole.MeasuredResult
+	return p.Layout.MeasuredResult
 }
 
 func (p *ColorPicker) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -281,7 +238,7 @@ func (p *ColorPicker) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedHandleBounds = gfx.Rect{}
 	p.cachedFocusBounds = gfx.Rect{}
 	p.cachedCenter = colorPickerRectCenterPoint(bounds)
-	p.layoutRole.ArrangedBounds = bounds
+	p.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -428,7 +385,7 @@ func (p *ColorPicker) hitTest(pt gfx.Point) facet.HitResult {
 }
 
 func (p *ColorPicker) onPointer(e facet.PointerEvent) bool {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return false
 	}
 	region := p.regionAt(e.Position)
@@ -480,7 +437,7 @@ func (p *ColorPicker) onPointer(e facet.PointerEvent) bool {
 }
 
 func (p *ColorPicker) onKey(e facet.KeyEvent) bool {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return false
 	}
 	if e.Kind != platform.KeyPress && e.Kind != platform.KeyRepeat {
@@ -527,7 +484,7 @@ func (p *ColorPicker) onKey(e facet.KeyEvent) bool {
 }
 
 func (p *ColorPicker) onFocusGained() {
-	if p.Disabled {
+	if p.Disabled.Get() {
 		return
 	}
 	p.focusedVisible = !p.focusFromPointer
@@ -544,7 +501,7 @@ func (p *ColorPicker) onFocusLost() {
 
 func (p *ColorPicker) interactionState() theme.InteractionState {
 	switch {
-	case p.Disabled:
+	case p.Disabled.Get():
 		return theme.StateDisabled
 	case p.pressedRegion != colorPickerRegionNone:
 		return theme.StatePressed
@@ -633,6 +590,13 @@ func (p *ColorPicker) applyPointerRegion(region colorPickerRegion, pt gfx.Point,
 	default:
 		return false
 	}
+}
+
+// SetColor updates the selected color, synchronizes derived HSV state,
+// and invalidates projection. Call this instead of assigning SelectedColor
+// directly to ensure all internal state stays consistent.
+func (p *ColorPicker) SetColor(color gfx.Color) {
+	p.setColor(color, false)
 }
 
 func (p *ColorPicker) setColor(color gfx.Color, emit bool) {

@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -27,7 +28,7 @@ func (s navDrawerRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, boo
 func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	drawer, rt, measureCtx := newNavDrawerTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(drawer, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := drawer.layoutRole.Measure(facet.MeasureContext{
+	result := drawer.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -39,11 +40,11 @@ func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	drawer.layoutRole.Arrange(facet.ArrangeContext{
+	drawer.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: drawer.layoutRole.Parent,
-		ChildGroup:  drawer.layoutRole.Child,
+		ParentGroup: drawer.Layout.Parent,
+		ChildGroup:  drawer.Layout.Child,
 	}, bounds)
 
 	if got := drawer.AccessibilityRole(); got != "navigation" {
@@ -52,7 +53,7 @@ func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := drawer.AccessibleName(); got != "Main navigation" {
 		t.Fatalf("accessible name = %q, want Main navigation", got)
 	}
-	if !drawer.focusRole.Focusable() {
+	if !drawer.Focus.Focusable() {
 		t.Fatal("expected open drawer to be focusable")
 	}
 	children := drawer.Children()
@@ -72,18 +73,18 @@ func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected structural group bounds, got header=%#v nav=%#v", drawer.cachedHeaderBounds, drawer.cachedNavBounds)
 	}
 
-	scrimHit := drawer.hitRole.HitTest(gfx.Point{X: bounds.Max.X - 4, Y: bounds.Max.Y - 4})
+	scrimHit := drawer.Hit.HitTest(gfx.Point{X: bounds.Max.X - 4, Y: bounds.Max.Y - 4})
 	if !scrimHit.Hit || scrimHit.MarkID != navDrawerMarkIDScrimOptional {
 		t.Fatalf("expected scrim hit, got %#v", scrimHit)
 	}
-	itemHit := drawer.hitRole.HitTest(gfx.Point{
+	itemHit := drawer.Hit.HitTest(gfx.Point{
 		X: drawer.cachedItemBounds[0].Min.X + drawer.cachedItemBounds[0].Width()*0.5,
 		Y: drawer.cachedItemBounds[0].Min.Y + drawer.cachedItemBounds[0].Height()*0.5,
 	})
 	if !itemHit.Hit || itemHit.MarkID != navDrawerMarkIDNavItems {
 		t.Fatalf("expected nav item hit, got %#v", itemHit)
 	}
-	focusHit := drawer.hitRole.HitTest(gfx.Point{
+	focusHit := drawer.Hit.HitTest(gfx.Point{
 		X: drawer.cachedItemBounds[0].Min.X + 2,
 		Y: drawer.cachedItemBounds[0].Min.Y + 2,
 	})
@@ -98,7 +99,7 @@ func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := drawer.projectionRole.Project(facet.ProjectionContext{
+	cmds := drawer.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -126,14 +127,14 @@ func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 	drawer, rt, measureCtx := newNavDrawerTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(drawer, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := drawer.layoutRole.Measure(facet.MeasureContext{
+	result := drawer.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1440, H: 1200}})
-	drawer.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+	drawer.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	activated := -1
 	drawer.Activated.Subscribe(func(index int) {
@@ -153,36 +154,36 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 	if activated != 1 {
 		t.Fatalf("expected activation for index 1, got %d", activated)
 	}
-	if drawer.Open {
+	if drawer.Open.Get() {
 		t.Fatal("expected drawer to close after item activation")
 	}
 
-	drawer.SetOpen(true)
-	drawer.layoutRole.Measure(facet.MeasureContext{
+	drawer.Open = marks.Const(true)
+	drawer.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1440, H: 1200}})
-	drawer.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, 1440, 1200))
+	drawer.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, 1440, 1200))
 
 	if !drawer.onDismiss(facet.DismissEvent{Trigger: facet.DismissalTriggerPointer}) {
 		t.Fatal("expected dismiss event to close drawer")
 	}
-	if drawer.Open {
+	if drawer.Open.Get() {
 		t.Fatal("expected drawer closed after dismissal")
 	}
 
-	drawer.SetOpen(true)
-	drawer.layoutRole.Measure(facet.MeasureContext{
+	drawer.Open = marks.Const(true)
+	drawer.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1440, H: 1200}})
-	drawer.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, 1440, 1200))
+	drawer.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, 1440, 1200))
 	drawer.onFocusLost()
 	drawer.onFocusGained()
 	if !drawer.focusedVisible {
@@ -204,8 +205,8 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 		t.Fatalf("expected activation to remain 1, got %d", activated)
 	}
 
-	drawer.SetDisabled(true)
-	if drawer.focusRole.Focusable() {
+	drawer.Disabled = marks.Const(true)
+	if drawer.Focus.Focusable() {
 		t.Fatal("expected disabled drawer to be unfocusable")
 	}
 	if drawer.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: itemCenter, Button: platform.PointerLeft}) {
@@ -230,7 +231,7 @@ func TestNavDrawerGoldenComfortable(t *testing.T) {
 
 func TestNavDrawerGoldenDisabled(t *testing.T) {
 	AssertNavDrawerGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {
-		d.SetDisabled(true)
+		d.Disabled = marks.Const(true)
 	})
 }
 
@@ -262,13 +263,13 @@ func TestNavDrawerGoldenRTL(t *testing.T) {
 
 func TestNavDrawerGoldenOpen(t *testing.T) {
 	AssertNavDrawerGolden(t, "open", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {
-		d.SetCurrentIndex(2)
+		d.CurrentIndex = marks.Const(2)
 	})
 }
 
 func TestNavDrawerGoldenDismissed(t *testing.T) {
 	AssertNavDrawerGolden(t, "dismissed", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {
-		d.SetOpen(false)
+		d.Open = marks.Const(false)
 	})
 }
 
@@ -284,7 +285,7 @@ func AssertNavDrawerGolden(t *testing.T, name string, tokens theme.Tokens, densi
 func renderNavDrawerToSurface(t *testing.T, drawer *NavDrawer, rt navDrawerRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(drawer, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := drawer.layoutRole.Measure(facet.MeasureContext{
+	result := drawer.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -292,8 +293,8 @@ func renderNavDrawerToSurface(t *testing.T, drawer *NavDrawer, rt navDrawerRunti
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 1440, H: 1200}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	drawer.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
-	cmds := drawer.projectionRole.Project(facet.ProjectionContext{
+	drawer.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cmds := drawer.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

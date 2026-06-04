@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -37,23 +38,17 @@ type SplitButtonItem struct {
 
 // SplitButton implements the action.split_button standard mark.
 type SplitButton struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	textRole facet.TextRole
 
 	Activated signal.Signal[string]
 
-	Key            string
-	Label          string
-	PrimaryIconRef string
-	Items          []SplitButtonItem
-	Disabled       bool
+	Label          marks.Binding[string]
+	Key            marks.Binding[string]
+	PrimaryIconRef marks.Binding[string]
+	Items          marks.Binding[[]SplitButtonItem]
+	Disabled       marks.Binding[bool]
 	Open           bool
 
 	hoveredPrimary   bool
@@ -110,24 +105,33 @@ type splitButtonItemLayout struct {
 
 var _ facet.FacetImpl = (*SplitButton)(nil)
 var _ layout.AnchorExporter = (*SplitButton)(nil)
+var _ marks.Mark = (*SplitButton)(nil)
 
 // NewSplitButton constructs an action.split_button mark with canonical defaults.
 func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 	s := &SplitButton{
-		Facet:        facet.NewFacet(),
-		Key:          strings.TrimSpace(label),
-		Label:        label,
-		Items:        normalizeSplitButtonItems(items),
-		focusedIndex: -1,
-		hoveredIndex: -1,
-		pressedIndex: -1,
-		Activated:    signal.NewSignal[string]("split_button_activated"),
+		Label:          marks.Const(label),
+		Key:            marks.Const(strings.TrimSpace(label)),
+		Items:          marks.Const(normalizeSplitButtonItems(items)),
+		PrimaryIconRef: marks.Const(""),
+		Disabled:       marks.Const(false),
+		focusedIndex:   -1,
+		hoveredIndex:   -1,
+		pressedIndex:   -1,
+		Activated:      signal.NewSignal[string]("split_button_activated"),
 	}
-	s.layoutRole.Parent = facet.GroupParentContract{
+	s.Core.Facet = facet.NewFacet()
+	s.AddBinding(s.Label)
+	s.AddBinding(s.Key)
+	s.AddBinding(s.Items)
+	s.AddBinding(s.PrimaryIconRef)
+	s.AddBinding(s.Disabled)
+
+	s.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: splitButtonGroupPolicy{},
 	}
-	s.layoutRole.Child = facet.GroupChildContract{
+	s.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := s.measureIntrinsic(ctx, constraints)
@@ -145,126 +149,46 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	s.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	s.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return s.measure(ctx, constraints)
 	}
-	s.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		s.layoutRole.ArrangedBounds = bounds
+	s.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.Layout.ArrangedBounds = bounds
 		s.arrange(bounds)
 	}
-	s.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := s.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	s.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return s.buildCommands(s.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	s.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := s.buildCommands(s.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	s.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	s.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return s.hitTest(p)
 	}
-	s.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	s.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return s.onPointer(e)
 	}
-	s.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	s.Input.OnKey = func(e facet.KeyEvent) bool {
 		return s.onKey(e)
 	}
-	s.inputRole.OnDismiss = func(e facet.DismissEvent) bool {
+	s.Input.OnDismiss = func(e facet.DismissEvent) bool {
 		_ = e
-		if s.Disabled || !s.Open {
+		if s.Disabled.Get() || !s.Open {
 			return false
 		}
-		s.SetOpen(false)
+		s.setOpen(false)
 		return true
 	}
-	s.focusRole.Focusable = func() bool {
-		return !s.Disabled && (strings.TrimSpace(s.Label) != "" || len(s.Items) > 0)
+	s.Focus.Focusable = func() bool {
+		return !s.Disabled.Get() && (strings.TrimSpace(s.Label.Get()) != "" || len(s.Items.Get()) > 0)
 	}
-	s.focusRole.TabIndex = 0
-	s.focusRole.OnFocusGained = func() { s.onFocusGained() }
-	s.focusRole.OnFocusLost = func() { s.onFocusLost() }
+	s.Focus.TabIndex = 0
+	s.Focus.OnFocusGained = func() { s.onFocusGained() }
+	s.Focus.OnFocusLost = func() { s.onFocusLost() }
 	s.textRole.IMEEnabled = false
-	s.AddRole(&s.layoutRole)
-	s.AddRole(&s.renderRole)
-	s.AddRole(&s.projectionRole)
-	s.AddRole(&s.hitRole)
-	s.AddRole(&s.inputRole)
-	s.AddRole(&s.focusRole)
+	s.RegisterRoles()
 	s.AddRole(&s.textRole)
 	return s
 }
 
-// Base satisfies facet.FacetImpl.
-func (s *SplitButton) Base() *facet.Facet {
-	s.Facet.BindImpl(s)
-	return &s.Facet
-}
-
-// AccessibilityRole reports the semantic role required by the spec.
-func (s *SplitButton) AccessibilityRole() string { return "split_button" }
-
-// AccessibleName reports the semantic name required by the spec.
-func (s *SplitButton) AccessibleName() string {
-	if s == nil {
-		return ""
-	}
-	return strings.TrimSpace(s.Label)
-}
-
-// SetLabel updates the authored label text.
-func (s *SplitButton) SetLabel(label string) {
-	if s == nil || s.Label == label {
-		return
-	}
-	s.Label = label
-	if s.Key == "" {
-		s.Key = strings.TrimSpace(label)
-	}
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetKey updates the authored activation key for the primary action.
-func (s *SplitButton) SetKey(key string) {
-	if s == nil || s.Key == key {
-		return
-	}
-	s.Key = strings.TrimSpace(key)
-	s.invalidate(facet.DirtyProjection)
-}
-
-// SetPrimaryIconRef updates the authored primary icon reference.
-func (s *SplitButton) SetPrimaryIconRef(ref string) {
-	if s == nil || s.PrimaryIconRef == ref {
-		return
-	}
-	s.PrimaryIconRef = strings.TrimSpace(ref)
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetItems replaces the secondary commands.
-func (s *SplitButton) SetItems(items []SplitButtonItem) {
-	if s == nil {
-		return
-	}
-	s.Items = normalizeSplitButtonItems(items)
-	s.syncFocusIndex()
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen updates the open state.
-func (s *SplitButton) SetOpen(open bool) {
-	if s == nil || s.Open == open {
-		return
-	}
+func (s *SplitButton) setOpen(open bool) {
 	s.Open = open
 	if open {
 		s.syncFocusIndex()
@@ -277,24 +201,26 @@ func (s *SplitButton) SetOpen(open bool) {
 	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
-// SetDisabled toggles disabled state.
-func (s *SplitButton) SetDisabled(disabled bool) {
-	if s == nil || s.Disabled == disabled {
-		return
+// Base satisfies facet.FacetImpl.
+func (s *SplitButton) Base() *facet.Facet {
+	s.Facet.BindImpl(s)
+	return &s.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (s *SplitButton) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "split_button"}
+}
+
+// AccessibilityRole reports the semantic role required by the spec.
+func (s *SplitButton) AccessibilityRole() string { return "split_button" }
+
+// AccessibleName reports the semantic name required by the spec.
+func (s *SplitButton) AccessibleName() string {
+	if s == nil {
+		return ""
 	}
-	s.Disabled = disabled
-	if disabled {
-		s.hoveredPrimary = false
-		s.hoveredTrigger = false
-		s.pressedPrimary = false
-		s.pressedTrigger = false
-		s.focusedVisible = false
-		s.focusFromPointer = false
-		s.hoveredIndex = -1
-		s.pressedIndex = -1
-		s.Open = false
-	}
-	s.invalidate(facet.DirtyProjection | facet.DirtyHit)
+	return strings.TrimSpace(s.Label.Get())
 }
 
 // ExportAnchors publishes the split button anchor set.
@@ -302,19 +228,10 @@ func (s *SplitButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 	if s == nil {
 		return nil
 	}
-	bounds := s.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := s.Layout.ArrangedBounds
+	out := s.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if !s.cachedPrimaryBounds.IsEmpty() {
 		out["content_anchor"] = gfx.Point{
@@ -335,17 +252,18 @@ func (s *SplitButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 // Children returns the facet's immediate child list.
 func (s *SplitButton) Children() []facet.GroupChild { return nil }
 
-// OnAttach is unused.
-func (s *SplitButton) OnAttach(ctx facet.AttachContext) {}
+// OnAttach subscribes dynamic bindings.
+func (s *SplitButton) OnAttach(ctx facet.AttachContext) { s.Core.OnAttach() }
 
 // OnActivate is unused.
-func (s *SplitButton) OnActivate() {}
+func (s *SplitButton) OnActivate() { s.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (s *SplitButton) OnDeactivate() {}
+func (s *SplitButton) OnDeactivate() { s.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (s *SplitButton) OnDetach() {
+	s.Core.OnDetach()
 	s.cachedTokens = theme.Tokens{}
 	s.cachedRecipe = shared.SplitButtonSlots{}
 	s.cachedRootBounds = gfx.Rect{}
@@ -460,9 +378,9 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	}
 	shaper := s.newShaper(ctx.Runtime)
 	var primaryLayout *text.TextLayout
-	if shaper != nil && strings.TrimSpace(s.Label) != "" {
+	if shaper != nil && strings.TrimSpace(s.Label.Get()) != "" {
 		shaper.SetContentScale(ctx.ContentScale)
-		primaryLayout = shaper.ShapeTruncated(strings.TrimSpace(s.Label), primaryStyle, maxWidth)
+		primaryLayout = shaper.ShapeTruncated(strings.TrimSpace(s.Label.Get()), primaryStyle, maxWidth)
 	}
 	s.cachedPrimaryLayout = primaryLayout
 	s.textRole.Layout = primaryLayout
@@ -475,11 +393,12 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 		s.cachedPrimaryLabel = gfx.Rect{}
 	}
 
-	layouts := make([]splitButtonItemLayout, len(s.Items))
+	items := s.Items.Get()
+	layouts := make([]splitButtonItemLayout, len(items))
 	maxItemW := float32(0)
 	totalMenuH := float32(0)
-	for i := range s.Items {
-		item := s.Items[i]
+	for i := range items {
+		item := items[i]
 		layouts[i].item = item
 		label := strings.TrimSpace(item.Label)
 		if shaper != nil && label != "" {
@@ -507,7 +426,7 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	s.cachedItemLayouts = layouts
 
 	primarySizes := []gfx.Size{}
-	if strings.TrimSpace(s.PrimaryIconRef) != "" {
+	if strings.TrimSpace(s.PrimaryIconRef.Get()) != "" {
 		primarySizes = append(primarySizes, gfx.Size{W: s.cachedPrimaryIconSize, H: s.cachedPrimaryIconSize})
 	}
 	primarySizes = append(primarySizes, gfx.Size{W: text.Width(primaryLayout), H: text.Height(primaryLayout)})
@@ -540,8 +459,8 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 		size.H += s.cachedGap + s.cachedMenuHeight
 	}
 	size = constraints.Constrain(size)
-	s.layoutRole.MeasuredSize = size
-	s.layoutRole.MeasuredResult = facet.MeasureResult{
+	s.Layout.MeasuredSize = size
+	s.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -550,7 +469,7 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 		},
 		Constraints: constraints,
 	}
-	return s.layoutRole.MeasuredResult
+	return s.Layout.MeasuredResult
 }
 
 func (s *SplitButton) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -567,7 +486,7 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 	s.cachedChevronBounds = gfx.Rect{}
 	s.cachedMenuBounds = gfx.Rect{}
 	s.cachedFocusBounds = gfx.Rect{}
-	s.layoutRole.ArrangedBounds = bounds
+	s.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -602,7 +521,7 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 	}
 	s.cachedPrimaryBounds = primaryBounds
 	s.cachedTriggerBounds = triggerBounds
-	primaryIconPresent := strings.TrimSpace(s.PrimaryIconRef) != ""
+	primaryIconPresent := strings.TrimSpace(s.PrimaryIconRef.Get()) != ""
 	primarySizes := []gfx.Size{}
 	if primaryIconPresent {
 		primarySizes = append(primarySizes, gfx.Size{W: s.cachedPrimaryIconSize, H: s.cachedPrimaryIconSize})
@@ -692,8 +611,8 @@ func (s *SplitButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 	if !isTransparentMaterial(primaryLabel) {
 		cmds = append(cmds, primitive.TextLayoutCommands(s.cachedPrimaryLayout, s.cachedPrimaryLabel, gfx.SolidBrush(materialColor(primaryLabel)))...)
 	}
-	if !isTransparentMaterial(primaryLabel) && strings.TrimSpace(s.PrimaryIconRef) != "" && !s.cachedPrimaryIcon.IsEmpty() {
-		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), s.PrimaryIconRef, s.cachedPrimaryIcon, primaryLabel); len(iconCmds) > 0 {
+	if !isTransparentMaterial(primaryLabel) && strings.TrimSpace(s.PrimaryIconRef.Get()) != "" && !s.cachedPrimaryIcon.IsEmpty() {
+		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), s.PrimaryIconRef.Get(), s.cachedPrimaryIcon, primaryLabel); len(iconCmds) > 0 {
 			cmds = append(cmds, iconCmds...)
 		}
 	}
@@ -749,7 +668,7 @@ func (s *SplitButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 }
 
 func (s *SplitButton) hitTest(p gfx.Point) facet.HitResult {
-	if s == nil || s.layoutRole.ArrangedBounds.IsEmpty() || !s.layoutRole.ArrangedBounds.Contains(p) {
+	if s == nil || s.Layout.ArrangedBounds.IsEmpty() || !s.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := s.cursorShape()
@@ -778,14 +697,14 @@ func (s *SplitButton) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (s *SplitButton) cursorShape() facet.CursorShape {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (s *SplitButton) onPointer(e facet.PointerEvent) bool {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return false
 	}
 	idx := s.indexAt(e.Position)
@@ -857,7 +776,7 @@ func (s *SplitButton) onPointer(e facet.PointerEvent) bool {
 			return true
 		}
 		if wasTrigger && s.cachedTriggerBounds.Contains(e.Position) {
-			s.SetOpen(!s.Open)
+			s.setOpen(!s.Open)
 			return true
 		}
 		return wasPrimary || wasTrigger
@@ -867,7 +786,7 @@ func (s *SplitButton) onPointer(e facet.PointerEvent) bool {
 }
 
 func (s *SplitButton) onKey(e facet.KeyEvent) bool {
-	if s.Disabled {
+	if s.Disabled.Get() {
 		return false
 	}
 	if s.Open {
@@ -887,7 +806,7 @@ func (s *SplitButton) onKey(e facet.KeyEvent) bool {
 			return e.Kind == platform.KeyPress || e.Kind == platform.KeyRepeat || e.Kind == platform.KeyRelease
 		case platform.KeyEscape:
 			if e.Kind == platform.KeyPress {
-				s.SetOpen(false)
+				s.setOpen(false)
 				return true
 			}
 		}
@@ -901,14 +820,14 @@ func (s *SplitButton) onKey(e facet.KeyEvent) bool {
 		return e.Kind == platform.KeyPress || e.Kind == platform.KeyRepeat
 	case platform.KeyDown:
 		if e.Kind == platform.KeyPress {
-			s.SetOpen(true)
+			s.setOpen(true)
 			s.focusedIndex = s.firstSelectableIndex()
 			s.invalidate(facet.DirtyProjection)
 			return true
 		}
 	case platform.KeyUp:
 		if e.Kind == platform.KeyPress {
-			s.SetOpen(true)
+			s.setOpen(true)
 			s.focusedIndex = s.lastSelectableIndex()
 			s.invalidate(facet.DirtyProjection)
 			return true
@@ -935,7 +854,7 @@ func (s *SplitButton) onFocusLost() {
 
 func (s *SplitButton) interactionState() theme.InteractionState {
 	switch {
-	case s.Disabled:
+	case s.Disabled.Get():
 		return theme.StateDisabled
 	case s.pressedPrimary || s.pressedTrigger:
 		return theme.StatePressed
@@ -981,7 +900,7 @@ func (s *SplitButton) entryIsSelectable(index int) bool {
 func (s *SplitButton) activatePrimary() {
 	key := s.primaryKey()
 	s.Activated.Emit(key)
-	s.SetOpen(false)
+	s.setOpen(false)
 }
 
 func (s *SplitButton) activateItem(index int) {
@@ -990,18 +909,18 @@ func (s *SplitButton) activateItem(index int) {
 	}
 	item := s.cachedItemLayouts[index].item
 	s.Activated.Emit(splitButtonItemKey(item))
-	s.SetOpen(false)
+	s.setOpen(false)
 }
 
 func (s *SplitButton) toggleOpen() {
-	s.SetOpen(!s.Open)
+	s.setOpen(!s.Open)
 }
 
 func (s *SplitButton) primaryKey() string {
-	if name := strings.TrimSpace(s.Key); name != "" {
+	if name := strings.TrimSpace(s.Key.Get()); name != "" {
 		return name
 	}
-	if name := strings.TrimSpace(s.Label); name != "" {
+	if name := strings.TrimSpace(s.Label.Get()); name != "" {
 		return name
 	}
 	return ""

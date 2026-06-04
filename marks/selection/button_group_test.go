@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -17,7 +18,7 @@ import (
 
 func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	bg.SetLabel("Choices")
+	bg.Label = marks.Const("Choices")
 	bg.SetOptions([]ButtonGroupOption{
 		{Key: "test-item-1", Label: "test-item-1"},
 		{Key: "test-item-2", Label: "test-item-2"},
@@ -25,7 +26,7 @@ func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	})
 
 	facet.Attach(bg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bg.layoutRole.Measure(facet.MeasureContext{
+	result := bg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -37,7 +38,7 @@ func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	bg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: bg.layoutRole.Parent, ChildGroup: bg.layoutRole.Child}, bounds)
+	bg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx, ParentGroup: bg.LayoutRole().Parent, ChildGroup: bg.LayoutRole().Child}, bounds)
 
 	if got := bg.AccessibilityRole(); got != "group" {
 		t.Fatalf("accessibility role = %q, want group", got)
@@ -52,7 +53,7 @@ func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected arranged geometry, got surface=%#v options=%d", bg.cachedGroupSurface, len(bg.cachedOptionBounds))
 	}
 
-	hit := bg.hitRole.HitTest(gfx.Point{X: bg.cachedOptionBounds[1].Min.X + 1, Y: bg.cachedOptionBounds[1].Min.Y + 1})
+	hit := 	bg.HitRole().HitTest(gfx.Point{X: bg.cachedOptionBounds[1].Min.X + 1, Y: bg.cachedOptionBounds[1].Min.Y + 1})
 	if !hit.Hit || (hit.MarkID != buttonGroupMarkIDSelectedIndicator && hit.MarkID != buttonGroupMarkIDOptionButtons) {
 		t.Fatalf("expected option hit, got %#v", hit)
 	}
@@ -64,7 +65,7 @@ func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := bg.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	cmds := 	bg.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
@@ -93,9 +94,9 @@ func TestButtonGroupPointerKeyboardAndStoreBehavior(t *testing.T) {
 		{Key: "test-item-3", Label: "test-item-3"},
 	})
 	facet.Attach(bg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bg.layoutRole.Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
+	result := bg.LayoutRole().Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	bg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	bg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	center := gfx.Point{X: bg.cachedOptionBounds[0].Min.X + bg.cachedOptionBounds[0].Width()*0.5, Y: bg.cachedOptionBounds[0].Min.Y + bg.cachedOptionBounds[0].Height()*0.5}
 	if !bg.onChildPointer(0, facet.PointerEvent{Kind: platform.PointerEnter, Position: center}) {
@@ -127,7 +128,7 @@ func TestButtonGroupPointerKeyboardAndStoreBehavior(t *testing.T) {
 		t.Fatalf("selection after keyboard toggle = %#v, want test-item-2", got)
 	}
 
-	bg.Mode = ButtonGroupMultiple
+	bg.Mode = marks.Const(ButtonGroupMultiple)
 	bg.SetSelectedKeys("test-item-1")
 	bg.SetSelectedKeys("test-item-1", "test-item-3")
 	if got := bg.currentSelection(); len(got) != 2 {
@@ -145,8 +146,8 @@ func TestButtonGroupComposesPrimitiveTextAndIconChildren(t *testing.T) {
 		},
 	})
 	facet.Attach(bg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bg.layoutRole.Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
-	bg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+	result := bg.LayoutRole().Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
+	bg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	if len(bg.cachedItems) != 1 || bg.cachedItems[0] == nil {
 		t.Fatalf("expected one composed child, got %#v", bg.cachedItems)
@@ -173,9 +174,9 @@ func TestButtonGroupFocusAndDisabledBehavior(t *testing.T) {
 		{Key: "test-item-2", Label: "test-item-2"},
 	})
 	facet.Attach(bg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bg.layoutRole.Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
+	result := bg.LayoutRole().Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	bg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	bg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	bg.onFocusGained()
 	if !bg.focusedVisible {
@@ -185,8 +186,8 @@ func TestButtonGroupFocusAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected edge point to land in focus ring")
 	}
 
-	bg.SetDisabled(true)
-	if bg.focusRole.Focusable() {
+	bg.Disabled = marks.Const(true)
+	if bg.FocusRole().Focusable() {
 		t.Fatal("expected disabled button-group to be unfocusable")
 	}
 	if bg.onChildPointer(0, facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {
@@ -204,7 +205,7 @@ func TestButtonGroupStoreInvalidation(t *testing.T) {
 		{Key: "test-item-2", Label: "test-item-2"},
 	})
 	facet.Attach(bg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	_ = bg.layoutRole.Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
+	_ = bg.LayoutRole().Measure(facet.MeasureContext{Runtime: rt, Theme: measureCtx, ContentScale: 1, Density: facet.DensityID(theme.DensityIDComfortable), WritingDirection: facet.WritingDirectionLTR}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	initial := bg.Base().SubscribedVersions()
 	if len(initial) != 1 {
 		t.Fatalf("expected one tracked store version, got %d", len(initial))
@@ -229,7 +230,7 @@ func TestButtonGroupGoldenComfortable(t *testing.T) {
 
 func TestButtonGroupGoldenDisabled(t *testing.T) {
 	AssertButtonGroupGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(bg *ButtonGroup) {
-		bg.SetDisabled(true)
+		bg.Disabled = marks.Const(true)
 	})
 }
 
@@ -268,7 +269,7 @@ func TestButtonGroupGoldenSelected(t *testing.T) {
 func AssertButtonGroupGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*ButtonGroup)) {
 	t.Helper()
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, tokens, density, direction)
-	bg.SetLabel("Choices")
+	bg.Label = marks.Const("Choices")
 	bg.SetOptions([]ButtonGroupOption{
 		{Key: "test-item-1", Label: "test-item-1"},
 		{Key: "test-item-2", Label: "test-item-2"},
@@ -283,7 +284,7 @@ func AssertButtonGroupGolden(t *testing.T, name string, tokens theme.Tokens, den
 func renderButtonGroupToSurface(t *testing.T, bg *ButtonGroup, rt sliderRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(bg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := bg.layoutRole.Measure(facet.MeasureContext{
+	result := bg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -291,9 +292,9 @@ func renderButtonGroupToSurface(t *testing.T, bg *ButtonGroup, rt sliderRuntimeS
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 260}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	bg.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	bg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := bg.projectionRole.Project(facet.ProjectionContext{
+	cmds := 	bg.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

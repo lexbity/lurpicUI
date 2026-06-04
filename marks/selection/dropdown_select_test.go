@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -16,10 +17,10 @@ import (
 
 func TestDropdownSelectMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	sel, rt, measureCtx := newDropdownSelectTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	sel.SetValue("canberra")
+	sel.Value.Set("canberra")
 
 	facet.Attach(sel, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sel.layoutRole.Measure(facet.MeasureContext{
+	result := sel.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -31,11 +32,11 @@ func TestDropdownSelectMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	sel.layoutRole.Arrange(facet.ArrangeContext{
+	sel.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: sel.layoutRole.Parent,
-		ChildGroup:  sel.layoutRole.Child,
+		ParentGroup: sel.LayoutRole().Parent,
+		ChildGroup:  sel.LayoutRole().Child,
 	}, bounds)
 
 	if got := sel.AccessibilityRole(); got != "combobox" {
@@ -51,21 +52,21 @@ func TestDropdownSelectMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected trigger geometry, got trigger=%#v value=%#v chevron=%#v", sel.cachedTriggerBounds, sel.cachedValueBounds, sel.cachedChevronBounds)
 	}
 
-	triggerHit := sel.hitRole.HitTest(gfx.Point{
+	triggerHit := sel.HitRole().HitTest(gfx.Point{
 		X: sel.cachedTriggerBounds.Min.X + 2,
 		Y: sel.cachedTriggerBounds.Min.Y + 2,
 	})
 	if !triggerHit.Hit || triggerHit.MarkID != dropdownSelectMarkIDTrigger {
 		t.Fatalf("expected trigger hit, got %#v", triggerHit)
 	}
-	valueHit := sel.hitRole.HitTest(gfx.Point{
+	valueHit := sel.HitRole().HitTest(gfx.Point{
 		X: sel.cachedValueBounds.Min.X + 2,
 		Y: sel.cachedValueBounds.Min.Y + 2,
 	})
 	if !valueHit.Hit || valueHit.MarkID != dropdownSelectMarkIDSelectedValue {
 		t.Fatalf("expected value hit, got %#v", valueHit)
 	}
-	chevronHit := sel.hitRole.HitTest(gfx.Point{
+	chevronHit := sel.HitRole().HitTest(gfx.Point{
 		X: sel.cachedChevronBounds.Min.X + 1,
 		Y: sel.cachedChevronBounds.Min.Y + 1,
 	})
@@ -80,7 +81,7 @@ func TestDropdownSelectMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := sel.projectionRole.Project(facet.ProjectionContext{
+	cmds := sel.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -108,7 +109,7 @@ func TestDropdownSelectMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestDropdownSelectPointerAndKeyboardInteraction(t *testing.T) {
 	sel, rt, measureCtx := newDropdownSelectTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(sel, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sel.layoutRole.Measure(facet.MeasureContext{
+	result := sel.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -116,7 +117,7 @@ func TestDropdownSelectPointerAndKeyboardInteraction(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 820, H: 520}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	sel.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sel.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	triggerCenter := gfx.Point{X: sel.cachedTriggerBounds.Min.X + sel.cachedTriggerBounds.Width()*0.5, Y: sel.cachedTriggerBounds.Min.Y + sel.cachedTriggerBounds.Height()*0.5}
 	if !sel.onPointer(facet.PointerEvent{Kind: platform.PointerEnter, Position: triggerCenter}) {
@@ -132,14 +133,14 @@ func TestDropdownSelectPointerAndKeyboardInteraction(t *testing.T) {
 		t.Fatal("expected trigger click to open listbox")
 	}
 
-	sel.layoutRole.Measure(facet.MeasureContext{
+	sel.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 820, H: 520}})
-	sel.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sel.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	optionCenter := gfx.Point{X: sel.cachedOptionRects[2].Min.X + sel.cachedOptionRects[2].Width()*0.5, Y: sel.cachedOptionRects[2].Min.Y + sel.cachedOptionRects[2].Height()*0.5}
 	if !sel.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: optionCenter, Button: platform.PointerLeft}) {
@@ -178,7 +179,7 @@ func TestDropdownSelectPointerAndKeyboardInteraction(t *testing.T) {
 func TestDropdownSelectFocusAndDisabledBehavior(t *testing.T) {
 	sel, rt, measureCtx := newDropdownSelectTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(sel, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sel.layoutRole.Measure(facet.MeasureContext{
+	result := sel.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -186,7 +187,7 @@ func TestDropdownSelectFocusAndDisabledBehavior(t *testing.T) {
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 820, H: 520}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	sel.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sel.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	sel.onFocusGained()
 	if !sel.focusedVisible {
@@ -196,8 +197,8 @@ func TestDropdownSelectFocusAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected edge point to land in focus ring")
 	}
 
-	sel.SetDisabled(true)
-	if sel.focusRole.Focusable() {
+	sel.Disabled = marks.Const(true)
+	if sel.FocusRole().Focusable() {
 		t.Fatal("expected disabled dropdown select to be unfocusable")
 	}
 	if sel.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {
@@ -211,7 +212,7 @@ func TestDropdownSelectFocusAndDisabledBehavior(t *testing.T) {
 func TestDropdownSelectStoreInvalidation(t *testing.T) {
 	sel, rt, measureCtx := newDropdownSelectTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(sel, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	_ = sel.layoutRole.Measure(facet.MeasureContext{
+	_ = sel.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -246,7 +247,7 @@ func TestDropdownSelectGoldenComfortable(t *testing.T) {
 
 func TestDropdownSelectGoldenDisabled(t *testing.T) {
 	AssertDropdownSelectGolden(t, "disabled", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *DropdownSelect) {
-		s.SetDisabled(true)
+		s.Disabled = marks.Const(true)
 	})
 }
 
@@ -278,28 +279,28 @@ func TestDropdownSelectGoldenRTL(t *testing.T) {
 
 func TestDropdownSelectGoldenOpen(t *testing.T) {
 	AssertDropdownSelectGolden(t, "open", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *DropdownSelect) {
-		s.SetOpen(true)
+		s.open = true
 	})
 }
 
 func TestDropdownSelectGoldenDismissed(t *testing.T) {
 	AssertDropdownSelectGolden(t, "dismissed", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *DropdownSelect) {
-		s.SetOpen(true)
+		s.open = true
 		s.onDismiss(facet.DismissEvent{Trigger: facet.DismissalTriggerPointer})
 	})
 }
 
 func TestDropdownSelectGoldenSelected(t *testing.T) {
 	AssertDropdownSelectGolden(t, "selected", defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(s *DropdownSelect) {
-		s.SetValue("brisbane")
+		s.Value.Set("brisbane")
 	})
 }
 
 func AssertDropdownSelectGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*DropdownSelect)) {
 	t.Helper()
 	sel, rt, measureCtx := newDropdownSelectTestFixture(t, tokens, density, direction)
-	sel.SetLabel("What city do you live in?")
-	sel.SetValue("adelaide")
+	sel.Label = marks.Const("What city do you live in?")
+	sel.Value.Set("adelaide")
 	if mutate != nil {
 		mutate(sel)
 	}
@@ -309,7 +310,7 @@ func AssertDropdownSelectGolden(t *testing.T, name string, tokens theme.Tokens, 
 func renderDropdownSelectToSurface(t *testing.T, sel *DropdownSelect, rt sliderRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(sel, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := sel.layoutRole.Measure(facet.MeasureContext{
+	result := sel.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -317,9 +318,9 @@ func renderDropdownSelectToSurface(t *testing.T, sel *DropdownSelect, rt sliderR
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 820, H: 520}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	sel.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	sel.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := sel.projectionRole.Project(facet.ProjectionContext{
+	cmds := sel.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

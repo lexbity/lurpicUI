@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -27,7 +28,7 @@ func (s navRailRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool)
 func TestNavRailMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	rail, rt, measureCtx := newNavRailTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(rail, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rail.layoutRole.Measure(facet.MeasureContext{
+	result := rail.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -39,11 +40,11 @@ func TestNavRailMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	rail.layoutRole.Arrange(facet.ArrangeContext{
+	rail.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: rail.layoutRole.Parent,
-		ChildGroup:  rail.layoutRole.Child,
+		ParentGroup: rail.LayoutRole().Parent,
+		ChildGroup:  rail.LayoutRole().Child,
 	}, bounds)
 
 	if got := rail.AccessibilityRole(); got != "navigation" {
@@ -52,7 +53,7 @@ func TestNavRailMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := rail.AccessibleName(); got != "Primary rail" {
 		t.Fatalf("accessible name = %q, want Primary rail", got)
 	}
-	if !rail.focusRole.Focusable() {
+	if !rail.FocusRole().Focusable() {
 		t.Fatal("expected nav rail to be focusable")
 	}
 	children := rail.Children()
@@ -62,18 +63,18 @@ func TestNavRailMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if rail.cachedRailBounds.IsEmpty() || len(rail.cachedItemBounds) != len(rail.Items) {
 		t.Fatalf("expected arranged rail geometry, got rail=%#v items=%d", rail.cachedRailBounds, len(rail.cachedItemBounds))
 	}
-	if rail.cachedItemFacets[0] == nil || rail.cachedItemFacets[0].ShowLabel == false {
+	if rail.cachedItemFacets[0] == nil || rail.cachedItemFacets[0].ShowLabel.Get() == false {
 		t.Fatal("expected expanded rail to show item labels")
 	}
 
-	itemHit := rail.hitRole.HitTest(gfx.Point{
+	itemHit := rail.HitRole().HitTest(gfx.Point{
 		X: rail.cachedItemBounds[0].Min.X + rail.cachedItemBounds[0].Width()*0.5,
 		Y: rail.cachedItemBounds[0].Min.Y + rail.cachedItemBounds[0].Height()*0.5,
 	})
 	if !itemHit.Hit || (itemHit.MarkID != navRailMarkIDActiveIndicator && itemHit.MarkID != navRailMarkIDNavItems) {
 		t.Fatalf("expected item hit, got %#v", itemHit)
 	}
-	railHit := rail.hitRole.HitTest(gfx.Point{
+	railHit := rail.HitRole().HitTest(gfx.Point{
 		X: rail.cachedRailBounds.Min.X + 2,
 		Y: rail.cachedRailBounds.Min.Y + 2,
 	})
@@ -88,7 +89,7 @@ func TestNavRailMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := rail.projectionRole.Project(facet.ProjectionContext{
+	cmds := rail.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -116,14 +117,14 @@ func TestNavRailMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 func TestNavRailPointerAndKeyboardInteraction(t *testing.T) {
 	rail, rt, measureCtx := newNavRailTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(rail, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rail.layoutRole.Measure(facet.MeasureContext{
+	result := rail.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 1400}})
-	rail.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+	rail.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	activated := -1
 	rail.Activated.Subscribe(func(index int) {
@@ -140,7 +141,7 @@ func TestNavRailPointerAndKeyboardInteraction(t *testing.T) {
 	if !rail.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: secondCenter, Button: platform.PointerLeft}) {
 		t.Fatal("expected pointer release to be handled")
 	}
-	if got := rail.ActiveIndex; got != 1 {
+	if got := rail.ActiveIndex.Get(); got != 1 {
 		t.Fatalf("active index after pointer = %d, want 1", got)
 	}
 	if activated != 1 {
@@ -163,8 +164,8 @@ func TestNavRailPointerAndKeyboardInteraction(t *testing.T) {
 		t.Fatal("expected keyboard focus to show focus ring")
 	}
 
-	rail.SetDisabled(true)
-	if rail.focusRole.Focusable() {
+	rail.Disabled = marks.Const(true)
+	if rail.FocusRole().Focusable() {
 		t.Fatal("expected disabled nav rail to be unfocusable")
 	}
 	if rail.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: secondCenter, Button: platform.PointerLeft}) {
@@ -177,21 +178,21 @@ func TestNavRailPointerAndKeyboardInteraction(t *testing.T) {
 
 func TestNavRailCollapsedHidesLabels(t *testing.T) {
 	rail, rt, measureCtx := newNavRailTestFixture(t, defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR)
-	rail.SetCollapsed(true)
+	rail.Collapsed = marks.Const(true)
 	facet.Attach(rail, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rail.layoutRole.Measure(facet.MeasureContext{
+	result := rail.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDCompact),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 1400}})
-	rail.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
+	rail.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 	for i, item := range rail.cachedItemFacets {
 		if item == nil {
 			t.Fatalf("missing child facet %d", i)
 		}
-		if item.ShowLabel {
+		if item.ShowLabel.Get() {
 			t.Fatalf("expected collapsed rail item %d to hide labels", i)
 		}
 	}
@@ -203,7 +204,7 @@ func TestNavRailGoldenDefault(t *testing.T) {
 
 func TestNavRailGoldenCompact(t *testing.T) {
 	AssertNavRailGolden(t, "compact", defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(r *NavRail) {
-		r.SetCollapsed(true)
+		r.Collapsed = marks.Const(true)
 	})
 }
 
@@ -213,7 +214,7 @@ func TestNavRailGoldenComfortable(t *testing.T) {
 
 func TestNavRailGoldenDisabled(t *testing.T) {
 	AssertNavRailGolden(t, "disabled", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *NavRail) {
-		r.SetDisabled(true)
+		r.Disabled = marks.Const(true)
 	})
 }
 
@@ -245,7 +246,7 @@ func TestNavRailGoldenRTL(t *testing.T) {
 
 func TestNavRailGoldenSelected(t *testing.T) {
 	AssertNavRailGolden(t, "selected", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *NavRail) {
-		r.SetActiveIndex(2)
+		r.ActiveIndex = marks.Const(2)
 	})
 }
 
@@ -261,7 +262,7 @@ func AssertNavRailGolden(t *testing.T, name string, tokens theme.Tokens, density
 func renderNavRailToSurface(t *testing.T, rail *NavRail, rt navRailRuntimeStub, measureCtx theme.ResolvedContext, density theme.DensityID, direction layout.WritingDirection, goldenName string) {
 	t.Helper()
 	facet.Attach(rail, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := rail.layoutRole.Measure(facet.MeasureContext{
+	result := rail.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -269,8 +270,8 @@ func renderNavRailToSurface(t *testing.T, rail *NavRail, rt navRailRuntimeStub, 
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 1400}})
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	rail.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
-	cmds := rail.projectionRole.Project(facet.ProjectionContext{
+	rail.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cmds := rail.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

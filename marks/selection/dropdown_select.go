@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -34,25 +35,18 @@ type DropdownOption struct {
 
 // DropdownSelect implements the selection.dropdown_select canonical mark.
 type DropdownSelect struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
-	viewportRole   facet.ViewportRole
+	marks.Core
 
 	Value *store.ValueStore[string]
 
-	Label       string
-	Placeholder string
-	Options     []DropdownOption
-	Variant     uiinput.SelectVariant
-	Disabled    bool
-	Invalid     bool
+	Label       marks.Binding[string]
+	Placeholder marks.Binding[string]
+	Options     marks.Binding[[]DropdownOption]
+	Variant     marks.Binding[uiinput.SelectVariant]
+	Disabled    marks.Binding[bool]
+	Invalid     marks.Binding[bool]
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -83,23 +77,33 @@ type DropdownSelect struct {
 
 var _ facet.FacetImpl = (*DropdownSelect)(nil)
 var _ layout.AnchorExporter = (*DropdownSelect)(nil)
+var _ marks.Mark = (*DropdownSelect)(nil)
 
 // NewDropdownSelect constructs a dropdown select with canonical defaults.
 func NewDropdownSelect(label string, options []DropdownOption) *DropdownSelect {
 	ds := &DropdownSelect{
-		Facet:       facet.NewFacet(),
+		Label:       marks.Const(label),
+		Placeholder: marks.Const("Select..."),
+		Options:     marks.Const(append([]DropdownOption(nil), options...)),
+		Variant:     marks.Const(uiinput.SelectStandard),
+		Disabled:    marks.Const(false),
+		Invalid:     marks.Const(false),
 		Value:       store.NewValueStore[string](""),
-		Label:       label,
-		Placeholder: "Select...",
-		Options:     append([]DropdownOption(nil), options...),
-		Variant:     uiinput.SelectStandard,
 		activeIndex: 0,
 	}
-	ds.layoutRole.Parent = facet.GroupParentContract{
+	ds.Core.Facet = facet.NewFacet()
+	ds.AddBinding(ds.Label)
+	ds.AddBinding(ds.Placeholder)
+	ds.AddBinding(ds.Options)
+	ds.AddBinding(ds.Variant)
+	ds.AddBinding(ds.Disabled)
+	ds.AddBinding(ds.Invalid)
+
+	ds.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: dropdownSelectGroupPolicy{},
 	}
-	ds.layoutRole.Child = facet.GroupChildContract{
+	ds.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := ds.measureIntrinsic(ctx, constraints)
@@ -114,49 +118,29 @@ func NewDropdownSelect(label string, options []DropdownOption) *DropdownSelect {
 		Stretch:  facet.StretchPolicy{Width: facet.StretchNever, Height: facet.StretchNever},
 		Baseline: facet.BaselineNone,
 	}
-	ds.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	ds.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return ds.measure(ctx, constraints)
 	}
-	ds.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		ds.layoutRole.ArrangedBounds = bounds
+	ds.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		ds.Layout.ArrangedBounds = bounds
 		ds.arrange(ctx, bounds)
 	}
-	ds.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := ds.buildCommands(bounds, nil)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
-	}
-	ds.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := ds.buildCommands(ds.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	ds.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return ds.hitTest(p) }
-	ds.inputRole.OnPointer = func(e facet.PointerEvent) bool { return ds.onPointer(e) }
-	ds.inputRole.OnScroll = func(e facet.ScrollEvent) bool { return ds.onScroll(e) }
-	ds.inputRole.OnKey = func(e facet.KeyEvent) bool { return ds.onKey(e) }
-	ds.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return ds.onDismiss(e) }
-	ds.focusRole.Focusable = func() bool { return !ds.Disabled }
-	ds.focusRole.TabIndex = 0
-	ds.focusRole.OnFocusGained = func() { ds.onFocusGained() }
-	ds.focusRole.OnFocusLost = func() { ds.onFocusLost() }
-	ds.viewportRole.Transform = gfx.Identity()
+	ds.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return ds.hitTest(p) }
+	ds.Input.OnPointer = func(e facet.PointerEvent) bool { return ds.onPointer(e) }
+	ds.Input.OnScroll = func(e facet.ScrollEvent) bool { return ds.onScroll(e) }
+	ds.Input.OnKey = func(e facet.KeyEvent) bool { return ds.onKey(e) }
+	ds.Input.OnDismiss = func(e facet.DismissEvent) bool { return ds.onDismiss(e) }
+	ds.Focus.Focusable = func() bool { return !ds.Disabled.Get() }
+	ds.Focus.TabIndex = 0
+	ds.Focus.OnFocusGained = func() { ds.onFocusGained() }
+	ds.Focus.OnFocusLost = func() { ds.onFocusLost() }
+	ds.Viewport.Transform = gfx.Identity()
 	ds.textRole.IMEEnabled = false
-	ds.AddRole(&ds.layoutRole)
-	ds.AddRole(&ds.renderRole)
-	ds.AddRole(&ds.projectionRole)
-	ds.AddRole(&ds.hitRole)
-	ds.AddRole(&ds.inputRole)
-	ds.AddRole(&ds.focusRole)
+	ds.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return ds.buildCommands(ds.Layout.ArrangedBounds, ctx.Runtime)
+	}
+	ds.RegisterRoles()
 	ds.AddRole(&ds.textRole)
-	ds.AddRole(&ds.viewportRole)
 	return ds
 }
 
@@ -164,6 +148,11 @@ func NewDropdownSelect(label string, options []DropdownOption) *DropdownSelect {
 func (ds *DropdownSelect) Base() *facet.Facet {
 	ds.Facet.BindImpl(ds)
 	return &ds.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (ds *DropdownSelect) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "dropdown_select"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -174,131 +163,28 @@ func (ds *DropdownSelect) AccessibleName() string {
 	if ds == nil {
 		return ""
 	}
-	return ds.Label
-}
-
-// SetLabel updates the authored label.
-func (ds *DropdownSelect) SetLabel(label string) {
-	if ds == nil || ds.Label == label {
-		return
-	}
-	ds.Label = label
-	ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetPlaceholder updates the placeholder text.
-func (ds *DropdownSelect) SetPlaceholder(placeholder string) {
-	if ds == nil || ds.Placeholder == placeholder {
-		return
-	}
-	ds.Placeholder = placeholder
-	ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOptions updates the selectable option set.
-func (ds *DropdownSelect) SetOptions(options []DropdownOption) {
-	if ds == nil {
-		return
-	}
-	ds.Options = append(ds.Options[:0], options...)
-	if ds.activeIndex >= len(ds.Options) {
-		ds.activeIndex = 0
-	}
-	ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetVariant updates the recipe variant.
-func (ds *DropdownSelect) SetVariant(variant uiinput.SelectVariant) {
-	if ds == nil || ds.Variant == variant {
-		return
-	}
-	ds.Variant = variant
-	ds.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (ds *DropdownSelect) SetDisabled(disabled bool) {
-	if ds == nil || ds.Disabled == disabled {
-		return
-	}
-	ds.Disabled = disabled
-	if disabled {
-		ds.open = false
-		ds.hovered = false
-		ds.pressed = false
-		ds.focusedVisible = false
-		ds.focusFromPointer = false
-	}
-	ds.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetInvalid toggles invalid state.
-func (ds *DropdownSelect) SetInvalid(invalid bool) {
-	if ds == nil || ds.Invalid == invalid {
-		return
-	}
-	ds.Invalid = invalid
-	ds.invalidate(facet.DirtyProjection)
-}
-
-// SetOpen updates disclosure state.
-func (ds *DropdownSelect) SetOpen(open bool) {
-	if ds == nil || ds.open == open {
-		return
-	}
-	ds.open = open
-	if open {
-		ds.syncActiveIndex()
-	}
-	ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetValue updates the selected value.
-func (ds *DropdownSelect) SetValue(value string) {
-	if ds == nil {
-		return
-	}
-	if ds.Value == nil {
-		ds.Value = store.NewValueStore[string](value)
-		ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	if ds.Value.Get() == value {
-		return
-	}
-	ds.Value.Set(value)
-	ds.syncActiveIndex()
-	ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return ds.Label.Get()
 }
 
 // ExportAnchors publishes the select anchor set.
 func (ds *DropdownSelect) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if ds == nil {
-		return nil
-	}
-	bounds := ds.layoutRole.ArrangedBounds
+	bounds := ds.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	anchors := ds.Core.DefaultAnchors(bounds, ctx)
 	if ds.cachedLabelBounds.IsEmpty() || ds.textRole.Layout == nil {
-		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
+		anchors["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	} else {
-		out["baseline"] = gfx.Point{X: ds.cachedLabelBounds.Min.X, Y: ds.cachedLabelBounds.Min.Y + ds.textRole.Layout.Baseline}
+		anchors["baseline"] = gfx.Point{X: ds.cachedLabelBounds.Min.X, Y: ds.cachedLabelBounds.Min.Y + ds.textRole.Layout.Baseline}
 	}
 	if !ds.cachedTriggerBounds.IsEmpty() {
-		out["content_anchor"] = gfx.Point{X: ds.cachedTriggerBounds.Min.X, Y: ds.cachedTriggerBounds.Max.Y}
+		anchors["content_anchor"] = gfx.Point{X: ds.cachedTriggerBounds.Min.X, Y: ds.cachedTriggerBounds.Max.Y}
 	}
-	return out
+	return anchors
 }
 
 // Children returns the facet's immediate child list.
@@ -306,6 +192,7 @@ func (ds *DropdownSelect) Children() []facet.GroupChild { return nil }
 
 // OnAttach wires store invalidation for the bound value store.
 func (ds *DropdownSelect) OnAttach(ctx facet.AttachContext) {
+	ds.Core.OnAttach()
 	if ds.Value == nil {
 		ds.Value = store.NewValueStore[string]("")
 	}
@@ -316,13 +203,14 @@ func (ds *DropdownSelect) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (ds *DropdownSelect) OnActivate() {}
+func (ds *DropdownSelect) OnActivate() { ds.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (ds *DropdownSelect) OnDeactivate() {}
+func (ds *DropdownSelect) OnDeactivate() { ds.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (ds *DropdownSelect) OnDetach() {
+	ds.Core.OnDetach()
 	ds.cachedTokens = theme.Tokens{}
 	ds.cachedRecipe = shared.SelectSlots{}
 	ds.cachedRootBounds = gfx.Rect{}
@@ -354,7 +242,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uiinput.ResolveSelectRecipe(style, ds.Variant)
+	slots, _ := uiinput.ResolveSelectRecipe(style, ds.Variant.Get())
 	ds.cachedTokens = resolved.TokenSet()
 	ds.cachedRecipe = slots
 	ds.cachedWritingDirection = ctx.WritingDirection
@@ -372,10 +260,10 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	valueLayout := (*text.TextLayout)(nil)
 	if shaper != nil {
 		shaper.SetContentScale(ctx.ContentScale)
-		labelLayout = shaper.ShapeTruncated(ds.Label, ds.cachedLabelStyle, maxWidth)
+		labelLayout = shaper.ShapeTruncated(ds.Label.Get(), ds.cachedLabelStyle, maxWidth)
 		selected := ds.displayValue()
 		if selected == "" {
-			selected = ds.Placeholder
+			selected = ds.Placeholder.Get()
 		}
 		valueLayout = shaper.ShapeTruncated(selected, ds.cachedValueStyle, maxWidth)
 	}
@@ -396,14 +284,14 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	}
 	height += triggerH
 	if ds.open {
-		if len(ds.Options) > 0 {
+		if len(ds.Options.Get()) > 0 {
 			height += float32(resolved.Spacing(theme.SpacingXS))
 			itemH := maxFloat(float32(resolved.Density.Scale(32)), triggerH*0.72)
 			if itemH < 28 {
 				itemH = 28
 			}
 			ds.cachedOptionHeight = itemH
-			count := len(ds.Options)
+			count := len(ds.Options.Get())
 			if count > 6 {
 				count = 6
 			}
@@ -415,8 +303,8 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	}
 	ds.cachedRootBounds = gfx.RectFromXYWH(0, 0, width, height)
 	ds.cachedLabelLayout = labelLayout
-	ds.layoutRole.MeasuredSize = gfx.Size{W: width, H: height}
-	ds.layoutRole.MeasuredResult = facet.MeasureResult{
+	ds.Layout.MeasuredSize = gfx.Size{W: width, H: height}
+	ds.Layout.MeasuredResult = facet.MeasureResult{
 		Size: gfx.Size{W: width, H: height},
 		Intrinsic: facet.IntrinsicSize{
 			Min:       gfx.Size{W: width, H: triggerH},
@@ -426,7 +314,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 		Constraints: constraints,
 	}
 	ds.textRole.Layout = valueLayout
-	return ds.layoutRole.MeasuredResult
+	return ds.Layout.MeasuredResult
 }
 
 func (ds *DropdownSelect) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -441,7 +329,7 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	ds.cachedChevronBounds = gfx.Rect{}
 	ds.cachedListboxBounds = gfx.Rect{}
 	ds.cachedOptionRects = nil
-	ds.layoutRole.ArrangedBounds = bounds
+	ds.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -476,7 +364,7 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		chevronX = ds.cachedTriggerBounds.Min.X + padding
 	}
 	ds.cachedChevronBounds = text.AlignRectY(gfx.RectFromXYWH(chevronX, ds.cachedTriggerBounds.Min.Y, chevronSize, chevronSize), ds.cachedTriggerBounds.Min.Y, ds.cachedTriggerBounds.Height())
-	if ds.open && len(ds.Options) > 0 {
+	if ds.open && len(ds.Options.Get()) > 0 {
 		itemH := ds.cachedOptionHeight
 		if itemH <= 0 {
 			itemH = maxFloat(float32(resolved.Density.Scale(32)), ds.cachedTriggerBounds.Height()*0.72)
@@ -484,7 +372,7 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 				itemH = 28
 			}
 		}
-		count := len(ds.Options)
+		count := len(ds.Options.Get())
 		if count > 6 {
 			count = 6
 		}
@@ -505,7 +393,7 @@ func (ds *DropdownSelect) resolveProjectionTheme(runtime any) (theme.StyleContex
 	if tree, ok := runtime.(styleTree); ok {
 		if store := theme.NearestStyleContext(tree, ds.Base().ID()); store != nil {
 			style := store.Get()
-			slots, _ := uiinput.ResolveSelectRecipe(style, ds.Variant)
+			slots, _ := uiinput.ResolveSelectRecipe(style, ds.Variant.Get())
 			return style, slots
 		}
 	}
@@ -526,7 +414,7 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 	chevron := slots.Chevron.Resolve(interaction, tokens)
 	listbox := slots.FloatingListbox.Resolve(ds.listboxState(), tokens)
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
-	if ds.Invalid {
+	if ds.Invalid.Get() {
 		focus = theme.FromToken(tokens.Color.Error)
 	}
 	cmds := make([]gfx.Command, 0, 32)
@@ -549,13 +437,13 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ds.cachedListboxBounds, ds.cachedTriggerRadius), listbox)...)
 		}
 		for i, rect := range ds.cachedOptionRects {
-			if i < 0 || i >= len(ds.Options) {
+			if i < 0 || i >= len(ds.Options.Get()) {
 				continue
 			}
-			row := NewListItem(ds.labelAt(i))
-			row.SetSelected(ds.optionValueAt(i) == ds.selectedValue())
-			row.SetActive(i == ds.activeIndex)
-			row.SetDisabled(ds.Disabled)
+			row := NewListItem(marks.Const(ds.labelAt(i)))
+			row.Selected = marks.Const(ds.optionValueAt(i) == ds.selectedValue())
+			row.Active = marks.Const(i == ds.activeIndex)
+			row.Disabled = marks.Const(ds.Disabled.Get())
 			row.focusedVisible = i == ds.activeIndex && ds.open
 			row.cachedWritingDirection = ds.cachedWritingDirection
 			runtimeServices, _ := runtime.(facet.RuntimeServices)
@@ -566,18 +454,18 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 			case theme.DensityTouch:
 				densityID = facet.DensityID(theme.DensityIDTouch)
 			}
-			row.layoutRole.Measure(facet.MeasureContext{
+			row.Layout.Measure(facet.MeasureContext{
 				Runtime:          runtimeServices,
 				Theme:            style,
 				ContentScale:     1,
 				Density:          densityID,
 				WritingDirection: ds.cachedWritingDirection,
 			}, facet.Constraints{MaxSize: gfx.Size{W: rect.Width(), H: rect.Height()}})
-			row.layoutRole.Arrange(facet.ArrangeContext{
+			row.Layout.Arrange(facet.ArrangeContext{
 				Runtime:     runtimeServices,
 				Theme:       style,
-				ParentGroup: row.layoutRole.Parent,
-				ChildGroup:  row.layoutRole.Child,
+				ParentGroup: row.Layout.Parent,
+				ChildGroup:  row.Layout.Child,
 			}, rect)
 			cmds = append(cmds, row.buildCommands(rect, runtime)...)
 		}
@@ -591,7 +479,7 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 }
 
 func (ds *DropdownSelect) hitTest(p gfx.Point) facet.HitResult {
-	if ds == nil || ds.layoutRole.ArrangedBounds.IsEmpty() || !ds.layoutRole.ArrangedBounds.Contains(p) {
+	if ds == nil || ds.Layout.ArrangedBounds.IsEmpty() || !ds.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := ds.cursorShape()
@@ -635,14 +523,14 @@ func (ds *DropdownSelect) pointInFocusRing(p gfx.Point) bool {
 }
 
 func (ds *DropdownSelect) cursorShape() facet.CursorShape {
-	if ds.Disabled {
+	if ds.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (ds *DropdownSelect) onPointer(e facet.PointerEvent) bool {
-	if ds.Disabled {
+	if ds.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -707,21 +595,21 @@ func (ds *DropdownSelect) onPointer(e facet.PointerEvent) bool {
 }
 
 func (ds *DropdownSelect) onScroll(e facet.ScrollEvent) bool {
-	if ds.Disabled || !ds.open || ds.cachedListboxBounds.IsEmpty() {
+	if ds.Disabled.Get() || !ds.open || ds.cachedListboxBounds.IsEmpty() {
 		return false
 	}
 	if e.DeltaY == 0 {
 		return false
 	}
 	ds.scrollOffset -= e.DeltaY
-	maxOffset := maxFloat(0, float32(len(ds.Options))*ds.cachedOptionHeight-ds.cachedListboxBounds.Height())
+	maxOffset := maxFloat(0, float32(len(ds.Options.Get()))*ds.cachedOptionHeight-ds.cachedListboxBounds.Height())
 	ds.scrollOffset = clampFloat(ds.scrollOffset, 0, maxOffset)
 	ds.invalidate(facet.DirtyProjection)
 	return true
 }
 
 func (ds *DropdownSelect) onKey(e facet.KeyEvent) bool {
-	if ds.Disabled {
+	if ds.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -772,7 +660,7 @@ func (ds *DropdownSelect) onKey(e facet.KeyEvent) bool {
 
 func (ds *DropdownSelect) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if ds.Disabled || !ds.open {
+	if ds.Disabled.Get() || !ds.open {
 		return false
 	}
 	ds.open = false
@@ -795,7 +683,7 @@ func (ds *DropdownSelect) onFocusLost() {
 
 func (ds *DropdownSelect) interactionState() theme.InteractionState {
 	switch {
-	case ds.Disabled:
+	case ds.Disabled.Get():
 		return theme.StateDisabled
 	case ds.pressed:
 		return theme.StatePressed
@@ -817,7 +705,7 @@ func (ds *DropdownSelect) valueState() theme.InteractionState {
 
 func (ds *DropdownSelect) listboxState() theme.InteractionState {
 	switch {
-	case ds.Disabled:
+	case ds.Disabled.Get():
 		return theme.StateDisabled
 	case ds.open:
 		return theme.StateSelected
@@ -827,7 +715,7 @@ func (ds *DropdownSelect) listboxState() theme.InteractionState {
 }
 
 func (ds *DropdownSelect) optionItemsState() theme.InteractionState {
-	if ds.Disabled {
+	if ds.Disabled.Get() {
 		return theme.StateDisabled
 	}
 	if ds.open {
@@ -844,17 +732,17 @@ func (ds *DropdownSelect) selectedValue() string {
 }
 
 func (ds *DropdownSelect) optionValueAt(i int) string {
-	if i < 0 || i >= len(ds.Options) {
+	if i < 0 || i >= len(ds.Options.Get()) {
 		return ""
 	}
-	return ds.Options[i].Value
+	return ds.Options.Get()[i].Value
 }
 
 func (ds *DropdownSelect) labelAt(i int) string {
-	if i < 0 || i >= len(ds.Options) {
+	if i < 0 || i >= len(ds.Options.Get()) {
 		return ""
 	}
-	return ds.Options[i].Label
+	return ds.Options.Get()[i].Label
 }
 
 func (ds *DropdownSelect) displayValue() string {
@@ -869,7 +757,7 @@ func (ds *DropdownSelect) displayValue() string {
 }
 
 func (ds *DropdownSelect) labelForValue(value string) string {
-	for _, opt := range ds.Options {
+	for _, opt := range ds.Options.Get() {
 		if opt.Value == value {
 			return opt.Label
 		}
@@ -879,41 +767,41 @@ func (ds *DropdownSelect) labelForValue(value string) string {
 
 func (ds *DropdownSelect) syncActiveIndex() {
 	selected := ds.selectedValue()
-	for i, opt := range ds.Options {
+	for i, opt := range ds.Options.Get() {
 		if opt.Value == selected {
 			ds.activeIndex = i
 			return
 		}
 	}
-	if ds.activeIndex < 0 || ds.activeIndex >= len(ds.Options) {
+	if ds.activeIndex < 0 || ds.activeIndex >= len(ds.Options.Get()) {
 		ds.activeIndex = 0
 	}
 }
 
 func (ds *DropdownSelect) chooseIndex(i int) {
-	if i < 0 || i >= len(ds.Options) {
+	if i < 0 || i >= len(ds.Options.Get()) {
 		return
 	}
-	ds.SetValue(ds.Options[i].Value)
+	ds.Value.Set(ds.Options.Get()[i].Value)
 }
 
 func (ds *DropdownSelect) navigateKey(key platform.Key) {
-	if len(ds.Options) == 0 {
+	if len(ds.Options.Get()) == 0 {
 		return
 	}
 	switch key {
 	case platform.KeyHome:
 		ds.activeIndex = 0
 	case platform.KeyEnd:
-		ds.activeIndex = len(ds.Options) - 1
+		ds.activeIndex = len(ds.Options.Get()) - 1
 	case platform.KeyPageUp:
 		ds.activeIndex = maxInt(0, ds.activeIndex-5)
 	case platform.KeyPageDown:
-		ds.activeIndex = minInt(len(ds.Options)-1, ds.activeIndex+5)
+		ds.activeIndex = minInt(len(ds.Options.Get())-1, ds.activeIndex+5)
 	case platform.KeyUp:
 		ds.activeIndex = maxInt(0, ds.activeIndex-1)
 	case platform.KeyDown:
-		ds.activeIndex = minInt(len(ds.Options)-1, ds.activeIndex+1)
+		ds.activeIndex = minInt(len(ds.Options.Get())-1, ds.activeIndex+1)
 	}
 	ds.invalidate(facet.DirtyProjection)
 }
@@ -922,14 +810,14 @@ func (ds *DropdownSelect) typeahead(key platform.Key) bool {
 	if key < platform.KeyA || key > platform.KeyZ {
 		return false
 	}
-	if len(ds.Options) == 0 {
+	if len(ds.Options.Get()) == 0 {
 		return false
 	}
 	target := strings.ToLower(string(rune('a' + int(key-platform.KeyA))))
 	start := ds.activeIndex + 1
-	for offset := 0; offset < len(ds.Options); offset++ {
-		i := (start + offset) % len(ds.Options)
-		label := strings.ToLower(ds.Options[i].Label)
+	for offset := 0; offset < len(ds.Options.Get()); offset++ {
+		i := (start + offset) % len(ds.Options.Get())
+		label := strings.ToLower(ds.Options.Get()[i].Label)
 		if strings.HasPrefix(label, target) {
 			ds.activeIndex = i
 			if ds.open {
@@ -951,7 +839,7 @@ func (ds *DropdownSelect) optionIndexAt(p gfx.Point) (int, bool) {
 }
 
 func (ds *DropdownSelect) layoutOptionRects(listbox gfx.Rect, resolved theme.ResolvedContext) []gfx.Rect {
-	if listbox.IsEmpty() || len(ds.Options) == 0 {
+	if listbox.IsEmpty() || len(ds.Options.Get()) == 0 {
 		return nil
 	}
 	itemH := ds.cachedOptionHeight
@@ -960,9 +848,9 @@ func (ds *DropdownSelect) layoutOptionRects(listbox gfx.Rect, resolved theme.Res
 	}
 	gap := float32(resolved.Spacing(theme.SpacingXS))
 	outerPad := float32(resolved.Spacing(theme.SpacingS))
-	rects := make([]gfx.Rect, 0, len(ds.Options))
+	rects := make([]gfx.Rect, 0, len(ds.Options.Get()))
 	y := listbox.Min.Y + outerPad
-	for i := range ds.Options {
+	for i := range ds.Options.Get() {
 		if i > 0 {
 			y += gap
 		}
@@ -974,7 +862,7 @@ func (ds *DropdownSelect) layoutOptionRects(listbox gfx.Rect, resolved theme.Res
 }
 
 func (ds *DropdownSelect) shapeOptionLabel(runtime any, i int, maxWidth float32) *text.TextLayout {
-	if i < 0 || i >= len(ds.Options) {
+	if i < 0 || i >= len(ds.Options.Get()) {
 		return nil
 	}
 	shaper := ds.newShaper(runtime)
@@ -982,7 +870,7 @@ func (ds *DropdownSelect) shapeOptionLabel(runtime any, i int, maxWidth float32)
 		return nil
 	}
 	shaper.SetContentScale(1)
-	return shaper.ShapeTruncated(ds.Options[i].Label, ds.cachedValueStyle, maxWidth)
+	return shaper.ShapeTruncated(ds.Options.Get()[i].Label, ds.cachedValueStyle, maxWidth)
 }
 
 func (ds *DropdownSelect) chevronPath(bounds gfx.Rect) gfx.Path {
@@ -1025,7 +913,7 @@ func (ds *DropdownSelect) fontRegistry(runtime any) *text.FontRegistry {
 }
 
 func (ds *DropdownSelect) onKeyDownOrUp(key platform.Key) bool {
-	if !ds.open || len(ds.Options) == 0 {
+	if !ds.open || len(ds.Options.Get()) == 0 {
 		return false
 	}
 	ds.navigateKey(key)

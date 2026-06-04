@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -20,15 +21,11 @@ const (
 
 // StatusLight implements the status.status_light canonical mark.
 type StatusLight struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-
-	Label     string
-	ShowLabel bool
-	Disabled  bool
+	Label     marks.Binding[string]
+	ShowLabel marks.Binding[bool]
+	Disabled  marks.Binding[bool]
 
 	cachedTokens           theme.Tokens
 	cachedRecipe           shared.StatusLightSlots
@@ -46,16 +43,22 @@ type StatusLight struct {
 
 var _ facet.FacetImpl = (*StatusLight)(nil)
 var _ layout.AnchorExporter = (*StatusLight)(nil)
+var _ marks.Mark = (*StatusLight)(nil)
 
 // NewStatusLight constructs a status.status_light mark with canonical defaults.
 func NewStatusLight(label string) *StatusLight {
 	s := &StatusLight{
-		Facet:     facet.NewFacet(),
-		Label:     label,
-		ShowLabel: true,
+		Label:     marks.Const(label),
+		ShowLabel: marks.Const(true),
+		Disabled:  marks.Const(false),
 	}
-	s.layoutRole.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
-	s.layoutRole.Child = facet.GroupChildContract{
+	s.Core.Facet = facet.NewFacet()
+	s.AddBinding(s.Label)
+	s.AddBinding(s.ShowLabel)
+	s.AddBinding(s.Disabled)
+
+	s.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	s.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := s.measure(ctx, constraints).Size
@@ -73,33 +76,17 @@ func NewStatusLight(label string) *StatusLight {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	s.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	s.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return s.measure(ctx, constraints)
 	}
-	s.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		s.layoutRole.ArrangedBounds = bounds
+	s.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		s.Layout.ArrangedBounds = bounds
 		s.arrange(ctx, bounds)
 	}
-	s.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := s.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	s.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return s.buildCommands(s.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	s.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := s.buildCommands(s.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	s.AddRole(&s.layoutRole)
-	s.AddRole(&s.renderRole)
-	s.AddRole(&s.projectionRole)
+	s.RegisterRoles()
 	s.syncChildren()
 	return s
 }
@@ -110,57 +97,26 @@ func (s *StatusLight) Base() *facet.Facet {
 	return &s.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (s *StatusLight) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "status", TypeName: "status_light"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (s *StatusLight) AccessibilityRole() string { return "status" }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (s *StatusLight) AccessibleName() string { return "" }
 
-// SetLabel updates the authored label text.
-func (s *StatusLight) SetLabel(label string) {
-	if s == nil || s.Label == label {
-		return
-	}
-	s.Label = label
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetShowLabel toggles label visibility.
-func (s *StatusLight) SetShowLabel(show bool) {
-	if s == nil || s.ShowLabel == show {
-		return
-	}
-	s.ShowLabel = show
-	s.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (s *StatusLight) SetDisabled(disabled bool) {
-	if s == nil || s.Disabled == disabled {
-		return
-	}
-	s.Disabled = disabled
-	s.invalidate(facet.DirtyProjection)
-}
-
 // ExportAnchors publishes the status-light anchor set.
 func (s *StatusLight) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if s == nil {
 		return nil
 	}
-	bounds := s.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := s.Layout.ArrangedBounds
+	out := s.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if !s.cachedIndicatorBounds.IsEmpty() {
 		out["indicator"] = gfx.Point{X: (s.cachedIndicatorBounds.Min.X + s.cachedIndicatorBounds.Max.X) * 0.5, Y: (s.cachedIndicatorBounds.Min.Y + s.cachedIndicatorBounds.Max.Y) * 0.5}
@@ -172,16 +128,17 @@ func (s *StatusLight) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 }
 
 // OnAttach subscribes to any attached store.
-func (s *StatusLight) OnAttach(ctx facet.AttachContext) {}
+func (s *StatusLight) OnAttach(ctx facet.AttachContext) { s.Core.OnAttach() }
 
 // OnActivate is unused.
-func (s *StatusLight) OnActivate() {}
+func (s *StatusLight) OnActivate() { s.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (s *StatusLight) OnDeactivate() {}
+func (s *StatusLight) OnDeactivate() { s.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (s *StatusLight) OnDetach() {
+	s.Core.OnDetach()
 	s.cachedTokens = theme.Tokens{}
 	s.cachedRecipe = shared.StatusLightSlots{}
 	s.cachedBounds = gfx.Rect{}
@@ -207,22 +164,23 @@ func (s *StatusLight) syncChildren() {
 	if s == nil {
 		return
 	}
-	label := strings.TrimSpace(s.Label)
+	label := strings.TrimSpace(s.Label.Get())
 	showLabel := s.cachedShowLabel && label != ""
 	if showLabel {
 		if s.cachedLabelFacet == nil {
-			s.cachedLabelFacet = primitive.NewText(label)
+			s.cachedLabelFacet = primitive.NewText(marks.Const(label))
 		} else {
-			s.cachedLabelFacet.SetContent(label)
+			s.cachedLabelFacet.Content = marks.Const(label)
+			s.cachedLabelFacet.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 		}
-		s.cachedLabelFacet.SetTypography(theme.TextLabelS)
-		s.cachedLabelFacet.SetOverflow(primitive.TextOverflowTruncate)
-		if s.Disabled {
-			s.cachedLabelFacet.SetForeground(theme.ColorTextDisabled)
-			s.cachedLabelFacet.SetDisabled(true)
+		s.cachedLabelFacet.Typography = marks.Const(theme.TextLabelS)
+		s.cachedLabelFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+		if s.Disabled.Get() {
+			s.cachedLabelFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+			s.cachedLabelFacet.Disabled = marks.Const(true)
 		} else {
-			s.cachedLabelFacet.SetForeground(theme.ColorTextSecondary)
-			s.cachedLabelFacet.SetDisabled(false)
+			s.cachedLabelFacet.Foreground = marks.Const(theme.ColorTextSecondary)
+			s.cachedLabelFacet.Disabled = marks.Const(false)
 		}
 	} else {
 		s.cachedLabelFacet = nil
@@ -243,7 +201,7 @@ func (s *StatusLight) measure(ctx facet.MeasureContext, constraints facet.Constr
 	s.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
 	s.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
 	s.cachedIndicatorSize = maxFloat(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM))*0.75)
-	s.cachedShowLabel = s.ShowLabel && resolved.Density.ID != theme.DensityIDCompact
+	s.cachedShowLabel = s.ShowLabel.Get() && resolved.Density.ID != theme.DensityIDCompact
 	s.syncChildren()
 	innerWidth := constraints.MaxSize.W
 	if innerWidth > 0 {
@@ -272,8 +230,8 @@ func (s *StatusLight) measure(ctx facet.MeasureContext, constraints facet.Constr
 	width += s.cachedPadX * 2
 	height += s.cachedPadY * 2
 	measured := constraints.Constrain(gfx.Size{W: width, H: height})
-	s.layoutRole.MeasuredSize = measured
-	s.layoutRole.MeasuredResult = facet.MeasureResult{
+	s.Layout.MeasuredSize = measured
+	s.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -282,14 +240,14 @@ func (s *StatusLight) measure(ctx facet.MeasureContext, constraints facet.Constr
 		},
 		Constraints: constraints,
 	}
-	return s.layoutRole.MeasuredResult
+	return s.Layout.MeasuredResult
 }
 
 func (s *StatusLight) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	s.cachedBounds = bounds
 	s.cachedIndicatorBounds = gfx.Rect{}
 	s.cachedLabelBounds = gfx.Rect{}
-	s.layoutRole.ArrangedBounds = bounds
+	s.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -324,7 +282,7 @@ func (s *StatusLight) buildCommands(bounds gfx.Rect, runtime any, contentScale f
 	style, slots := s.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if s.Disabled {
+	if s.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -369,7 +327,7 @@ func (s *StatusLight) resolveProjectionTheme(runtime any) (theme.StyleContext, s
 }
 
 func (s *StatusLight) statusLightVariant() uistatus.StatusLightVariant {
-	if s != nil && s.Disabled {
+	if s != nil && s.Disabled.Get() {
 		return uistatus.StatusLightDisabled
 	}
 	return uistatus.StatusLightDefault

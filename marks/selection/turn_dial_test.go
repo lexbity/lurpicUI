@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -18,14 +19,14 @@ import (
 
 func TestTurnDialMeasureProjectHitAndAccessibility(t *testing.T) {
 	td, rt, measureCtx := newTurnDialTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	td.Label = "Volume"
+	td.Label = marks.Const("Volume")
 	td.Min = 0
 	td.Max = 100
 	td.Step = 1
 
 	facet.Attach(td, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 
-	result := td.layoutRole.Measure(facet.MeasureContext{
+	result := td.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -38,11 +39,11 @@ func TestTurnDialMeasureProjectHitAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(10, 10, result.Size.W, result.Size.H)
-	td.layoutRole.Arrange(facet.ArrangeContext{
+	td.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: td.layoutRole.Parent,
-		ChildGroup:  td.layoutRole.Child,
+		ParentGroup: td.LayoutRole().Parent,
+		ChildGroup:  td.LayoutRole().Child,
 	}, bounds)
 
 	if got := td.AccessibilityRole(); got != "slider" {
@@ -57,7 +58,7 @@ func TestTurnDialMeasureProjectHitAndAccessibility(t *testing.T) {
 	}
 
 	// Hit testing
-	labelHit := td.hitRole.HitTest(gfx.Point{
+	labelHit := td.HitRole().HitTest(gfx.Point{
 		X: td.cachedLabelBounds.Min.X + td.cachedLabelBounds.Width()*0.5,
 		Y: td.cachedLabelBounds.Min.Y + td.cachedLabelBounds.Height()*0.5,
 	})
@@ -65,7 +66,7 @@ func TestTurnDialMeasureProjectHitAndAccessibility(t *testing.T) {
 		t.Fatalf("expected label hit, got %#v", labelHit)
 	}
 
-	knobHit := td.hitRole.HitTest(gfx.Point{
+	knobHit := td.HitRole().HitTest(gfx.Point{
 		X: td.cachedDialBounds.Min.X + td.cachedDialBounds.Width()*0.5,
 		Y: td.cachedDialBounds.Min.Y + td.cachedDialBounds.Height()*0.5,
 	})
@@ -73,7 +74,7 @@ func TestTurnDialMeasureProjectHitAndAccessibility(t *testing.T) {
 		t.Fatalf("expected knob hit, got %#v", knobHit)
 	}
 
-	cmds := td.projectionRole.Project(facet.ProjectionContext{
+	cmds := td.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -104,11 +105,11 @@ func TestTurnDialPointerInteraction(t *testing.T) {
 	td.Min = 0
 	td.Max = 100
 	td.Step = 10
-	td.SetValue(50)
+	td.Value.Set(50)
 
 	facet.Attach(td, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 
-	result := td.layoutRole.Measure(facet.MeasureContext{
+	result := td.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -117,11 +118,11 @@ func TestTurnDialPointerInteraction(t *testing.T) {
 	}, facet.Constraints{MaxSize: gfx.Size{W: 500, H: 400}})
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	td.layoutRole.Arrange(facet.ArrangeContext{
+	td.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: td.layoutRole.Parent,
-		ChildGroup:  td.layoutRole.Child,
+		ParentGroup: td.LayoutRole().Parent,
+		ChildGroup:  td.LayoutRole().Child,
 	}, bounds)
 
 	centerX := (td.cachedDialBounds.Min.X + td.cachedDialBounds.Max.X) * 0.5
@@ -173,7 +174,7 @@ func TestTurnDialPointerInteraction(t *testing.T) {
 	}
 
 	// Keyboard inputs
-	td.SetValue(50)
+	td.Value.Set(50)
 	if !td.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyLeft}) {
 		t.Fatal("expected key left handled")
 	}
@@ -225,14 +226,14 @@ func TestTurnDialGoldenDarkPressed(t *testing.T) {
 func AssertTurnDialGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, mutate func(*TurnDial)) {
 	t.Helper()
 	td, rt, measureCtx := newTurnDialTestFixture(t, tokens, density, layout.WritingDirectionLTR)
-	td.Label = "Turn Dial"
+	td.Label = marks.Const("Turn Dial")
 	td.Min = 0
 	td.Max = 100
-	td.SetValue(30)
+	td.Value.Set(30)
 
 	facet.Attach(td, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 
-	result := td.layoutRole.Measure(facet.MeasureContext{
+	result := td.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -246,18 +247,18 @@ func AssertTurnDialGolden(t *testing.T, name string, tokens theme.Tokens, densit
 	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
-	td.layoutRole.Arrange(facet.ArrangeContext{
+	td.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: td.layoutRole.Parent,
-		ChildGroup:  td.layoutRole.Child,
+		ParentGroup: td.LayoutRole().Parent,
+		ChildGroup:  td.LayoutRole().Child,
 	}, bounds)
 
 	if mutate != nil {
 		mutate(td)
 	}
 
-	cmds := td.projectionRole.Project(facet.ProjectionContext{
+	cmds := td.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

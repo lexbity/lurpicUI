@@ -6,12 +6,13 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
-	"codeburg.org/lexbit/lurpicui/signal"
 )
 
 const (
@@ -26,24 +27,18 @@ const (
 // TurnDial implements a custom skeuomorphic selection.turn_dial mark.
 // It acts as a radial rotary knob slider and a mechanical click button.
 type TurnDial struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
+	marks.Core
 
 	Value     *store.ValueStore[float64]
 	Activated signal.Signal[signal.Unit]
 
-	Label     string
+	Label     marks.Binding[string]
+	Disabled  marks.Binding[bool]
+
 	Min       float64
 	Max       float64
 	Step      float64
 	Precision int
-	Disabled  bool
 	DialSize  float32
 
 	hovered          bool
@@ -66,25 +61,29 @@ type TurnDial struct {
 }
 
 var _ facet.FacetImpl = (*TurnDial)(nil)
+var _ marks.Mark = (*TurnDial)(nil)
 
 // NewTurnDial constructs a selection.turn_dial mark with defaults.
 func NewTurnDial(label string, min, max, step float64) *TurnDial {
 	td := &TurnDial{
-		Facet:     facet.NewFacet(),
+		Label:     marks.Const(label),
+		Disabled:  marks.Const(false),
 		Value:     store.NewValueStore[float64](min),
-		Label:     label,
 		Min:       min,
 		Max:       max,
 		Step:      step,
 		Precision: 1,
 		DialSize:  72,
 	}
+	td.Core.Facet = facet.NewFacet()
+	td.AddBinding(td.Label)
+	td.AddBinding(td.Disabled)
 
-	td.layoutRole.Parent = facet.GroupParentContract{
+	td.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: turnDialGroupPolicy{},
 	}
-	td.layoutRole.Child = facet.GroupChildContract{
+	td.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := td.measureIntrinsic(ctx, constraints)
@@ -102,55 +101,50 @@ func NewTurnDial(label string, min, max, step float64) *TurnDial {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	td.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	td.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return td.measure(ctx, constraints)
 	}
-	td.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		td.layoutRole.ArrangedBounds = bounds
+	td.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		td.Layout.ArrangedBounds = bounds
 		td.arrange(ctx, bounds)
 	}
-	td.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := td.buildCommands(bounds, nil, 1)
-		list.Commands = append(list.Commands, cmds...)
-	}
-	td.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := td.buildCommands(td.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	td.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult {
+	td.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return td.hitTest(p)
 	}
-	td.inputRole.OnPointer = func(e facet.PointerEvent) bool {
+	td.Input.OnPointer = func(e facet.PointerEvent) bool {
 		return td.onPointer(e)
 	}
-	td.inputRole.OnKey = func(e facet.KeyEvent) bool {
+	td.Input.OnKey = func(e facet.KeyEvent) bool {
 		return td.onKey(e)
 	}
-	td.focusRole.Focusable = func() bool {
-		return !td.Disabled
+	td.Focus.Focusable = func() bool {
+		return !td.Disabled.Get()
 	}
-	td.focusRole.OnFocusGained = func() {
+	td.Focus.OnFocusGained = func() {
 		td.focusedVisible = !td.focusFromPointer
 		td.invalidate(facet.DirtyProjection)
 	}
-	td.focusRole.OnFocusLost = func() {
+	td.Focus.OnFocusLost = func() {
 		td.focusedVisible = false
 		td.focusFromPointer = false
 		td.invalidate(facet.DirtyProjection)
 	}
-
+	td.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return td.buildCommands(td.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	td.RegisterRoles()
 	return td
 }
 
+// Base satisfies facet.FacetImpl.
 func (td *TurnDial) Base() *facet.Facet {
 	td.Facet.BindImpl(td)
 	return &td.Facet
+}
+
+// Descriptor satisfies marks.Mark.
+func (td *TurnDial) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "selection", TypeName: "turn_dial"}
 }
 
 func (td *TurnDial) AccessibilityRole() string {
@@ -161,27 +155,7 @@ func (td *TurnDial) AccessibleName() string {
 	if td == nil {
 		return ""
 	}
-	return td.Label
-}
-
-func (td *TurnDial) SetDisabled(disabled bool) {
-	if td == nil || td.Disabled == disabled {
-		return
-	}
-	td.Disabled = disabled
-	td.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-func (td *TurnDial) SetValue(v float64) {
-	if td == nil || td.Value == nil {
-		return
-	}
-	clamped := td.clampValue(v)
-	if td.Value.Get() == clamped {
-		return
-	}
-	td.Value.Set(clamped)
-	td.invalidate(facet.DirtyProjection)
+	return td.Label.Get()
 }
 
 func (td *TurnDial) clampValue(v float64) float64 {
@@ -223,6 +197,32 @@ func (td *TurnDial) invalidate(flags facet.DirtyFlags) {
 	td.Base().Invalidate(flags)
 }
 
+func (td *TurnDial) OnAttach(ctx facet.AttachContext) {
+	td.Core.OnAttach()
+	if td.Value == nil {
+		td.Value = store.NewValueStore[float64](td.Min)
+	}
+	facet.Store(facet.Subscribe(td), &td.Value.OnChange, td.Value.Version, func(signal.Change[float64]) {
+		td.invalidate(facet.DirtyProjection)
+	})
+}
+
+func (td *TurnDial) OnActivate()   { td.Core.OnActivate() }
+func (td *TurnDial) OnDeactivate() { td.Core.OnDeactivate() }
+
+func (td *TurnDial) OnDetach() {
+	td.Core.OnDetach()
+	td.cachedLayout = nil
+	td.cachedValueLayout = nil
+	td.cachedTokens = theme.Tokens{}
+	td.cachedRootBounds = gfx.Rect{}
+	td.cachedLabelBounds = gfx.Rect{}
+	td.cachedDialBounds = gfx.Rect{}
+	td.cachedValueLabelBounds = gfx.Rect{}
+	td.cachedLabelHeight = 0
+	td.cachedValueHeight = 0
+}
+
 func (td *TurnDial) newShaper(runtime any) *text.Shaper {
 	registry := td.fontRegistry(runtime)
 	if registry == nil {
@@ -251,8 +251,8 @@ func (td *TurnDial) resolveLayouts(ctx facet.MeasureContext, constraints facet.C
 	shaper := td.newShaper(ctx.Runtime)
 	if shaper == nil {
 		var labelLayout *text.TextLayout
-		if td.Label != "" {
-			labelLayout = dummyLayout(td.Label, labelStyle)
+		if td.Label.Get() != "" {
+			labelLayout = dummyLayout(td.Label.Get(), labelStyle)
 		}
 		var valueLayout *text.TextLayout
 		valStr := td.formatValue(td.currentValue())
@@ -264,8 +264,8 @@ func (td *TurnDial) resolveLayouts(ctx facet.MeasureContext, constraints facet.C
 	shaper.SetContentScale(ctx.ContentScale)
 
 	var labelLayout *text.TextLayout
-	if td.Label != "" {
-		labelLayout = shaper.ShapeTruncated(td.Label, labelStyle, constraints.MaxSize.W)
+	if td.Label.Get() != "" {
+		labelLayout = shaper.ShapeTruncated(td.Label.Get(), labelStyle, constraints.MaxSize.W)
 	}
 
 	var valueLayout *text.TextLayout
@@ -340,13 +340,13 @@ func (td *TurnDial) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	}
 
 	size := td.measureIntrinsic(ctx, constraints)
-	td.layoutRole.MeasuredSize = size
-	td.layoutRole.MeasuredResult = facet.MeasureResult{
+	td.Layout.MeasuredSize = size
+	td.Layout.MeasuredResult = facet.MeasureResult{
 		Size:        size,
 		Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 		Constraints: constraints,
 	}
-	return td.layoutRole.MeasuredResult
+	return td.Layout.MeasuredResult
 }
 
 func (td *TurnDial) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -364,7 +364,7 @@ func (td *TurnDial) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if td.cachedLayout != nil {
 		w := td.cachedLayout.Bounds.Width()
 		td.cachedLabelBounds = gfx.RectFromXYWH(
-			bounds.Min.X + (bounds.Width()-w)*0.5,
+			bounds.Min.X+(bounds.Width()-w)*0.5,
 			currentY,
 			w,
 			td.cachedLabelHeight,
@@ -373,7 +373,7 @@ func (td *TurnDial) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 
 	td.cachedDialBounds = gfx.RectFromXYWH(
-		bounds.Min.X + (bounds.Width()-td.DialSize)*0.5,
+		bounds.Min.X+(bounds.Width()-td.DialSize)*0.5,
 		currentY,
 		td.DialSize,
 		td.DialSize,
@@ -383,7 +383,7 @@ func (td *TurnDial) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if td.cachedValueLayout != nil {
 		w := td.cachedValueLayout.Bounds.Width()
 		td.cachedValueLabelBounds = gfx.RectFromXYWH(
-			bounds.Min.X + (bounds.Width()-w)*0.5,
+			bounds.Min.X+(bounds.Width()-w)*0.5,
 			currentY,
 			w,
 			td.cachedValueHeight,
@@ -408,7 +408,7 @@ func (td *TurnDial) currentValue() float64 {
 
 func (td *TurnDial) interactionState() theme.InteractionState {
 	switch {
-	case td.Disabled:
+	case td.Disabled.Get():
 		return theme.StateDisabled
 	case td.pressed || td.dragging:
 		return theme.StatePressed
@@ -452,7 +452,7 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 			inactiveTrackPath := arcPath(gfx.Point{X: centerX, Y: centerY}, R-2, 135.0*math.Pi/180.0, 405.0*math.Pi/180.0)
 			cmds = append(cmds, gfx.StrokePath{
 				Path:  inactiveTrackPath,
-				Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(26, 32, 48, 255)), // sleek dark navy track
+				Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(26, 32, 48, 255)),
 				Stroke: gfx.StrokeStyle{
 					Width: 3.5,
 					Cap:   gfx.LineCapRound,
@@ -472,11 +472,11 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 			if angleRad > 135.0*math.Pi/180.0 {
 				activeTrackPath := arcPath(gfx.Point{X: centerX, Y: centerY}, R-2, 135.0*math.Pi/180.0, angleRad)
 
-				// Sweeping gradient active track (smooth deep purple bottom-left to neon cyan top-right)
+				// Sweeping gradient active track
 				activeStops := []gfx.GradientStop{
-					{Offset: 0.0, Color: gfx.ColorFromRGBA8(99, 102, 241, 255)}, // smooth purple-indigo
-					{Offset: 0.5, Color: gfx.ColorFromRGBA8(6, 182, 212, 255)},  // electric cyan
-					{Offset: 1.0, Color: gfx.ColorFromRGBA8(0, 245, 255, 255)},  // bright neon cyan
+					{Offset: 0.0, Color: gfx.ColorFromRGBA8(99, 102, 241, 255)},
+					{Offset: 0.5, Color: gfx.ColorFromRGBA8(6, 182, 212, 255)},
+					{Offset: 1.0, Color: gfx.ColorFromRGBA8(0, 245, 255, 255)},
 				}
 
 				glowStops := make([]gfx.GradientStop, len(activeStops))
@@ -493,7 +493,7 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 				glowBrush := gfx.LinearGradientBrush(startPt, endPt, glowStops)
 				coreBrush := gfx.LinearGradientBrush(startPt, endPt, activeStops)
 
-				// 1. Glowing neon active arc under-stroke for volumetric neon bloom
+				// 1. Glowing neon active arc under-stroke
 				cmds = append(cmds, gfx.StrokePath{
 					Path:  activeTrackPath,
 					Brush: glowBrush,
@@ -514,7 +514,6 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 				})
 			}
 		} else {
-			// Light mode: Draw the physical sunken circular track pit
 			if !isTransparentMaterial(track) {
 				cmds = append(cmds, materialCommands(gfx.CirclePath(gfx.Point{X: centerX, Y: centerY}, R), track)...)
 			}
@@ -534,11 +533,9 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 		if maxV > minV {
 			frac = (td.currentValue() - minV) / (maxV - minV)
 		}
-		// Sweep from 135 deg to 45 deg clockwise (total 270 deg)
 		angleDeg := 135.0 + frac*270.0
 		angleRad := angleDeg * math.Pi / 180.0
 
-		// Update the gradient points dynamically to sweep with rotation in [0, 1] normalized space
 		if len(knob.Fills) > 0 && knob.Fills[0].Type == theme.FillGradient {
 			grad := &knob.Fills[0].Gradient
 			cosA := float32(math.Cos(angleRad))
@@ -559,7 +556,6 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 		sinA := float32(math.Sin(angleRad))
 
 		if isDark {
-			// Cyan light reflection along the right-hand edge of the knob
 			reflectionPath := arcPath(gfx.Point{X: centerX, Y: centerY}, knobRadius-1.0, -45.0*math.Pi/180.0, 45.0*math.Pi/180.0)
 			cmds = append(cmds, gfx.StrokePath{
 				Path:  reflectionPath,
@@ -570,24 +566,20 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 				},
 			})
 
-			// Dark mode: draw ONLY a beautiful, glowing neon indicator dot
 			dotDistance := knobRadius * 0.72
 			dotX := centerX + cosA*dotDistance
 			dotY := centerY + sinA*dotDistance
 
-			// 1. LED outer Glow (neon cyan)
 			cmds = append(cmds, gfx.FillPath{
 				Path:  gfx.CirclePath(gfx.Point{X: dotX, Y: dotY}, 5.5),
 				Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(0, 245, 255, 255).WithAlpha(0.55)),
 			})
 
-			// 2. LED inner white Core
 			cmds = append(cmds, gfx.FillPath{
 				Path:  gfx.CirclePath(gfx.Point{X: dotX, Y: dotY}, 2.2),
 				Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(255, 255, 255, 255)),
 			})
 		} else {
-			// Light mode: draw ONLY a clean, white notch line
 			notchStart := gfx.Point{
 				X: centerX + cosA*knobRadius*0.2,
 				Y: centerY + sinA*knobRadius*0.2,
@@ -621,7 +613,7 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 }
 
 func (td *TurnDial) hitTest(p gfx.Point) facet.HitResult {
-	if td == nil || td.layoutRole.ArrangedBounds.IsEmpty() || !td.layoutRole.ArrangedBounds.Contains(p) {
+	if td == nil || td.Layout.ArrangedBounds.IsEmpty() || !td.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := td.cursorShape()
@@ -645,14 +637,14 @@ func (td *TurnDial) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (td *TurnDial) cursorShape() facet.CursorShape {
-	if td.Disabled {
+	if td.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorGrab
 }
 
 func (td *TurnDial) onPointer(e facet.PointerEvent) bool {
-	if td.Disabled {
+	if td.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -682,7 +674,6 @@ func (td *TurnDial) onPointer(e facet.PointerEvent) bool {
 		dy := e.Position.Y - centerY
 		R := td.cachedDialBounds.Width() * 0.5
 
-		// Rotational drag initiates if pressed inside knob
 		if dx*dx+dy*dy <= R*R {
 			td.dragging = true
 			td.updateValueFromPoint(e.Position)
@@ -703,7 +694,6 @@ func (td *TurnDial) onPointer(e facet.PointerEvent) bool {
 		wasPressed := td.pressed
 		td.pressed = false
 		td.dragging = false
-		// If released, emit click/mechanical activation signal
 		td.Activated.Emit(signal.Fired)
 		td.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return wasPressed
@@ -721,7 +711,6 @@ func (td *TurnDial) updateValueFromPoint(p gfx.Point) {
 	dx := float64(p.X - centerX)
 	dy := float64(p.Y - centerY)
 
-	// Avoid division by zero
 	if dx == 0 && dy == 0 {
 		return
 	}
@@ -729,13 +718,11 @@ func (td *TurnDial) updateValueFromPoint(p gfx.Point) {
 	phiRad := math.Atan2(dy, dx)
 	phiDeg := phiRad * 180.0 / math.Pi
 
-	// Shift so that 135 deg is the start (0 deg relative) rotating clockwise
 	angle := phiDeg - 135.0
 	for angle < 0 {
 		angle += 360.0
 	}
 	if angle > 270.0 {
-		// In dead zone: clamp to min (0) or max (270) based on proximity
 		if angle > 315.0 {
 			angle = 0
 		} else {
@@ -745,11 +732,11 @@ func (td *TurnDial) updateValueFromPoint(p gfx.Point) {
 
 	frac := angle / 270.0
 	minV, maxV := td.normalizedRange()
-	td.SetValue(minV + frac*(maxV-minV))
+	td.Value.Set(minV + frac*(maxV-minV))
 }
 
 func (td *TurnDial) onKey(e facet.KeyEvent) bool {
-	if td.Disabled {
+	if td.Disabled.Get() {
 		return false
 	}
 	switch e.Key {
@@ -784,7 +771,7 @@ func (td *TurnDial) adjustValue(delta float64) bool {
 	if delta == 0 {
 		return true
 	}
-	td.SetValue(td.clampValue(td.currentValue() + delta))
+	td.Value.Set(td.clampValue(td.currentValue() + delta))
 	return true
 }
 
@@ -816,19 +803,18 @@ func defaultTurnDialSlots(tokens theme.Tokens) TurnDialSlots {
 	var knobPressed theme.Material
 
 	if isDark {
-		// Volumetric dark indigo/navy knob matching the dark variant reference image
 		knobBase = theme.Material{
 			Fills: []theme.Fill{
 				{
-					Type:    theme.FillGradient,
+					Type: theme.FillGradient,
 					Gradient: theme.Gradient{
 						Type:  theme.GradientLinear,
 						Start: gfx.Point{X: 0, Y: 0},
 						End:   gfx.Point{X: 0, Y: 1},
 						Stops: []theme.GradientStop{
-							{Position: 0.0, Color: gfx.ColorFromRGBA8(45, 53, 77, 255)}, // #2d354d
-							{Position: 0.5, Color: gfx.ColorFromRGBA8(29, 34, 51, 255)}, // #1d2233
-							{Position: 1.0, Color: gfx.ColorFromRGBA8(17, 20, 32, 255)}, // #111420
+							{Position: 0.0, Color: gfx.ColorFromRGBA8(45, 53, 77, 255)},
+							{Position: 0.5, Color: gfx.ColorFromRGBA8(29, 34, 51, 255)},
+							{Position: 1.0, Color: gfx.ColorFromRGBA8(17, 20, 32, 255)},
 						},
 					},
 					Opacity: 1,
@@ -839,10 +825,10 @@ func defaultTurnDialSlots(tokens theme.Tokens) TurnDialSlots {
 					Paint:      theme.Fill{Type: theme.FillSolid, Color: gfx.ColorFromRGBA8(0, 0, 0, 255), Opacity: 0.55},
 					Width:      0,
 					BlurRadius: 6,
-					Offset:     gfx.Point{X: 2.0, Y: 2.0}, // premium shadow
+					Offset:     gfx.Point{X: 2.0, Y: 2.0},
 				},
 				{
-					Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.ColorFromRGBA8(255, 255, 255, 255), Opacity: 0.22}, // subtle highlights
+					Paint:  theme.Fill{Type: theme.FillSolid, Color: gfx.ColorFromRGBA8(255, 255, 255, 255), Opacity: 0.22},
 					Width:  1.0,
 					Offset: gfx.Point{X: -0.7, Y: -0.7},
 					Inner:  true,
@@ -860,7 +846,7 @@ func defaultTurnDialSlots(tokens theme.Tokens) TurnDialSlots {
 		knobPressed = theme.Material{
 			Fills: []theme.Fill{
 				{
-					Type:    theme.FillGradient,
+					Type: theme.FillGradient,
 					Gradient: theme.Gradient{
 						Type:  theme.GradientLinear,
 						Start: gfx.Point{X: 0, Y: 0},
@@ -897,20 +883,19 @@ func defaultTurnDialSlots(tokens theme.Tokens) TurnDialSlots {
 			Opacity: 1,
 		}
 	} else {
-		// Existing light/physical variant gray metallic knob
 		knobBase = theme.Material{
 			Fills: []theme.Fill{
 				{
-					Type:    theme.FillGradient,
+					Type: theme.FillGradient,
 					Gradient: theme.Gradient{
 						Type:  theme.GradientLinear,
 						Start: gfx.Point{X: 0, Y: 0},
 						End:   gfx.Point{X: 0, Y: 1},
 						Stops: []theme.GradientStop{
-							{Position: 0.0, Color: gfx.ColorFromRGBA8(255, 255, 255, 255)}, // Specular highlight
-							{Position: 0.3, Color: gfx.ColorFromRGBA8(216, 216, 216, 255)}, // Satin surface
-							{Position: 0.7, Color: gfx.ColorFromRGBA8(160, 160, 160, 255)}, // Matte body
-							{Position: 1.0, Color: gfx.ColorFromRGBA8(120, 120, 120, 255)}, // Pocket shadow
+							{Position: 0.0, Color: gfx.ColorFromRGBA8(255, 255, 255, 255)},
+							{Position: 0.3, Color: gfx.ColorFromRGBA8(216, 216, 216, 255)},
+							{Position: 0.7, Color: gfx.ColorFromRGBA8(160, 160, 160, 255)},
+							{Position: 1.0, Color: gfx.ColorFromRGBA8(120, 120, 120, 255)},
 						},
 					},
 					Opacity: 1,
@@ -942,7 +927,7 @@ func defaultTurnDialSlots(tokens theme.Tokens) TurnDialSlots {
 		knobPressed = theme.Material{
 			Fills: []theme.Fill{
 				{
-					Type:    theme.FillGradient,
+					Type: theme.FillGradient,
 					Gradient: theme.Gradient{
 						Type:  theme.GradientLinear,
 						Start: gfx.Point{X: 0, Y: 0},
@@ -989,14 +974,14 @@ func defaultTurnDialSlots(tokens theme.Tokens) TurnDialSlots {
 			Base: theme.Material{
 				Fills: []theme.Fill{
 					{
-						Type:    theme.FillGradient,
+						Type: theme.FillGradient,
 						Gradient: theme.Gradient{
 							Type:  theme.GradientLinear,
 							Start: gfx.Point{X: 0, Y: 0},
 							End:   gfx.Point{X: 0, Y: 1},
 							Stops: []theme.GradientStop{
-								{Position: 0.0, Color: gfx.ColorFromRGBA8(12, 12, 12, 255)}, // Sunken deep shadow
-								{Position: 1.0, Color: gfx.ColorFromRGBA8(56, 56, 56, 255)}, // Lighter pocket rim
+								{Position: 0.0, Color: gfx.ColorFromRGBA8(12, 12, 12, 255)},
+								{Position: 1.0, Color: gfx.ColorFromRGBA8(56, 56, 56, 255)},
 							},
 						},
 						Opacity: 1,
@@ -1078,7 +1063,6 @@ func arcPath(center gfx.Point, radius float32, startAngleRad, endAngleRad float6
 	}
 	return builder.Build()
 }
-
 
 func darkenColor(c gfx.Color, factor float32) gfx.Color {
 	r, g, b, a := c.ToRGBA8()

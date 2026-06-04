@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -66,22 +67,15 @@ type tableChildSpec struct {
 
 // Table implements the structure.table canonical mark.
 type Table struct {
-	facet.Facet
-
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
-	viewportRole   facet.ViewportRole
+	marks.Core
 
 	Activated signal.Signal[int]
 
-	Label    string
-	Disabled bool
+	Label    marks.Binding[string]
+	Disabled marks.Binding[bool]
 	Data     *store.ValueStore[TableData]
+
+	textRole facet.TextRole
 
 	hoveredRowIndex  int
 	pressedRowIndex  int
@@ -123,12 +117,13 @@ type Table struct {
 
 var _ facet.FacetImpl = (*Table)(nil)
 var _ layout.AnchorExporter = (*Table)(nil)
+var _ marks.Mark = (*Table)(nil)
 
 // NewTable constructs a structure.table mark with canonical defaults.
 func NewTable(label string, data TableData) *Table {
 	t := &Table{
-		Facet:                facet.NewFacet(),
-		Label:                label,
+		Label:                marks.Const(label),
+		Disabled:             marks.Const(false),
 		Data:                 store.NewValueStore(cloneTableData(data)),
 		focusedRowIndex:      -1,
 		pressedRowIndex:      -1,
@@ -141,14 +136,18 @@ func NewTable(label string, data TableData) *Table {
 		cachedSelectionCells: make(map[string]*primitive.Text),
 		cachedSortIndicators: make(map[string]*primitive.Text),
 	}
-	t.layoutRole.Parent = facet.GroupParentContract{
+	t.Core.Facet = facet.NewFacet()
+	t.AddBinding(t.Label)
+	t.AddBinding(t.Disabled)
+
+	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutGrid,
 		Policy:   tableGroupPolicy{table: t},
 		Children: t,
 		Overflow: facet.OverflowScroll,
 		Clipping: facet.GroupClipBounds,
 	}
-	t.layoutRole.Child = facet.GroupChildContract{
+	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measure(ctx, constraints).Size
@@ -166,14 +165,14 @@ func NewTable(label string, data TableData) *Table {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	t.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	t.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return t.measure(ctx, constraints)
 	}
-	t.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		t.layoutRole.ArrangedBounds = bounds
+	t.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		t.Layout.ArrangedBounds = bounds
 		t.arrange(ctx, bounds)
 	}
-	t.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	t.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -183,31 +182,21 @@ func NewTable(label string, data TableData) *Table {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	t.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := t.buildCommands(t.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	t.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
-	t.inputRole.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
-	t.inputRole.OnScroll = func(e facet.ScrollEvent) bool { return t.onScroll(e) }
-	t.inputRole.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
-	t.focusRole.Focusable = func() bool { return !t.Disabled && len(t.cachedRowKeys) > 0 }
-	t.focusRole.TabIndex = 0
-	t.focusRole.OnFocusGained = func() { t.onFocusGained() }
-	t.focusRole.OnFocusLost = func() { t.onFocusLost() }
-	t.viewportRole.Transform = gfx.Identity()
+	t.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
+	t.Input.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
+	t.Input.OnScroll = func(e facet.ScrollEvent) bool { return t.onScroll(e) }
+	t.Input.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
+	t.Focus.Focusable = func() bool { return !t.Disabled.Get() && len(t.cachedRowKeys) > 0 }
+	t.Focus.TabIndex = 0
+	t.Focus.OnFocusGained = func() { t.onFocusGained() }
+	t.Focus.OnFocusLost = func() { t.onFocusLost() }
+	t.Viewport.Transform = gfx.Identity()
 	t.textRole.IMEEnabled = false
-	t.AddRole(&t.layoutRole)
-	t.AddRole(&t.renderRole)
-	t.AddRole(&t.projectionRole)
-	t.AddRole(&t.hitRole)
-	t.AddRole(&t.inputRole)
-	t.AddRole(&t.focusRole)
+	t.RegisterRoles()
 	t.AddRole(&t.textRole)
-	t.AddRole(&t.viewportRole)
 	if t.Data != nil {
 		t.Data.OnChange.Subscribe(func(_ signal.Change[TableData]) {
 			t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
@@ -223,80 +212,16 @@ func (t *Table) Base() *facet.Facet {
 	return &t.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (t *Table) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "structure", TypeName: "table"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (t *Table) AccessibilityRole() string { return "table" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (t *Table) AccessibleName() string { return strings.TrimSpace(t.Label) }
-
-// SetLabel updates the authored accessible label.
-func (t *Table) SetLabel(label string) {
-	if t == nil || t.Label == label {
-		return
-	}
-	t.Label = label
-	t.invalidate(facet.DirtyProjection)
-}
-
-// SetDisabled toggles disabled state.
-func (t *Table) SetDisabled(disabled bool) {
-	if t == nil || t.Disabled == disabled {
-		return
-	}
-	t.Disabled = disabled
-	if disabled {
-		t.hoveredRowIndex = -1
-		t.pressedRowIndex = -1
-		t.focusedVisible = false
-		t.focusFromPointer = false
-		t.dragging = false
-	}
-	t.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetData replaces the canonical data-store contents.
-func (t *Table) SetData(data TableData) {
-	if t == nil {
-		return
-	}
-	if t.Data == nil {
-		t.Data = store.NewValueStore(cloneTableData(data))
-		t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	t.Data.Set(cloneTableData(data))
-}
-
-// SetColumns updates only the column model.
-func (t *Table) SetColumns(columns []TableColumn) {
-	if t == nil {
-		return
-	}
-	data := t.data()
-	data.Columns = cloneTableColumns(columns)
-	t.SetData(data)
-}
-
-// SetRows updates only the row model.
-func (t *Table) SetRows(rows []TableRow) {
-	if t == nil {
-		return
-	}
-	data := t.data()
-	data.Rows = cloneTableRows(rows)
-	t.SetData(data)
-}
-
-// SetSortColumn updates the active sort column.
-func (t *Table) SetSortColumn(key string, descending bool) {
-	if t == nil {
-		return
-	}
-	data := t.data()
-	data.SortColumnKey = key
-	data.SortDescending = descending
-	t.SetData(data)
-}
+func (t *Table) AccessibleName() string { return strings.TrimSpace(t.Label.Get()) }
 
 // Children returns the immediate child list.
 func (t *Table) Children() []facet.GroupChild {
@@ -322,14 +247,11 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if t == nil {
 		return nil
 	}
-	bounds := t.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := t.Layout.ArrangedBounds
+	out := t.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
 	}
-	out := boundsAnchorSet(bounds)
 	out["baseline"] = bounds.Min
 	if !t.cachedViewportBounds.IsEmpty() {
 		out["viewport"] = rectCenter(t.cachedViewportBounds)
@@ -340,17 +262,13 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return out
 }
 
-// OnAttach subscribes to any attached store.
-func (t *Table) OnAttach(ctx facet.AttachContext) {}
-
-// OnActivate is unused.
-func (t *Table) OnActivate() {}
-
-// OnDeactivate is unused.
-func (t *Table) OnDeactivate() {}
+func (t *Table) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
+func (t *Table) OnActivate()                      { t.Core.OnActivate() }
+func (t *Table) OnDeactivate()                    { t.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (t *Table) OnDetach() {
+	t.Core.OnDetach()
 	t.cachedTokens = theme.Tokens{}
 	t.cachedRecipe = shared.TableSlots{}
 	t.cachedBounds = gfx.Rect{}
@@ -385,7 +303,7 @@ func (t *Table) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Base().Invalidate(flags)
+	t.Facet.Invalidate(flags)
 }
 
 func (t *Table) data() TableData {
@@ -437,13 +355,14 @@ func (t *Table) syncChildren() {
 		headerKey := "__selection__"
 		header := t.cachedSelectionCells[headerKey]
 		if header == nil {
-			header = primitive.NewText("")
+			header = primitive.NewText(marks.Const(""))
 		} else {
-			header.SetContent("")
+			header.Content = marks.Const("")
+			header.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 		}
-		header.SetTypography(theme.TextLabelM)
-		header.SetForeground(theme.ColorTextSecondary)
-		header.SetOverflow(primitive.TextOverflowClip)
+		header.Typography = marks.Const(theme.TextLabelM)
+		header.Foreground = marks.Const(theme.ColorTextSecondary)
+		header.Overflow = marks.Const(primitive.TextOverflowClip)
 		selectionCells[headerKey] = header
 		childSpecs = append(childSpecs, tableChildSpec{
 			Facet:     header,
@@ -463,13 +382,14 @@ func (t *Table) syncChildren() {
 		}
 		cell := t.cachedHeaderCells[key]
 		if cell == nil {
-			cell = primitive.NewText(label)
+			cell = primitive.NewText(marks.Const(label))
 		} else {
-			cell.SetContent(label)
+			cell.Content = marks.Const(label)
+			cell.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 		}
-		cell.SetTypography(theme.TextLabelM)
-		cell.SetForeground(theme.ColorTextSecondary)
-		cell.SetOverflow(primitive.TextOverflowTruncate)
+		cell.Typography = marks.Const(theme.TextLabelM)
+		cell.Foreground = marks.Const(theme.ColorTextSecondary)
+		cell.Overflow = marks.Const(primitive.TextOverflowTruncate)
 		headerCells[key] = cell
 		childSpecs = append(childSpecs, tableChildSpec{
 			Facet:     cell,
@@ -480,22 +400,26 @@ func (t *Table) syncChildren() {
 		if data.SortColumnKey == key {
 			indicator := t.cachedSortIndicators[key]
 			if indicator == nil {
-				indicator = primitive.NewText("▼")
+				indicator = primitive.NewText(marks.Const("▼"))
 				if data.SortDescending {
-					indicator.SetContent("▼")
+					indicator.Content = marks.Const("▼")
+					indicator.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 				} else {
-					indicator.SetContent("▲")
+					indicator.Content = marks.Const("▲")
+					indicator.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 				}
 			} else {
 				if data.SortDescending {
-					indicator.SetContent("▼")
+					indicator.Content = marks.Const("▼")
+					indicator.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 				} else {
-					indicator.SetContent("▲")
+					indicator.Content = marks.Const("▲")
+					indicator.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 				}
 			}
-			indicator.SetTypography(theme.TextLabelM)
-			indicator.SetForeground(theme.ColorPrimary)
-			indicator.SetOverflow(primitive.TextOverflowClip)
+			indicator.Typography = marks.Const(theme.TextLabelM)
+			indicator.Foreground = marks.Const(theme.ColorPrimary)
+			indicator.Overflow = marks.Const(primitive.TextOverflowClip)
 			sortIndicators[key] = indicator
 			childSpecs = append(childSpecs, tableChildSpec{
 				Facet:     indicator,
@@ -519,21 +443,23 @@ func (t *Table) syncChildren() {
 			selectionKey := stableTableKey(row.Key, "", rowIndex)
 			indicator := t.cachedSelectionCells[selectionKey]
 			if indicator == nil {
-				indicator = primitive.NewText("")
+				indicator = primitive.NewText(marks.Const(""))
 			}
-			indicator.SetTypography(theme.TextLabelM)
+			indicator.Typography = marks.Const(theme.TextLabelM)
 			if row.Selected {
-				indicator.SetContent("✓")
-				indicator.SetForeground(theme.ColorPrimary)
+				indicator.Content = marks.Const("✓")
+				indicator.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+				indicator.Foreground = marks.Const(theme.ColorPrimary)
 			} else {
-				indicator.SetContent("")
-				indicator.SetForeground(theme.ColorTextSecondary)
+				indicator.Content = marks.Const("")
+				indicator.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+				indicator.Foreground = marks.Const(theme.ColorTextSecondary)
 			}
-			indicator.SetOverflow(primitive.TextOverflowClip)
-			if row.Disabled || t.Disabled {
-				indicator.SetDisabled(true)
+			indicator.Overflow = marks.Const(primitive.TextOverflowClip)
+			if row.Disabled || t.Disabled.Get() {
+				indicator.Disabled = marks.Const(true)
 			} else {
-				indicator.SetDisabled(false)
+				indicator.Disabled = marks.Const(false)
 			}
 			selectionCells[selectionKey] = indicator
 			childSpecs = append(childSpecs, tableChildSpec{
@@ -552,20 +478,21 @@ func (t *Table) syncChildren() {
 			}
 			cell := rowCells[stableTableKey(col.Key, col.Label, colIndex)]
 			if cell == nil {
-				cell = primitive.NewText(content)
+				cell = primitive.NewText(marks.Const(content))
 			} else {
-				cell.SetContent(content)
+				cell.Content = marks.Const(content)
+				cell.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 			}
-			cell.SetTypography(theme.TextBodyM)
-			cell.SetForeground(theme.ColorText)
-			cell.SetOverflow(primitive.TextOverflowTruncate)
+			cell.Typography = marks.Const(theme.TextBodyM)
+			cell.Foreground = marks.Const(theme.ColorText)
+			cell.Overflow = marks.Const(primitive.TextOverflowTruncate)
 			if row.Selected {
-				cell.SetForeground(theme.ColorPrimary)
+				cell.Foreground = marks.Const(theme.ColorPrimary)
 			}
-			if row.Disabled || t.Disabled {
-				cell.SetDisabled(true)
+			if row.Disabled || t.Disabled.Get() {
+				cell.Disabled = marks.Const(true)
 			} else {
-				cell.SetDisabled(false)
+				cell.Disabled = marks.Const(false)
 			}
 			rowCells[stableTableKey(col.Key, col.Label, colIndex)] = cell
 			childSpecs = append(childSpecs, tableChildSpec{
@@ -634,9 +561,9 @@ func (t *Table) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	children := t.Children()
 	if len(children) == 0 {
 		size := constraints.Constrain(gfx.Size{})
-		t.layoutRole.MeasuredSize = size
-		t.layoutRole.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
-		return t.layoutRole.MeasuredResult
+		t.Layout.MeasuredSize = size
+		t.Layout.MeasuredResult = facet.MeasureResult{Size: size, Intrinsic: facet.IntrinsicSize{Min: size, Preferred: size, Max: size}, Constraints: constraints}
+		return t.Layout.MeasuredResult
 	}
 	childMeasureCtx := facet.MeasureContext{
 		Runtime:          ctx.Runtime,
@@ -659,13 +586,13 @@ func (t *Table) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	}
 	t.cachedContentBounds = gfx.RectFromXYWH(0, 0, size.W, size.H)
 	measured := constraints.Constrain(size)
-	t.layoutRole.MeasuredSize = measured
-	t.layoutRole.MeasuredResult = facet.MeasureResult{
+	t.Layout.MeasuredSize = measured
+	t.Layout.MeasuredResult = facet.MeasureResult{
 		Size:        measured,
 		Intrinsic:   facet.IntrinsicSize{Min: measured, Preferred: measured, Max: measured},
 		Constraints: constraints,
 	}
-	return t.layoutRole.MeasuredResult
+	return t.Layout.MeasuredResult
 }
 
 func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -677,7 +604,7 @@ func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	t.cachedHorizontalTrack = gfx.Rect{}
 	t.cachedHorizontalThumb = gfx.Rect{}
 	t.cachedFocusBounds = bounds.Inset(maxFloat(1, bounds.Width()*0.04), maxFloat(1, bounds.Height()*0.04))
-	t.layoutRole.ArrangedBounds = bounds
+	t.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -727,7 +654,7 @@ func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	t.cachedColumnBounds = columnBounds
 	t.cachedContentBounds = gfx.RectFromXYWH(contentRect.Min.X, contentRect.Min.Y, contentSize.Width(), contentSize.Height())
 	t.updateScrollBounds(bounds)
-	t.viewportRole.WorldBounds = bounds
+	t.Viewport.WorldBounds = bounds
 }
 
 func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
@@ -737,7 +664,7 @@ func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 	style, slots := t.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if t.Disabled {
+	if t.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -862,7 +789,7 @@ func (t *Table) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.
 }
 
 func (t *Table) hitTest(p gfx.Point) facet.HitResult {
-	if t == nil || t.layoutRole.ArrangedBounds.IsEmpty() || !t.layoutRole.ArrangedBounds.Contains(p) {
+	if t == nil || t.Layout.ArrangedBounds.IsEmpty() || !t.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := t.cursorShape()
@@ -884,7 +811,7 @@ func (t *Table) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (t *Table) onPointer(e facet.PointerEvent) bool {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return false
 	}
 	switch e.Kind {
@@ -947,7 +874,7 @@ func (t *Table) onPointer(e facet.PointerEvent) bool {
 }
 
 func (t *Table) onScroll(e facet.ScrollEvent) bool {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return false
 	}
 	if e.DeltaX == 0 && e.DeltaY == 0 {
@@ -962,7 +889,7 @@ func (t *Table) onScroll(e facet.ScrollEvent) bool {
 }
 
 func (t *Table) onKey(e facet.KeyEvent) bool {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return false
 	}
 	if e.Kind != platform.KeyPress && e.Kind != platform.KeyRepeat {
@@ -1170,7 +1097,7 @@ func (t *Table) selectRow(index int) {
 	for i := range data.Rows {
 		data.Rows[i].Selected = stableTableKey(data.Rows[i].Key, "", i) == selectedKey
 	}
-	t.SetData(data)
+	t.Data.Set(data)
 }
 
 func (t *Table) ensureFocusedRowVisible() {
@@ -1300,7 +1227,7 @@ func (t *Table) clampScrollOffset(next gfx.Point) gfx.Point {
 }
 
 func (t *Table) cursorShape() facet.CursorShape {
-	if t.Disabled {
+	if t.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer

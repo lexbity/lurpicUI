@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -34,15 +35,15 @@ func (s textFieldRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts
 
 func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	tf := NewTextField("Email", uiinput.TextInputOutlined)
-	tf.SetPlaceholder("name@example.com")
-	tf.SetHelperText("We will not share this address.")
+	tf.Placeholder = marks.Const("name@example.com")
+	tf.HelperText = marks.Const("We will not share this address.")
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustTextFieldRegistry(t),
 	}
 
 	facet.Attach(tf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := tf.layoutRole.Measure(facet.MeasureContext{
+	result := tf.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -52,7 +53,7 @@ func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(18, 24, result.Size.W, result.Size.H)
-	tf.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
+	tf.Layout.Arrange(facet.ArrangeContext{}, bounds)
 
 	if got := tf.AccessibilityRole(); got != "textbox" {
 		t.Fatalf("accessibility role = %q, want textbox", got)
@@ -64,15 +65,15 @@ func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatal("expected IME to be enabled")
 	}
 
-	labelHit := tf.hitRole.HitTest(gfx.Point{X: tf.cachedLabelBounds.Min.X + 1, Y: tf.cachedLabelBounds.Min.Y + 1})
+	labelHit := tf.Hit.HitTest(gfx.Point{X: tf.cachedLabelBounds.Min.X + 1, Y: tf.cachedLabelBounds.Min.Y + 1})
 	if !labelHit.Hit || labelHit.MarkID != textFieldMarkIDLabel {
 		t.Fatalf("expected label hit, got %#v", labelHit)
 	}
-	fieldHit := tf.hitRole.HitTest(gfx.Point{X: tf.cachedFieldBounds.Min.X + 1, Y: tf.cachedFieldBounds.Min.Y + 1})
+	fieldHit := tf.Hit.HitTest(gfx.Point{X: tf.cachedFieldBounds.Min.X + 1, Y: tf.cachedFieldBounds.Min.Y + 1})
 	if !fieldHit.Hit || fieldHit.MarkID != textFieldMarkIDPlaceholder {
 		t.Fatalf("expected placeholder hit in empty field, got %#v", fieldHit)
 	}
-	containerHit := tf.hitRole.HitTest(gfx.Point{X: bounds.Max.X - 2, Y: tf.cachedLabelBounds.Max.Y + tf.cachedGap*0.5})
+	containerHit := tf.Hit.HitTest(gfx.Point{X: bounds.Max.X - 2, Y: tf.cachedLabelBounds.Max.Y + tf.cachedGap*0.5})
 	if !containerHit.Hit || containerHit.MarkID != textFieldMarkIDContainer {
 		t.Fatalf("expected container hit, got %#v", containerHit)
 	}
@@ -86,7 +87,7 @@ func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := tf.projectionRole.Project(facet.ProjectionContext{
+	cmds := tf.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -108,12 +109,12 @@ func TestTextFieldStoreChangeAndEditing(t *testing.T) {
 	}
 
 	facet.Attach(tf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	_ = tf.layoutRole.Measure(facet.MeasureContext{
+	_ = tf.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 180}})
-	tf.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, tf.layoutRole.MeasuredSize.W, tf.layoutRole.MeasuredSize.H))
+	tf.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, tf.Layout.MeasuredSize.W, tf.Layout.MeasuredSize.H))
 
 	initialVersions := tf.Base().SubscribedVersions()
 	if len(initialVersions) != 1 {
@@ -129,12 +130,12 @@ func TestTextFieldStoreChangeAndEditing(t *testing.T) {
 		t.Fatalf("expected tracked version to advance, before=%v after=%v", initialVersions, updatedVersions)
 	}
 
-	_ = tf.layoutRole.Measure(facet.MeasureContext{
+	_ = tf.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 180}})
-	tf.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, tf.layoutRole.MeasuredSize.W, tf.layoutRole.MeasuredSize.H))
+	tf.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, tf.Layout.MeasuredSize.W, tf.Layout.MeasuredSize.H))
 
 	if !tf.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: tf.cachedFieldBounds.Min.X + 4, Y: tf.cachedFieldBounds.Min.Y + 4}, Button: platform.PointerLeft}) {
 		t.Fatal("expected pointer press to be handled")
@@ -192,17 +193,17 @@ func TestTextFieldGoldenFocused(t *testing.T) {
 
 func TestTextFieldGoldenDisabled(t *testing.T) {
 	AssertTextFieldGolden(t, "disabled", func(tf *TextField) {
-		tf.SetDisabled(true)
+		tf.Disabled = marks.Const(true)
 	})
 }
 
 func AssertTextFieldGolden(t *testing.T, name string, mutate func(*TextField)) {
 	t.Helper()
 	tf := NewTextField("Email", uiinput.TextInputOutlined)
-	tf.SetPlaceholder("name@example.com")
-	tf.SetHelperText("We will never share this value.")
-	tf.SetValidation(TextFieldValidationWarning)
-	tf.SetWarningText("This will be visible in the golden state.")
+	tf.Placeholder = marks.Const("name@example.com")
+	tf.HelperText = marks.Const("We will never share this value.")
+	tf.Validation = marks.Const(TextFieldValidationWarning)
+	tf.WarningText = marks.Const("This will be visible in the golden state.")
 	if mutate != nil {
 		mutate(tf)
 	}

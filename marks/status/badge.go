@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -22,16 +23,11 @@ const (
 
 // Badge implements the status.badge canonical mark.
 type Badge struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	textRole       facet.TextRole
-
-	Label    string
-	IconRef  string
-	Disabled bool
+	Label    marks.Binding[string]
+	IconRef  marks.Binding[string]
+	Disabled marks.Binding[bool]
 
 	cachedTokens           theme.Tokens
 	cachedRecipe           shared.BadgeSlots
@@ -50,21 +46,28 @@ type Badge struct {
 
 var _ facet.FacetImpl = (*Badge)(nil)
 var _ layout.AnchorExporter = (*Badge)(nil)
+var _ marks.Mark = (*Badge)(nil)
 
 // NewBadge constructs a status.badge mark with canonical defaults.
 func NewBadge(label string) *Badge {
 	b := &Badge{
-		Facet: facet.NewFacet(),
-		Label: label,
+		Label:    marks.Const(label),
+		IconRef:  marks.Const(""),
+		Disabled: marks.Const(false),
 	}
-	b.layoutRole.Parent = facet.GroupParentContract{
+	b.Core.Facet = facet.NewFacet()
+	b.AddBinding(b.Label)
+	b.AddBinding(b.IconRef)
+	b.AddBinding(b.Disabled)
+
+	b.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   badgeGroupPolicy{badge: b},
 		Children: b,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	b.layoutRole.Child = facet.GroupChildContract{
+	b.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := b.measure(ctx, constraints).Size
@@ -82,35 +85,17 @@ func NewBadge(label string) *Badge {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	b.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	b.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return b.measure(ctx, constraints)
 	}
-	b.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		b.layoutRole.ArrangedBounds = bounds
+	b.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		b.Layout.ArrangedBounds = bounds
 		b.arrange(ctx, bounds)
 	}
-	b.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		if list == nil {
-			return
-		}
-		cmds := b.buildCommands(bounds, nil, 1)
-		if len(cmds) == 0 {
-			return
-		}
-		list.Commands = append(list.Commands, cmds...)
+	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return b.buildCommands(b.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	b.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := b.buildCommands(b.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
-	}
-	b.textRole.IMEEnabled = false
-	b.AddRole(&b.layoutRole)
-	b.AddRole(&b.renderRole)
-	b.AddRole(&b.projectionRole)
-	b.AddRole(&b.textRole)
+	b.RegisterRoles()
 	b.syncChildren()
 	return b
 }
@@ -121,6 +106,11 @@ func (b *Badge) Base() *facet.Facet {
 	return &b.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (b *Badge) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "status", TypeName: "badge"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (b *Badge) AccessibilityRole() string { return "status" }
 
@@ -129,34 +119,7 @@ func (b *Badge) AccessibleName() string {
 	if b == nil {
 		return ""
 	}
-	return strings.TrimSpace(b.Label)
-}
-
-// SetLabel updates the authored badge label.
-func (b *Badge) SetLabel(label string) {
-	if b == nil || b.Label == label {
-		return
-	}
-	b.Label = label
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetIconRef updates the authored icon reference.
-func (b *Badge) SetIconRef(ref string) {
-	if b == nil || b.IconRef == ref {
-		return
-	}
-	b.IconRef = ref
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection)
-}
-
-// SetDisabled toggles the badge disabled state.
-func (b *Badge) SetDisabled(disabled bool) {
-	if b == nil || b.Disabled == disabled {
-		return
-	}
-	b.Disabled = disabled
-	b.invalidate(facet.DirtyProjection)
+	return strings.TrimSpace(b.Label.Get())
 }
 
 // Children returns the immediate child list.
@@ -184,21 +147,12 @@ func (b *Badge) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if b == nil {
 		return nil
 	}
-	bounds := b.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
+	bounds := b.Layout.ArrangedBounds
+	out := b.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-		"baseline":            gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y},
-	}
+	out["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	if !b.cachedLabelBounds.IsEmpty() {
 		out["label"] = gfx.Point{X: (b.cachedLabelBounds.Min.X + b.cachedLabelBounds.Max.X) * 0.5, Y: (b.cachedLabelBounds.Min.Y + b.cachedLabelBounds.Max.Y) * 0.5}
 	}
@@ -209,16 +163,17 @@ func (b *Badge) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 }
 
 // OnAttach subscribes to any attached store.
-func (b *Badge) OnAttach(ctx facet.AttachContext) {}
+func (b *Badge) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach() }
 
 // OnActivate is unused.
-func (b *Badge) OnActivate() {}
+func (b *Badge) OnActivate() { b.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (b *Badge) OnDeactivate() {}
+func (b *Badge) OnDeactivate() { b.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (b *Badge) OnDetach() {
+	b.Core.OnDetach()
 	b.cachedTokens = theme.Tokens{}
 	b.cachedRecipe = shared.BadgeSlots{}
 	b.cachedBounds = gfx.Rect{}
@@ -245,24 +200,25 @@ func (b *Badge) syncChildren() {
 	if b == nil {
 		return
 	}
-	iconRef := strings.TrimSpace(b.IconRef)
-	label := strings.TrimSpace(b.Label)
+	iconRef := strings.TrimSpace(b.IconRef.Get())
+	label := strings.TrimSpace(b.Label.Get())
 	if label == "" {
 		b.cachedLabelFacet = nil
 	} else {
 		if b.cachedLabelFacet == nil {
-			b.cachedLabelFacet = primitive.NewText(label)
+			b.cachedLabelFacet = primitive.NewText(marks.Const(label))
 		} else {
-			b.cachedLabelFacet.SetContent(label)
+			b.cachedLabelFacet.Content = marks.Const(label)
+			b.cachedLabelFacet.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 		}
-		b.cachedLabelFacet.SetTypography(theme.TextLabelS)
-		b.cachedLabelFacet.SetOverflow(primitive.TextOverflowTruncate)
-		if b.Disabled {
-			b.cachedLabelFacet.SetForeground(theme.ColorTextDisabled)
-			b.cachedLabelFacet.SetDisabled(true)
+		b.cachedLabelFacet.Typography = marks.Const(theme.TextLabelS)
+		b.cachedLabelFacet.Overflow = marks.Const(primitive.TextOverflowTruncate)
+		if b.Disabled.Get() {
+			b.cachedLabelFacet.Foreground = marks.Const(theme.ColorTextDisabled)
+			b.cachedLabelFacet.Disabled = marks.Const(true)
 		} else {
-			b.cachedLabelFacet.SetForeground(theme.ColorOnPrimary)
-			b.cachedLabelFacet.SetDisabled(false)
+			b.cachedLabelFacet.Foreground = marks.Const(theme.ColorOnPrimary)
+			b.cachedLabelFacet.Disabled = marks.Const(false)
 		}
 	}
 	if iconRef == "" {
@@ -272,12 +228,13 @@ func (b *Badge) syncChildren() {
 	if b.cachedIconFacet == nil {
 		b.cachedIconFacet = primitive.NewIcon(primitive.IconRef(iconRef))
 	} else {
-		b.cachedIconFacet.SetSource(primitive.IconRef(iconRef))
+		b.cachedIconFacet.Source = primitive.IconRef(iconRef)
+		b.cachedIconFacet.Base().Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
-	b.cachedIconFacet.SetDecorative(true)
-	b.cachedIconFacet.SetColorSlot(theme.ColorOnPrimary)
-	if b.Disabled {
-		b.cachedIconFacet.SetColorSlot(theme.ColorTextDisabled)
+	b.cachedIconFacet.Decorative = marks.Const(true)
+	b.cachedIconFacet.ColorSlot = marks.Const(theme.ColorOnPrimary)
+	if b.Disabled.Get() {
+		b.cachedIconFacet.ColorSlot = marks.Const(theme.ColorTextDisabled)
 	}
 }
 
@@ -299,13 +256,13 @@ func (b *Badge) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	children := b.Children()
 	if len(children) == 0 {
 		size := constraints.Constrain(gfx.Size{})
-		b.layoutRole.MeasuredSize = size
-		b.layoutRole.MeasuredResult = facet.MeasureResult{
+		b.Layout.MeasuredSize = size
+		b.Layout.MeasuredResult = facet.MeasureResult{
 			Size:        size,
 			Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 			Constraints: constraints,
 		}
-		return b.layoutRole.MeasuredResult
+		return b.Layout.MeasuredResult
 	}
 	innerWidth := constraints.MaxSize.W
 	if innerWidth > 0 {
@@ -330,7 +287,7 @@ func (b *Badge) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 		if child.MarkID == badgeMarkIDOptionalIcon {
 			childConstraints.MaxSize = gfx.Size{W: b.cachedIconSize, H: b.cachedIconSize}
 			if icon := b.cachedIconFacet; icon != nil {
-				icon.SetSize(b.cachedIconSize)
+				icon.Size = marks.Const(b.cachedIconSize)
 			}
 		}
 		size := child.Layout.Measure(measureCtx, childConstraints).Size
@@ -350,8 +307,8 @@ func (b *Badge) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 		size = gfx.Size{W: b.cachedIconSize + b.cachedPadX*2, H: b.cachedIconSize + b.cachedPadY*2}
 	}
 	measured := constraints.Constrain(size)
-	b.layoutRole.MeasuredSize = measured
-	b.layoutRole.MeasuredResult = facet.MeasureResult{
+	b.Layout.MeasuredSize = measured
+	b.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       measured,
@@ -360,7 +317,7 @@ func (b *Badge) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 		},
 		Constraints: constraints,
 	}
-	return b.layoutRole.MeasuredResult
+	return b.Layout.MeasuredResult
 }
 
 func (b *Badge) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -368,7 +325,7 @@ func (b *Badge) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	b.cachedContainerBounds = bounds
 	b.cachedLabelBounds = gfx.Rect{}
 	b.cachedIconBounds = gfx.Rect{}
-	b.layoutRole.ArrangedBounds = bounds
+	b.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -422,7 +379,7 @@ func (b *Badge) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 	style, slots := b.resolveProjectionTheme(runtime)
 	tokens := style.Tokens
 	state := theme.StateDefault
-	if b.Disabled {
+	if b.Disabled.Get() {
 		state = theme.StateDisabled
 	}
 	root := slots.Root.Resolve(state, tokens)
@@ -482,7 +439,7 @@ func (b *Badge) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.
 }
 
 func (b *Badge) badgeVariant() uistatus.BadgeVariant {
-	if b != nil && b.Disabled {
+	if b != nil && b.Disabled.Get() {
 		return uistatus.BadgeDisabled
 	}
 	return uistatus.BadgeDefault
@@ -517,8 +474,6 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	if !ok {
 		return nil
 	}
-	// reflect check catches typed nil (non-nil interface wrapping nil *Runtime).
-	// Only applicable for nil-able kinds (ptr, slice, map, chan, func, iface).
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
 	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:

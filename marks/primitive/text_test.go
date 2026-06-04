@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -31,14 +32,14 @@ func (s textRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 func (s textRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
-	mark := NewText("Hello world")
+	mark := NewText(marks.Const("Hello world"))
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustTextRegistry(t),
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -49,14 +50,14 @@ func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(10, 20, result.Size.W, result.Size.H))
-	mark.SetSelection(text.TextRange{Start: 0, End: 5})
+	mark.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(10, 20, result.Size.W, result.Size.H))
+	mark.textRole.Selection = text.TextRange{Start: 0, End: 5}
 	geom := mark.textRole.CollectSelectionGeometry()
 	if geom == nil || len(geom.SelectionRects) == 0 {
 		t.Fatalf("expected selection geometry, got %#v", geom)
 	}
 
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       gfx.RectFromXYWH(10, 20, result.Size.W, result.Size.H),
 		ContentScale: 1,
@@ -93,25 +94,25 @@ func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
 }
 
 func TestTextMark_disabled_uses_disabled_color(t *testing.T) {
-	mark := NewText("Disabled")
-	mark.SetDisabled(true)
+	mark := NewText(marks.Const("Disabled"))
+	mark.Disabled = marks.Const(true)
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     mustTextRegistry(t),
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	_ = mark.layoutRole.Measure(facet.MeasureContext{
+	_ = mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
 	}, facet.Constraints{
 		MaxSize: gfx.Size{W: 500, H: 200},
 	})
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, mark.layoutRole.MeasuredSize.W, mark.layoutRole.MeasuredSize.H))
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	mark.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, mark.Layout.MeasuredSize.W, mark.Layout.MeasuredSize.H))
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
-		Bounds:       gfx.RectFromXYWH(0, 0, mark.layoutRole.MeasuredSize.W, mark.layoutRole.MeasuredSize.H),
+		Bounds:       gfx.RectFromXYWH(0, 0, mark.Layout.MeasuredSize.W, mark.Layout.MeasuredSize.H),
 		ContentScale: 1,
 	})
 	if cmds == nil || cmds.Len() == 0 {
@@ -132,10 +133,10 @@ func TestTextMark_wrap_and_truncate(t *testing.T) {
 		fonts:     mustTextRegistry(t),
 	}
 
-	wrap := NewText("Hello world")
-	wrap.SetOverflow(TextOverflowWrap)
-	wrap.SetMaxWidth(40)
-	_ = wrap.layoutRole.Measure(facet.MeasureContext{
+	wrap := NewText(marks.Const("Hello world"))
+	wrap.Overflow = marks.Const(TextOverflowWrap)
+	wrap.MaxWidth = marks.Const[float32](40)
+	_ = wrap.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -144,10 +145,10 @@ func TestTextMark_wrap_and_truncate(t *testing.T) {
 		t.Fatalf("expected wrapped layout, got %#v", wrap.cachedLayout)
 	}
 
-	trunc := NewText("Hello world")
-	trunc.SetOverflow(TextOverflowTruncate)
-	trunc.SetMaxWidth(40)
-	_ = trunc.layoutRole.Measure(facet.MeasureContext{
+	trunc := NewText(marks.Const("Hello world"))
+	trunc.Overflow = marks.Const(TextOverflowTruncate)
+	trunc.MaxWidth = marks.Const[float32](40)
+	_ = trunc.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -158,10 +159,10 @@ func TestTextMark_wrap_and_truncate(t *testing.T) {
 }
 
 func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
-	mark := NewText("AaBbCcGgJjQq")
-	mark.SetOverflow(TextOverflowWrap)
-	mark.SetAlignment(text.AlignCenter)
-	mark.SetMaxWidth(300)
+	mark := NewText(marks.Const("AaBbCcGgJjQq"))
+	mark.Overflow = marks.Const(TextOverflowWrap)
+	mark.Alignment = marks.Const(text.AlignCenter)
+	mark.MaxWidth = marks.Const[float32](300)
 
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
@@ -169,7 +170,7 @@ func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -179,9 +180,9 @@ func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
 	}
 
 	arranged := gfx.RectFromXYWH(17, 23, result.Size.W, result.Size.H)
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, arranged)
+	mark.Layout.Arrange(facet.ArrangeContext{}, arranged)
 
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       arranged,
 		ContentScale: 1,
@@ -206,9 +207,9 @@ func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
 }
 
 func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testing.T) {
-	mark := NewText("First line\nSecond line")
-	mark.SetOverflow(TextOverflowWrap)
-	mark.SetMaxWidth(300)
+	mark := NewText(marks.Const("First line\nSecond line"))
+	mark.Overflow = marks.Const(TextOverflowWrap)
+	mark.MaxWidth = marks.Const[float32](300)
 
 	rt := textRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
@@ -216,7 +217,7 @@ func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testin
 	}
 
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
-	result := mark.layoutRole.Measure(facet.MeasureContext{
+	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
 		Theme:        theme.DefaultResolvedContext(),
 		ContentScale: 1,
@@ -226,8 +227,8 @@ func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testin
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	mark.layoutRole.Arrange(facet.ArrangeContext{}, bounds)
-	cmds := mark.projectionRole.Project(facet.ProjectionContext{
+	mark.Layout.Arrange(facet.ArrangeContext{}, bounds)
+	cmds := mark.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

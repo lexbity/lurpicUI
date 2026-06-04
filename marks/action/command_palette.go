@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -28,27 +29,21 @@ const (
 
 // CommandPalette implements the action.command_palette standard mark.
 type CommandPalette struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
+	Label       marks.Binding[string]
+	Placeholder marks.Binding[string]
+	Disabled    marks.Binding[bool]
 
 	Activated signal.Signal[string]
 
-	Label     string
-	Placeholder string
-	Open      bool
-	Disabled  bool
+	textRole facet.TextRole
 
 	searchField *input.TextField
-	resultsList  *commandPaletteResultsGroup
-	registry     *runtimepkg.CommandRegistry
+	resultsList *commandPaletteResultsGroup
+	registry    *runtimepkg.CommandRegistry
 
+	Open             bool
 	hovered          bool
 	pressed          bool
 	focusedVisible   bool
@@ -79,26 +74,30 @@ type CommandPalette struct {
 
 var _ facet.FacetImpl = (*CommandPalette)(nil)
 var _ layout.AnchorExporter = (*CommandPalette)(nil)
+var _ marks.Mark = (*CommandPalette)(nil)
 
 // NewCommandPalette constructs an action.command_palette mark with canonical defaults.
-func NewCommandPalette(label string, registry *runtimepkg.CommandRegistry) *CommandPalette {
+func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.CommandRegistry) *CommandPalette {
 	p := &CommandPalette{
-		Facet:        facet.NewFacet(),
-		Label:        label,
-		Placeholder:  "Type a command or search",
-		Open:         true,
-		registry:     registry,
+		Label:          label,
+		Placeholder:    marks.Const("Type a command or search"),
+		Disabled:       marks.Const(false),
+		registry:       registry,
+		Open:           true,
 		focusedVisible: true,
-		activeIndex:  -1,
-		Activated:    signal.NewSignal[string]("command_palette_activated"),
+		activeIndex:    -1,
+		Activated:      signal.NewSignal[string]("command_palette_activated"),
 	}
+	p.Core.Facet = facet.NewFacet()
+	p.AddBinding(p.Label)
+	p.AddBinding(p.Placeholder)
+	p.AddBinding(p.Disabled)
+
 	p.searchField = input.NewTextField("Search", uiinput.TextInputOutlined)
-	p.searchField.SetPlaceholder(p.Placeholder)
+	p.searchField.Placeholder = marks.Const(p.Placeholder.Get())
 	p.resultsList = newCommandPaletteResultsGroup(p)
-	p.resultsList.SetDisabled(p.Disabled || !p.Open)
-	p.resultsList.SetLabel("Command results")
-	p.resultsList.SetEmptyState("No matching commands")
-	p.resultsList.ItemVariant = uiinput.ListItemStandard
+	p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open)
+	p.resultsList.ItemVariant = marks.Const(uiinput.ListItemStandard)
 
 	if role := p.searchField.Base().InputRole(); role != nil {
 		p.cachedSearchKey = role.OnKey
@@ -113,20 +112,20 @@ func NewCommandPalette(label string, registry *runtimepkg.CommandRegistry) *Comm
 		}
 		role.OnDismiss = func(e facet.DismissEvent) bool {
 			_ = e
-			if p.Disabled || !p.Open {
+			if p.Disabled.Get() || !p.Open {
 				return false
 			}
-			p.SetOpen(false)
+			p.Open = false
 			return true
 		}
 	}
 	if role := p.resultsList.Base().InputRole(); role != nil {
 		role.OnDismiss = func(e facet.DismissEvent) bool {
 			_ = e
-			if p.Disabled || !p.Open {
+			if p.Disabled.Get() || !p.Open {
 				return false
 			}
-			p.SetOpen(false)
+			p.Open = false
 			return true
 		}
 	}
@@ -134,14 +133,14 @@ func NewCommandPalette(label string, registry *runtimepkg.CommandRegistry) *Comm
 		p.activateAt(index)
 	})
 
-	p.layoutRole.Parent = facet.GroupParentContract{
+	p.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   commandPaletteGroupPolicy{palette: p},
 		Children: p,
 		Overflow: facet.OverflowClip,
 		Clipping: facet.GroupClipBounds,
 	}
-	p.layoutRole.Child = facet.GroupChildContract{
+	p.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measure(ctx, constraints)
@@ -159,7 +158,7 @@ func NewCommandPalette(label string, registry *runtimepkg.CommandRegistry) *Comm
 		},
 		Baseline: facet.BaselineNone,
 	}
-	p.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		size := p.measure(ctx, constraints)
 		return facet.MeasureResult{
 			Size:        size,
@@ -167,11 +166,11 @@ func NewCommandPalette(label string, registry *runtimepkg.CommandRegistry) *Comm
 			Constraints: constraints,
 		}
 	}
-	p.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		p.layoutRole.ArrangedBounds = bounds
+	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		p.Layout.ArrangedBounds = bounds
 		p.arrange(ctx, bounds)
 	}
-	p.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	p.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -181,28 +180,19 @@ func NewCommandPalette(label string, registry *runtimepkg.CommandRegistry) *Comm
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	p.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := p.buildCommands(p.layoutRole.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	p.hitRole.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
-	p.inputRole.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
-	p.inputRole.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
-	p.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return p.onDismiss(e) }
-	p.focusRole.Focusable = func() bool { return !p.Disabled && p.Open }
-	p.focusRole.TabIndex = -1
-	p.focusRole.OnFocusGained = func() { p.onFocusGained() }
-	p.focusRole.OnFocusLost = func() { p.onFocusLost() }
+	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
+	p.Input.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
+	p.Input.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
+	p.Input.OnDismiss = func(e facet.DismissEvent) bool { return p.onDismiss(e) }
+	p.Focus.Focusable = func() bool { return !p.Disabled.Get() && p.Open }
+	p.Focus.TabIndex = -1
+	p.Focus.OnFocusGained = func() { p.onFocusGained() }
+	p.Focus.OnFocusLost = func() { p.onFocusLost() }
 	p.textRole.IMEEnabled = false
-	p.AddRole(&p.layoutRole)
-	p.AddRole(&p.renderRole)
-	p.AddRole(&p.projectionRole)
-	p.AddRole(&p.hitRole)
-	p.AddRole(&p.inputRole)
-	p.AddRole(&p.focusRole)
+	p.RegisterRoles()
 	p.AddRole(&p.textRole)
 	p.syncCommands()
 	p.syncChildren()
@@ -215,6 +205,11 @@ func (p *CommandPalette) Base() *facet.Facet {
 	return &p.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (p *CommandPalette) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "command_palette"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (p *CommandPalette) AccessibilityRole() string { return "dialog_combobox" }
 
@@ -223,105 +218,10 @@ func (p *CommandPalette) AccessibleName() string {
 	if p == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(p.Label); name != "" {
+	if name := strings.TrimSpace(p.Label.Get()); name != "" {
 		return name
 	}
 	return "Command palette"
-}
-
-// SetLabel updates the authored accessible label.
-func (p *CommandPalette) SetLabel(label string) {
-	if p == nil || p.Label == label {
-		return
-	}
-	p.Label = label
-	p.invalidate(facet.DirtyProjection)
-}
-
-// SetPlaceholder updates the search placeholder.
-func (p *CommandPalette) SetPlaceholder(placeholder string) {
-	if p == nil || p.Placeholder == placeholder {
-		return
-	}
-	p.Placeholder = placeholder
-	if p.searchField != nil {
-		p.searchField.SetPlaceholder(placeholder)
-	}
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen toggles the modal open state.
-func (p *CommandPalette) SetOpen(open bool) {
-	if p == nil || p.Open == open {
-		return
-	}
-	p.Open = open
-	if p.searchField != nil {
-		p.searchField.SetDisabled(p.Disabled || !p.Open)
-	}
-	if p.resultsList != nil {
-		p.resultsList.SetDisabled(p.Disabled || !p.Open)
-	}
-	if !open {
-		p.hovered = false
-		p.pressed = false
-		p.focusedVisible = false
-	} else if !p.Disabled {
-		p.focusedVisible = true
-	}
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (p *CommandPalette) SetDisabled(disabled bool) {
-	if p == nil || p.Disabled == disabled {
-		return
-	}
-	p.Disabled = disabled
-	if p.searchField != nil {
-		p.searchField.SetDisabled(disabled || !p.Open)
-	}
-	if p.resultsList != nil {
-		p.resultsList.SetDisabled(disabled || !p.Open)
-	}
-	if disabled {
-		p.hovered = false
-		p.pressed = false
-		p.focusedVisible = false
-		p.SetOpen(false)
-	}
-	p.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// ExportAnchors publishes the command palette anchor set.
-func (p *CommandPalette) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	if p == nil {
-		return nil
-	}
-	bounds := p.layoutRole.ArrangedBounds
-	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
-		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
-		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
-	if !p.cachedSurfaceBounds.IsEmpty() {
-		out["content_anchor"] = gfx.Point{
-			X: p.cachedSurfaceBounds.Min.X + p.cachedSurfaceBounds.Width()*0.5,
-			Y: p.cachedSurfaceBounds.Min.Y + p.cachedPadY,
-		}
-	} else {
-		out["content_anchor"] = bounds.Min
-	}
-	out["baseline"] = out["content_anchor"]
-	return out
 }
 
 // Children returns the facet's immediate child list.
@@ -341,9 +241,7 @@ func (p *CommandPalette) Children() []facet.GroupChild {
 
 // OnAttach wires command registry and query invalidation.
 func (p *CommandPalette) OnAttach(ctx facet.AttachContext) {
-	if p == nil {
-		return
-	}
+	p.Core.OnAttach()
 	p.syncCommands()
 	if p.searchField != nil && p.searchField.Value != nil {
 		facet.Store(facet.Subscribe(p), &p.searchField.Value.OnChange, p.searchField.Value.Version, func(change signal.Change[string]) {
@@ -358,14 +256,15 @@ func (p *CommandPalette) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnActivate is unused.
-func (p *CommandPalette) OnActivate() {}
+func (p *CommandPalette) OnActivate() { p.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (p *CommandPalette) OnDeactivate() {}
+func (p *CommandPalette) OnDeactivate() { p.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (p *CommandPalette) OnDetach() {
-	if p != nil && p.resultsList != nil && p.cachedResultsSub != 0 {
+	p.Core.OnDetach()
+	if p.resultsList != nil && p.cachedResultsSub != 0 {
 		p.resultsList.Activated.Unsubscribe(p.cachedResultsSub)
 	}
 	p.cachedTokens = theme.Tokens{}
@@ -383,11 +282,33 @@ func (p *CommandPalette) OnDetach() {
 	p.cachedResultsSub = 0
 }
 
+// ExportAnchors publishes the command palette anchor set.
+func (p *CommandPalette) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
+	if p == nil {
+		return nil
+	}
+	bounds := p.Layout.ArrangedBounds
+	out := p.Core.DefaultAnchors(bounds, ctx)
+	if out == nil {
+		return nil
+	}
+	if !p.cachedSurfaceBounds.IsEmpty() {
+		out["content_anchor"] = gfx.Point{
+			X: p.cachedSurfaceBounds.Min.X + p.cachedSurfaceBounds.Width()*0.5,
+			Y: p.cachedSurfaceBounds.Min.Y + p.cachedPadY,
+		}
+	} else {
+		out["content_anchor"] = bounds.Min
+	}
+	out["baseline"] = out["content_anchor"]
+	return out
+}
+
 func (p *CommandPalette) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Base().Invalidate(flags)
+	p.Facet.Invalidate(flags)
 }
 
 func (p *CommandPalette) syncCommands() {
@@ -423,25 +344,25 @@ func (p *CommandPalette) syncChildren() {
 		return
 	}
 	if p.searchField != nil {
-		p.searchField.SetDisabled(p.Disabled || !p.Open)
-		p.searchField.SetPlaceholder(p.Placeholder)
+		p.searchField.Disabled = marks.Const(p.Disabled.Get() || !p.Open)
+		p.searchField.Placeholder = marks.Const(p.Placeholder.Get())
 		if value := p.searchField.Value; value != nil && value.Get() != p.query {
 			value.Set(p.query)
 		}
 	}
 	if p.resultsList != nil {
-		p.resultsList.SetDisabled(p.Disabled || !p.Open)
-		p.resultsList.SetEmptyState("No matching commands")
+		p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open)
+		p.resultsList.EmptyState = marks.Const("No matching commands")
 		if len(p.cachedFiltered) == 0 {
-			p.resultsList.SetEntries(nil, p.activeIndex)
+			p.resultsList.syncRows(nil, p.activeIndex)
 			return
 		}
-		p.resultsList.SetEntries(p.cachedFiltered, p.activeIndex)
+		p.resultsList.syncRows(p.cachedFiltered, p.activeIndex)
 	}
 }
 
 func (p *CommandPalette) measure(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
-	if p == nil || p.Disabled || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open {
 		return constraints.Constrain(gfx.Size{})
 	}
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
@@ -491,7 +412,7 @@ func (p *CommandPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedSearchBounds = gfx.Rect{}
 	p.cachedResultsBounds = gfx.Rect{}
 	p.cachedFocusBounds = gfx.Rect{}
-	if p.Disabled || !p.Open || p.searchField == nil || p.resultsList == nil || bounds.IsEmpty() {
+	if p.Disabled.Get() || !p.Open || p.searchField == nil || p.resultsList == nil || bounds.IsEmpty() {
 		return
 	}
 	surfaceW, surfaceH := p.surfaceSize(bounds)
@@ -537,7 +458,7 @@ func (p *CommandPalette) surfaceSize(bounds gfx.Rect) (float32, float32) {
 }
 
 func (p *CommandPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if p == nil || bounds.IsEmpty() || p.Disabled || !p.Open {
+	if p == nil || bounds.IsEmpty() || p.Disabled.Get() || !p.Open {
 		return nil
 	}
 	style, slots := p.resolveProjectionTheme(runtime)
@@ -607,7 +528,7 @@ func (p *CommandPalette) resolveProjectionTheme(runtime any) (theme.StyleContext
 
 func (p *CommandPalette) interactionState() theme.InteractionState {
 	switch {
-	case p.Disabled:
+	case p.Disabled.Get():
 		return theme.StateDisabled
 	case p.pressed:
 		return theme.StatePressed
@@ -621,7 +542,7 @@ func (p *CommandPalette) interactionState() theme.InteractionState {
 }
 
 func (p *CommandPalette) onSearchKey(e facet.KeyEvent) bool {
-	if p == nil || p.Disabled || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open {
 		return false
 	}
 	if e.Kind != platform.KeyPress {
@@ -644,7 +565,7 @@ func (p *CommandPalette) onSearchKey(e facet.KeyEvent) bool {
 		p.activateCurrent()
 		return true
 	case platform.KeyEscape:
-		p.SetOpen(false)
+		p.Open = false
 		return true
 	default:
 		return false
@@ -652,32 +573,32 @@ func (p *CommandPalette) onSearchKey(e facet.KeyEvent) bool {
 }
 
 func (p *CommandPalette) onPointer(e facet.PointerEvent) bool {
-	if p == nil || p.Disabled || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open {
 		return false
 	}
 	if e.Kind != platform.PointerPress {
 		return false
 	}
-	hit := p.hitRole.HitTest(e.Position)
+	hit := p.Hit.HitTest(e.Position)
 	if !hit.Hit {
 		return false
 	}
 	if hit.MarkID == commandPaletteMarkIDBackdrop {
-		p.SetOpen(false)
+		p.Open = false
 		return true
 	}
 	return hit.MarkID == commandPaletteMarkIDModalSurface || hit.MarkID == commandPaletteMarkIDSearchField || hit.MarkID == commandPaletteMarkIDResultsList
 }
 
 func (p *CommandPalette) onKey(e facet.KeyEvent) bool {
-	if p == nil || p.Disabled || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open {
 		return false
 	}
 	if e.Kind != platform.KeyPress {
 		return false
 	}
 	if e.Key == platform.KeyEscape {
-		p.SetOpen(false)
+		p.Open = false
 		return true
 	}
 	return false
@@ -685,15 +606,15 @@ func (p *CommandPalette) onKey(e facet.KeyEvent) bool {
 
 func (p *CommandPalette) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if p == nil || p.Disabled || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open {
 		return false
 	}
-	p.SetOpen(false)
+	p.Open = false
 	return true
 }
 
 func (p *CommandPalette) onFocusGained() {
-	if p == nil || p.Disabled {
+	if p == nil || p.Disabled.Get() {
 		return
 	}
 	p.focusedVisible = true
@@ -707,7 +628,7 @@ func (p *CommandPalette) onFocusLost() {
 }
 
 func (p *CommandPalette) hitTest(pt gfx.Point) facet.HitResult {
-	if p == nil || p.Disabled || !p.Open || p.cachedRootBounds.IsEmpty() {
+	if p == nil || p.Disabled.Get() || !p.Open || p.cachedRootBounds.IsEmpty() {
 		return facet.HitResult{}
 	}
 	if !p.cachedSurfaceBounds.IsEmpty() && p.cachedSurfaceBounds.Contains(pt) {
@@ -762,13 +683,13 @@ func (p *CommandPalette) activateEntry(entry runtimepkg.CommandEntry) {
 	if p.registry != nil && !entry.Disabled {
 		if p.registry.Execute(entry.ID) {
 			p.Activated.Emit(entry.ID)
-			p.SetOpen(false)
+			p.Open = false
 			return
 		}
 	}
 	if !entry.Disabled {
 		p.Activated.Emit(entry.ID)
-		p.SetOpen(false)
+		p.Open = false
 	}
 }
 

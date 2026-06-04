@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -60,7 +61,7 @@ func TestBadgeMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ctx := badgeResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(badge, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := badge.layoutRole.Measure(facet.MeasureContext{
+	result := badge.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -71,11 +72,11 @@ func TestBadgeMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(16, 16, result.Size.W, result.Size.H)
-	badge.layoutRole.Arrange(facet.ArrangeContext{
+	badge.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: badge.layoutRole.Parent,
-		ChildGroup:  badge.layoutRole.Child,
+		ParentGroup: badge.Layout.Parent,
+		ChildGroup:  badge.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, bounds)
 	if got := badge.AccessibilityRole(); got != "status" {
@@ -96,7 +97,7 @@ func TestBadgeMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := badge.projectionRole.Project(facet.ProjectionContext{
+	cmds := badge.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -124,7 +125,7 @@ func TestBadgeGoldenComfortable(t *testing.T) {
 
 func TestBadgeGoldenDisabled(t *testing.T) {
 	AssertBadgeGolden(t, "disabled", badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Badge) {
-		b.SetDisabled(true)
+		b.Disabled = marks.Const(true)
 	})
 }
 
@@ -152,15 +153,15 @@ func AssertBadgeGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	ctx := badgeResolvedContext(tokens, density, direction)
 	facet.Attach(badge, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(16, 16, 240, 160)
-	_ = badge.layoutRole.Measure(facet.MeasureContext{
+	_ = badge.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	badge.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: badge.layoutRole.Parent, ChildGroup: badge.layoutRole.Child, Placement: facet.Placement{Mode: facet.PlacementLinear}}, canvas)
-	cmds := badge.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	badge.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: badge.Layout.Parent, ChildGroup: badge.Layout.Child, Placement: facet.Placement{Mode: facet.PlacementLinear}}, canvas)
+	cmds := badge.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
@@ -186,7 +187,7 @@ func AssertBadgeGolden(t *testing.T, name string, tokens theme.Tokens, density t
 
 func newBadgeFixture() *Badge {
 	badge := NewBadge("New")
-	badge.SetIconRef("status-dot")
+	badge.IconRef = marks.Const("status-dot")
 	return badge
 }
 

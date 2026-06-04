@@ -6,16 +6,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func TestListItemMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	item, rt, measureCtx := newListItemTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	item.SetLabel("Sydney")
-	item.SetSelected(true)
+	item.Label = marks.Const("Sydney")
+	item.Selected = marks.Const(true)
 
 	facet.Attach(item, facet.AttachContext{Runtime: rt, Theme: measureCtx})
-	result := item.layoutRole.Measure(facet.MeasureContext{
+	result := item.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
 		ContentScale:     1,
@@ -27,11 +28,11 @@ func TestListItemMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(12, 18, result.Size.W, result.Size.H)
-	item.layoutRole.Arrange(facet.ArrangeContext{
+	item.LayoutRole().Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       measureCtx,
-		ParentGroup: item.layoutRole.Parent,
-		ChildGroup:  item.layoutRole.Child,
+		ParentGroup: item.LayoutRole().Parent,
+		ChildGroup:  item.LayoutRole().Child,
 	}, bounds)
 
 	if got := item.AccessibilityRole(); got != "option" {
@@ -47,7 +48,7 @@ func TestListItemMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected item geometry, got item=%#v selection=%#v", item.cachedItemBounds, item.cachedSelectionBounds)
 	}
 
-	labelHit := item.hitRole.HitTest(gfx.Point{
+	labelHit := item.HitRole().HitTest(gfx.Point{
 		X: item.cachedLabelBounds.Min.X + 1,
 		Y: item.cachedLabelBounds.Min.Y + 1,
 	})
@@ -62,7 +63,7 @@ func TestListItemMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := item.projectionRole.Project(facet.ProjectionContext{
+	cmds := item.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -79,7 +80,7 @@ func newListItemTestFixture(t *testing.T, tokens theme.Tokens, density theme.Den
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	item := NewListItem("Sydney")
+	item := NewListItem(marks.Const("Sydney"))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return item, rt, resolved
 }

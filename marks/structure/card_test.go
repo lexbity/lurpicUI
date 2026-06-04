@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -39,7 +40,7 @@ func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
 	facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
-	result := card.layoutRole.Measure(facet.MeasureContext{
+	result := card.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -51,11 +52,11 @@ func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	card.layoutRole.Arrange(facet.ArrangeContext{
+	card.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       ctx,
-		ParentGroup: card.layoutRole.Parent,
-		ChildGroup:  card.layoutRole.Child,
+		ParentGroup: card.Layout.Parent,
+		ChildGroup:  card.Layout.Child,
 	}, bounds)
 
 	if got := card.AccessibilityRole(); got != "group" {
@@ -64,7 +65,7 @@ func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if got := card.AccessibleName(); got != "Default size card" {
 		t.Fatalf("accessible name = %q, want Default size card", got)
 	}
-	if card.LayoutMode != CardLayoutGrid {
+	if card.LayoutMode.Get() != CardLayoutGrid {
 		t.Fatalf("layout mode = %v, want grid", card.LayoutMode)
 	}
 	if len(card.Children()) < 5 {
@@ -77,7 +78,7 @@ func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	anchors := card.ExportAnchors(layout.AnchorExportContext{ResolvedLayer: layout.ResolvedLayer{Bounds: bounds}})
 	expectBoundsAnchors(t, anchors, bounds)
 
-	cmds := card.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	cmds := card.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
@@ -103,9 +104,9 @@ func TestCardLayoutModes(t *testing.T) {
 	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	for _, mode := range []CardLayoutMode{CardLayoutGrid, CardLayoutVertical, CardLayoutHorizontal} {
 		card := newCardFixture()
-		card.SetLayoutMode(mode)
+		card.LayoutMode = marks.Const(mode)
 		facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
-		result := card.layoutRole.Measure(facet.MeasureContext{
+		result := card.Layout.Measure(facet.MeasureContext{
 			Runtime:          rt,
 			Theme:            ctx,
 			ContentScale:     1,
@@ -132,7 +133,7 @@ func TestCardGoldenComfortable(t *testing.T) {
 
 func TestCardGoldenDisabled(t *testing.T) {
 	AssertCardGolden(t, "disabled", cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(c *Card) {
-		c.SetDisabled(true)
+		c.Disabled = marks.Const(true)
 	})
 }
 
@@ -154,7 +155,7 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	ctx := cardResolvedContext(tokens, density, direction)
 	facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
 	canvas := gfx.RectFromXYWH(12, 12, 616, 336)
-	_ = card.layoutRole.Measure(facet.MeasureContext{
+	_ = card.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            ctx,
 		ContentScale:     1,
@@ -162,8 +163,8 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
 	bounds := canvas
-	card.layoutRole.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: card.layoutRole.Parent, ChildGroup: card.layoutRole.Child}, bounds)
-	cmds := card.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	card.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: card.Layout.Parent, ChildGroup: card.Layout.Child}, bounds)
+	cmds := card.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
@@ -189,8 +190,9 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 
 func newCardFixture() *Card {
 	card := NewCard("Default size card")
-	card.SetGrid(3, 3)
-	card.SetChildren([]CardChild{
+	card.GridColumns = marks.Const(3)
+	card.GridRows = marks.Const(3)
+	card.ChildrenContent = []CardChild{
 		{
 			Key:    "icon",
 			Facet:  primitive.NewIcon(cardTestHeaderIcon()),
@@ -199,13 +201,13 @@ func newCardFixture() *Card {
 		},
 		{
 			Key:    "title",
-			Facet:  primitive.NewText("Default size card"),
+			Facet:  primitive.NewText(marks.Const("Default size card")),
 			Grid:   facet.GridPlacement{ColStart: 1, RowStart: 0, ColSpan: 2, RowSpan: 1},
 			MarkID: cardMarkIDFirstChild + 1,
 		},
 		{
 			Key:    "action",
-			Facet:  action.NewButton("Action", uiinput.ButtonOutlined),
+			Facet:  action.NewButton(marks.Const("Action"), marks.Const(uiinput.ButtonOutlined)),
 			Grid:   facet.GridPlacement{ColStart: 0, RowStart: 1, ColSpan: 1, RowSpan: 1},
 			MarkID: cardMarkIDFirstChild + 2,
 		},
@@ -217,11 +219,11 @@ func newCardFixture() *Card {
 		},
 		{
 			Key:    "body",
-			Facet:  primitive.NewText("Card content\nCard content\nCard content"),
+			Facet:  primitive.NewText(marks.Const("Card content\nCard content\nCard content")),
 			Grid:   facet.GridPlacement{ColStart: 0, RowStart: 2, ColSpan: 3, RowSpan: 1},
 			MarkID: cardMarkIDFirstChild + 4,
 		},
-	})
+	}
 	return card
 }
 

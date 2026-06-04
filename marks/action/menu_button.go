@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -55,24 +56,17 @@ type MenuButtonEntry struct {
 
 // MenuButton implements the action.menu_button standard mark.
 type MenuButton struct {
-	facet.Facet
+	marks.Core
 
-	layoutRole     facet.LayoutRole
-	renderRole     facet.RenderRole
-	projectionRole facet.ProjectionRole
-	hitRole        facet.HitRole
-	inputRole      facet.InputRole
-	focusRole      facet.FocusRole
-	textRole       facet.TextRole
-
-	Activated signal.Signal[string]
-
-	Label           string
-	AccessibleLabel string
-	TriggerIconRef  string
+	Activated       signal.Signal[string]
+	Label           marks.Binding[string]
+	AccessibleLabel marks.Binding[string]
+	TriggerIconRef  marks.Binding[string]
+	Disabled        marks.Binding[bool]
 	Entries         []MenuButtonEntry
-	Disabled        bool
 	Open            bool
+
+	textRole facet.TextRole
 
 	hovered          bool
 	pressed          bool
@@ -132,23 +126,32 @@ type menuButtonEntryLayout struct {
 
 var _ facet.FacetImpl = (*MenuButton)(nil)
 var _ layout.AnchorExporter = (*MenuButton)(nil)
+var _ marks.Mark = (*MenuButton)(nil)
 
 // NewMenuButton constructs an action.menu_button mark with canonical defaults.
 func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 	m := &MenuButton{
-		Facet:        facet.NewFacet(),
-		Label:        label,
-		Entries:      normalizeMenuButtonEntries(entries),
-		focusedIndex: -1,
-		hoveredIndex: -1,
-		pressedIndex: -1,
-		Activated:    signal.NewSignal[string]("menu_button_activated"),
+		Label:           marks.Const(label),
+		AccessibleLabel: marks.Const(""),
+		TriggerIconRef:  marks.Const(""),
+		Disabled:        marks.Const(false),
+		Entries:         normalizeMenuButtonEntries(entries),
+		focusedIndex:    -1,
+		hoveredIndex:    -1,
+		pressedIndex:    -1,
+		Activated:       signal.NewSignal[string]("menu_button_activated"),
 	}
-	m.layoutRole.Parent = facet.GroupParentContract{
+	m.Core.Facet = facet.NewFacet()
+	m.AddBinding(m.Label)
+	m.AddBinding(m.AccessibleLabel)
+	m.AddBinding(m.TriggerIconRef)
+	m.AddBinding(m.Disabled)
+
+	m.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
 		Policy: menuButtonGroupPolicy{button: m},
 	}
-	m.layoutRole.Child = facet.GroupChildContract{
+	m.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := m.measureIntrinsic(ctx, constraints)
@@ -166,14 +169,14 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	m.layoutRole.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	m.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return m.measure(ctx, constraints)
 	}
-	m.layoutRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		m.layoutRole.ArrangedBounds = bounds
+	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		m.Layout.ArrangedBounds = bounds
 		m.arrange(ctx, bounds)
 	}
-	m.renderRole.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+	m.Render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		if list == nil {
 			return
 		}
@@ -183,30 +186,21 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		}
 		list.Commands = append(list.Commands, cmds...)
 	}
-	m.projectionRole.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		cmds := m.buildCommands(m.layoutRole.ArrangedBounds, ctx.Runtime)
-		if len(cmds) == 0 {
-			return nil
-		}
-		return &gfx.CommandList{Commands: cmds}
+	m.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
+		return m.buildCommands(m.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	m.hitRole.OnHitTest = func(p gfx.Point) facet.HitResult { return m.hitTest(p) }
-	m.inputRole.OnPointer = func(e facet.PointerEvent) bool { return m.onPointer(e) }
-	m.inputRole.OnKey = func(e facet.KeyEvent) bool { return m.onKey(e) }
-	m.inputRole.OnDismiss = func(e facet.DismissEvent) bool { return m.onDismiss(e) }
-	m.focusRole.Focusable = func() bool {
-		return !m.Disabled && (strings.TrimSpace(m.Label) != "" || strings.TrimSpace(m.AccessibleLabel) != "" || len(m.Entries) > 0)
+	m.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return m.hitTest(p) }
+	m.Input.OnPointer = func(e facet.PointerEvent) bool { return m.onPointer(e) }
+	m.Input.OnKey = func(e facet.KeyEvent) bool { return m.onKey(e) }
+	m.Input.OnDismiss = func(e facet.DismissEvent) bool { return m.onDismiss(e) }
+	m.Focus.Focusable = func() bool {
+		return !m.Disabled.Get() && (strings.TrimSpace(m.Label.Get()) != "" || strings.TrimSpace(m.AccessibleLabel.Get()) != "" || len(m.Entries) > 0)
 	}
-	m.focusRole.TabIndex = 0
-	m.focusRole.OnFocusGained = func() { m.onFocusGained() }
-	m.focusRole.OnFocusLost = func() { m.onFocusLost() }
+	m.Focus.TabIndex = 0
+	m.Focus.OnFocusGained = func() { m.onFocusGained() }
+	m.Focus.OnFocusLost = func() { m.onFocusLost() }
 	m.textRole.IMEEnabled = false
-	m.AddRole(&m.layoutRole)
-	m.AddRole(&m.renderRole)
-	m.AddRole(&m.projectionRole)
-	m.AddRole(&m.hitRole)
-	m.AddRole(&m.inputRole)
-	m.AddRole(&m.focusRole)
+	m.RegisterRoles()
 	m.AddRole(&m.textRole)
 	return m
 }
@@ -217,6 +211,11 @@ func (m *MenuButton) Base() *facet.Facet {
 	return &m.Facet
 }
 
+// Descriptor satisfies marks.Mark.
+func (m *MenuButton) Descriptor() marks.Descriptor {
+	return marks.Descriptor{Family: "action", TypeName: "menu_button"}
+}
+
 // AccessibilityRole reports the semantic role required by the spec.
 func (m *MenuButton) AccessibilityRole() string { return "button_with_menu" }
 
@@ -225,10 +224,10 @@ func (m *MenuButton) AccessibleName() string {
 	if m == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(m.AccessibleLabel); name != "" {
+	if name := strings.TrimSpace(m.AccessibleLabel.Get()); name != "" {
 		return name
 	}
-	if name := strings.TrimSpace(m.Label); name != "" {
+	if name := strings.TrimSpace(m.Label.Get()); name != "" {
 		return name
 	}
 	for _, entry := range m.Entries {
@@ -245,95 +244,19 @@ func (m *MenuButton) AccessibleName() string {
 	return ""
 }
 
-// SetLabel updates the authored trigger label.
-func (m *MenuButton) SetLabel(label string) {
-	if m == nil || m.Label == label {
-		return
-	}
-	m.Label = label
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetAccessibleLabel updates the trigger accessible label.
-func (m *MenuButton) SetAccessibleLabel(label string) {
-	if m == nil || m.AccessibleLabel == label {
-		return
-	}
-	m.AccessibleLabel = label
-	m.invalidate(facet.DirtyProjection)
-}
-
-// SetTriggerIconRef updates the authored trigger icon reference.
-func (m *MenuButton) SetTriggerIconRef(ref string) {
-	if m == nil || m.TriggerIconRef == ref {
-		return
-	}
-	m.TriggerIconRef = strings.TrimSpace(ref)
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetEntries replaces the menu entries.
-func (m *MenuButton) SetEntries(entries []MenuButtonEntry) {
-	if m == nil {
-		return
-	}
-	m.Entries = normalizeMenuButtonEntries(entries)
-	m.syncFocusIndex()
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetOpen updates the open state.
-func (m *MenuButton) SetOpen(open bool) {
-	if m == nil || m.Open == open {
-		return
-	}
-	m.Open = open
-	if open {
-		m.syncFocusIndex()
-	} else {
-		m.pressedIndex = -1
-		m.hoveredIndex = -1
-	}
-	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetDisabled toggles disabled state.
-func (m *MenuButton) SetDisabled(disabled bool) {
-	if m == nil || m.Disabled == disabled {
-		return
-	}
-	m.Disabled = disabled
-	if disabled {
-		m.hovered = false
-		m.pressed = false
-		m.focusedVisible = false
-		m.focusFromPointer = false
-		m.hoveredIndex = -1
-		m.pressedIndex = -1
-		m.Open = false
-	}
-	m.invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
 // ExportAnchors publishes the menu button anchor set.
 func (m *MenuButton) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if m == nil {
 		return nil
 	}
-	bounds := m.layoutRole.ArrangedBounds
+	bounds := m.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-	}
+	out := m.Core.DefaultAnchors(bounds, ctx)
 	if m.cachedTriggerLabelLayout != nil {
 		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: m.cachedTriggerLabelBounds.Min.Y + m.cachedTriggerLabelLayout.Baseline}
 	} else {
@@ -348,17 +271,18 @@ func (m *MenuButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 // Children returns the facet's immediate child list.
 func (m *MenuButton) Children() []facet.GroupChild { return nil }
 
-// OnAttach is unused.
-func (m *MenuButton) OnAttach(ctx facet.AttachContext) {}
+// OnAttach subscribes binding sources.
+func (m *MenuButton) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
 
 // OnActivate is unused.
-func (m *MenuButton) OnActivate() {}
+func (m *MenuButton) OnActivate() { m.Core.OnActivate() }
 
 // OnDeactivate is unused.
-func (m *MenuButton) OnDeactivate() {}
+func (m *MenuButton) OnDeactivate() { m.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (m *MenuButton) OnDetach() {
+	m.Core.OnDetach()
 	m.cachedTokens = theme.Tokens{}
 	m.cachedRecipe = shared.MenuButtonSlots{}
 	m.cachedRootBounds = gfx.Rect{}
@@ -433,9 +357,9 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	m.cachedShortcutStyle = shortcutStyle
 	m.cachedSectionStyle = sectionStyle
 
-	triggerLabel := strings.TrimSpace(m.Label)
+	triggerLabel := strings.TrimSpace(m.Label.Get())
 	if triggerLabel == "" {
-		triggerLabel = strings.TrimSpace(m.AccessibleLabel)
+		triggerLabel = strings.TrimSpace(m.AccessibleLabel.Get())
 	}
 	shaper := m.newShaper(ctx.Runtime)
 	maxWidth := constraints.MaxSize.W
@@ -519,7 +443,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	}
 	m.cachedEntryLayouts = layouts
 
-	triggerIconPresent := m.TriggerIconRef != ""
+	triggerIconPresent := m.TriggerIconRef.Get() != ""
 	triggerSizes := []gfx.Size{}
 	if triggerIconPresent {
 		triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedTriggerIconSize, H: m.cachedTriggerIconSize})
@@ -558,8 +482,8 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 		size.H += m.cachedGap + menuH
 	}
 	size = constraints.Constrain(size)
-	m.layoutRole.MeasuredSize = size
-	m.layoutRole.MeasuredResult = facet.MeasureResult{
+	m.Layout.MeasuredSize = size
+	m.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
 		Intrinsic: facet.IntrinsicSize{
 			Min:       size,
@@ -568,7 +492,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 		},
 		Constraints: constraints,
 	}
-	return m.layoutRole.MeasuredResult
+	return m.Layout.MeasuredResult
 }
 
 func (m *MenuButton) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
@@ -583,7 +507,7 @@ func (m *MenuButton) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	m.cachedChevronBounds = gfx.Rect{}
 	m.cachedMenuBounds = gfx.Rect{}
 	m.cachedFocusBounds = gfx.Rect{}
-	m.layoutRole.ArrangedBounds = bounds
+	m.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
 	}
@@ -614,7 +538,7 @@ func (m *MenuButton) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.cachedTriggerBounds = gfx.RectFromXYWH(startX, triggerY, triggerW, triggerH)
 	}
 	triggerLabelLayout := m.cachedTriggerLabelLayout
-	triggerIconPresent := strings.TrimSpace(m.TriggerIconRef) != ""
+	triggerIconPresent := strings.TrimSpace(m.TriggerIconRef.Get()) != ""
 	triggerSizes := []gfx.Size{}
 	if triggerIconPresent {
 		triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedTriggerIconSize, H: m.cachedTriggerIconSize})
@@ -747,8 +671,8 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if m.cachedTriggerLabelLayout != nil && !isTransparentMaterial(label) {
 		cmds = append(cmds, primitive.TextLayoutCommands(m.cachedTriggerLabelLayout, m.cachedTriggerLabelBounds, gfx.SolidBrush(materialColor(label)))...)
 	}
-	if !m.cachedTriggerIconBounds.IsEmpty() && m.TriggerIconRef != "" {
-		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), m.TriggerIconRef, m.cachedTriggerIconBounds, triggerIcon); len(iconCmds) > 0 {
+	if !m.cachedTriggerIconBounds.IsEmpty() && m.TriggerIconRef.Get() != "" {
+		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), m.TriggerIconRef.Get(), m.cachedTriggerIconBounds, triggerIcon); len(iconCmds) > 0 {
 			cmds = append(cmds, iconCmds...)
 		}
 	}
@@ -828,7 +752,7 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (m *MenuButton) hitTest(p gfx.Point) facet.HitResult {
-	if m == nil || m.layoutRole.ArrangedBounds.IsEmpty() || !m.layoutRole.ArrangedBounds.Contains(p) {
+	if m == nil || m.Layout.ArrangedBounds.IsEmpty() || !m.Layout.ArrangedBounds.Contains(p) {
 		return facet.HitResult{}
 	}
 	cursor := m.cursorShape()
@@ -857,14 +781,14 @@ func (m *MenuButton) hitTest(p gfx.Point) facet.HitResult {
 }
 
 func (m *MenuButton) cursorShape() facet.CursorShape {
-	if m.Disabled {
+	if m.Disabled.Get() {
 		return facet.CursorDefault
 	}
 	return facet.CursorPointer
 }
 
 func (m *MenuButton) onPointer(e facet.PointerEvent) bool {
-	if m.Disabled {
+	if m.Disabled.Get() {
 		return false
 	}
 	idx := m.indexAt(e.Position)
@@ -931,7 +855,7 @@ func (m *MenuButton) onPointer(e facet.PointerEvent) bool {
 }
 
 func (m *MenuButton) onKey(e facet.KeyEvent) bool {
-	if m.Disabled {
+	if m.Disabled.Get() {
 		return false
 	}
 	if m.Open {
@@ -987,10 +911,13 @@ func (m *MenuButton) onKey(e facet.KeyEvent) bool {
 
 func (m *MenuButton) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if m.Disabled || !m.Open {
+	if m.Disabled.Get() || !m.Open {
 		return false
 	}
-	m.SetOpen(false)
+	m.Open = false
+	m.pressedIndex = -1
+	m.hoveredIndex = -1
+	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	return true
 }
 
@@ -1011,7 +938,7 @@ func (m *MenuButton) onFocusLost() {
 
 func (m *MenuButton) interactionState() theme.InteractionState {
 	switch {
-	case m.Disabled:
+	case m.Disabled.Get():
 		return theme.StateDisabled
 	case m.pressed:
 		return theme.StatePressed
@@ -1061,11 +988,19 @@ func (m *MenuButton) activateEntry(index int) {
 	}
 	entry := m.cachedEntryLayouts[index].entry
 	m.Activated.Emit(entryKey(entry))
-	m.SetOpen(false)
+	m.Open = false
+	m.pressedIndex = -1
+	m.hoveredIndex = -1
+	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 func (m *MenuButton) toggleOpen() {
-	m.SetOpen(!m.Open)
+	m.Open = !m.Open
+	if !m.Open {
+		m.pressedIndex = -1
+		m.hoveredIndex = -1
+	}
+	m.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 func (m *MenuButton) syncFocusIndex() {

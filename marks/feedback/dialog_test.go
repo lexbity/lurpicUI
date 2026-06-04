@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
@@ -45,7 +46,7 @@ func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := dialog.layoutRole.Measure(facet.MeasureContext{
+	result := dialog.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -56,11 +57,11 @@ func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected measurable size, got %#v", result.Size)
 	}
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
-	dialog.layoutRole.Arrange(facet.ArrangeContext{
+	dialog.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: dialog.layoutRole.Parent,
-		ChildGroup:  dialog.layoutRole.Child,
+		ParentGroup: dialog.Layout.Parent,
+		ChildGroup:  dialog.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, bounds)
 
@@ -82,7 +83,7 @@ func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 			t.Fatalf("missing anchor %q", name)
 		}
 	}
-	cmds := dialog.projectionRole.Project(facet.ProjectionContext{
+	cmds := dialog.Projection.Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,
@@ -117,20 +118,20 @@ func TestDialogInteractionsEmitActionAndDismiss(t *testing.T) {
 	}
 
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = dialog.layoutRole.Measure(facet.MeasureContext{
+	_ = dialog.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 420, H: 280}})
-	dialog.layoutRole.Arrange(facet.ArrangeContext{
+	dialog.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: dialog.layoutRole.Parent,
-		ChildGroup:  dialog.layoutRole.Child,
+		ParentGroup: dialog.Layout.Parent,
+		ChildGroup:  dialog.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
-	}, gfx.RectFromXYWH(0, 0, dialog.layoutRole.MeasuredSize.W, dialog.layoutRole.MeasuredSize.H))
+	}, gfx.RectFromXYWH(0, 0, dialog.Layout.MeasuredSize.W, dialog.Layout.MeasuredSize.H))
 
 	var actioned, dismissed int
 	dialog.Actioned.Subscribe(func(i int) { actioned = i + 1 })
@@ -154,7 +155,7 @@ func TestDialogInteractionsEmitActionAndDismiss(t *testing.T) {
 		t.Fatalf("expected dismiss emission after action, got %d", dismissed)
 	}
 
-	dialog.SetOpen(true)
+	dialog.Open = marks.Const(true)
 	if !dialog.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEscape}) {
 		t.Fatal("expected escape to be handled")
 	}
@@ -184,9 +185,9 @@ func TestDialogRecipe_exposes_expected_slots(t *testing.T) {
 
 func TestDialogCustomContentVertical(t *testing.T) {
 	dialog := newDialogFixture()
-	dialog.SetContentChildren([]DialogContentChild{
-		{Key: "alpha", Facet: primitive.NewText("Alpha")},
-		{Key: "beta", Facet: primitive.NewText("Beta")},
+	dialog.ContentChildren = marks.Const([]DialogContentChild{
+		{Key: "alpha", Facet: primitive.NewText(marks.Const("Alpha"))},
+		{Key: "beta", Facet: primitive.NewText(marks.Const("Beta"))},
 	})
 	assertDialogContentLayout(t, dialog, DialogContentLayoutVertical)
 	if got := len(dialog.cachedBodyGroup.cachedMeasuredChildren); got != 3 {
@@ -202,10 +203,10 @@ func TestDialogCustomContentVertical(t *testing.T) {
 
 func TestDialogCustomContentHorizontal(t *testing.T) {
 	dialog := newDialogFixture()
-	dialog.SetContentLayoutMode(DialogContentLayoutHorizontal)
-	dialog.SetContentChildren([]DialogContentChild{
-		{Key: "alpha", Facet: primitive.NewText("Alpha")},
-		{Key: "beta", Facet: primitive.NewText("Beta")},
+	dialog.ContentLayoutMode = marks.Const(DialogContentLayoutHorizontal)
+	dialog.ContentChildren = marks.Const([]DialogContentChild{
+		{Key: "alpha", Facet: primitive.NewText(marks.Const("Alpha"))},
+		{Key: "beta", Facet: primitive.NewText(marks.Const("Beta"))},
 	})
 	assertDialogContentLayout(t, dialog, DialogContentLayoutHorizontal)
 	if got := len(dialog.cachedBodyGroup.cachedMeasuredChildren); got != 3 {
@@ -218,12 +219,13 @@ func TestDialogCustomContentHorizontal(t *testing.T) {
 
 func TestDialogCustomContentGrid(t *testing.T) {
 	dialog := newDialogFixture()
-	dialog.SetContentLayoutMode(DialogContentLayoutGrid)
-	dialog.SetContentGrid(2, 2)
-	dialog.SetContentChildren([]DialogContentChild{
-		{Key: "alpha", Facet: primitive.NewText("Alpha")},
-		{Key: "beta", Facet: primitive.NewText("Beta")},
-		{Key: "gamma", Facet: primitive.NewText("Gamma")},
+	dialog.ContentLayoutMode = marks.Const(DialogContentLayoutGrid)
+	dialog.ContentGridColumns = marks.Const(2)
+	dialog.ContentGridRows = marks.Const(2)
+	dialog.ContentChildren = marks.Const([]DialogContentChild{
+		{Key: "alpha", Facet: primitive.NewText(marks.Const("Alpha"))},
+		{Key: "beta", Facet: primitive.NewText(marks.Const("Beta"))},
+		{Key: "gamma", Facet: primitive.NewText(marks.Const("Gamma"))},
 	})
 	assertDialogContentLayout(t, dialog, DialogContentLayoutGrid)
 	if got := len(dialog.cachedBodyGroup.cachedMeasuredChildren); got != 4 {
@@ -250,7 +252,7 @@ func TestDialogGoldenComfortable(t *testing.T) {
 
 func TestDialogGoldenDisabled(t *testing.T) {
 	AssertDialogGolden(t, "disabled", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {
-		d.SetDisabled(true)
+		d.Disabled = marks.Const(true)
 	})
 }
 
@@ -282,25 +284,26 @@ func TestDialogGoldenRTL(t *testing.T) {
 
 func TestDialogGoldenOpen(t *testing.T) {
 	AssertDialogGolden(t, "open", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {
-		d.SetOpen(true)
+		d.Open = marks.Const(true)
 	})
 }
 
 func TestDialogGoldenCustomContentGrid(t *testing.T) {
 	AssertDialogGolden(t, "content_grid", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {
-		d.SetContentLayoutMode(DialogContentLayoutGrid)
-		d.SetContentGrid(2, 2)
-		d.SetContentChildren([]DialogContentChild{
-			{Key: "alpha", Facet: primitive.NewText("Alpha")},
-			{Key: "beta", Facet: primitive.NewText("Beta")},
-			{Key: "gamma", Facet: primitive.NewText("Gamma")},
+		d.ContentLayoutMode = marks.Const(DialogContentLayoutGrid)
+		d.ContentGridColumns = marks.Const(2)
+		d.ContentGridRows = marks.Const(2)
+		d.ContentChildren = marks.Const([]DialogContentChild{
+			{Key: "alpha", Facet: primitive.NewText(marks.Const("Alpha"))},
+			{Key: "beta", Facet: primitive.NewText(marks.Const("Beta"))},
+			{Key: "gamma", Facet: primitive.NewText(marks.Const("Gamma"))},
 		})
 	})
 }
 
 func TestDialogGoldenDismissed(t *testing.T) {
 	AssertDialogGolden(t, "dismissed", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {
-		d.SetOpen(false)
+		d.Open = marks.Const(false)
 	})
 }
 
@@ -314,24 +317,24 @@ func AssertDialogGolden(t *testing.T, name string, tokens theme.Tokens, density 
 	resolved := alertResolvedContext(tokens, density, direction)
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
 	canvas := gfx.RectFromXYWH(0, 0, 420, 280)
-	_ = dialog.layoutRole.Measure(facet.MeasureContext{
+	_ = dialog.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(density),
 		WritingDirection: facet.WritingDirection(direction),
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
-	dialog.layoutRole.Arrange(facet.ArrangeContext{
+	dialog.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: dialog.layoutRole.Parent,
-		ChildGroup:  dialog.layoutRole.Child,
+		ParentGroup: dialog.Layout.Parent,
+		ChildGroup:  dialog.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, canvas)
 	if mutate != nil {
 		mutate(dialog)
 	}
-	cmds := dialog.projectionRole.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
+	cmds := dialog.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: canvas, ContentScale: 1})
 	if cmds == nil {
 		cmds = &gfx.CommandList{}
 	}
@@ -364,7 +367,7 @@ func newDialogFixture() *Dialog {
 			{Label: "Delete", Variant: uiinput.ButtonFilled},
 		},
 	)
-	d.SetCloseButtonLabel("Close")
+	d.CloseButtonLabel = marks.Const("Close")
 	return d
 }
 
@@ -377,20 +380,20 @@ func assertDialogContentLayout(t *testing.T, dialog *Dialog, mode DialogContentL
 		fonts:     mustAlertFontRegistry(t),
 	}
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = dialog.layoutRole.Measure(facet.MeasureContext{
+	_ = dialog.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
 		Density:          facet.DensityID(theme.DensityIDComfortable),
 		WritingDirection: facet.WritingDirectionLTR,
 	}, facet.Constraints{MaxSize: gfx.Size{W: 420, H: 280}})
-	dialog.layoutRole.Arrange(facet.ArrangeContext{
+	dialog.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
 		Theme:       resolved,
-		ParentGroup: dialog.layoutRole.Parent,
-		ChildGroup:  dialog.layoutRole.Child,
+		ParentGroup: dialog.Layout.Parent,
+		ChildGroup:  dialog.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
-	}, gfx.RectFromXYWH(0, 0, dialog.layoutRole.MeasuredSize.W, dialog.layoutRole.MeasuredSize.H))
+	}, gfx.RectFromXYWH(0, 0, dialog.Layout.MeasuredSize.W, dialog.Layout.MeasuredSize.H))
 	if dialog.cachedBodyGroup == nil {
 		t.Fatal("expected body group")
 	}
