@@ -5,6 +5,7 @@
 /cmd/quick_square_app
 /render/vulkan/crates/lurpic_render/target/
 marks/**/**/testdata/
+*_actual.png
 .claude
 .codex
 .windsurf

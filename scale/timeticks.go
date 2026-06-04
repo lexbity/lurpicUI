@@ -107,8 +107,9 @@ func durationAdvance(d time.Duration) func(time.Time) time.Time {
 	}
 }
 
-// chooseInterval selects the coarsest interval that yields ≤ count ticks
-// across the span [loMs, hiMs] in the given location.
+// chooseInterval selects the interval whose approximate tick count is
+// closest to the requested count across the span [loMs, hiMs] in the
+// given location.
 func chooseInterval(loMs, hiMs float64, count int, loc *time.Location) timeInterval {
 	if count <= 0 {
 		return timeInterval{}

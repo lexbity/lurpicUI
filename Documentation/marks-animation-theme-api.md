@@ -1,4 +1,15 @@
-# Marks, Animation, and Theme API
+# Marks, Animation, and Theme API (Stale — superseded by marks.md)
+
+**This document describes the pre-rewrite model and is retained for reference
+only.** The post-rewrite model is documented in `marks.md`.
+
+The pre-rewrite model referenced `ConstructionClass`, `Family`/`Descriptor` as
+hand-declared flags, and a `Mark` interface without `Descriptor()`. The
+post-rewrite model derives capability flags via `marks.Describe()`, uses
+`marks.Core` + `Binding[T]`, and requires only `Family` + `TypeName` from
+authors.
+
+---
 
 This document covers the user-facing APIs for marks, animation, and themes.
 

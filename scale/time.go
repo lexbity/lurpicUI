@@ -105,10 +105,10 @@ func (s TimeScale) Ticks(count int) []Tick {
 	}
 	out := make([]Tick, len(vals))
 	for i, v := range vals {
-		t := time.UnixMilli(int64(v))
+		t := time.UnixMilli(int64(v)).In(loc)
 		var prev time.Time
 		if i > 0 {
-			prev = time.UnixMilli(int64(vals[i-1]))
+			prev = time.UnixMilli(int64(vals[i-1])).In(loc)
 		}
 		out[i] = Tick{Value: v, Label: formatTimeTick(t, prev, iv)}
 	}

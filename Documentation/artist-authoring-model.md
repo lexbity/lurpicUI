@@ -1,4 +1,14 @@
-# Artist Authoring Model
+# Artist Authoring Model (Stale — superseded by marks.md)
+
+**This document describes the pre-rewrite model and is retained for reference
+only.** The post-rewrite model is documented in `marks.md`.
+
+The pre-rewrite model used `facet.Facet` embedding, imperative `SetX` methods,
+and dual `OnCollect`/`OnProject` render paths. The post-rewrite model uses
+`marks.Core` embedding, `marks.Binding[T]` config, and a single `BuildCommands`
+render path.
+
+---
 
 This document describes the mark-based authoring model used to build UI,
 annotation, chart, and navigation scenes.

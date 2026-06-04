@@ -42,7 +42,7 @@ func AssertGolden(t reporter, surface *MemorySurface, name string) {
 
 	want, err := readPNG(wantPath)
 	if err != nil {
-		writePNGOrFail(t, wantPath, got)
+		t.Fatalf("missing golden %s; run with -update-golden to create", wantPath)
 		return
 	}
 	if !imagesClose(got, want, 2) {

@@ -529,8 +529,8 @@ func rasterizeStrokePath(target *image.RGBA, state renderState, path gfx.Path, w
 	// Build the annular path: outer contour CW then inner contour CCW.
 	// The rasterizer accumulates winding counts; opposite windings cancel
 	// inside the inner contour, so only the band between outer and inner fills.
-	outerSegs := offsetPathContour(path.Segments, half)
-	innerSegs := offsetPathContour(path.Segments, -half)
+	outerSegs := gfx.OffsetContour(path.Segments, half)
+	innerSegs := gfx.OffsetContour(path.Segments, -half)
 
 	if len(outerSegs) == 0 {
 		return
@@ -539,54 +539,6 @@ func rasterizeStrokePath(target *image.RGBA, state renderState, path gfx.Path, w
 	// Combine into one path: outer (CW) followed by inner reversed (CCW).
 	annular := gfx.Path{Segments: append(outerSegs, reverseContour(innerSegs)...)}
 	rasterizePath(target, state, annular, brush, 1)
-}
-
-// offsetPathContour produces a uniformly offset version of a simple closed
-// contour by moving each control point outward (positive d) or inward
-// (negative d) along the axis-aligned normal. For the axis-aligned rectangular
-// and rounded-rect shapes used by focus rings and borders this is exact.
-// For general curves the control points are translated radially, which is a
-// close approximation for small widths relative to curvature.
-func offsetPathContour(segs []gfx.PathSegment, d float32) []gfx.PathSegment {
-	if len(segs) == 0 {
-		return nil
-	}
-
-	// Compute centroid to determine outward direction per point.
-	var cx, cy float32
-	var n int
-	for _, seg := range segs {
-		count := segPointCount(seg.Verb)
-		for i := 0; i < count; i++ {
-			cx += seg.Pts[i].X
-			cy += seg.Pts[i].Y
-			n++
-		}
-	}
-	if n == 0 {
-		return nil
-	}
-	cx /= float32(n)
-	cy /= float32(n)
-
-	out := make([]gfx.PathSegment, len(segs))
-	for i, seg := range segs {
-		out[i].Verb = seg.Verb
-		count := segPointCount(seg.Verb)
-		for j := 0; j < count; j++ {
-			p := seg.Pts[j]
-			dx := p.X - cx
-			dy := p.Y - cy
-			len2 := dx*dx + dy*dy
-			if len2 > 0 {
-				l := float32(math.Sqrt(float64(len2)))
-				out[i].Pts[j] = gfx.Point{X: p.X + dx/l*d, Y: p.Y + dy/l*d}
-			} else {
-				out[i].Pts[j] = p
-			}
-		}
-	}
-	return out
 }
 
 // reverseContour reverses segment order and re-winds a closed contour so it
@@ -628,19 +580,6 @@ func reverseContour(segs []gfx.PathSegment) []gfx.PathSegment {
 	}
 	out = append(out, gfx.PathSegment{Verb: gfx.PathClose})
 	return out
-}
-
-func segPointCount(v gfx.PathVerb) int {
-	switch v {
-	case gfx.PathMoveTo, gfx.PathLineTo:
-		return 1
-	case gfx.PathQuadTo:
-		return 2
-	case gfx.PathCubicTo:
-		return 3
-	default:
-		return 0
-	}
 }
 
 // rasterizeSegment strokes a single line segment A→B with the given half-width

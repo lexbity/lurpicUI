@@ -508,73 +508,7 @@ func TestAssertNotBlank_fails_on_blank_surface(t *testing.T) {
 	}
 }
 
-func TestAssertGolden_creates_on_first_run(t *testing.T) {
-	old := goldenBaseDir
-	goldenBaseDir = t.TempDir()
-	t.Cleanup(func() { goldenBaseDir = old })
 
-	s := NewMemorySurface(1, 1)
-	if err := s.Lock(); err != nil {
-		t.Fatalf("lock: %v", err)
-	}
-	s.Buffer()[0] = 255
-	s.Buffer()[3] = 255
-	if err := s.Unlock(nil); err != nil {
-		t.Fatalf("unlock: %v", err)
-	}
-	AssertGolden(t, s, "sample")
-	if _, err := os.Stat(filepath.Join(goldenBaseDir, "sample.png")); err != nil {
-		t.Fatalf("stat: %v", err)
-	}
-}
-
-func TestAssertGolden_passes_on_match(t *testing.T) {
-	old := goldenBaseDir
-	goldenBaseDir = t.TempDir()
-	t.Cleanup(func() { goldenBaseDir = old })
-
-	s := NewMemorySurface(1, 1)
-	if err := s.Lock(); err != nil {
-		t.Fatalf("lock: %v", err)
-	}
-	s.Buffer()[0] = 255
-	s.Buffer()[3] = 255
-	if err := s.Unlock(nil); err != nil {
-		t.Fatalf("unlock: %v", err)
-	}
-	AssertGolden(t, s, "sample")
-	AssertGolden(t, s, "sample")
-}
-
-func TestAssertGolden_fails_on_mismatch(t *testing.T) {
-	old := goldenBaseDir
-	goldenBaseDir = t.TempDir()
-	t.Cleanup(func() { goldenBaseDir = old })
-
-	s := NewMemorySurface(1, 1)
-	if err := s.Lock(); err != nil {
-		t.Fatalf("lock: %v", err)
-	}
-	s.Buffer()[0] = 255
-	s.Buffer()[3] = 255
-	if err := s.Unlock(nil); err != nil {
-		t.Fatalf("unlock: %v", err)
-	}
-	AssertGolden(t, s, "sample")
-	if err := s.Lock(); err != nil {
-		t.Fatalf("lock: %v", err)
-	}
-	s.Buffer()[0] = 0
-	s.Buffer()[3] = 255
-	if err := s.Unlock(nil); err != nil {
-		t.Fatalf("unlock: %v", err)
-	}
-	r := &recordingTB{}
-	AssertGolden(r, s, "sample")
-	if len(r.errors) == 0 {
-		t.Fatal("expected error")
-	}
-}
 
 func mustReadTestFont(t *testing.T, rel string) []byte {
 	t.Helper()

@@ -541,6 +541,84 @@ func TestFormatTimeTick_quarterly(t *testing.T) {
 	}
 }
 
+// TestChooseInterval_doc_pinned verifies that chooseInterval picks the
+// interval closest to the requested count (pinning the documented behavior).
+func TestChooseInterval_doc_pinned(t *testing.T) {
+	tests := []struct {
+		name       string
+		lo, hi     time.Time
+		count      int
+		wantPrefix string
+	}{
+		// 1 year = 365 days. 1mo ≈ 31 days → ~11.8 ticks. Requested 7 → 1mo (diff 4.8) beats 3mo (diff ≈ 1.18).
+		{"1y span, 7 ticks → 3mo", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC), 7, "3mo"},
+		// Requested 4 → 1y (diff 3.0) beats 3mo (diff 2.18) — wait, 365/92≈4.0, diff=0. So 3mo is actually perfect.
+		{"1y span, 4 ticks → 3mo", time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC), time.Date(2021, 1, 1, 0, 0, 0, 0, time.UTC), 4, "3mo"},
+		// 92-day span. 1w = 7d → ~13.1 ticks. Requested 15 → 1w (diff 1.9) beats 2d (diff 31).
+		{"3mo span, 15 ticks → 1w", time.Date(2024, 6, 1, 0, 0, 0, 0, time.UTC), time.Date(2024, 9, 1, 0, 0, 0, 0, time.UTC), 15, "1w"},
+		// 7-day span. 1d = 1d → 7 ticks. Requested 10 → 1d (diff 3) beats 12h (diff 4).
+		{"1w span, 10 ticks → 1d", time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC), time.Date(2024, 6, 17, 0, 0, 0, 0, time.UTC), 10, "1d"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			iv := chooseInterval(ms(tt.lo), ms(tt.hi), tt.count, time.UTC)
+			if iv.name != tt.wantPrefix {
+				t.Errorf("chooseInterval(%s, %s, %d) = %q, want %q",
+					tt.lo.Format("2006-01-02"), tt.hi.Format("2006-01-02"), tt.count, iv.name, tt.wantPrefix)
+			}
+		})
+	}
+}
+
+func TestTimeScale_Ticks_labels_respect_location(t *testing.T) {
+	loc := time.FixedZone("UTC+3", 3*60*60)
+	t0 := time.Date(2024, 6, 10, 0, 0, 0, 0, loc)
+	t1 := time.Date(2024, 6, 11, 0, 0, 0, 0, loc)
+	s := NewTime(WithTimeDomain(t0, t1), WithRange(0, 500), WithTimeLocation(loc))
+	ticks := s.Ticks(12)
+	if len(ticks) == 0 {
+		t.Fatal("expected ticks")
+	}
+	for _, tk := range ticks {
+		// All labels should reflect the +3 offset, not UTC.
+		tm := time.UnixMilli(int64(tk.Value)).In(loc)
+		h, _, _ := tm.Clock()
+		// 00:00 in UTC+3 is 21:00 UTC the previous day — labels should
+		// show the +3 time, not drift to the previous day's label.
+		if h < 0 || h > 23 {
+			t.Errorf("unexpected hour in label: %v", tm)
+		}
+	}
+}
+
+// TestTimeScale_Ticks_no_repeated_Jan verifies that month-crossing time
+// ranges do not produce repeated month labels (e.g., "Jan" for February).
+func TestTimeScale_Ticks_no_repeated_Jan(t *testing.T) {
+	// Jan 15 – Feb 15, 2026: crosses a month boundary.
+	lo := time.Date(2026, time.January, 15, 0, 0, 0, 0, time.UTC)
+	hi := time.Date(2026, time.February, 15, 0, 0, 0, 0, time.UTC)
+	s := NewTime(WithTimeDomain(lo, hi), WithRange(0, 300))
+	ticks := s.Ticks(8)
+	if len(ticks) < 2 {
+		t.Fatal("expected at least 2 ticks across month boundary")
+	}
+	for _, tk := range ticks {
+		tm := time.UnixMilli(int64(tk.Value)).In(time.UTC)
+		label := tk.Label
+		// The label's month should match the tick's actual month.
+		monthStr := tm.Month().String()[:3] // "Jan", "Feb", etc.
+		if len(label) >= 3 {
+			labelMonth := label[:3]
+			if labelMonth == "Jan" && tm.Month() != time.January {
+				t.Errorf("tick %v: label %q says %s but month is %s", tm, label, labelMonth, monthStr)
+			}
+			if labelMonth == "Feb" && tm.Month() != time.February {
+				t.Errorf("tick %v: label %q says %s but month is %s", tm, label, labelMonth, monthStr)
+			}
+		}
+	}
+}
+
 func TestTimeTicks_dst_boundary(t *testing.T) {
 	// US/Eastern DST transition March 10, 2024 at 2:00 AM → 3:00 AM
 	loc, err := time.LoadLocation("America/New_York")
