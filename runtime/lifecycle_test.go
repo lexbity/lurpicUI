@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // lifecycleApp implements platform.LifecycleCapable so the runtime's
@@ -144,6 +146,12 @@ func mustLifecycleRuntime(t *testing.T, b render.Backend) (*Runtime, *lifecycleA
 
 func mustLifecycleRuntimeWithAssets(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) *Runtime {
 	t.Helper()
+	rt, _ := mustLifecycleRuntimeWithAssetsAndApp(t, mgr, reg)
+	return rt
+}
+
+func mustLifecycleRuntimeWithAssetsAndApp(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) (*Runtime, *lifecycleApp) {
+	t.Helper()
 	root := facet.NewFacet()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
@@ -155,7 +163,7 @@ func mustLifecycleRuntimeWithAssets(t *testing.T, mgr assets.Manager, reg *asset
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
-	return rt
+	return rt, app
 }
 
 func waitForFatal(t *testing.T, rt *Runtime, timeout time.Duration) error {
@@ -176,12 +184,26 @@ func TestRuntime_clean_lifecycle(t *testing.T) {
 	bf := &backendFixture{}
 	rt, _ := mustLifecycleRuntime(t, bf)
 
+	frameSubmitted := make(chan struct{}, 1)
+	rt.onFrameSubmitted = func() {
+		select {
+		case frameSubmitted <- struct{}{}:
+		default:
+		}
+	}
+
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- rt.Run()
 	}()
 
-	time.Sleep(50 * time.Millisecond)
+	select {
+	case <-frameSubmitted:
+	case <-time.After(2 * time.Second):
+		rt.Shutdown()
+		t.Fatal("first frame not submitted within timeout")
+	}
+
 	rt.Shutdown()
 
 	select {
@@ -191,6 +213,10 @@ func TestRuntime_clean_lifecycle(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Run did not return after Shutdown")
+	}
+
+	if bf.submitCount.Load() == 0 {
+		t.Fatal("expected at least one frame submitted during run")
 	}
 }
 
@@ -204,17 +230,30 @@ func TestRuntime_shutdown_idempotent(t *testing.T) {
 func TestRuntime_backend_initialize_failure(t *testing.T) {
 	bf := &backendFixture{initializeErr: errors.New("gpu init failed")}
 	rt, app := mustLifecycleRuntime(t, bf)
-	rt.RunOneFrame() // triggers start(), binds lifecycle callbacks
+	rt.RunOneFrame()
+
+	app.triggerSurfaceLost()
 
 	app.triggerSurfaceCreated(&testSurface{})
 
 	if bf.initCount.Load() != 1 {
 		t.Fatalf("expected 1 init attempt, got %d", bf.initCount.Load())
 	}
+
+	if rt.isSurfaceReady() {
+		t.Fatal("surface marked ready despite init failure")
+	}
+
+	bf.submitCount.Store(0)
+	rt.RunOneFrame()
+	if bf.submitCount.Load() != 0 {
+		t.Fatal("submit occurred while surface is not ready")
+	}
 }
 
 func TestRuntime_backend_submit_failure(t *testing.T) {
-	bf := &backendFixture{submitErr: errors.New("gpu submit failed")}
+	sentinel := errors.New("gpu submit failed")
+	bf := &backendFixture{submitErr: sentinel}
 	rt, _ := mustLifecycleRuntime(t, bf)
 
 	errCh := make(chan error, 1)
@@ -223,18 +262,19 @@ func TestRuntime_backend_submit_failure(t *testing.T) {
 	}()
 	defer rt.Shutdown()
 
-	// Wait for the fatal error to arrive via render pipeline.
 	select {
 	case err := <-errCh:
 		if err == nil {
 			t.Fatal("expected error from Run")
+		}
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("Run returned %v, want error wrapping %v", err, sentinel)
 		}
 	case <-time.After(2 * time.Second):
 		rt.Shutdown()
 		t.Fatal("Run did not return error within timeout")
 	}
 
-	// Must have attempted at least one submit (read after render thread stops).
 	if bf.submitCount.Load() == 0 {
 		t.Fatal("expected at least one submit attempt")
 	}
@@ -388,37 +428,46 @@ func TestRuntime_resume_after_pause(t *testing.T) {
 	}
 }
 
-func TestRuntime_signal_delivery_order(t *testing.T) {
+func TestRuntime_signal_delivery_cross_store_cascade(t *testing.T) {
 	bf := &backendFixture{}
 	rt, _ := mustLifecycleRuntime(t, bf)
 
-	// start() installs the signal queue hook so enqueueSignal queues
-	// through the runtime instead of delivering recursively.
 	if err := rt.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 
 	a := store.NewValueStore(1)
 	b := store.NewValueStore("")
+	var order []string
 
-	// When a changes, set b to match.
 	a.OnChange.Subscribe(func(c signal.Change[int]) {
+		order = append(order, "a-handler")
 		b.Set("seen")
 	})
 
-	// Queue a signal that sets store a.
+	b.OnChange.Subscribe(func(c signal.Change[string]) {
+		order = append(order, "b-notify")
+	})
+
 	rt.queueSignal(func() {
+		order = append(order, "queue-set")
 		a.Set(2)
 	})
 
-	// Deliver signals — the hook routes through the runtime queue so
-	// the set on a fires in batch 1, the handler for a fires in batch 2
-	// (setting b), and b's notify fires in batch 3 (if subscribed).
-	// After all batches, b's value is "seen".
 	rt.deliverSignals()
 
 	if got := b.Get(); got != "seen" {
 		t.Fatalf("expected b to be \"seen\", got %q", got)
+	}
+
+	want := []string{"queue-set", "a-handler", "b-notify"}
+	if len(order) != len(want) {
+		t.Fatalf("delivery order = %v, want %v", order, want)
+	}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("delivery order = %v, want %v", order, want)
+		}
 	}
 }
 
@@ -457,16 +506,22 @@ func TestRuntime_configurationChanged_triggersLayout(t *testing.T) {
 	}
 }
 
-func TestRuntime_configurationChanged_darkModePreservesState(t *testing.T) {
+func TestRuntime_configurationChanged_darkModeTogglesTheme(t *testing.T) {
 	bf := &backendFixture{}
 	rt, app := mustLifecycleRuntime(t, bf)
 
 	rt.RunOneFrame()
+	initialScale := rt.contentScale
 	bf.submitCount.Store(0)
 
-	// Toggle dark mode.
+	store, ok := rt.RootStyleContext().(*theme.StyleContextStore)
+	if !ok {
+		t.Fatal("expected root style context to be a StyleContextStore")
+	}
+	initialTokens := store.Get().Tokens
+
 	app.triggerEvent(platform.ConfigurationChangedEvent{
-		Orientation: 1, // portrait
+		Orientation: 1,
 		UiModeNight: true,
 		Density:     160,
 	})
@@ -477,6 +532,30 @@ func TestRuntime_configurationChanged_darkModePreservesState(t *testing.T) {
 	if bf.submitCount.Load() != 2 {
 		t.Fatalf("expected 2 submits after config change, got %d", bf.submitCount.Load())
 	}
+
+	if rt.contentScale != initialScale {
+		t.Fatalf("contentScale changed from %f to %f despite density being unchanged",
+			initialScale, rt.contentScale)
+	}
+
+	if reflect.DeepEqual(store.Get().Tokens, initialTokens) {
+		t.Fatal("theme tokens did not change after dark mode config event")
+	}
+
+	app.triggerEvent(platform.ConfigurationChangedEvent{
+		Orientation: 1,
+		UiModeNight: false,
+		Density:     160,
+	})
+
+	rt.RunOneFrame()
+
+	if reflect.DeepEqual(store.Get().Tokens, theme.DarkTokens()) {
+		t.Fatal("theme tokens did not revert to light after UiModeNight=false")
+	}
+	if !reflect.DeepEqual(store.Get().Tokens, theme.DefaultTokens()) {
+		t.Fatal("theme tokens should match DefaultTokens after UiModeNight=false")
+	}
 }
 
 func TestRuntime_configurationChanged_densityUpdatesContentScale(t *testing.T) {
@@ -484,9 +563,7 @@ func TestRuntime_configurationChanged_densityUpdatesContentScale(t *testing.T) {
 	rt, app := mustLifecycleRuntime(t, bf)
 
 	rt.RunOneFrame()
-	initialScale := rt.contentScale
 
-	// Density change from 160 (mdpi = 1x) to 320 (xhdpi = 2x).
 	app.triggerEvent(platform.ConfigurationChangedEvent{
 		Orientation: 1,
 		Density:     320,
@@ -494,11 +571,10 @@ func TestRuntime_configurationChanged_densityUpdatesContentScale(t *testing.T) {
 	rt.RunOneFrame()
 
 	expectedScale := float32(320) / 160.0
-	if rt.contentScale == initialScale && rt.contentScale != expectedScale {
-		t.Fatalf("contentScale should change from %f to %f after density change, stayed at %f",
-			initialScale, expectedScale, rt.contentScale)
+	if rt.contentScale != expectedScale {
+		t.Fatalf("contentScale = %f, want %f after density change from 160 to 320",
+			rt.contentScale, expectedScale)
 	}
-	// Content scale must be non-zero.
 	if rt.contentScale <= 0 {
 		t.Fatal("contentScale must be positive after density change")
 	}
@@ -530,16 +606,30 @@ func TestRuntime_configurationChanged_localeDoesNotCrash(t *testing.T) {
 }
 
 func TestRuntime_configurationChanged_assetManagerNotNiled(t *testing.T) {
-	// Verify that after a configuration change, the asset manager is
-	// still accessible (not nil or replaced).
 	mgr := &assetDiagFixture{}
 	reg := assets.NewAssetRegistryStore()
-	rt := mustLifecycleRuntimeWithAssets(t, mgr, reg)
+	rt, app := mustLifecycleRuntimeWithAssetsAndApp(t, mgr, reg)
+
+	rt.RunOneFrame()
+
+	before := rt.AssetManager()
+
+	app.triggerEvent(platform.ConfigurationChangedEvent{
+		Orientation:   1,
+		ScreenWidthDp: 800,
+		ScreenHeightDp: 480,
+		Density:       320,
+		UiModeNight:   false,
+		FontScale:     1.0,
+	})
 
 	rt.RunOneFrame()
 
 	if rt.AssetManager() == nil {
-		t.Fatal("asset manager must not be nil after config change")
+		t.Fatal("asset manager niled by config change")
+	}
+	if rt.AssetManager() != before {
+		t.Fatal("asset manager replaced by config change")
 	}
 	if rt.AssetRegistry() == nil {
 		t.Fatal("asset registry must not be nil after config change")

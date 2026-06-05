@@ -51,7 +51,7 @@ func TestLayerResolution_hitTraversal_respectsRegistryOrderAndPassThrough(t *tes
 	}
 }
 
-func TestLayerResolution_hitTraversal_blocksLowerLayersWhenClipped(t *testing.T) {
+func TestLayerResolution_hitTraversal_blockedByLayerClip_setViaProjectionLayers(t *testing.T) {
 	root := newCoordinateRootFacet(gfx.Identity(), gfx.RectFromXYWH(0, 0, 400, 300))
 	base := newCoordinateHitFacet(gfx.Size{W: 100, H: 100})
 	blocker := newCoordinateHitFacet(gfx.Size{W: 100, H: 100})

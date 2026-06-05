@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -38,7 +39,7 @@ func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
 		for _, src := range sources {
 			vs, ok := src.(versionedInvalidatable)
 			if !ok {
-				continue
+				panic(fmt.Sprintf("store: Derived source %T does not implement Version() — all Derived sources must be versioned", src))
 			}
 			d.sources = append(d.sources, vs)
 			vs.addInvalidationTarget(d.markDirty)

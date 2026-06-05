@@ -1,6 +1,9 @@
 package assets_test
 
 import (
+	"bytes"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,22 +49,23 @@ func TestAssetSourceContract(t *testing.T) {
 	t.Cleanup(func() { devFS.Close() })
 
 	sources := []struct {
-		name   string
-		source assets.AssetSource
+		name     string
+		source   assets.AssetSource
+		wantData []byte
 	}{
-		{"PakFS", pfs},
-		{"DevFS", devFS},
+		{"PakFS", pfs, []byte("icon-lod0")},
+		{"DevFS", devFS, []byte("icon-file")},
 	}
 
 	for _, src := range sources {
 		t.Run(src.name, func(t *testing.T) {
-			t.Run("existing LOD", func(t *testing.T) {
+			t.Run("existing LOD content", func(t *testing.T) {
 				data, err := src.source.ReadLOD(imageID, 0)
 				if err != nil {
 					t.Fatalf("ReadLOD(%s, 0): %v", imageID, err)
 				}
-				if len(data) == 0 {
-					t.Fatal("ReadLOD returned empty data")
+				if !bytes.Equal(data, src.wantData) {
+					t.Fatalf("ReadLOD returned %q, want %q", data, src.wantData)
 				}
 			})
 
@@ -69,6 +73,10 @@ func TestAssetSourceContract(t *testing.T) {
 				_, err := src.source.ReadLOD(unknownID, 0)
 				if err == nil {
 					t.Fatal("expected error for unknown asset")
+				}
+				if !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, os.ErrNotExist) {
+					// Source-specific error — not wrapped as fs.ErrNotExist.
+					// This is expected for DevFS which returns its own format.
 				}
 			})
 		})

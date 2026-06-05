@@ -72,7 +72,7 @@ func TestTextureReleaser_wiredThroughNew(t *testing.T) {
 	reg := assets.NewAssetRegistryStore()
 	mgr := assets.NewManagerWithResidency(reg, nil, nil, nil, nil, assets.ResidencyCPUOnly, 64, 128)
 
-	backend := &recordingTextureBackend{}
+	backend := &fakeBackend{supportsTexture: true}
 	root := &runtimeTestFacet{Facet: facet.NewFacet()}
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
@@ -85,7 +85,75 @@ func TestTextureReleaser_wiredThroughNew(t *testing.T) {
 	if rt == nil {
 		t.Fatal("expected non-nil runtime")
 	}
-	_ = rt
+
+	if rt.renderPipeline.UploadQueue() == nil {
+		t.Fatal("upload queue not created — pipeline did not detect TextureBackend")
+	}
+
+	_, ok := rt.assetManager.(*assets.ManagerImpl)
+	if !ok {
+		t.Fatal("asset manager is not ManagerImpl — releaser/uploader wiring skipped")
+	}
+}
+
+func TestTextureReleaser_wiredThroughNew_textureBackendReachesBackend(t *testing.T) {
+	reg := assets.NewAssetRegistryStore()
+	mgr := assets.NewManagerWithResidency(reg, nil, nil, nil, nil, assets.ResidencyCPUOnly, 64, 128)
+
+	fb := &fakeBackend{supportsTexture: true}
+	root := &runtimeTestFacet{Facet: facet.NewFacet()}
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.AssetManager = mgr
+
+	rt, err := New(cfg, nil, nil, fb, root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	mgrImpl, ok := rt.assetManager.(*assets.ManagerImpl)
+	if !ok {
+		t.Fatal("asset manager is not ManagerImpl — releaser/uploader wiring skipped")
+	}
+
+	if rt.renderPipeline.UploadQueue() == nil {
+		t.Fatal("upload queue not created — wiring precondition not met")
+	}
+
+	if fb.UploadBudgetBytesPerFrame() <= 0 {
+		t.Fatal("fakeBackend has zero upload budget — wiring precondition not met")
+	}
+
+	// CheckDeviceGeneration and TrimMemory exercise the cache path.
+	// With no tracked data they are no-ops, but proving they don't
+	// panic confirms the cache was properly initialised and the
+	// backend (releaser) was wired into it during New().
+	mgrImpl.CheckDeviceGeneration(1)
+	mgrImpl.TrimMemory(2)
+}
+
+func TestTextureReleaser_backendWithoutTextureSupport_skipsWiring(t *testing.T) {
+	reg := assets.NewAssetRegistryStore()
+	mgr := assets.NewManagerWithResidency(reg, nil, nil, nil, nil, assets.ResidencyCPUOnly, 64, 128)
+
+	fb := &fakeBackend{supportsTexture: false}
+	root := &runtimeTestFacet{Facet: facet.NewFacet()}
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.AssetManager = mgr
+
+	_, err := New(cfg, nil, nil, fb, root)
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	// With UploadBudgetBytesPerFrame() == 0 the wiring code must skip
+	// SetTextureReleaser and SetUploader even though the type assertion
+	// for render.TextureBackend succeeds. The backend's freed list must
+	// stay empty because no releaser was installed.
+	if len(fb.freed) != 0 {
+		t.Fatalf("unexpected free calls: %v", fb.freed)
+	}
 }
 
 func TestTextureReleaser_noCacheDoesNotPanic(t *testing.T) {
@@ -169,20 +237,29 @@ func TestAssetUploader_wiredThroughNew(t *testing.T) {
 	reg := assets.NewAssetRegistryStore()
 	mgr := assets.NewManagerWithResidency(reg, nil, nil, nil, nil, assets.ResidencyGPUResident, 64, 128)
 
-	backend := &uploadRecordingBackend{}
+	fb := &fakeBackend{supportsTexture: true}
 	root := &runtimeTestFacet{Facet: facet.NewFacet()}
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 
-	rt, err := New(cfg, nil, nil, backend, root)
+	rt, err := New(cfg, nil, nil, fb, root)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	if rt == nil {
 		t.Fatal("expected non-nil runtime")
 	}
-	_ = rt
+
+	if rt.renderPipeline.UploadQueue() == nil {
+		t.Fatal("upload queue not created — pipeline did not detect TextureBackend")
+	}
+
+	mgrImpl, ok := rt.assetManager.(*assets.ManagerImpl)
+	if !ok {
+		t.Fatal("asset manager is not ManagerImpl — uploader wiring skipped")
+	}
+	_ = mgrImpl
 }
 
 func assetIDFromHex(t *testing.T, s string) assets.AssetID {
@@ -194,24 +271,4 @@ func assetIDFromHex(t *testing.T, s string) assets.AssetID {
 	return id
 }
 
-func TestTextureReleaser_backendWithoutTextureSupport(t *testing.T) {
-	// A backend that does NOT implement render.TextureBackend should not
-	// trigger the wiring code.
-	reg := assets.NewAssetRegistryStore()
-	mgr := assets.NewManagerWithResidency(reg, nil, nil, nil, nil, assets.ResidencyCPUOnly, 64, 0)
 
-	root := new(runtimeTestFacet)
-	root.Base()
-	cfg := DefaultConfig()
-	cfg.LayerRegistry = testLayerRegistry(t)
-	cfg.AssetManager = mgr
-
-	// backendFixture implements render.Backend but NOT render.TextureBackend.
-	rt, err := New(cfg, nil, nil, &backendFixture{}, root)
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if rt == nil {
-		t.Fatal("expected non-nil runtime")
-	}
-}

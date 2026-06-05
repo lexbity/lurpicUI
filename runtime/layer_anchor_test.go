@@ -26,7 +26,7 @@ func TestRuntime_anchorExportsMarkDependentsDirtyOnMovement(t *testing.T) {
 			"mark": {X: 10, Y: 20},
 		},
 	}
-	dependent := &runtimeAnchorFacet{}
+	dependent := &runtimeAnchorFacet{Facet: facet.NewFacet()}
 	dependent.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: gfx.Size{W: 20, H: 10}}
 	}
@@ -62,6 +62,11 @@ func TestRuntime_anchorExportsMarkDependentsDirtyOnMovement(t *testing.T) {
 
 	exporter.anchors["mark"] = gfx.Point{X: 40, Y: 60}
 	rt.resolveAnchorExports()
+
+	if rt.dirtyFacets[dependentID]&facet.DirtyLayout == 0 {
+		t.Fatalf("anchor movement did not re-dirty dependent %v (dirty=%v)", dependentID, rt.dirtyFacets[dependentID])
+	}
+
 	if snap, ok := rt.AnchorSnapshot(root.Base().ID()); !ok || snap.Version < 2 || len(snap.Entries) != 1 {
 		t.Fatalf("anchor snapshot after movement = %#v, ok=%t", snap, ok)
 	}

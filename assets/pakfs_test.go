@@ -2,6 +2,7 @@ package assets_test
 
 import (
 	"bytes"
+	"encoding/binary"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -158,43 +159,28 @@ func TestPakFSConcurrentLoadAndClose(t *testing.T) {
 		t.Fatalf("NewPakFS: %v", err)
 	}
 
-	// Launch concurrent readers.
-	var readWg sync.WaitGroup
-	errs := make(chan error, 20)
-	readIDs := []assets.AssetID{imageID, fontID, configID}
-	for i := 0; i < 10; i++ {
-		readWg.Add(1)
-		go func(n int) {
-			defer readWg.Done()
-			id := readIDs[n%len(readIDs)]
-			// Only LOD 0 is guaranteed to exist for all three types.
-			_, err := pfs.ReadLOD(id, 0)
-			if err != nil && err.Error() != "pakfs closed" {
-				errs <- err
-			}
-		}(i)
+	gate := assets.NewReadGate(pfs)
+	readDone := make(chan error, 1)
+	go func() {
+		_, err := gate.ReadLOD(imageID, 0)
+		readDone <- err
+	}()
+
+	<-gate.Started
+
+	pfs.Close()
+
+	close(gate.Release)
+
+	readErr := <-readDone
+	if readErr == nil {
+		t.Fatal("expected read during close to return an error, got nil")
 	}
 
-	// Close while reads are in-flight.
-	time.Sleep(time.Millisecond)
-	closeErr := pfs.Close()
-	if closeErr != nil {
-		t.Fatalf("Close: %v", closeErr)
-	}
-
-	readWg.Wait()
-	close(errs)
-	for err := range errs {
-		t.Errorf("concurrent read error: %v", err)
-	}
-
-	// Reads after close must fail.
-	_, err = pfs.ReadLOD(imageID, 0)
-	if err == nil {
+	if _, err := pfs.ReadLOD(imageID, 0); err == nil {
 		t.Error("expected error reading after close")
 	}
 
-	// Double-close must not panic.
 	if err := pfs.Close(); err != nil {
 		t.Errorf("double close: %v", err)
 	}
@@ -299,14 +285,71 @@ func TestNewPakFSFromFDRejectsInvalid(t *testing.T) {
 	}
 	defer f.Close()
 
-	// Zero length should fail.
 	if _, err := assets.NewPakFSFromFD(int(f.Fd()), 0, 0); err == nil {
 		t.Fatal("expected error for zero length")
 	}
 
-	// Negative length should fail.
 	if _, err := assets.NewPakFSFromFD(int(f.Fd()), 0, -1); err == nil {
 		t.Fatal("expected error for negative length")
+	}
+}
+
+func writePakBytes(t *testing.T, data []byte) *os.File {
+	t.Helper()
+	f, err := os.CreateTemp(t.TempDir(), "test-*.pak")
+	if err != nil {
+		t.Fatalf("create temp: %v", err)
+	}
+	if _, err := f.Write(data); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := f.Seek(0, 0); err != nil {
+		t.Fatalf("seek: %v", err)
+	}
+	t.Cleanup(func() { f.Close() })
+	return f
+}
+
+func TestNewPakFS_fromBytes_rejectsBadMagic(t *testing.T) {
+	f := writePakBytes(t, []byte("not a pak"))
+	_, err := assets.NewPakFSFromFD(int(f.Fd()), 0, 9)
+	if err == nil {
+		t.Fatal("expected error for bad magic, got nil")
+	}
+}
+
+func TestNewPakFS_fromBytes_handlesTruncatedHeader(t *testing.T) {
+	f := writePakBytes(t, []byte("LURP")) // valid magic but truncated before full header
+	_, err := assets.NewPakFSFromFD(int(f.Fd()), 0, 4)
+	if err == nil {
+		t.Fatal("expected error for truncated header, got nil")
+	}
+}
+
+func TestNewPakFS_fromBytes_handlesTruncatedTOCTable(t *testing.T) {
+	hdr := make([]byte, 36) // 36 bytes = full PakHeader on 64-bit
+	copy(hdr[0:4], []byte("LURP"))
+	hdr[4] = 2 // version
+	// TOCOffset at bytes 8-15, set to 36 (right after header)
+	// TOCCount at bytes 16-19, set to 1000 (too many entries for data)
+	binary.LittleEndian.PutUint64(hdr[8:16], 36)
+	binary.LittleEndian.PutUint32(hdr[16:20], 1000)
+	f := writePakBytes(t, hdr)
+	_, err := assets.NewPakFSFromFD(int(f.Fd()), 0, int64(len(hdr)))
+	if err == nil {
+		t.Fatal("expected error for truncated TOC table, got nil")
+	}
+}
+
+func TestNewPakFS_fromBytes_rejectsTOCOffsetPastEOF(t *testing.T) {
+	hdr := make([]byte, 36)
+	copy(hdr[0:4], []byte("LURP"))
+	hdr[4] = 2
+	binary.LittleEndian.PutUint64(hdr[8:16], 999999) // TOC offset past EOF
+	f := writePakBytes(t, hdr)
+	_, err := assets.NewPakFSFromFD(int(f.Fd()), 0, int64(len(hdr)))
+	if err == nil {
+		t.Fatal("expected error for TOC offset past EOF, got nil")
 	}
 }
 
@@ -341,12 +384,55 @@ func TestPakFSManagerRoundTrip(t *testing.T) {
 		"assets/image.png": imageID,
 	})
 	manager := assets.NewManager(reg, pfs, assets.BackendSoftware, nil, pathIDs)
-	defer func() {
-		if n := manager.DrainCompleted(); n != 0 {
-			t.Errorf("DrainCompleted() = %d, want 0", n)
-		}
-	}()
-	if n := manager.DrainCompleted(); n != 0 {
-		t.Errorf("DrainCompleted() = %d, want 0", n)
+
+	handle := manager.LoadImage("assets/image.png")
+	if handle.IsZero() {
+		t.Fatal("LoadImage returned zero handle")
 	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if n := manager.DrainCompleted(); n > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	entry := reg.Get(imageID)
+	if entry == nil {
+		t.Fatal("expected registry entry after load")
+	}
+	if entry.State != assets.AssetStateReady {
+		t.Fatalf("asset state = %v, want Ready", entry.State)
+	}
+	if entry.HighestReadyLOD < 0 {
+		t.Fatal("expected at least one ready LOD")
+	}
+
+	manager.DrainCompleted()
+}
+
+// FuzzNewPakFSFromFD tests that NewPakFSFromFD never panics on arbitrary input.
+// PakFS files ship from disk/network on Android and are a robustness boundary.
+func FuzzNewPakFSFromFD(f *testing.F) {
+	f.Add([]byte("LURP\x02\x00\x00\x00" + string(make([]byte, 28))))
+	f.Fuzz(func(t *testing.T, data []byte) {
+		f, err := os.CreateTemp(t.TempDir(), "fuzz-*.pak")
+		if err != nil {
+			t.Skipf("create temp: %v", err)
+		}
+		if _, err := f.Write(data); err != nil {
+			f.Close()
+			t.Skipf("write: %v", err)
+		}
+		if _, err := f.Seek(0, 0); err != nil {
+			f.Close()
+			t.Skipf("seek: %v", err)
+		}
+		pfs, err := assets.NewPakFSFromFD(int(f.Fd()), 0, int64(len(data)))
+		f.Close()
+		if err == nil {
+			pfs.Close()
+		}
+	})
 }

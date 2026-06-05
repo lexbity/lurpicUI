@@ -55,48 +55,52 @@ func TestBand_center(t *testing.T) {
 func TestBand_inner_padding(t *testing.T) {
 	members := []string{"A", "B", "C"}
 	s := NewBand(members, WithRange(0, 300), WithPaddingInner(0.2))
-	// n=3, pi=0.2, po=0, span=300
-	// step = 300 / (3 - 0.2 + 0) = 300 / 2.8 = 107.142857...
-	// bandwidth = 107.142857 * 0.8 = 85.714285...
+	// n=3, pi=0.2, po=0, span=300, align=0.5
+	// denom = 3 - 0.2 + 0 = 2.8
+	// step = 300 / 2.8 = 107.142857...
+	// bandwidth = step * (1 - 0.2) = 85.714285...
+	// start = (300 - step*(3-0.2)) * 0.5 = (300 - 107.142857*2.8) * 0.5 = 0
+	// A: [0, 85.714], B: [107.143, 192.857], C: [214.286, 300.000]
+	const eps = 1e-6
 	step := s.Step()
 	bw := s.Bandwidth()
+	wantStep := 300.0 / 2.8
+
+	if math.Abs(step-wantStep) > eps {
+		t.Fatalf("step = %f, want %f", step, wantStep)
+}
 	if bw >= step {
 		t.Fatalf("expected bandwidth < step with inner padding: step=%f bw=%f", step, bw)
 	}
-	// With align=0.5, start = 0 + (300 - step*3) * 0.5
-	// step * 3 = 300 / 2.8 * 3 = 321.428...
-	// Actually step * 3 = 321.43, which is > 300. So there's no room!
-	// Wait, step = 300 / 2.8 = 107.14. step * 3 = 321.4, which is MORE than 300.
-	// That can't be right. The step accounts for inner padding, so the total
-	// band+gap space = step * n = 107.14 * 3 = 321.4 > 300?
-	// 
-	// Actually: total space = step * n = step * (n - pi + 2*po) because
-	// step = span / (n - pi + 2*po). So step * n = span * n / (n - pi + 2*po).
-	// For n=3, pi=0.2, po=0: step * n = 300 * 3 / 2.8 = 321.4.
-	// But total space used is: n*bw + (n-1)*(step-bw) + 2*step*po
-	// = n*step*(1-pi) + (n-1)*step*pi + 0
-	// = 3*107.14*0.8 + 2*107.14*0.2
-	// = 257.14 + 42.86 = 300. ✓
-	//
-	// OK so step*n > span is expected. The bands and gaps fit in span.
-	// start = 0 + (300 - 107.14*3) * 0.5 = 0 + (300-321.42)*0.5 = -10.71
-	// Hmm, negative start? That means the bands extend left of range[0].
-	// With align=0.5, the extra space is distributed: left gets half, right gets half.
-	
-	// Band A: start ... start+bw
+
 	aStart, aBw, ok := s.Band("A")
 	if !ok || aBw != bw {
 		t.Fatalf("Band(A) bandwidth = %f, want %f", aBw, bw)
 	}
-	_ = aStart
-	// Band C: start+2*step ... start+2*step+bw
+	if math.Abs(aStart) > eps {
+		t.Fatalf("Band(A) start = %f, want 0 (align=0.5 fills both sides equally)", aStart)
+	}
+
+	bStart, _, ok := s.Band("B")
+	if !ok {
+		t.Fatal("Band(B) not found")
+	}
+	if math.Abs(bStart-aStart-step) > eps {
+		t.Fatalf("Band(B) start = %f, want %f (A.start + step)", bStart, aStart+step)
+	}
+
 	cStart, _, ok := s.Band("C")
 	if !ok {
 		t.Fatal("Band(C) not found")
 	}
-	// Last band should end at or before range[1]
-	if cStart+bw > 300+1e-9 {
+	if cStart+bw > 300+eps {
 		t.Fatalf("Band(C) extends past range: %f + %f = %f > 300", cStart, bw, cStart+bw)
+	}
+	if math.Abs(cStart+bw-300) > eps {
+		t.Fatalf("Band(C) end = %f, want 300 (bands fill range exactly)", cStart+bw)
+	}
+	if cs, _ := s.Center("B"); math.Abs(cs-(aStart+step+bw/2)) > eps {
+		t.Fatalf("Center(B) = %f, want %f", cs, aStart+step+bw/2)
 	}
 }
 

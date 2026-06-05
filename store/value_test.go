@@ -51,18 +51,6 @@ func TestValueStore_set_changes_value(t *testing.T) {
 	}
 }
 
-func TestValueStore_set_same_value_emits_signal(t *testing.T) {
-	s := NewValueStore(42)
-	var called int32
-	s.OnChange.Subscribe(func(signal.Change[int]) { called++ })
-
-	s.Set(42)
-
-	if called == 0 {
-		t.Fatal("expected signal even when setting same value")
-	}
-}
-
 func TestValueStore_set_increments_version(t *testing.T) {
 	s := NewValueStore(42)
 	ver := s.Version()
@@ -84,19 +72,8 @@ func TestValueStore_onchange_fires_with_old_and_new(t *testing.T) {
 	}
 }
 
-func TestValueStore_onchange_fired_on_same_value(t *testing.T) {
-	s := NewValueStore(10)
-	var called int32
-	s.OnChange.Subscribe(func(signal.Change[int]) { called++ })
-
-	s.Set(10)
-
-	if called == 0 {
-		t.Fatal("expected signal even when setting same value")
-	}
-}
-
 func TestValueStore_multiple_sets_correct_change_chain(t *testing.T) {
+	// immediate-delivery mode only
 	s := NewValueStore(1)
 	var got []signal.Change[int]
 	s.OnChange.Subscribe(func(c signal.Change[int]) { got = append(got, c) })
@@ -166,4 +143,44 @@ func TestValueStore_setTx_immediate_mutation(t *testing.T) {
 
 func TestValueStore_interface_implementation(t *testing.T) {
 	var _ Invalidatable = (*ValueStore[int])(nil)
+}
+
+func TestValueStore_change_chain_under_queued_hook(t *testing.T) {
+	var queue []func()
+	SetSignalQueueHook(func(fn func()) {
+		queue = append(queue, fn)
+	})
+	defer SetSignalQueueHook(nil)
+
+	s := NewValueStore(1)
+	var got []signal.Change[int]
+	s.OnChange.Subscribe(func(c signal.Change[int]) { got = append(got, c) })
+
+	// These Sets should NOT deliver signals immediately — they queue.
+	s.Set(2)
+	s.Set(3)
+	s.Set(4)
+
+	if len(got) != 0 {
+		t.Fatalf("signals delivered before drain: %d", len(got))
+	}
+
+	// Drain the queue in order.
+	for _, fn := range queue {
+		fn()
+	}
+
+	want := []signal.Change[int]{
+		{Old: 1, New: 2},
+		{Old: 2, New: 3},
+		{Old: 3, New: 4},
+	}
+	if len(got) != len(want) {
+		t.Fatalf("got %#v want %#v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got %#v want %#v", got, want)
+		}
+	}
 }

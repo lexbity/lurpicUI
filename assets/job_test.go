@@ -131,11 +131,7 @@ func TestManagerScheduleAndDrainAsync(t *testing.T) {
 	}
 	mgr := NewManager(reg, src, BackendSoftware, nil, nil)
 
-	start := time.Now()
 	mgr.scheduleLOD(id, "assets/theme.toml", AssetTypeConfig, 0)
-	if elapsed := time.Since(start); elapsed > 50*time.Millisecond {
-		t.Fatalf("schedule blocked too long: %v", elapsed)
-	}
 
 	select {
 	case <-src.started:

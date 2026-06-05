@@ -38,6 +38,10 @@ func TestLayerResolution_hitTraversal_respectsGroupClip(t *testing.T) {
 	rt.AddFacet(root, child, facet.Attachment{LayerID: facet.LayerID(1)})
 	rt.RunOneFrame()
 
+	if got := rt.HitTest(gfx.Point{X: 20, Y: 30}); got != child.Base().ID() {
+		t.Fatalf("HitTest inside group clip = %d, want %d", got, child.Base().ID())
+	}
+
 	if got := rt.HitTest(gfx.Point{X: 240, Y: 250}); got != 0 {
 		t.Fatalf("HitTest outside group clip = %d, want 0", got)
 	}

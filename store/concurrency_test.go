@@ -5,52 +5,119 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/signal"
 )
 
-// --- Concurrent reads ---
+// --- Concurrent read-during-write ---
 
-func TestValueStore_concurrent_reads_are_safe(t *testing.T) {
-	s := NewValueStore(42)
+func TestValueStore_concurrent_read_during_write_is_safe(t *testing.T) {
+	syncutil.ResetRuntimeThreadForTest()
+	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
+
+	s := NewValueStore(0)
+	done := make(chan struct{})
+
+	go func() {
+		syncutil.RegisterRuntimeThread()
+		for i := 1; i <= 1000; i++ {
+			s.Set(i)
+		}
+		close(done)
+	}()
+
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for r := 0; r < 8; r++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if got := s.Get(); got != 42 {
-				t.Errorf("got %d", got)
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					v := s.Get()
+					if v < 0 || v > 1000 {
+						t.Errorf("torn read: %d", v)
+					}
+				}
 			}
 		}()
 	}
 	wg.Wait()
 }
 
-func TestMapStore_concurrent_reads_are_safe(t *testing.T) {
+func TestMapStore_concurrent_read_during_write_is_safe(t *testing.T) {
+	syncutil.ResetRuntimeThreadForTest()
+	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
+
 	m := NewMapStore[string, int]()
-	m.Set("key", 7)
+	done := make(chan struct{})
+
+	go func() {
+		syncutil.RegisterRuntimeThread()
+		for i := 1; i <= 1000; i++ {
+			m.Set("key", i)
+		}
+		close(done)
+	}()
+
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for r := 0; r < 8; r++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if got, ok := m.Get("key"); !ok || got != 7 {
-				t.Errorf("got %d %v", got, ok)
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					v, ok := m.Get("key")
+					if ok && (v < 0 || v > 1000) {
+						t.Errorf("torn read: key=%d", v)
+					}
+				}
 			}
 		}()
 	}
 	wg.Wait()
 }
 
-func TestCollectionStore_concurrent_reads_are_safe(t *testing.T) {
+func TestCollectionStore_concurrent_read_during_write_is_safe(t *testing.T) {
+	syncutil.ResetRuntimeThreadForTest()
+	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
+
 	c := NewCollectionStore(func(v int) ItemID { return ItemID(v) })
-	c.Insert(1)
+	done := make(chan struct{})
+
+	go func() {
+		syncutil.RegisterRuntimeThread()
+		for i := 1; i <= 1000; i++ {
+			c.Insert(i)
+		}
+		close(done)
+	}()
+
 	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
+	for r := 0; r < 8; r++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			if got, ok := c.Get(ItemID(1)); !ok || got != 1 {
-				t.Errorf("got %d %v", got, ok)
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					n := c.Len()
+					if n < 0 || n > 1000 {
+						t.Errorf("torn length: %d", n)
+					}
+					for _, item := range c.All() {
+						if item < 0 || item > 1000 {
+							t.Errorf("torn item in collection: %d", item)
+						}
+					}
+				}
 			}
 		}()
 	}
@@ -66,7 +133,6 @@ func TestValueStore_no_deepequal_always_emits_on_set(t *testing.T) {
 		count.Add(1)
 	})
 
-	// Same value after reflect.DeepEqual removal always emits.
 	s.Set(1)
 	if count.Load() != 1 {
 		t.Fatalf("expected 1 emit for Set with same value, got %d", count.Load())
@@ -86,7 +152,6 @@ func TestCollectionStore_insert_then_update_semantics(t *testing.T) {
 		t.Fatalf("inserts=%d updates=%d", inserts, updates)
 	}
 
-	// Insert again with same ID — should update.
 	c.Insert(1)
 	if inserts != 1 || updates != 1 {
 		t.Fatalf("inserts=%d updates=%d", inserts, updates)
@@ -132,7 +197,7 @@ func TestDerivedStore_no_deepequal_always_emits(t *testing.T) {
 		count.Add(1)
 	})
 
-	src.Set(1) // same value — Derived.Get will recompute and emit
+	src.Set(1)
 	d.Get()
 	if count.Load() != 1 {
 		t.Fatalf("expected 1 emit, got %d", count.Load())

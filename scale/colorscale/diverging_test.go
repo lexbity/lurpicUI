@@ -104,12 +104,10 @@ func TestDiverging_clamp_high(t *testing.T) {
 }
 
 func TestDiverging_extrapolate_low(t *testing.T) {
-	// Without clamp, values below lo should extrapolate past the low endpoint
 	s := NewDiverging(-1, 1, 0, RampBlueWhiteRedLow, RampBlueWhiteRedHigh, InterpolationOKLab)
 	c := s.Map(-2)
-	first := RampBlueWhiteRedLow[0].Color
-	if c.R == first.R && c.G == first.G && c.B == first.B {
-		t.Log("extrapolated Map(-2) same as endpoint (ramp clamps internally)")
+	if c.R == 0 && c.G == 0 && c.B == 0 && c.A == 0 {
+		t.Fatal("extrapolated Map(-2) returned zero color")
 	}
 }
 

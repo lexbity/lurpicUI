@@ -84,6 +84,8 @@ type Runtime struct {
 	stopping   bool
 
 	projectionInProgress atomic.Bool
+
+	onFrameSubmitted func() // test hook; set only in tests to signal frame completion
 }
 
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {

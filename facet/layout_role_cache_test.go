@@ -214,3 +214,106 @@ func TestLayoutRoleArrangeCachesIdenticalCalls(t *testing.T) {
 		t.Fatalf("arranged bounds = %#v, want %#v", role.ArrangedBounds, bounds)
 	}
 }
+
+func TestLayoutRoleMeasureRecomputesOnChangedConstraints(t *testing.T) {
+	calls := 0
+	role := &LayoutRole{
+		Parent: GroupParentContract{
+			Kind:     GroupLayoutGrid,
+			Policy:   cacheTestGroupPolicy{variant: 1},
+			Overflow: OverflowClip,
+			Clipping: GroupClipBounds,
+			Children: cacheTestGroupSource{variant: 2},
+		},
+		Child: GroupChildContract{
+			SupportedPlacement: SupportsGrid | SupportsLinear,
+			Intrinsic:          cacheTestIntrinsicA,
+			Constraints:        ConstraintPolicy{BelowMinWidth: CompressionWrap},
+			Stretch:            StretchPolicy{Width: StretchAlways},
+			Baseline:           BaselineNone,
+		},
+		OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult {
+			calls++
+			return MeasureResult{Size: gfx.Size{W: float32(10 * calls), H: float32(20 * calls)}}
+		},
+	}
+
+	c1 := Constraints{
+		MinSize: gfx.Size{W: 5, H: 6},
+		MaxSize: gfx.Size{W: 7, H: 8},
+	}
+	gotA := role.Measure(MeasureContext{}, c1)
+	_ = role.Measure(MeasureContext{}, c1)
+	if calls != 1 {
+		t.Fatalf("identical input recomputed: calls=%d, want 1", calls)
+	}
+
+	c2 := Constraints{
+		MinSize: gfx.Size{W: 10, H: 12},
+		MaxSize: gfx.Size{W: 14, H: 16},
+	}
+	gotB := role.Measure(MeasureContext{}, c2)
+	if calls != 2 {
+		t.Fatalf("changed constraints did not recompute: calls=%d, want 2", calls)
+	}
+	if gotB == gotA {
+		t.Fatal("returned stale cached result for new constraints")
+	}
+}
+
+func TestLayoutRoleArrangeRecomputesOnChangedBounds(t *testing.T) {
+	calls := 0
+	role := &LayoutRole{
+		Parent: GroupParentContract{
+			Kind:     GroupLayoutGrid,
+			Policy:   cacheTestGroupPolicy{variant: 1},
+			Overflow: OverflowClip,
+			Clipping: GroupClipBounds,
+			Children: cacheTestGroupSource{variant: 2},
+		},
+		Child: GroupChildContract{
+			SupportedPlacement: SupportsGrid | SupportsLinear,
+			Intrinsic:          cacheTestIntrinsicA,
+			Constraints:        ConstraintPolicy{BelowMinWidth: CompressionWrap},
+			Stretch:            StretchPolicy{Width: StretchAlways},
+			Baseline:           BaselineNone,
+		},
+		OnMeasure: func(ctx MeasureContext, c Constraints) MeasureResult {
+			return MeasureResult{Size: gfx.Size{W: 10, H: 20}}
+		},
+		OnArrange: func(ctx ArrangeContext, bounds gfx.Rect) {
+			calls++
+		},
+	}
+
+	role.Measure(MeasureContext{}, Constraints{
+		MinSize: gfx.Size{W: 5, H: 6},
+		MaxSize: gfx.Size{W: 7, H: 8},
+	})
+	ctx := ArrangeContext{
+		Placement: Placement{
+			Mode: PlacementLinear,
+			Linear: LinearPlacement{
+				Order: 1,
+			},
+		},
+	}
+	b1 := gfx.RectFromXYWH(1, 2, 3, 4)
+	role.Arrange(ctx, b1)
+	role.Arrange(ctx, b1)
+	if calls != 1 {
+		t.Fatalf("identical input recomputed: calls=%d, want 1", calls)
+	}
+	if role.ArrangedBounds != b1 {
+		t.Fatalf("arranged bounds = %#v, want %#v", role.ArrangedBounds, b1)
+	}
+
+	b2 := gfx.RectFromXYWH(5, 6, 7, 8)
+	role.Arrange(ctx, b2)
+	if calls != 2 {
+		t.Fatalf("changed bounds did not recompute: calls=%d, want 2", calls)
+	}
+	if role.ArrangedBounds != b2 {
+		t.Fatalf("arranged bounds = %#v, want %#v", role.ArrangedBounds, b2)
+	}
+}

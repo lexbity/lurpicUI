@@ -391,15 +391,25 @@ func TestProjectionSystem_cache_key_changes_on_bounds_change(t *testing.T) {
 	attachTree(root)
 
 	sys := NewSystem()
-	sys.Run(root, FrameInfo{})
+	frame := FrameInfo{}
+
+	sys.Run(root, frame)
 	first := sys.outputCache[root.ID()].CacheKey
 
 	root.layout.ArrangedBounds = gfx.RectFromXYWH(0, 0, 120, 100)
-	sys.Run(root, FrameInfo{Number: 2})
-
+	sys.Run(root, frame)
 	second := sys.outputCache[root.ID()].CacheKey
 	if first == second {
 		t.Fatal("expected cache key to change when bounds change")
+	}
+
+	sys.Run(root, frame)
+	third := sys.outputCache[root.ID()].CacheKey
+	if second != third {
+		t.Fatal("cache key changed without input change")
+	}
+	if sys.ProjectedFacets != 0 {
+		t.Fatalf("ProjectedFacets = %d, want 0 on no-op re-run", sys.ProjectedFacets)
 	}
 }
 
@@ -412,15 +422,25 @@ func TestProjectionSystem_cache_key_changes_on_transform_change(t *testing.T) {
 	attachTree(root)
 
 	sys := NewSystem()
-	sys.Run(root, FrameInfo{})
+	frame := FrameInfo{}
+
+	sys.Run(root, frame)
 	first := sys.outputCache[child.ID()].CacheKey
 
 	root.viewport.SetPanZoom(gfx.Point{X: 25, Y: 40}, 1)
-	sys.Run(root, FrameInfo{Number: 2})
-
+	sys.Run(root, frame)
 	second := sys.outputCache[child.ID()].CacheKey
 	if first == second {
 		t.Fatal("expected child cache key to change when viewport transform changes")
+	}
+
+	sys.Run(root, frame)
+	third := sys.outputCache[child.ID()].CacheKey
+	if second != third {
+		t.Fatal("cache key changed without input change")
+	}
+	if sys.ProjectedFacets != 0 {
+		t.Fatalf("ProjectedFacets = %d, want 0 on no-op re-run", sys.ProjectedFacets)
 	}
 }
 
@@ -430,24 +450,35 @@ func TestProjectionSystem_cache_key_changes_on_store_version(t *testing.T) {
 	attachTree(root)
 
 	sys := NewSystem()
-	sys.Run(root, FrameInfo{})
+	frame := FrameInfo{}
+
+	sys.Run(root, frame)
 	first := sys.outputCache[root.ID()].CacheKey
 
 	s.Set(2)
-	sys.Run(root, FrameInfo{Number: 2})
-
+	sys.Run(root, frame)
 	second := sys.outputCache[root.ID()].CacheKey
 	if first == second {
 		t.Fatal("expected cache key to change when store version changes")
 	}
+
+	sys.Run(root, frame)
+	third := sys.outputCache[root.ID()].CacheKey
+	if second != third {
+		t.Fatal("cache key changed without input change")
+	}
+	if sys.ProjectedFacets != 0 {
+		t.Fatalf("ProjectedFacets = %d, want 0 on no-op re-run", sys.ProjectedFacets)
+	}
 }
 
-func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.T) {
-	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
-	attachTree(root)
+func cacheKeyFor(sys *System, root facet.FacetImpl, frame FrameInfo) ProjectionCacheKey {
+	sys.Run(root, frame)
+	return sys.outputCache[root.Base().ID()].CacheKey
+}
 
-	sys := NewSystem()
-	rt := projectionStateRuntimeStub{
+func baselineLayerTestRT(root *projectionTestFacet) projectionStateRuntimeStub {
+	return projectionStateRuntimeStub{
 		projectionLayerRuntimeStub: projectionLayerRuntimeStub{
 			layers: map[facet.FacetID]facet.ProjectionLayer{
 				root.ID(): {
@@ -463,50 +494,122 @@ func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.
 		contentScale:  1.25,
 		inputModality: facet.InputModalityPointer,
 	}
-	sys.SetRuntime(rt)
-	sys.Run(root, FrameInfo{})
-	first := sys.outputCache[root.ID()].CacheKey
-	if got := sys.outputCache[root.ID()].LayerID; got != facet.LayerID(11) {
-		t.Fatalf("LayerID = %#v, want 11", got)
-	}
-	if got := sys.outputCache[root.ID()].InputModality; got != facet.InputModalityPointer {
-		t.Fatalf("InputModality = %#v, want pointer", got)
-	}
-	if got := sys.outputCache[root.ID()].ContentScale; got != 1.25 {
-		t.Fatalf("ContentScale = %#v, want 1.25", got)
-	}
+}
 
-	rt.layers[root.ID()] = facet.ProjectionLayer{
-		LayerID:       facet.LayerID(12),
-		Bounds:        gfx.RectFromXYWH(0, 0, 100, 100),
-		Transform:     gfx.Identity(),
-		ClipRect:      gfx.RectFromXYWH(0, 0, 100, 100),
-		ClipPolicy:    facet.ClipToParent,
-		RecipeVersion: 1,
-	}
-	sys.SetRuntime(rt)
-	sys.Run(root, FrameInfo{Number: 2})
-	if got := sys.outputCache[root.ID()].CacheKey; got == first {
-		t.Fatal("expected cache key to change when layer ID changes")
-	}
-	second := sys.outputCache[root.ID()].CacheKey
+func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
+	attachTree(root)
+	frame := FrameInfo{}
 
-	rt.layers[root.ID()] = facet.ProjectionLayer{
-		LayerID:       facet.LayerID(12),
-		Bounds:        gfx.RectFromXYWH(0, 0, 100, 100),
-		Transform:     gfx.Identity(),
-		ClipRect:      gfx.RectFromXYWH(0, 0, 100, 100),
-		ClipPolicy:    facet.ClipToViewport,
-		RecipeVersion: 2,
-	}
-	rt.contentScale = 2
-	rt.inputModality = facet.InputModalityTouch
-	sys.SetRuntime(rt)
-	sys.Run(root, FrameInfo{Number: 3})
-	third := sys.outputCache[root.ID()].CacheKey
-	if third == second {
-		t.Fatal("expected cache key to change when layer recipe and runtime state change")
-	}
+	t.Run("LayerID", func(t *testing.T) {
+		sys := NewSystem()
+		rt := baselineLayerTestRT(root)
+		sys.SetRuntime(rt)
+		baseline := cacheKeyFor(sys, root, frame)
+		if got := sys.outputCache[root.ID()].LayerID; got != facet.LayerID(11) {
+			t.Fatalf("LayerID = %#v, want 11", got)
+		}
+
+		layer := rt.layers[root.ID()]
+		layer.LayerID = facet.LayerID(12)
+		rt.layers[root.ID()] = layer
+		sys.SetRuntime(rt)
+		changed := cacheKeyFor(sys, root, frame)
+		if changed == baseline {
+			t.Fatal("expected cache key to change when LayerID changes")
+		}
+
+		stable := cacheKeyFor(sys, root, frame)
+		if stable != changed {
+			t.Fatal("cache key changed without input change")
+		}
+	})
+
+	t.Run("ClipPolicy", func(t *testing.T) {
+		sys := NewSystem()
+		rt := baselineLayerTestRT(root)
+		sys.SetRuntime(rt)
+		baseline := cacheKeyFor(sys, root, frame)
+
+		layer := rt.layers[root.ID()]
+		layer.ClipPolicy = facet.ClipToViewport
+		rt.layers[root.ID()] = layer
+		sys.SetRuntime(rt)
+		changed := cacheKeyFor(sys, root, frame)
+		if changed == baseline {
+			t.Fatal("expected cache key to change when ClipPolicy changes")
+		}
+
+		stable := cacheKeyFor(sys, root, frame)
+		if stable != changed {
+			t.Fatal("cache key changed without input change")
+		}
+	})
+
+	t.Run("RecipeVersion", func(t *testing.T) {
+		sys := NewSystem()
+		rt := baselineLayerTestRT(root)
+		sys.SetRuntime(rt)
+		baseline := cacheKeyFor(sys, root, frame)
+
+		layer := rt.layers[root.ID()]
+		layer.RecipeVersion = 99
+		rt.layers[root.ID()] = layer
+		sys.SetRuntime(rt)
+		changed := cacheKeyFor(sys, root, frame)
+		if changed == baseline {
+			t.Fatal("expected cache key to change when RecipeVersion changes")
+		}
+
+		stable := cacheKeyFor(sys, root, frame)
+		if stable != changed {
+			t.Fatal("cache key changed without input change")
+		}
+	})
+
+	t.Run("ContentScale", func(t *testing.T) {
+		sys := NewSystem()
+		rt := baselineLayerTestRT(root)
+		sys.SetRuntime(rt)
+		baseline := cacheKeyFor(sys, root, frame)
+		if got := sys.outputCache[root.ID()].ContentScale; got != 1.25 {
+			t.Fatalf("ContentScale = %#v, want 1.25", got)
+		}
+
+		rt.contentScale = 2.5
+		sys.SetRuntime(rt)
+		changed := cacheKeyFor(sys, root, frame)
+		if changed == baseline {
+			t.Fatal("expected cache key to change when ContentScale changes")
+		}
+
+		stable := cacheKeyFor(sys, root, frame)
+		if stable != changed {
+			t.Fatal("cache key changed without input change")
+		}
+	})
+
+	t.Run("InputModality", func(t *testing.T) {
+		sys := NewSystem()
+		rt := baselineLayerTestRT(root)
+		sys.SetRuntime(rt)
+		baseline := cacheKeyFor(sys, root, frame)
+		if got := sys.outputCache[root.ID()].InputModality; got != facet.InputModalityPointer {
+			t.Fatalf("InputModality = %#v, want pointer", got)
+		}
+
+		rt.inputModality = facet.InputModalityTouch
+		sys.SetRuntime(rt)
+		changed := cacheKeyFor(sys, root, frame)
+		if changed == baseline {
+			t.Fatal("expected cache key to change when InputModality changes")
+		}
+
+		stable := cacheKeyFor(sys, root, frame)
+		if stable != changed {
+			t.Fatal("cache key changed without input change")
+		}
+	})
 }
 
 func TestProjectionSystem_Reset_clears_cached_outputs(t *testing.T) {

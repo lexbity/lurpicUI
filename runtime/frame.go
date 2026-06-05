@@ -192,6 +192,9 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
 	rt.dirtySources = make(map[facet.FacetID]string)
+	if rt.onFrameSubmitted != nil {
+		rt.onFrameSubmitted()
+	}
 	if runtimeTraceActive() {
 		runtimeTracef("runFrame end n=%d render=%s layout=%s dirty=%d",
 			rt.frameNumber, stats.RenderDuration, stats.LayoutDuration, len(rt.dirtyFacets))

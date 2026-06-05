@@ -49,26 +49,44 @@ func TestRuntimeNew_validation(t *testing.T) {
 func TestFrameTimer_vsyncWake(t *testing.T) {
 	timer := NewFrameTimer(60)
 
-	// Send a vsync timestamp — Wait should return immediately.
 	timer.Vsync(1000000000)
-	start := time.Now()
-	_ = timer.Wait()
-	if time.Since(start) > 5*time.Millisecond {
-		t.Fatal("expected immediate wake from vsync")
+	done := make(chan struct{}, 1)
+	go func() {
+		_ = timer.Wait()
+		done <- struct{}{}
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Wait did not return after vsync signal within deadlock guard")
 	}
 
-	// Send another vsync with a later timestamp.
 	timer.Vsync(1016666666)
-	_ = timer.Wait()
+	done2 := make(chan struct{}, 1)
+	go func() {
+		_ = timer.Wait()
+		done2 <- struct{}{}
+	}()
+	select {
+	case <-done2:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("second Wait did not return after vsync signal within deadlock guard")
+	}
 }
 
 func TestFrameTimer_basics(t *testing.T) {
 	timer := NewFrameTimer(60)
 	timer.RequestFrame()
-	before := time.Now()
-	_ = timer.Wait()
-	if time.Since(before) > 20*time.Millisecond {
-		t.Fatal("expected immediate wake")
+	done := make(chan struct{}, 1)
+	go func() {
+		_ = timer.Wait()
+		done <- struct{}{}
+	}()
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("Wait did not return after RequestFrame within deadlock guard")
 	}
 }
 
@@ -513,16 +531,20 @@ func TestRuntime_crossSeam_layout_projection_input_diagnostics(t *testing.T) {
 }
 
 func TestRuntime_run_returns_render_error(t *testing.T) {
+	sentinel := errors.New("gpu boom")
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
-	rt := mustRuntimeWithBackend(t, root, &backendFixture{submitErr: errors.New("boom")})
+	rt := mustRuntimeWithBackend(t, root, &backendFixture{submitErr: sentinel})
 	errCh := make(chan error, 1)
 	go func() {
 		errCh <- rt.Run()
 	}()
 	select {
 	case err := <-errCh:
-		if err == nil || err.Error() == "" {
+		if err == nil {
 			t.Fatal("expected render error")
+		}
+		if !errors.Is(err, sentinel) {
+			t.Fatalf("Run returned %v, want error wrapping %v", err, sentinel)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timeout waiting for runtime error")

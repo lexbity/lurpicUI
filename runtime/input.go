@@ -3,6 +3,7 @@ package runtime
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func (rt *Runtime) collectPlatformEvents() []platform.Event {
@@ -81,6 +82,17 @@ func (rt *Runtime) handleConfigurationChanged(e platform.ConfigurationChangedEve
 		if newScale != rt.contentScale && newScale > 0 {
 			rt.contentScale = newScale
 		}
+	}
+	// Apply dark/light theme tokens based on UiModeNight.
+	if store, ok := rt.RootStyleContext().(*theme.StyleContextStore); ok {
+		sc := store.Get()
+		if e.UiModeNight {
+			sc.Tokens = theme.DarkTokens()
+		} else {
+			sc.Tokens = theme.DefaultTokens()
+		}
+		sc.Depth++
+		store.Set(sc)
 	}
 	// Invalidate assets that depend on configuration (locale-scoped IDs,
 	// density-dependent LODs). Facets re-acquire handles on next projection,

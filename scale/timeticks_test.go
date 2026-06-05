@@ -35,8 +35,7 @@ func TestTimeTicks_interval_selection(t *testing.T) {
 func TestTimeTicks_calendar_aligned_dayBoundary(t *testing.T) {
 	lo := time.Date(2024, 6, 10, 6, 0, 0, 0, time.UTC)
 	hi := time.Date(2024, 6, 15, 18, 0, 0, 0, time.UTC)
-	vals, iv := timeTicks(ms(lo), ms(hi), 10, time.UTC)
-	_ = iv
+	vals, _ := timeTicks(ms(lo), ms(hi), 10, time.UTC)
 	// All ticks must be aligned to calendar boundaries
 	for _, v := range vals {
 		tm := time.UnixMilli(int64(v))
@@ -168,8 +167,7 @@ func TestTimeTicks_force_calendar_intervals(t *testing.T) {
 func TestTimeTicks_sub_second_intervals(t *testing.T) {
 	lo := time.Date(2024, 6, 10, 12, 0, 0, 0, time.UTC)
 	hi := time.Date(2024, 6, 10, 12, 0, 30, 0, time.UTC)
-	vals, iv := timeTicks(ms(lo), ms(hi), 10, time.UTC)
-	_ = iv
+	vals, _ := timeTicks(ms(lo), ms(hi), 10, time.UTC)
 	if len(vals) < 5 {
 		t.Fatalf("expected sub-second ticks for 30s range, got %d", len(vals))
 	}
@@ -436,9 +434,6 @@ func TestFormatTimeTick_monthly_elided(t *testing.T) {
 	if label == "" {
 		t.Fatal("expected non-empty label for monthly tick")
 	}
-	if contains(label, "2024") {
-		t.Logf("monthly label %q contains year (expected for different months)", label)
-	}
 }
 
 func TestFormatTimeTick_minute_newDay(t *testing.T) {
@@ -456,8 +451,8 @@ func TestFormatTimeTick_second_sameDay(t *testing.T) {
 	prev := time.Date(2024, 6, 10, 12, 0, 0, 0, time.UTC)
 	curr := time.Date(2024, 6, 10, 12, 0, 15, 0, time.UTC)
 	label := formatTimeTick(curr, prev, iv)
-	if contains(label, "Jun") {
-		t.Logf("second label within same day %q elided month", label)
+	if label == "" {
+		t.Fatal("expected non-empty label for second tick within same day")
 	}
 }
 
