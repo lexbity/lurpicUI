@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -299,8 +300,8 @@ func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*
 
 	surfaceW := 96
 	surfaceH := 96
-	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
-	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
+	x := mathutil.Max(0, float32(surfaceW)-result.Size.W) * 0.5
+	y := mathutil.Max(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
 	btn.Layout.Arrange(facet.ArrangeContext{

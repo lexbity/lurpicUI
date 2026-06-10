@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -12,8 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
-	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
+	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 const (
@@ -389,11 +390,11 @@ func (r *Ribbon) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	r.cachedRecipe = slots
 	r.cachedWritingDirection = ctx.WritingDirection
 	r.textRole.Layout = nil
-	r.cachedTabPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	r.cachedTabPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	r.cachedTabGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	r.cachedToolbarGap = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	r.cachedSectionGap = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	r.cachedTabPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	r.cachedTabPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	r.cachedTabGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	r.cachedToolbarGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	r.cachedSectionGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
 	r.cachedRadius = float32(resolved.Radius(theme.RadiusM))
 
 	r.syncChildren()
@@ -454,13 +455,13 @@ func (r *Ribbon) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		}
 	}
 	if len(toolbarSizes) > 0 {
-		toolbarBandH = maxFloat(toolbarBandH, resolved.Density.Scale(40))
+		toolbarBandH = mathutil.Max(toolbarBandH, resolved.Density.Scale(40))
 	}
 	contentH := toolbarBandH
 	if contentH > 0 {
 		contentH += r.cachedSectionGap
 	}
-	naturalWidth := maxFloat(tabRowW, toolbarBandW) + r.cachedTabPadX*2
+	naturalWidth := mathutil.Max(tabRowW, toolbarBandW) + r.cachedTabPadX*2
 	naturalHeight := tabRowH + r.cachedTabPadY*2
 	if contentH > 0 {
 		naturalHeight += contentH
@@ -512,7 +513,7 @@ func (r *Ribbon) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 	}
 	if tabRowH <= 0 {
-		tabRowH = maxFloat(bounds.Height()*0.18, 32)
+		tabRowH = mathutil.Max(bounds.Height()*0.18, 32)
 	}
 	r.cachedTabStripBounds = gfx.RectFromXYWH(inner.Min.X, tabY, inner.Width(), tabRowH)
 	curX := inner.Min.X
@@ -621,17 +622,17 @@ func (r *Ribbon) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	_ = groupLabels
 
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, r.cachedRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, r.cachedRadius), surface)...)
 	}
-	if !isTransparentMaterial(groups) && !r.cachedTabStripBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(r.cachedTabStripBounds, r.cachedRadius), groups)...)
+	if !theme.IsTransparentMaterial(groups) && !r.cachedTabStripBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(r.cachedTabStripBounds, r.cachedRadius), groups)...)
 	}
-	if !isTransparentMaterial(actionItems) && !r.cachedBodyBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(r.cachedBodyBounds, r.cachedRadius), actionItems)...)
+	if !theme.IsTransparentMaterial(actionItems) && !r.cachedBodyBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(r.cachedBodyBounds, r.cachedRadius), actionItems)...)
 	}
 	for i, btn := range r.cachedTabButtons {
 		if btn == nil || btn.Base() == nil || btn.Base().ProjectionRole() == nil {
@@ -659,12 +660,12 @@ func (r *Ribbon) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 			cmds = append(cmds, child.Commands...)
 		}
 	}
-	if r.focusedVisible && !bounds.IsEmpty() && !isTransparentMaterial(focus) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, r.cachedRadius), focus)...)
+	if r.focusedVisible && !bounds.IsEmpty() && !theme.IsTransparentMaterial(focus) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, r.cachedRadius), focus)...)
 	}
-	if !isTransparentMaterial(overflowControls) && !r.cachedTabStripBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(overflowControls) && !r.cachedTabStripBounds.IsEmpty() {
 		separator := gfx.RectFromXYWH(r.cachedTabStripBounds.Min.X, r.cachedTabStripBounds.Max.Y-1, r.cachedTabStripBounds.Width(), 1)
-		cmds = append(cmds, materialCommands(gfx.RectPath(separator), overflowControls)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(separator), overflowControls)...)
 	}
 	return cmds
 }

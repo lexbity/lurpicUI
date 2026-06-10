@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -211,10 +212,10 @@ func (p *ProgressRing) measure(ctx facet.MeasureContext, constraints facet.Const
 	p.cachedTokens = resolved.TokenSet()
 	p.cachedRecipe = slots
 	p.cachedWritingDirection = ctx.WritingDirection
-	p.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	p.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	p.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
-	p.cachedRingThickness = maxFloat(resolved.Density.Scale(6), float32(resolved.Spacing(theme.SpacingS))*0.75)
+	p.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	p.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	p.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
+	p.cachedRingThickness = mathutil.Max(resolved.Density.Scale(6), float32(resolved.Spacing(theme.SpacingS))*0.75)
 	if p.cachedRingThickness > resolved.Density.Scale(12) {
 		p.cachedRingThickness = resolved.Density.Scale(12)
 	}
@@ -224,7 +225,7 @@ func (p *ProgressRing) measure(ctx facet.MeasureContext, constraints facet.Const
 
 	availableWidth := constraints.MaxSize.W
 	if availableWidth > 0 {
-		availableWidth = maxFloat(0, availableWidth-p.cachedPadX*2)
+		availableWidth = mathutil.Max(0, availableWidth-p.cachedPadX*2)
 	}
 	labelSize := gfx.Size{}
 	if p.cachedLabelFacet != nil {
@@ -264,7 +265,7 @@ func (p *ProgressRing) measure(ctx facet.MeasureContext, constraints facet.Const
 		ringSide = 24
 	}
 
-	width := maxFloat(ringSide, labelSize.W) + p.cachedPadX*2
+	width := mathutil.Max(ringSide, labelSize.W) + p.cachedPadX*2
 	height := ringSide + p.cachedPadY*2
 	if p.cachedLabelFacet != nil {
 		height += labelSize.H + p.cachedGap
@@ -299,7 +300,7 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 
 	labelHeight := float32(0)
-	ringSide := minFloat(inner.Width(), inner.Height())
+	ringSide := mathutil.Min(inner.Width(), inner.Height())
 	if p.cachedLabelFacet != nil {
 		labelSize := p.cachedLabelFacet.Base().LayoutRole().MeasuredSize
 		if labelSize == (gfx.Size{}) {
@@ -310,9 +311,9 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if ringAreaHeight < 0 {
 			ringAreaHeight = 0
 		}
-		ringSide = minFloat(inner.Width(), ringAreaHeight)
+		ringSide = mathutil.Min(inner.Width(), ringAreaHeight)
 		if ringSide <= 0 {
-			ringSide = minFloat(inner.Width(), inner.Height())
+			ringSide = mathutil.Min(inner.Width(), inner.Height())
 		}
 	}
 	rows := layout.ArrangeVerticalFlowAligned(inner, 0, p.cachedGap, []gfx.Size{
@@ -328,7 +329,7 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	p.cachedRingSide = p.cachedTrackBounds.Width()
 	p.cachedRingOuterRadius = p.cachedRingSide * 0.5
-	p.cachedRingInnerRadius = maxFloat(1, p.cachedRingOuterRadius-p.cachedRingThickness)
+	p.cachedRingInnerRadius = mathutil.Max(1, p.cachedRingOuterRadius-p.cachedRingThickness)
 	center := gfx.Point{X: p.cachedTrackBounds.Min.X + p.cachedTrackBounds.Width()*0.5, Y: p.cachedTrackBounds.Min.Y + p.cachedTrackBounds.Height()*0.5}
 	progress := clamp01(p.Value.Get())
 	p.cachedIndicatorBounds = ringSegmentBounds(center, p.cachedRingOuterRadius, p.cachedRingInnerRadius, progress)
@@ -357,14 +358,14 @@ func (p *ProgressRing) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 
 	cmds := make([]gfx.Command, 0, 24)
 	center := gfx.Point{X: p.cachedTrackBounds.Min.X + p.cachedTrackBounds.Width()*0.5, Y: p.cachedTrackBounds.Min.Y + p.cachedTrackBounds.Height()*0.5}
-	if !isTransparentMaterial(root) && !p.cachedTrackBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(root) && !p.cachedTrackBounds.IsEmpty() {
 		cmds = append(cmds, progressMaterialCommands(gfx.CirclePath(center, p.cachedRingOuterRadius), root)...)
 	}
-	if !isTransparentMaterial(track) && !p.cachedTrackBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(track) && !p.cachedTrackBounds.IsEmpty() {
 		cmds = append(cmds, progressMaterialCommands(ringPath(center, float64(p.cachedRingOuterRadius), float64(p.cachedRingInnerRadius), 0, 2*math.Pi), track)...)
 	}
 	progress := clamp01(p.Value.Get())
-	if !isTransparentMaterial(indicator) && !p.cachedTrackBounds.IsEmpty() && progress > 0 {
+	if !theme.IsTransparentMaterial(indicator) && !p.cachedTrackBounds.IsEmpty() && progress > 0 {
 		start := -math.Pi * 0.5
 		sweep := float64(progress) * 2 * math.Pi
 		cmds = append(cmds, progressMaterialCommands(ringPath(center, float64(p.cachedRingOuterRadius), float64(p.cachedRingInnerRadius), start, sweep), indicator)...)

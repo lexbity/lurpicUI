@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -328,8 +329,8 @@ func assertSliderSkeuomorphicGolden(t *testing.T, name string, mutate func(*Slid
 
 	surfaceW := 360
 	surfaceH := 120
-	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
-	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
+	x := mathutil.Max(0, float32(surfaceW)-result.Size.W) * 0.5
+	y := mathutil.Max(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
 	slider.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
@@ -369,7 +370,6 @@ func assertSliderSkeuomorphicGolden(t *testing.T, name string, mutate func(*Slid
 	}
 	testkit.AssertGolden(t, surface, "slider_"+name)
 }
-
 
 func AssertSliderGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Slider)) {
 	t.Helper()
@@ -460,8 +460,6 @@ func highContrastTokens() theme.Tokens {
 func colorToGfx(c color.RGBA) gfx.Color {
 	return gfx.Color{R: float32(c.R) / 255, G: float32(c.G) / 255, B: float32(c.B) / 255, A: float32(c.A) / 255}
 }
-
-
 
 func toThemeTokens(t templates.Tokens) theme.Tokens {
 	tokens := theme.DefaultTokens()

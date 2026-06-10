@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -232,9 +233,9 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	b.cachedTokens = resolved.TokenSet()
 	b.cachedRecipe = slots
 	b.cachedWritingDirection = ctx.WritingDirection
-	b.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(4))
-	b.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(8))
-	b.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
+	b.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(4))
+	b.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(8))
+	b.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
 	b.cachedLinkStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedCurrentStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedSeparatorStyle = resolved.TextStyle(theme.TextLabelM)
@@ -287,7 +288,7 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 		stripH = resolved.Density.Scale(20)
 	}
 	width := stripW + b.cachedPadX*2
-	height := maxFloat(stripH+b.cachedPadY*2, resolved.Density.Scale(28))
+	height := mathutil.Max(stripH+b.cachedPadY*2, resolved.Density.Scale(28))
 	measured := constraints.Constrain(gfx.Size{W: width, H: height})
 	b.cachedLabelLayouts = labelLayouts
 	b.cachedSeparatorLayout = separatorLayout
@@ -335,7 +336,7 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	b.cachedSegmentListBounds = listBounds
 	stripH := listBounds.Height()
 	if stripH <= 0 {
-		stripH = maxFloat(bounds.Height()-b.cachedPadY*2, 0)
+		stripH = mathutil.Max(bounds.Height()-b.cachedPadY*2, 0)
 	}
 	if stripH <= 0 {
 		stripH = text.MaxHeight(b.cachedLabelLayouts...)
@@ -365,7 +366,7 @@ func (b *Breadcrumbs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		b.cachedItemBounds[index] = itemRect
 		if labelLayout != nil {
-			labelX := itemRect.Min.X + maxFloat(0, (itemRect.Width()-labelW)*0.5)
+			labelX := itemRect.Min.X + mathutil.Max(0, (itemRect.Width()-labelW)*0.5)
 			b.cachedLabelBounds[index] = text.AlignRectY(gfx.RectFromXYWH(labelX-labelLayout.Bounds.Min.X, itemRect.Min.Y, labelW, labelH), itemRect.Min.Y, itemRect.Height())
 		}
 	}
@@ -412,11 +413,11 @@ func (b *Breadcrumbs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(list) && !b.cachedSegmentListBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RectPath(b.cachedSegmentListBounds), list)...)
+	if !theme.IsTransparentMaterial(list) && !b.cachedSegmentListBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(b.cachedSegmentListBounds), list)...)
 	}
 	for i := range b.Items {
 		rect := b.cachedItemBounds[i]
@@ -454,21 +455,21 @@ func (b *Breadcrumbs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 				material = slots.SegmentLink.Resolve(theme.StateFocused, tokens)
 			}
 		}
-		if label := b.cachedLabelLayouts[i]; label != nil && !isTransparentMaterial(material) {
-			cmds = append(cmds, primitive.TextLayoutCommands(label, b.cachedLabelBounds[i], gfx.SolidBrush(materialColor(material)))...)
+		if label := b.cachedLabelLayouts[i]; label != nil && !theme.IsTransparentMaterial(material) {
+			cmds = append(cmds, primitive.TextLayoutCommands(label, b.cachedLabelBounds[i], gfx.SolidBrush(theme.MaterialColor(material)))...)
 		}
 	}
 	for i := range b.cachedSeparatorBounds {
-		if b.cachedSeparatorLayout == nil || b.cachedSeparatorBounds[i].IsEmpty() || isTransparentMaterial(separator) {
+		if b.cachedSeparatorLayout == nil || b.cachedSeparatorBounds[i].IsEmpty() || theme.IsTransparentMaterial(separator) {
 			continue
 		}
-		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedSeparatorLayout, b.cachedSeparatorBounds[i], gfx.SolidBrush(materialColor(separator)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedSeparatorLayout, b.cachedSeparatorBounds[i], gfx.SolidBrush(theme.MaterialColor(separator)))...)
 	}
-	if b.focusedVisible && !isTransparentMaterial(focus) && b.focusedIndex >= 0 && b.focusedIndex < len(b.cachedItemBounds) {
+	if b.focusedVisible && !theme.IsTransparentMaterial(focus) && b.focusedIndex >= 0 && b.focusedIndex < len(b.cachedItemBounds) {
 		active := b.cachedItemBounds[b.focusedIndex]
 		if !active.IsEmpty() {
-			inset := maxFloat(1, active.Height()*0.18)
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(active.Inset(-inset, -inset), float32(tokens.Radius.SM)+inset), focus)...)
+			inset := mathutil.Max(1, active.Height()*0.18)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(active.Inset(-inset, -inset), float32(tokens.Radius.SM)+inset), focus)...)
 		}
 	}
 	return cmds
@@ -802,7 +803,7 @@ func (b *Breadcrumbs) pointInFocusRing(p gfx.Point) bool {
 	if active.IsEmpty() || !active.Contains(p) {
 		return false
 	}
-	ring := maxFloat(1, active.Height()*0.16)
+	ring := mathutil.Max(1, active.Height()*0.16)
 	inner := active.Inset(ring, ring)
 	if inner.IsEmpty() {
 		return true

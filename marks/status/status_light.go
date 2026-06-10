@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -197,15 +198,15 @@ func (s *StatusLight) measure(ctx facet.MeasureContext, constraints facet.Constr
 	s.cachedTokens = resolved.TokenSet()
 	s.cachedRecipe = slots
 	s.cachedWritingDirection = ctx.WritingDirection
-	s.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(8))
-	s.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
-	s.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
-	s.cachedIndicatorSize = maxFloat(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM))*0.75)
+	s.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(8))
+	s.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
+	s.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
+	s.cachedIndicatorSize = mathutil.Max(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM))*0.75)
 	s.cachedShowLabel = s.ShowLabel.Get() && resolved.Density.ID != theme.DensityIDCompact
 	s.syncChildren()
 	innerWidth := constraints.MaxSize.W
 	if innerWidth > 0 {
-		innerWidth = maxFloat(0, innerWidth-s.cachedPadX*2)
+		innerWidth = mathutil.Max(0, innerWidth-s.cachedPadX*2)
 	}
 	labelBounds := gfx.Rect{}
 	if s.cachedLabelFacet != nil {
@@ -289,12 +290,12 @@ func (s *StatusLight) buildCommands(bounds gfx.Rect, runtime any, contentScale f
 	indicator := slots.Indicator.Resolve(state, tokens)
 	_ = slots.LabelOptional
 	cmds := make([]gfx.Command, 0, 16)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(indicator) {
+	if !theme.IsTransparentMaterial(indicator) {
 		shape := gfx.CirclePath(gfx.Point{X: s.cachedIndicatorBounds.Min.X + s.cachedIndicatorBounds.Width()*0.5, Y: s.cachedIndicatorBounds.Min.Y + s.cachedIndicatorBounds.Height()*0.5}, s.cachedIndicatorBounds.Width()*0.5)
-		cmds = append(cmds, materialCommands(shape, indicator)...)
+		cmds = append(cmds, theme.MaterialCommands(shape, indicator)...)
 	}
 	if s.cachedLabelFacet != nil && !s.cachedLabelBounds.IsEmpty() {
 		if projected := s.cachedLabelFacet.Base().ProjectionRole().Project(facet.ProjectionContext{

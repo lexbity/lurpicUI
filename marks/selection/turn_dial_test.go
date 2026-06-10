@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -222,7 +223,6 @@ func TestTurnDialGoldenDarkPressed(t *testing.T) {
 	})
 }
 
-
 func AssertTurnDialGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, mutate func(*TurnDial)) {
 	t.Helper()
 	td, rt, measureCtx := newTurnDialTestFixture(t, tokens, density, layout.WritingDirectionLTR)
@@ -243,8 +243,8 @@ func AssertTurnDialGolden(t *testing.T, name string, tokens theme.Tokens, densit
 
 	surfaceW := 160
 	surfaceH := 160
-	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
-	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
+	x := mathutil.Max(0, float32(surfaceW)-result.Size.W) * 0.5
+	y := mathutil.Max(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 
 	td.LayoutRole().Arrange(facet.ArrangeContext{
@@ -312,4 +312,3 @@ func newTurnDialTestFixture(t *testing.T, tokens theme.Tokens, density theme.Den
 func darkSliderTokens() theme.Tokens {
 	return toThemeTokens(templates.UneNuit().Tokens)
 }
-

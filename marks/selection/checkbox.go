@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -297,23 +298,23 @@ func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constrain
 	row.ShowSelectionIndicator = marks.Const(false)
 	row.ShowFocusRing = marks.Const(false)
 
-	textMaxWidth := maxFloat(0, maxWidth-c.cachedControlSize-c.cachedRowGap)
+	textMaxWidth := mathutil.Max(0, maxWidth-c.cachedControlSize-c.cachedRowGap)
 	rowResult := row.measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: textMaxWidth, H: constraints.MaxSize.H}})
 	c.cachedTextRowSize = rowResult.Size
 	c.cachedLabelLayout = row.cachedLabelLayout
 	c.cachedHelperLayout = row.cachedSupportingLayout
 	labelH := text.Height(c.cachedLabelLayout)
 	helperH := text.Height(c.cachedHelperLayout)
-	rowH := maxFloat(c.cachedControlSize, labelH)
+	rowH := mathutil.Max(c.cachedControlSize, labelH)
 	if rowH <= 0 {
 		rowH = c.cachedControlSize
 	}
 	width := c.cachedControlSize
 	if rowResult.Size.W > 0 {
-		width = maxFloat(width, c.cachedControlSize+c.cachedRowGap+rowResult.Size.W)
+		width = mathutil.Max(width, c.cachedControlSize+c.cachedRowGap+rowResult.Size.W)
 	}
 	if c.cachedHelperLayout != nil {
-		width = maxFloat(width, c.cachedControlSize+c.cachedRowGap+c.cachedHelperLayout.Bounds.Width())
+		width = mathutil.Max(width, c.cachedControlSize+c.cachedRowGap+c.cachedHelperLayout.Bounds.Width())
 	}
 	if width <= 0 {
 		width = c.cachedControlSize
@@ -323,7 +324,7 @@ func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constrain
 		height = rowResult.Size.H
 	}
 	if helperH > 0 {
-		height = maxFloat(height, rowH+c.cachedBlockGap+helperH)
+		height = mathutil.Max(height, rowH+c.cachedBlockGap+helperH)
 	}
 	if height <= 0 {
 		height = c.cachedControlSize
@@ -375,11 +376,11 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	row.Variant = marks.Const(uiinput.ListItemStandard)
 	labelH := text.Height(c.cachedLabelLayout)
 	helperH := text.Height(c.cachedHelperLayout)
-	rowH := maxFloat(c.cachedControlSize, labelH)
+	rowH := mathutil.Max(c.cachedControlSize, labelH)
 	if rowH <= 0 {
 		rowH = c.cachedControlSize
 	}
-	textWidth := maxFloat(0, bounds.Width()-c.cachedControlSize-c.cachedRowGap)
+	textWidth := mathutil.Max(0, bounds.Width()-c.cachedControlSize-c.cachedRowGap)
 	textHeight := labelH + helperH
 	if helperH > 0 {
 		textHeight += c.cachedBlockGap
@@ -387,9 +388,9 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if textHeight <= 0 {
 		textHeight = rowH
 	}
-	textBlockH := maxFloat(bounds.Height(), c.cachedTextRowSize.H)
+	textBlockH := mathutil.Max(bounds.Height(), c.cachedTextRowSize.H)
 	if textBlockH <= 0 {
-		textBlockH = maxFloat(textHeight, rowH)
+		textBlockH = mathutil.Max(textHeight, rowH)
 	}
 	textBounds := gfx.Rect{}
 	if c.cachedWritingDirection == facet.WritingDirectionRTL {
@@ -461,31 +462,31 @@ func (c *Checkbox) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 24)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if c.focusedVisible && !isTransparentMaterial(focus) && !c.cachedControlBounds.IsEmpty() {
-		inset := maxFloat(1, c.cachedControlBounds.Height()*0.12)
+	if c.focusedVisible && !theme.IsTransparentMaterial(focus) && !c.cachedControlBounds.IsEmpty() {
+		inset := mathutil.Max(1, c.cachedControlBounds.Height()*0.12)
 		ringBounds := c.cachedControlBounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, c.cachedControlRadius+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, c.cachedControlRadius+inset), focus)...)
 	}
-	if !isTransparentMaterial(stateLayer) && !c.cachedControlBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(c.cachedControlBounds, c.cachedControlRadius), stateLayer)...)
+	if !theme.IsTransparentMaterial(stateLayer) && !c.cachedControlBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(c.cachedControlBounds, c.cachedControlRadius), stateLayer)...)
 	}
-	if !isTransparentMaterial(control) && !c.cachedControlBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(c.cachedControlBounds, c.cachedControlRadius), control)...)
+	if !theme.IsTransparentMaterial(control) && !c.cachedControlBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(c.cachedControlBounds, c.cachedControlRadius), control)...)
 	}
-	if !isTransparentMaterial(check) {
+	if !theme.IsTransparentMaterial(check) {
 		if c.isSemanticallyMixed() {
 			if mixed := c.mixedFacet(); mixed != nil {
-				mixed.SetCurrentColor(materialColor(check))
+				mixed.SetCurrentColor(theme.MaterialColor(check))
 				if mixedCmds := mixed.Project(c.cachedTickBounds()); mixedCmds != nil {
 					cmds = append(cmds, mixedCmds.Commands...)
 				}
 			}
 		} else if c.isSemanticallySelected() {
 			if tick := c.tickFacet(); tick != nil {
-				tick.SetCurrentColor(materialColor(check))
+				tick.SetCurrentColor(theme.MaterialColor(check))
 				if tickCmds := tick.Project(c.cachedTickBounds()); tickCmds != nil {
 					cmds = append(cmds, tickCmds.Commands...)
 				}
@@ -493,10 +494,10 @@ func (c *Checkbox) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		}
 	}
 	if c.cachedLabelLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(c.cachedLabelLayout, c.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(c.cachedLabelLayout, c.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
 	if c.cachedHelperLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(c.cachedHelperLayout, c.cachedHelperBounds, gfx.SolidBrush(materialColor(helper)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(c.cachedHelperLayout, c.cachedHelperBounds, gfx.SolidBrush(theme.MaterialColor(helper)))...)
 	}
 	return cmds
 }
@@ -532,7 +533,7 @@ func (c *Checkbox) pointInFocusRing(p gfx.Point) bool {
 	if bounds.IsEmpty() || !bounds.Contains(p) {
 		return false
 	}
-	ring := maxFloat(1, c.cachedRowGap*0.5)
+	ring := mathutil.Max(1, c.cachedRowGap*0.5)
 	inner := gfx.Rect{
 		Min: gfx.Point{X: bounds.Min.X + ring, Y: bounds.Min.Y + ring},
 		Max: gfx.Point{X: bounds.Max.X - ring, Y: bounds.Max.Y - ring},
@@ -557,7 +558,7 @@ func (c *Checkbox) cachedTickBounds() gfx.Rect {
 	if c == nil || c.cachedControlBounds.IsEmpty() {
 		return gfx.Rect{}
 	}
-	inset := maxFloat(1, c.cachedControlBounds.Width()*0.06)
+	inset := mathutil.Max(1, c.cachedControlBounds.Width()*0.06)
 	return c.cachedControlBounds.Inset(inset, inset)
 }
 

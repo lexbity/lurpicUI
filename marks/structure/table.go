@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -537,7 +538,7 @@ func (t *Table) buildGridPolicy(data TableData) *layoutgrid.Policy {
 	for i := range rows {
 		rows[i] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackIntrinsic}
 	}
-	colGap := maxFloat(t.gridGap(), 8)
+	colGap := mathutil.Max(t.gridGap(), 8)
 	return layoutgrid.New(layoutgrid.Config{
 		Columns:       columns,
 		Rows:          rows,
@@ -613,7 +614,7 @@ func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	t.cachedVerticalThumb = gfx.Rect{}
 	t.cachedHorizontalTrack = gfx.Rect{}
 	t.cachedHorizontalThumb = gfx.Rect{}
-	t.cachedFocusBounds = bounds.Inset(maxFloat(1, bounds.Width()*0.04), maxFloat(1, bounds.Height()*0.04))
+	t.cachedFocusBounds = bounds.Inset(mathutil.Max(1, bounds.Width()*0.04), mathutil.Max(1, bounds.Height()*0.04))
 	t.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
@@ -699,19 +700,19 @@ func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 128)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), surface)...)
 	}
-	if !isTransparentMaterial(headerRow) && len(t.cachedRowKeys) > 0 {
+	if !theme.IsTransparentMaterial(headerRow) && len(t.cachedRowKeys) > 0 {
 		headerKey := tableRowKeyForIndex(t.data(), 0)
 		if headerBounds := t.cachedRowBounds[headerKey]; !headerBounds.IsEmpty() {
-			cmds = append(cmds, materialCommands(gfx.RectPath(headerBounds), headerRow)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(headerBounds), headerRow)...)
 		}
 	}
-	if !isTransparentMaterial(bodyRows) {
+	if !theme.IsTransparentMaterial(bodyRows) {
 		rows := t.cachedVisibleRows
 		if len(rows) == 0 {
 			rows = sortedTableRows(t.data())
@@ -719,11 +720,11 @@ func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 		for i := range rows {
 			rowKey := stableTableKey(rows[i].Key, "", i)
 			if rowBounds := t.cachedRowBounds[rowKey]; !rowBounds.IsEmpty() {
-				cmds = append(cmds, materialCommands(gfx.RectPath(rowBounds), bodyRows)...)
+				cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(rowBounds), bodyRows)...)
 			}
 		}
 	}
-	if !isTransparentMaterial(selectionColumn) {
+	if !theme.IsTransparentMaterial(selectionColumn) {
 		for _, spec := range t.cachedChildSpecs {
 			if spec.MarkID != tableMarkIDSelectionColumn || spec.Facet == nil {
 				continue
@@ -736,7 +737,7 @@ func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 			if childBounds.IsEmpty() {
 				continue
 			}
-			cmds = append(cmds, materialCommands(gfx.RectPath(childBounds), selectionColumn)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(childBounds), selectionColumn)...)
 		}
 	}
 	if !t.cachedViewportBounds.IsEmpty() {
@@ -755,12 +756,12 @@ func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 			}
 			switch spec.MarkID {
 			case tableMarkIDHeaderCell:
-				if !isTransparentMaterial(headerCell) {
-					cmds = append(cmds, materialCommands(gfx.RectPath(childBounds), headerCell)...)
+				if !theme.IsTransparentMaterial(headerCell) {
+					cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(childBounds), headerCell)...)
 				}
 			case tableMarkIDBodyCell:
-				if !isTransparentMaterial(bodyCell) {
-					cmds = append(cmds, materialCommands(gfx.RectPath(childBounds), bodyCell)...)
+				if !theme.IsTransparentMaterial(bodyCell) {
+					cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(childBounds), bodyCell)...)
 				}
 			}
 			if projected := base.ProjectionRole().Project(facet.ProjectionContext{
@@ -785,8 +786,8 @@ func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 	if !t.cachedHorizontalThumb.IsEmpty() {
 		cmds = append(cmds, t.barCommands(t.cachedHorizontalThumb, sortIndicator, 1)...)
 	}
-	if t.focusedVisible && !isTransparentMaterial(focus) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(t.cachedFocusBounds), focus)...)
+	if t.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(t.cachedFocusBounds), focus)...)
 	}
 	return cmds
 }
@@ -1010,8 +1011,8 @@ func (t *Table) groupChild(spec tableChildSpec) facet.GroupChild {
 
 func (t *Table) updateScrollBounds(bounds gfx.Rect) {
 	t.cachedViewportBounds = bounds
-	maxX := maxFloat(0, t.cachedContentBounds.Width()-bounds.Width())
-	maxY := maxFloat(0, t.cachedContentBounds.Height()-bounds.Height())
+	maxX := mathutil.Max(0, t.cachedContentBounds.Width()-bounds.Width())
+	maxY := mathutil.Max(0, t.cachedContentBounds.Height()-bounds.Height())
 	t.scrollOffset = gfx.Point{
 		X: clampFloat(t.scrollOffset.X, 0, maxX),
 		Y: clampFloat(t.scrollOffset.Y, 0, maxY),
@@ -1026,11 +1027,11 @@ func (t *Table) updateScrollBounds(bounds gfx.Rect) {
 			trackHeight = 0
 		}
 		t.cachedVerticalTrack = gfx.RectFromXYWH(bounds.Max.X-track, bounds.Min.Y, track, trackHeight)
-		thumbHeight := maxFloat(track*2, trackHeight*(bounds.Height()/maxFloat(1, t.cachedContentBounds.Height())))
+		thumbHeight := mathutil.Max(track*2, trackHeight*(bounds.Height()/mathutil.Max(1, t.cachedContentBounds.Height())))
 		if thumbHeight > trackHeight {
 			thumbHeight = trackHeight
 		}
-		maxOffset := maxFloat(1, maxY)
+		maxOffset := mathutil.Max(1, maxY)
 		thumbY := bounds.Min.Y + (t.scrollOffset.Y/maxOffset)*(trackHeight-thumbHeight)
 		t.cachedVerticalThumb = gfx.RectFromXYWH(bounds.Max.X-track, thumbY, track, thumbHeight)
 	}
@@ -1043,11 +1044,11 @@ func (t *Table) updateScrollBounds(bounds gfx.Rect) {
 			trackWidth = 0
 		}
 		t.cachedHorizontalTrack = gfx.RectFromXYWH(bounds.Min.X, bounds.Max.Y-track, trackWidth, track)
-		thumbWidth := maxFloat(track*2, trackWidth*(bounds.Width()/maxFloat(1, t.cachedContentBounds.Width())))
+		thumbWidth := mathutil.Max(track*2, trackWidth*(bounds.Width()/mathutil.Max(1, t.cachedContentBounds.Width())))
 		if thumbWidth > trackWidth {
 			thumbWidth = trackWidth
 		}
-		maxOffset := maxFloat(1, maxX)
+		maxOffset := mathutil.Max(1, maxX)
 		thumbX := bounds.Min.X + (t.scrollOffset.X/maxOffset)*(trackWidth-thumbWidth)
 		t.cachedHorizontalThumb = gfx.RectFromXYWH(thumbX, bounds.Max.Y-track, thumbWidth, track)
 	}
@@ -1065,7 +1066,7 @@ func (t *Table) updateOffsetFromDrag(p gfx.Point) {
 		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
 			return
 		}
-		trackSpan := maxFloat(1, trackRect.Width()-thumbRect.Width())
+		trackSpan := mathutil.Max(1, trackRect.Width()-thumbRect.Width())
 		pos := p.X - trackRect.Min.X - thumbRect.Width()*0.5
 		t.scrollOffset.X = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
 	default:
@@ -1075,7 +1076,7 @@ func (t *Table) updateOffsetFromDrag(p gfx.Point) {
 		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
 			return
 		}
-		trackSpan := maxFloat(1, trackRect.Height()-thumbRect.Height())
+		trackSpan := mathutil.Max(1, trackRect.Height()-thumbRect.Height())
 		pos := p.Y - trackRect.Min.Y - thumbRect.Height()*0.5
 		t.scrollOffset.Y = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
 	}
@@ -1183,26 +1184,26 @@ func (t *Table) pageStep() int {
 	if len(rows) == 0 {
 		return 1
 	}
-	return max(1, int(span/maxFloat(1, t.gridGap()*2+18)))
+	return max(1, int(span/mathutil.Max(1, t.gridGap()*2+18)))
 }
 
 func (t *Table) trackThickness() float32 {
 	if t.cachedTokens.Spacing.TouchTarget > 0 {
-		return maxFloat(8, t.cachedTokens.Spacing.TouchTarget*0.12)
+		return mathutil.Max(8, t.cachedTokens.Spacing.TouchTarget*0.12)
 	}
 	return 8
 }
 
 func (t *Table) gridGap() float32 {
 	if t.cachedTokens.Spacing.XS > 0 {
-		return maxFloat(4, t.cachedTokens.Spacing.XS)
+		return mathutil.Max(4, t.cachedTokens.Spacing.XS)
 	}
 	return 4
 }
 
 func (t *Table) selectionColumnWidth() float32 {
 	if t.cachedTokens.Spacing.TouchTarget > 0 {
-		return maxFloat(24, t.cachedTokens.Spacing.TouchTarget*0.45)
+		return mathutil.Max(24, t.cachedTokens.Spacing.TouchTarget*0.45)
 	}
 	return 24
 }
@@ -1212,15 +1213,15 @@ func (t *Table) keyboardStep() float32 {
 	if span <= 0 {
 		return 24
 	}
-	return maxFloat(24, span*0.12)
+	return mathutil.Max(24, span*0.12)
 }
 
 func (t *Table) maxScrollX() float32 {
-	return maxFloat(0, t.cachedContentBounds.Width()-t.cachedViewportBounds.Width())
+	return mathutil.Max(0, t.cachedContentBounds.Width()-t.cachedViewportBounds.Width())
 }
 
 func (t *Table) maxScrollY() float32 {
-	return maxFloat(0, t.cachedContentBounds.Height()-t.cachedViewportBounds.Height())
+	return mathutil.Max(0, t.cachedContentBounds.Height()-t.cachedViewportBounds.Height())
 }
 
 func (t *Table) visibleRowKeyAtIndex(index int) string {
@@ -1255,14 +1256,14 @@ func (t *Table) cursorShape() facet.CursorShape {
 }
 
 func (t *Table) barCommands(bounds gfx.Rect, material theme.Material, opacity float32) []gfx.Command {
-	if bounds.IsEmpty() || isTransparentMaterial(material) {
+	if bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	cmds := make([]gfx.Command, 0, 4)
 	if opacity > 0 && opacity < 1 {
 		cmds = append(cmds, gfx.PushOpacity{Alpha: opacity})
 	}
-	cmds = append(cmds, materialCommands(gfx.RectPath(bounds), material)...)
+	cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), material)...)
 	if opacity > 0 && opacity < 1 {
 		cmds = append(cmds, gfx.PopOpacity{})
 	}

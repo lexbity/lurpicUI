@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/layout/radial"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -371,16 +372,16 @@ func (m *RadialMenu) measure(ctx facet.MeasureContext, constraints facet.Constra
 	})
 	maxSize := constraints.MaxSize
 	if maxSize.W <= 0 {
-		maxSize.W = maxFloat(resolved.Density.Scale(320), m.cachedTrackRadius*2+64)
+		maxSize.W = mathutil.Max(resolved.Density.Scale(320), m.cachedTrackRadius*2+64)
 	}
 	if maxSize.H <= 0 {
-		maxSize.H = maxFloat(resolved.Density.Scale(320), m.cachedTrackRadius*2+64)
+		maxSize.H = mathutil.Max(resolved.Density.Scale(320), m.cachedTrackRadius*2+64)
 	}
 	size, err := policy.Measure(ctx, toRadialChildren(children), maxSize)
 	if err != nil {
 		panic(err)
 	}
-	minSide := maxFloat(resolved.Density.Scale(96), m.cachedTrackRadius*2+32)
+	minSide := mathutil.Max(resolved.Density.Scale(96), m.cachedTrackRadius*2+32)
 	if size.W < minSide {
 		size.W = minSide
 	}
@@ -409,7 +410,7 @@ func (m *RadialMenu) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	m.cachedBounds = bounds
 	m.cachedFocusBounds = gfx.Rect{}
 	m.cachedCenter = centerOfRect(bounds)
-	m.cachedSurfaceRadius = maxFloat(0, minFloat(bounds.Width(), bounds.Height())*0.5-2)
+	m.cachedSurfaceRadius = mathutil.Max(0, mathutil.Min(bounds.Width(), bounds.Height())*0.5-2)
 	m.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() || !m.Open || m.Disabled.Get() {
 		m.cachedArrangedChildren = nil
@@ -465,7 +466,7 @@ func (m *RadialMenu) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 				maxY = child.Bounds.Max.Y
 			}
 		}
-		m.cachedFocusBounds = gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY).Inset(-maxFloat(2, bounds.Width()*0.05), -maxFloat(2, bounds.Height()*0.05))
+		m.cachedFocusBounds = gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY).Inset(-mathutil.Max(2, bounds.Width()*0.05), -mathutil.Max(2, bounds.Height()*0.05))
 	}
 }
 
@@ -484,23 +485,23 @@ func (m *RadialMenu) buildCommands(bounds gfx.Rect, runtime any, contentScale fl
 	focusRing := recipe.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 16)
-	if !isTransparentMaterial(root) {
+	if !theme.IsTransparentMaterial(root) {
 		cmds = append(cmds, radialMenuMaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) && m.cachedSurfaceRadius > 0 {
+	if !theme.IsTransparentMaterial(surface) && m.cachedSurfaceRadius > 0 {
 		cmds = append(cmds, radialMenuMaterialCommands(gfx.CirclePath(centerOfRect(bounds), m.cachedSurfaceRadius), surface)...)
 	}
-	if m.cachedTrackRadius > 0 && !isTransparentMaterial(track) {
+	if m.cachedTrackRadius > 0 && !theme.IsTransparentMaterial(track) {
 		cmds = append(cmds, radialMenuMaterialCommands(gfx.CirclePath(m.cachedCenter, m.cachedTrackRadius), track)...)
 	}
-	if !isTransparentMaterial(centerSlot) {
-		centerRadius := maxFloat(12, m.cachedTrackRadius*0.22)
+	if !theme.IsTransparentMaterial(centerSlot) {
+		centerRadius := mathutil.Max(12, m.cachedTrackRadius*0.22)
 		cmds = append(cmds, radialMenuMaterialCommands(gfx.CirclePath(m.cachedCenter, centerRadius), centerSlot)...)
 	}
-	if !isTransparentMaterial(anchor) {
-		arrowW := maxFloat(10, bounds.Width()*0.08)
-		arrowH := maxFloat(7, arrowW*0.6)
-		top := bounds.Min.Y + maxFloat(1, arrowH*0.2)
+	if !theme.IsTransparentMaterial(anchor) {
+		arrowW := mathutil.Max(10, bounds.Width()*0.08)
+		arrowH := mathutil.Max(7, arrowW*0.6)
+		top := bounds.Min.Y + mathutil.Max(1, arrowH*0.2)
 		left := m.cachedCenter.X - arrowW*0.5
 		right := m.cachedCenter.X + arrowW*0.5
 		path := gfx.NewPath().
@@ -537,8 +538,8 @@ func (m *RadialMenu) buildCommands(bounds gfx.Rect, runtime any, contentScale fl
 			}
 		}
 	}
-	if m.focusedVisible && !m.cachedFocusBounds.IsEmpty() && !isTransparentMaterial(focusRing) {
-		cmds = append(cmds, radialMenuMaterialCommands(gfx.CirclePath(m.cachedCenter, maxFloat(m.cachedFocusBounds.Width(), m.cachedFocusBounds.Height())*0.5), focusRing)...)
+	if m.focusedVisible && !m.cachedFocusBounds.IsEmpty() && !theme.IsTransparentMaterial(focusRing) {
+		cmds = append(cmds, radialMenuMaterialCommands(gfx.CirclePath(m.cachedCenter, mathutil.Max(m.cachedFocusBounds.Width(), m.cachedFocusBounds.Height())*0.5), focusRing)...)
 	}
 	return cmds
 }
@@ -559,7 +560,7 @@ func (m *RadialMenu) hitTest(pt gfx.Point) facet.HitResult {
 			return facet.HitResult{Hit: true, MarkID: radialMenuMarkIDRadial, Cursor: facet.CursorCrosshair}
 		}
 	}
-	if pt.Y <= m.cachedBounds.Min.Y+maxFloat(12, m.cachedBounds.Height()*0.1) {
+	if pt.Y <= m.cachedBounds.Min.Y+mathutil.Max(12, m.cachedBounds.Height()*0.1) {
 		return facet.HitResult{Hit: true, MarkID: radialMenuMarkIDAnchor, Cursor: facet.CursorCrosshair}
 	}
 	return facet.HitResult{Hit: true, MarkID: radialMenuMarkIDRoot, Cursor: facet.CursorCrosshair}
@@ -758,7 +759,7 @@ func (m *RadialMenu) regionAt(pt gfx.Point) radialMenuRegion {
 			return radialMenuRegionRadial
 		}
 	}
-	if pt.Y <= m.cachedBounds.Min.Y+maxFloat(12, m.cachedBounds.Height()*0.1) {
+	if pt.Y <= m.cachedBounds.Min.Y+mathutil.Max(12, m.cachedBounds.Height()*0.1) {
 		return radialMenuRegionAnchor
 	}
 	return radialMenuRegionRoot
@@ -771,7 +772,7 @@ func (m *RadialMenu) defaultTrackRadius(resolved theme.ResolvedContext) float32 
 	if m.DefaultTrackRadius > 0 {
 		return m.DefaultTrackRadius
 	}
-	return maxFloat(resolved.Density.Scale(96), 96)
+	return mathutil.Max(resolved.Density.Scale(96), 96)
 }
 
 func (m *RadialMenu) attachChild(child facet.FacetImpl) {

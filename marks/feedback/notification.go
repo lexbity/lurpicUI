@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -433,15 +434,15 @@ func (n *Notification) measure(ctx facet.MeasureContext, constraints facet.Const
 	n.cachedTokens = resolved.TokenSet()
 	n.cachedRecipe = slots
 	n.cachedWritingDirection = ctx.WritingDirection
-	n.cachedPadX = maxFloat(resolved.Density.Scale(14), float32(resolved.Spacing(theme.SpacingL)))
-	n.cachedPadY = maxFloat(resolved.Density.Scale(12), float32(resolved.Spacing(theme.SpacingM)))
-	n.cachedGap = maxFloat(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
-	n.cachedRowGap = maxFloat(resolved.Density.Scale(6), float32(resolved.Spacing(theme.SpacingS)))
-	n.cachedSurfaceRadius = maxFloat(float32(resolved.Radius(theme.RadiusL).Float32()), float32(resolved.Radius(theme.RadiusM).Float32()))
+	n.cachedPadX = mathutil.Max(resolved.Density.Scale(14), float32(resolved.Spacing(theme.SpacingL)))
+	n.cachedPadY = mathutil.Max(resolved.Density.Scale(12), float32(resolved.Spacing(theme.SpacingM)))
+	n.cachedGap = mathutil.Max(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
+	n.cachedRowGap = mathutil.Max(resolved.Density.Scale(6), float32(resolved.Spacing(theme.SpacingS)))
+	n.cachedSurfaceRadius = mathutil.Max(float32(resolved.Radius(theme.RadiusL).Float32()), float32(resolved.Radius(theme.RadiusM).Float32()))
 	n.syncChildren()
 	innerMaxW := constraints.MaxSize.W
 	if innerMaxW > 0 {
-		innerMaxW = maxFloat(0, innerMaxW-n.cachedPadX*2)
+		innerMaxW = mathutil.Max(0, innerMaxW-n.cachedPadX*2)
 	}
 	measureCtx := facet.MeasureContext{
 		Runtime:          ctx.Runtime,
@@ -452,17 +453,17 @@ func (n *Notification) measure(ctx facet.MeasureContext, constraints facet.Const
 	}
 	iconSize := gfx.Size{}
 	if n.cachedIconFacet != nil {
-		target := maxFloat(resolved.Density.Scale(20), float32(resolved.TokenSet().Spacing.TouchTarget)*0.35)
+		target := mathutil.Max(resolved.Density.Scale(20), float32(resolved.TokenSet().Spacing.TouchTarget)*0.35)
 		iconSize = n.cachedIconFacet.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: target, H: target}}).Size
 	}
 	actionSize := gfx.Size{}
 	if n.cachedActionButton != nil {
-		target := maxFloat(resolved.Density.Scale(24), float32(resolved.TokenSet().Spacing.TouchTarget)*0.55)
+		target := mathutil.Max(resolved.Density.Scale(24), float32(resolved.TokenSet().Spacing.TouchTarget)*0.55)
 		actionSize = n.cachedActionButton.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: target * 4, H: target}}).Size
 	}
 	closeSize := gfx.Size{}
 	if n.cachedCloseButton != nil {
-		target := maxFloat(resolved.Density.Scale(24), float32(resolved.TokenSet().Spacing.TouchTarget)*0.55)
+		target := mathutil.Max(resolved.Density.Scale(24), float32(resolved.TokenSet().Spacing.TouchTarget)*0.55)
 		closeSize = n.cachedCloseButton.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: target, H: target}}).Size
 	}
 	controlsW := float32(0)
@@ -483,7 +484,7 @@ func (n *Notification) measure(ctx facet.MeasureContext, constraints facet.Const
 	}
 	bodyMaxW := innerMaxW
 	if controlsW > 0 {
-		bodyMaxW = maxFloat(0, innerMaxW-controlsW-n.cachedGap*2)
+		bodyMaxW = mathutil.Max(0, innerMaxW-controlsW-n.cachedGap*2)
 	}
 	bodySize := gfx.Size{}
 	if n.cachedContentGroup != nil {
@@ -494,20 +495,20 @@ func (n *Notification) measure(ctx facet.MeasureContext, constraints facet.Const
 		contentW += n.cachedGap
 	}
 	contentW += bodySize.W
-	contentH := maxFloat(iconSize.H, bodySize.H)
-	contentH = maxFloat(contentH, actionSize.H)
-	contentH = maxFloat(contentH, closeSize.H)
+	contentH := mathutil.Max(iconSize.H, bodySize.H)
+	contentH = mathutil.Max(contentH, actionSize.H)
+	contentH = mathutil.Max(contentH, closeSize.H)
 	surfaceSize := gfx.Size{
 		W: contentW + n.cachedPadX*2,
 		H: contentH + n.cachedPadY*2,
 	}
-	surfaceSize.W = maxFloat(surfaceSize.W, resolved.Density.Scale(280))
-	surfaceSize.H = maxFloat(surfaceSize.H, resolved.Density.Scale(72))
+	surfaceSize.W = mathutil.Max(surfaceSize.W, resolved.Density.Scale(280))
+	surfaceSize.H = mathutil.Max(surfaceSize.H, resolved.Density.Scale(72))
 	if constraints.MaxSize.W > 0 {
-		surfaceSize.W = minFloat(surfaceSize.W, constraints.MaxSize.W)
+		surfaceSize.W = mathutil.Min(surfaceSize.W, constraints.MaxSize.W)
 	}
 	if constraints.MaxSize.H > 0 {
-		surfaceSize.H = minFloat(surfaceSize.H, constraints.MaxSize.H)
+		surfaceSize.H = mathutil.Min(surfaceSize.H, constraints.MaxSize.H)
 	}
 	size := constraints.Constrain(surfaceSize)
 	n.Layout.MeasuredSize = size
@@ -529,35 +530,35 @@ func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		return
 	}
 	n.syncChildren()
-	margin := maxFloat(n.cachedPadX, n.cachedPadY)
+	margin := mathutil.Max(n.cachedPadX, n.cachedPadY)
 	contentWidth := float32(0)
 	contentHeight := float32(0)
 	if n.cachedIconFacet != nil {
 		size := n.cachedIconFacet.Base().LayoutRole().MeasuredSize
-		contentWidth = maxFloat(contentWidth, size.W)
-		contentHeight = maxFloat(contentHeight, size.H)
+		contentWidth = mathutil.Max(contentWidth, size.W)
+		contentHeight = mathutil.Max(contentHeight, size.H)
 	}
 	if n.cachedContentGroup != nil {
 		size := n.cachedContentGroup.Base().LayoutRole().MeasuredSize
-		contentWidth = maxFloat(contentWidth, size.W)
-		contentHeight = maxFloat(contentHeight, size.H)
+		contentWidth = mathutil.Max(contentWidth, size.W)
+		contentHeight = mathutil.Max(contentHeight, size.H)
 	}
 	if n.cachedActionButton != nil {
 		size := n.cachedActionButton.Base().LayoutRole().MeasuredSize
-		contentWidth = maxFloat(contentWidth, size.W)
-		contentHeight = maxFloat(contentHeight, size.H)
+		contentWidth = mathutil.Max(contentWidth, size.W)
+		contentHeight = mathutil.Max(contentHeight, size.H)
 	}
 	if n.cachedCloseButton != nil {
 		size := n.cachedCloseButton.Base().LayoutRole().MeasuredSize
-		contentWidth = maxFloat(contentWidth, size.W)
-		contentHeight = maxFloat(contentHeight, size.H)
+		contentWidth = mathutil.Max(contentWidth, size.W)
+		contentHeight = mathutil.Max(contentHeight, size.H)
 	}
 	surfaceSize := gfx.Size{
-		W: maxFloat(n.cachedPadX*2+contentWidth, 280),
-		H: maxFloat(n.cachedPadY*2+contentHeight, 72),
+		W: mathutil.Max(n.cachedPadX*2+contentWidth, 280),
+		H: mathutil.Max(n.cachedPadY*2+contentHeight, 72),
 	}
-	surfaceSize.W = minFloat(surfaceSize.W, maxFloat(0, bounds.Width()-margin*2))
-	surfaceSize.H = minFloat(surfaceSize.H, maxFloat(0, bounds.Height()-margin*2))
+	surfaceSize.W = mathutil.Min(surfaceSize.W, mathutil.Max(0, bounds.Width()-margin*2))
+	surfaceSize.H = mathutil.Min(surfaceSize.H, mathutil.Max(0, bounds.Height()-margin*2))
 	n.cachedSurfaceBounds = text.CenterRect(bounds, surfaceSize.W, surfaceSize.H)
 	content := n.cachedSurfaceBounds.Inset(n.cachedPadX, n.cachedPadY)
 	if content.IsEmpty() {
@@ -579,9 +580,9 @@ func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if n.cachedContentGroup != nil {
 		bodySize = n.cachedContentGroup.Base().LayoutRole().MeasuredSize
 	}
-	rowH := maxFloat(iconSize.H, bodySize.H)
-	rowH = maxFloat(rowH, actionSize.H)
-	rowH = maxFloat(rowH, closeSize.H)
+	rowH := mathutil.Max(iconSize.H, bodySize.H)
+	rowH = mathutil.Max(rowH, actionSize.H)
+	rowH = mathutil.Max(rowH, closeSize.H)
 	x := content.Min.X
 	if n.cachedWritingDirection == facet.WritingDirectionRTL {
 		x = content.Max.X
@@ -602,7 +603,7 @@ func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			x -= n.cachedGap
 		}
 		if n.cachedContentGroup != nil {
-			bodyRect := gfx.RectFromXYWH(content.Min.X, content.Min.Y, maxFloat(0, x-content.Min.X), bodySize.H)
+			bodyRect := gfx.RectFromXYWH(content.Min.X, content.Min.Y, mathutil.Max(0, x-content.Min.X), bodySize.H)
 			n.cachedContentGroup.Base().LayoutRole().Arrange(ctx, bodyRect)
 			n.cachedContentBounds = bodyRect
 		}
@@ -619,7 +620,7 @@ func (n *Notification) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			x += iconSize.W + n.cachedGap
 		}
 		if n.cachedContentGroup != nil {
-			bodyRect := gfx.RectFromXYWH(x, content.Min.Y, maxFloat(0, content.Max.X-x), bodySize.H)
+			bodyRect := gfx.RectFromXYWH(x, content.Min.Y, mathutil.Max(0, content.Max.X-x), bodySize.H)
 			n.cachedContentGroup.Base().LayoutRole().Arrange(ctx, bodyRect)
 			n.cachedContentBounds = bodyRect
 			x += bodySize.W + n.cachedGap
@@ -661,16 +662,16 @@ func (n *Notification) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 	actionSlot := slots.Action.Resolve(state, tokens)
 	closeSlot := slots.CloseButton.Resolve(state, tokens)
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) && !n.cachedSurfaceBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(n.cachedSurfaceBounds, n.cachedSurfaceRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) && !n.cachedSurfaceBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(n.cachedSurfaceBounds, n.cachedSurfaceRadius), surface)...)
 	}
 	if !n.cachedSurfaceBounds.IsEmpty() {
 		cmds = append(cmds, gfx.PushClipRect{Rect: n.cachedSurfaceBounds})
-		if !isTransparentMaterial(icon) && n.cachedIconFacet != nil && !n.cachedIconBounds.IsEmpty() {
-			cmds = append(cmds, materialCommands(gfx.RectPath(n.cachedIconBounds), icon)...)
+		if !theme.IsTransparentMaterial(icon) && n.cachedIconFacet != nil && !n.cachedIconBounds.IsEmpty() {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(n.cachedIconBounds), icon)...)
 		}
 		if n.cachedIconFacet != nil && !n.cachedIconBounds.IsEmpty() {
 			if projected := n.cachedIconFacet.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: n.cachedIconBounds, ContentScale: contentScale}); projected != nil {
@@ -683,16 +684,16 @@ func (n *Notification) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 			}
 		}
 		if n.cachedActionButton != nil && !n.cachedActionBounds.IsEmpty() {
-			if !isTransparentMaterial(actionSlot) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(n.cachedActionBounds, n.cachedSurfaceRadius*0.5), actionSlot)...)
+			if !theme.IsTransparentMaterial(actionSlot) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(n.cachedActionBounds, n.cachedSurfaceRadius*0.5), actionSlot)...)
 			}
 			if projected := n.cachedActionButton.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: n.cachedActionBounds, ContentScale: contentScale}); projected != nil {
 				cmds = append(cmds, projected.Commands...)
 			}
 		}
 		if n.cachedCloseButton != nil && !n.cachedCloseBounds.IsEmpty() {
-			if !isTransparentMaterial(closeSlot) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(n.cachedCloseBounds, n.cachedSurfaceRadius*0.5), closeSlot)...)
+			if !theme.IsTransparentMaterial(closeSlot) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(n.cachedCloseBounds, n.cachedSurfaceRadius*0.5), closeSlot)...)
 			}
 			if projected := n.cachedCloseButton.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: n.cachedCloseBounds, ContentScale: contentScale}); projected != nil {
 				cmds = append(cmds, projected.Commands...)
@@ -700,10 +701,10 @@ func (n *Notification) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		}
 		cmds = append(cmds, gfx.PopClip{})
 	}
-	if !isTransparentMaterial(title) && !n.cachedTitleBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(title) && !n.cachedTitleBounds.IsEmpty() {
 		_ = title
 	}
-	if !isTransparentMaterial(message) && !n.cachedMessageBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(message) && !n.cachedMessageBounds.IsEmpty() {
 		_ = message
 	}
 	return cmds
@@ -1165,7 +1166,7 @@ func (g *notificationContentGroup) measureContentSize(children []notificationCon
 				width += g.parent.cachedGap
 			}
 			width += children[i].size.W
-			height = maxFloat(height, children[i].size.H)
+			height = mathutil.Max(height, children[i].size.H)
 		}
 		return gfx.Size{W: width, H: height}
 	case NotificationContentLayoutGrid:
@@ -1184,7 +1185,7 @@ func (g *notificationContentGroup) measureContentSize(children []notificationCon
 			if i > 0 {
 				height += g.parent.cachedRowGap
 			}
-			width = maxFloat(width, children[i].size.W)
+			width = mathutil.Max(width, children[i].size.W)
 			height += children[i].size.H
 		}
 		return gfx.Size{W: width, H: height}
@@ -1249,7 +1250,7 @@ func (g *notificationContentGroup) arrangeChildren(ctx facet.ArrangeContext, bou
 			if i > 0 {
 				x += g.parent.cachedGap
 			}
-			rect := gfx.RectFromXYWH(x, bounds.Min.Y, children[i].size.W, maxFloat(bounds.Height(), children[i].size.H))
+			rect := gfx.RectFromXYWH(x, bounds.Min.Y, children[i].size.W, mathutil.Max(bounds.Height(), children[i].size.H))
 			children[i].facet.LayoutRole().Arrange(ctx, rect)
 			out = append(out, notificationContentArrange{facet: children[i].facet, bounds: rect})
 			x += children[i].size.W

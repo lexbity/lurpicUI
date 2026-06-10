@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	svgnorm "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -260,7 +261,7 @@ func (i *IconButton) arrange(bounds gfx.Rect) {
 	if iconSize <= 0 {
 		iconSize = bounds.Height()
 	}
-	iconSize = minFloat(iconSize, minFloat(bounds.Width(), bounds.Height()))
+	iconSize = mathutil.Min(iconSize, mathutil.Min(bounds.Width(), bounds.Height()))
 	iconX := bounds.Min.X + (bounds.Width()-iconSize)/2
 	iconY := bounds.Min.Y + (bounds.Height()-iconSize)/2
 	i.cachedIconBounds = gfx.RectFromXYWH(iconX, iconY, iconSize, iconSize)
@@ -341,7 +342,7 @@ func (i *IconButton) computeTouchPadding(ctx facet.MeasureContext, size gfx.Size
 	}
 	padding := i.HitPadding
 	if touch > longest {
-		padding = maxFloat(padding, (touch-longest)*0.5)
+		padding = mathutil.Max(padding, (touch-longest)*0.5)
 	}
 	if padding < 0 {
 		padding = 0
@@ -385,23 +386,23 @@ func (i *IconButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	}
 
 	cmds := make([]gfx.Command, 0, 16)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	containerPath := gfx.RoundedRectPath(i.cachedContainerBounds, minFloat(i.cachedContainerBounds.Width(), i.cachedContainerBounds.Height())*0.5)
-	if !isTransparentMaterial(container) {
-		cmds = append(cmds, materialCommands(containerPath, container)...)
+	containerPath := gfx.RoundedRectPath(i.cachedContainerBounds, mathutil.Min(i.cachedContainerBounds.Width(), i.cachedContainerBounds.Height())*0.5)
+	if !theme.IsTransparentMaterial(container) {
+		cmds = append(cmds, theme.MaterialCommands(containerPath, container)...)
 	}
-	if !isTransparentMaterial(stateLayer) {
-		cmds = append(cmds, materialCommands(containerPath, stateLayer)...)
+	if !theme.IsTransparentMaterial(stateLayer) {
+		cmds = append(cmds, theme.MaterialCommands(containerPath, stateLayer)...)
 	}
-	if !isTransparentMaterial(iconStyle) {
+	if !theme.IsTransparentMaterial(iconStyle) {
 		cmds = append(cmds, i.iconCommands(iconBounds, iconStyle, src)...)
 	}
-	if i.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, i.cachedTouchPad*0.25)
+	if i.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, i.cachedTouchPad*0.25)
 		ringBounds := bounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, minFloat(i.cachedContainerBounds.Width(), i.cachedContainerBounds.Height())*0.5+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, mathutil.Min(i.cachedContainerBounds.Width(), i.cachedContainerBounds.Height())*0.5+inset), focus)...)
 	}
 	if len(cmds) == 0 {
 		return nil
@@ -410,7 +411,7 @@ func (i *IconButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if cacheKey == i.cachedProjectionKey && len(i.cachedCommands) > 0 {
 		return append([]gfx.Command(nil), i.cachedCommands...)
 	}
-	i.cachedColor = materialColor(iconStyle)
+	i.cachedColor = theme.MaterialColor(iconStyle)
 	i.cachedCommands = append([]gfx.Command(nil), cmds...)
 	i.cachedProjectionKey = cacheKey
 	i.cachedSource = src
@@ -422,10 +423,10 @@ func (i *IconButton) iconCommands(target gfx.Rect, style theme.Material, src ico
 	if src.kind == iconButtonSourceNone || src.box.IsEmpty() || target.IsEmpty() {
 		return nil
 	}
-	if isTransparentMaterial(style) {
+	if theme.IsTransparentMaterial(style) {
 		return nil
 	}
-	brush := gfx.SolidBrush(materialColor(style))
+	brush := gfx.SolidBrush(theme.MaterialColor(style))
 	transform := iconFitTransform(src.box, target, svgnorm.SVGPreserveAspectRatio{
 		Align:       svgnorm.SVGAspectRatioAlignXMidYMid,
 		MeetOrSlice: svgnorm.SVGMeetOrSliceMeet,
@@ -705,7 +706,7 @@ func iconFitTransform(srcBox, target gfx.Rect, par svgnorm.SVGPreserveAspectRati
 	}
 	scaleX := target.Width() / srcBox.Width()
 	scaleY := target.Height() / srcBox.Height()
-	scale := minFloat(scaleX, scaleY)
+	scale := mathutil.Min(scaleX, scaleY)
 	scaledW := srcBox.Width() * scale
 	scaledH := srcBox.Height() * scale
 	var offsetX, offsetY float32

@@ -3,6 +3,7 @@ package selection
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -238,10 +239,10 @@ func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		s.cachedLabelLayout = nil
 	}
 	labelH := text.Height(s.cachedLabelLayout)
-	controlH := maxFloat(s.cachedControlHeight, resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
+	controlH := mathutil.Max(s.cachedControlHeight, resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
 	width := s.cachedControlWidth
 	if s.cachedLabelLayout != nil {
-		width = maxFloat(width, s.cachedLabelLayout.Bounds.Width())
+		width = mathutil.Max(width, s.cachedLabelLayout.Bounds.Width())
 	}
 	height := labelH
 	if labelH > 0 {
@@ -288,7 +289,7 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		return
 	}
 	labelH := text.Height(s.cachedLabelLayout)
-	controlH := maxFloat(s.cachedControlHeight, resolvedTouchHeight(bounds.Height(), s))
+	controlH := mathutil.Max(s.cachedControlHeight, resolvedTouchHeight(bounds.Height(), s))
 	rects := layout.ArrangeVerticalFlow(bounds, 0, s.cachedLabelGap, []gfx.Size{
 		{W: bounds.Width(), H: labelH},
 		{W: s.cachedControlWidth, H: controlH},
@@ -300,10 +301,10 @@ func (s *Switch) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	s.cachedTrackBounds = text.AlignRectY(gfx.RectFromXYWH(s.cachedControlBounds.Min.X, s.cachedControlBounds.Min.Y, s.cachedControlWidth, s.cachedControlHeight), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	rtl := s.cachedWritingDirection == facet.WritingDirectionRTL
 	if s.isChecked() != rtl {
-		thumbX := s.cachedTrackBounds.Max.X - s.cachedThumbSize - maxFloat(2, s.cachedTrackRadius*0.2)
+		thumbX := s.cachedTrackBounds.Max.X - s.cachedThumbSize - mathutil.Max(2, s.cachedTrackRadius*0.2)
 		s.cachedThumbBounds = text.AlignRectY(gfx.RectFromXYWH(thumbX, s.cachedControlBounds.Min.Y, s.cachedThumbSize, s.cachedThumbSize), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	} else {
-		thumbX := s.cachedTrackBounds.Min.X + maxFloat(2, s.cachedTrackRadius*0.2)
+		thumbX := s.cachedTrackBounds.Min.X + mathutil.Max(2, s.cachedTrackRadius*0.2)
 		s.cachedThumbBounds = text.AlignRectY(gfx.RectFromXYWH(thumbX, s.cachedControlBounds.Min.Y, s.cachedThumbSize, s.cachedThumbSize), s.cachedControlBounds.Min.Y, s.cachedControlBounds.Height())
 	}
 	s.Layout.ArrangedBounds = bounds
@@ -343,25 +344,25 @@ func (s *Switch) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	stateLayer := slots.StateLayer.Resolve(interaction, tokens)
 
 	cmds := make([]gfx.Command, 0, 16)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(stateLayer) && !s.cachedControlBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(s.cachedControlBounds, s.cachedTrackRadius), stateLayer)...)
+	if !theme.IsTransparentMaterial(stateLayer) && !s.cachedControlBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(s.cachedControlBounds, s.cachedTrackRadius), stateLayer)...)
 	}
-	if !isTransparentMaterial(track) && !s.cachedTrackBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(s.cachedTrackBounds, s.cachedTrackRadius), track)...)
+	if !theme.IsTransparentMaterial(track) && !s.cachedTrackBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(s.cachedTrackBounds, s.cachedTrackRadius), track)...)
 	}
-	if !isTransparentMaterial(thumb) && !s.cachedThumbBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.CirclePath(rectCenterPoint(s.cachedThumbBounds), s.cachedThumbBounds.Width()*0.5), thumb)...)
+	if !theme.IsTransparentMaterial(thumb) && !s.cachedThumbBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(rectCenterPoint(s.cachedThumbBounds), s.cachedThumbBounds.Width()*0.5), thumb)...)
 	}
 	if s.cachedLabelLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(s.cachedLabelLayout, s.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(s.cachedLabelLayout, s.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
-	if s.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, s.cachedRowGap*0.5)
+	if s.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, s.cachedRowGap*0.5)
 		ringBounds := bounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, s.cachedTrackRadius+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, s.cachedTrackRadius+inset), focus)...)
 	}
 	return cmds
 }
@@ -394,7 +395,7 @@ func (s *Switch) pointInFocusRing(p gfx.Point) bool {
 	if bounds.IsEmpty() || !bounds.Contains(p) {
 		return false
 	}
-	ring := maxFloat(1, s.cachedRowGap*0.5)
+	ring := mathutil.Max(1, s.cachedRowGap*0.5)
 	inner := bounds.Inset(ring, ring)
 	if inner.IsEmpty() {
 		return true
@@ -618,5 +619,3 @@ func (switchGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children []
 func (switchGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []facet.GroupChild) ([]facet.ArrangedGroupChild, error) {
 	return nil, nil
 }
-
-

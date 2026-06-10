@@ -181,7 +181,7 @@ func TestParseSVG_deepNestedUseAndIndexingIterative(t *testing.T) {
 
 func mustParseSVGFile(t *testing.T, parts ...string) SVGDocument {
 	t.Helper()
-	pathParts := append([]string{"..", "..", "devdocs", "lurpicux", "flowbite-icon-set"}, parts...)
+	pathParts := append([]string{"..", "..", "assets", "static-default", "flowbite-icons", "src", "outline"}, parts...)
 	data, err := os.ReadFile(filepath.Join(pathParts...))
 	if err != nil {
 		t.Fatalf("read svg: %v", err)

@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -81,8 +82,8 @@ func renderToolbarSurface(t *testing.T, tokens theme.Tokens, density theme.Densi
 
 	surfaceW := 1920
 	surfaceH := 528
-	x := maxFloat(0, float32(surfaceW)-result.Size.W) * 0.5
-	y := maxFloat(0, float32(surfaceH)-result.Size.H) * 0.5
+	x := mathutil.Max(0, float32(surfaceW)-result.Size.W) * 0.5
+	y := mathutil.Max(0, float32(surfaceH)-result.Size.H) * 0.5
 	bounds := gfx.RectFromXYWH(x, y, result.Size.W, result.Size.H)
 	toolbar.Layout.Arrange(facet.ArrangeContext{
 		Runtime:     rt,
@@ -155,12 +156,12 @@ func newToolbarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.De
 		rootStyle: rootStyle,
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
-			"close":    mustActionGroupIconAsset("edit"),
-			"edit":     mustActionGroupIconAsset("edit"),
-			"copy":     mustActionGroupIconAsset("copy"),
-			"delete":   mustActionGroupIconAsset("delete"),
-			"more":     mustActionGroupIconAsset("more"),
-			"rename":   mustActionGroupIconAsset("edit"),
+			"close":     mustActionGroupIconAsset("edit"),
+			"edit":      mustActionGroupIconAsset("edit"),
+			"copy":      mustActionGroupIconAsset("copy"),
+			"delete":    mustActionGroupIconAsset("delete"),
+			"more":      mustActionGroupIconAsset("more"),
+			"rename":    mustActionGroupIconAsset("edit"),
 			"duplicate": mustActionGroupIconAsset("copy"),
 		},
 	}

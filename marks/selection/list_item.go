@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -237,8 +238,8 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	li.cachedTokens = resolved.TokenSet()
 	li.cachedRecipe = slots
 	li.cachedWritingDirection = ctx.WritingDirection
-	li.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	li.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(10))
+	li.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	li.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(10))
 	li.cachedGap = float32(resolved.Spacing(theme.SpacingXS))
 	li.cachedRadius = float32(resolved.Radius(theme.RadiusS))
 	shaper := li.newShaper(ctx.Runtime)
@@ -267,21 +268,21 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	li.textRole.CaretPosition = text.TextPosition{}
 	contentW := text.Width(supportingLayout)
 	if li.ShowLabel.Get() {
-		contentW = maxFloat(contentW, text.Width(labelLayout))
+		contentW = mathutil.Max(contentW, text.Width(labelLayout))
 	}
 	leadingReserve := float32(0)
 	if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
-		leadingReserve = maxFloat(resolved.Density.Scale(16), resolved.Density.Scale(16)*0.42) + li.cachedGap
+		leadingReserve = mathutil.Max(resolved.Density.Scale(16), resolved.Density.Scale(16)*0.42) + li.cachedGap
 	}
 	selectionReserve := float32(0)
 	if li.ShowSelectionIndicator.Get() {
-		selectionReserve = maxFloat(resolved.Density.Scale(24), resolved.Density.Scale(12))
+		selectionReserve = mathutil.Max(resolved.Density.Scale(24), resolved.Density.Scale(12))
 	}
 	minWidth := resolved.Density.Scale(160)
 	minHeight := resolved.Density.Scale(32)
 	if !li.ShowLabel.Get() && !li.ShowContainer.Get() && !li.ShowSelectionIndicator.Get() {
-		minWidth = maxFloat(resolved.Density.Scale(56), leadingReserve+li.cachedPadX*2)
-		minHeight = maxFloat(resolved.Density.Scale(56), resolved.Density.Scale(20)+li.cachedPadY*2)
+		minWidth = mathutil.Max(resolved.Density.Scale(56), leadingReserve+li.cachedPadX*2)
+		minHeight = mathutil.Max(resolved.Density.Scale(56), resolved.Density.Scale(20)+li.cachedPadY*2)
 	}
 	if !li.ShowContainer.Get() && !li.ShowLeadingIcon.Get() && !li.ShowSelectionIndicator.Get() && li.ShowLabel.Get() {
 		minWidth = contentW + li.cachedPadX*2
@@ -294,8 +295,8 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		}
 	}
 	itemSize := gfx.Size{
-		W: maxFloat(minWidth, contentW+li.cachedPadX*2+leadingReserve+selectionReserve),
-		H: maxFloat(minHeight, text.Height(supportingLayout)+li.cachedPadY*2+li.cachedGap),
+		W: mathutil.Max(minWidth, contentW+li.cachedPadX*2+leadingReserve+selectionReserve),
+		H: mathutil.Max(minHeight, text.Height(supportingLayout)+li.cachedPadY*2+li.cachedGap),
 	}
 	if itemSize.W <= 0 {
 		itemSize.W = resolved.Density.Scale(160)
@@ -336,8 +337,8 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if !ok {
 		resolved = theme.DefaultResolvedContext()
 	}
-	leadingSize := maxFloat(resolved.Density.Scale(16), bounds.Height()*0.42)
-	indicatorSize := maxFloat(8, bounds.Height()*0.18)
+	leadingSize := mathutil.Max(resolved.Density.Scale(16), bounds.Height()*0.42)
+	indicatorSize := mathutil.Max(8, bounds.Height()*0.18)
 	inner := bounds.Inset(li.cachedPadX, li.cachedPadY)
 	if inner.IsEmpty() {
 		inner = bounds
@@ -358,13 +359,13 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		labelW = text.Width(li.cachedLabelLayout)
 	}
 	if labelW <= 0 {
-		labelW = maxFloat(0, inner.Width()-li.cachedPadX*2)
+		labelW = mathutil.Max(0, inner.Width()-li.cachedPadX*2)
 	}
 	leadingReserve := float32(0)
 	if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
 		leadingReserve = leadingSize + li.cachedGap
 	}
-	textWidth := maxFloat(0, inner.Width()-leadingReserve)
+	textWidth := mathutil.Max(0, inner.Width()-leadingReserve)
 	if li.cachedWritingDirection == facet.WritingDirectionRTL {
 		textX = inner.Max.X - labelW
 		if li.ShowLeadingIcon.Get() && li.LeadingIconRef.Get() != "" {
@@ -407,7 +408,7 @@ func (li *ListItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 	}
 	li.cachedItemBounds = inner
-	li.cachedFocusBounds = bounds.Inset(maxFloat(1, bounds.Height()*0.08), maxFloat(1, bounds.Height()*0.08))
+	li.cachedFocusBounds = bounds.Inset(mathutil.Max(1, bounds.Height()*0.08), mathutil.Max(1, bounds.Height()*0.08))
 }
 
 func (li *ListItem) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.ListItemSlots) {
@@ -448,27 +449,27 @@ func (li *ListItem) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	indicator := slots.SelectionIndicator.Resolve(state, tokens)
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 	cmds := make([]gfx.Command, 0, 24)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if li.ShowContainer.Get() && !isTransparentMaterial(container) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, li.cachedRadius), container)...)
+	if li.ShowContainer.Get() && !theme.IsTransparentMaterial(container) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, li.cachedRadius), container)...)
 	}
-	if li.ShowLabel.Get() && !isTransparentMaterial(label) && li.cachedLabelLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedLabelLayout, li.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+	if li.ShowLabel.Get() && !theme.IsTransparentMaterial(label) && li.cachedLabelLayout != nil {
+		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedLabelLayout, li.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
-	if !isTransparentMaterial(supporting) && li.cachedSupportingLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedSupportingLayout, li.cachedSupportingBounds, gfx.SolidBrush(materialColor(supporting)))...)
+	if !theme.IsTransparentMaterial(supporting) && li.cachedSupportingLayout != nil {
+		cmds = append(cmds, primitive.TextLayoutCommands(li.cachedSupportingLayout, li.cachedSupportingBounds, gfx.SolidBrush(theme.MaterialColor(supporting)))...)
 	}
-	if li.ShowSelectionIndicator.Get() && li.Selected.Get() && !isTransparentMaterial(indicator) && !li.cachedSelectionBounds.IsEmpty() {
-		r := maxFloat(3, li.cachedSelectionBounds.Width()*0.5)
+	if li.ShowSelectionIndicator.Get() && li.Selected.Get() && !theme.IsTransparentMaterial(indicator) && !li.cachedSelectionBounds.IsEmpty() {
+		r := mathutil.Max(3, li.cachedSelectionBounds.Width()*0.5)
 		center := gfx.Point{X: li.cachedSelectionBounds.Min.X + li.cachedSelectionBounds.Width()*0.5, Y: li.cachedSelectionBounds.Min.Y + li.cachedSelectionBounds.Height()*0.5}
-		cmds = append(cmds, materialCommands(gfx.CirclePath(center, r), indicator)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(center, r), indicator)...)
 	}
-	if li.ShowFocusRing.Get() && li.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, li.cachedFocusBounds.Height()*0.08)
+	if li.ShowFocusRing.Get() && li.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, li.cachedFocusBounds.Height()*0.08)
 		ringBounds := li.cachedFocusBounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, li.cachedRadius+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, li.cachedRadius+inset), focus)...)
 	}
 	if li.LeadingIconRef.Get() != "" {
 		if iconCmds := li.leadingIconCommands(runtime, slots.LeadingIcon.Resolve(state, tokens)); len(iconCmds) > 0 {
@@ -479,7 +480,7 @@ func (li *ListItem) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 }
 
 func (li *ListItem) leadingIconCommands(runtime any, material theme.Material) []gfx.Command {
-	if li.LeadingIconRef.Get() == "" || isTransparentMaterial(material) {
+	if li.LeadingIconRef.Get() == "" || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	iconRect := li.cachedLeadingBounds
@@ -502,13 +503,13 @@ func (li *ListItem) leadingIconCommands(runtime any, material theme.Material) []
 	}
 	sx := iconRect.Width() / box.Width()
 	sy := iconRect.Height() / box.Height()
-	scale := minFloat(sx, sy)
+	scale := mathutil.Min(sx, sy)
 	if scale <= 0 {
 		return nil
 	}
 	target := gfxsvg.Transformed(asset.Path, gfx.Identity().Multiply(gfx.Translation(iconRect.Min.X-box.Min.X*scale, iconRect.Min.Y-box.Min.Y*scale)).Multiply(gfx.Scale(scale, scale)))
 	cmds := make([]gfx.Command, 0, 8)
-	cmds = append(cmds, gfx.FillPath{Path: target, Brush: gfx.SolidBrush(materialColor(material))})
+	cmds = append(cmds, gfx.FillPath{Path: target, Brush: gfx.SolidBrush(theme.MaterialColor(material))})
 	return cmds
 }
 

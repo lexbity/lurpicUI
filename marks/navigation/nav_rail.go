@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
@@ -313,8 +314,8 @@ func (r *NavRail) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	r.cachedTokens = resolved.TokenSet()
 	r.cachedRecipe = slots
 	r.cachedWritingDirection = ctx.WritingDirection
-	r.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	r.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	r.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	r.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
 	r.cachedGap = float32(resolved.Spacing(theme.SpacingS))
 	r.cachedRailRadius = float32(resolved.Radius(theme.RadiusL))
 	r.rebuildChildFacets()
@@ -326,8 +327,8 @@ func (r *NavRail) measure(ctx facet.MeasureContext, constraints facet.Constraint
 		minWidth = resolved.Density.Scale(72)
 	}
 	measured := constraints.Constrain(gfx.Size{
-		W: maxFloat(minWidth, groupSize.Size.W+r.cachedPadX*2),
-		H: maxFloat(resolved.Density.Scale(96), groupSize.Size.H+r.cachedPadY*2),
+		W: mathutil.Max(minWidth, groupSize.Size.W+r.cachedPadX*2),
+		H: mathutil.Max(resolved.Density.Scale(96), groupSize.Size.H+r.cachedPadY*2),
 	})
 	r.Layout.MeasuredSize = measured
 	r.Layout.MeasuredResult = facet.MeasureResult{
@@ -398,11 +399,11 @@ func (r *NavRail) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	active := slots.ActiveIndicator.Resolve(theme.StateSelected, tokens)
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(rail) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(r.cachedRailBounds, r.cachedRailRadius), rail)...)
+	if !theme.IsTransparentMaterial(rail) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(r.cachedRailBounds, r.cachedRailRadius), rail)...)
 	}
 	for i := range r.cachedItemFacets {
 		if i >= len(r.cachedItemBounds) || r.cachedItemBounds[i].IsEmpty() {
@@ -410,24 +411,24 @@ func (r *NavRail) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		}
 		state := r.itemStateAt(i)
 		row := r.cachedItemBounds[i]
-		if i == r.clampedActiveIndex() && !isTransparentMaterial(active) {
+		if i == r.clampedActiveIndex() && !theme.IsTransparentMaterial(active) {
 			indicatorBounds := row.Inset(row.Width()*0.08, row.Height()*0.18)
 			if r.Collapsed.Get() {
-				sz := maxFloat(24, minFloat(indicatorBounds.Width(), indicatorBounds.Height()))
+				sz := mathutil.Max(24, mathutil.Min(indicatorBounds.Width(), indicatorBounds.Height()))
 				indicatorBounds = gfx.RectFromXYWH(row.Min.X+(row.Width()-sz)*0.5, row.Min.Y+(row.Height()-sz)*0.5, sz, sz)
 			}
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(indicatorBounds, r.cachedRailRadius*0.65), active)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(indicatorBounds, r.cachedRailRadius*0.65), active)...)
 		}
 		switch state {
 		case theme.StateHover:
 			nav := slots.NavItems.Resolve(state, tokens)
-			if !isTransparentMaterial(nav) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(row.Width()*0.08, row.Height()*0.12), r.cachedRailRadius*0.55), nav)...)
+			if !theme.IsTransparentMaterial(nav) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(row.Inset(row.Width()*0.08, row.Height()*0.12), r.cachedRailRadius*0.55), nav)...)
 			}
 		case theme.StatePressed:
 			nav := slots.NavItems.Resolve(state, tokens)
-			if !isTransparentMaterial(nav) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(row.Width()*0.08, row.Height()*0.12), r.cachedRailRadius*0.55), nav)...)
+			if !theme.IsTransparentMaterial(nav) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(row.Inset(row.Width()*0.08, row.Height()*0.12), r.cachedRailRadius*0.55), nav)...)
 			}
 		}
 		childRuntime := runtimeServicesOrNil(runtime)
@@ -435,9 +436,9 @@ func (r *NavRail) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		if childCmds != nil {
 			cmds = append(cmds, childCmds.Commands...)
 		}
-		if state == theme.StateFocused && !isTransparentMaterial(focus) {
-			inset := maxFloat(1, row.Height()*0.08)
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(inset, inset), r.cachedRailRadius), focus)...)
+		if state == theme.StateFocused && !theme.IsTransparentMaterial(focus) {
+			inset := mathutil.Max(1, row.Height()*0.08)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(row.Inset(inset, inset), r.cachedRailRadius), focus)...)
 		}
 	}
 	return cmds
@@ -743,7 +744,7 @@ func (r *NavRail) pointInFocusRing(p gfx.Point) bool {
 	if active.IsEmpty() || !active.Contains(p) {
 		return false
 	}
-	ring := maxFloat(1, active.Height()*0.08)
+	ring := mathutil.Max(1, active.Height()*0.08)
 	inner := active.Inset(ring, ring)
 	if inner.IsEmpty() {
 		return true
@@ -787,7 +788,7 @@ func (p navRailGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children
 		if size == (gfx.Size{}) {
 			size = child.Layout.Measure(ctx.MeasureContext, facet.Constraints{MaxSize: gfx.Size{W: ctx.Bounds.Width(), H: ctx.Bounds.Height()}}).Size
 		}
-		width = maxFloat(width, size.W)
+		width = mathutil.Max(width, size.W)
 		height += size.H
 		if i < len(ordered)-1 {
 			height += p.rail.cachedGap

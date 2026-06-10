@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -263,8 +264,8 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	itemLayouts := make([]*text.TextLayout, len(rg.Options))
 	itemWidths := make([]float32, len(rg.Options))
 	itemHeights := make([]float32, len(rg.Options))
-	controlTarget := maxFloat(rg.cachedControlSize, resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
-	itemMaxTextWidth := maxFloat(0, maxWidth-rg.cachedControlSize-rg.cachedControlGap)
+	controlTarget := mathutil.Max(rg.cachedControlSize, resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
+	itemMaxTextWidth := mathutil.Max(0, maxWidth-rg.cachedControlSize-rg.cachedControlGap)
 	for i, opt := range rg.Options {
 		if shaper != nil {
 			shaper.SetContentScale(ctx.ContentScale)
@@ -275,7 +276,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 			itemHeights[i] = itemLayouts[i].Bounds.Height()
 		}
 	}
-	rowHeight := maxFloat(controlTarget, rg.cachedControlSize)
+	rowHeight := mathutil.Max(controlTarget, rg.cachedControlSize)
 	for i := range itemHeights {
 		if itemHeights[i] > rowHeight {
 			rowHeight = itemHeights[i]
@@ -296,7 +297,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 			totalItemHeight += rg.cachedItemGap
 		}
 	}
-	width := maxFloat(text.Width(groupLabelLayout), maxItemWidth)
+	width := mathutil.Max(text.Width(groupLabelLayout), maxItemWidth)
 	if width <= 0 {
 		width = maxWidth
 	}
@@ -351,7 +352,7 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		rg.focusedIndex = selected
 	}
 	groupLabelH := text.Height(rg.cachedGroupLabel)
-	rowHeight := maxFloat(rg.cachedControlSize, rg.cachedControlGap)
+	rowHeight := mathutil.Max(rg.cachedControlSize, rg.cachedControlGap)
 	items := make([]gfx.Rect, 0, len(rg.Options))
 	controls := make([]gfx.Rect, 0, len(rg.Options))
 	labels := make([]gfx.Rect, 0, len(rg.Options))
@@ -445,33 +446,33 @@ func (rg *RadioGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(radioItems) && !rg.cachedItemsRect.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RectPath(rg.cachedItemsRect), radioItems)...)
+	if !theme.IsTransparentMaterial(radioItems) && !rg.cachedItemsRect.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(rg.cachedItemsRect), radioItems)...)
 	}
 	if rg.cachedGroupLabel != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(rg.cachedGroupLabel, rg.cachedGroupLabelRect, gfx.SolidBrush(materialColor(groupLabel)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(rg.cachedGroupLabel, rg.cachedGroupLabelRect, gfx.SolidBrush(theme.MaterialColor(groupLabel)))...)
 	}
 	for i := range rg.Options {
 		state := rg.optionState(i)
 		controlMaterial := slots.RadioControl.Resolve(state, tokens)
 		labelMaterial := slots.ItemLabel.Resolve(state, tokens)
-		if !rg.cachedItemControls[i].IsEmpty() && !isTransparentMaterial(controlMaterial) {
-			cmds = append(cmds, materialCommands(gfx.CirclePath(rectCenterPoint(rg.cachedItemControls[i]), rg.cachedItemControls[i].Width()*0.5), controlMaterial)...)
+		if !rg.cachedItemControls[i].IsEmpty() && !theme.IsTransparentMaterial(controlMaterial) {
+			cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(rectCenterPoint(rg.cachedItemControls[i]), rg.cachedItemControls[i].Width()*0.5), controlMaterial)...)
 		}
 		if rg.isSelectedIndex(i) && !rg.cachedItemControls[i].IsEmpty() {
-			dotRadius := maxFloat(1, rg.cachedItemControls[i].Width()*0.22)
-			cmds = append(cmds, materialCommands(gfx.CirclePath(rectCenterPoint(rg.cachedItemControls[i]), dotRadius), theme.FromToken(tokens.Color.OnPrimary))...)
+			dotRadius := mathutil.Max(1, rg.cachedItemControls[i].Width()*0.22)
+			cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(rectCenterPoint(rg.cachedItemControls[i]), dotRadius), theme.FromToken(tokens.Color.OnPrimary))...)
 		}
 		if i < len(rg.cachedItemLayouts) && rg.cachedItemLayouts[i] != nil {
-			cmds = append(cmds, primitive.TextLayoutCommands(rg.cachedItemLayouts[i], rg.cachedItemLabels[i], gfx.SolidBrush(materialColor(labelMaterial)))...)
+			cmds = append(cmds, primitive.TextLayoutCommands(rg.cachedItemLayouts[i], rg.cachedItemLabels[i], gfx.SolidBrush(theme.MaterialColor(labelMaterial)))...)
 		}
-		if rg.focusedVisible && i == rg.focusedIndex && !isTransparentMaterial(focus) {
-			inset := maxFloat(1, rg.cachedItemGap*0.5)
+		if rg.focusedVisible && i == rg.focusedIndex && !theme.IsTransparentMaterial(focus) {
+			inset := mathutil.Max(1, rg.cachedItemGap*0.5)
 			ringBounds := rg.cachedItemFocusRing[i].Inset(-inset, -inset)
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, rg.cachedControlSize*0.5+inset), focus)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, rg.cachedControlSize*0.5+inset), focus)...)
 		}
 	}
 	return cmds
@@ -511,7 +512,7 @@ func (rg *RadioGroup) pointInFocusRing(p gfx.Point) bool {
 	if ring.IsEmpty() || !ring.Contains(p) {
 		return false
 	}
-	inner := ring.Inset(maxFloat(1, rg.cachedItemGap*0.5), maxFloat(1, rg.cachedItemGap*0.5))
+	inner := ring.Inset(mathutil.Max(1, rg.cachedItemGap*0.5), mathutil.Max(1, rg.cachedItemGap*0.5))
 	if inner.IsEmpty() {
 		return true
 	}

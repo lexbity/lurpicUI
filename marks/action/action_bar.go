@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -361,10 +362,10 @@ func (a *ActionBar) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	a.cachedTokens = resolved.TokenSet()
 	a.cachedRecipe = recipe
 	a.cachedWritingDirection = ctx.WritingDirection
-	a.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	a.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	a.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	a.cachedLabelGap = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	a.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	a.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	a.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	a.cachedLabelGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
 	a.cachedRadius = float32(resolved.Radius(theme.RadiusM))
 
 	labelStyle := resolved.TextStyle(theme.TextLabelM)
@@ -430,9 +431,9 @@ func (a *ActionBar) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	}
 	content := layout.InlineFlowSegmentsSize(segments)
 	contentH := content.H
-	minHeight := maxFloat(resolved.Density.Scale(36), a.cachedPadY*2+contentH)
+	minHeight := mathutil.Max(resolved.Density.Scale(36), a.cachedPadY*2+contentH)
 	size := gfx.Size{
-		W: maxFloat(resolved.Density.Scale(120), content.W+a.cachedPadX*2),
+		W: mathutil.Max(resolved.Density.Scale(120), content.W+a.cachedPadX*2),
 		H: minHeight,
 	}
 	size = constraints.Constrain(size)
@@ -564,14 +565,14 @@ func (a *ActionBar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, a.cachedRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, a.cachedRadius), surface)...)
 	}
 	if a.cachedLabelLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(a.cachedLabelLayout, a.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(a.cachedLabelLayout, a.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
 	for i := range a.cachedItems {
 		child := a.cachedItems[i]
@@ -583,10 +584,10 @@ func (a *ActionBar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 			cmds = append(cmds, childCmds.Commands...)
 		}
 	}
-	if a.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, a.cachedPadY*0.5)
+	if a.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, a.cachedPadY*0.5)
 		ringBounds := bounds.Inset(inset, inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, maxFloat(1, a.cachedRadius-inset)), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, mathutil.Max(1, a.cachedRadius-inset)), focus)...)
 	}
 	return cmds
 }
@@ -758,7 +759,7 @@ func (a *ActionBar) pointInFocusRing(p gfx.Point) bool {
 	if !a.Layout.ArrangedBounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, a.cachedPadY*0.5)
+	inset := mathutil.Max(1, a.cachedPadY*0.5)
 	ring := a.cachedSurfaceBounds.Inset(-inset, -inset)
 	if ring.IsEmpty() {
 		return true

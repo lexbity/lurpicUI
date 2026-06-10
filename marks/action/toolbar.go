@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -96,14 +97,14 @@ var _ marks.Mark = (*Toolbar)(nil)
 // NewToolbar constructs an action.toolbar mark with canonical defaults.
 func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *ToolbarOverflow) *Toolbar {
 	t := &Toolbar{
-		Label:       label,
-		Groups:      normalizeToolbarGroups(groups),
-		Overflow:    normalizeToolbarOverflow(overflow),
-		Disabled:    marks.Const(false),
+		Label:        label,
+		Groups:       normalizeToolbarGroups(groups),
+		Overflow:     normalizeToolbarOverflow(overflow),
+		Disabled:     marks.Const(false),
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
-		Activated:   signal.NewSignal[string]("toolbar_activated"),
+		Activated:    signal.NewSignal[string]("toolbar_activated"),
 	}
 	t.Core.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
@@ -678,10 +679,10 @@ func (t *Toolbar) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	t.cachedTokens = resolved.TokenSet()
 	t.cachedRecipe = recipe
 	t.cachedWritingDirection = ctx.WritingDirection
-	t.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	t.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	t.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	t.cachedGroupGap = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	t.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	t.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	t.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	t.cachedGroupGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
 	t.cachedRadius = float32(resolved.Radius(theme.RadiusM))
 
 	t.syncChildren()
@@ -712,9 +713,9 @@ func (t *Toolbar) measure(ctx facet.MeasureContext, constraints facet.Constraint
 		segments = append(segments, segment)
 	}
 	content := layout.InlineFlowSegmentsSize(segments)
-	minHeight := maxFloat(resolved.Density.Scale(40), maxChildH+t.cachedPadY*2)
+	minHeight := mathutil.Max(resolved.Density.Scale(40), maxChildH+t.cachedPadY*2)
 	size := gfx.Size{
-		W: maxFloat(resolved.Density.Scale(120), content.W+t.cachedPadX*2),
+		W: mathutil.Max(resolved.Density.Scale(120), content.W+t.cachedPadX*2),
 		H: minHeight,
 	}
 	size = constraints.Constrain(size)
@@ -759,7 +760,7 @@ func (t *Toolbar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		segments = append(segments, segment)
 	}
 	content := layout.InlineFlowSegmentsSize(segments)
-	contentTop := bounds.Min.Y + maxFloat(0, (bounds.Height()-content.H)*0.5)
+	contentTop := bounds.Min.Y + mathutil.Max(0, (bounds.Height()-content.H)*0.5)
 	rects := layout.ArrangeInlineFlowSegments(bounds, t.cachedPadX, segments, rtl)
 	t.cachedChildBounds = t.cachedChildBounds[:0]
 	for i := range t.cachedChildren {
@@ -838,11 +839,11 @@ func (t *Toolbar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	overflowStyle := slots.OverflowMenu
 
 	cmds := make([]gfx.Command, 0, 128)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, t.cachedRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, t.cachedRadius), surface)...)
 	}
 	for i := range t.cachedChildren {
 		child := t.cachedChildren[i]
@@ -856,28 +857,28 @@ func (t *Toolbar) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		switch child.kind {
 		case toolbarChildGroup:
 			groupMat := groupStyle.Resolve(childState, tokens)
-			if !isTransparentMaterial(groupMat) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(t.cachedChildBounds[i], maxFloat(0, t.cachedRadius*0.75)), groupMat)...)
+			if !theme.IsTransparentMaterial(groupMat) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(t.cachedChildBounds[i], mathutil.Max(0, t.cachedRadius*0.75)), groupMat)...)
 			}
 		case toolbarChildOverflow:
 			overflowMat := overflowStyle.Resolve(childState, tokens)
-			if !isTransparentMaterial(overflowMat) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(t.cachedChildBounds[i], maxFloat(0, t.cachedRadius*0.75)), overflowMat)...)
+			if !theme.IsTransparentMaterial(overflowMat) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(t.cachedChildBounds[i], mathutil.Max(0, t.cachedRadius*0.75)), overflowMat)...)
 			}
 		}
 		if childCmds := child.project(runtimeServicesOrNil(runtime), t.cachedChildBounds[i], 1); childCmds != nil {
 			cmds = append(cmds, childCmds.Commands...)
 		}
 	}
-	if !isTransparentMaterial(sepMat) {
+	if !theme.IsTransparentMaterial(sepMat) {
 		for _, sep := range t.cachedSeparatorBounds {
-			cmds = append(cmds, materialCommands(gfx.RectPath(sep), sepMat)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(sep), sepMat)...)
 		}
 	}
-	if t.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, t.cachedPadY*0.5)
+	if t.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, t.cachedPadY*0.5)
 		ringBounds := bounds.Inset(inset, inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, t.cachedRadius), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, t.cachedRadius), focus)...)
 	}
 	return cmds
 }
@@ -1080,7 +1081,7 @@ func (t *Toolbar) pointInFocusRing(p gfx.Point) bool {
 	if !t.Layout.ArrangedBounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, t.Layout.ArrangedBounds.Height()*0.08)
+	inset := mathutil.Max(1, t.Layout.ArrangedBounds.Height()*0.08)
 	inner := t.Layout.ArrangedBounds.Inset(inset, inset)
 	if inner.IsEmpty() {
 		return true

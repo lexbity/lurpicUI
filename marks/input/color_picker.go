@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -206,7 +207,7 @@ func (p *ColorPicker) measure(ctx facet.MeasureContext, constraints facet.Constr
 	if maxSide <= 0 {
 		maxSide = resolved.Density.Scale(280)
 	}
-	side := minFloat(maxSide, minSide)
+	side := mathutil.Min(maxSide, minSide)
 	if side <= 0 {
 		side = minSide
 	}
@@ -242,17 +243,17 @@ func (p *ColorPicker) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if bounds.IsEmpty() {
 		return
 	}
-	size := minFloat(bounds.Width(), bounds.Height())
-	pad := maxFloat(10, size*0.06)
-	p.cachedOuterRadius = maxFloat(0, size*0.5-pad)
+	size := mathutil.Min(bounds.Width(), bounds.Height())
+	pad := mathutil.Max(10, size*0.06)
+	p.cachedOuterRadius = mathutil.Max(0, size*0.5-pad)
 	if p.cachedOuterRadius <= 0 {
 		return
 	}
-	wheelThickness := maxFloat(size*0.19, 14)
-	p.cachedInnerRadius = maxFloat(0, p.cachedOuterRadius-wheelThickness)
-	p.cachedTriangleRadius = maxFloat(0, p.cachedInnerRadius*0.86)
+	wheelThickness := mathutil.Max(size*0.19, 14)
+	p.cachedInnerRadius = mathutil.Max(0, p.cachedOuterRadius-wheelThickness)
+	p.cachedTriangleRadius = mathutil.Max(0, p.cachedInnerRadius*0.86)
 	p.cachedWheelBounds = gfx.RectFromXYWH(p.cachedCenter.X-p.cachedOuterRadius, p.cachedCenter.Y-p.cachedOuterRadius, p.cachedOuterRadius*2, p.cachedOuterRadius*2)
-	p.cachedFocusBounds = bounds.Inset(-maxFloat(2, size*0.05), -maxFloat(2, size*0.05))
+	p.cachedFocusBounds = bounds.Inset(-mathutil.Max(2, size*0.05), -mathutil.Max(2, size*0.05))
 	p.syncGeometry()
 }
 
@@ -265,7 +266,7 @@ func (p *ColorPicker) syncGeometry() {
 	p.cachedTriangleVerts[1] = pointOnCircle(p.cachedCenter, p.cachedTriangleRadius, hueAngle+2*math.Pi/3)
 	p.cachedTriangleVerts[2] = pointOnCircle(p.cachedCenter, p.cachedTriangleRadius, hueAngle-2*math.Pi/3)
 	p.cachedTriangleBounds = boundsForPoints(p.cachedTriangleVerts[:])
-	p.cachedHandleBounds = colorPickerCenteredRect(p.selectedPoint(), maxFloat(10, p.cachedOuterRadius*0.12))
+	p.cachedHandleBounds = colorPickerCenteredRect(p.selectedPoint(), mathutil.Max(10, p.cachedOuterRadius*0.12))
 }
 
 func (p *ColorPicker) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
@@ -349,7 +350,7 @@ func (p *ColorPicker) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 				Path:  handlePath,
 				Brush: gfx.SolidBrush(hsvToColor(p.Hue, 1, 1, 1)),
 				Stroke: gfx.StrokeStyle{
-					Width:      maxFloat(1.5, p.cachedHandleBounds.Width()*0.12),
+					Width:      mathutil.Max(1.5, p.cachedHandleBounds.Width()*0.12),
 					Cap:        gfx.LineCapRound,
 					Join:       gfx.LineJoinRound,
 					MiterLimit: 10,

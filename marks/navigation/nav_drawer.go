@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -382,11 +383,11 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	d.cachedTokens = resolved.TokenSet()
 	d.cachedRecipe = slots
 	d.cachedWritingDirection = ctx.WritingDirection
-	d.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
-	d.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
+	d.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
+	d.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
 	d.cachedItemGap = float32(resolved.Spacing(theme.SpacingS))
 	d.cachedSectionGap = float32(resolved.Spacing(theme.SpacingL))
-	d.cachedItemHeight = maxFloat(resolved.Density.Scale(44), resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
+	d.cachedItemHeight = mathutil.Max(resolved.Density.Scale(44), resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
 	d.cachedDrawerWidth = d.drawerWidth(resolved)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
@@ -442,7 +443,7 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 			itemsH += float32(len(section.Items)-1) * d.cachedItemGap
 		}
 	}
-	drawerW := maxFloat(d.cachedDrawerWidth, maxFloat(headerSize.W, subtitleSize.W)+d.cachedPadX*2)
+	drawerW := mathutil.Max(d.cachedDrawerWidth, mathutil.Max(headerSize.W, subtitleSize.W)+d.cachedPadX*2)
 	for i := range d.cachedItemLabelFacets {
 		itemSize := d.cachedItemLabelFacets[i].Base().LayoutRole().MeasuredSize
 		w := itemSize.W + d.cachedPadX*2 + d.cachedItemHeight
@@ -450,7 +451,7 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 			drawerW = w
 		}
 	}
-	contentW := maxFloat(0, drawerW-d.cachedPadX*2)
+	contentW := mathutil.Max(0, drawerW-d.cachedPadX*2)
 	headerSize = gfx.Size{W: contentW, H: headerSize.H}
 	if d.cachedSubtitleFacet != nil && headerSize.H > 0 && subtitleSize.H > 0 {
 		headerSize.H += float32(resolved.Spacing(theme.SpacingXS)) + subtitleSize.H
@@ -466,16 +467,16 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		contentH += d.cachedSectionGap
 	}
 	if err == nil && groupSize.Size != (gfx.Size{}) {
-		contentH = maxFloat(contentH, groupSize.Size.H)
+		contentH = mathutil.Max(contentH, groupSize.Size.H)
 	}
 	measuredW := drawerW
 	measuredH := contentH + d.cachedPadY*2
 	if d.Open.Get() {
 		if constraints.MaxSize.W > 0 {
-			measuredW = maxFloat(measuredW, constraints.MaxSize.W)
+			measuredW = mathutil.Max(measuredW, constraints.MaxSize.W)
 		}
 		if constraints.MaxSize.H > 0 {
-			measuredH = maxFloat(measuredH, constraints.MaxSize.H)
+			measuredH = mathutil.Max(measuredH, constraints.MaxSize.H)
 		}
 	}
 	measured := constraints.Constrain(gfx.Size{W: measuredW, H: measuredH})
@@ -510,7 +511,7 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	drawerW := d.cachedDrawerWidth
 	if drawerW <= 0 {
-		drawerW = maxFloat(bounds.Width()*0.8, 280)
+		drawerW = mathutil.Max(bounds.Width()*0.8, 280)
 	}
 	if drawerW > bounds.Width() {
 		drawerW = bounds.Width()
@@ -534,8 +535,8 @@ func (d *NavDrawer) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	contentBounds := gfx.RectFromXYWH(
 		d.cachedDrawerBounds.Min.X+d.cachedPadX,
 		d.cachedDrawerBounds.Min.Y+d.cachedPadY,
-		maxFloat(0, d.cachedDrawerBounds.Width()-d.cachedPadX*2),
-		maxFloat(0, d.cachedDrawerBounds.Height()-d.cachedPadY*2),
+		mathutil.Max(0, d.cachedDrawerBounds.Width()-d.cachedPadX*2),
+		mathutil.Max(0, d.cachedDrawerBounds.Height()-d.cachedPadY*2),
 	)
 	if policy, ok := d.Layout.Parent.Policy.(navDrawerGroupPolicy); ok {
 		if arranged, err := policy.ArrangeGroup(facet.GroupArrangeContext{ArrangeContext: facet.ArrangeContext{}, Bounds: contentBounds}, d.Children()); err == nil {
@@ -643,17 +644,17 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 96)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(scrim) && !d.cachedScrimBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RectPath(d.cachedScrimBounds), scrim)...)
+	if !theme.IsTransparentMaterial(scrim) && !d.cachedScrimBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(d.cachedScrimBounds), scrim)...)
 	}
-	if !isTransparentMaterial(drawer) && !d.cachedDrawerBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(d.cachedDrawerBounds, float32(tokens.Radius.LG)), drawer)...)
+	if !theme.IsTransparentMaterial(drawer) && !d.cachedDrawerBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(d.cachedDrawerBounds, float32(tokens.Radius.LG)), drawer)...)
 	}
-	if !isTransparentMaterial(header) && !d.cachedHeaderBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RectPath(d.cachedHeaderBounds), header)...)
+	if !theme.IsTransparentMaterial(header) && !d.cachedHeaderBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(d.cachedHeaderBounds), header)...)
 	}
 	if d.cachedHeaderFacet != nil && !d.cachedHeaderBounds.IsEmpty() {
 		if projected := d.cachedHeaderFacet.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: d.cachedHeaderBounds, ContentScale: 1}); projected != nil {
@@ -695,29 +696,29 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		case theme.StateSelected:
 			material = slots.NavItems.Resolve(theme.StateSelected, tokens)
 		}
-		if !isTransparentMaterial(material) {
+		if !theme.IsTransparentMaterial(material) {
 			if i == d.clampedCurrentIndex() {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(rect, float32(tokens.Radius.MD)), material)...)
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(rect, float32(tokens.Radius.MD)), material)...)
 			} else if state == theme.StateHover || state == theme.StatePressed || state == theme.StateFocused {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(rect, float32(tokens.Radius.MD)), material)...)
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(rect, float32(tokens.Radius.MD)), material)...)
 			}
 		}
 		if len(d.cachedIconAssets) > i && len(d.cachedIconAssets[i].Path.Segments) > 0 && len(d.cachedIconBounds) > i && !d.cachedIconBounds[i].IsEmpty() {
 			cmds = append(cmds, d.iconCommands(d.cachedIconAssets[i], d.cachedIconBounds[i], items)...)
 		}
-		if i < len(d.cachedItemLabelFacets) && !isTransparentMaterial(items) && !d.cachedItemBounds[i].IsEmpty() {
+		if i < len(d.cachedItemLabelFacets) && !theme.IsTransparentMaterial(items) && !d.cachedItemBounds[i].IsEmpty() {
 			if projected := d.cachedItemLabelFacets[i].Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: d.cachedItemLabelFacets[i].Base().LayoutRole().ArrangedBounds, ContentScale: 1}); projected != nil {
 				cmds = append(cmds, projected.Commands...)
 			}
 		}
 	}
-	if d.focusedVisible && !isTransparentMaterial(focus) {
+	if d.focusedVisible && !theme.IsTransparentMaterial(focus) {
 		idx := d.clampedFocusedIndex()
 		if idx >= 0 && idx < len(d.cachedItemBounds) {
 			active := d.cachedItemBounds[idx]
 			if !active.IsEmpty() {
-				inset := maxFloat(1, active.Height()*0.08)
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(active.Inset(-inset, -inset), float32(tokens.Radius.MD)+inset), focus)...)
+				inset := mathutil.Max(1, active.Height()*0.08)
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(active.Inset(-inset, -inset), float32(tokens.Radius.MD)+inset), focus)...)
 			}
 		}
 	}
@@ -1085,7 +1086,7 @@ func (d *NavDrawer) pointInFocusRing(p gfx.Point) bool {
 	if active.IsEmpty() || !active.Contains(p) {
 		return false
 	}
-	ring := maxFloat(1, active.Height()*0.08)
+	ring := mathutil.Max(1, active.Height()*0.08)
 	inner := active.Inset(ring, ring)
 	if inner.IsEmpty() {
 		return true
@@ -1119,7 +1120,7 @@ func (d *NavDrawer) rebuildFlatItems() {
 }
 
 func (d *NavDrawer) drawerWidth(resolved theme.ResolvedContext) float32 {
-	width := maxFloat(resolved.Density.Scale(280), resolved.Density.Scale(320))
+	width := mathutil.Max(resolved.Density.Scale(280), resolved.Density.Scale(320))
 	for _, item := range d.cachedFlatItems {
 		if w := resolved.Density.Scale(56) + float32(len(item.Label))*resolved.Density.Scale(8); w > width {
 			width = w
@@ -1170,7 +1171,7 @@ func (d *NavDrawer) fontRegistry(runtime any) *text.FontRegistry {
 }
 
 func (d *NavDrawer) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if len(asset.Path.Segments) == 0 || bounds.IsEmpty() || isTransparentMaterial(material) {
+	if len(asset.Path.Segments) == 0 || bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	box := asset.ViewBox
@@ -1182,12 +1183,12 @@ func (d *NavDrawer) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, ma
 	}
 	sx := bounds.Width() / box.Width()
 	sy := bounds.Height() / box.Height()
-	scale := minFloat(sx, sy)
+	scale := mathutil.Min(sx, sy)
 	if scale <= 0 {
 		return nil
 	}
 	target := gfxsvg.Transformed(asset.Path, gfx.Identity().Multiply(gfx.Translation(bounds.Min.X-box.Min.X*scale, bounds.Min.Y-box.Min.Y*scale)).Multiply(gfx.Scale(scale, scale)))
-	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(materialColor(material))}}
+	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(theme.MaterialColor(material))}}
 }
 
 type navDrawerGroupPolicy struct {

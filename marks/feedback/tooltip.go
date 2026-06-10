@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -275,12 +276,12 @@ func (t *Tooltip) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	}
 	lineHeight := textStyle.LineHeight
 	if lineHeight <= 0 {
-		lineHeight = maxFloat(fontSize*1.35, 1)
+		lineHeight = mathutil.Max(fontSize*1.35, 1)
 	}
-	t.cachedPadX = maxFloat(maxFloat(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM))), fontSize*0.55)
-	t.cachedPadY = maxFloat(maxFloat(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS))), lineHeight*0.12)
-	t.cachedGap = maxFloat(resolved.Density.Scale(4), float32(resolved.Spacing(theme.SpacingXS)))
-	t.cachedArrowSize = maxFloat(maxFloat(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS))), fontSize*0.5)
+	t.cachedPadX = mathutil.Max(mathutil.Max(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM))), fontSize*0.55)
+	t.cachedPadY = mathutil.Max(mathutil.Max(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS))), lineHeight*0.12)
+	t.cachedGap = mathutil.Max(resolved.Density.Scale(4), float32(resolved.Spacing(theme.SpacingXS)))
+	t.cachedArrowSize = mathutil.Max(mathutil.Max(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS))), fontSize*0.5)
 	t.syncChildren()
 	if t.cachedContentFacet == nil || t.cachedContentFacet.Base().LayoutRole() == nil {
 		size := constraints.Constrain(gfx.Size{})
@@ -294,10 +295,10 @@ func (t *Tooltip) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	}
 	contentConstraints := facet.Constraints{MaxSize: gfx.Size{W: constraints.MaxSize.W, H: constraints.MaxSize.H}}
 	if contentConstraints.MaxSize.W > 0 {
-		contentConstraints.MaxSize.W = maxFloat(0, contentConstraints.MaxSize.W-t.cachedPadX*2)
+		contentConstraints.MaxSize.W = mathutil.Max(0, contentConstraints.MaxSize.W-t.cachedPadX*2)
 	}
 	if contentConstraints.MaxSize.H > 0 {
-		contentConstraints.MaxSize.H = maxFloat(0, contentConstraints.MaxSize.H-t.cachedPadY*2)
+		contentConstraints.MaxSize.H = mathutil.Max(0, contentConstraints.MaxSize.H-t.cachedPadY*2)
 	}
 	contentSize := t.cachedContentFacet.Base().LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          ctx.Runtime,
@@ -309,8 +310,8 @@ func (t *Tooltip) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	minContentWidth := contentSize.W + fontSize*0.75
 	minContentHeight := contentSize.H
 	size := gfx.Size{
-		W: maxFloat(contentSize.W+t.cachedPadX*2, minContentWidth+t.cachedPadX*2),
-		H: maxFloat(contentSize.H+t.cachedPadY*2, minContentHeight+t.cachedPadY*2),
+		W: mathutil.Max(contentSize.W+t.cachedPadX*2, minContentWidth+t.cachedPadX*2),
+		H: mathutil.Max(contentSize.H+t.cachedPadY*2, minContentHeight+t.cachedPadY*2),
 	}
 	switch t.Placement.Side {
 	case facet.AnchorLeft, facet.AnchorRight:
@@ -408,14 +409,14 @@ func (t *Tooltip) buildCommands(bounds gfx.Rect, runtime any, contentScale float
 	surface := slots.TooltipSurface.Resolve(state, tokens)
 	arrow := slots.AnchorArrow.Resolve(state, tokens)
 	cmds := make([]gfx.Command, 0, 16)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(t.cachedSurfaceBounds, float32(tokens.Radius.MD)), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(t.cachedSurfaceBounds, float32(tokens.Radius.MD)), surface)...)
 	}
-	if !isTransparentMaterial(arrow) && !t.cachedArrowBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(tooltipArrowPath(t.cachedArrowBounds, t.Placement.Side), arrow)...)
+	if !theme.IsTransparentMaterial(arrow) && !t.cachedArrowBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(tooltipArrowPath(t.cachedArrowBounds, t.Placement.Side), arrow)...)
 	}
 	if !t.cachedSurfaceBounds.IsEmpty() {
 		cmds = append(cmds, gfx.PushClipRect{Rect: t.cachedSurfaceBounds})

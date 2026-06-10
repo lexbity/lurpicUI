@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -124,9 +125,9 @@ const dialogDefaultCloseSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 // NewDialog constructs a feedback.dialog mark with canonical defaults.
 func NewDialog(title, body string, actions []DialogAction) *Dialog {
 	d := &Dialog{
-		Title:             marks.Const(title),
-		Body:              marks.Const(body),
-		ContentLayoutMode: marks.Const(DialogContentLayoutVertical),
+		Title:              marks.Const(title),
+		Body:               marks.Const(body),
+		ContentLayoutMode:  marks.Const(DialogContentLayoutVertical),
 		ContentGridColumns: marks.Const(1),
 		ContentGridRows:    marks.Const(1),
 		Actions:            marks.Const(append([]DialogAction(nil), actions...)),
@@ -391,15 +392,15 @@ func (d *Dialog) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	d.cachedTokens = resolved.TokenSet()
 	d.cachedRecipe = slots
 	d.cachedWritingDirection = ctx.WritingDirection
-	d.cachedPadX = maxFloat(resolved.Density.Scale(16), float32(resolved.Spacing(theme.SpacingL)))
-	d.cachedPadY = maxFloat(resolved.Density.Scale(14), float32(resolved.Spacing(theme.SpacingM)))
-	d.cachedGap = maxFloat(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
-	d.cachedRowGap = maxFloat(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM)))
-	d.cachedSurfaceRadius = maxFloat(float32(resolved.Radius(theme.RadiusL).Float32()), float32(resolved.Radius(theme.RadiusM).Float32()))
+	d.cachedPadX = mathutil.Max(resolved.Density.Scale(16), float32(resolved.Spacing(theme.SpacingL)))
+	d.cachedPadY = mathutil.Max(resolved.Density.Scale(14), float32(resolved.Spacing(theme.SpacingM)))
+	d.cachedGap = mathutil.Max(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
+	d.cachedRowGap = mathutil.Max(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM)))
+	d.cachedSurfaceRadius = mathutil.Max(float32(resolved.Radius(theme.RadiusL).Float32()), float32(resolved.Radius(theme.RadiusM).Float32()))
 	d.syncChildren()
 	innerMaxW := constraints.MaxSize.W
 	if innerMaxW > 0 {
-		innerMaxW = maxFloat(0, innerMaxW-d.cachedPadX*2)
+		innerMaxW = mathutil.Max(0, innerMaxW-d.cachedPadX*2)
 	}
 	measureCtx := facet.MeasureContext{
 		Runtime:          ctx.Runtime,
@@ -410,12 +411,12 @@ func (d *Dialog) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	}
 	closeSize := gfx.Size{}
 	if d.cachedCloseButton != nil {
-		target := maxFloat(resolved.Density.Scale(24), float32(resolved.TokenSet().Spacing.TouchTarget)*0.55)
+		target := mathutil.Max(resolved.Density.Scale(24), float32(resolved.TokenSet().Spacing.TouchTarget)*0.55)
 		closeSize = d.cachedCloseButton.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: target, H: target}}).Size
 	}
 	titleMaxW := innerMaxW
 	if closeSize.W > 0 || closeSize.H > 0 {
-		titleMaxW = maxFloat(0, innerMaxW-closeSize.W-d.cachedGap)
+		titleMaxW = mathutil.Max(0, innerMaxW-closeSize.W-d.cachedGap)
 	}
 	titleSize := d.cachedTitleFacet.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: titleMaxW, H: constraints.MaxSize.H}}).Size
 	bodySize := gfx.Size{}
@@ -429,17 +430,17 @@ func (d *Dialog) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	headerH := titleSize.H
 	headerW := titleSize.W
 	if closeSize.W > 0 || closeSize.H > 0 {
-		headerH = maxFloat(headerH, closeSize.H)
+		headerH = mathutil.Max(headerH, closeSize.H)
 		if headerW > 0 {
 			headerW += d.cachedGap + closeSize.W
 		} else {
 			headerW = closeSize.W
 		}
 	} else {
-		headerH = maxFloat(headerH, resolved.Density.Scale(24))
+		headerH = mathutil.Max(headerH, resolved.Density.Scale(24))
 	}
-	contentW := maxFloat(headerW, bodySize.W)
-	contentW = maxFloat(contentW, actionsSize.W)
+	contentW := mathutil.Max(headerW, bodySize.W)
+	contentW = mathutil.Max(contentW, actionsSize.W)
 	contentH := headerH
 	if bodySize.H > 0 {
 		contentH += d.cachedRowGap + bodySize.H
@@ -451,13 +452,13 @@ func (d *Dialog) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		W: contentW + d.cachedPadX*2,
 		H: contentH + d.cachedPadY*2,
 	}
-	surfaceSize.W = maxFloat(surfaceSize.W, resolved.Density.Scale(280))
-	surfaceSize.H = maxFloat(surfaceSize.H, resolved.Density.Scale(160))
+	surfaceSize.W = mathutil.Max(surfaceSize.W, resolved.Density.Scale(280))
+	surfaceSize.H = mathutil.Max(surfaceSize.H, resolved.Density.Scale(160))
 	if constraints.MaxSize.W > 0 {
-		surfaceSize.W = minFloat(surfaceSize.W, constraints.MaxSize.W)
+		surfaceSize.W = mathutil.Min(surfaceSize.W, constraints.MaxSize.W)
 	}
 	if constraints.MaxSize.H > 0 {
-		surfaceSize.H = minFloat(surfaceSize.H, constraints.MaxSize.H)
+		surfaceSize.H = mathutil.Min(surfaceSize.H, constraints.MaxSize.H)
 	}
 	size := surfaceSize
 	if constraints.MaxSize.W > 0 {
@@ -485,13 +486,13 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		return
 	}
 	d.syncChildren()
-	margin := maxFloat(d.cachedPadX, d.cachedPadY)
+	margin := mathutil.Max(d.cachedPadX, d.cachedPadY)
 	surfaceSize := gfx.Size{
-		W: maxFloat(d.cachedPadX*2+resolvedDialogContentWidth(d), resolvedDialogMinWidth(d)),
-		H: maxFloat(d.cachedPadY*2+resolvedDialogContentHeight(d), resolvedDialogMinHeight(d)),
+		W: mathutil.Max(d.cachedPadX*2+resolvedDialogContentWidth(d), resolvedDialogMinWidth(d)),
+		H: mathutil.Max(d.cachedPadY*2+resolvedDialogContentHeight(d), resolvedDialogMinHeight(d)),
 	}
-	surfaceSize.W = minFloat(surfaceSize.W, maxFloat(0, bounds.Width()-margin*2))
-	surfaceSize.H = minFloat(surfaceSize.H, maxFloat(0, bounds.Height()-margin*2))
+	surfaceSize.W = mathutil.Min(surfaceSize.W, mathutil.Max(0, bounds.Width()-margin*2))
+	surfaceSize.H = mathutil.Min(surfaceSize.H, mathutil.Max(0, bounds.Height()-margin*2))
 	d.cachedSurfaceBounds = text.CenterRect(bounds, surfaceSize.W, surfaceSize.H)
 	content := d.cachedSurfaceBounds.Inset(d.cachedPadX, d.cachedPadY)
 	if content.IsEmpty() {
@@ -510,7 +511,7 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if d.cachedActionsFacet != nil {
 		actionsSize = d.cachedActionsFacet.Base().LayoutRole().MeasuredSize
 	}
-	headerH := maxFloat(titleSize.H, closeSize.H)
+	headerH := mathutil.Max(titleSize.H, closeSize.H)
 	rowRects := layout.ArrangeVerticalFlowAligned(content, 0, d.cachedRowGap, []gfx.Size{
 		{W: content.Width(), H: headerH},
 		{W: content.Width(), H: bodySize.H},
@@ -546,7 +547,7 @@ func (d *Dialog) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		closeRect := gfx.RectFromXYWH(closeX, headerRect.Min.Y, closeSize.W, closeSize.H)
 		d.cachedCloseButton.Base().LayoutRole().Arrange(ctx, closeRect)
 		d.cachedCloseBounds = closeRect
-		titleW := maxFloat(0, headerRect.Width()-closeSize.W-d.cachedGap)
+		titleW := mathutil.Max(0, headerRect.Width()-closeSize.W-d.cachedGap)
 		titleRect := gfx.RectFromXYWH(titleX, headerRect.Min.Y, titleW, titleSize.H)
 		d.cachedTitleFacet.Base().LayoutRole().Arrange(ctx, titleRect)
 		d.cachedTitleBounds = titleRect
@@ -586,18 +587,18 @@ func (d *Dialog) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	surface := slots.ModalSurface.Resolve(state, tokens)
 	focusRing := slots.FocusRing.Resolve(state, tokens)
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(backdrop) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), backdrop)...)
+	if !theme.IsTransparentMaterial(backdrop) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), backdrop)...)
 	}
-	if !isTransparentMaterial(surface) && !d.cachedSurfaceBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(d.cachedSurfaceBounds, d.cachedSurfaceRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) && !d.cachedSurfaceBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(d.cachedSurfaceBounds, d.cachedSurfaceRadius), surface)...)
 	}
-	if !isTransparentMaterial(focusRing) && d.focusedVisible && !d.cachedSurfaceBounds.IsEmpty() {
-		ring := d.cachedSurfaceBounds.Inset(-maxFloat(1, d.cachedGap*0.35), -maxFloat(1, d.cachedGap*0.35))
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ring, d.cachedSurfaceRadius+maxFloat(1, d.cachedGap*0.35)), focusRing)...)
+	if !theme.IsTransparentMaterial(focusRing) && d.focusedVisible && !d.cachedSurfaceBounds.IsEmpty() {
+		ring := d.cachedSurfaceBounds.Inset(-mathutil.Max(1, d.cachedGap*0.35), -mathutil.Max(1, d.cachedGap*0.35))
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ring, d.cachedSurfaceRadius+mathutil.Max(1, d.cachedGap*0.35)), focusRing)...)
 	}
 	if !d.cachedSurfaceBounds.IsEmpty() {
 		cmds = append(cmds, gfx.PushClipRect{Rect: d.cachedSurfaceBounds})
@@ -990,7 +991,7 @@ func (g *dialogActionGroup) measure(ctx facet.MeasureContext, constraints facet.
 			width += spacing
 		}
 		width += size.W
-		height = maxFloat(height, size.H)
+		height = mathutil.Max(height, size.H)
 	}
 	return gfx.Size{W: width, H: height}
 }
@@ -999,7 +1000,7 @@ func (g *dialogActionGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if g == nil || bounds.IsEmpty() || len(g.Buttons) == 0 {
 		return
 	}
-	spacing := maxFloat(0, 8)
+	spacing := mathutil.Max[float32](0, 8)
 	totalW := float32(0)
 	sizes := make([]gfx.Size, len(g.Buttons))
 	for i, btn := range g.Buttons {
@@ -1024,7 +1025,7 @@ func (g *dialogActionGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if i > 0 {
 			x += spacing
 		}
-		rect := gfx.RectFromXYWH(x, bounds.Min.Y, size.W, maxFloat(bounds.Height(), size.H))
+		rect := gfx.RectFromXYWH(x, bounds.Min.Y, size.W, mathutil.Max(bounds.Height(), size.H))
 		btn.Base().LayoutRole().Arrange(ctx, rect)
 		x += size.W
 	}
@@ -1310,7 +1311,7 @@ func (g *dialogBodyGroup) measureContentSize(children []dialogBodyChildMeasure, 
 				width += g.parent.cachedGap
 			}
 			width += children[i].size.W
-			height = maxFloat(height, children[i].size.H)
+			height = mathutil.Max(height, children[i].size.H)
 		}
 		return gfx.Size{W: width, H: height}
 	case DialogContentLayoutGrid:
@@ -1329,7 +1330,7 @@ func (g *dialogBodyGroup) measureContentSize(children []dialogBodyChildMeasure, 
 			if i > 0 {
 				height += g.parent.cachedRowGap
 			}
-			width = maxFloat(width, children[i].size.W)
+			width = mathutil.Max(width, children[i].size.W)
 			height += children[i].size.H
 		}
 		return gfx.Size{W: width, H: height}
@@ -1390,7 +1391,7 @@ func (g *dialogBodyGroup) arrangeChildren(ctx facet.ArrangeContext, bounds gfx.R
 			if i > 0 {
 				x += g.parent.cachedGap
 			}
-			rect := gfx.RectFromXYWH(x, bounds.Min.Y, children[i].size.W, maxFloat(bounds.Height(), children[i].size.H))
+			rect := gfx.RectFromXYWH(x, bounds.Min.Y, children[i].size.W, mathutil.Max(bounds.Height(), children[i].size.H))
 			children[i].facet.LayoutRole().Arrange(ctx, rect)
 			arranged = append(arranged, dialogBodyChildArrange{facet: children[i].facet, bounds: rect})
 			x += children[i].size.W
@@ -1627,13 +1628,13 @@ func resolvedDialogContentWidth(d *Dialog) float32 {
 	}
 	width := d.cachedTitleFacet.Base().LayoutRole().MeasuredSize.W
 	if d.cachedBodyGroup != nil {
-		width = maxFloat(width, d.cachedBodyGroup.Base().LayoutRole().MeasuredSize.W)
+		width = mathutil.Max(width, d.cachedBodyGroup.Base().LayoutRole().MeasuredSize.W)
 	}
 	if d.cachedActionsFacet != nil {
-		width = maxFloat(width, d.cachedActionsFacet.Base().LayoutRole().MeasuredSize.W)
+		width = mathutil.Max(width, d.cachedActionsFacet.Base().LayoutRole().MeasuredSize.W)
 	}
 	if d.cachedCloseButton != nil {
-		width = maxFloat(width, d.cachedCloseButton.Base().LayoutRole().MeasuredSize.W)
+		width = mathutil.Max(width, d.cachedCloseButton.Base().LayoutRole().MeasuredSize.W)
 	}
 	return width
 }
@@ -1652,7 +1653,7 @@ func resolvedDialogContentHeight(d *Dialog) float32 {
 		height += d.cachedRowGap + d.cachedActionsFacet.Base().LayoutRole().MeasuredSize.H
 	}
 	if d.cachedCloseButton != nil {
-		height = maxFloat(height, d.cachedCloseButton.Base().LayoutRole().MeasuredSize.H)
+		height = mathutil.Max(height, d.cachedCloseButton.Base().LayoutRole().MeasuredSize.H)
 	}
 	return height
 }
@@ -1661,12 +1662,12 @@ func resolvedDialogMinWidth(d *Dialog) float32 {
 	if d == nil {
 		return 0
 	}
-	return maxFloat(280, d.cachedPadX*2+resolvedDialogContentWidth(d))
+	return mathutil.Max(280, d.cachedPadX*2+resolvedDialogContentWidth(d))
 }
 
 func resolvedDialogMinHeight(d *Dialog) float32 {
 	if d == nil {
 		return 0
 	}
-	return maxFloat(160, d.cachedPadY*2+resolvedDialogContentHeight(d))
+	return mathutil.Max(160, d.cachedPadY*2+resolvedDialogContentHeight(d))
 }

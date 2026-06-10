@@ -1,12 +1,13 @@
 package selection
 
 import (
-	"reflect"
 	"math"
+	"reflect"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -124,13 +125,13 @@ var _ facet.FacetImpl = (*buttonGroupItem)(nil)
 // NewButtonGroup constructs a selection.button_group mark with canonical defaults.
 func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
 	bg := &ButtonGroup{
-		Label:       marks.Const(label),
-		Mode:        marks.Const(ButtonGroupExclusive),
-		Disabled:    marks.Const(false),
+		Label:        marks.Const(label),
+		Mode:         marks.Const(ButtonGroupExclusive),
+		Disabled:     marks.Const(false),
 		hoveredIndex: -1,
 		pressedIndex: -1,
 		focusedIndex: -1,
-		Value:       store.NewValueStore[[]string](nil),
+		Value:        store.NewValueStore[[]string](nil),
 	}
 	bg.Core.Facet = facet.NewFacet()
 	bg.AddBinding(bg.Label)
@@ -400,8 +401,8 @@ func (bg *ButtonGroup) measure(ctx facet.MeasureContext, constraints facet.Const
 	bg.cachedTokens = resolved.TokenSet()
 	bg.cachedRecipe = slots
 	bg.cachedWritingDirection = ctx.WritingDirection
-	bg.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	bg.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	bg.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	bg.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
 	bg.cachedGap = 0
 	bg.cachedRadius = float32(resolved.Radius(theme.RadiusM))
 	bg.rebuildChildren()
@@ -415,7 +416,7 @@ func (bg *ButtonGroup) measure(ctx facet.MeasureContext, constraints facet.Const
 		if child == nil {
 			continue
 		}
-		size := child.Layout.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxFloat(0, constraints.MaxSize.W), H: constraints.MaxSize.H}})
+		size := child.Layout.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: mathutil.Max(0, constraints.MaxSize.W), H: constraints.MaxSize.H}})
 		if size.Size.W > contentW {
 			contentW = size.Size.W
 		}
@@ -442,14 +443,14 @@ func (bg *ButtonGroup) measure(ctx facet.MeasureContext, constraints facet.Const
 		contentH = resolved.Density.Scale(36)
 	}
 	size := gfx.Size{
-		W: maxFloat(resolved.Density.Scale(120), contentW+bg.cachedPadX*2),
-		H: maxFloat(resolved.Density.Scale(36), contentH+bg.cachedPadY*2),
+		W: mathutil.Max(resolved.Density.Scale(120), contentW+bg.cachedPadX*2),
+		H: mathutil.Max(resolved.Density.Scale(36), contentH+bg.cachedPadY*2),
 	}
 	if constraints.MaxSize.W > 0 {
-		size.W = minFloat(size.W, constraints.MaxSize.W)
+		size.W = mathutil.Min(size.W, constraints.MaxSize.W)
 	}
 	if constraints.MaxSize.H > 0 {
-		size.H = minFloat(size.H, constraints.MaxSize.H)
+		size.H = mathutil.Min(size.H, constraints.MaxSize.H)
 	}
 	bg.Layout.MeasuredSize = constraints.Constrain(size)
 	bg.Layout.MeasuredResult = facet.MeasureResult{
@@ -518,7 +519,7 @@ func (bg *ButtonGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		w := child.Layout.MeasuredSize.W
 		h := maxH
-		y := inner.Min.Y + maxFloat(0, (inner.Height()-h)*0.5)
+		y := inner.Min.Y + mathutil.Max(0, (inner.Height()-h)*0.5)
 		if bg.cachedWritingDirection == facet.WritingDirectionRTL {
 			rect := gfx.RectFromXYWH(curX, y, w, h)
 			child.Layout.Arrange(facet.ArrangeContext{Runtime: ctx.Runtime, Theme: ctx.Theme, ParentGroup: child.Layout.Parent, ChildGroup: child.Layout.Child, Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: i, CrossAxisAlign: facet.CrossAxisStretch}}}, rect)
@@ -564,11 +565,11 @@ func (bg *ButtonGroup) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, bg.cachedRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, bg.cachedRadius), surface)...)
 	}
 	for i := range bg.cachedItems {
 		if bg.cachedItems[i] == nil {
@@ -579,10 +580,10 @@ func (bg *ButtonGroup) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 			cmds = append(cmds, childCmds.Commands...)
 		}
 	}
-	if bg.focusedVisible && bg.focusedIndex >= 0 && bg.focusedIndex < len(bg.cachedOptionBounds) && !isTransparentMaterial(focus) {
+	if bg.focusedVisible && bg.focusedIndex >= 0 && bg.focusedIndex < len(bg.cachedOptionBounds) && !theme.IsTransparentMaterial(focus) {
 		rect := bg.cachedOptionBounds[bg.focusedIndex]
-		inset := maxFloat(1, rect.Height()*0.08)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(rect.Inset(-inset, -inset), bg.cachedRadius+inset), focus)...)
+		inset := mathutil.Max(1, rect.Height()*0.08)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(rect.Inset(-inset, -inset), bg.cachedRadius+inset), focus)...)
 	}
 	return cmds
 }
@@ -618,7 +619,7 @@ func (bg *ButtonGroup) pointInFocusRing(p gfx.Point) bool {
 	if rect.IsEmpty() || !rect.Contains(p) {
 		return false
 	}
-	inner := rect.Inset(maxFloat(1, rect.Height()*0.08), maxFloat(1, rect.Height()*0.08))
+	inner := rect.Inset(mathutil.Max(1, rect.Height()*0.08), mathutil.Max(1, rect.Height()*0.08))
 	if inner.IsEmpty() {
 		return true
 	}
@@ -1191,8 +1192,8 @@ func (it *buttonGroupItem) measure(ctx facet.MeasureContext, constraints facet.C
 	it.cachedTokens = resolved.TokenSet()
 	it.cachedRecipe = slots
 	it.cachedWritingDirection = ctx.WritingDirection
-	it.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	it.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	it.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	it.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
 	it.cachedGap = float32(resolved.Spacing(theme.SpacingXS))
 	it.cachedRadius = float32(resolved.Radius(theme.RadiusM))
 	it.syncChildVisuals(resolved, ctx.Runtime, constraints)
@@ -1308,7 +1309,7 @@ func (it *buttonGroupItem) syncChildVisuals(resolved theme.ResolvedContext, runt
 		it.labelMark.Foreground = marks.Const(labelToken)
 		it.labelMark.Disabled = marks.Const(it.disabled)
 		it.labelMark.Overflow = marks.Const(primitive.TextOverflowTruncate)
-		it.labelMark.MaxWidth = marks.Const(maxFloat(0, constraints.MaxSize.W))
+		it.labelMark.MaxWidth = marks.Const(mathutil.Max(0, constraints.MaxSize.W))
 	}
 	if it.iconMark != nil {
 		if it.iconMark.Source == nil && it.icon != nil {
@@ -1355,11 +1356,11 @@ func (it *buttonGroupItem) buildCommands(bounds gfx.Rect, runtime any, contentSc
 
 	path := buttonGroupItemPath(bounds, it.cachedRadius, it.index, len(it.parent.cachedItems), it.parent.cachedWritingDirection == facet.WritingDirectionRTL)
 	cmds := make([]gfx.Command, 0, 16)
-	if !isTransparentMaterial(option) {
-		cmds = append(cmds, materialCommands(path, option)...)
+	if !theme.IsTransparentMaterial(option) {
+		cmds = append(cmds, theme.MaterialCommands(path, option)...)
 	}
-	if it.selected && !isTransparentMaterial(selected) {
-		cmds = append(cmds, materialCommands(path, selected)...)
+	if it.selected && !theme.IsTransparentMaterial(selected) {
+		cmds = append(cmds, theme.MaterialCommands(path, selected)...)
 	}
 	if it.iconMark != nil {
 		if iconCmds := it.iconMark.Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: it.cachedIconBounds, ContentScale: contentScale}); iconCmds != nil {
@@ -1371,9 +1372,9 @@ func (it *buttonGroupItem) buildCommands(bounds gfx.Rect, runtime any, contentSc
 			cmds = append(cmds, labelCmds.Commands...)
 		}
 	}
-	if it.parent != nil && it.parent.focusedVisible && it.parent.focusedIndex == it.index && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, bounds.Height()*0.08)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds.Inset(-inset, -inset), it.cachedRadius+inset), focus)...)
+	if it.parent != nil && it.parent.focusedVisible && it.parent.focusedIndex == it.index && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, bounds.Height()*0.08)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds.Inset(-inset, -inset), it.cachedRadius+inset), focus)...)
 	}
 	return cmds
 }
@@ -1595,7 +1596,7 @@ func (p buttonGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children 
 		start = ctx.Bounds.Max.X - p.group.cachedPadX - totalW
 	}
 	y := ctx.Bounds.Min.Y + p.group.cachedPadY
-	height := maxFloat(0, ctx.Bounds.Height()-p.group.cachedPadY*2)
+	height := mathutil.Max(0, ctx.Bounds.Height()-p.group.cachedPadY*2)
 	if height <= 0 {
 		height = ctx.Bounds.Height()
 	}

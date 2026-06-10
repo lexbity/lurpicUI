@@ -3,6 +3,7 @@ package input
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -345,7 +346,7 @@ func (tf *TextField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	fieldY := labelY
 	contentH := valueH
-	contentTop := fieldY + maxFloat(0, (fieldH-contentH)/2)
+	contentTop := fieldY + mathutil.Max(0, (fieldH-contentH)/2)
 	tf.cachedFieldBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY, bounds.Width(), fieldH)
 	tf.cachedValueBounds = gfx.RectFromXYWH(bounds.Min.X+tf.cachedPadX, contentTop, bounds.Width()-tf.cachedPadX*2, valueH)
 	if tf.cachedValueBounds.Width() < 0 {
@@ -421,13 +422,13 @@ func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.
 
 	fieldInnerWidth := valueLayout.Bounds.Width()
 	if placeholderLayout != nil {
-		fieldInnerWidth = maxFloat(fieldInnerWidth, placeholderLayout.Bounds.Width())
+		fieldInnerWidth = mathutil.Max(fieldInnerWidth, placeholderLayout.Bounds.Width())
 	}
 	if fieldInnerWidth < tf.cachedMinFieldWidth-tf.cachedPadX*2 {
 		fieldInnerWidth = tf.cachedMinFieldWidth - tf.cachedPadX*2
 	}
 	if constraints.MaxSize.W > 0 && fieldInnerWidth+tf.cachedPadX*2 > constraints.MaxSize.W {
-		fieldInnerWidth = maxFloat(0, constraints.MaxSize.W-tf.cachedPadX*2)
+		fieldInnerWidth = mathutil.Max(0, constraints.MaxSize.W-tf.cachedPadX*2)
 	}
 	if fieldInnerWidth < 0 {
 		fieldInnerWidth = 0
@@ -439,7 +440,7 @@ func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.
 
 	fieldH := valueLayout.Bounds.Height() + tf.cachedPadY*2
 	if placeholderLayout != nil {
-		fieldH = maxFloat(fieldH, placeholderLayout.Bounds.Height()+tf.cachedPadY*2)
+		fieldH = mathutil.Max(fieldH, placeholderLayout.Bounds.Height()+tf.cachedPadY*2)
 	}
 	if fieldH < resolvedMinFieldHeightFromStyle(resolved, valueStyle) {
 		fieldH = resolvedMinFieldHeightFromStyle(resolved, valueStyle)
@@ -475,17 +476,17 @@ func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.
 	}
 	width := tf.cachedMinFieldWidth
 	if labelLayout != nil {
-		width = maxFloat(width, labelLayout.Bounds.Width())
+		width = mathutil.Max(width, labelLayout.Bounds.Width())
 	}
-	width = maxFloat(width, fieldInnerWidth+tf.cachedPadX*2)
+	width = mathutil.Max(width, fieldInnerWidth+tf.cachedPadX*2)
 	if helperLayout != nil {
-		width = maxFloat(width, helperLayout.Bounds.Width())
+		width = mathutil.Max(width, helperLayout.Bounds.Width())
 	}
 	if errorLayout != nil {
-		width = maxFloat(width, errorLayout.Bounds.Width())
+		width = mathutil.Max(width, errorLayout.Bounds.Width())
 	}
 	if constraints.MaxSize.W > 0 {
-		width = minFloat(width, constraints.MaxSize.W)
+		width = mathutil.Min(width, constraints.MaxSize.W)
 	}
 	layout := &text.TextLayout{}
 	layout.Bounds = text.RectFromXYWH(0, 0, width, totalH)
@@ -588,34 +589,34 @@ func (tf *TextField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	}
 	cmds := make([]gfx.Command, 0, 24)
 	rootPath := gfx.RectPath(bounds)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(rootPath, root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(rootPath, root)...)
 	}
 	fieldPath := gfx.RoundedRectPath(tf.cachedFieldBounds, tf.cachedRadius)
-	if !isTransparentMaterial(container) {
-		cmds = append(cmds, materialCommands(fieldPath, container)...)
+	if !theme.IsTransparentMaterial(container) {
+		cmds = append(cmds, theme.MaterialCommands(fieldPath, container)...)
 	}
-	if tf.focusedVisible && !isTransparentMaterial(focusRing) {
-		inset := maxFloat(1, tf.cachedFieldBounds.Height()*0.08)
+	if tf.focusedVisible && !theme.IsTransparentMaterial(focusRing) {
+		inset := mathutil.Max(1, tf.cachedFieldBounds.Height()*0.08)
 		ringBounds := tf.cachedFieldBounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, tf.cachedRadius+inset), focusRing)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, tf.cachedRadius+inset), focusRing)...)
 	}
-	if tf.selectionHasContent() && !isTransparentMaterial(selectionStyle) {
+	if tf.selectionHasContent() && !theme.IsTransparentMaterial(selectionStyle) {
 		cmds = append(cmds, selectionCommands(tf.selectionRects(), selectionStyle)...)
 	}
 	if tf.valueIsEmpty() {
-		if tf.cachedPlaceholderLayout != nil && !isTransparentMaterial(placeholder) {
-			cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedPlaceholderLayout, tf.cachedValueBounds, gfx.SolidBrush(materialColor(placeholder)))...)
+		if tf.cachedPlaceholderLayout != nil && !theme.IsTransparentMaterial(placeholder) {
+			cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedPlaceholderLayout, tf.cachedValueBounds, gfx.SolidBrush(theme.MaterialColor(placeholder)))...)
 		}
-	} else if tf.cachedValueLayout != nil && !isTransparentMaterial(inputText) {
-		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedValueLayout, tf.cachedValueBounds, gfx.SolidBrush(materialColor(inputText)))...)
+	} else if tf.cachedValueLayout != nil && !theme.IsTransparentMaterial(inputText) {
+		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedValueLayout, tf.cachedValueBounds, gfx.SolidBrush(theme.MaterialColor(inputText)))...)
 	}
-	if tf.focusedVisible && tf.shouldShowCaret() && tf.cachedValueLayout != nil && !isTransparentMaterial(caretStyle) {
+	if tf.focusedVisible && tf.shouldShowCaret() && tf.cachedValueLayout != nil && !theme.IsTransparentMaterial(caretStyle) {
 		caretRect := tf.cachedValueLayout.CaretRect(tf.caret)
 		cmds = append(cmds, rectCommands(offsetTextRect(caretRect, tf.cachedValueBounds.Min), caretStyle)...)
 	}
-	if tf.cachedLabelLayout != nil && !isTransparentMaterial(label) {
-		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedLabelLayout, tf.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+	if tf.cachedLabelLayout != nil && !theme.IsTransparentMaterial(label) {
+		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedLabelLayout, tf.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
 	if tf.cachedHelperBounds != (gfx.Rect{}) && tf.cachedHelperLayout != nil {
 		helperLayout := tf.cachedHelperLayout
@@ -631,10 +632,10 @@ func (tf *TextField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 				helperMaterial = errorStyle
 			}
 		}
-		cmds = append(cmds, primitive.TextLayoutCommands(helperLayout, tf.cachedHelperBounds, gfx.SolidBrush(materialColor(helperMaterial)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(helperLayout, tf.cachedHelperBounds, gfx.SolidBrush(theme.MaterialColor(helperMaterial)))...)
 	}
 	if tf.cachedErrorBounds != (gfx.Rect{}) && tf.cachedErrorLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedErrorLayout, tf.cachedErrorBounds, gfx.SolidBrush(materialColor(errorStyle)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(tf.cachedErrorLayout, tf.cachedErrorBounds, gfx.SolidBrush(theme.MaterialColor(errorStyle)))...)
 	}
 	return cmds
 }
@@ -660,11 +661,11 @@ func errorRingMaterial(tokens theme.Tokens) theme.Material {
 }
 
 func selectionCommands(rects []gfx.Rect, material theme.Material) []gfx.Command {
-	if len(rects) == 0 || isTransparentMaterial(material) {
+	if len(rects) == 0 || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	cmds := make([]gfx.Command, 0, len(rects))
-	brush := gfx.SolidBrush(materialColor(material))
+	brush := gfx.SolidBrush(theme.MaterialColor(material))
 	for _, rect := range rects {
 		if rect.IsEmpty() {
 			continue
@@ -675,7 +676,7 @@ func selectionCommands(rects []gfx.Rect, material theme.Material) []gfx.Command 
 }
 
 func rectCommands(rect gfx.Rect, material theme.Material) []gfx.Command {
-	if rect.IsEmpty() || isTransparentMaterial(material) {
+	if rect.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	cmds := make([]gfx.Command, 0, len(material.Fills)+len(material.Strokes))

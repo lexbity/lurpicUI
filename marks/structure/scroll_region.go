@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -327,7 +328,7 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	sr.cachedVerticalThumb = gfx.Rect{}
 	sr.cachedHorizontalTrack = gfx.Rect{}
 	sr.cachedHorizontalThumb = gfx.Rect{}
-	sr.cachedFocusBounds = bounds.Inset(maxFloat(1, bounds.Width()*0.04), maxFloat(1, bounds.Height()*0.04))
+	sr.cachedFocusBounds = bounds.Inset(mathutil.Max(1, bounds.Width()*0.04), mathutil.Max(1, bounds.Height()*0.04))
 	sr.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
@@ -427,14 +428,14 @@ func (sr *ScrollRegion) buildCommands(bounds gfx.Rect, runtime any, contentScale
 	focus := slots.FocusRingOptional.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(viewport) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(sr.cachedViewportBounds), viewport)...)
+	if !theme.IsTransparentMaterial(viewport) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(sr.cachedViewportBounds), viewport)...)
 	}
-	if !isTransparentMaterial(content) && !sr.cachedContentBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RectPath(sr.cachedContentBounds), content)...)
+	if !theme.IsTransparentMaterial(content) && !sr.cachedContentBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(sr.cachedContentBounds), content)...)
 	}
 	if !sr.cachedViewportBounds.IsEmpty() {
 		cmds = append(cmds, gfx.PushClipRect{Rect: sr.cachedViewportBounds})
@@ -463,10 +464,10 @@ func (sr *ScrollRegion) buildCommands(bounds gfx.Rect, runtime any, contentScale
 		cmds = append(cmds, gfx.PopTransform{})
 		cmds = append(cmds, gfx.PopClip{})
 	}
-	if !isTransparentMaterial(shadows) {
+	if !theme.IsTransparentMaterial(shadows) {
 		if !sr.cachedVerticalThumb.IsEmpty() {
 			shadowRect := gfx.RectFromXYWH(sr.cachedVerticalThumb.Min.X, sr.cachedVerticalThumb.Min.Y, sr.cachedVerticalThumb.Width(), sr.cachedVerticalThumb.Height())
-			cmds = append(cmds, materialCommands(gfx.RectPath(shadowRect), shadows)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(shadowRect), shadows)...)
 		}
 	}
 	if !sr.cachedVerticalTrack.IsEmpty() {
@@ -481,8 +482,8 @@ func (sr *ScrollRegion) buildCommands(bounds gfx.Rect, runtime any, contentScale
 	if !sr.cachedHorizontalThumb.IsEmpty() {
 		cmds = append(cmds, sr.barCommands(sr.cachedHorizontalThumb, horizontal, 1)...)
 	}
-	if sr.focusedVisible && !isTransparentMaterial(focus) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(sr.cachedFocusBounds), focus)...)
+	if sr.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(sr.cachedFocusBounds), focus)...)
 	}
 	return cmds
 }
@@ -705,8 +706,8 @@ func (sr *ScrollRegion) groupChild(spec ScrollRegionChild) facet.GroupChild {
 
 func (sr *ScrollRegion) updateScrollBounds(bounds gfx.Rect) {
 	sr.cachedViewportBounds = bounds
-	maxX := maxFloat(0, sr.cachedContentSize.W-bounds.Width())
-	maxY := maxFloat(0, sr.cachedContentSize.H-bounds.Height())
+	maxX := mathutil.Max(0, sr.cachedContentSize.W-bounds.Width())
+	maxY := mathutil.Max(0, sr.cachedContentSize.H-bounds.Height())
 	sr.scrollOffset = gfx.Point{
 		X: clampFloat(sr.scrollOffset.X, 0, maxX),
 		Y: clampFloat(sr.scrollOffset.Y, 0, maxY),
@@ -721,11 +722,11 @@ func (sr *ScrollRegion) updateScrollBounds(bounds gfx.Rect) {
 			trackHeight = 0
 		}
 		sr.cachedVerticalTrack = gfx.RectFromXYWH(bounds.Max.X-track, bounds.Min.Y, track, trackHeight)
-		thumbHeight := maxFloat(track*2, trackHeight*(bounds.Height()/maxFloat(1, sr.cachedContentSize.H)))
+		thumbHeight := mathutil.Max(track*2, trackHeight*(bounds.Height()/mathutil.Max(1, sr.cachedContentSize.H)))
 		if thumbHeight > trackHeight {
 			thumbHeight = trackHeight
 		}
-		maxOffset := maxFloat(1, maxY)
+		maxOffset := mathutil.Max(1, maxY)
 		thumbY := bounds.Min.Y + (sr.scrollOffset.Y/maxOffset)*(trackHeight-thumbHeight)
 		sr.cachedVerticalThumb = gfx.RectFromXYWH(bounds.Max.X-track, thumbY, track, thumbHeight)
 	}
@@ -738,11 +739,11 @@ func (sr *ScrollRegion) updateScrollBounds(bounds gfx.Rect) {
 			trackWidth = 0
 		}
 		sr.cachedHorizontalTrack = gfx.RectFromXYWH(bounds.Min.X, bounds.Max.Y-track, trackWidth, track)
-		thumbWidth := maxFloat(track*2, trackWidth*(bounds.Width()/maxFloat(1, sr.cachedContentSize.W)))
+		thumbWidth := mathutil.Max(track*2, trackWidth*(bounds.Width()/mathutil.Max(1, sr.cachedContentSize.W)))
 		if thumbWidth > trackWidth {
 			thumbWidth = trackWidth
 		}
-		maxOffset := maxFloat(1, maxX)
+		maxOffset := mathutil.Max(1, maxX)
 		thumbX := bounds.Min.X + (sr.scrollOffset.X/maxOffset)*(trackWidth-thumbWidth)
 		sr.cachedHorizontalThumb = gfx.RectFromXYWH(thumbX, bounds.Max.Y-track, thumbWidth, track)
 	}
@@ -760,7 +761,7 @@ func (sr *ScrollRegion) updateOffsetFromDrag(p gfx.Point) {
 		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
 			return
 		}
-		trackSpan := maxFloat(1, trackRect.Width()-thumbRect.Width())
+		trackSpan := mathutil.Max(1, trackRect.Width()-thumbRect.Width())
 		pos := p.X - trackRect.Min.X - thumbRect.Width()*0.5
 		sr.scrollOffset.X = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
 	default:
@@ -770,7 +771,7 @@ func (sr *ScrollRegion) updateOffsetFromDrag(p gfx.Point) {
 		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
 			return
 		}
-		trackSpan := maxFloat(1, trackRect.Height()-thumbRect.Height())
+		trackSpan := mathutil.Max(1, trackRect.Height()-thumbRect.Height())
 		pos := p.Y - trackRect.Min.Y - thumbRect.Height()*0.5
 		sr.scrollOffset.Y = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
 	}
@@ -800,7 +801,7 @@ func (sr *ScrollRegion) cursorShape() facet.CursorShape {
 
 func (sr *ScrollRegion) trackThickness() float32 {
 	if sr.cachedTokens.Spacing.TouchTarget > 0 {
-		return maxFloat(8, sr.cachedTokens.Spacing.TouchTarget*0.12)
+		return mathutil.Max(8, sr.cachedTokens.Spacing.TouchTarget*0.12)
 	}
 	return 8
 }
@@ -817,15 +818,15 @@ func (sr *ScrollRegion) keyboardStep() float32 {
 	if span <= 0 {
 		return 24
 	}
-	return maxFloat(24, span*0.12)
+	return mathutil.Max(24, span*0.12)
 }
 
 func (sr *ScrollRegion) maxScrollX() float32 {
-	return maxFloat(0, sr.cachedContentSize.W-sr.cachedViewportBounds.Width())
+	return mathutil.Max(0, sr.cachedContentSize.W-sr.cachedViewportBounds.Width())
 }
 
 func (sr *ScrollRegion) maxScrollY() float32 {
-	return maxFloat(0, sr.cachedContentSize.H-sr.cachedViewportBounds.Height())
+	return mathutil.Max(0, sr.cachedContentSize.H-sr.cachedViewportBounds.Height())
 }
 
 func clampFloat(v, minV, maxV float32) float32 {
@@ -846,14 +847,14 @@ func (sr *ScrollRegion) clampScrollOffset(next gfx.Point) gfx.Point {
 }
 
 func (sr *ScrollRegion) barCommands(bounds gfx.Rect, material theme.Material, opacity float32) []gfx.Command {
-	if bounds.IsEmpty() || isTransparentMaterial(material) {
+	if bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	cmds := make([]gfx.Command, 0, 4)
 	if opacity > 0 && opacity < 1 {
 		cmds = append(cmds, gfx.PushOpacity{Alpha: opacity})
 	}
-	cmds = append(cmds, materialCommands(gfx.RectPath(bounds), material)...)
+	cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), material)...)
 	if opacity > 0 && opacity < 1 {
 		cmds = append(cmds, gfx.PopOpacity{})
 	}

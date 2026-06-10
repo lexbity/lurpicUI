@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -360,7 +361,7 @@ func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints
 		}).Size
 	}
 
-	controlH := maxFloat(s.cachedThumbSize, s.cachedTrackThickness+s.cachedTickSize*2)
+	controlH := mathutil.Max(s.cachedThumbSize, s.cachedTrackThickness+s.cachedTickSize*2)
 	totalH := controlH
 	if valueSize.H > 0 {
 		totalH += valueSize.H + s.cachedGap
@@ -371,17 +372,17 @@ func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints
 
 	minWidth := sliderDefaultMinWidth(resolved)
 	if labelSize.W > 0 {
-		minWidth = maxFloat(minWidth, labelSize.W)
+		minWidth = mathutil.Max(minWidth, labelSize.W)
 	}
 	if valueSize.W > 0 {
-		minWidth = maxFloat(minWidth, valueSize.W+sliderThumbInset(resolved)*2)
+		minWidth = mathutil.Max(minWidth, valueSize.W+sliderThumbInset(resolved)*2)
 	}
 	if constraints.MaxSize.W > 0 {
-		minWidth = minFloat(minWidth, constraints.MaxSize.W)
+		minWidth = mathutil.Min(minWidth, constraints.MaxSize.W)
 	}
-	width := maxFloat(minWidth, sliderDefaultTrackLength(resolved))
+	width := mathutil.Max(minWidth, sliderDefaultTrackLength(resolved))
 	if constraints.MaxSize.W > 0 {
-		width = minFloat(width, constraints.MaxSize.W)
+		width = mathutil.Min(width, constraints.MaxSize.W)
 	}
 
 	s.cachedLayout = &text.TextLayout{Bounds: text.RectFromXYWH(0, 0, width, totalH), LineHeight: totalH, Baseline: 0}
@@ -432,7 +433,7 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		valueH = s.cachedValueFacet.Base().LayoutRole().MeasuredSize.H
 	}
 
-	trackH := maxFloat(s.cachedTrackThickness, s.cachedThumbSize)
+	trackH := mathutil.Max(s.cachedTrackThickness, s.cachedThumbSize)
 	controlTop := bounds.Min.Y
 
 	if labelH > 0 && s.cachedLabelFacet != nil {
@@ -480,7 +481,7 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if activeRight < activeLeft {
 		activeLeft, activeRight = activeRight, activeLeft
 	}
-	s.cachedActiveBounds = gfx.RectFromXYWH(activeLeft, s.cachedTrackBounds.Min.Y, maxFloat(0, activeRight-activeLeft), s.cachedTrackBounds.Height())
+	s.cachedActiveBounds = gfx.RectFromXYWH(activeLeft, s.cachedTrackBounds.Min.Y, mathutil.Max(0, activeRight-activeLeft), s.cachedTrackBounds.Height())
 	s.cachedThumbBounds = gfx.RectFromXYWH(thumbCenterX-thumbSize*0.5, trackY-thumbSize*0.5, thumbSize, thumbSize)
 
 	if valueH > 0 && s.cachedValueFacet != nil {
@@ -545,8 +546,8 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 	valueLabel := slots.ValueLabel.Resolve(state, tokens)
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
 	trackPath := gfx.RectPath(s.cachedTrackBounds)
 	activePath := gfx.RectPath(s.cachedActiveBounds)
@@ -556,21 +557,21 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 		activePath = gfx.RoundedRectPath(s.cachedActiveBounds, trackRadius)
 	}
 
-	if !isTransparentMaterial(track) {
-		cmds = append(cmds, materialCommands(trackPath, track)...)
+	if !theme.IsTransparentMaterial(track) {
+		cmds = append(cmds, theme.MaterialCommands(trackPath, track)...)
 	}
-	if !isTransparentMaterial(active) {
-		cmds = append(cmds, materialCommands(activePath, active)...)
+	if !theme.IsTransparentMaterial(active) {
+		cmds = append(cmds, theme.MaterialCommands(activePath, active)...)
 	}
 	cmds = append(cmds, s.tickCommands(ticks)...)
-	if s.cachedThumbBounds.IsEmpty() == false && !isTransparentMaterial(thumb) {
+	if s.cachedThumbBounds.IsEmpty() == false && !theme.IsTransparentMaterial(thumb) {
 		var thumbPath gfx.Path
 		if s.Variant.Get() == uiinput.SliderSkeuomorphic {
 			thumbPath = gfx.RoundedRectPath(s.cachedThumbBounds, 2)
 		} else {
 			thumbPath = gfx.CirclePath(gfx.Point{X: (s.cachedThumbBounds.Min.X + s.cachedThumbBounds.Max.X) * 0.5, Y: (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5}, s.cachedThumbBounds.Width()*0.5)
 		}
-		cmds = append(cmds, materialCommands(thumbPath, thumb)...)
+		cmds = append(cmds, theme.MaterialCommands(thumbPath, thumb)...)
 
 		if s.Variant.Get() == uiinput.SliderSkeuomorphic {
 			centerY := (s.cachedThumbBounds.Min.Y + s.cachedThumbBounds.Max.Y) * 0.5
@@ -579,14 +580,14 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 				gfx.Point{X: s.cachedThumbBounds.Max.X - 2, Y: centerY},
 			)
 			cmds = append(cmds, gfx.StrokePath{
-				Path:  notchLine,
-				Brush: gfx.SolidBrush(gfx.Color{R: 255, G: 255, B: 255, A: 255}),
+				Path:   notchLine,
+				Brush:  gfx.SolidBrush(gfx.Color{R: 255, G: 255, B: 255, A: 255}),
 				Stroke: gfx.StrokeStyle{Width: 1.5},
 			})
 		}
 	}
 
-	textColor := materialColor(valueLabel)
+	textColor := theme.MaterialColor(valueLabel)
 
 	if s.Label != "" && s.cachedLabelFacet != nil {
 		if projected := s.cachedLabelFacet.Base().ProjectionRole().Project(facet.ProjectionContext{
@@ -618,16 +619,16 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 			cmds = append(cmds, projected.Commands...)
 		}
 	}
-	if s.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, s.cachedGap*0.5)
+	if s.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, s.cachedGap*0.5)
 		ringBounds := bounds.Inset(inset, inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, s.cachedThumbSize*0.5), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, s.cachedThumbSize*0.5), focus)...)
 	}
 	return cmds
 }
 
 func (s *Slider) tickCommands(material theme.Material) []gfx.Command {
-	if len(s.cachedTickRects) == 0 || isTransparentMaterial(material) {
+	if len(s.cachedTickRects) == 0 || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	cmds := make([]gfx.Command, 0, len(s.cachedTickRects))
@@ -635,7 +636,7 @@ func (s *Slider) tickCommands(material theme.Material) []gfx.Command {
 		if rect.IsEmpty() {
 			continue
 		}
-		cmds = append(cmds, materialCommands(gfx.RectPath(rect), material)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(rect), material)...)
 	}
 	return cmds
 }
@@ -676,7 +677,7 @@ func (s *Slider) pointInFocusRing(p gfx.Point) bool {
 	if bounds.IsEmpty() || !bounds.Contains(p) {
 		return false
 	}
-	ring := maxFloat(1, s.cachedGap*0.5)
+	ring := mathutil.Max(1, s.cachedGap*0.5)
 	inner := gfx.Rect{
 		Min: gfx.Point{X: bounds.Min.X + ring, Y: bounds.Min.Y + ring},
 		Max: gfx.Point{X: bounds.Max.X - ring, Y: bounds.Max.Y - ring},
@@ -1143,7 +1144,6 @@ func clampFloat(v, minV, maxV float32) float32 {
 	}
 	return v
 }
-
 
 type sliderGroupPolicy struct {
 	slider *Slider

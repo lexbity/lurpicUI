@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -290,7 +291,7 @@ func (nf *NumberField) measure(ctx facet.MeasureContext, constraints facet.Const
 		nf.cachedCaretWidth = 1
 	}
 	nf.cachedMinFieldWidth = float32(resolved.Spacing(theme.SpacingXL)) * 6
-	nf.cachedStepperWidth = maxFloat(resolved.TokenSet().Spacing.TouchTarget*0.5, float32(resolved.Spacing(theme.SpacingL)))
+	nf.cachedStepperWidth = mathutil.Max(resolved.TokenSet().Spacing.TouchTarget*0.5, float32(resolved.Spacing(theme.SpacingL)))
 	layout, labelLayout, valueLayout, placeholderLayout, helperLayout, errorLayout := nf.resolveLayouts(ctx, constraints, resolved)
 	if layout == nil {
 		nf.cachedLayout = nil
@@ -342,7 +343,7 @@ func (nf *NumberField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		nf.cachedLabelBounds = gfx.RectFromXYWH(bounds.Min.X, labelY, bounds.Width(), labelH)
 		labelY += labelH + gap
 	}
-	fieldH := maxFloat(valueH+nf.cachedPadY*2, resolvedMinFieldHeightFromStyle(theme.DefaultResolvedContext(), resolvedTextStyleFallback(nf.cachedValueLayout)))
+	fieldH := mathutil.Max(valueH+nf.cachedPadY*2, resolvedMinFieldHeightFromStyle(theme.DefaultResolvedContext(), resolvedTextStyleFallback(nf.cachedValueLayout)))
 	if fieldH <= 0 {
 		fieldH = resolvedMinFieldHeight()
 	}
@@ -351,8 +352,8 @@ func (nf *NumberField) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if stepperW <= 0 {
 		stepperW = fieldH
 	}
-	contentH := maxFloat(valueH, fieldH-nf.cachedPadY*2)
-	contentTop := fieldY + maxFloat(0, (fieldH-contentH)/2)
+	contentH := mathutil.Max(valueH, fieldH-nf.cachedPadY*2)
+	contentTop := fieldY + mathutil.Max(0, (fieldH-contentH)/2)
 	nf.cachedFieldBounds = gfx.RectFromXYWH(bounds.Min.X, fieldY, bounds.Width(), fieldH)
 	valueW := bounds.Width() - nf.cachedPadX*2 - stepperW - gap
 	if valueW < 0 {
@@ -433,12 +434,12 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 	labelLayout = nf.ensureTextLayout(labelLayout, labelStyle, false)
 	helperLayout = nf.ensureTextLayout(helperLayout, helperStyle, false)
 	errorLayout = nf.ensureTextLayout(errorLayout, helperStyle, false)
-	fieldInnerWidth := maxFloat(valueLayout.Bounds.Width(), nf.cachedMinFieldWidth-nf.cachedPadX*2)
+	fieldInnerWidth := mathutil.Max(valueLayout.Bounds.Width(), nf.cachedMinFieldWidth-nf.cachedPadX*2)
 	if placeholderLayout != nil {
-		fieldInnerWidth = maxFloat(fieldInnerWidth, placeholderLayout.Bounds.Width())
+		fieldInnerWidth = mathutil.Max(fieldInnerWidth, placeholderLayout.Bounds.Width())
 	}
 	if constraints.MaxSize.W > 0 {
-		fieldInnerWidth = minFloat(fieldInnerWidth, constraints.MaxSize.W-nf.cachedPadX*2-nf.cachedStepperWidth-nf.cachedGap)
+		fieldInnerWidth = mathutil.Min(fieldInnerWidth, constraints.MaxSize.W-nf.cachedPadX*2-nf.cachedStepperWidth-nf.cachedGap)
 	}
 	if fieldInnerWidth < 0 {
 		fieldInnerWidth = 0
@@ -449,7 +450,7 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 	placeholderLayout = nf.ensureTextLayout(placeholderLayout, valueStyle, true)
 	fieldH := valueLayout.Bounds.Height() + nf.cachedPadY*2
 	if placeholderLayout != nil {
-		fieldH = maxFloat(fieldH, placeholderLayout.Bounds.Height()+nf.cachedPadY*2)
+		fieldH = mathutil.Max(fieldH, placeholderLayout.Bounds.Height()+nf.cachedPadY*2)
 	}
 	if fieldH < resolvedMinFieldHeightFromStyle(resolved, valueStyle) {
 		fieldH = resolvedMinFieldHeightFromStyle(resolved, valueStyle)
@@ -485,17 +486,17 @@ func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints face
 	}
 	width := nf.cachedMinFieldWidth
 	if labelLayout != nil {
-		width = maxFloat(width, labelLayout.Bounds.Width())
+		width = mathutil.Max(width, labelLayout.Bounds.Width())
 	}
-	width = maxFloat(width, fieldInnerWidth+nf.cachedPadX*2+nf.cachedStepperWidth+nf.cachedGap)
+	width = mathutil.Max(width, fieldInnerWidth+nf.cachedPadX*2+nf.cachedStepperWidth+nf.cachedGap)
 	if helperLayout != nil {
-		width = maxFloat(width, helperLayout.Bounds.Width())
+		width = mathutil.Max(width, helperLayout.Bounds.Width())
 	}
 	if errorLayout != nil {
-		width = maxFloat(width, errorLayout.Bounds.Width())
+		width = mathutil.Max(width, errorLayout.Bounds.Width())
 	}
 	if constraints.MaxSize.W > 0 {
-		width = minFloat(width, constraints.MaxSize.W)
+		width = mathutil.Min(width, constraints.MaxSize.W)
 	}
 	layout := &text.TextLayout{}
 	layout.Bounds = text.RectFromXYWH(0, 0, width, totalH)
@@ -565,34 +566,34 @@ func (nf *NumberField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command
 	stepperUp := recipe.StepperUp.Resolve(state, tokens)
 	stepperDown := recipe.StepperDown.Resolve(state, tokens)
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
 	fieldPath := gfx.RoundedRectPath(nf.cachedFieldBounds, nf.cachedRadius)
-	if !isTransparentMaterial(container) {
-		cmds = append(cmds, materialCommands(fieldPath, container)...)
+	if !theme.IsTransparentMaterial(container) {
+		cmds = append(cmds, theme.MaterialCommands(fieldPath, container)...)
 	}
-	if nf.focusedVisible && !isTransparentMaterial(focusRing) {
-		inset := maxFloat(1, nf.cachedFieldBounds.Height()*0.08)
+	if nf.focusedVisible && !theme.IsTransparentMaterial(focusRing) {
+		inset := mathutil.Max(1, nf.cachedFieldBounds.Height()*0.08)
 		ringBounds := nf.cachedFieldBounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, nf.cachedRadius+inset), focusRing)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, nf.cachedRadius+inset), focusRing)...)
 	}
-	if nf.selectionHasContent() && !isTransparentMaterial(selectionStyle) {
+	if nf.selectionHasContent() && !theme.IsTransparentMaterial(selectionStyle) {
 		cmds = append(cmds, selectionCommands(nf.selectionRects(), selectionStyle)...)
 	}
 	if nf.currentDisplayText() == "" {
-		if nf.cachedPlaceholderLayout != nil && !isTransparentMaterial(placeholder) {
-			cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedPlaceholderLayout, nf.cachedValueBounds, gfx.SolidBrush(materialColor(placeholder)))...)
+		if nf.cachedPlaceholderLayout != nil && !theme.IsTransparentMaterial(placeholder) {
+			cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedPlaceholderLayout, nf.cachedValueBounds, gfx.SolidBrush(theme.MaterialColor(placeholder)))...)
 		}
-	} else if nf.cachedValueLayout != nil && !isTransparentMaterial(inputText) {
-		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedValueLayout, nf.cachedValueBounds, gfx.SolidBrush(materialColor(inputText)))...)
+	} else if nf.cachedValueLayout != nil && !theme.IsTransparentMaterial(inputText) {
+		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedValueLayout, nf.cachedValueBounds, gfx.SolidBrush(theme.MaterialColor(inputText)))...)
 	}
-	if nf.focusedVisible && nf.shouldShowCaret() && nf.cachedValueLayout != nil && !isTransparentMaterial(caretStyle) {
+	if nf.focusedVisible && nf.shouldShowCaret() && nf.cachedValueLayout != nil && !theme.IsTransparentMaterial(caretStyle) {
 		caretRect := nf.cachedValueLayout.CaretRect(nf.caret)
 		cmds = append(cmds, rectCommands(offsetTextRect(caretRect, nf.cachedValueBounds.Min), caretStyle)...)
 	}
-	if nf.cachedLabelLayout != nil && !isTransparentMaterial(label) {
-		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedLabelLayout, nf.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+	if nf.cachedLabelLayout != nil && !theme.IsTransparentMaterial(label) {
+		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedLabelLayout, nf.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
 	if nf.cachedHelperBounds != (gfx.Rect{}) && nf.cachedHelperLayout != nil {
 		helperLayout := nf.cachedHelperLayout
@@ -608,16 +609,16 @@ func (nf *NumberField) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command
 				helperMaterial = errorStyle
 			}
 		}
-		cmds = append(cmds, primitive.TextLayoutCommands(helperLayout, nf.cachedHelperBounds, gfx.SolidBrush(materialColor(helperMaterial)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(helperLayout, nf.cachedHelperBounds, gfx.SolidBrush(theme.MaterialColor(helperMaterial)))...)
 	}
 	if nf.cachedErrorBounds != (gfx.Rect{}) && nf.cachedErrorLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedErrorLayout, nf.cachedErrorBounds, gfx.SolidBrush(materialColor(errorStyle)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(nf.cachedErrorLayout, nf.cachedErrorBounds, gfx.SolidBrush(theme.MaterialColor(errorStyle)))...)
 	}
-	if !isTransparentMaterial(stepperUp) {
-		cmds = append(cmds, materialCommands(nf.stepperArrowPath(nf.cachedStepperUpBounds, true), stepperUp)...)
+	if !theme.IsTransparentMaterial(stepperUp) {
+		cmds = append(cmds, theme.MaterialCommands(nf.stepperArrowPath(nf.cachedStepperUpBounds, true), stepperUp)...)
 	}
-	if !isTransparentMaterial(stepperDown) {
-		cmds = append(cmds, materialCommands(nf.stepperArrowPath(nf.cachedStepperDownBounds, false), stepperDown)...)
+	if !theme.IsTransparentMaterial(stepperDown) {
+		cmds = append(cmds, theme.MaterialCommands(nf.stepperArrowPath(nf.cachedStepperDownBounds, false), stepperDown)...)
 	}
 	return cmds
 }
@@ -1235,7 +1236,7 @@ func (nf *NumberField) hasValue() bool {
 }
 
 func (nf *NumberField) stepperHitPadding() float32 {
-	return maxFloat(4, nf.cachedPadX*0.5)
+	return mathutil.Max(4, nf.cachedPadX*0.5)
 }
 
 func resolvedTextStyleFallback(layout *text.TextLayout) text.TextStyle {

@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -246,7 +247,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	ds.cachedTokens = resolved.TokenSet()
 	ds.cachedRecipe = slots
 	ds.cachedWritingDirection = ctx.WritingDirection
-	ds.cachedTriggerHeight = maxFloat(resolved.Density.Scale(36), resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
+	ds.cachedTriggerHeight = mathutil.Max(resolved.Density.Scale(36), resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
 	ds.cachedTriggerRadius = float32(resolved.Radius(theme.RadiusM))
 	ds.cachedOptionGap = float32(resolved.Spacing(theme.SpacingXS))
 	ds.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
@@ -273,8 +274,8 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	ds.textRole.CaretPosition = text.TextPosition{}
 	labelH := text.Height(labelLayout)
 	valueH := text.Height(valueLayout)
-	triggerH := maxFloat(ds.cachedTriggerHeight, maxFloat(valueH, resolved.Density.Scale(36)))
-	width := maxFloat(240, maxFloat(text.Width(labelLayout), text.Width(valueLayout))+resolved.Density.Scale(48))
+	triggerH := mathutil.Max(ds.cachedTriggerHeight, mathutil.Max(valueH, resolved.Density.Scale(36)))
+	width := mathutil.Max(240, mathutil.Max(text.Width(labelLayout), text.Width(valueLayout))+resolved.Density.Scale(48))
 	if width <= 0 {
 		width = resolved.Density.Scale(240)
 	}
@@ -286,7 +287,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	if ds.open {
 		if len(ds.Options.Get()) > 0 {
 			height += float32(resolved.Spacing(theme.SpacingXS))
-			itemH := maxFloat(float32(resolved.Density.Scale(32)), triggerH*0.72)
+			itemH := mathutil.Max(float32(resolved.Density.Scale(32)), triggerH*0.72)
 			if itemH < 28 {
 				itemH = 28
 			}
@@ -346,9 +347,9 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		ds.cachedLabelBounds = rects[0]
 	}
 	ds.cachedTriggerBounds = rects[1]
-	padding := maxFloat(12, ds.cachedTriggerBounds.Height()*0.28)
-	chevronSize := maxFloat(10, ds.cachedTriggerBounds.Height()*0.22)
-	textWidth := maxFloat(0, ds.cachedTriggerBounds.Width()-padding*3-chevronSize)
+	padding := mathutil.Max(12, ds.cachedTriggerBounds.Height()*0.28)
+	chevronSize := mathutil.Max(10, ds.cachedTriggerBounds.Height()*0.22)
+	textWidth := mathutil.Max(0, ds.cachedTriggerBounds.Width()-padding*3-chevronSize)
 	valueLayout := ds.textRole.Layout
 	if valueLayout == nil {
 		valueLayout = nil
@@ -358,7 +359,7 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if ds.cachedWritingDirection == facet.WritingDirectionRTL {
 		valueX = ds.cachedTriggerBounds.Max.X - padding - textWidth
 	}
-	ds.cachedValueBounds = text.AlignRectY(gfx.RectFromXYWH(valueX, ds.cachedTriggerBounds.Min.Y, textWidth, maxFloat(valueH, 0)), ds.cachedTriggerBounds.Min.Y, ds.cachedTriggerBounds.Height())
+	ds.cachedValueBounds = text.AlignRectY(gfx.RectFromXYWH(valueX, ds.cachedTriggerBounds.Min.Y, textWidth, mathutil.Max(valueH, 0)), ds.cachedTriggerBounds.Min.Y, ds.cachedTriggerBounds.Height())
 	chevronX := ds.cachedTriggerBounds.Max.X - padding - chevronSize
 	if ds.cachedWritingDirection == facet.WritingDirectionRTL {
 		chevronX = ds.cachedTriggerBounds.Min.X + padding
@@ -367,7 +368,7 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if ds.open && len(ds.Options.Get()) > 0 {
 		itemH := ds.cachedOptionHeight
 		if itemH <= 0 {
-			itemH = maxFloat(float32(resolved.Density.Scale(32)), ds.cachedTriggerBounds.Height()*0.72)
+			itemH = mathutil.Max(float32(resolved.Density.Scale(32)), ds.cachedTriggerBounds.Height()*0.72)
 			if itemH < 28 {
 				itemH = 28
 			}
@@ -418,23 +419,23 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 		focus = theme.FromToken(tokens.Color.Error)
 	}
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(trigger) && !ds.cachedTriggerBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ds.cachedTriggerBounds, ds.cachedTriggerRadius), trigger)...)
+	if !theme.IsTransparentMaterial(trigger) && !ds.cachedTriggerBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ds.cachedTriggerBounds, ds.cachedTriggerRadius), trigger)...)
 	}
-	if !isTransparentMaterial(label) && !ds.cachedLabelBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(label) && !ds.cachedLabelBounds.IsEmpty() {
 		if ds.cachedLabelLayout != nil {
-			cmds = append(cmds, primitive.TextLayoutCommands(ds.cachedLabelLayout, ds.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+			cmds = append(cmds, primitive.TextLayoutCommands(ds.cachedLabelLayout, ds.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 		}
 	}
-	if !isTransparentMaterial(chevron) && !ds.cachedChevronBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(ds.chevronPath(ds.cachedChevronBounds), chevron)...)
+	if !theme.IsTransparentMaterial(chevron) && !ds.cachedChevronBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(ds.chevronPath(ds.cachedChevronBounds), chevron)...)
 	}
 	if ds.open && !ds.cachedListboxBounds.IsEmpty() {
-		if !isTransparentMaterial(listbox) {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ds.cachedListboxBounds, ds.cachedTriggerRadius), listbox)...)
+		if !theme.IsTransparentMaterial(listbox) {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ds.cachedListboxBounds, ds.cachedTriggerRadius), listbox)...)
 		}
 		for i, rect := range ds.cachedOptionRects {
 			if i < 0 || i >= len(ds.Options.Get()) {
@@ -470,10 +471,10 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 			cmds = append(cmds, row.buildCommands(rect, runtime)...)
 		}
 	}
-	if ds.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, ds.cachedTriggerBounds.Height()*0.08)
+	if ds.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, ds.cachedTriggerBounds.Height()*0.08)
 		ringBounds := ds.cachedTriggerBounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, ds.cachedTriggerRadius+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, ds.cachedTriggerRadius+inset), focus)...)
 	}
 	return cmds
 }
@@ -514,7 +515,7 @@ func (ds *DropdownSelect) pointInFocusRing(p gfx.Point) bool {
 	if bounds.IsEmpty() || !bounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, bounds.Height()*0.08)
+	inset := mathutil.Max(1, bounds.Height()*0.08)
 	inner := bounds.Inset(inset, inset)
 	if inner.IsEmpty() {
 		return true
@@ -602,7 +603,7 @@ func (ds *DropdownSelect) onScroll(e facet.ScrollEvent) bool {
 		return false
 	}
 	ds.scrollOffset -= e.DeltaY
-	maxOffset := maxFloat(0, float32(len(ds.Options.Get()))*ds.cachedOptionHeight-ds.cachedListboxBounds.Height())
+	maxOffset := mathutil.Max(0, float32(len(ds.Options.Get()))*ds.cachedOptionHeight-ds.cachedListboxBounds.Height())
 	ds.scrollOffset = clampFloat(ds.scrollOffset, 0, maxOffset)
 	ds.invalidate(facet.DirtyProjection)
 	return true
@@ -844,7 +845,7 @@ func (ds *DropdownSelect) layoutOptionRects(listbox gfx.Rect, resolved theme.Res
 	}
 	itemH := ds.cachedOptionHeight
 	if itemH <= 0 {
-		itemH = maxFloat(float32(resolved.Density.Scale(32)), 28)
+		itemH = mathutil.Max(float32(resolved.Density.Scale(32)), 28)
 	}
 	gap := float32(resolved.Spacing(theme.SpacingXS))
 	outerPad := float32(resolved.Spacing(theme.SpacingS))

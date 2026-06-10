@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	input "codeburg.org/lexbit/lurpicui/marks/input"
@@ -318,8 +319,8 @@ func NewPopupPalette(label string, tools []PopupPaletteTool) *PopupPalette {
 	p.AddBinding(p.SelectedIndex)
 
 	p.Layout.Parent = facet.GroupParentContract{
-		Kind:   facet.GroupLayoutLinearHorizontal,
-		Policy: popupPaletteGroupPolicy{palette: p},
+		Kind:     facet.GroupLayoutLinearHorizontal,
+		Policy:   popupPaletteGroupPolicy{palette: p},
 		Children: p,
 	}
 	p.Layout.Child = facet.GroupChildContract{
@@ -558,7 +559,7 @@ func (p *PopupPalette) childSpecs() []popupPaletteChildSpec {
 		return nil
 	}
 	out := make([]popupPaletteChildSpec, 0, len(p.Tools))
-	toolInner := maxFloat(p.cachedToolSize*0.42, 18)
+	toolInner := mathutil.Max(p.cachedToolSize*0.42, 18)
 	for i, tool := range p.Tools {
 		if strings.TrimSpace(tool.IconRef) == "" {
 			continue
@@ -569,12 +570,12 @@ func (p *PopupPalette) childSpecs() []popupPaletteChildSpec {
 			iconRef:         tool.IconRef,
 			accessibleLabel: tool.AccessibleLabel,
 			disabled:        p.Disabled.Get() || tool.Disabled,
-			hitPadding:      maxFloat(0, (p.cachedToolSize-toolInner)*0.5),
+			hitPadding:      mathutil.Max(0, (p.cachedToolSize-toolInner)*0.5),
 			innerSize:       toolInner,
 		})
 	}
 	if p.ShowBottomBar.Get() {
-		controlInner := maxFloat(p.cachedToolSize*0.34, 16)
+		controlInner := mathutil.Max(p.cachedToolSize*0.34, 16)
 		controls := []struct {
 			kind            popupPaletteChildKind
 			iconRef         string
@@ -592,7 +593,7 @@ func (p *PopupPalette) childSpecs() []popupPaletteChildSpec {
 				iconRef:         control.iconRef,
 				accessibleLabel: control.accessibleLabel,
 				disabled:        p.Disabled.Get() || control.disabled,
-				hitPadding:      maxFloat(0, (maxFloat(p.cachedToolSize*0.54, 24)-controlInner)*0.5),
+				hitPadding:      mathutil.Max(0, (mathutil.Max(p.cachedToolSize*0.54, 24)-controlInner)*0.5),
 				innerSize:       controlInner,
 			})
 		}
@@ -653,14 +654,14 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 	p.cachedTokens = resolved.TokenSet()
 	p.cachedRecipe = recipe
 	p.cachedWritingDirection = ctx.WritingDirection
-	p.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
-	p.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	p.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	p.cachedToolSize = maxFloat(resolved.Density.Scale(52), resolved.Density.Scale(40))
-	p.cachedHistorySize = maxFloat(resolved.Density.Scale(20), 16)
-	p.cachedBottomBarHeight = maxFloat(resolved.Density.Scale(72), resolved.Density.Scale(60))
-	p.cachedRingThickness = maxFloat(resolved.Density.Scale(14), 10)
-	p.cachedRingRadius = maxFloat(resolved.Density.Scale(120), resolved.Density.Scale(96))
+	p.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
+	p.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	p.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	p.cachedToolSize = mathutil.Max(resolved.Density.Scale(52), resolved.Density.Scale(40))
+	p.cachedHistorySize = mathutil.Max(resolved.Density.Scale(20), 16)
+	p.cachedBottomBarHeight = mathutil.Max(resolved.Density.Scale(72), resolved.Density.Scale(60))
+	p.cachedRingThickness = mathutil.Max(resolved.Density.Scale(14), 10)
+	p.cachedRingRadius = mathutil.Max(resolved.Density.Scale(120), resolved.Density.Scale(96))
 	p.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	p.syncChildren()
 
@@ -686,13 +687,13 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 	p.textRole.CaretPosition = text.TextPosition{}
 
 	if p.Disabled.Get() || !p.Open.Get() {
-		w := maxFloat(resolved.Density.Scale(72), p.cachedPadX*2+p.cachedToolSize)
-		h := maxFloat(resolved.Density.Scale(72), p.cachedPadY*2+p.cachedToolSize)
+		w := mathutil.Max(resolved.Density.Scale(72), p.cachedPadX*2+p.cachedToolSize)
+		h := mathutil.Max(resolved.Density.Scale(72), p.cachedPadY*2+p.cachedToolSize)
 		if p.cachedLabelLayout != nil {
-			w = maxFloat(w, p.cachedLabelLayout.Bounds.Width()+p.cachedPadX*2)
+			w = mathutil.Max(w, p.cachedLabelLayout.Bounds.Width()+p.cachedPadX*2)
 			h += p.cachedLabelLayout.Bounds.Height()
 		}
-		size := constraints.Constrain(gfx.Size{W: minFloat(w, maxW), H: minFloat(h, maxH)})
+		size := constraints.Constrain(gfx.Size{W: mathutil.Min(w, maxW), H: mathutil.Min(h, maxH)})
 		p.Layout.MeasuredSize = size
 		p.Layout.MeasuredResult = facet.MeasureResult{
 			Size: size,
@@ -707,12 +708,12 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 		return p.Layout.MeasuredResult
 	}
 
-	surfaceDiameter := maxFloat(resolved.Density.Scale(320), p.cachedRingRadius*2+p.cachedToolSize)
+	surfaceDiameter := mathutil.Max(resolved.Density.Scale(320), p.cachedRingRadius*2+p.cachedToolSize)
 	bottomBarH := float32(0)
 	if p.ShowBottomBar.Get() {
 		bottomBarH = p.cachedBottomBarHeight
 	}
-	w := maxFloat(surfaceDiameter+2*p.cachedPadX, resolved.Density.Scale(360))
+	w := mathutil.Max(surfaceDiameter+2*p.cachedPadX, resolved.Density.Scale(360))
 	h := p.cachedPadY + surfaceDiameter + p.cachedGap + bottomBarH + p.cachedPadY
 	if p.cachedLabelLayout != nil {
 		h += p.cachedLabelLayout.Bounds.Height() + p.cachedGap*0.5
@@ -720,7 +721,7 @@ func (p *PopupPalette) measure(ctx facet.MeasureContext, constraints facet.Const
 	if p.ShowBottomBar.Get() {
 		h += p.cachedGap
 	}
-	size := constraints.Constrain(gfx.Size{W: minFloat(w, maxW), H: minFloat(h, maxH)})
+	size := constraints.Constrain(gfx.Size{W: mathutil.Min(w, maxW), H: mathutil.Min(h, maxH)})
 	p.Layout.MeasuredSize = size
 	p.Layout.MeasuredResult = facet.MeasureResult{
 		Size: size,
@@ -761,18 +762,18 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 
 	if p.Disabled.Get() || !p.Open.Get() {
-		triggerSize := minFloat(bounds.Width(), bounds.Height())
+		triggerSize := mathutil.Min(bounds.Width(), bounds.Height())
 		if triggerSize <= 0 {
-			triggerSize = maxFloat(p.cachedToolSize, resolvedDefaultTriggerSize())
+			triggerSize = mathutil.Max(p.cachedToolSize, resolvedDefaultTriggerSize())
 		}
 		center := gfx.RectFromXYWH(bounds.Min.X+(bounds.Width()-triggerSize)*0.5, bounds.Min.Y+(bounds.Height()-triggerSize)*0.5, triggerSize, triggerSize)
 		p.cachedTriggerBounds = center
-		p.cachedFocusBounds = center.Inset(-maxFloat(2, triggerSize*0.08), -maxFloat(2, triggerSize*0.08))
+		p.cachedFocusBounds = center.Inset(-mathutil.Max(2, triggerSize*0.08), -mathutil.Max(2, triggerSize*0.08))
 		p.cachedAnchorBounds = popupPaletteArrowBounds(center, false, p.cachedPadX)
 		return
 	}
 
-	surfaceDiameter := minFloat(bounds.Width()-2*p.cachedPadX, bounds.Height()-2*p.cachedPadY)
+	surfaceDiameter := mathutil.Min(bounds.Width()-2*p.cachedPadX, bounds.Height()-2*p.cachedPadY)
 	bottomBarH := float32(0)
 	if p.ShowBottomBar.Get() {
 		bottomBarH = p.cachedBottomBarHeight
@@ -780,8 +781,8 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if p.cachedLabelLayout != nil {
 		bottomBarH += p.cachedLabelLayout.Bounds.Height() + p.cachedGap*0.5
 	}
-	surfaceDiameter = minFloat(surfaceDiameter, bounds.Height()-bottomBarH-p.cachedGap-2*p.cachedPadY)
-	surfaceDiameter = maxFloat(surfaceDiameter, minFloat(resolvedDefaultSurfaceSize(), minFloat(bounds.Width(), bounds.Height())))
+	surfaceDiameter = mathutil.Min(surfaceDiameter, bounds.Height()-bottomBarH-p.cachedGap-2*p.cachedPadY)
+	surfaceDiameter = mathutil.Max(surfaceDiameter, mathutil.Min(resolvedDefaultSurfaceSize(), mathutil.Min(bounds.Width(), bounds.Height())))
 	if surfaceDiameter > bounds.Width()-2*p.cachedPadX {
 		surfaceDiameter = bounds.Width() - 2*p.cachedPadX
 	}
@@ -795,7 +796,7 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	surfaceY := bounds.Min.Y + p.cachedPadY
 	p.cachedSurfaceBounds = gfx.RectFromXYWH(surfaceX, surfaceY, surfaceDiameter, surfaceDiameter)
 	p.cachedTriggerBounds = p.cachedSurfaceBounds
-	p.cachedFocusBounds = p.cachedSurfaceBounds.Inset(-maxFloat(2, p.cachedSurfaceBounds.Width()*0.05), -maxFloat(2, p.cachedSurfaceBounds.Height()*0.05))
+	p.cachedFocusBounds = p.cachedSurfaceBounds.Inset(-mathutil.Max(2, p.cachedSurfaceBounds.Width()*0.05), -mathutil.Max(2, p.cachedSurfaceBounds.Height()*0.05))
 
 	center := gfx.Point{X: p.cachedSurfaceBounds.Min.X + p.cachedSurfaceBounds.Width()*0.5, Y: p.cachedSurfaceBounds.Min.Y + p.cachedSurfaceBounds.Height()*0.5}
 	outerRadius := p.cachedSurfaceBounds.Width() * 0.5
@@ -830,15 +831,15 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if p.ShowBottomBar.Get() {
 		p.cachedToolGroupBounds = gfx.RectFromXYWH(bounds.Min.X+p.cachedPadX, toolGroupTop, bounds.Width()-2*p.cachedPadX, p.cachedBottomBarHeight)
 		inner := p.cachedToolGroupBounds.Inset(p.cachedPadX, p.cachedPadY*0.5)
-		sliderTrackW := maxFloat(inner.Width()*0.46, p.cachedToolSize*2.5)
+		sliderTrackW := mathutil.Max(inner.Width()*0.46, p.cachedToolSize*2.5)
 		if sliderTrackW > inner.Width()*0.9 {
 			sliderTrackW = inner.Width() * 0.9
 		}
-		sliderTrackH := maxFloat(p.cachedPadY*0.25, 6)
+		sliderTrackH := mathutil.Max(p.cachedPadY*0.25, 6)
 		p.cachedZoomBounds = gfx.RectFromXYWH(inner.Min.X, inner.Min.Y+(inner.Height()-sliderTrackH)*0.5, sliderTrackW, sliderTrackH)
-		thumbX := p.cachedZoomBounds.Min.X + clamp01Float(float32((p.Zoom.Get()-0.1)/3.9))*maxFloat(0, p.cachedZoomBounds.Width()-p.cachedToolSize*0.34)
+		thumbX := p.cachedZoomBounds.Min.X + clamp01Float(float32((p.Zoom.Get()-0.1)/3.9))*mathutil.Max(0, p.cachedZoomBounds.Width()-p.cachedToolSize*0.34)
 		p.cachedSliderThumb = gfx.RectFromXYWH(thumbX, p.cachedZoomBounds.Min.Y-(p.cachedToolSize*0.34-p.cachedZoomBounds.Height())*0.5, p.cachedToolSize*0.34, p.cachedToolSize*0.34)
-		buttonSize := maxFloat(p.cachedToolSize*0.54, 24)
+		buttonSize := mathutil.Max(p.cachedToolSize*0.54, 24)
 		buttonY := inner.Min.Y + (inner.Height()-buttonSize)*0.5
 		right := inner.Max.X
 		p.cachedToggleBounds = gfx.RectFromXYWH(right-buttonSize, buttonY, buttonSize, buttonSize)
@@ -864,8 +865,8 @@ func (p *PopupPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 	}
 
-	arrowW := maxFloat(p.cachedPadX*0.7, 14)
-	arrowH := maxFloat(p.cachedPadY*0.7, 10)
+	arrowW := mathutil.Max(p.cachedPadX*0.7, 14)
+	arrowH := mathutil.Max(p.cachedPadY*0.7, 10)
 	p.cachedAnchorBounds = gfx.RectFromXYWH(center.X-arrowW*0.5, p.cachedSurfaceBounds.Min.Y-arrowH*0.8, arrowW, arrowH)
 	p.syncChildArrangement(ctx)
 }
@@ -893,43 +894,43 @@ func (p *PopupPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 	focusRing := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 128)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
 
 	if p.Disabled.Get() || !p.Open.Get() {
-		if !isTransparentMaterial(surface) && !p.cachedTriggerBounds.IsEmpty() {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(p.cachedTriggerBounds, p.cachedTriggerBounds.Height()*0.28), surface)...)
+		if !theme.IsTransparentMaterial(surface) && !p.cachedTriggerBounds.IsEmpty() {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(p.cachedTriggerBounds, p.cachedTriggerBounds.Height()*0.28), surface)...)
 		}
-		if p.cachedLabelLayout != nil && !isTransparentMaterial(toolItems) {
+		if p.cachedLabelLayout != nil && !theme.IsTransparentMaterial(toolItems) {
 			labelRect := gfx.RectFromXYWH(p.cachedTriggerBounds.Min.X+p.cachedPadX*0.5, p.cachedTriggerBounds.Min.Y+p.cachedPadY*0.15, p.cachedLabelLayout.Bounds.Width(), p.cachedLabelLayout.Bounds.Height())
-			cmds = append(cmds, primitive.TextLayoutCommands(p.cachedLabelLayout, labelRect, gfx.SolidBrush(materialColor(toolItems)))...)
+			cmds = append(cmds, primitive.TextLayoutCommands(p.cachedLabelLayout, labelRect, gfx.SolidBrush(theme.MaterialColor(toolItems)))...)
 		}
-		if !isTransparentMaterial(focusRing) && p.focusedVisible && !p.cachedFocusBounds.IsEmpty() {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(p.cachedFocusBounds, p.cachedFocusBounds.Height()*0.28), focusRing)...)
+		if !theme.IsTransparentMaterial(focusRing) && p.focusedVisible && !p.cachedFocusBounds.IsEmpty() {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(p.cachedFocusBounds, p.cachedFocusBounds.Height()*0.28), focusRing)...)
 		}
 		return cmds
 	}
 
-	if !isTransparentMaterial(surface) && !p.cachedSurfaceBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.CirclePath(gfx.Point{X: p.cachedSurfaceBounds.Min.X + p.cachedSurfaceBounds.Width()*0.5, Y: p.cachedSurfaceBounds.Min.Y + p.cachedSurfaceBounds.Height()*0.5}, p.cachedSurfaceBounds.Width()*0.5), surface)...)
+	if !theme.IsTransparentMaterial(surface) && !p.cachedSurfaceBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(gfx.Point{X: p.cachedSurfaceBounds.Min.X + p.cachedSurfaceBounds.Width()*0.5, Y: p.cachedSurfaceBounds.Min.Y + p.cachedSurfaceBounds.Height()*0.5}, p.cachedSurfaceBounds.Width()*0.5), surface)...)
 	}
-	if !isTransparentMaterial(surface) && !p.cachedSurfaceBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(surface) && !p.cachedSurfaceBounds.IsEmpty() {
 		inner := p.cachedSurfaceBounds.Inset(p.cachedSurfaceBounds.Width()*0.28, p.cachedSurfaceBounds.Height()*0.28)
 		wheelColors := dataPaletteFromTokens(tokens)
 		for i := 0; i < 12; i++ {
 			start := (2 * math.Pi / 12) * float64(i)
 			end := (2 * math.Pi / 12) * float64(i+1)
 			path := popupPaletteSectorPath(centerOfRect(p.cachedSurfaceBounds), float64(inner.Width()*0.5), float64(p.cachedSurfaceBounds.Width()*0.5), start-math.Pi/2, end-math.Pi/2)
-			cmds = append(cmds, materialCommands(path, theme.MarkStyle{Base: theme.FromToken(wheelColors[i%len(wheelColors)])}.Resolve(state, tokens))...)
+			cmds = append(cmds, theme.MaterialCommands(path, theme.MarkStyle{Base: theme.FromToken(wheelColors[i%len(wheelColors)])}.Resolve(state, tokens))...)
 		}
 	}
-	if !p.cachedAnchorBounds.IsEmpty() && !isTransparentMaterial(anchorArrow) {
-		cmds = append(cmds, materialCommands(popupPaletteArrowPath(p.cachedAnchorBounds), anchorArrow)...)
+	if !p.cachedAnchorBounds.IsEmpty() && !theme.IsTransparentMaterial(anchorArrow) {
+		cmds = append(cmds, theme.MaterialCommands(popupPaletteArrowPath(p.cachedAnchorBounds), anchorArrow)...)
 	}
-	if p.cachedLabelLayout != nil && !isTransparentMaterial(toolItems) {
+	if p.cachedLabelLayout != nil && !theme.IsTransparentMaterial(toolItems) {
 		labelRect := gfx.RectFromXYWH(p.cachedSurfaceBounds.Min.X+p.cachedPadX*0.5, p.cachedSurfaceBounds.Min.Y+p.cachedPadY*0.2, p.cachedLabelLayout.Bounds.Width(), p.cachedLabelLayout.Bounds.Height())
-		cmds = append(cmds, primitive.TextLayoutCommands(p.cachedLabelLayout, labelRect, gfx.SolidBrush(materialColor(toolItems)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(p.cachedLabelLayout, labelRect, gfx.SolidBrush(theme.MaterialColor(toolItems)))...)
 	}
 
 	for i, tool := range p.Tools {
@@ -950,12 +951,12 @@ func (p *PopupPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		if tool.Selected || i == p.SelectedIndex.Get() {
 			itemMaterial = theme.FromToken(tintColor(tokens.Color.Primary, 0.26))
 		}
-		cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), itemMaterial)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), itemMaterial)...)
 		strokeMat := theme.FromToken(tintColor(tokens.Color.OnSurfaceVariant, 0.36))
 		if tool.Selected || i == p.SelectedIndex.Get() {
 			strokeMat = theme.FromToken(tokens.Color.Primary)
 		}
-		cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), theme.MarkStyle{Base: theme.Material{Fills: []theme.Fill{{Type: theme.FillNone, Opacity: 0}}, Strokes: []theme.MaterialStroke{{Paint: theme.Fill{Type: theme.FillSolid, Color: materialColor(strokeMat), Opacity: 1}, Width: maxFloat(1, bounds.Width()*0.08)}}}}.Resolve(theme.StateDefault, tokens))...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), theme.MarkStyle{Base: theme.Material{Fills: []theme.Fill{{Type: theme.FillNone, Opacity: 0}}, Strokes: []theme.MaterialStroke{{Paint: theme.Fill{Type: theme.FillSolid, Color: theme.MaterialColor(strokeMat), Opacity: 1}, Width: mathutil.Max(1, bounds.Width()*0.08)}}}}.Resolve(theme.StateDefault, tokens))...)
 		if tool.Color.A > 0 {
 			cmds = append(cmds, gfx.FillPath{Path: gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.18), Brush: gfx.SolidBrush(tool.Color)})
 		}
@@ -976,21 +977,21 @@ func (p *PopupPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 			continue
 		}
 		cmds = append(cmds, gfx.FillPath{Path: gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), Brush: gfx.SolidBrush(swatch)})
-		cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), theme.MarkStyle{Base: theme.Material{Fills: []theme.Fill{{Type: theme.FillNone, Opacity: 0}}, Strokes: []theme.MaterialStroke{{Paint: theme.Fill{Type: theme.FillSolid, Color: materialColor(toolGroup), Opacity: 1}, Width: maxFloat(1, bounds.Width()*0.08)}}}}.Resolve(theme.StateDefault, tokens))...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(centerOfRect(bounds), bounds.Width()*0.5), theme.MarkStyle{Base: theme.Material{Fills: []theme.Fill{{Type: theme.FillNone, Opacity: 0}}, Strokes: []theme.MaterialStroke{{Paint: theme.Fill{Type: theme.FillSolid, Color: theme.MaterialColor(toolGroup), Opacity: 1}, Width: mathutil.Max(1, bounds.Width()*0.08)}}}}.Resolve(theme.StateDefault, tokens))...)
 	}
 
 	if p.ShowBottomBar.Get() && !p.cachedToolGroupBounds.IsEmpty() {
-		if !isTransparentMaterial(toolGroup) {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(p.cachedToolGroupBounds, p.cachedToolGroupBounds.Height()*0.28), toolGroup)...)
+		if !theme.IsTransparentMaterial(toolGroup) {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(p.cachedToolGroupBounds, p.cachedToolGroupBounds.Height()*0.28), toolGroup)...)
 		}
 		if !p.cachedZoomBounds.IsEmpty() {
 			track := theme.FromToken(tintColor(tokens.Color.OnSurfaceVariant, 0.28))
 			active := theme.FromToken(tokens.Color.Primary)
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(p.cachedZoomBounds, p.cachedZoomBounds.Height()*0.5), track)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(p.cachedZoomBounds, p.cachedZoomBounds.Height()*0.5), track)...)
 			thumbCenter := centerOfRect(p.cachedSliderThumb)
 			activeTrack := gfx.RectFromXYWH(p.cachedZoomBounds.Min.X, p.cachedZoomBounds.Min.Y, thumbCenter.X-p.cachedZoomBounds.Min.X, p.cachedZoomBounds.Height())
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(activeTrack, activeTrack.Height()*0.5), active)...)
-			cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(p.cachedSliderThumb), p.cachedSliderThumb.Width()*0.5), theme.FromToken(tokens.Color.OnPrimary))...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(activeTrack, activeTrack.Height()*0.5), active)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(centerOfRect(p.cachedSliderThumb), p.cachedSliderThumb.Width()*0.5), theme.FromToken(tokens.Color.OnPrimary))...)
 		}
 	}
 	for i := range p.cachedChildren {
@@ -1003,8 +1004,8 @@ func (p *PopupPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		}
 	}
 
-	if p.focusedVisible && !isTransparentMaterial(focusRing) && !p.cachedFocusBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.CirclePath(centerOfRect(p.cachedFocusBounds), p.cachedFocusBounds.Width()*0.5), focusRing)...)
+	if p.focusedVisible && !theme.IsTransparentMaterial(focusRing) && !p.cachedFocusBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(centerOfRect(p.cachedFocusBounds), p.cachedFocusBounds.Width()*0.5), focusRing)...)
 	}
 	return cmds
 }
@@ -1536,8 +1537,8 @@ func popupPaletteArrowPath(bounds gfx.Rect) gfx.Path {
 }
 
 func popupPaletteArrowBounds(surface gfx.Rect, up bool, pad float32) gfx.Rect {
-	w := maxFloat(surface.Width()*0.12, pad)
-	h := maxFloat(surface.Height()*0.08, pad*0.8)
+	w := mathutil.Max(surface.Width()*0.12, pad)
+	h := mathutil.Max(surface.Height()*0.08, pad*0.8)
 	x := surface.Min.X + (surface.Width()-w)*0.5
 	y := surface.Min.Y - h*0.9
 	if !up {
@@ -1591,15 +1592,15 @@ type popupPaletteComposition struct {
 	toolButtons []*IconButton
 	control     *ActionGroup
 
-	cachedLabelLayout  *text.TextLayout
+	cachedLabelLayout   *text.TextLayout
 	cachedLabelStyle    text.TextStyle
 	cachedMenuBounds    gfx.Rect
 	cachedControlBounds gfx.Rect
 	cachedHistoryBounds []gfx.Rect
-	cachedPadX         float32
-	cachedPadY         float32
-	cachedGap          float32
-	cachedHistorySize  float32
+	cachedPadX          float32
+	cachedPadY          float32
+	cachedGap           float32
+	cachedHistorySize   float32
 }
 
 func newPopupPaletteComposition(p *PopupPalette) *popupPaletteComposition {
@@ -1696,10 +1697,10 @@ func (c *popupPaletteComposition) measure(ctx facet.MeasureContext, constraints 
 	resolved, _, _ := c.palette.resolveTheme(ctx)
 	c.palette.cachedTokens = resolved.TokenSet()
 	c.palette.cachedWritingDirection = ctx.WritingDirection
-	c.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
-	c.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	c.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	c.cachedHistorySize = maxFloat(resolved.Density.Scale(20), 16)
+	c.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
+	c.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	c.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	c.cachedHistorySize = mathutil.Max(resolved.Density.Scale(20), 16)
 	controlSize := c.control.measure(ctx, constraints).Size
 	if p := c.palette.Label.Get(); p != "" {
 		shaper := c.palette.newShaper(ctx.Runtime)
@@ -1714,7 +1715,7 @@ func (c *popupPaletteComposition) measure(ctx facet.MeasureContext, constraints 
 	w := menuSize.W
 	h := menuSize.H
 	if c.cachedLabelLayout != nil {
-		w = maxFloat(w, c.cachedLabelLayout.Bounds.Width()+c.cachedPadX*2)
+		w = mathutil.Max(w, c.cachedLabelLayout.Bounds.Width()+c.cachedPadX*2)
 		h += c.cachedLabelLayout.Bounds.Height() + c.cachedGap
 	}
 	if len(c.palette.History) > 0 {
@@ -1760,14 +1761,14 @@ func (c *popupPaletteComposition) arrange(ctx facet.ArrangeContext, bounds gfx.R
 			bottomReserve += controlSize.H + c.cachedGap
 		}
 	}
-	menuBounds := gfx.RectFromXYWH(bounds.Min.X, top, bounds.Width(), maxFloat(0, bounds.Height()-top+bounds.Min.Y-bottomReserve-c.cachedPadY))
+	menuBounds := gfx.RectFromXYWH(bounds.Min.X, top, bounds.Width(), mathutil.Max(0, bounds.Height()-top+bounds.Min.Y-bottomReserve-c.cachedPadY))
 	c.menu.arrange(ctx, menuBounds)
 	if !c.cachedControlBounds.IsEmpty() {
 		c.control.arrange(c.cachedControlBounds)
 	}
 	c.cachedMenuBounds = menuBounds
 	c.palette.cachedSurfaceBounds = menuBounds
-	c.palette.cachedAnchorBounds = gfx.RectFromXYWH(bounds.Min.X+(bounds.Width()-bounds.Width()*0.08)*0.5, bounds.Min.Y, bounds.Width()*0.08, maxFloat(8, c.cachedPadY*0.8))
+	c.palette.cachedAnchorBounds = gfx.RectFromXYWH(bounds.Min.X+(bounds.Width()-bounds.Width()*0.08)*0.5, bounds.Min.Y, bounds.Width()*0.08, mathutil.Max(8, c.cachedPadY*0.8))
 
 	c.palette.cachedToolItemBounds = c.palette.cachedToolItemBounds[:0]
 	for _, btn := range c.toolButtons {
@@ -1779,8 +1780,8 @@ func (c *popupPaletteComposition) arrange(ctx facet.ArrangeContext, bounds gfx.R
 
 	c.palette.cachedHistoryBounds = c.palette.cachedHistoryBounds[:0]
 	if len(c.palette.History) > 0 {
-		sz := maxFloat(c.cachedHistorySize, 14)
-		gap := maxFloat(4, c.cachedGap*0.6)
+		sz := mathutil.Max(c.cachedHistorySize, 14)
+		gap := mathutil.Max(4, c.cachedGap*0.6)
 		totalW := float32(len(c.palette.History))*sz + float32(max(0, len(c.palette.History)-1))*gap
 		startX := bounds.Min.X + (bounds.Width()-totalW)*0.5
 		y := bounds.Max.Y - c.cachedPadY - sz
@@ -1810,8 +1811,8 @@ func (c *popupPaletteComposition) arrange(ctx facet.ArrangeContext, bounds gfx.R
 	}
 
 	if len(c.palette.Tools) > 0 && len(c.palette.cachedToolItemBounds) > 0 {
-		c.palette.cachedSliderTrack = gfx.RectFromXYWH(bounds.Min.X+c.cachedPadX, bounds.Max.Y-c.cachedPadY-c.cachedHistorySize*0.5, bounds.Width()-2*c.cachedPadX, maxFloat(8, c.cachedHistorySize*0.28))
-		thumbW := maxFloat(12, c.cachedHistorySize*0.9)
+		c.palette.cachedSliderTrack = gfx.RectFromXYWH(bounds.Min.X+c.cachedPadX, bounds.Max.Y-c.cachedPadY-c.cachedHistorySize*0.5, bounds.Width()-2*c.cachedPadX, mathutil.Max(8, c.cachedHistorySize*0.28))
+		thumbW := mathutil.Max(12, c.cachedHistorySize*0.9)
 		thumbX := c.palette.cachedSliderTrack.Min.X + float32(c.palette.Zoom.Get())*0.25*c.palette.cachedSliderTrack.Width()
 		c.palette.cachedSliderThumb = gfx.RectFromXYWH(thumbX, c.palette.cachedSliderTrack.Min.Y-(thumbW-c.palette.cachedSliderTrack.Height())*0.5, thumbW, thumbW)
 		c.palette.cachedZoomBounds = c.palette.cachedSliderTrack

@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	layoutgrid "codeburg.org/lexbit/lurpicui/layout/grid"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -294,8 +295,8 @@ func (c *Card) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	c.cachedTokens = resolved.TokenSet()
 	c.cachedRecipe = slots
 	c.cachedWritingDir = ctx.WritingDirection
-	c.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(16))
-	c.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(16))
+	c.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(16))
+	c.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(16))
 	c.cachedColumnGap = float32(resolved.Spacing(theme.SpacingS))
 	c.cachedRowGap = float32(resolved.Spacing(theme.SpacingS))
 	c.cachedRadius = float32(resolved.Radius(theme.RadiusL))
@@ -493,11 +494,11 @@ func (c *Card) buildCommands(bounds gfx.Rect, runtime any, contentScale float32)
 	surface := slots.CardSurface.Resolve(state, tokens)
 
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, c.cachedRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, c.cachedRadius), surface)...)
 	}
 	active := c.activeChildren()
 	for i := range active {

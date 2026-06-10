@@ -1,3 +1,5 @@
+//go:build lurpic_debug && !android
+
 package syncutil
 
 import (

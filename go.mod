@@ -14,7 +14,6 @@ require (
 	golang.org/x/image v0.18.0
 	golang.org/x/term v0.24.0
 	golang.org/x/text v0.16.0
-//codeburg.org/lexbit/voicedsp v0.0.0
 )
 
 require (
@@ -24,4 +23,4 @@ require (
 	golang.org/x/sys v0.44.0 // indirect
 )
 
-//replace codeburg.org/lexbit/voicedsp => ./Stravatar-APP/voicedsp
+

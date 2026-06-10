@@ -32,8 +32,8 @@ type TurnDial struct {
 	Value     *store.ValueStore[float64]
 	Activated signal.Signal[signal.Unit]
 
-	Label     marks.Binding[string]
-	Disabled  marks.Binding[bool]
+	Label    marks.Binding[string]
+	Disabled marks.Binding[bool]
 
 	Min       float64
 	Max       float64
@@ -514,14 +514,14 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 				})
 			}
 		} else {
-			if !isTransparentMaterial(track) {
-				cmds = append(cmds, materialCommands(gfx.CirclePath(gfx.Point{X: centerX, Y: centerY}, R), track)...)
+			if !theme.IsTransparentMaterial(track) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(gfx.Point{X: centerX, Y: centerY}, R), track)...)
 			}
 		}
 	}
 
 	// Draw rotating protruding knob
-	if !isTransparentMaterial(knob) && !td.cachedDialBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(knob) && !td.cachedDialBounds.IsEmpty() {
 		centerX := (td.cachedDialBounds.Min.X + td.cachedDialBounds.Max.X) * 0.5
 		centerY := (td.cachedDialBounds.Min.Y + td.cachedDialBounds.Max.Y) * 0.5
 		R := td.cachedDialBounds.Width() * 0.5
@@ -550,7 +550,7 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 			}
 		}
 
-		cmds = append(cmds, materialCommands(gfx.CirclePath(gfx.Point{X: centerX, Y: centerY}, knobRadius), knob)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.CirclePath(gfx.Point{X: centerX, Y: centerY}, knobRadius), knob)...)
 
 		cosA := float32(math.Cos(angleRad))
 		sinA := float32(math.Sin(angleRad))
@@ -603,10 +603,10 @@ func (td *TurnDial) buildCommands(bounds gfx.Rect, runtime any, contentScale flo
 
 	// Draw labels
 	if td.cachedLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(td.cachedLayout, td.cachedLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(td.cachedLayout, td.cachedLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
 	if td.cachedValueLayout != nil {
-		cmds = append(cmds, primitive.TextLayoutCommands(td.cachedValueLayout, td.cachedValueLabelBounds, gfx.SolidBrush(materialColor(valueLabel)))...)
+		cmds = append(cmds, primitive.TextLayoutCommands(td.cachedValueLayout, td.cachedValueLabelBounds, gfx.SolidBrush(theme.MaterialColor(valueLabel)))...)
 	}
 
 	return cmds

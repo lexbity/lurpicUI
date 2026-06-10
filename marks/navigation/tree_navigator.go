@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
@@ -318,8 +319,8 @@ func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Cons
 	t.cachedRecipe = slots
 	t.cachedWritingDirection = ctx.WritingDirection
 	t.cachedRowGap = float32(resolved.Spacing(theme.SpacingXS))
-	t.cachedRowIndent = maxFloat(resolved.Density.Scale(12), float32(resolved.Spacing(theme.SpacingM))*1.4)
-	t.cachedRowDisclosure = maxFloat(resolved.Density.Scale(12), resolved.Density.Scale(16))
+	t.cachedRowIndent = mathutil.Max(resolved.Density.Scale(12), float32(resolved.Spacing(theme.SpacingM))*1.4)
+	t.cachedRowDisclosure = mathutil.Max(resolved.Density.Scale(12), resolved.Density.Scale(16))
 	t.rebuildVisibleNodes()
 	t.syncRowFacets()
 	contentWidth := float32(0)
@@ -351,7 +352,7 @@ func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Cons
 		if layoutRole == nil {
 			continue
 		}
-		rowSize := layoutRole.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxFloat(0, constraints.MaxSize.W-float32(t.cachedVisibleNodes[i].Depth)*t.cachedRowIndent), H: constraints.MaxSize.H}})
+		rowSize := layoutRole.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: mathutil.Max(0, constraints.MaxSize.W-float32(t.cachedVisibleNodes[i].Depth)*t.cachedRowIndent), H: constraints.MaxSize.H}})
 		rowHeights[i] = rowSize.Size.H
 		rowWidths[i] = float32(t.cachedVisibleNodes[i].Depth)*t.cachedRowIndent + rowSize.Size.W
 		if rowWidths[i] > contentWidth {
@@ -363,13 +364,13 @@ func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Cons
 		}
 	}
 	t.cachedContentHeight = contentHeight
-	width := maxFloat(resolved.Density.Scale(240), contentWidth)
-	height := maxFloat(resolved.Density.Scale(120), contentHeight)
+	width := mathutil.Max(resolved.Density.Scale(240), contentWidth)
+	height := mathutil.Max(resolved.Density.Scale(120), contentHeight)
 	if constraints.MaxSize.W > 0 {
-		width = minFloat(width, constraints.MaxSize.W)
+		width = mathutil.Min(width, constraints.MaxSize.W)
 	}
 	if constraints.MaxSize.H > 0 {
-		height = minFloat(height, constraints.MaxSize.H)
+		height = mathutil.Min(height, constraints.MaxSize.H)
 	}
 	measured := constraints.Constrain(gfx.Size{W: width, H: height})
 	t.Layout.MeasuredSize = measured
@@ -419,7 +420,7 @@ func (t *TreeNavigator) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			continue
 		}
 		depth := t.cachedVisibleNodes[i].Depth
-		rowBounds := gfx.RectFromXYWH(contentBounds.Min.X+float32(depth)*t.cachedRowIndent, y, maxFloat(0, contentBounds.Width()-float32(depth)*t.cachedRowIndent), layoutRole.MeasuredSize.H)
+		rowBounds := gfx.RectFromXYWH(contentBounds.Min.X+float32(depth)*t.cachedRowIndent, y, mathutil.Max(0, contentBounds.Width()-float32(depth)*t.cachedRowIndent), layoutRole.MeasuredSize.H)
 		layoutRole.Arrange(facet.ArrangeContext{Placement: facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: i}}}, rowBounds)
 		t.cachedRowBounds = append(t.cachedRowBounds, rowBounds)
 		t.cachedRowDepths = append(t.cachedRowDepths, depth)
@@ -470,11 +471,11 @@ func (t *TreeNavigator) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comman
 	disclosure := slots.Disclosure.Resolve(theme.StateDefault, tokens)
 	selectionMat := slots.SelectionIndicator.Resolve(theme.StateSelected, tokens)
 	cmds := make([]gfx.Command, 0, 128)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(tree) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), tree)...)
+	if !theme.IsTransparentMaterial(tree) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), tree)...)
 	}
 	for i := range t.cachedVisibleNodes {
 		if i >= len(t.cachedRowBounds) || t.cachedRowBounds[i].IsEmpty() {
@@ -497,10 +498,10 @@ func (t *TreeNavigator) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comman
 			state = theme.StateSelected
 		}
 		rowItem := slots.TreeItem.Resolve(state, tokens)
-		if !isTransparentMaterial(rowItem) && (state == theme.StateHover || state == theme.StatePressed || state == theme.StateFocused) {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(2, 2), float32(tokens.Radius.MD)), rowItem)...)
+		if !theme.IsTransparentMaterial(rowItem) && (state == theme.StateHover || state == theme.StatePressed || state == theme.StateFocused) {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(row.Inset(2, 2), float32(tokens.Radius.MD)), rowItem)...)
 		}
-		if node.HasChildren && !isTransparentMaterial(disclosure) && i < len(t.cachedRowLeadingBounds) && !t.cachedRowLeadingBounds[i].IsEmpty() {
+		if node.HasChildren && !theme.IsTransparentMaterial(disclosure) && i < len(t.cachedRowLeadingBounds) && !t.cachedRowLeadingBounds[i].IsEmpty() {
 			icon := "chevron-right"
 			if node.Node.Expanded {
 				icon = "chevron-down"
@@ -517,13 +518,13 @@ func (t *TreeNavigator) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comman
 		if rowCmds := t.rowFacetForPath(rowPath).Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: row, ContentScale: 1}); rowCmds != nil {
 			cmds = append(cmds, rowCmds.Commands...)
 		}
-		if node.Node.Selected && !isTransparentMaterial(selectionMat) {
+		if node.Node.Selected && !theme.IsTransparentMaterial(selectionMat) {
 			selRect := row.Inset(0, 0)
-			cmds = append(cmds, materialCommands(gfx.RectPath(selRect), selectionMat)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(selRect), selectionMat)...)
 		}
-		if rowPath == t.focusedPath && t.focusedVisible && !isTransparentMaterial(focus) {
-			inset := maxFloat(1, row.Height()*0.08)
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(row.Inset(-inset, -inset), float32(tokens.Radius.MD)+inset), focus)...)
+		if rowPath == t.focusedPath && t.focusedVisible && !theme.IsTransparentMaterial(focus) {
+			inset := mathutil.Max(1, row.Height()*0.08)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(row.Inset(-inset, -inset), float32(tokens.Radius.MD)+inset), focus)...)
 		}
 	}
 	return cmds
@@ -628,7 +629,7 @@ func (t *TreeNavigator) onScroll(e facet.ScrollEvent) bool {
 		return false
 	}
 	t.scrollOffset -= e.DeltaY
-	maxOffset := maxFloat(0, t.cachedContentHeight-t.Layout.ArrangedBounds.Height())
+	maxOffset := mathutil.Max(0, t.cachedContentHeight-t.Layout.ArrangedBounds.Height())
 	t.scrollOffset = clampFloat(t.scrollOffset, 0, maxOffset)
 	t.invalidate(facet.DirtyProjection)
 	return true
@@ -728,7 +729,7 @@ func (t *TreeNavigator) pointInFocusRing(p gfx.Point) bool {
 	if row.IsEmpty() || !row.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, row.Height()*0.08)
+	inset := mathutil.Max(1, row.Height()*0.08)
 	return !row.Inset(inset, inset).Contains(p)
 }
 
@@ -1249,7 +1250,7 @@ func clampFloat(v, minV, maxV float32) float32 {
 }
 
 func iconCommandsForRef(runtime any, ref string, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if bounds.IsEmpty() || isTransparentMaterial(material) || strings.TrimSpace(ref) == "" {
+	if bounds.IsEmpty() || theme.IsTransparentMaterial(material) || strings.TrimSpace(ref) == "" {
 		return nil
 	}
 	asset, ok := resolveIconAsset(runtime, ref)
@@ -1265,12 +1266,12 @@ func iconCommandsForRef(runtime any, ref string, bounds gfx.Rect, material theme
 	}
 	sx := bounds.Width() / box.Width()
 	sy := bounds.Height() / box.Height()
-	scale := minFloat(sx, sy)
+	scale := mathutil.Min(sx, sy)
 	if scale <= 0 {
 		return nil
 	}
 	target := gfxsvg.Transformed(asset.Path, gfx.Identity().Multiply(gfx.Translation(bounds.Min.X-box.Min.X*scale, bounds.Min.Y-box.Min.Y*scale)).Multiply(gfx.Scale(scale, scale)))
-	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(materialColor(material))}}
+	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(theme.MaterialColor(material))}}
 }
 
 type treeNavigatorGroupPolicy struct {

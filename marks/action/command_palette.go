@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/input"
@@ -21,10 +22,10 @@ import (
 const (
 	commandPaletteMarkIDRoot         facet.MarkID = 1
 	commandPaletteMarkIDBackdrop     facet.MarkID = 2
-	commandPaletteMarkIDModalSurface  facet.MarkID = 3
-	commandPaletteMarkIDSearchField   facet.MarkID = 4
-	commandPaletteMarkIDResultsList   facet.MarkID = 5
-	commandPaletteMarkIDFocusRing     facet.MarkID = 6
+	commandPaletteMarkIDModalSurface facet.MarkID = 3
+	commandPaletteMarkIDSearchField  facet.MarkID = 4
+	commandPaletteMarkIDResultsList  facet.MarkID = 5
+	commandPaletteMarkIDFocusRing    facet.MarkID = 6
 )
 
 // CommandPalette implements the action.command_palette standard mark.
@@ -51,25 +52,25 @@ type CommandPalette struct {
 	activeIndex      int
 	query            string
 
-	cachedTokens          theme.Tokens
-	cachedRecipe          shared.CommandPaletteSlots
-	cachedRootBounds      gfx.Rect
-	cachedBackdropBounds  gfx.Rect
-	cachedSurfaceBounds   gfx.Rect
-	cachedSearchBounds    gfx.Rect
-	cachedResultsBounds   gfx.Rect
-	cachedFocusBounds     gfx.Rect
-	cachedPadX            float32
-	cachedPadY            float32
-	cachedGap             float32
-	cachedSurfaceRadius   float32
+	cachedTokens           theme.Tokens
+	cachedRecipe           shared.CommandPaletteSlots
+	cachedRootBounds       gfx.Rect
+	cachedBackdropBounds   gfx.Rect
+	cachedSurfaceBounds    gfx.Rect
+	cachedSearchBounds     gfx.Rect
+	cachedResultsBounds    gfx.Rect
+	cachedFocusBounds      gfx.Rect
+	cachedPadX             float32
+	cachedPadY             float32
+	cachedGap              float32
+	cachedSurfaceRadius    float32
 	cachedWritingDirection facet.WritingDirection
-	cachedCommands        []runtimepkg.CommandEntry
-	cachedFiltered        []runtimepkg.CommandEntry
-	cachedSearchSub       signal.SubscriptionID
-	cachedRegistrySub     signal.SubscriptionID
-	cachedResultsSub      signal.SubscriptionID
-	cachedSearchKey       func(facet.KeyEvent) bool
+	cachedCommands         []runtimepkg.CommandEntry
+	cachedFiltered         []runtimepkg.CommandEntry
+	cachedSearchSub        signal.SubscriptionID
+	cachedRegistrySub      signal.SubscriptionID
+	cachedResultsSub       signal.SubscriptionID
+	cachedSearchKey        func(facet.KeyEvent) bool
 }
 
 var _ facet.FacetImpl = (*CommandPalette)(nil)
@@ -390,13 +391,13 @@ func (p *CommandPalette) measure(ctx facet.MeasureContext, constraints facet.Con
 	if maxH <= 0 {
 		maxH = 540
 	}
-	innerMaxW := maxFloat(320, maxW-(p.cachedPadX*2))
-	innerMaxH := maxFloat(240, maxH-(p.cachedPadY*2))
+	innerMaxW := mathutil.Max(320, maxW-(p.cachedPadX*2))
+	innerMaxH := mathutil.Max(240, maxH-(p.cachedPadY*2))
 	searchSize := p.searchField.Base().LayoutRole().Measure(ctx, facet.Constraints{
 		MaxSize: gfx.Size{W: innerMaxW, H: innerMaxH},
 	}).Size
 	listSize := p.resultsList.Base().LayoutRole().Measure(ctx, facet.Constraints{
-		MaxSize: gfx.Size{W: innerMaxW, H: maxFloat(0, innerMaxH-searchSize.H-p.cachedGap)},
+		MaxSize: gfx.Size{W: innerMaxW, H: mathutil.Max(0, innerMaxH-searchSize.H-p.cachedGap)},
 	}).Size
 	_ = searchSize
 	_ = listSize
@@ -417,7 +418,7 @@ func (p *CommandPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	surfaceW, surfaceH := p.surfaceSize(bounds)
 	surfaceX := bounds.Min.X + (bounds.Width()-surfaceW)*0.5
-	surfaceY := bounds.Min.Y + maxFloat(p.cachedPadY, (bounds.Height()-surfaceH)*0.2)
+	surfaceY := bounds.Min.Y + mathutil.Max(p.cachedPadY, (bounds.Height()-surfaceH)*0.2)
 	p.cachedSurfaceBounds = gfx.RectFromXYWH(surfaceX, surfaceY, surfaceW, surfaceH)
 	inner := p.cachedSurfaceBounds.Inset(p.cachedPadX, p.cachedPadY)
 	searchSize := p.searchField.Base().LayoutRole().MeasuredSize
@@ -428,7 +429,7 @@ func (p *CommandPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.searchField.Base().LayoutRole().Arrange(ctx, searchRect)
 	p.cachedSearchBounds = searchRect
 	listY := searchRect.Max.Y + p.cachedGap
-	listH := maxFloat(0, inner.Max.Y-listY)
+	listH := mathutil.Max(0, inner.Max.Y-listY)
 	listRect := gfx.RectFromXYWH(inner.Min.X, listY, inner.Width(), listH)
 	p.resultsList.Base().LayoutRole().Arrange(ctx, listRect)
 	p.cachedResultsBounds = listRect
@@ -441,7 +442,7 @@ func (p *CommandPalette) surfaceSize(bounds gfx.Rect) (float32, float32) {
 	}
 	search := p.searchField.Base().LayoutRole().MeasuredSize
 	results := p.resultsList.Base().LayoutRole().MeasuredSize
-	contentW := maxFloat(search.W, results.W)
+	contentW := mathutil.Max(search.W, results.W)
 	contentH := search.H
 	if results.H > 0 {
 		contentH += p.cachedGap + results.H
@@ -469,19 +470,19 @@ func (p *CommandPalette) buildCommands(bounds gfx.Rect, runtime any, contentScal
 	surface := slots.ModalSurface.Resolve(state, tokens)
 	focusRing := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(backdrop) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), backdrop)...)
+	if !theme.IsTransparentMaterial(backdrop) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), backdrop)...)
 	}
-	if !isTransparentMaterial(surface) && !p.cachedSurfaceBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(p.cachedSurfaceBounds, p.cachedSurfaceRadius), surface)...)
+	if !theme.IsTransparentMaterial(surface) && !p.cachedSurfaceBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(p.cachedSurfaceBounds, p.cachedSurfaceRadius), surface)...)
 	}
-	if p.focusedVisible && !isTransparentMaterial(focusRing) && !p.cachedSurfaceBounds.IsEmpty() {
-		ringInset := maxFloat(1, p.cachedGap*0.5)
+	if p.focusedVisible && !theme.IsTransparentMaterial(focusRing) && !p.cachedSurfaceBounds.IsEmpty() {
+		ringInset := mathutil.Max(1, p.cachedGap*0.5)
 		ringBounds := p.cachedSurfaceBounds.Inset(ringInset, ringInset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, p.cachedSurfaceRadius), focusRing)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, p.cachedSurfaceRadius), focusRing)...)
 	}
 	if !p.cachedSurfaceBounds.IsEmpty() {
 		cmds = append(cmds, gfx.PushClipRect{Rect: p.cachedSurfaceBounds})

@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -334,19 +335,19 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	m.cachedTokens = resolved.TokenSet()
 	m.cachedRecipe = slots
 	m.cachedWritingDirection = ctx.WritingDirection
-	m.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	m.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	m.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	m.cachedRowGap = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(6))
+	m.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	m.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	m.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	m.cachedRowGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(6))
 	m.cachedRadius = float32(resolved.Radius(theme.RadiusM))
-	m.cachedTriggerHeight = maxFloat(resolved.Density.Scale(36), resolved.Density.Scale(32))
-	m.cachedRowHeight = maxFloat(resolved.Density.Scale(32), resolved.Density.Scale(28))
-	m.cachedSectionHeight = maxFloat(resolved.Density.Scale(26), resolved.Density.Scale(22))
-	m.cachedDividerHeight = maxFloat(1, resolved.Density.Scale(1))
-	m.cachedTriggerIconSize = maxFloat(resolved.Density.Scale(18), 12)
-	m.cachedChevronSize = maxFloat(resolved.Density.Scale(12), 10)
-	m.cachedCheckSize = maxFloat(resolved.Density.Scale(12), 10)
-	m.cachedMenuIconSize = maxFloat(resolved.Density.Scale(16), 12)
+	m.cachedTriggerHeight = mathutil.Max(resolved.Density.Scale(36), resolved.Density.Scale(32))
+	m.cachedRowHeight = mathutil.Max(resolved.Density.Scale(32), resolved.Density.Scale(28))
+	m.cachedSectionHeight = mathutil.Max(resolved.Density.Scale(26), resolved.Density.Scale(22))
+	m.cachedDividerHeight = mathutil.Max(1, resolved.Density.Scale(1))
+	m.cachedTriggerIconSize = mathutil.Max(resolved.Density.Scale(18), 12)
+	m.cachedChevronSize = mathutil.Max(resolved.Density.Scale(12), 10)
+	m.cachedCheckSize = mathutil.Max(resolved.Density.Scale(12), 10)
+	m.cachedMenuIconSize = mathutil.Max(resolved.Density.Scale(16), 12)
 
 	triggerStyle := resolved.TextStyle(theme.TextLabelM)
 	itemStyle := resolved.TextStyle(theme.TextBodyM)
@@ -399,7 +400,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 				layouts[i].labelLayout = shaper.ShapeTruncated(label, sectionStyle, maxWidth)
 			}
 			size := layout.InlineFlowSize([]gfx.Size{{W: text.Width(layouts[i].labelLayout), H: text.Height(layouts[i].labelLayout)}}, m.cachedGap)
-			layouts[i].height = maxFloat(m.cachedSectionHeight, size.H+m.cachedPadY)
+			layouts[i].height = mathutil.Max(m.cachedSectionHeight, size.H+m.cachedPadY)
 			layouts[i].width = size.W + m.cachedPadX*2
 			if layouts[i].width < resolved.Density.Scale(120) {
 				layouts[i].width = resolved.Density.Scale(120)
@@ -429,7 +430,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 			if rowW < resolved.Density.Scale(160) {
 				rowW = resolved.Density.Scale(160)
 			}
-			rowH := maxFloat(m.cachedRowHeight, content.H)
+			rowH := mathutil.Max(m.cachedRowHeight, content.H)
 			if rowH < m.cachedMenuIconSize+m.cachedPadY {
 				rowH = m.cachedMenuIconSize + m.cachedPadY
 			}
@@ -451,15 +452,15 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	triggerSizes = append(triggerSizes, gfx.Size{W: text.Width(triggerLabelLayout), H: text.Height(triggerLabelLayout)})
 	triggerSizes = append(triggerSizes, gfx.Size{W: m.cachedChevronSize, H: m.cachedChevronSize})
 	triggerContentW := m.cachedPadX*2 + layout.InlineFlowSize(triggerSizes, m.cachedGap).W
-	triggerW := maxFloat(resolved.Density.Scale(120), triggerContentW)
-	triggerH := maxFloat(m.cachedTriggerHeight, layout.InlineFlowSize(triggerSizes, m.cachedGap).H)
+	triggerW := mathutil.Max(resolved.Density.Scale(120), triggerContentW)
+	triggerH := mathutil.Max(m.cachedTriggerHeight, layout.InlineFlowSize(triggerSizes, m.cachedGap).H)
 	triggerH += m.cachedPadY * 2
 	m.cachedTriggerMeasuredW = triggerW
 	m.cachedTriggerMeasuredH = triggerH
 
-	menuW := maxFloat(maxEntryW, triggerW)
+	menuW := mathutil.Max(maxEntryW, triggerW)
 	if len(m.Entries) > 0 {
-		menuW = maxFloat(menuW, resolved.Density.Scale(160))
+		menuW = mathutil.Max(menuW, resolved.Density.Scale(160))
 	}
 	m.cachedMenuMeasuredW = menuW
 	menuH := float32(0)
@@ -475,7 +476,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	}
 
 	size := gfx.Size{
-		W: maxFloat(triggerW, menuW) + m.cachedPadX*2,
+		W: mathutil.Max(triggerW, menuW) + m.cachedPadX*2,
 		H: m.cachedPadY*2 + triggerH,
 	}
 	if m.Open && len(m.Entries) > 0 {
@@ -521,11 +522,11 @@ func (m *MenuButton) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		triggerW = m.cachedTriggerLabelBounds.Width()
 	}
 	if triggerW <= 0 {
-		triggerW = maxFloat(bounds.Width()-m.cachedPadX*2, m.cachedChevronSize+m.cachedPadX*2)
+		triggerW = mathutil.Max(bounds.Width()-m.cachedPadX*2, m.cachedChevronSize+m.cachedPadX*2)
 	}
 	triggerH := m.cachedTriggerMeasuredH
 	if triggerH <= 0 {
-		triggerH = maxFloat(bounds.Height(), m.cachedTriggerHeight)
+		triggerH = mathutil.Max(bounds.Height(), m.cachedTriggerHeight)
 	}
 	startX := inner.Min.X
 	if rtl {
@@ -558,7 +559,7 @@ func (m *MenuButton) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if m.Open && len(m.cachedEntryLayouts) > 0 {
 		menuW := m.cachedMenuMeasuredW
 		if menuW <= 0 {
-			menuW = maxFloat(m.cachedTriggerBounds.Width(), m.cachedRootBounds.Width()-m.cachedPadX*2)
+			menuW = mathutil.Max(m.cachedTriggerBounds.Width(), m.cachedRootBounds.Width()-m.cachedPadX*2)
 		}
 		for i := range m.cachedEntryLayouts {
 			if m.cachedEntryLayouts[i].width > menuW {
@@ -618,7 +619,7 @@ func (m *MenuButton) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			}
 		}
 	}
-	m.cachedFocusBounds = m.cachedTriggerBounds.Inset(maxFloat(1, m.cachedTriggerBounds.Height()*0.08), maxFloat(1, m.cachedTriggerBounds.Height()*0.08))
+	m.cachedFocusBounds = m.cachedTriggerBounds.Inset(mathutil.Max(1, m.cachedTriggerBounds.Height()*0.08), mathutil.Max(1, m.cachedTriggerBounds.Height()*0.08))
 }
 
 func (m *MenuButton) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.MenuButtonSlots) {
@@ -659,25 +660,25 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 128)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(trigger) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(m.cachedTriggerBounds, m.cachedRadius), trigger)...)
+	if !theme.IsTransparentMaterial(trigger) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(m.cachedTriggerBounds, m.cachedRadius), trigger)...)
 	}
-	if m.Open && !m.cachedMenuBounds.IsEmpty() && !isTransparentMaterial(menuSurface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(m.cachedMenuBounds, m.cachedRadius), menuSurface)...)
+	if m.Open && !m.cachedMenuBounds.IsEmpty() && !theme.IsTransparentMaterial(menuSurface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(m.cachedMenuBounds, m.cachedRadius), menuSurface)...)
 	}
-	if m.cachedTriggerLabelLayout != nil && !isTransparentMaterial(label) {
-		cmds = append(cmds, primitive.TextLayoutCommands(m.cachedTriggerLabelLayout, m.cachedTriggerLabelBounds, gfx.SolidBrush(materialColor(label)))...)
+	if m.cachedTriggerLabelLayout != nil && !theme.IsTransparentMaterial(label) {
+		cmds = append(cmds, primitive.TextLayoutCommands(m.cachedTriggerLabelLayout, m.cachedTriggerLabelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
 	if !m.cachedTriggerIconBounds.IsEmpty() && m.TriggerIconRef.Get() != "" {
 		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), m.TriggerIconRef.Get(), m.cachedTriggerIconBounds, triggerIcon); len(iconCmds) > 0 {
 			cmds = append(cmds, iconCmds...)
 		}
 	}
-	if !m.cachedChevronBounds.IsEmpty() && !isTransparentMaterial(chevron) {
-		cmds = append(cmds, materialCommands(menuButtonChevronPath(m.cachedChevronBounds), chevron)...)
+	if !m.cachedChevronBounds.IsEmpty() && !theme.IsTransparentMaterial(chevron) {
+		cmds = append(cmds, theme.MaterialCommands(menuButtonChevronPath(m.cachedChevronBounds), chevron)...)
 	}
 	if m.Open && len(m.cachedEntryLayouts) > 0 {
 		for i := range m.cachedEntryLayouts {
@@ -689,10 +690,10 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 			switch entry.entry.Kind {
 			case MenuButtonEntryDivider:
 				div := theme.MarkStyle{Base: theme.Material{Fills: []theme.Fill{{Type: theme.FillSolid, Color: tintColor(tokens.Color.OnSurfaceVariant, 0.25)}}, Opacity: 1}}
-				cmds = append(cmds, materialCommands(gfx.RectPath(entry.bounds), div.Resolve(theme.StateDefault, tokens))...)
+				cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(entry.bounds), div.Resolve(theme.StateDefault, tokens))...)
 			case MenuButtonEntrySection:
-				if !isTransparentMaterial(menuItems) && entry.labelLayout != nil {
-					cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(materialColor(menuItems)))...)
+				if !theme.IsTransparentMaterial(menuItems) && entry.labelLayout != nil {
+					cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(theme.MaterialColor(menuItems)))...)
 				}
 			default:
 				rowMaterial := theme.Material{Opacity: 0}
@@ -718,12 +719,12 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 						rowMaterial = theme.FromToken(tokens.Color.Error)
 					}
 				}
-				if !isTransparentMaterial(rowMaterial) {
-					cmds = append(cmds, materialCommands(gfx.RoundedRectPath(entry.bounds, maxFloat(0, m.cachedRadius*0.5)), rowMaterial)...)
+				if !theme.IsTransparentMaterial(rowMaterial) {
+					cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(entry.bounds, mathutil.Max(0, m.cachedRadius*0.5)), rowMaterial)...)
 				}
 				if entry.entry.Selected && !entry.checkBounds.IsEmpty() {
 					checkMaterial := theme.MarkStyle{Base: theme.FromToken(tokens.Color.Primary)}.Resolve(rowState, tokens)
-					cmds = append(cmds, materialCommands(menuButtonCheckmarkPath(entry.checkBounds), checkMaterial)...)
+					cmds = append(cmds, theme.MaterialCommands(menuButtonCheckmarkPath(entry.checkBounds), checkMaterial)...)
 				}
 				if entry.entry.IconRef != "" && !entry.iconBounds.IsEmpty() {
 					iconMat := menuItems
@@ -734,19 +735,19 @@ func (m *MenuButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 						cmds = append(cmds, iconCmds...)
 					}
 				}
-				if entry.labelLayout != nil && !isTransparentMaterial(menuItems) {
-					cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(materialColor(menuItems)))...)
+				if entry.labelLayout != nil && !theme.IsTransparentMaterial(menuItems) {
+					cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(theme.MaterialColor(menuItems)))...)
 				}
 				if entry.shortcutLayout != nil && !entry.shortcutBounds.IsEmpty() {
-					cmds = append(cmds, primitive.TextLayoutCommands(entry.shortcutLayout, entry.shortcutBounds, gfx.SolidBrush(materialColor(menuItems)))...)
+					cmds = append(cmds, primitive.TextLayoutCommands(entry.shortcutLayout, entry.shortcutBounds, gfx.SolidBrush(theme.MaterialColor(menuItems)))...)
 				}
 			}
 		}
 	}
-	if m.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, m.cachedTriggerBounds.Height()*0.08)
+	if m.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, m.cachedTriggerBounds.Height()*0.08)
 		ringBounds := m.cachedTriggerBounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, m.cachedRadius+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, m.cachedRadius+inset), focus)...)
 	}
 	return cmds
 }
@@ -957,7 +958,7 @@ func (m *MenuButton) pointInFocusRing(p gfx.Point) bool {
 	if !m.cachedTriggerBounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, m.cachedTriggerBounds.Height()*0.08)
+	inset := mathutil.Max(1, m.cachedTriggerBounds.Height()*0.08)
 	inner := m.cachedTriggerBounds.Inset(inset, inset)
 	if inner.IsEmpty() {
 		return true
@@ -1159,7 +1160,7 @@ func entryKey(entry MenuButtonEntry) string {
 }
 
 func iconAssetCommands(runtime any, ref string, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if runtime == nil || ref == "" || bounds.IsEmpty() || isTransparentMaterial(material) {
+	if runtime == nil || ref == "" || bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	type iconProvider interface {
@@ -1193,12 +1194,12 @@ func iconAssetCommands(runtime any, ref string, bounds gfx.Rect, material theme.
 	}
 	sx := bounds.Width() / box.Width()
 	sy := bounds.Height() / box.Height()
-	scale := minFloat(sx, sy)
+	scale := mathutil.Min(sx, sy)
 	if scale <= 0 {
 		return nil
 	}
 	target := gfxsvg.Transformed(asset.Path, gfx.Identity().Multiply(gfx.Translation(bounds.Min.X-box.Min.X*scale, bounds.Min.Y-box.Min.Y*scale)).Multiply(gfx.Scale(scale, scale)))
-	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(materialColor(material))}}
+	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(theme.MaterialColor(material))}}
 }
 
 func menuButtonChevronPath(bounds gfx.Rect) gfx.Path {

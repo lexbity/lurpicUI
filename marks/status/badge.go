@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -248,10 +249,10 @@ func (b *Badge) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	b.cachedTokens = resolved.TokenSet()
 	b.cachedRecipe = slots
 	b.cachedWritingDirection = ctx.WritingDirection
-	b.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(8))
-	b.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
-	b.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(2))
-	b.cachedIconSize = maxFloat(resolved.Density.Scale(12), float32(resolved.Spacing(theme.SpacingM))*0.7)
+	b.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(8))
+	b.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
+	b.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(2))
+	b.cachedIconSize = mathutil.Max(resolved.Density.Scale(12), float32(resolved.Spacing(theme.SpacingM))*0.7)
 	b.syncChildren()
 	children := b.Children()
 	if len(children) == 0 {
@@ -266,7 +267,7 @@ func (b *Badge) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	}
 	innerWidth := constraints.MaxSize.W
 	if innerWidth > 0 {
-		innerWidth = maxFloat(0, innerWidth-b.cachedPadX*2)
+		innerWidth = mathutil.Max(0, innerWidth-b.cachedPadX*2)
 	}
 	measureCtx := facet.MeasureContext{
 		Runtime:          ctx.Runtime,
@@ -386,14 +387,14 @@ func (b *Badge) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 	container := slots.BadgeContainer.Resolve(state, tokens)
 	optionalIcon := slots.OptionalIcon.Resolve(state, tokens)
 	cmds := make([]gfx.Command, 0, 32)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(container) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), container)...)
+	if !theme.IsTransparentMaterial(container) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), container)...)
 	}
-	if !b.cachedIconBounds.IsEmpty() && !isTransparentMaterial(optionalIcon) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(b.cachedIconBounds), optionalIcon)...)
+	if !b.cachedIconBounds.IsEmpty() && !theme.IsTransparentMaterial(optionalIcon) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(b.cachedIconBounds), optionalIcon)...)
 	}
 	if !bounds.IsEmpty() {
 		cmds = append(cmds, gfx.PushClipRect{Rect: bounds})
@@ -483,7 +484,6 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	}
 	return services
 }
-
 
 type badgeGroupPolicy struct {
 	badge *Badge

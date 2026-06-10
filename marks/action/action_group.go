@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -87,13 +88,13 @@ var _ marks.Mark = (*ActionGroup)(nil)
 // NewActionGroup constructs an action.action_group mark with canonical defaults.
 func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionGroupAction]) *ActionGroup {
 	g := &ActionGroup{
-		Label:         label,
-		Actions:       actions,
-		Disabled:      marks.Const(false),
-		hoveredIndex:  -1,
-		pressedIndex:  -1,
-		focusedIndex:  -1,
-		Activated:     signal.NewSignal[string]("action_group_activated"),
+		Label:        label,
+		Actions:      actions,
+		Disabled:     marks.Const(false),
+		hoveredIndex: -1,
+		pressedIndex: -1,
+		focusedIndex: -1,
+		Activated:    signal.NewSignal[string]("action_group_activated"),
 	}
 	g.Core.Facet = facet.NewFacet()
 	g.AddBinding(g.Label)
@@ -297,12 +298,12 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	g.cachedTokens = resolved.TokenSet()
 	g.cachedRecipe = recipe
 	g.cachedWritingDirection = ctx.WritingDirection
-	g.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	g.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	g.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	g.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	g.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	g.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
 	g.cachedRadius = float32(resolved.Radius(theme.RadiusM))
-	g.cachedItemHeight = maxFloat(resolved.Density.Scale(36), resolved.Density.Scale(32))
-	g.cachedItemIconSize = maxFloat(resolved.Density.Scale(18), 14)
+	g.cachedItemHeight = mathutil.Max(resolved.Density.Scale(36), resolved.Density.Scale(32))
+	g.cachedItemIconSize = mathutil.Max(resolved.Density.Scale(18), 14)
 	g.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	g.cachedItemStyle = resolved.TextStyle(theme.TextLabelM)
 
@@ -337,7 +338,7 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		if itemW < resolved.Density.Scale(76) {
 			itemW = resolved.Density.Scale(76)
 		}
-		itemH := maxFloat(g.cachedItemHeight, maxFloat(labelH, iconW))
+		itemH := mathutil.Max(g.cachedItemHeight, mathutil.Max(labelH, iconW))
 		itemH += g.cachedPadY * 2
 		layouts[i].width = itemW
 		layouts[i].height = itemH
@@ -359,9 +360,9 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 			totalW += g.cachedGap
 		}
 	}
-	contentH := maxFloat(maxItemH, g.cachedItemHeight+g.cachedPadY*2)
+	contentH := mathutil.Max(maxItemH, g.cachedItemHeight+g.cachedPadY*2)
 	size := gfx.Size{
-		W: maxFloat(totalW, resolved.Density.Scale(76)),
+		W: mathutil.Max(totalW, resolved.Density.Scale(76)),
 		H: contentH,
 	}
 	size = constraints.Constrain(size)
@@ -404,7 +405,7 @@ func (g *ActionGroup) arrange(bounds gfx.Rect) {
 		entry := &g.cachedItemLayouts[i]
 		itemW := entry.width
 		itemH := entry.height
-		itemY := inner.Min.Y + maxFloat(0, (inner.Height()-itemH)*0.5)
+		itemY := inner.Min.Y + mathutil.Max(0, (inner.Height()-itemH)*0.5)
 		if rtl {
 			curX -= itemW
 			entry.bounds = gfx.RectFromXYWH(curX, itemY, itemW, itemH)
@@ -468,16 +469,16 @@ func (g *ActionGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 	}
 	root := slots.Root.Resolve(g.interactionState(), tokens)
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
 	if !g.cachedGroupBounds.IsEmpty() {
 		for i := range g.cachedItemLayouts {
 			item := &g.cachedItemLayouts[i]
 			state := g.itemState(i)
 			itemMat := slots.GroupSurface.Resolve(state, tokens)
-			if !isTransparentMaterial(itemMat) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(item.bounds, g.cachedRadius), itemMat)...)
+			if !theme.IsTransparentMaterial(itemMat) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(item.bounds, g.cachedRadius), itemMat)...)
 			}
 			if item.item.IconRef != "" && !item.iconBounds.IsEmpty() {
 				iconMat := slots.ActionItems.Resolve(state, tokens)
@@ -485,23 +486,23 @@ func (g *ActionGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 					cmds = append(cmds, iconCmds...)
 				}
 			}
-			if item.labelLayout != nil && !isTransparentMaterial(slots.ActionItems.Resolve(state, tokens)) {
-				cmds = append(cmds, primitive.TextLayoutCommands(item.labelLayout, item.labelBounds, gfx.SolidBrush(materialColor(slots.ActionItems.Resolve(state, tokens))))...)
+			if item.labelLayout != nil && !theme.IsTransparentMaterial(slots.ActionItems.Resolve(state, tokens)) {
+				cmds = append(cmds, primitive.TextLayoutCommands(item.labelLayout, item.labelBounds, gfx.SolidBrush(theme.MaterialColor(slots.ActionItems.Resolve(state, tokens))))...)
 			}
 		}
 		sepMat := slots.Separators.Resolve(theme.StateDefault, tokens)
 		for _, sep := range g.cachedSeparatorBounds {
-			if !isTransparentMaterial(sepMat) {
-				cmds = append(cmds, materialCommands(gfx.RectPath(sep), sepMat)...)
+			if !theme.IsTransparentMaterial(sepMat) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(sep), sepMat)...)
 			}
 		}
 	}
 	if g.focusedVisible {
 		focusMat := slots.FocusRing.Resolve(theme.StateFocused, tokens)
-		if !isTransparentMaterial(focusMat) {
-			inset := maxFloat(1, bounds.Height()*0.08)
+		if !theme.IsTransparentMaterial(focusMat) {
+			inset := mathutil.Max(1, bounds.Height()*0.08)
 			ringBounds := bounds.Inset(inset, inset)
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, g.cachedRadius), focusMat)...)
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, g.cachedRadius), focusMat)...)
 		}
 	}
 	return cmds
@@ -661,7 +662,7 @@ func (g *ActionGroup) pointInFocusRing(p gfx.Point) bool {
 	if !g.Layout.ArrangedBounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, g.Layout.ArrangedBounds.Height()*0.08)
+	inset := mathutil.Max(1, g.Layout.ArrangedBounds.Height()*0.08)
 	inner := g.Layout.ArrangedBounds.Inset(inset, inset)
 	if inner.IsEmpty() {
 		return true

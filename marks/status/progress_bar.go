@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -226,18 +227,18 @@ func (p *ProgressBar) measure(ctx facet.MeasureContext, constraints facet.Constr
 	p.cachedTokens = resolved.TokenSet()
 	p.cachedRecipe = slots
 	p.cachedWritingDirection = ctx.WritingDirection
-	p.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	p.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(8))
-	p.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
-	p.cachedTrackHeight = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	p.cachedRootRadius = maxFloat(float32(resolved.Radius(theme.RadiusM).Float32()), p.cachedTrackHeight*0.75)
+	p.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	p.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(8))
+	p.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(4))
+	p.cachedTrackHeight = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	p.cachedRootRadius = mathutil.Max(float32(resolved.Radius(theme.RadiusM).Float32()), p.cachedTrackHeight*0.75)
 	p.cachedTrackRadius = p.cachedTrackHeight * 0.5
 	p.cachedShowLabel = strings.TrimSpace(p.Label.Get()) != "" && resolved.Density.ID != theme.DensityIDCompact
 	p.syncLabelFacet()
 
 	availableWidth := constraints.MaxSize.W
 	if availableWidth > 0 {
-		availableWidth = maxFloat(0, availableWidth-p.cachedPadX*2)
+		availableWidth = mathutil.Max(0, availableWidth-p.cachedPadX*2)
 	}
 
 	labelSize := gfx.Size{}
@@ -316,10 +317,10 @@ func (p *ProgressBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	trackHeight := p.cachedTrackHeight
 	if trackHeight <= 0 {
-		trackHeight = maxFloat(4, inner.Height()*0.14)
+		trackHeight = mathutil.Max(4, inner.Height()*0.14)
 	}
 	if trackTop+trackHeight > inner.Max.Y {
-		trackTop = maxFloat(inner.Min.Y, inner.Max.Y-trackHeight)
+		trackTop = mathutil.Max(inner.Min.Y, inner.Max.Y-trackHeight)
 	}
 	p.cachedTrackBounds = gfx.RectFromXYWH(inner.Min.X, trackTop, inner.Width(), trackHeight)
 	progress := clamp01(p.Value.Get())
@@ -355,18 +356,18 @@ func (p *ProgressBar) buildCommands(bounds gfx.Rect, runtime any, contentScale f
 	labelStyle := slots.OptionalLabel.Resolve(state, tokens)
 
 	cmds := make([]gfx.Command, 0, 24)
-	if !isTransparentMaterial(root) {
+	if !theme.IsTransparentMaterial(root) {
 		cmds = append(cmds, progressMaterialCommands(gfx.RoundedRectPath(bounds, p.cachedRootRadius), root)...)
 	}
-	if !isTransparentMaterial(track) && !p.cachedTrackBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(track) && !p.cachedTrackBounds.IsEmpty() {
 		cmds = append(cmds, progressMaterialCommands(gfx.RoundedRectPath(p.cachedTrackBounds, p.cachedTrackRadius), track)...)
 	}
-	if !isTransparentMaterial(indicator) && !p.cachedIndicatorBounds.IsEmpty() {
-		indicatorRadius := minFloat(p.cachedIndicatorBounds.Height()*0.5, p.cachedTrackRadius)
+	if !theme.IsTransparentMaterial(indicator) && !p.cachedIndicatorBounds.IsEmpty() {
+		indicatorRadius := mathutil.Min(p.cachedIndicatorBounds.Height()*0.5, p.cachedTrackRadius)
 		cmds = append(cmds, progressMaterialCommands(gfx.RoundedRectPath(p.cachedIndicatorBounds, indicatorRadius), indicator)...)
 	}
 	if !p.Disabled.Get() && p.pulseRemaining > 0 && !p.cachedIndicatorBounds.IsEmpty() {
-		stripeWidth := maxFloat(2, minFloat(p.cachedIndicatorBounds.Width()*0.18, p.cachedIndicatorBounds.Height()*0.8))
+		stripeWidth := mathutil.Max(2, mathutil.Min(p.cachedIndicatorBounds.Width()*0.18, p.cachedIndicatorBounds.Height()*0.8))
 		if stripeWidth > p.cachedIndicatorBounds.Width() {
 			stripeWidth = p.cachedIndicatorBounds.Width()
 		}
@@ -380,7 +381,7 @@ func (p *ProgressBar) buildCommands(bounds gfx.Rect, runtime any, contentScale f
 		}
 		stripe := gfx.RectFromXYWH(stripeX, p.cachedIndicatorBounds.Min.Y, stripeWidth, p.cachedIndicatorBounds.Height())
 		overlay := scaleMaterialOpacity(indicator, alpha)
-		cmds = append(cmds, progressMaterialCommands(gfx.RoundedRectPath(stripe, minFloat(stripe.Width(), stripe.Height())*0.5), overlay)...)
+		cmds = append(cmds, progressMaterialCommands(gfx.RoundedRectPath(stripe, mathutil.Min(stripe.Width(), stripe.Height())*0.5), overlay)...)
 	}
 	if p.cachedLabelFacet != nil && !p.cachedLabelBounds.IsEmpty() && !progressIsTransparentMaterial(labelStyle) {
 		if projected := p.cachedLabelFacet.Base().ProjectionRole().Project(facet.ProjectionContext{
@@ -535,4 +536,3 @@ func clamp01(v float32) float32 {
 	}
 	return v
 }
-

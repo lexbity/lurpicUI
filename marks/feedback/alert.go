@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
@@ -87,14 +88,14 @@ const (
 // NewAlert constructs a feedback.alert mark with canonical defaults.
 func NewAlert(title, message string) *Alert {
 	a := &Alert{
-		Title:             marks.Const(title),
-		Message:           marks.Const(message),
-		IconRef:           marks.Const(""),
-		ActionLabel:       marks.Const(""),
-		ActionIconRef:     marks.Const(""),
-		CloseButtonLabel:  marks.Const(""),
+		Title:              marks.Const(title),
+		Message:            marks.Const(message),
+		IconRef:            marks.Const(""),
+		ActionLabel:        marks.Const(""),
+		ActionIconRef:      marks.Const(""),
+		CloseButtonLabel:   marks.Const(""),
 		CloseButtonIconRef: marks.Const(""),
-		Disabled:          marks.Const(false),
+		Disabled:           marks.Const(false),
 	}
 	a.Core.Facet = facet.NewFacet()
 	a.AddBinding(a.Title)
@@ -414,12 +415,12 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	a.cachedRecipe = slots
 	a.cachedWritingDirection = ctx.WritingDirection
 	a.cachedDensity = resolved.Density.ID
-	a.cachedPadX = maxFloat(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM)))
-	a.cachedPadY = maxFloat(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
-	a.cachedGap = maxFloat(resolved.Density.Scale(6), float32(resolved.Spacing(theme.SpacingXS)))
-	a.cachedRowGap = maxFloat(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
-	a.cachedIconSize = maxFloat(resolved.Density.Scale(20), float32(resolved.Spacing(theme.SpacingM)))
-	a.cachedCloseSize = maxFloat(resolved.Density.Scale(24), float32(resolved.Spacing(theme.SpacingM))*1.2)
+	a.cachedPadX = mathutil.Max(resolved.Density.Scale(10), float32(resolved.Spacing(theme.SpacingM)))
+	a.cachedPadY = mathutil.Max(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
+	a.cachedGap = mathutil.Max(resolved.Density.Scale(6), float32(resolved.Spacing(theme.SpacingXS)))
+	a.cachedRowGap = mathutil.Max(resolved.Density.Scale(8), float32(resolved.Spacing(theme.SpacingS)))
+	a.cachedIconSize = mathutil.Max(resolved.Density.Scale(20), float32(resolved.Spacing(theme.SpacingM)))
+	a.cachedCloseSize = mathutil.Max(resolved.Density.Scale(24), float32(resolved.Spacing(theme.SpacingM))*1.2)
 	a.syncChildren()
 	children := a.Children()
 	if len(children) == 0 {
@@ -436,7 +437,7 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(480)
 	}
-	innerWidth := maxFloat(0, maxWidth-a.cachedPadX*2)
+	innerWidth := mathutil.Max(0, maxWidth-a.cachedPadX*2)
 	measureCtx := facet.MeasureContext{
 		Runtime:          ctx.Runtime,
 		Theme:            ctx.Theme,
@@ -459,16 +460,16 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	if a.cachedIconFacet != nil {
 		a.cachedIconFacet.Size = marks.Const(a.cachedIconSize)
 		iconSize := a.cachedIconFacet.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: a.cachedIconSize, H: a.cachedIconSize}}).Size
-		contentWidth = maxFloat(contentWidth, iconSize.W)
+		contentWidth = mathutil.Max(contentWidth, iconSize.W)
 	}
 	titleSize := a.cachedTitleFacet.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: titleWidth, H: constraints.MaxSize.H}}).Size
 	messageSize := a.cachedMessageFacet.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: innerWidth, H: constraints.MaxSize.H}}).Size
-	contentWidth = maxFloat(contentWidth, titleSize.W+a.cachedGap)
+	contentWidth = mathutil.Max(contentWidth, titleSize.W+a.cachedGap)
 	if a.cachedCloseButton != nil {
 		a.cachedCloseButton.Size = marks.Const(a.cachedCloseSize)
-		a.cachedCloseButton.HitPadding = maxFloat(resolved.Density.Scale(4), float32(resolved.Spacing(theme.SpacingXS)))
+		a.cachedCloseButton.HitPadding = mathutil.Max(resolved.Density.Scale(4), float32(resolved.Spacing(theme.SpacingXS)))
 		closeSize := a.cachedCloseButton.Base().LayoutRole().Measure(measureCtx, facet.Constraints{MaxSize: gfx.Size{W: a.cachedCloseSize, H: a.cachedCloseSize}}).Size
-		contentWidth = maxFloat(contentWidth, closeSize.W)
+		contentWidth = mathutil.Max(contentWidth, closeSize.W)
 		if closeSize.H > innerHeight {
 			innerHeight = closeSize.H
 		}
@@ -491,8 +492,8 @@ func (a *Alert) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 			contentWidth = actionSize.W
 		}
 	}
-	contentWidth = maxFloat(contentWidth, titleSize.W)
-	contentWidth = maxFloat(contentWidth, messageSize.W)
+	contentWidth = mathutil.Max(contentWidth, titleSize.W)
+	contentWidth = mathutil.Max(contentWidth, messageSize.W)
 	size := gfx.Size{W: contentWidth + a.cachedPadX*2, H: innerHeight + a.cachedPadY*2}
 	if size.W < a.cachedIconSize+a.cachedPadX*2 {
 		size.W = a.cachedIconSize + a.cachedPadX*2
@@ -544,8 +545,8 @@ func (a *Alert) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if a.cachedCloseButton != nil {
 			closeSize = a.cachedCloseButton.Base().LayoutRole().MeasuredSize.W
 		}
-		headerH = maxFloat(headerH, iconSize)
-		headerH = maxFloat(headerH, closeSize)
+		headerH = mathutil.Max(headerH, iconSize)
+		headerH = mathutil.Max(headerH, closeSize)
 	}
 	rowRects := layout.ArrangeVerticalFlowAligned(inner, 0, a.cachedRowGap, []gfx.Size{
 		{W: inner.Width(), H: headerH},
@@ -589,9 +590,9 @@ func (a *Alert) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 				titleX = closeRect.Max.X + a.cachedGap
 			}
 		}
-		titleW := maxFloat(0, inner.Max.X-titleX)
+		titleW := mathutil.Max(0, inner.Max.X-titleX)
 		if a.cachedCloseButton != nil && a.cachedWritingDirection != facet.WritingDirectionRTL {
-			titleW = maxFloat(0, closeX-a.cachedGap-titleX)
+			titleW = mathutil.Max(0, closeX-a.cachedGap-titleX)
 		}
 		titleRect := gfx.RectFromXYWH(titleX, headerRect.Min.Y, titleW, titleSize.H)
 		a.cachedTitleFacet.Base().LayoutRole().Arrange(ctx, titleRect)
@@ -632,11 +633,11 @@ func (a *Alert) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 	root := slots.Root.Resolve(state, tokens)
 	surface := slots.AlertSurface.Resolve(state, tokens)
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(surface) {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(bounds, float32(tokens.Radius.LG)), surface)...)
+	if !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, float32(tokens.Radius.LG)), surface)...)
 	}
 	clipBounds := bounds
 	cmds = append(cmds, gfx.PushClipRect{Rect: clipBounds})
@@ -872,5 +873,3 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	}
 	return services
 }
-
-

@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -357,16 +358,16 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	s.cachedTokens = resolved.TokenSet()
 	s.cachedRecipe = recipe
 	s.cachedWritingDirection = ctx.WritingDirection
-	s.cachedPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	s.cachedPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	s.cachedGap = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
-	s.cachedRowGap = maxFloat(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(6))
+	s.cachedPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	s.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	s.cachedGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	s.cachedRowGap = mathutil.Max(float32(resolved.Spacing(theme.SpacingXS)), resolved.Density.Scale(6))
 	s.cachedRadius = float32(resolved.Radius(theme.RadiusM))
-	s.cachedPrimaryHeight = maxFloat(resolved.Density.Scale(36), resolved.Density.Scale(32))
-	s.cachedControlHeight = maxFloat(s.cachedPrimaryHeight, resolved.Density.Scale(40))
-	s.cachedPrimaryIconSize = maxFloat(resolved.Density.Scale(18), 14)
-	s.cachedChevronSize = maxFloat(resolved.Density.Scale(14), 10)
-	s.cachedMenuIconSize = maxFloat(resolved.Density.Scale(16), 12)
+	s.cachedPrimaryHeight = mathutil.Max(resolved.Density.Scale(36), resolved.Density.Scale(32))
+	s.cachedControlHeight = mathutil.Max(s.cachedPrimaryHeight, resolved.Density.Scale(40))
+	s.cachedPrimaryIconSize = mathutil.Max(resolved.Density.Scale(18), 14)
+	s.cachedChevronSize = mathutil.Max(resolved.Density.Scale(14), 10)
+	s.cachedMenuIconSize = mathutil.Max(resolved.Density.Scale(16), 12)
 
 	primaryStyle := resolved.TextStyle(theme.TextLabelM)
 	itemStyle := resolved.TextStyle(theme.TextBodyM)
@@ -410,8 +411,8 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 		}
 		sizes = append(sizes, gfx.Size{W: text.Width(layouts[i].labelLayout), H: text.Height(layouts[i].labelLayout)})
 		content := layout.InlineFlowSize(sizes, s.cachedGap)
-		layouts[i].width = maxFloat(resolved.Density.Scale(192), s.cachedPadX*2+content.W)
-		layouts[i].height = maxFloat(resolved.Density.Scale(30), content.H)
+		layouts[i].width = mathutil.Max(resolved.Density.Scale(192), s.cachedPadX*2+content.W)
+		layouts[i].height = mathutil.Max(resolved.Density.Scale(30), content.H)
 		if layouts[i].height < s.cachedMenuIconSize+s.cachedPadY {
 			layouts[i].height = s.cachedMenuIconSize + s.cachedPadY
 		}
@@ -431,16 +432,16 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	}
 	primarySizes = append(primarySizes, gfx.Size{W: text.Width(primaryLayout), H: text.Height(primaryLayout)})
 	primaryContent := layout.InlineFlowSize(primarySizes, s.cachedGap)
-	primaryW := maxFloat(resolved.Density.Scale(96), s.cachedPadX*2+primaryContent.W)
-	primaryH := maxFloat(s.cachedControlHeight, primaryContent.H) + s.cachedPadY*2
+	primaryW := mathutil.Max(resolved.Density.Scale(96), s.cachedPadX*2+primaryContent.W)
+	primaryH := mathutil.Max(s.cachedControlHeight, primaryContent.H) + s.cachedPadY*2
 	s.cachedControlHeight = primaryH
-	triggerW := maxFloat(resolved.Density.Scale(44), s.cachedChevronSize+s.cachedPadX*2)
+	triggerW := mathutil.Max(resolved.Density.Scale(44), s.cachedChevronSize+s.cachedPadX*2)
 	triggerH := primaryH
 	s.cachedControlWidth = primaryW + triggerW
 	s.cachedTriggerWidth = triggerW
-	menuW := maxFloat(s.cachedControlWidth, maxItemW)
+	menuW := mathutil.Max(s.cachedControlWidth, maxItemW)
 	if len(layouts) > 0 {
-		menuW = maxFloat(menuW, resolved.Density.Scale(192))
+		menuW = mathutil.Max(menuW, resolved.Density.Scale(192))
 	}
 	s.cachedMenuWidth = menuW
 	s.cachedMenuHeight = 0
@@ -452,7 +453,7 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	}
 
 	size := gfx.Size{
-		W: maxFloat(s.cachedControlWidth, s.cachedMenuWidth) + s.cachedPadX*2,
+		W: mathutil.Max(s.cachedControlWidth, s.cachedMenuWidth) + s.cachedPadX*2,
 		H: s.cachedPadY*2 + triggerH,
 	}
 	if s.Open && len(layouts) > 0 {
@@ -501,7 +502,7 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 	}
 	controlH := s.cachedControlHeight
 	if controlH <= 0 {
-		controlH = maxFloat(bounds.Height(), s.cachedPrimaryHeight)
+		controlH = mathutil.Max(bounds.Height(), s.cachedPrimaryHeight)
 	}
 	controlY := inner.Min.Y
 	controlX := inner.Min.X
@@ -536,9 +537,9 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 	if len(primaryRects) > 0 {
 		s.cachedPrimaryLabel = primaryRects[len(primaryRects)-1]
 	}
-	chevronX := triggerBounds.Min.X + maxFloat(0, (triggerBounds.Width()-s.cachedChevronSize)*0.5)
+	chevronX := triggerBounds.Min.X + mathutil.Max(0, (triggerBounds.Width()-s.cachedChevronSize)*0.5)
 	if rtl {
-		chevronX = triggerBounds.Min.X + maxFloat(0, (triggerBounds.Width()-s.cachedChevronSize)*0.5)
+		chevronX = triggerBounds.Min.X + mathutil.Max(0, (triggerBounds.Width()-s.cachedChevronSize)*0.5)
 	}
 	s.cachedChevronBounds = text.CenterRect(gfx.RectFromXYWH(chevronX, triggerBounds.Min.Y, s.cachedChevronSize, triggerBounds.Height()), s.cachedChevronSize, s.cachedChevronSize)
 
@@ -546,7 +547,7 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 	if s.Open && len(s.cachedItemLayouts) > 0 {
 		menuW := s.cachedMenuWidth
 		if menuW <= 0 {
-			menuW = maxFloat(controlW, s.cachedControlBounds.Width())
+			menuW = mathutil.Max(controlW, s.cachedControlBounds.Width())
 		}
 		menuH := s.cachedMenuHeight
 		if menuH <= 0 {
@@ -574,7 +575,7 @@ func (s *SplitButton) arrange(bounds gfx.Rect) {
 			rowY += entry.height + s.cachedRowGap
 		}
 	}
-	s.cachedFocusBounds = s.cachedControlBounds.Inset(maxFloat(1, s.cachedControlBounds.Height()*0.08), maxFloat(1, s.cachedControlBounds.Height()*0.08))
+	s.cachedFocusBounds = s.cachedControlBounds.Inset(mathutil.Max(1, s.cachedControlBounds.Height()*0.08), mathutil.Max(1, s.cachedControlBounds.Height()*0.08))
 }
 
 func (s *SplitButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
@@ -599,37 +600,37 @@ func (s *SplitButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(primary) {
-		cmds = append(cmds, materialCommands(splitButtonLeftSegmentPath(s.cachedPrimaryBounds, s.cachedRadius), primary)...)
+	if !theme.IsTransparentMaterial(primary) {
+		cmds = append(cmds, theme.MaterialCommands(splitButtonLeftSegmentPath(s.cachedPrimaryBounds, s.cachedRadius), primary)...)
 	}
-	if !isTransparentMaterial(trigger) {
-		cmds = append(cmds, materialCommands(splitButtonRightSegmentPath(s.cachedTriggerBounds, s.cachedRadius), trigger)...)
+	if !theme.IsTransparentMaterial(trigger) {
+		cmds = append(cmds, theme.MaterialCommands(splitButtonRightSegmentPath(s.cachedTriggerBounds, s.cachedRadius), trigger)...)
 	}
-	if !isTransparentMaterial(primaryLabel) {
-		cmds = append(cmds, primitive.TextLayoutCommands(s.cachedPrimaryLayout, s.cachedPrimaryLabel, gfx.SolidBrush(materialColor(primaryLabel)))...)
+	if !theme.IsTransparentMaterial(primaryLabel) {
+		cmds = append(cmds, primitive.TextLayoutCommands(s.cachedPrimaryLayout, s.cachedPrimaryLabel, gfx.SolidBrush(theme.MaterialColor(primaryLabel)))...)
 	}
-	if !isTransparentMaterial(primaryLabel) && strings.TrimSpace(s.PrimaryIconRef.Get()) != "" && !s.cachedPrimaryIcon.IsEmpty() {
+	if !theme.IsTransparentMaterial(primaryLabel) && strings.TrimSpace(s.PrimaryIconRef.Get()) != "" && !s.cachedPrimaryIcon.IsEmpty() {
 		if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), s.PrimaryIconRef.Get(), s.cachedPrimaryIcon, primaryLabel); len(iconCmds) > 0 {
 			cmds = append(cmds, iconCmds...)
 		}
 	}
-	if !isTransparentMaterial(trigger) && !s.cachedPrimaryBounds.IsEmpty() {
+	if !theme.IsTransparentMaterial(trigger) && !s.cachedPrimaryBounds.IsEmpty() {
 		seamX := s.cachedTriggerBounds.Min.X
 		if s.cachedWritingDirection == facet.WritingDirectionRTL {
 			seamX = s.cachedPrimaryBounds.Min.X
 		}
 		seam := gfx.RectFromXYWH(seamX-0.5, s.cachedControlBounds.Min.Y, 1, s.cachedControlBounds.Height())
-		cmds = append(cmds, materialCommands(gfx.RectPath(seam), theme.MarkStyle{Base: theme.FromToken(tintColor(tokens.Color.OnPrimary, 0.16))}.Resolve(state, tokens))...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(seam), theme.MarkStyle{Base: theme.FromToken(tintColor(tokens.Color.OnPrimary, 0.16))}.Resolve(state, tokens))...)
 	}
-	if !isTransparentMaterial(chevron) {
-		cmds = append(cmds, materialCommands(splitButtonChevronPath(s.cachedChevronBounds), chevron)...)
+	if !theme.IsTransparentMaterial(chevron) {
+		cmds = append(cmds, theme.MaterialCommands(splitButtonChevronPath(s.cachedChevronBounds), chevron)...)
 	}
 	if s.Open && len(s.cachedItemLayouts) > 0 {
-		if !s.cachedMenuBounds.IsEmpty() && !isTransparentMaterial(menuSurface) {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(s.cachedMenuBounds, s.cachedRadius), menuSurface)...)
+		if !s.cachedMenuBounds.IsEmpty() && !theme.IsTransparentMaterial(menuSurface) {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(s.cachedMenuBounds, s.cachedRadius), menuSurface)...)
 		}
 		for i := range s.cachedItemLayouts {
 			entry := &s.cachedItemLayouts[i]
@@ -646,23 +647,23 @@ func (s *SplitButton) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 			case theme.StateFocused:
 				rowMaterial = theme.FromToken(tintColor(tokens.Color.Primary, 0.06))
 			}
-			if !isTransparentMaterial(rowMaterial) {
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(entry.bounds, maxFloat(0, s.cachedRadius*0.5)), rowMaterial)...)
+			if !theme.IsTransparentMaterial(rowMaterial) {
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(entry.bounds, mathutil.Max(0, s.cachedRadius*0.5)), rowMaterial)...)
 			}
 			if entry.item.IconRef != "" && !entry.iconBounds.IsEmpty() {
 				if iconCmds := iconAssetCommands(runtimeServicesOrNil(runtime), entry.item.IconRef, entry.iconBounds, menuItems); len(iconCmds) > 0 {
 					cmds = append(cmds, iconCmds...)
 				}
 			}
-			if entry.labelLayout != nil && !isTransparentMaterial(menuItems) {
-				cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(materialColor(menuItems)))...)
+			if entry.labelLayout != nil && !theme.IsTransparentMaterial(menuItems) {
+				cmds = append(cmds, primitive.TextLayoutCommands(entry.labelLayout, entry.labelBounds, gfx.SolidBrush(theme.MaterialColor(menuItems)))...)
 			}
 		}
 	}
-	if s.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, s.cachedControlBounds.Height()*0.08)
+	if s.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(1, s.cachedControlBounds.Height()*0.08)
 		ringBounds := s.cachedControlBounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, s.cachedRadius+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, s.cachedRadius+inset), focus)...)
 	}
 	return cmds
 }
@@ -873,7 +874,7 @@ func (s *SplitButton) pointInFocusRing(p gfx.Point) bool {
 	if !s.cachedControlBounds.Contains(p) {
 		return false
 	}
-	inset := maxFloat(1, s.cachedControlBounds.Height()*0.08)
+	inset := mathutil.Max(1, s.cachedControlBounds.Height()*0.08)
 	inner := s.cachedControlBounds.Inset(inset, inset)
 	if inner.IsEmpty() {
 		return true
@@ -1054,7 +1055,7 @@ func splitButtonLeftSegmentPath(bounds gfx.Rect, radius float32) gfx.Path {
 	if radius <= 0 {
 		radius = 0
 	}
-	maxRadius := minFloat(bounds.Width(), bounds.Height()) * 0.5
+	maxRadius := mathutil.Min(bounds.Width(), bounds.Height()) * 0.5
 	if radius > maxRadius {
 		radius = maxRadius
 	}
@@ -1081,7 +1082,7 @@ func splitButtonRightSegmentPath(bounds gfx.Rect, radius float32) gfx.Path {
 	if radius <= 0 {
 		radius = 0
 	}
-	maxRadius := minFloat(bounds.Width(), bounds.Height()) * 0.5
+	maxRadius := mathutil.Min(bounds.Width(), bounds.Height()) * 0.5
 	if radius > maxRadius {
 		radius = maxRadius
 	}

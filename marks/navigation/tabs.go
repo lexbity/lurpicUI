@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -260,12 +261,12 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	if t.Variant.Get() == uinav.TabsCompact {
 		t.cachedTabGap = float32(resolved.Spacing(theme.SpacingS))
 	}
-	t.cachedTabPadX = maxFloat(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
-	t.cachedTabPadY = maxFloat(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
+	t.cachedTabPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingM)), resolved.Density.Scale(12))
+	t.cachedTabPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(8))
 	t.cachedPanelGap = float32(resolved.Spacing(theme.SpacingM))
-	t.cachedPanelPadX = maxFloat(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
-	t.cachedPanelPadY = maxFloat(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
-	t.cachedIndicatorH = maxFloat(2, resolved.TokenSet().Spacing.BorderWeight*2)
+	t.cachedPanelPadX = mathutil.Max(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
+	t.cachedPanelPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingL)), resolved.Density.Scale(16))
+	t.cachedIndicatorH = mathutil.Max(2, resolved.TokenSet().Spacing.BorderWeight*2)
 	if t.cachedIndicatorH <= 0 {
 		t.cachedIndicatorH = 2
 	}
@@ -346,13 +347,13 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	panelTextH := text.Height(panelLayout)
 	panelH := panelTextH + t.cachedPanelPadY*2
 	if panelTextH <= 0 {
-		panelH = maxFloat(resolved.Density.Scale(84), stripH)
+		panelH = mathutil.Max(resolved.Density.Scale(84), stripH)
 	}
-	panelW := maxFloat(stripW, panelTextW+t.cachedPanelPadX*2)
+	panelW := mathutil.Max(stripW, panelTextW+t.cachedPanelPadX*2)
 	if panelW <= 0 {
 		panelW = stripW
 	}
-	width := maxFloat(stripW, panelW)
+	width := mathutil.Max(stripW, panelW)
 	height := stripH
 	if panelH > 0 {
 		height += t.cachedPanelGap + panelH
@@ -405,11 +406,11 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 	}
 	if stripH <= 0 {
-		stripH = maxFloat(bounds.Height()*0.18, 32)
+		stripH = mathutil.Max(bounds.Height()*0.18, 32)
 	}
 	t.cachedTabListBounds = gfx.RectFromXYWH(bounds.Min.X, tabY, bounds.Width(), stripH)
 	panelY := tabY + stripH + t.cachedPanelGap
-	panelH := maxFloat(bounds.Height()-stripH-t.cachedPanelGap, 0)
+	panelH := mathutil.Max(bounds.Height()-stripH-t.cachedPanelGap, 0)
 	if panelH <= 0 {
 		panelH = bounds.Height() * 0.6
 	}
@@ -443,10 +444,10 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if iconRect.Height() > contentH {
 			contentH = iconRect.Height()
 		}
-		contentX := t.cachedTabBounds[i].Min.X + maxFloat(0, (t.cachedTabBounds[i].Width()-contentW)*0.5)
+		contentX := t.cachedTabBounds[i].Min.X + mathutil.Max(0, (t.cachedTabBounds[i].Width()-contentW)*0.5)
 		contentRect := text.CenterRect(t.cachedTabBounds[i], contentW, contentH)
 		if t.cachedWritingDirection == facet.WritingDirectionRTL {
-			contentX = t.cachedTabBounds[i].Max.X - maxFloat(0, (t.cachedTabBounds[i].Width()-contentW)*0.5) - contentW
+			contentX = t.cachedTabBounds[i].Max.X - mathutil.Max(0, (t.cachedTabBounds[i].Width()-contentW)*0.5) - contentW
 		}
 		if !iconRect.IsEmpty() {
 			if t.cachedWritingDirection == facet.WritingDirectionRTL {
@@ -518,14 +519,14 @@ func (t *Tabs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	focus := slots.FocusRing.Resolve(theme.StateFocused, tokens)
 
 	cmds := make([]gfx.Command, 0, 64)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(gfx.RectPath(bounds), root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(bounds), root)...)
 	}
-	if !isTransparentMaterial(tabList) && !t.cachedTabListBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RectPath(t.cachedTabListBounds), tabList)...)
+	if !theme.IsTransparentMaterial(tabList) && !t.cachedTabListBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(t.cachedTabListBounds), tabList)...)
 	}
-	if !isTransparentMaterial(panelAnchor) && !t.cachedPanelBounds.IsEmpty() {
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(t.cachedPanelBounds, float32(tokens.Radius.SM)), panelAnchor)...)
+	if !theme.IsTransparentMaterial(panelAnchor) && !t.cachedPanelBounds.IsEmpty() {
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(t.cachedPanelBounds, float32(tokens.Radius.SM)), panelAnchor)...)
 	}
 	for i := range t.Items {
 		rect := t.cachedTabBounds[i]
@@ -534,17 +535,17 @@ func (t *Tabs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		}
 		state := t.itemState(i)
 		background := slots.Tab.Resolve(state, tokens)
-		if !isTransparentMaterial(background) {
-			cmds = append(cmds, materialCommands(gfx.RoundedRectPath(rect, float32(tokens.Radius.SM)), background)...)
+		if !theme.IsTransparentMaterial(background) {
+			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(rect, float32(tokens.Radius.SM)), background)...)
 		}
-		if i == t.clampedActiveIndex() && !isTransparentMaterial(activeIndicator) {
+		if i == t.clampedActiveIndex() && !theme.IsTransparentMaterial(activeIndicator) {
 			indicator := gfx.RectFromXYWH(rect.Min.X, rect.Max.Y-t.cachedIndicatorH, rect.Width(), t.cachedIndicatorH)
 			cmds = append(cmds, gfx.FillRect{
 				Rect:  indicator,
-				Brush: gfx.SolidBrush(materialColor(activeIndicator)),
+				Brush: gfx.SolidBrush(theme.MaterialColor(activeIndicator)),
 			})
 		}
-		if label := t.cachedTabLabelLayouts[i]; label != nil && !isTransparentMaterial(tabLabel) {
+		if label := t.cachedTabLabelLayouts[i]; label != nil && !theme.IsTransparentMaterial(tabLabel) {
 			cmds = append(cmds, t.textCommands(label, t.cachedTabLabelBounds[i], tabLabel)...)
 		}
 		if asset := t.cachedIconAssets[i]; len(asset.Path.Segments) > 0 && !t.cachedIconBounds[i].IsEmpty() {
@@ -552,16 +553,16 @@ func (t *Tabs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 			cmds = append(cmds, t.iconCommands(asset, t.cachedIconBounds[i], iconColor)...)
 		}
 	}
-	if t.cachedPanelLayout != nil && !isTransparentMaterial(tabLabel) {
+	if t.cachedPanelLayout != nil && !theme.IsTransparentMaterial(tabLabel) {
 		panelTextBounds := t.cachedPanelTextBounds()
 		cmds = append(cmds, t.textCommands(t.cachedPanelLayout, panelTextBounds, tabLabel)...)
 	}
-	if t.focusedVisible && !isTransparentMaterial(focus) {
+	if t.focusedVisible && !theme.IsTransparentMaterial(focus) {
 		if len(t.cachedTabBounds) > 0 {
 			active := t.cachedTabBounds[t.clampedActiveIndex()]
 			if !active.IsEmpty() {
-				inset := maxFloat(1, active.Height()*0.10)
-				cmds = append(cmds, materialCommands(gfx.RoundedRectPath(active.Inset(-inset, -inset), float32(tokens.Radius.SM)+inset), focus)...)
+				inset := mathutil.Max(1, active.Height()*0.10)
+				cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(active.Inset(-inset, -inset), float32(tokens.Radius.SM)+inset), focus)...)
 			}
 		}
 	}
@@ -770,8 +771,8 @@ func (t *Tabs) panelTextBounds() gfx.Rect {
 	}
 	w := t.cachedPanelLayout.Bounds.Width()
 	h := t.cachedPanelLayout.Bounds.Height()
-	x := t.cachedPanelBounds.Min.X + t.cachedPanelPadX + maxFloat(0, (t.cachedPanelBounds.Width()-t.cachedPanelPadX*2-w)*0.5)
-	y := t.cachedPanelBounds.Min.Y + t.cachedPanelPadY + maxFloat(0, (t.cachedPanelBounds.Height()-t.cachedPanelPadY*2-h)*0.5)
+	x := t.cachedPanelBounds.Min.X + t.cachedPanelPadX + mathutil.Max(0, (t.cachedPanelBounds.Width()-t.cachedPanelPadX*2-w)*0.5)
+	y := t.cachedPanelBounds.Min.Y + t.cachedPanelPadY + mathutil.Max(0, (t.cachedPanelBounds.Height()-t.cachedPanelPadY*2-h)*0.5)
 	return gfx.RectFromXYWH(x, y, w, h)
 }
 
@@ -790,7 +791,7 @@ func (t *Tabs) pointInFocusRing(p gfx.Point) bool {
 	if active.IsEmpty() || !active.Contains(p) {
 		return false
 	}
-	ring := maxFloat(1, active.Height()*0.12)
+	ring := mathutil.Max(1, active.Height()*0.12)
 	inner := active.Inset(ring, ring)
 	if inner.IsEmpty() {
 		return true
@@ -958,11 +959,11 @@ func (t *Tabs) fontRegistry(runtime any) *text.FontRegistry {
 }
 
 func (t *Tabs) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	return primitive.TextLayoutCommands(layout, bounds, gfx.SolidBrush(materialColor(material)))
+	return primitive.TextLayoutCommands(layout, bounds, gfx.SolidBrush(theme.MaterialColor(material)))
 }
 
 func (t *Tabs) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if len(asset.Path.Segments) == 0 || bounds.IsEmpty() || isTransparentMaterial(material) {
+	if len(asset.Path.Segments) == 0 || bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}
 	box := asset.ViewBox
@@ -974,12 +975,12 @@ func (t *Tabs) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, materia
 	}
 	sx := bounds.Width() / box.Width()
 	sy := bounds.Height() / box.Height()
-	scale := minFloat(sx, sy)
+	scale := mathutil.Min(sx, sy)
 	if scale <= 0 {
 		return nil
 	}
 	target := gfxsvg.Transformed(asset.Path, gfx.Identity().Multiply(gfx.Translation(bounds.Min.X-box.Min.X*scale, bounds.Min.Y-box.Min.Y*scale)).Multiply(gfx.Scale(scale, scale)))
-	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(materialColor(material))}}
+	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(theme.MaterialColor(material))}}
 }
 
 func (t *Tabs) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, bool) {

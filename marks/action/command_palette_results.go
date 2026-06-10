@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -30,15 +31,15 @@ type commandPaletteResultsGroup struct {
 
 	parent *CommandPalette
 
-	rows           []*selection.ListItem
-	rowRects       []gfx.Rect
-	activeIndex    int
-	scrollOffset   float32
-	cachedBounds   gfx.Rect
-	cachedContent  gfx.Rect
-	cachedEmpty    *primitive.Text
-	cachedRowGap   float32
-	cachedWriting  facet.WritingDirection
+	rows          []*selection.ListItem
+	rowRects      []gfx.Rect
+	activeIndex   int
+	scrollOffset  float32
+	cachedBounds  gfx.Rect
+	cachedContent gfx.Rect
+	cachedEmpty   *primitive.Text
+	cachedRowGap  float32
+	cachedWriting facet.WritingDirection
 }
 
 var _ facet.FacetImpl = (*commandPaletteResultsGroup)(nil)
@@ -47,13 +48,13 @@ var _ marks.Mark = (*commandPaletteResultsGroup)(nil)
 
 func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResultsGroup {
 	g := &commandPaletteResultsGroup{
-		Label:       marks.Const("Command results"),
-		EmptyState:  marks.Const("No matching commands"),
-		ItemVariant: marks.Const(uiinput.ListItemStandard),
-		Disabled:    marks.Const(false),
-		parent:      parent,
-		Activated:   signal.NewSignal[int]("command_palette_results_activated"),
-		activeIndex: -1,
+		Label:        marks.Const("Command results"),
+		EmptyState:   marks.Const("No matching commands"),
+		ItemVariant:  marks.Const(uiinput.ListItemStandard),
+		Disabled:     marks.Const(false),
+		parent:       parent,
+		Activated:    signal.NewSignal[int]("command_palette_results_activated"),
+		activeIndex:  -1,
 		cachedRowGap: 0,
 	}
 	g.Core.Facet = facet.NewFacet()
@@ -307,7 +308,7 @@ func (g *commandPaletteResultsGroup) measure(ctx facet.MeasureContext, constrain
 			height += g.cachedRowGap
 		}
 		height += size.H
-		width = maxFloat(width, size.W)
+		width = mathutil.Max(width, size.W)
 	}
 	if height > maxH {
 		height = maxH
@@ -441,7 +442,7 @@ func (g *commandPaletteResultsGroup) onScroll(e facet.ScrollEvent) bool {
 	if delta == 0 {
 		return false
 	}
-	g.scrollOffset = maxFloat(0, g.scrollOffset-delta*24)
+	g.scrollOffset = mathutil.Max(0, g.scrollOffset-delta*24)
 	g.invalidate(facet.DirtyProjection)
 	return true
 }
@@ -545,7 +546,7 @@ func (g *commandPaletteResultsGroup) ensureActiveVisible() {
 		return
 	}
 	if rect.Min.Y < g.cachedBounds.Min.Y {
-		g.scrollOffset = maxFloat(0, g.scrollOffset-(g.cachedBounds.Min.Y-rect.Min.Y))
+		g.scrollOffset = mathutil.Max(0, g.scrollOffset-(g.cachedBounds.Min.Y-rect.Min.Y))
 	}
 	if rect.Max.Y > g.cachedBounds.Max.Y {
 		g.scrollOffset += rect.Max.Y - g.cachedBounds.Max.Y
@@ -574,7 +575,9 @@ type commandPaletteResultsGroupPolicy struct {
 	group *commandPaletteResultsGroup
 }
 
-func (commandPaletteResultsGroupPolicy) Kind() facet.GroupLayoutKind { return facet.GroupLayoutLinearVertical }
+func (commandPaletteResultsGroupPolicy) Kind() facet.GroupLayoutKind {
+	return facet.GroupLayoutLinearVertical
+}
 
 func (p commandPaletteResultsGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children []facet.GroupChild) (facet.GroupMeasureResult, error) {
 	if p.group == nil {
@@ -624,9 +627,9 @@ func commandPaletteUnionRect(a, b gfx.Rect) gfx.Rect {
 	if b.IsEmpty() {
 		return a
 	}
-	minX := minFloat(a.Min.X, b.Min.X)
-	minY := minFloat(a.Min.Y, b.Min.Y)
-	maxX := maxFloat(a.Max.X, b.Max.X)
-	maxY := maxFloat(a.Max.Y, b.Max.Y)
+	minX := mathutil.Min(a.Min.X, b.Min.X)
+	minY := mathutil.Min(a.Min.Y, b.Min.Y)
+	maxX := mathutil.Max(a.Max.X, b.Max.X)
+	maxY := mathutil.Max(a.Max.Y, b.Max.Y)
 	return gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY)
 }
