@@ -6,15 +6,11 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
-	"codeburg.org/lexbit/lurpicui/signal"
-	"codeburg.org/lexbit/lurpicui/store"
 )
 
 func testLayerRegistry(t *testing.T) *layout.LayerRegistry {
@@ -31,22 +27,10 @@ type backendFixture struct {
 	submitErr       error
 	submitFailAfter atomic.Int32 // fail Submit after this many calls; 0 = never
 	initCount       atomic.Int32
-	recreateCount   atomic.Int32
 	submitCount     atomic.Int32
 	destroyCount    atomic.Int32
 	lastFrame       atomic.Pointer[render.Frame]
 }
-
-type recordingLogger struct {
-	warnings []string
-}
-
-func (l *recordingLogger) Debug(string, ...any) {}
-func (l *recordingLogger) Info(string, ...any)  {}
-func (l *recordingLogger) Warn(msg string, args ...any) {
-	l.warnings = append(l.warnings, msg)
-}
-func (l *recordingLogger) Error(string, ...any) {}
 
 func (s *backendFixture) Initialize(surface render.Surface) error {
 	s.initCount.Add(1)
@@ -83,14 +67,6 @@ type recordingBackend struct {
 	initializeCount int
 	destroyCount    int
 	lastSurface     render.Surface
-}
-
-type countingDiagHook struct {
-	count int
-}
-
-func (h *countingDiagHook) OnFrame(stats diagnostics.FrameStats) {
-	h.count++
 }
 
 func (r *recordingBackend) Initialize(surface render.Surface) error {
@@ -138,46 +114,23 @@ type runtimeRenderFacet struct {
 
 type runtimeLayerFacet struct {
 	facet.Facet
-	layout     facet.LayoutRole
-	anchors    layout.AnchorSet
-	onExport   func(ctx layout.AnchorExportContext)
-	exportHits int
+	anchors layout.AnchorSet
 }
 
-type runtimeProjectedFacet struct {
-	facet.Facet
-	layout    facet.LayoutRole
-	worldPos  gfx.Point
-	worldSize gfx.Size
-}
-
-type spyPolicy struct {
-	measure func(children []layout.ChildNode, constraints gfx.Size) gfx.Size
-	arrange func(children []layout.ChildNode, layer layout.ResolvedLayer)
-}
-
-func (p *spyPolicy) Measure(children []layout.ChildNode, constraints gfx.Size) gfx.Size {
-	if p != nil && p.measure != nil {
-		return p.measure(children, constraints)
-	}
-	return gfx.Size{}
-}
-
-func (p *spyPolicy) Arrange(children []layout.ChildNode, layer layout.ResolvedLayer) {
-	if p != nil && p.arrange != nil {
-		p.arrange(children, layer)
-	}
-}
-
-type runtimeFocusFacet struct {
-	facet.Facet
-	focus facet.FocusRole
-	text  facet.TextRole
-}
-
-func (f *runtimeFocusFacet) Base() *facet.Facet {
+func (f *runtimeLayerFacet) Base() *facet.Facet {
 	f.Facet.BindImpl(f)
 	return &f.Facet
+}
+
+func (f *runtimeLayerFacet) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
+	if len(f.anchors) == 0 {
+		return nil
+	}
+	out := make(layout.AnchorSet, len(f.anchors))
+	for id, pos := range f.anchors {
+		out[id] = pos
+	}
+	return out
 }
 
 type layoutCountLeaf struct {
@@ -194,73 +147,14 @@ func (f *layoutCountLeaf) Base() *facet.Facet {
 	return &f.Facet
 }
 
-type runtimeJobFacet struct {
+type runtimeFocusFacet struct {
 	facet.Facet
-	projection facet.ProjectionRole
-	lastResult job.AnyResult
+	focus facet.FocusRole
 }
 
-type runtimeSubscriptionFacet struct {
-	facet.Facet
-	store       *store.ValueStore[int]
-	changeCount int
-}
-
-type projectionJobFacet struct {
-	facet.Facet
-	projection facet.ProjectionRole
-
-	rt             *Runtime
-	scheduled      bool
-	projectCalls   int
-	commitCount    int
-	jobResultCount int
-	commitValue    int
-	dirtySeen      bool
-	jobStarted     chan struct{}
-	jobDone        chan struct{}
-	jobRelease     chan struct{}
-	lastResult     job.AnyResult
-	versionSource  *store.ValueStore[int]
-}
-
-type projectionRuntimeFacet struct {
-	facet.Facet
-	projection facet.ProjectionRole
-	scheduled  bool
-}
-
-func (f *runtimeLayerFacet) Base() *facet.Facet {
+func (f *runtimeFocusFacet) Base() *facet.Facet {
 	f.Facet.BindImpl(f)
 	return &f.Facet
-}
-
-func (f *runtimeLayerFacet) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	f.exportHits++
-	if f.onExport != nil {
-		f.onExport(ctx)
-	}
-	if len(f.anchors) == 0 {
-		return nil
-	}
-	out := make(layout.AnchorSet, len(f.anchors))
-	for id, pos := range f.anchors {
-		out[id] = pos
-	}
-	return out
-}
-
-func (f *runtimeProjectedFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
-	return &f.Facet
-}
-
-func (f *runtimeProjectedFacet) WorldPosition() gfx.Point {
-	return f.worldPos
-}
-
-func (f *runtimeProjectedFacet) WorldSize() gfx.Size {
-	return f.worldSize
 }
 
 func newRuntimeRenderFacet(name string, bounds gfx.Rect, fill color.RGBA) *runtimeRenderFacet {
@@ -280,14 +174,6 @@ func newRuntimeRenderFacet(name string, bounds gfx.Rect, fill color.RGBA) *runti
 	return f
 }
 
-func newRuntimeFocusFacet(tabIndex int) *runtimeFocusFacet {
-	f := &runtimeFocusFacet{Facet: facet.NewFacet()}
-	f.focus.Focusable = func() bool { return true }
-	f.focus.TabIndex = tabIndex
-	f.AddRole(&f.focus)
-	return f
-}
-
 func newLayoutCountLeaf(size gfx.Size) *layoutCountLeaf {
 	leaf := &layoutCountLeaf{Facet: facet.NewFacet(), size: size}
 	leaf.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -302,110 +188,12 @@ func newLayoutCountLeaf(size gfx.Size) *layoutCountLeaf {
 	return leaf
 }
 
-func newRuntimeJobFacet() *runtimeJobFacet {
-	f := &runtimeJobFacet{Facet: facet.NewFacet()}
-	f.projection.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		return nil
-	}
-	f.projection.OnJobResult = func(result job.AnyResult) {
-		f.lastResult = result
-	}
-	f.AddRole(&f.projection)
+func newRuntimeFocusFacet(tabIndex int) *runtimeFocusFacet {
+	f := &runtimeFocusFacet{Facet: facet.NewFacet()}
+	f.focus.Focusable = func() bool { return true }
+	f.focus.TabIndex = tabIndex
+	f.AddRole(&f.focus)
 	return f
-}
-
-func newRuntimeSubscriptionFacet(s *store.ValueStore[int]) *runtimeSubscriptionFacet {
-	f := &runtimeSubscriptionFacet{Facet: facet.NewFacet(), store: s}
-	return f
-}
-
-func (f *runtimeSubscriptionFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
-	return &f.Facet
-}
-func (f *runtimeSubscriptionFacet) OnAttach(ctx facet.AttachContext) {
-	facet.Store(facet.Subscribe(f), &f.store.OnChange, f.store.Version, func(signal.Change[int]) {
-		f.changeCount++
-	})
-}
-func (f *runtimeSubscriptionFacet) OnDetach()     {}
-func (f *runtimeSubscriptionFacet) OnActivate()   {}
-func (f *runtimeSubscriptionFacet) OnDeactivate() {}
-
-func newProjectionJobFacet() *projectionJobFacet {
-	f := &projectionJobFacet{
-		Facet:      facet.NewFacet(),
-		jobStarted: make(chan struct{}),
-		jobDone:    make(chan struct{}),
-		jobRelease: make(chan struct{}),
-	}
-	f.projection.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		f.projectCalls++
-		if !f.scheduled {
-			f.scheduled = true
-			snap := job.NewSnapshot(5, store.Version(0))
-			if f.versionSource != nil {
-				snap = job.NewSnapshot(5, f.versionSource.Version())
-				snap = job.BindCurrentVersions(snap, func() []store.Version {
-					return []store.Version{f.versionSource.Version()}
-				})
-			}
-			f.rt.Schedule(job.BindJob(uint64(f.ID()), job.Job[int, int]{
-				ID:       1,
-				Priority: job.PriorityBackground,
-				Snapshot: snap,
-				Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
-					defer close(f.jobDone)
-					close(f.jobStarted)
-					<-f.jobRelease
-					return snap.Data * 2, nil
-				},
-			}, func(v int) {
-				f.commitCount++
-				f.commitValue = v
-			}))
-		}
-		return &gfx.CommandList{}
-	}
-	f.projection.OnJobResult = func(result job.AnyResult) {
-		f.jobResultCount++
-		f.lastResult = result
-		if f.rt != nil && f.ID() != 0 {
-			f.dirtySeen = f.rt.dirtyFacets[f.ID()]&facet.DirtyProjection != 0
-		}
-		f.Base().InvalidateWithSource(facet.DirtyProjection, "OnJobResult")
-	}
-	f.AddRole(&f.projection)
-	return f
-}
-
-func newProjectionRuntimeFacet() *projectionRuntimeFacet {
-	f := &projectionRuntimeFacet{Facet: facet.NewFacet()}
-	f.projection.OnProject = func(ctx facet.ProjectionContext) *gfx.CommandList {
-		if !f.scheduled {
-			f.scheduled = true
-			ctx.Runtime.Schedule(job.BindJob(uint64(f.ID()), job.Job[int, int]{
-				ID:       2,
-				Priority: job.PriorityBackground,
-				Snapshot: job.NewSnapshot(1),
-				Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
-					return snap.Data + 1, nil
-				},
-			}, func(int) {}))
-		}
-		return &gfx.CommandList{}
-	}
-	f.AddRole(&f.projection)
-	return f
-}
-
-func newRuntimeTestTree() (*runtimeTestFacet, *runtimeTestFacet, *runtimeTestFacet) {
-	root := &runtimeTestFacet{Facet: facet.NewFacet(), name: "root"}
-	child := &runtimeTestFacet{Facet: facet.NewFacet(), name: "child"}
-	leaf := &runtimeTestFacet{Facet: facet.NewFacet(), name: "leaf"}
-	root.AddChild(&child.Facet)
-	child.AddChild(&leaf.Facet)
-	return root, child, leaf
 }
 
 func newRuntimeRenderTree() (*runtimeRenderFacet, *runtimeRenderFacet) {
@@ -426,151 +214,6 @@ func newRuntimeRenderTree() (*runtimeRenderFacet, *runtimeRenderFacet) {
 	}
 	child := newRuntimeRenderFacet("child", gfx.RectFromXYWH(0, 0, 40, 40), color.RGBA{R: 200, G: 0, B: 0, A: 255})
 	return root, child
-}
-
-func newRuntimeLayerTree() (*runtimeLayerFacet, *runtimeRenderFacet) {
-	root := &runtimeLayerFacet{
-		Facet: facet.NewFacet(),
-	}
-	root.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-		return facet.MeasureResult{Size: gfx.Size{W: 100, H: 100}}
-	}
-	root.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		root.layout.ArrangedBounds = bounds
-	}
-	root.layout.Child.SupportedPlacement = facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear
-	root.AddRole(&root.layout)
-	child := newRuntimeRenderFacet("child", gfx.RectFromXYWH(0, 0, 20, 10), color.RGBA{R: 200, G: 0, B: 0, A: 255})
-	return root, child
-}
-
-func newRuntimeAnchorTree() (*runtimeLayerFacet, *runtimeLayerFacet, *runtimeTestFacet) {
-	root := &runtimeLayerFacet{
-		Facet: facet.NewFacet(),
-	}
-	root.AddRole(&root.layout)
-	exporter := &runtimeLayerFacet{
-		Facet:   facet.NewFacet(),
-		anchors: layout.AnchorSet{"mark": gfx.Point{X: 10, Y: 20}},
-	}
-	exporter.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult { return facet.MeasureResult{} }
-	exporter.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) { exporter.layout.ArrangedBounds = bounds }
-	exporter.layout.Child.SupportedPlacement = facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear
-	exporter.AddRole(&exporter.layout)
-	child := &runtimeTestFacet{Facet: facet.NewFacet(), name: "anchor-child"}
-	root.Base()
-	exporter.Base()
-	child.Base()
-	root.AddChild(&exporter.Facet)
-	root.AddChild(&child.Facet)
-	return root, exporter, child
-}
-
-func newRuntimeAnchorPlacementTree() (*runtimeLayerFacet, *runtimeLayerFacet, *runtimeRenderFacet) {
-	root := &runtimeLayerFacet{
-		Facet: facet.NewFacet(),
-	}
-	root.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-		return facet.MeasureResult{Size: gfx.Size{W: 300, H: 300}}
-	}
-	root.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		root.layout.ArrangedBounds = bounds
-	}
-	root.AddRole(&root.layout)
-
-	exporter := &runtimeLayerFacet{
-		Facet:   facet.NewFacet(),
-		anchors: layout.AnchorSet{"mark": gfx.Point{X: 100, Y: 200}},
-	}
-	exporter.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult { return facet.MeasureResult{} }
-	exporter.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) { exporter.layout.ArrangedBounds = bounds }
-	exporter.layout.Child.SupportedPlacement = facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear
-	exporter.AddRole(&exporter.layout)
-
-	child := newRuntimeRenderFacet("anchor-child", gfx.RectFromXYWH(0, 0, 50, 30), color.RGBA{R: 0, G: 128, B: 255, A: 255})
-	child.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-		return facet.MeasureResult{Size: gfx.Size{W: 50, H: 30}}
-	}
-	child.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		child.layout.ArrangedBounds = bounds
-	}
-	child.AddRole(&child.layout)
-
-	root.Base()
-	exporter.Base()
-	child.Base()
-	return root, exporter, child
-}
-
-func newRuntimeProjectedTree() (*runtimeLayerFacet, *runtimeProjectedFacet) {
-	root := &runtimeLayerFacet{
-		Facet: facet.NewFacet(),
-	}
-	root.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-		return facet.MeasureResult{Size: gfx.Size{W: 400, H: 400}}
-	}
-	root.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		root.layout.ArrangedBounds = bounds
-	}
-	root.AddRole(&root.layout)
-
-	child := &runtimeProjectedFacet{
-		Facet:     facet.NewFacet(),
-		worldPos:  gfx.Point{X: 100, Y: 200},
-		worldSize: gfx.Size{W: 50, H: 30},
-	}
-	child.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-		return facet.MeasureResult{Size: gfx.Size{W: 50, H: 30}}
-	}
-	child.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		child.layout.ArrangedBounds = bounds
-	}
-	child.AddRole(&child.layout)
-
-	root.Base()
-	child.Base()
-	return root, child
-}
-
-func setupAnchorExportRuntime(t *testing.T, root *runtimeLayerFacet, exporter *runtimeLayerFacet, child *runtimeTestFacet) *Runtime {
-	t.Helper()
-	rt := mustRuntimeTree(t, root)
-	rt.config.LayerRegistry = testLayerRegistry(t)
-	rt.layerRegistry = rt.config.LayerRegistry
-	rt.projectionLayers[exporter.ID()] = facet.ProjectionLayer{Bounds: gfx.RectFromXYWH(0, 0, 100, 100), Transform: gfx.Identity(), ClipRect: gfx.Rect{}}
-	rt.projectionLayers[child.ID()] = facet.ProjectionLayer{Bounds: gfx.RectFromXYWH(0, 0, 100, 100), Transform: gfx.Identity(), ClipRect: gfx.Rect{}}
-	rt.childAttachments[exporter.ID()] = facet.Attachment{LayerID: facet.LayerID(1)}
-	rt.childAttachments[child.ID()] = facet.Attachment{
-		LayerID: facet.LayerID(2),
-		Placement: facet.Placement{
-			Mode: facet.PlacementAnchor,
-			Anchor: facet.AnchorPlacement{
-				AnchorRef: "mark",
-			},
-		},
-	}
-	return rt
-}
-
-type assemblyLayerResolverStub struct {
-	layers      map[facet.FacetID]facet.ProjectionLayer
-	attachments map[facet.FacetID]facet.Attachment
-}
-
-func (s assemblyLayerResolverStub) ResolveProjectionLayer(id facet.FacetID) (facet.ProjectionLayer, bool) {
-	if s.layers == nil {
-		return facet.ProjectionLayer{}, false
-	}
-	layer, ok := s.layers[id]
-	return layer, ok
-}
-
-func (s assemblyLayerResolverStub) ResolveChildAttachment(id facet.FacetID) (facet.Attachment, bool) {
-	if s.attachments == nil {
-		return facet.Attachment{}, false
-	}
-	attachment, ok := s.attachments[id]
-	return attachment, ok
 }
 
 func expectPanicContains(t *testing.T, want string, fn func()) {
@@ -616,28 +259,6 @@ func mustRuntimeWithBackend(t *testing.T, root facet.FacetImpl, backend render.B
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
 	rt, err := New(cfg, nil, nil, backend, root)
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-	return rt
-}
-
-func mustRuntimeWithApp(t *testing.T, app platform.App, root facet.FacetImpl) *Runtime {
-	t.Helper()
-	cfg := DefaultConfig()
-	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, app, nil, &backendFixture{}, root)
-	if err != nil {
-		t.Fatalf("new runtime: %v", err)
-	}
-	return rt
-}
-
-func mustRuntimeWithAppAndBackend(t *testing.T, app platform.App, root facet.FacetImpl, backend render.Backend) *Runtime {
-	t.Helper()
-	cfg := DefaultConfig()
-	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, app, nil, backend, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}

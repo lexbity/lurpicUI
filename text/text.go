@@ -650,34 +650,6 @@ func (l *TextLayout) graphemeRangeForRuneBounds(start, end int) (int, int) {
 	return l.graphemeIndexForRuneIndex(start, AffinityDownstream), l.graphemeIndexForRuneIndex(end, AffinityUpstream)
 }
 
-func (l *TextLayout) positionFromHit(line *ShapedLine, runeIndex int, x float32) TextPosition {
-	if l == nil || line == nil {
-		return GraphemePosition(0, AffinityDownstream)
-	}
-	if len(l.graphemes) == 0 || line.RuneCount == 0 {
-		return l.positionFromRuneIndex(runeIndex, AffinityUpstream)
-	}
-	graphemeIndex := l.graphemeIndexForRuneIndex(runeIndex, AffinityUpstream)
-	if graphemeIndex >= l.GraphemeCount() {
-		return l.positionFromRuneIndex(line.FirstRune+line.RuneCount, AffinityUpstream)
-	}
-	startRune := l.runeIndexForGraphemeIndex(graphemeIndex)
-	endRune := l.runeIndexForGraphemeIndex(graphemeIndex + 1)
-	startLocal := clampInt(startRune-line.FirstRune, 0, len(line.clusterMap)-1)
-	endLocal := clampInt(endRune-line.FirstRune, 0, len(line.clusterMap)-1)
-	startX := line.Bounds.Min.X
-	if startLocal < len(line.clusterMap) {
-		startX += line.clusterMap[startLocal]
-	}
-	endX := line.Bounds.Max.X
-	if endLocal < len(line.clusterMap) {
-		endX = line.Bounds.Min.X + line.clusterMap[endLocal]
-	}
-	if x <= (startX+endX)/2 {
-		return GraphemePosition(graphemeIndex, AffinityUpstream)
-	}
-	return GraphemePosition(graphemeIndex+1, AffinityDownstream)
-}
 
 func graphemeBoundaries(runes []rune) []int {
 	if len(runes) == 0 {

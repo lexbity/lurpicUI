@@ -1,0 +1,37 @@
+[
+  {
+    "rule_id": "LL011",
+    "severity": "error",
+    "file": "pkg.go",
+    "line": 5,
+    "message": "channel type in facet code"
+  },
+  {
+    "rule_id": "LL011",
+    "severity": "error",
+    "file": "pkg.go",
+    "line": 9,
+    "message": "channel type in facet code"
+  },
+  {
+    "rule_id": "LL011",
+    "severity": "error",
+    "file": "pkg.go",
+    "line": 12,
+    "message": "raw goroutine: use job.Schedule instead"
+  },
+  {
+    "rule_id": "LL011",
+    "severity": "error",
+    "file": "pkg.go",
+    "line": 13,
+    "message": "channel send operation in facet code"
+  },
+  {
+    "rule_id": "LL011",
+    "severity": "error",
+    "file": "pkg.go",
+    "line": 16,
+    "message": "channel receive operation in facet code"
+  }
+]

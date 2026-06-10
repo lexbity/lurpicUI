@@ -44,7 +44,6 @@ type runBuilder struct {
 	glyphs           []PositionedGlyph
 	startX           float32
 	advance          float32
-	runeText         int
 	direction        di.Direction
 	level            int
 	graphemeAdvances []float32

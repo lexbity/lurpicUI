@@ -378,36 +378,6 @@ type resolvedSegment struct {
 	Script    language.Script
 }
 
-type visualRun struct {
-	Text      []rune
-	Direction di.Direction
-}
-
-func (s *Shaper) visualRuns(text []rune, paragraph Paragraph, span TextSpan) []visualRun {
-	if len(text) == 0 {
-		return nil
-	}
-	baseDirection := resolveBidiDirection(paragraph.Direction, span.Direction, text)
-	var para xtextbidi.Paragraph
-	if _, err := para.SetString(string(text), xtextbidi.DefaultDirection(toBidiDirection(baseDirection))); err != nil {
-		return []visualRun{{Text: append([]rune(nil), text...), Direction: baseDirection}}
-	}
-	ordering, err := para.Order()
-	if err != nil || ordering.NumRuns() == 0 {
-		return []visualRun{{Text: append([]rune(nil), text...), Direction: baseDirection}}
-	}
-	out := make([]visualRun, 0, ordering.NumRuns())
-	for i := 0; i < ordering.NumRuns(); i++ {
-		run := ordering.Run(i)
-		dir := fromBidiDirection(run.Direction())
-		out = append(out, visualRun{
-			Text:      []rune(run.String()),
-			Direction: dir,
-		})
-	}
-	return out
-}
-
 type logicalRun struct {
 	Text      []rune
 	Direction di.Direction

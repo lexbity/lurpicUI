@@ -1,0 +1,200 @@
+[
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "studio/chart_canvas.go",
+    "line": 125,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99
+    ]
+  },
+  {
+    "rule_id": "LL014",
+    "severity": "error",
+    "file": "studio/overlays.go",
+    "line": 17,
+    "message": "overlay OverlayHost missing: layer registration, hit policy, dismissal trigger (V2 Rule 6)"
+  },
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "studio/overlays.go",
+    "line": 112,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [
+      97,
+      98,
+      99,
+      100,
+      101,
+      102,
+      103,
+      104,
+      105
+    ]
+  },
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "studio/panel_inspector.go",
+    "line": 129,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [
+      124,
+      126
+    ]
+  },
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "studio/panel_sources.go",
+    "line": 130,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [
+      123,
+      124,
+      126,
+      128
+    ]
+  },
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "studio/status_bar.go",
+    "line": 46,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [
+      40,
+      41,
+      42,
+      43,
+      44
+    ]
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/chart_canvas.go",
+    "line": 125,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL012",
+    "severity": "warn",
+    "file": "studio/chrome.go",
+    "line": 22,
+    "message": "field iconBtns looks like domain state; facets should be stateless (Principles 1 and 8)"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/chrome.go",
+    "line": 193,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/overlays.go",
+    "line": 112,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/panel_center.go",
+    "line": 142,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/panel_inspector.go",
+    "line": 129,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL012",
+    "severity": "warn",
+    "file": "studio/panel_inspector.go",
+    "line": 187,
+    "message": "field controlFacets looks like domain state; facets should be stateless (Principles 1 and 8)"
+  },
+  {
+    "rule_id": "LL012",
+    "severity": "warn",
+    "file": "studio/panel_sources.go",
+    "line": 25,
+    "message": "field listItems looks like domain state; facets should be stateless (Principles 1 and 8)"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/panel_sources.go",
+    "line": 130,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/root.go",
+    "line": 27,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/root.go",
+    "line": 124,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "studio/status_bar.go",
+    "line": 46,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL004",
+    "severity": "info",
+    "file": "studio/chart_canvas.go",
+    "line": 125,
+    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+  },
+  {
+    "rule_id": "LL004",
+    "severity": "info",
+    "file": "studio/overlays.go",
+    "line": 112,
+    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+  },
+  {
+    "rule_id": "LL004",
+    "severity": "info",
+    "file": "studio/panel_inspector.go",
+    "line": 129,
+    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+  },
+  {
+    "rule_id": "LL004",
+    "severity": "info",
+    "file": "studio/panel_sources.go",
+    "line": 130,
+    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+  },
+  {
+    "rule_id": "LL004",
+    "severity": "info",
+    "file": "studio/status_bar.go",
+    "line": 46,
+    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+  }
+]

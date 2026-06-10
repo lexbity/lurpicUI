@@ -1,0 +1,9 @@
+[
+  {
+    "rule_id": "LL010",
+    "severity": "error",
+    "file": "pkg.go",
+    "line": 3,
+    "message": "facet or projection package imports render backend; the projection layer must not depend on the render backend (Principle 3)"
+  }
+]

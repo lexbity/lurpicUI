@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "diagnostics": [
+    {
+      "rule_id": "LL003",
+      "severity": "error",
+      "pos": {
+        "file": "app.go",
+        "line": 10,
+        "column": 5
+      },
+      "message": "hand-rolled layout container: arrange loop over child facets",
+      "teaching": {
+        "did": "wrote a LayoutRole that positions children",
+        "use_this": "structure/panel",
+        "index_ref": "marks/structure.Panel"
+      },
+      "related": [
+        {
+          "file": "app.go",
+          "line": 15,
+          "column": 2
+        },
+        {
+          "file": "app.go",
+          "line": 22,
+          "column": 2
+        }
+      ]
+    },
+    {
+      "rule_id": "LL001",
+      "severity": "warn",
+      "pos": {
+        "file": "app.go",
+        "line": 8,
+        "column": 5
+      },
+      "message": "raw LayoutRole literal with OnArrange set",
+      "teaching": {
+        "did": "populated a LayoutRole struct directly",
+        "use_this": "an existing layout container or mark"
+      }
+    },
+    {
+      "rule_id": "LL004",
+      "severity": "info",
+      "pos": {
+        "file": "custom.go",
+        "line": 3,
+        "column": 1
+      },
+      "message": "child-arranging facet matches built-in RowLayout",
+      "teaching": {
+        "did": "defined a custom facet that arranges children horizontally",
+        "use_this": "layout.RowLayout",
+        "index_ref": "layout/linear.Row"
+      }
+    }
+  ]
+}

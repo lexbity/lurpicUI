@@ -419,6 +419,13 @@ add_custom_target(build-lurpic-cli
   VERBATIM
 )
 
+add_custom_target(build-lurpiclint
+  COMMAND ${LURPIC_GO_EXECUTABLE} build -o "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" ./cmd/lurpiclint/...
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Build the lurpiclint static analyzer"
+  VERBATIM
+)
+
 add_custom_target(android-emulator
   COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpic" run android --emulator
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

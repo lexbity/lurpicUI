@@ -1,0 +1,10 @@
+[
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "ll003_bad.go",
+    "line": 21,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [28, 29]
+  }
+]

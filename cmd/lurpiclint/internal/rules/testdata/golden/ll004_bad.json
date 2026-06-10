@@ -1,0 +1,9 @@
+[
+  {
+    "rule_id": "LL004",
+    "severity": "info",
+    "file": "ll003_bad.go",
+    "line": 21,
+    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+  }
+]

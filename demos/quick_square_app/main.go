@@ -1,8 +1,9 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"math"
+	"os"
 
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -10,16 +11,27 @@ import (
 )
 
 func main() {
-	cfg := app.DefaultConfig("lurpicUI square demo", 800, 600)
+	cfg := app.DefaultConfig("lurpicUI Square Demo", 800, 600)
 	cfg.Render = app.RenderBackendSoftware
-
 	if err := app.Run(cfg, buildRoot); err != nil {
-		log.Fatal(err)
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
 	}
 }
 
+type squareDemoRoot struct {
+	root   facet.Facet
+	layout facet.LayoutRole
+	render facet.RenderRole
+}
+
+func (r *squareDemoRoot) Base() *facet.Facet               { return &r.root }
+func (r *squareDemoRoot) OnAttach(ctx facet.AttachContext) {}
+func (r *squareDemoRoot) OnDetach()                        {}
+func (r *squareDemoRoot) OnActivate()                      {}
+func (r *squareDemoRoot) OnDeactivate()                    {}
+
 func buildRoot(ctx app.BuildContext) facet.FacetImpl {
-	_ = ctx
 	root := &squareDemoRoot{}
 	root.layout = facet.LayoutRole{
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -47,39 +59,16 @@ func buildRoot(ctx app.BuildContext) facet.FacetImpl {
 			list.Add(gfx.FillRect{Rect: square, Brush: gfx.SolidBrush(accent)})
 		},
 	}
-	root.Facet.AddRole(&root.layout)
-	root.Facet.AddRole(&root.render)
+	root.root.AddRole(&root.layout)
+	root.root.AddRole(&root.render)
 	return root
 }
 
 func squareSide(bounds gfx.Rect) float32 {
-	w := bounds.Width()
-	h := bounds.Height()
-	if w <= 0 || h <= 0 {
-		return 128
+	ww := bounds.Max.X - bounds.Min.X
+	hh := bounds.Max.Y - bounds.Min.Y
+	if ww <= 0 || hh <= 0 {
+		return 0
 	}
-	side := float32(math.Min(float64(w), float64(h))) * 0.4
-	if side < 96 {
-		side = 96
-	}
-	if side > 240 {
-		side = 240
-	}
-	return side
+	return float32(math.Min(float64(ww), float64(hh))) * 0.6
 }
-
-type squareDemoRoot struct {
-	facet.Facet
-	layout facet.LayoutRole
-	render facet.RenderRole
-}
-
-func (r *squareDemoRoot) Base() *facet.Facet {
-	r.Facet.BindImpl(r)
-	return &r.Facet
-}
-
-func (r *squareDemoRoot) OnAttach(ctx facet.AttachContext) {}
-func (r *squareDemoRoot) OnDetach()                        {}
-func (r *squareDemoRoot) OnActivate()                      {}
-func (r *squareDemoRoot) OnDeactivate()                    {}

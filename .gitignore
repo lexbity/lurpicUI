@@ -11,6 +11,7 @@ marks/**/**/testdata/
 .windsurf
 .github
 .tools
+*.test
 "/
 Stravatar-APP/
 devdocs/

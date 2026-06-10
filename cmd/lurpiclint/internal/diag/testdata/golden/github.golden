@@ -1,0 +1,3 @@
+::error file=app.go,line=10,col=5::LL003: hand-rolled layout container: arrange loop over child facets
+::warning file=app.go,line=8,col=5::LL001: raw LayoutRole literal with OnArrange set
+::notice file=custom.go,line=3,col=1::LL004: child-arranging facet matches built-in RowLayout

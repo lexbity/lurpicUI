@@ -1,0 +1,8 @@
+app.go:10:5: error LL003: hand-rolled layout container: arrange loop over child facets
+       help: wrote a LayoutRole that positions children — use structure/panel (marks/structure.Panel)
+       see: app.go:15:2
+       see: app.go:22:2
+app.go:8:5: warn LL001: raw LayoutRole literal with OnArrange set
+       help: populated a LayoutRole struct directly — use an existing layout container or mark
+custom.go:3:1: info LL004: child-arranging facet matches built-in RowLayout
+       help: defined a custom facet that arranges children horizontally — use layout.RowLayout (layout/linear.Row)

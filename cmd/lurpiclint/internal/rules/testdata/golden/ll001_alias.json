@@ -1,0 +1,9 @@
+[
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "ll001_alias.go",
+    "line": 15,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  }
+]

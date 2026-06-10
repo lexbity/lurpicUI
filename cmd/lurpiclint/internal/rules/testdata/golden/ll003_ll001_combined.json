@@ -1,0 +1,24 @@
+[
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "ll003_bad.go",
+    "line": 21,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [28, 29]
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "ll003_bad.go",
+    "line": 21,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL004",
+    "severity": "info",
+    "file": "ll003_bad.go",
+    "line": 21,
+    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+  }
+]

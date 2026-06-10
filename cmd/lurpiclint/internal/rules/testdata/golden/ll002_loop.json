@@ -1,0 +1,9 @@
+[
+  {
+    "rule_id": "LL002",
+    "severity": "warn",
+    "file": "ll002_loop.go",
+    "line": 18,
+    "message": "absolute coordinate placement via gfx.RectFromXYWH; prefer relative layout or an existing container"
+  }
+]
