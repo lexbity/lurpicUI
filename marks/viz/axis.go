@@ -57,7 +57,7 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 		LabelColor:  gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1},
 		fonts:       fonts,
 	}
-	a.Core.Facet = facet.NewFacet()
+	a.Facet = facet.NewFacet()
 	if a.fonts != nil {
 		a.shaper = text.NewShaper(a.fonts)
 	}
@@ -82,7 +82,7 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 }
 
 func (a *Axis) Base() *facet.Facet {
-	a.Facet.BindImpl(a)
+	a.BindImpl(a)
 	return &a.Facet
 }
 
@@ -90,10 +90,10 @@ func (a *Axis) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: "viz", TypeName: "axis"}
 }
 
-func (a *Axis) OnAttach(ctx facet.AttachContext)  { a.Core.OnAttach() }
-func (a *Axis) OnDetach()                          { a.Core.OnDetach(); a.entries = nil }
-func (a *Axis) OnActivate()                        { a.Core.OnActivate() }
-func (a *Axis) OnDeactivate()                      { a.Core.OnDeactivate() }
+func (a *Axis) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach() }
+func (a *Axis) OnDetach()                        { a.Core.OnDetach(); a.entries = nil }
+func (a *Axis) OnActivate()                      { a.Core.OnActivate() }
+func (a *Axis) OnDeactivate()                    { a.Core.OnDeactivate() }
 
 func (a *Axis) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return a.DefaultAnchors(a.Layout.ArrangedBounds, ctx)

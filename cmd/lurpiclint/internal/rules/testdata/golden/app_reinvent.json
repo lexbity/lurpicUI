@@ -1,0 +1,31 @@
+[
+  {
+    "rule_id": "LL003",
+    "severity": "error",
+    "file": "reinvent.go",
+    "line": 19,
+    "message": "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
+    "related_lines": [25]
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "reinvent.go",
+    "line": 19,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL001",
+    "severity": "warn",
+    "file": "reinvent.go",
+    "line": 40,
+    "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+  },
+  {
+    "rule_id": "LL002",
+    "severity": "warn",
+    "file": "reinvent.go",
+    "line": 42,
+    "message": "absolute coordinate placement via gfx.RectFromXYWH; prefer relative layout or an existing container"
+  }
+]

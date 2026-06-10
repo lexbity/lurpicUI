@@ -99,9 +99,9 @@ func TestPoint_invertRange_basic(t *testing.T) {
 		{149, "B", true},
 		{151, "C", true},
 		{200, "C", true},
-		{249, "C", true},  // >0.5 step past C → idx=Round(2.49)=2 → C? Actually Round(2.49)=2, idx=2 < 3 → C
+		{249, "C", true}, // >0.5 step past C → idx=Round(2.49)=2 → C? Actually Round(2.49)=2, idx=2 < 3 → C
 		// Wait, for 249: (249-0)/100 = 2.49, Round(2.49) = 2, idx=2 → C. Outside domain by 49px but nearest is C.
-		{-51, "", false},  // >0.5 step before A → idx=Round(-0.51)=-1 → false
+		{-51, "", false}, // >0.5 step before A → idx=Round(-0.51)=-1 → false
 		{300, "", false}, // well past C
 	}
 	for _, tt := range tests {

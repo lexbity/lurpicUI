@@ -120,7 +120,7 @@ func (r *RowLayout) Add(child FlexChild) {
 		return
 	}
 	r.children = append(r.children, child)
-	r.Facet.AddChild(child.Facet.Base())
+	r.AddChild(child.Facet.Base())
 }
 
 // ColumnLayout arranges children top-to-bottom.
@@ -153,7 +153,7 @@ func (c *ColumnLayout) Add(child FlexChild) {
 		return
 	}
 	c.children = append(c.children, child)
-	c.Facet.AddChild(child.Facet.Base())
+	c.AddChild(child.Facet.Base())
 }
 
 func (r *RowLayout) onMeasure(c Constraints) gfx.Size {

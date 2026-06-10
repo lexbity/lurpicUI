@@ -11,9 +11,9 @@ import (
 )
 
 type barItem struct {
-	id   store.ItemID
-	cat  string
-	val  float64
+	id  store.ItemID
+	cat string
+	val float64
 }
 
 func barID(i barItem) store.ItemID { return i.id }

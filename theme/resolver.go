@@ -88,7 +88,7 @@ func (s DensityScale) ResolveTextStyle(token TextToken) text.TextStyle {
 
 // DefaultDensityScale constructs a density scale from the canonical token set.
 func DefaultDensityScale(id DensityID, tokens Tokens) DensityScale {
-	factor := float32(1)
+	var factor float32
 	switch id {
 	case DensityIDCompact:
 		factor = 0.93
@@ -142,10 +142,10 @@ func NewResolvedContext(tokens Tokens) ResolvedContext {
 	scales := DefaultDensityScales(tokens)
 	materials := NewMaterialRegistry()
 	return ResolvedContext{
-		defaultContext:   defaultContext{tokens: tokens},
-		Materials:        materials,
-		Density:          scales[DensityIDComfortable],
-		FontRegistry:     nil,
+		defaultContext: defaultContext{tokens: tokens},
+		Materials:      materials,
+		Density:        scales[DensityIDComfortable],
+		FontRegistry:   nil,
 		Lighting: LightingContext{
 			Enabled:   true,
 			Angle:     135,
@@ -165,7 +165,7 @@ func Default() ResolvedContext {
 
 // TokenSet returns the underlying token table.
 func (c ResolvedContext) TokenSet() Tokens {
-	return c.defaultContext.tokens
+	return c.tokens
 }
 
 // Color resolves a semantic color token.
@@ -190,7 +190,7 @@ func (c ResolvedContext) Spacing(t SpacingToken) layout.ResolvedScalar {
 func (c ResolvedContext) TextStyle(t TextToken) text.TextStyle {
 	if c.Density.Type != (TypographyTokens{}) {
 		style := c.Density.ResolveTextStyle(t)
-		return c.defaultContext.tokens.Fonts.ResolveTextStyle(t, style, c.FontRegistry)
+		return c.tokens.Fonts.ResolveTextStyle(t, style, c.FontRegistry)
 	}
 	return c.defaultContext.TextStyle(t)
 }

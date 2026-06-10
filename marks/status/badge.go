@@ -56,7 +56,7 @@ func NewBadge(label string) *Badge {
 		IconRef:  marks.Const(""),
 		Disabled: marks.Const(false),
 	}
-	b.Core.Facet = facet.NewFacet()
+	b.Facet = facet.NewFacet()
 	b.AddBinding(b.Label)
 	b.AddBinding(b.IconRef)
 	b.AddBinding(b.Disabled)
@@ -103,7 +103,7 @@ func NewBadge(label string) *Badge {
 
 // Base satisfies facet.FacetImpl.
 func (b *Badge) Base() *facet.Facet {
-	b.Facet.BindImpl(b)
+	b.BindImpl(b)
 	return &b.Facet
 }
 
@@ -149,7 +149,7 @@ func (b *Badge) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 		return nil
 	}
 	bounds := b.Layout.ArrangedBounds
-	out := b.Core.DefaultAnchors(bounds, ctx)
+	out := b.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -194,7 +194,7 @@ func (b *Badge) invalidate(flags facet.DirtyFlags) {
 	if b == nil {
 		return
 	}
-	b.Facet.Invalidate(flags)
+	b.Invalidate(flags)
 }
 
 func (b *Badge) syncChildren() {
@@ -477,7 +477,7 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	}
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
 		if v.IsNil() {
 			return nil
 		}

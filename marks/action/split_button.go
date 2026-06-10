@@ -121,7 +121,7 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		pressedIndex:   -1,
 		Activated:      signal.NewSignal[string]("split_button_activated"),
 	}
-	s.Core.Facet = facet.NewFacet()
+	s.Facet = facet.NewFacet()
 	s.AddBinding(s.Label)
 	s.AddBinding(s.Key)
 	s.AddBinding(s.Items)
@@ -204,7 +204,7 @@ func (s *SplitButton) setOpen(open bool) {
 
 // Base satisfies facet.FacetImpl.
 func (s *SplitButton) Base() *facet.Facet {
-	s.Facet.BindImpl(s)
+	s.BindImpl(s)
 	return &s.Facet
 }
 
@@ -230,7 +230,7 @@ func (s *SplitButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 		return nil
 	}
 	bounds := s.Layout.ArrangedBounds
-	out := s.Core.DefaultAnchors(bounds, ctx)
+	out := s.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -300,7 +300,7 @@ func (s *SplitButton) invalidate(flags facet.DirtyFlags) {
 	if s == nil {
 		return
 	}
-	s.Facet.Invalidate(flags)
+	s.Invalidate(flags)
 }
 
 func (s *SplitButton) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedContext, shared.SplitButtonSlots, bool) {

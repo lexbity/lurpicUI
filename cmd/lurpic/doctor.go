@@ -171,7 +171,7 @@ func checkEmulatorToolchain(runner Runner, verbose bool) {
 	}
 
 	// Check for x86_64 google_apis system image
-	sysImage := fmt.Sprintf("system-images;android-33;google_apis;x86_64")
+	sysImage := "system-images;android-33;google_apis;x86_64"
 	_ = sysImage
 	if verbose {
 		imageFound := checkSystemImage(sdk, 33, "x86_64")
@@ -183,7 +183,7 @@ func checkEmulatorToolchain(runner Runner, verbose bool) {
 	}
 
 	// Check managed AVD
-	avdDir := fmt.Sprintf("lurpic_api33_google_apis_x86_64")
+	avdDir := "lurpic_api33_google_apis_x86_64"
 	_ = avdDir
 	if verbose {
 		avdFound := checkManagedAVD("lurpic_api33_google_apis_x86_64")

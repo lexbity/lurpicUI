@@ -51,7 +51,7 @@ type TypeInfo interface {
 
 // LoadResult is the output of a Load call.
 type LoadResult struct {
-	Files    []*ParsedFile        // all files across all packages, sorted by path
-	Packages map[string]*Package  // keyed by directory path
-	Fset     *token.FileSet       // shared FileSet for all parsed files
+	Files    []*ParsedFile       // all files across all packages, sorted by path
+	Packages map[string]*Package // keyed by directory path
+	Fset     *token.FileSet      // shared FileSet for all parsed files
 }

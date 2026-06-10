@@ -75,7 +75,7 @@ func NewTurnDial(label string, min, max, step float64) *TurnDial {
 		Precision: 1,
 		DialSize:  72,
 	}
-	td.Core.Facet = facet.NewFacet()
+	td.Facet = facet.NewFacet()
 	td.AddBinding(td.Label)
 	td.AddBinding(td.Disabled)
 
@@ -138,7 +138,7 @@ func NewTurnDial(label string, min, max, step float64) *TurnDial {
 
 // Base satisfies facet.FacetImpl.
 func (td *TurnDial) Base() *facet.Facet {
-	td.Facet.BindImpl(td)
+	td.BindImpl(td)
 	return &td.Facet
 }
 

@@ -524,7 +524,7 @@ type simpleFacet struct {
 	base *facet.Facet
 }
 
-func (s *simpleFacet) Base() *facet.Facet          { return s.base }
+func (s *simpleFacet) Base() *facet.Facet           { return s.base }
 func (s *simpleFacet) OnAttach(facet.AttachContext) {}
 func (s *simpleFacet) OnDetach()                    {}
 func (s *simpleFacet) OnActivate()                  {}

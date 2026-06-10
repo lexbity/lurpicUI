@@ -13,14 +13,7 @@ func TestCmdValidateDemos_runsExpectedSuites(t *testing.T) {
 		t.Fatalf("write go.mod: %v", err)
 	}
 
-	originalWD, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("Getwd: %v", err)
-	}
-	defer os.Chdir(originalWD)
-	if err := os.Chdir(tmp); err != nil {
-		t.Fatalf("Chdir: %v", err)
-	}
+	t.Chdir(tmp)
 
 	originalRunner := runGoTestSuite
 	originalRootFinder := findGoModuleRootFunc

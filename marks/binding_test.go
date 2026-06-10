@@ -221,12 +221,13 @@ func TestConst_copy_preserves_independence(t *testing.T) {
 		t.Fatal("copy must equal original")
 	}
 	b1 = b3
+	_ = b1
 	if b2.Get() != "hello" {
 		t.Fatal("reassigning original must not affect copy")
 	}
 }
 
-type hasExportedFields interface{}
+type hasExportedFields any
 
 func TestBinding_no_mutation_api(t *testing.T) {
 	// Compile-time check: Binding[T] must not expose Set or similar mutations.

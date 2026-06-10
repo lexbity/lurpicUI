@@ -17,22 +17,22 @@ type fakeBackend struct {
 	initializeErr error
 	submitErr     error
 
-	freed      []render.TextureID
-	freedMu    sync.Mutex
+	freed   []render.TextureID
+	freedMu sync.Mutex
 
-	uploads          []uploadRecord
-	uploadsMu        sync.Mutex
+	uploads   []uploadRecord
+	uploadsMu sync.Mutex
 
-	supportsTexture  bool
+	supportsTexture bool
 }
 
 type uploadRecord struct {
-	AssetID  uint64
-	LOD      int
-	Data     []byte
-	Width    uint16
-	Height   uint16
-	Format   render.TextureFormat
+	AssetID uint64
+	LOD     int
+	Data    []byte
+	Width   uint16
+	Height  uint16
+	Format  render.TextureFormat
 }
 
 func (b *fakeBackend) Initialize(surface render.Surface) error {

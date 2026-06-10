@@ -372,7 +372,7 @@ func (l *ShapedLine) hitTestClusterIndex(x float32) (int, bool) {
 			}
 			return i + 1, true
 		}
-		dist := float32(0)
+		var dist float32
 		if x < minX {
 			dist = minX - x
 		} else {

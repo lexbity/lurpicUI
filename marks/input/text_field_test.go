@@ -233,5 +233,3 @@ func textLayoutForTest(t *testing.T, content string) *text.TextLayout {
 	style.Family = "noto-sans-regular"
 	return shaper.ShapeSimple(content, style)
 }
-
-

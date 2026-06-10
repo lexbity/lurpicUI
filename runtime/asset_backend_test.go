@@ -270,5 +270,3 @@ func assetIDFromHex(t *testing.T, s string) assets.AssetID {
 	}
 	return id
 }
-
-

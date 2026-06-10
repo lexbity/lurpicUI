@@ -13,8 +13,8 @@ import (
 
 type vizRuntimeStub struct{}
 
-func (vizRuntimeStub) Schedule(j job.AnyJob)                  {}
-func (vizRuntimeStub) CancelJob(id job.JobID)                 {}
+func (vizRuntimeStub) Schedule(j job.AnyJob)                                              {}
+func (vizRuntimeStub) CancelJob(id job.JobID)                                             {}
 func (vizRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 
 func TestRule_horizontal_at_value(t *testing.T) {

@@ -136,7 +136,7 @@ func NewDialog(title, body string, actions []DialogAction) *Dialog {
 		Disabled:           marks.Const(false),
 		Open:               marks.Const(true),
 	}
-	d.Core.Facet = facet.NewFacet()
+	d.Facet = facet.NewFacet()
 	d.AddBinding(d.Title)
 	d.AddBinding(d.Body)
 	d.AddBinding(d.ContentLayoutMode)
@@ -210,7 +210,7 @@ func NewDialog(title, body string, actions []DialogAction) *Dialog {
 
 // Base satisfies facet.FacetImpl.
 func (d *Dialog) Base() *facet.Facet {
-	d.Facet.BindImpl(d)
+	d.BindImpl(d)
 	return &d.Facet
 }
 
@@ -258,7 +258,7 @@ func (d *Dialog) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 		return nil
 	}
 	bounds := d.Layout.ArrangedBounds
-	out := d.Core.DefaultAnchors(bounds, ctx)
+	out := d.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -323,7 +323,7 @@ func (d *Dialog) invalidate(flags facet.DirtyFlags) {
 	if d == nil {
 		return
 	}
-	d.Facet.Invalidate(flags)
+	d.Invalidate(flags)
 }
 
 func (d *Dialog) syncChildren() {
@@ -883,7 +883,7 @@ func newDialogActionGroup(parent *Dialog) *dialogActionGroup {
 	g := &dialogActionGroup{
 		parent: parent,
 	}
-	g.Core.Facet = facet.NewFacet()
+	g.Facet = facet.NewFacet()
 	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   dialogActionGroupPolicy{group: g},
@@ -922,7 +922,7 @@ func newDialogActionGroup(parent *Dialog) *dialogActionGroup {
 }
 
 func (g *dialogActionGroup) Base() *facet.Facet {
-	g.Facet.BindImpl(g)
+	g.BindImpl(g)
 	return &g.Facet
 }
 
@@ -1099,7 +1099,7 @@ func newDialogBodyGroup(parent *Dialog) *dialogBodyGroup {
 	g := &dialogBodyGroup{
 		parent: parent,
 	}
-	g.Core.Facet = facet.NewFacet()
+	g.Facet = facet.NewFacet()
 	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   dialogBodyGroupPolicy{group: g},
@@ -1153,7 +1153,7 @@ func newDialogBodyGroup(parent *Dialog) *dialogBodyGroup {
 }
 
 func (g *dialogBodyGroup) Base() *facet.Facet {
-	g.Facet.BindImpl(g)
+	g.BindImpl(g)
 	return &g.Facet
 }
 

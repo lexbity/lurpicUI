@@ -17,12 +17,12 @@ type jsonOutput struct {
 
 // jsonDiagnostic is the JSON-serializable representation of a Diagnostic.
 type jsonDiagnostic struct {
-	RuleID   string        `json:"rule_id"`
-	Severity string        `json:"severity"`
-	Pos      jsonPos       `json:"pos"`
-	Message  string        `json:"message"`
-	Teaching jsonTeaching  `json:"teaching,omitempty"`
-	Related  []jsonPos     `json:"related,omitempty"`
+	RuleID   string       `json:"rule_id"`
+	Severity string       `json:"severity"`
+	Pos      jsonPos      `json:"pos"`
+	Message  string       `json:"message"`
+	Teaching jsonTeaching `json:"teaching,omitempty"`
+	Related  []jsonPos    `json:"related,omitempty"`
 }
 
 type jsonPos struct {

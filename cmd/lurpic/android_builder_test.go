@@ -57,9 +57,10 @@ func createSDKWithPlatform(t *testing.T, sdkDir string, api int) {
 func createNDKWithCompiler(t *testing.T, ndkDir, triple string, apiLevel int) (clangPath string) {
 	t.Helper()
 	host := "linux-x86_64"
-	if runtime.GOOS == "darwin" {
+	switch runtime.GOOS {
+	case "darwin":
 		host = "darwin-x86_64"
-	} else if runtime.GOOS == "windows" {
+	case "windows":
 		host = "windows-x86_64"
 	}
 	toolchainDir := filepath.Join(ndkDir, "toolchains", "llvm", "prebuilt", host, "bin")
@@ -733,7 +734,10 @@ func TestAndroidBuilder_buildBundleModule_hasCorrectStructure(t *testing.T) {
 	modulesDir := filepath.Dir(bundleBase)
 	bundleConfigPath := filepath.Join(modulesDir, "BundleConfig.json")
 	bCfg := defaultBundleConfig()
-	bCfgData, _ := json.MarshalIndent(bCfg, "", "  ")
+	bCfgData, err := json.MarshalIndent(bCfg, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal bundle config: %v", err)
+	}
 	os.WriteFile(bundleConfigPath, bCfgData, 0644)
 
 	// Copy libs into the bundle structure (as buildBundleModule would).
@@ -804,9 +808,9 @@ func TestFindBundleTool_failsGracefully(t *testing.T) {
 func TestAndroidBuilder_16kPageSizeFlagsInGoBuild(t *testing.T) {
 	f := newFakeRunner()
 	b := &androidBuilder{
-		runner:    f,
-		buildDir:  t.TempDir(),
-		config:    &Config{App: AppConfig{ID: "org.test", Main: "."}, Android: AndroidConfig{TargetSDK: 33, MinSDK: 29}},
+		runner:   f,
+		buildDir: t.TempDir(),
+		config:   &Config{App: AppConfig{ID: "org.test", Main: "."}, Android: AndroidConfig{TargetSDK: 33, MinSDK: 29}},
 	}
 
 	// Examine the CGO_LDFLAGS that would be constructed.
@@ -885,11 +889,11 @@ func TestAndroidBuilder_releaseStripsGoLibrary(t *testing.T) {
 	f.When(MatchCommand(stripPath)).Then("", "", nil)
 
 	b := &androidBuilder{
-		runner:    f,
-		buildDir:  buildDir,
-		release:   true,
-		ndk:       "/fake/ndk",
-		config:    &Config{Android: AndroidConfig{TargetSDK: 33, MinSDK: 29}},
+		runner:   f,
+		buildDir: buildDir,
+		release:  true,
+		ndk:      "/fake/ndk",
+		config:   &Config{Android: AndroidConfig{TargetSDK: 33, MinSDK: 29}},
 	}
 
 	// Test retainUnstrippedSO

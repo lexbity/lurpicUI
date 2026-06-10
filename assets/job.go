@@ -212,7 +212,9 @@ func (m *ManagerImpl) LoadTexture(path string) Handle { return m.loadByPath(path
 func (m *ManagerImpl) LoadFont(path string) Handle { return m.loadByPath(path, AssetTypeFont) }
 
 // LoadConfig schedules loading for a config asset.
-func (m *ManagerImpl) LoadConfig(path string, _ any) Handle { return m.loadByPath(path, AssetTypeConfig) }
+func (m *ManagerImpl) LoadConfig(path string, _ any) Handle {
+	return m.loadByPath(path, AssetTypeConfig)
+}
 
 // Prefetch schedules load work for the given paths.
 func (m *ManagerImpl) Prefetch(paths ...string) {

@@ -83,7 +83,7 @@ func NewCard(label string) *Card {
 		GridColumns: marks.Const(3),
 		GridRows:    marks.Const(3),
 	}
-	c.Core.Facet = facet.NewFacet()
+	c.Facet = facet.NewFacet()
 	c.AddBinding(c.Label)
 	c.AddBinding(c.Disabled)
 	c.AddBinding(c.LayoutMode)
@@ -141,7 +141,7 @@ func NewCard(label string) *Card {
 
 // Base satisfies facet.FacetImpl.
 func (c *Card) Base() *facet.Facet {
-	c.Facet.BindImpl(c)
+	c.BindImpl(c)
 	return &c.Facet
 }
 
@@ -167,7 +167,7 @@ func (c *Card) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 		return nil
 	}
 	bounds := c.Layout.ArrangedBounds
-	out := c.Core.DefaultAnchors(bounds, ctx)
+	out := c.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -249,7 +249,7 @@ func (c *Card) invalidate(flags facet.DirtyFlags) {
 	if c == nil {
 		return
 	}
-	c.Facet.Invalidate(flags)
+	c.Invalidate(flags)
 }
 
 func (c *Card) activeChildren() []CardChild {
@@ -584,7 +584,7 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	}
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
 		if v.IsNil() {
 			return nil
 		}

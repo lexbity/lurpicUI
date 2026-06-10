@@ -1027,7 +1027,6 @@ func testGlyphRun(t *testing.T, label string, size float32) text.GlyphRun {
 	return layout.Lines[0].Runs[0]
 }
 
-
 func hasNonBlankPixels(s *testSurface, x0, y0, x1, y1 int) bool {
 	for y := y0; y < y1; y++ {
 		for x := x0; x < x1; x++ {
@@ -1084,7 +1083,7 @@ func approxRGBA(a, b color.RGBA, tol uint8) bool {
 
 func TestSoftwareRenderer_drawtexture(t *testing.T) {
 	r, s := newRenderer(t, 8, 8)
-	
+
 	// Create texture data (2x2 pixel red/blue texture)
 	pixels := []byte{
 		255, 0, 0, 255, // Top-left: Red
@@ -1092,7 +1091,7 @@ func TestSoftwareRenderer_drawtexture(t *testing.T) {
 		0, 0, 255, 255, // Bottom-left: Blue
 		255, 0, 0, 255, // Bottom-right: Red
 	}
-	
+
 	texID, err := r.UploadTexture(render.TextureUploadRequest{
 		Width:     2,
 		Height:    2,
@@ -1101,7 +1100,7 @@ func TestSoftwareRenderer_drawtexture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UploadTexture failed: %v", err)
 	}
-	
+
 	frame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{
 			{
@@ -1121,11 +1120,11 @@ func TestSoftwareRenderer_drawtexture(t *testing.T) {
 			},
 		},
 	}
-	
+
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
-	
+
 	// Check the nearest-neighbor sampled quadrants on the 4x4 blitted surface
 	if got := pxAt(s, 0, 0); got.R != 255 || got.B != 0 {
 		t.Fatalf("top-left pixel mismatch: expected red, got %#v", got)
@@ -1139,7 +1138,7 @@ func TestSoftwareRenderer_drawtexture(t *testing.T) {
 	if got := pxAt(s, 3, 3); got.R != 255 || got.B != 0 {
 		t.Fatalf("bottom-right pixel mismatch: expected red, got %#v", got)
 	}
-	
+
 	// Outside the DestRect should be clear/transparent
 	if got := pxAt(s, 5, 5); got != (color.RGBA{}) {
 		t.Fatalf("outside pixel mismatch: expected transparent, got %#v", got)

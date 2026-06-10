@@ -33,7 +33,7 @@ func (r *squareDemoRoot) OnDeactivate()                    {}
 
 func buildRoot(ctx app.BuildContext) facet.FacetImpl {
 	root := &squareDemoRoot{}
-	root.layout = facet.LayoutRole{
+	root.layout = facet.LayoutRole{ //lurpiclint:ignore LL001 -- intentional demo of raw LayoutRole construction
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
 			size := c.MaxSize
 			if size == (gfx.Size{}) {

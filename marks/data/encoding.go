@@ -4,7 +4,7 @@ package data
 type ChannelKind uint8
 
 const (
-	ChannelX     ChannelKind = iota
+	ChannelX ChannelKind = iota
 	ChannelY
 	ChannelColor
 	ChannelSize

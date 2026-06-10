@@ -1,6 +1,7 @@
 package capindex
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strings"
@@ -272,5 +273,72 @@ func TestScan_Performance(t *testing.T) {
 		if len(caps) == 0 {
 			t.Fatal("expected capabilities")
 		}
+	}
+}
+
+func TestTextEmitter_OutputShape(t *testing.T) {
+	root := repoRoot(t)
+	result, err := loader.Load([]string{
+		root + "/marks/...",
+		root + "/layout/...",
+		root + "/facet",
+	}, loader.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	caps := Scan(result, ScanConfig{
+		ModulePath: "codeburg.org/lexbit/lurpicui",
+		ModuleRoot: root,
+	})
+
+	// At least one mark discovered.
+	var marks int
+	for _, c := range caps {
+		if c.Kind == KindMark {
+			marks++
+		}
+	}
+	if marks < 1 {
+		t.Errorf("expected >=1 mark in capindex, got %d", marks)
+	}
+
+	// At least one container (IsContainer == true).
+	var containers int
+	for _, c := range caps {
+		if c.Fingerprint.IsContainer {
+			containers++
+		}
+	}
+	if containers < 1 {
+		t.Errorf("expected >=1 container in capindex, got %d", containers)
+	}
+
+	// At least one capability has non-empty roles.
+	var withRoles int
+	for _, c := range caps {
+		if len(c.Fingerprint.Roles) > 0 {
+			withRoles++
+		}
+	}
+	if withRoles < 1 {
+		t.Errorf("expected >=1 capability with non-empty fingerprint roles, got %d", withRoles)
+	}
+
+	// TextEmitter output contains the section headers.
+	var buf bytes.Buffer
+	emitter := NewTextEmitter(&buf)
+	if err := emitter.Emit(caps); err != nil {
+		t.Fatal(err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "MARKS:") {
+		t.Error("text emitter output missing MARKS: header")
+	}
+	if !strings.Contains(output, "LAYOUTS:") {
+		t.Error("text emitter output missing LAYOUTS: header")
+	}
+	if !strings.Contains(output, "LAYERS:") {
+		t.Error("text emitter output missing LAYERS: header")
 	}
 }

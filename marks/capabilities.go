@@ -18,9 +18,9 @@ type Accessible interface {
 
 // Customizable is implemented by marks that support theme variant/recipe
 // overrides beyond the standard token set.
-type Customizable interface {
-	// theme variant/recipe surface (reserved for future use)
-}
+type Customizable any
+
+// theme variant/recipe surface (reserved for future use)
 
 // Composite is implemented by marks that contain child marks.
 type Composite interface {

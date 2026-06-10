@@ -203,7 +203,7 @@ func newTextProjectionFacet(name string, bounds gfx.Rect) *projectionTestFacet {
 }
 
 func (f *projectionTestFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 func (f *projectionTestFacet) OnAttach(ctx facet.AttachContext) {

@@ -14,15 +14,15 @@ import (
 // --- Integration test: composed chart ---
 
 type chartFixture struct {
-	barStore  *store.CollectionStore[barItem]
-	ptStore   *store.CollectionStore[scatterItem]
-	barMark   *Bar[barItem]
-	ptMark    *Point[scatterItem]
-	axisMark  *Axis
-	yDomain   *store.ValueStore[[2]float64]
-	yRange    *store.ValueStore[[2]float64]
-	fonts     interface{ FontRegistry() }
-	bounds    gfx.Rect
+	barStore *store.CollectionStore[barItem]
+	ptStore  *store.CollectionStore[scatterItem]
+	barMark  *Bar[barItem]
+	ptMark   *Point[scatterItem]
+	axisMark *Axis
+	yDomain  *store.ValueStore[[2]float64]
+	yRange   *store.ValueStore[[2]float64]
+	fonts    interface{ FontRegistry() }
+	bounds   gfx.Rect
 }
 
 func newChartFixture(t *testing.T) *chartFixture {

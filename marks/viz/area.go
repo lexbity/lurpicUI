@@ -44,7 +44,7 @@ func NewArea[T any](
 		Color:    gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3},
 		Baseline: marks.Const(0.0),
 	}
-	a.Core.Facet = facet.NewFacet()
+	a.Facet = facet.NewFacet()
 	a.AddBinding(a.Baseline)
 
 	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -61,7 +61,7 @@ func NewArea[T any](
 }
 
 func (a *Area[T]) Base() *facet.Facet {
-	a.Facet.BindImpl(a)
+	a.BindImpl(a)
 	return &a.Facet
 }
 

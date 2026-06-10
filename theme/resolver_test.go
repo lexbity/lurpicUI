@@ -101,5 +101,3 @@ func TestResolvedContext_uses_font_registry_for_text_styles(t *testing.T) {
 		t.Fatalf("expected loaded family to win, got %q", style.Family)
 	}
 }
-
-

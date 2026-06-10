@@ -59,12 +59,12 @@ func MaterialCommands(path gfx.Path, material Material) []gfx.Command {
 			}
 		}
 	}
-	
+
 	for _, stroke := range material.Strokes {
 		if stroke.Width <= 0 || stroke.Paint.Type != FillSolid || stroke.Paint.Color.A <= 0 || stroke.Paint.Opacity <= 0 {
 			continue
 		}
-		
+
 		// Map shadows, glows, embossing, and highlights to analytical soft shadows
 		if stroke.BlurRadius > 0 || stroke.Offset != (gfx.Point{}) {
 			offset := stroke.Offset
@@ -72,7 +72,7 @@ func MaterialCommands(path gfx.Path, material Material) []gfx.Command {
 				rad := float64(GlobalLighting.Angle) * math.Pi / 180.0
 				lx := float32(math.Cos(rad))
 				ly := float32(math.Sin(rad))
-				
+
 				isHighlight := isColorLight(stroke.Paint.Color)
 				mag := float32(math.Sqrt(float64(offset.X*offset.X + offset.Y*offset.Y)))
 				if mag == 0 {
@@ -81,7 +81,7 @@ func MaterialCommands(path gfx.Path, material Material) []gfx.Command {
 						mag = 2
 					}
 				}
-				
+
 				if isHighlight {
 					// Highlight is cast towards the light source
 					offset = gfx.Point{X: lx * mag, Y: ly * mag}
@@ -90,7 +90,7 @@ func MaterialCommands(path gfx.Path, material Material) []gfx.Command {
 					offset = gfx.Point{X: -lx * mag, Y: -ly * mag}
 				}
 			}
-			
+
 			cmds = append(cmds, gfx.DrawBlurredShadow{
 				Path:       path,
 				Color:      scaleColor(stroke.Paint.Color, materialOpacity*stroke.Paint.Opacity),
@@ -177,10 +177,18 @@ func pathBounds(path gfx.Path) gfx.Rect {
 		n := pathPointCount(seg.Verb)
 		for i := 0; i < n; i++ {
 			p := seg.Pts[i]
-			if p.X < minX { minX = p.X }
-			if p.Y < minY { minY = p.Y }
-			if p.X > maxX { maxX = p.X }
-			if p.Y > maxY { maxY = p.Y }
+			if p.X < minX {
+				minX = p.X
+			}
+			if p.Y < minY {
+				minY = p.Y
+			}
+			if p.X > maxX {
+				maxX = p.X
+			}
+			if p.Y > maxY {
+				maxY = p.Y
+			}
 		}
 	}
 	if minX > maxX || minY > maxY {
@@ -203,7 +211,6 @@ func resolveGradientPoint(pt gfx.Point, bbox gfx.Rect) gfx.Point {
 		Y: bbox.Min.Y + pt.Y*(bbox.Max.Y-bbox.Min.Y),
 	}
 }
-
 
 func isColorLight(c gfx.Color) bool {
 	// standard luminance formula

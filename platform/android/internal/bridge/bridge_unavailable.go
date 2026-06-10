@@ -54,53 +54,53 @@ const (
 )
 
 type Event struct {
-	Type        EventType
-	Kind        int // Event subtype (lifecycle kind, window kind, key kind, etc.)
-	Timestamp   time.Time
-	Activity    unsafe.Pointer
-	Window      unsafe.Pointer
-	Width       int
-	Height      int
-	Queue       unsafe.Pointer
-	Focused     bool
-	PointerID   int32
-	SequenceID  uint64 // For touch events
-	Phase       TouchPhase
-	X, Y        float32
-	Pressure    float32
-	Major       float32
-	Minor       float32
-	Source      int32
-	DeviceID    int32
-	ToolType    int32
-	ButtonState int32
-	EventTime   int64
-	KeyCode     int32
-	Key         platform.Key
-	Modifiers   platform.ModifierKeys
-	Action      int32
-	MetaState   int32
-	Text        string
-	CursorPos   int
-	FocusChange int32
+	Type           EventType
+	Kind           int // Event subtype (lifecycle kind, window kind, key kind, etc.)
+	Timestamp      time.Time
+	Activity       unsafe.Pointer
+	Window         unsafe.Pointer
+	Width          int
+	Height         int
+	Queue          unsafe.Pointer
+	Focused        bool
+	PointerID      int32
+	SequenceID     uint64 // For touch events
+	Phase          TouchPhase
+	X, Y           float32
+	Pressure       float32
+	Major          float32
+	Minor          float32
+	Source         int32
+	DeviceID       int32
+	ToolType       int32
+	ButtonState    int32
+	EventTime      int64
+	KeyCode        int32
+	Key            platform.Key
+	Modifiers      platform.ModifierKeys
+	Action         int32
+	MetaState      int32
+	Text           string
+	CursorPos      int
+	FocusChange    int32
 	FrameTimeNanos int64
-	SavedState  []byte
-	InsetTop    int32
-	InsetBottom int32
-	InsetLeft   int32
-	InsetRight  int32
-	CutoutLeft  int32
-	CutoutTop   int32
-	CutoutRight int32
-	CutoutBottom int32
-	Orientation   int32
-	ScreenWidthDp int32
+	SavedState     []byte
+	InsetTop       int32
+	InsetBottom    int32
+	InsetLeft      int32
+	InsetRight     int32
+	CutoutLeft     int32
+	CutoutTop      int32
+	CutoutRight    int32
+	CutoutBottom   int32
+	Orientation    int32
+	ScreenWidthDp  int32
 	ScreenHeightDp int32
-	Density       int32
-	UiModeNight   int32
-	FontScale     float32
-	Language      string
-	Country       string
+	Density        int32
+	UiModeNight    int32
+	FontScale      float32
+	Language       string
+	Country        string
 }
 
 // EventQueue is the non-Android event queue.

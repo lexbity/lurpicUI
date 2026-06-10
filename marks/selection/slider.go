@@ -90,7 +90,7 @@ func NewSlider(label string, min, max, step float64) *Slider {
 		Step:      step,
 		Precision: -1,
 	}
-	s.Core.Facet = facet.NewFacet()
+	s.Facet = facet.NewFacet()
 	s.AddBinding(s.Variant)
 	s.AddBinding(s.Disabled)
 
@@ -155,7 +155,7 @@ func NewSlider(label string, min, max, step float64) *Slider {
 
 // Base satisfies facet.FacetImpl.
 func (s *Slider) Base() *facet.Facet {
-	s.Facet.BindImpl(s)
+	s.BindImpl(s)
 	return &s.Facet
 }
 
@@ -186,7 +186,7 @@ func (s *Slider) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := s.Core.DefaultAnchors(bounds, ctx)
+	out := s.DefaultAnchors(bounds, ctx)
 	if s.cachedLabelFacet != nil && s.Label != "" {
 		if tr := s.cachedLabelFacet.Base().TextRole(); tr != nil && tr.Layout != nil {
 			out["baseline"] = gfx.Point{X: s.cachedLabelBounds.Min.X, Y: s.cachedLabelBounds.Min.Y + tr.Layout.Baseline}
@@ -260,7 +260,7 @@ func (s *Slider) invalidate(flags facet.DirtyFlags) {
 	if s == nil {
 		return
 	}
-	s.Facet.Invalidate(flags)
+	s.Invalidate(flags)
 }
 
 func (s *Slider) syncChildren() {
@@ -564,7 +564,7 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 		cmds = append(cmds, theme.MaterialCommands(activePath, active)...)
 	}
 	cmds = append(cmds, s.tickCommands(ticks)...)
-	if s.cachedThumbBounds.IsEmpty() == false && !theme.IsTransparentMaterial(thumb) {
+	if !s.cachedThumbBounds.IsEmpty() && !theme.IsTransparentMaterial(thumb) {
 		var thumbPath gfx.Path
 		if s.Variant.Get() == uiinput.SliderSkeuomorphic {
 			thumbPath = gfx.RoundedRectPath(s.cachedThumbBounds, 2)

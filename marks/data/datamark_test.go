@@ -12,8 +12,8 @@ import (
 
 type dmRuntimeStub struct{}
 
-func (dmRuntimeStub) Schedule(j job.AnyJob)                  {}
-func (dmRuntimeStub) CancelJob(id job.JobID)                 {}
+func (dmRuntimeStub) Schedule(j job.AnyJob)                                              {}
+func (dmRuntimeStub) CancelJob(id job.JobID)                                             {}
 func (dmRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 
 type markItem struct {
@@ -32,11 +32,11 @@ func newMarkChild(item markItem) facet.FacetImpl {
 	return &markChild{Facet: facet.NewFacet(), item: item}
 }
 
-func (c *markChild) Base() *facet.Facet            { c.Facet.BindImpl(c); return &c.Facet }
+func (c *markChild) Base() *facet.Facet               { c.BindImpl(c); return &c.Facet }
 func (c *markChild) OnAttach(ctx facet.AttachContext) {}
-func (c *markChild) OnDetach()                         {}
-func (c *markChild) OnActivate()                       {}
-func (c *markChild) OnDeactivate()                     {}
+func (c *markChild) OnDetach()                        {}
+func (c *markChild) OnActivate()                      {}
+func (c *markChild) OnDeactivate()                    {}
 
 type dmParent struct {
 	facet.Facet
@@ -46,11 +46,11 @@ func newDMParent() *dmParent {
 	return &dmParent{Facet: facet.NewFacet()}
 }
 
-func (p *dmParent) Base() *facet.Facet            { p.Facet.BindImpl(p); return &p.Facet }
+func (p *dmParent) Base() *facet.Facet               { p.BindImpl(p); return &p.Facet }
 func (p *dmParent) OnAttach(ctx facet.AttachContext) {}
-func (p *dmParent) OnDetach()                         {}
-func (p *dmParent) OnActivate()                       {}
-func (p *dmParent) OnDeactivate()                     {}
+func (p *dmParent) OnDetach()                        {}
+func (p *dmParent) OnActivate()                      {}
+func (p *dmParent) OnDeactivate()                    {}
 
 func TestDataMark_binds_collection_creates_children(t *testing.T) {
 	s := store.NewCollectionStore(markIdentify)
@@ -217,11 +217,11 @@ func newConcreteDataMark() *concreteDataMark {
 	return m
 }
 
-func (m *concreteDataMark) Base() *facet.Facet { m.Facet.BindImpl(m); return &m.Facet }
+func (m *concreteDataMark) Base() *facet.Facet               { m.BindImpl(m); return &m.Facet }
 func (m *concreteDataMark) OnAttach(ctx facet.AttachContext) {}
-func (m *concreteDataMark) OnDetach()                         {}
-func (m *concreteDataMark) OnActivate()                       {}
-func (m *concreteDataMark) OnDeactivate()                     {}
+func (m *concreteDataMark) OnDetach()                        {}
+func (m *concreteDataMark) OnActivate()                      {}
+func (m *concreteDataMark) OnDeactivate()                    {}
 
 func (m *concreteDataMark) Descriptor() marks.Descriptor {
 	d := m.DataMark.Descriptor()

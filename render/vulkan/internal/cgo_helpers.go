@@ -1,6 +1,9 @@
 package internal
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
 
 // ResultCode mirrors the Rust-side RenderResult enum.
 type ResultCode int32
@@ -91,25 +94,35 @@ func TranslateResult(code ResultCode, message string) error {
 }
 
 func ErrorCode(err error) (ResultCode, bool) {
-	switch e := err.(type) {
-	case *InitFailedError:
-		return e.code, true
-	case *OutOfMemoryError:
-		return e.code, true
-	case *InvalidHandleError:
-		return e.code, true
-	case *UnsupportedError:
-		return e.code, true
-	case *VulkanError:
-		return e.code, true
-	case *PanicError:
-		return e.code, true
-	case *UnknownError:
-		return e.code, true
-	case interface{ ResultCode() ResultCode }:
-		return e.ResultCode(), true
-	default:
-		return 0, false
+	{
+		var e *InitFailedError
+		var e1 *OutOfMemoryError
+		var e2 *InvalidHandleError
+		var e3 *UnsupportedError
+		var e4 *VulkanError
+		var e5 *PanicError
+		var e6 *UnknownError
+		var e7 interface{ ResultCode() ResultCode }
+		switch {
+		case errors.As(err, &e):
+			return e.code, true
+		case errors.As(err, &e1):
+			return e1.code, true
+		case errors.As(err, &e2):
+			return e2.code, true
+		case errors.As(err, &e3):
+			return e3.code, true
+		case errors.As(err, &e4):
+			return e4.code, true
+		case errors.As(err, &e5):
+			return e5.code, true
+		case errors.As(err, &e6):
+			return e6.code, true
+		case errors.As(err, &e7):
+			return e7.ResultCode(), true
+		default:
+			return 0, false
+		}
 	}
 }
 

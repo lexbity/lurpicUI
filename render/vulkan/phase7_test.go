@@ -78,4 +78,3 @@ func TestBackendSubmitGlyphRun_updatesGlyphAtlasAndPacketStats(t *testing.T) {
 		t.Fatalf("glyph atlas count = %d, want 1", got)
 	}
 }
-

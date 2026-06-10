@@ -293,10 +293,10 @@ type numberFieldRuntimeStub struct {
 	fonts *text.FontRegistry
 }
 
-func (numberFieldRuntimeStub) Schedule(j job.AnyJob)                        {}
-func (numberFieldRuntimeStub) CancelJob(id job.JobID)                       {}
+func (numberFieldRuntimeStub) Schedule(j job.AnyJob)                                              {}
+func (numberFieldRuntimeStub) CancelJob(id job.JobID)                                             {}
 func (numberFieldRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
-func (s numberFieldRuntimeStub) FontRegistry() *text.FontRegistry           { return s.fonts }
+func (s numberFieldRuntimeStub) FontRegistry() *text.FontRegistry                                 { return s.fonts }
 
 func assertNumberFieldGolden(t *testing.T, name string, mutate func(*NumberField)) {
 	t.Helper()

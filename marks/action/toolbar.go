@@ -106,7 +106,7 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 		pressedIndex: -1,
 		Activated:    signal.NewSignal[string]("toolbar_activated"),
 	}
-	t.Core.Facet = facet.NewFacet()
+	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
 	t.AddBinding(t.Disabled)
 
@@ -166,7 +166,7 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 
 // Base satisfies facet.FacetImpl.
 func (t *Toolbar) Base() *facet.Facet {
-	t.Facet.BindImpl(t)
+	t.BindImpl(t)
 	return &t.Facet
 }
 
@@ -417,7 +417,7 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 			c.group.Label = marks.Const("")
 			c.group.Actions = marks.Const(normalizeActionGroupActions(spec.group.Actions))
 			c.group.syncFocusIndex()
-			c.group.Facet.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			c.group.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		}
 		{
 			disabled := c.parent != nil && c.parent.Disabled.Get()
@@ -428,7 +428,7 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 				c.group.focusedVisible = false
 				c.group.focusFromPointer = false
 			}
-			c.group.Facet.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+			c.group.Invalidate(facet.DirtyProjection | facet.DirtyHit)
 		}
 	case toolbarChildOverflow:
 		if c.overflow == nil {
@@ -449,7 +449,7 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 			c.overflow.focusedIndex = -1
 			c.overflow.hoveredIndex = -1
 			c.overflow.pressedIndex = -1
-			c.overflow.Facet.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			c.overflow.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		}
 		{
 			disabled := c.parent != nil && c.parent.Disabled.Get()
@@ -459,7 +459,7 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 				c.overflow.pressed = false
 				c.overflow.focusedVisible = false
 			}
-			c.overflow.Facet.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+			c.overflow.Invalidate(facet.DirtyProjection | facet.DirtyHit)
 		}
 	}
 }

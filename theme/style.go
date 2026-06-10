@@ -327,7 +327,7 @@ func callMethod(target any, name string, args ...any) any {
 		return nil
 	}
 	v := reflect.ValueOf(target)
-	if v.Kind() == reflect.Ptr && v.IsNil() {
+	if v.Kind() == reflect.Pointer && v.IsNil() {
 		return nil
 	}
 	m := v.MethodByName(name)

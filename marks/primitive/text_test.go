@@ -246,5 +246,3 @@ func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testin
 		t.Fatalf("expected second line below first, first=%#v second=%#v", first.Origin, second.Origin)
 	}
 }
-
-

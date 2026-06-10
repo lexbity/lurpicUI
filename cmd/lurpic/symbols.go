@@ -129,9 +129,9 @@ func (s *symbolSet) String() string {
 	var b strings.Builder
 	b.WriteString("Symbol sets:\n")
 	for _, abi := range s.ABIs() {
-		b.WriteString(fmt.Sprintf("  %s:\n", abi))
+		fmt.Fprintf(&b, "  %s:\n", abi)
 		for _, so := range s.ABIMap[abi] {
-			b.WriteString(fmt.Sprintf("    %s\n", so))
+			fmt.Fprintf(&b, "    %s\n", so)
 		}
 	}
 	return b.String()

@@ -83,7 +83,7 @@ func NewColorPicker(label string) *ColorPicker {
 		SelectedColor:    hsvToColor(0, 1, 1, 1),
 		focusFromPointer: false,
 	}
-	p.Core.Facet = facet.NewFacet()
+	p.Facet = facet.NewFacet()
 
 	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	p.Layout.Child = facet.GroupChildContract{
@@ -127,7 +127,7 @@ func NewColorPicker(label string) *ColorPicker {
 
 // Base satisfies facet.FacetImpl.
 func (p *ColorPicker) Base() *facet.Facet {
-	p.Facet.BindImpl(p)
+	p.BindImpl(p)
 	return &p.Facet
 }
 
@@ -155,7 +155,7 @@ func (p *ColorPicker) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 	if p == nil {
 		return nil
 	}
-	return p.Core.DefaultAnchors(p.Layout.ArrangedBounds, ctx)
+	return p.DefaultAnchors(p.Layout.ArrangedBounds, ctx)
 }
 
 // CurrentColor returns the resolved selected color.
@@ -544,7 +544,7 @@ func (p *ColorPicker) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Facet.Invalidate(flags)
+	p.Invalidate(flags)
 }
 
 func (p *ColorPicker) regionAt(pt gfx.Point) colorPickerRegion {
@@ -574,7 +574,6 @@ func (p *ColorPicker) applyPointerRegion(region colorPickerRegion, pt gfx.Point,
 		if sum := a + b + c; sum > 0 {
 			a /= sum
 			b /= sum
-			c /= sum
 		}
 		value := clamp01Float(a + b)
 		saturation := 0.0
@@ -739,7 +738,6 @@ func trianglePointToHSV(point gfx.Point, a, b, c gfx.Point, hue float64) (float3
 	if sum > 0 {
 		w1 /= sum
 		w2 /= sum
-		w3 /= sum
 	}
 	value := clamp01Float(w1 + w2)
 	saturation := float32(0)

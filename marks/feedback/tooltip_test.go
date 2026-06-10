@@ -5,9 +5,9 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -28,7 +28,7 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := 	tt.Layout.Measure(facet.MeasureContext{
+	result := tt.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -109,7 +109,7 @@ func TestTooltipDismissalAndOpenState(t *testing.T) {
 	}
 
 	facet.Attach(tt, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = 	tt.Layout.Measure(facet.MeasureContext{
+	_ = tt.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -122,7 +122,7 @@ func TestTooltipDismissalAndOpenState(t *testing.T) {
 		ParentGroup: tt.Layout.Parent,
 		ChildGroup:  tt.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
-	}, gfx.RectFromXYWH(0, 0, 	tt.Layout.MeasuredSize.W, 	tt.Layout.MeasuredSize.H))
+	}, gfx.RectFromXYWH(0, 0, tt.Layout.MeasuredSize.W, tt.Layout.MeasuredSize.H))
 
 	var dismissed int
 	tt.Dismissed.Subscribe(func(signal.Unit) { dismissed++ })

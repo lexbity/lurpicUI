@@ -52,7 +52,9 @@ func (m iconAssetManagerStub) LoadImage(path string) assets.Handle {
 func (m iconAssetManagerStub) LoadTexture(path string) assets.Handle {
 	return assets.NewHandle(m.id, m.reg)
 }
-func (m iconAssetManagerStub) LoadFont(path string) assets.Handle { return assets.NewHandle(m.id, m.reg) }
+func (m iconAssetManagerStub) LoadFont(path string) assets.Handle {
+	return assets.NewHandle(m.id, m.reg)
+}
 func (m iconAssetManagerStub) LoadConfig(path string, dst any) assets.Handle {
 	return assets.NewHandle(m.id, m.reg)
 }

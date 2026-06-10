@@ -44,8 +44,8 @@ func (s *backendFixture) Submit(frame *render.Frame) error {
 	}
 	return s.submitErr
 }
-func (s *backendFixture) Resize(width, height int) error          { return nil }
-func (s *backendFixture) Destroy()                                { s.destroyCount.Add(1) }
+func (s *backendFixture) Resize(width, height int) error { return nil }
+func (s *backendFixture) Destroy()                       { s.destroyCount.Add(1) }
 
 // recreatableBackend is like backendFixture but also implements
 // render.RecreatableBackend for testing the Recreate path.
@@ -93,7 +93,7 @@ type runtimeTestFacet struct {
 }
 
 func (f *runtimeTestFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 func (f *runtimeTestFacet) OnAttach(ctx facet.AttachContext) { f.attachCount++ }
@@ -118,7 +118,7 @@ type runtimeLayerFacet struct {
 }
 
 func (f *runtimeLayerFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 
@@ -143,7 +143,7 @@ type layoutCountLeaf struct {
 }
 
 func (f *layoutCountLeaf) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 
@@ -153,7 +153,7 @@ type runtimeFocusFacet struct {
 }
 
 func (f *runtimeFocusFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 

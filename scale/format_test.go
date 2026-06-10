@@ -9,8 +9,8 @@ import (
 
 func TestAutoPrecision(t *testing.T) {
 	tests := []struct {
-		step  float64
-		want  int
+		step float64
+		want int
 	}{
 		{20, 0},
 		{10, 0},
@@ -181,9 +181,9 @@ func TestFormatSI_tiny(t *testing.T) {
 
 func TestTickLabels_auto_precision(t *testing.T) {
 	tests := []struct {
-		name  string
-		vals  []float64
-		want  []string
+		name string
+		vals []float64
+		want []string
 	}{
 		{"integer step", []float64{0, 20, 40, 60, 80, 100},
 			[]string{"0", "20", "40", "60", "80", "100"}},

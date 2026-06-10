@@ -166,9 +166,9 @@ func TestTouchEventExtendedFields(t *testing.T) {
 		Pressure:    0.75,
 		Major:       12.0,
 		Minor:       10.0,
-		Source:      0x1002,   // AINPUT_SOURCE_TOUCHSCREEN
+		Source:      0x1002, // AINPUT_SOURCE_TOUCHSCREEN
 		DeviceID:    1,
-		ToolType:    1,        // AMOTION_EVENT_TOOL_TYPE_FINGER
+		ToolType:    1, // AMOTION_EVENT_TOOL_TYPE_FINGER
 		ButtonState: 0,
 		EventTime:   1234567890,
 	}
@@ -214,9 +214,9 @@ func TestKeyEventFields(t *testing.T) {
 
 	event := Event{
 		Type:      EventTypeKey,
-		KeyCode:   61,  // AKEYCODE_SPACE
-		Action:    0,    // AKEY_EVENT_ACTION_DOWN
-		MetaState: 1,    // AMETA_SHIFT_ON
+		KeyCode:   61, // AKEYCODE_SPACE
+		Action:    0,  // AKEY_EVENT_ACTION_DOWN
+		MetaState: 1,  // AMETA_SHIFT_ON
 		Key:       platform.KeySpace,
 		Modifiers: platform.ModShift,
 		Source:    0x101, // AINPUT_SOURCE_KEYBOARD
@@ -277,12 +277,12 @@ func TestWindowInsetsEvent_fields(t *testing.T) {
 
 	q.Push(Event{
 		Type:         EventTypeWindowInsets,
-		InsetTop:     100,  // status bar
-		InsetBottom:  168,  // nav bar on gesture nav
+		InsetTop:     100, // status bar
+		InsetBottom:  168, // nav bar on gesture nav
 		InsetLeft:    0,
 		InsetRight:   0,
 		CutoutLeft:   0,
-		CutoutTop:    80,   // display cutout (notch)
+		CutoutTop:    80, // display cutout (notch)
 		CutoutRight:  0,
 		CutoutBottom: 0,
 	})
@@ -445,15 +445,15 @@ func TestConfigurationChangedEvent_fields(t *testing.T) {
 	q := NewEventQueue()
 
 	q.Push(Event{
-		Type:          EventTypeConfigurationChanged,
-		Orientation:   2, // ACONFIGURATION_ORIENTATION_LAND
-		ScreenWidthDp: 800,
+		Type:           EventTypeConfigurationChanged,
+		Orientation:    2, // ACONFIGURATION_ORIENTATION_LAND
+		ScreenWidthDp:  800,
 		ScreenHeightDp: 480,
-		Density:       320, // ACONFIGURATION_DENSITY_XHIGH
-		UiModeNight:   2,   // ACONFIGURATION_UI_MODE_NIGHT_YES
-		FontScale:     1.25,
-		Language:      "fr",
-		Country:       "CA",
+		Density:        320, // ACONFIGURATION_DENSITY_XHIGH
+		UiModeNight:    2,   // ACONFIGURATION_UI_MODE_NIGHT_YES
+		FontScale:      1.25,
+		Language:       "fr",
+		Country:        "CA",
 	})
 
 	events := q.Poll()
@@ -595,7 +595,7 @@ func TestIMEInterleaving_composeAndHardwareKey(t *testing.T) {
 	// Order must be preserved.
 	q.Push(Event{Type: EventTypeIMECompose, Text: "a", CursorPos: 1})
 	q.Push(Event{Type: EventTypeIMECommit, Text: "a"})
-	q.Push(Event{Type: EventTypeKey, KeyCode: 21, Action: 0, Key: platform.KeyLeft})  // hardware left arrow
+	q.Push(Event{Type: EventTypeKey, KeyCode: 21, Action: 0, Key: platform.KeyLeft}) // hardware left arrow
 	q.Push(Event{Type: EventTypeKey, KeyCode: 21, Action: 1, Key: platform.KeyLeft})
 	q.Push(Event{Type: EventTypeIMECompose, Text: "b", CursorPos: 1})
 	q.Push(Event{Type: EventTypeIMECommit, Text: "b"})
@@ -661,5 +661,5 @@ func TestMultiTouchPointerIDs(t *testing.T) {
 		if events[i].Phase != exp.phase {
 			t.Errorf("event %d: expected Phase %v, got %v", i, exp.phase, events[i].Phase)
 		}
-}
+	}
 }

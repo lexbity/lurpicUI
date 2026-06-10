@@ -73,7 +73,7 @@ func NewSwitch(label string) *Switch {
 		Value:    store.NewValueStore[bool](false),
 		Label:    label,
 	}
-	s.Core.Facet = facet.NewFacet()
+	s.Facet = facet.NewFacet()
 	s.AddBinding(s.Variant)
 	s.AddBinding(s.Disabled)
 
@@ -124,7 +124,7 @@ func NewSwitch(label string) *Switch {
 
 // Base satisfies facet.FacetImpl.
 func (s *Switch) Base() *facet.Facet {
-	s.Facet.BindImpl(s)
+	s.BindImpl(s)
 	return &s.Facet
 }
 
@@ -153,7 +153,7 @@ func (s *Switch) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := s.Core.DefaultAnchors(bounds, ctx)
+	out := s.DefaultAnchors(bounds, ctx)
 	if s.cachedLabelLayout != nil {
 		out["baseline"] = gfx.Point{X: s.cachedLabelBounds.Min.X, Y: s.cachedLabelBounds.Min.Y + s.cachedLabelLayout.Baseline}
 	} else {
@@ -207,7 +207,7 @@ func (s *Switch) invalidate(flags facet.DirtyFlags) {
 	if s == nil {
 		return
 	}
-	s.Facet.Invalidate(flags)
+	s.Invalidate(flags)
 }
 
 func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

@@ -40,7 +40,7 @@ func NewRule(value marks.Binding[float64], orientation RuleOrientation, scale *r
 		Color:       gfx.Color{R: 0.7, G: 0.7, B: 0.7, A: 1},
 		StrokeWidth: 1,
 	}
-	r.Core.Facet = facet.NewFacet()
+	r.Facet = facet.NewFacet()
 	r.AddBinding(r.Value)
 
 	r.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -57,7 +57,7 @@ func NewRule(value marks.Binding[float64], orientation RuleOrientation, scale *r
 }
 
 func (r *Rule) Base() *facet.Facet {
-	r.Facet.BindImpl(r)
+	r.BindImpl(r)
 	return &r.Facet
 }
 
@@ -65,10 +65,10 @@ func (r *Rule) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: "viz", TypeName: "rule"}
 }
 
-func (r *Rule) OnAttach(ctx facet.AttachContext)  { r.Core.OnAttach() }
-func (r *Rule) OnDetach()                          { r.Core.OnDetach() }
-func (r *Rule) OnActivate()                        { r.Core.OnActivate() }
-func (r *Rule) OnDeactivate()                      { r.Core.OnDeactivate() }
+func (r *Rule) OnAttach(ctx facet.AttachContext) { r.Core.OnAttach() }
+func (r *Rule) OnDetach()                        { r.Core.OnDetach() }
+func (r *Rule) OnActivate()                      { r.Core.OnActivate() }
+func (r *Rule) OnDeactivate()                    { r.Core.OnDeactivate() }
 
 func (r *Rule) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return r.DefaultAnchors(r.Layout.ArrangedBounds, ctx)

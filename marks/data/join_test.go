@@ -10,8 +10,8 @@ import (
 
 type binderRuntimeStub struct{}
 
-func (binderRuntimeStub) Schedule(j job.AnyJob)                  {}
-func (binderRuntimeStub) CancelJob(id job.JobID)                 {}
+func (binderRuntimeStub) Schedule(j job.AnyJob)                                              {}
+func (binderRuntimeStub) CancelJob(id job.JobID)                                             {}
 func (binderRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 
 // --- Test helpers ---
@@ -32,11 +32,11 @@ func newTestChild(item testItem) *testChild {
 	return &testChild{Facet: facet.NewFacet(), item: item}
 }
 
-func (c *testChild) Base() *facet.Facet            { c.Facet.BindImpl(c); return &c.Facet }
+func (c *testChild) Base() *facet.Facet               { c.BindImpl(c); return &c.Facet }
 func (c *testChild) OnAttach(ctx facet.AttachContext) {}
-func (c *testChild) OnDetach()                         {}
-func (c *testChild) OnActivate()                       {}
-func (c *testChild) OnDeactivate()                     {}
+func (c *testChild) OnDetach()                        {}
+func (c *testChild) OnActivate()                      {}
+func (c *testChild) OnDeactivate()                    {}
 
 type testParent struct {
 	facet.Facet
@@ -46,11 +46,11 @@ func newTestParent() *testParent {
 	return &testParent{Facet: facet.NewFacet()}
 }
 
-func (p *testParent) Base() *facet.Facet            { p.Facet.BindImpl(p); return &p.Facet }
+func (p *testParent) Base() *facet.Facet               { p.BindImpl(p); return &p.Facet }
 func (p *testParent) OnAttach(ctx facet.AttachContext) {}
-func (p *testParent) OnDetach()                         {}
-func (p *testParent) OnActivate()                       {}
-func (p *testParent) OnDeactivate()                     {}
+func (p *testParent) OnDetach()                        {}
+func (p *testParent) OnActivate()                      {}
+func (p *testParent) OnDeactivate()                    {}
 
 // --- Tests ---
 

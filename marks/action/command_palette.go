@@ -89,7 +89,7 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 		activeIndex:    -1,
 		Activated:      signal.NewSignal[string]("command_palette_activated"),
 	}
-	p.Core.Facet = facet.NewFacet()
+	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
 	p.AddBinding(p.Placeholder)
 	p.AddBinding(p.Disabled)
@@ -202,7 +202,7 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 
 // Base satisfies facet.FacetImpl.
 func (p *CommandPalette) Base() *facet.Facet {
-	p.Facet.BindImpl(p)
+	p.BindImpl(p)
 	return &p.Facet
 }
 
@@ -289,7 +289,7 @@ func (p *CommandPalette) ExportAnchors(ctx layout.AnchorExportContext) layout.An
 		return nil
 	}
 	bounds := p.Layout.ArrangedBounds
-	out := p.Core.DefaultAnchors(bounds, ctx)
+	out := p.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -309,7 +309,7 @@ func (p *CommandPalette) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Facet.Invalidate(flags)
+	p.Invalidate(flags)
 }
 
 func (p *CommandPalette) syncCommands() {

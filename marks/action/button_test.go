@@ -273,5 +273,3 @@ func layoutAnchorContext(bounds gfx.Rect) layout.AnchorExportContext {
 		ResolvedLayer: layout.ResolvedLayer{Bounds: bounds},
 	}
 }
-
-

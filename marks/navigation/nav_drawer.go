@@ -112,7 +112,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
 		groupHeaderFacet:   facet.NewFacet(),
 		groupNavItemsFacet: facet.NewFacet(),
 	}
-	d.Core.Facet = facet.NewFacet()
+	d.Facet = facet.NewFacet()
 	d.AddBinding(d.Label)
 	d.AddBinding(d.Subtitle)
 	d.AddBinding(d.Open)
@@ -166,7 +166,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
 
 // Base satisfies facet.FacetImpl.
 func (d *NavDrawer) Base() *facet.Facet {
-	d.Facet.BindImpl(d)
+	d.BindImpl(d)
 	return &d.Facet
 }
 
@@ -207,7 +207,7 @@ func (d *NavDrawer) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorS
 		return nil
 	}
 	bounds := d.Layout.ArrangedBounds
-	out := d.Core.DefaultAnchors(bounds, ctx)
+	out := d.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -308,7 +308,7 @@ func (d *NavDrawer) invalidate(flags facet.DirtyFlags) {
 	if d == nil {
 		return
 	}
-	d.Facet.Invalidate(flags)
+	d.Invalidate(flags)
 }
 
 func (d *NavDrawer) syncTextFacets(maxWidth float32) {

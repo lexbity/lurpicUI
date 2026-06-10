@@ -29,14 +29,14 @@ func newBaseTestMark() *baseTestMark {
 }
 
 func (m *baseTestMark) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 
 func (m *baseTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *baseTestMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *baseTestMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *baseTestMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *baseTestMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *baseTestMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *baseTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 type bindingTestMark struct {
 	Core
@@ -58,13 +58,13 @@ func newBindingTestMark(s *store.ValueStore[string]) *bindingTestMark {
 }
 
 func (m *bindingTestMark) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 func (m *bindingTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *bindingTestMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *bindingTestMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *bindingTestMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *bindingTestMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *bindingTestMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *bindingTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 type buildCommandsTestMark struct {
 	Core
@@ -93,20 +93,20 @@ func newBuildCommandsTestMark() *buildCommandsTestMark {
 }
 
 func (m *buildCommandsTestMark) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 func (m *buildCommandsTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *buildCommandsTestMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *buildCommandsTestMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *buildCommandsTestMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *buildCommandsTestMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *buildCommandsTestMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *buildCommandsTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 // --- Runtime stub ---
 
 type baseRuntimeStub struct{}
 
-func (baseRuntimeStub) Schedule(j job.AnyJob)                  {}
-func (baseRuntimeStub) CancelJob(id job.JobID)                 {}
+func (baseRuntimeStub) Schedule(j job.AnyJob)                                              {}
+func (baseRuntimeStub) CancelJob(id job.JobID)                                             {}
 func (baseRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 
 // --- Tests ---
@@ -323,19 +323,19 @@ type multiBindMark struct {
 }
 
 func (m *multiBindMark) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 func (m *multiBindMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *multiBindMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *multiBindMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *multiBindMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *multiBindMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *multiBindMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *multiBindMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 // --- Integration tests ---
 
 type lifecycleTestMark struct {
 	Core
-	label Binding[string]
+	label  Binding[string]
 	called int
 }
 
@@ -364,13 +364,13 @@ func newLifecycleTestMark(s *store.ValueStore[string]) *lifecycleTestMark {
 }
 
 func (m *lifecycleTestMark) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 func (m *lifecycleTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *lifecycleTestMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *lifecycleTestMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *lifecycleTestMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *lifecycleTestMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *lifecycleTestMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *lifecycleTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 func TestBase_full_lifecycle_attach_measure_arrange_project(t *testing.T) {
 	s := store.NewValueStore("hello")
@@ -440,13 +440,13 @@ type derivedTestMark struct {
 }
 
 func (m *derivedTestMark) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 func (m *derivedTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *derivedTestMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *derivedTestMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *derivedTestMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *derivedTestMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *derivedTestMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *derivedTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 func TestBase_binding_with_derived_store(t *testing.T) {
 	src := store.NewValueStore(10)
@@ -494,13 +494,13 @@ func newAnchorExportTestMark() *anchorExportTestMark {
 }
 
 func (m *anchorExportTestMark) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 func (m *anchorExportTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *anchorExportTestMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *anchorExportTestMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *anchorExportTestMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *anchorExportTestMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *anchorExportTestMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *anchorExportTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 func (m *anchorExportTestMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return m.DefaultAnchors(m.Layout.ArrangedBounds, ctx)

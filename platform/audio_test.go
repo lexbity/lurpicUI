@@ -22,11 +22,11 @@ func (o *fakeAudioOutput) Write(samples []int16) (int, error) {
 	o.data = append(o.data, samples...)
 	return len(samples), nil
 }
-func (o *fakeAudioOutput) Pause() error                          { o.paused = true; o.state = AudioStatePaused; return nil }
-func (o *fakeAudioOutput) Resume() error                         { o.paused = false; o.state = AudioStateActive; return nil }
-func (o *fakeAudioOutput) Close() error                          { o.closed = true; o.state = AudioStateIdle; return nil }
-func (o *fakeAudioOutput) State() AudioState                     { return o.state }
-func (o *fakeAudioOutput) Latency() int                          { return 0 }
+func (o *fakeAudioOutput) Pause() error      { o.paused = true; o.state = AudioStatePaused; return nil }
+func (o *fakeAudioOutput) Resume() error     { o.paused = false; o.state = AudioStateActive; return nil }
+func (o *fakeAudioOutput) Close() error      { o.closed = true; o.state = AudioStateIdle; return nil }
+func (o *fakeAudioOutput) State() AudioState { return o.state }
+func (o *fakeAudioOutput) Latency() int      { return 0 }
 
 func (a *fakeAudio) OpenOutput(cfg AudioConfig) (AudioOutput, error) {
 	a.lastConfig = cfg

@@ -252,11 +252,9 @@ func isValidJDK(path string) bool {
 
 	// Check for key JDK components
 	javaBin := filepath.Join(path, "bin", "java")
-	javacBin := filepath.Join(path, "bin", "javac")
 
 	if runtime.GOOS == "windows" {
 		javaBin += ".exe"
-		javacBin += ".exe"
 	}
 
 	// java is required
@@ -350,11 +348,11 @@ func (r *ToolchainReport) String() string {
 
 	printStatus := func(name string, status ToolchainStatus) {
 		if status.OK {
-			sb.WriteString(fmt.Sprintf("✓ %s at %s\n", name, status.Path))
-			sb.WriteString(fmt.Sprintf("  (found via: %s)\n", status.Source))
+			fmt.Fprintf(&sb, "✓ %s at %s\n", name, status.Path)
+			fmt.Fprintf(&sb, "  (found via: %s)\n", status.Source)
 		} else {
-			sb.WriteString(fmt.Sprintf("✗ %s not found\n", name))
-			sb.WriteString(fmt.Sprintf("  %s\n", status.Error))
+			fmt.Fprintf(&sb, "✗ %s not found\n", name)
+			fmt.Fprintf(&sb, "  %s\n", status.Error)
 		}
 	}
 

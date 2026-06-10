@@ -64,5 +64,3 @@ func mustFontRegistry(t *testing.T) *text.FontRegistry {
 	}
 	return reg
 }
-
-

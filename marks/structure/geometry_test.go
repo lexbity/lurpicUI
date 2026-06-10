@@ -21,9 +21,9 @@ func expectBoundsAnchors(t *testing.T, anchors layout.AnchorSet, bounds gfx.Rect
 	want := map[layout.AnchorID]gfx.Point{
 		"bounds_center":       rectCenter(bounds),
 		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
+		"bounds_top_right":    {X: bounds.Max.X, Y: bounds.Min.Y},
+		"bounds_bottom_left":  {X: bounds.Min.X, Y: bounds.Max.Y},
+		"bounds_bottom_right": {X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	for id, wantPoint := range want {
 		got, ok := anchors[id]

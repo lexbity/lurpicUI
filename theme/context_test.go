@@ -110,5 +110,3 @@ func TestFontRolesRejectGenericFamilies(t *testing.T) {
 		t.Fatal("expected generic family validation failure")
 	}
 }
-
-

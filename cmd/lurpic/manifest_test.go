@@ -241,7 +241,7 @@ func TestDeriveVersionCode_monotonicity(t *testing.T) {
 	v2, _ := deriveVersionCode("1.0.1")
 	v3, _ := deriveVersionCode("1.1.0")
 	v4, _ := deriveVersionCode("2.0.0")
-	if !(v1 < v2 && v2 < v3 && v3 < v4) {
+	if v1 >= v2 || v2 >= v3 || v3 >= v4 {
 		t.Fatal("version codes must be monotonically increasing with semver")
 	}
 }
@@ -339,7 +339,7 @@ required = ["android.permission.INTERNET"]
 
 func TestValidateAndroidConfigForRelease_rejectsTargetSdkBelow35(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
-		App: AppConfig{ID: "com.example", Name: "Test"},
+		App:     AppConfig{ID: "com.example", Name: "Test"},
 		Android: AndroidConfig{TargetSDK: 34, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err == nil {
@@ -352,7 +352,7 @@ func TestValidateAndroidConfigForRelease_rejectsTargetSdkBelow35(t *testing.T) {
 
 func TestValidateAndroidConfigForRelease_acceptsTargetSdk35(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
-		App: AppConfig{ID: "com.example", Name: "Test"},
+		App:     AppConfig{ID: "com.example", Name: "Test"},
 		Android: AndroidConfig{TargetSDK: 35, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err != nil {
@@ -362,7 +362,7 @@ func TestValidateAndroidConfigForRelease_acceptsTargetSdk35(t *testing.T) {
 
 func TestValidateAndroidConfigForRelease_acceptsTargetSdk36(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
-		App: AppConfig{ID: "com.example", Name: "Test"},
+		App:     AppConfig{ID: "com.example", Name: "Test"},
 		Android: AndroidConfig{TargetSDK: 36, MinSDK: 24, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err != nil {
@@ -372,7 +372,7 @@ func TestValidateAndroidConfigForRelease_acceptsTargetSdk36(t *testing.T) {
 
 func TestValidateAndroidConfigForRelease_rejectsLowMinSdk(t *testing.T) {
 	err := validateAndroidConfigForRelease(&Config{
-		App: AppConfig{ID: "com.example", Name: "Test"},
+		App:     AppConfig{ID: "com.example", Name: "Test"},
 		Android: AndroidConfig{TargetSDK: 35, MinSDK: 19, VersionCode: 1, ABIs: []string{"arm64-v8a"}},
 	})
 	if err == nil {

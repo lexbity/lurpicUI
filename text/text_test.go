@@ -1103,8 +1103,6 @@ func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
 	}
 }
 
-
-
 func mustTestRegistry(t *testing.T, path string) (*FontRegistry, string) {
 	t.Helper()
 	reg, err := NewFontRegistry()

@@ -54,11 +54,7 @@ func (p *Policy) Measure(children []layout.ChildNode, constraints gfx.Size) gfx.
 
 	for i := range children {
 		child := children[i]
-		main := mainSize(child, horizontal)
 		cross := crossSize(child, horizontal)
-		if min := minMainSize(child, horizontal); main < min {
-			main = min
-		}
 		if min := minCrossSize(child, horizontal); cross < min {
 			cross = min
 		}

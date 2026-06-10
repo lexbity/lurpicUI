@@ -137,7 +137,7 @@ func NewTable(label string, data TableData) *Table {
 		cachedSelectionCells: make(map[string]*primitive.Text),
 		cachedSortIndicators: make(map[string]*primitive.Text),
 	}
-	t.Core.Facet = facet.NewFacet()
+	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
 	t.AddBinding(t.Disabled)
 
@@ -209,7 +209,7 @@ func NewTable(label string, data TableData) *Table {
 
 // Base satisfies facet.FacetImpl.
 func (t *Table) Base() *facet.Facet {
-	t.Facet.BindImpl(t)
+	t.BindImpl(t)
 	return &t.Facet
 }
 
@@ -249,7 +249,7 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 		return nil
 	}
 	bounds := t.Layout.ArrangedBounds
-	out := t.Core.DefaultAnchors(bounds, ctx)
+	out := t.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -304,7 +304,7 @@ func (t *Table) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Facet.Invalidate(flags)
+	t.Invalidate(flags)
 }
 
 func (t *Table) data() TableData {

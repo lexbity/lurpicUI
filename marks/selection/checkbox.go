@@ -107,7 +107,7 @@ func NewCheckbox(label string) *Checkbox {
 		Disabled:   marks.Const(false),
 		Value:      store.NewValueStore[CheckboxState](CheckboxStateOff),
 	}
-	c.Core.Facet = facet.NewFacet()
+	c.Facet = facet.NewFacet()
 	c.AddBinding(c.Label)
 	c.AddBinding(c.HelperText)
 	c.AddBinding(c.Variant)
@@ -172,7 +172,7 @@ func NewCheckbox(label string) *Checkbox {
 
 // Base satisfies facet.FacetImpl.
 func (c *Checkbox) Base() *facet.Facet {
-	c.Facet.BindImpl(c)
+	c.BindImpl(c)
 	return &c.Facet
 }
 
@@ -203,7 +203,7 @@ func (c *Checkbox) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSe
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := c.Core.DefaultAnchors(bounds, ctx)
+	out := c.DefaultAnchors(bounds, ctx)
 	if c.cachedLabelLayout != nil {
 		out["baseline"] = gfx.Point{X: c.cachedLabelBounds.Min.X, Y: c.cachedLabelBounds.Min.Y + c.cachedLabelLayout.Baseline}
 	} else if c.cachedHelperLayout != nil {
@@ -262,7 +262,7 @@ func (c *Checkbox) invalidate(flags facet.DirtyFlags) {
 	if c == nil {
 		return
 	}
-	c.Facet.Invalidate(flags)
+	c.Invalidate(flags)
 }
 
 func (c *Checkbox) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -392,7 +392,7 @@ func (c *Checkbox) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if textBlockH <= 0 {
 		textBlockH = mathutil.Max(textHeight, rowH)
 	}
-	textBounds := gfx.Rect{}
+	var textBounds gfx.Rect
 	if c.cachedWritingDirection == facet.WritingDirectionRTL {
 		textBounds = gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, textWidth, textBlockH)
 		row.arrange(ctx, textBounds)

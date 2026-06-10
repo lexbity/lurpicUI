@@ -1,12 +1,18 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
 	"github.com/BurntSushi/toml"
+)
+
+var (
+	errNoConfigDir  = errors.New("cannot determine user config directory")
+	errNoConfigFile = errors.New("user config file does not exist")
 )
 
 // UserConfig represents the user-level configuration from ~/.config/lurpic/config.toml
@@ -26,7 +32,7 @@ type UserAndroidConfig struct {
 func loadUserConfig() (*UserConfig, error) {
 	configDir := getUserConfigDir()
 	if configDir == "" {
-		return nil, nil
+		return nil, errNoConfigDir
 	}
 
 	configPath := filepath.Join(configDir, "config.toml")
@@ -34,7 +40,7 @@ func loadUserConfig() (*UserConfig, error) {
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No user config is not an error
-			return nil, nil
+			return nil, errNoConfigFile
 		}
 		return nil, fmt.Errorf("cannot read user config file: %w", err)
 	}

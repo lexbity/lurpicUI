@@ -71,7 +71,6 @@ func (c *ImageCompiler) Compile(src []byte, target Platform) ([]CompiledLOD, err
 	results := make(chan result, len(scales))
 	var wg sync.WaitGroup
 	for _, spec := range scales {
-		spec := spec
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

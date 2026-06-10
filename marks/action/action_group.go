@@ -96,7 +96,7 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 		focusedIndex: -1,
 		Activated:    signal.NewSignal[string]("action_group_activated"),
 	}
-	g.Core.Facet = facet.NewFacet()
+	g.Facet = facet.NewFacet()
 	g.AddBinding(g.Label)
 	g.AddBinding(g.Actions)
 	g.AddBinding(g.Disabled)
@@ -147,7 +147,7 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 
 // Base satisfies facet.FacetImpl.
 func (g *ActionGroup) Base() *facet.Facet {
-	g.Facet.BindImpl(g)
+	g.BindImpl(g)
 	return &g.Facet
 }
 
@@ -241,7 +241,7 @@ func (g *ActionGroup) invalidate(flags facet.DirtyFlags) {
 	if g == nil {
 		return
 	}
-	g.Facet.Invalidate(flags)
+	g.Invalidate(flags)
 }
 
 func (g *ActionGroup) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedContext, shared.ActionGroupSlots, bool) {

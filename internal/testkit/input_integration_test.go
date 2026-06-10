@@ -43,7 +43,7 @@ func newClickCounterFacet() *clickCounterFacet {
 }
 
 func (f *clickCounterFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 func (f *clickCounterFacet) OnAttach(ctx facet.AttachContext) {}
@@ -88,7 +88,7 @@ func newInputTestFacet(tabIndex int, label string) *inputTestFacet {
 }
 
 func (f *inputTestFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 func (f *inputTestFacet) OnAttach(ctx facet.AttachContext) {}

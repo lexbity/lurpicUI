@@ -23,8 +23,8 @@ func confID(i conformanceItem) store.ItemID { return i.id }
 // conformanceRuntime satisfies RuntimeServices.
 type conformanceRuntime struct{}
 
-func (conformanceRuntime) Schedule(j any)                                   {}
-func (conformanceRuntime) CancelJob(id any)                                 {}
+func (conformanceRuntime) Schedule(j any)                                                     {}
+func (conformanceRuntime) CancelJob(id any)                                                   {}
 func (conformanceRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 
 // registeredMarks returns all viz mark instances to test for conformance.

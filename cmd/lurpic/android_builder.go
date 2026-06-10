@@ -476,19 +476,19 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 
 // ManifestData contains data for the manifest template
 type ManifestData struct {
-	Package             string
-	VersionCode         int
-	VersionName         string
-	MinSDK              int
-	TargetSDK           int
-	Permissions         []string
-	AppName             string
-	HasIcon             bool
-	UsesLurpicActivity  bool
-	ExtractNativeLibs   bool
-	UsesVulkan          bool
-	UsesGLES            bool
-	AllowBackup         bool
+	Package               string
+	VersionCode           int
+	VersionName           string
+	MinSDK                int
+	TargetSDK             int
+	Permissions           []string
+	AppName               string
+	HasIcon               bool
+	UsesLurpicActivity    bool
+	ExtractNativeLibs     bool
+	UsesVulkan            bool
+	UsesGLES              bool
+	AllowBackup           bool
 	NetworkSecurityConfig string
 }
 
@@ -536,18 +536,18 @@ func (b *androidBuilder) generateManifest() error {
 	permissions = append(permissions, b.config.Android.Permissions.Optional...)
 
 	data := ManifestData{
-		Package:            b.config.App.ID,
-		VersionCode:        b.config.Android.VersionCode,
-		VersionName:        b.config.App.Version,
-		MinSDK:             b.config.Android.MinSDK,
-		TargetSDK:          b.config.Android.TargetSDK,
-		Permissions:        permissions,
-		AppName:            b.config.App.Name,
-		HasIcon:            b.config.App.HasIcon(),
-		UsesLurpicActivity: true,
-		ExtractNativeLibs:  false, // 16 KB page alignment requires uncompressed libs
-		UsesVulkan:         true,  // framework has a Vulkan renderer
-		UsesGLES:           true,  // software fallback uses GLES-compatible pipeline
+		Package:               b.config.App.ID,
+		VersionCode:           b.config.Android.VersionCode,
+		VersionName:           b.config.App.Version,
+		MinSDK:                b.config.Android.MinSDK,
+		TargetSDK:             b.config.Android.TargetSDK,
+		Permissions:           permissions,
+		AppName:               b.config.App.Name,
+		HasIcon:               b.config.App.HasIcon(),
+		UsesLurpicActivity:    true,
+		ExtractNativeLibs:     false, // 16 KB page alignment requires uncompressed libs
+		UsesVulkan:            true,  // framework has a Vulkan renderer
+		UsesGLES:              true,  // software fallback uses GLES-compatible pipeline
 		AllowBackup:           false, // no backup by default; enable via config
 		NetworkSecurityConfig: b.config.Android.NetworkSecurityConfig,
 	}
@@ -1303,11 +1303,12 @@ func (b *androidBuilder) findNDKToolchain(target string) string {
 
 	// Determine host prebuilt directory
 	host := runtime.GOOS
-	if host == "darwin" {
+	switch host {
+	case "darwin":
 		host = "darwin-x86_64"
-	} else if host == "linux" {
+	case "linux":
 		host = "linux-x86_64"
-	} else if host == "windows" {
+	case "windows":
 		host = "windows-x86_64"
 	}
 
@@ -1323,11 +1324,12 @@ func (b *androidBuilder) findNDKToolchain(target string) string {
 func (b *androidBuilder) findLLVMStrip() (string, error) {
 	toolchain := filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt")
 	host := runtime.GOOS
-	if host == "darwin" {
+	switch host {
+	case "darwin":
 		host = "darwin-x86_64"
-	} else if host == "linux" {
+	case "linux":
 		host = "linux-x86_64"
-	} else if host == "windows" {
+	case "windows":
 		host = "windows-x86_64"
 	}
 	candidate := filepath.Join(toolchain, host, "bin", "llvm-strip")

@@ -170,7 +170,7 @@ type runtimeInteractiveFacet struct {
 }
 
 func (f *runtimeInteractiveFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 

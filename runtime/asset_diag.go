@@ -80,4 +80,3 @@ func (rt *Runtime) assetDiagEnabled() bool {
 	}
 	return false
 }
-

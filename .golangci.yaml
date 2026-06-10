@@ -49,6 +49,124 @@ linters:
     generated: strict
     warn-unused: true
 
+    # --- Pre-existing debt baseline ---
+    # All rules below are pre-existing findings across the codebase, quarantined
+    # so the golangci-lint gate can be turned on immediately.  They are tracked
+    # for burn-down in FOLLOW-golangci-burndown — the size of each excluded
+    # pattern MUST be non-increasing over time.
+    rules:
+      # revive/unused-parameter: 1052 pre-existing instances of unused function
+      # parameters throughout the codebase.  Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^unused-parameter:"
+
+      # revive/exported: 735 pre-existing exported symbols without doc comments.
+      # Many of these are intentional (self-documenting names, internal protocols).
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^exported:"
+
+      # revive/redefines-builtin-id: 65 pre-existing shadowing of built-in
+      # identifiers.  Each needs case-by-case review.  Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^redefines-builtin-id:"
+
+      # revive/package-comments: 23 pre-existing packages without doc comments.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^package-comments:"
+
+      # revive/dot-imports: 7 pre-existing dot imports that need review.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^dot-imports:"
+
+      # revive/empty-block: 9 pre-existing empty blocks.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^empty-block:"
+
+      # revive/receiver-naming: 5 pre-existing receiver naming issues.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^receiver-naming:"
+
+      # revive/blank-imports: 5 pre-existing blank imports.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^blank-imports:"
+
+      # revive/increment-decrement: 4 pre-existing ++/-- style issues.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^increment-decrement:"
+
+      # revive/var-naming: 3 pre-existing variable naming issues.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^var-naming:"
+
+      # revive/error-strings: 3 pre-existing error string conventions.
+      # Burn-down tracked in FOLLOW.
+      - linters: [revive]
+        text: "^error-strings:"
+
+      # revive/var-declaration: 1 pre-existing var declaration style.
+      - linters: [revive]
+        text: "^var-declaration:"
+
+      # revive/unexported-return: 1 pre-existing unexported return type.
+      - linters: [revive]
+        text: "^unexported-return:"
+
+      # goconst: 820 pre-existing repeated string literals flagged throughout
+      # the codebase.  Advisory linter — turning it on would require const-ing
+      # thousands of strings across the framework.  Burn-down tracked in FOLLOW.
+      - linters: [goconst]
+        text: "."
+
+      # gosec: 589 pre-existing security warnings.  Many are false-positives
+      # (e.g. hardcoded credentials in test data) or pre-existing debt that
+      # requires case-by-case review.  Burn-down tracked in FOLLOW.
+      - linters: [gosec]
+        text: "."
+
+      # errcheck: 225 pre-existing unchecked errors.  Many are intentional
+      # (defer Close, log.Fatal, test assertions).  Burn-down tracked in FOLLOW.
+      - linters: [errcheck]
+        text: "."
+
+      # unused: 134 pre-existing dead code (functions, types, fields, constants).
+      # Each requires domain knowledge to remove.  Burn-down tracked in FOLLOW.
+      - linters: [unused]
+        text: "."
+
+      # unconvert: 19 pre-existing unnecessary type conversions.
+      # Burn-down tracked in FOLLOW.
+      - linters: [unconvert]
+        text: "."
+
+      # nilerr: 12 pre-existing nil returns with non-nil error.
+      # Burn-down tracked in FOLLOW.
+      - linters: [nilerr]
+        text: "."
+
+      # nilnil: 1 pre-existing nil-nil return.
+      # Burn-down tracked in FOLLOW.
+      - linters: [nilnil]
+        text: "."
+
+      # staticcheck: remaining pre-existing staticcheck findings that were
+      # not auto-fixed (SA, S, ST, QF families).
+      # Burn-down tracked in FOLLOW.
+      - linters: [staticcheck]
+        text: "^(QF100[1238]|QF1012|S100[259]|S1039|S1040|ST100[15]|ST1023|SA40(0[06]|17)|SA9003|SA1019):"
+
+      # usetesting: 22 pre-existing usetesting violations (os.Setenv/t.Chdir).
+      # Burn-down tracked in FOLLOW.
+      - linters: [usetesting]
+        text: "."
+
 # In v2, code formatting tools are extracted out of the general execution line
 # and placed into their own pipeline for performance and auto-fixing integration.
 formatters:

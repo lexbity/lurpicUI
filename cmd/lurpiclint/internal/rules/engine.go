@@ -5,8 +5,8 @@
 // Every built-in rule registers itself with DefaultRegistry during init().
 // Adding a new rule requires only:
 //
-//	1. Write a type implementing Rule.
-//	2. Register it: func init() { DefaultRegistry.Register(&MyRule{}) }
+//  1. Write a type implementing Rule.
+//  2. Register it: func init() { DefaultRegistry.Register(&MyRule{}) }
 package rules
 
 import (
@@ -47,8 +47,8 @@ type Context struct {
 	Files []*loader.ParsedFile
 	Pkgs  map[string]*loader.Package
 	Fset  *token.FileSet
-	Index interface{} // *capindex.Index when that package exists
-	Cfg   interface{} // *config.Config when that package exists
+	Index any // *capindex.Index when that package exists
+	Cfg   any // *config.Config when that package exists
 }
 
 // RunConfig controls which rules execute and how their output is adjusted.

@@ -100,7 +100,7 @@ func NewTreeNavigator(label string, nodes []TreeNode) *TreeNavigator {
 		Disabled: marks.Const(false),
 		Data:     store.NewValueStore[[]TreeNode](cloneTreeNodes(nodes)),
 	}
-	t.Core.Facet = facet.NewFacet()
+	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
 	t.AddBinding(t.Disabled)
 	t.Layout.Parent = facet.GroupParentContract{
@@ -153,7 +153,7 @@ func NewTreeNavigator(label string, nodes []TreeNode) *TreeNavigator {
 
 // Base satisfies facet.FacetImpl.
 func (t *TreeNavigator) Base() *facet.Facet {
-	t.Facet.BindImpl(t)
+	t.BindImpl(t)
 	return &t.Facet
 }
 
@@ -209,7 +209,7 @@ func (t *TreeNavigator) ExportAnchors(ctx layout.AnchorExportContext) layout.Anc
 		return nil
 	}
 	bounds := t.Layout.ArrangedBounds
-	out := t.Core.DefaultAnchors(bounds, ctx)
+	out := t.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -305,7 +305,7 @@ func (t *TreeNavigator) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Facet.Invalidate(flags)
+	t.Invalidate(flags)
 }
 
 func (t *TreeNavigator) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

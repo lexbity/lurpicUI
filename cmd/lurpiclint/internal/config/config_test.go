@@ -42,7 +42,7 @@ func TestConfig_PathExcluded(t *testing.T) {
 		},
 	}
 	tests := []struct {
-		path    string
+		path     string
 		excluded bool
 	}{
 		{"foo/bar.go", false},

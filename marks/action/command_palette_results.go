@@ -57,7 +57,7 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 		activeIndex:  -1,
 		cachedRowGap: 0,
 	}
-	g.Core.Facet = facet.NewFacet()
+	g.Facet = facet.NewFacet()
 	g.AddBinding(g.Label)
 	g.AddBinding(g.EmptyState)
 	g.AddBinding(g.ItemVariant)
@@ -126,7 +126,7 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 }
 
 func (g *commandPaletteResultsGroup) Base() *facet.Facet {
-	g.Facet.BindImpl(g)
+	g.BindImpl(g)
 	return &g.Facet
 }
 
@@ -167,7 +167,7 @@ func (g *commandPaletteResultsGroup) ExportAnchors(ctx layout.AnchorExportContex
 		return nil
 	}
 	bounds := g.Layout.ArrangedBounds
-	out := g.Core.DefaultAnchors(bounds, ctx)
+	out := g.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -196,7 +196,7 @@ func (g *commandPaletteResultsGroup) invalidate(flags facet.DirtyFlags) {
 	if g == nil {
 		return
 	}
-	g.Facet.Invalidate(flags)
+	g.Invalidate(flags)
 }
 
 func (g *commandPaletteResultsGroup) syncRows(entries []runtimepkg.CommandEntry, active int) {

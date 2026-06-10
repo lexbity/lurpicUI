@@ -6,9 +6,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
@@ -308,8 +308,6 @@ func newTabsTestFixture(t *testing.T, tokens theme.Tokens, density theme.Density
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return tabs, rt, resolved
 }
-
-
 
 func defaultTabsTokens() theme.Tokens {
 	return toThemeTokens(templates.Notes().Tokens)

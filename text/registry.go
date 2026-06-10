@@ -62,7 +62,7 @@ func (r *FontRegistry) LoadFontBytes(data []byte, name string) error {
 		}
 		rec := &fontFaceRecord{
 			face:     face,
-			desc:     face.Font.Describe(),
+			desc:     face.Describe(),
 			source:   FontSource{Name: name, Data: append([]byte(nil), data...)},
 			cacheKey: computeFontCacheKey(data, i),
 		}

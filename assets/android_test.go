@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -43,7 +44,10 @@ func (c *fakeAndroidExtractionContext) OpenAPKAsset(name string) (APKAsset, erro
 			return nil, os.ErrNotExist
 		}
 		m := pakMetaJSON{V: 1, Bh: c.metaHash}
-		data, _ := json.Marshal(m)
+		data, err := json.Marshal(m)
+		if err != nil {
+			return nil, fmt.Errorf("marshal meta: %w", err)
+		}
 		return &fakeAPKAsset{Reader: bytes.NewReader(data)}, nil
 	default:
 		return nil, os.ErrNotExist
@@ -136,7 +140,7 @@ func TestExtractDir_prefersCacheDir(t *testing.T) {
 	// Add CacheDir support.
 	cacheCtx := &fakeExtractionWithCache{
 		fakeAndroidExtractionContext: fakeAndroidExtractionContext{dir: "/data/files"},
-		cacheDir: "/data/cache",
+		cacheDir:                     "/data/cache",
 	}
 	if got := extractDir(cacheCtx); got != "/data/cache" {
 		t.Fatalf("extractDir with CacheDirProvider = %q, want /data/cache", got)

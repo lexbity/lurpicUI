@@ -93,7 +93,7 @@ func NewScrollRegion(label string) *ScrollRegion {
 		ScrollToEnd:       marks.Const(false),
 		cachedChildBounds: make(map[facet.FacetID]gfx.Rect),
 	}
-	sr.Core.Facet = facet.NewFacet()
+	sr.Facet = facet.NewFacet()
 	sr.AddBinding(sr.Label)
 	sr.AddBinding(sr.Disabled)
 	sr.AddBinding(sr.Direction)
@@ -163,7 +163,7 @@ func NewScrollRegion(label string) *ScrollRegion {
 
 // Base satisfies facet.FacetImpl.
 func (sr *ScrollRegion) Base() *facet.Facet {
-	sr.Facet.BindImpl(sr)
+	sr.BindImpl(sr)
 	return &sr.Facet
 }
 
@@ -184,7 +184,7 @@ func (sr *ScrollRegion) ExportAnchors(ctx layout.AnchorExportContext) layout.Anc
 		return nil
 	}
 	bounds := sr.Layout.ArrangedBounds
-	out := sr.Core.DefaultAnchors(bounds, ctx)
+	out := sr.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -248,7 +248,7 @@ func (sr *ScrollRegion) invalidate(flags facet.DirtyFlags) {
 	if sr == nil {
 		return
 	}
-	sr.Facet.Invalidate(flags)
+	sr.Invalidate(flags)
 }
 
 func (sr *ScrollRegion) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

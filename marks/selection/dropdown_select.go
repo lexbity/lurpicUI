@@ -92,7 +92,7 @@ func NewDropdownSelect(label string, options []DropdownOption) *DropdownSelect {
 		Value:       store.NewValueStore[string](""),
 		activeIndex: 0,
 	}
-	ds.Core.Facet = facet.NewFacet()
+	ds.Facet = facet.NewFacet()
 	ds.AddBinding(ds.Label)
 	ds.AddBinding(ds.Placeholder)
 	ds.AddBinding(ds.Options)
@@ -147,7 +147,7 @@ func NewDropdownSelect(label string, options []DropdownOption) *DropdownSelect {
 
 // Base satisfies facet.FacetImpl.
 func (ds *DropdownSelect) Base() *facet.Facet {
-	ds.Facet.BindImpl(ds)
+	ds.BindImpl(ds)
 	return &ds.Facet
 }
 
@@ -176,7 +176,7 @@ func (ds *DropdownSelect) ExportAnchors(ctx layout.AnchorExportContext) layout.A
 	if bounds.IsEmpty() {
 		return nil
 	}
-	anchors := ds.Core.DefaultAnchors(bounds, ctx)
+	anchors := ds.DefaultAnchors(bounds, ctx)
 	if ds.cachedLabelBounds.IsEmpty() || ds.textRole.Layout == nil {
 		anchors["baseline"] = gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y}
 	} else {

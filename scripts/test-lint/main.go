@@ -182,11 +182,12 @@ func checkLogOnly(path string, fset *token.FileSet, fn *ast.FuncDecl, imports []
 			if !ok {
 				return false
 			}
-			if sel.Sel.Name == "Log" || sel.Sel.Name == "Logf" {
+			switch sel.Sel.Name {
+			case "Log", "Logf":
 				hasLogOnly = true
-			} else if sel.Sel.Name == "Error" || sel.Sel.Name == "Errorf" || sel.Sel.Name == "Fatal" || sel.Sel.Name == "Fatalf" {
+			case "Error", "Errorf", "Fatal", "Fatalf":
 				return true
-			} else {
+			default:
 				return false
 			}
 		}

@@ -1109,7 +1109,7 @@ func pathBounds(path gfx.Path) gfx.Rect {
 	var bounds gfx.Rect
 	first := true
 	for _, seg := range path.Segments {
-		count := 0
+		var count int
 		switch seg.Verb {
 		case gfx.PathMoveTo, gfx.PathLineTo:
 			count = 1

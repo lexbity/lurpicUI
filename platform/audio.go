@@ -4,29 +4,29 @@ package platform
 type AudioFocusChange int
 
 const (
-	AudioFocusGain        AudioFocusChange = 1  // AUDIOFOCUS_GAIN
-	AudioFocusLoss        AudioFocusChange = 2  // AUDIOFOCUS_LOSS
-	AudioFocusLossTransient     AudioFocusChange = 3  // AUDIOFOCUS_LOSS_TRANSIENT
-	AudioFocusLossTransientCanDuck AudioFocusChange = 4  // AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
-	AudioFocusGainTransient      AudioFocusChange = 5  // AUDIOFOCUS_GAIN_TRANSIENT
+	AudioFocusGain                 AudioFocusChange = 1 // AUDIOFOCUS_GAIN
+	AudioFocusLoss                 AudioFocusChange = 2 // AUDIOFOCUS_LOSS
+	AudioFocusLossTransient        AudioFocusChange = 3 // AUDIOFOCUS_LOSS_TRANSIENT
+	AudioFocusLossTransientCanDuck AudioFocusChange = 4 // AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK
+	AudioFocusGainTransient        AudioFocusChange = 5 // AUDIOFOCUS_GAIN_TRANSIENT
 )
 
 // AudioState reflects the current state of the audio subsystem.
 type AudioState uint8
 
 const (
-	AudioStateActive   AudioState = iota // normal playback
-	AudioStateDucked                     // volume reduced (transient loss can duck)
-	AudioStatePaused                     // paused due to transient loss
-	AudioStateIdle                       // stopped, no audio playing
+	AudioStateActive AudioState = iota // normal playback
+	AudioStateDucked                   // volume reduced (transient loss can duck)
+	AudioStatePaused                   // paused due to transient loss
+	AudioStateIdle                     // stopped, no audio playing
 )
 
 // AudioConfig configures an audio output stream.
 type AudioConfig struct {
-	SampleRate    int // Hz (e.g. 44100, 48000)
-	ChannelCount  int // 1 = mono, 2 = stereo
-	BitsPerSample int // 16 or 32
-	BufferSizeMs  int // target buffer size in milliseconds
+	SampleRate    int  // Hz (e.g. 44100, 48000)
+	ChannelCount  int  // 1 = mono, 2 = stereo
+	BitsPerSample int  // 16 or 32
+	BufferSizeMs  int  // target buffer size in milliseconds
 	LowLatency    bool // request AAudio performance mode
 }
 

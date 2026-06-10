@@ -94,7 +94,7 @@ func NewTabs(label string, items []TabItem) *Tabs {
 		hoveredIndex: -1,
 		pressedIndex: -1,
 	}
-	t.Core.Facet = facet.NewFacet()
+	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
 	t.AddBinding(t.Variant)
 	t.AddBinding(t.Disabled)
@@ -147,7 +147,7 @@ func NewTabs(label string, items []TabItem) *Tabs {
 
 // Base satisfies facet.FacetImpl.
 func (t *Tabs) Base() *facet.Facet {
-	t.Facet.BindImpl(t)
+	t.BindImpl(t)
 	return &t.Facet
 }
 
@@ -185,7 +185,7 @@ func (t *Tabs) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 		return nil
 	}
 	bounds := t.Layout.ArrangedBounds
-	out := t.Core.DefaultAnchors(bounds, ctx)
+	out := t.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -244,7 +244,7 @@ func (t *Tabs) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Facet.Invalidate(flags)
+	t.Invalidate(flags)
 }
 
 func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

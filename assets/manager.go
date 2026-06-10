@@ -60,8 +60,8 @@ type pathIDRecord struct {
 
 // pathIDFile is the top-level JSON structure.
 type pathIDFile struct {
-	Version int             `json:"version"`
-	Records []pathIDRecord  `json:"records"`
+	Version int            `json:"version"`
+	Records []pathIDRecord `json:"records"`
 }
 
 // ParseJSONPathRegistry parses UUID registry JSON bytes and returns a

@@ -97,7 +97,7 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 		Size:            marks.Const[float32](0),
 		ColorSlot:       marks.Const(theme.ColorText),
 	}
-	i.Core.Facet = facet.NewFacet()
+	i.Facet = facet.NewFacet()
 	i.AddBinding(i.Label)
 	i.AddBinding(i.AccessibleLabel)
 	i.AddBinding(i.Variant)
@@ -161,7 +161,7 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 
 // Base satisfies facet.FacetImpl.
 func (i *IconButton) Base() *facet.Facet {
-	i.Facet.BindImpl(i)
+	i.BindImpl(i)
 	return &i.Facet
 }
 
@@ -186,7 +186,7 @@ func (i *IconButton) AccessibleName() string {
 // ExportAnchors publishes the icon button anchor set.
 func (i *IconButton) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	bounds := i.Layout.ArrangedBounds
-	return i.Core.DefaultAnchors(bounds, ctx)
+	return i.DefaultAnchors(bounds, ctx)
 }
 
 func (i *IconButton) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach() }
@@ -213,7 +213,7 @@ func (i *IconButton) invalidate(flags facet.DirtyFlags) {
 	if i == nil {
 		return
 	}
-	i.Facet.Invalidate(flags)
+	i.Invalidate(flags)
 }
 
 func (i *IconButton) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

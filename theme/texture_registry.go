@@ -15,7 +15,7 @@ type TextureData struct {
 
 var (
 	registryMu sync.RWMutex
-	textures   = make(map[TextureRef]TextureData)
+	textures              = make(map[TextureRef]TextureData)
 	nextRef    TextureRef = 1
 )
 
@@ -52,7 +52,7 @@ const (
 func generateProcedural(ref TextureRef) (TextureData, bool) {
 	registryMu.Lock()
 	defer registryMu.Unlock()
-	
+
 	// Double-check if generated while waiting for the lock
 	if data, ok := textures[ref]; ok {
 		return data, true

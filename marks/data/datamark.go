@@ -42,7 +42,7 @@ func NewDataMark[T any](
 		regionStore:         region,
 		childPositionsDirty: true,
 	}
-	m.Core.Facet = facet.NewFacet()
+	m.Facet = facet.NewFacet()
 	m.Binder = NewCollectionBinder(parent, store, factory)
 	return m
 }

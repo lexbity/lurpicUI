@@ -320,7 +320,7 @@ func validateAndroidConfigForRelease(config *Config) error {
 	}
 	if !containsABI(config.Android.ABIs, "arm64-v8a") {
 		return fmt.Errorf(
-			"release builds must include arm64-v8a in android.abis; "+
+			"release builds must include arm64-v8a in android.abis; " +
 				"x86_64 is available for emulator/Chromebook testing but must be explicitly added",
 		)
 	}

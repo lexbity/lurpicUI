@@ -12,12 +12,12 @@ import (
 type Permission string
 
 const (
-	PermissionCamera              Permission = "android.permission.CAMERA"
-	PermissionMicrophone          Permission = "android.permission.RECORD_AUDIO"
-	PermissionStorage             Permission = "android.permission.READ_EXTERNAL_STORAGE"
-	PermissionPostNotifications   Permission = "android.permission.POST_NOTIFICATIONS"
-	PermissionLocationFine        Permission = "android.permission.ACCESS_FINE_LOCATION"
-	PermissionLocationCoarse      Permission = "android.permission.ACCESS_COARSE_LOCATION"
+	PermissionCamera            Permission = "android.permission.CAMERA"
+	PermissionMicrophone        Permission = "android.permission.RECORD_AUDIO"
+	PermissionStorage           Permission = "android.permission.READ_EXTERNAL_STORAGE"
+	PermissionPostNotifications Permission = "android.permission.POST_NOTIFICATIONS"
+	PermissionLocationFine      Permission = "android.permission.ACCESS_FINE_LOCATION"
+	PermissionLocationCoarse    Permission = "android.permission.ACCESS_COARSE_LOCATION"
 )
 
 type PermissionResult int
@@ -62,4 +62,3 @@ func OpenPlatformPak() (*assets.PakFS, error) {
 func ReadAPKAsset(name string) ([]byte, error) {
 	return nil, errors.New("android: APK asset reading requires CGO (android NDK)")
 }
-

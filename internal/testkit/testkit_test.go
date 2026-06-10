@@ -100,7 +100,7 @@ func TestHarnessConfig_usesFrozenStandardRegistry(t *testing.T) {
 }
 
 func (f *testRenderFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 func (f *testRenderFacet) OnAttach(ctx facet.AttachContext) {}
@@ -503,10 +503,6 @@ func TestAssertNotBlank_fails_on_blank_surface(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
-
-
-
-
 
 func TestSyntheticEvents_leftclick_is_press_release(t *testing.T) {
 	got := LeftClick(1, 2)

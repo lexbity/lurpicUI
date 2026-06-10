@@ -296,7 +296,7 @@ func TestPropagateDirty_through_transparent_RenderBatch(t *testing.T) {
 		},
 	}
 	perRenderBatch := map[render.RenderBatchID][]gfx.Rect{
-		1: []gfx.Rect{
+		1: {
 			gfx.RectFromXYWH(30, 30, 20, 20),
 		},
 	}

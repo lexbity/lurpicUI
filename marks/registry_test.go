@@ -12,17 +12,19 @@ import (
 
 type regPlainMark struct{ Core }
 
-func (m *regPlainMark) Base() *facet.Facet               { m.Facet.BindImpl(m); return &m.Facet }
-func (m *regPlainMark) Descriptor() Descriptor            { return Descriptor{Family: "reg", TypeName: "plain"} }
-func (m *regPlainMark) OnAttach(ctx facet.AttachContext)  { m.Core.OnAttach() }
-func (m *regPlainMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *regPlainMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *regPlainMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *regPlainMark) Base() *facet.Facet               { m.BindImpl(m); return &m.Facet }
+func (m *regPlainMark) Descriptor() Descriptor           { return Descriptor{Family: "reg", TypeName: "plain"} }
+func (m *regPlainMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *regPlainMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *regPlainMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *regPlainMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 type regFocusableMark struct{ Core }
 
-func (m *regFocusableMark) Base() *facet.Facet              { m.Facet.BindImpl(m); return &m.Facet }
-func (m *regFocusableMark) Descriptor() Descriptor           { return Descriptor{Family: "reg", TypeName: "focusable"} }
+func (m *regFocusableMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
+func (m *regFocusableMark) Descriptor() Descriptor {
+	return Descriptor{Family: "reg", TypeName: "focusable"}
+}
 func (m *regFocusableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
 func (m *regFocusableMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *regFocusableMark) OnActivate()                      { m.Core.OnActivate() }
@@ -31,12 +33,12 @@ func (m *regFocusableMark) Focusable() bool                  { return true }
 
 type regAnchorMark struct{ Core }
 
-func (m *regAnchorMark) Base() *facet.Facet              { m.Facet.BindImpl(m); return &m.Facet }
-func (m *regAnchorMark) Descriptor() Descriptor           { return Descriptor{Family: "reg", TypeName: "anchor"} }
-func (m *regAnchorMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *regAnchorMark) OnDetach()                        { m.Core.OnDetach() }
-func (m *regAnchorMark) OnActivate()                      { m.Core.OnActivate() }
-func (m *regAnchorMark) OnDeactivate()                    { m.Core.OnDeactivate() }
+func (m *regAnchorMark) Base() *facet.Facet                                            { m.BindImpl(m); return &m.Facet }
+func (m *regAnchorMark) Descriptor() Descriptor                                        { return Descriptor{Family: "reg", TypeName: "anchor"} }
+func (m *regAnchorMark) OnAttach(ctx facet.AttachContext)                              { m.Core.OnAttach() }
+func (m *regAnchorMark) OnDetach()                                                     { m.Core.OnDetach() }
+func (m *regAnchorMark) OnActivate()                                                   { m.Core.OnActivate() }
+func (m *regAnchorMark) OnDeactivate()                                                 { m.Core.OnDeactivate() }
 func (m *regAnchorMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet { return nil }
 
 type regHitMark struct {
@@ -53,7 +55,7 @@ func newRegHitMark() *regHitMark {
 	return m
 }
 
-func (m *regHitMark) Base() *facet.Facet              { m.Facet.BindImpl(m); return &m.Facet }
+func (m *regHitMark) Base() *facet.Facet               { m.BindImpl(m); return &m.Facet }
 func (m *regHitMark) Descriptor() Descriptor           { return Descriptor{Family: "reg", TypeName: "hittable"} }
 func (m *regHitMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
 func (m *regHitMark) OnDetach()                        { m.Core.OnDetach() }

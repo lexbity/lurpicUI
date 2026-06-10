@@ -12,88 +12,88 @@ import (
 
 type fakePlainMark struct{ facet.Facet }
 
-func (f *fakePlainMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakePlainMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakePlainMark) Descriptor() Descriptor {
 	return Descriptor{Family: "test", TypeName: "fakePlain"}
 }
 func (f *fakePlainMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakePlainMark) OnDetach()                         {}
-func (f *fakePlainMark) OnActivate()                       {}
-func (f *fakePlainMark) OnDeactivate()                     {}
+func (f *fakePlainMark) OnDetach()                        {}
+func (f *fakePlainMark) OnActivate()                      {}
+func (f *fakePlainMark) OnDeactivate()                    {}
 
 type fakeFocusableMark struct{ facet.Facet }
 
-func (f *fakeFocusableMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakeFocusableMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakeFocusableMark) Descriptor() Descriptor {
 	return Descriptor{Family: "test", TypeName: "fakeFocusable"}
 }
 func (f *fakeFocusableMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeFocusableMark) OnDetach()                         {}
-func (f *fakeFocusableMark) OnActivate()                       {}
-func (f *fakeFocusableMark) OnDeactivate()                     {}
-func (f *fakeFocusableMark) Focusable() bool { return true }
+func (f *fakeFocusableMark) OnDetach()                        {}
+func (f *fakeFocusableMark) OnActivate()                      {}
+func (f *fakeFocusableMark) OnDeactivate()                    {}
+func (f *fakeFocusableMark) Focusable() bool                  { return true }
 
 type fakeAnchorMark struct{ facet.Facet }
 
-func (f *fakeAnchorMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakeAnchorMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakeAnchorMark) Descriptor() Descriptor {
 	return Descriptor{Family: "test", TypeName: "fakeAnchor"}
 }
 func (f *fakeAnchorMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeAnchorMark) OnDetach()                         {}
-func (f *fakeAnchorMark) OnActivate()                       {}
-func (f *fakeAnchorMark) OnDeactivate()                     {}
+func (f *fakeAnchorMark) OnDetach()                        {}
+func (f *fakeAnchorMark) OnActivate()                      {}
+func (f *fakeAnchorMark) OnDeactivate()                    {}
 func (f *fakeAnchorMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return nil
 }
 
 type fakeAccessibleMark struct{ facet.Facet }
 
-func (f *fakeAccessibleMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakeAccessibleMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakeAccessibleMark) Descriptor() Descriptor {
 	return Descriptor{Family: "test", TypeName: "fakeAccessible"}
 }
 func (f *fakeAccessibleMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeAccessibleMark) OnDetach()                         {}
-func (f *fakeAccessibleMark) OnActivate()                       {}
-func (f *fakeAccessibleMark) OnDeactivate()                     {}
-func (f *fakeAccessibleMark) AccessibilityRole() string { return "button" }
-func (f *fakeAccessibleMark) AccessibleName() string    { return "test" }
+func (f *fakeAccessibleMark) OnDetach()                        {}
+func (f *fakeAccessibleMark) OnActivate()                      {}
+func (f *fakeAccessibleMark) OnDeactivate()                    {}
+func (f *fakeAccessibleMark) AccessibilityRole() string        { return "button" }
+func (f *fakeAccessibleMark) AccessibleName() string           { return "test" }
 
 type fakeCompositeMark struct{ facet.Facet }
 
-func (f *fakeCompositeMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakeCompositeMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakeCompositeMark) Descriptor() Descriptor {
 	return Descriptor{Family: "test", TypeName: "fakeComposite"}
 }
 func (f *fakeCompositeMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeCompositeMark) OnDetach()                         {}
-func (f *fakeCompositeMark) OnActivate()                       {}
-func (f *fakeCompositeMark) OnDeactivate()                     {}
-func (f *fakeCompositeMark) ChildMarks() []Mark { return nil }
+func (f *fakeCompositeMark) OnDetach()                        {}
+func (f *fakeCompositeMark) OnActivate()                      {}
+func (f *fakeCompositeMark) OnDeactivate()                    {}
+func (f *fakeCompositeMark) ChildMarks() []Mark               { return nil }
 
 type fakeDataBoundMark struct{ facet.Facet }
 
-func (f *fakeDataBoundMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakeDataBoundMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakeDataBoundMark) Descriptor() Descriptor {
 	return Descriptor{Family: "viz", TypeName: "fakeData"}
 }
 func (f *fakeDataBoundMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeDataBoundMark) OnDetach()                         {}
-func (f *fakeDataBoundMark) OnActivate()                       {}
-func (f *fakeDataBoundMark) OnDeactivate()                     {}
-func (f *fakeDataBoundMark) BoundData() any                    { return nil }
+func (f *fakeDataBoundMark) OnDetach()                        {}
+func (f *fakeDataBoundMark) OnActivate()                      {}
+func (f *fakeDataBoundMark) OnDeactivate()                    {}
+func (f *fakeDataBoundMark) BoundData() any                   { return nil }
 
 type fakeHitTestableMark struct{ facet.Facet }
 
-func (f *fakeHitTestableMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakeHitTestableMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakeHitTestableMark) Descriptor() Descriptor {
 	return Descriptor{Family: "test", TypeName: "fakeHitTestable"}
 }
 func (f *fakeHitTestableMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeHitTestableMark) OnDetach()                         {}
-func (f *fakeHitTestableMark) OnActivate()                       {}
-func (f *fakeHitTestableMark) OnDeactivate()                     {}
+func (f *fakeHitTestableMark) OnDetach()                        {}
+func (f *fakeHitTestableMark) OnActivate()                      {}
+func (f *fakeHitTestableMark) OnDeactivate()                    {}
 
 type fakeAllCapabilitiesMark struct {
 	facet.Facet
@@ -109,15 +109,15 @@ func newFakeAllCapabilitiesMark() *fakeAllCapabilitiesMark {
 	return m
 }
 
-func (f *fakeAllCapabilitiesMark) Base() *facet.Facet { f.Facet.BindImpl(f); return &f.Facet }
+func (f *fakeAllCapabilitiesMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 func (f *fakeAllCapabilitiesMark) Descriptor() Descriptor {
 	return Descriptor{Family: "all", TypeName: "fakeAll"}
 }
 func (f *fakeAllCapabilitiesMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeAllCapabilitiesMark) OnDetach()                         {}
-func (f *fakeAllCapabilitiesMark) OnActivate()                       {}
-func (f *fakeAllCapabilitiesMark) OnDeactivate()                     {}
-func (f *fakeAllCapabilitiesMark) Focusable() bool { return true }
+func (f *fakeAllCapabilitiesMark) OnDetach()                        {}
+func (f *fakeAllCapabilitiesMark) OnActivate()                      {}
+func (f *fakeAllCapabilitiesMark) OnDeactivate()                    {}
+func (f *fakeAllCapabilitiesMark) Focusable() bool                  { return true }
 func (f *fakeAllCapabilitiesMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return nil
 }
@@ -241,12 +241,12 @@ func TestDescriptor_author_declares_family_and_typename(t *testing.T) {
 
 type corePlainMark struct{ Core }
 
-func (m *corePlainMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
-func (m *corePlainMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "plain"} }
+func (m *corePlainMark) Base() *facet.Facet               { m.BindImpl(m); return &m.Facet }
+func (m *corePlainMark) Descriptor() Descriptor           { return Descriptor{Family: "core", TypeName: "plain"} }
 func (m *corePlainMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *corePlainMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *corePlainMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *corePlainMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *corePlainMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *corePlainMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *corePlainMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 func TestDescribe_core_plain_mark_no_capabilities(t *testing.T) {
 	m := &corePlainMark{}
@@ -273,13 +273,15 @@ func TestDescribe_core_plain_mark_no_capabilities(t *testing.T) {
 
 type coreFocusableMark struct{ Core }
 
-func (m *coreFocusableMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
-func (m *coreFocusableMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "focusable"} }
+func (m *coreFocusableMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
+func (m *coreFocusableMark) Descriptor() Descriptor {
+	return Descriptor{Family: "core", TypeName: "focusable"}
+}
 func (m *coreFocusableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *coreFocusableMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *coreFocusableMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *coreFocusableMark) OnDeactivate()                     { m.Core.OnDeactivate() }
-func (m *coreFocusableMark) Focusable() bool { return true }
+func (m *coreFocusableMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *coreFocusableMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *coreFocusableMark) OnDeactivate()                    { m.Core.OnDeactivate() }
+func (m *coreFocusableMark) Focusable() bool                  { return true }
 
 func TestDescribe_core_focusable_mark(t *testing.T) {
 	m := &coreFocusableMark{}
@@ -291,12 +293,14 @@ func TestDescribe_core_focusable_mark(t *testing.T) {
 
 type coreAnchorMark struct{ Core }
 
-func (m *coreAnchorMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
-func (m *coreAnchorMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "anchor"} }
-func (m *coreAnchorMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *coreAnchorMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *coreAnchorMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *coreAnchorMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *coreAnchorMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
+func (m *coreAnchorMark) Descriptor() Descriptor {
+	return Descriptor{Family: "core", TypeName: "anchor"}
+}
+func (m *coreAnchorMark) OnAttach(ctx facet.AttachContext)                              { m.Core.OnAttach() }
+func (m *coreAnchorMark) OnDetach()                                                     { m.Core.OnDetach() }
+func (m *coreAnchorMark) OnActivate()                                                   { m.Core.OnActivate() }
+func (m *coreAnchorMark) OnDeactivate()                                                 { m.Core.OnDeactivate() }
 func (m *coreAnchorMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet { return nil }
 
 func TestDescribe_core_anchor_mark(t *testing.T) {
@@ -309,13 +313,15 @@ func TestDescribe_core_anchor_mark(t *testing.T) {
 
 type coreCompositeMark struct{ Core }
 
-func (m *coreCompositeMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
-func (m *coreCompositeMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "composite"} }
+func (m *coreCompositeMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
+func (m *coreCompositeMark) Descriptor() Descriptor {
+	return Descriptor{Family: "core", TypeName: "composite"}
+}
 func (m *coreCompositeMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *coreCompositeMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *coreCompositeMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *coreCompositeMark) OnDeactivate()                     { m.Core.OnDeactivate() }
-func (m *coreCompositeMark) ChildMarks() []Mark { return nil }
+func (m *coreCompositeMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *coreCompositeMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *coreCompositeMark) OnDeactivate()                    { m.Core.OnDeactivate() }
+func (m *coreCompositeMark) ChildMarks() []Mark               { return nil }
 
 func TestDescribe_core_composite_mark(t *testing.T) {
 	m := &coreCompositeMark{}
@@ -339,12 +345,14 @@ func newCoreHitTestableMark() *coreHitTestableMark {
 	return m
 }
 
-func (m *coreHitTestableMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
-func (m *coreHitTestableMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "hittable"} }
+func (m *coreHitTestableMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
+func (m *coreHitTestableMark) Descriptor() Descriptor {
+	return Descriptor{Family: "core", TypeName: "hittable"}
+}
 func (m *coreHitTestableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *coreHitTestableMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *coreHitTestableMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *coreHitTestableMark) OnDeactivate()                     { m.Core.OnDeactivate() }
+func (m *coreHitTestableMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *coreHitTestableMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *coreHitTestableMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 func TestDescribe_core_hit_testable_mark(t *testing.T) {
 	m := newCoreHitTestableMark()
@@ -368,13 +376,15 @@ func newCoreAllCapabilitiesMark() *coreAllCapabilitiesMark {
 	return m
 }
 
-func (m *coreAllCapabilitiesMark) Base() *facet.Facet     { m.Facet.BindImpl(m); return &m.Facet }
-func (m *coreAllCapabilitiesMark) Descriptor() Descriptor  { return Descriptor{Family: "core", TypeName: "all"} }
+func (m *coreAllCapabilitiesMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
+func (m *coreAllCapabilitiesMark) Descriptor() Descriptor {
+	return Descriptor{Family: "core", TypeName: "all"}
+}
 func (m *coreAllCapabilitiesMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *coreAllCapabilitiesMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *coreAllCapabilitiesMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *coreAllCapabilitiesMark) OnDeactivate()                     { m.Core.OnDeactivate() }
-func (m *coreAllCapabilitiesMark) Focusable() bool { return true }
+func (m *coreAllCapabilitiesMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *coreAllCapabilitiesMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *coreAllCapabilitiesMark) OnDeactivate()                    { m.Core.OnDeactivate() }
+func (m *coreAllCapabilitiesMark) Focusable() bool                  { return true }
 func (m *coreAllCapabilitiesMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return nil
 }

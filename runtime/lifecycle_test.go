@@ -19,12 +19,12 @@ import (
 // lifecycleApp implements platform.LifecycleCapable so the runtime's
 // lifecycle callbacks are bound during start().
 type lifecycleApp struct {
-	events       *fakeEventQueue
-	lifecycleMu  sync.Mutex
-	onPause      func()
-	onResume     func()
-	onLowMemory  func()
-	onSurfaceLost func()
+	events           *fakeEventQueue
+	lifecycleMu      sync.Mutex
+	onPause          func()
+	onResume         func()
+	onLowMemory      func()
+	onSurfaceLost    func()
 	onSurfaceCreated func(platform.Surface)
 }
 
@@ -79,35 +79,45 @@ func (a *lifecycleApp) triggerPause() {
 	a.lifecycleMu.Lock()
 	fn := a.onPause
 	a.lifecycleMu.Unlock()
-	if fn != nil { fn() }
+	if fn != nil {
+		fn()
+	}
 }
 
 func (a *lifecycleApp) triggerResume() {
 	a.lifecycleMu.Lock()
 	fn := a.onResume
 	a.lifecycleMu.Unlock()
-	if fn != nil { fn() }
+	if fn != nil {
+		fn()
+	}
 }
 
 func (a *lifecycleApp) triggerSurfaceLost() {
 	a.lifecycleMu.Lock()
 	fn := a.onSurfaceLost
 	a.lifecycleMu.Unlock()
-	if fn != nil { fn() }
+	if fn != nil {
+		fn()
+	}
 }
 
 func (a *lifecycleApp) triggerSurfaceCreated(s platform.Surface) {
 	a.lifecycleMu.Lock()
 	fn := a.onSurfaceCreated
 	a.lifecycleMu.Unlock()
-	if fn != nil { fn(s) }
+	if fn != nil {
+		fn(s)
+	}
 }
 
 func (a *lifecycleApp) triggerLowMemory() {
 	a.lifecycleMu.Lock()
 	fn := a.onLowMemory
 	a.lifecycleMu.Unlock()
-	if fn != nil { fn() }
+	if fn != nil {
+		fn()
+	}
 }
 
 func (a *lifecycleApp) triggerEvent(ev platform.Event) {
@@ -480,14 +490,14 @@ func TestRuntime_configurationChanged_triggersLayout(t *testing.T) {
 
 	// Send a configuration change event through the platform event queue.
 	app.triggerEvent(platform.ConfigurationChangedEvent{
-		Orientation:   2,  // landscape
-		ScreenWidthDp: 800,
+		Orientation:    2, // landscape
+		ScreenWidthDp:  800,
 		ScreenHeightDp: 480,
-		Density:       320,
-		UiModeNight:   true,
-		FontScale:     1.25,
-		Language:      "en",
-		Country:       "US",
+		Density:        320,
+		UiModeNight:    true,
+		FontScale:      1.25,
+		Language:       "en",
+		Country:        "US",
 	})
 
 	// The event should be consumed by handleWindowEvents (not passed through
@@ -615,12 +625,12 @@ func TestRuntime_configurationChanged_assetManagerNotNiled(t *testing.T) {
 	before := rt.AssetManager()
 
 	app.triggerEvent(platform.ConfigurationChangedEvent{
-		Orientation:   1,
-		ScreenWidthDp: 800,
+		Orientation:    1,
+		ScreenWidthDp:  800,
 		ScreenHeightDp: 480,
-		Density:       320,
-		UiModeNight:   false,
-		FontScale:     1.0,
+		Density:        320,
+		UiModeNight:    false,
+		FontScale:      1.0,
 	})
 
 	rt.RunOneFrame()

@@ -63,7 +63,7 @@ type nilBaseFacet struct {
 	Facet
 }
 
-func (f *nilBaseFacet) Base() *Facet { return nil }
+func (f *nilBaseFacet) Base() *Facet               { return nil }
 func (f *nilBaseFacet) OnAttach(ctx AttachContext) {}
 func (f *nilBaseFacet) OnDetach()                  {}
 func (f *nilBaseFacet) OnActivate()                {}
@@ -87,5 +87,3 @@ func TestTransition_require_state_panics(t *testing.T) {
 		Activate(f)
 	})
 }
-
-

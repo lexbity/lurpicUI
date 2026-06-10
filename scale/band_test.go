@@ -68,7 +68,7 @@ func TestBand_inner_padding(t *testing.T) {
 
 	if math.Abs(step-wantStep) > eps {
 		t.Fatalf("step = %f, want %f", step, wantStep)
-}
+	}
 	if bw >= step {
 		t.Fatalf("expected bandwidth < step with inner padding: step=%f bw=%f", step, bw)
 	}
@@ -145,9 +145,9 @@ func TestBand_align_right(t *testing.T) {
 func TestBand_invertRange_basic(t *testing.T) {
 	s := NewBand([]string{"A", "B", "C"}, WithRange(0, 300))
 	tests := []struct {
-		pos    float64
-		want   string
-		ok     bool
+		pos  float64
+		want string
+		ok   bool
 	}{
 		{0, "A", true},
 		{50, "A", true},

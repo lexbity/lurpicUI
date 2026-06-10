@@ -331,4 +331,3 @@ func LinePath(start, end Point) Path {
 		LineTo(end).
 		Build()
 }
-

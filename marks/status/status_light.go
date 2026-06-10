@@ -53,7 +53,7 @@ func NewStatusLight(label string) *StatusLight {
 		ShowLabel: marks.Const(true),
 		Disabled:  marks.Const(false),
 	}
-	s.Core.Facet = facet.NewFacet()
+	s.Facet = facet.NewFacet()
 	s.AddBinding(s.Label)
 	s.AddBinding(s.ShowLabel)
 	s.AddBinding(s.Disabled)
@@ -94,7 +94,7 @@ func NewStatusLight(label string) *StatusLight {
 
 // Base satisfies facet.FacetImpl.
 func (s *StatusLight) Base() *facet.Facet {
-	s.Facet.BindImpl(s)
+	s.BindImpl(s)
 	return &s.Facet
 }
 
@@ -115,7 +115,7 @@ func (s *StatusLight) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 		return nil
 	}
 	bounds := s.Layout.ArrangedBounds
-	out := s.Core.DefaultAnchors(bounds, ctx)
+	out := s.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -158,7 +158,7 @@ func (s *StatusLight) invalidate(flags facet.DirtyFlags) {
 	if s == nil {
 		return
 	}
-	s.Facet.Invalidate(flags)
+	s.Invalidate(flags)
 }
 
 func (s *StatusLight) syncChildren() {

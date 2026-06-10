@@ -15,10 +15,10 @@ import (
 
 // HarnessConfig configures a headless harness.
 type HarnessConfig struct {
-	Width, Height int
-	Fonts         []text.FontSource
-	LayerRegistry *layout.LayerRegistry
-	Backend       render.Backend // optional; defaults to software renderer
+	Width, Height    int
+	Fonts            []text.FontSource
+	LayerRegistry    *layout.LayerRegistry
+	Backend          render.Backend          // optional; defaults to software renderer
 	WritingDirection layout.WritingDirection // empty defaults to LTR
 }
 

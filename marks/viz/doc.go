@@ -1,7 +1,7 @@
 // Package viz implements Cartesian data-visualisation marks: axis, point,
 // line, area, bar, and rule.
 //
-// Axis orientations
+// # Axis orientations
 //
 // An axis renders tick marks and numeric labels for a scale on one of four
 // sides of the plot area:
@@ -19,7 +19,7 @@
 // axis bounds (or omitted if they do not fit). Labels that would overlap a
 // kept neighbor are skipped (collision avoidance).
 //
-// Time axes
+// # Time axes
 //
 // The Axis mark accepts a ReactiveScale backed by a TimeScale. Time-scale
 // labels use the location configured on the scale (WithTimeLocation) or UTC

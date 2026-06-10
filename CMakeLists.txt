@@ -74,6 +74,9 @@ function(_lurpic_reject_unknown_options)
     LURPIC_PACKAGE_VERSION
     LURPIC_VCS_REVISION
     LURPIC_BUILD_TIMESTAMP
+    LURPIC_GOLANGCI_EXECUTABLE
+    LURPIC_GOLANGCI_VERSION
+    LURPIC_GOLANGCI_VERSION_SHORT
   )
 
   get_cmake_property(_lurpic_cache_vars CACHE_VARIABLES)
@@ -125,6 +128,9 @@ endif()
 if(LURPIC_BACKEND_VULKAN AND NOT LURPIC_HAVE_VULKAN)
   message(FATAL_ERROR "Configuration failure: Vulkan backend was enabled but Vulkan prerequisites were not found. Set LURPIC_VULKAN_SDK_ROOT to a valid SDK root or install Vulkan headers and libraries.")
 endif()
+
+include(FindGolangciLint)
+lurpic_find_golangci_lint()
 
 include(GoCommandWrappers)
 lurpic_add_go_build_target(
@@ -198,13 +204,6 @@ _lurpic_add_test_suite_target(
     ./internal/renderutil/...
     ./render/vulkan/...
     ./marks
-    ./marks/basic/...
-    ./marks/structure/...
-    ./marks/uiinput/...
-    ./marks/uinav/...
-    ./marks/uinotification/...
-    ./marks/annotation/...
-    ./marks/chart/...
 )
 list(APPEND _lurpic_test_all_targets test-pure)
 
@@ -320,28 +319,20 @@ if(LURPIC_INCLUDE_TEMPLATE_THEMES)
     COMMAND ${CMAKE_COMMAND} -E touch "${LURPIC_BUNDLE_THEMES_DIR}/template-themes.enabled"
   )
 endif()
-if(LURPIC_BUILD_EXAMPLES)
-  foreach(_lurpic_example_name IN ITEMS basic ui chart graph)
-    set(_lurpic_example_dir "${CMAKE_CURRENT_SOURCE_DIR}/examples/${_lurpic_example_name}")
-    if(EXISTS "${_lurpic_example_dir}/main.go")
-      list(APPEND _lurpic_build_examples_commands
-        COMMAND ${CMAKE_COMMAND} -E env ${LURPIC_GO_EXECUTABLE} build ./examples/${_lurpic_example_name}
-      )
-      add_custom_target("run-example-${_lurpic_example_name}"
-        COMMAND ${CMAKE_COMMAND} -E env ${LURPIC_GO_EXECUTABLE} run ./examples/${_lurpic_example_name}
-        WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-        COMMENT "Run example ${_lurpic_example_name}"
-        VERBATIM
-      )
-    endif()
-  endforeach()
-endif()
-
 add_custom_target(build-examples
   ${_lurpic_build_examples_commands}
   COMMENT "Stage optional examples and template assets"
   VERBATIM
 )
+
+if(LURPIC_BUILD_EXAMPLES)
+  add_custom_target(run-demo-quick_square_app
+    COMMAND ${CMAKE_COMMAND} -E env ${LURPIC_GO_EXECUTABLE} run ./demos/quick_square_app
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Run the quick_square_app demo"
+    VERBATIM
+  )
+endif()
 
 lurpic_add_optional_go_test_target(
   NAME test-race
@@ -412,6 +403,12 @@ add_custom_target(lurpic-host-tests
   VERBATIM
 )
 
+add_custom_target(test-unit
+  DEPENDS lurpic-host-tests
+  COMMENT "Run host tests (vet, build, test) — alias for lurpic-host-tests"
+  VERBATIM
+)
+
 add_custom_target(build-lurpic-cli
   COMMAND ${LURPIC_GO_EXECUTABLE} build -o "${CMAKE_CURRENT_BINARY_DIR}/lurpic" ./cmd/lurpic/...
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -420,9 +417,38 @@ add_custom_target(build-lurpic-cli
 )
 
 add_custom_target(build-lurpiclint
-  COMMAND ${LURPIC_GO_EXECUTABLE} build -o "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" ./cmd/lurpiclint/...
+  COMMAND ${LURPIC_GO_EXECUTABLE} build -o "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" ./cmd/lurpiclint
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Build the lurpiclint static analyzer"
+  VERBATIM
+)
+
+add_custom_target(lint-golangci
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GOLANGCI_EXECUTABLE} run ./...
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Run golangci-lint over the repo"
+  VERBATIM
+)
+
+add_custom_target(lint-lurpiclint
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error ./... ./demos/quick_square_app/...
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Run lurpiclint over the framework and demo app"
+  VERBATIM
+)
+add_dependencies(lint-lurpiclint build-lurpiclint)
+
+add_custom_target(lint-lurpiclint-ci
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --format github ./... ./demos/quick_square_app/...
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Run lurpiclint over the framework and demo app (GitHub annotations)"
+  VERBATIM
+)
+add_dependencies(lint-lurpiclint-ci build-lurpiclint)
+
+add_custom_target(lint
+  DEPENDS lint-golangci lint-lurpiclint
+  COMMENT "Run all linters (golangci-lint + lurpiclint)"
   VERBATIM
 )
 

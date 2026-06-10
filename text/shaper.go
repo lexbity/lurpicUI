@@ -415,7 +415,7 @@ func (s *Shaper) logicalRuns(text []rune, paragraph Paragraph, span TextSpan) []
 		r := ordering.Run(i)
 		start, _ := r.Pos()
 		dir := fromBidiDirection(r.Direction())
-		level := 0
+		var level int
 		if baseDirection == di.DirectionLTR {
 			if dir == di.DirectionRTL {
 				level = 1

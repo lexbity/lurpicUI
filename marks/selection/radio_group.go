@@ -87,7 +87,7 @@ func NewRadioGroup(label string, options []RadioOption) *RadioGroup {
 		hoveredIndex: -1,
 		pressedIndex: -1,
 	}
-	rg.Core.Facet = facet.NewFacet()
+	rg.Facet = facet.NewFacet()
 	rg.AddBinding(rg.Variant)
 	rg.AddBinding(rg.Disabled)
 	rg.SetOptions(options)
@@ -141,7 +141,7 @@ func NewRadioGroup(label string, options []RadioOption) *RadioGroup {
 
 // Base satisfies facet.FacetImpl.
 func (rg *RadioGroup) Base() *facet.Facet {
-	rg.Facet.BindImpl(rg)
+	rg.BindImpl(rg)
 	return &rg.Facet
 }
 
@@ -170,7 +170,7 @@ func (rg *RadioGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := rg.Core.DefaultAnchors(bounds, ctx)
+	out := rg.DefaultAnchors(bounds, ctx)
 	if rg.cachedGroupLabel != nil {
 		out["baseline"] = gfx.Point{X: rg.cachedGroupLabelRect.Min.X, Y: rg.cachedGroupLabelRect.Min.Y + rg.cachedGroupLabel.Baseline}
 	} else if len(rg.cachedItemLabelLayouts) > 0 && rg.cachedItemLabelLayouts[0] != nil && len(rg.cachedItemLabels) > 0 {
@@ -234,7 +234,7 @@ func (rg *RadioGroup) invalidate(flags facet.DirtyFlags) {
 	if rg == nil {
 		return
 	}
-	rg.Facet.Invalidate(flags)
+	rg.Invalidate(flags)
 }
 
 func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

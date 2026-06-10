@@ -142,7 +142,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		pressedIndex:    -1,
 		Activated:       signal.NewSignal[string]("menu_button_activated"),
 	}
-	m.Core.Facet = facet.NewFacet()
+	m.Facet = facet.NewFacet()
 	m.AddBinding(m.Label)
 	m.AddBinding(m.AccessibleLabel)
 	m.AddBinding(m.TriggerIconRef)
@@ -208,7 +208,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 
 // Base satisfies facet.FacetImpl.
 func (m *MenuButton) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 
@@ -257,7 +257,7 @@ func (m *MenuButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 	if bounds.IsEmpty() {
 		return nil
 	}
-	out := m.Core.DefaultAnchors(bounds, ctx)
+	out := m.DefaultAnchors(bounds, ctx)
 	if m.cachedTriggerLabelLayout != nil {
 		out["baseline"] = gfx.Point{X: bounds.Min.X, Y: m.cachedTriggerLabelBounds.Min.Y + m.cachedTriggerLabelLayout.Baseline}
 	} else {

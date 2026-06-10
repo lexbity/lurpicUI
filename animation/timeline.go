@@ -269,7 +269,6 @@ func (tl *Timeline) advancePingPong(delta float64) {
 			toEdge := tl.cfg.Duration - current
 			if remaining <= toEdge {
 				current += remaining
-				remaining = 0
 				break
 			}
 			current = tl.cfg.Duration
@@ -280,7 +279,6 @@ func (tl *Timeline) advancePingPong(delta float64) {
 		toEdge := current
 		if remaining <= toEdge {
 			current -= remaining
-			remaining = 0
 			break
 		}
 		current = 0

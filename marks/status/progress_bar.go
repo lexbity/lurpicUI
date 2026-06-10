@@ -65,7 +65,7 @@ func NewProgressBar(label string) *ProgressBar {
 		Value:    marks.Const(float32(0)),
 		Disabled: marks.Const(false),
 	}
-	p.Core.Facet = facet.NewFacet()
+	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
 	p.AddBinding(p.Value)
 	p.AddBinding(p.Disabled)
@@ -109,7 +109,7 @@ func NewProgressBar(label string) *ProgressBar {
 
 // Base satisfies facet.FacetImpl.
 func (p *ProgressBar) Base() *facet.Facet {
-	p.Facet.BindImpl(p)
+	p.BindImpl(p)
 	return &p.Facet
 }
 
@@ -130,7 +130,7 @@ func (p *ProgressBar) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 		return nil
 	}
 	bounds := p.Layout.ArrangedBounds
-	out := p.Core.DefaultAnchors(bounds, ctx)
+	out := p.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -183,7 +183,7 @@ func (p *ProgressBar) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Facet.Invalidate(flags)
+	p.Invalidate(flags)
 }
 
 func (p *ProgressBar) syncLabelFacet() {

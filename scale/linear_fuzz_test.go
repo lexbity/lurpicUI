@@ -17,10 +17,10 @@ func FuzzLinear_round_trip(f *testing.F) {
 		{-100, 100, 0, 1000},
 		{0, 1, 0, 1},
 		{-1e6, 1e6, -500, 500},
-		{100, 0, 0, 500},   // reversed domain
-		{0, 100, 500, 0},   // reversed range
+		{100, 0, 0, 500},       // reversed domain
+		{0, 100, 500, 0},       // reversed range
 		{0.001, 0.001, 0, 100}, // degenerate domain
-		{0, 100, 42, 42},   // degenerate range
+		{0, 100, 42, 42},       // degenerate range
 	}
 	for _, s := range seeds {
 		f.Add(s.dLo, s.dHi, s.rLo, s.rHi)

@@ -8,12 +8,12 @@ import (
 
 // CapturedCommand records a single gfx.Command with its type and key fields.
 type CapturedCommand struct {
-	Kind     string      // "FillRect", "FillPath", "GlyphRun", etc.
-	Bounds   gfx.Rect    // for FillRect, FillPath
-	Color    gfx.Color   // for FillRect, FillPath
-	Text     string      // for GlyphRun
-	Position gfx.Point   // for GlyphRun origin
-	Opacity  float32     // for PushOpacity
+	Kind     string    // "FillRect", "FillPath", "GlyphRun", etc.
+	Bounds   gfx.Rect  // for FillRect, FillPath
+	Color    gfx.Color // for FillRect, FillPath
+	Text     string    // for GlyphRun
+	Position gfx.Point // for GlyphRun origin
+	Opacity  float32   // for PushOpacity
 }
 
 // CommandCapture iterates a CommandList and records each command.

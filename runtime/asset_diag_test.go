@@ -15,17 +15,17 @@ type assetDiagFixture struct {
 	stats assets.ManagerStats
 }
 
-func (f *assetDiagFixture) Open(name string) (fs.File, error) { return nil, fs.ErrNotExist }
-func (f *assetDiagFixture) LoadSVG(path string) assets.Handle { return assets.Handle{} }
-func (f *assetDiagFixture) LoadImage(path string) assets.Handle { return assets.Handle{} }
-func (f *assetDiagFixture) LoadTexture(path string) assets.Handle { return assets.Handle{} }
-func (f *assetDiagFixture) LoadFont(path string) assets.Handle { return assets.Handle{} }
+func (f *assetDiagFixture) Open(name string) (fs.File, error)             { return nil, fs.ErrNotExist }
+func (f *assetDiagFixture) LoadSVG(path string) assets.Handle             { return assets.Handle{} }
+func (f *assetDiagFixture) LoadImage(path string) assets.Handle           { return assets.Handle{} }
+func (f *assetDiagFixture) LoadTexture(path string) assets.Handle         { return assets.Handle{} }
+func (f *assetDiagFixture) LoadFont(path string) assets.Handle            { return assets.Handle{} }
 func (f *assetDiagFixture) LoadConfig(path string, dst any) assets.Handle { return assets.Handle{} }
-func (f *assetDiagFixture) Prefetch(paths ...string) {}
-func (f *assetDiagFixture) Invalidate(path string) {}
-func (f *assetDiagFixture) Close() error { return nil }
-func (f *assetDiagFixture) DrainCompleted() int { return 0 }
-func (f *assetDiagFixture) Stats() assets.ManagerStats { return f.stats }
+func (f *assetDiagFixture) Prefetch(paths ...string)                      {}
+func (f *assetDiagFixture) Invalidate(path string)                        {}
+func (f *assetDiagFixture) Close() error                                  { return nil }
+func (f *assetDiagFixture) DrainCompleted() int                           { return 0 }
+func (f *assetDiagFixture) Stats() assets.ManagerStats                    { return f.stats }
 
 // recordingLog captures log messages for assertion.
 type recordingLog struct {
@@ -256,10 +256,10 @@ func (f *assetDiagFixtureWithID) LoadFont(path string) assets.Handle {
 func (f *assetDiagFixtureWithID) LoadConfig(path string, dst any) assets.Handle {
 	return assets.NewHandle(f.id, f.reg)
 }
-func (f *assetDiagFixtureWithID) Prefetch(paths ...string) {}
-func (f *assetDiagFixtureWithID) Invalidate(path string)   {}
-func (f *assetDiagFixtureWithID) Close() error             { return nil }
-func (f *assetDiagFixtureWithID) DrainCompleted() int      { return 0 }
+func (f *assetDiagFixtureWithID) Prefetch(paths ...string)   {}
+func (f *assetDiagFixtureWithID) Invalidate(path string)     {}
+func (f *assetDiagFixtureWithID) Close() error               { return nil }
+func (f *assetDiagFixtureWithID) DrainCompleted() int        { return 0 }
 func (f *assetDiagFixtureWithID) Stats() assets.ManagerStats { return assets.ManagerStats{} }
 
 func rtWithManager(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) *Runtime {
@@ -379,7 +379,7 @@ func fmtArgs(args []any) string {
 		if i > 0 {
 			b.WriteString(" ")
 		}
-		b.WriteString(fmt.Sprintf("%v", a))
+		fmt.Fprintf(&b, "%v", a)
 	}
 	return b.String()
 }

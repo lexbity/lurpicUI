@@ -381,7 +381,7 @@ func buttonBase(ctx theme.StyleContext, variant ButtonVariant) shared.ButtonSlot
 							Opacity: 0.15,
 						},
 						{
-							Type:    theme.FillGradient,
+							Type: theme.FillGradient,
 							Gradient: theme.Gradient{
 								Type:  theme.GradientLinear,
 								Start: gfx.Point{X: 0, Y: 0},
@@ -462,7 +462,7 @@ func iconButtonBase(ctx theme.StyleContext, variant IconButtonVariant) shared.Ic
 							Opacity: 0.15,
 						},
 						{
-							Type:    theme.FillGradient,
+							Type: theme.FillGradient,
 							Gradient: theme.Gradient{
 								Type:  theme.GradientLinear,
 								Start: gfx.Point{X: 0, Y: 0},
@@ -685,7 +685,7 @@ func sliderBase(ctx theme.StyleContext, variant SliderVariant) shared.SliderSlot
 							Opacity: 0.9,
 						},
 						{
-							Type:    theme.FillGradient,
+							Type: theme.FillGradient,
 							Gradient: theme.Gradient{
 								Type:  theme.GradientLinear,
 								Start: gfx.Point{X: 0, Y: 0},
@@ -727,7 +727,7 @@ func sliderBase(ctx theme.StyleContext, variant SliderVariant) shared.SliderSlot
 							Opacity: 0.9,
 						},
 						{
-							Type:    theme.FillGradient,
+							Type: theme.FillGradient,
 							Gradient: theme.Gradient{
 								Type:  theme.GradientLinear,
 								Start: gfx.Point{X: 0, Y: 0},
@@ -887,7 +887,7 @@ func switchBase(ctx theme.StyleContext, variant SwitchVariant) shared.SwitchSlot
 							Opacity: 0.95,
 						},
 						{
-							Type:    theme.FillGradient,
+							Type: theme.FillGradient,
 							Gradient: theme.Gradient{
 								Type:  theme.GradientLinear,
 								Start: gfx.Point{X: 0, Y: 0},
@@ -928,7 +928,7 @@ func switchBase(ctx theme.StyleContext, variant SwitchVariant) shared.SwitchSlot
 							Opacity: 0.95,
 						},
 						{
-							Type:    theme.FillGradient,
+							Type: theme.FillGradient,
 							Gradient: theme.Gradient{
 								Type:  theme.GradientLinear,
 								Start: gfx.Point{X: 0, Y: 0},
@@ -1303,4 +1303,3 @@ func clampByte(v float32) uint8 {
 	}
 	return uint8(v)
 }
-

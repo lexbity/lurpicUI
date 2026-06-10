@@ -55,10 +55,10 @@ func TestDefaultTokens_completeness(t *testing.T) {
 		t.Fatalf("touch target must be at least 44, got %v", tokens.Spacing.TouchTarget)
 	}
 
-	if !(tokens.Motion.DurationInstant < tokens.Motion.DurationShort &&
-		tokens.Motion.DurationShort < tokens.Motion.DurationMedium &&
-		tokens.Motion.DurationMedium < tokens.Motion.DurationLong &&
-		tokens.Motion.DurationLong < tokens.Motion.DurationXLong) {
+	if tokens.Motion.DurationInstant >= tokens.Motion.DurationShort ||
+		tokens.Motion.DurationShort >= tokens.Motion.DurationMedium ||
+		tokens.Motion.DurationMedium >= tokens.Motion.DurationLong ||
+		tokens.Motion.DurationLong >= tokens.Motion.DurationXLong {
 		t.Fatalf("motion durations are not strictly ordered: %+v", tokens.Motion)
 	}
 

@@ -33,10 +33,10 @@ type LurpiclintConfig struct {
 
 // Config is the root .lurpiclint.toml structure.
 type Config struct {
-	Lurpiclint   LurpiclintConfig            `toml:"lurpiclint"`
-	Rules        map[string]RuleConfig       `toml:"rules"`
-	Paths        PathsConfig                 `toml:"paths"`
-	Capabilities CapabilitiesConfig          `toml:"capabilities"`
+	Lurpiclint   LurpiclintConfig      `toml:"lurpiclint"`
+	Rules        map[string]RuleConfig `toml:"rules"`
+	Paths        PathsConfig           `toml:"paths"`
+	Capabilities CapabilitiesConfig    `toml:"capabilities"`
 }
 
 // DefaultConfig returns a Config with the defaults.

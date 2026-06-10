@@ -286,8 +286,8 @@ func (u *fakeUploader) Results() <-chan TextureUploadResult {
 	return u.results
 }
 
-func (u *fakeUploader) Budget() int                { return u.budget }
-func (u *fakeUploader) TargetFormat() uint32       { return 0 }
+func (u *fakeUploader) Budget() int          { return u.budget }
+func (u *fakeUploader) TargetFormat() uint32 { return 0 }
 
 // ── Residency constructor tests ─────────────────────────────────────────────
 

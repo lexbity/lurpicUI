@@ -110,7 +110,7 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 		pressedIndex: -1,
 		Activated:    signal.NewSignal[string]("action_bar_activated"),
 	}
-	a.Core.Facet = facet.NewFacet()
+	a.Facet = facet.NewFacet()
 	a.AddBinding(a.Label)
 	a.AddBinding(a.Actions)
 	a.AddBinding(a.Overflow)
@@ -176,7 +176,7 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 
 // Base satisfies facet.FacetImpl.
 func (a *ActionBar) Base() *facet.Facet {
-	a.Facet.BindImpl(a)
+	a.BindImpl(a)
 	return &a.Facet
 }
 
@@ -284,7 +284,7 @@ func (a *ActionBar) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorS
 	if a == nil {
 		return nil
 	}
-	out := a.Core.DefaultAnchors(a.Layout.ArrangedBounds, ctx)
+	out := a.DefaultAnchors(a.Layout.ArrangedBounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -300,7 +300,7 @@ func (a *ActionBar) invalidate(flags facet.DirtyFlags) {
 	if a == nil {
 		return
 	}
-	a.Facet.Invalidate(flags)
+	a.Invalidate(flags)
 }
 
 func (a *ActionBar) syncItems() {
@@ -889,7 +889,7 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	// Only applicable for nil-able kinds (ptr, slice, map, chan, func, iface).
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
 		if v.IsNil() {
 			return nil
 		}

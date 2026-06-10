@@ -14,7 +14,7 @@ type runtimeAnchorFacet struct {
 }
 
 func (f *runtimeAnchorFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 

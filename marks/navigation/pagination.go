@@ -104,7 +104,7 @@ func newPaginationChild(parent *Pagination, kind paginationChildKind, index int,
 }
 
 func (c *paginationChild) Base() *facet.Facet {
-	c.Facet.BindImpl(c)
+	c.BindImpl(c)
 	return &c.Facet
 }
 
@@ -170,12 +170,12 @@ var _ marks.Mark = (*Pagination)(nil)
 // NewPagination constructs a navigation.pagination mark with canonical defaults.
 func NewPagination(label string, items []PaginationItem) *Pagination {
 	p := &Pagination{
-		Label:            marks.Const(label),
-		CurrentIndex:     marks.Const(0),
-		Disabled:         marks.Const(false),
+		Label:             marks.Const(label),
+		CurrentIndex:      marks.Const(0),
+		Disabled:          marks.Const(false),
 		focusedEntryIndex: 0,
 	}
-	p.Core.Facet = facet.NewFacet()
+	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
 	p.AddBinding(p.CurrentIndex)
 	p.AddBinding(p.Disabled)
@@ -229,7 +229,7 @@ func NewPagination(label string, items []PaginationItem) *Pagination {
 
 // Base satisfies facet.FacetImpl.
 func (p *Pagination) Base() *facet.Facet {
-	p.Facet.BindImpl(p)
+	p.BindImpl(p)
 	return &p.Facet
 }
 
@@ -266,7 +266,7 @@ func (p *Pagination) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 		return nil
 	}
 	bounds := p.Layout.ArrangedBounds
-	out := p.Core.DefaultAnchors(bounds, ctx)
+	out := p.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -339,7 +339,7 @@ func (p *Pagination) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Facet.Invalidate(flags)
+	p.Invalidate(flags)
 }
 
 func (p *Pagination) rebuildChildren() {

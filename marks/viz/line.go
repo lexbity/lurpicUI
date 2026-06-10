@@ -43,7 +43,7 @@ func NewLine[T any](
 		StrokeWidth: marks.Const[float32](2),
 		Color:       gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1},
 	}
-	l.Core.Facet = facet.NewFacet()
+	l.Facet = facet.NewFacet()
 	l.AddBinding(l.StrokeWidth)
 
 	l.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -60,7 +60,7 @@ func NewLine[T any](
 }
 
 func (l *Line[T]) Base() *facet.Facet {
-	l.Facet.BindImpl(l)
+	l.BindImpl(l)
 	return &l.Facet
 }
 

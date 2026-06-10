@@ -236,8 +236,6 @@ func highContrastCardTokens() theme.Tokens {
 	return toThemeTokens(templates.UneNuit().Tokens)
 }
 
-
-
 func cardResolvedContext(tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) theme.ResolvedContext {
 	ctx := theme.DefaultResolvedContext()
 	rv := reflect.ValueOf(&ctx).Elem()

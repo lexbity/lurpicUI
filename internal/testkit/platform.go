@@ -169,11 +169,11 @@ type NullApp struct {
 	height    int
 	destroyed bool
 
-	lifecycleMu  sync.Mutex
-	onPause      func()
-	onResume     func()
-	onLowMemory  func()
-	onSurfaceLost func()
+	lifecycleMu      sync.Mutex
+	onPause          func()
+	onResume         func()
+	onLowMemory      func()
+	onSurfaceLost    func()
 	onSurfaceCreated func(platform.Surface)
 }
 

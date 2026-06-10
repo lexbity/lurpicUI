@@ -241,9 +241,10 @@ func renderAxisGolden(t *testing.T, cmds []gfx.Command, bounds gfx.Rect, w, h in
 
 type axisGoldenRuntime struct{}
 
-func (axisGoldenRuntime) Schedule(j job.AnyJob)                            {}
-func (axisGoldenRuntime) CancelJob(id job.JobID)                           {}
+func (axisGoldenRuntime) Schedule(j job.AnyJob)                                              {}
+func (axisGoldenRuntime) CancelJob(id job.JobID)                                             {}
 func (axisGoldenRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+
 var vizFontRegistryOnce sync.Once
 var vizFontRegistryVal *text.FontRegistry
 

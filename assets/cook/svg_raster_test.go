@@ -34,10 +34,10 @@ func TestCompileSVGLOD1Rasterizes32x32WithAA(t *testing.T) {
 	for y := 0; y < 32; y++ {
 		for x := 0; x < 32; x++ {
 			_, _, _, a := img.At(x, y).RGBA()
-			switch {
-			case a == 0:
+			switch a {
+			case 0:
 				zero++
-			case a == 0xffff:
+			case 0xffff:
 				full++
 			default:
 				partial++

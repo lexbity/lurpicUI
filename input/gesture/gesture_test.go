@@ -17,7 +17,7 @@ type mockNode struct {
 func newMockNode() *mockNode {
 	base := facet.NewFacet()
 	n := &mockNode{Facet: &base}
-	n.Facet.BindImpl(n)
+	n.BindImpl(n)
 	return n
 }
 
@@ -258,7 +258,7 @@ func TestGesturePipeline_signalQueueing(t *testing.T) {
 func buildGestureTree() (*mockTree, *mockNode, *mockNode) {
 	root := newMockNode()
 	child := newMockNode()
-	root.Facet.AddChild(child.Facet)
+	root.AddChild(child.Facet)
 	nodes := map[facet.FacetID]facet.FacetImpl{
 		root.ID():  root,
 		child.ID(): child,
@@ -282,7 +282,7 @@ func mustPanicContains(t *testing.T, fn func(), parts ...string) {
 		if r == nil {
 			t.Fatalf("expected panic")
 		}
-		msg := ""
+		var msg string
 		if s, ok := r.(string); ok {
 			msg = s
 		} else {

@@ -1,6 +1,7 @@
 package scale
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -38,25 +39,25 @@ func TestLog_new_valid_negative(t *testing.T) {
 
 func TestLog_new_errors_on_zero_crossing(t *testing.T) {
 	_, err := NewLog(WithDomain(-1, 10), WithRange(0, 500))
-	if err != ErrDomainCrossesZero {
+	if !errors.Is(err, ErrDomainCrossesZero) {
 		t.Fatalf("expected ErrDomainCrossesZero for zero-crossing domain, got %v", err)
 	}
 }
 
 func TestLog_new_errors_on_zero_included(t *testing.T) {
 	_, err := NewLog(WithDomain(0, 100), WithRange(0, 500))
-	if err != ErrDomainCrossesZero {
+	if !errors.Is(err, ErrDomainCrossesZero) {
 		t.Fatalf("expected ErrDomainCrossesZero for domain including zero, got %v", err)
 	}
 }
 
 func TestLog_new_errors_on_invalid_base(t *testing.T) {
 	_, err := NewLog(WithDomain(1, 100), WithRange(0, 500), WithBase(0))
-	if err != ErrInvalidDomain {
+	if !errors.Is(err, ErrInvalidDomain) {
 		t.Fatalf("expected ErrInvalidDomain for base=0, got %v", err)
 	}
 	_, err = NewLog(WithDomain(1, 100), WithRange(0, 500), WithBase(1))
-	if err != ErrInvalidDomain {
+	if !errors.Is(err, ErrInvalidDomain) {
 		t.Fatalf("expected ErrInvalidDomain for base=1, got %v", err)
 	}
 }
@@ -418,7 +419,7 @@ func TestLog_implements_Ticker(t *testing.T) {
 // --- sentinel errors ---
 
 func TestLog_sentinel_errors_distinct(t *testing.T) {
-	if ErrDomainCrossesZero == ErrInvalidDomain {
+	if errors.Is(ErrDomainCrossesZero, ErrInvalidDomain) {
 		t.Fatal("ErrDomainCrossesZero must be distinct from ErrInvalidDomain")
 	}
 	if ErrDomainCrossesZero == nil {

@@ -12,12 +12,12 @@ type jsonOutput struct {
 }
 
 type jsonCapability struct {
-	Kind        string         `json:"kind"`
-	Path        string         `json:"path"`
-	TypeName    string         `json:"type_name"`
-	Category    string         `json:"category"`
-	Constructor string         `json:"constructor,omitempty"`
-	Intent      string         `json:"intent,omitempty"`
+	Kind        string          `json:"kind"`
+	Path        string          `json:"path"`
+	TypeName    string          `json:"type_name"`
+	Category    string          `json:"category"`
+	Constructor string          `json:"constructor,omitempty"`
+	Intent      string          `json:"intent,omitempty"`
 	Fingerprint jsonFingerprint `json:"fingerprint,omitempty"`
 }
 

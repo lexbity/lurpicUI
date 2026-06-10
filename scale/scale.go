@@ -8,9 +8,9 @@ import (
 
 // Sentinel errors returned by scale constructors and methods.
 var (
-	ErrInvalidDomain   = errors.New("scale: invalid domain")
+	ErrInvalidDomain     = errors.New("scale: invalid domain")
 	ErrDomainCrossesZero = errors.New("scale: log domain must not cross or include zero")
-	ErrEmptyMembers    = errors.New("scale: empty member set")
+	ErrEmptyMembers      = errors.New("scale: empty member set")
 )
 
 // Scale maps a data domain onto a numeric range expressed in local layer
@@ -111,18 +111,18 @@ func (o OutOfRange) String() string {
 // Unexported so that Option values can only be constructed via the public
 // With* functions.
 type options struct {
-	domain        [2]float64
-	hasDomain     bool
-	strDomain     []string
-	rng           [2]float64
-	hasRange      bool
-	clamp         *OutOfRange
-	base          *float64
-	exponent      *float64
-	paddingInner  *float64
-	paddingOuter  *float64
-	align         *float64
-	loc           *time.Location
+	domain       [2]float64
+	hasDomain    bool
+	strDomain    []string
+	rng          [2]float64
+	hasRange     bool
+	clamp        *OutOfRange
+	base         *float64
+	exponent     *float64
+	paddingInner *float64
+	paddingOuter *float64
+	align        *float64
+	loc          *time.Location
 }
 
 // Option configures a scale during construction.

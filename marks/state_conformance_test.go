@@ -22,14 +22,14 @@ var stateExempt = map[string]string{
 	"status_light/rtl":          "small centered circular status indicator; no directional content to mirror",
 	"radial_menu/rtl":           "all RadialChild placements use explicit angles; auto-distribution would reverse sweep under RTL but this fixture has no auto-placed children",
 	"command_palette/focused":   "command palette is closed by default (Open=false); cachedSurfaceBounds is empty so no focus ring can render",
-	"command_palette/open":     "command palette defaults to Open=true in singleton golden test; 'open' variant sets the same value as default",
-	"dialog/open":              "dialog defaults to Open=true; test sets the same value — open state is the default render state",
-	"notification/open":        "notification defaults to Open=true; test sets the same value — open state is the default render state",
-	"tooltip/open":             "tooltip defaults to Open=true; test sets the same value — open state is the default render state",
+	"command_palette/open":      "command palette defaults to Open=true in singleton golden test; 'open' variant sets the same value as default",
+	"dialog/open":               "dialog defaults to Open=true; test sets the same value — open state is the default render state",
+	"notification/open":         "notification defaults to Open=true; test sets the same value — open state is the default render state",
+	"tooltip/open":              "tooltip defaults to Open=true; test sets the same value — open state is the default render state",
 	"dropdown_select/dismissed": "test sets open=true then onDismiss sets open=false; net state equals default closed state",
 	"dropdown_select/selected":  "Value text is used for layout measurement only; textRole.Layout is never explicitly rendered via TextLayoutCommands — only cachedLabelLayout is rendered",
-	"action_group/disabled":    "ActionGroup deriveDisabled applies opacity overlay; pixel delta falls below 2/255 tolerance against default group surface",
-	"number_field/compact":     "assertNumberFieldGolden always uses default density (no density parameter); compact test is redundant with default",
+	"action_group/disabled":     "ActionGroup deriveDisabled applies opacity overlay; pixel delta falls below 2/255 tolerance against default group surface",
+	"number_field/compact":      "assertNumberFieldGolden always uses default density (no density parameter); compact test is redundant with default",
 }
 
 // TestStateDiscrimination enforces P-Discriminate: every {mark}_{state}
@@ -161,5 +161,3 @@ func isKnownState(state string) bool {
 	}
 	return false
 }
-
-

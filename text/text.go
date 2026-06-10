@@ -650,7 +650,6 @@ func (l *TextLayout) graphemeRangeForRuneBounds(start, end int) (int, int) {
 	return l.graphemeIndexForRuneIndex(start, AffinityDownstream), l.graphemeIndexForRuneIndex(end, AffinityUpstream)
 }
 
-
 func graphemeBoundaries(runes []rune) []int {
 	if len(runes) == 0 {
 		return []int{0}

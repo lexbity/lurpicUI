@@ -308,7 +308,7 @@ func NewPopupPalette(label string, tools []PopupPaletteTool) *PopupPalette {
 		pressedIndex:  -1,
 		Activated:     signal.NewSignal[string]("popup_palette_activated"),
 	}
-	p.Core.Facet = facet.NewFacet()
+	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
 	p.AddBinding(p.Open)
 	p.AddBinding(p.Disabled)
@@ -383,7 +383,7 @@ func NewPopupPalette(label string, tools []PopupPaletteTool) *PopupPalette {
 }
 
 func (p *PopupPalette) Base() *facet.Facet {
-	p.Facet.BindImpl(p)
+	p.BindImpl(p)
 	return &p.Facet
 }
 
@@ -416,7 +416,7 @@ func (p *PopupPalette) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
 	}
-	out := p.Core.DefaultAnchors(bounds, ctx)
+	out := p.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -489,7 +489,7 @@ func (p *PopupPalette) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Facet.Invalidate(flags)
+	p.Invalidate(flags)
 }
 
 func (p *PopupPalette) syncChildren() {
@@ -1925,7 +1925,7 @@ func (c *popupPaletteComposition) exportAnchors(bounds gfx.Rect) layout.AnchorSe
 	if c == nil || c.palette == nil || bounds.IsEmpty() {
 		return nil
 	}
-	out := c.palette.Core.DefaultAnchors(bounds, layout.AnchorExportContext{})
+	out := c.palette.DefaultAnchors(bounds, layout.AnchorExportContext{})
 	if out == nil {
 		out = make(layout.AnchorSet)
 	}

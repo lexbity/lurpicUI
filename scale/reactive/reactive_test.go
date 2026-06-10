@@ -146,7 +146,7 @@ func TestReactiveScale_supports_invertible_interface(t *testing.T) {
 	rng := store.NewValueStore([2]float64{0, 500})
 	rs := NewLinearReactive(domain, rng)
 
-	var inv scale.InvertibleScale = rs.Get()
+	var inv = rs.Get()
 	_ = inv
 }
 

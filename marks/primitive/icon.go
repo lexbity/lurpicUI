@@ -39,8 +39,8 @@ type IconRef string
 // IconSVG carries inline SVG source for fully authored icon geometry.
 type IconSVG string
 
-func (IconRef) isIconSource()  {}
-func (IconSVG) isIconSource()  {}
+func (IconRef) isIconSource() {}
+func (IconSVG) isIconSource() {}
 
 // IconAssetPath resolves through the runtime asset manager and supports progressive LODs.
 type IconAssetPath string
@@ -109,7 +109,7 @@ func NewIcon(source IconSource) *Icon {
 		HitPadding:          marks.Const[float32](0),
 		PreserveAspectRatio: marks.Const(defaultIconPreserveAspectRatio()),
 	}
-	i.Core.Facet = facet.NewFacet()
+	i.Facet = facet.NewFacet()
 	i.AddBinding(i.Size)
 	i.AddBinding(i.ColorSlot)
 	i.AddBinding(i.DensityBehavior)
@@ -155,7 +155,7 @@ func NewIcon(source IconSource) *Icon {
 
 // Base satisfies facet.FacetImpl.
 func (i *Icon) Base() *facet.Facet {
-	i.Facet.BindImpl(i)
+	i.BindImpl(i)
 	return &i.Facet
 }
 
@@ -256,7 +256,7 @@ func (i *Icon) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if bounds.IsEmpty() {
 		return nil
 	}
-	return i.Core.DefaultAnchors(bounds, ctx)
+	return i.DefaultAnchors(bounds, ctx)
 }
 
 func (i *Icon) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach() }

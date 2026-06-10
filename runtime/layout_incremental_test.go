@@ -18,7 +18,7 @@ type incrementalLayoutRoot struct {
 }
 
 func (r *incrementalLayoutRoot) Base() *facet.Facet {
-	r.Facet.BindImpl(r)
+	r.BindImpl(r)
 	return &r.Facet
 }
 

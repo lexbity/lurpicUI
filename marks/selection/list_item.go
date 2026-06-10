@@ -95,7 +95,7 @@ func NewListItem(label marks.Binding[string]) *ListItem {
 		ShowSelectionIndicator: marks.Const(true),
 		ShowFocusRing:          marks.Const(true),
 	}
-	li.Core.Facet = facet.NewFacet()
+	li.Facet = facet.NewFacet()
 	li.AddBinding(li.Label)
 	li.AddBinding(li.LeadingIconRef)
 	li.AddBinding(li.SupportingText)
@@ -156,7 +156,7 @@ func NewListItem(label marks.Binding[string]) *ListItem {
 
 // Base satisfies facet.FacetImpl.
 func (li *ListItem) Base() *facet.Facet {
-	li.Facet.BindImpl(li)
+	li.BindImpl(li)
 	return &li.Facet
 }
 
@@ -185,7 +185,7 @@ func (li *ListItem) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorS
 	if bounds.IsEmpty() {
 		return nil
 	}
-	anchors := li.Core.DefaultAnchors(bounds, ctx)
+	anchors := li.DefaultAnchors(bounds, ctx)
 	if li.textRole.Layout != nil {
 		anchors["baseline"] = gfx.Point{X: li.cachedLabelBounds.Min.X, Y: li.cachedLabelBounds.Min.Y + li.textRole.Layout.Baseline}
 	} else {
@@ -225,7 +225,7 @@ func (li *ListItem) invalidate(flags facet.DirtyFlags) {
 	if li == nil {
 		return
 	}
-	li.Facet.Invalidate(flags)
+	li.Invalidate(flags)
 }
 
 func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

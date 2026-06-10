@@ -148,7 +148,7 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 		focusFromPointer:   false,
 		Activated:          signal.NewSignal[string]("radial_menu_activated"),
 	}
-	m.Core.Facet = facet.NewFacet()
+	m.Facet = facet.NewFacet()
 	m.AddBinding(m.Label)
 	m.AddBinding(m.Disabled)
 	m.AddBinding(m.RadialChildren)
@@ -204,7 +204,7 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 
 // Base satisfies facet.FacetImpl.
 func (m *RadialMenu) Base() *facet.Facet {
-	m.Facet.BindImpl(m)
+	m.BindImpl(m)
 	return &m.Facet
 }
 
@@ -233,7 +233,7 @@ func (m *RadialMenu) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 		return nil
 	}
 	bounds := m.Layout.ArrangedBounds
-	out := m.Core.DefaultAnchors(bounds, ctx)
+	out := m.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -741,7 +741,7 @@ func (m *RadialMenu) invalidate(flags facet.DirtyFlags) {
 	if m == nil {
 		return
 	}
-	m.Facet.Invalidate(flags)
+	m.Invalidate(flags)
 }
 
 func (m *RadialMenu) regionAt(pt gfx.Point) radialMenuRegion {

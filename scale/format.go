@@ -62,19 +62,26 @@ func FormatSI(v float64) string {
 	var divisor float64
 	switch {
 	case abs >= 1e9:
-		prefix = "G"; divisor = 1e9
+		prefix = "G"
+		divisor = 1e9
 	case abs >= 1e6:
-		prefix = "M"; divisor = 1e6
+		prefix = "M"
+		divisor = 1e6
 	case abs >= 1e3:
-		prefix = "k"; divisor = 1e3
+		prefix = "k"
+		divisor = 1e3
 	case abs >= 1:
-		prefix = ""; divisor = 1
+		prefix = ""
+		divisor = 1
 	case abs >= 1e-3:
-		prefix = "m"; divisor = 1e-3
+		prefix = "m"
+		divisor = 1e-3
 	case abs >= 1e-6:
-		prefix = "µ"; divisor = 1e-6
+		prefix = "µ"
+		divisor = 1e-6
 	case abs >= 1e-9:
-		prefix = "n"; divisor = 1e-9
+		prefix = "n"
+		divisor = 1e-9
 	default:
 		return strconv.FormatFloat(v, 'e', 2, 64)
 	}

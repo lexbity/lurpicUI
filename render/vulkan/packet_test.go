@@ -237,4 +237,3 @@ func containsOpcode(packet []byte, opcode uint8) bool {
 func math32(b []byte) float32 {
 	return math.Float32frombits(binary.LittleEndian.Uint32(b))
 }
-

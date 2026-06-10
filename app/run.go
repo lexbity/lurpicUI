@@ -377,7 +377,7 @@ func initBackend(preferred RenderBackendKind, surface render.Surface, logger log
 	}
 	fallback, fallbackErr := attempt(RenderBackendSoftware)
 	if fallbackErr != nil {
-		return nil, RenderBackendSoftware, fmt.Errorf("app: vulkan init failed: %w; software fallback failed: %v", err, fallbackErr)
+		return nil, RenderBackendSoftware, fmt.Errorf("app: vulkan init failed: %w; software fallback failed: %w", err, fallbackErr)
 	}
 	return fallback, RenderBackendSoftware, nil
 }

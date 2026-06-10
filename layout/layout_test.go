@@ -46,7 +46,7 @@ func newTestLeafWithMeasure(size gfx.Size, fn func(Constraints) gfx.Size) *testL
 }
 
 func (l *testLeaf) Base() *facet.Facet {
-	l.Facet.BindImpl(l)
+	l.BindImpl(l)
 	return &l.Facet
 }
 func (l *testLeaf) OnAttach(ctx facet.AttachContext) {}

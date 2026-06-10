@@ -441,8 +441,8 @@ func checkLogcatForCrash(runner Runner, adb, serial string, symbols *symbolSet, 
 		if symDir != "" {
 			fmt.Printf("\nSymbolicated via ndk-stack (sym: %s):\n", symDir)
 			stackOut, stackErr := runner.Output(CommandSpec{
-				Path: ndkStack,
-				Args: []string{"-sym", symDir, "-dump", "-"},
+				Path:  ndkStack,
+				Args:  []string{"-sym", symDir, "-dump", "-"},
 				Stdin: strings.NewReader(string(out)),
 			})
 			if stackErr == nil {

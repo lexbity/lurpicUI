@@ -235,7 +235,7 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 			copied += int64(n)
 			ctx.SetExtractionProgress(float32(copied) / float32(total))
 		}
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {
@@ -440,7 +440,7 @@ func hashAPKAsset(ctx AndroidExtractionContext, name string) ([32]byte, error) {
 				return zero, err
 			}
 		}
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {

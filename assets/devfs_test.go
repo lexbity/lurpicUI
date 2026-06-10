@@ -100,7 +100,7 @@ func TestDevFSDrainCompleted(t *testing.T) {
 	dir := t.TempDir()
 	idReg := newPathRegistryStub()
 	reg := NewAssetRegistryStore()
-	
+
 	devfs, err := NewDevFS(os.DirFS(dir), reg, idReg)
 	if err != nil {
 		t.Fatalf("new devfs: %v", err)

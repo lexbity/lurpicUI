@@ -133,7 +133,7 @@ func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
 		focusedIndex: -1,
 		Value:        store.NewValueStore[[]string](nil),
 	}
-	bg.Core.Facet = facet.NewFacet()
+	bg.Facet = facet.NewFacet()
 	bg.AddBinding(bg.Label)
 	bg.AddBinding(bg.Mode)
 	bg.AddBinding(bg.Disabled)
@@ -199,7 +199,7 @@ func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
 
 // Base satisfies facet.FacetImpl.
 func (bg *ButtonGroup) Base() *facet.Facet {
-	bg.Facet.BindImpl(bg)
+	bg.BindImpl(bg)
 	return &bg.Facet
 }
 
@@ -256,7 +256,7 @@ func (bg *ButtonGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 		return nil
 	}
 	bounds := bg.Layout.ArrangedBounds
-	out := bg.Core.DefaultAnchors(bounds, ctx)
+	out := bg.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -1005,7 +1005,7 @@ func newButtonGroupItem(parent *ButtonGroup, index int, option ButtonGroupOption
 		label:  strings.TrimSpace(option.Label),
 		icon:   option.Icon,
 	}
-	it.Core.Facet = facet.NewFacet()
+	it.Facet = facet.NewFacet()
 	it.labelMark = primitive.NewText(marks.Const(it.label))
 	it.labelMark.Typography = marks.Const(theme.TextLabelM)
 	it.labelMark.Overflow = marks.Const(primitive.TextOverflowTruncate)
@@ -1075,7 +1075,7 @@ func newButtonGroupItem(parent *ButtonGroup, index int, option ButtonGroupOption
 }
 
 func (it *buttonGroupItem) Base() *facet.Facet {
-	it.Facet.BindImpl(it)
+	it.BindImpl(it)
 	return &it.Facet
 }
 
@@ -1728,7 +1728,7 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	// Only applicable for nil-able kinds (ptr, slice, map, chan, func, iface).
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
 		if v.IsNil() {
 			return nil
 		}

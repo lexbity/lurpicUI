@@ -92,7 +92,7 @@ func TestZoomDomain_focal_preserved_in_linear_scale(t *testing.T) {
 func TestZoomDomain_asymmetric_focal(t *testing.T) {
 	lo, hi := ZoomDomain(0, 200, 20, 4)
 	// focal=20, factor=4: lo'=20-(20-0)/4=15, hi'=20+(200-20)/4=65
-	expectedLo := 20.0 - (20.0-0.0)/4.0 // 15
+	expectedLo := 20.0 - (20.0-0.0)/4.0   // 15
 	expectedHi := 20.0 + (200.0-20.0)/4.0 // 65
 	if lo != expectedLo || hi != expectedHi {
 		t.Fatalf("ZoomDomain(0,200,20,4) = (%f,%f), want (%f,%f)", lo, hi, expectedLo, expectedHi)

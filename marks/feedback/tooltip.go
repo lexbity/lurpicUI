@@ -66,7 +66,7 @@ func NewTooltip(content string) *Tooltip {
 		Disabled:  marks.Const(false),
 		Placement: facet.AnchorPlacement{Side: facet.AnchorAbove},
 	}
-	t.Core.Facet = facet.NewFacet()
+	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Content)
 	t.AddBinding(t.Open)
 	t.AddBinding(t.Disabled)
@@ -129,7 +129,7 @@ func NewTooltip(content string) *Tooltip {
 
 // Base satisfies facet.FacetImpl.
 func (t *Tooltip) Base() *facet.Facet {
-	t.Facet.BindImpl(t)
+	t.BindImpl(t)
 	return &t.Facet
 }
 
@@ -167,7 +167,7 @@ func (t *Tooltip) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet
 		return nil
 	}
 	bounds := t.Layout.ArrangedBounds
-	out := t.Core.DefaultAnchors(bounds, ctx)
+	out := t.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -223,7 +223,7 @@ func (t *Tooltip) invalidate(flags facet.DirtyFlags) {
 	if t == nil {
 		return
 	}
-	t.Facet.Invalidate(flags)
+	t.Invalidate(flags)
 }
 
 func (t *Tooltip) syncChildren() {
@@ -363,7 +363,7 @@ func (t *Tooltip) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	activeBounds := text.CenterRect(bounds, w, h)
 
 	arrow := t.cachedArrowSize
-	surface := activeBounds
+	var surface gfx.Rect
 	switch t.Placement.Side {
 	case facet.AnchorBelow:
 		surface = gfx.RectFromXYWH(activeBounds.Min.X, activeBounds.Min.Y+arrow, activeBounds.Width(), activeBounds.Height()-arrow)

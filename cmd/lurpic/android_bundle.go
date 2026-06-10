@@ -12,8 +12,8 @@ import (
 
 // BundleConfig is the JSON structure for bundletool's BundleConfig.
 type BundleConfig struct {
-	Bundletool  BundleConfigTool  `json:"bundletool"`
-	Compression BundleCompression `json:"compression"`
+	Bundletool    BundleConfigTool    `json:"bundletool"`
+	Compression   BundleCompression   `json:"compression"`
 	Optimizations BundleOptimizations `json:"optimizations,omitempty"`
 }
 

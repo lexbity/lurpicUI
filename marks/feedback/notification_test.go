@@ -6,11 +6,11 @@ import (
 	"unsafe"
 
 	"codeburg.org/lexbit/lurpicui/facet"
-	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -47,7 +47,7 @@ func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
-	result := 	notification.Layout.Measure(facet.MeasureContext{
+	result := notification.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -118,7 +118,7 @@ func TestNotificationInteractionsEmitActionAndDismiss(t *testing.T) {
 	}
 
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
-	_ = 	notification.Layout.Measure(facet.MeasureContext{
+	_ = notification.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -131,7 +131,7 @@ func TestNotificationInteractionsEmitActionAndDismiss(t *testing.T) {
 		ParentGroup: notification.Layout.Parent,
 		ChildGroup:  notification.Layout.Child,
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
-	}, gfx.RectFromXYWH(0, 0, 	notification.Layout.MeasuredSize.W, 	notification.Layout.MeasuredSize.H))
+	}, gfx.RectFromXYWH(0, 0, notification.Layout.MeasuredSize.W, notification.Layout.MeasuredSize.H))
 
 	var actioned, dismissed int
 	notification.Actioned.Subscribe(func(signal.Unit) { actioned++ })
@@ -248,7 +248,7 @@ func AssertNotificationGolden(t *testing.T, name string, tokens theme.Tokens, de
 	resolved := notificationResolvedContext(tokens, density, direction)
 	facet.Attach(notification, facet.AttachContext{Runtime: rt, Theme: resolved})
 	canvas := gfx.RectFromXYWH(0, 0, 440, 180)
-	_ = 	notification.Layout.Measure(facet.MeasureContext{
+	_ = notification.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            resolved,
 		ContentScale:     1,
@@ -315,5 +315,3 @@ func notificationResolvedContext(tokens theme.Tokens, density theme.DensityID, d
 	ctx = ctx.WithWritingDirection(direction)
 	return ctx
 }
-
-

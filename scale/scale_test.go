@@ -1,6 +1,7 @@
 package scale
 
 import (
+	"errors"
 	"testing"
 )
 
@@ -180,13 +181,13 @@ func TestTick_struct_layout(t *testing.T) {
 }
 
 func TestSentinelErrors_are_distinct(t *testing.T) {
-	if ErrInvalidDomain == ErrEmptyMembers {
+	if errors.Is(ErrInvalidDomain, ErrEmptyMembers) {
 		t.Fatal("sentinel errors must be distinct")
 	}
-	if ErrInvalidDomain == ErrDomainCrossesZero {
+	if errors.Is(ErrInvalidDomain, ErrDomainCrossesZero) {
 		t.Fatal("sentinel errors must be distinct")
 	}
-	if ErrEmptyMembers == ErrDomainCrossesZero {
+	if errors.Is(ErrEmptyMembers, ErrDomainCrossesZero) {
 		t.Fatal("sentinel errors must be distinct")
 	}
 	if ErrInvalidDomain == nil {

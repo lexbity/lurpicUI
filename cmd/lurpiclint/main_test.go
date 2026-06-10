@@ -239,7 +239,7 @@ func TestRunCheck_JSONOutputIsValid(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	var raw map[string]interface{}
+	var raw map[string]any
 	if err := json.Unmarshal(buf.Bytes(), &raw); err != nil {
 		t.Fatalf("json reporter output is not valid JSON: %v\noutput: %s", err, buf.String())
 	}

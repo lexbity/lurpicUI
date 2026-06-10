@@ -113,7 +113,7 @@ func TestPackerPackRoundTrip(t *testing.T) {
 	expectedPayloads := map[string][]byte{
 		keyFor(makeTestAssetID(0x1122334455667788, 0x01), 0): bytes.Repeat([]byte("svg-lod0:"), 24),
 		keyFor(makeTestAssetID(0x1122334455667788, 0x01), 1): bytes.Repeat([]byte{0x10, 0x20, 0x30, 0x40}, 32),
-		keyFor(makeTestAssetID(0x1122334455667788, 0x01), 2): []byte{0xaa, 0xbb, 0xcc, 0xdd},
+		keyFor(makeTestAssetID(0x1122334455667788, 0x01), 2): {0xaa, 0xbb, 0xcc, 0xdd},
 		keyFor(makeTestAssetID(0x1122334455667788, 0x02), 0): bytes.Repeat([]byte("font-lod0:"), 18),
 		keyFor(makeTestAssetID(0x1122334455667788, 0x02), 1): bytes.Repeat([]byte("font-lod1:"), 12),
 		keyFor(makeTestAssetID(0x99aabbccddeeff00, 0x03), 0): bytes.Repeat([]byte("config-lod0:"), 10),

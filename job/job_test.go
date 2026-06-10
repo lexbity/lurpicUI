@@ -823,7 +823,7 @@ func TestAnyResult_fields(t *testing.T) {
 	if !r.Cancelled() {
 		t.Fatal("expected cancelled")
 	}
-	if r.Err() != boom {
+	if !errors.Is(r.Err(), boom) {
 		t.Fatalf("err = %v", r.Err())
 	}
 }

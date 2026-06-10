@@ -310,9 +310,8 @@ func parseFile(path string, fset *token.FileSet, cache *FileCache) (*ParsedFile,
 
 	// Check cache first.
 	if cache != nil {
-		if cachedAST, cachedData, ok := cache.lookup(path); ok {
+		if cachedAST, _, ok := cache.lookup(path); ok {
 			astFile = cachedAST
-			data = cachedData
 		}
 	}
 

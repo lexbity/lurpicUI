@@ -89,7 +89,7 @@ func TestParseSVG_transformFlattening_and_inheritedPaint(t *testing.T) {
 	if len(el.Path.Segments) != 5 {
 		t.Fatalf("expected 5 segments for rect path, got %d", len(el.Path.Segments))
 	}
-		if got := el.Path.Segments[0].Pts[0]; !almostEqualPoint(got, Point{X: 12, Y: 7}) {
+	if got := el.Path.Segments[0].Pts[0]; !almostEqualPoint(got, Point{X: 12, Y: 7}) {
 		t.Fatalf("expected transformed move point at (12,7), got %+v", got)
 	}
 }

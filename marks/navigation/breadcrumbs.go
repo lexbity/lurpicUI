@@ -81,7 +81,7 @@ func NewBreadcrumbs(label string, items []BreadcrumbItem) *Breadcrumbs {
 		Disabled:     marks.Const(false),
 		focusedIndex: len(items) - 1,
 	}
-	b.Core.Facet = facet.NewFacet()
+	b.Facet = facet.NewFacet()
 	b.AddBinding(b.Label)
 	b.AddBinding(b.CurrentIndex)
 	b.AddBinding(b.Disabled)
@@ -133,7 +133,7 @@ func NewBreadcrumbs(label string, items []BreadcrumbItem) *Breadcrumbs {
 
 // Base satisfies facet.FacetImpl.
 func (b *Breadcrumbs) Base() *facet.Facet {
-	b.Facet.BindImpl(b)
+	b.BindImpl(b)
 	return &b.Facet
 }
 
@@ -168,7 +168,7 @@ func (b *Breadcrumbs) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 		return nil
 	}
 	bounds := b.Layout.ArrangedBounds
-	out := b.Core.DefaultAnchors(bounds, ctx)
+	out := b.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -220,7 +220,7 @@ func (b *Breadcrumbs) invalidate(flags facet.DirtyFlags) {
 	if b == nil {
 		return
 	}
-	b.Facet.Invalidate(flags)
+	b.Invalidate(flags)
 }
 
 func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

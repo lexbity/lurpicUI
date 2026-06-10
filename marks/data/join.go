@@ -12,12 +12,12 @@ import (
 // dispose their facet. Updated items invalidate their facet. Replaced
 // collections reconcile the full set, preserving stable identity per ItemID.
 type CollectionBinder[T any] struct {
-	store    *store.CollectionStore[T]
-	factory  func(T) facet.FacetImpl
-	parent   *facet.Facet
-	children map[store.ItemID]facet.FacetImpl
-	order    []store.ItemID
-	cleanups []func()
+	store     *store.CollectionStore[T]
+	factory   func(T) facet.FacetImpl
+	parent    *facet.Facet
+	children  map[store.ItemID]facet.FacetImpl
+	order     []store.ItemID
+	cleanups  []func()
 	attachCtx facet.AttachContext
 }
 

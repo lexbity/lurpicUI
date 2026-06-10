@@ -6,8 +6,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	input "codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/marks"
+	input "codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -49,13 +49,13 @@ func TestRadialMenuComposesExistingMarks(t *testing.T) {
 	}
 
 	menu.arrange(facet.ArrangeContext{Theme: resolved, Placement: facet.Placement{Mode: facet.PlacementGrid}}, gfx.RectFromXYWH(0, 0, size.W, size.H))
-	if 	center.Base().LayoutRole().ArrangedBounds.IsEmpty() {
+	if center.Base().LayoutRole().ArrangedBounds.IsEmpty() {
 		t.Fatal("expected center child to be arranged")
 	}
-	if 	split.Base().LayoutRole().ArrangedBounds.IsEmpty() {
+	if split.Base().LayoutRole().ArrangedBounds.IsEmpty() {
 		t.Fatal("expected split button child to be arranged")
 	}
-	if 	toolbar.Base().LayoutRole().ArrangedBounds.IsEmpty() {
+	if toolbar.Base().LayoutRole().ArrangedBounds.IsEmpty() {
 		t.Fatal("expected toolbar child to be arranged")
 	}
 	if len(menu.cachedArrangedChildren) != 3 {

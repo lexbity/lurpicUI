@@ -146,7 +146,7 @@ func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 
 // Base satisfies facet.FacetImpl.
 func (r *Ribbon) Base() *facet.Facet {
-	r.Facet.BindImpl(r)
+	r.BindImpl(r)
 	return &r.Facet
 }
 
@@ -282,7 +282,7 @@ func (r *Ribbon) invalidate(flags facet.DirtyFlags) {
 	if r == nil {
 		return
 	}
-	r.Facet.Invalidate(flags)
+	r.Invalidate(flags)
 }
 
 func (r *Ribbon) syncChildren() {
@@ -329,7 +329,7 @@ func (r *Ribbon) syncChildren() {
 					btn.enterDown = false
 					btn.focusedVisible = false
 				}
-				btn.Facet.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+				btn.Invalidate(facet.DirtyProjection | facet.DirtyHit)
 			}
 		}
 	}
@@ -349,10 +349,10 @@ func (r *Ribbon) syncButtonVariants() {
 		}
 		if i == r.ActiveIndex {
 			btn.Variant = marks.Const(uiinput.ButtonTonal)
-			btn.Facet.Invalidate(facet.DirtyProjection)
+			btn.Invalidate(facet.DirtyProjection)
 		} else {
 			btn.Variant = marks.Const(uiinput.ButtonText)
-			btn.Facet.Invalidate(facet.DirtyProjection)
+			btn.Invalidate(facet.DirtyProjection)
 		}
 	}
 }

@@ -1,6 +1,7 @@
 package scale
 
 import (
+	"errors"
 	"math"
 	"testing"
 )
@@ -23,11 +24,11 @@ func TestPow_new_default_exponent_is_one(t *testing.T) {
 
 func TestPow_new_invalid_exponent(t *testing.T) {
 	_, err := NewPow(WithDomain(0, 100), WithRange(0, 500), WithExponent(0))
-	if err != ErrInvalidDomain {
+	if !errors.Is(err, ErrInvalidDomain) {
 		t.Fatalf("expected ErrInvalidDomain for exp=0, got %v", err)
 	}
 	_, err = NewPow(WithDomain(0, 100), WithRange(0, 500), WithExponent(-2))
-	if err != ErrInvalidDomain {
+	if !errors.Is(err, ErrInvalidDomain) {
 		t.Fatalf("expected ErrInvalidDomain for exp=-2, got %v", err)
 	}
 }

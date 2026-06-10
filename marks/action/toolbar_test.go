@@ -201,12 +201,12 @@ func newToolbarFixture(t *testing.T) (*Toolbar, buttonRuntimeStub) {
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
-			"close":    mustActionGroupIconAsset("edit"),
-			"edit":     mustActionGroupIconAsset("edit"),
-			"copy":     mustActionGroupIconAsset("copy"),
-			"delete":   mustActionGroupIconAsset("delete"),
-			"more":     mustActionGroupIconAsset("more"),
-			"rename":   mustActionGroupIconAsset("edit"),
+			"close":     mustActionGroupIconAsset("edit"),
+			"edit":      mustActionGroupIconAsset("edit"),
+			"copy":      mustActionGroupIconAsset("copy"),
+			"delete":    mustActionGroupIconAsset("delete"),
+			"more":      mustActionGroupIconAsset("more"),
+			"rename":    mustActionGroupIconAsset("edit"),
 			"duplicate": mustActionGroupIconAsset("copy"),
 		},
 	}

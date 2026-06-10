@@ -167,10 +167,10 @@ func (r *AssetRegistryStore) ClearLOD(id AssetID, lod int) {
 	entry.SizeBytes[lod] = 0
 	entry.Err = nil
 	entry.HighestReadyLOD = recomputeHighestReadyLOD(entry.LODHandles)
-	switch {
-	case entry.HighestReadyLOD == -1:
+	switch entry.HighestReadyLOD {
+	case -1:
 		entry.State = AssetStateAbsent
-	case entry.HighestReadyLOD == 0:
+	case 0:
 		entry.State = AssetStateReady
 	default:
 		entry.State = AssetStateLoading

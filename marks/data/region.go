@@ -15,4 +15,3 @@ func RegionFromBounds(rng *store.ValueStore[[2]float64], bounds gfx.Rect) {
 	}
 	rng.Set([2]float64{0, float64(bounds.Width())})
 }
-

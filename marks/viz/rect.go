@@ -16,13 +16,13 @@ import (
 type Bar[T any] struct {
 	marks.Core
 
-	Store       *store.CollectionStore[T]
-	Cat         func(T) string
-	Value       func(T) float64
-	YScale      *reactive.ReactiveScale
-	Padding     marks.Binding[float32]
-	Color       gfx.Color
-	Baseline    marks.Binding[float64]
+	Store    *store.CollectionStore[T]
+	Cat      func(T) string
+	Value    func(T) float64
+	YScale   *reactive.ReactiveScale
+	Padding  marks.Binding[float32]
+	Color    gfx.Color
+	Baseline marks.Binding[float64]
 
 	bandMembers []string
 	bandScale   scale.BandScale
@@ -53,7 +53,7 @@ func NewBar[T any](
 		Baseline: marks.Const(0.0),
 		hitDirty: true,
 	}
-	b.Core.Facet = facet.NewFacet()
+	b.Facet = facet.NewFacet()
 	b.AddBinding(b.Padding)
 	b.AddBinding(b.Baseline)
 
@@ -74,7 +74,7 @@ func NewBar[T any](
 }
 
 func (b *Bar[T]) Base() *facet.Facet {
-	b.Facet.BindImpl(b)
+	b.BindImpl(b)
 	return &b.Facet
 }
 

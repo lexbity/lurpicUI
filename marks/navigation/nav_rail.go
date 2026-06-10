@@ -83,7 +83,7 @@ func NewNavRail(label string, items []NavRailItem) *NavRail {
 		hoveredIndex: -1,
 		pressedIndex: -1,
 	}
-	r.Core.Facet = facet.NewFacet()
+	r.Facet = facet.NewFacet()
 	r.AddBinding(r.Label)
 	r.AddBinding(r.Collapsed)
 	r.AddBinding(r.Disabled)
@@ -137,7 +137,7 @@ func NewNavRail(label string, items []NavRailItem) *NavRail {
 
 // Base satisfies facet.FacetImpl.
 func (r *NavRail) Base() *facet.Facet {
-	r.Facet.BindImpl(r)
+	r.BindImpl(r)
 	return &r.Facet
 }
 
@@ -175,7 +175,7 @@ func (r *NavRail) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet
 		return nil
 	}
 	bounds := r.Layout.ArrangedBounds
-	out := r.Core.DefaultAnchors(bounds, ctx)
+	out := r.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -258,7 +258,7 @@ func (r *NavRail) invalidate(flags facet.DirtyFlags) {
 	if r == nil {
 		return
 	}
-	r.Facet.Invalidate(flags)
+	r.Invalidate(flags)
 }
 
 func (r *NavRail) rebuildChildFacets() {

@@ -382,7 +382,7 @@ func TestTimeTicks_roundDownWeek_sunday(t *testing.T) {
 
 func TestFormatTimeTick_weekly(t *testing.T) {
 	iv := timeInterval{name: "1w"}
-	prev := time.Date(2024, 6, 3, 0, 0, 0, 0, time.UTC) // Monday
+	prev := time.Date(2024, 6, 3, 0, 0, 0, 0, time.UTC)  // Monday
 	curr := time.Date(2024, 6, 10, 0, 0, 0, 0, time.UTC) // next Monday
 	label := formatTimeTick(curr, prev, iv)
 	if label == "" {

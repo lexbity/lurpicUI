@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/capindex"
+	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/config"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/diag"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/loader"
 )
@@ -593,6 +594,47 @@ func runRulesOnFixtureWithIndex(tb testing.TB, ruleIDs []string, dir string) []*
 	})
 }
 
+// runRulesOnFixtureWithIndexAndIgnore is like runRulesOnFixtureWithIndex
+// but also processes //lurpiclint:ignore directives from the loaded files,
+// matching the full pipeline that main.go runs.
+func runRulesOnFixtureWithIndexAndIgnore(tb testing.TB, ruleIDs []string, dir string) []*diag.Diagnostic {
+	tb.Helper()
+	result, err := loader.Load([]string{dir}, loader.Config{})
+	if err != nil {
+		tb.Fatalf("loading %s: %v", dir, err)
+	}
+	root := testRepoRoot(tb)
+	capResult, err := loader.Load([]string{
+		root + "/marks/...",
+		root + "/layout/...",
+		root + "/facet",
+	}, loader.Config{})
+	if err != nil {
+		tb.Fatalf("loading capindex packages: %v", err)
+	}
+	caps := capindex.Scan(capResult, capindex.ScanConfig{
+		ModulePath: "codeburg.org/lexbit/lurpicui",
+		ModuleRoot: root,
+	})
+	ctx := &Context{
+		Files: result.Files,
+		Pkgs:  result.Packages,
+		Fset:  result.Fset,
+		Index: caps,
+	}
+	diags := Run(ctx, DefaultRegistry, RunConfig{
+		EnabledIDs: ruleIDs,
+	})
+
+	// Collect //lurpiclint:ignore directives from all loaded files.
+	var ignores []config.IgnoreDirective
+	for _, f := range result.Files {
+		ignores = append(ignores, config.ParseIgnoreDirectives(f.Fset, f.AST)...)
+	}
+
+	return config.SuppressByIgnore(diags, ignores)
+}
+
 // testRepoRoot returns the repo root by walking up from the testdata dir.
 func testRepoRoot(tb testing.TB) string {
 	tb.Helper()
@@ -814,5 +856,66 @@ func TestLL001_RegisteredInDefaultRegistry(t *testing.T) {
 	}
 	if rule.DefaultSeverity() != diag.SeverityWarn {
 		t.Errorf("LL001 DefaultSeverity = %d, want warn", rule.DefaultSeverity())
+	}
+}
+
+// --- App-fixture harness tests ----------------------------------------------
+
+func TestAppFixture_Smoke(t *testing.T) {
+	// A clean app fixture must produce zero diagnostics from every rule.
+	dir := ruleTestdataDir(t, "apps", "_smoke")
+	diags := runRulesOnFixtureWithIndex(t, nil, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on clean app fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: [%s] %s",
+				filepath.Base(d.Pos.Filename), d.Pos.Line, d.RuleID, d.Message)
+		}
+	}
+}
+
+func TestAppFixture_Reinvent(t *testing.T) {
+	// The reinvent_app fixture trips LL001, LL002, LL003 with dedup:
+	//   - Container (child-arranging, line 19): LL003 + LL001 (LL002 suppressed)
+	//   - Leaf (non-child-arranging, line 40): LL001 + LL002 (no LL003)
+	dir := ruleTestdataDir(t, "apps", "reinvent_app")
+	diags := runRulesOnFixtureWithIndex(t, []string{"LL001", "LL002", "LL003"}, dir)
+	compareAgainstGolden(t, diags, "golden/app_reinvent.json")
+}
+
+func TestAppFixture_ShapeMatch(t *testing.T) {
+	// The shapematch_app fixture has a child-arranging LayoutRole whose
+	// structural fingerprint matches a known built-in mark container,
+	// proving LL004 fires on app-shaped code.
+	dir := ruleTestdataDir(t, "apps", "shapematch_app")
+	diags := runRulesOnFixtureWithIndex(t, []string{"LL004"}, dir)
+	if len(diags) == 0 {
+		t.Error("LL004: expected at least 1 diagnostic on shapematch_app, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL004" {
+			t.Errorf("unexpected rule %q in LL004-only run", d.RuleID)
+		}
+		t.Logf("  LL004: %s:%d — %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+	}
+}
+
+func TestDogfood_DemoAppClean(t *testing.T) {
+	// The real demo app (demos/quick_square_app) must produce zero
+	// diagnostics at warn+ severity from every rule.  This ensures
+	// lurpiclint is usable on genuine app code without false alarms,
+	// with intentional suppressions via //lurpiclint:ignore directives.
+	dir := testRepoRoot(t) + "/demos/quick_square_app"
+	diags := runRulesOnFixtureWithIndexAndIgnore(t, nil, dir)
+	var atOrAboveWarn int
+	for _, d := range diags {
+		if d.Severity >= diag.SeverityWarn {
+			atOrAboveWarn++
+			t.Errorf("  %s:%d: [%s] %s",
+				filepath.Base(d.Pos.Filename), d.Pos.Line, d.RuleID, d.Message)
+		}
+	}
+	if atOrAboveWarn > 0 {
+		t.Fatalf("dogfood: expected 0 diagnostics at warn+, got %d", atOrAboveWarn)
 	}
 }

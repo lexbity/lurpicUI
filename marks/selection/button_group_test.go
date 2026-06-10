@@ -53,7 +53,7 @@ func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("expected arranged geometry, got surface=%#v options=%d", bg.cachedGroupSurface, len(bg.cachedOptionBounds))
 	}
 
-	hit := 	bg.HitRole().HitTest(gfx.Point{X: bg.cachedOptionBounds[1].Min.X + 1, Y: bg.cachedOptionBounds[1].Min.Y + 1})
+	hit := bg.HitRole().HitTest(gfx.Point{X: bg.cachedOptionBounds[1].Min.X + 1, Y: bg.cachedOptionBounds[1].Min.Y + 1})
 	if !hit.Hit || (hit.MarkID != buttonGroupMarkIDSelectedIndicator && hit.MarkID != buttonGroupMarkIDOptionButtons) {
 		t.Fatalf("expected option hit, got %#v", hit)
 	}
@@ -65,7 +65,7 @@ func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		}
 	}
 
-	cmds := 	bg.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
+	cmds := bg.ProjectionRole().Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
@@ -290,7 +290,7 @@ func renderButtonGroupToSurface(t *testing.T, bg *ButtonGroup, rt sliderRuntimeS
 	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
 	bg.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	cmds := 	bg.ProjectionRole().Project(facet.ProjectionContext{
+	cmds := bg.ProjectionRole().Project(facet.ProjectionContext{
 		Runtime:      rt,
 		Bounds:       bounds,
 		ContentScale: 1,

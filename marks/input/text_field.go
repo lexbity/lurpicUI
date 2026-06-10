@@ -107,7 +107,7 @@ func NewTextField(label string, variant uiinput.TextInputVariant) *TextField {
 		ReadOnly:    marks.Const(false),
 		Value:       store.NewValueStore(""),
 	}
-	tf.Core.Facet = facet.NewFacet()
+	tf.Facet = facet.NewFacet()
 
 	tf.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -171,7 +171,7 @@ func NewTextField(label string, variant uiinput.TextInputVariant) *TextField {
 
 // Base satisfies facet.FacetImpl.
 func (tf *TextField) Base() *facet.Facet {
-	tf.Facet.BindImpl(tf)
+	tf.BindImpl(tf)
 	return &tf.Facet
 }
 
@@ -198,7 +198,7 @@ func (tf *TextField) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 	if tf == nil {
 		return nil
 	}
-	out := tf.Core.DefaultAnchors(tf.Layout.ArrangedBounds, ctx)
+	out := tf.DefaultAnchors(tf.Layout.ArrangedBounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -258,7 +258,7 @@ func (tf *TextField) invalidate(flags facet.DirtyFlags) {
 	if tf == nil {
 		return
 	}
-	tf.Facet.Invalidate(flags)
+	tf.Invalidate(flags)
 }
 
 func (tf *TextField) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

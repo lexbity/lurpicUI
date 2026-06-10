@@ -274,8 +274,9 @@ func PakContentHash(pakData []byte) [32]byte {
 // The sidecar (assets.pak.meta) carries the content hash so the runtime's
 // extraction gate can decide whether to re-extract without hashing the
 // entire file. Each call produces:
-//   <destDir>/assets.pak
-//   <destDir>/assets.pak.meta
+//
+//	<destDir>/assets.pak
+//	<destDir>/assets.pak.meta
 func WritePak(destDir string, pakData []byte) error {
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("write pak mkdir: %w", err)

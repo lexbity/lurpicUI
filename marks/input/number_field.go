@@ -127,7 +127,7 @@ func NewNumberField(label string) *NumberField {
 		ReadOnly:    marks.Const(false),
 		Value:       store.NewValueStore[float64](0),
 	}
-	nf.Core.Facet = facet.NewFacet()
+	nf.Facet = facet.NewFacet()
 
 	nf.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -177,7 +177,7 @@ func NewNumberField(label string) *NumberField {
 
 // Base satisfies facet.FacetImpl.
 func (nf *NumberField) Base() *facet.Facet {
-	nf.Facet.BindImpl(nf)
+	nf.BindImpl(nf)
 	return &nf.Facet
 }
 
@@ -204,7 +204,7 @@ func (nf *NumberField) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 	if nf == nil {
 		return nil
 	}
-	out := nf.Core.DefaultAnchors(nf.Layout.ArrangedBounds, ctx)
+	out := nf.DefaultAnchors(nf.Layout.ArrangedBounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -269,7 +269,7 @@ func (nf *NumberField) invalidate(flags facet.DirtyFlags) {
 	if nf == nil {
 		return
 	}
-	nf.Facet.Invalidate(flags)
+	nf.Invalidate(flags)
 }
 
 func (nf *NumberField) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

@@ -1,6 +1,6 @@
 // Package testkit provides headless helpers for engine tests.
 //
-// Golden discrimination contract
+// # Golden discrimination contract
 //
 // Every {mark}_{state} golden (state ∈ rtl, focused, hovered, pressed,
 // selected, open, disabled, compact, comfortable, high_contrast, dark,

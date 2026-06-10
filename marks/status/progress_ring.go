@@ -66,7 +66,7 @@ func NewProgressRing(label string) *ProgressRing {
 		Value:    marks.Const(float32(0)),
 		Disabled: marks.Const(false),
 	}
-	p.Core.Facet = facet.NewFacet()
+	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
 	p.AddBinding(p.Value)
 	p.AddBinding(p.Disabled)
@@ -110,7 +110,7 @@ func NewProgressRing(label string) *ProgressRing {
 
 // Base satisfies facet.FacetImpl.
 func (p *ProgressRing) Base() *facet.Facet {
-	p.Facet.BindImpl(p)
+	p.BindImpl(p)
 	return &p.Facet
 }
 
@@ -131,7 +131,7 @@ func (p *ProgressRing) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 		return nil
 	}
 	bounds := p.Layout.ArrangedBounds
-	return p.Core.DefaultAnchors(bounds, ctx)
+	return p.DefaultAnchors(bounds, ctx)
 }
 
 // OnAttach is unused.
@@ -172,7 +172,7 @@ func (p *ProgressRing) invalidate(flags facet.DirtyFlags) {
 	if p == nil {
 		return
 	}
-	p.Facet.Invalidate(flags)
+	p.Invalidate(flags)
 }
 
 func (p *ProgressRing) syncLabelFacet() {

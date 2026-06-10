@@ -15,11 +15,11 @@ import (
 // at the start of the next frame. It does not implement Manager — wrap it in
 // NewManager to create the runtime-facing asset access surface.
 type DevFS struct {
-	root      fs.FS
-	rootDir   string
-	registry  *AssetRegistryStore
-	idReg     PathIDRegistry
-	source    AssetSource // optional override for ReadLOD
+	root     fs.FS
+	rootDir  string
+	registry *AssetRegistryStore
+	idReg    PathIDRegistry
+	source   AssetSource // optional override for ReadLOD
 
 	mu          sync.Mutex
 	pending     []string

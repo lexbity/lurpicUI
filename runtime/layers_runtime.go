@@ -686,7 +686,7 @@ func (rt *Runtime) LayerSnapshots(parent facet.FacetID) []diagnostics.LayerSnaps
 		}
 		layer := rt.projectionLayers[childBase.ID()]
 		layerSnap := outputs[childBase.ID()]
-		placement := layout.PlacementGrid
+		var placement layout.PlacementMode
 		switch attachment.Placement.Mode {
 		case facet.PlacementAnchor:
 			placement = layout.PlacementAnchor
@@ -706,7 +706,7 @@ func (rt *Runtime) LayerSnapshots(parent facet.FacetID) []diagnostics.LayerSnaps
 			if !ok || grandAttachment.LayerID == 0 {
 				continue
 			}
-			grandLayer, _ := rt.projectionLayers[grandChildBase.ID()]
+			grandLayer := rt.projectionLayers[grandChildBase.ID()]
 			grandDesc, _ := rt.layerRegistry.Lookup(layout.LayerID(grandAttachment.LayerID))
 			arrangedChildren = append(arrangedChildren, diagnostics.ArrangedChildSnapshot{
 				FacetID:       grandChildBase.ID(),

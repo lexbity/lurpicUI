@@ -9,10 +9,10 @@ import (
 
 func TestTickStep_basic(t *testing.T) {
 	tests := []struct {
-		name  string
+		name   string
 		lo, hi float64
-		count int
-		want  float64
+		count  int
+		want   float64
 	}{
 		{"[0,97] count=5 → step=20", 0, 97, 5, 20},
 		{"[0,97] count=10 → step=10", 0, 97, 10, 10},
@@ -70,10 +70,10 @@ func TestTickStep_nan(t *testing.T) {
 
 func TestTicks_golden(t *testing.T) {
 	tests := []struct {
-		name  string
+		name   string
 		lo, hi float64
-		count int
-		want  []float64
+		count  int
+		want   []float64
 	}{
 		{"[0,97] c=5", 0, 97, 5, []float64{0, 20, 40, 60, 80}},
 		{"[0,97] c=10", 0, 97, 10, []float64{0, 10, 20, 30, 40, 50, 60, 70, 80, 90}},
@@ -187,9 +187,9 @@ func TestTicks_reasonable_count(t *testing.T) {
 
 func TestNice_basic(t *testing.T) {
 	tests := []struct {
-		name        string
-		lo, hi      float64
-		count       int
+		name           string
+		lo, hi         float64
+		count          int
 		wantLo, wantHi float64
 	}{
 		{"[0,97] c=5", 0, 97, 5, 0, 100},

@@ -44,7 +44,7 @@ func NewPoint[T any](
 		Radius: marks.Const[float32](4),
 		Color:  gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1},
 	}
-	p.Core.Facet = facet.NewFacet()
+	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Radius)
 
 	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -61,7 +61,7 @@ func NewPoint[T any](
 }
 
 func (p *Point[T]) Base() *facet.Facet {
-	p.Facet.BindImpl(p)
+	p.BindImpl(p)
 	return &p.Facet
 }
 

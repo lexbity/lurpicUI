@@ -24,7 +24,7 @@ func newDiagTestFacet(name string) *diagTestFacet {
 }
 
 func (f *diagTestFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 func (f *diagTestFacet) OnAttach(ctx facet.AttachContext) {}

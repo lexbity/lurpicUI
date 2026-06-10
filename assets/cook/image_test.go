@@ -42,7 +42,7 @@ func TestImageCompilerCompile(t *testing.T) {
 			t.Fatalf("lod %d missing dimension marker %q in %q", i, want, string(lods[i].Data))
 		}
 	}
-	if !(len(lods[0].Data) > len(lods[1].Data) && len(lods[1].Data) > len(lods[2].Data)) {
+	if len(lods[0].Data) <= len(lods[1].Data) || len(lods[1].Data) <= len(lods[2].Data) {
 		t.Fatalf("unexpected lod sizes: %d %d %d", len(lods[0].Data), len(lods[1].Data), len(lods[2].Data))
 	}
 

@@ -85,17 +85,17 @@ var _ marks.Mark = (*List)(nil)
 // NewList constructs a structure.list mark with canonical defaults.
 func NewList(label string, entries []ListEntry) *List {
 	l := &List{
-		Label:         marks.Const(label),
-		SectionHeader: marks.Const(""),
-		EmptyState:    marks.Const(""),
-		Disabled:      marks.Const(false),
-		ItemVariant:   marks.Const(uiinput.ListItemStandard),
-		Data:          store.NewValueStore(cloneListEntries(entries)),
-		scrollRegion:  NewScrollRegion(label),
-		cachedRows:    make(map[string]*selection.ListItem),
+		Label:           marks.Const(label),
+		SectionHeader:   marks.Const(""),
+		EmptyState:      marks.Const(""),
+		Disabled:        marks.Const(false),
+		ItemVariant:     marks.Const(uiinput.ListItemStandard),
+		Data:            store.NewValueStore(cloneListEntries(entries)),
+		scrollRegion:    NewScrollRegion(label),
+		cachedRows:      make(map[string]*selection.ListItem),
 		cachedRowBounds: make(map[string]gfx.Rect),
 	}
-	l.Core.Facet = facet.NewFacet()
+	l.Facet = facet.NewFacet()
 	l.AddBinding(l.Label)
 	l.AddBinding(l.SectionHeader)
 	l.AddBinding(l.EmptyState)
@@ -159,7 +159,7 @@ func NewList(label string, entries []ListEntry) *List {
 
 // Base satisfies facet.FacetImpl.
 func (l *List) Base() *facet.Facet {
-	l.Facet.BindImpl(l)
+	l.BindImpl(l)
 	return &l.Facet
 }
 
@@ -254,7 +254,7 @@ func (l *List) invalidate(flags facet.DirtyFlags) {
 	if l == nil {
 		return
 	}
-	l.Facet.Invalidate(flags)
+	l.Invalidate(flags)
 }
 
 func (l *List) entries() []ListEntry {

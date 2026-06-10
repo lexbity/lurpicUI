@@ -97,7 +97,7 @@ func NewAlert(title, message string) *Alert {
 		CloseButtonIconRef: marks.Const(""),
 		Disabled:           marks.Const(false),
 	}
-	a.Core.Facet = facet.NewFacet()
+	a.Facet = facet.NewFacet()
 	a.AddBinding(a.Title)
 	a.AddBinding(a.Message)
 	a.AddBinding(a.IconRef)
@@ -164,7 +164,7 @@ func NewAlert(title, message string) *Alert {
 
 // Base satisfies facet.FacetImpl.
 func (a *Alert) Base() *facet.Facet {
-	a.Facet.BindImpl(a)
+	a.BindImpl(a)
 	return &a.Facet
 }
 
@@ -234,7 +234,7 @@ func (a *Alert) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 		return nil
 	}
 	bounds := a.Layout.ArrangedBounds
-	out := a.Core.DefaultAnchors(bounds, ctx)
+	out := a.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -299,7 +299,7 @@ func (a *Alert) invalidate(flags facet.DirtyFlags) {
 	if a == nil {
 		return
 	}
-	a.Facet.Invalidate(flags)
+	a.Invalidate(flags)
 }
 
 func (a *Alert) syncChildren() {
@@ -866,7 +866,7 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	}
 	v := reflect.ValueOf(services)
 	switch v.Kind() {
-	case reflect.Ptr, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
+	case reflect.Pointer, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func, reflect.Interface:
 		if v.IsNil() {
 			return nil
 		}

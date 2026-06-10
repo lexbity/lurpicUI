@@ -6,8 +6,8 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/internal/perfscene"
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
+	"codeburg.org/lexbit/lurpicui/internal/perfscene"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -114,4 +114,3 @@ func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 		},
 	}
 }
-

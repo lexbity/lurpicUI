@@ -135,7 +135,7 @@ func NewNotification(title, message string) *Notification {
 		Disabled:           marks.Const(false),
 		Open:               marks.Const(true),
 	}
-	n.Core.Facet = facet.NewFacet()
+	n.Facet = facet.NewFacet()
 	n.AddBinding(n.Title)
 	n.AddBinding(n.Message)
 	n.AddBinding(n.IconRef)
@@ -206,7 +206,7 @@ func NewNotification(title, message string) *Notification {
 
 // Base satisfies facet.FacetImpl.
 func (n *Notification) Base() *facet.Facet {
-	n.Facet.BindImpl(n)
+	n.BindImpl(n)
 	return &n.Facet
 }
 
@@ -255,7 +255,7 @@ func (n *Notification) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 		return nil
 	}
 	bounds := n.Layout.ArrangedBounds
-	out := n.Core.DefaultAnchors(bounds, ctx)
+	out := n.DefaultAnchors(bounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -333,7 +333,7 @@ func (n *Notification) invalidate(flags facet.DirtyFlags) {
 	if n == nil {
 		return
 	}
-	n.Facet.Invalidate(flags)
+	n.Invalidate(flags)
 }
 
 func (n *Notification) syncChildren() {
@@ -942,7 +942,7 @@ func newNotificationContentGroup(parent *Notification) *notificationContentGroup
 	g := &notificationContentGroup{
 		parent: parent,
 	}
-	g.Core.Facet = facet.NewFacet()
+	g.Facet = facet.NewFacet()
 	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   notificationContentGroupPolicy{group: g},
@@ -996,7 +996,7 @@ func newNotificationContentGroup(parent *Notification) *notificationContentGroup
 }
 
 func (g *notificationContentGroup) Base() *facet.Facet {
-	g.Facet.BindImpl(g)
+	g.BindImpl(g)
 	return &g.Facet
 }
 

@@ -60,4 +60,3 @@ func (rt *Runtime) handleTrimMemory(e platform.TrimMemoryEvent) {
 	goruntime.GC()
 	_ = os.Getpid()
 }
-

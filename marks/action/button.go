@@ -1,9 +1,9 @@
 package action
 
 import (
-	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -75,7 +75,7 @@ func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.Button
 		TrailingIconRef: marks.Const(""),
 		Disabled:        marks.Const(false),
 	}
-	b.Core.Facet = facet.NewFacet()
+	b.Facet = facet.NewFacet()
 	b.AddBinding(b.Label)
 	b.AddBinding(b.Variant)
 	b.AddBinding(b.LeadingIconRef)
@@ -139,7 +139,7 @@ func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.Button
 
 // Base satisfies facet.FacetImpl.
 func (b *Button) Base() *facet.Facet {
-	b.Facet.BindImpl(b)
+	b.BindImpl(b)
 	return &b.Facet
 }
 
@@ -166,7 +166,7 @@ func (b *Button) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 	if b == nil {
 		return nil
 	}
-	out := b.Core.DefaultAnchors(b.Layout.ArrangedBounds, ctx)
+	out := b.DefaultAnchors(b.Layout.ArrangedBounds, ctx)
 	if out == nil {
 		return nil
 	}
@@ -214,7 +214,7 @@ func (b *Button) invalidate(flags facet.DirtyFlags) {
 	if b == nil {
 		return
 	}
-	b.Facet.Invalidate(flags)
+	b.Invalidate(flags)
 }
 
 func (b *Button) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -673,7 +673,6 @@ func (b *Button) interactionState() theme.InteractionState {
 		return theme.StateDefault
 	}
 }
-
 
 type buttonGroupPolicy struct{}
 

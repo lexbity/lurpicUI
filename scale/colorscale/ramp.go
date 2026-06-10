@@ -142,10 +142,10 @@ var (
 var (
 	whiteColor = gfx.Color{R: 1, G: 1, B: 1, A: 1}
 
-	divergingBlueLow    = gfx.ColorFromHex(0x4575b4ff)
-	divergingRedHigh    = gfx.ColorFromHex(0xd73027ff)
-	divergingPurpleLow  = gfx.ColorFromHex(0x762a83ff)
-	divergingGreenHigh  = gfx.ColorFromHex(0x1a9641ff)
+	divergingBlueLow   = gfx.ColorFromHex(0x4575b4ff)
+	divergingRedHigh   = gfx.ColorFromHex(0xd73027ff)
+	divergingPurpleLow = gfx.ColorFromHex(0x762a83ff)
+	divergingGreenHigh = gfx.ColorFromHex(0x1a9641ff)
 
 	viridis0   = gfx.ColorFromHex(0x440154ff)
 	viridis25  = gfx.ColorFromHex(0x3b528bff)

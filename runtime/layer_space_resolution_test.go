@@ -40,7 +40,7 @@ type coordinateRootFacet struct {
 }
 
 func (r *coordinateRootFacet) Base() *facet.Facet {
-	r.Facet.BindImpl(r)
+	r.BindImpl(r)
 	return &r.Facet
 }
 
@@ -69,7 +69,7 @@ type coordinateHitFacet struct {
 }
 
 func (h *coordinateHitFacet) Base() *facet.Facet {
-	h.Facet.BindImpl(h)
+	h.BindImpl(h)
 	return &h.Facet
 }
 

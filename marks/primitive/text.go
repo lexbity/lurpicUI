@@ -62,7 +62,7 @@ func NewText(content marks.Binding[string]) *Text {
 		Alignment:  marks.Const(text.AlignLeft),
 		MaxWidth:   marks.Const[float32](0),
 	}
-	t.Core.Facet = facet.NewFacet()
+	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Content)
 	t.AddBinding(t.Typography)
 	t.AddBinding(t.Foreground)
@@ -106,7 +106,7 @@ func NewText(content marks.Binding[string]) *Text {
 
 // Base satisfies facet.FacetImpl.
 func (t *Text) Base() *facet.Facet {
-	t.Facet.BindImpl(t)
+	t.BindImpl(t)
 	return &t.Facet
 }
 
@@ -124,7 +124,7 @@ func (t *Text) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if bounds.IsEmpty() {
 		return nil
 	}
-	anchors := t.Core.DefaultAnchors(bounds, ctx)
+	anchors := t.DefaultAnchors(bounds, ctx)
 	if t.textRole.Layout != nil {
 		anchors["baseline"] = gfx.Point{
 			X: bounds.Min.X,

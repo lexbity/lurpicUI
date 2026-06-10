@@ -20,7 +20,7 @@ func TestVersionSource_increment_monotonic(t *testing.T) {
 	if a == 0 || b == 0 {
 		t.Fatalf("unexpected zero versions: %d %d", a, b)
 	}
-	if !(b > a) {
+	if b <= a {
 		t.Fatalf("expected monotonic increase: %d then %d", a, b)
 	}
 }

@@ -239,14 +239,14 @@ type TrimMemoryEvent struct {
 // changes (orientation, density, fontScale, dark mode, locale). The runtime
 // uses it to trigger re-layout and theme updates without losing view state.
 type ConfigurationChangedEvent struct {
-	Orientation   int     // ACONFIGURATION_ORIENTATION_PORT (1) or LAND (2)
-	ScreenWidthDp int     // screen width in density-independent pixels
-	ScreenHeightDp int    // screen height in density-independent pixels
-	Density       int     // ACONFIGURATION_DENSITY_* constant
-	UiModeNight   bool    // true if UI mode is night (dark theme)
-	FontScale     float32 // user font scale setting (1.0 = default)
-	Language      string  // ISO 639-1 two-letter language code
-	Country       string  // ISO 3166-1 two-letter country code
+	Orientation    int     // ACONFIGURATION_ORIENTATION_PORT (1) or LAND (2)
+	ScreenWidthDp  int     // screen width in density-independent pixels
+	ScreenHeightDp int     // screen height in density-independent pixels
+	Density        int     // ACONFIGURATION_DENSITY_* constant
+	UiModeNight    bool    // true if UI mode is night (dark theme)
+	FontScale      float32 // user font scale setting (1.0 = default)
+	Language       string  // ISO 639-1 two-letter language code
+	Country        string  // ISO 3166-1 two-letter country code
 }
 
 // TouchEvent represents a touch contact event on Android.
@@ -268,15 +268,15 @@ const (
 	TouchCancel // OS canceled the gesture (e.g., system gesture took over)
 )
 
-func (BackEvent) isEvent()              {}
+func (BackEvent) isEvent() {}
 
-func (VsyncEvent) isEvent()             {}
+func (VsyncEvent) isEvent() {}
 
-func (AudioFocusEvent) isEvent()         {}
+func (AudioFocusEvent) isEvent() {}
 
 func (ConfigurationChangedEvent) isEvent() {}
 
-func (TrimMemoryEvent) isEvent()    {}
+func (TrimMemoryEvent) isEvent() {}
 
 func (EventWindowClose) isEvent()  {}
 func (EventWindowResize) isEvent() {}

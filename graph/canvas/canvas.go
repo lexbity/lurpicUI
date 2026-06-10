@@ -91,7 +91,7 @@ func NewGraphCanvasFacet(
 
 // Base satisfies facet.FacetImpl.
 func (f *GraphCanvasFacet) Base() *facet.Facet {
-	f.Facet.BindImpl(f)
+	f.BindImpl(f)
 	return &f.Facet
 }
 

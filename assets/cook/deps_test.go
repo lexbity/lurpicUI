@@ -91,7 +91,7 @@ deps = ["assets/fonts/inter.ttf", "assets/images/logo.png"]
 func TestResolveDependencyTreeRejectsNestedConfigDeps(t *testing.T) {
 	manifest := &Manifest{
 		Config: map[string]ConfigRule{
-			"assets/config/base.toml":  ConfigRule{},
+			"assets/config/base.toml":  {},
 			"assets/config/child.toml": {Deps: []string{"assets/config/base.toml"}},
 		},
 	}
