@@ -72,9 +72,7 @@ name = "Test App"
 	os.MkdirAll(subDir, 0755)
 
 	// Change to subdirectory and find project root
-	originalWd, _ := os.Getwd()
-	os.Chdir(subDir)
-	defer os.Chdir(originalWd)
+	t.Chdir(subDir)
 
 	root, err := findProjectRoot()
 	if err != nil {
@@ -92,27 +90,19 @@ name = "Test App"
 func TestFindProjectRoot_NoConfig(t *testing.T) {
 	// Create a temporary directory without config
 	tmpDir := t.TempDir()
-	originalWd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	defer os.Chdir(originalWd)
-	os.Chdir(tmpDir)
+	t.Chdir(tmpDir)
 
-	_, err = findProjectRoot()
+	_, err := findProjectRoot()
 	if err == nil {
 		t.Error("expected error when no lurpic.toml found")
 	}
 }
 
 func TestDetectAndroidSDK_NotSet(t *testing.T) {
-	// Clear environment variables
-	originalHome := os.Getenv("ANDROID_HOME")
-	originalSdk := os.Getenv("ANDROID_SDK")
-	defer func() {
-		os.Setenv("ANDROID_HOME", originalHome)
-		os.Setenv("ANDROID_SDK", originalSdk)
-	}()
+	// Clear environment variables (t.Setenv registers auto-restore, then we
+	// unset for the duration of the test).
+	t.Setenv("ANDROID_HOME", "")
+	t.Setenv("ANDROID_SDK", "")
 	os.Unsetenv("ANDROID_HOME")
 	os.Unsetenv("ANDROID_SDK")
 
@@ -139,7 +129,7 @@ func TestDetectAndroidSDK_FromEnv(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "platform-tools", adb), []byte(""), 0755)
 
 	// Set environment variable
-	os.Setenv("ANDROID_HOME", tmpDir)
+	t.Setenv("ANDROID_HOME", tmpDir)
 
 	sdk, err := detectAndroidSDK()
 	if err != nil {
@@ -160,7 +150,7 @@ func TestDetectAndroidNDK_FromEnv(t *testing.T) {
 	os.WriteFile(filepath.Join(tmpDir, "source.properties"), []byte("Pkg.Revision = 30.0.14904198\n"), 0644)
 
 	// Set environment variable
-	os.Setenv("ANDROID_NDK_HOME", tmpDir)
+	t.Setenv("ANDROID_NDK_HOME", tmpDir)
 
 	ndk, err := detectAndroidNDK(tmpDir)
 	if err != nil {

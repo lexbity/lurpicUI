@@ -22,7 +22,7 @@ func (a *fakeAPKAsset) Length() int64 {
 	if a == nil || a.Reader == nil {
 		return 0
 	}
-	return int64(a.Size())
+	return a.Size()
 }
 
 type fakeAndroidExtractionContext struct {

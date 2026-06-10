@@ -587,9 +587,7 @@ func TestAsset_smallFileReturnsData(t *testing.T) {
 		t.Fatalf("write asset: %v", err)
 	}
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	data, err := Asset("test.toml")
 	if err != nil {
@@ -615,9 +613,7 @@ func TestAsset_largeFileWarns(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	// Must succeed (the warning is a diagnostic, not a hard error).
 	data, err := Asset("big.bin")
@@ -631,9 +627,7 @@ func TestAsset_largeFileWarns(t *testing.T) {
 
 func TestAsset_missingFileErrors(t *testing.T) {
 	dir := t.TempDir()
-	origDir, _ := os.Getwd()
-	os.Chdir(dir)
-	defer os.Chdir(origDir)
+	t.Chdir(dir)
 
 	_, err := Asset("nonexistent.dat")
 	if err == nil {

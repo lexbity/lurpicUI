@@ -141,10 +141,16 @@ linters:
       - linters: [unused]
         text: "."
 
-      # unconvert: 19 pre-existing unnecessary type conversions.
-      # Burn-down tracked in FOLLOW.
+      # unconvert on CGO / syscall-platform files: type identity is
+      # platform/arch-dependent (C types; syscall.Statfs_t field widths differ
+      # by GOOS/GOARCH).  unconvert evaluates only the host build and cannot
+      # prove a conversion redundant across all target arches, so it is scoped
+      # off these specific files.  Every other unconvert finding is fixed, not
+      # suppressed.
       - linters: [unconvert]
-        text: "."
+        path: 'platform/linux/internal/display/display_cgo\.go'
+      - linters: [unconvert]
+        path: 'assets/android\.go'
 
       # nilerr: 12 pre-existing nil returns with non-nil error.
       # Burn-down tracked in FOLLOW.
@@ -162,10 +168,6 @@ linters:
       - linters: [staticcheck]
         text: "^(QF100[1238]|QF1012|S100[259]|S1039|S1040|ST100[15]|ST1023|SA40(0[06]|17)|SA9003|SA1019):"
 
-      # usetesting: 22 pre-existing usetesting violations (os.Setenv/t.Chdir).
-      # Burn-down tracked in FOLLOW.
-      - linters: [usetesting]
-        text: "."
 
 # In v2, code formatting tools are extracted out of the general execution line
 # and placed into their own pipeline for performance and auto-fixing integration.

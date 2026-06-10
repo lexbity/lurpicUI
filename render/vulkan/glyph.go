@@ -263,6 +263,6 @@ func alphaFromColor(c color.Color) uint8 {
 		return uint8(a >> 8)
 	}
 	r, g, b, _ := c.RGBA()
-	gray := uint32((r*299 + g*587 + b*114) / 1000)
+	gray := (r*299 + g*587 + b*114) / 1000
 	return uint8(gray >> 8)
 }

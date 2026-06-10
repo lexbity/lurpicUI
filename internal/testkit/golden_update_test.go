@@ -15,9 +15,7 @@ func TestGoldenUpdate_envVar_true_triggers_update(t *testing.T) {
 	*updateGolden = false
 	t.Cleanup(func() { *updateGolden = oldFlag })
 
-	oldEnv := os.Getenv("LURPICUI_UPDATE_GOLDEN")
-	os.Setenv("LURPICUI_UPDATE_GOLDEN", "1")
-	t.Cleanup(func() { os.Setenv("LURPICUI_UPDATE_GOLDEN", oldEnv) })
+	t.Setenv("LURPICUI_UPDATE_GOLDEN", "1")
 
 	s := NewMemorySurface(1, 1)
 	if err := s.Lock(); err != nil {
@@ -44,9 +42,7 @@ func TestGoldenUpdate_envVar_false_does_not_update(t *testing.T) {
 	*updateGolden = false
 	t.Cleanup(func() { *updateGolden = oldFlag })
 
-	oldEnv := os.Getenv("LURPICUI_UPDATE_GOLDEN")
-	os.Setenv("LURPICUI_UPDATE_GOLDEN", "0")
-	t.Cleanup(func() { os.Setenv("LURPICUI_UPDATE_GOLDEN", oldEnv) })
+	t.Setenv("LURPICUI_UPDATE_GOLDEN", "0")
 
 	s := NewMemorySurface(1, 1)
 
@@ -66,9 +62,7 @@ func TestGoldenUpdate_flag_takes_precedence_over_env(t *testing.T) {
 	*updateGolden = true
 	t.Cleanup(func() { *updateGolden = oldFlag })
 
-	oldEnv := os.Getenv("LURPICUI_UPDATE_GOLDEN")
-	os.Setenv("LURPICUI_UPDATE_GOLDEN", "0")
-	t.Cleanup(func() { os.Setenv("LURPICUI_UPDATE_GOLDEN", oldEnv) })
+	t.Setenv("LURPICUI_UPDATE_GOLDEN", "0")
 
 	s := NewMemorySurface(1, 1)
 	if err := s.Lock(); err != nil {
@@ -97,9 +91,7 @@ func TestGoldenUpdate_envVar_values_true_and_yes(t *testing.T) {
 			*updateGolden = false
 			t.Cleanup(func() { *updateGolden = oldFlag })
 
-			oldEnv := os.Getenv("LURPICUI_UPDATE_GOLDEN")
-			os.Setenv("LURPICUI_UPDATE_GOLDEN", val)
-			t.Cleanup(func() { os.Setenv("LURPICUI_UPDATE_GOLDEN", oldEnv) })
+			t.Setenv("LURPICUI_UPDATE_GOLDEN", val)
 
 			s := NewMemorySurface(1, 1)
 			if err := s.Lock(); err != nil {

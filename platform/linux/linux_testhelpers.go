@@ -49,7 +49,7 @@ func testTranslateConfigure(a *app, windowID uint32, width, height uint16) []pla
 }
 
 func testTranslateClientMessage(a *app, windowID uint32) []platform.Event {
-	return a.translateEvent(&testEvent{kind: testEventClientMessage, window: windowID, data32: uint32(a.atomWMDelete)})
+	return a.translateEvent(&testEvent{kind: testEventClientMessage, window: windowID, data32: a.atomWMDelete})
 }
 
 func testTranslateClientMessageWithData(a *app, windowID uint32, data uint32) []platform.Event {

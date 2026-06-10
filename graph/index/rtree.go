@@ -291,7 +291,7 @@ func (t *rstarTree) Query(region gfx.Rect) []EntityID {
 			}
 			continue
 		}
-		for i := int32(node.cN - 1); i >= 0; i-- {
+		for i := node.cN - 1; i >= 0; i-- {
 			stack = append(stack, node.cids[i])
 			if i == 0 {
 				break
@@ -398,7 +398,7 @@ func (t *rstarTree) QueryLOD(viewport gfx.Rect, pixelsPerUnit float32) LODResult
 			}
 			continue
 		}
-		for i := int32(node.cN - 1); i >= 0; i-- {
+		for i := node.cN - 1; i >= 0; i-- {
 			stack = append(stack, node.cids[i])
 			if i == 0 {
 				break
