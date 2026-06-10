@@ -1134,18 +1134,6 @@ func sliderThumbInsetFromSize(size float32) float32 {
 	return size * 0.5
 }
 
-func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return theme.MaterialCommands(path, material)
-}
-
-func materialColor(material theme.Material) gfx.Color {
-	return theme.MaterialColor(material)
-}
-
-func isTransparentMaterial(material theme.Material) bool {
-	return theme.IsTransparentMaterial(material)
-}
-
 func clampFloat(v, minV, maxV float32) float32 {
 	if v < minV {
 		return minV
@@ -1156,19 +1144,6 @@ func clampFloat(v, minV, maxV float32) float32 {
 	return v
 }
 
-func minFloat(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxFloat(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 type sliderGroupPolicy struct {
 	slider *Slider

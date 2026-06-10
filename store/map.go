@@ -118,6 +118,30 @@ func (s *MapStore[K, V]) ClearTx(tx *Transaction) {
 
 func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
 	assertNotProjecting()
+	if tx != nil {
+		var previous V
+		var ok bool
+		var invalidations []func()
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				previous, ok = s.entries[key]
+				s.entries[key] = value
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				s.onSet.Emit(MapSetEvent[K, V]{Key: key, Value: value, Previous: previous, WasNew: !ok})
+			},
+		)
+		return
+	}
 	s.mu.Lock()
 	previous, ok := s.entries[key]
 	s.entries[key] = value
@@ -133,15 +157,44 @@ func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
 		}
 		s.onSet.Emit(MapSetEvent[K, V]{Key: key, Value: value, Previous: previous, WasNew: !ok})
 	}
-	if tx != nil {
-		tx.deferCall(notify)
-		return
-	}
 	notify()
 }
 
 func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
 	assertNotProjecting()
+	if tx != nil {
+		var value V
+		var ok bool
+		var invalidations []func()
+		var skipped bool
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				value, ok = s.entries[key]
+				if !ok {
+					s.mu.Unlock()
+					skipped = true
+					return
+				}
+				delete(s.entries, key)
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				if skipped {
+					return
+				}
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				s.onDelete.Emit(MapDeleteEvent[K, V]{Key: key, Value: value})
+			},
+		)
+		return
+	}
 	s.mu.Lock()
 	value, ok := s.entries[key]
 	if !ok {
@@ -161,15 +214,41 @@ func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
 		}
 		s.onDelete.Emit(MapDeleteEvent[K, V]{Key: key, Value: value})
 	}
-	if tx != nil {
-		tx.deferCall(notify)
-		return
-	}
 	notify()
 }
 
 func (s *MapStore[K, V]) clear(tx *Transaction) {
 	assertNotProjecting()
+	if tx != nil {
+		var invalidations []func()
+		var skipped bool
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				if len(s.entries) == 0 {
+					s.mu.Unlock()
+					skipped = true
+					return
+				}
+				s.entries = make(map[K]V)
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				if skipped {
+					return
+				}
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				s.onClear.Emit(signal.Fired)
+			},
+		)
+		return
+	}
 	s.mu.Lock()
 	if len(s.entries) == 0 {
 		s.mu.Unlock()
@@ -187,10 +266,6 @@ func (s *MapStore[K, V]) clear(tx *Transaction) {
 			}
 		}
 		s.onClear.Emit(signal.Fired)
-	}
-	if tx != nil {
-		tx.deferCall(notify)
-		return
 	}
 	notify()
 }

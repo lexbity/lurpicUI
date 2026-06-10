@@ -1,20 +1,39 @@
 package syncutil
 
-import "sync/atomic"
+import (
+	"sync"
+)
 
-var anchorExportDepth atomic.Int64
+var (
+	exportingGoroutinesMu sync.RWMutex
+	exportingGoroutines   = make(map[int64]int)
+)
 
 // BeginAnchorExport marks the current goroutine as executing an anchor export pass.
 func BeginAnchorExport() func() {
-	anchorExportDepth.Add(1)
+	id := currentGoroutineID()
+	exportingGoroutinesMu.Lock()
+	exportingGoroutines[id]++
+	exportingGoroutinesMu.Unlock()
+
 	return func() {
-		anchorExportDepth.Add(-1)
+		exportingGoroutinesMu.Lock()
+		exportingGoroutines[id]--
+		if exportingGoroutines[id] <= 0 {
+			delete(exportingGoroutines, id)
+		}
+		exportingGoroutinesMu.Unlock()
 	}
 }
 
 // AssertNotAnchorExporting panics when called from inside an anchor export pass.
 func AssertNotAnchorExporting(op string) {
-	if anchorExportDepth.Load() <= 0 {
+	id := currentGoroutineID()
+	exportingGoroutinesMu.RLock()
+	depth := exportingGoroutines[id]
+	exportingGoroutinesMu.RUnlock()
+
+	if depth <= 0 {
 		return
 	}
 	if op == "" {

@@ -9,7 +9,10 @@ func (rt *Runtime) deliverSignals() {
 		if i >= maxIterations {
 			panic("runtime: signal delivery exceeded 16 iterations in one frame — likely a signal cycle; check store mutation inside signal handlers")
 		}
-		batch := rt.signalQueue
+		batch := append([]pendingSignal(nil), rt.signalQueue...)
+		for j := range rt.signalQueue {
+			rt.signalQueue[j] = pendingSignal{}
+		}
 		rt.signalQueue = rt.signalQueue[:0]
 		for _, s := range batch {
 			if s.deliver != nil {

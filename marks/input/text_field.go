@@ -532,18 +532,6 @@ func (tf *TextField) ensureTextLayout(layout *text.TextLayout, style text.TextSt
 	return nil
 }
 
-func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return theme.MaterialCommands(path, material)
-}
-
-func materialColor(material theme.Material) gfx.Color {
-	return theme.MaterialColor(material)
-}
-
-func isTransparentMaterial(material theme.Material) bool {
-	return theme.IsTransparentMaterial(material)
-}
-
 func offsetTextRect(rect text.Rect, origin gfx.Point) gfx.Rect {
 	return gfx.Rect{
 		Min: gfx.Point{X: rect.Min.X + origin.X, Y: rect.Min.Y + origin.Y},
@@ -1168,20 +1156,6 @@ func resolvedMinFieldHeightFromStyle(resolved theme.ResolvedContext, style text.
 		lineHeight = 16
 	}
 	return lineHeight + float32(resolved.Spacing(theme.SpacingS))*2
-}
-
-func maxFloat(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func minFloat(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 type textFieldGroupPolicy struct{}

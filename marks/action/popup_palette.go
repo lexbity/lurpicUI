@@ -1924,15 +1924,13 @@ func (c *popupPaletteComposition) exportAnchors(bounds gfx.Rect) layout.AnchorSe
 	if c == nil || c.palette == nil || bounds.IsEmpty() {
 		return nil
 	}
-	return layout.AnchorSet{
-		"bounds_center":       centerOfRect(bounds),
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
-		"content_anchor":      centerOfRect(c.cachedMenuBounds),
-		"baseline":            centerOfRect(c.cachedMenuBounds),
+	out := c.palette.Core.DefaultAnchors(bounds, layout.AnchorExportContext{})
+	if out == nil {
+		out = make(layout.AnchorSet)
 	}
+	out["content_anchor"] = centerOfRect(c.cachedMenuBounds)
+	out["baseline"] = centerOfRect(c.cachedMenuBounds)
+	return out
 }
 
 func paletteSelectionColor(p *PopupPalette) gfx.Color {

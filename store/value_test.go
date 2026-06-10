@@ -118,7 +118,7 @@ func TestValueStore_setTx_defers_signal_until_commit(t *testing.T) {
 	if called != 0 {
 		t.Fatalf("called before commit = %d", called)
 	}
-	if got := s.Get(); got != 2 {
+	if got := s.Get(); got != 1 {
 		t.Fatalf("get before commit = %d", got)
 	}
 
@@ -126,19 +126,25 @@ func TestValueStore_setTx_defers_signal_until_commit(t *testing.T) {
 	if called != 1 {
 		t.Fatalf("called after commit = %d", called)
 	}
+	if got := s.Get(); got != 2 {
+		t.Fatalf("get after commit = %d", got)
+	}
 }
 
-func TestValueStore_setTx_immediate_mutation(t *testing.T) {
+func TestValueStore_setTx_staged_mutation(t *testing.T) {
 	s := NewValueStore(1)
 	tx := Begin()
 	s.SetTx(2, tx)
-	if got := s.Get(); got != 2 {
-		t.Fatalf("get = %d", got)
+	if got := s.Get(); got != 1 {
+		t.Fatalf("get before commit = %d", got)
 	}
-	if got := s.Version(); got == 0 {
-		t.Fatal("version should not be zero after SetTx")
+	if got := s.Version(); got != 0 {
+		t.Fatal("version should be zero before Commit")
 	}
 	tx.Rollback()
+	if got := s.Get(); got != 1 {
+		t.Fatalf("get after rollback = %d", got)
+	}
 }
 
 func TestValueStore_interface_implementation(t *testing.T) {

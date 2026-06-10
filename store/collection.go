@@ -150,6 +150,44 @@ func (s *CollectionStore[T]) ReplaceTx(items []T, tx *Transaction) {
 func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 	assertNotProjecting()
 	id := s.identify(item)
+	if tx != nil {
+		var old T
+		var idx int
+		var isUpdate bool
+		var invalidations []func()
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				if existingIdx, ok := s.index[id]; ok {
+					isUpdate = true
+					idx = existingIdx
+					old = s.items[existingIdx]
+					s.items[existingIdx] = item
+				} else {
+					isUpdate = false
+					idx = len(s.items)
+					s.items = append(s.items, item)
+					s.index[id] = idx
+				}
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				if isUpdate {
+					s.onUpdate.Emit(CollectionUpdateEvent[T]{ID: id, Index: idx, Old: old, New: item})
+				} else {
+					s.onInsert.Emit(CollectionInsertEvent[T]{Item: item, Index: idx})
+				}
+			},
+		)
+		return
+	}
 	s.mu.Lock()
 	if idx, ok := s.index[id]; ok {
 		old := s.items[idx]
@@ -164,10 +202,6 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 				}
 			}
 			s.onUpdate.Emit(CollectionUpdateEvent[T]{ID: id, Index: idx, Old: old, New: item})
-		}
-		if tx != nil {
-			tx.deferCall(notify)
-			return
 		}
 		notify()
 		return
@@ -188,15 +222,53 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 		}
 		s.onInsert.Emit(CollectionInsertEvent[T]{Item: item, Index: idx})
 	}
-	if tx != nil {
-		tx.deferCall(notify)
-		return
-	}
 	notify()
 }
 
 func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 	assertNotProjecting()
+	if tx != nil {
+		var item T
+		var idx int
+		var invalidations []func()
+		var skipped bool
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				existingIdx, ok := s.index[id]
+				if !ok || existingIdx < 0 || existingIdx >= len(s.items) {
+					s.mu.Unlock()
+					skipped = true
+					return
+				}
+				idx = existingIdx
+				item = s.items[existingIdx]
+				copy(s.items[existingIdx:], s.items[existingIdx+1:])
+				var zero T
+				s.items[len(s.items)-1] = zero
+				s.items = s.items[:len(s.items)-1]
+				delete(s.index, id)
+				for i := existingIdx; i < len(s.items); i++ {
+					s.index[s.identify(s.items[i])] = i
+				}
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				if skipped {
+					return
+				}
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				s.onRemove.Emit(CollectionRemoveEvent[T]{ID: id, Index: idx, Item: item})
+			},
+		)
+		return
+	}
 	s.mu.Lock()
 	idx, ok := s.index[id]
 	if !ok || idx < 0 || idx >= len(s.items) {
@@ -204,7 +276,10 @@ func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 		return
 	}
 	item := s.items[idx]
-	s.items = append(s.items[:idx], s.items[idx+1:]...)
+	copy(s.items[idx:], s.items[idx+1:])
+	var zero T
+	s.items[len(s.items)-1] = zero
+	s.items = s.items[:len(s.items)-1]
 	delete(s.index, id)
 	for i := idx; i < len(s.items); i++ {
 		s.index[s.identify(s.items[i])] = i
@@ -221,16 +296,47 @@ func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 		}
 		s.onRemove.Emit(CollectionRemoveEvent[T]{ID: id, Index: idx, Item: item})
 	}
-	if tx != nil {
-		tx.deferCall(notify)
-		return
-	}
 	notify()
 }
 
 func (s *CollectionStore[T]) update(item T, tx *Transaction) {
 	assertNotProjecting()
 	id := s.identify(item)
+	if tx != nil {
+		var old T
+		var idx int
+		var invalidations []func()
+		var skipped bool
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				existingIdx, ok := s.index[id]
+				if !ok || existingIdx < 0 || existingIdx >= len(s.items) {
+					s.mu.Unlock()
+					skipped = true
+					return
+				}
+				idx = existingIdx
+				old = s.items[existingIdx]
+				s.items[existingIdx] = item
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				if skipped {
+					return
+				}
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				s.onUpdate.Emit(CollectionUpdateEvent[T]{ID: id, Index: idx, Old: old, New: item})
+			},
+		)
+		return
+	}
 	s.mu.Lock()
 	idx, ok := s.index[id]
 	if !ok || idx < 0 || idx >= len(s.items) {
@@ -251,15 +357,36 @@ func (s *CollectionStore[T]) update(item T, tx *Transaction) {
 		}
 		s.onUpdate.Emit(CollectionUpdateEvent[T]{ID: id, Index: idx, Old: old, New: item})
 	}
-	if tx != nil {
-		tx.deferCall(notify)
-		return
-	}
 	notify()
 }
 
 func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
 	assertNotProjecting()
+	if tx != nil {
+		var invalidations []func()
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				s.items = append([]T(nil), items...)
+				s.index = make(map[ItemID]int, len(items))
+				for i, item := range s.items {
+					s.index[s.identify(item)] = i
+				}
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				s.onReplace.Emit(signal.Fired)
+			},
+		)
+		return
+	}
 	s.mu.Lock()
 	s.items = append([]T(nil), items...)
 	s.index = make(map[ItemID]int, len(items))
@@ -277,10 +404,6 @@ func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
 			}
 		}
 		s.onReplace.Emit(signal.Fired)
-	}
-	if tx != nil {
-		tx.deferCall(notify)
-		return
 	}
 	notify()
 }

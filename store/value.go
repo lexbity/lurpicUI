@@ -59,6 +59,30 @@ func (s *ValueStore[T]) Version() Version {
 func (s *ValueStore[T]) set(value T, tx *Transaction) {
 	assertNotProjecting()
 
+	if tx != nil {
+		var old T
+		var invalidations []func()
+		tx.stage(
+			func() {
+				s.mu.Lock()
+				old = s.value
+				s.value = value
+				s.version.Increment()
+				invalidations = append([]func(){}, s.invalidations...)
+				s.mu.Unlock()
+			},
+			func() {
+				for _, fn := range invalidations {
+					if fn != nil {
+						fn()
+					}
+				}
+				s.OnChange.Emit(signal.Change[T]{Old: old, New: value})
+			},
+		)
+		return
+	}
+
 	s.mu.Lock()
 	old := s.value
 	s.value = value
@@ -73,11 +97,6 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 			}
 		}
 		s.OnChange.Emit(signal.Change[T]{Old: old, New: value})
-	}
-
-	if tx != nil {
-		tx.deferCall(notify)
-		return
 	}
 	enqueueSignal(notify)
 }

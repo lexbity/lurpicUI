@@ -536,9 +536,3 @@ func clamp01(v float32) float32 {
 	return v
 }
 
-func minFloat(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
-}

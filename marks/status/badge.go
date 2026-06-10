@@ -484,20 +484,6 @@ func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	return services
 }
 
-func maxFloat(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func isTransparentMaterial(material theme.Material) bool {
-	return theme.IsTransparentMaterial(material)
-}
-
-func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return theme.MaterialCommands(path, material)
-}
 
 type badgeGroupPolicy struct {
 	badge *Badge

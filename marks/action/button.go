@@ -1,6 +1,7 @@
 package action
 
 import (
+	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -165,19 +166,13 @@ func (b *Button) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 	if b == nil {
 		return nil
 	}
+	out := b.Core.DefaultAnchors(b.Layout.ArrangedBounds, ctx)
+	if out == nil {
+		return nil
+	}
 	bounds := b.Layout.ArrangedBounds
 	if bounds.IsEmpty() && !ctx.ResolvedLayer.Bounds.IsEmpty() {
 		bounds = ctx.ResolvedLayer.Bounds
-	}
-	if bounds.IsEmpty() {
-		return nil
-	}
-	out := layout.AnchorSet{
-		"bounds_center":       gfx.Point{X: (bounds.Min.X + bounds.Max.X) * 0.5, Y: (bounds.Min.Y + bounds.Max.Y) * 0.5},
-		"bounds_top_left":     bounds.Min,
-		"bounds_top_right":    gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y},
-		"bounds_bottom_left":  gfx.Point{X: bounds.Min.X, Y: bounds.Max.Y},
-		"bounds_bottom_right": gfx.Point{X: bounds.Max.X, Y: bounds.Max.Y},
 	}
 	if b.textRole.Layout != nil {
 		out["baseline"] = gfx.Point{
@@ -380,7 +375,7 @@ func (b *Button) resolveIconBox(ctx facet.MeasureContext, ref string, style them
 			}
 			scale := float32(1)
 			if asset.ViewBox.Width() > 0 && asset.ViewBox.Height() > 0 {
-				scale = minFloat(iconSize/asset.ViewBox.Width(), iconSize/asset.ViewBox.Height())
+				scale = mathutil.Min(iconSize/asset.ViewBox.Width(), iconSize/asset.ViewBox.Height())
 			}
 			return gfx.RectFromXYWH(0, 0, asset.ViewBox.Width()*scale, asset.ViewBox.Height()*scale), asset
 		}
@@ -473,24 +468,24 @@ func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		radius = bounds.Height() * 0.5
 	}
 	path := gfx.RoundedRectPath(bounds, radius)
-	if !isTransparentMaterial(root) {
-		cmds = append(cmds, materialCommands(path, root)...)
+	if !theme.IsTransparentMaterial(root) {
+		cmds = append(cmds, theme.MaterialCommands(path, root)...)
 	}
-	if !isTransparentMaterial(container) {
-		cmds = append(cmds, materialCommands(path, container)...)
+	if !theme.IsTransparentMaterial(container) {
+		cmds = append(cmds, theme.MaterialCommands(path, container)...)
 	}
-	if !isTransparentMaterial(stateLayer) {
-		cmds = append(cmds, materialCommands(path, stateLayer)...)
+	if !theme.IsTransparentMaterial(stateLayer) {
+		cmds = append(cmds, theme.MaterialCommands(path, stateLayer)...)
 	}
-	if !isTransparentMaterial(label) {
-		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedLayout, labelBounds, gfx.SolidBrush(materialColor(label)))...)
+	if !theme.IsTransparentMaterial(label) {
+		cmds = append(cmds, primitive.TextLayoutCommands(b.cachedLayout, labelBounds, gfx.SolidBrush(theme.MaterialColor(label)))...)
 	}
 	cmds = append(cmds, b.iconCommands(leading, true, leadingBox)...)
 	cmds = append(cmds, b.iconCommands(trailing, false, trailingBox)...)
-	if b.focusedVisible && !isTransparentMaterial(focus) {
-		inset := maxFloat(1, b.cachedPadY*0.5)
+	if b.focusedVisible && !theme.IsTransparentMaterial(focus) {
+		inset := mathutil.Max(float32(1), b.cachedPadY*0.5)
 		ringBounds := bounds.Inset(-inset, -inset)
-		cmds = append(cmds, materialCommands(gfx.RoundedRectPath(ringBounds, b.cachedRadius+inset), focus)...)
+		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ringBounds, b.cachedRadius+inset), focus)...)
 	}
 	return cmds
 }
@@ -504,10 +499,10 @@ func (b *Button) iconCommands(style theme.Material, leading bool, box gfx.Rect) 
 	if ref == "" || box.IsEmpty() || len(asset.Path.Segments) == 0 {
 		return nil
 	}
-	if isTransparentMaterial(style) {
+	if theme.IsTransparentMaterial(style) {
 		return nil
 	}
-	iconColor := materialColor(style)
+	iconColor := theme.MaterialColor(style)
 	brush := gfx.SolidBrush(iconColor)
 	transform := iconTransform(asset.ViewBox, box)
 	return []gfx.Command{
@@ -526,7 +521,7 @@ func iconTransform(viewBox gfx.Rect, target gfx.Rect) gfx.Transform {
 	}
 	scaleX := target.Width() / viewBox.Width()
 	scaleY := target.Height() / viewBox.Height()
-	scale := minFloat(scaleX, scaleY)
+	scale := mathutil.Min(scaleX, scaleY)
 	width := viewBox.Width() * scale
 	height := viewBox.Height() * scale
 	offsetX := target.Min.X + (target.Width()-width)/2 - viewBox.Min.X*scale
@@ -679,31 +674,6 @@ func (b *Button) interactionState() theme.InteractionState {
 	}
 }
 
-func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return theme.MaterialCommands(path, material)
-}
-
-func materialColor(material theme.Material) gfx.Color {
-	return theme.MaterialColor(material)
-}
-
-func isTransparentMaterial(material theme.Material) bool {
-	return theme.IsTransparentMaterial(material)
-}
-
-func minFloat(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func maxFloat(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
 
 type buttonGroupPolicy struct{}
 

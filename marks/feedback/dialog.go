@@ -644,13 +644,6 @@ func (d *Dialog) resolveProjectionTheme(runtime any) (theme.StyleContext, shared
 	return theme.StyleContext{Tokens: d.cachedTokens}, d.cachedRecipe
 }
 
-func minFloat(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func (d *Dialog) dialogState() theme.InteractionState {
 	if d == nil {
 		return theme.StateDefault

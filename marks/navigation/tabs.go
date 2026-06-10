@@ -1002,32 +1002,6 @@ func (t *Tabs) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, bool)
 	return runtimepkg.IconAsset{}, false
 }
 
-func maxFloat(a, b float32) float32 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func minFloat(a, b float32) float32 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func materialCommands(path gfx.Path, material theme.Material) []gfx.Command {
-	return theme.MaterialCommands(path, material)
-}
-
-func materialColor(material theme.Material) gfx.Color {
-	return theme.MaterialColor(material)
-}
-
-func isTransparentMaterial(material theme.Material) bool {
-	return theme.IsTransparentMaterial(material)
-}
-
 type tabsGroupPolicy struct{}
 
 func (tabsGroupPolicy) Kind() facet.GroupLayoutKind { return facet.GroupLayoutLinearHorizontal }

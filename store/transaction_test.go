@@ -72,7 +72,7 @@ func TestTransaction_signals_fire_in_mutation_order(t *testing.T) {
 	}
 }
 
-func TestTransaction_rollback_suppresses_signals(t *testing.T) {
+func TestTransaction_rollback_discards_mutations(t *testing.T) {
 	s := NewValueStore(1)
 	tx := Begin()
 	called := 0
@@ -81,20 +81,24 @@ func TestTransaction_rollback_suppresses_signals(t *testing.T) {
 	s.SetTx(2, tx)
 	tx.Rollback()
 
-	if got := s.Get(); got != 2 {
-		t.Fatalf("mutation should remain in effect, got %d", got)
+	if got := s.Get(); got != 1 {
+		t.Fatalf("mutation should be discarded, got %d", got)
 	}
 	if called != 0 {
 		t.Fatalf("called = %d", called)
 	}
 }
 
-func TestTransaction_mutations_immediate(t *testing.T) {
+func TestTransaction_mutations_staged(t *testing.T) {
 	s := NewValueStore(1)
 	tx := Begin()
 	s.SetTx(2, tx)
+	if got := s.Get(); got != 1 {
+		t.Fatalf("got %d, expected staged value of 1", got)
+	}
+	tx.Commit()
 	if got := s.Get(); got != 2 {
-		t.Fatalf("got %d", got)
+		t.Fatalf("got %d, expected committed value of 2", got)
 	}
 }
 

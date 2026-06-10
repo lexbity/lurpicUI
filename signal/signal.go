@@ -41,7 +41,10 @@ func (s *Signal[T]) Unsubscribe(id SubscriptionID) {
 	}
 	for i := range s.subscribers {
 		if s.subscribers[i].id == id {
-			s.subscribers = append(s.subscribers[:i], s.subscribers[i+1:]...)
+			copy(s.subscribers[i:], s.subscribers[i+1:])
+			var zero subscription[T]
+			s.subscribers[len(s.subscribers)-1] = zero
+			s.subscribers = s.subscribers[:len(s.subscribers)-1]
 			return
 		}
 	}
@@ -49,6 +52,10 @@ func (s *Signal[T]) Unsubscribe(id SubscriptionID) {
 
 // UnsubscribeAll removes all handlers.
 func (s *Signal[T]) UnsubscribeAll() {
+	for i := range s.subscribers {
+		var zero subscription[T]
+		s.subscribers[i] = zero
+	}
 	s.subscribers = s.subscribers[:0]
 }
 

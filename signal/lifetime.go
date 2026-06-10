@@ -20,7 +20,10 @@ func (s *Subscriptions) Release() {
 	if len(s.entries) == 0 {
 		return
 	}
-	entries := s.entries
+	entries := append([]func(){}, s.entries...)
+	for i := range s.entries {
+		s.entries[i] = nil
+	}
 	s.entries = s.entries[:0]
 	for _, release := range entries {
 		if release != nil {

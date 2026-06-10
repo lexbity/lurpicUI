@@ -8,6 +8,7 @@ import (
 
 // Transaction batches store mutations and defers signal delivery until Commit.
 type Transaction struct {
+	mutations []func()
 	deferred  []func()
 	committed atomic.Bool
 }
@@ -16,6 +17,24 @@ type Transaction struct {
 func Begin() *Transaction {
 	syncutil.AssertRuntimeThread()
 	return &Transaction{}
+}
+
+func (t *Transaction) stage(mutate func(), notify func()) {
+	if t == nil {
+		if mutate != nil {
+			mutate()
+		}
+		if notify != nil {
+			notify()
+		}
+		return
+	}
+	if mutate != nil {
+		t.mutations = append(t.mutations, mutate)
+	}
+	if notify != nil {
+		t.deferred = append(t.deferred, notify)
+	}
 }
 
 func (t *Transaction) deferCall(fn func()) {
@@ -34,6 +53,13 @@ func (t *Transaction) Commit() {
 	if !t.committed.CompareAndSwap(false, true) {
 		panic("store: Commit called on completed transaction")
 	}
+	mutations := t.mutations
+	t.mutations = nil
+	for _, mutate := range mutations {
+		if mutate != nil {
+			mutate()
+		}
+	}
 	deferred := t.deferred
 	t.deferred = nil
 	for _, fn := range deferred {
@@ -49,5 +75,12 @@ func (t *Transaction) Rollback() {
 	if t == nil || !t.committed.CompareAndSwap(false, true) {
 		return
 	}
+	for i := range t.mutations {
+		t.mutations[i] = nil
+	}
+	for i := range t.deferred {
+		t.deferred[i] = nil
+	}
+	t.mutations = nil
 	t.deferred = nil
 }
