@@ -83,7 +83,6 @@ type TextField struct {
 	cachedPadY              float32
 	cachedGap               float32
 	cachedRadius            float32
-	cachedLineHeight        float32
 	cachedCaretWidth        float32
 	cachedMinFieldWidth     float32
 }

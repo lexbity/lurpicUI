@@ -245,13 +245,6 @@ func (c *Card) OnDetach() {
 	c.cachedChildBounds = nil
 }
 
-func (c *Card) invalidate(flags facet.DirtyFlags) {
-	if c == nil {
-		return
-	}
-	c.Invalidate(flags)
-}
-
 func (c *Card) activeChildren() []CardChild {
 	if c == nil {
 		return nil

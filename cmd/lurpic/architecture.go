@@ -10,21 +10,21 @@ type Architecture struct {
 }
 
 var architectures = map[string]Architecture{
-	"x86_64": {
-		ABI:         "x86_64",
+	archX8664: {
+		ABI:         archX8664,
 		GOARCH:      "amd64",
 		GOARM:       "",
 		NDKTriple:   "x86_64-linux-android",
 		CargoTarget: "x86_64-linux-android",
-		EmulatorABI: "x86_64",
+		EmulatorABI: archX8664,
 	},
-	"arm64-v8a": {
-		ABI:         "arm64-v8a",
+	archArm64V8a: {
+		ABI:         archArm64V8a,
 		GOARCH:      "arm64",
 		GOARM:       "",
 		NDKTriple:   "aarch64-linux-android",
 		CargoTarget: "aarch64-linux-android",
-		EmulatorABI: "arm64-v8a",
+		EmulatorABI: archArm64V8a,
 	},
 	"armeabi-v7a": {
 		ABI:         "armeabi-v7a",
@@ -42,7 +42,7 @@ func ArchitectureByABI(abi string) (Architecture, bool) {
 }
 
 func DefaultEmulatorArchitecture() Architecture {
-	return architectures["x86_64"]
+	return architectures[archX8664]
 }
 
 func ReleaseArchitectures() []Architecture {

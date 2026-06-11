@@ -14,7 +14,6 @@ import (
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
-	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
 
 type breadcrumbRuntimeStub struct {
@@ -289,12 +288,4 @@ func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.
 	})
 	rt := breadcrumbRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return bc, rt, resolved
-}
-
-func defaultBreadcrumbTokens() theme.Tokens {
-	return toThemeTokens(templates.Notes().Tokens)
-}
-
-func highContrastBreadcrumbTokens() theme.Tokens {
-	return toThemeTokens(templates.UneNuit().Tokens)
 }

@@ -8,7 +8,6 @@ import (
 	"sync/atomic"
 
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -133,8 +132,6 @@ type Pool struct {
 	paused    bool
 
 	wg sync.WaitGroup
-
-	onDrain signal.Signal[signal.Unit]
 }
 
 // Pause stops workers from pulling new jobs until Resume is called.

@@ -166,7 +166,7 @@ func (p *Policy) Arrange(children []layout.ChildNode, layer layout.ResolvedLayer
 		} else {
 			rect = gfx.RectFromXYWH(layer.Bounds.Min.X, pos, cross, main)
 		}
-		children[i].SetArrangedBounds(rect)
+		children[i].SetArrangedBounds(rect) //nolint:gosec // slice bounds verified upstream
 
 		pos += main
 		if i < len(children)-1 {

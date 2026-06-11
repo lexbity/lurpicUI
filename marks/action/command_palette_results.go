@@ -131,7 +131,7 @@ func (g *commandPaletteResultsGroup) Base() *facet.Facet {
 }
 
 func (g *commandPaletteResultsGroup) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "command_palette_results_group"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "command_palette_results_group"}
 }
 
 func (g *commandPaletteResultsGroup) AccessibilityRole() string { return "listbox" }

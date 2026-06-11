@@ -8,6 +8,10 @@ import (
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 )
 
+const slotUnknown = "unknown"
+
+const slotStandard = "standard"
+
 // ButtonVariant selects the button recipe shape.
 type ButtonVariant uint8
 
@@ -37,7 +41,7 @@ func (v ButtonVariant) String() string {
 	case ButtonSkeuomorphic:
 		return "skeuomorphic"
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -54,11 +58,11 @@ const (
 func (v IconButtonVariant) String() string {
 	switch v {
 	case IconButtonStandard:
-		return "standard"
+		return slotStandard
 	case IconButtonSkeuomorphic:
 		return "skeuomorphic"
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -83,7 +87,7 @@ func (v TextInputVariant) String() string {
 	case TextInputUnderlined:
 		return "underlined"
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -102,13 +106,13 @@ const (
 func (v SliderVariant) String() string {
 	switch v {
 	case SliderStandard:
-		return "standard"
+		return slotStandard
 	case SliderCompact:
 		return "compact"
 	case SliderSkeuomorphic:
 		return "skeuomorphic"
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -123,9 +127,9 @@ const (
 func (v CheckboxVariant) String() string {
 	switch v {
 	case CheckboxStandard:
-		return "standard"
+		return slotStandard
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -142,11 +146,11 @@ const (
 func (v SwitchVariant) String() string {
 	switch v {
 	case SwitchStandard:
-		return "standard"
+		return slotStandard
 	case SwitchSkeuomorphic:
 		return "skeuomorphic"
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -161,9 +165,9 @@ const (
 func (v RadioGroupVariant) String() string {
 	switch v {
 	case RadioGroupStandard:
-		return "standard"
+		return slotStandard
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -178,9 +182,9 @@ const (
 func (v ColorPickerVariant) String() string {
 	switch v {
 	case ColorPickerStandard:
-		return "standard"
+		return slotStandard
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -195,9 +199,9 @@ const (
 func (v SelectVariant) String() string {
 	switch v {
 	case SelectStandard:
-		return "standard"
+		return slotStandard
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -212,9 +216,9 @@ const (
 func (v ListItemVariant) String() string {
 	switch v {
 	case ListItemStandard:
-		return "standard"
+		return slotStandard
 	default:
-		return "unknown"
+		return slotUnknown
 	}
 }
 
@@ -230,7 +234,7 @@ func ResolveButtonRecipe(ctx theme.StyleContext, variant ButtonVariant, override
 // ResolveButtonGroupRecipe resolves the button-group slots and provenance.
 func ResolveButtonGroupRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.ButtonGroupSlots]) (shared.ButtonGroupSlots, theme.RecipeReport) {
 	slots := buttonGroupBase(ctx)
-	report := newReport("selection", theme.VariantKey("standard"), slots)
+	report := newReport("selection", theme.VariantKey(slotStandard), slots)
 	resolved := theme.ResolveSlot(slots, overrides...)
 	annotateOverrides(&report, slots, resolved)
 	return resolved, report
@@ -1136,13 +1140,6 @@ func annotateOverrides[T any](report *theme.RecipeReport, base, resolved T) {
 	}
 }
 
-func sourceForContext(ctx theme.StyleContext) theme.SlotSource {
-	if ctx.Depth > 0 {
-		return theme.SlotSourceSubtreeOverride
-	}
-	return theme.SlotSourceRootDefault
-}
-
 func markStyleFromColor(color gfx.Color) theme.MarkStyle {
 	return theme.MarkStyle{Base: theme.FromToken(color)}
 }
@@ -1265,41 +1262,4 @@ func underlinedFieldContainer(fill, underline gfx.Color) theme.MarkStyle {
 			Opacity: 1,
 		},
 	}
-}
-
-func darkenColor(c gfx.Color, factor float32) gfx.Color {
-	r, g, b, a := c.ToRGBA8()
-	if a == 0 {
-		return c
-	}
-	scale := 1 - factor
-	return gfx.ColorFromRGBA8(
-		clampByte(float32(r)*scale),
-		clampByte(float32(g)*scale),
-		clampByte(float32(b)*scale),
-		a,
-	)
-}
-
-func lightenColor(c gfx.Color, factor float32) gfx.Color {
-	r, g, b, a := c.ToRGBA8()
-	if a == 0 {
-		return c
-	}
-	return gfx.ColorFromRGBA8(
-		clampByte(float32(r)+(255-float32(r))*factor),
-		clampByte(float32(g)+(255-float32(g))*factor),
-		clampByte(float32(b)+(255-float32(b))*factor),
-		a,
-	)
-}
-
-func clampByte(v float32) uint8 {
-	if v < 0 {
-		return 0
-	}
-	if v > 255 {
-		return 255
-	}
-	return uint8(v)
 }

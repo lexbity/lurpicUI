@@ -48,7 +48,7 @@ func cmdRun(args []string) int {
 	}
 
 	platform := fs.Arg(0)
-	if platform != "android" {
+	if platform != platformAndroid {
 		fmt.Fprintf(os.Stderr, "Error: unsupported platform '%s' (only 'android' supported)\n", platform)
 		return 1
 	}
@@ -66,7 +66,7 @@ func cmdRun(args []string) int {
 func runAndroid(flags runFlags) int {
 	buildAbi := flags.abi
 	if flags.emulator && buildAbi == "" {
-		buildAbi = "x86_64"
+		buildAbi = archX8664
 	}
 
 	builder, err := prepareAndroidBuild(buildFlags{release: flags.release, abi: buildAbi, project: flags.project})
@@ -153,7 +153,9 @@ func resolveEmulator(runner Runner, builder *androidBuilder, flags runFlags) (*E
 
 	// Pass --avd flag as env var so EmulatorManager.resolveAVD picks it up
 	if flags.avdName != "" {
-		os.Setenv("LURPIC_ANDROID_AVD", flags.avdName)
+		if err := os.Setenv("LURPIC_ANDROID_AVD", flags.avdName); err != nil {
+			return nil, err
+		}
 	}
 
 	mgr := NewEmulatorManager(runner, builder.sdk, builder.apiLevel, arch, flags.gpuMode, false)

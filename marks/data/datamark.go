@@ -23,7 +23,6 @@ type DataMark[T any] struct {
 	Scales map[marks.Channel]*reactive.ReactiveScale
 
 	regionStore         *store.ValueStore[[2]float64]
-	childPositions      []gfx.Point
 	childPositionsDirty bool
 }
 

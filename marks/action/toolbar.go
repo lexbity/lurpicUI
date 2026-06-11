@@ -172,11 +172,11 @@ func (t *Toolbar) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (t *Toolbar) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "toolbar"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: markTypeToolbar}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (t *Toolbar) AccessibilityRole() string { return "toolbar" }
+func (t *Toolbar) AccessibilityRole() string { return markTypeToolbar }
 
 // AccessibleName reports the semantic name required by the spec.
 func (t *Toolbar) AccessibleName() string {

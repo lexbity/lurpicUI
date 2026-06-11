@@ -87,7 +87,10 @@ func findVariantPairs(t *testing.T, platform string) []variantPair {
 	var pairs []variantPair
 
 	filepath.Walk(marksDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		if !strings.HasSuffix(path, ".png") {
@@ -122,27 +125,25 @@ func findVariantPairs(t *testing.T, platform string) []variantPair {
 
 		// Look for the default golden in the same directory.
 		defaultPath := filepath.Join(filepath.Dir(path), markPart+"_default.png")
-		defaultBytes, err := os.ReadFile(defaultPath)
-		if err != nil {
+		defaultBytes, readErr := os.ReadFile(defaultPath)
+		if readErr != nil {
 			// Try bare mark name as default fallback.
 			defaultPath = filepath.Join(filepath.Dir(path), markPart+".png")
-			defaultBytes, err = os.ReadFile(defaultPath)
-			if err != nil {
-				return nil // no default found — skip
-			}
+			defaultBytes, _ = os.ReadFile(defaultPath)
+		}
+		if len(defaultBytes) == 0 {
+			return nil // no default found — skip
 		}
 
-		variantBytes, err := os.ReadFile(path)
-		if err != nil {
-			return nil
+		variantBytes, vErr := os.ReadFile(path)
+		if vErr == nil {
+			pairs = append(pairs, variantPair{
+				mark:         markPart,
+				state:        statePart,
+				defaultBytes: defaultBytes,
+				variantBytes: variantBytes,
+			})
 		}
-
-		pairs = append(pairs, variantPair{
-			mark:         markPart,
-			state:        statePart,
-			defaultBytes: defaultBytes,
-			variantBytes: variantBytes,
-		})
 		return nil
 	})
 

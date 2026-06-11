@@ -178,7 +178,7 @@ func (c *Checkbox) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (c *Checkbox) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "checkbox"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "checkbox"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -777,27 +777,6 @@ func (c *Checkbox) SetChecked(checked bool) {
 		return
 	}
 	c.SetState(CheckboxStateOff)
-}
-
-func (c *Checkbox) newShaper(runtime any) *text.Shaper {
-	registry := c.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (c *Checkbox) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func checkboxControlSize(resolved theme.ResolvedContext) float32 {

@@ -108,7 +108,7 @@ func collectSOFiles(dir string) ([]string, error) {
 // ABI, it is returned; otherwise the lib/<abi> directory.
 func (s *symbolSet) symbolDirForNDKStack(abi string) string {
 	symbolRoot := filepath.Join(s.BuildDir, "android", "native-debug-symbols", abi)
-	if _, err := os.Stat(symbolRoot); err == nil {
+	if _, err := os.Stat(symbolRoot); err == nil { //nolint:gosec // path from user config
 		return symbolRoot
 	}
 	libDir := filepath.Join(s.BuildDir, "android", "lib", abi)

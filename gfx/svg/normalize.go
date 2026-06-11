@@ -319,30 +319,6 @@ func (n *svgNormalizer) collectDefinitions(node *svgNode, state svgStyleState, t
 	return nil
 }
 
-func (n *svgNormalizer) collectDefinitionChildren(defs *svgNode, state svgStyleState, transform Transform) error {
-	for _, child := range defs.Children {
-		switch child.Name {
-		case "clipPath":
-			def, err := n.normalizeClipPath(child, state, transform)
-			if err != nil {
-				return err
-			}
-			n.definitions[def.ID] = def
-		case "linearGradient":
-			def, err := n.normalizeLinearGradient(child, transform)
-			if err != nil {
-				return err
-			}
-			n.definitions[def.ID] = def
-		default:
-			if err := n.collectDefinitions(child, state, transform); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 func (n *svgNormalizer) collectVisible(node *svgNode, state svgStyleState, transform Transform, clipRef string, doc *SVGDocument) error {
 	if node == nil {
 		return nil

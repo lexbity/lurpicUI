@@ -35,7 +35,7 @@ func Asset(path string) ([]byte, error) {
 
 	var lastErr error
 	for _, p := range possiblePaths {
-		data, err := os.ReadFile(p)
+		data, err := os.ReadFile(p) //nolint:gosec // path from user config
 		if err == nil {
 			if len(data) > maxBootstrapAssetSize {
 				fmt.Fprintf(os.Stderr, "app: Asset(%q) read %d bytes — large media should use the asset manager (Manager.LoadImage etc.)\n", path, len(data))

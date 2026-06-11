@@ -144,6 +144,7 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 
 	// Create output directory for native libs
 	libDir := filepath.Join(b.buildDir, "lib", arch.ABI)
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(libDir, 0755); err != nil {
 		return err
 	}
@@ -191,7 +192,7 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 
 	output := filepath.Join(libDir, "libgo.so")
 	args := []string{
-		"build",
+		cmdBuildName,
 		"-buildmode=c-shared",
 		"-overlay", overlayPath,
 		"-o", output,
@@ -245,6 +246,7 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 // tree. It returns the overlay JSON path.
 func (b *androidBuilder) writeAndroidEntryOverlay(mainPkg string) (string, error) {
 	contentPath := filepath.Join(b.buildDir, "android_entry.go")
+	//nolint:gosec // shared build artifact
 	if err := os.WriteFile(contentPath, []byte(androidEntrySource), 0644); err != nil {
 		return "", fmt.Errorf("write android entry: %w", err)
 	}
@@ -265,6 +267,7 @@ func (b *androidBuilder) writeAndroidEntryOverlay(mainPkg string) (string, error
 		return "", err
 	}
 	overlayPath := filepath.Join(b.buildDir, "overlay.json")
+	//nolint:gosec // shared build artifact
 	if err := os.WriteFile(overlayPath, data, 0644); err != nil {
 		return "", fmt.Errorf("write overlay: %w", err)
 	}
@@ -315,7 +318,7 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 	// 16 KB ELF page alignment: required for Android 15+ and 16 KB devices.
 	env = append(env, "RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384")
 
-	cargoArgs := []string{"ndk", "-t", arch.ABI, "-o", outDir, "build"}
+	cargoArgs := []string{"ndk", "-t", arch.ABI, "-o", outDir, cmdBuildName}
 	if b.release {
 		cargoArgs = append(cargoArgs, "--release")
 	}
@@ -340,6 +343,7 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 	}
 
 	libDir := filepath.Join(b.buildDir, "lib", arch.ABI)
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(libDir, 0o755); err != nil {
 		return err
 	}
@@ -390,6 +394,7 @@ func (b *androidBuilder) buildRustLibrary(arch Architecture) error {
 // buildRustCrate builds a single Rust crate for Android for the given architecture.
 func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name string) error {
 	libDir := filepath.Join(b.buildDir, "lib", arch.ABI)
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(libDir, 0755); err != nil {
 		return err
 	}
@@ -420,7 +425,7 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 
 	cargoNdk, err := b.runner.Look("cargo-ndk")
 	if err == nil {
-		args := []string{"-t", arch.ABI, "build"}
+		args := []string{"-t", arch.ABI, cmdBuildName}
 		if profileFlag != "" {
 			args = append(args, profileFlag)
 		}
@@ -435,7 +440,7 @@ func (b *androidBuilder) buildRustCrate(arch Architecture, cratePath, name strin
 			return fmt.Errorf("cargo-ndk build failed: %w", err)
 		}
 	} else {
-		args := []string{"build"}
+		args := []string{cmdBuildName}
 		if profileFlag != "" {
 			args = append(args, profileFlag)
 		}
@@ -563,6 +568,7 @@ func (b *androidBuilder) generateManifest() error {
 	}
 
 	manifestPath := filepath.Join(b.buildDir, "AndroidManifest.xml")
+	//nolint:gosec // shared build artifact
 	if err := os.WriteFile(manifestPath, buf.Bytes(), 0644); err != nil {
 		return fmt.Errorf("failed to write manifest: %w", err)
 	}
@@ -582,6 +588,7 @@ func (b *androidBuilder) generateManifest() error {
 // android:allowBackup is set. The default rules preserve no data on backup.
 func (b *androidBuilder) generateDataExtractionRules() error {
 	resDir := filepath.Join(b.buildDir, "res", "xml")
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(resDir, 0755); err != nil {
 		return err
 	}
@@ -596,6 +603,7 @@ func (b *androidBuilder) generateDataExtractionRules() error {
 </data-extraction-rules>
 `
 	rulesPath := filepath.Join(resDir, "data_extraction_rules.xml")
+	//nolint:gosec // shared build artifact
 	if err := os.WriteFile(rulesPath, []byte(rules), 0644); err != nil {
 		return fmt.Errorf("write data_extraction_rules.xml: %w", err)
 	}
@@ -695,7 +703,10 @@ func (b *androidBuilder) compileResources(aapt2 string) (string, error) {
 	fmt.Println("Compiling resources with aapt2...")
 
 	compiledResDir := filepath.Join(b.buildDir, "resCompiled")
-	os.MkdirAll(compiledResDir, 0755)
+	//nolint:gosec // build output dir
+	if err := os.MkdirAll(compiledResDir, 0755); err != nil {
+		return "", err
+	}
 
 	// Compile icons if present
 	if b.config.App.HasIcon() {
@@ -796,7 +807,10 @@ func (b *androidBuilder) compileIcons(aapt2, compiledResDir string) error {
 
 	// Create mipmap directories and copy icons
 	mipmapDir := filepath.Join(b.buildDir, "res", "mipmap-anydpi-v26")
-	os.MkdirAll(mipmapDir, 0755)
+	//nolint:gosec // build output dir
+	if err := os.MkdirAll(mipmapDir, 0755); err != nil {
+		return err
+	}
 
 	// For now, copy the icon as ic_launcher.png
 	// In a full implementation, we'd generate multiple densities
@@ -873,14 +887,14 @@ func addFileToAPK(apkPath, srcPath, entryName string) error {
 	if err != nil {
 		return fmt.Errorf("open apk: %w", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	tmpPath := apkPath + ".tmp"
-	out, err := os.Create(tmpPath)
+	out, err := os.Create(tmpPath) //nolint:gosec // path from user config
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	zw := zip.NewWriter(out)
 
 	for _, f := range src.File {
@@ -909,7 +923,7 @@ func addFileToAPK(apkPath, srcPath, entryName string) error {
 		out.Close()
 		return err
 	}
-	in, err := os.Open(srcPath)
+	in, err := os.Open(srcPath) //nolint:gosec // path from user config
 	if err != nil {
 		out.Close()
 		return err
@@ -956,14 +970,14 @@ func addTreeToAPK(apkPath, baseDir, treeName string, noCompress ...[]string) err
 	if err != nil {
 		return fmt.Errorf("open apk: %w", err)
 	}
-	defer src.Close()
+	defer func() { _ = src.Close() }()
 
 	tmpPath := apkPath + ".tmp"
-	out, err := os.Create(tmpPath)
+	out, err := os.Create(tmpPath) //nolint:gosec // path from user config
 	if err != nil {
 		return err
 	}
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	zw := zip.NewWriter(out)
 
 	// Preserve existing entries verbatim (no recompression).
@@ -1009,7 +1023,7 @@ func addTreeToAPK(apkPath, baseDir, treeName string, noCompress ...[]string) err
 		if err != nil {
 			return err
 		}
-		in, err := os.Open(path)
+		in, err := os.Open(path) //nolint:gosec // path from user config
 		if err != nil {
 			return err
 		}
@@ -1086,7 +1100,7 @@ func (b *androidBuilder) resolveSigningConfig() (keystorePath, keystoreAlias, ke
 			return "", "", "", fmt.Errorf("debug keystore: %w", derr)
 		}
 		keystoreAlias = "androiddebugkey"
-		keystorePass = "android"
+		keystorePass = platformAndroid
 		fmt.Printf("  Using debug keystore: %s\n", keystorePath)
 	}
 	return keystorePath, keystoreAlias, keystorePass, nil
@@ -1212,7 +1226,7 @@ func (b *androidBuilder) alignAPK(input, output string) error {
 	}
 
 	// Remove output if it exists
-	os.Remove(output)
+	_ = os.Remove(output)
 
 	// zipalign -P 16 = 16 KB page alignment (required for Android 15+).
 	// Use -p (page-align uncompressed .so entries) with -P 16 as the
@@ -1285,7 +1299,7 @@ func (b *androidBuilder) findNDKCompiler(arch Architecture) string {
 
 	compilerName := fmt.Sprintf("%s%d-clang", arch.NDKTriple, b.apiLevel)
 	compilerPath := filepath.Join(toolchain, compilerName)
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		compilerPath += ".exe"
 	}
 
@@ -1304,11 +1318,11 @@ func (b *androidBuilder) findNDKToolchain(target string) string {
 	// Determine host prebuilt directory
 	host := runtime.GOOS
 	switch host {
-	case "darwin":
+	case platformDarwin:
 		host = "darwin-x86_64"
-	case "linux":
+	case platformLinux:
 		host = "linux-x86_64"
-	case "windows":
+	case platformWindows:
 		host = "windows-x86_64"
 	}
 
@@ -1325,15 +1339,15 @@ func (b *androidBuilder) findLLVMStrip() (string, error) {
 	toolchain := filepath.Join(b.ndk, "toolchains", "llvm", "prebuilt")
 	host := runtime.GOOS
 	switch host {
-	case "darwin":
+	case platformDarwin:
 		host = "darwin-x86_64"
-	case "linux":
+	case platformLinux:
 		host = "linux-x86_64"
-	case "windows":
+	case platformWindows:
 		host = "windows-x86_64"
 	}
 	candidate := filepath.Join(toolchain, host, "bin", "llvm-strip")
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		candidate += ".exe"
 	}
 	if _, err := os.Stat(candidate); err == nil {
@@ -1346,6 +1360,7 @@ func (b *androidBuilder) findLLVMStrip() (string, error) {
 // before stripping. The copy is stored under build/android/native-debug-symbols/<abi>/.
 func (b *androidBuilder) retainUnstrippedSO(libDir, name string) error {
 	symDir := filepath.Join(b.buildDir, "native-debug-symbols", filepath.Base(libDir))
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(symDir, 0755); err != nil {
 		return err
 	}
@@ -1389,14 +1404,14 @@ func (b *androidBuilder) emitDebugSymbolsZip() error {
 // from srcDir, storing entries relative to baseInZip. The output is a
 // standalone zip (not an APK), suitable for symbol artifact uploads.
 func createZipFromDir(zipPath, srcDir, baseInZip string) error {
-	out, err := os.Create(zipPath)
+	out, err := os.Create(zipPath) //nolint:gosec // path from user config
 	if err != nil {
 		return fmt.Errorf("create %s: %w", zipPath, err)
 	}
 	defer out.Close()
 
 	zw := zip.NewWriter(out)
-	defer zw.Close()
+	defer func() { _ = zw.Close() }()
 
 	absSrc, err := filepath.Abs(srcDir)
 	if err != nil {
@@ -1423,7 +1438,7 @@ func createZipFromDir(zipPath, srcDir, baseInZip string) error {
 		if err != nil {
 			return err
 		}
-		in, err := os.Open(path)
+		in, err := os.Open(path) //nolint:gosec // path from user config
 		if err != nil {
 			return err
 		}
@@ -1448,16 +1463,17 @@ func (b *androidBuilder) getDebugKeystore() (string, error) {
 	}
 
 	// Create the debug keystore
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(keystoreDir, 0755); err != nil {
 		return "", fmt.Errorf("cannot create .android directory: %w", err)
 	}
 
 	// Find keytool
 	keytool := filepath.Join(os.Getenv("JAVA_HOME"), "bin", "keytool")
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		keytool += ".exe"
 	}
-	if _, err := os.Stat(keytool); err != nil {
+	if _, err := os.Stat(keytool); err != nil { //nolint:gosec // path from user config
 		if found, lookErr := b.runner.Look("keytool"); lookErr == nil {
 			keytool = found
 		} else {
@@ -1467,7 +1483,7 @@ func (b *androidBuilder) getDebugKeystore() (string, error) {
 
 	if err := b.runner.Run(CommandSpec{
 		Path:   keytool,
-		Args:   []string{"-genkey", "-v", "-keystore", keystore, "-alias", "androiddebugkey", "-storepass", "android", "-keypass", "android", "-keyalg", "RSA", "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"},
+		Args:   []string{"-genkey", "-v", "-keystore", keystore, "-alias", "androiddebugkey", "-storepass", platformAndroid, "-keypass", platformAndroid, "-keyalg", "RSA", "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"},
 		Stdout: os.Stdout,
 		Stderr: os.Stderr,
 	}); err != nil {
@@ -1501,15 +1517,17 @@ func copyDir(src, dst string) error {
 }
 
 func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
+	data, err := os.ReadFile(src) //nolint:gosec // path from user config
 	if err != nil {
 		return err
 	}
 
 	dir := filepath.Dir(dst)
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return err
 	}
 
+	//nolint:gosec // shared build artifact
 	return os.WriteFile(dst, data, 0644)
 }

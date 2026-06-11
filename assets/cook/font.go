@@ -96,7 +96,7 @@ func (c *FontCompiler) Compile(src []byte, target Platform) ([]CompiledLOD, erro
 	}
 
 	buf := &sfnt.Buffer{}
-	unitsPerEm := uint16(f.UnitsPerEm())
+	unitsPerEm := uint16(f.UnitsPerEm()) //nolint:gosec // integer overflow conversion
 	ppem := fixed.Int26_6(unitsPerEm)
 
 	metrics, err := f.Metrics(buf, ppem, font.HintingNone)
@@ -174,7 +174,7 @@ func collectGlyphMetrics(f *sfnt.Font, buf *sfnt.Buffer, ppem fixed.Int26_6, ran
 		}
 
 		glyphs = append(glyphs, fontGlyphMetric{
-			Codepoint:    uint32(cp),
+			Codepoint:    uint32(cp), //nolint:gosec // integer overflow conversion
 			GlyphID:      uint16(gid),
 			AdvanceWidth: fixedToFloat32(advance),
 			LSB:          fixedToFloat32(bounds.Min.X),

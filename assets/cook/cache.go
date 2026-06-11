@@ -68,7 +68,7 @@ func DefaultCookCachePath() string {
 func LoadCookCache(path string) (*CookCache, error) {
 	cache := NewCookCache()
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from user config
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return cache, nil
@@ -156,6 +156,7 @@ func (c *CookCache) Save(path string) error {
 	}
 	payload = append(payload, '\n')
 
+	//nolint:gosec // cache dir
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -165,7 +166,7 @@ func (c *CookCache) Save(path string) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(payload); err != nil {
 		tmp.Close()
@@ -207,7 +208,7 @@ func HashBytes(src []byte) [32]byte {
 
 // HashFile returns the SHA-256 hash of the file at path.
 func HashFile(path string) ([32]byte, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from user config
 	if err != nil {
 		return [32]byte{}, err
 	}

@@ -153,7 +153,7 @@ func (ds *DropdownSelect) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (ds *DropdownSelect) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "dropdown_select"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "dropdown_select"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -715,16 +715,6 @@ func (ds *DropdownSelect) listboxState() theme.InteractionState {
 	}
 }
 
-func (ds *DropdownSelect) optionItemsState() theme.InteractionState {
-	if ds.Disabled.Get() {
-		return theme.StateDisabled
-	}
-	if ds.open {
-		return theme.StateSelected
-	}
-	return theme.StateDefault
-}
-
 func (ds *DropdownSelect) selectedValue() string {
 	if ds == nil || ds.Value == nil {
 		return ""
@@ -862,18 +852,6 @@ func (ds *DropdownSelect) layoutOptionRects(listbox gfx.Rect, resolved theme.Res
 	return rects
 }
 
-func (ds *DropdownSelect) shapeOptionLabel(runtime any, i int, maxWidth float32) *text.TextLayout {
-	if i < 0 || i >= len(ds.Options.Get()) {
-		return nil
-	}
-	shaper := ds.newShaper(runtime)
-	if shaper == nil {
-		return nil
-	}
-	shaper.SetContentScale(1)
-	return shaper.ShapeTruncated(ds.Options.Get()[i].Label, ds.cachedValueStyle, maxWidth)
-}
-
 func (ds *DropdownSelect) chevronPath(bounds gfx.Rect) gfx.Path {
 	if bounds.IsEmpty() {
 		return gfx.Path{}
@@ -911,14 +889,6 @@ func (ds *DropdownSelect) fontRegistry(runtime any) *text.FontRegistry {
 		return provider.FontRegistry()
 	}
 	return nil
-}
-
-func (ds *DropdownSelect) onKeyDownOrUp(key platform.Key) bool {
-	if !ds.open || len(ds.Options.Get()) == 0 {
-		return false
-	}
-	ds.navigateKey(key)
-	return true
 }
 
 func minInt(a, b int) int {

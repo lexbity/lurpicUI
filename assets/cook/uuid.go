@@ -53,7 +53,7 @@ func LoadUUIDRegistry(path string) (*UUIDRegistry, error) {
 	r := NewUUIDRegistry()
 	r.filePath = path
 
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from user config
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return r, nil
@@ -188,6 +188,7 @@ func (r *UUIDRegistry) SaveTo(path string) error {
 	}
 	payload = append(payload, '\n')
 
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -197,7 +198,7 @@ func (r *UUIDRegistry) SaveTo(path string) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() { _ = os.Remove(tmpName) }()
 
 	if _, err := tmp.Write(payload); err != nil {
 		tmp.Close()

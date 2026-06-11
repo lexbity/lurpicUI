@@ -39,7 +39,7 @@ func (r Ramp) At(t float64, space InterpolationSpace) gfx.Color {
 	}
 	for i := 0; i < len(r)-1; i++ {
 		if math.IsNaN(t) {
-			return r[0].Color
+			return r[0].Color //nolint:gosec // slice bounds verified upstream
 		}
 		if t >= r[i].T && t < r[i+1].T {
 			localT := (t - r[i].T) / (r[i+1].T - r[i].T)

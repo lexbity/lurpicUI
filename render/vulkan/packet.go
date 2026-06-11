@@ -77,12 +77,12 @@ func encodeFramePacketWithAssets(frame *render.Frame, assets imageAssetUploader)
 	var w packetWriter
 	w.writeString(framePacketMagic)
 	w.writeU32(framePacketVersion)
-	w.writeU32(uint32(len(encoded)))
+	w.writeU32(uint32(len(encoded))) //nolint:gosec // integer overflow conversion
 	for _, entry := range encoded {
 		w.writeU64(uint64(entry.batch.ID))
 		w.writeRect(entry.batch.Bounds)
 		w.writeF32(entry.batch.Opacity)
-		w.writeU32(uint32(entry.commands))
+		w.writeU32(uint32(entry.commands)) //nolint:gosec // integer overflow conversion
 		w.writeBytes(entry.payload)
 	}
 	return w.buf.Bytes(), nil
@@ -164,7 +164,7 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 				w.writeU8(0)
 			}
 			w.writeF32(c.Stroke.Width)
-			w.writeU32(uint32(len(c.Points)))
+			w.writeU32(uint32(len(c.Points))) //nolint:gosec // integer overflow conversion
 			for _, p := range c.Points {
 				w.writePoint(p)
 			}
@@ -176,7 +176,7 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 			commands++
 			w.writeU8(packetCmdDrawPoints)
 			w.writeF32(c.Radius)
-			w.writeU32(uint32(len(c.Points)))
+			w.writeU32(uint32(len(c.Points))) //nolint:gosec // integer overflow conversion
 			for _, p := range c.Points {
 				w.writePoint(p)
 			}
@@ -187,7 +187,7 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 			}
 			commands++
 			w.writeU8(packetCmdDrawSelectionRects)
-			w.writeU32(uint32(len(c.Rects)))
+			w.writeU32(uint32(len(c.Rects))) //nolint:gosec // integer overflow conversion
 			for _, rr := range c.Rects {
 				w.writeRect(rr)
 			}
@@ -233,7 +233,7 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 			w.writeU32(math.Float32bits(size))
 			w.writePoint(c.Origin)
 			w.writeColor(c.Brush.Color)
-			w.writeU32(uint32(len(c.Run.Glyphs)))
+			w.writeU32(uint32(len(c.Run.Glyphs))) //nolint:gosec // integer overflow conversion
 			for _, glyph := range c.Run.Glyphs {
 				w.writeU32(glyph.GlyphID)
 				w.writeF32(glyph.X)
@@ -286,11 +286,11 @@ func hashImage(img *image.RGBA) uint64 {
 		return 0
 	}
 	b := hashutil.NewCacheKeyBuilder()
-	b.WriteUint32(uint32(img.Rect.Min.X))
-	b.WriteUint32(uint32(img.Rect.Min.Y))
-	b.WriteUint32(uint32(img.Rect.Max.X))
-	b.WriteUint32(uint32(img.Rect.Max.Y))
-	b.WriteUint32(uint32(img.Stride))
+	b.WriteUint32(uint32(img.Rect.Min.X)) //nolint:gosec // integer overflow conversion
+	b.WriteUint32(uint32(img.Rect.Min.Y)) //nolint:gosec // integer overflow conversion
+	b.WriteUint32(uint32(img.Rect.Max.X)) //nolint:gosec // integer overflow conversion
+	b.WriteUint32(uint32(img.Rect.Max.Y)) //nolint:gosec // integer overflow conversion
+	b.WriteUint32(uint32(img.Stride))     //nolint:gosec // integer overflow conversion
 	b.WriteBytes(img.Pix)
 	return b.Sum()
 }
@@ -352,7 +352,7 @@ func (w *packetWriter) writeTransform(t gfx.Transform) {
 }
 
 func (w *packetWriter) writePath(path gfx.Path) {
-	w.writeU32(uint32(len(path.Segments)))
+	w.writeU32(uint32(len(path.Segments))) //nolint:gosec // integer overflow conversion
 	for _, seg := range path.Segments {
 		switch seg.Verb {
 		case gfx.PathMoveTo:

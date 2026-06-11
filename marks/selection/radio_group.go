@@ -147,7 +147,7 @@ func (rg *RadioGroup) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (rg *RadioGroup) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "radio_group"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "radio_group"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

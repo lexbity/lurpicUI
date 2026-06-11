@@ -30,7 +30,8 @@ var crashDir = func() string {
 	home, err := os.UserHomeDir()
 	if err == nil {
 		dir := filepath.Join(home, ".lurpic", "crashes")
-		os.MkdirAll(dir, 0755)
+		//nolint:gosec // crash dump dir
+		_ = os.MkdirAll(dir, 0755)
 		return dir
 	}
 	return os.TempDir()
@@ -85,7 +86,7 @@ func WrapMain(fn func() error) func() error {
 func writeCrashReport(r CrashReport) {
 	name := fmt.Sprintf("crash_%s.txt", r.Time.Format("20060102_150405.000"))
 	path := filepath.Join(crashDir, name)
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // path from user config
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "crash: cannot write report to %s: %v\n", path, err)
 		return

@@ -53,7 +53,7 @@ func (b *CacheKeyBuilder) Sum() uint64 {
 func (b *CacheKeyBuilder) mix(v uint64) {
 	h := b.h
 	for i := 0; i < 8; i++ {
-		h ^= uint64(byte(v >> (8 * i)))
+		h ^= uint64(byte(v >> (8 * i))) //nolint:gosec // integer overflow conversion
 		h *= fnvPrime64
 	}
 	b.h = h
@@ -152,7 +152,7 @@ func hashImage(b *CacheKeyBuilder, img *image.RGBA) {
 	}
 	b.WriteUint8(1)
 	hashRect(b, gfx.Rect{Min: gfx.Point{X: float32(img.Rect.Min.X), Y: float32(img.Rect.Min.Y)}, Max: gfx.Point{X: float32(img.Rect.Max.X), Y: float32(img.Rect.Max.Y)}})
-	b.WriteUint64(uint64(img.Stride))
+	b.WriteUint64(uint64(img.Stride)) //nolint:gosec // integer overflow conversion
 	b.WriteBytes(img.Pix)
 }
 

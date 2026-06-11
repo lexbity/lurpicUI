@@ -86,7 +86,7 @@ func NewPakFSFromFD(fd int, offset, length int64) (*PakFS, error) {
 
 // NewPakFS memory-maps pakPath and returns an AssetSource + fs.FS backed by it.
 func NewPakFS(pakPath string) (*PakFS, error) {
-	f, err := os.Open(pakPath)
+	f, err := os.Open(pakPath) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, fmt.Errorf("PakFS open: %w", err)
 	}
@@ -149,10 +149,10 @@ func (p *PakFS) init() error {
 
 	p.header = hdr
 	if hdr.TOCCount > 0 {
-		p.toc = unsafe.Slice((*PakTOCEntry)(unsafe.Pointer(&p.data[hdr.TOCOffset])), hdr.TOCCount)
+		p.toc = unsafe.Slice((*PakTOCEntry)(unsafe.Pointer(&p.data[hdr.TOCOffset])), hdr.TOCCount) //nolint:gosec // intentional unsafe
 	}
 	if hdr.DepsCount > 0 {
-		p.deps = unsafe.Slice((*AssetID)(unsafe.Pointer(&p.data[hdr.DepsOffset])), hdr.DepsCount)
+		p.deps = unsafe.Slice((*AssetID)(unsafe.Pointer(&p.data[hdr.DepsOffset])), hdr.DepsCount) //nolint:gosec // intentional unsafe
 	}
 	return nil
 }

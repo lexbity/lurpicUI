@@ -23,7 +23,7 @@ type Baseline struct {
 
 // LoadBaseline reads a baseline JSON file.
 func LoadBaseline(path string) (*Baseline, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, fmt.Errorf("reading baseline %s: %w", path, err)
 	}

@@ -29,7 +29,7 @@ func main() {
 	}
 
 	switch os.Args[1] {
-	case "build":
+	case cmdBuildName:
 		os.Exit(cmdBuild(os.Args[2:]))
 	case "run":
 		os.Exit(cmdRun(os.Args[2:]))

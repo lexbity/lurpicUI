@@ -1085,7 +1085,6 @@ type dialogBodyGroup struct {
 	cachedBounds           gfx.Rect
 	cachedTextBounds       gfx.Rect
 	cachedContentBounds    gfx.Rect
-	cachedGridConfig       layoutgrid.Config
 	cachedChildren         []DialogContentChild
 	cachedMeasuredChildren []dialogBodyChildMeasure
 	cachedChildrenMap      map[facet.FacetID]gfx.Rect

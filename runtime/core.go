@@ -177,10 +177,6 @@ func (rt *Runtime) CommandRegistry() *CommandRegistry {
 	return rt.config.CommandRegistry
 }
 
-func convertFrame(frame *projection.FrameOutput) *render.Frame {
-	return assembleFrameWithLayers(frame, nil, nil)
-}
-
 func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) *render.Frame {
 	return assembleFrameWithLayers(output, dirtySnapshot, rt)
 }

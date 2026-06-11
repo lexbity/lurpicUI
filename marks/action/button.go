@@ -145,7 +145,7 @@ func (b *Button) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (b *Button) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "button"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "button"}
 }
 
 // AccessibilityRole reports the semantic role required by the mark spec.

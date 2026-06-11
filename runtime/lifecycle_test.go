@@ -111,15 +111,6 @@ func (a *lifecycleApp) triggerSurfaceCreated(s platform.Surface) {
 	}
 }
 
-func (a *lifecycleApp) triggerLowMemory() {
-	a.lifecycleMu.Lock()
-	fn := a.onLowMemory
-	a.lifecycleMu.Unlock()
-	if fn != nil {
-		fn()
-	}
-}
-
 func (a *lifecycleApp) triggerEvent(ev platform.Event) {
 	q := a.Events()
 	if q != nil {
@@ -154,12 +145,6 @@ func mustLifecycleRuntime(t *testing.T, b render.Backend) (*Runtime, *lifecycleA
 	return rt, app
 }
 
-func mustLifecycleRuntimeWithAssets(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) *Runtime {
-	t.Helper()
-	rt, _ := mustLifecycleRuntimeWithAssetsAndApp(t, mgr, reg)
-	return rt
-}
-
 func mustLifecycleRuntimeWithAssetsAndApp(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) (*Runtime, *lifecycleApp) {
 	t.Helper()
 	root := facet.NewFacet()
@@ -174,16 +159,6 @@ func mustLifecycleRuntimeWithAssetsAndApp(t *testing.T, mgr assets.Manager, reg 
 		t.Fatalf("new runtime: %v", err)
 	}
 	return rt, app
-}
-
-func waitForFatal(t *testing.T, rt *Runtime, timeout time.Duration) error {
-	t.Helper()
-	select {
-	case err := <-rt.renderPipeline.fatalCh:
-		return err
-	case <-time.After(timeout):
-		return errors.New("timed out waiting for fatal error")
-	}
 }
 
 var _ platform.Surface = (*testSurface)(nil)

@@ -210,7 +210,7 @@ func (m *RadialMenu) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (m *RadialMenu) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "radial_menu"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "radial_menu"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -790,13 +790,6 @@ func (m *RadialMenu) attachChild(child facet.FacetImpl) {
 		return
 	}
 	m.Base().AddChildRuntime(child.Base())
-}
-
-func (m *RadialMenu) detachChild(child facet.FacetImpl) {
-	if m == nil || child == nil || child.Base() == nil || child.Base().Parent() != m.Base() {
-		return
-	}
-	m.Base().RemoveChild(child.Base())
 }
 
 func normalizeRadialChildren(children []RadialChild) []RadialChild {

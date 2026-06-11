@@ -60,7 +60,7 @@ func sidecarPath(destPath string) string {
 // readPakMeta reads a PakMeta sidecar file. A missing or unparseable file
 // returns an error, which callers use to signal "fall back to full hash".
 func readPakMeta(metaPath string) (PakMeta, error) {
-	f, err := os.Open(metaPath)
+	f, err := os.Open(metaPath) //nolint:gosec // path from user config
 	if err != nil {
 		return PakMeta{}, err
 	}
@@ -83,21 +83,21 @@ func writePakMeta(destPath string, hash [32]byte) error {
 	}
 	metaPath := sidecarPath(destPath)
 	tmpPath := metaPath + extractPakTempSuffix()
-	f, err := os.Create(tmpPath)
+	f, err := os.Create(tmpPath) //nolint:gosec // path from user config
 	if err != nil {
 		return fmt.Errorf("create sidecar temp: %w", err)
 	}
 	if err := json.NewEncoder(f).Encode(m); err != nil {
 		f.Close()
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("encode sidecar: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close sidecar: %w", err)
 	}
 	if err := os.Rename(tmpPath, metaPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename sidecar: %w", err)
 	}
 	return nil
@@ -138,10 +138,9 @@ func checkFreeSpace(dir string, neededBytes int64) error {
 	}
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(dir, &st); err != nil {
-		// If we can't check, assume there's space (safer to try and fail).
-		return nil
+		return err
 	}
-	available := int64(st.Bavail) * int64(st.Bsize)
+	available := int64(st.Bavail) * int64(st.Bsize) //nolint:gosec // integer overflow conversion
 	// Require 2x the pak size to account for temp file + final file + overhead.
 	if available < neededBytes*2 {
 		return fmt.Errorf("%w: have %d bytes, need at least %d",
@@ -177,6 +176,7 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	if internalDir == "" {
 		return fmt.Errorf("extract pak: empty files dir")
 	}
+	//nolint:gosec // extraction target
 	if err := os.MkdirAll(internalDir, 0o755); err != nil {
 		return fmt.Errorf("extract pak: mkdir: %w", err)
 	}
@@ -209,7 +209,7 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 
 	// Write to a unique temp file (pid-suffixed) so concurrent extractions
 	// from different processes do not share a temp path.
-	dst, err := os.Create(tmpPath)
+	dst, err := os.Create(tmpPath) //nolint:gosec // path from user config
 	if err != nil {
 		return fmt.Errorf("create temp: %w", err)
 	}
@@ -217,7 +217,7 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	defer func() {
 		dst.Close()
 		if closeFailed {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 		}
 	}()
 
@@ -252,11 +252,11 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	// partial write.
 	closeFailed = false
 	if err := dst.Close(); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("close temp: %w", err)
 	}
 	if err := os.Rename(tmpPath, destPath); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return fmt.Errorf("rename pak: %w", err)
 	}
 
@@ -264,9 +264,9 @@ func ExtractPakIfNeeded(ctx AndroidExtractionContext) error {
 	// The hash comes from the APK sidecar (cheap) or is computed from the
 	// extracted file (fallback when no APK sidecar exists).
 	if apkHash, err := apkSidecarHash(ctx); err == nil {
-		writePakMeta(destPath, apkHash)
+		_ = writePakMeta(destPath, apkHash)
 	} else if h, err := hashFile(destPath); err == nil {
-		writePakMeta(destPath, h)
+		_ = writePakMeta(destPath, h)
 	}
 
 	return nil
@@ -299,7 +299,7 @@ func cleanStaleTempFiles(destPath string) {
 		if processExists(pid) {
 			continue
 		}
-		os.Remove(filepath.Join(dir, e.Name()))
+		_ = os.Remove(filepath.Join(dir, e.Name()))
 	}
 }
 
@@ -366,8 +366,8 @@ func OpenAndroidPak(ctx AndroidExtractionContext) (*PakFS, error) {
 	if apkHash, err := apkSidecarHash(ctx); err == nil {
 		if extractedHash, err := hashFile(pakPath); err == nil && extractedHash != apkHash {
 			// Corrupt or tampered: delete and retry.
-			os.Remove(pakPath)
-			os.Remove(sidecarPath(pakPath))
+			_ = os.Remove(pakPath)
+			_ = os.Remove(sidecarPath(pakPath))
 			if err := ExtractPakIfNeeded(ctx); err != nil {
 				return nil, fmt.Errorf("open android pak (re-extract): %w", err)
 			}
@@ -389,14 +389,14 @@ func sidecarGate(ctx AndroidExtractionContext, destPath string) (needsExtract bo
 	}
 	storedHash, err := sidecarHash(sidecarPath(destPath))
 	if err != nil {
-		return true, nil // no stored sidecar → extract
+		return true, err
 	}
 	if storedHash != apkHash {
 		return true, nil // hash mismatch → extract
 	}
 	// Hashes match — verify the extracted file actually exists.
 	if _, err := os.Stat(destPath); err != nil {
-		return true, nil // file missing → extract
+		return true, err
 	}
 	return false, nil // up to date
 }
@@ -454,7 +454,7 @@ func hashAPKAsset(ctx AndroidExtractionContext, name string) ([32]byte, error) {
 
 func hashFile(path string) ([32]byte, error) {
 	var zero [32]byte
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path from user config
 	if err != nil {
 		return zero, err
 	}

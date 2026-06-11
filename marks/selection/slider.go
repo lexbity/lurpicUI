@@ -67,11 +67,8 @@ type Slider struct {
 	cachedTickSize         float32
 	cachedGap              float32
 	cachedWritingDirection facet.WritingDirection
-	cachedMinWidth         float32
-	cachedMinHeight        float32
-
-	cachedLabelFacet *primitive.Text
-	cachedValueFacet *primitive.Text
+	cachedLabelFacet       *primitive.Text
+	cachedValueFacet       *primitive.Text
 }
 
 var _ facet.FacetImpl = (*Slider)(nil)
@@ -161,7 +158,7 @@ func (s *Slider) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (s *Slider) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "slider"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "slider"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -501,16 +498,6 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	tickRects := s.tickRects(trackLeft, trackRight, trackY)
 	s.cachedTickRects = tickRects
 	s.Layout.ArrangedBounds = bounds
-}
-
-func (s *Slider) resolveTheme(ctx facet.MeasureContext) (theme.ResolvedContext, shared.SliderSlots, bool) {
-	resolved, ok := ctx.Theme.(theme.ResolvedContext)
-	if !ok {
-		resolved = theme.DefaultResolvedContext()
-	}
-	style := theme.StyleContext{Tokens: resolved.TokenSet(), Materials: resolved.Materials, Depth: resolved.Depth}
-	slots, _ := uiinput.ResolveSliderRecipe(style, s.sliderRecipeVariant(resolved))
-	return resolved, slots, true
 }
 
 func (s *Slider) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.SliderSlots) {

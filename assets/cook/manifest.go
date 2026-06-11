@@ -59,7 +59,7 @@ type ConfigRule struct {
 
 // LoadManifest reads and parses a TOML cook manifest from path.
 func LoadManifest(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, err
 	}

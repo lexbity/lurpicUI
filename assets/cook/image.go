@@ -57,7 +57,7 @@ func (c *ImageCompiler) Compile(src []byte, target Platform) ([]CompiledLOD, err
 	if err != nil {
 		return nil, fmt.Errorf("create work dir: %w", err)
 	}
-	defer os.RemoveAll(workDir)
+	defer func() { _ = os.RemoveAll(workDir) }()
 
 	scales := []struct {
 		level int
@@ -108,13 +108,13 @@ func (c *ImageCompiler) compileImageLOD(ctx context.Context, basisuPath, workDir
 	if err != nil {
 		return nil, fmt.Errorf("create lod dir: %w", err)
 	}
-	defer os.RemoveAll(lodDir)
+	defer func() { _ = os.RemoveAll(lodDir) }()
 
 	resized := resizeImage(src, scale)
 	inputPath := filepath.Join(lodDir, "input.png")
 	outputPath := filepath.Join(lodDir, "output.ktx2")
 
-	inFile, err := os.Create(inputPath)
+	inFile, err := os.Create(inputPath) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, fmt.Errorf("create input file: %w", err)
 	}
@@ -131,14 +131,14 @@ func (c *ImageCompiler) compileImageLOD(ctx context.Context, basisuPath, workDir
 		"-output_file", outputPath,
 		"-tex_type", "2d",
 	}
-	cmd := exec.CommandContext(ctx, basisuPath, args...)
+	cmd := exec.CommandContext(ctx, basisuPath, args...) //nolint:gosec // subprocess from config
 	cmd.Dir = lodDir
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("basisu level %d: %w: %s", level, err, string(out))
 	}
 
-	data, err := os.ReadFile(outputPath)
+	data, err := os.ReadFile(outputPath) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, fmt.Errorf("read output file: %w", err)
 	}

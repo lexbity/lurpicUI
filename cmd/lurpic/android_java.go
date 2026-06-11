@@ -28,7 +28,7 @@ func (b *androidBuilder) buildJavaDex() error {
 
 	javac := filepath.Join(b.jdk, "bin", "javac")
 	jarTool := filepath.Join(b.jdk, "bin", "jar")
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		javac += ".exe"
 		jarTool += ".exe"
 	}
@@ -52,10 +52,12 @@ func (b *androidBuilder) buildJavaDex() error {
 	// Write the embedded source into a package-shaped tree for javac.
 	srcDir := filepath.Join(b.buildDir, "java")
 	pkgDir := filepath.Join(srcDir, javaPackagePath)
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(pkgDir, 0755); err != nil {
 		return err
 	}
 	srcFile := filepath.Join(pkgDir, "LurpicNativeActivity.java")
+	//nolint:gosec // shared build artifact
 	if err := os.WriteFile(srcFile, []byte(lurpicNativeActivityJava), 0644); err != nil {
 		return fmt.Errorf("write java source: %w", err)
 	}
@@ -66,6 +68,7 @@ func (b *androidBuilder) buildJavaDex() error {
 	if err := os.RemoveAll(classesDir); err != nil {
 		return err
 	}
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(classesDir, 0755); err != nil {
 		return err
 	}
@@ -80,7 +83,7 @@ func (b *androidBuilder) buildJavaDex() error {
 
 	// Pack the class files (including inner classes) into a jar for d8.
 	classesJar := filepath.Join(b.buildDir, "classes.jar")
-	os.Remove(classesJar)
+	_ = os.Remove(classesJar)
 	if err := b.runner.Run(CommandSpec{
 		Path:   jarTool,
 		Args:   []string{"cf", classesJar, "-C", classesDir, "."},
@@ -95,6 +98,7 @@ func (b *androidBuilder) buildJavaDex() error {
 	if err := os.RemoveAll(dexDir); err != nil {
 		return err
 	}
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(dexDir, 0755); err != nil {
 		return err
 	}

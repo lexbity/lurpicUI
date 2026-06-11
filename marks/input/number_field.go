@@ -98,7 +98,6 @@ type NumberField struct {
 	cachedPadY              float32
 	cachedGap               float32
 	cachedRadius            float32
-	cachedLineHeight        float32
 	cachedCaretWidth        float32
 	cachedMinFieldWidth     float32
 	cachedStepperWidth      float32
@@ -1041,14 +1040,6 @@ func (nf *NumberField) shouldShowCaret() bool {
 	return !nf.Disabled.Get() && nf.focusedVisible
 }
 
-func (nf *NumberField) clearSelection() {
-	nf.selecting = false
-	nf.textRole.Selection = text.TextRange{}
-	nf.caret = nf.endCaret()
-	nf.textRole.CaretPosition = nf.caret
-	nf.textRole.CaretVisible = true
-}
-
 func (nf *NumberField) selectAll() {
 	if nf.cachedValueLayout == nil {
 		return
@@ -1063,28 +1054,9 @@ func (nf *NumberField) selectAll() {
 	nf.invalidate(facet.DirtyProjection)
 }
 
-func (nf *NumberField) setCaretAtStart(extend bool) {
-	nf.ensureCaretLayout()
-	nf.caret = text.GraphemePosition(0, text.AffinityDownstream)
-	nf.applyCaretMove(extend)
-}
-
 func (nf *NumberField) setCaretAtEnd(extend bool) {
 	nf.ensureCaretLayout()
 	nf.caret = nf.endCaret()
-	nf.applyCaretMove(extend)
-}
-
-func (nf *NumberField) moveCaret(forward, extend bool) {
-	nf.ensureCaretLayout()
-	if nf.cachedValueLayout == nil {
-		return
-	}
-	if forward {
-		nf.caret = nf.cachedValueLayout.NextPosition(nf.caret)
-	} else {
-		nf.caret = nf.cachedValueLayout.PrevPosition(nf.caret)
-	}
 	nf.applyCaretMove(extend)
 }
 
@@ -1218,25 +1190,6 @@ func (nf *NumberField) revertEdit() {
 	nf.caret = nf.endCaret()
 	nf.textRole.Selection = text.TextRange{}
 	nf.textRole.CaretPosition = nf.caret
-}
-
-func (nf *NumberField) currentSelectionText() string {
-	if nf.cachedValueLayout == nil {
-		return ""
-	}
-	return nf.currentDisplayText()
-}
-
-func (nf *NumberField) stepperActiveValue(delta float64) {
-	nf.incrementValue(delta)
-}
-
-func (nf *NumberField) hasValue() bool {
-	return nf.Value != nil
-}
-
-func (nf *NumberField) stepperHitPadding() float32 {
-	return mathutil.Max(4, nf.cachedPadX*0.5)
 }
 
 func resolvedTextStyleFallback(layout *text.TextLayout) text.TextStyle {

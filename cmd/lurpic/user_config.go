@@ -36,7 +36,7 @@ func loadUserConfig() (*UserConfig, error) {
 	}
 
 	configPath := filepath.Join(configDir, "config.toml")
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(configPath) //nolint:gosec // path from user config
 	if err != nil {
 		if os.IsNotExist(err) {
 			// No user config is not an error
@@ -61,19 +61,19 @@ func getUserConfigDir() string {
 	}
 
 	switch runtime.GOOS {
-	case "linux":
+	case platformLinux:
 		// XDG default: ~/.config/lurpic
 		home, _ := os.UserHomeDir()
 		if home != "" {
 			return filepath.Join(home, ".config", "lurpic")
 		}
-	case "darwin":
+	case platformDarwin:
 		// macOS: ~/Library/Application Support/lurpic
 		home, _ := os.UserHomeDir()
 		if home != "" {
 			return filepath.Join(home, "Library", "Application Support", "lurpic")
 		}
-	case "windows":
+	case platformWindows:
 		// Windows: %APPDATA%\lurpic (Roaming)
 		if appData := os.Getenv("APPDATA"); appData != "" {
 			return filepath.Join(appData, "lurpic")
@@ -85,31 +85,4 @@ func getUserConfigDir() string {
 	}
 
 	return ""
-}
-
-// saveUserConfig saves the user configuration to the platform-appropriate config directory.
-func saveUserConfig(config *UserConfig) error {
-	configDir := getUserConfigDir()
-	if configDir == "" {
-		return fmt.Errorf("cannot determine user config directory")
-	}
-
-	// Create config directory if it doesn't exist
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return fmt.Errorf("cannot create config directory: %w", err)
-	}
-
-	configPath := filepath.Join(configDir, "config.toml")
-
-	// Marshal to TOML
-	data, err := toml.Marshal(config)
-	if err != nil {
-		return fmt.Errorf("cannot marshal config: %w", err)
-	}
-
-	if err := os.WriteFile(configPath, data, 0644); err != nil {
-		return fmt.Errorf("cannot write config file: %w", err)
-	}
-
-	return nil
 }

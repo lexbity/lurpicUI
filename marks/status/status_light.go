@@ -14,12 +14,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uistatus"
 )
 
-const (
-	statusLightMarkIDRoot      facet.MarkID = 1
-	statusLightMarkIDIndicator facet.MarkID = 2
-	statusLightMarkIDLabel     facet.MarkID = 3
-)
-
 // StatusLight implements the status.status_light canonical mark.
 type StatusLight struct {
 	marks.Core
@@ -100,11 +94,11 @@ func (s *StatusLight) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (s *StatusLight) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "status", TypeName: "status_light"}
+	return marks.Descriptor{Family: markTypeStatus, TypeName: "status_light"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (s *StatusLight) AccessibilityRole() string { return "status" }
+func (s *StatusLight) AccessibilityRole() string { return markTypeStatus }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (s *StatusLight) AccessibleName() string { return "" }
@@ -152,13 +146,6 @@ func (s *StatusLight) OnDetach() {
 	s.cachedShowLabel = false
 	s.cachedWritingDirection = facet.WritingDirectionLTR
 	s.cachedLabelFacet = nil
-}
-
-func (s *StatusLight) invalidate(flags facet.DirtyFlags) {
-	if s == nil {
-		return
-	}
-	s.Invalidate(flags)
 }
 
 func (s *StatusLight) syncChildren() {

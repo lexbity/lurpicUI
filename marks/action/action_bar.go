@@ -19,6 +19,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
+const markTypeAction = "action"
+const markTypeToolbar = "toolbar"
+
 const (
 	actionBarMarkIDRoot         facet.MarkID = 1
 	actionBarMarkIDBarSurface   facet.MarkID = 2
@@ -182,11 +185,11 @@ func (a *ActionBar) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (a *ActionBar) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "action_bar"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "action_bar"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (a *ActionBar) AccessibilityRole() string { return "toolbar" }
+func (a *ActionBar) AccessibilityRole() string { return markTypeToolbar }
 
 // AccessibleName reports the semantic name required by the spec.
 func (a *ActionBar) AccessibleName() string {
@@ -867,16 +870,6 @@ func actionBarButtonVariant(action ActionBarAction) uiinput.ButtonVariant {
 	}
 }
 
-func maxFloatSlice(values []float32) float32 {
-	var out float32
-	for _, v := range values {
-		if v > out {
-			out = v
-		}
-	}
-	return out
-}
-
 func runtimeServicesOrNil(runtime any) facet.RuntimeServices {
 	if runtime == nil {
 		return nil
@@ -1113,23 +1106,6 @@ func (it *actionBarItem) project(runtime facet.RuntimeServices, bounds gfx.Rect,
 	default:
 		return nil
 	}
-}
-
-func (it *actionBarItem) childFacet() *facet.Facet {
-	if it == nil {
-		return nil
-	}
-	switch it.kind {
-	case actionBarItemIconButton:
-		if it.iconButton != nil {
-			return it.iconButton.Base()
-		}
-	case actionBarItemButton:
-		if it.button != nil {
-			return it.button.Base()
-		}
-	}
-	return nil
 }
 
 func (a *ActionBar) itemKeyAt(index int) string {

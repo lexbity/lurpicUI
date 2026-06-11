@@ -9,9 +9,8 @@ import (
 )
 
 type testGridChild struct {
-	child   Child
-	layout  *facet.LayoutRole
-	arrange gfx.Rect
+	child  Child
+	layout *facet.LayoutRole
 }
 
 func newTestGridChild(id facet.FacetID, size gfx.Size, placement facet.Placement, z int32) testGridChild {

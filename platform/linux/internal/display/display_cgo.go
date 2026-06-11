@@ -944,7 +944,7 @@ func (a *app) translateConfigure(ev *C.xcb_generic_event_t) []platform.Event {
 	win.width = int(c.width)
 	win.height = int(c.height)
 	if win.surface != nil {
-		win.surface.resize(int(c.width), int(c.height))
+		_ = win.surface.resize(int(c.width), int(c.height))
 	}
 	return []platform.Event{
 		platform.EventWindowResize{Window: win, Width: int(c.width), Height: int(c.height)},

@@ -1,9 +1,6 @@
 package layout
 
 import (
-	"fmt"
-	"math"
-
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gridpolicy "codeburg.org/lexbit/lurpicui/layout/grid"
@@ -74,53 +71,4 @@ func insetRect(bounds gfx.Rect, insets gfx.Insets) gfx.Rect {
 		maxY = minY
 	}
 	return gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY)
-}
-
-func finiteScalar(value float32) bool {
-	return !math.IsNaN(float64(value)) && !math.IsInf(float64(value), 0)
-}
-
-func resolveChildSize(ctx LayerMeasureContext, child LayerChild, bounds gfx.Rect) gfx.Size {
-	if child.Layout == nil {
-		return gfx.Size{}
-	}
-	size := child.Layout.MeasuredSize
-	if size.W > 0 || size.H > 0 {
-		return size
-	}
-	result := child.Layout.Measure(facet.MeasureContext{
-		Runtime:          ctx.Runtime,
-		Theme:            ctx.Theme,
-		Layer:            ctx.Layer,
-		ParentGroup:      child.Layout.Parent,
-		ChildGroup:       child.Layout.Child,
-		ContentScale:     ctx.ContentScale,
-		Density:          ctx.Density,
-		WritingDirection: ctx.WritingDirection,
-	}, facet.Constraints{
-		MinSize: gfx.Size{},
-		MaxSize: gfx.Size{W: bounds.Width(), H: bounds.Height()},
-	})
-	return result.Size
-}
-
-func placementError(mode facet.PlacementMode, format string, args ...any) error {
-	return fmt.Errorf("layout: %s placement %s", modeString(mode), fmt.Sprintf(format, args...))
-}
-
-func modeString(mode facet.PlacementMode) string {
-	switch mode {
-	case facet.PlacementAnchor:
-		return "anchor"
-	case facet.PlacementFree:
-		return "free"
-	case facet.PlacementLinear:
-		return "linear"
-	case facet.PlacementRadial:
-		return "radial"
-	case facet.PlacementGrid:
-		fallthrough
-	default:
-		return "grid"
-	}
 }

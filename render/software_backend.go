@@ -58,7 +58,7 @@ func (b *SoftwareBackend) UploadTexture(req TextureUploadRequest) (TextureID, er
 func (b *SoftwareBackend) FreeTexture(id TextureID) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	idx := int(id)
+	idx := int(id) //nolint:gosec // integer overflow conversion
 	if idx < 0 || idx >= len(b.pool) || b.pool[idx] == nil {
 		return
 	}
@@ -72,7 +72,7 @@ func (b *SoftwareBackend) TranscodeTarget() TextureFormat { return TextureFormat
 func (b *SoftwareBackend) GetTexture(id TextureID) ([]byte, uint16, uint16, bool) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	idx := int(id)
+	idx := int(id) //nolint:gosec // integer overflow conversion
 	if idx < 0 || idx >= len(b.pool) || b.pool[idx] == nil {
 		return nil, 0, 0, false
 	}

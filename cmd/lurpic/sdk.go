@@ -11,18 +11,18 @@ import (
 // defaultSDKSearchPaths returns the default SDK search paths for the current OS.
 func defaultSDKSearchPaths() []string {
 	switch runtime.GOOS {
-	case "darwin":
+	case platformDarwin:
 		return []string{
 			"$HOME/Library/Android/sdk",
 			"/opt/android-sdk",
 		}
-	case "linux":
+	case platformLinux:
 		return []string{
 			"$HOME/Android/Sdk",
 			"/usr/lib/android-sdk",
 			"/opt/android-sdk",
 		}
-	case "windows":
+	case platformWindows:
 		return []string{
 			"%LOCALAPPDATA%\\Android\\Sdk",
 			"C:\\Android\\Sdk",
@@ -76,13 +76,13 @@ func isValidSDK(path string) bool {
 	}
 
 	// On Windows, adb has .exe extension
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		requiredFiles[0] = "platform-tools/adb.exe"
 	}
 
 	for _, file := range requiredFiles {
 		fullPath := filepath.Join(path, file)
-		if _, err := os.Stat(fullPath); err != nil {
+		if _, err := os.Stat(fullPath); err != nil { //nolint:gosec // path from user config
 			return false
 		}
 	}
@@ -146,7 +146,7 @@ func isValidNDK(path string) bool {
 
 	for _, file := range requiredFiles {
 		fullPath := filepath.Join(path, file)
-		if _, err := os.Stat(fullPath); err != nil {
+		if _, err := os.Stat(fullPath); err != nil { //nolint:gosec // path from user config
 			return false
 		}
 	}
@@ -164,7 +164,7 @@ func findSDKTool(sdk, tool string) (string, error) {
 		for i := len(entries) - 1; i >= 0; i-- {
 			if entries[i].IsDir() {
 				candidate := filepath.Join(buildToolsDir, entries[i].Name(), tool)
-				if runtime.GOOS == "windows" {
+				if runtime.GOOS == platformWindows {
 					candidate += ".exe"
 				}
 				if _, err := os.Stat(candidate); err == nil {
@@ -176,7 +176,7 @@ func findSDKTool(sdk, tool string) (string, error) {
 
 	// Check platform-tools
 	candidate := filepath.Join(sdk, "platform-tools", tool)
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		candidate += ".exe"
 	}
 	if _, err := os.Stat(candidate); err == nil {
@@ -194,7 +194,7 @@ func findSDKTool(sdk, tool string) (string, error) {
 // findEmulatorTool finds the emulator binary in the SDK.
 func findEmulatorTool(sdk string) (string, error) {
 	candidate := filepath.Join(sdk, "emulator", "emulator")
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		candidate += ".exe"
 	}
 	if _, err := os.Stat(candidate); err == nil {
@@ -210,7 +210,7 @@ func findEmulatorTool(sdk string) (string, error) {
 // order, then the legacy location.
 func findCmdlineTool(sdk, tool string) (string, error) {
 	name := tool
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		name += ".bat"
 	}
 

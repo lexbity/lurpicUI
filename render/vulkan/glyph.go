@@ -8,7 +8,6 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
-	"sync"
 
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -25,37 +24,6 @@ type glyphEntry struct {
 	bitmap  *image.Alpha
 	offsetX float32
 	offsetY float32
-}
-
-type glyphAtlas struct {
-	mu             sync.Mutex
-	entries        map[renderutil.GlyphAtlasKey]*glyphEntry
-	rasterizeCount int
-}
-
-func newGlyphAtlas() *glyphAtlas {
-	return &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
-}
-
-func (a *glyphAtlas) getOrRasterize(run text.GlyphRun, glyph text.PositionedGlyph) *glyphEntry {
-	if a == nil {
-		return nil
-	}
-	key := renderutil.GlyphAtlasKeyFromRun(run, glyph.GlyphID)
-	size := math.Float32frombits(key.SizeBits)
-
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if entry := a.entries[key]; entry != nil {
-		return entry
-	}
-	entry := rasterizeGlyphEntry(run, glyph, size)
-	if entry == nil {
-		return nil
-	}
-	a.entries[key] = entry
-	a.rasterizeCount++
-	return entry
 }
 
 func uploadGlyphRun(run text.GlyphRun) error {
@@ -247,22 +215,12 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func clampInt(v, min, max int) int {
-	if v < min {
-		return min
-	}
-	if v > max {
-		return max
-	}
-	return v
-}
-
 func alphaFromColor(c color.Color) uint8 {
 	_, _, _, a := c.RGBA()
 	if a != 0 {
-		return uint8(a >> 8)
+		return uint8(a >> 8) //nolint:gosec // integer overflow conversion
 	}
 	r, g, b, _ := c.RGBA()
 	gray := (r*299 + g*587 + b*114) / 1000
-	return uint8(gray >> 8)
+	return uint8(gray >> 8) //nolint:gosec // integer overflow conversion
 }

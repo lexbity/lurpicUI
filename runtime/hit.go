@@ -153,7 +153,7 @@ func (rt *Runtime) layeredHitMap(hitMap *projection.HitMap) *projection.HitMap {
 			}
 		}
 		entry.LayerOrder = order
-		entry.ZPriority = int32(z)
+		entry.ZPriority = int32(z) //nolint:gosec // integer overflow conversion
 		items = append(items, hitLayerEntry{entry: entry, order: order, z: z})
 	}
 	sort.SliceStable(items, func(i, j int) bool {

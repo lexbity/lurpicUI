@@ -162,7 +162,7 @@ func (li *ListItem) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (li *ListItem) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "list_item"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "list_item"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

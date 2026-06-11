@@ -57,7 +57,7 @@ func cmdScreenshot(args []string) int {
 
 	// Capture screenshot via adb exec-out screencap
 	fmt.Printf("Capturing screenshot to %s ...\n", outputPath)
-	outFile, err := os.Create(outputPath)
+	outFile, err := os.Create(outputPath) //nolint:gosec // path from user config
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot create output file: %v\n", err)
 		return 1
@@ -268,8 +268,9 @@ func cmdCrash(args []string) int {
 			fmt.Fprintf(os.Stderr, "Error: cannot create temp directory: %v\n", err)
 			return 1
 		}
-		defer os.RemoveAll(localDir)
+		defer func() { _ = os.RemoveAll(localDir) }()
 	}
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(localDir, 0755); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: cannot create output directory %s: %v\n", localDir, err)
 		return 1
@@ -319,7 +320,7 @@ func cmdCrash(args []string) int {
 		fmt.Println(strings.Repeat("─", 60))
 
 		// Print raw content first
-		data, err := os.ReadFile(ts)
+		data, err := os.ReadFile(ts) //nolint:gosec // path from user config
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "  Error reading tombstone: %v\n", err)
 			continue
@@ -486,10 +487,10 @@ func detectABIFromTombstone(content string) string {
 	}
 	lower := strings.ToLower(content)
 	if strings.Contains(lower, "arm64") || strings.Contains(lower, "aarch64") || strings.Contains(lower, "  x0 ") {
-		return "arm64-v8a"
+		return archArm64V8a
 	}
-	if strings.Contains(lower, "x86_64") {
-		return "x86_64"
+	if strings.Contains(lower, archX8664) {
+		return archX8664
 	}
 	if strings.Contains(lower, "armeabi") || strings.Contains(lower, "armv") {
 		return "armeabi-v7a"
@@ -520,7 +521,7 @@ func findNDKStack(sdk string) string {
 
 	if ndk != "" {
 		candidate := filepath.Join(ndk, "ndk-stack")
-		if _, err := os.Stat(candidate); err == nil {
+		if _, err := os.Stat(candidate); err == nil { //nolint:gosec // path from user config
 			return candidate
 		}
 	}

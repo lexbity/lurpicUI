@@ -209,7 +209,3 @@ func (rt *Runtime) arrangeLayoutChild(f facet.FacetImpl, bounds gfx.Rect) {
 		Theme:   themeCtx,
 	}, bounds)
 }
-
-func boundsSize(bounds gfx.Rect) gfx.Size {
-	return gfx.Size{W: bounds.Width(), H: bounds.Height()}
-}

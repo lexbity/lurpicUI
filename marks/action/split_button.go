@@ -210,7 +210,7 @@ func (s *SplitButton) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (s *SplitButton) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "split_button"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "split_button"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -911,10 +911,6 @@ func (s *SplitButton) activateItem(index int) {
 	item := s.cachedItemLayouts[index].item
 	s.Activated.Emit(splitButtonItemKey(item))
 	s.setOpen(false)
-}
-
-func (s *SplitButton) toggleOpen() {
-	s.setOpen(!s.Open)
 }
 
 func (s *SplitButton) primaryKey() string {

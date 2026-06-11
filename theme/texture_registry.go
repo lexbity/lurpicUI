@@ -77,7 +77,7 @@ func generateProcedural(ref TextureRef) (TextureData, bool) {
 func generateBrushedMetal() *image.RGBA {
 	w, h := 256, 256
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	r := rand.New(rand.NewSource(42))
+	r := rand.New(rand.NewSource(42)) //nolint:gosec // non-security random
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			// Brushed aluminum effect using horizontal micro-streaks
@@ -96,7 +96,7 @@ func generateBrushedMetal() *image.RGBA {
 func generateMicroNoise() *image.RGBA {
 	w, h := 128, 128
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	r := rand.New(rand.NewSource(1337))
+	r := rand.New(rand.NewSource(1337)) //nolint:gosec // non-security random
 	for y := 0; y < h; y++ {
 		for x := 0; x < w; x++ {
 			// Fine tactile surface noise

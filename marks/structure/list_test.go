@@ -8,7 +8,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -255,15 +254,6 @@ func newListFixture() *List {
 	return list
 }
 
-func mustListIconAsset(t *testing.T, ref string, src string) runtimepkg.IconAsset {
-	t.Helper()
-	doc, err := gfxsvg.ParseSVGString(src)
-	if err != nil {
-		t.Fatalf("parse svg %q: %v", ref, err)
-	}
-	return runtimepkg.NewIconAsset(ref, 1, gfxsvgPathFromDocument(doc), doc.ViewBox)
-}
-
 func listTokens() theme.Tokens {
 	return toThemeTokens(templates.Notes().Tokens)
 }
@@ -282,11 +272,4 @@ func listResolvedContext(tokens theme.Tokens, density theme.DensityID, direction
 	ctx = ctx.WithDensity(theme.DefaultDensityScale(density, tokens))
 	ctx = ctx.WithWritingDirection(direction)
 	return ctx
-}
-
-func gfxsvgPathFromDocument(doc gfxsvg.SVGDocument) gfx.Path {
-	if len(doc.Elements) == 0 {
-		return gfx.Path{}
-	}
-	return doc.Elements[0].Path
 }

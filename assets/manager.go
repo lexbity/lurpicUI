@@ -91,7 +91,7 @@ func ParseJSONPathRegistry(data []byte) (*JSONPathRegistry, error) {
 // PathIDRegistry backed by it. The format matches the cook pipeline's
 // uuid_registry.json output.
 func LoadJSONPathRegistry(path string) (*JSONPathRegistry, error) {
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, err
 	}

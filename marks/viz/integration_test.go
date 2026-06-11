@@ -21,7 +21,6 @@ type chartFixture struct {
 	axisMark *Axis
 	yDomain  *store.ValueStore[[2]float64]
 	yRange   *store.ValueStore[[2]float64]
-	fonts    interface{ FontRegistry() }
 	bounds   gfx.Rect
 }
 

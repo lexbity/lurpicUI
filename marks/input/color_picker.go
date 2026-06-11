@@ -723,31 +723,6 @@ func pointInTriangle(p, a, b, c gfx.Point) bool {
 	return w1 >= -eps && w2 >= -eps && w3 >= -eps
 }
 
-func trianglePointToHSV(point gfx.Point, a, b, c gfx.Point, hue float64) (float32, float32) {
-	w1, w2, w3 := barycentric(point, a, b, c)
-	if w1 < 0 {
-		w1 = 0
-	}
-	if w2 < 0 {
-		w2 = 0
-	}
-	if w3 < 0 {
-		w3 = 0
-	}
-	sum := w1 + w2 + w3
-	if sum > 0 {
-		w1 /= sum
-		w2 /= sum
-	}
-	value := clamp01Float(w1 + w2)
-	saturation := float32(0)
-	if value > 0 {
-		saturation = w1 / value
-	}
-	_ = hue
-	return saturation, value
-}
-
 func boundsForPoints(pts []gfx.Point) gfx.Rect {
 	if len(pts) == 0 {
 		return gfx.Rect{}
@@ -781,14 +756,6 @@ func colorPickerCenteredRect(center gfx.Point, size float32) gfx.Rect {
 
 func colorPickerRectCenterPoint(r gfx.Rect) gfx.Point {
 	return gfx.Point{X: r.Min.X + r.Width()*0.5, Y: r.Min.Y + r.Height()*0.5}
-}
-
-func colorToHSV(color gfx.Color) (float64, float32, float32) {
-	r, g, b, a := color.ToRGBA8()
-	if a == 0 {
-		return 0, 0, 0
-	}
-	return rgbToHSV(r, g, b)
 }
 
 func rgbToHSV(r, g, b uint8) (float64, float32, float32) {

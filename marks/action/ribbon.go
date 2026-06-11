@@ -152,11 +152,11 @@ func (r *Ribbon) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (r *Ribbon) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "ribbon"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "ribbon"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (r *Ribbon) AccessibilityRole() string { return "toolbar" }
+func (r *Ribbon) AccessibilityRole() string { return markTypeToolbar }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (r *Ribbon) AccessibleName() string {
@@ -845,11 +845,6 @@ func (r *Ribbon) activeSection() *RibbonSection {
 		return nil
 	}
 	return &r.Sections[idx]
-}
-
-func (r *Ribbon) clampIndices() {
-	r.ActiveIndex = r.clampSectionIndex(r.ActiveIndex)
-	r.focusedTabIndex = r.clampSectionIndex(r.focusedTabIndex)
 }
 
 func (r *Ribbon) clampSectionIndex(index int) int {

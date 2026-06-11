@@ -61,7 +61,10 @@ func TestAssertGoldenCall_imagesExist(t *testing.T) {
 
 	onDisk := make(map[string]bool)
 	filepath.Walk(marksDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		if strings.HasSuffix(path, "_actual.png") {
@@ -172,7 +175,10 @@ func findGoldenFiles(t *testing.T, root string) map[string]bool {
 	t.Helper()
 	out := make(map[string]bool)
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		if strings.HasSuffix(path, "_actual.png") {
@@ -199,7 +205,10 @@ func findAssertGoldenPatterns(t *testing.T, root string) (exact map[string]bool,
 	prefixes = make(map[string]bool)
 
 	filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
 			return nil
 		}
 		if !strings.HasSuffix(path, "_test.go") {
@@ -209,7 +218,7 @@ func findAssertGoldenPatterns(t *testing.T, root string) (exact map[string]bool,
 		fset := token.NewFileSet()
 		f, err := parser.ParseFile(fset, path, nil, 0)
 		if err != nil {
-			return nil
+			return err
 		}
 
 		ast.Inspect(f, func(n ast.Node) bool {

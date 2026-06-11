@@ -144,7 +144,7 @@ func (td *TurnDial) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (td *TurnDial) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "turn_dial"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "turn_dial"}
 }
 
 func (td *TurnDial) AccessibilityRole() string {
@@ -1062,28 +1062,4 @@ func arcPath(center gfx.Point, radius float32, startAngleRad, endAngleRad float6
 		}
 	}
 	return builder.Build()
-}
-
-func darkenColor(c gfx.Color, factor float32) gfx.Color {
-	r, g, b, a := c.ToRGBA8()
-	if a == 0 {
-		return c
-	}
-	scale := 1 - factor
-	return gfx.ColorFromRGBA8(
-		clampByte(float32(r)*scale),
-		clampByte(float32(g)*scale),
-		clampByte(float32(b)*scale),
-		a,
-	)
-}
-
-func clampByte(v float32) uint8 {
-	if v < 0 {
-		return 0
-	}
-	if v > 255 {
-		return 255
-	}
-	return uint8(v)
 }

@@ -17,13 +17,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uistatus"
 )
 
-const (
-	progressRingMarkIDRoot          facet.MarkID = 1
-	progressRingMarkIDTrackArc      facet.MarkID = 2
-	progressRingMarkIDIndicatorArc  facet.MarkID = 3
-	progressRingMarkIDOptionalLabel facet.MarkID = 4
-)
-
 // ProgressRing implements the status.progress_ring canonical mark.
 type ProgressRing struct {
 	marks.Core
@@ -116,7 +109,7 @@ func (p *ProgressRing) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (p *ProgressRing) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "status", TypeName: "progress_ring"}
+	return marks.Descriptor{Family: markTypeStatus, TypeName: "progress_ring"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

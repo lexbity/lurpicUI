@@ -38,7 +38,7 @@ func newExecRunner() *execRunner {
 }
 
 func (*execRunner) Run(spec CommandSpec) error {
-	cmd := exec.Command(spec.Path, spec.Args...)
+	cmd := exec.Command(spec.Path, spec.Args...) //nolint:gosec // subprocess from config
 	cmd.Dir = spec.Dir
 	if spec.Env != nil {
 		cmd.Env = spec.Env
@@ -50,7 +50,7 @@ func (*execRunner) Run(spec CommandSpec) error {
 }
 
 func (*execRunner) Output(spec CommandSpec) ([]byte, error) {
-	cmd := exec.Command(spec.Path, spec.Args...)
+	cmd := exec.Command(spec.Path, spec.Args...) //nolint:gosec // subprocess from config
 	cmd.Dir = spec.Dir
 	if spec.Env != nil {
 		cmd.Env = spec.Env
@@ -83,7 +83,7 @@ func (h *execCmdHandle) Wait() error {
 }
 
 func (*execRunner) Start(spec CommandSpec) (ProcessHandle, error) {
-	cmd := exec.Command(spec.Path, spec.Args...)
+	cmd := exec.Command(spec.Path, spec.Args...) //nolint:gosec // subprocess from config
 	cmd.Dir = spec.Dir
 	if spec.Env != nil {
 		cmd.Env = spec.Env

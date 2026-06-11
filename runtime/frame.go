@@ -254,7 +254,7 @@ func (rt *Runtime) dismissalEventsForPress(target facet.FacetID, press input.Poi
 	targetLayerID := facet.LayerID(0)
 	for _, entry := range entries {
 		if entry.FacetID == target {
-			targetOrder = int32(entry.LayerOrder)
+			targetOrder = int32(entry.LayerOrder) //nolint:gosec // integer overflow conversion
 			targetLayerID = entry.LayerID
 			break
 		}

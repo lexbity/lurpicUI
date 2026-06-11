@@ -169,7 +169,7 @@ func (m *EmulatorManager) managedAVDName() string {
 func (m *EmulatorManager) managedAVD() (string, error) {
 	avdName := m.managedAVDName()
 	avdDir := filepath.Join(os.Getenv("HOME"), ".android", "avd", avdName+".avd")
-	if _, err := os.Stat(avdDir); err == nil {
+	if _, err := os.Stat(avdDir); err == nil { //nolint:gosec // path from user config
 		return avdName, nil
 	}
 	return m.createDefaultAVD()
@@ -258,7 +258,7 @@ func (m *EmulatorManager) waitForBoot(ctx context.Context, adb, serial string) e
 			// Boot completed, now wait for package manager
 			pmOut, pmErr := m.runner.Output(CommandSpec{
 				Path: adb,
-				Args: []string{"-s", serial, "shell", "pm", "path", "android"},
+				Args: []string{"-s", serial, "shell", "pm", "path", platformAndroid},
 			})
 			if pmErr == nil && strings.Contains(string(pmOut), "package:") {
 				fmt.Printf("Emulator %s boot complete\n", serial)

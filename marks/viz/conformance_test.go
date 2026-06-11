@@ -3,7 +3,6 @@ package viz
 import (
 	"testing"
 
-	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
@@ -19,13 +18,6 @@ type conformanceItem struct {
 }
 
 func confID(i conformanceItem) store.ItemID { return i.id }
-
-// conformanceRuntime satisfies RuntimeServices.
-type conformanceRuntime struct{}
-
-func (conformanceRuntime) Schedule(j any)                                                     {}
-func (conformanceRuntime) CancelJob(id any)                                                   {}
-func (conformanceRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 
 // registeredMarks returns all viz mark instances to test for conformance.
 func registeredMarks(t *testing.T) []marks.Mark {

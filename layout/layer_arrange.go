@@ -1,8 +1,6 @@
 package layout
 
 import (
-	"fmt"
-
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	anchorpolicy "codeburg.org/lexbit/lurpicui/layout/anchor"
@@ -120,50 +118,6 @@ func arrangeFreeLayer(ctx LayerArrangeContext, recipe ResolvedLayerLayoutRecipe,
 		})
 	}
 	return out, nil
-}
-
-func normalizeGridPlacement(grid facet.GridPlacement, cols, rows int, nextCol, nextRow *int) (int, int, int, int, error) {
-	colStart := grid.ColStart
-	rowStart := grid.RowStart
-	colSpan := grid.ColSpan
-	rowSpan := grid.RowSpan
-	auto := colStart == 0 && rowStart == 0 && colSpan == 0 && rowSpan == 0
-	if auto {
-		colSpan = 1
-		rowSpan = 1
-		if nextCol == nil || nextRow == nil {
-			return 0, 0, 0, 0, fmt.Errorf("layout: grid auto-placement requires cursor state")
-		}
-		colStart = *nextCol
-		rowStart = *nextRow
-		*nextCol = *nextCol + 1
-		if *nextCol >= cols {
-			*nextCol = 0
-			*nextRow = *nextRow + 1
-		}
-		if *nextRow >= rows {
-			*nextRow = 0
-		}
-	}
-	if colSpan <= 0 || rowSpan <= 0 {
-		return 0, 0, 0, 0, fmt.Errorf("layout: grid span must be positive")
-	}
-	if colStart < 0 || rowStart < 0 {
-		return 0, 0, 0, 0, fmt.Errorf("layout: grid line must be non-negative")
-	}
-	if colStart >= cols || rowStart >= rows {
-		return 0, 0, 0, 0, fmt.Errorf("layout: grid start outside track range")
-	}
-	if remaining := cols - colStart; colSpan > remaining {
-		colSpan = remaining
-	}
-	if remaining := rows - rowStart; rowSpan > remaining {
-		rowSpan = remaining
-	}
-	if colSpan <= 0 || rowSpan <= 0 {
-		return 0, 0, 0, 0, fmt.Errorf("layout: grid span collapsed after clamping")
-	}
-	return colStart, rowStart, colSpan, rowSpan, nil
 }
 
 type anchorCacheAdapter struct {

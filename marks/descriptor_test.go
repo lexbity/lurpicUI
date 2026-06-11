@@ -84,17 +84,6 @@ func (f *fakeDataBoundMark) OnActivate()                      {}
 func (f *fakeDataBoundMark) OnDeactivate()                    {}
 func (f *fakeDataBoundMark) BoundData() any                   { return nil }
 
-type fakeHitTestableMark struct{ facet.Facet }
-
-func (f *fakeHitTestableMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
-func (f *fakeHitTestableMark) Descriptor() Descriptor {
-	return Descriptor{Family: "test", TypeName: "fakeHitTestable"}
-}
-func (f *fakeHitTestableMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeHitTestableMark) OnDetach()                        {}
-func (f *fakeHitTestableMark) OnActivate()                      {}
-func (f *fakeHitTestableMark) OnDeactivate()                    {}
-
 type fakeAllCapabilitiesMark struct {
 	facet.Facet
 	hitRole facet.HitRole

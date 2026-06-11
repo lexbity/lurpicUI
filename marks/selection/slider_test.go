@@ -1,7 +1,6 @@
 package selection
 
 import (
-	"image/color"
 	"math"
 	"testing"
 
@@ -455,10 +454,6 @@ func defaultSliderTokens() theme.Tokens {
 
 func highContrastTokens() theme.Tokens {
 	return toThemeTokens(templates.UneNuit().Tokens)
-}
-
-func colorToGfx(c color.RGBA) gfx.Color {
-	return gfx.Color{R: float32(c.R) / 255, G: float32(c.G) / 255, B: float32(c.B) / 255, A: float32(c.A) / 255}
 }
 
 func toThemeTokens(t templates.Tokens) theme.Tokens {

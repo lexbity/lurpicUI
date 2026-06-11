@@ -142,10 +142,6 @@ func fadedStyle(color gfx.Color, opacity float32) theme.MarkStyle {
 	}
 }
 
-func transparentStyle() theme.MarkStyle {
-	return theme.MarkStyle{Base: theme.Material{Opacity: 0}}
-}
-
 func strokeStyle(color gfx.Color, width float32) theme.MarkStyle {
 	return theme.MarkStyle{
 		Base: theme.Material{

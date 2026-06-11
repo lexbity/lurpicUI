@@ -66,29 +66,6 @@ func (c *fakeAndroidExtractionContext) SetExtractionProgress(progress float32) {
 	c.mu.Unlock()
 }
 
-// fdExtractionContext is like fakeAndroidExtractionContext but also
-// implements APKFDSource, returning an fd to the bundled data.
-type fdExtractionContext struct {
-	fakeAndroidExtractionContext
-	pakPath string // real file path for fd access
-}
-
-func (c *fdExtractionContext) OpenAPKAssetFD(name string) (int, int64, int64, error) {
-	if name != "assets.pak" || c.pakPath == "" {
-		return -1, 0, 0, os.ErrNotExist
-	}
-	f, err := os.Open(c.pakPath)
-	if err != nil {
-		return -1, 0, 0, err
-	}
-	fi, err := f.Stat()
-	if err != nil {
-		f.Close()
-		return -1, 0, 0, err
-	}
-	return int(f.Fd()), 0, fi.Size(), nil
-}
-
 func TestOpenAndroidPakFDFallback(t *testing.T) {
 	dir := t.TempDir()
 	// A completely empty bundle — extraction succeeds but NewPakFS rejects it.

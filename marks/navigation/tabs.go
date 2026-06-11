@@ -153,7 +153,7 @@ func (t *Tabs) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (t *Tabs) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "navigation", TypeName: "tabs"}
+	return marks.Descriptor{Family: markTypeNavigation, TypeName: "tabs"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -928,13 +928,6 @@ func (t *Tabs) tabWidth(index int) float32 {
 		return w
 	}
 	return t.cachedTabPadX*2 + 48
-}
-
-func (t *Tabs) pointInTabLabel(index int, p gfx.Point) bool {
-	if index < 0 || index >= len(t.cachedTabLabelBounds) {
-		return false
-	}
-	return t.cachedTabLabelBounds[index].Contains(p)
 }
 
 func (t *Tabs) newShaper(runtime any) *text.Shaper {

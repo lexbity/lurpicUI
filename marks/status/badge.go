@@ -15,6 +15,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uistatus"
 )
 
+const markTypeStatus = "status"
+
 const (
 	badgeMarkIDRoot         facet.MarkID = 1
 	badgeMarkIDContainer    facet.MarkID = 2
@@ -109,11 +111,11 @@ func (b *Badge) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (b *Badge) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "status", TypeName: "badge"}
+	return marks.Descriptor{Family: markTypeStatus, TypeName: "badge"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (b *Badge) AccessibilityRole() string { return "status" }
+func (b *Badge) AccessibilityRole() string { return markTypeStatus }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (b *Badge) AccessibleName() string {
@@ -188,13 +190,6 @@ func (b *Badge) OnDetach() {
 	b.cachedWritingDirection = facet.WritingDirectionLTR
 	b.cachedLabelFacet = nil
 	b.cachedIconFacet = nil
-}
-
-func (b *Badge) invalidate(flags facet.DirtyFlags) {
-	if b == nil {
-		return
-	}
-	b.Invalidate(flags)
 }
 
 func (b *Badge) syncChildren() {

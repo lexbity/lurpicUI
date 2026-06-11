@@ -19,6 +19,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
+const markTypeSelection = "selection"
+
 const (
 	buttonGroupMarkIDRoot              facet.MarkID = 1
 	buttonGroupMarkIDGroupSurface      facet.MarkID = 2
@@ -205,7 +207,7 @@ func (bg *ButtonGroup) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (bg *ButtonGroup) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "button_group"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "button_group"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -777,23 +779,6 @@ func (bg *ButtonGroup) interactionState() theme.InteractionState {
 	}
 }
 
-func (bg *ButtonGroup) optionState(idx int) theme.InteractionState {
-	switch {
-	case bg.Disabled.Get() || bg.isDisabledIndex(idx):
-		return theme.StateDisabled
-	case bg.pressedIndex == idx:
-		return theme.StatePressed
-	case bg.hoveredIndex == idx:
-		return theme.StateHover
-	case idx == bg.focusedIndex && bg.focusedVisible:
-		return theme.StateFocused
-	case bg.isSelectedIndex(idx):
-		return theme.StateSelected
-	default:
-		return theme.StateDefault
-	}
-}
-
 func (bg *ButtonGroup) selectedIndex() int {
 	if bg == nil || len(bg.Options) == 0 || bg.Value == nil {
 		return -1
@@ -942,13 +927,6 @@ func (bg *ButtonGroup) isSelectedKey(key string) bool {
 		}
 	}
 	return false
-}
-
-func (bg *ButtonGroup) isSelectedIndex(idx int) bool {
-	if idx < 0 || idx >= len(bg.Options) {
-		return false
-	}
-	return bg.isSelectedKey(bg.Options[idx].Key)
 }
 
 func (bg *ButtonGroup) isDisabledIndex(idx int) bool {
@@ -1251,10 +1229,6 @@ func (it *buttonGroupItem) measure(ctx facet.MeasureContext, constraints facet.C
 		Constraints: constraints,
 	}
 	return size
-}
-
-func (it *buttonGroupItem) measureIntrinsic(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
-	return it.measure(ctx, constraints)
 }
 
 func (it *buttonGroupItem) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {

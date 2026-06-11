@@ -99,6 +99,7 @@ func (b *androidBuilder) assembleAAB() error {
 	if err != nil {
 		return fmt.Errorf("bundle config json: %w", err)
 	}
+	//nolint:gosec // shared build artifact
 	if err := os.WriteFile(configPath, configData, 0644); err != nil {
 		return fmt.Errorf("write BundleConfig.json: %w", err)
 	}
@@ -139,6 +140,7 @@ func (b *androidBuilder) assembleAAB() error {
 // It returns the path to the module directory root.
 func (b *androidBuilder) buildBundleModule() (string, error) {
 	moduleRoot := filepath.Join(b.buildDir, "bundle", "base")
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(moduleRoot, 0755); err != nil {
 		return "", err
 	}
@@ -153,6 +155,7 @@ func (b *androidBuilder) buildBundleModule() (string, error) {
 
 	// Create a minimal compiled resource set for the manifest.
 	manifestDir := filepath.Join(moduleRoot, "manifest")
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(manifestDir, 0755); err != nil {
 		return "", err
 	}
@@ -169,6 +172,7 @@ func (b *androidBuilder) buildBundleModule() (string, error) {
 
 	// ── Dex (from Java compilation) ──
 	dexDir := filepath.Join(moduleRoot, "dex")
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(dexDir, 0755); err != nil {
 		return "", err
 	}
@@ -194,6 +198,7 @@ func (b *androidBuilder) buildBundleModule() (string, error) {
 			}
 			abi := entry.Name()
 			libDir := filepath.Join(moduleRoot, "lib", abi)
+			//nolint:gosec // build output dir
 			if err := os.MkdirAll(libDir, 0755); err != nil {
 				return "", err
 			}
@@ -233,7 +238,10 @@ func (b *androidBuilder) buildBundleModule() (string, error) {
 func (b *androidBuilder) buildAssetPackModules(modulesRoot string) error {
 	assetsSrc := filepath.Join(b.buildDir, "assets")
 	if _, err := os.Stat(assetsSrc); err != nil {
-		return nil // no assets to distribute
+		if os.IsNotExist(err) {
+			return nil // no assets to distribute
+		}
+		return err
 	}
 
 	for _, pack := range b.config.Android.Assets.Packs {
@@ -243,6 +251,7 @@ func (b *androidBuilder) buildAssetPackModules(modulesRoot string) error {
 		deliveryType := packDeliveryType(pack.Delivery)
 		moduleName := fmt.Sprintf("asset-pack-%s", pack.Name)
 		moduleRoot := filepath.Join(modulesRoot, moduleName)
+		//nolint:gosec // build output dir
 		if err := os.MkdirAll(moduleRoot, 0755); err != nil {
 			return fmt.Errorf("pack %q mkdir: %w", pack.Name, err)
 		}
@@ -262,10 +271,12 @@ func (b *androidBuilder) buildAssetPackModules(modulesRoot string) error {
 </manifest>
 `, deliveryType)
 		manifestDir := filepath.Join(moduleRoot, "manifest")
+		//nolint:gosec // build output dir
 		if err := os.MkdirAll(manifestDir, 0755); err != nil {
 			return fmt.Errorf("pack %q manifest dir: %w", pack.Name, err)
 		}
 		manifestPath := filepath.Join(manifestDir, "AndroidManifest.xml")
+		//nolint:gosec // shared build artifact
 		if err := os.WriteFile(manifestPath, []byte(manifestContent), 0644); err != nil {
 			return fmt.Errorf("pack %q manifest: %w", pack.Name, err)
 		}
@@ -340,7 +351,7 @@ func (b *androidBuilder) compileManifestProto(aapt2 string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	if err := unzipFile(output, "AndroidManifest.xml", tmpDir); err != nil {
 		return "", fmt.Errorf("extract proto manifest: %w", err)
@@ -360,7 +371,7 @@ func unzipFile(zipPath, entryName, destDir string) error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", zipPath, err)
 	}
-	defer zr.Close()
+	defer func() { _ = zr.Close() }()
 
 	for _, f := range zr.File {
 		if f.Name != entryName {
@@ -373,36 +384,16 @@ func unzipFile(zipPath, entryName, destDir string) error {
 		defer rc.Close()
 
 		outPath := filepath.Join(destDir, filepath.Base(entryName))
-		out, err := os.Create(outPath)
+		out, err := os.Create(outPath) //nolint:gosec // path from user config
 		if err != nil {
 			return err
 		}
 		defer out.Close()
 
-		_, err = io.Copy(out, rc)
+		_, err = io.CopyN(out, rc, 100*1024*1024)
 		return err
 	}
 	return fmt.Errorf("entry %q not found in %s", entryName, zipPath)
-}
-
-// copyZipData copies from a zip file reader to a writer.
-func copyZipData(w *os.File, r io.ReadCloser) error {
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := r.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return werr
-			}
-		}
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // findBundleTool locates the bundletool jar, either from the SDK extras

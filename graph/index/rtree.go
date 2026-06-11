@@ -210,8 +210,8 @@ func (t *rstarTree) strInternal(nodeIdxs []int32) int32 {
 }
 
 func (t *rstarTree) makeLeaf(eIndices []int32) int32 {
-	idx := int32(len(t.nodes))
-	n := int32(len(eIndices))
+	idx := int32(len(t.nodes)) //nolint:gosec // integer overflow conversion
+	n := int32(len(eIndices))  //nolint:gosec // integer overflow conversion
 	var node treeNode
 	node.leaf = true
 	node.eN = n
@@ -237,8 +237,8 @@ func (t *rstarTree) makeLeaf(eIndices []int32) int32 {
 }
 
 func (t *rstarTree) makeInternal(childIdxs []int32) int32 {
-	idx := int32(len(t.nodes))
-	n := int32(len(childIdxs))
+	idx := int32(len(t.nodes)) //nolint:gosec // integer overflow conversion
+	n := int32(len(childIdxs)) //nolint:gosec // integer overflow conversion
 	var node treeNode
 	node.leaf = false
 	node.cN = n

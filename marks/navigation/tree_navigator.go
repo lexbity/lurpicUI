@@ -159,7 +159,7 @@ func (t *TreeNavigator) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (t *TreeNavigator) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "navigation", TypeName: "tree_navigator"}
+	return marks.Descriptor{Family: markTypeNavigation, TypeName: "tree_navigator"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -699,22 +699,6 @@ func (t *TreeNavigator) onFocusLost() {
 	t.pressedPath = ""
 	t.focusFromPointer = false
 	t.invalidate(facet.DirtyProjection)
-}
-
-func (t *TreeNavigator) rootState() theme.InteractionState {
-	if t.Disabled.Get() {
-		return theme.StateDisabled
-	}
-	if t.pressedPath != "" {
-		return theme.StatePressed
-	}
-	if t.hoveredPath != "" {
-		return theme.StateHover
-	}
-	if t.focusedVisible {
-		return theme.StateFocused
-	}
-	return theme.StateDefault
 }
 
 func (t *TreeNavigator) pointInFocusRing(p gfx.Point) bool {

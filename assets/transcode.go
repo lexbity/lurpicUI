@@ -23,12 +23,12 @@ func decodeImageHeader(data []byte) (width int32, height int32, err error) {
 			return 0, 0, fmt.Errorf("ktx2: invalid identifier byte at %d", i)
 		}
 	}
-	w := binary.LittleEndian.Uint32(data[20:24])
-	h := binary.LittleEndian.Uint32(data[24:28])
+	w := binary.LittleEndian.Uint32(data[20:24]) //nolint:gosec // slice bounds verified upstream
+	h := binary.LittleEndian.Uint32(data[24:28]) //nolint:gosec // slice bounds verified upstream
 	if w == 0 {
 		return 0, 0, fmt.Errorf("ktx2: zero pixel width")
 	}
-	return int32(w), int32(h), nil
+	return int32(w), int32(h), nil //nolint:gosec // integer overflow conversion
 }
 
 // compressedSizeForTarget returns the equivalent GPU memory footprint in

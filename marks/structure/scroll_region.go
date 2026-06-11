@@ -788,10 +788,6 @@ func (sr *ScrollRegion) childBoundsForProjection(id facet.FacetID) gfx.Rect {
 	return sr.cachedChildBounds[id]
 }
 
-func (sr *ScrollRegion) cachedChildBoundsIsValid() bool {
-	return sr != nil && len(sr.cachedChildBounds) > 0
-}
-
 func (sr *ScrollRegion) cursorShape() facet.CursorShape {
 	if sr.Disabled.Get() {
 		return facet.CursorDefault

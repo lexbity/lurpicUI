@@ -10,10 +10,9 @@ import (
 )
 
 type scatterItem struct {
-	id  store.ItemID
-	cat string
-	x   float64
-	y   float64
+	id store.ItemID
+	x  float64
+	y  float64
 }
 
 func scatterID(i scatterItem) store.ItemID { return i.id }

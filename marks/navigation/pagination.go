@@ -235,11 +235,11 @@ func (p *Pagination) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (p *Pagination) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "navigation", TypeName: "pagination"}
+	return marks.Descriptor{Family: markTypeNavigation, TypeName: "pagination"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (p *Pagination) AccessibilityRole() string { return "navigation" }
+func (p *Pagination) AccessibilityRole() string { return markTypeNavigation }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (p *Pagination) AccessibleName() string { return p.Label.Get() }

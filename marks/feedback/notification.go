@@ -869,11 +869,6 @@ func (n *Notification) onPointer(e facet.PointerEvent) bool {
 	return false
 }
 
-func (n *Notification) onDismiss(e facet.DismissEvent) bool {
-	_ = e
-	return false
-}
-
 func (n *Notification) closeAndDismiss() {
 	if n == nil || !n.Open.Get() {
 		return

@@ -16,13 +16,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uistatus"
 )
 
-const (
-	progressBarMarkIDRoot          facet.MarkID = 1
-	progressBarMarkIDTrack         facet.MarkID = 2
-	progressBarMarkIDIndicator     facet.MarkID = 3
-	progressBarMarkIDOptionalLabel facet.MarkID = 4
-)
-
 // ProgressBar implements the status.progress_bar canonical mark.
 type ProgressBar struct {
 	marks.Core
@@ -115,7 +108,7 @@ func (p *ProgressBar) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (p *ProgressBar) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "status", TypeName: "progress_bar"}
+	return marks.Descriptor{Family: markTypeStatus, TypeName: "progress_bar"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

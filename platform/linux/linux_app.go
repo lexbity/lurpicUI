@@ -69,7 +69,6 @@ type shmSurface struct {
 type eventQueue struct {
 	mu      sync.Mutex
 	pending []platform.Event
-	app     *app
 }
 
 type clipboard struct {
@@ -92,7 +91,7 @@ func (a *app) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 	win := &window{
 		app:     a,
 		surface: &shmSurface{buf: make([]byte, opts.Width*opts.Height*4), stride: opts.Width * 4, width: opts.Width, height: opts.Height},
-		id:      uint32(len(a.windows) + 1),
+		id:      uint32(len(a.windows) + 1), //nolint:gosec // integer overflow conversion
 		width:   opts.Width,
 		height:  opts.Height,
 	}

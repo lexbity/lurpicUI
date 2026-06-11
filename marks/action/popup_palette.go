@@ -109,12 +109,6 @@ const (
 	popupPaletteControlToggleBar
 )
 
-type popupPaletteToolLayout struct {
-	tool       PopupPaletteTool
-	bounds     gfx.Rect
-	iconBounds gfx.Rect
-}
-
 type popupPaletteChildKind uint8
 
 const (
@@ -167,13 +161,6 @@ func (c *popupPaletteChild) dispose() {
 
 func (c *popupPaletteChild) isTool() bool {
 	return c != nil && c.spec.kind == popupPaletteChildTool
-}
-
-func (c *popupPaletteChild) base() *facet.Facet {
-	if c == nil || c.button == nil {
-		return nil
-	}
-	return c.button.Base()
 }
 
 func (c *popupPaletteChild) setSpec(spec popupPaletteChildSpec) {
@@ -251,13 +238,6 @@ func (c *popupPaletteChild) pointer(e facet.PointerEvent) bool {
 		return false
 	}
 	return c.button.onPointer(e)
-}
-
-func (c *popupPaletteChild) key(e facet.KeyEvent) bool {
-	if c == nil || c.button == nil {
-		return false
-	}
-	return c.button.onKey(e)
 }
 
 func (c *popupPaletteChild) bounds() gfx.Rect {
@@ -388,10 +368,10 @@ func (p *PopupPalette) Base() *facet.Facet {
 }
 
 func (p *PopupPalette) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "popup_palette"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "popup_palette"}
 }
 
-func (p *PopupPalette) AccessibilityRole() string { return "toolbar" }
+func (p *PopupPalette) AccessibilityRole() string { return markTypeToolbar }
 
 func (p *PopupPalette) AccessibleName() string {
 	if p == nil {
@@ -1444,25 +1424,6 @@ func (p *PopupPalette) toolIndexAt(pt gfx.Point) int {
 	return -1
 }
 
-func (p *PopupPalette) clampToolIndex(index int) int {
-	if len(p.Tools) == 0 {
-		return -1
-	}
-	if index < 0 {
-		return -1
-	}
-	if index >= len(p.Tools) {
-		return len(p.Tools) - 1
-	}
-	return index
-}
-
-func (p *PopupPalette) clampIndices() {
-	p.SelectedIndex = marks.Const(p.clampToolIndex(p.SelectedIndex.Get()))
-	p.hoveredIndex = p.clampToolIndex(p.hoveredIndex)
-	p.pressedIndex = p.clampToolIndex(p.pressedIndex)
-}
-
 func normalizePopupPaletteTools(tools []PopupPaletteTool) []PopupPaletteTool {
 	if len(tools) == 0 {
 		return nil
@@ -1596,7 +1557,6 @@ type popupPaletteComposition struct {
 	cachedLabelStyle    text.TextStyle
 	cachedMenuBounds    gfx.Rect
 	cachedControlBounds gfx.Rect
-	cachedHistoryBounds []gfx.Rect
 	cachedPadX          float32
 	cachedPadY          float32
 	cachedGap           float32

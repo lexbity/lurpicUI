@@ -56,15 +56,6 @@ func testTranslateClientMessageWithData(a *app, windowID uint32, data uint32) []
 	return a.translateEvent(&testEvent{kind: testEventClientMessage, window: windowID, data32: data})
 }
 
-func testHandleSelectionRequest(a *app, windowID uint32) {
-	testHandleSelectionRequestWithProperty(a, windowID, 0)
-}
-
-func testHandleSelectionRequestWithProperty(a *app, windowID uint32, property uint32) {
-	_ = property
-	_ = windowID
-}
-
 func makeUnknownEvent() *testEvent {
 	return &testEvent{kind: 0x7f}
 }

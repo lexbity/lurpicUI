@@ -172,11 +172,11 @@ func (d *NavDrawer) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (d *NavDrawer) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "navigation", TypeName: "nav_drawer"}
+	return marks.Descriptor{Family: markTypeNavigation, TypeName: "nav_drawer"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (d *NavDrawer) AccessibilityRole() string { return "navigation" }
+func (d *NavDrawer) AccessibilityRole() string { return markTypeNavigation }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (d *NavDrawer) AccessibleName() string { return d.Label.Get() }
@@ -1147,27 +1147,6 @@ func (d *NavDrawer) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, 
 		return resolver.ResolveIcon(ref)
 	}
 	return runtimepkg.IconAsset{}, false
-}
-
-func (d *NavDrawer) newShaper(runtime any) *text.Shaper {
-	registry := d.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (d *NavDrawer) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func (d *NavDrawer) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, material theme.Material) []gfx.Command {

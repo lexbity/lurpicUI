@@ -24,7 +24,7 @@ func cmdDoctor(args []string) int {
 	}
 
 	switch platform {
-	case "", "android":
+	case "", platformAndroid:
 		return doctorAndroid(*verbose)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown platform: %s (supported: android)\n", platform)
@@ -237,7 +237,7 @@ func checkSDKComponents(sdkPath string) {
 	}
 
 	adbPath := sdkPath + "/platform-tools/adb"
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		adbPath += ".exe"
 	}
 	if _, err := os.Stat(adbPath); err == nil {

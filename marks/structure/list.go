@@ -9,7 +9,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
-	layoutlinear "codeburg.org/lexbit/lurpicui/layout/linear"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
@@ -71,9 +70,6 @@ type List struct {
 	cachedRows             map[string]*selection.ListItem
 	cachedHeaderMark       *primitive.Text
 	cachedEmptyMark        *primitive.Text
-	cachedStoreVersion     store.Version
-	cachedPadX             float32
-	cachedPadY             float32
 	cachedGap              float32
 	cachedWritingDirection facet.WritingDirection
 }
@@ -438,49 +434,11 @@ func (l *List) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 }
 
-func (l *List) linearChildren(children []facet.GroupChild) []layoutlinear.Child {
-	out := make([]layoutlinear.Child, 0, len(children))
-	for i := range children {
-		child := children[i]
-		if child.Layout == nil {
-			continue
-		}
-		if !child.Contract.SupportedPlacement.Has(facet.PlacementLinear) {
-			continue
-		}
-		out = append(out, layoutlinear.Child{
-			FacetID:    child.FacetID,
-			Attachment: child.Attachment,
-			Layout:     child.Layout,
-			Contract:   child.Contract,
-		})
-	}
-	return out
-}
-
 func (l *List) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
 	if l == nil || bounds.IsEmpty() || l.scrollRegion == nil {
 		return nil
 	}
 	return l.scrollRegion.buildCommands(bounds, runtime, contentScale)
-}
-
-func (l *List) resolveProjectionTheme(runtime any) (theme.StyleContext, shared.ListSlots) {
-	if runtime == nil {
-		return theme.StyleContext{Tokens: l.cachedTokens}, l.cachedRecipe
-	}
-	type styleTree interface {
-		RootStyleContext() any
-		FacetByID(id facet.FacetID) facet.FacetImpl
-	}
-	if tree, ok := runtime.(styleTree); ok {
-		if store := theme.NearestStyleContext(tree, l.Base().ID()); store != nil {
-			style := store.Get()
-			slots, _ := uistruct.ResolveListRecipe(style)
-			return style, slots
-		}
-	}
-	return theme.StyleContext{Tokens: l.cachedTokens}, l.cachedRecipe
 }
 
 type listGroupPolicy struct {

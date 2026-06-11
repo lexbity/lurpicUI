@@ -153,7 +153,7 @@ func (g *ActionGroup) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (g *ActionGroup) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "action_group"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "action_group"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

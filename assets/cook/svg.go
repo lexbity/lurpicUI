@@ -87,7 +87,7 @@ func buildCSGShape(builder *flatbuffers.Builder, el gfxsvg.SVGElement) flatbuffe
 func buildVerbVector(builder *flatbuffers.Builder, segments []gfx.PathSegment) flatbuffers.UOffsetT {
 	csg.ShapeStartVerbsVector(builder, len(segments))
 	for i := len(segments) - 1; i >= 0; i-- {
-		builder.PrependByte(byte(mapPathVerb(segments[i].Verb)))
+		builder.PrependByte(byte(mapPathVerb(segments[i].Verb))) //nolint:gosec // integer overflow conversion
 	}
 	return builder.EndVector(len(segments))
 }

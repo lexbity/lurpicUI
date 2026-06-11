@@ -46,6 +46,7 @@ func AssertGolden(t reporter, surface *MemorySurface, name string) {
 	wantPath := filepath.Join(baseDir, name+".png")
 	actualPath := filepath.Join(baseDir, name+"_actual.png")
 
+	//nolint:gosec // test helper
 	if err := os.MkdirAll(filepath.Dir(wantPath), 0o755); err != nil {
 		t.Fatalf("mkdir golden: %v", err)
 	}
@@ -108,7 +109,7 @@ func GoldenBaseDirForCaller() string {
 }
 
 func readPNG(path string) (*image.RGBA, error) {
-	f, err := os.Open(path)
+	f, err := os.Open(path) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +130,7 @@ func readPNG(path string) (*image.RGBA, error) {
 
 func writePNGOrFail(t reporter, path string, img image.Image) {
 	t.Helper()
-	f, err := os.Create(path)
+	f, err := os.Create(path) //nolint:gosec // path from user config
 	if err != nil {
 		t.Fatalf("create golden: %v", err)
 	}
@@ -150,10 +151,10 @@ func imagesClose(a, b image.Image, tol uint8) bool {
 		for x := bounds.Min.X; x < bounds.Max.X; x++ {
 			ar, ag, ab, aa := a.At(x, y).RGBA()
 			br, bg, bb, ba := b.At(x, y).RGBA()
-			if abs16(uint16(ar>>8), uint16(br>>8)) > uint16(tol) ||
-				abs16(uint16(ag>>8), uint16(bg>>8)) > uint16(tol) ||
-				abs16(uint16(ab>>8), uint16(bb>>8)) > uint16(tol) ||
-				abs16(uint16(aa>>8), uint16(ba>>8)) > uint16(tol) {
+			if abs16(uint16(ar>>8), uint16(br>>8)) > uint16(tol) || //nolint:gosec // integer overflow conversion
+				abs16(uint16(ag>>8), uint16(bg>>8)) > uint16(tol) || //nolint:gosec // integer overflow conversion
+				abs16(uint16(ab>>8), uint16(bb>>8)) > uint16(tol) || //nolint:gosec // integer overflow conversion
+				abs16(uint16(aa>>8), uint16(ba>>8)) > uint16(tol) { //nolint:gosec // integer overflow conversion
 				return false
 			}
 		}

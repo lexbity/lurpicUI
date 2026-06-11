@@ -22,7 +22,6 @@ var testFontBoldBytes []byte
 var testEmojiFontBytes []byte
 
 const testNotoSansRegular = "testdata/NotoSans-Regular.ttf"
-const testLigatureFont = "testdata/NotoSans-Regular.ttf"
 
 func TestDefaultStyle_non_zero_size(t *testing.T) {
 	if got := DefaultStyle(); got.Size <= 0 {

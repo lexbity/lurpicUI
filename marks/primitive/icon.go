@@ -608,9 +608,9 @@ func buildManagedAssetCommands(ref gfx.DrawableRef, handle assets.Handle, target
 		if entry != nil {
 			if lod2, ok := entry.LODHandles[2].(*assets.DecodedSVGLOD2); ok {
 				fill := gfx.ColorFromRGBA8(
-					uint8(lod2.DominantColor),
-					uint8(lod2.DominantColor>>8),
-					uint8(lod2.DominantColor>>16),
+					uint8(lod2.DominantColor),     //nolint:gosec // integer overflow conversion
+					uint8(lod2.DominantColor>>8),  //nolint:gosec // integer overflow conversion
+					uint8(lod2.DominantColor>>16), //nolint:gosec // integer overflow conversion
 					uint8(lod2.DominantColor>>24),
 				)
 				return []gfx.Command{

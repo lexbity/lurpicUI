@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"errors"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/render"
@@ -95,5 +94,3 @@ func (p *RenderPipeline) UploadQueue() *render.UploadQueue {
 	}
 	return p.uploadQueue
 }
-
-var errPipelineClosed = errors.New("runtime: render pipeline closed")

@@ -17,6 +17,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 )
 
+const markTypeNavigation = "navigation"
+
 const (
 	breadcrumbsMarkIDRoot           facet.MarkID = 1
 	breadcrumbsMarkIDSegmentList    facet.MarkID = 2
@@ -139,11 +141,11 @@ func (b *Breadcrumbs) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (b *Breadcrumbs) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "navigation", TypeName: "breadcrumbs"}
+	return marks.Descriptor{Family: markTypeNavigation, TypeName: "breadcrumbs"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (b *Breadcrumbs) AccessibilityRole() string { return "navigation" }
+func (b *Breadcrumbs) AccessibilityRole() string { return markTypeNavigation }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (b *Breadcrumbs) AccessibleName() string { return b.Label.Get() }

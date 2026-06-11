@@ -40,8 +40,8 @@ func (d *ToolchainDetector) DetectSDK() (string, string, error) {
 		{"command-line flag", d.FlagSDK},
 		{"project config", ""},
 		{"user config", ""},
-		{"environment variable", ""},
-		{"auto-detection", ""},
+		{msgEnvironmentVariable, ""},
+		{msgAutoDetection, ""},
 	}
 
 	// Populate project config source
@@ -72,7 +72,7 @@ func (d *ToolchainDetector) DetectSDK() (string, string, error) {
 		}
 
 		// If explicitly specified but invalid, report error
-		if source.name != "auto-detection" && source.name != "environment variable" {
+		if source.name != msgAutoDetection && source.name != msgEnvironmentVariable {
 			return "", "", fmt.Errorf("SDK from %s (%s) is not valid", source.name, source.path)
 		}
 	}
@@ -81,7 +81,7 @@ func (d *ToolchainDetector) DetectSDK() (string, string, error) {
 	for _, path := range defaultSDKSearchPaths() {
 		path = os.ExpandEnv(path)
 		if isValidSDK(path) {
-			return path, "auto-detection", nil
+			return path, msgAutoDetection, nil
 		}
 	}
 
@@ -97,7 +97,7 @@ func (d *ToolchainDetector) DetectNDK(sdk string) (string, string, error) {
 		{"command-line flag", d.FlagNDK},
 		{"project config", ""},
 		{"user config", ""},
-		{"environment variable", ""},
+		{msgEnvironmentVariable, ""},
 		{"auto-detection (in SDK)", ""},
 	}
 
@@ -129,7 +129,7 @@ func (d *ToolchainDetector) DetectNDK(sdk string) (string, string, error) {
 		}
 
 		// If explicitly specified but invalid, report error
-		if source.name != "auto-detection (in SDK)" && source.name != "environment variable" {
+		if source.name != "auto-detection (in SDK)" && source.name != msgEnvironmentVariable {
 			return "", "", fmt.Errorf("NDK from %s (%s) is not valid", source.name, source.path)
 		}
 	}
@@ -168,8 +168,8 @@ func (d *ToolchainDetector) DetectJDK() (string, string, error) {
 		{"command-line flag", d.FlagJDK},
 		{"project config", ""},
 		{"user config", ""},
-		{"environment variable", ""},
-		{"auto-detection", ""},
+		{msgEnvironmentVariable, ""},
+		{msgAutoDetection, ""},
 	}
 
 	// Populate project config source
@@ -198,7 +198,7 @@ func (d *ToolchainDetector) DetectJDK() (string, string, error) {
 		}
 
 		// If explicitly specified but invalid, report error
-		if source.name != "auto-detection" && source.name != "environment variable" {
+		if source.name != msgAutoDetection && source.name != msgEnvironmentVariable {
 			return "", "", fmt.Errorf("JDK from %s (%s) is not valid", source.name, source.path)
 		}
 	}
@@ -207,7 +207,7 @@ func (d *ToolchainDetector) DetectJDK() (string, string, error) {
 	for _, path := range defaultJDKSearchPaths() {
 		path = os.ExpandEnv(path)
 		if isValidJDK(path) {
-			return path, "auto-detection", nil
+			return path, msgAutoDetection, nil
 		}
 	}
 
@@ -234,10 +234,10 @@ func lookPathFallback(name string) (string, error) {
 	pathEnv := os.Getenv("PATH")
 	for _, dir := range filepath.SplitList(pathEnv) {
 		candidate := filepath.Join(dir, name)
-		if runtime.GOOS == "windows" {
+		if runtime.GOOS == platformWindows {
 			candidate += ".exe"
 		}
-		if _, err := os.Stat(candidate); err == nil {
+		if _, err := os.Stat(candidate); err == nil { //nolint:gosec // path from user config
 			return candidate, nil
 		}
 	}
@@ -253,7 +253,7 @@ func isValidJDK(path string) bool {
 	// Check for key JDK components
 	javaBin := filepath.Join(path, "bin", "java")
 
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == platformWindows {
 		javaBin += ".exe"
 	}
 
@@ -268,21 +268,21 @@ func isValidJDK(path string) bool {
 // defaultJDKSearchPaths returns the default JDK search paths for the current OS.
 func defaultJDKSearchPaths() []string {
 	switch runtime.GOOS {
-	case "darwin":
+	case platformDarwin:
 		return []string{
 			"/Library/Java/JavaVirtualMachines/*/Contents/Home",
 			"/System/Library/Java/JavaVirtualMachines/*/Contents/Home",
 			"/usr/local/opt/openjdk",
 			"/opt/homebrew/opt/openjdk",
 		}
-	case "linux":
+	case platformLinux:
 		return []string{
 			"/usr/lib/jvm/default-java",
 			"/usr/lib/jvm/java-*-openjdk*",
 			"/usr/lib/jvm/java-*-oracle*",
 			"/usr/local/java/jdk*",
 		}
-	case "windows":
+	case platformWindows:
 		return []string{
 			"C:\\Program Files\\Java\\jdk*",
 			"C:\\Program Files\\Eclipse Adoptium\\jdk*",

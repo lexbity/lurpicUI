@@ -143,11 +143,11 @@ func (r *NavRail) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (r *NavRail) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "navigation", TypeName: "nav_rail"}
+	return marks.Descriptor{Family: markTypeNavigation, TypeName: "nav_rail"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
-func (r *NavRail) AccessibilityRole() string { return "navigation" }
+func (r *NavRail) AccessibilityRole() string { return markTypeNavigation }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (r *NavRail) AccessibleName() string { return r.Label.Get() }

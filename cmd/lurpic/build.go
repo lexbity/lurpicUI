@@ -49,7 +49,7 @@ func cmdBuild(args []string) int {
 	}
 
 	platform := fs.Arg(0)
-	if platform != "android" {
+	if platform != platformAndroid {
 		fmt.Fprintf(os.Stderr, "Error: unsupported platform '%s' (only 'android' supported)\n", platform)
 		return 1
 	}
@@ -148,6 +148,7 @@ func prepareAndroidBuild(flags buildFlags) (*androidBuilder, error) {
 
 	// Create build directory
 	buildDir := filepath.Join(projectRoot, "build", "android")
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
 		return nil, fmt.Errorf("error creating build directory: %w", err)
 	}

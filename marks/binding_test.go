@@ -227,8 +227,6 @@ func TestConst_copy_preserves_independence(t *testing.T) {
 	}
 }
 
-type hasExportedFields any
-
 func TestBinding_no_mutation_api(t *testing.T) {
 	// Compile-time check: Binding[T] must not expose Set or similar mutations.
 	// If Binding gains an exported Set method this test becomes a compile error.

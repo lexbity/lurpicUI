@@ -19,8 +19,11 @@ func main() {
 	}
 
 	for _, root := range roots {
-		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
+		err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error { //nolint:gosec // path from user config
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
 				return nil
 			}
 			if !strings.HasSuffix(path, "_test.go") {

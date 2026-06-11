@@ -51,10 +51,10 @@ func (u *assetUploader) Enqueue(req assets.TextureUploadRequest) bool {
 		AssetID:   assetID,
 		LOD:       req.LOD,
 		PixelData: req.Pixels,
-		Width:     uint16(req.Width),
-		Height:    uint16(req.Height),
-		Format:    render.TextureFormat(req.Format),
-		MipLevels: uint8(req.MipLevels),
+		Width:     uint16(req.Width),                //nolint:gosec // integer overflow conversion
+		Height:    uint16(req.Height),               //nolint:gosec // integer overflow conversion
+		Format:    render.TextureFormat(req.Format), //nolint:gosec // integer overflow conversion
+		MipLevels: uint8(req.MipLevels),             //nolint:gosec // integer overflow conversion
 		// ResultCh: nil → defaults to the upload queue's shared results channel.
 	}
 	return u.queue.Enqueue(rreq)

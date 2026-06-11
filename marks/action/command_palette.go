@@ -44,13 +44,12 @@ type CommandPalette struct {
 	resultsList *commandPaletteResultsGroup
 	registry    *runtimepkg.CommandRegistry
 
-	Open             bool
-	hovered          bool
-	pressed          bool
-	focusedVisible   bool
-	focusFromPointer bool
-	activeIndex      int
-	query            string
+	Open           bool
+	hovered        bool
+	pressed        bool
+	focusedVisible bool
+	activeIndex    int
+	query          string
 
 	cachedTokens           theme.Tokens
 	cachedRecipe           shared.CommandPaletteSlots
@@ -208,7 +207,7 @@ func (p *CommandPalette) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (p *CommandPalette) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "action", TypeName: "command_palette"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: "command_palette"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
@@ -773,17 +772,6 @@ func scoreCommandEntry(entry runtimepkg.CommandEntry, needle string) (int, bool)
 		}
 	}
 	return best, best > 0
-}
-
-func paletteCommandTitle(entry runtimepkg.CommandEntry) string {
-	title := strings.TrimSpace(entry.Title)
-	if category := strings.TrimSpace(entry.Category); category != "" {
-		if title == "" {
-			return category
-		}
-		return category + ": " + title
-	}
-	return title
 }
 
 func commandPaletteGroupChild(base *facet.Facet, markID facet.MarkID, order int) facet.GroupChild {

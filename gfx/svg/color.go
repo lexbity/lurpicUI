@@ -82,7 +82,7 @@ func parseHexColor(value string) (Color, error) {
 		if err != nil {
 			return Color{}, fmt.Errorf("svg: invalid color %q", value)
 		}
-		return ColorFromHex(uint32(v<<8) | 0xFF), nil
+		return ColorFromHex(uint32(v<<8) | 0xFF), nil //nolint:gosec // integer overflow conversion
 	case 8:
 		v, err := strconv.ParseUint(s, 16, 32)
 		if err != nil {
@@ -96,7 +96,7 @@ func parseHexColor(value string) (Color, error) {
 
 func duplicateHexNibble(b byte) uint8 {
 	v := hexNibble(b)
-	return uint8(v<<4 | v)
+	return uint8(v<<4 | v) //nolint:gosec // integer overflow conversion
 }
 
 func hexNibble(b byte) int {

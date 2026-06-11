@@ -10,6 +10,27 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+// Platform identifiers.
+const (
+	platformWindows = "windows"
+	platformDarwin  = "darwin"
+	platformLinux   = "linux"
+	platformAndroid = "android"
+)
+
+// CPU architecture identifiers.
+const (
+	archX8664    = "x86_64"
+	archArm64V8a = "arm64-v8a"
+)
+
+// Build command name.
+const cmdBuildName = "build"
+
+// Diagnostic message fragments.
+const msgEnvironmentVariable = "environment variable"
+const msgAutoDetection = "auto-detection"
+
 // Config represents the lurpic.toml configuration file
 type Config struct {
 	App     AppConfig            `toml:"app"`
@@ -142,7 +163,7 @@ type PermissionConfig struct {
 
 func loadConfig(projectRoot string) (*Config, error) {
 	configPath := filepath.Join(projectRoot, "lurpic.toml")
-	data, err := os.ReadFile(configPath)
+	data, err := os.ReadFile(configPath) //nolint:gosec // path from user config
 	if err != nil {
 		return nil, fmt.Errorf("cannot read config file: %w", err)
 	}
@@ -166,7 +187,7 @@ func loadConfig(projectRoot string) (*Config, error) {
 	if config.Android.ABIs == nil {
 		// arm64-v8a is the mandatory release ABI. x86_64 is available for
 		// emulator and Chromebook testing but must be explicitly configured.
-		config.Android.ABIs = []string{"arm64-v8a"}
+		config.Android.ABIs = []string{archArm64V8a}
 	}
 
 	// *.pak files must be stored uncompressed so the APK fd can be mmap'd
@@ -252,7 +273,7 @@ func checkToolchainPins(config *Config, sdkPath, ndkPath string) []string {
 	if config != nil && config.Android.SDK.Version != "" {
 		// SDK versions are stored in platforms/android-<api>/source.properties
 		sdkProp := filepath.Join(sdkPath, "platforms", fmt.Sprintf("android-%d", config.Android.TargetSDK), "source.properties")
-		if prop, err := os.ReadFile(sdkProp); err == nil {
+		if prop, err := os.ReadFile(sdkProp); err == nil { //nolint:gosec // path from user config
 			if !strings.Contains(string(prop), "Pkg.Revision="+config.Android.SDK.Version) {
 				warnings = append(warnings, fmt.Sprintf(
 					"SDK platform version %s configured but installed version does not match (check %s)",
@@ -265,7 +286,7 @@ func checkToolchainPins(config *Config, sdkPath, ndkPath string) []string {
 	// Check NDK version pin.
 	if config != nil && config.Android.NDK.Version != "" {
 		ndkProp := filepath.Join(ndkPath, "source.properties")
-		if prop, err := os.ReadFile(ndkProp); err == nil {
+		if prop, err := os.ReadFile(ndkProp); err == nil { //nolint:gosec // path from user config
 			if !strings.Contains(string(prop), "Pkg.Revision="+config.Android.NDK.Version) {
 				warnings = append(warnings, fmt.Sprintf(
 					"NDK version %s configured but installed version does not match (check %s)",
@@ -318,7 +339,7 @@ func validateAndroidConfigForRelease(config *Config) error {
 	if config.App.Name == "" {
 		return fmt.Errorf("app.name is required for release builds")
 	}
-	if !containsABI(config.Android.ABIs, "arm64-v8a") {
+	if !containsABI(config.Android.ABIs, archArm64V8a) {
 		return fmt.Errorf(
 			"release builds must include arm64-v8a in android.abis; " +
 				"x86_64 is available for emulator/Chromebook testing but must be explicitly added",

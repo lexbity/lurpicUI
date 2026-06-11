@@ -1,6 +1,7 @@
 package loader
 
 import (
+	"errors"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -10,6 +11,10 @@ import (
 	"sort"
 	"strings"
 )
+
+// errNoGoFiles is returned by loadPackage when a directory contains no
+// parseable Go source files. Load treats this as a non-fatal skip.
+var errNoGoFiles = errors.New("no Go source files")
 
 // FileCache caches parsed Go files keyed by (path, mtime, size) so that
 // unchanged files are not re-parsed on subsequent Load calls.
@@ -109,11 +114,11 @@ func Load(patterns []string, cfg Config) (*LoadResult, error) {
 
 	for _, dir := range dirs {
 		pkg, err := loadPackage(dir, fset, cfg)
+		if errors.Is(err, errNoGoFiles) {
+			continue
+		}
 		if err != nil {
 			return nil, fmt.Errorf("load %s: %w", dir, err)
-		}
-		if pkg == nil {
-			continue
 		}
 		pkgMap[dir] = pkg
 		allFiles = append(allFiles, pkg.Files...)
@@ -287,7 +292,7 @@ func loadPackage(dir string, fset *token.FileSet, cfg Config) (*Package, error) 
 	}
 
 	if len(files) == 0 {
-		return nil, nil
+		return nil, errNoGoFiles
 	}
 
 	sort.Slice(files, func(i, j int) bool {
@@ -318,7 +323,7 @@ func parseFile(path string, fset *token.FileSet, cache *FileCache) (*ParsedFile,
 	// Parse or re-parse.
 	if astFile == nil {
 		var err error
-		data, err = os.ReadFile(path)
+		data, err = os.ReadFile(path) //nolint:gosec // path from user config
 		if err != nil {
 			return nil, fmt.Errorf("reading %s: %w", path, err)
 		}

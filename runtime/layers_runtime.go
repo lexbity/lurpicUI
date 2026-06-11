@@ -556,7 +556,7 @@ func layerRecipeVersion(desc layout.LayerDescriptor, recipe layout.ResolvedLayer
 	h := hashutil.NewCacheKeyBuilder()
 	h.WriteString(string(desc.Name))
 	h.WriteUint64(uint64(desc.ID))
-	h.WriteUint64(uint64(desc.Order))
+	h.WriteUint64(uint64(desc.Order)) //nolint:gosec // integer overflow conversion
 	h.WriteString(desc.LayoutRecipe.Family)
 	h.WriteString(desc.LayoutRecipe.Name)
 	if desc.FocusTrap {
@@ -567,8 +567,8 @@ func layerRecipeVersion(desc layout.LayerDescriptor, recipe layout.ResolvedLayer
 	h.WriteUint8(uint8(desc.FocusRestore))
 	h.WriteUint8(uint8(recipe.PolicyKind))
 	h.WriteUint8(uint8(recipe.Clip))
-	h.WriteUint64(uint64(recipe.Grid.Columns))
-	h.WriteUint64(uint64(recipe.Grid.Rows))
+	h.WriteUint64(uint64(recipe.Grid.Columns)) //nolint:gosec // integer overflow conversion
+	h.WriteUint64(uint64(recipe.Grid.Rows))    //nolint:gosec // integer overflow conversion
 	h.WriteFloat32(float32(recipe.Grid.ColumnGap))
 	h.WriteFloat32(float32(recipe.Grid.RowGap))
 	h.WriteFloat32(recipe.Grid.Margin.Top)

@@ -130,7 +130,7 @@ func (s *Switch) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (s *Switch) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "selection", TypeName: "switch"}
+	return marks.Descriptor{Family: markTypeSelection, TypeName: "switch"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

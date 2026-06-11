@@ -72,17 +72,17 @@ func (p *Packer) Pack(tree *DependencyTree) ([]byte, error) {
 		Magic:      [4]byte{'L', 'U', 'R', 'P'},
 		Version:    pakVersion,
 		TOCOffset:  tocOffset,
-		TOCCount:   uint32(len(blocks)),
+		TOCCount:   uint32(len(blocks)), //nolint:gosec // integer overflow conversion
 		DepsOffset: depsOffset,
-		DepsCount:  uint32(len(depsTable)),
+		DepsCount:  uint32(len(depsTable)), //nolint:gosec // integer overflow conversion
 	})
 
 	for i, blk := range blocks {
 		writePakTOCEntry(buf[int(tocOffset)+i*tocEntrySize:], blk.entry)
-		copy(buf[int(blk.entry.Offset):int(blk.entry.Offset)+len(blk.data)], blk.data)
+		copy(buf[int(blk.entry.Offset):int(blk.entry.Offset)+len(blk.data)], blk.data) //nolint:gosec // integer overflow conversion
 	}
 	for i, id := range depsTable {
-		copy(buf[int(depsOffset)+i*depEntrySize:], id[:])
+		copy(buf[int(depsOffset)+i*depEntrySize:], id[:]) //nolint:gosec // integer overflow conversion
 	}
 
 	return buf, nil
@@ -111,9 +111,9 @@ func (p *Packer) buildBlocks(tree *DependencyTree, depSpans map[assets.AssetID]d
 			}
 			entry := assets.PakTOCEntry{
 				ID:               node.ID,
-				CompressedSize:   uint32(len(data)),
-				UncompressedSize: uint32(len(lod.Data)),
-				LODLevel:         uint8(lod.Level),
+				CompressedSize:   uint32(len(data)),     //nolint:gosec // integer overflow conversion
+				UncompressedSize: uint32(len(lod.Data)), //nolint:gosec // integer overflow conversion
+				LODLevel:         uint8(lod.Level),      //nolint:gosec // integer overflow conversion
 				AssetType:        uint8(node.Type),
 				Compression:      uint8(compression),
 			}
@@ -134,8 +134,8 @@ func buildDepsTable(tree *DependencyTree) ([]assets.AssetID, map[assets.AssetID]
 		start := len(depsTable)
 		depsTable = append(depsTable, cfg.Deps...)
 		spans[cfg.ID] = depSpan{
-			offset: uint32(start),
-			count:  uint16(len(cfg.Deps)),
+			offset: uint32(start),         //nolint:gosec // integer overflow conversion
+			count:  uint16(len(cfg.Deps)), //nolint:gosec // integer overflow conversion
 		}
 	}
 	return depsTable, spans
@@ -278,26 +278,28 @@ func PakContentHash(pakData []byte) [32]byte {
 //	<destDir>/assets.pak
 //	<destDir>/assets.pak.meta
 func WritePak(destDir string, pakData []byte) error {
+	//nolint:gosec // build output dir
 	if err := os.MkdirAll(destDir, 0o755); err != nil {
 		return fmt.Errorf("write pak mkdir: %w", err)
 	}
 	pakPath := filepath.Join(destDir, "assets.pak")
+	//nolint:gosec // shared build artifact
 	if err := os.WriteFile(pakPath, pakData, 0o644); err != nil {
 		return fmt.Errorf("write pak: %w", err)
 	}
 	meta := newPakSidecar(PakContentHash(pakData))
 	metaPath := filepath.Join(destDir, "assets.pak.meta")
-	f, err := os.Create(metaPath)
+	f, err := os.Create(metaPath) //nolint:gosec // path from user config
 	if err != nil {
 		return fmt.Errorf("create meta: %w", err)
 	}
 	if err := json.NewEncoder(f).Encode(meta); err != nil {
 		f.Close()
-		os.Remove(metaPath)
+		_ = os.Remove(metaPath)
 		return fmt.Errorf("encode meta: %w", err)
 	}
 	if err := f.Close(); err != nil {
-		os.Remove(metaPath)
+		_ = os.Remove(metaPath)
 		return fmt.Errorf("close meta: %w", err)
 	}
 	return nil

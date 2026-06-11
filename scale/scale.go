@@ -113,7 +113,6 @@ func (o OutOfRange) String() string {
 type options struct {
 	domain       [2]float64
 	hasDomain    bool
-	strDomain    []string
 	rng          [2]float64
 	hasRange     bool
 	clamp        *OutOfRange

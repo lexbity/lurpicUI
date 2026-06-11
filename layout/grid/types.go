@@ -74,26 +74,6 @@ func New(cfg Config) *Policy {
 	return &Policy{cfg: cfg}
 }
 
-func (p *Policy) trackDefs(horizontal bool) []TrackDef {
-	if horizontal {
-		if len(p.cfg.Columns) == 0 {
-			return nil
-		}
-		return p.cfg.Columns
-	}
-	if len(p.cfg.Rows) == 0 {
-		return nil
-	}
-	return p.cfg.Rows
-}
-
-func (p *Policy) trackCount(horizontal bool) int {
-	if defs := p.trackDefs(horizontal); len(defs) > 0 {
-		return len(defs)
-	}
-	return 1
-}
-
 func defaultFlexTracks(count int) []TrackDef {
 	if count <= 0 {
 		count = 1

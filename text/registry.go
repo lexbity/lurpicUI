@@ -32,7 +32,7 @@ func (r *FontRegistry) LoadFontFile(path string) error {
 	if path == "" {
 		return errors.New("text: empty font path")
 	}
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // path from user config
 	if err != nil {
 		return fmt.Errorf("text: load font %q: %w", filepath.Clean(path), err)
 	}
@@ -164,7 +164,7 @@ func (f FontFace) CacheKey() uint64 {
 }
 
 func computeFontCacheKey(data []byte, index int) uint64 {
-	sum := sha256.Sum256(append(append([]byte(nil), data...), byte(index>>24), byte(index>>16), byte(index>>8), byte(index)))
+	sum := sha256.Sum256(append(append([]byte(nil), data...), byte(index>>24), byte(index>>16), byte(index>>8), byte(index))) //nolint:gosec // integer overflow conversion
 	return binaryToUint64(sum[:8])
 }
 

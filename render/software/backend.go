@@ -263,21 +263,6 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	return nil
 }
 
-func flattenLayerBatches(layers []render.LayeredBatch) []render.RenderBatch {
-	if len(layers) == 0 {
-		return nil
-	}
-	var total int
-	for _, layer := range layers {
-		total += len(layer.Batches)
-	}
-	out := make([]render.RenderBatch, 0, total)
-	for _, layer := range layers {
-		out = append(out, layer.Batches...)
-	}
-	return out
-}
-
 func (r *SoftwareRenderer) allocateOutput(width, height int) {
 	if width < 0 {
 		width = 0
@@ -1145,32 +1130,6 @@ func pathBounds(path gfx.Path) gfx.Rect {
 		return gfx.Rect{}
 	}
 	return bounds
-}
-
-func pointsBounds(pts []gfx.Point) gfx.Rect {
-	if len(pts) == 0 {
-		return gfx.Rect{}
-	}
-	bounds := gfx.Rect{Min: pts[0], Max: pts[0]}
-	for _, p := range pts[1:] {
-		if p.X < bounds.Min.X {
-			bounds.Min.X = p.X
-		}
-		if p.Y < bounds.Min.Y {
-			bounds.Min.Y = p.Y
-		}
-		if p.X > bounds.Max.X {
-			bounds.Max.X = p.X
-		}
-		if p.Y > bounds.Max.Y {
-			bounds.Max.Y = p.Y
-		}
-	}
-	return bounds
-}
-
-func rectEqual(a, b gfx.Rect) bool {
-	return a.Min == b.Min && a.Max == b.Max
 }
 
 func intersectRects(a, b gfx.Rect) gfx.Rect {
