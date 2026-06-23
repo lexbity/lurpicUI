@@ -1,5 +1,9 @@
 # LurpicUX Design System
 
+> Current design-language and authoring notes. This file describes mark intent
+> and visual language; it does not override the runtime principles in
+> `LurpicUI-FacetRuntime-Principles.md`.
+
 ## Overview
 
 LurpicUX is the design language and mark authoring model for LurpicUI.

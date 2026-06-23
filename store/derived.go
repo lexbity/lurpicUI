@@ -13,6 +13,10 @@ type versionedInvalidatable interface {
 }
 
 // Derived is a read-only computed store.
+//
+// It memoizes one computed value and marks itself dirty when any source store
+// changes version. The actual recomputation still happens lazily on Get so the
+// runtime pays the cost only when a consumer asks for the value.
 type Derived[T any] struct {
 	version VersionSource
 	compute func() T
@@ -49,6 +53,8 @@ func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
 }
 
 // Get returns the current derived value, recomputing if dirty or stale.
+// The version snapshot is updated only after recomputation succeeds so chained
+// derived stores can tell whether they are still reading the same source state.
 func (d *Derived[T]) Get() T {
 	d.mu.RLock()
 	if d.initialized && !d.dirty && !d.sourcesChangedLocked() {

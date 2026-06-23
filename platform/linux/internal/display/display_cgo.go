@@ -135,6 +135,8 @@ import (
 
 var errNoDisplay = errors.New("linux platform: no X display available")
 
+// NewApp opens the X11 connection, wires epoll to the XCB file descriptor, and
+// returns the platform.App that the runtime drains from its own thread.
 func NewApp() (platform.App, error) {
 	if os.Getenv("DISPLAY") == "" {
 		return nil, errNoDisplay

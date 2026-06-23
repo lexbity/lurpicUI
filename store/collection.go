@@ -11,13 +11,22 @@ import (
 type ItemID uint64
 
 // CollectionStore holds an ordered collection with per-item change signals.
+//
+// Mutations are restricted to the runtime thread. The store increments its
+// version on every successful mutation, snapshots invalidation callbacks while
+// holding the lock, then fires those callbacks after the mutation is visible.
+// That ordering keeps derived stores and facet subscribers from observing a
+// partially-updated collection.
 type CollectionStore[T any] struct {
 	version  VersionSource
 	identify func(T) ItemID
 
-	mu            sync.RWMutex
-	items         []T
-	index         map[ItemID]int
+	mu    sync.RWMutex
+	items []T
+	index map[ItemID]int
+	// invalidations is copied on mutation and fired after the lock is released.
+	// Callers re-enter the runtime through those hooks, so they must only run
+	// once the collection state and version are already committed.
 	invalidations []func()
 
 	onInsert  signal.Signal[CollectionInsertEvent[T]]
@@ -104,24 +113,32 @@ func (s *CollectionStore[T]) Version() Version {
 }
 
 // Insert adds an item or updates an existing one with the same ID.
+// Callers must be on the runtime thread so the version counter and
+// invalidation ordering stay consistent with frame processing.
 func (s *CollectionStore[T]) Insert(item T) {
 	syncutil.AssertRuntimeThread()
 	s.insert(item, nil)
 }
 
 // Remove deletes an item by ID.
+// The mutation is applied immediately on the runtime thread, then callbacks
+// fire after the lock is released so subscribers can re-read the new snapshot.
 func (s *CollectionStore[T]) Remove(id ItemID) {
 	syncutil.AssertRuntimeThread()
 	s.remove(id, nil)
 }
 
 // Update updates an item by ID if it exists.
+// The collection keeps stable ItemID-to-index bookkeeping; updates preserve
+// the current slot instead of reordering the slice.
 func (s *CollectionStore[T]) Update(item T) {
 	syncutil.AssertRuntimeThread()
 	s.update(item, nil)
 }
 
 // Replace replaces the entire collection.
+// This is the bulk reset path: it replaces the slice and index map in one
+// mutation so downstream consumers see a single version bump.
 func (s *CollectionStore[T]) Replace(items []T) {
 	syncutil.AssertRuntimeThread()
 	s.replace(items, nil)

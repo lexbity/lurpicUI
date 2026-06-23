@@ -7,6 +7,10 @@ import (
 )
 
 // Transaction batches store mutations and defers signal delivery until Commit.
+//
+// The mutation functions are staged first, then applied in order during Commit.
+// Notifications are deferred until after all mutations have run so observers
+// only see the final post-commit snapshot.
 type Transaction struct {
 	mutations []func()
 	deferred  []func()
@@ -14,6 +18,7 @@ type Transaction struct {
 }
 
 // Begin starts a transaction on the runtime thread.
+// Transactions are a frame-local batching mechanism, not a cross-thread lock.
 func Begin() *Transaction {
 	syncutil.AssertRuntimeThread()
 	return &Transaction{}
@@ -44,7 +49,8 @@ func (t *Transaction) deferCall(fn func()) {
 	t.deferred = append(t.deferred, fn)
 }
 
-// Commit fires all deferred signals.
+// Commit applies staged mutations, then fires the deferred notifications.
+// The runtime-thread restriction keeps signal delivery ordered with frame work.
 func (t *Transaction) Commit() {
 	syncutil.AssertRuntimeThread()
 	if t == nil {
@@ -69,7 +75,7 @@ func (t *Transaction) Commit() {
 	}
 }
 
-// Rollback discards deferred notifications without firing them.
+// Rollback discards staged mutations and deferred notifications without firing them.
 func (t *Transaction) Rollback() {
 	syncutil.AssertRuntimeThread()
 	if t == nil || !t.committed.CompareAndSwap(false, true) {

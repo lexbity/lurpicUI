@@ -69,8 +69,12 @@ type Runtime struct {
 	lifecycleCond    *sync.Cond
 	paused           bool
 	lifecycleBound   bool
-	surfaceReady     bool
-	imeVisible       bool
+	// surfaceReady gates render submission after a lifecycle-driven surface
+	// loss. The runtime may keep ticking and processing input while the
+	// platform surface is absent, but the backend must not receive frames until
+	// a fresh surface has been created successfully.
+	surfaceReady bool
+	imeVisible   bool
 
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
@@ -83,6 +87,9 @@ type Runtime struct {
 	started    bool
 	stopping   bool
 
+	// projectionInProgress is a runtime-thread guard used by store mutations.
+	// The store package consults this so writes that would invalidate the
+	// current projection phase fail loudly instead of corrupting frame order.
 	projectionInProgress atomic.Bool
 
 	onFrameSubmitted func() // test hook; set only in tests to signal frame completion
@@ -152,9 +159,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	})
 
 	// Wire the GPU texture releaser and uploader bridges when the backend
-	// supports textures. The releaser lets the asset cache free GPU textures
-	// during eviction and device-loss recovery. The uploader enqueues decoded
-	// asset pixels for GPU upload.
+	// supports textures. This keeps the asset cache and the renderer aligned:
+	// eviction must release backend textures, and decoded pixels must flow
+	// through the renderer's per-frame upload budget.
 	if tb, ok := backend.(render.TextureBackend); ok && tb.UploadBudgetBytesPerFrame() > 0 {
 		if m, ok := rt.assetManager.(*assets.ManagerImpl); ok {
 			m.SetTextureReleaser(&assetTextureReleaser{backend: tb})

@@ -22,8 +22,12 @@ import (
 var errPakFSClosed = errors.New("pakfs closed")
 
 // PakFS implements fs.FS and AssetSource for release builds backed by a
-// memory-mapped pak file. It provides no network, scheduling, or cache
-// logic — those live in ManagerImpl, which wraps a PakFS as an AssetSource.
+// memory-mapped pak file.
+//
+// The pak format is a read-only content store: the file begins with a fixed
+// header, then a TOC, then a dependency table, then aligned payload blocks.
+// PakFS is intentionally dumb and never owns cache policy, scheduling, or
+// retry logic; ManagerImpl wraps it when the runtime needs streaming behavior.
 //
 // Concurrency: ReadLOD increments an in-flight counter so Close can wait
 // for all active reads to finish before munmap. Every ReadLOD call copies
@@ -67,7 +71,8 @@ type pakFileInfo struct {
 // NewPakFSFromFD memory-maps a file descriptor at the given offset and
 // length and returns an AssetSource + fs.FS backed by the mapping. The
 // caller must close the PakFS (which munmaps) and close the fd separately.
-// This is used on Android to mmap uncompressed APK assets directly.
+// This is used on Android to mmap uncompressed APK assets directly so the
+// runtime can treat APK-bundled assets the same way as release pak files.
 func NewPakFSFromFD(fd int, offset, length int64) (*PakFS, error) {
 	if length <= 0 {
 		return nil, fmt.Errorf("PakFS fd: invalid length %d", length)
@@ -209,7 +214,9 @@ func filepathExt(path string) string {
 }
 
 // ReadLOD returns the raw compressed bytes for the requested asset LOD.
-// The returned slice is a copy of the mmap data, safe to use after Close.
+// LOD 0 is the canonical source asset, higher LODs are alternate representations
+// produced by the cook step, and the returned slice is always copied out of the
+// mmap so callers can keep using it after Close.
 func (p *PakFS) ReadLOD(id AssetID, lod int) ([]byte, error) {
 	p.mu.RLock()
 	if p.closed {
@@ -239,7 +246,8 @@ func (p *PakFS) ReadLOD(id AssetID, lod int) ([]byte, error) {
 	return out, nil
 }
 
-// Open implements fs.FS. Files are addressed by UUID string and optional `.lodN` suffix.
+// Open implements fs.FS. Files are addressed by UUID string and optional `.lodN`
+// suffix so runtime code can use the pak through ordinary fs.FS reads.
 func (p *PakFS) Open(name string) (fs.File, error) {
 	if name == "." || name == "" {
 		return p.openRoot(), nil

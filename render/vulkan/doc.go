@@ -1,15 +1,10 @@
 // Package vulkan is the Rust-backed Vulkan bridge.
 //
-// The package currently exposes the Go-side backend skeleton plus the
-// render/vulkan/crates/lurpic_render bridge crate. The FFI boundary uses
-// explicit result codes, opaque handles, and panic catching conventions
-// documented in render/vulkan/crates/lurpic_render/CONVENTIONS.md.
+// Maturity banner: bridge behavior is partially verified, and platform coverage
+// is intentionally conservative in the docs. The FFI boundary uses explicit
+// result codes, opaque handles, and panic-catching conventions documented in
+// render/vulkan/crates/lurpic_render/CONVENTIONS.md.
 //
-// Phase 4 adds optional surface creation and a clear-color swapchain present
-// path for Linux/XCB surfaces. The Go side can still initialize headless for
-// diagnostics, but real rendering now requests render.VulkanSurface support.
-//
-// Phase 11 adds Android support so the same Vulkan backend can create
-// ANativeWindow-backed surfaces and recreate swapchains across Android
-// lifecycle changes.
+// Use this package as a shape reference for the current backend bridge, not as
+// a promise of stable cross-platform Vulkan behavior.
 package vulkan

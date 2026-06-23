@@ -1,30 +1,36 @@
-# Android Debugging Guide
+# Android Debugging
 
-## Overview
+Canonical debugging guide for Android app bring-up, live logs, crash analysis,
+and screenshot capture.
 
-This document describes the debugging workflow for lurpicUI Android builds. The
-tooling covers three scenarios:
-
-1. **Log streaming** — watching app output in real time.
-2. **Crash analysis** — pulling native tombstones and symbolicating them.
-3. **Generic `adb` diagnostics** — device logs, tombstones, and symbol bundles.
-
----
+If you need to preserve crash state after a failure, start the emulator
+manually and use `lurpic build android` plus `adb`. The `lurpic run android
+--emulator` path is convenient for iterative bring-up, but spawned emulators are
+left running when the command exits.
 
 ## Prerequisites
 
-- Android SDK (set `ANDROID_HOME` or detect via auto-detection).
-- Android NDK (set `ANDROID_NDK_HOME` or detect from SDK) — required for
-  `ndk-stack` symbolication.
-- A connected device or running emulator.
+- Android SDK with `adb` available.
+- Android NDK for `ndk-stack` symbolication.
+- A connected device or a running emulator.
 
----
+## Live Run Loop
 
-## Commands
+`lurpic run android --emulator` builds the app, installs it, launches it, and
+streams logcat. Useful flags from `cmd/lurpic/run.go` are:
 
-### `lurpic logcat`
+- `--no-logcat` to launch without streaming logs.
+- `--force-software` to force `LURPIC_RENDER_BACKEND=software`.
+- `--device`, `--avd`, `--abi`, `--gpu`, and `--boot-timeout` for emulator
+  selection and startup control.
+- `--release` to build the release variant before running.
 
-Stream the device log buffer with lurpicUI-specific filters:
+The command keeps a spawned emulator running after exit so the next run can
+reuse it.
+
+## `lurpic logcat`
+
+Stream or clear the device log buffer.
 
 ```sh
 lurpic logcat
@@ -33,24 +39,17 @@ lurpic logcat
 Flags:
 
 | Flag | Default | Description |
-|------|---------|-------------|
+|---|---|---|
 | `--clear` | `false` | Clear the log buffer and exit. |
-| `--filter` | `LurpicBridge:V LurpicNativeActivity:V AndroidRuntime:V *:W` | Logcat filter expression. |
-| `--serial` | auto | Target device serial (e.g. `emulator-5554`). |
+| `--filter` | `LurpicAsset:V LurpicBridge:V LurpicNativeActivity:V AndroidRuntime:V *:W` | Logcat filter expression. |
+| `--serial` | auto | Target device serial, such as `emulator-5554`. |
 
-Examples:
+Use `--clear` before reproducing a problem if you want the log stream to start
+from a clean buffer.
 
-```sh
-# Clear the buffer before a test run
-lurpic logcat --clear
+## `lurpic crash`
 
-# Stream with a custom filter (verbose debug for your tag + errors only)
-lurpic logcat --filter "MyTag:V *:E"
-```
-
-### `lurpic crash`
-
-Pull native crash tombstones from the device and symbolicate them:
+Pull tombstones from the device and symbolicate them.
 
 ```sh
 lurpic crash
@@ -59,94 +58,70 @@ lurpic crash
 Flags:
 
 | Flag | Default | Description |
-|------|---------|-------------|
+|---|---|---|
 | `--serial` | auto | Target device serial. |
 | `--build-dir` | `<project>/build` | Build directory containing `android/lib/<abi>/*.so`. |
-| `--pull-dir` | temp dir | Local directory to pull tombstones into. |
-| `--abi` | auto | Filter analysis to a single ABI (e.g. `arm64-v8a`). |
+| `--pull-dir` | temp dir | Local directory for pulled tombstones. |
+| `--abi` | auto | Restrict analysis to one ABI, such as `arm64-v8a`. |
 
-Workflow:
+Behavior verified in `cmd/lurpic/diagnostics.go`:
+
+1. It looks for `android/native-debug-symbols/<abi>` first when present.
+2. Otherwise it uses `android/lib/<abi>` for the symbol set.
+3. It pulls `/data/tombstones` from the device.
+4. It runs `ndk-stack -sym <symbol-dir> -dump <tombstone>` for each tombstone.
+5. If no tombstones are found, it scans `adb logcat -d -v time` for crash
+   entries.
+
+## `lurpic screenshot`
+
+Capture a device screenshot or compare it against a golden reference.
 
 ```sh
-# Run the app on the emulator until it crashes
-lurpic run android --emulator
-
-# After the crash, analyse it
-lurpic crash
+lurpic screenshot -o current.png
 ```
 
-The command:
-1. Locates the `android/lib/<abi>/*.so` symbol files from the build directory.
-2. Pulls `/data/tombstones` from the device.
-3. Runs `ndk-stack -sym <symbol-dir> -dump <tombstone>` for each tombstone.
-4. Falls back to scanning `logcat -d` for crash entries if no tombstones exist.
+Flags:
 
-When debug symbols are explicitly retained via
-`build/android/native-debug-symbols/<abi>/*.so`, those take precedence over
-the (potentially stripped) lib copies.
+| Flag | Default | Description |
+|---|---|---|
+| `-o` | `screenshot_<timestamp>.png` | Output path for the captured PNG. |
+| `--serial` | auto | Target device serial. |
+| `--golden` | empty | Compare against a reference screenshot. |
+| `--diff` | empty | Report a difference-image path on mismatch. |
+| `--tolerance` | `0.01` | Maximum size-ratio delta for the golden check. |
 
----
+The current golden comparison is size-ratio based, not pixel-diff based, so it
+is a smoke check rather than a visual-diff engine.
 
-## Symbol Bundle for Release Builds
+## Manual Workflow
 
-Before a release build, ensure unstripped copies are retained:
-
-1. Configure the build tool to emit `native-debug-symbols.zip` containing the
-   unstripped `.so` set per ABI.
-2. Upload this zip as a Play Console debug symbol artifact.
-
-The `lurpic crash` command checks the build directory for both
-`android/lib/<abi>` and `android/native-debug-symbols/<abi>`, preferring the
-latter.
-
----
-
-## Manual Workflow (without lurpic)
-
-If the `lurpic` CLI is unavailable, the manual workflow is:
+Use this flow when you need the emulator and device state to stay visible across
+commands:
 
 ```sh
-# 1. Pull tombstones
+emulator -avd lurpic_api33_google_apis_x86_64 -no-snapshot-save -no-audio -no-boot-anim &
+adb wait-for-device
+until [ "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1" ]; do sleep 2; done
+
+lurpic build android --project ./cmd/quick_square_app
+adb install -r cmd/quick_square_app/build/android/org.lurpicui.quicksquare-debug.apk
+adb shell am start -W -n org.lurpicui.quicksquare/org.lurpicui.bridge.LurpicNativeActivity
+```
+
+For crash work:
+
+```sh
+adb logcat -d -b crash
 adb pull /data/tombstones ./tombstones
-
-# 2. Symbolicate
-ndk-stack -sym build/android/lib/arm64-v8a -dump ./tombstones/tombstone_00
-
-# 3. Check logcat for Java crashes
-adb logcat -d -v time AndroidRuntime:V *:E
+ndk-stack -sym cmd/quick_square_app/build/android/lib/x86_64 -dump ./tombstones/tombstone_00
 ```
 
----
+## Troubleshooting
 
-## Expected Output
-
-A successful `lurpic crash` invocation produces output like:
-
-```
-Device: emulator-5554
-Build:  /home/user/project/build
-Symbol sets:
-  arm64-v8a:
-    /home/user/project/build/android/lib/arm64-v8a/libgo.so
-    /home/user/project/build/android/lib/arm64-v8a/liblurpic_render.so
-
-Pulling tombstones to /tmp/lurpic-tombstones-abc123 ...
-
-Found 1 tombstone(s):
-  /tmp/lurpic-tombstones-abc123/tombstones/tombstone_00
-
-────────────────────────────────────────────────────────────
-Tombstone: /tmp/lurpic-tombstones-abc123/tombstones/tombstone_00
-────────────────────────────────────────────────────────────
-*** *** *** *** *** *** *** *** *** *** *** *** *** *** *** ***
-ABI: 'arm64-v8a'
-...
-signal 11 (SIGSEGV), code 1 (SEGV_MAPERR), fault addr 0x0
-
-Symbolicated stack trace:
-  #00 pc 0000000000012345  libgo.so!crashyFunction+0x100
-  #01 pc 0000000000012467  libgo.so!main.someInit+0x47
-```
-
-This identifies the crashing library, the signal, and the function name
-+ offset, making the root cause immediately debuggable.
+- If `lurpic run android --emulator` exits and you need the device kept alive,
+  start the emulator yourself and use `lurpic build android`.
+- If Vulkan initialization fails on an emulator or headless machine, rerun with
+  `--force-software`.
+- If `ndk-stack` cannot find symbols, check for
+  `build/android/native-debug-symbols/<abi>` in a release build.

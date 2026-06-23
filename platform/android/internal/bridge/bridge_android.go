@@ -100,13 +100,13 @@ type Event struct {
 	Text      string
 	CursorPos int
 	// Window inset fields
-	InsetTop    int32
-	InsetBottom int32
-	InsetLeft   int32
-	InsetRight  int32
-	CutoutLeft  int32
-	CutoutTop   int32
-	CutoutRight int32
+	InsetTop     int32
+	InsetBottom  int32
+	InsetLeft    int32
+	InsetRight   int32
+	CutoutLeft   int32
+	CutoutTop    int32
+	CutoutRight  int32
 	CutoutBottom int32
 	// Audio focus field
 	FocusChange int32
@@ -117,14 +117,14 @@ type Event struct {
 	// Saved state fields (for process death restoration)
 	SavedState []byte
 	// Configuration fields
-	Orientation   int32
-	ScreenWidthDp int32
+	Orientation    int32
+	ScreenWidthDp  int32
 	ScreenHeightDp int32
-	Density       int32
-	UiModeNight   int32
-	FontScale     float32
-	Language      string
-	Country       string
+	Density        int32
+	UiModeNight    int32
+	FontScale      float32
+	Language       string
+	Country        string
 }
 
 // TouchPhase represents the phase of a touch event.
@@ -138,6 +138,11 @@ const (
 )
 
 // EventQueue is a thread-safe queue for Android events.
+//
+// NativeActivity callbacks can arrive on platform threads that are not the
+// runtime thread. Those callbacks push events here, and the runtime drains the
+// queue later from its own frame loop so lifecycle and input delivery stay
+// serialized.
 type EventQueue struct {
 	mu     sync.Mutex
 	cond   *sync.Cond
@@ -206,7 +211,8 @@ func (q *EventQueue) IsClosed() bool {
 	return q.closed
 }
 
-// Global event queue instance
+// Global event queue instance. Android apps in this package operate as a
+// single bridge-owned event source for one runtime instance at a time.
 var (
 	globalQueue     *EventQueue
 	globalQueueOnce sync.Once
@@ -642,13 +648,13 @@ func goDeliverConfigurationChanged(orientation C.int32_t, screenWidthDp C.int32_
 	screenHeightDp C.int32_t, density C.int32_t, uiModeNight C.int32_t,
 	fontScale C.float, language *C.char, country *C.char) {
 	event := Event{
-		Type:          EventTypeConfigurationChanged,
-		Orientation:   int32(orientation),
-		ScreenWidthDp: int32(screenWidthDp),
+		Type:           EventTypeConfigurationChanged,
+		Orientation:    int32(orientation),
+		ScreenWidthDp:  int32(screenWidthDp),
 		ScreenHeightDp: int32(screenHeightDp),
-		Density:       int32(density),
-		UiModeNight:   int32(uiModeNight),
-		FontScale:     float32(fontScale),
+		Density:        int32(density),
+		UiModeNight:    int32(uiModeNight),
+		FontScale:      float32(fontScale),
 	}
 	if language != nil {
 		event.Language = C.GoString(language)

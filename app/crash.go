@@ -107,7 +107,9 @@ func writeCrashReport(r CrashReport) {
 	fmt.Fprintf(f, "--- end crash report ---\n")
 }
 
-// stackTrace returns a formatted stack trace, skipping the given number of frames.
+// stackTrace returns a formatted stack trace for the current goroutine.
+// The skip parameter is retained for call-site symmetry, but runtime.Stack does
+// not currently trim frames here.
 func stackTrace(skip int) string {
 	buf := make([]byte, 64*1024)
 	n := runtime.Stack(buf, false)

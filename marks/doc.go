@@ -1,6 +1,6 @@
-// Package marks hosts the standard LurpicUX V2 mark families and their authored contracts.
+// Package marks hosts the current post-rewrite mark families and authored contracts.
 //
-// Primitive marks live in marks/primitive. That family includes primitive.text today and
-// defines primitive.icon as the canonical SVG iconography mark contract for ordinary
-// consumers. Custom SVG-derived geometry is documented as a separate facet contract.
+// Maturity banner: PRM / BETA. This package synopsis is a shape reference, not a
+// stable authoring tutorial. Treat constructor signatures and Binding[T] usage as
+// family-specific until Lurpic Studio validates the rewrite end-to-end.
 package marks

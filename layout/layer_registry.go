@@ -25,6 +25,10 @@ const (
 )
 
 // WindowBinding binds a layer to a platform window.
+//
+// Primary bindings map to the runtime's main window. Named bindings let an
+// application route a layer to an explicitly provided secondary window, and
+// runtime validation rejects unknown names before the first frame runs.
 type WindowBinding struct {
 	Kind WindowBindingKind
 	Name string
@@ -68,6 +72,10 @@ type LayerLayoutRecipeRef struct {
 }
 
 // StandardLayer is a hardcoded standard layer reservation.
+//
+// IDs 1-9 and the corresponding names/orders are reserved by the framework so
+// application layers can be registered around them without colliding with the
+// foundational window/layer stack.
 type StandardLayer struct {
 	ID    LayerID
 	Name  LayerName
@@ -205,6 +213,10 @@ func (b *LayerRegistryBuilder) RegisterStandardLayers() error {
 }
 
 // RegisterLayer inserts one layer into the builder.
+//
+// Names and orders must stay unique, and standard reservations cannot be
+// reused. The builder freezes into an immutable snapshot after startup so the
+// runtime can rely on stable layer IDs and ordering for the rest of the app.
 func (b *LayerRegistryBuilder) RegisterLayer(spec LayerRegistration) (LayerID, error) {
 	if b == nil {
 		return 0, fmt.Errorf("layout: nil layer registry builder")

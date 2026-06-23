@@ -1,5 +1,9 @@
 # LurpicUX V2 Foundation
 
+> Draft / superseded foundation notes. Keep this as a historical reference for
+> the layer model and authoring context, but do not treat it as the current
+> engine architecture contract.
+
 ## Status: Draft — Pre-mark-spec authoring reference
 
 This document establishes the architectural contracts that every V2 mark spec must satisfy.

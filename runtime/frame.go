@@ -25,6 +25,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	rt.frameNumber++
 	stats := diagnostics.FrameStats{FrameNumber: rt.frameNumber}
 
+	// The frame loop is intentionally ordered. Jobs and platform events are
+	// drained before input so state changes affect the same frame. Layout runs
+	// before projection, projection runs before assembly, and render submission
+	// is the last step because the render thread consumes immutable frame data.
 	committed, discarded := rt.drainJobResults()
 	stats.JobsCommitted = committed
 	stats.JobsDiscarded = discarded
@@ -71,6 +75,9 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	default:
 	}
 
+	// Capture the dirty set once. Later phases mutate dirty state for the next
+	// frame, but this snapshot must stay stable for the current frame's layout,
+	// projection, and dirty-region assembly.
 	dirtySnapshot := rt.copyDirtyFacets()
 	stats.DirtyFacets = len(dirtySnapshot)
 
@@ -114,6 +121,9 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 
 	renderStart := time.Now()
+	// Do not hand a frame to the renderer unless the platform surface is live.
+	// Android can lose the surface independently of the runtime; in that state
+	// the frame still advances, but submission must wait for a recreated surface.
 	if rt.renderPipeline != nil && frameOut != nil && rt.isSurfaceReady() {
 		if runtimeTraceActive() {
 			runtimeTracef("runFrame submit n=%d wait=%v surfaceReady=%v frameBatches=%d",

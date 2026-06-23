@@ -10,6 +10,11 @@ import (
 )
 
 // Manager is the runtime-facing asset access surface.
+//
+// The runtime uses this interface for both bootstrap reads (via fs.FS) and
+// long-lived streamed assets. Runtime code should treat handles as stable IDs
+// and let the manager decide when an asset is loaded, evicted, or upgraded to
+// a higher LOD.
 type Manager interface {
 	fs.FS
 
@@ -26,6 +31,10 @@ type Manager interface {
 }
 
 // PathIDRegistry resolves canonical asset paths to stable IDs.
+//
+// The cook pipeline writes the canonical path form into uuid_registry.json and
+// the runtime must query the same form. Any mismatch becomes a silent miss, so
+// callers must normalize before lookup.
 type PathIDRegistry interface {
 	Lookup(canonicalPath string) AssetID
 }
@@ -142,6 +151,8 @@ func (h Handle) Registry() *AssetRegistryStore {
 }
 
 // AvailableLOD reports the best available LOD for the asset.
+// Callers use this to decide whether a higher-quality read can happen now or
+// whether they should keep rendering from a lower LOD until streaming catches up.
 func (h Handle) AvailableLOD() int {
 	if h.registry == nil || h.ID == (AssetID{}) {
 		return -1
@@ -154,6 +165,8 @@ func (h Handle) AvailableLOD() int {
 }
 
 // State returns the aggregate load state of the asset.
+// The manager can transition through absent/loading/partial/ready/failed
+// states without changing the handle identity.
 func (h Handle) State() AssetState {
 	if h.registry == nil || h.ID == (AssetID{}) {
 		return AssetStateAbsent

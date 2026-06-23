@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform/internal/common"
 )
 
+//nolint:unused
 const (
 	testEventKeyPress = iota + 1
 	testEventKeyRelease
@@ -25,6 +26,7 @@ const (
 	testEventClientMessage
 )
 
+//nolint:unused
 type testEvent struct {
 	kind   int
 	detail uint8
@@ -43,9 +45,9 @@ type app struct {
 	events         *eventQueue
 	clipboard      *clipboard
 	clipboardOwner uint32
-	atomWMDelete   uint32
-	atomUTF8String uint32
-	atomClipboard  uint32
+	atomWMDelete   uint32 //nolint:unused
+	atomUTF8String uint32 //nolint:unused
+	atomClipboard  uint32 //nolint:unused
 }
 
 type window struct {
@@ -91,7 +93,7 @@ func (a *app) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 	win := &window{
 		app:     a,
 		surface: &shmSurface{buf: make([]byte, opts.Width*opts.Height*4), stride: opts.Width * 4, width: opts.Width, height: opts.Height},
-		id:      uint32(len(a.windows) + 1), //nolint:gosec // integer overflow conversion
+		id:      uint32(len(a.windows) + 1),
 		width:   opts.Width,
 		height:  opts.Height,
 	}
@@ -237,6 +239,7 @@ func (a *app) DestroyClipboard() {
 	}
 }
 
+//nolint:unused
 func (a *app) setClipboard(text string) {
 	if a == nil {
 		return
@@ -248,6 +251,7 @@ func (a *app) setClipboard(text string) {
 	a.clipboard.own = true
 }
 
+//nolint:unused
 func (a *app) lookupWindow(id uint32) *window {
 	if a == nil {
 		return nil
@@ -255,6 +259,7 @@ func (a *app) lookupWindow(id uint32) *window {
 	return a.windows[id]
 }
 
+//nolint:unused
 func (a *app) translateEvent(ev *testEvent) []platform.Event {
 	if ev == nil {
 		return nil
@@ -289,6 +294,7 @@ func (a *app) translateEvent(ev *testEvent) []platform.Event {
 	}
 }
 
+//nolint:unused
 func (a *app) translateKeyEvent(ev *testEvent, press bool) []platform.Event {
 	key := common.KeyFromKeysym(uint32(ev.detail))
 	mod := common.ModifiersFromState(ev.state)
@@ -301,6 +307,7 @@ func (a *app) translateKeyEvent(ev *testEvent, press bool) []platform.Event {
 	}
 }
 
+//nolint:unused
 func (a *app) translatePointerButton(ev *testEvent, press bool) []platform.Event {
 	button := platform.PointerNone
 	switch ev.detail {
@@ -325,6 +332,7 @@ func (a *app) translatePointerButton(ev *testEvent, press bool) []platform.Event
 	}
 }
 
+//nolint:unused
 func (a *app) translateMotion(ev *testEvent) []platform.Event {
 	return []platform.Event{
 		platform.EventPointer{
@@ -335,6 +343,7 @@ func (a *app) translateMotion(ev *testEvent) []platform.Event {
 	}
 }
 
+//nolint:unused
 func (a *app) translateEnterLeave(ev *testEvent, enter bool) []platform.Event {
 	kind := platform.PointerLeave
 	if enter {
@@ -349,6 +358,7 @@ func (a *app) translateEnterLeave(ev *testEvent, enter bool) []platform.Event {
 	}
 }
 
+//nolint:unused
 func (a *app) translateFocus(ev *testEvent, focused bool) []platform.Event {
 	win := a.lookupWindow(ev.window)
 	if win == nil {
@@ -359,6 +369,7 @@ func (a *app) translateFocus(ev *testEvent, focused bool) []platform.Event {
 	}
 }
 
+//nolint:unused
 func (a *app) translateExpose(ev *testEvent) []platform.Event {
 	win := a.lookupWindow(ev.window)
 	if win == nil {
@@ -369,6 +380,7 @@ func (a *app) translateExpose(ev *testEvent) []platform.Event {
 	}
 }
 
+//nolint:unused
 func (a *app) translateConfigure(ev *testEvent) []platform.Event {
 	win := a.lookupWindow(ev.window)
 	if win == nil {
@@ -384,6 +396,7 @@ func (a *app) translateConfigure(ev *testEvent) []platform.Event {
 	}
 }
 
+//nolint:unused
 func (a *app) translateClientMessage(ev *testEvent) []platform.Event {
 	win := a.lookupWindow(ev.window)
 	if win == nil {

@@ -52,6 +52,10 @@ type TextureUploadResult struct {
 }
 
 // TextureBackend abstracts texture uploads and releases.
+//
+// The runtime drives this interface from the render thread's upload budget.
+// Implementations must treat uploads as frame-bounded work and must free
+// textures deterministically when the runtime evicts asset cache entries.
 type TextureBackend interface {
 	UploadTexture(req TextureUploadRequest) (TextureID, error)
 	FreeTexture(id TextureID)
@@ -59,8 +63,10 @@ type TextureBackend interface {
 	TranscodeTarget() TextureFormat
 }
 
-// VulkanTextureHooks lets the Vulkan renderer package provide real upload/free behavior
-// without introducing an import cycle into the root render package.
+// VulkanTextureHooks lets the Vulkan renderer package provide real upload/free
+// behavior without introducing an import cycle into the root render package.
+// The Vulkan package installs these hooks during backend initialization, and
+// the render package forwards texture work through them.
 type VulkanTextureHooks struct {
 	Upload func(req TextureUploadRequest) (TextureID, error)
 	Free   func(id TextureID)

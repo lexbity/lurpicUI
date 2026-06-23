@@ -1,86 +1,33 @@
-# Marks — Unified Authored Contract
+# Marks
 
-This document describes the post-rewrite mark system (PRM). It supersedes
-`artist-authoring-model.md` and `marks-animation-theme-api.md`, which describe
-the pre-rewrite model.
+> Maturity banner: PRM / BETA. This page describes current package shape only.
+> It is not a stable authoring tutorial, and it should not be treated as a
+> copy-paste recipe until Lurpic Studio validates the rewrite end-to-end.
 
-## Overview
+`marks.md` is the current shape reference for the post-rewrite mark system.
+Use it to understand the package surface, not to assume the API is frozen.
 
-A **mark** is a `facet.FacetImpl` that satisfies `marks.Mark`. Every concrete
-mark type provides:
+## Verified Shape
 
-- `marks.Core` embedding (role wiring, binding subscription, default anchors)
-- Config fields using `marks.Binding[T]` (not raw fields with setters)
-- A single `BuildCommands` render path (not dual `OnCollect`/`OnProject`)
-- A `Descriptor()` returning `Family` + `TypeName`
+The package centers on:
+
+- `marks.Core` for role wiring and binding subscriptions.
+- `marks.Binding[T]` for config values that are either literals or store-backed.
+- `marks.Describe` for derived capability flags.
+- `marks.Descriptor` for the `Family` + `TypeName` identity pair.
 
 ## Core Pattern
 
-```go
-type MyMark struct {
-    marks.Core
-    Label      marks.Binding[string]
-    Disabled   marks.Binding[bool]
-    // ...
-}
+At a shape level, a mark family typically:
 
-func NewMyMark(label marks.Binding[string]) *MyMark {
-    m := &MyMark{
-        Label:    label,
-        Disabled: marks.Const(false),
-    }
-    m.Core.Facet = facet.NewFacet()
-    m.AddBinding(m.Label)
-    m.AddBinding(m.Disabled)
+- embeds `marks.Core`
+- declares family-specific `marks.Binding[T]` fields or equivalent config inputs
+- implements `Descriptor()` with `Family` and `TypeName`
+- wires roles and bindings through package-specific setup
 
-    m.Layout.OnMeasure = func(...)
-    m.Layout.OnArrange = func(...)
-    m.Hit.OnHitTest = func(...)
-    m.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
-        return m.buildCommands(m.Layout.ArrangedBounds)
-    }
-    m.RegisterRoles()
-    return m
-}
+Those steps describe the current contract shape, not a stable tutorial.
 
-func (m *MyMark) Base() *facet.Facet       { m.Facet.BindImpl(m); return &m.Facet }
-func (m *MyMark) Descriptor() marks.Descriptor { return marks.Descriptor{Family: "my", TypeName: "mark"} }
-func (m *MyMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *MyMark) OnDetach()                         { m.Core.OnDetach() }
-func (m *MyMark) OnActivate()                       { m.Core.OnActivate() }
-func (m *MyMark) OnDeactivate()                     { m.Core.OnDeactivate() }
-func (m *MyMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-    return m.DefaultAnchors(m.Layout.ArrangedBounds, ctx)
-}
-```
-
-## Binding[T]
-
-`marks.Binding[T]` replaces imperative `SetX` methods. A binding is a reference
-to truth — either an immutable literal (`marks.Const(v)`) or a reference to a
-`store.ValueStore`/`Derived` (`marks.FromStore(s, dirtyFlags)`).
-
-The concrete mark adds each binding to the Core subscription list via
-`AddBinding`. Core subscribes store-backed bindings in `OnAttach` and
-invalidates the facet on every store change.
-
-## Descriptor & Describe
-
-`marks.Descriptor` carries static metadata. Authors declare only `Family` and
-`TypeName`; capability flags are derived by `marks.Describe(m)` via static
-type assertion:
-
-```go
-d := marks.Describe(m)
-// d.Focusable     — if m implements marks.Focusable
-// d.ExportsAnchors — if m implements layout.AnchorExporter
-// d.Accessible    — if m implements marks.Accessible
-// d.HostsChildren — if m implements marks.Composite
-// d.HitTestable   — if m.Base().HitRole() != nil
-// d.DataBound     — if m implements marks.DataBound
-```
-
-## Families
+The current authored families in the tree are:
 
 | Package | Marks |
 |---|---|
@@ -95,7 +42,23 @@ d := marks.Describe(m)
 | `marks/viz` | rule, axis, point, line, area, bar |
 | `marks/data` | CollectionBinder, DataMark, RegionFromBounds, Pt |
 
-## Migration Status
+## Construction Shape
 
-All marks have been migrated to the unified contract. No `SetX` config setters
-remain. All marks use `marks.Core` + `Binding[T]` + `BuildCommands`.
+Constructor shape is family-specific. In the current tree, some constructors
+take `marks.Binding[T]` inputs, while others still use plain values or package-
+specific config helpers. That asymmetry is inferred from the package APIs and
+should be rechecked before copying a pattern into a new mark family.
+
+## What This Page Does Not Promise
+
+- No stable tutorials.
+- No guarantee that a family has reached the same maturity as the others.
+- No promise that authoring ergonomics are settled.
+- No promise that `Binding[T]` usage is uniform across every constructor.
+
+## Related Docs
+
+- [marks-animation-theme-api.md](marks-animation-theme-api.md) is stale reference
+  material for the pre-rewrite model.
+- [Principles/README.md](Principles/README.md) explains the engine principles
+  that the package is meant to fit.

@@ -36,6 +36,11 @@ type depSpan struct {
 }
 
 // Pack serializes tree into a complete pak archive.
+//
+// The archive layout is fixed so the runtime can mmap it directly:
+// header -> TOC -> dependency table -> aligned payload blocks. Entries are
+// sorted to keep the output deterministic and to make prefix-cluster lookups
+// in PakFS cheap.
 func (p *Packer) Pack(tree *DependencyTree) ([]byte, error) {
 	if tree == nil {
 		return nil, fmt.Errorf("nil dependency tree")
@@ -101,6 +106,9 @@ func (p *Packer) buildBlocks(tree *DependencyTree, depSpans map[assets.AssetID]d
 			return nil, fmt.Errorf("asset %q has no LODs", node.Path)
 		}
 		for _, lod := range node.LODs {
+			// The cook step decides the encoding policy per asset family and LOD.
+			// Runtime code only sees the archive; it should not infer compression
+			// rules from file extensions or directory layout.
 			compression, err := p.compressionFor(node.Type, lod.Level)
 			if err != nil {
 				return nil, err

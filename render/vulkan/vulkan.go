@@ -48,11 +48,17 @@ func IsUnsupported(err error) bool {
 var errNotImplemented = errors.New("vulkan backend: not implemented")
 
 type Backend struct {
+	// Backend owns the Vulkan process-wide lifecycle in this Go wrapper.
+	// Initialize/Destroy may be called multiple times across surface changes,
+	// while Recreate handles the lighter surface/swapchain-only path.
 	initialized bool
 	hasSurface  bool
 	images      *imageCache
 }
 
+// Initialize brings up the Vulkan instance and optionally binds a platform
+// surface. If the surface supports Vulkan presentation, the backend creates a
+// native surface immediately so the runtime can submit frames on the same turn.
 func (b *Backend) Initialize(s render.Surface) error {
 	if b.initialized {
 		b.Destroy()
@@ -101,9 +107,8 @@ func (b *Backend) Submit(f *render.Frame) error {
 }
 
 // Recreate rebuilds the Vulkan surface + swapchain for a new platform Surface.
-// Used on Android when the native window is recreated after pause/resume or
-// configuration change. On desktop this calls the platform's CreateVulkanSurface
-// to recreate the surface for the new window, then Resize to rebuild the swapchain.
+// The runtime uses this when the platform surface changes but the Vulkan device
+// itself can stay alive. That is cheaper than a full Initialize/Destroy cycle.
 func (b *Backend) Recreate(s render.Surface) error {
 	if !b.initialized {
 		return errors.New("vulkan backend: not initialized")

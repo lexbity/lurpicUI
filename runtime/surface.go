@@ -68,6 +68,9 @@ func (rt *Runtime) clearRecoverableCaches() {
 
 func (rt *Runtime) handleSurfaceLost() {
 
+	// Surface loss is a render-lifecycle event, not a full app shutdown. The
+	// runtime keeps its state, but it must stop submitting frames until a new
+	// surface arrives and the backend has been torn down or recreated.
 	rt.lifecycleMu.Lock()
 	rt.surfaceReady = false
 	rt.lifecycleMu.Unlock()
@@ -82,7 +85,6 @@ func (rt *Runtime) handleSurfaceLost() {
 }
 
 func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
-
 	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil && surface != nil {
 		// Prefer the lighter Recreate path (surface+swapchain only) over the
 		// full Initialize (re-creates instance + device). This avoids tearing
@@ -98,6 +100,9 @@ func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
 				rt.log.Error("runtime: reinitialize render backend after surface creation failed", "error", err)
 			}
 		} else {
+			// Only mark the surface live after the backend accepted the new
+			// platform surface. That keeps render submission blocked during a
+			// failed recreate attempt.
 			rt.lifecycleMu.Lock()
 			rt.surfaceReady = true
 			rt.lifecycleMu.Unlock()
