@@ -6,7 +6,7 @@
 #
 # This is the build gate: non-zero exit means the code has violations.
 # The gate checks:
-#   LL001 (warn)   — raw LayoutRole literal (prefer composition)
+#   LL001 (warn)   — raw LayoutRole OnMeasure/OnArrange set outside layout/ or marks/ (literal or field assignment)
 #   LL002 (warn)   — absolute coordinate placement (prefer relative layout)
 #   LL003 (error)  — hand-rolled layout container (use built-in marks)
 #   LL004 (info)   — shape-match suggestion (consider using an existing mark)

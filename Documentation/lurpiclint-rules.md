@@ -23,7 +23,7 @@ repository state.
 
 | ID | Default Severity | Intent | Evidence |
 |---|---|---|---|
-| LL001 | warn | Raw `LayoutRole` literal with `OnMeasure` or `OnArrange` set; prefer composition. | [`reinvent_layoutrole.go`](../cmd/lurpiclint/internal/rules/reinvent_layoutrole.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |
+| LL001 | warn | `facet.LayoutRole` `OnMeasure`/`OnArrange` populated (composite literal *or* field assignment) outside `layout/` or `marks/`; prefer composition. | [`reinvent_layoutrole.go`](../cmd/lurpiclint/internal/rules/reinvent_layoutrole.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |
 | LL002 | warn | Absolute-coordinate placement via `gfx.RectFromXYWH` in a layout path; prefer relative layout. | [`reinvent_coords.go`](../cmd/lurpiclint/internal/rules/reinvent_coords.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |
 | LL003 | error | Child-arranging `LayoutRole`; use an existing container or mark. | [`reinvent_container.go`](../cmd/lurpiclint/internal/rules/reinvent_container.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |
 | LL004 | info | Child-arranging facet matches a known built-in capability; consider using it directly. | [`suggest_shapematch.go`](../cmd/lurpiclint/internal/rules/suggest_shapematch.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |

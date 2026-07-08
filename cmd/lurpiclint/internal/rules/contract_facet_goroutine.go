@@ -13,21 +13,25 @@ import (
 // that embed facet.Facet.  Runtime Principle 5 requires facets to be
 // single-threaded; use job.Schedule for deferred work instead.
 //
+// Extension: also scans demo-package files (matched by package name or
+// time+store import signature) regardless of whether they embed facet.Facet.
+//
 // Default severity: error.
 type FacetGoroutine struct{}
 
 func (r *FacetGoroutine) ID() string                     { return "LL011" }
 func (r *FacetGoroutine) DefaultSeverity() diag.Severity { return diag.SeverityError }
 func (r *FacetGoroutine) Description() string {
-	return "goroutine or channel operation in facet code; use job.Schedule instead"
+	return "goroutine or channel operation in facet or demo-package code; use job.Schedule instead"
 }
 
 func (r *FacetGoroutine) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
 	for _, f := range ctx.Files {
-		// Skip files that don't define any facet-embedding types.
-		if !fileContainsFacetType(f) {
+		// Scan files that define facet-embedding types OR belong to a
+		// demo package (name-based or import-signature match).
+		if !fileContainsFacetType(f) && !isDemoPackage(f) {
 			continue
 		}
 

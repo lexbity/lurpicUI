@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/capindex"
@@ -279,6 +280,41 @@ func TestRun_ProbeThroughReporter(t *testing.T) {
 	}
 	if buf.Len() == 0 {
 		t.Fatal("reporter produced no output for probe diagnostics")
+	}
+}
+
+func TestAllRules_RegisteredInDefaultRegistry(t *testing.T) {
+	expected := []struct {
+		id       string
+		severity diag.Severity
+	}{
+		{"LL001", diag.SeverityWarn},
+		{"LL002", diag.SeverityWarn},
+		{"LL003", diag.SeverityError},
+		{"LL004", diag.SeverityInfo},
+		{"LL010", diag.SeverityError},
+		{"LL011", diag.SeverityError},
+		{"LL012", diag.SeverityWarn},
+		{"LL013", diag.SeverityWarn},
+		{"LL014", diag.SeverityError},
+		{"LL015", diag.SeverityError},
+		{"LL016", diag.SeverityError},
+		{"LL017", diag.SeverityWarn},
+		{"LL018", diag.SeverityWarn},
+	}
+
+	for _, e := range expected {
+		rule := DefaultRegistry.Lookup(e.id)
+		if rule == nil {
+			t.Errorf("rule %s not found in DefaultRegistry — is init() missing?", e.id)
+			continue
+		}
+		if rule.ID() != e.id {
+			t.Errorf("rule %s: ID() = %q, want %q", e.id, rule.ID(), e.id)
+		}
+		if rule.DefaultSeverity() != e.severity {
+			t.Errorf("rule %s: DefaultSeverity = %d, want %d", e.id, rule.DefaultSeverity(), e.severity)
+		}
 	}
 }
 
@@ -562,6 +598,43 @@ func TestLL011_RegisteredInDefaultRegistry(t *testing.T) {
 	}
 }
 
+func TestLL011_Demo_OnNameBadFixture(t *testing.T) {
+	// A package named "studio" with a raw goroutine must trigger LL011,
+	// even though it does not embed facet.Facet.
+	dir := ruleTestdataDir(t, "contract", "ll011_demo_bad")
+	diags := runRulesOnFixture(t, []string{"LL011"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected LL011 diagnostic in 'studio' demo package with goroutine")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL011" {
+			t.Errorf("unexpected rule %q, want LL011", d.RuleID)
+		}
+	}
+}
+
+func TestLL011_Demo_OnImportBadFixture(t *testing.T) {
+	// A package that imports both "time" and a store path must trigger LL011
+	// for raw goroutines, even without a demo-style package name.
+	dir := ruleTestdataDir(t, "contract", "ll011_demo_import_bad")
+	diags := runRulesOnFixture(t, []string{"LL011"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected LL011 diagnostic in time+store importing package with goroutine")
+	}
+}
+
+func TestLL011_Demo_OnGoodFixture(t *testing.T) {
+	// A demo package using job.Schedule (allowlisted) must not trigger LL011.
+	dir := ruleTestdataDir(t, "contract", "ll011_demo_good")
+	diags := runRulesOnFixture(t, []string{"LL011"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on good LL011 demo fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
+	}
+}
+
 // runRulesOnFixtureWithIndex is like runRulesOnFixture but also builds and
 // injects the capability index (needed by LL004).
 func runRulesOnFixtureWithIndex(tb testing.TB, ruleIDs []string, dir string) []*diag.Diagnostic {
@@ -682,6 +755,33 @@ func TestLL004_RegisteredInDefaultRegistry(t *testing.T) {
 	}
 	if rule.DefaultSeverity() != diag.SeverityInfo {
 		t.Errorf("LL004 DefaultSeverity = %d, want info", rule.DefaultSeverity())
+	}
+}
+
+func TestLL004_ScalarAccessor_OnBadFixture(t *testing.T) {
+	// viz.NewBar with scalar accessor closures should trigger LL004 (info).
+	dir := ruleTestdataDir(t, "suggest", "ll004_scalar_bad")
+	diags := runRulesOnFixture(t, []string{"LL004"}, dir)
+	if len(diags) == 0 {
+		t.Error("expected at least 1 LL004 diagnostic for scalar accessor closures in viz.New*, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL004" {
+			t.Errorf("unexpected rule %q, want LL004", d.RuleID)
+		}
+	}
+}
+
+func TestLL004_ScalarAccessor_OnGoodFixture(t *testing.T) {
+	// A file without viz.New* calls should not trigger the scalar
+	// accessor check.
+	dir := ruleTestdataDir(t, "suggest", "ll004_scalar_good")
+	diags := runRulesOnFixture(t, []string{"LL004"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on good LL004 scalar fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
 	}
 }
 
@@ -856,6 +956,181 @@ func TestLL001_RegisteredInDefaultRegistry(t *testing.T) {
 	}
 	if rule.DefaultSeverity() != diag.SeverityWarn {
 		t.Errorf("LL001 DefaultSeverity = %d, want warn", rule.DefaultSeverity())
+	}
+}
+
+// --- LL016 tests ------------------------------------------------------------
+
+func TestLL016_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll016_bad")
+	diags := runRulesOnFixture(t, []string{"LL016"}, dir)
+	if len(diags) < 2 {
+		t.Errorf("expected at least 2 LL016 diagnostics (OnMeasure + OnArrange), got %d", len(diags))
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL016" {
+			t.Errorf("unexpected rule %q, want LL016", d.RuleID)
+		}
+	}
+}
+
+func TestLL016_OnGoodFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll016_good")
+	diags := runRulesOnFixture(t, []string{"LL016"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on good LL016 fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
+	}
+}
+
+func TestLL016_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL016")
+	if rule == nil {
+		t.Fatal("LL016 not found in DefaultRegistry — is init() missing?")
+	}
+	if rule.ID() != "LL016" {
+		t.Errorf("rule ID = %q, want LL016", rule.ID())
+	}
+	if rule.DefaultSeverity() != diag.SeverityError {
+		t.Errorf("LL016 DefaultSeverity = %d, want error", rule.DefaultSeverity())
+	}
+}
+
+// --- LL017 tests ------------------------------------------------------------
+
+func TestLL017_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll017_bad")
+	diags := runRulesOnFixture(t, []string{"LL017"}, dir)
+	if len(diags) == 0 {
+		t.Error("expected at least 1 LL017 diagnostic for media file via app.Asset, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL017" {
+			t.Errorf("unexpected rule %q, want LL017", d.RuleID)
+		}
+	}
+}
+
+func TestLL017_OnGoodFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll017_good")
+	diags := runRulesOnFixture(t, []string{"LL017"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on good LL017 fixture (non-media config file), got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
+	}
+}
+
+func TestLL017_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL017")
+	if rule == nil {
+		t.Fatal("LL017 not found in DefaultRegistry — is init() missing?")
+	}
+	if rule.ID() != "LL017" {
+		t.Errorf("rule ID = %q, want LL017", rule.ID())
+	}
+	if rule.DefaultSeverity() != diag.SeverityWarn {
+		t.Errorf("LL017 DefaultSeverity = %d, want warn", rule.DefaultSeverity())
+	}
+}
+
+// --- LL018 tests ------------------------------------------------------------
+
+func TestLL018_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll018_bad")
+	diags := runRulesOnFixture(t, []string{"LL018"}, dir)
+	if len(diags) == 0 {
+		t.Error("expected at least 1 LL018 diagnostic for unmounted overlay, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL018" {
+			t.Errorf("unexpected rule %q, want LL018", d.RuleID)
+		}
+	}
+}
+
+func TestLL018_OnGoodFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll018_good")
+	diags := runRulesOnFixture(t, []string{"LL018"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on good LL018 fixture (mounted overlay), got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
+	}
+}
+
+func TestLL018_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL018")
+	if rule == nil {
+		t.Fatal("LL018 not found in DefaultRegistry — is init() missing?")
+	}
+	if rule.ID() != "LL018" {
+		t.Errorf("rule ID = %q, want LL018", rule.ID())
+	}
+	if rule.DefaultSeverity() != diag.SeverityWarn {
+		t.Errorf("LL018 DefaultSeverity = %d, want warn", rule.DefaultSeverity())
+	}
+}
+
+// --- LL001 package-path extension tests -------------------------------------
+
+func TestLL001_PackageCheck_OnBadFixture(t *testing.T) {
+	// LL001 should fire when LayoutRole callbacks are assigned outside
+	// layout/ or marks/ packages.
+	dir := ruleTestdataDir(t, "contract", "ll001_package_bad")
+	diags := runRulesOnFixture(t, []string{"LL001"}, dir)
+	if len(diags) == 0 {
+		t.Error("expected at least 1 LL001 diagnostic on bad package fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL001" {
+			t.Errorf("unexpected rule %q, want LL001", d.RuleID)
+		}
+	}
+}
+
+func TestLL001_PackageCheck_OnGoodFixture(t *testing.T) {
+	// LL001 should NOT fire when LayoutRole callbacks are assigned inside
+	// a layout/ package.
+	dir := ruleTestdataDir(t, "contract", "ll001_package_good", "layout", "mock")
+	diags := runRulesOnFixture(t, []string{"LL001"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on good layout-package fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
+	}
+}
+
+// TestLL001_PackageCheck_BadFixtureStillTriggers verifies that the original
+// LL001 bad fixture (which is also outside layout/ or marks/) still fires.
+func TestLL001_PackageCheck_OriginalBadFixtureStillWorks(t *testing.T) {
+	dir := ruleTestdataDir(t, "reinvent", "ll001_bad")
+	diags := runRulesOnFixture(t, []string{"LL001"}, dir)
+	compareAgainstGolden(t, diags, "golden/ll001_bad.json")
+}
+
+// TestLL001_AssignmentPattern_OnBadFixture verifies that LL001 now catches
+// the field-assignment shape (`b.layout.OnMeasure = func(...) {...}`) which
+// the original composite-literal-only scan could not see.  Both the
+// OnMeasure and OnArrange assignments must produce findings.
+func TestLL001_AssignmentPattern_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll001_assign_bad")
+	diags := runRulesOnFixture(t, []string{"LL001"}, dir)
+	if len(diags) < 2 {
+		t.Fatalf("expected at least 2 LL001 diagnostics (OnMeasure + OnArrange), got %d", len(diags))
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL001" {
+			t.Errorf("unexpected rule %q on assign-bad fixture, want LL001", d.RuleID)
+		}
+		if !strings.Contains(d.Message, "OnMeasure/OnArrange assigned outside layout/ or marks/") {
+			t.Errorf("unexpected LL001 message: %q", d.Message)
+		}
 	}
 }
 
