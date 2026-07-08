@@ -14,6 +14,7 @@ import (
 func main() {
 	cfg := app.DefaultConfig("Lurpic Studio", 1280, 800)
 	cfg.Render = app.RenderBackendSoftware
+	cfg.Runtime.IconResolver = newFlowbiteResolver()
 	if err := app.Run(cfg, buildRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)

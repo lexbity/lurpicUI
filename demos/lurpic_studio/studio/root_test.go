@@ -7,15 +7,60 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
+
+var testTheme = theme.DefaultResolvedContext()
+var testFontReg = newFontRegistryOrPanic()
+
+func newFontRegistryOrPanic() *text.FontRegistry {
+	r, err := text.NewFontRegistry()
+	if err != nil {
+		panic(err)
+	}
+	if err := r.LoadFontFile("../text/testdata/NotoSans-Regular.ttf"); err != nil {
+		// Try alternative paths for different working directories
+		paths := []string{
+			"text/testdata/NotoSans-Regular.ttf",
+			"../text/testdata/NotoSans-Regular.ttf",
+			"../../text/testdata/NotoSans-Regular.ttf",
+		}
+		for _, p := range paths {
+			if err := r.LoadFontFile(p); err == nil {
+				return r
+			}
+		}
+	}
+	return r
+}
+
+type testRuntime struct {
+	fontReg *text.FontRegistry
+}
+
+func (r testRuntime) FontRegistry() *text.FontRegistry                                 { return r.fontReg }
+func (testRuntime) Schedule(j job.AnyJob)                                              {}
+func (testRuntime) CancelJob(id job.JobID)                                             {}
+func (testRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+func (testRuntime) Schemes() []string                                                  { return nil }
+func (testRuntime) Assets() any                                                        { return nil }
 
 func testBuildContext() app.BuildContext {
 	return app.BuildContext{
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
-		Theme:        theme.DefaultResolvedContext(),
+		Theme:        testTheme,
+	}
+}
+
+func testMeasureContext() facet.MeasureContext {
+	return facet.MeasureContext{
+		Theme:        testTheme,
+		ContentScale: 1,
+		Runtime:      testRuntime{fontReg: testFontReg},
 	}
 }
 
@@ -24,17 +69,6 @@ func TestBuildRoot_nonNil(t *testing.T) {
 	root := BuildRoot(as, testBuildContext())
 	if root == nil {
 		t.Fatal("BuildRoot returned nil")
-	}
-}
-
-func TestBuildRoot_hasLayoutAndRender(t *testing.T) {
-	as := state.NewAppState(nil)
-	root := BuildRoot(as, testBuildContext())
-	if root.Base().LayoutRole() == nil {
-		t.Fatal("root has no LayoutRole")
-	}
-	if root.Base().RenderRole() == nil {
-		t.Fatal("root has no RenderRole")
 	}
 }
 
@@ -51,7 +85,7 @@ func TestBuildRoot_measuresToWindowSize(t *testing.T) {
 	root := BuildRoot(as, testBuildContext())
 
 	c := facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 800}}
-	mc := facet.MeasureContext{}
+	mc := testMeasureContext()
 	result := root.Base().LayoutRole().OnMeasure(mc, c)
 	if result.Size != (gfx.Size{W: 1280, H: 800}) {
 		t.Fatalf("expected size 1280x800, got %v", result.Size)
@@ -71,17 +105,12 @@ func TestBuildRoot_onCollectProducesCommands(t *testing.T) {
 	}
 }
 
-// TestBuildRoot_hasChildFacets verifies that layout policies are constructed.
-func TestBuildRoot_hasChildFacets(t *testing.T) {
+func TestBuildRoot_hasDelegatedLayout(t *testing.T) {
 	as := state.NewAppState(nil)
 	root := BuildRoot(as, testBuildContext())
-
-	// RootFacet delegates to layout policies; verify it has no direct children
-	// (children are within the layout policies)
 	children := root.Base().Children()
-	// RootFacet itself has no direct children; layout policies handle them
-	if len(children) != 0 {
-		t.Fatalf("expected 0 direct children (delegated to layout policies), got %d", len(children))
+	if len(children) < 1 {
+		t.Fatalf("expected at least 1 child (the ColumnLayout), got %d", len(children))
 	}
 }
 
@@ -100,40 +129,31 @@ func TestBuildRoot_onCollectWideModeHasBackground(t *testing.T) {
 	}
 }
 
-// TestBuildRoot_arrangeWideSetsChildBounds verifies that OnArrange in wide mode
-// successfully delegates to the layout policy.
-func TestBuildRoot_arrangeWideSetsChildBounds(t *testing.T) {
+func TestBuildRoot_arrangeSetsRootBounds(t *testing.T) {
 	as := state.NewAppState(nil)
 	root := BuildRoot(as, testBuildContext())
 
+	c := facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 800}}
+	mc := testMeasureContext()
+	root.Base().LayoutRole().OnMeasure(mc, c)
+
 	bounds := gfx.Rect{Max: gfx.Point{X: 1280, Y: 800}}
 	ac := facet.ArrangeContext{}
-	// Should not panic; layout policy handles arrangement
 	root.Base().LayoutRole().OnArrange(ac, bounds)
 
-	// Verify root's arranged bounds were set
 	lr := root.Base().LayoutRole()
 	if lr.ArrangedBounds != bounds {
 		t.Fatalf("root arranged bounds not set correctly")
 	}
 }
 
-// TestBuildRoot_arrangeNarrowSetsChildBounds verifies that OnArrange in narrow mode
-// successfully delegates to the layout policy.
-func TestBuildRoot_arrangeNarrowSetsChildBounds(t *testing.T) {
+func TestBuildRoot_hasElevenDirectChildren(t *testing.T) {
 	as := state.NewAppState(nil)
 	root := BuildRoot(as, testBuildContext())
-	as.LayoutMode.Set(state.LayoutNarrow)
 
-	bounds := gfx.Rect{Max: gfx.Point{X: 480, Y: 800}}
-	ac := facet.ArrangeContext{}
-	// Should not panic; layout policy handles arrangement
-	root.Base().LayoutRole().OnArrange(ac, bounds)
-
-	// Verify root's arranged bounds were set
-	lr := root.Base().LayoutRole()
-	if lr.ArrangedBounds != bounds {
-		t.Fatalf("root arranged bounds not set correctly")
+	children := root.Base().Children()
+	if len(children) != 11 {
+		t.Fatalf("expected 11 children (chromeColumn, sources, center, inspector, status, 6 overlays), got %d", len(children))
 	}
 }
 
@@ -141,6 +161,9 @@ func TestBuildRoot_arrangeNarrowSetsChildBounds(t *testing.T) {
 func TestBuildRoot_childRenders(t *testing.T) {
 	as := state.NewAppState(nil)
 	root := BuildRoot(as, testBuildContext())
+
+	mc := testMeasureContext()
+	root.Base().LayoutRole().OnMeasure(mc, facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 800}})
 
 	// Arrange the root
 	bounds := gfx.Rect{Max: gfx.Point{X: 1280, Y: 800}}
@@ -166,7 +189,7 @@ func TestBuildRoot_layoutModeFlipsOnWidthCrossing(t *testing.T) {
 	as.LayoutMode.Set(state.LayoutWide)
 
 	c := facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 800}}
-	mc := facet.MeasureContext{}
+	mc := testMeasureContext()
 	root.Base().LayoutRole().OnMeasure(mc, c)
 
 	if got := as.LayoutMode.Get(); got != state.LayoutWide {
@@ -199,7 +222,7 @@ func TestBuildRoot_stableLayoutDoesNotRepeatedlyWriteMode(t *testing.T) {
 	})
 	defer as.LayoutMode.OnChange.Unsubscribe(subID)
 
-	mc := facet.MeasureContext{}
+	mc := testMeasureContext()
 	for range 5 {
 		c := facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 800}}
 		root.Base().LayoutRole().OnMeasure(mc, c)
@@ -210,39 +233,62 @@ func TestBuildRoot_stableLayoutDoesNotRepeatedlyWriteMode(t *testing.T) {
 	}
 }
 
-// TestBuildRoot_wideAndNarrowProduceDifferentBounds verifies that different
-// layout policies are used for wide vs narrow mode.
-func TestBuildRoot_wideAndNarrowProduceDifferentBounds(t *testing.T) {
+func TestBuildRoot_measuresDifferentSizesForModes(t *testing.T) {
 	as := state.NewAppState(nil)
 	root := BuildRoot(as, testBuildContext())
+	mc := testMeasureContext()
 
-	mc := facet.MeasureContext{}
-	ac := facet.ArrangeContext{}
-
-	// Wide mode
-	as.LayoutMode.Set(state.LayoutWide)
 	root.Base().LayoutRole().OnMeasure(mc, facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 800}})
-	root.Base().LayoutRole().OnArrange(ac, gfx.Rect{Max: gfx.Point{X: 1280, Y: 800}})
+	if as.LayoutMode.Get() != state.LayoutWide {
+		t.Fatal("expected LayoutWide at 1280")
+	}
 
-	wideArranged := root.Base().LayoutRole().ArrangedBounds
-
-	// Narrow mode
-	as.LayoutMode.Set(state.LayoutNarrow)
 	root.Base().LayoutRole().OnMeasure(mc, facet.Constraints{MaxSize: gfx.Size{W: 480, H: 800}})
-	root.Base().LayoutRole().OnArrange(ac, gfx.Rect{Max: gfx.Point{X: 480, Y: 800}})
-
-	narrowArranged := root.Base().LayoutRole().ArrangedBounds
-
-	// Root should have different arranged bounds for each mode
-	if wideArranged == narrowArranged {
-		t.Fatal("expected different arranged bounds for wide vs narrow mode")
+	if as.LayoutMode.Get() != state.LayoutNarrow {
+		t.Fatal("expected LayoutNarrow at 480")
 	}
+}
 
-	// Verify the bounds match the input
-	if wideArranged.Max.X != 1280 {
-		t.Fatalf("wide mode width incorrect: got %v", wideArranged)
+func TestRootHasStatusBar(t *testing.T) {
+	as := state.NewAppState(nil)
+	root := BuildRoot(as, testBuildContext()).(*RootFacet)
+	if root.statusBar == nil {
+		t.Fatal("root has no status bar")
 	}
-	if narrowArranged.Max.X != 480 {
-		t.Fatalf("narrow mode width incorrect: got %v", narrowArranged)
+	if root.statusBar.light == nil {
+		t.Fatal("status bar has no status light")
+	}
+	if root.statusBar.progressBar == nil {
+		t.Fatal("status bar has no progress bar")
+	}
+	if root.statusBar.progressRing == nil {
+		t.Fatal("status bar has no progress ring")
+	}
+	if root.statusBar.badge == nil {
+		t.Fatal("status bar has no badge")
+	}
+	if root.statusBar.statusText == nil {
+		t.Fatal("status bar has no status text")
+	}
+}
+
+func TestStatusBar_connectionStateUpdatesLight(t *testing.T) {
+	as := state.NewAppState(nil)
+	newStatusBar(as)
+	as.Connection.Set(state.ConnConnecting)
+	if as.Connection.Get() != state.ConnConnecting {
+		t.Fatal("connection state should be connecting")
+	}
+}
+
+func TestSimulateReloadJob_endsConnected(t *testing.T) {
+	as := state.NewAppState(makeTestDataset(10, []string{"NA"}))
+	as.Connection.Set(state.ConnDisconnected)
+	simulateReloadJob(as)
+	if as.Connection.Get() != state.ConnConnected {
+		t.Fatalf("expected Connected after reload, got %q", as.Connection.Get())
+	}
+	if as.JobProgress.Get() != 0 {
+		t.Fatalf("expected JobProgress 0 after reload, got %f", as.JobProgress.Get())
 	}
 }

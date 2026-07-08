@@ -6,87 +6,34 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/action"
+	"codeburg.org/lexbit/lurpicui/marks/navigation"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/signal"
 )
 
-// placeholderPane is a colored placeholder facet for Phase 3 scaffolding.
-// It will be replaced with real marks (card, list, scroll_region, etc.) in later phases.
-type placeholderPane struct {
-	facet.Facet
-	layout facet.LayoutRole
-	render facet.RenderRole
-	color  gfx.Color
-	label  string
-}
-
-func (p *placeholderPane) Base() *facet.Facet               { return &p.Facet }
-func (p *placeholderPane) OnAttach(ctx facet.AttachContext) {}
-func (p *placeholderPane) OnDetach()                        {}
-func (p *placeholderPane) OnActivate()                      {}
-func (p *placeholderPane) OnDeactivate()                    {}
-
-func newPlaceholderPane(label string, color gfx.Color) *placeholderPane {
-	p := &placeholderPane{label: label, color: color}
-	p.Facet = facet.NewFacet()
-
-	// Each pane reports its intrinsic size
-	p.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-		// For Phase 3, placeholders report fixed sizes
-		// (Real marks in Phase 4+ will compute their own sizes)
-		var size gfx.Size
-		switch p.label {
-		case "chrome":
-			size = gfx.Size{W: 0, H: 40} // Height fixed, width flex
-		case "status":
-			size = gfx.Size{W: 0, H: 32} // Height fixed, width flex
-		case "sources":
-			size = gfx.Size{W: 220, H: 200} // Fixed width
-		case "inspector":
-			size = gfx.Size{W: 280, H: 250} // Fixed width
-		default: // "center"
-			size = gfx.Size{W: 100, H: 100} // Min size, will flex
-		}
-
-		// Constrain to available space
-		if c.MaxSize.W > 0 && size.W > c.MaxSize.W {
-			size.W = c.MaxSize.W
-		}
-		if c.MaxSize.H > 0 && size.H > c.MaxSize.H {
-			size.H = c.MaxSize.H
-		}
-		if c.MinSize.W > size.W {
-			size.W = c.MinSize.W
-		}
-		if c.MinSize.H > size.H {
-			size.H = c.MinSize.H
-		}
-		return facet.MeasureResult{Size: size}
-	}
-
-	p.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		p.layout.ArrangedBounds = bounds
-	}
-
-	p.render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
-		list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(p.color)})
-	}
-
-	p.Facet.AddRole(&p.layout)
-	p.Facet.AddRole(&p.render)
-	return p
-}
-
-// RootFacet is the demo's root facet, implementing responsive layout.
-// It hosts placeholder children via framework layout policies (wide: 3-pane split, narrow: stacked).
 type RootFacet struct {
 	facet.Facet
 	layout   facet.LayoutRole
 	render   facet.RenderRole
 	appState *state.AppState
 
-	// Framework layout policies for wide and narrow modes
-	// These are facet implementations that we delegate to
-	wideLayout   *facet.Facet // vertical: chrome, middle row, status (as ColumnLayout)
-	narrowLayout *facet.Facet // vertical: chrome, sources, center, inspector, status (as ColumnLayout)
+	chromeColumn   *layout.ColumnLayout
+	sourcesPanel   *sourcesPanel
+	centerPanel    *centerPanel
+	inspectorPanel *inspectorPanel
+
+	ribbon      *action.Ribbon
+	toolbar     *action.Toolbar
+	breadcrumbs *navigation.Breadcrumbs
+	actionBar   *action.ActionBar
+
+	overlays  *overlays
+	statusBar *statusBar
+
+	hamburger *action.IconButton
+	chromeRow *layout.RowLayout
 }
 
 func (r *RootFacet) Base() *facet.Facet               { return &r.Facet }
@@ -97,89 +44,183 @@ func (r *RootFacet) OnDeactivate()                    {}
 
 func newRootFacet(as *state.AppState, ctx app.BuildContext) *RootFacet {
 	r := &RootFacet{appState: as}
+	r.Facet = facet.NewFacet()
 
-	// Create theme colors for placeholders
 	bg := ctx.Theme.TokenSet().Color.Background
-	surface := ctx.Theme.TokenSet().Color.Surface
-	surfaceVariant := ctx.Theme.TokenSet().Color.SurfaceVariant
-	sourcesColor := gfx.Color{R: 0.16, G: 0.18, B: 0.22, A: 1}
-	centerColor := gfx.Color{R: 0.12, G: 0.13, B: 0.16, A: 1}
-	inspectorColor := gfx.Color{R: 0.16, G: 0.16, B: 0.19, A: 1}
 
-	// Build wide mode layout: column(chrome, row(sources, center, inspector), status)
-	// Note: Phase 3 uses separate placeholder instances for wide/narrow.
-	// Later phases will reuse the same mark instances via the layer system.
-	wideCol := layout.NewColumnLayout()
-	wideCol.Add(layout.Fixed(newPlaceholderPane("chrome", surfaceVariant)))
+	sp := newSourcesPanel(as)
+	cp := newCenterPanel(as)
+	ip := newInspectorPanel(as)
+	sb := newStatusBar(as)
+	ribbon, toolbar, breadcrumbs, actionBar := newChromePane(as)
+	ov := newOverlays(as)
 
-	wideMiddleRow := layout.NewRowLayout()
-	wideMiddleRow.Add(layout.Fixed(newPlaceholderPane("sources", sourcesColor)))
-	wideMiddleRow.Add(layout.Flexible(newPlaceholderPane("center", centerColor), 1))
-	wideMiddleRow.Add(layout.Fixed(newPlaceholderPane("inspector", inspectorColor)))
-	wideCol.Add(layout.Flexible(wideMiddleRow, 1))
+	r.ribbon = ribbon
+	r.toolbar = toolbar
+	r.breadcrumbs = breadcrumbs
+	r.actionBar = actionBar
 
-	wideCol.Add(layout.Fixed(newPlaceholderPane("status", surface)))
-	r.wideLayout = &wideCol.Facet
+	r.hamburger = action.NewIconButton(primitive.IconRef("menu"))
+	r.hamburger.Activated.Subscribe(func(signal.Unit) {
+		ov.navDrawer.Open = marks.Const(!ov.navDrawer.Open.Get())
+		ov.navDrawer.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	})
 
-	// Build narrow mode layout: column(chrome, sources, center, inspector, status)
-	narrowCol := layout.NewColumnLayout()
-	narrowCol.Add(layout.Fixed(newPlaceholderPane("chrome", surfaceVariant)))
-	narrowCol.Add(layout.Fixed(newPlaceholderPane("sources", sourcesColor)))
-	narrowCol.Add(layout.Flexible(newPlaceholderPane("center", centerColor), 1))
-	narrowCol.Add(layout.Fixed(newPlaceholderPane("inspector", inspectorColor)))
-	narrowCol.Add(layout.Fixed(newPlaceholderPane("status", surface)))
-	r.narrowLayout = &narrowCol.Facet
+	allowLinear(toolbar)
+	allowLinear(breadcrumbs)
+	r.chromeRow = layout.NewRowLayout()
+	r.chromeRow.Gap = 0
+	r.chromeRow.Add(layout.Fixed(r.hamburger))
+	r.chromeRow.Add(layout.Flexible(toolbar, 1))
+	r.chromeRow.Add(layout.Fixed(breadcrumbs))
 
-	// Background fill
+	r.chromeColumn = layout.NewColumnLayout()
+	r.chromeColumn.Gap = 0
+	r.chromeColumn.Add(layout.Fixed(ribbon))
+	r.chromeColumn.Add(layout.Fixed(r.chromeRow))
+
+	// Overlays must be children of the root so they participate in the facet tree.
+	r.Facet.AddChild(r.chromeColumn.Base())
+	r.Facet.AddChild(sp.col.Base())
+	r.Facet.AddChild(cp.col.Base())
+	r.Facet.AddChild(ip.col.Base())
+	r.Facet.AddChild(sb.row.Base())
+	r.Facet.AddChild(ov.dialog.Base())
+	r.Facet.AddChild(ov.exportToast.Base())
+	r.Facet.AddChild(ov.tooltip.Base())
+	r.Facet.AddChild(ov.commandPalette.Base())
+	r.Facet.AddChild(ov.popupPalette.Base())
+	r.Facet.AddChild(ov.navDrawer.Base())
+
 	r.render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
 		list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(bg)})
 	}
 
-	r.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-		// Update responsive mode on measure (only when it changes)
+	r.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult { //lurpiclint:ignore LL001 -- root responsive layout sizes panels based on container break width
 		mode := ModeFor(c.MaxSize)
 		if mode != as.LayoutMode.Get() {
 			as.LayoutMode.Set(mode)
 		}
 
-		// Measure the appropriate layout policy based on mode
-		var targetLayout *facet.Facet
-		if mode == state.LayoutWide {
-			targetLayout = r.wideLayout
-		} else {
-			targetLayout = r.narrowLayout
+		w := c.MaxSize.W
+		h := c.MaxSize.H
+		ribbonH := float32(40)
+		toolbarH := float32(30)
+		statusH := float32(32)
+		chromeH := ribbonH + toolbarH
+		middleH := h - chromeH - statusH
+		if middleH < 0 {
+			middleH = 0
 		}
 
-		if targetLayout == nil || targetLayout.LayoutRole() == nil {
-			return facet.MeasureResult{Size: c.MaxSize}
+		r.chromeColumn.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: w, H: chromeH}})
+		sb.row.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: w, H: statusH}})
+
+		if mode == state.LayoutWide {
+			srcW := float32(220)
+			insW := float32(280)
+			cp.col.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: w - srcW - insW, H: middleH}})
+			sp.col.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: srcW, H: middleH}})
+			ip.col.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: insW, H: middleH}})
+		} else {
+			cp.col.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: w, H: middleH}})
+			sp.col.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: 0, H: 0}})
+			ip.col.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: 0, H: 0}})
 		}
-		return targetLayout.LayoutRole().OnMeasure(ctx, c)
+
+		for _, oc := range overlayChildren(ov) {
+			if lr := oc.Base().LayoutRole(); lr != nil {
+				lr.Measure(ctx, c)
+			}
+		}
+
+		return facet.MeasureResult{Size: c.MaxSize}
 	}
 
-	r.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+	r.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) { //lurpiclint:ignore LL001 -- root responsive layout positions panels per break width
 		r.layout.ArrangedBounds = bounds
 
 		mode := as.LayoutMode.Get()
+		ribbonH := float32(40)
+		toolbarH := float32(30)
+		statusH := float32(32)
+		chromeH := ribbonH + toolbarH
+		middleH := bounds.Height() - chromeH - statusH
+		if middleH < 0 {
+			middleH = 0
+		}
 
-		var targetLayout *facet.Facet
+		arrangeChildAtCtx(r.chromeColumn, gfx.Rect{
+			Min: bounds.Min,
+			Max: gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y + chromeH},
+		}, ctx)
+
+		y := bounds.Min.Y + chromeH
+
 		if mode == state.LayoutWide {
-			targetLayout = r.wideLayout
+			srcW := float32(220)
+			insW := float32(280)
+
+			arrangeChildAtCtx(sp.col, gfx.Rect{
+				Min: gfx.Point{X: bounds.Min.X, Y: y},
+				Max: gfx.Point{X: bounds.Min.X + srcW, Y: y + middleH},
+			}, ctx)
+			arrangeChildAtCtx(cp.col, gfx.Rect{
+				Min: gfx.Point{X: bounds.Min.X + srcW, Y: y},
+				Max: gfx.Point{X: bounds.Max.X - insW, Y: y + middleH},
+			}, ctx)
+			arrangeChildAtCtx(ip.col, gfx.Rect{
+				Min: gfx.Point{X: bounds.Max.X - insW, Y: y},
+				Max: gfx.Point{X: bounds.Max.X, Y: y + middleH},
+			}, ctx)
 		} else {
-			targetLayout = r.narrowLayout
+			arrangeChildAtCtx(cp.col, gfx.Rect{
+				Min: gfx.Point{X: bounds.Min.X, Y: y},
+				Max: gfx.Point{X: bounds.Max.X, Y: y + middleH},
+			}, ctx)
+			arrangeChildAtCtx(sp.col, gfx.Rect{}, ctx)
+			arrangeChildAtCtx(ip.col, gfx.Rect{}, ctx)
 		}
 
-		if targetLayout != nil && targetLayout.LayoutRole() != nil {
-			targetLayout.LayoutRole().OnArrange(ctx, bounds)
-		}
+		arrangeChildAtCtx(sb.row, gfx.Rect{
+			Min: gfx.Point{X: bounds.Min.X, Y: bounds.Min.Y + chromeH + middleH},
+			Max: bounds.Max,
+		}, ctx)
 	}
 
 	r.Facet.AddRole(&r.layout)
 	r.Facet.AddRole(&r.render)
 
+	r.sourcesPanel = sp
+	r.centerPanel = cp
+	r.inspectorPanel = ip
+	r.overlays = ov
+	r.statusBar = sb
+
 	return r
 }
 
-// BuildRoot constructs the root facet for the demo.
+func overlayChildren(ov *overlays) []facet.FacetImpl {
+	return []facet.FacetImpl{
+		ov.dialog, ov.exportToast, ov.tooltip,
+		ov.commandPalette, ov.popupPalette, ov.navDrawer,
+	}
+}
+
+func arrangeChildAtCtx(parent facet.FacetImpl, bounds gfx.Rect, ctx facet.ArrangeContext) {
+	if parent == nil || parent.Base() == nil {
+		return
+	}
+	lr := parent.Base().LayoutRole()
+	if lr == nil {
+		return
+	}
+	lr.ArrangedBounds = bounds
+	if lr.OnArrange != nil {
+		lr.OnArrange(ctx, bounds)
+	}
+}
+
 func BuildRoot(as *state.AppState, ctx app.BuildContext) facet.FacetImpl {
 	return newRootFacet(as, ctx)
 }
