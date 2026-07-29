@@ -22,8 +22,7 @@ type DataMark[T any] struct {
 	Binder *CollectionBinder[T]
 	Scales map[marks.Channel]*reactive.ReactiveScale
 
-	regionStore         *store.ValueStore[[2]float64]
-	childPositionsDirty bool
+	regionStore *store.ValueStore[[2]float64]
 }
 
 // NewDataMark constructs a DataMark with the given collection store,
@@ -36,12 +35,12 @@ func NewDataMark[T any](
 	region *store.ValueStore[[2]float64],
 ) *DataMark[T] {
 	m := &DataMark[T]{
-		Store:               store,
-		Scales:              scales,
-		regionStore:         region,
-		childPositionsDirty: true,
+		Store:       store,
+		Scales:      scales,
+		regionStore: region,
 	}
 	m.Facet = facet.NewFacet()
+	m.RegisterRoles()
 	m.Binder = NewCollectionBinder(parent, store, factory)
 	return m
 }

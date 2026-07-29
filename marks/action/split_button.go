@@ -55,7 +55,7 @@ type SplitButton struct {
 
 	textRole facet.TextRole
 
-	Activated signal.Signal[string]
+	Activated signal.Signal[MarkAction]
 
 	Label          marks.Binding[string]
 	Key            marks.Binding[string]
@@ -133,7 +133,7 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		focusedIndex:   -1,
 		hoveredIndex:   -1,
 		pressedIndex:   -1,
-		Activated:      signal.NewSignal[string]("split_button_activated"),
+		Activated:      signal.NewSignal[MarkAction]("split_button_activated"),
 	}
 	s.Facet = facet.NewFacet()
 	s.AddBinding(s.Label)
@@ -926,7 +926,7 @@ func (s *SplitButton) entryIsSelectable(index int) bool {
 
 func (s *SplitButton) activatePrimary() {
 	key := s.primaryKey()
-	s.Activated.Emit(key)
+	s.Activated.Emit(MarkAction{Key: key, Source: "split_button"})
 	s.setOpen(false)
 }
 
@@ -935,7 +935,7 @@ func (s *SplitButton) activateItem(index int) {
 		return
 	}
 	item := s.cachedItemLayouts[index].item
-	s.Activated.Emit(splitButtonItemKey(item))
+	s.Activated.Emit(MarkAction{Key: splitButtonItemKey(item), Source: "split_button"})
 	s.setOpen(false)
 }
 

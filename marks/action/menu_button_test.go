@@ -119,8 +119,8 @@ func TestMenuButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
 
 	var activated string
-	btn.Activated.Subscribe(func(key string) {
-		activated = key
+	btn.Activated.Subscribe(func(ma MarkAction) {
+		activated = ma.Key
 	})
 
 	triggerCenter := gfx.Point{X: btn.cachedTriggerBounds.Min.X + btn.cachedTriggerBounds.Width()*0.5, Y: btn.cachedTriggerBounds.Min.Y + btn.cachedTriggerBounds.Height()*0.5}

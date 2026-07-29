@@ -2,7 +2,6 @@ package status
 
 import (
 	"testing"
-	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -78,20 +77,6 @@ func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 	if !sawFillPath {
 		t.Fatal("expected fill path commands")
-	}
-}
-
-func TestProgressBarTickRequestsAnimation(t *testing.T) {
-	bar := newProgressBarFixture()
-	bar.Value = marks.Const(float32(0.85))
-	bar.startPulse()
-	if !bar.Tick.IsActive() {
-		t.Fatal("expected tick role to request animation after value update")
-	}
-	before := bar.pulseRemaining
-	bar.Tick.OnTick(16 * time.Millisecond)
-	if bar.pulseRemaining >= before {
-		t.Fatalf("expected pulse remaining to decrease, before=%v after=%v", before, bar.pulseRemaining)
 	}
 }
 

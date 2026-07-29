@@ -42,7 +42,7 @@ type ToolbarOverflow struct {
 type Toolbar struct {
 	marks.Core
 
-	Activated signal.Signal[string]
+	Activated signal.Signal[MarkAction]
 
 	Label    marks.Binding[string]
 	Groups   []ToolbarGroup
@@ -104,7 +104,7 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
-		Activated:    signal.NewSignal[string]("toolbar_activated"),
+		Activated:    signal.NewSignal[MarkAction]("toolbar_activated"),
 	}
 	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
@@ -408,9 +408,9 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 		if c.group == nil {
 			c.group = NewActionGroup(marks.Const(""), marks.Const(spec.group.Actions))
 			c.group.Focus.Focusable = func() bool { return false }
-			c.subID = c.group.Activated.Subscribe(func(key string) {
+			c.subID = c.group.Activated.Subscribe(func(ma MarkAction) {
 				if c.parent != nil {
-					c.parent.Activated.Emit(key)
+					c.parent.Activated.Emit(ma)
 				}
 			})
 		} else {
@@ -436,9 +436,9 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 			c.overflow.TriggerIconRef = marks.Const(spec.overflow.TriggerIconRef)
 			c.overflow.AccessibleLabel = marks.Const(spec.overflow.AccessibleLabel)
 			c.overflow.Focus.Focusable = func() bool { return false }
-			c.subID = c.overflow.Activated.Subscribe(func(key string) {
+			c.subID = c.overflow.Activated.Subscribe(func(ma MarkAction) {
 				if c.parent != nil {
-					c.parent.Activated.Emit(key)
+					c.parent.Activated.Emit(ma)
 				}
 			})
 		} else {

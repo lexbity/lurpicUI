@@ -108,8 +108,8 @@ func TestPopupPalettePointerKeyboardAndDisabledBehavior(t *testing.T) {
 	palette.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: resolved, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child}, bounds)
 
 	var activated string
-	palette.Activated.Subscribe(func(key string) {
-		activated = key
+	palette.Activated.Subscribe(func(ma MarkAction) {
+		activated = ma.Key
 	})
 
 	toolCenter := centerOfRect(palette.cachedToolItemBounds[0])
@@ -171,8 +171,8 @@ func TestPopupPalettePointerKeyboardAndDisabledBehavior(t *testing.T) {
 		t.Fatal("expected disabled palette to be unfocusable")
 	}
 	var activated2 string
-	palette2.Activated.Subscribe(func(key string) {
-		activated2 = key
+	palette2.Activated.Subscribe(func(ma MarkAction) {
+		activated2 = ma.Key
 	})
 	if palette2.cachedToolItemBounds != nil && len(palette2.cachedToolItemBounds) > 0 {
 		center := centerOfRect(palette2.cachedToolItemBounds[0])

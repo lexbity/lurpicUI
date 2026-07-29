@@ -43,7 +43,7 @@ type ActionGroup struct {
 	Actions  marks.Binding[[]ActionGroupAction]
 	Disabled marks.Binding[bool]
 
-	Activated signal.Signal[string]
+	Activated signal.Signal[MarkAction]
 
 	textRole facet.TextRole
 
@@ -94,7 +94,7 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 		hoveredIndex: -1,
 		pressedIndex: -1,
 		focusedIndex: -1,
-		Activated:    signal.NewSignal[string]("action_group_activated"),
+		Activated:    signal.NewSignal[MarkAction]("action_group_activated"),
 	}
 	g.Facet = facet.NewFacet()
 	g.AddBinding(g.Label)
@@ -700,7 +700,7 @@ func (g *ActionGroup) activateItem(index int) {
 		return
 	}
 	item := g.cachedItemLayouts[index].item
-	g.Activated.Emit(actionGroupItemKey(item))
+	g.Activated.Emit(MarkAction{Key: actionGroupItemKey(item), Source: "action_group"})
 }
 
 func (g *ActionGroup) navigate(key platform.Key) {

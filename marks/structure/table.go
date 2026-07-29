@@ -70,6 +70,7 @@ type Table struct {
 	marks.Core
 
 	Activated signal.Signal[int]
+	Scrolled  signal.Signal[gfx.Point]
 
 	Label     marks.Binding[string]
 	Disabled  marks.Binding[bool]
@@ -138,6 +139,7 @@ func NewTable(label string, data TableData, selection *store.ValueStore[string])
 		cachedBodyCells:      make(map[string]map[string]*primitive.Text),
 		cachedSelectionCells: make(map[string]*primitive.Text),
 		cachedSortIndicators: make(map[string]*primitive.Text),
+		Scrolled:             signal.NewSignal[gfx.Point]("table_scrolled"),
 	}
 	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
@@ -909,6 +911,7 @@ func (t *Table) onScroll(e facet.ScrollEvent) bool {
 	next.X -= e.DeltaX
 	next.Y -= e.DeltaY
 	t.scrollOffset = t.clampScrollOffset(next)
+	t.Scrolled.Emit(t.scrollOffset)
 	t.invalidate(facet.DirtyProjection)
 	return true
 }
@@ -955,6 +958,7 @@ func (t *Table) onKey(e facet.KeyEvent) bool {
 		return false
 	}
 	t.scrollOffset = t.clampScrollOffset(t.scrollOffset)
+	t.Scrolled.Emit(t.scrollOffset)
 	t.invalidate(facet.DirtyProjection)
 	return true
 }
@@ -1020,6 +1024,7 @@ func (t *Table) updateScrollBounds(bounds gfx.Rect) {
 		X: clampFloat(t.scrollOffset.X, 0, maxX),
 		Y: clampFloat(t.scrollOffset.Y, 0, maxY),
 	}
+	t.Scrolled.Emit(t.scrollOffset)
 	track := t.trackThickness()
 	if maxY > 0 {
 		trackHeight := bounds.Height()
@@ -1145,6 +1150,7 @@ func (t *Table) ensureFocusedRowVisible() {
 		t.scrollOffset.Y += rowBounds.Max.Y - t.cachedViewportBounds.Max.Y
 	}
 	t.scrollOffset = t.clampScrollOffset(t.scrollOffset)
+	t.Scrolled.Emit(t.scrollOffset)
 }
 
 func (t *Table) moveFocus(delta int) {

@@ -2,7 +2,6 @@ package status
 
 import (
 	"testing"
-	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -78,20 +77,6 @@ func TestProgressRingMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	}
 	if !sawFillPath {
 		t.Fatal("expected fill path commands")
-	}
-}
-
-func TestProgressRingTickRequestsAnimation(t *testing.T) {
-	ring := newProgressRingFixture()
-	ring.Value = marks.Const(float32(0.82))
-	ring.startPulse()
-	if !ring.Tick.IsActive() {
-		t.Fatal("expected tick role to request animation after value update")
-	}
-	before := ring.pulseRemaining
-	ring.Tick.OnTick(16 * time.Millisecond)
-	if ring.pulseRemaining >= before {
-		t.Fatalf("expected pulse remaining to decrease, before=%v after=%v", before, ring.pulseRemaining)
 	}
 }
 

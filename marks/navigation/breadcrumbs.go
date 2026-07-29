@@ -248,8 +248,7 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	b.cachedLinkStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedCurrentStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedSeparatorStyle = resolved.TextStyle(theme.TextLabelM)
-	if b.cachedWritingDirection == facet.WritingDirectionRTL {
-	}
+
 	shaper := b.newShaper(ctx.Runtime)
 	if shaper == nil {
 		b.cachedLabelLayouts = nil

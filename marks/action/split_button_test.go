@@ -122,8 +122,8 @@ func TestSplitButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	btn.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
 
 	var activated string
-	btn.Activated.Subscribe(func(key string) {
-		activated = key
+	btn.Activated.Subscribe(func(ma MarkAction) {
+		activated = ma.Key
 	})
 
 	primaryCenter := gfx.Point{X: btn.cachedPrimaryBounds.Min.X + btn.cachedPrimaryBounds.Width()*0.5, Y: btn.cachedPrimaryBounds.Min.Y + btn.cachedPrimaryBounds.Height()*0.5}

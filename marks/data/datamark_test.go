@@ -330,21 +330,6 @@ func TestDataMark_resize_updates_positions(t *testing.T) {
 	}
 }
 
-func TestDataMark_position_dirty_on_construction(t *testing.T) {
-	s := store.NewCollectionStore(markIdentify)
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := reactive.NewLinearReactive(domain, rng)
-	scales := map[marks.Channel]*reactive.ReactiveScale{
-		{Name: "x"}: rs,
-	}
-	parent := &facet.Facet{}
-	dm := NewDataMark(parent, s, newMarkChild, scales, rng)
-	if !dm.childPositionsDirty {
-		t.Fatal("expected childPositionsDirty = true after construction")
-	}
-}
-
 func TestDataMark_child_positions_update_on_data_change(t *testing.T) {
 	s := store.NewCollectionStore(markIdentify)
 	domain := store.NewValueStore([2]float64{0, 100})

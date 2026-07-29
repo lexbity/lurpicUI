@@ -130,8 +130,8 @@ func TestActionBarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	bar.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext()}, bounds)
 
 	activated := ""
-	bar.Activated.Subscribe(func(key string) {
-		activated = key
+	bar.Activated.Subscribe(func(ma MarkAction) {
+		activated = ma.Key
 	})
 
 	first := gfx.Point{X: bar.cachedActionBounds[0].Min.X + 1, Y: bar.cachedActionBounds[0].Min.Y + 1}

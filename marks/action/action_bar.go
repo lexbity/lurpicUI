@@ -50,7 +50,7 @@ type ActionBar struct {
 	Overflow marks.Binding[*ActionBarAction]
 	Disabled marks.Binding[bool]
 
-	Activated signal.Signal[string]
+	Activated signal.Signal[MarkAction]
 
 	textRole facet.TextRole
 
@@ -111,7 +111,7 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
-		Activated:    signal.NewSignal[string]("action_bar_activated"),
+		Activated:    signal.NewSignal[MarkAction]("action_bar_activated"),
 	}
 	a.Facet = facet.NewFacet()
 	a.AddBinding(a.Label)
@@ -944,7 +944,7 @@ func (it *actionBarItem) setSpec(spec ActionBarAction) {
 			it.iconButton.Focus.Focusable = func() bool { return false }
 			it.subID = it.iconButton.Activated.Subscribe(func(signal.Unit) {
 				if it.parent != nil {
-					it.parent.Activated.Emit(it.parent.itemKeyAt(it.index))
+					it.parent.Activated.Emit(MarkAction{Key: it.parent.itemKeyAt(it.index), Source: "action_bar"})
 				}
 			})
 		} else {
@@ -961,7 +961,7 @@ func (it *actionBarItem) setSpec(spec ActionBarAction) {
 			it.button.Focus.Focusable = func() bool { return false }
 			it.subID = it.button.Activated.Subscribe(func(signal.Unit) {
 				if it.parent != nil {
-					it.parent.Activated.Emit(it.parent.itemKeyAt(it.index))
+					it.parent.Activated.Emit(MarkAction{Key: it.parent.itemKeyAt(it.index), Source: "action_bar"})
 				}
 			})
 		} else {

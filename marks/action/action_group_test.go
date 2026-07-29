@@ -62,8 +62,8 @@ func TestActionGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	activated := ""
-	group.Activated.Subscribe(func(key string) {
-		activated = key
+	group.Activated.Subscribe(func(ma MarkAction) {
+		activated = ma.Key
 	})
 	first := gfx.Point{X: group.cachedActionBounds[0].Min.X + 1, Y: group.cachedActionBounds[0].Min.Y + 1}
 	if !group.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: first, Button: platform.PointerLeft}) {

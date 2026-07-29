@@ -43,8 +43,8 @@ func TestStatusLightMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if got := light.AccessibilityRole(); got != "status" {
 		t.Fatalf("accessibility role = %q, want status", got)
 	}
-	if got := light.AccessibleName(); got != "" {
-		t.Fatalf("accessible name = %q, want empty", got)
+	if got := light.AccessibleName(); got != "Online" {
+		t.Fatalf("accessible name = %q, want Online", got)
 	}
 	if light.cachedIndicatorBounds.IsEmpty() {
 		t.Fatal("expected indicator bounds")

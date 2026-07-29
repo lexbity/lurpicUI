@@ -139,7 +139,11 @@ func (b *CollectionBinder[T]) insertChild(item T, index int) {
 	if index < 0 || index >= len(b.order) {
 		b.order = append(b.order, id)
 	} else {
-		b.order = append(b.order[:index], append([]store.ItemID{id}, b.order[index:]...)...)
+		tmp := make([]store.ItemID, len(b.order)+1)
+		copy(tmp, b.order[:index])
+		tmp[index] = id
+		copy(tmp[index+1:], b.order[index:])
+		b.order = tmp
 	}
 }
 

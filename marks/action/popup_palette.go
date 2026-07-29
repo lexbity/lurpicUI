@@ -54,7 +54,7 @@ type PopupPaletteTool struct {
 type PopupPalette struct {
 	marks.Core
 
-	Activated signal.Signal[string]
+	Activated signal.Signal[MarkAction]
 
 	Label         marks.Binding[string]
 	Tools         []PopupPaletteTool
@@ -300,7 +300,7 @@ func NewPopupPalette(label string, tools []PopupPaletteTool, open *store.ValueSt
 		Disabled:      marks.Const(false),
 		hoveredIndex:  -1,
 		pressedIndex:  -1,
-		Activated:     signal.NewSignal[string]("popup_palette_activated"),
+		Activated:     signal.NewSignal[MarkAction]("popup_palette_activated"),
 	}
 	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
@@ -1228,7 +1228,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			}
 		case platform.KeyPageUp:
 			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() + 0.05))
-			p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100))
+			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: "popup_palette"})
 			if p.composition != nil {
 				p.composition.sync()
 			}
@@ -1236,7 +1236,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			return true
 		case platform.KeyPageDown:
 			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() - 0.05))
-			p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100))
+			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: "popup_palette"})
 			if p.composition != nil {
 				p.composition.sync()
 			}
@@ -1339,10 +1339,12 @@ func (p *PopupPalette) activateTool(index int) {
 		return
 	}
 	p.SelectedIndex = marks.Const(index)
-	if key := strings.TrimSpace(tool.Key); key != "" {
-		p.Activated.Emit(key)
-	} else if label := strings.TrimSpace(tool.Label); label != "" {
-		p.Activated.Emit(label)
+	emitKey := strings.TrimSpace(tool.Key)
+	if emitKey == "" {
+		emitKey = strings.TrimSpace(tool.Label)
+	}
+	if emitKey != "" {
+		p.Activated.Emit(MarkAction{Key: emitKey, Source: "popup_palette"})
 	}
 	if !tool.Selected {
 		p.Tools[index].Selected = true
@@ -1354,26 +1356,26 @@ func (p *PopupPalette) activateControl(control popupPaletteControlKind, pt gfx.P
 	switch control {
 	case popupPaletteControlMirror:
 		p.MirrorCanvas = marks.Const(!p.MirrorCanvas.Get())
-		p.Activated.Emit("mirror")
+		p.Activated.Emit(MarkAction{Key: "mirror", Source: "popup_palette"})
 		p.invalidate(facet.DirtyProjection)
 		return true
 	case popupPaletteControlCanvasOnly:
 		p.CanvasOnly = marks.Const(!p.CanvasOnly.Get())
-		p.Activated.Emit("canvas_only")
+		p.Activated.Emit(MarkAction{Key: "canvas_only", Source: "popup_palette"})
 		p.invalidate(facet.DirtyProjection)
 		return true
 	case popupPaletteControlZoom:
 		p.updateZoomFromPoint(pt)
-		p.Activated.Emit(fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100))
+		p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: "popup_palette"})
 		return true
 	case popupPaletteControlClearHistory:
 		p.History = nil
-		p.Activated.Emit("history_clear")
+		p.Activated.Emit(MarkAction{Key: "history_clear", Source: "popup_palette"})
 		p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return true
 	case popupPaletteControlToggleBar:
 		p.ShowBottomBar = marks.Const(!p.ShowBottomBar.Get())
-		p.Activated.Emit("bottom_bar")
+		p.Activated.Emit(MarkAction{Key: "bottom_bar", Source: "popup_palette"})
 		p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return true
 	default:
@@ -1601,11 +1603,11 @@ func newPopupPaletteComposition(p *PopupPalette) *popupPaletteComposition {
 		{Key: "history_clear", AccessibleLabel: "Clear history", IconRef: "history-clear"},
 		{Key: "bottom_bar", AccessibleLabel: "Toggle bottom bar", IconRef: "chevron-up"},
 	}))
-	c.control.Activated.Subscribe(func(key string) {
+	c.control.Activated.Subscribe(func(ma MarkAction) {
 		if c.palette == nil {
 			return
 		}
-		switch key {
+		switch ma.Key {
 		case "mirror":
 			c.palette.activateControl(popupPaletteControlMirror, gfx.Point{})
 		case "canvas_only":
@@ -1887,7 +1889,7 @@ func (c *popupPaletteComposition) onPointer(e facet.PointerEvent) bool {
 		case platform.PointerPress, platform.PointerMove, platform.PointerRelease:
 			c.palette.updateZoomFromPoint(e.Position)
 			if e.Kind == platform.PointerRelease {
-				c.palette.Activated.Emit(fmt.Sprintf("zoom:%.0f", c.palette.Zoom.Get()*100))
+				c.palette.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", c.palette.Zoom.Get()*100), Source: "popup_palette"})
 			}
 			return true
 		}

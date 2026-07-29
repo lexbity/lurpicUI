@@ -71,7 +71,7 @@ type MenuButtonEntry struct {
 type MenuButton struct {
 	marks.Core
 
-	Activated       signal.Signal[string]
+	Activated       signal.Signal[MarkAction]
 	Label           marks.Binding[string]
 	AccessibleLabel marks.Binding[string]
 	TriggerIconRef  marks.Binding[string]
@@ -154,7 +154,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		focusedIndex:    -1,
 		hoveredIndex:    -1,
 		pressedIndex:    -1,
-		Activated:       signal.NewSignal[string]("menu_button_activated"),
+		Activated:       signal.NewSignal[MarkAction]("menu_button_activated"),
 	}
 	m.Facet = facet.NewFacet()
 	m.AddBinding(m.Label)
@@ -1014,7 +1014,7 @@ func (m *MenuButton) activateEntry(index int) {
 		return
 	}
 	entry := m.cachedEntryLayouts[index].entry
-	m.Activated.Emit(entryKey(entry))
+	m.Activated.Emit(MarkAction{Key: entryKey(entry), Source: "menu_button"})
 	m.Open = false
 	m.pressedIndex = -1
 	m.hoveredIndex = -1

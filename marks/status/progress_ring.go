@@ -3,7 +3,6 @@ package status
 import (
 	"math"
 	"strings"
-	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -42,10 +41,6 @@ type ProgressRing struct {
 	cachedShowLabel        bool
 	cachedWritingDirection facet.WritingDirection
 	cachedLabelFacet       *primitive.Text
-
-	pulseDuration  time.Duration
-	pulseRemaining time.Duration
-	pulsePhase     float32
 }
 
 var _ facet.FacetImpl = (*ProgressRing)(nil)
@@ -89,9 +84,6 @@ func NewProgressRing(label string) *ProgressRing {
 	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		p.Layout.ArrangedBounds = bounds
 		p.arrange(ctx, bounds)
-	}
-	p.Tick.OnTick = func(dt time.Duration) {
-		p.onTick(dt)
 	}
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
@@ -156,16 +148,7 @@ func (p *ProgressRing) OnDetach() {
 	p.cachedShowLabel = false
 	p.cachedWritingDirection = facet.WritingDirectionLTR
 	p.cachedLabelFacet = nil
-	p.pulseDuration = 0
-	p.pulseRemaining = 0
-	p.pulsePhase = 0
-}
 
-func (p *ProgressRing) invalidate(flags facet.DirtyFlags) {
-	if p == nil {
-		return
-	}
-	p.Invalidate(flags)
 }
 
 func (p *ProgressRing) syncLabelFacet() {
@@ -329,9 +312,6 @@ func (p *ProgressRing) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if p.cachedLabelFacet != nil {
 		p.cachedLabelFacet.Base().LayoutRole().ArrangedBounds = p.cachedLabelBounds
 	}
-	if p.pulseRemaining > 0 {
-		p.Tick.RequestTick()
-	}
 }
 
 func (p *ProgressRing) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
@@ -362,23 +342,6 @@ func (p *ProgressRing) buildCommands(bounds gfx.Rect, runtime any, contentScale 
 		start := -math.Pi * 0.5
 		sweep := float64(progress) * 2 * math.Pi
 		cmds = append(cmds, progressMaterialCommands(ringPath(center, float64(p.cachedRingOuterRadius), float64(p.cachedRingInnerRadius), start, sweep), indicator)...)
-	}
-	if !p.Disabled.Get() && p.pulseRemaining > 0 && !p.cachedTrackBounds.IsEmpty() && progress > 0 {
-		start := -math.Pi * 0.5
-		sweep := float64(progress) * 2 * math.Pi
-		highlightSweep := math.Max(sweep*0.18, math.Pi/18)
-		if highlightSweep > sweep {
-			highlightSweep = sweep
-		}
-		if highlightSweep > 0 {
-			highlightStart := start + float64(p.pulsePhase)*(sweep-highlightSweep)
-			alpha := float32(0.25)
-			if p.pulseDuration > 0 {
-				alpha *= clamp01(float32(p.pulseRemaining) / float32(p.pulseDuration))
-			}
-			overlay := scaleMaterialOpacity(indicator, alpha)
-			cmds = append(cmds, progressMaterialCommands(ringPath(center, float64(p.cachedRingOuterRadius), float64(p.cachedRingInnerRadius), highlightStart, highlightSweep), overlay)...)
-		}
 	}
 	if p.cachedLabelFacet != nil && !p.cachedLabelBounds.IsEmpty() && !progressIsTransparentMaterial(labelStyle) {
 		if projected := p.cachedLabelFacet.Base().ProjectionRole().Project(facet.ProjectionContext{
@@ -415,43 +378,6 @@ func (p *ProgressRing) progressRingVariant() uistatus.ProgressRingVariant {
 		return uistatus.ProgressRingDisabled
 	}
 	return uistatus.ProgressRingDefault
-}
-
-func (p *ProgressRing) startPulse() {
-	if p == nil {
-		return
-	}
-	duration := p.cachedTokens.Motion.DurationShort
-	if duration <= 0 {
-		duration = 120 * time.Millisecond
-	}
-	p.pulseDuration = duration
-	p.pulseRemaining = duration
-	p.pulsePhase = 0
-	p.Tick.RequestTick()
-}
-
-func (p *ProgressRing) onTick(dt time.Duration) {
-	if p == nil || p.Disabled.Get() || p.pulseRemaining <= 0 {
-		p.Tick.Reset()
-		return
-	}
-	p.pulseRemaining -= dt
-	if p.pulseRemaining < 0 {
-		p.pulseRemaining = 0
-	}
-	if p.pulseDuration > 0 {
-		p.pulsePhase += float32(dt) / float32(p.pulseDuration)
-		for p.pulsePhase >= 1 {
-			p.pulsePhase -= 1
-		}
-	}
-	p.invalidate(facet.DirtyProjection)
-	if p.pulseRemaining > 0 {
-		p.Tick.RequestTick()
-	} else {
-		p.Tick.Reset()
-	}
 }
 
 func ringPath(center gfx.Point, outerRadius, innerRadius, startAngle, sweep float64) gfx.Path {

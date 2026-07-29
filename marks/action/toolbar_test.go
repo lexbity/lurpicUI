@@ -103,8 +103,8 @@ func TestToolbarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	toolbar.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: toolbar.Layout.Parent, ChildGroup: toolbar.Layout.Child}, bounds)
 
 	var activated string
-	toolbar.Activated.Subscribe(func(key string) {
-		activated = key
+	toolbar.Activated.Subscribe(func(ma MarkAction) {
+		activated = ma.Key
 	})
 
 	firstActionBounds := toolbar.cachedChildren[0].group.cachedActionBounds[0]

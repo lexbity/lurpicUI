@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uistruct"
@@ -43,6 +44,8 @@ type ScrollRegionChild struct {
 // ScrollRegion implements the structure.scroll_region canonical mark.
 type ScrollRegion struct {
 	marks.Core
+
+	Scrolled signal.Signal[gfx.Point]
 
 	Label       marks.Binding[string]
 	Disabled    marks.Binding[bool]
@@ -91,6 +94,7 @@ func NewScrollRegion(label string) *ScrollRegion {
 		Direction:         marks.Const(ScrollDirectionVertical),
 		Gap:               marks.Const(float32(0)),
 		ScrollToEnd:       marks.Const(false),
+		Scrolled:          signal.NewSignal[gfx.Point]("scroll_region_scrolled"),
 		cachedChildBounds: make(map[facet.FacetID]gfx.Rect),
 	}
 	sr.Facet = facet.NewFacet()
@@ -608,13 +612,8 @@ func (sr *ScrollRegion) onScroll(e facet.ScrollEvent) bool {
 	next.X -= e.DeltaX
 	next.Y -= e.DeltaY
 	sr.scrollOffset = sr.clampScrollOffset(next)
-	if sr.scrollOffset != next {
-		sr.invalidate(facet.DirtyProjection)
-		return true
-	}
-	if next != sr.scrollOffset {
-		sr.invalidate(facet.DirtyProjection)
-	}
+	sr.Scrolled.Emit(sr.scrollOffset)
+	sr.invalidate(facet.DirtyProjection)
 	return true
 }
 
@@ -647,6 +646,7 @@ func (sr *ScrollRegion) onKey(e facet.KeyEvent) bool {
 		return false
 	}
 	sr.scrollOffset = sr.clampScrollOffset(sr.scrollOffset)
+	sr.Scrolled.Emit(sr.scrollOffset)
 	sr.invalidate(facet.DirtyProjection)
 	return true
 }
@@ -712,6 +712,7 @@ func (sr *ScrollRegion) updateScrollBounds(bounds gfx.Rect) {
 		X: clampFloat(sr.scrollOffset.X, 0, maxX),
 		Y: clampFloat(sr.scrollOffset.Y, 0, maxY),
 	}
+	sr.Scrolled.Emit(sr.scrollOffset)
 	track := sr.trackThickness()
 	if maxY > 0 {
 		trackHeight := bounds.Height()
@@ -776,6 +777,7 @@ func (sr *ScrollRegion) updateOffsetFromDrag(p gfx.Point) {
 		sr.scrollOffset.Y = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
 	}
 	sr.scrollOffset = sr.clampScrollOffset(sr.scrollOffset)
+	sr.Scrolled.Emit(sr.scrollOffset)
 }
 
 func (sr *ScrollRegion) childBoundsForProjection(id facet.FacetID) gfx.Rect {

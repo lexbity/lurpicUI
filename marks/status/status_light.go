@@ -101,7 +101,12 @@ func (s *StatusLight) Descriptor() marks.Descriptor {
 func (s *StatusLight) AccessibilityRole() string { return markTypeStatus }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (s *StatusLight) AccessibleName() string { return "" }
+func (s *StatusLight) AccessibleName() string {
+	if s == nil {
+		return ""
+	}
+	return s.Label.Get()
+}
 
 // ExportAnchors publishes the status-light anchor set.
 func (s *StatusLight) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {

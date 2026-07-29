@@ -11,7 +11,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout/radial"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -46,8 +45,6 @@ type RadialChild struct {
 // RadialMenu implements the action.radial_menu composed container.
 type RadialMenu struct {
 	marks.Core
-
-	Activated signal.Signal[string]
 
 	Label              marks.Binding[string]
 	DefaultTrackRadius float32
@@ -159,7 +156,6 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 		Disabled:           marks.Const(false),
 		RadialChildren:     marks.Const(normalizeRadialChildren(children)),
 		focusFromPointer:   false,
-		Activated:          signal.NewSignal[string]("radial_menu_activated"),
 	}
 	m.Facet = facet.NewFacet()
 	m.AddBinding(m.Label)
