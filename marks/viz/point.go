@@ -22,7 +22,7 @@ type Point[T any] struct {
 
 	Radius    marks.Binding[float32]
 	Color     marks.Binding[gfx.Color]
-	Activated signal.Signal[int]
+	Activated signal.Signal[signal.Unit]
 
 	cleanups []func()
 }
@@ -45,7 +45,7 @@ func NewPoint[T any](
 		YScale:    yScale,
 		Radius:    marks.Const[float32](4),
 		Color:     marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
-		Activated: signal.NewSignal[int]("Point.Activated"),
+		Activated: signal.NewSignal[signal.Unit]("Point.Activated"),
 	}
 	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Radius)
@@ -62,9 +62,8 @@ func NewPoint[T any](
 	}
 	p.Input.OnPointer = func(e facet.PointerEvent) bool {
 		if e.Kind == platform.PointerRelease {
-			res := p.Hit.HitTest(e.Position)
-			if res.Hit {
-				p.Activated.Emit(int(res.MarkID))
+			if p.Hit.HitTest(e.Position).Hit {
+				p.Activated.Emit(signal.Unit{})
 			}
 		}
 		return false

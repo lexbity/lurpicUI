@@ -41,6 +41,23 @@ const (
 	popupPaletteMarkIDFocusRing   facet.MarkID = 6
 )
 
+// popupPaletteTypeName is the mark's identity in the uxauthoring index and the
+// Source tag carried by every action it emits. Centralized so a rename is a
+// single edit (the emit sites and the descriptor MUST stay in sync).
+const popupPaletteTypeName = "popup_palette"
+
+// popupPaletteActionKey is the wire-format key carried in MarkAction.Key for
+// each built-in palette control. The keys form a closed set, paired 1:1 with
+// popupPaletteControlKind, and are emitted (activateControl) and dispatched
+// (the composition switch) from these constants — never as bare literals, so
+// renaming a control cannot silently break dispatch by updating only one side.
+const (
+	popupPaletteActionKeyMirror       = "mirror"
+	popupPaletteActionKeyCanvasOnly   = "canvas_only"
+	popupPaletteActionKeyClearHistory = "history_clear"
+	popupPaletteActionKeyToggleBar    = "bottom_bar"
+)
+
 type PopupPaletteTool struct {
 	Key             string
 	Label           string
@@ -384,7 +401,7 @@ func (p *PopupPalette) Base() *facet.Facet {
 }
 
 func (p *PopupPalette) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: markTypeAction, TypeName: "popup_palette"}
+	return marks.Descriptor{Family: markTypeAction, TypeName: popupPaletteTypeName}
 }
 
 func (p *PopupPalette) AccessibilityRole() string { return markTypeToolbar }
@@ -1228,7 +1245,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			}
 		case platform.KeyPageUp:
 			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() + 0.05))
-			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: "popup_palette"})
+			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: popupPaletteTypeName})
 			if p.composition != nil {
 				p.composition.sync()
 			}
@@ -1236,7 +1253,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			return true
 		case platform.KeyPageDown:
 			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() - 0.05))
-			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: "popup_palette"})
+			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: popupPaletteTypeName})
 			if p.composition != nil {
 				p.composition.sync()
 			}
@@ -1344,7 +1361,7 @@ func (p *PopupPalette) activateTool(index int) {
 		emitKey = strings.TrimSpace(tool.Label)
 	}
 	if emitKey != "" {
-		p.Activated.Emit(MarkAction{Key: emitKey, Source: "popup_palette"})
+		p.Activated.Emit(MarkAction{Key: emitKey, Source: popupPaletteTypeName})
 	}
 	if !tool.Selected {
 		p.Tools[index].Selected = true
@@ -1356,26 +1373,26 @@ func (p *PopupPalette) activateControl(control popupPaletteControlKind, pt gfx.P
 	switch control {
 	case popupPaletteControlMirror:
 		p.MirrorCanvas = marks.Const(!p.MirrorCanvas.Get())
-		p.Activated.Emit(MarkAction{Key: "mirror", Source: "popup_palette"})
+		p.Activated.Emit(MarkAction{Key: popupPaletteActionKeyMirror, Source: popupPaletteTypeName})
 		p.invalidate(facet.DirtyProjection)
 		return true
 	case popupPaletteControlCanvasOnly:
 		p.CanvasOnly = marks.Const(!p.CanvasOnly.Get())
-		p.Activated.Emit(MarkAction{Key: "canvas_only", Source: "popup_palette"})
+		p.Activated.Emit(MarkAction{Key: popupPaletteActionKeyCanvasOnly, Source: popupPaletteTypeName})
 		p.invalidate(facet.DirtyProjection)
 		return true
 	case popupPaletteControlZoom:
 		p.updateZoomFromPoint(pt)
-		p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: "popup_palette"})
+		p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: popupPaletteTypeName})
 		return true
 	case popupPaletteControlClearHistory:
 		p.History = nil
-		p.Activated.Emit(MarkAction{Key: "history_clear", Source: "popup_palette"})
+		p.Activated.Emit(MarkAction{Key: popupPaletteActionKeyClearHistory, Source: popupPaletteTypeName})
 		p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return true
 	case popupPaletteControlToggleBar:
 		p.ShowBottomBar = marks.Const(!p.ShowBottomBar.Get())
-		p.Activated.Emit(MarkAction{Key: "bottom_bar", Source: "popup_palette"})
+		p.Activated.Emit(MarkAction{Key: popupPaletteActionKeyToggleBar, Source: popupPaletteTypeName})
 		p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 		return true
 	default:
@@ -1598,23 +1615,23 @@ func newPopupPaletteComposition(p *PopupPalette) *popupPaletteComposition {
 	c.center = input.NewColorPicker("Palette color", store.NewValueStore(gfx.Color{}))
 	c.center.Disabled = marks.Const(p.Disabled.Get())
 	c.control = NewActionGroup(marks.Const("Palette controls"), marks.Const([]ActionGroupAction{
-		{Key: "mirror", AccessibleLabel: "Mirror canvas", IconRef: "mirror"},
-		{Key: "canvas_only", AccessibleLabel: "Canvas only", IconRef: "canvas"},
-		{Key: "history_clear", AccessibleLabel: "Clear history", IconRef: "history-clear"},
-		{Key: "bottom_bar", AccessibleLabel: "Toggle bottom bar", IconRef: "chevron-up"},
+		{Key: popupPaletteActionKeyMirror, AccessibleLabel: "Mirror canvas", IconRef: "mirror"},
+		{Key: popupPaletteActionKeyCanvasOnly, AccessibleLabel: "Canvas only", IconRef: "canvas"},
+		{Key: popupPaletteActionKeyClearHistory, AccessibleLabel: "Clear history", IconRef: "history-clear"},
+		{Key: popupPaletteActionKeyToggleBar, AccessibleLabel: "Toggle bottom bar", IconRef: "chevron-up"},
 	}))
 	c.control.Activated.Subscribe(func(ma MarkAction) {
 		if c.palette == nil {
 			return
 		}
 		switch ma.Key {
-		case "mirror":
+		case popupPaletteActionKeyMirror:
 			c.palette.activateControl(popupPaletteControlMirror, gfx.Point{})
-		case "canvas_only":
+		case popupPaletteActionKeyCanvasOnly:
 			c.palette.activateControl(popupPaletteControlCanvasOnly, gfx.Point{})
-		case "history_clear":
+		case popupPaletteActionKeyClearHistory:
 			c.palette.activateControl(popupPaletteControlClearHistory, gfx.Point{})
-		case "bottom_bar":
+		case popupPaletteActionKeyToggleBar:
 			c.palette.activateControl(popupPaletteControlToggleBar, gfx.Point{})
 		}
 	})
@@ -1889,7 +1906,7 @@ func (c *popupPaletteComposition) onPointer(e facet.PointerEvent) bool {
 		case platform.PointerPress, platform.PointerMove, platform.PointerRelease:
 			c.palette.updateZoomFromPoint(e.Position)
 			if e.Kind == platform.PointerRelease {
-				c.palette.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", c.palette.Zoom.Get()*100), Source: "popup_palette"})
+				c.palette.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", c.palette.Zoom.Get()*100), Source: popupPaletteTypeName})
 			}
 			return true
 		}

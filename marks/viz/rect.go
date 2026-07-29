@@ -24,7 +24,7 @@ type Bar[T any] struct {
 	Padding   marks.Binding[float32]
 	Color     marks.Binding[gfx.Color]
 	Baseline  marks.Binding[float64]
-	Activated signal.Signal[int]
+	Activated signal.Signal[signal.Unit]
 
 	bandMembers []string
 	bandScale   scale.BandScale
@@ -53,7 +53,7 @@ func NewBar[T any](
 		Padding:   marks.Const[float32](0.1),
 		Color:     marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
 		Baseline:  marks.Const(0.0),
-		Activated: signal.NewSignal[int]("Bar.Activated"),
+		Activated: signal.NewSignal[signal.Unit]("Bar.Activated"),
 		hitDirty:  true,
 	}
 	b.Facet = facet.NewFacet()
@@ -72,9 +72,8 @@ func NewBar[T any](
 	}
 	b.Input.OnPointer = func(e facet.PointerEvent) bool {
 		if e.Kind == platform.PointerRelease {
-			res := b.Hit.HitTest(e.Position)
-			if res.Hit {
-				b.Activated.Emit(int(res.MarkID))
+			if b.Hit.HitTest(e.Position).Hit {
+				b.Activated.Emit(signal.Unit{})
 			}
 		}
 		return false

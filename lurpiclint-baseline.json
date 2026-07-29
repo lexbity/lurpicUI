@@ -21,31 +21,31 @@
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
-      "line": 61,
+      "line": 78,
       "message": "field History looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
-      "line": 85,
+      "line": 102,
       "message": "field cachedToolItemBounds looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
-      "line": 86,
+      "line": 103,
       "message": "field cachedHistoryBounds looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
-      "line": 108,
+      "line": 125,
       "message": "field cachedChildren looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
-      "line": 1583,
+      "line": 1600,
       "message": "field toolButtons looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
