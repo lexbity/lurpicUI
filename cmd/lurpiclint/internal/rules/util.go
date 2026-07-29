@@ -9,6 +9,25 @@ import (
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/loader"
 )
 
+// Shared string constants to avoid goconst warnings across rule files.
+const (
+	StrAddChild        = "AddChild"
+	StrAddChildRuntime = "AddChildRuntime"
+	StrOnArrange       = "OnArrange"
+	StrOnMeasure       = "OnMeasure"
+	StrArrangedBounds  = "ArrangedBounds"
+	StrMeasuredSize    = "MeasuredSize"
+	StrLayoutColumn    = "layout.NewColumnLayout"
+	StrLayoutRole      = "LayoutRole"
+	StrAttachLayer     = "AttachLayer"
+	StrSetChildren     = "SetChildren"
+	StrAddRole         = "AddRole"
+	StrRegisterRoles   = "RegisterRoles"
+	StrOnCollect       = "OnCollect"
+	StrNewColumnLayout = "NewColumnLayout"
+	StrNewRowLayout    = "NewRowLayout"
+)
+
 // facetIdent returns the local identifier used for the "facet" package in
 // the import table, falling back to "facet" when no import entry matches.
 func facetIdent(imports map[string]string) string {
@@ -216,15 +235,15 @@ func constructorRoleSignals(fn *ast.FuncDecl, layoutFields map[string]bool) cons
 			return true
 		}
 		switch sel.Sel.Name {
-		case "AddChild", "AddChildRuntime":
+		case StrAddChild, StrAddChildRuntime:
 			if isOnFacetReceiver(sel.X) {
 				sig.HasAddChild = true
 			}
-		case "AddRole":
+		case StrAddRole:
 			if isOnFacetReceiver(sel.X) && isLayoutRoleAddr(call.Args, layoutFields) {
 				sig.HasLayoutRoleAddRole = true
 			}
-		case "RegisterRoles":
+		case StrRegisterRoles:
 			if isOnRelatedReceiver(sel.X) {
 				sig.HasRegisterRoles = true
 			}
@@ -279,6 +298,85 @@ func isLayoutRoleAddr(args []ast.Expr, layoutFields map[string]bool) bool {
 	}
 	return false
 }
+
+// --- Overlay recognition (shared by LL014, LL021) ----------------------------
+
+// overlayPackageSuffixes are import-path suffixes that identify packages
+// containing overlay mark types (Dialog, Notification, Tooltip, etc.).
+var overlayPackageSuffixes = []string{
+	"/marks/feedback",
+	"/marks/action",
+	"/marks/navigation",
+}
+
+// overlayTypeNames are well-known overlay type/field names that can appear
+// as type names or struct field names in Go source.  Both case variants are
+// listed because Go source may use either (field naming convention varies).
+var overlayTypeNames = map[string]bool{
+	"dialog":         true,
+	"notification":   true,
+	"tooltip":        true,
+	"commandPalette": true,
+	"popupPalette":   true,
+	"navDrawer":      true,
+	"Dialog":         true,
+	"Notification":   true,
+	"Tooltip":        true,
+	"CommandPalette": true,
+	"PopupPalette":   true,
+	"NavDrawer":      true,
+}
+
+// isMarksConstruct reports whether expr is a selector expression whose
+// package ident resolves to the marks import and whose name is one of
+// Const/FromStore/FromDerived.
+func isMarksConstruct(callSel *ast.SelectorExpr, imports loader.ImportTable) bool {
+	id, ok := callSel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	if !isMarksImport(id.Name, imports) {
+		return false
+	}
+	return callSel.Sel.Name == "Const" ||
+		callSel.Sel.Name == "FromStore" ||
+		callSel.Sel.Name == "FromDerived"
+}
+
+// isMarksImport reports whether name is the local identifier used for the
+// marks package in the import table, falling back to accepting "marks" when
+// the table does not contain an explicit entry.
+func isMarksImport(name string, imports loader.ImportTable) bool {
+	for local, path := range imports {
+		if local == name && (strings.HasSuffix(path, "/marks") || path == "marks") {
+			return true
+		}
+	}
+	return name == "marks"
+}
+
+// isOverlayTypeName reports whether the given type name matches a known
+// overlay type (by exact name or substring match).
+func isOverlayTypeName(name string) bool {
+	if overlayTypeNames[name] {
+		return true
+	}
+	return strings.Contains(name, "overlay") || strings.Contains(name, "Overlay")
+}
+
+// isOverlayImport reports whether the file imports one of the overlay packages.
+func isOverlayImport(f *loader.ParsedFile) bool {
+	for _, path := range f.Imports {
+		for _, suffix := range overlayPackageSuffixes {
+			if strings.HasSuffix(path, suffix) || path == suffix[1:] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// --- Package-local constructor/role scanner (shared with LL019, LL020) -------
 
 // isDemoPackage reports whether the file belongs to a demo-style package
 // (name-based or import-signature match).  Demo packages are subject to

@@ -761,6 +761,20 @@ func TestLL023_OnGoodConstOnlyFixture(t *testing.T) {
 	}
 }
 
+func TestLL023_OnBadVizFieldFixture(t *testing.T) {
+	// Proves RHS-driven detection: StrokeWidth was in no historical name list.
+	dir := ruleTestdataDir(t, "contract", "ll023_bad_vizfield")
+	diags := runRulesOnFixture(t, []string{"LL023"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected at least 1 LL023 diagnostic on bad_vizfield fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL023" {
+			t.Errorf("unexpected rule %q, want LL023", d.RuleID)
+		}
+	}
+}
+
 func TestLL023_RegisteredInDefaultRegistry(t *testing.T) {
 	rule := DefaultRegistry.Lookup("LL023")
 	if rule == nil {

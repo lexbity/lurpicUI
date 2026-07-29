@@ -12,8 +12,8 @@
       "message": "hand-rolled layout container: arrange loop over child facets",
       "teaching": {
         "did": "wrote a LayoutRole that positions children",
-        "use_this": "structure/panel",
-        "index_ref": "marks/structure.Panel"
+        "use_this": "layout.NewColumnLayout",
+        "index_ref": "layout.NewColumnLayout"
       },
       "related": [
         {

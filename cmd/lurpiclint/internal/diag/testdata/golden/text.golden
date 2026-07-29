@@ -1,5 +1,5 @@
 app.go:10:5: error LL003: hand-rolled layout container: arrange loop over child facets
-       help: wrote a LayoutRole that positions children — use structure/panel (marks/structure.Panel)
+       help: wrote a LayoutRole that positions children — use layout.NewColumnLayout (layout.NewColumnLayout)
        see: app.go:15:2
        see: app.go:22:2
 app.go:8:5: warn LL001: raw LayoutRole literal with OnArrange set

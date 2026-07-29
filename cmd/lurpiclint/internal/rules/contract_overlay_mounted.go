@@ -205,7 +205,7 @@ func (r *OverlayMissingMount) isAddChildCall(call *ast.CallExpr) bool {
 		return false
 	}
 	methodName := sel.Sel.Name
-	return methodName == "AddChild" || methodName == "AddChildRuntime"
+	return methodName == StrAddChild || methodName == StrAddChildRuntime
 }
 
 func init() {

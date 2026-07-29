@@ -30,11 +30,36 @@
 // lurpiclint-baseline.json).  A red gate means new debt introduced by the
 // change under review, never inherited noise.
 //
+// Package verifylayout provides runtime layout-tree assertions backed by
+// layout.System.  It drives one measure+arrange pass and walks the facet
+// tree checking structural soundness: rendered facets have non-empty bounds,
+// siblings don't overlap, and children don't overflow their parent (with
+// sanctioned exemptions).
+//
+// Library mode (recommended) — import verifylayout in your app's _test.go:
+//
+//	import vl "codeburg.org/lexbit/lurpicui/cmd/lurpiclint/verifylayout"
+//
+//	func TestVerifyLayout(t *testing.T) {
+//	    root := BuildRoot()
+//	    vl.Assert(t, root, vl.Options{Size: gfx.Size{W: 1280, H: 800}})
+//	}
+//
+// CLI mode — generates a transient lurpiclint_verifylayout_test.go in the
+// target package and runs it via go test.  The generated file calls the
+// builder with app.BuildContext{WindowSize: <size>, ContentScale: 1} and
+// cleans up on exit.  Requires the go toolchain.  The builder must accept
+// a minimal BuildContext (nil FontRegistry/Theme is safe for builders that
+// do not dereference them).
+//
+//	lurpiclint verify-layout -builder BuildRoot -size 1280x800 <package>
+//
 // Usage:
 //
 //	lurpiclint check [flags] [packages...]         # run rules, the build gate
 //	lurpiclint capabilities [flags]                # emit the uxauthoring index
 //	lurpiclint explain <rule-id>                   # print a rule's rationale + fix
 //	lurpiclint baseline generate [flags] [pkgs]    # generate baseline JSON from current findings
+//	lurpiclint verify-layout [flags] <package>     # run layout-tree assertion (CLI mode)
 //	lurpiclint version                             # print version information
 package main

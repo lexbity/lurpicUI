@@ -18,12 +18,6 @@ func (r *ReactiveBindingOverwrite) Description() string {
 	return "reactive binding overwritten by marks.Const; mutate the store instead"
 }
 
-// bindingFieldNames are field names known to carry Binding[T] values on mark types.
-var bindingFieldNames = map[string]bool{
-	"Open": true, "Value": true, "Content": true, "Label": true,
-	"Title": true, "Body": true, "Actions": true, "Disabled": true,
-}
-
 // funcNameForNode finds the enclosing function name for a node in a file.
 func funcNameForNode(file *ast.File, target ast.Node) string {
 	for _, decl := range file.Decls {
@@ -40,9 +34,9 @@ func funcNameForNode(file *ast.File, target ast.Node) string {
 
 // site records one assignment to a binding field.
 type site struct {
-	pos       token.Position
-	isConst   bool
-	funcName  string // enclosing function name, empty if unknown
+	pos      token.Position
+	isConst  bool
+	funcName string // enclosing function name, empty if unknown
 }
 
 func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
@@ -52,6 +46,11 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 		sites := make(map[string][]site)
 
 		for _, pf := range pkg.Files {
+			// Skip framework packages (allowlist gate).
+			if isLayoutOrMarksPackage(pf) || isRuntimePackage(pf) || isGraphPackage(pf) {
+				continue
+			}
+
 			ast.Inspect(pf.AST, func(n ast.Node) bool {
 				assign, ok := n.(*ast.AssignStmt)
 				if !ok || len(assign.Lhs) != 1 {
@@ -61,7 +60,7 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 				rhs := assign.Rhs[0]
 
 				sel, ok := lhs.(*ast.SelectorExpr)
-				if !ok || !bindingFieldNames[sel.Sel.Name] {
+				if !ok {
 					return true
 				}
 
@@ -74,28 +73,25 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 					return true
 				}
 
+				// RHS must resolve to a marks.Const / marks.FromStore /
+				// marks.FromDerived call through the import table.
+				if !isMarksConstruct(callSel, pf.Imports) {
+					return true
+				}
+
 				fnName := funcNameForNode(pf.AST, assign)
 
-				switch callSel.Sel.Name {
-				case "Const":
-					sites[sel.Sel.Name] = append(sites[sel.Sel.Name], site{
-						pos:      pf.Fset.Position(assign.Pos()),
-						isConst:  true,
-						funcName: fnName,
-					})
-				case "FromStore", "FromDerived":
-					sites[sel.Sel.Name] = append(sites[sel.Sel.Name], site{
-						pos:      pf.Fset.Position(assign.Pos()),
-						isConst:  false,
-						funcName: fnName,
-					})
-				}
+				sites[sel.Sel.Name] = append(sites[sel.Sel.Name], site{
+					pos:      pf.Fset.Position(assign.Pos()),
+					isConst:  callSel.Sel.Name == "Const",
+					funcName: fnName,
+				})
+
 				return true
 			})
 		}
 
 		for _, s := range sites {
-			// Group by function: track const/reactive per function.
 			type funcSites struct {
 				constSites    []site
 				reactiveSites []site
@@ -113,11 +109,6 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 				}
 			}
 
-			// A const site is an overwrite if:
-			// 1. It's in a handler function (on*, handle*, toggle*) AND
-			//    a reactive binding exists in any OTHER function.
-			// 2. OR it's in a function that has NO reactive site for this field
-			//    but a reactive site exists in a different function.
 			hasReactiveAnywhere := false
 			for _, fs := range byFunc {
 				if len(fs.reactiveSites) > 0 {
@@ -128,7 +119,6 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 				continue
 			}
 
-			// Collect reactive sites for Related span.
 			var reactiveSites []token.Position
 			for _, fs := range byFunc {
 				for _, site := range fs.reactiveSites {
@@ -136,11 +126,8 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 				}
 			}
 
-			// Emit at const sites that are overwrites.
 			for fn, fs := range byFunc {
 				for _, site := range fs.constSites {
-					// Skip if this function ALSO has reactive sites for the same
-					// field — it's a constructor initializer, not an overwrite.
 					if len(byFunc[fn].reactiveSites) > 0 {
 						continue
 					}

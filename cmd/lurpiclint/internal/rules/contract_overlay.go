@@ -31,6 +31,9 @@ func (r *OverlayMissingContract) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
 	for _, f := range ctx.Files {
+		if isLayoutOrMarksPackage(f) || isRuntimePackage(f) || isGraphPackage(f) {
+			continue
+		}
 		if !fileContainsFacetType(f) {
 			continue
 		}
@@ -72,9 +75,11 @@ func (r *OverlayMissingContract) Check(ctx *Context) []*diag.Diagnostic {
 }
 
 // looksLikeOverlay reports whether the type name or fields suggest an overlay.
+// It uses both the centralized overlayTypeNames list and a pattern match on
+// the type name and struct fields (OverlayRole, etc.).
 func looksLikeOverlay(ts *ast.TypeSpec) bool {
 	name := ts.Name.Name
-	if strings.Contains(name, "overlay") || strings.Contains(name, "Overlay") {
+	if isOverlayTypeName(name) {
 		return true
 	}
 	st, ok := ts.Type.(*ast.StructType)

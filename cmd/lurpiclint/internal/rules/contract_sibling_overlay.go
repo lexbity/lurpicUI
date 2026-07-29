@@ -18,13 +18,6 @@ func (r *SiblingOverlay) Description() string {
 	return "overlay mounted as a plain child without layer/ZPriority; use a layer attachment instead"
 }
 
-// overlayPackageSuffixes are import path suffixes that contain overlay marks.
-var overlayPackageSuffixes = []string{
-	"/marks/feedback",
-	"/marks/action",
-	"/marks/navigation",
-}
-
 func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
@@ -33,20 +26,7 @@ func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 			continue
 		}
 
-		// Check if any overlay package is imported.
-		hasOverlayImport := false
-		for _, path := range f.Imports {
-			for _, suffix := range overlayPackageSuffixes {
-				if strings.HasSuffix(path, suffix) || path == suffix[1:] {
-					hasOverlayImport = true
-					break
-				}
-			}
-			if hasOverlayImport {
-				break
-			}
-		}
-		if !hasOverlayImport {
+		if !isOverlayImport(f) {
 			continue
 		}
 
@@ -61,7 +41,7 @@ func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 			if !ok {
 				return true
 			}
-			if sel.Sel.Name == "AddChild" || sel.Sel.Name == "AddChildRuntime" {
+			if sel.Sel.Name == StrAddChild || sel.Sel.Name == StrAddChildRuntime {
 				addChildSites = append(addChildSites, call)
 			}
 			return true
@@ -85,7 +65,7 @@ func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 			if !ok {
 				return true
 			}
-			if sel.Sel.Name == "AttachLayer" {
+			if sel.Sel.Name == StrAttachLayer {
 				hasAttachLayer = true
 				return false
 			}
@@ -110,7 +90,7 @@ func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 						Teach: diag.Teaching{
 							Did:      "attached an overlay as a sibling instead of a layered child",
 							UseThis:  "facet.AttachLayer with a ZPriority",
-							IndexRef: "layout.NewOverlayLayer",
+							IndexRef: "facet.AttachLayer",
 						},
 					})
 				}
@@ -163,22 +143,6 @@ func isLikelyOverlay(expr ast.Expr, imports loader.ImportTable) bool {
 	}
 
 	return false
-}
-
-// overlayTypeNames are well-known overlay type names that can be used as field names.
-var overlayTypeNames = map[string]bool{
-	"dialog":         true,
-	"notification":   true,
-	"tooltip":        true,
-	"commandPalette": true,
-	"popupPalette":   true,
-	"navDrawer":      true,
-	"Dialog":         true,
-	"Notification":   true,
-	"Tooltip":        true,
-	"CommandPalette": true,
-	"PopupPalette":   true,
-	"NavDrawer":      true,
 }
 
 func init() {

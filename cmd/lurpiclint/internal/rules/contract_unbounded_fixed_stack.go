@@ -74,8 +74,7 @@ func (r *UnboundedFixedStack) Check(ctx *Context) []*diag.Diagnostic {
 			li := &layouts[li]
 			loopDepth := 0
 
-			var inspect func(ast.Node) bool
-			inspect = func(n ast.Node) bool {
+			inspect := func(n ast.Node) bool {
 				switch n.(type) {
 				case *ast.ForStmt, *ast.RangeStmt:
 					loopDepth++

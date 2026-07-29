@@ -77,7 +77,7 @@ func (r *ReinventCoords) Check(ctx *Context) []*diag.Diagnostic {
 			}
 
 			// Inspect OnArrange and OnMeasure bodies.
-			for _, key := range []string{"OnArrange", "OnMeasure"} {
+			for _, key := range []string{StrOnArrange, StrOnMeasure} {
 				val := walk.KeyValue(role.lit, key)
 				if val == nil {
 					continue
@@ -129,8 +129,8 @@ func (r *ReinventCoords) Check(ctx *Context) []*diag.Diagnostic {
 						Message:  "absolute coordinate placement via gfx.RectFromXYWH; prefer relative layout or an existing container",
 						Teach: diag.Teaching{
 							Did:      "placed a child at absolute coordinates using gfx.RectFromXYWH",
-							UseThis:  "a built-in layout container (structure/panel, layout/linear, etc.)",
-							IndexRef: "marks/structure.Panel",
+							UseThis:  "a built-in layout container (layout.NewColumnLayout, layout/linear, etc.)",
+							IndexRef: StrLayoutColumn,
 						},
 					})
 

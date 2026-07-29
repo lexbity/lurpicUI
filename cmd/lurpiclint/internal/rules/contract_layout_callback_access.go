@@ -59,7 +59,7 @@ func (r *LayoutCallbackAccess) checkForbiddenCalls(f *loader.ParsedFile, layoutF
 		if !ok {
 			return true
 		}
-		if sel.Sel.Name != "OnMeasure" && sel.Sel.Name != "OnArrange" {
+		if sel.Sel.Name != StrOnMeasure && sel.Sel.Name != StrOnArrange {
 			return true
 		}
 
@@ -89,7 +89,7 @@ func (r *LayoutCallbackAccess) checkForbiddenCalls(f *loader.ParsedFile, layoutF
 // callbacks; skip writes inside any of those bodies.
 func (r *LayoutCallbackAccess) checkForbiddenWrites(f *loader.ParsedFile) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
-	forbiddenFields := []string{"ArrangedBounds", "MeasuredSize"}
+	forbiddenFields := []string{StrArrangedBounds, StrMeasuredSize}
 
 	// Collect all FuncLit nodes that are assigned as OnArrange/OnMeasure callbacks.
 	callbackBodies := make(map[*ast.BlockStmt]bool)
@@ -97,7 +97,7 @@ func (r *LayoutCallbackAccess) checkForbiddenWrites(f *loader.ParsedFile) []*dia
 		switch n := n.(type) {
 		case *ast.KeyValueExpr:
 			if id, ok := n.Key.(*ast.Ident); ok {
-				if (id.Name == "OnArrange" || id.Name == "OnMeasure") {
+				if id.Name == StrOnArrange || id.Name == StrOnMeasure {
 					if fn, ok := n.Value.(*ast.FuncLit); ok && fn.Body != nil {
 						callbackBodies[fn.Body] = true
 					}
@@ -107,7 +107,7 @@ func (r *LayoutCallbackAccess) checkForbiddenWrites(f *loader.ParsedFile) []*dia
 			for i, rhs := range n.Rhs {
 				if fn, ok := rhs.(*ast.FuncLit); ok && fn.Body != nil && i < len(n.Lhs) {
 					if sel, ok := n.Lhs[i].(*ast.SelectorExpr); ok {
-						if sel.Sel.Name == "OnArrange" || sel.Sel.Name == "OnMeasure" {
+						if sel.Sel.Name == StrOnArrange || sel.Sel.Name == StrOnMeasure {
 							callbackBodies[fn.Body] = true
 						}
 					}

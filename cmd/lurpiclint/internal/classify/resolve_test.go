@@ -27,11 +27,6 @@ func parseResolveTestdata(t *testing.T, pkgDir string) *loader.Package {
 	return pkg
 }
 
-func parseResolveFile(t *testing.T, pkg, file string) *loader.ParsedFile {
-	t.Helper()
-	return parseTestdataFile(t, pkg, file)
-}
-
 func TestPkgFuncResolver_ResolvesPackageLevelFunc(t *testing.T) {
 	pkg := parseResolveTestdata(t, "delegate")
 	r := NewPkgFuncResolver(pkg)

@@ -4,16 +4,16 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 )
 
-type Overlay struct {
-	Open marks.Binding[bool]
+type Widget struct {
+	Label marks.Binding[string]
 }
 
-func newOverlay() *Overlay {
-	o := &Overlay{}
-	o.Open = marks.Const(false)
-	return o
+func newWidget() *Widget {
+	w := &Widget{}
+	w.Label = marks.Const("default")
+	return w
 }
 
-func (o *Overlay) handleToggle() {
-	o.Open = marks.Const(!o.Open.Get())
+func (w *Widget) handleToggle() {
+	w.Label = marks.Const("toggled")
 }

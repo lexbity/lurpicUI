@@ -33,8 +33,8 @@ func fixedDiagnostics() []*Diagnostic {
 			Message:  "hand-rolled layout container: arrange loop over child facets",
 			Teach: Teaching{
 				Did:      "wrote a LayoutRole that positions children",
-				UseThis:  "structure/panel",
-				IndexRef: "marks/structure.Panel",
+				UseThis:  "layout.NewColumnLayout",
+				IndexRef: "layout.NewColumnLayout",
 			},
 			Related: []token.Position{
 				{Filename: "app.go", Line: 15, Column: 2},

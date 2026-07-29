@@ -1,11 +1,15 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
+	"go/parser"
 	"go/token"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -21,16 +25,16 @@ const version = "0.1.0-dev"
 
 // checkFlags holds parsed flags for the `check` subcommand.
 type checkFlags struct {
-	format             string
-	severity           string
-	failOn             string
+	format              string
+	severity            string
+	failOn              string
 	failOnStaleBaseline bool
-	config             string
-	baseline           string
-	rules              string
-	noSuggest          bool
-	includeTests       bool
-	root               string
+	config              string
+	baseline            string
+	rules               string
+	noSuggest           bool
+	includeTests        bool
+	root                string
 }
 
 func main() {
@@ -54,6 +58,8 @@ func run(args []string) int {
 		return runVersion()
 	case "baseline":
 		return runBaseline(args[2:])
+	case "verify-layout":
+		return runVerifyLayout(args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 		return 0
@@ -277,6 +283,273 @@ func runCheck(args []string) int {
 		}
 	}
 	return 0
+}
+
+// runVerifyLayout handles the `verify-layout` subcommand.
+// It generates a transient _verifylayout_test.go in the target package,
+// runs `go test -json`, and reports findings via a results-file channel.
+func runVerifyLayout(args []string) int {
+	fs := flag.NewFlagSet("verify-layout", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	builderFlag := fs.String("builder", "BuildRoot", "in-package builder function name")
+	sizeFlag := fs.String("size", "1280x800", "window size as WxH")
+
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	// Parse WxH.
+	var screenW, screenH int
+	if _, err := fmt.Sscanf(*sizeFlag, "%dx%d", &screenW, &screenH); err != nil || screenW <= 0 || screenH <= 0 {
+		fmt.Fprintf(os.Stderr, "error: invalid --size %q (expected WxH, e.g. 1280x800)\n", *sizeFlag)
+		return 2
+	}
+
+	patterns := fs.Args()
+	if len(patterns) == 0 {
+		patterns = []string{"."}
+	}
+
+	// Resolve the target directory from the first pattern.  If the
+	// pattern is a relative path like ".", resolve it to a real dir.
+	targetDir := patterns[0]
+	if !filepath.IsAbs(targetDir) && !strings.Contains(targetDir, "/") && !strings.HasSuffix(targetDir, "...") {
+		// Single package name like "demos/quick_square_app".
+		// Keep as-is; go test will resolve it.
+	} else if strings.HasSuffix(targetDir, "/...") {
+		// Glob pattern — use the prefix directory.
+		targetDir = strings.TrimSuffix(targetDir, "/...")
+	} else {
+		// Try to resolve relative to cwd.
+		abs, err := filepath.Abs(targetDir)
+		if err == nil {
+			targetDir = abs
+		}
+	}
+
+	// If targetDir is not an absolute path, try to resolve it as a
+	// package path using go list.
+	pkgDir := targetDir
+	if !filepath.IsAbs(pkgDir) {
+		// Use go list to resolve the package directory.
+		//nolint:gosec // G204: targetDir is CLI-controlled, not user-input-injection
+		out, err := exec.Command("go", "list", "-f", "{{.Dir}}", targetDir).Output()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "error: cannot resolve package %q: %v\n", targetDir, err)
+			return 2
+		}
+		pkgDir = strings.TrimSpace(string(out))
+	}
+
+	// Read the package clause from the first non-test .go file.
+	pkgName := readPackageName(pkgDir)
+	if pkgName == "" {
+		fmt.Fprintf(os.Stderr, "error: cannot determine package name in %s\n", pkgDir)
+		return 2
+	}
+
+	// Strip any pkg. prefix from -builder (the generated test is in-package).
+	builderName := *builderFlag
+	if idx := strings.LastIndex(builderName, "."); idx >= 0 {
+		builderName = builderName[idx+1:]
+	}
+
+	// Remove any pre-existing generated test (both old and current name).
+	// NOTE: filename must NOT start with '_' — the go tool ignores such files.
+	_ = os.Remove(filepath.Join(pkgDir, "_verifylayout_test.go")) // pre-rename cleanup
+	genFilePath := filepath.Join(pkgDir, "lurpiclint_verifylayout_test.go")
+	_ = os.Remove(genFilePath) // current name cleanup
+
+	// Build the generated test template.
+	genCode := fmt.Sprintf(`package %s
+
+import (
+	"encoding/json"
+	"os"
+	"testing"
+
+	"codeburg.org/lexbit/lurpicui/app"
+	vl "codeburg.org/lexbit/lurpicui/cmd/lurpiclint/verifylayout"
+	"codeburg.org/lexbit/lurpicui/gfx"
+)
+
+func TestLurpiclintVerifyLayout(t *testing.T) {
+	root := %s(app.BuildContext{
+		WindowSize:   gfx.Size{W: %d, H: %d},
+		ContentScale: 1,
+	})
+	findings := vl.Check(root, vl.Options{Size: gfx.Size{W: %d, H: %d}})
+	if out := os.Getenv("LURPIC_VERIFYLAYOUT_OUT"); out != "" {
+		b, _ := json.Marshal(findings)
+		_ = os.WriteFile(out, b, 0600)
+	}
+	if len(findings) > 0 {
+		t.Fatalf("verify-layout: %%d finding(s)", len(findings))
+	}
+}
+`, pkgName, builderName, screenW, screenH, screenW, screenH)
+
+	// Write the generated test file; defer cleanup.
+	if err := os.WriteFile(genFilePath, []byte(genCode), 0600); err != nil {
+		fmt.Fprintf(os.Stderr, "error: writing %s: %v\n", genFilePath, err)
+		return 3
+	}
+	defer func() { _ = os.Remove(genFilePath) }()
+
+	// Create a temp file for the results.
+	resultsFile, err := os.CreateTemp("", "lurpiclint-verify-*.json")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: creating results file: %v\n", err)
+		return 3
+	}
+	resultsPath := resultsFile.Name()
+	resultsFile.Close()
+	defer func() { _ = os.Remove(resultsPath) }()
+
+	// Run go test -json.
+	//nolint:gosec // G204: pkgDir is CLI-controlled, not user-input-injection
+	cmd := exec.Command("go", "test", "-json", "-run", "^TestLurpiclintVerifyLayout$", "-count=1", pkgDir)
+	cmd.Env = append(os.Environ(), "LURPIC_VERIFYLAYOUT_OUT="+resultsPath)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		// Check for compile errors in the JSON output.
+		compileErr := extractCompileError(stdout.Bytes(), stderr.String())
+		if compileErr != "" {
+			fmt.Fprintf(os.Stderr, "verify-layout: target does not compile:\n%s\n", compileErr)
+			return 3
+		}
+		// If the test ran but failed (findings exist), that's not a
+		// go-command error — the exit code is 1 and we handle it below.
+		// But if go test itself failed (no test binary), we surface it.
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) && exitErr.ExitCode() == 1 {
+			// Test failure — proceed to read results.
+		} else {
+			fmt.Fprintf(os.Stderr, "error: go test failed: %v\n%s\n", err, stderr.String())
+			return 3
+		}
+	}
+
+	// Parse the JSON stream for test events.
+	dec := json.NewDecoder(&stdout)
+	testFailed := false
+	for dec.More() {
+		var evt struct {
+			Action string `json:"action"`
+			Test   string `json:"test,omitempty"`
+			Output string `json:"output,omitempty"`
+		}
+		if err := dec.Decode(&evt); err != nil {
+			break
+		}
+		if evt.Action == "fail" && evt.Test == "TestLurpiclintVerifyLayout" {
+			testFailed = true
+		}
+	}
+
+	// Read the results file.
+	//nolint:gosec // G304: resultsPath is a temp file we just created
+	data, err := os.ReadFile(resultsPath)
+	if err != nil || len(data) == 0 {
+		if testFailed {
+			fmt.Fprintln(os.Stderr, "verify-layout: test failed but no results file found (builder may have panicked)")
+			return 3
+		}
+		fmt.Fprintln(os.Stdout, "verify-layout: OK (no results file)")
+		return 0
+	}
+
+	var findings []struct {
+		Kind   string `json:"kind"`
+		Type   string `json:"type"`
+		Field  string `json:"field"`
+		Source string `json:"source"`
+		Detail string `json:"detail"`
+		Hint   string `json:"hint"`
+	}
+	if err := json.Unmarshal(data, &findings); err != nil {
+		fmt.Fprintf(os.Stderr, "error: reading findings: %v\n", err)
+		return 3
+	}
+
+	if len(findings) == 0 {
+		fmt.Fprintf(os.Stdout, "verify-layout OK: 0 finding(s) at %dx%d\n", screenW, screenH)
+		return 0
+	}
+
+	fmt.Fprintf(os.Stdout, "verify-layout FAILED: %d finding(s) at %dx%d\n", len(findings), screenW, screenH)
+	for _, f := range findings {
+		src := f.Source
+		if src != "" {
+			src += "  "
+		}
+		hint := ""
+		if f.Hint != "" {
+			hint = "\n                fix: " + f.Hint
+		}
+		fmt.Fprintf(os.Stdout, "\n  %-18s %s%s%s%s\n", f.Kind, src, f.Type, fieldSuffix(f.Field), hint)
+		fmt.Fprintf(os.Stdout, "                %s\n", f.Detail)
+	}
+	fmt.Fprintln(os.Stdout, "\n  hint: these are structural soundness checks, not correctness.")
+	return 1
+}
+
+// readPackageName reads the package clause from the first non-_test.go file
+// in the given directory.  Returns "" on failure.
+func readPackageName(dir string) string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		path := filepath.Join(dir, e.Name())
+		fset := token.NewFileSet()
+		f, err := parser.ParseFile(fset, path, nil, parser.PackageClauseOnly)
+		if err != nil {
+			continue
+		}
+		return f.Name.Name
+	}
+	return ""
+}
+
+// fieldSuffix returns " <field>" if field is non-empty, else "".
+func fieldSuffix(field string) string {
+	if field != "" {
+		return " " + field
+	}
+	return ""
+}
+
+// extractCompileError attempts to find a compile error in go test -json output.
+func extractCompileError(jsonOutput []byte, stderr string) string {
+	// The JSON stream may contain events with Action:"fail" at the
+	// package level that carry compiler output in the "output" field.
+	dec := json.NewDecoder(bytes.NewReader(jsonOutput))
+	for dec.More() {
+		var evt struct {
+			Action string `json:"action"`
+			Output string `json:"output,omitempty"`
+		}
+		if err := dec.Decode(&evt); err != nil {
+			break
+		}
+		if evt.Action == "fail" && strings.Contains(evt.Output, "compile") {
+			return evt.Output
+		}
+	}
+	// Fall back to stderr.
+	if stderr != "" {
+		return stderr
+	}
+	return ""
 }
 
 // findModuleRoot walks up from the working directory to find the module root
@@ -511,7 +784,7 @@ func runBaseline(args []string) int {
 		return 3
 	}
 
-	if err := os.WriteFile(*outputPath, data, 0644); err != nil {
+	if err := os.WriteFile(*outputPath, data, 0600); err != nil {
 		fmt.Fprintf(os.Stderr, "error: writing %s: %v\n", *outputPath, err)
 		return 3
 	}
@@ -528,6 +801,7 @@ Usage:
   lurpiclint capabilities [flags]                emit the uxauthoring index
   lurpiclint explain <rule-id>                   print a rule's rationale and fix
   lurpiclint baseline generate [flags] [pkgs]    generate baseline JSON from current findings
+  lurpiclint verify-layout [flags]               run layout-tree assertion (library mode preferred)
   lurpiclint version                             print version information
 
 Check flags:

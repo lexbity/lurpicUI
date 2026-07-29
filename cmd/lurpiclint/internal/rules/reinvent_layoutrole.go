@@ -63,8 +63,8 @@ func (r *ReinventLayoutRole) checkCompositeLiterals(f *loader.ParsedFile, fid st
 			return true
 		}
 
-		hasOnMeasure := walk.KeyValue(lit, "OnMeasure") != nil
-		hasOnArrange := walk.KeyValue(lit, "OnArrange") != nil
+		hasOnMeasure := walk.KeyValue(lit, StrOnMeasure) != nil
+		hasOnArrange := walk.KeyValue(lit, StrOnArrange) != nil
 		if !hasOnMeasure && !hasOnArrange {
 			return true
 		}
@@ -98,7 +98,7 @@ func (r *ReinventLayoutRole) checkFieldAssignments(f *loader.ParsedFile, fid str
 		return diags
 	}
 
-	cbs := map[string]bool{"OnMeasure": true, "OnArrange": true}
+	cbs := map[string]bool{StrOnMeasure: true, StrOnArrange: true}
 
 	ast.Inspect(f.AST, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
@@ -155,8 +155,8 @@ func (r *ReinventLayoutRole) diagnosticAt(pos token.Position, message, did strin
 		Message:  message,
 		Teach: diag.Teaching{
 			Did:      did,
-			UseThis:  "an existing layout container or mark such as structure/panel",
-			IndexRef: "marks/structure.Panel",
+			UseThis:  "an existing layout container such as layout.NewColumnLayout, or a marks/structure composite",
+			IndexRef: StrLayoutColumn,
 		},
 	}
 }

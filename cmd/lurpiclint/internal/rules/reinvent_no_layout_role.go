@@ -105,7 +105,7 @@ func (r *NoLayoutRole) Check(ctx *Context) []*diag.Diagnostic {
 						if !ok {
 							return true
 						}
-						if sel.Sel.Name == "AddChild" && isOnFacetReceiver(sel.X) {
+						if sel.Sel.Name == StrAddChild && isOnFacetReceiver(sel.X) {
 							addChildSites = append(addChildSites, f.Fset.Position(sel.Pos()))
 						}
 						return true
@@ -123,7 +123,7 @@ func (r *NoLayoutRole) Check(ctx *Context) []*diag.Diagnostic {
 					Teach: diag.Teaching{
 						Did:      "built a parent facet that participates in no layout",
 						UseThis:  "register a LayoutRole via AddRole, or delegate parenting to a layout container like layout.NewColumnLayout",
-						IndexRef: "layout.NewColumnLayout",
+						IndexRef: StrLayoutColumn,
 					},
 					Related: addChildSites,
 				})

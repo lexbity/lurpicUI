@@ -84,7 +84,7 @@ func (r *ReinventContainer) checkCompositeLiterals(f *loader.ParsedFile, fid str
 			}
 		case *ast.CallExpr:
 			if sel, ok := n.Fun.(*ast.SelectorExpr); ok {
-				if sel.Sel.Name == "AddChild" {
+				if sel.Sel.Name == StrAddChild {
 					addChildPositions = append(addChildPositions, f.Fset.Position(sel.Pos()))
 				}
 			}
@@ -104,8 +104,8 @@ func (r *ReinventContainer) checkCompositeLiterals(f *loader.ParsedFile, fid str
 			Message:  "hand-rolled layout container: child-arranging LayoutRole detected; use an existing layout container or mark instead",
 			Teach: diag.Teaching{
 				Did:      "wrote a LayoutRole that arranges child facets",
-				UseThis:  "structure/panel or another built-in layout container",
-				IndexRef: "marks/structure.Panel",
+				UseThis:  "layout.NewColumnLayout / layout.NewRowLayout, or marks/structure.Card",
+				IndexRef: StrLayoutColumn,
 			},
 			Related: addChildPositions,
 		})
@@ -129,7 +129,7 @@ func (r *ReinventContainer) checkFieldAssignments(f *loader.ParsedFile, fid stri
 		return diags
 	}
 
-	cbs := map[string]bool{"OnMeasure": true, "OnArrange": true}
+	cbs := map[string]bool{StrOnMeasure: true, StrOnArrange: true}
 
 	ast.Inspect(f.AST, func(n ast.Node) bool {
 		assign, ok := n.(*ast.AssignStmt)
@@ -176,7 +176,7 @@ func (r *ReinventContainer) checkFieldAssignments(f *loader.ParsedFile, fid stri
 			var addChildPositions []token.Position
 			ast.Inspect(f.AST, func(n ast.Node) bool {
 				if call, ok := n.(*ast.CallExpr); ok {
-					if sel2, ok2 := call.Fun.(*ast.SelectorExpr); ok2 && sel2.Sel.Name == "AddChild" {
+					if sel2, ok2 := call.Fun.(*ast.SelectorExpr); ok2 && sel2.Sel.Name == StrAddChild {
 						addChildPositions = append(addChildPositions, f.Fset.Position(sel2.Pos()))
 					}
 				}
@@ -190,8 +190,8 @@ func (r *ReinventContainer) checkFieldAssignments(f *loader.ParsedFile, fid stri
 				Message:  "hand-rolled layout container: field-assigned OnArrange arranges child facets; use an existing layout container or mark instead",
 				Teach: diag.Teaching{
 					Did:      "assigned a LayoutRole.OnArrange that arranges child facets",
-					UseThis:  "structure/panel or a built-in layout container",
-					IndexRef: "marks/structure.Panel",
+					UseThis:  "layout.NewColumnLayout / layout.NewRowLayout, or marks/structure.Card",
+					IndexRef: StrLayoutColumn,
 				},
 				Related: addChildPositions,
 			})
