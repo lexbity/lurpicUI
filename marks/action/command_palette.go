@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -93,7 +94,7 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 	p.AddBinding(p.Placeholder)
 	p.AddBinding(p.Disabled)
 
-	p.searchField = input.NewTextField("Search", uiinput.TextInputOutlined)
+	p.searchField = input.NewTextField("Search", uiinput.TextInputOutlined, store.NewValueStore(""))
 	p.searchField.Placeholder = marks.Const(p.Placeholder.Get())
 	p.resultsList = newCommandPaletteResultsGroup(p)
 	p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open)

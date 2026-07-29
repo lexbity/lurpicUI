@@ -66,11 +66,12 @@ var _ layout.AnchorExporter = (*Switch)(nil)
 var _ marks.Mark = (*Switch)(nil)
 
 // NewSwitch constructs a selection.switch mark with canonical defaults.
-func NewSwitch(label string) *Switch {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
 	s := &Switch{
 		Variant:  marks.Const(uiinput.SwitchStandard),
 		Disabled: marks.Const(false),
-		Value:    store.NewValueStore[bool](false),
+		Value:    value,
 		Label:    label,
 	}
 	s.Facet = facet.NewFacet()
@@ -165,11 +166,11 @@ func (s *Switch) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 // Children returns the facet's immediate child list.
 func (s *Switch) Children() []facet.GroupChild { return nil }
 
-// OnAttach wires store invalidation for the bound value store.
+// OnAttach wires store invalidation for the value store.
 func (s *Switch) OnAttach(ctx facet.AttachContext) {
 	s.Core.OnAttach()
 	if s.Value == nil {
-		s.Value = store.NewValueStore[bool](false)
+		return
 	}
 	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[bool]) {
 		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
@@ -523,12 +524,7 @@ func (s *Switch) labelState() theme.InteractionState {
 
 // SetChecked updates the canonical switch value.
 func (s *Switch) SetChecked(checked bool) {
-	if s == nil {
-		return
-	}
-	if s.Value == nil {
-		s.Value = store.NewValueStore[bool](checked)
-		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	if s == nil || s.Value == nil {
 		return
 	}
 	if s.Value.Get() == checked {
@@ -539,7 +535,10 @@ func (s *Switch) SetChecked(checked bool) {
 }
 
 func (s *Switch) isChecked() bool {
-	if s == nil || s.Value == nil {
+	if s == nil {
+		return false
+	}
+	if s.Value == nil {
 		return false
 	}
 	return s.Value.Get()

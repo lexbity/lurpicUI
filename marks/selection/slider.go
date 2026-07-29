@@ -76,11 +76,12 @@ var _ layout.AnchorExporter = (*Slider)(nil)
 var _ marks.Mark = (*Slider)(nil)
 
 // NewSlider constructs a selection.slider mark with canonical defaults.
-func NewSlider(label string, min, max, step float64) *Slider {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewSlider(label string, min, max, step float64, value *store.ValueStore[float64]) *Slider {
 	s := &Slider{
 		Variant:   marks.Const[uiinput.SliderVariant](0),
 		Disabled:  marks.Const(false),
-		Value:     store.NewValueStore[float64](min),
+		Value:     value,
 		Label:     label,
 		Min:       min,
 		Max:       max,
@@ -214,11 +215,11 @@ func (s *Slider) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach wires store invalidation for the bound value store.
+// OnAttach wires store invalidation for the value store.
 func (s *Slider) OnAttach(ctx facet.AttachContext) {
 	s.Core.OnAttach()
 	if s.Value == nil {
-		s.Value = store.NewValueStore[float64](s.clampValue(s.Min))
+		return
 	}
 	s.syncChildren()
 	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[float64]) {
@@ -992,16 +993,10 @@ func (s *Slider) tickRects(trackLeft, trackRight, trackY float32) []gfx.Rect {
 
 // SetValue updates the canonical numeric value.
 func (s *Slider) SetValue(value float64) {
-	if s == nil {
+	if s == nil || s.Value == nil {
 		return
 	}
 	clamped := s.clampValue(value)
-	if s.Value == nil {
-		s.Value = store.NewValueStore[float64](clamped)
-		s.syncChildren()
-		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
 	if s.Value.Get() == clamped {
 		return
 	}

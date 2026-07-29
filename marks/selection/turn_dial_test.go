@@ -10,10 +10,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
@@ -304,11 +306,24 @@ func newTurnDialTestFixture(t *testing.T, tokens theme.Tokens, density theme.Den
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.NewResolvedContext(tokens).WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	td := NewTurnDial("Label", 0, 100, 1)
+	td := NewTurnDial("Label", 0, 100, 1, store.NewValueStore(float64(0)))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return td, rt, resolved
 }
 
 func darkSliderTokens() theme.Tokens {
 	return toThemeTokens(templates.UneNuit().Tokens)
+}
+
+func TestTurnDialValueSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[float64](
+		t,
+		func() *store.ValueStore[float64] { return store.NewValueStore(float64(0)) },
+		func(s *store.ValueStore[float64]) facet.FacetImpl {
+			return NewTurnDial("test", 0, 100, 1, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*TurnDial).adjustValue(42)
+		},
+	)
 }

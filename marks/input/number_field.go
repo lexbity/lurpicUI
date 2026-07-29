@@ -109,7 +109,8 @@ var _ layout.AnchorExporter = (*NumberField)(nil)
 var _ marks.Mark = (*NumberField)(nil)
 
 // NewNumberField constructs an input.number_field mark with canonical defaults.
-func NewNumberField(label string) *NumberField {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewNumberField(label string, value *store.ValueStore[float64]) *NumberField {
 	nf := &NumberField{
 		Label:       marks.Const(label),
 		Placeholder: marks.Const(""),
@@ -124,7 +125,7 @@ func NewNumberField(label string) *NumberField {
 		Required:    marks.Const(false),
 		Disabled:    marks.Const(false),
 		ReadOnly:    marks.Const(false),
-		Value:       store.NewValueStore[float64](0),
+		Value:       value,
 	}
 	nf.Facet = facet.NewFacet()
 
@@ -220,7 +221,7 @@ func (nf *NumberField) Children() []facet.GroupChild { return nil }
 
 func (nf *NumberField) OnAttach(ctx facet.AttachContext) {
 	if nf.Value == nil {
-		nf.Value = store.NewValueStore[float64](0)
+		return
 	}
 	nf.Core.OnAttach()
 	nf.syncEditingText()

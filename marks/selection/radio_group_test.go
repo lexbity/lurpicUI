@@ -9,9 +9,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -317,7 +319,20 @@ func newRadioGroupTestFixture(t *testing.T, tokens theme.Tokens, density theme.D
 		{Value: "small", Label: "Small"},
 		{Value: "medium", Label: "Medium"},
 		{Value: "large", Label: "Large"},
-	})
+	}, store.NewValueStore[string](""))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return rg, rt, resolved
+}
+
+func TestRadioGroupValueSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[string](
+		t,
+		func() *store.ValueStore[string] { return store.NewValueStore("a") },
+		func(s *store.ValueStore[string]) facet.FacetImpl {
+			return NewRadioGroup("test", []RadioOption{{Value: "a", Label: "A"}, {Value: "b", Label: "B"}}, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*RadioGroup).SetValue("b")
+		},
+	)
 }

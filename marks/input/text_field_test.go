@@ -9,7 +9,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -31,7 +33,7 @@ func (s textFieldRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 func (s textFieldRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
-	tf := NewTextField("Email", uiinput.TextInputOutlined)
+	tf := NewTextField("Email", uiinput.TextInputOutlined, store.NewValueStore[string](""))
 	tf.Placeholder = marks.Const("name@example.com")
 	tf.HelperText = marks.Const("We will not share this address.")
 	rt := textFieldRuntimeStub{
@@ -99,7 +101,7 @@ func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestTextFieldStoreChangeAndEditing(t *testing.T) {
-	tf := NewTextField("Name", uiinput.TextInputFilled)
+	tf := NewTextField("Name", uiinput.TextInputFilled, store.NewValueStore[string](""))
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
@@ -162,7 +164,7 @@ func TestTextFieldStoreChangeAndEditing(t *testing.T) {
 }
 
 func TestTextFieldGraphemeBackspaceDeletesWholeCluster(t *testing.T) {
-	tf := NewTextField("Name", uiinput.TextInputFilled)
+	tf := NewTextField("Name", uiinput.TextInputFilled, store.NewValueStore[string](""))
 	content := "a\u0301b"
 	tf.Value.Set(content)
 	tf.cachedValueLayout = textLayoutForTest(t, content)
@@ -196,7 +198,7 @@ func TestTextFieldGoldenDisabled(t *testing.T) {
 
 func AssertTextFieldGolden(t *testing.T, name string, mutate func(*TextField)) {
 	t.Helper()
-	tf := NewTextField("Email", uiinput.TextInputOutlined)
+	tf := NewTextField("Email", uiinput.TextInputOutlined, store.NewValueStore[string](""))
 	tf.Placeholder = marks.Const("name@example.com")
 	tf.HelperText = marks.Const("We will never share this value.")
 	tf.Validation = marks.Const(TextFieldValidationWarning)
@@ -232,4 +234,17 @@ func textLayoutForTest(t *testing.T, content string) *text.TextLayout {
 	style := text.DefaultStyle()
 	style.Family = "noto-sans-regular"
 	return shaper.ShapeSimple(content, style)
+}
+
+func TestTextFieldValueSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[string](
+		t,
+		func() *store.ValueStore[string] { return store.NewValueStore("") },
+		func(s *store.ValueStore[string]) facet.FacetImpl {
+			return NewTextField("test", uiinput.TextInputFilled, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*TextField).setValueRunes([]rune("hello"))
+		},
+	)
 }

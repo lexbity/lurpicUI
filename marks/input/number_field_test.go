@@ -10,16 +10,18 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
-	nf := NewNumberField("Amount")
+	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
 	nf.Step = marks.Const(float64(0.5))
 	nf.Precision = marks.Const(2)
 	nf.Value.Set(12.5)
@@ -95,7 +97,7 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
-	nf := NewNumberField("Amount")
+	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
 	nf.Step = marks.Const(float64(2))
 	nf.Value.Set(10)
 	rt := textFieldRuntimeStub{
@@ -170,7 +172,7 @@ func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 }
 
 func TestNumberFieldGraphemeBackspaceDeletesWholeCluster(t *testing.T) {
-	nf := NewNumberField("Amount")
+	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
 	nf.editing = true
 	nf.editingText = "12"
 	nf.cachedValueLayout = textLayoutForTest(t, "12")
@@ -245,7 +247,7 @@ func TestNumberFieldGoldenRTL(t *testing.T) {
 
 func renderNumberFieldSurface(t *testing.T, direction layout.WritingDirection, goldenName string, mutate func(*NumberField)) *testkit.MemorySurface {
 	t.Helper()
-	nf := NewNumberField("Amount")
+	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
 	nf.Precision = marks.Const(2)
 	nf.Value.Set(123.45)
 	nf.HelperText = marks.Const("Enter a quantity.")
@@ -318,4 +320,17 @@ func allNumberFieldFieldsPresent[T any](value T) bool {
 		}
 	}
 	return true
+}
+
+func TestNumberFieldValueSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[float64](
+		t,
+		func() *store.ValueStore[float64] { return store.NewValueStore(float64(0)) },
+		func(s *store.ValueStore[float64]) facet.FacetImpl {
+			return NewNumberField("test", s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*NumberField).setValueCanonical(42)
+		},
+	)
 }

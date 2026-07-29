@@ -14,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -1565,7 +1566,7 @@ type popupPaletteComposition struct {
 
 func newPopupPaletteComposition(p *PopupPalette) *popupPaletteComposition {
 	c := &popupPaletteComposition{palette: p}
-	c.center = input.NewColorPicker("Palette color")
+	c.center = input.NewColorPicker("Palette color", store.NewValueStore(gfx.Color{}))
 	c.center.Disabled = marks.Const(p.Disabled.Get())
 	c.control = NewActionGroup(marks.Const("Palette controls"), marks.Const([]ActionGroupAction{
 		{Key: "mirror", AccessibleLabel: "Mirror canvas", IconRef: "mirror"},

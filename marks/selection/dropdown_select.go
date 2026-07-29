@@ -81,7 +81,8 @@ var _ layout.AnchorExporter = (*DropdownSelect)(nil)
 var _ marks.Mark = (*DropdownSelect)(nil)
 
 // NewDropdownSelect constructs a dropdown select with canonical defaults.
-func NewDropdownSelect(label string, options []DropdownOption) *DropdownSelect {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewDropdownSelect(label string, options []DropdownOption, value *store.ValueStore[string]) *DropdownSelect {
 	ds := &DropdownSelect{
 		Label:       marks.Const(label),
 		Placeholder: marks.Const("Select..."),
@@ -89,7 +90,7 @@ func NewDropdownSelect(label string, options []DropdownOption) *DropdownSelect {
 		Variant:     marks.Const(uiinput.SelectStandard),
 		Disabled:    marks.Const(false),
 		Invalid:     marks.Const(false),
-		Value:       store.NewValueStore[string](""),
+		Value:       value,
 		activeIndex: 0,
 	}
 	ds.Facet = facet.NewFacet()
@@ -195,7 +196,7 @@ func (ds *DropdownSelect) Children() []facet.GroupChild { return nil }
 func (ds *DropdownSelect) OnAttach(ctx facet.AttachContext) {
 	ds.Core.OnAttach()
 	if ds.Value == nil {
-		ds.Value = store.NewValueStore[string]("")
+		return
 	}
 	facet.Store(facet.Subscribe(ds), &ds.Value.OnChange, ds.Value.Version, func(signal.Change[string]) {
 		ds.syncActiveIndex()

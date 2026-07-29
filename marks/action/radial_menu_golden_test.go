@@ -12,6 +12,7 @@ import (
 	input "codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
@@ -100,8 +101,7 @@ func newRadialMenuGoldenFixture(t *testing.T, tokens theme.Tokens, density theme
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 
-	center := input.NewColorPicker("Palette")
-	center.SetColor(gfx.Color{R: 0.17, G: 0.56, B: 0.93, A: 1})
+	center := input.NewColorPicker("Palette", store.NewValueStore(gfx.Color{R: 0.17, G: 0.56, B: 0.93, A: 1}))
 
 	split := NewSplitButton("Brush", []SplitButtonItem{
 		{Key: "soft", Label: "Soft"},

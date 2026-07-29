@@ -15,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -289,7 +290,7 @@ func newButtonGroupGroupFixture(t *testing.T) *selection.ButtonGroup {
 	bg := selection.NewButtonGroup("Choices", []selection.ButtonGroupOption{
 		{Key: "one", Label: "One"},
 		{Key: "two", Label: "Two"},
-	})
+	}, store.NewValueStore[[]string](nil))
 	return bg
 }
 

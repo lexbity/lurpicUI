@@ -64,11 +64,12 @@ var _ facet.FacetImpl = (*TurnDial)(nil)
 var _ marks.Mark = (*TurnDial)(nil)
 
 // NewTurnDial constructs a selection.turn_dial mark with defaults.
-func NewTurnDial(label string, min, max, step float64) *TurnDial {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[float64]) *TurnDial {
 	td := &TurnDial{
 		Label:     marks.Const(label),
 		Disabled:  marks.Const(false),
-		Value:     store.NewValueStore[float64](min),
+		Value:     value,
 		Min:       min,
 		Max:       max,
 		Step:      step,
@@ -200,7 +201,7 @@ func (td *TurnDial) invalidate(flags facet.DirtyFlags) {
 func (td *TurnDial) OnAttach(ctx facet.AttachContext) {
 	td.Core.OnAttach()
 	if td.Value == nil {
-		td.Value = store.NewValueStore[float64](td.Min)
+		return
 	}
 	facet.Store(facet.Subscribe(td), &td.Value.OnChange, td.Value.Version, func(signal.Change[float64]) {
 		td.invalidate(facet.DirtyProjection)

@@ -9,11 +9,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	input "codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func TestRadialMenuComposesExistingMarks(t *testing.T) {
-	center := input.NewColorPicker("Palette")
+	center := input.NewColorPicker("Palette", store.NewValueStore(gfx.Color{R: 1, G: 0, B: 0, A: 1}))
 	split := NewSplitButton("Brush", []SplitButtonItem{
 		{Key: "soft", Label: "Soft", IconRef: "brush"},
 	})

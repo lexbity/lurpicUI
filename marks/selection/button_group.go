@@ -125,7 +125,8 @@ var _ marks.Mark = (*ButtonGroup)(nil)
 var _ facet.FacetImpl = (*buttonGroupItem)(nil)
 
 // NewButtonGroup constructs a selection.button_group mark with canonical defaults.
-func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewButtonGroup(label string, options []ButtonGroupOption, value *store.ValueStore[[]string]) *ButtonGroup {
 	bg := &ButtonGroup{
 		Label:        marks.Const(label),
 		Mode:         marks.Const(ButtonGroupExclusive),
@@ -133,7 +134,7 @@ func NewButtonGroup(label string, options []ButtonGroupOption) *ButtonGroup {
 		hoveredIndex: -1,
 		pressedIndex: -1,
 		focusedIndex: -1,
-		Value:        store.NewValueStore[[]string](nil),
+		Value:        value,
 	}
 	bg.Facet = facet.NewFacet()
 	bg.AddBinding(bg.Label)
@@ -235,15 +236,10 @@ func (bg *ButtonGroup) SetOptions(options []ButtonGroupOption) {
 
 // SetSelectedKeys updates the canonical selected keys.
 func (bg *ButtonGroup) SetSelectedKeys(keys ...string) {
-	if bg == nil {
+	if bg == nil || bg.Value == nil {
 		return
 	}
 	next := bg.normalizeSelection(keys)
-	if bg.Value == nil {
-		bg.Value = store.NewValueStore[[]string](next)
-		bg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
 	if sameStringSlice(bg.Value.Get(), next) {
 		return
 	}
@@ -319,7 +315,7 @@ func (bg *ButtonGroup) Children() []facet.GroupChild {
 func (bg *ButtonGroup) OnAttach(ctx facet.AttachContext) {
 	bg.Core.OnAttach()
 	if bg.Value == nil {
-		bg.Value = store.NewValueStore[[]string](nil)
+		return
 	}
 	facet.Store(facet.Subscribe(bg), &bg.Value.OnChange, bg.Value.Version, func(signal.Change[[]string]) {
 		bg.syncChildState()

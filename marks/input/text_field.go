@@ -92,7 +92,8 @@ var _ layout.AnchorExporter = (*TextField)(nil)
 var _ marks.Mark = (*TextField)(nil)
 
 // NewTextField constructs an input.text_field mark with canonical defaults.
-func NewTextField(label string, variant uiinput.TextInputVariant) *TextField {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewTextField(label string, variant uiinput.TextInputVariant, value *store.ValueStore[string]) *TextField {
 	tf := &TextField{
 		Label:       marks.Const(label),
 		Placeholder: marks.Const(""),
@@ -104,7 +105,7 @@ func NewTextField(label string, variant uiinput.TextInputVariant) *TextField {
 		Required:    marks.Const(false),
 		Disabled:    marks.Const(false),
 		ReadOnly:    marks.Const(false),
-		Value:       store.NewValueStore(""),
+		Value:       value,
 	}
 	tf.Facet = facet.NewFacet()
 
@@ -219,7 +220,7 @@ func (tf *TextField) Children() []facet.GroupChild {
 
 func (tf *TextField) OnAttach(ctx facet.AttachContext) {
 	if tf.Value == nil {
-		tf.Value = store.NewValueStore("")
+		return
 	}
 	tf.Core.OnAttach()
 	facet.Store(facet.Subscribe(tf), &tf.Value.OnChange, tf.Value.Version, func(signal.Change[string]) {

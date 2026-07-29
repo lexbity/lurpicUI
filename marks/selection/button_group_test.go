@@ -2,6 +2,7 @@ package selection
 
 import (
 	"math"
+	"reflect"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -13,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -328,7 +330,30 @@ func newButtonGroupTestFixture(t *testing.T, tokens theme.Tokens, density theme.
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	bg := NewButtonGroup("Choices", nil)
+	bg := NewButtonGroup("Choices", nil, store.NewValueStore[[]string](nil))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return bg, rt, resolved
+}
+
+func TestButtonGroupValueSurvivesDispose(t *testing.T) {
+	s := store.NewValueStore[[]string](nil)
+
+	m := NewButtonGroup("test", []ButtonGroupOption{{Key: "a", Label: "A"}}, s)
+	facet.Attach(m, facet.AttachContext{Runtime: sliderRuntimeStub{}})
+	m.SetSelectedKeys("a")
+
+	if len(s.Get()) == 0 {
+		t.Fatal("interaction did not change store value")
+	}
+	want := s.Get()
+
+	facet.Dispose(m)
+
+	m2 := NewButtonGroup("test", []ButtonGroupOption{{Key: "a", Label: "A"}}, s)
+	facet.Attach(m2, facet.AttachContext{Runtime: sliderRuntimeStub{}})
+	got := s.Get()
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("store value after dispose+rebuild = %v, want %v", got, want)
+	}
+	facet.Dispose(m2)
 }

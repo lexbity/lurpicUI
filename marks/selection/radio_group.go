@@ -79,13 +79,15 @@ var _ layout.AnchorExporter = (*RadioGroup)(nil)
 var _ marks.Mark = (*RadioGroup)(nil)
 
 // NewRadioGroup constructs a selection.radio_group mark with canonical defaults.
-func NewRadioGroup(label string, options []RadioOption) *RadioGroup {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[string]) *RadioGroup {
 	rg := &RadioGroup{
 		Variant:      marks.Const(uiinput.RadioGroupStandard),
 		Disabled:     marks.Const(false),
 		Label:        label,
 		hoveredIndex: -1,
 		pressedIndex: -1,
+		Value:        value,
 	}
 	rg.Facet = facet.NewFacet()
 	rg.AddBinding(rg.Variant)
@@ -184,15 +186,11 @@ func (rg *RadioGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 // Children returns the facet's immediate child list.
 func (rg *RadioGroup) Children() []facet.GroupChild { return nil }
 
-// OnAttach wires store invalidation for the bound value store.
+// OnAttach wires store invalidation for the value store.
 func (rg *RadioGroup) OnAttach(ctx facet.AttachContext) {
 	rg.Core.OnAttach()
 	if rg.Value == nil {
-		if len(rg.Options) > 0 {
-			rg.Value = store.NewValueStore[string](rg.Options[0].Value)
-		} else {
-			rg.Value = store.NewValueStore[string]("")
-		}
+		return
 	}
 	facet.Store(facet.Subscribe(rg), &rg.Value.OnChange, rg.Value.Version, func(signal.Change[string]) {
 		rg.focusedIndex = rg.selectedIndex()
@@ -745,7 +743,7 @@ func (rg *RadioGroup) moveSelection(delta int) {
 
 // SetValue updates the canonical selected value.
 func (rg *RadioGroup) SetValue(value string) {
-	if rg == nil {
+	if rg == nil || rg.Value == nil {
 		return
 	}
 	value = strings.TrimSpace(value)
@@ -755,11 +753,6 @@ func (rg *RadioGroup) SetValue(value string) {
 		} else {
 			value = rg.Options[0].Value
 		}
-	}
-	if rg.Value == nil {
-		rg.Value = store.NewValueStore[string](value)
-		rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
 	}
 	if rg.Value.Get() == value {
 		return
@@ -782,14 +775,7 @@ func (rg *RadioGroup) SetOptions(options []RadioOption) {
 		}
 	}
 	rg.Options = next
-	if rg.Value == nil {
-		if len(next) > 0 {
-			rg.Value = store.NewValueStore[string](next[0].Value)
-		} else {
-			rg.Value = store.NewValueStore[string]("")
-		}
-	}
-	if len(next) > 0 {
+	if rg.Value != nil && len(next) > 0 {
 		if rg.optionIndexByValue(rg.Value.Get()) < 0 {
 			rg.Value.Set(next[0].Value)
 		}

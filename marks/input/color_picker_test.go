@@ -6,21 +6,27 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
-func TestColorPickerSetColorSyncsHSV(t *testing.T) {
-	picker := NewColorPicker("Palette")
-	picker.setColor(gfx.ColorFromRGBA8(255, 0, 0, 255), false)
+func defaultColorPickerStore() *store.ValueStore[gfx.Color] {
+	return store.NewValueStore(gfx.Color{R: 1, G: 0, B: 0, A: 1}) // red, opaque
+}
 
-	if !nearFloat64(picker.Hue, 0, 0.001) {
-		t.Fatalf("Hue = %.6f, want 0", picker.Hue)
+func TestColorPickerSetColorSyncsHSV(t *testing.T) {
+	picker := NewColorPicker("Palette", defaultColorPickerStore())
+	picker.SetColor(gfx.ColorFromRGBA8(255, 0, 0, 255))
+
+	if !nearFloat64(picker.cachedHue, 0, 0.001) {
+		t.Fatalf("Hue = %.6f, want 0", picker.cachedHue)
 	}
-	if !nearFloat32(picker.Saturation, 1, 0.001) {
-		t.Fatalf("Saturation = %.6f, want 1", picker.Saturation)
+	if !nearFloat32(picker.cachedSaturation, 1, 0.001) {
+		t.Fatalf("Saturation = %.6f, want 1", picker.cachedSaturation)
 	}
-	if !nearFloat32(picker.Value, 1, 0.001) {
-		t.Fatalf("Value = %.6f, want 1", picker.Value)
+	if !nearFloat32(picker.cachedBrightness, 1, 0.001) {
+		t.Fatalf("Brightness = %.6f, want 1", picker.cachedBrightness)
 	}
 	if got := picker.CurrentColor(); got != (gfx.ColorFromRGBA8(255, 0, 0, 255)) {
 		t.Fatalf("CurrentColor = %#v, want red", got)
@@ -28,7 +34,7 @@ func TestColorPickerSetColorSyncsHSV(t *testing.T) {
 }
 
 func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
-	picker := NewColorPicker("Palette")
+	picker := NewColorPicker("Palette", defaultColorPickerStore())
 	var emitted []gfx.Color
 	picker.ColorChanged.Subscribe(func(c gfx.Color) {
 		emitted = append(emitted, c)
@@ -44,11 +50,11 @@ func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
 	if len(emitted) != 1 {
 		t.Fatalf("emitted count = %d, want 1", len(emitted))
 	}
-	if !nearFloat64(picker.Hue, 3*math.Pi/2, 0.05) {
-		t.Fatalf("Hue = %.6f, want near 3*pi/2 after wheel press", picker.Hue)
+	if !nearFloat64(picker.cachedHue, 3*math.Pi/2, 0.05) {
+		t.Fatalf("Hue = %.6f, want near 3*pi/2 after wheel press", picker.cachedHue)
 	}
-	if !nearFloat32(picker.Saturation, 1, 0.001) || !nearFloat32(picker.Value, 1, 0.001) {
-		t.Fatalf("wheel press should not change SV: s=%.3f v=%.3f", picker.Saturation, picker.Value)
+	if !nearFloat32(picker.cachedSaturation, 1, 0.001) || !nearFloat32(picker.cachedBrightness, 1, 0.001) {
+		t.Fatalf("wheel press should not change SV: s=%.3f v=%.3f", picker.cachedSaturation, picker.cachedBrightness)
 	}
 
 	whiteVertex := picker.cachedTriangleVerts[1]
@@ -58,16 +64,16 @@ func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
 	if len(emitted) != 2 {
 		t.Fatalf("emitted count = %d, want 2", len(emitted))
 	}
-	if picker.Value < 0.9 {
-		t.Fatalf("Value = %.6f, want near 1 at white vertex", picker.Value)
+	if picker.cachedBrightness < 0.9 {
+		t.Fatalf("Brightness = %.6f, want near 1 at white vertex", picker.cachedBrightness)
 	}
-	if picker.Saturation > 0.1 {
-		t.Fatalf("Saturation = %.6f, want near 0 at white vertex", picker.Saturation)
+	if picker.cachedSaturation > 0.1 {
+		t.Fatalf("Saturation = %.6f, want near 0 at white vertex", picker.cachedSaturation)
 	}
 }
 
 func TestColorPickerBuildCommandsProducesGeometry(t *testing.T) {
-	picker := NewColorPicker("Palette")
+	picker := NewColorPicker("Palette", defaultColorPickerStore())
 	picker.Layout.Arrange(facet.ArrangeContext{Placement: facet.Placement{Mode: facet.PlacementGrid}}, gfx.RectFromXYWH(0, 0, 200, 200))
 	cmds := picker.buildCommands(picker.Layout.ArrangedBounds, nil)
 	if len(cmds) == 0 {
@@ -87,4 +93,17 @@ func nearFloat64(a, b, tol float64) bool {
 		return a-b <= tol
 	}
 	return b-a <= tol
+}
+
+func TestColorPickerValueSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[gfx.Color](
+		t,
+		func() *store.ValueStore[gfx.Color] { return store.NewValueStore(gfx.Color{}) },
+		func(s *store.ValueStore[gfx.Color]) facet.FacetImpl {
+			return NewColorPicker("test", s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*ColorPicker).SetColor(gfx.Color{R: 1, G: 0, B: 0, A: 1})
+		},
+	)
 }

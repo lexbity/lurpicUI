@@ -9,9 +9,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -361,7 +363,20 @@ func newDropdownSelectTestFixture(t *testing.T, tokens theme.Tokens, density the
 		{Value: "melbourne", Label: "Melbourne"},
 		{Value: "perth", Label: "Perth"},
 		{Value: "sydney", Label: "Sydney"},
-	})
+	}, store.NewValueStore[string](""))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return sel, rt, resolved
+}
+
+func TestDropdownSelectValueSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[string](
+		t,
+		func() *store.ValueStore[string] { return store.NewValueStore("") },
+		func(s *store.ValueStore[string]) facet.FacetImpl {
+			return NewDropdownSelect("test", []DropdownOption{{Value: "a", Label: "A"}}, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*DropdownSelect).chooseIndex(0)
+		},
+	)
 }

@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -39,13 +40,15 @@ type ColorPicker struct {
 
 	ColorChanged signal.Signal[gfx.Color]
 
-	Label         marks.Binding[string]
-	SelectedColor gfx.Color
-	Hue           float64
-	Saturation    float32
-	Value         float32
-	Alpha         float32
-	Disabled      marks.Binding[bool]
+	Label    marks.Binding[string]
+	Value    *store.ValueStore[gfx.Color]
+	Disabled marks.Binding[bool]
+
+	// cached HSV state derived from the Value store (never independently owned)
+	cachedHue        float64
+	cachedSaturation float32
+	cachedBrightness float32
+	cachedAlpha      float32
 
 	hoveredRegion    colorPickerRegion
 	pressedRegion    colorPickerRegion
@@ -72,17 +75,15 @@ var _ marks.Mark = (*ColorPicker)(nil)
 var _ layout.AnchorExporter = (*ColorPicker)(nil)
 
 // NewColorPicker constructs a color picker with canonical defaults.
-func NewColorPicker(label string) *ColorPicker {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPicker {
 	p := &ColorPicker{
 		Label:            marks.Const(strings.TrimSpace(label)),
 		Disabled:         marks.Const(false),
-		Hue:              0,
-		Saturation:       1,
-		Value:            1,
-		Alpha:            1,
-		SelectedColor:    hsvToColor(0, 1, 1, 1),
+		Value:            value,
 		focusFromPointer: false,
 	}
+	p.syncHSVCache()
 	p.Facet = facet.NewFacet()
 
 	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
@@ -163,11 +164,24 @@ func (p *ColorPicker) CurrentColor() gfx.Color {
 	if p == nil {
 		return gfx.Color{}
 	}
-	return p.SelectedColor
+	if p.Value == nil {
+		return gfx.Color{}
+	}
+	return p.Value.Get()
 }
 
-// OnAttach wires the binding subscriptions.
-func (p *ColorPicker) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
+// OnAttach wires the binding and value store subscriptions.
+func (p *ColorPicker) OnAttach(ctx facet.AttachContext) {
+	if p.Value == nil {
+		return
+	}
+	p.Core.OnAttach()
+	p.syncHSVCache()
+	facet.Store(facet.Subscribe(p), &p.Value.OnChange, p.Value.Version, func(signal.Change[gfx.Color]) {
+		p.syncHSVCache()
+		p.invalidate(facet.DirtyProjection | facet.DirtyHit)
+	})
+}
 
 // OnActivate is unused.
 func (p *ColorPicker) OnActivate() { p.Core.OnActivate() }
@@ -190,6 +204,22 @@ func (p *ColorPicker) OnDetach() {
 	p.cachedInnerRadius = 0
 	p.cachedTriangleRadius = 0
 	p.cachedTriangleVerts = [3]gfx.Point{}
+}
+
+func (p *ColorPicker) syncHSVCache() {
+	if p == nil || p.Value == nil {
+		return
+	}
+	color := p.Value.Get()
+	if r, g, b, a := color.ToRGBA8(); a > 0 {
+		h, s, v := rgbToHSV(r, g, b)
+		p.cachedHue = h
+		p.cachedSaturation = s
+		p.cachedBrightness = v
+		p.cachedAlpha = float32(a) / 255
+	} else {
+		p.cachedAlpha = 0
+	}
 }
 
 func (p *ColorPicker) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -310,7 +340,7 @@ func (p *ColorPicker) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 	}
 
 	if p.cachedTriangleRadius > 0 {
-		baseHue := hsvToColor(p.Hue, 1, 1, p.Alpha)
+		baseHue := hsvToColor(p.cachedHue, 1, 1, p.cachedAlpha)
 		trianglePath := gfx.PolylinePath(p.cachedTriangleVerts[:], true)
 		cmds = append(cmds, gfx.FillPath{Path: trianglePath, Brush: gfx.SolidBrush(baseHue)})
 		cmds = append(cmds, gfx.FillPath{
@@ -348,7 +378,7 @@ func (p *ColorPicker) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 			cmds = append(cmds, gfx.FillPath{Path: handlePath, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(255, 255, 255, 255))})
 			cmds = append(cmds, gfx.StrokePath{
 				Path:  handlePath,
-				Brush: gfx.SolidBrush(hsvToColor(p.Hue, 1, 1, 1)),
+				Brush: gfx.SolidBrush(hsvToColor(p.cachedHue, 1, 1, 1)),
 				Stroke: gfx.StrokeStyle{
 					Width:      mathutil.Max(1.5, p.cachedHandleBounds.Width()*0.12),
 					Cap:        gfx.LineCapRound,
@@ -449,35 +479,35 @@ func (p *ColorPicker) onKey(e facet.KeyEvent) bool {
 		return false
 	case platform.KeyLeft:
 		if e.Modifiers&platform.ModShift != 0 {
-			p.setHSV(p.Hue, p.Saturation-0.05, p.Value, true)
+			p.setHSV(p.cachedHue, p.cachedSaturation-0.05, p.cachedBrightness, true)
 		} else {
-			p.setHSV(p.Hue-math.Pi/36, p.Saturation, p.Value, true)
+			p.setHSV(p.cachedHue-math.Pi/36, p.cachedSaturation, p.cachedBrightness, true)
 		}
 		return true
 	case platform.KeyRight:
 		if e.Modifiers&platform.ModShift != 0 {
-			p.setHSV(p.Hue, p.Saturation+0.05, p.Value, true)
+			p.setHSV(p.cachedHue, p.cachedSaturation+0.05, p.cachedBrightness, true)
 		} else {
-			p.setHSV(p.Hue+math.Pi/36, p.Saturation, p.Value, true)
+			p.setHSV(p.cachedHue+math.Pi/36, p.cachedSaturation, p.cachedBrightness, true)
 		}
 		return true
 	case platform.KeyUp:
-		p.setHSV(p.Hue, p.Saturation, p.Value+0.05, true)
+		p.setHSV(p.cachedHue, p.cachedSaturation, p.cachedBrightness+0.05, true)
 		return true
 	case platform.KeyDown:
-		p.setHSV(p.Hue, p.Saturation, p.Value-0.05, true)
+		p.setHSV(p.cachedHue, p.cachedSaturation, p.cachedBrightness-0.05, true)
 		return true
 	case platform.KeyPageUp:
-		p.setHSV(p.Hue+math.Pi/12, p.Saturation, p.Value, true)
+		p.setHSV(p.cachedHue+math.Pi/12, p.cachedSaturation, p.cachedBrightness, true)
 		return true
 	case platform.KeyPageDown:
-		p.setHSV(p.Hue-math.Pi/12, p.Saturation, p.Value, true)
+		p.setHSV(p.cachedHue-math.Pi/12, p.cachedSaturation, p.cachedBrightness, true)
 		return true
 	case platform.KeyHome:
-		p.setHSV(p.Hue, 0, 1, true)
+		p.setHSV(p.cachedHue, 0, 1, true)
 		return true
 	case platform.KeyEnd:
-		p.setHSV(p.Hue, p.Saturation, 0, true)
+		p.setHSV(p.cachedHue, p.cachedSaturation, 0, true)
 		return true
 	default:
 		return false
@@ -564,7 +594,7 @@ func (p *ColorPicker) applyPointerRegion(region colorPickerRegion, pt gfx.Point,
 	switch region {
 	case colorPickerRegionWheel:
 		angle := math.Atan2(float64(pt.Y-p.cachedCenter.Y), float64(pt.X-p.cachedCenter.X))
-		p.setHSV(angle, p.Saturation, p.Value, emit)
+		p.setHSV(angle, p.cachedSaturation, p.cachedBrightness, emit)
 		return true
 	case colorPickerRegionTriangle:
 		a, b, c := barycentric(pt, p.cachedTriangleVerts[0], p.cachedTriangleVerts[1], p.cachedTriangleVerts[2])
@@ -580,7 +610,7 @@ func (p *ColorPicker) applyPointerRegion(region colorPickerRegion, pt gfx.Point,
 		if value > 0 {
 			saturation = float64(a) / float64(value)
 		}
-		p.setHSV(p.Hue, float32(saturation), value, emit)
+		p.setHSV(p.cachedHue, float32(saturation), value, emit)
 		return true
 	case colorPickerRegionHandle:
 		// Treat the handle as part of the triangle selection to keep dragging intuitive.
@@ -592,56 +622,41 @@ func (p *ColorPicker) applyPointerRegion(region colorPickerRegion, pt gfx.Point,
 	}
 }
 
-// SetColor updates the selected color, synchronizes derived HSV state,
-// and invalidates projection. Call this instead of assigning SelectedColor
-// directly to ensure all internal state stays consistent.
+// SetColor updates the selected color via the caller's store.
 func (p *ColorPicker) SetColor(color gfx.Color) {
-	p.setColor(color, false)
-}
-
-func (p *ColorPicker) setColor(color gfx.Color, emit bool) {
-	if p == nil {
+	if p == nil || p.Value == nil {
 		return
 	}
-	if p.SelectedColor == color {
+	if p.Value.Get() == color {
 		return
 	}
-	p.SelectedColor = color
-	if r, g, b, a := color.ToRGBA8(); a > 0 {
-		h, s, v := rgbToHSV(r, g, b)
-		p.Hue = h
-		p.Saturation = s
-		p.Value = v
-		p.Alpha = float32(a) / 255
-	} else {
-		p.Alpha = 0
-	}
+	p.Value.Set(color)
+	p.syncHSVCache()
 	p.syncGeometry()
-	if emit {
-		p.ColorChanged.Emit(p.SelectedColor)
-	}
+	p.ColorChanged.Emit(color)
 	p.invalidate(facet.DirtyProjection | facet.DirtyHit)
 }
 
-func (p *ColorPicker) setHSV(hue float64, saturation, value float32, emit bool) {
-	if p == nil {
+func (p *ColorPicker) setHSV(hue float64, saturation, brightness float32, emit bool) {
+	if p == nil || p.Value == nil {
 		return
 	}
 	hue = wrapAngle(hue)
 	saturation = clamp01Float(saturation)
-	value = clamp01Float(value)
-	alpha := p.Alpha
+	brightness = clamp01Float(brightness)
+	alpha := p.cachedAlpha
 	if alpha <= 0 {
 		alpha = 1
 	}
-	color := hsvToColor(hue, saturation, value, alpha)
-	if p.Hue == hue && p.Saturation == saturation && p.Value == value && p.SelectedColor == color {
+	color := hsvToColor(hue, saturation, brightness, alpha)
+	if p.cachedHue == hue && p.cachedSaturation == saturation && p.cachedBrightness == brightness && p.Value.Get() == color {
 		return
 	}
-	p.Hue = hue
-	p.Saturation = saturation
-	p.Value = value
-	p.SelectedColor = color
+	p.cachedHue = hue
+	p.cachedSaturation = saturation
+	p.cachedBrightness = brightness
+	p.cachedAlpha = alpha
+	p.Value.Set(color)
 	p.syncGeometry()
 	if emit {
 		p.ColorChanged.Emit(color)
@@ -656,14 +671,14 @@ func (p *ColorPicker) selectedPoint() gfx.Point {
 	if p.cachedTriangleRadius <= 0 {
 		return p.cachedCenter
 	}
-	pureW := p.Saturation * p.Value
-	whiteW := (1 - p.Saturation) * p.Value
-	blackW := 1 - p.Value
+	pureW := p.cachedSaturation * p.cachedBrightness
+	whiteW := (1 - p.cachedSaturation) * p.cachedBrightness
+	blackW := 1 - p.cachedBrightness
 	return weightedPoint(p.cachedTriangleVerts[0], p.cachedTriangleVerts[1], p.cachedTriangleVerts[2], pureW, whiteW, blackW)
 }
 
 func (p *ColorPicker) hueAngle() float64 {
-	return p.Hue
+	return p.cachedHue
 }
 
 func colorPickerSectorPath(center gfx.Point, innerRadius, outerRadius, startAngle, endAngle float64) gfx.Path {

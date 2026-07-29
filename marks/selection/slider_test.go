@@ -11,9 +11,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -432,7 +434,7 @@ func newSliderTestFixture(t *testing.T, tokens theme.Tokens, density theme.Densi
 	rtTokens.Density.Mode = densityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	slider := NewSlider("Slider", 0, 100, 5)
+	slider := NewSlider("Slider", 0, 100, 5, store.NewValueStore(float64(0)))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return slider, rt, resolved
 }
@@ -502,4 +504,17 @@ func toThemeTokens(t templates.Tokens) theme.Tokens {
 	tokens.Radius.Full = t.Shape.RadiusFull
 
 	return tokens
+}
+
+func TestSliderValueSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[float64](
+		t,
+		func() *store.ValueStore[float64] { return store.NewValueStore(float64(0)) },
+		func(s *store.ValueStore[float64]) facet.FacetImpl {
+			return NewSlider("test", 0, 100, 1, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Slider).SetValue(42)
+		},
+	)
 }

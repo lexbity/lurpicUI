@@ -16,6 +16,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -210,7 +211,7 @@ func newCardFixture() *Card {
 		},
 		{
 			Key:    "field",
-			Facet:  input.NewTextField("Notes", uiinput.TextInputOutlined),
+			Facet:  input.NewTextField("Notes", uiinput.TextInputOutlined, store.NewValueStore[string]("")),
 			Grid:   facet.GridPlacement{ColStart: 1, RowStart: 1, ColSpan: 2, RowSpan: 1},
 			MarkID: cardMarkIDFirstChild + 3,
 		},
