@@ -73,8 +73,8 @@ func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if got := dialog.AccessibleName(); got != "Confirm destructive action" {
 		t.Fatalf("accessible name = %q", got)
 	}
-	if len(dialog.Children()) != 4 {
-		t.Fatalf("expected title, body, actions, and close children, got %d", len(dialog.Children()))
+	if len(dialog.Children()) != 5 {
+		t.Fatalf("expected surface, title, body, actions, and close children, got %d", len(dialog.Children()))
 	}
 	if dialog.cachedSurfaceBounds.IsEmpty() || dialog.cachedTitleBounds.IsEmpty() || dialog.cachedBodyBounds.IsEmpty() {
 		t.Fatalf("expected arranged geometry, got surface=%#v title=%#v body=%#v", dialog.cachedSurfaceBounds, dialog.cachedTitleBounds, dialog.cachedBodyBounds)

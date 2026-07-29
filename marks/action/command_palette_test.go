@@ -66,8 +66,8 @@ func TestCommandPaletteMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := palette.AccessibleName(); got != "Command palette" {
 		t.Fatalf("accessible name = %q, want Command palette", got)
 	}
-	if len(palette.Children()) != 2 {
-		t.Fatalf("expected search field and results list children, got %d", len(palette.Children()))
+	if len(palette.Children()) != 3 {
+		t.Fatalf("expected surface, search field, and results list children, got %d", len(palette.Children()))
 	}
 	if palette.cachedSurfaceBounds.IsEmpty() || palette.cachedSearchBounds.IsEmpty() || palette.cachedResultsBounds.IsEmpty() {
 		t.Fatalf("expected arranged geometry, got surface=%#v search=%#v results=%#v", palette.cachedSurfaceBounds, palette.cachedSearchBounds, palette.cachedResultsBounds)

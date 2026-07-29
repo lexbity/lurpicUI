@@ -318,10 +318,10 @@ func newTabsTestFixture(t *testing.T, tokens theme.Tokens, density theme.Density
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	tabs := NewTabs("Primary navigation", []TabItem{
-		{Key: "dashboard", Label: "Dashboard", PanelText: "Tab Panel 1"},
-		{Key: "monitoring", Label: "Monitoring", PanelText: "Monitoring panel"},
-		{Key: "activity", Label: "Activity", PanelText: "Activity panel"},
-		{Key: "settings", Label: "Settings", PanelText: "Settings panel"},
+		{Key: "dashboard", Label: "Dashboard"},
+		{Key: "monitoring", Label: "Monitoring"},
+		{Key: "activity", Label: "Activity"},
+		{Key: "settings", Label: "Settings"},
 	}, store.NewValueStore(0))
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return tabs, rt, resolved

@@ -73,8 +73,8 @@ func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if got := notification.AccessibleName(); got != "Saved Draft was synced successfully." {
 		t.Fatalf("accessible name = %q", got)
 	}
-	if len(notification.Children()) != 4 {
-		t.Fatalf("expected four child facets, got %d", len(notification.Children()))
+	if len(notification.Children()) != 5 {
+		t.Fatalf("expected five child facets, got %d", len(notification.Children()))
 	}
 	if notification.cachedSurfaceBounds.IsEmpty() || notification.cachedTitleBounds.IsEmpty() || notification.cachedMessageBounds.IsEmpty() {
 		t.Fatalf("expected arranged geometry, got surface=%#v title=%#v message=%#v", notification.cachedSurfaceBounds, notification.cachedTitleBounds, notification.cachedMessageBounds)

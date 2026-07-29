@@ -21,6 +21,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
+type notificationSurfaceChild struct {
+	facet.Facet
+	parent *Notification
+}
+
+func (c *notificationSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *notificationSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *notificationSurfaceChild) OnDetach()                      {}
+func (c *notificationSurfaceChild) OnActivate()                    {}
+func (c *notificationSurfaceChild) OnDeactivate()                  {}
+
 const (
 	notificationMarkIDRoot        facet.MarkID = 1
 	notificationMarkIDSurface     facet.MarkID = 2
@@ -112,6 +123,8 @@ type Notification struct {
 	cachedContentGroup     *notificationContentGroup
 	cachedActionButton     *action.Button
 	cachedCloseButton      *action.IconButton
+
+	surfaceChild *notificationSurfaceChild
 }
 
 var _ facet.FacetImpl = (*Notification)(nil)
@@ -201,6 +214,9 @@ func NewNotification(title, message string, open *store.ValueStore[bool]) *Notif
 	n.RegisterRoles()
 	n.AddRole(&n.textRole)
 	n.syncChildren()
+	surface := &notificationSurfaceChild{Facet: facet.NewFacet(), parent: n}
+	facet.AttachLayer(n, surface, facet.LayerAttachment{ZPriority: 80})
+	n.surfaceChild = surface
 	return n
 }
 
@@ -229,11 +245,15 @@ func (n *Notification) AccessibleName() string {
 
 // Children returns the notification's immediate semantic children.
 func (n *Notification) Children() []facet.GroupChild {
-	if n == nil || !n.Open.Get() {
+	if n == nil || !n.Open.Get() || n.surfaceChild == nil {
 		return nil
 	}
 	n.syncChildren()
-	out := make([]facet.GroupChild, 0, 4)
+	out := []facet.GroupChild{{
+		FacetID: n.surfaceChild.Facet.ID(),
+		MarkID:  notificationMarkIDSurface,
+		Layout:  n.surfaceChild.Facet.LayoutRole(),
+	}}
 	if n.cachedIconFacet != nil {
 		out = append(out, notificationGroupChild(n.cachedIconFacet.Base(), notificationMarkIDIcon, 0, facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: 0, CrossAxisAlign: facet.CrossAxisStart}}))
 	}

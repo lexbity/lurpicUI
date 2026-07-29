@@ -28,15 +28,16 @@ const (
 	tabsMarkIDActiveIndicator facet.MarkID = 5
 	tabsMarkIDPanelAnchor     facet.MarkID = 6
 	tabsMarkIDFocusRing       facet.MarkID = 7
+	tabsMarkIDPanelBody       facet.MarkID = 8
 )
 
 // TabItem describes one tab trigger and its associated panel content.
 type TabItem struct {
-	Key       string
-	Label     string
-	PanelText string
-	IconRef   string
-	Disabled  bool
+	Key      string
+	Label    string
+	Body     facet.FacetImpl
+	IconRef  string
+	Disabled bool
 }
 
 // Tabs implements the navigation.tabs standard mark.
@@ -171,7 +172,6 @@ func (t *Tabs) SetItems(items []TabItem) {
 	for i := range next {
 		next[i].Key = strings.TrimSpace(next[i].Key)
 		next[i].Label = strings.TrimSpace(next[i].Label)
-		next[i].PanelText = strings.TrimSpace(next[i].PanelText)
 		next[i].IconRef = strings.TrimSpace(next[i].IconRef)
 	}
 	t.Items = next
@@ -203,8 +203,26 @@ func (t *Tabs) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return out
 }
 
-// Children returns the facet's immediate child list.
-func (t *Tabs) Children() []facet.GroupChild { return nil }
+// Children returns the active tab's body as a facet child.
+func (t *Tabs) Children() []facet.GroupChild {
+	if t == nil {
+		return nil
+	}
+	idx := t.clampedActiveIndex()
+	if idx < 0 || idx >= len(t.Items) {
+		return nil
+	}
+	body := t.Items[idx].Body
+	if body == nil || body.Base() == nil || body.Base().LayoutRole() == nil {
+		return nil
+	}
+	return []facet.GroupChild{{
+		FacetID:  body.Base().ID(),
+		MarkID:   tabsMarkIDPanelBody,
+		Layout:   body.Base().LayoutRole(),
+		Contract: t.Layout.Child,
+	}}
+}
 
 // OnAttach is unused beyond layout role setup.
 func (t *Tabs) OnAttach(ctx facet.AttachContext) {
@@ -348,26 +366,26 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	if stripH <= 0 {
 		stripH = resolved.Density.Scale(36)
 	}
-	panelText := t.activePanelText()
-	panelLayout := shaper.ShapeTruncated(panelText, t.cachedPanelStyle, maxWidth)
-	panelTextW := text.Width(panelLayout)
-	panelTextH := text.Height(panelLayout)
-	panelH := panelTextH + t.cachedPanelPadY*2
-	if panelTextH <= 0 {
+	var panelH float32
+	idx := t.clampedActiveIndex()
+	if idx >= 0 && idx < len(t.Items) {
+		body := t.Items[idx].Body
+		if body != nil && body.Base() != nil && body.Base().LayoutRole() != nil {
+			bodyResult := body.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}})
+			panelH = bodyResult.Size.H
+			t.cachedPanelLayout = nil
+		} else {
+			t.cachedPanelLayout = nil
+		}
+	}
+	if panelH <= 0 {
 		panelH = mathutil.Max(resolved.Density.Scale(84), stripH)
 	}
-	panelW := mathutil.Max(stripW, panelTextW+t.cachedPanelPadX*2)
-	if panelW <= 0 {
-		panelW = stripW
-	}
-	width := mathutil.Max(stripW, panelW)
-	height := stripH
-	if panelH > 0 {
-		height += t.cachedPanelGap + panelH
-	}
+	width := stripW
+	height := stripH + t.cachedPanelGap + panelH
 	measured := constraints.Constrain(gfx.Size{W: width, H: height})
 	t.cachedTabLabelLayouts = labelLayouts
-	t.cachedPanelLayout = panelLayout
+	t.cachedPanelLayout = nil
 	t.cachedIconAssets = iconAssets
 	t.cachedIconBounds = iconBounds
 	t.cachedTabBounds = make([]gfx.Rect, len(t.Items))
@@ -559,10 +577,6 @@ func (t *Tabs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 			iconColor := tabLabel
 			cmds = append(cmds, t.iconCommands(asset, t.cachedIconBounds[i], iconColor)...)
 		}
-	}
-	if t.cachedPanelLayout != nil && !theme.IsTransparentMaterial(tabLabel) {
-		panelTextBounds := t.cachedPanelTextBounds()
-		cmds = append(cmds, t.textCommands(t.cachedPanelLayout, panelTextBounds, tabLabel)...)
 	}
 	if t.focusedVisible && !theme.IsTransparentMaterial(focus) {
 		if len(t.cachedTabBounds) > 0 {
@@ -756,35 +770,6 @@ func (t *Tabs) labelState() theme.InteractionState {
 		return theme.StateDisabled
 	}
 	return theme.StateDefault
-}
-
-func (t *Tabs) activePanelText() string {
-	if len(t.Items) == 0 {
-		return ""
-	}
-	idx := t.clampedActiveIndex()
-	if idx >= 0 && idx < len(t.Items) {
-		if t.Items[idx].PanelText != "" {
-			return t.Items[idx].PanelText
-		}
-		return t.Items[idx].Label
-	}
-	return ""
-}
-
-func (t *Tabs) panelTextBounds() gfx.Rect {
-	if t.cachedPanelLayout == nil || t.cachedPanelBounds.IsEmpty() {
-		return gfx.Rect{}
-	}
-	w := t.cachedPanelLayout.Bounds.Width()
-	h := t.cachedPanelLayout.Bounds.Height()
-	x := t.cachedPanelBounds.Min.X + t.cachedPanelPadX + mathutil.Max(0, (t.cachedPanelBounds.Width()-t.cachedPanelPadX*2-w)*0.5)
-	y := t.cachedPanelBounds.Min.Y + t.cachedPanelPadY + mathutil.Max(0, (t.cachedPanelBounds.Height()-t.cachedPanelPadY*2-h)*0.5)
-	return gfx.RectFromXYWH(x, y, w, h)
-}
-
-func (t *Tabs) cachedPanelTextBounds() gfx.Rect {
-	return t.panelTextBounds()
 }
 
 func (t *Tabs) pointInFocusRing(p gfx.Point) bool {

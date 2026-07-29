@@ -33,10 +33,13 @@ func TestRadialMenuComposesExistingMarks(t *testing.T) {
 	})
 
 	children := menu.Children()
-	if len(children) != 3 {
-		t.Fatalf("Children() len = %d, want 3", len(children))
+	if len(children) != 4 {
+		t.Fatalf("Children() len = %d, want 4", len(children))
 	}
-	if children[0].MarkID != radialMenuMarkIDCenterSlot {
+	if children[0].MarkID != radialMenuMarkIDSurface {
+		t.Fatalf("first child MarkID = %d, want surface %d", children[0].MarkID, radialMenuMarkIDSurface)
+	}
+	if children[1].MarkID != radialMenuMarkIDCenterSlot {
 		t.Fatalf("center MarkID = %d, want %d", children[0].MarkID, radialMenuMarkIDCenterSlot)
 	}
 	if children[1].Attachment.Placement.Mode != facet.PlacementRadial || children[2].Attachment.Placement.Mode != facet.PlacementRadial {

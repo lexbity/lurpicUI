@@ -19,6 +19,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 )
 
+type menuButtonSurfaceChild struct {
+	facet.Facet
+	parent *MenuButton
+}
+
+func (c *menuButtonSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *menuButtonSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *menuButtonSurfaceChild) OnDetach()                      {}
+func (c *menuButtonSurfaceChild) OnActivate()                    {}
+func (c *menuButtonSurfaceChild) OnDeactivate()                  {}
+
 const (
 	menuButtonMarkIDRoot                facet.MarkID = 1
 	menuButtonMarkIDTrigger             facet.MarkID = 2
@@ -28,6 +39,7 @@ const (
 	menuButtonMarkIDFloatingMenuSurface facet.MarkID = 6
 	menuButtonMarkIDMenuItems           facet.MarkID = 7
 	menuButtonMarkIDFocusRing           facet.MarkID = 8
+	menuButtonMarkIDSurface             facet.MarkID = 9
 )
 
 // MenuButtonEntryKind describes one menu-button entry shape.
@@ -110,6 +122,8 @@ type MenuButton struct {
 	cachedTriggerMeasuredH   float32
 	cachedMenuMeasuredW      float32
 	cachedMenuMeasuredH      float32
+
+	surfaceChild *menuButtonSurfaceChild
 }
 
 type menuButtonEntryLayout struct {
@@ -203,6 +217,9 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 	m.textRole.IMEEnabled = false
 	m.RegisterRoles()
 	m.AddRole(&m.textRole)
+	surface := &menuButtonSurfaceChild{Facet: facet.NewFacet(), parent: m}
+	facet.AttachLayer(m, surface, facet.LayerAttachment{ZPriority: 50})
+	m.surfaceChild = surface
 	return m
 }
 
@@ -270,7 +287,16 @@ func (m *MenuButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 }
 
 // Children returns the facet's immediate child list.
-func (m *MenuButton) Children() []facet.GroupChild { return nil }
+func (m *MenuButton) Children() []facet.GroupChild {
+	if m == nil || !m.Open || m.surfaceChild == nil {
+		return nil
+	}
+	return []facet.GroupChild{{
+		FacetID: m.surfaceChild.Facet.ID(),
+		MarkID:  menuButtonMarkIDSurface,
+		Layout:  m.surfaceChild.Facet.LayoutRole(),
+	}}
+}
 
 // OnAttach subscribes binding sources.
 func (m *MenuButton) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }

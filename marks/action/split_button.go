@@ -17,6 +17,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 )
 
+type splitButtonSurfaceChild struct {
+	facet.Facet
+	parent *SplitButton
+}
+
+func (c *splitButtonSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *splitButtonSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *splitButtonSurfaceChild) OnDetach()                      {}
+func (c *splitButtonSurfaceChild) OnActivate()                    {}
+func (c *splitButtonSurfaceChild) OnDeactivate()                  {}
+
 const (
 	splitButtonMarkIDRoot                facet.MarkID = 1
 	splitButtonMarkIDPrimaryButton       facet.MarkID = 2
@@ -26,6 +37,7 @@ const (
 	splitButtonMarkIDFloatingMenuSurface facet.MarkID = 6
 	splitButtonMarkIDMenuItems           facet.MarkID = 7
 	splitButtonMarkIDFocusRing           facet.MarkID = 8
+	splitButtonMarkIDSurface             facet.MarkID = 9
 )
 
 // SplitButtonItem describes one secondary command in the split-button menu.
@@ -92,6 +104,8 @@ type SplitButton struct {
 	cachedPrimaryIconSize  float32
 	cachedChevronSize      float32
 	cachedMenuIconSize     float32
+
+	surfaceChild *splitButtonSurfaceChild
 }
 
 type splitButtonItemLayout struct {
@@ -186,6 +200,9 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 	s.textRole.IMEEnabled = false
 	s.RegisterRoles()
 	s.AddRole(&s.textRole)
+	surface := &splitButtonSurfaceChild{Facet: facet.NewFacet(), parent: s}
+	facet.AttachLayer(s, surface, facet.LayerAttachment{ZPriority: 50})
+	s.surfaceChild = surface
 	return s
 }
 
@@ -251,7 +268,16 @@ func (s *SplitButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 }
 
 // Children returns the facet's immediate child list.
-func (s *SplitButton) Children() []facet.GroupChild { return nil }
+func (s *SplitButton) Children() []facet.GroupChild {
+	if s == nil || !s.Open || s.surfaceChild == nil {
+		return nil
+	}
+	return []facet.GroupChild{{
+		FacetID: s.surfaceChild.Facet.ID(),
+		MarkID:  splitButtonMarkIDSurface,
+		Layout:  s.surfaceChild.Facet.LayoutRole(),
+	}}
+}
 
 // OnAttach subscribes dynamic bindings.
 func (s *SplitButton) OnAttach(ctx facet.AttachContext) { s.Core.OnAttach() }

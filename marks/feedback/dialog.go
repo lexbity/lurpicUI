@@ -21,6 +21,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
+type dialogSurfaceChild struct {
+	facet.Facet
+	parent *Dialog
+}
+
+func (c *dialogSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *dialogSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *dialogSurfaceChild) OnDetach()                      {}
+func (c *dialogSurfaceChild) OnActivate()                    {}
+func (c *dialogSurfaceChild) OnDeactivate()                  {}
+
 const (
 	dialogMarkIDRoot        facet.MarkID = 1
 	dialogMarkIDBackdrop    facet.MarkID = 2
@@ -115,6 +126,8 @@ type Dialog struct {
 	cachedBodyGroup        *dialogBodyGroup
 	cachedActionsFacet     *dialogActionGroup
 	cachedCloseButton      *action.IconButton
+
+	surfaceChild *dialogSurfaceChild
 }
 
 var _ facet.FacetImpl = (*Dialog)(nil)
@@ -205,6 +218,9 @@ func NewDialog(title, body string, actions []DialogAction, open *store.ValueStor
 	d.RegisterRoles()
 	d.AddRole(&d.textRole)
 	d.syncChildren()
+	surface := &dialogSurfaceChild{Facet: facet.NewFacet(), parent: d}
+	facet.AttachLayer(d, surface, facet.LayerAttachment{ZPriority: 100})
+	d.surfaceChild = surface
 	return d
 }
 
@@ -232,11 +248,15 @@ func (d *Dialog) AccessibleName() string {
 
 // Children returns the dialog's immediate semantic children.
 func (d *Dialog) Children() []facet.GroupChild {
-	if d == nil || !d.Open.Get() {
+	if d == nil || !d.Open.Get() || d.surfaceChild == nil {
 		return nil
 	}
 	d.syncChildren()
-	out := make([]facet.GroupChild, 0, 4)
+	out := []facet.GroupChild{{
+		FacetID: d.surfaceChild.Facet.ID(),
+		MarkID:  dialogMarkIDSurface,
+		Layout:  d.surfaceChild.Facet.LayoutRole(),
+	}}
 	if d.cachedTitleFacet != nil {
 		out = append(out, dialogGroupChild(d.cachedTitleFacet.Base(), dialogMarkIDTitle, 0))
 	}

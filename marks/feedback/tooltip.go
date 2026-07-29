@@ -18,6 +18,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uifeedback"
 )
 
+type tooltipSurfaceChild struct {
+	facet.Facet
+	parent *Tooltip
+}
+
+func (c *tooltipSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *tooltipSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *tooltipSurfaceChild) OnDetach()                      {}
+func (c *tooltipSurfaceChild) OnActivate()                    {}
+func (c *tooltipSurfaceChild) OnDeactivate()                  {}
+
 const (
 	tooltipMarkIDRoot        facet.MarkID = 1
 	tooltipMarkIDSurface     facet.MarkID = 2
@@ -53,6 +64,8 @@ type Tooltip struct {
 	cachedArrowSize        float32
 	cachedWritingDirection facet.WritingDirection
 	cachedContentFacet     *primitive.Text
+
+	surfaceChild *tooltipSurfaceChild
 }
 
 var _ facet.FacetImpl = (*Tooltip)(nil)
@@ -124,6 +137,9 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 	t.RegisterRoles()
 	t.AddRole(&t.textRole)
 	t.syncChildren()
+	surface := &tooltipSurfaceChild{Facet: facet.NewFacet(), parent: t}
+	facet.AttachLayer(t, surface, facet.LayerAttachment{ZPriority: 90})
+	t.surfaceChild = surface
 	return t
 }
 
@@ -151,14 +167,21 @@ func (t *Tooltip) AccessibleName() string {
 
 // Children returns the tooltip's immediate child list.
 func (t *Tooltip) Children() []facet.GroupChild {
-	if t == nil || !t.Open.Get() {
+	if t == nil || !t.Open.Get() || t.surfaceChild == nil {
 		return nil
 	}
 	t.syncChildren()
 	if t.cachedContentFacet == nil {
 		return nil
 	}
-	return []facet.GroupChild{tooltipGroupChild(t.cachedContentFacet.Base(), tooltipMarkIDContent, 0)}
+	return []facet.GroupChild{
+		{
+			FacetID: t.surfaceChild.Facet.ID(),
+			MarkID:  tooltipMarkIDSurface,
+			Layout:  t.surfaceChild.Facet.LayoutRole(),
+		},
+		tooltipGroupChild(t.cachedContentFacet.Base(), tooltipMarkIDContent, 0),
+	}
 }
 
 // ExportAnchors publishes the tooltip anchor set.

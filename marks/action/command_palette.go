@@ -20,6 +20,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
+type commandPaletteSurfaceChild struct {
+	facet.Facet
+	parent *CommandPalette
+}
+
+func (c *commandPaletteSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *commandPaletteSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *commandPaletteSurfaceChild) OnDetach()                      {}
+func (c *commandPaletteSurfaceChild) OnActivate()                    {}
+func (c *commandPaletteSurfaceChild) OnDeactivate()                  {}
+
 const (
 	commandPaletteMarkIDRoot         facet.MarkID = 1
 	commandPaletteMarkIDBackdrop     facet.MarkID = 2
@@ -27,6 +38,7 @@ const (
 	commandPaletteMarkIDSearchField  facet.MarkID = 4
 	commandPaletteMarkIDResultsList  facet.MarkID = 5
 	commandPaletteMarkIDFocusRing    facet.MarkID = 6
+	commandPaletteMarkIDSurface      facet.MarkID = 7
 )
 
 // CommandPalette implements the action.command_palette standard mark.
@@ -71,6 +83,8 @@ type CommandPalette struct {
 	cachedRegistrySub      signal.SubscriptionID
 	cachedResultsSub       signal.SubscriptionID
 	cachedSearchKey        func(facet.KeyEvent) bool
+
+	surfaceChild *commandPaletteSurfaceChild
 }
 
 var _ facet.FacetImpl = (*CommandPalette)(nil)
@@ -195,6 +209,9 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 	p.textRole.IMEEnabled = false
 	p.RegisterRoles()
 	p.AddRole(&p.textRole)
+	surface := &commandPaletteSurfaceChild{Facet: facet.NewFacet(), parent: p}
+	facet.AttachLayer(p, surface, facet.LayerAttachment{ZPriority: 100})
+	p.surfaceChild = surface
 	p.syncCommands()
 	p.syncChildren()
 	return p
@@ -227,10 +244,14 @@ func (p *CommandPalette) AccessibleName() string {
 
 // Children returns the facet's immediate child list.
 func (p *CommandPalette) Children() []facet.GroupChild {
-	if p == nil || !p.Open.Get() {
+	if p == nil || !p.Open.Get() || p.surfaceChild == nil {
 		return nil
 	}
-	out := make([]facet.GroupChild, 0, 2)
+	out := []facet.GroupChild{{
+		FacetID: p.surfaceChild.Facet.ID(),
+		MarkID:  commandPaletteMarkIDSurface,
+		Layout:  p.surfaceChild.Facet.LayoutRole(),
+	}}
 	if p.searchField != nil && p.searchField.Base() != nil && p.searchField.Base().LayoutRole() != nil {
 		out = append(out, commandPaletteGroupChild(p.searchField.Base(), commandPaletteMarkIDSearchField, 0))
 	}

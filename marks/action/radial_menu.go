@@ -17,6 +17,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 )
 
+type radialMenuSurfaceChild struct {
+	facet.Facet
+	parent *RadialMenu
+}
+
+func (c *radialMenuSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *radialMenuSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *radialMenuSurfaceChild) OnDetach()                      {}
+func (c *radialMenuSurfaceChild) OnActivate()                    {}
+func (c *radialMenuSurfaceChild) OnDeactivate()                  {}
+
 const (
 	radialMenuMarkIDRoot       facet.MarkID = 1
 	radialMenuMarkIDSurface    facet.MarkID = 2
@@ -59,6 +70,8 @@ type RadialMenu struct {
 	cachedCenter           gfx.Point
 	cachedWritingDirection facet.WritingDirection
 	cachedArrangedChildren []facet.ArrangedGroupChild
+
+	surfaceChild *radialMenuSurfaceChild
 }
 
 type radialMenuRegion uint8
@@ -199,6 +212,9 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 	m.RegisterRoles()
 	m.attachCenterChild(center)
 	m.attachRadialChildren(children)
+	surface := &radialMenuSurfaceChild{Facet: facet.NewFacet(), parent: m}
+	facet.AttachLayer(m, surface, facet.LayerAttachment{ZPriority: 50})
+	m.surfaceChild = surface
 	return m
 }
 
@@ -252,7 +268,14 @@ func (m *RadialMenu) Children() []facet.GroupChild {
 		return nil
 	}
 	radialChildren := m.RadialChildren.Get()
-	out := make([]facet.GroupChild, 0, len(radialChildren)+1)
+	out := make([]facet.GroupChild, 0, len(radialChildren)+2)
+	if m.surfaceChild != nil {
+		out = append(out, facet.GroupChild{
+			FacetID: m.surfaceChild.Facet.ID(),
+			MarkID:  radialMenuMarkIDSurface,
+			Layout:  m.surfaceChild.Facet.LayoutRole(),
+		})
+	}
 	if m.CenterChild != nil && m.CenterChild.Base() != nil && m.CenterChild.Base().LayoutRole() != nil {
 		contract := m.CenterChild.Base().LayoutRole().Child
 		contract.SupportedPlacement |= facet.SupportsRadial

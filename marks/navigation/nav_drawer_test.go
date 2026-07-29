@@ -59,13 +59,13 @@ func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 		t.Fatal("expected open drawer to be focusable")
 	}
 	children := drawer.Children()
-	if len(children) != 2 {
-		t.Fatalf("expected 2 structural children, got %d", len(children))
+	if len(children) != 3 {
+		t.Fatalf("expected 3 structural children, got %d", len(children))
 	}
-	if children[0].MarkID != navDrawerMarkIDHeader || children[1].MarkID != navDrawerMarkIDNavItems {
+	if children[0].MarkID != navDrawerMarkIDSurface || children[1].MarkID != navDrawerMarkIDHeader || children[2].MarkID != navDrawerMarkIDNavItems {
 		t.Fatalf("unexpected structural child order: %#v", children)
 	}
-	if children[0].Layout == nil || children[1].Layout == nil {
+	if children[1].Layout == nil || children[2].Layout == nil {
 		t.Fatalf("expected structural child layouts, got %#v", children)
 	}
 	if drawer.cachedDrawerBounds.IsEmpty() || drawer.cachedItemBounds[0].IsEmpty() {

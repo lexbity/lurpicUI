@@ -55,8 +55,8 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if got := tt.AccessibleName(); got != "Press and hold for more details." {
 		t.Fatalf("accessible name = %q", got)
 	}
-	if len(tt.Children()) != 1 {
-		t.Fatalf("expected one child facet, got %d", len(tt.Children()))
+	if len(tt.Children()) != 2 {
+		t.Fatalf("expected two child facets, got %d", len(tt.Children()))
 	}
 	if tt.cachedContentFacet == nil {
 		t.Fatal("expected cached text facet")

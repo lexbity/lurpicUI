@@ -21,6 +21,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
 )
 
+type navDrawerSurfaceChild struct {
+	facet.Facet
+	parent *NavDrawer
+}
+
+func (c *navDrawerSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *navDrawerSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *navDrawerSurfaceChild) OnDetach()                      {}
+func (c *navDrawerSurfaceChild) OnActivate()                    {}
+func (c *navDrawerSurfaceChild) OnDeactivate()                  {}
+
 const (
 	navDrawerMarkIDRoot          facet.MarkID = 1
 	navDrawerMarkIDScrimOptional facet.MarkID = 2
@@ -29,6 +40,7 @@ const (
 	navDrawerMarkIDNavItems      facet.MarkID = 5
 	navDrawerMarkIDSectionLabels facet.MarkID = 6
 	navDrawerMarkIDFocusRing     facet.MarkID = 7
+	navDrawerMarkIDSurface       facet.MarkID = 8
 )
 
 // NavDrawerItem describes one navigation destination entry.
@@ -93,6 +105,8 @@ type NavDrawer struct {
 	groupNavItemsFacet  facet.Facet
 	groupHeaderLayout   facet.LayoutRole
 	groupNavItemsLayout facet.LayoutRole
+
+	surfaceChild *navDrawerSurfaceChild
 }
 
 var _ facet.FacetImpl = (*NavDrawer)(nil)
@@ -160,6 +174,9 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 		return d.buildCommands(d.Layout.ArrangedBounds, ctx.Runtime)
 	}
 	d.RegisterRoles()
+	surface := &navDrawerSurfaceChild{Facet: facet.NewFacet(), parent: d}
+	facet.AttachLayer(d, surface, facet.LayerAttachment{ZPriority: 50})
+	d.surfaceChild = surface
 	return d
 }
 
@@ -246,7 +263,15 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 		},
 		Baseline: facet.BaselineNone,
 	}
-	return []facet.GroupChild{
+	out := []facet.GroupChild{}
+	if d.surfaceChild != nil {
+		out = append(out, facet.GroupChild{
+			FacetID: d.surfaceChild.Facet.ID(),
+			MarkID:  navDrawerMarkIDSurface,
+			Layout:  d.surfaceChild.Facet.LayoutRole(),
+		})
+	}
+	out = append(out, []facet.GroupChild{
 		{
 			FacetID:    d.groupHeaderFacet.ID(),
 			MarkID:     navDrawerMarkIDHeader,
@@ -261,7 +286,8 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 			Layout:     &d.groupNavItemsLayout,
 			Contract:   contract,
 		},
-	}
+	}...)
+	return out
 }
 
 // OnAttach is unused beyond layout role setup.

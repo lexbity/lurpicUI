@@ -21,6 +21,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 )
 
+type popupPaletteSurfaceChild struct {
+	facet.Facet
+	parent *PopupPalette
+}
+
+func (c *popupPaletteSurfaceChild) Base() *facet.Facet             { return &c.Facet }
+func (c *popupPaletteSurfaceChild) OnAttach(_ facet.AttachContext) {}
+func (c *popupPaletteSurfaceChild) OnDetach()                      {}
+func (c *popupPaletteSurfaceChild) OnActivate()                    {}
+func (c *popupPaletteSurfaceChild) OnDeactivate()                  {}
+
 const (
 	popupPaletteMarkIDRoot        facet.MarkID = 1
 	popupPaletteMarkIDSurface     facet.MarkID = 2
@@ -97,6 +108,8 @@ type PopupPalette struct {
 	cachedChildren         []*popupPaletteChild
 
 	composition *popupPaletteComposition
+
+	surfaceChild *popupPaletteSurfaceChild
 }
 
 type popupPaletteControlKind uint8
@@ -359,6 +372,9 @@ func NewPopupPalette(label string, tools []PopupPaletteTool, open *store.ValueSt
 	p.RegisterRoles()
 
 	p.composition = newPopupPaletteComposition(p)
+	surface := &popupPaletteSurfaceChild{Facet: facet.NewFacet(), parent: p}
+	facet.AttachLayer(p, surface, facet.LayerAttachment{ZPriority: 50})
+	p.surfaceChild = surface
 	return p
 }
 
@@ -416,10 +432,14 @@ func (p *PopupPalette) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 }
 
 func (p *PopupPalette) Children() []facet.GroupChild {
-	if p == nil || p.Disabled.Get() || !p.Open.Get() {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() || p.surfaceChild == nil {
 		return nil
 	}
-	return nil
+	return []facet.GroupChild{{
+		FacetID: p.surfaceChild.Facet.ID(),
+		MarkID:  popupPaletteMarkIDSurface,
+		Layout:  p.surfaceChild.Facet.LayoutRole(),
+	}}
 }
 
 func (p *PopupPalette) OnAttach(ctx facet.AttachContext) {
