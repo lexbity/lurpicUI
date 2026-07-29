@@ -309,6 +309,46 @@ func FindCallExprs(root ast.Node, pred func(*ast.CallExpr) bool) []*ast.CallExpr
 	return out
 }
 
+// HasAddressOf reports whether root contains a unary & expression targeting a
+// selector ending in name (e.g. &x.ArrangedBounds, &lr.MeasuredSize).
+func HasAddressOf(root ast.Node, name string) bool {
+	found := false
+	ast.Inspect(root, func(n ast.Node) bool {
+		if found {
+			return false
+		}
+		un, ok := n.(*ast.UnaryExpr)
+		if !ok || un.Op != token.AND {
+			return true
+		}
+		if SelectorChainContains(un.X, name) {
+			found = true
+			return false
+		}
+		return true
+	})
+	return found
+}
+
+// CountAssignsToField returns the number of assignment statements in root
+// whose left-hand side selector-chain ends in fieldName.
+func CountAssignsToField(root ast.Node, fieldName string) int {
+	var count int
+	ast.Inspect(root, func(n ast.Node) bool {
+		assign, ok := n.(*ast.AssignStmt)
+		if !ok {
+			return true
+		}
+		for _, lhs := range assign.Lhs {
+			if SelectorChainContains(lhs, fieldName) {
+				count++
+			}
+		}
+		return true
+	})
+	return count
+}
+
 // Position returns a token.Position for a given node using the file set.
 func Position(fset *token.FileSet, n ast.Node) token.Position {
 	return fset.Position(n.Pos())

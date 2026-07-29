@@ -205,13 +205,16 @@ func constructorRoleSignals(fn *ast.FuncDecl, layoutFields map[string]bool) cons
 }
 
 // isOnFacetReceiver reports whether expr is a selector chain ending in .Facet
-// (e.g. p.Facet, b.Facet, r.Facet).
+// (e.g. p.Facet.AddChild(...)) or a bare ident (promotion:
+// c.AddRole(&c.layout) where Facet is embedded).
 func isOnFacetReceiver(expr ast.Expr) bool {
-	sel, ok := expr.(*ast.SelectorExpr)
-	if !ok {
-		return false
+	switch e := expr.(type) {
+	case *ast.Ident:
+		return true
+	case *ast.SelectorExpr:
+		return e.Sel.Name == "Facet"
 	}
-	return sel.Sel.Name == "Facet"
+	return false
 }
 
 // isOnRelatedReceiver reports whether expr is a simple ident or a selector

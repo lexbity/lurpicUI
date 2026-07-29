@@ -293,6 +293,10 @@ func TestAllRules_RegisteredInDefaultRegistry(t *testing.T) {
 		{"LL003", diag.SeverityError},
 		{"LL004", diag.SeverityInfo},
 		{"LL019", diag.SeverityError},
+		{"LL020", diag.SeverityError},
+		{"LL021", diag.SeverityError},
+		{"LL022", diag.SeverityError},
+		{"LL023", diag.SeverityError},
 		{"LL010", diag.SeverityError},
 		{"LL011", diag.SeverityError},
 		{"LL012", diag.SeverityWarn},
@@ -581,6 +585,189 @@ func TestLL019_RegisteredInDefaultRegistry(t *testing.T) {
 	}
 	if rule.DefaultSeverity() != diag.SeverityError {
 		t.Errorf("LL019 DefaultSeverity = %d, want error", rule.DefaultSeverity())
+	}
+}
+
+// --- LL020 tests ------------------------------------------------------------
+
+func TestLL020_OnCallBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll020_call_bad")
+	diags := runRulesOnFixture(t, []string{"LL020"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected at least 1 LL020 diagnostic on call_bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL020" {
+			t.Errorf("unexpected rule %q, want LL020", d.RuleID)
+		}
+	}
+}
+
+func TestLL020_OnWriteBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll020_write_bad")
+	diags := runRulesOnFixture(t, []string{"LL020"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected at least 1 LL020 diagnostic on write_bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL020" {
+			t.Errorf("unexpected rule %q, want LL020", d.RuleID)
+		}
+	}
+}
+
+func TestLL020_OnGoodFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll020_good")
+	diags := runRulesOnFixture(t, []string{"LL020"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL020 diagnostics on good fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: [%s] %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.RuleID, d.Message)
+		}
+	}
+}
+
+func TestLL020_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL020")
+	if rule == nil {
+		t.Fatal("LL020 not found in DefaultRegistry — is init() missing?")
+	}
+	if rule.ID() != "LL020" {
+		t.Errorf("rule ID = %q, want LL020", rule.ID())
+	}
+	if rule.DefaultSeverity() != diag.SeverityError {
+		t.Errorf("LL020 DefaultSeverity = %d, want error", rule.DefaultSeverity())
+	}
+}
+
+// --- LL021 tests ------------------------------------------------------------
+
+func TestLL021_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll021_bad")
+	diags := runRulesOnFixture(t, []string{"LL021"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected at least 1 LL021 diagnostic on bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL021" {
+			t.Errorf("unexpected rule %q, want LL021", d.RuleID)
+		}
+	}
+}
+
+func TestLL021_OnGoodLayeredFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll021_good_layered")
+	diags := runRulesOnFixture(t, []string{"LL021"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL021 diagnostics on good_layered fixture, got %d", len(diags))
+	}
+}
+
+func TestLL021_OnGoodNonOverlayFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll021_good_nonoverlay")
+	diags := runRulesOnFixture(t, []string{"LL021"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL021 diagnostics on good_nonoverlay fixture, got %d", len(diags))
+	}
+}
+
+func TestLL021_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL021")
+	if rule == nil {
+		t.Fatal("LL021 not found in DefaultRegistry")
+	}
+	if rule.DefaultSeverity() != diag.SeverityError {
+		t.Errorf("LL021 DefaultSeverity = %d, want error", rule.DefaultSeverity())
+	}
+}
+
+// --- LL022 tests ------------------------------------------------------------
+
+func TestLL022_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll022_bad")
+	diags := runRulesOnFixture(t, []string{"LL022"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected at least 1 LL022 diagnostic on bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL022" {
+			t.Errorf("unexpected rule %q, want LL022", d.RuleID)
+		}
+	}
+}
+
+func TestLL022_OnGoodScrollFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll022_good_scroll")
+	diags := runRulesOnFixture(t, []string{"LL022"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL022 diagnostics on good_scroll fixture, got %d", len(diags))
+	}
+}
+
+func TestLL022_OnGoodSmallFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll022_good_small")
+	diags := runRulesOnFixture(t, []string{"LL022"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL022 diagnostics on good_small fixture, got %d", len(diags))
+	}
+}
+
+func TestLL022_OnGoodFlexFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll022_good_flex")
+	diags := runRulesOnFixture(t, []string{"LL022"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL022 diagnostics on good_flex fixture, got %d", len(diags))
+	}
+}
+
+func TestLL022_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL022")
+	if rule == nil {
+		t.Fatal("LL022 not found in DefaultRegistry")
+	}
+	if rule.DefaultSeverity() != diag.SeverityError {
+		t.Errorf("LL022 DefaultSeverity = %d, want error", rule.DefaultSeverity())
+	}
+}
+
+// --- LL023 tests ------------------------------------------------------------
+
+func TestLL023_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll023_bad")
+	diags := runRulesOnFixture(t, []string{"LL023"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected at least 1 LL023 diagnostic on bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL023" {
+			t.Errorf("unexpected rule %q, want LL023", d.RuleID)
+		}
+	}
+}
+
+func TestLL023_OnGoodInitFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll023_good_init")
+	diags := runRulesOnFixture(t, []string{"LL023"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL023 diagnostics on good_init fixture, got %d", len(diags))
+	}
+}
+
+func TestLL023_OnGoodConstOnlyFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll023_good_const_only")
+	diags := runRulesOnFixture(t, []string{"LL023"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL023 diagnostics on good_const_only fixture, got %d", len(diags))
+	}
+}
+
+func TestLL023_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL023")
+	if rule == nil {
+		t.Fatal("LL023 not found in DefaultRegistry")
+	}
+	if rule.DefaultSeverity() != diag.SeverityError {
+		t.Errorf("LL023 DefaultSeverity = %d, want error", rule.DefaultSeverity())
 	}
 }
 

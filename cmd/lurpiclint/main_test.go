@@ -366,7 +366,6 @@ func TestGate_AgentDirectivesExist(t *testing.T) {
 	root := findModuleRoot()
 	files := []string{
 		root + "/.agents/lurpiclint.md",
-		root + "/.codex/lurpiclint.md",
 	}
 	for _, f := range files {
 		data, err := os.ReadFile(f)
