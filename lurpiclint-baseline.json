@@ -1,0 +1,106 @@
+{
+  "entries": [
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/layout/containers.go",
+      "line": 15,
+      "message": "field children looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/command_palette.go",
+      "line": 80,
+      "message": "field cachedCommands looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/command_palette.go",
+      "line": 81,
+      "message": "field cachedFiltered looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
+      "line": 61,
+      "message": "field History looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
+      "line": 85,
+      "message": "field cachedToolItemBounds looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
+      "line": 86,
+      "message": "field cachedHistoryBounds looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
+      "line": 108,
+      "message": "field cachedChildren looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
+      "line": 1583,
+      "message": "field toolButtons looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/action/radial_menu.go",
+      "line": 69,
+      "message": "field cachedArrangedChildren looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/base.go",
+      "line": 43,
+      "message": "field cleanups looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/feedback/dialog.go",
+      "line": 907,
+      "message": "field Buttons looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/navigation/nav_drawer.go",
+      "line": 86,
+      "message": "field cachedSectionBounds looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/navigation/nav_drawer.go",
+      "line": 87,
+      "message": "field cachedItemBounds looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/navigation/nav_drawer.go",
+      "line": 95,
+      "message": "field cachedIconAssets looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/navigation/nav_drawer.go",
+      "line": 96,
+      "message": "field cachedIconBounds looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/navigation/nav_drawer.go",
+      "line": 101,
+      "message": "field cachedSectionFacets looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/navigation/nav_drawer.go",
+      "line": 102,
+      "message": "field cachedItemLabelFacets looks like domain state; facets should be stateless (Principles 1 and 8)"
+    }
+  ]
+}

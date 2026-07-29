@@ -29,6 +29,12 @@ func (r *FacetGoroutine) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
 	for _, f := range ctx.Files {
+		// Skip scheduler packages (runtime, syncutil, job) where
+		// goroutines and channels are legitimate.
+		if isSchedulerPackage(f) {
+			continue
+		}
+
 		// Scan files that define facet-embedding types OR belong to a
 		// demo package (name-based or import-signature match).
 		if !fileContainsFacetType(f) && !isDemoPackage(f) {

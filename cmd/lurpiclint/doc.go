@@ -26,10 +26,15 @@
 // ScrollRegion; and reactive-binding overwrite detection (LL023), which flags
 // marks.Const assignments that sever reactive FromStore/FromDerived bindings.
 //
+// The lint gate is green-by-default at HEAD (modulo baselined debt in
+// lurpiclint-baseline.json).  A red gate means new debt introduced by the
+// change under review, never inherited noise.
+//
 // Usage:
 //
-//	lurpiclint check [flags] [packages...]   # run rules, the build gate
-//	lurpiclint capabilities [flags]          # emit the uxauthoring index
-//	lurpiclint explain <rule-id>             # print a rule's rationale + fix
-//	lurpiclint version                       # print version information
+//	lurpiclint check [flags] [packages...]         # run rules, the build gate
+//	lurpiclint capabilities [flags]                # emit the uxauthoring index
+//	lurpiclint explain <rule-id>                   # print a rule's rationale + fix
+//	lurpiclint baseline generate [flags] [pkgs]    # generate baseline JSON from current findings
+//	lurpiclint version                             # print version information
 package main

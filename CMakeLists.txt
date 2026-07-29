@@ -431,7 +431,7 @@ add_custom_target(lint-golangci
 )
 
 add_custom_target(lint-lurpiclint
-  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error ./...
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --baseline "${CMAKE_CURRENT_SOURCE_DIR}/lurpiclint-baseline.json" ./...
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Run lurpiclint over the framework and demo apps"
   VERBATIM
@@ -439,9 +439,9 @@ add_custom_target(lint-lurpiclint
 add_dependencies(lint-lurpiclint build-lurpiclint)
 
 add_custom_target(lint-lurpiclint-ci
-  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --format github ./... ./demos/quick_square_app/...
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --fail-on-stale-baseline --baseline "${CMAKE_CURRENT_SOURCE_DIR}/lurpiclint-baseline.json" ./... ./demos/quick_square_app/...
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-  COMMENT "Run lurpiclint over the framework and demo apps (GitHub annotations)"
+  COMMENT "Run lurpiclint over the framework and demo apps (CI, strict on stale baseline)"
   VERBATIM
 )
 add_dependencies(lint-lurpiclint-ci build-lurpiclint)

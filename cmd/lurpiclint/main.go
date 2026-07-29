@@ -1,11 +1,13 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"go/token"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/capindex"
@@ -19,15 +21,16 @@ const version = "0.1.0-dev"
 
 // checkFlags holds parsed flags for the `check` subcommand.
 type checkFlags struct {
-	format       string
-	severity     string
-	failOn       string
-	config       string
-	baseline     string
-	rules        string
-	noSuggest    bool
-	includeTests bool
-	root         string
+	format             string
+	severity           string
+	failOn             string
+	failOnStaleBaseline bool
+	config             string
+	baseline           string
+	rules              string
+	noSuggest          bool
+	includeTests       bool
+	root               string
 }
 
 func main() {
@@ -49,6 +52,8 @@ func run(args []string) int {
 		return runExplain(args[2:])
 	case "version":
 		return runVersion()
+	case "baseline":
+		return runBaseline(args[2:])
 	case "help", "-h", "--help":
 		printUsage()
 		return 0
@@ -69,6 +74,7 @@ func runCheck(args []string) int {
 	fs.StringVar(&cliflags.failOn, "fail-on", "error", "minimum severity that forces non-zero exit (info, warn, error)")
 	fs.StringVar(&cliflags.config, "config", "", "path to .lurpiclint.toml (auto-discovered from cwd)")
 	fs.StringVar(&cliflags.baseline, "baseline", "", "suppress findings recorded in a baseline file")
+	fs.BoolVar(&cliflags.failOnStaleBaseline, "fail-on-stale-baseline", false, "non-zero exit when baseline entries are stale (CI)")
 	fs.StringVar(&cliflags.rules, "rules", "", "comma-separated list of rules to enable")
 	fs.BoolVar(&cliflags.noSuggest, "no-suggest", false, "disable info-level shape-match suggestions")
 	fs.BoolVar(&cliflags.includeTests, "include-tests", false, "include _test.go files in analysis")
@@ -238,11 +244,17 @@ func runCheck(args []string) int {
 
 	filtered := filterDiagnostics(diagnostics, minSeverity)
 
-	// Append stale baseline entries as info diagnostics.
+	// Append stale baseline entries as diagnostics.  Severity is info
+	// by default; when --fail-on-stale-baseline is set, stale entries
+	// are emitted at the fail-on severity so CI can force hygiene.
+	staleSeverity := diag.SeverityInfo
+	if cliflags.failOnStaleBaseline {
+		staleSeverity = failOnSeverity
+	}
 	for _, se := range staleBaseline {
 		filtered = append(filtered, &diag.Diagnostic{
 			RuleID:   "lurpiclint-stale-baseline",
-			Severity: diag.SeverityInfo,
+			Severity: staleSeverity,
 			Pos:      token.Position{Filename: se.File, Line: se.Line},
 			Message:  "stale baseline entry: " + se.RuleID + " no longer produces findings",
 		})
@@ -392,28 +404,150 @@ func runVersion() int {
 	return 0
 }
 
+// runBaseline handles the `baseline generate` subcommand.
+func runBaseline(args []string) int {
+	if len(args) == 0 || args[0] != "generate" {
+		fmt.Fprintf(os.Stderr, "usage: lurpiclint baseline generate [-o path] [patterns...]\n")
+		return 2
+	}
+	args = args[1:] // consume "generate"
+
+	fs := flag.NewFlagSet("baseline generate", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+
+	outputPath := fs.String("o", "lurpiclint-baseline.json", "output path for the baseline JSON")
+	sevName := fs.String("severity", "warn", "minimum severity to include (info, warn, error)")
+	root := fs.String("root", "", "module root for capability introspection")
+
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+
+	minSeverity, ok := diag.SeverityFromString(*sevName)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "error: invalid --severity value %q\n", *sevName)
+		return 2
+	}
+
+	patterns := fs.Args()
+	if len(patterns) == 0 {
+		patterns = []string{"."}
+	}
+
+	// Load files.
+	result, err := loader.Load(patterns, loader.Config{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 3
+	}
+
+	// Build capindex for LL004.
+	var capabilities []capindex.Capability
+	modRoot := *root
+	if modRoot == "" {
+		modRoot = findModuleRoot()
+	}
+	if modRoot != "" {
+		capResult, capErr := loader.Load([]string{
+			modRoot + "/marks/...",
+			modRoot + "/layout/...",
+			modRoot + "/facet",
+		}, loader.Config{})
+		if capErr == nil {
+			capabilities = capindex.Scan(capResult, capindex.ScanConfig{
+				ModulePath: "codeburg.org/lexbit/lurpicui",
+				ModuleRoot: modRoot,
+			})
+		}
+	}
+
+	// Run all rules.
+	ctx := &rules.Context{
+		Files: result.Files,
+		Pkgs:  result.Packages,
+		Fset:  result.Fset,
+		Index: capabilities,
+	}
+
+	diagnostics := rules.Run(ctx, rules.DefaultRegistry, rules.RunConfig{})
+
+	// Filter by severity.
+	var filtered []*diag.Diagnostic
+	for _, d := range diagnostics {
+		if d.Severity >= minSeverity {
+			filtered = append(filtered, d)
+		}
+	}
+
+	// Convert to baseline entries.
+	entries := make([]config.BaselineEntry, 0, len(filtered))
+	for _, d := range filtered {
+		entries = append(entries, config.BaselineEntry{
+			RuleID:  d.RuleID,
+			File:    d.Pos.Filename,
+			Line:    d.Pos.Line,
+			Message: d.Message,
+		})
+	}
+
+	// Sort deterministically: file, line, rule_id, message.
+	sort.Slice(entries, func(i, j int) bool {
+		if entries[i].File != entries[j].File {
+			return entries[i].File < entries[j].File
+		}
+		if entries[i].Line != entries[j].Line {
+			return entries[i].Line < entries[j].Line
+		}
+		if entries[i].RuleID != entries[j].RuleID {
+			return entries[i].RuleID < entries[j].RuleID
+		}
+		return entries[i].Message < entries[j].Message
+	})
+
+	baseline := config.Baseline{Entries: entries}
+	data, err := json.MarshalIndent(baseline, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "error: marshaling baseline: %v\n", err)
+		return 3
+	}
+
+	if err := os.WriteFile(*outputPath, data, 0644); err != nil {
+		fmt.Fprintf(os.Stderr, "error: writing %s: %v\n", *outputPath, err)
+		return 3
+	}
+
+	fmt.Fprintf(os.Stderr, "wrote %d baseline entries to %s\n", len(entries), *outputPath)
+	return 0
+}
+
 func printUsage() {
 	fmt.Print(`lurpiclint - static analyzer for lurpicUI applications
 
 Usage:
-  lurpiclint check [flags] [packages...]   run rules, the build gate
-  lurpiclint capabilities [flags]          emit the uxauthoring index
-  lurpiclint explain <rule-id>             print a rule's rationale and fix
-  lurpiclint version                       print version information
+  lurpiclint check [flags] [packages...]         run rules, the build gate
+  lurpiclint capabilities [flags]                emit the uxauthoring index
+  lurpiclint explain <rule-id>                   print a rule's rationale and fix
+  lurpiclint baseline generate [flags] [pkgs]    generate baseline JSON from current findings
+  lurpiclint version                             print version information
 
 Check flags:
-  --format string         output format (text, json, github) (default "text")
-  --severity string       minimum severity to report (info, warn, error) (default "warn")
-  --fail-on string        minimum severity that forces non-zero exit (default "error")
-  --config string         path to .lurpiclint.toml (auto-discovered from cwd)
-  --baseline string       suppress findings recorded in a baseline file
-  --rules string          comma-separated list of rules to enable (default all)
-  --no-suggest            disable info-level shape-match suggestions
-  --include-tests         include _test.go files in analysis
-  --root string           module root for capability introspection
+  --format string             output format (text, json, github) (default "text")
+  --severity string           minimum severity to report (info, warn, error) (default "warn")
+  --fail-on string            minimum severity that forces non-zero exit (default "error")
+  --fail-on-stale-baseline    non-zero exit when baseline entries are stale (CI)
+  --config string             path to .lurpiclint.toml (auto-discovered from cwd)
+  --baseline string           suppress findings recorded in a baseline file
+  --rules string              comma-separated list of rules to enable (default all)
+  --no-suggest                disable info-level shape-match suggestions
+  --include-tests             include _test.go files in analysis
+  --root string               module root for capability introspection
+
+Baseline flags:
+  -o string                   output path (default "lurpiclint-baseline.json")
+  --severity string           minimum severity to include (default "warn")
 
 Capabilities flags:
-  --format string         output format (text, json) (default "text")
+  --format string             output format (text, json) (default "text")
 
 Exit codes:
   0   no findings at or above --fail-on

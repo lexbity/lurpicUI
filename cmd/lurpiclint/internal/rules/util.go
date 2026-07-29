@@ -102,6 +102,36 @@ func isLayoutOrMarksPackage(f *loader.ParsedFile) bool {
 		strings.HasPrefix(cleanPath, "marks/")
 }
 
+// isSchedulerPackage reports whether the file lives inside the runtime/,
+// syncutil/, job/, projection/, app/, or render/ package tree, where
+// goroutine/channel operations are legitimate because the package IS the
+// scheduler, a framework subsystem that manages its own lifecycle, or
+// coordinates with the runtime.
+func isSchedulerPackage(f *loader.ParsedFile) bool {
+	cleanPath := filepath.ToSlash(f.Path)
+	return strings.Contains(cleanPath, "/runtime/") ||
+		strings.HasPrefix(cleanPath, "runtime/") ||
+		strings.Contains(cleanPath, "/syncutil/") ||
+		strings.HasPrefix(cleanPath, "syncutil/") ||
+		strings.Contains(cleanPath, "/job/") ||
+		strings.HasPrefix(cleanPath, "job/") ||
+		strings.Contains(cleanPath, "/projection/") ||
+		strings.HasPrefix(cleanPath, "projection/") ||
+		strings.Contains(cleanPath, "/app/") ||
+		strings.HasPrefix(cleanPath, "app/") ||
+		strings.Contains(cleanPath, "/render/") ||
+		strings.HasPrefix(cleanPath, "render/")
+}
+
+// isFacetPackage reports whether the file lives inside the facet/ package
+// tree, where LayoutRole's own Measure/Arrange methods are defined and
+// their writes to ArrangedBounds/MeasuredSize are the sanctioned API.
+func isFacetPackage(f *loader.ParsedFile) bool {
+	cleanPath := filepath.ToSlash(f.Path)
+	return strings.Contains(cleanPath, "/facet/") ||
+		strings.HasPrefix(cleanPath, "facet/")
+}
+
 // isGraphPackage reports whether the file lives inside the graph/ package
 // tree, where internal geometry authoring is legitimate.
 func isGraphPackage(f *loader.ParsedFile) bool {

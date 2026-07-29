@@ -30,7 +30,7 @@ func (r *LayoutCallbackAccess) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
 	for _, f := range ctx.Files {
-		if isLayoutOrMarksPackage(f) || isRuntimePackage(f) || isGraphPackage(f) {
+		if isLayoutOrMarksPackage(f) || isRuntimePackage(f) || isGraphPackage(f) || isFacetPackage(f) {
 			continue
 		}
 
