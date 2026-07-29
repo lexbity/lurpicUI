@@ -99,13 +99,14 @@ var (
 )
 
 // NewCheckbox constructs a selection.checkbox mark with canonical defaults.
-func NewCheckbox(label string) *Checkbox {
+// The value store is supplied by the caller — the mark never creates its own.
+func NewCheckbox(label string, value *store.ValueStore[CheckboxState]) *Checkbox {
 	c := &Checkbox{
 		Label:      marks.Const(label),
 		HelperText: marks.Const(""),
 		Variant:    marks.Const(uiinput.CheckboxStandard),
 		Disabled:   marks.Const(false),
-		Value:      store.NewValueStore[CheckboxState](CheckboxStateOff),
+		Value:      value,
 	}
 	c.Facet = facet.NewFacet()
 	c.AddBinding(c.Label)
@@ -217,11 +218,11 @@ func (c *Checkbox) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSe
 // Children returns the facet's immediate child list.
 func (c *Checkbox) Children() []facet.GroupChild { return nil }
 
-// OnAttach wires store invalidation for the bound value store.
+// OnAttach wires store invalidation for the value store.
 func (c *Checkbox) OnAttach(ctx facet.AttachContext) {
 	c.Core.OnAttach()
 	if c.Value == nil {
-		c.Value = store.NewValueStore[CheckboxState](CheckboxStateOff)
+		return
 	}
 	facet.Store(facet.Subscribe(c), &c.Value.OnChange, c.Value.Version, func(signal.Change[CheckboxState]) {
 		c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
@@ -752,17 +753,12 @@ func (c *Checkbox) toggleState() {
 	}
 }
 
-// SetState updates the canonical checkbox state.
+// SetState updates the canonical checkbox value.
 func (c *Checkbox) SetState(state CheckboxState) {
-	if c == nil {
+	if c == nil || c.Value == nil {
 		return
 	}
 	state = normalizeCheckboxState(state)
-	if c.Value == nil {
-		c.Value = store.NewValueStore[CheckboxState](state)
-		c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
 	if c.Value.Get() == state {
 		return
 	}
