@@ -19,7 +19,7 @@ type Area[T any] struct {
 	X, Y     func(T) float64
 	XScale   *reactive.ReactiveScale
 	YScale   *reactive.ReactiveScale
-	Color    gfx.Color
+	Color    marks.Binding[gfx.Color]
 	Baseline marks.Binding[float64]
 
 	cleanups []func()
@@ -41,11 +41,12 @@ func NewArea[T any](
 		Y:        y,
 		XScale:   xScale,
 		YScale:   yScale,
-		Color:    gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3},
+		Color:    marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3}),
 		Baseline: marks.Const(0.0),
 	}
 	a.Facet = facet.NewFacet()
 	a.AddBinding(a.Baseline)
+	a.AddBinding(a.Color)
 
 	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: constraints.MaxSize}
@@ -85,6 +86,16 @@ func (a *Area[T]) OnAttach(ctx facet.AttachContext) {
 			a.Invalidate(facet.DirtyProjection)
 		}),
 	)
+	if a.XScale != nil {
+		signal.Track(a.Subs(), &a.XScale.OnChange, func(signal.Unit) {
+			a.Invalidate(facet.DirtyProjection)
+		})
+	}
+	if a.YScale != nil {
+		signal.Track(a.Subs(), &a.YScale.OnChange, func(signal.Unit) {
+			a.Invalidate(facet.DirtyProjection)
+		})
+	}
 }
 
 func (a *Area[T]) OnDetach() {
@@ -147,7 +158,7 @@ func (a *Area[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 	return []gfx.Command{
 		gfx.FillPath{
 			Path:  gfx.Path{Segments: segments},
-			Brush: gfx.SolidBrush(a.Color),
+			Brush: gfx.SolidBrush(a.Color.Get()),
 		},
 	}
 }

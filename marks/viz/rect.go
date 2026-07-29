@@ -5,6 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/scale"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -16,13 +17,14 @@ import (
 type Bar[T any] struct {
 	marks.Core
 
-	Store    *store.CollectionStore[T]
-	Cat      func(T) string
-	Value    func(T) float64
-	YScale   *reactive.ReactiveScale
-	Padding  marks.Binding[float32]
-	Color    gfx.Color
-	Baseline marks.Binding[float64]
+	Store     *store.CollectionStore[T]
+	Cat       func(T) string
+	Value     func(T) float64
+	YScale    *reactive.ReactiveScale
+	Padding   marks.Binding[float32]
+	Color     marks.Binding[gfx.Color]
+	Baseline  marks.Binding[float64]
+	Activated signal.Signal[int]
 
 	bandMembers []string
 	bandScale   scale.BandScale
@@ -44,18 +46,20 @@ func NewBar[T any](
 	yScale *reactive.ReactiveScale,
 ) *Bar[T] {
 	b := &Bar[T]{
-		Store:    store,
-		Cat:      cat,
-		Value:    value,
-		YScale:   yScale,
-		Padding:  marks.Const[float32](0.1),
-		Color:    gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1},
-		Baseline: marks.Const(0.0),
-		hitDirty: true,
+		Store:     store,
+		Cat:       cat,
+		Value:     value,
+		YScale:    yScale,
+		Padding:   marks.Const[float32](0.1),
+		Color:     marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
+		Baseline:  marks.Const(0.0),
+		Activated: signal.NewSignal[int]("Bar.Activated"),
+		hitDirty:  true,
 	}
 	b.Facet = facet.NewFacet()
 	b.AddBinding(b.Padding)
 	b.AddBinding(b.Baseline)
+	b.AddBinding(b.Color)
 
 	b.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: constraints.MaxSize}
@@ -65,6 +69,15 @@ func NewBar[T any](
 	}
 	b.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return b.hitTest(p)
+	}
+	b.Input.OnPointer = func(e facet.PointerEvent) bool {
+		if e.Kind == platform.PointerRelease {
+			res := b.Hit.HitTest(e.Position)
+			if res.Hit {
+				b.Activated.Emit(int(res.MarkID))
+			}
+		}
+		return false
 	}
 	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return b.buildCommands(b.Layout.ArrangedBounds)
@@ -102,6 +115,11 @@ func (b *Bar[T]) OnAttach(ctx facet.AttachContext) {
 			b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
 		}),
 	)
+	if b.YScale != nil {
+		signal.Track(b.Subs(), &b.YScale.OnChange, func(signal.Unit) {
+			b.Invalidate(facet.DirtyProjection)
+		})
+	}
 }
 
 func (b *Bar[T]) OnDetach() {
@@ -166,7 +184,7 @@ func (b *Bar[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 		b.barRects[i] = rect
 		cmds = append(cmds, gfx.FillRect{
 			Rect:  rect,
-			Brush: gfx.SolidBrush(b.Color),
+			Brush: gfx.SolidBrush(b.Color.Get()),
 		})
 	}
 	return cmds

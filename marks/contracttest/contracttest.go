@@ -3,6 +3,7 @@ package contracttest
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -98,6 +99,39 @@ func AssertBindingNotSevered[T comparable](t TB,
 	if bindingVal != storeVal {
 		t.Fatalf("AssertBindingNotSevered: binding read = %v, store read = %v — "+
 			"the binding was severed (likely overwritten with marks.Const)", bindingVal, storeVal)
+	}
+	facet.Dispose(m)
+}
+
+// AssertScaleInvalidates verifies that a viz mark invalidates DirtyProjection
+// when its ReactiveScale's domain changes.
+//
+//	build:       construct the mark, wiring the supplied scale.
+//	changeScale: mutate the scale's domain (e.g. domain.Set([2]float64{...})).
+//
+// After changeScale the assertion checks that the mark's facet has raised
+// DirtyProjection since the last use.
+func AssertScaleInvalidates(t TB,
+	build func(scale *reactive.ReactiveScale) facet.FacetImpl,
+	changeScale func(domain *store.ValueStore[[2]float64]),
+) {
+	t.Helper()
+	ctx := facet.AttachContext{Runtime: contractRuntime{}}
+
+	domain := store.NewValueStore([2]float64{0, 100})
+	rng := store.NewValueStore([2]float64{0, 200})
+	rs := reactive.NewLinearReactive(domain, rng)
+
+	m := build(rs)
+	facet.Attach(m, ctx)
+
+	m.Base().ClearDirty(facet.DirtyAll)
+
+	changeScale(domain)
+
+	flags := m.Base().DirtyFlags()
+	if flags&facet.DirtyProjection == 0 {
+		t.Fatalf("AssertScaleInvalidates: DirtyProjection was not raised after scale change (flags=%#v)", flags)
 	}
 	facet.Dispose(m)
 }

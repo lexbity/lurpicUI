@@ -26,7 +26,7 @@ func TestPointGoldenEmpty(t *testing.T) {
 		xScale, yScale,
 	)
 	p.Radius = marks.Const[float32](5)
-	p.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}
+	p.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1})
 
 	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -58,7 +58,7 @@ func TestPointGoldenSingleDatum(t *testing.T) {
 		xScale, yScale,
 	)
 	p.Radius = marks.Const[float32](5)
-	p.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}
+	p.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1})
 
 	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -88,7 +88,7 @@ func TestPointGoldenDegenerateDomain(t *testing.T) {
 		xScale, yScale,
 	)
 	p.Radius = marks.Const[float32](5)
-	p.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}
+	p.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1})
 
 	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -118,7 +118,7 @@ func TestPointGoldenScatter(t *testing.T) {
 		xScale, yScale,
 	)
 	p.Radius = marks.Const[float32](5)
-	p.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}
+	p.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1})
 
 	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})

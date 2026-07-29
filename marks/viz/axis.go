@@ -7,7 +7,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/scale"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // AxisOrientation describes which side of the plot the axis is on.
@@ -34,6 +36,12 @@ type Axis struct {
 	fonts   *text.FontRegistry
 	shaper  *text.Shaper
 	entries []axisEntry
+
+	themeFontFamily string
+	themeLabelSize  float32
+	themeTickLength float32
+
+	cleanups []func()
 }
 
 type axisEntry struct {
@@ -52,8 +60,8 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 		Scale:       scale,
 		Orientation: orientation,
 		TickCount:   marks.Const(5),
-		TickLength:  marks.Const[float32](6),
-		LabelSize:   marks.Const[float32](11),
+		TickLength:  marks.Const[float32](0),
+		LabelSize:   marks.Const[float32](0),
 		LabelColor:  gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1},
 		fonts:       fonts,
 	}
@@ -67,11 +75,13 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 	a.AddBinding(a.LabelSize)
 
 	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		a.syncTheme(ctx)
 		s := a.measureSize()
 		return facet.MeasureResult{Size: s}
 	}
 	a.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		a.Layout.ArrangedBounds = bounds
+		a.syncThemeWithTheme(ctx.Theme)
 		a.computeEntries()
 	}
 	a.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
@@ -90,10 +100,26 @@ func (a *Axis) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: "viz", TypeName: "axis"}
 }
 
-func (a *Axis) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach() }
-func (a *Axis) OnDetach()                        { a.Core.OnDetach(); a.entries = nil }
-func (a *Axis) OnActivate()                      { a.Core.OnActivate() }
-func (a *Axis) OnDeactivate()                    { a.Core.OnDeactivate() }
+func (a *Axis) OnAttach(ctx facet.AttachContext) {
+	a.Core.OnAttach()
+	if a.Scale != nil {
+		signal.Track(a.Subs(), &a.Scale.OnChange, func(signal.Unit) {
+			a.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
+		})
+	}
+}
+func (a *Axis) OnDetach() {
+	a.Core.OnDetach()
+	for _, c := range a.cleanups {
+		if c != nil {
+			c()
+		}
+	}
+	a.cleanups = nil
+	a.entries = nil
+}
+func (a *Axis) OnActivate()   { a.Core.OnActivate() }
+func (a *Axis) OnDeactivate() { a.Core.OnDeactivate() }
 
 func (a *Axis) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return a.DefaultAnchors(a.Layout.ArrangedBounds, ctx)
@@ -101,7 +127,20 @@ func (a *Axis) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 
 func (a *Axis) measureSize() gfx.Size {
 	tickLen := a.TickLength.Get()
-	const labelEstimate = 16.0 // rough estimate of label extent before shaping
+	if tickLen == 0 {
+		tickLen = a.themeTickLength
+	}
+	if tickLen == 0 {
+		tickLen = 6
+	}
+	labelSize := a.LabelSize.Get()
+	if labelSize == 0 {
+		labelSize = a.themeLabelSize
+	}
+	if labelSize == 0 {
+		labelSize = 11
+	}
+	labelEstimate := labelSize + 5
 	switch a.Orientation.Get() {
 	case AxisBottom, AxisTop:
 		return gfx.Size{W: 0, H: tickLen + labelEstimate + 4}
@@ -133,6 +172,35 @@ func (a *Axis) computeEntries() {
 	}
 }
 
+func (a *Axis) syncTheme(ctx facet.MeasureContext) {
+	a.syncThemeWithTheme(ctx.Theme)
+}
+
+func (a *Axis) syncThemeWithTheme(t any) {
+	if t != nil {
+		var rc theme.ResolvedContext
+		var ok bool
+		if rc, ok = t.(theme.ResolvedContext); !ok {
+			var rcp *theme.ResolvedContext
+			if rcp, ok = t.(*theme.ResolvedContext); ok {
+				rc = *rcp
+			}
+		}
+		if ok {
+			ts := rc.TextStyle(theme.TextLabelM)
+			if a.themeFontFamily == "" {
+				a.themeFontFamily = ts.Family
+			}
+			if a.themeLabelSize == 0 {
+				a.themeLabelSize = ts.Size
+			}
+			if a.themeTickLength == 0 {
+				a.themeTickLength = 6
+			}
+		}
+	}
+}
+
 func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 	if bounds.IsEmpty() || len(a.entries) == 0 {
 		return nil
@@ -140,7 +208,23 @@ func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 	cmds := make([]gfx.Command, 0, len(a.entries)*2)
 	orient := a.Orientation.Get()
 	tickLen := a.TickLength.Get()
+	if tickLen == 0 {
+		tickLen = a.themeTickLength
+	}
+	if tickLen == 0 {
+		tickLen = 6
+	}
 	labelSize := a.LabelSize.Get()
+	if labelSize == 0 {
+		labelSize = a.themeLabelSize
+	}
+	if labelSize == 0 {
+		labelSize = 11
+	}
+	fontFamily := a.themeFontFamily
+	if fontFamily == "" {
+		fontFamily = "sans-serif"
+	}
 	brush := gfx.SolidBrush(a.LabelColor)
 	tickBrush := gfx.SolidBrush(gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1})
 
@@ -152,7 +236,7 @@ func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 	}
 	slots := make([]labelSlot, len(a.entries))
 
-	style := text.TextStyle{Size: labelSize, Family: "sans-serif"}
+	style := text.TextStyle{Size: labelSize, Family: fontFamily}
 	for i, e := range a.entries {
 		slots[i].entry = e
 		if a.shaper == nil || e.Label == "" {

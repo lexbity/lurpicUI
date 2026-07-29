@@ -40,7 +40,7 @@ func newChartFixture(t *testing.T) *chartFixture {
 		yScale,
 	)
 	f.barMark.Padding = marks.Const[float32](0.2)
-	f.barMark.Color = gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1}
+	f.barMark.Color = marks.Const(gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1})
 
 	f.ptMark = NewPoint(f.ptStore,
 		func(i scatterItem) float64 { return i.x },
@@ -52,7 +52,7 @@ func newChartFixture(t *testing.T) *chartFixture {
 		yScale,
 	)
 	f.ptMark.Radius = marks.Const[float32](4)
-	f.ptMark.Color = gfx.Color{R: 0.9, G: 0.2, B: 0.2, A: 1}
+	f.ptMark.Color = marks.Const(gfx.Color{R: 0.9, G: 0.2, B: 0.2, A: 1})
 
 	fonts := (axisGoldenRuntime{}).FontRegistry()
 	f.axisMark = NewAxis(yScale, marks.Const(AxisBottom), fonts)

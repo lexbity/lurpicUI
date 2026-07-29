@@ -26,7 +26,7 @@ func TestLineGoldenEmpty(t *testing.T) {
 		xScale, yScale,
 	)
 	l.StrokeWidth = marks.Const[float32](2)
-	l.Color = gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1}
+	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
 	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -58,7 +58,7 @@ func TestLineGoldenSingleDatum(t *testing.T) {
 		xScale, yScale,
 	)
 	l.StrokeWidth = marks.Const[float32](2)
-	l.Color = gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1}
+	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
 	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -88,7 +88,7 @@ func TestLineGoldenDegenerateDomain(t *testing.T) {
 		xScale, yScale,
 	)
 	l.StrokeWidth = marks.Const[float32](2)
-	l.Color = gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1}
+	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
 	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -118,7 +118,7 @@ func TestLineGoldenBasic(t *testing.T) {
 		xScale, yScale,
 	)
 	l.StrokeWidth = marks.Const[float32](2)
-	l.Color = gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1}
+	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
 	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -152,7 +152,7 @@ func TestAreaGoldenEmpty(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	a.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3}
+	a.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3})
 
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -183,7 +183,7 @@ func TestAreaGoldenBasic(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	a.Color = gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3}
+	a.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3})
 
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})

@@ -12,6 +12,10 @@ import (
 // facets that TrackVersion on it re-project on change.
 type ReactiveScale struct {
 	derived *store.Derived[scale.InvertibleScale]
+
+	// OnChange is emitted after every recompute. Viz marks subscribe to
+	// this signal in OnAttach to invalidate projection on scale changes.
+	OnChange signal.Signal[signal.Unit]
 }
 
 // Get returns the current scale, recomputing if stale.
@@ -33,6 +37,7 @@ func NewLinearReactive(
 	rng *store.ValueStore[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
+	rs := &ReactiveScale{OnChange: signal.NewSignal[signal.Unit]("ReactiveScale.OnChange")}
 	derived := store.NewDerived(
 		func() scale.InvertibleScale {
 			d := domain.Get()
@@ -47,7 +52,11 @@ func NewLinearReactive(
 		},
 		domain, rng,
 	)
-	return &ReactiveScale{derived: derived}
+	derived.OnChange.Subscribe(func(signal.Change[scale.InvertibleScale]) {
+		rs.OnChange.Emit(signal.Fired)
+	})
+	rs.derived = derived
+	return rs
 }
 
 // NewLogReactive constructs a ReactiveScale over a LogScale. Panics if the
@@ -57,6 +66,7 @@ func NewLogReactive(
 	rng *store.ValueStore[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
+	rs := &ReactiveScale{OnChange: signal.NewSignal[signal.Unit]("ReactiveScale.OnChange")}
 	derived := store.NewDerived(
 		func() scale.InvertibleScale {
 			d := domain.Get()
@@ -75,7 +85,11 @@ func NewLogReactive(
 		},
 		domain, rng,
 	)
-	return &ReactiveScale{derived: derived}
+	derived.OnChange.Subscribe(func(signal.Change[scale.InvertibleScale]) {
+		rs.OnChange.Emit(signal.Fired)
+	})
+	rs.derived = derived
+	return rs
 }
 
 // NewTimeReactive constructs a ReactiveScale over a TimeScale.
@@ -84,6 +98,7 @@ func NewTimeReactive(
 	rng *store.ValueStore[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
+	rs := &ReactiveScale{OnChange: signal.NewSignal[signal.Unit]("ReactiveScale.OnChange")}
 	derived := store.NewDerived(
 		func() scale.InvertibleScale {
 			d := domain.Get()
@@ -98,7 +113,11 @@ func NewTimeReactive(
 		},
 		domain, rng,
 	)
-	return &ReactiveScale{derived: derived}
+	derived.OnChange.Subscribe(func(signal.Change[scale.InvertibleScale]) {
+		rs.OnChange.Emit(signal.Fired)
+	})
+	rs.derived = derived
+	return rs
 }
 
 // NewLinearReactiveFromDerived is like NewLinearReactive but accepts
@@ -112,7 +131,8 @@ func NewLinearReactiveFromDerived(
 ) *ReactiveScale {
 	domainStore := bridgeDerived(domain)
 	rngStore := bridgeDerived(rng)
-	return NewLinearReactive(domainStore, rngStore, opts...)
+	rs := NewLinearReactive(domainStore, rngStore, opts...)
+	return rs
 }
 
 // NewLogReactiveFromDerived is like NewLogReactive but accepts

@@ -19,7 +19,7 @@ type Line[T any] struct {
 	XScale      *reactive.ReactiveScale
 	YScale      *reactive.ReactiveScale
 	StrokeWidth marks.Binding[float32]
-	Color       gfx.Color
+	Color       marks.Binding[gfx.Color]
 
 	cleanups []func()
 }
@@ -41,10 +41,11 @@ func NewLine[T any](
 		XScale:      xScale,
 		YScale:      yScale,
 		StrokeWidth: marks.Const[float32](2),
-		Color:       gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1},
+		Color:       marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
 	}
 	l.Facet = facet.NewFacet()
 	l.AddBinding(l.StrokeWidth)
+	l.AddBinding(l.Color)
 
 	l.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: constraints.MaxSize}
@@ -105,6 +106,16 @@ func (l *Line[T]) subscribe() {
 			l.Invalidate(facet.DirtyProjection)
 		}),
 	)
+	if l.XScale != nil {
+		signal.Track(l.Subs(), &l.XScale.OnChange, func(signal.Unit) {
+			l.Invalidate(facet.DirtyProjection)
+		})
+	}
+	if l.YScale != nil {
+		signal.Track(l.Subs(), &l.YScale.OnChange, func(signal.Unit) {
+			l.Invalidate(facet.DirtyProjection)
+		})
+	}
 }
 
 func (l *Line[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
@@ -134,7 +145,7 @@ func (l *Line[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 			gfx.DrawPoints{
 				Points: pts,
 				Radius: markerRadius,
-				Brush:  gfx.SolidBrush(l.Color),
+				Brush:  gfx.SolidBrush(l.Color.Get()),
 			},
 		}
 	}
@@ -142,7 +153,7 @@ func (l *Line[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 		gfx.DrawPolyline{
 			Points: pts,
 			Stroke: gfx.StrokeStyle{Width: l.StrokeWidth.Get()},
-			Brush:  gfx.SolidBrush(l.Color),
+			Brush:  gfx.SolidBrush(l.Color.Get()),
 		},
 	}
 }

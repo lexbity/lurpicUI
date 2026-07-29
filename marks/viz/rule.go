@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
+	"codeburg.org/lexbit/lurpicui/signal"
 )
 
 // RuleOrientation describes whether the rule spans horizontally or vertically.
@@ -23,8 +24,10 @@ type Rule struct {
 	Value       marks.Binding[float64]
 	Orientation RuleOrientation
 	Scale       *reactive.ReactiveScale
-	Color       gfx.Color
+	Color       marks.Binding[gfx.Color]
 	StrokeWidth float32
+
+	cleanups []func()
 }
 
 var _ facet.FacetImpl = (*Rule)(nil)
@@ -37,11 +40,12 @@ func NewRule(value marks.Binding[float64], orientation RuleOrientation, scale *r
 		Value:       value,
 		Orientation: orientation,
 		Scale:       scale,
-		Color:       gfx.Color{R: 0.7, G: 0.7, B: 0.7, A: 1},
+		Color:       marks.Const(gfx.Color{R: 0.7, G: 0.7, B: 0.7, A: 1}),
 		StrokeWidth: 1,
 	}
 	r.Facet = facet.NewFacet()
 	r.AddBinding(r.Value)
+	r.AddBinding(r.Color)
 
 	r.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: gfx.Size{W: 0, H: 0}}
@@ -65,10 +69,25 @@ func (r *Rule) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: "viz", TypeName: "rule"}
 }
 
-func (r *Rule) OnAttach(ctx facet.AttachContext) { r.Core.OnAttach() }
-func (r *Rule) OnDetach()                        { r.Core.OnDetach() }
-func (r *Rule) OnActivate()                      { r.Core.OnActivate() }
-func (r *Rule) OnDeactivate()                    { r.Core.OnDeactivate() }
+func (r *Rule) OnAttach(ctx facet.AttachContext) {
+	r.Core.OnAttach()
+	if r.Scale != nil {
+		signal.Track(r.Subs(), &r.Scale.OnChange, func(signal.Unit) {
+			r.Invalidate(facet.DirtyProjection)
+		})
+	}
+}
+func (r *Rule) OnDetach() {
+	r.Core.OnDetach()
+	for _, c := range r.cleanups {
+		if c != nil {
+			c()
+		}
+	}
+	r.cleanups = nil
+}
+func (r *Rule) OnActivate()   { r.Core.OnActivate() }
+func (r *Rule) OnDeactivate() { r.Core.OnDeactivate() }
 
 func (r *Rule) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return r.DefaultAnchors(r.Layout.ArrangedBounds, ctx)
@@ -83,7 +102,7 @@ func (r *Rule) buildCommands(bounds gfx.Rect) []gfx.Command {
 		gfx.StrokePath{
 			Path:   r.linePath(bounds, float32(pixel)),
 			Stroke: gfx.StrokeStyle{Width: r.StrokeWidth},
-			Brush:  gfx.SolidBrush(r.Color),
+			Brush:  gfx.SolidBrush(r.Color.Get()),
 		},
 	}
 }

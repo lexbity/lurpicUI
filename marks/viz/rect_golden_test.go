@@ -23,7 +23,7 @@ func TestBarGoldenEmpty(t *testing.T) {
 		yScale,
 	)
 	b.Padding = marks.Const[float32](0.2)
-	b.Color = gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1}
+	b.Color = marks.Const(gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1})
 
 	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -52,7 +52,7 @@ func TestBarGoldenSingleDatum(t *testing.T) {
 		yScale,
 	)
 	b.Padding = marks.Const[float32](0.2)
-	b.Color = gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1}
+	b.Color = marks.Const(gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1})
 
 	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -79,7 +79,7 @@ func TestBarGoldenBasic(t *testing.T) {
 		yScale,
 	)
 	b.Padding = marks.Const[float32](0.2)
-	b.Color = gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1}
+	b.Color = marks.Const(gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1})
 
 	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
 	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})

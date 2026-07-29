@@ -5,6 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -19,8 +20,9 @@ type Point[T any] struct {
 	XScale *reactive.ReactiveScale
 	YScale *reactive.ReactiveScale
 
-	Radius marks.Binding[float32]
-	Color  gfx.Color
+	Radius    marks.Binding[float32]
+	Color     marks.Binding[gfx.Color]
+	Activated signal.Signal[int]
 
 	cleanups []func()
 }
@@ -36,22 +38,36 @@ func NewPoint[T any](
 	xScale, yScale *reactive.ReactiveScale,
 ) *Point[T] {
 	p := &Point[T]{
-		Store:  store,
-		X:      x,
-		Y:      y,
-		XScale: xScale,
-		YScale: yScale,
-		Radius: marks.Const[float32](4),
-		Color:  gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1},
+		Store:     store,
+		X:         x,
+		Y:         y,
+		XScale:    xScale,
+		YScale:    yScale,
+		Radius:    marks.Const[float32](4),
+		Color:     marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
+		Activated: signal.NewSignal[int]("Point.Activated"),
 	}
 	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Radius)
+	p.AddBinding(p.Color)
 
 	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: constraints.MaxSize}
 	}
 	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		p.Layout.ArrangedBounds = bounds
+	}
+	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult {
+		return p.hitTest(pt)
+	}
+	p.Input.OnPointer = func(e facet.PointerEvent) bool {
+		if e.Kind == platform.PointerRelease {
+			res := p.Hit.HitTest(e.Position)
+			if res.Hit {
+				p.Activated.Emit(int(res.MarkID))
+			}
+		}
+		return false
 	}
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return p.buildCommands(p.Layout.ArrangedBounds)
@@ -85,6 +101,16 @@ func (p *Point[T]) OnAttach(ctx facet.AttachContext) {
 			p.Invalidate(facet.DirtyProjection)
 		}),
 	)
+	if p.XScale != nil {
+		signal.Track(p.Subs(), &p.XScale.OnChange, func(signal.Unit) {
+			p.Invalidate(facet.DirtyProjection)
+		})
+	}
+	if p.YScale != nil {
+		signal.Track(p.Subs(), &p.YScale.OnChange, func(signal.Unit) {
+			p.Invalidate(facet.DirtyProjection)
+		})
+	}
 }
 
 func (p *Point[T]) OnDetach() {
@@ -128,7 +154,42 @@ func (p *Point[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 		gfx.DrawPoints{
 			Points: pts,
 			Radius: p.Radius.Get(),
-			Brush:  gfx.SolidBrush(p.Color),
+			Brush:  gfx.SolidBrush(p.Color.Get()),
 		},
 	}
+}
+
+func (p *Point[T]) hitTest(pt gfx.Point) facet.HitResult {
+	if p.Store == nil || p.XScale == nil || p.YScale == nil {
+		return facet.HitResult{}
+	}
+	items := p.Store.All()
+	if len(items) == 0 {
+		return facet.HitResult{}
+	}
+	xs := p.XScale.Get()
+	ys := p.YScale.Get()
+	bounds := p.Layout.ArrangedBounds
+	radius := p.Radius.Get()
+	hitRadius := radius + 2
+	hitRadiusSq := hitRadius * hitRadius
+
+	nearestIdx := -1
+	nearestDistSq := float32(hitRadiusSq + 1)
+
+	for i, item := range items {
+		px := bounds.Min.X + float32(xs.Map(p.X(item)))
+		py := bounds.Min.Y + float32(ys.Map(p.Y(item)))
+		dx := pt.X - px
+		dy := pt.Y - py
+		distSq := dx*dx + dy*dy
+		if distSq <= hitRadiusSq && distSq < nearestDistSq {
+			nearestDistSq = distSq
+			nearestIdx = i
+		}
+	}
+	if nearestIdx < 0 {
+		return facet.HitResult{}
+	}
+	return facet.HitResult{Hit: true, MarkID: facet.MarkID(nearestIdx)}
 }
