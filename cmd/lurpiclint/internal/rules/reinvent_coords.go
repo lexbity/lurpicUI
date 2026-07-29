@@ -3,6 +3,7 @@ package rules
 import (
 	"go/ast"
 	"go/token"
+	"path/filepath"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/classify"
@@ -31,9 +32,21 @@ func (r *ReinventCoords) Description() string {
 func (r *ReinventCoords) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
+	resolverCache := make(map[string]*classify.PkgFuncResolver)
+
 	for _, f := range ctx.Files {
 		fid := facetIdent(f.Imports)
 		gid := gfxIdent(f.Imports)
+
+		// Build or retrieve the package-local resolver.
+		pkgDir := filepath.Dir(f.Path)
+		resolver := resolverCache[pkgDir]
+		if resolver == nil {
+			if pkg, ok := ctx.Pkgs[pkgDir]; ok {
+				resolver = classify.NewPkgFuncResolver(pkg)
+				resolverCache[pkgDir] = resolver
+			}
+		}
 
 		type roleInfo struct {
 			lit *ast.CompositeLit
@@ -59,7 +72,7 @@ func (r *ReinventCoords) Check(ctx *Context) []*diag.Diagnostic {
 		for _, role := range roles {
 			// De-dup: if this LayoutRole is child-arranging, LL003
 			// already fires; skip LL002 to avoid noise.
-			if classify.IsChildArranging(role.lit, f.Fset, f.Imports) {
+			if classify.IsChildArranging(role.lit, f.Fset, f.Imports, resolver) {
 				continue
 			}
 

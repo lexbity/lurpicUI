@@ -292,6 +292,7 @@ func TestAllRules_RegisteredInDefaultRegistry(t *testing.T) {
 		{"LL002", diag.SeverityWarn},
 		{"LL003", diag.SeverityError},
 		{"LL004", diag.SeverityInfo},
+		{"LL019", diag.SeverityError},
 		{"LL010", diag.SeverityError},
 		{"LL011", diag.SeverityError},
 		{"LL012", diag.SeverityWarn},
@@ -530,6 +531,56 @@ func TestLL002_DeDupWithLL003(t *testing.T) {
 		if d.RuleID == "LL002" {
 			t.Errorf("LL002 should NOT fire when LL003 fires on the same LayoutRole:\n  %s:%d", filepath.Base(d.Pos.Filename), d.Pos.Line)
 		}
+	}
+}
+
+// --- LL019 tests ------------------------------------------------------------
+
+func TestLL019_OnBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "reinvent", "ll019_bad")
+	diags := runRulesOnFixture(t, []string{"LL019"}, dir)
+	if len(diags) == 0 {
+		t.Fatal("expected at least 1 LL019 diagnostic on bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL019" {
+			t.Errorf("unexpected rule %q, want LL019", d.RuleID)
+		}
+	}
+}
+
+func TestLL019_OnGoodRegisterFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "reinvent", "ll019_good_register")
+	diags := runRulesOnFixture(t, []string{"LL019"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL019 diagnostics on good_register fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: [%s] %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.RuleID, d.Message)
+		}
+	}
+}
+
+func TestLL019_OnGoodCoreFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "reinvent", "ll019_good_core")
+	diags := runRulesOnFixture(t, []string{"LL019"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 LL019 diagnostics on good_core fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: [%s] %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.RuleID, d.Message)
+		}
+	}
+}
+
+func TestLL019_RegisteredInDefaultRegistry(t *testing.T) {
+	rule := DefaultRegistry.Lookup("LL019")
+	if rule == nil {
+		t.Fatal("LL019 not found in DefaultRegistry — is init() missing?")
+	}
+	if rule.ID() != "LL019" {
+		t.Errorf("rule ID = %q, want LL019", rule.ID())
+	}
+	if rule.DefaultSeverity() != diag.SeverityError {
+		t.Errorf("LL019 DefaultSeverity = %d, want error", rule.DefaultSeverity())
 	}
 }
 
@@ -794,6 +845,56 @@ func TestLL001AndLL003_Combined(t *testing.T) {
 	dir := ruleTestdataDir(t, "reinvent", "ll003_bad")
 	diags := runRulesOnFixtureWithIndex(t, []string{"LL001", "LL003", "LL004"}, dir)
 	compareAgainstGolden(t, diags, "golden/ll003_ll001_combined.json")
+}
+
+// --- LL003 field-assignment extension tests ---------------------------------
+
+func TestLL003_OnFieldAssignBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll003_field_assign_bad")
+	diags := runRulesOnFixture(t, []string{"LL003"}, dir)
+	if len(diags) == 0 {
+		t.Error("expected at least 1 LL003 diagnostic on field_assign_bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL003" {
+			t.Errorf("unexpected rule %q, want LL003", d.RuleID)
+		}
+	}
+}
+
+func TestLL003_OnHelperBadFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll003_helper_bad")
+	diags := runRulesOnFixture(t, []string{"LL003"}, dir)
+	if len(diags) == 0 {
+		t.Error("expected at least 1 LL003 diagnostic on helper_bad fixture, got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL003" {
+			t.Errorf("unexpected rule %q, want LL003", d.RuleID)
+		}
+	}
+}
+
+func TestLL003_OnFieldAssignGoodFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll003_field_assign_good")
+	diags := runRulesOnFixture(t, []string{"LL003"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on field_assign_good fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
+	}
+}
+
+func TestLL003_OnLeafGoodFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "contract", "ll003_leaf_good")
+	diags := runRulesOnFixture(t, []string{"LL003"}, dir)
+	if len(diags) != 0 {
+		t.Errorf("expected 0 diagnostics on leaf_good fixture, got %d", len(diags))
+		for _, d := range diags {
+			t.Logf("  unexpected: %s:%d: %s", filepath.Base(d.Pos.Filename), d.Pos.Line, d.Message)
+		}
+	}
 }
 
 // --- LL012 tests ------------------------------------------------------------

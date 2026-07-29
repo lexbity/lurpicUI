@@ -6,6 +6,7 @@ package walk
 import (
 	"go/ast"
 	"go/token"
+	"strings"
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/loader"
 )
@@ -91,7 +92,8 @@ func CompositeLitIs(lit *ast.CompositeLit, ident, typeName string) bool {
 // ---------------------------------------------------------------------------
 
 // EmbedsFacet reports whether typeSpec is a struct type that embeds
-// facet.Facet (anonymously, no field name).
+// facet.Facet (anonymously, no field name).  The import table is used to
+// resolve aliased imports (e.g. f "codeburg.org/lexbit/lurpicui/facet").
 func EmbedsFacet(typeSpec *ast.TypeSpec, imports loader.ImportTable) bool {
 	st, ok := typeSpec.Type.(*ast.StructType)
 	if !ok || st.Fields == nil {
@@ -105,17 +107,31 @@ func EmbedsFacet(typeSpec *ast.TypeSpec, imports loader.ImportTable) bool {
 		if !ok {
 			continue
 		}
+		if sel.Sel.Name != "Facet" {
+			continue
+		}
 		id, ok := sel.X.(*ast.Ident)
 		if !ok {
 			continue
 		}
-		// Check if the import table maps this ident to "facet" package.
-		// But we also need to verify the type name is "Facet".
-		if sel.Sel.Name == "Facet" && id.Name == "facet" {
+		// Resolve the package ident through the import table.
+		if isFacetImport(id.Name, imports) {
 			return true
 		}
 	}
 	return false
+}
+
+// isFacetImport reports whether name is the local identifier used for the
+// facet package in the import table, falling back to accepting "facet"
+// when the table does not contain an explicit entry (same-package use).
+func isFacetImport(name string, imports loader.ImportTable) bool {
+	for local, path := range imports {
+		if local == name && (strings.HasSuffix(path, "/facet") || path == "facet") {
+			return true
+		}
+	}
+	return name == "facet"
 }
 
 // HasAddRoleCall checks whether decl (a function or method) contains a call
@@ -239,6 +255,25 @@ func CountRectFromXYWH(root ast.Node, gfxIdent string) int {
 	return CountCalls(root, func(call *ast.CallExpr) bool {
 		return SelectorIs(call.Fun, gfxIdent, "RectFromXYWH")
 	})
+}
+
+// CountRectLiterals returns the number of gfx.Rect{...} (or Rect{...})
+// composite literals in root.
+func CountRectLiterals(root ast.Node, gfxIdent string) int {
+	var count int
+	ast.Inspect(root, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok {
+			return true
+		}
+		if SelectorIs(lit.Type, gfxIdent, "Rect") {
+			count++
+		} else if id, ok := lit.Type.(*ast.Ident); ok && id.Name == "Rect" {
+			count++
+		}
+		return true
+	})
+	return count
 }
 
 // CountArrangedBoundsAssignments returns the number of assignment statements

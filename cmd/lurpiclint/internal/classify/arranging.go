@@ -9,6 +9,10 @@ import (
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/walk"
 )
 
+// MaxResolutionDepth is the recursion cap for helper-function inlining used
+// by BodyArrangesChildren.
+const MaxResolutionDepth = 3
+
 // localIdent returns the local identifier (alias or basename) used for the
 // given import-path suffix in the import table.  Returns fallback if no
 // entry matches.
@@ -39,12 +43,17 @@ func facetIdent(imports loader.ImportTable) string {
 // OnMeasure function bodies satisfy any of:
 //
 //  1. Two or more calls to .Arrange, .Measure, or .OnArrange.
-//  2. Two or more gfx.RectFromXYWH(...) constructions.
+//  2. Two or more gfx.RectFromXYWH(...) constructions or gfx.Rect{...} literals.
 //  3. Two or more assignments to .ArrangedBounds.
-//  4. One Arrange/Measure call combined with at least one RectFromXYWH
-//     or ArrangedBounds assignment.
+//  4. One Arrange/Measure call combined with at least one RectFromXYWH,
+//     Rect literal, or ArrangedBounds assignment.
 //  5. A range statement over a child-collection field.
-func IsChildArranging(lit *ast.CompositeLit, fset *token.FileSet, imports loader.ImportTable) bool {
+//  6. A call to a same-package helper whose own body satisfies any of the above
+//     (recursive, capped at MaxResolutionDepth).
+//
+// The resolver parameter enables helper-function inlining; pass nil to skip
+// cross-function analysis.
+func IsChildArranging(lit *ast.CompositeLit, fset *token.FileSet, imports loader.ImportTable, resolver Resolver) bool {
 	for _, key := range []string{"OnArrange", "OnMeasure"} {
 		val := walk.KeyValue(lit, key)
 		if val == nil {
@@ -54,23 +63,22 @@ func IsChildArranging(lit *ast.CompositeLit, fset *token.FileSet, imports loader
 		if body == nil {
 			continue
 		}
-		if bodyArrangesChildren(body, imports) {
+		if BodyArrangesChildren(body, imports, resolver, 0) {
 			return true
 		}
 	}
 	return false
 }
 
-// bodyArrangesChildren checks whether a function body contains patterns that
-// indicate it is arranging child facets.
-func bodyArrangesChildren(body *ast.BlockStmt, imports loader.ImportTable) bool {
-	gfxID := gfxIdent(imports)
-
-	arrangeCallCount := walk.CountCalls(body, func(call *ast.CallExpr) bool {
-		return walk.CallExprIs(call, "Arrange", "Measure", "OnArrange")
-	})
-	rectCount := walk.CountRectFromXYWH(body, gfxID)
-	abCount := walk.CountArrangedBoundsAssignments(body)
+// BodyArrangesChildren checks whether a function body contains patterns that
+// indicate it is arranging child facets.  The function evaluates arrange
+// primitives in the direct body, and if a resolver is provided, also
+// recursively inlines arrange-primitive counts from resolved same-package
+// helpers (capped at MaxResolutionDepth).
+//
+// depth is the current recursion depth; callers MUST start at 0.
+func BodyArrangesChildren(body *ast.BlockStmt, imports loader.ImportTable, resolver Resolver, depth int) bool {
+	arrangeCallCount, rectCount, abCount := countBodyWithHelpers(body, imports, resolver, depth)
 
 	if arrangeCallCount >= 2 {
 		return true
@@ -88,4 +96,56 @@ func bodyArrangesChildren(body *ast.BlockStmt, imports loader.ImportTable) bool 
 		return true
 	}
 	return false
+}
+
+// countBodyWithHelpers returns total arrange-primitive counts for body,
+// including counts from all resolved same-package helpers (recursive).
+func countBodyWithHelpers(body *ast.BlockStmt, imports loader.ImportTable, resolver Resolver, depth int) (arrangeCount, rectCount, abCount int) {
+	if body == nil || depth > MaxResolutionDepth {
+		return 0, 0, 0
+	}
+	gfxID := gfxIdent(imports)
+
+	arrangeCount = countCallsFiltered(body, "Arrange", "Measure", "OnArrange")
+	rectCount = walk.CountRectFromXYWH(body, gfxID) + walk.CountRectLiterals(body, gfxID)
+	abCount = walk.CountArrangedBoundsAssignments(body)
+
+	if resolver == nil {
+		return
+	}
+
+	helperCalls := walk.FindCallExprs(body, func(call *ast.CallExpr) bool {
+		return funcName(call) != ""
+	})
+	for _, call := range helperCalls {
+		helperBody := resolver.FuncBody(call)
+		if helperBody == nil {
+			continue
+		}
+		ha, hr, hb := countBodyWithHelpers(helperBody, imports, resolver, depth+1)
+		arrangeCount += ha
+		rectCount += hr
+		abCount += hb
+	}
+	return
+}
+
+// countCallsFiltered returns the number of CallExpr nodes in root whose
+// function name matches any of the given names (checked via final selector).
+func countCallsFiltered(root ast.Node, names ...string) int {
+	return walk.CountCalls(root, func(call *ast.CallExpr) bool {
+		return walk.CallExprIs(call, names...)
+	})
+}
+
+// funcName extracts the function or method name from a call expression.
+// Returns "" for qualified calls (pkg.Func(...)).
+func funcName(call *ast.CallExpr) string {
+	switch fun := call.Fun.(type) {
+	case *ast.Ident:
+		return fun.Name
+	case *ast.SelectorExpr:
+		return fun.Sel.Name
+	}
+	return ""
 }

@@ -2,6 +2,7 @@ package rules
 
 import (
 	"go/ast"
+	"path/filepath"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/capindex"
@@ -71,8 +72,19 @@ func (r *SuggestShapeMatch) Check(ctx *Context) []*diag.Diagnostic {
 		return diags
 	}
 
+	resolverCache := make(map[string]*classify.PkgFuncResolver)
+
 	for _, f := range ctx.Files {
 		fid := facetIdent(f.Imports)
+
+		pkgDir := filepath.Dir(f.Path)
+		resolver := resolverCache[pkgDir]
+		if resolver == nil {
+			if pkg, ok := ctx.Pkgs[pkgDir]; ok {
+				resolver = classify.NewPkgFuncResolver(pkg)
+				resolverCache[pkgDir] = resolver
+			}
+		}
 
 		ast.Inspect(f.AST, func(n ast.Node) bool {
 			lit, ok := n.(*ast.CompositeLit)
@@ -84,7 +96,7 @@ func (r *SuggestShapeMatch) Check(ctx *Context) []*diag.Diagnostic {
 			}
 
 			// Only suggest for child-arranging LayoutRoles (LL003 territory).
-			if !classify.IsChildArranging(lit, f.Fset, f.Imports) {
+			if !classify.IsChildArranging(lit, f.Fset, f.Imports, resolver) {
 				return true
 			}
 

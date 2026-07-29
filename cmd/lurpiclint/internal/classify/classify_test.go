@@ -55,7 +55,7 @@ func findLayoutRoles(t *testing.T, pf *loader.ParsedFile) []*ast.CompositeLit {
 func TestIsChildArranging_Leaf(t *testing.T) {
 	pf := parseTestdataFile(t, "leaf", "leaf.go")
 	for _, lit := range findLayoutRoles(t, pf) {
-		if IsChildArranging(lit, pf.Fset, pf.Imports) {
+		if IsChildArranging(lit, pf.Fset, pf.Imports, nil) {
 			t.Error("leaf LayoutRole should NOT be child-arranging")
 		}
 	}
@@ -64,7 +64,7 @@ func TestIsChildArranging_Leaf(t *testing.T) {
 func TestIsChildArranging_Root(t *testing.T) {
 	pf := parseTestdataFile(t, "root", "root.go")
 	for _, lit := range findLayoutRoles(t, pf) {
-		if !IsChildArranging(lit, pf.Fset, pf.Imports) {
+		if !IsChildArranging(lit, pf.Fset, pf.Imports, nil) {
 			t.Error("root LayoutRole SHOULD be child-arranging")
 		}
 	}
@@ -73,7 +73,7 @@ func TestIsChildArranging_Root(t *testing.T) {
 func TestIsChildArranging_Alias(t *testing.T) {
 	pf := parseTestdataFile(t, "alias", "alias.go")
 	for _, lit := range findLayoutRoles(t, pf) {
-		if !IsChildArranging(lit, pf.Fset, pf.Imports) {
+		if !IsChildArranging(lit, pf.Fset, pf.Imports, nil) {
 			t.Error("alias LayoutRole (with aliased imports) SHOULD be child-arranging")
 		}
 	}
@@ -81,11 +81,15 @@ func TestIsChildArranging_Alias(t *testing.T) {
 
 func TestIsChildArranging_Delegate(t *testing.T) {
 	pf := parseTestdataFile(t, "delegate", "delegate.go")
+	// Build a packaged resolver from the delegate testdata.
+	pkg := testdataAsPackage(t, "delegate")
+	resolver := NewPkgFuncResolver(pkg)
+
 	for _, lit := range findLayoutRoles(t, pf) {
-		// The delegate fixture's OnArrange lambda only calls a helper
-		// method.  Phase 4 does not trace into helper functions.
-		if IsChildArranging(lit, pf.Fset, pf.Imports) {
-			t.Error("delegate LayoutRole should NOT be child-arranging (helper delegation not traced)")
+		// With a resolver, the delegate fixture's OnArrange lambda
+		// calls a helper method that DOES arrange children.
+		if !IsChildArranging(lit, pf.Fset, pf.Imports, resolver) {
+			t.Error("delegate LayoutRole SHOULD be child-arranging with resolver (helper arranges children)")
 		}
 	}
 }
@@ -93,7 +97,7 @@ func TestIsChildArranging_Delegate(t *testing.T) {
 func TestIsChildArranging_RangeChildren(t *testing.T) {
 	pf := parseTestdataFile(t, "rangechildren", "range.go")
 	for _, lit := range findLayoutRoles(t, pf) {
-		if !IsChildArranging(lit, pf.Fset, pf.Imports) {
+		if !IsChildArranging(lit, pf.Fset, pf.Imports, nil) {
 			t.Error("rangechildren LayoutRole SHOULD be child-arranging (range over Children)")
 		}
 	}
@@ -102,7 +106,7 @@ func TestIsChildArranging_RangeChildren(t *testing.T) {
 func TestIsChildArranging_MultiRect(t *testing.T) {
 	pf := parseTestdataFile(t, "multi_rect", "rect.go")
 	for _, lit := range findLayoutRoles(t, pf) {
-		if !IsChildArranging(lit, pf.Fset, pf.Imports) {
+		if !IsChildArranging(lit, pf.Fset, pf.Imports, nil) {
 			t.Error("multi_rect LayoutRole SHOULD be child-arranging (2+ RectFromXYWH)")
 		}
 	}
@@ -111,7 +115,7 @@ func TestIsChildArranging_MultiRect(t *testing.T) {
 func TestIsChildArranging_OneArrangeOneRect(t *testing.T) {
 	pf := parseTestdataFile(t, "one_arrange_one_rect", "one.go")
 	for _, lit := range findLayoutRoles(t, pf) {
-		if !IsChildArranging(lit, pf.Fset, pf.Imports) {
+		if !IsChildArranging(lit, pf.Fset, pf.Imports, nil) {
 			t.Error("one_arrange_one_rect LayoutRole SHOULD be child-arranging (1 Arrange + 1 RectFromXYWH)")
 		}
 	}
@@ -120,10 +124,29 @@ func TestIsChildArranging_OneArrangeOneRect(t *testing.T) {
 func TestIsChildArranging_MultiArrangedBounds(t *testing.T) {
 	pf := parseTestdataFile(t, "multi_arrangedbounds", "bounds.go")
 	for _, lit := range findLayoutRoles(t, pf) {
-		if !IsChildArranging(lit, pf.Fset, pf.Imports) {
+		if !IsChildArranging(lit, pf.Fset, pf.Imports, nil) {
 			t.Error("multi_arrangedbounds LayoutRole SHOULD be child-arranging (2+ ArrangedBounds)")
 		}
 	}
+}
+
+// testdataAsPackage loads all files in the given testdata subdirectory as a
+// *loader.Package for resolver construction.
+func testdataAsPackage(t *testing.T, pkgDir string) *loader.Package {
+	t.Helper()
+	abs, err := filepath.Abs(filepath.Join("testdata", pkgDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := loader.Load([]string{abs}, loader.Config{})
+	if err != nil {
+		t.Fatalf("loading %s: %v", abs, err)
+	}
+	pkg, ok := result.Packages[abs]
+	if !ok {
+		t.Fatalf("package %s not found in load result", abs)
+	}
+	return pkg
 }
 
 func TestIsAuthoring_Leaf(t *testing.T) {
