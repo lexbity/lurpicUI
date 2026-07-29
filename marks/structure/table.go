@@ -46,7 +46,6 @@ type TableColumn struct {
 type TableRow struct {
 	Key      string
 	Cells    []string
-	Selected bool
 	Disabled bool
 }
 
@@ -72,9 +71,10 @@ type Table struct {
 
 	Activated signal.Signal[int]
 
-	Label    marks.Binding[string]
-	Disabled marks.Binding[bool]
-	Data     *store.ValueStore[TableData]
+	Label     marks.Binding[string]
+	Disabled  marks.Binding[bool]
+	Data      *store.ValueStore[TableData]
+	Selection *store.ValueStore[string]
 
 	textRole facet.TextRole
 
@@ -121,11 +121,13 @@ var _ layout.AnchorExporter = (*Table)(nil)
 var _ marks.Mark = (*Table)(nil)
 
 // NewTable constructs a structure.table mark with canonical defaults.
-func NewTable(label string, data TableData) *Table {
+// The selection store is supplied by the caller — the mark never creates its own.
+func NewTable(label string, data TableData, selection *store.ValueStore[string]) *Table {
 	t := &Table{
 		Label:                marks.Const(label),
 		Disabled:             marks.Const(false),
 		Data:                 store.NewValueStore(cloneTableData(data)),
+		Selection:            selection,
 		focusedRowIndex:      -1,
 		pressedRowIndex:      -1,
 		hoveredRowIndex:      -1,
@@ -263,9 +265,16 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return out
 }
 
-func (t *Table) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
-func (t *Table) OnActivate()                      { t.Core.OnActivate() }
-func (t *Table) OnDeactivate()                    { t.Core.OnDeactivate() }
+func (t *Table) OnAttach(ctx facet.AttachContext) {
+	t.Core.OnAttach()
+	if t.Selection != nil {
+		facet.Store(facet.Subscribe(t), &t.Selection.OnChange, t.Selection.Version, func(signal.Change[string]) {
+			t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+}
+func (t *Table) OnActivate()   { t.Core.OnActivate() }
+func (t *Table) OnDeactivate() { t.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (t *Table) OnDetach() {
@@ -337,13 +346,7 @@ func (t *Table) syncChildren() {
 	bodyCells := make(map[string]map[string]*primitive.Text, len(visibleRows))
 	selectionCells := make(map[string]*primitive.Text, len(visibleRows)+1)
 	sortIndicators := make(map[string]*primitive.Text)
-	hasSelection := false
-	for i := range visibleRows {
-		if visibleRows[i].Selected {
-			hasSelection = true
-			break
-		}
-	}
+	hasSelection := t.Selection != nil && t.Selection.Get() != ""
 	showSelectionColumn := hasSelection
 	selectionOffset := 0
 	if showSelectionColumn {
@@ -447,7 +450,7 @@ func (t *Table) syncChildren() {
 				indicator = primitive.NewText(marks.Const(""))
 			}
 			indicator.Typography = marks.Const(theme.TextLabelM)
-			if row.Selected {
+			if t.isRowSelected(key) {
 				indicator.Content = marks.Const("✓")
 				indicator.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 				indicator.Foreground = marks.Const(theme.ColorPrimary)
@@ -487,7 +490,7 @@ func (t *Table) syncChildren() {
 			cell.Typography = marks.Const(theme.TextBodyM)
 			cell.Foreground = marks.Const(theme.ColorText)
 			cell.Overflow = marks.Const(primitive.TextOverflowTruncate)
-			if row.Selected {
+			if t.isRowSelected(key) {
 				cell.Foreground = marks.Const(theme.ColorPrimary)
 			}
 			if row.Disabled || t.Disabled.Get() {
@@ -1100,26 +1103,23 @@ func (t *Table) rowAtPoint(p gfx.Point) int {
 	return -1
 }
 
+func (t *Table) isRowSelected(key string) bool {
+	return t.Selection != nil && t.Selection.Get() == key
+}
+
 func (t *Table) selectRow(index int) {
-	if t == nil {
-		return
-	}
-	data := t.data()
-	if index < 0 || index >= len(data.Rows) {
+	if t == nil || t.Selection == nil {
 		return
 	}
 	visible := t.cachedVisibleRows
 	if len(visible) == 0 {
+		data := t.data()
 		visible = sortedTableRows(data)
 	}
-	if index >= len(visible) {
+	if index < 0 || index >= len(visible) {
 		return
 	}
-	selectedKey := visible[index].Key
-	for i := range data.Rows {
-		data.Rows[i].Selected = stableTableKey(data.Rows[i].Key, "", i) == selectedKey
-	}
-	t.Data.Set(data)
+	t.Selection.Set(visible[index].Key)
 }
 
 func (t *Table) ensureFocusedRowVisible() {
@@ -1404,7 +1404,6 @@ func cloneTableRows(in []TableRow) []TableRow {
 		out[i] = TableRow{
 			Key:      strings.TrimSpace(in[i].Key),
 			Cells:    cloneTableCells(in[i].Cells),
-			Selected: in[i].Selected,
 			Disabled: in[i].Disabled,
 		}
 	}

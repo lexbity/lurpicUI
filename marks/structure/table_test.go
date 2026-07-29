@@ -9,12 +9,15 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func TestTableGeometryContracts(t *testing.T) {
+	selection := store.NewValueStore("")
 	table := NewTable("Geometry table", TableData{
 		Columns: []TableColumn{
 			{Key: "id", Label: "ID", Align: facet.AlignEnd},
@@ -23,10 +26,11 @@ func TestTableGeometryContracts(t *testing.T) {
 		},
 		Rows: []TableRow{
 			{Key: "row-1", Cells: []string{"001", "Short title", "Open"}},
-			{Key: "row-2", Cells: []string{"002", strings.Join([]string{"Line one", "Line two"}, "\n"), "Closed"}, Selected: true},
+			{Key: "row-2", Cells: []string{"002", strings.Join([]string{"Line one", "Line two"}, "\n"), "Closed"}},
 		},
 		SortColumnKey: "name",
-	})
+	}, selection)
+	selection.Set("row-2")
 	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -282,6 +286,7 @@ func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density t
 }
 
 func newTableFixture() *Table {
+	selection := store.NewValueStore("row-3")
 	return NewTable("Sample table", TableData{
 		Columns: []TableColumn{
 			{Key: "id", Label: "ID"},
@@ -292,7 +297,7 @@ func newTableFixture() *Table {
 		Rows: []TableRow{
 			{Key: "row-1", Cells: []string{"001", "Primary data row with a long title", "Ready", "Platform"}},
 			{Key: "row-2", Cells: []string{"002", "Secondary data row with an even longer label", "In review", "Infrastructure"}},
-			{Key: "row-3", Cells: []string{"003", "Archived data row with historical notes", "Archived", "Ops"}, Selected: true},
+			{Key: "row-3", Cells: []string{"003", "Archived data row with historical notes", "Archived", "Ops"}},
 			{Key: "row-4", Cells: []string{"004", "Incoming data row with expanded metadata", "Queued", "Product"}},
 			{Key: "row-5", Cells: []string{"005", "Pending data row with another descriptive title", "Blocked", "Research"}},
 			{Key: "row-6", Cells: []string{"006", "Fulfilled data row with a very verbose label to force overflow", "Done", "Support"}},
@@ -303,7 +308,7 @@ func newTableFixture() *Table {
 		},
 		SortColumnKey:  "name",
 		SortDescending: false,
-	})
+	}, selection)
 }
 
 func newTableGoldenFixture() *Table {
@@ -324,7 +329,7 @@ func newTableGoldenFixture() *Table {
 			{Key: "row-6", Cells: []string{"Load Balancer 6", "Round robin", "Disabled", "Test", "22"}},
 			{Key: "row-7", Cells: []string{"Load Balancer 7", "Round robin", "Disabled", "Test", "22"}},
 		},
-	})
+	}, nil)
 }
 
 func tableChildBounds(table *Table, key string) (gfx.Rect, bool) {
@@ -344,4 +349,20 @@ func tableChildBounds(table *Table, key string) (gfx.Rect, bool) {
 		return bounds, ok
 	}
 	return gfx.Rect{}, false
+}
+
+func TestTableSelectionSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[string](
+		t,
+		func() *store.ValueStore[string] { return store.NewValueStore("") },
+		func(s *store.ValueStore[string]) facet.FacetImpl {
+			return NewTable("test", TableData{
+				Columns: []TableColumn{{Key: "a", Label: "A"}},
+				Rows:    []TableRow{{Key: "r1", Cells: []string{"v1"}}, {Key: "r2", Cells: []string{"v2"}}},
+			}, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Table).Selection.Set("r1")
+		},
+	)
 }
