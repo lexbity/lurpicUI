@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -46,7 +47,7 @@ type Tabs struct {
 	Items       []TabItem
 	Variant     marks.Binding[uinav.TabsVariant]
 	Disabled    marks.Binding[bool]
-	ActiveIndex marks.Binding[int]
+	ActiveIndex *store.ValueStore[int]
 
 	Activated signal.Signal[int]
 
@@ -85,12 +86,12 @@ var _ layout.AnchorExporter = (*Tabs)(nil)
 var _ marks.Mark = (*Tabs)(nil)
 
 // NewTabs constructs a navigation.tabs mark with canonical defaults.
-func NewTabs(label string, items []TabItem) *Tabs {
+func NewTabs(label string, items []TabItem, activeIndex *store.ValueStore[int]) *Tabs {
 	t := &Tabs{
 		Label:        marks.Const(label),
 		Variant:      marks.Const(uinav.TabsStandard),
 		Disabled:     marks.Const(false),
-		ActiveIndex:  marks.Const(0),
+		ActiveIndex:  activeIndex,
 		hoveredIndex: -1,
 		pressedIndex: -1,
 	}
@@ -98,7 +99,6 @@ func NewTabs(label string, items []TabItem) *Tabs {
 	t.AddBinding(t.Label)
 	t.AddBinding(t.Variant)
 	t.AddBinding(t.Disabled)
-	t.AddBinding(t.ActiveIndex)
 	t.SetItems(items)
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
@@ -207,7 +207,14 @@ func (t *Tabs) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 func (t *Tabs) Children() []facet.GroupChild { return nil }
 
 // OnAttach is unused beyond layout role setup.
-func (t *Tabs) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
+func (t *Tabs) OnAttach(ctx facet.AttachContext) {
+	t.Core.OnAttach()
+	if t.ActiveIndex != nil {
+		facet.Store(facet.Subscribe(t), &t.ActiveIndex.OnChange, t.ActiveIndex.Version, func(signal.Change[int]) {
+			t.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+}
 
 // OnActivate is unused.
 func (t *Tabs) OnActivate() { t.Core.OnActivate() }
@@ -819,7 +826,7 @@ func (t *Tabs) activateIndex(index int) {
 		t.Activated.Emit(index)
 		return
 	}
-	t.ActiveIndex = marks.Const(index)
+	t.ActiveIndex.Set(index)
 	t.Activated.Emit(index)
 	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
@@ -876,18 +883,18 @@ func (t *Tabs) clampedActiveIndex() int {
 
 func (t *Tabs) clampActiveIndex() {
 	if len(t.Items) == 0 {
-		t.ActiveIndex = marks.Const(0)
+		t.ActiveIndex.Set(0)
 		return
 	}
 	ai := t.ActiveIndex.Get()
 	if ai < 0 || ai >= len(t.Items) {
-		t.ActiveIndex = marks.Const(0)
+		t.ActiveIndex.Set(0)
 	}
 	ai = t.ActiveIndex.Get()
 	if t.isDisabledIndex(ai) {
 		for i := range t.Items {
 			if !t.isDisabledIndex(i) {
-				t.ActiveIndex = marks.Const(i)
+				t.ActiveIndex.Set(i)
 				return
 			}
 		}

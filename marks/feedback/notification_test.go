@@ -11,11 +11,13 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uinotification"
@@ -185,6 +187,19 @@ func TestNotificationRecipe_exposes_expected_slots(t *testing.T) {
 	}
 }
 
+func TestNotificationOpenSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[bool](
+		t,
+		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func(s *store.ValueStore[bool]) facet.FacetImpl {
+			return NewNotification("Title", "Message", s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Notification).closeAndDismiss()
+		},
+	)
+}
+
 func TestNotificationGoldenDefault(t *testing.T) {
 	AssertNotificationGolden(t, "default", notificationTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(n *Notification) {})
 }
@@ -221,7 +236,7 @@ func TestNotificationGoldenRTL(t *testing.T) {
 
 func TestNotificationGoldenOpen(t *testing.T) {
 	AssertNotificationGolden(t, "open", notificationTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(n *Notification) {
-		n.Open = marks.Const(true)
+		n.Open.Set(true)
 	})
 }
 
@@ -290,7 +305,7 @@ func AssertNotificationGolden(t *testing.T, name string, tokens theme.Tokens, de
 }
 
 func newNotificationFixture() *Notification {
-	notification := NewNotification("Saved", "Draft was synced successfully.")
+	notification := NewNotification("Saved", "Draft was synced successfully.", store.NewValueStore(true))
 	notification.ActionLabel = marks.Const("Undo")
 	notification.CloseButtonLabel = marks.Const("Dismiss")
 	return notification

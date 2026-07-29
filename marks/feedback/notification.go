@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -83,7 +84,7 @@ type Notification struct {
 	ContentGridRows    marks.Binding[int]
 	ContentChildren    marks.Binding[[]NotificationContentChild]
 	Disabled           marks.Binding[bool]
-	Open               marks.Binding[bool]
+	Open               *store.ValueStore[bool]
 
 	hovered        bool
 	pressed        bool
@@ -120,7 +121,7 @@ var _ marks.Mark = (*Notification)(nil)
 const notificationDefaultIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.8 3.5 19.5h17L12 2.8z"/><path d="M12 9v4.5"/><circle cx="12" cy="16.5" r="1"/></svg>`
 
 // NewNotification constructs a feedback.notification mark with canonical defaults.
-func NewNotification(title, message string) *Notification {
+func NewNotification(title, message string, open *store.ValueStore[bool]) *Notification {
 	n := &Notification{
 		Title:              marks.Const(title),
 		Message:            marks.Const(message),
@@ -133,7 +134,7 @@ func NewNotification(title, message string) *Notification {
 		ContentGridRows:    marks.Const(1),
 		ContentChildren:    marks.Const[[]NotificationContentChild](nil),
 		Disabled:           marks.Const(false),
-		Open:               marks.Const(true),
+		Open:               open,
 	}
 	n.Facet = facet.NewFacet()
 	n.AddBinding(n.Title)
@@ -147,7 +148,6 @@ func NewNotification(title, message string) *Notification {
 	n.AddBinding(n.ContentGridRows)
 	n.AddBinding(n.ContentChildren)
 	n.AddBinding(n.Disabled)
-	n.AddBinding(n.Open)
 
 	n.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -289,7 +289,15 @@ func (n *Notification) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 }
 
 // OnAttach delegates to Core.
-func (n *Notification) OnAttach(ctx facet.AttachContext) { n.Core.OnAttach() }
+func (n *Notification) OnAttach(ctx facet.AttachContext) {
+	n.Core.OnAttach()
+	if n.Open == nil {
+		return
+	}
+	facet.Store(facet.Subscribe(n), &n.Open.OnChange, n.Open.Version, func(signal.Change[bool]) {
+		n.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	})
+}
 
 // OnActivate delegates to Core.
 func (n *Notification) OnActivate() { n.Core.OnActivate() }
@@ -873,7 +881,7 @@ func (n *Notification) closeAndDismiss() {
 	if n == nil || !n.Open.Get() {
 		return
 	}
-	n.Open = marks.Const(false)
+	n.Open.Set(false)
 	n.hovered = false
 	n.pressed = false
 	n.focusedVisible = false

@@ -8,10 +8,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uifeedback"
@@ -162,6 +164,19 @@ func TestTooltipRecipe_exposes_expected_slots(t *testing.T) {
 	}
 }
 
+func TestTooltipOpenSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[bool](
+		t,
+		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func(s *store.ValueStore[bool]) facet.FacetImpl {
+			return NewTooltip("Content", s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Tooltip).openFalseAndDismiss()
+		},
+	)
+}
+
 func TestTooltipGoldenDefault(t *testing.T) {
 	AssertTooltipGolden(t, "default", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {})
 }
@@ -247,13 +262,13 @@ func renderTooltipSurface(t *testing.T, tokens theme.Tokens, density theme.Densi
 
 func TestTooltipGoldenOpen(t *testing.T) {
 	AssertTooltipGolden(t, "open", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.Open = marks.Const(true)
+		tt.Open.Set(true)
 	})
 }
 
 func TestTooltipGoldenDismissed(t *testing.T) {
 	AssertTooltipGolden(t, "dismissed", tooltipTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(tt *Tooltip) {
-		tt.Open = marks.Const(false)
+		tt.Open.Set(false)
 	})
 }
 
@@ -265,7 +280,7 @@ func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density
 }
 
 func newTooltipFixture() *Tooltip {
-	tt := NewTooltip("Press and hold for more details.")
+	tt := NewTooltip("Press and hold for more details.", store.NewValueStore(true))
 	tt.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	return tt
 }

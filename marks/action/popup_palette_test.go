@@ -10,9 +10,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 )
@@ -204,6 +206,19 @@ func TestPopupPaletteRecipe_allSlotsPresent(t *testing.T) {
 	}
 }
 
+func TestPopupPaletteOpenSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[bool](
+		t,
+		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func(s *store.ValueStore[bool]) facet.FacetImpl {
+			return NewPopupPalette("Palette", nil, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*PopupPalette).Open.Set(false)
+		},
+	)
+}
+
 func TestPopupPaletteGoldenDefault(t *testing.T) {
 	AssertPopupPaletteGolden(t, "default", defaultPopupPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(*PopupPalette) {})
 }
@@ -291,7 +306,7 @@ func newPopupPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.Den
 		{Key: "lasso", Label: "Lasso", IconRef: "lasso", Color: gfx.ColorFromRGBA8(168, 125, 255, 255)},
 		{Key: "slice", Label: "Slice", IconRef: "slice", Color: gfx.ColorFromRGBA8(255, 145, 87, 255)},
 		{Key: "hand", Label: "Hand", IconRef: "hand", Color: gfx.ColorFromRGBA8(128, 128, 128, 255)},
-	})
+	}, store.NewValueStore(true))
 	palette.History = []gfx.Color{
 		gfx.ColorFromRGBA8(255, 90, 90, 255),
 		gfx.ColorFromRGBA8(255, 179, 71, 255),

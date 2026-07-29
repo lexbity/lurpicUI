@@ -9,9 +9,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -185,6 +187,23 @@ func TestBreadcrumbsPointerAndKeyboardInteraction(t *testing.T) {
 	}
 }
 
+func TestBreadcrumbsCurrentIndexSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[int](
+		t,
+		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func(s *store.ValueStore[int]) facet.FacetImpl {
+			return NewBreadcrumbs("Breadcrumbs", []BreadcrumbItem{
+				{Label: "Item 1"},
+				{Label: "Item 2"},
+				{Label: "Item 3"},
+			}, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Breadcrumbs).CurrentIndex.Set(2)
+		},
+	)
+}
+
 func TestBreadcrumbsGoldenDefault(t *testing.T) {
 	AssertBreadcrumbsGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(b *Breadcrumbs) {})
 }
@@ -285,7 +304,12 @@ func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.
 		{Label: "Breadcrumb 2"},
 		{Label: "Breadcrumb 3"},
 		{Label: "Breadcrumb 4"},
-	})
+	}, store.NewValueStore(len([]BreadcrumbItem{
+		{Label: "Breadcrumb 1"},
+		{Label: "Breadcrumb 2"},
+		{Label: "Breadcrumb 3"},
+		{Label: "Breadcrumb 4"},
+	})-1))
 	rt := breadcrumbRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return bc, rt, resolved
 }

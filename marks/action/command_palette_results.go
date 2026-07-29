@@ -451,7 +451,7 @@ func (g *commandPaletteResultsGroup) onKey(e facet.KeyEvent) bool {
 	if g == nil || g.Disabled.Get() || len(g.rows) == 0 || e.Kind != platform.KeyPress {
 		if g != nil && e.Kind == platform.KeyPress && e.Key == platform.KeyEscape {
 			if g.parent != nil {
-				g.parent.Open = false
+				g.parent.Open.Set(false)
 			}
 			return true
 		}
@@ -481,7 +481,7 @@ func (g *commandPaletteResultsGroup) onKey(e facet.KeyEvent) bool {
 		return true
 	case platform.KeyEscape:
 		if g.parent != nil {
-			g.parent.Open = false
+			g.parent.Open.Set(false)
 		}
 		return true
 	default:
@@ -495,7 +495,7 @@ func (g *commandPaletteResultsGroup) onDismiss(e facet.DismissEvent) bool {
 		return false
 	}
 	if g.parent != nil {
-		g.parent.Open = false
+		g.parent.Open.Set(false)
 	}
 	return true
 }

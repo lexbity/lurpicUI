@@ -45,7 +45,7 @@ type CommandPalette struct {
 	resultsList *commandPaletteResultsGroup
 	registry    *runtimepkg.CommandRegistry
 
-	Open           bool
+	Open           *store.ValueStore[bool]
 	hovered        bool
 	pressed        bool
 	focusedVisible bool
@@ -78,13 +78,13 @@ var _ layout.AnchorExporter = (*CommandPalette)(nil)
 var _ marks.Mark = (*CommandPalette)(nil)
 
 // NewCommandPalette constructs an action.command_palette mark with canonical defaults.
-func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.CommandRegistry) *CommandPalette {
+func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.CommandRegistry, open *store.ValueStore[bool]) *CommandPalette {
 	p := &CommandPalette{
 		Label:          label,
 		Placeholder:    marks.Const("Type a command or search"),
 		Disabled:       marks.Const(false),
 		registry:       registry,
-		Open:           true,
+		Open:           open,
 		focusedVisible: true,
 		activeIndex:    -1,
 		Activated:      signal.NewSignal[string]("command_palette_activated"),
@@ -97,7 +97,7 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 	p.searchField = input.NewTextField("Search", uiinput.TextInputOutlined, store.NewValueStore(""))
 	p.searchField.Placeholder = marks.Const(p.Placeholder.Get())
 	p.resultsList = newCommandPaletteResultsGroup(p)
-	p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open)
+	p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open.Get())
 	p.resultsList.ItemVariant = marks.Const(uiinput.ListItemStandard)
 
 	if role := p.searchField.Base().InputRole(); role != nil {
@@ -113,20 +113,20 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 		}
 		role.OnDismiss = func(e facet.DismissEvent) bool {
 			_ = e
-			if p.Disabled.Get() || !p.Open {
+			if p.Disabled.Get() || !p.Open.Get() {
 				return false
 			}
-			p.Open = false
+			p.Open.Set(false)
 			return true
 		}
 	}
 	if role := p.resultsList.Base().InputRole(); role != nil {
 		role.OnDismiss = func(e facet.DismissEvent) bool {
 			_ = e
-			if p.Disabled.Get() || !p.Open {
+			if p.Disabled.Get() || !p.Open.Get() {
 				return false
 			}
-			p.Open = false
+			p.Open.Set(false)
 			return true
 		}
 	}
@@ -188,7 +188,7 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 	p.Input.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
 	p.Input.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
 	p.Input.OnDismiss = func(e facet.DismissEvent) bool { return p.onDismiss(e) }
-	p.Focus.Focusable = func() bool { return !p.Disabled.Get() && p.Open }
+	p.Focus.Focusable = func() bool { return !p.Disabled.Get() && p.Open.Get() }
 	p.Focus.TabIndex = -1
 	p.Focus.OnFocusGained = func() { p.onFocusGained() }
 	p.Focus.OnFocusLost = func() { p.onFocusLost() }
@@ -227,7 +227,7 @@ func (p *CommandPalette) AccessibleName() string {
 
 // Children returns the facet's immediate child list.
 func (p *CommandPalette) Children() []facet.GroupChild {
-	if p == nil || !p.Open {
+	if p == nil || !p.Open.Get() {
 		return nil
 	}
 	out := make([]facet.GroupChild, 0, 2)
@@ -243,6 +243,11 @@ func (p *CommandPalette) Children() []facet.GroupChild {
 // OnAttach wires command registry and query invalidation.
 func (p *CommandPalette) OnAttach(ctx facet.AttachContext) {
 	p.Core.OnAttach()
+	if p.Open != nil {
+		facet.Store(facet.Subscribe(p), &p.Open.OnChange, p.Open.Version, func(signal.Change[bool]) {
+			p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
 	p.syncCommands()
 	if p.searchField != nil && p.searchField.Value != nil {
 		facet.Store(facet.Subscribe(p), &p.searchField.Value.OnChange, p.searchField.Value.Version, func(change signal.Change[string]) {
@@ -345,14 +350,14 @@ func (p *CommandPalette) syncChildren() {
 		return
 	}
 	if p.searchField != nil {
-		p.searchField.Disabled = marks.Const(p.Disabled.Get() || !p.Open)
+		p.searchField.Disabled = marks.Const(p.Disabled.Get() || !p.Open.Get())
 		p.searchField.Placeholder = marks.Const(p.Placeholder.Get())
 		if value := p.searchField.Value; value != nil && value.Get() != p.query {
 			value.Set(p.query)
 		}
 	}
 	if p.resultsList != nil {
-		p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open)
+		p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open.Get())
 		p.resultsList.EmptyState = marks.Const("No matching commands")
 		if len(p.cachedFiltered) == 0 {
 			p.resultsList.syncRows(nil, p.activeIndex)
@@ -363,7 +368,7 @@ func (p *CommandPalette) syncChildren() {
 }
 
 func (p *CommandPalette) measure(ctx facet.MeasureContext, constraints facet.Constraints) gfx.Size {
-	if p == nil || p.Disabled.Get() || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() {
 		return constraints.Constrain(gfx.Size{})
 	}
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
@@ -413,7 +418,7 @@ func (p *CommandPalette) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	p.cachedSearchBounds = gfx.Rect{}
 	p.cachedResultsBounds = gfx.Rect{}
 	p.cachedFocusBounds = gfx.Rect{}
-	if p.Disabled.Get() || !p.Open || p.searchField == nil || p.resultsList == nil || bounds.IsEmpty() {
+	if p.Disabled.Get() || !p.Open.Get() || p.searchField == nil || p.resultsList == nil || bounds.IsEmpty() {
 		return
 	}
 	surfaceW, surfaceH := p.surfaceSize(bounds)
@@ -459,7 +464,7 @@ func (p *CommandPalette) surfaceSize(bounds gfx.Rect) (float32, float32) {
 }
 
 func (p *CommandPalette) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if p == nil || bounds.IsEmpty() || p.Disabled.Get() || !p.Open {
+	if p == nil || bounds.IsEmpty() || p.Disabled.Get() || !p.Open.Get() {
 		return nil
 	}
 	style, slots := p.resolveProjectionTheme(runtime)
@@ -543,7 +548,7 @@ func (p *CommandPalette) interactionState() theme.InteractionState {
 }
 
 func (p *CommandPalette) onSearchKey(e facet.KeyEvent) bool {
-	if p == nil || p.Disabled.Get() || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() {
 		return false
 	}
 	if e.Kind != platform.KeyPress {
@@ -566,7 +571,7 @@ func (p *CommandPalette) onSearchKey(e facet.KeyEvent) bool {
 		p.activateCurrent()
 		return true
 	case platform.KeyEscape:
-		p.Open = false
+		p.Open.Set(false)
 		return true
 	default:
 		return false
@@ -574,7 +579,7 @@ func (p *CommandPalette) onSearchKey(e facet.KeyEvent) bool {
 }
 
 func (p *CommandPalette) onPointer(e facet.PointerEvent) bool {
-	if p == nil || p.Disabled.Get() || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() {
 		return false
 	}
 	if e.Kind != platform.PointerPress {
@@ -585,21 +590,21 @@ func (p *CommandPalette) onPointer(e facet.PointerEvent) bool {
 		return false
 	}
 	if hit.MarkID == commandPaletteMarkIDBackdrop {
-		p.Open = false
+		p.Open.Set(false)
 		return true
 	}
 	return hit.MarkID == commandPaletteMarkIDModalSurface || hit.MarkID == commandPaletteMarkIDSearchField || hit.MarkID == commandPaletteMarkIDResultsList
 }
 
 func (p *CommandPalette) onKey(e facet.KeyEvent) bool {
-	if p == nil || p.Disabled.Get() || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() {
 		return false
 	}
 	if e.Kind != platform.KeyPress {
 		return false
 	}
 	if e.Key == platform.KeyEscape {
-		p.Open = false
+		p.Open.Set(false)
 		return true
 	}
 	return false
@@ -607,10 +612,10 @@ func (p *CommandPalette) onKey(e facet.KeyEvent) bool {
 
 func (p *CommandPalette) onDismiss(e facet.DismissEvent) bool {
 	_ = e
-	if p == nil || p.Disabled.Get() || !p.Open {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() {
 		return false
 	}
-	p.Open = false
+	p.Open.Set(false)
 	return true
 }
 
@@ -629,7 +634,7 @@ func (p *CommandPalette) onFocusLost() {
 }
 
 func (p *CommandPalette) hitTest(pt gfx.Point) facet.HitResult {
-	if p == nil || p.Disabled.Get() || !p.Open || p.cachedRootBounds.IsEmpty() {
+	if p == nil || p.Disabled.Get() || !p.Open.Get() || p.cachedRootBounds.IsEmpty() {
 		return facet.HitResult{}
 	}
 	if !p.cachedSurfaceBounds.IsEmpty() && p.cachedSurfaceBounds.Contains(pt) {
@@ -684,13 +689,13 @@ func (p *CommandPalette) activateEntry(entry runtimepkg.CommandEntry) {
 	if p.registry != nil && !entry.Disabled {
 		if p.registry.Execute(entry.ID) {
 			p.Activated.Emit(entry.ID)
-			p.Open = false
+			p.Open.Set(false)
 			return
 		}
 	}
 	if !entry.Disabled {
 		p.Activated.Emit(entry.ID)
-		p.Open = false
+		p.Open.Set(false)
 	}
 }
 

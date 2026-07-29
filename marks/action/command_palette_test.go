@@ -11,10 +11,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -148,7 +150,7 @@ func TestCommandPaletteSearchNavigationAndActivation(t *testing.T) {
 	if executed != "edit.find" {
 		t.Fatalf("executed command = %q, want edit.find", executed)
 	}
-	if palette.Open {
+	if palette.Open.Get() {
 		t.Fatal("expected palette to close after activation")
 	}
 }
@@ -185,6 +187,20 @@ func TestCommandPaletteRecipe_allSlotsPresent(t *testing.T) {
 	if !allCommandPaletteFieldsPresent(slots) {
 		t.Fatalf("command palette slots contain zero values: %#v", slots)
 	}
+}
+
+func TestCommandPaletteOpenSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[bool](
+		t,
+		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func(s *store.ValueStore[bool]) facet.FacetImpl {
+			return NewCommandPalette(marks.Const("Search"), nil, s)
+		},
+		func(m facet.FacetImpl) {
+			cp := m.(*CommandPalette)
+			cp.Open.Set(false)
+		},
+	)
 }
 
 func TestCommandPaletteGoldenDefault(t *testing.T) {
@@ -229,13 +245,13 @@ func TestCommandPaletteGoldenRTL(t *testing.T) {
 
 func TestCommandPaletteGoldenOpen(t *testing.T) {
 	AssertCommandPaletteGolden(t, "open", defaultCommandPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *CommandPalette) {
-		p.Open = true
+		p.Open.Set(true)
 	})
 }
 
 func TestCommandPaletteGoldenDismissed(t *testing.T) {
 	AssertCommandPaletteGolden(t, "dismissed", defaultCommandPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *CommandPalette) {
-		p.Open = false
+		p.Open.Set(false)
 	})
 }
 
@@ -319,7 +335,7 @@ func newCommandPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.D
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
 	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	palette := NewCommandPalette(marks.Const("Command palette"), registry)
+	palette := NewCommandPalette(marks.Const("Command palette"), registry, store.NewValueStore(true))
 	rt := commandPaletteRuntimeStub{
 		rootStyle: rootStyle,
 		fonts:     testkit.TestFontRegistry(t),

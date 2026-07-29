@@ -9,11 +9,13 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uifeedback"
@@ -155,7 +157,7 @@ func TestDialogInteractionsEmitActionAndDismiss(t *testing.T) {
 		t.Fatalf("expected dismiss emission after action, got %d", dismissed)
 	}
 
-	dialog.Open = marks.Const(true)
+	dialog.Open.Set(true)
 	if !dialog.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEscape}) {
 		t.Fatal("expected escape to be handled")
 	}
@@ -238,6 +240,19 @@ func TestDialogCustomContentGrid(t *testing.T) {
 	}
 }
 
+func TestDialogOpenSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[bool](
+		t,
+		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func(s *store.ValueStore[bool]) facet.FacetImpl {
+			return NewDialog("Title", "Body", nil, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Dialog).closeAndDismiss()
+		},
+	)
+}
+
 func TestDialogGoldenDefault(t *testing.T) {
 	AssertDialogGolden(t, "default", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {})
 }
@@ -280,7 +295,7 @@ func TestDialogGoldenRTL(t *testing.T) {
 
 func TestDialogGoldenOpen(t *testing.T) {
 	AssertDialogGolden(t, "open", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {
-		d.Open = marks.Const(true)
+		d.Open.Set(true)
 	})
 }
 
@@ -299,7 +314,7 @@ func TestDialogGoldenCustomContentGrid(t *testing.T) {
 
 func TestDialogGoldenDismissed(t *testing.T) {
 	AssertDialogGolden(t, "dismissed", dialogTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *Dialog) {
-		d.Open = marks.Const(false)
+		d.Open.Set(false)
 	})
 }
 
@@ -362,6 +377,7 @@ func newDialogFixture() *Dialog {
 			{Label: "Cancel", Variant: uiinput.ButtonOutlined},
 			{Label: "Delete", Variant: uiinput.ButtonFilled},
 		},
+		store.NewValueStore(true),
 	)
 	d.CloseButtonLabel = marks.Const("Close")
 	return d

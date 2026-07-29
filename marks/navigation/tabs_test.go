@@ -9,9 +9,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -192,6 +194,22 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 	}
 }
 
+func TestTabsActiveIndexSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[int](
+		t,
+		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func(s *store.ValueStore[int]) facet.FacetImpl {
+			return NewTabs("Tabs", []TabItem{
+				{Label: "Tab 1"},
+				{Label: "Tab 2"},
+			}, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Tabs).activateIndex(1)
+		},
+	)
+}
+
 func TestTabsGoldenDefault(t *testing.T) {
 	AssertTabsGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {})
 }
@@ -236,7 +254,7 @@ func TestTabsGoldenRTL(t *testing.T) {
 
 func TestTabsGoldenSelected(t *testing.T) {
 	AssertTabsGolden(t, "selected", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(t *Tabs) {
-		t.ActiveIndex = marks.Const(1)
+		t.ActiveIndex.Set(1)
 	})
 }
 
@@ -304,7 +322,7 @@ func newTabsTestFixture(t *testing.T, tokens theme.Tokens, density theme.Density
 		{Key: "monitoring", Label: "Monitoring", PanelText: "Monitoring panel"},
 		{Key: "activity", Label: "Activity", PanelText: "Activity panel"},
 		{Key: "settings", Label: "Settings", PanelText: "Settings panel"},
-	})
+	}, store.NewValueStore(0))
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return tabs, rt, resolved
 }

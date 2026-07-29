@@ -9,9 +9,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -144,6 +146,23 @@ func TestPaginationPointerKeyboardAndFocus(t *testing.T) {
 	}
 }
 
+func TestPaginationCurrentIndexSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[int](
+		t,
+		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func(s *store.ValueStore[int]) facet.FacetImpl {
+			return NewPagination("Pages", []PaginationItem{
+				{Label: "Page 1"},
+				{Label: "Page 2"},
+				{Label: "Page 3"},
+			}, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*Pagination).CurrentIndex.Set(2)
+		},
+	)
+}
+
 func TestPaginationGoldenDefault(t *testing.T) {
 	AssertPaginationGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(p *Pagination) {})
 }
@@ -263,8 +282,8 @@ func newPaginationTestFixture(t *testing.T, tokens theme.Tokens, density theme.D
 			Label: "test-item-" + strconv.Itoa(i),
 		})
 	}
-	pagination := NewPagination("Pages", items)
-	pagination.CurrentIndex = marks.Const(4)
+	pagination := NewPagination("Pages", items, store.NewValueStore(4))
+	pagination.CurrentIndex.Set(4)
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return pagination, rt, resolved
 }

@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -89,7 +90,7 @@ type Dialog struct {
 	ContentChildren    marks.Binding[[]DialogContentChild]
 	CloseButtonLabel   marks.Binding[string]
 	Disabled           marks.Binding[bool]
-	Open               marks.Binding[bool]
+	Open               *store.ValueStore[bool]
 
 	hovered        bool
 	pressed        bool
@@ -123,7 +124,7 @@ var _ marks.Mark = (*Dialog)(nil)
 const dialogDefaultCloseSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12"/><path d="M18 6 6 18"/></svg>`
 
 // NewDialog constructs a feedback.dialog mark with canonical defaults.
-func NewDialog(title, body string, actions []DialogAction) *Dialog {
+func NewDialog(title, body string, actions []DialogAction, open *store.ValueStore[bool]) *Dialog {
 	d := &Dialog{
 		Title:              marks.Const(title),
 		Body:               marks.Const(body),
@@ -134,7 +135,7 @@ func NewDialog(title, body string, actions []DialogAction) *Dialog {
 		ContentChildren:    marks.Const[[]DialogContentChild](nil),
 		CloseButtonLabel:   marks.Const(""),
 		Disabled:           marks.Const(false),
-		Open:               marks.Const(true),
+		Open:               open,
 	}
 	d.Facet = facet.NewFacet()
 	d.AddBinding(d.Title)
@@ -146,7 +147,6 @@ func NewDialog(title, body string, actions []DialogAction) *Dialog {
 	d.AddBinding(d.ContentChildren)
 	d.AddBinding(d.CloseButtonLabel)
 	d.AddBinding(d.Disabled)
-	d.AddBinding(d.Open)
 
 	d.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -276,7 +276,15 @@ func (d *Dialog) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 }
 
 // OnAttach delegates to Core.
-func (d *Dialog) OnAttach(ctx facet.AttachContext) { d.Core.OnAttach() }
+func (d *Dialog) OnAttach(ctx facet.AttachContext) {
+	d.Core.OnAttach()
+	if d.Open == nil {
+		return
+	}
+	facet.Store(facet.Subscribe(d), &d.Open.OnChange, d.Open.Version, func(signal.Change[bool]) {
+		d.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	})
+}
 
 // OnActivate delegates to Core.
 func (d *Dialog) OnActivate() { d.Core.OnActivate() }
@@ -807,7 +815,7 @@ func (d *Dialog) closeAndDismiss() {
 	if d == nil || !d.Open.Get() {
 		return
 	}
-	d.Open = marks.Const(false)
+	d.Open.Set(false)
 	d.hovered = false
 	d.pressed = false
 	d.focusedVisible = false

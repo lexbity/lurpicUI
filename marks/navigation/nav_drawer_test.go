@@ -8,10 +8,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -158,7 +160,7 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 		t.Fatal("expected drawer to close after item activation")
 	}
 
-	drawer.Open = marks.Const(true)
+	drawer.Open.Set(true)
 	drawer.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
@@ -175,7 +177,7 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 		t.Fatal("expected drawer closed after dismissal")
 	}
 
-	drawer.Open = marks.Const(true)
+	drawer.Open.Set(true)
 	drawer.Layout.Measure(facet.MeasureContext{
 		Runtime:          rt,
 		Theme:            measureCtx,
@@ -215,6 +217,28 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 	if drawer.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyDown}) {
 		t.Fatal("expected disabled drawer to ignore keyboard input")
 	}
+}
+
+func TestNavDrawerCurrentIndexSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[int](
+		t,
+		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func(s *store.ValueStore[int]) facet.FacetImpl {
+			return NewNavDrawer("Nav", []NavDrawerSection{
+				{
+					Label: "Section",
+					Items: []NavDrawerItem{
+						{Key: "one", Label: "One", IconRef: "icon1"},
+						{Key: "two", Label: "Two", IconRef: "icon2"},
+						{Key: "three", Label: "Three", IconRef: "icon3"},
+					},
+				},
+			}, store.NewValueStore(true), s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*NavDrawer).CurrentIndex.Set(2)
+		},
+	)
 }
 
 func TestNavDrawerGoldenDefault(t *testing.T) {
@@ -259,13 +283,13 @@ func TestNavDrawerGoldenRTL(t *testing.T) {
 
 func TestNavDrawerGoldenOpen(t *testing.T) {
 	AssertNavDrawerGolden(t, "open", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {
-		d.CurrentIndex = marks.Const(2)
+		d.CurrentIndex.Set(2)
 	})
 }
 
 func TestNavDrawerGoldenDismissed(t *testing.T) {
 	AssertNavDrawerGolden(t, "dismissed", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(d *NavDrawer) {
-		d.Open = marks.Const(false)
+		d.Open.Set(false)
 	})
 }
 
@@ -358,7 +382,7 @@ func newNavDrawerTestFixture(t *testing.T, tokens theme.Tokens, density theme.De
 				{Key: "account", Label: "Settings & account", IconRef: "cog"},
 			},
 		},
-	})
+	}, store.NewValueStore(true), store.NewValueStore(0))
 	rt := navDrawerRuntimeStub{
 		tabsRuntimeStub: tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts},
 		icons:           navDrawerTestIcons(),

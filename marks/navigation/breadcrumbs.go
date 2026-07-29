@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -40,7 +41,7 @@ type Breadcrumbs struct {
 
 	Label        marks.Binding[string]
 	Items        []BreadcrumbItem
-	CurrentIndex marks.Binding[int]
+	CurrentIndex *store.ValueStore[int]
 	Disabled     marks.Binding[bool]
 
 	Activated signal.Signal[int]
@@ -76,16 +77,15 @@ var _ layout.AnchorExporter = (*Breadcrumbs)(nil)
 var _ marks.Mark = (*Breadcrumbs)(nil)
 
 // NewBreadcrumbs constructs a navigation.breadcrumbs mark with canonical defaults.
-func NewBreadcrumbs(label string, items []BreadcrumbItem) *Breadcrumbs {
+func NewBreadcrumbs(label string, items []BreadcrumbItem, currentIndex *store.ValueStore[int]) *Breadcrumbs {
 	b := &Breadcrumbs{
 		Label:        marks.Const(label),
-		CurrentIndex: marks.Const(len(items) - 1),
+		CurrentIndex: currentIndex,
 		Disabled:     marks.Const(false),
 		focusedIndex: len(items) - 1,
 	}
 	b.Facet = facet.NewFacet()
 	b.AddBinding(b.Label)
-	b.AddBinding(b.CurrentIndex)
 	b.AddBinding(b.Disabled)
 	b.SetItems(items)
 	b.Layout.Parent = facet.GroupParentContract{
@@ -190,7 +190,14 @@ func (b *Breadcrumbs) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 func (b *Breadcrumbs) Children() []facet.GroupChild { return nil }
 
 // OnAttach is unused beyond layout role setup.
-func (b *Breadcrumbs) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach() }
+func (b *Breadcrumbs) OnAttach(ctx facet.AttachContext) {
+	b.Core.OnAttach()
+	if b.CurrentIndex != nil {
+		facet.Store(facet.Subscribe(b), &b.CurrentIndex.OnChange, b.CurrentIndex.Version, func(signal.Change[int]) {
+			b.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+}
 
 // OnActivate is unused.
 func (b *Breadcrumbs) OnActivate() { b.Core.OnActivate() }
@@ -742,13 +749,13 @@ func (b *Breadcrumbs) clampedFocusedIndex() int {
 
 func (b *Breadcrumbs) clampIndices() {
 	if len(b.Items) == 0 {
-		b.CurrentIndex = marks.Const(0)
+		b.CurrentIndex.Set(0)
 		b.focusedIndex = 0
 		return
 	}
 	ci := b.CurrentIndex.Get()
 	if ci < 0 || ci >= len(b.Items) {
-		b.CurrentIndex = marks.Const(len(b.Items) - 1)
+		b.CurrentIndex.Set(len(b.Items) - 1)
 	}
 	if b.focusedIndex < 0 || b.focusedIndex >= len(b.Items) {
 		b.focusedIndex = ci

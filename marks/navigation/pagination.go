@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -126,7 +127,7 @@ type Pagination struct {
 
 	Label        marks.Binding[string]
 	Items        []PaginationItem
-	CurrentIndex marks.Binding[int]
+	CurrentIndex *store.ValueStore[int]
 	Disabled     marks.Binding[bool]
 
 	Activated signal.Signal[int]
@@ -168,16 +169,15 @@ var _ layout.AnchorExporter = (*Pagination)(nil)
 var _ marks.Mark = (*Pagination)(nil)
 
 // NewPagination constructs a navigation.pagination mark with canonical defaults.
-func NewPagination(label string, items []PaginationItem) *Pagination {
+func NewPagination(label string, items []PaginationItem, currentIndex *store.ValueStore[int]) *Pagination {
 	p := &Pagination{
 		Label:             marks.Const(label),
-		CurrentIndex:      marks.Const(0),
+		CurrentIndex:      currentIndex,
 		Disabled:          marks.Const(false),
 		focusedEntryIndex: 0,
 	}
 	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
-	p.AddBinding(p.CurrentIndex)
 	p.AddBinding(p.Disabled)
 	p.SetItems(items)
 	p.Layout.Parent = facet.GroupParentContract{
@@ -313,9 +313,16 @@ func (p *Pagination) Children() []facet.GroupChild {
 	return out
 }
 
-func (p *Pagination) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
-func (p *Pagination) OnActivate()                      { p.Core.OnActivate() }
-func (p *Pagination) OnDeactivate()                    { p.Core.OnDeactivate() }
+func (p *Pagination) OnAttach(ctx facet.AttachContext) {
+	p.Core.OnAttach()
+	if p.CurrentIndex != nil {
+		facet.Store(facet.Subscribe(p), &p.CurrentIndex.OnChange, p.CurrentIndex.Version, func(signal.Change[int]) {
+			p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+}
+func (p *Pagination) OnActivate()   { p.Core.OnActivate() }
+func (p *Pagination) OnDeactivate() { p.Core.OnDeactivate() }
 func (p *Pagination) OnDetach() {
 	p.Core.OnDetach()
 	p.cachedTokens = theme.Tokens{}
@@ -858,7 +865,7 @@ func (p *Pagination) setCurrentIndex(index int) {
 	if len(p.Items) == 0 {
 		index = 0
 	}
-	p.CurrentIndex = marks.Const(index)
+	p.CurrentIndex.Set(index)
 	p.clampIndices()
 	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
@@ -951,7 +958,7 @@ func (p *Pagination) clampIndices() {
 	if p == nil {
 		return
 	}
-	p.CurrentIndex = marks.Const(p.clampedCurrentIndex())
+	p.CurrentIndex.Set(p.clampedCurrentIndex())
 	if p.focusedEntryIndex < 0 || p.focusedEntryIndex >= len(p.cachedVisibleChildren) {
 		p.focusedEntryIndex = p.currentVisibleEntryIndex()
 	}

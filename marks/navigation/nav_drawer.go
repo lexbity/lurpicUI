@@ -14,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -51,9 +52,9 @@ type NavDrawer struct {
 	Label        marks.Binding[string]
 	Subtitle     marks.Binding[string]
 	Sections     []NavDrawerSection
-	Open         marks.Binding[bool]
+	Open         *store.ValueStore[bool]
 	Disabled     marks.Binding[bool]
-	CurrentIndex marks.Binding[int]
+	CurrentIndex *store.ValueStore[int]
 
 	Activated signal.Signal[int]
 
@@ -99,12 +100,12 @@ var _ layout.AnchorExporter = (*NavDrawer)(nil)
 var _ marks.Mark = (*NavDrawer)(nil)
 
 // NewNavDrawer constructs a navigation.nav_drawer mark with canonical defaults.
-func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
+func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueStore[bool], currentIndex *store.ValueStore[int]) *NavDrawer {
 	d := &NavDrawer{
 		Label:              marks.Const(label),
 		Subtitle:           marks.Const(""),
-		Open:               marks.Const(true),
-		CurrentIndex:       marks.Const(0),
+		Open:               open,
+		CurrentIndex:       currentIndex,
 		Disabled:           marks.Const(false),
 		focusedIndex:       0,
 		hoveredIndex:       -1,
@@ -115,8 +116,6 @@ func NewNavDrawer(label string, sections []NavDrawerSection) *NavDrawer {
 	d.Facet = facet.NewFacet()
 	d.AddBinding(d.Label)
 	d.AddBinding(d.Subtitle)
-	d.AddBinding(d.Open)
-	d.AddBinding(d.CurrentIndex)
 	d.AddBinding(d.Disabled)
 	d.SetSections(sections)
 	d.Layout.Parent = facet.GroupParentContract{
@@ -266,7 +265,19 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 }
 
 // OnAttach is unused beyond layout role setup.
-func (d *NavDrawer) OnAttach(ctx facet.AttachContext) { d.Core.OnAttach() }
+func (d *NavDrawer) OnAttach(ctx facet.AttachContext) {
+	d.Core.OnAttach()
+	if d.Open != nil {
+		facet.Store(facet.Subscribe(d), &d.Open.OnChange, d.Open.Version, func(signal.Change[bool]) {
+			d.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+	if d.CurrentIndex != nil {
+		facet.Store(facet.Subscribe(d), &d.CurrentIndex.OnChange, d.CurrentIndex.Version, func(signal.Change[int]) {
+			d.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+}
 
 // OnActivate is unused.
 func (d *NavDrawer) OnActivate() { d.Core.OnActivate() }
@@ -793,7 +804,7 @@ func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
 			return true
 		}
 		if d.Open.Get() {
-			d.Open = marks.Const(false)
+			d.Open.Set(false)
 			d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 			return true
 		}
@@ -809,7 +820,7 @@ func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
 		if wasPressed {
 			if hit := d.indexAt(e.Position); hit >= 0 && hit == idx && !d.isDisabledIndex(hit) {
 				d.activateIndex(hit)
-				d.Open = marks.Const(false)
+				d.Open.Set(false)
 				d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 				return true
 			}
@@ -852,7 +863,7 @@ func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
 				d.setLastFocus()
 				return true
 			case platform.KeyEscape:
-				d.Open = marks.Const(false)
+				d.Open.Set(false)
 				d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 				return true
 			case platform.KeySpace, platform.KeyEnter:
@@ -868,7 +879,7 @@ func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
 				d.invalidate(facet.DirtyProjection)
 				if wasPressed && idx >= 0 {
 					d.activateIndex(idx)
-					d.Open = marks.Const(false)
+					d.Open.Set(false)
 					d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 					return true
 				}
@@ -883,7 +894,7 @@ func (d *NavDrawer) onDismiss(e facet.DismissEvent) bool {
 	if d.Disabled.Get() || !d.Open.Get() {
 		return false
 	}
-	d.Open = marks.Const(false)
+	d.Open.Set(false)
 	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	return true
 }
@@ -1008,7 +1019,7 @@ func (d *NavDrawer) activateIndex(index int) {
 	if index < 0 || index >= len(d.cachedFlatItems) || d.isDisabledIndex(index) {
 		return
 	}
-	d.CurrentIndex = marks.Const(index)
+	d.CurrentIndex.Set(index)
 	d.Activated.Emit(index)
 	d.invalidate(facet.DirtyProjection)
 }
@@ -1042,13 +1053,13 @@ func (d *NavDrawer) clampedFocusedIndex() int {
 
 func (d *NavDrawer) clampIndices() {
 	if len(d.cachedFlatItems) == 0 {
-		d.CurrentIndex = marks.Const(0)
+		d.CurrentIndex.Set(0)
 		d.focusedIndex = 0
 		return
 	}
 	ci := d.CurrentIndex.Get()
 	if ci < 0 || ci >= len(d.cachedFlatItems) {
-		d.CurrentIndex = marks.Const(0)
+		d.CurrentIndex.Set(0)
 	}
 	if d.focusedIndex < 0 || d.focusedIndex >= len(d.cachedFlatItems) {
 		d.focusedIndex = ci

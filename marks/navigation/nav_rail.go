@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uinav"
@@ -43,7 +44,7 @@ type NavRail struct {
 	Items       []NavRailItem
 	Collapsed   marks.Binding[bool]
 	Disabled    marks.Binding[bool]
-	ActiveIndex marks.Binding[int]
+	ActiveIndex *store.ValueStore[int]
 
 	Activated signal.Signal[int]
 
@@ -73,12 +74,12 @@ var _ layout.AnchorExporter = (*NavRail)(nil)
 var _ marks.Mark = (*NavRail)(nil)
 
 // NewNavRail constructs a navigation.nav_rail mark with canonical defaults.
-func NewNavRail(label string, items []NavRailItem) *NavRail {
+func NewNavRail(label string, items []NavRailItem, activeIndex *store.ValueStore[int]) *NavRail {
 	r := &NavRail{
 		Label:        marks.Const(label),
 		Collapsed:    marks.Const(false),
 		Disabled:     marks.Const(false),
-		ActiveIndex:  marks.Const(-1),
+		ActiveIndex:  activeIndex,
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
@@ -87,7 +88,6 @@ func NewNavRail(label string, items []NavRailItem) *NavRail {
 	r.AddBinding(r.Label)
 	r.AddBinding(r.Collapsed)
 	r.AddBinding(r.Disabled)
-	r.AddBinding(r.ActiveIndex)
 	r.SetItems(items)
 	r.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -232,7 +232,14 @@ func (r *NavRail) Children() []facet.GroupChild {
 }
 
 // OnAttach is unused beyond layout role setup.
-func (r *NavRail) OnAttach(ctx facet.AttachContext) { r.Core.OnAttach() }
+func (r *NavRail) OnAttach(ctx facet.AttachContext) {
+	r.Core.OnAttach()
+	if r.ActiveIndex != nil {
+		facet.Store(facet.Subscribe(r), &r.ActiveIndex.OnChange, r.ActiveIndex.Version, func(signal.Change[int]) {
+			r.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+}
 
 // OnActivate is unused.
 func (r *NavRail) OnActivate() { r.Core.OnActivate() }
@@ -665,7 +672,7 @@ func (r *NavRail) activateIndex(index int) {
 	if index < 0 || index >= len(r.cachedItemFacets) || r.isDisabledIndex(index) {
 		return
 	}
-	r.ActiveIndex = marks.Const(index)
+	r.ActiveIndex.Set(index)
 	r.syncChildState()
 	r.Activated.Emit(index)
 	r.invalidate(facet.DirtyProjection)
@@ -700,13 +707,13 @@ func (r *NavRail) clampedFocusedIndex() int {
 
 func (r *NavRail) clampIndices() {
 	if len(r.cachedItemFacets) == 0 {
-		r.ActiveIndex = marks.Const(-1)
+		r.ActiveIndex.Set(-1)
 		r.focusedIndex = -1
 		return
 	}
 	ai := r.ActiveIndex.Get()
 	if ai >= len(r.cachedItemFacets) {
-		r.ActiveIndex = marks.Const(len(r.cachedItemFacets) - 1)
+		r.ActiveIndex.Set(len(r.cachedItemFacets) - 1)
 	}
 	if r.focusedIndex < 0 || r.focusedIndex >= len(r.cachedItemFacets) {
 		r.focusedIndex = r.firstEnabledIndex()

@@ -48,7 +48,7 @@ type PopupPalette struct {
 	Label         marks.Binding[string]
 	Tools         []PopupPaletteTool
 	History       []gfx.Color
-	Open          marks.Binding[bool]
+	Open          *store.ValueStore[bool]
 	Disabled      marks.Binding[bool]
 	ShowBottomBar marks.Binding[bool]
 	Zoom          marks.Binding[float64]
@@ -274,11 +274,11 @@ var _ facet.FacetImpl = (*PopupPalette)(nil)
 var _ layout.AnchorExporter = (*PopupPalette)(nil)
 var _ marks.Mark = (*PopupPalette)(nil)
 
-func NewPopupPalette(label string, tools []PopupPaletteTool) *PopupPalette {
+func NewPopupPalette(label string, tools []PopupPaletteTool, open *store.ValueStore[bool]) *PopupPalette {
 	p := &PopupPalette{
 		Label:         marks.Const(label),
 		Tools:         normalizePopupPaletteTools(tools),
-		Open:          marks.Const(true),
+		Open:          open,
 		ShowBottomBar: marks.Const(true),
 		Zoom:          marks.Const[float64](1),
 		CanvasOnly:    marks.Const(false),
@@ -291,7 +291,6 @@ func NewPopupPalette(label string, tools []PopupPaletteTool) *PopupPalette {
 	}
 	p.Facet = facet.NewFacet()
 	p.AddBinding(p.Label)
-	p.AddBinding(p.Open)
 	p.AddBinding(p.Disabled)
 	p.AddBinding(p.ShowBottomBar)
 	p.AddBinding(p.Zoom)
@@ -423,7 +422,15 @@ func (p *PopupPalette) Children() []facet.GroupChild {
 	return nil
 }
 
-func (p *PopupPalette) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
+func (p *PopupPalette) OnAttach(ctx facet.AttachContext) {
+	p.Core.OnAttach()
+	if p.Open == nil {
+		return
+	}
+	facet.Store(facet.Subscribe(p), &p.Open.OnChange, p.Open.Version, func(signal.Change[bool]) {
+		p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	})
+}
 
 func (p *PopupPalette) OnActivate() { p.Core.OnActivate() }
 
@@ -1091,7 +1098,7 @@ func (p *PopupPalette) onPointer(e facet.PointerEvent) bool {
 			p.invalidate(facet.DirtyProjection)
 			return true
 		}
-		p.Open = marks.Const(true)
+		p.Open.Set(true)
 		p.focusedVisible = !p.Disabled.Get()
 		if p.composition != nil {
 			p.composition.sync()
@@ -1148,7 +1155,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 		case platform.KeyPress:
 			switch e.Key {
 			case platform.KeyEnter, platform.KeySpace:
-				p.Open = marks.Const(true)
+				p.Open.Set(true)
 				p.focusedVisible = !p.Disabled.Get()
 				if p.composition != nil {
 					p.composition.sync()
@@ -1163,7 +1170,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 	case platform.KeyPress, platform.KeyRepeat:
 		switch e.Key {
 		case platform.KeyEscape:
-			p.Open = marks.Const(false)
+			p.Open.Set(false)
 			p.hoveredIndex = -1
 			p.pressedIndex = -1
 			p.hoveredControl = popupPaletteControlNone
@@ -1228,7 +1235,7 @@ func (p *PopupPalette) onDismiss(e facet.DismissEvent) bool {
 	if p.Disabled.Get() || !p.Open.Get() {
 		return false
 	}
-	p.Open = marks.Const(false)
+	p.Open.Set(false)
 	p.hoveredIndex = -1
 	p.pressedIndex = -1
 	p.hoveredControl = popupPaletteControlNone

@@ -8,10 +8,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -198,6 +200,19 @@ func TestNavRailCollapsedHidesLabels(t *testing.T) {
 	}
 }
 
+func TestNavRailActiveIndexSurvivesDispose(t *testing.T) {
+	contracttest.AssertValueSurvivesDispose[int](
+		t,
+		func() *store.ValueStore[int] { return store.NewValueStore(-1) },
+		func(s *store.ValueStore[int]) facet.FacetImpl {
+			return NewNavRail("Rail", []NavRailItem{{Label: "Item 1", IconRef: "icon1"}}, s)
+		},
+		func(m facet.FacetImpl) {
+			m.(*NavRail).ActiveIndex.Set(0)
+		},
+	)
+}
+
 func TestNavRailGoldenDefault(t *testing.T) {
 	AssertNavRailGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *NavRail) {})
 }
@@ -242,7 +257,7 @@ func TestNavRailGoldenRTL(t *testing.T) {
 
 func TestNavRailGoldenSelected(t *testing.T) {
 	AssertNavRailGolden(t, "selected", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *NavRail) {
-		r.ActiveIndex = marks.Const(2)
+		r.ActiveIndex.Set(2)
 	})
 }
 
@@ -321,7 +336,7 @@ func newNavRailTestFixture(t *testing.T, tokens theme.Tokens, density theme.Dens
 		{Key: "theme", Label: "Theme", IconRef: "moon"},
 		{Key: "settings", Label: "Settings", IconRef: "cog"},
 		{Key: "logout", Label: "Log out", IconRef: "arrow-up-right-from-square"},
-	})
+	}, store.NewValueStore(-1))
 	rt := navRailRuntimeStub{
 		tabsRuntimeStub: tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts},
 		icons:           navRailTestIcons(),

@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -33,7 +34,7 @@ type Tooltip struct {
 	Dismissed signal.Signal[signal.Unit]
 
 	Content   marks.Binding[string]
-	Open      marks.Binding[bool]
+	Open      *store.ValueStore[bool]
 	Disabled  marks.Binding[bool]
 	Placement facet.AnchorPlacement
 
@@ -59,16 +60,15 @@ var _ layout.AnchorExporter = (*Tooltip)(nil)
 var _ marks.Mark = (*Tooltip)(nil)
 
 // NewTooltip constructs a feedback.tooltip mark with canonical defaults.
-func NewTooltip(content string) *Tooltip {
+func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 	t := &Tooltip{
 		Content:   marks.Const(content),
-		Open:      marks.Const(true),
+		Open:      open,
 		Disabled:  marks.Const(false),
 		Placement: facet.AnchorPlacement{Side: facet.AnchorAbove},
 	}
 	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Content)
-	t.AddBinding(t.Open)
 	t.AddBinding(t.Disabled)
 
 	t.Layout.Parent = facet.GroupParentContract{
@@ -195,7 +195,15 @@ func (t *Tooltip) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet
 }
 
 // OnAttach delegates to Core.
-func (t *Tooltip) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
+func (t *Tooltip) OnAttach(ctx facet.AttachContext) {
+	t.Core.OnAttach()
+	if t.Open == nil {
+		return
+	}
+	facet.Store(facet.Subscribe(t), &t.Open.OnChange, t.Open.Version, func(signal.Change[bool]) {
+		t.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	})
+}
 
 // OnActivate delegates to Core.
 func (t *Tooltip) OnActivate() { t.Core.OnActivate() }
@@ -548,7 +556,7 @@ func (t *Tooltip) openFalseAndDismiss() {
 	if t == nil {
 		return
 	}
-	t.Open = marks.Const(false)
+	t.Open.Set(false)
 	t.hovered = false
 	t.pressed = false
 	t.Dismissed.Emit(signal.Unit{})
