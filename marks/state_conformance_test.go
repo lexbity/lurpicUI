@@ -27,6 +27,7 @@ var stateExempt = map[string]string{
 	"notification/open":         "notification defaults to Open=true; test sets the same value — open state is the default render state",
 	"tooltip/open":              "tooltip defaults to Open=true; test sets the same value — open state is the default render state",
 	"dropdown_select/dismissed": "test sets open=true then onDismiss sets open=false; net state equals default closed state",
+	"dropdown_select/open":      "listbox floats on a layer — parent measured size does not include listbox; open/closed visual difference is the floating listbox, not the parent bounds",
 	"dropdown_select/selected":  "Value text is used for layout measurement only; textRole.Layout is never explicitly rendered via TextLayoutCommands — only cachedLabelLayout is rendered",
 	"action_group/disabled":     "ActionGroup deriveDisabled applies opacity overlay; pixel delta falls below 2/255 tolerance against default group surface",
 	"number_field/compact":      "assertNumberFieldGolden always uses default density (no density parameter); compact test is redundant with default",

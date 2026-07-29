@@ -344,6 +344,13 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			continue
 		}
 		attachment, ok := rt.childAttachments[childBase.ID()]
+		if !ok {
+			if z := childBase.LayerZPriority(); z > 0 {
+				attachment = facet.Attachment{ZPriority: z}
+				rt.childAttachments[childBase.ID()] = attachment
+				ok = true
+			}
+		}
 		if !ok || attachment.LayerID == 0 {
 			continue
 		}

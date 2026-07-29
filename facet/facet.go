@@ -23,6 +23,10 @@ type Facet struct {
 	lastInvalidatedBy string
 
 	subscribedVersions []store.Version
+
+	// layerZPriority is set during construction by AttachLayer.
+	// The runtime picks this up during layer resolution.
+	layerZPriority int32
 }
 
 // NewFacet constructs a facet in the Created state with a unique ID.
@@ -408,6 +412,14 @@ func (f *Facet) childrenSnapshot() []*Facet {
 	out := make([]*Facet, len(f.children))
 	copy(out, f.children)
 	return out
+}
+
+// LayerZPriority returns the ZPriority set by AttachLayer during construction.
+func (f *Facet) LayerZPriority() int32 {
+	if f == nil {
+		return 0
+	}
+	return f.layerZPriority
 }
 
 func (f *Facet) releaseSubscriptions() {

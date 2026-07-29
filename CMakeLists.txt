@@ -332,12 +332,6 @@ if(LURPIC_BUILD_EXAMPLES)
     COMMENT "Run the quick_square_app demo"
     VERBATIM
   )
-  add_custom_target(run-demo-lurpic_studio
-    COMMAND ${CMAKE_COMMAND} -E env ${LURPIC_GO_EXECUTABLE} run ./demos/lurpic_studio
-    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-    COMMENT "Run the lurpic_studio demo"
-    VERBATIM
-  )
 endif()
 
 lurpic_add_optional_go_test_target(
@@ -437,7 +431,7 @@ add_custom_target(lint-golangci
 )
 
 add_custom_target(lint-lurpiclint
-  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error ./... ./demos/quick_square_app/... ./demos/lurpic_studio/...
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error ./...
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Run lurpiclint over the framework and demo apps"
   VERBATIM
@@ -445,7 +439,7 @@ add_custom_target(lint-lurpiclint
 add_dependencies(lint-lurpiclint build-lurpiclint)
 
 add_custom_target(lint-lurpiclint-ci
-  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --format github ./... ./demos/quick_square_app/... ./demos/lurpic_studio/...
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --format github ./... ./demos/quick_square_app/...
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Run lurpiclint over the framework and demo apps (GitHub annotations)"
   VERBATIM

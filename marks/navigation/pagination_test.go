@@ -49,15 +49,15 @@ func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if len(pagination.Children()) == 0 {
 		t.Fatal("expected pagination child facets")
 	}
-	if len(pagination.cachedEntryBounds) == 0 {
+	if len(pagination.entryProj.entryBounds) == 0 {
 		t.Fatal("expected arranged entry bounds")
 	}
 	if idx := pagination.currentVisibleEntryIndex(); idx < 0 {
 		t.Fatal("expected current page to be visible")
 	}
 	pageHit := pagination.Hit.HitTest(gfx.Point{
-		X: pagination.cachedEntryBounds[pagination.currentVisibleEntryIndex()].Min.X + 2,
-		Y: pagination.cachedEntryBounds[pagination.currentVisibleEntryIndex()].Min.Y + 2,
+		X: pagination.entryProj.entryBounds[pagination.currentVisibleEntryIndex()].Min.X + 2,
+		Y: pagination.entryProj.entryBounds[pagination.currentVisibleEntryIndex()].Min.Y + 2,
 	})
 	if !pageHit.Hit || (pageHit.MarkID != paginationMarkIDCurrentIndicator && pageHit.MarkID != paginationMarkIDPageItems) {
 		t.Fatalf("expected page hit, got %#v", pageHit)
@@ -113,9 +113,10 @@ func TestPaginationPointerKeyboardAndFocus(t *testing.T) {
 	activated := -1
 	pagination.Activated.Subscribe(func(index int) { activated = index })
 
+	lastIdx := len(pagination.entryProj.entryBounds) - 1
 	nextCenter := gfx.Point{
-		X: pagination.cachedEntryBounds[len(pagination.cachedEntryBounds)-1].Min.X + pagination.cachedEntryBounds[len(pagination.cachedEntryBounds)-1].Width()*0.5,
-		Y: pagination.cachedEntryBounds[len(pagination.cachedEntryBounds)-1].Min.Y + pagination.cachedEntryBounds[len(pagination.cachedEntryBounds)-1].Height()*0.5,
+		X: pagination.entryProj.entryBounds[lastIdx].Min.X + pagination.entryProj.entryBounds[lastIdx].Width()*0.5,
+		Y: pagination.entryProj.entryBounds[lastIdx].Min.Y + pagination.entryProj.entryBounds[lastIdx].Height()*0.5,
 	}
 	if !pagination.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: nextCenter, Button: platform.PointerLeft}) {
 		t.Fatal("expected next press to be handled")
@@ -286,4 +287,99 @@ func newPaginationTestFixture(t *testing.T, tokens theme.Tokens, density theme.D
 	pagination.CurrentIndex.Set(4)
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return pagination, rt, resolved
+}
+
+// TestPaginationEntryCacheReDerivesOnVersionMismatch proves the entry projection
+// cache re-derives when CurrentIndex advances (the visible window for n>7
+// depends on the current page), so the facet never holds a stale echo of the
+// domain (P1/P8). It exercises FR-11's acceptance: change domain store, assert
+// cache re-derives (version mismatch).
+func TestPaginationEntryCacheReDerivesOnVersionMismatch(t *testing.T) {
+	pagination, rt, measureCtx := newPaginationTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	facet.Attach(pagination, facet.AttachContext{Runtime: rt, Theme: measureCtx})
+	measure := func() facet.MeasureResult {
+		return pagination.Layout.Measure(facet.MeasureContext{
+			Runtime:          rt,
+			Theme:            measureCtx,
+			ContentScale:     1,
+			Density:          facet.DensityID(theme.DensityIDComfortable),
+			WritingDirection: facet.WritingDirectionLTR,
+		}, facet.Constraints{MaxSize: gfx.Size{W: 1440, H: 320}})
+	}
+
+	// Initial measure at current page 4 (mid-list window).
+	measure()
+	if len(pagination.entryProj.visibleChildren) == 0 {
+		t.Fatal("expected visible children after first measure")
+	}
+	visibleBefore := append([]int(nil), pagination.entryProj.entryIndices...)
+	versionBefore := pagination.entryProj.version
+
+	// Re-measure with identical inputs → cache reused, no re-derivation.
+	measure()
+	if pagination.entryProj.version != versionBefore {
+		t.Fatalf("expected cache reused for identical inputs; version %d -> %d", versionBefore, pagination.entryProj.version)
+	}
+	if !sameInts(pagination.entryProj.entryIndices, visibleBefore) {
+		t.Fatal("expected identical visible window on cache hit")
+	}
+
+	// Advance CurrentIndex via the store (the versioned source). For n=10 the
+	// ellipsis window shifts, so the visible indices MUST change and the cache
+	// MUST re-derive (version mismatch).
+	pagination.CurrentIndex.Set(0)
+	measure()
+	if pagination.entryProj.version == versionBefore {
+		t.Fatalf("expected version key to advance after CurrentIndex.Set; got %d == %d", pagination.entryProj.version, versionBefore)
+	}
+	if sameInts(pagination.entryProj.entryIndices, visibleBefore) {
+		t.Fatal("expected visible window to change after current page moved from mid-list to first")
+	}
+
+	// Changing an item label (itemsHash changes) re-derives even when the
+	// CurrentIndex version is unchanged by the re-measure itself — Items has
+	// no Version(), so the hash is its staleness signal. SetItems also clamps
+	// the index (which bumps the store version once); capture the version
+	// after that clamp so the assertion isolates the measure path.
+	items := make([]PaginationItem, 10)
+	for i := 0; i < 10; i++ {
+		items[i] = PaginationItem{Key: "page-" + strconv.Itoa(i+1), Label: "renamed-" + strconv.Itoa(i+1)}
+	}
+	pagination.SetItems(items)
+	versionBeforeMeasure := uint64(pagination.CurrentIndex.Version())
+	hashBeforeMeasure := pagination.entryProj.itemsHash
+	measure()
+	// The re-measure does not mutate CurrentIndex, so the version key equals
+	// the store's version captured before this measure.
+	if pagination.entryProj.version != versionBeforeMeasure {
+		t.Fatalf("version key should equal pre-measure store version; got %d, want %d", pagination.entryProj.version, versionBeforeMeasure)
+	}
+	if pagination.entryProj.itemsHash == hashBeforeMeasure {
+		t.Fatalf("expected itemsHash to advance after SetItems re-derivation; both = %d", hashBeforeMeasure)
+	}
+	// The visible window includes nav arrows (‹ ›) and ellipses at the edges;
+	// the renamed page labels sit in between. Confirm at least one renamed
+	// label landed in the cache, proving the re-derivation read the new Items.
+	renamedSeen := false
+	for _, label := range pagination.entryProj.entryLabels {
+		if label == "renamed-1" || label == "renamed-10" {
+			renamedSeen = true
+			break
+		}
+	}
+	if !renamedSeen {
+		t.Fatalf("expected a renamed page label in cache after SetItems; got %v", pagination.entryProj.entryLabels)
+	}
+}
+
+func sameInts(a, b []int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

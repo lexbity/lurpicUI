@@ -144,7 +144,8 @@ func TestDropdownSelectPointerAndKeyboardInteraction(t *testing.T) {
 	}, facet.Constraints{MaxSize: gfx.Size{W: 820, H: 520}})
 	sel.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
-	optionCenter := gfx.Point{X: sel.cachedOptionRects[2].Min.X + sel.cachedOptionRects[2].Width()*0.5, Y: sel.cachedOptionRects[2].Min.Y + sel.cachedOptionRects[2].Height()*0.5}
+	optionRects := sel.ensureOptionRects()
+	optionCenter := gfx.Point{X: optionRects[2].Min.X + optionRects[2].Width()*0.5, Y: optionRects[2].Min.Y + optionRects[2].Height()*0.5}
 	if !sel.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: optionCenter, Button: platform.PointerLeft}) {
 		t.Fatal("expected option press to be handled")
 	}
@@ -379,4 +380,80 @@ func TestDropdownSelectValueSurvivesDispose(t *testing.T) {
 			m.(*DropdownSelect).chooseIndex(0)
 		},
 	)
+}
+
+// TestDropdownSelectOptionRectCacheKeysOnScrollAndVersion proves the option-rect
+// cache re-derives when its inputs change, closing the stale-rects-on-scroll
+// gap (onScroll raises only DirtyProjection; the rects must track the new
+// scroll without waiting for a layout pass) and honoring the version key
+// (P1/P8: the facet echoes no domain data without a version).
+func TestDropdownSelectOptionRectCacheKeysOnScrollAndVersion(t *testing.T) {
+	sel, rt, measureCtx := newDropdownSelectTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	facet.Attach(sel, facet.AttachContext{Runtime: rt, Theme: measureCtx})
+	result := sel.LayoutRole().Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            measureCtx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 820, H: 520}})
+	bounds := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H)
+	sel.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+
+	// Open the dropdown via the trigger.
+	triggerCenter := gfx.Point{X: sel.cachedTriggerBounds.Min.X + sel.cachedTriggerBounds.Width()*0.5, Y: sel.cachedTriggerBounds.Min.Y + sel.cachedTriggerBounds.Height()*0.5}
+	sel.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: triggerCenter, Button: platform.PointerLeft})
+	sel.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: triggerCenter, Button: platform.PointerLeft})
+	if !sel.open {
+		t.Fatal("expected dropdown to open")
+	}
+	// Opening raised DirtyLayout; re-measure+arrange so the listbox bounds are
+	// set (the runtime would do this in the next layout pass).
+	sel.LayoutRole().Measure(facet.MeasureContext{
+		Runtime: rt, Theme: measureCtx, ContentScale: 1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 820, H: 520}})
+	sel.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	if sel.cachedListboxBounds.IsEmpty() {
+		t.Fatal("expected listbox bounds after open+arrange")
+	}
+
+	rectsBefore := sel.ensureOptionRects()
+	if len(rectsBefore) == 0 {
+		t.Fatal("expected option rects after open")
+	}
+	firstY := rectsBefore[0].Min.Y
+
+	// Same inputs → cache reused (no re-derivation).
+	if got := sel.ensureOptionRects(); len(got) != len(rectsBefore) || got[0].Min.Y != firstY {
+		t.Fatal("expected cached rects to be reused for identical inputs")
+	}
+
+	// Scroll: onScroll raises only DirtyProjection, but the rect cache must
+	// re-derive against the new scrollOffset (the dead-scroll bug). Drive the
+	// offset directly so the test is independent of the fixture's scroll
+	// geometry (whether the listbox happens to have scroll room); the cache
+	// contract is what matters — scrollOffset is part of the key.
+	sel.scrollOffset = 40
+	rectsAfter := sel.ensureOptionRects()
+	if len(rectsAfter) != len(rectsBefore) {
+		t.Fatalf("rect count changed after scroll: %d -> %d", len(rectsBefore), len(rectsAfter))
+	}
+	if math.Abs(float64(rectsAfter[0].Min.Y-firstY)) < 1 {
+		t.Fatalf("expected rects to shift after scroll, firstY=%.2f after=%.2f", firstY, rectsAfter[0].Min.Y)
+	}
+
+	// A value-store change (version bump) re-derives the cache so the facet
+	// never holds a stale echo of domain data (P1/P8). The cached version key
+	// advances to the store's new Version.
+	versionBefore := sel.optionRects.version
+	sel.Value.Set("perth")
+	rectsAfterValue := sel.ensureOptionRects()
+	if sel.optionRects.version == versionBefore {
+		t.Fatalf("expected version key to advance after Value.Set; got %d == %d", sel.optionRects.version, versionBefore)
+	}
+	if len(rectsAfterValue) != len(rectsBefore) {
+		t.Fatalf("rect count changed after value set: %d -> %d", len(rectsBefore), len(rectsAfterValue))
+	}
 }

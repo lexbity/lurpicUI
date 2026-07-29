@@ -18,6 +18,19 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
+// listboxChild is a lightweight facet that acts as a marker child for the
+// dropdown option surface, carrying ZPriority for layer ordering.
+type listboxChild struct {
+	facet.Facet
+	parent *DropdownSelect
+}
+
+func (l *listboxChild) Base() *facet.Facet             { return &l.Facet }
+func (l *listboxChild) OnAttach(_ facet.AttachContext) { l.Facet.OnAttach(facet.AttachContext{}) }
+func (l *listboxChild) OnDetach()                      {}
+func (l *listboxChild) OnActivate()                    {}
+func (l *listboxChild) OnDeactivate()                  {}
+
 const (
 	dropdownSelectMarkIDRoot            facet.MarkID = 1
 	dropdownSelectMarkIDTrigger         facet.MarkID = 2
@@ -49,6 +62,8 @@ type DropdownSelect struct {
 
 	textRole facet.TextRole
 
+	listboxFacet *listboxChild
+
 	hovered          bool
 	pressed          bool
 	focusedVisible   bool
@@ -66,8 +81,9 @@ type DropdownSelect struct {
 	cachedValueBounds      gfx.Rect
 	cachedChevronBounds    gfx.Rect
 	cachedListboxBounds    gfx.Rect
-	cachedOptionRects      []gfx.Rect
+	optionRects            optionRectCache
 	cachedOptionGap        float32
+	cachedOptionPad        float32
 	cachedOptionHeight     float32
 	cachedTriggerHeight    float32
 	cachedTriggerRadius    float32
@@ -138,6 +154,10 @@ func NewDropdownSelect(label string, options []DropdownOption, value *store.Valu
 	ds.Focus.OnFocusLost = func() { ds.onFocusLost() }
 	ds.Viewport.Transform = gfx.Identity()
 	ds.textRole.IMEEnabled = false
+
+	ds.listboxFacet = &listboxChild{Facet: facet.NewFacet(), parent: ds}
+	facet.AttachLayer(ds, ds.listboxFacet, facet.LayerAttachment{ZPriority: 10})
+
 	ds.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return ds.buildCommands(ds.Layout.ArrangedBounds, ctx.Runtime)
 	}
@@ -190,7 +210,16 @@ func (ds *DropdownSelect) ExportAnchors(ctx layout.AnchorExportContext) layout.A
 }
 
 // Children returns the facet's immediate child list.
-func (ds *DropdownSelect) Children() []facet.GroupChild { return nil }
+func (ds *DropdownSelect) Children() []facet.GroupChild {
+	if ds == nil || !ds.open || ds.listboxFacet == nil {
+		return nil
+	}
+	return []facet.GroupChild{{
+		FacetID: ds.listboxFacet.Facet.ID(),
+		MarkID:  dropdownSelectMarkIDFloatingListbox,
+		Layout:  ds.listboxFacet.Facet.LayoutRole(),
+	}}
+}
 
 // OnAttach wires store invalidation for the bound value store.
 func (ds *DropdownSelect) OnAttach(ctx facet.AttachContext) {
@@ -222,7 +251,7 @@ func (ds *DropdownSelect) OnDetach() {
 	ds.cachedValueBounds = gfx.Rect{}
 	ds.cachedChevronBounds = gfx.Rect{}
 	ds.cachedListboxBounds = gfx.Rect{}
-	ds.cachedOptionRects = nil
+	ds.optionRects = optionRectCache{}
 	ds.cachedOptionGap = 0
 	ds.cachedOptionHeight = 0
 	ds.cachedTriggerHeight = 0
@@ -251,6 +280,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	ds.cachedTriggerHeight = mathutil.Max(resolved.Density.Scale(36), resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
 	ds.cachedTriggerRadius = float32(resolved.Radius(theme.RadiusM))
 	ds.cachedOptionGap = float32(resolved.Spacing(theme.SpacingXS))
+	ds.cachedOptionPad = float32(resolved.Spacing(theme.SpacingS))
 	ds.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	ds.cachedValueStyle = resolved.TextStyle(theme.TextBodyM)
 	shaper := ds.newShaper(ctx.Runtime)
@@ -285,20 +315,12 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 		height += labelH + float32(resolved.Spacing(theme.SpacingXS))
 	}
 	height += triggerH
-	if ds.open {
-		if len(ds.Options.Get()) > 0 {
-			height += float32(resolved.Spacing(theme.SpacingXS))
-			itemH := mathutil.Max(float32(resolved.Density.Scale(32)), triggerH*0.72)
-			if itemH < 28 {
-				itemH = 28
-			}
-			ds.cachedOptionHeight = itemH
-			count := len(ds.Options.Get())
-			if count > 6 {
-				count = 6
-			}
-			height += float32(count)*itemH + float32(count-1)*float32(resolved.Spacing(theme.SpacingXS))
+	if ds.open && len(ds.Options.Get()) > 0 {
+		itemH := mathutil.Max(float32(resolved.Density.Scale(32)), triggerH*0.72)
+		if itemH < 28 {
+			itemH = 28
 		}
+		ds.cachedOptionHeight = itemH
 	}
 	if height <= 0 {
 		height = triggerH
@@ -310,8 +332,8 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 		Size: gfx.Size{W: width, H: height},
 		Intrinsic: facet.IntrinsicSize{
 			Min:       gfx.Size{W: width, H: triggerH},
-			Preferred: gfx.Size{W: width, H: height},
-			Max:       gfx.Size{W: width, H: height},
+			Preferred: gfx.Size{W: width, H: triggerH},
+			Max:       gfx.Size{W: width, H: triggerH},
 		},
 		Constraints: constraints,
 	}
@@ -323,6 +345,59 @@ func (ds *DropdownSelect) measureIntrinsic(ctx facet.MeasureContext, constraints
 	return ds.measure(ctx, constraints).Size
 }
 
+// ensureOptionRects returns the cached option rects, re-deriving them lazily
+// when any input to their layout has changed. It is safe to call from any read
+// site (buildCommands, hitTest, optionIndexAt); derivation uses the spacing
+// scalars cached during measure/arrange, so no theme context is required here.
+func (ds *DropdownSelect) ensureOptionRects() []gfx.Rect {
+	if ds == nil || !ds.open || ds.cachedListboxBounds.IsEmpty() || len(ds.Options.Get()) == 0 {
+		return nil
+	}
+	var v uint64
+	if ds.Value != nil {
+		v = uint64(ds.Value.Version())
+	}
+	if ds.optionRects.validFor(v, ds.cachedListboxBounds, ds.scrollOffset, len(ds.Options.Get())) {
+		return ds.optionRects.rects
+	}
+	ds.optionRects = optionRectCache{
+		version: v,
+		bounds:  ds.cachedListboxBounds,
+		scroll:  ds.scrollOffset,
+		count:   len(ds.Options.Get()),
+		rects:   ds.layoutOptionRectsNoTheme(),
+	}
+	return ds.optionRects.rects
+}
+
+// layoutOptionRectsNoTheme derives option rects using the spacing/height scalars
+// cached during the last measure/arrange. It mirrors layoutOptionRects but
+// avoids needing a live theme.ResolvedContext at read time.
+func (ds *DropdownSelect) layoutOptionRectsNoTheme() []gfx.Rect {
+	listbox := ds.cachedListboxBounds
+	options := ds.Options.Get()
+	if listbox.IsEmpty() || len(options) == 0 {
+		return nil
+	}
+	itemH := ds.cachedOptionHeight
+	if itemH <= 0 {
+		itemH = 28
+	}
+	gap := ds.cachedOptionGap
+	outerPad := ds.cachedOptionPad
+	rects := make([]gfx.Rect, 0, len(options))
+	y := listbox.Min.Y + outerPad - ds.scrollOffset
+	for i := range options {
+		if i > 0 {
+			y += gap
+		}
+		rect := gfx.RectFromXYWH(listbox.Min.X+outerPad, y, listbox.Width()-outerPad*2, itemH)
+		rects = append(rects, rect)
+		y += itemH
+	}
+	return rects
+}
+
 func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	ds.cachedRootBounds = bounds
 	ds.cachedLabelBounds = gfx.Rect{}
@@ -330,7 +405,6 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	ds.cachedValueBounds = gfx.Rect{}
 	ds.cachedChevronBounds = gfx.Rect{}
 	ds.cachedListboxBounds = gfx.Rect{}
-	ds.cachedOptionRects = nil
 	ds.Layout.ArrangedBounds = bounds
 	if bounds.IsEmpty() {
 		return
@@ -380,7 +454,8 @@ func (ds *DropdownSelect) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		listboxH := float32(count)*itemH + float32(count-1)*float32(resolved.Spacing(theme.SpacingXS))
 		ds.cachedListboxBounds = gfx.RectFromXYWH(bounds.Min.X, ds.cachedTriggerBounds.Max.Y+float32(resolved.Spacing(theme.SpacingXS)), bounds.Width(), listboxH)
-		ds.cachedOptionRects = ds.layoutOptionRects(ds.cachedListboxBounds, resolved)
+		// Option rects are derived lazily via ensureOptionRects so they stay
+		// fresh under scroll (which raises only DirtyProjection).
 	}
 }
 
@@ -438,7 +513,7 @@ func (ds *DropdownSelect) buildCommands(bounds gfx.Rect, runtime any) []gfx.Comm
 		if !theme.IsTransparentMaterial(listbox) {
 			cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(ds.cachedListboxBounds, ds.cachedTriggerRadius), listbox)...)
 		}
-		for i, rect := range ds.cachedOptionRects {
+		for i, rect := range ds.ensureOptionRects() {
 			if i < 0 || i >= len(ds.Options.Get()) {
 				continue
 			}
@@ -489,7 +564,7 @@ func (ds *DropdownSelect) hitTest(p gfx.Point) facet.HitResult {
 		return facet.HitResult{Hit: true, MarkID: dropdownSelectMarkIDFocusRing, Cursor: cursor}
 	}
 	if ds.open && ds.cachedListboxBounds.Contains(p) {
-		for _, rect := range ds.cachedOptionRects {
+		for _, rect := range ds.ensureOptionRects() {
 			if rect.Contains(p) {
 				return facet.HitResult{Hit: true, MarkID: dropdownSelectMarkIDOptionItems, Cursor: cursor}
 			}
@@ -822,35 +897,12 @@ func (ds *DropdownSelect) typeahead(key platform.Key) bool {
 }
 
 func (ds *DropdownSelect) optionIndexAt(p gfx.Point) (int, bool) {
-	for i, rect := range ds.cachedOptionRects {
+	for i, rect := range ds.ensureOptionRects() {
 		if rect.Contains(p) {
 			return i, true
 		}
 	}
 	return -1, false
-}
-
-func (ds *DropdownSelect) layoutOptionRects(listbox gfx.Rect, resolved theme.ResolvedContext) []gfx.Rect {
-	if listbox.IsEmpty() || len(ds.Options.Get()) == 0 {
-		return nil
-	}
-	itemH := ds.cachedOptionHeight
-	if itemH <= 0 {
-		itemH = mathutil.Max(float32(resolved.Density.Scale(32)), 28)
-	}
-	gap := float32(resolved.Spacing(theme.SpacingXS))
-	outerPad := float32(resolved.Spacing(theme.SpacingS))
-	rects := make([]gfx.Rect, 0, len(ds.Options.Get()))
-	y := listbox.Min.Y + outerPad
-	for i := range ds.Options.Get() {
-		if i > 0 {
-			y += gap
-		}
-		rect := gfx.RectFromXYWH(listbox.Min.X+outerPad, y, listbox.Width()-outerPad*2, itemH)
-		rects = append(rects, rect)
-		y += itemH
-	}
-	return rects
 }
 
 func (ds *DropdownSelect) chevronPath(bounds gfx.Rect) gfx.Path {

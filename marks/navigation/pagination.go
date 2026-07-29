@@ -144,13 +144,7 @@ type Pagination struct {
 	cachedRecipe           shared.PaginationSlots
 	cachedRootBounds       gfx.Rect
 	cachedContentBounds    gfx.Rect
-	cachedEntryBounds      []gfx.Rect
-	cachedVisibleChildren  []*paginationChild
-	cachedVisibleKinds     []paginationChildKind
-	cachedVisibleIndices   []int
-	cachedEntryLabels      []string
-	cachedEntryLayouts     []*text.TextLayout
-	cachedEntryStyles      []text.TextStyle
+	entryProj              entryProjection
 	cachedPadX             float32
 	cachedPadY             float32
 	cachedGap              float32
@@ -161,7 +155,7 @@ type Pagination struct {
 	nextChild     *paginationChild
 	ellipsisLeft  *paginationChild
 	ellipsisRight *paginationChild
-	pageChildren  []*paginationChild
+	pageChildren  pageChildSet
 }
 
 var _ facet.FacetImpl = (*Pagination)(nil)
@@ -270,8 +264,8 @@ func (p *Pagination) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 	if out == nil {
 		return nil
 	}
-	if idx := p.currentVisibleEntryIndex(); idx >= 0 && idx < len(p.cachedEntryBounds) {
-		rect := p.cachedEntryBounds[idx]
+	if idx := p.currentVisibleEntryIndex(); idx >= 0 && idx < len(p.entryProj.entryBounds) {
+		rect := p.entryProj.entryBounds[idx]
 		if !rect.IsEmpty() {
 			out["baseline"] = gfx.Point{X: rect.Min.X, Y: rect.Min.Y}
 		}
@@ -284,11 +278,13 @@ func (p *Pagination) Children() []facet.GroupChild {
 	if p == nil {
 		return nil
 	}
-	if len(p.cachedVisibleChildren) == 0 {
+	visible := p.entryProj.visibleChildren
+	if len(visible) == 0 {
 		p.rebuildChildren()
+		visible = p.visibleEntries()
 	}
-	out := make([]facet.GroupChild, 0, len(p.cachedVisibleChildren))
-	for i, child := range p.cachedVisibleChildren {
+	out := make([]facet.GroupChild, 0, len(visible))
+	for i, child := range visible {
 		if child == nil {
 			continue
 		}
@@ -329,13 +325,7 @@ func (p *Pagination) OnDetach() {
 	p.cachedRecipe = shared.PaginationSlots{}
 	p.cachedRootBounds = gfx.Rect{}
 	p.cachedContentBounds = gfx.Rect{}
-	p.cachedEntryBounds = nil
-	p.cachedVisibleChildren = nil
-	p.cachedVisibleKinds = nil
-	p.cachedVisibleIndices = nil
-	p.cachedEntryLabels = nil
-	p.cachedEntryLayouts = nil
-	p.cachedEntryStyles = nil
+	p.entryProj = entryProjection{}
 	p.cachedPadX = 0
 	p.cachedPadY = 0
 	p.cachedGap = 0
@@ -365,15 +355,15 @@ func (p *Pagination) rebuildChildren() {
 	if p.ellipsisRight == nil {
 		p.ellipsisRight = newPaginationChild(p, paginationChildEllipsis, -1, "\u2026")
 	}
-	if len(p.pageChildren) != len(p.Items) {
-		p.pageChildren = make([]*paginationChild, len(p.Items))
+	if p.pageChildren.len() != len(p.Items) {
+		p.pageChildren.entries = make([]*paginationChild, len(p.Items))
 	}
 	for i := range p.Items {
-		if p.pageChildren[i] == nil {
-			p.pageChildren[i] = newPaginationChild(p, paginationChildPage, i, p.Items[i].Label)
+		if p.pageChildren.entries[i] == nil {
+			p.pageChildren.entries[i] = newPaginationChild(p, paginationChildPage, i, p.Items[i].Label)
 		}
-		p.pageChildren[i].index = i
-		p.pageChildren[i].label = p.Items[i].Label
+		p.pageChildren.entries[i].index = i
+		p.pageChildren.entries[i].label = p.Items[i].Label
 	}
 }
 
@@ -396,7 +386,7 @@ func (p *Pagination) visibleEntries() []*paginationChild {
 		if idx == len(p.Items)-1 && lastAddedPage >= 0 && lastAddedPage != idx-1 {
 			out = append(out, p.ellipsisRight)
 		}
-		out = append(out, p.pageChildren[idx])
+		out = append(out, p.pageChildren.at(idx))
 		lastAddedPage = idx
 	}
 	out = append(out, p.nextChild)
@@ -441,23 +431,85 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 	p.cachedGap = float32(resolved.Spacing(theme.SpacingS))
 	p.cachedRadius = float32(resolved.Radius(theme.RadiusM))
 	p.rebuildChildren()
-	visible := p.visibleEntries()
-	p.cachedVisibleChildren = visible
-	p.cachedVisibleKinds = p.cachedVisibleKinds[:0]
-	p.cachedVisibleIndices = p.cachedVisibleIndices[:0]
-	p.cachedEntryLabels = p.cachedEntryLabels[:0]
-	p.cachedEntryLayouts = p.cachedEntryLayouts[:0]
-	p.cachedEntryStyles = p.cachedEntryStyles[:0]
-	p.cachedEntryBounds = p.cachedEntryBounds[:0]
-	shaper := p.newShaper(ctx.Runtime)
-	totalW := float32(0)
-	maxH := float32(0)
+
+	var version uint64
+	if p.CurrentIndex != nil {
+		version = uint64(p.CurrentIndex.Version())
+	}
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(480)
 	}
+	itemsHash := hashItems(p.Items)
+	if p.entryProj.validFor(version, itemsHash, maxWidth, ctx.ContentScale) {
+		// Cache is fresh for the current inputs. Re-apply the per-child
+		// measured results (the children are real facets whose LayoutRole is
+		// read by the runtime) and return the prior measure result.
+		for i, child := range p.entryProj.visibleChildren {
+			if child == nil {
+				continue
+			}
+			bounds := p.entryProj.entryBounds[i]
+			size := gfx.Size{W: bounds.Width(), H: bounds.Height()}
+			child.layoutRole.MeasuredSize = size
+			child.layoutRole.MeasuredResult = facet.MeasureResult{
+				Size:        size,
+				Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
+				Constraints: constraints,
+			}
+		}
+		totalW := float32(0)
+		maxH := float32(0)
+		for i, bounds := range p.entryProj.entryBounds {
+			if p.entryProj.visibleChildren[i] == nil {
+				continue
+			}
+			if i > 0 {
+				totalW += p.cachedGap
+			}
+			totalW += bounds.Width()
+			maxH = paginationMaxFloat(maxH, bounds.Height())
+		}
+		measured := constraints.Constrain(gfx.Size{W: totalW, H: maxH})
+		p.Layout.MeasuredSize = measured
+		p.Layout.MeasuredResult = facet.MeasureResult{
+			Size: measured,
+			Intrinsic: facet.IntrinsicSize{
+				Min:       measured,
+				Preferred: measured,
+				Max:       measured,
+			},
+			Constraints: constraints,
+		}
+		return p.Layout.MeasuredResult
+	}
+
+	visible := p.visibleEntries()
+	proj := entryProjection{
+		version:      version,
+		itemsHash:    itemsHash,
+		maxWidth:     maxWidth,
+		contentScale: ctx.ContentScale,
+	}
+	proj.visibleChildren = make([]*paginationChild, len(visible))
+	proj.entryBounds = make([]gfx.Rect, 0, len(visible))
+	proj.entryLayouts = make([]*text.TextLayout, 0, len(visible))
+	proj.entryStyles = make([]text.TextStyle, 0, len(visible))
+	proj.entryKinds = make([]paginationChildKind, 0, len(visible))
+	proj.entryIndices = make([]int, 0, len(visible))
+	proj.entryLabels = make([]string, 0, len(visible))
+	shaper := p.newShaper(ctx.Runtime)
+	totalW := float32(0)
+	maxH := float32(0)
 	for i, child := range visible {
+		proj.visibleChildren[i] = child
 		if child == nil {
+			proj.entryBounds = append(proj.entryBounds, gfx.Rect{})
+			proj.entryLayouts = append(proj.entryLayouts, nil)
+			proj.entryStyles = append(proj.entryStyles, text.TextStyle{})
+			proj.entryKinds = append(proj.entryKinds, paginationChildPage)
+			proj.entryIndices = append(proj.entryIndices, -1)
+			proj.entryLabels = append(proj.entryLabels, "")
 			continue
 		}
 		size, layout := p.measureVisibleChild(ctx, constraints, child, shaper, maxWidth)
@@ -467,18 +519,19 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 			Intrinsic:   facet.IntrinsicSize{Min: size, Preferred: size, Max: size},
 			Constraints: constraints,
 		}
-		p.cachedVisibleKinds = append(p.cachedVisibleKinds, child.kind)
-		p.cachedVisibleIndices = append(p.cachedVisibleIndices, child.index)
-		p.cachedEntryLabels = append(p.cachedEntryLabels, child.label)
-		p.cachedEntryLayouts = append(p.cachedEntryLayouts, layout)
-		p.cachedEntryStyles = append(p.cachedEntryStyles, resolved.TextStyle(theme.TextLabelM))
-		p.cachedEntryBounds = append(p.cachedEntryBounds, gfx.RectFromXYWH(0, 0, size.W, size.H))
+		proj.entryKinds = append(proj.entryKinds, child.kind)
+		proj.entryIndices = append(proj.entryIndices, child.index)
+		proj.entryLabels = append(proj.entryLabels, child.label)
+		proj.entryLayouts = append(proj.entryLayouts, layout)
+		proj.entryStyles = append(proj.entryStyles, resolved.TextStyle(theme.TextLabelM))
+		proj.entryBounds = append(proj.entryBounds, gfx.RectFromXYWH(0, 0, size.W, size.H))
 		if i > 0 {
 			totalW += p.cachedGap
 		}
 		totalW += size.W
 		maxH = paginationMaxFloat(maxH, size.H)
 	}
+	p.entryProj = proj
 	measured := constraints.Constrain(gfx.Size{W: totalW, H: maxH})
 	p.Layout.MeasuredSize = measured
 	p.Layout.MeasuredResult = facet.MeasureResult{
@@ -575,17 +628,17 @@ func (p *Pagination) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	contentTop := bounds.Min.Y
 	contentH := bounds.Height()
-	for i, child := range p.cachedVisibleChildren {
+	for i, child := range p.entryProj.visibleChildren {
 		if child == nil {
 			continue
 		}
-		size := gfx.Size{W: p.cachedEntryBounds[i].Width(), H: p.cachedEntryBounds[i].Height()}
+		size := gfx.Size{W: p.entryProj.entryBounds[i].Width(), H: p.entryProj.entryBounds[i].Height()}
 		y := contentTop + paginationMaxFloat(0, (contentH-size.H)*0.5)
 		if rtl {
 			x -= size.W
 			rect := gfx.RectFromXYWH(x, y, size.W, size.H)
 			child.layoutRole.ArrangedBounds = rect
-			p.cachedEntryBounds[i] = rect
+			p.entryProj.entryBounds[i] = rect
 			x -= p.cachedGap
 			if p.cachedContentBounds.IsEmpty() {
 				p.cachedContentBounds = rect
@@ -596,7 +649,7 @@ func (p *Pagination) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		rect := gfx.RectFromXYWH(x, y, size.W, size.H)
 		child.layoutRole.ArrangedBounds = rect
-		p.cachedEntryBounds[i] = rect
+		p.entryProj.entryBounds[i] = rect
 		x += size.W + p.cachedGap
 		if p.cachedContentBounds.IsEmpty() {
 			p.cachedContentBounds = rect
@@ -616,13 +669,13 @@ func (p *Pagination) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 	if !paginationIsTransparentMaterial(slots.Root.Resolve(theme.StateDefault, tokens)) {
 		cmds = append(cmds, paginationMaterialCommands(gfx.RectPath(bounds), slots.Root.Resolve(theme.StateDefault, tokens))...)
 	}
-	for i, child := range p.cachedVisibleChildren {
+	for i, child := range p.entryProj.visibleChildren {
 		if child == nil {
 			continue
 		}
-		rect := p.cachedEntryBounds[i]
-		label := p.cachedEntryLabels[i]
-		layout := p.cachedEntryLayouts[i]
+		rect := p.entryProj.entryBounds[i]
+		label := p.entryProj.entryLabels[i]
+		layout := p.entryProj.entryLayouts[i]
 		state := p.childInteractionState(i)
 		switch child.kind {
 		case paginationChildPrev, paginationChildNext:
@@ -725,15 +778,15 @@ func (p *Pagination) hitTest(pt gfx.Point) facet.HitResult {
 	}
 	if p.focusedVisible && p.currentVisibleEntryIndex() >= 0 {
 		idx := p.currentVisibleEntryIndex()
-		if idx < len(p.cachedEntryBounds) && p.cachedEntryBounds[idx].Contains(pt) {
+		if idx < len(p.entryProj.entryBounds) && p.entryProj.entryBounds[idx].Contains(pt) {
 			return facet.HitResult{Hit: true, MarkID: paginationMarkIDFocusRing, Cursor: cursor}
 		}
 	}
-	for i, rect := range p.cachedEntryBounds {
+	for i, rect := range p.entryProj.entryBounds {
 		if !rect.Contains(pt) {
 			continue
 		}
-		switch p.cachedVisibleKinds[i] {
+		switch p.entryProj.entryKinds[i] {
 		case paginationChildPrev:
 			return facet.HitResult{Hit: true, MarkID: paginationMarkIDPreviousButton, Cursor: cursor}
 		case paginationChildNext:
@@ -741,7 +794,7 @@ func (p *Pagination) hitTest(pt gfx.Point) facet.HitResult {
 		case paginationChildEllipsis:
 			return facet.HitResult{Hit: true, MarkID: paginationMarkIDEllipsis, Cursor: facet.CursorDefault}
 		case paginationChildPage:
-			if p.cachedVisibleIndices[i] == p.clampedCurrentIndex() {
+			if p.entryProj.entryIndices[i] == p.clampedCurrentIndex() {
 				return facet.HitResult{Hit: true, MarkID: paginationMarkIDCurrentIndicator, Cursor: cursor}
 			}
 			return facet.HitResult{Hit: true, MarkID: paginationMarkIDPageItems, Cursor: cursor}
@@ -885,16 +938,16 @@ func (p *Pagination) onFocusLost() {
 }
 
 func (p *Pagination) activateEntry(entryIndex int) {
-	if entryIndex < 0 || entryIndex >= len(p.cachedVisibleChildren) {
+	if entryIndex < 0 || entryIndex >= len(p.entryProj.visibleChildren) {
 		return
 	}
-	switch p.cachedVisibleKinds[entryIndex] {
+	switch p.entryProj.entryKinds[entryIndex] {
 	case paginationChildPrev:
 		p.moveCurrent(-1)
 	case paginationChildNext:
 		p.moveCurrent(1)
 	case paginationChildPage:
-		if idx := p.cachedVisibleIndices[entryIndex]; idx >= 0 {
+		if idx := p.entryProj.entryIndices[entryIndex]; idx >= 0 {
 			p.setCurrentIndex(idx)
 			p.Activated.Emit(idx)
 			p.focusedEntryIndex = entryIndex
@@ -919,7 +972,7 @@ func (p *Pagination) moveCurrent(delta int) {
 }
 
 func (p *Pagination) entryIndexAt(pt gfx.Point) int {
-	for i, rect := range p.cachedEntryBounds {
+	for i, rect := range p.entryProj.entryBounds {
 		if rect.Contains(pt) {
 			return i
 		}
@@ -929,8 +982,8 @@ func (p *Pagination) entryIndexAt(pt gfx.Point) int {
 
 func (p *Pagination) currentVisibleEntryIndex() int {
 	current := p.clampedCurrentIndex()
-	for i, idx := range p.cachedVisibleIndices {
-		if idx == current && p.cachedVisibleKinds[i] == paginationChildPage {
+	for i, idx := range p.entryProj.entryIndices {
+		if idx == current && p.entryProj.entryKinds[i] == paginationChildPage {
 			return i
 		}
 	}
@@ -959,7 +1012,7 @@ func (p *Pagination) clampIndices() {
 		return
 	}
 	p.CurrentIndex.Set(p.clampedCurrentIndex())
-	if p.focusedEntryIndex < 0 || p.focusedEntryIndex >= len(p.cachedVisibleChildren) {
+	if p.focusedEntryIndex < 0 || p.focusedEntryIndex >= len(p.entryProj.visibleChildren) {
 		p.focusedEntryIndex = p.currentVisibleEntryIndex()
 	}
 }
