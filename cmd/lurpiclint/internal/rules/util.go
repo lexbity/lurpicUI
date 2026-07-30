@@ -159,6 +159,38 @@ func isGraphPackage(f *loader.ParsedFile) bool {
 		strings.HasPrefix(cleanPath, "graph/")
 }
 
+// isMarksPackage reports whether the file lives inside the marks/ package tree.
+func isMarksPackage(f *loader.ParsedFile) bool {
+	cleanPath := filepath.ToSlash(f.Path)
+	return strings.Contains(cleanPath, "/marks/") ||
+		strings.HasPrefix(cleanPath, "marks/")
+}
+
+// cacheStructNameMatch reports whether name looks like a cache struct:
+// *Cache*, *Projection*, or *Layout* suffix/prefix match.
+func cacheStructNameMatch(name string) bool {
+	return strings.Contains(name, "Cache") ||
+		strings.Contains(name, "cache") ||
+		strings.Contains(name, "Projection") ||
+		strings.Contains(name, "Layout")
+}
+
+// structHasVersionField reports whether a struct type declares a field named
+// version or Version.
+func structHasVersionField(st *ast.StructType) bool {
+	if st.Fields == nil {
+		return false
+	}
+	for _, field := range st.Fields.List {
+		for _, name := range field.Names {
+			if name != nil && (name.Name == "version" || name.Name == "Version") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // --- Package-local constructor/role scanner (shared with LL019, LL020) -------
 
 // constructorSignals records whether a constructor function body contains
@@ -376,7 +408,193 @@ func isOverlayImport(f *loader.ParsedFile) bool {
 	return false
 }
 
-// --- Package-local constructor/role scanner (shared with LL019, LL020) -------
+// --- Import recognition helpers (shared across contract rules) ----------------
+
+// isStoreImport reports whether name is the local identifier for the store
+// package in the import table, falling back to "store" when no import entry
+// matches.
+func isStoreImport(name string, imports loader.ImportTable) bool {
+	for local, path := range imports {
+		if local == name && (strings.HasSuffix(path, "/store") || path == "store") {
+			return true
+		}
+	}
+	return name == "store"
+}
+
+// isReactiveImport reports whether name is the local identifier for the
+// scale/reactive package.
+func isReactiveImport(name string, imports loader.ImportTable) bool {
+	for local, path := range imports {
+		if local == name && strings.HasSuffix(path, "/scale/reactive") {
+			return true
+		}
+	}
+	return name == "reactive"
+}
+
+// isSignalImport reports whether name is the local identifier for the signal
+// package.
+func isSignalImport(name string, imports loader.ImportTable) bool {
+	for local, path := range imports {
+		if local == name && (strings.HasSuffix(path, "/signal") || path == "signal") {
+			return true
+		}
+	}
+	return name == "signal"
+}
+
+// isFmtImport reports whether name is the local identifier for the "fmt"
+// package.
+func isFmtImport(name string, imports loader.ImportTable) bool {
+	for local, path := range imports {
+		if local == name && (path == "fmt" || strings.HasSuffix(path, "/fmt")) {
+			return true
+		}
+	}
+	return name == "fmt"
+}
+
+// isVizPackage reports whether the file lives inside the marks/viz/ package
+// tree.
+func isVizPackage(f *loader.ParsedFile) bool {
+	cleanPath := filepath.ToSlash(f.Path)
+	return strings.Contains(cleanPath, "/marks/viz/") ||
+		strings.HasPrefix(cleanPath, "marks/viz/")
+}
+
+// --- Caller-supplied store field tracking (shared by LL024, LL023-ext) -------
+
+// storeValueStoreParamFields returns the set of parameter names in fn whose
+// type is *store.ValueStore[...].  It handles both *ast.IndexExpr (single
+// type arg: ValueStore[T]) and *ast.IndexListExpr (multiple type args:
+// ValueStore[T,U]) because Go ≥1.18 parses single-arg generics as IndexExpr.
+func storeValueStoreParamFields(fn *ast.FuncDecl, imports loader.ImportTable) map[string]bool {
+	out := make(map[string]bool)
+	if fn.Type.Params == nil {
+		return out
+	}
+	for _, field := range fn.Type.Params.List {
+		// Unwrap *ast.StarExpr.
+		star, ok := field.Type.(*ast.StarExpr)
+		if !ok {
+			continue
+		}
+		// The inner type must be a generic instantiation: store.ValueStore[ ... ].
+		// Single type arg → *ast.IndexExpr; two or more → *ast.IndexListExpr.
+		var sel *ast.SelectorExpr
+		switch t := star.X.(type) {
+		case *ast.IndexExpr:
+			sel, _ = t.X.(*ast.SelectorExpr)
+		case *ast.IndexListExpr:
+			sel, _ = t.X.(*ast.SelectorExpr)
+		}
+		if sel == nil {
+			continue
+		}
+		id, ok := sel.X.(*ast.Ident)
+		if !ok || !isStoreImport(id.Name, imports) {
+			continue
+		}
+		if sel.Sel.Name != "ValueStore" {
+			continue
+		}
+		for _, name := range field.Names {
+			if name != nil {
+				out[name.Name] = true
+			}
+		}
+	}
+	return out
+}
+
+// callerSuppliedStoreFields returns the set of struct field names in pkg that
+// are initialized from a constructor parameter of type *store.ValueStore[...].
+// It scans every constructor for patterns:
+//   - &T{Field: <storeParam>} — composite-literal field init
+//   - <recv>.Field = <storeParam> — field assignment
+func callerSuppliedStoreFields(pkg *loader.Package, imports loader.ImportTable) map[string]bool {
+	out := make(map[string]bool)
+
+	for _, pf := range pkg.Files {
+		for _, decl := range pf.AST.Decls {
+			fn, ok := decl.(*ast.FuncDecl)
+			if !ok || fn.Body == nil {
+				continue
+			}
+			// Only consider constructors (New-prefixed or returning a struct type).
+			if !strings.HasPrefix(fn.Name.Name, "New") {
+				continue
+			}
+
+			storeParams := storeValueStoreParamFields(fn, imports)
+			if len(storeParams) == 0 {
+				continue
+			}
+
+			// Walk the constructor body for field ← storeParam patterns.
+			ast.Inspect(fn.Body, func(n ast.Node) bool {
+				switch e := n.(type) {
+				case *ast.CompositeLit:
+					// &T{Field: <storeParam>}
+					for _, elt := range e.Elts {
+						kv, ok := elt.(*ast.KeyValueExpr)
+						if !ok {
+							continue
+						}
+						key, ok := kv.Key.(*ast.Ident)
+						if !ok {
+							continue
+						}
+						val, ok := kv.Value.(*ast.Ident)
+						if !ok || !storeParams[val.Name] {
+							continue
+						}
+						out[key.Name] = true
+					}
+				case *ast.AssignStmt:
+					// <recv>.Field = <storeParam>
+					if len(e.Lhs) != 1 || len(e.Rhs) != 1 {
+						return true
+					}
+					sel, ok := e.Lhs[0].(*ast.SelectorExpr)
+					if !ok {
+						return true
+					}
+					id, ok := e.Rhs[0].(*ast.Ident)
+					if !ok || !storeParams[id.Name] {
+						return true
+					}
+					out[sel.Sel.Name] = true
+				}
+				return true
+			})
+		}
+	}
+
+	return out
+}
+
+// isStoreNewValueStoreCall reports whether expr is a call to
+// store.NewValueStore(...) resolved through the import table.
+func isStoreNewValueStoreCall(expr ast.Expr, imports loader.ImportTable) bool {
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	if sel.Sel.Name != "NewValueStore" {
+		return false
+	}
+	id, ok := sel.X.(*ast.Ident)
+	if !ok || !isStoreImport(id.Name, imports) {
+		return false
+	}
+	return true
+}
 
 // isDemoPackage reports whether the file belongs to a demo-style package
 // (name-based or import-signature match).  Demo packages are subject to

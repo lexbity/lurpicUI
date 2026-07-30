@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // Area renders an ordered data series as a filled area from the data line
@@ -21,6 +22,8 @@ type Area[T any] struct {
 	YScale   *reactive.ReactiveScale
 	Color    marks.Binding[gfx.Color]
 	Baseline marks.Binding[float64]
+
+	themeColor gfx.Color
 
 	cleanups []func()
 }
@@ -41,7 +44,7 @@ func NewArea[T any](
 		Y:        y,
 		XScale:   xScale,
 		YScale:   yScale,
-		Color:    marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3}),
+		Color:    marks.Const(gfx.Color{}),
 		Baseline: marks.Const(0.0),
 	}
 	a.Facet = facet.NewFacet()
@@ -49,10 +52,12 @@ func NewArea[T any](
 	a.AddBinding(a.Color)
 
 	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		syncThemeColor(ctx.Theme, &a.themeColor, theme.ColorPrimary)
 		return facet.MeasureResult{Size: constraints.MaxSize}
 	}
 	a.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		a.Layout.ArrangedBounds = bounds
+		syncThemeColor(ctx.Theme, &a.themeColor, theme.ColorPrimary)
 	}
 	a.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return a.buildCommands(a.Layout.ArrangedBounds)
@@ -158,7 +163,7 @@ func (a *Area[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 	return []gfx.Command{
 		gfx.FillPath{
 			Path:  gfx.Path{Segments: segments},
-			Brush: gfx.SolidBrush(a.Color.Get()),
+			Brush: gfx.SolidBrush(resolveVizColor(a.Color.Get(), a.themeColor)),
 		},
 	}
 }

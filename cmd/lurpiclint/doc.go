@@ -24,7 +24,21 @@
 // mounted as plain children without layer/ZPriority; unbounded-fixed-stack
 // detection (LL022), which flags all-Fixed ColumnLayout/RowLayout without a
 // ScrollRegion; and reactive-binding overwrite detection (LL023), which flags
-// marks.Const assignments that sever reactive FromStore/FromDerived bindings.
+// marks.Const assignments that sever reactive FromStore/FromDerived bindings
+// and caller-supplied *store.ValueStore reassignments; value-store manufacture
+// detection (LL024), which flags constructors that accept a caller-supplied
+// store and also manufacture one via store.NewValueStore; viz-scale
+// subscription (LL025), which flags viz marks that declare a
+// *reactive.ReactiveScale field without subscribing to it via signal.Track
+// in OnAttach; cache-version enforcement (LL026), which flags named cache
+// structs that echo domain data without a version field; and typed-signal
+// enforcement (LL027), which flags
+// fmt.Sprintf/fmt.Errorf or
+// string-concatenation expressions in signal.Emit calls (signals must carry
+// typed payloads per FR-14 / P12, not ad-hoc formatted strings); and
+// viz-theme enforcement (LL028), which flags hardcoded gfx.Color,
+// "sans-serif" font, or bare numeric literals in viz marks (viz must read
+// colors and chrome from the theme per FR-9).
 //
 // The lint gate is green-by-default at HEAD (modulo baselined debt in
 // lurpiclint-baseline.json).  A red gate means new debt introduced by the

@@ -1,7 +1,6 @@
 package action
 
 import (
-	"fmt"
 	"math"
 	"strings"
 
@@ -56,6 +55,7 @@ const (
 	popupPaletteActionKeyCanvasOnly   = "canvas_only"
 	popupPaletteActionKeyClearHistory = "history_clear"
 	popupPaletteActionKeyToggleBar    = "bottom_bar"
+	popupPaletteActionKeyZoom         = "zoom"
 )
 
 type PopupPaletteTool struct {
@@ -1245,7 +1245,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			}
 		case platform.KeyPageUp:
 			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() + 0.05))
-			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: popupPaletteTypeName})
+			p.Activated.Emit(MarkAction{Key: popupPaletteActionKeyZoom, Source: popupPaletteTypeName, ZoomPercent: int(p.Zoom.Get() * 100)})
 			if p.composition != nil {
 				p.composition.sync()
 			}
@@ -1253,7 +1253,7 @@ func (p *PopupPalette) onKey(e facet.KeyEvent) bool {
 			return true
 		case platform.KeyPageDown:
 			p.Zoom = marks.Const(clampPopupZoom(p.Zoom.Get() - 0.05))
-			p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: popupPaletteTypeName})
+			p.Activated.Emit(MarkAction{Key: popupPaletteActionKeyZoom, Source: popupPaletteTypeName, ZoomPercent: int(p.Zoom.Get() * 100)})
 			if p.composition != nil {
 				p.composition.sync()
 			}
@@ -1383,7 +1383,7 @@ func (p *PopupPalette) activateControl(control popupPaletteControlKind, pt gfx.P
 		return true
 	case popupPaletteControlZoom:
 		p.updateZoomFromPoint(pt)
-		p.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", p.Zoom.Get()*100), Source: popupPaletteTypeName})
+		p.Activated.Emit(MarkAction{Key: popupPaletteActionKeyZoom, Source: popupPaletteTypeName, ZoomPercent: int(p.Zoom.Get() * 100)})
 		return true
 	case popupPaletteControlClearHistory:
 		p.History = nil
@@ -1906,7 +1906,7 @@ func (c *popupPaletteComposition) onPointer(e facet.PointerEvent) bool {
 		case platform.PointerPress, platform.PointerMove, platform.PointerRelease:
 			c.palette.updateZoomFromPoint(e.Position)
 			if e.Kind == platform.PointerRelease {
-				c.palette.Activated.Emit(MarkAction{Key: fmt.Sprintf("zoom:%.0f", c.palette.Zoom.Get()*100), Source: popupPaletteTypeName})
+				c.palette.Activated.Emit(MarkAction{Key: popupPaletteActionKeyZoom, Source: popupPaletteTypeName, ZoomPercent: int(c.palette.Zoom.Get() * 100)})
 			}
 			return true
 		}

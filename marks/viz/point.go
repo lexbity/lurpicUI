@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // Point is a data-bound scatter mark that renders points through x/y scales.
@@ -23,6 +24,8 @@ type Point[T any] struct {
 	Radius    marks.Binding[float32]
 	Color     marks.Binding[gfx.Color]
 	Activated signal.Signal[signal.Unit]
+
+	themeColor gfx.Color
 
 	cleanups []func()
 }
@@ -44,7 +47,7 @@ func NewPoint[T any](
 		XScale:    xScale,
 		YScale:    yScale,
 		Radius:    marks.Const[float32](4),
-		Color:     marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
+		Color:     marks.Const(gfx.Color{}),
 		Activated: signal.NewSignal[signal.Unit]("Point.Activated"),
 	}
 	p.Facet = facet.NewFacet()
@@ -52,10 +55,12 @@ func NewPoint[T any](
 	p.AddBinding(p.Color)
 
 	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		syncThemeColor(ctx.Theme, &p.themeColor, theme.ColorPrimary)
 		return facet.MeasureResult{Size: constraints.MaxSize}
 	}
 	p.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		p.Layout.ArrangedBounds = bounds
+		syncThemeColor(ctx.Theme, &p.themeColor, theme.ColorPrimary)
 	}
 	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult {
 		return p.hitTest(pt)
@@ -153,7 +158,7 @@ func (p *Point[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 		gfx.DrawPoints{
 			Points: pts,
 			Radius: p.Radius.Get(),
-			Brush:  gfx.SolidBrush(p.Color.Get()),
+			Brush:  gfx.SolidBrush(resolveVizColor(p.Color.Get(), p.themeColor)),
 		},
 	}
 }

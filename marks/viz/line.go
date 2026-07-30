@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // Line renders an ordered data series as a polyline.
@@ -20,6 +21,8 @@ type Line[T any] struct {
 	YScale      *reactive.ReactiveScale
 	StrokeWidth marks.Binding[float32]
 	Color       marks.Binding[gfx.Color]
+
+	themeColor gfx.Color
 
 	cleanups []func()
 }
@@ -41,17 +44,19 @@ func NewLine[T any](
 		XScale:      xScale,
 		YScale:      yScale,
 		StrokeWidth: marks.Const[float32](2),
-		Color:       marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
+		Color:       marks.Const(gfx.Color{}),
 	}
 	l.Facet = facet.NewFacet()
 	l.AddBinding(l.StrokeWidth)
 	l.AddBinding(l.Color)
 
 	l.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		syncThemeColor(ctx.Theme, &l.themeColor, theme.ColorPrimary)
 		return facet.MeasureResult{Size: constraints.MaxSize}
 	}
 	l.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		l.Layout.ArrangedBounds = bounds
+		syncThemeColor(ctx.Theme, &l.themeColor, theme.ColorPrimary)
 	}
 	l.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return l.buildCommands(l.Layout.ArrangedBounds)
@@ -71,27 +76,6 @@ func (l *Line[T]) Descriptor() marks.Descriptor {
 
 func (l *Line[T]) OnAttach(ctx facet.AttachContext) {
 	l.Core.OnAttach()
-	l.subscribe()
-}
-
-func (l *Line[T]) OnDetach() {
-	l.Core.OnDetach()
-	for _, c := range l.cleanups {
-		if c != nil {
-			c()
-		}
-	}
-	l.cleanups = nil
-}
-
-func (l *Line[T]) OnActivate()   { l.Core.OnActivate() }
-func (l *Line[T]) OnDeactivate() { l.Core.OnDeactivate() }
-
-func (l *Line[T]) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
-	return l.DefaultAnchors(l.Layout.ArrangedBounds, ctx)
-}
-
-func (l *Line[T]) subscribe() {
 	l.cleanups = append(l.cleanups,
 		l.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
 			l.Invalidate(facet.DirtyProjection)
@@ -116,6 +100,23 @@ func (l *Line[T]) subscribe() {
 			l.Invalidate(facet.DirtyProjection)
 		})
 	}
+}
+
+func (l *Line[T]) OnDetach() {
+	l.Core.OnDetach()
+	for _, c := range l.cleanups {
+		if c != nil {
+			c()
+		}
+	}
+	l.cleanups = nil
+}
+
+func (l *Line[T]) OnActivate()   { l.Core.OnActivate() }
+func (l *Line[T]) OnDeactivate() { l.Core.OnDeactivate() }
+
+func (l *Line[T]) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
+	return l.DefaultAnchors(l.Layout.ArrangedBounds, ctx)
 }
 
 func (l *Line[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
@@ -145,7 +146,7 @@ func (l *Line[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 			gfx.DrawPoints{
 				Points: pts,
 				Radius: markerRadius,
-				Brush:  gfx.SolidBrush(l.Color.Get()),
+				Brush:  gfx.SolidBrush(resolveVizColor(l.Color.Get(), l.themeColor)),
 			},
 		}
 	}
@@ -153,7 +154,7 @@ func (l *Line[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 		gfx.DrawPolyline{
 			Points: pts,
 			Stroke: gfx.StrokeStyle{Width: l.StrokeWidth.Get()},
-			Brush:  gfx.SolidBrush(l.Color.Get()),
+			Brush:  gfx.SolidBrush(resolveVizColor(l.Color.Get(), l.themeColor)),
 		},
 	}
 }

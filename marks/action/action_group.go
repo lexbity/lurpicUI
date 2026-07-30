@@ -72,6 +72,7 @@ type ActionGroup struct {
 }
 
 type actionGroupItemLayout struct {
+	version     uint64
 	item        ActionGroupAction
 	labelLayout *text.TextLayout
 	bounds      gfx.Rect
@@ -79,6 +80,28 @@ type actionGroupItemLayout struct {
 	iconBounds  gfx.Rect
 	width       float32
 	height      float32
+}
+
+//nolint:unused // FR-11 version-keyed cache predicate
+func (c *actionGroupItemLayout) validFor(v uint64) bool {
+	return c.version == v
+}
+
+// hashActionGroupActions computes a content-based version for ActionGroupAction
+// items, used to detect staleness in actionGroupItemLayout caches.
+func hashActionGroupActions(items []ActionGroupAction) uint64 {
+	var h uint64 = 14695981039346656037
+	for _, item := range items {
+		for i := 0; i < len(item.Key); i++ {
+			h ^= uint64(item.Key[i])
+			h *= 1099511628211
+		}
+		for i := 0; i < len(item.Label); i++ {
+			h ^= uint64(item.Label[i])
+			h *= 1099511628211
+		}
+	}
+	return h
 }
 
 var _ facet.FacetImpl = (*ActionGroup)(nil)
@@ -315,6 +338,7 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	layouts := make([]actionGroupItemLayout, len(g.Actions.Get()))
 	maxItemW := float32(0)
 	maxItemH := float32(0)
+	layoutVersion := hashActionGroupActions(g.Actions.Get())
 	for i := range g.Actions.Get() {
 		item := normalizeActionGroupItem(g.Actions.Get()[i])
 		layouts[i].item = item
@@ -348,6 +372,9 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		if itemH > maxItemH {
 			maxItemH = itemH
 		}
+	}
+	for i := range layouts {
+		layouts[i].version = layoutVersion
 	}
 	g.cachedItemLayouts = layouts
 	g.cachedActionBounds = make([]gfx.Rect, len(layouts))

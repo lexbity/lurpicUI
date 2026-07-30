@@ -109,6 +109,7 @@ type SplitButton struct {
 }
 
 type splitButtonItemLayout struct {
+	version     uint64
 	item        SplitButtonItem
 	labelLayout *text.TextLayout
 	bounds      gfx.Rect
@@ -116,6 +117,28 @@ type splitButtonItemLayout struct {
 	iconBounds  gfx.Rect
 	width       float32
 	height      float32
+}
+
+//nolint:unused // FR-11 version-keyed cache predicate
+func (c *splitButtonItemLayout) validFor(v uint64) bool {
+	return c.version == v
+}
+
+// hashSplitButtonItems computes a content-based version for SplitButtonItem
+// items, used to detect staleness in splitButtonItemLayout caches.
+func hashSplitButtonItems(items []SplitButtonItem) uint64 {
+	var h uint64 = 14695981039346656037
+	for _, item := range items {
+		for i := 0; i < len(item.Key); i++ {
+			h ^= uint64(item.Key[i])
+			h *= 1099511628211
+		}
+		for i := 0; i < len(item.Label); i++ {
+			h ^= uint64(item.Label[i])
+			h *= 1099511628211
+		}
+	}
+	return h
 }
 
 var _ facet.FacetImpl = (*SplitButton)(nil)
@@ -424,6 +447,7 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	layouts := make([]splitButtonItemLayout, len(items))
 	maxItemW := float32(0)
 	totalMenuH := float32(0)
+	layoutVersion := hashSplitButtonItems(items)
 	for i := range items {
 		item := items[i]
 		layouts[i].item = item
@@ -449,6 +473,9 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	}
 	if len(layouts) > 1 {
 		totalMenuH += s.cachedRowGap * float32(len(layouts)-1)
+	}
+	for i := range layouts {
+		layouts[i].version = layoutVersion
 	}
 	s.cachedItemLayouts = layouts
 

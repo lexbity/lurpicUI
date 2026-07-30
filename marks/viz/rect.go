@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // Bar renders a bar chart from categorized data using a band scale (x) and
@@ -25,6 +26,8 @@ type Bar[T any] struct {
 	Color     marks.Binding[gfx.Color]
 	Baseline  marks.Binding[float64]
 	Activated signal.Signal[signal.Unit]
+
+	themeColor gfx.Color
 
 	bandMembers []string
 	bandScale   scale.BandScale
@@ -51,7 +54,7 @@ func NewBar[T any](
 		Value:     value,
 		YScale:    yScale,
 		Padding:   marks.Const[float32](0.1),
-		Color:     marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 1}),
+		Color:     marks.Const(gfx.Color{}),
 		Baseline:  marks.Const(0.0),
 		Activated: signal.NewSignal[signal.Unit]("Bar.Activated"),
 		hitDirty:  true,
@@ -62,10 +65,12 @@ func NewBar[T any](
 	b.AddBinding(b.Color)
 
 	b.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		syncThemeColor(ctx.Theme, &b.themeColor, theme.ColorPrimary)
 		return facet.MeasureResult{Size: constraints.MaxSize}
 	}
 	b.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		b.Layout.ArrangedBounds = bounds
+		syncThemeColor(ctx.Theme, &b.themeColor, theme.ColorPrimary)
 	}
 	b.Hit.OnHitTest = func(p gfx.Point) facet.HitResult {
 		return b.hitTest(p)
@@ -183,7 +188,7 @@ func (b *Bar[T]) buildCommands(bounds gfx.Rect) []gfx.Command {
 		b.barRects[i] = rect
 		cmds = append(cmds, gfx.FillRect{
 			Rect:  rect,
-			Brush: gfx.SolidBrush(b.Color.Get()),
+			Brush: gfx.SolidBrush(resolveVizColor(b.Color.Get(), b.themeColor)),
 		})
 	}
 	return cmds

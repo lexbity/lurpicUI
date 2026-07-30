@@ -127,6 +127,7 @@ type MenuButton struct {
 }
 
 type menuButtonEntryLayout struct {
+	version        uint64
 	entry          MenuButtonEntry
 	labelLayout    *text.TextLayout
 	shortcutLayout *text.TextLayout
@@ -137,6 +138,28 @@ type menuButtonEntryLayout struct {
 	checkBounds    gfx.Rect
 	width          float32
 	height         float32
+}
+
+//nolint:unused // FR-11 version-keyed cache predicate
+func (c *menuButtonEntryLayout) validFor(v uint64) bool {
+	return c.version == v
+}
+
+// hashMenuButtonEntries computes a content-based version for MenuButtonEntry
+// items, used to detect staleness in menuButtonEntryLayout caches.
+func hashMenuButtonEntries(entries []MenuButtonEntry) uint64 {
+	var h uint64 = 14695981039346656037
+	for _, entry := range entries {
+		for i := 0; i < len(entry.Label); i++ {
+			h ^= uint64(entry.Label[i])
+			h *= 1099511628211
+		}
+		for i := 0; i < len(entry.Shortcut); i++ {
+			h ^= uint64(entry.Shortcut[i])
+			h *= 1099511628211
+		}
+	}
+	return h
 }
 
 var _ facet.FacetImpl = (*MenuButton)(nil)
@@ -413,6 +436,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	layouts := make([]menuButtonEntryLayout, len(m.Entries))
 	maxEntryW := float32(0)
 	totalMenuH := float32(0)
+	layoutVersion := hashMenuButtonEntries(m.Entries)
 	for i := range m.Entries {
 		entry := m.Entries[i]
 		layouts[i].entry = entry
@@ -467,6 +491,9 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 			maxEntryW = layouts[i].width
 		}
 		totalMenuH += layouts[i].height
+	}
+	for i := range layouts {
+		layouts[i].version = layoutVersion
 	}
 	m.cachedEntryLayouts = layouts
 

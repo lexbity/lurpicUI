@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // RuleOrientation describes whether the rule spans horizontally or vertically.
@@ -27,6 +28,8 @@ type Rule struct {
 	Color       marks.Binding[gfx.Color]
 	StrokeWidth float32
 
+	themeColor gfx.Color
+
 	cleanups []func()
 }
 
@@ -40,7 +43,7 @@ func NewRule(value marks.Binding[float64], orientation RuleOrientation, scale *r
 		Value:       value,
 		Orientation: orientation,
 		Scale:       scale,
-		Color:       marks.Const(gfx.Color{R: 0.7, G: 0.7, B: 0.7, A: 1}),
+		Color:       marks.Const(gfx.Color{}),
 		StrokeWidth: 1,
 	}
 	r.Facet = facet.NewFacet()
@@ -48,10 +51,12 @@ func NewRule(value marks.Binding[float64], orientation RuleOrientation, scale *r
 	r.AddBinding(r.Color)
 
 	r.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		syncThemeColor(ctx.Theme, &r.themeColor, theme.ColorBorder)
 		return facet.MeasureResult{Size: gfx.Size{W: 0, H: 0}}
 	}
 	r.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		r.Layout.ArrangedBounds = bounds
+		syncThemeColor(ctx.Theme, &r.themeColor, theme.ColorBorder)
 	}
 	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return r.buildCommands(r.Layout.ArrangedBounds)
@@ -102,7 +107,7 @@ func (r *Rule) buildCommands(bounds gfx.Rect) []gfx.Command {
 		gfx.StrokePath{
 			Path:   r.linePath(bounds, float32(pixel)),
 			Stroke: gfx.StrokeStyle{Width: r.StrokeWidth},
-			Brush:  gfx.SolidBrush(r.Color.Get()),
+			Brush:  gfx.SolidBrush(resolveVizColor(r.Color.Get(), r.themeColor)),
 		},
 	}
 }

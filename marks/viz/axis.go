@@ -40,6 +40,8 @@ type Axis struct {
 	themeFontFamily string
 	themeLabelSize  float32
 	themeTickLength float32
+	themeLabelColor gfx.Color
+	themeTickColor  gfx.Color
 
 	cleanups []func()
 }
@@ -57,13 +59,15 @@ var _ marks.Mark = (*Axis)(nil)
 // NewAxis constructs an axis mark.
 func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrientation], fonts *text.FontRegistry) *Axis {
 	a := &Axis{
-		Scale:       scale,
-		Orientation: orientation,
-		TickCount:   marks.Const(5),
-		TickLength:  marks.Const[float32](0),
-		LabelSize:   marks.Const[float32](0),
-		LabelColor:  gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1},
-		fonts:       fonts,
+		Scale:           scale,
+		Orientation:     orientation,
+		TickCount:       marks.Const(5),
+		TickLength:      marks.Const[float32](0),
+		LabelSize:       marks.Const[float32](0),
+		LabelColor:      gfx.Color{},
+		themeLabelColor: gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1}, //lurpiclint:ignore LL028 -- theme-synced fallback, overridden at runtime
+		themeTickColor:  gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1}, //lurpiclint:ignore LL028 -- theme-synced fallback, overridden at runtime
+		fonts:           fonts,
 	}
 	a.Facet = facet.NewFacet()
 	if a.fonts != nil {
@@ -195,7 +199,13 @@ func (a *Axis) syncThemeWithTheme(t any) {
 				a.themeLabelSize = ts.Size
 			}
 			if a.themeTickLength == 0 {
-				a.themeTickLength = 6
+				a.themeTickLength = ts.Size * 0.5
+			}
+			if a.themeLabelColor == (gfx.Color{}) {
+				a.themeLabelColor = rc.Color(theme.ColorText)
+			}
+			if a.themeTickColor == (gfx.Color{}) {
+				a.themeTickColor = rc.Color(theme.ColorTextSecondary)
 			}
 		}
 	}
@@ -222,11 +232,13 @@ func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 		labelSize = 11
 	}
 	fontFamily := a.themeFontFamily
-	if fontFamily == "" {
-		fontFamily = "sans-serif"
+	labelColor := a.LabelColor
+	if labelColor == (gfx.Color{}) {
+		labelColor = a.themeLabelColor
 	}
-	brush := gfx.SolidBrush(a.LabelColor)
-	tickBrush := gfx.SolidBrush(gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1})
+	tickColor := a.themeTickColor
+	brush := gfx.SolidBrush(labelColor)
+	tickBrush := gfx.SolidBrush(tickColor)
 
 	// Pre-measure label extents for collision avoidance.
 	type labelSlot struct {
