@@ -22,11 +22,6 @@ type Customizable any
 
 // theme variant/recipe surface (reserved for future use)
 
-// Composite is implemented by marks that contain child marks.
-type Composite interface {
-	ChildMarks() []Mark
-}
-
 // DataBound is implemented by marks that bind a store.CollectionStore
 // together with associated scales.
 type DataBound interface {

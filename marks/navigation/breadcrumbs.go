@@ -150,6 +150,14 @@ func (b *Breadcrumbs) AccessibilityRole() string { return markTypeNavigation }
 // AccessibleName reports the semantic name source required by the spec.
 func (b *Breadcrumbs) AccessibleName() string { return b.Label.Get() }
 
+// Focusable reports whether the breadcrumbs can receive keyboard focus.
+func (b *Breadcrumbs) Focusable() bool {
+	if b.Focus.Focusable == nil {
+		return false
+	}
+	return b.Focus.Focusable()
+}
+
 // SetItems updates the breadcrumb items.
 func (b *Breadcrumbs) SetItems(items []BreadcrumbItem) {
 	if b == nil {

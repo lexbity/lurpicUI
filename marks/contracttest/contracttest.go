@@ -22,6 +22,15 @@ func (contractRuntime) Schedule(j job.AnyJob)                                   
 func (contractRuntime) CancelJob(id job.JobID)                                             {}
 func (contractRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 
+// NoopRuntime is a reusable no-op implementation of facet.RuntimeServices
+// for use in tests. Mark test stubs can embed this instead of re-declaring
+// the three no-op methods (Schedule, CancelJob, Invalidate) on every stub.
+type NoopRuntime struct{}
+
+func (NoopRuntime) Schedule(j job.AnyJob)                                              {}
+func (NoopRuntime) CancelJob(id job.JobID)                                             {}
+func (NoopRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+
 // AssertValueSurvivesDispose verifies that a writable-value mark uses the
 // caller's store (P1) — the value in the caller's store survives a
 // dispose + rebuild cycle on the same store.
@@ -46,6 +55,7 @@ func AssertValueSurvivesDispose[T comparable](t TB,
 
 	m := build(s)
 	facet.Attach(m, ctx)
+	defer facet.Dispose(m)
 	interact(m)
 
 	if s.Get() == initial {
@@ -55,15 +65,13 @@ func AssertValueSurvivesDispose[T comparable](t TB,
 	}
 	want := s.Get()
 
-	facet.Dispose(m)
-
 	m2 := build(s)
 	facet.Attach(m2, ctx)
+	defer facet.Dispose(m2)
 	if got := s.Get(); got != want {
 		t.Fatalf("AssertValueSurvivesDispose: store value after dispose+rebuild = %v, want %v "+
 			"(the value set during interaction was lost — the mark likely reinitialized the store)", got, want)
 	}
-	facet.Dispose(m2)
 }
 
 // AssertBindingNotSevered verifies that a Binding field backed by a caller
@@ -91,6 +99,7 @@ func AssertBindingNotSevered[T comparable](t TB,
 	s := makeStore()
 	m := build(s)
 	facet.Attach(m, ctx)
+	defer facet.Dispose(m)
 
 	driveAction(m)
 
@@ -100,7 +109,6 @@ func AssertBindingNotSevered[T comparable](t TB,
 		t.Fatalf("AssertBindingNotSevered: binding read = %v, store read = %v — "+
 			"the binding was severed (likely overwritten with marks.Const)", bindingVal, storeVal)
 	}
-	facet.Dispose(m)
 }
 
 // AssertScaleInvalidates verifies that a viz mark invalidates DirtyProjection
@@ -124,6 +132,7 @@ func AssertScaleInvalidates(t TB,
 
 	m := build(rs)
 	facet.Attach(m, ctx)
+	defer facet.Dispose(m)
 
 	m.Base().ClearDirty(facet.DirtyAll)
 
@@ -133,5 +142,4 @@ func AssertScaleInvalidates(t TB,
 	if flags&facet.DirtyProjection == 0 {
 		t.Fatalf("AssertScaleInvalidates: DirtyProjection was not raised after scale change (flags=%#v)", flags)
 	}
-	facet.Dispose(m)
 }

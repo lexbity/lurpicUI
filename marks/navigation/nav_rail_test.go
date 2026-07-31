@@ -360,3 +360,57 @@ func navRailTestIcons() map[string]runtimepkg.IconAsset {
 func navRailIconAsset(ref string, path gfx.Path) runtimepkg.IconAsset {
 	return runtimepkg.NewIconAsset(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
 }
+
+func TestNavRail_contract_anchor_export(t *testing.T) {
+	_, rt, resolved := newNavRailTestFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
+
+	contracttest.AssertAnchorExport(t,
+		func() facet.FacetImpl {
+			r, _, _ := newNavRailTestFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+			return r
+		},
+		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
+			r := m.(*NavRail)
+			r.LayoutRole().Measure(facet.MeasureContext{
+				Runtime:          rt,
+				Theme:            resolved,
+				ContentScale:     1,
+				Density:          facet.DensityID(theme.DensityIDComfortable),
+				WritingDirection: facet.WritingDirectionLTR,
+			}, facet.Constraints{MaxSize: gfx.Size{W: b.Width(), H: b.Height()}})
+			r.LayoutRole().Arrange(facet.ArrangeContext{
+				Runtime:     rt,
+				Theme:       resolved,
+				ParentGroup: r.LayoutRole().Parent,
+				ChildGroup:  r.LayoutRole().Child,
+			}, b)
+		},
+		bounds,
+		resolved,
+	)
+}
+
+func TestNavRail_contract_accessible(t *testing.T) {
+	contracttest.AssertAccessible(t,
+		func(label string) facet.FacetImpl {
+			return NewNavRail(label, []NavRailItem{
+				{Key: "home", Label: "Home", IconRef: "home"},
+				{Key: "profile", Label: "Profile", IconRef: "user"},
+			}, store.NewValueStore(-1))
+		},
+		"navigation",
+	)
+}
+
+func TestNavRail_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t,
+		func(disabled bool) facet.FacetImpl {
+			rail := NewNavRail("test", []NavRailItem{
+				{Key: "home", Label: "Home", IconRef: "home"},
+			}, store.NewValueStore(-1))
+			rail.Disabled = marks.Const(disabled)
+			return rail
+		},
+	)
+}

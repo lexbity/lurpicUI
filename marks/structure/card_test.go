@@ -8,10 +8,10 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -24,13 +24,11 @@ import (
 )
 
 type cardRuntimeStub struct {
+	contracttest.NoopRuntime
 	fonts *text.FontRegistry
 }
 
-func (s cardRuntimeStub) Schedule(j job.AnyJob)                                              {}
-func (s cardRuntimeStub) CancelJob(id job.JobID)                                             {}
-func (s cardRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
-func (s cardRuntimeStub) FontRegistry() *text.FontRegistry                                   { return s.fonts }
+func (s cardRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	card := newCardFixture()
@@ -295,4 +293,57 @@ func toThemeTokens(t templates.Tokens) theme.Tokens {
 	tokens.Radius.Full = t.Shape.RadiusFull
 
 	return tokens
+}
+
+func TestCard_contract_anchor_export(t *testing.T) {
+	fonts := testkit.TestFontRegistry(t)
+	rt := cardRuntimeStub{fonts: fonts}
+	ctx := theme.DefaultResolvedContext()
+	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
+
+	contracttest.AssertAnchorExport(t,
+		func() facet.FacetImpl {
+			card := NewCard("contract card")
+			card.GridColumns = marks.Const(1)
+			card.GridRows = marks.Const(1)
+			return card
+		},
+		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
+			c := m.(*Card)
+			c.Layout.Measure(facet.MeasureContext{
+				Runtime:          rt,
+				Theme:            ctx,
+				ContentScale:     1,
+				Density:          facet.DensityID(theme.DensityIDComfortable),
+				WritingDirection: facet.WritingDirectionLTR,
+			}, facet.Constraints{MaxSize: gfx.Size{W: b.Width(), H: b.Height()}})
+			c.Layout.Arrange(facet.ArrangeContext{
+				Runtime:     rt,
+				Theme:       ctx,
+				ParentGroup: c.Layout.Parent,
+				ChildGroup:  c.Layout.Child,
+			}, b)
+		},
+		bounds,
+		ctx,
+	)
+}
+
+func TestCard_contract_group_children(t *testing.T) {
+	contracttest.AssertGroupChildren(t,
+		func() facet.FacetImpl { return newCardFixture() },
+		func(facet.FacetImpl) {},
+	)
+}
+
+func TestCard_contract_accessible(t *testing.T) {
+	contracttest.AssertAccessible(t,
+		func(label string) facet.FacetImpl {
+			card := NewCard(label)
+			card.GridColumns = marks.Const(1)
+			card.GridRows = marks.Const(1)
+			return card
+		},
+		"group",
+	)
 }

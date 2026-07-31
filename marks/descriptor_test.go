@@ -60,18 +60,6 @@ func (f *fakeAccessibleMark) OnDeactivate()                    {}
 func (f *fakeAccessibleMark) AccessibilityRole() string        { return "button" }
 func (f *fakeAccessibleMark) AccessibleName() string           { return "test" }
 
-type fakeCompositeMark struct{ facet.Facet }
-
-func (f *fakeCompositeMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
-func (f *fakeCompositeMark) Descriptor() Descriptor {
-	return Descriptor{Family: "test", TypeName: "fakeComposite"}
-}
-func (f *fakeCompositeMark) OnAttach(ctx facet.AttachContext) {}
-func (f *fakeCompositeMark) OnDetach()                        {}
-func (f *fakeCompositeMark) OnActivate()                      {}
-func (f *fakeCompositeMark) OnDeactivate()                    {}
-func (f *fakeCompositeMark) ChildMarks() []Mark               { return nil }
-
 type fakeDataBoundMark struct{ facet.Facet }
 
 func (f *fakeDataBoundMark) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
@@ -112,7 +100,6 @@ func (f *fakeAllCapabilitiesMark) ExportAnchors(ctx layout.AnchorExportContext) 
 }
 func (f *fakeAllCapabilitiesMark) AccessibilityRole() string { return "button" }
 func (f *fakeAllCapabilitiesMark) AccessibleName() string    { return "all" }
-func (f *fakeAllCapabilitiesMark) ChildMarks() []Mark        { return nil }
 
 // --- Tests ---
 
@@ -133,9 +120,6 @@ func TestDescribe_plain_mark_has_no_capabilities(t *testing.T) {
 	}
 	if d.Accessible {
 		t.Fatal("expected Accessible = false")
-	}
-	if d.HostsChildren {
-		t.Fatal("expected HostsChildren = false")
 	}
 	if d.HitTestable {
 		t.Fatal("expected HitTestable = false")
@@ -169,14 +153,6 @@ func TestDescribe_accessible_flag(t *testing.T) {
 	}
 }
 
-func TestDescribe_composite_flag(t *testing.T) {
-	m := &fakeCompositeMark{Facet: facet.NewFacet()}
-	d := Describe(m)
-	if !d.HostsChildren {
-		t.Fatal("expected HostsChildren = true")
-	}
-}
-
 func TestDescribe_hit_testable_flag(t *testing.T) {
 	m := newFakeAllCapabilitiesMark()
 	facet.Attach(m, facet.AttachContext{})
@@ -206,9 +182,6 @@ func TestDescribe_all_capabilities(t *testing.T) {
 	}
 	if !d.Accessible {
 		t.Error("expected Accessible = true")
-	}
-	if !d.HostsChildren {
-		t.Error("expected HostsChildren = true")
 	}
 	if !d.HitTestable {
 		t.Error("expected HitTestable = true")
@@ -248,9 +221,6 @@ func TestDescribe_core_plain_mark_no_capabilities(t *testing.T) {
 	}
 	if d.Accessible {
 		t.Error("expected Accessible = false")
-	}
-	if d.HostsChildren {
-		t.Error("expected HostsChildren = false")
 	}
 	if d.HitTestable {
 		t.Error("expected HitTestable = false")
@@ -297,26 +267,6 @@ func TestDescribe_core_anchor_mark(t *testing.T) {
 	d := Describe(m)
 	if !d.ExportsAnchors {
 		t.Fatal("expected ExportsAnchors = true")
-	}
-}
-
-type coreCompositeMark struct{ Core }
-
-func (m *coreCompositeMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
-func (m *coreCompositeMark) Descriptor() Descriptor {
-	return Descriptor{Family: "core", TypeName: "composite"}
-}
-func (m *coreCompositeMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
-func (m *coreCompositeMark) OnDetach()                        { m.Core.OnDetach() }
-func (m *coreCompositeMark) OnActivate()                      { m.Core.OnActivate() }
-func (m *coreCompositeMark) OnDeactivate()                    { m.Core.OnDeactivate() }
-func (m *coreCompositeMark) ChildMarks() []Mark               { return nil }
-
-func TestDescribe_core_composite_mark(t *testing.T) {
-	m := &coreCompositeMark{}
-	d := Describe(m)
-	if !d.HostsChildren {
-		t.Fatal("expected HostsChildren = true")
 	}
 }
 
@@ -377,7 +327,6 @@ func (m *coreAllCapabilitiesMark) Focusable() bool                  { return tru
 func (m *coreAllCapabilitiesMark) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return nil
 }
-func (m *coreAllCapabilitiesMark) ChildMarks() []Mark { return nil }
 
 func TestDescribe_core_all_capabilities(t *testing.T) {
 	m := newCoreAllCapabilitiesMark()
@@ -387,9 +336,6 @@ func TestDescribe_core_all_capabilities(t *testing.T) {
 	}
 	if !d.ExportsAnchors {
 		t.Error("expected ExportsAnchors = true")
-	}
-	if !d.HostsChildren {
-		t.Error("expected HostsChildren = true")
 	}
 	if !d.HitTestable {
 		t.Error("expected HitTestable = true")

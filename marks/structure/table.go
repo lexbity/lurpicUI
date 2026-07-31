@@ -228,6 +228,14 @@ func (t *Table) AccessibilityRole() string { return "table" }
 // AccessibleName reports the semantic name source required by the spec.
 func (t *Table) AccessibleName() string { return strings.TrimSpace(t.Label.Get()) }
 
+// Focusable reports whether the table can receive keyboard focus.
+func (t *Table) Focusable() bool {
+	if t.Focus.Focusable == nil {
+		return false
+	}
+	return t.Focus.Focusable()
+}
+
 // Children returns the immediate child list.
 func (t *Table) Children() []facet.GroupChild {
 	if t == nil {

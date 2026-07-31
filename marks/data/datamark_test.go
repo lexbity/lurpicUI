@@ -6,7 +6,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -328,6 +330,99 @@ func TestDataMark_resize_updates_positions(t *testing.T) {
 	if pos != 400 {
 		t.Fatalf("after resize Map(50) = %f, want 400", pos)
 	}
+}
+
+// contractDataMark is a DataBound mark used for the AssertDataBound contract test.
+// It accepts a caller-supplied store and manages children via its own slice
+// (not through CollectionBinder/AddChildRuntime) to avoid the double-attach
+// that would occur if children were registered on the facet's child list before
+// facet.Attach completes.
+type contractDataMark struct {
+	facet.Facet
+	store    *store.CollectionStore[markItem]
+	factory  func(markItem) facet.FacetImpl
+	children []facet.FacetImpl
+	cleanups []func()
+}
+
+func newContractDataMark(s *store.CollectionStore[markItem]) *contractDataMark {
+	m := &contractDataMark{
+		Facet:   facet.NewFacet(),
+		store:   s,
+		factory: newMarkChild,
+	}
+	return m
+}
+
+func (m *contractDataMark) Base() *facet.Facet             { m.BindImpl(m); return &m.Facet }
+func (m *contractDataMark) BoundData() any                 { return m.store }
+func (m *contractDataMark) OnAttach(_ facet.AttachContext) { m.subscribe() }
+func (m *contractDataMark) OnDetach()                      { m.unsubscribe() }
+func (m *contractDataMark) OnActivate()                    {}
+func (m *contractDataMark) OnDeactivate()                  {}
+
+// Children satisfies contracttest.childrenProvider so AssertDataBound
+// can directly observe child facets.
+func (m *contractDataMark) Children() []facet.FacetImpl { return m.children }
+
+func (m *contractDataMark) subscribe() {
+	m.cleanups = append(m.cleanups,
+		m.store.OnInsertSubscribe(func(e store.CollectionInsertEvent[markItem]) {
+			m.rebuild()
+		}),
+		m.store.OnRemoveSubscribe(func(e store.CollectionRemoveEvent[markItem]) {
+			m.rebuild()
+		}),
+		m.store.OnUpdateSubscribe(func(e store.CollectionUpdateEvent[markItem]) {
+			m.rebuild()
+		}),
+		m.store.OnReplaceSubscribe(func(_ signal.Unit) {
+			m.rebuild()
+		}),
+	)
+	m.rebuild()
+}
+
+func (m *contractDataMark) unsubscribe() {
+	for _, c := range m.cleanups {
+		if c != nil {
+			c()
+		}
+	}
+	m.cleanups = nil
+	for _, child := range m.children {
+		facet.Dispose(child)
+	}
+	m.children = nil
+}
+
+func (m *contractDataMark) rebuild() {
+	for _, child := range m.children {
+		facet.Dispose(child)
+	}
+	items := m.store.All()
+	m.children = make([]facet.FacetImpl, 0, len(items))
+	for _, item := range items {
+		m.children = append(m.children, m.factory(item))
+	}
+}
+
+func TestDataMark_contract_databound(t *testing.T) {
+	contracttest.AssertDataBound[markItem](t,
+		func() *store.CollectionStore[markItem] {
+			return store.NewCollectionStore(markIdentify)
+		},
+		func(s *store.CollectionStore[markItem]) facet.FacetImpl {
+			return newContractDataMark(s)
+		},
+		func(s *store.CollectionStore[markItem]) {
+			s.Insert(markItem{id: 1, val: 10})
+			s.Insert(markItem{id: 2, val: 50})
+			s.Update(markItem{id: 1, val: 20})
+			s.Remove(2)
+			s.Replace([]markItem{{id: 3, val: 30}})
+		},
+	)
 }
 
 func TestDataMark_child_positions_update_on_data_change(t *testing.T) {

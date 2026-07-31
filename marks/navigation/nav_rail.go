@@ -152,6 +152,14 @@ func (r *NavRail) AccessibilityRole() string { return markTypeNavigation }
 // AccessibleName reports the semantic name source required by the spec.
 func (r *NavRail) AccessibleName() string { return r.Label.Get() }
 
+// Focusable reports whether the nav rail can receive keyboard focus.
+func (r *NavRail) Focusable() bool {
+	if r.Focus.Focusable == nil {
+		return false
+	}
+	return r.Focus.Focusable()
+}
+
 // SetItems updates the rail destinations.
 func (r *NavRail) SetItems(items []NavRailItem) {
 	if r == nil {

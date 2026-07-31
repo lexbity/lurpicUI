@@ -6,7 +6,6 @@ package marks
 type Descriptor struct {
 	Family         string
 	TypeName       string
-	HostsChildren  bool
 	Focusable      bool
 	ExportsAnchors bool
 	Accessible     bool
@@ -28,9 +27,6 @@ func Describe(m Mark) Descriptor {
 	}
 	if _, ok := m.(Accessible); ok {
 		d.Accessible = true
-	}
-	if _, ok := m.(Composite); ok {
-		d.HostsChildren = true
 	}
 	if _, ok := m.(DataBound); ok {
 		d.DataBound = true

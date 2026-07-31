@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -151,18 +152,76 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 
 func TestListStoreChangeInvalidatesStructure(t *testing.T) {
 	list := newListFixture()
+	rt := listRuntimeStub{
+		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
+		icons:           map[string]runtimepkg.IconAsset{},
+	}
+	ctx := listResolvedContext(theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
+	defer facet.Dispose(list)
+
+	// Confirm the facet-level subscription was registered via OnAttach.
+	if len(list.Base().SubscribedVersions()) == 0 {
+		t.Fatal("SubscribedVersions empty after Attach — facet.Store not called in OnAttach")
+	}
+
+	list.Base().ClearDirty(facet.DirtyAll)
 	oldVersion := list.Data.Version()
+	oldSV := list.Base().SubscribedVersions()
+
 	list.Data.Set([]ListEntry{
 		{Key: "a", Label: "test-item-1"},
 		{Key: "b", Label: "test-item-2"},
 		{Key: "c", Label: "test-item-3"},
 		{Key: "d", Label: "test-item-4"},
 	})
+
+	// (1) Store version advanced.
 	if got := list.Data.Version(); got == oldVersion {
 		t.Fatal("expected store version to change")
 	}
+
+	// (2) Facet dirty flags raised.
+	flags := list.Base().DirtyFlags()
+	if flags&facet.DirtyLayout == 0 || flags&facet.DirtyProjection == 0 || flags&facet.DirtyHit == 0 {
+		t.Fatalf("DirtyLayout|DirtyProjection|DirtyHit not raised after Data.Set (flags=%#v)", flags)
+	}
+
+	// (3) SubscribedVersions advanced (the facet.Store-managed slot).
+	newSV := list.Base().SubscribedVersions()
+	versionsAdvanced := false
+	for i, v := range oldSV {
+		if i < len(newSV) && newSV[i] > v {
+			versionsAdvanced = true
+			break
+		}
+	}
+	if !versionsAdvanced {
+		t.Fatal("expected at least one SubscribedVersion to advance after Data.Set")
+	}
+
+	// (4) Children rebuilt.
 	if len(list.Children()) != 1 {
 		t.Fatalf("expected scroll-region child, got %d", len(list.Children()))
+	}
+}
+
+func TestListConstructionDoesNotSubscribe(t *testing.T) {
+	list := NewList("test", []ListEntry{{Key: "k", Label: "v"}})
+	if len(list.Base().SubscribedVersions()) != 0 {
+		t.Fatal("List should not subscribe before Attach")
+	}
+
+	rt := listRuntimeStub{
+		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
+		icons:           map[string]runtimepkg.IconAsset{},
+	}
+	ctx := listResolvedContext(theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
+	defer facet.Dispose(list)
+
+	if len(list.Base().SubscribedVersions()) == 0 {
+		t.Fatal("List should subscribe after Attach")
 	}
 }
 
@@ -260,6 +319,56 @@ func listTokens() theme.Tokens {
 
 func highContrastListTokens() theme.Tokens {
 	return toThemeTokens(templates.UneNuit().Tokens)
+}
+
+func TestList_contract_anchor_export(t *testing.T) {
+	rt := listRuntimeStub{
+		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
+		icons:           map[string]runtimepkg.IconAsset{},
+	}
+	ctx := theme.DefaultResolvedContext()
+	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
+
+	contracttest.AssertAnchorExport(t,
+		func() facet.FacetImpl { return newListFixture() },
+		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
+			list := m.(*List)
+			list.Layout.Measure(facet.MeasureContext{
+				Runtime:          rt,
+				Theme:            ctx,
+				ContentScale:     1,
+				Density:          facet.DensityID(theme.DensityIDComfortable),
+				WritingDirection: facet.WritingDirectionLTR,
+			}, facet.Constraints{MaxSize: gfx.Size{W: b.Width(), H: b.Height()}})
+			list.Layout.Arrange(facet.ArrangeContext{
+				Runtime:     rt,
+				Theme:       ctx,
+				ParentGroup: list.Layout.Parent,
+				ChildGroup:  list.Layout.Child,
+			}, b)
+		},
+		bounds,
+		ctx,
+	)
+}
+
+func TestList_contract_group_children(t *testing.T) {
+	contracttest.AssertGroupChildren(t,
+		func() facet.FacetImpl { return newListFixture() },
+		func(facet.FacetImpl) {},
+	)
+}
+
+func TestList_contract_accessible(t *testing.T) {
+	contracttest.AssertAccessible(t,
+		func(label string) facet.FacetImpl {
+			return NewList(label, []ListEntry{
+				{Key: "one", Label: "Item one"},
+				{Key: "two", Label: "Item two"},
+			})
+		},
+		"list",
+	)
 }
 
 func listResolvedContext(tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) theme.ResolvedContext {

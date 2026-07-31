@@ -6,7 +6,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
@@ -20,19 +19,14 @@ import (
 )
 
 type tabsRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
 }
 
-func (s tabsRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s tabsRuntimeStub) CancelJob(id job.JobID) {}
-func (s tabsRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
-func (s tabsRuntimeStub) RootStyleContext() any { return s.rootStyle }
-func (s tabsRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
-	return nil
-}
-func (s tabsRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s tabsRuntimeStub) RootStyleContext() any                      { return s.rootStyle }
+func (s tabsRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl { return nil }
+func (s tabsRuntimeStub) FontRegistry() *text.FontRegistry           { return s.fonts }
 
 func TestTabsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	tabs, rt, measureCtx := newTabsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -392,4 +386,59 @@ func toThemeTokens(t templates.Tokens) theme.Tokens {
 	tokens.Radius.Full = t.Shape.RadiusFull
 
 	return tokens
+}
+
+func TestTabs_contract_anchor_export(t *testing.T) {
+	_, rt, resolved := newTabsTestFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
+
+	contracttest.AssertAnchorExport(t,
+		func() facet.FacetImpl {
+			t2, _, _ := newTabsTestFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+			return t2
+		},
+		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
+			t := m.(*Tabs)
+			t.Layout.Measure(facet.MeasureContext{
+				Runtime:          rt,
+				Theme:            resolved,
+				ContentScale:     1,
+				Density:          facet.DensityID(theme.DensityIDComfortable),
+				WritingDirection: facet.WritingDirectionLTR,
+			}, facet.Constraints{MaxSize: gfx.Size{W: b.Width(), H: b.Height()}})
+			t.Layout.Arrange(facet.ArrangeContext{
+				Runtime:     rt,
+				Theme:       resolved,
+				ParentGroup: t.Layout.Parent,
+				ChildGroup:  t.Layout.Child,
+			}, b)
+		},
+		bounds,
+		resolved,
+	)
+}
+
+func TestTabs_contract_accessible(t *testing.T) {
+	contracttest.AssertAccessible(t,
+		func(label string) facet.FacetImpl {
+			return NewTabs(label, []TabItem{
+				{Key: "a", Label: "A"},
+				{Key: "b", Label: "B"},
+			}, store.NewValueStore(0))
+		},
+		"tablist",
+	)
+}
+
+func TestTabs_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t,
+		func(disabled bool) facet.FacetImpl {
+			tabs := NewTabs("test", []TabItem{
+				{Key: "a", Label: "A"},
+				{Key: "b", Label: "B"},
+			}, store.NewValueStore(0))
+			tabs.Disabled = marks.Const(disabled)
+			return tabs
+		},
+	)
 }

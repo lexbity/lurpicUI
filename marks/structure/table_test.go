@@ -193,18 +193,73 @@ func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 
 func TestTableStoreChangeInvalidatesStructure(t *testing.T) {
 	table := newTableFixture()
+	fonts := testkit.TestFontRegistry(t)
+	rt := cardRuntimeStub{fonts: fonts}
+	facet.Attach(table, facet.AttachContext{Runtime: rt})
+	defer facet.Dispose(table)
+
+	table.Base().ClearDirty(facet.DirtyAll)
 	oldVersion := table.Data.Version()
+
 	data := table.Data.Get()
 	data.Rows = []TableRow{
 		{Key: "row-1", Cells: []string{"A", "B", "C", "D"}},
 		{Key: "row-2", Cells: []string{"E", "F", "G", "H"}},
 	}
 	table.Data.Set(data)
+
+	// (1) Store version advanced.
 	if got := table.Data.Version(); got == oldVersion {
 		t.Fatal("expected store version to change")
 	}
+
+	// (2) Facet dirty flags raised.
+	flags := table.Base().DirtyFlags()
+	if flags&facet.DirtyLayout == 0 || flags&facet.DirtyProjection == 0 || flags&facet.DirtyHit == 0 {
+		t.Fatalf("DirtyLayout|DirtyProjection|DirtyHit not raised after Data.Set (flags=%#v)", flags)
+	}
+
+	// (3) Children rebuilt.
 	if len(table.Children()) == 0 {
 		t.Fatal("expected generated children after update")
+	}
+}
+
+func TestTableSubscriptionSelectionInvalidates(t *testing.T) {
+	table := newTableFixture()
+	fonts := testkit.TestFontRegistry(t)
+	rt := cardRuntimeStub{fonts: fonts}
+	facet.Attach(table, facet.AttachContext{Runtime: rt})
+	defer facet.Dispose(table)
+
+	// The Selection subscription via facet.Store in OnAttach should
+	// register a version slot.
+	if len(table.Base().SubscribedVersions()) == 0 {
+		t.Fatal("SubscribedVersions empty after Attach — facet.Store not called in OnAttach")
+	}
+
+	table.Base().ClearDirty(facet.DirtyAll)
+	oldSV := table.Base().SubscribedVersions()
+
+	table.Selection.Set("row-3")
+
+	// (1) Facet dirty flags raised.
+	flags := table.Base().DirtyFlags()
+	if flags&facet.DirtyLayout == 0 || flags&facet.DirtyProjection == 0 || flags&facet.DirtyHit == 0 {
+		t.Fatalf("DirtyLayout|DirtyProjection|DirtyHit not raised after Selection.Set (flags=%#v)", flags)
+	}
+
+	// (2) SubscribedVersions advanced (facet.Store-managed slot).
+	newSV := table.Base().SubscribedVersions()
+	versionsAdvanced := false
+	for i, v := range oldSV {
+		if i < len(newSV) && newSV[i] > v {
+			versionsAdvanced = true
+			break
+		}
+	}
+	if !versionsAdvanced {
+		t.Fatal("expected at least one SubscribedVersion to advance after Selection.Set")
 	}
 }
 
@@ -351,6 +406,35 @@ func tableChildBounds(table *Table, key string) (gfx.Rect, bool) {
 	return gfx.Rect{}, false
 }
 
+func TestTable_contract_anchor_export(t *testing.T) {
+	fonts := testkit.TestFontRegistry(t)
+	rt := cardRuntimeStub{fonts: fonts}
+	ctx := theme.DefaultResolvedContext()
+	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
+
+	contracttest.AssertAnchorExport(t,
+		func() facet.FacetImpl { return newTableFixture() },
+		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
+			t := m.(*Table)
+			t.Layout.Measure(facet.MeasureContext{
+				Runtime:          rt,
+				Theme:            ctx,
+				ContentScale:     1,
+				Density:          facet.DensityID(theme.DensityIDComfortable),
+				WritingDirection: facet.WritingDirectionLTR,
+			}, facet.Constraints{MaxSize: gfx.Size{W: b.Width(), H: b.Height()}})
+			t.Layout.Arrange(facet.ArrangeContext{
+				Runtime:     rt,
+				Theme:       ctx,
+				ParentGroup: t.Layout.Parent,
+				ChildGroup:  t.Layout.Child,
+			}, b)
+		},
+		bounds,
+		ctx,
+	)
+}
+
 func TestTableSelectionSurvivesDispose(t *testing.T) {
 	contracttest.AssertValueSurvivesDispose[string](
 		t,
@@ -363,6 +447,42 @@ func TestTableSelectionSurvivesDispose(t *testing.T) {
 		},
 		func(m facet.FacetImpl) {
 			m.(*Table).Selection.Set("r1")
+		},
+	)
+}
+
+func TestTable_contract_group_children(t *testing.T) {
+	contracttest.AssertGroupChildren(t,
+		func() facet.FacetImpl { return newTableFixture() },
+		func(facet.FacetImpl) {},
+	)
+}
+
+func TestTable_contract_accessible(t *testing.T) {
+	contracttest.AssertAccessible(t,
+		func(label string) facet.FacetImpl {
+			return NewTable(label, TableData{
+				Columns:        []TableColumn{{Key: "id", Label: "ID"}},
+				Rows:           []TableRow{{Key: "r1", Cells: []string{"v1"}}},
+				SortColumnKey:  "id",
+				SortDescending: false,
+			}, store.NewValueStore(""))
+		},
+		"table",
+	)
+}
+
+func TestTable_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t,
+		func(disabled bool) facet.FacetImpl {
+			t := NewTable("test", TableData{
+				Columns:        []TableColumn{{Key: "id", Label: "ID"}},
+				Rows:           []TableRow{{Key: "r1", Cells: []string{"v1"}}},
+				SortColumnKey:  "id",
+				SortDescending: false,
+			}, store.NewValueStore(""))
+			t.Disabled = marks.Const(disabled)
+			return t
 		},
 	)
 }

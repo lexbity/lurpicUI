@@ -2,7 +2,6 @@ package structure
 
 import (
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 
@@ -53,8 +52,6 @@ type List struct {
 	ItemVariant   marks.Binding[uiinput.ListItemVariant]
 	Data          *store.ValueStore[[]ListEntry]
 	scrollRegion  *ScrollRegion
-
-	cachedDataSub signal.SubscriptionID
 
 	textRole facet.TextRole
 
@@ -144,11 +141,6 @@ func NewList(label string, entries []ListEntry) *List {
 	l.textRole.IMEEnabled = false
 	l.RegisterRoles()
 	l.AddRole(&l.textRole)
-	if l.Data != nil {
-		l.cachedDataSub = l.Data.OnChange.Subscribe(func(_ signal.Change[[]ListEntry]) {
-			l.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		})
-	}
 	l.syncChildren()
 	return l
 }
@@ -218,16 +210,20 @@ func (l *List) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return out
 }
 
-func (l *List) OnAttach(ctx facet.AttachContext) { l.Core.OnAttach() }
-func (l *List) OnActivate()                      { l.Core.OnActivate() }
-func (l *List) OnDeactivate()                    { l.Core.OnDeactivate() }
+func (l *List) OnAttach(ctx facet.AttachContext) {
+	l.Core.OnAttach()
+	if l.Data != nil {
+		facet.Store(facet.Subscribe(l), &l.Data.OnChange, l.Data.Version, func(_ signal.Change[[]ListEntry]) {
+			l.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		})
+	}
+}
+func (l *List) OnActivate()   { l.Core.OnActivate() }
+func (l *List) OnDeactivate() { l.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (l *List) OnDetach() {
 	l.Core.OnDetach()
-	if l.Data != nil && l.cachedDataSub != 0 {
-		l.Data.OnChange.Unsubscribe(l.cachedDataSub)
-	}
 	if l.scrollRegion != nil {
 		l.scrollRegion.OnDetach()
 	}
@@ -243,7 +239,6 @@ func (l *List) OnDetach() {
 	l.cachedRows = nil
 	l.cachedHeaderMark = nil
 	l.cachedEmptyMark = nil
-	l.cachedDataSub = 0
 }
 
 func (l *List) invalidate(flags facet.DirtyFlags) {
@@ -421,8 +416,12 @@ func (l *List) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	l.scrollRegion.arrange(ctx, bounds)
 	if l.scrollRegion != nil {
-		l.cachedHeaderBounds = l.scrollRegion.childBoundsForProjection(childFacetID(l.cachedHeaderMark))
-		l.cachedEmptyBounds = l.scrollRegion.childBoundsForProjection(childFacetID(l.cachedEmptyMark))
+		if l.cachedHeaderMark != nil {
+			l.cachedHeaderBounds = l.scrollRegion.childBoundsForProjection(childFacetID(l.cachedHeaderMark))
+		}
+		if l.cachedEmptyMark != nil {
+			l.cachedEmptyBounds = l.scrollRegion.childBoundsForProjection(childFacetID(l.cachedEmptyMark))
+		}
 		for key, row := range l.cachedRows {
 			if row == nil {
 				continue
@@ -509,10 +508,6 @@ func listGroupChild(base *facet.Facet, markID facet.MarkID, order int) facet.Gro
 
 func childFacetID(mark facet.FacetImpl) facet.FacetID {
 	if mark == nil {
-		return 0
-	}
-	value := reflect.ValueOf(mark)
-	if value.Kind() == reflect.Pointer && value.IsNil() {
 		return 0
 	}
 	base := mark.Base()

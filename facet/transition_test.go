@@ -75,6 +75,27 @@ func TestTransition_impl_nil_base_panics(t *testing.T) {
 	})
 }
 
+func TestIsDisposed_falseBeforeDispose_trueAfter(t *testing.T) {
+	f := newTestFacet()
+	if f.IsDisposed() {
+		t.Fatal("IsDisposed should be false before dispose")
+	}
+	Attach(f, AttachContext{})
+	Activate(f)
+	Deactivate(f)
+	Dispose(f)
+	if !f.IsDisposed() {
+		t.Fatal("IsDisposed should be true after dispose")
+	}
+}
+
+func TestIsDisposed_falseOnCreatedFacet(t *testing.T) {
+	f := newTestFacet()
+	if f.IsDisposed() {
+		t.Fatal("IsDisposed should be false on a freshly created facet")
+	}
+}
+
 func TestTransition_require_state_panics(t *testing.T) {
 	f := newTestFacet()
 	// requireState is called internally by Attach. After Dispose,

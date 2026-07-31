@@ -163,6 +163,14 @@ func (t *Tabs) AccessibilityRole() string { return "tablist" }
 // AccessibleName reports the semantic name source required by the spec.
 func (t *Tabs) AccessibleName() string { return t.Label.Get() }
 
+// Focusable reports whether the tabs can receive keyboard focus.
+func (t *Tabs) Focusable() bool {
+	if t.Focus.Focusable == nil {
+		return false
+	}
+	return t.Focus.Focusable()
+}
+
 // SetItems updates the tab item list.
 func (t *Tabs) SetItems(items []TabItem) {
 	if t == nil {

@@ -376,6 +376,20 @@ lurpic_add_go_test_target(
   ARGS -run ^$ -bench . -benchmem -count=1
 )
 
+add_custom_target(perf-marks-catalog
+  COMMAND ${CMAKE_COMMAND} -E env bash scripts/perf-diff.sh
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Run marks-catalog benchmarks and compare against baseline"
+  VERBATIM
+)
+
+add_custom_target(perf-rebaseline
+  COMMAND ${CMAKE_COMMAND} -E env bash scripts/perf-diff.sh --rebaseline
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Rebaseline marks-catalog benchmark results"
+  VERBATIM
+)
+
 lurpic_add_go_test_target(
   NAME golden-verify
   DESCRIPTION "Go golden verification suite"

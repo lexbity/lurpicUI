@@ -6,7 +6,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
@@ -19,19 +18,14 @@ import (
 )
 
 type breadcrumbRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
 }
 
-func (s breadcrumbRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s breadcrumbRuntimeStub) CancelJob(id job.JobID) {}
-func (s breadcrumbRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
-func (s breadcrumbRuntimeStub) RootStyleContext() any { return s.rootStyle }
-func (s breadcrumbRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
-	return nil
-}
-func (s breadcrumbRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s breadcrumbRuntimeStub) RootStyleContext() any                      { return s.rootStyle }
+func (s breadcrumbRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl { return nil }
+func (s breadcrumbRuntimeStub) FontRegistry() *text.FontRegistry           { return s.fonts }
 
 func TestBreadcrumbsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	bc, rt, measureCtx := newBreadcrumbsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -312,4 +306,46 @@ func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.
 	})-1))
 	rt := breadcrumbRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return bc, rt, resolved
+}
+
+func TestBreadcrumbs_contract_anchor_export(t *testing.T) {
+	_, rt, resolved := newBreadcrumbsTestFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
+
+	contracttest.AssertAnchorExport(t,
+		func() facet.FacetImpl {
+			b, _, _ := newBreadcrumbsTestFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+			return b
+		},
+		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
+			bc := m.(*Breadcrumbs)
+			bc.Layout.Measure(facet.MeasureContext{
+				Runtime:          rt,
+				Theme:            resolved,
+				ContentScale:     1,
+				Density:          facet.DensityID(theme.DensityIDComfortable),
+				WritingDirection: facet.WritingDirectionLTR,
+			}, facet.Constraints{MaxSize: gfx.Size{W: b.Width(), H: b.Height()}})
+			bc.Layout.Arrange(facet.ArrangeContext{
+				Runtime:     rt,
+				Theme:       resolved,
+				ParentGroup: bc.Layout.Parent,
+				ChildGroup:  bc.Layout.Child,
+			}, b)
+		},
+		bounds,
+		resolved,
+	)
+}
+
+func TestBreadcrumbs_contract_accessible(t *testing.T) {
+	contracttest.AssertAccessible(t,
+		func(label string) facet.FacetImpl {
+			return NewBreadcrumbs(label, []BreadcrumbItem{
+				{Label: "Step 1"},
+				{Label: "Step 2"},
+			}, store.NewValueStore(1))
+		},
+		"navigation",
+	)
 }

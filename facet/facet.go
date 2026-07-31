@@ -47,6 +47,11 @@ func (f *Facet) State() LifecycleState {
 	return f.state
 }
 
+// IsDisposed reports whether the facet has been disposed.
+func (f *Facet) IsDisposed() bool {
+	return f.state == StateDisposed
+}
+
 // Parent returns the parent facet, if any.
 func (f *Facet) Parent() *Facet {
 	return f.parent
