@@ -146,7 +146,20 @@ func Run(ctx *Context, registry *Registry, cfg RunConfig) []*diag.Diagnostic {
 			continue
 		}
 
-		diags := rule.Check(ctx)
+		// A panicking rule must not red-ray the entire run: recover and
+		// surface a single error-severity diagnostic for the offending rule.
+		diags := func() (ruleDiags []*diag.Diagnostic) {
+			defer func() {
+				if rec := recover(); rec != nil {
+					ruleDiags = []*diag.Diagnostic{{
+						RuleID:   id,
+						Severity: diag.SeverityError,
+						Message:  fmt.Sprintf("rule %s panicked during check: %v", id, rec),
+					}}
+				}
+			}()
+			return rule.Check(ctx)
+		}()
 
 		// Apply severity overrides.
 		if override, ok := cfg.SeverityOverrides[id]; ok {

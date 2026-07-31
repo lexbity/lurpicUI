@@ -445,3 +445,84 @@ func TestPosition(t *testing.T) {
 		t.Errorf("expected filename test.go, got %s", pos.Filename)
 	}
 }
+
+// --- CallFuncName tests -----------------------------------------------------
+
+func firstCall(t *testing.T, f *ast.File) *ast.CallExpr {
+	t.Helper()
+	var found *ast.CallExpr
+	ast.Inspect(f, func(n ast.Node) bool {
+		if found != nil {
+			return false
+		}
+		if call, ok := n.(*ast.CallExpr); ok {
+			found = call
+			return false
+		}
+		return true
+	})
+	if found == nil {
+		t.Fatal("no call expression found")
+	}
+	return found
+}
+
+func TestCallFuncName_BareIdent(t *testing.T) {
+	src := `package p; func f() { fn() }`
+	_, f := parseSrc(t, src)
+	call := firstCall(t, f)
+	if got := CallFuncName(call); got != "fn" {
+		t.Errorf("CallFuncName = %q, want %q", got, "fn")
+	}
+}
+
+func TestCallFuncName_Selector(t *testing.T) {
+	src := `package p; func f() { pkg.Fn() }`
+	_, f := parseSrc(t, src)
+	call := firstCall(t, f)
+	if got := CallFuncName(call); got != "pkg.Fn" {
+		t.Errorf("CallFuncName = %q, want %q", got, "pkg.Fn")
+	}
+}
+
+func TestCallFuncName_Generic(t *testing.T) {
+	src := `package p; func f() { pkg.Fn[int]() }`
+	_, f := parseSrc(t, src)
+	call := firstCall(t, f)
+	if got := CallFuncName(call); got != "pkg.Fn" {
+		t.Errorf("CallFuncName = %q, want %q", got, "pkg.Fn")
+	}
+}
+
+func TestCallFuncName_MultiGeneric(t *testing.T) {
+	src := `package p; func f() { pkg.Fn[int, string]() }`
+	_, f := parseSrc(t, src)
+	call := firstCall(t, f)
+	if got := CallFuncName(call); got != "pkg.Fn" {
+		t.Errorf("CallFuncName = %q, want %q", got, "pkg.Fn")
+	}
+}
+
+func TestCallFuncName_ChainedSelector(t *testing.T) {
+	src := `package p; func f() { a.b.c.Fn() }`
+	_, f := parseSrc(t, src)
+	call := firstCall(t, f)
+	if got := CallFuncName(call); got != "a.b.c.Fn" {
+		t.Errorf("CallFuncName = %q, want %q", got, "a.b.c.Fn")
+	}
+}
+
+func TestCallFuncName_GenericBareIdent(t *testing.T) {
+	src := `package p; func f() { Fn[int]() }`
+	_, f := parseSrc(t, src)
+	call := firstCall(t, f)
+	if got := CallFuncName(call); got != "Fn" {
+		t.Errorf("CallFuncName = %q, want %q", got, "Fn")
+	}
+}
+
+func TestCallFuncName_Nil(t *testing.T) {
+	if got := CallFuncName(nil); got != "" {
+		t.Errorf("CallFuncName(nil) = %q, want %q", got, "")
+	}
+}

@@ -123,7 +123,8 @@ type MenuButton struct {
 	cachedMenuMeasuredW      float32
 	cachedMenuMeasuredH      float32
 
-	surfaceChild *menuButtonSurfaceChild
+	surfaceChild  *menuButtonSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 type menuButtonEntryLayout struct {
@@ -317,7 +318,7 @@ func (m *MenuButton) Children() []facet.GroupChild {
 	return []facet.GroupChild{{
 		FacetID: m.surfaceChild.Facet.ID(),
 		MarkID:  menuButtonMarkIDSurface,
-		Layout:  m.surfaceChild.Facet.LayoutRole(),
+		Layout:  &m.surfaceLayout,
 	}}
 }
 

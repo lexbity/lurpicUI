@@ -26,6 +26,7 @@ const (
 )
 
 // Switch implements the selection.switch standard mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type Switch struct {
 	marks.Core
 

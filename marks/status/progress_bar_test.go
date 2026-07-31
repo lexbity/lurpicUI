@@ -43,8 +43,8 @@ func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if got := bar.AccessibilityRole(); got != "progressbar" {
 		t.Fatalf("accessibility role = %q, want progressbar", got)
 	}
-	if got := bar.AccessibleName(); got != "" {
-		t.Fatalf("accessible name = %q, want empty", got)
+	if got := bar.AccessibleName(); got != "Uploading files" {
+		t.Fatalf("accessible name = %q, want %q", got, "Uploading files")
 	}
 	if bar.cachedTrackBounds.IsEmpty() || bar.cachedIndicatorBounds.IsEmpty() || bar.cachedLabelBounds.IsEmpty() {
 		t.Fatalf("expected arranged geometry, got track=%#v indicator=%#v label=%#v", bar.cachedTrackBounds, bar.cachedIndicatorBounds, bar.cachedLabelBounds)

@@ -168,6 +168,15 @@ linters:
         path: 'platform/android/audio/aaudio_unavailable\.go'
         text: "^directive.*is unused for linter"
 
+      # lurpiclint contract rules (LL029–LL033) use //nolint:LL0xx directives
+      # whose rule IDs golangci does not know.  gofmt normalises these
+      # standalone directives to "// nolint:LL0xx" (with a space), which
+      # nolintlint would then ask to re-collapse.  They are lurpiclint
+      # directives, not golangci ones, so the gofmt normalised space form is
+      # accepted as-is.
+      - linters: [nolintlint]
+        text: '^directive .* should be written without leading space as `//nolint:LL0'
+
       # staticcheck: remaining pre-existing staticcheck findings that were
       # not auto-fixed (SA, S, ST, QF families).
       # Burn-down tracked in FOLLOW.

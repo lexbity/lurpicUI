@@ -105,7 +105,12 @@ func (p *ProgressBar) Descriptor() marks.Descriptor {
 func (p *ProgressBar) AccessibilityRole() string { return "progressbar" }
 
 // AccessibleName reports the semantic name source required by the spec.
-func (p *ProgressBar) AccessibleName() string { return "" }
+func (p *ProgressBar) AccessibleName() string {
+	if p == nil {
+		return ""
+	}
+	return strings.TrimSpace(p.Label.Get())
+}
 
 // ExportAnchors publishes the progress-bar anchor set.
 func (p *ProgressBar) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {

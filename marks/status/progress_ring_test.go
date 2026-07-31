@@ -43,8 +43,8 @@ func TestProgressRingMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if got := ring.AccessibilityRole(); got != "progressbar" {
 		t.Fatalf("accessibility role = %q, want progressbar", got)
 	}
-	if got := ring.AccessibleName(); got != "" {
-		t.Fatalf("accessible name = %q, want empty", got)
+	if got := ring.AccessibleName(); got != "Syncing data" {
+		t.Fatalf("accessible name = %q, want %q", got, "Syncing data")
 	}
 	if ring.cachedTrackBounds.IsEmpty() || ring.cachedIndicatorBounds.IsEmpty() {
 		t.Fatalf("expected arranged geometry, got track=%#v indicator=%#v", ring.cachedTrackBounds, ring.cachedIndicatorBounds)

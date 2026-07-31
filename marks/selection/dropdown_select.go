@@ -62,7 +62,8 @@ type DropdownSelect struct {
 
 	textRole facet.TextRole
 
-	listboxFacet *listboxChild
+	listboxFacet  *listboxChild
+	surfaceLayout facet.LayoutRole
 
 	hovered          bool
 	pressed          bool
@@ -217,7 +218,7 @@ func (ds *DropdownSelect) Children() []facet.GroupChild {
 	return []facet.GroupChild{{
 		FacetID: ds.listboxFacet.Facet.ID(),
 		MarkID:  dropdownSelectMarkIDFloatingListbox,
-		Layout:  ds.listboxFacet.Facet.LayoutRole(),
+		Layout:  &ds.surfaceLayout,
 	}}
 }
 

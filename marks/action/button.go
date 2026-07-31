@@ -27,6 +27,7 @@ const (
 )
 
 // Button implements the action.button standard mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type Button struct {
 	marks.Core
 

@@ -50,6 +50,7 @@ func (s CheckboxState) String() string {
 }
 
 // Checkbox implements the selection.checkbox standard mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type Checkbox struct {
 	marks.Core
 

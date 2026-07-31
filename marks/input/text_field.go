@@ -39,6 +39,7 @@ const (
 )
 
 // TextField implements the input.text_field standard mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type TextField struct {
 	marks.Core
 

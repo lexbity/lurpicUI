@@ -45,6 +45,7 @@ const (
 )
 
 // NumberField implements the input.number_field standard mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type NumberField struct {
 	marks.Core
 

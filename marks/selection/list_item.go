@@ -30,6 +30,7 @@ const (
 )
 
 // ListItem implements the selection.list_item canonical mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type ListItem struct {
 	marks.Core
 

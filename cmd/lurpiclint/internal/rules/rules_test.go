@@ -220,6 +220,50 @@ func TestRun_SeverityOff(t *testing.T) {
 	}
 }
 
+// PanicRule is a test-only rule that panics during Check.  Used to verify
+// that Run recovers and reports an error diagnostic instead of crashing.
+type PanicRule struct{}
+
+func (r *PanicRule) ID() string                     { return "_panic" }
+func (r *PanicRule) DefaultSeverity() diag.Severity { return diag.SeverityError }
+func (r *PanicRule) Description() string            { return "panic: always panics (test only)" }
+
+func (r *PanicRule) Check(ctx *Context) []*diag.Diagnostic {
+	panic("intentional test panic")
+}
+
+func TestRun_PanickingRule(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register(&PanicRule{})
+
+	dir := testdataDir(t)
+	result, err := loader.Load([]string{dir}, loader.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx := &Context{
+		Files: result.Files,
+		Pkgs:  result.Packages,
+		Fset:  result.Fset,
+	}
+
+	diags := Run(ctx, reg, RunConfig{})
+	if len(diags) != 1 {
+		t.Fatalf("expected 1 diagnostic from panicking rule, got %d", len(diags))
+	}
+	d := diags[0]
+	if d.RuleID != "_panic" {
+		t.Errorf("diagnostic RuleID = %q, want %q", d.RuleID, "_panic")
+	}
+	if d.Severity != diag.SeverityError {
+		t.Errorf("diagnostic Severity = %s, want error", d.Severity)
+	}
+	if !strings.Contains(d.Message, "panicked") {
+		t.Errorf("diagnostic Message = %q, want it to mention panic", d.Message)
+	}
+}
+
 func TestRun_DiagnosticsAreSorted(t *testing.T) {
 	reg := NewRegistry()
 	reg.Register(&ProbeRule{})
@@ -302,6 +346,11 @@ func TestAllRules_RegisteredInDefaultRegistry(t *testing.T) {
 		{"LL026", diag.SeverityError},
 		{"LL027", diag.SeverityError},
 		{"LL028", diag.SeverityWarn},
+		{"LL029", diag.SeverityWarn},
+		{"LL030", diag.SeverityWarn},
+		{"LL031", diag.SeverityWarn},
+		{"LL032", diag.SeverityWarn},
+		{"LL033", diag.SeverityWarn},
 		{"LL010", diag.SeverityError},
 		{"LL011", diag.SeverityError},
 		{"LL012", diag.SeverityWarn},
@@ -356,7 +405,27 @@ func ruleTestdataDir(tb testing.TB, elem ...string) string {
 // runs the named rule from DefaultRegistry.  It returns the diagnostics.
 func runRuleOnFixture(tb testing.TB, ruleID string, dir string) []*diag.Diagnostic {
 	tb.Helper()
-	result, err := loader.Load([]string{dir}, loader.Config{})
+	ctx := fixtureContext(tb, dir)
+	return Run(ctx, DefaultRegistry, RunConfig{
+		EnabledIDs: []string{ruleID},
+	})
+}
+
+// fixtureContext loads a fixture directory and builds a Context for running
+// rules.  When the fixture includes framework packages (files under marks/ or
+// layout/), the capability index is populated via capindex.Scan so rules that
+// consume ctx.Index (LL029–LL033 and LL004's shape-match) exercise the real
+// capindex path, and _test.go files are loaded so contract rules can detect
+// contracttest helper invocations.  For non-framework fixtures the Index stays
+// nil and rules that require it report the "capindex not populated"
+// diagnostic.
+func fixtureContext(tb testing.TB, dir string) *Context {
+	tb.Helper()
+	cfg := loader.Config{}
+	if isFrameworkPath(filepath.ToSlash(dir)) {
+		cfg.IncludeTests = true
+	}
+	result, err := loader.Load([]string{dir}, cfg)
 	if err != nil {
 		tb.Fatalf("loading %s: %v", dir, err)
 	}
@@ -365,9 +434,89 @@ func runRuleOnFixture(tb testing.TB, ruleID string, dir string) []*diag.Diagnost
 		Pkgs:  result.Packages,
 		Fset:  result.Fset,
 	}
-	return Run(ctx, DefaultRegistry, RunConfig{
-		EnabledIDs: []string{ruleID},
-	})
+	if fixtureIncludesFramework(result.Files) {
+		caps := capindex.Scan(result, capindex.ScanConfig{
+			ModulePath: "codeburg.org/lexbit/lurpicui",
+			ModuleRoot: testRepoRoot(tb),
+		})
+		if len(caps) > 0 {
+			ctx.Index = caps
+		}
+	}
+	return ctx
+}
+
+// isFrameworkPath reports whether a slash-separated path lives under a marks/
+// or layout/ directory tree — the only locations where capindex.Scan produces
+// a meaningful capability index.
+func isFrameworkPath(clean string) bool {
+	return strings.Contains(clean, "/marks/") || strings.HasPrefix(clean, "marks/") ||
+		strings.Contains(clean, "/layout/") || strings.HasPrefix(clean, "layout/")
+}
+
+// fixtureIncludesFramework reports whether any loaded file lives under a
+// marks/ or layout/ directory tree.
+func fixtureIncludesFramework(files []*loader.ParsedFile) bool {
+	for _, f := range files {
+		if isFrameworkPath(filepath.ToSlash(f.Path)) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestFixtureIncludesFramework_UnderMarks(t *testing.T) {
+	files := []*loader.ParsedFile{
+		{Path: "/repo/marks/structure/table.go"},
+		{Path: "/repo/cmd/rules/testdata/marks/viz/ll025_bad/x.go"},
+	}
+	if !fixtureIncludesFramework(files) {
+		t.Error("fixtureIncludesFramework should be true for files under marks/")
+	}
+}
+
+func TestFixtureIncludesFramework_UnderLayout(t *testing.T) {
+	files := []*loader.ParsedFile{
+		{Path: "/repo/layout/containers.go"},
+	}
+	if !fixtureIncludesFramework(files) {
+		t.Error("fixtureIncludesFramework should be true for files under layout/")
+	}
+}
+
+func TestFixtureIncludesFramework_NotFramework(t *testing.T) {
+	files := []*loader.ParsedFile{
+		{Path: "/repo/cmd/rules/testdata/suggest/ll004_scalar_bad/x.go"},
+		{Path: "/repo/cmd/rules/testdata/contract_helpers/helpers_hasmeth/mark.go"},
+	}
+	if fixtureIncludesFramework(files) {
+		t.Error("fixtureIncludesFramework should be false for non-framework fixtures")
+	}
+}
+
+func TestFixtureContext_PopulatesIndexForFrameworkFixture(t *testing.T) {
+	// ll025_bad lives under testdata/.../marks/viz, so the harness must
+	// populate ctx.Index with the scanned capability index.
+	dir := ruleTestdataDir(t, "contract", "ll025_bad", "marks", "viz")
+	ctx := fixtureContext(t, dir)
+	if ctx.Index == nil {
+		t.Fatal("fixtureContext should populate Index for a marks/ fixture")
+	}
+	caps, ok := ctx.Index.([]capindex.Capability)
+	if !ok {
+		t.Fatalf("Index type = %T, want []capindex.Capability", ctx.Index)
+	}
+	if len(caps) == 0 {
+		t.Fatal("expected non-empty capability index for marks/viz fixture")
+	}
+}
+
+func TestFixtureContext_LeavesIndexNilForNonFrameworkFixture(t *testing.T) {
+	dir := ruleTestdataDir(t, "suggest", "ll004_scalar_good")
+	ctx := fixtureContext(t, dir)
+	if ctx.Index != nil {
+		t.Fatalf("fixtureContext should leave Index nil for non-framework fixture, got %T", ctx.Index)
+	}
 }
 
 // goldenFixture holds the fields we check in a golden-file comparison.
@@ -443,15 +592,7 @@ func compareAgainstGolden(tb testing.TB, diags []*diag.Diagnostic, goldenFile st
 // runs the named rules from DefaultRegistry.  It returns the diagnostics.
 func runRulesOnFixture(tb testing.TB, ruleIDs []string, dir string) []*diag.Diagnostic {
 	tb.Helper()
-	result, err := loader.Load([]string{dir}, loader.Config{})
-	if err != nil {
-		tb.Fatalf("loading %s: %v", dir, err)
-	}
-	ctx := &Context{
-		Files: result.Files,
-		Pkgs:  result.Packages,
-		Fset:  result.Fset,
-	}
+	ctx := fixtureContext(tb, dir)
 	return Run(ctx, DefaultRegistry, RunConfig{
 		EnabledIDs: ruleIDs,
 	})
@@ -1137,6 +1278,8 @@ func TestLL028_RegisteredInDefaultRegistry(t *testing.T) {
 	}
 }
 
+// Contract-rule tests (LL029–LL033) live in contract_rules_test.go.
+
 // --- LL010 tests ------------------------------------------------------------
 
 func TestLL010_OnBadFixture(t *testing.T) {
@@ -1241,7 +1384,9 @@ func TestLL011_Demo_OnGoodFixture(t *testing.T) {
 
 // runRulesOnFixtureWithIndex is like runRulesOnFixture but also builds and
 // injects the capability index (needed by LL004).
-func runRulesOnFixtureWithIndex(tb testing.TB, ruleIDs []string, dir string) []*diag.Diagnostic {
+// fixtureContextWithIndex loads a fixture directory and injects the capability
+// index scanned from the real framework packages (marks/, layout/, facet).
+func fixtureContextWithIndex(tb testing.TB, dir string) *Context {
 	tb.Helper()
 	result, err := loader.Load([]string{dir}, loader.Config{})
 	if err != nil {
@@ -1260,12 +1405,17 @@ func runRulesOnFixtureWithIndex(tb testing.TB, ruleIDs []string, dir string) []*
 		ModulePath: "codeburg.org/lexbit/lurpicui",
 		ModuleRoot: root,
 	})
-	ctx := &Context{
+	return &Context{
 		Files: result.Files,
 		Pkgs:  result.Packages,
 		Fset:  result.Fset,
 		Index: caps,
 	}
+}
+
+func runRulesOnFixtureWithIndex(tb testing.TB, ruleIDs []string, dir string) []*diag.Diagnostic {
+	tb.Helper()
+	ctx := fixtureContextWithIndex(tb, dir)
 	return Run(ctx, DefaultRegistry, RunConfig{
 		EnabledIDs: ruleIDs,
 	})
@@ -1276,36 +1426,14 @@ func runRulesOnFixtureWithIndex(tb testing.TB, ruleIDs []string, dir string) []*
 // matching the full pipeline that main.go runs.
 func runRulesOnFixtureWithIndexAndIgnore(tb testing.TB, ruleIDs []string, dir string) []*diag.Diagnostic {
 	tb.Helper()
-	result, err := loader.Load([]string{dir}, loader.Config{})
-	if err != nil {
-		tb.Fatalf("loading %s: %v", dir, err)
-	}
-	root := testRepoRoot(tb)
-	capResult, err := loader.Load([]string{
-		root + "/marks/...",
-		root + "/layout/...",
-		root + "/facet",
-	}, loader.Config{})
-	if err != nil {
-		tb.Fatalf("loading capindex packages: %v", err)
-	}
-	caps := capindex.Scan(capResult, capindex.ScanConfig{
-		ModulePath: "codeburg.org/lexbit/lurpicui",
-		ModuleRoot: root,
-	})
-	ctx := &Context{
-		Files: result.Files,
-		Pkgs:  result.Packages,
-		Fset:  result.Fset,
-		Index: caps,
-	}
+	ctx := fixtureContextWithIndex(tb, dir)
 	diags := Run(ctx, DefaultRegistry, RunConfig{
 		EnabledIDs: ruleIDs,
 	})
 
 	// Collect //lurpiclint:ignore directives from all loaded files.
 	var ignores []config.IgnoreDirective
-	for _, f := range result.Files {
+	for _, f := range ctx.Files {
 		ignores = append(ignores, config.ParseIgnoreDirectives(f.Fset, f.AST)...)
 	}
 

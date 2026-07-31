@@ -105,6 +105,7 @@ type NavDrawer struct {
 	groupNavItemsFacet  facet.Facet
 	groupHeaderLayout   facet.LayoutRole
 	groupNavItemsLayout facet.LayoutRole
+	surfaceLayout       facet.LayoutRole
 
 	surfaceChild *navDrawerSurfaceChild
 }
@@ -268,7 +269,7 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 		out = append(out, facet.GroupChild{
 			FacetID: d.surfaceChild.Facet.ID(),
 			MarkID:  navDrawerMarkIDSurface,
-			Layout:  d.surfaceChild.Facet.LayoutRole(),
+			Layout:  &d.surfaceLayout,
 		})
 	}
 	out = append(out, []facet.GroupChild{
@@ -1221,7 +1222,10 @@ func (p navDrawerGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, childr
 	height := float32(0)
 	for i, idx := range ordered {
 		child := children[idx]
-		if child.Layout == nil {
+		// The drawer surface is a full-window layer, not a group-arranged
+		// child; it appears in the GroupChild list to satisfy the
+		// every-facet-child-matched contract but is skipped here.
+		if child.Layout == nil || child.MarkID == navDrawerMarkIDSurface {
 			continue
 		}
 		size := child.Layout.MeasuredSize
@@ -1247,7 +1251,8 @@ func (p navDrawerGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, childr
 	arranged := make([]facet.ArrangedGroupChild, 0, len(ordered))
 	for i, idx := range ordered {
 		child := children[idx]
-		if child.Layout == nil {
+		// Skip the full-window surface layer (see MeasureGroup).
+		if child.Layout == nil || child.MarkID == navDrawerMarkIDSurface {
 			continue
 		}
 		size := child.Layout.MeasuredSize

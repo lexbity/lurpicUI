@@ -24,6 +24,9 @@ type ScanConfig struct {
 func Scan(result *loader.LoadResult, cfg ScanConfig) []Capability {
 	var caps []Capability
 
+	// Resolver for embedded-type traversal during fingerprinting.
+	resolver := newTypeResolver(result, cfg)
+
 	for pkgDir, pkg := range result.Packages {
 		relPkg, err := filepath.Rel(cfg.ModuleRoot, pkgDir)
 		if err != nil {
@@ -46,7 +49,7 @@ func Scan(result *loader.LoadResult, cfg ScanConfig) []Capability {
 						if !ok || !ts.Name.IsExported() {
 							continue
 						}
-						cap := scanType(ts, f, pkg, relPkg, cfg)
+						cap := scanType(ts, f, pkg, relPkg, cfg, resolver)
 						if cap != nil {
 							caps = append(caps, *cap)
 						}
@@ -88,7 +91,7 @@ func Scan(result *loader.LoadResult, cfg ScanConfig) []Capability {
 
 // scanType inspects a single exported type spec and returns a Capability if
 // it's a recognised mark or layout type, or nil otherwise.
-func scanType(ts *ast.TypeSpec, f *loader.ParsedFile, pkg *loader.Package, relPkg string, cfg ScanConfig) *Capability {
+func scanType(ts *ast.TypeSpec, f *loader.ParsedFile, pkg *loader.Package, relPkg string, cfg ScanConfig, resolver *typeResolver) *Capability {
 	typeName := ts.Name.Name
 
 	// Determine category from the relative package path.
@@ -107,7 +110,7 @@ func scanType(ts *ast.TypeSpec, f *loader.ParsedFile, pkg *loader.Package, relPk
 	}
 
 	// Compute fingerprint.
-	fp := computeFingerprint(ts, f)
+	fp := computeFingerprint(ts, f, pkg, resolver)
 
 	// Classify kind.
 	kind := classifyKind(relPkg, typeName, constructor)

@@ -105,7 +105,8 @@ type SplitButton struct {
 	cachedChevronSize      float32
 	cachedMenuIconSize     float32
 
-	surfaceChild *splitButtonSurfaceChild
+	surfaceChild  *splitButtonSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 type splitButtonItemLayout struct {
@@ -298,7 +299,7 @@ func (s *SplitButton) Children() []facet.GroupChild {
 	return []facet.GroupChild{{
 		FacetID: s.surfaceChild.Facet.ID(),
 		MarkID:  splitButtonMarkIDSurface,
-		Layout:  s.surfaceChild.Facet.LayoutRole(),
+		Layout:  &s.surfaceLayout,
 	}}
 }
 

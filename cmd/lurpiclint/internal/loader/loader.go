@@ -113,15 +113,25 @@ func Load(patterns []string, cfg Config) (*LoadResult, error) {
 	pkgMap := make(map[string]*Package, len(dirs))
 
 	for _, dir := range dirs {
-		pkg, err := loadPackage(dir, fset, cfg)
+		pkgs, err := loadPackage(dir, fset, cfg)
 		if errors.Is(err, errNoGoFiles) {
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("load %s: %w", dir, err)
 		}
-		pkgMap[dir] = pkg
-		allFiles = append(allFiles, pkg.Files...)
+		for _, pkg := range pkgs {
+			key := dir
+			if strings.HasSuffix(pkg.Name, "_test") {
+				// External test package (<name>_test): keep it separate from
+				// the package under test so both share the directory without
+				// colliding in the package map.  pkg.Path stays the directory
+				// so category-based file lookups see both.
+				key = dir + "#test"
+			}
+			pkgMap[key] = pkg
+			allFiles = append(allFiles, pkg.Files...)
+		}
 	}
 
 	sort.Slice(allFiles, func(i, j int) bool {
@@ -250,18 +260,19 @@ func hasGoFiles(dir string) (bool, error) {
 }
 
 // loadPackage reads and parses all Go source files in a single directory,
-// returning a Package or nil if the directory contains no parseable Go files.
-func loadPackage(dir string, fset *token.FileSet, cfg Config) (*Package, error) {
+// returning the packages declared there.  Files are grouped by their declared
+// package name so that an external test package (<name>_test, which Go places
+// in the same directory as the package under test) is returned as a separate
+// Package instead of colliding.  A directory without an external test package
+// yields exactly one Package.  Returns errNoGoFiles when the directory has no
+// parseable Go files.
+func loadPackage(dir string, fset *token.FileSet, cfg Config) ([]*Package, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 
-	var (
-		pkgName string
-		files   []*ParsedFile
-	)
-
+	groups := make(map[string][]*ParsedFile)
 	for _, entry := range entries {
 		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".go") {
 			continue
@@ -275,35 +286,37 @@ func loadPackage(dir string, fset *token.FileSet, cfg Config) (*Package, error) 
 		if err != nil {
 			return nil, err
 		}
-
 		if pf.Pkg == "" {
 			continue // file with no package declaration (e.g. empty or assembly)
 		}
-
-		if pkgName == "" {
-			pkgName = pf.Pkg
-		} else if pf.Pkg != pkgName {
-			return nil, fmt.Errorf(
-				"%s: package name %q does not match %q declared in %s",
-				filePath, pf.Pkg, pkgName, files[0].Path)
-		}
-
-		files = append(files, pf)
+		groups[pf.Pkg] = append(groups[pf.Pkg], pf)
 	}
 
-	if len(files) == 0 {
+	if len(groups) == 0 {
 		return nil, errNoGoFiles
 	}
 
-	sort.Slice(files, func(i, j int) bool {
-		return files[i].Path < files[j].Path
-	})
+	// Deterministic package order.  A package name always sorts before its
+	// <name>_test external test package, so the package under test is first.
+	pkgNames := make([]string, 0, len(groups))
+	for name := range groups {
+		pkgNames = append(pkgNames, name)
+	}
+	sort.Strings(pkgNames)
 
-	return &Package{
-		Name:  pkgName,
-		Path:  dir,
-		Files: files,
-	}, nil
+	pkgs := make([]*Package, 0, len(pkgNames))
+	for _, name := range pkgNames {
+		files := groups[name]
+		sort.Slice(files, func(i, j int) bool {
+			return files[i].Path < files[j].Path
+		})
+		pkgs = append(pkgs, &Package{
+			Name:  name,
+			Path:  dir,
+			Files: files,
+		})
+	}
+	return pkgs, nil
 }
 
 // parseFile reads and parses a single Go source file, preserving comments.

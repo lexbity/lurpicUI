@@ -160,6 +160,10 @@ func runCheck(args []string) int {
 		}
 	}
 
+	// Merge _test.go files from framework packages so contract rules
+	// LL029–LL033 can detect contracttest helper invocations (FR-2).
+	mergeFrameworkTestFiles(result, root)
+
 	// ---- Config file ----
 	var cfgFile *config.Config
 	configPath := cliflags.config
@@ -552,6 +556,50 @@ func extractCompileError(jsonOutput []byte, stderr string) string {
 	return ""
 }
 
+// mergeFrameworkTestFiles appends _test.go files from framework packages
+// (marks/, layout/) to the loaded result so contract rules LL029–LL033 can
+// detect contracttest helper invocations (FR-2).  Test files from
+// non-framework packages are deliberately excluded: the rest of the analysis
+// is unchanged, and the loader's IncludeTests flag stays opt-in for users who
+// want it globally.
+func mergeFrameworkTestFiles(result *loader.LoadResult, root string) {
+	if root == "" {
+		return
+	}
+	testResult, testErr := loader.Load([]string{
+		root + "/marks/...",
+		root + "/layout/...",
+	}, loader.Config{IncludeTests: true})
+	if testErr != nil {
+		return
+	}
+	for _, pkg := range testResult.Packages {
+		// The framework package's Path is its directory, which is the same key
+		// under which the package under test lives in the loaded result
+		// (whether the test files are internal (package <name>) or external
+		// (<name>_test)).
+		mainPkg := result.Packages[pkg.Path]
+		if mainPkg == nil {
+			continue
+		}
+		for _, pf := range pkg.Files {
+			if !strings.HasSuffix(pf.Path, "_test.go") {
+				continue
+			}
+			mainPkg.Files = append(mainPkg.Files, pf)
+			result.Files = append(result.Files, pf)
+		}
+	}
+	sort.Slice(result.Files, func(i, j int) bool {
+		return result.Files[i].Path < result.Files[j].Path
+	})
+	for _, pkg := range result.Packages {
+		sort.Slice(pkg.Files, func(i, j int) bool {
+			return pkg.Files[i].Path < pkg.Files[j].Path
+		})
+	}
+}
+
 // findModuleRoot walks up from the working directory to find the module root
 // (directory containing go.mod).  Returns empty string when not found.
 func findModuleRoot() string {
@@ -734,6 +782,11 @@ func runBaseline(args []string) int {
 		}
 	}
 
+	// Merge framework _test.go files so contract rules LL029–LL033 see the
+	// contracttest helper invocations — the baseline must reflect the same
+	// reality the check gate sees.
+	mergeFrameworkTestFiles(result, modRoot)
+
 	// Run all rules.
 	ctx := &rules.Context{
 		Files: result.Files,
@@ -743,6 +796,14 @@ func runBaseline(args []string) int {
 	}
 
 	diagnostics := rules.Run(ctx, rules.DefaultRegistry, rules.RunConfig{})
+
+	// Suppress //lurpiclint:ignore directives, matching the check pipeline so
+	// the baseline records exactly what the gate would report.
+	var ignores []config.IgnoreDirective
+	for _, f := range result.Files {
+		ignores = append(ignores, config.ParseIgnoreDirectives(f.Fset, f.AST)...)
+	}
+	diagnostics = config.SuppressByIgnore(diagnostics, ignores)
 
 	// Filter by severity.
 	var filtered []*diag.Diagnostic

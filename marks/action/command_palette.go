@@ -84,7 +84,8 @@ type CommandPalette struct {
 	cachedResultsSub       signal.SubscriptionID
 	cachedSearchKey        func(facet.KeyEvent) bool
 
-	surfaceChild *commandPaletteSurfaceChild
+	surfaceChild  *commandPaletteSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 var _ facet.FacetImpl = (*CommandPalette)(nil)
@@ -250,7 +251,7 @@ func (p *CommandPalette) Children() []facet.GroupChild {
 	out := []facet.GroupChild{{
 		FacetID: p.surfaceChild.Facet.ID(),
 		MarkID:  commandPaletteMarkIDSurface,
-		Layout:  p.surfaceChild.Facet.LayoutRole(),
+		Layout:  &p.surfaceLayout,
 	}}
 	if p.searchField != nil && p.searchField.Base() != nil && p.searchField.Base().LayoutRole() != nil {
 		out = append(out, commandPaletteGroupChild(p.searchField.Base(), commandPaletteMarkIDSearchField, 0))
@@ -840,7 +841,10 @@ func (p commandPaletteGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, c
 	p.palette.arrange(ctx.ArrangeContext, ctx.Bounds)
 	arranged := make([]facet.ArrangedGroupChild, 0, len(children))
 	for _, child := range children {
-		if child.Layout == nil {
+		// The palette surface is a full-window layer, not a group-arranged
+		// child; it appears in the GroupChild list to satisfy the
+		// every-facet-child-matched contract but is skipped here.
+		if child.Layout == nil || child.MarkID == commandPaletteMarkIDSurface {
 			continue
 		}
 		arranged = append(arranged, facet.ArrangedGroupChild{

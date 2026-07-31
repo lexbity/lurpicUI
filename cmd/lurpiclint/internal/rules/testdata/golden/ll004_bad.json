@@ -4,6 +4,6 @@
     "severity": "info",
     "file": "ll003_bad.go",
     "line": 21,
-    "message": "this child-arranging LayoutRole resembles marks/navigation.NavDrawer; consider using NewNavDrawer instead"
+    "message": "this child-arranging LayoutRole resembles marks/action.ActionBar; consider using NewActionBar instead"
   }
 ]

@@ -68,7 +68,8 @@ type RadialMenu struct {
 	cachedWritingDirection facet.WritingDirection
 	cachedArrangedChildren []facet.ArrangedGroupChild
 
-	surfaceChild *radialMenuSurfaceChild
+	surfaceChild  *radialMenuSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 type radialMenuRegion uint8
@@ -269,7 +270,7 @@ func (m *RadialMenu) Children() []facet.GroupChild {
 		out = append(out, facet.GroupChild{
 			FacetID: m.surfaceChild.Facet.ID(),
 			MarkID:  radialMenuMarkIDSurface,
-			Layout:  m.surfaceChild.Facet.LayoutRole(),
+			Layout:  &m.surfaceLayout,
 		})
 	}
 	if m.CenterChild != nil && m.CenterChild.Base() != nil && m.CenterChild.Base().LayoutRole() != nil {
@@ -829,7 +830,10 @@ func toRadialChildren(children []facet.GroupChild) []radial.Child {
 	out := make([]radial.Child, 0, len(children))
 	for i := range children {
 		child := children[i]
-		if child.Layout == nil {
+		// The radial surface is a full-window layer, not a radial-track child;
+		// it appears in the GroupChild list to satisfy the
+		// every-facet-child-matched contract but is skipped here.
+		if child.Layout == nil || child.MarkID == radialMenuMarkIDSurface {
 			continue
 		}
 		out = append(out, radial.Child{

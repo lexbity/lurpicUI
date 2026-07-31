@@ -36,6 +36,7 @@ type ActionGroupAction struct {
 }
 
 // ActionGroup implements the action.action_group standard mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type ActionGroup struct {
 	marks.Core
 

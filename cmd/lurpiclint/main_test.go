@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/config"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/diag"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/rules"
 )
@@ -40,11 +41,11 @@ func TestRun_ExitCodes(t *testing.T) {
 		{"check with flags", []string{"lurpiclint", "check", "--format", "json", "--severity", "error"}, 0},
 		{"check with --no-suggest", []string{"lurpiclint", "check", "--no-suggest"}, 0},
 		{"check with --include-tests", []string{"lurpiclint", "check", "--include-tests"}, 0},
-		{"check with --root", []string{"lurpiclint", "check", "--root", "."}, 0},
+		{"check with --root", []string{"lurpiclint", "check", "--root", findModuleRoot()}, 0},
 		{"check with --config", []string{"lurpiclint", "check", "--config", ".lurpiclint.toml"}, 0},
 		{"check with --baseline", []string{"lurpiclint", "check", "--baseline", "baseline.json"}, 0},
 		{"check with --rules", []string{"lurpiclint", "check", "--rules", "LL001,LL003"}, 0},
-		{"check with all flags", []string{"lurpiclint", "check", "--format", "github", "--severity", "warn", "--fail-on", "error", "--no-suggest", "--root", "."}, 0},
+		{"check with all flags", []string{"lurpiclint", "check", "--format", "github", "--severity", "warn", "--fail-on", "error", "--no-suggest", "--root", findModuleRoot()}, 0},
 
 		// check – bad flags
 		{"check bad flag", []string{"lurpiclint", "check", "--bad-flag"}, 2},
@@ -126,7 +127,7 @@ func TestRunCheck_FlagParsing(t *testing.T) {
 		{"baseline path", []string{"--baseline", "/some/path/baseline.json", goodPath}, 0},
 		{"rules single", []string{"--rules", "LL003", goodPath}, 0},
 		{"rules multiple", []string{"--rules", "LL001,LL003,LL010", goodPath}, 0},
-		{"root relative", []string{"--root", testData, goodPath}, 0},
+		{"root module", []string{"--root", findModuleRoot(), goodPath}, 0},
 		{"paths after flags", []string{"--format", "json", "--severity", "error", goodPath}, 0},
 	}
 
@@ -137,6 +138,54 @@ func TestRunCheck_FlagParsing(t *testing.T) {
 				t.Errorf("runCheck(%v) = %d, want %d", tt.args, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestRunCheck_ContractRulesSeeFrameworkTestFiles(t *testing.T) {
+	// LL033 requires every Focusable mark to have a contracttest.AssertFocusable
+	// call in a _test.go file.  marks/navigation's Tabs, Breadcrumbs, and
+	// NavRail are all wired, so a check that loads framework _test.go files
+	// (the main.go merge) must produce zero LL033 findings.  With --fail-on=info
+	// a single warn finding would flip the exit code.
+	navDir := filepath.Join(findModuleRoot(), "marks", "navigation")
+	got := runCheck([]string{"--rules", "LL033", "--fail-on", "info", navDir})
+	if got != 0 {
+		t.Errorf("runCheck(LL033 on marks/navigation) = %d, want 0 (framework _test.go files not merged into analysis?)", got)
+	}
+}
+
+// TestStaleBaseline_RatchetFires proves the stale-baseline ratchet bites: a
+// baseline entry that no longer matches any finding must make
+// `check --fail-on-stale-baseline` exit non-zero.  This simulates a
+// contributor wiring a contract helper (so a backlog entry stops firing) but
+// forgetting to remove the now-stale baseline entry.
+func TestStaleBaseline_RatchetFires(t *testing.T) {
+	tmp := filepath.Join(t.TempDir(), "baseline.json")
+	fake := config.Baseline{Entries: []config.BaselineEntry{
+		{
+			RuleID:  "LL030",
+			File:    filepath.Join(findModuleRoot(), "nonexistent.go"),
+			Line:    1,
+			Message: "fake stale entry",
+		},
+	}}
+	data, err := json.Marshal(fake)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// A clean fixture produces no findings, so the fake entry is stale.
+	goodPath := filepath.Join(testData, "check/good")
+	if got := runCheck([]string{"--baseline", tmp, "--fail-on-stale-baseline", goodPath}); got == 0 {
+		t.Fatal("expected non-zero exit when a baseline entry is stale")
+	}
+
+	// Without the flag the same stale entry is informational and does not fail.
+	if got := runCheck([]string{"--baseline", tmp, goodPath}); got != 0 {
+		t.Errorf("stale entry without --fail-on-stale-baseline = %d, want 0", got)
 	}
 }
 

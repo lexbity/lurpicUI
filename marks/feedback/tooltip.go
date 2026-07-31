@@ -65,7 +65,8 @@ type Tooltip struct {
 	cachedWritingDirection facet.WritingDirection
 	cachedContentFacet     *primitive.Text
 
-	surfaceChild *tooltipSurfaceChild
+	surfaceChild  *tooltipSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 var _ facet.FacetImpl = (*Tooltip)(nil)
@@ -178,7 +179,7 @@ func (t *Tooltip) Children() []facet.GroupChild {
 		{
 			FacetID: t.surfaceChild.Facet.ID(),
 			MarkID:  tooltipMarkIDSurface,
-			Layout:  t.surfaceChild.Facet.LayoutRole(),
+			Layout:  &t.surfaceLayout,
 		},
 		tooltipGroupChild(t.cachedContentFacet.Base(), tooltipMarkIDContent, 0),
 	}
@@ -666,7 +667,10 @@ func (p tooltipGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children
 	p.tooltip.arrange(ctx.ArrangeContext, ctx.Bounds)
 	arranged := make([]facet.ArrangedGroupChild, 0, len(children))
 	for _, child := range children {
-		if child.Layout == nil {
+		// The tooltip surface is a full-window layer, not a group-arranged
+		// child; it appears in the GroupChild list to satisfy the
+		// every-facet-child-matched contract but is skipped here.
+		if child.Layout == nil || child.MarkID == tooltipMarkIDSurface {
 			continue
 		}
 		arranged = append(arranged, facet.ArrangedGroupChild{

@@ -34,6 +34,7 @@ type RadioOption struct {
 }
 
 // RadioGroup implements the selection.radio_group standard mark.
+// nolint:LL031 // hosts no group children; Children() is a facet.ChildSource conformance stub
 type RadioGroup struct {
 	marks.Core
 

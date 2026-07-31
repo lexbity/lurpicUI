@@ -127,7 +127,8 @@ type Dialog struct {
 	cachedActionsFacet     *dialogActionGroup
 	cachedCloseButton      *action.IconButton
 
-	surfaceChild *dialogSurfaceChild
+	surfaceChild  *dialogSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 var _ facet.FacetImpl = (*Dialog)(nil)
@@ -255,7 +256,7 @@ func (d *Dialog) Children() []facet.GroupChild {
 	out := []facet.GroupChild{{
 		FacetID: d.surfaceChild.Facet.ID(),
 		MarkID:  dialogMarkIDSurface,
-		Layout:  d.surfaceChild.Facet.LayoutRole(),
+		Layout:  &d.surfaceLayout,
 	}}
 	if d.cachedTitleFacet != nil {
 		out = append(out, dialogGroupChild(d.cachedTitleFacet.Base(), dialogMarkIDTitle, 0))
@@ -885,7 +886,10 @@ func (p dialogGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children 
 	p.dialog.arrange(ctx.ArrangeContext, ctx.Bounds)
 	arranged := make([]facet.ArrangedGroupChild, 0, len(children))
 	for _, child := range children {
-		if child.Layout == nil {
+		// The dialog surface is a full-window layer, not a group-arranged
+		// child; it appears in the GroupChild list to satisfy the
+		// every-facet-child-matched contract but is skipped here.
+		if child.Layout == nil || child.MarkID == dialogMarkIDSurface {
 			continue
 		}
 		arranged = append(arranged, facet.ArrangedGroupChild{

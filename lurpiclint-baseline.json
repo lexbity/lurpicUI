@@ -45,7 +45,7 @@
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/action/popup_palette.go",
-      "line": 1600,
+      "line": 1601,
       "message": "field toolButtons looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
@@ -62,8 +62,32 @@
     },
     {
       "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/data/datamark_test.go",
+      "line": 22,
+      "message": "field id looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/data/datamark_test.go",
+      "line": 344,
+      "message": "field children looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/data/datamark_test.go",
+      "line": 345,
+      "message": "field cleanups looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/marks/data/join_test.go",
+      "line": 20,
+      "message": "field id looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/feedback/dialog.go",
-      "line": 907,
+      "line": 911,
       "message": "field Buttons looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {

@@ -126,7 +126,8 @@ type PopupPalette struct {
 
 	composition *popupPaletteComposition
 
-	surfaceChild *popupPaletteSurfaceChild
+	surfaceChild  *popupPaletteSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 type popupPaletteControlKind uint8
@@ -455,7 +456,7 @@ func (p *PopupPalette) Children() []facet.GroupChild {
 	return []facet.GroupChild{{
 		FacetID: p.surfaceChild.Facet.ID(),
 		MarkID:  popupPaletteMarkIDSurface,
-		Layout:  p.surfaceChild.Facet.LayoutRole(),
+		Layout:  &p.surfaceLayout,
 	}}
 }
 

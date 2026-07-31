@@ -63,34 +63,6 @@ func isReactiveScaleFieldType(field *ast.Field, imports loader.ImportTable) bool
 	return true
 }
 
-// receiverTypeName extracts the struct type name from a method receiver,
-// handling pointer receivers and generic type parameters.
-func receiverTypeName(fn *ast.FuncDecl) string {
-	if fn.Recv == nil || len(fn.Recv.List) == 0 {
-		return ""
-	}
-	typ := fn.Recv.List[0].Type
-
-	// Unwrap pointer.
-	if star, ok := typ.(*ast.StarExpr); ok {
-		typ = star.X
-	}
-
-	// Handle generic instantiation: Line[T] → Line.
-	if idx, ok := typ.(*ast.IndexExpr); ok {
-		if id, ok := idx.X.(*ast.Ident); ok {
-			return id.Name
-		}
-	}
-
-	// Plain type: Rule, Chart.
-	if id, ok := typ.(*ast.Ident); ok {
-		return id.Name
-	}
-
-	return ""
-}
-
 // receiverIdent returns the receiver variable name from a method declaration.
 func receiverIdent(fn *ast.FuncDecl) string {
 	if fn.Recv == nil || len(fn.Recv.List) == 0 || len(fn.Recv.List[0].Names) == 0 {
@@ -243,7 +215,7 @@ func (r *VizScaleSubscribe) Check(ctx *Context) []*diag.Diagnostic {
 					continue
 				}
 
-				structName := receiverTypeName(fn)
+				structName := receiverTypeName(fn.Recv)
 				if structName == "" {
 					continue
 				}

@@ -161,6 +161,72 @@ func TestLoad_IncludeTests(t *testing.T) {
 	}
 }
 
+func TestLoad_ExternalTestPackage_ExcludedByDefault(t *testing.T) {
+	dir := testdata(t, "exttestpkg")
+	result, err := Load([]string{dir}, Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Packages) != 1 {
+		t.Fatalf("got %d packages, want 1 (external test package excluded)", len(result.Packages))
+	}
+	pkg := result.Packages[filepath.Clean(dir)]
+	if pkg == nil {
+		t.Fatal("package not found")
+	}
+	if pkg.Name != "exttestpkg" {
+		t.Errorf("package name = %q, want %q", pkg.Name, "exttestpkg")
+	}
+	if len(pkg.Files) != 1 {
+		t.Fatalf("got %d files, want 1 (test file excluded)", len(pkg.Files))
+	}
+}
+
+func TestLoad_ExternalTestPackage_SplitWhenIncluded(t *testing.T) {
+	dir := testdata(t, "exttestpkg")
+	result, err := Load([]string{dir}, Config{IncludeTests: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Packages) != 2 {
+		t.Fatalf("got %d packages, want 2 (main + external test)", len(result.Packages))
+	}
+
+	main := result.Packages[filepath.Clean(dir)]
+	if main == nil {
+		t.Fatal("main package not found under dir key")
+	}
+	if main.Name != "exttestpkg" {
+		t.Errorf("main package name = %q, want %q", main.Name, "exttestpkg")
+	}
+	if len(main.Files) != 1 {
+		t.Fatalf("main package got %d files, want 1", len(main.Files))
+	}
+	if strings.HasSuffix(main.Files[0].Path, "_test.go") {
+		t.Error("main package should not contain the test file")
+	}
+
+	test := result.Packages[filepath.Clean(dir)+"#test"]
+	if test == nil {
+		t.Fatal("external test package not found under dir#test key")
+	}
+	if test.Name != "exttestpkg_test" {
+		t.Errorf("external test package name = %q, want %q", test.Name, "exttestpkg_test")
+	}
+	if len(test.Files) != 1 {
+		t.Fatalf("external test package got %d files, want 1", len(test.Files))
+	}
+	if !strings.HasSuffix(test.Files[0].Path, "_test.go") {
+		t.Error("external test package should contain only the test file")
+	}
+
+	// Both packages must report the same directory path so category-based
+	// file lookups (e.g. rules.packageFiles) see both.
+	if main.Path != test.Path {
+		t.Errorf("main.Path = %q, test.Path = %q; want them equal", main.Path, test.Path)
+	}
+}
+
 func TestLoad_ParseError(t *testing.T) {
 	dir := testdata(t, "malformed")
 	_, err := Load([]string{dir}, Config{})

@@ -1,0 +1,9 @@
+package exttestpkg_test
+
+import "testing"
+
+func TestDoSomething(t *testing.T) {
+	if DoSomething() != 42 {
+		t.Fatal("unexpected value")
+	}
+}

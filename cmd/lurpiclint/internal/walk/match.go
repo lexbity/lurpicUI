@@ -75,6 +75,53 @@ func CallExprIs(n ast.Node, names ...string) bool {
 	return SelectorIsAny(call.Fun, names...)
 }
 
+// CallFuncName returns the qualified or bare function name from a call
+// expression, unwrapping generic type arguments.  For bare-identifier calls
+// (e.g. fn(...)) the returned string is the identifier name.  For selector
+// calls (e.g. pkg.Fn(...)) the returned string is "pkg.Fn".  Generic
+// instantiations (e.g. pkg.Fn[T](...)) are unwrapped to "pkg.Fn".
+//
+//	CallFuncName(f())                      →  "f"
+//	CallFuncName(pkg.Fn())                 →  "pkg.Fn"
+//	CallFuncName(pkg.Fn[T](...))           →  "pkg.Fn"
+//	CallFuncName(pkg.Fn[T, U](...))        →  "pkg.Fn"
+//	CallFuncName(nil)                      →  ""
+func CallFuncName(call *ast.CallExpr) string {
+	if call == nil || call.Fun == nil {
+		return ""
+	}
+	return funcExprName(call.Fun)
+}
+
+// funcExprName extracts the function name from an expression, unwrapping
+// generic type arguments.
+func funcExprName(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.IndexExpr:
+		return funcExprName(v.X) // generic: AssertDataBound[T](...) → AssertDataBound
+	case *ast.IndexListExpr:
+		return funcExprName(v.X) // multi-type-param: Fn[T, U](...) → Fn
+	case *ast.SelectorExpr:
+		return identChain(v.X) + "." + v.Sel.Name
+	case *ast.Ident:
+		return v.Name
+	}
+	return ""
+}
+
+// identChain builds the dotted identifier chain from an expression.
+// Returns the ident name for *ast.Ident, reconstructs the chain for
+// nested *ast.SelectorExpr, and returns "" for other types.
+func identChain(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.SelectorExpr:
+		return identChain(v.X) + "." + v.Sel.Name
+	}
+	return ""
+}
+
 // ---------------------------------------------------------------------------
 // Composite literal matching
 // ---------------------------------------------------------------------------

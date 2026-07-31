@@ -172,7 +172,119 @@ func TestScan_MarksHaveIntents(t *testing.T) {
 func TestScan_FingerprintsDistinguishLeafVsContainer(t *testing.T) {
 	root := repoRoot(t)
 	result, err := loader.Load([]string{
+		root + "/marks", // root marks package: marks.Core must be resolvable
 		root + "/marks/primitive",
+		root + "/marks/structure",
+		root + "/facet",
+	}, loader.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	caps := Scan(result, ScanConfig{
+		ModulePath: "codeburg.org/lexbit/lurpicui",
+		ModuleRoot: root,
+	})
+
+	byName := make(map[string]Capability)
+	for _, c := range caps {
+		byName[c.TypeName] = c
+	}
+
+	// Text is a leaf mark (hosts no children) → IsContainer must be false even
+	// though it embeds marks.Core and inherits Core's layout role.
+	if c, ok := byName["Text"]; ok {
+		if c.Fingerprint.IsContainer {
+			t.Errorf("Text mark should be a leaf (IsContainer=false), got IsContainer=true")
+		}
+		if !c.Fingerprint.EmbedsFacet {
+			t.Errorf("Text should embed facet.Facet (transitively via marks.Core)")
+		}
+		if !hasRole(c.Fingerprint.Roles, "layout") {
+			t.Errorf("Text roles = %v, want a layout role (promoted from marks.Core)", c.Fingerprint.Roles)
+		}
+	} else {
+		t.Log("Text not found in capindex (may have no New* constructor in scan)")
+	}
+
+	// Card, List and Table are container marks (host children) → IsContainer
+	// must be true, and their roles must include the layout role promoted from
+	// marks.Core.
+	for _, name := range []string{"Card", "List", "Table"} {
+		c, ok := byName[name]
+		if !ok {
+			t.Errorf("%s not found in capindex", name)
+			continue
+		}
+		if !c.Fingerprint.IsContainer {
+			t.Errorf("%s mark should be a container (IsContainer=true), got false; roles=%v", name, c.Fingerprint.Roles)
+		}
+		if !c.Fingerprint.EmbedsFacet {
+			t.Errorf("%s should embed facet.Facet (transitively via marks.Core)", name)
+		}
+		if !hasRole(c.Fingerprint.Roles, "layout") {
+			t.Errorf("%s roles = %v, want a layout role (promoted from marks.Core)", name, c.Fingerprint.Roles)
+		}
+	}
+}
+
+// canonicalContainerMarks are the marks that MUST be classified as containers
+// (IsContainer == true).  They are the canonical containers across every marks
+// category; if any reports IsContainer=false the fingerprint's
+// embedded-type traversal (promoted role fields from marks.Core) broke.
+var canonicalContainerMarks = []string{
+	"Card", "List", "Table",
+	"Toolbar", "ActionGroup", "CommandPalette",
+	"ButtonGroup",
+	"Notification", "Dialog", "Tooltip", "Alert",
+}
+
+// TestScan_CanonicalContainerMarks guards the container-detection regression
+// that previously left every Core-embedding mark classified as a non-container:
+// the promoted layout/render roles from marks.Core must be counted.
+func TestScan_CanonicalContainerMarks(t *testing.T) {
+	root := repoRoot(t)
+	result, err := loader.Load([]string{
+		root + "/marks",
+		root + "/marks/...",
+		root + "/facet",
+	}, loader.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	caps := Scan(result, ScanConfig{
+		ModulePath: "codeburg.org/lexbit/lurpicui",
+		ModuleRoot: root,
+	})
+
+	byName := make(map[string]Capability)
+	for _, c := range caps {
+		byName[c.TypeName] = c
+	}
+
+	for _, name := range canonicalContainerMarks {
+		c, ok := byName[name]
+		if !ok {
+			t.Errorf("canonical container %s not found in capindex", name)
+			continue
+		}
+		if !c.Fingerprint.IsContainer {
+			t.Errorf("%s MUST be IsContainer=true, got false (roles=%v) — embedded-type traversal broke", name, c.Fingerprint.Roles)
+		}
+		if !c.Fingerprint.EmbedsFacet {
+			t.Errorf("%s MUST embed facet.Facet (via marks.Core), got false", name)
+		}
+		if !hasRole(c.Fingerprint.Roles, "layout") {
+			t.Errorf("%s roles = %v, MUST contain a promoted layout role from marks.Core", name, c.Fingerprint.Roles)
+		}
+	}
+}
+
+func TestScan_FingerprintHasRoles(t *testing.T) {
+	root := repoRoot(t)
+	result, err := loader.Load([]string{
+		root + "/marks",
 		root + "/marks/structure",
 	}, loader.Config{})
 	if err != nil {
@@ -189,43 +301,12 @@ func TestScan_FingerprintsDistinguishLeafVsContainer(t *testing.T) {
 		byName[c.TypeName] = c
 	}
 
-	// Text is a leaf mark (no children) → IsContainer should be false.
-	if c, ok := byName["Text"]; ok {
-		if c.Fingerprint.IsContainer {
-			t.Errorf("Text mark should be a leaf (IsContainer=false), got IsContainer=true")
-		}
-	} else {
-		t.Log("Text not found in capindex (may have no New* constructor in scan)")
-	}
-
-	// Card is a container mark (hosts children) → IsContainer may be true.
 	if c, ok := byName["Card"]; ok {
-		if !c.Fingerprint.EmbedsFacet {
-			t.Errorf("Card should embed facet.Facet")
+		if !hasRole(c.Fingerprint.Roles, "layout") {
+			t.Errorf("Card roles = %v, want a layout role (promoted from marks.Core)", c.Fingerprint.Roles)
 		}
-	}
-}
-
-func TestScan_FingerprintHasRoles(t *testing.T) {
-	root := repoRoot(t)
-	result, err := loader.Load([]string{root + "/marks/structure"}, loader.Config{})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	caps := Scan(result, ScanConfig{
-		ModulePath: "codeburg.org/lexbit/lurpicui",
-		ModuleRoot: root,
-	})
-
-	byName := make(map[string]Capability)
-	for _, c := range caps {
-		byName[c.TypeName] = c
-	}
-
-	if c, ok := byName["Card"]; ok {
-		if len(c.Fingerprint.Roles) == 0 {
-			t.Log("Card has no roles detected (may use non-standard role fields)")
+		if !hasRole(c.Fingerprint.Roles, "render") {
+			t.Errorf("Card roles = %v, want a render role (promoted from marks.Core)", c.Fingerprint.Roles)
 		}
 	}
 }
@@ -303,26 +384,22 @@ func TestTextEmitter_OutputShape(t *testing.T) {
 		t.Errorf("expected >=1 mark in capindex, got %d", marks)
 	}
 
-	// At least one container (IsContainer == true).
-	var containers int
+	// Every canonical container MUST be classified as a container.  A bug that
+	// collapses the container set to one accidental hit (the pre-fix state)
+	// fails this named assertion.
+	byName := make(map[string]Capability)
 	for _, c := range caps {
-		if c.Fingerprint.IsContainer {
-			containers++
+		byName[c.TypeName] = c
+	}
+	for _, name := range canonicalContainerMarks {
+		c, ok := byName[name]
+		if !ok {
+			t.Errorf("canonical container %s not found in capindex", name)
+			continue
 		}
-	}
-	if containers < 1 {
-		t.Errorf("expected >=1 container in capindex, got %d", containers)
-	}
-
-	// At least one capability has non-empty roles.
-	var withRoles int
-	for _, c := range caps {
-		if len(c.Fingerprint.Roles) > 0 {
-			withRoles++
+		if !c.Fingerprint.IsContainer {
+			t.Errorf("%s MUST be IsContainer=true, got false (roles=%v)", name, c.Fingerprint.Roles)
 		}
-	}
-	if withRoles < 1 {
-		t.Errorf("expected >=1 capability with non-empty fingerprint roles, got %d", withRoles)
 	}
 
 	// TextEmitter output contains the section headers.

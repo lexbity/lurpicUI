@@ -124,7 +124,8 @@ type Notification struct {
 	cachedActionButton     *action.Button
 	cachedCloseButton      *action.IconButton
 
-	surfaceChild *notificationSurfaceChild
+	surfaceChild  *notificationSurfaceChild
+	surfaceLayout facet.LayoutRole
 }
 
 var _ facet.FacetImpl = (*Notification)(nil)
@@ -252,7 +253,7 @@ func (n *Notification) Children() []facet.GroupChild {
 	out := []facet.GroupChild{{
 		FacetID: n.surfaceChild.Facet.ID(),
 		MarkID:  notificationMarkIDSurface,
-		Layout:  n.surfaceChild.Facet.LayoutRole(),
+		Layout:  &n.surfaceLayout,
 	}}
 	if n.cachedIconFacet != nil {
 		out = append(out, notificationGroupChild(n.cachedIconFacet.Base(), notificationMarkIDIcon, 0, facet.Placement{Mode: facet.PlacementLinear, Linear: facet.LinearPlacement{Order: 0, CrossAxisAlign: facet.CrossAxisStart}}))
@@ -812,7 +813,10 @@ func (p notificationGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, chi
 	p.notification.arrange(ctx.ArrangeContext, ctx.Bounds)
 	arranged := make([]facet.ArrangedGroupChild, 0, len(children))
 	for _, child := range children {
-		if child.Layout == nil {
+		// The notification surface is a full-window layer, not a
+		// group-arranged child; it appears in the GroupChild list to satisfy
+		// the every-facet-child-matched contract but is skipped here.
+		if child.Layout == nil || child.MarkID == notificationMarkIDSurface {
 			continue
 		}
 		arranged = append(arranged, facet.ArrangedGroupChild{
