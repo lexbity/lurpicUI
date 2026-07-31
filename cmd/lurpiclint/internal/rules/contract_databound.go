@@ -10,12 +10,12 @@ import (
 // mirror of the dynamic contract helper: it does not verify bound-data
 // behavior; it requires the helper to be wired in so the behavior is proven.
 //
-// Default severity: warn (migration; ratchets to error once the backlog is
-// clean).
+// Default severity: error — lurpiclint check ./... --fail-on error blocks any
+// future capability-contract omission.
 type DataBoundContract struct{}
 
 func (r *DataBoundContract) ID() string                     { return "LL029" }
-func (r *DataBoundContract) DefaultSeverity() diag.Severity { return diag.SeverityWarn }
+func (r *DataBoundContract) DefaultSeverity() diag.Severity { return diag.SeverityError }
 func (r *DataBoundContract) Description() string {
 	return "mark declares the DataBound capability without a contract proof; add a test applying contracttest.AssertDataBound"
 }

@@ -14,12 +14,12 @@ import (
 // A mark declaring only one of the two methods is NOT an Accessible
 // implementor and must not fire (partial-implementation guard).
 //
-// Default severity: warn (migration; ratchets to error once the backlog is
-// clean).
+// Default severity: error — lurpiclint check ./... --fail-on error blocks any
+// future capability-contract omission.
 type AccessibleContract struct{}
 
 func (r *AccessibleContract) ID() string                     { return "LL032" }
-func (r *AccessibleContract) DefaultSeverity() diag.Severity { return diag.SeverityWarn }
+func (r *AccessibleContract) DefaultSeverity() diag.Severity { return diag.SeverityError }
 func (r *AccessibleContract) Description() string {
 	return "mark implements the Accessible capability without a contract proof; add a test applying contracttest.AssertAccessible"
 }

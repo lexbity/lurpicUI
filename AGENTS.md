@@ -15,3 +15,5 @@ and check for framework-contract violations:
 
 - `lurpiclint capabilities` — prints the uxauthoring index (available marks, layouts, and fingerprints)
 - `lurpiclint check ./...` — runs the analyzer; use `--fail-on error` as your blocking gate
+
+

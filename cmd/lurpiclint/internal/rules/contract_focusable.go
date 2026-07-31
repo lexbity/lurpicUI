@@ -14,12 +14,12 @@ import (
 // a Focusable() promoted from an embedded helper struct is not the capability
 // and must not fire (false-positive guard).
 //
-// Default severity: warn (migration; ratchets to error once the backlog is
-// clean).
+// Default severity: error — lurpiclint check ./... --fail-on error blocks any
+// future capability-contract omission.
 type FocusableContract struct{}
 
 func (r *FocusableContract) ID() string                     { return "LL033" }
-func (r *FocusableContract) DefaultSeverity() diag.Severity { return diag.SeverityWarn }
+func (r *FocusableContract) DefaultSeverity() diag.Severity { return diag.SeverityError }
 func (r *FocusableContract) Description() string {
 	return "mark implements the Focusable capability without a contract proof; add a test applying contracttest.AssertFocusable"
 }

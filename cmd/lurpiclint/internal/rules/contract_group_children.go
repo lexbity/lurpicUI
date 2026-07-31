@@ -17,12 +17,12 @@ import (
 // method is a leaf with a container-shaped fingerprint — it must NOT fire
 // (R-3 over-fire guard).
 //
-// Default severity: warn (migration; ratchets to error once the backlog is
-// clean).
+// Default severity: error — lurpiclint check ./... --fail-on error blocks any
+// future capability-contract omission.
 type GroupChildrenContract struct{}
 
 func (r *GroupChildrenContract) ID() string                     { return "LL031" }
-func (r *GroupChildrenContract) DefaultSeverity() diag.Severity { return diag.SeverityWarn }
+func (r *GroupChildrenContract) DefaultSeverity() diag.Severity { return diag.SeverityError }
 func (r *GroupChildrenContract) Description() string {
 	return "container mark exposes Children() []facet.GroupChild without a contract proof; add a test applying contracttest.AssertGroupChildren"
 }

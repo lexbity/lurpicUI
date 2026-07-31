@@ -42,7 +42,7 @@ func TestContractRules_Teeth_UnwiredFires(t *testing.T) {
 	for _, c := range contractRules {
 		t.Run(c.ruleID, func(t *testing.T) {
 			// A mark declaring the capability with no contracttest helper
-			// application must produce a warn-severity diagnostic.
+			// application must produce an error-severity diagnostic.
 			dir := c.fixtureDir(t, "unwired")
 			diags := runRulesOnFixture(t, []string{c.ruleID}, dir)
 			if len(diags) == 0 {
@@ -52,8 +52,8 @@ func TestContractRules_Teeth_UnwiredFires(t *testing.T) {
 				if d.RuleID != c.ruleID {
 					t.Errorf("unexpected rule %q, want %s", d.RuleID, c.ruleID)
 				}
-				if d.Severity != diag.SeverityWarn {
-					t.Errorf("%s severity = %s, want warn", c.ruleID, d.Severity)
+				if d.Severity != diag.SeverityError {
+					t.Errorf("%s severity = %s, want error", c.ruleID, d.Severity)
 				}
 			}
 		})

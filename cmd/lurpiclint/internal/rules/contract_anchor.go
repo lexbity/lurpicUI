@@ -11,12 +11,12 @@ import (
 // anchor behavior; it requires the helper to be wired in so the behavior is
 // proven.
 //
-// Default severity: warn (migration; ratchets to error once the backlog is
-// clean).
+// Default severity: error — lurpiclint check ./... --fail-on error blocks any
+// future capability-contract omission.
 type AnchorExportContract struct{}
 
 func (r *AnchorExportContract) ID() string                     { return "LL030" }
-func (r *AnchorExportContract) DefaultSeverity() diag.Severity { return diag.SeverityWarn }
+func (r *AnchorExportContract) DefaultSeverity() diag.Severity { return diag.SeverityError }
 func (r *AnchorExportContract) Description() string {
 	return "mark implements the AnchorExporting capability without a contract proof; add a test applying contracttest.AssertAnchorExport"
 }
