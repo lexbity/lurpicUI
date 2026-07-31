@@ -37,8 +37,8 @@ func TestListResolveThemeTokensInProjection(t *testing.T) {
 	fonts := testkit.TestFontRegistry(t)
 	rt := listThemeRuntimeStub{
 		listRuntimeStub: listRuntimeStub{
-			cardRuntimeStub: cardRuntimeStub{fonts: fonts},
-			icons:           map[string]runtimepkg.IconAsset{},
+			fonts: fonts,
+			icons: map[string]runtimepkg.IconAsset{},
 		},
 		rootStyle: rootStyle,
 		fonts:     fonts,

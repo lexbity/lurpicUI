@@ -9,3 +9,5 @@
 - Codex 5.4 (codex)
 - Kimi 2.5 (through Windsurf)
 - Gemini 3.5 (Antigravity)
+- DeepSeek V4 Flash (Opencode)
+- GLM 5.2 (Z.ai)

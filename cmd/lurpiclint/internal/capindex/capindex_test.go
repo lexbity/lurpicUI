@@ -232,11 +232,21 @@ func TestScan_FingerprintsDistinguishLeafVsContainer(t *testing.T) {
 // (IsContainer == true).  They are the canonical containers across every marks
 // category; if any reports IsContainer=false the fingerprint's
 // embedded-type traversal (promoted role fields from marks.Core) broke.
+// This is the named assertion the embeds-Core bug walked past: a regression
+// that collapses the container set to one accidental hit fails here in
+// seconds rather than after a spec lands.
+//
+// Note: ProgressRing deliberately embeds marks.Core but hosts no children
+// (no Children() method, no child-slice field), so it is a leaf — correctly
+// NOT in this list.
 var canonicalContainerMarks = []string{
-	"Card", "List", "Table",
+	"Card", "Table", "List",
 	"Toolbar", "ActionGroup", "CommandPalette",
-	"ButtonGroup",
-	"Notification", "Dialog", "Tooltip", "Alert",
+	"ButtonGroup", "DropdownSelect",
+	"Dialog", "Notification", "Alert", "Tooltip",
+	"RadialMenu", "SplitButton",
+	"NavDrawer", "NavRail", "Tabs", "Pagination", "TreeNavigator", "Breadcrumbs",
+	"Badge",
 }
 
 // TestScan_CanonicalContainerMarks guards the container-detection regression

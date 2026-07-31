@@ -15,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
 )
@@ -26,8 +27,8 @@ func TestListGeometryContracts(t *testing.T) {
 	})
 	list.SectionHeader = marks.Const("Heading")
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
-		icons:           map[string]runtimepkg.IconAsset{},
+		fonts: testkit.TestFontRegistry(t),
+		icons: map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -68,9 +69,12 @@ func TestListGeometryContracts(t *testing.T) {
 }
 
 type listRuntimeStub struct {
-	cardRuntimeStub
+	contracttest.NoopRuntime
+	fonts *text.FontRegistry
 	icons map[string]runtimepkg.IconAsset
 }
+
+func (s listRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func (s listRuntimeStub) IconResolver() runtimepkg.IconResolver {
 	return listIconResolverStub{icons: s.icons}
@@ -94,8 +98,8 @@ func (r listIconResolverStub) ResolveIcon(ref string) (runtimepkg.IconAsset, boo
 func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	list := newListFixture()
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
-		icons:           map[string]runtimepkg.IconAsset{},
+		fonts: testkit.TestFontRegistry(t),
+		icons: map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -153,8 +157,8 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 func TestListStoreChangeInvalidatesStructure(t *testing.T) {
 	list := newListFixture()
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
-		icons:           map[string]runtimepkg.IconAsset{},
+		fonts: testkit.TestFontRegistry(t),
+		icons: map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
@@ -213,8 +217,8 @@ func TestListConstructionDoesNotSubscribe(t *testing.T) {
 	}
 
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
-		icons:           map[string]runtimepkg.IconAsset{},
+		fonts: testkit.TestFontRegistry(t),
+		icons: map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
@@ -262,8 +266,8 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 		mutate(list)
 	}
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
-		icons:           map[string]runtimepkg.IconAsset{},
+		fonts: testkit.TestFontRegistry(t),
+		icons: map[string]runtimepkg.IconAsset{},
 	}
 	ctx := listResolvedContext(tokens, density, direction)
 	facet.Attach(list, facet.AttachContext{Runtime: rt, Theme: ctx})
@@ -323,8 +327,8 @@ func highContrastListTokens() theme.Tokens {
 
 func TestList_contract_anchor_export(t *testing.T) {
 	rt := listRuntimeStub{
-		cardRuntimeStub: cardRuntimeStub{fonts: testkit.TestFontRegistry(t)},
-		icons:           map[string]runtimepkg.IconAsset{},
+		fonts: testkit.TestFontRegistry(t),
+		icons: map[string]runtimepkg.IconAsset{},
 	}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
