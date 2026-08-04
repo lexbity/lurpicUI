@@ -27,6 +27,40 @@ func DefaultHarnessConfig() HarnessConfig {
 	return HarnessConfig{Width: 800, Height: 600}
 }
 
+// StandardLayerRegistry returns the frozen standard layer registry, failing the
+// test if it cannot be constructed. HarnessConfig requires a non-nil
+// LayerRegistry; this is the canonical source for integration and golden tests.
+func StandardLayerRegistry(t testing.TB) *layout.LayerRegistry {
+	t.Helper()
+	reg, err := layout.StandardLayerRegistry()
+	if err != nil {
+		t.Fatalf("standard layer registry: %v", err)
+	}
+	return reg
+}
+
+// StandardHarnessConfig returns a HarnessConfig for integration and golden
+// tests: the given size, the standard layer registry, and the canonical test
+// font. Most marks render text, which requires a font registry; this is the
+// canonical way to build a config that produces a fully rendered frame.
+func StandardHarnessConfig(t testing.TB, width, height int) HarnessConfig {
+	t.Helper()
+	return HarnessConfig{
+		Width:         width,
+		Height:        height,
+		LayerRegistry: StandardLayerRegistry(t),
+		Fonts:         []text.FontSource{{Name: "noto-sans-regular", Data: TestFontBytes()}},
+	}
+}
+
+// NewStandardHarness constructs a Harness from StandardHarnessConfig for the
+// given size and root. It is the canonical constructor for interaction and
+// golden tests that render text-bearing marks.
+func NewStandardHarness(t testing.TB, width, height int, root facet.FacetImpl) *Harness {
+	t.Helper()
+	return NewHarness(t, StandardHarnessConfig(t, width, height), root)
+}
+
 // Harness is a lightweight headless test wrapper.
 type Harness struct {
 	t          testing.TB

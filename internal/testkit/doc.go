@@ -1,5 +1,21 @@
 // Package testkit provides headless helpers for engine tests.
 //
+// # Interaction tests and the warmup-frame contract
+//
+// The runtime routes platform input against the PREVIOUS frame's hit map. On
+// the very first frame after NewHarness the hit map is nil, so pointer events
+// injected before any RunFrame are silently dropped. Interaction tests MUST
+// use the Drive* helpers (DriveClick, DriveKeyPress, DriveKeyRelease,
+// DriveType, DriveDrag, DriveScroll) which run a warmup frame first, then one
+// frame per injected event. Tests that inject raw events via InjectEvent MUST
+// call Warmup (or RunFrame) before injecting pointer events. See drive.go.
+//
+// A mark mounted as the harness root fills the window. To mount a mark as a
+// non-root child with known bounds (clipping-dependent marks), compose it with
+// the framework's layout containers (layout.NewSizedBox, layout.NewStackLayout,
+// layout.NewColumnLayout) rather than hand-rolling a LayoutRole — LL003 blocks
+// hand-rolled child-arranging containers outside layout/, marks/, and runtime/.
+//
 // # Golden discrimination contract
 //
 // Every {mark}_{state} golden (state ∈ rtl, focused, hovered, pressed,

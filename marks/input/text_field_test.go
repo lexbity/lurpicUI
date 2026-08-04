@@ -206,25 +206,9 @@ func AssertTextFieldGolden(t *testing.T, name string, mutate func(*TextField)) {
 	if mutate != nil {
 		mutate(tf)
 	}
-	fontData := testkit.TestFontBytes()
-	cfg := testkit.HarnessConfig{
-		Width:         420,
-		Height:        220,
-		LayerRegistry: mustTextFieldLayerRegistry(t),
-		Fonts:         []text.FontSource{{Name: "noto-sans-regular", Data: fontData}},
-	}
-	h := testkit.NewHarness(t, cfg, tf)
+	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 420, 220), tf)
 	h.RunFrame()
 	testkit.AssertGolden(t, h.Surface(), "text_field_"+name)
-}
-
-func mustTextFieldLayerRegistry(t *testing.T) *layout.LayerRegistry {
-	t.Helper()
-	reg, err := layout.StandardLayerRegistry()
-	if err != nil {
-		t.Fatalf("standard layer registry: %v", err)
-	}
-	return reg
 }
 
 func textLayoutForTest(t *testing.T, content string) *text.TextLayout {

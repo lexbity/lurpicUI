@@ -29,19 +29,20 @@ func (s *System) processKey(e platform.EventKey) []RoutedEvent {
 			return nil
 		}
 		s.focus.SetFocused(newFocus)
-		if path := findFacetPath(s.focusTree, newFocus); len(path) > 0 {
-			return s.focusTransitionEvents(oldFocus, newFocus)
-		}
+		// TabNext/TabPrev already notified OnFocusGained/OnFocusLost
+		// synchronously via FocusManager.SetFocus. Emitting routed
+		// FocusGainedEvent/FocusLostEvent here would fire the callbacks a
+		// second time when the frame loop delivers them.
 		return nil
 	}
-	out := []RoutedEvent{{
+	// Without a focus manager there is no tab-traversal model; deliver Tab as
+	// an ordinary key event so the focused facet may handle it itself. The
+	// runtime always installs a focus manager (runtime/core.go), so the
+	// focus-manager path above is the one taken in practice.
+	return []RoutedEvent{{
 		Target: targetID,
 		Event:  KeyInputEvent{Kind: e.Kind, Key: e.Key, Modifiers: e.Modifiers},
 	}}
-	if e.Kind == platform.KeyPress && e.Key == platform.KeyTab && !Deliver(out[0], s.focusTree) {
-		out = append(out, s.handleTabNavigation(e, s.focusTree)...)
-	}
-	return out
 }
 
 func (s *System) processText(e platform.EventText) []RoutedEvent {

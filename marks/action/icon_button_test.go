@@ -358,21 +358,12 @@ func assertIconButtonGolden(t *testing.T, name string, mutate func(*IconButton))
 	cfg := testkit.HarnessConfig{
 		Width:         96,
 		Height:        96,
-		LayerRegistry: mustIconButtonLayerRegistry(t),
+		LayerRegistry: testkit.StandardLayerRegistry(t),
 	}
 	h := testkit.NewHarness(t, cfg, btn)
 	h.RunFrame()
 	h.RunFrame()
 	testkit.AssertGolden(t, h.Surface(), "icon_button_"+name)
-}
-
-func mustIconButtonLayerRegistry(t *testing.T) *layout.LayerRegistry {
-	t.Helper()
-	reg, err := layout.StandardLayerRegistry()
-	if err != nil {
-		t.Fatalf("standard layer registry: %v", err)
-	}
-	return reg
 }
 
 func allIconButtonFieldsPresent[T any](value T) bool {

@@ -100,12 +100,13 @@ func TestInputPipeline_click_on_facet(t *testing.T) {
 	root := newClickCounterFacet()
 	h := NewHarness(t, testHarnessConfig(t), root)
 
-	h.InjectEvent(PointerPress(5, 5, platform.PointerLeft))
-	h.InjectEvent(PointerRelease(5, 5, platform.PointerLeft))
-	h.RunFrame()
+	// DriveClick bakes in the warmup frame so the hit map exists before the
+	// press is injected. Without it, the press is dropped against a nil hit
+	// map and no handler fires (see drive.go for the warmup contract).
+	DriveClick(h, 5, 5)
 
-	if root.clickCount == 0 {
-		t.Log("click did not fire — this may require proper layer projection setup; not failing")
+	if root.clickCount != 1 {
+		t.Fatalf("click did not fire: clickCount=%d (expected 1) — input pipeline routing broken", root.clickCount)
 	}
 }
 
@@ -134,11 +135,17 @@ func TestInputPipeline_keyboard_tab_moves_focus(t *testing.T) {
 	rt.AddFacet(root, a, facet.Attachment{})
 	rt.AddFacet(root, b, facet.Attachment{})
 
+	// Establish initial focus on A, then run a frame so the focus manager
+	// rebuilds its tab order (RebuildTabOrder runs during projection).
+	rt.SetFocus(a)
 	h.RunFrame()
 
 	// Tab from A to B.
-	h.InjectEvent(KeyPress(platform.KeyTab, 0))
-	h.RunFrame()
+	DriveKeyPress(h, platform.KeyTab, 0)
+
+	if got := rt.FocusedID(); got != b.Base().ID() {
+		t.Fatalf("expected focus to move to B after Tab, got facet %d (want %d)", got, b.Base().ID())
+	}
 }
 
 func TestInputPipeline_click_outside_is_safe(t *testing.T) {

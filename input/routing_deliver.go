@@ -1,7 +1,6 @@
 package input
 
 import (
-	"sort"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -271,54 +270,4 @@ func isBubbling(e DeliveredEvent) bool {
 	default:
 		return true
 	}
-}
-
-func focusableFacetIDs(root facet.FacetImpl) []facet.FacetID {
-	if root == nil {
-		return nil
-	}
-	type entry struct {
-		id    facet.FacetID
-		index int
-		order int
-	}
-	var entries []entry
-	order := 0
-	stack := []facet.FacetImpl{root}
-	for len(stack) > 0 {
-		impl := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if impl == nil {
-			continue
-		}
-		base := impl.Base()
-		if base == nil {
-			continue
-		}
-		if role := base.FocusRole(); role != nil {
-			focusable := true
-			if role.Focusable != nil {
-				focusable = role.Focusable()
-			}
-			if focusable && role.TabIndex >= 0 {
-				entries = append(entries, entry{id: base.ID(), index: role.TabIndex, order: order})
-			}
-		}
-		order++
-		children := base.Children()
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, children[i])
-		}
-	}
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].index != entries[j].index {
-			return entries[i].index < entries[j].index
-		}
-		return entries[i].order < entries[j].order
-	})
-	ids := make([]facet.FacetID, len(entries))
-	for i, e := range entries {
-		ids[i] = e.id
-	}
-	return ids
 }

@@ -21,12 +21,10 @@ func (s *System) processPointer(e platform.EventPointer, hitMap *projection.HitM
 	case platform.PointerPress:
 		out := s.handlePress(ptr, e, hitMap)
 		if len(out) > 0 && out[0].Target != 0 {
-			oldFocus := s.focus.Focused()
-			if focusID := s.requestFocus(out[0].Target, s.focusTree); focusID != 0 {
-				if focusID != oldFocus {
-					out = append(out, s.focusTransitionEvents(oldFocus, focusID)...)
-				}
-			}
+			// requestFocus calls FocusManager.SetFocus, which notifies
+			// OnFocusGained/OnFocusLost synchronously. Emitting routed
+			// FocusGainedEvent/FocusLostEvent would fire them a second time.
+			s.requestFocus(out[0].Target, s.focusTree)
 		}
 		return out
 	case platform.PointerMove:
