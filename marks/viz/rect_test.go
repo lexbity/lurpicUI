@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -164,4 +165,19 @@ func TestBar_hit_test_misses_gap(t *testing.T) {
 			t.Fatal("expected miss in the gap between bars")
 		}
 	}
+}
+
+func TestBar_Contract_ScaleInvalidates(t *testing.T) {
+	contracttest.AssertScaleInvalidates(t,
+		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewBar(store.NewCollectionStore(barID),
+				func(i barItem) string { return i.cat },
+				func(i barItem) float64 { return i.val },
+				scale,
+			)
+		},
+		func(domain *store.ValueStore[[2]float64]) {
+			domain.Set([2]float64{0, 50})
+		},
+	)
 }

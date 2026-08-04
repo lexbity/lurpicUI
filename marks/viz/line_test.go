@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -108,4 +109,19 @@ func TestLine_empty_store(t *testing.T) {
 	if cmds != nil {
 		t.Fatal("expected nil commands for empty store")
 	}
+}
+
+func TestLine_Contract_ScaleInvalidates(t *testing.T) {
+	contracttest.AssertScaleInvalidates(t,
+		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewLine(store.NewCollectionStore(scatterID),
+				func(i scatterItem) float64 { return i.x },
+				func(i scatterItem) float64 { return i.y },
+				scale, nil,
+			)
+		},
+		func(domain *store.ValueStore[[2]float64]) {
+			domain.Set([2]float64{0, 50})
+		},
+	)
 }

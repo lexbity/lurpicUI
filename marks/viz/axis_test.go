@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -188,4 +189,15 @@ func TestAxis_tick_count_respected(t *testing.T) {
 	if len(a.entries) == 0 {
 		t.Fatal("expected entries with TickCount=3")
 	}
+}
+
+func TestAxis_Contract_ScaleInvalidates(t *testing.T) {
+	contracttest.AssertScaleInvalidates(t,
+		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewAxis(scale, marks.Const(AxisBottom), nil)
+		},
+		func(domain *store.ValueStore[[2]float64]) {
+			domain.Set([2]float64{0, 50})
+		},
+	)
 }

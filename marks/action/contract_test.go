@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -313,5 +314,23 @@ func TestToolbar_contract_accessible(t *testing.T) {
 			return NewToolbar(marks.Const(label), nil, nil)
 		},
 		"toolbar",
+	)
+}
+
+func TestButton_contract_binding_not_severed(t *testing.T) {
+	contracttest.AssertBindingNotSevered[string](
+		t,
+		func() *store.ValueStore[string] { return store.NewValueStore("Save") },
+		func(s *store.ValueStore[string]) facet.FacetImpl {
+			return NewButton(marks.FromStore(s, facet.DirtyLayout|facet.DirtyProjection), marks.Const(uiinput.ButtonFilled))
+		},
+		func(m facet.FacetImpl) {
+			b := m.(*Button)
+			b.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft})
+			b.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft})
+		},
+		func(m facet.FacetImpl) string {
+			return m.(*Button).Label.Get()
+		},
 	)
 }

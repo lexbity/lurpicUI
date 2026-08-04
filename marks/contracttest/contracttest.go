@@ -40,8 +40,8 @@ func (NoopRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source s
 //	interact:  drive the mark to mutate the value (e.g. toggle, SetState).
 //
 // interact MUST change the store value; otherwise the assertion is trivially
-// vacuous. The meta-test (AssertMutationCheckFails) proves the helper has
-// teeth against deliberately broken marks.
+// vacuous. The meta-test (TestAssertValueSurvivesDispose_DetectsBadMark) proves
+// the helper has teeth against deliberately broken marks.
 func AssertValueSurvivesDispose[T comparable](t TB,
 	makeStore func() *store.ValueStore[T],
 	build func(*store.ValueStore[T]) facet.FacetImpl,
@@ -137,6 +137,11 @@ func AssertScaleInvalidates(t TB,
 	m.Base().ClearDirty(facet.DirtyAll)
 
 	changeScale(domain)
+
+	// The ReactiveScale's derived recomputes lazily on Get (store/derived.go);
+	// the projection pass reads the scale, so force the recompute here. That is
+	// what emits OnChange, which the mark's subscription must observe.
+	rs.Get()
 
 	flags := m.Base().DirtyFlags()
 	if flags&facet.DirtyProjection == 0 {

@@ -93,7 +93,12 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 		Clipping: facet.GroupClipBounds,
 	}
 	t.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear,
+		// SupportsGrid is required in addition to linear: the tooltip is a
+		// layered overlay (see the facet.AttachLayer below), and layered
+		// children are arranged by the layer system's grid policy. Without it
+		// the runtime's layer pass cannot arrange the tooltip, so outside-click
+		// dismissal never reaches it.
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measure(ctx, constraints).Size
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

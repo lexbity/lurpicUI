@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -137,4 +138,15 @@ func TestRule_nil_scale_returns_nil(t *testing.T) {
 	if cmds != nil {
 		t.Fatal("expected nil commands for nil scale")
 	}
+}
+
+func TestRule_Contract_ScaleInvalidates(t *testing.T) {
+	contracttest.AssertScaleInvalidates(t,
+		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewRule(marks.Const(50.0), RuleHorizontal, scale)
+		},
+		func(domain *store.ValueStore[[2]float64]) {
+			domain.Set([2]float64{0, 50})
+		},
+	)
 }

@@ -1,11 +1,16 @@
 package contracttest
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/scale/reactive"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -39,12 +44,15 @@ func (m *goodValueMark) OnDeactivate()                  {}
 // terminating the goroutine (unlike t.Fatal/FailNow).
 type failRecorder struct {
 	*testing.T
-	failed bool
+	failed   bool
+	messages []string
 }
 
 func (r *failRecorder) Fatalf(format string, args ...any) {
 	r.failed = true
-	r.T.Logf("expected assertion failure: "+format, args...)
+	msg := fmt.Sprintf(format, args...)
+	r.messages = append(r.messages, msg)
+	r.T.Logf("expected assertion failure: %s", msg)
 }
 
 func TestAssertValueSurvivesDispose_DetectsBadMark(t *testing.T) {
@@ -224,6 +232,141 @@ func TestAssertValueSurvivesDispose_PassesOnGoodMark(t *testing.T) {
 		},
 		func(m facet.FacetImpl) {
 			m.(*goodValueMark).Value.Set(42)
+		},
+	)
+}
+
+// badScaleMark simulates the anti-pattern: the mark holds a ReactiveScale but
+// never subscribes to its OnChange, so a scale change never invalidates it.
+type badScaleMark struct {
+	facet.Facet
+	Scale *reactive.ReactiveScale
+}
+
+func (m *badScaleMark) Base() *facet.Facet             { return &m.Facet }
+func (m *badScaleMark) OnAttach(_ facet.AttachContext) {}
+func (m *badScaleMark) OnDetach()                      {}
+func (m *badScaleMark) OnActivate()                    {}
+func (m *badScaleMark) OnDeactivate()                  {}
+
+// goodScaleMark subscribes to the scale's OnChange in OnAttach — the reference
+// pattern every ReactiveScale viz mark follows.
+type goodScaleMark struct {
+	facet.Facet
+	Scale *reactive.ReactiveScale
+}
+
+func (m *goodScaleMark) Base() *facet.Facet { return &m.Facet }
+func (m *goodScaleMark) OnAttach(_ facet.AttachContext) {
+	if m.Scale != nil {
+		signal.Track(m.Subs(), &m.Scale.OnChange, func(signal.Unit) {
+			m.Invalidate(facet.DirtyProjection)
+		})
+	}
+}
+func (m *goodScaleMark) OnDetach()     {}
+func (m *goodScaleMark) OnActivate()   {}
+func (m *goodScaleMark) OnDeactivate() {}
+
+func TestAssertScaleInvalidates_DetectsBadMark(t *testing.T) {
+	rec := &failRecorder{T: t}
+	AssertScaleInvalidates(rec,
+		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+			m := &badScaleMark{Scale: scale}
+			m.Facet = facet.NewFacet()
+			return m
+		},
+		func(domain *store.ValueStore[[2]float64]) {
+			domain.Set([2]float64{0, 50})
+		},
+	)
+	if !rec.failed {
+		t.Fatal("AssertScaleInvalidates should have detected a mark that does not track scale changes")
+	}
+	if len(rec.messages) == 0 || !strings.Contains(rec.messages[len(rec.messages)-1], "DirtyProjection was not raised") {
+		t.Fatalf("expected the failure to name the missing projection invalidation, got %v", rec.messages)
+	}
+}
+
+func TestAssertScaleInvalidates_PassesOnGoodMark(t *testing.T) {
+	AssertScaleInvalidates(t,
+		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+			m := &goodScaleMark{Scale: scale}
+			m.Facet = facet.NewFacet()
+			return m
+		},
+		func(domain *store.ValueStore[[2]float64]) {
+			domain.Set([2]float64{0, 50})
+		},
+	)
+}
+
+// badBindingMark simulates the anti-pattern: an interaction handler overwrites
+// a store-backed Binding field with marks.Const, orphaning the caller's store.
+type badBindingMark struct {
+	facet.Facet
+	Value marks.Binding[int]
+}
+
+func (m *badBindingMark) Base() *facet.Facet             { return &m.Facet }
+func (m *badBindingMark) OnAttach(_ facet.AttachContext) {}
+func (m *badBindingMark) OnDetach()                      {}
+func (m *badBindingMark) OnActivate()                    {}
+func (m *badBindingMark) OnDeactivate()                  {}
+
+// goodBindingMark keeps the store-backed Binding field intact and mutates
+// state through the underlying store — the reference pattern.
+type goodBindingMark struct {
+	facet.Facet
+	Value  marks.Binding[int]
+	Source *store.ValueStore[int]
+}
+
+func (m *goodBindingMark) Base() *facet.Facet             { return &m.Facet }
+func (m *goodBindingMark) OnAttach(_ facet.AttachContext) {}
+func (m *goodBindingMark) OnDetach()                      {}
+func (m *goodBindingMark) OnActivate()                    {}
+func (m *goodBindingMark) OnDeactivate()                  {}
+
+func TestAssertBindingNotSevered_DetectsBadMark(t *testing.T) {
+	rec := &failRecorder{T: t}
+	AssertBindingNotSevered[int](
+		rec,
+		func() *store.ValueStore[int] { return store.NewValueStore[int](7) },
+		func(s *store.ValueStore[int]) facet.FacetImpl {
+			m := &badBindingMark{Value: marks.FromStore(s, facet.DirtyProjection)}
+			m.Facet = facet.NewFacet()
+			return m
+		},
+		func(m facet.FacetImpl) {
+			m.(*badBindingMark).Value = marks.Const(42)
+		},
+		func(m facet.FacetImpl) int {
+			return m.(*badBindingMark).Value.Get()
+		},
+	)
+	if !rec.failed {
+		t.Fatal("AssertBindingNotSevered should have detected a binding severed to marks.Const")
+	}
+	if len(rec.messages) == 0 || !strings.Contains(rec.messages[len(rec.messages)-1], "binding was severed") {
+		t.Fatalf("expected the failure to name the severed binding, got %v", rec.messages)
+	}
+}
+
+func TestAssertBindingNotSevered_PassesOnGoodMark(t *testing.T) {
+	AssertBindingNotSevered[int](
+		t,
+		func() *store.ValueStore[int] { return store.NewValueStore[int](7) },
+		func(s *store.ValueStore[int]) facet.FacetImpl {
+			m := &goodBindingMark{Value: marks.FromStore(s, facet.DirtyProjection), Source: s}
+			m.Facet = facet.NewFacet()
+			return m
+		},
+		func(m facet.FacetImpl) {
+			m.(*goodBindingMark).Source.Set(99)
+		},
+		func(m facet.FacetImpl) int {
+			return m.(*goodBindingMark).Value.Get()
 		},
 	)
 }
