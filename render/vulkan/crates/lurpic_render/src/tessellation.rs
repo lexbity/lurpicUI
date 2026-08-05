@@ -4,7 +4,7 @@ pub struct Point {
     pub y: f32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Color {
     pub r: f32,
     pub g: f32,

@@ -14,9 +14,11 @@ import (
 
 const (
 	framePacketMagic   = "LPVF"
-	framePacketVersion = uint32(1)
+	framePacketVersion = uint32(2)
 )
 
+// Packet v2 opcodes. Mirrored byte-for-byte by the Rust decoder in
+// crates/lurpic_render/src/frame.rs.
 const (
 	packetCmdFillRect uint8 = iota
 	packetCmdStrokeRect
@@ -34,6 +36,15 @@ const (
 	packetCmdDrawGlyphRun
 	packetCmdDrawImage
 	packetCmdDrawTexture
+	packetCmdDrawBlurredShadow
+	packetCmdBeginRenderBatch
+	packetCmdEndRenderBatch
+)
+
+// Brush kinds (wire values).
+const (
+	packetBrushSolid uint8 = iota
+	packetBrushLinearGradient
 )
 
 type packetWriter struct {
@@ -48,150 +59,191 @@ type imageAssetUploader interface {
 	ensureImage(img *image.RGBA) (uint64, error)
 }
 
+// batchWithClip pairs a batch with the layer clip rect that governs it, if any.
+type batchWithClip struct {
+	batch render.RenderBatch
+	clip  gfx.Rect
+}
+
+func collectBatches(frame *render.Frame) []batchWithClip {
+	var out []batchWithClip
+	if len(frame.Layers) > 0 {
+		for _, layer := range frame.Layers {
+			for _, b := range layer.Batches {
+				out = append(out, batchWithClip{batch: b, clip: layer.ClipRect})
+			}
+		}
+		return out
+	}
+	for _, b := range frame.RenderBatchs {
+		out = append(out, batchWithClip{batch: b})
+	}
+	return out
+}
+
 func encodeFramePacketWithAssets(frame *render.Frame, assets imageAssetUploader) ([]byte, error) {
 	if frame == nil {
 		return nil, nil
 	}
 
-	batches := frame.RenderBatchs
-	if len(batches) == 0 && len(frame.Layers) > 0 {
-		batches = flattenLayerBatches(frame.Layers)
-	}
-
-	encoded := make([]encodedBatch, 0, len(batches))
-	for _, batch := range batches {
-		payload, commands, ok, err := encodeBatch(batch, assets)
+	// Encode all batches first so the batch-count field reflects exactly the
+	// number of encoded batches (batches with no decodable commands are
+	// dropped, e.g. an empty PushTransform/PopTransform wrapper).
+	var encoded []encodedBatch
+	for _, item := range collectBatches(frame) {
+		e, ok, err := encodeBatch(item.batch, item.clip, assets)
 		if err != nil {
 			return nil, err
 		}
-		if !ok {
-			continue
+		if ok {
+			encoded = append(encoded, e)
 		}
-		encoded = append(encoded, encodedBatch{
-			batch:    batch,
-			payload:  payload,
-			commands: commands,
-		})
 	}
 
 	var w packetWriter
 	w.writeString(framePacketMagic)
 	w.writeU32(framePacketVersion)
+	// Surface dimensions are surfaced by the readback/present path explicitly;
+	// the GPU pipeline (Slice 3) threads the real swapchain size through here.
+	w.writeU32(0)                    // surface_w
+	w.writeU32(0)                    // surface_h
+	w.writeF32(1)                    // device_pixel_ratio
 	w.writeU32(uint32(len(encoded))) //nolint:gosec // integer overflow conversion
 	for _, entry := range encoded {
 		w.writeU64(uint64(entry.batch.ID))
 		w.writeRect(entry.batch.Bounds)
 		w.writeF32(entry.batch.Opacity)
+		w.writeTransform(entry.transform)
+		w.writeRect(entry.clip)
 		w.writeU32(uint32(entry.commands)) //nolint:gosec // integer overflow conversion
 		w.writeBytes(entry.payload)
 	}
 	return w.buf.Bytes(), nil
 }
 
-func flattenLayerBatches(layers []render.LayeredBatch) []render.RenderBatch {
-	if len(layers) == 0 {
-		return nil
-	}
-	var total int
-	for _, layer := range layers {
-		total += len(layer.Batches)
-	}
-	out := make([]render.RenderBatch, 0, total)
-	for _, layer := range layers {
-		out = append(out, layer.Batches...)
-	}
-	return out
-}
-
 type encodedBatch struct {
-	batch    render.RenderBatch
-	payload  []byte
-	commands int
+	batch     render.RenderBatch
+	transform gfx.Transform
+	clip      gfx.Rect
+	payload   []byte
+	commands  int
 }
 
-func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, int, bool, error) {
+// extractBatchTransform lifts a leading PushTransform / trailing PopTransform
+// wrapper (injected by runtime/core.go around every non-identity batch
+// transform) into the batch header so it travels as packet metadata. The
+// wrapper is only extracted when it provably brackets the whole batch: the
+// transform depth must return to zero exactly at the final command.
+func extractBatchTransform(cmds []gfx.Command) (gfx.Transform, []gfx.Command, bool) {
+	if len(cmds) < 2 {
+		return gfx.Identity(), cmds, false
+	}
+	pt, ok := cmds[0].(gfx.PushTransform)
+	if !ok {
+		return gfx.Identity(), cmds, false
+	}
+	if _, ok := cmds[len(cmds)-1].(gfx.PopTransform); !ok {
+		return gfx.Identity(), cmds, false
+	}
+	depth := 0
+	for i, c := range cmds {
+		switch c.(type) {
+		case gfx.PushTransform:
+			depth++
+		case gfx.PopTransform:
+			depth--
+			if depth < 0 || (depth == 0 && i != len(cmds)-1) {
+				return gfx.Identity(), cmds, false
+			}
+		}
+	}
+	if depth != 0 {
+		return gfx.Identity(), cmds, false
+	}
+	return pt.Matrix, cmds[1 : len(cmds)-1], true
+}
+
+func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploader) (encodedBatch, bool, error) {
 	if batch.Commands.Len() == 0 {
-		return nil, 0, false, nil
+		return encodedBatch{}, false, nil
+	}
+
+	transform, cmds, _ := extractBatchTransform(batch.Commands.Commands)
+	if len(cmds) == 0 {
+		return encodedBatch{}, false, nil
 	}
 
 	var w packetWriter
 	commands := 0
-	for _, cmd := range batch.Commands.Commands {
+	for _, cmd := range cmds {
 		switch c := cmd.(type) {
 		case gfx.FillRect:
-			if !isSolidBrush(c.Brush) {
-				continue
-			}
 			commands++
 			w.writeU8(packetCmdFillRect)
 			w.writeRect(c.Rect)
-			w.writeColor(c.Brush.Color)
-		case gfx.StrokeRect:
-			if !isSolidBrush(c.Brush) {
-				continue
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
 			}
+		case gfx.StrokeRect:
 			commands++
 			w.writeU8(packetCmdStrokeRect)
 			w.writeRect(c.Rect)
-			w.writeF32(c.Stroke.Width)
-			w.writeColor(c.Brush.Color)
-		case gfx.FillPath:
-			if !isSolidBrush(c.Brush) {
-				continue
+			w.writeStrokeStyle(c.Stroke)
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
 			}
+		case gfx.FillPath:
 			commands++
 			w.writeU8(packetCmdFillPath)
 			w.writePath(c.Path)
-			w.writeColor(c.Brush.Color)
-		case gfx.StrokePath:
-			if !isSolidBrush(c.Brush) {
-				continue
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
 			}
+		case gfx.StrokePath:
 			commands++
 			w.writeU8(packetCmdStrokePath)
 			w.writePath(c.Path)
-			w.writeF32(c.Stroke.Width)
-			w.writeColor(c.Brush.Color)
-		case gfx.DrawPolyline:
-			if !isSolidBrush(c.Brush) {
-				continue
+			w.writeStrokeStyle(c.Stroke)
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
 			}
+		case gfx.DrawPolyline:
 			commands++
 			w.writeU8(packetCmdDrawPolyline)
+			w.writeU32(uint32(len(c.Points))) //nolint:gosec // integer overflow conversion
+			for _, p := range c.Points {
+				w.writePoint(p)
+			}
+			w.writeStrokeStyle(c.Stroke)
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
+			}
 			if c.Closed {
 				w.writeU8(1)
 			} else {
 				w.writeU8(0)
 			}
-			w.writeF32(c.Stroke.Width)
-			w.writeU32(uint32(len(c.Points))) //nolint:gosec // integer overflow conversion
-			for _, p := range c.Points {
-				w.writePoint(p)
-			}
-			w.writeColor(c.Brush.Color)
 		case gfx.DrawPoints:
-			if !isSolidBrush(c.Brush) {
-				continue
-			}
 			commands++
 			w.writeU8(packetCmdDrawPoints)
-			w.writeF32(c.Radius)
 			w.writeU32(uint32(len(c.Points))) //nolint:gosec // integer overflow conversion
 			for _, p := range c.Points {
 				w.writePoint(p)
 			}
-			w.writeColor(c.Brush.Color)
-		case gfx.DrawSelectionRects:
-			if !isSolidBrush(c.Brush) {
-				continue
+			w.writeF32(c.Radius)
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
 			}
+		case gfx.DrawSelectionRects:
 			commands++
 			w.writeU8(packetCmdDrawSelectionRects)
 			w.writeU32(uint32(len(c.Rects))) //nolint:gosec // integer overflow conversion
 			for _, rr := range c.Rects {
 				w.writeRect(rr)
 			}
-			w.writeColor(c.Brush.Color)
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
+			}
 		case gfx.PushTransform:
 			commands++
 			w.writeU8(packetCmdPushTransform)
@@ -214,11 +266,8 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 			commands++
 			w.writeU8(packetCmdPopOpacity)
 		case gfx.DrawGlyphRun:
-			if !isSolidBrush(c.Brush) {
-				continue
-			}
 			if err := uploadGlyphRun(c.Run); err != nil {
-				return nil, 0, false, err
+				return encodedBatch{}, false, err
 			}
 			commands++
 			w.writeU8(packetCmdDrawGlyphRun)
@@ -232,25 +281,27 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 			}
 			w.writeU32(math.Float32bits(size))
 			w.writePoint(c.Origin)
-			w.writeColor(c.Brush.Color)
 			w.writeU32(uint32(len(c.Run.Glyphs))) //nolint:gosec // integer overflow conversion
 			for _, glyph := range c.Run.Glyphs {
 				w.writeU32(glyph.GlyphID)
 				w.writeF32(glyph.X)
 				w.writeF32(glyph.Y)
 			}
+			if err := w.writeBrush(c.Brush); err != nil {
+				return encodedBatch{}, false, err
+			}
 		case gfx.DrawImage:
 			if c.Image == nil {
 				continue
 			}
 			if assets == nil {
-				return nil, 0, false, fmt.Errorf("vulkan: image asset cache unavailable")
+				return encodedBatch{}, false, fmt.Errorf("vulkan: image asset cache unavailable")
 			}
-			commands++
 			handle, err := assets.ensureImage(c.Image)
 			if err != nil {
-				return nil, 0, false, err
+				return encodedBatch{}, false, err
 			}
+			commands++
 			w.writeU8(packetCmdDrawImage)
 			w.writeU64(handle)
 			w.writeRect(c.DestRect)
@@ -265,20 +316,41 @@ func encodeBatch(batch render.RenderBatch, assets imageAssetUploader) ([]byte, i
 			w.writeRect(c.SrcRect)
 			w.writeU8(uint8(c.Sampling))
 			w.writeF32(c.Opacity)
-		case gfx.BeginRenderBatch, gfx.EndRenderBatch:
+		case gfx.DrawBlurredShadow:
+			commands++
+			w.writeU8(packetCmdDrawBlurredShadow)
+			w.writePath(c.Path)
+			w.writeColor8(c.Color)
+			w.writeF32(c.BlurRadius)
+			w.writePoint(c.Offset)
+			if c.Inner {
+				w.writeU8(1)
+			} else {
+				w.writeU8(0)
+			}
+		case gfx.BeginRenderBatch:
+			commands++
+			w.writeU8(packetCmdBeginRenderBatch)
+			w.writeRect(c.Bounds)
+			w.writeU64(uint64(c.CacheID))
+		case gfx.EndRenderBatch:
+			commands++
+			w.writeU8(packetCmdEndRenderBatch)
 		default:
-			return nil, 0, false, fmt.Errorf("vulkan: unsupported command type %T", cmd)
+			return encodedBatch{}, false, fmt.Errorf("vulkan: unsupported command type %T", cmd)
 		}
 	}
 
 	if commands == 0 {
-		return nil, 0, false, nil
+		return encodedBatch{}, false, nil
 	}
-	return w.buf.Bytes(), commands, true, nil
-}
-
-func isSolidBrush(brush gfx.Brush) bool {
-	return brush.Kind == gfx.BrushSolid
+	return encodedBatch{
+		batch:     batch,
+		transform: transform,
+		clip:      clip,
+		payload:   w.buf.Bytes(),
+		commands:  commands,
+	}, true, nil
 }
 
 func hashImage(img *image.RGBA) uint64 {
@@ -335,11 +407,13 @@ func (w *packetWriter) writeRect(r gfx.Rect) {
 	w.writePoint(r.Max)
 }
 
-func (w *packetWriter) writeColor(c gfx.Color) {
-	w.writeF32(c.R)
-	w.writeF32(c.G)
-	w.writeF32(c.B)
-	w.writeF32(c.A)
+// writeColor8 encodes a premultiplied float color as four 8-bit channels,
+// matching the wire Brush color layout (4 x u8).
+func (w *packetWriter) writeColor8(c gfx.Color) {
+	w.writeU8(colorByte(c.R))
+	w.writeU8(colorByte(c.G))
+	w.writeU8(colorByte(c.B))
+	w.writeU8(colorByte(c.A))
 }
 
 func (w *packetWriter) writeTransform(t gfx.Transform) {
@@ -351,27 +425,86 @@ func (w *packetWriter) writeTransform(t gfx.Transform) {
 	w.writeF32(t.TY)
 }
 
+// writeBrush encodes both brush kinds without loss. The gfx BrushKind surface
+// is sealed to solid/linear-gradient; any other kind is a caller contract
+// violation and is surfaced as an error rather than silently degraded.
+func (w *packetWriter) writeBrush(brush gfx.Brush) error {
+	switch brush.Kind {
+	case gfx.BrushSolid:
+		w.writeU8(packetBrushSolid)
+		w.writeColor8(brush.Color)
+		return nil
+	case gfx.BrushLinearGradient:
+		w.writeU8(packetBrushLinearGradient)
+		w.writePoint(brush.GradientStart)
+		w.writePoint(brush.GradientEnd)
+		w.writeU32(uint32(len(brush.GradientStops))) //nolint:gosec // integer overflow conversion
+		for _, stop := range brush.GradientStops {
+			w.writeF32(stop.Offset)
+			w.writeColor8(stop.Color)
+		}
+		return nil
+	default:
+		return fmt.Errorf("vulkan: unsupported brush kind %d", brush.Kind)
+	}
+}
+
+func (w *packetWriter) writeStrokeStyle(s gfx.StrokeStyle) {
+	w.writeF32(s.Width)
+	w.writeU8(uint8(s.Cap))
+	w.writeU8(uint8(s.Join))
+	w.writeF32(s.MiterLimit)
+	w.writeU32(uint32(len(s.Dash))) //nolint:gosec // integer overflow conversion
+	for _, d := range s.Dash {
+		w.writeF32(d)
+	}
+	w.writeF32(s.DashOffset)
+}
+
+// writePath encodes a path as two parallel arrays: the verb sequence followed
+// by the concatenated point sequence (MoveTo/LineTo carry 1 point, QuadTo 2,
+// CubicTo 3, Close 0).
 func (w *packetWriter) writePath(path gfx.Path) {
+	pointCount := 0
+	for _, seg := range path.Segments {
+		pointCount += gfx.SegmentPointCount(seg.Verb)
+	}
 	w.writeU32(uint32(len(path.Segments))) //nolint:gosec // integer overflow conversion
 	for _, seg := range path.Segments {
 		switch seg.Verb {
 		case gfx.PathMoveTo:
 			w.writeU8(0)
-			w.writePoint(seg.Pts[0])
 		case gfx.PathLineTo:
 			w.writeU8(1)
-			w.writePoint(seg.Pts[0])
 		case gfx.PathQuadTo:
 			w.writeU8(2)
-			w.writePoint(seg.Pts[0])
-			w.writePoint(seg.Pts[1])
 		case gfx.PathCubicTo:
 			w.writeU8(3)
-			w.writePoint(seg.Pts[0])
-			w.writePoint(seg.Pts[1])
-			w.writePoint(seg.Pts[2])
 		case gfx.PathClose:
 			w.writeU8(4)
 		}
 	}
+	w.writeU32(uint32(pointCount))
+	for _, seg := range path.Segments {
+		switch seg.Verb {
+		case gfx.PathMoveTo, gfx.PathLineTo:
+			w.writePoint(seg.Pts[0])
+		case gfx.PathQuadTo:
+			w.writePoint(seg.Pts[0])
+			w.writePoint(seg.Pts[1])
+		case gfx.PathCubicTo:
+			w.writePoint(seg.Pts[0])
+			w.writePoint(seg.Pts[1])
+			w.writePoint(seg.Pts[2])
+		}
+	}
+}
+func colorByte(v float32) uint8 {
+	if v < 0 {
+		v = 0
+	}
+	if v > 1 {
+		v = 1
+	}
+	return uint8(math.Round(float64(v) * 255))
 }

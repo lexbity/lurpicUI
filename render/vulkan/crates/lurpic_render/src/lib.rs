@@ -25,6 +25,7 @@ pub enum RenderResult {
     InvalidHandle = 3,
     VulkanError = 4,
     Unsupported = 5,
+    PacketVersionMismatch = 6,
     Panic = 1000,
     Unknown = 1001,
 }
@@ -38,6 +39,7 @@ impl RenderResult {
             RenderResult::InvalidHandle => "invalid_handle",
             RenderResult::VulkanError => "vulkan_error",
             RenderResult::Unsupported => "unsupported",
+            RenderResult::PacketVersionMismatch => "packet_version_mismatch",
             RenderResult::Panic => "panic",
             RenderResult::Unknown => "unknown",
         }
@@ -113,6 +115,18 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
         return message.clone();
     }
     "unknown panic payload".to_string()
+}
+
+/// Serializes tests that mutate the process-global atlas / image store so the
+/// parallel unit-test harness cannot interleave destructive resets. Also held by
+/// `lurpic_render_test_reset` so FFI-driven resets cannot race Rust unit tests.
+pub(crate) fn state_lock_guard() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+    static STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    STATE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
 }
 
 struct HandleRegistry {
@@ -269,6 +283,7 @@ pub extern "C" fn lurpic_render_test_handle_destroy(handle: RenderHandle) -> Ren
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_reset() -> RenderResult {
     catch_render_result("test_reset", || {
+        let _guard = state_lock_guard();
         registry().clear();
         atlas::reset_atlas();
         image_store::reset_images();
@@ -421,6 +436,74 @@ pub extern "C" fn lurpic_render_present() -> RenderResult {
 #[no_mangle]
 pub extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> RenderResult {
     catch_render_result("submit_frame", || vulkan::submit_frame(data, len))
+}
+
+/// Test-only readback entry point: decodes a packet v2 frame, rasterizes it with
+/// the CPU stepping-stone raster (transparent clear), and writes RGBA pixels to
+/// `out_pixels`. This is the GPU-readback contract the equivalence harness uses
+/// until the GPU pipeline lands; it does not require a Vulkan device.
+#[no_mangle]
+pub extern "C" fn lurpic_render_submit_and_readback(
+    data: *const u8,
+    len: usize,
+    width: u32,
+    height: u32,
+    out_pixels: *mut u8,
+    out_len: usize,
+) -> RenderResult {
+    catch_render_result("submit_and_readback", || {
+        if out_pixels.is_null() {
+            return Err((
+                RenderResult::InvalidHandle,
+                "readback output pointer is null".to_string(),
+            ));
+        }
+        let required = (width as usize)
+            .checked_mul(height as usize)
+            .and_then(|v| v.checked_mul(4))
+            .ok_or((
+                RenderResult::OutOfMemory,
+                "readback buffer size overflow".to_string(),
+            ))?;
+        if out_len < required {
+            return Err((
+                RenderResult::InvalidHandle,
+                format!(
+                    "readback buffer too small: have {}, need {}",
+                    out_len, required
+                ),
+            ));
+        }
+        if width == 0 || height == 0 {
+            return Err((
+                RenderResult::InitFailed,
+                "readback dimensions are zero".to_string(),
+            ));
+        }
+        if len > 0 && data.is_null() {
+            return Err((
+                RenderResult::InvalidHandle,
+                "frame packet pointer is null".to_string(),
+            ));
+        }
+        let bytes = if len == 0 {
+            &[][..]
+        } else {
+            unsafe { std::slice::from_raw_parts(data, len) }
+        };
+        let frame = frame::decode_frame(bytes)?;
+        let pixels = raster::rasterize_frame_with_clear(Some(&frame), width, height, [0, 0, 0, 0]);
+        // The raster produces BGRA (swapchain layout). Readback is RGBA.
+        let out = unsafe { std::slice::from_raw_parts_mut(out_pixels, out_len) };
+        for (i, px) in pixels.chunks_exact(4).enumerate() {
+            let off = i * 4;
+            out[off] = px[2];
+            out[off + 1] = px[1];
+            out[off + 2] = px[0];
+            out[off + 3] = px[3];
+        }
+        Ok(())
+    })
 }
 
 #[no_mangle]

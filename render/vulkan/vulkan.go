@@ -87,6 +87,14 @@ func (b *Backend) Initialize(s render.Surface) error {
 	return nil
 }
 
+// EncodeFrame encodes a Frame into the packet v2 wire format, uploading any
+// DrawImage pixel data into the Rust image store as needed. Used by the
+// equivalence harness and any caller that needs the packet independent of a
+// live Backend instance.
+func EncodeFrame(f *render.Frame) ([]byte, error) {
+	return encodeFramePacketWithAssets(f, newImageCache())
+}
+
 func (b *Backend) Submit(f *render.Frame) error {
 	if !b.initialized {
 		return errNotImplemented

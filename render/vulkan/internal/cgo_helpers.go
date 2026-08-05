@@ -9,14 +9,15 @@ import (
 type ResultCode int32
 
 const (
-	ResultOK            ResultCode = 0
-	ResultInitFailed    ResultCode = 1
-	ResultOutOfMemory   ResultCode = 2
-	ResultInvalidHandle ResultCode = 3
-	ResultVulkanError   ResultCode = 4
-	ResultUnsupported   ResultCode = 5
-	ResultPanic         ResultCode = 1000
-	ResultUnknown       ResultCode = 1001
+	ResultOK                    ResultCode = 0
+	ResultInitFailed            ResultCode = 1
+	ResultOutOfMemory           ResultCode = 2
+	ResultInvalidHandle         ResultCode = 3
+	ResultVulkanError           ResultCode = 4
+	ResultUnsupported           ResultCode = 5
+	ResultPacketVersionMismatch ResultCode = 6
+	ResultPanic                 ResultCode = 1000
+	ResultUnknown               ResultCode = 1001
 )
 
 // Handle is the opaque Rust-side resource identifier.
@@ -46,6 +47,7 @@ type OutOfMemoryError struct{ baseResultError }
 type InvalidHandleError struct{ baseResultError }
 type UnsupportedError struct{ baseResultError }
 type VulkanError struct{ baseResultError }
+type PacketVersionMismatchError struct{ baseResultError }
 type PanicError struct{ baseResultError }
 type UnknownError struct{ baseResultError }
 
@@ -63,6 +65,8 @@ func (c ResultCode) String() string {
 		return "unsupported"
 	case ResultVulkanError:
 		return "vulkan_error"
+	case ResultPacketVersionMismatch:
+		return "packet_version_mismatch"
 	case ResultPanic:
 		return "panic"
 	default:
@@ -86,6 +90,8 @@ func TranslateResult(code ResultCode, message string) error {
 		return &UnsupportedError{baseResultError{code: code, message: message}}
 	case ResultVulkanError:
 		return &VulkanError{baseResultError{code: code, message: message}}
+	case ResultPacketVersionMismatch:
+		return &PacketVersionMismatchError{baseResultError{code: code, message: message}}
 	case ResultPanic:
 		return &PanicError{baseResultError{code: code, message: message}}
 	default:
@@ -102,7 +108,8 @@ func ErrorCode(err error) (ResultCode, bool) {
 		var e4 *VulkanError
 		var e5 *PanicError
 		var e6 *UnknownError
-		var e7 interface{ ResultCode() ResultCode }
+		var e7 *PacketVersionMismatchError
+		var e8 interface{ ResultCode() ResultCode }
 		switch {
 		case errors.As(err, &e):
 			return e.code, true
@@ -119,7 +126,9 @@ func ErrorCode(err error) (ResultCode, bool) {
 		case errors.As(err, &e6):
 			return e6.code, true
 		case errors.As(err, &e7):
-			return e7.ResultCode(), true
+			return e7.code, true
+		case errors.As(err, &e8):
+			return e8.ResultCode(), true
 		default:
 			return 0, false
 		}

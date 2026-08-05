@@ -28,6 +28,9 @@ func Shutdown() error                   { return nil }
 func InstanceHandle() uintptr           { return 0 }
 func DeviceGeneration() uint64          { return 0 }
 func SubmitFrame([]byte) error          { return errCGORequired }
+func SubmitAndReadback([]byte, int, int) ([]byte, error) {
+	return nil, errCGORequired
+}
 func Present() error                    { return errCGORequired }
 func Resize(int, int) error             { return errCGORequired }
 func ResetAtlas() {}

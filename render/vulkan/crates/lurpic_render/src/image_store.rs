@@ -174,6 +174,7 @@ mod tests {
 
     #[test]
     fn create_lookup_and_destroy_image() {
+        let _guard = crate::state_lock_guard();
         reset_images();
         let handle = create_image(&[255, 0, 0, 255], 1, 1, 4, ImageFormat::Rgba8).expect("create");
         let image = lookup_image(handle).expect("lookup");

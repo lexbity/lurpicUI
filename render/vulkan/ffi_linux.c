@@ -13,6 +13,7 @@ static int32_t (*lurpic_render_shutdown_fn)(void) = NULL;
 static uintptr_t (*lurpic_render_instance_handle_fn)(void) = NULL;
 static int32_t (*lurpic_render_query_capabilities_fn)(void *) = NULL;
 static int32_t (*lurpic_render_submit_frame_fn)(const unsigned char *, uintptr_t) = NULL;
+static int32_t (*lurpic_render_submit_and_readback_fn)(const unsigned char *, uintptr_t, uint32_t, uint32_t, unsigned char *, uintptr_t) = NULL;
 static int32_t (*lurpic_render_upload_glyph_fn)(uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, float, float, float, const unsigned char *, uintptr_t) = NULL;
 static int32_t (*lurpic_render_create_image_fn)(const unsigned char *, uintptr_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t *) = NULL;
 static int32_t (*lurpic_render_destroy_image_fn)(uint64_t) = NULL;
@@ -89,6 +90,7 @@ int lurpic_render_load(const char *library_path) {
   LOAD_SYM(lurpic_render_instance_handle_fn, "lurpic_render_instance_handle", uintptr_t(*)(void));
   LOAD_SYM(lurpic_render_query_capabilities_fn, "lurpic_render_query_capabilities", int32_t(*)(void *));
   LOAD_SYM(lurpic_render_submit_frame_fn, "lurpic_render_submit_frame", int32_t(*)(const unsigned char *, uintptr_t));
+  LOAD_SYM(lurpic_render_submit_and_readback_fn, "lurpic_render_submit_and_readback", int32_t(*)(const unsigned char *, uintptr_t, uint32_t, uint32_t, unsigned char *, uintptr_t));
   LOAD_SYM(lurpic_render_upload_glyph_fn, "lurpic_render_upload_glyph", int32_t(*)(uint64_t, uint32_t, uint32_t, uint32_t, uint32_t, float, float, float, const unsigned char *, uintptr_t));
   LOAD_SYM(lurpic_render_create_image_fn, "lurpic_render_create_image", int32_t(*)(const unsigned char *, uintptr_t, uint32_t, uint32_t, uint32_t, uint32_t, uint64_t *));
   LOAD_SYM(lurpic_render_destroy_image_fn, "lurpic_render_destroy_image", int32_t(*)(uint64_t));
@@ -198,6 +200,23 @@ int32_t lurpic_render_submit_frame(const unsigned char *data, uintptr_t len) {
     return -1;
   }
   int32_t result = lurpic_render_submit_frame_fn(data, len);
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
+
+int32_t lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len) {
+  if (lurpic_render_submit_and_readback_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_submit_and_readback_fn(data, len, width, height, out_pixels, out_len);
   if (result == 0) {
     set_error("");
   } else if (lurpic_render_last_error_fn != NULL) {
@@ -347,6 +366,7 @@ void lurpic_render_unload(void) {
   lurpic_render_instance_handle_fn = NULL;
   lurpic_render_query_capabilities_fn = NULL;
   lurpic_render_submit_frame_fn = NULL;
+  lurpic_render_submit_and_readback_fn = NULL;
   lurpic_render_upload_glyph_fn = NULL;
   lurpic_render_create_xcb_surface_fn = NULL;
   lurpic_render_resize_fn = NULL;

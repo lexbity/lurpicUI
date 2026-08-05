@@ -188,60 +188,69 @@ fn generate_sdf(bitmap: &GlyphBitmap) -> GlyphBitmap {
 mod tests {
     use super::*;
 
+    fn with_state_lock<T>(f: impl FnOnce() -> T) -> T {
+        let _guard = crate::state_lock_guard();
+        f()
+    }
+
     #[test]
     fn upload_and_lookup_glyph() {
-        reset_atlas();
-        upload_glyph(
-            1,
-            2,
-            3,
-            GlyphBitmap {
-                width: 1,
-                height: 1,
-                pixels: vec![255],
-                offset_x: 0.0,
-                offset_y: 0.0,
-                advance: 1.0,
-            },
-        );
-        let got = lookup_glyph(1, 2, 3).expect("glyph present");
-        assert_eq!(got.pixels, vec![255]);
+        with_state_lock(|| {
+            reset_atlas();
+            upload_glyph(
+                1,
+                2,
+                3,
+                GlyphBitmap {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![255],
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    advance: 1.0,
+                },
+            );
+            let got = lookup_glyph(1, 2, 3).expect("glyph present");
+            assert_eq!(got.pixels, vec![255]);
+        });
     }
 
     #[test]
     fn evicts_when_full() {
-        reset_atlas();
-        let mut atlas = atlas().lock().expect("glyph atlas mutex poisoned");
-        atlas.capacity = 1;
-        drop(atlas);
-        upload_glyph(
-            1,
-            1,
-            1,
-            GlyphBitmap {
-                width: 1,
-                height: 1,
-                pixels: vec![1],
-                offset_x: 0.0,
-                offset_y: 0.0,
-                advance: 1.0,
-            },
-        );
-        upload_glyph(
-            1,
-            2,
-            1,
-            GlyphBitmap {
-                width: 1,
-                height: 1,
-                pixels: vec![2],
-                offset_x: 0.0,
-                offset_y: 0.0,
-                advance: 1.0,
-            },
-        );
-        let (count, evictions) = atlas_stats();
-        assert_eq!(count, 1);
-        assert!(evictions >= 1);
+        with_state_lock(|| {
+            reset_atlas();
+            let mut atlas = atlas().lock().expect("glyph atlas mutex poisoned");
+            atlas.capacity = 1;
+            drop(atlas);
+            upload_glyph(
+                1,
+                1,
+                1,
+                GlyphBitmap {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![1],
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    advance: 1.0,
+                },
+            );
+            upload_glyph(
+                1,
+                2,
+                1,
+                GlyphBitmap {
+                    width: 1,
+                    height: 1,
+                    pixels: vec![2],
+                    offset_x: 0.0,
+                    offset_y: 0.0,
+                    advance: 1.0,
+                },
+            );
+            let (count, evictions) = atlas_stats();
+            assert_eq!(count, 1);
+            assert!(evictions >= 1);
+        });
     }
 }

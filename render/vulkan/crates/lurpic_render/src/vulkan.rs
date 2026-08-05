@@ -1,4 +1,4 @@
-use crate::frame::{decode_frame, DecodedFrame, FrameStats};
+use crate::frame::{decode_frame, last_vertex_count, DecodedFrame, FrameStats};
 use crate::raster::rasterize_frame;
 use crate::{clear_last_error, RenderResult};
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -1062,11 +1062,14 @@ impl VulkanState {
     }
 
     fn frame_stats(&self) -> FrameStats {
-        self.pending_frame
+        let mut stats = self
+            .pending_frame
             .as_ref()
             .or(self.last_frame.as_ref())
             .map(|frame| frame.stats)
-            .unwrap_or_default()
+            .unwrap_or_default();
+        stats.vertex_count = last_vertex_count();
+        stats
     }
 
     unsafe fn recreate_swapchain(&mut self) -> Result<(), (RenderResult, String)> {

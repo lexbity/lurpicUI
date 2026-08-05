@@ -26,6 +26,7 @@ int lurpic_render_shutdown(void);
 uintptr_t lurpic_render_instance_handle(void);
 int lurpic_render_query_capabilities(LurpicRenderCapabilities *out);
 int lurpic_render_submit_frame(const unsigned char *data, uintptr_t len);
+int lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len);
 int lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len);
 int lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle);
 int lurpic_render_destroy_image(uint64_t handle);
@@ -247,6 +248,34 @@ func SubmitFrame(data []byte) error {
 		return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(nil), 0))
 	}
 	return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(unsafe.Pointer(&data[0])), C.uintptr_t(len(data))))
+}
+
+// SubmitAndReadback decodes a packet v2 frame, rasterizes it with the CPU
+// stepping-stone raster, and returns RGBA pixels at the requested size. This is
+// the readback path the equivalence harness uses; it does not require a Vulkan
+// device.
+func SubmitAndReadback(data []byte, width, height int) ([]byte, error) {
+	if err := loadRustLibrary(); err != nil {
+		return nil, err
+	}
+	if width <= 0 || height <= 0 {
+		return nil, errors.New("vulkan: readback dimensions must be positive")
+	}
+	out := make([]byte, width*height*4)
+	if len(data) == 0 {
+		return nil, errors.New("vulkan: readback requires a non-empty frame packet")
+	}
+	if err := translateStatus(C.lurpic_render_submit_and_readback(
+		(*C.uchar)(unsafe.Pointer(&data[0])),
+		C.uintptr_t(len(data)),
+		C.uint32_t(width),
+		C.uint32_t(height),
+		(*C.uchar)(unsafe.Pointer(&out[0])),
+		C.uintptr_t(len(out)),
+	)); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func ResetAtlas() {
