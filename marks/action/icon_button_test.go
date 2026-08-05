@@ -8,9 +8,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -22,14 +22,11 @@ import (
 )
 
 type iconButtonRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle any
 	icons     map[string]runtimepkg.IconAsset
 }
 
-func (s iconButtonRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s iconButtonRuntimeStub) CancelJob(id job.JobID) {}
-func (s iconButtonRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
 func (s iconButtonRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s iconButtonRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

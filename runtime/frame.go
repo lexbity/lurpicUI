@@ -22,6 +22,16 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		runtimeTracef("runFrame start n=%d wait=%v pending=%d dirty=%d paused=%v surface=%v",
 			rt.frameNumber+1, waitForRender, len(rt.pendingEvents), len(rt.dirtyFacets), rt.isPaused(), rt.isSurfaceReady())
 	}
+	// A frame, once begun, runs to completion against a stable tree. The read
+	// lock is held for the frame body; disposeTree takes the write lock, so
+	// disposal blocks until this frame finishes and never races a tree walk.
+	rt.frameMu.RLock()
+	if rt.root == nil || rt.root.Base() == nil ||
+		rt.root.Base().State() == facet.StateDisposed {
+		rt.frameMu.RUnlock()
+		return
+	}
+	defer rt.frameMu.RUnlock()
 	rt.frameNumber++
 	stats := diagnostics.FrameStats{FrameNumber: rt.frameNumber}
 
@@ -68,6 +78,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	if runtimeTraceActive() {
 		runtimeTracef("runFrame after-signals n=%d pending=%d dirty=%d", rt.frameNumber, len(rt.pendingEvents), len(rt.dirtyFacets))
 	}
+	// Mid-frame shutdown short-circuit. This runs inside the frameMu read
+	// lock: once shutdown is signaled, expensive layout/projection work is
+	// skipped and the frame returns early. It does not coordinate with
+	// disposeTree — mutual exclusion with disposal is provided by frameMu,
+	// not by this check — but it avoids wasting a frame on teardown work.
 	select {
 	case <-rt.shutdownCh:
 		rt.lastStats = stats
@@ -80,6 +95,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	// projection, and dirty-region assembly.
 	dirtySnapshot := rt.copyDirtyFacets()
 	stats.DirtyFacets = len(dirtySnapshot)
+	stats.PoisonedFacets = rt.PoisonedCount()
 
 	layoutStart := time.Now()
 	if rt.hasLayoutDirty() {
@@ -439,7 +455,9 @@ func (rt *Runtime) tickFacets(dt time.Duration) {
 			return
 		}
 		if tr.OnTick != nil {
-			tr.OnTick(dt)
+			rt.guardedInvoke(f.Base().ID(), "tick", func() {
+				tr.OnTick(dt)
+			})
 		}
 		tr.Reset()
 	})

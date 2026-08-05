@@ -194,6 +194,7 @@ type System struct {
 	CacheHits       int
 	runtime         facet.RuntimeServices
 	layerResolver   LayerResolver
+	recoverySurface facetRecovery
 	cacheMu         sync.Mutex
 	statsMu         sync.Mutex
 }
@@ -201,6 +202,41 @@ type System struct {
 type runtimeStateSource interface {
 	CurrentContentScale() float32
 	CurrentInputModality() facet.InputModality
+}
+
+// facetRecovery is the runtime-internal per-facet panic-recovery surface. The
+// real *runtime.Runtime satisfies this; test doubles and stubs do not, and for
+// them recovery is a no-op (their facets are trusted). Projection reaches it
+// through the same type-assertion escape hatch as runtimeStateSource and
+// LayerResolver, so the public facet.RuntimeServices interface is not widened.
+type facetRecovery interface {
+	// GuardedProject runs a projection callback with facet quarantine. It
+	// returns true when fn ran to completion, false when the facet was already
+	// quarantined or was quarantined by the call itself.
+	GuardedProject(id facet.FacetID, role string, fn func()) bool
+	// IsPoisoned reports whether a facet has been quarantined.
+	IsPoisoned(id facet.FacetID) bool
+}
+
+// recovery returns the runtime's facet-recovery surface, or nil when the
+// runtime does not expose one (e.g. projection tests driven by stub runtimes).
+// The surface is resolved once in SetRuntime so the hot path is a field read.
+func (s *System) recovery() facetRecovery {
+	if s == nil {
+		return nil
+	}
+	return s.recoverySurface
+}
+
+// runGuarded invokes a projection callback through the runtime's facet
+// recovery surface when one is available; with a stub runtime it invokes the
+// callback directly, preserving the pre-recovery behavior.
+func (s *System) runGuarded(id facet.FacetID, role string, fn func()) {
+	if rec := s.recovery(); rec != nil {
+		rec.GuardedProject(id, role, fn)
+		return
+	}
+	fn()
 }
 
 // LayerResolver provides resolved layer snapshots to the projection pass.
@@ -232,6 +268,11 @@ func (s *System) SetRuntime(rt facet.RuntimeServices) {
 		s.layerResolver = lr
 	} else {
 		s.layerResolver = nil
+	}
+	if rec, ok := rt.(facetRecovery); ok {
+		s.recoverySurface = rec
+	} else {
+		s.recoverySurface = nil
 	}
 }
 
@@ -387,7 +428,10 @@ func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 // this phase — signal delivery (phase 6) and layout (phase 7) both complete
 // before projection begins. The runtime sets projectionInProgress to true at
 // the start of phase 8 and false at the end; any store mutation during
-// projection panics via store.SetProjectionActiveCheck.
+// projection panics via store.SetProjectionActiveCheck. Individual facet
+// callbacks (OnProject/OnCollect/OnHitTest registration) are recovered by the
+// runtime's facetRecovery surface so a panicking mark quarantines only its own
+// subtree instead of terminating the run.
 func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags, partition *ProjectionOutputPartition) {
 	if node == nil || node.base == nil || node.impl == nil {
 		return
@@ -397,6 +441,7 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 		parentTransform gfx.Transform
 		parentChildCtx  *ChildProjectionContext
 	}
+	rec := s.recovery()
 	stack := []walkFrame{{node: node, parentTransform: parentTransform, parentChildCtx: parentChildCtx}}
 	for len(stack) > 0 {
 		frame := stack[len(stack)-1]
@@ -450,6 +495,10 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 			continue
 		}
 		for i := len(children) - 1; i >= 0; i-- {
+			if rec != nil && children[i] != nil && children[i].base != nil && rec.IsPoisoned(children[i].base.ID()) {
+				// Do not descend into a quarantined subtree.
+				continue
+			}
 			stack = append(stack, walkFrame{
 				node:            children[i],
 				parentTransform: resolvedTransform,
@@ -569,6 +618,12 @@ func (s *System) project(
 		Transform: resolvedTransform,
 		CacheKey:  cacheKey,
 	}
+	if rec := s.recovery(); rec != nil && rec.IsPoisoned(base.ID()) {
+		// The facet (or one of its ancestors) has been quarantined: contribute
+		// nothing to the frame. The walker already skips poisoned subtrees, so
+		// this only fires when a facet is re-projected while poisoned.
+		return output
+	}
 	if pr := base.ProjectionRole(); pr != nil && pr.OnProject != nil {
 		ctx := facet.ProjectionContext{
 			Bounds:        bounds,
@@ -580,20 +635,26 @@ func (s *System) project(
 		if hasLayer {
 			ctx.Layer = layerCtx
 		}
-		if cmds := pr.Project(ctx); cmds != nil {
-			output.Commands = *cmds
-		}
+		s.runGuarded(base.ID(), "project", func() {
+			if cmds := pr.Project(ctx); cmds != nil {
+				output.Commands = *cmds
+			}
+		})
 	} else if rr := base.RenderRole(); rr != nil && rr.OnCollect != nil {
-		if cmds := rr.Collect(bounds); cmds != nil {
-			output.Commands = *cmds
-		}
+		s.runGuarded(base.ID(), "collect", func() {
+			if cmds := rr.Collect(bounds); cmds != nil {
+				output.Commands = *cmds
+			}
+		})
 	}
 	if hr := base.HitRole(); hr != nil && hr.OnHitTest != nil {
-		output.HitRegions = []HitRegion{{
-			Bounds: bounds,
-			MarkID: 0,
-			Cursor: facet.CursorDefault,
-		}}
+		if rec := s.recovery(); rec == nil || !rec.IsPoisoned(base.ID()) {
+			output.HitRegions = []HitRegion{{
+				Bounds: bounds,
+				MarkID: 0,
+				Cursor: facet.CursorDefault,
+			}}
+		}
 	}
 	if tr := base.TextRole(); tr != nil {
 		output.SelectionGeometry = selectionGeometryFromTextRole(tr)

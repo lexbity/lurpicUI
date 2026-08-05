@@ -16,11 +16,12 @@ type TB interface {
 	Logf(format string, args ...any)
 }
 
-type contractRuntime struct{}
-
-func (contractRuntime) Schedule(j job.AnyJob)                                              {}
-func (contractRuntime) CancelJob(id job.JobID)                                             {}
-func (contractRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+// contractRuntime is the no-op runtime used internally by the assertion
+// helpers in this package. It embeds NoopRuntime rather than re-declaring
+// the three RuntimeServices methods.
+type contractRuntime struct {
+	NoopRuntime
+}
 
 // NoopRuntime is a reusable no-op implementation of facet.RuntimeServices
 // for use in tests. Mark test stubs can embed this instead of re-declaring

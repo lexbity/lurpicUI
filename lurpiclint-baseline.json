@@ -63,25 +63,25 @@
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/data/datamark_test.go",
-      "line": 22,
+      "line": 17,
       "message": "field id looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/data/datamark_test.go",
-      "line": 344,
+      "line": 339,
       "message": "field children looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/data/datamark_test.go",
-      "line": 345,
+      "line": 340,
       "message": "field cleanups looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/data/join_test.go",
-      "line": 20,
+      "line": 16,
       "message": "field id looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {

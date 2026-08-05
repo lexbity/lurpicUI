@@ -1,6 +1,10 @@
 package diagnostics
 
-import "time"
+import (
+	"time"
+
+	"codeburg.org/lexbit/lurpicui/facet"
+)
 
 // FrameStats summarizes one runtime frame.
 type FrameStats struct {
@@ -35,4 +39,22 @@ type FrameStats struct {
 	AssetUploadsThisFrame   int
 	AssetJobsInFlight       int
 	AssetCacheHitRate       float64
+
+	// PoisonedFacets is the number of distinct facets currently quarantined
+	// after a callback panic (FR-8). Zero on healthy runs; a monitoring hook
+	// or test can detect non-zero poison without parsing logs.
+	PoisonedFacets int
+}
+
+// PoisonReport describes the first failure of a quarantined facet. It is
+// delivered to a DiagnosticsHook implementer that opts in by also implementing
+// OnFacetPoisoned(diagnostics.PoisonReport) — the hook interface itself is not
+// widened.
+type PoisonReport struct {
+	FacetID   facet.FacetID
+	MarkType  string
+	Role      string
+	Panic     string
+	Stack     string
+	FirstSeen time.Time
 }

@@ -7,9 +7,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -18,15 +18,12 @@ import (
 )
 
 type actionBarRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
 	icons     runtimepkg.IconResolver
 }
 
-func (s actionBarRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s actionBarRuntimeStub) CancelJob(id job.JobID) {}
-func (s actionBarRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
 func (s actionBarRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s actionBarRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

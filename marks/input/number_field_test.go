@@ -7,7 +7,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
@@ -292,13 +291,11 @@ func renderNumberFieldSurface(t *testing.T, direction layout.WritingDirection, g
 }
 
 type numberFieldRuntimeStub struct {
+	contracttest.NoopRuntime
 	fonts *text.FontRegistry
 }
 
-func (numberFieldRuntimeStub) Schedule(j job.AnyJob)                                              {}
-func (numberFieldRuntimeStub) CancelJob(id job.JobID)                                             {}
-func (numberFieldRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
-func (s numberFieldRuntimeStub) FontRegistry() *text.FontRegistry                                 { return s.fonts }
+func (s numberFieldRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func assertNumberFieldGolden(t *testing.T, name string, mutate func(*NumberField)) {
 	t.Helper()

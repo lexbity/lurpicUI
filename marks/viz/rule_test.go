@@ -5,18 +5,13 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
-type vizRuntimeStub struct{}
-
-func (vizRuntimeStub) Schedule(j job.AnyJob)                                              {}
-func (vizRuntimeStub) CancelJob(id job.JobID)                                             {}
-func (vizRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+type vizRuntimeStub struct{ contracttest.NoopRuntime }
 
 func TestRule_horizontal_at_value(t *testing.T) {
 	domain := store.NewValueStore([2]float64{0, 100})

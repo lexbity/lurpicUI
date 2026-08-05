@@ -13,19 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/store"
-	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
-
-type breadcrumbRuntimeStub struct {
-	contracttest.NoopRuntime
-	rootStyle any
-	fonts     *text.FontRegistry
-}
-
-func (s breadcrumbRuntimeStub) RootStyleContext() any                      { return s.rootStyle }
-func (s breadcrumbRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl { return nil }
-func (s breadcrumbRuntimeStub) FontRegistry() *text.FontRegistry           { return s.fonts }
 
 func TestBreadcrumbsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	bc, rt, measureCtx := newBreadcrumbsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -286,7 +275,7 @@ func renderBreadcrumbsSurface(t *testing.T, tokens theme.Tokens, density theme.D
 	return surface
 }
 
-func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Breadcrumbs, breadcrumbRuntimeStub, theme.ResolvedContext) {
+func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Breadcrumbs, tabsRuntimeStub, theme.ResolvedContext) {
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
@@ -304,7 +293,7 @@ func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.
 		{Label: "Breadcrumb 3"},
 		{Label: "Breadcrumb 4"},
 	})-1))
-	rt := breadcrumbRuntimeStub{rootStyle: rootStyle, fonts: fonts}
+	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return bc, rt, resolved
 }
 

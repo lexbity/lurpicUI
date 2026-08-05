@@ -4,15 +4,11 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
-	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
-type binderRuntimeStub struct{}
-
-func (binderRuntimeStub) Schedule(j job.AnyJob)                                              {}
-func (binderRuntimeStub) CancelJob(id job.JobID)                                             {}
-func (binderRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+type binderRuntimeStub struct{ contracttest.NoopRuntime }
 
 // --- Test helpers ---
 

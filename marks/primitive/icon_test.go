@@ -7,24 +7,21 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type iconRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle     any
 	icons         map[string]runtimepkg.IconAsset
 	assetManager  assets.Manager
 	assetRegistry *assets.AssetRegistryStore
 }
 
-func (s iconRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s iconRuntimeStub) CancelJob(id job.JobID) {}
-func (s iconRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
 func (s iconRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s iconRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

@@ -8,7 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
-	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -18,14 +17,12 @@ import (
 type listThemeRuntimeStub struct {
 	listRuntimeStub
 	rootStyle any
-	fonts     *text.FontRegistry
 }
 
 func (s listThemeRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s listThemeRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
-func (s listThemeRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestListResolveThemeTokensInProjection(t *testing.T) {
 	sentinel := gfx.Color{R: 18.0 / 255.0, G: 52.0 / 255.0, B: 86.0 / 255.0, A: 1}
@@ -41,7 +38,6 @@ func TestListResolveThemeTokensInProjection(t *testing.T) {
 			icons: map[string]runtimepkg.IconAsset{},
 		},
 		rootStyle: rootStyle,
-		fonts:     fonts,
 	}
 
 	list := NewList("Theme test list", []ListEntry{

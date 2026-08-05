@@ -46,6 +46,14 @@ func (rt *Runtime) Run() error {
 			}
 		default:
 		}
+		// Close the gap between the non-blocking select above and
+		// frameTimer.Wait: if shutdown was signaled in that window, drain to
+		// doneCh and exit instead of running a useless frame against a tree
+		// that superviseShutdown may already be disposing.
+		if isChannelClosed(rt.shutdownCh) {
+			<-rt.doneCh
+			return nil
+		}
 		now := rt.frameTimer.Wait()
 		if runtimeTraceActive() {
 			runtimeTracef("Run loop got frame tick frame=%d now=%s", rt.frameNumber+1, now.Format(time.RFC3339Nano))

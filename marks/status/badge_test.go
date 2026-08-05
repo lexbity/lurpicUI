@@ -8,9 +8,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
@@ -20,15 +20,12 @@ import (
 )
 
 type badgeRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
 	icons     map[string]runtimepkg.IconAsset
 }
 
-func (s badgeRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s badgeRuntimeStub) CancelJob(id job.JobID) {}
-func (s badgeRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
 func (s badgeRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s badgeRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

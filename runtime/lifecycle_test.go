@@ -169,6 +169,9 @@ func TestRuntime_clean_lifecycle(t *testing.T) {
 	bf := &backendFixture{}
 	rt, _ := mustLifecycleRuntime(t, bf)
 
+	hook := &recordingFrameStats{}
+	rt.diag = hook
+
 	frameSubmitted := make(chan struct{}, 1)
 	rt.onFrameSubmitted = func() {
 		select {
@@ -202,6 +205,10 @@ func TestRuntime_clean_lifecycle(t *testing.T) {
 
 	if bf.submitCount.Load() == 0 {
 		t.Fatal("expected at least one frame submitted during run")
+	}
+	// RK-2: a healthy run must never report quarantined facets.
+	if got := hook.last().PoisonedFacets; got != 0 {
+		t.Fatalf("PoisonedFacets = %d on a healthy run, want 0", got)
 	}
 }
 
@@ -625,10 +632,16 @@ func TestRuntime_empty_facet_tree(t *testing.T) {
 	bf := &backendFixture{}
 	rt, _ := mustLifecycleRuntime(t, bf)
 
+	hook := &recordingFrameStats{}
+	rt.diag = hook
+
 	rt.RunOneFrame()
 
 	if bf.submitCount.Load() == 0 {
 		t.Fatal("expected at least one submit with empty tree")
+	}
+	if got := hook.last().PoisonedFacets; got != 0 {
+		t.Fatalf("PoisonedFacets = %d on a healthy empty tree, want 0", got)
 	}
 }
 
@@ -636,11 +649,17 @@ func TestRuntime_run_one_frame_idempotent(t *testing.T) {
 	bf := &backendFixture{}
 	rt, _ := mustLifecycleRuntime(t, bf)
 
+	hook := &recordingFrameStats{}
+	rt.diag = hook
+
 	rt.RunOneFrame()
 	rt.RunOneFrame()
 	rt.RunOneFrame()
 
 	if bf.submitCount.Load() != 3 {
 		t.Fatalf("expected 3 submits, got %d", bf.submitCount.Load())
+	}
+	if got := hook.last().PoisonedFacets; got != 0 {
+		t.Fatalf("PoisonedFacets = %d on healthy repeated frames, want 0", got)
 	}
 }

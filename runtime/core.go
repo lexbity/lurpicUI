@@ -87,6 +87,20 @@ type Runtime struct {
 	started    bool
 	stopping   bool
 
+	// frameMu serializes an in-flight frame against tree disposal. runFrame
+	// takes a read lock for the frame body; disposeTree takes a write lock.
+	// This enforces the single-driver-thread invariant: the facet tree is
+	// never read and mutated concurrently, even across the shutdown handshake.
+	frameMu sync.RWMutex
+
+	// Per-facet panic quarantine. A facet whose callback panics is marked
+	// poisoned and its subtree is skipped on subsequent frames; see
+	// guardedInvoke and poison.
+	poisonMu         sync.RWMutex
+	poisoned         map[facet.FacetID]struct{}
+	poisonReports    map[facet.FacetID]*poisonReport
+	recoveryDisabled bool
+
 	// projectionInProgress is a runtime-thread guard used by store mutations.
 	// The store package consults this so writes that would invalidate the
 	// current projection phase fail loudly instead of corrupting frame order.
@@ -142,6 +156,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		log:              config.Logger,
 		diag:             config.DiagnosticsHook,
 		surfaceReady:     true,
+		poisoned:         make(map[facet.FacetID]struct{}),
+		poisonReports:    make(map[facet.FacetID]*poisonReport),
+		recoveryDisabled: config.RecoveryDisabled,
 	}
 	rt.lifecycleCond = sync.NewCond(&rt.lifecycleMu)
 	if rt.rootStyleContext == nil {
@@ -392,7 +409,9 @@ func (rt *Runtime) Schedule(j job.AnyJob) {
 		if pr == nil || pr.OnJobResult == nil {
 			return
 		}
-		pr.OnJobResult(result)
+		rt.guardedInvoke(f.Base().ID(), "job", func() {
+			pr.OnJobResult(result)
+		})
 		f.Base().InvalidateWithSource(facet.DirtyProjection, "job.OnJobResult")
 		rt.dirtyFacets[ownerID] |= facet.DirtyProjection
 		rt.dirtySources[ownerID] = "job.OnJobResult"

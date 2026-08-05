@@ -54,6 +54,14 @@ type Config struct {
 	AssetGPUBudgetMB int64
 	// AssetUploadBudgetKBPerFrame is the per-frame ceiling for GPU uploads.
 	AssetUploadBudgetKBPerFrame int
+
+	// RecoveryDisabled disables per-facet panic quarantine. When false (the
+	// default), a panicking facet callback quarantines the facet and its
+	// subtree, and the run continues with the rest of the tree unaffected.
+	// When true, the panic is re-raised after the diagnostic is captured
+	// (poisonReports is still populated with the stack), so tests and
+	// benchmarks see the original panic with attribution.
+	RecoveryDisabled bool
 }
 
 // DefaultConfig returns a valid runtime configuration.

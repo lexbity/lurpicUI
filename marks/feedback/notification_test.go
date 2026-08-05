@@ -8,7 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
@@ -25,14 +24,11 @@ import (
 )
 
 type notificationRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
 }
 
-func (s notificationRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s notificationRuntimeStub) CancelJob(id job.JobID) {}
-func (s notificationRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
 func (s notificationRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s notificationRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

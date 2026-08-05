@@ -8,7 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
@@ -23,14 +22,11 @@ import (
 )
 
 type sliderRuntimeStub struct {
+	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
 }
 
-func (s sliderRuntimeStub) Schedule(j job.AnyJob)  {}
-func (s sliderRuntimeStub) CancelJob(id job.JobID) {}
-func (s sliderRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
-}
 func (s sliderRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s sliderRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

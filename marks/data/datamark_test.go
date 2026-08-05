@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
@@ -12,11 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
-type dmRuntimeStub struct{}
-
-func (dmRuntimeStub) Schedule(j job.AnyJob)                                              {}
-func (dmRuntimeStub) CancelJob(id job.JobID)                                             {}
-func (dmRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+type dmRuntimeStub struct{ contracttest.NoopRuntime }
 
 type markItem struct {
 	id  store.ItemID

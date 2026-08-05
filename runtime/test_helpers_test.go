@@ -3,15 +3,36 @@ package runtime
 import (
 	"image/color"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 )
+
+// recordingFrameStats implements DiagnosticsHook and records the last emitted
+// FrameStats so tests can assert on per-frame diagnostics.
+type recordingFrameStats struct {
+	mu    sync.Mutex
+	frame diagnostics.FrameStats
+}
+
+func (r *recordingFrameStats) OnFrame(stats diagnostics.FrameStats) {
+	r.mu.Lock()
+	r.frame = stats
+	r.mu.Unlock()
+}
+
+func (r *recordingFrameStats) last() diagnostics.FrameStats {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.frame
+}
 
 func testLayerRegistry(t *testing.T) *layout.LayerRegistry {
 	t.Helper()

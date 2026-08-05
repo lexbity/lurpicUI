@@ -8,8 +8,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
@@ -239,11 +239,7 @@ func renderAxisGolden(t *testing.T, cmds []gfx.Command, bounds gfx.Rect, w, h in
 	return surface
 }
 
-type axisGoldenRuntime struct{}
-
-func (axisGoldenRuntime) Schedule(j job.AnyJob)                                              {}
-func (axisGoldenRuntime) CancelJob(id job.JobID)                                             {}
-func (axisGoldenRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+type axisGoldenRuntime struct{ contracttest.NoopRuntime }
 
 var vizFontRegistryOnce sync.Once
 var vizFontRegistryVal *text.FontRegistry

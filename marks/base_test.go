@@ -5,8 +5,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -103,11 +103,7 @@ func (m *buildCommandsTestMark) OnDeactivate()                    { m.Core.OnDea
 
 // --- Runtime stub ---
 
-type baseRuntimeStub struct{}
-
-func (baseRuntimeStub) Schedule(j job.AnyJob)                                              {}
-func (baseRuntimeStub) CancelJob(id job.JobID)                                             {}
-func (baseRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+type baseRuntimeStub struct{ contracttest.NoopRuntime }
 
 // --- Tests ---
 

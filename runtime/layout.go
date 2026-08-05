@@ -46,6 +46,12 @@ func (rt *Runtime) disposeTree(root facet.FacetImpl) {
 	if root == nil {
 		return
 	}
+	// The write lock blocks until any in-flight frame completes, then
+	// disposes the tree. Disposal is the only mutation of the facet tree
+	// outside the runtime thread, so taking the write lock here enforces the
+	// single-driver-thread invariant across the shutdown handshake.
+	rt.frameMu.Lock()
+	defer rt.frameMu.Unlock()
 	facet.Dispose(root)
 }
 
@@ -185,11 +191,15 @@ func (rt *Runtime) measureLayoutChild(f facet.FacetImpl, c layout.Constraints) g
 		themeCtx = rt.themeContext(parentBounds)
 		contentScale = rt.contentScale
 	}
-	return role.Measure(facet.MeasureContext{
-		Runtime:      rt,
-		Theme:        themeCtx,
-		ContentScale: contentScale,
-	}, c).Size
+	var size gfx.Size
+	rt.guardedInvoke(f.Base().ID(), "measure", func() {
+		size = role.Measure(facet.MeasureContext{
+			Runtime:      rt,
+			Theme:        themeCtx,
+			ContentScale: contentScale,
+		}, c).Size
+	})
+	return size
 }
 
 func (rt *Runtime) arrangeLayoutChild(f facet.FacetImpl, bounds gfx.Rect) {
@@ -204,8 +214,11 @@ func (rt *Runtime) arrangeLayoutChild(f facet.FacetImpl, bounds gfx.Rect) {
 	if rt != nil {
 		themeCtx = rt.themeContext(bounds)
 	}
-	role.Arrange(facet.ArrangeContext{
+	ctx := facet.ArrangeContext{
 		Runtime: rt,
 		Theme:   themeCtx,
-	}, bounds)
+	}
+	rt.guardedInvoke(f.Base().ID(), "arrange", func() {
+		role.Arrange(ctx, bounds)
+	})
 }

@@ -29,6 +29,27 @@ func BenchmarkProjectionParallel(b *testing.B) {
 	}
 }
 
+// BenchmarkProjection_NoPanic measures the projection cost of a wide tree with
+// the facet-recovery surface installed (guarded) versus the pre-recovery stub
+// baseline (unguarded). NFR-3 caps the guarded-vs-unguarded delta at 5%.
+func BenchmarkProjection_NoPanic(b *testing.B) {
+	build := func(b *testing.B, rt facet.RuntimeServices) {
+		b.Helper()
+		root := buildBenchmarkProjectionWide(3, 3)
+		attachTree(root)
+		sys := NewSystem()
+		sys.SetRuntime(rt)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for i := 0; i < b.N; i++ {
+			sys.MarkDirty(root.Base().ID())
+			sys.Run(root, FrameInfo{Number: uint64(i + 1)})
+		}
+	}
+	b.Run("unguarded", func(b *testing.B) { build(b, projectionStateRuntimeStub{}) })
+	b.Run("guarded", func(b *testing.B) { build(b, &recoveryStub{}) })
+}
+
 func benchmarkProjectionTree(b *testing.B, root *projectionTestFacet, procs int) {
 	b.Helper()
 	if root == nil {
