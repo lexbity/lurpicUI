@@ -9,6 +9,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -661,5 +662,121 @@ func TestRuntime_run_one_frame_idempotent(t *testing.T) {
 	}
 	if got := hook.last().PoisonedFacets; got != 0 {
 		t.Fatalf("PoisonedFacets = %d on healthy repeated frames, want 0", got)
+	}
+}
+
+// panicPointerFacet panics in OnPointer; used to observe the input recovery
+// hook that start() installs and shutdown() clears.
+type panicPointerFacet struct {
+	facet.Facet
+	input facet.InputRole
+}
+
+func (f *panicPointerFacet) Base() *facet.Facet               { f.BindImpl(f); return &f.Facet }
+func (f *panicPointerFacet) OnAttach(ctx facet.AttachContext) {}
+func (f *panicPointerFacet) OnDetach()                        {}
+func (f *panicPointerFacet) OnActivate()                      {}
+func (f *panicPointerFacet) OnDeactivate()                    {}
+
+func (f *panicPointerFacet) init() {
+	f.input.OnPointer = func(e facet.PointerEvent) bool { panic("boom") }
+	f.AddRole(&f.input)
+}
+
+// TestRecoveryHookLifecycle (RK-4) asserts start() installs the input recovery
+// hook and shutdown() clears it: a panicking delivery is recovered before
+// shutdown and propagates after.
+func TestRecoveryHookLifecycle(t *testing.T) {
+	rt, _ := mustLifecycleRuntime(t, nil)
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	// With the runtime's input hook installed, a panicking delivery is
+	// recovered and the facet is quarantined on the runtime.
+	f := &panicPointerFacet{Facet: facet.NewFacet()}
+	f.init()
+	_ = input.Deliver(input.RoutedEvent{Target: f.Base().ID(), Event: input.PointerPressEvent{Button: platform.PointerLeft}}, f)
+	if got := rt.PoisonedCount(); got != 1 {
+		t.Fatalf("PoisonedCount() = %d after panicking delivery, want 1", got)
+	}
+
+	rt.Shutdown()
+
+	// After shutdown the hook is cleared: a fresh panicking delivery must
+	// propagate instead of being recovered.
+	f2 := &panicPointerFacet{Facet: facet.NewFacet()}
+	f2.init()
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		_ = input.Deliver(input.RoutedEvent{Target: f2.Base().ID(), Event: input.PointerPressEvent{Button: platform.PointerLeft}}, f2)
+	}()
+	if !panicked {
+		t.Fatal("expected the panic to propagate after shutdown cleared the hook")
+	}
+}
+
+// panicFocusFacet panics in OnFocusGained; used to observe the facet callback
+// recovery hook that start() installs and shutdown() clears.
+type panicFocusFacet struct {
+	facet.Facet
+	focus facet.FocusRole
+}
+
+func (f *panicFocusFacet) Base() *facet.Facet               { f.BindImpl(f); return &f.Facet }
+func (f *panicFocusFacet) OnAttach(ctx facet.AttachContext) {}
+func (f *panicFocusFacet) OnDetach()                        {}
+func (f *panicFocusFacet) OnActivate()                      {}
+func (f *panicFocusFacet) OnDeactivate()                    {}
+
+func (f *panicFocusFacet) init() {
+	f.focus.Focusable = func() bool { return true }
+	f.focus.OnFocusGained = func() { panic("boom") }
+	f.focus.OnFocusLost = func() {}
+	f.AddRole(&f.focus)
+}
+
+// TestCallbackRecoveryHookLifecycle (RK-4) asserts start() installs the facet
+// callback recovery hook and shutdown() clears it: a panicking focus gain is
+// recovered before shutdown and propagates after.
+func TestCallbackRecoveryHookLifecycle(t *testing.T) {
+	rt, _ := mustLifecycleRuntime(t, nil)
+	if err := rt.start(); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+
+	// With the runtime's facet hook installed, a panicking focus gain is
+	// recovered and the facet quarantined on the runtime.
+	a := &panicFocusFacet{Facet: facet.NewFacet()}
+	a.init()
+	if !rt.focusManager.SetFocus(a) {
+		t.Fatal("expected SetFocus to succeed")
+	}
+	if got := rt.PoisonedCount(); got != 1 {
+		t.Fatalf("PoisonedCount() = %d after panicking focus gain, want 1", got)
+	}
+
+	rt.Shutdown()
+
+	// After shutdown the hook is cleared: a fresh panicking focus gain must
+	// propagate instead of being recovered.
+	b := &panicFocusFacet{Facet: facet.NewFacet()}
+	b.init()
+	panicked := false
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				panicked = true
+			}
+		}()
+		_ = rt.focusManager.SetFocus(b)
+	}()
+	if !panicked {
+		t.Fatal("expected the panic to propagate after shutdown cleared the hook")
 	}
 }

@@ -14,7 +14,21 @@ func refineHitTest(tree facet.FacetImpl, id facet.FacetID, localPos gfx.Point) *
 	if hr == nil || hr.OnHitTest == nil {
 		return nil
 	}
-	result := hr.HitTest(localPos)
+	// The facet ID is the id parameter — HitRole carries no identity, and
+	// widening its signature is out of scope, so recovery lands here.
+	h := currentRecoveryHook()
+	if h == nil {
+		result := hr.HitTest(localPos)
+		return &result
+	}
+	var result facet.HitResult
+	ran := h(id, "hit", func() {
+		result = hr.HitTest(localPos)
+	})
+	if !ran {
+		// Quarantined: behave as "no hit here" so input falls through.
+		return nil
+	}
 	return &result
 }
 

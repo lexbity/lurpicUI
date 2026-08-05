@@ -61,6 +61,12 @@ func InstallCrashHandler() {
 }
 
 // WrapMain wraps an app run function with panic recovery and crash reporting.
+// This is the outer defense: it catches panics raised outside the frame loop
+// (e.g. in app.Run's own setup) and writes a crash report. Panics raised by
+// facet callbacks during the frame loop are handled by the inner defense — the
+// runtime's per-facet quarantine (see runtime's guardedInvoke), which
+// quarantines the failing subtree instead of terminating the process. The two
+// layers compose: WrapMain remains the safety net for everything else.
 func WrapMain(fn func() error) func() error {
 	return func() (err error) {
 		defer func() {

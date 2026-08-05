@@ -189,58 +189,72 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 		if role == nil || role.OnScroll == nil {
 			return false
 		}
-		return role.OnScroll(facet.ScrollEvent{
-			Position:  ev.Position,
-			DeltaX:    ev.DeltaX,
-			DeltaY:    ev.DeltaY,
-			Precise:   ev.Precise,
-			Modifiers: ev.Modifiers,
+		return runRecovered("scroll", base.ID(), func() bool {
+			return role.OnScroll(facet.ScrollEvent{
+				Position:  ev.Position,
+				DeltaX:    ev.DeltaX,
+				DeltaY:    ev.DeltaY,
+				Precise:   ev.Precise,
+				Modifiers: ev.Modifiers,
+			})
 		})
 	case KeyInputEvent:
 		role := base.InputRole()
 		if role == nil || role.OnKey == nil {
 			return false
 		}
-		return role.OnKey(facet.KeyEvent{
-			Kind:      ev.Kind,
-			Key:       ev.Key,
-			Modifiers: ev.Modifiers,
+		return runRecovered("key", base.ID(), func() bool {
+			return role.OnKey(facet.KeyEvent{
+				Kind:      ev.Kind,
+				Key:       ev.Key,
+				Modifiers: ev.Modifiers,
+			})
 		})
 	case TextInputEvent:
 		role := base.InputRole()
 		if role == nil || role.OnText == nil {
 			return false
 		}
-		return role.OnText(facet.TextEvent{Text: ev.Text, Composing: ev.Composing})
+		return runRecovered("text", base.ID(), func() bool {
+			return role.OnText(facet.TextEvent{Text: ev.Text, Composing: ev.Composing})
+		})
 	case DismissEvent:
 		role := base.InputRole()
 		if role == nil || role.OnDismiss == nil {
 			return false
 		}
-		return role.OnDismiss(facet.DismissEvent{
-			Trigger:    ev.Trigger,
-			ScreenPos:  ev.ScreenPos,
-			HitFacetID: ev.HitFacetID,
-			HitMarkID:  ev.HitMarkID,
-			HitLayerID: ev.HitLayerID,
-			HitOrder:   ev.HitOrder,
+		return runRecovered("dismiss", base.ID(), func() bool {
+			return role.OnDismiss(facet.DismissEvent{
+				Trigger:    ev.Trigger,
+				ScreenPos:  ev.ScreenPos,
+				HitFacetID: ev.HitFacetID,
+				HitMarkID:  ev.HitMarkID,
+				HitLayerID: ev.HitLayerID,
+				HitOrder:   ev.HitOrder,
+			})
 		})
 	case TouchInputEvent:
 		role := base.InputRole()
 		if role == nil || role.OnTouch == nil {
 			return false
 		}
-		return role.OnTouch(ev.Event)
+		return runRecovered("touch", base.ID(), func() bool {
+			return role.OnTouch(ev.Event)
+		})
 	case FocusGainedEvent:
 		if role := base.FocusRole(); role != nil && role.OnFocusGained != nil {
-			role.OnFocusGained()
-			return true
+			return runRecovered("focus_gained", base.ID(), func() bool {
+				role.OnFocusGained()
+				return true
+			})
 		}
 		return false
 	case FocusLostEvent:
 		if role := base.FocusRole(); role != nil && role.OnFocusLost != nil {
-			role.OnFocusLost()
-			return true
+			return runRecovered("focus_lost", base.ID(), func() bool {
+				role.OnFocusLost()
+				return true
+			})
 		}
 		return false
 	default:
@@ -253,13 +267,15 @@ func deliverPointer(base *facet.Facet, kind platform.PointerEventKind, local, sc
 	if role == nil || role.OnPointer == nil {
 		return false
 	}
-	return role.OnPointer(facet.PointerEvent{
-		Kind:      kind,
-		Position:  local,
-		ScreenPos: screen,
-		Button:    button,
-		Modifiers: mods,
-		MarkID:    markID,
+	return runRecovered("pointer", base.ID(), func() bool {
+		return role.OnPointer(facet.PointerEvent{
+			Kind:      kind,
+			Position:  local,
+			ScreenPos: screen,
+			Button:    button,
+			Modifiers: mods,
+			MarkID:    markID,
+		})
 	})
 }
 

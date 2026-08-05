@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -104,6 +105,7 @@ func (rt *Runtime) start() error {
 			syncutil.RegisterRuntimeThread()
 		}
 		store.SetSignalQueueHook(rt.queueSignal)
+		rt.installRecoveryHooks()
 		go (&renderThread{pipeline: rt.renderPipeline}).run()
 		rt.bindLifecycleCallbacks()
 		rt.contentScale = rt.effectiveContentScale()
@@ -119,6 +121,29 @@ func (rt *Runtime) start() error {
 		}
 	})
 	return startErr
+}
+
+// installRecoveryHooks registers the input and facet callback recovery hooks,
+// both delegating to the runtime's guardedCallback. They are cleared in
+// shutdown() so no stale runtime closure outlives its runtime.
+func (rt *Runtime) installRecoveryHooks() {
+	input.SetRecoveryHook(rt.guardedCallback)
+	facet.SetCallbackRecoveryHook(rt.guardedCallback)
+}
+
+// guardedCallback runs a callback under the runtime's per-facet quarantine. It
+// reports whether the callback ran to completion (false when the facet was
+// already quarantined or was quarantined by the call itself). Its signature
+// satisfies both input.RecoveryHook and facet.CallbackRecoveryHook.
+func (rt *Runtime) guardedCallback(id facet.FacetID, role string, cb func()) bool {
+	ran := true
+	rt.guardedInvoke(id, role, func() {
+		cb()
+	})
+	if rt.isPoisoned(id) {
+		ran = false
+	}
+	return ran
 }
 
 func (rt *Runtime) bindLifecycleCallbacks() {
@@ -178,6 +203,8 @@ func (rt *Runtime) shutdown() error {
 		rt.renderPipeline.backend.Destroy()
 	}
 	store.SetSignalQueueHook(nil)
+	input.ClearRecoveryHook()
+	facet.ClearCallbackRecoveryHook()
 	syncutil.ResetRuntimeThreadForTest()
 	return nil
 }
