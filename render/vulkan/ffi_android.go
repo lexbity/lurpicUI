@@ -36,6 +36,7 @@ uintptr_t lurpic_render_instance_handle(void);
 int lurpic_render_query_capabilities(LurpicRenderCapabilities *out);
 int lurpic_render_query_pipeline_features(lurpic_render_pipeline_features *out);
 int lurpic_render_set_validation(uint32_t enabled);
+int lurpic_render_test_force_swapped_rendering(uint32_t enabled);
 int lurpic_render_submit_frame(const unsigned char *data, uintptr_t len);
 int lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len);
 int lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len);
@@ -227,6 +228,16 @@ func SetValidation(enabled bool) error {
 		v = 1
 	}
 	return translateStatus(C.lurpic_render_set_validation(C.uint32_t(v)))
+}
+
+// ForceSwappedRendering toggles the RG-swapped solid pipeline (test-only
+// negative control; requires the renderer to be initialized).
+func ForceSwappedRendering(enabled bool) error {
+	v := uint32(0)
+	if enabled {
+		v = 1
+	}
+	return translateStatus(C.lurpic_render_test_force_swapped_rendering(C.uint32_t(v)))
 }
 
 // PipelineFeatures mirrors the Rust LurpicRenderPipelineFeatures struct.

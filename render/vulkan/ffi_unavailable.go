@@ -36,6 +36,10 @@ func SetValidation(bool) error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
+func ForceSwappedRendering(bool) error {
+	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
 type PipelineFeatures struct {
 	DynamicRendering     uint32
 	Synchronization2     uint32

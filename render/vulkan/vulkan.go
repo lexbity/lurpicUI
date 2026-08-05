@@ -54,6 +54,9 @@ type Backend struct {
 	initialized bool
 	hasSurface  bool
 	images      *imageCache
+	// Reused across submits so the per-frame submission performs zero heap
+	// allocations steady-state (NFR-6). Render-thread only.
+	encoder frameEncoder
 }
 
 // Initialize brings up the Vulkan instance and optionally binds a platform
@@ -100,7 +103,7 @@ func (b *Backend) Submit(f *render.Frame) error {
 		return errNotImplemented
 	}
 	if f != nil {
-		packet, err := encodeFramePacketWithAssets(f, b.images)
+		packet, err := b.encoder.Encode(f, b.images)
 		if err != nil {
 			return err
 		}

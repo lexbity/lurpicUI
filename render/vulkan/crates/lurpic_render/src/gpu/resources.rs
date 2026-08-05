@@ -126,11 +126,41 @@ impl Drop for Pipeline {
 }
 
 #[allow(dead_code)] // constructed by the GPU pipeline (Slice 3+)
+pub struct Image {
+    device: ash::Device,
+    handle: vk::Image,
+}
+
+impl Image {
+    pub fn new(
+        device: &ash::Device,
+        create_info: &vk::ImageCreateInfo,
+    ) -> Result<Self, (RenderResult, String)> {
+        let handle = unsafe { device.create_image(create_info, None) }
+            .map_err(|e| vk_error("vkCreateImage", e.as_raw()))?;
+        Ok(Self {
+            device: device.clone(),
+            handle,
+        })
+    }
+
+    pub fn handle(&self) -> vk::Image {
+        self.handle
+    }
+}
+
+impl Drop for Image {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_image(self.handle, None);
+        }
+    }
+}
+
 pub struct ImageView {
     device: ash::Device,
     handle: vk::ImageView,
 }
-
 #[allow(dead_code)] // constructed by the GPU pipeline (Slice 3+)
 impl ImageView {
 #[allow(dead_code)] // constructed by the GPU pipeline (Slice 3+)

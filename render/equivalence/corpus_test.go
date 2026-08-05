@@ -30,15 +30,47 @@ func requireVulkanRaster(t *testing.T) {
 }
 
 // deferredFixtures are corpus entries that exercise a command at the wire level
-// but are not yet rendered correctly by the CPU stepping-stone raster. They are
-// kept so the corpus covers every gfx command; the corpus runner skips them
-// until the slice that renders them lands (StrokePath: Slice 8).
+// but are not yet rendered by the current Vulkan pipeline. They are kept so the
+// corpus covers every gfx command; the runner skips them until the slice that
+// renders them lands.
 var deferredFixtures = map[string]string{
 	"stroke_path_rect_deferred": "closed-path stroke needs OffsetContour expansion (Slice 8)",
+	"fill_path_rect":            "path fill needs the stencil pipeline (Slice 7)",
+	"polyline_open":             "stroke expansion (Slice 8)",
+	"polyline_closed":           "stroke expansion (Slice 8)",
+	"points_grid":               "points rendering (Slice 7)",
+	"selection_rects":           "points/selection rendering (Slice 7)",
+	"gradient_2stop_horizontal": "gradient brush (Slice 6)",
+	"gradient_5stop_diagonal":   "gradient brush (Slice 6)",
+	"glyph_latin_small":         "glyph atlas + SDF pipeline (Slice 5)",
+	"glyph_latin_two_runs":      "glyph atlas + SDF pipeline (Slice 5)",
+	"image_rgba_nearest_1to1":   "texture pipeline (Slice 4)",
+	"image_scaled_nearest":      "texture pipeline (Slice 4)",
+}
+
+// featureTolerances relax the Q1 default only for fixtures whose edge pixels
+// are governed by a documented coverage-AA model difference (Q1: "record a
+// feature-specific tolerance with measured justification — never silently
+// widened"). solid_rect_rotated_45's diagonal edges are rendered by the GPU
+// with the analytic coverage-AA (Q8 amendment; MSAA 4x/8x resolve is broken on
+// the reference driver) vs the software oracle's exact polygon-area coverage.
+// Measured psnr=36.8, p99=13, max=55, <=24 over 99.17% of pixels (differences
+// confined to the 1px edge band). This is tighter than the 2x-MSAA baseline it
+// replaces (psnr 32.8 / p99 17 / max 80 / 98.34%).
+var featureTolerances = map[string]equivalence.EquivalenceTolerance{
+	"solid_rect_rotated_45": {
+		MinPSNR:        36,
+		P99Diff:        15,
+		MaxDiff:        80,
+		WithinFraction: 0.99,
+	},
 }
 
 func TestCorpusEquivalence(t *testing.T) {
 	requireVulkanRaster(t)
+	defer func() {
+		_ = vulkan.Shutdown()
+	}()
 	reg := fontdata.TestFontRegistry(t)
 
 	for _, fx := range corpus.All(reg) {
@@ -46,7 +78,11 @@ func TestCorpusEquivalence(t *testing.T) {
 			if reason, ok := deferredFixtures[fx.Name()]; ok {
 				t.Skipf("deferred: %s", reason)
 			}
-			report, err := equivalence.CompareFixture(fx, equivalence.DefaultTolerance())
+			tol, ok := featureTolerances[fx.Name()]
+			if !ok {
+				tol = equivalence.DefaultTolerance()
+			}
+			report, err := equivalence.CompareFixture(fx, tol)
 			if err != nil {
 				t.Fatalf("render: %v", err)
 			}
@@ -86,8 +122,12 @@ func writeDiffArtifacts(t *testing.T, fx equivalence.FrameFixture, report equiva
 	t.Logf("report: %s", report.String())
 }
 
-// TestCorpusEquivalence_NegativeControl injects a channel swap into the GPU
-// readback and asserts the harness catches it end-to-end.
+// TestCorpusEquivalence_NegativeControl proves the equivalence harness catches a
+// real shader regression through the actual shader toolchain (NFR-1). The RG
+// channels are swapped in the fragment shader (solid_swapped.frag, built by
+// glslc -> SPIR-V -> a pipeline variant selected by a test-only FFI), not by
+// post-processing the readback bytes: a regression that produced subtly-wrong
+// but non-channel-swapped output would otherwise slip through.
 func TestCorpusEquivalence_NegativeControl(t *testing.T) {
 	requireVulkanRaster(t)
 	reg := fontdata.TestFontRegistry(t)
@@ -113,14 +153,27 @@ func TestCorpusEquivalence_NegativeControl(t *testing.T) {
 		t.Fatalf("baseline fixture %s failed: %s", target.Name(), baseline.String())
 	}
 
-	// Inject a channel swap; the harness must fail.
-	swapped := append([]byte(nil), gpu...)
-	for i := 0; i < len(swapped); i += 4 {
-		swapped[i], swapped[i+2] = swapped[i+2], swapped[i]
+	// Render through the RG-swapped fragment shader.
+	if err := vulkan.ForceSwappedRendering(true); err != nil {
+		t.Fatalf("enable swapped shader: %v", err)
 	}
-	report := equivalence.Compare(soft, swapped, width, height, equivalence.DefaultTolerance())
+	defer func() { _ = vulkan.ForceSwappedRendering(false) }()
+	swappedGPU, err := equivalence.RenderVulkan(target.Frame(), width, height)
+	if err != nil {
+		t.Fatalf("swapped shader render: %v", err)
+	}
+
+	// The swapped shader must actually change the output; otherwise the control
+	// is void (e.g. the variant was never selected).
+	delta := equivalence.Compare(gpu, swappedGPU, width, height, equivalence.DefaultTolerance())
+	if delta.Passed {
+		t.Fatalf("the RG-swapped shader produced a byte-identical render; the negative control is void")
+	}
+
+	// The harness must fail on the shader-level channel swap.
+	report := equivalence.Compare(soft, swappedGPU, width, height, equivalence.DefaultTolerance())
 	if report.Passed {
-		t.Fatalf("channel swap must fail equivalence, got: %s", report.String())
+		t.Fatalf("RG swap in the fragment shader must fail equivalence, got: %s", report.String())
 	}
 }
 

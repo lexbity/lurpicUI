@@ -1,6 +1,8 @@
 package corpus
 
 import (
+	"math"
+
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/equivalence"
@@ -31,6 +33,47 @@ func geometryFixtures() []equivalence.FrameFixture {
 					gfx.FillRect{Rect: gfx.RectFromXYWH(4, 4, 20, 20), Brush: gfx.SolidBrush(red)},
 					gfx.PopTransform{},
 				)
+			},
+		},
+		fixture{
+			name: "solid_rect_rotated_45", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// A 45-degree rotation produces diagonal edges; the GPU renders
+				// them with MSAA (Q8), the software oracle with analytic AA.
+				// (Feature-specific tolerance calibrated in the baseline notes.)
+				rot := gfx.Rotation(45 * math.Pi / 180)
+				// Rotate around the rect center, then center it in the canvas.
+				center := gfx.Point{X: 32, Y: 32}
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.PushTransform{Matrix: gfx.Translation(center.X, center.Y).Multiply(rot).Multiply(gfx.Translation(-20, -20))},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 24, 24), Brush: gfx.SolidBrush(red)},
+					gfx.PopTransform{},
+				)
+			},
+		},
+		fixture{
+			name: "solid_rect_scaled", width: 64, height: 64,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.PushTransform{Matrix: gfx.Translation(4, 4).Multiply(gfx.Scale(2, 1.5))},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 16, 16), Brush: gfx.SolidBrush(blue)},
+					gfx.PopTransform{},
+				)
+			},
+		},
+		fixture{
+			name: "many_rects_instanced", width: 128, height: 128,
+			frame: func() *render.Frame {
+				var cmds []gfx.Command
+				for i := 0; i < 1200; i++ {
+					x := float32((i % 40) * 3)
+					y := float32((i / 40) * 3)
+					cmds = append(cmds, gfx.FillRect{
+						Rect:  gfx.RectFromXYWH(x, y, 2, 2),
+						Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(uint8(40+((i*7)%200)), uint8((i*13)%255), uint8((i*29)%255), 255)),
+					})
+				}
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 128, 128), 1, cmds...)
 			},
 		},
 		fixture{

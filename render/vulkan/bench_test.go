@@ -3,7 +3,11 @@
 package vulkan
 
 import (
+	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
@@ -73,6 +77,112 @@ func mustBenchmarkBackend(b *testing.B) *Backend {
 		b.Skipf("Vulkan unavailable: %v", err)
 	}
 	return backend
+}
+
+// ensureReleaseRustLibrary builds target/release/liblurpic_render.so and returns
+// its path. Benchmarks measure the production build.
+func ensureReleaseRustLibrary() (string, error) {
+	manifest, err := RustCrateManifestPath()
+	if err != nil {
+		return "", err
+	}
+	if err := CheckRustToolchain(); err != nil {
+		return "", err
+	}
+	if out, err := command("cargo", "build", "--release", "--offline", "--manifest-path", manifest).CombinedOutput(); err != nil {
+		return "", fmt.Errorf("vulkan: cargo build --release failed: %w (%s)", err, strings.TrimSpace(string(out)))
+	}
+	return filepath.Join(filepath.Dir(manifest), "target", "release", rustSharedLibraryName()), nil
+}
+
+// BenchmarkVulkanSubmit_SolidRects measures the per-frame submission of the
+// Slice 3 solid pipeline: pooled encode -> offscreen render -> readback. The
+// headless path cannot present, so the offscreen readback exercises the full
+// render (encode -> instance ring -> raster -> resolve -> copy). The library
+// is built in release: the debug build's unoptimized byte-swap loop dominates
+// (measured ~54ms at 1080p) and would not reflect the production build the
+// NFR-2 budget targets.
+//
+// Hard gates:
+//   - NFR-6: AllocsPerOp(0) — the per-frame submission must allocate zero Go
+//     bytes steady-state (the encoder is pooled; the output buffer is reused).
+//   - NFR-2: <= 16.7 ms per frame at 1080p for many_rects_instanced.
+func BenchmarkVulkanSubmit_SolidRects(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	// Earlier tests in this process load the debug library; reset the loader so
+	// the benchmark measures the production (release) build.
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	const rects = 1200
+	cmds := make([]gfx.Command, 0, rects)
+	for i := 0; i < rects; i++ {
+		x := float32((i % 40) * 48)
+		y := float32((i / 40) * 27)
+		cmds = append(cmds, gfx.FillRect{
+			Rect:  gfx.RectFromXYWH(x, y, 24, 24),
+			Brush: gfx.SolidBrush(gfx.Color{R: float32(i%255) / 255, G: 0.4, B: 0.6, A: 1}),
+		})
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
+			Commands: gfx.CommandList{Commands: cmds},
+		}},
+	}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
+	// Warm up: the first call allocates the 1080p MSAA/readback images and
+	// compiles the pipeline; the timed loop measures steady-state submits.
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	// NFR-6: the per-frame submission (pooled encode + FFI readback) must
+	// allocate zero Go bytes steady-state.
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	// NFR-2: frame time at 1080p for many_rects_instanced.
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
+	}
 }
 
 func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {

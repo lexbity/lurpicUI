@@ -2,6 +2,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Mutex, OnceLock};
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // glyph pixels consumed by the cpu-fallback raster and Slice 5
 pub struct GlyphBitmap {
     pub width: u32,
     pub height: u32,
@@ -13,9 +14,10 @@ pub struct GlyphBitmap {
 }
 
 #[derive(Clone, Debug)]
-#[allow(dead_code)] // variants consumed by the cpu-fallback raster lookup
 struct GlyphVariants {
+    #[cfg_attr(not(any(feature = "cpu-fallback", test)), allow(dead_code))]
     bitmap: GlyphBitmap,
+    #[cfg(any(feature = "cpu-fallback", test))]
     sdf: Option<GlyphBitmap>,
 }
 
@@ -51,6 +53,7 @@ impl GlyphAtlas {
             size_bits,
         };
         let variants = GlyphVariants {
+            #[cfg(any(feature = "cpu-fallback", test))]
             sdf: Some(generate_sdf(&bitmap)),
             bitmap,
         };
@@ -72,12 +75,12 @@ impl GlyphAtlas {
         self.entries.insert(key, variants);
     }
 
-    #[allow(dead_code)] // consumed by the cpu-fallback raster
+    #[cfg(any(feature = "cpu-fallback", test))]
     fn lookup(&mut self, font_id: u64, glyph_id: u32, size_bits: u32) -> Option<GlyphBitmap> {
         self.lookup_with_mode(font_id, glyph_id, size_bits, false)
     }
 
-    #[allow(dead_code)] // consumed by the cpu-fallback raster
+    #[cfg(any(feature = "cpu-fallback", test))]
     fn lookup_with_mode(
         &mut self,
         font_id: u64,
@@ -122,16 +125,19 @@ pub fn upload_glyph(font_id: u64, glyph_id: u32, size_bits: u32, bitmap: GlyphBi
     atlas.upload(font_id, glyph_id, size_bits, bitmap);
 }
 
+#[cfg(any(feature = "cpu-fallback", test))]
 pub fn lookup_glyph(font_id: u64, glyph_id: u32, size_bits: u32) -> Option<GlyphBitmap> {
     let mut atlas = atlas().lock().expect("glyph atlas mutex poisoned");
     atlas.lookup(font_id, glyph_id, size_bits)
 }
 
+#[cfg(any(feature = "cpu-fallback", test))]
 pub fn lookup_glyph_sdf(font_id: u64, glyph_id: u32, size_bits: u32) -> Option<GlyphBitmap> {
     let mut atlas = atlas().lock().expect("glyph atlas mutex poisoned");
     atlas.lookup_with_mode(font_id, glyph_id, size_bits, true)
 }
 
+#[cfg(feature = "test-exports")]
 pub fn atlas_stats() -> (usize, usize) {
     let atlas = atlas().lock().expect("glyph atlas mutex poisoned");
     (atlas.entries.len(), atlas.evictions)
@@ -142,6 +148,7 @@ pub fn reset_atlas() {
     *atlas = GlyphAtlas::new();
 }
 
+#[cfg(any(feature = "cpu-fallback", test))]
 fn generate_sdf(bitmap: &GlyphBitmap) -> GlyphBitmap {
     if bitmap.width == 0 || bitmap.height == 0 || bitmap.pixels.is_empty() {
         return bitmap.clone();

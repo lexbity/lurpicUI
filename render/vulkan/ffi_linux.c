@@ -31,11 +31,11 @@ static uint64_t (*lurpic_render_test_glyph_atlas_evictions_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_handle_create_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_handle_destroy_fn)(uint64_t handle) = NULL;
 static int32_t (*lurpic_render_test_handle_use_fn)(uint64_t handle) = NULL;
+static int32_t (*lurpic_render_test_force_swapped_rendering_fn)(uint32_t enabled) = NULL;
 static uint64_t (*lurpic_render_test_image_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_image_destroy_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_last_batch_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_last_command_count_fn)(void) = NULL;
-static uint64_t (*lurpic_render_test_last_vertex_count_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_ok_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_panic_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_reset_fn)(void) = NULL;
@@ -68,11 +68,11 @@ static void lurpic_render_reset_fns(void) {
   lurpic_render_test_handle_create_fn = NULL;
   lurpic_render_test_handle_destroy_fn = NULL;
   lurpic_render_test_handle_use_fn = NULL;
+  lurpic_render_test_force_swapped_rendering_fn = NULL;
   lurpic_render_test_image_count_fn = NULL;
   lurpic_render_test_image_destroy_count_fn = NULL;
   lurpic_render_test_last_batch_count_fn = NULL;
   lurpic_render_test_last_command_count_fn = NULL;
-  lurpic_render_test_last_vertex_count_fn = NULL;
   lurpic_render_test_ok_fn = NULL;
   lurpic_render_test_panic_fn = NULL;
   lurpic_render_test_reset_fn = NULL;
@@ -163,11 +163,11 @@ int lurpic_render_load(const char *library_path) {
   LOAD_SYM(lurpic_render_test_handle_create_fn, "lurpic_render_test_handle_create", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_handle_destroy_fn, "lurpic_render_test_handle_destroy", int32_t(*)(uint64_t handle));
   LOAD_SYM(lurpic_render_test_handle_use_fn, "lurpic_render_test_handle_use", int32_t(*)(uint64_t handle));
+  LOAD_SYM(lurpic_render_test_force_swapped_rendering_fn, "lurpic_render_test_force_swapped_rendering", int32_t(*)(uint32_t enabled));
   LOAD_SYM(lurpic_render_test_image_count_fn, "lurpic_render_test_image_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_image_destroy_count_fn, "lurpic_render_test_image_destroy_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_last_batch_count_fn, "lurpic_render_test_last_batch_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_last_command_count_fn, "lurpic_render_test_last_command_count", uint64_t(*)(void));
-  LOAD_SYM(lurpic_render_test_last_vertex_count_fn, "lurpic_render_test_last_vertex_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_ok_fn, "lurpic_render_test_ok", int32_t(*)(void));
   LOAD_SYM(lurpic_render_test_panic_fn, "lurpic_render_test_panic", int32_t(*)(void));
   LOAD_SYM(lurpic_render_test_reset_fn, "lurpic_render_test_reset", int32_t(*)(void));
@@ -477,6 +477,22 @@ int32_t lurpic_render_test_handle_use(uint64_t handle) {
   }
   return result;
 }
+int32_t lurpic_render_test_force_swapped_rendering(uint32_t enabled) {
+  if (lurpic_render_test_force_swapped_rendering_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_test_force_swapped_rendering_fn(enabled);
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
 uint64_t lurpic_render_test_image_count(void) {
   if (lurpic_render_test_image_count_fn == NULL) {
     set_error("vulkan: Rust library not loaded");
@@ -508,14 +524,6 @@ uint64_t lurpic_render_test_last_command_count(void) {
   }
   set_error("");
   return lurpic_render_test_last_command_count_fn();
-}
-uint64_t lurpic_render_test_last_vertex_count(void) {
-  if (lurpic_render_test_last_vertex_count_fn == NULL) {
-    set_error("vulkan: Rust library not loaded");
-    return 0;
-  }
-  set_error("");
-  return lurpic_render_test_last_vertex_count_fn();
 }
 int32_t lurpic_render_test_ok(void) {
   if (lurpic_render_test_ok_fn == NULL) {

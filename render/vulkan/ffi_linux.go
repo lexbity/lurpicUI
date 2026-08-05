@@ -53,11 +53,11 @@ uint64_t lurpic_render_test_glyph_atlas_evictions(void);
 uint64_t lurpic_render_test_handle_create(void);
 int32_t lurpic_render_test_handle_destroy(uint64_t handle);
 int32_t lurpic_render_test_handle_use(uint64_t handle);
+int32_t lurpic_render_test_force_swapped_rendering(uint32_t enabled);
 uint64_t lurpic_render_test_image_count(void);
 uint64_t lurpic_render_test_image_destroy_count(void);
 uint64_t lurpic_render_test_last_batch_count(void);
 uint64_t lurpic_render_test_last_command_count(void);
-uint64_t lurpic_render_test_last_vertex_count(void);
 int32_t lurpic_render_test_ok(void);
 int32_t lurpic_render_test_panic(void);
 int32_t lurpic_render_test_reset(void);
@@ -214,6 +214,20 @@ func SetValidation(enabled bool) error {
 	return translateStatus(C.lurpic_render_set_validation(C.uint32_t(v)))
 }
 
+// ForceSwappedRendering toggles the RG-swapped solid pipeline (test-only
+// negative control; requires the renderer to be initialized). The equivalence
+// harness uses it to prove it catches a shader-level channel swap.
+func ForceSwappedRendering(enabled bool) error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	v := uint32(0)
+	if enabled {
+		v = 1
+	}
+	return translateStatus(C.lurpic_render_test_force_swapped_rendering(C.uint32_t(v)))
+}
+
 // PipelineFeatures mirrors the Rust LurpicRenderPipelineFeatures struct.
 type PipelineFeatures struct {
 	DynamicRendering      uint32
@@ -303,27 +317,37 @@ func SubmitFrame(data []byte) error {
 // the readback path the equivalence harness uses; it does not require a Vulkan
 // device.
 func SubmitAndReadback(data []byte, width, height int) ([]byte, error) {
-	if err := loadRustLibrary(); err != nil {
-		return nil, err
-	}
 	if width <= 0 || height <= 0 {
 		return nil, errors.New("vulkan: readback dimensions must be positive")
 	}
 	out := make([]byte, width*height*4)
-	if len(data) == 0 {
-		return nil, errors.New("vulkan: readback requires a non-empty frame packet")
+	if err := submitAndReadbackInto(data, width, height, out); err != nil {
+		return nil, err
 	}
-	if err := translateStatus(C.lurpic_render_submit_and_readback(
+	return out, nil
+}
+
+// submitAndReadbackInto renders the packet offscreen and writes RGBA pixels
+// into out. It performs no Go heap allocations (NFR-6): the benchmark reuses
+// the output buffer across iterations.
+func submitAndReadbackInto(data []byte, width, height int, out []byte) error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	if len(out) < width*height*4 {
+		return errors.New("vulkan: readback output buffer too small")
+	}
+	if len(data) == 0 {
+		return errors.New("vulkan: readback requires a non-empty frame packet")
+	}
+	return translateStatus(C.lurpic_render_submit_and_readback(
 		(*C.uchar)(unsafe.Pointer(&data[0])),
 		C.uintptr_t(len(data)),
 		C.uint32_t(width),
 		C.uint32_t(height),
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 		C.uintptr_t(len(out)),
-	)); err != nil {
-		return nil, err
-	}
-	return out, nil
+	))
 }
 
 func ResetAtlas() {
@@ -490,16 +514,6 @@ func testLastCommandCount() (uint64, error) {
 		return 0, errors.New(msg)
 	}
 	return uint64(C.lurpic_render_test_last_command_count()), nil
-}
-
-func testLastVertexCount() (uint64, error) {
-	if err := loadRustLibrary(); err != nil {
-		return 0, err
-	}
-	if msg := cErrorMessage(); msg != "" {
-		return 0, errors.New(msg)
-	}
-	return uint64(C.lurpic_render_test_last_vertex_count()), nil
 }
 
 func testGlyphAtlasCount() (uint64, error) {

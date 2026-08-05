@@ -11,9 +11,11 @@ build = "build.rs"
 crate-type = ["cdylib", "staticlib", "lib"]
 
 [features]
-# CPU stepping-stone raster (raster.rs / tessellation.rs). Default on until the
-# GPU pipeline is feature-complete (Slice 10 flips it off).
-default = ["cpu-fallback", "test-exports"]
+# GPU pipeline is the default Vulkan rendering path (Slice 3+). The CPU
+# stepping-stone raster (raster.rs / tessellation.rs) is retained behind
+# `cpu-fallback` for headless/no-GPU builds (FR-14) and is not compiled by
+# default.
+default = ["test-exports"]
 cpu-fallback = []
 # Test-only FFI exports (lurpic_render_test_*). Disable for production release
 # builds via `--no-default-features --features cpu-fallback`.

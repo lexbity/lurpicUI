@@ -435,6 +435,13 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch 
 }
 
 func fillRect(target *image.RGBA, state renderState, rect gfx.Rect, brush gfx.Brush) {
+	if state.transform.B != 0 || state.transform.C != 0 {
+		// Non-axis-preserving transform (rotation/shear): the rect becomes a
+		// polygon. Rasterize it as a filled contour so rotated rects render as
+		// the rotated shape rather than their axis-aligned bounding box.
+		rasterizePath(target, state, rectAsPath(rect), brush, 1)
+		return
+	}
 	rr := intersectRects(state.transform.TransformRect(rect), state.clip)
 	if rr.IsEmpty() {
 		return
@@ -454,6 +461,24 @@ func fillRect(target *image.RGBA, state renderState, rect gfx.Rect, brush gfx.Br
 			blendAt(target, x, y, c, state.opacity)
 		}
 	}
+}
+
+// rectAsPath expresses a rect as a closed four-corner contour, used by
+// fillRect when the transform is non-axis-preserving.
+func rectAsPath(rect gfx.Rect) gfx.Path {
+	corners := []gfx.Point{
+		rect.Min,
+		{X: rect.Max.X, Y: rect.Min.Y},
+		rect.Max,
+		{X: rect.Min.X, Y: rect.Max.Y},
+	}
+	return gfx.Path{Segments: []gfx.PathSegment{
+		{Verb: gfx.PathMoveTo, Pts: [3]gfx.Point{corners[0]}},
+		{Verb: gfx.PathLineTo, Pts: [3]gfx.Point{corners[1]}},
+		{Verb: gfx.PathLineTo, Pts: [3]gfx.Point{corners[2]}},
+		{Verb: gfx.PathLineTo, Pts: [3]gfx.Point{corners[3]}},
+		{Verb: gfx.PathClose},
+	}}
 }
 
 func strokeRect(target *image.RGBA, state renderState, rect gfx.Rect, stroke gfx.StrokeStyle, brush gfx.Brush) {

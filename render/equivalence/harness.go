@@ -128,10 +128,14 @@ func RenderSoftware(f *render.Frame, width, height int) ([]byte, error) {
 	return out, nil
 }
 
-// RenderVulkan encodes the frame to packet v2 and rasterizes it through the
-// CPU stepping-stone raster, returning RGBA pixels at width*height. It does not
-// require a Vulkan device, only the built Rust library.
+// RenderVulkan encodes the frame to packet v2 and renders it through the GPU
+// solid pipeline into an offscreen target, returning RGBA pixels at width*height.
+// The Vulkan renderer is initialized lazily (idempotent); the corpus test
+// shuts it down once at the end.
 func RenderVulkan(f *render.Frame, width, height int) ([]byte, error) {
+	if err := vulkan.Init(); err != nil {
+		return nil, fmt.Errorf("equivalence: vulkan init: %w", err)
+	}
 	packet, err := vulkan.EncodeFrame(f)
 	if err != nil {
 		return nil, fmt.Errorf("equivalence: encode: %w", err)

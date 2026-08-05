@@ -1,3 +1,7 @@
+#![cfg_attr(
+    feature = "cpu-fallback",
+    allow(dead_code) // retained for headless/no-GPU builds (FR-14); not wired into the render path since Slice 3
+)]
 use crate::atlas::{self, GlyphBitmap};
 use crate::frame::{Brush, BrushKind, DecodedBatch, DecodedCommand, DecodedFrame, DecodedGlyph, Rect, Transform};
 use crate::image_store;

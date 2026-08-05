@@ -18,6 +18,7 @@ pub struct Point {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
+#[allow(dead_code)] // consumed by the cpu-fallback raster tessellation
 pub struct Vertex {
     pub pos: Point,
     pub color: Color,
@@ -54,6 +55,7 @@ impl Path {
         }
     }
 
+    #[allow(dead_code)] // consumed by the cpu-fallback raster
     pub fn polyline(points: &[Point], closed: bool) -> Self {
         if points.is_empty() {
             return Self::new();

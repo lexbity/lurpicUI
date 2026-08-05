@@ -10,6 +10,7 @@ pub enum ImageFormat {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // pixels consumed by the cpu-fallback raster and Slice 4
 pub struct ImageBitmap {
     pub width: u32,
     pub height: u32,
@@ -18,6 +19,7 @@ pub struct ImageBitmap {
 
 #[derive(Clone, Debug)]
 struct StoredImage {
+    #[cfg_attr(not(feature = "cpu-fallback"), allow(dead_code))]
     bitmap: ImageBitmap,
 }
 
@@ -119,10 +121,12 @@ impl ImageStore {
         }
     }
 
+    #[cfg(any(feature = "cpu-fallback", test))]
     fn lookup(&self, handle: u64) -> Option<ImageBitmap> {
         self.entries.get(&handle).map(|entry| entry.bitmap.clone())
     }
 
+    #[cfg(any(feature = "test-exports", test))]
     fn reset(&mut self) {
         self.entries.clear();
         self.next_handle = 1;
@@ -153,16 +157,19 @@ pub fn destroy_image(handle: u64) -> Result<(), (RenderResult, String)> {
     store.destroy(handle)
 }
 
+#[cfg(any(feature = "cpu-fallback", test))]
 pub fn lookup_image(handle: u64) -> Option<ImageBitmap> {
     let store = store().lock().expect("image store mutex poisoned");
     store.lookup(handle)
 }
 
+#[cfg(feature = "test-exports")]
 pub fn image_stats() -> (usize, usize) {
     let store = store().lock().expect("image store mutex poisoned");
     (store.create_count, store.destroy_count)
 }
 
+#[cfg(any(feature = "test-exports", test))]
 pub fn reset_images() {
     let mut store = store().lock().expect("image store mutex poisoned");
     store.reset();

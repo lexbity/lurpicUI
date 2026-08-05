@@ -50,9 +50,10 @@ fn compile_shaders(manifest_dir: &Path) {
 
     // Baseline: copy the checked-in SPIR-V so `include_bytes!` works even when
     // glslc is unavailable (offline CI). glslc, when present, overwrites it.
-    let mut compiled_any = false;
     for (path, _, out_name) in shader_entries(&src) {
-        let spv = path.with_extension("spv");
+        // The checked-in artifact is the shader path + ".spv" (e.g.
+        // solid.vert.spv).
+        let spv = PathBuf::from(format!("{}.spv", path.display()));
         if spv.exists() {
             let out = Path::new(&out_dir).join(&out_name);
             std::fs::copy(&spv, &out).expect("copy checked-in SPIR-V");
@@ -66,6 +67,8 @@ fn compile_shaders(manifest_dir: &Path) {
             candidate.exists().then(|| candidate.display().to_string())
         })
     }).unwrap_or_else(|| "glslc".to_string());
+
+    let mut compiled_any = false;
 
     for (path, stage, out_name) in shader_entries(&src) {
         let output = Path::new(&out_dir).join(&out_name);

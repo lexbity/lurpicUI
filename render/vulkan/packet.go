@@ -65,8 +65,10 @@ type batchWithClip struct {
 	clip  gfx.Rect
 }
 
-func collectBatches(frame *render.Frame) []batchWithClip {
-	var out []batchWithClip
+// collectBatchesInto appends the frame's batches (and their layer clip, if any)
+// to out, reusing its capacity across frames.
+func collectBatchesInto(out []batchWithClip, frame *render.Frame) []batchWithClip {
+	out = out[:0]
 	if len(frame.Layers) > 0 {
 		for _, layer := range frame.Layers {
 			for _, b := range layer.Batches {
@@ -81,35 +83,56 @@ func collectBatches(frame *render.Frame) []batchWithClip {
 	return out
 }
 
-func encodeFramePacketWithAssets(frame *render.Frame, assets imageAssetUploader) ([]byte, error) {
+// frameEncoder reuses its buffers across encodes so the per-frame submission
+// path performs zero heap allocations steady-state (NFR-6). It is owned by the
+// Backend (and reused by the submit benchmark) on the render thread; the
+// returned packet aliases the internal output buffer and remains valid only
+// until the next Encode on the same encoder.
+type frameEncoder struct {
+	batches []batchWithClip
+	encoded []encodedBatch
+	payload packetWriter
+	out     packetWriter
+}
+
+func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([]byte, error) {
 	if frame == nil {
 		return nil, nil
 	}
+	e.batches = e.batches[:0]
+	e.encoded = e.encoded[:0]
+	e.payload.buf.Reset()
+	e.out.buf.Reset()
 
-	// Encode all batches first so the batch-count field reflects exactly the
-	// number of encoded batches (batches with no decodable commands are
-	// dropped, e.g. an empty PushTransform/PopTransform wrapper).
-	var encoded []encodedBatch
-	for _, item := range collectBatches(frame) {
-		e, ok, err := encodeBatch(item.batch, item.clip, assets)
+	// Phase 1: encode each batch's payload into the shared payload buffer so
+	// the batch-count field reflects exactly the encoded batch count.
+	e.batches = collectBatchesInto(e.batches, frame)
+	for _, item := range e.batches {
+		base := e.payload.buf.Len()
+		transform, commands, ok, err := encodeBatchInto(&e.payload, item.batch, item.clip, assets)
 		if err != nil {
 			return nil, err
 		}
 		if ok {
-			encoded = append(encoded, e)
+			e.encoded = append(e.encoded, encodedBatch{
+				batch:     item.batch,
+				transform: transform,
+				clip:      item.clip,
+				payload:   e.payload.buf.Bytes()[base:e.payload.buf.Len()],
+				commands:  commands,
+			})
 		}
 	}
 
-	var w packetWriter
+	// Phase 2: write the header and per-batch records.
+	w := &e.out
 	w.writeString(framePacketMagic)
 	w.writeU32(framePacketVersion)
-	// Surface dimensions are surfaced by the readback/present path explicitly;
-	// the GPU pipeline (Slice 3) threads the real swapchain size through here.
-	w.writeU32(0)                    // surface_w
-	w.writeU32(0)                    // surface_h
-	w.writeF32(1)                    // device_pixel_ratio
-	w.writeU32(uint32(len(encoded))) //nolint:gosec // integer overflow conversion
-	for _, entry := range encoded {
+	w.writeU32(0)                      // surface_w
+	w.writeU32(0)                      // surface_h
+	w.writeF32(1)                      // device_pixel_ratio
+	w.writeU32(uint32(len(e.encoded))) //nolint:gosec // integer overflow conversion
+	for _, entry := range e.encoded {
 		w.writeU64(uint64(entry.batch.ID))
 		w.writeRect(entry.batch.Bounds)
 		w.writeF32(entry.batch.Opacity)
@@ -119,6 +142,17 @@ func encodeFramePacketWithAssets(frame *render.Frame, assets imageAssetUploader)
 		w.writeBytes(entry.payload)
 	}
 	return w.buf.Bytes(), nil
+}
+
+func encodeFramePacketWithAssets(frame *render.Frame, assets imageAssetUploader) ([]byte, error) {
+	var e frameEncoder
+	packet, err := e.Encode(frame, assets)
+	if err != nil || packet == nil {
+		return packet, err
+	}
+	// The package-level API (harness path) may retain the packet across encodes;
+	// return a fresh copy so reuse of the encoder cannot invalidate it.
+	return append([]byte(nil), packet...), nil
 }
 
 type encodedBatch struct {
@@ -163,17 +197,19 @@ func extractBatchTransform(cmds []gfx.Command) (gfx.Transform, []gfx.Command, bo
 	return pt.Matrix, cmds[1 : len(cmds)-1], true
 }
 
-func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploader) (encodedBatch, bool, error) {
+// encodeBatchInto writes the batch's command payload into w (a shared pooled
+// buffer) and returns the extracted transform and command count. It returns
+// ok=false when the batch contributes no decodable commands.
+func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploader) (gfx.Transform, int, bool, error) {
 	if batch.Commands.Len() == 0 {
-		return encodedBatch{}, false, nil
+		return gfx.Transform{}, 0, false, nil
 	}
 
 	transform, cmds, _ := extractBatchTransform(batch.Commands.Commands)
 	if len(cmds) == 0 {
-		return encodedBatch{}, false, nil
+		return gfx.Transform{}, 0, false, nil
 	}
 
-	var w packetWriter
 	commands := 0
 	for _, cmd := range cmds {
 		switch c := cmd.(type) {
@@ -182,7 +218,7 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 			w.writeU8(packetCmdFillRect)
 			w.writeRect(c.Rect)
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.StrokeRect:
 			commands++
@@ -190,14 +226,14 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 			w.writeRect(c.Rect)
 			w.writeStrokeStyle(c.Stroke)
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.FillPath:
 			commands++
 			w.writeU8(packetCmdFillPath)
 			w.writePath(c.Path)
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.StrokePath:
 			commands++
@@ -205,7 +241,7 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 			w.writePath(c.Path)
 			w.writeStrokeStyle(c.Stroke)
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawPolyline:
 			commands++
@@ -216,7 +252,7 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 			}
 			w.writeStrokeStyle(c.Stroke)
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 			if c.Closed {
 				w.writeU8(1)
@@ -232,7 +268,7 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 			}
 			w.writeF32(c.Radius)
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawSelectionRects:
 			commands++
@@ -242,7 +278,7 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 				w.writeRect(rr)
 			}
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.PushTransform:
 			commands++
@@ -267,7 +303,7 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 			w.writeU8(packetCmdPopOpacity)
 		case gfx.DrawGlyphRun:
 			if err := uploadGlyphRun(c.Run); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 			commands++
 			w.writeU8(packetCmdDrawGlyphRun)
@@ -288,18 +324,18 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 				w.writeF32(glyph.Y)
 			}
 			if err := w.writeBrush(c.Brush); err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawImage:
 			if c.Image == nil {
 				continue
 			}
 			if assets == nil {
-				return encodedBatch{}, false, fmt.Errorf("vulkan: image asset cache unavailable")
+				return gfx.Transform{}, 0, false, fmt.Errorf("vulkan: image asset cache unavailable")
 			}
 			handle, err := assets.ensureImage(c.Image)
 			if err != nil {
-				return encodedBatch{}, false, err
+				return gfx.Transform{}, 0, false, err
 			}
 			commands++
 			w.writeU8(packetCmdDrawImage)
@@ -337,20 +373,14 @@ func encodeBatch(batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploa
 			commands++
 			w.writeU8(packetCmdEndRenderBatch)
 		default:
-			return encodedBatch{}, false, fmt.Errorf("vulkan: unsupported command type %T", cmd)
+			return gfx.Transform{}, 0, false, fmt.Errorf("vulkan: unsupported command type %T", cmd)
 		}
 	}
 
 	if commands == 0 {
-		return encodedBatch{}, false, nil
+		return gfx.Transform{}, 0, false, nil
 	}
-	return encodedBatch{
-		batch:     batch,
-		transform: transform,
-		clip:      clip,
-		payload:   w.buf.Bytes(),
-		commands:  commands,
-	}, true, nil
+	return transform, commands, true, nil
 }
 
 func hashImage(img *image.RGBA) uint64 {

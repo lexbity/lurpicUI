@@ -16,6 +16,7 @@ mod atlas;
 mod error;
 mod ffi_inventory;
 mod frame;
+mod frame_encoder;
 mod geometry;
 /// The ash integration layer (GpuContext isolation). Public so the integration
 /// tests exercise the real pipeline; the C ABI surface is unaffected.
@@ -23,7 +24,9 @@ pub mod gpu;
 #[cfg(feature = "cpu-fallback")]
 mod raster;
 mod image_store;
+mod pipeline;
 mod pipeline_cache;
+mod ring_buffer;
 #[cfg(feature = "cpu-fallback")]
 mod tessellation;
 mod vulkan;
@@ -380,10 +383,21 @@ pub extern "C" fn lurpic_render_set_validation(enabled: u32) -> RenderResult {
     })
 }
 
+/// Test-only: forces the solid pipeline to render through the RG-swapped
+/// fragment shader, so the equivalence negative control exercises the real
+/// shader toolchain (negative control, NFR-1).
+#[cfg(feature = "test-exports")]
+#[no_mangle]
+pub extern "C" fn lurpic_render_test_force_swapped_rendering(enabled: u32) -> RenderResult {
+    catch_render_result("test_force_swapped_rendering", || {
+        vulkan::test_force_swapped_rendering(enabled != 0);
+        Ok(())
+    })
+}
+
 /// Reports the physical device's pipeline-relevant capabilities (honest
 /// backend selection, FR-11).
-#[no_mangle]
-pub extern "C" fn lurpic_render_query_pipeline_features(
+#[no_mangle]pub extern "C" fn lurpic_render_query_pipeline_features(
     out: *mut LurpicRenderPipelineFeatures,
 ) -> RenderResult {
     catch_render_result("query_pipeline_features", || {
@@ -524,11 +538,10 @@ pub extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> Ren
     catch_render_result("submit_frame", || vulkan::submit_frame(data, len))
 }
 
-/// Test-only readback entry point: decodes a packet v2 frame, rasterizes it with
-/// the CPU stepping-stone raster (transparent clear), and writes RGBA pixels to
-/// `out_pixels`. This is the GPU-readback contract the equivalence harness uses
-/// until the GPU pipeline lands; it does not require a Vulkan device.
-#[cfg(feature = "cpu-fallback")]
+/// GPU readback entry point: decodes a packet v2 frame, renders it through the
+/// GPU solid pipeline into an offscreen target (transparent clear), and writes
+/// RGBA pixels to `out_pixels`. The equivalence harness compares this against
+/// the software oracle. Requires the renderer to be initialized.
 #[no_mangle]
 pub extern "C" fn lurpic_render_submit_and_readback(
     data: *const u8,
@@ -561,26 +574,8 @@ pub extern "C" fn lurpic_render_submit_and_readback(
                 ),
             ));
         }
-        if width == 0 || height == 0 {
-            return Err((
-                RenderResult::InitFailed,
-                "readback dimensions are zero".to_string(),
-            ));
-        }
-        if len > 0 && data.is_null() {
-            return Err((
-                RenderResult::InvalidHandle,
-                "frame packet pointer is null".to_string(),
-            ));
-        }
-        let bytes = if len == 0 {
-            &[][..]
-        } else {
-            unsafe { std::slice::from_raw_parts(data, len) }
-        };
-        let frame = frame::decode_frame(bytes)?;
-        let pixels = raster::rasterize_frame_with_clear(Some(&frame), width, height, [0, 0, 0, 0]);
-        // The raster produces BGRA (swapchain layout). Readback is RGBA.
+        let pixels = vulkan::readback_frame(data, len, width, height)?;
+        // The GPU readback produces BGRA (B8G8R8A8). Readback is RGBA.
         let out = unsafe { std::slice::from_raw_parts_mut(out_pixels, out_len) };
         for (i, px) in pixels.chunks_exact(4).enumerate() {
             let off = i * 4;
@@ -744,13 +739,6 @@ pub extern "C" fn lurpic_render_test_last_batch_count() -> u64 {
 pub extern "C" fn lurpic_render_test_last_command_count() -> u64 {
     clear_last_error();
     vulkan::frame_stats().command_count as u64
-}
-
-#[cfg(all(feature = "test-exports", feature = "cpu-fallback"))]
-#[no_mangle]
-pub extern "C" fn lurpic_render_test_last_vertex_count() -> u64 {
-    clear_last_error();
-    vulkan::frame_stats().vertex_count as u64
 }
 
 #[cfg(feature = "test-exports")]

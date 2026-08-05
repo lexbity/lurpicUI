@@ -432,8 +432,12 @@ func TestFFISymbols_WrappersExist(t *testing.T) {
 		}
 	}
 	// Go wrappers whose exported name does not mechanically map to the symbol
-	// name (UploadImage wraps lurpic_render_create_image).
-	goRenames := map[string]bool{"upload_image": true}
+	// name (UploadImage wraps lurpic_render_create_image; ForceSwappedRendering
+	// wraps the test-only lurpic_render_test_force_swapped_rendering).
+	goRenames := map[string]bool{
+		"upload_image":            true,
+		"force_swapped_rendering": true,
+	}
 	re := regexp.MustCompile(`(?m)^func ([A-Z][A-Za-z0-9_]*)\(`)
 	for _, m := range re.FindAllSubmatch(g, -1) {
 		name := string(m[1])

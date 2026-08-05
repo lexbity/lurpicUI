@@ -1,5 +1,3 @@
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 use crate::geometry::{Color, Path, Point, Verb};
 use crate::RenderResult;
 
@@ -51,16 +49,17 @@ pub const CMD_END_RENDER_BATCH: u8 = 18;
 pub const BRUSH_SOLID: u8 = 0;
 pub const BRUSH_LINEAR_GRADIENT: u8 = 1;
 
+#[cfg(feature = "cpu-fallback")]
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[cfg(feature = "cpu-fallback")]
 static LAST_VERTEX_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Records the number of vertices the CPU raster adapter produced for the most
 /// recent frame. Populated at raster time; surfaced through `FrameStats`.
+#[cfg(feature = "cpu-fallback")]
 pub fn record_vertex_count(count: usize) {
     LAST_VERTEX_COUNT.store(count, Ordering::Relaxed);
-}
-
-pub fn last_vertex_count() -> usize {
-    LAST_VERTEX_COUNT.load(Ordering::Relaxed)
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -72,6 +71,9 @@ pub struct FrameStats {
 
 #[derive(Clone, Debug)]
 pub struct DecodedFrame {
+    // Read by the lurpic_render_test_last_{batch,command}_count FFIs
+    // (test-exports); the production pipeline does not consume it.
+    #[cfg_attr(not(feature = "test-exports"), allow(dead_code))]
     pub stats: FrameStats,
     // Surface metadata feeds the GPU pipeline (Slice 3+); the CPU stepping-stone
     // raster only needs the command stream.
@@ -130,8 +132,12 @@ pub struct Brush {
     pub kind: BrushKind,
     /// Solid brush color. Zero for gradient brushes.
     pub color: Color,
+    // Gradient fields consumed by the gradient pipeline (Slice 6).
+    #[allow(dead_code)]
     pub gradient_start: Point,
+    #[allow(dead_code)]
     pub gradient_end: Point,
+    #[allow(dead_code)]
     pub gradient_stops: Vec<GradientStop>,
 }
 
@@ -166,6 +172,7 @@ pub struct StrokeStyle {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // consumed by the glyph pipeline (Slice 5)
 pub struct DecodedGlyph {
     pub glyph_id: u32,
     pub x: f32,
@@ -183,26 +190,33 @@ pub enum DecodedCommand {
         stroke: StrokeStyle,
         brush: Brush,
     },
+    // Fields consumed by later slices (path fill: Slice 7, strokes: Slice 8,
+    // points/selection: GPU raster follow-ons); decoded without loss (FR-3).
+    #[allow(dead_code)]
     FillPath {
         path: Path,
         brush: Brush,
     },
+    #[allow(dead_code)]
     StrokePath {
         path: Path,
         stroke: StrokeStyle,
         brush: Brush,
     },
+    #[allow(dead_code)]
     DrawPolyline {
         points: Vec<Point>,
         stroke: StrokeStyle,
         brush: Brush,
         closed: bool,
     },
+    #[allow(dead_code)]
     DrawPoints {
         points: Vec<Point>,
         radius: f32,
         brush: Brush,
     },
+    #[allow(dead_code)]
     DrawSelectionRects {
         rects: Vec<Rect>,
         brush: Brush,
@@ -219,6 +233,7 @@ pub enum DecodedCommand {
         alpha: f32,
     },
     PopOpacity,
+    #[allow(dead_code)] // consumed by the glyph pipeline (Slice 5)
     DrawGlyphRun {
         font_id: u64,
         size_bits: u32,
@@ -226,6 +241,7 @@ pub enum DecodedCommand {
         glyphs: Vec<DecodedGlyph>,
         brush: Brush,
     },
+    #[allow(dead_code)] // consumed by the texture pipeline (Slice 4)
     DrawImage {
         handle: u64,
         dest: Rect,
@@ -408,8 +424,12 @@ impl Transform {
         }
     }
 
-    pub fn transform_rect(self, rect: Rect) -> Rect {
-        let points = [
+    /// The 2x3 affine packed as [a, b, c, d, tx, ty] for the shader.
+    pub fn to_array(self) -> [f32; 6] {
+        [self.a, self.b, self.c, self.d, self.tx, self.ty]
+    }
+
+    pub fn transform_rect(self, rect: Rect) -> Rect {        let points = [
             self.apply_point(rect.min),
             self.apply_point(Point {
                 x: rect.max.x,

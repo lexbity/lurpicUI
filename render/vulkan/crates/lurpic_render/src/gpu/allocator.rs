@@ -21,7 +21,6 @@ use crate::RenderResult;
 
 /// Memory placement class mirroring `gpu_allocator::vulkan::MemoryLocation`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(dead_code)] // GpuOnly/GpuToCpu consumed by the texture pipeline (Slice 4)
 pub enum MemoryLocation {
     GpuOnly,
     CpuToGpu,
@@ -221,6 +220,20 @@ impl GpuBuffer {
             .map(|p| p.as_ptr().cast::<u8>())
     }
 
+    /// Flushes the written range so non-coherent host-visible memory is visible
+    /// to the GPU. A no-op on host-coherent memory.
+    pub fn flush(&self, offset: u64, size: u64) -> Result<(), (RenderResult, String)> {
+        let allocation = self.allocation.as_ref().expect("buffer allocation alive");
+        let memory = unsafe { allocation.memory() };
+        let range = vk::MappedMemoryRange::default()
+            .memory(memory)
+            .offset(allocation.offset() + offset)
+            .size(size);
+        let allocator = self.allocator.inner.borrow();
+        unsafe { allocator.device.flush_mapped_memory_ranges(&[range]) }
+            .map_err(|e| vk_error("vkFlushMappedMemoryRanges", e.as_raw()))
+    }
+
     /// Copies bytes into a host-visible buffer at the given offset.
     pub fn write(&mut self, offset: u64, data: &[u8]) -> Result<(), (RenderResult, String)> {
         let ptr = self.mapped_ptr().ok_or_else(|| {
@@ -246,7 +259,7 @@ impl GpuBuffer {
         unsafe {
             std::ptr::copy_nonoverlapping(data.as_ptr(), ptr.add(offset as usize), data.len());
         }
-        Ok(())
+        self.flush(offset, data.len() as u64)
     }
 }
 

@@ -1,3 +1,7 @@
+#![cfg_attr(
+    feature = "cpu-fallback",
+    allow(dead_code) // retained for the cpu-fallback raster (FR-14)
+)]
 //! CPU curve flattening and polygon triangulation for the stepping-stone
 //! raster (`cpu-fallback` feature). Shared geometry types live in `geometry`.
 use crate::geometry::{Color, Path, Point, Verb, Vertex};

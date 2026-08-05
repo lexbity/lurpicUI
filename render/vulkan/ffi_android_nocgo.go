@@ -32,6 +32,7 @@ func SubmitAndReadback([]byte, int, int) ([]byte, error) {
 	return nil, errCGORequired
 }
 func SetValidation(bool) error           { return errCGORequired }
+func ForceSwappedRendering(bool) error   { return errCGORequired }
 
 type PipelineFeatures struct {
 	DynamicRendering     uint32
