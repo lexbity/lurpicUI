@@ -13,6 +13,7 @@ pub struct GlyphBitmap {
 }
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // variants consumed by the cpu-fallback raster lookup
 struct GlyphVariants {
     bitmap: GlyphBitmap,
     sdf: Option<GlyphBitmap>,
@@ -71,10 +72,12 @@ impl GlyphAtlas {
         self.entries.insert(key, variants);
     }
 
+    #[allow(dead_code)] // consumed by the cpu-fallback raster
     fn lookup(&mut self, font_id: u64, glyph_id: u32, size_bits: u32) -> Option<GlyphBitmap> {
         self.lookup_with_mode(font_id, glyph_id, size_bits, false)
     }
 
+    #[allow(dead_code)] // consumed by the cpu-fallback raster
     fn lookup_with_mode(
         &mut self,
         font_id: u64,

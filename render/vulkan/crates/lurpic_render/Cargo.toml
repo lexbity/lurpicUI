@@ -1,12 +1,36 @@
 [package]
 name = "lurpic_render"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT"
 publish = false
+build = "build.rs"
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+# rlib enables the integration tests (tests/foundation.rs) to link the crate.
+crate-type = ["cdylib", "staticlib", "lib"]
+
+[features]
+# CPU stepping-stone raster (raster.rs / tessellation.rs). Default on until the
+# GPU pipeline is feature-complete (Slice 10 flips it off).
+default = ["cpu-fallback", "test-exports"]
+cpu-fallback = []
+# Test-only FFI exports (lurpic_render_test_*). Disable for production release
+# builds via `--no-default-features --features cpu-fallback`.
+test-exports = []
+
+[dependencies]
+ash = { version = "0.38.0", default-features = false, features = ["std"] }
+gpu-allocator = { version = "0.28", default-features = false, features = ["vulkan", "std"] }
+
+# Q14: runtime dlopen on desktop (Entry::load/load_from), static link on Android
+# (Entry::linked). Features are target-gated so `loaded` and `linked` never
+# coalesce in one build.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+ash = { version = "0.38.0", default-features = false, features = ["std", "loaded"] }
+
+[target.'cfg(target_os = "android")'.dependencies]
+ash = { version = "0.38.0", default-features = false, features = ["std", "linked"] }
 
 [profile.dev]
 panic = "unwind"

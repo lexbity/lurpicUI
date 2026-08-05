@@ -18,40 +18,53 @@ typedef struct {
 	uint32_t transfer_queue_family_index;
 } LurpicRenderCapabilities;
 
+typedef struct {
+	uint32_t dynamic_rendering;
+	uint32_t synchronization2;
+	uint32_t extended_dynamic_state;
+	uint32_t msaa_2x;
+	uint32_t msaa_4x;
+	uint32_t msaa_8x;
+	uint32_t stencil_fill;
+} lurpic_render_pipeline_features;
+
 int lurpic_render_load(const char *library_path);
-const char *lurpic_render_last_error(void);
-const char *lurpic_render_version(void);
-int lurpic_render_init(void);
-int lurpic_render_shutdown(void);
+// GEN-FFI-START declarations
+int32_t lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle);
+int32_t lurpic_render_create_xcb_surface(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface);
+int32_t lurpic_render_destroy_image(uint64_t handle);
+uint64_t lurpic_render_device_generation(void);
+int32_t lurpic_render_init(void);
 uintptr_t lurpic_render_instance_handle(void);
-int lurpic_render_query_capabilities(LurpicRenderCapabilities *out);
-int lurpic_render_submit_frame(const unsigned char *data, uintptr_t len);
-int lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len);
-int lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len);
-int lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle);
-int lurpic_render_destroy_image(uint64_t handle);
-int lurpic_render_create_xcb_surface(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface);
-int lurpic_render_resize(int width, int height);
-int lurpic_render_present(void);
-int lurpic_render_test_ok(void);
-int lurpic_render_test_error(void);
-int lurpic_render_test_panic(void);
-unsigned long long lurpic_render_test_handle_create(void);
-int lurpic_render_test_handle_use(unsigned long long handle);
-int lurpic_render_test_handle_destroy(unsigned long long handle);
-int lurpic_render_test_reset(void);
-unsigned long long lurpic_render_test_destroy_count(void);
-unsigned long long lurpic_render_test_drop_count(void);
-unsigned long long lurpic_render_test_last_batch_count(void);
-unsigned long long lurpic_render_test_last_command_count(void);
-unsigned long long lurpic_render_test_last_vertex_count(void);
+const char * lurpic_render_last_error(void);
+int32_t lurpic_render_query_capabilities(void *out);
+int32_t lurpic_render_query_pipeline_features(void *out);
 void lurpic_render_reset_atlas(void);
-unsigned long long lurpic_render_test_glyph_atlas_count(void);
-unsigned long long lurpic_render_test_glyph_atlas_evictions(void);
-unsigned long long lurpic_render_test_image_count(void);
-unsigned long long lurpic_render_test_image_destroy_count(void);
-unsigned long long lurpic_render_device_generation(void) __attribute__((weak));
-unsigned long long lurpic_render_device_generation(void) { return 0; }
+int32_t lurpic_render_resize(int32_t width, int32_t height);
+int32_t lurpic_render_set_validation(uint32_t enabled);
+int32_t lurpic_render_shutdown(void);
+int32_t lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len);
+int32_t lurpic_render_submit_frame(const unsigned char *data, uintptr_t len);
+uint64_t lurpic_render_test_destroy_count(void);
+uint64_t lurpic_render_test_drop_count(void);
+int32_t lurpic_render_test_error(void);
+uint64_t lurpic_render_test_glyph_atlas_count(void);
+uint64_t lurpic_render_test_glyph_atlas_evictions(void);
+uint64_t lurpic_render_test_handle_create(void);
+int32_t lurpic_render_test_handle_destroy(uint64_t handle);
+int32_t lurpic_render_test_handle_use(uint64_t handle);
+uint64_t lurpic_render_test_image_count(void);
+uint64_t lurpic_render_test_image_destroy_count(void);
+uint64_t lurpic_render_test_last_batch_count(void);
+uint64_t lurpic_render_test_last_command_count(void);
+uint64_t lurpic_render_test_last_vertex_count(void);
+int32_t lurpic_render_test_ok(void);
+int32_t lurpic_render_test_panic(void);
+int32_t lurpic_render_test_reset(void);
+uint64_t lurpic_render_test_validation_error_count(void);
+int32_t lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len);
+const char * lurpic_render_version(void);
+// GEN-FFI-END declarations
 void lurpic_render_unload(void);
 */
 import "C"
@@ -186,9 +199,51 @@ func DeviceGeneration() uint64 {
 	if err := loadRustLibrary(); err != nil {
 		return 0
 	}
-	// The weak stub above returns 0 when the Rust library hasn't been rebuilt
-	// with this symbol. Once rebuilt, the Rust implementation overrides the stub.
 	return uint64(C.lurpic_render_device_generation())
+}
+
+// SetValidation toggles the Khronos validation layer for the next Init.
+func SetValidation(enabled bool) error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	v := uint32(0)
+	if enabled {
+		v = 1
+	}
+	return translateStatus(C.lurpic_render_set_validation(C.uint32_t(v)))
+}
+
+// PipelineFeatures mirrors the Rust LurpicRenderPipelineFeatures struct.
+type PipelineFeatures struct {
+	DynamicRendering      uint32
+	Synchronization2      uint32
+	ExtendedDynamicState  uint32
+	MSAA2x                uint32
+	MSAA4x                uint32
+	MSAA8x                uint32
+	StencilFill           uint32
+}
+
+// QueryPipelineFeatures reports the physical device's pipeline-relevant
+// capabilities.
+func QueryPipelineFeatures() (PipelineFeatures, error) {
+	if err := loadRustLibrary(); err != nil {
+		return PipelineFeatures{}, err
+	}
+	var features C.lurpic_render_pipeline_features
+	if err := translateStatus(C.lurpic_render_query_pipeline_features(unsafe.Pointer(&features))); err != nil {
+		return PipelineFeatures{}, err
+	}
+	return PipelineFeatures{
+		DynamicRendering:     uint32(features.dynamic_rendering),
+		Synchronization2:     uint32(features.synchronization2),
+		ExtendedDynamicState: uint32(features.extended_dynamic_state),
+		MSAA2x:               uint32(features.msaa_2x),
+		MSAA4x:               uint32(features.msaa_4x),
+		MSAA8x:               uint32(features.msaa_8x),
+		StencilFill:          uint32(features.stencil_fill),
+	}, nil
 }
 
 func QueryCapabilities() (Capabilities, error) {
@@ -196,7 +251,7 @@ func QueryCapabilities() (Capabilities, error) {
 		return Capabilities{}, err
 	}
 	var caps C.LurpicRenderCapabilities
-	if err := translateStatus(C.lurpic_render_query_capabilities(&caps)); err != nil {
+	if err := translateStatus(C.lurpic_render_query_capabilities(unsafe.Pointer(&caps))); err != nil {
 		return Capabilities{}, err
 	}
 	return Capabilities{
@@ -231,13 +286,6 @@ func Resize(width, height int) error {
 		return err
 	}
 	return translateStatus(C.lurpic_render_resize(C.int(width), C.int(height)))
-}
-
-func Present() error {
-	if err := loadRustLibrary(); err != nil {
-		return err
-	}
-	return translateStatus(C.lurpic_render_present())
 }
 
 func SubmitFrame(data []byte) error {
@@ -387,14 +435,14 @@ func testHandleUse(handle internal.Handle) error {
 	if err := loadRustLibrary(); err != nil {
 		return err
 	}
-	return translateStatus(C.lurpic_render_test_handle_use(C.ulonglong(handle)))
+	return translateStatus(C.lurpic_render_test_handle_use(C.uint64_t(handle)))
 }
 
 func testHandleDestroy(handle internal.Handle) error {
 	if err := loadRustLibrary(); err != nil {
 		return err
 	}
-	return translateStatus(C.lurpic_render_test_handle_destroy(C.ulonglong(handle)))
+	return translateStatus(C.lurpic_render_test_handle_destroy(C.uint64_t(handle)))
 }
 
 func testResetRustState() error {
@@ -492,6 +540,16 @@ func testImageDestroyCount() (uint64, error) {
 		return 0, errors.New(msg)
 	}
 	return uint64(C.lurpic_render_test_image_destroy_count()), nil
+}
+
+func TestValidationErrorCount() (uint64, error) {
+	if err := loadRustLibrary(); err != nil {
+		return 0, err
+	}
+	if msg := cErrorMessage(); msg != "" {
+		return 0, errors.New(msg)
+	}
+	return uint64(C.lurpic_render_test_validation_error_count()), nil
 }
 
 func translateStatus(code C.int) error {

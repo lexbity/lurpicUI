@@ -318,7 +318,10 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 	// 16 KB ELF page alignment: required for Android 15+ and 16 KB devices.
 	env = append(env, "RUSTFLAGS=-C link-arg=-Wl,-z,max-page-size=16384 -C link-arg=-Wl,-z,common-page-size=16384")
 
-	cargoArgs := []string{"ndk", "-t", arch.ABI, "-o", outDir, cmdBuildName}
+	// --platform 24: Vulkan is a mandatory Android system library since API 24;
+	// the static-linked ash entry links -lvulkan from the NDK stub, which only
+	// exists for minSdk >= 24.
+	cargoArgs := []string{"ndk", "-t", arch.ABI, "--platform", "24", "-o", outDir, cmdBuildName}
 	if b.release {
 		cargoArgs = append(cargoArgs, "--release")
 	}
@@ -351,6 +354,9 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 		return fmt.Errorf("stage liblurpic_render.so: %w", err)
 	}
 	fmt.Printf("  Built: %s\n", filepath.Join(libDir, "liblurpic_render.so"))
+	if err := b.stageValidationLayer(arch, libDir); err != nil {
+		return fmt.Errorf("stage validation layer: %w", err)
+	}
 
 	// For release builds, retain an unstripped copy before stripping.
 	if b.release {
@@ -365,6 +371,35 @@ func (b *androidBuilder) buildRenderRustLib(arch Architecture) error {
 }
 
 // buildRustLibrary cross-compiles Rust code for Android for the given architecture.
+// stageValidationLayer packages a prebuilt Khronos validation layer into
+// lib/<abi>/ so the Android Vulkan loader can discover it (RK-13). The layer
+// is sourced from LURPIC_VALIDATION_LAYER_DIR/<abi>/libVkLayer_khronos_validation.so
+// (the VVL Android build layout); when the env var is unset or the file is
+// absent, the step is a no-op so non-validation builds are unaffected.
+func (b *androidBuilder) stageValidationLayer(arch Architecture, libDir string) error {
+	base := os.Getenv("LURPIC_VALIDATION_LAYER_DIR")
+	if base == "" {
+		return nil
+	}
+	source := filepath.Join(base, arch.ABI, "libVkLayer_khronos_validation.so")
+	//nolint:gosec // build-time tool; path from an admin-controlled env var
+	if _, err := os.Stat(source); err != nil {
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr,
+				"  Warning: LURPIC_VALIDATION_LAYER_DIR set but %s missing; skipping validation layer\n",
+				source)
+			return nil
+		}
+		return fmt.Errorf("stat validation layer: %w", err)
+	}
+	dest := filepath.Join(libDir, "libVkLayer_khronos_validation.so")
+	if err := copyFile(source, dest); err != nil {
+		return fmt.Errorf("copy validation layer: %w", err)
+	}
+	fmt.Printf("  Staged validation layer: %s\n", dest)
+	return nil
+}
+
 func (b *androidBuilder) buildRustLibrary(arch Architecture) error {
 	fmt.Printf("Building Rust library for %s...\n", arch.ABI)
 

@@ -1,20 +1,50 @@
-use std::collections::HashMap;
 use std::ffi::c_char;
 
 #[cfg(target_os = "android")]
 use std::ffi::c_void;
+#[cfg(any(test, feature = "test-exports"))]
+use std::collections::HashMap;
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::atomic::{AtomicU64, Ordering};
+#[cfg(any(test, feature = "test-exports"))]
+use std::sync::atomic::AtomicUsize;
+use std::sync::{Mutex, OnceLock};
+#[cfg(any(test, feature = "test-exports"))]
+use std::sync::Arc;
 
 mod atlas;
+mod error;
+mod ffi_inventory;
 mod frame;
-mod image_store;
+mod geometry;
+/// The ash integration layer (GpuContext isolation). Public so the integration
+/// tests exercise the real pipeline; the C ABI surface is unaffected.
+pub mod gpu;
+#[cfg(feature = "cpu-fallback")]
 mod raster;
+mod image_store;
+mod pipeline_cache;
+#[cfg(feature = "cpu-fallback")]
 mod tessellation;
 mod vulkan;
 
 pub type RenderHandle = u64;
+
+/// Re-exports for the `GpuContext` isolation layer.
+pub use error::vk_error;
+
+/// Pipeline capability flags returned by `lurpic_render_query_pipeline_features`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct LurpicRenderPipelineFeatures {
+    pub dynamic_rendering: u32,
+    pub synchronization2: u32,
+    pub extended_dynamic_state: u32,
+    pub msaa_2x: u32,
+    pub msaa_4x: u32,
+    pub msaa_8x: u32,
+    pub stencil_fill: u32,
+}
 
 #[repr(i32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,8 +79,11 @@ impl RenderResult {
 const VERSION: &[u8] = b"lurpic_render 0.2.0\0";
 
 static LAST_ERROR: OnceLock<Mutex<Vec<u8>>> = OnceLock::new();
+#[cfg(any(test, feature = "test-exports"))]
 static REGISTRY: OnceLock<HandleRegistry> = OnceLock::new();
 static DEVICE_GENERATION: AtomicU64 = AtomicU64::new(0);
+/// Set via `lurpic_render_set_validation`; honored at the next `init`.
+static VALIDATION_ENABLED: AtomicU64 = AtomicU64::new(0);
 
 fn last_error() -> &'static Mutex<Vec<u8>> {
     LAST_ERROR.get_or_init(|| Mutex::new(vec![0]))
@@ -67,7 +100,7 @@ fn set_last_error(message: impl AsRef<str>) {
     buf.push(0);
 }
 
-fn clear_last_error() {
+pub(crate) fn clear_last_error() {
     set_last_error("");
 }
 
@@ -120,6 +153,7 @@ fn panic_message(payload: Box<dyn std::any::Any + Send>) -> String {
 /// Serializes tests that mutate the process-global atlas / image store so the
 /// parallel unit-test harness cannot interleave destructive resets. Also held by
 /// `lurpic_render_test_reset` so FFI-driven resets cannot race Rust unit tests.
+#[cfg(any(test, feature = "test-exports"))]
 pub(crate) fn state_lock_guard() -> std::sync::MutexGuard<'static, ()> {
     use std::sync::{Mutex, OnceLock};
     static STATE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -129,6 +163,7 @@ pub(crate) fn state_lock_guard() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|e| e.into_inner())
 }
 
+#[cfg(any(test, feature = "test-exports"))]
 struct HandleRegistry {
     next: AtomicU64,
     entries: Mutex<HashMap<RenderHandle, TestResource>>,
@@ -136,6 +171,7 @@ struct HandleRegistry {
     drop_count: Arc<AtomicUsize>,
 }
 
+#[cfg(any(test, feature = "test-exports"))]
 impl HandleRegistry {
     fn new() -> Self {
         Self {
@@ -201,17 +237,20 @@ impl HandleRegistry {
     }
 }
 
+#[cfg(any(test, feature = "test-exports"))]
 struct TestResource {
     destroyed: bool,
     drop_count: Arc<AtomicUsize>,
 }
 
+#[cfg(any(test, feature = "test-exports"))]
 impl TestResource {
     fn destroy(&mut self) {
         self.destroyed = true;
     }
 }
 
+#[cfg(any(test, feature = "test-exports"))]
 impl Drop for TestResource {
     fn drop(&mut self) {
         if !self.destroyed {
@@ -220,6 +259,7 @@ impl Drop for TestResource {
     }
 }
 
+#[cfg(any(test, feature = "test-exports"))]
 fn registry() -> &'static HandleRegistry {
     REGISTRY.get_or_init(HandleRegistry::new)
 }
@@ -242,11 +282,13 @@ pub extern "C" fn lurpic_render_version() -> *const c_char {
     VERSION.as_ptr() as *const c_char
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_ok() -> RenderResult {
     catch_render_result("test_ok", || Ok(()))
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_error() -> RenderResult {
     catch_render_result("test_error", || {
@@ -257,6 +299,7 @@ pub extern "C" fn lurpic_render_test_error() -> RenderResult {
     })
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_panic() -> RenderResult {
     catch_render_result("test_panic", || -> Result<(), (RenderResult, String)> {
@@ -264,22 +307,26 @@ pub extern "C" fn lurpic_render_test_panic() -> RenderResult {
     })
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_handle_create() -> RenderHandle {
     clear_last_error();
     registry().create_test_handle()
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_handle_use(handle: RenderHandle) -> RenderResult {
     catch_render_result("test_handle_use", || registry().use_handle(handle))
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_handle_destroy(handle: RenderHandle) -> RenderResult {
     catch_render_result("test_handle_destroy", || registry().destroy_handle(handle))
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_reset() -> RenderResult {
     catch_render_result("test_reset", || {
@@ -293,12 +340,14 @@ pub extern "C" fn lurpic_render_test_reset() -> RenderResult {
     })
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_destroy_count() -> u64 {
     clear_last_error();
     registry().destroy_count()
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_drop_count() -> u64 {
     clear_last_error();
@@ -312,11 +361,52 @@ pub extern "C" fn lurpic_render_last_error() -> *const c_char {
 
 #[no_mangle]
 pub extern "C" fn lurpic_render_init() -> RenderResult {
-    let result = catch_render_result("init", || vulkan::init());
+    let result = catch_render_result("init", || {
+        vulkan::init(VALIDATION_ENABLED.load(Ordering::SeqCst) != 0)
+    });
     if result == RenderResult::Ok {
         DEVICE_GENERATION.fetch_add(1, Ordering::SeqCst);
     }
     result
+}
+
+/// Enables/disables the Khronos validation layer for the NEXT `init`. The flag
+/// is latched at instance creation; changing it requires init/shutdown.
+#[no_mangle]
+pub extern "C" fn lurpic_render_set_validation(enabled: u32) -> RenderResult {
+    catch_render_result("set_validation", || {
+        VALIDATION_ENABLED.store((enabled != 0) as u64, Ordering::SeqCst);
+        Ok(())
+    })
+}
+
+/// Reports the physical device's pipeline-relevant capabilities (honest
+/// backend selection, FR-11).
+#[no_mangle]
+pub extern "C" fn lurpic_render_query_pipeline_features(
+    out: *mut LurpicRenderPipelineFeatures,
+) -> RenderResult {
+    catch_render_result("query_pipeline_features", || {
+        if out.is_null() {
+            return Err((
+                RenderResult::InvalidHandle,
+                "pipeline features pointer is null".to_string(),
+            ));
+        }
+        let features = vulkan::pipeline_features()?;
+        unsafe {
+            *out = LurpicRenderPipelineFeatures {
+                dynamic_rendering: features.dynamic_rendering as u32,
+                synchronization2: features.synchronization2 as u32,
+                extended_dynamic_state: features.extended_dynamic_state as u32,
+                msaa_2x: features.msaa_2x as u32,
+                msaa_4x: features.msaa_4x as u32,
+                msaa_8x: features.msaa_8x as u32,
+                stencil_fill: features.stencil_fill as u32,
+            };
+        }
+        Ok(())
+    })
 }
 
 #[no_mangle]
@@ -359,6 +449,7 @@ pub extern "C" fn lurpic_render_query_capabilities(
     })
 }
 
+#[cfg(not(target_os = "android"))]
 #[no_mangle]
 pub extern "C" fn lurpic_render_create_xcb_surface(
     instance: usize,
@@ -429,11 +520,6 @@ pub extern "C" fn lurpic_render_resize(width: i32, height: i32) -> RenderResult 
 }
 
 #[no_mangle]
-pub extern "C" fn lurpic_render_present() -> RenderResult {
-    catch_render_result("present", || vulkan::present())
-}
-
-#[no_mangle]
 pub extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> RenderResult {
     catch_render_result("submit_frame", || vulkan::submit_frame(data, len))
 }
@@ -442,6 +528,7 @@ pub extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> Ren
 /// the CPU stepping-stone raster (transparent clear), and writes RGBA pixels to
 /// `out_pixels`. This is the GPU-readback contract the equivalence harness uses
 /// until the GPU pipeline lands; it does not require a Vulkan device.
+#[cfg(feature = "cpu-fallback")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_submit_and_readback(
     data: *const u8,
@@ -617,46 +704,60 @@ pub extern "C" fn lurpic_render_reset_atlas() {
     atlas::reset_atlas();
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_glyph_atlas_count() -> u64 {
     clear_last_error();
     atlas::atlas_stats().0 as u64
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_glyph_atlas_evictions() -> u64 {
     clear_last_error();
     atlas::atlas_stats().1 as u64
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_image_count() -> u64 {
     clear_last_error();
     image_store::image_stats().0 as u64
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_image_destroy_count() -> u64 {
     clear_last_error();
     image_store::image_stats().1 as u64
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_last_batch_count() -> u64 {
     clear_last_error();
     vulkan::frame_stats().batch_count as u64
 }
 
+#[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_last_command_count() -> u64 {
     clear_last_error();
     vulkan::frame_stats().command_count as u64
 }
 
+#[cfg(all(feature = "test-exports", feature = "cpu-fallback"))]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_last_vertex_count() -> u64 {
     clear_last_error();
     vulkan::frame_stats().vertex_count as u64
+}
+
+#[cfg(feature = "test-exports")]
+#[no_mangle]
+pub extern "C" fn lurpic_render_test_validation_error_count() -> u64 {
+    clear_last_error();
+    gpu::validation::validation_error_count() as u64
 }
 
 #[no_mangle]
@@ -664,7 +765,7 @@ pub extern "C" fn lurpic_render_device_generation() -> u64 {
     DEVICE_GENERATION.load(Ordering::SeqCst)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "test-exports"))]
 mod tests {
     use super::*;
     use std::ffi::CStr;
@@ -677,6 +778,37 @@ mod tests {
             .get_or_init(|| Mutex::new(()))
             .lock()
             .expect("test mutex poisoned")
+    }
+
+    #[test]
+    fn ffi_inventory_covers_all_exports() {
+        // Every #[no_mangle] export in this crate must be listed in the FFI
+        // inventory (the single source of truth for the C ABI codegen). This
+        // is the Rust-side half of the drift gate (the Go side regenerates
+        // ffi_linux.c from the inventory).
+        let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+        let source = std::fs::read_to_string(std::path::Path::new(&manifest).join("src/lib.rs"))
+            .expect("read lib.rs");
+        let mut exports = std::collections::BTreeSet::new();
+        let mut rest = source.as_str();
+        while let Some(rel) = rest.find("pub extern \"C\" fn lurpic_render_") {
+            rest = &rest[rel + "pub extern \"C\" fn ".len()..];
+            let end = rest.find('(').expect("fn signature");
+            let name = &rest[..end];
+            exports.insert(name.to_string());
+        }
+        for symbol in ffi_inventory::FFI_SYMBOLS {
+            let short = symbol.name.trim_start_matches("lurpic_render_");
+            if short.is_empty() {
+                continue;
+            }
+            exports.remove(&symbol.name.to_string());
+        }
+        assert!(
+            exports.is_empty(),
+            "exports missing from the FFI inventory: {:?}",
+            exports
+        );
     }
 
     #[test]

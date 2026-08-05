@@ -108,10 +108,7 @@ func (b *Backend) Submit(f *render.Frame) error {
 			return err
 		}
 	}
-	if !b.hasSurface {
-		return nil
-	}
-	return Present()
+	return nil
 }
 
 // Recreate rebuilds the Vulkan surface + swapchain for a new platform Surface.

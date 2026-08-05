@@ -32,8 +32,22 @@ func SubmitAndReadback([]byte, int, int) ([]byte, error) {
 	return nil, errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
-func Present() error {
+func SetValidation(bool) error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
+type PipelineFeatures struct {
+	DynamicRendering     uint32
+	Synchronization2     uint32
+	ExtendedDynamicState uint32
+	MSAA2x               uint32
+	MSAA4x               uint32
+	MSAA8x               uint32
+	StencilFill          uint32
+}
+
+func QueryPipelineFeatures() (PipelineFeatures, error) {
+	return PipelineFeatures{}, errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
 func Resize(int, int) error {

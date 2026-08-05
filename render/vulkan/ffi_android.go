@@ -18,12 +18,24 @@ typedef struct {
 	uint32_t transfer_queue_family_index;
 } LurpicRenderCapabilities;
 
+typedef struct {
+	uint32_t dynamic_rendering;
+	uint32_t synchronization2;
+	uint32_t extended_dynamic_state;
+	uint32_t msaa_2x;
+	uint32_t msaa_4x;
+	uint32_t msaa_8x;
+	uint32_t stencil_fill;
+} lurpic_render_pipeline_features;
+
 const char *lurpic_render_version(void);
 const char *lurpic_render_last_error(void);
 int lurpic_render_init(void);
 int lurpic_render_shutdown(void);
 uintptr_t lurpic_render_instance_handle(void);
 int lurpic_render_query_capabilities(LurpicRenderCapabilities *out);
+int lurpic_render_query_pipeline_features(lurpic_render_pipeline_features *out);
+int lurpic_render_set_validation(uint32_t enabled);
 int lurpic_render_submit_frame(const unsigned char *data, uintptr_t len);
 int lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len);
 int lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len);
@@ -33,7 +45,6 @@ void lurpic_render_reset_atlas(void);
 int lurpic_render_create_surface_android(void *android_window, uintptr_t instance, uint32_t width, uint32_t height, uintptr_t *out_surface);
 int lurpic_render_recreate_surface_android(void *android_window, uint32_t width, uint32_t height);
 int lurpic_render_resize(int width, int height);
-int lurpic_render_present(void);
 unsigned long long lurpic_render_device_generation(void);
 void lurpic_render_unload(void);
 */
@@ -131,10 +142,6 @@ func Resize(width, height int) error {
 	return translateStatus(C.lurpic_render_resize(C.int(width), C.int(height)))
 }
 
-func Present() error {
-	return translateStatus(C.lurpic_render_present())
-}
-
 func SubmitFrame(data []byte) error {
 	if len(data) == 0 {
 		return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(nil), 0))
@@ -211,6 +218,44 @@ func UploadImage(pixels []byte, width, height, stride int, format uint32) (uint6
 
 func DestroyImage(handle uint64) error {
 	return translateStatus(C.lurpic_render_destroy_image(C.uint64_t(handle)))
+}
+
+// SetValidation toggles the Khronos validation layer for the next Init.
+func SetValidation(enabled bool) error {
+	v := uint32(0)
+	if enabled {
+		v = 1
+	}
+	return translateStatus(C.lurpic_render_set_validation(C.uint32_t(v)))
+}
+
+// PipelineFeatures mirrors the Rust LurpicRenderPipelineFeatures struct.
+type PipelineFeatures struct {
+	DynamicRendering     uint32
+	Synchronization2     uint32
+	ExtendedDynamicState uint32
+	MSAA2x               uint32
+	MSAA4x               uint32
+	MSAA8x               uint32
+	StencilFill          uint32
+}
+
+// QueryPipelineFeatures reports the physical device's pipeline-relevant
+// capabilities.
+func QueryPipelineFeatures() (PipelineFeatures, error) {
+	var features C.lurpic_render_pipeline_features
+	if err := translateStatus(C.lurpic_render_query_pipeline_features(&features)); err != nil {
+		return PipelineFeatures{}, err
+	}
+	return PipelineFeatures{
+		DynamicRendering:     uint32(features.dynamic_rendering),
+		Synchronization2:     uint32(features.synchronization2),
+		ExtendedDynamicState: uint32(features.extended_dynamic_state),
+		MSAA2x:               uint32(features.msaa_2x),
+		MSAA4x:               uint32(features.msaa_4x),
+		MSAA8x:               uint32(features.msaa_8x),
+		StencilFill:          uint32(features.stencil_fill),
+	}, nil
 }
 
 func resetRustLibraryLoaderForTest() {}

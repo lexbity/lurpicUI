@@ -1,12 +1,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::tessellation::{Color, Path, Point, Verb};
+use crate::geometry::{Color, Path, Point, Verb};
 use crate::RenderResult;
 
 /// Frame packet wire format (version 2). Little-endian, hand-packed and
 /// mirrored by `render/vulkan/packet.go`.
 ///
-/// ```
+/// ```text
 /// Frame packet:
 ///   magic          [4]u8      = "LPVF"
 ///   version        u32        = 2

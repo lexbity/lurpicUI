@@ -1,7 +1,8 @@
 use crate::atlas::{self, GlyphBitmap};
 use crate::frame::{Brush, BrushKind, DecodedBatch, DecodedCommand, DecodedFrame, DecodedGlyph, Rect, Transform};
 use crate::image_store;
-use crate::tessellation::{self, Color, Path, Point, Vertex};
+use crate::geometry::{Color, Path, Point, Vertex};
+use crate::tessellation;
 
 const CLEAR_BG: [u8; 4] = [13, 13, 20, 255];
 
@@ -303,7 +304,7 @@ fn rasterize_fill_path(
     width: u32,
     height: u32,
     state: &RasterState,
-    path: &tessellation::Path,
+    path: &crate::geometry::Path,
     brush: &Brush,
 ) -> usize {
     let verts = tessellation::tessellate_fill(path, brush.color);
@@ -326,7 +327,7 @@ fn rasterize_stroke_path(
     width: u32,
     height: u32,
     state: &RasterState,
-    path: &tessellation::Path,
+    path: &crate::geometry::Path,
     stroke_width: f32,
     brush: &Brush,
 ) -> usize {

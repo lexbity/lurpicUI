@@ -31,7 +31,21 @@ func SubmitFrame([]byte) error          { return errCGORequired }
 func SubmitAndReadback([]byte, int, int) ([]byte, error) {
 	return nil, errCGORequired
 }
-func Present() error                    { return errCGORequired }
+func SetValidation(bool) error           { return errCGORequired }
+
+type PipelineFeatures struct {
+	DynamicRendering     uint32
+	Synchronization2     uint32
+	ExtendedDynamicState uint32
+	MSAA2x               uint32
+	MSAA4x               uint32
+	MSAA8x               uint32
+	StencilFill          uint32
+}
+
+func QueryPipelineFeatures() (PipelineFeatures, error) {
+	return PipelineFeatures{}, errCGORequired
+}
 func Resize(int, int) error             { return errCGORequired }
 func ResetAtlas() {}
 func UploadGlyph(uint64, uint32, uint32, int, int, float32, float32, float32, []byte) error {
