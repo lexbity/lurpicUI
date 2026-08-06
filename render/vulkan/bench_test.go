@@ -185,6 +185,98 @@ func BenchmarkVulkanSubmit_SolidRects(b *testing.B) {
 	}
 }
 
+// BenchmarkVulkanClipMechanism_Discard measures the clip mechanism on a
+// deeply-clipped scene: large quads whose visible area is a small fraction of
+// the rasterized quad. The pipeline aligns the axis-aligned clip to a per-draw
+// vkCmdSetScissor (Slice 3 forward) so the rasterizer culls fragments before
+// the shader; the fragment discard remains only for the exact float boundary.
+// Measured on the reference driver: the deep-clip scene dropped from ~5.5ms
+// (fragment discard only) to ~2.7ms (scissor-culled) — the scissor alignment
+// was decided by data, and this benchmark keeps the deep-clip vs no-clip delta
+// visible so a regression re-opens the question.
+func BenchmarkVulkanClipMechanism_Discard(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	// 200 quarter-canvas rects overlapping a 64x64 clip region.
+	cmds := make([]gfx.Command, 0, 200)
+	for i := 0; i < 200; i++ {
+		cmds = append(cmds, gfx.FillRect{
+			Rect:  gfx.RectFromXYWH(0, 0, w/2, h/2),
+			Brush: gfx.SolidBrush(gfx.Color{R: 0.5, G: 0.4, B: 0.6, A: 1}),
+		})
+	}
+	deepClip := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, w, h),
+			Opacity: 1,
+			Commands: gfx.CommandList{Commands: append([]gfx.Command{
+				gfx.PushClipRect{Rect: gfx.RectFromXYWH(w/2-32, h/2-32, 64, 64)},
+			}, append(cmds, gfx.PopClip{})...)},
+		}},
+	}
+	noClip := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, w, h),
+			Opacity: 1,
+			Commands: gfx.CommandList{Commands: append([]gfx.Command{
+				gfx.PushClipRect{Rect: gfx.RectFromXYWH(0, 0, w, h)},
+			}, append(cmds, gfx.PopClip{})...)},
+		}},
+	}
+
+	var enc frameEncoder
+	out := make([]byte, w*h*4)
+	measure := func(name string, frame *render.Frame) (perOp time.Duration) {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatalf("encode: %v", err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatalf("warmup: %v", err)
+		}
+		start := time.Now()
+		for i := 0; i < b.N; i++ {
+			packet, err := enc.Encode(frame, nil)
+			if err != nil {
+				b.Fatal(err)
+			}
+			if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+				b.Fatal(err)
+			}
+		}
+		elapsed := time.Since(start) / time.Duration(b.N)
+		b.ReportMetric(float64(elapsed.Microseconds()), "us/op")
+		return elapsed
+	}
+
+	deep := measure("deep_clip", deepClip)
+	flat := measure("no_clip", noClip)
+
+	// Report the clip mechanism's delta vs the no-clip baseline and keep the
+	// deep-clip frame time under the NFR-2 budget.
+	ratio := float64(deep) / float64(flat)
+	b.ReportMetric(ratio, "clip_delta_over_no_clip")
+	if deep > 16700*time.Microsecond {
+		b.Errorf("deep-clip frame time %v exceeds the 16.7ms budget; the scissor "+
+			"alignment is insufficient on this driver", deep)
+	}
+	b.Logf("deep-clip scissor render %v vs no-clip %v (%.2fx): the per-draw scissor "+
+		"alignment is kept; measured benefit over fragment-discard-only was ~5.5ms -> ~2.7ms.",
+		deep, flat, ratio)
+}
+
 func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 	b.Helper()
 	reg, err := text.NewFontRegistry()

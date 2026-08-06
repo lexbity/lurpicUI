@@ -30,10 +30,18 @@ pub struct EncodedFrame {
     pub groups: Vec<DrawGroup>,
 }
 
+/// Fixed stack depth for transform/clip/opacity nesting (Slice 3: "fixed-size
+/// [Transform; 16], UI nesting is shallow"). Exceeding it is a malformed frame
+/// and aborts encoding rather than growing on the hot path (NFR-6).
+const MAX_DEPTH: usize = 16;
+
 pub struct FrameEncoder {
-    transform_stack: Vec<Transform>,
-    clip_stack: Vec<Rect>,
-    opacity_stack: Vec<f32>,
+    transform_stack: [Transform; MAX_DEPTH],
+    transform_depth: usize,
+    clip_stack: [Rect; MAX_DEPTH],
+    clip_depth: usize,
+    opacity_stack: [f32; MAX_DEPTH],
+    opacity_depth: usize,
     /// Instance bytes for the open group.
     scratch: Vec<u8>,
     /// Push constants of the open group.
@@ -44,9 +52,12 @@ pub struct FrameEncoder {
 impl Default for FrameEncoder {
     fn default() -> Self {
         Self {
-            transform_stack: Vec::with_capacity(16),
-            clip_stack: Vec::with_capacity(8),
-            opacity_stack: Vec::with_capacity(8),
+            transform_stack: [Transform::identity(); MAX_DEPTH],
+            transform_depth: 0,
+            clip_stack: [Rect::zero(); MAX_DEPTH],
+            clip_depth: 0,
+            opacity_stack: [1.0; MAX_DEPTH],
+            opacity_depth: 0,
             scratch: Vec::with_capacity(1024),
             current_push: None,
             groups: Vec::with_capacity(64),
@@ -63,9 +74,9 @@ impl FrameEncoder {
         allocator: &dyn Allocator,
         surface_size: [f32; 2],
     ) -> Result<EncodedFrame, (RenderResult, String)> {
-        self.transform_stack.clear();
-        self.clip_stack.clear();
-        self.opacity_stack.clear();
+        self.transform_depth = 0;
+        self.clip_depth = 0;
+        self.opacity_depth = 0;
         self.scratch.clear();
         self.current_push = None;
         self.groups.clear();
@@ -97,18 +108,18 @@ impl FrameEncoder {
         allocator: &dyn Allocator,
         surface_size: [f32; 2],
     ) -> Result<(), (RenderResult, String)> {
-        // Seed the state from the batch header.
-        self.transform_stack.clear();
-        self.transform_stack.push(batch.transform);
-        self.clip_stack.clear();
+        // Seed the state from the batch header (fixed-depth base entries).
+        self.transform_stack[0] = batch.transform;
+        self.transform_depth = 1;
         let mut clip = batch.bounds;
         if let Some(header_clip) = batch.clip {
             clip = clip.intersect(header_clip);
         }
         clip = clip.intersect(screen);
-        self.clip_stack.push(clip);
-        self.opacity_stack.clear();
-        self.opacity_stack.push(batch.opacity);
+        self.clip_stack[0] = clip;
+        self.clip_depth = 1;
+        self.opacity_stack[0] = batch.opacity;
+        self.opacity_depth = 1;
 
         for cmd in &batch.commands {
             match cmd {
@@ -163,30 +174,30 @@ impl FrameEncoder {
                 }
                 DecodedCommand::PushTransform { matrix } => {
                     let next = self.transform().multiply(*matrix);
-                    self.transform_stack.push(next);
+                    self.push_transform(next)?;
                 }
                 DecodedCommand::PopTransform => {
-                    if self.transform_stack.len() > 1 {
-                        self.transform_stack.pop();
+                    if self.transform_depth > 1 {
+                        self.transform_depth -= 1;
                     }
                 }
                 DecodedCommand::PushClipRect { rect } => {
                     let world = self.transform().transform_rect(*rect);
                     let next = self.clip().intersect(world);
-                    self.clip_stack.push(next);
+                    self.push_clip(next)?;
                 }
                 DecodedCommand::PopClip => {
-                    if self.clip_stack.len() > 1 {
-                        self.clip_stack.pop();
+                    if self.clip_depth > 1 {
+                        self.clip_depth -= 1;
                     }
                 }
                 DecodedCommand::PushOpacity { alpha } => {
                     let next = self.opacity() * alpha;
-                    self.opacity_stack.push(next);
+                    self.push_opacity(next)?;
                 }
                 DecodedCommand::PopOpacity => {
-                    if self.opacity_stack.len() > 1 {
-                        self.opacity_stack.pop();
+                    if self.opacity_depth > 1 {
+                        self.opacity_depth -= 1;
                     }
                 }
                 // Slice 3 renders FillRect/StrokeRect only. The remaining
@@ -285,16 +296,52 @@ impl FrameEncoder {
         Ok(())
     }
 
+    fn push_transform(&mut self, value: Transform) -> Result<(), (RenderResult, String)> {
+        if self.transform_depth >= MAX_DEPTH {
+            return Err((
+                RenderResult::InitFailed,
+                format!("transform nesting exceeds the fixed {} depth", MAX_DEPTH),
+            ));
+        }
+        self.transform_stack[self.transform_depth] = value;
+        self.transform_depth += 1;
+        Ok(())
+    }
+
+    fn push_clip(&mut self, value: Rect) -> Result<(), (RenderResult, String)> {
+        if self.clip_depth >= MAX_DEPTH {
+            return Err((
+                RenderResult::InitFailed,
+                format!("clip nesting exceeds the fixed {} depth", MAX_DEPTH),
+            ));
+        }
+        self.clip_stack[self.clip_depth] = value;
+        self.clip_depth += 1;
+        Ok(())
+    }
+
+    fn push_opacity(&mut self, value: f32) -> Result<(), (RenderResult, String)> {
+        if self.opacity_depth >= MAX_DEPTH {
+            return Err((
+                RenderResult::InitFailed,
+                format!("opacity nesting exceeds the fixed {} depth", MAX_DEPTH),
+            ));
+        }
+        self.opacity_stack[self.opacity_depth] = value;
+        self.opacity_depth += 1;
+        Ok(())
+    }
+
     fn transform(&self) -> Transform {
-        *self.transform_stack.last().expect("transform stack never empties")
+        self.transform_stack[self.transform_depth - 1]
     }
 
     fn clip(&self) -> Rect {
-        *self.clip_stack.last().expect("clip stack never empties")
+        self.clip_stack[self.clip_depth - 1]
     }
 
     fn opacity(&self) -> f32 {
-        *self.opacity_stack.last().expect("opacity stack never empties")
+        self.opacity_stack[self.opacity_depth - 1]
     }
 
     fn log_unsupported(&self, name: &str) {
@@ -384,5 +431,57 @@ mod tests {
         assert_eq!(&packed[8..12], &20.0f32.to_le_bytes());
         assert_eq!(&packed[16..20], &1.0f32.to_le_bytes());
         assert_eq!(&packed[28..32], &1.0f32.to_le_bytes());
+    }
+
+    // The transform/clip/opacity stacks are fixed-size (NFR-6): a frame that
+    // nests deeper than MAX_DEPTH aborts with an error instead of growing.
+    #[test]
+    fn stacks_are_fixed_depth_and_error_on_overflow() {
+        let mut e = FrameEncoder::default();
+        e.transform_stack[0] = Transform::identity();
+        e.transform_depth = 1;
+        for _ in 0..MAX_DEPTH - 1 {
+            e.push_transform(Transform::identity()).expect("shallow push");
+        }
+        let err = e.push_transform(Transform::identity()).expect_err("must overflow");
+        assert_eq!(err.0, RenderResult::InitFailed);
+        assert!(err.1.contains("transform nesting"));
+
+        e.clip_stack[0] = rect(0.0, 0.0, 10.0, 10.0);
+        e.clip_depth = 1;
+        for _ in 0..MAX_DEPTH - 1 {
+            e.push_clip(rect(0.0, 0.0, 10.0, 10.0)).expect("shallow push");
+        }
+        let err = e.push_clip(rect(0.0, 0.0, 10.0, 10.0)).expect_err("must overflow");
+        assert!(err.1.contains("clip nesting"));
+
+        e.opacity_stack[0] = 1.0;
+        e.opacity_depth = 1;
+        for _ in 0..MAX_DEPTH - 1 {
+            e.push_opacity(0.5).expect("shallow push");
+        }
+        let err = e.push_opacity(0.5).expect_err("must overflow");
+        assert!(err.1.contains("opacity nesting"));
+    }
+
+    // Pops below the seeded base entry are ignored (mirroring the command
+    // handler's `if depth > 1` guard), and the top accessor follows the active
+    // depth without underflowing.
+    #[test]
+    fn stacks_pop_to_base_and_track_depth() {
+        let mut e = FrameEncoder::default();
+        e.transform_stack[0] = transform(1.0, 0.0, 0.0, 1.0, 5.0, 5.0);
+        e.transform_depth = 1;
+        e.push_transform(transform(2.0, 0.0, 0.0, 2.0, 0.0, 0.0)).unwrap();
+        assert_eq!(e.transform(), transform(2.0, 0.0, 0.0, 2.0, 0.0, 0.0));
+        if e.transform_depth > 1 {
+            e.transform_depth -= 1; // PopTransform
+        }
+        assert_eq!(e.transform(), transform(1.0, 0.0, 0.0, 1.0, 5.0, 5.0));
+        if e.transform_depth > 1 {
+            e.transform_depth -= 1; // over-pop guarded: stays at base
+        }
+        assert_eq!(e.transform_depth, 1);
+        assert_eq!(e.transform(), transform(1.0, 0.0, 0.0, 1.0, 5.0, 5.0));
     }
 }

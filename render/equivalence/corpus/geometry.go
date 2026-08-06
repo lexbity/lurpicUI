@@ -155,6 +155,23 @@ func geometryFixtures() []equivalence.FrameFixture {
 			},
 		},
 		fixture{
+			// Wire-level only: DrawBlurredShadow is not rendered by the GPU
+			// pipeline until Slice 9. It must round-trip so the corpus covers
+			// every v2 opcode.
+			name: "blurred_shadow_rect", width: 64, height: 64,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RectPath(gfx.RectFromXYWH(16, 16, 24, 24)),
+						Color:      gfx.ColorFromRGBA8(10, 10, 30, 160),
+						BlurRadius: 4,
+						Offset:     gfx.Point{X: 3, Y: 4},
+						Inner:      false,
+					},
+				)
+			},
+		},
+		fixture{
 			name: "stroke_rect_axis_aligned", width: 64, height: 64,
 			frame: func() *render.Frame {
 				// Even width so stroke edges land on integer coordinates (the

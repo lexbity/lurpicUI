@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -996,6 +997,70 @@ func TestAndroidBuilder_rustProfile_debugOmitsFlag(t *testing.T) {
 	for _, a := range calls[0].Args {
 		if a == "--release" {
 			t.Fatalf("unexpected --release in cargo args for debug build, got %v", calls[0].Args)
+		}
+	}
+}
+
+// TestLurpicNativeActivity_javaJniSymbols guards the contract between the
+// embedded Java activity's native methods and the JNI symbols in
+// platform/android/internal/bridge/lurpic_android.c. A native method without a
+// matching JNI symbol fails at runtime with UnsatisfiedLinkError; the activity
+// also carries the RK-13 Vulkan loader layer-path setup, so a drift here would
+// silently disable Android CI validation.
+func TestLurpicNativeActivity_javaJniSymbols(t *testing.T) {
+	if !strings.Contains(lurpicNativeActivityJava, "class LurpicNativeActivity") {
+		t.Fatal("embedded activity template missing the LurpicNativeActivity class")
+	}
+
+	re := regexp.MustCompile(`\bnative\s+[\w\[\]]+\s+(\w+)\s*\(`)
+	seen := map[string]bool{}
+	for _, m := range re.FindAllStringSubmatch(lurpicNativeActivityJava, -1) {
+		seen[m[1]] = true
+	}
+	if len(seen) == 0 {
+		t.Fatal("no native methods found in the activity template")
+	}
+	if !seen["nativeSetVulkanLayerPath"] {
+		t.Fatal("activity template is missing nativeSetVulkanLayerPath (RK-13 loader env setup)")
+	}
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("unable to locate test file")
+	}
+	cPath := filepath.Join(filepath.Dir(file), "..", "..", "platform", "android", "internal", "bridge", "lurpic_android.c")
+	raw, err := os.ReadFile(cPath)
+	if err != nil {
+		t.Fatalf("read lurpic_android.c: %v", err)
+	}
+	c := string(raw)
+	for name := range seen {
+		symbol := "Java_org_lurpicui_bridge_LurpicNativeActivity_" + name
+		if !strings.Contains(c, symbol) {
+			t.Errorf("native method %s has no JNI symbol %s in lurpic_android.c", name, symbol)
+		}
+	}
+}
+
+// TestLurpicNativeActivity_rk13LayerPathEnv asserts the activity sets the
+// Vulkan loader layer-path env var to the app's native library directory.
+func TestLurpicNativeActivity_rk13LayerPathEnv(t *testing.T) {
+	if !strings.Contains(lurpicNativeActivityJava, "nativeSetVulkanLayerPath(getApplicationInfo().nativeLibraryDir)") {
+		t.Error("activity must set the Vulkan layer path from nativeLibraryDir (RK-13)")
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("unable to locate test file")
+	}
+	cPath := filepath.Join(filepath.Dir(file), "..", "..", "platform", "android", "internal", "bridge", "lurpic_android.c")
+	raw, err := os.ReadFile(cPath)
+	if err != nil {
+		t.Fatalf("read lurpic_android.c: %v", err)
+	}
+	c := string(raw)
+	for _, env := range []string{"VK_LAYER_PATH", "VK_ADD_LAYER_PATHS"} {
+		if !strings.Contains(c, `"`+env+`"`) {
+			t.Errorf("lurpic_android.c must set %s", env)
 		}
 	}
 }

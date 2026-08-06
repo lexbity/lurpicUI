@@ -945,6 +945,34 @@ JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeOnTri
     goOnTrimMemory((int32_t)level);
 }
 
+/*
+ * RK-13: point the Android Vulkan loader at the app's native library directory
+ * so the prebuilt Khronos validation layer (staged into lib/<abi> by the APK
+ * builder) is discoverable. VK_LAYER_PATH is the explicit replacement path;
+ * VK_ADD_LAYER_PATHS additionally preserves the loader's default search paths.
+ * Both are read by the loader at vkCreateInstance, which the runtime performs
+ * only after the surface is delivered (post-onCreate).
+ */
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeSetVulkanLayerPath(
+    JNIEnv* env, jobject thiz, jstring path) {
+    (void)thiz;
+    if (path == NULL) {
+        return;
+    }
+    const char* cpath = (*env)->GetStringUTFChars(env, path, NULL);
+    if (cpath == NULL) {
+        return;
+    }
+    if (setenv("VK_LAYER_PATH", cpath, 1) != 0) {
+        LOGW("setenv(VK_LAYER_PATH) failed: %s", strerror(errno));
+    }
+    if (setenv("VK_ADD_LAYER_PATHS", cpath, 1) != 0) {
+        LOGW("setenv(VK_ADD_LAYER_PATHS) failed: %s", strerror(errno));
+    }
+    LOGI("C: set Vulkan layer paths: %s", cpath);
+    (*env)->ReleaseStringUTFChars(env, path, cpath);
+}
+
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativePermissionResult(
     JNIEnv* env, jobject thiz, jint requestCode, jboolean granted, jboolean permanent) {
     (void)env;

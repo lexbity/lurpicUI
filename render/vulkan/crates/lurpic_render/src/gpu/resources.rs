@@ -338,3 +338,142 @@ impl Drop for Semaphore {
         }
     }
 }
+
+/// RAII descriptor set layout (Q10). Consumed by the texture pipeline (Slice 4)
+/// and gradient pipeline (Slice 6).
+#[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+pub struct DescriptorSetLayout {
+    device: ash::Device,
+    handle: vk::DescriptorSetLayout,
+}
+
+#[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+impl DescriptorSetLayout {
+    #[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+    pub fn new(
+        device: &ash::Device,
+        bindings: &[vk::DescriptorSetLayoutBinding],
+    ) -> Result<Self, (RenderResult, String)> {
+        let info = vk::DescriptorSetLayoutCreateInfo {
+            binding_count: bindings.len() as u32,
+            p_bindings: bindings.as_ptr(),
+            ..Default::default()
+        };
+        let handle = unsafe { device.create_descriptor_set_layout(&info, None) }
+            .map_err(|e| vk_error("vkCreateDescriptorSetLayout", e.as_raw()))?;
+        Ok(Self {
+            device: device.clone(),
+            handle,
+        })
+    }
+
+    pub fn handle(&self) -> vk::DescriptorSetLayout {
+        self.handle
+    }
+}
+
+impl Drop for DescriptorSetLayout {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_descriptor_set_layout(self.handle, None);
+        }
+    }
+}
+
+/// RAII descriptor pool (Q10). Descriptor sets allocated from the pool are
+/// freed by the pool's `Drop`; they are not individually destroyed (Vulkan
+/// requires no per-set destroy).
+#[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+pub struct DescriptorPool {
+    device: ash::Device,
+    handle: vk::DescriptorPool,
+}
+
+#[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+impl DescriptorPool {
+    #[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+    pub fn new(
+        device: &ash::Device,
+        pool_sizes: &[vk::DescriptorPoolSize],
+        max_sets: u32,
+    ) -> Result<Self, (RenderResult, String)> {
+        let info = vk::DescriptorPoolCreateInfo {
+            max_sets,
+            pool_size_count: pool_sizes.len() as u32,
+            p_pool_sizes: pool_sizes.as_ptr(),
+            ..Default::default()
+        };
+        let handle = unsafe { device.create_descriptor_pool(&info, None) }
+            .map_err(|e| vk_error("vkCreateDescriptorPool", e.as_raw()))?;
+        Ok(Self {
+            device: device.clone(),
+            handle,
+        })
+    }
+
+    pub fn handle(&self) -> vk::DescriptorPool {
+        self.handle
+    }
+
+    /// Allocates one descriptor set bound to `layout`; the set lives for as
+    /// long as the pool does.
+    pub fn allocate_set(
+        &self,
+        layout: vk::DescriptorSetLayout,
+    ) -> Result<vk::DescriptorSet, (RenderResult, String)> {
+        let layouts = [layout];
+        let info = vk::DescriptorSetAllocateInfo {
+            descriptor_pool: self.handle,
+            descriptor_set_count: 1,
+            p_set_layouts: layouts.as_ptr(),
+            ..Default::default()
+        };
+        let sets = unsafe { self.device.allocate_descriptor_sets(&info) }
+            .map_err(|e| vk_error("vkAllocateDescriptorSets", e.as_raw()))?;
+        Ok(sets[0])
+    }
+}
+
+impl Drop for DescriptorPool {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_descriptor_pool(self.handle, None);
+        }
+    }
+}
+
+/// RAII sampler (Q10). Consumed by the texture pipeline (Slice 4) and the
+/// glyph atlas (Slice 5).
+#[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+pub struct Sampler {
+    device: ash::Device,
+    handle: vk::Sampler,
+}
+
+#[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+impl Sampler {
+    #[allow(dead_code)] // constructed by the GPU pipeline (Slice 4+)
+    pub fn new(
+        device: &ash::Device,
+        info: &vk::SamplerCreateInfo,
+    ) -> Result<Self, (RenderResult, String)> {
+        let handle = unsafe { device.create_sampler(info, None) }
+            .map_err(|e| vk_error("vkCreateSampler", e.as_raw()))?;
+        Ok(Self {
+            device: device.clone(),
+            handle,
+        })
+    }
+
+    pub fn handle(&self) -> vk::Sampler {
+        self.handle
+    }
+}
+
+impl Drop for Sampler {
+    fn drop(&mut self) {
+        unsafe {
+            self.device.destroy_sampler(self.handle, None);
+        }
+    }
+}

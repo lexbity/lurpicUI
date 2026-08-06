@@ -110,7 +110,12 @@ impl AshContext {
 
         let (physical_device, device_props) = pick_physical_device(&instance)?;
         let queue_family = pick_queue_family(&instance, physical_device)?;
-        let device = create_device(&instance, physical_device, queue_family)?;
+        let device = create_device(
+            &instance,
+            physical_device,
+            queue_family,
+            device_props.api_version,
+        )?;
         let queue = unsafe { device.get_device_queue(queue_family, 0) };
 
         let features = query_features(&instance, physical_device, &device_props);
@@ -239,6 +244,26 @@ fn create_instance(
         .map_err(|e| vk_error("vkCreateInstance", e.as_raw()))
 }
 
+/// Outcome of classifying a physical device against the capability floor.
+#[derive(Debug, PartialEq)]
+pub enum DeviceClass {
+    Usable { api_version: u32 },
+    NotUsable(&'static str),
+}
+
+/// Classifies a device by API version against the Vulkan 1.3 core floor.
+/// Vulkan 1.3 promoted dynamic_rendering, synchronization2, and
+/// extended_dynamic_state to core, so no extension gate is needed. Pure and
+/// unit-testable without a GPU: 1.3+ passes outright, anything older fails
+/// (and falls back to the software backend, FR-11).
+pub fn classify(api_version: u32) -> DeviceClass {
+    if api_version >= vk::API_VERSION_1_3 {
+        DeviceClass::Usable { api_version }
+    } else {
+        DeviceClass::NotUsable("below the Vulkan 1.3 capability floor")
+    }
+}
+
 fn pick_physical_device(
     instance: &ash::Instance,
 ) -> Result<(vk::PhysicalDevice, vk::PhysicalDeviceProperties), (RenderResult, String)> {
@@ -254,8 +279,12 @@ fn pick_physical_device(
     let mut best: Option<(i32, vk::PhysicalDevice, vk::PhysicalDeviceProperties)> = None;
     for device in devices {
         let props = unsafe { instance.get_physical_device_properties(device) };
-        if props.api_version < vk::API_VERSION_1_3 {
-            // Q7: Vulkan 1.3 core, no extension fallback.
+        if matches!(
+            classify(props.api_version),
+            DeviceClass::NotUsable(_)
+        ) {
+            // Below the Vulkan 1.3 core floor (Q7); the software backend covers
+            // pre-1.3 hardware (NG3 of the hardening spec).
             continue;
         }
         let score = match props.device_type {
@@ -280,7 +309,7 @@ fn pick_physical_device(
     best.map(|(_, device, props)| (device, props)).ok_or_else(|| {
         (
             RenderResult::Unsupported,
-            "no suitable Vulkan 1.3 physical device found".to_string(),
+            "no physical device meets the Vulkan 1.3 capability floor".to_string(),
         )
     })
 }
@@ -305,6 +334,7 @@ fn create_device(
     instance: &ash::Instance,
     physical_device: vk::PhysicalDevice,
     queue_family: u32,
+    _api_version: u32,
 ) -> Result<ash::Device, (RenderResult, String)> {
     let queue_priority = 1.0f32;
     let queue_info = vk::DeviceQueueCreateInfo {
@@ -314,16 +344,15 @@ fn create_device(
         ..Default::default()
     };
 
-    // Enable the 1.2/1.3 features the renderer relies on (all promoted to core
-    // in 1.3). dynamic_rendering, synchronization2 and extended_dynamic_state
-    // are all 1.3; shader_sampled_image_array_non_uniform_indexing is 1.2.
+    // Enable the core-1.3 features the renderer relies on: dynamic_rendering
+    // and synchronization2 are core in Vulkan 1.3 (Q7/Q12). Extended dynamic
+    // state still rides its EXT struct. No extension-name enablement needed
+    // because the device already passed the 1.3 floor in pick_physical_device.
     let mut features12 = vk::PhysicalDeviceVulkan12Features::default();
     let mut features13 = vk::PhysicalDeviceVulkan13Features::default();
     let mut features_ext_dynamic_state = vk::PhysicalDeviceExtendedDynamicStateFeaturesEXT::default();
     features13.dynamic_rendering = vk::TRUE;
     features13.synchronization2 = vk::TRUE;
-    // VK_EXT_extended_dynamic_state is core in 1.3; the feature struct keeps its
-    // extension name (per the promotion rules).
     features_ext_dynamic_state.extended_dynamic_state = vk::TRUE;
 
     let queue_infos = [queue_info];
@@ -367,5 +396,47 @@ fn query_features(
         msaa_4x: sample_counts.contains(vk::SampleCountFlags::TYPE_4),
         msaa_8x: sample_counts.contains(vk::SampleCountFlags::TYPE_8),
         stencil_fill: true, // stencil is core Vulkan (usage flag, not a feature)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ver(major: u32, minor: u32) -> u32 {
+        vk::make_api_version(0, major, minor, 0)
+    }
+
+    // Q7 device matrix: Vulkan 1.3 core floor. 1.3+ passes (no extension gate
+    // — dynamic_rendering, synchronization2, extended_dynamic_state are core);
+    // 1.2 and below fail and fall back to the software backend (FR-11).
+    #[test]
+    fn classify_11_fails_below_floor() {
+        assert!(matches!(classify(ver(1, 1)), DeviceClass::NotUsable(_)));
+    }
+
+    #[test]
+    fn classify_12_fails_below_floor() {
+        assert!(matches!(classify(ver(1, 2)), DeviceClass::NotUsable(_)));
+    }
+
+    #[test]
+    fn classify_13_passes() {
+        assert_eq!(
+            classify(ver(1, 3)),
+            DeviceClass::Usable {
+                api_version: ver(1, 3)
+            }
+        );
+    }
+
+    #[test]
+    fn classify_14_passes_above_floor() {
+        assert_eq!(
+            classify(ver(1, 4)),
+            DeviceClass::Usable {
+                api_version: ver(1, 4)
+            }
+        );
     }
 }

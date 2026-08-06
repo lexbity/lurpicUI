@@ -64,6 +64,14 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         Log.i(TAG, "onCreate called");
+
+        // RK-13: point the Vulkan loader at the app's native library directory so
+        // the prebuilt Khronos validation layer (staged into lib/<abi> by
+        // android_builder.go) is discoverable. This must run before the Vulkan
+        // instance is created; the backend init waits on the surface, which the
+        // system delivers after onCreate, so setting it here is in time.
+        nativeSetVulkanLayerPath(getApplicationInfo().nativeLibraryDir);
+
         super.onCreate(savedInstanceState);
 
         // Edge-to-edge: draw under system bars so the framework can manage
@@ -362,6 +370,10 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
     }
 
     private native void nativeOnTrimMemory(int level);
+
+    // Sets VK_LAYER_PATH / VK_ADD_LAYER_PATHS for the Android Vulkan loader
+    // (RK-13). Called in onCreate before the surface is delivered.
+    private native void nativeSetVulkanLayerPath(String path);
 
     private native void nativeImeCompose(String text, int cursorPos);
     private native void nativeImeCommit(String text);

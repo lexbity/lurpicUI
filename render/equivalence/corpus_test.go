@@ -46,6 +46,8 @@ var deferredFixtures = map[string]string{
 	"glyph_latin_two_runs":      "glyph atlas + SDF pipeline (Slice 5)",
 	"image_rgba_nearest_1to1":   "texture pipeline (Slice 4)",
 	"image_scaled_nearest":      "texture pipeline (Slice 4)",
+	"texture_nearest_1to1":      "texture pipeline (Slice 4)",
+	"blurred_shadow_rect":       "blurred-shadow pipeline (Slice 9)",
 }
 
 // featureTolerances relax the Q1 default only for fixtures whose edge pixels
@@ -177,9 +179,41 @@ func TestCorpusEquivalence_NegativeControl(t *testing.T) {
 	}
 }
 
+// gpuRenderedCommands are the wire commands the current GPU pipeline (Slice 3)
+// handles end-to-end (render or state). Every other wire command must be
+// explicitly deferred in deferredWireCommands.
+var gpuRenderedCommands = map[string]bool{
+	"FillRect":      true,
+	"StrokeRect":    true,
+	"PushTransform": true,
+	"PopTransform":  true,
+	"PushClipRect":  true,
+	"PopClip":       true,
+	"PushOpacity":   true,
+	"PopOpacity":    true,
+}
+
+// deferredWireCommands documents, per wire command the current pipeline cannot
+// render, the slice that adds it. This is the "deferred, not forgotten"
+// contract: a covered-but-not-rendered command must be listed here, and a
+// listed command must have a fixture.
+var deferredWireCommands = map[string]string{
+	"FillPath":           "stencil fill (Slice 7)",
+	"StrokePath":         "stroke expansion (Slice 8)",
+	"DrawPolyline":       "stroke expansion (Slice 8)",
+	"DrawPoints":         "points rendering (Slice 7)",
+	"DrawSelectionRects": "points/selection rendering (Slice 7)",
+	"DrawGlyphRun":       "glyph atlas + SDF pipeline (Slice 5)",
+	"DrawImage":          "texture pipeline (Slice 4)",
+	"DrawTexture":        "texture pipeline (Slice 4)",
+	"DrawBlurredShadow":  "blurred-shadow pipeline (Slice 9)",
+}
+
 // TestCorpusCoversEveryGeometryCommand guards against a fixture set that stops
 // exercising a command: every drawable opcode in the v2 wire surface must be
-// represented by at least one fixture.
+// represented by at least one fixture, and every command the GPU pipeline does
+// not yet render must be explicitly deferred (with its target slice) rather
+// than silently absent.
 func TestCorpusCoversEveryGeometryCommand(t *testing.T) {
 	reg := fontdata.TestFontRegistry(t)
 	fixtures := corpus.All(reg)
@@ -198,9 +232,27 @@ func TestCorpusCoversEveryGeometryCommand(t *testing.T) {
 		"DrawPolyline", "DrawPoints", "DrawSelectionRects",
 		"PushTransform", "PopTransform", "PushClipRect", "PopClip",
 		"PushOpacity", "PopOpacity", "DrawGlyphRun", "DrawImage",
+		"DrawTexture", "DrawBlurredShadow",
 	} {
 		if !seen[required] {
 			t.Errorf("corpus does not cover %s", required)
+		}
+	}
+
+	// A covered command must be either GPU-rendered or explicitly deferred.
+	for cmd := range seen {
+		if gpuRenderedCommands[cmd] {
+			continue
+		}
+		if _, ok := deferredWireCommands[cmd]; !ok {
+			t.Errorf("%s is covered but neither rendered by the GPU pipeline nor explicitly deferred; add it to deferredWireCommands", cmd)
+		}
+	}
+
+	// A deferred command must still have wire-level coverage.
+	for cmd := range deferredWireCommands {
+		if !seen[cmd] {
+			t.Errorf("deferred command %s has no corpus fixture", cmd)
 		}
 	}
 }

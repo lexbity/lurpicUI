@@ -55,5 +55,22 @@ func imageFixtures() []equivalence.FrameFixture {
 				)
 			},
 		},
+		fixture{
+			// Wire-level only: DrawTexture is not rendered by the GPU pipeline
+			// until Slice 4. It must round-trip through the encoder/decoder so
+			// the corpus covers every v2 opcode.
+			name: "texture_nearest_1to1", width: 64, height: 64,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawTexture{
+						TextureID: 42,
+						DestRect:  gfx.RectFromXYWH(8, 8, 16, 16),
+						SrcRect:   gfx.RectFromXYWH(0, 0, 16, 16),
+						Sampling:  gfx.SamplingNearest,
+						Opacity:   1,
+					},
+				)
+			},
+		},
 	}
 }

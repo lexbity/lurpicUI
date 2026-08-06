@@ -355,6 +355,15 @@ impl Rect {
         self.max.x <= self.min.x || self.max.y <= self.min.y
     }
 
+    /// A degenerate zero-area rect (used as a placeholder for fixed-size stacks
+    /// whose members are only read below the active depth).
+    pub fn zero() -> Self {
+        Self {
+            min: Point { x: 0.0, y: 0.0 },
+            max: Point { x: 0.0, y: 0.0 },
+        }
+    }
+
     pub fn intersect(self, other: Rect) -> Rect {
         Rect {
             min: Point {

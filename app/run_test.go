@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/runtime"
@@ -632,5 +633,41 @@ func TestAsset_missingFileErrors(t *testing.T) {
 	_, err := Asset("nonexistent.dat")
 	if err == nil {
 		t.Fatal("expected error for missing asset")
+	}
+}
+
+// TestDeviceInit_NoCapableDeviceFallsBack verifies that when no Vulkan physical
+// device meets the 1.2 capability floor (revised Q7 — pick_physical_device
+// returns Unsupported), the app degrades gracefully to the software backend
+// instead of failing the run.
+func TestDeviceInit_NoCapableDeviceFallsBack(t *testing.T) {
+	restoreHooks(t)
+	surface := testkit.NewMemorySurface(64, 64)
+	// The Rust side returns Unsupported when no device meets the 1.2 floor
+	// (pick_physical_device); the app falls back to software on any vulkan
+	// init failure. The unsupported-classification path itself is covered by
+	// the Rust classify tests and render/vulkan's result translation tests.
+	fakeVk := &fakeBackend{
+		initErr: errors.New("no physical device meets the Vulkan 1.2 capability floor"),
+	}
+	newBackend = func(kind RenderBackendKind) render.Backend {
+		if kind == RenderBackendVulkan {
+			return fakeVk
+		}
+		return &fakeBackend{}
+	}
+
+	backend, selected, err := initBackend(RenderBackendVulkan, surface, nil)
+	if err != nil {
+		t.Fatalf("expected graceful fallback, got error: %v", err)
+	}
+	if selected != RenderBackendSoftware {
+		t.Fatalf("selected = %v, want software", selected)
+	}
+	if backend == nil {
+		t.Fatal("software backend must not be nil")
+	}
+	if !fakeVk.destroyed {
+		t.Error("the failed vulkan backend must be destroyed before the software fallback")
 	}
 }

@@ -755,18 +755,16 @@ impl VulkanState {
                     max_depth: 1.0,
                 }],
             );
-            device.cmd_set_scissor(
-                command_buffer,
-                0,
-                &[vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent,
-                }],
-            );
             let vertex_buffers = [pipeline.unit_quad, instance_buffer];
             let offsets = [0u64, 0u64];
             device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
             for group in &encoded.groups {
+                // Per-draw scissor (Slice 3 forward): the clip is axis-aligned,
+                // so the rasterizer can cull fragments outside it before the
+                // fragment shader runs. This is the hardware-idiomatic clip; the
+                // shader discard remains only for the exact float clip boundary.
+                let scissor = clip_scissor(&group.push, extent);
+                device.cmd_set_scissor(command_buffer, 0, &[scissor]);
                 device.cmd_push_constants(
                     command_buffer,
                     pipeline.layout,
@@ -1068,8 +1066,31 @@ impl VulkanState {
     }
 }
 
-fn choose_extent(caps: &vk::SurfaceCapabilitiesKHR, width: u32, height: u32) -> vk::Extent2D {
-    if caps.current_extent.width != u32::MAX {
+/// Builds the rasterizer scissor for a draw group's axis-aligned clip rect
+/// (Slice 3 forward, clip-mechanism benchmark). The scissor covers
+/// [floor(min), ceil(max)] so it never culls a pixel the fragment discard would
+/// keep; the shader discard handles the exact float clip boundary.
+fn clip_scissor(push: &crate::pipeline::PushConstants, extent: vk::Extent2D) -> vk::Rect2D {
+    if push.clip_active == 0 {
+        return vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent,
+        };
+    }
+    let x = push.clip_min[0].floor() as i32;
+    let y = push.clip_min[1].floor() as i32;
+    let max_x = (push.clip_min[0] + push.clip_size[0]).ceil() as i32;
+    let max_y = (push.clip_min[1] + push.clip_size[1]).ceil() as i32;
+    vk::Rect2D {
+        offset: vk::Offset2D { x, y },
+        extent: vk::Extent2D {
+            width: (max_x - x).max(0) as u32,
+            height: (max_y - y).max(0) as u32,
+        },
+    }
+}
+
+fn choose_extent(caps: &vk::SurfaceCapabilitiesKHR, width: u32, height: u32) -> vk::Extent2D {    if caps.current_extent.width != u32::MAX {
         return caps.current_extent;
     }
     vk::Extent2D {
