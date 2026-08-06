@@ -44,9 +44,9 @@ var deferredFixtures = map[string]string{
 	"gradient_5stop_diagonal":   "gradient brush (Slice 6)",
 	"glyph_latin_small":         "glyph atlas + SDF pipeline (Slice 5)",
 	"glyph_latin_two_runs":      "glyph atlas + SDF pipeline (Slice 5)",
-	"image_rgba_nearest_1to1":   "texture pipeline (Slice 4)",
-	"image_scaled_nearest":      "texture pipeline (Slice 4)",
-	"texture_nearest_1to1":      "texture pipeline (Slice 4)",
+	"image_bilinear_upscale":    "bilinear needs the software oracle to honor Sampling (software backend unchanged in Slice 4); GPU path verified by TestDrawImage_Bilinear",
+	"image_bilinear_downscale":  "bilinear needs the software oracle to honor Sampling (software backend unchanged in Slice 4); GPU path verified by TestDrawImage_Bilinear",
+	"texture_nearest_1to1":      "DrawTexture renders via TestDrawTexture_Rendered (backend-specific texture handles)",
 	"blurred_shadow_rect":       "blurred-shadow pipeline (Slice 9)",
 }
 
@@ -179,12 +179,13 @@ func TestCorpusEquivalence_NegativeControl(t *testing.T) {
 	}
 }
 
-// gpuRenderedCommands are the wire commands the current GPU pipeline (Slice 3)
-// handles end-to-end (render or state). Every other wire command must be
-// explicitly deferred in deferredWireCommands.
+// gpuRenderedCommands are the wire commands the current GPU pipeline
+// (Slices 3-4) handles end-to-end (render or state). Every other wire command
+// must be explicitly deferred in deferredWireCommands.
 var gpuRenderedCommands = map[string]bool{
 	"FillRect":      true,
 	"StrokeRect":    true,
+	"DrawImage":     true,
 	"PushTransform": true,
 	"PopTransform":  true,
 	"PushClipRect":  true,
@@ -204,8 +205,7 @@ var deferredWireCommands = map[string]string{
 	"DrawPoints":         "points rendering (Slice 7)",
 	"DrawSelectionRects": "points/selection rendering (Slice 7)",
 	"DrawGlyphRun":       "glyph atlas + SDF pipeline (Slice 5)",
-	"DrawImage":          "texture pipeline (Slice 4)",
-	"DrawTexture":        "texture pipeline (Slice 4)",
+	"DrawTexture":        "backend-specific texture handles; rendered by TestDrawTexture_Rendered",
 	"DrawBlurredShadow":  "blurred-shadow pipeline (Slice 9)",
 }
 

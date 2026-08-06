@@ -14,17 +14,24 @@ use ash::vk::Handle;
 
 use crate::clear_last_error;
 use crate::error::vk_error;
-use crate::frame::{decode_frame, DecodedFrame};
 #[cfg(feature = "test-exports")]
 use crate::frame::FrameStats;
-use crate::frame_encoder::FrameEncoder;
+use crate::frame::{decode_frame, DecodedFrame};
+use crate::frame_encoder::{FrameEncoder, Textures};
 use crate::gpu::allocator::{GpuBuffer, ImageAllocation, MemoryLocation};
 use crate::gpu::context::{AshContext, GpuContext, PhysicalDeviceFeatures};
-use crate::gpu::resources::{Image, ImageView};
+use crate::gpu::resources::{DescriptorPool, Image, ImageView, Sampler};
 use crate::gpu::surface;
+use crate::image_store::{ImageFormat, ImageStore};
 use crate::pipeline::solid::SolidPipeline;
+use crate::pipeline::textured::TexturedPipeline;
 use crate::ring_buffer::{InstanceRing, DEFAULT_SLOT_BYTES};
 use crate::RenderResult;
+
+/// Per-ring-slot descriptor sets for textured groups (Slice 4). Each slot's
+/// pool is reset after its fence signals; 2048 sets comfortably covers any
+/// realistic (image, push-state) combination per frame.
+const TEXTURED_DESCRIPTOR_SETS_PER_POOL: u32 = 2048;
 
 /// Test-only flag: render the solid pipeline from the RG-swapped fragment
 /// shader so the equivalence negative control exercises the real shader
@@ -109,10 +116,25 @@ struct SolidHandles {
     samples: vk::SampleCountFlags,
 }
 
+/// A copy of the textured pipeline's record handles for the render loop.
+#[derive(Clone, Copy)]
+struct TexturedHandles {
+    handle: vk::Pipeline,
+    layout: vk::PipelineLayout,
+    set_layout: vk::DescriptorSetLayout,
+    unit_quad: vk::Buffer,
+}
+
 /// Where a frame's resolved pixels land.
 enum ResolveTarget {
-    Swapchain { view: vk::ImageView, image: vk::Image },
-    Offscreen { view: vk::ImageView, image: vk::Image },
+    Swapchain {
+        view: vk::ImageView,
+        image: vk::Image,
+    },
+    Offscreen {
+        view: vk::ImageView,
+        image: vk::Image,
+    },
 }
 
 pub struct VulkanState {
@@ -129,6 +151,11 @@ pub struct VulkanState {
     msaa: Option<MsaaTarget>,
     readback: Option<ReadbackTarget>,
     solid_pipeline: Option<SolidPipeline>,
+    textured_pipeline: Option<TexturedPipeline>,
+    sampler_nearest: Option<Sampler>,
+    sampler_bilinear: Option<Sampler>,
+    descriptor_pools: Vec<DescriptorPool>,
+    images: ImageStore,
     ring: Option<InstanceRing>,
     encoder: FrameEncoder,
     requested_width: u32,
@@ -186,9 +213,10 @@ pub fn shutdown() -> Result<(), (RenderResult, String)> {
 
 pub fn pipeline_features() -> Result<PhysicalDeviceFeatures, (RenderResult, String)> {
     let guard = state_lock();
-    let state = guard
-        .as_ref()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_ref().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     Ok(*state.context.features())
 }
 
@@ -200,9 +228,10 @@ pub fn query_capabilities(out: *mut VulkanCapabilities) -> Result<(), (RenderRes
         ));
     }
     let guard = state_lock();
-    let state = guard
-        .as_ref()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_ref().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     unsafe {
         std::ptr::write(out, state.capabilities.clone());
     }
@@ -218,6 +247,13 @@ pub fn instance_handle() -> usize {
         .unwrap_or(0)
 }
 
+/// Whether the renderer's Vulkan state is initialized (and thus GPU image
+/// storage is available). The image FFI routes to the GPU store when true and
+/// to the `cpu-fallback` host store otherwise.
+pub fn is_initialized() -> bool {
+    state_lock().is_some()
+}
+
 #[cfg(not(target_os = "android"))]
 pub fn create_xcb_surface(
     instance: usize,
@@ -227,9 +263,10 @@ pub fn create_xcb_surface(
     height: u32,
 ) -> Result<usize, (RenderResult, String)> {
     let mut guard = state_lock();
-    let state = guard
-        .as_mut()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     if state.context.instance().handle().as_raw() as usize != instance {
         return Err((
             RenderResult::InvalidHandle,
@@ -263,9 +300,10 @@ pub fn create_android_surface(
     height: u32,
 ) -> Result<usize, (RenderResult, String)> {
     let mut guard = state_lock();
-    let state = guard
-        .as_mut()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     if state.context.instance().handle().as_raw() as usize != instance {
         return Err((
             RenderResult::InvalidHandle,
@@ -297,9 +335,10 @@ pub fn recreate_surface_android(
     height: u32,
 ) -> Result<(), (RenderResult, String)> {
     let mut guard = state_lock();
-    let state = guard
-        .as_mut()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     if let Some(old) = state.surface.take() {
         if let Some(loader) = state.context.surface_loader() {
             unsafe {
@@ -325,9 +364,10 @@ pub fn recreate_surface_android(
 
 pub fn resize(width: i32, height: i32) -> Result<(), (RenderResult, String)> {
     let mut guard = state_lock();
-    let state = guard
-        .as_mut()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     let width = width.max(1) as u32;
     let height = height.max(1) as u32;
     state.requested_width = width;
@@ -338,11 +378,58 @@ pub fn resize(width: i32, height: i32) -> Result<(), (RenderResult, String)> {
     Ok(())
 }
 
+/// Creates a real GPU texture from the given pixel rows (Slice 4: the backing
+/// is now a `VkImage` + `VkImageView` + device-local memory, not host bytes).
+/// Returns the `u64` handle the Go side keeps.
+pub fn create_image(
+    pixels: &[u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    format: ImageFormat,
+) -> Result<u64, (RenderResult, String)> {
+    let mut guard = state_lock();
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
+    state
+        .images
+        .create(&state.context, pixels, width, height, stride, format)
+}
+
+pub fn destroy_image(handle: u64) -> Result<(), (RenderResult, String)> {
+    let mut guard = state_lock();
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
+    state.images.destroy(handle)
+}
+
+#[cfg(any(feature = "test-exports", test))]
+pub fn image_stats() -> (usize, usize) {
+    let guard = state_lock();
+    guard
+        .as_ref()
+        .map(|state| state.images.stats())
+        .unwrap_or((0, 0))
+}
+
+#[cfg(any(feature = "test-exports", test))]
+pub fn reset_images() {
+    let mut guard = state_lock();
+    if let Some(state) = guard.as_mut() {
+        state.images.reset();
+    }
+}
+
 pub fn submit_frame(data: *const u8, len: usize) -> Result<(), (RenderResult, String)> {
     let mut guard = state_lock();
-    let state = guard
-        .as_mut()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     if len == 0 {
         state.pending_frame = None;
         return Ok(());
@@ -366,11 +453,17 @@ pub fn submit_frame(data: *const u8, len: usize) -> Result<(), (RenderResult, St
 
 /// Renders the given frame offscreen and returns its BGRA pixels (the GPU
 /// readback path used by the equivalence harness).
-pub fn readback_frame(data: *const u8, len: usize, width: u32, height: u32) -> Result<Vec<u8>, (RenderResult, String)> {
+pub fn readback_frame(
+    data: *const u8,
+    len: usize,
+    width: u32,
+    height: u32,
+) -> Result<Vec<u8>, (RenderResult, String)> {
     let mut guard = state_lock();
-    let state = guard
-        .as_mut()
-        .ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
     if len == 0 || data.is_null() {
         return Err((
             RenderResult::InvalidHandle,
@@ -425,7 +518,12 @@ impl VulkanState {
         let raw = unsafe { std::ffi::CStr::from_ptr(props.device_name.as_ptr()) };
         let bytes = raw.to_bytes();
         let len = bytes.len().min(caps.device_name.len().saturating_sub(1));
-        for (dst, src) in caps.device_name.iter_mut().take(len).zip(bytes.iter().take(len)) {
+        for (dst, src) in caps
+            .device_name
+            .iter_mut()
+            .take(len)
+            .zip(bytes.iter().take(len))
+        {
             *dst = *src as std::ffi::c_char;
         }
 
@@ -442,18 +540,72 @@ impl VulkanState {
             buffers[0]
         };
 
+        // Shared samplers for textured draws (Slice 4). Sampling mode is per
+        // draw, so the samplers are context-wide; the frame encoder selects one
+        // when building each group's descriptor set.
+        let sampler_nearest = Sampler::new(
+            context.device(),
+            &vk::SamplerCreateInfo {
+                mag_filter: vk::Filter::NEAREST,
+                min_filter: vk::Filter::NEAREST,
+                mipmap_mode: vk::SamplerMipmapMode::NEAREST,
+                address_mode_u: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                address_mode_v: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                address_mode_w: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                ..Default::default()
+            },
+        )?;
+        let sampler_bilinear = Sampler::new(
+            context.device(),
+            &vk::SamplerCreateInfo {
+                mag_filter: vk::Filter::LINEAR,
+                min_filter: vk::Filter::LINEAR,
+                mipmap_mode: vk::SamplerMipmapMode::NEAREST,
+                address_mode_u: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                address_mode_v: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                address_mode_w: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                min_lod: 0.0,
+                max_lod: 0.0,
+                ..Default::default()
+            },
+        )?;
+
+        // One descriptor pool per ring slot, so a slot's pool is only reset
+        // after its fence signals (no in-flight sets are ever invalidated).
+        let frames = 2;
+        let mut descriptor_pools = Vec::with_capacity(frames);
+        let pool_sizes = [vk::DescriptorPoolSize {
+            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: TEXTURED_DESCRIPTOR_SETS_PER_POOL,
+        }];
+        for _ in 0..frames {
+            descriptor_pools.push(DescriptorPool::new(
+                context.device(),
+                &pool_sizes,
+                TEXTURED_DESCRIPTOR_SETS_PER_POOL,
+            )?);
+        }
+
         Ok(Self {
             surface: None,
             swapchain_loader: None,
             swapchain: None,
             swapchain_images: Vec::new(),
             swapchain_views: Vec::new(),
-            swapchain_extent: vk::Extent2D { width: 1, height: 1 },
+            swapchain_extent: vk::Extent2D {
+                width: 1,
+                height: 1,
+            },
             swapchain_format: vk::Format::UNDEFINED,
             command_buffer: Some(command_buffer),
             msaa: None,
             readback: None,
             solid_pipeline: None,
+            textured_pipeline: None,
+            sampler_nearest: Some(sampler_nearest),
+            sampler_bilinear: Some(sampler_bilinear),
+            descriptor_pools,
+            images: ImageStore::new(),
             ring: Some(ring),
             encoder: FrameEncoder::default(),
             requested_width: 1,
@@ -489,7 +641,11 @@ impl VulkanState {
     }
 
     #[cfg_attr(not(feature = "test-exports"), allow(unused_variables))]
-    fn ensure_solid_pipeline(&mut self, format: vk::Format, swapped: bool) -> Result<SolidHandles, (RenderResult, String)> {
+    fn ensure_solid_pipeline(
+        &mut self,
+        format: vk::Format,
+        swapped: bool,
+    ) -> Result<SolidHandles, (RenderResult, String)> {
         #[cfg(feature = "test-exports")]
         let needs_rebuild = !self
             .solid_pipeline
@@ -518,6 +674,31 @@ impl VulkanState {
             layout: p.layout(),
             unit_quad: p.unit_quad_buffer(),
             samples: p.samples(),
+        })
+    }
+
+    /// Builds (or reuses) the textured pipeline and returns its record handles.
+    fn ensure_textured_pipeline(
+        &mut self,
+        format: vk::Format,
+    ) -> Result<TexturedHandles, (RenderResult, String)> {
+        if !self
+            .textured_pipeline
+            .as_ref()
+            .is_some_and(|p| p.format() == format)
+        {
+            self.textured_pipeline = Some(TexturedPipeline::new(
+                &self.context,
+                format,
+                self.msaa_samples(),
+            )?);
+        }
+        let p = self.textured_pipeline.as_ref().unwrap();
+        Ok(TexturedHandles {
+            handle: p.handle(),
+            layout: p.layout(),
+            set_layout: p.set_layout(),
+            unit_quad: p.unit_quad_buffer(),
         })
     }
 
@@ -555,11 +736,13 @@ impl VulkanState {
         };
         let image = Image::new(device, &image_info)?;
         let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
-        let allocation = allocator.allocate_image_memory(image.handle(), requirements, MemoryLocation::GpuOnly)?;
-        unsafe {
-            device.bind_image_memory(image.handle(), allocation.memory(), 0)
-        }
-        .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
+        let allocation = allocator.allocate_image_memory(
+            image.handle(),
+            requirements,
+            MemoryLocation::GpuOnly,
+        )?;
+        unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) }
+            .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
         let view = ImageView::new(device, image.handle(), format, vk::ImageAspectFlags::COLOR)?;
         self.msaa = Some(MsaaTarget {
             view,
@@ -604,11 +787,13 @@ impl VulkanState {
         };
         let image = Image::new(device, &image_info)?;
         let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
-        let allocation = allocator.allocate_image_memory(image.handle(), requirements, MemoryLocation::GpuOnly)?;
-        unsafe {
-            device.bind_image_memory(image.handle(), allocation.memory(), 0)
-        }
-        .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
+        let allocation = allocator.allocate_image_memory(
+            image.handle(),
+            requirements,
+            MemoryLocation::GpuOnly,
+        )?;
+        unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) }
+            .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
         let view = ImageView::new(device, image.handle(), format, vk::ImageAspectFlags::COLOR)?;
         // GpuToCpu (host-visible, cached): reading back 1080p via write-combined
         // CpuToGpu memory was measured at ~240ms for the 8MB copy.
@@ -637,7 +822,10 @@ impl VulkanState {
         };
         let device = self.context.device();
         unsafe {
-            device.reset_command_pool(self.context.command_pool(), vk::CommandPoolResetFlags::empty())
+            device.reset_command_pool(
+                self.context.command_pool(),
+                vk::CommandPoolResetFlags::empty(),
+            )
         }
         .map_err(|e| vk_error("vkResetCommandPool", e.as_raw()))?;
         let begin_info = vk::CommandBufferBeginInfo {
@@ -664,24 +852,43 @@ impl VulkanState {
     ) -> Result<(), (RenderResult, String)> {
         self.ensure_msaa(extent, format)?;
         let pipeline = self.ensure_solid_pipeline(format, force_swapped())?;
+        let textured = self.ensure_textured_pipeline(format)?;
 
-        // Encode the frame into the per-frame instance ring.
+        // Encode the frame into the per-frame instance ring. Each ring slot has
+        // its own descriptor pool, reset here after the slot's fence signals so
+        // no in-flight descriptor set is ever invalidated.
         let surface_size = [extent.width as f32, extent.height as f32];
         let encoded = {
             let ring = self.ring.as_mut().expect("ring initialized");
             ring.begin_frame()?;
-            self.encoder
-                .encode(frame, ring, self.context.allocator(), surface_size)?
+            let slot = ring.current_slot();
+            self.descriptor_pools[slot].reset()?;
+            let textures = Textures {
+                images: &self.images,
+                descriptor_pool: self.descriptor_pools[slot].handle(),
+                descriptor_layout: textured.set_layout,
+                sampler_nearest: self.sampler_nearest.as_ref().unwrap().handle(),
+                sampler_bilinear: self.sampler_bilinear.as_ref().unwrap().handle(),
+                device: self.context.device(),
+            };
+            self.encoder.encode(
+                frame,
+                ring,
+                self.context.allocator(),
+                surface_size,
+                &textures,
+            )?
         };
         let instance_buffer = self.ring.as_ref().unwrap().current_buffer();
 
         let command_buffer = self.begin_command_buffer()?;
         let device = self.context.device();
 
-
         // Transition the resolve image to COLOR_ATTACHMENT_OPTIMAL.
         let resolve_image = match resolve {
-            ResolveTarget::Swapchain { image, .. } | ResolveTarget::Offscreen { image, .. } => image,
+            ResolveTarget::Swapchain { image, .. } | ResolveTarget::Offscreen { image, .. } => {
+                image
+            }
         };
         let barrier_to_attachment = vk::ImageMemoryBarrier::default()
             .old_layout(vk::ImageLayout::UNDEFINED)
@@ -709,8 +916,12 @@ impl VulkanState {
 
         // Dynamic rendering: MSAA attachment resolving to the target.
         let (resolve_view, resolve_layout) = match &resolve {
-            ResolveTarget::Swapchain { view, .. } => (*view, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
-            ResolveTarget::Offscreen { view, .. } => (*view, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL),
+            ResolveTarget::Swapchain { view, .. } => {
+                (*view, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            }
+            ResolveTarget::Offscreen { view, .. } => {
+                (*view, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            }
         };
         let msaa = pipeline.samples != vk::SampleCountFlags::TYPE_1;
         let color_attachment = if msaa {
@@ -742,7 +953,6 @@ impl VulkanState {
             .color_attachments(&color_attachments);
         unsafe {
             device.cmd_begin_rendering(command_buffer, &rendering_info);
-            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipeline.handle);
             device.cmd_set_viewport(
                 command_buffer,
                 0,
@@ -755,10 +965,32 @@ impl VulkanState {
                     max_depth: 1.0,
                 }],
             );
-            let vertex_buffers = [pipeline.unit_quad, instance_buffer];
-            let offsets = [0u64, 0u64];
-            device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
             for group in &encoded.groups {
+                // Textured groups bind the sampler pipeline + their descriptor
+                // set; solid groups use the solid pipeline. Both pipelines
+                // share the unit-quad (binding 0) + instance (binding 1) layout,
+                // so the vertex buffers are re-bound per group with the active
+                // pipeline's unit quad.
+                let is_textured = group.descriptor_set.is_some();
+                let (pipe, pipe_layout, unit_quad) = if is_textured {
+                    (textured.handle, textured.layout, textured.unit_quad)
+                } else {
+                    (pipeline.handle, pipeline.layout, pipeline.unit_quad)
+                };
+                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipe);
+                let vertex_buffers = [unit_quad, instance_buffer];
+                let offsets = [0u64, 0u64];
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                if let Some(set) = group.descriptor_set {
+                    device.cmd_bind_descriptor_sets(
+                        command_buffer,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        pipe_layout,
+                        0,
+                        &[set],
+                        &[],
+                    );
+                }
                 // Per-draw scissor (Slice 3 forward): the clip is axis-aligned,
                 // so the rasterizer can cull fragments outside it before the
                 // fragment shader runs. This is the hardware-idiomatic clip; the
@@ -767,12 +999,18 @@ impl VulkanState {
                 device.cmd_set_scissor(command_buffer, 0, &[scissor]);
                 device.cmd_push_constants(
                     command_buffer,
-                    pipeline.layout,
+                    pipe_layout,
                     vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                     0,
                     &group.push.bytes(),
                 );
-                device.cmd_draw(command_buffer, 6, group.instance_count, 0, group.first_instance);
+                device.cmd_draw(
+                    command_buffer,
+                    6,
+                    group.instance_count,
+                    0,
+                    group.first_instance,
+                );
             }
             device.cmd_end_rendering(command_buffer);
         }
@@ -886,7 +1124,12 @@ impl VulkanState {
         };
 
         let (image_index, _) = match unsafe {
-            swapchain_loader.acquire_next_image(swapchain, u64::MAX, vk::Semaphore::null(), vk::Fence::null())
+            swapchain_loader.acquire_next_image(
+                swapchain,
+                u64::MAX,
+                vk::Semaphore::null(),
+                vk::Fence::null(),
+            )
         } {
             Ok(result) => result,
             Err(e) if e == vk::Result::ERROR_OUT_OF_DATE_KHR || e == vk::Result::SUBOPTIMAL_KHR => {
@@ -937,16 +1180,19 @@ impl VulkanState {
         }
     }
 
-    fn readback(&mut self, frame: &DecodedFrame, width: u32, height: u32) -> Result<Vec<u8>, (RenderResult, String)> {
+    fn readback(
+        &mut self,
+        frame: &DecodedFrame,
+        width: u32,
+        height: u32,
+    ) -> Result<Vec<u8>, (RenderResult, String)> {
         let extent = vk::Extent2D { width, height };
         let format = vk::Format::B8G8R8A8_UNORM;
         self.ensure_readback(extent, format)?;
         let view = self.readback.as_ref().unwrap().view.handle();
         let image = self.readback.as_ref().unwrap().image.handle();
         let clear = vk::ClearValue {
-            color: vk::ClearColorValue {
-                float32: [0.0; 4],
-            },
+            color: vk::ClearColorValue { float32: [0.0; 4] },
         };
         self.render_into(
             frame,
@@ -957,10 +1203,8 @@ impl VulkanState {
         )?;
 
         let device = self.context.device();
-        unsafe {
-            device.queue_wait_idle(self.context.queue())
-        }
-        .map_err(|e| vk_error("vkQueueWaitIdle", e.as_raw()))?;
+        unsafe { device.queue_wait_idle(self.context.queue()) }
+            .map_err(|e| vk_error("vkQueueWaitIdle", e.as_raw()))?;
 
         let size = (width as usize) * (height as usize) * 4;
         let mut pixels = vec![0u8; size];
@@ -996,10 +1240,9 @@ impl VulkanState {
             surface_loader.get_physical_device_surface_capabilities(physical_device, surface)
         }
         .map_err(|e| vk_error("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", e.as_raw()))?;
-        let formats = unsafe {
-            surface_loader.get_physical_device_surface_formats(physical_device, surface)
-        }
-        .map_err(|e| vk_error("vkGetPhysicalDeviceSurfaceFormatsKHR", e.as_raw()))?;
+        let formats =
+            unsafe { surface_loader.get_physical_device_surface_formats(physical_device, surface) }
+                .map_err(|e| vk_error("vkGetPhysicalDeviceSurfaceFormatsKHR", e.as_raw()))?;
         let present_modes = unsafe {
             surface_loader.get_physical_device_surface_present_modes(physical_device, surface)
         }
@@ -1036,23 +1279,23 @@ impl VulkanState {
         let swapchain_loader = ash::khr::swapchain::Device::new(self.context.instance(), device);
         let swapchain = unsafe { swapchain_loader.create_swapchain(&create_info, None) }
             .map_err(|e| vk_error("vkCreateSwapchainKHR", e.as_raw()))?;
-        let images = unsafe { swapchain_loader.get_swapchain_images(swapchain) }
-            .map_err(|e| {
-                unsafe {
-                    swapchain_loader.destroy_swapchain(swapchain, None);
-                }
-                vk_error("vkGetSwapchainImagesKHR", e.as_raw())
-            })?;
+        let images = unsafe { swapchain_loader.get_swapchain_images(swapchain) }.map_err(|e| {
+            unsafe {
+                swapchain_loader.destroy_swapchain(swapchain, None);
+            }
+            vk_error("vkGetSwapchainImagesKHR", e.as_raw())
+        })?;
         let views = images
             .iter()
             .map(|&image| {
-                ImageView::new(device, image, format.format, vk::ImageAspectFlags::COLOR)
-                    .map_err(|err| {
+                ImageView::new(device, image, format.format, vk::ImageAspectFlags::COLOR).map_err(
+                    |err| {
                         unsafe {
                             swapchain_loader.destroy_swapchain(swapchain, None);
                         }
                         err
-                    })
+                    },
+                )
             })
             .collect::<Result<Vec<_>, _>>()?;
 
@@ -1090,7 +1333,8 @@ fn clip_scissor(push: &crate::pipeline::PushConstants, extent: vk::Extent2D) -> 
     }
 }
 
-fn choose_extent(caps: &vk::SurfaceCapabilitiesKHR, width: u32, height: u32) -> vk::Extent2D {    if caps.current_extent.width != u32::MAX {
+fn choose_extent(caps: &vk::SurfaceCapabilitiesKHR, width: u32, height: u32) -> vk::Extent2D {
+    if caps.current_extent.width != u32::MAX {
         return caps.current_extent;
     }
     vk::Extent2D {
@@ -1129,10 +1373,7 @@ fn choose_present_mode(modes: &[vk::PresentModeKHR]) -> vk::PresentModeKHR {
             return *mode;
         }
     }
-    modes
-        .first()
-        .copied()
-        .unwrap_or(vk::PresentModeKHR::FIFO)
+    modes.first().copied().unwrap_or(vk::PresentModeKHR::FIFO)
 }
 
 fn choose_composite_alpha(supported: vk::CompositeAlphaFlagsKHR) -> vk::CompositeAlphaFlagsKHR {

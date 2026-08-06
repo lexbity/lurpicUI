@@ -546,7 +546,32 @@ func testImageCount() (uint64, error) {
 	return uint64(C.lurpic_render_test_image_count()), nil
 }
 
+// TestImageCount reports the number of live GPU textures in the renderer's
+// image store (test-exports). Used by the Slice 4 lifecycle tests to assert
+// resources are released on destroy/shutdown.
+func TestImageCount() (uint64, error) {
+	if err := loadRustLibrary(); err != nil {
+		return 0, err
+	}
+	if msg := cErrorMessage(); msg != "" {
+		return 0, errors.New(msg)
+	}
+	return uint64(C.lurpic_render_test_image_count()), nil
+}
+
 func testImageDestroyCount() (uint64, error) {
+	if err := loadRustLibrary(); err != nil {
+		return 0, err
+	}
+	if msg := cErrorMessage(); msg != "" {
+		return 0, errors.New(msg)
+	}
+	return uint64(C.lurpic_render_test_image_destroy_count()), nil
+}
+
+// TestImageDestroyCount reports how many GPU textures have been destroyed
+// (test-exports).
+func TestImageDestroyCount() (uint64, error) {
 	if err := loadRustLibrary(); err != nil {
 		return 0, err
 	}

@@ -111,6 +111,12 @@ impl InstanceRing {
         self.fences[slot].handle()
     }
 
+    /// The ring slot of the current frame (0..frames-1), used to index
+    /// per-slot resources (e.g. descriptor pools in Slice 4).
+    pub fn current_slot(&self) -> usize {
+        ((self.frame_index - 1) % self.frames as u64) as usize
+    }
+
     /// The instance buffer backing the current frame.
     pub fn current_buffer(&self) -> vk::Buffer {
         let slot = ((self.frame_index - 1) % self.frames as u64) as usize;

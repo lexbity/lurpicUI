@@ -4,6 +4,8 @@ package vulkan
 
 import (
 	"fmt"
+	"image"
+	"image/color"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -275,6 +277,119 @@ func BenchmarkVulkanClipMechanism_Discard(b *testing.B) {
 	b.Logf("deep-clip scissor render %v vs no-clip %v (%.2fx): the per-draw scissor "+
 		"alignment is kept; measured benefit over fragment-discard-only was ~5.5ms -> ~2.7ms.",
 		deep, flat, ratio)
+}
+
+// BenchmarkVulkanSubmit_Textures measures the Slice 4 textured pipeline:
+// pooled encode -> offscreen render with per-group descriptor sets -> readback.
+// Textures are uploaded once and referenced by DrawTexture handle (the
+// steady-state form: cached textures drawn many times), so the timed loop
+// exercises the sampler-bound draw path with zero Go allocations. Note: the
+// per-frame Go-side `hashImage` dedup cost of fresh `DrawImage` content is a
+// separate pre-existing cache concern, not the GPU path this benchmark gates.
+//
+// Hard gates:
+//   - NFR-6: AllocsPerOp(0).
+//   - NFR-2: <= 16.7 ms per frame at 1080p.
+func BenchmarkVulkanSubmit_Textures(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	// 12 distinct textures, each stamped across the canvas 64x.
+	img := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := 0; y < 64; y++ {
+		for x := 0; x < 64; x++ {
+			img.SetRGBA(x, y, color.RGBA{R: uint8(x * 4), G: uint8(y * 4), B: 128, A: 255})
+		}
+	}
+	handles := make([]uint64, 0, 12)
+	for i := 0; i < 12; i++ {
+		dup := image.NewRGBA(img.Rect)
+		for y := 0; y < 64; y++ {
+			for x := 0; x < 64; x++ {
+				c := img.RGBAAt(x, y)
+				dup.SetRGBA(x, y, color.RGBA{R: c.R, G: c.G, B: uint8(64 + i*12), A: c.A})
+			}
+		}
+		handle, err := UploadImage(dup.Pix, 64, 64, dup.Stride, 0)
+		if err != nil {
+			b.Fatalf("upload texture %d: %v", i, err)
+		}
+		handles = append(handles, handle)
+	}
+	defer func() {
+		for _, handle := range handles {
+			_ = DestroyImage(handle)
+		}
+	}()
+
+	const draws = 768 // 12 textures * 64 placements
+	cmds := make([]gfx.Command, 0, draws)
+	for i := 0; i < draws; i++ {
+		x := float32((i % 48) * 40)
+		y := float32((i / 48) * 22)
+		cmds = append(cmds, gfx.DrawTexture{
+			TextureID: handles[i%len(handles)],
+			DestRect:  gfx.RectFromXYWH(x, y, 64, 64),
+			SrcRect:   gfx.RectFromXYWH(0, 0, 64, 64),
+			Sampling:  gfx.SamplingNearest,
+			Opacity:   1,
+		})
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
+			Commands: gfx.CommandList{Commands: cmds},
+		}},
+	}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
+	}
 }
 
 func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {

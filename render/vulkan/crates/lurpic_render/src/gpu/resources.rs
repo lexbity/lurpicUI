@@ -415,6 +415,17 @@ impl DescriptorPool {
         self.handle
     }
 
+    /// Frees all descriptor sets allocated from the pool. Safe only when no
+    /// sets are in flight; the renderer resets each ring slot's pool after its
+    /// fence signals (Slice 4).
+    pub fn reset(&self) -> Result<(), (RenderResult, String)> {
+        unsafe {
+            self.device
+                .reset_descriptor_pool(self.handle, vk::DescriptorPoolResetFlags::empty())
+        }
+        .map_err(|e| vk_error("vkResetDescriptorPool", e.as_raw()))
+    }
+
     /// Allocates one descriptor set bound to `layout`; the set lives for as
     /// long as the pool does.
     pub fn allocate_set(

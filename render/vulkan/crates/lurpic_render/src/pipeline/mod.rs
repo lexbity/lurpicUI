@@ -2,6 +2,15 @@
 //! gradients, stencil fill, blur).
 
 pub mod solid;
+pub mod textured;
+
+/// Push-constant `brush_kind` values shared by the pipeline shaders and the
+/// frame encoder. `solid` and `textured` are rendered today (Slices 3-4);
+/// `linear_gradient` lands with the gradient pipeline (Slice 6).
+pub const BRUSH_SOLID: u32 = 0;
+#[allow(dead_code)] // consumed by the gradient pipeline (Slice 6)
+pub const BRUSH_LINEAR_GRADIENT: u32 = 1;
+pub const BRUSH_TEXTURED: u32 = 2;
 
 /// Per-draw push constants (Q4). The layout is `#[repr(C)]` and matched
 /// byte-for-byte by the shaders (see src/shaders/solid.vert). All fields are
@@ -72,7 +81,10 @@ mod tests {
 
     #[test]
     fn push_constants_layout_matches_shader() {
-        assert_eq!(mem::size_of::<PushConstants>(), PushConstants::SIZE as usize);
+        assert_eq!(
+            mem::size_of::<PushConstants>(),
+            PushConstants::SIZE as usize
+        );
         // Offsets match the GLSL std430 layout: all 4-byte aligned.
         assert_eq!(mem::offset_of!(PushConstants, transform), 0);
         assert_eq!(mem::offset_of!(PushConstants, opacity), 24);

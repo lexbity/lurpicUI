@@ -25,6 +25,10 @@ func imageFixtures() []equivalence.FrameFixture {
 	}
 
 	return []equivalence.FrameFixture{
+		// DrawImage fixtures render through the Slice 4 texture pipeline: the
+		// pixel data is uploaded to a real VkImage at encode time and sampled
+		// per draw. Nearest sampling matches the oracle's round-to-texel
+		// selection; bilinear mirrors the GPU linear CLAMP_TO_EDGE filter.
 		fixture{
 			name: "image_rgba_nearest_1to1", width: 64, height: 64,
 			frame: func() *render.Frame {
@@ -56,9 +60,41 @@ func imageFixtures() []equivalence.FrameFixture {
 			},
 		},
 		fixture{
-			// Wire-level only: DrawTexture is not rendered by the GPU pipeline
-			// until Slice 4. It must round-trip through the encoder/decoder so
-			// the corpus covers every v2 opcode.
+			name: "image_bilinear_upscale", width: 64, height: 64,
+			frame: func() *render.Frame {
+				img := checker(8, 8)
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawImage{
+						Image:    img,
+						DestRect: gfx.RectFromXYWH(8, 8, 32, 32),
+						SrcRect:  gfx.RectFromXYWH(0, 0, 8, 8),
+						Sampling: gfx.SamplingBilinear,
+						Opacity:  1,
+					},
+				)
+			},
+		},
+		fixture{
+			name: "image_bilinear_downscale", width: 64, height: 64,
+			frame: func() *render.Frame {
+				img := checker(32, 32)
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawImage{
+						Image:    img,
+						DestRect: gfx.RectFromXYWH(8, 8, 16, 16),
+						SrcRect:  gfx.RectFromXYWH(0, 0, 32, 32),
+						Sampling: gfx.SamplingBilinear,
+						Opacity:  1,
+					},
+				)
+			},
+		},
+		fixture{
+			// Wire-level only: DrawTexture references a backend-uploaded texture
+			// ID, so the corpus frame cannot carry the pixels. The command is
+			// rendered end-to-end by TestDrawTexture_Rendered (which uploads to
+			// both backends and compares); the corpus keeps it covered at the
+			// wire level and defers it here with that reason.
 			name: "texture_nearest_1to1", width: 64, height: 64,
 			frame: func() *render.Frame {
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,

@@ -7,22 +7,80 @@
 //! and its instance bytes are flushed to the ring buffer. The scratch buffer is
 //! reused across frames (no per-frame allocation on the hot path).
 
-use crate::frame::{
-    Brush, BrushKind, DecodedBatch, DecodedCommand, DecodedFrame, Rect, Transform,
-};
+use ash::vk;
+
+use crate::error::vk_error;
+use crate::frame::{Brush, BrushKind, DecodedBatch, DecodedCommand, DecodedFrame, Rect, Transform};
 use crate::geometry::Color;
 use crate::gpu::allocator::Allocator;
-use crate::pipeline::PushConstants;
+use crate::image_store::ImageStore;
+use crate::pipeline::{PushConstants, BRUSH_SOLID, BRUSH_TEXTURED};
 use crate::ring_buffer::{InstanceRing, INSTANCE_STRIDE};
 use crate::RenderResult;
 
 /// One instanced draw: a range of the ring's instance buffer rendered with a
-/// single push-constant state.
+/// single push-constant state. Textured groups carry the descriptor set binding
+/// the image view + sampler; solid groups have none.
 #[derive(Clone, Copy, Debug)]
 pub struct DrawGroup {
     pub push: PushConstants,
     pub first_instance: u32,
     pub instance_count: u32,
+    pub descriptor_set: Option<vk::DescriptorSet>,
+}
+
+/// The texture-facing resources the encoder needs to build per-group descriptor
+/// sets for `DrawImage`/`DrawTexture` (Slice 4). The pool is reset per ring
+/// slot after its fence signals, so the sets live for exactly the frame's
+/// submission.
+pub struct Textures<'a> {
+    pub images: &'a ImageStore,
+    pub descriptor_pool: vk::DescriptorPool,
+    pub descriptor_layout: vk::DescriptorSetLayout,
+    pub sampler_nearest: vk::Sampler,
+    pub sampler_bilinear: vk::Sampler,
+    pub device: &'a ash::Device,
+}
+
+impl Textures<'_> {
+    /// Allocates a combined-image-sampler descriptor set for the given texture
+    /// and sampling mode from the frame's descriptor pool.
+    fn allocate_descriptor_set(
+        &self,
+        handle: u64,
+        sampler: vk::Sampler,
+    ) -> Result<vk::DescriptorSet, (RenderResult, String)> {
+        let stored = self.images.get(handle).ok_or_else(|| {
+            (
+                RenderResult::InvalidHandle,
+                format!("texture handle {} does not exist", handle),
+            )
+        })?;
+        let layouts = [self.descriptor_layout];
+        let alloc_info = vk::DescriptorSetAllocateInfo {
+            descriptor_pool: self.descriptor_pool,
+            descriptor_set_count: 1,
+            p_set_layouts: layouts.as_ptr(),
+            ..Default::default()
+        };
+        let sets = unsafe { self.device.allocate_descriptor_sets(&alloc_info) }
+            .map_err(|e| vk_error("vkAllocateDescriptorSets", e.as_raw()))?;
+        let set = sets[0];
+        let image_info = vk::DescriptorImageInfo::default()
+            .image_view(stored.view.handle())
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .sampler(sampler);
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(set)
+            .dst_binding(0)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(std::slice::from_ref(&image_info));
+        unsafe {
+            self.device.update_descriptor_sets(&[write], &[]);
+        }
+        Ok(set)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -46,6 +104,10 @@ pub struct FrameEncoder {
     scratch: Vec<u8>,
     /// Push constants of the open group.
     current_push: Option<PushConstants>,
+    /// Texture handle of the open textured group (None for solid groups).
+    current_texture: Option<u64>,
+    /// Descriptor set of the open textured group.
+    current_descriptor: Option<vk::DescriptorSet>,
     groups: Vec<DrawGroup>,
 }
 
@@ -60,6 +122,8 @@ impl Default for FrameEncoder {
             opacity_depth: 0,
             scratch: Vec::with_capacity(1024),
             current_push: None,
+            current_texture: None,
+            current_descriptor: None,
             groups: Vec::with_capacity(64),
         }
     }
@@ -73,12 +137,15 @@ impl FrameEncoder {
         ring: &mut InstanceRing,
         allocator: &dyn Allocator,
         surface_size: [f32; 2],
+        textures: &Textures<'_>,
     ) -> Result<EncodedFrame, (RenderResult, String)> {
         self.transform_depth = 0;
         self.clip_depth = 0;
         self.opacity_depth = 0;
         self.scratch.clear();
         self.current_push = None;
+        self.current_texture = None;
+        self.current_descriptor = None;
         self.groups.clear();
 
         let screen = Rect {
@@ -90,7 +157,7 @@ impl FrameEncoder {
         };
 
         for batch in &frame.batches {
-            self.encode_batch(batch, screen, ring, allocator, surface_size)?;
+            self.encode_batch(batch, screen, ring, allocator, surface_size, textures)?;
         }
 
         self.close_group(ring, allocator)?;
@@ -107,6 +174,7 @@ impl FrameEncoder {
         ring: &mut InstanceRing,
         allocator: &dyn Allocator,
         surface_size: [f32; 2],
+        textures: &Textures<'_>,
     ) -> Result<(), (RenderResult, String)> {
         // Seed the state from the batch header (fixed-depth base entries).
         self.transform_stack[0] = batch.transform;
@@ -126,7 +194,11 @@ impl FrameEncoder {
                 DecodedCommand::FillRect { rect, brush } => {
                     self.emit_fill_path_rect(*rect, brush, ring, allocator, surface_size)?;
                 }
-                DecodedCommand::StrokeRect { rect, stroke, brush } => {
+                DecodedCommand::StrokeRect {
+                    rect,
+                    stroke,
+                    brush,
+                } => {
                     if stroke.width <= 0.0 {
                         continue;
                     }
@@ -211,8 +283,32 @@ impl FrameEncoder {
                     self.log_unsupported("DrawSelectionRects")
                 }
                 DecodedCommand::DrawGlyphRun { .. } => self.log_unsupported("DrawGlyphRun"),
-                DecodedCommand::DrawImage { .. } => self.log_unsupported("DrawImage"),
-                DecodedCommand::DrawTexture { .. } => self.log_unsupported("DrawTexture"),
+                DecodedCommand::DrawImage {
+                    handle,
+                    dest,
+                    src,
+                    sampling,
+                    opacity,
+                }
+                | DecodedCommand::DrawTexture {
+                    handle,
+                    dest,
+                    src,
+                    sampling,
+                    opacity,
+                } => {
+                    self.emit_textured_quad(
+                        *handle,
+                        *dest,
+                        *src,
+                        *sampling,
+                        *opacity,
+                        ring,
+                        allocator,
+                        surface_size,
+                        textures,
+                    )?;
+                }
                 DecodedCommand::DrawBlurredShadow { .. } => {
                     self.log_unsupported("DrawBlurredShadow")
                 }
@@ -260,17 +356,98 @@ impl FrameEncoder {
             clip_min: [clip.min.x, clip.min.y],
             clip_size: [clip.max.x - clip.min.x, clip.max.y - clip.min.y],
             clip_active: 1,
-            brush_kind: 0,
+            brush_kind: BRUSH_SOLID,
             brush_payload: [0.0; 8],
             surface_size,
         };
 
-        if self.current_push.map_or(true, |p| !push_constants_eq(&p, &push)) {
+        // A solid draw is a different group kind from a textured draw: opening
+        // one must drop any textured group's descriptor set state.
+        if self
+            .current_push
+            .map_or(true, |p| !push_constants_eq(&p, &push))
+            || self.current_texture.is_some()
+        {
             self.close_group(ring, allocator)?;
             self.current_push = Some(push);
+            self.current_texture = None;
+            self.current_descriptor = None;
         }
 
-        self.scratch.extend_from_slice(&pack_instance(&rect, &color));
+        self.scratch
+            .extend_from_slice(&pack_instance(&rect, &color));
+        Ok(())
+    }
+
+    fn emit_textured_quad(
+        &mut self,
+        handle: u64,
+        dest: Rect,
+        src: Rect,
+        sampling: u8,
+        opacity: f32,
+        ring: &mut InstanceRing,
+        allocator: &dyn Allocator,
+        surface_size: [f32; 2],
+        textures: &Textures<'_>,
+    ) -> Result<(), (RenderResult, String)> {
+        let world = self.transform().transform_rect(dest);
+        if world.is_empty() {
+            return Ok(());
+        }
+        let clip = self.clip();
+        if world.max.x <= clip.min.x
+            || world.min.x >= clip.max.x
+            || world.max.y <= clip.min.y
+            || world.min.y >= clip.max.y
+        {
+            return Ok(());
+        }
+
+        if textures.images.get(handle).is_none() {
+            return Err((
+                RenderResult::InvalidHandle,
+                format!("texture handle {} does not exist", handle),
+            ));
+        }
+        let sampler = match sampling {
+            0 => textures.sampler_nearest,
+            1 => textures.sampler_bilinear,
+            other => {
+                return Err((
+                    RenderResult::InitFailed,
+                    format!("unsupported sampling mode {}", other),
+                ))
+            }
+        };
+
+        let push = PushConstants {
+            transform: self.transform().to_array(),
+            opacity: self.opacity() * opacity,
+            clip_min: [clip.min.x, clip.min.y],
+            clip_size: [clip.max.x - clip.min.x, clip.max.y - clip.min.y],
+            clip_active: 1,
+            brush_kind: BRUSH_TEXTURED,
+            // brush_payload[0] carries the sampling mode for the fragment
+            // shader; it is part of the group key so nearest and bilinear
+            // draws of the same texture do not coalesce.
+            brush_payload: [sampling as f32, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            surface_size,
+        };
+
+        let same_group = self
+            .current_push
+            .map_or(false, |p| push_constants_eq(&p, &push))
+            && self.current_texture == Some(handle);
+        if !same_group {
+            self.close_group(ring, allocator)?;
+            self.current_push = Some(push);
+            self.current_texture = Some(handle);
+            self.current_descriptor = Some(textures.allocate_descriptor_set(handle, sampler)?);
+        }
+
+        self.scratch
+            .extend_from_slice(&pack_textured_instance(&dest, &src));
         Ok(())
     }
 
@@ -283,6 +460,7 @@ impl FrameEncoder {
             return Ok(());
         };
         if self.scratch.is_empty() {
+            self.current_descriptor = None;
             return Ok(());
         }
         let (buffer, first, count) = ring.append(allocator, &self.scratch)?;
@@ -291,6 +469,7 @@ impl FrameEncoder {
             push,
             first_instance: first,
             instance_count: count,
+            descriptor_set: self.current_descriptor.take(),
         });
         self.scratch.clear();
         Ok(())
@@ -348,7 +527,10 @@ impl FrameEncoder {
         // Dev-only log; production renders are gated by which fixtures the
         // slice supports.
         #[cfg(debug_assertions)]
-        eprintln!("lurpic_render: {} not yet rendered by the GPU pipeline", name);
+        eprintln!(
+            "lurpic_render: {} not yet rendered by the GPU pipeline",
+            name
+        );
         #[cfg(not(debug_assertions))]
         let _ = name;
     }
@@ -377,6 +559,27 @@ fn pack_instance(rect: &Rect, color: &Color) -> [u8; INSTANCE_STRIDE as usize] {
         color.g,
         color.b,
         color.a,
+    ];
+    for (i, v) in values.iter().enumerate() {
+        out[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
+    }
+    out
+}
+
+/// Packs a textured quad into a 32-byte instance record (mirrors the textured
+/// pipeline's instance bindings): [dest.x, dest.y, dest.w, dest.h, src.x,
+/// src.y, src.w, src.h].
+fn pack_textured_instance(dest: &Rect, src: &Rect) -> [u8; INSTANCE_STRIDE as usize] {
+    let mut out = [0u8; INSTANCE_STRIDE as usize];
+    let values = [
+        dest.min.x,
+        dest.min.y,
+        dest.max.x - dest.min.x,
+        dest.max.y - dest.min.y,
+        src.min.x,
+        src.min.y,
+        src.max.x - src.min.x,
+        src.max.y - src.min.y,
     ];
     for (i, v) in values.iter().enumerate() {
         out[i * 4..i * 4 + 4].copy_from_slice(&v.to_le_bytes());
@@ -425,12 +628,36 @@ mod tests {
     // The encoder must expand a stroke rect into four band instances.
     #[test]
     fn pack_instance_layout() {
-        let packed = pack_instance(&rect(10.0, 20.0, 30.0, 40.0), &Color { r: 1.0, g: 0.5, b: 0.0, a: 1.0 });
+        let packed = pack_instance(
+            &rect(10.0, 20.0, 30.0, 40.0),
+            &Color {
+                r: 1.0,
+                g: 0.5,
+                b: 0.0,
+                a: 1.0,
+            },
+        );
         assert_eq!(&packed[0..4], &10.0f32.to_le_bytes());
         assert_eq!(&packed[4..8], &20.0f32.to_le_bytes());
         assert_eq!(&packed[8..12], &20.0f32.to_le_bytes());
         assert_eq!(&packed[16..20], &1.0f32.to_le_bytes());
         assert_eq!(&packed[28..32], &1.0f32.to_le_bytes());
+    }
+
+    // Textured instances carry the dest xywh then the src xywh, mirroring the
+    // textured pipeline's instance bindings (Slice 4).
+    #[test]
+    fn pack_textured_instance_layout() {
+        let packed =
+            pack_textured_instance(&rect(10.0, 20.0, 30.0, 40.0), &rect(1.0, 2.0, 5.0, 7.0));
+        assert_eq!(&packed[0..4], &10.0f32.to_le_bytes());
+        assert_eq!(&packed[4..8], &20.0f32.to_le_bytes());
+        assert_eq!(&packed[8..12], &20.0f32.to_le_bytes()); // dest width
+        assert_eq!(&packed[12..16], &20.0f32.to_le_bytes()); // dest height
+        assert_eq!(&packed[16..20], &1.0f32.to_le_bytes());
+        assert_eq!(&packed[20..24], &2.0f32.to_le_bytes());
+        assert_eq!(&packed[24..28], &4.0f32.to_le_bytes()); // src width
+        assert_eq!(&packed[28..32], &5.0f32.to_le_bytes()); // src height
     }
 
     // The transform/clip/opacity stacks are fixed-size (NFR-6): a frame that
@@ -441,18 +668,24 @@ mod tests {
         e.transform_stack[0] = Transform::identity();
         e.transform_depth = 1;
         for _ in 0..MAX_DEPTH - 1 {
-            e.push_transform(Transform::identity()).expect("shallow push");
+            e.push_transform(Transform::identity())
+                .expect("shallow push");
         }
-        let err = e.push_transform(Transform::identity()).expect_err("must overflow");
+        let err = e
+            .push_transform(Transform::identity())
+            .expect_err("must overflow");
         assert_eq!(err.0, RenderResult::InitFailed);
         assert!(err.1.contains("transform nesting"));
 
         e.clip_stack[0] = rect(0.0, 0.0, 10.0, 10.0);
         e.clip_depth = 1;
         for _ in 0..MAX_DEPTH - 1 {
-            e.push_clip(rect(0.0, 0.0, 10.0, 10.0)).expect("shallow push");
+            e.push_clip(rect(0.0, 0.0, 10.0, 10.0))
+                .expect("shallow push");
         }
-        let err = e.push_clip(rect(0.0, 0.0, 10.0, 10.0)).expect_err("must overflow");
+        let err = e
+            .push_clip(rect(0.0, 0.0, 10.0, 10.0))
+            .expect_err("must overflow");
         assert!(err.1.contains("clip nesting"));
 
         e.opacity_stack[0] = 1.0;
@@ -472,7 +705,8 @@ mod tests {
         let mut e = FrameEncoder::default();
         e.transform_stack[0] = transform(1.0, 0.0, 0.0, 1.0, 5.0, 5.0);
         e.transform_depth = 1;
-        e.push_transform(transform(2.0, 0.0, 0.0, 2.0, 0.0, 0.0)).unwrap();
+        e.push_transform(transform(2.0, 0.0, 0.0, 2.0, 0.0, 0.0))
+            .unwrap();
         assert_eq!(e.transform(), transform(2.0, 0.0, 0.0, 2.0, 0.0, 0.0));
         if e.transform_depth > 1 {
             e.transform_depth -= 1; // PopTransform

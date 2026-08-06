@@ -336,6 +336,8 @@ pub extern "C" fn lurpic_render_test_reset() -> RenderResult {
         let _guard = state_lock_guard();
         registry().clear();
         atlas::reset_atlas();
+        vulkan::reset_images();
+        #[cfg(feature = "cpu-fallback")]
         image_store::reset_images();
         vulkan::shutdown().ok();
         clear_last_error();
@@ -397,7 +399,8 @@ pub extern "C" fn lurpic_render_test_force_swapped_rendering(enabled: u32) -> Re
 
 /// Reports the physical device's pipeline-relevant capabilities (honest
 /// backend selection, FR-11).
-#[no_mangle]pub extern "C" fn lurpic_render_query_pipeline_features(
+#[no_mangle]
+pub extern "C" fn lurpic_render_query_pipeline_features(
     out: *mut LurpicRenderPipelineFeatures,
 ) -> RenderResult {
     catch_render_result("query_pipeline_features", || {
@@ -681,7 +684,7 @@ pub extern "C" fn lurpic_render_create_image(
                 ));
             }
         };
-        let handle = image_store::create_image(data, width, height, stride, format)?;
+        let handle = create_image_routed(data, width, height, stride, format)?;
         unsafe {
             *out_handle = handle;
         }
@@ -691,7 +694,50 @@ pub extern "C" fn lurpic_render_create_image(
 
 #[no_mangle]
 pub extern "C" fn lurpic_render_destroy_image(handle: u64) -> RenderResult {
-    catch_render_result("destroy_image", || image_store::destroy_image(handle))
+    catch_render_result("destroy_image", || destroy_image_routed(handle))
+}
+
+/// Routes image creation to the GPU texture store when the renderer is
+/// initialized (Slice 4 backing), and to the `cpu-fallback` host store
+/// otherwise (headless builds).
+fn create_image_routed(
+    data: &[u8],
+    width: u32,
+    height: u32,
+    stride: u32,
+    format: image_store::ImageFormat,
+) -> Result<u64, (RenderResult, String)> {
+    if vulkan::is_initialized() {
+        return vulkan::create_image(data, width, height, stride, format);
+    }
+    #[cfg(feature = "cpu-fallback")]
+    {
+        return image_store::create_image(data, width, height, stride, format);
+    }
+    #[cfg(not(feature = "cpu-fallback"))]
+    {
+        Err((
+            RenderResult::InitFailed,
+            "renderer is not initialized; cannot create image".to_string(),
+        ))
+    }
+}
+
+fn destroy_image_routed(handle: u64) -> Result<(), (RenderResult, String)> {
+    if vulkan::is_initialized() {
+        return vulkan::destroy_image(handle);
+    }
+    #[cfg(feature = "cpu-fallback")]
+    {
+        return image_store::destroy_image(handle);
+    }
+    #[cfg(not(feature = "cpu-fallback"))]
+    {
+        Err((
+            RenderResult::InvalidHandle,
+            format!("image handle {} does not exist", handle),
+        ))
+    }
 }
 
 #[no_mangle]
@@ -713,18 +759,18 @@ pub extern "C" fn lurpic_render_test_glyph_atlas_evictions() -> u64 {
     atlas::atlas_stats().1 as u64
 }
 
-#[cfg(feature = "test-exports")]
+#[cfg(any(test, feature = "test-exports"))]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_image_count() -> u64 {
     clear_last_error();
-    image_store::image_stats().0 as u64
+    vulkan::image_stats().0 as u64
 }
 
 #[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_image_destroy_count() -> u64 {
     clear_last_error();
-    image_store::image_stats().1 as u64
+    vulkan::image_stats().1 as u64
 }
 
 #[cfg(feature = "test-exports")]
