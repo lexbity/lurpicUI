@@ -12,20 +12,30 @@ use std::sync::{Mutex, OnceLock};
 use ash::vk;
 use ash::vk::Handle;
 
+use crate::atlas::GlyphAtlas;
 use crate::clear_last_error;
 use crate::error::vk_error;
+use crate::frame::{decode_frame, DecodedFrame};
 #[cfg(feature = "test-exports")]
 use crate::frame::FrameStats;
-use crate::frame::{decode_frame, DecodedFrame};
-use crate::frame_encoder::{FrameEncoder, Textures};
+use crate::frame_encoder::{DrawKind, FrameEncoder, Textures};
 use crate::gpu::allocator::{GpuBuffer, ImageAllocation, MemoryLocation};
 use crate::gpu::context::{AshContext, GpuContext, PhysicalDeviceFeatures};
 use crate::gpu::resources::{DescriptorPool, Image, ImageView, Sampler};
 use crate::gpu::surface;
 use crate::image_store::{ImageFormat, ImageStore};
+use crate::pipeline::glyph::GlyphPipeline;
+use crate::pipeline::gradient::GradientPipeline;
 use crate::pipeline::solid::SolidPipeline;
+use crate::pipeline::stencil::PathFillPipeline;
 use crate::pipeline::textured::TexturedPipeline;
-use crate::ring_buffer::{InstanceRing, DEFAULT_SLOT_BYTES};
+use crate::pipeline::{
+    PushConstants, STENCIL_FORMAT, BRUSH_LINEAR_GRADIENT,
+};
+use crate::ring_buffer::{
+    InstanceRing, PathRing, UniformRing, DEFAULT_PATH_SLOT_BYTES, DEFAULT_SLOT_BYTES,
+    DEFAULT_UNIFORM_SLOT_BYTES,
+};
 use crate::RenderResult;
 
 /// Per-ring-slot descriptor sets for textured groups (Slice 4). Each slot's
@@ -125,6 +135,47 @@ struct TexturedHandles {
     unit_quad: vk::Buffer,
 }
 
+/// A copy of the glyph pipeline's record handles for the render loop.
+#[derive(Clone, Copy)]
+struct GlyphHandles {
+    bitmap: vk::Pipeline,
+    sdf: vk::Pipeline,
+    layout: vk::PipelineLayout,
+    unit_quad: vk::Buffer,
+}
+
+/// A copy of the gradient pipeline's record handles for the render loop.
+#[derive(Clone, Copy)]
+struct GradientHandles {
+    handle: vk::Pipeline,
+    layout: vk::PipelineLayout,
+    set_layout: vk::DescriptorSetLayout,
+    unit_quad: vk::Buffer,
+}
+
+/// A copy of the path-fill pipeline's record handles for the render loop.
+#[derive(Clone, Copy)]
+struct PathFillHandles {
+    stencil: vk::Pipeline,
+    stencil_layout: vk::PipelineLayout,
+    cover_solid: vk::Pipeline,
+    cover_gradient: vk::Pipeline,
+    cover_layout: vk::PipelineLayout,
+    cover_gradient_layout: vk::PipelineLayout,
+    segments_layout: vk::DescriptorSetLayout,
+    unit_quad: vk::Buffer,
+}
+
+/// The stencil attachment (D24S8, depth aspect unused) used by path fills.
+struct StencilTarget {
+    view: ImageView,
+    #[allow(dead_code)] // held for RAII drop ordering
+    image: Image,
+    #[allow(dead_code)] // held for RAII drop ordering
+    allocation: ImageAllocation,
+    extent: vk::Extent2D,
+}
+
 /// Where a frame's resolved pixels land.
 enum ResolveTarget {
     Swapchain {
@@ -152,11 +203,19 @@ pub struct VulkanState {
     readback: Option<ReadbackTarget>,
     solid_pipeline: Option<SolidPipeline>,
     textured_pipeline: Option<TexturedPipeline>,
+    glyph_pipeline: Option<GlyphPipeline>,
+    gradient_pipeline: Option<GradientPipeline>,
+    path_fill_pipeline: Option<PathFillPipeline>,
+    stencil: Option<StencilTarget>,
     sampler_nearest: Option<Sampler>,
     sampler_bilinear: Option<Sampler>,
     descriptor_pools: Vec<DescriptorPool>,
     images: ImageStore,
+    atlas: GlyphAtlas,
     ring: Option<InstanceRing>,
+    uniform_ring: Option<UniformRing>,
+    uniform_alignment: u64,
+    path_ring: Option<PathRing>,
     encoder: FrameEncoder,
     requested_width: u32,
     requested_height: u32,
@@ -424,6 +483,45 @@ pub fn reset_images() {
     }
 }
 
+/// Uploads a glyph's coverage mask into the packed GPU atlas (Slice 5). The
+/// atlas grows and compacts as needed; the SDF is generated for sizes >= 24 px.
+pub fn upload_glyph(
+    font_id: u64,
+    glyph_id: u32,
+    size_bits: u32,
+    mask: &[u8],
+    width: u32,
+    height: u32,
+    offset_x: f32,
+    offset_y: f32,
+    advance: f32,
+) -> Result<(), (RenderResult, String)> {
+    let mut guard = state_lock();
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
+    state
+        .atlas
+        .upload(&state.context, font_id, glyph_id, size_bits, mask, width, height, offset_x, offset_y, advance)
+}
+
+pub fn reset_atlas() {
+    let mut guard = state_lock();
+    if let Some(state) = guard.as_mut() {
+        state.atlas.reset();
+    }
+}
+
+#[cfg(any(feature = "test-exports", test))]
+pub fn glyph_stats() -> (usize, usize) {
+    let guard = state_lock();
+    guard
+        .as_ref()
+        .map(|state| state.atlas.stats())
+        .unwrap_or((0, 0))
+}
+
 pub fn submit_frame(data: *const u8, len: usize) -> Result<(), (RenderResult, String)> {
     let mut guard = state_lock();
     let state = guard.as_mut().ok_or((
@@ -528,6 +626,20 @@ impl VulkanState {
         }
 
         let ring = InstanceRing::new(context.allocator(), context.device(), 2, DEFAULT_SLOT_BYTES)?;
+        let uniform_ring = UniformRing::new(
+            context.allocator(),
+            2,
+            DEFAULT_UNIFORM_SLOT_BYTES,
+        )?;
+        let path_ring = PathRing::new(context.allocator(), 2, DEFAULT_PATH_SLOT_BYTES)?;
+        let uniform_alignment = unsafe {
+            context
+                .instance()
+                .get_physical_device_properties(context.physical_device())
+                .limits
+                .min_uniform_buffer_offset_alignment
+        }
+        .max(16) as u64;
         let command_buffer = {
             let alloc_info = vk::CommandBufferAllocateInfo {
                 command_pool: context.command_pool(),
@@ -572,12 +684,24 @@ impl VulkanState {
 
         // One descriptor pool per ring slot, so a slot's pool is only reset
         // after its fence signals (no in-flight sets are ever invalidated).
+        // Pool sizes cover the sampler (textured/glyph) and uniform-buffer
+        // (gradient) descriptor types.
         let frames = 2;
         let mut descriptor_pools = Vec::with_capacity(frames);
-        let pool_sizes = [vk::DescriptorPoolSize {
-            ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-            descriptor_count: TEXTURED_DESCRIPTOR_SETS_PER_POOL,
-        }];
+        let pool_sizes = [
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: TEXTURED_DESCRIPTOR_SETS_PER_POOL,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: TEXTURED_DESCRIPTOR_SETS_PER_POOL,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_BUFFER,
+                descriptor_count: TEXTURED_DESCRIPTOR_SETS_PER_POOL,
+            },
+        ];
         for _ in 0..frames {
             descriptor_pools.push(DescriptorPool::new(
                 context.device(),
@@ -602,11 +726,19 @@ impl VulkanState {
             readback: None,
             solid_pipeline: None,
             textured_pipeline: None,
+            glyph_pipeline: None,
+            gradient_pipeline: None,
+            path_fill_pipeline: None,
+            stencil: None,
             sampler_nearest: Some(sampler_nearest),
             sampler_bilinear: Some(sampler_bilinear),
             descriptor_pools,
             images: ImageStore::new(),
+            atlas: GlyphAtlas::new(),
             ring: Some(ring),
+            uniform_ring: Some(uniform_ring),
+            uniform_alignment,
+            path_ring: Some(path_ring),
             encoder: FrameEncoder::default(),
             requested_width: 1,
             requested_height: 1,
@@ -700,6 +832,129 @@ impl VulkanState {
             set_layout: p.set_layout(),
             unit_quad: p.unit_quad_buffer(),
         })
+    }
+
+    fn ensure_glyph_pipeline(&mut self, format: vk::Format) -> Result<GlyphHandles, (RenderResult, String)> {
+        if !self
+            .glyph_pipeline
+            .as_ref()
+            .is_some_and(|p| p.format() == format)
+        {
+            self.glyph_pipeline = Some(GlyphPipeline::new(
+                &self.context,
+                format,
+                self.msaa_samples(),
+            )?);
+        }
+        let p = self.glyph_pipeline.as_ref().unwrap();
+        Ok(GlyphHandles {
+            bitmap: p.bitmap_handle(),
+            sdf: p.sdf_handle(),
+            layout: p.layout(),
+            unit_quad: p.unit_quad_buffer(),
+        })
+    }
+
+    fn ensure_gradient_pipeline(&mut self, format: vk::Format) -> Result<GradientHandles, (RenderResult, String)> {
+        if !self
+            .gradient_pipeline
+            .as_ref()
+            .is_some_and(|p| p.format() == format)
+        {
+            self.gradient_pipeline = Some(GradientPipeline::new(
+                &self.context,
+                format,
+                self.msaa_samples(),
+            )?);
+        }
+        let p = self.gradient_pipeline.as_ref().unwrap();
+        Ok(GradientHandles {
+            handle: p.handle(),
+            layout: p.layout(),
+            set_layout: p.set_layout(),
+            unit_quad: p.unit_quad_buffer(),
+        })
+    }
+
+    fn ensure_path_fill_pipeline(
+        &mut self,
+        format: vk::Format,
+    ) -> Result<PathFillHandles, (RenderResult, String)> {
+        if !self
+            .path_fill_pipeline
+            .as_ref()
+            .is_some_and(|p| p.format() == format)
+        {
+            self.path_fill_pipeline = Some(PathFillPipeline::new(
+                &self.context,
+                format,
+                self.msaa_samples(),
+            )?);
+        }
+        let p = self.path_fill_pipeline.as_ref().unwrap();
+        Ok(PathFillHandles {
+            stencil: p.stencil_handle(),
+            stencil_layout: p.stencil_layout(),
+            cover_solid: p.cover_solid_handle(),
+            cover_gradient: p.cover_gradient_handle(),
+            cover_layout: p.cover_layout(),
+            cover_gradient_layout: p.cover_gradient_layout(),
+            segments_layout: p.segments_set_layout(),
+            unit_quad: p.unit_quad_buffer(),
+        })
+    }
+
+    /// The stencil attachment (D24S8), recreated when the extent changes.
+    fn ensure_stencil(&mut self, extent: vk::Extent2D) -> Result<(), (RenderResult, String)> {
+        if self
+            .stencil
+            .as_ref()
+            .is_some_and(|s| s.extent == extent)
+        {
+            return Ok(());
+        }
+        let device = self.context.device();
+        let allocator = self.context.allocator();
+        let image_info = vk::ImageCreateInfo {
+            image_type: vk::ImageType::TYPE_2D,
+            format: STENCIL_FORMAT,
+            extent: vk::Extent3D {
+                width: extent.width,
+                height: extent.height,
+                depth: 1,
+            },
+            mip_levels: 1,
+            array_layers: 1,
+            samples: vk::SampleCountFlags::TYPE_1,
+            tiling: vk::ImageTiling::OPTIMAL,
+            usage: vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let image = Image::new(device, &image_info)?;
+        let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
+        let allocation = allocator.allocate_image_memory(
+            image.handle(),
+            requirements,
+            MemoryLocation::GpuOnly,
+        )?;
+        unsafe {
+            device.bind_image_memory(image.handle(), allocation.memory(), 0)
+        }
+        .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
+        let view = ImageView::new(
+            device,
+            image.handle(),
+            STENCIL_FORMAT,
+            vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+        )?;
+        self.stencil = Some(StencilTarget {
+            view,
+            image,
+            allocation,
+            extent,
+        });
+        Ok(())
     }
 
     fn ensure_msaa(
@@ -853,33 +1108,48 @@ impl VulkanState {
         self.ensure_msaa(extent, format)?;
         let pipeline = self.ensure_solid_pipeline(format, force_swapped())?;
         let textured = self.ensure_textured_pipeline(format)?;
+        let glyph = self.ensure_glyph_pipeline(format)?;
+        let gradient = self.ensure_gradient_pipeline(format)?;
+        let path_fill = self.ensure_path_fill_pipeline(format)?;
+        self.ensure_stencil(extent)?;
 
         // Encode the frame into the per-frame instance ring. Each ring slot has
         // its own descriptor pool, reset here after the slot's fence signals so
-        // no in-flight descriptor set is ever invalidated.
+        // no in-flight descriptor set is ever invalidated. The uniform and path
+        // rings share the instance ring's slot synchronization (the same fence
+        // protects all buffers), so they advance without a separate wait.
         let surface_size = [extent.width as f32, extent.height as f32];
         let encoded = {
             let ring = self.ring.as_mut().expect("ring initialized");
             ring.begin_frame()?;
+            self.uniform_ring.as_mut().unwrap().begin_frame();
+            self.path_ring.as_mut().unwrap().begin_frame();
             let slot = ring.current_slot();
             self.descriptor_pools[slot].reset()?;
             let textures = Textures {
                 images: &self.images,
+                atlas: &self.atlas,
                 descriptor_pool: self.descriptor_pools[slot].handle(),
                 descriptor_layout: textured.set_layout,
+                gradient_layout: gradient.set_layout,
+                segments_layout: path_fill.segments_layout,
                 sampler_nearest: self.sampler_nearest.as_ref().unwrap().handle(),
                 sampler_bilinear: self.sampler_bilinear.as_ref().unwrap().handle(),
+                uniform_alignment: self.uniform_alignment,
                 device: self.context.device(),
             };
             self.encoder.encode(
                 frame,
                 ring,
+                self.uniform_ring.as_mut().unwrap(),
+                self.path_ring.as_mut().unwrap(),
                 self.context.allocator(),
                 surface_size,
                 &textures,
             )?
         };
         let instance_buffer = self.ring.as_ref().unwrap().current_buffer();
+        let path_buffer = self.path_ring.as_ref().unwrap().current_buffer();
 
         let command_buffer = self.begin_command_buffer()?;
         let device = self.context.device();
@@ -923,6 +1193,34 @@ impl VulkanState {
                 (*view, vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             }
         };
+        // Transition the stencil attachment (cleared to 0 at frame start so the
+        // per-path clears reset it between fills).
+        let stencil_image = self.stencil.as_ref().unwrap().image.handle();
+        let stencil_barrier = vk::ImageMemoryBarrier::default()
+            .old_layout(vk::ImageLayout::UNDEFINED)
+            .new_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(stencil_image)
+            .subresource_range(
+                vk::ImageSubresourceRange::default()
+                    .aspect_mask(
+                        vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
+                    )
+                    .level_count(1)
+                    .layer_count(1),
+            );
+        unsafe {
+            device.cmd_pipeline_barrier(
+                command_buffer,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[stencil_barrier],
+            );
+        }
         let msaa = pipeline.samples != vk::SampleCountFlags::TYPE_1;
         let color_attachment = if msaa {
             vk::RenderingAttachmentInfo::default()
@@ -944,13 +1242,25 @@ impl VulkanState {
                 .clear_value(clear)
         };
         let color_attachments = [color_attachment];
+        let stencil_attachment = vk::RenderingAttachmentInfo::default()
+            .image_view(self.stencil.as_ref().unwrap().view.handle())
+            .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 0.0,
+                    stencil: 0,
+                },
+            });
         let rendering_info = vk::RenderingInfo::default()
             .render_area(vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent,
             })
             .layer_count(1)
-            .color_attachments(&color_attachments);
+            .color_attachments(&color_attachments)
+            .stencil_attachment(&stencil_attachment);
         unsafe {
             device.cmd_begin_rendering(command_buffer, &rendering_info);
             device.cmd_set_viewport(
@@ -966,16 +1276,20 @@ impl VulkanState {
                 }],
             );
             for group in &encoded.groups {
-                // Textured groups bind the sampler pipeline + their descriptor
-                // set; solid groups use the solid pipeline. Both pipelines
-                // share the unit-quad (binding 0) + instance (binding 1) layout,
-                // so the vertex buffers are re-bound per group with the active
-                // pipeline's unit quad.
-                let is_textured = group.descriptor_set.is_some();
-                let (pipe, pipe_layout, unit_quad) = if is_textured {
-                    (textured.handle, textured.layout, textured.unit_quad)
-                } else {
-                    (pipeline.handle, pipeline.layout, pipeline.unit_quad)
+                // Select the pipeline + unit quad for the group's kind. Solid,
+                // textured, and glyph pipelines share the unit-quad (binding 0)
+                // + instance (binding 1) layout, so the vertex buffers are
+                // re-bound per group with the active pipeline's unit quad.
+                let (pipe, pipe_layout, unit_quad) = match group.kind {
+                    DrawKind::Solid => (pipeline.handle, pipeline.layout, pipeline.unit_quad),
+                    DrawKind::Textured => {
+                        (textured.handle, textured.layout, textured.unit_quad)
+                    }
+                    DrawKind::GlyphBitmap => (glyph.bitmap, glyph.layout, glyph.unit_quad),
+                    DrawKind::GlyphSdf => (glyph.sdf, glyph.layout, glyph.unit_quad),
+                    DrawKind::Gradient => {
+                        (gradient.handle, gradient.layout, gradient.unit_quad)
+                    }
                 };
                 device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipe);
                 let vertex_buffers = [unit_quad, instance_buffer];
@@ -1012,6 +1326,118 @@ impl VulkanState {
                     group.first_instance,
                 );
             }
+
+            // Stencil-buffer path fills (Slice 7): clear the path's stencil
+            // region, accumulate the winding number over the flattened
+            // triangles, then fill the path's bounding quad keeping only
+            // nonzero-winding fragments.
+            for fill in &encoded.path_fills {
+                // Clear the stencil within the path's world bounds.
+                let clear_rect = clear_rect_for(fill.clear_rect, extent);
+                let clear_attachment = vk::ClearAttachment {
+                    aspect_mask: vk::ImageAspectFlags::STENCIL,
+                    color_attachment: 0,
+                    clear_value: vk::ClearValue {
+                        depth_stencil: vk::ClearDepthStencilValue {
+                            depth: 0.0,
+                            stencil: 0,
+                        },
+                    },
+                };
+                device.cmd_clear_attachments(
+                    command_buffer,
+                    &[clear_attachment],
+                    &[vk::ClearRect {
+                        rect: clear_rect,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    }],
+                );
+
+                // Winding pass.
+                device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    path_fill.stencil,
+                );
+                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                }]);
+                let stencil_push = PushConstants::default_for_stencil(fill.bottom_center_x, surface_size);
+                device.cmd_push_constants(
+                    command_buffer,
+                    path_fill.stencil_layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    &stencil_push.bytes(),
+                );
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &[path_buffer], &[0]);
+                device.cmd_draw(
+                    command_buffer,
+                    fill.vertex_count,
+                    1,
+                    fill.first_vertex,
+                    0,
+                );
+                // Cover pass: solid or gradient brush, gated by stencil != 0,
+                // with the winding coverage computed from the contour edges.
+                let cover_pipe = if fill.push.brush_kind == BRUSH_LINEAR_GRADIENT {
+                    path_fill.cover_gradient
+                } else {
+                    path_fill.cover_solid
+                };
+                device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    cover_pipe,
+                );
+                // Set 0: gradient UBO (gradient covers only). Set 1: contour
+                // edges storage buffer (always). The gradient cover's layout
+                // differs at set 0 (UBO vs empty).
+                let cover_layout = if fill.push.brush_kind == BRUSH_LINEAR_GRADIENT {
+                    path_fill.cover_gradient_layout
+                } else {
+                    path_fill.cover_layout
+                };
+                if let Some(set) = fill.gradient_descriptor {
+                    device.cmd_bind_descriptor_sets(
+                        command_buffer,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        cover_layout,
+                        0,
+                        &[set],
+                        &[],
+                    );
+                }
+                device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    cover_layout,
+                    1,
+                    &[fill.segments_descriptor],
+                    &[],
+                );
+                let cover_scissor = clip_scissor(&fill.push, extent);
+                device.cmd_set_scissor(command_buffer, 0, &[cover_scissor]);
+                device.cmd_push_constants(
+                    command_buffer,
+                    cover_layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    &fill.push.bytes(),
+                );
+                let cover_buffers = [path_fill.unit_quad, instance_buffer];
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &cover_buffers, &[0, 0]);
+                device.cmd_draw(
+                    command_buffer,
+                    6,
+                    1,
+                    0,
+                    fill.cover_first_instance,
+                );
+            }
+
             device.cmd_end_rendering(command_buffer);
         }
 
@@ -1313,8 +1739,7 @@ impl VulkanState {
 /// (Slice 3 forward, clip-mechanism benchmark). The scissor covers
 /// [floor(min), ceil(max)] so it never culls a pixel the fragment discard would
 /// keep; the shader discard handles the exact float clip boundary.
-fn clip_scissor(push: &crate::pipeline::PushConstants, extent: vk::Extent2D) -> vk::Rect2D {
-    if push.clip_active == 0 {
+fn clip_scissor(push: &crate::pipeline::PushConstants, extent: vk::Extent2D) -> vk::Rect2D {    if push.clip_active == 0 {
         return vk::Rect2D {
             offset: vk::Offset2D { x: 0, y: 0 },
             extent,
@@ -1324,6 +1749,22 @@ fn clip_scissor(push: &crate::pipeline::PushConstants, extent: vk::Extent2D) -> 
     let y = push.clip_min[1].floor() as i32;
     let max_x = (push.clip_min[0] + push.clip_size[0]).ceil() as i32;
     let max_y = (push.clip_min[1] + push.clip_size[1]).ceil() as i32;
+    vk::Rect2D {
+        offset: vk::Offset2D { x, y },
+        extent: vk::Extent2D {
+            width: (max_x - x).max(0) as u32,
+            height: (max_y - y).max(0) as u32,
+        },
+    }
+}
+
+/// Clamps a world-space rect to the render area and converts it to an integer
+/// `vk::Rect2D` for `vkCmdClearAttachments`.
+fn clear_rect_for(rect: crate::frame::Rect, extent: vk::Extent2D) -> vk::Rect2D {
+    let x = rect.min.x.floor().max(0.0) as i32;
+    let y = rect.min.y.floor().max(0.0) as i32;
+    let max_x = rect.max.x.ceil().min(extent.width as f32) as i32;
+    let max_y = rect.max.y.ceil().min(extent.height as f32) as i32;
     vk::Rect2D {
         offset: vk::Offset2D { x, y },
         extent: vk::Extent2D {

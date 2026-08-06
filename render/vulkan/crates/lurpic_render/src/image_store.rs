@@ -38,6 +38,7 @@ pub enum ImageFormat {
 /// Host-side copy of an uploaded image, retained for the `cpu-fallback` raster
 /// (headless/no-GPU builds) and for unit tests.
 #[cfg(any(feature = "cpu-fallback", test))]
+#[allow(dead_code)] // fields consumed by the cpu-fallback raster (Slice 4 note)
 #[derive(Clone, Debug)]
 pub struct ImageBitmap {
     pub width: u32,
@@ -470,6 +471,7 @@ mod host {
 }
 
 #[cfg(any(feature = "cpu-fallback", test))]
+#[allow(unused_imports)] // consumed by the cpu-fallback raster and lib.rs routing
 pub use host::{create_image, destroy_image, lookup_image, reset_images};
 
 #[cfg(test)]

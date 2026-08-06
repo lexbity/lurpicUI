@@ -1,8 +1,9 @@
-//! The textured-quad pipeline (Slice 4): sampler-bound instanced quads for
-//! `DrawImage`/`DrawTexture`. Each instance is one quad carrying the dest rect
-//! (local xywh) and the src rect (texture-space xywh); the vertex shader
-//! applies the push-constant transform and derives the UV, the fragment shader
-//! samples a combined image sampler bound per draw group via a descriptor set.
+//! The gradient pipeline (Slice 6): instanced quads for rect fills/strokes
+//! with a `BrushLinearGradient`. The vertex shader is shared with the solid
+//! pipeline (instanced rect + push-constant transform); the fragment shader
+//! computes the gradient color per pixel from the push-constant start/end and a
+//! per-group gradient UBO (set 0 binding 0). The premultiplied brush color in
+//! the instance record is unused.
 
 use ash::vk;
 
@@ -12,25 +13,16 @@ use crate::gpu::resources::{DescriptorSetLayout, Pipeline, PipelineLayout};
 use crate::pipeline::{build_graphics_pipeline, quad_vertex_input};
 use crate::RenderResult;
 
-const VERT_SPV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/textured.vert.spv"));
-const FRAG_SPV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/textured.frag.spv"));
+// The gradient pipeline reuses the solid vertex shader (identical instance
+// layout + push-constant transform).
+const VERT_SPV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/solid.vert.spv"));
+const FRAG_SPV: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/gradient.frag.spv"));
 
-/// The static unit-quad corners as two triangles (TRIANGLE_LIST), shared by
-/// every textured instance (identical geometry to the solid pipeline's quad).
-const UNIT_QUAD: [[f32; 2]; 6] = [
-    [0.0, 0.0],
-    [1.0, 0.0],
-    [1.0, 1.0],
-    [0.0, 0.0],
-    [1.0, 1.0],
-    [0.0, 1.0],
-];
+/// Descriptor set layout binding for the gradient pipeline: set 0 binding 0 is
+/// the gradient-stops uniform buffer.
+pub const UBO_BINDING: u32 = 0;
 
-/// Descriptor set layout binding for the textured pipeline: set 0 binding 0 is
-/// the combined image sampler the fragment shader samples.
-pub const SAMPLER_BINDING: u32 = 0;
-
-pub struct TexturedPipeline {
+pub struct GradientPipeline {
     #[allow(dead_code)] // held for arena lifetime (dropped with the context)
     device: ash::Device,
     pipeline: Pipeline,
@@ -42,7 +34,7 @@ pub struct TexturedPipeline {
     samples: vk::SampleCountFlags,
 }
 
-impl TexturedPipeline {
+impl GradientPipeline {
     pub fn new(
         ctx: &dyn GpuContext,
         format: vk::Format,
@@ -50,16 +42,13 @@ impl TexturedPipeline {
     ) -> Result<Self, (RenderResult, String)> {
         let device = ctx.device();
 
-        let set_layout = DescriptorSetLayout::new(
-            device,
-            &[vk::DescriptorSetLayoutBinding {
-                binding: SAMPLER_BINDING,
-                descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
-                descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::FRAGMENT,
-                ..Default::default()
-            }],
-        )?;
+        let set_layout = DescriptorSetLayout::new(device, &[vk::DescriptorSetLayoutBinding {
+            binding: UBO_BINDING,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            ..Default::default()
+        }])?;
         let (pipeline, layout) = build_graphics_pipeline(
             ctx,
             VERT_SPV,
@@ -75,8 +64,17 @@ impl TexturedPipeline {
             None,
         )?;
 
+
         let mut quad_bytes = [0u8; 48];
-        for (i, corner) in UNIT_QUAD.iter().enumerate() {
+        let unit_quad: [[f32; 2]; 6] = [
+            [0.0, 0.0],
+            [1.0, 0.0],
+            [1.0, 1.0],
+            [0.0, 0.0],
+            [1.0, 1.0],
+            [0.0, 1.0],
+        ];
+        for (i, corner) in unit_quad.iter().enumerate() {
             quad_bytes[i * 8..i * 8 + 4].copy_from_slice(&corner[0].to_le_bytes());
             quad_bytes[i * 8 + 4..i * 8 + 8].copy_from_slice(&corner[1].to_le_bytes());
         }
@@ -106,19 +104,14 @@ impl TexturedPipeline {
         self.layout.handle()
     }
 
-    /// The descriptor set layout the frame encoder allocates per-draw-group
-    /// sets from.
+    /// The descriptor set layout the frame encoder allocates gradient UBO sets
+    /// from.
     pub fn set_layout(&self) -> vk::DescriptorSetLayout {
         self.set_layout.handle()
     }
 
     pub fn unit_quad_buffer(&self) -> vk::Buffer {
         self.unit_quad_buffer.buffer()
-    }
-
-    #[allow(dead_code)] // MSAA is selected on the solid pipeline's samples
-    pub fn samples(&self) -> vk::SampleCountFlags {
-        self.samples
     }
 
     pub fn format(&self) -> vk::Format {

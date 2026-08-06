@@ -392,6 +392,195 @@ func BenchmarkVulkanSubmit_Textures(b *testing.B) {
 	}
 }
 
+// BenchmarkVulkanSubmit_Glyphs measures the Slice 5 glyph pipeline: pooled
+// encode (with the Go-side raster cache warm) -> offscreen render through the
+// packed-atlas pipelines -> readback. Glyphs are uploaded once; the timed loop
+// exercises the atlas-sampled draw path with zero Go allocations.
+//
+// Hard gates:
+//   - NFR-6: AllocsPerOp(0).
+//   - NFR-2: <= 16.7 ms per frame at 1080p.
+func BenchmarkVulkanSubmit_Glyphs(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	reg, err := text.NewFontRegistry()
+	if err != nil {
+		b.Fatalf("NewFontRegistry: %v", err)
+	}
+	if err := reg.LoadFontBytes(fontdata.TestFontBytes(), "Noto Sans"); err != nil {
+		b.Fatalf("LoadFontBytes: %v", err)
+	}
+	face := reg.Resolve(text.TextStyle{Family: "Noto Sans", Size: 16})
+	adv := float32(12)
+	glyphs := []text.PositionedGlyph{
+		{GlyphID: 65, X: 0, Y: 0, Advance: adv},
+		{GlyphID: 66, X: adv, Y: 0, Advance: adv},
+		{GlyphID: 67, X: 2 * adv, Y: 0, Advance: adv},
+		{GlyphID: 68, X: 3 * adv, Y: 0, Advance: adv},
+	}
+
+	const runs = 500 // 2000 glyph draws
+	cmds := make([]gfx.Command, 0, runs)
+	for i := 0; i < runs; i++ {
+		x := float32((i % 50) * 38)
+		y := float32((i/50)*26 + 16)
+		run := text.GlyphRun{
+			Face: face, Size: 16, Style: text.TextStyle{Family: "Noto Sans", Size: 16},
+			Glyphs: glyphs,
+		}
+		cmds = append(cmds, gfx.DrawGlyphRun{
+			Run:    run,
+			Origin: gfx.Point{X: x, Y: y},
+			Brush:  gfx.SolidBrush(gfx.ColorFromRGBA8(20, 20, 24, 255)),
+		})
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
+			Commands: gfx.CommandList{Commands: cmds},
+		}},
+	}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
+	}
+}
+
+// BenchmarkVulkanSubmit_Gradients measures the Slice 6 gradient pipeline:
+// pooled encode (gradient UBOs bump-allocated into the per-frame uniform ring)
+// -> offscreen render -> readback. Distinct gradients exercise multiple UBO
+// descriptor sets; the timed loop is allocation-free on the Go side.
+//
+// Hard gates:
+//   - NFR-6: AllocsPerOp(0).
+//   - NFR-2: <= 16.7 ms per frame at 1080p.
+func BenchmarkVulkanSubmit_Gradients(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	// 24 distinct gradients, each filling one row of consecutive rects so the
+	// encoder batches each row into one UBO group (realistic: same-gradient
+	// fills are usually emitted consecutively).
+	const gradients = 24
+	const perRow = 48
+	cmds := make([]gfx.Command, 0, gradients*perRow)
+	for g := 0; g < gradients; g++ {
+		start := gfx.ColorFromRGBA8(120, 40+uint8((g*13)%200), 40, 255)
+		end := gfx.ColorFromRGBA8(40, 120, 40+uint8((g*29)%200), 255)
+		brush := gfx.LinearGradientBrush(
+			gfx.Point{X: 0, Y: 0},
+			gfx.Point{X: 64, Y: 0},
+			[]gfx.GradientStop{{Offset: 0, Color: start}, {Offset: 1, Color: end}},
+		)
+		y := float32(g * (h / gradients))
+		for k := 0; k < perRow; k++ {
+			x := float32(k * 40)
+			cmds = append(cmds, gfx.FillRect{Rect: gfx.RectFromXYWH(x, y, 64, h/gradients), Brush: brush})
+		}
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
+			Commands: gfx.CommandList{Commands: cmds},
+		}},
+	}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
+	}
+}
+
 func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 	b.Helper()
 	reg, err := text.NewFontRegistry()
@@ -429,5 +618,109 @@ func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 				Commands:    gfx.CommandList{Commands: cmds},
 			},
 		},
+	}
+}
+
+// chartAreaPath builds a chart-area fill path (the shape `marks/viz/area.go`
+// emits: a data-line top edge + reverse baseline closure) with `teeth` zigzag
+// segments across `w` x `h`. This is the Slice 7 reference scene: a single
+// large `FillPath` whose cover quad spans the frame.
+func chartAreaPath(w, h int, teeth int) gfx.Path {
+	const margin = 40
+	p := gfx.NewPath().MoveTo(gfx.Point{X: margin, Y: float32(h - margin)})
+	step := (float32(w) - 2*margin) / float32(teeth)
+	for i := 0; i <= teeth; i++ {
+		x := margin + float32(i)*step
+		amp := float32(h - 2*margin)
+		y := float32(margin) + amp*float32(i%2)
+		p = p.LineTo(gfx.Point{X: x, Y: y})
+	}
+	// Close along the baseline (top edge -> bottom-right -> bottom-left).
+	p = p.
+		LineTo(gfx.Point{X: float32(w - margin), Y: float32(h - margin)}).
+		LineTo(gfx.Point{X: margin, Y: float32(h - margin)}).
+		Close()
+	return p.Build()
+}
+
+// BenchmarkVulkanSubmit_PathFill measures the Slice 7 stencil path-fill
+// pipeline: pooled encode -> per-frame path ring (flattened winding triangles)
+// -> stencil winding pass + 12x12-supersample cover -> readback. The reference
+// scene is a full-frame chart-area fill (20 teeth, 42 edges) at 1080p — 4x the
+// spec's chart fixture's point count, representative of a real dashboard area
+// chart. (Measured: 42 edges ~6.7ms, 162 edges ~18ms at 1080p; the per-tile /
+// y-bucket follow-on in the spec's Q2 note addresses chart-heavy scenes.)
+//
+// Hard gates:
+//   - NFR-6: AllocsPerOp(0) — the per-frame submission must allocate zero Go
+//     bytes steady-state (the path is prebuilt; encode is pooled; the output
+//     buffer is reused).
+//   - NFR-2: <= 16.7 ms per frame at 1080p for the chart fixture.
+func BenchmarkVulkanSubmit_PathFill(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	const teeth = 20
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
+			Commands: gfx.CommandList{Commands: []gfx.Command{
+				gfx.FillPath{
+					Path:  chartAreaPath(w, h, teeth),
+					Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(60, 120, 200, 255)),
+				},
+			}},
+		}},
+	}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
+	// Warm up: the first call compiles the path-fill pipelines and allocates
+	// the 1080p targets; the timed loop measures steady-state submits.
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
 	}
 }

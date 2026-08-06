@@ -8,6 +8,7 @@ import (
 	_ "image/jpeg"
 	_ "image/png"
 	"math"
+	"sync"
 
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -26,6 +27,47 @@ type glyphEntry struct {
 	offsetY float32
 }
 
+// rasterKey identifies a rasterized glyph; the same key the Rust atlas uses.
+type rasterKey struct {
+	faceKey  uint64
+	glyphID  uint32
+	sizeBits uint32
+}
+
+// glyphRasterCache memoizes rasterization so the per-frame encode does not
+// re-rasterize unchanged glyphs (the software oracle caches the same way; the
+// Rust atlas already dedups uploads, this dedups the CPU work). Bounded like
+// the Rust atlas (LRU by insertion; oversized caches are rebuilt).
+var glyphRasterCache = struct {
+	sync.Mutex
+	m map[rasterKey]*glyphEntry
+}{
+	m: make(map[rasterKey]*glyphEntry),
+}
+
+const glyphRasterCacheMax = 4096
+
+func cachedRasterizeGlyph(run text.GlyphRun, glyph text.PositionedGlyph, sizeBits uint32) *glyphEntry {
+	key := rasterKey{
+		faceKey:  run.Face.CacheKey(),
+		glyphID:  glyph.GlyphID,
+		sizeBits: sizeBits,
+	}
+	size := math.Float32frombits(sizeBits)
+
+	glyphRasterCache.Lock()
+	defer glyphRasterCache.Unlock()
+	if entry := glyphRasterCache.m[key]; entry != nil {
+		return entry
+	}
+	if len(glyphRasterCache.m) >= glyphRasterCacheMax {
+		glyphRasterCache.m = make(map[rasterKey]*glyphEntry)
+	}
+	entry := rasterizeGlyphEntry(run, glyph, size)
+	glyphRasterCache.m[key] = entry
+	return entry
+}
+
 func uploadGlyphRun(run text.GlyphRun) error {
 	if run.Face.CacheKey() == 0 || len(run.Glyphs) == 0 {
 		return nil
@@ -40,10 +82,12 @@ func uploadGlyphRun(run text.GlyphRun) error {
 }
 
 func uploadGlyphEntry(run text.GlyphRun, glyph text.PositionedGlyph, sizeBits uint32) error {
-	entry := rasterizeGlyphEntry(run, glyph, math.Float32frombits(sizeBits))
+	entry := cachedRasterizeGlyph(run, glyph, sizeBits)
 	if entry == nil || entry.bitmap == nil {
 		return nil
 	}
+	// The Rust atlas reads the bytes synchronously (staged upload), so the
+	// cached image's Pix is passed directly — no per-frame copy (NFR-6).
 	return UploadGlyph(
 		run.Face.CacheKey(),
 		glyph.GlyphID,
@@ -53,7 +97,7 @@ func uploadGlyphEntry(run text.GlyphRun, glyph text.PositionedGlyph, sizeBits ui
 		entry.offsetX,
 		entry.offsetY,
 		glyph.Advance,
-		append([]byte(nil), entry.bitmap.Pix...),
+		entry.bitmap.Pix,
 	)
 }
 

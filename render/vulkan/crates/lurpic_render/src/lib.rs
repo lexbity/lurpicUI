@@ -24,6 +24,7 @@ pub mod gpu;
 #[cfg(feature = "cpu-fallback")]
 mod raster;
 mod image_store;
+mod path_flatten;
 mod pipeline;
 mod pipeline_cache;
 mod ring_buffer;
@@ -335,6 +336,8 @@ pub extern "C" fn lurpic_render_test_reset() -> RenderResult {
     catch_render_result("test_reset", || {
         let _guard = state_lock_guard();
         registry().clear();
+        vulkan::reset_atlas();
+        #[cfg(feature = "cpu-fallback")]
         atlas::reset_atlas();
         vulkan::reset_images();
         #[cfg(feature = "cpu-fallback")]
@@ -629,19 +632,17 @@ pub extern "C" fn lurpic_render_upload_glyph(
                 "glyph bitmap is truncated".to_string(),
             ));
         }
-        atlas::upload_glyph(
+        upload_glyph_routed(
             font_id,
             glyph_id,
             size_bits,
-            atlas::GlyphBitmap {
-                width,
-                height,
-                pixels: data[..expected].to_vec(),
-                offset_x,
-                offset_y,
-                advance,
-            },
-        );
+            &data[..expected],
+            width,
+            height,
+            offset_x,
+            offset_y,
+            advance,
+        )?;
         Ok(())
     })
 }
@@ -740,8 +741,62 @@ fn destroy_image_routed(handle: u64) -> Result<(), (RenderResult, String)> {
     }
 }
 
+/// Routes glyph upload to the packed GPU atlas when the renderer is initialized
+/// (Slice 5 backing), and to the `cpu-fallback` host atlas otherwise (headless
+/// builds). With no renderer and no cpu-fallback, the upload is a no-op: packet
+/// encoding is renderer-independent, and a frame cannot be submitted without a
+/// renderer anyway.
+fn upload_glyph_routed(
+    font_id: u64,
+    glyph_id: u32,
+    size_bits: u32,
+    mask: &[u8],
+    width: u32,
+    height: u32,
+    offset_x: f32,
+    offset_y: f32,
+    advance: f32,
+) -> Result<(), (RenderResult, String)> {
+    if vulkan::is_initialized() {
+        return vulkan::upload_glyph(
+            font_id,
+            glyph_id,
+            size_bits,
+            mask,
+            width,
+            height,
+            offset_x,
+            offset_y,
+            advance,
+        );
+    }
+    #[cfg(feature = "cpu-fallback")]
+    {
+        atlas::upload_glyph(
+            font_id,
+            glyph_id,
+            size_bits,
+            atlas::GlyphBitmap {
+                width,
+                height,
+                pixels: mask.to_vec(),
+                offset_x,
+                offset_y,
+                advance,
+            },
+        );
+        return Ok(());
+    }
+    #[cfg(not(feature = "cpu-fallback"))]
+    {
+        Ok(())
+    }
+}
+
 #[no_mangle]
 pub extern "C" fn lurpic_render_reset_atlas() {
+    vulkan::reset_atlas();
+    #[cfg(feature = "cpu-fallback")]
     atlas::reset_atlas();
 }
 
@@ -749,14 +804,14 @@ pub extern "C" fn lurpic_render_reset_atlas() {
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_glyph_atlas_count() -> u64 {
     clear_last_error();
-    atlas::atlas_stats().0 as u64
+    vulkan::glyph_stats().0 as u64
 }
 
 #[cfg(feature = "test-exports")]
 #[no_mangle]
 pub extern "C" fn lurpic_render_test_glyph_atlas_evictions() -> u64 {
     clear_last_error();
-    atlas::atlas_stats().1 as u64
+    vulkan::glyph_stats().1 as u64
 }
 
 #[cfg(any(test, feature = "test-exports"))]

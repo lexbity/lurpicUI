@@ -155,6 +155,140 @@ func geometryFixtures() []equivalence.FrameFixture {
 			},
 		},
 		fixture{
+			name: "path_convex", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// A convex pentagon.
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 32, Y: 8}).
+					LineTo(gfx.Point{X: 52, Y: 24}).
+					LineTo(gfx.Point{X: 44, Y: 48}).
+					LineTo(gfx.Point{X: 20, Y: 48}).
+					LineTo(gfx.Point{X: 12, Y: 24}).
+					Close().Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "path_concave", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// A concave star-like shape (a notch carved into a square).
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 10, Y: 10}).
+					LineTo(gfx.Point{X: 50, Y: 10}).
+					LineTo(gfx.Point{X: 50, Y: 50}).
+					LineTo(gfx.Point{X: 40, Y: 50}).
+					LineTo(gfx.Point{X: 40, Y: 30}).
+					LineTo(gfx.Point{X: 20, Y: 30}).
+					LineTo(gfx.Point{X: 20, Y: 50}).
+					LineTo(gfx.Point{X: 10, Y: 50}).
+					Close().Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(blue)},
+				)
+			},
+		},
+		fixture{
+			name: "path_self_intersecting", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// A figure-eight (bowtie): the lobes have opposite winding; the
+				// nonzero rule fills both.
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 14, Y: 16}).
+					LineTo(gfx.Point{X: 50, Y: 16}).
+					LineTo(gfx.Point{X: 14, Y: 48}).
+					LineTo(gfx.Point{X: 50, Y: 48}).
+					Close().Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(green)},
+				)
+			},
+		},
+		fixture{
+			name: "path_with_hole", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// An outer square with an inner hole (opposite winding).
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 8, Y: 8}).
+					LineTo(gfx.Point{X: 56, Y: 8}).
+					LineTo(gfx.Point{X: 56, Y: 56}).
+					LineTo(gfx.Point{X: 8, Y: 56}).
+					Close().
+					MoveTo(gfx.Point{X: 24, Y: 24}).
+					LineTo(gfx.Point{X: 24, Y: 40}).
+					LineTo(gfx.Point{X: 40, Y: 40}).
+					LineTo(gfx.Point{X: 40, Y: 24}).
+					Close().Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "path_quadratic_curve", width: 64, height: 64,
+			frame: func() *render.Frame {
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 10, Y: 50}).
+					QuadTo(gfx.Point{X: 16, Y: 14}, gfx.Point{X: 32, Y: 14}).
+					QuadTo(gfx.Point{X: 48, Y: 14}, gfx.Point{X: 54, Y: 50}).
+					LineTo(gfx.Point{X: 10, Y: 50}).
+					Close().Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(green)},
+				)
+			},
+		},
+		fixture{
+			name: "path_cubic_curve", width: 64, height: 64,
+			frame: func() *render.Frame {
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 8, Y: 40}).
+					CubicTo(gfx.Point{X: 16, Y: 8}, gfx.Point{X: 48, Y: 8}, gfx.Point{X: 56, Y: 40}).
+					LineTo(gfx.Point{X: 8, Y: 40}).
+					Close().Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(blue)},
+				)
+			},
+		},
+		fixture{
+			name: "path_many_segments", width: 128, height: 128,
+			frame: func() *render.Frame {
+				var path gfx.Path
+				for i := 0; i < 200; i++ {
+					seg := gfx.RectPath(gfx.RectFromXYWH(
+						float32((i%10)*12)+4, float32((i/10)*12)+4, 8, 8,
+					))
+					path.Segments = append(path.Segments, seg.Segments...)
+				}
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 128, 128), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "chart_area_fill", width: 128, height: 96,
+			frame: func() *render.Frame {
+				// A chart area: a baseline with a sawtooth top edge.
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 8, Y: 88}).
+					LineTo(gfx.Point{X: 8, Y: 60}).
+					LineTo(gfx.Point{X: 24, Y: 40}).
+					LineTo(gfx.Point{X: 40, Y: 70}).
+					LineTo(gfx.Point{X: 56, Y: 32}).
+					LineTo(gfx.Point{X: 72, Y: 64}).
+					LineTo(gfx.Point{X: 88, Y: 28}).
+					LineTo(gfx.Point{X: 104, Y: 52}).
+					LineTo(gfx.Point{X: 120, Y: 20}).
+					LineTo(gfx.Point{X: 120, Y: 88}).
+					Close().Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 128, 96), 1,
+					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(green)},
+				)
+			},
+		},
+		fixture{
 			// Wire-level only: DrawBlurredShadow is not rendered by the GPU
 			// pipeline until Slice 9. It must round-trip so the corpus covers
 			// every v2 opcode.
@@ -270,6 +404,78 @@ func geometryFixtures() []equivalence.FrameFixture {
 						{Offset: 0.25, Color: gfx.ColorFromRGBA8(240, 200, 60, 255)},
 						{Offset: 0.5, Color: green},
 						{Offset: 0.75, Color: gfx.ColorFromRGBA8(80, 180, 220, 255)},
+						{Offset: 1, Color: blue},
+					},
+				)
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillPath{Path: gfx.RectPath(gfx.RectFromXYWH(4, 4, 56, 56)), Brush: brush},
+				)
+			},
+		},
+		fixture{
+			name: "gradient_5stop_rect", width: 64, height: 64,
+			frame: func() *render.Frame {
+				brush := gfx.LinearGradientBrush(
+					gfx.Point{X: 0, Y: 0},
+					gfx.Point{X: 64, Y: 0},
+					[]gfx.GradientStop{
+						{Offset: 0, Color: red},
+						{Offset: 0.25, Color: gfx.ColorFromRGBA8(240, 200, 60, 255)},
+						{Offset: 0.5, Color: green},
+						{Offset: 0.75, Color: gfx.ColorFromRGBA8(80, 180, 220, 255)},
+						{Offset: 1, Color: blue},
+					},
+				)
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.FillRect{Rect: gfx.RectFromXYWH(4, 4, 56, 56), Brush: brush},
+				)
+			},
+		},
+		fixture{
+			name: "gradient_rotated", width: 64, height: 64,
+			frame: func() *render.Frame {
+				brush := gfx.LinearGradientBrush(
+					gfx.Point{X: 0, Y: 32},
+					gfx.Point{X: 64, Y: 32},
+					[]gfx.GradientStop{
+						{Offset: 0, Color: red},
+						{Offset: 1, Color: blue},
+					},
+				)
+				rot := gfx.Rotation(45 * math.Pi / 180)
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.PushTransform{Matrix: gfx.Translation(32, 32).Multiply(rot).Multiply(gfx.Translation(-20, -20))},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 24, 24), Brush: brush},
+					gfx.PopTransform{},
+				)
+			},
+		},
+		fixture{
+			name: "gradient_stroke_rect", width: 64, height: 64,
+			frame: func() *render.Frame {
+				brush := gfx.LinearGradientBrush(
+					gfx.Point{X: 0, Y: 0},
+					gfx.Point{X: 64, Y: 0},
+					[]gfx.GradientStop{
+						{Offset: 0, Color: red},
+						{Offset: 1, Color: blue},
+					},
+				)
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokeRect{Rect: gfx.RectFromXYWH(10, 10, 40, 40), Stroke: gfx.DefaultStroke(4), Brush: brush},
+				)
+			},
+		},
+		fixture{
+			// A gradient on a FillPath: the path fill pipeline (stencil, Slice 7)
+			// is required, so this is deferred with the other path fixtures.
+			name: "gradient_in_path", width: 64, height: 64,
+			frame: func() *render.Frame {
+				brush := gfx.LinearGradientBrush(
+					gfx.Point{X: 0, Y: 0},
+					gfx.Point{X: 64, Y: 0},
+					[]gfx.GradientStop{
+						{Offset: 0, Color: red},
 						{Offset: 1, Color: blue},
 					},
 				)

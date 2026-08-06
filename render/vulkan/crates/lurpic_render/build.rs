@@ -47,6 +47,16 @@ fn compile_shaders(manifest_dir: &Path) {
     for (path, _, _) in shader_entries(&src) {
         println!("cargo:rerun-if-changed={}", path.display());
     }
+    // Track shared GLSL includes (e.g. coverage.glsl) so a shader edit that
+    // only touches an include recompiles the dependents.
+    if let Ok(entries) = std::fs::read_dir(&src) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) == Some("glsl") {
+                println!("cargo:rerun-if-changed={}", path.display());
+            }
+        }
+    }
 
     // Baseline: copy the checked-in SPIR-V so `include_bytes!` works even when
     // glslc is unavailable (offline CI). glslc, when present, overwrites it.
