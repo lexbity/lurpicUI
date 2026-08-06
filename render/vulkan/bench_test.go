@@ -581,6 +581,94 @@ func BenchmarkVulkanSubmit_Gradients(b *testing.B) {
 	}
 }
 
+// BenchmarkVulkanSubmit_Shadows measures the Slice 9 shadow pipeline: pooled
+// encode -> per-shadow R8 mask pass + separable Gaussian (H then V) + tinted
+// composite -> readback. The reference scene is an elevation dashboard: 12 card
+// shadows (blur 8) at 1080p, each with the card rect drawn over it.
+//
+// Hard gates:
+//   - NFR-6: AllocsPerOp(0) — the per-frame shadow encode must allocate zero Go
+//     bytes steady-state.
+//   - NFR-2: <= 16.7 ms per frame at 1080p.
+func BenchmarkVulkanSubmit_Shadows(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	const cards = 12
+	cmds := make([]gfx.Command, 0, cards*2)
+	for i := 0; i < cards; i++ {
+		x := float32((i % 6) * 300)
+		y := float32((i / 6) * 320)
+		card := gfx.RectFromXYWH(x+40, y+60, 220, 260)
+		cmds = append(cmds, gfx.DrawBlurredShadow{
+			Path:       gfx.RoundedRectPath(card, 16),
+			Color:      gfx.ColorFromRGBA8(0, 0, 0, 120),
+			BlurRadius: 8,
+			Offset:     gfx.Point{X: 0, Y: 6},
+			Inner:      false,
+		})
+		cmds = append(cmds, gfx.FillRect{
+			Rect:  card,
+			Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(240, 240, 244, 255)),
+		})
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
+			Commands: gfx.CommandList{Commands: cmds},
+		}},
+	}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
+	}
+}
+
 func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 	b.Helper()
 	reg, err := text.NewFontRegistry()

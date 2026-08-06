@@ -429,6 +429,8 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, RenderBatch 
 			drawImage(target, state, c)
 		case gfx.DrawTexture:
 			r.drawTexture(target, state, c)
+		case gfx.DrawBlurredShadow:
+			drawBlurredShadow(target, state, c)
 		case gfx.BeginRenderBatch, gfx.EndRenderBatch:
 		}
 	}
@@ -515,6 +517,157 @@ func drawPoints(target *image.RGBA, state renderState, pts []gfx.Point, radius f
 	}
 	for _, p := range pts {
 		fillRect(target, state, gfx.RectFromXYWH(p.X-radius, p.Y-radius, radius*2, radius*2), brush)
+	}
+}
+
+// drawBlurredShadow renders a soft shadow (Slice 9) with feature parity to the
+// GPU blur pipeline: the path is rasterized to an 8-bit coverage mask over the
+// path's bounds expanded by `round(blurRadius)` (integer-aligned so the mask
+// array indices coincide with the GPU's texel grid), blurred by a separable
+// Gaussian (sigma = radius/3, kernel = exp(-i^2 / 2 sigma^2) normalized), and
+// composited tinted with the premultiplied shadow color at the offset, clipped
+// to the active clip rect. `Inner` inverts the mask source before blurring.
+func drawBlurredShadow(target *image.RGBA, state renderState, cmd gfx.DrawBlurredShadow) {
+	if target == nil || len(cmd.Path.Segments) == 0 || cmd.Color.A <= 0 {
+		return
+	}
+
+	var transformed gfx.Path
+	transformed.Segments = make([]gfx.PathSegment, 0, len(cmd.Path.Segments))
+	for _, seg := range cmd.Path.Segments {
+		out := gfx.PathSegment{Verb: seg.Verb}
+		for i := range seg.Pts {
+			out.Pts[i] = state.transform.TransformPoint(seg.Pts[i])
+		}
+		transformed.Segments = append(transformed.Segments, out)
+	}
+
+	pb := pathBounds(transformed)
+	if pb.IsEmpty() {
+		return
+	}
+
+	radius := int(math.Round(float64(cmd.BlurRadius)))
+	if radius < 0 {
+		radius = 0
+	}
+
+	rMinX := int(math.Floor(float64(pb.Min.X))) - radius
+	rMinY := int(math.Floor(float64(pb.Min.Y))) - radius
+	rMaxX := int(math.Ceil(float64(pb.Max.X))) + radius
+	rMaxY := int(math.Ceil(float64(pb.Max.Y))) + radius
+	rw := rMaxX - rMinX
+	rh := rMaxY - rMinY
+	if rw <= 0 || rh <= 0 {
+		return
+	}
+
+	mask := image.NewAlpha(image.Rect(0, 0, rw, rh))
+	ras := vector.NewRasterizer(rw, rh)
+	ras.DrawOp = draw.Src
+	for _, seg := range transformed.Segments {
+		switch seg.Verb {
+		case gfx.PathMoveTo:
+			ras.MoveTo(seg.Pts[0].X-float32(rMinX), seg.Pts[0].Y-float32(rMinY))
+		case gfx.PathLineTo:
+			ras.LineTo(seg.Pts[0].X-float32(rMinX), seg.Pts[0].Y-float32(rMinY))
+		case gfx.PathQuadTo:
+			ras.QuadTo(
+				seg.Pts[0].X-float32(rMinX), seg.Pts[0].Y-float32(rMinY),
+				seg.Pts[1].X-float32(rMinX), seg.Pts[1].Y-float32(rMinY),
+			)
+		case gfx.PathCubicTo:
+			ras.CubeTo(
+				seg.Pts[0].X-float32(rMinX), seg.Pts[0].Y-float32(rMinY),
+				seg.Pts[1].X-float32(rMinX), seg.Pts[1].Y-float32(rMinY),
+				seg.Pts[2].X-float32(rMinX), seg.Pts[2].Y-float32(rMinY),
+			)
+		case gfx.PathClose:
+			ras.ClosePath()
+		}
+	}
+	ras.Draw(mask, mask.Bounds(), image.NewUniform(color.Alpha{A: 255}), image.Point{})
+
+	src := make([]float32, rw*rh)
+	for i := 0; i < rw*rh; i++ {
+		cov := float32(mask.Pix[i]) / 255
+		if cmd.Inner {
+			cov = 1 - cov
+		}
+		src[i] = cov
+	}
+
+	if radius > 0 {
+		sigma := float64(cmd.BlurRadius) / 3.0
+		if sigma <= 0 {
+			sigma = 1
+		}
+		inv2s := 1.0 / (2.0 * sigma * sigma)
+		weights := make([]float64, 2*radius+1)
+		total := 0.0
+		for i := -radius; i <= radius; i++ {
+			w := math.Exp(-float64(i*i) * inv2s)
+			weights[i+radius] = w
+			total += w
+		}
+		for i := range weights {
+			weights[i] /= total
+		}
+
+		// Horizontal pass.
+		tmp := make([]float32, rw*rh)
+		for y := 0; y < rh; y++ {
+			base := y * rw
+			for x := 0; x < rw; x++ {
+				acc := 0.0
+				for i := -radius; i <= radius; i++ {
+					xi := x + i
+					if xi < 0 || xi >= rw {
+						continue
+					}
+					acc += weights[i+radius] * float64(src[base+xi])
+				}
+				tmp[base+x] = float32(acc)
+			}
+		}
+		// Vertical pass into src.
+		for y := 0; y < rh; y++ {
+			for x := 0; x < rw; x++ {
+				acc := 0.0
+				for j := -radius; j <= radius; j++ {
+					yj := y + j
+					if yj < 0 || yj >= rh {
+						continue
+					}
+					acc += weights[j+radius] * float64(tmp[yj*rw+x])
+				}
+				src[y*rw+x] = float32(acc)
+			}
+		}
+	}
+
+	ox := int(math.Round(float64(cmd.Offset.X)))
+	oy := int(math.Round(float64(cmd.Offset.Y)))
+	clipMinX := clampInt(int(math.Floor(float64(state.clip.Min.X))), 0, target.Bounds().Dx())
+	clipMinY := clampInt(int(math.Floor(float64(state.clip.Min.Y))), 0, target.Bounds().Dy())
+	clipMaxX := clampInt(int(math.Ceil(float64(state.clip.Max.X))), 0, target.Bounds().Dx())
+	clipMaxY := clampInt(int(math.Ceil(float64(state.clip.Max.Y))), 0, target.Bounds().Dy())
+	for y := 0; y < rh; y++ {
+		py := rMinY + y + oy
+		if py < clipMinY || py >= clipMaxY {
+			continue
+		}
+		for x := 0; x < rw; x++ {
+			a := src[y*rw+x]
+			if a <= 0 {
+				continue
+			}
+			px := rMinX + x + ox
+			if px < clipMinX || px >= clipMaxX {
+				continue
+			}
+			blendAt(target, px, py, cmd.Color, state.opacity*a)
+		}
 	}
 }
 

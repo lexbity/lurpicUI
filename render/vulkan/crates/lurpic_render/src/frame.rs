@@ -441,6 +441,28 @@ impl Transform {
         }
     }
 
+    /// The inverse 2x3 affine, or `None` when the linear part is singular
+    /// (scale 0 / shear collapse). Used by the shadow mask pass (Slice 9) to
+    /// express a world-space blur region as a local instance rect.
+    pub fn inverse(self) -> Option<Self> {
+        let det = self.a * self.d - self.b * self.c;
+        if det.abs() <= f32::EPSILON {
+            return None;
+        }
+        let ia = self.d / det;
+        let ib = -self.b / det;
+        let ic = -self.c / det;
+        let id = self.a / det;
+        Some(Self {
+            a: ia,
+            b: ib,
+            c: ic,
+            d: id,
+            tx: -(ia * self.tx + ib * self.ty),
+            ty: -(ic * self.tx + id * self.ty),
+        })
+    }
+
     /// The 2x3 affine packed as [a, b, c, d, tx, ty] for the shader.
     pub fn to_array(self) -> [f32; 6] {
         [self.a, self.b, self.c, self.d, self.tx, self.ty]
@@ -1257,5 +1279,33 @@ mod tests {
         binding.bytes.push(0xFF);
         let err = decode_frame(&binding.bytes).expect_err("trailing bytes must fail");
         assert_eq!(err.0, RenderResult::InitFailed);
+    }
+
+    // The shadow mask pass (Slice 9) expresses a world-space blur region as a
+    // local instance rect through the inverse transform; inverting must round
+    // trip any 2x3 affine.
+    #[test]
+    fn transform_inverse_round_trips() {
+        let t = Transform::from_parts(2.0, 0.5, -0.25, 1.5, 10.0, -20.0);
+        let inv = t.inverse().expect("invertible transform");
+        for p in [
+            Point { x: 0.0, y: 0.0 },
+            Point { x: 12.0, y: -7.0 },
+            Point { x: -3.0, y: 40.0 },
+        ] {
+            let round = inv.apply_point(t.apply_point(p));
+            assert!(
+                (round.x - p.x).abs() < 1e-4 && (round.y - p.y).abs() < 1e-4,
+                "inverse round trip {:?} -> {:?}",
+                p,
+                round
+            );
+        }
+    }
+
+    #[test]
+    fn transform_inverse_singular_is_none() {
+        let t = Transform::from_parts(1.0, 1.0, 1.0, 1.0, 0.0, 0.0);
+        assert!(t.inverse().is_none());
     }
 }

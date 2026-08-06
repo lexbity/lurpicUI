@@ -18,12 +18,13 @@ use crate::error::vk_error;
 use crate::frame::{decode_frame, DecodedFrame};
 #[cfg(feature = "test-exports")]
 use crate::frame::FrameStats;
-use crate::frame_encoder::{DrawKind, FrameEncoder, Textures};
+use crate::frame_encoder::{DrawKind, FrameEncoder, ShadowFill, Textures};
 use crate::gpu::allocator::{GpuBuffer, ImageAllocation, MemoryLocation};
 use crate::gpu::context::{AshContext, GpuContext, PhysicalDeviceFeatures};
 use crate::gpu::resources::{DescriptorPool, Image, ImageView, Sampler};
 use crate::gpu::surface;
 use crate::image_store::{ImageFormat, ImageStore};
+use crate::pipeline::blur::{BlurPipeline, BLUR_SCRATCH_FORMAT};
 use crate::pipeline::glyph::GlyphPipeline;
 use crate::pipeline::gradient::GradientPipeline;
 use crate::pipeline::solid::SolidPipeline;
@@ -176,6 +177,31 @@ struct StencilTarget {
     extent: vk::Extent2D,
 }
 
+/// One R8 scratch image of the shadow blur pair (Slice 9): full-surface,
+/// COLOR_ATTACHMENT + SAMPLED. Drop order: view, image, memory.
+struct BlurScratch {
+    view: ImageView,
+    #[allow(dead_code)] // held for RAII drop ordering
+    image: Image,
+    #[allow(dead_code)] // held for RAII drop ordering
+    allocation: ImageAllocation,
+    extent: vk::Extent2D,
+}
+
+/// The shadow-blur pipeline handles needed for recording a frame (Copy so no
+/// reference into `self` outlives the mutable render borrow).
+#[derive(Clone, Copy)]
+struct BlurHandles {
+    mask: vk::Pipeline,
+    mask_layout: vk::PipelineLayout,
+    blur_h: vk::Pipeline,
+    blur_v: vk::Pipeline,
+    composite: vk::Pipeline,
+    sampler_layout: vk::PipelineLayout,
+    sampler_set_layout: vk::DescriptorSetLayout,
+    unit_quad: vk::Buffer,
+}
+
 /// Where a frame's resolved pixels land.
 enum ResolveTarget {
     Swapchain {
@@ -206,7 +232,11 @@ pub struct VulkanState {
     glyph_pipeline: Option<GlyphPipeline>,
     gradient_pipeline: Option<GradientPipeline>,
     path_fill_pipeline: Option<PathFillPipeline>,
+    blur_pipeline: Option<BlurPipeline>,
     stencil: Option<StencilTarget>,
+    blur_scratch_a: Option<BlurScratch>,
+    blur_scratch_b: Option<BlurScratch>,
+    blur_sampler: Option<Sampler>,
     sampler_nearest: Option<Sampler>,
     sampler_bilinear: Option<Sampler>,
     descriptor_pools: Vec<DescriptorPool>,
@@ -683,6 +713,24 @@ impl VulkanState {
             },
         )?;
 
+        // The blur scratch sampler: NEAREST + CLAMP_TO_EDGE so the blur and
+        // composite texel reads land exactly on the oracle's array indices
+        // (Slice 9), with the surface edge handled gracefully.
+        let blur_sampler = Sampler::new(
+            context.device(),
+            &vk::SamplerCreateInfo {
+                mag_filter: vk::Filter::NEAREST,
+                min_filter: vk::Filter::NEAREST,
+                mipmap_mode: vk::SamplerMipmapMode::NEAREST,
+                address_mode_u: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                address_mode_v: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                address_mode_w: vk::SamplerAddressMode::CLAMP_TO_EDGE,
+                min_lod: 0.0,
+                max_lod: 0.0,
+                ..Default::default()
+            },
+        )?;
+
         // One descriptor pool per ring slot, so a slot's pool is only reset
         // after its fence signals (no in-flight sets are ever invalidated).
         // Pool sizes cover the sampler (textured/glyph) and uniform-buffer
@@ -730,7 +778,11 @@ impl VulkanState {
             glyph_pipeline: None,
             gradient_pipeline: None,
             path_fill_pipeline: None,
+            blur_pipeline: None,
             stencil: None,
+            blur_scratch_a: None,
+            blur_scratch_b: None,
+            blur_sampler: Some(blur_sampler),
             sampler_nearest: Some(sampler_nearest),
             sampler_bilinear: Some(sampler_bilinear),
             descriptor_pools,
@@ -903,6 +955,91 @@ impl VulkanState {
             segments_layout: p.segments_set_layout(),
             unit_quad: p.unit_quad_buffer(),
         })
+    }
+
+    /// Builds (or reuses) the shadow-blur pipelines (Slice 9).
+    fn ensure_blur_pipeline(&mut self, format: vk::Format) -> Result<BlurHandles, (RenderResult, String)> {
+        if self
+            .blur_pipeline
+            .as_ref()
+            .is_none_or(|p| p.format() != format)
+        {
+            self.blur_pipeline = Some(BlurPipeline::new(
+                &self.context,
+                format,
+                self.msaa_samples(),
+            )?);
+        }
+        let p = self.blur_pipeline.as_ref().unwrap();
+        Ok(BlurHandles {
+            mask: p.mask_handle(),
+            mask_layout: p.mask_layout(),
+            blur_h: p.blur_h_handle(),
+            blur_v: p.blur_v_handle(),
+            composite: p.composite_handle(),
+            sampler_layout: p.sampler_layout(),
+            sampler_set_layout: p.sampler_set_layout(),
+            unit_quad: p.unit_quad_buffer(),
+        })
+    }
+
+    fn create_blur_scratch(
+        &self,
+        extent: vk::Extent2D,
+    ) -> Result<BlurScratch, (RenderResult, String)> {
+        let device = self.context.device();
+        let allocator = self.context.allocator();
+        let image_info = vk::ImageCreateInfo {
+            image_type: vk::ImageType::TYPE_2D,
+            format: BLUR_SCRATCH_FORMAT,
+            extent: vk::Extent3D {
+                width: extent.width,
+                height: extent.height,
+                depth: 1,
+            },
+            mip_levels: 1,
+            array_layers: 1,
+            samples: vk::SampleCountFlags::TYPE_1,
+            tiling: vk::ImageTiling::OPTIMAL,
+            usage: vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+        let image = Image::new(device, &image_info)?;
+        let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
+        let allocation = allocator.allocate_image_memory(
+            image.handle(),
+            requirements,
+            MemoryLocation::GpuOnly,
+        )?;
+        unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) }
+            .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
+        let view = ImageView::new(
+            device,
+            image.handle(),
+            BLUR_SCRATCH_FORMAT,
+            vk::ImageAspectFlags::COLOR,
+        )?;
+        Ok(BlurScratch {
+            view,
+            image,
+            allocation,
+            extent,
+        })
+    }
+
+    /// The two R8 blur scratch images, recreated when the extent changes.
+    fn ensure_blur_scratch(&mut self, extent: vk::Extent2D) -> Result<(), (RenderResult, String)> {
+        if self
+            .blur_scratch_a
+            .as_ref()
+            .is_some_and(|s| s.extent == extent)
+        {
+            return Ok(());
+        }
+        self.blur_scratch_a = Some(self.create_blur_scratch(extent)?);
+        self.blur_scratch_b = Some(self.create_blur_scratch(extent)?);
+        Ok(())
     }
 
     /// The stencil attachment (D24S8), recreated when the extent changes.
@@ -1112,7 +1249,9 @@ impl VulkanState {
         let glyph = self.ensure_glyph_pipeline(format)?;
         let gradient = self.ensure_gradient_pipeline(format)?;
         let path_fill = self.ensure_path_fill_pipeline(format)?;
+        let blur = self.ensure_blur_pipeline(format)?;
         self.ensure_stencil(extent)?;
+        self.ensure_blur_scratch(extent)?;
 
         // Encode the frame into the per-frame instance ring. Each ring slot has
         // its own descriptor pool, reset here after the slot's fence signals so
@@ -1153,7 +1292,7 @@ impl VulkanState {
         let path_buffer = self.path_ring.as_ref().unwrap().current_buffer();
 
         let command_buffer = self.begin_command_buffer()?;
-        let device = self.context.device();
+        let device = self.context.device().clone();
 
         // Transition the resolve image to COLOR_ATTACHMENT_OPTIMAL.
         let resolve_image = match resolve {
@@ -1223,6 +1362,25 @@ impl VulkanState {
             );
         }
         let msaa = pipeline.samples != vk::SampleCountFlags::TYPE_1;
+
+        // Slice 9: when the frame carries shadows, render them (clear the main
+        // target, then per-shadow mask + separable blur into the R8 scratch +
+        // composite into the target) BEFORE the geometry pass, so shadows sit
+        // behind the content. The geometry pass then loads the target instead of
+        // clearing it. Without shadows the geometry pass clears as before.
+        if !encoded.shadows.is_empty() {
+            self.render_shadows(
+                command_buffer,
+                &blur,
+                &encoded.shadows,
+                instance_buffer,
+                extent,
+                resolve_view,
+                resolve_layout,
+                clear,
+            )?;
+        }
+
         let color_attachment = if msaa {
             vk::RenderingAttachmentInfo::default()
                 .image_view(self.msaa.as_ref().unwrap().view.handle())
@@ -1230,7 +1388,11 @@ impl VulkanState {
                 .resolve_mode(vk::ResolveModeFlags::AVERAGE)
                 .resolve_image_view(resolve_view)
                 .resolve_image_layout(resolve_layout)
-                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .load_op(if encoded.shadows.is_empty() {
+                    vk::AttachmentLoadOp::CLEAR
+                } else {
+                    vk::AttachmentLoadOp::LOAD
+                })
                 .store_op(vk::AttachmentStoreOp::STORE)
                 .clear_value(clear)
         } else {
@@ -1238,7 +1400,11 @@ impl VulkanState {
             vk::RenderingAttachmentInfo::default()
                 .image_view(resolve_view)
                 .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .load_op(vk::AttachmentLoadOp::CLEAR)
+                .load_op(if encoded.shadows.is_empty() {
+                    vk::AttachmentLoadOp::CLEAR
+                } else {
+                    vk::AttachmentLoadOp::LOAD
+                })
                 .store_op(vk::AttachmentStoreOp::STORE)
                 .clear_value(clear)
         };
@@ -1527,6 +1693,436 @@ impl VulkanState {
         unsafe { device.queue_submit(self.context.queue(), &[submit_info], fence) }
             .map_err(|e| vk_error("vkQueueSubmit", e.as_raw()))?;
         Ok(())
+    }
+
+    /// Records the Slice 9 shadow passes ahead of the geometry pass: clears the
+    /// main target (via the first composite's CLEAR load op), then for each
+    /// shadow renders its path coverage mask into the R8 scratch, applies the
+    /// separable Gaussian (H then V), and composites the tinted blurred mask at
+    /// the shadow's offset with premultiplied-over blending.
+    #[allow(clippy::too_many_arguments)]
+    fn render_shadows(
+        &mut self,
+        command_buffer: vk::CommandBuffer,
+        blur: &BlurHandles,
+        shadows: &[ShadowFill],
+        instance_buffer: vk::Buffer,
+        extent: vk::Extent2D,
+        resolve_view: vk::ImageView,
+        resolve_layout: vk::ImageLayout,
+        clear: vk::ClearValue,
+    ) -> Result<(), (RenderResult, String)> {
+        let device = self.context.device();
+
+        let scratch_a = self.blur_scratch_a.as_ref().unwrap();
+        let scratch_b = self.blur_scratch_b.as_ref().unwrap();
+        let sampler = self.blur_sampler.as_ref().unwrap().handle();
+        // One sampler descriptor per scratch image; both are bound through the
+        // shared blur/composite layout for the whole frame.
+        let set_a = self.allocate_scratch_descriptor(
+            scratch_a.view.handle(),
+            sampler,
+            blur.sampler_set_layout,
+        )?;
+        let set_b = self.allocate_scratch_descriptor(
+            scratch_b.view.handle(),
+            sampler,
+            blur.sampler_set_layout,
+        )?;
+
+        let clear_zero = vk::ClearValue {
+            color: vk::ClearColorValue { float32: [0.0; 4] },
+        };
+
+        // The scratch images start UNDEFINED (fresh allocations). Transition
+        // both to COLOR_ATTACHMENT once; the per-shadow loop then shuttles each
+        // between COLOR_ATTACHMENT (writes) and SHADER_READ_ONLY (reads).
+        self.transition_image(
+            command_buffer,
+            scratch_a.image.handle(),
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            vk::AccessFlags::empty(),
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        );
+        self.transition_image(
+            command_buffer,
+            scratch_b.image.handle(),
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            vk::AccessFlags::empty(),
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        );
+
+        let mut first_shadow = true;
+        let mut first_composite = true;
+        for shadow in shadows {
+            // 1. Mask pass: the path's winding coverage into scratch_a (the
+            // scratch is fully cleared, so reads anywhere within the surface
+            // are zero outside the path).
+            if !first_shadow {
+                self.transition_image(
+                    command_buffer,
+                    scratch_a.image.handle(),
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::AccessFlags::SHADER_READ,
+                    vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                );
+            }
+            let mask_attachment = self.scratch_attachment(scratch_a.view.handle(), clear_zero);
+            self.begin_rendering(command_buffer, extent, &[mask_attachment], None);
+            unsafe {
+                self.set_full_viewport(command_buffer, extent);
+                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                }]);
+                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.mask);
+                // The mask layout's set 1 binds the contour edges; set 0 is the
+                // empty layout and stays unbound (the shader reads only set 1).
+                device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    blur.mask_layout,
+                    1,
+                    &[shadow.segments_descriptor],
+                    &[],
+                );
+                let vertex_buffers = [blur.unit_quad, instance_buffer];
+                let offsets = [0u64, 0u64];
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                device.cmd_push_constants(
+                    command_buffer,
+                    blur.mask_layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    &shadow.mask_push.bytes(),
+                );
+                device.cmd_draw(
+                    command_buffer,
+                    6,
+                    1,
+                    0,
+                    shadow.mask_first_instance,
+                );
+                device.cmd_end_rendering(command_buffer);
+            }
+            self.transition_image(
+                command_buffer,
+                scratch_a.image.handle(),
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                vk::AccessFlags::SHADER_READ,
+            );
+
+            // 2. Horizontal blur: scratch_a -> scratch_b.
+            if !first_shadow {
+                self.transition_image(
+                    command_buffer,
+                    scratch_b.image.handle(),
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                    vk::AccessFlags::SHADER_READ,
+                    vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                );
+            }
+            let blur_h_attachment = self.scratch_attachment(scratch_b.view.handle(), clear_zero);
+            self.begin_rendering(command_buffer, extent, &[blur_h_attachment], None);
+            unsafe {
+                self.set_full_viewport(command_buffer, extent);
+                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                }]);
+                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.blur_h);
+                device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    blur.sampler_layout,
+                    0,
+                    &[set_a],
+                    &[],
+                );
+                let vertex_buffers = [blur.unit_quad, instance_buffer];
+                let offsets = [0u64, 0u64];
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                device.cmd_push_constants(
+                    command_buffer,
+                    blur.sampler_layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    &shadow.blur_push.bytes(),
+                );
+                device.cmd_draw(
+                    command_buffer,
+                    6,
+                    1,
+                    0,
+                    shadow.blur_h_first_instance,
+                );
+                device.cmd_end_rendering(command_buffer);
+            }
+            self.transition_image(
+                command_buffer,
+                scratch_b.image.handle(),
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                vk::AccessFlags::SHADER_READ,
+            );
+
+            // 3. Vertical blur: scratch_b -> scratch_a. scratch_a is in
+            // SHADER_READ (the mask pass's post-write transition) for every
+            // shadow, first included.
+            self.transition_image(
+                command_buffer,
+                scratch_a.image.handle(),
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags::SHADER_READ,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            );
+            let blur_v_attachment = self.scratch_attachment(scratch_a.view.handle(), clear_zero);
+            self.begin_rendering(command_buffer, extent, &[blur_v_attachment], None);
+            unsafe {
+                self.set_full_viewport(command_buffer, extent);
+                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                }]);
+                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.blur_v);
+                device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    blur.sampler_layout,
+                    0,
+                    &[set_b],
+                    &[],
+                );
+                let vertex_buffers = [blur.unit_quad, instance_buffer];
+                let offsets = [0u64, 0u64];
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                device.cmd_push_constants(
+                    command_buffer,
+                    blur.sampler_layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    &shadow.blur_push.bytes(),
+                );
+                device.cmd_draw(
+                    command_buffer,
+                    6,
+                    1,
+                    0,
+                    shadow.blur_v_first_instance,
+                );
+                device.cmd_end_rendering(command_buffer);
+            }
+            self.transition_image(
+                command_buffer,
+                scratch_a.image.handle(),
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                vk::AccessFlags::SHADER_READ,
+            );
+
+            // 4. Composite: tint the blurred mask into the main target. The
+            // first composite clears the target (the frame's initial clear);
+            // later ones load it so multiple shadows accumulate.
+            let load_op = if first_composite {
+                vk::AttachmentLoadOp::CLEAR
+            } else {
+                vk::AttachmentLoadOp::LOAD
+            };
+            let composite_attachment = vk::RenderingAttachmentInfo::default()
+                .image_view(resolve_view)
+                .image_layout(resolve_layout)
+                .load_op(load_op)
+                .store_op(vk::AttachmentStoreOp::STORE)
+                .clear_value(clear);
+            self.begin_rendering(command_buffer, extent, &[composite_attachment], None);
+            unsafe {
+                self.set_full_viewport(command_buffer, extent);
+                let scissor = clip_scissor(&shadow.composite_push, extent);
+                device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.composite);
+                device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::GRAPHICS,
+                    blur.sampler_layout,
+                    0,
+                    &[set_a],
+                    &[],
+                );
+                let vertex_buffers = [blur.unit_quad, instance_buffer];
+                let offsets = [0u64, 0u64];
+                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                device.cmd_push_constants(
+                    command_buffer,
+                    blur.sampler_layout,
+                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                    0,
+                    &shadow.composite_push.bytes(),
+                );
+                device.cmd_draw(
+                    command_buffer,
+                    6,
+                    1,
+                    0,
+                    shadow.composite_first_instance,
+                );
+                device.cmd_end_rendering(command_buffer);
+            }
+            first_composite = false;
+            first_shadow = false;
+        }
+        Ok(())
+    }
+
+    /// Begins dynamic rendering over the given color attachments (no stencil).
+    fn begin_rendering(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        extent: vk::Extent2D,
+        color: &[vk::RenderingAttachmentInfo],
+        stencil: Option<vk::RenderingAttachmentInfo>,
+    ) {
+        let mut info = vk::RenderingInfo::default()
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent,
+            })
+            .layer_count(1)
+            .color_attachments(color);
+        if let Some(stencil) = stencil.as_ref() {
+            info = info.stencil_attachment(stencil);
+        }
+        unsafe {
+            self.context
+                .device()
+                .cmd_begin_rendering(command_buffer, &info);
+        }
+    }
+
+    /// Sets the full-surface viewport (the dynamic viewport state all pipelines
+    /// share).
+    fn set_full_viewport(&self, command_buffer: vk::CommandBuffer, extent: vk::Extent2D) {
+        unsafe {
+            self.context.device().cmd_set_viewport(
+                command_buffer,
+                0,
+                &[vk::Viewport {
+                    x: 0.0,
+                    y: 0.0,
+                    width: extent.width as f32,
+                    height: extent.height as f32,
+                    min_depth: 0.0,
+                    max_depth: 1.0,
+                }],
+            );
+        }
+    }
+
+    /// Transitions a scratch image between COLOR_ATTACHMENT and SHADER_READ_ONLY.
+    #[allow(clippy::too_many_arguments)] // a barrier carries all its access fields
+    fn transition_image(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        image: vk::Image,
+        old_layout: vk::ImageLayout,
+        new_layout: vk::ImageLayout,
+        src_stage: vk::PipelineStageFlags,
+        dst_stage: vk::PipelineStageFlags,
+        src_access: vk::AccessFlags,
+        dst_access: vk::AccessFlags,
+    ) {
+        let barrier = vk::ImageMemoryBarrier::default()
+            .src_access_mask(src_access)
+            .dst_access_mask(dst_access)
+            .old_layout(old_layout)
+            .new_layout(new_layout)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(image)
+            .subresource_range(
+                vk::ImageSubresourceRange::default()
+                    .aspect_mask(vk::ImageAspectFlags::COLOR)
+                    .level_count(1)
+                    .layer_count(1),
+            );
+        unsafe {
+            self.context.device().cmd_pipeline_barrier(
+                command_buffer,
+                src_stage,
+                dst_stage,
+                vk::DependencyFlags::empty(),
+                &[],
+                &[],
+                &[barrier],
+            );
+        }
+    }
+
+    /// Builds the color attachment for an R8 scratch pass (always CLEAR-loaded
+    /// so each shadow starts from an all-zero mask).
+    fn scratch_attachment(
+        &self,
+        view: vk::ImageView,
+        clear: vk::ClearValue,
+    ) -> vk::RenderingAttachmentInfo<'_> {
+        vk::RenderingAttachmentInfo::default()
+            .image_view(view)
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(clear)
+    }
+
+    /// Allocates a combined-image-sampler descriptor set binding a scratch image
+    /// view from the current ring slot's descriptor pool.
+    fn allocate_scratch_descriptor(
+        &self,
+        view: vk::ImageView,
+        sampler: vk::Sampler,
+        layout: vk::DescriptorSetLayout,
+    ) -> Result<vk::DescriptorSet, (RenderResult, String)> {
+        let slot = self.ring.as_ref().unwrap().current_slot();
+        let set = self.descriptor_pools[slot].allocate_set(layout)?;
+        let image_info = vk::DescriptorImageInfo::default()
+            .image_view(view)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .sampler(sampler);
+        let write = vk::WriteDescriptorSet::default()
+            .dst_set(set)
+            .dst_binding(0)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .image_info(std::slice::from_ref(&image_info));
+        unsafe {
+            self.context
+                .device()
+                .update_descriptor_sets(&[write], &[]);
+        }
+        Ok(set)
     }
 
     fn present(&mut self) -> Result<(), (RenderResult, String)> {

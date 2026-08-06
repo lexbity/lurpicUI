@@ -289,9 +289,6 @@ func geometryFixtures() []equivalence.FrameFixture {
 			},
 		},
 		fixture{
-			// Wire-level only: DrawBlurredShadow is not rendered by the GPU
-			// pipeline until Slice 9. It must round-trip so the corpus covers
-			// every v2 opcode.
 			name: "blurred_shadow_rect", width: 64, height: 64,
 			frame: func() *render.Frame {
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
@@ -299,6 +296,113 @@ func geometryFixtures() []equivalence.FrameFixture {
 						Path:       gfx.RectPath(gfx.RectFromXYWH(16, 16, 24, 24)),
 						Color:      gfx.ColorFromRGBA8(10, 10, 30, 160),
 						BlurRadius: 4,
+						Offset:     gfx.Point{X: 3, Y: 4},
+						Inner:      false,
+					},
+				)
+			},
+		},
+		fixture{
+			name: "shadow_small_radius_4", width: 64, height: 64,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RectPath(gfx.RectFromXYWH(16, 16, 24, 24)),
+						Color:      gfx.ColorFromRGBA8(10, 10, 30, 160),
+						BlurRadius: 4,
+						Offset:     gfx.Point{X: 3, Y: 4},
+						Inner:      false,
+					},
+				)
+			},
+		},
+		fixture{
+			name: "shadow_medium_radius_8", width: 64, height: 64,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RectPath(gfx.RectFromXYWH(16, 16, 24, 24)),
+						Color:      gfx.ColorFromRGBA8(10, 10, 30, 160),
+						BlurRadius: 8,
+						Offset:     gfx.Point{X: 3, Y: 4},
+						Inner:      false,
+					},
+				)
+			},
+		},
+		fixture{
+			name: "shadow_large_radius_16", width: 96, height: 96,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 96, 96), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RectPath(gfx.RectFromXYWH(28, 28, 40, 40)),
+						Color:      gfx.ColorFromRGBA8(10, 10, 30, 160),
+						BlurRadius: 16,
+						Offset:     gfx.Point{X: 5, Y: 6},
+						Inner:      false,
+					},
+				)
+			},
+		},
+		fixture{
+			name: "shadow_inner", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// An inset shadow: the inverted mask source (1 - coverage) is
+				// blurred and composited. Both backends share the identical
+				// source/blur/composite algorithm; the fixture verifies parity.
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RectPath(gfx.RectFromXYWH(16, 16, 24, 24)),
+						Color:      gfx.ColorFromRGBA8(0, 0, 0, 200),
+						BlurRadius: 6,
+						Offset:     gfx.Point{X: 1, Y: 1},
+						Inner:      true,
+					},
+				)
+			},
+		},
+		fixture{
+			name: "shadow_offset", width: 64, height: 64,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RectPath(gfx.RectFromXYWH(8, 8, 16, 16)),
+						Color:      gfx.ColorFromRGBA8(20, 30, 60, 180),
+						BlurRadius: 5,
+						Offset:     gfx.Point{X: 9, Y: 10},
+						Inner:      false,
+					},
+				)
+			},
+		},
+		fixture{
+			name: "shadow_with_rect", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// Shadow drawn before a rect over it: the shadow must land
+				// behind the rect on both backends (Slice 9 shadow-behind
+				// ordering).
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RectPath(gfx.RectFromXYWH(16, 16, 24, 24)),
+						Color:      gfx.ColorFromRGBA8(10, 10, 30, 160),
+						BlurRadius: 4,
+						Offset:     gfx.Point{X: 3, Y: 4},
+						Inner:      false,
+					},
+					gfx.FillRect{Rect: gfx.RectFromXYWH(16, 16, 24, 24), Brush: gfx.SolidBrush(blue)},
+				)
+			},
+		},
+		fixture{
+			name: "shadow_curved_path", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// A rounded-rect shadow exercises the curved-path mask flattening
+				// through the Slice 7 winding coverage.
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.DrawBlurredShadow{
+						Path:       gfx.RoundedRectPath(gfx.RectFromXYWH(12, 12, 36, 36), 8),
+						Color:      gfx.ColorFromRGBA8(10, 10, 30, 160),
+						BlurRadius: 6,
 						Offset:     gfx.Point{X: 3, Y: 4},
 						Inner:      false,
 					},

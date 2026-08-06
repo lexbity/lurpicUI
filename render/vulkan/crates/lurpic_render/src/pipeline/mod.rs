@@ -1,6 +1,7 @@
 //! GPU pipeline stages (Slice 3+: solid quads, textures, glyphs, gradients,
 //! stencil fill, blur).
 
+pub mod blur;
 pub mod glyph;
 pub mod gradient;
 pub mod solid;

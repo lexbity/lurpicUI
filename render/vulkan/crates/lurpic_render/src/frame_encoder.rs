@@ -210,6 +210,7 @@ impl Textures<'_> {
 pub struct EncodedFrame {
     pub groups: Vec<DrawGroup>,
     pub path_fills: Vec<PathFill>,
+    pub shadows: Vec<ShadowFill>,
 }
 
 /// One stencil-buffer path fill (Slice 7): a winding-triangle stencil pass
@@ -236,6 +237,45 @@ pub struct PathFill {
     pub segments_descriptor: vk::DescriptorSet,
 }
 
+/// One blurred shadow (Slice 9): a path-mask pass into the R8 scratch, a
+/// separable H+V Gaussian blur over the shadow's integer-aligned blur region,
+/// and a tinted composite quad sampling the blurred scratch at the shadow's
+/// offset. The mask pass reuses the Slice 7 winding-coverage shader (via the
+/// contour edges SSBO) without a stencil attachment; the blur kernel
+/// (sigma = radius/3, half = round(radius)) matches the software oracle exactly.
+#[derive(Clone, Debug)]
+#[allow(dead_code)] // the region/color/inner/clip/edge fields are exposed for tests
+pub struct ShadowFill {
+    /// Instance index of the mask cover quad (local path bounds, white brush).
+    pub mask_first_instance: u32,
+    /// Instance index of the horizontal-blur quad (blur region x blur region).
+    pub blur_h_first_instance: u32,
+    /// Instance index of the vertical-blur quad (blur region x blur region).
+    pub blur_v_first_instance: u32,
+    /// Instance index of the composite quad (offset region x blur region).
+    pub composite_first_instance: u32,
+    /// The contour-edges storage-buffer descriptor for the mask cover pass.
+    pub segments_descriptor: vk::DescriptorSet,
+    /// The world-space blur region (path bounds + `round(radius)` margin),
+    /// integer-aligned so the GPU texel grid and the software array indices
+    /// coincide.
+    pub region: Rect,
+    /// Premultiplied shadow color.
+    pub color: Color,
+    /// Inset shadow (invert the mask source).
+    pub inner: bool,
+    /// The active clip rect (composite scissor + shader clip).
+    pub clip: Rect,
+    /// Edge count of the flattened path, for the mask cover's winding eval.
+    pub edge_count: u32,
+    /// Mask-pass push constants (batch transform, white brush + edge info).
+    pub mask_push: PushConstants,
+    /// Blur-pass push constants (identity transform, sigma + radius).
+    pub blur_push: PushConstants,
+    /// Composite-pass push constants (identity transform, shadow color, clip).
+    pub composite_push: PushConstants,
+}
+
 /// Fixed stack depth for transform/clip/opacity nesting (Slice 3: "fixed-size
 /// [Transform; 16], UI nesting is shallow"). Exceeding it is a malformed frame
 /// and aborts encoding rather than growing on the hot path (NFR-6).
@@ -260,6 +300,7 @@ pub struct FrameEncoder {
     current_descriptor: Option<vk::DescriptorSet>,
     groups: Vec<DrawGroup>,
     path_fills: Vec<PathFill>,
+    shadows: Vec<ShadowFill>,
 }
 
 impl Default for FrameEncoder {
@@ -278,6 +319,7 @@ impl Default for FrameEncoder {
             current_descriptor: None,
             groups: Vec::with_capacity(64),
             path_fills: Vec::with_capacity(8),
+            shadows: Vec::with_capacity(4),
         }
     }
 }
@@ -305,6 +347,7 @@ impl FrameEncoder {
         self.current_descriptor = None;
         self.groups.clear();
         self.path_fills.clear();
+        self.shadows.clear();
 
         let screen = Rect {
             min: crate::geometry::Point { x: 0.0, y: 0.0 },
@@ -332,6 +375,7 @@ impl FrameEncoder {
         Ok(EncodedFrame {
             groups: std::mem::take(&mut self.groups),
             path_fills: std::mem::take(&mut self.path_fills),
+            shadows: std::mem::take(&mut self.shadows),
         })
     }
 
@@ -559,8 +603,25 @@ impl FrameEncoder {
                         textures,
                     )?;
                 }
-                DecodedCommand::DrawBlurredShadow { .. } => {
-                    self.log_unsupported("DrawBlurredShadow")
+                DecodedCommand::DrawBlurredShadow {
+                    path,
+                    color,
+                    blur_radius,
+                    offset,
+                    inner,
+                } => {
+                    self.emit_shadow(
+                        path,
+                        *color,
+                        *blur_radius,
+                        *offset,
+                        *inner,
+                        ring,
+                        path_ring,
+                        allocator,
+                        surface_size,
+                        textures,
+                    )?;
                 }
                 DecodedCommand::BeginRenderBatch { .. } | DecodedCommand::EndRenderBatch => {}
             }
@@ -787,6 +848,218 @@ impl FrameEncoder {
             },
             gradient_descriptor,
             segments_descriptor,
+        });
+        Ok(())
+    }
+
+    /// Emits a blurred shadow (Slice 9): a mask cover quad (Slice 7 winding
+    /// coverage into the R8 scratch), a separable Gaussian blur pair over the
+    /// shadow's integer-aligned blur region, and a tinted composite quad at the
+    /// shadow's offset. The region is aligned to whole texels so the GPU texel
+    /// grid and the software oracle's array indices coincide; the blur kernel
+    /// (sigma = radius/3, radius = round(blur_radius)) is computed identically
+    /// on both backends.
+    #[allow(clippy::too_many_arguments)] // emitter carries the full render context
+    fn emit_shadow(
+        &mut self,
+        path: &crate::geometry::Path,
+        color: Color,
+        blur_radius: f32,
+        offset: Point,
+        inner: bool,
+        ring: &mut InstanceRing,
+        path_ring: &mut PathRing,
+        allocator: &dyn Allocator,
+        surface_size: [f32; 2],
+        textures: &Textures<'_>,
+    ) -> Result<(), (RenderResult, String)> {
+        let transform = self.transform();
+        let contours = flatten_path(path, |p| transform.apply_point(p));
+        if contours.is_empty() {
+            return Ok(());
+        }
+        let Some((wmin, wmax)) = contours_bounds(&contours) else {
+            return Ok(());
+        };
+        let clip = self.clip();
+
+        let radius = (blur_radius.round() as i32).max(0);
+        let radius_f = radius as f32;
+        // The shadow is nonzero only within the path bounds expanded by
+        // `radius`; aligning the region to whole texels makes the GPU texel
+        // grid coincide with the software array indices.
+        let region = Rect {
+            min: Point {
+                x: wmin.x.floor() - radius_f,
+                y: wmin.y.floor() - radius_f,
+            },
+            max: Point {
+                x: wmax.x.ceil() + radius_f,
+                y: wmax.y.ceil() + radius_f,
+            },
+        };
+        // Cull a shadow whose composited region is entirely outside the clip.
+        let comp_bounds = Rect {
+            min: Point {
+                x: region.min.x + offset.x,
+                y: region.min.y + offset.y,
+            },
+            max: Point {
+                x: region.max.x + offset.x,
+                y: region.max.y + offset.y,
+            },
+        };
+        if comp_bounds.max.x <= clip.min.x
+            || comp_bounds.min.x >= clip.max.x
+            || comp_bounds.max.y <= clip.min.y
+            || comp_bounds.min.y >= clip.max.y
+        {
+            return Ok(());
+        }
+
+        // Flattened winding triangles feed the mask cover's coverage shader.
+        let tri = winding_triangles(&contours);
+        let (path_buffer, first_vertex) = path_ring.append_vertices(allocator, &tri)?;
+        let vertex_count = (tri.len() / 2) as u32;
+        let edge_count = vertex_count / 3;
+        let segments_descriptor = textures.allocate_segments_descriptor(
+            path_buffer,
+            (first_vertex as u64) * 8,
+            (vertex_count as u64) * 8,
+        )?;
+
+        // Mask cover instance: the LOCAL path bounds (the mask pipeline applies
+        // the batch transform) + an opaque white brush (the mask shader writes
+        // the coverage directly, ignoring the instance color). Inner shadows
+        // invert the source to `1 - coverage`, which is nonzero OUTSIDE the
+        // path, so their mask quad must span the blur region (expressed back in
+        // local coords via the inverse transform) rather than the path bounds.
+        let mask_rect = if inner {
+            let local = match transform.inverse() {
+                Some(inv) => {
+                    let corners = [
+                        inv.apply_point(region.min),
+                        inv.apply_point(Point {
+                            x: region.max.x,
+                            y: region.min.y,
+                        }),
+                        inv.apply_point(Point {
+                            x: region.min.x,
+                            y: region.max.y,
+                        }),
+                        inv.apply_point(region.max),
+                    ];
+                    let mut min = corners[0];
+                    let mut max = corners[0];
+                    for p in corners.iter().copied().skip(1) {
+                        if p.x < min.x {
+                            min.x = p.x;
+                        }
+                        if p.y < min.y {
+                            min.y = p.y;
+                        }
+                        if p.x > max.x {
+                            max.x = p.x;
+                        }
+                        if p.y > max.y {
+                            max.y = p.y;
+                        }
+                    }
+                    Rect { min, max }
+                }
+                None => Rect {
+                    min: region.min,
+                    max: region.max,
+                },
+            };
+            local
+        } else {
+            match path_bounds(path) {
+                Some((lmin, lmax)) => Rect { min: lmin, max: lmax },
+                None => return Ok(()),
+            }
+        };
+        let mask_instance = pack_instance(
+            &mask_rect,
+            &Color {
+                r: 1.0,
+                g: 1.0,
+                b: 1.0,
+                a: 1.0,
+            },
+        );
+        let (_, mask_first_instance, _) = ring.append(allocator, &mask_instance)?;
+
+        // Blur quads: dest = src = the blur region (world coords == scratch
+        // texels, so the NEAREST sampler reads texel floor(v_uv + i)).
+        let blur_instance = pack_textured_instance(&region, &region);
+        let (_, blur_h_first_instance, _) = ring.append(allocator, &blur_instance)?;
+        let (_, blur_v_first_instance, _) = ring.append(allocator, &blur_instance)?;
+
+        // Composite quad: dest = region + offset, src = region (un-offset texels).
+        let comp_instance = pack_textured_instance(&comp_bounds, &region);
+        let (_, composite_first_instance, _) = ring.append(allocator, &comp_instance)?;
+
+        // Mask push: batch transform, white brush, edge info for the coverage
+        // eval. base_edge = 0 (per-shadow SSBO, like the path-fill cover).
+        let mut mask_payload = [0.0f32; 8];
+        mask_payload[4] = edge_count as f32;
+        mask_payload[5] = f32::from_bits(0);
+        mask_payload[6] = if inner { 1.0 } else { 0.0 };
+        let mask_push = PushConstants {
+            transform: transform.to_array(),
+            opacity: 1.0,
+            clip_min: [0.0; 2],
+            clip_size: [0.0; 2],
+            clip_active: 0,
+            brush_kind: 0,
+            brush_payload: mask_payload,
+            surface_size,
+        };
+
+        // Blur push: identity transform (the quads are already world-space);
+        // sigma = radius/3 and the kernel radius for the shader's Gaussian.
+        let mut blur_payload = [0.0f32; 8];
+        blur_payload[0] = blur_radius / 3.0;
+        blur_payload[1] = radius_f;
+        let blur_push = PushConstants {
+            transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            opacity: 1.0,
+            clip_min: [0.0; 2],
+            clip_size: [0.0; 2],
+            clip_active: 0,
+            brush_kind: 0,
+            brush_payload: blur_payload,
+            surface_size,
+        };
+
+        // Composite push: identity transform, premultiplied shadow color + the
+        // state opacity and clip.
+        let composite_push = PushConstants {
+            transform: [1.0, 0.0, 0.0, 1.0, 0.0, 0.0],
+            opacity: self.opacity(),
+            clip_min: [clip.min.x, clip.min.y],
+            clip_size: [clip.max.x - clip.min.x, clip.max.y - clip.min.y],
+            clip_active: 1,
+            brush_kind: 0,
+            brush_payload: [color.r, color.g, color.b, color.a, 0.0, 0.0, 0.0, 0.0],
+            surface_size,
+        };
+
+        self.shadows.push(ShadowFill {
+            mask_first_instance,
+            blur_h_first_instance,
+            blur_v_first_instance,
+            composite_first_instance,
+            segments_descriptor,
+            region,
+            color,
+            inner,
+            clip,
+            edge_count,
+            mask_push,
+            blur_push,
+            composite_push,
         });
         Ok(())
     }
@@ -1045,18 +1318,6 @@ impl FrameEncoder {
 
     fn opacity(&self) -> f32 {
         self.opacity_stack[self.opacity_depth - 1]
-    }
-
-    fn log_unsupported(&self, name: &str) {
-        // Dev-only log; production renders are gated by which fixtures the
-        // slice supports.
-        #[cfg(debug_assertions)]
-        eprintln!(
-            "lurpic_render: {} not yet rendered by the GPU pipeline",
-            name
-        );
-        #[cfg(not(debug_assertions))]
-        let _ = name;
     }
 }
 
