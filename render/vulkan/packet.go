@@ -89,10 +89,13 @@ func collectBatchesInto(out []batchWithClip, frame *render.Frame) []batchWithCli
 // returned packet aliases the internal output buffer and remains valid only
 // until the next Encode on the same encoder.
 type frameEncoder struct {
-	batches []batchWithClip
-	encoded []encodedBatch
-	payload packetWriter
-	out     packetWriter
+	batches       []batchWithClip
+	encoded       []encodedBatch
+	payload       packetWriter
+	out           packetWriter
+	strokeScratch gfx.StrokeScratch
+	pathSegs      []gfx.PathSegment
+	rectScratch   rectStrokeScratch
 }
 
 func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([]byte, error) {
@@ -109,7 +112,7 @@ func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([
 	e.batches = collectBatchesInto(e.batches, frame)
 	for _, item := range e.batches {
 		base := e.payload.buf.Len()
-		transform, commands, ok, err := encodeBatchInto(&e.payload, item.batch, item.clip, assets)
+		transform, commands, ok, err := encodeBatchInto(&e.payload, item.batch, item.clip, assets, &e.strokeScratch, &e.pathSegs, &e.rectScratch)
 		if err != nil {
 			return nil, err
 		}
@@ -200,7 +203,7 @@ func extractBatchTransform(cmds []gfx.Command) (gfx.Transform, []gfx.Command, bo
 // encodeBatchInto writes the batch's command payload into w (a shared pooled
 // buffer) and returns the extracted transform and command count. It returns
 // ok=false when the batch contributes no decodable commands.
-func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploader) (gfx.Transform, int, bool, error) {
+func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploader, strokeScratch *gfx.StrokeScratch, pathSegs *[]gfx.PathSegment, rectScratch *rectStrokeScratch) (gfx.Transform, int, bool, error) {
 	if batch.Commands.Len() == 0 {
 		return gfx.Transform{}, 0, false, nil
 	}
@@ -222,10 +225,7 @@ func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, a
 			}
 		case gfx.StrokeRect:
 			commands++
-			w.writeU8(packetCmdStrokeRect)
-			w.writeRect(c.Rect)
-			w.writeStrokeStyle(c.Stroke)
-			if err := w.writeBrush(c.Brush); err != nil {
+			if err := encodeStrokeExpanded(w, c, strokeScratch, pathSegs, rectScratch); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.FillPath:
@@ -237,27 +237,13 @@ func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, a
 			}
 		case gfx.StrokePath:
 			commands++
-			w.writeU8(packetCmdStrokePath)
-			w.writePath(c.Path)
-			w.writeStrokeStyle(c.Stroke)
-			if err := w.writeBrush(c.Brush); err != nil {
+			if err := encodeStrokeExpanded(w, c, strokeScratch, pathSegs, rectScratch); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawPolyline:
 			commands++
-			w.writeU8(packetCmdDrawPolyline)
-			w.writeU32(uint32(len(c.Points))) //nolint:gosec // integer overflow conversion
-			for _, p := range c.Points {
-				w.writePoint(p)
-			}
-			w.writeStrokeStyle(c.Stroke)
-			if err := w.writeBrush(c.Brush); err != nil {
+			if err := encodeStrokeExpanded(w, c, strokeScratch, pathSegs, rectScratch); err != nil {
 				return gfx.Transform{}, 0, false, err
-			}
-			if c.Closed {
-				w.writeU8(1)
-			} else {
-				w.writeU8(0)
 			}
 		case gfx.DrawPoints:
 			commands++
@@ -479,28 +465,23 @@ func (w *packetWriter) writeBrush(brush gfx.Brush) error {
 	}
 }
 
-func (w *packetWriter) writeStrokeStyle(s gfx.StrokeStyle) {
-	w.writeF32(s.Width)
-	w.writeU8(uint8(s.Cap))
-	w.writeU8(uint8(s.Join))
-	w.writeF32(s.MiterLimit)
-	w.writeU32(uint32(len(s.Dash))) //nolint:gosec // integer overflow conversion
-	for _, d := range s.Dash {
-		w.writeF32(d)
-	}
-	w.writeF32(s.DashOffset)
-}
-
 // writePath encodes a path as two parallel arrays: the verb sequence followed
 // by the concatenated point sequence (MoveTo/LineTo carry 1 point, QuadTo 2,
 // CubicTo 3, Close 0).
 func (w *packetWriter) writePath(path gfx.Path) {
+	w.writePathSegments(path.Segments)
+}
+
+// writePathSegments encodes a path's segments (the shape writePath accepts;
+// the shared helper lets the stroke expansion write its pooled segment slice
+// directly without an intermediate gfx.Path).
+func (w *packetWriter) writePathSegments(segs []gfx.PathSegment) {
 	pointCount := 0
-	for _, seg := range path.Segments {
+	for _, seg := range segs {
 		pointCount += gfx.SegmentPointCount(seg.Verb)
 	}
-	w.writeU32(uint32(len(path.Segments))) //nolint:gosec // integer overflow conversion
-	for _, seg := range path.Segments {
+	w.writeU32(uint32(len(segs))) //nolint:gosec // integer overflow conversion
+	for _, seg := range segs {
 		switch seg.Verb {
 		case gfx.PathMoveTo:
 			w.writeU8(0)
@@ -515,7 +496,7 @@ func (w *packetWriter) writePath(path gfx.Path) {
 		}
 	}
 	w.writeU32(uint32(pointCount))
-	for _, seg := range path.Segments {
+	for _, seg := range segs {
 		switch seg.Verb {
 		case gfx.PathMoveTo, gfx.PathLineTo:
 			w.writePoint(seg.Pts[0])

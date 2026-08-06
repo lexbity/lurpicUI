@@ -27,6 +27,7 @@ pub const STENCIL_FORMAT: ash::vk::Format = ash::vk::Format::D24_UNORM_S8_UINT;
 /// gradient, and the stencil-cover variants). The vertex-input state is caller
 /// supplied (quad pipelines bind the unit quad + instance rect; the stencil
 /// pipeline binds contour points). Returns the pipeline and its layout.
+#[allow(clippy::too_many_arguments)] // full pipeline construction context
 pub(crate) fn build_graphics_pipeline<'a>(
     ctx: &dyn GpuContext,
     vert: &[u8],
@@ -96,7 +97,6 @@ pub(crate) fn build_graphics_pipeline<'a>(
         dst_alpha_blend_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
         alpha_blend_op: vk::BlendOp::ADD,
         color_write_mask,
-        ..Default::default()
     };
     let color_blend = vk::PipelineColorBlendStateCreateInfo {
         attachment_count: 1,

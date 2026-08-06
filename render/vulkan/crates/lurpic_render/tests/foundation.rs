@@ -172,7 +172,7 @@ fn clear_pipeline_builds_and_renders() {
         .expect("image view");
 
     // Staging buffer for readback.
-    let mut staging = ctx
+    let staging = ctx
         .allocator()
         .create_buffer(
             (width * height * 4) as u64,

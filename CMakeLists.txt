@@ -112,12 +112,43 @@ lurpic_detect_vulkan()
 if(LURPIC_BACKEND_VULKAN)
   include(FindRustToolchain)
   lurpic_find_rust_toolchain()
+  set(LURPIC_RENDER_CRATE_MANIFEST
+    "${CMAKE_CURRENT_SOURCE_DIR}/render/vulkan/crates/lurpic_render/Cargo.toml")
   add_custom_target(build-render-vulkan-rust
     COMMAND "${LURPIC_CARGO_EXECUTABLE}"
       build
-      --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/crates/lurpic_render/Cargo.toml"
+      --manifest-path "${LURPIC_RENDER_CRATE_MANIFEST}"
     WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
     COMMENT "Build the lurpic_render Rust bridge crate"
+    VERBATIM
+  )
+endif()
+
+# clippy gate for the lurpic_render Rust bridge crate. Runs whenever cargo is
+# on PATH (the Vulkan build requires it; software-only builds that have cargo
+# still lint the crate). Warnings are errors (`-D warnings`).
+if(LURPIC_CARGO_EXECUTABLE)
+  set(_lurpic_clippy_cargo "${LURPIC_CARGO_EXECUTABLE}")
+  set(LURPIC_HAVE_CLIPPY ON)
+else()
+  find_program(_lurpic_clippy_cargo NAMES cargo)
+  if(_lurpic_clippy_cargo)
+    set(LURPIC_HAVE_CLIPPY ON)
+  else()
+    set(LURPIC_HAVE_CLIPPY OFF)
+  endif()
+endif()
+if(LURPIC_HAVE_CLIPPY)
+  add_custom_target(lint-rust-clippy
+    COMMAND "${_lurpic_clippy_cargo}"
+      clippy
+      --offline
+      --all-targets
+      --manifest-path "${CMAKE_CURRENT_SOURCE_DIR}/render/vulkan/crates/lurpic_render/Cargo.toml"
+      --
+      -D warnings
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    COMMENT "Run cargo clippy over the lurpic_render Rust bridge crate (warnings are errors)"
     VERBATIM
   )
 endif()
@@ -461,8 +492,8 @@ add_custom_target(lint-lurpiclint-ci
 add_dependencies(lint-lurpiclint-ci build-lurpiclint)
 
 add_custom_target(lint
-  DEPENDS lint-golangci lint-lurpiclint
-  COMMENT "Run all linters (golangci-lint + lurpiclint)"
+  DEPENDS lint-golangci lint-lurpiclint $<$<BOOL:${LURPIC_HAVE_CLIPPY}>:lint-rust-clippy>
+  COMMENT "Run all linters (golangci-lint + lurpiclint + cargo clippy)"
   VERBATIM
 )
 

@@ -482,16 +482,13 @@ func rectAsPath(rect gfx.Rect) gfx.Path {
 }
 
 func strokeRect(target *image.RGBA, state renderState, rect gfx.Rect, stroke gfx.StrokeStyle, brush gfx.Brush) {
-	width := stroke.Width
-	if width <= 0 {
+	if stroke.Width <= 0 {
 		return
 	}
-	outer := rect.Inset(-width/2, -width/2)
-	inner := rect.Inset(width/2, width/2)
-	fillRect(target, state, gfx.Rect{Min: outer.Min, Max: gfx.Point{X: outer.Max.X, Y: inner.Min.Y}}, brush)
-	fillRect(target, state, gfx.Rect{Min: gfx.Point{X: outer.Min.X, Y: inner.Min.Y}, Max: gfx.Point{X: inner.Min.X, Y: inner.Max.Y}}, brush)
-	fillRect(target, state, gfx.Rect{Min: gfx.Point{X: inner.Max.X, Y: inner.Min.Y}, Max: gfx.Point{X: outer.Max.X, Y: inner.Max.Y}}, brush)
-	fillRect(target, state, gfx.Rect{Min: gfx.Point{X: outer.Min.X, Y: inner.Max.Y}, Max: outer.Max}, brush)
+	// Slice 8: the stroke is expanded to its fill path (caps/joins/miter/dash
+	// honored) and rasterized through the same path fill the GPU uses, so the
+	// oracle and the GPU pipeline render the identical polygon.
+	rasterizePath(target, state, gfx.ExpandStroke(gfx.RectPath(rect), stroke), brush, 1)
 }
 
 func fillPath(target *image.RGBA, state renderState, path gfx.Path, brush gfx.Brush) {
@@ -502,19 +499,14 @@ func strokePath(target *image.RGBA, state renderState, path gfx.Path, stroke gfx
 	if len(path.Segments) == 0 || stroke.Width <= 0 {
 		return
 	}
-	rasterizeStrokePath(target, state, path, stroke.Width, brush)
+	rasterizePath(target, state, gfx.ExpandStroke(path, stroke), brush, 1)
 }
 
 func drawPolyline(target *image.RGBA, state renderState, pts []gfx.Point, stroke gfx.StrokeStyle, brush gfx.Brush, closed bool) {
 	if len(pts) == 0 || stroke.Width <= 0 {
 		return
 	}
-	for i := 0; i < len(pts)-1; i++ {
-		rasterizeSegment(target, state, pts[i], pts[i+1], stroke.Width, brush)
-	}
-	if closed && len(pts) >= 2 {
-		rasterizeSegment(target, state, pts[len(pts)-1], pts[0], stroke.Width, brush)
-	}
+	rasterizePath(target, state, gfx.ExpandStroke(gfx.PolylinePath(pts, closed), stroke), brush, 1)
 }
 
 func drawPoints(target *image.RGBA, state renderState, pts []gfx.Point, radius float32, brush gfx.Brush) {
@@ -524,101 +516,6 @@ func drawPoints(target *image.RGBA, state renderState, pts []gfx.Point, radius f
 	for _, p := range pts {
 		fillRect(target, state, gfx.RectFromXYWH(p.X-radius, p.Y-radius, radius*2, radius*2), brush)
 	}
-}
-
-// rasterizeStrokePath renders a closed-path stroke as an annular fill by feeding
-// the outer-expanded and inner-contracted contours with opposite winding into a
-// single rasterizer. golang.org/x/image/vector uses non-zero winding, so the
-// opposing windings cancel in the interior, leaving only the ring band filled.
-func rasterizeStrokePath(target *image.RGBA, state renderState, path gfx.Path, width float32, brush gfx.Brush) {
-	half := width / 2
-	if half <= 0 {
-		return
-	}
-
-	// Build the annular path: outer contour CW then inner contour CCW.
-	// The rasterizer accumulates winding counts; opposite windings cancel
-	// inside the inner contour, so only the band between outer and inner fills.
-	outerSegs := gfx.OffsetContour(path.Segments, half)
-	innerSegs := gfx.OffsetContour(path.Segments, -half)
-
-	if len(outerSegs) == 0 {
-		return
-	}
-
-	// Combine into one path: outer (CW) followed by inner reversed (CCW).
-	annular := gfx.Path{Segments: append(outerSegs, reverseContour(innerSegs)...)}
-	rasterizePath(target, state, annular, brush, 1)
-}
-
-// reverseContour reverses segment order and re-winds a closed contour so it
-// has opposite winding from the original. This is used to cut the interior
-// out of the outer stroke contour.
-func reverseContour(segs []gfx.PathSegment) []gfx.PathSegment {
-	if len(segs) == 0 {
-		return nil
-	}
-
-	// Collect the actual point sequence in forward order (skip Close/MoveTo verbs
-	// as control-flow rather than point-bearing).
-	type ptVerb struct {
-		verb gfx.PathVerb
-		pts  [3]gfx.Point
-	}
-	var pts []ptVerb
-	for _, seg := range segs {
-		if seg.Verb == gfx.PathClose {
-			continue
-		}
-		pts = append(pts, ptVerb{verb: seg.Verb, pts: seg.Pts})
-	}
-	if len(pts) == 0 {
-		return nil
-	}
-
-	// Reverse the sequence.
-	for i, j := 0, len(pts)-1; i < j; i, j = i+1, j-1 {
-		pts[i], pts[j] = pts[j], pts[i]
-	}
-
-	out := make([]gfx.PathSegment, 0, len(pts)+2)
-	// Start at the last point of the reversed sequence (first original point).
-	start := segs[0].Pts[0] // original start
-	out = append(out, gfx.PathSegment{Verb: gfx.PathMoveTo, Pts: [3]gfx.Point{start}})
-	for _, pv := range pts {
-		out = append(out, gfx.PathSegment{Verb: gfx.PathLineTo, Pts: pv.pts})
-	}
-	out = append(out, gfx.PathSegment{Verb: gfx.PathClose})
-	return out
-}
-
-// rasterizeSegment strokes a single line segment A→B with the given half-width
-// by rasterizing an axis-aligned rectangle around it.
-func rasterizeSegment(target *image.RGBA, state renderState, a, b gfx.Point, width float32, brush gfx.Brush) {
-	half := width / 2
-	dx := b.X - a.X
-	dy := b.Y - a.Y
-	l := float32(math.Sqrt(float64(dx*dx + dy*dy)))
-	if l <= 0 {
-		// Degenerate segment — draw a square cap.
-		fillRect(target, state, gfx.RectFromXYWH(a.X-half, a.Y-half, width, width), brush)
-		return
-	}
-	// Perpendicular unit vector.
-	nx := -dy / l
-	ny := dx / l
-	p1 := gfx.Point{X: a.X + nx*half, Y: a.Y + ny*half}
-	p2 := gfx.Point{X: a.X - nx*half, Y: a.Y - ny*half}
-	p3 := gfx.Point{X: b.X - nx*half, Y: b.Y - ny*half}
-	p4 := gfx.Point{X: b.X + nx*half, Y: b.Y + ny*half}
-	path := gfx.NewPath().
-		MoveTo(p1).
-		LineTo(p2).
-		LineTo(p3).
-		LineTo(p4).
-		Close().
-		Build()
-	rasterizePath(target, state, path, brush, 1)
 }
 
 func (r *SoftwareRenderer) drawGlyphRun(target *image.RGBA, state renderState, cmd gfx.DrawGlyphRun) {

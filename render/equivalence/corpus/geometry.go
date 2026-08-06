@@ -316,14 +316,125 @@ func geometryFixtures() []equivalence.FrameFixture {
 			},
 		},
 		fixture{
-			name: "stroke_path_rect_deferred", width: 64, height: 64,
+			name: "stroke_path_rect", width: 64, height: 64,
 			frame: func() *render.Frame {
-				// General closed-path strokes need OffsetContour expansion with
-				// hole-aware filling (Slice 8). Kept in the corpus so the
-				// command is covered at the wire level; skipped by the corpus
-				// runner until the GPU stroke pipeline lands.
+				// General closed-path strokes expand via OffsetContour (Slice 8);
+				// the ring between the outer and inner offset contours fills.
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
 					gfx.StrokePath{Path: gfx.RectPath(gfx.RectFromXYWH(10, 10, 40, 40)), Stroke: gfx.DefaultStroke(2), Brush: gfx.SolidBrush(blue)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_butt_cap", width: 64, height: 64,
+			frame: func() *render.Frame {
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: gfx.LinePath(gfx.Point{X: 8, Y: 40}, gfx.Point{X: 48, Y: 12}), Stroke: gfx.DefaultStroke(6), Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_round_cap", width: 64, height: 64,
+			frame: func() *render.Frame {
+				stroke := gfx.DefaultStroke(6)
+				stroke.Cap = gfx.LineCapRound
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: gfx.LinePath(gfx.Point{X: 8, Y: 40}, gfx.Point{X: 48, Y: 12}), Stroke: stroke, Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_square_cap", width: 64, height: 64,
+			frame: func() *render.Frame {
+				stroke := gfx.DefaultStroke(6)
+				stroke.Cap = gfx.LineCapSquare
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: gfx.LinePath(gfx.Point{X: 8, Y: 40}, gfx.Point{X: 48, Y: 12}), Stroke: stroke, Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_miter_join", width: 64, height: 64,
+			frame: func() *render.Frame {
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 8, Y: 8}).
+					LineTo(gfx.Point{X: 48, Y: 8}).
+					LineTo(gfx.Point{X: 48, Y: 48}).
+					Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: path, Stroke: gfx.DefaultStroke(6), Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_round_join", width: 64, height: 64,
+			frame: func() *render.Frame {
+				stroke := gfx.DefaultStroke(6)
+				stroke.Join = gfx.LineJoinRound
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 8, Y: 8}).
+					LineTo(gfx.Point{X: 48, Y: 8}).
+					LineTo(gfx.Point{X: 48, Y: 48}).
+					Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: path, Stroke: stroke, Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_bevel_join", width: 64, height: 64,
+			frame: func() *render.Frame {
+				stroke := gfx.DefaultStroke(6)
+				stroke.Join = gfx.LineJoinBevel
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 8, Y: 8}).
+					LineTo(gfx.Point{X: 48, Y: 8}).
+					LineTo(gfx.Point{X: 48, Y: 48}).
+					Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: path, Stroke: stroke, Brush: gfx.SolidBrush(red)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_miter_limit_clip", width: 64, height: 64,
+			frame: func() *render.Frame {
+				// A narrow V: the miter at the point extends ~3.3x the half-width
+				// beyond the vertex, far over the limit, so the join must fall
+				// back to a bevel.
+				stroke := gfx.DefaultStroke(6)
+				stroke.MiterLimit = 2
+				path := gfx.NewPath().
+					MoveTo(gfx.Point{X: 20, Y: 48}).
+					LineTo(gfx.Point{X: 32, Y: 10}).
+					LineTo(gfx.Point{X: 44, Y: 48}).
+					Build()
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: path, Stroke: stroke, Brush: gfx.SolidBrush(blue)},
+				)
+			},
+		},
+		fixture{
+			name: "stroke_dashed", width: 64, height: 64,
+			frame: func() *render.Frame {
+				stroke := gfx.DefaultStroke(4)
+				stroke.Dash = []float32{8, 6}
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
+					gfx.StrokePath{Path: gfx.LinePath(gfx.Point{X: 6, Y: 32}, gfx.Point{X: 58, Y: 32}), Stroke: stroke, Brush: gfx.SolidBrush(green)},
+				)
+			},
+		},
+		fixture{
+			name: "chart_line_stroke", width: 96, height: 64,
+			frame: func() *render.Frame {
+				// The shape marks/viz/line.go emits: a DrawPolyline with a
+				// plain width-only stroke.
+				return flatFrame(1, gfx.RectFromXYWH(0, 0, 96, 64), 1,
+					gfx.DrawPolyline{
+						Points: []gfx.Point{{X: 8, Y: 48}, {X: 24, Y: 30}, {X: 40, Y: 42}, {X: 56, Y: 18}, {X: 72, Y: 36}, {X: 88, Y: 12}},
+						Stroke: gfx.StrokeStyle{Width: 2},
+						Brush:  gfx.SolidBrush(green),
+					},
 				)
 			},
 		},

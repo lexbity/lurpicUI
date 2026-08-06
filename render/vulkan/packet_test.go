@@ -156,26 +156,14 @@ func TestEncodeFramePacket_fullStrokeStyle(t *testing.T) {
 		t.Fatalf("decodeTestFramePacket: %v", err)
 	}
 	cmd := decoded.batches[0].commands[0]
-	if cmd.kind != packetCmdStrokePath {
-		t.Fatalf("opcode = %d, want %d", cmd.kind, packetCmdStrokePath)
+	// Slice 8: a stroke command travels as the FillPath of its expanded
+	// outline. The full StrokeStyle (width, caps, joins, miter limit, dash)
+	// is honored by the Go-side expansion, not by wire metadata.
+	if cmd.kind != packetCmdFillPath {
+		t.Fatalf("opcode = %d, want %d (stroke expands to a fill path)", cmd.kind, packetCmdFillPath)
 	}
-	if cmd.stroke.Width != 3 {
-		t.Fatalf("width = %v", cmd.stroke.Width)
-	}
-	if cmd.stroke.Cap != gfx.LineCapRound {
-		t.Fatalf("cap = %v", cmd.stroke.Cap)
-	}
-	if cmd.stroke.Join != gfx.LineJoinBevel {
-		t.Fatalf("join = %v", cmd.stroke.Join)
-	}
-	if cmd.stroke.MiterLimit != 4.5 {
-		t.Fatalf("miter = %v", cmd.stroke.MiterLimit)
-	}
-	if len(cmd.stroke.Dash) != 3 || cmd.stroke.Dash[1] != 2 {
-		t.Fatalf("dash = %v", cmd.stroke.Dash)
-	}
-	if cmd.stroke.DashOffset != 1.5 {
-		t.Fatalf("dash offset = %v", cmd.stroke.DashOffset)
+	if len(cmd.path.Segments) < 4 {
+		t.Fatalf("expanded stroke path is degenerate: %v", cmd.path)
 	}
 }
 
@@ -368,10 +356,10 @@ func TestEncodeFramePacket_allOpcodesRoundTrip(t *testing.T) {
 	cmds := decoded.batches[0].commands
 	wantKinds := []uint8{
 		packetCmdFillRect,
-		packetCmdStrokeRect,
+		packetCmdFillPath, // StrokeRect is expanded to a fill path (Slice 8)
 		packetCmdFillPath,
-		packetCmdStrokePath,
-		packetCmdDrawPolyline,
+		packetCmdFillPath, // StrokePath expanded to a fill path
+		packetCmdFillPath, // DrawPolyline expanded to a fill path
 		packetCmdDrawPoints,
 		packetCmdDrawSelectionRects,
 		packetCmdPushTransform,

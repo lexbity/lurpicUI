@@ -332,8 +332,8 @@ pub fn create_xcb_surface(
             "instance handle does not match the active renderer".to_string(),
         ));
     }
-    if state.surface.is_some() {
-        return Ok(state.surface.unwrap().as_raw() as usize);
+    if let Some(surface) = state.surface {
+        return Ok(surface.as_raw() as usize);
     }
     let surface_handle = surface::create_xcb_surface(
         state.context.entry(),
@@ -369,8 +369,8 @@ pub fn create_android_surface(
             "instance handle does not match the active renderer".to_string(),
         ));
     }
-    if state.surface.is_some() {
-        return Ok(state.surface.unwrap().as_raw() as usize);
+    if let Some(surface) = state.surface {
+        return Ok(surface.as_raw() as usize);
     }
     let surface_handle = surface::create_android_surface(
         state.context.entry(),
@@ -485,6 +485,7 @@ pub fn reset_images() {
 
 /// Uploads a glyph's coverage mask into the packed GPU atlas (Slice 5). The
 /// atlas grows and compacts as needed; the SDF is generated for sizes >= 24 px.
+#[allow(clippy::too_many_arguments)] // glyph upload carries the full glyph payload
 pub fn upload_glyph(
     font_id: u64,
     glyph_id: u32,
@@ -639,7 +640,7 @@ impl VulkanState {
                 .limits
                 .min_uniform_buffer_offset_alignment
         }
-        .max(16) as u64;
+        .max(16);
         let command_buffer = {
             let alloc_info = vk::CommandBufferAllocateInfo {
                 command_pool: context.command_pool(),
@@ -814,10 +815,10 @@ impl VulkanState {
         &mut self,
         format: vk::Format,
     ) -> Result<TexturedHandles, (RenderResult, String)> {
-        if !self
+        if self
             .textured_pipeline
             .as_ref()
-            .is_some_and(|p| p.format() == format)
+            .is_none_or(|p| p.format() != format)
         {
             self.textured_pipeline = Some(TexturedPipeline::new(
                 &self.context,
@@ -835,10 +836,10 @@ impl VulkanState {
     }
 
     fn ensure_glyph_pipeline(&mut self, format: vk::Format) -> Result<GlyphHandles, (RenderResult, String)> {
-        if !self
+        if self
             .glyph_pipeline
             .as_ref()
-            .is_some_and(|p| p.format() == format)
+            .is_none_or(|p| p.format() != format)
         {
             self.glyph_pipeline = Some(GlyphPipeline::new(
                 &self.context,
@@ -856,10 +857,10 @@ impl VulkanState {
     }
 
     fn ensure_gradient_pipeline(&mut self, format: vk::Format) -> Result<GradientHandles, (RenderResult, String)> {
-        if !self
+        if self
             .gradient_pipeline
             .as_ref()
-            .is_some_and(|p| p.format() == format)
+            .is_none_or(|p| p.format() != format)
         {
             self.gradient_pipeline = Some(GradientPipeline::new(
                 &self.context,
@@ -880,10 +881,10 @@ impl VulkanState {
         &mut self,
         format: vk::Format,
     ) -> Result<PathFillHandles, (RenderResult, String)> {
-        if !self
+        if self
             .path_fill_pipeline
             .as_ref()
-            .is_some_and(|p| p.format() == format)
+            .is_none_or(|p| p.format() != format)
         {
             self.path_fill_pipeline = Some(PathFillPipeline::new(
                 &self.context,
@@ -1532,10 +1533,7 @@ impl VulkanState {
         let frame = self
             .pending_frame
             .take()
-            .map(|frame| {
-                self.last_frame = Some(frame.clone());
-                frame
-            })
+            .inspect(|frame| self.last_frame = Some(frame.clone()))
             .or_else(|| self.last_frame.clone());
         let Some(frame) = frame else {
             return Ok(());
@@ -1714,14 +1712,10 @@ impl VulkanState {
         let views = images
             .iter()
             .map(|&image| {
-                ImageView::new(device, image, format.format, vk::ImageAspectFlags::COLOR).map_err(
-                    |err| {
-                        unsafe {
-                            swapchain_loader.destroy_swapchain(swapchain, None);
-                        }
-                        err
-                    },
-                )
+                ImageView::new(device, image, format.format, vk::ImageAspectFlags::COLOR)
+                    .inspect_err(|_| unsafe {
+                        swapchain_loader.destroy_swapchain(swapchain, None);
+                    })
             })
             .collect::<Result<Vec<_>, _>>()?;
 

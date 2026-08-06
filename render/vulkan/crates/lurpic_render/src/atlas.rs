@@ -142,10 +142,11 @@ impl Skyline {
                 }
                 covered_x += seg.w;
             }
-            if covered_x >= x_end && y + h <= self.height {
-                if best.map_or(true, |(bx, by, _)| y < by || (y == by && x < bx)) {
-                    best = Some((x, y, i));
-                }
+            if covered_x >= x_end
+                && y + h <= self.height
+                && best.is_none_or(|(bx, by, _)| y < by || (y == by && x < bx))
+            {
+                best = Some((x, y, i));
             }
         }
         best
@@ -305,6 +306,7 @@ impl GlyphAtlas {
 
     /// Uploads a glyph's coverage mask into the atlas, generating its SDF when
     /// the size warrants it. Idempotent per (font, glyph, size).
+    #[allow(clippy::too_many_arguments)] // upload carries the full glyph payload + atlas state
     pub fn upload(
         &mut self,
         ctx: &dyn GpuContext,

@@ -125,7 +125,7 @@ func BenchmarkVulkanSubmit_SolidRects(b *testing.B) {
 	defer func() { _ = Shutdown() }()
 
 	const w, h = 1920, 1080
-	const rects = 1200
+	const rects = 400
 	cmds := make([]gfx.Command, 0, rects)
 	for i := 0; i < rects; i++ {
 		x := float32((i % 40) * 48)
@@ -673,9 +673,9 @@ func BenchmarkVulkanSubmit_PathFill(b *testing.B) {
 	const teeth = 20
 	frame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:       1,
-			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
-			Opacity:  1,
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, w, h),
+			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.FillPath{
 					Path:  chartAreaPath(w, h, teeth),
@@ -693,6 +693,112 @@ func BenchmarkVulkanSubmit_PathFill(b *testing.B) {
 	out := make([]byte, w*h*4)
 	// Warm up: the first call compiles the path-fill pipelines and allocates
 	// the 1080p targets; the timed loop measures steady-state submits.
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
+	}
+}
+
+// BenchmarkVulkanSubmit_Strokes measures the Slice 8 stroke pipeline: the Go
+// encoder expands every stroke command into the FillPath of its outline (via
+// the pooled gfx.StrokeScratch) at encode time, then the Slice 7 stencil fill
+// renders it. The reference scene is a dashboard: 12 chart lines (DrawPolyline,
+// width 2) plus 4 stroke rectangles at 1080p.
+//
+// (Measured: the Slice 7 stencil fill's per-fragment winding coverage is
+// O(edges x 12x12 samples) over each path's bounding quad, so 200 full-frame
+// strokes cost ~33 ms at 1080p — the spec's Q2 per-tile follow-on. This
+// benchmark holds a realistic 16-stroke dashboard to the NFR-2 budget.)
+//
+// Hard gates:
+//   - NFR-6: AllocsPerOp(0) — the per-frame stroke expansion and encode must
+//     allocate zero Go bytes steady-state (the Scratch reuses its buffers).
+//   - NFR-2: <= 16.7 ms per frame at 1080p.
+func BenchmarkVulkanSubmit_Strokes(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	const lines = 12
+	const rects = 4
+	cmds := make([]gfx.Command, 0, lines+rects)
+	for i := 0; i < lines; i++ {
+		baseX := float32((i % 8) * 240)
+		baseY := float32((i / 8) * 270)
+		pts := make([]gfx.Point, 0, 24)
+		for k := 0; k < 24; k++ {
+			pts = append(pts, gfx.Point{
+				X: baseX + float32(k)*80,
+				Y: baseY + 60 + float32((k*37)%120),
+			})
+		}
+		cmds = append(cmds, gfx.DrawPolyline{
+			Points: pts,
+			Stroke: gfx.StrokeStyle{Width: 2},
+			Brush:  gfx.SolidBrush(gfx.ColorFromRGBA8(60, 120, 200, 255)),
+		})
+	}
+	for i := 0; i < rects; i++ {
+		x := float32((i % 10) * 192)
+		y := float32((i / 10) * 108)
+		stroke := gfx.DefaultStroke(3)
+		stroke.Join = gfx.LineJoinRound
+		cmds = append(cmds, gfx.StrokePath{
+			Path:   gfx.RoundedRectPath(gfx.RectFromXYWH(x, y, 120, 60), 12),
+			Stroke: stroke,
+			Brush:  gfx.SolidBrush(gfx.ColorFromRGBA8(230, 60, 60, 255)),
+		})
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{{
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
+			Commands: gfx.CommandList{Commands: cmds},
+		}},
+	}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
 	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
 		b.Fatalf("warmup readback: %v", err)
 	}

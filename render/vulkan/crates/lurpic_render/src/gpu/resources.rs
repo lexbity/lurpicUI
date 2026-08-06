@@ -22,7 +22,7 @@ impl ShaderModule {
 #[allow(dead_code)] // constructed by the GPU pipeline (Slice 3+)
     pub fn new(device: &ash::Device, code: &[u32]) -> Result<Self, (RenderResult, String)> {
         let info = vk::ShaderModuleCreateInfo {
-            code_size: code.len() * core::mem::size_of::<u32>(),
+            code_size: core::mem::size_of_val(code),
             p_code: code.as_ptr(),
             ..Default::default()
         };

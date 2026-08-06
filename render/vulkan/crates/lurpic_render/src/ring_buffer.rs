@@ -21,7 +21,7 @@ pub const INSTANCE_STRIDE: u64 = 32;
 pub const DEFAULT_SLOT_BYTES: u64 = 8 * 1024 * 1024;
 
 /// Default per-slot capacity for the gradient UBO ring (uniform data).
-pub const DEFAULT_UNIFORM_SLOT_BYTES: u64 = 1 * 1024 * 1024;
+pub const DEFAULT_UNIFORM_SLOT_BYTES: u64 = 1024 * 1024;
 
 /// Default per-slot capacity for the path vertex ring (Slice 7 winding
 /// triangles).
@@ -300,7 +300,7 @@ impl InstanceRing {
                 "cannot append an empty instance batch".to_string(),
             ));
         }
-        if instances.len() as u64 % INSTANCE_STRIDE != 0 {
+        if !(instances.len() as u64).is_multiple_of(INSTANCE_STRIDE) {
             return Err((
                 RenderResult::InitFailed,
                 format!(

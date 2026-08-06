@@ -284,6 +284,7 @@ impl Default for FrameEncoder {
 
 impl FrameEncoder {
     /// Encodes a frame into draw groups, flushing instances to `ring`.
+    #[allow(clippy::too_many_arguments)] // emitter carries the full render context
     pub fn encode(
         &mut self,
         frame: &DecodedFrame,
@@ -334,6 +335,7 @@ impl FrameEncoder {
         })
     }
 
+    #[allow(clippy::too_many_arguments)] // emitter carries the full render context
     fn encode_batch(
         &mut self,
         batch: &DecodedBatch,
@@ -371,63 +373,30 @@ impl FrameEncoder {
                         textures,
                     )?;
                 }
-                DecodedCommand::StrokeRect {
-                    rect,
-                    stroke,
-                    brush,
-                } => {
-                    if stroke.width <= 0.0 {
-                        continue;
-                    }
-                    let half = stroke.width / 2.0;
-                    let outer = rect.inset(-half);
-                    let inner = rect.inset(half);
-                    for band in [
-                        Rect {
-                            min: outer.min,
-                            max: crate::geometry::Point {
-                                x: outer.max.x,
-                                y: inner.min.y,
-                            },
-                        },
-                        Rect {
-                            min: crate::geometry::Point {
-                                x: outer.min.x,
-                                y: inner.min.y,
-                            },
-                            max: crate::geometry::Point {
-                                x: inner.min.x,
-                                y: inner.max.y,
-                            },
-                        },
-                        Rect {
-                            min: crate::geometry::Point {
-                                x: inner.max.x,
-                                y: inner.min.y,
-                            },
-                            max: crate::geometry::Point {
-                                x: outer.max.x,
-                                y: inner.max.y,
-                            },
-                        },
-                        Rect {
-                            min: crate::geometry::Point {
-                                x: outer.min.x,
-                                y: inner.max.y,
-                            },
-                            max: outer.max,
-                        },
-                    ] {
-                        self.emit_fill_path_rect(
-                            band,
-                            brush,
-                            ring,
-                            uniform_ring,
-                            allocator,
-                            surface_size,
-                            textures,
-                        )?;
-                    }
+                // Slice 8: strokes render through the Slice 7 stencil fill. The
+                // Go packet encoder pre-expands stroke commands (via
+                // gfx.ExpandStroke / gfx.OffsetContour) into the FillPath of
+                // their outline, so a conforming packet routes strokes through
+                // the FillPath arm below. These stroke-opcode arms are the
+                // defensive routing for a packet that carries them directly:
+                // the decoded geometry is the fill path to render.
+                DecodedCommand::StrokeRect { rect, brush, .. } => {
+                    let path = crate::geometry::Path::rect(
+                        rect.min.x,
+                        rect.min.y,
+                        rect.max.x - rect.min.x,
+                        rect.max.y - rect.min.y,
+                    );
+                    self.emit_path_fill(
+                        &path,
+                        brush,
+                        ring,
+                        uniform_ring,
+                        path_ring,
+                        allocator,
+                        surface_size,
+                        textures,
+                    )?;
                 }
                 DecodedCommand::PushTransform { matrix } => {
                     let next = self.transform().multiply(*matrix);
@@ -457,9 +426,36 @@ impl FrameEncoder {
                         self.opacity_depth -= 1;
                     }
                 }
-                // Slice 3 renders FillRect/StrokeRect only. The remaining
-                // commands are consumed by later slices; a Dev-log is emitted
-                // for the first occurrence of each to aid debugging.
+                DecodedCommand::StrokePath { path, brush, .. } => {
+                    self.emit_path_fill(
+                        path,
+                        brush,
+                        ring,
+                        uniform_ring,
+                        path_ring,
+                        allocator,
+                        surface_size,
+                        textures,
+                    )?;
+                }
+                DecodedCommand::DrawPolyline {
+                    points,
+                    brush,
+                    closed,
+                    ..
+                } => {
+                    let path = crate::geometry::Path::polyline(points, *closed);
+                    self.emit_path_fill(
+                        &path,
+                        brush,
+                        ring,
+                        uniform_ring,
+                        path_ring,
+                        allocator,
+                        surface_size,
+                        textures,
+                    )?;
+                }
                 DecodedCommand::FillPath { path, brush } => {
                     self.emit_path_fill(
                         path,
@@ -472,11 +468,51 @@ impl FrameEncoder {
                         textures,
                     )?;
                 }
-                DecodedCommand::StrokePath { .. } => self.log_unsupported("StrokePath"),
-                DecodedCommand::DrawPolyline { .. } => self.log_unsupported("DrawPolyline"),
-                DecodedCommand::DrawPoints { .. } => self.log_unsupported("DrawPoints"),
-                DecodedCommand::DrawSelectionRects { .. } => {
-                    self.log_unsupported("DrawSelectionRects")
+                DecodedCommand::DrawPoints {
+                    points,
+                    radius,
+                    brush,
+                } => {
+                    // Points render as radius-sized squares, matching the
+                    // software oracle (fillRect of radius*2).
+                    for point in points {
+                        let path = crate::geometry::Path::rect(
+                            point.x - radius,
+                            point.y - radius,
+                            radius * 2.0,
+                            radius * 2.0,
+                        );
+                        self.emit_path_fill(
+                            &path,
+                            brush,
+                            ring,
+                            uniform_ring,
+                            path_ring,
+                            allocator,
+                            surface_size,
+                            textures,
+                        )?;
+                    }
+                }
+                DecodedCommand::DrawSelectionRects { rects, brush } => {
+                    for rect in rects {
+                        let path = crate::geometry::Path::rect(
+                            rect.min.x,
+                            rect.min.y,
+                            rect.max.x - rect.min.x,
+                            rect.max.y - rect.min.y,
+                        );
+                        self.emit_path_fill(
+                            &path,
+                            brush,
+                            ring,
+                            uniform_ring,
+                            path_ring,
+                            allocator,
+                            surface_size,
+                            textures,
+                        )?;
+                    }
                 }
                 DecodedCommand::DrawGlyphRun {
                     font_id,
@@ -532,6 +568,7 @@ impl FrameEncoder {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)] // emitter carries the full render context
     fn emit_fill_path_rect(
         &mut self,
         rect: Rect,
@@ -617,6 +654,7 @@ impl FrameEncoder {
     /// world-space contours, builds winding triangles into the path ring, and
     /// records the cover quad + push constants for the stencil-gated cover
     /// pass. Solid and gradient brushes are both honored.
+    #[allow(clippy::too_many_arguments)] // emitter carries the full render context
     fn emit_path_fill(
         &mut self,
         path: &crate::geometry::Path,
@@ -655,7 +693,6 @@ impl FrameEncoder {
         let (path_buffer, first_vertex) = path_ring.append_vertices(allocator, &tri)?;
         let vertex_count = (tri.len() / 2) as u32;
         let edge_count = vertex_count / 3;
-        let base_edge = first_vertex / 3;
 
         // The cover shader evaluates the winding over the flattened edges.
         let segments_descriptor = textures.allocate_segments_descriptor(
@@ -663,7 +700,6 @@ impl FrameEncoder {
             (first_vertex as u64) * 8,
             (vertex_count as u64) * 8,
         )?;
-
         // Cover instance: the LOCAL path bounds (the cover shader applies the
         // push transform). Solid fills carry the brush color in the instance
         // (also mirrored in the push payload); gradient fills leave it unused.
@@ -707,9 +743,14 @@ impl FrameEncoder {
         });
 
         // Cover push: brush info + the edge range for the winding coverage.
+        // The segments descriptor is bound at this fill's byte offset, so the
+        // cover shader indexes `segments.data[(base_edge + i) * 3]` relative to
+        // that bound start — base_edge is therefore 0 (a per-fill SSBO, not a
+        // global path-ring index). Passing the global `first_vertex / 3` here
+        // double-offsets every fill after the first.
         let mut payload = [0.0f32; 8];
         payload[4] = edge_count as f32;
-        payload[5] = f32::from_bits(base_edge);
+        payload[5] = f32::from_bits(0);
         match brush.kind {
             BrushKind::Solid => {
                 payload[0] = brush.color.r;
@@ -750,6 +791,7 @@ impl FrameEncoder {
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)] // emitter carries the full render context
     fn emit_textured_quad(
         &mut self,
         handle: u64,
@@ -819,6 +861,7 @@ impl FrameEncoder {
     /// placement is rounded AFTER the batch transform (matching the software
     /// oracle), and the dest rect is world-space — the glyph vertex shader does
     /// not re-apply the transform.
+    #[allow(clippy::too_many_arguments)] // emitter carries the full render context
     fn emit_glyph_run(
         &mut self,
         font_id: u64,
@@ -917,7 +960,7 @@ impl FrameEncoder {
     ) -> Result<bool, (RenderResult, String)> {
         let same = self
             .current_push
-            .map_or(false, |p| push_constants_eq(&p, &push))
+            .is_some_and(|p| push_constants_eq(&p, &push))
             && self.current_kind == Some(kind)
             && self.current_texture == texture;
         if same {

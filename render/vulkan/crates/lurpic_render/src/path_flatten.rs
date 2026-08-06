@@ -198,10 +198,10 @@ pub fn contours_bounds(contours: &[Vec<Point>]) -> Option<(Point, Point)> {
     let mut max: Option<Point> = None;
     for contour in contours {
         for p in contour {
-            let m = min.get_or_insert_with(|| *p);
+            let m = min.get_or_insert(*p);
             m.x = m.x.min(p.x);
             m.y = m.y.min(p.y);
-            let m = max.get_or_insert_with(|| *p);
+            let m = max.get_or_insert(*p);
             m.x = m.x.max(p.x);
             m.y = m.y.max(p.y);
         }

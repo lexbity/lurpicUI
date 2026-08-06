@@ -34,15 +34,10 @@ func requireVulkanRaster(t *testing.T) {
 // corpus covers every gfx command; the runner skips them until the slice that
 // renders them lands.
 var deferredFixtures = map[string]string{
-	"stroke_path_rect_deferred": "closed-path stroke needs OffsetContour expansion (Slice 8)",
-	"polyline_open":             "stroke expansion (Slice 8)",
-	"polyline_closed":           "stroke expansion (Slice 8)",
-	"points_grid":               "points rendering (follow-on, not in the slice plan)",
-	"selection_rects":           "selection rendering (follow-on, not in the slice plan)",
-	"image_bilinear_upscale":    "bilinear needs the software oracle to honor Sampling (software backend unchanged in Slice 4); GPU path verified by TestDrawImage_Bilinear",
-	"image_bilinear_downscale":  "bilinear needs the software oracle to honor Sampling (software backend unchanged in Slice 4); GPU path verified by TestDrawImage_Bilinear",
-	"texture_nearest_1to1":      "DrawTexture renders via TestDrawTexture_Rendered (backend-specific texture handles)",
-	"blurred_shadow_rect":       "blurred-shadow pipeline (Slice 9)",
+	"image_bilinear_upscale":   "bilinear needs the software oracle to honor Sampling (software backend unchanged in Slice 4); GPU path verified by TestDrawImage_Bilinear",
+	"image_bilinear_downscale": "bilinear needs the software oracle to honor Sampling (software backend unchanged in Slice 4); GPU path verified by TestDrawImage_Bilinear",
+	"texture_nearest_1to1":     "DrawTexture renders via TestDrawTexture_Rendered (backend-specific texture handles)",
+	"blurred_shadow_rect":      "blurred-shadow pipeline (Slice 9)",
 }
 
 // featureTolerances relax the Q1 default only for fixtures whose edge pixels
@@ -206,20 +201,24 @@ func TestCorpusEquivalence_NegativeControl(t *testing.T) {
 }
 
 // gpuRenderedCommands are the wire commands the current GPU pipeline
-// (Slices 3-7) handles end-to-end (render or state). Every other wire command
+// (Slices 3-8) handles end-to-end (render or state). Every other wire command
 // must be explicitly deferred in deferredWireCommands.
 var gpuRenderedCommands = map[string]bool{
-	"FillRect":      true,
-	"StrokeRect":    true,
-	"FillPath":      true,
-	"DrawImage":     true,
-	"DrawGlyphRun":  true,
-	"PushTransform": true,
-	"PopTransform":  true,
-	"PushClipRect":  true,
-	"PopClip":       true,
-	"PushOpacity":   true,
-	"PopOpacity":    true,
+	"FillRect":           true,
+	"StrokeRect":         true,
+	"FillPath":           true,
+	"StrokePath":         true,
+	"DrawPolyline":       true,
+	"DrawPoints":         true,
+	"DrawSelectionRects": true,
+	"DrawImage":          true,
+	"DrawGlyphRun":       true,
+	"PushTransform":      true,
+	"PopTransform":       true,
+	"PushClipRect":       true,
+	"PopClip":            true,
+	"PushOpacity":        true,
+	"PopOpacity":         true,
 }
 
 // deferredWireCommands documents, per wire command the current pipeline cannot
@@ -227,12 +226,8 @@ var gpuRenderedCommands = map[string]bool{
 // contract: a covered-but-not-rendered command must be listed here, and a
 // listed command must have a fixture.
 var deferredWireCommands = map[string]string{
-	"StrokePath":         "stroke expansion (Slice 8)",
-	"DrawPolyline":       "stroke expansion (Slice 8)",
-	"DrawPoints":         "points rendering (follow-on, not in the slice plan)",
-	"DrawSelectionRects": "selection rendering (follow-on, not in the slice plan)",
-	"DrawTexture":        "backend-specific texture handles; rendered by TestDrawTexture_Rendered",
-	"DrawBlurredShadow":  "blurred-shadow pipeline (Slice 9)",
+	"DrawTexture":       "backend-specific texture handles; rendered by TestDrawTexture_Rendered",
+	"DrawBlurredShadow": "blurred-shadow pipeline (Slice 9)",
 }
 
 // TestCorpusCoversEveryGeometryCommand guards against a fixture set that stops

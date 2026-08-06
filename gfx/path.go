@@ -152,10 +152,19 @@ func contourPoint(segs []PathSegment, i int) Point {
 // winding (CW in screen coordinates). The returned contour preserves the
 // segment count and verb structure of the input.
 func OffsetContour(segs []PathSegment, d float32) []PathSegment {
-	if len(segs) == 0 || d == 0 {
-		result := make([]PathSegment, len(segs))
-		copy(result, segs)
-		return result
+	return OffsetContourInto(nil, segs, d)
+}
+
+// OffsetContourInto appends the offset contour (as OffsetContour, above) to
+// dst, reusing its capacity, and returns it. OffsetContour wraps this; the
+// pooled callers (the Vulkan stroke encoder's per-frame rect path, NFR-6) call
+// it directly so stroke expansion stays allocation-free steady-state.
+func OffsetContourInto(dst []PathSegment, segs []PathSegment, d float32) []PathSegment {
+	if len(segs) == 0 {
+		return dst
+	}
+	if d == 0 {
+		return append(dst, segs...)
 	}
 
 	// Compute centroid for fallback on CubicTo and MoveTo.
@@ -170,20 +179,19 @@ func OffsetContour(segs []PathSegment, d float32) []PathSegment {
 		}
 	}
 	if n == 0 {
-		return nil
+		return dst
 	}
 	cx /= float32(n)
 	cy /= float32(n)
 
-	result := make([]PathSegment, len(segs))
 	for i, seg := range segs {
-		result[i].Verb = seg.Verb
+		out := PathSegment{Verb: seg.Verb}
 
 		switch seg.Verb {
 		case PathLineTo:
 			prev := contourPoint(segs, i)
 			nrm, _ := offsetDir(prev, seg.Pts[0])
-			result[i].Pts[0] = Point{
+			out.Pts[0] = Point{
 				X: seg.Pts[0].X + nrm.X*d,
 				Y: seg.Pts[0].Y + nrm.Y*d,
 			}
@@ -194,22 +202,22 @@ func OffsetContour(segs []PathSegment, d float32) []PathSegment {
 			dest := seg.Pts[1]
 
 			if md, ok := miterDir(prev, ctrl, dest); ok {
-				result[i].Pts[0] = Point{
+				out.Pts[0] = Point{
 					X: ctrl.X + md.X*d,
 					Y: ctrl.Y + md.Y*d,
 				}
 			} else {
-				result[i].Pts[0] = ctrl
+				out.Pts[0] = ctrl
 			}
 
 			nrm, _ := offsetDir(ctrl, dest)
 			if nrm.X != 0 || nrm.Y != 0 {
-				result[i].Pts[1] = Point{
+				out.Pts[1] = Point{
 					X: dest.X + nrm.X*d,
 					Y: dest.Y + nrm.Y*d,
 				}
 			} else {
-				result[i].Pts[1] = dest
+				out.Pts[1] = dest
 			}
 
 		default:
@@ -222,14 +230,15 @@ func OffsetContour(segs []PathSegment, d float32) []PathSegment {
 				len2 := dx*dx + dy*dy
 				if len2 > 0 {
 					l := float32(math.Sqrt(float64(len2)))
-					result[i].Pts[j] = Point{X: p.X + dx/l*d, Y: p.Y + dy/l*d}
+					out.Pts[j] = Point{X: p.X + dx/l*d, Y: p.Y + dy/l*d}
 				} else {
-					result[i].Pts[j] = p
+					out.Pts[j] = p
 				}
 			}
 		}
+		dst = append(dst, out)
 	}
-	return result
+	return dst
 }
 
 func RectPath(r Rect) Path {

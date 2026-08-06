@@ -403,7 +403,7 @@ pub extern "C" fn lurpic_render_test_force_swapped_rendering(enabled: u32) -> Re
 /// Reports the physical device's pipeline-relevant capabilities (honest
 /// backend selection, FR-11).
 #[no_mangle]
-pub extern "C" fn lurpic_render_query_pipeline_features(
+unsafe extern "C" fn lurpic_render_query_pipeline_features(
     out: *mut LurpicRenderPipelineFeatures,
 ) -> RenderResult {
     catch_render_result("query_pipeline_features", || {
@@ -431,7 +431,7 @@ pub extern "C" fn lurpic_render_query_pipeline_features(
 
 #[no_mangle]
 pub extern "C" fn lurpic_render_shutdown() -> RenderResult {
-    catch_render_result("shutdown", || vulkan::shutdown())
+    catch_render_result("shutdown", vulkan::shutdown)
 }
 
 #[no_mangle]
@@ -441,7 +441,7 @@ pub extern "C" fn lurpic_render_instance_handle() -> usize {
 }
 
 #[no_mangle]
-pub extern "C" fn lurpic_render_query_capabilities(
+unsafe extern "C" fn lurpic_render_query_capabilities(
     out: *mut LurpicRenderCapabilities,
 ) -> RenderResult {
     catch_render_result("query_capabilities", || {
@@ -471,7 +471,7 @@ pub extern "C" fn lurpic_render_query_capabilities(
 
 #[cfg(not(target_os = "android"))]
 #[no_mangle]
-pub extern "C" fn lurpic_render_create_xcb_surface(
+unsafe extern "C" fn lurpic_render_create_xcb_surface(
     instance: usize,
     connection: usize,
     window: u32,
@@ -540,7 +540,7 @@ pub extern "C" fn lurpic_render_resize(width: i32, height: i32) -> RenderResult 
 }
 
 #[no_mangle]
-pub extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> RenderResult {
+unsafe extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> RenderResult {
     catch_render_result("submit_frame", || vulkan::submit_frame(data, len))
 }
 
@@ -549,7 +549,7 @@ pub extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> Ren
 /// RGBA pixels to `out_pixels`. The equivalence harness compares this against
 /// the software oracle. Requires the renderer to be initialized.
 #[no_mangle]
-pub extern "C" fn lurpic_render_submit_and_readback(
+unsafe extern "C" fn lurpic_render_submit_and_readback(
     data: *const u8,
     len: usize,
     width: u32,
@@ -595,7 +595,7 @@ pub extern "C" fn lurpic_render_submit_and_readback(
 }
 
 #[no_mangle]
-pub extern "C" fn lurpic_render_upload_glyph(
+unsafe extern "C" fn lurpic_render_upload_glyph(
     font_id: u64,
     glyph_id: u32,
     size_bits: u32,
@@ -648,7 +648,7 @@ pub extern "C" fn lurpic_render_upload_glyph(
 }
 
 #[no_mangle]
-pub extern "C" fn lurpic_render_create_image(
+unsafe extern "C" fn lurpic_render_create_image(
     pixels: *const u8,
     len: usize,
     width: u32,
@@ -746,6 +746,7 @@ fn destroy_image_routed(handle: u64) -> Result<(), (RenderResult, String)> {
 /// builds). With no renderer and no cpu-fallback, the upload is a no-op: packet
 /// encoding is renderer-independent, and a frame cannot be submitted without a
 /// renderer anyway.
+#[allow(clippy::too_many_arguments)] // routed glyph upload carries the full glyph payload
 fn upload_glyph_routed(
     font_id: u64,
     glyph_id: u32,
@@ -891,7 +892,7 @@ mod tests {
             if short.is_empty() {
                 continue;
             }
-            exports.remove(&symbol.name.to_string());
+            exports.remove(symbol.name);
         }
         assert!(
             exports.is_empty(),

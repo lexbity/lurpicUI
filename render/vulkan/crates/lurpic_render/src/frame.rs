@@ -155,10 +155,12 @@ impl Brush {
 
 #[derive(Clone, Debug, Default)]
 pub struct StrokeStyle {
+    // The GPU path never interprets a StrokeStyle: the Go packet encoder
+    // expands strokes to FillPath (Slice 8) before the packet is sent. The
+    // stroke opcodes and this struct remain on the wire for the cpu-fallback
+    // raster, which consumes them (raster.rs).
+    #[allow(dead_code)]
     pub width: f32,
-    // Full stroke style is decoded without loss (FR-3). The CPU stepping-stone
-    // raster honors width only; caps/joins/miter/dash are consumed by the GPU
-    // stroke pipeline (Slice 8) via Go-side OffsetContour expansion.
     #[allow(dead_code)]
     pub cap: u8,
     #[allow(dead_code)]
@@ -185,6 +187,10 @@ pub enum DecodedCommand {
         rect: Rect,
         brush: Brush,
     },
+    // The stroke variants are decoded without loss (FR-3); the GPU encoder
+    // rejects them (the Go packet encoder expands strokes to FillPath, Slice 8)
+    // and the cpu-fallback raster consumes them (raster.rs).
+    #[allow(dead_code)]
     StrokeRect {
         rect: Rect,
         stroke: StrokeStyle,
@@ -378,6 +384,8 @@ impl Rect {
     }
 
     /// Shrinks (positive d) or grows (negative d) the rect on all sides.
+    /// Consumed by the cpu-fallback raster's stroke path (raster.rs).
+    #[allow(dead_code)]
     pub fn inset(self, d: f32) -> Rect {
         Rect {
             min: Point {
