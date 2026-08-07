@@ -6,31 +6,29 @@ See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
 
 ## Status
 
-Slice P2 of the multi-slice plan is in place (P0/P1 done previously):
+Slice P3 of the multi-slice plan is in place (P0–P2 done previously):
 
-- **Gallery shell (`studio/`)**: Root (linear.Vertical group-parent via
-  `layout/linear.New` — the policy's first production consumer), ChromeStack
-  (title + ⌘K + theme triggers, right-aligned), GallerySplit (the bespoke
-  `layout/split` host — first production consumer; 3 panes: index | stage |
-  inspector with static gutters), StatusBar, and placeholder Card panes.
-  Rendered 1280×800 golden (`studio/testdata/golden/linux/shell.png`).
-- **Framework feedback (Slice P2 surfaced these):**
-  - **F-fork-race (fixed in `facet/facet.go`)**: the runtime's forked
-    projection (trees > 8 nodes) + theme style resolution
-    (`NearestStyleContext` → `FacetByID` → walks the tree calling `Base()`)
-    raced on `facet.impl` because `BindImpl` re-wrote it on every `Base()`
-    call. `BindImpl` is now write-once (bound during single-threaded attach;
-    later calls are read-only no-ops). This was required for the demo's
-    NFR-race gate and is a genuine immutability fix.
-  - **F-linear-marks / F-badge-contract**: the standard marks mostly don't
-    declare `SupportsLinear`, so `layout/linear` cannot host them directly;
-    ChromeStack/StatusBar hand-arrange their marks (toolbar idiom) and pick a
-    placement each mark's contract supports.
-  - **F-lint-hosts**: the bespoke hosts carry documented
-    `//lurpiclint:ignore * -- <reason>` directives (LL001/LL003 on the raw
-    LayoutRole, LL021 on the chrome's AddChild lines).
-- Seed data + parser (`dataset/`), store topology (`state/`), app entry
-  (`main.go`), API verification, smoke tests, and debt clearance from P0/P1.
+- **Viz probe (`studio/viz_probe.go`)** — the isolated prove-viz-first chart:
+  one `viz.Line[dataset.Row]` over the real seed data, a bottom x-axis, a
+  left y-axis, a reference rule, and data-domain pan/zoom. First production
+  consumer of the viz marks + reactive scales together. Rendered 640×360
+  golden (`studio/testdata/golden/linux/viz_probe.png`).
+- **Scale wiring** — `NewTimeReactive(xDomain, xRange)` (zoom-mutable domain)
+  and `NewLinearReactive(bridgeDerived(yDomain), yRange)` (auto-extent domain
+  bridged from a `Derived`). The `FromDerived` scale constructors are not used
+  for the range because they bridge derived ranges lazily and go stale
+  (F-derived-range); the probe's `bridgeDerived` mirrors the reactive
+  package's internal bridge.
+- **Pan/zoom** — pointer drag pans the x-domain (`ZoomController.Pan` with
+  `Invert`-derived data-per-pixel), wheel zooms around the cursor focal
+  (`ZoomController.Zoom`). The isolation property (domain Set → line
+  `DirtyProjection` only, never `DirtyLayout`) is asserted at the facet level
+  in `TestVizProbe_zoomIsolation` (driven without a runtime so signals fire
+  synchronously) and through the real input pipeline in
+  `TestVizProbe_panZoomInput`.
+- Gallery shell (P2), seed/state (P1), app entry + debt (P0), and the
+  framework feedback from those slices (F-fork-race, F-lint-hosts,
+  F-linear-marks, F-badge-contract, F-derived-range, F-derived-independence).
 
 ## Run
 
