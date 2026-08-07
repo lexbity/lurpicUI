@@ -35,13 +35,14 @@ func buildDeriveds(a *AppState) {
 	}, a.Rows, a.LiveWindow)
 }
 
-// visibleRowsIn filters rows to the closed window [lo, hi] (unix seconds,
-// second-precision clock), preserving insertion order.
+// visibleRowsIn filters rows to the closed window [lo, hi] (fractional unix
+// seconds), preserving insertion order. Fractional (UnixNano) precision keeps
+// a sub-second synthetic feed clock aligned with the window.
 func visibleRowsIn(all []dataset.Row, window [2]float64) []dataset.Row {
 	lo, hi := window[0], window[1]
 	out := make([]dataset.Row, 0, len(all))
 	for _, r := range all {
-		t := float64(r.Time.Unix())
+		t := float64(r.Time.UnixNano()) / 1e9
 		if t >= lo && t <= hi {
 			out = append(out, r)
 		}

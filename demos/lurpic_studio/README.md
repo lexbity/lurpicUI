@@ -6,29 +6,28 @@ See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
 
 ## Status
 
-Slice P4 of the multi-slice plan is in place (P0–P3 done previously):
+Slice P5 of the multi-slice plan is in place (P0–P4 done previously):
 
-- **Exhibit stage (`studio/stage.go`)** — the single-active-exhibit host.
-  F-stage **resolved: visibility-gating** — only the active exhibit is
-  measured/arranged; inactive exhibits get zero bounds (and are never
-  measured, so switching cannot cause a layout storm). `layout/stack` is
-  confirmed a deprecation candidate (it would overlay and measure every child,
-  needing the same gating).
-- **E4 Layout Policies (`studio/e4_layout.go`)** — the first real exhibit: a
-  split whose panes redistribute live as the user toggles pane B flex/fixed
-  (switch), adjusts the fixed panes' width (slider), and adds/removes a fourth
-  pane (button) — reusing the shell's `GallerySplit` via the new dynamic
-  `SetPanes`. Flex-vs-fixed goldens differ byte-wise
-  (`e4_flex.png` / `e4_fixed.png`).
-- **Shell wiring** — the shell's center pane is now the Stage hosting the
-  exhibits; `go run` shows E4. Shell golden regenerated.
-- **Framework finding (F-dirtylayout-routing)** — a probe confirmed that
-  `facet.Facet.Invalidate` sets only local dirty bits that the runtime's layout
-  pass never reads (its gate is `rt.dirtyFacets`); store-driven re-layout must
-  route through `facet.RuntimeServices.Invalidate`. The stage switch and split
-  `SetPanes` capture the runtime services in `OnAttach` and route accordingly.
-- Viz probe (P3), gallery shell (P2), seed/state (P1), app entry + debt (P0),
-  and the framework feedback from those slices.
+- **E1 Realtime Data (`studio/e1_realtime.go`)** — the flagship part A
+  (read-only): the live chart + a streaming feed + the sliding live-tail
+  window. The chart is the production `ChartCanvas` (P3's probe refactored
+  into it), wired to the shared `AppState` stores (LiveWindow x-domain,
+  `YDomain`, `Paused`). A control strip drives Live, ChartType (line/area/
+  point/bar), YAxisMax, TimeRange→W, SeriesColor, Opacity, and the grid.
+  Smoothing + Aggregation defer to P6 (F-controls-deferred).
+- **`studio/feed.go`** — the snapshot→work→commit feed job: a worker goroutine
+  generates one deterministic row (synthetic clock, NFR-determinism), and the
+  runtime-thread commit appends it, slides the live window (unless paused),
+  trims to `MaxRows` (F-collection-evict), and pulses `JobProgress`. The time
+  model is fractional (UnixNano) so the sub-second cadence slides the live tail
+  (F-time-precision).
+- **FR-rt proven end-to-end** — a feed tick appends a row, the chart
+  re-projects it, and the frame runs no layout pass (DirtyProjection only).
+- **Four chart-type goldens** (`e1_line/area/point/bar`) are mutually
+  byte-distinct; the shell golden now shows E1 as the default exhibit.
+- Exhibit stage + E4 (P4), viz probe → ChartCanvas (P3), gallery shell (P2),
+  seed/state (P1), app entry + debt (P0), and the framework feedback from those
+  slices.
 
 ## Run
 

@@ -28,7 +28,10 @@ type Root struct {
 // NewRoot builds the gallery shell for a resolved app context.
 func NewRoot(ctx app.BuildContext) *Root {
 	appState := state.NewAppState(nil) // Slice P5 wires the seed CSV
-	stage := NewStage([]Exhibit{NewLayoutPolicies()}, appState)
+	stage := NewStage([]Exhibit{
+		NewRealtimeData(ctx.FontRegistry, ctx.Theme),
+		NewLayoutPolicies(),
+	}, appState)
 	r := &Root{
 		chrome:  NewChromeStack(ctx.Theme),
 		gallery: NewGallerySplit(newShellPanes(stage), dividerSize),

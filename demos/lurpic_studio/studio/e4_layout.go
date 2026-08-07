@@ -133,8 +133,10 @@ func (e *LayoutPolicies) measure(ctx facet.MeasureContext, c facet.Constraints) 
 	if role := e.split.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
 	}
+	// Measure the controls with an unbounded height so the control card
+	// reports its content height instead of flex-filling the whole stage.
 	if role := e.controls.Base().LayoutRole(); role != nil {
-		role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
+		role.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: c.MaxSize.W}})
 	}
 	return facet.MeasureResult{Size: c.Constrain(c.MaxSize)}
 }
