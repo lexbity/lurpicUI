@@ -484,7 +484,7 @@ add_custom_target(lint-lurpiclint
 add_dependencies(lint-lurpiclint build-lurpiclint)
 
 add_custom_target(lint-lurpiclint-ci
-  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --fail-on-stale-baseline --baseline "${CMAKE_CURRENT_SOURCE_DIR}/lurpiclint-baseline.json" ./... ./demos/quick_square_app/...
+  COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpiclint" check --fail-on error --fail-on-stale-baseline --baseline "${CMAKE_CURRENT_SOURCE_DIR}/lurpiclint-baseline.json" ./... ./demos/quick_square_app/... ./demos/lurpic_studio/...
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Run lurpiclint over the framework and demo apps (CI, strict on stale baseline)"
   VERBATIM

@@ -45,21 +45,27 @@ func cmdValidateDemos(args []string) int {
 		{
 			name: "shared marks",
 			dir:  root,
-			args: []string{"./marks/structure", "./marks/interaction", "./marks/uiinput", "./marks/uinav"},
+			args: []string{
+				"./marks/action",
+				"./marks/data",
+				"./marks/feedback",
+				"./marks/input",
+				"./marks/navigation",
+				"./marks/primitive",
+				"./marks/selection",
+				"./marks/status",
+				"./marks/structure",
+				"./marks/viz",
+			},
 		},
 		{
-			name: "ui_catalog_app",
-			dir:  filepath.Join(root, "demos", "ui_catalog_app"),
+			name: "quick_square_app",
+			dir:  filepath.Join(root, "demos", "quick_square_app"),
 			args: []string{"./..."},
 		},
 		{
-			name: "ui_replay_app",
-			dir:  filepath.Join(root, "demos", "ui_replay_app"),
-			args: []string{"./..."},
-		},
-		{
-			name: "ui_diagnostic_scene",
-			dir:  filepath.Join(root, "demos", "ui_diagnostic_scene"),
+			name: "lurpic_studio",
+			dir:  filepath.Join(root, "demos", "lurpic_studio"),
 			args: []string{"./..."},
 		},
 	}

@@ -173,10 +173,10 @@ frame (Principle 4).
 
 - **Intentional:** the store/facet/projection split, the role model, the layer model, the
   custom linter, the Rust Vulkan FFI boundary, the marks rewrite (PRM).
-- **In-progress / transitional (evidence):** `demos/lurpic_studio/` is an empty directory;
-  `Documentation/marks.md` carries a BETA / Studio-gated maturity banner; the memory index
-  notes open marks-golden defects and test-rigor gaps. Treat marks variant coverage and the
-  studio demo as unfinished.
+- **In-progress / transitional (evidence):** `demos/lurpic_studio/` is scaffolded (Slice P0 of
+  `devdocs/plans/lurpic-studio-redesign.md`) but not yet a working showcase; `Documentation/marks.md`
+  carries a BETA / Studio-gated maturity banner; the memory index notes open marks-golden
+  defects and test-rigor gaps. Treat marks variant coverage and the studio demo as unfinished.
 
 ---
 
@@ -208,13 +208,13 @@ frame (Principle 4).
 | `platform/` | Windowing/events/input/audio. | `platform/android/` (bridge, audio) is build-tagged. |
 | `input/` | Gesture/hover/focus state machine. | `input.go` (`System`, `GestureConfig`). |
 | `animation/`, `signal/`, `job/` | Animation + reactive plumbing. | |
-| `demos/` | Example apps. | `quick_square_app/` (working minimal app); `lurpic_studio/` (empty — placeholder). |
+| `demos/` | Example apps. | `quick_square_app/` (working minimal app); `lurpic_studio/` (scaffolded — Slice P0 of `lurpic-studio-redesign.md`). |
 | `Documentation/`, `devdocs/` | Design docs + plans. | `Documentation/` = intended-design references; `devdocs/plans/` = specs (some under `done/`). |
 | `internal/` | Shared internal helpers. | `testkit`, `syncutil`, `renderutil`, etc. Not importable outside module. |
 | `CMakeLists.txt`, `CMakePresets.json`, `cmake/`, `build/` | Native build orchestration (Rust + Go). | CMake drives the Rust crate + packaging. |
 | `.github/workflows/` | CI (`Android CI`). | Go 1.24 on CI (note: `go.mod` says 1.25.0), Rust toolchain, Android SDK/NDK. |
 | `.golangci.yaml` | Standard Go lint config (separate from lurpiclint). | |
-| `lurpic` (binary, ~7.7 MB) | Checked-in prebuilt CLI. | Generated artifact; rebuild with `go build ./cmd/lurpic`. |
+| `lurpic_studio` (binary, ~10.8 MB) | Was tracked at the repo root by an early commit (`2bd4f68`); removed from the index in Slice P0 of `lurpic-studio-redesign.md` and is now gitignored. Local builds regenerate it. The `lurpic` CLI binary (also ~7.7 MB at the root) is a separate generated artifact and has never been tracked. |
 | `vendor/` | Vendored Go deps. | `go-text`, `BurntSushi/toml`, `fsnotify`, `flatbuffers`, `klauspost/compress`, `lz4`, `goleak`, `srwiley` SVG. |
 
 **Naming conventions observed:** `*_test.go` for tests; `*_android.go` + build tags for the

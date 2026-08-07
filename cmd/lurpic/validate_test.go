@@ -41,10 +41,23 @@ func TestCmdValidateDemos_runsExpectedSuites(t *testing.T) {
 		dir  string
 		args []string
 	}{
-		{dir: tmp, args: []string{"./marks/structure", "./marks/interaction", "./marks/uiinput", "./marks/uinav"}},
-		{dir: filepath.Join(tmp, "demos", "ui_catalog_app"), args: []string{"./..."}},
-		{dir: filepath.Join(tmp, "demos", "ui_replay_app"), args: []string{"./..."}},
-		{dir: filepath.Join(tmp, "demos", "ui_diagnostic_scene"), args: []string{"./..."}},
+		{
+			dir: tmp,
+			args: []string{
+				"./marks/action",
+				"./marks/data",
+				"./marks/feedback",
+				"./marks/input",
+				"./marks/navigation",
+				"./marks/primitive",
+				"./marks/selection",
+				"./marks/status",
+				"./marks/structure",
+				"./marks/viz",
+			},
+		},
+		{dir: filepath.Join(tmp, "demos", "quick_square_app"), args: []string{"./..."}},
+		{dir: filepath.Join(tmp, "demos", "lurpic_studio"), args: []string{"./..."}},
 	}
 
 	if !reflect.DeepEqual(got, want) {
