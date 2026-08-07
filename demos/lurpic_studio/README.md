@@ -6,26 +6,31 @@ See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
 
 ## Status
 
-Slice P1 of the multi-slice plan is in place (P0 done previously):
+Slice P2 of the multi-slice plan is in place (P0/P1 done previously):
 
-- App entry (`main.go`): software backend forced, vendored NotoSans fonts
-  embedded via `//go:embed` and loaded through `app.Config.Fonts`
-  (F-font-source — never from `GOMODCACHE`).
-- Placeholder shell root (`studio/root.go`): fills the window with the
-  resolved theme background. The 3-pane split shell lands in Slice P2.
-- Seed data model + strict parser (`dataset/`): `Row`, `Parse` (strict
-  header, typed per-line `*ParseError`, CRLF-tolerant, 100% branch coverage),
-  `SeedPath`, plus a test that pins the committed `assets/metrics.csv` (40
-  rows, 4 regions, exact values).
-- Store topology (`state/`): `AppState` with `Rows` (monotonic-counter keyed),
-  `LiveWindow`, `Paused`, `YAxisMax`, `WindowSeconds`, the derived views
-  `VisibleRows`/`YDomain`/`BarBuckets`, `InsertRow`/`AnchorLiveWindow`, and
-  `TrimToMax` (bounded retention — F-collection-evict). 100% coverage, `-race`
-  clean, purity grep clean.
-- Blast-radius debt cleared (F-binary-debt, F-validate-broken, CI gate,
-  stale CMake artifacts) — see `devdocs/plans/lurpic-studio-redesign.md` §5.2.
-- API re-verification (`api_verify_test.go`, FR-1) + headless smoke test
-  (`main_smoke_test.go`).
+- **Gallery shell (`studio/`)**: Root (linear.Vertical group-parent via
+  `layout/linear.New` — the policy's first production consumer), ChromeStack
+  (title + ⌘K + theme triggers, right-aligned), GallerySplit (the bespoke
+  `layout/split` host — first production consumer; 3 panes: index | stage |
+  inspector with static gutters), StatusBar, and placeholder Card panes.
+  Rendered 1280×800 golden (`studio/testdata/golden/linux/shell.png`).
+- **Framework feedback (Slice P2 surfaced these):**
+  - **F-fork-race (fixed in `facet/facet.go`)**: the runtime's forked
+    projection (trees > 8 nodes) + theme style resolution
+    (`NearestStyleContext` → `FacetByID` → walks the tree calling `Base()`)
+    raced on `facet.impl` because `BindImpl` re-wrote it on every `Base()`
+    call. `BindImpl` is now write-once (bound during single-threaded attach;
+    later calls are read-only no-ops). This was required for the demo's
+    NFR-race gate and is a genuine immutability fix.
+  - **F-linear-marks / F-badge-contract**: the standard marks mostly don't
+    declare `SupportsLinear`, so `layout/linear` cannot host them directly;
+    ChromeStack/StatusBar hand-arrange their marks (toolbar idiom) and pick a
+    placement each mark's contract supports.
+  - **F-lint-hosts**: the bespoke hosts carry documented
+    `//lurpiclint:ignore * -- <reason>` directives (LL001/LL003 on the raw
+    LayoutRole, LL021 on the chrome's AddChild lines).
+- Seed data + parser (`dataset/`), store topology (`state/`), app entry
+  (`main.go`), API verification, smoke tests, and debt clearance from P0/P1.
 
 ## Run
 

@@ -70,12 +70,23 @@ func (f *Facet) Children() []*Facet {
 // BindImpl records the concrete implementation that owns this base facet.
 // Concrete facets call this from their Base method so lifecycle traversal can
 // dispatch to the real implementation when they are nested as children.
+//
+// Binding is write-once: the implementation is bound by the first call
+// (facet.Attach walks the tree single-threaded and binds every facet before
+// the runtime loop starts) and every later call is a read-only no-op. This
+// makes concurrent Base() calls during the runtime's forked projection
+// race-free — without it, theme style resolution walks the tree calling
+// Base() on facets that are simultaneously projecting in parallel goroutines
+// (F-fork-race).
 func (f *Facet) BindImpl(impl FacetImpl) {
 	if impl == nil {
 		return
 	}
-	if f.impl != nil && f.impl != impl {
-		panic("facet: BindImpl called with a different implementation")
+	if f.impl != nil {
+		if f.impl != impl {
+			panic("facet: BindImpl called with a different implementation")
+		}
+		return
 	}
 	f.impl = impl
 }
