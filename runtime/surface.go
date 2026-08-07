@@ -6,7 +6,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/render"
 )
 
 func (rt *Runtime) handlePlatformPause() {
@@ -57,10 +56,8 @@ func (rt *Runtime) clearRecoverableCaches() {
 			delete(rt.anchorCaches, id)
 		}
 	}
-	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil {
-		if evictor, ok := rt.renderPipeline.backend.(render.CacheEvictor); ok {
-			evictor.EvictCaches()
-		}
+	if rt.renderPipeline != nil {
+		rt.renderPipeline.evictCaches()
 	}
 	rt.frameTimer.RequestFrame()
 	rt.markTreeDirty(rt.root, facet.DirtyAll)
@@ -75,9 +72,7 @@ func (rt *Runtime) handleSurfaceLost() {
 	rt.surfaceReady = false
 	rt.lifecycleMu.Unlock()
 	rt.setIMEVisible(false)
-	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil {
-		rt.renderPipeline.backend.Destroy()
-	}
+	rt.renderPipeline.destroyBackend()
 	rt.markTreeDirty(rt.root, facet.DirtyAll)
 	if rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()
@@ -85,16 +80,11 @@ func (rt *Runtime) handleSurfaceLost() {
 }
 
 func (rt *Runtime) handleSurfaceCreated(surface platform.Surface) {
-	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil && surface != nil {
+	if rt.renderPipeline != nil && surface != nil {
 		// Prefer the lighter Recreate path (surface+swapchain only) over the
 		// full Initialize (re-creates instance + device). This avoids tearing
 		// down the entire GPU context during transient pause/resume cycles.
-		var err error
-		if recreatable, ok := rt.renderPipeline.backend.(render.RecreatableBackend); ok {
-			err = recreatable.Recreate(surface)
-		} else {
-			err = rt.renderPipeline.backend.Initialize(surface)
-		}
+		err := rt.renderPipeline.recreateOrInitialize(surface)
 		if err != nil {
 			if rt.log != nil {
 				rt.log.Error("runtime: reinitialize render backend after surface creation failed", "error", err)

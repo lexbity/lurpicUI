@@ -1,9 +1,8 @@
 // Package corpus defines the acceptance fixtures for the equivalence harness.
-// Slice 1 covers the command surface the CPU stepping-stone raster renders
-// correctly: solid fills, width-honoring strokes, paths, polylines, points,
-// selection rects, glyphs, images, gradients, clips, opacity, and transforms.
-// Fixtures that need GPU-only features (textures, shadows, curve AA, SDF text)
-// arrive with the slices that render them.
+// The fixtures cover the full gfx command surface: solid fills, width-honoring
+// strokes, paths, polylines, points, selection rects, glyphs, images,
+// gradients, clips, opacity, transforms, and blurred shadows. Each slice that
+// adds a rendered feature adds fixtures that must meet the tolerance.
 package corpus
 
 import (

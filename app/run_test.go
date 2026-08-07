@@ -13,6 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/render/vulkan"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -669,5 +671,44 @@ func TestDeviceInit_NoCapableDeviceFallsBack(t *testing.T) {
 	}
 	if !fakeVk.destroyed {
 		t.Error("the failed vulkan backend must be destroyed before the software fallback")
+	}
+}
+
+// TestInitBackend_HonestCapabilityDetection is the Slice 10 honest-selection
+// test (FR-11): a Vulkan device that cannot build the renderer's graphics
+// pipelines must fall back to the software backend upfront, even though its
+// instance/device initialize. The pipeline probe is the load-bearing gate — a
+// capability/feature check alone is not enough.
+func TestInitBackend_HonestCapabilityDetection(t *testing.T) {
+	t.Setenv("LURPIC_RENDER_BACKEND", "")
+	probeRan := false
+	origProbe := probeVulkanPipeline
+	origNewBackend := newBackend
+	defer func() {
+		probeVulkanPipeline = origProbe
+		newBackend = origNewBackend
+	}()
+
+	// The device "initializes" but cannot build a graphics pipeline.
+	probeVulkanPipeline = func(b *vulkan.Backend) error {
+		probeRan = true
+		return errors.New("simulated pipeline build failure")
+	}
+
+	backend, selected, err := initBackend(RenderBackendVulkan, &fakeSurface{width: 64, height: 64}, nil)
+	if err != nil {
+		t.Fatalf("initBackend: %v", err)
+	}
+	defer backend.Destroy()
+	if selected != RenderBackendSoftware {
+		t.Fatalf("selected = %v, want software when the pipeline probe fails", selected)
+	}
+	if _, ok := backend.(*software.SoftwareRenderer); !ok {
+		t.Fatalf("backend = %T, want *software.SoftwareRenderer", backend)
+	}
+	if !probeRan {
+		t.Log("pipeline probe not reached (no Vulkan device on this machine); fallback driven by init failure")
+	} else {
+		t.Log("pipeline probe failure drove the software fallback (FR-11)")
 	}
 }

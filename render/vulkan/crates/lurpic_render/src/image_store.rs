@@ -7,17 +7,12 @@
 //! the device (a texture cannot outlive the device it was created on). The `u64`
 //! handle returned to Go is unchanged by the backing swap.
 //!
-//! The `cpu-fallback` build retains a host-side bitmap store (unchanged from the
-//! pre-Slice-4 layout) so the headless raster can sample texture pixels without
-//! a GPU; the GPU path never consults it.
-//!
-//! Note on the Slice 4 grep gate ("no `Vec<u8>` in image_store.rs"): the two
-//! remaining occurrences are (a) the transient staging buffer produced by
+//! Note on the Slice 4 grep gate ("no `Vec<u8>` in image_store.rs"): the single
+//! remaining occurrence is the transient staging buffer produced by
 //! `normalize_rows` for the `vkCmdCopyBufferToImage` upload (the spec's "staged
-//! upload" — freed immediately after the fence) and (b) the `cpu-fallback`
-//! host `ImageBitmap`, a separate feature-gated path. The GPU store itself
-//! retains no host pixel copy: `StoredImage` holds only the `VkImage` +
-//! `VkImageView` + device-local memory.
+//! upload" — freed immediately after the fence). The GPU store itself retains
+//! no host pixel copy: `StoredImage` holds only the `VkImage` + `VkImageView` +
+//! device-local memory.
 
 use std::collections::HashMap;
 
@@ -33,17 +28,6 @@ use crate::RenderResult;
 pub enum ImageFormat {
     Rgba8 = 0,
     Bgra8 = 1,
-}
-
-/// Host-side copy of an uploaded image, retained for the `cpu-fallback` raster
-/// (headless/no-GPU builds) and for unit tests.
-#[cfg(any(feature = "cpu-fallback", test))]
-#[allow(dead_code)] // fields consumed by the cpu-fallback raster (Slice 4 note)
-#[derive(Clone, Debug)]
-pub struct ImageBitmap {
-    pub width: u32,
-    pub height: u32,
-    pub pixels: Vec<u8>,
 }
 
 /// A GPU-backed texture: the image, its view, and the device-local memory it is
@@ -347,132 +331,6 @@ fn upload_rgba(
     Ok(())
 }
 
-/// The `cpu-fallback` host-side texture store, retained for headless builds.
-/// The production GPU path (Slice 4+) does not touch it.
-#[cfg(any(feature = "cpu-fallback", test))]
-#[allow(dead_code)] // functions are consumed by the cpu-fallback raster and its tests
-mod host {
-    use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    #[derive(Clone, Debug)]
-    struct HostImage {
-        bitmap: ImageBitmap,
-    }
-
-    #[derive(Default)]
-    struct HostStore {
-        next_handle: u64,
-        entries: HashMap<u64, HostImage>,
-        create_count: usize,
-        destroy_count: usize,
-    }
-
-    impl HostStore {
-        fn create(
-            &mut self,
-            pixels: &[u8],
-            width: u32,
-            height: u32,
-            stride: u32,
-            format: ImageFormat,
-        ) -> Result<u64, (RenderResult, String)> {
-            let rgba = normalize_rows(pixels, width, height, stride, format)?;
-            let handle = self.next_handle;
-            self.next_handle += 1;
-            self.entries.insert(
-                handle,
-                HostImage {
-                    bitmap: ImageBitmap {
-                        width,
-                        height,
-                        pixels: rgba,
-                    },
-                },
-            );
-            self.create_count += 1;
-            Ok(handle)
-        }
-
-        fn destroy(&mut self, handle: u64) -> Result<(), (RenderResult, String)> {
-            if self.entries.remove(&handle).is_some() {
-                self.destroy_count += 1;
-                Ok(())
-            } else {
-                Err((
-                    RenderResult::InvalidHandle,
-                    format!("image handle {} does not exist", handle),
-                ))
-            }
-        }
-
-        fn lookup(&self, handle: u64) -> Option<ImageBitmap> {
-            self.entries.get(&handle).map(|entry| entry.bitmap.clone())
-        }
-
-        fn stats(&self) -> (usize, usize) {
-            (self.create_count, self.destroy_count)
-        }
-
-        fn reset(&mut self) {
-            self.entries.clear();
-            self.next_handle = 1;
-            self.create_count = 0;
-            self.destroy_count = 0;
-        }
-    }
-
-    static HOST_STORE: OnceLock<Mutex<HostStore>> = OnceLock::new();
-
-    fn host_store() -> &'static Mutex<HostStore> {
-        HOST_STORE.get_or_init(|| Mutex::new(HostStore::default()))
-    }
-
-    pub fn create_image(
-        pixels: &[u8],
-        width: u32,
-        height: u32,
-        stride: u32,
-        format: ImageFormat,
-    ) -> Result<u64, (RenderResult, String)> {
-        let mut store = host_store()
-            .lock()
-            .expect("host image store mutex poisoned");
-        store.create(pixels, width, height, stride, format)
-    }
-
-    pub fn destroy_image(handle: u64) -> Result<(), (RenderResult, String)> {
-        let mut store = host_store()
-            .lock()
-            .expect("host image store mutex poisoned");
-        store.destroy(handle)
-    }
-
-    pub fn lookup_image(handle: u64) -> Option<ImageBitmap> {
-        let store = host_store()
-            .lock()
-            .expect("host image store mutex poisoned");
-        store.lookup(handle)
-    }
-
-    pub fn image_stats() -> (usize, usize) {
-        let store = host_store()
-            .lock()
-            .expect("host image store mutex poisoned");
-        store.stats()
-    }
-
-    pub fn reset_images() {
-        let mut store = host_store()
-            .lock()
-            .expect("host image store mutex poisoned");
-        store.reset();
-    }
-}
-
-#[cfg(any(feature = "cpu-fallback", test))]
-#[allow(unused_imports)] // consumed by the cpu-fallback raster and lib.rs routing
-pub use host::{create_image, destroy_image, lookup_image, reset_images};
 
 #[cfg(test)]
 mod tests {

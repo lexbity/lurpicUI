@@ -24,9 +24,13 @@ func TestPathProbe(t *testing.T) {
 			gfx.FillPath{Path: gfx.RectPath(gfx.RectFromXYWH(8, 8, 32, 32)), Brush: brush},
 		}}}}}
 	soft, err := equivalence.RenderSoftware(frame, 64, 64)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	gpu, err := equivalence.RenderVulkan(frame, 64, 64)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, p := range []struct{ x, y int }{{8, 8}, {24, 24}, {30, 24}, {39, 24}, {8, 39}} {
 		so, g := soft[(p.y*64+p.x)*4:(p.y*64+p.x)*4+4], gpu[(p.y*64+p.x)*4:(p.y*64+p.x)*4+4]
 		fmt.Printf("(%d,%d) soft=%v gpu=%v\n", p.x, p.y, so, g)

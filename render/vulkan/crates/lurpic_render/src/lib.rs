@@ -21,15 +21,11 @@ mod geometry;
 /// The ash integration layer (GpuContext isolation). Public so the integration
 /// tests exercise the real pipeline; the C ABI surface is unaffected.
 pub mod gpu;
-#[cfg(feature = "cpu-fallback")]
-mod raster;
 mod image_store;
 mod path_flatten;
 mod pipeline;
 mod pipeline_cache;
 mod ring_buffer;
-#[cfg(feature = "cpu-fallback")]
-mod tessellation;
 mod vulkan;
 
 pub type RenderHandle = u64;
@@ -48,6 +44,9 @@ pub struct LurpicRenderPipelineFeatures {
     pub msaa_4x: u32,
     pub msaa_8x: u32,
     pub stencil_fill: u32,
+    /// True for tile-based mobile GPUs (Q13): dirty-region partial redraw is
+    /// gated off on these initially.
+    pub tile_based: u32,
 }
 
 #[repr(i32)]
@@ -60,6 +59,7 @@ pub enum RenderResult {
     VulkanError = 4,
     Unsupported = 5,
     PacketVersionMismatch = 6,
+    DeviceLost = 7,
     Panic = 1000,
     Unknown = 1001,
 }
@@ -74,6 +74,7 @@ impl RenderResult {
             RenderResult::VulkanError => "vulkan_error",
             RenderResult::Unsupported => "unsupported",
             RenderResult::PacketVersionMismatch => "packet_version_mismatch",
+            RenderResult::DeviceLost => "device_lost",
             RenderResult::Panic => "panic",
             RenderResult::Unknown => "unknown",
         }
@@ -88,6 +89,13 @@ static REGISTRY: OnceLock<HandleRegistry> = OnceLock::new();
 static DEVICE_GENERATION: AtomicU64 = AtomicU64::new(0);
 /// Set via `lurpic_render_set_validation`; honored at the next `init`.
 static VALIDATION_ENABLED: AtomicU64 = AtomicU64::new(0);
+
+/// Bumps the device generation. Called when a fatal device fault is detected
+/// (VK_ERROR_DEVICE_LOST) so the runtime can invalidate GPU-cached texture IDs
+/// (render.DeviceGenerationProvider). Also bumped by the inject test hook.
+pub(crate) fn bump_device_generation() {
+    DEVICE_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
 
 fn last_error() -> &'static Mutex<Vec<u8>> {
     LAST_ERROR.get_or_init(|| Mutex::new(vec![0]))
@@ -337,11 +345,7 @@ pub extern "C" fn lurpic_render_test_reset() -> RenderResult {
         let _guard = state_lock_guard();
         registry().clear();
         vulkan::reset_atlas();
-        #[cfg(feature = "cpu-fallback")]
-        atlas::reset_atlas();
         vulkan::reset_images();
-        #[cfg(feature = "cpu-fallback")]
-        image_store::reset_images();
         vulkan::shutdown().ok();
         clear_last_error();
         Ok(())
@@ -423,6 +427,7 @@ unsafe extern "C" fn lurpic_render_query_pipeline_features(
                 msaa_4x: features.msaa_4x as u32,
                 msaa_8x: features.msaa_8x as u32,
                 stencil_fill: features.stencil_fill as u32,
+                tile_based: features.tile_based as u32,
             };
         }
         Ok(())
@@ -542,6 +547,25 @@ pub extern "C" fn lurpic_render_resize(width: i32, height: i32) -> RenderResult 
 #[no_mangle]
 unsafe extern "C" fn lurpic_render_submit_frame(data: *const u8, len: usize) -> RenderResult {
     catch_render_result("submit_frame", || vulkan::submit_frame(data, len))
+}
+
+/// Builds the renderer's solid pipeline against the current swapchain format
+/// (or a placeholder when no surface exists yet), proving the device can
+/// construct the renderer's graphics pipelines. `initBackend` uses this as the
+/// honest capability probe (FR-11: an actual pipeline build, not a symbol or
+/// feature check); a failure selects the software backend upfront.
+#[no_mangle]
+pub extern "C" fn lurpic_render_build_pipeline_probe() -> RenderResult {
+    catch_render_result("build_pipeline_probe", vulkan::build_pipeline_probe)
+}
+
+/// Test-only: forces the next `submit`/`readback` to fail with
+/// `RenderResult::DeviceLost` (after bumping the device generation), so the Go
+/// fallback test exercises the real FFI path (TestGPUFallback_OnDeviceLost).
+#[cfg(feature = "test-exports")]
+#[no_mangle]
+pub extern "C" fn lurpic_render_test_inject_device_lost() -> RenderResult {
+    catch_render_result("test_inject_device_lost", vulkan::test_inject_device_lost)
 }
 
 /// GPU readback entry point: decodes a packet v2 frame, renders it through the
@@ -699,8 +723,8 @@ pub extern "C" fn lurpic_render_destroy_image(handle: u64) -> RenderResult {
 }
 
 /// Routes image creation to the GPU texture store when the renderer is
-/// initialized (Slice 4 backing), and to the `cpu-fallback` host store
-/// otherwise (headless builds).
+/// initialized (Slice 4 backing). Without a renderer there is no image store to
+/// create into; the Go-side software backend handles the no-GPU case.
 fn create_image_routed(
     data: &[u8],
     width: u32,
@@ -711,41 +735,26 @@ fn create_image_routed(
     if vulkan::is_initialized() {
         return vulkan::create_image(data, width, height, stride, format);
     }
-    #[cfg(feature = "cpu-fallback")]
-    {
-        return image_store::create_image(data, width, height, stride, format);
-    }
-    #[cfg(not(feature = "cpu-fallback"))]
-    {
-        Err((
-            RenderResult::InitFailed,
-            "renderer is not initialized; cannot create image".to_string(),
-        ))
-    }
+    Err((
+        RenderResult::InitFailed,
+        "renderer is not initialized; cannot create image".to_string(),
+    ))
 }
 
 fn destroy_image_routed(handle: u64) -> Result<(), (RenderResult, String)> {
     if vulkan::is_initialized() {
         return vulkan::destroy_image(handle);
     }
-    #[cfg(feature = "cpu-fallback")]
-    {
-        return image_store::destroy_image(handle);
-    }
-    #[cfg(not(feature = "cpu-fallback"))]
-    {
-        Err((
-            RenderResult::InvalidHandle,
-            format!("image handle {} does not exist", handle),
-        ))
-    }
+    Err((
+        RenderResult::InvalidHandle,
+        format!("image handle {} does not exist", handle),
+    ))
 }
 
 /// Routes glyph upload to the packed GPU atlas when the renderer is initialized
-/// (Slice 5 backing), and to the `cpu-fallback` host atlas otherwise (headless
-/// builds). With no renderer and no cpu-fallback, the upload is a no-op: packet
-/// encoding is renderer-independent, and a frame cannot be submitted without a
-/// renderer anyway.
+/// (Slice 5 backing). Without a renderer the upload is a no-op: packet encoding
+/// is renderer-independent, and a frame cannot be submitted without a renderer
+/// anyway.
 #[allow(clippy::too_many_arguments)] // routed glyph upload carries the full glyph payload
 fn upload_glyph_routed(
     font_id: u64,
@@ -771,34 +780,12 @@ fn upload_glyph_routed(
             advance,
         );
     }
-    #[cfg(feature = "cpu-fallback")]
-    {
-        atlas::upload_glyph(
-            font_id,
-            glyph_id,
-            size_bits,
-            atlas::GlyphBitmap {
-                width,
-                height,
-                pixels: mask.to_vec(),
-                offset_x,
-                offset_y,
-                advance,
-            },
-        );
-        return Ok(());
-    }
-    #[cfg(not(feature = "cpu-fallback"))]
-    {
-        Ok(())
-    }
+    Ok(())
 }
 
 #[no_mangle]
 pub extern "C" fn lurpic_render_reset_atlas() {
     vulkan::reset_atlas();
-    #[cfg(feature = "cpu-fallback")]
-    atlas::reset_atlas();
 }
 
 #[cfg(feature = "test-exports")]

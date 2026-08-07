@@ -49,24 +49,10 @@ pub const CMD_END_RENDER_BATCH: u8 = 18;
 pub const BRUSH_SOLID: u8 = 0;
 pub const BRUSH_LINEAR_GRADIENT: u8 = 1;
 
-#[cfg(feature = "cpu-fallback")]
-use std::sync::atomic::{AtomicUsize, Ordering};
-
-#[cfg(feature = "cpu-fallback")]
-static LAST_VERTEX_COUNT: AtomicUsize = AtomicUsize::new(0);
-
-/// Records the number of vertices the CPU raster adapter produced for the most
-/// recent frame. Populated at raster time; surfaced through `FrameStats`.
-#[cfg(feature = "cpu-fallback")]
-pub fn record_vertex_count(count: usize) {
-    LAST_VERTEX_COUNT.store(count, Ordering::Relaxed);
-}
-
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct FrameStats {
     pub batch_count: usize,
     pub command_count: usize,
-    pub vertex_count: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -75,14 +61,17 @@ pub struct DecodedFrame {
     // (test-exports); the production pipeline does not consume it.
     #[cfg_attr(not(feature = "test-exports"), allow(dead_code))]
     pub stats: FrameStats,
-    // Surface metadata feeds the GPU pipeline (Slice 3+); the CPU stepping-stone
-    // raster only needs the command stream.
+    // Surface metadata feeds the GPU pipeline (Slice 3+).
     #[allow(dead_code)]
     pub surface_w: u32,
     #[allow(dead_code)]
     pub surface_h: u32,
     #[allow(dead_code)]
     pub device_pixel_ratio: f32,
+    /// World-space dirty regions (Slice 10, Q13): the runtime computes these as
+    /// the merged bounds of the frame's changed facets. The GPU consumes them
+    /// on non-tile-based devices to redraw only the changed areas.
+    pub dirty_regions: Vec<Rect>,
     pub batches: Vec<DecodedBatch>,
 }
 
@@ -92,8 +81,8 @@ pub struct DecodedBatch {
     pub id: u64,
     pub bounds: Rect,
     pub opacity: f32,
-    /// Batch-level 2x3 affine transform. Applied by the CPU raster adapter at
-    /// raster time (stepping stone); consumed as a push constant on the GPU path.
+    /// Batch-level 2x3 affine transform; consumed as a push constant on the GPU
+    /// path.
     pub transform: Transform,
     /// Batch-local clip rect from the layer stack; `None` when absent.
     pub clip: Option<Rect>,
@@ -157,8 +146,9 @@ impl Brush {
 pub struct StrokeStyle {
     // The GPU path never interprets a StrokeStyle: the Go packet encoder
     // expands strokes to FillPath (Slice 8) before the packet is sent. The
-    // stroke opcodes and this struct remain on the wire for the cpu-fallback
-    // raster, which consumes them (raster.rs).
+    // stroke opcodes and this struct remain on the wire so a packet carrying a
+    // stroke command decodes without loss (FR-3); the frame encoder routes
+    // them to path fills as defensive handling.
     #[allow(dead_code)]
     pub width: f32,
     #[allow(dead_code)]
@@ -188,16 +178,16 @@ pub enum DecodedCommand {
         brush: Brush,
     },
     // The stroke variants are decoded without loss (FR-3); the GPU encoder
-    // rejects them (the Go packet encoder expands strokes to FillPath, Slice 8)
-    // and the cpu-fallback raster consumes them (raster.rs).
+    // routes them to path fills (the Go packet encoder expands strokes to
+    // FillPath, Slice 8, so a conforming packet never carries them).
     #[allow(dead_code)]
     StrokeRect {
         rect: Rect,
         stroke: StrokeStyle,
         brush: Brush,
     },
-    // Fields consumed by later slices (path fill: Slice 7, strokes: Slice 8,
-    // points/selection: GPU raster follow-ons); decoded without loss (FR-3).
+    // Fields consumed by the GPU pipeline (path fill: Slice 7, strokes: Slice 8,
+    // points/selection fills); decoded without loss (FR-3).
     #[allow(dead_code)]
     FillPath {
         path: Path,
@@ -298,6 +288,12 @@ pub fn decode_frame(data: &[u8]) -> Result<DecodedFrame, (RenderResult, String)>
     let surface_h = reader.read_u32()?;
     let device_pixel_ratio = reader.read_f32()?;
 
+    let dirty_region_count = reader.read_u32()? as usize;
+    let mut dirty_regions = Vec::with_capacity(dirty_region_count);
+    for _ in 0..dirty_region_count {
+        dirty_regions.push(reader.read_rect()?);
+    }
+
     let batch_count = reader.read_u32()? as usize;
     let mut batches = Vec::with_capacity(batch_count);
     let mut stats = FrameStats::default();
@@ -346,6 +342,7 @@ pub fn decode_frame(data: &[u8]) -> Result<DecodedFrame, (RenderResult, String)>
         surface_w,
         surface_h,
         device_pixel_ratio,
+        dirty_regions,
         batches,
     })
 }
@@ -379,22 +376,6 @@ impl Rect {
             max: Point {
                 x: self.max.x.min(other.max.x),
                 y: self.max.y.min(other.max.y),
-            },
-        }
-    }
-
-    /// Shrinks (positive d) or grows (negative d) the rect on all sides.
-    /// Consumed by the cpu-fallback raster's stroke path (raster.rs).
-    #[allow(dead_code)]
-    pub fn inset(self, d: f32) -> Rect {
-        Rect {
-            min: Point {
-                x: self.min.x + d,
-                y: self.min.y + d,
-            },
-            max: Point {
-                x: self.max.x - d,
-                y: self.max.y - d,
             },
         }
     }
@@ -883,6 +864,7 @@ mod tests {
             self.u32(64);
             self.u32(64);
             self.f32(1.0);
+            self.u32(0); // dirty-region count (Slice 10)
             self.u32(batch_count);
             self
         }

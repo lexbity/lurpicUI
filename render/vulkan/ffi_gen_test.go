@@ -368,7 +368,7 @@ func TestFFISymbols_InSync(t *testing.T) {
 			}
 			t.Log("regenerated ffi_linux.c")
 		} else {
-			t.Errorf("ffi_linux.c is out of sync with the FFI inventory.\n"+
+			t.Errorf("ffi_linux.c is out of sync with the FFI inventory.\n" +
 				"Run: LURPIC_FFI_REGENERATE=1 go test -run TestFFISymbols_InSync ./render/vulkan/")
 		}
 	}
@@ -437,6 +437,7 @@ func TestFFISymbols_WrappersExist(t *testing.T) {
 	goRenames := map[string]bool{
 		"upload_image":            true,
 		"force_swapped_rendering": true,
+		"inject_device_lost":      true,
 	}
 	re := regexp.MustCompile(`(?m)^func ([A-Z][A-Za-z0-9_]*)\(`)
 	for _, m := range re.FindAllSubmatch(g, -1) {

@@ -27,6 +27,7 @@ pub struct FfiSymbol {
 
 #[allow(dead_code)]
 pub const FFI_SYMBOLS: &[FfiSymbol] = &[
+    FfiSymbol { name: "lurpic_render_build_pipeline_probe", ret: "int32_t", args: "void", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_create_image", ret: "int32_t", args: "const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_create_surface_android", ret: "int32_t", args: "void *window, uintptr_t instance, uint32_t width, uint32_t height, uintptr_t *out_surface", platform: "android", test_only: false },
     FfiSymbol { name: "lurpic_render_create_xcb_surface", ret: "int32_t", args: "uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface", platform: "linux", test_only: false },
@@ -55,6 +56,7 @@ pub const FFI_SYMBOLS: &[FfiSymbol] = &[
     FfiSymbol { name: "lurpic_render_test_force_swapped_rendering", ret: "int32_t", args: "uint32_t enabled", platform: "", test_only: true },
     FfiSymbol { name: "lurpic_render_test_image_count", ret: "uint64_t", args: "void", platform: "", test_only: true },
     FfiSymbol { name: "lurpic_render_test_image_destroy_count", ret: "uint64_t", args: "void", platform: "", test_only: true },
+    FfiSymbol { name: "lurpic_render_test_inject_device_lost", ret: "int32_t", args: "void", platform: "", test_only: true },
     FfiSymbol { name: "lurpic_render_test_last_batch_count", ret: "uint64_t", args: "void", platform: "", test_only: true },
     FfiSymbol { name: "lurpic_render_test_last_command_count", ret: "uint64_t", args: "void", platform: "", test_only: true },
     FfiSymbol { name: "lurpic_render_test_ok", ret: "int32_t", args: "void", platform: "", test_only: true },

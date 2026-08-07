@@ -15,7 +15,7 @@ use ash::vk::Handle;
 use crate::atlas::GlyphAtlas;
 use crate::clear_last_error;
 use crate::error::vk_error;
-use crate::frame::{decode_frame, DecodedFrame};
+use crate::frame::{decode_frame, DecodedFrame, Rect};
 #[cfg(feature = "test-exports")]
 use crate::frame::FrameStats;
 use crate::frame_encoder::{DrawKind, FrameEncoder, ShadowFill, Textures};
@@ -49,6 +49,28 @@ const TEXTURED_DESCRIPTOR_SETS_PER_POOL: u32 = 2048;
 /// toolchain.
 #[cfg(feature = "test-exports")]
 static FORCE_SWAPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Test-only flag: the next `render_into` fails with `RenderResult::DeviceLost`
+/// (after bumping the device generation), so the Go fallback test can force a
+/// GPU-fatal submit through the real FFI path.
+#[cfg(feature = "test-exports")]
+static INJECT_DEVICE_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(feature = "test-exports")]
+pub fn test_inject_device_lost() -> Result<(), (RenderResult, String)> {
+    INJECT_DEVICE_LOST.store(true, std::sync::atomic::Ordering::Relaxed);
+    Ok(())
+}
+
+#[cfg(feature = "test-exports")]
+fn inject_device_lost() -> bool {
+    INJECT_DEVICE_LOST.swap(false, std::sync::atomic::Ordering::Relaxed)
+}
+
+#[cfg(not(feature = "test-exports"))]
+fn inject_device_lost() -> bool {
+    false
+}
 
 #[cfg(feature = "test-exports")]
 pub fn test_force_swapped_rendering(enabled: bool) {
@@ -214,6 +236,65 @@ enum ResolveTarget {
     },
 }
 
+/// Per-swapchain-image dirty-rect state (Slice 10, Q13). A multi-buffered
+/// swapchain image's content is stale by `image_count` frames, so the effective
+/// redraw region for image k is the union of dirty regions accumulated since
+/// image k was last rendered. `pending[k]` accumulates those regions; `used[k]`
+/// tracks whether image k has ever been rendered (first use requires a full
+/// redraw — there is no prior content to preserve).
+struct SwapchainDirty {
+    pending: Vec<Vec<Rect>>,
+    used: Vec<bool>,
+}
+
+impl SwapchainDirty {
+    fn new(count: usize) -> Self {
+        Self {
+            pending: vec![Vec::new(); count],
+            used: vec![false; count],
+        }
+    }
+
+    /// The redraw regions for rendering into image `index` this frame. The
+    /// image's content becomes the result of this frame, so its pending set
+    /// resets to empty; every other image accumulates this frame's changes (its
+    /// content is stale by `image_count` frames and must redraw them when next
+    /// used).
+    fn take(&mut self, index: usize, frame_dirty: &[Rect]) -> Vec<Rect> {
+        if index >= self.pending.len() {
+            return Vec::new();
+        }
+        // The image's content becomes this frame's result, so its accumulated
+        // pending set is consumed now and reset for the next cycle regardless
+        // of first use.
+        let accumulated = std::mem::take(&mut self.pending[index]);
+        let effective = if self.used[index] {
+            accumulated
+        } else {
+            // First use: no prior content exists, so the full frame redraws.
+            Vec::new()
+        };
+        self.used[index] = true;
+        for (i, pending) in self.pending.iter_mut().enumerate() {
+            if i != index {
+                for r in frame_dirty {
+                    if !pending.iter().any(|p| p == r) {
+                        pending.push(*r);
+                    }
+                }
+            }
+        }
+        effective
+    }
+
+    /// Resets the per-image state on swapchain recreate (image count/extent
+    /// changed): all images become first-use again.
+    fn reset(&mut self, count: usize) {
+        self.pending = vec![Vec::new(); count];
+        self.used = vec![false; count];
+    }
+}
+
 pub struct VulkanState {
     // Drop order: swapchain/surface/render targets first, then the context
     // (command pool -> device -> instance via its RAII guards).
@@ -251,6 +332,11 @@ pub struct VulkanState {
     requested_height: u32,
     pending_frame: Option<DecodedFrame>,
     last_frame: Option<DecodedFrame>,
+    /// Dirty-rect consumption gate (Slice 10, Q13): enabled on non-tile-based
+    /// desktop GPUs, off on tile-based mobile initially.
+    dirty_regions_enabled: bool,
+    /// Per-swapchain-image dirty accumulation for present-side redraw.
+    swapchain_dirty: SwapchainDirty,
     capabilities: VulkanCapabilities,
     context: AshContext,
 }
@@ -309,6 +395,27 @@ pub fn pipeline_features() -> Result<PhysicalDeviceFeatures, (RenderResult, Stri
     Ok(*state.context.features())
 }
 
+/// Builds the solid pipeline as an honest capability probe (FR-11): if the
+/// device cannot construct the renderer's graphics pipelines, `initBackend`
+/// must select the software backend upfront rather than fail on first submit.
+/// Uses the swapchain format when a surface exists, a placeholder otherwise
+/// (e.g. Android before surface creation).
+pub fn build_pipeline_probe() -> Result<(), (RenderResult, String)> {
+    let mut guard = state_lock();
+    let state = guard.as_mut().ok_or((
+        RenderResult::InitFailed,
+        "renderer is not initialized".to_string(),
+    ))?;
+    let format = if state.swapchain_format == vk::Format::UNDEFINED {
+        vk::Format::B8G8R8A8_UNORM
+    } else {
+        state.swapchain_format
+    };
+    state.ensure_solid_pipeline(format, force_swapped())?;
+    clear_last_error();
+    Ok(())
+}
+
 pub fn query_capabilities(out: *mut VulkanCapabilities) -> Result<(), (RenderResult, String)> {
     if out.is_null() {
         return Err((
@@ -337,8 +444,9 @@ pub fn instance_handle() -> usize {
 }
 
 /// Whether the renderer's Vulkan state is initialized (and thus GPU image
-/// storage is available). The image FFI routes to the GPU store when true and
-/// to the `cpu-fallback` host store otherwise.
+/// storage is available). The image/glyph FFI routes to the GPU stores when
+/// true; without a renderer there is no store to route to (the Go-side software
+/// backend handles the no-GPU case).
 pub fn is_initialized() -> bool {
     state_lock().is_some()
 }
@@ -614,7 +722,7 @@ pub fn readback_frame(
 #[cfg(feature = "test-exports")]
 pub fn frame_stats() -> FrameStats {
     let guard = state_lock();
-    let mut stats = guard
+    guard
         .as_ref()
         .and_then(|state| {
             state
@@ -623,9 +731,7 @@ pub fn frame_stats() -> FrameStats {
                 .or(state.last_frame.as_ref())
                 .map(|frame| frame.stats)
         })
-        .unwrap_or_default();
-    stats.vertex_count = 0;
-    stats
+        .unwrap_or_default()
 }
 
 impl VulkanState {
@@ -797,6 +903,8 @@ impl VulkanState {
             requested_height: 1,
             pending_frame: None,
             last_frame: None,
+            dirty_regions_enabled: !context.features().tile_based,
+            swapchain_dirty: SwapchainDirty::new(0),
             capabilities: caps,
             context,
         })
@@ -1233,7 +1341,10 @@ impl VulkanState {
     /// The shared GPU render: encodes the frame, records the instanced solid
     /// draws into `resolve` (MSAA -> resolve), and submits. `copy_out` carries
     /// the frame's instance data out of the ring; the caller owns synchronization
-    /// (present vs wait-idle).
+    /// (present vs wait-idle). `dirty` carries the frame's dirty regions (Slice
+    /// 10, Q13): when non-empty and the device gate is enabled, draws are
+    /// scissor-restricted to the dirty union, and a present-side target is
+    /// preserved (per-region clears) instead of fully cleared.
     #[allow(clippy::too_many_arguments)]
     fn render_into(
         &mut self,
@@ -1242,7 +1353,26 @@ impl VulkanState {
         format: vk::Format,
         resolve: ResolveTarget,
         clear: vk::ClearValue,
+        dirty: &[Rect],
     ) -> Result<(), (RenderResult, String)> {
+        // Test-only device-loss injection: the next submit fails with
+        // RenderResult::DeviceLost so the Go fallback test exercises the real
+        // FFI path (TestGPUFallback_OnDeviceLost).
+        if inject_device_lost() {
+            crate::bump_device_generation();
+            return Err((
+                RenderResult::DeviceLost,
+                "injected device loss".to_string(),
+            ));
+        }
+
+        // Dirty-region consumption (Q13): enabled on non-tile-based GPUs; a
+        // present-side (persistent swapchain) target is preserved and cleared
+        // only in the dirty regions, while a fresh offscreen target is fully
+        // cleared and only the dirty regions are redrawn.
+        let dirty_active = self.dirty_regions_enabled && !dirty.is_empty();
+        let preserve = dirty_active && matches!(resolve, ResolveTarget::Swapchain { .. });
+
         self.ensure_msaa(extent, format)?;
         let pipeline = self.ensure_solid_pipeline(format, force_swapped())?;
         let textured = self.ensure_textured_pipeline(format)?;
@@ -1294,15 +1424,30 @@ impl VulkanState {
         let command_buffer = self.begin_command_buffer()?;
         let device = self.context.device().clone();
 
-        // Transition the resolve image to COLOR_ATTACHMENT_OPTIMAL.
+        // Transition the resolve image to COLOR_ATTACHMENT_OPTIMAL. When
+        // preserving a present-side target for dirty-region redraw, the
+        // previous frame's presented content must survive the transition
+        // (PRESENT_SRC_KHR -> COLOR_ATTACHMENT), so the dirty areas are the only
+        // ones cleared; a full redraw (or a fresh offscreen target) discards the
+        // prior content via UNDEFINED.
         let resolve_image = match resolve {
             ResolveTarget::Swapchain { image, .. } | ResolveTarget::Offscreen { image, .. } => {
                 image
             }
         };
+        let (resolve_old_layout, resolve_src_stage) = if preserve {
+            (
+                vk::ImageLayout::PRESENT_SRC_KHR,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            )
+        } else {
+            (vk::ImageLayout::UNDEFINED, vk::PipelineStageFlags::TOP_OF_PIPE)
+        };
         let barrier_to_attachment = vk::ImageMemoryBarrier::default()
-            .old_layout(vk::ImageLayout::UNDEFINED)
+            .old_layout(resolve_old_layout)
             .new_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .src_access_mask(vk::AccessFlags::NONE)
+            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .image(resolve_image)
@@ -1315,7 +1460,7 @@ impl VulkanState {
         unsafe {
             device.cmd_pipeline_barrier(
                 command_buffer,
-                vk::PipelineStageFlags::TOP_OF_PIPE,
+                resolve_src_stage,
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::DependencyFlags::empty(),
                 &[],
@@ -1369,6 +1514,19 @@ impl VulkanState {
         // behind the content. The geometry pass then loads the target instead of
         // clearing it. Without shadows the geometry pass clears as before.
         if !encoded.shadows.is_empty() {
+            if preserve {
+                // Dirty-region present redraw: clear only the dirty areas (the
+                // target preserves its prior content), then all shadow
+                // composites LOAD the preserved target.
+                self.clear_dirty_regions(
+                    command_buffer,
+                    extent,
+                    resolve_view,
+                    resolve_layout,
+                    clear,
+                    dirty,
+                )?;
+            }
             self.render_shadows(
                 command_buffer,
                 &blur,
@@ -1378,9 +1536,30 @@ impl VulkanState {
                 resolve_view,
                 resolve_layout,
                 clear,
+                dirty,
+                preserve,
+            )?;
+        } else if preserve {
+            self.clear_dirty_regions(
+                command_buffer,
+                extent,
+                resolve_view,
+                resolve_layout,
+                clear,
+                dirty,
             )?;
         }
 
+        // Geometry pass load op: a preserved (dirty-region present) target
+        // LOADs after the per-region clears; otherwise the whole target is
+        // cleared unless the shadow pre-pass already cleared it.
+        let geometry_load = if preserve {
+            vk::AttachmentLoadOp::LOAD
+        } else if encoded.shadows.is_empty() {
+            vk::AttachmentLoadOp::CLEAR
+        } else {
+            vk::AttachmentLoadOp::LOAD
+        };
         let color_attachment = if msaa {
             vk::RenderingAttachmentInfo::default()
                 .image_view(self.msaa.as_ref().unwrap().view.handle())
@@ -1388,11 +1567,7 @@ impl VulkanState {
                 .resolve_mode(vk::ResolveModeFlags::AVERAGE)
                 .resolve_image_view(resolve_view)
                 .resolve_image_layout(resolve_layout)
-                .load_op(if encoded.shadows.is_empty() {
-                    vk::AttachmentLoadOp::CLEAR
-                } else {
-                    vk::AttachmentLoadOp::LOAD
-                })
+                .load_op(geometry_load)
                 .store_op(vk::AttachmentStoreOp::STORE)
                 .clear_value(clear)
         } else {
@@ -1400,11 +1575,7 @@ impl VulkanState {
             vk::RenderingAttachmentInfo::default()
                 .image_view(resolve_view)
                 .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .load_op(if encoded.shadows.is_empty() {
-                    vk::AttachmentLoadOp::CLEAR
-                } else {
-                    vk::AttachmentLoadOp::LOAD
-                })
+                .load_op(geometry_load)
                 .store_op(vk::AttachmentStoreOp::STORE)
                 .clear_value(clear)
         };
@@ -1476,7 +1647,12 @@ impl VulkanState {
                 // so the rasterizer can cull fragments outside it before the
                 // fragment shader runs. This is the hardware-idiomatic clip; the
                 // shader discard remains only for the exact float clip boundary.
-                let scissor = clip_scissor(&group.push, extent);
+                // Slice 10 (Q13): the scissor is further restricted to the dirty
+                // union; a draw that touches no dirty region is culled entirely.
+                let Some(scissor) = redraw_scissor(clip_scissor(&group.push, extent), dirty, extent)
+                else {
+                    continue;
+                };
                 device.cmd_set_scissor(command_buffer, 0, &[scissor]);
                 device.cmd_push_constants(
                     command_buffer,
@@ -1499,6 +1675,14 @@ impl VulkanState {
             // triangles, then fill the path's bounding quad keeping only
             // nonzero-winding fragments.
             for fill in &encoded.path_fills {
+                // Slice 10 (Q13): a fill whose clip touches no dirty region is
+                // culled entirely; otherwise both passes are scissor-restricted
+                // to the dirty union.
+                let Some(fill_scissor) =
+                    redraw_scissor(clip_scissor(&fill.push, extent), dirty, extent)
+                else {
+                    continue;
+                };
                 // Clear the stencil within the path's world bounds.
                 let clear_rect = clear_rect_for(fill.clear_rect, extent);
                 let clear_attachment = vk::ClearAttachment {
@@ -1527,10 +1711,7 @@ impl VulkanState {
                     vk::PipelineBindPoint::GRAPHICS,
                     path_fill.stencil,
                 );
-                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent,
-                }]);
+                device.cmd_set_scissor(command_buffer, 0, &[fill_scissor]);
                 let stencil_push = PushConstants::default_for_stencil(fill.bottom_center_x, surface_size);
                 device.cmd_push_constants(
                     command_buffer,
@@ -1585,7 +1766,7 @@ impl VulkanState {
                     &[fill.segments_descriptor],
                     &[],
                 );
-                let cover_scissor = clip_scissor(&fill.push, extent);
+                let cover_scissor = fill_scissor;
                 device.cmd_set_scissor(command_buffer, 0, &[cover_scissor]);
                 device.cmd_push_constants(
                     command_buffer,
@@ -1711,6 +1892,8 @@ impl VulkanState {
         resolve_view: vk::ImageView,
         resolve_layout: vk::ImageLayout,
         clear: vk::ClearValue,
+        dirty: &[Rect],
+        preserve: bool,
     ) -> Result<(), (RenderResult, String)> {
         let device = self.context.device();
 
@@ -1761,6 +1944,16 @@ impl VulkanState {
         let mut first_shadow = true;
         let mut first_composite = true;
         for shadow in shadows {
+            // Slice 10 (Q13): a shadow whose composited region touches no dirty
+            // region is culled entirely (no mask/blur/composite work).
+            let Some(composite_scissor) = redraw_scissor(
+                clip_scissor(&shadow.composite_push, extent),
+                dirty,
+                extent,
+            ) else {
+                first_shadow = false;
+                continue;
+            };
             // 1. Mask pass: the path's winding coverage into scratch_a (the
             // scratch is fully cleared, so reads anywhere within the surface
             // are zero outside the path).
@@ -1947,8 +2140,12 @@ impl VulkanState {
 
             // 4. Composite: tint the blurred mask into the main target. The
             // first composite clears the target (the frame's initial clear);
-            // later ones load it so multiple shadows accumulate.
-            let load_op = if first_composite {
+            // later ones load it so multiple shadows accumulate. A preserved
+            // (dirty-region present) target was already cleared per region, so
+            // every composite loads it.
+            let load_op = if preserve {
+                vk::AttachmentLoadOp::LOAD
+            } else if first_composite {
                 vk::AttachmentLoadOp::CLEAR
             } else {
                 vk::AttachmentLoadOp::LOAD
@@ -1962,7 +2159,7 @@ impl VulkanState {
             self.begin_rendering(command_buffer, extent, &[composite_attachment], None);
             unsafe {
                 self.set_full_viewport(command_buffer, extent);
-                let scissor = clip_scissor(&shadow.composite_push, extent);
+                let scissor = composite_scissor;
                 device.cmd_set_scissor(command_buffer, 0, &[scissor]);
                 device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.composite);
                 device.cmd_bind_descriptor_sets(
@@ -1994,6 +2191,54 @@ impl VulkanState {
             }
             first_composite = false;
             first_shadow = false;
+        }
+        Ok(())
+    }
+
+    /// Clears the frame's dirty regions on a preserved (present-side) target
+    /// before the shadow/geometry passes redraw them (Slice 10, Q13). The pass
+    /// LOADs the target so the non-dirty area's prior content survives; only
+    /// the dirty rectangles are cleared to the frame's background.
+    fn clear_dirty_regions(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        extent: vk::Extent2D,
+        resolve_view: vk::ImageView,
+        resolve_layout: vk::ImageLayout,
+        clear: vk::ClearValue,
+        dirty: &[Rect],
+    ) -> Result<(), (RenderResult, String)> {
+        let attachment = vk::RenderingAttachmentInfo::default()
+            .image_view(resolve_view)
+            .image_layout(resolve_layout)
+            .load_op(vk::AttachmentLoadOp::LOAD)
+            .store_op(vk::AttachmentStoreOp::STORE);
+        self.begin_rendering(command_buffer, extent, &[attachment], None);
+        unsafe {
+            self.set_full_viewport(command_buffer, extent);
+            let clear_attachment = vk::ClearAttachment {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                color_attachment: 0,
+                clear_value: clear,
+            };
+            let clear_rects: Vec<vk::ClearRect> = dirty
+                .iter()
+                .map(|r| clear_rect_for(*r, extent))
+                .filter(|r| r.extent.width > 0 && r.extent.height > 0)
+                .map(|rect| vk::ClearRect {
+                    rect,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .collect();
+            if !clear_rects.is_empty() {
+                self.context.device().cmd_clear_attachments(
+                    command_buffer,
+                    &[clear_attachment],
+                    &clear_rects,
+                );
+            }
+            self.context.device().cmd_end_rendering(command_buffer);
         }
         Ok(())
     }
@@ -2177,12 +2422,24 @@ impl VulkanState {
             },
         };
 
+        // Dirty-region redraw (Slice 10, Q13): the effective redraw regions for
+        // this swapchain image accumulate the dirty regions of every frame
+        // since this image was last rendered (a multi-buffered image's content
+        // is stale by `image_count` frames). First-use images get an empty set
+        // (full redraw — there is no prior content to preserve).
+        let dirty = if self.dirty_regions_enabled {
+            self.swapchain_dirty
+                .take(image_index as usize, &frame.dirty_regions)
+        } else {
+            Vec::new()
+        };
         self.render_into(
             &frame,
             extent,
             format,
             ResolveTarget::Swapchain { view, image },
             clear,
+            &dirty,
         )?;
 
         let swapchains = [swapchain];
@@ -2214,12 +2471,22 @@ impl VulkanState {
         let clear = vk::ClearValue {
             color: vk::ClearColorValue { float32: [0.0; 4] },
         };
+        // Readback targets are fresh each call: the whole target clears to the
+        // background and only the frame's dirty regions are redrawn (the
+        // non-dirty area stays at the clear color). The equivalence harness
+        // submits dirty-free frames, so it observes full-frame renders.
+        let dirty = if self.dirty_regions_enabled {
+            frame.dirty_regions.as_slice()
+        } else {
+            &[]
+        };
         self.render_into(
             frame,
             extent,
             format,
             ResolveTarget::Offscreen { view, image },
             clear,
+            dirty,
         )?;
 
         let device = self.context.device();
@@ -2321,6 +2588,9 @@ impl VulkanState {
         self.swapchain_views = views;
         self.swapchain_extent = extent;
         self.swapchain_format = format.format;
+        // A new swapchain has no prior per-image content: every image is a
+        // first-use full redraw until each is rendered once (Slice 10, Q13).
+        self.swapchain_dirty.reset(self.swapchain_images.len());
         Ok(())
     }
 }
@@ -2362,6 +2632,54 @@ fn clear_rect_for(rect: crate::frame::Rect, extent: vk::Extent2D) -> vk::Rect2D 
             height: (max_y - y).max(0) as u32,
         },
     }
+}
+
+/// The redraw scissor for a draw whose clip scissor is `clip`, restricted to
+/// the union of the frame's dirty regions (Slice 10, Q13). Returns `None` when
+/// the draw touches no dirty region (it is culled). With no dirty regions the
+/// clip scissor is returned unchanged (full-frame redraw).
+fn redraw_scissor(
+    clip: vk::Rect2D,
+    dirty: &[Rect],
+    extent: vk::Extent2D,
+) -> Option<vk::Rect2D> {
+    if dirty.is_empty() {
+        return Some(clip);
+    }
+    let clip_max_x = clip.offset.x + clip.extent.width as i32;
+    let clip_max_y = clip.offset.y + clip.extent.height as i32;
+    let mut any = false;
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for region in dirty {
+        let rx = region.min.x.floor().max(0.0) as i32;
+        let ry = region.min.y.floor().max(0.0) as i32;
+        let rx_max = region.max.x.ceil().min(extent.width as f32) as i32;
+        let ry_max = region.max.y.ceil().min(extent.height as f32) as i32;
+        let ix = rx.max(clip.offset.x);
+        let iy = ry.max(clip.offset.y);
+        let ix_max = rx_max.min(clip_max_x);
+        let iy_max = ry_max.min(clip_max_y);
+        if ix < ix_max && iy < iy_max {
+            any = true;
+            min_x = min_x.min(ix);
+            min_y = min_y.min(iy);
+            max_x = max_x.max(ix_max);
+            max_y = max_y.max(iy_max);
+        }
+    }
+    if !any {
+        return None;
+    }
+    Some(vk::Rect2D {
+        offset: vk::Offset2D { x: min_x, y: min_y },
+        extent: vk::Extent2D {
+            width: (max_x - min_x) as u32,
+            height: (max_y - min_y) as u32,
+        },
+    })
 }
 
 fn choose_extent(caps: &vk::SurfaceCapabilitiesKHR, width: u32, height: u32) -> vk::Extent2D {
@@ -2415,4 +2733,107 @@ fn choose_composite_alpha(supported: vk::CompositeAlphaFlagsKHR) -> vk::Composit
         return vk::CompositeAlphaFlagsKHR::INHERIT;
     }
     vk::CompositeAlphaFlagsKHR::OPAQUE
+}
+
+#[cfg(test)]
+mod slice10_tests {
+    use super::*;
+
+    fn extent() -> vk::Extent2D {
+        vk::Extent2D { width: 64, height: 64 }
+    }
+
+    fn full() -> vk::Rect2D {
+        vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: extent(),
+        }
+    }
+
+    fn rect(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
+        Rect {
+            min: crate::geometry::Point { x: x0, y: y0 },
+            max: crate::geometry::Point { x: x1, y: y1 },
+        }
+    }
+
+    // Empty dirty set returns the clip unchanged (full-frame redraw).
+    #[test]
+    fn redraw_scissor_empty_dirty_returns_clip() {
+        let clip = vk::Rect2D {
+            offset: vk::Offset2D { x: 8, y: 8 },
+            extent: vk::Extent2D { width: 40, height: 40 },
+        };
+        assert_eq!(redraw_scissor(clip, &[], extent()), Some(clip));
+    }
+
+    // A draw wholly outside every dirty region is culled.
+    #[test]
+    fn redraw_scissor_culls_non_dirty_draws() {
+        let dirty = [rect(0.0, 0.0, 20.0, 20.0)];
+        let clip = vk::Rect2D {
+            offset: vk::Offset2D { x: 40, y: 40 },
+            extent: vk::Extent2D { width: 20, height: 20 },
+        };
+        assert_eq!(redraw_scissor(clip, &dirty, extent()), None);
+    }
+
+    // A draw overlapping a dirty region is clipped to the intersection.
+    #[test]
+    fn redraw_scissor_intersects_dirty() {
+        let dirty = [rect(10.0, 10.0, 30.0, 30.0)];
+        let clip = full();
+        let got = redraw_scissor(clip, &dirty, extent()).expect("intersects dirty");
+        assert_eq!(got.offset.x, 10);
+        assert_eq!(got.offset.y, 10);
+        assert_eq!(got.extent.width, 20);
+        assert_eq!(got.extent.height, 20);
+    }
+
+    // The union of multiple intersecting dirty regions becomes one bounding
+    // scissor; the gap between them is redrawn too (correct, minimal overdraw).
+    #[test]
+    fn redraw_scissor_unions_dirty_regions() {
+        let dirty = [rect(0.0, 0.0, 8.0, 8.0), rect(16.0, 0.0, 24.0, 8.0)];
+        let got = redraw_scissor(full(), &dirty, extent()).expect("intersects");
+        assert_eq!(got.offset.x, 0);
+        assert_eq!(got.extent.width, 24);
+        assert_eq!(got.extent.height, 8);
+    }
+
+    // Dirty regions are clamped to the render area.
+    #[test]
+    fn redraw_scissor_clamps_to_extent() {
+        let dirty = [rect(-4.0, 0.0, 70.0, 70.0)];
+        let got = redraw_scissor(full(), &dirty, extent()).expect("intersects");
+        assert_eq!(got.offset.x, 0);
+        assert_eq!(got.extent.width, 64);
+        assert_eq!(got.extent.height, 64);
+    }
+
+    // SwapchainDirty: a first-use image gets an empty set (full redraw); its
+    // own frame's dirty seeds the next cycle, and every other image accumulates
+    // it.
+    #[test]
+    fn swapchain_dirty_accumulates_across_images() {
+        let mut state = SwapchainDirty::new(2);
+        // Frame 1 -> image 0 (first use: full redraw).
+        let d1 = vec![rect(0.0, 0.0, 8.0, 8.0)];
+        assert!(state.take(0, &d1).is_empty());
+        // Frame 2 -> image 1 (first use: full redraw); image 0 accumulates d2.
+        let d2 = vec![rect(8.0, 0.0, 16.0, 8.0)];
+        assert!(state.take(1, &d2).is_empty());
+        // Frame 3 -> image 0 again: content is from frame 1, changes since =
+        // d2 (frame 2) + d3 (frame 3's own dirty, not yet applied).
+        let d3 = vec![rect(0.0, 8.0, 8.0, 16.0)];
+        let effective = state.take(0, &d3);
+        assert_eq!(effective, d2, "image 0 must redraw changes since its last use");
+        // Image 1 now accumulates d3.
+        let d4 = vec![rect(16.0, 0.0, 24.0, 8.0)];
+        let effective = state.take(1, &d4);
+        assert_eq!(effective, d3);
+        // Reset (swapchain recreate) makes every image first-use again.
+        state.reset(2);
+        assert!(state.take(0, &d1).is_empty());
+    }
 }

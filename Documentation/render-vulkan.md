@@ -1,67 +1,95 @@
 # Render Vulkan
 
-> Maturity banner: Rust-backed Vulkan bridge. The FFI contract is documented in
-> `render/vulkan/crates/lurpic_render/CONVENTIONS.md`. Platform coverage and
-> failure-mode behavior are only partially verified in-repo, so this page keeps
-> the scope narrow.
+`render/vulkan` is the Go side of the Vulkan GPU rasterization backend. The
+actual GPU pipeline lives in the Rust crate
+(`render/vulkan/crates/lurpic_render`), built on the `ash` Vulkan bindings; the
+Go side is a thin bridge: frame encoding, FFI, and the `render.Backend`
+contract.
 
-`render/vulkan` is the Go-side bridge for the Rust Vulkan backend.
+This page describes the pipeline as implemented (Slice 10). The equivalence
+baseline and measured numbers live in
+`devdocs/notes/vulkan-equivalence-baseline.md` and
+`devdocs/notes/vulkan-gpu-pipeline-benchmarks.md`.
 
-## Verified From Code
+## Relationship to the software backend
 
-- `render/vulkan/doc.go` documents the bridge package.
-- `render/vulkan/vulkan.go` exposes the core backend methods:
-  `Initialize`, `Submit`, `Recreate`, `Resize`, `Destroy`, `DeviceInfo`,
-  `DeviceGeneration`, and `EvictCaches`.
-- `render/vulkan/ffi_linux.go` and `render/vulkan/ffi_android.go` provide the
-  platform-specific CGO bindings.
-- `render/vulkan/ffi_unavailable.go` returns explicit errors on unsupported
-  builds.
-- `render/vulkan/ffi_conventions_test.go` verifies result translation and the
-  handle registry contract.
-- `render/vulkan/phase3_test.go` exercises init/shutdown and capability
-  queries.
-- `app/run.go:initBackend` prefers Vulkan by default and falls back to software
-  when Vulkan initialization fails and the surface can support software.
+`render/vulkan` and `render/software` are feature-equivalent dynamic peers of
+the same `render.Backend` contract. Software rendering is the always-present,
+dependency-free baseline and the correctness oracle for the equivalence harness
+(`render/equivalence`); GPU rendering is optional acceleration. The runtime is
+unaware which backend is active — `Backend.Submit` is the only call site.
 
-## What the Bridge Does
+Backend selection is honest (FR-11): `app/run.go:initBackend` initializes the
+Vulkan backend, then builds a real graphics pipeline through it
+(`lurpic_render_build_pipeline_probe`). A device that cannot construct the
+renderer's pipelines selects the software backend upfront — a feature or symbol
+check alone is not enough. A Vulkan runtime failure (`*render.ErrGPUFatal`,
+FR-10) triggers a one-shot GPU→software swap for the rest of the session (Q9).
 
-- Loads the Rust renderer and exposes its result-code contract to Go.
-- Translates Rust errors into typed Go errors.
-- Creates or recreates platform surfaces where the build tag supports it.
-- Tracks device generation so dead GPU resources can be invalidated upstream.
-- Resets the Rust-side atlas when the Go side evicts caches.
+## The GPU pipeline (Rust crate)
 
-## FFI Boundary
+The crate renders `gfx` commands through real Vulkan 1.3 pipelines:
 
-The Rust-side conventions file defines the boundary shape:
+- **Solid fills/strokes** — instanced quads; the 2×3 affine transform travels
+  as a push constant (Q4), never baked into vertices; the fragment shader
+  computes analytic coverage AA.
+- **Path fill** — stencil-buffer winding accumulation over CPU-flattened
+  contours; the cover shader evaluates the nonzero winding with a
+  supersample coverage grid (Slice 7). Self-intersections and holes render
+  correctly (FR-5).
+- **Strokes** — the Go encoder expands every stroke to the fill path of its
+  outline via `gfx.ExpandStroke`/`gfx.OffsetContour` (Slice 8); the full
+  `StrokeStyle` (caps, joins, miter limit, dash) is honored.
+- **Linear gradients** — a fragment-shader gradient brush over a per-group UBO
+  of stops (Slice 6).
+- **Text** — a packed glyph atlas (bitmap below 24 px, SDF above) with a
+  `smoothstep` reconstruction shader (Slice 5).
+- **Textures** — `DrawImage`/`DrawTexture` sample real `VkImage`s via
+  combined image samplers (Slice 4).
+- **Blurred shadows** — `DrawBlurredShadow` renders the path's coverage mask
+  into an R8 scratch, applies a separable Gaussian (H then V), and composites
+  the tinted mask at the shadow's offset; `Inner` inverts the mask (Slice 9).
+  The software oracle gained full parity in-slice.
 
-- result codes are explicit
-- handles are opaque and non-zero
-- panics are caught at the boundary
-- test-only exports exist for validating the contract
+### Dirty-region redraw (Q13)
 
-The Go-side wrapper follows those conventions and the tests in
-`ffi_conventions_test.go` and `vulkan_test.go` exercise the translation layer.
+The runtime computes `Frame.DirtyRegions` (merged bounds of the frame's changed
+facets); the GPU consumes them on non-tile-based devices: every draw is
+scissor-restricted to the dirty union (off-region draws are culled), and a
+present-side target preserves its prior content with per-region clears. A
+multi-buffered swapchain's content is stale by `image_count` frames, so the
+renderer tracks per-image accumulated dirty regions. Tile-based mobile GPUs
+gate the feature off initially (`LurpicRenderPipelineFeatures.tile_based`).
 
-## Unverified / Not Yet Documented
+## The Go bridge
 
-Unknown - not verifiable from the current repository:
+- `render/vulkan/vulkan.go` — the `render.Backend`, `render.RecreatableBackend`,
+  `render.TextureBackend`, `render.CacheEvictor`, and
+  `render.DeviceGenerationProvider` implementations. `Submit` returns
+  `*render.ErrGPUFatal` (FR-10) for device-lost / out-of-memory, which the
+  runtime answers with the one-shot software fallback.
+- `render/vulkan/packet.go` — the packet v2 wire format encoder (every `gfx`
+  command, full `StrokeStyle`, both brush kinds, per-batch transform/clip,
+  dirty regions).
+- `render/vulkan/ffi_linux.go`, `ffi_android.go` — the CGO bindings; the
+  dlsym table and C declarations are generated from the Rust FFI inventory
+  (`ffi_gen_test.go`, `TestFFISymbols_InSync`).
+- `render/vulkan/toolchain.go` — builds the Rust crate on demand.
+- `render/vulkan/equivalence` harness and `render/equivalence/` corpus verify
+  GPU output against the software oracle within the Q1 perceptual tolerance.
 
-- exact platform coverage beyond the `linux && cgo` and `android && cgo`
-  build-tagged entry points
-- which driver, loader, and ICD failure cases always trigger software fallback
-- performance characteristics and tuning guidance
-- whether every Android lifecycle path recreates the surface identically to
-  desktop surface recreation
+## FFI boundary
 
-Treat those as open until the code or tests explicitly prove them.
+The Rust-side `CONVENTIONS.md` defines the boundary shape: explicit result
+codes, opaque handles, `catch_unwind` at every export. The Go side mirrors the
+result codes in `render/vulkan/internal`; a `RenderResult::DeviceLost` maps to
+`*render.ErrGPUFatal` (via `translateSubmitError`).
 
-## Related Code and Tests
+## Failure modes
 
-- `render/vulkan/crates/lurpic_render/CONVENTIONS.md`
-- `render/vulkan/ffi_conventions_test.go`
-- `render/vulkan/phase3_test.go`
-- `render/vulkan/vulkan_test.go`
-- `app/run.go`
-- `app/run_test.go`
+| Condition | Behavior |
+|---|---|
+| No Vulkan loader / no 1.3 device | `Backend.Initialize` fails; `initBackend` selects software (FR-11). |
+| Pipeline build fails on an initializing device | `lurpic_render_build_pipeline_probe` fails; software selected upfront (FR-11). |
+| Device lost / GPU OOM during `Submit` | `*render.ErrGPUFatal`; the render thread swaps to software for the session (Q9/FR-12), emits `OnBackendFallback`. |
+| Surface out of date | Handled inside the Rust side (`VK_ERROR_OUT_OF_DATE_KHR` → swapchain recreate); the Go `Recreate` path rebuilds the surface/swapchain on lifecycle events. |

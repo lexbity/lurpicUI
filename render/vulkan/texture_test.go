@@ -66,9 +66,9 @@ func TestDrawTexture_Rendered(t *testing.T) {
 	const width, height = 32, 32
 	texFrame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:       1,
-			Bounds:   gfx.RectFromXYWH(0, 0, width, height),
-			Opacity:  1,
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
+			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawTexture{
 					TextureID: handle,
@@ -82,9 +82,9 @@ func TestDrawTexture_Rendered(t *testing.T) {
 	}
 	imgFrame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:       1,
-			Bounds:   gfx.RectFromXYWH(0, 0, width, height),
-			Opacity:  1,
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
+			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawImage{
 					Image:    img,
@@ -150,9 +150,9 @@ func TestDrawImage_Bilinear(t *testing.T) {
 	const width, height = 4, 4
 	frame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:       1,
-			Bounds:   gfx.RectFromXYWH(0, 0, width, height),
-			Opacity:  1,
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
+			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawImage{
 					Image:    img,
@@ -188,9 +188,9 @@ func TestDrawImage_Bilinear(t *testing.T) {
 	// linear filter is actually applied, not falling back to nearest).
 	nearestFrame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:       1,
-			Bounds:   gfx.RectFromXYWH(0, 0, width, height),
-			Opacity:  1,
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
+			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawImage{
 					Image:    img,
@@ -282,9 +282,9 @@ func TestDrawTexture_UnknownHandleRejected(t *testing.T) {
 
 	frame := &render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:       1,
-			Bounds:   gfx.RectFromXYWH(0, 0, 32, 32),
-			Opacity:  1,
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, 32, 32),
+			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawTexture{
 					TextureID: 0xdead_beef,

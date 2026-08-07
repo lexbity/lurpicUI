@@ -21,7 +21,7 @@ func (rt *Runtime) checkDeviceGeneration() {
 		return
 	}
 	// The device generation is an optional interface on the backend.
-	if dg, ok := rt.renderPipeline.backend.(render.DeviceGenerationProvider); ok {
+	if dg, ok := rt.renderPipeline.Backend().(render.DeviceGenerationProvider); ok {
 		gen := dg.DeviceGeneration()
 		if ev, ok := rt.assetManager.(interface{ CheckDeviceGeneration(uint64) bool }); ok {
 			if ev.CheckDeviceGeneration(gen) {

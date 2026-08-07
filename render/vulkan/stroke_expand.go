@@ -2,9 +2,9 @@
 //
 // This file turns a stroke command (StrokePath / StrokeRect / DrawPolyline)
 // into the FillPath encoding of the stroke's expanded outline, so the GPU
-// pipeline (and the cpu-fallback raster) render every stroke through the
-// Slice 7 stencil fill. The expansion happens on the Go side, at packet-encode
-// time, so the GPU frame encoder never needs to interpret StrokeStyle itself.
+// pipeline renders every stroke through the Slice 7 stencil fill. The expansion
+// happens on the Go side, at packet-encode time, so the GPU frame encoder never
+// needs to interpret StrokeStyle itself.
 //
 // gfx.OffsetContour is genuinely wired into the encode path: the common
 // StrokeRect case builds its annular fill (outer + inner offset contours with

@@ -37,6 +37,10 @@ type Runtime struct {
 	renderPipeline   *RenderPipeline
 	layerRegistry    *layout.LayerRegistry
 	assetManager     assets.Manager
+	// assetUploader tracks the pipeline's upload adapter so a GPU→software
+	// backend swap can close the old adapter and re-wire the asset manager
+	// (Slice 10, FR-12).
+	assetUploader *assetUploader
 
 	platformApp    platform.App
 	window         platform.Window
@@ -137,7 +141,6 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		inputSystem:      input.NewSystem(config.GestureConfig),
 		focusManager:     facet.NewFocusManager(),
 		jobPool:          job.NewPool(config.WorkerCount),
-		renderPipeline:   newRenderPipeline(backend),
 		layerRegistry:    config.LayerRegistry,
 		assetManager:     config.AssetManager,
 		platformApp:      platformApp,
@@ -160,6 +163,13 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		poisonReports:    make(map[facet.FacetID]*poisonReport),
 		recoveryDisabled: config.RecoveryDisabled,
 	}
+	rt.renderPipeline = newRenderPipeline(backend)
+	// Slice 10 (Q9/FR-12): the render thread swaps a fatal GPU backend for the
+	// software backend bound to the current surface; the swap notifies the
+	// runtime so it can log, emit OnBackendFallback, and re-wire the asset
+	// texture releaser/uploader to the software backend.
+	rt.renderPipeline.fallbackFactory = rt.softwareFallbackBackend
+	rt.renderPipeline.onFallback = rt.notifyBackendFallback
 	rt.lifecycleCond = sync.NewCond(&rt.lifecycleMu)
 	if rt.rootStyleContext == nil {
 		theme.NewRootStyleContext(rt, theme.DefaultTokens(), nil)
@@ -183,7 +193,8 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		if m, ok := rt.assetManager.(*assets.ManagerImpl); ok {
 			m.SetTextureReleaser(&assetTextureReleaser{backend: tb})
 			if q := rt.renderPipeline.UploadQueue(); q != nil {
-				m.SetUploader(newAssetUploader(q))
+				rt.assetUploader = newAssetUploader(q)
+				m.SetUploader(rt.assetUploader)
 			}
 			// Wire the device-loss re-upload callback so that ResolveDrawable
 			// can trigger a lazy re-upload when a GPU LOD was invalidated but

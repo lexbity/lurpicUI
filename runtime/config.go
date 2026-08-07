@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
+	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -19,6 +20,15 @@ import (
 // DiagnosticsHook receives per-frame diagnostic stats.
 type DiagnosticsHook interface {
 	OnFrame(diagnostics.FrameStats)
+}
+
+// backendFallbackSink is an optional capability a DiagnosticsHook implementer
+// may add (structurally) to receive GPU→software backend-fallback events
+// (FR-12/Q9). The runtime type-asserts its diagnostics hook to this interface,
+// mirroring the poisoningSink pattern — the DiagnosticsHook interface itself is
+// not widened.
+type backendFallbackSink interface {
+	OnBackendFallback(diagnostics.BackendFallback)
 }
 
 // Config configures the runtime core.
@@ -62,6 +72,14 @@ type Config struct {
 	// (poisonReports is still populated with the stack), so tests and
 	// benchmarks see the original panic with attribution.
 	RecoveryDisabled bool
+
+	// SoftwareBackendFactory builds a software render backend bound to a
+	// surface for the GPU-fatal fallback (Q9/FR-12). Owned by the app layer,
+	// which also owns backend construction; the runtime cannot import the
+	// concrete software package (it would create a test-only import cycle).
+	// When nil, a GPU-fatal submit error surfaces as a fatal render error
+	// instead of falling back.
+	SoftwareBackendFactory func(surface render.Surface) (render.Backend, error)
 }
 
 // DefaultConfig returns a valid runtime configuration.

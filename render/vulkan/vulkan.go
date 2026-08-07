@@ -108,10 +108,39 @@ func (b *Backend) Submit(f *render.Frame) error {
 			return err
 		}
 		if err := SubmitFrame(packet); err != nil {
-			return err
+			return translateSubmitError(err)
 		}
 	}
 	return nil
+}
+
+// translateSubmitError maps a Rust-side submit failure to the render contract:
+// device-lost and out-of-memory are unrecoverable GPU faults and surface as
+// *render.ErrGPUFatal (FR-10), which the runtime answers with a one-shot
+// GPU→software fallback. Other failures (encode/parse) are returned unchanged.
+//
+// The match is a type switch on the un-wrapped errors translateStatus returns
+// (never errors.As) so the steady-state success path performs zero allocations
+// (NFR-6): each errors.As branch boxes a target pointer and escapes to the heap.
+func translateSubmitError(err error) error {
+	switch err.(type) { //nolint:errorlint // translateStatus returns un-wrapped typed errors; errors.As would box a target pointer and allocate (NFR-6)
+	case *internal.DeviceLostError, *internal.OutOfMemoryError:
+		return &render.ErrGPUFatal{Err: err}
+	default:
+		return err
+	}
+}
+
+// BuildPipelineProbe builds the renderer's solid pipeline against the current
+// swapchain format, proving the device can construct the renderer's graphics
+// pipelines (FR-11: honest capability selection — an actual pipeline build, not
+// a symbol or feature check). app/initBackend calls it after Initialize and
+// selects the software backend upfront when it fails.
+func (b *Backend) BuildPipelineProbe() error {
+	if !b.initialized {
+		return errors.New("vulkan backend: not initialized")
+	}
+	return BuildPipelineProbe()
 }
 
 // Recreate rebuilds the Vulkan surface + swapchain for a new platform Surface.

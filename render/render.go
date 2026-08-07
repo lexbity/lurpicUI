@@ -1,6 +1,8 @@
 package render
 
 import (
+	"fmt"
+
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -84,4 +86,29 @@ type RecreatableBackend interface {
 // and invalidate GPU-cached texture IDs that reference dead resources.
 type DeviceGenerationProvider interface {
 	DeviceGeneration() uint64
+}
+
+// ErrGPUFatal is returned by Backend.Submit when the GPU backend enters an
+// unrecoverable state (device lost, unrecoverable driver fault, fatal
+// out-of-memory). The runtime treats it as a one-shot signal (Q9/FR-10): it
+// destroys the GPU backend and swaps in the software backend for the rest of
+// the session. It is never auto-retried — retrying a flaky GPU every frame
+// would stall the render thread.
+type ErrGPUFatal struct {
+	// Err is the underlying renderer error that caused the fatal failure.
+	Err error
+}
+
+func (e *ErrGPUFatal) Error() string {
+	if e == nil || e.Err == nil {
+		return "render: gpu fatal error"
+	}
+	return fmt.Sprintf("render: gpu fatal error: %v", e.Err)
+}
+
+func (e *ErrGPUFatal) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }

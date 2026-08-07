@@ -58,3 +58,16 @@ type PoisonReport struct {
 	Stack     string
 	FirstSeen time.Time
 }
+
+// BackendFallback describes a GPU→software render backend swap after a fatal
+// GPU error (FR-12/Q9). Delivered to a DiagnosticsHook implementer that opts in
+// by also implementing OnBackendFallback(diagnostics.BackendFallback) — the
+// hook interface itself is not widened.
+type BackendFallback struct {
+	// From is the failing backend kind (e.g. "*vulkan.Backend").
+	From string
+	// To is the backend the runtime swapped to (always software for a fallback).
+	To string
+	// Reason is the GPU-fatal error that triggered the swap.
+	Reason string
+}

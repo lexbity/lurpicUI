@@ -199,9 +199,7 @@ func (rt *Runtime) shutdown() error {
 	if rt.renderPipeline != nil {
 		rt.renderPipeline.destroy()
 	}
-	if rt.renderPipeline != nil && rt.renderPipeline.backend != nil {
-		rt.renderPipeline.backend.Destroy()
-	}
+	rt.renderPipeline.destroyBackend()
 	store.SetSignalQueueHook(nil)
 	input.ClearRecoveryHook()
 	facet.ClearCallbackRecoveryHook()

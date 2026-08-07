@@ -10,8 +10,6 @@
 //! texture, not a per-glyph bitmap store, but the source bytes are needed for
 //! atlas maintenance (documented in the Slice 4 Vec<u8> note).
 //!
-//! The `cpu-fallback` host store (a `HashMap<GlyphKey, GlyphBitmap>`) is
-//! retained unchanged for the headless raster; the GPU path never consults it.
 
 use std::collections::{HashMap, VecDeque};
 
@@ -44,19 +42,6 @@ pub fn mode_for_size(size: f32) -> GlyphMode {
     } else {
         GlyphMode::Bitmap
     }
-}
-
-/// Host-side glyph bitmap (coverage mask + placement), used by the
-/// `cpu-fallback` raster and the FFI upload path.
-#[cfg(any(feature = "cpu-fallback", test))]
-#[derive(Clone, Debug)]
-pub struct GlyphBitmap {
-    pub width: u32,
-    pub height: u32,
-    pub pixels: Vec<u8>,
-    pub offset_x: f32,
-    pub offset_y: f32,
-    pub advance: f32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -732,159 +717,10 @@ pub fn sdf_from_mask(mask: &[u8], width: u32, height: u32) -> Vec<u8> {
     sdf
 }
 
-/// The `cpu-fallback` host-side glyph store, retained for headless builds.
-/// The production GPU path (Slice 5+) does not touch it.
-#[cfg(any(feature = "cpu-fallback", test))]
-#[allow(dead_code)] // consumed by the cpu-fallback raster and its tests
-mod host {
-    use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    #[derive(Clone, Debug)]
-    struct GlyphVariants {
-        bitmap: GlyphBitmap,
-        sdf: Option<GlyphBitmap>,
-    }
-
-    #[derive(Default)]
-    struct HostAtlas {
-        entries: HashMap<GlyphKey, GlyphVariants>,
-        lru: VecDeque<GlyphKey>,
-        evictions: usize,
-        #[cfg(test)]
-        pub(crate) capacity: usize,
-        #[cfg(not(test))]
-        capacity: usize,
-    }
-
-    impl HostAtlas {
-        fn new() -> Self {
-            Self {
-                entries: HashMap::new(),
-                lru: VecDeque::new(),
-                evictions: 0,
-                capacity: 1024,
-            }
-        }
-
-        fn upload(&mut self, font_id: u64, glyph_id: u32, size_bits: u32, bitmap: GlyphBitmap) {
-            let key = GlyphKey {
-                font_id,
-                glyph_id,
-                size_bits,
-            };
-            let sdf = sdf_from_mask(&bitmap.pixels, bitmap.width, bitmap.height);
-            let variants = GlyphVariants {
-                sdf: Some(GlyphBitmap {
-                    width: bitmap.width,
-                    height: bitmap.height,
-                    pixels: sdf,
-                    offset_x: bitmap.offset_x,
-                    offset_y: bitmap.offset_y,
-                    advance: bitmap.advance,
-                }),
-                bitmap,
-            };
-            if self.entries.contains_key(&key) {
-                self.touch(&key);
-                self.entries.insert(key, variants);
-                return;
-            }
-            while self.entries.len() >= self.capacity {
-                if let Some(oldest) = self.lru.pop_front() {
-                    if self.entries.remove(&oldest).is_some() {
-                        self.evictions += 1;
-                    }
-                } else {
-                    break;
-                }
-            }
-            self.lru.push_back(key.clone());
-            self.entries.insert(key, variants);
-        }
-
-        fn lookup(&mut self, font_id: u64, glyph_id: u32, size_bits: u32, use_sdf: bool) -> Option<GlyphBitmap> {
-            let key = GlyphKey {
-                font_id,
-                glyph_id,
-                size_bits,
-            };
-            let bitmap = self.entries.get(&key).map(|entry| {
-                if use_sdf {
-                    entry.sdf.clone().unwrap_or_else(|| entry.bitmap.clone())
-                } else {
-                    entry.bitmap.clone()
-                }
-            });
-            if bitmap.is_some() {
-                self.touch(&key);
-            }
-            bitmap
-        }
-
-        fn touch(&mut self, key: &GlyphKey) {
-            if let Some(pos) = self.lru.iter().position(|k| k == key) {
-                self.lru.remove(pos);
-            }
-            self.lru.push_back(key.clone());
-        }
-
-        #[cfg(test)]
-        pub(crate) fn set_capacity(&mut self, capacity: usize) {
-            self.capacity = capacity;
-        }
-    }
-
-    static HOST_ATLAS: OnceLock<Mutex<HostAtlas>> = OnceLock::new();
-
-    fn host_atlas() -> &'static Mutex<HostAtlas> {
-        HOST_ATLAS.get_or_init(|| Mutex::new(HostAtlas::new()))
-    }
-
-    /// Test-only: forces the LRU capacity so eviction can be exercised.
-    #[cfg(test)]
-    pub(crate) fn force_capacity(capacity: usize) {
-        let mut atlas = host_atlas().lock().expect("glyph atlas mutex poisoned");
-        atlas.set_capacity(capacity);
-    }
-
-    pub fn upload_glyph(font_id: u64, glyph_id: u32, size_bits: u32, bitmap: GlyphBitmap) {
-        let mut atlas = host_atlas().lock().expect("glyph atlas mutex poisoned");
-        atlas.upload(font_id, glyph_id, size_bits, bitmap);
-    }
-
-    pub fn lookup_glyph(font_id: u64, glyph_id: u32, size_bits: u32) -> Option<GlyphBitmap> {
-        let mut atlas = host_atlas().lock().expect("glyph atlas mutex poisoned");
-        atlas.lookup(font_id, glyph_id, size_bits, false)
-    }
-
-    pub fn lookup_glyph_sdf(font_id: u64, glyph_id: u32, size_bits: u32) -> Option<GlyphBitmap> {
-        let mut atlas = host_atlas().lock().expect("glyph atlas mutex poisoned");
-        atlas.lookup(font_id, glyph_id, size_bits, true)
-    }
-
-    pub fn atlas_stats() -> (usize, usize) {
-        let atlas = host_atlas().lock().expect("glyph atlas mutex poisoned");
-        (atlas.entries.len(), atlas.evictions)
-    }
-
-    pub fn reset_atlas() {
-        let mut atlas = host_atlas().lock().expect("glyph atlas mutex poisoned");
-        *atlas = HostAtlas::new();
-    }
-}
-
-#[cfg(any(feature = "cpu-fallback", test))]
-#[allow(unused_imports)] // lookup_glyph*/atlas_stats consumed by the cpu-fallback raster
-pub use host::{atlas_stats, lookup_glyph, lookup_glyph_sdf, reset_atlas, upload_glyph};
 
 #[cfg(test)]
 mod tests {
-    use super::host;
-    use super::{
-        GlyphBitmap, GlyphMode, Segment, Skyline, atlas_stats, mode_for_size, reset_atlas,
-        sdf_from_mask, upload_glyph,
-    };
+    use super::{GlyphMode, Segment, Skyline, mode_for_size, sdf_from_mask};
 
     #[test]
     fn skyline_packs_and_recovers_regions() {
@@ -952,29 +788,4 @@ mod tests {
         assert_eq!(sdf[0], sdf[8]);
     }
 
-    #[test]
-    fn host_atlas_evicts_when_full() {
-        let _guard = crate::state_lock_guard();
-        reset_atlas();
-        host::force_capacity(1);
-        upload_glyph(1, 1, 1, GlyphBitmap {
-            width: 1,
-            height: 1,
-            pixels: vec![1],
-            offset_x: 0.0,
-            offset_y: 0.0,
-            advance: 1.0,
-        });
-        upload_glyph(1, 2, 1, GlyphBitmap {
-            width: 1,
-            height: 1,
-            pixels: vec![2],
-            offset_x: 0.0,
-            offset_y: 0.0,
-            advance: 1.0,
-        });
-        let (count, evictions) = atlas_stats();
-        assert_eq!(count, 1);
-        assert!(evictions >= 1);
-    }
 }

@@ -1,8 +1,7 @@
 // Package equivalence renders a corpus of frames against both the software
-// backend (the correctness oracle) and the Vulkan backend's CPU stepping-stone
-// raster, and asserts perceptual equivalence within a bounded tolerance
-// (PSNR, per-channel percentiles, max-diff). The same harness validates the GPU
-// pipeline slice by slice; each slice that adds a rendered feature adds corpus
+// backend (the correctness oracle) and the Vulkan GPU backend, and asserts
+// perceptual equivalence within a bounded tolerance (PSNR, per-channel
+// percentiles, max-diff). Each slice that adds a rendered feature adds corpus
 // fixtures that must meet the tolerance.
 package equivalence
 
@@ -23,8 +22,8 @@ type FrameFixture interface {
 }
 
 // EquivalenceTolerance bounds the perceptual difference between the two
-// backends. Calibrated against the CPU analytic AA (software) vs the raster
-// stepping stone; see devdocs/notes/vulkan-equivalence-baseline.md.
+// backends. Calibrated against the CPU analytic AA (software oracle) vs the GPU
+// pipeline's coverage AA; see devdocs/notes/vulkan-equivalence-baseline.md.
 type EquivalenceTolerance struct {
 	// MinPSNR is the minimum PSNR over RGBA in dB.
 	MinPSNR float64

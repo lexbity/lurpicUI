@@ -26,10 +26,12 @@ typedef struct {
 	uint32_t msaa_4x;
 	uint32_t msaa_8x;
 	uint32_t stencil_fill;
+	uint32_t tile_based;
 } lurpic_render_pipeline_features;
 
 int lurpic_render_load(const char *library_path);
 // GEN-FFI-START declarations
+int32_t lurpic_render_build_pipeline_probe(void);
 int32_t lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle);
 int32_t lurpic_render_create_xcb_surface(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface);
 int32_t lurpic_render_destroy_image(uint64_t handle);
@@ -56,6 +58,7 @@ int32_t lurpic_render_test_handle_use(uint64_t handle);
 int32_t lurpic_render_test_force_swapped_rendering(uint32_t enabled);
 uint64_t lurpic_render_test_image_count(void);
 uint64_t lurpic_render_test_image_destroy_count(void);
+int32_t lurpic_render_test_inject_device_lost(void);
 uint64_t lurpic_render_test_last_batch_count(void);
 uint64_t lurpic_render_test_last_command_count(void);
 int32_t lurpic_render_test_ok(void);
@@ -230,13 +233,14 @@ func ForceSwappedRendering(enabled bool) error {
 
 // PipelineFeatures mirrors the Rust LurpicRenderPipelineFeatures struct.
 type PipelineFeatures struct {
-	DynamicRendering      uint32
-	Synchronization2      uint32
-	ExtendedDynamicState  uint32
-	MSAA2x                uint32
-	MSAA4x                uint32
-	MSAA8x                uint32
-	StencilFill           uint32
+	DynamicRendering     uint32
+	Synchronization2     uint32
+	ExtendedDynamicState uint32
+	MSAA2x               uint32
+	MSAA4x               uint32
+	MSAA8x               uint32
+	StencilFill          uint32
+	TileBased            uint32
 }
 
 // QueryPipelineFeatures reports the physical device's pipeline-relevant
@@ -257,6 +261,7 @@ func QueryPipelineFeatures() (PipelineFeatures, error) {
 		MSAA4x:               uint32(features.msaa_4x),
 		MSAA8x:               uint32(features.msaa_8x),
 		StencilFill:          uint32(features.stencil_fill),
+		TileBased:            uint32(features.tile_based),
 	}, nil
 }
 
@@ -307,15 +312,14 @@ func SubmitFrame(data []byte) error {
 		return err
 	}
 	if len(data) == 0 {
-		return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(nil), 0))
+		return translateSubmitError(translateStatus(C.lurpic_render_submit_frame((*C.uchar)(nil), 0)))
 	}
-	return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(unsafe.Pointer(&data[0])), C.uintptr_t(len(data))))
+	return translateSubmitError(translateStatus(C.lurpic_render_submit_frame((*C.uchar)(unsafe.Pointer(&data[0])), C.uintptr_t(len(data)))))
 }
 
-// SubmitAndReadback decodes a packet v2 frame, rasterizes it with the CPU
-// stepping-stone raster, and returns RGBA pixels at the requested size. This is
-// the readback path the equivalence harness uses; it does not require a Vulkan
-// device.
+// SubmitAndReadback decodes a packet v2 frame, renders it through the GPU
+// pipeline, and returns RGBA pixels at the requested size. This is the readback
+// path the equivalence harness uses; it does not require a surface.
 func SubmitAndReadback(data []byte, width, height int) ([]byte, error) {
 	if width <= 0 || height <= 0 {
 		return nil, errors.New("vulkan: readback dimensions must be positive")
@@ -340,14 +344,33 @@ func submitAndReadbackInto(data []byte, width, height int, out []byte) error {
 	if len(data) == 0 {
 		return errors.New("vulkan: readback requires a non-empty frame packet")
 	}
-	return translateStatus(C.lurpic_render_submit_and_readback(
+	return translateSubmitError(translateStatus(C.lurpic_render_submit_and_readback(
 		(*C.uchar)(unsafe.Pointer(&data[0])),
 		C.uintptr_t(len(data)),
 		C.uint32_t(width),
 		C.uint32_t(height),
 		(*C.uchar)(unsafe.Pointer(&out[0])),
 		C.uintptr_t(len(out)),
-	))
+	)))
+}
+
+// BuildPipelineProbe builds the renderer's solid pipeline against the current
+// swapchain format, proving the device can construct the renderer's graphics
+// pipelines (FR-11: honest capability selection, not a symbol or feature check).
+func BuildPipelineProbe() error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	return translateStatus(C.lurpic_render_build_pipeline_probe())
+}
+
+// InjectDeviceLost forces the next submit/readback to fail with a device-lost
+// result (test-only negative control for the runtime GPU-fatal fallback).
+func InjectDeviceLost() error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	return translateStatus(C.lurpic_render_test_inject_device_lost())
 }
 
 func ResetAtlas() {

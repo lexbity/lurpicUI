@@ -40,6 +40,14 @@ func ForceSwappedRendering(bool) error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
+func BuildPipelineProbe() error {
+	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
+func InjectDeviceLost() error {
+	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
 type PipelineFeatures struct {
 	DynamicRendering     uint32
 	Synchronization2     uint32
@@ -48,6 +56,7 @@ type PipelineFeatures struct {
 	MSAA4x               uint32
 	MSAA8x               uint32
 	StencilFill          uint32
+	TileBased            uint32
 }
 
 func QueryPipelineFeatures() (PipelineFeatures, error) {

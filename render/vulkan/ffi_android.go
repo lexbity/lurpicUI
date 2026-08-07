@@ -26,6 +26,7 @@ typedef struct {
 	uint32_t msaa_4x;
 	uint32_t msaa_8x;
 	uint32_t stencil_fill;
+	uint32_t tile_based;
 } lurpic_render_pipeline_features;
 
 const char *lurpic_render_version(void);
@@ -37,6 +38,8 @@ int lurpic_render_query_capabilities(LurpicRenderCapabilities *out);
 int lurpic_render_query_pipeline_features(lurpic_render_pipeline_features *out);
 int lurpic_render_set_validation(uint32_t enabled);
 int lurpic_render_test_force_swapped_rendering(uint32_t enabled);
+int lurpic_render_build_pipeline_probe(void);
+int lurpic_render_test_inject_device_lost(void);
 int lurpic_render_submit_frame(const unsigned char *data, uintptr_t len);
 int lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len);
 int lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len);
@@ -150,8 +153,8 @@ func SubmitFrame(data []byte) error {
 	return translateStatus(C.lurpic_render_submit_frame((*C.uchar)(&data[0]), C.uintptr_t(len(data))))
 }
 
-// SubmitAndReadback decodes a packet v2 frame, rasterizes it with the CPU
-// stepping-stone raster, and returns RGBA pixels at the requested size.
+// SubmitAndReadback decodes a packet v2 frame, renders it through the GPU
+// pipeline, and returns RGBA pixels at the requested size.
 func SubmitAndReadback(data []byte, width, height int) ([]byte, error) {
 	if width <= 0 || height <= 0 {
 		return nil, errors.New("vulkan: readback dimensions must be positive")
@@ -240,6 +243,18 @@ func ForceSwappedRendering(enabled bool) error {
 	return translateStatus(C.lurpic_render_test_force_swapped_rendering(C.uint32_t(v)))
 }
 
+// BuildPipelineProbe builds the renderer's solid pipeline, proving the device
+// can construct the renderer's graphics pipelines (FR-11).
+func BuildPipelineProbe() error {
+	return translateStatus(C.lurpic_render_build_pipeline_probe())
+}
+
+// InjectDeviceLost forces the next submit/readback to fail with a device-lost
+// result (test-only).
+func InjectDeviceLost() error {
+	return translateStatus(C.lurpic_render_test_inject_device_lost())
+}
+
 // PipelineFeatures mirrors the Rust LurpicRenderPipelineFeatures struct.
 type PipelineFeatures struct {
 	DynamicRendering     uint32
@@ -249,6 +264,7 @@ type PipelineFeatures struct {
 	MSAA4x               uint32
 	MSAA8x               uint32
 	StencilFill          uint32
+	TileBased            uint32
 }
 
 // QueryPipelineFeatures reports the physical device's pipeline-relevant
@@ -266,6 +282,7 @@ func QueryPipelineFeatures() (PipelineFeatures, error) {
 		MSAA4x:               uint32(features.msaa_4x),
 		MSAA8x:               uint32(features.msaa_8x),
 		StencilFill:          uint32(features.stencil_fill),
+		TileBased:            uint32(features.tile_based),
 	}, nil
 }
 

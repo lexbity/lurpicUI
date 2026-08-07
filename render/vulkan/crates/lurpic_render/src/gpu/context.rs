@@ -30,6 +30,23 @@ pub struct PhysicalDeviceFeatures {
     pub msaa_4x: bool,
     pub msaa_8x: bool,
     pub stencil_fill: bool,
+    /// True for tile-based mobile GPUs (Q13): dirty-rect partial redraw is
+    /// gated off on these initially because tile-resolve overhead can outweigh
+    /// the redraw savings.
+    pub tile_based: bool,
+}
+
+/// Known tile-based mobile GPU vendors (Q13 gate). These implement the
+/// immediate-mode subset of Vulkan with tile-resolve cost per render pass.
+pub fn is_tile_based_vendor(props: &vk::PhysicalDeviceProperties) -> bool {
+    matches!(
+        props.vendor_id,
+        0x13B5 | // ARM (Mali)
+        0x5143 | // Qualcomm (Adreno)
+        0x1010 | // Imagination (PowerVR)
+        0x14E4 | // Broadcom (VideoCore)
+        0x1AE0    // Samsung (Mali)
+    )
 }
 
 /// The isolation layer pipeline modules program against. A future swap to a
@@ -396,6 +413,7 @@ fn query_features(
         msaa_4x: sample_counts.contains(vk::SampleCountFlags::TYPE_4),
         msaa_8x: sample_counts.contains(vk::SampleCountFlags::TYPE_8),
         stencil_fill: true, // stencil is core Vulkan (usage flag, not a feature)
+        tile_based: is_tile_based_vendor(props),
     }
 }
 

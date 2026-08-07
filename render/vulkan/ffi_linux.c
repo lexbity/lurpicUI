@@ -8,6 +8,7 @@
 static void *lurpic_render_handle = NULL;
 
 // GEN-FFI-START fn-declarations
+static int32_t (*lurpic_render_build_pipeline_probe_fn)(void) = NULL;
 static int32_t (*lurpic_render_create_image_fn)(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle) = NULL;
 static int32_t (*lurpic_render_create_xcb_surface_fn)(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface) = NULL;
 static int32_t (*lurpic_render_destroy_image_fn)(uint64_t handle) = NULL;
@@ -34,6 +35,7 @@ static int32_t (*lurpic_render_test_handle_use_fn)(uint64_t handle) = NULL;
 static int32_t (*lurpic_render_test_force_swapped_rendering_fn)(uint32_t enabled) = NULL;
 static uint64_t (*lurpic_render_test_image_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_image_destroy_count_fn)(void) = NULL;
+static int32_t (*lurpic_render_test_inject_device_lost_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_last_batch_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_last_command_count_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_ok_fn)(void) = NULL;
@@ -45,6 +47,7 @@ static const char * (*lurpic_render_version_fn)(void) = NULL;
 // GEN-FFI-END fn-declarations
 static void lurpic_render_reset_fns(void) {
 // GEN-FFI-START unload
+  lurpic_render_build_pipeline_probe_fn = NULL;
   lurpic_render_create_image_fn = NULL;
   lurpic_render_create_xcb_surface_fn = NULL;
   lurpic_render_destroy_image_fn = NULL;
@@ -71,6 +74,7 @@ static void lurpic_render_reset_fns(void) {
   lurpic_render_test_force_swapped_rendering_fn = NULL;
   lurpic_render_test_image_count_fn = NULL;
   lurpic_render_test_image_destroy_count_fn = NULL;
+  lurpic_render_test_inject_device_lost_fn = NULL;
   lurpic_render_test_last_batch_count_fn = NULL;
   lurpic_render_test_last_command_count_fn = NULL;
   lurpic_render_test_ok_fn = NULL;
@@ -140,6 +144,7 @@ int lurpic_render_load(const char *library_path) {
 
   dlerror();
 // GEN-FFI-START dlsym
+  LOAD_SYM(lurpic_render_build_pipeline_probe_fn, "lurpic_render_build_pipeline_probe", int32_t(*)(void));
   LOAD_SYM(lurpic_render_create_image_fn, "lurpic_render_create_image", int32_t(*)(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle));
   LOAD_SYM(lurpic_render_create_xcb_surface_fn, "lurpic_render_create_xcb_surface", int32_t(*)(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface));
   LOAD_SYM(lurpic_render_destroy_image_fn, "lurpic_render_destroy_image", int32_t(*)(uint64_t handle));
@@ -166,6 +171,7 @@ int lurpic_render_load(const char *library_path) {
   LOAD_SYM(lurpic_render_test_force_swapped_rendering_fn, "lurpic_render_test_force_swapped_rendering", int32_t(*)(uint32_t enabled));
   LOAD_SYM(lurpic_render_test_image_count_fn, "lurpic_render_test_image_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_image_destroy_count_fn, "lurpic_render_test_image_destroy_count", uint64_t(*)(void));
+  LOAD_SYM(lurpic_render_test_inject_device_lost_fn, "lurpic_render_test_inject_device_lost", int32_t(*)(void));
   LOAD_SYM(lurpic_render_test_last_batch_count_fn, "lurpic_render_test_last_batch_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_last_command_count_fn, "lurpic_render_test_last_command_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_ok_fn, "lurpic_render_test_ok", int32_t(*)(void));
@@ -184,6 +190,22 @@ int lurpic_render_load(const char *library_path) {
 }
 
 // GEN-FFI-START wrappers
+int32_t lurpic_render_build_pipeline_probe(void) {
+  if (lurpic_render_build_pipeline_probe_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_build_pipeline_probe_fn();
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
 int32_t lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle) {
   if (lurpic_render_create_image_fn == NULL) {
     set_error("vulkan: Rust library not loaded");
@@ -508,6 +530,22 @@ uint64_t lurpic_render_test_image_destroy_count(void) {
   }
   set_error("");
   return lurpic_render_test_image_destroy_count_fn();
+}
+int32_t lurpic_render_test_inject_device_lost(void) {
+  if (lurpic_render_test_inject_device_lost_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_test_inject_device_lost_fn();
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
 }
 uint64_t lurpic_render_test_last_batch_count(void) {
   if (lurpic_render_test_last_batch_count_fn == NULL) {

@@ -114,9 +114,35 @@ var newBackend = func(kind RenderBackendKind) render.Backend {
 		return software.NewSoftwareRenderer()
 	}
 }
+
+// probeVulkanPipeline is the honest capability probe (FR-11): after a Vulkan
+// backend initializes, initBackend builds a real graphics pipeline through it.
+// If the pipeline cannot be built, the device cannot run the renderer and the
+// software backend is selected upfront. Var so the capability test can simulate
+// a no-pipeline-build device.
+var probeVulkanPipeline = func(b *vulkan.Backend) error {
+	return b.BuildPipelineProbe()
+}
 var newFontRegistry = func() (*text.FontRegistry, error) {
 	return text.NewFontRegistry()
 }
+
+// softwareFallbackFactory builds a software renderer bound to the given surface
+// for the runtime's GPU-fatal fallback (Q9/FR-12). The app layer owns backend
+// construction; the runtime cannot import render/software (test-only import
+// cycle), so it receives this factory through Config.SoftwareBackendFactory.
+func softwareFallbackFactory(surface render.Surface) (render.Backend, error) {
+	sw, ok := surface.(render.SoftwareSurface)
+	if !ok {
+		return nil, fmt.Errorf("app: surface %T does not support software rendering", surface)
+	}
+	backend := software.NewSoftwareRenderer()
+	if err := backend.Initialize(sw); err != nil {
+		return nil, fmt.Errorf("app: software fallback init: %w", err)
+	}
+	return backend, nil
+}
+
 var newRuntime = runtime.New
 var primeRuntime = func(rt *runtime.Runtime) {
 	if rt != nil {
@@ -269,6 +295,9 @@ func Run(config Config, builder RootBuilder) error {
 
 	rtConfig := config.Runtime
 	rtConfig.FontRegistry = fontRegistry
+	if rtConfig.SoftwareBackendFactory == nil {
+		rtConfig.SoftwareBackendFactory = softwareFallbackFactory
+	}
 	if rtConfig.LayerRegistry == nil {
 		layerRegistry, err := layout.StandardLayerRegistry()
 		if err != nil {
@@ -341,6 +370,24 @@ func initBackend(preferred RenderBackendKind, surface render.Surface, logger log
 			}
 			backend.Destroy()
 			return nil, err
+		}
+		// Honest capability selection (FR-11): a Vulkan device must build a real
+		// graphics pipeline, not just pass a symbol/feature check. If the probe
+		// fails the device cannot run the renderer; initBackend falls back to
+		// software upfront. The probe only applies to the real *vulkan.Backend
+		// (test doubles and other backends bypass it — they cannot build the
+		// Vulkan pipeline to probe).
+		if kind == RenderBackendVulkan {
+			if vb, ok := backend.(*vulkan.Backend); ok {
+				if err := probeVulkanPipeline(vb); err != nil {
+					if logger != nil {
+						logger.Warn("app: vulkan pipeline probe failed; the device cannot build the renderer's pipelines",
+							"error", err)
+					}
+					backend.Destroy()
+					return nil, fmt.Errorf("app: vulkan pipeline probe: %w", err)
+				}
+			}
 		}
 		if logger != nil {
 			logger.Info("app: backend initialize complete",

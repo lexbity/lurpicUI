@@ -918,3 +918,148 @@ func BenchmarkVulkanSubmit_Strokes(b *testing.B) {
 			b.Elapsed()/time.Duration(b.N))
 	}
 }
+
+// BenchmarkVulkanInit measures backend initialization (instance + device +
+// swapchain-less context + pipeline probe) against the NFR-3 budget of <= 500
+// ms. The pipeline probe (FR-11) is part of the honest-selection path and is
+// included in the measurement.
+func BenchmarkVulkanInit(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		backend := &Backend{}
+		if err := backend.Initialize(nil); err != nil {
+			b.Fatalf("init: %v", err)
+		}
+		if err := backend.BuildPipelineProbe(); err != nil {
+			b.Fatalf("pipeline probe: %v", err)
+		}
+		backend.Destroy()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 500*time.Millisecond {
+		b.Errorf("NFR-3: backend init + pipeline probe %v exceeds the 500ms budget",
+			b.Elapsed()/time.Duration(b.N))
+	}
+}
+
+// BenchmarkVulkanSubmit_AcceptanceCorpus measures a representative slice of the
+// equivalence corpus at 1080p in a single frame: solid rects, a gradient fill,
+// a chart-area path fill, a stroke, glyphs, and a blurred shadow. This is the
+// Slice 10 closing gate (AC-5/NFR-2): the mixed GPU pipeline stays under the
+// 16.7 ms budget with zero Go allocations.
+func BenchmarkVulkanSubmit_AcceptanceCorpus(b *testing.B) {
+	releasePath, err := ensureReleaseRustLibrary()
+	if err != nil {
+		b.Skipf("release library unavailable: %v", err)
+	}
+	resetRustLibraryLoaderForTest()
+	rustLibraryPathResolver = func() (string, error) { return releasePath, nil }
+	b.Logf("loading release library: %s", releasePath)
+	if err := Init(); err != nil {
+		b.Skipf("Vulkan unavailable: %v", err)
+	}
+	defer func() { _ = Shutdown() }()
+
+	const w, h = 1920, 1080
+	reg, err := text.NewFontRegistry()
+	if err != nil {
+		b.Fatalf("NewFontRegistry: %v", err)
+	}
+	if err := reg.LoadFontBytes(fontdata.TestFontBytes(), "Noto Sans"); err != nil {
+		b.Fatalf("LoadFontBytes: %v", err)
+	}
+	face := reg.Resolve(text.TextStyle{Family: "Noto Sans", Size: 16})
+	glyphs := []text.PositionedGlyph{
+		{GlyphID: 65, X: 0, Y: 0, Advance: 12},
+		{GlyphID: 66, X: 12, Y: 0, Advance: 12},
+		{GlyphID: 67, X: 24, Y: 0, Advance: 12},
+		{GlyphID: 68, X: 36, Y: 0, Advance: 12},
+	}
+	run := text.GlyphRun{
+		Face: face, Size: 16, Style: text.TextStyle{Family: "Noto Sans", Size: 16},
+		Glyphs: glyphs,
+	}
+
+	cmds := make([]gfx.Command, 0, 24)
+	// Solid rects.
+	for i := 0; i < 8; i++ {
+		x := float32((i % 4) * 480)
+		y := float32((i / 4) * 260)
+		cmds = append(cmds, gfx.FillRect{Rect: gfx.RectFromXYWH(x+20, y+20, 200, 120),
+			Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(60, 120, 200, 255))})
+	}
+	// Gradient fill.
+	cmds = append(cmds, gfx.FillRect{Rect: gfx.RectFromXYWH(40, 640, 360, 180),
+		Brush: gfx.LinearGradientBrush(
+			gfx.Point{X: 40, Y: 640}, gfx.Point{X: 400, Y: 640},
+			[]gfx.GradientStop{{Offset: 0, Color: gfx.ColorFromRGBA8(200, 60, 60, 255)},
+				{Offset: 1, Color: gfx.ColorFromRGBA8(60, 60, 200, 255)}})})
+	// Chart-area path fill.
+	cmds = append(cmds, gfx.FillPath{Path: chartAreaPath(960, 540, 12),
+		Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(40, 160, 90, 255))})
+	// Stroke.
+	stroke := gfx.DefaultStroke(4)
+	stroke.Join = gfx.LineJoinRound
+	cmds = append(cmds, gfx.StrokePath{Path: gfx.RoundedRectPath(gfx.RectFromXYWH(40, 860, 360, 160), 16),
+		Stroke: stroke, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(230, 60, 60, 255))})
+	// Glyphs.
+	for i := 0; i < 6; i++ {
+		cmds = append(cmds, gfx.DrawGlyphRun{Run: run,
+			Origin: gfx.Point{X: float32(120 + (i%3)*420), Y: float32(760 + (i/3)*80)},
+			Brush:  gfx.SolidBrush(gfx.ColorFromRGBA8(20, 20, 24, 255))})
+	}
+	// A blurred shadow behind a card rect.
+	card := gfx.RectFromXYWH(1420, 60, 420, 260)
+	cmds = append(cmds, gfx.DrawBlurredShadow{Path: gfx.RoundedRectPath(card, 16),
+		Color: gfx.ColorFromRGBA8(0, 0, 0, 120), BlurRadius: 8, Offset: gfx.Point{Y: 6}})
+	cmds = append(cmds, gfx.FillRect{Rect: card, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(240, 240, 244, 255))})
+
+	frame := &render.Frame{RenderBatchs: []render.RenderBatch{{
+		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, w, h), Opacity: 1,
+		Commands: gfx.CommandList{Commands: cmds},
+	}}}
+
+	var enc frameEncoder
+	packet, err := enc.Encode(frame, nil)
+	if err != nil {
+		b.Fatalf("encode: %v", err)
+	}
+	out := make([]byte, w*h*4)
+	if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+		b.Fatalf("warmup readback: %v", err)
+	}
+
+	submit := func() {
+		packet, err := enc.Encode(frame, nil)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := submitAndReadbackInto(packet, w, h, out); err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(50, submit)
+	b.ReportMetric(allocs, "allocs/op")
+	if allocs != 0 {
+		b.Errorf("NFR-6: per-frame submission must allocate zero bytes steady-state, got %.0f allocs/op", allocs)
+	}
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		submit()
+	}
+	b.StopTimer()
+	if b.Elapsed()/time.Duration(b.N) > 16700*time.Microsecond {
+		b.Errorf("NFR-2: frame time %v exceeds the 16.7ms budget at 1080p",
+			b.Elapsed()/time.Duration(b.N))
+	}
+}

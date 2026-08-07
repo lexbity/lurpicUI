@@ -1,11 +1,10 @@
 //! Converts a decoded frame into GPU draw groups + instance data (Slice 3).
 //!
-//! The encoder walks commands with a transform/clip/opacity stack, expanding
-//! `StrokeRect` into four band fills (matching the software oracle and the CPU
-//! stepping-stone raster). Rects sharing the same push-constant state are
-//! batched into one instanced draw; when the state changes, the batch closes
-//! and its instance bytes are flushed to the ring buffer. The scratch buffer is
-//! reused across frames (no per-frame allocation on the hot path).
+//! The encoder walks commands with a transform/clip/opacity stack. Rects
+//! sharing the same push-constant state are batched into one instanced draw;
+//! when the state changes, the batch closes and its instance bytes are flushed
+//! to the ring buffer. The scratch buffer is reused across frames (no per-frame
+//! allocation on the hot path).
 
 use ash::vk;
 

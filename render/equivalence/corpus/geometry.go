@@ -413,7 +413,7 @@ func geometryFixtures() []equivalence.FrameFixture {
 			name: "stroke_rect_axis_aligned", width: 64, height: 64,
 			frame: func() *render.Frame {
 				// Even width so stroke edges land on integer coordinates (the
-				// stepping-stone raster and the oracle agree on coverage).
+				// backends agree on coverage).
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
 					gfx.StrokeRect{Rect: gfx.RectFromXYWH(10, 10, 40, 40), Stroke: gfx.DefaultStroke(4), Brush: gfx.SolidBrush(red)},
 				)

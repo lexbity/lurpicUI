@@ -22,17 +22,19 @@ type Capabilities struct {
 
 var errCGORequired = errors.New("vulkan: requires CGO (android NDK)")
 
-func Version() (string, error)          { return "", errCGORequired }
-func Init() error                       { return errCGORequired }
-func Shutdown() error                   { return nil }
-func InstanceHandle() uintptr           { return 0 }
-func DeviceGeneration() uint64          { return 0 }
-func SubmitFrame([]byte) error          { return errCGORequired }
+func Version() (string, error) { return "", errCGORequired }
+func Init() error              { return errCGORequired }
+func Shutdown() error          { return nil }
+func InstanceHandle() uintptr  { return 0 }
+func DeviceGeneration() uint64 { return 0 }
+func SubmitFrame([]byte) error { return errCGORequired }
 func SubmitAndReadback([]byte, int, int) ([]byte, error) {
 	return nil, errCGORequired
 }
-func SetValidation(bool) error           { return errCGORequired }
-func ForceSwappedRendering(bool) error   { return errCGORequired }
+func SetValidation(bool) error         { return errCGORequired }
+func ForceSwappedRendering(bool) error { return errCGORequired }
+func BuildPipelineProbe() error        { return errCGORequired }
+func InjectDeviceLost() error          { return errCGORequired }
 
 type PipelineFeatures struct {
 	DynamicRendering     uint32
@@ -42,20 +44,21 @@ type PipelineFeatures struct {
 	MSAA4x               uint32
 	MSAA8x               uint32
 	StencilFill          uint32
+	TileBased            uint32
 }
 
 func QueryPipelineFeatures() (PipelineFeatures, error) {
 	return PipelineFeatures{}, errCGORequired
 }
-func Resize(int, int) error             { return errCGORequired }
-func ResetAtlas() {}
+func Resize(int, int) error { return errCGORequired }
+func ResetAtlas()           {}
 func UploadGlyph(uint64, uint32, uint32, int, int, float32, float32, float32, []byte) error {
 	return errCGORequired
 }
 func UploadImage([]byte, int, int, int, uint32) (uint64, error) {
 	return 0, errCGORequired
 }
-func DestroyImage(uint64) error      { return nil }
+func DestroyImage(uint64) error { return nil }
 func CreateAndroidSurface(uintptr, uintptr, uint32, uint32) (uintptr, error) {
 	return 0, errCGORequired
 }

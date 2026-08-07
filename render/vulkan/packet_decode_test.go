@@ -14,12 +14,13 @@ import (
 // schema drift on the encoding side. The Go<->Rust cross-check is the
 // equivalence corpus, which decodes real packets with the Rust decoder.
 type testFramePacket struct {
-	version   uint32
-	surfaceW  uint32
-	surfaceH  uint32
-	deviceDPR float32
-	batches   []testBatchPacket
-	trailing  int
+	version      uint32
+	surfaceW     uint32
+	surfaceH     uint32
+	deviceDPR    float32
+	dirtyRegions []gfx.Rect
+	batches      []testBatchPacket
+	trailing     int
 }
 
 type testBatchPacket struct {
@@ -420,7 +421,8 @@ func decodeTestFramePacket(data []byte) (*testFramePacket, error) {
 	if err != nil {
 		return nil, err
 	}
-	batchCount, err := r.readU32()
+	// Slice 10: dirty-region count + rects precede the batch list.
+	dirtyCount, err := r.readU32()
 	if err != nil {
 		return nil, err
 	}
@@ -429,6 +431,17 @@ func decodeTestFramePacket(data []byte) (*testFramePacket, error) {
 		surfaceW:  surfaceW,
 		surfaceH:  surfaceH,
 		deviceDPR: dpr,
+	}
+	for i := uint32(0); i < dirtyCount; i++ {
+		region, err := r.readRect()
+		if err != nil {
+			return nil, err
+		}
+		frame.dirtyRegions = append(frame.dirtyRegions, region)
+	}
+	batchCount, err := r.readU32()
+	if err != nil {
+		return nil, err
 	}
 	for i := uint32(0); i < batchCount; i++ {
 		batch, err := r.readBatch()

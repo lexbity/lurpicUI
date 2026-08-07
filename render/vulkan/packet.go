@@ -131,9 +131,13 @@ func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([
 	w := &e.out
 	w.writeString(framePacketMagic)
 	w.writeU32(framePacketVersion)
-	w.writeU32(0)                      // surface_w
-	w.writeU32(0)                      // surface_h
-	w.writeF32(1)                      // device_pixel_ratio
+	w.writeU32(0)                               // surface_w
+	w.writeU32(0)                               // surface_h
+	w.writeF32(1)                               // device_pixel_ratio
+	w.writeU32(uint32(len(frame.DirtyRegions))) //nolint:gosec // integer overflow conversion
+	for _, region := range frame.DirtyRegions {
+		w.writeRect(region)
+	}
 	w.writeU32(uint32(len(e.encoded))) //nolint:gosec // integer overflow conversion
 	for _, entry := range e.encoded {
 		w.writeU64(uint64(entry.batch.ID))

@@ -1,7 +1,5 @@
-//! Shared geometry types used by the packet decoder, the CPU stepping-stone
-//! raster, and (later) the GPU pipeline. Kept out of the `cpu-fallback`-gated
-//! `tessellation` module because the decoder and the GPU path need them
-//! regardless of the raster feature.
+//! Shared geometry types used by the packet decoder and the GPU pipeline. The
+//! `path_flatten` module consumes `Path`/`Point`/`Verb` for the stencil fill.
 
 #[derive(Clone, Copy, Debug, PartialEq, Default)]
 pub struct Color {
@@ -15,13 +13,6 @@ pub struct Color {
 pub struct Point {
     pub x: f32,
     pub y: f32,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[allow(dead_code)] // consumed by the cpu-fallback raster tessellation
-pub struct Vertex {
-    pub pos: Point,
-    pub color: Color,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,7 +46,7 @@ impl Path {
         }
     }
 
-    #[allow(dead_code)] // consumed by the cpu-fallback raster
+    /// A polyline path (used by the frame encoder's DrawPolyline arm).
     pub fn polyline(points: &[Point], closed: bool) -> Self {
         if points.is_empty() {
             return Self::new();
@@ -68,94 +59,5 @@ impl Path {
             verbs.push(Verb::Close);
         }
         Self { verbs }
-    }
-
-    #[allow(dead_code)] // used by cpu-fallback paths
-    pub fn rounded_rect(x: f32, y: f32, w: f32, h: f32, r: f32) -> Self {
-        if r <= 0.0 {
-            return Self::rect(x, y, w, h);
-        }
-        let r = r.min(w.min(h) / 2.0);
-        Self {
-            verbs: vec![
-                Verb::MoveTo(Point { x: x + r, y }),
-                Verb::LineTo(Point { x: x + w - r, y }),
-                Verb::QuadTo(Point { x: x + w, y }, Point { x: x + w, y: y + r }),
-                Verb::LineTo(Point {
-                    x: x + w,
-                    y: y + h - r,
-                }),
-                Verb::QuadTo(
-                    Point { x: x + w, y: y + h },
-                    Point {
-                        x: x + w - r,
-                        y: y + h,
-                    },
-                ),
-                Verb::LineTo(Point { x: x + r, y: y + h }),
-                Verb::QuadTo(Point { x, y: y + h }, Point { x, y: y + h - r }),
-                Verb::LineTo(Point { x, y: y + r }),
-                Verb::QuadTo(Point { x, y }, Point { x: x + r, y }),
-                Verb::Close,
-            ],
-        }
-    }
-
-    #[allow(dead_code)] // used by cpu-fallback paths
-    pub fn circle(cx: f32, cy: f32, r: f32) -> Self {
-        if r <= 0.0 {
-            return Self::new();
-        }
-        let k = 0.552_284_8 * r;
-        Self {
-            verbs: vec![
-                Verb::MoveTo(Point { x: cx + r, y: cy }),
-                Verb::CubicTo(
-                    Point {
-                        x: cx + r,
-                        y: cy + k,
-                    },
-                    Point {
-                        x: cx + k,
-                        y: cy + r,
-                    },
-                    Point { x: cx, y: cy + r },
-                ),
-                Verb::CubicTo(
-                    Point {
-                        x: cx - k,
-                        y: cy + r,
-                    },
-                    Point {
-                        x: cx - r,
-                        y: cy + k,
-                    },
-                    Point { x: cx - r, y: cy },
-                ),
-                Verb::CubicTo(
-                    Point {
-                        x: cx - r,
-                        y: cy - k,
-                    },
-                    Point {
-                        x: cx - k,
-                        y: cy - r,
-                    },
-                    Point { x: cx, y: cy - r },
-                ),
-                Verb::CubicTo(
-                    Point {
-                        x: cx + k,
-                        y: cy - r,
-                    },
-                    Point {
-                        x: cx + r,
-                        y: cy - k,
-                    },
-                    Point { x: cx + r, y: cy },
-                ),
-                Verb::Close,
-            ],
-        }
     }
 }

@@ -15,9 +15,9 @@ import (
 func shadowFrame(radius float32, inner bool) *render.Frame {
 	return &render.Frame{
 		RenderBatchs: []render.RenderBatch{{
-			ID:       1,
-			Bounds:   gfx.RectFromXYWH(0, 0, 64, 64),
-			Opacity:  1,
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
+			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawBlurredShadow{
 					Path:       gfx.RectPath(gfx.RectFromXYWH(16, 16, 24, 24)),
