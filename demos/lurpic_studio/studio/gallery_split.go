@@ -37,6 +37,7 @@ type GallerySplit struct {
 	divider float32
 
 	dividerColor gfx.Color
+	rt           facet.RuntimeServices
 }
 
 // NewGallerySplit builds a split host for the given panes and static gutter
@@ -79,8 +80,19 @@ func NewGallerySplit(panes []Pane, divider float32) *GallerySplit {
 	return g
 }
 
-// Panes returns the split's pane list.
+// Panes returns the split's arranged pane list.
 func (g *GallerySplit) Panes() []Pane { return append([]Pane(nil), g.panes...) }
+
+// SetPanes replaces the arranged pane list. Every pane's content facet is a
+// child from construction (so panes stay in the facet tree whether or not they
+// are arranged); this only changes which panes the split measures/arranges and
+// re-lays the host. Used by the E4 layout playground to add/remove panes and
+// toggle flex/fixed live.
+func (g *GallerySplit) SetPanes(panes []Pane) {
+	g.panes = append([]Pane(nil), panes...)
+	g.layout.InvalidateCache()
+	invalidateLayout(g, g.rt, "gallery_split.SetPanes")
+}
 
 // childNodes produces the split ChildNodes for the panes from their current
 // measured sizes. When fillCross > 0 the cross axis (the split's height) is
@@ -203,8 +215,8 @@ func (g *GallerySplit) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *GallerySplit) Base() *facet.Facet             { g.BindImpl(g); return &g.Facet }
-func (g *GallerySplit) OnAttach(_ facet.AttachContext) {}
-func (g *GallerySplit) OnDetach()                      {}
-func (g *GallerySplit) OnActivate()                    {}
-func (g *GallerySplit) OnDeactivate()                  {}
+func (g *GallerySplit) Base() *facet.Facet               { g.BindImpl(g); return &g.Facet }
+func (g *GallerySplit) OnAttach(ctx facet.AttachContext) { g.rt = ctx.Runtime }
+func (g *GallerySplit) OnDetach()                        {}
+func (g *GallerySplit) OnActivate()                      {}
+func (g *GallerySplit) OnDeactivate()                    {}

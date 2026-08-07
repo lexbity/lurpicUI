@@ -2,6 +2,7 @@ package studio
 
 import (
 	"codeburg.org/lexbit/lurpicui/app"
+	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout/linear"
@@ -26,9 +27,11 @@ type Root struct {
 
 // NewRoot builds the gallery shell for a resolved app context.
 func NewRoot(ctx app.BuildContext) *Root {
+	appState := state.NewAppState(nil) // Slice P5 wires the seed CSV
+	stage := NewStage([]Exhibit{NewLayoutPolicies()}, appState)
 	r := &Root{
 		chrome:  NewChromeStack(ctx.Theme),
-		gallery: NewGallerySplit(newShellPanes(), dividerSize),
+		gallery: NewGallerySplit(newShellPanes(stage), dividerSize),
 		status:  NewStatusBar(ctx.Theme),
 	}
 	r.Facet = facet.NewFacet()

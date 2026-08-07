@@ -6,29 +6,29 @@ See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
 
 ## Status
 
-Slice P3 of the multi-slice plan is in place (P0–P2 done previously):
+Slice P4 of the multi-slice plan is in place (P0–P3 done previously):
 
-- **Viz probe (`studio/viz_probe.go`)** — the isolated prove-viz-first chart:
-  one `viz.Line[dataset.Row]` over the real seed data, a bottom x-axis, a
-  left y-axis, a reference rule, and data-domain pan/zoom. First production
-  consumer of the viz marks + reactive scales together. Rendered 640×360
-  golden (`studio/testdata/golden/linux/viz_probe.png`).
-- **Scale wiring** — `NewTimeReactive(xDomain, xRange)` (zoom-mutable domain)
-  and `NewLinearReactive(bridgeDerived(yDomain), yRange)` (auto-extent domain
-  bridged from a `Derived`). The `FromDerived` scale constructors are not used
-  for the range because they bridge derived ranges lazily and go stale
-  (F-derived-range); the probe's `bridgeDerived` mirrors the reactive
-  package's internal bridge.
-- **Pan/zoom** — pointer drag pans the x-domain (`ZoomController.Pan` with
-  `Invert`-derived data-per-pixel), wheel zooms around the cursor focal
-  (`ZoomController.Zoom`). The isolation property (domain Set → line
-  `DirtyProjection` only, never `DirtyLayout`) is asserted at the facet level
-  in `TestVizProbe_zoomIsolation` (driven without a runtime so signals fire
-  synchronously) and through the real input pipeline in
-  `TestVizProbe_panZoomInput`.
-- Gallery shell (P2), seed/state (P1), app entry + debt (P0), and the
-  framework feedback from those slices (F-fork-race, F-lint-hosts,
-  F-linear-marks, F-badge-contract, F-derived-range, F-derived-independence).
+- **Exhibit stage (`studio/stage.go`)** — the single-active-exhibit host.
+  F-stage **resolved: visibility-gating** — only the active exhibit is
+  measured/arranged; inactive exhibits get zero bounds (and are never
+  measured, so switching cannot cause a layout storm). `layout/stack` is
+  confirmed a deprecation candidate (it would overlay and measure every child,
+  needing the same gating).
+- **E4 Layout Policies (`studio/e4_layout.go`)** — the first real exhibit: a
+  split whose panes redistribute live as the user toggles pane B flex/fixed
+  (switch), adjusts the fixed panes' width (slider), and adds/removes a fourth
+  pane (button) — reusing the shell's `GallerySplit` via the new dynamic
+  `SetPanes`. Flex-vs-fixed goldens differ byte-wise
+  (`e4_flex.png` / `e4_fixed.png`).
+- **Shell wiring** — the shell's center pane is now the Stage hosting the
+  exhibits; `go run` shows E4. Shell golden regenerated.
+- **Framework finding (F-dirtylayout-routing)** — a probe confirmed that
+  `facet.Facet.Invalidate` sets only local dirty bits that the runtime's layout
+  pass never reads (its gate is `rt.dirtyFacets`); store-driven re-layout must
+  route through `facet.RuntimeServices.Invalidate`. The stage switch and split
+  `SetPanes` capture the runtime services in `OnAttach` and route accordingly.
+- Viz probe (P3), gallery shell (P2), seed/state (P1), app entry + debt (P0),
+  and the framework feedback from those slices.
 
 ## Run
 

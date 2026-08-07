@@ -87,6 +87,20 @@ func linearGroupChildren(items []facet.FacetImpl) []facet.GroupChild {
 	return out
 }
 
+// invalidateLayout requests a runtime layout pass for f. facet.Facet.Invalidate
+// only sets the facet's local dirty bits, which the runtime's layout pass does
+// not read (its gate is rt.dirtyFacets); attached hosts must route through
+// facet.RuntimeServices.Invalidate so the runtime re-lays them
+// (F-dirtylayout-routing). Outside a runtime (construction / standalone tests)
+// it falls back to the local bits, which fire synchronously.
+func invalidateLayout(f facet.FacetImpl, rt facet.RuntimeServices, source string) {
+	if rt != nil {
+		rt.Invalidate(f.Base().ID(), facet.DirtyLayout, source)
+		return
+	}
+	f.Base().Invalidate(facet.DirtyLayout)
+}
+
 // crossStretch places a child to fill a linear host's cross axis.
 func crossStretch(order int) facet.LinearPlacement {
 	return facet.LinearPlacement{Order: order, CrossAxisAlign: facet.CrossAxisStretch}

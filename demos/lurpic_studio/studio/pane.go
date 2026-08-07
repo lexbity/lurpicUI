@@ -15,13 +15,12 @@ const (
 	stagePaneFlex      = 1
 )
 
-// newShellPanes returns the three placeholder panes of the gallery shell,
-// each a Card hosting its title text (verifies the Card group-parent idiom
-// compiles and arranges).
-func newShellPanes() []Pane {
+// newShellPanes returns the three shell panes: the exhibit index, the exhibit
+// stage (the center flex pane), and the inspector.
+func newShellPanes(stage *Stage) []Pane {
 	return []Pane{
 		{Facet: newPaneCard("Exhibits"), FixedWidth: indexPaneWidth, MinWidth: indexPaneWidth},
-		{Facet: newPaneCard("Stage"), Flex: stagePaneFlex, MinWidth: stagePaneMinWidth},
+		{Facet: stage, Flex: stagePaneFlex, MinWidth: stagePaneMinWidth},
 		{Facet: newPaneCard("Inspector"), FixedWidth: inspectorPaneWidth, MinWidth: inspectorPaneWidth},
 	}
 }
