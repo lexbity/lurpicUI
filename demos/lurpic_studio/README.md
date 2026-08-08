@@ -6,17 +6,52 @@ See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
 
 ## Status
 
-Slice P7 of the multi-slice plan is in place (P0–P6 done previously):
+Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
 
-- **E5 Reactive Propagation (`studio/e5_propagation.go` + `studio/dirty_sink.go`)**:
-  the exhibit that makes the framework's reactive nature visible. A `DirtySink`
-  implements the runtime's opt-in `DirtySnapshotSink` capability and stages one
-  dirty snapshot per frame into a ring buffer; E5 renders the shell facet tree
-  with the recent dirty waves highlighted per flag (Layout/Projection/Hit) and
-  labeled with their invalidation source, driven by a pause `switch`, a
-  retention `slider`, a dirty-count `badge`, and a sink-live `status_light`.
-  The un-introspectable parts (store-level causal edges, F-edges) are labeled
-  "not yet introspectable" rather than fabricated (R-fake-viz).
+- **Responsive shell (`studio/root.go` + `studio/root_narrow.go` + `studio/responsive_test.go`)** —
+  FR-resp. The shell collapses below the 960dp breakpoint (content-scale aware):
+  the wide 3-pane split becomes a full-width stage with the exhibit index
+  re-hosted as a nav_drawer + bottom action bar and the inspector as a bottom
+  sheet. The two arrangements are **different mark instances bound to the same
+  `ShellState` stores**, so a breakpoint crossing preserves store-version
+  continuity and value equality (`responsive_test.go`), and a wiring-equivalence
+  test asserts both trees reference the same stores (R-resp).
+- **Exhibit index (`studio/pane_index.go` + `studio/catalog.go`)** — the wide
+  index pane hosts `nav_rail` + `tree_navigator`, both driving the shared
+  `ActiveExhibit` store (FR-nav). The catalog is the single source of the
+  exhibit list shared by the index, the narrow drawer/rail, the command palette,
+  and the status bar.
+- **Command palette (`studio/command_palette.go`)** — FR-cmd. A shell command
+  registry (switch exhibit, toggle the feed, toggle the narrow sheets) behind
+  the `command_palette` mark; Ctrl+K (root focus) and the chrome ⌘K button open
+  it, and running a command mutates observable state.
+- **Status bar wiring (`studio/status_bar.go`)** — FR-status. The `status_light`
+  reflects the feed connection, `progress_bar`/`progress_ring` track the
+  streaming job progress in lock-step, the `badge` reflects the live row count,
+  and the caption names the active exhibit.
+- **Coverage audit (`studio/coverage_test.go` + `studio/coverage_distinct_test.go`)** —
+  FR-coverage and FR-coverage-distinct. A live-tree walk asserts the multiset of
+  `(Family, TypeName)` reaches **48/48 standard marks** (the three §2.8 traps
+  filtered); a companion review encodes each mark's distinctive behavior. This
+  required placing the previously-unplaced action/feedback/navigation marks
+  (split_button, menu_button, radial_menu, popup_palette, standalone toolbar,
+  notification, tooltip, breadcrumbs, list_item, icon, list) with genuine homes
+  in E6 and E1.
+- **Framework feedback (P10):**
+  - `F-resp` (spec) — the responsive contract uses store identity, never mark
+    pointers: the wide and narrow arrangements are distinct mark instances bound
+    to the same `ShellState` stores, so a crossing preserves state without
+    re-parenting a live mark.
+  - `F-rail-shape` — the `nav_rail` mark lays its items out vertically and
+    cannot be re-hosted as a horizontal bottom bar; the narrow bottom action bar
+    is a bespoke horizontal icon-bar host bound to the same `ActiveExhibit`
+    store (the "nav_rail → bottom action bar" re-host in spirit).
+  - `F-dirtylayout-routing` (from P9) — tab/store-driven layout must route
+    through `RuntimeServices.Invalidate`; the shell's pane switching and the
+    narrow overlays follow this.
+- **E9/prior slice work** — E6 Mark Playground (tabs + interactive families),
+  Capability Index, E1–E5, and the framework feedback from those slices
+  (F-scroll-content, F-card-content, F-e6-internal, F-tabs-host).
 - **Framework additions (the two NG-2 exceptions):**
   - `runtime/diagnostics_sink.go` + `frame.go` — `DirtySnapshotSink`
     (F-dirtysources): an opt-in `DiagnosticsHook` capability, discovered by type
@@ -117,3 +152,21 @@ in-demo edits (NG-2).
 - [ ] P0: `cmake --build build --target lint` green.
 - [ ] P0: `lurpic_studio` root binary untracked; `lurpic validate demos`
       references real mark families and real demos.
+- [x] P9: E6 shows all six family tabs reachable and interactive (write-back
+      loop asserted per family in `e6_playground_test.go`).
+- [x] P9: Capability Index renders the `capindex`-generated catalog
+      (`capability_index_test.go`); `e6_action`/`e6_selection` goldens are
+      byte-distinct.
+- [x] P10: responsive collapse below 960dp — index → nav_drawer + bottom
+      action bar, inspector → bottom sheet, stage full-width; crossing
+      preserves store versions + values (`responsive_test.go`).
+- [x] P10: command palette — Ctrl+K and the chrome ⌘K button open it; a
+      registered command switches the active exhibit (`shell_wiring_test.go`).
+- [x] P10: status bar wired — connection light, progress bar/ring in lock-step,
+      row-count badge, active-exhibit caption (`shell_wiring_test.go`).
+- [x] P10: coverage audit — the live-tree walk reaches 48/48 standard marks
+      (`coverage_test.go`); every placed mark carries a distinctive behavior
+      (`coverage_distinct_test.go`).
+- [x] P10: `go test ./demos/lurpic_studio/... -race`, `cmake --build build
+      --target lint`, `--target test-unit`, `--target lint-lurpiclint-ci` all
+      green (AC-7 gate).

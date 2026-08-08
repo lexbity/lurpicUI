@@ -6,19 +6,33 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/status"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
-// StatusBar is the bottom status strip: a connection badge and a status
-// caption. Like ChromeStack it is a linear-kind group-parent host that
-// arranges its mark children directly (F-linear-marks).
+// statusStripHeight bounds the status marks' measured height so the strip
+// stays slim regardless of the marks' labelled content height.
+const statusStripHeight float32 = 44
+
+// StatusBar is the bottom status strip wired to real shell state (FR-status):
+// the status_light reflects the feed connection, the progress_bar/ring track
+// the streaming job progress in lock-step, the badge reflects the live row
+// count, and the caption names the active exhibit. Like ChromeStack it is a
+// linear-kind group-parent host that arranges its mark children directly
+// (F-linear-marks).
 type StatusBar struct {
 	facet.Facet
 	layout facet.LayoutRole
 	render facet.RenderRole
 
-	badge   facet.FacetImpl
+	light   *status.StatusLight
+	bar     *status.ProgressBar
+	ring    *status.ProgressRing
+	badge   *status.Badge
 	caption facet.FacetImpl
+
+	notConnected *store.Derived[bool]
+	titleText    *store.Derived[string]
 
 	gap        float32
 	padX       float32
@@ -26,17 +40,41 @@ type StatusBar struct {
 	background gfx.Color
 }
 
-// NewStatusBar builds the status strip for the given resolved theme.
-func NewStatusBar(themeCtx theme.ResolvedContext) *StatusBar {
+// NewStatusBar builds the status strip over the shared shell state and the
+// streaming feed (E1). titleOf maps an exhibit id to its display title.
+func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed, titleOf func(ExhibitID) string) *StatusBar {
+	notConnected := store.NewDerived(func() bool { return !shell.Connection.Get() }, shell.Connection)
+	titleText := store.NewDerived(func() string {
+		return titleOf(shell.ActiveExhibit.Get())
+	}, shell.ActiveExhibit)
+
 	s := &StatusBar{
-		badge:      status.NewBadge("ready"),
-		caption:    primitive.NewText(marks.Const("gallery shell — slice 2")),
-		gap:        float32(themeCtx.Spacing(theme.SpacingM)),
-		padX:       float32(themeCtx.Spacing(theme.SpacingL)),
-		padY:       float32(themeCtx.Spacing(theme.SpacingXS)),
-		background: themeCtx.Color(theme.ColorSurfaceVariant),
+		light:        status.NewStatusLight("connection"),
+		bar:          status.NewProgressBar("feed"),
+		ring:         status.NewProgressRing("feed"),
+		badge:        status.NewBadge(""),
+		caption:      primitive.NewText(marks.Const("Lurpic Studio")),
+		notConnected: notConnected,
+		titleText:    titleText,
+		gap:          float32(themeCtx.Spacing(theme.SpacingM)),
+		padX:         float32(themeCtx.Spacing(theme.SpacingL)),
+		padY:         float32(themeCtx.Spacing(theme.SpacingXS)),
+		background:   themeCtx.Color(theme.ColorSurfaceVariant),
 	}
+	s.light.ShowLabel = marks.Const(false)
+	s.light.Disabled = marks.FromDerived(notConnected, facet.DirtyProjection)
+	s.bar.Value = marks.FromStore(feed.JobProgress, facet.DirtyProjection)
+	// The ring carries no label so the status strip stays slim (the progress
+	// bar already names the feed).
+	s.ring.Label = marks.Const("")
+	s.ring.Value = marks.FromStore(feed.JobProgress, facet.DirtyProjection)
+	s.badge.Label = marks.FromDerived(shell.RowCount, facet.DirtyProjection)
+	s.caption.(*primitive.Text).Content = marks.FromDerived(titleText, facet.DirtyProjection)
+
 	s.Facet = facet.NewFacet()
+	s.AddChild(s.light.Base())
+	s.AddChild(s.bar.Base())
+	s.AddChild(s.ring.Base())
 	s.AddChild(s.badge.Base())
 	s.AddChild(s.caption.Base())
 
@@ -67,19 +105,35 @@ func NewStatusBar(themeCtx theme.ResolvedContext) *StatusBar {
 	return s
 }
 
-// Badge returns the connection badge facet.
-func (s *StatusBar) Badge() facet.FacetImpl { return s.badge }
+// Light returns the connection status_light.
+func (s *StatusBar) Light() *status.StatusLight { return s.light }
 
-// Caption returns the status caption facet.
+// Bar returns the feed progress_bar.
+func (s *StatusBar) Bar() *status.ProgressBar { return s.bar }
+
+// Ring returns the feed progress_ring.
+func (s *StatusBar) Ring() *status.ProgressRing { return s.ring }
+
+// Badge returns the row-count badge.
+func (s *StatusBar) Badge() *status.Badge { return s.badge }
+
+// Caption returns the active-exhibit caption facet.
 func (s *StatusBar) Caption() facet.FacetImpl { return s.caption }
 
+func (s *StatusBar) items() []facet.FacetImpl {
+	return []facet.FacetImpl{s.light, s.bar, s.ring, s.badge, s.caption}
+}
+
 func (s *StatusBar) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	items := []facet.FacetImpl{s.badge, s.caption}
+	items := s.items()
+	// Bound the marks' height so the status strip stays slim: the ring/bar
+	// would otherwise size to their labelled content height.
+	itemC := facet.Constraints{MaxSize: gfx.Size{W: constraints.MaxSize.W, H: statusStripHeight}}
 	width := s.padX * 2
 	height := float32(0)
 	for i, item := range items {
 		role := item.Base().LayoutRole()
-		role.Measure(ctx, facet.Constraints{MaxSize: constraints.MaxSize})
+		role.Measure(ctx, itemC)
 		size := role.MeasuredSize
 		width += size.W
 		if i < len(items)-1 {
@@ -97,11 +151,17 @@ func (s *StatusBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if bounds.IsEmpty() {
 		return
 	}
-	items := []facet.FacetImpl{s.badge, s.caption}
+	items := s.items()
 	x := bounds.Min.X + s.padX
 	for _, item := range items {
 		role := item.Base().LayoutRole()
 		w := role.MeasuredSize.W
+		if item == s.caption {
+			w = bounds.Max.X - s.padX - x
+			if w < 1 {
+				w = 1
+			}
+		}
 		arrangeChild(facet.ArrangeContext{}, item, gfx.RectFromXYWH(x, bounds.Min.Y, w, bounds.Height()))
 		x += w + s.gap
 	}
@@ -109,7 +169,7 @@ func (s *StatusBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 
 // Children returns the status bar's group children.
 func (s *StatusBar) Children() []facet.GroupChild {
-	return linearGroupChildren([]facet.FacetImpl{s.badge, s.caption})
+	return linearGroupChildren(s.items())
 }
 
 func (s *StatusBar) Base() *facet.Facet             { s.BindImpl(s); return &s.Facet }

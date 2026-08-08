@@ -29,9 +29,9 @@ type Feed struct {
 	cadence  *store.ValueStore[time.Duration]
 	live     *store.ValueStore[bool]
 
-	// JobProgress pulses 0 → 1 per committed job (the status bar tracks it in
-	// lock-step).
-	JobProgress *store.ValueStore[float64]
+	// JobProgress pulses 0 → 1 per committed job. It is float32 so the status
+	// bar's progress marks bind it directly (marks.Binding[float32]).
+	JobProgress *store.ValueStore[float32]
 
 	synthetic time.Time
 	elapsed   time.Duration
@@ -51,7 +51,7 @@ func NewFeed(appState *state.AppState, ownerID uint64) *Feed {
 		appState:    appState,
 		cadence:     store.NewValueStore(DefaultFeedCadence),
 		live:        store.NewValueStore(true),
-		JobProgress: store.NewValueStore(0.0),
+		JobProgress: store.NewValueStore(float32(0)),
 		synthetic:   start.Add(DefaultFeedCadence),
 		ownerID:     ownerID,
 	}
@@ -94,7 +94,7 @@ func (f *Feed) OnTick(dt time.Duration) {
 func (f *Feed) submitTick() {
 	now := f.synthetic
 	f.synthetic = f.synthetic.Add(f.cadence.Get())
-	f.JobProgress.Set(0)
+	f.JobProgress.Set(float32(0))
 	f.tickCount++
 	f.jobSeq++
 	tickIndex := f.tickCount // captured per-submit so concurrent workers agree
@@ -114,7 +114,7 @@ func (f *Feed) submitTick() {
 			appState.AnchorLiveWindow(float64(row.Time.UnixNano()) / 1e9)
 		}
 		appState.TrimToMax()
-		f.JobProgress.Set(1.0)
+		f.JobProgress.Set(float32(1))
 	})
 	if f.rt != nil {
 		f.rt.Schedule(aj)

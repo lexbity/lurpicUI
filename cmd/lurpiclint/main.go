@@ -14,6 +14,7 @@ import (
 	"sort"
 	"strings"
 
+	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/capabilities"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/capindex"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/config"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/diag"
@@ -658,23 +659,15 @@ func runCapabilities(args []string) int {
 		return 3
 	}
 
-	// Load framework packages for introspection.
-	patterns := []string{
-		root + "/marks/...",
-		root + "/layout/...",
-		root + "/facet",
-	}
-
-	result, err := loader.Load(patterns, loader.Config{})
+	// The public capabilities seam is the single scan path for both the CLI
+	// and the demo's Capability Index exhibit (F-capindex-internal); emitting
+	// the same generator and same module root output is guaranteed by
+	// construction.
+	caps, err := capabilities.Scan(root)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 3
 	}
-
-	caps := capindex.Scan(result, capindex.ScanConfig{
-		ModulePath: "codeburg.org/lexbit/lurpicui",
-		ModuleRoot: root,
-	})
 
 	switch *format {
 	case "json":

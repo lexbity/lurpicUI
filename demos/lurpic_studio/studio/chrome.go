@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -28,6 +29,7 @@ type ChromeStack struct {
 	layout facet.LayoutRole
 	render facet.RenderRole
 
+	shell *ShellState
 	title facet.FacetImpl
 	cmdK  facet.FacetImpl
 	theme facet.FacetImpl
@@ -36,11 +38,18 @@ type ChromeStack struct {
 	padX       float32
 	padY       float32
 	background gfx.Color
+
+	rt      facet.RuntimeServices
+	cleanup func()
 }
 
-// NewChromeStack builds the chrome bar for the given resolved theme.
-func NewChromeStack(themeCtx theme.ResolvedContext) *ChromeStack {
+// NewChromeStack builds the chrome bar for the given resolved theme and shared
+// shell state. The ⌘K button opens the command palette; the theme button
+// toggles the shell's compact density (a genuine runtime preference → re-layout
+// response).
+func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeStack {
 	c := &ChromeStack{
+		shell:      shell,
 		title:      primitive.NewText(marks.Const("Lurpic Studio")),
 		cmdK:       action.NewIconButton(primitive.IconSVG(cmdKIcon)),
 		theme:      action.NewIconButton(primitive.IconSVG(themeIcon)),
@@ -96,7 +105,8 @@ func (c *ChromeStack) items() []facet.FacetImpl {
 
 func (c *ChromeStack) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	items := c.items()
-	width := c.padX * 2
+	padX, padY := c.padding()
+	width := padX * 2
 	height := float32(0)
 	for i, item := range items {
 		role := item.Base().LayoutRole()
@@ -110,8 +120,16 @@ func (c *ChromeStack) measure(ctx facet.MeasureContext, constraints facet.Constr
 			height = size.H
 		}
 	}
-	height += c.padY * 2
+	height += padY * 2
 	return facet.MeasureResult{Size: gfx.Size{W: width, H: height}}
+}
+
+// padding returns the chrome padding, tightened when compact density is on.
+func (c *ChromeStack) padding() (float32, float32) {
+	if c.shell != nil && c.shell.Compact.Get() {
+		return c.padX * 0.6, c.padY * 0.6
+	}
+	return c.padX, c.padY
 }
 
 func (c *ChromeStack) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -123,8 +141,9 @@ func (c *ChromeStack) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	for i, item := range items {
 		sizes[i] = item.Base().LayoutRole().MeasuredSize
 	}
+	padX, _ := c.padding()
 	// Right-align the trailing buttons, then place the title on the left.
-	x := bounds.Max.X - c.padX
+	x := bounds.Max.X - padX
 	for i := len(items) - 1; i >= 1; i-- {
 		w := sizes[i].W
 		x -= w
@@ -132,7 +151,7 @@ func (c *ChromeStack) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		x -= c.gap
 	}
 	titleW := sizes[0].W
-	arrangeChild(facet.ArrangeContext{}, items[0], gfx.RectFromXYWH(bounds.Min.X+c.padX, bounds.Min.Y, titleW, bounds.Height()))
+	arrangeChild(facet.ArrangeContext{}, items[0], gfx.RectFromXYWH(bounds.Min.X+padX, bounds.Min.Y, titleW, bounds.Height()))
 }
 
 // Children returns the chrome's group children (the group-parent bridge's
@@ -141,8 +160,44 @@ func (c *ChromeStack) Children() []facet.GroupChild {
 	return linearGroupChildren(c.items())
 }
 
-func (c *ChromeStack) Base() *facet.Facet             { c.BindImpl(c); return &c.Facet }
-func (c *ChromeStack) OnAttach(_ facet.AttachContext) {}
-func (c *ChromeStack) OnDetach()                      {}
-func (c *ChromeStack) OnActivate()                    {}
-func (c *ChromeStack) OnDeactivate()                  {}
+func (c *ChromeStack) Base() *facet.Facet { c.BindImpl(c); return &c.Facet }
+
+// OnAttach wires the chrome buttons: ⌘K opens the command palette and the
+// theme button toggles compact density; both re-lay the chrome so the toggle
+// is visibly reactive.
+func (c *ChromeStack) OnAttach(ctx facet.AttachContext) {
+	c.rt = ctx.Runtime
+	cmdK := c.cmdK.(*action.IconButton)
+	themeBtn := c.theme.(*action.IconButton)
+
+	cmdKID := cmdK.Activated.Subscribe(func(signal.Unit) {
+		if !c.shell.CommandOpen.Get() {
+			c.shell.CommandOpen.Set(true)
+		}
+	})
+	themeBtnID := themeBtn.Activated.Subscribe(func(signal.Unit) {
+		c.shell.Compact.Set(!c.shell.Compact.Get())
+	})
+	compactID := c.shell.Compact.OnChange.Subscribe(func(signal.Change[bool]) {
+		invalidateLayout(c, ctx.Runtime, "chrome.compact")
+	})
+	c.cleanup = func() {
+		cmdK.Activated.Unsubscribe(cmdKID)
+		themeBtn.Activated.Unsubscribe(themeBtnID)
+		c.shell.Compact.OnChange.Unsubscribe(compactID)
+	}
+}
+
+// OnDetach clears the chrome's subscriptions.
+func (c *ChromeStack) OnDetach() {
+	if c.cleanup != nil {
+		c.cleanup()
+		c.cleanup = nil
+	}
+}
+
+// OnActivate is unused.
+func (c *ChromeStack) OnActivate() {}
+
+// OnDeactivate is unused.
+func (c *ChromeStack) OnDeactivate() {}

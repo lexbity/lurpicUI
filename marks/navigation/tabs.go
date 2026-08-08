@@ -448,6 +448,18 @@ func (t *Tabs) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		panelH = bounds.Height() * 0.6
 	}
 	t.cachedPanelBounds = gfx.RectFromXYWH(bounds.Min.X, panelY, bounds.Width(), panelH)
+	// F-tabs-host: the tabs mark measured its active panel body but never
+	// arranged it, so a hosted body facet had no arranged bounds. The lurpic
+	// studio demo (E6 Mark Playground) is the first consumer that hosts content
+	// in the panel; arranging the active body here is the minimal integration
+	// fix. The body is expected to be a facet-tree child of the tabs' host (the
+	// demo attaches it there); this call only sets its arranged bounds.
+	body := t.Items[t.clampedActiveIndex()].Body
+	if body != nil && body.Base() != nil {
+		if role := body.Base().LayoutRole(); role != nil {
+			role.Arrange(ctx, t.cachedPanelBounds)
+		}
+	}
 	curX := bounds.Min.X
 	if t.cachedWritingDirection == facet.WritingDirectionRTL {
 		curX = bounds.Max.X

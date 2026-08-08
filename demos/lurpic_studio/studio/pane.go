@@ -15,16 +15,6 @@ const (
 	stagePaneFlex      = 1
 )
 
-// newShellPanes returns the three shell panes: the exhibit index, the exhibit
-// stage (the center flex pane), and the inspector.
-func newShellPanes(stage *Stage) []Pane {
-	return []Pane{
-		{Facet: newPaneCard("Exhibits"), FixedWidth: indexPaneWidth, MinWidth: indexPaneWidth},
-		{Facet: stage, Flex: stagePaneFlex, MinWidth: stagePaneMinWidth},
-		{Facet: newPaneCard("Inspector"), FixedWidth: inspectorPaneWidth, MinWidth: inspectorPaneWidth},
-	}
-}
-
 // newPaneCard builds a placeholder pane: a Card whose title text is its first
 // grid child (Card does not render its Label, so the title is explicit).
 func newPaneCard(label string) *structure.Card {

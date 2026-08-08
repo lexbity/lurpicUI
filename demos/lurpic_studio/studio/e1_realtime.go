@@ -61,6 +61,7 @@ type Realtime struct {
 	feed     *Feed
 	grid     *EditableGrid
 	table    *structure.Table
+	legend   *structure.List
 	brush    BrushStores
 
 	// Control stores (the control marks write these).
@@ -118,11 +119,13 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 
 	e.grid = NewEditableGrid(appState.Rows, fonts, themeCtx, e.brush)
 	e.table = structure.NewTable("Latest", latestTableData(appState.Rows), nil)
+	e.legend = structure.NewList("Feed legend", latestLegendEntries(appState.Rows))
 	e.buildControls()
 	e.AddChild(e.canvas.Base())
 	e.AddChild(e.grid.Base())
 	e.AddChild(e.controls.Base())
 	e.AddChild(e.table.Base())
+	e.AddChild(e.legend.Base())
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -217,6 +220,9 @@ func (e *Realtime) measure(ctx facet.MeasureContext, c facet.Constraints) facet.
 	if role := e.controls.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, content)
 	}
+	if role := e.legend.Base().LayoutRole(); role != nil {
+		role.Measure(ctx, content)
+	}
 	if role := e.table.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, content)
 	}
@@ -240,12 +246,22 @@ func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	e.canvas.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), canvasH))
 	e.grid.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+canvasH, bounds.Width(), gridHeight))
 
-	// Bottom strip: the controls card on the left, the table legend on the
-	// right.
+	// Bottom strip: the controls card on the left, the table legend and the
+	// feed legend stacked on the right.
 	bottomY := bounds.Min.Y + canvasH + gridHeight
 	controlsW := bounds.Width() * 0.62
 	e.controls.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bottomY, controlsW, bottomH))
-	e.table.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X+controlsW, bottomY, bounds.Width()-controlsW, bottomH))
+	rightW := bounds.Width() - controlsW
+	right := gfx.RectFromXYWH(bounds.Min.X+controlsW, bottomY, rightW, bottomH)
+	legendH := e.legend.Base().LayoutRole().MeasuredSize.H
+	if legendH > bottomH*0.6 {
+		legendH = bottomH * 0.6
+	}
+	if legendH < 1 {
+		legendH = 1
+	}
+	e.legend.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(right.Min.X, right.Min.Y, right.Width(), legendH))
+	e.table.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(right.Min.X, right.Min.Y+legendH, right.Width(), right.Height()-legendH))
 }
 
 // latestTableData builds a compact read-only table snapshot from the newest
@@ -274,12 +290,39 @@ func latestTableData(rows *store.CollectionStore[dataset.Row]) structure.TableDa
 	return out
 }
 
+// latestLegendEntries builds the feed-legend list: one entry per region with
+// its latest value (the structure.list mark's honest role: the categorical
+// feed legend that the bar chart's band scale reads).
+func latestLegendEntries(rows *store.CollectionStore[dataset.Row]) []structure.ListEntry {
+	latest := make(map[string]float64)
+	for _, r := range rows.All() {
+		if _, seen := latest[r.Region]; !seen {
+			latest[r.Region] = r.Value
+		}
+	}
+	entries := make([]structure.ListEntry, 0, len(feedRegions))
+	for _, region := range feedRegions {
+		v, ok := latest[region]
+		if !ok {
+			continue
+		}
+		entries = append(entries, structure.ListEntry{
+			Key:            region,
+			Label:          region,
+			SupportingText: strconv.FormatFloat(v, 'f', 1, 64),
+			Selected:       false,
+		})
+	}
+	return entries
+}
+
 func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 	e.rt = ctx.Runtime
 	e.feed.SetRuntime(ctx.Runtime)
 
 	unsubInsert := e.appState.Rows.OnInsertSubscribe(func(ev store.CollectionInsertEvent[dataset.Row]) {
 		e.ruleValue.Set(ev.Item.Value)
+		e.legend.Data.Set(latestLegendEntries(e.appState.Rows))
 	})
 	gridID := e.gridState.OnChange.Subscribe(func(c signal.Change[selection.CheckboxState]) {
 		e.showGrid.Set(c.New == selection.CheckboxStateOn)

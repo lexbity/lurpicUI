@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // block is a test fixture facet that renders a solid color — the minimal
@@ -57,7 +58,7 @@ func TestStage_switchesActiveExhibit(t *testing.T) {
 	appState := state.NewAppState(nil)
 	a := &testExhibit{id: ExhibitPolicies, title: "Policies", block: newBlock(gfx.Color{R: 1, A: 1})}
 	b := &testExhibit{id: ExhibitLayers, title: "Layers", block: newBlock(gfx.Color{B: 1, A: 1})}
-	stage := NewStage([]Exhibit{a, b}, appState)
+	stage := NewStage([]Exhibit{a, b}, appState, store.NewValueStore(ExhibitID("")))
 	h := testkit.NewStandardHarness(t, 400, 300, stage)
 	h.RunFrame()
 
@@ -90,7 +91,7 @@ func TestStage_measuresOnlyActive(t *testing.T) {
 	appState := state.NewAppState(nil)
 	a := &testExhibit{id: ExhibitPolicies, title: "Policies", block: newBlock(gfx.Color{R: 1, A: 1})}
 	b := &testExhibit{id: ExhibitLayers, title: "Layers", block: newBlock(gfx.Color{B: 1, A: 1})}
-	stage := NewStage([]Exhibit{a, b}, appState)
+	stage := NewStage([]Exhibit{a, b}, appState, store.NewValueStore(ExhibitID("")))
 	h := testkit.NewStandardHarness(t, 400, 300, stage)
 	h.RunFrame()
 
@@ -126,7 +127,7 @@ func TestStage_noLayoutStorm(t *testing.T) {
 	appState := state.NewAppState(nil)
 	a := &testExhibit{id: ExhibitPolicies, title: "Policies", block: newBlock(gfx.Color{R: 1, A: 1})}
 	b := &testExhibit{id: ExhibitLayers, title: "Layers", block: newBlock(gfx.Color{B: 1, A: 1})}
-	stage := NewStage([]Exhibit{a, b}, appState)
+	stage := NewStage([]Exhibit{a, b}, appState, store.NewValueStore(ExhibitID("")))
 	h := testkit.NewStandardHarness(t, 400, 300, stage)
 	h.RunFrame()
 

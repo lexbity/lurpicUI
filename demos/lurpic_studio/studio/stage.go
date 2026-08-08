@@ -31,15 +31,17 @@ type Stage struct {
 }
 
 // NewStage builds the exhibit stage over the given catalog, building each
-// exhibit's root from the shared app state. The active exhibit defaults to
-// the first catalog entry.
-func NewStage(exhibits []Exhibit, appState *state.AppState) *Stage {
+// exhibit's root from the shared app state. The active exhibit is written to
+// the shared ActiveExhibit store (the shell's index pane / nav_drawer / command
+// palette drive it; the stage reads it), defaulting to the first catalog entry
+// when the store is empty.
+func NewStage(exhibits []Exhibit, appState *state.AppState, activeExhibit *store.ValueStore[ExhibitID]) *Stage {
 	s := &Stage{
-		activeExhibit: store.NewValueStore(ExhibitID("")),
+		activeExhibit: activeExhibit,
 		roots:         make(map[ExhibitID]facet.FacetImpl, len(exhibits)),
 		order:         append([]Exhibit(nil), exhibits...),
 	}
-	if len(exhibits) > 0 {
+	if len(exhibits) > 0 && s.activeExhibit.Get() == ExhibitID("") {
 		s.activeExhibit.Set(exhibits[0].ID())
 	}
 	s.Facet = facet.NewFacet()
@@ -76,6 +78,11 @@ func (s *Stage) Exhibits() []Exhibit { return append([]Exhibit(nil), s.order...)
 
 // ActiveRoot returns the currently active exhibit's root facet.
 func (s *Stage) ActiveRoot() facet.FacetImpl { return s.roots[s.activeExhibit.Get()] }
+
+// RootFor returns the built root facet for a given exhibit, or nil if the
+// exhibit is not in the catalog. The shell uses it to reach shared exhibit
+// objects (e.g. E1's streaming feed for the status bar) without rebuilding.
+func (s *Stage) RootFor(id ExhibitID) facet.FacetImpl { return s.roots[id] }
 
 func (s *Stage) measure(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
 	if role := s.activeRootRole(); role != nil {
