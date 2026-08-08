@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
@@ -66,5 +67,51 @@ func TestE5_honestyEdgeViewHasNoData(t *testing.T) {
 		if _, ok := c.(gfx.DrawPolyline); ok {
 			t.Fatal("edge view drew a line without an introspectable source")
 		}
+	}
+}
+
+// TestE5_overlayPrecedentReuse asserts F-overlay-precedent: the exhibit's
+// dirty-node highlighting is drawn by the framework's diagnostics.Overlay
+// (HighlightDirty), not a parallel dirty-highlight renderer. The regression
+// gate is the renderer call site itself: E5 must reference the Overlay and
+// emit a HighlightDirty fill, and the flag→color mapping must come from the
+// Overlay (DirtyFlagColor), not an exhibit-local palette.
+func TestE5_overlayPrecedentReuse(t *testing.T) {
+	sink := NewDirtySink(5)
+	root, h := newShellWithSink(t, 1280, 800, sink)
+	stage := shellStage(root)
+	stage.ActiveExhibit().Set(ExhibitPropagation)
+	h.RunFrame()
+	h.RunFrame()
+	e5 := stage.ActiveRoot().(*Propagation)
+
+	if e5.overlay == nil {
+		t.Fatal("E5 does not hold a diagnostics.Overlay (F-overlay-precedent)")
+	}
+
+	// A dirty node's row must render through HighlightDirty: force a wave,
+	// render a row for a dirty facet, and confirm a FillRect (the Overlay's
+	// drawing) appears — and that its brush is the Overlay's flag color.
+	area := e5.treeArea
+	if area.IsEmpty() {
+		area = gfx.Rect{Max: gfx.Point{X: 600, Y: 400}}
+	}
+	dirty := map[facet.FacetID]dirtyInfo{
+		root.Base().ID(): {flags: facet.DirtyLayout, source: "test"},
+	}
+	var sawFill bool
+	for _, cmd := range e5.nodeRow(area, propagationNode{id: root.Base().ID(), depth: 0, label: "root"}, dirty, area.Min.Y, 16) {
+		fill, ok := cmd.(gfx.FillRect)
+		if !ok {
+			continue
+		}
+		sawFill = true
+		want := e5.overlay.DirtyFlagColor(facet.DirtyLayout)
+		if fill.Brush.Color != want {
+			t.Fatalf("dirty fill uses exhibit-local color %v, want the Overlay's %v", fill.Brush.Color, want)
+		}
+	}
+	if !sawFill {
+		t.Fatal("a dirty node did not render an Overlay HighlightDirty fill")
 	}
 }

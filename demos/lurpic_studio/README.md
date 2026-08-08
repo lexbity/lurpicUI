@@ -42,6 +42,18 @@ Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
     pointers: the wide and narrow arrangements are distinct mark instances bound
     to the same `ShellState` stores, so a crossing preserves state without
     re-parenting a live mark.
+  - `F-signal-queue-race` *(framework fix, NFR-race)* — the forked projection
+    system runs subtrees in parallel goroutines; a Derived recompute during a
+    forked projection emits OnChange via `store.enqueueSignal` →
+    `rt.queueSignal`, and two forked goroutines (a `viz.Line` via a
+    Derived-backed `ReactiveScale` and a `StatusLight` via
+    `marks.FromDerived[bool]`) appended to the unsynchronized `rt.signalQueue`
+    concurrently — the same fork-race family the spec narrowed for `BindImpl`
+    and the harfbuzz call, but on the signal-queue path. Fixed by guarding
+    `rt.signalQueue` with `signalMu` in `queueSignal`/`deliverSignals`
+    (`runtime/signals.go`), the same narrow `*Mu` pattern as the existing
+    recovery/phase-hook guards. `go test ./demos/lurpic_studio/... -race` is
+    clean under repeated runs (NFR-race / AC-7).
   - `F-rail-shape` — the `nav_rail` mark lays its items out vertically and
     cannot be re-hosted as a horizontal bottom bar; the narrow bottom action bar
     is a bespoke horizontal icon-bar host bound to the same `ActiveExhibit`
@@ -52,6 +64,31 @@ Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
 - **E9/prior slice work** — E6 Mark Playground (tabs + interactive families),
   Capability Index, E1–E5, and the framework feedback from those slices
   (F-scroll-content, F-card-content, F-e6-internal, F-tabs-host).
+- **F-overlay-precedent (resolved)** — E5's dirty-node highlighting now renders
+  through the framework's `diagnostics.Overlay` (`HighlightDirty` +
+  `DirtyFlagColor`), so the dirty-highlight drawing is a single source and E5
+  no longer authors a parallel dirty-highlight renderer. Enforced by
+  `TestE5_overlayPrecedentReuse`.
+- **F-P7-five-waves (resolved)** — E5's wave suite now covers all five AC-10
+  waves: E1 feed tick, E1 cell edit, E1 brush, **E2 layer toggle**
+  (`TestE5_propagationWave_layerToggle`), and E4 policy resize.
+- **F-window-pause-gesture (resolved)** — FR-window's "pan/zoom MUST set
+  Paused" was both under- and over-triggered: a wheel zoom mutated the domain
+  without pausing (so the next feed tick's `AnchorLiveWindow` overwrote it), and
+  a plain `selectAt` left-click paused the feed. `chart_canvas.go` now pauses
+  only on a real gesture — a pan once the drag passes the 4px threshold, or a
+  wheel zoom — via an idempotent `pauseLive()`. Enforced by
+  `TestRealtime_liveTailPauseAndJumpToLive` (now driving the real gestures) and
+  `TestRealtime_selectionClickDoesNotPause`.
+- **F-radial-reshape (resolved)** — the §3.3 E1 placement listed
+  `radial_menu(chart reshape · radial layout)`, but the radial menu was only
+  placed in E6 and unbound. E1 now hosts a `radial_menu` chart-reshape dial in
+  the bottom strip: four `icon_button` radial children (one per chart type)
+  write `ChartType`, re-projecting the canvas series. `icon_button` children
+  are required because the radial policy arranges children with Radial
+  placement, which the plain `button` mark's contract does not declare.
+  Enforced by `TestRealtime_radialReshapeChangesChartType` and the coverage
+  audit's E1 placement assertion.
 - **Framework additions (the two NG-2 exceptions):**
   - `runtime/diagnostics_sink.go` + `frame.go` — `DirtySnapshotSink`
     (F-dirtysources): an opt-in `DiagnosticsHook` capability, discovered by type

@@ -61,7 +61,9 @@ const edgeIntrospectionNote = "store-level causal edges: not yet introspectable 
 
 // Propagation is the E5 facet: it renders the shell's facet tree with the
 // dirty-set waves observed through the DirtySnapshotSink, labeling each dirty
-// node with its invalidation source. Store-level causal provenance and
+// node with its invalidation source. The dirty-node highlighting is drawn by
+// the framework's diagnostics.Overlay (F-overlay-precedent: HighlightDirty),
+// not a parallel dirty-highlight renderer. Store-level causal provenance and
 // dependency edges are not introspectable and are labeled as such, never
 // fabricated (R-fake-viz).
 type Propagation struct {
@@ -72,6 +74,11 @@ type Propagation struct {
 
 	sink *DirtySink
 	rt   facet.RuntimeServices
+
+	// overlay is the framework's dirty-highlight renderer (F-overlay-precedent):
+	// E5 reuses diagnostics.Overlay.HighlightDirty for its dirty-node
+	// highlighting instead of authoring a parallel dirty-highlight renderer.
+	overlay *diagnostics.Overlay
 
 	paused     *store.ValueStore[bool]
 	retention  *store.ValueStore[float64]
@@ -87,9 +94,6 @@ type Propagation struct {
 	textColor gfx.Color
 	dimColor  gfx.Color
 	bg        gfx.Color
-	layoutClr gfx.Color
-	projClr   gfx.Color
-	hitClr    gfx.Color
 
 	tree     []propagationNode
 	treeArea gfx.Rect
@@ -102,6 +106,7 @@ type Propagation struct {
 func NewPropagationFacet(sink *DirtySink, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Propagation {
 	e := &Propagation{
 		sink:       sink,
+		overlay:    diagnostics.NewOverlay(),
 		paused:     store.NewValueStore(false),
 		retention:  store.NewValueStore(10.0),
 		dirtyCount: store.NewValueStore("0"),
@@ -115,9 +120,6 @@ func NewPropagationFacet(sink *DirtySink, fonts *text.FontRegistry, themeCtx the
 	e.textColor = themeCtx.Color(theme.ColorText)
 	e.dimColor = themeCtx.Color(theme.ColorTextSecondary)
 	e.bg = themeCtx.Color(theme.ColorSurface)
-	e.layoutClr = gfx.ColorFromRGBA8(220, 60, 60, 200)
-	e.projClr = gfx.ColorFromRGBA8(220, 170, 40, 200)
-	e.hitClr = gfx.ColorFromRGBA8(60, 120, 220, 200)
 
 	e.buildControls()
 	e.AddChild(e.controls.Base())
@@ -271,14 +273,13 @@ func (e *Propagation) dirtyUnion() map[facet.FacetID]dirtyInfo {
 }
 
 func (e *Propagation) nodeRow(area gfx.Rect, n propagationNode, dirty map[facet.FacetID]dirtyInfo, y, rowH float32) []gfx.Command {
-	var cmds []gfx.Command
+	var list gfx.CommandList
 	info, isDirty := dirty[n.id]
 	indent := area.Min.X + float32(n.depth)*10
 	if isDirty {
-		cmds = append(cmds, gfx.FillRect{
-			Rect:  gfx.RectFromXYWH(indent, y+(rowH-10)*0.5, 8, 10),
-			Brush: gfx.SolidBrush(e.flagColor(info.flags)),
-		})
+		// The dirty highlight is drawn by the framework's diagnostics.Overlay
+		// (F-overlay-precedent), not a parallel renderer.
+		e.overlay.HighlightDirty(&list, gfx.RectFromXYWH(indent, y+(rowH-10)*0.5, 8, 10), info.flags)
 	}
 	label := n.label
 	if label == "" {
@@ -294,8 +295,8 @@ func (e *Propagation) nodeRow(area gfx.Rect, n propagationNode, dirty map[facet.
 		}
 		label = label + " [" + cat + "]"
 	}
-	cmds = append(cmds, e.glyphCommand(indent+12, y, label, e.textColor))
-	return cmds
+	list.Add(e.glyphCommand(indent+12, y, label, e.textColor))
+	return list.Commands
 }
 
 func (e *Propagation) flagName(flags facet.DirtyFlags) string {
@@ -318,29 +319,20 @@ func (e *Propagation) edgeHonestyCommands(area gfx.Rect) []gfx.Command {
 }
 
 func (e *Propagation) legendCommands(area gfx.Rect) []gfx.Command {
+	var list gfx.CommandList
 	y := area.Min.Y + 2
-	return []gfx.Command{
-		gfx.FillRect{Rect: gfx.RectFromXYWH(area.Min.X, y, 8, 10), Brush: gfx.SolidBrush(e.layoutClr)},
-		e.glyphCommand(area.Min.X+12, y, "Layout", e.textColor),
-		gfx.FillRect{Rect: gfx.RectFromXYWH(area.Min.X+60, y, 8, 10), Brush: gfx.SolidBrush(e.projClr)},
-		e.glyphCommand(area.Min.X+72, y, "Projection", e.textColor),
-		gfx.FillRect{Rect: gfx.RectFromXYWH(area.Min.X+160, y, 8, 10), Brush: gfx.SolidBrush(e.hitClr)},
-		e.glyphCommand(area.Min.X+172, y, "Hit", e.textColor),
+	// The legend swatches use the same Overlay dirty-highlight drawing as the
+	// tree rows, so the flag→color mapping is a single source.
+	swatch := func(x float32, flags facet.DirtyFlags) {
+		e.overlay.HighlightDirty(&list, gfx.RectFromXYWH(area.Min.X+x, y, 8, 10), flags)
 	}
-}
-
-func (e *Propagation) flagColor(flags facet.DirtyFlags) gfx.Color {
-	// Layout is the most disruptive; report the highest-priority flag present.
-	switch {
-	case flags&facet.DirtyLayout != 0:
-		return e.layoutClr
-	case flags&facet.DirtyProjection != 0:
-		return e.projClr
-	case flags&facet.DirtyHit != 0:
-		return e.hitClr
-	default:
-		return e.dimColor
-	}
+	swatch(0, facet.DirtyLayout)
+	list.Add(e.glyphCommand(area.Min.X+12, y, "Layout", e.textColor))
+	swatch(60, facet.DirtyProjection)
+	list.Add(e.glyphCommand(area.Min.X+72, y, "Projection", e.textColor))
+	swatch(160, facet.DirtyHit)
+	list.Add(e.glyphCommand(area.Min.X+172, y, "Hit", e.textColor))
+	return list.Commands
 }
 
 func (e *Propagation) glyphCommand(x, y float32, label string, color gfx.Color) gfx.Command {

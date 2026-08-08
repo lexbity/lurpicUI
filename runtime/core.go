@@ -60,6 +60,7 @@ type Runtime struct {
 	hitTraceEnabled  bool
 	pendingEvents    []platform.Event
 	signalQueue      []pendingSignal
+	signalMu         sync.Mutex // guards signalQueue: forked projection goroutines enqueue signals concurrently (F-signal-queue-race)
 	lastWindowFrames map[string]*render.Frame
 	diagMu           sync.RWMutex
 	diag             DiagnosticsHook

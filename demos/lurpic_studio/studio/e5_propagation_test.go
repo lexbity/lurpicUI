@@ -173,6 +173,48 @@ func TestE5_propagationWave_resize(t *testing.T) {
 	_ = shell
 }
 
+// TestE5_propagationWave_layerToggle switches to E2 and toggles the modal
+// layer (opening the dialog mounts the scrim on the block-below layer) and
+// asserts the sink captured the layer-driven wave: the scrim itself goes dirty
+// (mounted) and the E2 host re-lays its layer attachment. This is the fifth
+// distinct wave AC-10 requires (E1 cell edit, E1 feed tick, E1 brush, E2 layer
+// toggle, E4 policy resize).
+func TestE5_propagationWave_layerToggle(t *testing.T) {
+	sink := NewDirtySink(10)
+	root, h := newShellWithSink(t, 1280, 800, sink)
+	stage := shellStage(root)
+	stage.ActiveExhibit().Set(ExhibitLayers)
+	h.RunFrame()
+	h.RunFrame()
+
+	e2 := stage.ActiveRoot().(*Layers)
+	e2.ModalOpen().Set(true)
+	h.RunFrame()
+
+	snap := latestSnapshot(t, sink)
+	if len(snap.Dirty) == 0 {
+		t.Fatal("layer toggle produced an empty dirty wave")
+	}
+	if !snapshotHasFacet(snap, e2.scrim.Base().ID()) {
+		t.Fatal("layer-toggle wave does not include the mounted scrim")
+	}
+	layoutSeen := false
+	for _, flags := range snap.Dirty {
+		if flags&facet.DirtyLayout != 0 {
+			layoutSeen = true
+		}
+	}
+	if !layoutSeen {
+		t.Fatal("layer-toggle wave has no DirtyLayout facet (the layer re-attach)")
+	}
+}
+
+// snapshotHasFacet reports whether the snapshot's dirty set contains the facet.
+func snapshotHasFacet(snap runtime.DirtySnapshot, id facet.FacetID) bool {
+	_, ok := snap.Dirty[id]
+	return ok
+}
+
 // TestE5_propagation_pauseFreezesCapture asserts the pause switch stops the
 // sink from staging new snapshots and the live light goes off.
 func TestE5_propagation_pauseFreezesCapture(t *testing.T) {

@@ -166,8 +166,14 @@ type ChartCanvas struct {
 	rt        facet.RuntimeServices
 	dragStart gfx.Point
 	dragging  bool
+	panning   bool
 	cleanup   func()
 }
+
+// dragThreshold is the pointer-move distance that turns a press into a pan
+// gesture. A press without enough movement is a selection click and must not
+// pause the live tail (FR-window: only pan/zoom gestures set Paused).
+const dragThreshold = 4
 
 // NewChartCanvas builds a chart canvas over the caller's stores. Missing
 // optional stores default to sensible values (line series, theme color, full
@@ -428,16 +434,29 @@ func (c *ChartCanvas) onPointer(e facet.PointerEvent) bool {
 	case platform.PointerPress:
 		if e.Button == platform.PointerLeft {
 			c.dragging = true
+			c.panning = false
 			c.dragStart = e.Position
-			if c.paused != nil {
-				c.paused.Set(true)
-			}
+			// A press alone is a selection candidate, not a pan: the live tail
+			// is NOT paused here so a selectAt click never freezes the feed
+			// (FR-window: only an actual pan/zoom gesture sets Paused).
 			if c.selection != nil {
 				c.selectAt(e.Position)
 			}
 		}
 	case platform.PointerMove:
 		if c.dragging {
+			if !c.panning {
+				// A drag only becomes a pan once the pointer moves beyond the
+				// threshold, so a jittery selection click does not pause the
+				// feed either.
+				dx := e.Position.X - c.dragStart.X
+				dy := e.Position.Y - c.dragStart.Y
+				if dx*dx+dy*dy < dragThreshold*dragThreshold {
+					return true
+				}
+				c.panning = true
+				c.pauseLive()
+			}
 			c.panPixels(e.Position.X - c.dragStart.X)
 			c.dragStart = e.Position
 		} else if c.hover != nil {
@@ -445,8 +464,19 @@ func (c *ChartCanvas) onPointer(e facet.PointerEvent) bool {
 		}
 	case platform.PointerRelease:
 		c.dragging = false
+		c.panning = false
 	}
 	return true
+}
+
+// pauseLive sets Paused when a pan/zoom gesture starts, so the next feed tick's
+// AnchorLiveWindow does not overwrite the gesture's domain change (FR-window).
+// It is idempotent: Paused is only written on the false→true transition so a
+// long drag does not re-emit the store signal every move.
+func (c *ChartCanvas) pauseLive() {
+	if c.paused != nil && !c.paused.Get() {
+		c.paused.Set(true)
+	}
 }
 
 // brushAt publishes the hovered row/region from the active series at the given
@@ -532,6 +562,9 @@ func (c *ChartCanvas) onScroll(e facet.ScrollEvent) bool {
 	if factor <= 0 {
 		factor = 0.1
 	}
+	// FR-window: a wheel zoom is a zoom gesture; pause the live tail so the
+	// next tick's AnchorLiveWindow does not overwrite the zoom.
+	c.pauseLive()
 	c.zoomAt(float64(e.Position.X-c.plot.Min.X), factor)
 	return true
 }

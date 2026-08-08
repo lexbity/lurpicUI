@@ -60,19 +60,32 @@ func TestRealtime_tickRechartsWithoutRelayout(t *testing.T) {
 	}
 }
 
-// TestRealtime_liveTailPauseAndJumpToLive drives the live-tail loop: pausing
-// (a pan/zoom gesture sets Paused) freezes the window while rows keep
-// appending; jump-to-live resets the domain and resumes the slide.
+// TestRealtime_liveTailPauseAndJumpToLive drives the live-tail loop through
+// the real gestures (FR-window): a pan/zoom gesture sets Paused so the feed's
+// AnchorLiveWindow freezes the window while rows keep appending; jump-to-live
+// resets the domain and resumes the slide.
 func TestRealtime_liveTailPauseAndJumpToLive(t *testing.T) {
 	e, h := newE1Harness(t)
-	e.appState.Paused.Set(true)
+	plot := e.Canvas().PlotRect()
+	if plot.IsEmpty() {
+		t.Fatal("chart plot is empty; cannot drive a pan gesture")
+	}
+	midY := plot.Min.Y + plot.Height()*0.5
+
+	// A wheel zoom (a zoom gesture) must pause the live tail — without it the
+	// next tick's AnchorLiveWindow would overwrite the zoom.
+	zoomX := plot.Min.X + plot.Width()*0.5
+	testkit.DriveScroll(h, zoomX, midY, 0, -40)
+	if !e.appState.Paused.Get() {
+		t.Fatal("wheel zoom did not set Paused (FR-window)")
+	}
 	windowBefore := e.appState.LiveWindow.Get()
 	rowsBefore := e.appState.Rows.Len()
 
 	e.Feed().OnTick(100 * time.Millisecond)
 	h.RunUntil(func() bool { return e.appState.Rows.Len() == rowsBefore+1 }, 60)
 	if w := e.appState.LiveWindow.Get(); w != windowBefore {
-		t.Fatalf("paused live window moved: %v -> %v", windowBefore, w)
+		t.Fatalf("paused live window moved after a wheel zoom: %v -> %v", windowBefore, w)
 	}
 
 	// Jump to live: reset the domain to [now-W, now] and clear the pause.
@@ -83,6 +96,31 @@ func TestRealtime_liveTailPauseAndJumpToLive(t *testing.T) {
 	}
 	if w := e.appState.LiveWindow.Get(); w[1] != hi {
 		t.Fatalf("jump-to-live domain = %v, want hi %v", w, hi)
+	}
+
+	// A pan gesture also pauses (FR-window). A drag must move beyond the
+	// drag threshold to count as a pan.
+	testkit.DriveDrag(h, plot.Min.X+plot.Width()*0.2, midY, plot.Min.X+plot.Width()*0.4, midY)
+	if !e.appState.Paused.Get() {
+		t.Fatal("pan drag did not set Paused (FR-window)")
+	}
+	e.Canvas().ResetDomain([2]float64{hi - e.appState.WindowSeconds.Get(), hi})
+}
+
+// TestRealtime_selectionClickDoesNotPause asserts the FR-window over-trigger
+// guard: a plain left-click that selects a point (chart → grid brush) must NOT
+// pause the live tail — only a pan/zoom gesture may.
+func TestRealtime_selectionClickDoesNotPause(t *testing.T) {
+	e, h := newE1Harness(t)
+	e.appState.Paused.Set(false)
+	plot := e.Canvas().PlotRect()
+	if plot.IsEmpty() {
+		t.Fatal("chart plot is empty; cannot drive a selection click")
+	}
+	// Click on the plot center (no drag movement): a selection candidate.
+	testkit.DriveClick(h, plot.Min.X+plot.Width()*0.5, plot.Min.Y+plot.Height()*0.5)
+	if e.appState.Paused.Get() {
+		t.Fatal("a plain selection click paused the live tail (over-trigger)")
 	}
 }
 
@@ -105,5 +143,38 @@ func TestRealtime_chartTypeGoldens(t *testing.T) {
 				t.Fatalf("chart types %s and %s produced identical renders; variants do not discriminate", types[i], types[j])
 			}
 		}
+	}
+}
+
+// TestRealtime_radialReshapeChangesChartType drives the E1 radial_menu
+// chart-reshape dial (the §3.3 placement: radial_menu · chart reshape · radial
+// layout): clicking a radial icon-button child writes ChartType and the canvas
+// re-projects the matching series.
+func TestRealtime_radialReshapeChangesChartType(t *testing.T) {
+	e, h := newE1Harness(t)
+	menu := e.Reshape()
+	b := e6Arranged(t, menu)
+	cx := b.Min.X + b.Width()*0.5
+	cy := b.Min.Y + b.Height()*0.5
+
+	// The four children sit at the cardinal angles around the center. Click the
+	// top child (angle 270° → the "bar" glyph) and the right child (angle 0° →
+	// the "line" glyph).
+	testkit.DriveClick(h, cx, cy-reshapeDialRadius)
+	if got := e.ChartType().Get(); got != ChartBar.String() {
+		t.Fatalf("top radial child set chart type %q, want %q", got, ChartBar.String())
+	}
+	h.RunFrame()
+	// The canvas's active series follows the chart type.
+	if got := e.Canvas().ChartTypeStore().Get(); got != ChartBar.String() {
+		t.Fatalf("canvas chart type = %q, want %q", got, ChartBar.String())
+	}
+	if e.Canvas().Bar().Base().LayoutRole().ArrangedBounds.IsEmpty() {
+		t.Fatal("bar series is not arranged after the reshape")
+	}
+
+	testkit.DriveClick(h, cx+reshapeDialRadius, cy)
+	if got := e.ChartType().Get(); got != ChartLine.String() {
+		t.Fatalf("right radial child set chart type %q, want %q", got, ChartLine.String())
 	}
 }

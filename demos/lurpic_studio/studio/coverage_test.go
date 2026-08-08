@@ -168,7 +168,7 @@ func TestCoverage_eachExhibitPlacesItsMarks(t *testing.T) {
 	}
 
 	e1 := placed(ExhibitRealtime)
-	for _, key := range []string{"viz/line", "viz/area", "viz/bar", "viz/point", "viz/axis", "viz/rule", "structure/table", "structure/list", "input/text_field"} {
+	for _, key := range []string{"viz/line", "viz/area", "viz/bar", "viz/point", "viz/axis", "viz/rule", "structure/table", "structure/list", "input/text_field", "action/radial_menu"} {
 		if !e1[key] {
 			t.Fatalf("E1 does not place %s", key)
 		}

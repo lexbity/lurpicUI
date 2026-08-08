@@ -16,6 +16,9 @@ type Overlay struct {
 
 	boundsColor    gfx.Color
 	dirtyColor     gfx.Color
+	dirtyLayoutClr gfx.Color
+	dirtyProjClr   gfx.Color
+	dirtyHitClr    gfx.Color
 	hitColor       gfx.Color
 	anchorColor    gfx.Color
 	anchorHotColor gfx.Color
@@ -30,6 +33,9 @@ func NewOverlay() *Overlay {
 	return &Overlay{
 		boundsColor:        gfx.ColorFromRGBA8(80, 120, 220, 80),
 		dirtyColor:         gfx.ColorFromRGBA8(220, 40, 40, 60),
+		dirtyLayoutClr:     gfx.ColorFromRGBA8(220, 60, 60, 200),
+		dirtyProjClr:       gfx.ColorFromRGBA8(220, 170, 40, 200),
+		dirtyHitClr:        gfx.ColorFromRGBA8(60, 120, 220, 200),
 		hitColor:           gfx.ColorFromRGBA8(40, 180, 60, 100),
 		anchorColor:        gfx.ColorFromRGBA8(60, 200, 220, 180),
 		anchorHotColor:     gfx.ColorFromRGBA8(255, 240, 100, 220),
@@ -141,10 +147,41 @@ func (o *Overlay) drawFacetBounds(list *gfx.CommandList, info FacetInfo) {
 }
 
 func (o *Overlay) drawDirtyHighlight(list *gfx.CommandList, info FacetInfo) {
-	list.Add(gfx.FillRect{
-		Rect:  info.ArrangedBounds,
-		Brush: gfx.SolidBrush(o.dirtyColor),
-	})
+	o.HighlightDirty(list, info.ArrangedBounds, info.DirtyFlags)
+}
+
+// HighlightDirty is the overlay's dirty-highlight drawing, exposed for in-app
+// diagnostics (the lurpic_studio E5 exhibit) so dirty highlighting stays a
+// single drawing instead of a parallel renderer (F-overlay-precedent). It
+// fills the given bounds tinted by the dirty flags — Layout is the most
+// disruptive, then Projection, then Hit.
+func (o *Overlay) HighlightDirty(list *gfx.CommandList, bounds gfx.Rect, flags facet.DirtyFlags) {
+	if o == nil || list == nil || bounds.IsEmpty() {
+		return
+	}
+	list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(o.dirtyColorFor(flags))})
+}
+
+// DirtyFlagColor returns the overlay's dirty-highlight color for a facet with
+// the given dirty flags (the single source of the flag→color mapping).
+func (o *Overlay) DirtyFlagColor(flags facet.DirtyFlags) gfx.Color {
+	if o == nil {
+		return gfx.Color{}
+	}
+	return o.dirtyColorFor(flags)
+}
+
+func (o *Overlay) dirtyColorFor(flags facet.DirtyFlags) gfx.Color {
+	switch {
+	case flags&facet.DirtyLayout != 0:
+		return o.dirtyLayoutClr
+	case flags&facet.DirtyProjection != 0:
+		return o.dirtyProjClr
+	case flags&facet.DirtyHit != 0:
+		return o.dirtyHitClr
+	default:
+		return o.dirtyColor
+	}
 }
 
 func (o *Overlay) drawLayerSummary(list *gfx.CommandList, info FacetInfo) {

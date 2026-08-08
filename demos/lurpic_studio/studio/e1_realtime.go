@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -10,7 +11,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/input"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
@@ -74,9 +77,11 @@ type Realtime struct {
 	timeRange   *store.ValueStore[[]string]
 
 	controls *structure.Card
+	reshape  *action.RadialMenu
 
-	rt      facet.RuntimeServices
-	cleanup func()
+	reshapeUnsub []func() //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
+	rt           facet.RuntimeServices
+	cleanup      func()
 }
 
 // gridHeight is the spreadsheet's fixed height inside E1.
@@ -121,11 +126,13 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.table = structure.NewTable("Latest", latestTableData(appState.Rows), nil)
 	e.legend = structure.NewList("Feed legend", latestLegendEntries(appState.Rows))
 	e.buildControls()
-	e.AddChild(e.canvas.Base())
-	e.AddChild(e.grid.Base())
-	e.AddChild(e.controls.Base())
-	e.AddChild(e.table.Base())
-	e.AddChild(e.legend.Base())
+	e.buildReshapeDial()
+	e.AddChild(e.canvas.Base())   //lurpiclint:ignore LL021 -- E1 hosts its canvas as a regular child, not an overlay (LL021 over-fires on any field ref)
+	e.AddChild(e.grid.Base())     //lurpiclint:ignore LL021 -- E1 hosts its grid as a regular child, not an overlay (LL021 over-fires on any field ref)
+	e.AddChild(e.controls.Base()) //lurpiclint:ignore LL021 -- E1 hosts its controls as a regular child, not an overlay (LL021 over-fires on any field ref)
+	e.AddChild(e.reshape.Base())  //lurpiclint:ignore LL021 -- E1 hosts its reshape dial as a regular child, not an overlay (LL021 over-fires on any field ref)
+	e.AddChild(e.table.Base())    //lurpiclint:ignore LL021 -- E1 hosts its table as a regular child, not an overlay (LL021 over-fires on any field ref)
+	e.AddChild(e.legend.Base())   //lurpiclint:ignore LL021 -- E1 hosts its legend as a regular child, not an overlay (LL021 over-fires on any field ref)
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -147,6 +154,9 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 
 // Canvas returns the chart canvas.
 func (e *Realtime) Canvas() *ChartCanvas { return e.canvas }
+
+// Reshape returns the radial chart-reshape dial.
+func (e *Realtime) Reshape() *action.RadialMenu { return e.reshape }
 
 // Feed returns the streaming feed.
 func (e *Realtime) Feed() *Feed { return e.feed }
@@ -174,6 +184,46 @@ func (e *Realtime) RuleValue() *store.ValueStore[float64] { return e.ruleValue }
 
 // TimeRange returns the selected time-range keys (the button group's store).
 func (e *Realtime) TimeRange() *store.ValueStore[[]string] { return e.timeRange }
+
+// buildReshapeDial builds the radial_menu chart-reshape control (the §3.3 E1
+// placement: radial_menu · chart reshape · radial layout). Its four radial
+// children are icon buttons, one per chart type; clicking one writes ChartType,
+// re-projecting the canvas series. icon_button children are used because the
+// radial policy arranges its children with Radial placement, which the plain
+// button mark's child contract does not declare.
+func (e *Realtime) buildReshapeDial() {
+	types := []struct {
+		key  string
+		icon string
+	}{
+		{ChartLine.String(), iconChartLine},
+		{ChartArea.String(), iconChartArea},
+		{ChartPoint.String(), iconChartPoint},
+		{ChartBar.String(), iconChartBar},
+	}
+	children := make([]action.RadialChild, 0, len(types))
+	for i, t := range types {
+		btn := action.NewIconButton(primitive.IconSVG(t.icon))
+		key := t.key
+		id := btn.Activated.Subscribe(func(signal.Unit) {
+			if e.chartType.Get() != key {
+				e.chartType.Set(key)
+			}
+		})
+		e.reshapeUnsub = append(e.reshapeUnsub, func() { btn.Activated.Unsubscribe(id) })
+		children = append(children, action.RadialChild{
+			Child:     btn,
+			Placement: facet.RadialPlacement{Angle: float64(i) * 2 * math.Pi / float64(len(types)), RadiusTrack: reshapeDialRadius},
+		})
+	}
+	center := action.NewIconButton(primitive.IconSVG(iconRealtime))
+	e.reshape = action.NewRadialMenu("Chart type", center, children)
+	e.reshape.DefaultTrackRadius = reshapeDialRadius
+}
+
+// reshapeDialRadius is the radial_menu's track radius (a compact dial that
+// fits the E1 bottom strip).
+const reshapeDialRadius float32 = 44
 
 func (e *Realtime) buildControls() {
 	liveSwitch := selection.NewSwitch("Live", e.feed.Live())
@@ -214,10 +264,14 @@ func (e *Realtime) measure(ctx facet.MeasureContext, c facet.Constraints) facet.
 	if role := e.grid.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
 	}
-	// The bottom strip (controls + table) is content-height, so measure it
-	// with an unbounded height instead of letting it flex-fill the stage.
+	// The bottom strip (controls + reshape dial + table) is content-height, so
+	// measure it with an unbounded height instead of letting it flex-fill the
+	// stage.
 	content := facet.Constraints{MaxSize: gfx.Size{W: c.MaxSize.W}}
 	if role := e.controls.Base().LayoutRole(); role != nil {
+		role.Measure(ctx, content)
+	}
+	if role := e.reshape.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, content)
 	}
 	if role := e.legend.Base().LayoutRole(); role != nil {
@@ -246,13 +300,19 @@ func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	e.canvas.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), canvasH))
 	e.grid.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+canvasH, bounds.Width(), gridHeight))
 
-	// Bottom strip: the controls card on the left, the table legend and the
-	// feed legend stacked on the right.
+	// Bottom strip: the controls card on the left, the radial reshape dial in
+	// the middle, and the table + feed legend stacked on the right.
 	bottomY := bounds.Min.Y + canvasH + gridHeight
-	controlsW := bounds.Width() * 0.62
+	controlsW := bounds.Width() * 0.52
 	e.controls.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bottomY, controlsW, bottomH))
-	rightW := bounds.Width() - controlsW
-	right := gfx.RectFromXYWH(bounds.Min.X+controlsW, bottomY, rightW, bottomH)
+	reshapeW := e.reshape.Base().LayoutRole().MeasuredSize.W
+	if reshapeW < 1 || reshapeW > bounds.Width()*0.22 {
+		reshapeW = bounds.Width() * 0.22
+	}
+	e.reshape.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X+controlsW, bottomY, reshapeW, bottomH))
+	rightX := bounds.Min.X + controlsW + reshapeW
+	rightW := bounds.Max.X - rightX
+	right := gfx.RectFromXYWH(rightX, bottomY, rightW, bottomH)
 	legendH := e.legend.Base().LayoutRole().MeasuredSize.H
 	if legendH > bottomH*0.6 {
 		legendH = bottomH * 0.6
@@ -338,6 +398,12 @@ func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 }
 
 func (e *Realtime) OnDetach() {
+	for _, unsub := range e.reshapeUnsub {
+		if unsub != nil {
+			unsub()
+		}
+	}
+	e.reshapeUnsub = nil
 	if e.cleanup != nil {
 		e.cleanup()
 		e.cleanup = nil
