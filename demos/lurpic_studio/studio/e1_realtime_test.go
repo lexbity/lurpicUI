@@ -22,6 +22,9 @@ func newE1Harness(t *testing.T) (*Realtime, *testkit.Harness) {
 	return e, h
 }
 
+// linePoints returns the projected data points of the active line series
+// across both its single-point (DrawPoints) and polyline (DrawPolyline) forms.
+// The windowed chart shows one point for a lone in-window row.
 func linePoints(t *testing.T, e *Realtime) []gfx.Point {
 	t.Helper()
 	cmds := e.Canvas().Line().Base().ProjectionRole().Project(facet.ProjectionContext{
@@ -32,26 +35,31 @@ func linePoints(t *testing.T, e *Realtime) []gfx.Point {
 		return nil
 	}
 	for _, c := range cmds.Commands {
-		if poly, ok := c.(gfx.DrawPolyline); ok {
-			return poly.Points
+		switch cmd := c.(type) {
+		case gfx.DrawPolyline:
+			return cmd.Points
+		case gfx.DrawPoints:
+			return cmd.Points
 		}
 	}
 	return nil
 }
 
+func projectedPointCount(t *testing.T, e *Realtime) int { return len(linePoints(t, e)) }
+
 // TestRealtime_tickRechartsWithoutRelayout asserts the FR-rt isolation
-// property end-to-end: a feed tick appends a row, the chart re-projects it,
-// and the frame ran no layout pass (the tick dirties projection only — the
-// canvas and shell are not re-laid-out).
+// property end-to-end: a feed tick appends a row inside the live window, the
+// windowed chart re-projects it, and the frame ran no layout pass (the tick
+// dirties projection only — the canvas and shell are not re-laid-out).
 func TestRealtime_tickRechartsWithoutRelayout(t *testing.T) {
 	e, h := newE1Harness(t)
 	before := e.appState.Rows.Len()
-	pointsBefore := len(linePoints(t, e))
+	pointsBefore := projectedPointCount(t, e)
 
 	e.Feed().OnTick(100 * time.Millisecond)
 	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
 
-	if got := len(linePoints(t, e)); got != pointsBefore+1 {
+	if got := projectedPointCount(t, e); got != pointsBefore+1 {
 		t.Fatalf("line points = %d, want %d (chart re-projected the new row)", got, pointsBefore+1)
 	}
 	// The tick frame ran no layout pass (DirtyProjection only, no DirtyLayout).
@@ -176,5 +184,71 @@ func TestRealtime_radialReshapeChangesChartType(t *testing.T) {
 	testkit.DriveClick(h, cx+reshapeDialRadius, cy)
 	if got := e.ChartType().Get(); got != ChartLine.String() {
 		t.Fatalf("right radial child set chart type %q, want %q", got, ChartLine.String())
+	}
+}
+
+// TestRealtime_barAggregatesWindow asserts FR-viz: the bar chart aggregates the
+// live window, not all retained rows. With the default 60s tail only the last
+// seed row is visible (one band); widening the window to the whole seed makes
+// every region band appear.
+func TestRealtime_barAggregatesWindow(t *testing.T) {
+	e, h := newE1Harness(t)
+	e.Canvas().ChartTypeStore().Set("bar")
+	h.RunFrame()
+	e.flushWindowedDeriveds()
+	h.RunFrame()
+
+	visibleRegions := func() []string {
+		out := make([]string, 0, 4)
+		for _, region := range feedRegions {
+			if !e.Canvas().Bar().BandRect(region).IsEmpty() {
+				out = append(out, region)
+			}
+		}
+		return out
+	}
+	// Default 60s live tail: only the last seed row (the "west" region) is in
+	// the window, so exactly one band exists.
+	if got := visibleRegions(); len(got) != 1 {
+		t.Fatalf("default-window bar bands = %v, want exactly one (windowed aggregation)", got)
+	}
+
+	// Widen the window to the whole seed: all four regions gain bands.
+	expandLiveWindow(t, e)
+	settleChart(h)
+	if got := visibleRegions(); len(got) != 4 {
+		t.Fatalf("widened-window bar bands = %v, want all four regions", got)
+	}
+}
+
+// TestRealtime_jumpToLiveButton drives the jump-to-live affordance (FR-window):
+// a wheel zoom pauses the feed; clicking the jump icon button resets the
+// x-domain to [now-W, now] and clears Paused.
+func TestRealtime_jumpToLiveButton(t *testing.T) {
+	e, h := newE1Harness(t)
+	plot := e.Canvas().PlotRect()
+	if plot.IsEmpty() {
+		t.Fatal("chart plot is empty")
+	}
+	// A wheel zoom pauses the live tail.
+	testkit.DriveScroll(h, plot.Min.X+plot.Width()*0.5, plot.Min.Y+plot.Height()*0.5, 0, -40)
+	if !e.appState.Paused.Get() {
+		t.Fatal("wheel zoom did not pause")
+	}
+
+	// Click the jump button in the bottom strip.
+	jb := e.Jump().Base().LayoutRole().ArrangedBounds
+	if jb.IsEmpty() {
+		t.Fatal("jump-to-live button not arranged")
+	}
+	testkit.DriveClick(h, jb.Min.X+jb.Width()*0.5, jb.Min.Y+jb.Height()*0.5)
+	if e.appState.Paused.Get() {
+		t.Fatal("jump-to-live button did not clear Paused")
+	}
+	// The domain is back on the live tail: its hi is the latest row's time.
+	hi := e.appState.LiveWindow.Get()[1]
+	wantHi := float64(e.appState.Rows.All()[e.appState.Rows.Len()-1].Time.Unix())
+	if hi != wantHi {
+		t.Fatalf("jump-to-live domain hi = %v, want %v", hi, wantHi)
 	}
 }

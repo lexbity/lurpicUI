@@ -98,6 +98,27 @@ Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
   `Selection`. Enforced by `TestBrush_gridRowClickSelectsChartPoint` (now
   asserting the highlight + tooltip), `TestBrush_barChartSelectionHighlightsBand`,
   and `TestBrush_chartPointClickShowsTooltip`.
+- **F-bar-window (resolved)** — FR-viz: the bar (and all series) now plot the
+  **live-window view**, not all retained rows. The canvas owns a windowed
+  `CollectionStore` fed from the `VisibleRows` derived, and the feed legend is
+  fed from the `BarBuckets` derived — so the previously-inert `VisibleRows` and
+  `BarBuckets` are live consumers (the flush follows the documented
+  F-derived-range pattern: a `Get()` forces the lazy deriveds to recompute, and
+  E1 flushes on row insert/update/remove + window changes). The bar aggregates
+  the window by region. Enforced by `TestRealtime_barAggregatesWindow`.
+- **F-jump-live-button (resolved)** — FR-window's "jump to live" is now a real
+  UI affordance: an `icon_button` (a direct E1 child, since the controls Card's
+  content is self-projected and not hit-testable — F-card-content) that resets
+  the x-domain to `[now-W, now]` and clears `Paused`. Enforced by
+  `TestRealtime_jumpToLiveButton`.
+- **F-tick-arm (logged, Slice P10)** — the framework's `TickRole` requires the
+  owner to call `RequestTick()` each frame; `RequestTick` has zero callers in
+  the repo, so no tick role ever runs and E1's streaming feed is only driven by
+  the direct `Feed().OnTick` calls in tests — the real app's chart is currently
+  static. This is a pre-existing latent defect (not introduced by P10);
+  fixing it (arming E1's tick role) changes the harness frame baseline and
+  ripples through the E1/brush test suite, so it is logged as a follow-on
+  Finding rather than ballooned into this slice.
 - **Framework additions (the two NG-2 exceptions):**
   - `runtime/diagnostics_sink.go` + `frame.go` — `DirtySnapshotSink`
     (F-dirtysources): an opt-in `DiagnosticsHook` capability, discovered by type

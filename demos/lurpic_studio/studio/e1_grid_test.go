@@ -50,6 +50,10 @@ func activateCell(t *testing.T, h *testkit.Harness, e *Realtime, rowIdx int) {
 // and the chart re-projected the same frame.
 func TestGrid_editCommitsToRowsAndRecharts(t *testing.T) {
 	e, h := newE1Harness(t)
+	// Widen the live window so the edited (oldest) seed row is visible to the
+	// windowed chart; otherwise the edit cannot move a projected point.
+	expandLiveWindow(t, e)
+	settleChart(h)
 	row := e.appState.Rows.All()[0]
 	id := e.appState.Rows.Identify(row)
 	old := row.Value

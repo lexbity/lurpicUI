@@ -52,8 +52,11 @@ func settleChart(h *testkit.Harness) {
 // opens with the row's details (FR-brush).
 func TestBrush_gridRowClickSelectsChartPoint(t *testing.T) {
 	e, h := newE1Harness(t)
+	// Widen the live window so the clicked (oldest) seed row is visible to the
+	// windowed chart; otherwise the selection cannot render a highlight.
+	expandLiveWindow(t, e)
 	e.Canvas().ChartTypeStore().Set("point")
-	h.RunFrame()
+	settleChart(h)
 
 	row := e.appState.Rows.All()[0]
 	want := e.appState.Rows.Identify(row)
@@ -233,8 +236,11 @@ func chartBarBandScreen(t *testing.T, e *Realtime) gfx.Point {
 // highlight).
 func TestBrush_barChartSelectionHighlightsBand(t *testing.T) {
 	e, h := newE1Harness(t)
+	// Widen the live window so the clicked (oldest) seed row is visible to the
+	// windowed bar chart.
+	expandLiveWindow(t, e)
 	e.Canvas().ChartTypeStore().Set("bar")
-	h.RunFrame()
+	settleChart(h)
 
 	row := e.appState.Rows.All()[0]
 	want := e.appState.Rows.Identify(row)

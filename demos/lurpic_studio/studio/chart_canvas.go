@@ -96,6 +96,13 @@ type ChartConfig struct {
 	YDomain *store.Derived[[2]float64]
 	YRange  *store.ValueStore[[2]float64]
 
+	// WindowedRows, when provided, is the live-window row view the series
+	// plot (FR-viz: the bar aggregates the window, not all retained rows). The
+	// canvas syncs its internal windowed collection from this derived; the
+	// caller flushes it (a Derived recomputes on Get()). When nil, the canvas
+	// plots the full Rows collection (the standalone probe).
+	WindowedRows *store.Derived[[]dataset.Row]
+
 	// Paused, when set, is flipped true on a pan/zoom gesture (the live-tail
 	// pause); nil for a plain canvas.
 	Paused *store.ValueStore[bool]
@@ -133,6 +140,12 @@ type ChartCanvas struct {
 	yDomain *store.Derived[[2]float64]
 	yRange  *store.ValueStore[[2]float64]
 	paused  *store.ValueStore[bool]
+
+	// windowedRows is the live-window view the series plot. When WindowedRows
+	// (a derived) is configured, E1's tick flushes it and the canvas syncs this
+	// collection from its recomputed value; otherwise it mirrors Rows.
+	windowedRows   *store.CollectionStore[dataset.Row]
+	windowedSource *store.Derived[[]dataset.Row]
 
 	xScale *reactive.ReactiveScale
 	yScale *reactive.ReactiveScale
@@ -218,14 +231,22 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 	}
 	c.effective = store.NewValueStore(c.effectiveColorValue())
 
+	c.windowedRows = store.NewCollectionStore(vizRowID)
+	if cfg.WindowedRows != nil {
+		c.windowedSource = cfg.WindowedRows
+		c.syncWindowed(cfg.WindowedRows.Get())
+	} else {
+		c.syncWindowed(c.rows.All())
+	}
+
 	c.xScale = reactive.NewTimeReactive(c.xDomain, c.xRange)
 	c.yScale = reactive.NewLinearReactive(bridgeDerived(c.yDomain), c.yRange)
 	c.zoom = reactive.NewZoomController(c.xDomain)
 
-	c.line = viz.NewLine(c.rows, vizRowTime, vizRowValue, c.xScale, c.yScale)
-	c.area = viz.NewArea(c.rows, vizRowTime, vizRowValue, c.xScale, c.yScale)
-	c.point = viz.NewPoint(c.rows, vizRowTime, vizRowValue, c.xScale, c.yScale)
-	c.bar = viz.NewBar(c.rows, vizRowRegion, vizRowValue, c.yScale)
+	c.line = viz.NewLine(c.windowedRows, vizRowTime, vizRowValue, c.xScale, c.yScale)
+	c.area = viz.NewArea(c.windowedRows, vizRowTime, vizRowValue, c.xScale, c.yScale)
+	c.point = viz.NewPoint(c.windowedRows, vizRowTime, vizRowValue, c.xScale, c.yScale)
+	c.bar = viz.NewBar(c.windowedRows, vizRowRegion, vizRowValue, c.yScale)
 	colorBinding := marks.FromStore(c.effective, facet.DirtyProjection)
 	c.line.Color = colorBinding
 	c.area.Color = colorBinding
@@ -478,7 +499,39 @@ func rowByID(rows *store.CollectionStore[dataset.Row], id store.ItemID) (dataset
 }
 
 func (c *ChartCanvas) rowByID(id store.ItemID) (dataset.Row, bool) {
-	return rowByID(c.rows, id)
+	return rowByID(c.windowedRows, id)
+}
+
+// syncWindowed reconciles the canvas's windowed collection with the given
+// live-window rows (the source of the series' data, FR-viz). It diffs against
+// the current contents so a sliding window inserts/removes only the entering
+// and leaving rows and updates edited rows in place.
+func (c *ChartCanvas) syncWindowed(rows []dataset.Row) {
+	if c.windowedRows == nil {
+		return
+	}
+	current := c.windowedRows.All()
+	curByID := make(map[store.ItemID]dataset.Row, len(current))
+	for _, r := range current {
+		curByID[c.windowedRows.Identify(r)] = r
+	}
+	want := make(map[store.ItemID]bool, len(rows))
+	for _, r := range rows {
+		id := c.windowedRows.Identify(r)
+		want[id] = true
+		cur, ok := curByID[id]
+		if !ok {
+			c.windowedRows.Insert(r)
+		} else if cur != r {
+			c.windowedRows.Update(r)
+		}
+	}
+	for _, r := range current {
+		id := c.windowedRows.Identify(r)
+		if !want[id] {
+			c.windowedRows.Remove(id)
+		}
+	}
 }
 
 func (c *ChartCanvas) effectiveColorValue() gfx.Color {
@@ -577,7 +630,7 @@ func (c *ChartCanvas) brushPoint(pt gfx.Point) {
 func (c *ChartCanvas) nearestPoint(pt gfx.Point) (store.ItemID, bool) {
 	xs := c.xScale.Get()
 	ys := c.yScale.Get()
-	rows := c.rows.All()
+	rows := c.windowedRows.All()
 	const hitRadius float32 = 8
 	best := -1
 	bestDist := float32(hitRadius*hitRadius + 1)
@@ -594,7 +647,7 @@ func (c *ChartCanvas) nearestPoint(pt gfx.Point) (store.ItemID, bool) {
 	if best < 0 {
 		return 0, false
 	}
-	return c.rows.Identify(rows[best]), true
+	return c.windowedRows.Identify(rows[best]), true
 }
 
 // brushBar publishes a region-group hover for the bar band under the cursor.
@@ -674,6 +727,18 @@ func (c *ChartCanvas) OnAttach(ctx facet.AttachContext) {
 		})
 		cleanups = append(cleanups, func() {
 			c.selection.OnChange.Unsubscribe(idSel)
+		})
+	}
+	// The windowed-row view: when the caller flushes the WindowedRows derived
+	// (E1's tick), its recompute fires OnChange here and the canvas syncs the
+	// series' collection (FR-viz: the bar aggregates the live window).
+	if c.windowedSource != nil {
+		idWin := c.windowedSource.OnChange.Subscribe(func(signal.Change[[]dataset.Row]) {
+			c.syncWindowed(c.windowedSource.Get())
+			c.Invalidate(facet.DirtyProjection)
+		})
+		cleanups = append(cleanups, func() {
+			c.windowedSource.OnChange.Unsubscribe(idWin)
 		})
 	}
 	c.cleanup = func() {

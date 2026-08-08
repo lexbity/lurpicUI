@@ -80,6 +80,7 @@ type Realtime struct {
 
 	controls *structure.Card
 	reshape  *action.RadialMenu
+	jump     *action.IconButton
 
 	// tip is the chart-side anchored tooltip (FR-brush: a selection — from a
 	// chart point press or a grid row click — shows the selected row's details
@@ -113,27 +114,28 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.feed = NewFeed(appState, uint64(e.Facet.ID()))
 
 	e.canvas = NewChartCanvas(ChartConfig{
-		Fonts:       fonts,
-		Theme:       themeCtx,
-		Rows:        appState.Rows,
-		XDomain:     appState.LiveWindow, // the live-tail window is the x-domain
-		XRange:      store.NewValueStore([2]float64{0, 1}),
-		YDomain:     appState.YDomain,
-		YRange:      store.NewValueStore([2]float64{1, 0}),
-		Paused:      appState.Paused,
-		ChartType:   e.chartType,
-		SeriesColor: e.seriesColor,
-		Opacity:     e.opacity,
-		ShowGrid:    e.showGrid,
-		RuleValue:   e.ruleValue,
-		Hover:       e.brush.Hover,
-		HoverRegion: e.brush.HoverRegion,
-		Selection:   e.brush.Selection,
+		Fonts:        fonts,
+		Theme:        themeCtx,
+		Rows:         appState.Rows,
+		XDomain:      appState.LiveWindow, // the live-tail window is the x-domain
+		XRange:       store.NewValueStore([2]float64{0, 1}),
+		YDomain:      appState.YDomain,
+		YRange:       store.NewValueStore([2]float64{1, 0}),
+		WindowedRows: appState.VisibleRows, // FR-viz: series plot the live-window view
+		Paused:       appState.Paused,
+		ChartType:    e.chartType,
+		SeriesColor:  e.seriesColor,
+		Opacity:      e.opacity,
+		ShowGrid:     e.showGrid,
+		RuleValue:    e.ruleValue,
+		Hover:        e.brush.Hover,
+		HoverRegion:  e.brush.HoverRegion,
+		Selection:    e.brush.Selection,
 	})
 
 	e.grid = NewEditableGrid(appState.Rows, fonts, themeCtx, e.brush)
 	e.table = structure.NewTable("Latest", latestTableData(appState.Rows), nil)
-	e.legend = structure.NewList("Feed legend", latestLegendEntries(appState.Rows))
+	e.legend = structure.NewList("Feed legend", bucketLegendEntries(appState.BarBuckets.Get()))
 	e.tipOpen = store.NewValueStore(false)
 	e.tipText = store.NewValueStore("")
 	e.tip = feedback.NewTooltip("", e.tipOpen)
@@ -141,12 +143,14 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.tip.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	e.buildControls()
 	e.buildReshapeDial()
+	e.buildJumpButton()
 	e.AddChild(e.canvas.Base())   //lurpiclint:ignore LL021 -- E1 hosts its canvas as a regular child, not an overlay (LL021 over-fires on any field ref)
 	e.AddChild(e.grid.Base())     //lurpiclint:ignore LL021 -- E1 hosts its grid as a regular child, not an overlay (LL021 over-fires on any field ref)
 	e.AddChild(e.controls.Base()) //lurpiclint:ignore LL021 -- E1 hosts its controls as a regular child, not an overlay (LL021 over-fires on any field ref)
 	e.AddChild(e.reshape.Base())  //lurpiclint:ignore LL021 -- E1 hosts its reshape dial as a regular child, not an overlay (LL021 over-fires on any field ref)
 	e.AddChild(e.table.Base())    //lurpiclint:ignore LL021 -- E1 hosts its table as a regular child, not an overlay (LL021 over-fires on any field ref)
 	e.AddChild(e.legend.Base())   //lurpiclint:ignore LL021 -- E1 hosts its legend as a regular child, not an overlay (LL021 over-fires on any field ref)
+	e.AddChild(e.jump.Base())     //lurpiclint:ignore LL021 -- E1 hosts the jump-to-live button as a regular child, not an overlay (LL021 over-fires)
 	e.AddChild(e.tip.Base())      //lurpiclint:ignore LL021 -- E1 hosts its anchored tooltip as a regular child; the mark self-mounts its layered surface (LL021 over-fires)
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)
@@ -161,7 +165,9 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 		Width:  facet.StretchAlways,
 		Height: facet.StretchAlways,
 	})
-	e.tick = facet.TickRole{OnTick: func(dt time.Duration) { e.feed.OnTick(dt) }}
+	e.tick = facet.TickRole{OnTick: func(dt time.Duration) {
+		e.feed.OnTick(dt)
+	}}
 	e.AddRole(&e.layout)
 	e.AddRole(&e.tick)
 	return e
@@ -172,6 +178,9 @@ func (e *Realtime) Canvas() *ChartCanvas { return e.canvas }
 
 // Reshape returns the radial chart-reshape dial.
 func (e *Realtime) Reshape() *action.RadialMenu { return e.reshape }
+
+// Jump returns the jump-to-live button.
+func (e *Realtime) Jump() *action.IconButton { return e.jump }
 
 // TipOpen returns the anchored tooltip's visibility store.
 func (e *Realtime) TipOpen() *store.ValueStore[bool] { return e.tipOpen }
@@ -281,6 +290,30 @@ func (e *Realtime) buildControls() {
 	}
 }
 
+// buildJumpButton wires the jump-to-live affordance (FR-window): an
+// icon_button floating over the chart's top-right that resets the x-domain to
+// [now-W, now] and clears Paused. It is a direct child (not inside the controls
+// Card, whose content is self-projected and not hit-testable — F-card-content)
+// so the button is a real, clickable UI affordance.
+func (e *Realtime) buildJumpButton() {
+	e.jump = action.NewIconButton(primitive.IconSVG(iconJumpLive))
+	idJump := e.jump.Activated.Subscribe(func(signal.Unit) {
+		e.jumpToLive()
+	})
+	e.reshapeUnsub = append(e.reshapeUnsub, func() { e.jump.Activated.Unsubscribe(idJump) })
+}
+
+// jumpToLive resets the x-domain to [now-W, now] and clears Paused (the live
+// tail resumes). It is the UI affordance behind FR-window's "jump to live".
+func (e *Realtime) jumpToLive() {
+	rows := e.appState.Rows.All()
+	if len(rows) == 0 {
+		return
+	}
+	hi := float64(rows[len(rows)-1].Time.Unix())
+	e.canvas.ResetDomain([2]float64{hi - e.appState.WindowSeconds.Get(), hi})
+}
+
 func (e *Realtime) measure(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
 	if role := e.canvas.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
@@ -327,17 +360,26 @@ func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	e.canvas.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), canvasH))
 	e.grid.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+canvasH, bounds.Width(), gridHeight))
 
-	// Bottom strip: the controls card on the left, the radial reshape dial in
-	// the middle, and the table + feed legend stacked on the right.
+	// Bottom strip: the controls card on the left, the jump-to-live button and
+	// the radial reshape dial in the middle, and the table + feed legend
+	// stacked on the right.
 	bottomY := bounds.Min.Y + canvasH + gridHeight
-	controlsW := bounds.Width() * 0.52
+	controlsW := bounds.Width() * 0.5
 	e.controls.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bottomY, controlsW, bottomH))
+	jumpW := float32(32)
+	jumpX := bounds.Min.X + controlsW
+	jumpH := float32(28)
+	if jumpH > bottomH {
+		jumpH = bottomH
+	}
+	e.jump.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(jumpX, bottomY+(bottomH-jumpH)*0.5, jumpW, jumpH))
+	reshapeX := jumpX + jumpW
 	reshapeW := e.reshape.Base().LayoutRole().MeasuredSize.W
 	if reshapeW < 1 || reshapeW > bounds.Width()*0.22 {
 		reshapeW = bounds.Width() * 0.22
 	}
-	e.reshape.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X+controlsW, bottomY, reshapeW, bottomH))
-	rightX := bounds.Min.X + controlsW + reshapeW
+	e.reshape.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(reshapeX, bottomY, reshapeW, bottomH))
+	rightX := reshapeX + reshapeW
 	rightW := bounds.Max.X - rightX
 	right := gfx.RectFromXYWH(rightX, bottomY, rightW, bottomH)
 	legendH := e.legend.Base().LayoutRole().MeasuredSize.H
@@ -350,11 +392,21 @@ func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	e.legend.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(right.Min.X, right.Min.Y, right.Width(), legendH))
 	e.table.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(right.Min.X, right.Min.Y+legendH, right.Width(), right.Height()-legendH))
 
-	// The anchored tooltip sits over the canvas plot area (its surface shows
-	// above the plot via AnchorAbove) so a selection's details read as a
-	// chart-side tooltip (FR-brush).
+	// The anchored tooltip bubble sits at the plot's top-center: the facet is
+	// arranged to a small rect so its (bounds-derived) hit region does not
+	// claim the chart (a passive anchored tooltip must not block chart hover /
+	// brush; the hit map resolves regions by bounds, not OnHitTest).
 	if plot := e.canvas.PlotRect(); !plot.IsEmpty() {
-		e.tip.Base().LayoutRole().Arrange(ctx, plot)
+		tipW := e.tip.Base().LayoutRole().MeasuredSize.W
+		tipH := e.tip.Base().LayoutRole().MeasuredSize.H
+		if tipW < 20 || tipW > plot.Width()*0.6 {
+			tipW = 200
+		}
+		if tipH < 16 || tipH > plot.Height()*0.5 {
+			tipH = 44
+		}
+		tipX := plot.Min.X + (plot.Width()-tipW)*0.5
+		e.tip.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(tipX, plot.Min.Y, tipW, tipH))
 	} else {
 		e.tip.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
 	}
@@ -386,26 +438,17 @@ func latestTableData(rows *store.CollectionStore[dataset.Row]) structure.TableDa
 	return out
 }
 
-// latestLegendEntries builds the feed-legend list: one entry per region with
-// its latest value (the structure.list mark's honest role: the categorical
-// feed legend that the bar chart's band scale reads).
-func latestLegendEntries(rows *store.CollectionStore[dataset.Row]) []structure.ListEntry {
-	latest := make(map[string]float64)
-	for _, r := range rows.All() {
-		if _, seen := latest[r.Region]; !seen {
-			latest[r.Region] = r.Value
-		}
-	}
-	entries := make([]structure.ListEntry, 0, len(feedRegions))
-	for _, region := range feedRegions {
-		v, ok := latest[region]
-		if !ok {
-			continue
-		}
+// bucketLegendEntries builds the feed-legend list from the windowed
+// BarBuckets: one entry per region with its live-window aggregate (the
+// structure.list mark's honest role: the categorical feed legend that the bar
+// chart's band scale reads, fed by the same BarBuckets derived).
+func bucketLegendEntries(buckets []state.RegionBucket) []structure.ListEntry {
+	entries := make([]structure.ListEntry, 0, len(buckets))
+	for _, b := range buckets {
 		entries = append(entries, structure.ListEntry{
-			Key:            region,
-			Label:          region,
-			SupportingText: strconv.FormatFloat(v, 'f', 1, 64),
+			Key:            b.Region,
+			Label:          b.Region,
+			SupportingText: strconv.FormatFloat(b.Value, 'f', 1, 64),
 			Selected:       false,
 		})
 	}
@@ -418,7 +461,23 @@ func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 
 	unsubInsert := e.appState.Rows.OnInsertSubscribe(func(ev store.CollectionInsertEvent[dataset.Row]) {
 		e.ruleValue.Set(ev.Item.Value)
-		e.legend.Data.Set(latestLegendEntries(e.appState.Rows))
+	})
+	// The windowed deriveds (VisibleRows, BarBuckets) are lazy: a source change
+	// marks them dirty but a Get() is required to recompute and fire OnChange.
+	// Flushing on the row signals + the window keeps the windowed series and
+	// the feed legend in the same frame as any data or window change
+	// (F-derived-range; NFR-edit-latency).
+	unsubEdit := e.appState.Rows.OnUpdateSubscribe(func(store.CollectionUpdateEvent[dataset.Row]) {
+		e.flushWindowedDeriveds()
+	})
+	unsubEvict := e.appState.Rows.OnRemoveSubscribe(func(store.CollectionRemoveEvent[dataset.Row]) {
+		e.flushWindowedDeriveds()
+	})
+	winID := e.appState.LiveWindow.OnChange.Subscribe(func(signal.Change[[2]float64]) {
+		e.flushWindowedDeriveds()
+	})
+	legendID := e.appState.BarBuckets.OnChange.Subscribe(func(signal.Change[[]state.RegionBucket]) {
+		e.legend.Data.Set(bucketLegendEntries(e.appState.BarBuckets.Get()))
 	})
 	gridID := e.gridState.OnChange.Subscribe(func(c signal.Change[selection.CheckboxState]) {
 		e.showGrid.Set(c.New == selection.CheckboxStateOn)
@@ -431,10 +490,25 @@ func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 	})
 	e.cleanup = func() {
 		unsubInsert()
+		unsubEdit()
+		unsubEvict()
+		e.appState.LiveWindow.OnChange.Unsubscribe(winID)
 		e.gridState.OnChange.Unsubscribe(gridID)
 		e.timeRange.OnChange.Unsubscribe(rangeID)
 		e.brush.Selection.OnChange.Unsubscribe(selID)
+		e.appState.BarBuckets.OnChange.Unsubscribe(legendID)
 	}
+}
+
+// flushWindowedDeriveds forces the lazy windowed deriveds (VisibleRows,
+// BarBuckets) to recompute so their OnChange consumers stay in sync. The
+// Derived contract is lazy: a source change marks it dirty but a consumer must
+// Get() to recompute and fire OnChange (F-derived-range). The tick runs before
+// deliverSignals in the frame, so the recompute-triggered OnChange is delivered
+// in the same frame and the windowed series + legend re-project with it.
+func (e *Realtime) flushWindowedDeriveds() {
+	e.appState.VisibleRows.Get()
+	e.appState.BarBuckets.Get()
 }
 
 // updateSelectionTip reflects a selection (chart point press or grid row click)

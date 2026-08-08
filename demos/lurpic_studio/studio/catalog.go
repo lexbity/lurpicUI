@@ -81,4 +81,7 @@ const (
 	iconChartArea  = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 17l5-6 4 4 6-8"/><path d="M3 17h18"/></svg>`
 	iconChartPoint = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="8" cy="11" r="2"/><circle cx="16" cy="13" r="2"/><path d="M3 17l5-6 4 4 6-8"/></svg>`
 	iconChartBar   = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20V12M10 20V6M16 20V10M22 20V4"/></svg>`
+
+	// Jump-to-live glyph for the E1 live-tail resume control.
+	iconJumpLive = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 17l5-5-5-5"/><path d="M6 17l5-5-5-5"/><path d="M6 6h12"/></svg>`
 )
