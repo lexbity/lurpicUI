@@ -47,8 +47,9 @@ func settleChart(h *testkit.Harness) {
 }
 
 // TestBrush_gridRowClickSelectsChartPoint drives grid → chart: clicking a
-// spreadsheet row publishes the Selection store, which the chart draws as a
-// highlight over that row's point.
+// spreadsheet row publishes the Selection store, the chart draws a highlight
+// over that row's point (a ring in point/line mode), and the anchored tooltip
+// opens with the row's details (FR-brush).
 func TestBrush_gridRowClickSelectsChartPoint(t *testing.T) {
 	e, h := newE1Harness(t)
 	e.Canvas().ChartTypeStore().Set("point")
@@ -61,6 +62,39 @@ func TestBrush_gridRowClickSelectsChartPoint(t *testing.T) {
 	if got := e.Brush().Selection.Get(); got != want {
 		t.Fatalf("row click selection = %v, want %v", got, want)
 	}
+	h.RunFrame()
+	// The chart reacts: the canvas emits a selection-highlight command at the
+	// selected point.
+	if !canvasHasSelectionHighlight(t, e) {
+		t.Fatal("chart did not render a selection highlight after the row click")
+	}
+	// The anchored tooltip opens with the selected row's details.
+	if !e.TipOpen().Get() {
+		t.Fatal("the anchored tooltip did not open on selection")
+	}
+	if got := e.TipText().Get(); got == "" {
+		t.Fatal("the tooltip text is empty for a selection")
+	}
+}
+
+// canvasHasSelectionHighlight reports whether the canvas's projection emits a
+// selection-highlight command (the ring's inner fill for the selected point).
+func canvasHasSelectionHighlight(t *testing.T, e *Realtime) bool {
+	t.Helper()
+	role := e.Canvas().Base().RenderRole()
+	if role == nil {
+		return false
+	}
+	cmds := role.Collect(e.Canvas().Base().LayoutRole().ArrangedBounds)
+	if cmds == nil {
+		return false
+	}
+	for _, cmd := range cmds.Commands {
+		if fill, ok := cmd.(gfx.FillRect); ok && fill.Brush.Color == gfx.ColorFromRGBA8(220, 60, 120, 40) {
+			return true
+		}
+	}
+	return false
 }
 
 // TestBrush_chartPointHoverHighlightsRow drives chart → grid: hovering a chart
@@ -191,4 +225,75 @@ func chartBarBandScreen(t *testing.T, e *Realtime) gfx.Point {
 	}
 	t.Fatal("no bar band rendered inside the plot")
 	return gfx.Point{}
+}
+
+// TestBrush_barChartSelectionHighlightsBand drives grid → chart in bar mode: a
+// row click selects the row's region, and the canvas highlights the bar band
+// (a StrokeRect outline) rather than a point ring (FR-brush bar-segment
+// highlight).
+func TestBrush_barChartSelectionHighlightsBand(t *testing.T) {
+	e, h := newE1Harness(t)
+	e.Canvas().ChartTypeStore().Set("bar")
+	h.RunFrame()
+
+	row := e.appState.Rows.All()[0]
+	want := e.appState.Rows.Identify(row)
+	driveClick(h, gridValueCellPoint(t, e, 0))
+	if got := e.Brush().Selection.Get(); got != want {
+		t.Fatalf("row click selection = %v, want %v", got, want)
+	}
+	h.RunFrame()
+
+	role := e.Canvas().Base().RenderRole()
+	cmds := role.Collect(e.Canvas().Base().LayoutRole().ArrangedBounds)
+	if cmds == nil {
+		t.Fatal("canvas collected no commands")
+	}
+	var sawBand, sawRing bool
+	for _, cmd := range cmds.Commands {
+		switch c := cmd.(type) {
+		case gfx.StrokeRect:
+			if c.Brush.Color == e.Canvas().SelectionColor() {
+				sawBand = true
+			}
+		case gfx.FillRect:
+			if c.Brush.Color == gfx.ColorFromRGBA8(220, 60, 120, 40) {
+				sawRing = true
+			}
+		}
+	}
+	if !sawBand {
+		t.Fatal("bar chart did not outline the selected band")
+	}
+	if sawRing {
+		t.Fatal("bar chart drew a point ring instead of the band highlight")
+	}
+}
+
+// TestBrush_chartPointClickShowsTooltip drives chart → grid → chart: a point
+// press selects the point, opens the anchored tooltip, and the grid highlights
+// the row (the FR-brush loop is bidirectional).
+func TestBrush_chartPointClickShowsTooltip(t *testing.T) {
+	e, h := newE1Harness(t)
+	expandLiveWindow(t, e)
+	e.Canvas().ChartTypeStore().Set("point")
+	settleChart(h)
+
+	rowIdx := e.appState.Rows.Len() - 1
+	row := e.appState.Rows.All()[rowIdx]
+	want := e.appState.Rows.Identify(row)
+
+	h.InjectEvent(platform.EventPointer{Kind: platform.PointerPress, Position: chartPointScreen(t, e, rowIdx), Button: platform.PointerLeft})
+	h.RunFrame()
+
+	if got := e.Brush().Selection.Get(); got != want {
+		t.Fatalf("chart point selection = %v, want %v", got, want)
+	}
+	h.RunFrame()
+	if !e.TipOpen().Get() {
+		t.Fatal("chart point selection did not open the anchored tooltip")
+	}
+	if got := e.TipText().Get(); got == "" {
+		t.Fatal("the tooltip text is empty after a chart point selection")
+	}
 }

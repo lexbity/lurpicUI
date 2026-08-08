@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -12,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
+	"codeburg.org/lexbit/lurpicui/marks/feedback"
 	"codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
@@ -79,6 +81,13 @@ type Realtime struct {
 	controls *structure.Card
 	reshape  *action.RadialMenu
 
+	// tip is the chart-side anchored tooltip (FR-brush: a selection — from a
+	// chart point press or a grid row click — shows the selected row's details
+	// anchored to the chart).
+	tip     *feedback.Tooltip
+	tipOpen *store.ValueStore[bool]
+	tipText *store.ValueStore[string]
+
 	reshapeUnsub []func() //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
 	rt           facet.RuntimeServices
 	cleanup      func()
@@ -125,6 +134,11 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.grid = NewEditableGrid(appState.Rows, fonts, themeCtx, e.brush)
 	e.table = structure.NewTable("Latest", latestTableData(appState.Rows), nil)
 	e.legend = structure.NewList("Feed legend", latestLegendEntries(appState.Rows))
+	e.tipOpen = store.NewValueStore(false)
+	e.tipText = store.NewValueStore("")
+	e.tip = feedback.NewTooltip("", e.tipOpen)
+	e.tip.Content = marks.FromStore(e.tipText, facet.DirtyProjection)
+	e.tip.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	e.buildControls()
 	e.buildReshapeDial()
 	e.AddChild(e.canvas.Base())   //lurpiclint:ignore LL021 -- E1 hosts its canvas as a regular child, not an overlay (LL021 over-fires on any field ref)
@@ -133,6 +147,7 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.AddChild(e.reshape.Base())  //lurpiclint:ignore LL021 -- E1 hosts its reshape dial as a regular child, not an overlay (LL021 over-fires on any field ref)
 	e.AddChild(e.table.Base())    //lurpiclint:ignore LL021 -- E1 hosts its table as a regular child, not an overlay (LL021 over-fires on any field ref)
 	e.AddChild(e.legend.Base())   //lurpiclint:ignore LL021 -- E1 hosts its legend as a regular child, not an overlay (LL021 over-fires on any field ref)
+	e.AddChild(e.tip.Base())      //lurpiclint:ignore LL021 -- E1 hosts its anchored tooltip as a regular child; the mark self-mounts its layered surface (LL021 over-fires)
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -157,6 +172,15 @@ func (e *Realtime) Canvas() *ChartCanvas { return e.canvas }
 
 // Reshape returns the radial chart-reshape dial.
 func (e *Realtime) Reshape() *action.RadialMenu { return e.reshape }
+
+// TipOpen returns the anchored tooltip's visibility store.
+func (e *Realtime) TipOpen() *store.ValueStore[bool] { return e.tipOpen }
+
+// TipText returns the anchored tooltip's content store.
+func (e *Realtime) TipText() *store.ValueStore[string] { return e.tipText }
+
+// Tip returns the anchored tooltip mark.
+func (e *Realtime) Tip() *feedback.Tooltip { return e.tip }
 
 // Feed returns the streaming feed.
 func (e *Realtime) Feed() *Feed { return e.feed }
@@ -280,6 +304,9 @@ func (e *Realtime) measure(ctx facet.MeasureContext, c facet.Constraints) facet.
 	if role := e.table.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, content)
 	}
+	if role := e.tip.Base().LayoutRole(); role != nil {
+		role.Measure(ctx, content)
+	}
 	return facet.MeasureResult{Size: c.Constrain(c.MaxSize)}
 }
 
@@ -322,6 +349,15 @@ func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	e.legend.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(right.Min.X, right.Min.Y, right.Width(), legendH))
 	e.table.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(right.Min.X, right.Min.Y+legendH, right.Width(), right.Height()-legendH))
+
+	// The anchored tooltip sits over the canvas plot area (its surface shows
+	// above the plot via AnchorAbove) so a selection's details read as a
+	// chart-side tooltip (FR-brush).
+	if plot := e.canvas.PlotRect(); !plot.IsEmpty() {
+		e.tip.Base().LayoutRole().Arrange(ctx, plot)
+	} else {
+		e.tip.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+	}
 }
 
 // latestTableData builds a compact read-only table snapshot from the newest
@@ -390,11 +426,34 @@ func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 	rangeID := e.timeRange.OnChange.Subscribe(func(c signal.Change[[]string]) {
 		e.applyTimeRange(c.New)
 	})
+	selID := e.brush.Selection.OnChange.Subscribe(func(c signal.Change[store.ItemID]) {
+		e.updateSelectionTip(c.New)
+	})
 	e.cleanup = func() {
 		unsubInsert()
 		e.gridState.OnChange.Unsubscribe(gridID)
 		e.timeRange.OnChange.Unsubscribe(rangeID)
+		e.brush.Selection.OnChange.Unsubscribe(selID)
 	}
+}
+
+// updateSelectionTip reflects a selection (chart point press or grid row click)
+// into the chart-side tooltip: the selected row's time/region/value, anchored
+// to the chart. A zero selection clears the tooltip.
+func (e *Realtime) updateSelectionTip(id store.ItemID) {
+	if id == 0 {
+		e.tipText.Set("")
+		e.tipOpen.Set(false)
+		return
+	}
+	row, ok := rowByID(e.appState.Rows, id)
+	if !ok {
+		e.tipText.Set("")
+		e.tipOpen.Set(false)
+		return
+	}
+	e.tipText.Set(fmt.Sprintf("%s · %s · %.1f", row.Time.Format("15:04:05"), row.Region, row.Value))
+	e.tipOpen.Set(true)
 }
 
 func (e *Realtime) OnDetach() {

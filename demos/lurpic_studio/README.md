@@ -89,6 +89,15 @@ Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
   placement, which the plain `button` mark's contract does not declare.
   Enforced by `TestRealtime_radialReshapeChangesChartType` and the coverage
   audit's E1 placement assertion.
+- **F-brush-chartside (resolved)** — FR-brush's chart-side half is now real:
+  `chart_canvas.go` subscribes to `Selection` and draws the highlight — a ring
+  around the selected data point for the temporal series, a band outline for
+  the bar chart (via the new `viz.Bar.BandRect` accessor) — and E1 hosts an
+  anchored `feedback.Tooltip` that opens with the selected row's
+  time/region/value when a grid row click or a chart point press publishes
+  `Selection`. Enforced by `TestBrush_gridRowClickSelectsChartPoint` (now
+  asserting the highlight + tooltip), `TestBrush_barChartSelectionHighlightsBand`,
+  and `TestBrush_chartPointClickShowsTooltip`.
 - **Framework additions (the two NG-2 exceptions):**
   - `runtime/diagnostics_sink.go` + `frame.go` — `DirtySnapshotSink`
     (F-dirtysources): an opt-in `DiagnosticsHook` capability, discovered by type

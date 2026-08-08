@@ -219,3 +219,31 @@ func (b *Bar[T]) hitTest(p gfx.Point) facet.HitResult {
 	}
 	return facet.HitResult{Hit: true, MarkID: 1}
 }
+
+// BandRect returns the arranged plot rect of the bar band for the given
+// category (empty when the bar is not arranged or the category has no band).
+// Linked-brushing consumers (the lurpic_studio chart canvas) highlight the
+// selected bar band with it; the band geometry mirrors buildCommands.
+func (b *Bar[T]) BandRect(category string) gfx.Rect {
+	if b == nil || b.Layout.ArrangedBounds.IsEmpty() {
+		return gfx.Rect{}
+	}
+	items := b.Store.All()
+	if len(items) == 0 {
+		return gfx.Rect{}
+	}
+	members := make([]string, 0, len(items))
+	for _, item := range items {
+		members = append(members, b.Cat(item))
+	}
+	bounds := b.Layout.ArrangedBounds
+	band := scale.NewBand(members,
+		scale.WithPaddingInner(float64(b.Padding.Get())),
+		scale.WithRange(0, float64(bounds.Width())),
+	)
+	start, width, ok := band.Band(category)
+	if !ok || width <= 0 {
+		return gfx.Rect{}
+	}
+	return gfx.RectFromXYWH(bounds.Min.X+float32(start), bounds.Min.Y, float32(width), bounds.Height())
+}

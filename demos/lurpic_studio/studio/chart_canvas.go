@@ -159,9 +159,10 @@ type ChartCanvas struct {
 	margins chartMargins
 	plot    gfx.Rect
 
-	canvasColor gfx.Color
-	borderColor gfx.Color
-	gridColor   gfx.Color
+	canvasColor    gfx.Color
+	borderColor    gfx.Color
+	gridColor      gfx.Color
+	selectionColor gfx.Color
 
 	rt        facet.RuntimeServices
 	dragStart gfx.Point
@@ -180,24 +181,25 @@ const dragThreshold = 4
 // opacity, grid off, rule at 0).
 func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 	c := &ChartCanvas{
-		rows:        cfg.Rows,
-		xDomain:     cfg.XDomain,
-		xRange:      cfg.XRange,
-		yDomain:     cfg.YDomain,
-		yRange:      cfg.YRange,
-		paused:      cfg.Paused,
-		chartType:   cfg.ChartType,
-		seriesColor: cfg.SeriesColor,
-		opacity:     cfg.Opacity,
-		showGrid:    cfg.ShowGrid,
-		ruleValue:   cfg.RuleValue,
-		hover:       cfg.Hover,
-		hoverRegion: cfg.HoverRegion,
-		selection:   cfg.Selection,
-		margins:     chartMargins{top: 8, right: 8},
-		canvasColor: cfg.Theme.Color(theme.ColorSurface),
-		borderColor: cfg.Theme.Color(theme.ColorBorder),
-		gridColor:   cfg.Theme.Color(theme.ColorBorder),
+		rows:           cfg.Rows,
+		xDomain:        cfg.XDomain,
+		xRange:         cfg.XRange,
+		yDomain:        cfg.YDomain,
+		yRange:         cfg.YRange,
+		paused:         cfg.Paused,
+		chartType:      cfg.ChartType,
+		seriesColor:    cfg.SeriesColor,
+		opacity:        cfg.Opacity,
+		showGrid:       cfg.ShowGrid,
+		ruleValue:      cfg.RuleValue,
+		hover:          cfg.Hover,
+		hoverRegion:    cfg.HoverRegion,
+		selection:      cfg.Selection,
+		margins:        chartMargins{top: 8, right: 8},
+		canvasColor:    cfg.Theme.Color(theme.ColorSurface),
+		borderColor:    cfg.Theme.Color(theme.ColorBorder),
+		gridColor:      cfg.Theme.Color(theme.ColorBorder),
+		selectionColor: gfx.ColorFromRGBA8(220, 60, 120, 220),
 	}
 	if c.chartType == nil {
 		c.chartType = store.NewValueStore(ChartLine.String())
@@ -255,6 +257,7 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 		OnCollect: func(list *gfx.CommandList, bounds gfx.Rect) {
 			list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(c.canvasColor)})
 			list.Commands = append(list.Commands, c.gridCommands()...)
+			list.Commands = append(list.Commands, c.selectionHighlightCommands()...)
 			if !c.plot.IsEmpty() {
 				list.Add(gfx.StrokeRect{Rect: c.plot, Stroke: gfx.StrokeStyle{Width: 1}, Brush: gfx.SolidBrush(c.borderColor)})
 			}
@@ -329,6 +332,9 @@ func (c *ChartCanvas) PlotRect() gfx.Rect { return c.plot }
 
 // ChartTypeStore returns the series-selection store.
 func (c *ChartCanvas) ChartTypeStore() *store.ValueStore[string] { return c.chartType }
+
+// SelectionColor returns the chart-side selection highlight color.
+func (c *ChartCanvas) SelectionColor() gfx.Color { return c.selectionColor }
 
 // SeriesColorStore returns the series color store.
 func (c *ChartCanvas) SeriesColorStore() *store.ValueStore[gfx.Color] { return c.seriesColor }
@@ -418,6 +424,61 @@ func (c *ChartCanvas) gridCommands() []gfx.Command {
 		})
 	}
 	return cmds
+}
+
+// selectionHighlightCommands renders the chart-side highlight for the selected
+// row (FR-brush: a table row click or a chart point press publishes Selection;
+// the chart reacts by drawing the marker). For the temporal series it draws a
+// ring around the selected data point; for the bar chart it outlines the
+// selected row's region band.
+func (c *ChartCanvas) selectionHighlightCommands() []gfx.Command {
+	if c.selection == nil || c.plot.IsEmpty() {
+		return nil
+	}
+	id := c.selection.Get()
+	if id == 0 {
+		return nil
+	}
+	if chartTypeFromString(c.chartType.Get()) == ChartBar {
+		row, ok := c.rowByID(id)
+		if !ok {
+			return nil
+		}
+		band := c.bar.BandRect(row.Region)
+		if band.IsEmpty() {
+			return nil
+		}
+		return []gfx.Command{gfx.StrokeRect{
+			Rect:   band,
+			Stroke: gfx.StrokeStyle{Width: 2},
+			Brush:  gfx.SolidBrush(c.selectionColor),
+		}}
+	}
+	row, ok := c.rowByID(id)
+	if !ok {
+		return nil
+	}
+	px := c.plot.Min.X + float32(c.xScale.Get().Map(vizRowTime(row)))
+	py := c.plot.Min.Y + float32(c.yScale.Get().Map(vizRowValue(row)))
+	ring := gfx.RectFromXYWH(px-6, py-6, 12, 12)
+	return []gfx.Command{
+		gfx.FillRect{Rect: ring, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(220, 60, 120, 40))},
+		gfx.StrokePath{Path: gfx.CirclePath(gfx.Point{X: px, Y: py}, 6), Stroke: gfx.StrokeStyle{Width: 2}, Brush: gfx.SolidBrush(c.selectionColor)},
+	}
+}
+
+// rowByID returns the row with the given collection id.
+func rowByID(rows *store.CollectionStore[dataset.Row], id store.ItemID) (dataset.Row, bool) {
+	for _, r := range rows.All() {
+		if rows.Identify(r) == id {
+			return r, true
+		}
+	}
+	return dataset.Row{}, false
+}
+
+func (c *ChartCanvas) rowByID(id store.ItemID) (dataset.Row, bool) {
+	return rowByID(c.rows, id)
 }
 
 func (c *ChartCanvas) effectiveColorValue() gfx.Color {
@@ -604,6 +665,17 @@ func (c *ChartCanvas) OnAttach(ctx facet.AttachContext) {
 	cleanups = append(cleanups, func() {
 		c.chartType.OnChange.Unsubscribe(idType)
 	})
+	// The selection highlight is chart-side state: a selection (from a chart
+	// press or a grid row click) must re-project the canvas so the marker
+	// appears (FR-brush).
+	if c.selection != nil {
+		idSel := c.selection.OnChange.Subscribe(func(signal.Change[store.ItemID]) {
+			c.Invalidate(facet.DirtyProjection)
+		})
+		cleanups = append(cleanups, func() {
+			c.selection.OnChange.Unsubscribe(idSel)
+		})
+	}
 	c.cleanup = func() {
 		for _, fn := range cleanups {
 			if fn != nil {
