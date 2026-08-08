@@ -2,11 +2,9 @@ package text
 
 import (
 	"math"
-
 	"sort"
-
 	"strings"
-
+	"sync"
 	"unicode"
 
 	"github.com/go-text/typesetting/di"
@@ -334,6 +332,14 @@ func (s *Shaper) Shape(p Paragraph) *TextLayout {
 	return layout
 }
 
+// shapeMu serializes the vendored harfbuzz shape calls. The font Face's
+// glyph-extents cache (go-text/typesetting/font.extentsCache) is not
+// synchronized, so when the runtime's forked projection shapes text in
+// parallel goroutines over the shared registry faces, concurrent Shape calls
+// race that cache (F-shape-fork-race). Shaping is demand-driven and cached at
+// the projection layer, so the serialization is cheap in practice.
+var shapeMu sync.Mutex
+
 func (s *Shaper) shapeSegment(seg resolvedSegment, style TextStyle) *gotextshaping.Output {
 	if s == nil {
 		return nil
@@ -348,7 +354,9 @@ func (s *Shaper) shapeSegment(seg resolvedSegment, style TextStyle) *gotextshapi
 		scale = 1
 	}
 	in.Size = fixed.I(int(math.Round(float64(size * scale))))
+	shapeMu.Lock()
 	out := s.shaper.Shape(in)
+	shapeMu.Unlock()
 	return &out
 }
 

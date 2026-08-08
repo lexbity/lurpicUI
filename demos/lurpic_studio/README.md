@@ -6,25 +6,34 @@ See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
 
 ## Status
 
-Slice P5 of the multi-slice plan is in place (P0–P4 done previously):
+Slice P6 of the multi-slice plan is in place (P0–P5 done previously):
 
-- **E1 Realtime Data (`studio/e1_realtime.go`)** — the flagship part A
-  (read-only): the live chart + a streaming feed + the sliding live-tail
-  window. The chart is the production `ChartCanvas` (P3's probe refactored
-  into it), wired to the shared `AppState` stores (LiveWindow x-domain,
-  `YDomain`, `Paused`). A control strip drives Live, ChartType (line/area/
-  point/bar), YAxisMax, TimeRange→W, SeriesColor, Opacity, and the grid.
-  Smoothing + Aggregation defer to P6 (F-controls-deferred).
-- **`studio/feed.go`** — the snapshot→work→commit feed job: a worker goroutine
-  generates one deterministic row (synthetic clock, NFR-determinism), and the
-  runtime-thread commit appends it, slides the live window (unless paused),
-  trims to `MaxRows` (F-collection-evict), and pulses `JobProgress`. The time
-  model is fractional (UnixNano) so the sub-second cadence slides the live tail
-  (F-time-precision).
-- **FR-rt proven end-to-end** — a feed tick appends a row, the chart
-  re-projects it, and the frame runs no layout pass (DirtyProjection only).
-- **Four chart-type goldens** (`e1_line/area/point/bar`) are mutually
-  byte-distinct; the shell golden now shows E1 as the default exhibit.
+- **E1 part B — editable spreadsheet + linked brushing** (P6):
+  - `studio/e1_grid.go` + `studio/grid_row.go` — the text-editable grid,
+    exercising the previously-unconsumed `marks/data.CollectionBinder`
+    (F-unconsumed) over the shared `Rows` store. Rows are cell-band facets
+    driven by the binder; a Value cell opens an overlay `text_field`; Enter
+    commits back through `Rows.Update` on the runtime thread (invalid numeric
+    input raises an inline `alert` with no write; Escape cancels; Enter
+    advances to the next cell — Tab is focus-advance, F-tab-eaten).
+  - `studio/e1_brush.go` + ChartCanvas brush — bidirectional linked brushing:
+    Hover/Selection stores shared by chart and grid; a chart point/bar hover
+    highlights + scrolls the spreadsheet row; a grid row click selects the
+    chart point; a bar band hover highlights every row of that region.
+  - A read-only `structure.Table` legend (Shape B coverage) sits beside the
+    controls; the shell golden now shows the full E1 workspace.
+- **Framework fixes surfaced by P6** (each a logged Finding):
+  - `marks/data/join.go` — `CollectionBinder` lifecycle (F-binder-lifecycle):
+    no double-attach when wired into a parent's `OnAttach`, no double-dispose
+    on teardown.
+  - `text/shaper.go` — serialized the vendored harfbuzz shape call
+    (F-shape-fork-race): forked projection shaped text in parallel over the
+    unsynchronized font-face glyph-extents cache.
+  - ChartCanvas now subscribes to its `ChartType` store so live type switching
+    re-layouts (F-charttype-subscription).
+- **E1 part A (P5)** — the live chart + streaming feed + live-tail window,
+  proving FR-rt end-to-end; the production `ChartCanvas`; the four mutually
+  byte-distinct chart-type goldens; the feed's snapshot→work→commit job.
 - Exhibit stage + E4 (P4), viz probe → ChartCanvas (P3), gallery shell (P2),
   seed/state (P1), app entry + debt (P0), and the framework feedback from those
   slices.

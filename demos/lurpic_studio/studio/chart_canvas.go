@@ -105,6 +105,14 @@ type ChartConfig struct {
 	Opacity     *store.ValueStore[float64]
 	ShowGrid    *store.ValueStore[bool]
 	RuleValue   *store.ValueStore[float64]
+
+	// Brush stores (linked with the spreadsheet). When Hover is set, the
+	// canvas hit-tests the active series on pointer move and publishes the
+	// hovered row/region; when Selection is set, a pointer press on a point
+	// selects it.
+	Hover       *store.ValueStore[*store.ItemID]
+	HoverRegion *store.ValueStore[string]
+	Selection   *store.ValueStore[store.ItemID]
 }
 
 // ChartCanvas is the gallery's chart canvas (promoted from the P3 viz probe):
@@ -136,6 +144,9 @@ type ChartCanvas struct {
 	showGrid    *store.ValueStore[bool]
 	ruleValue   *store.ValueStore[float64]
 	effective   *store.ValueStore[gfx.Color]
+	hover       *store.ValueStore[*store.ItemID]
+	hoverRegion *store.ValueStore[string]
+	selection   *store.ValueStore[store.ItemID]
 
 	line  *viz.Line[dataset.Row]
 	area  *viz.Area[dataset.Row]
@@ -174,6 +185,9 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 		opacity:     cfg.Opacity,
 		showGrid:    cfg.ShowGrid,
 		ruleValue:   cfg.RuleValue,
+		hover:       cfg.Hover,
+		hoverRegion: cfg.HoverRegion,
+		selection:   cfg.Selection,
 		margins:     chartMargins{top: 8, right: 8},
 		canvasColor: cfg.Theme.Color(theme.ColorSurface),
 		borderColor: cfg.Theme.Color(theme.ColorBorder),
@@ -418,16 +432,99 @@ func (c *ChartCanvas) onPointer(e facet.PointerEvent) bool {
 			if c.paused != nil {
 				c.paused.Set(true)
 			}
+			if c.selection != nil {
+				c.selectAt(e.Position)
+			}
 		}
 	case platform.PointerMove:
 		if c.dragging {
 			c.panPixels(e.Position.X - c.dragStart.X)
 			c.dragStart = e.Position
+		} else if c.hover != nil {
+			c.brushAt(e.Position)
 		}
 	case platform.PointerRelease:
 		c.dragging = false
 	}
 	return true
+}
+
+// brushAt publishes the hovered row/region from the active series at the given
+// canvas-local point (the linked-brushing feed from chart → grid).
+func (c *ChartCanvas) brushAt(pt gfx.Point) {
+	switch chartTypeFromString(c.chartType.Get()) {
+	case ChartPoint:
+		c.brushPoint(pt)
+	case ChartBar:
+		c.brushBar(pt)
+	default:
+		c.setHover(nil, "")
+	}
+}
+
+// selectAt publishes the selected row when a point is pressed (chart → grid).
+func (c *ChartCanvas) selectAt(pt gfx.Point) {
+	if chartTypeFromString(c.chartType.Get()) != ChartPoint {
+		return
+	}
+	if id, ok := c.nearestPoint(pt); ok {
+		c.selection.Set(id)
+	}
+}
+
+// brushPoint finds the nearest point within a hit radius and publishes it.
+func (c *ChartCanvas) brushPoint(pt gfx.Point) {
+	if id, ok := c.nearestPoint(pt); ok {
+		c.setHover(&id, "")
+	} else {
+		c.setHover(nil, "")
+	}
+}
+
+// nearestPoint returns the id of the point nearest the cursor within a hit
+// radius, in the canvas's plot space.
+func (c *ChartCanvas) nearestPoint(pt gfx.Point) (store.ItemID, bool) {
+	xs := c.xScale.Get()
+	ys := c.yScale.Get()
+	rows := c.rows.All()
+	const hitRadius float32 = 8
+	best := -1
+	bestDist := float32(hitRadius*hitRadius + 1)
+	for i := range rows {
+		px := c.plot.Min.X + float32(xs.Map(vizRowTime(rows[i])))
+		py := c.plot.Min.Y + float32(ys.Map(vizRowValue(rows[i])))
+		dx, dy := pt.X-px, pt.Y-py
+		d := dx*dx + dy*dy
+		if d <= hitRadius*hitRadius && d < bestDist {
+			bestDist = d
+			best = i
+		}
+	}
+	if best < 0 {
+		return 0, false
+	}
+	return c.rows.Identify(rows[best]), true
+}
+
+// brushBar publishes a region-group hover for the bar band under the cursor.
+// The canvas receives pointer positions in its own space (the series marks
+// project with absolute coordinates), so the band is hit-tested directly.
+func (c *ChartCanvas) brushBar(pt gfx.Point) {
+	if region, ok := c.bar.HitMember(pt); ok {
+		id := regionHoverSentinel
+		c.setHover(&id, region)
+	} else {
+		c.setHover(nil, "")
+	}
+}
+
+func (c *ChartCanvas) setHover(id *store.ItemID, region string) {
+	if c.hover != nil {
+		c.hover.Set(id)
+	}
+	if c.hoverRegion != nil {
+		c.hoverRegion.Set(region)
+	}
 }
 
 func (c *ChartCanvas) onScroll(e facet.ScrollEvent) bool {
@@ -462,7 +559,25 @@ func (c *ChartCanvas) zoomAt(focalPx, factor float64) {
 
 func (c *ChartCanvas) OnAttach(ctx facet.AttachContext) {
 	c.rt = ctx.Runtime
-	c.cleanup = subscribeEffectiveColor(c)
+	cleanups := make([]func(), 0, 2)
+	cleanups = append(cleanups, subscribeEffectiveColor(c))
+	// The active series' arrangement and the axis visibility change with the
+	// chart type, so a switch must re-layout the canvas (F-charttype-
+	// subscription).
+	idType := c.chartType.OnChange.Subscribe(func(signal.Change[string]) {
+		invalidateLayout(c, c.rt, "chart_canvas.chartType")
+		c.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+	})
+	cleanups = append(cleanups, func() {
+		c.chartType.OnChange.Unsubscribe(idType)
+	})
+	c.cleanup = func() {
+		for _, fn := range cleanups {
+			if fn != nil {
+				fn()
+			}
+		}
+	}
 }
 
 func (c *ChartCanvas) OnDetach() {

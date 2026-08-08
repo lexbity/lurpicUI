@@ -47,9 +47,10 @@ func timeRangeSeconds(key string) float64 {
 }
 
 // Realtime is the E1 flagship facet: the live chart (ChartCanvas), the
-// streaming feed (snapshot→work→commit), the sliding live-tail window, and a
-// control strip. Slice P5 is read-only (part A); the editable grid and linked
-// brushing land in P6.
+// streaming feed (snapshot→work→commit), the sliding live-tail window, the
+// editable spreadsheet (CollectionBinder composition), a read-only table
+// legend, and a control strip. Slice P5 was read-only (part A); P6 adds the
+// editable grid + linked brushing (part B).
 type Realtime struct {
 	facet.Facet
 	layout facet.LayoutRole
@@ -58,6 +59,9 @@ type Realtime struct {
 	appState *state.AppState
 	canvas   *ChartCanvas
 	feed     *Feed
+	grid     *EditableGrid
+	table    *structure.Table
+	brush    BrushStores
 
 	// Control stores (the control marks write these).
 	chartType   *store.ValueStore[string]
@@ -74,6 +78,9 @@ type Realtime struct {
 	cleanup func()
 }
 
+// gridHeight is the spreadsheet's fixed height inside E1.
+const gridHeight float32 = 180
+
 // NewRealtimeFacet builds the E1 facet over the shared app state.
 func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Realtime {
 	e := &Realtime{
@@ -85,6 +92,7 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 		ruleValue:   store.NewValueStore(0.0),
 		gridState:   store.NewValueStore(selection.CheckboxStateOff),
 		timeRange:   store.NewValueStore([]string{"60s"}),
+		brush:       NewBrushStores(),
 	}
 	e.Facet = facet.NewFacet()
 	e.feed = NewFeed(appState, uint64(e.Facet.ID()))
@@ -103,11 +111,18 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 		Opacity:     e.opacity,
 		ShowGrid:    e.showGrid,
 		RuleValue:   e.ruleValue,
+		Hover:       e.brush.Hover,
+		HoverRegion: e.brush.HoverRegion,
+		Selection:   e.brush.Selection,
 	})
 
+	e.grid = NewEditableGrid(appState.Rows, fonts, themeCtx, e.brush)
+	e.table = structure.NewTable("Latest", latestTableData(appState.Rows), nil)
 	e.buildControls()
 	e.AddChild(e.canvas.Base())
+	e.AddChild(e.grid.Base())
 	e.AddChild(e.controls.Base())
+	e.AddChild(e.table.Base())
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -132,6 +147,12 @@ func (e *Realtime) Canvas() *ChartCanvas { return e.canvas }
 
 // Feed returns the streaming feed.
 func (e *Realtime) Feed() *Feed { return e.feed }
+
+// Grid returns the editable spreadsheet.
+func (e *Realtime) Grid() *EditableGrid { return e.grid }
+
+// Brush returns the shared linked-brushing channels.
+func (e *Realtime) Brush() BrushStores { return e.brush }
 
 // ChartType returns the series-selection store.
 func (e *Realtime) ChartType() *store.ValueStore[string] { return e.chartType }
@@ -187,22 +208,70 @@ func (e *Realtime) measure(ctx facet.MeasureContext, c facet.Constraints) facet.
 	if role := e.canvas.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
 	}
-	// Measure the controls with an unbounded height so the control card
-	// reports its content height instead of flex-filling the whole stage.
+	if role := e.grid.Base().LayoutRole(); role != nil {
+		role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
+	}
+	// The bottom strip (controls + table) is content-height, so measure it
+	// with an unbounded height instead of letting it flex-fill the stage.
+	content := facet.Constraints{MaxSize: gfx.Size{W: c.MaxSize.W}}
 	if role := e.controls.Base().LayoutRole(); role != nil {
-		role.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: c.MaxSize.W}})
+		role.Measure(ctx, content)
+	}
+	if role := e.table.Base().LayoutRole(); role != nil {
+		role.Measure(ctx, content)
 	}
 	return facet.MeasureResult{Size: c.Constrain(c.MaxSize)}
 }
 
 func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	controlsH := e.controls.Base().LayoutRole().MeasuredSize.H
-	canvasH := bounds.Height() - controlsH
+	tableH := e.table.Base().LayoutRole().MeasuredSize.H
+	bottomH := controlsH
+	if tableH > bottomH {
+		bottomH = tableH
+	}
+	if bottomH < 1 {
+		bottomH = 1
+	}
+	canvasH := bounds.Height() - gridHeight - bottomH
 	if canvasH < 1 {
 		canvasH = 1
 	}
 	e.canvas.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), canvasH))
-	e.controls.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+canvasH, bounds.Width(), controlsH))
+	e.grid.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+canvasH, bounds.Width(), gridHeight))
+
+	// Bottom strip: the controls card on the left, the table legend on the
+	// right.
+	bottomY := bounds.Min.Y + canvasH + gridHeight
+	controlsW := bounds.Width() * 0.62
+	e.controls.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bottomY, controlsW, bottomH))
+	e.table.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X+controlsW, bottomY, bounds.Width()-controlsW, bottomH))
+}
+
+// latestTableData builds a compact read-only table snapshot from the newest
+// rows (the table mark's honest coverage role: a non-editable legend).
+func latestTableData(rows *store.CollectionStore[dataset.Row]) structure.TableData {
+	all := rows.All()
+	n := 5
+	if len(all) < n {
+		n = len(all)
+	}
+	out := structure.TableData{
+		Columns: []structure.TableColumn{
+			{Key: "time", Label: "Time"},
+			{Key: "value", Label: "Value"},
+			{Key: "region", Label: "Region"},
+		},
+		Rows: make([]structure.TableRow, 0, n),
+	}
+	for i := len(all) - n; i < len(all); i++ {
+		r := all[i]
+		out.Rows = append(out.Rows, structure.TableRow{
+			Key:   strconv.Itoa(i),
+			Cells: []string{r.Time.Format("01-02 15:04:05"), strconv.FormatFloat(r.Value, 'f', 1, 64), r.Region},
+		})
+	}
+	return out
 }
 
 func (e *Realtime) OnAttach(ctx facet.AttachContext) {

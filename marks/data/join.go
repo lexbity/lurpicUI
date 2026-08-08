@@ -66,7 +66,12 @@ func (b *CollectionBinder[T]) OnAttach(ctx facet.AttachContext) {
 }
 
 // OnDetach unsubscribes from store signals and disposes all children.
-// Call from the parent mark's OnDetach.
+// Call from the parent mark's OnDetach. Disposal is idempotent: when the
+// binder's children were added into a runtime-managed facet tree (the parent's
+// AddChildRuntime), the runtime's own disposeTree already disposed them before
+// the parent's OnDetach runs — this skips already-disposed facets so the
+// standalone (non-runtime) and runtime cases both tear down cleanly
+// (F-binder-lifecycle).
 func (b *CollectionBinder[T]) OnDetach() {
 	for _, cleanup := range b.cleanups {
 		if cleanup != nil {
@@ -76,7 +81,9 @@ func (b *CollectionBinder[T]) OnDetach() {
 	b.cleanups = nil
 
 	for _, child := range b.children {
-		facet.Dispose(child)
+		if child != nil && child.Base() != nil && !child.Base().IsDisposed() {
+			facet.Dispose(child)
+		}
 	}
 	b.children = make(map[store.ItemID]facet.FacetImpl)
 	b.order = nil
@@ -96,6 +103,21 @@ func (b *CollectionBinder[T]) Children() []facet.FacetImpl {
 		}
 	}
 	return out
+}
+
+// attachChild adds the child facet to the parent tree and attaches it. When
+// the binder is wired into a parent's OnAttach (the runtime integration), the
+// parent is still StateCreated mid-walk and the runtime's facet.Attach walk
+// picks up the newly added children itself, so the binder skips its own
+// attach to avoid a double attach (F-binder-lifecycle). For manual usage
+// (binder.OnAttach called after the parent is already attached) and for
+// post-attach store inserts, the parent is StateAttached and the binder owns
+// the attach.
+func (b *CollectionBinder[T]) attachChild(child facet.FacetImpl) {
+	if b.parent == nil || b.parent.State() == facet.StateCreated {
+		return
+	}
+	facet.Attach(child, b.attachCtx)
 }
 
 func (b *CollectionBinder[T]) reconcile() {
@@ -118,7 +140,7 @@ func (b *CollectionBinder[T]) reconcile() {
 		if _, exists := b.children[id]; !exists {
 			child := b.factory(item)
 			b.parent.AddChildRuntime(child.Base())
-			facet.Attach(child, b.attachCtx)
+			b.attachChild(child)
 			b.children[id] = child
 		}
 		newOrder = append(newOrder, id)
@@ -133,7 +155,7 @@ func (b *CollectionBinder[T]) insertChild(item T, index int) {
 	}
 	child := b.factory(item)
 	b.parent.AddChildRuntime(child.Base())
-	facet.Attach(child, b.attachCtx)
+	b.attachChild(child)
 	b.children[id] = child
 
 	if index < 0 || index >= len(b.order) {
