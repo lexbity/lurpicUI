@@ -1,8 +1,12 @@
 package studio
 
 import (
+	"fmt"
+	"strings"
 	"testing"
+	"unicode/utf8"
 
+	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
@@ -71,12 +75,64 @@ func TestBrush_gridRowClickSelectsChartPoint(t *testing.T) {
 	if !canvasHasSelectionHighlight(t, e) {
 		t.Fatal("chart did not render a selection highlight after the row click")
 	}
-	// The anchored tooltip opens with the selected row's details.
+	// The anchored tooltip mark actually projects its bubble with the selected
+	// row's text — not just that its visibility/text stores are set (FR-brush).
+	assertTooltipRendersSelection(t, e, row)
+}
+
+// assertTooltipRendersSelection projects the E1 anchored tooltip mark directly
+// and asserts it emits its bubble with the selected row's text (FR-brush). This
+// is the rendered counterpart to the store assertions: it proves the mark's
+// bubble surface is arranged and its content glyphs carry the row's region.
+func assertTooltipRendersSelection(t *testing.T, e *Realtime, row dataset.Row) {
+	t.Helper()
+	want := fmt.Sprintf("%s · %s · %.1f", row.Time.Format("15:04:05"), row.Region, row.Value)
 	if !e.TipOpen().Get() {
 		t.Fatal("the anchored tooltip did not open on selection")
 	}
-	if got := e.TipText().Get(); got == "" {
-		t.Fatal("the tooltip text is empty for a selection")
+	if got := e.TipText().Get(); got != want {
+		t.Fatalf("tooltip text = %q, want %q", got, want)
+	}
+
+	cmds := e.Tip().Base().ProjectionRole().Project(facet.ProjectionContext{
+		Bounds:       e.Tip().Base().LayoutRole().ArrangedBounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("the anchored tooltip emitted no projection commands")
+	}
+	var (
+		surface bool
+		text    strings.Builder
+		glyphs  int
+	)
+	for _, cmd := range cmds.Commands {
+		switch c := cmd.(type) {
+		case gfx.PushClipRect:
+			// The tooltip clips its content to the arranged bubble surface; its
+			// presence proves the bubble geometry was arranged (not just open).
+			surface = true
+		case gfx.DrawGlyphRun:
+			text.WriteString(c.Run.Text)
+			glyphs += len(c.Run.Glyphs)
+		}
+	}
+	if !surface {
+		t.Fatal("the anchored tooltip did not emit its bubble surface (no content clip)")
+	}
+	if glyphs == 0 {
+		t.Fatal("the anchored tooltip projected no glyph runs")
+	}
+	rendered := text.String()
+	if !strings.Contains(rendered, row.Region) {
+		t.Fatalf("projected tooltip glyph text %q does not contain the selected row's region %q", rendered, row.Region)
+	}
+	// For the ASCII seed content every rune shapes to one glyph, so the shaped
+	// glyph count bounds the full row text (the Run.Text metadata is partial —
+	// it keeps only the first segment per shaped run, so the full string is
+	// asserted through the store + the glyph count).
+	if glyphs < utf8.RuneCountInString(want) {
+		t.Fatalf("projected tooltip shaped %d glyphs, want >= %d for %q", glyphs, utf8.RuneCountInString(want), want)
 	}
 }
 
@@ -274,6 +330,9 @@ func TestBrush_barChartSelectionHighlightsBand(t *testing.T) {
 	if sawRing {
 		t.Fatal("bar chart drew a point ring instead of the band highlight")
 	}
+	// The selection also opens the anchored tooltip; in bar mode it projects
+	// the same bubble with the selected row's text (FR-brush).
+	assertTooltipRendersSelection(t, e, row)
 }
 
 // TestBrush_chartPointClickShowsTooltip drives chart → grid → chart: a point
@@ -296,10 +355,7 @@ func TestBrush_chartPointClickShowsTooltip(t *testing.T) {
 		t.Fatalf("chart point selection = %v, want %v", got, want)
 	}
 	h.RunFrame()
-	if !e.TipOpen().Get() {
-		t.Fatal("chart point selection did not open the anchored tooltip")
-	}
-	if got := e.TipText().Get(); got == "" {
-		t.Fatal("the tooltip text is empty after a chart point selection")
-	}
+	// The anchored tooltip mark projects its bubble with the selected point's
+	// row text (the rendered counterpart to the store assertions, FR-brush).
+	assertTooltipRendersSelection(t, e, row)
 }

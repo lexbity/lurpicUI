@@ -556,6 +556,12 @@ func (e *Realtime) updateSelectionTip(id store.ItemID) {
 	}
 	e.tipText.Set(fmt.Sprintf("%s · %s · %.1f", row.Time.Format("15:04:05"), row.Region, row.Value))
 	e.tipOpen.Set(true)
+	// The tooltip was measured/arranged while closed, so its projection caches
+	// are empty; the mark's Open binding invalidates only its local dirty bits,
+	// which the runtime's layout pass does not read (F-dirtylayout-routing).
+	// Routing a layout pass through the runtime re-measures and re-arranges the
+	// tooltip so its bubble actually renders.
+	invalidateLayout(e.Base(), e.rt, "E1.updateSelectionTip")
 }
 
 func (e *Realtime) OnDetach() {
