@@ -56,6 +56,11 @@ type Config struct {
 	Render RenderBackendKind
 	// OnBackendSelected reports the renderer that actually initialized.
 	OnBackendSelected func(RenderBackendKind)
+	// Diagnostics installs a runtime diagnostics hook (F-diag-access). The app
+	// layer does not inspect it — it only enables it on the runtime at startup
+	// when non-nil, so an implementer may add optional capabilities (e.g. a
+	// DirtySnapshotSink) by type assertion without widening any interface.
+	Diagnostics runtime.DiagnosticsHook
 }
 
 // BuildContext is passed to the root builder after engine startup.

@@ -312,6 +312,12 @@ func Run(config Config, builder RootBuilder) error {
 	}
 	backendOwnedByRuntime = true
 
+	// F-diag-access: enable the caller's diagnostics hook on the runtime at
+	// startup. The app layer never inspects the hook.
+	if config.Diagnostics != nil {
+		rt.EnableDiagnostics(config.Diagnostics)
+	}
+
 	primeRuntime(rt)
 	if window != nil {
 		window.Show()

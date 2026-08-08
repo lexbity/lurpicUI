@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/app"
+	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -18,9 +19,13 @@ func TestMainSmoke_rootMeasuresToWindow(t *testing.T) {
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
 	}
-	root := buildRoot(ctx)
+	seed, err := loadSeed()
+	if err != nil {
+		t.Fatalf("load seed: %v", err)
+	}
+	root := studio.BuildRoot(ctx, studio.NewDirtySink(5), seed)
 	if root == nil {
-		t.Fatal("buildRoot returned nil")
+		t.Fatal("BuildRoot returned nil")
 	}
 
 	h := testkit.NewStandardHarness(t, 1280, 800, root)

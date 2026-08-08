@@ -8,12 +8,13 @@ import (
 	"os"
 
 	"codeburg.org/lexbit/lurpicui/app"
+	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
-//go:embed assets/NotoSans-Regular.ttf assets/NotoSans-Bold.ttf
+//go:embed assets/NotoSans-Regular.ttf assets/NotoSans-Bold.ttf assets/metrics.csv
 var embeddedFonts embed.FS
 
 func main() {
@@ -27,16 +28,32 @@ func main() {
 		os.Exit(1)
 	}
 	cfg.Fonts = fonts
-	if err := app.Run(cfg, buildRoot); err != nil {
+	seed, err := loadSeed()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lurpic_studio: %v\n", err)
+		os.Exit(1)
+	}
+	// F-diag-access + F-dirtysources: the E5 exhibit's dirty-snapshot observer
+	// is installed as the app's runtime diagnostics hook; the exhibit reaches
+	// the same object by pointer through the root builder.
+	sink := studio.NewDirtySink(10)
+	cfg.Diagnostics = sink
+	if err := app.Run(cfg, func(ctx app.BuildContext) facet.FacetImpl {
+		return studio.BuildRoot(ctx, sink, seed)
+	}); err != nil {
 		fmt.Fprintf(os.Stderr, "lurpic_studio: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-// buildRoot is the app entry builder (F-font-source: the demo vendors its own
-// NotoSans copy and loads it via Config.Fonts, never from GOMODCACHE).
-func buildRoot(ctx app.BuildContext) facet.FacetImpl {
-	return studio.BuildRoot(ctx)
+// loadSeed reads and parses the metrics.csv snapshot (the seed for the shared
+// AppState; the streaming feed reshapes it).
+func loadSeed() ([]dataset.Row, error) {
+	data, err := embeddedFonts.ReadFile("assets/metrics.csv")
+	if err != nil {
+		return nil, fmt.Errorf("read embedded metrics.csv: %w", err)
+	}
+	return dataset.Parse(data)
 }
 
 // loadEmbeddedFonts reads the vendored NotoSans faces. The repo's only other

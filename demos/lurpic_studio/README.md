@@ -6,34 +6,32 @@ See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
 
 ## Status
 
-Slice P6 of the multi-slice plan is in place (P0–P5 done previously):
+Slice P7 of the multi-slice plan is in place (P0–P6 done previously):
 
-- **E1 part B — editable spreadsheet + linked brushing** (P6):
-  - `studio/e1_grid.go` + `studio/grid_row.go` — the text-editable grid,
-    exercising the previously-unconsumed `marks/data.CollectionBinder`
-    (F-unconsumed) over the shared `Rows` store. Rows are cell-band facets
-    driven by the binder; a Value cell opens an overlay `text_field`; Enter
-    commits back through `Rows.Update` on the runtime thread (invalid numeric
-    input raises an inline `alert` with no write; Escape cancels; Enter
-    advances to the next cell — Tab is focus-advance, F-tab-eaten).
-  - `studio/e1_brush.go` + ChartCanvas brush — bidirectional linked brushing:
-    Hover/Selection stores shared by chart and grid; a chart point/bar hover
-    highlights + scrolls the spreadsheet row; a grid row click selects the
-    chart point; a bar band hover highlights every row of that region.
-  - A read-only `structure.Table` legend (Shape B coverage) sits beside the
-    controls; the shell golden now shows the full E1 workspace.
-- **Framework fixes surfaced by P6** (each a logged Finding):
-  - `marks/data/join.go` — `CollectionBinder` lifecycle (F-binder-lifecycle):
-    no double-attach when wired into a parent's `OnAttach`, no double-dispose
-    on teardown.
-  - `text/shaper.go` — serialized the vendored harfbuzz shape call
-    (F-shape-fork-race): forked projection shaped text in parallel over the
-    unsynchronized font-face glyph-extents cache.
-  - ChartCanvas now subscribes to its `ChartType` store so live type switching
-    re-layouts (F-charttype-subscription).
-- **E1 part A (P5)** — the live chart + streaming feed + live-tail window,
-  proving FR-rt end-to-end; the production `ChartCanvas`; the four mutually
-  byte-distinct chart-type goldens; the feed's snapshot→work→commit job.
+- **E5 Reactive Propagation (`studio/e5_propagation.go` + `studio/dirty_sink.go`)**:
+  the exhibit that makes the framework's reactive nature visible. A `DirtySink`
+  implements the runtime's opt-in `DirtySnapshotSink` capability and stages one
+  dirty snapshot per frame into a ring buffer; E5 renders the shell facet tree
+  with the recent dirty waves highlighted per flag (Layout/Projection/Hit) and
+  labeled with their invalidation source, driven by a pause `switch`, a
+  retention `slider`, a dirty-count `badge`, and a sink-live `status_light`.
+  The un-introspectable parts (store-level causal edges, F-edges) are labeled
+  "not yet introspectable" rather than fabricated (R-fake-viz).
+- **Framework additions (the two NG-2 exceptions):**
+  - `runtime/diagnostics_sink.go` + `frame.go` — `DirtySnapshotSink`
+    (F-dirtysources): an opt-in `DiagnosticsHook` capability, discovered by type
+    assertion (never widening `DiagnosticsHook` or `facet.RuntimeServices`),
+    receiving the frame's dirty set + invalidation sources at the snapshot
+    point.
+  - `app/config.go` + `app/run.go` — `app.Config.Diagnostics` + startup
+    `EnableDiagnostics` (F-diag-access).
+  - The A/B neutrality test (`runtime/frame_neutrality_test.go`) proves the
+    observer does not perturb the observed frame (median within 10%, p90 within
+    25%).
+- **Seed wired (F-seed-wired):** `main.go` embeds + parses `metrics.csv` and
+  the shell's `AppState` is seeded; the shell golden now shows the seeded E1.
+- **E1 (P5/P6)** — the live chart + streaming feed + live-tail window (FR-rt
+  proven), the editable spreadsheet over `CollectionBinder` + linked brushing.
 - Exhibit stage + E4 (P4), viz probe → ChartCanvas (P3), gallery shell (P2),
   seed/state (P1), app entry + debt (P0), and the framework feedback from those
   slices.

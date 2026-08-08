@@ -96,6 +96,13 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	dirtySnapshot := rt.copyDirtyFacets()
 	stats.DirtyFacets = len(dirtySnapshot)
 	stats.PoisonedFacets = rt.PoisonedCount()
+	// F-dirtysources: an opt-in DiagnosticsHook may observe the frame's dirty
+	// set here — the same data the runtime itself re-lays-out and re-projects —
+	// with the per-facet invalidation sources. Delivered on the runtime thread
+	// at the snapshot point; the sink must not render synchronously.
+	if sink := dirtySnapshotSinkOf(rt.diagnosticsHook()); sink != nil {
+		sink.OnDirtySnapshot(rt.buildDirtySnapshot(rt.frameNumber))
+	}
 
 	layoutStart := time.Now()
 	if rt.hasLayoutDirty() {
