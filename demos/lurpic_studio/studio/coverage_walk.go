@@ -49,3 +49,43 @@ func markDescriptorMultiset(descs []marks.Descriptor) map[string]int {
 	}
 	return out
 }
+
+// walkMarkInstances collects every reachable marks.Mark instance in the facet
+// tree rooted at root (the same boundary walkMarkDescriptors covers), preserving
+// the concrete mark so the coverage-distinct verification can introspect its
+// writable / read surface via reflection and the runtime's own capability flags
+// (FR-coverage-distinct). Unlike the descriptor multiset, this walk keeps the
+// instance alive across the test so the demo's real wiring (subscribers on
+// Activated, the bound *store.ValueStore fields, group-parent contracts) is
+// observable — closing the "self-referential table" defect (the prior three
+// TestCoverageDistinct_* tests checked the intent map against itself; this
+// walk supplies an external ground truth the map is cross-checked against).
+func walkMarkInstances(root facet.FacetImpl) []marks.Mark {
+	if root == nil || root.Base() == nil {
+		return nil
+	}
+	out := make([]marks.Mark, 0, 64)
+	seen := make(map[facet.FacetID]bool, 64)
+	stack := []facet.FacetImpl{root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == nil || node.Base() == nil {
+			continue
+		}
+		id := node.Base().ID()
+		if !seen[id] {
+			seen[id] = true
+			if m, ok := node.(marks.Mark); ok {
+				out = append(out, m)
+			}
+		}
+		children := node.Base().Children()
+		for i := len(children) - 1; i >= 0; i-- {
+			if child := children[i]; child != nil && child.Impl() != nil {
+				stack = append(stack, child.Impl())
+			}
+		}
+	}
+	return out
+}

@@ -252,3 +252,28 @@ func TestRealtime_jumpToLiveButton(t *testing.T) {
 		t.Fatalf("jump-to-live domain hi = %v, want %v", hi, wantHi)
 	}
 }
+
+// TestRealtime_tickRoleStreamsChart proves AC-1 end to end through the runtime's
+// own tick mechanism, not a direct feed call: E1's tick role is armed by a
+// phase-1 hook (the framework's rearmTicks pattern), and once the frame clock
+// carries a real >= cadence delta, the runtime's tickFacets drives the armed
+// role → feed → row append → chart re-project. This is the exact path the real
+// app uses (the frame loop seeds the clock via FrameTimer.Wait; a headless
+// harness must seed it explicitly via Runtime.SetFrameClock).
+func TestRealtime_tickRoleStreamsChart(t *testing.T) {
+	e, h := newE1Harness(t)
+	before := e.appState.Rows.Len()
+
+	// Seed the frame clock so the next frame's delta >= the feed cadence. The
+	// runtime's tickFacets resets the role after each tick, so arming is proven
+	// by the fact that the frame path actually drives the feed: with the seed,
+	// a frame's phase-1 hook re-arms the role, tickFacets runs it with the
+	// real delta, and a row lands — the exact path the real app uses.
+	h.Runtime().SetFrameClock(time.Now().Add(-2 * DefaultFeedCadence))
+	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
+
+	// The windowed chart re-projected the streamed row (1 seed row -> 2).
+	if got := projectedPointCount(t, e); got != 2 {
+		t.Fatalf("windowed line points = %d, want 2 after a streamed row", got)
+	}
+}

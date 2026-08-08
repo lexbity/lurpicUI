@@ -471,3 +471,17 @@ func (rt *Runtime) RequestFrame() {
 	}
 	rt.frameTimer.RequestFrame()
 }
+
+// SetFrameClock advances the simulated frame clock: the next frame's delta
+// time is measured from the given instant. It is a test seam — headless
+// harnesses never call FrameTimer.Wait (which seeds the clock in the real app
+// loop), so dt stays zero and TickRole cadence cannot be exercised. Seeding
+// the clock lets a test drive the real frame-tick path end to end (AC-1).
+func (rt *Runtime) SetFrameClock(now time.Time) {
+	if rt == nil || rt.frameTimer == nil {
+		return
+	}
+	rt.frameTimer.mu.Lock()
+	rt.frameTimer.lastFrame = now
+	rt.frameTimer.mu.Unlock()
+}

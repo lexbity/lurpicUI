@@ -18,6 +18,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
+	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -90,6 +91,7 @@ type Realtime struct {
 	tipText *store.ValueStore[string]
 
 	reshapeUnsub []func() //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
+	cleanupFns   []func() //lurpiclint:ignore LL012 -- teardown handles are structural lifecycle state (F-lint-hosts)
 	rt           facet.RuntimeServices
 	cleanup      func()
 }
@@ -458,6 +460,18 @@ func bucketLegendEntries(buckets []state.RegionBucket) []structure.ListEntry {
 func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 	e.rt = ctx.Runtime
 	e.feed.SetRuntime(ctx.Runtime)
+	// Arm the streaming tick (AC-1): the framework's TickRole runs only when
+	// armed, and tickFacets resets it after each tick, so a phase-1 hook
+	// re-arms it every frame — the runtime's own rearmTicks pattern. The real
+	// app's frame loop seeds the frame clock (FrameTimer.Wait), so each frame
+	// carries a real delta and the feed ticks at its cadence.
+	e.tick.RequestTick()
+	if rt, ok := ctx.Runtime.(*runtime.Runtime); ok {
+		unarm := rt.RegisterPhase1TickHook(func(time.Duration) {
+			e.tick.RequestTick()
+		})
+		e.cleanupLater(unarm)
+	}
 
 	unsubInsert := e.appState.Rows.OnInsertSubscribe(func(ev store.CollectionInsertEvent[dataset.Row]) {
 		e.ruleValue.Set(ev.Item.Value)
@@ -489,6 +503,12 @@ func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 		e.updateSelectionTip(c.New)
 	})
 	e.cleanup = func() {
+		for _, fn := range e.cleanupFns {
+			if fn != nil {
+				fn()
+			}
+		}
+		e.cleanupFns = nil
 		unsubInsert()
 		unsubEdit()
 		unsubEvict()
@@ -498,6 +518,14 @@ func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 		e.brush.Selection.OnChange.Unsubscribe(selID)
 		e.appState.BarBuckets.OnChange.Unsubscribe(legendID)
 	}
+}
+
+// cleanupLater appends a teardown function to the exhibit's cleanup list.
+func (e *Realtime) cleanupLater(fn func()) {
+	if fn == nil {
+		return
+	}
+	e.cleanupFns = append(e.cleanupFns, fn)
 }
 
 // flushWindowedDeriveds forces the lazy windowed deriveds (VisibleRows,

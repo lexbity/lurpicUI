@@ -111,14 +111,16 @@ Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
   content is self-projected and not hit-testable — F-card-content) that resets
   the x-domain to `[now-W, now]` and clears `Paused`. Enforced by
   `TestRealtime_jumpToLiveButton`.
-- **F-tick-arm (logged, Slice P10)** — the framework's `TickRole` requires the
-  owner to call `RequestTick()` each frame; `RequestTick` has zero callers in
-  the repo, so no tick role ever runs and E1's streaming feed is only driven by
-  the direct `Feed().OnTick` calls in tests — the real app's chart is currently
-  static. This is a pre-existing latent defect (not introduced by P10);
-  fixing it (arming E1's tick role) changes the harness frame baseline and
-  ripples through the E1/brush test suite, so it is logged as a follow-on
-  Finding rather than ballooned into this slice.
+- **F-tick-arm (resolved)** — the framework's `TickRole` only runs when armed
+  (`RequestTick`), and `tickFacets` resets it after each tick, so the owner must
+  re-arm every frame — the runtime's own `rearmTicks` phase-1-hook pattern. E1
+  now registers a phase-1 hook that re-arms its streaming tick, so the real
+  app's frame loop (which seeds the frame clock via `FrameTimer.Wait`) drives
+  the feed at its cadence. A headless harness never calls `Wait`, so dt stays
+  zero; a minimal `runtime.Runtime.SetFrameClock(now)` test seam seeds the
+  clock, and `TestRealtime_tickRoleStreamsChart` proves AC-1 through the real
+  path (frame clock → dt → phase-1 hook re-arm → tickFacets → armed role →
+  feed → row append → chart re-project), no `Feed().OnTick` bypass.
 - **Framework additions (the two NG-2 exceptions):**
   - `runtime/diagnostics_sink.go` + `frame.go` — `DirtySnapshotSink`
     (F-dirtysources): an opt-in `DiagnosticsHook` capability, discovered by type
