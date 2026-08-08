@@ -295,6 +295,9 @@ func Run(config Config, builder RootBuilder) error {
 
 	rtConfig := config.Runtime
 	rtConfig.FontRegistry = fontRegistry
+	// The runtime needs the theme resolver to resolve layer/group layout
+	// recipes (e.g. an anchored-popover layer) during the layer pass.
+	rtConfig.ThemeResolver = themeContext.Resolver
 	if rtConfig.SoftwareBackendFactory == nil {
 		rtConfig.SoftwareBackendFactory = softwareFallbackFactory
 	}

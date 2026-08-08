@@ -28,6 +28,14 @@ func main() {
 		os.Exit(1)
 	}
 	cfg.Fonts = fonts
+	// The studio demo's custom layers (E2 hit policies, E3 anchored recipe).
+	reg, err := studio.StudioLayerRegistry()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "lurpic_studio: %v\n", err)
+		os.Exit(1)
+	}
+	cfg.Runtime.LayerRegistry = reg
+	cfg.Theme = studio.StudioThemeContext()
 	seed, err := loadSeed()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "lurpic_studio: %v\n", err)
@@ -39,7 +47,7 @@ func main() {
 	sink := studio.NewDirtySink(10)
 	cfg.Diagnostics = sink
 	if err := app.Run(cfg, func(ctx app.BuildContext) facet.FacetImpl {
-		return studio.BuildRoot(ctx, sink, seed)
+		return studio.BuildRoot(ctx, sink, seed, reg)
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "lurpic_studio: %v\n", err)
 		os.Exit(1)

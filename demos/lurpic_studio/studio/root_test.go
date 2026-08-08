@@ -19,7 +19,7 @@ func newShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
 	}
-	root := NewRoot(ctx, nil, nil)
+	root := NewRoot(ctx, nil, nil, nil)
 	harness := testkit.NewStandardHarness(t, w, h, root)
 	harness.RunFrame()
 	return root, harness

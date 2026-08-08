@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/layout/linear"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -30,11 +31,16 @@ type Root struct {
 // is shared with the E5 exhibit (nil disables E5's live capture but keeps the
 // exhibit renderable). The seed rows populate the shared AppState (the app
 // loads the metrics.csv snapshot and passes it down; the feed reshapes it).
-func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row) *Root {
+// The layer registry carries the studio custom layers (E2 hit policies, E3
+// anchored recipe).
+func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *layout.LayerRegistry) *Root {
 	appState := state.NewAppState(seed)
+	ids := studioLayersFrom(reg)
 	stage := NewStage([]Exhibit{
 		NewRealtimeData(ctx.FontRegistry, ctx.Theme),
 		NewLayoutPolicies(),
+		NewLayersData(ctx.FontRegistry, ctx.Theme, ids),
+		NewAnchorsData(ctx.FontRegistry, ctx.Theme, ids),
 		NewPropagationData(sink, ctx.FontRegistry, ctx.Theme),
 	}, appState)
 	r := &Root{
@@ -81,8 +87,8 @@ func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row) *Root {
 }
 
 // BuildRoot constructs the app root facet (the rootBuilder in main.go).
-func BuildRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row) facet.FacetImpl {
-	return NewRoot(ctx, sink, seed)
+func BuildRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *layout.LayerRegistry) facet.FacetImpl {
+	return NewRoot(ctx, sink, seed, reg)
 }
 
 // ChromeStack returns the top chrome bar.

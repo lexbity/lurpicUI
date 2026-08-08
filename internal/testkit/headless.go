@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // HarnessConfig configures a headless harness.
@@ -18,6 +19,7 @@ type HarnessConfig struct {
 	Width, Height    int
 	Fonts            []text.FontSource
 	LayerRegistry    *layout.LayerRegistry
+	ThemeResolver    *theme.ThemeResolver    // optional; the anchored-layer recipe resolver
 	Backend          render.Backend          // optional; defaults to software renderer
 	WritingDirection layout.WritingDirection // empty defaults to LTR
 }
@@ -117,6 +119,7 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	rtcfg := runtime.DefaultConfig()
 	rtcfg.FontRegistry = fonts
 	rtcfg.LayerRegistry = config.LayerRegistry
+	rtcfg.ThemeResolver = config.ThemeResolver
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {
 		t.Fatalf("runtime: %v", err)

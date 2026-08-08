@@ -28,6 +28,12 @@ func (rt *Runtime) resolveLayerTree() layoutPhaseStats {
 		return layoutPhaseStats{}
 	}
 	rt.projectionLayers = make(map[facet.FacetID]facet.ProjectionLayer)
+	// Resolve every anchor exporter's cache first so anchored layers resolve
+	// from the current (pre-walk) positions. CAUTION first-integrator wiring
+	// (F-anchor-runtime): this reads exporter ArrangedBounds from the last
+	// layout/arrange pass, so an anchor-cache change re-arranges its anchored
+	// children during this same walk.
+	rt.resolveAnchorExports()
 	return rt.walkLayerTree(rt.root, gfx.Identity())
 }
 

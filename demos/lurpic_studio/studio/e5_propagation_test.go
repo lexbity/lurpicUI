@@ -21,7 +21,7 @@ func newShellWithSink(t *testing.T, w, h int, sink *DirtySink) (*Root, *testkit.
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
 	}
-	root := NewRoot(ctx, sink, seedRows(t))
+	root := NewRoot(ctx, sink, seedRows(t), nil)
 	harness := testkit.NewStandardHarness(t, w, h, root)
 	harness.Runtime().EnableDiagnostics(sink)
 	harness.RunFrame()

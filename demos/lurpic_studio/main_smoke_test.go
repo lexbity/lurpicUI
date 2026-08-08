@@ -23,7 +23,11 @@ func TestMainSmoke_rootMeasuresToWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load seed: %v", err)
 	}
-	root := studio.BuildRoot(ctx, studio.NewDirtySink(5), seed)
+	reg, err := studio.StudioLayerRegistry()
+	if err != nil {
+		t.Fatalf("layer registry: %v", err)
+	}
+	root := studio.BuildRoot(ctx, studio.NewDirtySink(5), seed, reg)
 	if root == nil {
 		t.Fatal("BuildRoot returned nil")
 	}
