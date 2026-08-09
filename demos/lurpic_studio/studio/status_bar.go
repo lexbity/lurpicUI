@@ -152,15 +152,32 @@ func (s *StatusBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		return
 	}
 	items := s.items()
+	// The progress_bar is the flexible segment: its mark measures itself to the
+	// full available width (ProgressBar.measure claims constraints.MaxSize.W),
+	// so the strip must clamp it to the width left after the fixed-size items
+	// (status_light, progress_ring, badge, caption) are reserved — otherwise it
+	// shoves the ring/badge/caption past the window's right edge.
+	const flex = 1 // s.bar
+	reserved := s.padX * 2
+	for i, item := range items {
+		if i == flex {
+			continue
+		}
+		if role := item.Base().LayoutRole(); role != nil {
+			reserved += role.MeasuredSize.W
+		}
+	}
+	reserved += s.gap * float32(len(items)-1)
+	barW := bounds.Width() - reserved
+	if barW < 1 {
+		barW = 1
+	}
 	x := bounds.Min.X + s.padX
-	for _, item := range items {
+	for i, item := range items {
 		role := item.Base().LayoutRole()
 		w := role.MeasuredSize.W
-		if item == s.caption {
-			w = bounds.Max.X - s.padX - x
-			if w < 1 {
-				w = 1
-			}
+		if i == flex {
+			w = barW
 		}
 		arrangeChild(facet.ArrangeContext{}, item, gfx.RectFromXYWH(x, bounds.Min.Y, w, bounds.Height()))
 		x += w + s.gap

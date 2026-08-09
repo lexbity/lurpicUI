@@ -32,8 +32,11 @@ import (
 //     baseline is a fixed internal marks.Const(0.0)). The spec's pseudocode
 //     is corrected by this test.
 //   - F-drift-fontsource: §1.1/P0 sketches text.FontSource{Data, Family,
-//     Weight}; HEAD's text.FontSource is {Path, Data, Name} only. main.go
-//     loads fonts with Name, matching testkit's harness convention.
+//     Weight}; HEAD's text.FontSource is {Path, Data, Name} only. The pin
+//     below assigns AND reads all three fields (a composite literal naming a
+//     nonexistent field would not compile), and main.go loads fonts with Name
+//     (Path unused — the embedded-data source), matching testkit's harness
+//     convention.
 func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 	t.Run("app entry (§1.1)", func(t *testing.T) {
 		pinDefaultConfigFunc(app.DefaultConfig)
@@ -46,7 +49,15 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 			t.Fatalf("DefaultConfig window = %dx%d, want 1280x800", cfg.Window.Width, cfg.Window.Height)
 		}
 		cfg.Render = app.RenderBackendSoftware
-		cfg.Fonts = []text.FontSource{{Data: []byte("font"), Name: "Noto Sans"}}
+		// F-drift-fontsource: HEAD's text.FontSource is {Path, Data, Name}.
+		// Assign AND read all three fields so the pin covers the full struct —
+		// a composite literal naming a field the struct no longer has would not
+		// compile, and the reads prove each field is present and readable.
+		fs := text.FontSource{Path: "assets/NotoSans-Regular.ttf", Data: []byte("font"), Name: "Noto Sans"}
+		if fs.Path == "" || len(fs.Data) == 0 || fs.Name == "" {
+			t.Fatal("text.FontSource fields are not all assignable/readable")
+		}
+		cfg.Fonts = []text.FontSource{fs}
 		_ = app.BuildContext{
 			FontRegistry: nil,
 			WindowSize:   gfx.Size{W: 1280, H: 800},

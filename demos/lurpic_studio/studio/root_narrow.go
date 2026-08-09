@@ -117,7 +117,13 @@ func (n *NarrowShell) measure(ctx facet.MeasureContext, c facet.Constraints) fac
 // bottom action bar sits above the status bar, and the inspector sheet slides
 // over the bottom when open.
 func (n *NarrowShell) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
-	if bounds.IsEmpty() {
+	// F-layout-root-fallback: the runtime's runLayoutPass can independently
+	// re-arrange this sub-tree with the full window bounds when a store change
+	// marks it DirtyLayout (its own ArrangedBounds was empty at that instant),
+	// overriding Root's wide-mode empty cascade. Consult the shared mode flag
+	// and short-circuit to empty children whenever the shell is wide, no matter
+	// what bounds the runtime supplied.
+	if n.shell.Mode == LayoutWide || bounds.IsEmpty() {
 		for _, child := range []facet.FacetImpl{n.drawer, n.bar, n.sheet} {
 			if role := child.Base().LayoutRole(); role != nil {
 				role.Arrange(ctx, gfx.Rect{})
@@ -290,7 +296,12 @@ func (r *narrowRail) measure(ctx facet.MeasureContext, c facet.Constraints) face
 }
 
 func (r *narrowRail) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
-	if bounds.IsEmpty() {
+	// F-layout-root-fallback: the runtime can select this bar as an independent
+	// layout root and re-arrange it with the full window bounds when a store
+	// change marks it DirtyLayout (its own ArrangedBounds was empty at that
+	// instant), bypassing Root's wide-mode empty cascade. Consult the shared
+	// mode flag and stay empty in wide mode no matter the supplied bounds.
+	if r.shell.Mode == LayoutWide || bounds.IsEmpty() {
 		for _, icon := range r.icons {
 			if role := icon.Base().LayoutRole(); role != nil {
 				role.Arrange(ctx, gfx.Rect{})

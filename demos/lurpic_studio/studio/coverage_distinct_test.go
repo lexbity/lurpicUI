@@ -109,7 +109,7 @@ var placementIntents = map[string]distinctiveBehavior{
 	"viz/rule":                  behScaleProjection,  // E1 chart: ReactiveScale projection
 	"viz/line":                  behVizProjection,    // E1 chart: CollectionStore projection
 	"viz/area":                  behVizProjection,    // E1 chart: CollectionStore projection
-	"viz/point":                 behVizProjection,    // E1 chart: CollectionStore projection + hit
+	"viz/point":                 behVizProjection,    // E1 chart: CollectionStore projection + hit (the hit side is the canvas's bespoke nearestPoint → Selection; Point().Activated is NOT exercised — F-point-activated, a concrete F-coverage-vs-demo instance)
 	"viz/bar":                   behScaleProjection,  // E1 chart: band x-scale projection
 	// E2 — layers & hit routing. (F-anchor-tracking-not-probed, F-layerhit-collective:
 	// E2's layer/hit demonstration is collective around marks via the bespoke

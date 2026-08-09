@@ -212,6 +212,40 @@ func sameActiveExhibitStore(a, b *ExhibitInspector, shell *ShellState) bool {
 	return true
 }
 
+// TestResponsive_narrowRailStaysInertInWideAfterExhibitSwitch is a regression
+// test for the F-layout-root-fallback click-hijack bug: switching the active
+// exhibit dirties the narrow sub-tree (its ActiveExhibit subscriptions call
+// invalidateLayout), and the runtime's runLayoutPass re-arranges each
+// independently-dirty layout root with the full window bounds when its own
+// ArrangedBounds is empty — which used to spread the (transparent) bottom rail
+// across the whole screen in wide mode and steal every click. The rail (and its
+// icons) must stay inert in wide mode regardless, and a chart click must not
+// switch the exhibit.
+func TestResponsive_narrowRailStaysInertInWideAfterExhibitSwitch(t *testing.T) {
+	root, h := newResponsiveShell(t, 1280, 800)
+	// Switch the active exhibit through the shared store (the same signal path
+	// the wide nav_rail / narrow drawer / command palette use).
+	root.Shell().ActiveExhibit.Set(ExhibitLayers)
+	h.RunFrame()
+	h.RunFrame()
+
+	for i, icon := range root.Narrow().Rail().icons {
+		if b := icon.Base().LayoutRole().ArrangedBounds; !b.IsEmpty() {
+			t.Fatalf("rail icon %d arranged in wide mode: %v", i, b)
+		}
+	}
+	// The click-path symptom: a click on the active exhibit's chart must not be
+	// hijacked by an invisible rail icon or switch the exhibit.
+	plot := root.Stage().RootFor(ExhibitRealtime).(*Realtime).Canvas().PlotRect()
+	if plot.IsEmpty() {
+		t.Fatal("E1 chart plot not arranged")
+	}
+	testkit.DriveClick(h, plot.Min.X+plot.Width()*0.5, plot.Min.Y+plot.Height()*0.5)
+	if got := root.Shell().ActiveExhibit.Get(); got != ExhibitLayers {
+		t.Fatalf("chart click switched the exhibit to %v, want %v", got, ExhibitLayers)
+	}
+}
+
 // TestResponsive_narrowDrawerSwitchesExhibit asserts the narrow re-hosts
 // actually drive the shared ActiveExhibit store.
 func TestResponsive_narrowDrawerSwitchesExhibit(t *testing.T) {

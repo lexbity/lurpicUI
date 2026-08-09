@@ -3,6 +3,7 @@ package studio
 import (
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -60,6 +61,46 @@ func TestE3_anchorTracking(t *testing.T) {
 	}
 	if b0 == b1 {
 		t.Fatalf("popover bounds did not track the trigger: before=%v after=%v", b0, b1)
+	}
+}
+
+// TestE3_triggerInertWhenInactive is a regression test for the dormant-exhibit
+// bug: when the stage hides E3 (arranged to empty bounds), the runtime's free
+// layer still re-positions the trigger from its layer attachment — with empty
+// parent bounds + the seed pos that landed it inside the active exhibit's chart
+// area, stealing clicks. The trigger must have empty bounds, project nothing,
+// and not resolve hits while its host exhibit is hidden (F-inactive-layer-child).
+func TestE3_triggerInertWhenInactive(t *testing.T) {
+	sink := NewDirtySink(10)
+	root, h := newShellWithSink(t, 1280, 800, sink)
+	stage := root.Stage()
+	stage.ActiveExhibit().Set(ExhibitAnchors)
+	h.RunFrame()
+	h.RunFrame()
+	stage.ActiveExhibit().Set(ExhibitRealtime)
+	h.RunFrame()
+	h.RunFrame()
+
+	e3 := stage.RootFor(ExhibitAnchors).(*Anchors)
+	tb := e3.Trigger().Base().LayoutRole().ArrangedBounds
+	if !tb.IsEmpty() {
+		t.Fatalf("inactive E3 trigger has non-empty bounds: %v", tb)
+	}
+	if cmds := e3.Trigger().Base().ProjectionRole().Project(facet.ProjectionContext{
+		Bounds:       tb,
+		ContentScale: 1,
+	}); cmds != nil && cmds.Len() > 0 {
+		t.Fatal("inactive E3 trigger still projects its fill")
+	}
+	// A press at the trigger's old seed position must not reach it (the hit map
+	// resolves by the gated bounds; the click must not change the exhibit).
+	plot := root.Stage().RootFor(ExhibitRealtime).(*Realtime).Canvas().PlotRect()
+	if plot.IsEmpty() {
+		t.Fatal("E1 chart plot not arranged")
+	}
+	testkit.DriveClick(h, 268, 188)
+	if got := root.Shell().ActiveExhibit.Get(); got != ExhibitRealtime {
+		t.Fatalf("click at the dormant trigger position switched the exhibit to %v", got)
 	}
 }
 

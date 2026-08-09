@@ -91,6 +91,7 @@ type Realtime struct {
 	tipText *store.ValueStore[string]
 
 	reshapeUnsub []func() //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
+	jumpUnsub    []func() //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
 	cleanupFns   []func() //lurpiclint:ignore LL012 -- teardown handles are structural lifecycle state (F-lint-hosts)
 	rt           facet.RuntimeServices
 	cleanup      func()
@@ -302,7 +303,7 @@ func (e *Realtime) buildJumpButton() {
 	idJump := e.jump.Activated.Subscribe(func(signal.Unit) {
 		e.jumpToLive()
 	})
-	e.reshapeUnsub = append(e.reshapeUnsub, func() { e.jump.Activated.Unsubscribe(idJump) })
+	e.jumpUnsub = append(e.jumpUnsub, func() { e.jump.Activated.Unsubscribe(idJump) })
 }
 
 // jumpToLive resets the x-domain to [now-W, now] and clears Paused (the live
@@ -571,6 +572,12 @@ func (e *Realtime) OnDetach() {
 		}
 	}
 	e.reshapeUnsub = nil
+	for _, unsub := range e.jumpUnsub {
+		if unsub != nil {
+			unsub()
+		}
+	}
+	e.jumpUnsub = nil
 	if e.cleanup != nil {
 		e.cleanup()
 		e.cleanup = nil

@@ -353,6 +353,20 @@ func (e *Layers) buildControls() {
 }
 
 func (e *Layers) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
+	// Honor an empty/zero parent bounds: when the stage hides this exhibit
+	// (inactive exhibits arranged to gfx.Rect{}), the controls must not fall
+	// back to window-relative coordinates — bounds.Min=(0,0) with the
+	// content-centering math places the covered control at (-80,-48,160,96),
+	// whose bottom-right extends inside the window and steals clicks from the
+	// chrome's title bar (F-inactive-layer-child, same class as Anchors).
+	if bounds.IsEmpty() {
+		e.control.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		e.toast.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		e.controls.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		e.scrim.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		e.tooltip.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		return
+	}
 	controlsH := e.controls.Base().LayoutRole().MeasuredSize.H
 	if controlsH < 1 {
 		controlsH = 1

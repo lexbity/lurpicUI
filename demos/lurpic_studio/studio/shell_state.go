@@ -34,6 +34,13 @@ type ShellState struct {
 
 	// AppState is the flagship's shared store topology (rows, live window).
 	AppState *state.AppState
+
+	// Mode is the shell's current responsive layout mode. It is a layout driver
+	// (like Root.layoutMode), not shared UI truth: Root writes it in applyMode;
+	// the narrow overlay sub-tree reads it so it can short-circuit to empty
+	// children when the shell is wide even if the runtime independently
+	// re-arranges it with full-window bounds (F-layout-root-fallback).
+	Mode LayoutMode
 }
 
 // NewShellState builds the shell's shared stores over the app state.

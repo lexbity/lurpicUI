@@ -1,8 +1,10 @@
 // Package state owns the pure store topology for the flagship exhibit (E1):
-// the row collection, the live-tail window, and the derived views (visible
-// rows, y-domain, region buckets) that feed the chart and the table. There is
-// no facet code here — only stores and pure functions, so the whole package
-// is trivially unit-testable and framework-free.
+// the row collection, the live-tail window, and the derived views — VisibleRows
+// (the windowed series source) and YDomain (the y-scale clamp) feed the chart;
+// BarBuckets (the windowed per-region aggregates) feed the feed-legend
+// structure.List, while the read-only structure.Table reads the raw Rows
+// directly. There is no facet code here — only stores and pure functions, so
+// the whole package is trivially unit-testable and framework-free.
 //
 // All mutations must run on the runtime thread (the CollectionStore /
 // ValueStore contract); in the app, the streaming feed (P5) and the editable

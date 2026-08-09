@@ -290,6 +290,7 @@ func (r *Root) applyMode(mode LayoutMode) {
 		return
 	}
 	r.layoutMode = mode
+	r.shell.Mode = mode
 	var panes []Pane
 	if mode == LayoutWide {
 		panes = []Pane{

@@ -40,10 +40,16 @@ type e3Trigger struct {
 	pos       *store.ValueStore[gfx.Point]
 	fill      gfx.Color
 	dragStart *gfx.Point
+	// host is the owning Anchors exhibit. The runtime's free layer re-positions
+	// this trigger from its layer attachment even when the stage has hidden the
+	// exhibit (arranged to empty bounds), so render and hit are gated on the
+	// host's arranged bounds (F-inactive-layer-child): a hidden exhibit's
+	// trigger must neither draw nor claim pointer hits.
+	host *Anchors
 }
 
-func newE3Trigger(themeCtx theme.ResolvedContext, fonts *text.FontRegistry, pos *store.ValueStore[gfx.Point]) *e3Trigger {
-	t := &e3Trigger{pos: pos, fill: gfx.ColorFromRGBA8(200, 80, 60, 255)}
+func newE3Trigger(themeCtx theme.ResolvedContext, fonts *text.FontRegistry, pos *store.ValueStore[gfx.Point], host *Anchors) *e3Trigger {
+	t := &e3Trigger{pos: pos, fill: gfx.ColorFromRGBA8(200, 80, 60, 255), host: host}
 	t.Facet = facet.NewFacet()
 	t.Layout.Child = facet.GroupChildContract{
 		// Attached to the studio.trigger free layer (draggable position);
@@ -56,7 +62,7 @@ func newE3Trigger(themeCtx theme.ResolvedContext, fonts *text.FontRegistry, pos 
 	t.Layout.OnArrange = func(_ facet.ArrangeContext, bounds gfx.Rect) { t.Layout.ArrangedBounds = bounds }
 	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		b := t.Layout.ArrangedBounds
-		if b.IsEmpty() {
+		if b.IsEmpty() || t.hostHidden() {
 			return nil
 		}
 		center := gfx.Point{X: b.Min.X + b.Width()*0.5, Y: b.Min.Y + b.Height()*0.5}
@@ -65,6 +71,9 @@ func newE3Trigger(themeCtx theme.ResolvedContext, fonts *text.FontRegistry, pos 
 		}
 	}
 	t.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult {
+		if t.hostHidden() {
+			return facet.HitResult{}
+		}
 		if !t.Layout.ArrangedBounds.IsEmpty() && t.Layout.ArrangedBounds.Contains(pt) {
 			return facet.HitResult{Hit: true, Cursor: facet.CursorGrab}
 		}
@@ -106,6 +115,18 @@ func (t *e3Trigger) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorS
 	return out
 }
 
+// hostHidden reports whether the owning exhibit is currently hidden by the
+// stage (arranged to empty bounds). The runtime's free layer still positions
+// this trigger from its layer attachment when hidden, so render and hit must be
+// gated here rather than on the trigger's own bounds (F-inactive-layer-child).
+func (t *e3Trigger) hostHidden() bool {
+	if t == nil || t.host == nil {
+		return false
+	}
+	role := t.host.Base().LayoutRole()
+	return role == nil || role.ArrangedBounds.IsEmpty()
+}
+
 func (t *e3Trigger) Base() *facet.Facet             { t.BindImpl(t); return &t.Facet }
 func (t *e3Trigger) OnAttach(_ facet.AttachContext) {}
 func (t *e3Trigger) OnDetach()                      {}
@@ -135,7 +156,7 @@ func NewAnchorsFacet(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, i
 		ids: ids,
 	}
 	e.Facet = facet.NewFacet()
-	e.trigger = newE3Trigger(themeCtx, fonts, e.pos)
+	e.trigger = newE3Trigger(themeCtx, fonts, e.pos, e)
 	e.popovers = []*overlayBox{
 		newOverlayBox(gfx.ColorFromRGBA8(230, 130, 60, 255), "menu", themeCtx, fonts, gfx.Size{W: 120, H: 48}),
 		newOverlayBox(gfx.ColorFromRGBA8(130, 90, 200, 255), "split", themeCtx, fonts, gfx.Size{W: 120, H: 48}),
@@ -161,6 +182,14 @@ func (e *Anchors) Trigger() *e3Trigger { return e.trigger }
 func (e *Anchors) Popovers() []*overlayBox { return append([]*overlayBox(nil), e.popovers...) }
 
 func (e *Anchors) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
+	// Honor an empty/zero parent bounds: when the stage hides this exhibit
+	// (inactive exhibits are arranged to gfx.Rect{}), the trigger must not
+	// fall back to window coordinates — bounds.Min=(0,0) with the seed pos
+	// would place it inside the active exhibit's area.
+	if bounds.IsEmpty() {
+		e.trigger.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		return
+	}
 	pos := e.pos.Get()
 	size := gfx.Size{W: 56, H: 56}
 	// Prime the trigger's arranged bounds from the current position inside the

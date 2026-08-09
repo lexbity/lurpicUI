@@ -61,6 +61,34 @@ func TestShellCommandPalette_registeredCommandRuns(t *testing.T) {
 	}
 }
 
+// TestShellStatusBar_fitsWithinWindow is a regression test for the status-bar
+// overflow bug: the progress_bar mark measures itself to the full available
+// width, and the old arrange gave it that full width regardless of position,
+// shoving the progress_ring, badge, and caption past the window's right edge.
+// Every status item must fit within the window bounds.
+func TestShellStatusBar_fitsWithinWindow(t *testing.T) {
+	root, _ := newResponsiveShell(t, 1280, 800)
+	s := root.StatusBar()
+	items := []struct {
+		name string
+		r    gfx.Rect
+	}{
+		{"status_light", s.Light().Base().LayoutRole().ArrangedBounds},
+		{"progress_bar", s.Bar().Base().LayoutRole().ArrangedBounds},
+		{"progress_ring", s.Ring().Base().LayoutRole().ArrangedBounds},
+		{"badge", s.Badge().Base().LayoutRole().ArrangedBounds},
+		{"caption", s.Caption().Base().LayoutRole().ArrangedBounds},
+	}
+	for _, it := range items {
+		if it.r.IsEmpty() {
+			t.Fatalf("status/%s not arranged", it.name)
+		}
+		if it.r.Max.X > 1280 || it.r.Min.X < 0 {
+			t.Fatalf("status/%s overflows the window: [%v, %v]", it.name, it.r.Min.X, it.r.Max.X)
+		}
+	}
+}
+
 // TestShellStatusBar_feedWiring asserts FR-status: the badge reflects the live
 // row count, the connection light reflects the feed gate, and the progress
 // marks track the feed's job progress.
