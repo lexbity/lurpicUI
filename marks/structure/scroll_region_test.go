@@ -118,3 +118,14 @@ func scrollRegionHorizontalChildren() []ScrollRegionChild {
 		},
 	}
 }
+
+func TestScrollRegionViewportRoleRegisteredWithIdentityTransform(t *testing.T) {
+	sr := NewScrollRegion("Scrollable region")
+	role := sr.ViewportRole()
+	if role == nil {
+		t.Fatal("expected ViewportRole to be registered")
+	}
+	if role.Transform != gfx.Identity() {
+		t.Fatalf("ViewportRole transform = %#v, want identity; a zero transform degenerates every composed layer matrix and rasterizes to nothing", role.Transform)
+	}
+}

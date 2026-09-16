@@ -158,8 +158,8 @@ func NewScrollRegion(label string) *ScrollRegion {
 	sr.Focus.OnFocusGained = func() { sr.onFocusGained() }
 	sr.Focus.OnFocusLost = func() { sr.onFocusLost() }
 	sr.textRole.IMEEnabled = false
+	sr.Viewport.Transform = gfx.Identity()
 	sr.RegisterRoles()
-	sr.AddRole(&sr.Viewport)
 	sr.AddRole(&sr.textRole)
 	sr.updateParentKind()
 	return sr

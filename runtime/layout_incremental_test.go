@@ -63,7 +63,8 @@ func maxFloat32(a, b float32) float32 {
 	return b
 }
 
-func TestRuntimeRunLayoutPassPrunesCleanSiblingCaches(t *testing.T) {	left := newLayoutCountLeaf(gfx.Size{W: 10, H: 12})
+func TestRuntimeRunLayoutPassPrunesCleanSiblingCaches(t *testing.T) {
+	left := newLayoutCountLeaf(gfx.Size{W: 10, H: 12})
 	right := newLayoutCountLeaf(gfx.Size{W: 20, H: 18})
 	root := newIncrementalLayoutRoot(left, right)
 	rt := mustRuntimeTree(t, root)
