@@ -437,3 +437,60 @@ func TestAlignedOrigin_all_nine_alignments(t *testing.T) {
 		t.Fatalf("expected 9 unique alignments, got %d", len(seen))
 	}
 }
+
+// gatingParentLeaf arranges a single child to gfx.Rect{}, mirroring a Stage
+// that hides inactive exhibits. Used to pin the F-layout-root-fallback re-gate
+// at the layout.System level.
+type gatingParentLeaf struct {
+	facet.Facet
+	layout facet.LayoutRole
+	child  facet.FacetImpl
+}
+
+func (g *gatingParentLeaf) Base() *facet.Facet {
+	g.BindImpl(g)
+	return &g.Facet
+}
+
+func newGatingParentLeaf(child facet.FacetImpl) *gatingParentLeaf {
+	g := &gatingParentLeaf{Facet: facet.NewFacet(), child: child}
+	g.layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	g.layout.OnMeasure = func(ctx facet.MeasureContext, c Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: c.MaxSize}
+	}
+	g.layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		g.layout.ArrangedBounds = bounds
+		if role := child.Base().LayoutRole(); role != nil {
+			role.Arrange(ctx, gfx.Rect{})
+		}
+	}
+	g.AddRole(&g.layout)
+	g.AddChild(child.Base())
+	return g
+}
+
+// TestLayoutSystem_keeps_gated_child_empty_on_independent_rerun pins
+// F-layout-root-fallback at the layout.System layer: a child gated to empty
+// bounds stays empty when re-arranged as an independent dirty root, rather than
+// being resurrected with the full window bounds.
+func TestLayoutSystem_keeps_gated_child_empty_on_independent_rerun(t *testing.T) {
+	leaf := newTestLeaf(gfx.Size{W: 50, H: 50})
+	host := newGatingParentLeaf(leaf)
+
+	// First pass: arrange the host at window bounds; it gates the leaf empty.
+	sys := NewSystem()
+	sys.MarkDirty(host)
+	sys.Run(gfx.Size{W: 400, H: 300})
+	if got := leaf.arrangedBounds; !got.IsEmpty() {
+		t.Fatalf("leaf bounds after gating pass = %v, want empty", got)
+	}
+
+	// Re-run with only the leaf dirty (its own bounds is empty). Pre-fix it
+	// would fall back to the full 400x300 window; the re-gate keeps it empty.
+	sys2 := NewSystem()
+	sys2.MarkDirty(leaf)
+	sys2.Run(gfx.Size{W: 400, H: 300})
+	if got := leaf.arrangedBounds; !got.IsEmpty() {
+		t.Fatalf("leaf bounds after independent re-run = %v, want empty (gating re-gate)", got)
+	}
+}

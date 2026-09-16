@@ -101,6 +101,15 @@ func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
 			layoutRole := root.Base().LayoutRole()
 			if layoutRole != nil && !layoutRole.ArrangedBounds.IsEmpty() {
 				bounds = layoutRole.ArrangedBounds
+			} else {
+				// F-layout-root-fallback: this non-root independent layout root
+				// was last arranged to empty bounds — its parent's last arrange
+				// (e.g. a Stage hiding an inactive exhibit, or Root hiding the
+				// narrow overlay in wide mode) gated it. Re-arranging it on its
+				// own with the full window would bypass that gating and spread
+				// an invisible facet across the screen. Keep it empty so the
+				// gating parent's intent stands.
+				bounds = gfx.Rect{}
 			}
 		}
 		rt.measureLayoutChild(root, layout.Loose(gfx.Size{W: bounds.Width(), H: bounds.Height()}))

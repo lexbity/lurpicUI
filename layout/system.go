@@ -45,6 +45,12 @@ func (s *System) Run(windowSize gfx.Size) {
 			layoutRole := root.Base().LayoutRole()
 			if layoutRole != nil && !layoutRole.ArrangedBounds.IsEmpty() {
 				bounds = layoutRole.ArrangedBounds
+			} else {
+				// F-layout-root-fallback: this non-root independent layout root
+				// was last arranged to empty bounds — its parent gated it. Keep
+				// it empty rather than resurrecting it with the full window.
+				// Mirrors the runtime re-gate in runtime/layout.go.
+				bounds = gfx.Rect{}
 			}
 		}
 		measureChild(root, Loose(boundsSize(bounds)))

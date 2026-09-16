@@ -325,9 +325,18 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		return layoutPhaseStats{}
 	}
 	parentBounds := gfx.Rect{}
+	// parentGatedEmpty records that a non-root host has been gated to empty
+	// bounds (e.g. a Stage that arranges inactive exhibits to gfx.Rect{}). When
+	// true, every layer child of this host is cascaded to empty below regardless
+	// of the parentBounds fallback, so a hidden host's overlays are never
+	// resurrected by the layer pass (F-inactive-layer-child). The runtime root
+	// is excluded: it has no gating parent, so empty bounds there means "not yet
+	// arranged" or a first frame, not "hidden".
+	parentGatedEmpty := parent.Base().Parent() != nil
 	if lr := parent.Base().LayoutRole(); lr != nil {
 		if !lr.ArrangedBounds.IsEmpty() {
 			parentBounds = lr.ArrangedBounds
+			parentGatedEmpty = false
 		} else if lr.MeasuredSize.W > 0 || lr.MeasuredSize.H > 0 {
 			parentBounds = gfx.RectFromXYWH(0, 0, lr.MeasuredSize.W, lr.MeasuredSize.H)
 		} else if w, h := rt.windowSize(); w > 0 || h > 0 {
@@ -394,6 +403,35 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		}
 		return left.ID < right.ID
 	})
+	// F-inactive-layer-child: a host gated to empty bounds (its own
+	// ArrangedBounds is empty) must keep every layer-attached child inert.
+	// The policies below would otherwise position the children from the
+	// parentBounds fallback — free placement lands at bounds.Min + offset,
+	// which with a zero/empty rect resurrects a hidden host's overlay at its
+	// seed position and steals hits. Bypass the policies and cascade empty
+	// bounds (and an empty projection layer) to each child instead.
+	if parentGatedEmpty {
+		emptyLayer := facet.ProjectionLayer{}
+		for _, layerID := range ordered {
+			group := groupMap[layerID]
+			if group == nil {
+				continue
+			}
+			for _, child := range group.children {
+				if child.Layout != nil {
+					child.Layout.Arrange(facet.ArrangeContext{
+						Runtime:     rt,
+						Theme:       rt.themeContext(parentBounds),
+						ParentGroup: child.Layout.Parent,
+						ChildGroup:  child.Layout.Child,
+						Placement:   child.Attachment.Placement,
+					}, gfx.Rect{})
+				}
+				rt.projectionLayers[child.FacetID] = emptyLayer
+			}
+		}
+		return layoutPhaseStats{}
+	}
 	stats := layoutPhaseStats{}
 	parentViewport := parent.Base().ViewportRole()
 	cache := rt.anchorCaches[parent.Base().ID()]
