@@ -322,3 +322,40 @@ type nilApp struct{}
 
 func (n *nilApp) Events() platform.EventQueue { return nil }
 func (n *nilApp) Destroy()                    {}
+
+type runtimeHitFacet struct {
+	facet.Facet
+	layout facet.LayoutRole
+	render facet.RenderRole
+	hit    facet.HitRole
+	name   string
+}
+
+func (f *runtimeHitFacet) Base() *facet.Facet {
+	f.BindImpl(f)
+	return &f.Facet
+}
+
+func newRuntimeHitFacet(name string, bounds gfx.Rect, fill color.RGBA) *runtimeHitFacet {
+	f := &runtimeHitFacet{Facet: facet.NewFacet(), name: name}
+	f.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: bounds.Width(), H: bounds.Height()}}
+	}
+	f.layout.OnArrange = func(ctx facet.ArrangeContext, b gfx.Rect) {
+		f.layout.ArrangedBounds = b
+	}
+	f.layout.Child.SupportedPlacement = facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear
+	f.render.OnCollect = func(list *gfx.CommandList, b gfx.Rect) {
+		list.Add(gfx.FillRect{Rect: b, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(fill.R, fill.G, fill.B, fill.A))})
+	}
+	f.hit.OnHitTest = func(p gfx.Point) facet.HitResult {
+		if bounds.Contains(p) {
+			return facet.HitResult{Hit: true, Cursor: facet.CursorPointer}
+		}
+		return facet.HitResult{}
+	}
+	f.AddRole(&f.layout)
+	f.AddRole(&f.render)
+	f.AddRole(&f.hit)
+	return f
+}
