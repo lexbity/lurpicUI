@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
@@ -281,13 +282,14 @@ func NewLayersFacet(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, id
 	// stay regular children: the toast is a content notice the host arranges
 	// into the corner, so it never intercepts the layer input policies.
 	facet.AttachLayer(e, e.scrim, facet.LayerAttachment{
-		ZPriority: 100,
+		Band:  facet.ZBandModal,
+		Mount: e.modalOpen,
 		Dismissal: facet.DismissalScope{
 			Enabled:  true,
 			Triggers: facet.DismissalTriggerSetPointer | facet.DismissalTriggerSetKey,
 		},
 	})
-	facet.AttachLayer(e, e.tooltip, facet.LayerAttachment{ZPriority: 50})
+	facet.AttachLayer(e, e.tooltip, facet.LayerAttachment{Band: facet.ZBandTooltip, Mount: e.tooltipOn})
 	e.scrim.SetDismissal(facet.DismissalScope{
 		Enabled:  true,
 		Triggers: facet.DismissalTriggerSetPointer | facet.DismissalTriggerSetKey,
@@ -353,18 +355,20 @@ func (e *Layers) buildControls() {
 }
 
 func (e *Layers) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
+	// The zero rect hides a content child (the toast when its visibility store
+	// is off, and every content child while this exhibit is inactive).
+	hidden := gfx.Rect{}
 	// Honor an empty/zero parent bounds: when the stage hides this exhibit
 	// (inactive exhibits arranged to gfx.Rect{}), the controls must not fall
 	// back to window-relative coordinates — bounds.Min=(0,0) with the
 	// content-centering math places the covered control at (-80,-48,160,96),
 	// whose bottom-right extends inside the window and steals clicks from the
 	// chrome's title bar (F-inactive-layer-child, same class as Anchors).
+	// bounds is empty here, so arranging the content children to it hides them.
 	if bounds.IsEmpty() {
-		e.control.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-		e.toast.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-		e.controls.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-		e.scrim.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-		e.tooltip.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		e.control.Base().LayoutRole().Arrange(ctx, hidden)
+		e.toast.Base().LayoutRole().Arrange(ctx, hidden)
+		e.controls.Base().LayoutRole().Arrange(ctx, hidden)
 		return
 	}
 	controlsH := e.controls.Base().LayoutRole().MeasuredSize.H
@@ -391,62 +395,49 @@ func (e *Layers) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			content.Max.X-tSize.W-12, content.Max.Y-tSize.H-12,
 			tSize.W, tSize.H))
 	} else {
-		e.toast.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+		// The toast is hidden when its visibility store is off.
+		e.toast.Base().LayoutRole().Arrange(ctx, hidden)
 	}
 
 	e.controls.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, content.Max.Y, bounds.Width(), controlsH))
 
-	// The scrim and tooltip fill their layers (the layer arrangement owns
-	// their bounds), so only their visibility flags need invalidation here.
-	e.scrim.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-	e.tooltip.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-}
-
-// syncOverlayLayers mounts or unmounts the overlay facets on their layers so
-// the overlay contract stays in sync with the visibility flags. Hit regions
-// are bounds-derived, so an invisible overlay left on a block-below layer
-// would still cover and block the base layer (a closed modal would swallow
-// the scrim's hit); unmounting (LayerID 0) lets the layer arrangement skip it
-// and the host reset its bounds, keeping the layer hit policies (HitBlockBelow
-// / HitPassThrough) in force only while the overlay is on screen.
-func (e *Layers) syncOverlayLayers(rt *runtime.Runtime) {
-	if rt == nil {
-		return
-	}
-	// Visible overlays span the full layer grid so their hit regions cover the
-	// content area and the layer hit policy applies everywhere.
-	full := facet.Placement{
-		Mode: facet.PlacementGrid,
-		Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 5, RowSpan: 5},
-	}
-	mount := func(box *overlayBox, lid facet.LayerID) {
-		if box == nil || !box.IsVisible() || lid == 0 {
-			rt.UpdateChildAttachment(box, facet.Attachment{})
-			return
-		}
-		rt.UpdateChildAttachment(box, facet.Attachment{LayerID: lid, Placement: full})
-	}
-	mount(e.scrim, e.ids.modal)
-	mount(e.tooltip, e.ids.tooltip)
+	// The scrim and tooltip are layer children: the layer system exclusively
+	// arranges them when mounted (RX-1 Q4) and the Mount stores gate their
+	// visibility, so no manual arrangement happens here.
 }
 
 func (e *Layers) OnAttach(ctx facet.AttachContext) {
 	e.rt = ctx.Runtime
+	// Pin the overlays onto the studio custom layers once (their hit policies
+	// — HitBlockBelow / HitPassThrough — come from the registry descriptors).
+	// Visibility is governed by the Mount stores (modalOpen / tooltipOn), which
+	// the layer resolver reads each frame; an unmounted layer is skipped
+	// entirely (RX-1 Q4) — no manual mount/unmount or Arrange(gfx.Rect{})
+	// gating remains.
 	rt, _ := e.rt.(*runtime.Runtime)
+	if rt != nil {
+		full := facet.Placement{
+			Mode: facet.PlacementGrid,
+			Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 5, RowSpan: 5},
+		}
+		if e.ids.modal != 0 {
+			rt.UpdateChildAttachment(e.scrim, facet.Attachment{LayerID: e.ids.modal, Placement: full})
+		}
+		if e.ids.tooltip != 0 {
+			rt.UpdateChildAttachment(e.tooltip, facet.Attachment{LayerID: e.ids.tooltip, Placement: full})
+		}
+	}
 	e.scrim.SetVisible(e.modalOpen.Get())
 	e.tooltip.SetVisible(e.tooltipOn.Get())
-	e.syncOverlayLayers(rt)
-	sync := func() {
-		e.syncOverlayLayers(rt)
-		e.Invalidate(facet.DirtyProjection)
-	}
+	// A mount-store flip routes through RX-1 FR-3: the layer re-resolution
+	// (mount/unmount) re-lays the host within the same frame.
 	idModal := e.modalOpen.OnChange.Subscribe(func(signal.Change[bool]) {
 		e.scrim.SetVisible(e.modalOpen.Get())
-		sync()
+		layout.PropagateContentDirty(e, e.rt, "e2.modalOpen", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	idTooltip := e.tooltipOn.OnChange.Subscribe(func(signal.Change[bool]) {
 		e.tooltip.SetVisible(e.tooltipOn.Get())
-		sync()
+		layout.PropagateContentDirty(e, e.rt, "e2.tooltipOn", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	idToast := e.toastOn.OnChange.Subscribe(func(signal.Change[bool]) {
 		e.Invalidate(facet.DirtyLayout | facet.DirtyProjection)

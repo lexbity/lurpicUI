@@ -10,7 +10,7 @@ type groupCore struct {
 	Layout facet.LayoutRole
 }
 
-//nolint:LL031 // todo
+// nolint:LL031 // todo
 type GroupMark struct {
 	groupCore
 }

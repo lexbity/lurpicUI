@@ -137,7 +137,7 @@ func (p radialMenuGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, child
 			MarkID:    markID,
 			Bounds:    arranged[i].Bounds,
 			Placement: placement,
-			ZPriority: arranged[i].ZPriority,
+			ZOrder:    arranged[i].ZOrder,
 			Contract:  arranged[i].Contract,
 		})
 	}
@@ -210,7 +210,7 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 	m.attachCenterChild(center)
 	m.attachRadialChildren(children)
 	surface := &radialMenuSurfaceChild{Facet: facet.NewFacet(), parent: m}
-	facet.AttachLayer(m, surface, facet.LayerAttachment{ZPriority: 50})
+	facet.AttachLayer(m, surface, facet.LayerAttachment{Band: facet.ZBandPopover})
 	m.surfaceChild = surface
 	return m
 }
@@ -465,7 +465,7 @@ func (m *RadialMenu) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			MarkID:    markID,
 			Bounds:    arranged[i].Bounds,
 			Placement: placement,
-			ZPriority: arranged[i].ZPriority,
+			ZOrder:    arranged[i].ZOrder,
 			Contract:  arranged[i].Contract,
 		}
 	}

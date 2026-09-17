@@ -76,11 +76,11 @@ type DialogAction struct {
 
 // DialogContentChild describes one reusable child facet placed inside the dialog body.
 type DialogContentChild struct {
-	Key       string
-	Facet     facet.FacetImpl
-	MarkID    facet.MarkID
-	Grid      facet.GridPlacement
-	ZPriority int32
+	Key    string
+	Facet  facet.FacetImpl
+	MarkID facet.MarkID
+	Grid   facet.GridPlacement
+	ZOrder int32
 }
 
 // Dialog implements the feedback.dialog canonical mark.
@@ -220,7 +220,7 @@ func NewDialog(title, body string, actions []DialogAction, open *store.ValueStor
 	d.AddRole(&d.textRole)
 	d.syncChildren()
 	surface := &dialogSurfaceChild{Facet: facet.NewFacet(), parent: d}
-	facet.AttachLayer(d, surface, facet.LayerAttachment{ZPriority: 100})
+	facet.AttachLayer(d, surface, facet.LayerAttachment{Band: facet.ZBandModal})
 	d.surfaceChild = surface
 	return d
 }
@@ -897,7 +897,7 @@ func (p dialogGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children 
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}
@@ -1091,7 +1091,7 @@ func (p dialogActionGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, chi
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}
@@ -1319,11 +1319,11 @@ func (g *dialogBodyGroup) measureChildren(ctx facet.MeasureContext, maxSize gfx.
 		}
 		size := base.LayoutRole().Measure(ctx, facet.Constraints{MaxSize: maxSize}).Size
 		out = append(out, dialogBodyChildMeasure{
-			facet:     base,
-			size:      size,
-			grid:      spec.Grid,
-			markID:    spec.MarkID,
-			zPriority: spec.ZPriority,
+			facet:  base,
+			size:   size,
+			grid:   spec.Grid,
+			markID: spec.MarkID,
+			zOrder: spec.ZOrder,
 		})
 	}
 	return out
@@ -1499,7 +1499,7 @@ func (g *dialogBodyGroup) gridChildren(children []dialogBodyChildMeasure) []layo
 					Mode: facet.PlacementGrid,
 					Grid: placement,
 				},
-				ZPriority: child.zPriority,
+				ZOrder: child.zOrder,
 			},
 			Layout:   child.facet.LayoutRole(),
 			Contract: child.facet.LayoutRole().Child,
@@ -1574,11 +1574,11 @@ func (g *dialogBodyGroup) bodyPlacement(index int, contract facet.GroupChildCont
 }
 
 type dialogBodyChildMeasure struct {
-	facet     *facet.Facet
-	size      gfx.Size
-	grid      facet.GridPlacement
-	markID    facet.MarkID
-	zPriority int32
+	facet  *facet.Facet
+	size   gfx.Size
+	grid   facet.GridPlacement
+	markID facet.MarkID
+	zOrder int32
 }
 
 type dialogBodyChildArrange struct {
@@ -1620,7 +1620,7 @@ func (p dialogBodyGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, child
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

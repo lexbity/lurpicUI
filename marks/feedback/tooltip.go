@@ -144,7 +144,7 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 	t.AddRole(&t.textRole)
 	t.syncChildren()
 	surface := &tooltipSurfaceChild{Facet: facet.NewFacet(), parent: t}
-	facet.AttachLayer(t, surface, facet.LayerAttachment{ZPriority: 90})
+	facet.AttachLayer(t, surface, facet.LayerAttachment{Band: facet.ZBandTooltip})
 	t.surfaceChild = surface
 	return t
 }
@@ -683,7 +683,7 @@ func (p tooltipGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

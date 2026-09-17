@@ -15,7 +15,7 @@ type HitProbeResult struct {
 	Placement     facet.PlacementMode
 	HitPolicy     facet.HitPolicy
 	ClipPolicy    facet.ClipPolicy
-	ZPriority     int32
+	ZOrder        int32
 	MarkID        facet.MarkID
 	Bounds        gfx.Rect
 	EffectiveClip gfx.Rect
@@ -37,7 +37,7 @@ type HitProbeEntry struct {
 	Placement  facet.PlacementMode
 	HitPolicy  facet.HitPolicy
 	ClipPolicy facet.ClipPolicy
-	ZPriority  int32
+	ZOrder     int32
 	Transform  gfx.Transform
 	ClipRect   gfx.Rect
 	Regions    []projection.HitRegion
@@ -110,7 +110,7 @@ func (p *HitProbe) At(screenPoint gfx.Point) []HitProbeResult {
 				Placement:     entry.Placement,
 				HitPolicy:     entry.HitPolicy,
 				ClipPolicy:    entry.ClipPolicy,
-				ZPriority:     entry.ZPriority,
+				ZOrder:        entry.ZOrder,
 				MarkID:        region.MarkID,
 				Bounds:        region.Bounds,
 				EffectiveClip: clip,
@@ -147,7 +147,7 @@ func (p *HitProbe) Entries() []HitProbeEntry {
 			Placement:  entry.Placement,
 			HitPolicy:  entry.HitPolicy,
 			ClipPolicy: entry.ClipPolicy,
-			ZPriority:  entry.ZPriority,
+			ZOrder:     entry.ZOrder,
 			Transform:  entry.Transform,
 			ClipRect:   entry.ClipRect,
 			Regions:    regions,

@@ -68,11 +68,11 @@ func (m NotificationContentLayoutMode) String() string {
 
 // NotificationContentChild describes one reusable child facet placed inside the notification body.
 type NotificationContentChild struct {
-	Key       string
-	Facet     facet.FacetImpl
-	MarkID    facet.MarkID
-	Grid      facet.GridPlacement
-	ZPriority int32
+	Key    string
+	Facet  facet.FacetImpl
+	MarkID facet.MarkID
+	Grid   facet.GridPlacement
+	ZOrder int32
 }
 
 // Notification implements the feedback.notification canonical mark.
@@ -216,7 +216,7 @@ func NewNotification(title, message string, open *store.ValueStore[bool]) *Notif
 	n.AddRole(&n.textRole)
 	n.syncChildren()
 	surface := &notificationSurfaceChild{Facet: facet.NewFacet(), parent: n}
-	facet.AttachLayer(n, surface, facet.LayerAttachment{ZPriority: 80})
+	facet.AttachLayer(n, surface, facet.LayerAttachment{Band: facet.ZBandToast})
 	n.surfaceChild = surface
 	return n
 }
@@ -824,7 +824,7 @@ func (p notificationGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, chi
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}
@@ -1170,11 +1170,11 @@ func (g *notificationContentGroup) measureChildren(ctx facet.MeasureContext, max
 		}
 		size := base.LayoutRole().Measure(ctx, facet.Constraints{MaxSize: maxSize}).Size
 		out = append(out, notificationContentMeasure{
-			facet:     base,
-			size:      size,
-			grid:      spec.Grid,
-			markID:    spec.MarkID,
-			zPriority: spec.ZPriority,
+			facet:  base,
+			size:   size,
+			grid:   spec.Grid,
+			markID: spec.MarkID,
+			zOrder: spec.ZOrder,
 		})
 	}
 	return out
@@ -1354,7 +1354,7 @@ func (g *notificationContentGroup) gridChildren(children []notificationContentMe
 					Mode: facet.PlacementGrid,
 					Grid: placement,
 				},
-				ZPriority: child.zPriority,
+				ZOrder: child.zOrder,
 			},
 			Layout:   child.facet.LayoutRole(),
 			Contract: child.facet.LayoutRole().Child,
@@ -1434,11 +1434,11 @@ func (g *notificationContentGroup) contentPlacement(index int, contract facet.Gr
 }
 
 type notificationContentMeasure struct {
-	facet     *facet.Facet
-	size      gfx.Size
-	grid      facet.GridPlacement
-	markID    facet.MarkID
-	zPriority int32
+	facet  *facet.Facet
+	size   gfx.Size
+	grid   facet.GridPlacement
+	markID facet.MarkID
+	zOrder int32
 }
 
 type notificationContentArrange struct {
@@ -1480,7 +1480,7 @@ func (p notificationContentGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeConte
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

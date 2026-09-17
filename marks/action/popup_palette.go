@@ -391,7 +391,7 @@ func NewPopupPalette(label string, tools []PopupPaletteTool, open *store.ValueSt
 
 	p.composition = newPopupPaletteComposition(p)
 	surface := &popupPaletteSurfaceChild{Facet: facet.NewFacet(), parent: p}
-	facet.AttachLayer(p, surface, facet.LayerAttachment{ZPriority: 50})
+	facet.AttachLayer(p, surface, facet.LayerAttachment{Band: facet.ZBandPopover})
 	p.surfaceChild = surface
 	return p
 }

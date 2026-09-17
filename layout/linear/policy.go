@@ -32,10 +32,10 @@ type Child struct {
 
 // ArrangedChild captures a child arranged by linear placement.
 type ArrangedChild struct {
-	FacetID   facet.FacetID
-	Bounds    gfx.Rect
-	ZPriority int32
-	Contract  facet.GroupChildContract
+	FacetID  facet.FacetID
+	Bounds   gfx.Rect
+	ZOrder   int32
+	Contract facet.GroupChildContract
 }
 
 // Policy arranges children sequentially along a main axis.
@@ -154,10 +154,10 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect) ([]ArrangedChild, er
 		}
 		child.Layout.Arrange(facet.ArrangeContext{Placement: child.Attachment.Placement}, rect)
 		arranged = append(arranged, ArrangedChild{
-			FacetID:   child.FacetID,
-			Bounds:    rect,
-			ZPriority: child.Attachment.ZPriority,
-			Contract:  child.Contract,
+			FacetID:  child.FacetID,
+			Bounds:   rect,
+			ZOrder:   child.Attachment.ZOrder,
+			Contract: child.Contract,
 		})
 		pos += main + p.cfg.Gap
 	}
@@ -185,8 +185,8 @@ func sortedChildren(children []Child) []int {
 		if lo != ro {
 			return lo < ro
 		}
-		if left.Attachment.ZPriority != right.Attachment.ZPriority {
-			return left.Attachment.ZPriority > right.Attachment.ZPriority
+		if left.Attachment.ZOrder != right.Attachment.ZOrder {
+			return left.Attachment.ZOrder > right.Attachment.ZOrder
 		}
 		return left.FacetID < right.FacetID
 	})

@@ -152,9 +152,9 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 		_ = facet.GroupChildContract{SupportedPlacement: facet.SupportsGrid | facet.SupportsLinear}
 
 		parent.AddChild(&childA)
-		// AttachLayer requires ZPriority > 0 (the runtime consumes it during
+		// AttachLayer requires ZOrder > 0 (the runtime consumes it during
 		// layer resolution).
-		facet.AttachLayer(&parent, &childB, facet.LayerAttachment{ZPriority: 100})
+		facet.AttachLayer(&parent, &childB, facet.LayerAttachment{Band: facet.ZBandModal})
 		if got := len(parent.Children()); got != 2 {
 			t.Fatalf("children = %d, want 2", got)
 		}

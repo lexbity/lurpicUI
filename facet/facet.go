@@ -24,9 +24,10 @@ type Facet struct {
 
 	subscribedVersions []store.Version
 
-	// layerZPriority is set during construction by AttachLayer.
+	// layer holds the layer contract set during construction by AttachLayer.
 	// The runtime picks this up during layer resolution.
-	layerZPriority int32
+	layer    LayerAttachment
+	layerSet bool
 }
 
 // NewFacet constructs a facet in the Created state with a unique ID.
@@ -430,12 +431,18 @@ func (f *Facet) childrenSnapshot() []*Facet {
 	return out
 }
 
-// LayerZPriority returns the ZPriority set by AttachLayer during construction.
-func (f *Facet) LayerZPriority() int32 {
+// LayerAttachment returns the layer contract set by AttachLayer during
+// construction, or the zero value for a plain child.
+func (f *Facet) LayerAttachment() LayerAttachment {
 	if f == nil {
-		return 0
+		return LayerAttachment{}
 	}
-	return f.layerZPriority
+	return f.layer
+}
+
+// IsLayer reports whether the facet was mounted via AttachLayer.
+func (f *Facet) IsLayer() bool {
+	return f != nil && f.layerSet
 }
 
 func (f *Facet) releaseSubscriptions() {

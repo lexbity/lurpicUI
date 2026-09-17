@@ -285,7 +285,7 @@ func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[f
 				item.clip = layer.ClipRect
 			}
 			if attachment, ok := resolver.ResolveChildAttachment(RenderBatch.FacetID); ok {
-				item.z = int(attachment.ZPriority)
+				item.z = int(attachment.ZOrder)
 			}
 		}
 		items = append(items, item)

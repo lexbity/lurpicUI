@@ -110,7 +110,7 @@ const (
 type ChildAttachment struct {
 	LayerID   LayerID
 	Placement PlacementHints
-	ZPriority int
+	ZOrder    int
 }
 
 // Viewport is a plain-data snapshot of viewport state.

@@ -1143,7 +1143,7 @@ func (p actionBarGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, childr
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

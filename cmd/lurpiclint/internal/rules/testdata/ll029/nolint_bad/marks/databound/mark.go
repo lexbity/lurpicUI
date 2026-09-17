@@ -1,6 +1,6 @@
 package mark
 
-//nolint:LL029 // todo
+// nolint:LL029 // todo
 type DataMark struct{}
 
 func (m *DataMark) BoundData() any {

@@ -1,6 +1,6 @@
 package mark
 
-//nolint:LL032 // deliberate opt-out
+// nolint:LL032 // deliberate opt-out
 type AccessMark struct{}
 
 func (m *AccessMark) AccessibilityRole() string {

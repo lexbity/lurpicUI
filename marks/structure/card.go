@@ -36,11 +36,11 @@ const (
 
 // CardChild describes one reusable child facet placed inside the card shell.
 type CardChild struct {
-	Key       string
-	Facet     facet.FacetImpl
-	MarkID    facet.MarkID
-	Grid      facet.GridPlacement
-	ZPriority int32
+	Key    string
+	Facet  facet.FacetImpl
+	MarkID facet.MarkID
+	Grid   facet.GridPlacement
+	ZOrder int32
 }
 
 // Card implements the structure.card canonical mark.
@@ -453,7 +453,7 @@ func (c *Card) gridChildAttachment(spec CardChild, index, count int) facet.Attac
 			Mode: facet.PlacementGrid,
 			Grid: placement,
 		},
-		ZPriority: spec.ZPriority,
+		ZOrder: spec.ZOrder,
 	}
 }
 
@@ -560,7 +560,7 @@ func (p cardGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

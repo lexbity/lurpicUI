@@ -2,21 +2,81 @@
   "entries": [
     {
       "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/capstone_dashboard/main.go",
+      "line": 44,
+      "message": "field chart looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m1_first_frame/main.go",
+      "line": 32,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m2_facet_tree/main.go",
+      "line": 62,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m2_facet_tree/main.go",
+      "line": 78,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m2_facet_tree/main.go",
+      "line": 96,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m3_stores/main.go",
+      "line": 51,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m4_layout/main.go",
+      "line": 34,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m4_layout/main.go",
+      "line": 59,
+      "message": "field kids looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m5_marks/main.go",
+      "line": 74,
+      "message": "field kids looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m6_pixels/main.go",
+      "line": 28,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL012",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m7_input/main.go",
+      "line": 33,
+      "message": "field kids looks like domain state; facets should be stateless (Principles 1 and 8)"
+    },
+    {
+      "rule_id": "LL001",
+      "file": "/home/lex/Public/lurpicUI/devdocs/samples/m8_jobs/main.go",
+      "line": 55,
+      "message": "raw LayoutRole literal with OnMeasure or OnArrange set; prefer using an existing layout container or mark"
+    },
+    {
+      "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/layout/containers.go",
       "line": 15,
       "message": "field children looks like domain state; facets should be stateless (Principles 1 and 8)"
-    },
-    {
-      "rule_id": "LL012",
-      "file": "/home/lex/Public/lurpicUI/marks/action/command_palette.go",
-      "line": 80,
-      "message": "field cachedCommands looks like domain state; facets should be stateless (Principles 1 and 8)"
-    },
-    {
-      "rule_id": "LL012",
-      "file": "/home/lex/Public/lurpicUI/marks/action/command_palette.go",
-      "line": 81,
-      "message": "field cachedFiltered looks like domain state; facets should be stateless (Principles 1 and 8)"
     },
     {
       "rule_id": "LL012",

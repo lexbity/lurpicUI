@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"image"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -71,7 +72,9 @@ func TestE2_blockingAndPassThrough(t *testing.T) {
 	}
 
 	// Closed modal: the invisible scrim must not block — a press reaches the
-	// control (the invisible-scrim regression).
+	// control (the invisible-scrim regression). Capture the region without the
+	// scrim for the pixel-presence assertion below.
+	closedImg := h.Surface().Capture()
 	e2.tooltipOn.Set(true)
 	h.RunFrame()
 	h.RunFrame()
@@ -85,13 +88,17 @@ func TestE2_blockingAndPassThrough(t *testing.T) {
 		t.Fatalf("modal closed: press not delivered to control (presses=%d want %d)", e2.control.presses, before+1)
 	}
 
-	// Open modal: the scrim layer (HitBlockBelow) now covers the control.
+	// Open modal: the scrim layer (HitBlockBelow) now covers the control and
+	// renders a pixel-visible scrim (AC-5).
 	e2.modalOpen.Set(true)
 	h.RunFrame()
 	h.RunFrame()
 	scrimID := e2.scrim.Base().ID()
 	if got := h.Runtime().HitTest(pt); got != scrimID {
 		t.Fatalf("modal open: hit=%d want scrim %d", got, scrimID)
+	}
+	if !scrimRenders(t, h, ctrl, closedImg) {
+		t.Fatalf("modal open: scrim produced no pixels over the control area")
 	}
 	before = e2.control.presses
 	h.InjectEvent(platform.EventPointer{Kind: platform.PointerPress, Position: pt, Button: platform.PointerLeft})
@@ -106,5 +113,56 @@ func TestE2_blockingAndPassThrough(t *testing.T) {
 	h.RunFrame()
 	if got := h.Runtime().HitTest(pt); got != controlID {
 		t.Fatalf("modal closed again: hit=%d want control %d", got, controlID)
+	}
+}
+
+// scrimRenders reports whether the scrim changes pixels over the control
+// region relative to the pre-open capture (a uniform dim over the region).
+func scrimRenders(t *testing.T, h *testkit.Harness, region gfx.Rect, before image.Image) bool {
+	t.Helper()
+	img := h.Surface().Capture()
+	covered := 0
+	for y := int(region.Min.Y) + 4; y < int(region.Max.Y)-4; y += 6 {
+		for x := int(region.Min.X) + 4; x < int(region.Max.X)-4; x += 6 {
+			br, bg, bb, _ := before.At(x, y).RGBA()
+			r, g, b, a := img.At(x, y).RGBA()
+			if a > 0 && (r>>8 != br>>8 || g>>8 != bg>>8 || b>>8 != bb>>8) {
+				covered++
+			}
+		}
+	}
+	return covered > 4
+}
+
+// TestE2_modalOpenSurvivesExhibitSwitch asserts the scrim stays mounted (and
+// blocking) after a host-switch cycle that gates and re-activates the exhibit
+// (RX-1 A-5: host-switch re-resolution must not drop an open layer).
+func TestE2_modalOpenSurvivesExhibitSwitch(t *testing.T) {
+	root, h := newResponsiveShell(t, 1280, 800)
+	h.RunFrames(2)
+	root.Shell().ActiveExhibit.Set(ExhibitLayers)
+	h.RunFrames(2)
+	e2 := root.Stage().RootFor(ExhibitLayers).(*Layers)
+	h.RunFrames(2)
+	ctrl := e2.control.layout.ArrangedBounds
+	if ctrl.IsEmpty() {
+		t.Fatalf("control has no arranged bounds: %v", ctrl)
+	}
+	pt := gfx.Point{X: ctrl.Min.X + ctrl.Width()*0.5, Y: ctrl.Min.Y + ctrl.Height()*0.5}
+	closedImg := h.Surface().Capture()
+	e2.modalOpen.Set(true)
+	h.RunFrames(2)
+	scrimID := e2.scrim.Base().ID()
+
+	// Switch away and back; the open modal must survive the gating cycle.
+	root.Shell().ActiveExhibit.Set(ExhibitAnchors)
+	h.RunFrames(2)
+	root.Shell().ActiveExhibit.Set(ExhibitLayers)
+	h.RunFrames(2)
+	if got := h.Runtime().HitTest(pt); got != scrimID {
+		t.Fatalf("after switch: hit=%d want scrim %d", got, scrimID)
+	}
+	if !scrimRenders(t, h, ctrl, closedImg) {
+		t.Fatalf("after switch: scrim produced no pixels over the control area")
 	}
 }

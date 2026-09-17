@@ -23,7 +23,7 @@ func TestTooltipIntegration_ClickOutsideDismisses(t *testing.T) {
 	tt := NewTooltip("Deletes permanently", open)
 
 	root := newOverlayRoot()
-	facet.AttachLayer(root, tt, facet.LayerAttachment{ZPriority: 90})
+	facet.AttachLayer(root, tt, facet.LayerAttachment{Band: facet.ZBandTooltip})
 
 	h, modalID := newOverlayHarness(t, root)
 	h.Runtime().UpdateChildAttachment(tt, facet.Attachment{LayerID: modalID})

@@ -24,7 +24,7 @@ func TestDialogIntegration_ClickOutsideDismisses(t *testing.T) {
 	dlg := NewDialog("Confirm", "This action cannot be undone.", nil, open)
 
 	root := newOverlayRoot()
-	facet.AttachLayer(root, dlg, facet.LayerAttachment{ZPriority: 100})
+	facet.AttachLayer(root, dlg, facet.LayerAttachment{Band: facet.ZBandModal})
 
 	h, modalID := newOverlayHarness(t, root)
 	h.Runtime().UpdateChildAttachment(dlg, facet.Attachment{LayerID: modalID})
@@ -63,7 +63,7 @@ func TestDialogIntegration_PlainChildDoesNotDismiss(t *testing.T) {
 	h, _ := newOverlayHarness(t, root)
 
 	// Deliberate miswire: mount the dialog as a plain child with AddFacet and
-	// no layer attachment — no facet.AttachLayer ZPriority, no LayerID. The
+	// no layer attachment — no facet.AttachLayer ZOrder, no LayerID. The
 	// runtime never mounts it into a dismissal-enabled layer, so an outside
 	// click cannot emit a DismissEvent.
 	h.Runtime().AddFacet(root, dlg, facet.Attachment{})

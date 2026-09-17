@@ -31,7 +31,7 @@ type ArrangedChild struct {
 	Angle     float64
 	Radius    float32
 	Center    gfx.Point
-	ZPriority int32
+	ZOrder    int32
 	Contract  facet.GroupChildContract
 }
 
@@ -140,7 +140,7 @@ func (p *Policy) Arrange(ctx facet.ArrangeContext, children []Child, bounds gfx.
 			Angle:     child.angle,
 			Radius:    child.radius,
 			Center:    gfx.Point{X: rect.Min.X + rect.Width()/2, Y: rect.Min.Y + rect.Height()/2},
-			ZPriority: child.child.Attachment.ZPriority,
+			ZOrder:    child.child.Attachment.ZOrder,
 			Contract:  child.child.Contract,
 		})
 	}

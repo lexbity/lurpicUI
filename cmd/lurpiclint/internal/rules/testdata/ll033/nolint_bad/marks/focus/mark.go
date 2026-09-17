@@ -1,6 +1,6 @@
 package mark
 
-//nolint:LL033 // todo
+// nolint:LL033 // todo
 type FocusMark struct{}
 
 func (m *FocusMark) Focusable() bool {

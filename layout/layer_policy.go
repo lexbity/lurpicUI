@@ -47,7 +47,7 @@ type ArrangedLayerChild struct {
 	MarkID    facet.MarkID
 	Bounds    gfx.Rect
 	Placement facet.Placement
-	ZPriority int32
+	ZOrder    int32
 	Contract  facet.GroupChildContract
 }
 

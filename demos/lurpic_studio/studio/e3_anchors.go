@@ -234,6 +234,7 @@ func (e *Anchors) OnAttach(ctx facet.AttachContext) {
 		for _, p := range e.popovers {
 			rt.AddFacet(e, p, facet.Attachment{
 				LayerID: e.ids.anchored,
+				Band:    facet.ZBandPopover,
 				Placement: facet.Placement{
 					Mode: facet.PlacementAnchor,
 					Anchor: facet.AnchorPlacement{

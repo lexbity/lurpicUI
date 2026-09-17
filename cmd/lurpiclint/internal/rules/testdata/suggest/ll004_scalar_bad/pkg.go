@@ -16,7 +16,7 @@ func newChart() *viz.Bar[BarBucket] {
 
 	// LL004 (info): scalar accessor closures; prefer data.Encoding.
 	return viz.NewBar(data,
-		func(b BarBucket) string  { return b.Region },
+		func(b BarBucket) string { return b.Region },
 		func(b BarBucket) float64 { return b.Revenue },
 		s)
 }

@@ -55,7 +55,7 @@ func (p *Policy) Arrange(children []Child, layer gfx.Rect) ([]ArrangedChild, err
 			FacetID:   child.FacetID,
 			Bounds:    rect,
 			Placement: placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}
@@ -66,8 +66,8 @@ func (p *Policy) Arrange(children []Child, layer gfx.Rect) ([]ArrangedChild, err
 		if arranged[i].Placement.ColStart != arranged[j].Placement.ColStart {
 			return arranged[i].Placement.ColStart < arranged[j].Placement.ColStart
 		}
-		if arranged[i].ZPriority != arranged[j].ZPriority {
-			return arranged[i].ZPriority > arranged[j].ZPriority
+		if arranged[i].ZOrder != arranged[j].ZOrder {
+			return arranged[i].ZOrder > arranged[j].ZOrder
 		}
 		return arranged[i].FacetID < arranged[j].FacetID
 	})
@@ -82,8 +82,8 @@ func sortedChildren(children []Child) []int {
 	sort.SliceStable(indices, func(i, j int) bool {
 		left := children[indices[i]]
 		right := children[indices[j]]
-		if left.Attachment.ZPriority != right.Attachment.ZPriority {
-			return left.Attachment.ZPriority > right.Attachment.ZPriority
+		if left.Attachment.ZOrder != right.Attachment.ZOrder {
+			return left.Attachment.ZOrder > right.Attachment.ZOrder
 		}
 		return left.FacetID < right.FacetID
 	})

@@ -21,7 +21,7 @@
 // overlay contracts (LL014), stability evidence (LL015), store mutation in
 // layout callbacks (LL016), asset misuse (LL017), and unmounted overlay
 // detection (LL018); sibling-overlay detection (LL021), which flags overlays
-// mounted as plain children without layer/ZPriority; unbounded-fixed-stack
+// mounted as plain children without layer/ZOrder; unbounded-fixed-stack
 // detection (LL022), which flags all-Fixed ColumnLayout/RowLayout without a
 // ScrollRegion; and reactive-binding overwrite detection (LL023), which flags
 // marks.Const assignments that sever reactive FromStore/FromDerived bindings

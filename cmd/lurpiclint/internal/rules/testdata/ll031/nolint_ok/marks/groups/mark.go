@@ -10,7 +10,7 @@ type groupCore struct {
 	Layout facet.LayoutRole
 }
 
-//nolint:LL031 // deliberate opt-out
+// nolint:LL031 // deliberate opt-out
 type GroupMark struct {
 	groupCore
 }

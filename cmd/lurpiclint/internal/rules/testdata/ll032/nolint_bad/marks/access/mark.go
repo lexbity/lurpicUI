@@ -1,6 +1,6 @@
 package mark
 
-//nolint:LL032 // todo
+// nolint:LL032 // todo
 type AccessMark struct{}
 
 func (m *AccessMark) AccessibilityRole() string {

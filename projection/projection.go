@@ -67,7 +67,7 @@ type HitRegion struct {
 	Placement   facet.PlacementMode
 	HitPolicy   facet.HitPolicy
 	ClipPolicy  facet.ClipPolicy
-	ZPriority   int32
+	ZOrder      int32
 }
 
 type ChildProjectionContext struct {
@@ -1093,7 +1093,7 @@ type hitEntry struct {
 	placement  facet.PlacementMode
 	hitPolicy  facet.HitPolicy
 	clipPolicy facet.ClipPolicy
-	zPriority  int32
+	zOrder     int32
 	clipRect   gfx.Rect
 	transform  gfx.Transform
 	regions    []HitRegion
@@ -1107,7 +1107,7 @@ type HitMapEntry struct {
 	Placement  facet.PlacementMode
 	HitPolicy  facet.HitPolicy
 	ClipPolicy facet.ClipPolicy
-	ZPriority  int32
+	ZOrder     int32
 	ClipRect   gfx.Rect
 	Transform  gfx.Transform
 	Regions    []HitRegion
@@ -1144,7 +1144,7 @@ func NewHitMap(entries ...HitMapEntry) *HitMap {
 			placement:  entry.Placement,
 			hitPolicy:  entry.HitPolicy,
 			clipPolicy: entry.ClipPolicy,
-			zPriority:  entry.ZPriority,
+			zOrder:     entry.ZOrder,
 			clipRect:   entry.ClipRect,
 			transform:  entry.Transform,
 			regions:    regions,
@@ -1182,7 +1182,7 @@ func (m *HitMap) Entries() []HitMapEntry {
 			Placement:  entry.placement,
 			HitPolicy:  entry.hitPolicy,
 			ClipPolicy: entry.clipPolicy,
-			ZPriority:  entry.zPriority,
+			ZOrder:     entry.zOrder,
 			ClipRect:   entry.clipRect,
 			Transform:  entry.transform,
 			Regions:    regions,

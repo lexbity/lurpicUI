@@ -396,7 +396,7 @@ type ArrangedGroupChild struct {
 	MarkID    MarkID
 	Bounds    gfx.Rect
 	Placement Placement
-	ZPriority int32
+	ZOrder    int32
 	Contract  GroupChildContract
 }
 
@@ -461,7 +461,10 @@ func (c GroupChildContract) Equals(o GroupChildContract) bool {
 type Attachment struct {
 	LayerID   LayerID
 	Placement Placement
-	ZPriority int32
+	ZOrder    int32
+	// Band names the z-tier for a layer-attached child (RX-1 Q4). Plain group
+	// children leave it at the zero value.
+	Band ZBand
 }
 
 // LayoutRole participates in measurement and arrangement inside the resolved layer contract.

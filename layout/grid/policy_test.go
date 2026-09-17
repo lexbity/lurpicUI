@@ -28,7 +28,7 @@ func newTestGridChild(id facet.FacetID, size gfx.Size, placement facet.Placement
 			Attachment: facet.Attachment{
 				LayerID:   facet.LayerID(1),
 				Placement: placement,
-				ZPriority: z,
+				ZOrder:    z,
 			},
 			Layout:   role,
 			Contract: role.Child,

@@ -225,7 +225,7 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 	s.RegisterRoles()
 	s.AddRole(&s.textRole)
 	surface := &splitButtonSurfaceChild{Facet: facet.NewFacet(), parent: s}
-	facet.AttachLayer(s, surface, facet.LayerAttachment{ZPriority: 50})
+	facet.AttachLayer(s, surface, facet.LayerAttachment{Band: facet.ZBandPopover})
 	s.surfaceChild = surface
 	return s
 }

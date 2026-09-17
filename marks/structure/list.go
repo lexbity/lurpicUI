@@ -472,7 +472,7 @@ func (p listGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}
@@ -480,8 +480,8 @@ func (p listGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []
 		if arranged[i].Placement.Linear.Order != arranged[j].Placement.Linear.Order {
 			return arranged[i].Placement.Linear.Order < arranged[j].Placement.Linear.Order
 		}
-		if arranged[i].ZPriority != arranged[j].ZPriority {
-			return arranged[i].ZPriority > arranged[j].ZPriority
+		if arranged[i].ZOrder != arranged[j].ZOrder {
+			return arranged[i].ZOrder > arranged[j].ZOrder
 		}
 		return arranged[i].FacetID < arranged[j].FacetID
 	})

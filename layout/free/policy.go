@@ -18,10 +18,10 @@ type Child struct {
 
 // ArrangedChild captures a child arranged by free placement.
 type ArrangedChild struct {
-	FacetID   facet.FacetID
-	Bounds    gfx.Rect
-	ZPriority int32
-	Contract  facet.GroupChildContract
+	FacetID  facet.FacetID
+	Bounds   gfx.Rect
+	ZOrder   int32
+	Contract facet.GroupChildContract
 }
 
 // Policy places children at explicit coordinates inside the parent bounds.
@@ -79,10 +79,10 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect, allowOverflow bool) 
 		}
 		child.Layout.Arrange(facet.ArrangeContext{Placement: child.Attachment.Placement}, rect)
 		arranged = append(arranged, ArrangedChild{
-			FacetID:   child.FacetID,
-			Bounds:    rect,
-			ZPriority: child.Attachment.ZPriority,
-			Contract:  child.Contract,
+			FacetID:  child.FacetID,
+			Bounds:   rect,
+			ZOrder:   child.Attachment.ZOrder,
+			Contract: child.Contract,
 		})
 	}
 	return arranged, nil
@@ -122,5 +122,5 @@ func clampToBounds(rect, bounds gfx.Rect) gfx.Rect {
 }
 
 func (a ArrangedChild) String() string {
-	return fmt.Sprintf("FacetID=%d Bounds=%v ZPriority=%d", a.FacetID, a.Bounds, a.ZPriority)
+	return fmt.Sprintf("FacetID=%d Bounds=%v ZOrder=%d", a.FacetID, a.Bounds, a.ZOrder)
 }

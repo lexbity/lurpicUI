@@ -1501,7 +1501,7 @@ func (p buttonGroupItemPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, child
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}
@@ -1602,7 +1602,7 @@ func (p buttonGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children 
 			MarkID:    children[i].MarkID,
 			Bounds:    rects[i],
 			Placement: children[i].Attachment.Placement,
-			ZPriority: children[i].Attachment.ZPriority,
+			ZOrder:    children[i].Attachment.ZOrder,
 			Contract:  children[i].Contract,
 		})
 	}

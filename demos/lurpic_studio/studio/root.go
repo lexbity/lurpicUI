@@ -126,11 +126,23 @@ func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *lay
 	}, dividerSize)
 
 	r.Facet = facet.NewFacet()
-	r.AddChild(r.chrome.Base())  //lurpiclint:ignore LL021 -- the shell hosts chrome as a regular child, not an overlay (LL021 over-fires on any field ref)
-	r.AddChild(r.gallery.Base()) //lurpiclint:ignore LL021 -- the shell hosts the gallery as a regular child, not an overlay (LL021 over-fires on any field ref)
-	r.AddChild(r.narrow.Base())  //lurpiclint:ignore LL021 -- the narrow overlay sub-tree is a Root child gated by the host (LL021 over-fires on overlays hosted as regular children)
-	r.AddChild(r.status.Base())  //lurpiclint:ignore LL021 -- the shell hosts the status bar as a regular child, not an overlay (LL021 over-fires on any field ref)
-	r.AddChild(r.palette.Base()) //lurpiclint:ignore LL021 -- the command palette self-mounts its layered surface; the Root hosts the palette facet itself (LL021 over-fires)
+	r.AddChild(r.chrome.Base())                            //lurpiclint:ignore LL021 -- the shell hosts chrome as a regular child, not an overlay (LL021 over-fires on any field ref)
+	r.AddChild(r.gallery.Base())                           //lurpiclint:ignore LL021 -- the shell hosts the gallery as a regular child, not an overlay (LL021 over-fires on any field ref)
+	r.AddChild(r.narrow.Base())                            //lurpiclint:ignore LL021 -- the narrow overlay sub-tree is a Root child gated by the host (LL021 over-fires on overlays hosted as regular children)
+	r.AddChild(r.status.Base())                            //lurpiclint:ignore LL021 -- the shell hosts the status bar as a regular child, not an overlay (LL021 over-fires on any field ref)
+	facet.AttachLayer(r, r.palette, facet.LayerAttachment{ //lurpiclint:ignore LL021 -- the command palette is a Modal-band layer mounted by the shell; the layer system owns its arrangement (RX-1 Q4)
+		Band: facet.ZBandModal,
+		// The palette's visibility is gated by the shell's CommandOpen store:
+		// an unmounted layer produces no measure, arrange, projection, or hit.
+		Mount: shell.CommandOpen,
+		// The modal recipe arranges the palette to the full window so the
+		// palette centers its surface within it.
+		Recipe: facet.LayerRecipeRef{Name: "modal"},
+		Dismissal: facet.DismissalScope{
+			Enabled:  true,
+			Triggers: facet.DismissalTriggerSetPointer | facet.DismissalTriggerSetKey,
+		},
+	})
 
 	r.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke linear group-parent host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {

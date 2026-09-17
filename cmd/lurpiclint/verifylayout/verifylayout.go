@@ -298,8 +298,8 @@ func isOverlay(f *facet.Facet) bool {
 		return false
 	}
 
-	// Check for non-zero layer ZPriority (set by facet.AttachLayer).
-	if f.LayerZPriority() > 0 {
+	// Check for a layer attachment (set by facet.AttachLayer).
+	if f.IsLayer() {
 		return true
 	}
 

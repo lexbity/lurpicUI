@@ -60,7 +60,7 @@ type ArrangedChild struct {
 	FacetID   facet.FacetID
 	Bounds    gfx.Rect
 	Placement Placement
-	ZPriority int32
+	ZOrder    int32
 	Contract  facet.GroupChildContract
 }
 

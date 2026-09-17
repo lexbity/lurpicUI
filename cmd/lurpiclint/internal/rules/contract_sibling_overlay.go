@@ -9,13 +9,13 @@ import (
 )
 
 // SiblingOverlay flags overlay types mounted as plain children via AddChild
-// without a layer attachment (facet.AttachLayer / ZPriority).
+// without a layer attachment (facet.AttachLayer / ZOrder).
 type SiblingOverlay struct{}
 
 func (r *SiblingOverlay) ID() string                     { return "LL021" }
 func (r *SiblingOverlay) DefaultSeverity() diag.Severity { return diag.SeverityError }
 func (r *SiblingOverlay) Description() string {
-	return "overlay mounted as a plain child without layer/ZPriority; use a layer attachment instead"
+	return "overlay mounted as a plain child without layer/ZOrder; use a layer attachment instead"
 }
 
 func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
@@ -86,10 +86,10 @@ func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 						RuleID:   r.ID(),
 						Severity: r.DefaultSeverity(),
 						Pos:      f.Fset.Position(call.Pos()),
-						Message:  "overlay mounted as a plain child without layer/ZPriority; use facet.AttachLayer with a ZPriority instead",
+						Message:  "overlay mounted as a plain child without layer/ZOrder; use facet.AttachLayer with a ZOrder instead",
 						Teach: diag.Teaching{
 							Did:      "attached an overlay as a sibling instead of a layered child",
-							UseThis:  "facet.AttachLayer with a ZPriority",
+							UseThis:  "facet.AttachLayer with a ZOrder",
 							IndexRef: "facet.AttachLayer",
 						},
 					})

@@ -80,7 +80,7 @@ type ArrangedChildSnapshot struct {
 	Placement     facet.PlacementMode
 	HitPolicy     facet.HitPolicy
 	ClipPolicy    facet.ClipPolicy
-	ZPriority     int32
+	ZOrder        int32
 	Bounds        gfx.Rect
 	ClipRect      gfx.Rect
 	Materialized  bool
@@ -132,7 +132,7 @@ type LayerHitTrace struct {
 	HitPolicy   layout.LayerHitPolicy
 	Placement   facet.PlacementMode
 	ClipPolicy  facet.ClipPolicy
-	ZPriority   int32
+	ZOrder      int32
 	Bounds      gfx.Rect
 	ClipRect    gfx.Rect
 	Transform   gfx.Transform
@@ -183,8 +183,8 @@ func (f LayerFrame) String() string {
 
 // String returns a human-readable description of one arranged child snapshot.
 func (s ArrangedChildSnapshot) String() string {
-	return fmt.Sprintf("FacetID=%d LayerID=%d WindowBinding=%q Placement=%d HitPolicy=%d ClipPolicy=%d ZPriority=%d Bounds=%v ClipRect=%v Materialized=%t",
-		s.FacetID, s.LayerID, s.WindowBinding, s.Placement, s.HitPolicy, s.ClipPolicy, s.ZPriority, s.Bounds, s.ClipRect, s.Materialized)
+	return fmt.Sprintf("FacetID=%d LayerID=%d WindowBinding=%q Placement=%d HitPolicy=%d ClipPolicy=%d ZOrder=%d Bounds=%v ClipRect=%v Materialized=%t",
+		s.FacetID, s.LayerID, s.WindowBinding, s.Placement, s.HitPolicy, s.ClipPolicy, s.ZOrder, s.Bounds, s.ClipRect, s.Materialized)
 }
 
 // String returns a human-readable anchor snapshot summary.
@@ -215,6 +215,6 @@ func (t HitTestTrace) String() string {
 
 // String returns a human-readable description of one tested layer.
 func (t LayerHitTrace) String() string {
-	return fmt.Sprintf("ParentID=%d LayerID=%d LayerOrder=%d CoordSpace=%d Bounds=%v ClipRect=%v Transform=%v RenderOrder=%d HitPolicy=%d Placement=%d ClipPolicy=%d ZPriority=%d Tested=%d HitFacetID=%d StoppedHere=%t",
-		t.ParentID, t.LayerID, t.LayerOrder, t.CoordSpace, t.Bounds, t.ClipRect, t.Transform, t.RenderOrder, t.HitPolicy, t.Placement, t.ClipPolicy, t.ZPriority, t.TestedCount, t.HitFacetID, t.StoppedHere)
+	return fmt.Sprintf("ParentID=%d LayerID=%d LayerOrder=%d CoordSpace=%d Bounds=%v ClipRect=%v Transform=%v RenderOrder=%d HitPolicy=%d Placement=%d ClipPolicy=%d ZOrder=%d Tested=%d HitFacetID=%d StoppedHere=%t",
+		t.ParentID, t.LayerID, t.LayerOrder, t.CoordSpace, t.Bounds, t.ClipRect, t.Transform, t.RenderOrder, t.HitPolicy, t.Placement, t.ClipPolicy, t.ZOrder, t.TestedCount, t.HitFacetID, t.StoppedHere)
 }

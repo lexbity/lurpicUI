@@ -19,8 +19,15 @@ func newResponsiveShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
 	}
-	root := NewRoot(ctx, nil, seedRows(t), nil)
-	harness := testkit.NewStandardHarness(t, w, h, root)
+	reg, err := StudioLayerRegistry()
+	if err != nil {
+		t.Fatalf("layer registry: %v", err)
+	}
+	root := NewRoot(ctx, nil, seedRows(t), reg)
+	cfg := testkit.StandardHarnessConfig(t, w, h)
+	cfg.LayerRegistry = reg
+	cfg.ThemeResolver = StudioThemeContext().Resolver
+	harness := testkit.NewHarness(t, cfg, root)
 	harness.RunFrame()
 	return root, harness
 }

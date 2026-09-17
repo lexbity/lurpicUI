@@ -20,17 +20,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
-type commandPaletteSurfaceChild struct {
-	facet.Facet
-	parent *CommandPalette
-}
-
-func (c *commandPaletteSurfaceChild) Base() *facet.Facet             { return &c.Facet }
-func (c *commandPaletteSurfaceChild) OnAttach(_ facet.AttachContext) {}
-func (c *commandPaletteSurfaceChild) OnDetach()                      {}
-func (c *commandPaletteSurfaceChild) OnActivate()                    {}
-func (c *commandPaletteSurfaceChild) OnDeactivate()                  {}
-
 const (
 	commandPaletteMarkIDRoot         facet.MarkID = 1
 	commandPaletteMarkIDBackdrop     facet.MarkID = 2
@@ -38,7 +27,6 @@ const (
 	commandPaletteMarkIDSearchField  facet.MarkID = 4
 	commandPaletteMarkIDResultsList  facet.MarkID = 5
 	commandPaletteMarkIDFocusRing    facet.MarkID = 6
-	commandPaletteMarkIDSurface      facet.MarkID = 7
 )
 
 // CommandPalette implements the action.command_palette standard mark.
@@ -83,9 +71,6 @@ type CommandPalette struct {
 	cachedRegistrySub      signal.SubscriptionID
 	cachedResultsSub       signal.SubscriptionID
 	cachedSearchKey        func(facet.KeyEvent) bool
-
-	surfaceChild  *commandPaletteSurfaceChild
-	surfaceLayout facet.LayoutRole
 }
 
 var _ facet.FacetImpl = (*CommandPalette)(nil)
@@ -210,9 +195,10 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 	p.textRole.IMEEnabled = false
 	p.RegisterRoles()
 	p.AddRole(&p.textRole)
-	surface := &commandPaletteSurfaceChild{Facet: facet.NewFacet(), parent: p}
-	facet.AttachLayer(p, surface, facet.LayerAttachment{ZPriority: 100})
-	p.surfaceChild = surface
+	// The palette mark itself is the layer surface (band Modal): the layer
+	// system arranges it with the modal recipe and gates it by Mount, and the
+	// mark projects its content inline (RX-1 Q4). The host (app shell) mounts
+	// it via AttachLayer with the shell's CommandOpen store as the Mount gate.
 	p.syncCommands()
 	p.syncChildren()
 	return p
@@ -245,14 +231,10 @@ func (p *CommandPalette) AccessibleName() string {
 
 // Children returns the facet's immediate child list.
 func (p *CommandPalette) Children() []facet.GroupChild {
-	if p == nil || !p.Open.Get() || p.surfaceChild == nil {
+	if p == nil || !p.Open.Get() {
 		return nil
 	}
-	out := []facet.GroupChild{{
-		FacetID: p.surfaceChild.Facet.ID(),
-		MarkID:  commandPaletteMarkIDSurface,
-		Layout:  &p.surfaceLayout,
-	}}
+	out := make([]facet.GroupChild, 0, 2)
 	if p.searchField != nil && p.searchField.Base() != nil && p.searchField.Base().LayoutRole() != nil {
 		out = append(out, commandPaletteGroupChild(p.searchField.Base(), commandPaletteMarkIDSearchField, 0))
 	}
@@ -266,8 +248,16 @@ func (p *CommandPalette) Children() []facet.GroupChild {
 func (p *CommandPalette) OnAttach(ctx facet.AttachContext) {
 	p.Core.OnAttach(ctx)
 	if p.Open != nil {
-		facet.Store(facet.Subscribe(p), &p.Open.OnChange, p.Open.Version, func(signal.Change[bool]) {
+		facet.Store(facet.Subscribe(p), &p.Open.OnChange, p.Open.Version, func(c signal.Change[bool]) {
 			p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			// A modal surface must take keyboard focus when it mounts so
+			// Escape and typing route to it (RX-1 Q4 visibility + the palette's
+			// own onKey/onDismiss handlers).
+			if c.New {
+				if fs, ok := ctx.Runtime.(interface{ SetFocus(facet.FacetImpl) }); ok {
+					fs.SetFocus(p)
+				}
+			}
 		})
 	}
 	p.syncCommands()
@@ -841,18 +831,12 @@ func (p commandPaletteGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, c
 	p.palette.arrange(ctx.ArrangeContext, ctx.Bounds)
 	arranged := make([]facet.ArrangedGroupChild, 0, len(children))
 	for _, child := range children {
-		// The palette surface is a full-window layer, not a group-arranged
-		// child; it appears in the GroupChild list to satisfy the
-		// every-facet-child-matched contract but is skipped here.
-		if child.Layout == nil || child.MarkID == commandPaletteMarkIDSurface {
-			continue
-		}
 		arranged = append(arranged, facet.ArrangedGroupChild{
 			FacetID:   child.FacetID,
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

@@ -24,14 +24,17 @@ func (p *layerTestParent) OnDetach()                {}
 func (p *layerTestParent) OnActivate()              {}
 func (p *layerTestParent) OnDeactivate()            {}
 
-func TestAttachLayerRecordsZPriority(t *testing.T) {
+func TestAttachLayerRecordsBand(t *testing.T) {
 	parent := &layerTestParent{Facet: NewFacet()}
 	child := &layerTestChild{Facet: NewFacet()}
 
-	AttachLayer(parent, child, LayerAttachment{ZPriority: 10})
+	AttachLayer(parent, child, LayerAttachment{Band: ZBandModal})
 
-	if got := child.Base().LayerZPriority(); got != 10 {
-		t.Fatalf("LayerZPriority = %d, want 10", got)
+	if !child.Base().IsLayer() {
+		t.Fatal("AttachLayer did not mark the child as a layer")
+	}
+	if got := child.Base().LayerAttachment().Band; got != ZBandModal {
+		t.Fatalf("layer band = %v, want ZBandModal", got)
 	}
 	children := parent.Base().Children()
 	if len(children) != 1 || children[0] != child.Base() {
@@ -39,15 +42,15 @@ func TestAttachLayerRecordsZPriority(t *testing.T) {
 	}
 }
 
-func TestAttachLayerPanicsOnZeroPriority(t *testing.T) {
+func TestAttachLayerPanicsOnInvalidBand(t *testing.T) {
 	defer func() {
 		if r := recover(); r == nil {
-			t.Fatal("expected panic for ZPriority == 0")
+			t.Fatal("expected panic for invalid band")
 		}
 	}()
 	parent := &layerTestParent{Facet: NewFacet()}
 	child := &layerTestChild{Facet: NewFacet()}
-	AttachLayer(parent, child, LayerAttachment{ZPriority: 0})
+	AttachLayer(parent, child, LayerAttachment{Band: 99})
 }
 
 func TestAttachLayerMultipleChildren(t *testing.T) {
@@ -55,14 +58,14 @@ func TestAttachLayerMultipleChildren(t *testing.T) {
 	child1 := &layerTestChild{Facet: NewFacet()}
 	child2 := &layerTestChild{Facet: NewFacet()}
 
-	AttachLayer(parent, child1, LayerAttachment{ZPriority: 5})
-	AttachLayer(parent, child2, LayerAttachment{ZPriority: 10})
+	AttachLayer(parent, child1, LayerAttachment{Band: ZBandContent})
+	AttachLayer(parent, child2, LayerAttachment{Band: ZBandModal})
 
-	if got := child1.Base().LayerZPriority(); got != 5 {
-		t.Fatalf("child1 LayerZPriority = %d, want 5", got)
+	if got := child1.Base().LayerAttachment().Band; got != ZBandContent {
+		t.Fatalf("child1 band = %v, want ZBandContent", got)
 	}
-	if got := child2.Base().LayerZPriority(); got != 10 {
-		t.Fatalf("child2 LayerZPriority = %d, want 10", got)
+	if got := child2.Base().LayerAttachment().Band; got != ZBandModal {
+		t.Fatalf("child2 band = %v, want ZBandModal", got)
 	}
 	children := parent.Base().Children()
 	if len(children) != 2 {

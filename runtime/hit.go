@@ -133,10 +133,10 @@ func (rt *Runtime) layeredHitMap(hitMap *projection.HitMap) *projection.HitMap {
 				order = int(desc.Order)
 			}
 		}
-		z := int(entry.ZPriority)
+		z := int(entry.ZOrder)
 		if z == 0 {
 			if attachment, ok := rt.childAttachments[entry.FacetID]; ok {
-				z = int(attachment.ZPriority)
+				z = int(attachment.ZOrder)
 			}
 		}
 		layer, ok := rt.projectionLayers[entry.FacetID]
@@ -149,11 +149,11 @@ func (rt *Runtime) layeredHitMap(hitMap *projection.HitMap) *projection.HitMap {
 		if attachment, ok := rt.childAttachments[entry.FacetID]; ok {
 			entry.Placement = attachment.Placement.Mode
 			if z == 0 {
-				z = int(attachment.ZPriority)
+				z = int(attachment.ZOrder)
 			}
 		}
 		entry.LayerOrder = order
-		entry.ZPriority = int32(z) //nolint:gosec // integer overflow conversion
+		entry.ZOrder = int32(z) //nolint:gosec // integer overflow conversion
 		items = append(items, hitLayerEntry{entry: entry, order: order, z: z})
 	}
 	sort.SliceStable(items, func(i, j int) bool {
@@ -228,7 +228,7 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 					Transform:   layerTransform,
 					Placement:   entry.Placement,
 					ClipPolicy:  entry.ClipPolicy,
-					ZPriority:   entry.ZPriority,
+					ZOrder:      entry.ZOrder,
 					TestedCount: 0,
 					StoppedHere: policy == layout.HitBlockBelow,
 				}
@@ -265,7 +265,7 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 			Transform:   layerTransform,
 			Placement:   entry.Placement,
 			ClipPolicy:  entry.ClipPolicy,
-			ZPriority:   entry.ZPriority,
+			ZOrder:      entry.ZOrder,
 			TestedCount: tested,
 		}
 		if !hit {

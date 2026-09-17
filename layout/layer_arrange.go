@@ -53,7 +53,7 @@ func arrangeGridLayer(ctx LayerArrangeContext, recipe ResolvedLayerLayoutRecipe,
 			MarkID:    0,
 			Bounds:    arranged[i].Bounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: arranged[i].ZPriority,
+			ZOrder:    arranged[i].ZOrder,
 			Contract:  child.Descriptor,
 		})
 	}
@@ -82,7 +82,7 @@ func arrangeAnchorLayer(ctx LayerArrangeContext, recipe ResolvedLayerLayoutRecip
 			MarkID:    0,
 			Bounds:    arranged[i].Bounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: arranged[i].ZPriority,
+			ZOrder:    arranged[i].ZOrder,
 			Contract:  child.Descriptor,
 		})
 	}
@@ -113,7 +113,7 @@ func arrangeFreeLayer(ctx LayerArrangeContext, recipe ResolvedLayerLayoutRecipe,
 			MarkID:    0,
 			Bounds:    arranged[i].Bounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: arranged[i].ZPriority,
+			ZOrder:    arranged[i].ZOrder,
 			Contract:  child.Descriptor,
 		})
 	}

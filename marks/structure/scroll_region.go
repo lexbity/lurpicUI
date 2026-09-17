@@ -38,7 +38,7 @@ type ScrollRegionChild struct {
 	Facet     facet.FacetImpl
 	MarkID    facet.MarkID
 	Placement facet.Placement
-	ZPriority int32
+	ZOrder    int32
 }
 
 // ScrollRegion implements the structure.scroll_region canonical mark.
@@ -697,7 +697,7 @@ func (sr *ScrollRegion) groupChild(spec ScrollRegionChild) facet.GroupChild {
 		MarkID:  spec.MarkID,
 		Attachment: facet.Attachment{
 			Placement: spec.Placement,
-			ZPriority: spec.ZPriority,
+			ZOrder:    spec.ZOrder,
 		},
 		Layout:   base.LayoutRole(),
 		Contract: base.LayoutRole().Child,
@@ -893,7 +893,7 @@ func (p scrollRegionGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, chi
 			MarkID:    child.MarkID,
 			Bounds:    p.region.childBoundsForProjection(child.FacetID),
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

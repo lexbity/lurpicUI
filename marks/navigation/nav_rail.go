@@ -835,7 +835,7 @@ func (p navRailGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children
 			MarkID:    child.MarkID,
 			Bounds:    rect,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 		y += rect.Height()
@@ -889,8 +889,8 @@ func orderedNavRailChildren(children []facet.GroupChild) []int {
 		if left.Attachment.Placement.Linear.Order != right.Attachment.Placement.Linear.Order {
 			return left.Attachment.Placement.Linear.Order < right.Attachment.Placement.Linear.Order
 		}
-		if left.Attachment.ZPriority != right.Attachment.ZPriority {
-			return left.Attachment.ZPriority > right.Attachment.ZPriority
+		if left.Attachment.ZOrder != right.Attachment.ZOrder {
+			return left.Attachment.ZOrder > right.Attachment.ZOrder
 		}
 		return false
 	})

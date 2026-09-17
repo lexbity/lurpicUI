@@ -351,6 +351,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 	type layerGroup struct {
 		desc     layout.LayerDescriptor
 		children []layout.LayerChild
+		band     facet.ZBand
 	}
 	groupMap := make(map[facet.LayerID]*layerGroup)
 	ordered := make([]facet.LayerID, 0)
@@ -358,16 +359,51 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		if childBase == nil {
 			continue
 		}
+		att := childBase.LayerAttachment()
 		attachment, ok := rt.childAttachments[childBase.ID()]
-		if !ok {
-			if z := childBase.LayerZPriority(); z > 0 {
-				attachment = facet.Attachment{ZPriority: z}
-				rt.childAttachments[childBase.ID()] = attachment
-				ok = true
-			}
-		}
-		if !ok || attachment.LayerID == 0 {
+		// A child is a layer when it was AttachLayer'd (band contract) or the
+		// host pinned a LayerID via AddFacet/UpdateChildAttachment.
+		isLayer := childBase.IsLayer()
+		if !isLayer && (!ok || attachment.LayerID == 0) {
 			continue
+		}
+		if isLayer && att.Mount != nil && !att.Mount.Get() {
+			// Unmounted: clear the child's arranged bounds so its projection is
+			// gated and it registers no hit (RX-1 Q4 visibility by mount state).
+			if role := childBase.LayoutRole(); role != nil {
+				role.Arrange(facet.ArrangeContext{
+					Runtime: rt,
+					Theme:   rt.themeContext(parentBounds),
+				}, gfx.Rect{})
+			}
+			continue
+		}
+		// Resolve the registry layer ID: a pinned attachment (the host set a
+		// LayerID) wins; otherwise the band maps to a standard layer.
+		if !ok || attachment.LayerID == 0 {
+			// A band-mapped layer must be content-bearing (it has a layout role);
+			// inert placeholder surfaces (the marks' bare surfaceChild facets) stay
+			// unresolved as before — resolving them changes projection state and
+			// breaks the revisit-byte-identical contract (RX-1 AC-1).
+			if childBase.LayoutRole() == nil {
+				continue
+			}
+			lid, mapped := standardLayerIDForBand(att.Band)
+			if !mapped {
+				continue
+			}
+			attachment = facet.Attachment{Placement: attachment.Placement}
+			attachment.LayerID = lid
+			attachment.ZOrder = att.Order
+			attachment.Band = att.Band
+			rt.childAttachments[childBase.ID()] = attachment
+		}
+		band := attachment.Band
+		if band == 0 && isLayer {
+			band = att.Band
+		}
+		if band == 0 {
+			band = facet.ZBandContent
 		}
 		desc, ok := rt.layerRegistry.Lookup(layout.LayerID(attachment.LayerID))
 		if !ok {
@@ -376,7 +412,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		layerID := facet.LayerID(desc.ID)
 		group := groupMap[layerID]
 		if group == nil {
-			group = &layerGroup{desc: desc}
+			group = &layerGroup{desc: desc, band: band}
 			groupMap[layerID] = group
 			ordered = append(ordered, layerID)
 		}
@@ -395,13 +431,18 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 	if len(ordered) == 0 {
 		return layoutPhaseStats{}
 	}
+	// Layers paint in band order (RX-1 Q4 named z-bands); the registry order
+	// and layer id break ties within a band.
 	sort.SliceStable(ordered, func(i, j int) bool {
-		left, _ := rt.layerRegistry.Lookup(layout.LayerID(ordered[i]))
-		right, _ := rt.layerRegistry.Lookup(layout.LayerID(ordered[j]))
-		if left.Order != right.Order {
-			return left.Order < right.Order
+		left := groupMap[ordered[i]]
+		right := groupMap[ordered[j]]
+		if left.band != right.band {
+			return left.band < right.band
 		}
-		return left.ID < right.ID
+		if left.desc.Order != right.desc.Order {
+			return left.desc.Order < right.desc.Order
+		}
+		return left.desc.ID < right.desc.ID
 	})
 	// F-inactive-layer-child: a host gated to empty bounds (its own
 	// ArrangedBounds is empty) must keep every layer-attached child inert.
@@ -442,6 +483,9 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		}
 		recipeStart := time.Now()
 		recipe := rt.resolveLayerRecipe(group.desc, parentBounds)
+		if override := groupRecipeOverride(rt, group.children); override != nil {
+			recipe = *override
+		}
 		policy := layout.ResolveLayerLayoutPolicy(recipe)
 		stats.specResolution += time.Since(recipeStart)
 		layerCtx := facet.LayerContext{
@@ -550,6 +594,29 @@ func findLayerChild(children []layout.LayerChild, id facet.FacetID) (layout.Laye
 	return layout.LayerChild{}, false
 }
 
+// standardLayerIDForBand maps a facet ZBand to a standard registry layer ID.
+// The band's position in the enum gives the paint order; the registry layer
+// provides the descriptor (hit policy, clip, recipe). Layers that resolve to
+// the same band share the same tier.
+func standardLayerIDForBand(band facet.ZBand) (facet.LayerID, bool) {
+	switch band {
+	case facet.ZBandBase:
+		return facet.LayerID(layout.StandardLayerIDBase), true
+	case facet.ZBandContent:
+		return facet.LayerID(layout.StandardLayerIDForeground), true
+	case facet.ZBandPopover:
+		return facet.LayerID(layout.StandardLayerIDFloating), true
+	case facet.ZBandModal:
+		return facet.LayerID(layout.StandardLayerIDModal), true
+	case facet.ZBandTooltip:
+		return facet.LayerID(layout.StandardLayerIDOverlay), true
+	case facet.ZBandToast:
+		return facet.LayerID(layout.StandardLayerIDStatus), true
+	default:
+		return 0, false
+	}
+}
+
 func (rt *Runtime) themeContext(parentBounds gfx.Rect) theme.ResolvedContext {
 	ctx := theme.DefaultResolvedContext()
 	if rt != nil && rt.config.ThemeResolver != nil {
@@ -570,6 +637,34 @@ func (rt *Runtime) resolveLayerRecipe(desc layout.LayerDescriptor, parentBounds 
 		}
 	}
 	return layout.DefaultLayerLayoutRecipe()
+}
+
+// groupRecipeOverride resolves a layer-attachment recipe override for the
+// group's children. A child that declares Recipe.Name == "modal" is arranged
+// by the modal recipe: a single cell that fills the parent so the child
+// centers itself within it (RX-1 Q4; the command palette's centered surface is
+// the canonical consumer).
+func groupRecipeOverride(rt *Runtime, children []layout.LayerChild) *layout.ResolvedLayerLayoutRecipe {
+	if rt == nil || len(children) == 0 {
+		return nil
+	}
+	for _, child := range children {
+		att := child.Attachment
+		if att.Band != facet.ZBandModal {
+			continue
+		}
+		impl := rt.findFacetByID(rt.root, child.FacetID)
+		if impl == nil || impl.Base() == nil {
+			continue
+		}
+		if impl.Base().LayerAttachment().Recipe.Name == "modal" {
+			modal := layout.DefaultLayerLayoutRecipe()
+			modal.Grid = layout.ResolvedGridConfig{Columns: 1, Rows: 1}
+			modal.PolicyKind = layout.LayerLayoutGrid
+			return &modal
+		}
+	}
+	return nil
 }
 
 func (rt *Runtime) resolveLayerFrame(parentBounds gfx.Rect, desc layout.LayerDescriptor, recipe layout.ResolvedLayerLayoutRecipe, accumulated gfx.Transform) facet.ProjectionLayer {
@@ -766,7 +861,7 @@ func (rt *Runtime) LayerSnapshots(parent facet.FacetID) []diagnostics.LayerSnaps
 				Placement:     grandAttachment.Placement.Mode,
 				HitPolicy:     facet.HitPolicy(grandLayer.HitPolicy),
 				ClipPolicy:    grandLayer.ClipPolicy,
-				ZPriority:     grandAttachment.ZPriority,
+				ZOrder:        grandAttachment.ZOrder,
 				Bounds:        grandLayer.Bounds,
 				ClipRect:      grandLayer.ClipRect,
 				Materialized:  grandLayer.LayerID != 0,

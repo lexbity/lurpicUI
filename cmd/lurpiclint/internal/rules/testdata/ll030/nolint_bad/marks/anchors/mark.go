@@ -1,6 +1,6 @@
 package mark
 
-//nolint:LL030 // todo
+// nolint:LL030 // todo
 type AnchorMark struct{}
 
 func (m *AnchorMark) ExportAnchors(ctx interface{}) interface{} {

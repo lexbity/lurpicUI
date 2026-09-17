@@ -25,7 +25,7 @@ type ArrangedChild struct {
 	FacetID   facet.FacetID
 	Bounds    gfx.Rect
 	Placement facet.AnchorPlacement
-	ZPriority int32
+	ZOrder    int32
 	Contract  facet.GroupChildContract
 }
 
@@ -80,7 +80,7 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect, cache Cache, allowOv
 			FacetID:   child.FacetID,
 			Bounds:    rect,
 			Placement: child.Attachment.Placement.Anchor,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

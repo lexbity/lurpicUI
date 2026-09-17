@@ -242,7 +242,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 	m.RegisterRoles()
 	m.AddRole(&m.textRole)
 	surface := &menuButtonSurfaceChild{Facet: facet.NewFacet(), parent: m}
-	facet.AttachLayer(m, surface, facet.LayerAttachment{ZPriority: 50})
+	facet.AttachLayer(m, surface, facet.LayerAttachment{Band: facet.ZBandPopover})
 	m.surfaceChild = surface
 	return m
 }

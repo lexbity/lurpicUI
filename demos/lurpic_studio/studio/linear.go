@@ -152,7 +152,7 @@ func (p groupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children []face
 			MarkID:    child.MarkID,
 			Bounds:    child.Layout.ArrangedBounds,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

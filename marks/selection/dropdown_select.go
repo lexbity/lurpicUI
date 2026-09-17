@@ -19,7 +19,7 @@ import (
 )
 
 // listboxChild is a lightweight facet that acts as a marker child for the
-// dropdown option surface, carrying ZPriority for layer ordering.
+// dropdown option surface, carrying ZOrder for layer ordering.
 type listboxChild struct {
 	facet.Facet
 	parent *DropdownSelect
@@ -157,7 +157,7 @@ func NewDropdownSelect(label string, options []DropdownOption, value *store.Valu
 	ds.textRole.IMEEnabled = false
 
 	ds.listboxFacet = &listboxChild{Facet: facet.NewFacet(), parent: ds}
-	facet.AttachLayer(ds, ds.listboxFacet, facet.LayerAttachment{ZPriority: 10})
+	facet.AttachLayer(ds, ds.listboxFacet, facet.LayerAttachment{Band: facet.ZBandContent})
 
 	ds.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return ds.buildCommands(ds.Layout.ArrangedBounds, ctx.Runtime)

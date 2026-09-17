@@ -183,7 +183,7 @@ func TestInspector_describe_includes_layers_and_anchors(t *testing.T) {
 					Placement:     facet.PlacementFree,
 					HitPolicy:     facet.HitNormal,
 					ClipPolicy:    facet.ClipToParent,
-					ZPriority:     1,
+					ZOrder:        1,
 					Bounds:        gfx.RectFromXYWH(5, 6, 7, 8),
 					ClipRect:      gfx.RectFromXYWH(5, 6, 7, 8),
 					Materialized:  true,
@@ -257,7 +257,7 @@ func TestHitProbe_at_returns_all_RenderBatchs(t *testing.T) {
 			Placement:  facet.PlacementFree,
 			HitPolicy:  facet.HitPassThrough,
 			ClipPolicy: facet.ClipToParent,
-			ZPriority:  7,
+			ZOrder:     7,
 			Transform:  gfx.Identity(),
 			ClipRect:   gfx.RectFromXYWH(0, 0, 50, 50),
 			Regions: []projection.HitRegion{{
@@ -285,7 +285,7 @@ func TestHitProbe_at_returns_all_RenderBatchs(t *testing.T) {
 	if !got[0].PassThrough || got[0].FacetID != root.ID() || got[1].FacetID != child.ID() {
 		t.Fatalf("hits order = %#v", got)
 	}
-	if got[0].LayerID != 9 || got[0].LayerOrder != 9000 || got[0].Placement != facet.PlacementFree || got[0].HitPolicy != facet.HitPassThrough || got[0].ClipPolicy != facet.ClipToParent || got[0].ZPriority != 7 || got[0].EffectiveClip != (gfx.RectFromXYWH(0, 0, 50, 50)) {
+	if got[0].LayerID != 9 || got[0].LayerOrder != 9000 || got[0].Placement != facet.PlacementFree || got[0].HitPolicy != facet.HitPassThrough || got[0].ClipPolicy != facet.ClipToParent || got[0].ZOrder != 7 || got[0].EffectiveClip != (gfx.RectFromXYWH(0, 0, 50, 50)) {
 		t.Fatalf("metadata = %#v", got[0])
 	}
 }

@@ -1,6 +1,6 @@
 package mark
 
-//nolint:LL029 // deliberate opt-out
+// nolint:LL029 // deliberate opt-out
 type DataMark struct{}
 
 func (m *DataMark) BoundData() any {

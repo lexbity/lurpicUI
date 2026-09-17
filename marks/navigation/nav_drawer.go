@@ -176,7 +176,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 	}
 	d.RegisterRoles()
 	surface := &navDrawerSurfaceChild{Facet: facet.NewFacet(), parent: d}
-	facet.AttachLayer(d, surface, facet.LayerAttachment{ZPriority: 50})
+	facet.AttachLayer(d, surface, facet.LayerAttachment{Band: facet.ZBandPopover})
 	d.surfaceChild = surface
 	return d
 }
@@ -1263,7 +1263,7 @@ func (p navDrawerGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, childr
 			MarkID:    child.MarkID,
 			Bounds:    rect,
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 		y += rect.Height()
@@ -1285,8 +1285,8 @@ func orderedNavDrawerChildren(children []facet.GroupChild) []int {
 		if left.Attachment.Placement.Linear.Order != right.Attachment.Placement.Linear.Order {
 			return left.Attachment.Placement.Linear.Order < right.Attachment.Placement.Linear.Order
 		}
-		if left.Attachment.ZPriority != right.Attachment.ZPriority {
-			return left.Attachment.ZPriority > right.Attachment.ZPriority
+		if left.Attachment.ZOrder != right.Attachment.ZOrder {
+			return left.Attachment.ZOrder > right.Attachment.ZOrder
 		}
 		return false
 	})

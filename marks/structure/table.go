@@ -61,7 +61,7 @@ type tableChildSpec struct {
 	Facet     facet.FacetImpl
 	MarkID    facet.MarkID
 	Placement facet.Placement
-	ZPriority int32
+	ZOrder    int32
 	Key       string
 }
 
@@ -439,7 +439,7 @@ func (t *Table) syncChildren() {
 				Facet:     indicator,
 				MarkID:    tableMarkIDSortIndicator,
 				Placement: tableSortIndicatorPlacement(colIndex+selectionOffset, 0),
-				ZPriority: 1,
+				ZOrder:    1,
 				Key:       "sort:" + key,
 			})
 		}
@@ -1017,7 +1017,7 @@ func (t *Table) groupChild(spec tableChildSpec) facet.GroupChild {
 		MarkID:  spec.MarkID,
 		Attachment: facet.Attachment{
 			Placement: spec.Placement,
-			ZPriority: spec.ZPriority,
+			ZOrder:    spec.ZOrder,
 		},
 		Layout:   base.LayoutRole(),
 		Contract: base.LayoutRole().Child,
@@ -1463,7 +1463,7 @@ func (p tableGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children [
 			MarkID:    child.MarkID,
 			Bounds:    p.table.cachedCellBounds[child.FacetID],
 			Placement: child.Attachment.Placement,
-			ZPriority: child.Attachment.ZPriority,
+			ZOrder:    child.Attachment.ZOrder,
 			Contract:  child.Contract,
 		})
 	}

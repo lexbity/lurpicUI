@@ -12,8 +12,8 @@ func newChild() *Child { return &Child{Facet: facet.NewFacet()} }
 
 type SourcesPanel struct {
 	facet.Facet
-	col     *layout.ColumnLayout
-	scroll  *structure.ScrollRegion
+	col    *layout.ColumnLayout
+	scroll *structure.ScrollRegion
 }
 
 func newSourcesPanel() *SourcesPanel {

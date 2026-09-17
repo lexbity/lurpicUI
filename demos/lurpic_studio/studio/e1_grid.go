@@ -47,6 +47,11 @@ type EditableGrid struct {
 	invalid   *store.ValueStore[string]
 	editor    *input.TextField
 	alert     *feedback.Alert
+	// editorMount / alertMount gate the editor and alert layers: they are
+	// mounted only while an edit session is active / an invalid message shows
+	// (RX-1 Q4 visibility by mount state).
+	editorMount *store.ValueStore[bool]
+	alertMount  *store.ValueStore[bool]
 
 	scroll int // first visible row index
 
@@ -87,8 +92,10 @@ func NewEditableGrid(rows *store.CollectionStore[dataset.Row], fonts *text.FontR
 	g.editor = input.NewTextField("Cell", uiinput.TextInputOutlined, g.cellValue)
 	g.alert = feedback.NewAlert("Invalid value", "")
 	g.alert.Message = marks.FromStore(g.invalid, facet.DirtyLayout|facet.DirtyProjection)
-	facet.AttachLayer(g, g.editor, facet.LayerAttachment{ZPriority: 30})
-	facet.AttachLayer(g, g.alert, facet.LayerAttachment{ZPriority: 20})
+	g.editorMount = store.NewValueStore(false)
+	g.alertMount = store.NewValueStore(false)
+	facet.AttachLayer(g, g.editor, facet.LayerAttachment{Band: facet.ZBandContent, Mount: g.editorMount})
+	facet.AttachLayer(g, g.alert, facet.LayerAttachment{Band: facet.ZBandPopover, Mount: g.alertMount})
 
 	g.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke spreadsheet grid host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -266,6 +273,7 @@ func (g *EditableGrid) activateEdit(bounds gfx.Rect, id store.ItemID) {
 	g.cellValue.Set(strconv.FormatFloat(row.Value, 'f', 1, 64))
 	g.invalid.Set("")
 	g.editing = true
+	g.editorMount.Set(true)
 	if fs, ok := g.rt.(interface{ SetFocus(facet.FacetImpl) }); ok {
 		fs.SetFocus(g.editor)
 	}
@@ -274,7 +282,9 @@ func (g *EditableGrid) activateEdit(bounds gfx.Rect, id store.ItemID) {
 
 func (g *EditableGrid) cancelEdit() {
 	g.editing = false
+	g.editorMount.Set(false)
 	g.invalid.Set("")
+	g.alertMount.Set(false)
 }
 
 func (g *EditableGrid) onKey(e facet.KeyEvent) bool {
@@ -316,12 +326,15 @@ func (g *EditableGrid) commitEdit() bool {
 	value, err := strconv.ParseFloat(strings.TrimSpace(g.cellValue.Get()), 64)
 	if err != nil {
 		g.invalid.Set("Value must be a number: " + strings.TrimSpace(g.cellValue.Get()))
+		g.alertMount.Set(true)
 		return false
 	}
 	row.Value = value
 	g.rows.Update(row) // runtime thread — CollectionStore asserts it
 	g.invalid.Set("")
+	g.alertMount.Set(false)
 	g.editing = false
+	g.editorMount.Set(false)
 	return true
 }
 
