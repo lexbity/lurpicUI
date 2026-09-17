@@ -84,8 +84,9 @@ type Runtime struct {
 	shutdownCh chan struct{}
 	doneCh     chan struct{}
 
-	lastStats diagnostics.FrameStats
-	log       log.Logger
+	lastStats         diagnostics.FrameStats
+	lastDirtySnapshot map[facet.FacetID]facet.DirtyFlags
+	log               log.Logger
 
 	startOnce  sync.Once
 	shutdownMu sync.Mutex

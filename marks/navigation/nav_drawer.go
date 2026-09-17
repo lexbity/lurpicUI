@@ -293,7 +293,7 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 
 // OnAttach is unused beyond layout role setup.
 func (d *NavDrawer) OnAttach(ctx facet.AttachContext) {
-	d.Core.OnAttach()
+	d.Core.OnAttach(ctx)
 	if d.Open != nil {
 		facet.Store(facet.Subscribe(d), &d.Open.OnChange, d.Open.Version, func(signal.Change[bool]) {
 			d.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)

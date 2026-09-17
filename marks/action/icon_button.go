@@ -189,7 +189,7 @@ func (i *IconButton) ExportAnchors(ctx layout.AnchorExportContext) layout.Anchor
 	return i.DefaultAnchors(bounds, ctx)
 }
 
-func (i *IconButton) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach() }
+func (i *IconButton) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach(ctx) }
 func (i *IconButton) OnActivate()                      { i.Core.OnActivate() }
 func (i *IconButton) OnDeactivate()                    { i.Core.OnDeactivate() }
 func (i *IconButton) OnDetach() {

@@ -224,7 +224,7 @@ func (ds *DropdownSelect) Children() []facet.GroupChild {
 
 // OnAttach wires store invalidation for the bound value store.
 func (ds *DropdownSelect) OnAttach(ctx facet.AttachContext) {
-	ds.Core.OnAttach()
+	ds.Core.OnAttach(ctx)
 	if ds.Value == nil {
 		return
 	}

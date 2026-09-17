@@ -128,7 +128,7 @@ func (s *StatusLight) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 }
 
 // OnAttach subscribes to any attached store.
-func (s *StatusLight) OnAttach(ctx facet.AttachContext) { s.Core.OnAttach() }
+func (s *StatusLight) OnAttach(ctx facet.AttachContext) { s.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (s *StatusLight) OnActivate() { s.Core.OnActivate() }

@@ -256,7 +256,7 @@ func (a *ActionBar) Children() []facet.GroupChild {
 }
 
 // OnAttach subscribes binding sources.
-func (a *ActionBar) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach() }
+func (a *ActionBar) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (a *ActionBar) OnActivate() { a.Core.OnActivate() }

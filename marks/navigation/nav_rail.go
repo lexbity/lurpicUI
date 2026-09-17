@@ -241,7 +241,7 @@ func (r *NavRail) Children() []facet.GroupChild {
 
 // OnAttach is unused beyond layout role setup.
 func (r *NavRail) OnAttach(ctx facet.AttachContext) {
-	r.Core.OnAttach()
+	r.Core.OnAttach(ctx)
 	if r.ActiveIndex != nil {
 		facet.Store(facet.Subscribe(r), &r.ActiveIndex.OnChange, r.ActiveIndex.Version, func(signal.Change[int]) {
 			r.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)

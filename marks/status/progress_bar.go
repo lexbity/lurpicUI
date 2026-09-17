@@ -135,7 +135,7 @@ func (p *ProgressBar) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 }
 
 // OnAttach is unused.
-func (p *ProgressBar) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
+func (p *ProgressBar) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (p *ProgressBar) OnActivate() { p.Core.OnActivate() }

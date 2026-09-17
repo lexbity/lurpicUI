@@ -36,12 +36,11 @@ func currentCallbackRecoveryHook() CallbackRecoveryHook {
 	return callbackRecoveryHook
 }
 
-// runFocusRecovered invokes a focus callback under the installed recovery
-// hook. With no hook installed (isolated facet tests) the callback runs
-// directly, preserving today's behavior. Focus callbacks return no value, so
-// the hook's bool result is not propagated — a quarantined facet simply does
-// not fire its focus callback.
-func runFocusRecovered(role string, id FacetID, cb func()) {
+// RunRecovered invokes a facet callback under the installed recovery hook. With
+// no hook installed (isolated facet tests) the callback runs directly,
+// preserving today's behavior. The hook decides whether a panicking callback
+// quarantines the facet; RunRecovered does not propagate the hook's boolean.
+func RunRecovered(role string, id FacetID, cb func()) {
 	h := currentCallbackRecoveryHook()
 	if h == nil {
 		cb()

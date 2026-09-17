@@ -223,7 +223,7 @@ func (sr *ScrollRegion) Children() []facet.GroupChild {
 	return out
 }
 
-func (sr *ScrollRegion) OnAttach(ctx facet.AttachContext) { sr.Core.OnAttach() }
+func (sr *ScrollRegion) OnAttach(ctx facet.AttachContext) { sr.Core.OnAttach(ctx) }
 func (sr *ScrollRegion) OnActivate()                      { sr.Core.OnActivate() }
 func (sr *ScrollRegion) OnDeactivate()                    { sr.Core.OnDeactivate() }
 

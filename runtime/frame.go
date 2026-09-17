@@ -94,6 +94,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	// frame, but this snapshot must stay stable for the current frame's layout,
 	// projection, and dirty-region assembly.
 	dirtySnapshot := rt.copyDirtyFacets()
+	rt.lastDirtySnapshot = dirtySnapshot
 	stats.DirtyFacets = len(dirtySnapshot)
 	stats.PoisonedFacets = rt.PoisonedCount()
 	// F-dirtysources: an opt-in DiagnosticsHook may observe the frame's dirty
@@ -139,6 +140,8 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.ProjectDuration = time.Since(projStart)
 	stats.ProjectedFacets = rt.projectionSystem.ProjectedFacets
 	stats.CacheHits = rt.projectionSystem.CacheHits
+	stats.ProjectionEmptyBoundsSkips = rt.projectionSystem.EmptyBoundsSkips
+	stats.ProjectionCacheMissesByBounds = rt.projectionSystem.CacheMissesByBounds
 	if frameOut != nil {
 		stats.RenderBatchCount = len(frameOut.RenderBatchs)
 	}

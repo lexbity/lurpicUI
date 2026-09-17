@@ -221,7 +221,7 @@ func (c *Checkbox) Children() []facet.GroupChild { return nil }
 
 // OnAttach wires store invalidation for the value store.
 func (c *Checkbox) OnAttach(ctx facet.AttachContext) {
-	c.Core.OnAttach()
+	c.Core.OnAttach(ctx)
 	if c.Value == nil {
 		return
 	}

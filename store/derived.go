@@ -17,6 +17,16 @@ type versionedInvalidatable interface {
 // It memoizes one computed value and marks itself dirty when any source store
 // changes version. The actual recomputation still happens lazily on Get so the
 // runtime pays the cost only when a consumer asks for the value.
+//
+// Derived exposes two signals:
+//
+//   - OnChange emits after a recomputation observes a new value (inside Get,
+//     after the memoized value has been updated).
+//   - OnInvalidated emits eagerly on the clean→dirty transition, before any
+//     recomputation runs. It exists so consumers that need to react to a
+//     potential value change (bindings, RX-1 FR-2) are not forced to wait for a
+//     lazy Get to be called by somebody else — which is exactly what a
+//     projection cache hit never does.
 type Derived[T any] struct {
 	version VersionSource
 	compute func() T
@@ -29,14 +39,16 @@ type Derived[T any] struct {
 	sources        []versionedInvalidatable
 	invalidations  []func()
 
-	OnChange signal.Signal[signal.Change[T]]
+	OnChange      signal.Signal[signal.Change[T]]
+	OnInvalidated signal.Signal[struct{}]
 }
 
 func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
 	d := &Derived[T]{
-		compute:  compute,
-		dirty:    true,
-		OnChange: signal.NewSignal[signal.Change[T]]("Derived.OnChange"),
+		compute:       compute,
+		dirty:         true,
+		OnChange:      signal.NewSignal[signal.Change[T]]("Derived.OnChange"),
+		OnInvalidated: signal.NewSignal[struct{}]("Derived.OnInvalidated"),
 	}
 	if len(sources) > 0 {
 		d.sources = make([]versionedInvalidatable, 0, len(sources))
@@ -95,10 +107,28 @@ func (d *Derived[T]) Version() Version {
 	return d.version.Current()
 }
 
+// markDirty flags the Derived dirty and emits OnInvalidated exactly once per
+// clean→dirty transition.
+//
+// The emission is deferred through enqueueSignal so it always runs in the
+// signal-delivery phase of the owning runtime (or immediately in unit tests
+// without a queue hook) — never from the writer's stack. N upstream writes
+// inside one dirty period coalesce into a single notification because the
+// transition is detected under the same mutex that guards the dirty flag.
+//
+// A never-initialized Derived (no Get has run) is never "clean", so a write
+// before the first Get emits nothing: there are no consumers yet, and the
+// first projection is always uncached and therefore fresh (RX-1 FR-2 corollary).
 func (d *Derived[T]) markDirty() {
 	d.mu.Lock()
+	wasClean := d.initialized && !d.dirty
 	d.dirty = true
 	d.mu.Unlock()
+	if wasClean {
+		enqueueSignal(func() {
+			d.OnInvalidated.Emit(struct{}{})
+		})
+	}
 }
 
 func (d *Derived[T]) sourcesChangedLocked() bool {

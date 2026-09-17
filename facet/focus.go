@@ -63,7 +63,7 @@ func (m *FocusManager) SetFocus(target FacetImpl) bool {
 			// Synchronous focus loss (F4). The same callback also fires via
 			// the input-routed FocusLostEvent, recovered separately in
 			// input/routing_deliver.go (F3); both paths are quarantined.
-			runFocusRecovered("focus_lost", m.focused, role.OnFocusLost)
+			RunRecovered("focus_lost", m.focused, role.OnFocusLost)
 		}
 	}
 	m.focused = base.ID()
@@ -72,7 +72,7 @@ func (m *FocusManager) SetFocus(target FacetImpl) bool {
 	if role := base.FocusRole(); role != nil && role.OnFocusGained != nil {
 		// Synchronous focus gain (F4). The input-routed FocusGainedEvent path
 		// is recovered separately in input/routing_deliver.go (F3).
-		runFocusRecovered("focus_gained", base.ID(), role.OnFocusGained)
+		RunRecovered("focus_gained", base.ID(), role.OnFocusGained)
 	}
 	return true
 }
@@ -83,7 +83,7 @@ func (m *FocusManager) ClearFocus() {
 		if role := m.focusedImpl.Base().FocusRole(); role != nil && role.OnFocusLost != nil {
 			// Synchronous focus loss (F4); the input-routed FocusLostEvent
 			// path is recovered separately in input/routing_deliver.go (F3).
-			runFocusRecovered("focus_lost", m.focused, role.OnFocusLost)
+			RunRecovered("focus_lost", m.focused, role.OnFocusLost)
 		}
 	}
 	m.focused = 0

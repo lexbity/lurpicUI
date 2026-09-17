@@ -100,7 +100,7 @@ func (b *Bar[T]) Descriptor() marks.Descriptor {
 }
 
 func (b *Bar[T]) OnAttach(ctx facet.AttachContext) {
-	b.Core.OnAttach()
+	b.Core.OnAttach(ctx)
 	b.cleanups = append(b.cleanups,
 		b.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
 			b.hitDirty = true

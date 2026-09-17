@@ -267,7 +267,7 @@ func (t *Toolbar) Children() []facet.GroupChild {
 }
 
 // OnAttach is unused.
-func (t *Toolbar) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
+func (t *Toolbar) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (t *Toolbar) OnActivate() { t.Core.OnActivate() }

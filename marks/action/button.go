@@ -191,7 +191,7 @@ func (b *Button) Children() []facet.GroupChild {
 	return nil
 }
 
-func (b *Button) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach() }
+func (b *Button) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach(ctx) }
 func (b *Button) OnActivate()                      { b.Core.OnActivate() }
 func (b *Button) OnDeactivate()                    { b.Core.OnDeactivate() }
 func (b *Button) OnDetach() {

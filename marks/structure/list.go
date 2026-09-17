@@ -211,7 +211,7 @@ func (l *List) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 }
 
 func (l *List) OnAttach(ctx facet.AttachContext) {
-	l.Core.OnAttach()
+	l.Core.OnAttach(ctx)
 	if l.Data != nil {
 		facet.Store(facet.Subscribe(l), &l.Data.OnChange, l.Data.Version, func(_ signal.Change[[]ListEntry]) {
 			l.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)

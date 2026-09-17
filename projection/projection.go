@@ -192,11 +192,31 @@ type System struct {
 	currentHitMap   *HitMap
 	ProjectedFacets int
 	CacheHits       int
-	runtime         facet.RuntimeServices
-	layerResolver   LayerResolver
-	recoverySurface facetRecovery
-	cacheMu         sync.Mutex
-	statsMu         sync.Mutex
+	// EmptyBoundsSkips counts facets gated by the RX-1 FR-1 empty-bounds gate
+	// during the most recent Run: non-layer facets arranged to empty bounds
+	// that were pruned without projecting.
+	EmptyBoundsSkips int
+	// CacheMissesByBounds counts projection cache misses whose stale cached
+	// output carried different arranged/layer bounds than the current frame —
+	// a bounds change invalidating an entry (FR-1 freshness).
+	CacheMissesByBounds int
+	runtime             facet.RuntimeServices
+	layerResolver       LayerResolver
+	recoverySurface     facetRecovery
+	cacheMu             sync.Mutex
+	statsMu             sync.Mutex
+	// nodeList is a reusable pre-order node buffer for the per-frame
+	// subtreeHasLayer aggregation (reused across frames to keep the projection
+	// gate allocation-free on the steady-state path). It is mutated only in
+	// buildProjectionTree on the runtime thread before the projection forks;
+	// forked walks read subtreeHasLayer afterwards.
+	nodeList []*projectionNode
+	// frameNumber is the most recent Run's frame number (for LURPIC_TRACE=gates
+	// gate-decision tracing, NFR-8).
+	frameNumber uint64
+	// gatesTraceLines counts gate-trace lines emitted in the current frame,
+	// capped at gateTraceLineCap.
+	gatesTraceLines int
 }
 
 type runtimeStateSource interface {
@@ -249,6 +269,11 @@ type projectionNode struct {
 	base     *facet.Facet
 	parent   *projectionNode
 	children []*projectionNode
+	// subtreeHasLayer records whether this node or any descendant is a
+	// layer-attached facet (RX-1 Q1). The empty-bounds gate must descend into
+	// gated subtrees that contain a layer: a layer resolves its own bounds via
+	// layerCtx and may legitimately paint outside a zero-arranged host.
+	subtreeHasLayer bool
 }
 
 func NewSystem() *System {
@@ -298,8 +323,12 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	}
 	s.ProjectedFacets = 0
 	s.CacheHits = 0
+	s.EmptyBoundsSkips = 0
+	s.CacheMissesByBounds = 0
+	s.frameNumber = frame.Number
+	s.gatesTraceLines = 0
 	s.frameOutputs = s.frameOutputs[:0]
-	rootNode := buildProjectionTree(root)
+	rootNode := s.buildProjectionTree(root)
 	if rootNode != nil {
 		dirty := s.collectDirtyFlags(rootNode)
 		s.propagateDirty(rootNode, dirty)
@@ -327,6 +356,8 @@ func (s *System) Reset() {
 	s.currentHitMap = nil
 	s.ProjectedFacets = 0
 	s.CacheHits = 0
+	s.EmptyBoundsSkips = 0
+	s.CacheMissesByBounds = 0
 }
 
 // CurrentHitMap returns the hit map computed during the most recent run.
@@ -376,7 +407,7 @@ func (s *System) SetCurrentHitMap(m *HitMap) {
 	s.currentHitMap = m
 }
 
-func buildProjectionTree(root facet.FacetImpl) *projectionNode {
+func (s *System) buildProjectionTree(root facet.FacetImpl) *projectionNode {
 	if root == nil {
 		return nil
 	}
@@ -388,6 +419,7 @@ func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 		impl: root,
 		base: base,
 	}
+	s.nodeList = s.nodeList[:0]
 	type buildFrame struct {
 		impl facet.FacetImpl
 		node *projectionNode
@@ -399,6 +431,7 @@ func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 		if frame.impl == nil || frame.node == nil || frame.node.base == nil {
 			continue
 		}
+		s.nodeList = append(s.nodeList, frame.node)
 		children := frame.node.base.Children()
 		if len(children) == 0 {
 			continue
@@ -420,7 +453,32 @@ func buildProjectionTree(root facet.FacetImpl) *projectionNode {
 			stack = append(stack, buildFrame{impl: frame.node.children[i].impl, node: frame.node.children[i]})
 		}
 	}
+	// Aggregate subtreeHasLayer bottom-up. The node list is in pre-order, so a
+	// parent always precedes its descendants; iterating in reverse visits every
+	// descendant before its parent, which is exactly the order a post-order
+	// aggregation needs — without recursion or a second tree walk.
+	for i := len(s.nodeList) - 1; i >= 0; i-- {
+		n := s.nodeList[i]
+		has := s.isLayer(n.base.ID())
+		for _, child := range n.children {
+			if child != nil && child.subtreeHasLayer {
+				has = true
+			}
+		}
+		n.subtreeHasLayer = has
+	}
 	return node
+}
+
+// isLayer reports whether the runtime resolved a projection layer for the
+// facet. With no layer resolver installed (isolated projection tests) no facet
+// is a layer.
+func (s *System) isLayer(id facet.FacetID) bool {
+	if s == nil || s.layerResolver == nil {
+		return false
+	}
+	_, ok := s.layerResolver.ResolveProjectionLayer(id)
+	return ok
 }
 
 // Safety: walkNode is called from the runtime goroutine during the projection
@@ -466,25 +524,56 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 			}
 		}
 
-		cacheKey := s.computeCacheKey(frame.node.impl, resolvedTransform, frame.parentChildCtx, layerCtx, hasLayer)
-		output := s.loadCachedOutput(facetID)
-		if output == nil || output.CacheKey != cacheKey || s.isDirtyWithMap(facetID, dirty) {
-			output = s.project(frame.node.impl, resolvedTransform, bounds, frame.parentChildCtx, cacheKey, layerCtx, hasLayer)
-			s.storeCachedOutput(facetID, output)
-			s.addProjectedFacet()
+		// RX-1 FR-1 empty-bounds gate. A non-layer facet with a LayoutRole
+		// arranged to empty bounds presents nothing: emit an empty output and
+		// do not project it. Without the gate an unguarded mark's OnProject
+		// would re-run at empty bounds (the cache key already carries bounds,
+		// so the gated re-arrange is a cache miss) and contribute stale
+		// commands from a hidden host (A-1/A-2/A-3). The empty output still
+		// participates in the partition append so pre-order bookkeeping stays
+		// consistent; zero bounds contribute no commands, no hit regions, and
+		// no dirty region. Facets without a LayoutRole have no arranged bounds
+		// to be gated by (the stage/host gating model arranges hosts to empty);
+		// they keep their current projection behavior. Layer facets are exempt
+		// — they resolve their own bounds via layerCtx and are gated by mount
+		// state instead (FR-1, P4).
+		gated := !hasLayer && base.LayoutRole() != nil && bounds.IsEmpty()
+		var output *ProjectionOutput
+		if gated {
+			s.addEmptyBoundsSkip()
+			s.traceGate(facetID, "empty-bounds")
+			output = &ProjectionOutput{FacetID: facetID, Bounds: gfx.Rect{}}
 		} else {
-			s.addCacheHit()
+			cacheKey := s.computeCacheKey(frame.node.impl, resolvedTransform, frame.parentChildCtx, layerCtx, hasLayer)
+			output = s.loadCachedOutput(facetID)
+			if output == nil || output.CacheKey != cacheKey || s.isDirtyWithMap(facetID, dirty) {
+				if output != nil && output.CacheKey != cacheKey && output.Bounds != bounds {
+					s.addCacheMissByBounds()
+				}
+				output = s.project(frame.node.impl, resolvedTransform, bounds, frame.parentChildCtx, cacheKey, layerCtx, hasLayer)
+				s.storeCachedOutput(facetID, output)
+				s.addProjectedFacet()
+			} else {
+				s.addCacheHit()
+			}
 		}
 		if partition != nil {
 			partition.Append(output)
 		} else {
 			s.frameOutputs = append(s.frameOutputs, output)
 		}
-		childCtx := output.ChildContext
 		children := frame.node.children
 		if len(children) == 0 {
 			continue
 		}
+		if gated && !frame.node.subtreeHasLayer {
+			// Full prune: a gated subtree with no layer facet is skipped
+			// wholesale (FR-1). A gated subtree that DOES hold a layer is
+			// descended into so the layer can resolve itself; its non-layer
+			// descendants are themselves empty-arranged and gate individually.
+			continue
+		}
+		childCtx := output.ChildContext
 		if s.shouldForkChildren(frame.node) {
 			results := s.walkChildSubtrees(children, resolvedTransform, childCtx, dirty)
 			if partition != nil {
@@ -599,6 +688,24 @@ func (s *System) addCacheHit() {
 	}
 	s.statsMu.Lock()
 	s.CacheHits++
+	s.statsMu.Unlock()
+}
+
+func (s *System) addEmptyBoundsSkip() {
+	if s == nil {
+		return
+	}
+	s.statsMu.Lock()
+	s.EmptyBoundsSkips++
+	s.statsMu.Unlock()
+}
+
+func (s *System) addCacheMissByBounds() {
+	if s == nil {
+		return
+	}
+	s.statsMu.Lock()
+	s.CacheMissesByBounds++
 	s.statsMu.Unlock()
 }
 

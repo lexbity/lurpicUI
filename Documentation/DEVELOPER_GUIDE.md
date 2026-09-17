@@ -693,7 +693,7 @@ func NewBadge(label marks.Binding[string], count marks.Binding[int]) *Badge {
 
 func (m *Badge) Base() *facet.Facet               { m.Facet.BindImpl(m); return &m.Facet }
 func (m *Badge) Descriptor() marks.Descriptor     { return marks.Descriptor{Family: "status", TypeName: "badge"} }
-func (m *Badge) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *Badge) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 // OnDetach/OnActivate/OnDeactivate delegate to Core likewise
 ```
 

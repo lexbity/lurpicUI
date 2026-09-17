@@ -33,7 +33,7 @@ func (m *baseTestMark) Base() *facet.Facet {
 	return &m.Facet
 }
 
-func (m *baseTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *baseTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *baseTestMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *baseTestMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *baseTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -61,7 +61,7 @@ func (m *bindingTestMark) Base() *facet.Facet {
 	m.BindImpl(m)
 	return &m.Facet
 }
-func (m *bindingTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *bindingTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *bindingTestMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *bindingTestMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *bindingTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -96,7 +96,7 @@ func (m *buildCommandsTestMark) Base() *facet.Facet {
 	m.BindImpl(m)
 	return &m.Facet
 }
-func (m *buildCommandsTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *buildCommandsTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *buildCommandsTestMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *buildCommandsTestMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *buildCommandsTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -322,7 +322,7 @@ func (m *multiBindMark) Base() *facet.Facet {
 	m.BindImpl(m)
 	return &m.Facet
 }
-func (m *multiBindMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *multiBindMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *multiBindMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *multiBindMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *multiBindMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -363,7 +363,7 @@ func (m *lifecycleTestMark) Base() *facet.Facet {
 	m.BindImpl(m)
 	return &m.Facet
 }
-func (m *lifecycleTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *lifecycleTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *lifecycleTestMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *lifecycleTestMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *lifecycleTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -439,7 +439,7 @@ func (m *derivedTestMark) Base() *facet.Facet {
 	m.BindImpl(m)
 	return &m.Facet
 }
-func (m *derivedTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *derivedTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *derivedTestMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *derivedTestMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *derivedTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -493,7 +493,7 @@ func (m *anchorExportTestMark) Base() *facet.Facet {
 	m.BindImpl(m)
 	return &m.Facet
 }
-func (m *anchorExportTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *anchorExportTestMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *anchorExportTestMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *anchorExportTestMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *anchorExportTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }

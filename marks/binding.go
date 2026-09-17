@@ -68,8 +68,21 @@ func FromDerived[T any](d *store.Derived[T], dirty facet.DirtyFlags) Binding[T] 
 		ref: &bindingRef[T]{
 			read: d.Get,
 			subscribe: func(fn func()) func() {
-				id := d.OnChange.Subscribe(func(c signal.Change[T]) { fn() })
-				return func() { d.OnChange.Unsubscribe(id) }
+				// A lazy Derived must not wait for an external Get() to emit
+				// OnChange: a projection cache hit never calls Get, so the
+				// binding would never fire and the facet would serve stale
+				// output forever (RX-1 A-6). Instead the binding subscribes the
+				// eager clean→dirty OnInvalidated signal and forces the
+				// recompute here, in the signal-delivery phase — exactly once,
+				// memoized — before invalidating the bound facet. Value-diffing
+				// is deliberately skipped (the recompute may yield an unchanged
+				// value and the facet still re-projects once; that is the
+				// accepted over-invalidation tradeoff of RX-1 Q2).
+				id := d.OnInvalidated.Subscribe(func(struct{}) {
+					_ = d.Get() // force recompute now (signal-delivery phase; not projecting)
+					fn()
+				})
+				return func() { d.OnInvalidated.Unsubscribe(id) }
 			},
 		},
 	}

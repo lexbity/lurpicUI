@@ -8,22 +8,33 @@ import (
 
 // FrameStats summarizes one runtime frame.
 type FrameStats struct {
-	FrameNumber               uint64
-	DirtyFacets               int
-	ProjectedFacets           int
-	CacheHits                 int
-	RenderBatchCount          int
-	JobsCommitted             int
-	JobsDiscarded             int
-	LayoutDuration            time.Duration
-	LayoutResolveDuration     time.Duration
-	LayerResolutionDuration   time.Duration
-	AnchorExportDuration      time.Duration
-	StructuralMeasureDuration time.Duration
-	LayerBoundsDuration       time.Duration
-	ArrangeDuration           time.Duration
-	ProjectDuration           time.Duration
-	RenderDuration            time.Duration
+	FrameNumber     uint64
+	DirtyFacets     int
+	ProjectedFacets int
+	CacheHits       int
+	// ProjectionEmptyBoundsSkips counts non-layer facets gated by the RX-1
+	// FR-1 empty-bounds gate in the most recent frame: facets arranged to empty
+	// bounds that were pruned without projecting (an inactive stage exhibit, a
+	// hidden overlay host). A nonzero count is expected whenever the tree holds
+	// gated content; a spike alongside stale pixels is the A-1/A-2/A-3 failure
+	// signature this counter exists to make observable.
+	ProjectionEmptyBoundsSkips int
+	// ProjectionCacheMissesByBounds counts projection cache misses whose stale
+	// cached entry carried different arranged/layer bounds than the current
+	// frame — a bounds change invalidating a cache entry (FR-1 freshness).
+	ProjectionCacheMissesByBounds int
+	RenderBatchCount              int
+	JobsCommitted                 int
+	JobsDiscarded                 int
+	LayoutDuration                time.Duration
+	LayoutResolveDuration         time.Duration
+	LayerResolutionDuration       time.Duration
+	AnchorExportDuration          time.Duration
+	StructuralMeasureDuration     time.Duration
+	LayerBoundsDuration           time.Duration
+	ArrangeDuration               time.Duration
+	ProjectDuration               time.Duration
+	RenderDuration                time.Duration
 
 	// Asset system diagnostics — populated when an asset manager is configured.
 	AssetTotalEntries       int

@@ -257,7 +257,10 @@ func mustRuntime(t *testing.T) *Runtime {
 	root := facet.NewFacet()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
+	// Real window size: facets arranged to empty bounds are gated by the RX-1
+	// FR-1 empty-bounds gate, so a 0x0 test window would prune every arranged
+	// host.
+	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, &root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -268,7 +271,9 @@ func mustRuntimeTree(t *testing.T, root facet.FacetImpl) *Runtime {
 	t.Helper()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, nil, nil, &backendFixture{}, root)
+	// Real window size (see mustRuntime): the FR-1 gate prunes hosts arranged
+	// to empty bounds, so tests that render must arrange against real bounds.
+	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}
@@ -279,7 +284,10 @@ func mustRuntimeWithBackend(t *testing.T, root facet.FacetImpl, backend render.B
 	t.Helper()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
-	rt, err := New(cfg, nil, nil, backend, root)
+	// A real window size is part of the arranged-to-real-bounds contract the
+	// RX-1 FR-1 empty-bounds gate assumes: facets arranged to empty bounds are
+	// gated (a 0x0 window would arrange every test host to empty and prune it).
+	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, backend, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}

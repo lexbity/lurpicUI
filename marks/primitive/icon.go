@@ -259,7 +259,7 @@ func (i *Icon) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return i.DefaultAnchors(bounds, ctx)
 }
 
-func (i *Icon) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach() }
+func (i *Icon) OnAttach(ctx facet.AttachContext) { i.Core.OnAttach(ctx) }
 func (i *Icon) OnDetach() {
 	i.Core.OnDetach()
 	i.cachedSize = gfx.Size{}

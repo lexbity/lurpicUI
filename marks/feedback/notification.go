@@ -311,7 +311,7 @@ func (n *Notification) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 
 // OnAttach delegates to Core.
 func (n *Notification) OnAttach(ctx facet.AttachContext) {
-	n.Core.OnAttach()
+	n.Core.OnAttach(ctx)
 	if n.Open == nil {
 		return
 	}
@@ -1054,7 +1054,7 @@ func (g *notificationContentGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *notificationContentGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *notificationContentGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach(ctx) }
 func (g *notificationContentGroup) OnActivate()                      { g.Core.OnActivate() }
 func (g *notificationContentGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
 func (g *notificationContentGroup) OnDetach()                        { g.Core.OnDetach() }

@@ -316,7 +316,7 @@ func (m *RadialMenu) Children() []facet.GroupChild {
 }
 
 // OnAttach subscribes dynamic bindings.
-func (m *RadialMenu) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *RadialMenu) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (m *RadialMenu) OnActivate() { m.Core.OnActivate() }

@@ -313,7 +313,7 @@ func (bg *ButtonGroup) Children() []facet.GroupChild {
 
 // OnAttach wires store invalidation for the bound selection store.
 func (bg *ButtonGroup) OnAttach(ctx facet.AttachContext) {
-	bg.Core.OnAttach()
+	bg.Core.OnAttach(ctx)
 	if bg.Value == nil {
 		return
 	}
@@ -1053,7 +1053,7 @@ func (it *buttonGroupItem) Base() *facet.Facet {
 	return &it.Facet
 }
 
-func (it *buttonGroupItem) OnAttach(ctx facet.AttachContext) { it.Core.OnAttach() }
+func (it *buttonGroupItem) OnAttach(ctx facet.AttachContext) { it.Core.OnAttach(ctx) }
 func (it *buttonGroupItem) OnActivate()                      { it.Core.OnActivate() }
 func (it *buttonGroupItem) OnDeactivate()                    { it.Core.OnDeactivate() }
 func (it *buttonGroupItem) OnDetach() {

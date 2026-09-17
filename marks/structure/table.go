@@ -276,7 +276,7 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 }
 
 func (t *Table) OnAttach(ctx facet.AttachContext) {
-	t.Core.OnAttach()
+	t.Core.OnAttach(ctx)
 	if t.Selection != nil {
 		facet.Store(facet.Subscribe(t), &t.Selection.OnChange, t.Selection.Version, func(signal.Change[string]) {
 			t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)

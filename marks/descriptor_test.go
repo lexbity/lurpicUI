@@ -205,7 +205,7 @@ type corePlainMark struct{ Core }
 
 func (m *corePlainMark) Base() *facet.Facet               { m.BindImpl(m); return &m.Facet }
 func (m *corePlainMark) Descriptor() Descriptor           { return Descriptor{Family: "core", TypeName: "plain"} }
-func (m *corePlainMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *corePlainMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *corePlainMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *corePlainMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *corePlainMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -236,7 +236,7 @@ func (m *coreFocusableMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet
 func (m *coreFocusableMark) Descriptor() Descriptor {
 	return Descriptor{Family: "core", TypeName: "focusable"}
 }
-func (m *coreFocusableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreFocusableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *coreFocusableMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *coreFocusableMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *coreFocusableMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -256,7 +256,7 @@ func (m *coreAnchorMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
 func (m *coreAnchorMark) Descriptor() Descriptor {
 	return Descriptor{Family: "core", TypeName: "anchor"}
 }
-func (m *coreAnchorMark) OnAttach(ctx facet.AttachContext)                              { m.Core.OnAttach() }
+func (m *coreAnchorMark) OnAttach(ctx facet.AttachContext)                              { m.Core.OnAttach(ctx) }
 func (m *coreAnchorMark) OnDetach()                                                     { m.Core.OnDetach() }
 func (m *coreAnchorMark) OnActivate()                                                   { m.Core.OnActivate() }
 func (m *coreAnchorMark) OnDeactivate()                                                 { m.Core.OnDeactivate() }
@@ -288,7 +288,7 @@ func (m *coreHitTestableMark) Base() *facet.Facet { m.BindImpl(m); return &m.Fac
 func (m *coreHitTestableMark) Descriptor() Descriptor {
 	return Descriptor{Family: "core", TypeName: "hittable"}
 }
-func (m *coreHitTestableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreHitTestableMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *coreHitTestableMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *coreHitTestableMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *coreHitTestableMark) OnDeactivate()                    { m.Core.OnDeactivate() }
@@ -319,7 +319,7 @@ func (m *coreAllCapabilitiesMark) Base() *facet.Facet { m.BindImpl(m); return &m
 func (m *coreAllCapabilitiesMark) Descriptor() Descriptor {
 	return Descriptor{Family: "core", TypeName: "all"}
 }
-func (m *coreAllCapabilitiesMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *coreAllCapabilitiesMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 func (m *coreAllCapabilitiesMark) OnDetach()                        { m.Core.OnDetach() }
 func (m *coreAllCapabilitiesMark) OnActivate()                      { m.Core.OnActivate() }
 func (m *coreAllCapabilitiesMark) OnDeactivate()                    { m.Core.OnDeactivate() }

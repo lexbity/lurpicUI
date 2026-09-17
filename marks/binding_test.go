@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -180,22 +181,23 @@ func TestDerived_subscribe_fires_on_change(t *testing.T) {
 	d := store.NewDerived(func() int { return src.Get() * 3 }, src)
 	b := FromDerived(d, facet.DirtyProjection)
 
-	// First Get() initializes the Derived — fires OnChange for old=0→new=3.
-	// Subscribe after initialization to avoid the initial fire.
+	// First Get() initializes the Derived. Subscribe after initialization.
 	b.Get()
 
 	fired := 0
 	cleanup := b.SubscribeOnChange(func() { fired++ })
 	defer cleanup()
 
-	// Derived fires OnChange inside Get() when recomputation finds a change.
+	// A Derived binding subscribes the eager clean->dirty OnInvalidated signal
+	// (RX-1 FR-2), so a source write fires the callback immediately — no
+	// external Get() is required to wake the lazy recompute.
 	src.Set(2)
-	b.Get() // triggers d.Get(), recomputes, fires d.OnChange → fired++
 	if fired != 1 {
 		t.Fatalf("expected 1 fire after src.Set, got %d", fired)
 	}
 
-	// No change this time — version is current, cached value is returned.
+	// No source change since the last recompute: the callback must not fire
+	// again (the dirty period is over and the value is settled clean).
 	b.Get()
 	if fired != 1 {
 		t.Fatalf("expected no fire without source change, got %d", fired)
@@ -209,6 +211,50 @@ func TestDerived_nil_derived_returns_const(t *testing.T) {
 	}
 	if b.Get() != 0 {
 		t.Fatalf("Get() = %d, want zero value", b.Get())
+	}
+}
+
+// TestDerived_binding_invalidates_facet_without_user_get proves the RX-1 FR-2
+// contract end to end at the marks layer: after an upstream write, the bound
+// facet's DirtyFlags are raised within one signal delivery with zero user-code
+// Get() calls. On pre-P1 behavior the binding subscribed Derived.OnChange,
+// which only emits inside Get() — with no external Get the facet stayed clean
+// and its projection cache served stale output forever (A-6).
+func TestDerived_binding_invalidates_facet_without_user_get(t *testing.T) {
+	src := store.NewValueStore(10)
+	d := store.NewDerived(func() int { return src.Get() * 2 }, src)
+
+	m := &derivedTestMark{}
+	m.value = FromDerived(d, facet.DirtyProjection)
+	m.AddBinding(m.value)
+	m.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: 100, H: 50}}
+	}
+	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		m.Layout.ArrangedBounds = bounds
+	}
+	m.RegisterRoles()
+
+	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
+
+	// The first read of the binding (the app's first measure/project reads it)
+	// initializes the derived and settles it clean. Any read before this one
+	// simply had no consumer yet.
+	_ = m.value.Get()
+	m.ClearDirty(facet.DirtyAll)
+
+	// Upstream write. No Get() follows — the binding's OnInvalidated handler
+	// forces the recompute itself and invalidates the facet.
+	src.Set(20)
+
+	if flags := m.DirtyFlags(); flags&facet.DirtyProjection == 0 {
+		t.Fatalf("bound facet was not invalidated after the write with no user Get (flags=%#v) — the FromDerived binding stalled (A-6)", flags)
+	}
+
+	// The recompute already happened during the delivery: reading the binding
+	// now returns the fresh value without a further recompute.
+	if got := m.value.Get(); got != 40 {
+		t.Fatalf("binding value = %d, want 40", got)
 	}
 }
 

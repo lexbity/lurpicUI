@@ -310,7 +310,7 @@ func (p *Pagination) Children() []facet.GroupChild {
 }
 
 func (p *Pagination) OnAttach(ctx facet.AttachContext) {
-	p.Core.OnAttach()
+	p.Core.OnAttach(ctx)
 	if p.CurrentIndex != nil {
 		facet.Store(facet.Subscribe(p), &p.CurrentIndex.OnChange, p.CurrentIndex.Version, func(signal.Change[int]) {
 			p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)

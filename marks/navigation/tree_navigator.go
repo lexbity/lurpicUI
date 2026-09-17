@@ -263,7 +263,7 @@ func (t *TreeNavigator) Children() []facet.GroupChild {
 
 // OnAttach wires store invalidation for the bound tree data store.
 func (t *TreeNavigator) OnAttach(ctx facet.AttachContext) {
-	t.Core.OnAttach()
+	t.Core.OnAttach(ctx)
 	if t.Data == nil {
 		t.Data = store.NewValueStore[[]TreeNode](nil)
 	}

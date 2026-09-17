@@ -298,7 +298,7 @@ func (d *Dialog) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 
 // OnAttach delegates to Core.
 func (d *Dialog) OnAttach(ctx facet.AttachContext) {
-	d.Core.OnAttach()
+	d.Core.OnAttach(ctx)
 	if d.Open == nil {
 		return
 	}
@@ -972,7 +972,7 @@ func (g *dialogActionGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *dialogActionGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *dialogActionGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach(ctx) }
 func (g *dialogActionGroup) OnActivate()                      { g.Core.OnActivate() }
 func (g *dialogActionGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
 func (g *dialogActionGroup) OnDetach()                        { g.Core.OnDetach() }
@@ -1215,7 +1215,7 @@ func (g *dialogBodyGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *dialogBodyGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *dialogBodyGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach(ctx) }
 func (g *dialogBodyGroup) OnActivate()                      { g.Core.OnActivate() }
 func (g *dialogBodyGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
 func (g *dialogBodyGroup) OnDetach()                        { g.Core.OnDetach() }

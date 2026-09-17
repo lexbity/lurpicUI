@@ -929,7 +929,7 @@ func TestDirtyPropagation_layout_propagates_up(t *testing.T) {
 	dirty := map[facet.FacetID]facet.DirtyFlags{
 		child.ID(): facet.DirtyLayout,
 	}
-	sys.propagateDirty(buildProjectionTree(root), dirty)
+	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
 
 	if dirty[root.ID()]&facet.DirtyLayout == 0 {
 		t.Fatal("expected layout dirty to propagate to parent")
@@ -948,7 +948,7 @@ func TestDirtyPropagation_layout_propagates_down(t *testing.T) {
 		root.ID(): facet.DirtyLayout,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(buildProjectionTree(root), dirty)
+	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
 
 	for _, id := range []facet.FacetID{root.ID(), child.ID(), sibling.ID()} {
 		flags := dirty[id]
@@ -968,7 +968,7 @@ func TestDirtyPropagation_projection_does_not_propagate_up(t *testing.T) {
 		child.ID(): facet.DirtyProjection,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(buildProjectionTree(root), dirty)
+	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
 
 	if dirty[root.ID()] != 0 {
 		t.Fatalf("expected parent to remain clean, got %v", dirty[root.ID()])
@@ -985,7 +985,7 @@ func TestDirtyPropagation_projection_propagates_down(t *testing.T) {
 		root.ID(): facet.DirtyProjection,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(buildProjectionTree(root), dirty)
+	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
 
 	if dirty[root.ID()]&facet.DirtyProjection == 0 || dirty[root.ID()]&facet.DirtyHit == 0 {
 		t.Fatalf("expected root projection dirty to include hit, got %v", dirty[root.ID()])
@@ -1003,7 +1003,7 @@ func TestDirtyPropagation_hit_follows_projection(t *testing.T) {
 		root.ID(): facet.DirtyProjection,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(buildProjectionTree(root), dirty)
+	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
 
 	if dirty[root.ID()]&facet.DirtyHit == 0 {
 		t.Fatalf("expected hit dirty to follow projection, got %v", dirty[root.ID()])

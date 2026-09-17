@@ -105,7 +105,7 @@ func (a *Axis) Descriptor() marks.Descriptor {
 }
 
 func (a *Axis) OnAttach(ctx facet.AttachContext) {
-	a.Core.OnAttach()
+	a.Core.OnAttach(ctx)
 	if a.Scale != nil {
 		signal.Track(a.Subs(), &a.Scale.OnChange, func(signal.Unit) {
 			a.Invalidate(facet.DirtyLayout | facet.DirtyProjection)

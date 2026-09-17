@@ -42,6 +42,12 @@ type Core struct {
 	subscriptions []bindingSubscriber
 	cleanups      []func()
 	rolesReady    bool
+
+	// rt is the runtime captured at attach, used to route binding invalidations
+	// into the runtime's per-frame dirty bookkeeping so the frame's dirty
+	// regions and layout-root selection observe them. It is nil when the mark
+	// is attached outside a runtime (construction, standalone tests).
+	rt facet.RuntimeServices
 }
 
 // AddBinding registers a dynamic binding. Core subscribes to the binding's
@@ -109,12 +115,29 @@ func (c *Core) RegisterRoles() {
 }
 
 // OnAttach subscribes all registered dynamic bindings, invalidating the
-// Facet on every source change. Marks call this from their OnAttach.
-func (c *Core) OnAttach() {
+// Facet on every source change. Marks call this from their OnAttach, passing
+// the AttachContext through so Core can capture the runtime for the
+// reactivity route.
+func (c *Core) OnAttach(ctx facet.AttachContext) {
+	c.rt = ctx.Runtime
 	for _, s := range c.subscriptions {
 		flags := s.DirtyFlags()
 		cleanup := s.SubscribeOnChange(func() {
-			c.Invalidate(flags)
+			// FR-3 seam (P3): content changes must route through
+			// layout.PropagateContentDirty so re-measure + re-arrange flow
+			// through ancestor policies within one frame. This slice (P1)
+			// keeps the local-invalidation shape: the local flags drive the
+			// projection walk (collectDirtyFlags), and the runtime dirty map
+			// drives the frame's dirty-region assembly and layout-root
+			// selection. A panicking handler is quarantined through the
+			// runtime's facet-callback recovery hook (tick-style guardedInvoke
+			// shape, copied — marks does not import runtime).
+			facet.RunRecovered("binding", c.ID(), func() {
+				c.Invalidate(flags)
+				if c.rt != nil {
+					c.rt.Invalidate(c.ID(), flags, "binding")
+				}
+			})
 		})
 		if cleanup != nil {
 			c.cleanups = append(c.cleanups, cleanup)

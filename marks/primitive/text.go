@@ -136,7 +136,7 @@ func (t *Text) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return anchors
 }
 
-func (t *Text) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach() }
+func (t *Text) OnAttach(ctx facet.AttachContext) { t.Core.OnAttach(ctx) }
 func (t *Text) OnDetach() {
 	t.Core.OnDetach()
 	t.cachedLayout = nil

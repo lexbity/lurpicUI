@@ -175,7 +175,7 @@ func (p *ColorPicker) OnAttach(ctx facet.AttachContext) {
 	if p.Value == nil {
 		return
 	}
-	p.Core.OnAttach()
+	p.Core.OnAttach(ctx)
 	p.syncHSVCache()
 	facet.Store(facet.Subscribe(p), &p.Value.OnChange, p.Value.Version, func(signal.Change[gfx.Color]) {
 		p.syncHSVCache()

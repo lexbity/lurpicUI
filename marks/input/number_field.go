@@ -224,7 +224,7 @@ func (nf *NumberField) OnAttach(ctx facet.AttachContext) {
 	if nf.Value == nil {
 		return
 	}
-	nf.Core.OnAttach()
+	nf.Core.OnAttach(ctx)
 	nf.syncEditingText()
 	facet.Store(facet.Subscribe(nf), &nf.Value.OnChange, nf.Value.Version, func(signal.Change[float64]) {
 		if !nf.editing || !nf.parseError {

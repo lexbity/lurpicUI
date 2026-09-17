@@ -125,7 +125,7 @@ func (p *ProgressRing) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 }
 
 // OnAttach is unused.
-func (p *ProgressRing) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach() }
+func (p *ProgressRing) OnAttach(ctx facet.AttachContext) { p.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (p *ProgressRing) OnActivate() { p.Core.OnActivate() }

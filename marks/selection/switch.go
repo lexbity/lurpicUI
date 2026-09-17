@@ -169,7 +169,7 @@ func (s *Switch) Children() []facet.GroupChild { return nil }
 
 // OnAttach wires store invalidation for the value store.
 func (s *Switch) OnAttach(ctx facet.AttachContext) {
-	s.Core.OnAttach()
+	s.Core.OnAttach(ctx)
 	if s.Value == nil {
 		return
 	}

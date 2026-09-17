@@ -219,3 +219,146 @@ func TestDerived_non_versioned_source_is_detected(t *testing.T) {
 		t.Fatal("expected panic for non-versioned Derived source, got none")
 	}
 }
+
+func TestDerived_onInvalidated_fires_on_clean_to_dirty_transition(t *testing.T) {
+	a := NewValueStore(1)
+	d := NewDerived(func() int { return a.Get() }, a)
+	_ = d.Get() // initialize and settle clean
+
+	var fired int32
+	id := d.OnInvalidated.Subscribe(func(struct{}) { fired++ })
+	defer d.OnInvalidated.Unsubscribe(id)
+
+	a.Set(2)
+	if fired != 1 {
+		t.Fatalf("OnInvalidated fired %d times after one clean->dirty transition, want 1", fired)
+	}
+
+	// A read settles clean again; the next write fires once more.
+	_ = d.Get()
+	a.Set(3)
+	if fired != 2 {
+		t.Fatalf("OnInvalidated fired %d times after second transition, want 2", fired)
+	}
+}
+
+func TestDerived_onInvalidated_coalesces_multiple_writes(t *testing.T) {
+	var queue []func()
+	SetSignalQueueHook(func(fn func()) { queue = append(queue, fn) })
+	defer SetSignalQueueHook(nil)
+
+	a := NewValueStore(1)
+	d := NewDerived(func() int { return a.Get() }, a)
+	_ = d.Get() // initialize and settle clean
+
+	var fired int32
+	id := d.OnInvalidated.Subscribe(func(struct{}) { fired++ })
+	defer d.OnInvalidated.Unsubscribe(id)
+
+	// N upstream writes inside one dirty period produce exactly one
+	// notification (RX-1 Q2 transition-coalescing).
+	a.Set(2)
+	a.Set(3)
+	a.Set(4)
+
+	// Drain the notification queue, then the coalesced OnInvalidated emission.
+	for len(queue) > 0 {
+		batch := append([]func(){}, queue...)
+		queue = queue[:0]
+		for _, fn := range batch {
+			fn()
+		}
+	}
+	if fired != 1 {
+		t.Fatalf("OnInvalidated fired %d times for 3 writes in one dirty period, want 1", fired)
+	}
+
+	// The recompute reflects the latest write.
+	if got := d.Get(); got != 4 {
+		t.Fatalf("derived = %d, want 4", got)
+	}
+}
+
+func TestDerived_onInvalidated_no_emission_before_initialized(t *testing.T) {
+	a := NewValueStore(1)
+	d := NewDerived(func() int { return a.Get() }, a)
+	// Never Get()'d: the derived is dirty from construction and is never
+	// "clean", so a write before the first read must not emit (RX-1 FR-2
+	// corollary: the first projection is uncached and therefore fresh).
+
+	var fired int32
+	id := d.OnInvalidated.Subscribe(func(struct{}) { fired++ })
+	defer d.OnInvalidated.Unsubscribe(id)
+
+	a.Set(2)
+	if fired != 0 {
+		t.Fatalf("OnInvalidated fired %d times before first Get, want 0", fired)
+	}
+
+	// After initialization settles clean, a write emits.
+	_ = d.Get()
+	a.Set(3)
+	if fired != 1 {
+		t.Fatalf("OnInvalidated fired %d times after init+write, want 1", fired)
+	}
+}
+
+func TestDerived_onInvalidated_precedes_recomputed_onchange(t *testing.T) {
+	a := NewValueStore(1)
+	d := NewDerived(func() int { return a.Get() * 10 }, a)
+	_ = d.Get() // initialize: value 10
+
+	var invalidated int
+	var changed int
+	var valueAtInvalidation int
+	idI := d.OnInvalidated.Subscribe(func(struct{}) {
+		invalidated++
+		// Mimic the FromDerived binding (RX-1 FR-2): force the recompute in
+		// the signal-delivery phase so the fresh value is ready for projection.
+		valueAtInvalidation = d.Get()
+	})
+	idC := d.OnChange.Subscribe(func(c signal.Change[int]) { changed++ })
+	defer d.OnInvalidated.Unsubscribe(idI)
+	defer d.OnChange.Unsubscribe(idC)
+
+	a.Set(2)
+
+	// OnInvalidated fires eagerly on the transition; the binding's forced
+	// Get() recomputes within that delivery, so OnChange fires once as a
+	// consequence and the recomputed value is already fresh.
+	if invalidated != 1 {
+		t.Fatalf("OnInvalidated fired %d times, want 1", invalidated)
+	}
+	if valueAtInvalidation != 20 {
+		t.Fatalf("value read during OnInvalidated = %d, want 20 (recomputed in signal phase)", valueAtInvalidation)
+	}
+	if changed != 1 {
+		t.Fatalf("OnChange fired %d times, want 1 (from the forced recompute)", changed)
+	}
+}
+
+func TestDerived_onInvalidated_race_concurrent_set_get(t *testing.T) {
+	syncutil.ResetRuntimeThreadForTest()
+	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
+	syncutil.RegisterRuntimeThread()
+
+	a := NewValueStore(0)
+	d := NewDerived(func() int { return a.Get() }, a)
+
+	var fired int32
+	id := d.OnInvalidated.Subscribe(func(struct{}) { fired++ })
+	defer d.OnInvalidated.Unsubscribe(id)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 500; i++ {
+			_ = d.Get()
+		}
+	}()
+	for i := 1; i <= 500; i++ {
+		a.Set(i)
+	}
+	<-done
+	_ = fired
+}

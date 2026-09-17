@@ -304,7 +304,7 @@ func (s *SplitButton) Children() []facet.GroupChild {
 }
 
 // OnAttach subscribes dynamic bindings.
-func (s *SplitButton) OnAttach(ctx facet.AttachContext) { s.Core.OnAttach() }
+func (s *SplitButton) OnAttach(ctx facet.AttachContext) { s.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (s *SplitButton) OnActivate() { s.Core.OnActivate() }

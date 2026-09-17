@@ -225,7 +225,7 @@ func (t *Tooltip) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet
 
 // OnAttach delegates to Core.
 func (t *Tooltip) OnAttach(ctx facet.AttachContext) {
-	t.Core.OnAttach()
+	t.Core.OnAttach(ctx)
 	if t.Open == nil {
 		return
 	}

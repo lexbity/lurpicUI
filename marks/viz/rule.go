@@ -75,7 +75,7 @@ func (r *Rule) Descriptor() marks.Descriptor {
 }
 
 func (r *Rule) OnAttach(ctx facet.AttachContext) {
-	r.Core.OnAttach()
+	r.Core.OnAttach(ctx)
 	if r.Scale != nil {
 		signal.Track(r.Subs(), &r.Scale.OnChange, func(signal.Unit) {
 			r.Invalidate(facet.DirtyProjection)

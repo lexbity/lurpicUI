@@ -5,6 +5,7 @@ import (
 	goruntime "runtime"
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 )
@@ -12,6 +13,26 @@ import (
 func (rt *Runtime) LastFrameStats() diagnostics.FrameStats {
 
 	return rt.lastStats
+}
+
+// LastDirtySnapshot returns the per-facet dirty set captured at the most
+// recent frame's snapshot point (the copy taken before layout/projection), or
+// nil if no frame has snapshotted yet. It is a test/observability seam for the
+// reactivity contract (RX-1 FR-3): a test can assert that a facet entered a
+// frame's dirty set — e.g. through a FromDerived binding firing in the signal
+// phase — without parsing logs. The returned map is a copy; callers may not
+// mutate the runtime's frame bookkeeping through it.
+func (rt *Runtime) LastDirtySnapshot() map[facet.FacetID]facet.DirtyFlags {
+	if rt == nil {
+		return nil
+	}
+	out := make(map[facet.FacetID]facet.DirtyFlags, len(rt.lastDirtySnapshot))
+	for id, flags := range rt.lastDirtySnapshot {
+		if flags != 0 {
+			out[id] = flags
+		}
+	}
+	return out
 }
 
 // checkDeviceGeneration queries the render backend's device generation and

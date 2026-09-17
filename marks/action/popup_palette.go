@@ -461,7 +461,7 @@ func (p *PopupPalette) Children() []facet.GroupChild {
 }
 
 func (p *PopupPalette) OnAttach(ctx facet.AttachContext) {
-	p.Core.OnAttach()
+	p.Core.OnAttach(ctx)
 	if p.Open == nil {
 		return
 	}

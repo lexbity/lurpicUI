@@ -260,7 +260,7 @@ func (a *Alert) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 }
 
 // OnAttach delegates to Core.
-func (a *Alert) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach() }
+func (a *Alert) OnAttach(ctx facet.AttachContext) { a.Core.OnAttach(ctx) }
 
 // OnActivate delegates to Core.
 func (a *Alert) OnActivate() { a.Core.OnActivate() }

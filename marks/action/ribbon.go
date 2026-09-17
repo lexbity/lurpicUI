@@ -247,7 +247,7 @@ func (r *Ribbon) Children() []facet.GroupChild {
 }
 
 // OnAttach subscribes binding sources.
-func (r *Ribbon) OnAttach(ctx facet.AttachContext) { r.Core.OnAttach() }
+func (r *Ribbon) OnAttach(ctx facet.AttachContext) { r.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (r *Ribbon) OnActivate() { r.Core.OnActivate() }

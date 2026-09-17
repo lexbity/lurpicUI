@@ -166,7 +166,7 @@ func (b *Badge) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 }
 
 // OnAttach subscribes to any attached store.
-func (b *Badge) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach() }
+func (b *Badge) OnAttach(ctx facet.AttachContext) { b.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (b *Badge) OnActivate() { b.Core.OnActivate() }

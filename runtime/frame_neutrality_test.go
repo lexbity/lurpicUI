@@ -59,10 +59,31 @@ func (f *tickDirtyFacet) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 
 // dirtyWorkloadRoot builds a tree of N store-driven facets so each frame's
 // projection pass forks (the tree exceeds the fork threshold) and re-projects
-// every dirty leaf.
+// every dirty leaf. The root arranges its children to real non-empty bounds —
+// the arranged-to-real-bounds contract the RX-1 FR-1 empty-bounds gate assumes;
+// a facet left at empty arranged bounds is treated as gated and pruned.
 func dirtyWorkloadRoot(n int) facet.FacetImpl {
 	root := facet.NewFacet()
 	root.BindImpl(&root)
+	var rootLayout facet.LayoutRole
+	rootLayout.OnMeasure = func(_ facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: c.MaxSize}
+	}
+	rootLayout.OnArrange = func(_ facet.ArrangeContext, bounds gfx.Rect) {
+		rootLayout.ArrangedBounds = bounds
+		if bounds.IsEmpty() {
+			bounds = gfx.RectFromXYWH(0, 0, 640, 480)
+		}
+		for _, childBase := range root.Children() {
+			if childBase == nil {
+				continue
+			}
+			if childRole := childBase.LayoutRole(); childRole != nil {
+				childRole.Arrange(facet.ArrangeContext{}, bounds)
+			}
+		}
+	}
+	root.AddRole(&rootLayout)
 	for i := 0; i < n; i++ {
 		root.AddChildRuntime(newTickDirtyFacet().Base())
 	}

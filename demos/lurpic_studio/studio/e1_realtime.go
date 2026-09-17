@@ -477,11 +477,12 @@ func (e *Realtime) OnAttach(ctx facet.AttachContext) {
 	unsubInsert := e.appState.Rows.OnInsertSubscribe(func(ev store.CollectionInsertEvent[dataset.Row]) {
 		e.ruleValue.Set(ev.Item.Value)
 	})
-	// The windowed deriveds (VisibleRows, BarBuckets) are lazy: a source change
-	// marks them dirty but a Get() is required to recompute and fire OnChange.
-	// Flushing on the row signals + the window keeps the windowed series and
-	// the feed legend in the same frame as any data or window change
-	// (F-derived-range; NFR-edit-latency).
+	// The windowed deriveds (VisibleRows, BarBuckets) are consumed through their
+	// OnChange signal by direct subscribers (the legend, the chart series),
+	// not through a FromDerived binding. FR-2 (RX-1) made binding-driven
+	// deriveds invalidate eagerly; direct OnChange consumers still need a
+	// reader to trigger the recompute, so the explicit flush below is retained
+	// — it is a collection-sync flush, not a binding flush (RX-1 §7.6).
 	unsubEdit := e.appState.Rows.OnUpdateSubscribe(func(store.CollectionUpdateEvent[dataset.Row]) {
 		e.flushWindowedDeriveds()
 	})
@@ -530,11 +531,13 @@ func (e *Realtime) cleanupLater(fn func()) {
 }
 
 // flushWindowedDeriveds forces the lazy windowed deriveds (VisibleRows,
-// BarBuckets) to recompute so their OnChange consumers stay in sync. The
-// Derived contract is lazy: a source change marks it dirty but a consumer must
-// Get() to recompute and fire OnChange (F-derived-range). The tick runs before
-// deliverSignals in the frame, so the recompute-triggered OnChange is delivered
-// in the same frame and the windowed series + legend re-project with it.
+// BarBuckets) to recompute so their direct OnChange consumers (the legend, the
+// chart series) stay in sync — the retained F-derived-range collection sync,
+// not a FromDerived binding flush. FR-2 (RX-1) made binding-driven deriveds
+// invalidate eagerly via Derived.OnInvalidated; a direct OnChange subscriber
+// still must read to trigger the recompute (the tick runs before deliverSignals,
+// so the recompute-triggered OnChange is delivered in the same frame and the
+// windowed series + legend re-project with it).
 func (e *Realtime) flushWindowedDeriveds() {
 	e.appState.VisibleRows.Get()
 	e.appState.BarBuckets.Get()

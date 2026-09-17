@@ -75,7 +75,7 @@ func (l *Line[T]) Descriptor() marks.Descriptor {
 }
 
 func (l *Line[T]) OnAttach(ctx facet.AttachContext) {
-	l.Core.OnAttach()
+	l.Core.OnAttach(ctx)
 	l.cleanups = append(l.cleanups,
 		l.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
 			l.Invalidate(facet.DirtyProjection)

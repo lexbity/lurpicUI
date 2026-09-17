@@ -227,7 +227,7 @@ func (c *Card) Children() []facet.GroupChild {
 	return out
 }
 
-func (c *Card) OnAttach(ctx facet.AttachContext) { c.Core.OnAttach() }
+func (c *Card) OnAttach(ctx facet.AttachContext) { c.Core.OnAttach(ctx) }
 func (c *Card) OnActivate()                      { c.Core.OnActivate() }
 func (c *Card) OnDeactivate()                    { c.Core.OnDeactivate() }
 

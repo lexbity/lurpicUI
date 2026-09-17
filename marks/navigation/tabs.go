@@ -234,7 +234,7 @@ func (t *Tabs) Children() []facet.GroupChild {
 
 // OnAttach is unused beyond layout role setup.
 func (t *Tabs) OnAttach(ctx facet.AttachContext) {
-	t.Core.OnAttach()
+	t.Core.OnAttach(ctx)
 	if t.ActiveIndex != nil {
 		facet.Store(facet.Subscribe(t), &t.ActiveIndex.OnChange, t.ActiveIndex.Version, func(signal.Change[int]) {
 			t.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)

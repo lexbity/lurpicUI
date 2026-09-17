@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+
+	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
 var updateGolden = flag.Bool("update-golden", false, "regenerate golden images")
@@ -39,6 +41,42 @@ func updateRequested() bool {
 // AssertGolden compares the surface against testdata/golden/<name>.png.
 func AssertGolden(t reporter, surface *MemorySurface, name string) {
 	t.Helper()
+	got := surface.Capture()
+	assertImageGolden(t, name, got, got.Bounds())
+}
+
+// AssertRegionGolden compares a sub-rectangle of the surface against
+// testdata/golden/<name>.png. The golden file stores only the cropped region,
+// so a stage-region assertion is immune to unrelated shell changes (frame
+// decorations, status bar, index pane) — the RX-1 FR-21 switched-shell proof
+// compares stage regions across exhibit switches.
+func AssertRegionGolden(t reporter, surface *MemorySurface, name string, region gfx.Rect) {
+	t.Helper()
+	if surface == nil {
+		t.Fatalf("AssertRegionGolden(%s): nil surface", name)
+	}
+	w, h := surface.Size()
+	r := image.Rect(
+		int(region.Min.X),
+		int(region.Min.Y),
+		int(region.Max.X),
+		int(region.Max.Y),
+	).Intersect(image.Rect(0, 0, w, h))
+	if r.Empty() {
+		t.Fatalf("AssertRegionGolden(%s): empty region %v out of %dx%d surface", name, region, w, h)
+	}
+	got := surface.Capture()
+	crop := image.NewRGBA(image.Rect(0, 0, r.Dx(), r.Dy()))
+	for y := 0; y < r.Dy(); y++ {
+		for x := 0; x < r.Dx(); x++ {
+			crop.Set(x, y, got.At(r.Min.X+x, r.Min.Y+y))
+		}
+	}
+	assertImageGolden(t, name, crop, image.Rect(0, 0, r.Dx(), r.Dy()))
+}
+
+func assertImageGolden(t reporter, name string, got *image.RGBA, bounds image.Rectangle) {
+	t.Helper()
 	baseDir := resolveGoldenBaseDir(t)
 	if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
 		fmt.Fprintf(os.Stderr, "golden baseDir=%s name=%s update=%v\n", baseDir, name, updateRequested())
@@ -51,7 +89,6 @@ func AssertGolden(t reporter, surface *MemorySurface, name string) {
 		t.Fatalf("mkdir golden: %v", err)
 	}
 
-	got := surface.Capture()
 	if updateRequested() {
 		if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
 			fmt.Fprintf(os.Stderr, "golden update name=%s got=%x %s\n", name, imageDigest(got), firstPixelValue(got))
@@ -67,7 +104,7 @@ func AssertGolden(t reporter, surface *MemorySurface, name string) {
 	}
 	if !imagesClose(got, want, 2) {
 		if os.Getenv("TESTKIT_GOLDEN_DEBUG") != "" {
-			fmt.Fprintf(os.Stderr, "golden diff name=%s bounds=%v want=%x got=%x %s\n", name, got.Bounds(), imageDigest(want), imageDigest(got), firstPixelDiff(want, got))
+			fmt.Fprintf(os.Stderr, "golden diff name=%s bounds=%v want=%x got=%x %s\n", name, bounds, imageDigest(want), imageDigest(got), firstPixelDiff(want, got))
 		}
 		writePNGOrFail(t, actualPath, got)
 		t.Errorf("golden mismatch for %s", name)

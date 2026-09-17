@@ -235,7 +235,7 @@ func (g *ActionGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 func (g *ActionGroup) Children() []facet.GroupChild { return nil }
 
 // OnAttach is unused.
-func (g *ActionGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *ActionGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (g *ActionGroup) OnActivate() { g.Core.OnActivate() }

@@ -189,7 +189,7 @@ func (rg *RadioGroup) Children() []facet.GroupChild { return nil }
 
 // OnAttach wires store invalidation for the value store.
 func (rg *RadioGroup) OnAttach(ctx facet.AttachContext) {
-	rg.Core.OnAttach()
+	rg.Core.OnAttach(ctx)
 	if rg.Value == nil {
 		return
 	}

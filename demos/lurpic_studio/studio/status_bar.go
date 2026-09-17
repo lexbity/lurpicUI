@@ -71,6 +71,18 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	s.badge.Label = marks.FromDerived(shell.RowCount, facet.DirtyProjection)
 	s.caption.(*primitive.Text).Content = marks.FromDerived(titleText, facet.DirtyProjection)
 
+	// The binding fields above are assigned after construction (the marks'
+	// constructors register their own default Const bindings via AddBinding).
+	// Register the replaced bindings explicitly so the marks' OnAttach
+	// subscribes them — an unregistered binding field reads live but never
+	// invalidates (RX-1 A-6; without this the status strip would be stale
+	// after any post-attach write).
+	s.light.AddBinding(s.light.Disabled)
+	s.bar.AddBinding(s.bar.Value)
+	s.ring.AddBinding(s.ring.Value)
+	s.badge.AddBinding(s.badge.Label)
+	s.caption.(*primitive.Text).AddBinding(s.caption.(*primitive.Text).Content)
+
 	s.Facet = facet.NewFacet()
 	s.AddChild(s.light.Base())
 	s.AddChild(s.bar.Base())

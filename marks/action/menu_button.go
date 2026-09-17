@@ -323,7 +323,7 @@ func (m *MenuButton) Children() []facet.GroupChild {
 }
 
 // OnAttach subscribes binding sources.
-func (m *MenuButton) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach() }
+func (m *MenuButton) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
 
 // OnActivate is unused.
 func (m *MenuButton) OnActivate() { m.Core.OnActivate() }

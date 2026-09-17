@@ -90,7 +90,7 @@ func (p *Point[T]) Descriptor() marks.Descriptor {
 }
 
 func (p *Point[T]) OnAttach(ctx facet.AttachContext) {
-	p.Core.OnAttach()
+	p.Core.OnAttach(ctx)
 	p.cleanups = append(p.cleanups,
 		p.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
 			p.Invalidate(facet.DirtyProjection)

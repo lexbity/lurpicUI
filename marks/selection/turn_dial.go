@@ -199,7 +199,7 @@ func (td *TurnDial) invalidate(flags facet.DirtyFlags) {
 }
 
 func (td *TurnDial) OnAttach(ctx facet.AttachContext) {
-	td.Core.OnAttach()
+	td.Core.OnAttach(ctx)
 	if td.Value == nil {
 		return
 	}

@@ -264,7 +264,7 @@ func (p *CommandPalette) Children() []facet.GroupChild {
 
 // OnAttach wires command registry and query invalidation.
 func (p *CommandPalette) OnAttach(ctx facet.AttachContext) {
-	p.Core.OnAttach()
+	p.Core.OnAttach(ctx)
 	if p.Open != nil {
 		facet.Store(facet.Subscribe(p), &p.Open.OnChange, p.Open.Version, func(signal.Change[bool]) {
 			p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)

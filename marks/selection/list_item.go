@@ -198,7 +198,7 @@ func (li *ListItem) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorS
 // Children returns the facet's immediate child list.
 func (li *ListItem) Children() []facet.GroupChild { return nil }
 
-func (li *ListItem) OnAttach(ctx facet.AttachContext) { li.Core.OnAttach() }
+func (li *ListItem) OnAttach(ctx facet.AttachContext) { li.Core.OnAttach(ctx) }
 func (li *ListItem) OnActivate()                      { li.Core.OnActivate() }
 func (li *ListItem) OnDeactivate()                    { li.Core.OnDeactivate() }
 func (li *ListItem) OnDetach() {

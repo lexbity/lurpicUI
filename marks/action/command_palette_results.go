@@ -157,7 +157,7 @@ func (g *commandPaletteResultsGroup) Children() []facet.GroupChild {
 	return out
 }
 
-func (g *commandPaletteResultsGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach() }
+func (g *commandPaletteResultsGroup) OnAttach(ctx facet.AttachContext) { g.Core.OnAttach(ctx) }
 func (g *commandPaletteResultsGroup) OnActivate()                      { g.Core.OnActivate() }
 func (g *commandPaletteResultsGroup) OnDeactivate()                    { g.Core.OnDeactivate() }
 func (g *commandPaletteResultsGroup) OnDetach()                        { g.Core.OnDetach() }

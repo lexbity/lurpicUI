@@ -217,7 +217,7 @@ func (s *Slider) Children() []facet.GroupChild {
 
 // OnAttach wires store invalidation for the value store.
 func (s *Slider) OnAttach(ctx facet.AttachContext) {
-	s.Core.OnAttach()
+	s.Core.OnAttach(ctx)
 	if s.Value == nil {
 		return
 	}
