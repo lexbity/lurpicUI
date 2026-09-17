@@ -466,7 +466,7 @@ func (p *PopupPalette) OnAttach(ctx facet.AttachContext) {
 		return
 	}
 	facet.Store(facet.Subscribe(p), &p.Open.OnChange, p.Open.Version, func(signal.Change[bool]) {
-		p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		p.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "popupPalette.Open")
 	})
 }
 

@@ -316,7 +316,7 @@ func (n *Notification) OnAttach(ctx facet.AttachContext) {
 		return
 	}
 	facet.Store(facet.Subscribe(n), &n.Open.OnChange, n.Open.Version, func(signal.Change[bool]) {
-		n.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		n.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "notification.Open")
 	})
 }
 

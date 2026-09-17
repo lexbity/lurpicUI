@@ -80,15 +80,15 @@ func PropagateContentDirty(f facet.FacetImpl, rt facet.RuntimeServices, source s
 		return
 	}
 	base := f.Base()
-	if flags&facet.DirtyLayout != 0 {
-		base.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection, source)
-	} else {
-		base.InvalidateWithSource(flags|facet.DirtyProjection, source)
-	}
+	// The mark's declared flags are preserved locally (a layout change also
+	// re-projects, and any declared DirtyHit is carried so hit regions refresh
+	// when bounds change). The runtime side mirrors the same set.
+	local := flags | facet.DirtyProjection
+	base.InvalidateWithSource(local, source)
 	if rt == nil {
 		return
 	}
-	rt.Invalidate(base.ID(), flags|facet.DirtyProjection, source)
+	rt.Invalidate(base.ID(), local, source)
 	if flags&facet.DirtyLayout == 0 {
 		return
 	}

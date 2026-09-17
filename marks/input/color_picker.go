@@ -179,7 +179,7 @@ func (p *ColorPicker) OnAttach(ctx facet.AttachContext) {
 	p.syncHSVCache()
 	facet.Store(facet.Subscribe(p), &p.Value.OnChange, p.Value.Version, func(signal.Change[gfx.Color]) {
 		p.syncHSVCache()
-		p.invalidate(facet.DirtyProjection | facet.DirtyHit)
+		p.InvalidateWithSource(facet.DirtyProjection|facet.DirtyHit, "colorPicker.Value")
 	})
 }
 

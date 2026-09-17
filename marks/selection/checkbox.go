@@ -226,7 +226,7 @@ func (c *Checkbox) OnAttach(ctx facet.AttachContext) {
 		return
 	}
 	facet.Store(facet.Subscribe(c), &c.Value.OnChange, c.Value.Version, func(signal.Change[CheckboxState]) {
-		c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		c.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "checkbox.Value")
 	})
 }
 

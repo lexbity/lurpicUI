@@ -296,12 +296,12 @@ func (d *NavDrawer) OnAttach(ctx facet.AttachContext) {
 	d.Core.OnAttach(ctx)
 	if d.Open != nil {
 		facet.Store(facet.Subscribe(d), &d.Open.OnChange, d.Open.Version, func(signal.Change[bool]) {
-			d.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navDrawer.Open")
 		})
 	}
 	if d.CurrentIndex != nil {
 		facet.Store(facet.Subscribe(d), &d.CurrentIndex.OnChange, d.CurrentIndex.Version, func(signal.Change[int]) {
-			d.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navDrawer.CurrentIndex")
 		})
 	}
 }

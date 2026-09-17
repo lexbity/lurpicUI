@@ -202,7 +202,7 @@ func (b *Breadcrumbs) OnAttach(ctx facet.AttachContext) {
 	b.Core.OnAttach(ctx)
 	if b.CurrentIndex != nil {
 		facet.Store(facet.Subscribe(b), &b.CurrentIndex.OnChange, b.CurrentIndex.Version, func(signal.Change[int]) {
-			b.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			b.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "breadcrumbs.CurrentIndex")
 		})
 	}
 }

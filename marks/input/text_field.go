@@ -225,7 +225,7 @@ func (tf *TextField) OnAttach(ctx facet.AttachContext) {
 	}
 	tf.Core.OnAttach(ctx)
 	facet.Store(facet.Subscribe(tf), &tf.Value.OnChange, tf.Value.Version, func(signal.Change[string]) {
-		tf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		tf.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "textField.Value")
 	})
 }
 

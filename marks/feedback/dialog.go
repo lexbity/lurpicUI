@@ -303,7 +303,7 @@ func (d *Dialog) OnAttach(ctx facet.AttachContext) {
 		return
 	}
 	facet.Store(facet.Subscribe(d), &d.Open.OnChange, d.Open.Version, func(signal.Change[bool]) {
-		d.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "dialog.Open")
 	})
 }
 

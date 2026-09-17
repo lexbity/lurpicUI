@@ -174,7 +174,7 @@ func (s *Switch) OnAttach(ctx facet.AttachContext) {
 		return
 	}
 	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[bool]) {
-		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		s.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "switch.Value")
 	})
 }
 

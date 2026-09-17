@@ -223,7 +223,7 @@ func (s *Slider) OnAttach(ctx facet.AttachContext) {
 	}
 	s.syncChildren()
 	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[float64]) {
-		s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		s.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "switch.Value")
 	})
 }
 

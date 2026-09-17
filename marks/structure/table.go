@@ -279,7 +279,7 @@ func (t *Table) OnAttach(ctx facet.AttachContext) {
 	t.Core.OnAttach(ctx)
 	if t.Selection != nil {
 		facet.Store(facet.Subscribe(t), &t.Selection.OnChange, t.Selection.Version, func(signal.Change[string]) {
-			t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "table.Selection")
 		})
 	}
 }

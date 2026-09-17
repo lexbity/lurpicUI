@@ -204,7 +204,7 @@ func (td *TurnDial) OnAttach(ctx facet.AttachContext) {
 		return
 	}
 	facet.Store(facet.Subscribe(td), &td.Value.OnChange, td.Value.Version, func(signal.Change[float64]) {
-		td.invalidate(facet.DirtyProjection)
+		td.InvalidateWithSource(facet.DirtyProjection, "turnDial.Value")
 	})
 }
 

@@ -195,7 +195,7 @@ func (rg *RadioGroup) OnAttach(ctx facet.AttachContext) {
 	}
 	facet.Store(facet.Subscribe(rg), &rg.Value.OnChange, rg.Value.Version, func(signal.Change[string]) {
 		rg.focusedIndex = rg.selectedIndex()
-		rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		rg.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "radioGroup.Value")
 	})
 }
 

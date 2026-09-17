@@ -230,7 +230,7 @@ func (ds *DropdownSelect) OnAttach(ctx facet.AttachContext) {
 	}
 	facet.Store(facet.Subscribe(ds), &ds.Value.OnChange, ds.Value.Version, func(signal.Change[string]) {
 		ds.syncActiveIndex()
-		ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		ds.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "dropdownSelect.Value")
 	})
 }
 

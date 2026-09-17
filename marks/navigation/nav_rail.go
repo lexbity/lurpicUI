@@ -244,7 +244,7 @@ func (r *NavRail) OnAttach(ctx facet.AttachContext) {
 	r.Core.OnAttach(ctx)
 	if r.ActiveIndex != nil {
 		facet.Store(facet.Subscribe(r), &r.ActiveIndex.OnChange, r.ActiveIndex.Version, func(signal.Change[int]) {
-			r.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			r.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navRail.ActiveIndex")
 		})
 	}
 }

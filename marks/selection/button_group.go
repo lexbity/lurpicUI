@@ -319,7 +319,7 @@ func (bg *ButtonGroup) OnAttach(ctx facet.AttachContext) {
 	}
 	facet.Store(facet.Subscribe(bg), &bg.Value.OnChange, bg.Value.Version, func(signal.Change[[]string]) {
 		bg.syncChildState()
-		bg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		bg.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "buttonGroup.Value")
 	})
 }
 

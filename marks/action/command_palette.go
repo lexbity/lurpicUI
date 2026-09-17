@@ -249,7 +249,7 @@ func (p *CommandPalette) OnAttach(ctx facet.AttachContext) {
 	p.Core.OnAttach(ctx)
 	if p.Open != nil {
 		facet.Store(facet.Subscribe(p), &p.Open.OnChange, p.Open.Version, func(c signal.Change[bool]) {
-			p.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			p.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "commandPalette.Open")
 			// A modal surface must take keyboard focus when it mounts so
 			// Escape and typing route to it (RX-1 Q4 visibility + the palette's
 			// own onKey/onDismiss handlers).

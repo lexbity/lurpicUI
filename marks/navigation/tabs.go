@@ -237,7 +237,7 @@ func (t *Tabs) OnAttach(ctx facet.AttachContext) {
 	t.Core.OnAttach(ctx)
 	if t.ActiveIndex != nil {
 		facet.Store(facet.Subscribe(t), &t.ActiveIndex.OnChange, t.ActiveIndex.Version, func(signal.Change[int]) {
-			t.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "tabs.ActiveIndex")
 		})
 	}
 }

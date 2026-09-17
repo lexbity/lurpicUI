@@ -230,7 +230,7 @@ func (t *Tooltip) OnAttach(ctx facet.AttachContext) {
 		return
 	}
 	facet.Store(facet.Subscribe(t), &t.Open.OnChange, t.Open.Version, func(signal.Change[bool]) {
-		t.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "tooltip.Open")
 	})
 }
 

@@ -268,7 +268,7 @@ func (t *TreeNavigator) OnAttach(ctx facet.AttachContext) {
 		t.Data = store.NewValueStore[[]TreeNode](nil)
 	}
 	facet.Store(facet.Subscribe(t), &t.Data.OnChange, t.Data.Version, func(signal.Change[[]TreeNode]) {
-		t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "treeNavigator.Data")
 	})
 }
 

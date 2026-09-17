@@ -214,7 +214,7 @@ func (l *List) OnAttach(ctx facet.AttachContext) {
 	l.Core.OnAttach(ctx)
 	if l.Data != nil {
 		facet.Store(facet.Subscribe(l), &l.Data.OnChange, l.Data.Version, func(_ signal.Change[[]ListEntry]) {
-			l.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			l.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "list.Data")
 		})
 	}
 }
@@ -239,13 +239,6 @@ func (l *List) OnDetach() {
 	l.cachedRows = nil
 	l.cachedHeaderMark = nil
 	l.cachedEmptyMark = nil
-}
-
-func (l *List) invalidate(flags facet.DirtyFlags) {
-	if l == nil {
-		return
-	}
-	l.Invalidate(flags)
 }
 
 func (l *List) entries() []ListEntry {

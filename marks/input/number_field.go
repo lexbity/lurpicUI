@@ -230,7 +230,7 @@ func (nf *NumberField) OnAttach(ctx facet.AttachContext) {
 		if !nf.editing || !nf.parseError {
 			nf.syncEditingText()
 		}
-		nf.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+		nf.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "numberField.Value")
 	})
 }
 
