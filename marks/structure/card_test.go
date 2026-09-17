@@ -78,20 +78,26 @@ func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	if cmds == nil || cmds.Len() == 0 {
 		t.Fatal("expected projected commands")
 	}
-	var sawGlyphRun, sawFillPath bool
+	var sawFillPath bool
 	for _, cmd := range cmds.Commands {
-		switch cmd.(type) {
-		case gfx.DrawGlyphRun:
-			sawGlyphRun = true
-		case gfx.FillPath:
+		if _, ok := cmd.(gfx.FillPath); ok {
 			sawFillPath = true
 		}
 	}
-	if !sawGlyphRun {
-		t.Fatal("expected text glyph commands")
-	}
 	if !sawFillPath {
 		t.Fatal("expected surface/fill commands")
+	}
+	// The content is a tree child now (RX-1 F-card-content): its glyphs are
+	// projected by the runtime, not the card. Assert the card attached its
+	// content as tree children (so the runtime projects and hit-tests them).
+	attached := 0
+	for _, childBase := range card.Base().Children() {
+		if childBase != nil && childBase.LayoutRole() != nil {
+			attached++
+		}
+	}
+	if attached < 5 {
+		t.Fatalf("expected the card to attach its content as tree children, got %d", attached)
 	}
 }
 
@@ -159,9 +165,27 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
 	bounds := canvas
 	card.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: card.Layout.Parent, ChildGroup: card.Layout.Child}, bounds)
+	// The card's content is a real tree child (RX-1 F-card-content): project
+	// the card chrome first, then each tree child at its arranged bounds, in
+	// the runtime's pre-order paint order.
 	cmds := card.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
 	if cmds == nil {
 		t.Fatal("expected projected commands")
+	}
+	merged := *cmds
+	for _, childBase := range card.Base().Children() {
+		if childBase == nil {
+			continue
+		}
+		role := childBase.LayoutRole()
+		childCmds := childBase.ProjectionRole().Project(facet.ProjectionContext{
+			Runtime:      rt,
+			Bounds:       role.ArrangedBounds,
+			ContentScale: 1,
+		})
+		if childCmds != nil {
+			merged.Commands = append(merged.Commands, childCmds.Commands...)
+		}
 	}
 	surface := testkit.NewMemorySurface(640, 360)
 	renderer := softwarerenderer.NewSoftwareRenderer()
@@ -173,7 +197,7 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 			ID:          1,
 			Bounds:      bounds,
 			Opacity:     1,
-			Commands:    *cmds,
+			Commands:    merged,
 			CommandHash: 1,
 		}},
 	}

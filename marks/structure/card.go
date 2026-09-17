@@ -227,9 +227,22 @@ func (c *Card) Children() []facet.GroupChild {
 	return out
 }
 
-func (c *Card) OnAttach(ctx facet.AttachContext) { c.Core.OnAttach(ctx) }
-func (c *Card) OnActivate()                      { c.Core.OnActivate() }
-func (c *Card) OnDeactivate()                    { c.Core.OnDeactivate() }
+// OnAttach attaches the card's content facets to the facet tree so the runtime
+// projects and hit-tests them at their arranged bounds (RX-1 F-card-content).
+// The card no longer self-projects its content inline (see buildCommands): the
+// content is a real tree child, so interactive marks inside a Card receive
+// input. OnDetach clears cached state; the runtime disposes the tree children.
+func (c *Card) OnAttach(ctx facet.AttachContext) {
+	c.Core.OnAttach(ctx)
+	for _, spec := range c.activeChildren() {
+		if spec.Facet == nil || spec.Facet.Base() == nil {
+			continue
+		}
+		c.AddChild(spec.Facet.Base())
+	}
+}
+func (c *Card) OnActivate()   { c.Core.OnActivate() }
+func (c *Card) OnDeactivate() { c.Core.OnDeactivate() }
 
 // OnDetach clears cached projection state.
 func (c *Card) OnDetach() {
@@ -493,24 +506,10 @@ func (c *Card) buildCommands(bounds gfx.Rect, runtime any, contentScale float32)
 	if !theme.IsTransparentMaterial(surface) {
 		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, c.cachedRadius), surface)...)
 	}
-	active := c.activeChildren()
-	for i := range active {
-		spec := active[i]
-		if spec.Facet == nil {
-			continue
-		}
-		b, ok := c.cachedChildBounds[spec.Facet.Base().ID()]
-		if !ok || b.IsEmpty() {
-			continue
-		}
-		if childCmds := spec.Facet.Base().ProjectionRole().Project(facet.ProjectionContext{
-			Runtime:      runtimeServicesOrNil(runtime),
-			Bounds:       b,
-			ContentScale: contentScale,
-		}); childCmds != nil {
-			cmds = append(cmds, childCmds.Commands...)
-		}
-	}
+	// The content facets are real tree children (OnAttach AddChild): the
+	// runtime projects and hit-tests them at their arranged bounds. The card
+	// only draws its own chrome here; it does not self-project content (RX-1
+	// F-card-content).
 	return cmds
 }
 
