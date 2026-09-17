@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/feedback"
@@ -142,7 +143,7 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.tipOpen = store.NewValueStore(false)
 	e.tipText = store.NewValueStore("")
 	e.tip = feedback.NewTooltip("", e.tipOpen)
-	e.tip.Content = marks.FromStore(e.tipText, facet.DirtyProjection)
+	e.tip.Content = marks.FromStore(e.tipText, facet.DirtyLayout|facet.DirtyProjection)
 	e.tip.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	e.buildControls()
 	e.buildReshapeDial()
@@ -560,12 +561,10 @@ func (e *Realtime) updateSelectionTip(id store.ItemID) {
 	}
 	e.tipText.Set(fmt.Sprintf("%s · %s · %.1f", row.Time.Format("15:04:05"), row.Region, row.Value))
 	e.tipOpen.Set(true)
-	// The tooltip was measured/arranged while closed, so its projection caches
-	// are empty; the mark's Open binding invalidates only its local dirty bits,
-	// which the runtime's layout pass does not read (F-dirtylayout-routing).
-	// Routing a layout pass through the runtime re-measures and re-arranges the
-	// tooltip so its bubble actually renders.
-	invalidateLayout(e.Base(), e.rt, "E1.updateSelectionTip")
+	// The tooltip's Open/content bindings re-project it, but its bubble was
+	// measured while closed; routing the content change through the RX-1 FR-3
+	// propagation re-measures and re-arranges it so the bubble renders.
+	layout.PropagateContentDirty(e.Base(), e.rt, "E1.updateSelectionTip", facet.DirtyLayout|facet.DirtyProjection)
 }
 
 func (e *Realtime) OnDetach() {

@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/data"
 	"codeburg.org/lexbit/lurpicui/marks/feedback"
@@ -85,7 +86,7 @@ func NewEditableGrid(rows *store.CollectionStore[dataset.Row], fonts *text.FontR
 	})
 	g.editor = input.NewTextField("Cell", uiinput.TextInputOutlined, g.cellValue)
 	g.alert = feedback.NewAlert("Invalid value", "")
-	g.alert.Message = marks.FromStore(g.invalid, facet.DirtyProjection)
+	g.alert.Message = marks.FromStore(g.invalid, facet.DirtyLayout|facet.DirtyProjection)
 	facet.AttachLayer(g, g.editor, facet.LayerAttachment{ZPriority: 30})
 	facet.AttachLayer(g, g.alert, facet.LayerAttachment{ZPriority: 20})
 
@@ -268,7 +269,7 @@ func (g *EditableGrid) activateEdit(bounds gfx.Rect, id store.ItemID) {
 	if fs, ok := g.rt.(interface{ SetFocus(facet.FacetImpl) }); ok {
 		fs.SetFocus(g.editor)
 	}
-	invalidateLayout(g, g.rt, "grid.activateEdit")
+	layout.PropagateContentDirty(g, g.rt, "grid.activateEdit", facet.DirtyLayout|facet.DirtyProjection)
 }
 
 func (g *EditableGrid) cancelEdit() {

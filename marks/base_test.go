@@ -161,16 +161,71 @@ func TestBase_binding_store_change_invalidates_facet(t *testing.T) {
 	}
 }
 
-func TestBase_binding_store_change_declared_flags_only(t *testing.T) {
+// TestBase_binding_attached_remeasures_when_declared proves the RX-1 FR-3
+// flag-honoring at the marks layer: a binding that declares DirtyLayout
+// re-measures AND re-projects through the layout propagation, while a
+// projection-only binding stays projection-only.
+func TestBase_binding_attached_remeasures_when_declared(t *testing.T) {
 	s := store.NewValueStore("initial")
-	m := newBindingTestMark(s)
+	m := newBindingTestMark(s) // declares only DirtyProjection
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 	s.Set("updated")
 
 	flags := m.DirtyFlags()
 	if flags&facet.DirtyLayout != 0 {
-		t.Fatal("expected no DirtyLayout — binding declared only DirtyProjection")
+		t.Fatal("a DirtyProjection-only binding must not re-measure (FR-3 flag-honoring)")
+	}
+	if flags&facet.DirtyProjection == 0 {
+		t.Fatal("expected DirtyProjection after attached content change — FR-3 re-project")
+	}
+}
+
+// TestBase_binding_attached_layout_flagged_reroutes proves a binding that
+// declares DirtyLayout routes re-measure through the layout propagation.
+func TestBase_binding_attached_layout_flagged_reroutes(t *testing.T) {
+	s := store.NewValueStore("initial")
+	m := &multiBindMark{
+		b1: FromStore(s, facet.DirtyLayout|facet.DirtyProjection),
+		b2: FromStore(store.NewValueStore(0), facet.DirtyLayout),
+	}
+	m.AddBinding(m.b1)
+	m.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: 100, H: 50}}
+	}
+	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		m.Layout.ArrangedBounds = bounds
+	}
+	m.RegisterRoles()
+
+	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
+	s.Set("updated")
+
+	flags := m.DirtyFlags()
+	if flags&facet.DirtyLayout == 0 {
+		t.Fatal("expected DirtyLayout after a DirtyLayout-declaring content change — FR-3 re-measure")
+	}
+	if flags&facet.DirtyProjection == 0 {
+		t.Fatal("expected DirtyProjection after a DirtyLayout-declaring content change — FR-3 re-project")
+	}
+}
+
+// TestBase_binding_unattached_uses_declared_flags_only pins the unattached
+// fallback: without a runtime, a binding change raises exactly the declared
+// flags (no layout route, no implicit re-measure).
+func TestBase_binding_unattached_uses_declared_flags_only(t *testing.T) {
+	s := store.NewValueStore("initial")
+	m := newBindingTestMark(s) // declares only DirtyProjection
+
+	facet.Attach(m, facet.AttachContext{})
+	s.Set("updated")
+
+	flags := m.DirtyFlags()
+	if flags&facet.DirtyLayout != 0 {
+		t.Fatal("expected no DirtyLayout unattached — binding declared only DirtyProjection")
+	}
+	if flags&facet.DirtyProjection == 0 {
+		t.Fatal("expected DirtyProjection unattached — binding declared DirtyProjection")
 	}
 }
 
@@ -549,7 +604,10 @@ func TestBase_multiple_bindings_all_invalidate(t *testing.T) {
 	if flags&facet.DirtyLayout == 0 {
 		t.Error("expected DirtyLayout after int binding change")
 	}
-	if flags&facet.DirtyProjection != 0 {
-		t.Error("expected no DirtyProjection — int binding declares only DirtyLayout")
+	// RX-1 FR-3: an attached content change re-measures AND re-projects
+	// regardless of the binding's declared flags (the accepted over-
+	// invalidation of Q3); the declared flags govern the unattached fallback.
+	if flags&facet.DirtyProjection == 0 {
+		t.Error("expected DirtyProjection after attached int binding change — FR-3 re-project")
 	}
 }

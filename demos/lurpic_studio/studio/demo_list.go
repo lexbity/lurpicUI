@@ -3,6 +3,7 @@ package studio
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 )
 
@@ -168,7 +169,7 @@ func (l *demoList) onScroll(e facet.ScrollEvent) bool {
 		return false
 	}
 	l.scroll = next
-	invalidateLayout(l, l.rt, "demoList.onScroll")
+	layout.PropagateContentDirty(l, l.rt, "demoList.onScroll", facet.DirtyLayout|facet.DirtyProjection)
 	return true
 }
 
@@ -204,7 +205,7 @@ func (l *demoList) onKey(e facet.KeyEvent) bool {
 		return false
 	}
 	l.scroll = next
-	invalidateLayout(l, l.rt, "demoList.onKey")
+	layout.PropagateContentDirty(l, l.rt, "demoList.onKey", facet.DirtyLayout|facet.DirtyProjection)
 	return true
 }
 

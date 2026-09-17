@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
@@ -37,6 +38,8 @@ type LayoutPolicies struct {
 	controls   *structure.Card
 
 	cleanup func()
+
+	rt facet.RuntimeServices
 }
 
 // NewLayoutPolicies builds the E4 exhibit.
@@ -127,6 +130,9 @@ func (e *LayoutPolicies) recomputePanes() {
 		panes = append(panes, Pane{Facet: e.paneD, FixedWidth: width, MinWidth: width})
 	}
 	e.split.SetPanes(panes)
+	// A pane-list change is structural, but the gallery split no longer routes
+	// itself — the E4 host owns the re-layout (RX-1 content-vs-structure rule).
+	layout.PropagateContentDirty(e, e.rt, "playground.panes", facet.DirtyLayout|facet.DirtyProjection)
 }
 
 func (e *LayoutPolicies) measure(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -152,6 +158,7 @@ func (e *LayoutPolicies) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 }
 
 func (e *LayoutPolicies) OnAttach(ctx facet.AttachContext) {
+	e.rt = ctx.Runtime
 	btnID := e.addButton.Activated.Subscribe(func(signal.Unit) {
 		e.extraVisible.Set(!e.extraVisible.Get())
 	})

@@ -246,12 +246,13 @@ func (e *Anchors) OnAttach(ctx facet.AttachContext) {
 		}
 	}
 	idPos := e.pos.OnChange.Subscribe(func(signal.Change[gfx.Point]) {
-		// Moving the trigger re-positions the free layer attachment AND
-		// re-arranges it; the anchor layer policy re-positions the popovers
-		// from the re-exported anchors.
+		// Moving the trigger re-positions the free layer attachment. The
+		// runtime's UpdateChildAttachment already routes the host's DirtyLayout,
+		// and the anchor layer policy re-positions the popovers from the
+		// re-exported anchors during the same frame's layer resolution — no
+		// additional manual routing is needed (RX-1 FR-3).
 		if rt, ok := e.rt.(*runtime.Runtime); ok {
 			rt.UpdateChildAttachment(e.trigger, freeTriggerAttachment(e.ids, e.pos.Get()))
-			invalidateLayout(e, e.rt, "e3.trigger.drag")
 		}
 	})
 	e.cln = func() {

@@ -34,7 +34,7 @@ func (r *recordingFrameStats) last() diagnostics.FrameStats {
 	return r.frame
 }
 
-func testLayerRegistry(t *testing.T) *layout.LayerRegistry {
+func testLayerRegistry(t testing.TB) *layout.LayerRegistry {
 	t.Helper()
 	r, err := layout.StandardLayerRegistry()
 	if err != nil {
@@ -267,7 +267,7 @@ func mustRuntime(t *testing.T) *Runtime {
 	return rt
 }
 
-func mustRuntimeTree(t *testing.T, root facet.FacetImpl) *Runtime {
+func mustRuntimeTree(t testing.TB, root facet.FacetImpl) *Runtime {
 	t.Helper()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)

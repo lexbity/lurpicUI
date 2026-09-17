@@ -91,7 +91,7 @@ func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
 		return
 	}
 	rt.invalidateDirtyLayoutCaches()
-	roots := rt.selectedLayoutRoots()
+	roots := rt.layoutDirtyRoots()
 	for _, root := range roots {
 		if root == nil || root.Base() == nil {
 			continue
@@ -116,20 +116,85 @@ func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
 		rt.arrangeLayoutChild(root, bounds)
 		rt.clearLayoutDirtyTree(root)
 	}
+	// A layout root's arrange cascade re-arranges its subtree through each
+	// host's OnArrange. An ancestor host's arrange cache can short-circuit its
+	// OnArrange when its own bounds are unchanged — which is correct for pure
+	// hosts but leaves an internal-only content change (a scroll offset, an
+	// active tab body) un-arranged: the dirty facet's OnArrange never re-runs.
+	// A dirty facet whose arrange cache is STILL invalid after the cascade was
+	// not reached by it; arrange it directly with its current bounds so its
+	// own OnArrange re-runs exactly once (a facet the cascade reached has a
+	// valid cache and is skipped — no double-arrange).
+	rt.arrangeDirtyLayoutFacets(roots)
 }
 
-func (rt *Runtime) selectedLayoutRoots() []facet.FacetImpl {
+// arrangeDirtyLayoutFacets directly re-arranges the dirty layout facets the
+// roots' arrange cascade did not reach (their arrange cache is still invalid
+// after the cascade). Gated (empty-bounds) facets are skipped; the gating
+// parent's intent stands.
+func (rt *Runtime) arrangeDirtyLayoutFacets(roots []facet.FacetImpl) {
+	if len(rt.dirtyFacets) == 0 {
+		return
+	}
+	rootIDs := make(map[facet.FacetID]struct{}, len(roots))
+	for _, r := range roots {
+		if r != nil && r.Base() != nil {
+			rootIDs[r.Base().ID()] = struct{}{}
+		}
+	}
+	for id, flags := range rt.dirtyFacets {
+		if flags&facet.DirtyLayout == 0 {
+			continue
+		}
+		if _, ok := rootIDs[id]; ok {
+			continue
+		}
+		f := rt.findFacetByID(rt.root, id)
+		if f == nil || f.Base() == nil {
+			continue
+		}
+		role := f.Base().LayoutRole()
+		if role == nil || role.ArrangedBounds.IsEmpty() {
+			continue
+		}
+		if role.HasValidArrangeCache() {
+			continue
+		}
+		rt.arrangeLayoutChild(f, role.ArrangedBounds)
+	}
+}
+
+// layoutDirtyRoots returns the deduplicated layout roots for the frame's dirty
+// layout set. Each dirty facet is resolved to its nearest layout root — the
+// nearest ancestor declaring a GroupParentContract, or the app root — so a
+// mid-tree content change re-lays through the policies that arrange it rather
+// than in isolation (RX-1 FR-3: re-measure + re-arrange through ancestor
+// policies). Roots with a layout-dirty ancestor are filtered so the highest
+// root's walk covers the subtree.
+func (rt *Runtime) layoutDirtyRoots() []facet.FacetImpl {
 	if len(rt.dirtyFacets) == 0 {
 		return nil
 	}
+	seen := make(map[facet.FacetID]struct{}, len(rt.dirtyFacets))
 	roots := make([]facet.FacetImpl, 0, len(rt.dirtyFacets))
-	for id := range rt.dirtyFacets {
-		if rt.dirtyFacets[id]&facet.DirtyLayout == 0 {
+	for id, flags := range rt.dirtyFacets {
+		if flags&facet.DirtyLayout == 0 {
 			continue
 		}
-		if f := rt.findFacetByID(rt.root, id); f != nil {
-			roots = append(roots, f)
+		f := rt.findFacetByID(rt.root, id)
+		if f == nil || f.Base() == nil {
+			continue
 		}
+		root := layout.NearestLayoutRoot(f)
+		if root == nil || root.Base() == nil {
+			continue
+		}
+		rid := root.Base().ID()
+		if _, ok := seen[rid]; ok {
+			continue
+		}
+		seen[rid] = struct{}{}
+		roots = append(roots, root)
 	}
 	sort.SliceStable(roots, func(i, j int) bool {
 		return roots[i].Base().ID() < roots[j].Base().ID()
@@ -143,6 +208,16 @@ func (rt *Runtime) selectedLayoutRoots() []facet.FacetImpl {
 	return filtered
 }
 
+// invalidateDirtyLayoutCaches clears the measure AND arrange caches along the
+// path from every dirty layout facet up to its nearest layout root.
+//
+// The measure cache must be cleared so the re-laid root re-measures the dirty
+// subtree instead of serving its cached size. The arrange cache must be cleared
+// on every host along the path too: a host whose own arranged bounds did not
+// change would otherwise be served from its arrange cache and never re-arrange
+// the dirty descendant — the Arrange-cache short-circuit assumes OnArrange is
+// a pure bounds→children mapping, which is false for hosts whose OnArrange
+// depends on descendant state (e.g. a tabs host that arranges the active body).
 func (rt *Runtime) invalidateDirtyLayoutCaches() {
 	if rt.root == nil {
 		return
@@ -151,9 +226,34 @@ func (rt *Runtime) invalidateDirtyLayoutCaches() {
 		if flags&facet.DirtyLayout == 0 {
 			continue
 		}
-		if f := rt.findFacetByID(rt.root, id); f != nil && f.Base() != nil {
-			if role := f.Base().LayoutRole(); role != nil {
+		f := rt.findFacetByID(rt.root, id)
+		if f == nil || f.Base() == nil {
+			continue
+		}
+		root := layout.NearestLayoutRoot(f)
+		rootID := facet.FacetID(0)
+		if root != nil && root.Base() != nil {
+			rootID = root.Base().ID()
+		}
+		for current := f; current != nil; {
+			base := current.Base()
+			if base == nil {
+				break
+			}
+			if role := base.LayoutRole(); role != nil {
 				role.InvalidateCache()
+			}
+			if rootID != 0 && base.ID() == rootID {
+				break
+			}
+			parent := base.Parent()
+			if parent == nil {
+				break
+			}
+			if impl := parent.Impl(); impl != nil {
+				current = impl
+			} else {
+				current = parent
 			}
 		}
 	}

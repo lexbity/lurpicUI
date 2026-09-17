@@ -3,6 +3,7 @@ package studio
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -179,7 +180,10 @@ func (c *ChromeStack) OnAttach(ctx facet.AttachContext) {
 		c.shell.Compact.Set(!c.shell.Compact.Get())
 	})
 	compactID := c.shell.Compact.OnChange.Subscribe(func(signal.Change[bool]) {
-		invalidateLayout(c, ctx.Runtime, "chrome.compact")
+		// Compact density is a content change (padding), not a structural one:
+		// route it through the RX-1 FR-3 propagation so the chrome re-measures
+		// with the tightened padding.
+		layout.PropagateContentDirty(c, ctx.Runtime, "chrome.compact", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	c.cleanup = func() {
 		cmdK.Activated.Unsubscribe(cmdKID)

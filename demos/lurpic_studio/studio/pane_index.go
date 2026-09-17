@@ -181,11 +181,14 @@ func (p *ExhibitIndex) OnDetach() {
 }
 
 // setActive writes the shell's ActiveExhibit store (guarded against re-entry).
+// No manual layout routing: the store write re-lays the stage (structural) and,
+// through syncFromActive, the nav_rail / tree_navigator content — their stores
+// are version-tracked in the projection cache key and re-projected on change
+// (RX-1 FR-3).
 func (p *ExhibitIndex) setActive(id ExhibitID, source string) {
 	if p.shell.ActiveExhibit.Get() == id {
 		return
 	}
-	invalidateLayout(p, p.rt, source)
 	p.shell.ActiveExhibit.Set(id)
 }
 

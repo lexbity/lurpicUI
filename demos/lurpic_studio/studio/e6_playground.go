@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/navigation"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -139,15 +140,13 @@ func (e *Playground) OnAttach(ctx facet.AttachContext) {
 			e.cleanups = append(e.cleanups, cleanup)
 		}
 	}
-	// Tab switching changes which family body is active, so it must re-lay the
-	// host. The tabs mark invalidates its own local facet bits on ActiveIndex
-	// change, but the runtime layout pass is gated on rt.dirtyFacets, which only
-	// RuntimeServices.Invalidate populates (F-dirtylayout-routing). Routing the
-	// store signal through the runtime re-measures and re-arranges the newly
-	// active family body; the tabs mark then measures/arranges that body from
-	// its panel bounds.
+	// Tab switching changes which family body is active — a content change
+	// (the body set is unchanged; only the active body's arrangement changes).
+	// Route it through the RX-1 FR-3 propagation entry point so the host
+	// re-measures and re-arranges the newly active family body; the tabs mark
+	// then measures/arranges that body from its panel bounds.
 	tabID := e.activeTab.OnChange.Subscribe(func(signal.Change[int]) {
-		invalidateLayout(e, ctx.Runtime, "playground.activeTab")
+		layout.PropagateContentDirty(e, ctx.Runtime, "playground.activeTab", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	e.cleanups = append(e.cleanups, func() { e.activeTab.OnChange.Unsubscribe(tabID) })
 }

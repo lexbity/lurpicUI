@@ -123,26 +123,41 @@ func (c *Core) OnAttach(ctx facet.AttachContext) {
 	for _, s := range c.subscriptions {
 		flags := s.DirtyFlags()
 		cleanup := s.SubscribeOnChange(func() {
-			// FR-3 seam (P3): content changes must route through
-			// layout.PropagateContentDirty so re-measure + re-arrange flow
-			// through ancestor policies within one frame. This slice (P1)
-			// keeps the local-invalidation shape: the local flags drive the
-			// projection walk (collectDirtyFlags), and the runtime dirty map
-			// drives the frame's dirty-region assembly and layout-root
-			// selection. A panicking handler is quarantined through the
-			// runtime's facet-callback recovery hook (tick-style guardedInvoke
-			// shape, copied — marks does not import runtime).
+			// RX-1 FR-3: a binding-visible content change MUST re-measure,
+			// re-arrange through ancestor policies, and re-project within one
+			// frame, with zero author-written invalidation routing. When a
+			// runtime is attached the change routes through the layout
+			// package's propagation entry point; without a runtime it falls
+			// back to local flags (standalone/construction projections). A
+			// panicking handler is quarantined through the runtime's
+			// facet-callback recovery hook (tick-style guardedInvoke shape,
+			// copied — marks does not import runtime).
 			facet.RunRecovered("binding", c.ID(), func() {
-				c.Invalidate(flags)
-				if c.rt != nil {
-					c.rt.Invalidate(c.ID(), flags, "binding")
-				}
+				c.InvalidateContent(flags, "binding")
 			})
 		})
 		if cleanup != nil {
 			c.cleanups = append(c.cleanups, cleanup)
 		}
 	}
+}
+
+// InvalidateContent routes a content change at this mark through the RX-1 FR-3
+// layout propagation when a runtime is attached, falling back to local flags
+// otherwise. The declared flags decide whether the change re-measures (DirtyLayout)
+// or only re-projects (DirtyProjection). Marks whose OnAttach subscribes a store
+// directly (via facet.Store) call this from their handler instead of Invalidate
+// so the change routes through the nearest layout root rather than only setting
+// local dirty bits.
+func (c *Core) InvalidateContent(flags facet.DirtyFlags, source string) {
+	if c == nil {
+		return
+	}
+	if c.rt != nil {
+		layout.PropagateContentDirty(c, c.rt, source, flags)
+		return
+	}
+	c.Invalidate(flags)
 }
 
 // OnDetach unsubscribes all bindings. Marks call this from their OnDetach.

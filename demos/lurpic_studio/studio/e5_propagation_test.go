@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -35,12 +36,18 @@ func shellStage(root *Root) *Stage {
 
 // shellStructuralIDs returns the shell's chrome facets (the "no shell
 // DirtyLayout" FR-rt assertion target).
+// shellStructuralIDs returns the shell structural facets a feed tick must not
+// re-lay. The status bar is deliberately excluded: its row-count badge is a
+// FromDerived binding, and under RX-1 FR-3 a content change (the live count)
+// re-measures + re-arranges the badge through the status bar — a feed tick
+// re-laying the status bar is the FR-3 guarantee working, not a leak. Root,
+// chrome, and the gallery split are untouched by a feed tick and must stay
+// layout-clean.
 func shellStructuralIDs(root *Root) map[facet.FacetID]bool {
 	return map[facet.FacetID]bool{
 		root.Base().ID():                true,
 		root.ChromeStack().Base().ID():  true,
 		root.GallerySplit().Base().ID(): true,
-		root.StatusBar().Base().ID():    true,
 	}
 }
 
@@ -155,6 +162,9 @@ func TestE5_propagationWave_resize(t *testing.T) {
 	panes := e4.Split().Panes()
 	panes[2].FixedWidth += 40
 	e4.Split().SetPanes(panes)
+	// SetPanes is a structural host operation and no longer routes itself
+	// (RX-1 content-vs-structure rule); the caller owns the re-layout.
+	layout.PropagateContentDirty(e4, h.Runtime(), "test.resize", facet.DirtyLayout|facet.DirtyProjection)
 	h.RunFrame()
 
 	snap := latestSnapshot(t, sink)

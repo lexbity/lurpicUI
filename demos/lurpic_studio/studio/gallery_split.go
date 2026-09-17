@@ -85,13 +85,13 @@ func (g *GallerySplit) Panes() []Pane { return append([]Pane(nil), g.panes...) }
 
 // SetPanes replaces the arranged pane list. Every pane's content facet is a
 // child from construction (so panes stay in the facet tree whether or not they
-// are arranged); this only changes which panes the split measures/arranges and
-// re-lays the host. Used by the E4 layout playground to add/remove panes and
-// toggle flex/fixed live.
+// are arranged); this only changes which panes the split measures/arranges.
+// The caller owns the re-layout routing: structural pane-list swaps are the
+// caller's explicit host code (root.applyMode routes the root; E4 routes the
+// playground), per the RX-1 content-vs-structure rule.
 func (g *GallerySplit) SetPanes(panes []Pane) {
 	g.panes = append([]Pane(nil), panes...)
 	g.layout.InvalidateCache()
-	invalidateLayout(g, g.rt, "gallery_split.SetPanes")
 }
 
 // childNodes produces the split ChildNodes for the panes from their current

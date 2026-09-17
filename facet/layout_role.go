@@ -604,6 +604,15 @@ func (r *LayoutRole) InvalidateCache() {
 	r.hasValidArrangeCache = false
 }
 
+// HasValidArrangeCache reports whether the arrange cache is valid. The runtime
+// uses it to detect whether a layout root's arrange cascade actually re-ran a
+// dirty facet's OnArrange: a cache invalidated at the start of a layout pass
+// and still invalid afterwards means the cascade did not reach the facet, which
+// must then be arranged directly (RX-1 FR-3).
+func (r *LayoutRole) HasValidArrangeCache() bool {
+	return r != nil && r.hasValidArrangeCache
+}
+
 func (r *LayoutRole) onAttach(f *Facet) {
 	if r.OnMeasure == nil {
 		panic("facet contract violation: layout role requires OnMeasure; guidance: provide a measurement callback before attaching the facet")

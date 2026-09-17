@@ -116,6 +116,10 @@ func (s *Stage) activeRootRole() *facet.LayoutRole {
 
 func (s *Stage) OnAttach(ctx facet.AttachContext) {
 	s.rt = ctx.Runtime
+	// Structural: switching the active exhibit changes which child the stage
+	// measures/arranges (a child-set/topology change), so the host routes its
+	// own layout explicitly per the RX-1 content-vs-structure rule. Content
+	// changes (labels, values) re-lay automatically through FR-3.
 	id := s.activeExhibit.OnChange.Subscribe(func(signal.Change[ExhibitID]) {
 		invalidateLayout(s, s.rt, "stage.activeExhibit")
 	})

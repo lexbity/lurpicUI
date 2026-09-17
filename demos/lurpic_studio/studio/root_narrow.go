@@ -3,6 +3,7 @@ package studio
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/navigation"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -30,7 +31,6 @@ type NarrowShell struct {
 	sheet    *ExhibitInspector
 	drawerID *store.ValueStore[int]
 
-	rt      facet.RuntimeServices
 	cleanup func()
 }
 
@@ -173,8 +173,6 @@ func (n *NarrowShell) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 }
 
 func (n *NarrowShell) OnAttach(ctx facet.AttachContext) {
-	n.rt = ctx.Runtime
-
 	drawerID := n.drawer.Activated.Subscribe(func(index int) {
 		if index >= 0 && index < len(exhibitCatalog) {
 			n.setActive(exhibitCatalog[index].id)
@@ -187,10 +185,10 @@ func (n *NarrowShell) OnAttach(ctx facet.AttachContext) {
 		}
 	})
 	indexOpenID := n.shell.IndexOpen.OnChange.Subscribe(func(signal.Change[bool]) {
-		invalidateLayout(n, ctx.Runtime, "narrow.indexOpen")
+		layout.PropagateContentDirty(n, ctx.Runtime, "narrow.indexOpen", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	inspectorOpenID := n.shell.InspectorOpen.OnChange.Subscribe(func(signal.Change[bool]) {
-		invalidateLayout(n, ctx.Runtime, "narrow.inspectorOpen")
+		layout.PropagateContentDirty(n, ctx.Runtime, "narrow.inspectorOpen", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	n.cleanup = func() {
 		n.drawer.Activated.Unsubscribe(drawerID)
@@ -211,7 +209,9 @@ func (n *NarrowShell) setActive(id ExhibitID) {
 	if n.shell.ActiveExhibit.Get() == id {
 		return
 	}
-	invalidateLayout(n, n.rt, "narrow.setActive")
+	// No manual layout routing: the store write re-lays the stage (structural)
+	// and the drawer/rail re-project their selection via the version-tracked
+	// ActiveIndex stores (RX-1 FR-3).
 	n.shell.ActiveExhibit.Set(id)
 }
 
@@ -334,7 +334,7 @@ func (r *narrowRail) OnAttach(ctx facet.AttachContext) {
 		}))
 	}
 	activeID := r.shell.ActiveExhibit.OnChange.Subscribe(func(signal.Change[ExhibitID]) {
-		invalidateLayout(r, ctx.Runtime, "narrowRail.active")
+		layout.PropagateContentDirty(r, ctx.Runtime, "narrowRail.active", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	r.cleanup = func() {
 		for i, icon := range r.icons {

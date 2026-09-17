@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/viz"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -712,7 +713,7 @@ func (c *ChartCanvas) OnAttach(ctx facet.AttachContext) {
 	// chart type, so a switch must re-layout the canvas (F-charttype-
 	// subscription).
 	idType := c.chartType.OnChange.Subscribe(func(signal.Change[string]) {
-		invalidateLayout(c, c.rt, "chart_canvas.chartType")
+		layout.PropagateContentDirty(c, c.rt, "chart_canvas.chartType", facet.DirtyLayout|facet.DirtyProjection)
 		c.Invalidate(facet.DirtyProjection | facet.DirtyHit)
 	})
 	cleanups = append(cleanups, func() {

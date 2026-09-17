@@ -63,13 +63,17 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	}
 	s.light.ShowLabel = marks.Const(false)
 	s.light.Disabled = marks.FromDerived(notConnected, facet.DirtyProjection)
-	s.bar.Value = marks.FromStore(feed.JobProgress, facet.DirtyProjection)
+	// Progress value and badge/caption text change the marks' measured size
+	// (bar length, badge width, caption length), so these bindings declare
+	// DirtyLayout — under RX-1 FR-3 a DirtyLayout-declaring content change
+	// re-measures through the status bar's layout root.
+	s.bar.Value = marks.FromStore(feed.JobProgress, facet.DirtyLayout|facet.DirtyProjection)
 	// The ring carries no label so the status strip stays slim (the progress
 	// bar already names the feed).
 	s.ring.Label = marks.Const("")
-	s.ring.Value = marks.FromStore(feed.JobProgress, facet.DirtyProjection)
-	s.badge.Label = marks.FromDerived(shell.RowCount, facet.DirtyProjection)
-	s.caption.(*primitive.Text).Content = marks.FromDerived(titleText, facet.DirtyProjection)
+	s.ring.Value = marks.FromStore(feed.JobProgress, facet.DirtyLayout|facet.DirtyProjection)
+	s.badge.Label = marks.FromDerived(shell.RowCount, facet.DirtyLayout|facet.DirtyProjection)
+	s.caption.(*primitive.Text).Content = marks.FromDerived(titleText, facet.DirtyLayout|facet.DirtyProjection)
 
 	// The binding fields above are assigned after construction (the marks'
 	// constructors register their own default Const bindings via AddBinding).

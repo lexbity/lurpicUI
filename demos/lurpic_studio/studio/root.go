@@ -304,6 +304,9 @@ func (r *Root) applyMode(mode LayoutMode) {
 		}
 	}
 	r.gallery.SetPanes(panes)
+	// Structural: applyMode swaps the pane list (wide vs narrow hosting
+	// topology), so the shell routes its own layout explicitly per the RX-1
+	// content-vs-structure rule.
 	invalidateLayout(r, r.rt, "root.applyMode")
 }
 
