@@ -86,7 +86,11 @@ type Runtime struct {
 
 	lastStats         diagnostics.FrameStats
 	lastDirtySnapshot map[facet.FacetID]facet.DirtyFlags
-	log               log.Logger
+	// lastArrangeCount is the number of arrangements performed by the most
+	// recent layout pass (0 when the pass was skipped). RX-1 P5: arrange-count
+	// is 0 in the quiet steady state.
+	lastArrangeCount int
+	log              log.Logger
 
 	startOnce  sync.Once
 	shutdownMu sync.Mutex
@@ -184,6 +188,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		return nil, err
 	}
 	store.SetProjectionActiveCheck(func() bool {
+		return rt.projectionInProgress.Load()
+	})
+	facet.SetCollectPhaseCheck(func() bool {
 		return rt.projectionInProgress.Load()
 	})
 

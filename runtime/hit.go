@@ -299,3 +299,12 @@ type overlayInjector interface {
 }
 
 var _ facet.RuntimeServices = (*Runtime)(nil)
+
+// AssertProjectionActive panics when called while the projection phase is not
+// executing. It implements facet.projectionAssertor so ProjectionRole.Project
+// invocations are guarded against out-of-phase calls (RX-1 P5).
+func (rt *Runtime) AssertProjectionActive() {
+	if rt != nil && !rt.projectionInProgress.Load() {
+		panic("facet: ProjectionRole.Project called outside the projection phase — frame pipeline order (RX-1 P5); project only from OnProject/OnCollect")
+	}
+}

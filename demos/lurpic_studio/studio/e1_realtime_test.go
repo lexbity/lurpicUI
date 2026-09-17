@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
-	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -24,17 +23,15 @@ func newE1Harness(t *testing.T) (*Realtime, *testkit.Harness) {
 
 // linePoints returns the projected data points of the active line series
 // across both its single-point (DrawPoints) and polyline (DrawPolyline) forms.
-// The windowed chart shows one point for a lone in-window row.
-func linePoints(t *testing.T, e *Realtime) []gfx.Point {
+// The windowed chart shows one point for a lone in-window row. It reads the
+// retained projection output of the most recent frame (RX-1 P5).
+func linePoints(t *testing.T, h *testkit.Harness, e *Realtime) []gfx.Point {
 	t.Helper()
-	cmds := e.Canvas().Line().Base().ProjectionRole().Project(facet.ProjectionContext{
-		Bounds:       e.Canvas().PlotRect(),
-		ContentScale: 1,
-	})
-	if cmds == nil || cmds.Len() == 0 {
+	cmds := h.Runtime().LastOutputCommands(e.Canvas().Line().Base().ID())
+	if len(cmds) == 0 {
 		return nil
 	}
-	for _, c := range cmds.Commands {
+	for _, c := range cmds {
 		switch cmd := c.(type) {
 		case gfx.DrawPolyline:
 			return cmd.Points
@@ -45,7 +42,9 @@ func linePoints(t *testing.T, e *Realtime) []gfx.Point {
 	return nil
 }
 
-func projectedPointCount(t *testing.T, e *Realtime) int { return len(linePoints(t, e)) }
+func projectedPointCount(t *testing.T, h *testkit.Harness, e *Realtime) int {
+	return len(linePoints(t, h, e))
+}
 
 // TestRealtime_tickRechartsWithoutRelayout asserts the FR-rt isolation
 // property end-to-end: a feed tick appends a row inside the live window, the
@@ -54,12 +53,12 @@ func projectedPointCount(t *testing.T, e *Realtime) int { return len(linePoints(
 func TestRealtime_tickRechartsWithoutRelayout(t *testing.T) {
 	e, h := newE1Harness(t)
 	before := e.appState.Rows.Len()
-	pointsBefore := projectedPointCount(t, e)
+	pointsBefore := projectedPointCount(t, h, e)
 
 	e.Feed().OnTick(100 * time.Millisecond)
 	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
 
-	if got := projectedPointCount(t, e); got != pointsBefore+1 {
+	if got := projectedPointCount(t, h, e); got != pointsBefore+1 {
 		t.Fatalf("line points = %d, want %d (chart re-projected the new row)", got, pointsBefore+1)
 	}
 	// The tick frame ran no layout pass (DirtyProjection only, no DirtyLayout).
@@ -273,7 +272,7 @@ func TestRealtime_tickRoleStreamsChart(t *testing.T) {
 	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
 
 	// The windowed chart re-projected the streamed row (1 seed row -> 2).
-	if got := projectedPointCount(t, e); got != 2 {
+	if got := projectedPointCount(t, h, e); got != 2 {
 		t.Fatalf("windowed line points = %d, want 2 after a streamed row", got)
 	}
 }

@@ -36,6 +36,32 @@ type FrameStats struct {
 	ProjectDuration               time.Duration
 	RenderDuration                time.Duration
 
+	// RX-1 P5 hot-path counters. All are frame-scoped (reset each frame):
+	// zero in the quiet steady state (AC-6), nonzero on the frame that reacts
+	// to a change.
+	//
+	// DerivedEvaluated / DerivedRecomputed report the store's derived flush
+	// activity: how many derived Get calls ran and how many recomputed.
+	DerivedEvaluated     int
+	DerivedRecomputed    int
+	DerivedFlushDuration time.Duration
+	// ArrangeCount counts layout arrangements (host OnArrange invocations).
+	ArrangeCount int
+	// CollectCount counts facet collect callbacks (OnCollect) in projection.
+	CollectCount int
+	// MaterializeCount counts materialized (rendered) output nodes.
+	MaterializeCount int
+	// HitTestCount counts hit-test invocations during the frame's hit phase.
+	HitTestCount int
+	// LayerResolveCount counts layer groups resolved by the layer tree pass.
+	LayerResolveCount int
+	// PruneCount counts projection nodes pruned by the empty-bounds gate or a
+	// poisoned subtree skip.
+	PruneCount int
+	// GateCount counts projection nodes evaluated against the empty-bounds
+	// gate (both kept and pruned).
+	GateCount int
+
 	// Asset system diagnostics — populated when an asset manager is configured.
 	AssetTotalEntries       int
 	AssetLoadingEntries     int

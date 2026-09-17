@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 )
@@ -80,4 +81,15 @@ func (rt *Runtime) handleTrimMemory(e platform.TrimMemoryEvent) {
 	rt.clearRecoverableCaches()
 	goruntime.GC()
 	_ = os.Getpid()
+}
+
+// LastOutputCommands returns the command list projected for a facet in the most
+// recent frame (retained projection output). Intended for tests and diagnostics
+// that inspect a frame's output without re-invoking projection callbacks
+// outside the phase (RX-1 P5).
+func (rt *Runtime) LastOutputCommands(id facet.FacetID) []gfx.Command {
+	if rt == nil || rt.projectionSystem == nil {
+		return nil
+	}
+	return rt.projectionSystem.LastOutputCommands(id)
 }

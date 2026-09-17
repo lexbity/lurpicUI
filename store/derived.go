@@ -61,6 +61,7 @@ func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
 			vs.addInvalidationTarget(d.markDirty)
 		}
 	}
+	registerDerived(d)
 	return d
 }
 
@@ -68,6 +69,7 @@ func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
 // The version snapshot is updated only after recomputation succeeds so chained
 // derived stores can tell whether they are still reading the same source state.
 func (d *Derived[T]) Get() T {
+	frameDerivedEvals.Add(1)
 	d.mu.RLock()
 	if d.initialized && !d.dirty && !d.sourcesChangedLocked() {
 		value := d.value
@@ -81,6 +83,7 @@ func (d *Derived[T]) Get() T {
 		return zero
 	}
 
+	frameDerivedRecomputes.Add(1)
 	next := d.compute()
 	d.mu.Lock()
 	old := d.value

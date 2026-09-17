@@ -28,6 +28,7 @@ func (r *RenderRole) Collect(bounds gfx.Rect) *gfx.CommandList {
 	if r == nil {
 		return nil
 	}
+	assertCollectActive()
 	var list gfx.CommandList
 	if r.OnCollect != nil {
 		r.OnCollect(&list, bounds)
@@ -226,6 +227,7 @@ func (r *ProjectionRole) Project(ctx ProjectionContext) *gfx.CommandList {
 	if r == nil || r.OnProject == nil {
 		return nil
 	}
+	assertProjectionActiveFor(ctx)
 	return r.OnProject(ctx)
 }
 

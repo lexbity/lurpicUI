@@ -3,7 +3,6 @@ package studio
 import (
 	"testing"
 
-	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -86,10 +85,7 @@ func TestE3_triggerInertWhenInactive(t *testing.T) {
 	if !tb.IsEmpty() {
 		t.Fatalf("inactive E3 trigger has non-empty bounds: %v", tb)
 	}
-	if cmds := e3.Trigger().Base().ProjectionRole().Project(facet.ProjectionContext{
-		Bounds:       tb,
-		ContentScale: 1,
-	}); cmds != nil && cmds.Len() > 0 {
+	if cmds := h.Runtime().LastOutputCommands(e3.Trigger().Base().ID()); len(cmds) > 0 {
 		t.Fatal("inactive E3 trigger still projects its fill")
 	}
 	// A press at the trigger's old seed position must not reach it (the hit map

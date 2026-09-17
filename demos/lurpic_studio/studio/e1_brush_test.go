@@ -7,7 +7,6 @@ import (
 	"unicode/utf8"
 
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
-	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -72,19 +71,19 @@ func TestBrush_gridRowClickSelectsChartPoint(t *testing.T) {
 	h.RunFrame()
 	// The chart reacts: the canvas emits a selection-highlight command at the
 	// selected point.
-	if !canvasHasSelectionHighlight(t, e) {
+	if !canvasHasSelectionHighlight(t, h, e) {
 		t.Fatal("chart did not render a selection highlight after the row click")
 	}
 	// The anchored tooltip mark actually projects its bubble with the selected
 	// row's text — not just that its visibility/text stores are set (FR-brush).
-	assertTooltipRendersSelection(t, e, row)
+	assertTooltipRendersSelection(t, h, e, row)
 }
 
 // assertTooltipRendersSelection projects the E1 anchored tooltip mark directly
 // and asserts it emits its bubble with the selected row's text (FR-brush). This
 // is the rendered counterpart to the store assertions: it proves the mark's
 // bubble surface is arranged and its content glyphs carry the row's region.
-func assertTooltipRendersSelection(t *testing.T, e *Realtime, row dataset.Row) {
+func assertTooltipRendersSelection(t *testing.T, h *testkit.Harness, e *Realtime, row dataset.Row) {
 	t.Helper()
 	want := fmt.Sprintf("%s · %s · %.1f", row.Time.Format("15:04:05"), row.Region, row.Value)
 	if !e.TipOpen().Get() {
@@ -94,11 +93,8 @@ func assertTooltipRendersSelection(t *testing.T, e *Realtime, row dataset.Row) {
 		t.Fatalf("tooltip text = %q, want %q", got, want)
 	}
 
-	cmds := e.Tip().Base().ProjectionRole().Project(facet.ProjectionContext{
-		Bounds:       e.Tip().Base().LayoutRole().ArrangedBounds,
-		ContentScale: 1,
-	})
-	if cmds == nil || cmds.Len() == 0 {
+	cmds := h.Runtime().LastOutputCommands(e.Tip().Base().ID())
+	if len(cmds) == 0 {
 		t.Fatal("the anchored tooltip emitted no projection commands")
 	}
 	var (
@@ -106,7 +102,7 @@ func assertTooltipRendersSelection(t *testing.T, e *Realtime, row dataset.Row) {
 		text    strings.Builder
 		glyphs  int
 	)
-	for _, cmd := range cmds.Commands {
+	for _, cmd := range cmds {
 		switch c := cmd.(type) {
 		case gfx.PushClipRect:
 			// The tooltip clips its content to the arranged bubble surface; its
@@ -138,17 +134,15 @@ func assertTooltipRendersSelection(t *testing.T, e *Realtime, row dataset.Row) {
 
 // canvasHasSelectionHighlight reports whether the canvas's projection emits a
 // selection-highlight command (the ring's inner fill for the selected point).
-func canvasHasSelectionHighlight(t *testing.T, e *Realtime) bool {
+// It reads the retained projection output of the most recent frame (RX-1 P5)
+// rather than re-invoking the collect callback outside the projection phase.
+func canvasHasSelectionHighlight(t *testing.T, h *testkit.Harness, e *Realtime) bool {
 	t.Helper()
-	role := e.Canvas().Base().RenderRole()
-	if role == nil {
+	cmds := h.Runtime().LastOutputCommands(e.Canvas().Base().ID())
+	if len(cmds) == 0 {
 		return false
 	}
-	cmds := role.Collect(e.Canvas().Base().LayoutRole().ArrangedBounds)
-	if cmds == nil {
-		return false
-	}
-	for _, cmd := range cmds.Commands {
+	for _, cmd := range cmds {
 		if fill, ok := cmd.(gfx.FillRect); ok && fill.Brush.Color == gfx.ColorFromRGBA8(220, 60, 120, 40) {
 			return true
 		}
@@ -192,7 +186,7 @@ func TestBrush_chartBarHoverHighlightsRegion(t *testing.T) {
 	e.Canvas().ChartTypeStore().Set("bar")
 	settleChart(h)
 
-	pt := chartBarBandScreen(t, e)
+	pt := chartBarBandScreen(t, h, e)
 	h.InjectEvent(platform.EventPointer{Kind: platform.PointerMove, Position: pt})
 	h.RunFrame()
 
@@ -264,15 +258,12 @@ func TestBrush_selectedRowIDIsStableAcrossEdits(t *testing.T) {
 }
 
 // chartBarBandScreen returns a screen position inside one of the bar chart's
-// bands.
-func chartBarBandScreen(t *testing.T, e *Realtime) gfx.Point {
+// bands, from the retained projection output of the most recent frame.
+func chartBarBandScreen(t *testing.T, h *testkit.Harness, e *Realtime) gfx.Point {
 	t.Helper()
-	cmds := e.Canvas().Bar().Base().ProjectionRole().Project(facet.ProjectionContext{
-		Bounds:       e.Canvas().Bar().Base().LayoutRole().ArrangedBounds,
-		ContentScale: 1,
-	})
+	cmds := h.Runtime().LastOutputCommands(e.Canvas().Bar().Base().ID())
 	plot := e.Canvas().PlotRect()
-	for _, c := range cmds.Commands {
+	for _, c := range cmds {
 		if f, ok := c.(gfx.FillRect); ok && !f.Rect.IsEmpty() {
 			// Bars grow from a baseline that can sit below the plot, so probe
 			// a point that is inside both a band and the canvas's plot area.
@@ -306,13 +297,12 @@ func TestBrush_barChartSelectionHighlightsBand(t *testing.T) {
 	}
 	h.RunFrame()
 
-	role := e.Canvas().Base().RenderRole()
-	cmds := role.Collect(e.Canvas().Base().LayoutRole().ArrangedBounds)
-	if cmds == nil {
+	cmds := h.Runtime().LastOutputCommands(e.Canvas().Base().ID())
+	if len(cmds) == 0 {
 		t.Fatal("canvas collected no commands")
 	}
 	var sawBand, sawRing bool
-	for _, cmd := range cmds.Commands {
+	for _, cmd := range cmds {
 		switch c := cmd.(type) {
 		case gfx.StrokeRect:
 			if c.Brush.Color == e.Canvas().SelectionColor() {
@@ -332,7 +322,7 @@ func TestBrush_barChartSelectionHighlightsBand(t *testing.T) {
 	}
 	// The selection also opens the anchored tooltip; in bar mode it projects
 	// the same bubble with the selected row's text (FR-brush).
-	assertTooltipRendersSelection(t, e, row)
+	assertTooltipRendersSelection(t, h, e, row)
 }
 
 // TestBrush_chartPointClickShowsTooltip drives chart → grid → chart: a point
@@ -357,5 +347,5 @@ func TestBrush_chartPointClickShowsTooltip(t *testing.T) {
 	h.RunFrame()
 	// The anchored tooltip mark projects its bubble with the selected point's
 	// row text (the rendered counterpart to the store assertions, FR-brush).
-	assertTooltipRendersSelection(t, e, row)
+	assertTooltipRendersSelection(t, h, e, row)
 }

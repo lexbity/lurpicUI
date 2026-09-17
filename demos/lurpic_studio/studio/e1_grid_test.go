@@ -57,7 +57,7 @@ func TestGrid_editCommitsToRowsAndRecharts(t *testing.T) {
 	row := e.appState.Rows.All()[0]
 	id := e.appState.Rows.Identify(row)
 	old := row.Value
-	pointsBefore := linePoints(t, e)
+	pointsBefore := linePoints(t, h, e)
 
 	activateCell(t, h, e, 0)
 	e.Grid().CellValue().Set("123")
@@ -82,7 +82,7 @@ func TestGrid_editCommitsToRowsAndRecharts(t *testing.T) {
 	}
 
 	// The chart re-projected the edited row (the point moved).
-	pointsAfter := linePoints(t, e)
+	pointsAfter := linePoints(t, h, e)
 	if len(pointsAfter) != len(pointsBefore) {
 		t.Fatalf("line point count changed on edit: %d -> %d", len(pointsBefore), len(pointsAfter))
 	}

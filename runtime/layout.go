@@ -88,8 +88,10 @@ func (rt *Runtime) hasLayoutDirty() bool {
 
 func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
 	if len(rt.dirtyFacets) == 0 {
+		rt.lastArrangeCount = 0
 		return
 	}
+	arranged := 0
 	rt.invalidateDirtyLayoutCaches()
 	roots := rt.layoutDirtyRoots()
 	for _, root := range roots {
@@ -114,6 +116,7 @@ func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
 		}
 		rt.measureLayoutChild(root, layout.Loose(gfx.Size{W: bounds.Width(), H: bounds.Height()}))
 		rt.arrangeLayoutChild(root, bounds)
+		arranged++
 		rt.clearLayoutDirtyTree(root)
 	}
 	// A layout root's arrange cascade re-arranges its subtree through each
@@ -125,16 +128,17 @@ func (rt *Runtime) runLayoutPass(windowSize gfx.Size) {
 	// not reached by it; arrange it directly with its current bounds so its
 	// own OnArrange re-runs exactly once (a facet the cascade reached has a
 	// valid cache and is skipped — no double-arrange).
-	rt.arrangeDirtyLayoutFacets(roots)
+	arranged += rt.arrangeDirtyLayoutFacets(roots)
+	rt.lastArrangeCount = arranged
 }
 
 // arrangeDirtyLayoutFacets directly re-arranges the dirty layout facets the
 // roots' arrange cascade did not reach (their arrange cache is still invalid
 // after the cascade). Gated (empty-bounds) facets are skipped; the gating
 // parent's intent stands.
-func (rt *Runtime) arrangeDirtyLayoutFacets(roots []facet.FacetImpl) {
+func (rt *Runtime) arrangeDirtyLayoutFacets(roots []facet.FacetImpl) int {
 	if len(rt.dirtyFacets) == 0 {
-		return
+		return 0
 	}
 	rootIDs := make(map[facet.FacetID]struct{}, len(roots))
 	for _, r := range roots {
@@ -142,6 +146,7 @@ func (rt *Runtime) arrangeDirtyLayoutFacets(roots []facet.FacetImpl) {
 			rootIDs[r.Base().ID()] = struct{}{}
 		}
 	}
+	arranged := 0
 	for id, flags := range rt.dirtyFacets {
 		if flags&facet.DirtyLayout == 0 {
 			continue
@@ -161,7 +166,9 @@ func (rt *Runtime) arrangeDirtyLayoutFacets(roots []facet.FacetImpl) {
 			continue
 		}
 		rt.arrangeLayoutChild(f, role.ArrangedBounds)
+		arranged++
 	}
+	return arranged
 }
 
 // layoutDirtyRoots returns the deduplicated layout roots for the frame's dirty

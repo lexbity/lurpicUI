@@ -200,11 +200,21 @@ type System struct {
 	// output carried different arranged/layer bounds than the current frame —
 	// a bounds change invalidating an entry (FR-1 freshness).
 	CacheMissesByBounds int
-	runtime             facet.RuntimeServices
-	layerResolver       LayerResolver
-	recoverySurface     facetRecovery
-	cacheMu             sync.Mutex
-	statsMu             sync.Mutex
+	// RX-1 P5 hot-path counters (frame-scoped; zero in the quiet steady state).
+	// GateCount counts projection nodes evaluated against the empty-bounds
+	// gate; PruneCount counts nodes pruned by the gate or a poisoned skip.
+	// CollectCount counts OnCollect invocations; MaterializeCount counts
+	// outputs that produced commands; HitTestCount counts hit roles tested.
+	GateCount        int
+	PruneCount       int
+	CollectCount     int
+	MaterializeCount int
+	HitTestCount     int
+	runtime          facet.RuntimeServices
+	layerResolver    LayerResolver
+	recoverySurface  facetRecovery
+	cacheMu          sync.Mutex
+	statsMu          sync.Mutex
 	// nodeList is a reusable pre-order node buffer for the per-frame
 	// subtreeHasLayer aggregation (reused across frames to keep the projection
 	// gate allocation-free on the steady-state path). It is mutated only in
@@ -325,6 +335,11 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	s.CacheHits = 0
 	s.EmptyBoundsSkips = 0
 	s.CacheMissesByBounds = 0
+	s.GateCount = 0
+	s.PruneCount = 0
+	s.CollectCount = 0
+	s.MaterializeCount = 0
+	s.HitTestCount = 0
 	s.frameNumber = frame.Number
 	s.gatesTraceLines = 0
 	s.frameOutputs = s.frameOutputs[:0]
@@ -358,6 +373,11 @@ func (s *System) Reset() {
 	s.CacheHits = 0
 	s.EmptyBoundsSkips = 0
 	s.CacheMissesByBounds = 0
+	s.GateCount = 0
+	s.PruneCount = 0
+	s.CollectCount = 0
+	s.MaterializeCount = 0
+	s.HitTestCount = 0
 }
 
 // CurrentHitMap returns the hit map computed during the most recent run.
@@ -396,6 +416,22 @@ func (s *System) OutputSnapshots() []OutputSnapshot {
 		})
 	}
 	return out
+}
+
+// LastOutputCommands returns the command list projected for a facet in the most
+// recent frame, or nil when the facet produced no output. It lets tests and
+// diagnostics inspect retained projection output without re-invoking projection
+// callbacks outside the phase (RX-1 P5: project output retained).
+func (s *System) LastOutputCommands(id facet.FacetID) []gfx.Command {
+	if s == nil {
+		return nil
+	}
+	for _, po := range s.frameOutputs {
+		if po != nil && po.FacetID == id {
+			return po.Commands.Commands
+		}
+	}
+	return nil
 }
 
 // SetCurrentHitMap replaces the cached hit map. It is used by runtime tests and
@@ -538,10 +574,16 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 		// — they resolve their own bounds via layerCtx and are gated by mount
 		// state instead (FR-1, P4).
 		gated := !hasLayer && base.LayoutRole() != nil && bounds.IsEmpty()
+		s.statsMu.Lock()
+		s.GateCount++
+		s.statsMu.Unlock()
 		var output *ProjectionOutput
 		if gated {
 			s.addEmptyBoundsSkip()
 			s.traceGate(facetID, "empty-bounds")
+			s.statsMu.Lock()
+			s.PruneCount++
+			s.statsMu.Unlock()
 			output = &ProjectionOutput{FacetID: facetID, Bounds: gfx.Rect{}}
 		} else {
 			cacheKey := s.computeCacheKey(frame.node.impl, resolvedTransform, frame.parentChildCtx, layerCtx, hasLayer)
@@ -748,13 +790,24 @@ func (s *System) project(
 			}
 		})
 	} else if rr := base.RenderRole(); rr != nil && rr.OnCollect != nil {
+		s.statsMu.Lock()
+		s.CollectCount++
+		s.statsMu.Unlock()
 		s.runGuarded(base.ID(), "collect", func() {
 			if cmds := rr.Collect(bounds); cmds != nil {
 				output.Commands = *cmds
 			}
 		})
 	}
+	if len(output.Commands.Commands) > 0 {
+		s.statsMu.Lock()
+		s.MaterializeCount++
+		s.statsMu.Unlock()
+	}
 	if hr := base.HitRole(); hr != nil && hr.OnHitTest != nil {
+		s.statsMu.Lock()
+		s.HitTestCount++
+		s.statsMu.Unlock()
 		if rec := s.recovery(); rec == nil || !rec.IsPoisoned(base.ID()) {
 			output.HitRegions = []HitRegion{{
 				Bounds: bounds,

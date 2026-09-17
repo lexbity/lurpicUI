@@ -21,6 +21,9 @@ type layoutPhaseStats struct {
 	structuralMeasure     time.Duration
 	layerBoundsResolution time.Duration
 	arrange               time.Duration
+	// groups counts the layer groups resolved this frame (RX-1 P5
+	// layer-resolve-count).
+	groups int
 }
 
 func (rt *Runtime) resolveLayerTree() layoutPhaseStats {
@@ -317,6 +320,7 @@ func (s layoutPhaseStats) add(other layoutPhaseStats) layoutPhaseStats {
 	s.structuralMeasure += other.structuralMeasure
 	s.layerBoundsResolution += other.layerBoundsResolution
 	s.arrange += other.arrange
+	s.groups += other.groups
 	return s
 }
 
@@ -473,7 +477,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		}
 		return layoutPhaseStats{}
 	}
-	stats := layoutPhaseStats{}
+	stats := layoutPhaseStats{groups: len(ordered)}
 	parentViewport := parent.Base().ViewportRole()
 	cache := rt.anchorCaches[parent.Base().ID()]
 	for _, layerID := range ordered {

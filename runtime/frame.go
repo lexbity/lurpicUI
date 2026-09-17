@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
@@ -34,6 +35,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	defer rt.frameMu.RUnlock()
 	rt.frameNumber++
 	stats := diagnostics.FrameStats{FrameNumber: rt.frameNumber}
+	// RX-1 P5: frame-scoped derived counters. Reset here so the flush and any
+	// lazy Get across the frame accumulate into this frame's totals, which the
+	// diagnostics snapshot below reports.
+	store.ResetFrameDerivedCounters()
 
 	// The frame loop is intentionally ordered. Jobs and platform events are
 	// drained before input so state changes affect the same frame. Layout runs
@@ -109,8 +114,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	if rt.hasLayoutDirty() {
 		w, h := rt.windowSize()
 		rt.runLayoutPass(gfx.Size{W: float32(w), H: float32(h)})
+	} else {
+		rt.lastArrangeCount = 0
 	}
 	stats.LayoutDuration = time.Since(layoutStart)
+	stats.ArrangeCount = rt.lastArrangeCount
 
 	layerStart := time.Now()
 	phaseStats := rt.resolveLayerTree()
@@ -121,6 +129,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.StructuralMeasureDuration = phaseStats.structuralMeasure
 	stats.LayerBoundsDuration = phaseStats.layerBoundsResolution
 	stats.ArrangeDuration = phaseStats.arrange
+	stats.LayerResolveCount = phaseStats.groups
 
 	projStart := time.Now()
 	if rt.focusManager != nil {
@@ -128,6 +137,18 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 	rt.syncFocusTraps()
 	rt.projectionSystem.SetRuntime(rt)
+
+	// RX-1 P5: the derived flush runs before the projection phase. Bindings and
+	// signal delivery above applied the frame's state changes; flushing dirty
+	// deriveds here composes their values and bumps versions up front so the
+	// projection walk reads stable stores and never trips a mid-walk lazy
+	// recompute. The flush skips clean deriveds (one flag check each), so the
+	// quiet steady state contributes zero to the derived counters.
+	flushStart := time.Now()
+	flush := store.FlushDerived()
+	stats.DerivedEvaluated = flush.Evaluated
+	stats.DerivedRecomputed = flush.Recomputed
+	stats.DerivedFlushDuration = time.Since(flushStart)
 
 	rt.projectionInProgress.Store(true)
 	frameOut := rt.projectionSystem.Run(rt.root, projection.FrameInfo{
@@ -142,6 +163,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.CacheHits = rt.projectionSystem.CacheHits
 	stats.ProjectionEmptyBoundsSkips = rt.projectionSystem.EmptyBoundsSkips
 	stats.ProjectionCacheMissesByBounds = rt.projectionSystem.CacheMissesByBounds
+	stats.GateCount = rt.projectionSystem.GateCount
+	stats.PruneCount = rt.projectionSystem.PruneCount
+	stats.CollectCount = rt.projectionSystem.CollectCount
+	stats.MaterializeCount = rt.projectionSystem.MaterializeCount
+	stats.HitTestCount = rt.projectionSystem.HitTestCount
 	if frameOut != nil {
 		stats.RenderBatchCount = len(frameOut.RenderBatchs)
 	}

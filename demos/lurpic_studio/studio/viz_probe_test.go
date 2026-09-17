@@ -73,16 +73,12 @@ func TestVizProbe_roundTripBothAxes(t *testing.T) {
 // row (N rows → N points → N-1 segments).
 func TestVizProbe_linePathSegments(t *testing.T) {
 	probe, h := newProbeHarness(t)
-	cmds := probe.Line().Base().ProjectionRole().Project(facet.ProjectionContext{
-		Runtime:      h.Runtime(),
-		Bounds:       probe.PlotRect(),
-		ContentScale: 1,
-	})
-	if cmds == nil || cmds.Len() == 0 {
+	cmds := h.Runtime().LastOutputCommands(probe.Line().Base().ID())
+	if len(cmds) == 0 {
 		t.Fatal("line produced no commands")
 	}
 	var pts []gfx.Point
-	for _, c := range cmds.Commands {
+	for _, c := range cmds {
 		if poly, ok := c.(gfx.DrawPolyline); ok {
 			pts = poly.Points
 		}
@@ -103,15 +99,11 @@ func TestVizProbe_rulePosition(t *testing.T) {
 	val := probe.RuleValue().Get()
 	want := probe.PlotRect().Min.Y + float32(probe.YScale().Get().Map(val))
 
-	cmds := probe.Rule().Base().ProjectionRole().Project(facet.ProjectionContext{
-		Runtime:      h.Runtime(),
-		Bounds:       probe.PlotRect(),
-		ContentScale: 1,
-	})
-	if cmds == nil || cmds.Len() == 0 {
+	cmds := h.Runtime().LastOutputCommands(probe.Rule().Base().ID())
+	if len(cmds) == 0 {
 		t.Fatal("rule produced no commands")
 	}
-	for _, c := range cmds.Commands {
+	for _, c := range cmds {
 		path, ok := c.(gfx.StrokePath)
 		if !ok || len(path.Path.Segments) == 0 {
 			continue
@@ -144,16 +136,12 @@ func probeMeasureArrange(t *testing.T, probe *VizProbe, w, h float32) {
 func TestVizProbe_axisTickLabels(t *testing.T) {
 	probe, h := newProbeHarness(t)
 	for name, axis := range map[string]*viz.Axis{"x": probe.XAxis(), "y": probe.YAxis()} {
-		cmds := axis.Base().ProjectionRole().Project(facet.ProjectionContext{
-			Runtime:      h.Runtime(),
-			Bounds:       axis.Base().LayoutRole().ArrangedBounds,
-			ContentScale: 1,
-		})
-		if cmds == nil || cmds.Len() == 0 {
+		cmds := h.Runtime().LastOutputCommands(axis.Base().ID())
+		if len(cmds) == 0 {
 			t.Fatalf("%s axis produced no commands", name)
 		}
 		var ticks, labels int
-		for _, c := range cmds.Commands {
+		for _, c := range cmds {
 			switch c.(type) {
 			case gfx.StrokePath:
 				ticks++
