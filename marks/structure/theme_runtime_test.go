@@ -70,17 +70,13 @@ func TestListResolveThemeTokensInProjection(t *testing.T) {
 		ChildGroup:  list.Layout.Child,
 	}, bounds)
 
-	cmds := list.ProjectionRole().Project(facet.ProjectionContext{
-		Runtime:      rt,
-		Bounds:       bounds,
-		ContentScale: 1,
-	})
-	if cmds == nil || cmds.Len() == 0 {
+	merged := projectTreeCommands(list, rt)
+	if len(merged.Commands) == 0 {
 		t.Fatal("expected projected commands from List")
 	}
 
 	found := false
-	for _, cmd := range cmds.Commands {
+	for _, cmd := range merged.Commands {
 		if dg, ok := cmd.(gfx.DrawGlyphRun); ok {
 			if dg.Brush.Color == sentinel {
 				found = true

@@ -212,6 +212,22 @@ func (l *List) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 
 func (l *List) OnAttach(ctx facet.AttachContext) {
 	l.Core.OnAttach(ctx)
+	// Attach the scroll body to the facet tree so the runtime projects and
+	// hit-tests the scroll content (RX-1 F-scroll-content). The list's own
+	// buildCommands no longer draws the scroll chrome; the scroll region is a
+	// real tree child and projects itself and its items.
+	if l.scrollRegion != nil && l.scrollRegion.Base() != nil {
+		attached := false
+		for _, existing := range l.Base().Children() {
+			if existing == l.scrollRegion.Base() {
+				attached = true
+				break
+			}
+		}
+		if !attached {
+			l.AddChild(l.scrollRegion.Base())
+		}
+	}
 	if l.Data != nil {
 		facet.Store(facet.Subscribe(l), &l.Data.OnChange, l.Data.Version, func(_ signal.Change[[]ListEntry]) {
 			l.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "list.Data")
@@ -427,10 +443,11 @@ func (l *List) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 }
 
 func (l *List) buildCommands(bounds gfx.Rect, runtime any, contentScale float32) []gfx.Command {
-	if l == nil || bounds.IsEmpty() || l.scrollRegion == nil {
-		return nil
-	}
-	return l.scrollRegion.buildCommands(bounds, runtime, contentScale)
+	// The scroll body is a real tree child (OnAttach AddChild) that projects
+	// its own chrome and content (RX-1 F-scroll-content); the list contributes
+	// no commands of its own. Returning nil avoids double-drawing the scroll
+	// chrome through the runtime's tree walk.
+	return nil
 }
 
 type listGroupPolicy struct {

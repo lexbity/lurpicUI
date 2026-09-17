@@ -168,25 +168,7 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	// The card's content is a real tree child (RX-1 F-card-content): project
 	// the card chrome first, then each tree child at its arranged bounds, in
 	// the runtime's pre-order paint order.
-	cmds := card.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
-	if cmds == nil {
-		t.Fatal("expected projected commands")
-	}
-	merged := *cmds
-	for _, childBase := range card.Base().Children() {
-		if childBase == nil {
-			continue
-		}
-		role := childBase.LayoutRole()
-		childCmds := childBase.ProjectionRole().Project(facet.ProjectionContext{
-			Runtime:      rt,
-			Bounds:       role.ArrangedBounds,
-			ContentScale: 1,
-		})
-		if childCmds != nil {
-			merged.Commands = append(merged.Commands, childCmds.Commands...)
-		}
-	}
+	merged := projectTreeCommands(card, rt)
 	surface := testkit.NewMemorySurface(640, 360)
 	renderer := softwarerenderer.NewSoftwareRenderer()
 	if err := renderer.Initialize(surface); err != nil {

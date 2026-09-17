@@ -77,6 +77,10 @@ func AssertScrollRegionGolden(t *testing.T, name string, direction ScrollDirecti
 	if cmds == nil {
 		t.Fatal("expected projected commands")
 	}
+	// The scroll content is a real tree child (RX-1 F-scroll-content): project
+	// the region chrome first, then each tree child at its arranged (scrolled)
+	// bounds, in the runtime's pre-order paint order.
+	merged := projectTreeCommands(sr, rt)
 	surface := testkit.NewMemorySurface(272, 192)
 	renderer := softwarerenderer.NewSoftwareRenderer()
 	if err := renderer.Initialize(surface); err != nil {
@@ -87,7 +91,7 @@ func AssertScrollRegionGolden(t *testing.T, name string, direction ScrollDirecti
 			ID:          1,
 			Bounds:      canvas,
 			Opacity:     1,
-			Commands:    *cmds,
+			Commands:    merged,
 			CommandHash: 1,
 		}},
 	}

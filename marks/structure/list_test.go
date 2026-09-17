@@ -144,12 +144,8 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 		t.Fatalf("section_header anchor = %#v, want %#v", got, want)
 	}
 
-	cmds := list.Projection.Project(facet.ProjectionContext{
-		Runtime:      rt,
-		Bounds:       bounds,
-		ContentScale: 1,
-	})
-	if cmds == nil || cmds.Len() == 0 {
+	merged := projectTreeCommands(list, rt)
+	if len(merged.Commands) == 0 {
 		t.Fatal("expected projected commands")
 	}
 }
@@ -281,8 +277,8 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	}, facet.Constraints{MaxSize: gfx.Size{W: canvas.Width(), H: canvas.Height()}})
 	bounds := canvas
 	list.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: ctx, ParentGroup: list.Layout.Parent, ChildGroup: list.Layout.Child}, bounds)
-	cmds := list.Projection.Project(facet.ProjectionContext{Runtime: rt, Bounds: bounds, ContentScale: 1})
-	if cmds == nil {
+	merged := projectTreeCommands(list, rt)
+	if len(merged.Commands) == 0 {
 		t.Fatal("expected projected commands")
 	}
 	surface := testkit.NewMemorySurface(640, 360)
@@ -295,7 +291,7 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 			ID:          1,
 			Bounds:      bounds,
 			Opacity:     1,
-			Commands:    *cmds,
+			Commands:    merged,
 			CommandHash: 1,
 		}},
 	}

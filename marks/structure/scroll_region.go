@@ -206,6 +206,7 @@ func (sr *ScrollRegion) ExportAnchors(ctx layout.AnchorExportContext) layout.Anc
 func (sr *ScrollRegion) SetChildren(children []ScrollRegionChild) {
 	next := append([]ScrollRegionChild(nil), children...)
 	sr.children = next
+	sr.syncTreeChildren()
 	sr.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
@@ -223,9 +224,39 @@ func (sr *ScrollRegion) Children() []facet.GroupChild {
 	return out
 }
 
-func (sr *ScrollRegion) OnAttach(ctx facet.AttachContext) { sr.Core.OnAttach(ctx) }
-func (sr *ScrollRegion) OnActivate()                      { sr.Core.OnActivate() }
-func (sr *ScrollRegion) OnDeactivate()                    { sr.Core.OnDeactivate() }
+func (sr *ScrollRegion) OnAttach(ctx facet.AttachContext) {
+	sr.Core.OnAttach(ctx)
+	sr.syncTreeChildren()
+}
+func (sr *ScrollRegion) OnActivate()   { sr.Core.OnActivate() }
+func (sr *ScrollRegion) OnDeactivate() { sr.Core.OnDeactivate() }
+
+// syncTreeChildren attaches the scroll content to the facet tree so the runtime
+// projects and hit-tests it at its arranged (scrolled) bounds, clipped to the
+// region's group clip (RX-1 F-scroll-content). Previously the region drew its
+// content by self-projection without attaching it, so interactive marks inside
+// a scroll region were never hit-testable.
+func (sr *ScrollRegion) syncTreeChildren() {
+	if sr == nil || sr.Base() == nil {
+		return
+	}
+	for _, child := range sr.children {
+		if child.Facet == nil || child.Facet.Base() == nil {
+			continue
+		}
+		base := child.Facet.Base()
+		attached := false
+		for _, existing := range sr.Base().Children() {
+			if existing == base {
+				attached = true
+				break
+			}
+		}
+		if !attached {
+			sr.Base().AddChild(base)
+		}
+	}
+}
 
 // OnDetach clears cached projection state.
 func (sr *ScrollRegion) OnDetach() {
@@ -442,30 +473,12 @@ func (sr *ScrollRegion) buildCommands(bounds gfx.Rect, runtime any, contentScale
 		cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(sr.cachedContentBounds), content)...)
 	}
 	if !sr.cachedViewportBounds.IsEmpty() {
+		// The content facets are real tree children (syncTreeChildren): the
+		// runtime projects and hit-tests them at their arranged (scrolled)
+		// bounds, clipped to the region's group clip (RX-1 F-scroll-content).
+		// The region only draws its chrome here; it does not self-project the
+		// content.
 		cmds = append(cmds, gfx.PushClipRect{Rect: sr.cachedViewportBounds})
-		cmds = append(cmds, gfx.PushTransform{Matrix: gfx.Translation(-sr.scrollOffset.X, -sr.scrollOffset.Y)})
-		for _, child := range sr.children {
-			if child.Facet == nil {
-				continue
-			}
-			childImpl := child.Facet
-			childBase := childImpl.Base()
-			if childBase == nil || childBase.LayoutRole() == nil {
-				continue
-			}
-			childBounds := sr.childBoundsForProjection(childBase.ID())
-			if childBounds.IsEmpty() {
-				continue
-			}
-			if projected := childBase.ProjectionRole().Project(facet.ProjectionContext{
-				Runtime:      runtimeServicesOrNil(runtime),
-				Bounds:       childBounds,
-				ContentScale: contentScale,
-			}); projected != nil {
-				cmds = append(cmds, projected.Commands...)
-			}
-		}
-		cmds = append(cmds, gfx.PopTransform{})
 		cmds = append(cmds, gfx.PopClip{})
 	}
 	if !theme.IsTransparentMaterial(shadows) {
