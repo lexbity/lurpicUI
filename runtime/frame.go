@@ -130,6 +130,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.LayerBoundsDuration = phaseStats.layerBoundsResolution
 	stats.ArrangeDuration = phaseStats.arrange
 	stats.LayerResolveCount = phaseStats.groups
+	stats.LayersUnmountedSkips = phaseStats.unmountedSkips
 
 	projStart := time.Now()
 	if rt.focusManager != nil {
@@ -245,6 +246,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		stats.AssetCacheHitRate = astats.CacheHitRate
 	}
 
+	// Grow arrange-clamps are counted by facet during the layout and layer
+	// passes; drain them into the frame total here, after every arrange site
+	// has run (RX-1 Q5 / NFR-8).
+	stats.OverflowClampedCount = int(facet.DrainOverflowClamped())
 	rt.lastStats = stats
 	if diag := rt.diagnosticsHook(); diag != nil {
 		diag.OnFrame(stats)

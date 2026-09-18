@@ -111,8 +111,11 @@ func TestTableGeometryContracts(t *testing.T) {
 	if headerRowBounds.IsEmpty() {
 		t.Fatalf("expected header row bounds, got %#v", headerRowBounds)
 	}
-	if bodyNameRow2Bounds.Height() <= bodyNameRow1Bounds.Height() {
-		t.Fatalf("expected multiline row to be taller, got row1=%#v row2=%#v", bodyNameRow1Bounds, bodyNameRow2Bounds)
+	// FR-7 fixed row heights: body rows share one typography-derived height
+	// (row virtualization needs a computable window), so a long cell truncates
+	// to a single line instead of growing the row.
+	if bodyNameRow1Bounds.Height() != bodyNameRow2Bounds.Height() || bodyNameRow1Bounds.Height() <= 0 {
+		t.Fatalf("expected equal fixed body row heights, got row1=%v row2=%v", bodyNameRow1Bounds.Height(), bodyNameRow2Bounds.Height())
 	}
 	if bodyNameRow1Bounds.Min.Y <= headerRowBounds.Max.Y {
 		t.Fatalf("expected row 1 below header with gap, got header=%#v row1=%#v", headerRowBounds, bodyNameRow1Bounds)

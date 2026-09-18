@@ -2,6 +2,7 @@ package structure
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 
@@ -89,28 +90,38 @@ type Table struct {
 
 	scrollOffset gfx.Point
 
-	cachedTokens              theme.Tokens
-	cachedRecipe              shared.TableSlots
-	cachedBounds              gfx.Rect
-	cachedViewportBounds      gfx.Rect
-	cachedContentBounds       gfx.Rect
-	cachedVerticalTrack       gfx.Rect
-	cachedVerticalThumb       gfx.Rect
-	cachedHorizontalTrack     gfx.Rect
-	cachedHorizontalThumb     gfx.Rect
-	cachedFocusBounds         gfx.Rect
-	cachedRowBounds           map[string]gfx.Rect
-	cachedColumnBounds        map[string]gfx.Rect
-	cachedCellBounds          map[facet.FacetID]gfx.Rect
-	cachedChildOrder          []facet.FacetID
-	cachedChildSpecs          []tableChildSpec
-	cachedHeaderCells         map[string]*primitive.Text
-	cachedBodyCells           map[string]map[string]*primitive.Text
-	cachedSelectionCells      map[string]*primitive.Text
-	cachedSortIndicators      map[string]*primitive.Text
-	cachedColumnKeys          []string
-	cachedRowKeys             []string
-	cachedVisibleRows         []TableRow
+	cachedTokens          theme.Tokens
+	cachedRecipe          shared.TableSlots
+	cachedBounds          gfx.Rect
+	cachedViewportBounds  gfx.Rect
+	cachedContentBounds   gfx.Rect
+	cachedVerticalTrack   gfx.Rect
+	cachedVerticalThumb   gfx.Rect
+	cachedHorizontalTrack gfx.Rect
+	cachedHorizontalThumb gfx.Rect
+	cachedFocusBounds     gfx.Rect
+	cachedRowBounds       map[string]gfx.Rect
+	cachedColumnBounds    map[string]gfx.Rect
+	cachedCellBounds      map[facet.FacetID]gfx.Rect
+	cachedChildOrder      []facet.FacetID
+	cachedChildSpecs      []tableChildSpec
+	cachedHeaderCells     map[string]*primitive.Text
+	cachedBodyCells       map[string]map[string]*primitive.Text
+	cachedSelectionCells  map[string]*primitive.Text
+	cachedSortIndicators  map[string]*primitive.Text
+	cachedColumnKeys      []string
+	cachedRowKeys         []string
+	cachedAllRows         []TableRow
+	// cachedWindowRows / cachedRowWindowStart are the row-virtualization window
+	// (RX-1 FR-7): the built/measured/arranged/projected body rows and the
+	// absolute index of the first one. Rows outside the window are not built.
+	cachedWindowRows     []TableRow
+	cachedRowWindowStart int
+	// cachedBodyRowHeight / cachedHeaderHeight are the fixed row heights from
+	// typography metrics (measured once per font/scale), which make the window
+	// computable from the scroll offset (FR-7).
+	cachedBodyRowHeight       float32
+	cachedHeaderHeight        float32
 	cachedShowSelectionColumn bool
 	cachedColumnWidths        []float32
 	cachedRowHeights          []float32
@@ -244,7 +255,6 @@ func (t *Table) Children() []facet.GroupChild {
 	if t.Data == nil {
 		return nil
 	}
-	t.syncChildren()
 	out := make([]facet.GroupChild, 0, len(t.cachedChildSpecs))
 	for i := range t.cachedChildSpecs {
 		child := t.groupChild(t.cachedChildSpecs[i])
@@ -310,7 +320,11 @@ func (t *Table) OnDetach() {
 	t.cachedSortIndicators = nil
 	t.cachedColumnKeys = nil
 	t.cachedRowKeys = nil
-	t.cachedVisibleRows = nil
+	t.cachedAllRows = nil
+	t.cachedWindowRows = nil
+	t.cachedRowWindowStart = 0
+	t.cachedBodyRowHeight = 0
+	t.cachedHeaderHeight = 0
 	t.cachedShowSelectionColumn = false
 	t.cachedColumnWidths = nil
 	t.cachedRowHeights = nil
@@ -341,20 +355,30 @@ func (t *Table) syncChildren() {
 		t.Data = store.NewValueStore(TableData{})
 	}
 	data := t.data()
-	visibleRows := sortedTableRows(data)
-	if t.focusedRowIndex < 0 && len(visibleRows) > 0 {
+	allRows := sortedTableRows(data)
+	t.cachedAllRows = allRows
+	if t.focusedRowIndex < 0 && len(allRows) > 0 {
 		t.focusedRowIndex = 0
 	}
-	if len(visibleRows) == 0 {
+	if len(allRows) == 0 {
 		t.focusedRowIndex = -1
 	}
-	if t.focusedRowIndex >= len(visibleRows) {
-		t.focusedRowIndex = len(visibleRows) - 1
+	if t.focusedRowIndex >= len(allRows) {
+		t.focusedRowIndex = len(allRows) - 1
 	}
+	// Row virtualization (FR-7): only the visible window + overscan is built,
+	// measured, arranged, and projected. Rows outside the window are skipped.
+	windowStart, windowEnd := t.visibleRowWindow(len(allRows))
+	t.cachedRowWindowStart = windowStart
+	var windowRows []TableRow
+	if len(allRows) > 0 {
+		windowRows = allRows[windowStart : windowEnd+1]
+	}
+	t.cachedWindowRows = windowRows
 
 	headerCells := make(map[string]*primitive.Text, len(data.Columns))
-	bodyCells := make(map[string]map[string]*primitive.Text, len(visibleRows))
-	selectionCells := make(map[string]*primitive.Text, len(visibleRows)+1)
+	bodyCells := make(map[string]map[string]*primitive.Text, len(windowRows))
+	selectionCells := make(map[string]*primitive.Text, len(windowRows)+1)
 	sortIndicators := make(map[string]*primitive.Text)
 	hasSelection := t.Selection != nil && t.Selection.Get() != ""
 	showSelectionColumn := hasSelection
@@ -362,9 +386,9 @@ func (t *Table) syncChildren() {
 	if showSelectionColumn {
 		selectionOffset = 1
 	}
-	childSpecs := make([]tableChildSpec, 0, len(data.Columns)+len(visibleRows)*2+1)
+	childSpecs := make([]tableChildSpec, 0, len(data.Columns)+len(windowRows)*2+1)
 	columnKeys := make([]string, 0, len(data.Columns))
-	rowKeys := make([]string, 0, len(visibleRows))
+	rowKeys := make([]string, 0, len(windowRows))
 	if showSelectionColumn {
 		headerKey := "__selection__"
 		header := t.cachedSelectionCells[headerKey]
@@ -445,8 +469,9 @@ func (t *Table) syncChildren() {
 		}
 	}
 
-	for rowIndex := range visibleRows {
-		row := visibleRows[rowIndex]
+	for windowIndex := range windowRows {
+		row := windowRows[windowIndex]
+		rowIndex := windowStart + windowIndex
 		key := stableTableKey(row.Key, "", rowIndex)
 		rowKeys = append(rowKeys, key)
 		rowCells := t.cachedBodyCells[key]
@@ -526,8 +551,113 @@ func (t *Table) syncChildren() {
 	t.cachedChildSpecs = childSpecs
 	t.cachedColumnKeys = columnKeys
 	t.cachedRowKeys = rowKeys
-	t.cachedVisibleRows = visibleRows
 	t.cachedShowSelectionColumn = showSelectionColumn
+}
+
+// visibleRowWindow returns the half-open row-window indices [start, end] that
+// the table builds (RX-1 FR-7): the viewport's rows plus one overscan viewport
+// above and below, clamped to the row count. Before the first arrange (no
+// viewport yet) a small leading window is built so the runtime can measure.
+func (t *Table) visibleRowWindow(rowCount int) (int, int) {
+	if rowCount <= 0 {
+		return 0, 0
+	}
+	if t.cachedViewportBounds.IsEmpty() || t.cachedBodyRowHeight <= 0 {
+		end := mathutil.Min(8, rowCount-1)
+		return 0, end
+	}
+	viewportH := t.cachedViewportBounds.Height()
+	first := int(t.scrollOffset.Y / t.cachedBodyRowHeight)
+	if first < 0 {
+		first = 0
+	}
+	if first >= rowCount {
+		first = rowCount - 1
+	}
+	visible := int(math.Ceil(float64(viewportH)/float64(t.cachedBodyRowHeight))) + 1
+	overscan := visible
+	start := first - overscan
+	if start < 0 {
+		start = 0
+	}
+	end := first + visible + overscan
+	if end >= rowCount {
+		end = rowCount - 1
+	}
+	return start, end
+}
+
+// VisibleRange returns the built row window as inclusive absolute body-row
+// indices [first, last], or (-1, -1) when the table has no rows. It is the
+// FR-7 accessor for virtualization tests.
+func (t *Table) VisibleRange() (int, int) {
+	if t == nil || len(t.cachedAllRows) == 0 {
+		return -1, -1
+	}
+	start := t.cachedRowWindowStart
+	end := start + len(t.cachedWindowRows) - 1
+	return start, end
+}
+
+// contentMetrics computes the table's fixed row heights, stable column widths,
+// and full content bounds from typography metrics (measured once per
+// font/scale, RX-1 FR-7) plus a longest-cell scan for intrinsic columns. It
+// must run before syncChildren/arrange so the virtualization window and the
+// fixed-row grid policy have their constants.
+func (t *Table) contentMetrics(ctx facet.MeasureContext, data TableData) {
+	hasSelection := t.Selection != nil && t.Selection.Get() != ""
+	selectionCol := hasSelection
+	gap := mathutil.Max(t.gridGap(), 8)
+
+	headerSample := primitive.NewText(marks.Const("M"))
+	headerSample.Typography = marks.Const(theme.TextLabelM)
+	headerSample.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	_ = headerSample.Layout.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: 640, H: 0}})
+	t.cachedHeaderHeight = headerSample.Layout.MeasuredSize.H
+
+	bodySample := primitive.NewText(marks.Const("M"))
+	bodySample.Typography = marks.Const(theme.TextBodyM)
+	bodySample.Overflow = marks.Const(primitive.TextOverflowTruncate)
+	_ = bodySample.Layout.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: 640, H: 0}})
+	t.cachedBodyRowHeight = bodySample.Layout.MeasuredSize.H
+
+	widths := make([]float32, len(data.Columns))
+	for i := range data.Columns {
+		col := data.Columns[i]
+		if col.Width > 0 {
+			widths[i] = col.Width
+			continue
+		}
+		longest := col.Label
+		for _, row := range data.Rows {
+			if i < len(row.Cells) && len(row.Cells[i]) > len(longest) {
+				longest = row.Cells[i]
+			}
+		}
+		sample := primitive.NewText(marks.Const(longest))
+		sample.Typography = marks.Const(theme.TextBodyM)
+		sample.Overflow = marks.Const(primitive.TextOverflowTruncate)
+		_ = sample.Layout.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: 640, H: 0}})
+		widths[i] = mathutil.Max(24, sample.Layout.MeasuredSize.W)
+	}
+	t.cachedColumnWidths = widths
+
+	colW := float32(0)
+	for i, w := range widths {
+		colW += w
+		if i < len(widths)-1 {
+			colW += gap
+		}
+	}
+	if selectionCol {
+		colW += t.selectionColumnWidth() + gap
+	}
+	rowCount := len(data.Rows)
+	bodyH := float32(0)
+	if rowCount > 0 {
+		bodyH = float32(rowCount) * (t.cachedBodyRowHeight + gap)
+	}
+	t.cachedContentBounds = gfx.RectFromXYWH(0, 0, colW, t.cachedHeaderHeight+bodyH)
 }
 
 func (t *Table) buildGridPolicy(data TableData) *layoutgrid.Policy {
@@ -541,15 +671,21 @@ func (t *Table) buildGridPolicy(data TableData) *layoutgrid.Policy {
 	}
 	for i := range data.Columns {
 		col := data.Columns[i]
-		if col.Width > 0 {
+		if i < len(t.cachedColumnWidths) && t.cachedColumnWidths[i] > 0 {
+			columns[i+selectionOffset] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFixed, Value: t.cachedColumnWidths[i], Min: 24}
+		} else if col.Width > 0 {
 			columns[i+selectionOffset] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFixed, Value: col.Width, Min: 24}
 		} else {
 			columns[i+selectionOffset] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackIntrinsic, Min: 24}
 		}
 	}
+	// Fixed row heights (FR-7): the header and every body row use their
+	// typography-derived height, which makes the content height deterministic
+	// and the virtualization window computable from the scroll offset.
 	rows := make([]layoutgrid.TrackDef, len(data.Rows)+1)
-	for i := range rows {
-		rows[i] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackIntrinsic}
+	rows[0] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFixed, Value: mathutil.Max(24, t.cachedHeaderHeight)}
+	for i := 1; i < len(rows); i++ {
+		rows[i] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFixed, Value: t.cachedBodyRowHeight}
 	}
 	colGap := mathutil.Max(t.gridGap(), 8)
 	return layoutgrid.New(layoutgrid.Config{
@@ -571,8 +707,9 @@ func (t *Table) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 	t.cachedTokens = resolved.TokenSet()
 	t.cachedRecipe = slots
 	t.cachedWritingDirection = ctx.WritingDirection
-	t.syncChildren()
 	data := t.data()
+	t.contentMetrics(ctx, data)
+	t.syncChildren()
 	children := t.Children()
 	if len(children) == 0 {
 		size := constraints.Constrain(gfx.Size{})
@@ -593,13 +730,9 @@ func (t *Table) measure(ctx facet.MeasureContext, constraints facet.Constraints)
 		}
 		_ = children[i].Layout.Measure(childMeasureCtx, constraints)
 	}
-	policy := t.buildGridPolicy(data)
-	gridChildren := t.gridChildren(children)
-	size, err := policy.Measure(gridChildren, constraints.MaxSize)
-	if err != nil {
-		size = constraints.Constrain(gfx.Size{})
-	}
-	t.cachedContentBounds = gfx.RectFromXYWH(0, 0, size.W, size.H)
+	// The measured size is the full content (all rows), not the built window:
+	// virtualization must not shrink the scrollable content extent (FR-7).
+	size := gfx.Size{W: t.cachedContentBounds.Width(), H: t.cachedContentBounds.Height()}
 	measured := constraints.Constrain(size)
 	t.Layout.MeasuredSize = measured
 	t.Layout.MeasuredResult = facet.MeasureResult{
@@ -620,6 +753,12 @@ func tableFacetByID(t *Table, id facet.FacetID) *facet.Facet {
 }
 
 func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
+	if t.cachedBodyRowHeight <= 0 {
+		t.contentMetrics(facet.MeasureContext{
+			Runtime: ctx.Runtime,
+			Theme:   ctx.Theme,
+		}, t.data())
+	}
 	contentSize := t.cachedContentBounds
 	t.cachedBounds = bounds
 	t.cachedViewportBounds = bounds
@@ -665,7 +804,7 @@ func (t *Table) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			}
 		}
 		order = append(order, child.FacetID)
-		if child.Placement.RowStart >= 0 && child.Placement.RowStart < len(t.cachedVisibleRows)+1 {
+		if child.Placement.RowStart >= 0 && child.Placement.RowStart < len(t.cachedAllRows)+1 {
 			rowKey := t.visibleTableRowKeyAtIndex(child.Placement.RowStart)
 			rowBounds[rowKey] = rowBounds[rowKey].Union(child.Bounds)
 		}
@@ -726,12 +865,11 @@ func (t *Table) buildCommands(bounds gfx.Rect, runtime any, contentScale float32
 		}
 	}
 	if !theme.IsTransparentMaterial(bodyRows) {
-		rows := t.cachedVisibleRows
-		if len(rows) == 0 {
-			rows = sortedTableRows(t.data())
-		}
-		for i := range rows {
-			rowKey := stableTableKey(rows[i].Key, "", i)
+		// Only the built row window is arranged/projected (FR-7): iterate the
+		// window's absolute indices so off-window rows draw no background.
+		for windowIndex := range t.cachedWindowRows {
+			rowIndex := t.cachedRowWindowStart + windowIndex
+			rowKey := stableTableKey(t.cachedWindowRows[windowIndex].Key, "", rowIndex)
 			if rowBounds := t.cachedRowBounds[rowKey]; !rowBounds.IsEmpty() {
 				cmds = append(cmds, theme.MaterialCommands(gfx.RectPath(rowBounds), bodyRows)...)
 			}
@@ -949,7 +1087,7 @@ func (t *Table) onKey(e facet.KeyEvent) bool {
 		t.focusedRowIndex = 0
 		t.ensureFocusedRowVisible()
 	case platform.KeyEnd:
-		rows := t.cachedVisibleRows
+		rows := t.cachedAllRows
 		if len(rows) == 0 {
 			rows = sortedTableRows(t.data())
 		}
@@ -1024,86 +1162,46 @@ func (t *Table) groupChild(spec tableChildSpec) facet.GroupChild {
 	}
 }
 
+func (t *Table) scrollViewport() ScrollViewport {
+	return ScrollViewport{
+		Content: gfx.Size{W: t.cachedContentBounds.Width(), H: t.cachedContentBounds.Height()},
+		View:    t.cachedViewportBounds,
+		Track:   t.trackThickness(),
+	}
+}
+
 func (t *Table) updateScrollBounds(bounds gfx.Rect) {
 	t.cachedViewportBounds = bounds
-	maxX := mathutil.Max(0, t.cachedContentBounds.Width()-bounds.Width())
-	maxY := mathutil.Max(0, t.cachedContentBounds.Height()-bounds.Height())
-	t.scrollOffset = gfx.Point{
-		X: clampFloat(t.scrollOffset.X, 0, maxX),
-		Y: clampFloat(t.scrollOffset.Y, 0, maxY),
+	vp := ScrollViewport{
+		Content: gfx.Size{W: t.cachedContentBounds.Width(), H: t.cachedContentBounds.Height()},
+		View:    bounds,
+		Track:   t.trackThickness(),
 	}
+	t.scrollOffset = vp.Clamp(t.scrollOffset)
 	t.Scrolled.Emit(t.scrollOffset)
-	track := t.trackThickness()
-	if maxY > 0 {
-		trackHeight := bounds.Height()
-		if maxX > 0 {
-			trackHeight -= track
-		}
-		if trackHeight < 0 {
-			trackHeight = 0
-		}
-		t.cachedVerticalTrack = gfx.RectFromXYWH(bounds.Max.X-track, bounds.Min.Y, track, trackHeight)
-		thumbHeight := mathutil.Max(track*2, trackHeight*(bounds.Height()/mathutil.Max(1, t.cachedContentBounds.Height())))
-		if thumbHeight > trackHeight {
-			thumbHeight = trackHeight
-		}
-		maxOffset := mathutil.Max(1, maxY)
-		thumbY := bounds.Min.Y + (t.scrollOffset.Y/maxOffset)*(trackHeight-thumbHeight)
-		t.cachedVerticalThumb = gfx.RectFromXYWH(bounds.Max.X-track, thumbY, track, thumbHeight)
-	}
-	if maxX > 0 {
-		trackWidth := bounds.Width()
-		if maxY > 0 {
-			trackWidth -= track
-		}
-		if trackWidth < 0 {
-			trackWidth = 0
-		}
-		t.cachedHorizontalTrack = gfx.RectFromXYWH(bounds.Min.X, bounds.Max.Y-track, trackWidth, track)
-		thumbWidth := mathutil.Max(track*2, trackWidth*(bounds.Width()/mathutil.Max(1, t.cachedContentBounds.Width())))
-		if thumbWidth > trackWidth {
-			thumbWidth = trackWidth
-		}
-		maxOffset := mathutil.Max(1, maxX)
-		thumbX := bounds.Min.X + (t.scrollOffset.X/maxOffset)*(trackWidth-thumbWidth)
-		t.cachedHorizontalThumb = gfx.RectFromXYWH(thumbX, bounds.Max.Y-track, thumbWidth, track)
-	}
+	t.cachedVerticalTrack, t.cachedVerticalThumb = vp.Vertical(t.scrollOffset)
+	t.cachedHorizontalTrack, t.cachedHorizontalThumb = vp.Horizontal(t.scrollOffset)
 }
 
 func (t *Table) updateOffsetFromDrag(p gfx.Point) {
 	if t == nil {
 		return
 	}
+	vp := t.scrollViewport()
 	switch t.draggingAxis {
 	case ScrollDirectionHorizontal:
-		trackRect := t.cachedHorizontalTrack
-		thumbRect := t.cachedHorizontalThumb
-		maxOffset := t.maxScrollX()
-		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
-			return
-		}
-		trackSpan := mathutil.Max(1, trackRect.Width()-thumbRect.Width())
-		pos := p.X - trackRect.Min.X - thumbRect.Width()*0.5
-		t.scrollOffset.X = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
+		t.scrollOffset = vp.DragTo(t.scrollOffset, true, p, t.cachedHorizontalTrack, t.cachedHorizontalThumb)
 	default:
-		trackRect := t.cachedVerticalTrack
-		thumbRect := t.cachedVerticalThumb
-		maxOffset := t.maxScrollY()
-		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
-			return
-		}
-		trackSpan := mathutil.Max(1, trackRect.Height()-thumbRect.Height())
-		pos := p.Y - trackRect.Min.Y - thumbRect.Height()*0.5
-		t.scrollOffset.Y = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
+		t.scrollOffset = vp.DragTo(t.scrollOffset, false, p, t.cachedVerticalTrack, t.cachedVerticalThumb)
 	}
-	t.scrollOffset = t.clampScrollOffset(t.scrollOffset)
+	t.scrollOffset = vp.Clamp(t.scrollOffset)
 }
 
 func (t *Table) rowAtPoint(p gfx.Point) int {
 	if t == nil {
 		return -1
 	}
-	rows := t.cachedVisibleRows
+	rows := t.cachedAllRows
 	if len(rows) == 0 {
 		rows = sortedTableRows(t.data())
 	}
@@ -1124,7 +1222,7 @@ func (t *Table) selectRow(index int) {
 	if t == nil || t.Selection == nil {
 		return
 	}
-	visible := t.cachedVisibleRows
+	visible := t.cachedAllRows
 	if len(visible) == 0 {
 		data := t.data()
 		visible = sortedTableRows(data)
@@ -1165,7 +1263,7 @@ func (t *Table) moveFocus(delta int) {
 	if t == nil {
 		return
 	}
-	rows := t.cachedVisibleRows
+	rows := t.cachedAllRows
 	if len(rows) == 0 {
 		rows = sortedTableRows(t.data())
 	}
@@ -1191,7 +1289,7 @@ func (t *Table) pageStep() int {
 	if span <= 0 {
 		return 1
 	}
-	rows := t.cachedVisibleRows
+	rows := t.cachedAllRows
 	if len(rows) == 0 {
 		rows = sortedTableRows(t.data())
 	}
@@ -1230,22 +1328,14 @@ func (t *Table) keyboardStep() float32 {
 	return mathutil.Max(24, span*0.12)
 }
 
-func (t *Table) maxScrollX() float32 {
-	return mathutil.Max(0, t.cachedContentBounds.Width()-t.cachedViewportBounds.Width())
-}
-
-func (t *Table) maxScrollY() float32 {
-	return mathutil.Max(0, t.cachedContentBounds.Height()-t.cachedViewportBounds.Height())
-}
-
 func (t *Table) visibleRowKeyAtIndex(index int) string {
 	if t == nil || index < 0 {
 		return ""
 	}
-	if index >= len(t.cachedVisibleRows) {
+	if index >= len(t.cachedAllRows) {
 		return ""
 	}
-	return stableTableKey(t.cachedVisibleRows[index].Key, "", index)
+	return stableTableKey(t.cachedAllRows[index].Key, "", index)
 }
 
 func (t *Table) visibleTableRowKeyAtIndex(index int) string {
@@ -1256,10 +1346,7 @@ func (t *Table) visibleTableRowKeyAtIndex(index int) string {
 }
 
 func (t *Table) clampScrollOffset(next gfx.Point) gfx.Point {
-	return gfx.Point{
-		X: clampFloat(next.X, 0, t.maxScrollX()),
-		Y: clampFloat(next.Y, 0, t.maxScrollY()),
-	}
+	return t.scrollViewport().Clamp(next)
 }
 
 func (t *Table) cursorShape() facet.CursorShape {

@@ -3,6 +3,7 @@ package studio
 import (
 	"sort"
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -121,6 +122,7 @@ func filterCoverageTraps(descs []marks.Descriptor) []marks.Descriptor {
 // content to the facet tree (F-card-content / F-scroll-content) are not
 // "reachable" and are excluded by construction.
 func TestCoverage_liveTreePlacesEveryStandardMark(t *testing.T) {
+	start := time.Now()
 	root, _ := newCoverageRoot(t)
 
 	walked := filterCoverageTraps(walkMarkDescriptors(root))
@@ -149,6 +151,7 @@ func TestCoverage_liveTreePlacesEveryStandardMark(t *testing.T) {
 		t.Fatalf("placed marks that are not standard (would be invented marks): %v", extras)
 	}
 	t.Logf("coverage: %d/%d standard marks reachable in the live tree", len(standard), len(standard))
+	assertCoverageBudget(t, start)
 }
 
 // TestCoverage_eachExhibitPlacesItsMarks asserts the per-exhibit placement

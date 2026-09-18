@@ -250,9 +250,9 @@ func overlayRoot() facet.FacetImpl {
 	return root
 }
 
-// overflowVisibleRoot builds a root where the child exceeds the parent but
-// the parent's OverflowPolicy is OverflowVisible, which exempts it.
-func overflowVisibleRoot() facet.FacetImpl {
+// overflowScrollRoot builds a root where the child exceeds the parent but the
+// parent declares a scroll content viewport (OverflowScroll), which exempts it.
+func overflowScrollRoot() facet.FacetImpl {
 	root := &struct{ facet.Facet }{Facet: facet.NewFacet()}
 	root.Base().BindImpl(root)
 
@@ -275,11 +275,13 @@ func overflowVisibleRoot() facet.FacetImpl {
 		return facet.MeasureResult{Size: gfx.Size{W: 100, H: 100}}
 	}
 	rootRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-		rootRole.ArrangedBounds = bounds
+		// The parent is arranged to 100x100 while the child extends to 200x200:
+		// a real child-out-of-parent shape that only the Scroll exemption spares.
+		rootRole.ArrangedBounds = gfx.RectFromXYWH(0, 0, 100, 100)
 		childRole.Arrange(ctx, gfx.RectFromXYWH(0, 0, 200, 200))
 	}
 	rootRole.Parent.Kind = facet.GroupLayoutLinearVertical
-	rootRole.Parent.Overflow = facet.OverflowVisible
+	rootRole.Parent.Overflow = facet.OverflowScroll
 	root.AddRole(rootRole)
 
 	return root
@@ -376,11 +378,56 @@ func TestCheck_OverlayExempt(t *testing.T) {
 	}
 }
 
-func TestCheck_OverflowVisibleExempt(t *testing.T) {
-	root := overflowVisibleRoot()
+func TestCheck_OverflowScrollExempt(t *testing.T) {
+	root := overflowScrollRoot()
 	findings := Check(root, Options{SkipOverlap: true})
 	if containsKind(findings, KindChildOutOfParent) {
-		t.Errorf("OverflowVisible parent should exempt child-out-of-parent, but got finding: %v", findingKinds(findings))
+		t.Errorf("OverflowScroll parent should exempt child-out-of-parent, but got finding: %v", findingKinds(findings))
+	}
+}
+
+// overflowClipRoot builds a root where the child exceeds the parent and the
+// parent clips (OverflowClip): the escaping child must be flagged.
+func overflowClipRoot() facet.FacetImpl {
+	root := &struct{ facet.Facet }{Facet: facet.NewFacet()}
+	root.Base().BindImpl(root)
+
+	child := &struct{ facet.Facet }{Facet: facet.NewFacet()}
+
+	childRole := &facet.LayoutRole{}
+	childRole.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: 200, H: 200}}
+	}
+	childRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		childRole.ArrangedBounds = bounds
+	}
+	child.AddRole(childRole)
+	child.AddRole(&facet.RenderRole{})
+
+	root.AddChild(child.Base())
+
+	rootRole := &facet.LayoutRole{}
+	rootRole.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: 100, H: 100}}
+	}
+	rootRole.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		rootRole.ArrangedBounds = gfx.RectFromXYWH(0, 0, 100, 100)
+		childRole.Arrange(ctx, gfx.RectFromXYWH(0, 0, 200, 200))
+	}
+	rootRole.Parent.Kind = facet.GroupLayoutLinearVertical
+	rootRole.Parent.Overflow = facet.OverflowClip
+	root.AddRole(rootRole)
+
+	return root
+}
+
+// TestCheck_OverflowClipFlags pins the inverse: a Clip parent whose child
+// escapes its bounds is a layout accident and must be flagged.
+func TestCheck_OverflowClipFlags(t *testing.T) {
+	root := overflowClipRoot()
+	findings := Check(root, Options{SkipOverlap: true})
+	if !containsKind(findings, KindChildOutOfParent) {
+		t.Errorf("OverflowClip parent should flag child-out-of-parent, but got findings: %v", findingKinds(findings))
 	}
 }
 

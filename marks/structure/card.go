@@ -52,6 +52,10 @@ type Card struct {
 	LayoutMode  marks.Binding[CardLayoutMode]
 	GridColumns marks.Binding[int]
 	GridRows    marks.Binding[int]
+	// FlexRows / FlexColumns opt into flex tracks (equal share of remaining
+	// space); the default is intrinsic tracks sized by content (RX-1 Q6 / FR-6).
+	FlexRows    marks.Binding[bool]
+	FlexColumns marks.Binding[bool]
 
 	ChildrenContent []CardChild
 
@@ -68,6 +72,18 @@ type Card struct {
 	cachedWritingDir facet.WritingDirection
 
 	cachedChildBounds map[facet.FacetID]gfx.Rect
+	// lastOverflow is the most recent per-track overflow report (RX-1 FR-5):
+	// tracks whose content need exceeded their allocated size at the last
+	// arrange. Container marks read it to apply their declared OverflowPolicy.
+	lastOverflow []layoutgrid.TrackOverflow
+
+	// scrollOffset / cachedContentSize / cachedVertical* implement the Card's
+	// OverflowScroll viewport (RX-1 FR-6): when the grid content is taller than
+	// the arranged inner rect, content scrolls vertically with a scrollbar.
+	scrollOffset        gfx.Point
+	cachedContentSize   gfx.Size
+	cachedVerticalTrack gfx.Rect
+	cachedVerticalThumb gfx.Rect
 }
 
 var _ facet.FacetImpl = (*Card)(nil)
@@ -82,6 +98,8 @@ func NewCard(label string) *Card {
 		LayoutMode:  marks.Const(CardLayoutGrid),
 		GridColumns: marks.Const(3),
 		GridRows:    marks.Const(3),
+		FlexRows:    marks.Const(false),
+		FlexColumns: marks.Const(false),
 	}
 	c.Facet = facet.NewFacet()
 	c.AddBinding(c.Label)
@@ -89,11 +107,14 @@ func NewCard(label string) *Card {
 	c.AddBinding(c.LayoutMode)
 	c.AddBinding(c.GridColumns)
 	c.AddBinding(c.GridRows)
+	c.AddBinding(c.FlexRows)
+	c.AddBinding(c.FlexColumns)
 
 	c.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutGrid,
 		Policy:   cardGroupPolicy{card: c},
 		Children: c,
+		Overflow: facet.OverflowScroll,
 	}
 	c.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
@@ -132,6 +153,16 @@ func NewCard(label string) *Card {
 	}
 	c.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return c.buildCommands(c.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
+	}
+	// The OverflowScroll viewport scrolls on wheel events (RX-1 FR-6).
+	c.Input.OnScroll = func(e facet.ScrollEvent) bool {
+		if c == nil {
+			return false
+		}
+		if c.scrollBy(e.DeltaY) {
+			return true
+		}
+		return false
 	}
 	c.textRole.IMEEnabled = false
 	c.RegisterRoles()
@@ -265,6 +296,17 @@ func (c *Card) activeChildren() []CardChild {
 	return append([]CardChild(nil), c.ChildrenContent...)
 }
 
+// OverflowTracks reports the most recent arrange's per-track overflow: the
+// grid tracks whose content need exceeded their allocated size (RX-1 FR-5).
+// A container mark declares its OverflowPolicy and reads this report to apply
+// it (viewport+scroll, clip, or upward min-content report).
+func (c *Card) OverflowTracks() []layoutgrid.TrackOverflow {
+	if c == nil {
+		return nil
+	}
+	return append([]layoutgrid.TrackOverflow(nil), c.lastOverflow...)
+}
+
 func (c *Card) defaultGridPlacement(index, count int) facet.GridPlacement {
 	if count <= 0 {
 		return facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}
@@ -317,6 +359,7 @@ func (c *Card) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 	}
 	measured.W += c.cachedPadX * 2
 	measured.H += c.cachedPadY * 2
+	c.cachedContentSize = measured
 	if measured.W < resolved.Density.Scale(160) {
 		measured.W = resolved.Density.Scale(160)
 	}
@@ -377,23 +420,31 @@ func (c *Card) gridConfig(childCount int, resolved theme.ResolvedContext) layout
 		}
 	}
 	return layoutgrid.Config{
-		Columns:       flexibleTracks(columns),
-		Rows:          flexibleTracks(rows),
+		Columns:       c.columnTracks(columns),
+		Rows:          c.rowTracks(rows),
 		ColumnGap:     c.cachedColumnGap,
 		RowGap:        c.cachedRowGap,
 		AutoPlacement: layoutgrid.AutoRowFirst,
 	}
 }
 
-func flexibleTracks(count int) []layoutgrid.TrackDef {
-	if count < 1 {
-		count = 1
+// rowTracks returns the grid's row tracks: intrinsic (content-sized) by
+// default, flex when FlexRows is set (RX-1 Q6 / FR-6). GridRows retains count
+// semantics only.
+func (c *Card) rowTracks(count int) []layoutgrid.TrackDef {
+	if c.FlexRows.Get() {
+		return layoutgrid.FlexTracks(count)
 	}
-	out := make([]layoutgrid.TrackDef, count)
-	for i := range out {
-		out[i] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFlex, Value: 1, Min: 0}
+	return layoutgrid.IntrinsicTracks(count)
+}
+
+// columnTracks returns the grid's column tracks: intrinsic by default, flex
+// when FlexColumns is set.
+func (c *Card) columnTracks(count int) []layoutgrid.TrackDef {
+	if c.FlexColumns.Get() {
+		return layoutgrid.FlexTracks(count)
 	}
-	return out
+	return layoutgrid.IntrinsicTracks(count)
 }
 
 func (c *Card) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
@@ -407,19 +458,21 @@ func (c *Card) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if inner.IsEmpty() {
 		inner = bounds
 	}
+	contentRect := c.scrolledContentRect(inner)
 	active := c.activeChildren()
-	gridChildren := c.arrangeChildren(ctx, inner, active)
+	gridChildren := c.arrangeChildren(ctx, contentRect, active)
 	policy := layoutgrid.New(c.gridConfig(len(gridChildren), theme.DefaultResolvedContext()))
-	arranged, err := policy.Arrange(gridChildren, inner)
+	arranged, err := policy.Arrange(gridChildren, contentRect)
 	if err != nil {
 		return
 	}
+	c.lastOverflow = policy.OverflowTracks(gridChildren, contentRect)
 	rtl := c.cachedWritingDir == facet.WritingDirectionRTL
 	c.cachedChildBounds = make(map[facet.FacetID]gfx.Rect, len(arranged))
 	for _, child := range arranged {
 		b := child.Bounds
 		if rtl {
-			b.Min.X = inner.Max.X - (child.Bounds.Min.X - inner.Min.X) - child.Bounds.Width()
+			b.Min.X = contentRect.Max.X - (child.Bounds.Min.X - contentRect.Min.X) - child.Bounds.Width()
 			b.Max.X = b.Min.X + child.Bounds.Width()
 		}
 		c.cachedChildBounds[child.FacetID] = b
@@ -429,6 +482,92 @@ func (c *Card) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 			}
 		}
 	}
+}
+
+// scrolledContentRect returns the grid layout layer for the card's content,
+// applying the OverflowScroll vertical offset when the content is taller than
+// the inner rect (RX-1 FR-6). When content fits, the layer is the inner rect
+// unchanged (scroll stays idle and quiet).
+func (c *Card) scrolledContentRect(inner gfx.Rect) gfx.Rect {
+	contentH := c.cachedContentSize.H - 2*c.cachedPadY
+	if contentH < 0 {
+		contentH = 0
+	}
+	if contentH <= inner.Height() {
+		c.scrollOffset = gfx.Point{}
+		c.cachedVerticalTrack = gfx.Rect{}
+		c.cachedVerticalThumb = gfx.Rect{}
+		return inner
+	}
+	vp := ScrollViewport{Content: gfx.Size{W: inner.Width(), H: contentH}, View: inner, Track: c.scrollbarThickness()}
+	c.scrollOffset = vp.Clamp(c.scrollOffset)
+	c.cachedVerticalTrack, c.cachedVerticalThumb = vp.Vertical(c.scrollOffset)
+	return gfx.RectFromXYWH(inner.Min.X, inner.Min.Y-c.scrollOffset.Y, inner.Width(), contentH)
+}
+
+// scrollbarThickness returns the card scrollbar's track width.
+func (c *Card) scrollbarThickness() float32 {
+	if c.cachedTokens.Spacing.TouchTarget > 0 {
+		return mathutil.Max(6, c.cachedTokens.Spacing.TouchTarget*0.1)
+	}
+	return 6
+}
+
+// ScrollOffset returns the card's current vertical scroll offset.
+func (c *Card) ScrollOffset() gfx.Point {
+	if c == nil {
+		return gfx.Point{}
+	}
+	return c.scrollOffset
+}
+
+// SetScrollOffset sets the card's vertical scroll offset (clamped) and
+// invalidates projection so the scrolled content re-renders.
+func (c *Card) SetScrollOffset(offset gfx.Point) {
+	if c == nil {
+		return
+	}
+	c.scrollOffset = offset
+	c.invalidate(facet.DirtyProjection)
+}
+
+// scrollBy applies a vertical wheel delta to the scroll offset.
+func (c *Card) scrollBy(deltaY float32) bool {
+	if c == nil || c.cachedVerticalThumb.IsEmpty() {
+		return false
+	}
+	c.scrollOffset.Y += deltaY
+	c.scrollOffset = ScrollViewport{
+		Content: gfx.Size{W: c.cachedContentSize.W, H: c.cachedContentSize.H},
+		View:    c.cachedBounds.Inset(c.cachedPadX, c.cachedPadY),
+		Track:   c.scrollbarThickness(),
+	}.Clamp(c.scrollOffset)
+	c.invalidate(facet.DirtyProjection)
+	return true
+}
+
+func (c *Card) invalidate(flags facet.DirtyFlags) {
+	if c == nil {
+		return
+	}
+	c.Invalidate(flags)
+}
+
+// scrollbarCommands builds the scrollbar affordance commands for the card's
+// OverflowScroll viewport (RX-1 FR-6).
+func (c *Card) scrollbarCommands(material theme.Material, opacity float32, bounds gfx.Rect) []gfx.Command {
+	if bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
+		return nil
+	}
+	cmds := make([]gfx.Command, 0, 4)
+	if opacity > 0 && opacity < 1 {
+		cmds = append(cmds, gfx.PushOpacity{Alpha: opacity})
+	}
+	cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, bounds.Width()*0.5), material)...)
+	if opacity > 0 && opacity < 1 {
+		cmds = append(cmds, gfx.PopOpacity{})
+	}
+	return cmds
 }
 
 func facetByID(c *Card, id facet.FacetID) *facet.Facet {
@@ -505,6 +644,12 @@ func (c *Card) buildCommands(bounds gfx.Rect, runtime any, contentScale float32)
 	}
 	if !theme.IsTransparentMaterial(surface) {
 		cmds = append(cmds, theme.MaterialCommands(gfx.RoundedRectPath(bounds, c.cachedRadius), surface)...)
+	}
+	if !c.cachedVerticalTrack.IsEmpty() && !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, c.scrollbarCommands(surface, 0.24, c.cachedVerticalTrack)...)
+	}
+	if !c.cachedVerticalThumb.IsEmpty() && !theme.IsTransparentMaterial(surface) {
+		cmds = append(cmds, c.scrollbarCommands(surface, 1, c.cachedVerticalThumb)...)
 	}
 	// The content facets are real tree children (OnAttach AddChild): the
 	// runtime projects and hit-tests them at their arranged bounds. The card

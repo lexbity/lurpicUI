@@ -68,6 +68,10 @@ type NavDrawer struct {
 	Disabled     marks.Binding[bool]
 	CurrentIndex *store.ValueStore[int]
 
+	// selection is the FR-8 two-way binding over CurrentIndex (attached in
+	// OnAttach); nil until then, so reads fall back to the store.
+	selection *SelectionBinding[int]
+
 	Activated signal.Signal[int]
 
 	hoveredIndex     int
@@ -137,6 +141,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   navDrawerGroupPolicy{drawer: d},
 		Children: d,
+		Overflow: facet.OverflowScroll,
 	}
 	d.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
@@ -291,7 +296,9 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach is unused beyond layout role setup.
+// OnAttach wires the FR-8 selection binding over CurrentIndex (attach-time
+// sync, re-sync on every change, publish back, echo guard) alongside the
+// Open-store invalidation.
 func (d *NavDrawer) OnAttach(ctx facet.AttachContext) {
 	d.Core.OnAttach(ctx)
 	if d.Open != nil {
@@ -299,11 +306,9 @@ func (d *NavDrawer) OnAttach(ctx facet.AttachContext) {
 			d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navDrawer.Open")
 		})
 	}
-	if d.CurrentIndex != nil {
-		facet.Store(facet.Subscribe(d), &d.CurrentIndex.OnChange, d.CurrentIndex.Version, func(signal.Change[int]) {
-			d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navDrawer.CurrentIndex")
-		})
-	}
+	d.selection = BindSelection(d, d.CurrentIndex, func(int) {
+		d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navDrawer.CurrentIndex")
+	})
 }
 
 // OnActivate is unused.
@@ -1046,13 +1051,18 @@ func (d *NavDrawer) activateIndex(index int) {
 	if index < 0 || index >= len(d.cachedFlatItems) || d.isDisabledIndex(index) {
 		return
 	}
-	d.CurrentIndex.Set(index)
+	d.selection.Publish(index)
 	d.Activated.Emit(index)
 	d.invalidate(facet.DirtyProjection)
 }
 
 func (d *NavDrawer) clampedCurrentIndex() int {
-	idx := d.CurrentIndex.Get()
+	var idx int
+	if d.selection != nil {
+		idx = d.selection.Current()
+	} else {
+		idx = d.CurrentIndex.Get()
+	}
 	if len(d.cachedFlatItems) == 0 {
 		return 0
 	}

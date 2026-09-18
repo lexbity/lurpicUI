@@ -24,6 +24,10 @@ type layoutPhaseStats struct {
 	// groups counts the layer groups resolved this frame (RX-1 P5
 	// layer-resolve-count).
 	groups int
+	// unmountedSkips counts layer-attached facets skipped this frame because
+	// their Mount store read false (RX-1 Q4 visibility by mount state). Wired
+	// to FrameStats.LayersUnmountedSkips (NFR-8).
+	unmountedSkips int
 }
 
 func (rt *Runtime) resolveLayerTree() layoutPhaseStats {
@@ -321,6 +325,7 @@ func (s layoutPhaseStats) add(other layoutPhaseStats) layoutPhaseStats {
 	s.layerBoundsResolution += other.layerBoundsResolution
 	s.arrange += other.arrange
 	s.groups += other.groups
+	s.unmountedSkips += other.unmountedSkips
 	return s
 }
 
@@ -352,6 +357,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 	if rt.layerRegistry == nil {
 		return layoutPhaseStats{}
 	}
+	stats := layoutPhaseStats{}
 	type layerGroup struct {
 		desc     layout.LayerDescriptor
 		children []layout.LayerChild
@@ -372,14 +378,14 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			continue
 		}
 		if isLayer && att.Mount != nil && !att.Mount.Get() {
-			// Unmounted: clear the child's arranged bounds so its projection is
-			// gated and it registers no hit (RX-1 Q4 visibility by mount state).
-			if role := childBase.LayoutRole(); role != nil {
-				role.Arrange(facet.ArrangeContext{
-					Runtime: rt,
-					Theme:   rt.themeContext(parentBounds),
-				}, gfx.Rect{})
-			}
+			// RX-1 Q4 visibility by mount state: the layer system skips an
+			// unmounted layer entirely — no measure, no arrange, no projection
+			// layer, no hit. The projection walk independently mount-gates it
+			// (projection.go walkNode), so a stale arranged bounds from a
+			// previous mount can never resurrect its pixels (the arrange-to-
+			// zero mechanism Q4 banned is gone). The counter makes the skip
+			// observable (NFR-8).
+			stats.unmountedSkips++
 			continue
 		}
 		// Resolve the registry layer ID: a pinned attachment (the host set a
@@ -433,7 +439,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		})
 	}
 	if len(ordered) == 0 {
-		return layoutPhaseStats{}
+		return stats
 	}
 	// Layers paint in band order (RX-1 Q4 named z-bands); the registry order
 	// and layer id break ties within a band.
@@ -477,7 +483,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		}
 		return layoutPhaseStats{}
 	}
-	stats := layoutPhaseStats{groups: len(ordered)}
+	stats.groups = len(ordered)
 	parentViewport := parent.Base().ViewportRole()
 	cache := rt.anchorCaches[parent.Base().ID()]
 	for _, layerID := range ordered {
@@ -487,8 +493,16 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		}
 		recipeStart := time.Now()
 		recipe := rt.resolveLayerRecipe(group.desc, parentBounds)
-		if override := groupRecipeOverride(rt, group.children); override != nil {
-			recipe = *override
+		override, hasOverride, err := rt.layerRecipeOverride(group.children, parentBounds)
+		if err != nil {
+			// RX-1 §7.2 fail-fast: an unresolvable or conflicting attachment
+			// recipe override panics with the facet id instead of silently
+			// skipping to the default recipe. A silently missing modal is
+			// worse than a loud crash in development.
+			panic(err.Error())
+		}
+		if hasOverride {
+			recipe = override
 		}
 		policy := layout.ResolveLayerLayoutPolicy(recipe)
 		stats.specResolution += time.Since(recipeStart)
@@ -643,32 +657,106 @@ func (rt *Runtime) resolveLayerRecipe(desc layout.LayerDescriptor, parentBounds 
 	return layout.DefaultLayerLayoutRecipe()
 }
 
-// groupRecipeOverride resolves a layer-attachment recipe override for the
-// group's children. A child that declares Recipe.Name == "modal" is arranged
-// by the modal recipe: a single cell that fills the parent so the child
-// centers itself within it (RX-1 Q4; the command palette's centered surface is
-// the canonical consumer).
-func groupRecipeOverride(rt *Runtime, children []layout.LayerChild) *layout.ResolvedLayerLayoutRecipe {
+// layerRecipeOverride resolves the group's declared per-attachment recipe
+// override (RX-1 Q4). A child mounted with a facet.LayerRecipeRef overrides the
+// layer's descriptor recipe for the whole group; a group may carry at most one
+// distinct override. Resolution is fail-fast (§7.2): an unresolvable ref or
+// conflicting refs return an error naming the facet id instead of silently
+// skipping to the default recipe (the old hardcoded "modal" check). ok is true
+// when the group declared an override.
+func (rt *Runtime) layerRecipeOverride(children []layout.LayerChild, parentBounds gfx.Rect) (layout.ResolvedLayerLayoutRecipe, bool, error) {
 	if rt == nil || len(children) == 0 {
-		return nil
+		return layout.ResolvedLayerLayoutRecipe{}, false, nil
 	}
+	var ref facet.LayerRecipeRef
+	var hasRef bool
+	var refOwner facet.FacetID
 	for _, child := range children {
-		att := child.Attachment
-		if att.Band != facet.ZBandModal {
-			continue
-		}
 		impl := rt.findFacetByID(rt.root, child.FacetID)
 		if impl == nil || impl.Base() == nil {
 			continue
 		}
-		if impl.Base().LayerAttachment().Recipe.Name == "modal" {
-			modal := layout.DefaultLayerLayoutRecipe()
-			modal.Grid = layout.ResolvedGridConfig{Columns: 1, Rows: 1}
-			modal.PolicyKind = layout.LayerLayoutGrid
-			return &modal
+		att := impl.Base().LayerAttachment()
+		if att.Recipe.Family == "" && att.Recipe.Name == "" {
+			continue
+		}
+		if hasRef {
+			if ref != att.Recipe {
+				return layout.ResolvedLayerLayoutRecipe{}, false, fmt.Errorf("layer child %v: conflicting recipe overrides %q/%q (from %v) and %q/%q",
+					child.FacetID, ref.Family, ref.Name, refOwner, att.Recipe.Family, att.Recipe.Name)
+			}
+			continue
+		}
+		ref = att.Recipe
+		refOwner = child.FacetID
+		hasRef = true
+	}
+	if !hasRef {
+		return layout.ResolvedLayerLayoutRecipe{}, false, nil
+	}
+	resolved, err := rt.resolveLayerRecipeRef(ref, parentBounds)
+	if err != nil {
+		return layout.ResolvedLayerLayoutRecipe{}, false, fmt.Errorf("layer child %v: %w", refOwner, err)
+	}
+	return resolved, true, nil
+}
+
+// validateLayerRecipes fails fast at runtime construction (attach) on a
+// declared-but-unresolvable per-attachment layer recipe (RX-1 §7.2). It walks
+// the tree once and resolves every layer-attached facet's LayerRecipeRef; the
+// frame-time layer pass re-panics on any failure that slips past this guard
+// (e.g. a tree mutated after New). Mirrors validateWindowBindings: a bad
+// recipe is a startup error, not a silently unrenderable overlay.
+func (rt *Runtime) validateLayerRecipes() error {
+	if rt.root == nil {
+		return nil
+	}
+	stack := []facet.FacetImpl{rt.root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == nil || node.Base() == nil {
+			continue
+		}
+		base := node.Base()
+		if base.IsLayer() {
+			att := base.LayerAttachment()
+			if att.Recipe.Family != "" || att.Recipe.Name != "" {
+				if _, err := rt.resolveLayerRecipeRef(att.Recipe, gfx.Rect{}); err != nil {
+					return fmt.Errorf("runtime: layer child %v: %w", base.ID(), err)
+				}
+			}
+		}
+		for _, childBase := range base.Children() {
+			if childBase == nil {
+				continue
+			}
+			if impl := childBase.Impl(); impl != nil {
+				stack = append(stack, impl)
+			} else {
+				stack = append(stack, childBase)
+			}
 		}
 	}
 	return nil
+}
+
+// resolveLayerRecipeRef resolves a per-attachment facet.LayerRecipeRef. A
+// Family-less ref names a built-in standard recipe (layout standard recipes);
+// a Family-qualified ref resolves through the theme resolver. Failure is an
+// error, never a silent fallback (§7.2 fail-fast).
+func (rt *Runtime) resolveLayerRecipeRef(ref facet.LayerRecipeRef, parentBounds gfx.Rect) (layout.ResolvedLayerLayoutRecipe, error) {
+	if ref.Family == "" {
+		if recipe, ok := layout.ResolveStandardLayerRecipe(ref.Name); ok {
+			return recipe, nil
+		}
+		return layout.ResolvedLayerLayoutRecipe{}, fmt.Errorf("unknown layer recipe %q (no standard recipe by that name and no Family)", ref.Name)
+	}
+	ctx := rt.themeContext(parentBounds)
+	if recipe, ok := ctx.ResolveLayerLayoutRecipe(layout.LayerLayoutRecipeRef{Family: ref.Family, Name: ref.Name}); ok {
+		return recipe, nil
+	}
+	return layout.ResolvedLayerLayoutRecipe{}, fmt.Errorf("no layer recipe registered for %q/%q", ref.Family, ref.Name)
 }
 
 func (rt *Runtime) resolveLayerFrame(parentBounds gfx.Rect, desc layout.LayerDescriptor, recipe layout.ResolvedLayerLayoutRecipe, accumulated gfx.Transform) facet.ProjectionLayer {

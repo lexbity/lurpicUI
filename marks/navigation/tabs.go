@@ -102,8 +102,9 @@ func NewTabs(label string, items []TabItem, activeIndex *store.ValueStore[int]) 
 	t.AddBinding(t.Disabled)
 	t.SetItems(items)
 	t.Layout.Parent = facet.GroupParentContract{
-		Kind:   facet.GroupLayoutLinearHorizontal,
-		Policy: tabsGroupPolicy{},
+		Kind:     facet.GroupLayoutLinearHorizontal,
+		Policy:   tabsGroupPolicy{},
+		Overflow: facet.OverflowScroll,
 	}
 	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,

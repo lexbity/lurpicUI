@@ -85,6 +85,32 @@ func defaultFlexTracks(count int) []TrackDef {
 	return out
 }
 
+// FlexTracks builds count flex tracks that share the remaining space equally
+// after fixed/intrinsic tracks are sized (RX-1 Q6 / FR-6: flex is opt-in).
+func FlexTracks(count int) []TrackDef {
+	if count < 1 {
+		count = 1
+	}
+	out := make([]TrackDef, count)
+	for i := range out {
+		out[i] = TrackDef{Sizing: TrackFlex, Value: 1, Min: 0}
+	}
+	return out
+}
+
+// IntrinsicTracks builds count intrinsic tracks sized by their measured
+// children (RX-1 Q6 / FR-6: the default track kind for content-sized grids).
+func IntrinsicTracks(count int) []TrackDef {
+	if count < 1 {
+		count = 1
+	}
+	out := make([]TrackDef, count)
+	for i := range out {
+		out[i] = TrackDef{Sizing: TrackIntrinsic}
+	}
+	return out
+}
+
 func clampFloat(value, min, max float32) float32 {
 	if value < min {
 		value = min

@@ -46,6 +46,10 @@ type NavRail struct {
 	Disabled    marks.Binding[bool]
 	ActiveIndex *store.ValueStore[int]
 
+	// selection is the FR-8 two-way binding over ActiveIndex (attached in
+	// OnAttach); nil until then, so reads fall back to the store.
+	selection *SelectionBinding[int]
+
 	Activated signal.Signal[int]
 
 	textRole facet.TextRole
@@ -93,6 +97,7 @@ func NewNavRail(label string, items []NavRailItem, activeIndex *store.ValueStore
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   navRailGroupPolicy{rail: r},
 		Children: r,
+		Overflow: facet.OverflowScroll,
 	}
 	r.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
@@ -239,14 +244,13 @@ func (r *NavRail) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach is unused beyond layout role setup.
+// OnAttach wires the FR-8 selection binding over ActiveIndex (attach-time
+// sync, re-sync on every change, publish back, echo guard).
 func (r *NavRail) OnAttach(ctx facet.AttachContext) {
 	r.Core.OnAttach(ctx)
-	if r.ActiveIndex != nil {
-		facet.Store(facet.Subscribe(r), &r.ActiveIndex.OnChange, r.ActiveIndex.Version, func(signal.Change[int]) {
-			r.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navRail.ActiveIndex")
-		})
-	}
+	r.selection = BindSelection(r, r.ActiveIndex, func(int) {
+		r.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navRail.ActiveIndex")
+	})
 }
 
 // OnActivate is unused.
@@ -680,14 +684,19 @@ func (r *NavRail) activateIndex(index int) {
 	if index < 0 || index >= len(r.cachedItemFacets) || r.isDisabledIndex(index) {
 		return
 	}
-	r.ActiveIndex.Set(index)
+	r.selection.Publish(index)
 	r.syncChildState()
 	r.Activated.Emit(index)
 	r.invalidate(facet.DirtyProjection)
 }
 
 func (r *NavRail) clampedActiveIndex() int {
-	idx := r.ActiveIndex.Get()
+	var idx int
+	if r.selection != nil {
+		idx = r.selection.Current()
+	} else {
+		idx = r.ActiveIndex.Get()
+	}
 	if len(r.cachedItemFacets) == 0 {
 		return -1
 	}

@@ -166,7 +166,7 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 	m.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutRadial,
 		Policy:   radialMenuGroupPolicy{menu: m},
-		Overflow: facet.OverflowVisible,
+		Overflow: facet.OverflowScroll,
 		Clipping: facet.GroupClipVisible,
 		Children: m,
 	}

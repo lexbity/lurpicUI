@@ -2,6 +2,7 @@ package facet
 
 import (
 	"reflect"
+	"sync/atomic"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 )
@@ -63,15 +64,44 @@ const (
 	GroupLayoutRadial
 )
 
-// OverflowPolicy governs how content outside bounds is handled.
+// OverflowPolicy governs how content outside a facet's arranged bounds is
+// handled (RX-1 Q5). The zero value is OverflowScroll: group hosts (containers)
+// declare a scrollable viewport by default; leaf marks declare OverflowClip at
+// role construction (a true leaf cannot host a scrollbar).
 type OverflowPolicy uint8
 
 const (
-	OverflowVisible OverflowPolicy = iota
+	// OverflowScroll is the container default: content is placed in a
+	// viewport with a scrollbar affordance when it exceeds the arranged
+	// bounds. The mark implements the scroll mechanics; the policy is the
+	// declaration.
+	OverflowScroll OverflowPolicy = iota
+	// OverflowClip is the leaf default: content is hard-clipped at the
+	// arranged bounds.
 	OverflowClip
-	OverflowScroll
-	OverflowWrap
+	// OverflowGrow reports min-content upward: arranging a Grow mark below
+	// its measured size clamps to that size and increments a frame counter
+	// (a layout-contract violation indicator, not a supported mode).
+	OverflowGrow
 )
+
+// overflowClampedCount is a frame-scoped counter of OverflowGrow arrange
+// clamps (RX-1 Q5 / NFR-8 OverflowClampedCount). The runtime drains it once
+// per frame into diagnostics.FrameStats; the facet package cannot import
+// diagnostics (diagnostics imports facet), so the counter lives here and the
+// runtime reads it.
+var overflowClampedCount atomic.Int64
+
+// IncrementOverflowClamped records one OverflowGrow arrange clamp. Exported
+// for the runtime and diagnostics to observe the frame total.
+func IncrementOverflowClamped() {
+	overflowClampedCount.Add(1)
+}
+
+// DrainOverflowClamped returns and resets the frame's Grow arrange-clamp count.
+func DrainOverflowClamped() int64 {
+	return overflowClampedCount.Swap(0)
+}
 
 // GroupClipPolicy governs how nested group content clips.
 type GroupClipPolicy uint8
@@ -570,6 +600,7 @@ func (r *LayoutRole) Arrange(ctx ArrangeContext, bounds gfx.Rect) {
 	if isZeroGroupChildContract(ctx.ChildGroup) {
 		ctx.ChildGroup = r.Child
 	}
+	bounds = r.clampGrow(bounds)
 	if ctx.ChildGroup.SupportedPlacement != 0 && !ctx.ChildGroup.SupportedPlacement.Has(ctx.Placement.Mode) {
 		panic("facet contract violation: unsupported placement mode; guidance: update SupportedPlacement to include the requested placement mode")
 	}
@@ -595,6 +626,29 @@ func (r *LayoutRole) Arrange(ctx ArrangeContext, bounds gfx.Rect) {
 	r.lastArrangedConstraints = r.Constraints
 	r.lastPlacement = ctx.Placement
 	r.hasValidArrangeCache = true
+}
+
+// clampGrow applies the OverflowGrow arrange-time contract (RX-1 Q5 / NFR-8):
+// arranging a Grow mark below its measured min-content clamps to that size and
+// increments the frame's OverflowClampedCount — a layout-contract violation
+// indicator, not a supported mode of operation. Empty bounds are exempt so a
+// host that hides a Grow facet (arranging it to gfx.Rect{}) stays hidden.
+func (r *LayoutRole) clampGrow(bounds gfx.Rect) gfx.Rect {
+	if r == nil || r.Parent.Overflow != OverflowGrow || bounds.IsEmpty() || (r.MeasuredSize.W <= 0 && r.MeasuredSize.H <= 0) {
+		return bounds
+	}
+	if bounds.Width() >= r.MeasuredSize.W && bounds.Height() >= r.MeasuredSize.H {
+		return bounds
+	}
+	clamped := bounds
+	if clamped.Width() < r.MeasuredSize.W {
+		clamped.Max.X = clamped.Min.X + r.MeasuredSize.W
+	}
+	if clamped.Height() < r.MeasuredSize.H {
+		clamped.Max.Y = clamped.Min.Y + r.MeasuredSize.H
+	}
+	IncrementOverflowClamped()
+	return clamped
 }
 
 // InvalidateCache clears the cached layout results so the next pass recomputes.

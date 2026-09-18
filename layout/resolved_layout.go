@@ -81,28 +81,26 @@ func (k GroupLayoutKind) String() string {
 	}
 }
 
-// OverflowPolicy governs how content outside bounds is handled.
+// OverflowPolicy governs how content outside a resolved group's bounds is
+// handled (RX-1 Q5). Mirrors facet.OverflowPolicy; the zero value is Scroll.
 type OverflowPolicy uint8
 
 const (
-	OverflowVisible OverflowPolicy = iota
+	OverflowScroll OverflowPolicy = iota
 	OverflowClip
-	OverflowScroll
-	OverflowWrap
+	OverflowGrow
 )
 
 func (p OverflowPolicy) String() string {
 	switch p {
-	case OverflowClip:
-		return "clip"
 	case OverflowScroll:
 		return "scroll"
-	case OverflowWrap:
-		return "wrap"
-	case OverflowVisible:
-		fallthrough
+	case OverflowClip:
+		return "clip"
+	case OverflowGrow:
+		return "grow"
 	default:
-		return "visible"
+		return "scroll"
 	}
 }
 

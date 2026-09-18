@@ -115,7 +115,7 @@ func NewAlert(title, message string) *Alert {
 		Clipping: facet.GroupClipBounds,
 	}
 	a.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := a.measure(ctx, constraints).Size
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

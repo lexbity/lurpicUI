@@ -99,6 +99,7 @@ func NewList(label string, entries []ListEntry) *List {
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   listGroupPolicy{list: l},
 		Children: l,
+		Overflow: facet.OverflowScroll,
 	}
 	l.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,

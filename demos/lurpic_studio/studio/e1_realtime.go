@@ -283,6 +283,10 @@ func (e *Realtime) buildControls() {
 	e.controls = structure.NewCard("Chart controls")
 	e.controls.GridColumns = marks.Const(3)
 	e.controls.GridRows = marks.Const(3)
+	// The controls card flex-fills its arranged bottom-strip cell (FR-6 flex
+	// opt-in); the intrinsic default would size it to content instead.
+	e.controls.FlexRows = marks.Const(true)
+	e.controls.FlexColumns = marks.Const(true)
 	e.controls.ChildrenContent = []structure.CardChild{
 		{Key: "live", Facet: liveSwitch, Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}},
 		{Key: "chart", Facet: chartRadio, Grid: facet.GridPlacement{ColStart: 1, RowStart: 0, ColSpan: 2, RowSpan: 1}},

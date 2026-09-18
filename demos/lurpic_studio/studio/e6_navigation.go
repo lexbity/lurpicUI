@@ -78,7 +78,7 @@ func newPlayNavFamily() *playNavFamily {
 			Key:   "status",
 			Label: "Status",
 		},
-	})
+	}, nil)
 
 	f.pager = navigation.NewPagination("Pages", []navigation.PaginationItem{
 		{Key: "1", Label: "1"},

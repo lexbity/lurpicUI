@@ -185,13 +185,11 @@ func TestTreeNavigatorDeepTreeHelpersIterative(t *testing.T) {
 		t.Fatalf("expected cloned child label to remain stable, got %q", cloned[0].Children[0].Label)
 	}
 
-	clearSelection(nodes)
+	clearSelectionForTest(nodes)
 	deepLeafPath := deepTreePath(depth - 1)
-	if !setSelectionByPath(nodes, deepLeafPath, true) {
-		t.Fatalf("expected selection path %q to resolve", deepLeafPath)
-	}
-	if !selectedAtPath(nodes, deepLeafPath) {
-		t.Fatalf("expected selection path %q to be selected", deepLeafPath)
+	markSelectedByPath(nodes, deepLeafPath)
+	if got := selectedPathOf(nodes); got != deepLeafPath {
+		t.Fatalf("selectedPathOf = %q, want %q", got, deepLeafPath)
 	}
 	parentPath := deepTreePath(depth - 2)
 	if !setExpandedByPath(nodes, parentPath, false) {
@@ -345,7 +343,7 @@ func newTreeNavigatorTestFixture(t *testing.T, tokens theme.Tokens, density them
 		{Key: "test-item-8", Label: "test-item-8"},
 		{Key: "test-item-9", Label: "test-item-9"},
 		{Key: "test-item-10", Label: "test-item-10"},
-	})
+	}, nil)
 	rt := treeNavigatorRuntimeStub{
 		tabsRuntimeStub: tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts},
 		icons: map[string]runtimepkg.IconAsset{
@@ -392,7 +390,18 @@ func nodeKey(i int) string {
 	return fmt.Sprintf("node-%04d", i)
 }
 
-func selectedAtPath(nodes []TreeNode, path string) bool {
+// clearSelectionForTest clears the Selected flags across a forest (the test
+// fixture for selectedPathOf; the mark no longer mutates TreeNode.Selected).
+func clearSelectionForTest(nodes []TreeNode) {
+	for i := range nodes {
+		nodes[i].Selected = false
+		clearSelectionForTest(nodes[i].Children)
+	}
+}
+
+// markSelectedByPath sets Selected=true on the node at the given path (the
+// build-time declaration the tree seeds its FR-8 selection store from).
+func markSelectedByPath(nodes []TreeNode, path string) bool {
 	segments := splitPath(path)
 	current := nodes
 	for len(segments) > 0 {
@@ -402,7 +411,8 @@ func selectedAtPath(nodes []TreeNode, path string) bool {
 				continue
 			}
 			if len(segments) == 1 {
-				return current[i].Selected
+				current[i].Selected = true
+				return true
 			}
 			current = current[i].Children
 			segments = segments[1:]

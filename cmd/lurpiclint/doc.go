@@ -40,6 +40,16 @@
 // "sans-serif" font, or bare numeric literals in viz marks (viz must read
 // colors and chrome from the theme per FR-9).
 //
+// Capability-contract enforcement (LL029–LL033) flags marks that declare a
+// uxauthoring capability without the matching contracttest proof: data-bound
+// (LL029), anchor-exporting (LL030), group-children (LL031), accessible
+// (LL032), and focusable (LL033). Layer-exclusivity (LL034) flags a
+// layer-attached facet that also appears in the host's group-children set
+// (RX-1 Q4: the layer system exclusively measures and arranges it), and
+// projection-purity (LL035) flags store writes inside OnProject (projection is
+// read-only). Grid-count suspicion (LL036) flags GridRows/GridColumns counts
+// above 16 — counts declare track count only, never size (RX-1 Q6 / FR-6).
+//
 // The lint gate is green-by-default at HEAD (modulo baselined debt in
 // lurpiclint-baseline.json).  A red gate means new debt introduced by the
 // change under review, never inherited noise.

@@ -160,6 +160,32 @@ func (c *Core) InvalidateContent(flags facet.DirtyFlags, source string) {
 	c.Invalidate(flags)
 }
 
+// InvalidateWithSource marks the mark dirty and records the invalidation source.
+// When the mark is attached to a runtime and the flags declare DirtyLayout, the
+// change also routes the runtime layout pass (RX-1 F-dirtylayout-routing): a
+// store-bound geometry change re-measures and re-arranges the mark through the
+// policies that arrange it. Projection-only changes stay local (the projection
+// re-runs from the local dirty read) — routing them would perturb the shell's
+// layout on a feed tick (FR-rt). Unattached marks fall back to local flags.
+func (c *Core) InvalidateWithSource(flags facet.DirtyFlags, source string) {
+	if c == nil {
+		return
+	}
+	c.Facet.InvalidateWithSource(flags, source)
+	if c.rt != nil && flags&facet.DirtyLayout != 0 {
+		c.rt.Invalidate(c.ID(), flags|facet.DirtyProjection, source)
+	}
+}
+
+// Invalidate marks the mark dirty (see InvalidateWithSource for the routing
+// semantics: a DirtyLayout invalidation through a live runtime also routes the
+// layout pass). Overriding the embedded facet's Invalidate makes interaction-
+// and store-triggered geometry changes (a dropdown opening, a tree expanding)
+// re-arrange a standalone mark instead of relying on the host to route.
+func (c *Core) Invalidate(flags facet.DirtyFlags) {
+	c.InvalidateWithSource(flags, "")
+}
+
 // OnDetach unsubscribes all bindings. Marks call this from their OnDetach.
 func (c *Core) OnDetach() {
 	for _, cl := range c.cleanups {

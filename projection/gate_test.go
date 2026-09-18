@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // TestProjectionGate_emptyBoundsPrunesSubtree proves RX-1 FR-1: a non-layer
@@ -168,5 +169,80 @@ func TestProjectionGate_quarantinedFacetGatesCleanly(t *testing.T) {
 	}
 	if len(out.RenderBatchs) != 1 {
 		t.Fatalf("RenderBatchs = %d, want 1 (healthy root only)", len(out.RenderBatchs))
+	}
+}
+
+// TestProjectionGate_unmountedLayerGatedByMountState pins RX-1 Q4 visibility
+// by mount state: a layer-attached facet whose Mount store reads false is
+// gated even when it carries a stale non-empty arranged bounds (the
+// "previously mounted, now closed" state). The runtime's layer pass skips
+// unmounted layers (no measure/arrange/projection-layer entry), so only this
+// mount gate stands between a stale bounds and resurrected pixels — the
+// arrange-to-zero mechanism Q4 banned is gone. The mount gate is counted as a
+// prune, not an FR-1 empty-bounds skip (NFR-8 LayersUnmountedSkips owns that
+// counter at the runtime layer pass).
+func TestProjectionGate_unmountedLayerGatedByMountState(t *testing.T) {
+	host := newProjectionTestFacet("host", gfx.RectFromXYWH(0, 0, 100, 100))
+	layer := newProjectionTestFacet("layer", gfx.RectFromXYWH(10, 10, 50, 50))
+	mount := store.NewValueStore(false)
+	// AttachLayer records the layer contract (band + mount gate) and adds the
+	// child; no projection-layer entry is registered, mirroring the runtime
+	// skipping the unmounted layer's resolve.
+	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
+	attachTree(host)
+
+	sys := NewSystem()
+	sys.Run(host, FrameInfo{Number: 1, WallTime: time.Unix(0, 0)})
+
+	if layer.projectCalls != 0 {
+		t.Fatalf("unmounted layer projected %d times, want 0", layer.projectCalls)
+	}
+	if sys.PruneCount != 1 {
+		t.Fatalf("PruneCount = %d, want 1 (the mount-gated layer)", sys.PruneCount)
+	}
+	if sys.EmptyBoundsSkips != 0 {
+		t.Fatalf("EmptyBoundsSkips = %d, want 0 (mount gate is not an FR-1 skip)", sys.EmptyBoundsSkips)
+	}
+	if cmds := sys.LastOutputCommands(layer.ID()); len(cmds) != 0 {
+		t.Fatalf("unmounted layer emitted %d commands", len(cmds))
+	}
+}
+
+// TestProjectionGate_mountedLayerProjects pins the positive half of the mount
+// gate: the same layer-attached facet with Mount true and a resolved
+// projection layer projects normally through layerCtx.
+func TestProjectionGate_mountedLayerProjects(t *testing.T) {
+	// A zero-arranged host (as a Stage gates an inactive exhibit): its mounted
+	// layer resolves its own bounds via layerCtx and still projects.
+	host := newProjectionTestFacet("host", gfx.Rect{})
+	layer := newProjectionTestFacet("layer", gfx.RectFromXYWH(0, 0, 100, 100))
+	mount := store.NewValueStore(true)
+	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
+	attachTree(host)
+
+	rt := projectionStateRuntimeStub{
+		projectionLayerRuntimeStub: projectionLayerRuntimeStub{
+			layers: map[facet.FacetID]facet.ProjectionLayer{
+				layer.ID(): {
+					LayerID:       facet.LayerID(7),
+					Bounds:        gfx.RectFromXYWH(10, 10, 80, 40),
+					Transform:     gfx.Identity(),
+					RecipeVersion: 1,
+					ClipPolicy:    facet.ClipNone,
+					HitPolicy:     uint8(facet.HitPassThrough),
+				},
+			},
+		},
+	}
+
+	sys := NewSystem()
+	sys.SetRuntime(rt)
+	out := sys.Run(host, FrameInfo{Number: 1, WallTime: time.Unix(0, 0)})
+
+	if layer.projectCalls != 1 {
+		t.Fatalf("mounted layer projected %d times, want 1", layer.projectCalls)
+	}
+	if len(out.RenderBatchs) != 1 {
+		t.Fatalf("RenderBatchs = %d, want 1 (the mounted layer)", len(out.RenderBatchs))
 	}
 }

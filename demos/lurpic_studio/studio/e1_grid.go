@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/feedback"
 	"codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -55,6 +56,12 @@ type EditableGrid struct {
 
 	scroll int // first visible row index
 
+	// lastEditorRect / lastAlertRect track the last layer-placement pushed for
+	// the editor/alert overlays so arrange only re-pushes on an actual change
+	// (RX-1 Q4; avoids a permanent layout-dirty echo while editing).
+	lastEditorRect gfx.Rect //lurpiclint:ignore LL012 -- ephemeral edit-session layer placement in a bespoke interactive host (F-lint-hosts)
+	lastAlertRect  gfx.Rect //lurpiclint:ignore LL012 -- ephemeral alert layer placement in a bespoke interactive host (F-lint-hosts)
+
 	rowHeight float32
 	bg        gfx.Color
 	hoverBg   gfx.Color
@@ -94,8 +101,13 @@ func NewEditableGrid(rows *store.CollectionStore[dataset.Row], fonts *text.FontR
 	g.alert.Message = marks.FromStore(g.invalid, facet.DirtyLayout|facet.DirtyProjection)
 	g.editorMount = store.NewValueStore(false)
 	g.alertMount = store.NewValueStore(false)
-	facet.AttachLayer(g, g.editor, facet.LayerAttachment{Band: facet.ZBandContent, Mount: g.editorMount})
-	facet.AttachLayer(g, g.alert, facet.LayerAttachment{Band: facet.ZBandPopover, Mount: g.alertMount})
+	// The editor and alert are layer-attached (Mount-gated) and positioned by
+	// the layer system's free recipe from a host-pushed attachment placement
+	// (RX-1 Q4 exclusivity): the host never arranges a layer child. The
+	// placement is pushed in syncOverlayPlacements whenever the cell/alert
+	// rect changes.
+	facet.AttachLayer(g, g.editor, facet.LayerAttachment{Band: facet.ZBandContent, Mount: g.editorMount, Recipe: facet.LayerRecipeRef{Name: "free"}})
+	facet.AttachLayer(g, g.alert, facet.LayerAttachment{Band: facet.ZBandPopover, Mount: g.alertMount, Recipe: facet.LayerRecipeRef{Name: "free"}})
 
 	g.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke spreadsheet grid host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -169,22 +181,12 @@ func (g *EditableGrid) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		child.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, y, bounds.Width(), g.rowHeight))
 	}
 
-	if g.editing {
-		if cell := g.valueCellRect(bounds, g.editID); !cell.IsEmpty() {
-			g.editor.Base().LayoutRole().Arrange(ctx, cell)
-		} else {
-			g.editor.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-		}
-	} else {
-		g.editor.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-	}
-
-	if g.invalid.Get() != "" {
-		h := float32(30)
-		g.alert.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Max.Y-h, bounds.Width(), h))
-	} else {
-		g.alert.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
-	}
+	// The editor and alert are layer children: the layer system exclusively
+	// measures and arranges them via their free recipe from the attachment
+	// placement pushed below (RX-1 Q4). The host must not arrange them — this
+	// pushes the placement (change-detected) so the layer pass positions them
+	// at the active cell / alert bar in the same frame.
+	g.syncOverlayPlacements(bounds)
 }
 
 // valueCellRect returns the arranged rect of the Value cell for the given row
@@ -199,6 +201,58 @@ func (g *EditableGrid) valueCellRect(bounds gfx.Rect, id store.ItemID) gfx.Rect 
 	start := bounds.Width() * gridColumns[1].start
 	width := bounds.Width() * (gridColumns[1].end - gridColumns[1].start)
 	return gfx.RectFromXYWH(bounds.Min.X+start, y, width, g.rowHeight)
+}
+
+// syncOverlayPlacements pushes the editor/alert layer attachment placements so
+// the layer system positions them via their free recipe (RX-1 Q4 exclusivity:
+// the host never arranges a layer child). It runs from arrange (catching
+// resize/scroll/bounds changes) and is change-detected so a stable frame does
+// not re-mark the grid dirty. The Mount stores gate visibility independently.
+func (g *EditableGrid) syncOverlayPlacements(bounds gfx.Rect) {
+	if g.rt == nil {
+		return
+	}
+	rt, ok := g.rt.(*runtime.Runtime)
+	if !ok {
+		return
+	}
+	var editorRect, alertRect gfx.Rect
+	if g.editing {
+		editorRect = g.valueCellRect(bounds, g.editID)
+	}
+	if g.invalid.Get() != "" {
+		h := float32(30)
+		alertRect = gfx.RectFromXYWH(bounds.Min.X, bounds.Max.Y-h, bounds.Width(), h)
+	}
+	if editorRect != g.lastEditorRect {
+		g.lastEditorRect = editorRect
+		rt.UpdateChildAttachment(g.editor, facet.Attachment{
+			Band:      facet.ZBandContent,
+			Placement: freeCellPlacement(editorRect, bounds),
+		})
+	}
+	if alertRect != g.lastAlertRect {
+		g.lastAlertRect = alertRect
+		rt.UpdateChildAttachment(g.alert, facet.Attachment{
+			Band:      facet.ZBandPopover,
+			Placement: freeCellPlacement(alertRect, bounds),
+		})
+	}
+}
+
+// freeCellPlacement converts a grid-relative cell rect into a free-placement
+// offset against the grid bounds (the free layer positions the child at
+// parentBounds.Min + offset with the given size).
+func freeCellPlacement(rect, bounds gfx.Rect) facet.Placement {
+	return facet.Placement{
+		Mode: facet.PlacementFree,
+		Free: facet.FreePlacement{
+			X:      facet.ResolvedScalar(rect.Min.X - bounds.Min.X),
+			Y:      facet.ResolvedScalar(rect.Min.Y - bounds.Min.Y),
+			Width:  facet.OptionalScalar(rect.Width()),
+			Height: facet.OptionalScalar(rect.Height()),
+		},
+	}
 }
 
 func (g *EditableGrid) rowIndex(id store.ItemID) int {

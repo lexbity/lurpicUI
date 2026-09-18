@@ -84,8 +84,9 @@ func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.Button
 	b.AddBinding(b.Disabled)
 
 	b.Layout.Parent = facet.GroupParentContract{
-		Kind:   facet.GroupLayoutLinearHorizontal,
-		Policy: buttonGroupPolicy{},
+		Kind:     facet.GroupLayoutLinearHorizontal,
+		Policy:   buttonGroupPolicy{},
+		Overflow: facet.OverflowClip,
 	}
 	b.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,

@@ -35,6 +35,39 @@ func driveKey(h *testkit.Harness, key platform.Key) {
 	h.RunFrame()
 }
 
+// TestGrid_editorPositionedByLayerSystemAtCell pins RX-1 Q4 hosting
+// exclusivity: the cell editor is a layer-attached child positioned by the
+// layer system's free recipe at the active cell rect — the host never manually
+// arranges it. The editor's arranged bounds must land exactly on the Value
+// cell the user clicked.
+func TestGrid_editorPositionedByLayerSystemAtCell(t *testing.T) {
+	e, h := newE1Harness(t)
+	expandLiveWindow(t, e)
+	settleChart(h)
+
+	activateCell(t, h, e, 0)
+	g := e.Grid()
+	if !g.Editing() {
+		t.Fatal("editor did not open")
+	}
+	id := g.EditRow()
+	cell := g.valueCellRect(g.Base().LayoutRole().ArrangedBounds, id)
+	if cell.IsEmpty() {
+		t.Fatal("active cell rect empty")
+	}
+
+	editorBounds := g.editor.Base().LayoutRole().ArrangedBounds
+	if editorBounds != cell {
+		t.Fatalf("editor arranged bounds = %v, want the Value cell %v (the layer system must position it)", editorBounds, cell)
+	}
+
+	// The alert stays unmounted (no invalid message): it must not resolve a
+	// projection layer or occupy bounds.
+	if _, ok := h.Runtime().ResolveProjectionLayer(g.alert.Base().ID()); ok {
+		t.Fatal("alert resolved a projection layer while no invalid message is shown")
+	}
+}
+
 // activateCell clicks the given row's Value cell to open the editor.
 func activateCell(t *testing.T, h *testkit.Harness, e *Realtime, rowIdx int) {
 	t.Helper()

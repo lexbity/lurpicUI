@@ -58,9 +58,16 @@ func TestInspector_derived_binding_reprojects_within_two_frames(t *testing.T) {
 		t.Fatalf("caption value = %q, want %q", got, exhibitTitle(ExhibitLayers))
 	}
 
-	// A second frame must go quiet: one invalidation chain, then silence
-	// (NFR-5 frame discipline, asserted for the switch path).
-	h.RunFrame()
+	// The frame chain must settle to silence (NFR-5 frame discipline). The
+	// exhibit switch also re-lays the chart y-axis (its scale recomputes —
+	// RX-1 F-dirtylayout-routing routes the axis's DirtyLayout), which takes
+	// one extra frame, so settle until quiet.
+	for i := 0; i < 4; i++ {
+		h.RunFrame()
+		if snap := h.Runtime().LastDirtySnapshot(); len(snap) == 0 {
+			return
+		}
+	}
 	if snap := h.Runtime().LastDirtySnapshot(); len(snap) != 0 {
 		t.Fatalf("expected a quiet frame after the switch settled, got dirty facets=%v", snap)
 	}

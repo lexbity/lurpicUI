@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -50,20 +51,41 @@ func projectedPointCount(t *testing.T, h *testkit.Harness, e *Realtime) int {
 // property end-to-end: a feed tick appends a row inside the live window, the
 // windowed chart re-projects it, and the frame ran no layout pass (the tick
 // dirties projection only — the canvas and shell are not re-laid-out).
+// The feed-legend List legitimately re-lays when its bucket items change
+// (RX-1 F-dirtylayout-routing), so the assertion scopes FR-rt to the chart
+// canvas: the canvas re-projects with DirtyProjection and never DirtyLayout.
 func TestRealtime_tickRechartsWithoutRelayout(t *testing.T) {
 	e, h := newE1Harness(t)
 	before := e.appState.Rows.Len()
 	pointsBefore := projectedPointCount(t, h, e)
 
+	sink := NewDirtySink(10)
+	h.Runtime().EnableDiagnostics(sink)
 	e.Feed().OnTick(100 * time.Millisecond)
 	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
 
 	if got := projectedPointCount(t, h, e); got != pointsBefore+1 {
 		t.Fatalf("line points = %d, want %d (chart re-projected the new row)", got, pointsBefore+1)
 	}
-	// The tick frame ran no layout pass (DirtyProjection only, no DirtyLayout).
-	if d := h.LastFrameStats().LayoutDuration; d > 5*time.Millisecond {
-		t.Fatalf("a feed tick triggered a layout pass (%v); FR-rt violated", d)
+	// FR-rt: in every tick wave the chart canvas re-projected (DirtyProjection)
+	// and was never re-laid-out.
+	canvasID := e.Canvas().Base().ID()
+	sawCanvas := false
+	for _, snap := range sink.Snapshots() {
+		flags, present := snap.Dirty[canvasID]
+		if !present {
+			continue
+		}
+		sawCanvas = true
+		if flags&facet.DirtyLayout != 0 {
+			t.Fatalf("tick re-laid-out the chart canvas (flags=%v); FR-rt violated", flags)
+		}
+		if flags&facet.DirtyProjection == 0 {
+			t.Fatalf("tick did not re-project the chart canvas (flags=%v)", flags)
+		}
+	}
+	if !sawCanvas {
+		t.Fatal("no tick wave included the chart canvas")
 	}
 }
 

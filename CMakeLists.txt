@@ -302,6 +302,10 @@ set(_lurpic_debug_test_packages
   ./runtime/...
 )
 
+set(_lurpic_demo_test_packages
+  ./demos/...
+)
+
 set(_lurpic_benchmark_packages
   ./layout/...
   ./graph/index/...
@@ -367,11 +371,22 @@ endif()
 
 lurpic_add_optional_go_test_target(
   NAME test-race
-  DESCRIPTION "Go test race detector suite"
+  DESCRIPTION "Go test race detector suite (RX-1 NFR-4: -count=10 repeated runs, demos included)"
   AVAILABLE ${LURPIC_HAVE_RACE}
   UNAVAILABLE_MESSAGE "Environment capability failure: test-race is unavailable because the Go race detector is not supported by this toolchain: ${LURPIC_RACE_HINT}"
-  PACKAGES ${_lurpic_nonplatform_test_packages}
-  ARGS -race -count=1
+  PACKAGES ${_lurpic_nonplatform_test_packages} ${_lurpic_demo_test_packages} ./scale/...
+  ARGS -race -count=10
+)
+
+# RX-1 NFR-2/NFR-3 budget gates. Timing gates must run in isolation (the
+# parallel `go test ./...` suite moves µs/ms medians), so this serial target
+# enforces them with LURPIC_BUDGET_GATES=1.
+add_custom_target(test-budget
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_BUDGET_GATES=1 ${LURPIC_GO_EXECUTABLE} test -count=1 -run TestLayoutPassBudget ./runtime/
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_BUDGET_GATES=1 ${LURPIC_GO_EXECUTABLE} test -count=1 -run TestProjectionBudgetWithinBaseline ./projection/
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Run the RX-1 NFR-2/NFR-3 timing budget gates in isolation"
+  VERBATIM
 )
 
 lurpic_add_go_test_target(
@@ -440,11 +455,11 @@ include(LurpicPackaging)
 lurpic_setup_packaging()
 
 add_custom_target(lurpic-host-tests
-  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} vet ./...
-  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} build ./...
-  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 ${LURPIC_GO_EXECUTABLE} test ./...
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_SUITE_BUDGET=120 ${LURPIC_GO_EXECUTABLE} vet ./...
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_SUITE_BUDGET=120 ${LURPIC_GO_EXECUTABLE} build ./...
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_SUITE_BUDGET=120 ${LURPIC_GO_EXECUTABLE} test ./...
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-  COMMENT "Run host tests with CGO_ENABLED=0 (vet, build, test)"
+  COMMENT "Run host tests with CGO_ENABLED=0 (vet, build, test; NFR-6 suite budget 120s)"
   VERBATIM
 )
 

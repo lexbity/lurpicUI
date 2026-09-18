@@ -22,6 +22,32 @@ func TestNewLinearReactive_basic(t *testing.T) {
 	}
 }
 
+// TestBridgeDerived_eagerUpdateWithoutExternalGet pins RX-1 FR-2: the Derived→
+// ValueStore bridge subscribes OnInvalidated and recomputes on the clean→dirty
+// transition itself, so a scale built from derived sources stays live with zero
+// external Get() flushing (the chart's old arrange() force-flush pattern).
+func TestBridgeDerived_eagerUpdateWithoutExternalGet(t *testing.T) {
+	dsrc := store.NewValueStore([2]float64{0, 10})
+	dd := store.NewDerived(func() [2]float64 { return dsrc.Get() }, dsrc)
+	rsrc := store.NewValueStore([2]float64{0, 100})
+	rd := store.NewDerived(func() [2]float64 { return rsrc.Get() }, rsrc)
+	rs := NewLinearReactiveFromDerived(dd, rd)
+
+	before := rs.Get()
+	if got := before.Map(5); got != 50 {
+		t.Fatalf("initial Map(5) = %f, want 50", got)
+	}
+
+	// Change the source. The bridge must update dd's mirrored ValueStore via
+	// OnInvalidated (no external dd.Get() here); the scale's derived then sees
+	// the source version change and recomputes on its own Get.
+	dsrc.Set([2]float64{0, 20})
+	after := rs.Get()
+	if got := after.Map(5); got != 25 {
+		t.Fatalf("post-change Map(5) = %f, want 25 (domain now 0..20 over range 0..100)", got)
+	}
+}
+
 func TestNewLogReactive_basic(t *testing.T) {
 	domain := store.NewValueStore([2]float64{1, 1000})
 	rng := store.NewValueStore([2]float64{0, 500})

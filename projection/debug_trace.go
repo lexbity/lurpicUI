@@ -10,10 +10,10 @@ import (
 )
 
 // LURPIC_TRACE=gates enables per-frame gate-decision tracing (RX-1 NFR-8):
-// every facet gated by the empty-bounds gate logs facet id + reason, capped at
-// 64 lines per frame. This is a debug facility, separate from the runtime's
-// LURPIC_DEBUG_RUNTIME_LOOP trace (the projection package must not import
-// runtime, so the gate trace is self-contained here).
+// every facet gated by the empty-bounds gate or the layer mount-state gate logs
+// facet id + reason, capped at 64 lines per frame. This is a debug facility,
+// separate from the runtime's LURPIC_DEBUG_RUNTIME_LOOP trace (the projection
+// package must not import runtime, so the gate trace is self-contained here).
 var gatesTraceOnce sync.Once
 var gatesTraceEnabled bool
 

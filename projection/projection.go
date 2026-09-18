@@ -8,14 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/hashutil"
 	"codeburg.org/lexbit/lurpicui/layout"
-	"codeburg.org/lexbit/lurpicui/signal"
-	"codeburg.org/lexbit/lurpicui/store"
-	"codeburg.org/lexbit/lurpicui/text"
 )
-
-var _ = text.GlyphRun{}
-var _ = signal.Fired
-var _ store.Version
 
 type ProjectionCacheKey uint64
 
@@ -571,16 +564,37 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 		// no dirty region. Facets without a LayoutRole have no arranged bounds
 		// to be gated by (the stage/host gating model arranges hosts to empty);
 		// they keep their current projection behavior. Layer facets are exempt
-		// — they resolve their own bounds via layerCtx and are gated by mount
-		// state instead (FR-1, P4).
-		gated := !hasLayer && base.LayoutRole() != nil && bounds.IsEmpty()
+		// from the empty-bounds gate — they resolve their own bounds via
+		// layerCtx — and are instead gated by mount state (RX-1 Q4): a layer
+		// mounted via AttachLayer whose Mount store reads false is skipped
+		// entirely, no projection and no hit. The runtime's layer pass also
+		// skips unmounted layers (no measure/arrange/projection-layer entry, so
+		// hasLayer is false here), so the mount gate is what keeps a stale
+		// arranged bounds from a previous mount from resurrecting pixels.
+		// mountGated is true only for layer-attached facets whose Mount store
+		// reads false. The non-layer hot path is a single cheap IsLayer() read;
+		// the LayerAttachment copy is taken only for real layer facets.
+		mountGated := false
+		if base.IsLayer() {
+			if att := base.LayerAttachment(); att.Mount != nil && !att.Mount.Get() {
+				mountGated = true
+			}
+		}
+		gated := mountGated || (!hasLayer && base.LayoutRole() != nil && bounds.IsEmpty())
 		s.statsMu.Lock()
 		s.GateCount++
 		s.statsMu.Unlock()
 		var output *ProjectionOutput
 		if gated {
-			s.addEmptyBoundsSkip()
-			s.traceGate(facetID, "empty-bounds")
+			if mountGated {
+				// Mount-gated layers are counted by the runtime layer pass
+				// (FrameStats.LayersUnmountedSkips, NFR-8); they are not FR-1
+				// empty-bounds skips, so they do not inflate EmptyBoundsSkips.
+				s.traceGate(facetID, "mount")
+			} else {
+				s.addEmptyBoundsSkip()
+				s.traceGate(facetID, "empty-bounds")
+			}
 			s.statsMu.Lock()
 			s.PruneCount++
 			s.statsMu.Unlock()

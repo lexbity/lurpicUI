@@ -55,7 +55,10 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 		pak, err := assets.NewPakFS(pakPath)
 		if err == nil {
 			reg := assets.NewAssetRegistryStore()
-			idReg := loadIDRegistry("assets/uuid_registry.json")
+			// A pak is a build artifact: its UUID registry must ship alongside
+			// it, so a missing registry is a real misconfiguration worth the
+			// loud warning.
+			idReg := loadIDRegistry("assets/uuid_registry.json", true)
 			rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
 			rtConfig.AssetRegistry = reg
 			return
@@ -72,7 +75,10 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 		reg := assets.NewAssetRegistryStore()
 		dev, err := assets.NewDevFS(root, reg, nil)
 		if err == nil {
-			idReg := loadIDRegistry(filepath.Join(assetsDir, "uuid_registry.json"))
+			// A source-tree run has no build-generated registry; a missing one
+			// is normal (path-based lookups just resolve empty in dev), so do
+			// not warn on every launch (R6).
+			idReg := loadIDRegistry(filepath.Join(assetsDir, "uuid_registry.json"), false)
 			rtConfig.AssetManager = assets.NewManager(reg, dev, backendType, nil, idReg)
 			rtConfig.AssetRegistry = reg
 		}
@@ -80,16 +86,19 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 }
 
 // loadIDRegistry loads a UUID registry JSON file. It returns nil when the file
-// is missing or unparseable — but it does so loudly, because a nil registry
-// means every path-based asset load silently resolves to an empty handle. This
-// is the difference between "no assets configured" and "assets present but
-// unresolvable", which is otherwise invisible.
-func loadIDRegistry(path string) assets.PathIDRegistry {
+// is missing or unparseable. warn controls the stderr notice: for a build
+// artifact (pak) a nil registry means every path-based asset load silently
+// resolves to an empty handle, which deserves a loud warning; a source-tree
+// dev run routinely has no registry, so warning there would fire on every
+// launch for no signal.
+func loadIDRegistry(path string, warn bool) assets.PathIDRegistry {
 	reg, err := assets.LoadJSONPathRegistry(path)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "lurpic: no usable asset id registry at %q (%v); "+
-			"path-based asset lookups will return empty handles "+
-			"(run 'lurpic build' to generate %s)\n", path, err, "uuid_registry.json")
+		if warn {
+			fmt.Fprintf(os.Stderr, "lurpic: no usable asset id registry at %q (%v); "+
+				"path-based asset lookups will return empty handles "+
+				"(run 'lurpic build' to generate %s)\n", path, err, "uuid_registry.json")
+		}
 		return nil
 	}
 	return reg

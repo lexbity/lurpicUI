@@ -378,6 +378,17 @@ func TestHarness_frame_stats_populated(t *testing.T) {
 	}
 }
 
+// TestAssertQuietFrame_steadyStateIsQuiet pins RX-1 NFR-5 frame discipline via
+// the testkit's AssertQuietFrame helper: after an initial render frame with no
+// further events, the next frame must settle with an empty dirty set — a frame
+// loop that never goes quiet is an invalidation that fails to settle.
+func TestAssertQuietFrame_steadyStateIsQuiet(t *testing.T) {
+	h := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
+	h.RunFrame() // initial render
+	h.RunFrame() // steady state: no events, no stores written
+	AssertQuietFrame(t, h)
+}
+
 func TestHarness_multiple_independent_instances(t *testing.T) {
 	a := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())
 	b := NewHarness(t, testHarnessConfig(t), newTestRenderFacet())

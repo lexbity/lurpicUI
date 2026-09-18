@@ -151,8 +151,7 @@ func TestShellIndexPane_switchesExhibit(t *testing.T) {
 	h.RunFrame()
 	// The tree's selection must reflect into ActiveExhibit: whichever leaf the
 	// click selected, ActiveExhibit agrees.
-	nodes := index.Tree().Data.Get()
-	if sel := selectedTreeNode(nodes); sel != "" && ExhibitID(sel) != root.Shell().ActiveExhibit.Get() {
+	if sel := index.Tree().Selection.Get(); sel != "" && exhibitFromPath(sel) != root.Shell().ActiveExhibit.Get() {
 		t.Fatalf("tree selected %v but ActiveExhibit is %v", sel, root.Shell().ActiveExhibit.Get())
 	}
 }

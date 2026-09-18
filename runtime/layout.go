@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/signal"
 )
 
 func (rt *Runtime) copyDirtyFacets() map[facet.FacetID]facet.DirtyFlags {
@@ -33,6 +34,52 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 		Assets:  facet.AssetServices{Manager: rt.assetManager},
 		Stores:  facet.StoreServices{AssetRegistry: rt.config.AssetRegistry},
 	})
+	rt.subscribeLayerMounts(root)
+}
+
+// subscribeLayerMounts wires every layer-attached facet's Mount store into the
+// runtime's dirty tracking (RX-1 Q4 / FR-3). A Mount flip is a layer-content
+// change owned by the framework: it marks the child DirtyLayout|DirtyProjection
+// synchronously (so the frame's dirty wave reports the mounted child — E5's
+// layer-toggle wave) and requests a frame. The subscription rides the facet's
+// own subscription bag, so it is released on dispose. This removes the need
+// for apps to hand-route Mount flips or keep a parallel visibility flag.
+func (rt *Runtime) subscribeLayerMounts(root facet.FacetImpl) {
+	if root == nil {
+		return
+	}
+	stack := []facet.FacetImpl{root}
+	for len(stack) > 0 {
+		node := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if node == nil || node.Base() == nil {
+			continue
+		}
+		base := node.Base()
+		if base.IsLayer() {
+			if att := base.LayerAttachment(); att.Mount != nil {
+				if impl := base.Impl(); impl != nil {
+					childID := base.ID()
+					facet.Store(facet.Subscribe(impl), &att.Mount.OnChange, att.Mount.Version, func(signal.Change[bool]) {
+						rt.markFacetDirtyByID(childID, facet.DirtyLayout|facet.DirtyProjection, "layer.mount")
+						if rt.frameTimer != nil {
+							rt.frameTimer.RequestFrame()
+						}
+					})
+				}
+			}
+		}
+		for _, childBase := range base.Children() {
+			if childBase == nil {
+				continue
+			}
+			if impl := childBase.Impl(); impl != nil {
+				stack = append(stack, impl)
+			} else {
+				stack = append(stack, childBase)
+			}
+		}
+	}
 }
 
 func (rt *Runtime) activateTree(root facet.FacetImpl) {

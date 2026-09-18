@@ -1476,8 +1476,8 @@ func (g *dialogBodyGroup) gridConfig() layoutgrid.Config {
 		rows = 1
 	}
 	return layoutgrid.Config{
-		Columns:       flexibleTracks(columns),
-		Rows:          flexibleTracks(rows),
+		Columns:       layoutgrid.FlexTracks(columns),
+		Rows:          layoutgrid.FlexTracks(rows),
 		ColumnGap:     g.parent.cachedGap,
 		RowGap:        g.parent.cachedRowGap,
 		AutoPlacement: layoutgrid.AutoRowFirst,
@@ -1640,17 +1640,6 @@ func dialogBodyGroupChild(base *facet.Facet, markID facet.MarkID, order int, pla
 		Layout:   base.LayoutRole(),
 		Contract: base.LayoutRole().Child,
 	}
-}
-
-func flexibleTracks(count int) []layoutgrid.TrackDef {
-	if count < 1 {
-		count = 1
-	}
-	out := make([]layoutgrid.TrackDef, count)
-	for i := range out {
-		out[i] = layoutgrid.TrackDef{Sizing: layoutgrid.TrackFlex, Value: 1, Min: 0}
-	}
-	return out
 }
 
 func resolvedDialogContentWidth(d *Dialog) float32 {

@@ -86,11 +86,11 @@ func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 						RuleID:   r.ID(),
 						Severity: r.DefaultSeverity(),
 						Pos:      f.Fset.Position(call.Pos()),
-						Message:  "overlay mounted as a plain child without layer/ZOrder; use facet.AttachLayer with a ZOrder instead",
+						Message:  "overlay mounted as a plain child without a layer attachment; use facet.AttachLayer with a ZBand instead",
 						Teach: diag.Teaching{
 							Did:      "attached an overlay as a sibling instead of a layered child",
-							UseThis:  "facet.AttachLayer with a ZOrder",
-							IndexRef: "facet.AttachLayer",
+							UseThis:  "facet.AttachLayer with a ZBand",
+							IndexRef: "facet.AttachLayer (RX-1 Q4 named z-bands)",
 						},
 					})
 				}

@@ -106,8 +106,9 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 	i.AddBinding(i.ColorSlot)
 
 	i.Layout.Parent = facet.GroupParentContract{
-		Kind:   facet.GroupLayoutLinearHorizontal,
-		Policy: iconButtonGroupPolicy{},
+		Kind:     facet.GroupLayoutLinearHorizontal,
+		Policy:   iconButtonGroupPolicy{},
+		Overflow: facet.OverflowClip,
 	}
 	i.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,

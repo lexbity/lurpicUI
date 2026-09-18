@@ -717,79 +717,31 @@ func (sr *ScrollRegion) groupChild(spec ScrollRegionChild) facet.GroupChild {
 	}
 }
 
+func (sr *ScrollRegion) scrollViewport() ScrollViewport {
+	return ScrollViewport{Content: sr.cachedContentSize, View: sr.cachedViewportBounds, Track: sr.trackThickness()}
+}
+
 func (sr *ScrollRegion) updateScrollBounds(bounds gfx.Rect) {
 	sr.cachedViewportBounds = bounds
-	maxX := mathutil.Max(0, sr.cachedContentSize.W-bounds.Width())
-	maxY := mathutil.Max(0, sr.cachedContentSize.H-bounds.Height())
-	sr.scrollOffset = gfx.Point{
-		X: clampFloat(sr.scrollOffset.X, 0, maxX),
-		Y: clampFloat(sr.scrollOffset.Y, 0, maxY),
-	}
+	vp := ScrollViewport{Content: sr.cachedContentSize, View: bounds, Track: sr.trackThickness()}
+	sr.scrollOffset = vp.Clamp(sr.scrollOffset)
 	sr.Scrolled.Emit(sr.scrollOffset)
-	track := sr.trackThickness()
-	if maxY > 0 {
-		trackHeight := bounds.Height()
-		if maxX > 0 {
-			trackHeight -= track
-		}
-		if trackHeight < 0 {
-			trackHeight = 0
-		}
-		sr.cachedVerticalTrack = gfx.RectFromXYWH(bounds.Max.X-track, bounds.Min.Y, track, trackHeight)
-		thumbHeight := mathutil.Max(track*2, trackHeight*(bounds.Height()/mathutil.Max(1, sr.cachedContentSize.H)))
-		if thumbHeight > trackHeight {
-			thumbHeight = trackHeight
-		}
-		maxOffset := mathutil.Max(1, maxY)
-		thumbY := bounds.Min.Y + (sr.scrollOffset.Y/maxOffset)*(trackHeight-thumbHeight)
-		sr.cachedVerticalThumb = gfx.RectFromXYWH(bounds.Max.X-track, thumbY, track, thumbHeight)
-	}
-	if maxX > 0 {
-		trackWidth := bounds.Width()
-		if maxY > 0 {
-			trackWidth -= track
-		}
-		if trackWidth < 0 {
-			trackWidth = 0
-		}
-		sr.cachedHorizontalTrack = gfx.RectFromXYWH(bounds.Min.X, bounds.Max.Y-track, trackWidth, track)
-		thumbWidth := mathutil.Max(track*2, trackWidth*(bounds.Width()/mathutil.Max(1, sr.cachedContentSize.W)))
-		if thumbWidth > trackWidth {
-			thumbWidth = trackWidth
-		}
-		maxOffset := mathutil.Max(1, maxX)
-		thumbX := bounds.Min.X + (sr.scrollOffset.X/maxOffset)*(trackWidth-thumbWidth)
-		sr.cachedHorizontalThumb = gfx.RectFromXYWH(thumbX, bounds.Max.Y-track, thumbWidth, track)
-	}
+	sr.cachedVerticalTrack, sr.cachedVerticalThumb = vp.Vertical(sr.scrollOffset)
+	sr.cachedHorizontalTrack, sr.cachedHorizontalThumb = vp.Horizontal(sr.scrollOffset)
 }
 
 func (sr *ScrollRegion) updateOffsetFromDrag(p gfx.Point) {
 	if sr == nil {
 		return
 	}
+	vp := sr.scrollViewport()
 	switch sr.draggingAxis {
 	case ScrollDirectionHorizontal:
-		trackRect := sr.cachedHorizontalTrack
-		thumbRect := sr.cachedHorizontalThumb
-		maxOffset := sr.maxScrollX()
-		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
-			return
-		}
-		trackSpan := mathutil.Max(1, trackRect.Width()-thumbRect.Width())
-		pos := p.X - trackRect.Min.X - thumbRect.Width()*0.5
-		sr.scrollOffset.X = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
+		sr.scrollOffset = vp.DragTo(sr.scrollOffset, true, p, sr.cachedHorizontalTrack, sr.cachedHorizontalThumb)
 	default:
-		trackRect := sr.cachedVerticalTrack
-		thumbRect := sr.cachedVerticalThumb
-		maxOffset := sr.maxScrollY()
-		if trackRect.IsEmpty() || thumbRect.IsEmpty() || maxOffset <= 0 {
-			return
-		}
-		trackSpan := mathutil.Max(1, trackRect.Height()-thumbRect.Height())
-		pos := p.Y - trackRect.Min.Y - thumbRect.Height()*0.5
-		sr.scrollOffset.Y = clampFloat((pos/trackSpan)*maxOffset, 0, maxOffset)
+		sr.scrollOffset = vp.DragTo(sr.scrollOffset, false, p, sr.cachedVerticalTrack, sr.cachedVerticalThumb)
 	}
-	sr.scrollOffset = sr.clampScrollOffset(sr.scrollOffset)
+	sr.scrollOffset = vp.Clamp(sr.scrollOffset)
 	sr.Scrolled.Emit(sr.scrollOffset)
 }
 
@@ -833,11 +785,11 @@ func (sr *ScrollRegion) keyboardStep() float32 {
 }
 
 func (sr *ScrollRegion) maxScrollX() float32 {
-	return mathutil.Max(0, sr.cachedContentSize.W-sr.cachedViewportBounds.Width())
+	return sr.scrollViewport().MaxX()
 }
 
 func (sr *ScrollRegion) maxScrollY() float32 {
-	return mathutil.Max(0, sr.cachedContentSize.H-sr.cachedViewportBounds.Height())
+	return sr.scrollViewport().MaxY()
 }
 
 func clampFloat(v, minV, maxV float32) float32 {
@@ -851,10 +803,7 @@ func clampFloat(v, minV, maxV float32) float32 {
 }
 
 func (sr *ScrollRegion) clampScrollOffset(next gfx.Point) gfx.Point {
-	return gfx.Point{
-		X: clampFloat(next.X, 0, sr.maxScrollX()),
-		Y: clampFloat(next.Y, 0, sr.maxScrollY()),
-	}
+	return sr.scrollViewport().Clamp(next)
 }
 
 func (sr *ScrollRegion) barCommands(bounds gfx.Rect, material theme.Material, opacity float32) []gfx.Command {

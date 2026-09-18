@@ -37,12 +37,13 @@ type chartMargins struct {
 
 // bridgeDerived mirrors the reactive package's internal bridge: it keeps a
 // ValueStore in sync with a Derived's recomputes so a Derived domain can feed
-// a scale constructor that consumes ValueStores. Consumers must Get() the
-// Derived for its OnChange to fire (lazy recompute, F-derived-independence).
+// a scale constructor that consumes ValueStores. It subscribes the eager
+// OnInvalidated signal (RX-1 FR-2), so the bridge recomputes and updates on
+// the clean→dirty transition itself — no external Get() flush is ever needed.
 func bridgeDerived(d *store.Derived[[2]float64]) *store.ValueStore[[2]float64] {
 	vs := store.NewValueStore(d.Get())
-	d.OnChange.Subscribe(func(c signal.Change[[2]float64]) {
-		vs.Set(c.New)
+	d.OnInvalidated.Subscribe(func(struct{}) {
+		vs.Set(d.Get())
 	})
 	return vs
 }
@@ -398,9 +399,7 @@ func (c *ChartCanvas) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		return
 	}
 	c.plot = plot
-	c.xRange.Set([2]float64{0, float64(plot.Width())})
-	c.yRange.Set([2]float64{float64(plot.Height()), 0})
-	c.yDomain.Get() // force the derived recompute so the bridged y-scale stays live
+	c.syncRanges(plot)
 
 	active := chartTypeFromString(c.chartType.Get())
 	for _, s := range []struct {
@@ -422,6 +421,24 @@ func (c *ChartCanvas) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	c.xAxis.Base().LayoutRole().Arrange(ctx, xAxisBounds)
 	c.yAxis.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, plot.Min.Y, c.margins.left, plot.Height()))
 	c.rule.Base().LayoutRole().Arrange(ctx, plot)
+}
+
+// syncRanges feeds the store-based scales with the current plot extents (the
+// x-range is [0,width], the y-range is [height,0], inverted). The scales are
+// Deriveds over these ValueStores, so they need the plot before projection;
+// the arrange callback is the only point that knows the final plot rect.
+// The writes are change-detected (ValueStore.Set emits nothing when the value
+// is unchanged), so a stable frame writes nothing and the steady state stays
+// quiet — this is a layout→scale feed, not a content invalidation (FR-3
+// boundary: the plot is arrange output, not user content). The y-domain needs
+// no flush here: its Derived bridge is self-contained via FR-2 OnInvalidated.
+func (c *ChartCanvas) syncRanges(plot gfx.Rect) {
+	if c.xRange != nil {
+		c.xRange.Set([2]float64{0, float64(plot.Width())})
+	}
+	if c.yRange != nil {
+		c.yRange.Set([2]float64{float64(plot.Height()), 0})
+	}
 }
 
 func (c *ChartCanvas) gridCommands() []gfx.Command {

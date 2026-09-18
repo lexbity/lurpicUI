@@ -187,6 +187,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if err := rt.validateWindowBindings(); err != nil {
 		return nil, err
 	}
+	if err := rt.validateLayerRecipes(); err != nil {
+		return nil, err
+	}
 	store.SetProjectionActiveCheck(func() bool {
 		return rt.projectionInProgress.Load()
 	})

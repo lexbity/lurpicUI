@@ -39,6 +39,11 @@ type Text struct {
 	Overflow   marks.Binding[TextOverflow]
 	Alignment  marks.Binding[text.TextAlignment]
 	MaxWidth   marks.Binding[float32]
+	// MultiLine declares multi-line copy (FR-9): a multi-line text wraps by
+	// default when width-constrained (TextOverflowWrap), with ellipsize/
+	// truncate or scroll as explicit opt-outs. Single-line text keeps its
+	// declared overflow.
+	MultiLine marks.Binding[bool]
 
 	textRole facet.TextRole
 
@@ -61,6 +66,7 @@ func NewText(content marks.Binding[string]) *Text {
 		Overflow:   marks.Const(TextOverflowClip),
 		Alignment:  marks.Const(text.AlignLeft),
 		MaxWidth:   marks.Const[float32](0),
+		MultiLine:  marks.Const(false),
 	}
 	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Content)
@@ -70,8 +76,9 @@ func NewText(content marks.Binding[string]) *Text {
 	t.AddBinding(t.Overflow)
 	t.AddBinding(t.Alignment)
 	t.AddBinding(t.MaxWidth)
+	t.AddBinding(t.MultiLine)
 
-	t.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
+	t.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone, Overflow: facet.OverflowClip}
 	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
@@ -188,7 +195,14 @@ func (t *Text) resolveLayout(ctx facet.MeasureContext, constraints facet.Constra
 		return nil, text.TextStyle{}, false
 	}
 	shaper.SetContentScale(ctx.ContentScale)
-	switch t.Overflow.Get() {
+	// FR-9: multi-line copy wraps by default when width-constrained; the
+	// declared overflow only wins when it is a real opt-out (truncate/scroll),
+	// not the default Clip a caller never touched.
+	overflow := t.Overflow.Get()
+	if t.MultiLine.Get() && overflow == TextOverflowClip {
+		overflow = TextOverflowWrap
+	}
+	switch overflow {
 	case TextOverflowWrap:
 		l := shaper.Shape(text.Paragraph{
 			Spans:     []text.TextSpan{{Text: t.Content.Get(), Style: style}},

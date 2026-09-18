@@ -353,3 +353,99 @@ func TestCard_contract_accessible(t *testing.T) {
 		"group",
 	)
 }
+
+// TestCardScrollViewport_overflowScrolls pins RX-1 FR-6: a card whose content
+// is taller than its arranged inner rect provides an OverflowScroll viewport —
+// content is laid out at full height, a vertical scrollbar is offered, and the
+// scroll offset moves the content instead of silently clipping or compressing
+// tracks (the A-8/A-9 class).
+func TestCardScrollViewport_overflowScrolls(t *testing.T) {
+	card := newCardFixture()
+	card.FlexRows = marks.Const(true)
+	card.FlexColumns = marks.Const(true)
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
+	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
+
+	result := card.Layout.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            ctx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 960, H: 720}})
+	if result.Size.W <= 0 || result.Size.H <= 0 {
+		t.Fatalf("expected measurable size, got %#v", result.Size)
+	}
+
+	// Arrange the card to a quarter of its measured height: the content must
+	// overflow and the scroll viewport activate.
+	small := gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H/4)
+	card.Layout.Arrange(facet.ArrangeContext{
+		Runtime:     rt,
+		Theme:       ctx,
+		ParentGroup: card.Layout.Parent,
+		ChildGroup:  card.Layout.Child,
+	}, small)
+
+	if card.cachedVerticalThumb.IsEmpty() {
+		t.Fatal("expected a vertical scrollbar when content overflows the card")
+	}
+	if got := card.ScrollOffset(); got != (gfx.Point{}) {
+		t.Fatalf("initial scroll offset = %v, want zero (scrolled to top)", got)
+	}
+
+	// Scrolling moves the content (the child bounds shift up) instead of
+	// clipping or compressing.
+	before := card.cachedChildBounds
+	card.SetScrollOffset(gfx.Point{Y: 20})
+	card.arrange(facet.ArrangeContext{}, small)
+	moved := false
+	for id, b := range card.cachedChildBounds {
+		if old, ok := before[id]; ok && old.Min.Y != b.Min.Y {
+			moved = true
+			break
+		}
+	}
+	if !moved {
+		t.Fatal("scroll offset did not move the card's arranged content")
+	}
+}
+
+// TestCardIntrinsicTracks_sizeToContent pins RX-1 Q6 / FR-6: a card's rows and
+// columns are intrinsic (content-sized) by default, so GridRows=n means "up to
+// n content-sized rows" — not n compressed flex bands. A card with one tall
+// child measures at least that child's height.
+func TestCardIntrinsicTracks_sizeToContent(t *testing.T) {
+	card := NewCard("content card")
+	card.GridColumns = marks.Const(1)
+	card.GridRows = marks.Const(1)
+	card.ChildrenContent = []CardChild{
+		{
+			Key:    "tall",
+			Facet:  primitive.NewText(marks.Const("a fairly long line of text")),
+			Grid:   facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1},
+			MarkID: cardMarkIDFirstChild,
+		},
+	}
+	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
+	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
+
+	wide := card.Layout.Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            ctx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 960, H: 720}})
+	// The card grows with its content: intrinsic rows do not compress a single
+	// tall row into a 2px band (A-8 class). The text line height dominates.
+	if wide.Size.H < 40 {
+		t.Fatalf("intrinsic card height = %v, want the child's content height (>= ~40)", wide.Size.H)
+	}
+	if !card.FlexRows.Get() {
+		// default is intrinsic — rows sized by content
+		_ = wide
+	}
+}

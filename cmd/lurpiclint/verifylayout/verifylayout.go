@@ -241,9 +241,12 @@ func walkTree(f *facet.Facet, path string, opts *Options, findings *[]Finding) {
 			if clr.ArrangedBounds.IsEmpty() {
 				continue
 			}
-			// Exempt if parent has an explicit OverflowVisible policy
-			// (requiring Kind != 0 to distinguish from the zero-value default).
-			if lr != nil && lr.Parent.Kind != 0 && lr.Parent.Overflow == facet.OverflowVisible {
+			// Exempt if the parent declares a scroll content viewport
+			// (OverflowScroll): its children legitimately extend beyond the
+			// arranged bounds as scrolled content. Clip and Grow parents flag:
+			// a clipped child escaping is a bug, and a Grow parent arranged
+			// below its content is the arrange-clamp violation.
+			if lr != nil && lr.Parent.Kind != 0 && lr.Parent.Overflow == facet.OverflowScroll {
 				continue
 			}
 			if !parentBounds.IsEmpty() && childOutOfParent(clr.ArrangedBounds, parentBounds, tol) {

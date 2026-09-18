@@ -159,13 +159,14 @@ func NewTimeReactiveFromDerived(
 	return NewTimeReactive(domainStore, rngStore, opts...)
 }
 
-// bridgeDerived creates a ValueStore that mirrors the Derived's value.
-// The Derived's OnChange signal is used to update the ValueStore whenever
-// the Derived recomputes (which happens when Get() is called while dirty).
+// bridgeDerived creates a ValueStore that mirrors the Derived's value. It
+// subscribes the eager OnInvalidated signal (RX-1 FR-2) so the bridge
+// recomputes and updates on the clean→dirty transition itself — consumers
+// never need to force a Get() to keep the bridge live.
 func bridgeDerived(d *store.Derived[[2]float64]) *store.ValueStore[[2]float64] {
 	vs := store.NewValueStore(d.Get())
-	d.OnChange.Subscribe(func(c signal.Change[[2]float64]) {
-		vs.Set(c.New)
+	d.OnInvalidated.Subscribe(func(struct{}) {
+		vs.Set(d.Get())
 	})
 	return vs
 }

@@ -55,6 +55,7 @@ func NewExhibitInspector(shell *ShellState, counts map[ExhibitID]int) *ExhibitIn
 	p.titleText.Typography = marks.Const(theme.TextHeadingS)
 	p.descText = primitive.NewText(marks.FromDerived(descStore, facet.DirtyProjection))
 	p.descText.Typography = marks.Const(theme.TextBodyS)
+	p.descText.MultiLine = marks.Const(true) // wraps in the 280dp inspector pane (FR-9 / AC-9)
 	p.countText = primitive.NewText(marks.FromDerived(countDesc, facet.DirtyProjection))
 	p.countText.Typography = marks.Const(theme.TextLabelM)
 

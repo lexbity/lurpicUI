@@ -81,7 +81,7 @@ func TestGroupParentContractEquals(t *testing.T) {
 	if a.Equals(GroupParentContract{
 		Kind:     GroupLayoutGrid,
 		Policy:   cacheTestGroupPolicy{variant: 1},
-		Overflow: OverflowVisible,
+		Overflow: OverflowGrow,
 		Clipping: GroupClipBounds,
 		Children: cacheTestGroupSource{variant: 2},
 	}) {

@@ -265,7 +265,10 @@ func (ds *DropdownSelect) invalidate(flags facet.DirtyFlags) {
 	if ds == nil {
 		return
 	}
-	ds.Base().Invalidate(flags)
+	// Route through the mark's Core so a DirtyLayout interaction (opening the
+	// listbox) re-arranges a standalone dropdown via the runtime (RX-1
+	// F-dirtylayout-routing), not only when the host re-lays it.
+	ds.Invalidate(flags)
 }
 
 func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

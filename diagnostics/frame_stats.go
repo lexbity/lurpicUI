@@ -23,18 +23,27 @@ type FrameStats struct {
 	// cached entry carried different arranged/layer bounds than the current
 	// frame — a bounds change invalidating a cache entry (FR-1 freshness).
 	ProjectionCacheMissesByBounds int
-	RenderBatchCount              int
-	JobsCommitted                 int
-	JobsDiscarded                 int
-	LayoutDuration                time.Duration
-	LayoutResolveDuration         time.Duration
-	LayerResolutionDuration       time.Duration
-	AnchorExportDuration          time.Duration
-	StructuralMeasureDuration     time.Duration
-	LayerBoundsDuration           time.Duration
-	ArrangeDuration               time.Duration
-	ProjectDuration               time.Duration
-	RenderDuration                time.Duration
+	// LayersUnmountedSkips counts layer-attached facets skipped by the layer
+	// system in the most recent frame because their Mount store read false
+	// (RX-1 Q4 visibility by mount state). An unmounted layer is skipped
+	// entirely — no measure, no arrange, no projection layer, no hit — and is
+	// independently mount-gated by the projection walk so a stale arranged
+	// bounds can never resurrect it (NFR-8). Nonzero whenever an overlay is
+	// closed (the command palette, a modal scrim, a tooltip); a nonzero count
+	// alongside stale pixels is the A-4/A-5 failure signature.
+	LayersUnmountedSkips      int
+	RenderBatchCount          int
+	JobsCommitted             int
+	JobsDiscarded             int
+	LayoutDuration            time.Duration
+	LayoutResolveDuration     time.Duration
+	LayerResolutionDuration   time.Duration
+	AnchorExportDuration      time.Duration
+	StructuralMeasureDuration time.Duration
+	LayerBoundsDuration       time.Duration
+	ArrangeDuration           time.Duration
+	ProjectDuration           time.Duration
+	RenderDuration            time.Duration
 
 	// RX-1 P5 hot-path counters. All are frame-scoped (reset each frame):
 	// zero in the quiet steady state (AC-6), nonzero on the frame that reacts
@@ -47,6 +56,11 @@ type FrameStats struct {
 	DerivedFlushDuration time.Duration
 	// ArrangeCount counts layout arrangements (host OnArrange invocations).
 	ArrangeCount int
+	// OverflowClampedCount counts OverflowGrow arrange clamps in the most
+	// recent frame (RX-1 Q5 / NFR-8): a Grow mark arranged below its measured
+	// min-content was clamped and flagged. Nonzero is a layout-contract
+	// violation indicator, not a supported mode of operation.
+	OverflowClampedCount int
 	// CollectCount counts facet collect callbacks (OnCollect) in projection.
 	CollectCount int
 	// MaterializeCount counts materialized (rendered) output nodes.

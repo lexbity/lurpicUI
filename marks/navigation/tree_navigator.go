@@ -48,6 +48,16 @@ type TreeNavigator struct {
 
 	Data *store.ValueStore[[]TreeNode]
 
+	// Selection is the FR-8 two-way selection store (the selected node path;
+	// "" = none). When a constructor caller passes nil, the tree seeds a
+	// private store from the nodes' declared Selected flags. The TreeNode
+	// Selected fields are a build-time declaration only — the runtime truth is
+	// this store, and the tree derives each row's Selected from it.
+	Selection *store.ValueStore[string]
+
+	// selection is the FR-8 binding over Selection (attached in OnAttach).
+	selection *SelectionBinding[string]
+
 	Label    marks.Binding[string]
 	Disabled marks.Binding[bool]
 
@@ -93,12 +103,19 @@ var _ facet.FacetImpl = (*TreeNavigator)(nil)
 var _ layout.AnchorExporter = (*TreeNavigator)(nil)
 var _ marks.Mark = (*TreeNavigator)(nil)
 
-// NewTreeNavigator constructs a navigation.tree_navigator mark with canonical defaults.
-func NewTreeNavigator(label string, nodes []TreeNode) *TreeNavigator {
+// NewTreeNavigator constructs a navigation.tree_navigator mark with canonical
+// defaults. selection, when non-nil, is the FR-8 selection store the mark binds
+// two-way; when nil, the tree creates a private one seeded from the nodes'
+// declared Selected flags.
+func NewTreeNavigator(label string, nodes []TreeNode, selection *store.ValueStore[string]) *TreeNavigator {
+	if selection == nil {
+		selection = store.NewValueStore(selectedPathOf(nodes))
+	}
 	t := &TreeNavigator{
-		Label:    marks.Const(label),
-		Disabled: marks.Const(false),
-		Data:     store.NewValueStore[[]TreeNode](cloneTreeNodes(nodes)),
+		Label:     marks.Const(label),
+		Disabled:  marks.Const(false),
+		Data:      store.NewValueStore[[]TreeNode](cloneTreeNodes(nodes)),
+		Selection: selection,
 	}
 	t.Facet = facet.NewFacet()
 	t.AddBinding(t.Label)
@@ -107,6 +124,7 @@ func NewTreeNavigator(label string, nodes []TreeNode) *TreeNavigator {
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   treeNavigatorGroupPolicy{tree: t},
 		Children: t,
+		Overflow: facet.OverflowScroll,
 	}
 	t.Layout.Child = facet.GroupChildContract{
 		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
@@ -186,14 +204,16 @@ func (t *TreeNavigator) SetNodes(nodes []TreeNode) {
 	t.Data.Set(cloneTreeNodes(nodes))
 }
 
-// SetSelectedPath updates the selected node path in the store data.
+// SetSelectedPath updates the selected node path through the FR-8 selection
+// store (the tree no longer mutates TreeNode.Selected in the data; rendering
+// derives each row's Selected from the store).
 func (t *TreeNavigator) SetSelectedPath(path string) {
-	t.mutateTree(func(nodes []TreeNode) {
-		clearSelection(nodes)
-		if path != "" {
-			setSelectionByPath(nodes, path, true)
-		}
-	})
+	if t.selection != nil {
+		t.selection.Publish(path)
+	} else if t.Selection != nil {
+		t.Selection.Set(path)
+	}
+	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // SetExpandedPath updates the expanded state for a node in the store data.
@@ -261,7 +281,8 @@ func (t *TreeNavigator) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach wires store invalidation for the bound tree data store.
+// OnAttach wires store invalidation for the bound tree data store and the
+// FR-8 selection binding over Selection.
 func (t *TreeNavigator) OnAttach(ctx facet.AttachContext) {
 	t.Core.OnAttach(ctx)
 	if t.Data == nil {
@@ -269,6 +290,9 @@ func (t *TreeNavigator) OnAttach(ctx facet.AttachContext) {
 	}
 	facet.Store(facet.Subscribe(t), &t.Data.OnChange, t.Data.Version, func(signal.Change[[]TreeNode]) {
 		t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "treeNavigator.Data")
+	})
+	t.selection = BindSelection(t, t.Selection, func(string) {
+		t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "treeNavigator.Selection")
 	})
 }
 
@@ -728,10 +752,29 @@ func (t *TreeNavigator) rebuildVisibleNodes() {
 	nodes := t.nodesSnapshot()
 	out := make([]treeNavigatorVisibleNode, 0, len(nodes))
 	t.walkVisible(nodes, 0, "", &out)
+	// The selection is the FR-8 store's value; each visible row's Selected is
+	// derived from it (the data's TreeNode.Selected fields are a build-time
+	// declaration only, never mutated).
+	selected := t.selectionPath()
+	for i := range out {
+		out[i].Node.Selected = out[i].Path == selected
+	}
 	t.cachedVisibleNodes = out
 	if t.focusedPath == "" {
 		t.focusedPath = t.firstVisiblePath()
 	}
+}
+
+// selectionPath returns the current selected node path from the FR-8 binding
+// (or the selection store before attach).
+func (t *TreeNavigator) selectionPath() string {
+	if t.selection != nil {
+		return t.selection.Current()
+	}
+	if t.Selection != nil {
+		return t.Selection.Get()
+	}
+	return ""
 }
 
 func (t *TreeNavigator) syncRowFacets() {
@@ -902,10 +945,10 @@ func (t *TreeNavigator) pathAtWithDisclosure(p gfx.Point) (string, bool) {
 }
 
 func (t *TreeNavigator) selectPath(path string) {
-	t.mutateTree(func(nodes []TreeNode) {
-		clearSelection(nodes)
-		setSelectionByPath(nodes, path, true)
-	})
+	// User selection flows through the FR-8 selection store; the tree derives
+	// each row's Selected from it during rebuildVisibleNodes instead of
+	// mutating TreeNode.Selected in the data.
+	t.selection.Publish(path)
 	t.focusedPath = path
 	t.focusedVisible = true
 	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
@@ -1039,33 +1082,34 @@ func parentPath(path string) string {
 	return ""
 }
 
-func clearSelection(nodes []TreeNode) {
-	type clearFrame struct {
-		nodes []TreeNode
-		index int
-	}
-	stack := []clearFrame{{nodes: nodes}}
-	for len(stack) > 0 {
-		frame := &stack[len(stack)-1]
-		if frame.index >= len(frame.nodes) {
-			stack = stack[:len(stack)-1]
-			continue
+// selectedPathOf returns the path of the first node declared Selected in the
+// forest, using the same path format as walkVisible (parentKey/childKey). It
+// seeds the FR-8 selection store for callers that do not pass one. Empty when
+// nothing is selected.
+func selectedPathOf(nodes []TreeNode) string {
+	for i := range nodes {
+		key := walkKey(nodes[i])
+		if nodes[i].Selected {
+			return key
 		}
-		node := &frame.nodes[frame.index]
-		frame.index++
-		node.Selected = false
-		if len(node.Children) > 0 {
-			stack = append(stack, clearFrame{nodes: node.Children})
+		if p := selectedPathOf(nodes[i].Children); p != "" {
+			return key + "/" + p
 		}
 	}
+	return ""
 }
 
-func setSelectionByPath(nodes []TreeNode, path string, selected bool) bool {
-	segments := splitPath(path)
-	if len(segments) == 0 {
-		return false
+// walkKey returns the semantic key of a tree node, mirroring walkVisible's
+// fallback for nodes with no explicit key.
+func walkKey(node TreeNode) string {
+	key := strings.TrimSpace(node.Key)
+	if key == "" {
+		key = "node_" + strings.ReplaceAll(strings.TrimSpace(node.Label), " ", "_")
+		if key == "node_" {
+			key = "node"
+		}
 	}
-	return setSelectionByPathSegments(nodes, segments, selected)
+	return key
 }
 
 func setExpandedByPath(nodes []TreeNode, path string, expanded bool) bool {
@@ -1082,30 +1126,6 @@ func toggleExpandedByPath(nodes []TreeNode, path string) bool {
 		return false
 	}
 	return toggleExpandedByPathSegments(nodes, segments)
-}
-
-func setSelectionByPathSegments(nodes []TreeNode, segments []string, selected bool) bool {
-	current := nodes
-	for len(segments) > 0 {
-		found := false
-		for i := range current {
-			if strings.TrimSpace(current[i].Key) != segments[0] {
-				continue
-			}
-			if len(segments) == 1 {
-				current[i].Selected = selected
-				return true
-			}
-			current = current[i].Children
-			segments = segments[1:]
-			found = true
-			break
-		}
-		if !found {
-			return false
-		}
-	}
-	return false
 }
 
 func setExpandedByPathSegments(nodes []TreeNode, segments []string, expanded bool) bool {

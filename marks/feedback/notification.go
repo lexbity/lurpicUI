@@ -1331,8 +1331,8 @@ func (g *notificationContentGroup) gridConfig() layoutgrid.Config {
 		rows = 1
 	}
 	return layoutgrid.Config{
-		Columns:       flexibleTracks(columns),
-		Rows:          flexibleTracks(rows),
+		Columns:       layoutgrid.FlexTracks(columns),
+		Rows:          layoutgrid.FlexTracks(rows),
 		ColumnGap:     g.parent.cachedGap,
 		RowGap:        g.parent.cachedRowGap,
 		AutoPlacement: layoutgrid.AutoRowFirst,

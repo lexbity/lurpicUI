@@ -128,13 +128,12 @@ type overlayBox struct {
 	dismissal facet.DismissalScope
 	onDismiss func()
 
-	fill    gfx.Color
-	label   string
-	visible bool
-	size    gfx.Size // zero = fill the layer
-	shaper  *text.Shaper
-	style   text.TextStyle
-	textCl  gfx.Color
+	fill   gfx.Color
+	label  string
+	size   gfx.Size // zero = fill the layer
+	shaper *text.Shaper
+	style  text.TextStyle
+	textCl gfx.Color
 }
 
 func newOverlayBox(fill gfx.Color, label string, themeCtx theme.ResolvedContext, fonts *text.FontRegistry, size ...gfx.Size) *overlayBox {
@@ -169,7 +168,7 @@ func newOverlayBox(fill gfx.Color, label string, themeCtx theme.ResolvedContext,
 	}
 	o.render = facet.RenderRole{
 		OnCollect: func(list *gfx.CommandList, bounds gfx.Rect) {
-			if bounds.IsEmpty() || !o.visible {
+			if bounds.IsEmpty() {
 				return
 			}
 			list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(o.fill)})
@@ -180,7 +179,7 @@ func newOverlayBox(fill gfx.Color, label string, themeCtx theme.ResolvedContext,
 	}
 	o.hit = facet.HitRole{
 		OnHitTest: func(pt gfx.Point) facet.HitResult {
-			if o.visible && o.layer.ID != 0 && !o.layout.ArrangedBounds.IsEmpty() && o.layout.ArrangedBounds.Contains(pt) {
+			if o.layer.ID != 0 && !o.layout.ArrangedBounds.IsEmpty() && o.layout.ArrangedBounds.Contains(pt) {
 				return facet.HitResult{Hit: true}
 			}
 			return facet.HitResult{}
@@ -188,7 +187,7 @@ func newOverlayBox(fill gfx.Color, label string, themeCtx theme.ResolvedContext,
 	}
 	o.input = facet.InputRole{
 		OnDismiss: func(e facet.DismissEvent) bool {
-			if o == nil || !o.visible || !o.dismissal.Enabled {
+			if o == nil || !o.dismissal.Enabled {
 				return false
 			}
 			if o.dismissal.Triggers&(1<<uint(e.Trigger)) == 0 {
@@ -223,18 +222,6 @@ func (o *overlayBox) OnAttach(_ facet.AttachContext) {}
 func (o *overlayBox) OnDetach()                      {}
 func (o *overlayBox) OnActivate()                    {}
 func (o *overlayBox) OnDeactivate()                  {}
-
-// SetVisible toggles the overlay's rendering and hit-testing.
-func (o *overlayBox) SetVisible(visible bool) {
-	if o == nil {
-		return
-	}
-	o.visible = visible
-	o.Invalidate(facet.DirtyProjection | facet.DirtyHit)
-}
-
-// IsVisible reports whether the overlay is rendering/hittable.
-func (o *overlayBox) IsVisible() bool { return o != nil && o.visible }
 
 // Layers is the E2 facet: a base-layer control beneath a modal scrim
 // (HitBlockBelow) that blocks it, a tooltip (HitPassThrough) that lets the
@@ -427,16 +414,16 @@ func (e *Layers) OnAttach(ctx facet.AttachContext) {
 			rt.UpdateChildAttachment(e.tooltip, facet.Attachment{LayerID: e.ids.tooltip, Placement: full})
 		}
 	}
-	e.scrim.SetVisible(e.modalOpen.Get())
-	e.tooltip.SetVisible(e.tooltipOn.Get())
-	// A mount-store flip routes through RX-1 FR-3: the layer re-resolution
-	// (mount/unmount) re-lays the host within the same frame.
+	// Visibility is governed exclusively by the Mount stores (modalOpen /
+	// tooltipOn): the layer resolver reads them each frame and skips unmounted
+	// layers entirely (RX-1 Q4) — no parallel visible flag remains. A
+	// mount-store flip routes through RX-1 FR-3: the subscription wakes the
+	// runtime so the layer re-resolution (mount/unmount) re-lays the host
+	// within the same frame.
 	idModal := e.modalOpen.OnChange.Subscribe(func(signal.Change[bool]) {
-		e.scrim.SetVisible(e.modalOpen.Get())
 		layout.PropagateContentDirty(e, e.rt, "e2.modalOpen", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	idTooltip := e.tooltipOn.OnChange.Subscribe(func(signal.Change[bool]) {
-		e.tooltip.SetVisible(e.tooltipOn.Get())
 		layout.PropagateContentDirty(e, e.rt, "e2.tooltipOn", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	idToast := e.toastOn.OnChange.Subscribe(func(signal.Change[bool]) {
