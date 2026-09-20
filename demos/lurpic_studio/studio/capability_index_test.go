@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"fmt"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/capabilities"
@@ -87,10 +88,71 @@ func (g *capabilityGroup) capsKind() capabilities.CapabilityKind {
 	return capabilities.KindMark
 }
 
-// TestCapabilityIndex_rendersCatalog builds the exhibit and asserts the catalog
-// renders into the scroll region with the provenance note, the three grouped
-// cards, and the totals line — all arranged and hit-testable via the scroll
-// region (the read-only scroll_region genuinely hosts this content).
+// TestCapabilityIndex_tableRows pins the catalog table's row structure
+// (RX-1 FR-14 / P6): one table of Kind/Path/Intent columns whose rows are the
+// 300+ capabilities plus 3 section headers plus 2 text lines (provenance on
+// top, totals on the bottom).
+func TestCapabilityIndex_tableRows(t *testing.T) {
+	root := findStudioModuleRoot()
+	if root == "" {
+		t.Skip("source tree unavailable (no go.mod found)")
+	}
+	caps, err := loadCapabilities()
+	if err != nil {
+		t.Fatalf("loadCapabilities: %v", err)
+	}
+	if len(caps) < 300 {
+		t.Fatalf("catalog size = %d, want >= 300 (the FR-14 row-count pin)", len(caps))
+	}
+
+	data := capabilityTableData(caps)
+	wantRows := len(caps) + 3 + 2 // capabilities + section headers + text lines
+	if len(data.Rows) != wantRows {
+		t.Fatalf("table rows = %d, want %d (%d caps + 3 section headers + 2 text lines)", len(data.Rows), wantRows, len(caps))
+	}
+	if len(data.Columns) != 3 {
+		t.Fatalf("table columns = %d, want 3 (Kind/Path/Intent)", len(data.Columns))
+	}
+	if data.Columns[0].Key != "kind" || data.Columns[1].Key != "path" || data.Columns[2].Key != "intent" {
+		t.Fatalf("table columns = %+v, want Kind/Path/Intent", data.Columns)
+	}
+
+	// Provenance note is the first row, totals note the last.
+	if data.Rows[0].Key != "note:provenance" {
+		t.Fatalf("first row = %q, want the provenance note", data.Rows[0].Key)
+	}
+	if last := data.Rows[len(data.Rows)-1]; last.Key != "note:totals" {
+		t.Fatalf("last row = %q, want the totals note", last.Key)
+	}
+
+	// Exactly three section headers, one per group, in group order.
+	sectionKeys := make([]string, 0, 3)
+	for _, r := range data.Rows {
+		if len(r.Key) > 0 && r.Key[:8] == "section:" {
+			sectionKeys = append(sectionKeys, r.Key)
+		}
+	}
+	if len(sectionKeys) != 3 {
+		t.Fatalf("section-header rows = %d, want 3: %v", len(sectionKeys), sectionKeys)
+	}
+	for i, g := range splitCapabilityGroups(caps) {
+		if sectionKeys[i] != "section:"+g.title {
+			t.Fatalf("section header[%d] = %q, want %q", i, sectionKeys[i], "section:"+g.title)
+		}
+	}
+
+	// The totals note carries the live per-kind sums.
+	sum := capTotals(caps)
+	wantTotals := fmt.Sprintf("%d marks · %d layouts · %d layers", sum[capabilities.KindMark], sum[capabilities.KindLayout], sum[capabilities.KindLayer])
+	if got := data.Rows[len(data.Rows)-1].Cells[1]; got != wantTotals {
+		t.Fatalf("totals note = %q, want %q", got, wantTotals)
+	}
+}
+
+// TestCapabilityIndex_rendersCatalog builds the exhibit and asserts the
+// catalog renders through the table mark: the table is arranged to the full
+// exhibit area, the provenance row is visible at the top, and the table's
+// FR-7 row virtualization builds only a window of the rows (not all of them).
 func TestCapabilityIndex_rendersCatalog(t *testing.T) {
 	root := findStudioModuleRoot()
 	if root == "" {
@@ -100,17 +162,98 @@ func TestCapabilityIndex_rendersCatalog(t *testing.T) {
 	h := testkit.NewStandardHarness(t, 960, 600, f)
 	h.RunFrame()
 
-	children := f.Scroll().Children()
-	// provenance note + Marks + Layouts + Layers + totals line.
-	if len(children) < 5 {
-		t.Fatalf("catalog scroll children = %d, want >= 5", len(children))
+	tbl := f.Table()
+	if b := tbl.Base().LayoutRole().ArrangedBounds; b.IsEmpty() {
+		t.Fatal("capability index table not arranged")
 	}
-	if b := f.Scroll().Base().LayoutRole().ArrangedBounds; b.IsEmpty() {
-		t.Fatal("capability index scroll not arranged")
+
+	// Virtualization: the built row window is far smaller than the full row
+	// set (FR-7) — the table builds only the visible window + overscan.
+	first, last := tbl.VisibleRange()
+	if first < 0 || last < first {
+		t.Fatalf("VisibleRange = (%d, %d), want a built window", first, last)
 	}
-	// The catalog content is taller than the viewport, so the last content row
-	// extends below it — the scroll region genuinely has something to scroll.
-	if last := children[len(children)-1].Layout.ArrangedBounds; last.IsEmpty() || last.Max.Y <= 600 {
-		t.Fatalf("catalog content does not overflow the viewport (last=%v)", last)
+	data := tbl.Data.Get()
+	if built := last - first + 1; built >= len(data.Rows) {
+		t.Fatalf("built window %d rows >= total %d rows — row virtualization not in effect", built, len(data.Rows))
 	}
+	if first != 0 {
+		t.Fatalf("VisibleRange first = %d, want 0 at scroll top (provenance visible)", first)
+	}
+}
+
+// TestCapabilityIndex_totalsReachableByScroll asserts AC-7: scrolling the
+// table to the bottom brings the totals row into the built window (reachable
+// by scroll), and the provenance note is reachable back at the top.
+func TestCapabilityIndex_totalsReachableByScroll(t *testing.T) {
+	root := findStudioModuleRoot()
+	if root == "" {
+		t.Skip("source tree unavailable (no go.mod found)")
+	}
+	f := NewCapabilityIndexFacet()
+	h := testkit.NewStandardHarness(t, 960, 600, f)
+	h.RunFrame()
+
+	tbl := f.Table()
+	data := tbl.Data.Get()
+	lastRow := len(data.Rows) - 1
+
+	// Scroll well past the bottom; the offset clamps and the window's last row
+	// must reach the totals row.
+	scrollTableToBottom(t, h, tbl)
+	_, last := tbl.VisibleRange()
+	if last != lastRow {
+		t.Fatalf("bottom VisibleRange last = %d, want %d (totals row)", last, lastRow)
+	}
+
+	// Scroll back to the top: the provenance row is reachable again.
+	scrollTableToTop(t, h, tbl)
+	first, _ := tbl.VisibleRange()
+	if first != 0 {
+		t.Fatalf("top VisibleRange first = %d, want 0 (provenance row)", first)
+	}
+}
+
+// scrollTableToBottom drives wheel scrolls over the table until its scroll
+// offset clamps at the bottom (the window's last row is the final row).
+func scrollTableToBottom(t *testing.T, h *testkit.Harness, tbl interface {
+	VisibleRange() (int, int)
+}) {
+	t.Helper()
+	_, last := tbl.VisibleRange()
+	// Guard against a no-op (already at bottom) and an unbounded loop.
+	previous := -1
+	for i := 0; i < 200 && previous != last; i++ {
+		previous = last
+		driveScrollCenter(h)
+		_, last = tbl.VisibleRange()
+	}
+}
+
+// scrollTableToTop drives wheel scrolls upward until the window reaches row 0.
+func scrollTableToTop(t *testing.T, h *testkit.Harness, tbl interface {
+	VisibleRange() (int, int)
+}) {
+	t.Helper()
+	first, _ := tbl.VisibleRange()
+	previous := -1
+	for i := 0; i < 200 && previous != first; i++ {
+		previous = first
+		driveScrollCenterUp(h)
+		first, _ = tbl.VisibleRange()
+	}
+}
+
+// driveScrollCenter sends one large downward wheel step at the harness center
+// (the point over the table). A negative platform deltaY scrolls content down
+// (the mark subtracts it from the scroll offset).
+func driveScrollCenter(h *testkit.Harness) {
+	h.InjectEvent(testkit.Scroll(480, 300, 0, -600))
+	h.RunFrame()
+}
+
+// driveScrollCenterUp sends one large upward wheel step at the harness center.
+func driveScrollCenterUp(h *testkit.Harness) {
+	h.InjectEvent(testkit.Scroll(480, 300, 0, 600))
+	h.RunFrame()
 }

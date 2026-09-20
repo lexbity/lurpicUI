@@ -188,10 +188,21 @@ func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *lay
 	}
 	r.input = facet.InputRole{
 		OnKey: func(e facet.KeyEvent) bool {
-			if e.Kind == platform.KeyPress && e.Key == platform.KeyK && e.Modifiers&platform.ModControl != 0 {
+			if e.Kind != platform.KeyPress {
+				return false
+			}
+			if e.Key == platform.KeyK && e.Modifiers&platform.ModControl != 0 {
 				if !r.shell.CommandOpen.Get() {
 					r.shell.CommandOpen.Set(true)
 				}
+				return true
+			}
+			// RX-1 FR-17c: Escape closes the narrow-mode drawer/sheet overlays
+			// (the shell's key path; the drawer and sheet also close on their
+			// own Escape/dismiss handlers when focused).
+			if e.Key == platform.KeyEscape && (r.shell.IndexOpen.Get() || r.shell.InspectorOpen.Get()) {
+				r.shell.IndexOpen.Set(false)
+				r.shell.InspectorOpen.Set(false)
 				return true
 			}
 			return false
@@ -289,6 +300,20 @@ func (r *Root) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		chromeH := r.chrome.Base().LayoutRole().ArrangedBounds.Height()
 		body := gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+chromeH+r.gap, bounds.Width(), bounds.Height()-chromeH-statusH-2*r.gap)
 		r.narrow.Base().LayoutRole().Arrange(ctx, body)
+		// RX-1 FR-17a: the stage's content stops above the bottom action bar so
+		// the bar never occludes scrollable content. The bar sits in the bottom
+		// band of the body; the gallery (and thus the active exhibit) is re-
+		// arranged to end where the bar begins.
+		barH := float32(48)
+		if rail := r.narrow.Rail(); rail != nil && rail.Base() != nil && rail.Base().LayoutRole() != nil {
+			if mh := rail.Base().LayoutRole().MeasuredSize.H; mh >= 1 {
+				barH = mh
+			}
+		}
+		gal := r.gallery.Base().LayoutRole()
+		if cur := gal.ArrangedBounds; cur.Height() > barH {
+			gal.Arrange(ctx, gfx.RectFromXYWH(cur.Min.X, cur.Min.Y, cur.Width(), cur.Height()-barH))
+		}
 	} else {
 		r.narrow.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
 	}

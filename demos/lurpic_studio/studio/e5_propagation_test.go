@@ -21,6 +21,7 @@ func newShellWithSink(t *testing.T, w, h int, sink *DirtySink) (*Root, *testkit.
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
+		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	root := NewRoot(ctx, sink, seedRows(t), nil)
 	harness := testkit.NewStandardHarness(t, w, h, root)

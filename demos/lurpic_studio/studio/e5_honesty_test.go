@@ -89,26 +89,28 @@ func TestE5_overlayPrecedentReuse(t *testing.T) {
 		t.Fatal("E5 does not hold a diagnostics.Overlay (F-overlay-precedent)")
 	}
 
-	// A dirty node's row must render through HighlightDirty: force a wave,
-	// render a row for a dirty facet, and confirm a FillRect (the Overlay's
-	// drawing) appears — and that its brush is the Overlay's flag color.
+	// A dirty node's rectangle must render through HighlightDirty: force a
+	// shell layout wave so the sink's latest snapshot includes the root, render
+	// the wave map, and confirm a FillRect (the Overlay's drawing) appears —
+	// and that its brush is the Overlay's flag color.
+	root.Shell().Compact.Set(true)
+	h.RunFrame()
 	area := e5.treeArea
 	if area.IsEmpty() {
 		area = gfx.Rect{Max: gfx.Point{X: 600, Y: 400}}
 	}
-	dirty := map[facet.FacetID]dirtyInfo{
-		root.Base().ID(): {flags: facet.DirtyLayout, source: "test"},
-	}
 	var sawFill bool
-	for _, cmd := range e5.nodeRow(area, propagationNode{id: root.Base().ID(), depth: 0, label: "root"}, dirty, area.Min.Y, 16) {
+	want := e5.overlay.DirtyFlagColor(facet.DirtyLayout)
+	for _, cmd := range e5.treeCommands(area) {
 		fill, ok := cmd.(gfx.FillRect)
 		if !ok {
 			continue
 		}
-		sawFill = true
-		want := e5.overlay.DirtyFlagColor(facet.DirtyLayout)
-		if fill.Brush.Color != want {
-			t.Fatalf("dirty fill uses exhibit-local color %v, want the Overlay's %v", fill.Brush.Color, want)
+		// The map's own node fills are exhibit-local; the Overlay highlight's
+		// fill carries the Overlay's flag color. Match that one.
+		if fill.Brush.Color == want {
+			sawFill = true
+			break
 		}
 	}
 	if !sawFill {

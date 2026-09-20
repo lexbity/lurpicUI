@@ -227,6 +227,27 @@ func (c *Card) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	return out
 }
 
+// ChildRect returns the arranged bounds of the content child with the given
+// key, or (empty, false) when the key is unknown or the card was never
+// arranged. The card's content is self-projected and not in the facet tree
+// (F-card-content), so this is the accessor for cell-overlap assertions
+// (RX-1 FR-15 / AC-10).
+func (c *Card) ChildRect(key string) (gfx.Rect, bool) {
+	if c == nil {
+		return gfx.Rect{}, false
+	}
+	active := c.activeChildren()
+	for i := range active {
+		spec := active[i]
+		if spec.Facet == nil || spec.Key != key {
+			continue
+		}
+		b, ok := c.cachedChildBounds[spec.Facet.Base().ID()]
+		return b, ok
+	}
+	return gfx.Rect{}, false
+}
+
 // Children returns the immediate child facet list.
 func (c *Card) Children() []facet.GroupChild {
 	if c == nil {

@@ -144,14 +144,54 @@ func (a *Axis) measureSize() gfx.Size {
 	if labelSize == 0 {
 		labelSize = 11
 	}
-	labelEstimate := labelSize + 5
 	switch a.Orientation.Get() {
 	case AxisBottom, AxisTop:
-		return gfx.Size{W: 0, H: tickLen + labelEstimate + 4}
+		// The vertical extent is the tick length plus the single-line label
+		// height (a fixed line estimate; label text is single-line).
+		return gfx.Size{W: 0, H: tickLen + labelSize + 5}
 	case AxisLeft, AxisRight:
-		return gfx.Size{W: tickLen + labelEstimate + 4, H: 0}
+		// RX-1 FR-15: the label column is the widest formatted tick label
+		// measured via text metrics — a constant estimate clipped formatted
+		// tick text and caused the A-10 dash-clipping class. The fallback is
+		// the pre-FR-15 per-character estimate (no shaper attached).
+		labelW := a.measureWidestLabel(labelSize)
+		return gfx.Size{W: tickLen + labelW + 6, H: 0}
 	}
 	return gfx.Size{}
+}
+
+// measureWidestLabel measures the widest formatted tick label for the current
+// scale domain through the shaper (RX-1 FR-15). It falls back to a
+// per-character estimate when no shaper is available or the scale is not a
+// Ticker.
+func (a *Axis) measureWidestLabel(labelSize float32) float32 {
+	fallback := labelSize + 5
+	if a.Scale == nil || a.shaper == nil {
+		return fallback
+	}
+	s := a.Scale.Get()
+	ticker, ok := s.(scale.Ticker)
+	if !ok {
+		return fallback
+	}
+	style := text.TextStyle{Size: labelSize, Family: a.themeFontFamily}
+	width := float32(0)
+	for _, t := range ticker.Ticks(a.TickCount.Get()) {
+		if t.Label == "" {
+			continue
+		}
+		shaped := a.shaper.ShapeSimple(t.Label, style)
+		if shaped == nil || len(shaped.Lines) == 0 || len(shaped.Lines[0].Runs) == 0 {
+			continue
+		}
+		if w := shaped.Lines[0].Runs[0].Bounds.Width(); w > width {
+			width = w
+		}
+	}
+	if width <= 0 {
+		return fallback
+	}
+	return width
 }
 
 func (a *Axis) computeEntries() {
@@ -348,7 +388,12 @@ func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 		}
 
 	case AxisLeft:
-		var lastEnd float32
+		// Labels iterate bottom→top (the y-scale is inverted: pixel 0 is the
+		// domain's high end). Collision tracks the previous (lower) label's top
+		// — the old code tracked its bottom, so every label above the first was
+		// skipped and the axis showed a single clipped label (the A-10
+		// dash-clipping class, RX-1 FR-15).
+		var lastTop float32
 		for i, s := range slots {
 			y := float32(s.entry.Pixel) + bounds.Min.Y
 			cmds = append(cmds, gfx.StrokePath{
@@ -373,10 +418,10 @@ func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 					continue
 				}
 			}
-			if i > 0 && labelY < lastEnd {
+			if i > 0 && labelEnd > lastTop {
 				continue
 			}
-			lastEnd = labelEnd
+			lastTop = labelY
 			shaped := a.shaper.ShapeSimple(s.entry.Label, style)
 			cmds = append(cmds, gfx.DrawGlyphRun{
 				Run: shaped.Lines[0].Runs[0],
@@ -389,7 +434,8 @@ func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 		}
 
 	case AxisRight:
-		var lastEnd float32
+		// Same bottom→top label collision fix as AxisLeft (RX-1 FR-15).
+		var lastTop float32
 		for i, s := range slots {
 			y := float32(s.entry.Pixel) + bounds.Min.Y
 			cmds = append(cmds, gfx.StrokePath{
@@ -414,10 +460,10 @@ func (a *Axis) buildCommands(bounds gfx.Rect) []gfx.Command {
 					continue
 				}
 			}
-			if i > 0 && labelY < lastEnd {
+			if i > 0 && labelEnd > lastTop {
 				continue
 			}
-			lastEnd = labelEnd
+			lastTop = labelY
 			shaped := a.shaper.ShapeSimple(s.entry.Label, style)
 			cmds = append(cmds, gfx.DrawGlyphRun{
 				Run: shaped.Lines[0].Runs[0],

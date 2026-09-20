@@ -18,6 +18,7 @@ func newShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
+		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	root := NewRoot(ctx, nil, nil, nil)
 	harness := testkit.NewStandardHarness(t, w, h, root)

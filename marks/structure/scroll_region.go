@@ -41,17 +41,25 @@ type ScrollRegionChild struct {
 	ZOrder    int32
 }
 
+// ContentInsets is the per-side content inset reserved inside a scroll
+// region's viewport (RX-1 FR-17): content scrolls within the inset bounds, so
+// an overlay bar (e.g. the narrow mode's bottom action bar) never occludes it.
+type ContentInsets struct {
+	Top, Right, Bottom, Left float32
+}
+
 // ScrollRegion implements the structure.scroll_region canonical mark.
 type ScrollRegion struct {
 	marks.Core
 
 	Scrolled signal.Signal[gfx.Point]
 
-	Label       marks.Binding[string]
-	Disabled    marks.Binding[bool]
-	Direction   marks.Binding[ScrollDirection]
-	Gap         marks.Binding[float32]
-	ScrollToEnd marks.Binding[bool]
+	Label        marks.Binding[string]
+	Disabled     marks.Binding[bool]
+	Direction    marks.Binding[ScrollDirection]
+	Gap          marks.Binding[float32]
+	ScrollToEnd  marks.Binding[bool]
+	ContentInset marks.Binding[ContentInsets]
 
 	children []ScrollRegionChild
 
@@ -94,6 +102,7 @@ func NewScrollRegion(label string) *ScrollRegion {
 		Direction:         marks.Const(ScrollDirectionVertical),
 		Gap:               marks.Const(float32(0)),
 		ScrollToEnd:       marks.Const(false),
+		ContentInset:      marks.Const(ContentInsets{}),
 		Scrolled:          signal.NewSignal[gfx.Point]("scroll_region_scrolled"),
 		cachedChildBounds: make(map[facet.FacetID]gfx.Rect),
 	}
@@ -103,6 +112,7 @@ func NewScrollRegion(label string) *ScrollRegion {
 	sr.AddBinding(sr.Direction)
 	sr.AddBinding(sr.Gap)
 	sr.AddBinding(sr.ScrollToEnd)
+	sr.AddBinding(sr.ContentInset)
 
 	sr.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -357,7 +367,19 @@ func (sr *ScrollRegion) measure(ctx facet.MeasureContext, constraints facet.Cons
 
 func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	sr.cachedBounds = bounds
-	sr.cachedViewportBounds = bounds
+	// RX-1 FR-17: the content scrolls within the inset bounds (the viewport
+	// and scroll extent), so an overlay bar can sit in the inset band without
+	// occluding content. The region's own clip stays the full arranged bounds.
+	inset := sr.ContentInset.Get()
+	contentBounds := bounds
+	contentBounds.Min.X += inset.Left
+	contentBounds.Min.Y += inset.Top
+	contentBounds.Max.X -= inset.Right
+	contentBounds.Max.Y -= inset.Bottom
+	if contentBounds.Width() < 1 || contentBounds.Height() < 1 {
+		contentBounds = bounds
+	}
+	sr.cachedViewportBounds = contentBounds
 	sr.cachedContentBounds = gfx.Rect{}
 	sr.cachedVerticalTrack = gfx.Rect{}
 	sr.cachedVerticalThumb = gfx.Rect{}
@@ -375,8 +397,8 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	childBounds := make(map[facet.FacetID]gfx.Rect, len(children))
 	order := make([]facet.FacetID, 0, len(children))
-	cursorX := bounds.Min.X - sr.scrollOffset.X
-	cursorY := bounds.Min.Y - sr.scrollOffset.Y
+	cursorX := contentBounds.Min.X - sr.scrollOffset.X
+	cursorY := contentBounds.Min.Y - sr.scrollOffset.Y
 	for _, child := range children {
 		if child.Layout == nil {
 			continue
@@ -385,9 +407,9 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if measured == (gfx.Size{}) {
 			measured = child.Layout.MeasuredResult.Size
 		}
-		childRect := gfx.RectFromXYWH(bounds.Min.X, cursorY, bounds.Width(), measured.H)
+		childRect := gfx.RectFromXYWH(contentBounds.Min.X, cursorY, contentBounds.Width(), measured.H)
 		if sr.Direction.Get() == ScrollDirectionHorizontal {
-			childRect = gfx.RectFromXYWH(cursorX, bounds.Min.Y, measured.W, bounds.Height())
+			childRect = gfx.RectFromXYWH(cursorX, contentBounds.Min.Y, measured.W, contentBounds.Height())
 		}
 		placement := child.Attachment.Placement
 		if !child.Contract.SupportedPlacement.Has(placement.Mode) {
@@ -440,7 +462,7 @@ func (sr *ScrollRegion) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 		sr.cachedContentBounds = gfx.RectFromXYWH(minX, minY, maxX-minX, maxY-minY)
 	}
-	sr.updateScrollBounds(bounds)
+	sr.updateScrollBounds(contentBounds)
 	sr.Viewport.WorldBounds = bounds
 }
 

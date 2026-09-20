@@ -10,48 +10,42 @@ import (
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
-// ExhibitIndex is the exhibit-index pane: a nav_rail (icon switch) above a
-// tree_navigator (concept groups). Both bind the same ShellState.ActiveExhibit
-// store, so the two controls stay in sync and the stage switches (FR-nav).
-// It is a bespoke vertical host because the framework Card does not attach its
-// content to the facet tree (F-card-content) — nav_rail/tree_navigator inside
-// a Card would not receive pointer input.
+// ExhibitIndex is the exhibit-index pane: exactly ONE exhibit-selection
+// surface — a tree_navigator of concept-grouped exhibits (FR-13). The nav_rail
+// duplicate listing was removed; the nav_rail mark is demonstrated in the E6
+// Navigation playground (coverage stays whole). The tree binds the shell's
+// ActiveExhibit through its FR-8 selection store (treeSel), so a store write —
+// from the tree, the stage, the command palette, or a pre-attach seed —
+// re-syncs the control through the mark's own contract. It is a bespoke
+// vertical host because the framework Card does not attach its content to the
+// facet tree (F-card-content) — a tree_navigator inside a Card would not
+// receive pointer input.
 type ExhibitIndex struct {
 	facet.Facet
 	layout facet.LayoutRole
 
 	shell   *ShellState
-	rail    *navigation.NavRail
 	tree    *navigation.TreeNavigator
-	railID  *store.ValueStore[int]
 	treeSel *store.ValueStore[string]
 
 	rt      facet.RuntimeServices
 	cleanup func()
 }
 
-// NewExhibitIndex builds the index pane over the shared shell state. The nav
-// marks bind the shell's ActiveExhibit through their FR-8 selection stores
-// (railID / treeSel), so a store write — from either mark, the stage, or a
-// pre-attach seed — re-syncs both controls through the marks' own contract.
+// NewExhibitIndex builds the index pane over the shared shell state. The tree
+// mark binds the shell's ActiveExhibit through its FR-8 selection store
+// (treeSel), so a store write re-syncs the tree through the mark's own
+// contract.
 func NewExhibitIndex(shell *ShellState) *ExhibitIndex {
 	p := &ExhibitIndex{
 		shell:   shell,
-		railID:  store.NewValueStore(exhibitIndex(shell.ActiveExhibit.Get())),
 		treeSel: store.NewValueStore(selectedPathForExhibit(shell.ActiveExhibit.Get())),
 	}
 	p.Facet = facet.NewFacet()
 
-	items := make([]navigation.NavRailItem, 0, len(exhibitCatalog))
-	for _, e := range exhibitCatalog {
-		items = append(items, navigation.NavRailItem{Key: string(e.id), Label: e.title, IconRef: e.icon})
-	}
-	p.rail = navigation.NewNavRail("Exhibits", items, p.railID)
-
 	p.tree = navigation.NewTreeNavigator("Exhibit tree", indexTreeNodes(shell.ActiveExhibit.Get()), p.treeSel)
 
-	p.AddChild(p.rail.Base()) //lurpiclint:ignore LL021 -- the index pane hosts navigational marks as regular children, not overlays (LL021 over-fires)
-	p.AddChild(p.tree.Base()) //lurpiclint:ignore LL021 -- the index pane hosts navigational marks as regular children, not overlays (LL021 over-fires)
+	p.AddChild(p.tree.Base()) //lurpiclint:ignore LL021 -- the index pane hosts a navigational mark as a regular child, not an overlay (LL021 over-fires)
 
 	p.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke index-pane host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -88,15 +82,13 @@ func indexTreeNodes(active ExhibitID) []navigation.TreeNode {
 	return nodes
 }
 
-// selectTreePath, markTreePath, clearTreeSelection and selectedTreeNode were
-// the per-app selection plumbing FR-8 obsoleted: the tree_navigator now owns
-// its selection through its FR-8 Selection store, and the index pane binds it
-// to ActiveExhibit via selectedPathForExhibit / exhibitFromPath above.
+// The per-app selection plumbing FR-8 obsoleted (a build-time snapshot plus
+// manual Data mutation on every change) now lives inside the tree_navigator
+// mark's own contract: attach-time sync, re-sync on every store change, and
+// write-back with an echo guard. The index pane binds the mark to ActiveExhibit
+// via selectedPathForExhibit / exhibitFromPath above.
 
 func (p *ExhibitIndex) measure(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-	if role := p.rail.Base().LayoutRole(); role != nil {
-		role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
-	}
 	if role := p.tree.Base().LayoutRole(); role != nil {
 		role.Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: c.MaxSize.W}})
 	}
@@ -105,33 +97,17 @@ func (p *ExhibitIndex) measure(ctx facet.MeasureContext, c facet.Constraints) fa
 
 func (p *ExhibitIndex) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	if bounds.IsEmpty() {
-		if role := p.rail.Base().LayoutRole(); role != nil {
-			role.Arrange(ctx, gfx.Rect{})
-		}
 		if role := p.tree.Base().LayoutRole(); role != nil {
 			role.Arrange(ctx, gfx.Rect{})
 		}
 		return
 	}
-	railH := p.rail.Base().LayoutRole().MeasuredSize.H
-	p.rail.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), railH))
-	treeH := bounds.Height() - railH
-	if treeH < 1 {
-		treeH = 1
-	}
-	p.tree.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+railH, bounds.Width(), treeH))
+	p.tree.Base().LayoutRole().Arrange(ctx, bounds)
 }
 
 func (p *ExhibitIndex) OnAttach(ctx facet.AttachContext) {
 	p.rt = ctx.Runtime
 
-	// A rail user selection publishes to railID → the exhibit switch flows
-	// through setActive (the rail's own binding re-syncs it).
-	railID := p.rail.Activated.Subscribe(func(index int) {
-		if index >= 0 && index < len(exhibitCatalog) {
-			p.setActive(exhibitCatalog[index].id, "index.nav_rail")
-		}
-	})
 	// A tree user selection publishes its path to treeSel → the exhibit switch.
 	treeSelID := p.treeSel.OnChange.Subscribe(func(c signal.Change[string]) {
 		if id := exhibitFromPath(c.New); id != "" {
@@ -139,18 +115,14 @@ func (p *ExhibitIndex) OnAttach(ctx facet.AttachContext) {
 		}
 	})
 	// An external ActiveExhibit write (stage, pre-attach seed, command palette)
-	// re-syncs both marks' FR-8 selection stores; their bindings adopt the
-	// write and re-render. No manual Data mutation or layout routing.
+	// re-syncs the tree mark's FR-8 selection store; its binding adopts the
+	// write and re-renders. No manual Data mutation or layout routing.
 	activeID := p.shell.ActiveExhibit.OnChange.Subscribe(func(c signal.Change[ExhibitID]) {
-		if idx := exhibitIndex(c.New); idx >= 0 && p.railID.Get() != idx {
-			p.railID.Set(idx)
-		}
 		if path := selectedPathForExhibit(c.New); path != "" && p.treeSel.Get() != path {
 			p.treeSel.Set(path)
 		}
 	})
 	p.cleanup = func() {
-		p.rail.Activated.Unsubscribe(railID)
 		p.treeSel.OnChange.Unsubscribe(treeSelID)
 		p.shell.ActiveExhibit.OnChange.Unsubscribe(activeID)
 	}
@@ -165,9 +137,9 @@ func (p *ExhibitIndex) OnDetach() {
 
 // setActive writes the shell's ActiveExhibit store (guarded against re-entry).
 // No manual layout routing: the store write re-lays the stage (structural) and,
-// through the marks' FR-8 selection bindings, re-syncs the nav_rail / tree
-// selection stores — their versions are tracked in the projection cache key and
-// re-projected on change (RX-1 FR-3).
+// through the tree mark's FR-8 selection binding, re-syncs the tree selection
+// store — its version is tracked in the projection cache key and re-projected
+// on change (RX-1 FR-3).
 func (p *ExhibitIndex) setActive(id ExhibitID, source string) {
 	if p.shell.ActiveExhibit.Get() == id {
 		return
@@ -195,14 +167,8 @@ func exhibitFromPath(path string) ExhibitID {
 	return ExhibitID(path)
 }
 
-// Rail returns the nav_rail mark.
-func (p *ExhibitIndex) Rail() *navigation.NavRail { return p.rail }
-
 // Tree returns the tree_navigator mark.
 func (p *ExhibitIndex) Tree() *navigation.TreeNavigator { return p.tree }
-
-// RailIndex returns the nav_rail's active-index store.
-func (p *ExhibitIndex) RailIndex() *store.ValueStore[int] { return p.railID }
 
 // TreeSelection returns the tree_navigator's selection (path) store.
 func (p *ExhibitIndex) TreeSelection() *store.ValueStore[string] { return p.treeSel }

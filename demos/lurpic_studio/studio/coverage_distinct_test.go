@@ -130,7 +130,7 @@ var placementIntents = map[string]distinctiveBehavior{
 	"action/popup_palette":      behCommandDispatch, // E6: Activated writes lastAction (was behAnchorTracking — corrected; E6 placement does not anchor)
 	"action/ribbon":             behCommandDispatch, // E6: section Activated writes ribbonTab
 	"navigation/nav_drawer":     behNavStructure,    // E6 + narrow shell: Activated emits index
-	"navigation/nav_rail":       behNavStructure,    // index pane: Activated emits exhibit index
+	"navigation/nav_rail":       behNavStructure,    // E6 navigation playground: Activated writes railSelect
 	"navigation/pagination":     behNavStructure,    // E6: Activated emits page
 	"navigation/tabs":           behNavStructure,    // E6 family switch: ActiveIndex store
 	"navigation/tree_navigator": behNavStructure,    // index pane: Data store drives the tree

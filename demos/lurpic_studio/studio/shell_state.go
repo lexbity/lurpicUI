@@ -13,8 +13,8 @@ import (
 // binds these SAME stores, so a breakpoint crossing preserves store-version
 // continuity and value equality without re-parenting a single mark.
 type ShellState struct {
-	// ActiveExhibit is the exhibit the stage shows. The index pane (nav_rail
-	// + tree_navigator in wide, nav_drawer + bottom rail in narrow) writes it;
+	// ActiveExhibit is the exhibit the stage shows. The index pane
+	// (tree_navigator in wide, nav_drawer + bottom rail in narrow) writes it;
 	// the stage reads it.
 	ActiveExhibit *store.ValueStore[ExhibitID]
 	// CommandOpen gates the command palette (Ctrl+K / the chrome ⌘K button).

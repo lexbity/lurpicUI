@@ -24,6 +24,7 @@ func TestSwitchedGolden_stageReproducesFreshAfterExhibitCycle(t *testing.T) {
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
+		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	root := NewRoot(ctx, nil, seedRows(t), nil)
 	h := testkit.NewStandardHarness(t, 1280, 800, root)

@@ -123,23 +123,12 @@ func TestShellStatusBar_feedWiring(t *testing.T) {
 	}
 }
 
-// TestShellIndexPane_switchesExhibit asserts the wide index pane's nav_rail and
-// tree_navigator both drive the shared ActiveExhibit store (FR-nav).
+// TestShellIndexPane_switchesExhibit asserts the wide index pane's single
+// tree_navigator surface (FR-13) drives the shared ActiveExhibit store
+// (FR-nav), including a click path and an external pre-attach write path.
 func TestShellIndexPane_switchesExhibit(t *testing.T) {
 	root, h := newResponsiveShell(t, 1280, 800)
 	index := root.Index()
-
-	// nav_rail: click the second destination (the rail stacks items
-	// vertically, so the y offset selects the item).
-	rail := index.Rail().Base().LayoutRole().ArrangedBounds
-	if rail.IsEmpty() {
-		t.Fatal("index nav_rail not arranged")
-	}
-	itemY := rail.Min.Y + rail.Height()*(1.5/float32(len(exhibitCatalog)))
-	testkit.DriveClick(h, rail.Min.X+rail.Width()*0.5, itemY)
-	if got := root.Shell().ActiveExhibit.Get(); got != exhibitCatalog[1].id {
-		t.Fatalf("nav_rail selected %v, want %v", got, exhibitCatalog[1].id)
-	}
 
 	// tree_navigator: click a leaf under the first group.
 	tree := index.Tree().Base().LayoutRole().ArrangedBounds
@@ -151,8 +140,16 @@ func TestShellIndexPane_switchesExhibit(t *testing.T) {
 	h.RunFrame()
 	// The tree's selection must reflect into ActiveExhibit: whichever leaf the
 	// click selected, ActiveExhibit agrees.
-	if sel := index.Tree().Selection.Get(); sel != "" && exhibitFromPath(sel) != root.Shell().ActiveExhibit.Get() {
+	if sel := index.TreeSelection().Get(); sel != "" && exhibitFromPath(sel) != root.Shell().ActiveExhibit.Get() {
 		t.Fatalf("tree selected %v but ActiveExhibit is %v", sel, root.Shell().ActiveExhibit.Get())
+	}
+
+	// An external write (the stage, the command palette, a pre-attach seed)
+	// re-syncs the tree's FR-8 selection store within one frame.
+	root.Shell().ActiveExhibit.Set(ExhibitLayers)
+	h.RunFrame()
+	if path := index.TreeSelection().Get(); path != selectedPathForExhibit(ExhibitLayers) {
+		t.Fatalf("tree selection after external write = %v, want %v", path, selectedPathForExhibit(ExhibitLayers))
 	}
 }
 

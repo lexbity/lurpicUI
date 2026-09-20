@@ -2,11 +2,14 @@
 
 Realtime interactable documentation for the lurpicUI framework: a gallery of
 live exhibits, each demonstrating one framework capability interactively.
-See `devdocs/plans/lurpic-studio-redesign.md` for the full specification.
+See `devdocs/plans/done/lurpic-studio-redesign.md` for the original product
+specification and `devdocs/plans/render-contracts-overhaul.md` (RX-1) for the
+render-correctness contracts this demo now proves.
 
 ## Status
 
-Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
+The RX-1 studio-repair contracts (FR-13 … FR-20) are in place; the earlier
+slices (P0–P10) are superseded but their framework feedback remains below.
 
 - **Responsive shell (`studio/root.go` + `studio/root_narrow.go` + `studio/responsive_test.go`)** —
   FR-resp. The shell collapses below the 960dp breakpoint (content-scale aware):
@@ -17,10 +20,64 @@ Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
   continuity and value equality (`responsive_test.go`), and a wiring-equivalence
   test asserts both trees reference the same stores (R-resp).
 - **Exhibit index (`studio/pane_index.go` + `studio/catalog.go`)** — the wide
-  index pane hosts `nav_rail` + `tree_navigator`, both driving the shared
-  `ActiveExhibit` store (FR-nav). The catalog is the single source of the
-  exhibit list shared by the index, the narrow drawer/rail, the command palette,
-  and the status bar.
+  index pane hosts **exactly one exhibit-selection surface**: a `tree_navigator`
+  of concept-grouped exhibits driving the shared `ActiveExhibit` store
+  (FR-13; the duplicate `nav_rail` listing was removed — the `nav_rail` mark is
+  demonstrated in the E6 Navigation playground, `e6_navigation.go`). The
+  catalog is the single source of the exhibit list shared by the index, the
+  narrow drawer/rail, the command palette, and the status bar. Enforced by
+  `TestShellIndexPane_switchesExhibit` and the coverage audit's E6 placement
+  assertion.
+- **Capability Index (`studio/capability_index.go`)** — FR-14. The catalog
+  (300+ capabilities) renders through the framework `structure.table` mark with
+  Kind/Path/Intent columns, provenance as the first row, section headers per
+  concept group, and the totals line as the last row — all reachable by
+  scrolling the virtualized table. Enforced by `capability_index_test.go`
+  (row-structure pin, `VisibleRange` virtualization) and
+  `capability_index_golden_test.go` (top/middle/bottom goldens).
+- **Realtime flagship repair (`studio/e1_realtime.go` + `studio/chart_canvas.go`
+  + `marks/viz/axis.go`)** — RX-1 FR-15. The y-axis label column is sized to the
+  widest formatted tick label measured via text metrics (not a constant — the
+  constant clipped formatted tick text), and the left/right axis label
+  collision bug that skipped every label above the first (the A-10
+  "clipped to dashes" residue) is fixed. The `ShowGrid` toggle now re-projects
+  the canvas so the grid actually paints. Enforced by
+  `marks/viz/axis_test.go` (measured label column), `e1_controls_test.go`
+  (non-overlapping control cells and bottom-strip regions, >= 3 y-axis labels,
+  series + grid in the first data frame).
+- **Propagation wave view (`studio/e5_propagation.go`)** — RX-1 FR-16. The
+  E5 wave view renders the shell tree as a bounds-scaled layout map (node
+  rectangles), culls labels to the plot rect, de-collides them by 64px buckets,
+  labels only nodes tall enough to read, and caps at 24 labels per frame — the
+  A-11 label explosion is dead. Enforced by `e5_wave_test.go` (label cap, no
+  label outside the plot rect, node rects for every in-area facet).
+- **Narrow mode repair (`studio/root.go` + `studio/root_narrow.go` +
+  `studio/pane_inspector.go` + `marks/structure/scroll_region.go`)** — RX-1
+  FR-17. The stage's content stops above the bottom action bar (no occlusion),
+  a hit-blocking scrim dims the stage behind the drawer and bottom sheet with
+  tap-outside dismissal, the sheet carries a drag-handle affordance and Escape
+  closes both overlays, and the `scroll_region` mark gained a `ContentInset`
+  binding so content scrolls within an inset band. Enforced by
+  `narrow_golden_test.go` (default/drawer/sheet goldens, no-content-under-bar,
+  scrim hit-blocking, Escape, outside-tap) and `scroll_region_inset_test.go`.
+- **Pinned theme (`studio/tokens.go` + `studio/layers.go`)** — RX-1 FR-18. The
+  studio resolves one pinned token set (the blue family) with zero OS/platform
+  reads; `StudioThemeContext()` never consults the framework default, so the
+  demo renders the same palette under any desktop theme (the A-13
+  live-orange-vs-golden-blue divergence is dead). Enforced by
+  `theme_pin_test.go` and the `theme.Default()` grep gate.
+- **Alive coverage (`studio/coverage_alive_test.go` + `internal/testkit/alive.go`)** —
+  RX-1 FR-20. The placement-only walk (A-15) is upgraded to a pixel-pinned
+  predicate: every standard mark must be ARRANGED and render non-background
+  pixels in some frame, and every interactive mark must have a driven input
+  that mutates observable state. **48/48 is now a claim pixels can refute**
+  (`TestCoverageAlive_allStandardMarksRender`,
+  `TestCoverageAlive_interactiveMarksMutateState`,
+  `TestCoverageAlive_detectsDeadPalette`).
+- **Inspector metadata (`studio/catalog.go` + `studio/pane_inspector.go`)** —
+  RX-1 P9. Every exhibit carries a "Try:" guidance line rendered in the
+  inspector's metadata block, and the demonstrated-mark count pluralizes
+  correctly (`TestInspector_hintCopyAndGrammar`, `TestInspector_hintRenders`).
 - **Command palette (`studio/command_palette.go`)** — FR-cmd. A shell command
   registry (switch exhibit, toggle the feed, toggle the narrow sheets) behind
   the `command_palette` mark; Ctrl+K (root focus) and the chrome ⌘K button open
@@ -29,14 +86,15 @@ Slice P10 of the multi-slice plan is in place (P0–P9 done previously):
   reflects the feed connection, `progress_bar`/`progress_ring` track the
   streaming job progress in lock-step, the `badge` reflects the live row count,
   and the caption names the active exhibit.
-- **Coverage audit (`studio/coverage_test.go` + `studio/coverage_distinct_test.go`)** —
-  FR-coverage and FR-coverage-distinct. A live-tree walk asserts the multiset of
+- **Coverage audit (`studio/coverage_test.go` + `studio/coverage_alive_test.go`)** —
+  FR-coverage and RX-1 FR-20. The live-tree walk asserts the multiset of
   `(Family, TypeName)` reaches **48/48 standard marks** (the three §2.8 traps
-  filtered); a companion review encodes each mark's distinctive behavior. This
-  required placing the previously-unplaced action/feedback/navigation marks
-  (split_button, menu_button, radial_menu, popup_palette, standalone toolbar,
-  notification, tooltip, breadcrumbs, list_item, icon, list) with genuine homes
-  in E6 and E1.
+  filtered), and the alive coverage proves each of those marks is arranged,
+  pixel-visible, and (for interactive marks) drives a mutation through a
+  subscription. This required placing the previously-unplaced
+  action/feedback/navigation marks (split_button, menu_button, radial_menu,
+  popup_palette, standalone toolbar, notification, tooltip, breadcrumbs,
+  list_item, icon, list) with genuine homes in E6 and E1.
 - **Framework feedback (P10):**
   - `F-resp` (spec) — the responsive contract uses store identity, never mark
     pointers: the wide and narrow arrangements are distinct mark instances bound
@@ -209,12 +267,16 @@ worked around:
 
 ## Findings tracking
 
-Inline `F-*` findings are consolidated in `devdocs/plans/lurpic-studio-redesign.md`
+Inline `F-*` findings are consolidated in `devdocs/plans/done/lurpic-studio-redesign.md`
 §9 (Findings register). This demo is the first integrator of the never-consumed
 layout/viz stack; defects found while building it are Findings, never
-in-demo edits (NG-2).
+in-demo edits (NG-2). The RX-1 render-correctness contracts (FR-13 … FR-20)
+supersede the fix-direction portions of that register; see
+`devdocs/plans/render-contracts-overhaul.md` for the contract specifications.
 
-## QA checklist (stub — filled per-slice)
+## QA checklist
+
+Every claim below links to the test that proves it (RX-1 NFR-10).
 
 - [ ] P0: `go run ./demos/lurpic_studio` opens a themed 1280×800 window.
 - [ ] P0: `go test ./demos/lurpic_studio/... -race` green.
@@ -226,6 +288,35 @@ in-demo edits (NG-2).
 - [x] P9: Capability Index renders the `capindex`-generated catalog
       (`capability_index_test.go`); `e6_action`/`e6_selection` goldens are
       byte-distinct.
+- [x] RX-1 FR-13: the wide index pane hosts ONE exhibit-selection surface
+      (tree_navigator); the nav_rail duplicate is gone and the rail mark is
+      demonstrated in E6 (`e6_navigation.go`, `TestShellIndexPane_switchesExhibit`,
+      coverage E6 placement).
+- [x] RX-1 FR-14: the Capability Index renders the full catalog (300+) through
+      the virtualized `structure.table` mark with provenance/totals reachable by
+      scroll (`capability_index_test.go`, `capability_index_golden_test.go`).
+- [x] RX-1 FR-15: the E1 y-axis label column is measured from the widest tick
+      text, the left/right label collision bug is fixed, the grid paints on
+      toggle, and every control / bottom-strip region is non-overlapping
+      (`marks/viz/axis_test.go`, `e1_controls_test.go`).
+- [x] RX-1 FR-16: the E5 wave view is a bounds-scaled layout map with labels
+      culled to the plot rect, 64px-bucket de-collided, and capped at 24 per
+      frame (`e5_wave_test.go`).
+- [x] RX-1 FR-17: narrow mode insets the stage content above the bottom action
+      bar, shows a hit-blocking scrim behind the drawer/sheet with tap-outside
+      dismissal, and closes on Escape; the sheet has a drag-handle affordance
+      (`narrow_golden_test.go`, `scroll_region_inset_test.go`).
+- [x] RX-1 FR-18: the studio resolves one pinned token set (blue family) with
+      zero OS reads; `StudioThemeContext()` never consults the framework default
+      (`theme_pin_test.go` + `theme.Default()` grep gate).
+- [x] RX-1 FR-20: every standard mark is arranged AND renders non-background
+      pixels in some frame (48/48 — `TestCoverageAlive_allStandardMarksRender`),
+      every interactive mark drives a mutation through a subscription
+      (`TestCoverageAlive_interactiveMarksMutateState`), and a dead palette is
+      rejected by the walker (`TestCoverageAlive_detectsDeadPalette`).
+- [x] RX-1 P9: every exhibit carries a "Try:" guidance line in the inspector
+      and the mark-count pluralizes (`TestInspector_hintCopyAndGrammar`,
+      `TestInspector_hintRenders`).
 - [x] P10: responsive collapse below 960dp — index → nav_drawer + bottom
       action bar, inspector → bottom sheet, stage full-width; crossing
       preserves store versions + values (`responsive_test.go`).

@@ -7,8 +7,10 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
+	"codeburg.org/lexbit/lurpicui/scale"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 func TestAxis_computes_entries_from_ticks(t *testing.T) {
@@ -171,6 +173,58 @@ func TestAxis_label_collision_skips_overlapping(t *testing.T) {
 	}
 	if labelCount == 0 {
 		t.Fatal("expected at least one non-colliding label")
+	}
+}
+
+// TestAxis_left_label_column_measured_from_widest_tick proves RX-1 FR-15: the
+// left/right axis's label column is sized to the widest formatted tick label
+// measured via text metrics, not a constant estimate — the constant clipped
+// formatted tick text and caused the A-10 dash-clipping class.
+func TestAxis_left_label_column_measured_from_widest_tick(t *testing.T) {
+	fonts := (axisGoldenRuntime{}).FontRegistry()
+	domain := store.NewValueStore([2]float64{0, 1000})
+	rng := store.NewValueStore([2]float64{0, 200})
+	rs := reactive.NewLinearReactive(domain, rng)
+
+	a := NewAxis(rs, marks.Const(AxisLeft), fonts)
+	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+
+	a.Layout.Measure(facet.MeasureContext{ContentScale: 1}, facet.Constraints{MaxSize: gfx.Size{W: 120, H: 240}})
+	size := a.Layout.MeasuredSize
+	if size.W <= 0 {
+		t.Fatal("left axis measured size has no width")
+	}
+
+	// The widest formatted tick label (e.g. "1000") measured with the same
+	// style the axis uses at projection.
+	s := a.Scale.Get()
+	ticker, ok := s.(scale.Ticker)
+	if !ok {
+		t.Fatal("linear scale is not a Ticker")
+	}
+	shaper := text.NewShaper(fonts)
+	style := text.TextStyle{Size: 11}
+	widest := float32(0)
+	for _, tk := range ticker.Ticks(a.TickCount.Get()) {
+		if tk.Label == "" {
+			continue
+		}
+		shaped := shaper.ShapeSimple(tk.Label, style)
+		if shaped == nil || len(shaped.Lines) == 0 || len(shaped.Lines[0].Runs) == 0 {
+			continue
+		}
+		if w := shaped.Lines[0].Runs[0].Bounds.Width(); w > widest {
+			widest = w
+		}
+	}
+	if widest <= 0 {
+		t.Fatal("no tick labels shaped; the fixture is degenerate")
+	}
+	// The label column (the measured width minus the tick length and the
+	// trailing padding) must fit the widest label.
+	tickLen := float32(6)
+	if got := size.W - tickLen - 6; got < widest {
+		t.Fatalf("left axis label column %.1f < widest tick label %.1f (FR-15)", got, widest)
 	}
 }
 

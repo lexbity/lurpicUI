@@ -747,6 +747,16 @@ func (c *ChartCanvas) OnAttach(ctx facet.AttachContext) {
 			c.selection.OnChange.Unsubscribe(idSel)
 		})
 	}
+	// The grid overlay is chart-side projection content: a ShowGrid toggle must
+	// re-project the canvas (RX-1 FR-15 — the grid has to paint on demand).
+	if c.showGrid != nil {
+		idGrid := c.showGrid.OnChange.Subscribe(func(signal.Change[bool]) {
+			c.Invalidate(facet.DirtyProjection)
+		})
+		cleanups = append(cleanups, func() {
+			c.showGrid.OnChange.Unsubscribe(idGrid)
+		})
+	}
 	// The windowed-row view: when the caller flushes the WindowedRows derived
 	// (E1's tick), its recompute fires OnChange here and the canvas syncs the
 	// series' collection (FR-viz: the bar aggregates the live window).

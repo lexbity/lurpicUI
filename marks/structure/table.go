@@ -1005,14 +1005,14 @@ func (t *Table) onPointer(e facet.PointerEvent) bool {
 			t.dragging = true
 			t.draggingAxis = ScrollDirectionVertical
 			t.updateOffsetFromDrag(e.Position)
-			t.invalidate(facet.DirtyProjection)
+			t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
 			return true
 		}
 		if t.cachedHorizontalThumb.Contains(e.Position) {
 			t.dragging = true
 			t.draggingAxis = ScrollDirectionHorizontal
 			t.updateOffsetFromDrag(e.Position)
-			t.invalidate(facet.DirtyProjection)
+			t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
 			return true
 		}
 		if rowIndex := t.rowAtPoint(e.Position); rowIndex >= 0 {
@@ -1029,7 +1029,9 @@ func (t *Table) onPointer(e facet.PointerEvent) bool {
 	case platform.PointerMove:
 		if t.dragging {
 			t.updateOffsetFromDrag(e.Position)
-			t.invalidate(facet.DirtyProjection)
+			// Scrollbar drag changes the scroll offset; the virtualization
+			// window re-lays (FR-3), like onScroll/onKey.
+			t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
 			return true
 		}
 		return false
@@ -1058,7 +1060,11 @@ func (t *Table) onScroll(e facet.ScrollEvent) bool {
 	next.Y -= e.DeltaY
 	t.scrollOffset = t.clampScrollOffset(next)
 	t.Scrolled.Emit(t.scrollOffset)
-	t.invalidate(facet.DirtyProjection)
+	// The offset change re-lays the table: the FR-7 virtualization window and
+	// the arranged content positions are recomputed at arrange time, so a
+	// scroll MUST route a layout pass (RX-1 FR-3) — projection-only
+	// invalidation would leave the window frozen at the pre-scroll rows.
+	t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	return true
 }
 
@@ -1105,7 +1111,7 @@ func (t *Table) onKey(e facet.KeyEvent) bool {
 	}
 	t.scrollOffset = t.clampScrollOffset(t.scrollOffset)
 	t.Scrolled.Emit(t.scrollOffset)
-	t.invalidate(facet.DirtyProjection)
+	t.invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	return true
 }
 

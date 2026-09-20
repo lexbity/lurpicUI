@@ -18,6 +18,7 @@ func newResponsiveShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
+		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	reg, err := StudioLayerRegistry()
 	if err != nil {
@@ -101,8 +102,10 @@ func TestResponsive_narrowCollapsesStageFullWidth(t *testing.T) {
 	if rail.IsEmpty() {
 		t.Fatal("narrow bottom action bar not arranged")
 	}
-	if rail.Max.Y != stage.Max.Y {
-		t.Fatalf("rail bottom = %v, want stage bottom %v", rail.Max.Y, stage.Max.Y)
+	// RX-1 FR-17a: the stage's content stops above the action bar — the bar
+	// must never occlude scrollable stage content.
+	if rail.Min.Y < stage.Max.Y {
+		t.Fatalf("action bar overlaps stage content: rail top %v < stage bottom %v (FR-17)", rail.Min.Y, stage.Max.Y)
 	}
 	// Overlays are gated by their stores.
 	if b := root.Narrow().Drawer().Base().LayoutRole().ArrangedBounds; !b.IsEmpty() {

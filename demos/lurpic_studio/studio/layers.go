@@ -100,12 +100,17 @@ func StudioLayerRegistry() (*layout.LayerRegistry, error) {
 	return b.Freeze()
 }
 
-// StudioThemeContext returns the demo's resolved theme context with the studio
-// layer recipes registered (the anchor recipe the studio.anchored layer
-// resolves through).
+// StudioThemeContext returns the demo's resolved theme context: the studio's
+// pinned token set (FR-18, studio/tokens.go) resolved through the theme system
+// with the studio layer recipes registered (the anchor recipe the
+// studio.anchored layer resolves through). The studio's default context is not
+// consulted and no OS/platform read exists on this path — the demo renders the
+// same palette under any desktop theme.
 func StudioThemeContext() theme.ResolvedContext {
+	tokens := StudioTokens()
+	ctx := theme.NewResolvedContext(tokens)
 	resolver := theme.NewThemeResolver()
-	for _, scale := range theme.DefaultDensityScales(theme.Default().TokenSet()) {
+	for _, scale := range theme.DefaultDensityScales(tokens) {
 		_ = resolver.RegisterDensityScale(scale)
 	}
 	_ = resolver.RegisterLayerLayoutRecipe(
@@ -120,5 +125,5 @@ func StudioThemeContext() theme.ResolvedContext {
 			return layout.ResolvedLayerLayoutRecipe{PolicyKind: layout.LayerLayoutFree}
 		},
 	)
-	return theme.Default().WithResolver(resolver)
+	return ctx.WithResolver(resolver)
 }

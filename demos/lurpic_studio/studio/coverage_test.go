@@ -85,6 +85,7 @@ func newCoverageRoot(t *testing.T) (*Root, *testkit.Harness) {
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
+		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	root := NewRoot(ctx, nil, seedRows(t), nil)
 	h := testkit.NewStandardHarness(t, 1280, 800, root)
@@ -177,7 +178,7 @@ func TestCoverage_eachExhibitPlacesItsMarks(t *testing.T) {
 		}
 	}
 	e6 := placed(ExhibitPlayground)
-	for _, key := range []string{"navigation/tabs", "action/split_button", "action/menu_button", "action/radial_menu", "feedback/notification", "feedback/tooltip", "navigation/breadcrumbs", "selection/list_item", "primitive/icon"} {
+	for _, key := range []string{"navigation/tabs", "navigation/nav_rail", "action/split_button", "action/menu_button", "action/radial_menu", "feedback/notification", "feedback/tooltip", "navigation/breadcrumbs", "selection/list_item", "primitive/icon"} {
 		if !e6[key] {
 			t.Fatalf("E6 does not place %s", key)
 		}

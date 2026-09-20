@@ -7,8 +7,10 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/navigation"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // NarrowShell is the narrow-mode overlay sub-tree (FR-resp): the exhibit index
@@ -19,13 +21,15 @@ import (
 //
 // The bottom bar is a bespoke horizontal host (the nav_rail mark lays its items
 // out vertically and cannot be re-hosted horizontally — F-rail-shape); it is
-// the "nav_rail → bottom action bar" re-host in spirit, using icon_button
-// destinations bound to the same ActiveExhibit store.
+// the mobile bottom-action-bar pattern, using icon_button destinations bound to
+// the same ActiveExhibit store. The nav_rail mark itself is demonstrated in the
+// E6 Navigation playground (FR-13 removed the wide index pane's rail).
 type NarrowShell struct {
 	facet.Facet
 	layout facet.LayoutRole
 
 	shell    *ShellState
+	scrim    *narrowScrim
 	drawer   *navigation.NavDrawer
 	bar      *narrowRail
 	sheet    *ExhibitInspector
@@ -44,6 +48,10 @@ func NewNarrowShell(shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
 	}
 	n.Facet = facet.NewFacet()
 
+	// The hit-blocking scrim behind the drawer and bottom sheet (FR-17b):
+	// it dims the stage and a tap on it (outside the open overlay) dismisses.
+	n.scrim = newNarrowScrim(shell)
+
 	// The nav_drawer re-hosts the exhibit index: sections by concept group,
 	// items bound to the same ActiveExhibit store.
 	sections := make([]navigation.NavDrawerSection, 0)
@@ -58,12 +66,15 @@ func NewNarrowShell(shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
 	}
 	n.drawer = navigation.NewNavDrawer("Exhibits", sections, shell.IndexOpen, n.drawerID)
 
-	// The bottom action bar re-hosts the wide nav_rail as a horizontal icon bar.
+	// The bottom action bar is the narrow-mode exhibit selector (the mobile
+	// bottom-action-bar pattern re-hosting the exhibit destinations).
 	n.bar = newNarrowRail(shell)
 
-	// The bottom sheet re-hosts the inspector.
-	n.sheet = NewExhibitInspector(shell, counts)
+	// The bottom sheet re-hosts the inspector (sheet mode: drag handle +
+	// Escape dismissal, FR-17c).
+	n.sheet = NewSheetInspector(shell, counts)
 
+	n.AddChild(n.scrim.Base())  //lurpiclint:ignore LL021 -- the scrim is a hit-blocking overlay child, not a layer (LL021 over-fires on overlays hosted as regular children)
 	n.AddChild(n.drawer.Base()) //lurpiclint:ignore LL021 -- the narrow shell hosts navigational marks as regular children, not overlays (LL021 over-fires)
 	n.AddChild(n.bar.Base())    //lurpiclint:ignore LL021 -- the narrow shell hosts the action bar as a regular child, not an overlay (LL021 over-fires)
 	n.AddChild(n.sheet.Base())  //lurpiclint:ignore LL021 -- the narrow shell hosts the inspector sheet as a regular child, not an overlay (LL021 over-fires)
@@ -124,7 +135,7 @@ func (n *NarrowShell) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	// and short-circuit to empty children whenever the shell is wide, no matter
 	// what bounds the runtime supplied.
 	if n.shell.Mode == LayoutWide || bounds.IsEmpty() {
-		for _, child := range []facet.FacetImpl{n.drawer, n.bar, n.sheet} {
+		for _, child := range []facet.FacetImpl{n.scrim, n.drawer, n.bar, n.sheet} {
 			if role := child.Base().LayoutRole(); role != nil {
 				role.Arrange(ctx, gfx.Rect{})
 			}
@@ -139,6 +150,15 @@ func (n *NarrowShell) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	n.bar.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Max.Y-barH, bounds.Width(), barH))
 
 	content := gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), bounds.Max.Y-barH-bounds.Min.Y)
+
+	// The scrim covers the content area (above the bar), behind the drawer and
+	// sheet (FR-17b): it dims the stage and blocks clicks to it. Its arranged
+	// bounds are empty while nothing is open, so it contributes no hit region.
+	if n.shell.IndexOpen.Get() || n.shell.InspectorOpen.Get() {
+		n.scrim.Base().LayoutRole().Arrange(ctx, content)
+	} else {
+		n.scrim.Base().LayoutRole().Arrange(ctx, gfx.Rect{})
+	}
 
 	// Nav drawer: left edge, only when open.
 	if n.shell.IndexOpen.Get() {
@@ -218,6 +238,9 @@ func (n *NarrowShell) setActive(id ExhibitID) {
 // Drawer returns the nav_drawer mark.
 func (n *NarrowShell) Drawer() *navigation.NavDrawer { return n.drawer }
 
+// Scrim returns the hit-blocking scrim overlay.
+func (n *NarrowShell) Scrim() *narrowScrim { return n.scrim }
+
 // Rail returns the bottom action bar host.
 func (n *NarrowShell) Rail() *narrowRail { return n.bar }
 
@@ -232,8 +255,9 @@ func (n *NarrowShell) OnActivate()        {}
 func (n *NarrowShell) OnDeactivate()      {}
 
 // narrowRail is the bottom action bar: a horizontal host of exhibit icon
-// buttons bound to the shared ActiveExhibit store (the nav_rail → bottom action
-// bar re-host; the nav_rail mark itself lays out vertically, F-rail-shape).
+// buttons bound to the shared ActiveExhibit store (the mobile bottom-action-bar
+// pattern; the nav_rail mark itself lays out vertically, F-rail-shape, and is
+// demonstrated in E6).
 type narrowRail struct {
 	facet.Facet
 	layout facet.LayoutRole
@@ -356,3 +380,89 @@ func (r *narrowRail) OnDetach() {
 func (r *narrowRail) Base() *facet.Facet { r.BindImpl(r); return &r.Facet }
 func (r *narrowRail) OnActivate()        {}
 func (r *narrowRail) OnDeactivate()      {}
+
+// narrowScrim is the hit-blocking overlay behind the narrow drawer and bottom
+// sheet (RX-1 FR-17b): it dims the stage and blocks clicks to it, and a tap on
+// the scrim (outside the open overlay) dismisses it. It is a regular child of
+// the NarrowShell arranged first, so the drawer/sheet paint and hit above it;
+// its hit region exists only while a sheet or drawer is open.
+type narrowScrim struct {
+	facet.Facet
+	layout facet.LayoutRole
+	render facet.RenderRole
+	hit    facet.HitRole
+	input  facet.InputRole
+
+	shell *ShellState
+	color gfx.Color
+}
+
+func newNarrowScrim(shell *ShellState) *narrowScrim {
+	s := &narrowScrim{shell: shell}
+	s.Facet = facet.NewFacet()
+
+	s.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke hit-blocking scrim overlay (F-lint-hosts)
+		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
+			return facet.MeasureResult{Size: c.Constrain(c.MaxSize)}
+		},
+		OnArrange: func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+			if resolved, ok := ctx.Theme.(theme.ResolvedContext); ok {
+				s.color = resolved.Color(theme.ColorText)
+				s.color.A = 0.4
+			}
+		},
+	}
+	s.render = facet.RenderRole{
+		OnCollect: func(list *gfx.CommandList, bounds gfx.Rect) {
+			if bounds.IsEmpty() || !s.visible() || s.color.A == 0 {
+				return
+			}
+			list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(s.color)})
+		},
+	}
+	s.hit = facet.HitRole{
+		OnHitTest: func(p gfx.Point) facet.HitResult {
+			if !s.visible() {
+				return facet.HitResult{}
+			}
+			b := s.layout.ArrangedBounds
+			if b.IsEmpty() || !b.Contains(p) {
+				return facet.HitResult{}
+			}
+			return facet.HitResult{Hit: true}
+		},
+	}
+	s.input = facet.InputRole{
+		OnPointer: func(e facet.PointerEvent) bool {
+			if !s.visible() {
+				return false
+			}
+			if e.Kind == platform.PointerPress && e.Button == platform.PointerLeft {
+				// Tap outside the drawer/sheet: dismiss both narrow overlays.
+				s.shell.IndexOpen.Set(false)
+				s.shell.InspectorOpen.Set(false)
+			}
+			return true
+		},
+	}
+	s.AddRole(&s.layout)
+	s.AddRole(&s.render)
+	s.AddRole(&s.hit)
+	s.AddRole(&s.input)
+	return s
+}
+
+// visible reports whether any narrow overlay is open (the scrim's render and
+// hit region are gated by it).
+func (s *narrowScrim) visible() bool {
+	if s == nil || s.shell == nil {
+		return false
+	}
+	return s.shell.IndexOpen.Get() || s.shell.InspectorOpen.Get()
+}
+
+func (s *narrowScrim) Base() *facet.Facet             { s.BindImpl(s); return &s.Facet }
+func (s *narrowScrim) OnAttach(_ facet.AttachContext) {}
+func (s *narrowScrim) OnDetach()                      {}
+func (s *narrowScrim) OnActivate()                    {}
+func (s *narrowScrim) OnDeactivate()                  {}
