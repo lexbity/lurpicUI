@@ -154,7 +154,7 @@ func (l *List) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (l *List) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "structure", TypeName: "list"}
+	return marks.Descriptor{Family: familyName, TypeName: "list"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

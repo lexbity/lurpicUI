@@ -103,3 +103,105 @@ func TestPolicy_rejectsBaselineAlignment(t *testing.T) {
 	}()
 	_, _ = p.Arrange([]Child{child}, gfx.RectFromXYWH(0, 0, 100, 100))
 }
+
+// helper for weighted-fill tests: a fill child with a declared weight.
+func newWeightedChild(id facet.FacetID, order int, size gfx.Size, weight float32) Child {
+	c := newLinearChild(id, order, size, facet.CrossAxisStart, facet.StretchPolicy{})
+	c.Attachment.Placement.Linear.MainAxisSize = facet.MainAxisMax
+	c.Attachment.Placement.Linear.Weight = weight
+	return c
+}
+
+func TestPolicyHorizontal_proportionalWeights(t *testing.T) {
+	p := NewHorizontal(0)
+	w1 := newWeightedChild(1, 0, gfx.Size{W: 10, H: 10}, 1)
+	w2 := newWeightedChild(2, 1, gfx.Size{W: 10, H: 10}, 2)
+
+	if _, err := p.Arrange([]Child{w1, w2}, gfx.RectFromXYWH(0, 0, 310, 20)); err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	b1 := w1.Layout.ArrangedBounds
+	b2 := w2.Layout.ArrangedBounds
+	// residual 290 shared 1:2 on top of measured 10 → 106.67 / 203.33.
+	if got := b1.Width(); got < 106 || got > 107 {
+		t.Fatalf("weight-1 width = %v, want ~106.67", got)
+	}
+	if got := b2.Width(); got < 203 || got > 204 {
+		t.Fatalf("weight-2 width = %v, want ~203.33", got)
+	}
+	if b1.Max.X != b2.Min.X {
+		t.Fatalf("children must be adjacent: %#v then %#v", b1, b2)
+	}
+}
+
+func TestPolicyHorizontal_zeroWeightFallbackEqualShare(t *testing.T) {
+	p := NewHorizontal(0)
+	w1 := newWeightedChild(1, 0, gfx.Size{W: 10, H: 10}, 0)
+	w2 := newWeightedChild(2, 1, gfx.Size{W: 10, H: 10}, 0)
+
+	if _, err := p.Arrange([]Child{w1, w2}, gfx.RectFromXYWH(0, 0, 210, 20)); err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	if got := w1.Layout.ArrangedBounds.Width(); got != 105 {
+		t.Fatalf("unweighted fill width = %v, want 105 (10 measured + 95 equal share)", got)
+	}
+	if w1.Layout.ArrangedBounds.Width() != w2.Layout.ArrangedBounds.Width() {
+		t.Fatalf("equal shares diverged: %v vs %v",
+			w1.Layout.ArrangedBounds.Width(), w2.Layout.ArrangedBounds.Width())
+	}
+}
+
+func TestPolicyHorizontal_negativeWeightClampsToEqualShare(t *testing.T) {
+	p := NewHorizontal(0)
+	w1 := newWeightedChild(1, 0, gfx.Size{W: 10, H: 10}, -5)
+	w2 := newWeightedChild(2, 1, gfx.Size{W: 10, H: 10}, 0)
+
+	if _, err := p.Arrange([]Child{w1, w2}, gfx.RectFromXYWH(0, 0, 210, 20)); err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	if w1.Layout.ArrangedBounds.Width() != w2.Layout.ArrangedBounds.Width() {
+		t.Fatalf("negative weight must clamp to equal share: %v vs %v",
+			w1.Layout.ArrangedBounds.Width(), w2.Layout.ArrangedBounds.Width())
+	}
+}
+
+func TestPolicyVertical_proportionalWeights(t *testing.T) {
+	p := NewVertical(0)
+	w1 := newWeightedChild(1, 0, gfx.Size{W: 10, H: 10}, 1)
+	w2 := newWeightedChild(2, 1, gfx.Size{W: 10, H: 10}, 3)
+
+	if _, err := p.Arrange([]Child{w1, w2}, gfx.RectFromXYWH(0, 0, 20, 410)); err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	h1 := w1.Layout.ArrangedBounds.Height()
+	h2 := w2.Layout.ArrangedBounds.Height()
+	// residual 390 shared 1:3 on top of measured 10 → 107.5 / 302.5.
+	if h1 < 107 || h1 > 108 {
+		t.Fatalf("weight-1 height = %v, want ~107.5", h1)
+	}
+	if h2 < 302 || h2 > 303 {
+		t.Fatalf("weight-3 height = %v, want ~302.5", h2)
+	}
+}
+
+func TestPolicyHorizontal_weightedAndUnweightedMix(t *testing.T) {
+	p := NewHorizontal(0)
+	a := newWeightedChild(1, 0, gfx.Size{W: 10, H: 10}, 1) // weighted
+	b := newWeightedChild(2, 1, gfx.Size{W: 10, H: 10}, 0) // unweighted fill
+	fixed := newLinearChild(3, 2, gfx.Size{W: 50, H: 10}, facet.CrossAxisStart, facet.StretchPolicy{})
+
+	if _, err := p.Arrange([]Child{a, b, fixed}, gfx.RectFromXYWH(0, 0, 300, 20)); err != nil {
+		t.Fatalf("Arrange: %v", err)
+	}
+	// residual = 300 - 70 = 230. Weighted gets all of it (10 measured + 230);
+	// unweighted gets the zero remainder.
+	if got := a.Layout.ArrangedBounds.Width(); got < 239 || got > 241 {
+		t.Fatalf("weighted child width = %v, want ~240", got)
+	}
+	if got := b.Layout.ArrangedBounds.Width(); got != 10 {
+		t.Fatalf("unweighted fill child width = %v, want 10 (measured only; weighted child consumed the residual)", got)
+	}
+	if got := fixed.Layout.ArrangedBounds.Width(); got != 50 {
+		t.Fatalf("fixed child width = %v, want 50", got)
+	}
+}

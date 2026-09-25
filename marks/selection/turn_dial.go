@@ -85,7 +85,7 @@ func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[f
 		Policy: turnDialGroupPolicy{},
 	}
 	td.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := td.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

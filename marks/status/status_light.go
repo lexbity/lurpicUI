@@ -54,7 +54,7 @@ func NewStatusLight(label string) *StatusLight {
 
 	s.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	s.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := s.measure(ctx, constraints).Size
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

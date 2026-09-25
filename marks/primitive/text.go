@@ -80,7 +80,7 @@ func NewText(content marks.Binding[string]) *Text {
 
 	t.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone, Overflow: facet.OverflowClip}
 	t.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measureSize(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

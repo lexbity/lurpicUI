@@ -33,7 +33,7 @@ func markIsAliveInFrame(t *testing.T, img *image.RGBA, m marks.Mark) bool {
 
 // recordAlive walks a subtree and records every mark instance that is arranged
 // + pixel-visible in the current frame. The surface is captured ONCE and
-// sampled for every mark (the walk checks ~48 marks, so per-mark captures
+// sampled for every mark (the walk checks the full catalog, so per-mark captures
 // would copy the surface ~48 times per frame).
 func recordAlive(t *testing.T, h *testkit.Harness, subtree facet.FacetImpl, alive map[string]bool) {
 	t.Helper()
@@ -88,7 +88,7 @@ func aliveCenter(m marks.Mark) gfx.Point {
 // least one placed instance that is ARRANGED and renders pixels distinct from
 // the themed background in some frame. A mark that can never render (the
 // A-5 command palette, the A-8 invisible catalog) fails this test — the
-// README's 48/48 claim is now pinned by pixels, not tree presence.
+// README's full-catalog claim is now pinned by pixels, not tree presence.
 func TestCoverageAlive_allStandardMarksRender(t *testing.T) {
 	if testkit.RaceEnabled {
 		t.Skip("deterministic pixel walk; skipped under -race to bound the studio race suite (RX-1 FR-20 / NFR-4)")
@@ -160,7 +160,7 @@ func TestCoverageAlive_allStandardMarksRender(t *testing.T) {
 	if len(missing) > 0 {
 		t.Fatalf("standard marks not alive (not arranged + visible in any frame): %v", missing)
 	}
-	t.Logf("alive coverage: %d/%d standard marks render non-background pixels", len(standardMarks), len(standardMarks))
+	t.Logf("alive coverage: %d/%d standard marks render non-background pixels", len(alive), len(standardMarks))
 }
 
 func sortStrings(s []string) {
@@ -185,7 +185,10 @@ type aliveDriver func(t *testing.T, root *Root, h *testkit.Harness) bool
 var aliveNonInteractive = map[string]string{
 	"primitive/icon":            "static vector glyph display (behNone)",
 	"primitive/text":            "read-only text display (behNone)",
-	"structure/card":            "self-projecting group host (behGroupHost, F-card-content)",
+	"structure/card":            "group host (behGroupHost); interactive children driven individually",
+	"structure/row":             "linear horizontal host (behGroupHost); interactive children driven individually",
+	"structure/column":          "linear vertical host (behGroupHost); interactive children driven individually",
+	"structure/divider":         "static themed stroke (behReadBinding, NG-5)",
 	"action/ribbon":             "internal section buttons not attached to the facet tree (F-e6-internal)",
 	"action/menu_button":        "popup trigger renders no output in the harness (demo quirk); popup interaction exercised by the mark's own contract tests (marks/action/menu_button_test.go)",
 	"action/popup_palette":      "popup trigger renders no output in the harness (demo quirk); popup interaction exercised by the mark's own contract tests (marks/action)",

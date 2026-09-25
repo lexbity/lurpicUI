@@ -120,7 +120,7 @@ func NewIcon(source IconSource) *Icon {
 
 	i.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	i.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := i.measureSize(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

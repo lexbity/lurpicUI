@@ -58,7 +58,7 @@ func NewProgressBar(label string) *ProgressBar {
 
 	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	p.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measure(ctx, constraints).Size
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -234,12 +234,14 @@ func (p *ProgressBar) measure(ctx facet.MeasureContext, constraints facet.Constr
 		}
 	}
 
-	contentWidth := constraints.MaxSize.W
-	if contentWidth <= 0 {
-		contentWidth = labelSize.W + p.cachedPadX*2
-		if contentWidth < resolved.Density.Scale(160) {
-			contentWidth = resolved.Density.Scale(160)
-		}
+	// Intrinsic width: the label plus a density-scaled minimum track width.
+	// The bar does NOT claim the full available width from measure — a linear
+	// host that wants a wider bar arranges it wider (stretch or weight), and
+	// the track fills its arranged bounds. Greedy measurement would defeat
+	// weighted distribution in Row/Column hosts.
+	contentWidth := labelSize.W + p.cachedPadX*2
+	if minTrack := resolved.Density.Scale(160); contentWidth < minTrack {
+		contentWidth = minTrack
 	}
 	labelHeight := float32(0)
 	if p.cachedLabelFacet != nil {

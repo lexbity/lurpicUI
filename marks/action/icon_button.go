@@ -111,7 +111,7 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 		Overflow: facet.OverflowClip,
 	}
 	i.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := i.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

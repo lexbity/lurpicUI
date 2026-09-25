@@ -117,7 +117,7 @@ func NewCard(label string) *Card {
 		Overflow: facet.OverflowScroll,
 	}
 	c.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := c.measure(ctx, constraints).Size
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -178,7 +178,7 @@ func (c *Card) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (c *Card) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "structure", TypeName: "card"}
+	return marks.Descriptor{Family: familyName, TypeName: "card"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

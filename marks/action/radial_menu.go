@@ -171,7 +171,7 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 		Children: m,
 	}
 	m.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := m.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

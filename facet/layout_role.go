@@ -281,6 +281,11 @@ type LinearPlacement struct {
 	Order          int
 	CrossAxisAlign CrossAxisAlignment
 	MainAxisSize   MainAxisSize
+	// Weight distributes free main-axis space proportionally among children
+	// that request fill (MainAxisMax). 0 = share equally with other unweighted
+	// fill children (the historic behavior); negative weights clamp to 0.
+	// Ignored for children measured at MainAxisMin.
+	Weight float32
 }
 
 // RadialPlacement describes angular and orbital participation in a radial group.

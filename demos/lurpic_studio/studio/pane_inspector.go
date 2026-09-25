@@ -16,8 +16,8 @@ import (
 // ExhibitInspector is the per-exhibit inspector pane: a Card showing the active
 // exhibit's title, description, and demonstrated-mark count, all store-bound so
 // the panel updates when the exhibit switches. The content is read-only text —
-// the framework Card's self-projected content (F-card-content) is exactly the
-// right host for non-interactive display. In sheet mode (the narrow bottom
+// a Card is the right host because it supplies the chrome (title, surface,
+// padding) around the metadata Column. In sheet mode (the narrow bottom
 // sheet, FR-17c) it renders a static drag-handle affordance and closes on
 // Escape.
 type ExhibitInspector struct {
@@ -27,6 +27,7 @@ type ExhibitInspector struct {
 	input  facet.InputRole
 
 	card      *structure.Card
+	meta      *structure.Column
 	titleText *primitive.Text
 	descText  *primitive.Text
 	countText *primitive.Text
@@ -78,13 +79,23 @@ func NewExhibitInspector(shell *ShellState, counts map[ExhibitID]int) *ExhibitIn
 	p.hintText.MultiLine = marks.Const(true)
 
 	p.card = structure.NewCard("Exhibit")
-	p.card.GridColumns = marks.Const(1)
-	p.card.GridRows = marks.Const(4)
+	// The metadata block is a vertical stack (RX-2 P1): a structure.Column
+	// with a themed Divider separating the description from the counts. The
+	// column is the card's single content child; the card keeps its chrome.
+	p.meta = structure.NewColumn(
+		[]structure.AxisChild{
+			{Facet: p.titleText, MarkID: 1},
+			{Facet: p.descText, MarkID: 2},
+			{Facet: structure.NewDivider(), MarkID: 3},
+			{Facet: p.countText, MarkID: 4},
+			{Facet: p.hintText, MarkID: 5},
+		},
+		structure.AxisConfig{
+			Gap: float32(theme.DefaultResolvedContext().Spacing(theme.SpacingS)),
+		},
+	)
 	p.card.ChildrenContent = []structure.CardChild{
-		{Key: "title", Facet: p.titleText, Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}},
-		{Key: "desc", Facet: p.descText, Grid: facet.GridPlacement{ColStart: 0, RowStart: 1, ColSpan: 1, RowSpan: 1}},
-		{Key: "count", Facet: p.countText, Grid: facet.GridPlacement{ColStart: 0, RowStart: 2, ColSpan: 1, RowSpan: 1}},
-		{Key: "hint", Facet: p.hintText, Grid: facet.GridPlacement{ColStart: 0, RowStart: 3, ColSpan: 1, RowSpan: 1}},
+		{Key: "meta", Facet: p.meta, Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}},
 	}
 
 	p.Facet = facet.NewFacet()
@@ -161,6 +172,10 @@ func markCountText(n int) string {
 
 // Card returns the inspector's content card.
 func (p *ExhibitInspector) Card() *structure.Card { return p.card }
+
+// Meta returns the metadata column (the structure.column / structure.divider
+// coverage instances live here).
+func (p *ExhibitInspector) Meta() *structure.Column { return p.meta }
 
 // TitleText returns the title text mark.
 func (p *ExhibitInspector) TitleText() *primitive.Text { return p.titleText }

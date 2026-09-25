@@ -3,11 +3,12 @@ package studio
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -21,23 +22,24 @@ const themeIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" f
 // ChromeStack is the top chrome bar: the title on the left and the
 // command-palette (⌘K) and theme triggers on the right.
 //
-// It is a linear-kind group-parent host that arranges its mark children
-// directly — the toolbar/action_group production idiom — because the standard
-// text/icon-button marks do not declare SupportsLinear, which layout/linear
-// requires (F-linear-marks). The linear policy is consumed by Root.
+// The bar is a structure.Row composition (RX-2 P1): the title is the weighted
+// segment (Weight 1 — it absorbs the free width, which pushes the two icon
+// buttons to the right edge), the buttons hug their measured sizes. Compact
+// density tightens the row's padding through a Derived over the shell's
+// Compact store, so the padding change routes through the RX-1 FR-3 binding
+// propagation with no author-written invalidation.
 type ChromeStack struct {
 	facet.Facet
 	layout facet.LayoutRole
 	render facet.RenderRole
 
-	shell *ShellState
-	title facet.FacetImpl
-	cmdK  facet.FacetImpl
-	theme facet.FacetImpl
+	row   *structure.Row
+	title *primitive.Text
+	cmdK  *action.IconButton
+	theme *action.IconButton
 
-	gap        float32
-	padX       float32
-	padY       float32
+	shell *ShellState
+
 	background gfx.Color
 
 	rt      facet.RuntimeServices
@@ -54,28 +56,60 @@ func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeSt
 		title:      primitive.NewText(marks.Const("Lurpic Studio")),
 		cmdK:       action.NewIconButton(primitive.IconSVG(cmdKIcon)),
 		theme:      action.NewIconButton(primitive.IconSVG(themeIcon)),
-		gap:        float32(themeCtx.Spacing(theme.SpacingS)),
-		padX:       float32(themeCtx.Spacing(theme.SpacingL)),
-		padY:       float32(themeCtx.Spacing(theme.SpacingS)),
 		background: themeCtx.Color(theme.ColorSurface),
 	}
 	c.Facet = facet.NewFacet()
-	c.AddChild(c.title.Base()) //lurpiclint:ignore LL021 -- chrome hosts action marks as regular children, not overlays (LL021 over-fires on any field ref)
-	c.AddChild(c.cmdK.Base())  //lurpiclint:ignore LL021 -- chrome hosts action marks as regular children, not overlays (LL021 over-fires on any field ref)
-	c.AddChild(c.theme.Base()) //lurpiclint:ignore LL021 -- chrome hosts action marks as regular children, not overlays (LL021 over-fires on any field ref)
 
-	c.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke linear-kind group-parent host (F-lint-hosts)
+	// Compact density is a content change (padding), not a structural one:
+	// the Derived re-resolves on every Compact write and the PadX/PadY
+	// bindings route the re-measure (RX-1 FR-3) — no subscription needed.
+	gap := float32(themeCtx.Spacing(theme.SpacingS))
+	padX := float32(themeCtx.Spacing(theme.SpacingL))
+	padY := float32(themeCtx.Spacing(theme.SpacingS))
+	padXCompact := store.NewDerived(func() float32 {
+		if shell.Compact.Get() {
+			return padX * 0.6
+		}
+		return padX
+	}, shell.Compact)
+	padYCompact := store.NewDerived(func() float32 {
+		if shell.Compact.Get() {
+			return padY * 0.6
+		}
+		return padY
+	}, shell.Compact)
+
+	c.row = structure.NewRow(
+		[]structure.AxisChild{
+			{Facet: c.title, MarkID: 1, Weight: 1},
+			{Facet: c.cmdK, MarkID: 2},
+			{Facet: c.theme, MarkID: 3},
+		},
+		structure.AxisConfig{
+			Gap:        gap,
+			CrossAlign: structure.CrossAlignCenter,
+		},
+	)
+	// Compact density is content: the padding sources are Derived over the
+	// shell's Compact store, so a toggle re-measures the row via the RX-1
+	// FR-3 binding propagation with no author-written invalidation.
+	c.row.PadX = marks.FromDerived(padXCompact, facet.DirtyLayout|facet.DirtyProjection)
+	c.row.PadY = marks.FromDerived(padYCompact, facet.DirtyLayout|facet.DirtyProjection)
+
+	c.AddChild(c.row.Base()) //lurpiclint:ignore LL021 -- the shell hosts the composition row as a regular child, not an overlay
+
+	c.layout = facet.LayoutRole{ //lurpiclint:ignore * -- single-child wrapper: background fill + measure/arrange delegation to the row (structure.Row owns the layout)
 		OnMeasure: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-			return c.measure(ctx, constraints)
+			result := c.row.Base().LayoutRole().Measure(ctx, constraints)
+			c.layout.MeasuredSize = result.Size
+			return result
 		},
 		OnArrange: func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-			c.arrange(ctx, bounds)
+			c.layout.ArrangedBounds = bounds
+			if role := c.row.Base().LayoutRole(); role != nil {
+				role.Arrange(ctx, bounds)
+			}
 		},
-	}
-	c.layout.Parent = facet.GroupParentContract{
-		Kind:     facet.GroupLayoutLinearHorizontal,
-		Policy:   groupPolicy{kind: facet.GroupLayoutLinearHorizontal, host: c},
-		Children: c,
 	}
 	c.layout.Child = linearChildContract(facet.StretchPolicy{
 		Width:  facet.StretchAlways,
@@ -91,108 +125,42 @@ func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeSt
 	return c
 }
 
-// Title returns the title text facet.
-func (c *ChromeStack) Title() facet.FacetImpl { return c.title }
+// Title returns the title text mark.
+func (c *ChromeStack) Title() *primitive.Text { return c.title }
 
-// CmdK returns the command-palette trigger facet.
-func (c *ChromeStack) CmdK() facet.FacetImpl { return c.cmdK }
+// CmdK returns the command-palette trigger mark.
+func (c *ChromeStack) CmdK() *action.IconButton { return c.cmdK }
 
-// Theme returns the theme toggle facet.
-func (c *ChromeStack) Theme() facet.FacetImpl { return c.theme }
+// Theme returns the theme toggle mark.
+func (c *ChromeStack) Theme() *action.IconButton { return c.theme }
 
-func (c *ChromeStack) items() []facet.FacetImpl {
-	return []facet.FacetImpl{c.title, c.cmdK, c.theme}
-}
+// Row returns the bar's composition row (the structure.row coverage instance).
+func (c *ChromeStack) Row() *structure.Row { return c.row }
 
-func (c *ChromeStack) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	items := c.items()
-	padX, padY := c.padding()
-	width := padX * 2
-	height := float32(0)
-	for i, item := range items {
-		role := item.Base().LayoutRole()
-		role.Measure(ctx, facet.Constraints{MaxSize: constraints.MaxSize})
-		size := role.MeasuredSize
-		width += size.W
-		if i < len(items)-1 {
-			width += c.gap
-		}
-		if size.H > height {
-			height = size.H
-		}
-	}
-	height += padY * 2
-	return facet.MeasureResult{Size: gfx.Size{W: width, H: height}}
-}
-
-// padding returns the chrome padding, tightened when compact density is on.
-func (c *ChromeStack) padding() (float32, float32) {
-	if c.shell != nil && c.shell.Compact.Get() {
-		return c.padX * 0.6, c.padY * 0.6
-	}
-	return c.padX, c.padY
-}
-
-func (c *ChromeStack) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
-	if bounds.IsEmpty() {
-		return
-	}
-	items := c.items()
-	sizes := make([]gfx.Size, len(items))
-	for i, item := range items {
-		sizes[i] = item.Base().LayoutRole().MeasuredSize
-	}
-	padX, _ := c.padding()
-	// Right-align the trailing buttons, then place the title on the left.
-	x := bounds.Max.X - padX
-	for i := len(items) - 1; i >= 1; i-- {
-		w := sizes[i].W
-		x -= w
-		arrangeChild(facet.ArrangeContext{}, items[i], gfx.RectFromXYWH(x, bounds.Min.Y, w, bounds.Height()))
-		x -= c.gap
-	}
-	titleW := sizes[0].W
-	arrangeChild(facet.ArrangeContext{}, items[0], gfx.RectFromXYWH(bounds.Min.X+padX, bounds.Min.Y, titleW, bounds.Height()))
-}
-
-// Children returns the chrome's group children (the group-parent bridge's
-// ChildSource).
-func (c *ChromeStack) Children() []facet.GroupChild {
-	return linearGroupChildren(c.items())
-}
-
+// Base satisfies facet.FacetImpl.
 func (c *ChromeStack) Base() *facet.Facet { c.BindImpl(c); return &c.Facet }
 
 // OnAttach wires the chrome buttons: ⌘K opens the command palette and the
-// theme button toggles compact density; both re-lay the chrome so the toggle
-// is visibly reactive.
+// theme button toggles compact density (the padding response rides the
+// Derived-bound PadX/PadY bindings — no manual invalidation routing).
 func (c *ChromeStack) OnAttach(ctx facet.AttachContext) {
 	c.rt = ctx.Runtime
-	cmdK := c.cmdK.(*action.IconButton)
-	themeBtn := c.theme.(*action.IconButton)
 
-	cmdKID := cmdK.Activated.Subscribe(func(signal.Unit) {
+	cmdKID := c.cmdK.Activated.Subscribe(func(signal.Unit) {
 		if !c.shell.CommandOpen.Get() {
 			c.shell.CommandOpen.Set(true)
 		}
 	})
-	themeBtnID := themeBtn.Activated.Subscribe(func(signal.Unit) {
+	themeBtnID := c.theme.Activated.Subscribe(func(signal.Unit) {
 		c.shell.Compact.Set(!c.shell.Compact.Get())
 	})
-	compactID := c.shell.Compact.OnChange.Subscribe(func(signal.Change[bool]) {
-		// Compact density is a content change (padding), not a structural one:
-		// route it through the RX-1 FR-3 propagation so the chrome re-measures
-		// with the tightened padding.
-		layout.PropagateContentDirty(c, ctx.Runtime, "chrome.compact", facet.DirtyLayout|facet.DirtyProjection)
-	})
 	c.cleanup = func() {
-		cmdK.Activated.Unsubscribe(cmdKID)
-		themeBtn.Activated.Unsubscribe(themeBtnID)
-		c.shell.Compact.OnChange.Unsubscribe(compactID)
+		c.cmdK.Activated.Unsubscribe(cmdKID)
+		c.theme.Activated.Unsubscribe(themeBtnID)
 	}
 }
 
-// OnDetach clears the chrome's subscriptions.
+// OnDetach clears the chrome's button subscriptions.
 func (c *ChromeStack) OnDetach() {
 	if c.cleanup != nil {
 		c.cleanup()

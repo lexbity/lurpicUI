@@ -3,6 +3,7 @@
 /build
 /lurpic
 /cmd/quick_square_app
+/demos/lurpic_studio/studio/testdata/
 /render/vulkan/crates/lurpic_render/target/
 marks/**/**/testdata/
 *_actual.png

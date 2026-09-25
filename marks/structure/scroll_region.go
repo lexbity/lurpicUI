@@ -183,7 +183,7 @@ func (sr *ScrollRegion) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (sr *ScrollRegion) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "structure", TypeName: "scroll_region"}
+	return marks.Descriptor{Family: familyName, TypeName: "scroll_region"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

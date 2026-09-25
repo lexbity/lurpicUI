@@ -88,7 +88,7 @@ func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPick
 
 	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	p.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}

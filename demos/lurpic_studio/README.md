@@ -70,7 +70,7 @@ slices (P0–P10) are superseded but their framework feedback remains below.
   RX-1 FR-20. The placement-only walk (A-15) is upgraded to a pixel-pinned
   predicate: every standard mark must be ARRANGED and render non-background
   pixels in some frame, and every interactive mark must have a driven input
-  that mutates observable state. **48/48 is now a claim pixels can refute**
+  that mutates observable state. **the full catalog is now a claim pixels can refute**
   (`TestCoverageAlive_allStandardMarksRender`,
   `TestCoverageAlive_interactiveMarksMutateState`,
   `TestCoverageAlive_detectsDeadPalette`).
@@ -85,10 +85,14 @@ slices (P0–P10) are superseded but their framework feedback remains below.
 - **Status bar wiring (`studio/status_bar.go`)** — FR-status. The `status_light`
   reflects the feed connection, `progress_bar`/`progress_ring` track the
   streaming job progress in lock-step, the `badge` reflects the live row count,
-  and the caption names the active exhibit.
+  and the caption names the active exhibit. Since RX-2 P1 the strip is a
+  `structure.row` composition (weighted progress bar, hug-sized siblings) and
+  the inspector metadata block is a `structure.column` with a `structure.divider`
+  — the linear container marks are demonstrated in the shell itself, and the
+  bespoke per-host flexbox reimplementations are deleted.
 - **Coverage audit (`studio/coverage_test.go` + `studio/coverage_alive_test.go`)** —
   FR-coverage and RX-1 FR-20. The live-tree walk asserts the multiset of
-  `(Family, TypeName)` reaches **48/48 standard marks** (the three §2.8 traps
+  `(Family, TypeName)` reaches **the full standard-mark catalog** (the three §2.8 traps
   filtered), and the alive coverage proves each of those marks is arranged,
   pixel-visible, and (for interactive marks) drives a mutation through a
   subscription. This required placing the previously-unplaced

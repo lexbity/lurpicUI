@@ -44,24 +44,6 @@ func linearChildContract(stretch facet.StretchPolicy) facet.GroupChildContract {
 	}
 }
 
-// arrangeChild arranges a facet's layout role to the given bounds using a
-// placement its child contract actually supports. Marks disagree on placement
-// support (badge declares SupportsLinear only; text/icon_button declare grid),
-// so a hand-arranged host picks the first supported mode instead of assuming
-// the default grid placement (F-badge-contract).
-func arrangeChild(ctx facet.ArrangeContext, f facet.FacetImpl, bounds gfx.Rect) {
-	role := f.Base().LayoutRole()
-	if role == nil {
-		return
-	}
-	placement := facet.Placement{Mode: facet.PlacementGrid}
-	if role.Child.SupportedPlacement != 0 && !role.Child.SupportedPlacement.Has(facet.PlacementGrid) {
-		placement.Mode = facet.PlacementLinear
-	}
-	ctx.Placement = placement
-	role.Arrange(ctx, bounds)
-}
-
 // linearGroupChild builds one GroupChild for a linearly placed facet — the
 // shared shape of every shell host's Children() method.
 func linearGroupChild(placement facet.LinearPlacement, f facet.FacetImpl) facet.GroupChild {
@@ -72,19 +54,6 @@ func linearGroupChild(placement facet.LinearPlacement, f facet.FacetImpl) facet.
 		Layout:     role,
 		Contract:   role.Child,
 	}
-}
-
-// linearGroupChildren builds the group-child list for an ordered run of
-// facets (the hand-arranged hosts' ChildSource).
-func linearGroupChildren(items []facet.FacetImpl) []facet.GroupChild {
-	out := make([]facet.GroupChild, 0, len(items))
-	for i, item := range items {
-		if item == nil || item.Base() == nil || item.Base().LayoutRole() == nil {
-			continue
-		}
-		out = append(out, linearGroupChild(facet.LinearPlacement{Order: i}, item))
-	}
-	return out
 }
 
 // invalidateLayout requests a runtime layout pass for f. facet.Facet.Invalidate

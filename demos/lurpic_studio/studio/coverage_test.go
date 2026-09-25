@@ -56,7 +56,10 @@ var standardMarks = []marks.Descriptor{
 	{Family: "status", TypeName: "progress_ring"},
 	{Family: "status", TypeName: "status_light"},
 	{Family: "structure", TypeName: "card"},
+	{Family: "structure", TypeName: "column"},
+	{Family: "structure", TypeName: "divider"},
 	{Family: "structure", TypeName: "list"},
+	{Family: "structure", TypeName: "row"},
 	{Family: "structure", TypeName: "scroll_region"},
 	{Family: "structure", TypeName: "table"},
 	{Family: "viz", TypeName: "area"},
@@ -193,6 +196,6 @@ func TestCoverage_filteredWalkIsStable(t *testing.T) {
 	placed := markDescriptorMultiset(walked)
 
 	if len(placed) != len(standardMarks) {
-		t.Fatalf("placed distinct marks = %d, want %d (48/48 target)", len(placed), len(standardMarks))
+		t.Fatalf("placed distinct marks = %d, want %d (full-catalog target)", len(placed), len(standardMarks))
 	}
 }

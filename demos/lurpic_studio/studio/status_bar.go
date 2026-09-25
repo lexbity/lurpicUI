@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/status"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -17,26 +18,28 @@ const statusStripHeight float32 = 44
 // StatusBar is the bottom status strip wired to real shell state (FR-status):
 // the status_light reflects the feed connection, the progress_bar/ring track
 // the streaming job progress in lock-step, the badge reflects the live row
-// count, and the caption names the active exhibit. Like ChromeStack it is a
-// linear-kind group-parent host that arranges its mark children directly
-// (F-linear-marks).
+// count, and the caption names the active exhibit.
+//
+// The strip is a structure.Row composition (RX-2 P1): the progress bar is the
+// weighted segment (Weight 1 — it absorbs the free width), every other mark
+// hugs its measured size. The row hosts the marks as real tree children, so
+// the runtime projects and hit-tests them at their arranged bounds; the strip
+// itself only draws its background and delegates measure/arrange to the row.
 type StatusBar struct {
 	facet.Facet
 	layout facet.LayoutRole
 	render facet.RenderRole
 
-	light   *status.StatusLight
-	bar     *status.ProgressBar
-	ring    *status.ProgressRing
-	badge   *status.Badge
-	caption facet.FacetImpl
+	row   *structure.Row
+	light *status.StatusLight
+	bar   *status.ProgressBar
+	ring  *status.ProgressRing
+	badge *status.Badge
 
+	caption      *primitive.Text
 	notConnected *store.Derived[bool]
 	titleText    *store.Derived[string]
 
-	gap        float32
-	padX       float32
-	padY       float32
 	background gfx.Color
 }
 
@@ -56,9 +59,6 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 		caption:      primitive.NewText(marks.Const("Lurpic Studio")),
 		notConnected: notConnected,
 		titleText:    titleText,
-		gap:          float32(themeCtx.Spacing(theme.SpacingM)),
-		padX:         float32(themeCtx.Spacing(theme.SpacingL)),
-		padY:         float32(themeCtx.Spacing(theme.SpacingXS)),
 		background:   themeCtx.Color(theme.ColorSurfaceVariant),
 	}
 	s.light.ShowLabel = marks.Const(false)
@@ -73,39 +73,57 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	s.ring.Label = marks.Const("")
 	s.ring.Value = marks.FromStore(feed.JobProgress, facet.DirtyLayout|facet.DirtyProjection)
 	s.badge.Label = marks.FromDerived(shell.RowCount, facet.DirtyLayout|facet.DirtyProjection)
-	s.caption.(*primitive.Text).Content = marks.FromDerived(titleText, facet.DirtyLayout|facet.DirtyProjection)
+	s.caption.Content = marks.FromDerived(titleText, facet.DirtyLayout|facet.DirtyProjection)
 
 	// The binding fields above are assigned after construction (the marks'
 	// constructors register their own default Const bindings via AddBinding).
 	// Register the replaced bindings explicitly so the marks' OnAttach
 	// subscribes them — an unregistered binding field reads live but never
-	// invalidates (RX-1 A-6; without this the status strip would be stale
-	// after any post-attach write).
+	// invalidates (RX-1 A-6; replaced by declared bindings in RX-2 P3).
 	s.light.AddBinding(s.light.Disabled)
 	s.bar.AddBinding(s.bar.Value)
 	s.ring.AddBinding(s.ring.Value)
 	s.badge.AddBinding(s.badge.Label)
-	s.caption.(*primitive.Text).AddBinding(s.caption.(*primitive.Text).Content)
+	s.caption.AddBinding(s.caption.Content)
+
+	// The weighted bar absorbs the free width after the hug-sized light,
+	// ring, badge, and caption are placed; vertical centering keeps the
+	// slim marks aligned in the strip.
+	s.row = structure.NewRow(
+		[]structure.AxisChild{
+			{Facet: s.light, MarkID: 1},
+			{Facet: s.bar, MarkID: 2, Weight: 1},
+			{Facet: s.ring, MarkID: 3},
+			{Facet: s.badge, MarkID: 4},
+			{Facet: s.caption, MarkID: 5},
+		},
+		structure.AxisConfig{
+			Gap:        float32(themeCtx.Spacing(theme.SpacingM)),
+			PadX:       float32(themeCtx.Spacing(theme.SpacingL)),
+			PadY:       float32(themeCtx.Spacing(theme.SpacingXS)),
+			CrossAlign: structure.CrossAlignCenter,
+		},
+	)
 
 	s.Facet = facet.NewFacet()
-	s.AddChild(s.light.Base())
-	s.AddChild(s.bar.Base())
-	s.AddChild(s.ring.Base())
-	s.AddChild(s.badge.Base())
-	s.AddChild(s.caption.Base())
+	s.AddChild(s.row.Base()) //lurpiclint:ignore LL021 -- the shell hosts the composition row as a regular child, not an overlay
 
-	s.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke linear-kind group-parent host (F-lint-hosts)
+	s.layout = facet.LayoutRole{ //lurpiclint:ignore * -- single-child wrapper: background fill + measure/arrange delegation to the row (structure.Row owns the layout)
 		OnMeasure: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-			return s.measure(ctx, constraints)
+			// Clamp the row's height so labelled marks cannot inflate the
+			// strip; the row measures its children under the same bound.
+			c := constraints
+			c.MaxSize.H = statusStripHeight
+			result := s.row.Base().LayoutRole().Measure(ctx, c)
+			s.layout.MeasuredSize = result.Size
+			return result
 		},
 		OnArrange: func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-			s.arrange(ctx, bounds)
+			s.layout.ArrangedBounds = bounds
+			if role := s.row.Base().LayoutRole(); role != nil {
+				role.Arrange(ctx, bounds)
+			}
 		},
-	}
-	s.layout.Parent = facet.GroupParentContract{
-		Kind:     facet.GroupLayoutLinearHorizontal,
-		Policy:   groupPolicy{kind: facet.GroupLayoutLinearHorizontal, host: s},
-		Children: s,
 	}
 	s.layout.Child = linearChildContract(facet.StretchPolicy{
 		Width:  facet.StretchAlways,
@@ -133,77 +151,12 @@ func (s *StatusBar) Ring() *status.ProgressRing { return s.ring }
 // Badge returns the row-count badge.
 func (s *StatusBar) Badge() *status.Badge { return s.badge }
 
-// Caption returns the active-exhibit caption facet.
-func (s *StatusBar) Caption() facet.FacetImpl { return s.caption }
+// Caption returns the active-exhibit caption text mark.
+func (s *StatusBar) Caption() *primitive.Text { return s.caption }
 
-func (s *StatusBar) items() []facet.FacetImpl {
-	return []facet.FacetImpl{s.light, s.bar, s.ring, s.badge, s.caption}
-}
-
-func (s *StatusBar) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	items := s.items()
-	// Bound the marks' height so the status strip stays slim: the ring/bar
-	// would otherwise size to their labelled content height.
-	itemC := facet.Constraints{MaxSize: gfx.Size{W: constraints.MaxSize.W, H: statusStripHeight}}
-	width := s.padX * 2
-	height := float32(0)
-	for i, item := range items {
-		role := item.Base().LayoutRole()
-		role.Measure(ctx, itemC)
-		size := role.MeasuredSize
-		width += size.W
-		if i < len(items)-1 {
-			width += s.gap
-		}
-		if size.H > height {
-			height = size.H
-		}
-	}
-	height += s.padY * 2
-	return facet.MeasureResult{Size: gfx.Size{W: width, H: height}}
-}
-
-func (s *StatusBar) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
-	if bounds.IsEmpty() {
-		return
-	}
-	items := s.items()
-	// The progress_bar is the flexible segment: its mark measures itself to the
-	// full available width (ProgressBar.measure claims constraints.MaxSize.W),
-	// so the strip must clamp it to the width left after the fixed-size items
-	// (status_light, progress_ring, badge, caption) are reserved — otherwise it
-	// shoves the ring/badge/caption past the window's right edge.
-	const flex = 1 // s.bar
-	reserved := s.padX * 2
-	for i, item := range items {
-		if i == flex {
-			continue
-		}
-		if role := item.Base().LayoutRole(); role != nil {
-			reserved += role.MeasuredSize.W
-		}
-	}
-	reserved += s.gap * float32(len(items)-1)
-	barW := bounds.Width() - reserved
-	if barW < 1 {
-		barW = 1
-	}
-	x := bounds.Min.X + s.padX
-	for i, item := range items {
-		role := item.Base().LayoutRole()
-		w := role.MeasuredSize.W
-		if i == flex {
-			w = barW
-		}
-		arrangeChild(facet.ArrangeContext{}, item, gfx.RectFromXYWH(x, bounds.Min.Y, w, bounds.Height()))
-		x += w + s.gap
-	}
-}
-
-// Children returns the status bar's group children.
-func (s *StatusBar) Children() []facet.GroupChild {
-	return linearGroupChildren(s.items())
-}
+// Row returns the strip's composition row (the structure.row coverage
+// instance).
+func (s *StatusBar) Row() *structure.Row { return s.row }
 
 func (s *StatusBar) Base() *facet.Facet             { s.BindImpl(s); return &s.Facet }
 func (s *StatusBar) OnAttach(_ facet.AttachContext) {}

@@ -91,7 +91,6 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect) ([]ArrangedChild, er
 	mainAvail := mainExtent(bounds, p.cfg.Axis)
 	crossAvail := crossExtent(bounds, p.cfg.Axis)
 	baseMain := float32(0)
-	stretchCount := 0
 	sizes := make([]gfx.Size, len(children))
 	orderedCount := 0
 	for _, idx := range ordered {
@@ -106,9 +105,6 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect) ([]ArrangedChild, er
 		if placement.CrossAxisAlign == facet.CrossAxisBaseline {
 			panic(fmt.Sprintf("layout contract violation: facet %d; layer %d; placement linear; violated contract: baseline alignment not supported; guidance: use a non-baseline cross-axis alignment", child.FacetID, child.Attachment.LayerID))
 		}
-		if placement.MainAxisSize == facet.MainAxisMax || stretchRequested(child, p.cfg.Axis) {
-			stretchCount++
-		}
 		size := measuredSize(child)
 		sizes[idx] = size
 		baseMain += mainSize(size, p.cfg.Axis)
@@ -121,9 +117,45 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect) ([]ArrangedChild, er
 	if residual < 0 {
 		residual = 0
 	}
-	stretchShare := float32(0)
-	if stretchCount > 0 {
-		stretchShare = residual / float32(stretchCount)
+	// Free-space distribution: fill children (MainAxisMax or stretch
+	// requested) share the residual. Weighted fill children take a
+	// proportional share first; unweighted fill children share what remains
+	// equally. With no weights this is the historic equal split among all
+	// fill children.
+	extra := make([]float32, len(children))
+	fill := p.fillIndices(children, ordered)
+	if len(fill) > 0 {
+		weightSum := float32(0)
+		for _, idx := range fill {
+			if w := children[idx].Attachment.Placement.Linear.Weight; w > 0 {
+				weightSum += w
+			}
+		}
+		assigned := float32(0)
+		equalCount := 0
+		for _, idx := range fill {
+			if w := children[idx].Attachment.Placement.Linear.Weight; w > 0 {
+				extra[idx] = residual * w / weightSum
+				assigned += extra[idx]
+			} else {
+				equalCount++
+			}
+		}
+		if weightSum == 0 {
+			// No weights: every fill child shares equally (assigned stays 0).
+			equalCount = len(fill)
+		}
+		if equalCount > 0 {
+			equalShare := (residual - assigned) / float32(equalCount)
+			if equalShare < 0 {
+				equalShare = 0
+			}
+			for _, idx := range fill {
+				if children[idx].Attachment.Placement.Linear.Weight <= 0 {
+					extra[idx] = equalShare
+				}
+			}
+		}
 	}
 	pos := mainOrigin(bounds, p.cfg.Axis)
 	arranged := make([]ArrangedChild, 0, orderedCount)
@@ -136,7 +168,7 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect) ([]ArrangedChild, er
 		placement := child.Attachment.Placement.Linear
 		main := mainSize(size, p.cfg.Axis)
 		if placement.MainAxisSize == facet.MainAxisMax || stretchRequested(child, p.cfg.Axis) {
-			main += stretchShare
+			main += extra[idx]
 		}
 		cross := crossSize(size, p.cfg.Axis)
 		if placement.CrossAxisAlign == facet.CrossAxisStretch {
@@ -170,6 +202,22 @@ func (p *Policy) Arrange(children []Child, bounds gfx.Rect) ([]ArrangedChild, er
 		return arranged[i].FacetID < arranged[j].FacetID
 	})
 	return arranged, nil
+}
+
+// fillIndices returns the sorted child indices that request main-axis fill
+// (MainAxisMax placement or a stretch-when-requested contract).
+func (p *Policy) fillIndices(children []Child, ordered []int) []int {
+	out := make([]int, 0, len(ordered))
+	for _, idx := range ordered {
+		child := children[idx]
+		if child.Layout == nil {
+			continue
+		}
+		if child.Attachment.Placement.Linear.MainAxisSize == facet.MainAxisMax || stretchRequested(child, p.cfg.Axis) {
+			out = append(out, idx)
+		}
+	}
+	return out
 }
 
 func sortedChildren(children []Child) []int {

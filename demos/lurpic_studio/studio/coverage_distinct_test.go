@@ -102,7 +102,10 @@ var placementIntents = map[string]distinctiveBehavior{
 	"status/progress_ring":      behStatusReflection, // status bar/E6: Value binding reflects a store
 	"status/status_light":       behStatusReflection, // E5/status bar: Label binding reflects a store
 	"structure/card":            behGroupHost,        // E1/E2/E4/E5 controls + inspector/pane: group-parent host
+	"structure/column":          behGroupHost,        // inspector metadata stack (RX-2 P1): linear vertical host
+	"structure/divider":         behReadBinding,      // inspector metadata separator: themed-stroke display mark (NG-5 honest read-only coverage)
 	"structure/list":            behNavStructure,     // E1 feed legend: list host with Activated
+	"structure/row":             behGroupHost,        // status strip + chrome bar (RX-2 P1): linear horizontal host
 	"structure/scroll_region":   behScrollOverflow,   // Capability Index catalog: Scrolled signal + scroll binding
 	"structure/table":           behReadBinding,      // E1 read-only snapshot view (NG-5 honest read-only coverage)
 	"viz/axis":                  behScaleProjection,  // E1 chart: ReactiveScale projection

@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
-	"codeburg.org/lexbit/lurpicui/marks/primitive"
 )
 
 // TestInspector_derived_binding_reprojects_within_two_frames proves RX-1 FR-2 /
@@ -29,7 +28,7 @@ func TestInspector_derived_binding_reprojects_within_two_frames(t *testing.T) {
 	root, h := newShell(t, 1280, 800)
 	h.RunFrames(2) // settle to steady state
 
-	captionText := root.StatusBar().Caption().(*primitive.Text)
+	captionText := root.StatusBar().Caption()
 	captionID := captionText.Base().ID()
 
 	if captionText.Content.Get() != exhibitTitle(ExhibitRealtime) {

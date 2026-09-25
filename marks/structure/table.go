@@ -164,7 +164,7 @@ func NewTable(label string, data TableData, selection *store.ValueStore[string])
 		Clipping: facet.GroupClipBounds,
 	}
 	t.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measure(ctx, constraints).Size
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -230,7 +230,7 @@ func (t *Table) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (t *Table) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "structure", TypeName: "table"}
+	return marks.Descriptor{Family: familyName, TypeName: "table"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.
