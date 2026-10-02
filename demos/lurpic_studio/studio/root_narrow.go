@@ -4,13 +4,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
-	"codeburg.org/lexbit/lurpicui/marks/action"
+	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/feedback"
 	"codeburg.org/lexbit/lurpicui/marks/navigation"
-	"codeburg.org/lexbit/lurpicui/marks/primitive"
-	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
-	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // NarrowShell is the narrow-mode overlay sub-tree (FR-resp): the exhibit index
@@ -19,19 +17,18 @@ import (
 // ShellState stores as the wide index/inspector panes, so a breakpoint crossing
 // preserves state (F-resp: store identity, never mark pointers).
 //
-// The bottom bar is a bespoke horizontal host (the nav_rail mark lays its items
-// out vertically and cannot be re-hosted horizontally — F-rail-shape); it is
-// the mobile bottom-action-bar pattern, using icon_button destinations bound to
-// the same ActiveExhibit store. The nav_rail mark itself is demonstrated in the
-// E6 Navigation playground (FR-13 removed the wide index pane's rail).
+// The bottom bar is a horizontal nav_rail (RX-2 P2 added Orientation: the
+// F-rail-shape limitation is retired) whose destinations bind the same
+// ActiveExhibit store as the drawer. The scrim is the standard feedback.scrim
+// mark (RX-2 FR-5c) instead of a bespoke facet.
 type NarrowShell struct {
 	facet.Facet
 	layout facet.LayoutRole
 
 	shell    *ShellState
-	scrim    *narrowScrim
+	scrim    *feedback.Scrim
 	drawer   *navigation.NavDrawer
-	bar      *narrowRail
+	bar      *navigation.NavRail
 	sheet    *ExhibitInspector
 	drawerID *store.ValueStore[int]
 
@@ -50,7 +47,7 @@ func NewNarrowShell(shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
 
 	// The hit-blocking scrim behind the drawer and bottom sheet (FR-17b):
 	// it dims the stage and a tap on it (outside the open overlay) dismisses.
-	n.scrim = newNarrowScrim(shell)
+	n.scrim = feedback.NewScrim()
 
 	// The nav_drawer re-hosts the exhibit index: sections by concept group,
 	// items bound to the same ActiveExhibit store.
@@ -66,18 +63,25 @@ func NewNarrowShell(shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
 	}
 	n.drawer = navigation.NewNavDrawer("Exhibits", sections, shell.IndexOpen, n.drawerID)
 
-	// The bottom action bar is the narrow-mode exhibit selector (the mobile
-	// bottom-action-bar pattern re-hosting the exhibit destinations).
-	n.bar = newNarrowRail(shell)
+	// The bottom action bar is the narrow-mode exhibit selector: a
+	// horizontal nav_rail over the exhibit destinations, collapsed to icons
+	// (the mobile bottom-action-bar pattern; RX-2 P2).
+	items := make([]navigation.NavRailItem, 0, len(exhibitCatalog))
+	for _, e := range exhibitCatalog {
+		items = append(items, navigation.NavRailItem{Key: string(e.id), Label: e.title, IconRef: e.icon})
+	}
+	n.bar = navigation.NewNavRail("Exhibits", items, n.drawerID)
+	n.bar.Orientation = navigation.NavRailHorizontal
+	n.bar.Collapsed = marks.Const(true)
 
 	// The bottom sheet re-hosts the inspector (sheet mode: drag handle +
 	// Escape dismissal, FR-17c).
 	n.sheet = NewSheetInspector(shell, counts)
 
-	n.AddChild(n.scrim.Base())  //lurpiclint:ignore LL021 -- the scrim is a hit-blocking overlay child, not a layer (LL021 over-fires on overlays hosted as regular children)
-	n.AddChild(n.drawer.Base()) //lurpiclint:ignore LL021 -- the narrow shell hosts navigational marks as regular children, not overlays (LL021 over-fires)
-	n.AddChild(n.bar.Base())    //lurpiclint:ignore LL021 -- the narrow shell hosts the action bar as a regular child, not an overlay (LL021 over-fires)
-	n.AddChild(n.sheet.Base())  //lurpiclint:ignore LL021 -- the narrow shell hosts the inspector sheet as a regular child, not an overlay (LL021 over-fires)
+	n.AddChild(n.scrim.Base())
+	n.AddChild(n.drawer.Base())
+	n.AddChild(n.bar.Base())
+	n.AddChild(n.sheet.Base())
 
 	n.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke narrow-shell host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -193,6 +197,19 @@ func (n *NarrowShell) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 }
 
 func (n *NarrowShell) OnAttach(ctx facet.AttachContext) {
+	// A press on the scrim (outside the drawer/sheet) dismisses both narrow
+	// overlays (FR-17b).
+	n.scrim.Dismissed.Subscribe(func(signal.Unit) {
+		n.shell.IndexOpen.Set(false)
+		n.shell.InspectorOpen.Set(false)
+	})
+	// A bottom-bar destination switches the exhibit (the rail publishes the
+	// selection to the shared drawer index store via its FR-8 binding).
+	n.bar.Activated.Subscribe(func(index int) {
+		if index >= 0 && index < len(exhibitCatalog) {
+			n.setActive(exhibitCatalog[index].id)
+		}
+	})
 	drawerID := n.drawer.Activated.Subscribe(func(index int) {
 		if index >= 0 && index < len(exhibitCatalog) {
 			n.setActive(exhibitCatalog[index].id)
@@ -238,11 +255,11 @@ func (n *NarrowShell) setActive(id ExhibitID) {
 // Drawer returns the nav_drawer mark.
 func (n *NarrowShell) Drawer() *navigation.NavDrawer { return n.drawer }
 
-// Scrim returns the hit-blocking scrim overlay.
-func (n *NarrowShell) Scrim() *narrowScrim { return n.scrim }
+// Scrim returns the hit-blocking scrim mark.
+func (n *NarrowShell) Scrim() *feedback.Scrim { return n.scrim }
 
-// Rail returns the bottom action bar host.
-func (n *NarrowShell) Rail() *narrowRail { return n.bar }
+// Rail returns the bottom action bar (horizontal nav_rail).
+func (n *NarrowShell) Rail() *navigation.NavRail { return n.bar }
 
 // Sheet returns the inspector bottom sheet.
 func (n *NarrowShell) Sheet() *ExhibitInspector { return n.sheet }
@@ -253,216 +270,3 @@ func (n *NarrowShell) DrawerIndex() *store.ValueStore[int] { return n.drawerID }
 func (n *NarrowShell) Base() *facet.Facet { n.BindImpl(n); return &n.Facet }
 func (n *NarrowShell) OnActivate()        {}
 func (n *NarrowShell) OnDeactivate()      {}
-
-// narrowRail is the bottom action bar: a horizontal host of exhibit icon
-// buttons bound to the shared ActiveExhibit store (the mobile bottom-action-bar
-// pattern; the nav_rail mark itself lays out vertically, F-rail-shape, and is
-// demonstrated in E6).
-type narrowRail struct {
-	facet.Facet
-	layout facet.LayoutRole
-	render facet.RenderRole
-
-	shell *ShellState
-	icons []facet.FacetImpl //lurpiclint:ignore LL012 -- the hosted icon buttons are composition structure, not domain state (F-lint-hosts)
-	ids   []ExhibitID       //lurpiclint:ignore LL012 -- the exhibit destinations are composition structure, not domain state (F-lint-hosts)
-
-	background gfx.Color
-	rt         facet.RuntimeServices
-	cleanup    func()
-}
-
-func newNarrowRail(shell *ShellState) *narrowRail {
-	r := &narrowRail{
-		shell:      shell,
-		background: gfx.ColorFromRGBA8(0, 0, 0, 0),
-	}
-	r.Facet = facet.NewFacet()
-	for _, e := range exhibitCatalog {
-		btn := action.NewIconButton(primitive.IconSVG(e.icon))
-		r.AddChild(btn.Base()) //lurpiclint:ignore LL021 -- the narrow rail hosts action marks as regular children, not overlays (LL021 over-fires)
-		r.icons = append(r.icons, btn)
-		r.ids = append(r.ids, e.id)
-	}
-	r.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke bottom action bar host (F-lint-hosts)
-		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-			return r.measure(ctx, c)
-		},
-		OnArrange: func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-			r.arrange(ctx, bounds)
-		},
-	}
-	r.layout.Child = linearChildContract(facet.StretchPolicy{Width: facet.StretchAlways, Height: facet.StretchNever})
-	r.render = facet.RenderRole{
-		OnCollect: func(list *gfx.CommandList, bounds gfx.Rect) {
-			if r.background.A == 0 {
-				return
-			}
-			list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(r.background)})
-		},
-	}
-	r.AddRole(&r.layout)
-	r.AddRole(&r.render)
-	return r
-}
-
-func (r *narrowRail) measure(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-	h := float32(48)
-	for _, icon := range r.icons {
-		if role := icon.Base().LayoutRole(); role != nil {
-			role.Measure(ctx, facet.Constraints{MaxSize: c.MaxSize})
-			if s := role.MeasuredSize; s.H > h {
-				h = s.H
-			}
-		}
-	}
-	return facet.MeasureResult{Size: gfx.Size{W: c.MaxSize.W, H: h}}
-}
-
-func (r *narrowRail) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
-	// F-layout-root-fallback: the runtime can select this bar as an independent
-	// layout root and re-arrange it with the full window bounds when a store
-	// change marks it DirtyLayout (its own ArrangedBounds was empty at that
-	// instant), bypassing Root's wide-mode empty cascade. Consult the shared
-	// mode flag and stay empty in wide mode no matter the supplied bounds.
-	if r.shell.Mode == LayoutWide || bounds.IsEmpty() {
-		for _, icon := range r.icons {
-			if role := icon.Base().LayoutRole(); role != nil {
-				role.Arrange(ctx, gfx.Rect{})
-			}
-		}
-		return
-	}
-	// Equal columns across the width.
-	n := len(r.icons)
-	if n == 0 {
-		return
-	}
-	colW := bounds.Width() / float32(n)
-	for i, icon := range r.icons {
-		rect := gfx.RectFromXYWH(bounds.Min.X+colW*float32(i), bounds.Min.Y, colW, bounds.Height())
-		if role := icon.Base().LayoutRole(); role != nil {
-			role.Arrange(ctx, rect)
-		}
-	}
-}
-
-func (r *narrowRail) OnAttach(ctx facet.AttachContext) {
-	r.rt = ctx.Runtime
-	ids := make([]signal.SubscriptionID, 0, len(r.icons))
-	for i, icon := range r.icons {
-		btn := icon.(*action.IconButton)
-		idx := i
-		ids = append(ids, btn.Activated.Subscribe(func(signal.Unit) {
-			r.shell.ActiveExhibit.Set(r.ids[idx])
-		}))
-	}
-	activeID := r.shell.ActiveExhibit.OnChange.Subscribe(func(signal.Change[ExhibitID]) {
-		layout.PropagateContentDirty(r, ctx.Runtime, "narrowRail.active", facet.DirtyLayout|facet.DirtyProjection)
-	})
-	r.cleanup = func() {
-		for i, icon := range r.icons {
-			if btn, ok := icon.(*action.IconButton); ok {
-				btn.Activated.Unsubscribe(ids[i])
-			}
-		}
-		r.shell.ActiveExhibit.OnChange.Unsubscribe(activeID)
-	}
-}
-
-func (r *narrowRail) OnDetach() {
-	if r.cleanup != nil {
-		r.cleanup()
-		r.cleanup = nil
-	}
-}
-
-func (r *narrowRail) Base() *facet.Facet { r.BindImpl(r); return &r.Facet }
-func (r *narrowRail) OnActivate()        {}
-func (r *narrowRail) OnDeactivate()      {}
-
-// narrowScrim is the hit-blocking overlay behind the narrow drawer and bottom
-// sheet (RX-1 FR-17b): it dims the stage and blocks clicks to it, and a tap on
-// the scrim (outside the open overlay) dismisses it. It is a regular child of
-// the NarrowShell arranged first, so the drawer/sheet paint and hit above it;
-// its hit region exists only while a sheet or drawer is open.
-type narrowScrim struct {
-	facet.Facet
-	layout facet.LayoutRole
-	render facet.RenderRole
-	hit    facet.HitRole
-	input  facet.InputRole
-
-	shell *ShellState
-	color gfx.Color
-}
-
-func newNarrowScrim(shell *ShellState) *narrowScrim {
-	s := &narrowScrim{shell: shell}
-	s.Facet = facet.NewFacet()
-
-	s.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke hit-blocking scrim overlay (F-lint-hosts)
-		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
-			return facet.MeasureResult{Size: c.Constrain(c.MaxSize)}
-		},
-		OnArrange: func(ctx facet.ArrangeContext, bounds gfx.Rect) {
-			if resolved, ok := ctx.Theme.(theme.ResolvedContext); ok {
-				s.color = resolved.Color(theme.ColorText)
-				s.color.A = 0.4
-			}
-		},
-	}
-	s.render = facet.RenderRole{
-		OnCollect: func(list *gfx.CommandList, bounds gfx.Rect) {
-			if bounds.IsEmpty() || !s.visible() || s.color.A == 0 {
-				return
-			}
-			list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(s.color)})
-		},
-	}
-	s.hit = facet.HitRole{
-		OnHitTest: func(p gfx.Point) facet.HitResult {
-			if !s.visible() {
-				return facet.HitResult{}
-			}
-			b := s.layout.ArrangedBounds
-			if b.IsEmpty() || !b.Contains(p) {
-				return facet.HitResult{}
-			}
-			return facet.HitResult{Hit: true}
-		},
-	}
-	s.input = facet.InputRole{
-		OnPointer: func(e facet.PointerEvent) bool {
-			if !s.visible() {
-				return false
-			}
-			if e.Kind == platform.PointerPress && e.Button == platform.PointerLeft {
-				// Tap outside the drawer/sheet: dismiss both narrow overlays.
-				s.shell.IndexOpen.Set(false)
-				s.shell.InspectorOpen.Set(false)
-			}
-			return true
-		},
-	}
-	s.AddRole(&s.layout)
-	s.AddRole(&s.render)
-	s.AddRole(&s.hit)
-	s.AddRole(&s.input)
-	return s
-}
-
-// visible reports whether any narrow overlay is open (the scrim's render and
-// hit region are gated by it).
-func (s *narrowScrim) visible() bool {
-	if s == nil || s.shell == nil {
-		return false
-	}
-	return s.shell.IndexOpen.Get() || s.shell.InspectorOpen.Get()
-}
-
-func (s *narrowScrim) Base() *facet.Facet             { s.BindImpl(s); return &s.Facet }
-func (s *narrowScrim) OnAttach(_ facet.AttachContext) {}
-func (s *narrowScrim) OnDetach()                      {}
-func (s *narrowScrim) OnActivate()                    {}
-func (s *narrowScrim) OnDeactivate()                  {}

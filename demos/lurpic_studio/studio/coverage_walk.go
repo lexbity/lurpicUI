@@ -10,11 +10,12 @@ import (
 // live-tree walk used by the coverage audit (FR-coverage), the demonstration-
 // intent review (FR-coverage-distinct), and the inspector pane's mark count.
 //
-// It walks facet-tree children only: the group-parent container marks
-// (Card, ScrollRegion, Tabs) self-project their content without attaching it to
-// the facet tree (F-card-content / F-scroll-content), so read-only content
-// inside them (e.g. the Capability Index catalog rows) is intentionally outside
-// the walk — the same boundary the runtime's projection and hit-testing use.
+// It walks facet-tree children only: the container marks (Card, ScrollRegion,
+// Tabs, Row, Column) attach their content as real tree children (RX-1 hosting,
+// RX-2 P1), so the walk naturally descends into them. Read-only content that a
+// mark generates internally without tree children (e.g. the Capability Index
+// catalog's table rows) is outside the walk by construction — the same
+// boundary the runtime's projection and hit-testing use.
 func walkMarkDescriptors(root facet.FacetImpl) []marks.Descriptor {
 	if root == nil || root.Base() == nil {
 		return nil

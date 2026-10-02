@@ -92,7 +92,7 @@ func findStudioModuleRoot() string {
 // capabilityGroup is one concept group of the catalog.
 type capabilityGroup struct {
 	title string
-	caps  []capabilities.Capability //lurpiclint:ignore LL012 -- cached read-only catalog rows, not interactive domain state (F-lint-hosts)
+	caps  []capabilities.Capability
 }
 
 // NewCapabilityIndexFacet builds the read-only catalog view over a single

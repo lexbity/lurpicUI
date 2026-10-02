@@ -157,7 +157,7 @@ func (t *Tooltip) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (t *Tooltip) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "feedback", TypeName: "tooltip"}
+	return marks.Descriptor{Family: markTypeFeedback, TypeName: "tooltip"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

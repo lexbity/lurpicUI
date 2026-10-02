@@ -1584,8 +1584,12 @@ func TestLL012_OnBadFixture(t *testing.T) {
 	dir := ruleTestdataDir(t, "contract", "ll012_bad")
 	diags := runRulesOnFixture(t, []string{"LL012"}, dir)
 	if len(diags) == 0 {
-		// The heuristic may not trigger; log but don't fail.
-		t.Log("LL012: no diagnostics on bad fixture (heuristic may need tuning)")
+		t.Fatal("expected at least 1 LL012 diagnostic on bad fixture (narrowed rule must still fire on store/domain slices), got 0")
+	}
+	for _, d := range diags {
+		if d.RuleID != "LL012" {
+			t.Errorf("unexpected rule %q, want LL012", d.RuleID)
+		}
 	}
 }
 

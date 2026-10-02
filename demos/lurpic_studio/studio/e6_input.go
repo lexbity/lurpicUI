@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
@@ -15,7 +16,7 @@ import (
 // input family's distinctive behavior: the IME/write-back loop that lands user
 // input in a store).
 type playInputFamily struct {
-	scroll *demoList
+	scroll *structure.ScrollRegion
 
 	field *input.TextField
 	name  *store.ValueStore[string]
@@ -42,7 +43,7 @@ func newPlayInputFamily() *playInputFamily {
 	f.picker = input.NewColorPicker("Series color", f.color)
 	f.glyph = primitive.NewIcon(primitive.IconSVG(iconRealtime))
 
-	f.scroll = newDemoList(listGap,
+	f.scroll = newPlayScroll(listGap,
 		playgroundCard("text_field — click and type", f.field),
 		playgroundCard("number_field — click and step", f.number),
 		playgroundCard("color_picker — drag or arrow", f.picker),

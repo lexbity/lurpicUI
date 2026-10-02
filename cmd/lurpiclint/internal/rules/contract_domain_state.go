@@ -76,32 +76,58 @@ func (r *DomainStateInFacet) Check(ctx *Context) []*diag.Diagnostic {
 
 // looksLikeDomainState heuristically checks whether a struct field looks
 // like domain data rather than projection/rendering state.
+//
+// Narrowed (RX-2 Q11): facet-composition fields are NOT domain state —
+// a facet embedding hosts child facets as real tree members, so slices of
+// facet-typed elements ([]facet.FacetImpl) and lifecycle-closure slices
+// ([]func()) are composition structure. Fields named cached* are the
+// framework's projection-cache idiom, also not domain state.
 func looksLikeDomainState(field *ast.Field, pf *loader.ParsedFile) bool {
-	switch t := field.Type.(type) {
-	case *ast.ArrayType:
-		// Slice of non-ident types (likely domain structs).
-		if _, ok := t.Elt.(*ast.Ident); !ok {
-			return true
-		}
-	case *ast.SelectorExpr:
-		// Type from another package — check the import for store/domain.
-		if id, ok := t.X.(*ast.Ident); ok {
+	if len(field.Names) > 0 && strings.HasPrefix(field.Names[0].Name, "cached") {
+		return false
+	}
+	fromStoreDomain := func(expr ast.Expr) bool {
+		if id, ok := expr.(*ast.Ident); ok {
 			if importPath, exists := pf.Imports[id.Name]; exists {
-				if strings.Contains(importPath, "/store") || strings.Contains(importPath, "/domain") {
-					return true
-				}
+				return strings.Contains(importPath, "/store") || strings.Contains(importPath, "/domain")
 			}
 		}
+		return false
+	}
+	switch t := field.Type.(type) {
+	case *ast.ArrayType:
+		// Flag only slices whose element type is store/domain state
+		// ([]*store.ValueStore[T], []domain.Row). Facet-composition slices
+		// ([]facet.FacetImpl) and lifecycle closures ([]func()) are not
+		// domain state. Unwrap pointer and index layers so generic store
+		// handles ([]*store.ValueStore[T]) resolve to their selector root.
+		elt := t.Elt
+		for {
+			switch e := elt.(type) {
+			case *ast.StarExpr:
+				elt = e.X
+			case *ast.IndexExpr:
+				elt = e.X
+			default:
+				goto checkedElement
+			}
+		}
+	checkedElement:
+		if sel, ok := elt.(*ast.SelectorExpr); ok {
+			return fromStoreDomain(sel.X)
+		}
+		return false
+	case *ast.SelectorExpr:
+		// Type from another package — check the import for store/domain.
+		return fromStoreDomain(t.X)
 	case *ast.StarExpr:
 		// Pointer to selector type from store/domain.
 		if sel, ok := t.X.(*ast.SelectorExpr); ok {
-			if id, ok := sel.X.(*ast.Ident); ok {
-				if importPath, exists := pf.Imports[id.Name]; exists {
-					if strings.Contains(importPath, "/store") || strings.Contains(importPath, "/domain") {
-						return true
-					}
-				}
-			}
+			// Unwrap index layers so *store.ValueStore[T] resolves too,
+			// but only when the star directly wraps a selector (a bare
+			// *store handle field is the framework's store-injection
+			// idiom, not domain state — singleton handles stay clean).
+			return fromStoreDomain(sel.X)
 		}
 	}
 	return false

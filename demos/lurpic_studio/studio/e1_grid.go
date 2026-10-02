@@ -43,7 +43,7 @@ type EditableGrid struct {
 	selection   *store.ValueStore[store.ItemID]
 
 	editing   bool
-	editID    store.ItemID //lurpiclint:ignore LL012 -- the active cell's row is ephemeral edit-session UI state in a bespoke interactive host (F-lint-hosts); cleared on commit/cancel
+	editID    *store.ValueStore[store.ItemID]
 	cellValue *store.ValueStore[string]
 	invalid   *store.ValueStore[string]
 	editor    *input.TextField
@@ -59,8 +59,8 @@ type EditableGrid struct {
 	// lastEditorRect / lastAlertRect track the last layer-placement pushed for
 	// the editor/alert overlays so arrange only re-pushes on an actual change
 	// (RX-1 Q4; avoids a permanent layout-dirty echo while editing).
-	lastEditorRect gfx.Rect //lurpiclint:ignore LL012 -- ephemeral edit-session layer placement in a bespoke interactive host (F-lint-hosts)
-	lastAlertRect  gfx.Rect //lurpiclint:ignore LL012 -- ephemeral alert layer placement in a bespoke interactive host (F-lint-hosts)
+	lastEditorRect gfx.Rect
+	lastAlertRect  gfx.Rect
 
 	rowHeight float32
 	bg        gfx.Color
@@ -80,6 +80,7 @@ func NewEditableGrid(rows *store.CollectionStore[dataset.Row], fonts *text.FontR
 		hoverRegion: brush.HoverRegion,
 		selection:   brush.Selection,
 		cellValue:   store.NewValueStore(""),
+		editID:      store.NewValueStore(store.ItemID(0)),
 		invalid:     store.NewValueStore(""),
 		rowHeight:   gridRowHeight,
 		bg:          themeCtx.Color(theme.ColorSurfaceVariant),
@@ -153,7 +154,7 @@ func (g *EditableGrid) Invalid() *store.ValueStore[string] { return g.invalid }
 func (g *EditableGrid) Editing() bool { return g.editing }
 
 // EditRow returns the row being edited (when Editing).
-func (g *EditableGrid) EditRow() store.ItemID { return g.editID }
+func (g *EditableGrid) EditRow() store.ItemID { return g.editID.Get() }
 
 // ScrollOffset returns the first visible row index (the brush scroll follow).
 func (g *EditableGrid) ScrollOffset() int { return g.scroll }
@@ -218,7 +219,7 @@ func (g *EditableGrid) syncOverlayPlacements(bounds gfx.Rect) {
 	}
 	var editorRect, alertRect gfx.Rect
 	if g.editing {
-		editorRect = g.valueCellRect(bounds, g.editID)
+		editorRect = g.valueCellRect(bounds, g.editID.Get())
 	}
 	if g.invalid.Get() != "" {
 		h := float32(30)
@@ -323,7 +324,7 @@ func (g *EditableGrid) activateEdit(bounds gfx.Rect, id store.ItemID) {
 	if !ok {
 		return
 	}
-	g.editID = id
+	g.editID.Set(id)
 	g.cellValue.Set(strconv.FormatFloat(row.Value, 'f', 1, 64))
 	g.invalid.Set("")
 	g.editing = true
@@ -372,7 +373,7 @@ func (g *EditableGrid) onKey(e facet.KeyEvent) bool {
 // Rows.Update on the runtime thread. Returns true when the commit applied;
 // an invalid value raises the inline alert and leaves the session open.
 func (g *EditableGrid) commitEdit() bool {
-	row, ok := g.rows.Get(g.editID)
+	row, ok := g.rows.Get(g.editID.Get())
 	if !ok {
 		g.cancelEdit()
 		return false
@@ -394,7 +395,7 @@ func (g *EditableGrid) commitEdit() bool {
 
 // traverseNext moves the editor to the next row's Value cell (Enter advance).
 func (g *EditableGrid) traverseNext() {
-	idx := g.rowIndex(g.editID)
+	idx := g.rowIndex(g.editID.Get())
 	rows := g.rows.All()
 	next := idx + 1
 	if len(rows) == 0 {

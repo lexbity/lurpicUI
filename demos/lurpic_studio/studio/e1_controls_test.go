@@ -44,8 +44,10 @@ func TestE1_controlsCard_cellsDoNotOverlap(t *testing.T) {
 }
 
 // TestE1_bottomStrip_regionsDoNotOverlap asserts RX-1 FR-15 / AC-10: the
-// controls card, jump-to-live button, radial reshape dial, feed legend, and
-// table occupy non-overlapping arranged regions in the bottom strip.
+// controls card, radial reshape dial, feed legend, and table occupy
+// non-overlapping arranged regions in the bottom strip, and the jump-to-live
+// button is arranged INSIDE the controls card (RX-2 FR-5 — the jump button
+// lives in the card, so it must not overlap the card and must stay reachable).
 func TestE1_bottomStrip_regionsDoNotOverlap(t *testing.T) {
 	e, h := newE1Harness(t)
 	_ = h
@@ -64,8 +66,18 @@ func TestE1_bottomStrip_regionsDoNotOverlap(t *testing.T) {
 			t.Fatalf("bottom-strip region %q is empty", regions[i].name)
 		}
 	}
+	// The jump button is a cell of the controls card (RX-2 FR-5): it must be
+	// contained in the card, not overlap the other strip regions.
+	card := regions[0].rect
+	jump := regions[1].rect
+	if !card.Contains(jump.Min) || !card.Contains(jump.Max) {
+		t.Fatalf("jump button %v not contained in controls card %v (RX-2 FR-5)", jump, card)
+	}
 	for i := 0; i < len(regions); i++ {
 		for j := i + 1; j < len(regions); j++ {
+			if i == 0 || j == 0 || i == 1 || j == 1 {
+				continue // controls hosts jump; skip parent/child pair
+			}
 			if rectsOverlap(regions[i].rect, regions[j].rect) {
 				t.Fatalf("bottom strip overlap: %q %v overlaps %q %v", regions[i].name, regions[i].rect, regions[j].name, regions[j].rect)
 			}

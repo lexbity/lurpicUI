@@ -3,6 +3,7 @@ package studio
 import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/navigation"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -16,7 +17,7 @@ import (
 // mark is demonstrated here since RX-1 FR-13 removed the index pane's duplicate
 // rail listing (the wide index hosts the tree_navigator alone).
 type playNavFamily struct {
-	scroll *demoList
+	scroll *structure.ScrollRegion
 
 	rail       *navigation.NavRail
 	railActive *store.ValueStore[int]
@@ -107,7 +108,7 @@ func newPlayNavFamily() *playNavFamily {
 		{Label: "Realtime Data"},
 	}, f.crumbIndex)
 
-	f.scroll = newDemoList(listGap,
+	f.scroll = newPlayScroll(listGap,
 		playgroundCard("nav_rail — click a destination", f.rail),
 		playgroundCard("nav_drawer — click a destination", f.drawer),
 		playgroundCard("tree_navigator — click a family", f.tree),

@@ -239,9 +239,9 @@ func TestResponsive_narrowRailStaysInertInWideAfterExhibitSwitch(t *testing.T) {
 	h.RunFrame()
 	h.RunFrame()
 
-	for i, icon := range root.Narrow().Rail().icons {
-		if b := icon.Base().LayoutRole().ArrangedBounds; !b.IsEmpty() {
-			t.Fatalf("rail icon %d arranged in wide mode: %v", i, b)
+	for i, b := range root.Narrow().Rail().ItemBounds() {
+		if !b.IsEmpty() {
+			t.Fatalf("rail destination %d arranged in wide mode: %v", i, b)
 		}
 	}
 	// The click-path symptom: a click on the active exhibit's chart must not be
@@ -262,14 +262,19 @@ func TestResponsive_narrowDrawerSwitchesExhibit(t *testing.T) {
 	root, h := newResponsiveShell(t, 1280, 800)
 	resize(h, 800, 600)
 
-	// The bottom action bar's first icon selects the first catalog exhibit.
+	// The bottom action bar's first destination selects the first catalog
+	// exhibit (the rail publishes to the shared drawer index store).
 	rail := root.Narrow().Rail()
-	first := rail.icons[0].Base().LayoutRole().ArrangedBounds
+	bounds := rail.ItemBounds()
+	if len(bounds) == 0 {
+		t.Fatal("narrow rail has no arranged destinations")
+	}
+	first := bounds[0]
 	if first.IsEmpty() {
-		t.Fatal("narrow rail first icon not arranged")
+		t.Fatal("narrow rail first destination not arranged")
 	}
 	testkit.DriveClick(h, first.Min.X+first.Width()*0.5, first.Min.Y+first.Height()*0.5)
-	if got := root.Shell().ActiveExhibit.Get(); got != rail.ids[0] {
-		t.Fatalf("narrow rail selected %v, want %v", got, rail.ids[0])
+	if got := root.Shell().ActiveExhibit.Get(); got != exhibitCatalog[0].id {
+		t.Fatalf("narrow rail selected %v, want %v", got, exhibitCatalog[0].id)
 	}
 }

@@ -53,7 +53,8 @@ func playCenter(f facet.FacetImpl) gfx.Point {
 }
 
 // scrollFamily scrolls the given family's list host so below-the-fold cards
-// become visible (the demo's bespoke scroll list, F-scroll-content).
+// become visible (the family bodies are structure.scroll_region marks now —
+// RX-2 P2).
 func scrollFamily(t *testing.T, h *testkit.Harness, f facet.FacetImpl, delta float32) {
 	t.Helper()
 	b := f.Base().LayoutRole().ArrangedBounds
@@ -176,7 +177,9 @@ func TestPlayground_selectionFamilyWriteBack(t *testing.T) {
 	scrollFamily(t, h, e.Selection().scroll, -900)
 	seg := e6Arranged(t, e.Selection().segments)
 	beforeVal := e.Selection().ButtonGroup().Get()
-	testkit.DriveClick(h, seg.Min.X+seg.Width()*0.1, seg.Min.Y+seg.Height()*0.5)
+	// The card grid centers the group; the middle option is never the
+	// pre-selected first key, so the click provably changes the selection.
+	testkit.DriveClick(h, seg.Min.X+seg.Width()*0.5, seg.Min.Y+seg.Height()*0.5)
 	if got := e.Selection().ButtonGroup().Get(); fmt.Sprint(got) == fmt.Sprint(beforeVal) {
 		t.Fatalf("button_group click did not change selection (%v)", got)
 	}
@@ -233,7 +236,9 @@ func TestPlayground_navigationFamily(t *testing.T) {
 	scrollFamily(t, h, e.Navigation().scroll, -500)
 	pg := e6Arranged(t, e.Navigation().pager)
 	before := e.Navigation().pageActivated.Get()
-	testkit.DriveClick(h, pg.Min.X+pg.Width()*0.15, pg.Min.Y+pg.Height()*0.5)
+	// The right arrow always activates the adjacent page (the center of the
+	// mark falls between page buttons).
+	testkit.DriveClick(h, pg.Min.X+pg.Width()*0.95, pg.Min.Y+pg.Height()*0.5)
 	if got := e.Navigation().pageActivated.Get(); got == before {
 		t.Fatalf("pagination click did not activate a page (%d)", got)
 	}
@@ -288,21 +293,27 @@ func TestPlayground_statusFamily(t *testing.T) {
 
 // TestPlayground_scrollReachesBelowFold proves the family list host scrolls:
 // a mark below the initial fold is not arranged until the list is scrolled,
-// after which it is arranged and interactive (F-scroll-content).
+// after which it is arranged and interactive (structure.scroll_region hosting,
+// RX-2 P2).
 func TestPlayground_scrollReachesBelowFold(t *testing.T) {
 	e, h := newE6Harness(t)
 	switchTab(t, e, h, 1)
 
-	// The button_group is the last selection card; initially below the fold.
-	if b := e.Selection().segments.Base().LayoutRole().ArrangedBounds; !b.IsEmpty() {
-		t.Fatalf("button_group arranged before scrolling (unexpectedly in view)")
+	// The button_group is the last selection card; initially below the fold —
+	// the scroll_region arranges all children in content flow, so "below the
+	// fold" means outside the viewport (its hit region cannot be reached
+	// through the region's clipped bounds).
+	vp := e.Selection().scroll.Base().LayoutRole().ArrangedBounds
+	b0 := e6Arranged(t, e.Selection().segments)
+	if b0.Min.Y < vp.Max.Y {
+		t.Fatalf("button_group already in view before scrolling: %v (viewport %v)", b0, vp)
 	}
 	scrollFamily(t, h, e.Selection().scroll, -900)
 	b := e6Arranged(t, e.Selection().segments)
-	if b.IsEmpty() {
-		t.Fatal("button_group not arranged after scroll")
+	if b.Max.Y > vp.Max.Y || b.Min.Y < vp.Min.Y {
+		t.Fatalf("button_group not scrolled into view: %v (viewport %v)", b, vp)
 	}
-	if got := h.Runtime().HitTest(gfx.Point{X: b.Min.X + b.Width()*0.1, Y: b.Min.Y + b.Height()*0.5}); got != e.Selection().segments.Base().ID() {
+	if got := h.Runtime().HitTest(gfx.Point{X: b.Min.X + b.Width()*0.5, Y: b.Min.Y + b.Height()*0.5}); got != e.Selection().segments.Base().ID() {
 		t.Fatalf("scrolled button_group not hit-testable (hit=%d want %d)", got, e.Selection().segments.Base().ID())
 	}
 }

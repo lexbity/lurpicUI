@@ -65,8 +65,8 @@ func NewLayoutPolicies() *LayoutPolicies {
 	}, dividerSize)
 
 	e.Facet = facet.NewFacet()
-	e.AddChild(e.split.Base())    //lurpiclint:ignore LL021 -- E4 hosts an action button; its children are not overlays (LL021 over-fires)
-	e.AddChild(e.controls.Base()) //lurpiclint:ignore LL021 -- E4 hosts an action button; its children are not overlays (LL021 over-fires)
+	e.AddChild(e.split.Base())
+	e.AddChild(e.controls.Base())
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {

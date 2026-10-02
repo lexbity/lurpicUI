@@ -17,9 +17,9 @@ import (
 // ActiveExhibit through its FR-8 selection store (treeSel), so a store write —
 // from the tree, the stage, the command palette, or a pre-attach seed —
 // re-syncs the control through the mark's own contract. It is a bespoke
-// vertical host because the framework Card does not attach its content to the
-// facet tree (F-card-content) — a tree_navigator inside a Card would not
-// receive pointer input.
+// vertical host because the index pane's fixed width and chrome (header, tree,
+// totals note) do not map onto a single built-in container; the tree itself is
+// a real tree child of the pane and receives pointer input (RX-2 P2 hosting).
 type ExhibitIndex struct {
 	facet.Facet
 	layout facet.LayoutRole
@@ -45,7 +45,7 @@ func NewExhibitIndex(shell *ShellState) *ExhibitIndex {
 
 	p.tree = navigation.NewTreeNavigator("Exhibit tree", indexTreeNodes(shell.ActiveExhibit.Get()), p.treeSel)
 
-	p.AddChild(p.tree.Base()) //lurpiclint:ignore LL021 -- the index pane hosts a navigational mark as a regular child, not an overlay (LL021 over-fires)
+	p.AddChild(p.tree.Base())
 
 	p.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke index-pane host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {

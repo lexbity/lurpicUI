@@ -163,6 +163,26 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	}
 
 	diff := r.diffCache.Diff(frame)
+
+	// Steady-state fast path: when every batch in the frame is unchanged
+	// (nothing added, removed, moved, or re-painted), the composited output
+	// from the previous frame is already correct. Skipping the clear +
+	// per-batch composite removes the entire pixel-traffic hot path — a large
+	// share of the software backend's instrumented memory accesses in quiet
+	// frames (and ~2x more under the race detector).
+	//
+	// The gate is the per-batch diff kinds, NOT CompositeDirtyRects: that list
+	// is rebuilt from the *current* frame's batches after removal detection,
+	// so a removed batch (e.g. a closed modal layer) contributes no rect and
+	// the list can read empty while pixels actually changed.
+	if allBatchesUnchanged(diff.RenderBatchs, len(frame.RenderBatchs)) {
+		if err := r.blitToSurface(); err != nil {
+			return err
+		}
+		r.diffCache.Update(frame, r.cachedBuffers())
+		return nil
+	}
+
 	clearRGBA(r.output)
 
 	seen := make(map[render.RenderBatchID]struct{}, len(frame.RenderBatchs))
@@ -454,6 +474,38 @@ func fillRect(target *image.RGBA, state renderState, rect gfx.Rect, brush gfx.Br
 	maxX := clampInt(int(math.Ceil(float64(rr.Max.X))), 0, target.Bounds().Dx())
 	maxY := clampInt(int(math.Ceil(float64(rr.Max.Y))), 0, target.Bounds().Dy())
 	if minX >= maxX || minY >= maxY {
+		return
+	}
+
+	// Solid-brush fast path: an opaque solid fill is a straight overwrite with
+	// a constant byte pattern — hoisting colorToBytes out of the per-pixel loop
+	// avoids the float round-trip on every pixel (the software backend's hottest
+	// fill case: surface + material fills dominate studio frames).
+	if brush.Kind == gfx.BrushSolid && state.opacity == 1 {
+		sr, sg, sb, sa := colorToBytes(brush.Color, 1)
+		if sa == 255 {
+			for y := minY; y < maxY; y++ {
+				rowOff := y*target.Stride + minX*4
+				for x := minX; x < maxX; x++ {
+					off := rowOff + (x-minX)*4
+					target.Pix[off] = sr
+					target.Pix[off+1] = sg
+					target.Pix[off+2] = sb
+					target.Pix[off+3] = 255
+				}
+			}
+			return
+		}
+		// Translucent solid: precompute bytes once, still constant per pixel.
+		var packed [4]byte
+		packed[0], packed[1], packed[2], packed[3] = sr, sg, sb, sa
+		for y := minY; y < maxY; y++ {
+			rowOff := y*target.Stride + minX*4
+			for x := minX; x < maxX; x++ {
+				off := rowOff + (x-minX)*4
+				blendPremul(target.Pix[off:off+4], packed[:], 1)
+			}
+		}
 		return
 	}
 
@@ -1109,6 +1161,35 @@ func sampleImageNearest(img *image.RGBA, sx, sy float32) gfx.Color {
 	return colorFromBytes(r, g, b, a)
 }
 
+// allBatchesUnchanged reports whether every batch in the frame diff is
+// RenderBatchUnchanged and the frame's batch count matches the diff set.
+// Frame count == len(diff) catches removals: a removed batch leaves an entry
+// in diff.RenderBatchs (kind Removed) that is absent from frame.RenderBatchs,
+// so the lengths differ and the fast path correctly falls through.
+func allBatchesUnchanged(diffs map[render.RenderBatchID]renderutil.RenderBatchDiff, frameBatches int) bool {
+	if len(diffs) != frameBatches {
+		return false
+	}
+	for _, d := range diffs {
+		if d.Kind != renderutil.RenderBatchUnchanged {
+			return false
+		}
+	}
+	return true
+}
+
+// cachedBuffers snapshots the current render-batch cache buffers for the diff
+// cache's Update bookkeeping (the steady-state fast path reuses the previous
+// frame's composited output, so no re-rasterization happens and the cached
+// buffers are authoritative).
+func (r *SoftwareRenderer) cachedBuffers() map[render.RenderBatchID]*image.RGBA {
+	buffers := make(map[render.RenderBatchID]*image.RGBA, len(r.RenderBatchCache))
+	for id, entry := range r.RenderBatchCache {
+		buffers[id] = entry.buffer
+	}
+	return buffers
+}
+
 func blendAt(img *image.RGBA, x, y int, src gfx.Color, opacity float32) {
 	if img == nil {
 		return
@@ -1118,7 +1199,12 @@ func blendAt(img *image.RGBA, x, y int, src gfx.Color, opacity float32) {
 		return
 	}
 	sr, sg, sb, sa := colorToBytes(src, opacity)
-	blendPremul(img.Pix[off:off+4], []byte{sr, sg, sb, sa}, 1)
+	// Stack-only [4]byte: the previous `[]byte{sr,...}` composite literal
+	// escaped to a tiny heap allocation on every pixel — a measurable cost in
+	// the software-blend hot path (and ~2x under -race shadow memory).
+	var packed [4]byte
+	packed[0], packed[1], packed[2], packed[3] = sr, sg, sb, sa
+	blendPremul(img.Pix[off:off+4], packed[:], 1)
 }
 
 func blendPremul(dst []byte, src []byte, opacity float32) {
@@ -1132,7 +1218,27 @@ func blendPremul(dst []byte, src []byte, opacity float32) {
 		sb = scaleByte(sb, opacity)
 		sa = scaleByte(sa, opacity)
 	}
+	if sr == 0 && sg == 0 && sb == 0 && sa == 0 {
+		// Fully-transparent premultiplied source: no-op. NOTE: this is NOT a
+		// bare `sa == 0` check — the reference formula for alpha 0 with a
+		// nonzero RGB channel (a malformed premultiplied color) reduces to
+		// dst' = clamp(src + dst), which is not identity. Valid premultiplied
+		// sources always have RGB == 0 when A == 0, so the all-zero check is
+		// byte-identical to the reference for canonical colors and matches it
+		// for malformed ones too.
+		return
+	}
 	inv := int(255 - sa)
+	if inv == 0 {
+		// Opaque source with full coverage overwrites: with sa == 255 the
+		// general clause below reduces to dst' = sr, sg, sb and A' = 255
+		// exactly. Direct copy is byte-identical and skips mul255/clamp.
+		dst[0] = sr
+		dst[1] = sg
+		dst[2] = sb
+		dst[3] = 255
+		return
+	}
 	dst[0] = clampByte(int(sr) + mul255(dst[0], inv))
 	dst[1] = clampByte(int(sg) + mul255(dst[1], inv))
 	dst[2] = clampByte(int(sb) + mul255(dst[2], inv))
@@ -1239,9 +1345,10 @@ func maxFloat32(a, b float32) float32 {
 }
 
 func clearRGBA(img *image.RGBA) {
-	for i := range img.Pix {
-		img.Pix[i] = 0
-	}
+	// clear() zeroes in bulk (memset primitive); the previous per-byte loop
+	// was one instrumented store per pixel, which the race detector makes 2x+
+	// more expensive than the runtime's bulk zero.
+	clear(img.Pix)
 }
 
 func clampInt(v, min, max int) int {

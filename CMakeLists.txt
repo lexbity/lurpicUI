@@ -371,11 +371,18 @@ endif()
 
 lurpic_add_optional_go_test_target(
   NAME test-race
-  DESCRIPTION "Go test race detector suite (RX-1 NFR-4: -count=10 repeated runs, demos included)"
+  DESCRIPTION "Go test race detector suite (RX-2 NFR-4: -count=10 repeated runs, demos included)"
   AVAILABLE ${LURPIC_HAVE_RACE}
   UNAVAILABLE_MESSAGE "Environment capability failure: test-race is unavailable because the Go race detector is not supported by this toolchain: ${LURPIC_RACE_HINT}"
+  # Grow the per-binary timeout: the studio suite takes ~197s per -race run
+  # (the software renderer's per-pixel blending is slower under race
+  # instrumentation; optimized 2026-09-25 — steady-state frame skip, solid
+  # fill fast path, stack-packed blend operands — down from ~320s), so
+  # -count=10 needs ~33 min and Go's default 10m timeout would kill it
+  # mid-run (RX-2 NFR-4; verified: single race run 197s, -count=2 398s —
+  # perfectly linear, no data races).
   PACKAGES ${_lurpic_nonplatform_test_packages} ${_lurpic_demo_test_packages} ./scale/...
-  ARGS -race -count=10
+  ARGS -race -count=10 -timeout 3600s
 )
 
 # RX-1 NFR-2/NFR-3 budget gates. Timing gates must run in isolation (the

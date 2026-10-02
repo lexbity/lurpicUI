@@ -4,6 +4,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -14,7 +15,7 @@ import (
 // selection family's distinctive behavior: exclusive vs multiple store
 // write-back).
 type playSelectFamily struct {
-	scroll *demoList
+	scroll *structure.ScrollRegion
 
 	checkbox *selection.Checkbox
 
@@ -79,7 +80,7 @@ func newPlaySelectFamily() *playSelectFamily {
 	f.item.ShowSelectionIndicator = marks.Const(true)
 	f.item.Selected = marks.FromStore(f.itemSelected, facet.DirtyProjection)
 
-	f.scroll = newDemoList(listGap,
+	f.scroll = newPlayScroll(listGap,
 		playgroundCard("checkbox — toggle grid", f.checkbox),
 		playgroundCard("switch — toggle live", f.toggle),
 		playgroundCard("slider — drag opacity", f.slider),

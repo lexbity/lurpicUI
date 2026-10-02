@@ -233,7 +233,7 @@ func (d *Dialog) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (d *Dialog) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "feedback", TypeName: "dialog"}
+	return marks.Descriptor{Family: markTypeFeedback, TypeName: "dialog"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

@@ -91,9 +91,9 @@ type Realtime struct {
 	tipOpen *store.ValueStore[bool]
 	tipText *store.ValueStore[string]
 
-	reshapeUnsub []func() //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
-	jumpUnsub    []func() //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
-	cleanupFns   []func() //lurpiclint:ignore LL012 -- teardown handles are structural lifecycle state (F-lint-hosts)
+	reshapeUnsub []func()
+	jumpUnsub    []func()
+	cleanupFns   []func()
 	rt           facet.RuntimeServices
 	cleanup      func()
 }
@@ -148,14 +148,13 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.buildControls()
 	e.buildReshapeDial()
 	e.buildJumpButton()
-	e.AddChild(e.canvas.Base())   //lurpiclint:ignore LL021 -- E1 hosts its canvas as a regular child, not an overlay (LL021 over-fires on any field ref)
-	e.AddChild(e.grid.Base())     //lurpiclint:ignore LL021 -- E1 hosts its grid as a regular child, not an overlay (LL021 over-fires on any field ref)
-	e.AddChild(e.controls.Base()) //lurpiclint:ignore LL021 -- E1 hosts its controls as a regular child, not an overlay (LL021 over-fires on any field ref)
-	e.AddChild(e.reshape.Base())  //lurpiclint:ignore LL021 -- E1 hosts its reshape dial as a regular child, not an overlay (LL021 over-fires on any field ref)
-	e.AddChild(e.table.Base())    //lurpiclint:ignore LL021 -- E1 hosts its table as a regular child, not an overlay (LL021 over-fires on any field ref)
-	e.AddChild(e.legend.Base())   //lurpiclint:ignore LL021 -- E1 hosts its legend as a regular child, not an overlay (LL021 over-fires on any field ref)
-	e.AddChild(e.jump.Base())     //lurpiclint:ignore LL021 -- E1 hosts the jump-to-live button as a regular child, not an overlay (LL021 over-fires)
-	e.AddChild(e.tip.Base())      //lurpiclint:ignore LL021 -- E1 hosts its anchored tooltip as a regular child; the mark self-mounts its layered surface (LL021 over-fires)
+	e.AddChild(e.canvas.Base())
+	e.AddChild(e.grid.Base())
+	e.AddChild(e.controls.Base())
+	e.AddChild(e.reshape.Base())
+	e.AddChild(e.table.Base())
+	e.AddChild(e.legend.Base())
+	e.AddChild(e.tip.Base())
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)
 		OnMeasure: func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -281,12 +280,13 @@ func (e *Realtime) buildControls() {
 	}, e.timeRange)
 
 	e.controls = structure.NewCard("Chart controls")
-	e.controls.GridColumns = marks.Const(3)
+	e.controls.GridColumns = marks.Const(4)
 	e.controls.GridRows = marks.Const(3)
 	// The controls card flex-fills its arranged bottom-strip cell (FR-6 flex
 	// opt-in); the intrinsic default would size it to content instead.
 	e.controls.FlexRows = marks.Const(true)
 	e.controls.FlexColumns = marks.Const(true)
+	e.jump = action.NewIconButton(primitive.IconSVG(iconJumpLive))
 	e.controls.ChildrenContent = []structure.CardChild{
 		{Key: "live", Facet: liveSwitch, Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}},
 		{Key: "chart", Facet: chartRadio, Grid: facet.GridPlacement{ColStart: 1, RowStart: 0, ColSpan: 2, RowSpan: 1}},
@@ -295,16 +295,17 @@ func (e *Realtime) buildControls() {
 		{Key: "grid", Facet: gridCheck, Grid: facet.GridPlacement{ColStart: 2, RowStart: 1, ColSpan: 1, RowSpan: 1}},
 		{Key: "max", Facet: maxField, Grid: facet.GridPlacement{ColStart: 0, RowStart: 2, ColSpan: 1, RowSpan: 1}},
 		{Key: "range", Facet: rangeButtons, Grid: facet.GridPlacement{ColStart: 1, RowStart: 2, ColSpan: 2, RowSpan: 1}},
+		// The jump-to-live button lives inside the controls card (RX-2 FR-5):
+		// it is a real tree child of the card, so it is projected and
+		// hit-tested by the runtime.
+		{Key: "jump", Facet: e.jump, Grid: facet.GridPlacement{ColStart: 3, RowStart: 0, ColSpan: 1, RowSpan: 3}},
 	}
 }
 
-// buildJumpButton wires the jump-to-live affordance (FR-window): an
-// icon_button floating over the chart's top-right that resets the x-domain to
-// [now-W, now] and clears Paused. It is a direct child (not inside the controls
-// Card, whose content is self-projected and not hit-testable — F-card-content)
-// so the button is a real, clickable UI affordance.
+// buildJumpButton wires the jump-to-live affordance (FR-window): the
+// icon_button lives inside the controls card (RX-2 FR-5) and resets the
+// x-domain to [now-W, now] and clears Paused.
 func (e *Realtime) buildJumpButton() {
-	e.jump = action.NewIconButton(primitive.IconSVG(iconJumpLive))
 	idJump := e.jump.Activated.Subscribe(func(signal.Unit) {
 		e.jumpToLive()
 	})
@@ -368,20 +369,13 @@ func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	e.canvas.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y, bounds.Width(), canvasH))
 	e.grid.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+canvasH, bounds.Width(), gridHeight))
 
-	// Bottom strip: the controls card on the left, the jump-to-live button and
-	// the radial reshape dial in the middle, and the table + feed legend
-	// stacked on the right.
+	// Bottom strip: the controls card (which hosts the jump-to-live button
+	// as a grid cell — RX-2 FR-5) on the left, the radial reshape dial in
+	// the middle, and the table + feed legend stacked on the right.
 	bottomY := bounds.Min.Y + canvasH + gridHeight
 	controlsW := bounds.Width() * 0.5
 	e.controls.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bottomY, controlsW, bottomH))
-	jumpW := float32(32)
-	jumpX := bounds.Min.X + controlsW
-	jumpH := float32(28)
-	if jumpH > bottomH {
-		jumpH = bottomH
-	}
-	e.jump.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(jumpX, bottomY+(bottomH-jumpH)*0.5, jumpW, jumpH))
-	reshapeX := jumpX + jumpW
+	reshapeX := bounds.Min.X + controlsW
 	reshapeW := e.reshape.Base().LayoutRole().MeasuredSize.W
 	if reshapeW < 1 || reshapeW > bounds.Width()*0.22 {
 		reshapeW = bounds.Width() * 0.22

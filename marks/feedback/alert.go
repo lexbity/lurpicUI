@@ -19,6 +19,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
+const markTypeFeedback = "feedback"
+
 const (
 	alertMarkIDRoot        facet.MarkID = 1
 	alertMarkIDSurface     facet.MarkID = 2
@@ -170,7 +172,7 @@ func (a *Alert) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (a *Alert) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "feedback", TypeName: "alert"}
+	return marks.Descriptor{Family: markTypeFeedback, TypeName: "alert"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

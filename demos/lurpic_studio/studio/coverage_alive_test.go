@@ -133,6 +133,16 @@ func TestCoverageAlive_allStandardMarksRender(t *testing.T) {
 				switchE6Tab(t, root, h, i)
 				record(root.Stage().RootFor(ExhibitPlayground))
 			}
+		case ExhibitLayers:
+			// The scrim renders only while the modal is mounted; open it so
+			// the scrim's aliveness is provable (RX-2 FR-5c).
+			e2 := root.Stage().RootFor(ExhibitLayers).(*Layers)
+			e2.ModalOpen().Set(true)
+			h.RunFrame()
+			h.RunFrame()
+			record(root.Stage().RootFor(ExhibitLayers))
+			e2.ModalOpen().Set(false)
+			h.RunFrame()
 		}
 	}
 
@@ -193,7 +203,7 @@ var aliveNonInteractive = map[string]string{
 	"action/menu_button":        "popup trigger renders no output in the harness (demo quirk); popup interaction exercised by the mark's own contract tests (marks/action/menu_button_test.go)",
 	"action/popup_palette":      "popup trigger renders no output in the harness (demo quirk); popup interaction exercised by the mark's own contract tests (marks/action)",
 	"navigation/tabs":           "E6 family-switch host; ActiveIndex driven by the host (F-tabs-host)",
-	"selection/dropdown_select": "option list is covered by the playground scroll-list content in the harness (F-scroll-content); option selection exercised by the mark's own contract tests (marks/selection/dropdown_select_test.go)",
+	"selection/dropdown_select": "option list is covered by the playground scroll-list content in the harness; option selection exercised by the mark's own contract tests (marks/selection/dropdown_select_test.go)",
 	"structure/table":           "read-only snapshot projection (behReadBinding)",
 	"structure/list":            "self-scrolling host projection",
 	"structure/scroll_region":   "self-scrolling host projection (Scrolled exercised by mark contract tests)",
@@ -276,7 +286,9 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Action().lastAction.Get()
 		b := testkit.RegionOf(e6.Action().split)
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.03, b.Min.Y+b.Height()*0.5)
+		// The card-grid cell is wider than the old bespoke card; 20% lands
+		// inside the primary (label) half of the split button.
+		testkit.DriveClick(h, b.Min.X+b.Width()*0.2, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Action().lastAction.Get() != before
 	},
@@ -287,6 +299,21 @@ var aliveDrivers = map[string]aliveDriver{
 		testkit.DriveClick(h, b.Min.X+40, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Action().lastAction.Get() != before
+	},
+	"feedback/scrim": func(t *testing.T, root *Root, h *testkit.Harness) bool {
+		e2 := root.Stage().RootFor(ExhibitLayers).(*Layers)
+		if e2.ModalOpen().Get() {
+			e2.ModalOpen().Set(false)
+			h.RunFrame()
+		}
+		// Open the modal, then press the scrim: the tap-outside dismissal
+		// closes the modal (the FR-5c hit-blocking + dismissal contract).
+		e2.ModalOpen().Set(true)
+		h.RunFrame()
+		c := aliveCenter(e2.scrim)
+		testkit.DriveClick(h, c.X, c.Y)
+		h.RunFrame()
+		return !e2.ModalOpen().Get()
 	},
 	"feedback/dialog": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
@@ -340,19 +367,20 @@ var aliveDrivers = map[string]aliveDriver{
 	},
 	"navigation/breadcrumbs": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
-		scrollFamilyForAlive(t, h, e6.Navigation().scroll)
+		scrollFamilyTo(t, h, e6.Navigation().scroll, e6.Navigation().crumbs)
 		before := e6.Navigation().crumbActivated.Get()
 		b := testkit.RegionOf(e6.Navigation().crumbs)
 		if b.IsEmpty() {
 			return false
 		}
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.14, b.Min.Y+b.Height()*0.5)
+		// The card grid centers the crumbs; 50% lands on the second crumb.
+		testkit.DriveClick(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Navigation().crumbActivated.Get() != before
 	},
 	"navigation/nav_drawer": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
-		scrollFamilyForAlive(t, h, e6.Navigation().scroll)
+		scrollFamilyTo(t, h, e6.Navigation().scroll, e6.Navigation().drawer)
 		before := e6.Navigation().lastItem.Get()
 		b := testkit.RegionOf(e6.Navigation().drawer)
 		if b.IsEmpty() {
@@ -377,7 +405,7 @@ var aliveDrivers = map[string]aliveDriver{
 	},
 	"navigation/pagination": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
-		scrollFamilyForAlive(t, h, e6.Navigation().scroll)
+		scrollFamilyTo(t, h, e6.Navigation().scroll, e6.Navigation().pager)
 		before := e6.Navigation().pageActivated.Get()
 		b := testkit.RegionOf(e6.Navigation().pager)
 		testkit.DriveClick(h, b.Min.X+4, b.Min.Y+b.Height()*0.5)
@@ -398,10 +426,12 @@ var aliveDrivers = map[string]aliveDriver{
 	},
 	"selection/button_group": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
-		scrollFamilyForAlive(t, h, e6.Selection().scroll)
+		scrollFamilyTo(t, h, e6.Selection().scroll, e6.Selection().segments)
 		before := e6.Selection().ButtonGroup().Get()
 		b := testkit.RegionOf(e6.Selection().segments)
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.1, b.Min.Y+b.Height()*0.5)
+		// The card grid centers the group; the middle option is never the
+		// pre-selected first key.
+		testkit.DriveClick(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return !sameStringSlice(before, e6.Selection().ButtonGroup().Get())
 	},
@@ -427,6 +457,7 @@ var aliveDrivers = map[string]aliveDriver{
 	},
 	"selection/radio_group": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
+		scrollFamilyTo(t, h, e6.Selection().scroll, e6.Selection().radio)
 		before := e6.Selection().Radio().Get()
 		c := aliveCenter(e6.Selection().radio)
 		testkit.DriveClick(h, c.X, c.Y)
@@ -463,8 +494,8 @@ var aliveDrivers = map[string]aliveDriver{
 }
 
 // scrollFamilyForAlive scrolls a family list host down (several large steps,
-// clamped to the content end) so below-the-fold cards become arranged (the E6
-// bespoke scroll list, F-scroll-content).
+// clamped to the content end) so below-the-fold cards become arranged (the
+// family bodies are structure.scroll_region marks — RX-2 P2).
 func scrollFamilyForAlive(t *testing.T, h *testkit.Harness, f facet.FacetImpl) {
 	t.Helper()
 	b := f.Base().LayoutRole().ArrangedBounds
@@ -476,6 +507,33 @@ func scrollFamilyForAlive(t *testing.T, h *testkit.Harness, f facet.FacetImpl) {
 		testkit.DriveScroll(h, pt.X, pt.Y, 0, -600)
 		h.RunFrame()
 	}
+}
+
+// scrollFamilyTo scrolls the family's scroll region so the target mark's
+// arranged (content-flow) bounds land near the viewport center. The
+// scroll_region applies the offset at arrange time, so this runs a frame per
+// wheel step; drivers that click a below-the-fold card call it first.
+func scrollFamilyTo(t *testing.T, h *testkit.Harness, sr, target facet.FacetImpl) {
+	t.Helper()
+	vp := sr.Base().LayoutRole().ArrangedBounds
+	b := target.Base().LayoutRole().ArrangedBounds
+	if vp.IsEmpty() || b.IsEmpty() {
+		return
+	}
+	want := (b.Min.Y + b.Max.Y) / 2 // target content y at the viewport center
+	desired := want - vp.Height()/2 - vp.Min.Y
+	cur := struct{ X, Y float32 }{}
+	if so, ok := sr.(interface{ ScrollOffset() float32 }); ok {
+		cur.Y = so.ScrollOffset()
+	}
+	delta := desired - cur.Y // offset += -deltaY
+	if delta*delta < 1 {
+		return
+	}
+	pt := gfx.Point{X: vp.Min.X + vp.Width()*0.5, Y: vp.Min.Y + vp.Height()*0.5}
+	testkit.DriveScroll(h, pt.X, pt.Y, 0, -delta)
+	h.RunFrame()
+	h.RunFrame()
 }
 
 // e6FamilyScroll returns the family list host for a playground tab index
@@ -534,11 +592,22 @@ func TestCoverageAlive_interactiveMarksMutateState(t *testing.T) {
 		{func(t *testing.T, root *Root, h *testkit.Harness) { switchToE6(t, root, h, 4) },
 			[]string{"action/button", "feedback/dialog", "feedback/notification"}},
 		{func(t *testing.T, root *Root, h *testkit.Harness) { switchToE6(t, root, h, 1) },
-			[]string{"selection/checkbox", "selection/switch", "selection/slider", "selection/turn_dial", "selection/radio_group", "selection/button_group", "selection/list_item"}},
+			[]string{"selection/checkbox", "selection/switch", "selection/slider", "selection/turn_dial"}},
+		// The card-grid bodies are taller than the old bespoke cards; the
+		// lower selection cards need a scroll before their drivers run.
+		{func(t *testing.T, root *Root, h *testkit.Harness) {
+			switchToE6(t, root, h, 1)
+			if fam := e6FamilyScroll(t, root, 1); fam != nil {
+				scrollFamilyForAlive(t, h, fam)
+			}
+		},
+			[]string{"selection/radio_group", "selection/button_group", "selection/list_item"}},
 		{func(t *testing.T, root *Root, h *testkit.Harness) { switchToE6(t, root, h, 2) },
 			[]string{"input/color_picker", "input/number_field", "input/text_field"}},
 		{func(t *testing.T, root *Root, h *testkit.Harness) { switchToE6(t, root, h, 3) },
 			[]string{"navigation/nav_rail", "navigation/nav_drawer", "navigation/breadcrumbs", "navigation/pagination"}},
+		{func(t *testing.T, root *Root, h *testkit.Harness) { switchExhibit(t, root, h, ExhibitLayers) },
+			[]string{"feedback/scrim"}},
 		{func(t *testing.T, root *Root, h *testkit.Harness) { switchExhibit(t, root, h, ExhibitRealtime) },
 			[]string{"action/radial_menu"}},
 		{nil, []string{"navigation/tree_navigator", "action/command_palette", "action/icon_button"}},

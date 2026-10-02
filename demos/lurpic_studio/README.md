@@ -116,16 +116,18 @@ slices (P0–P10) are superseded but their framework feedback remains below.
     (`runtime/signals.go`), the same narrow `*Mu` pattern as the existing
     recovery/phase-hook guards. `go test ./demos/lurpic_studio/... -race` is
     clean under repeated runs (NFR-race / AC-7).
-  - `F-rail-shape` — the `nav_rail` mark lays its items out vertically and
-    cannot be re-hosted as a horizontal bottom bar; the narrow bottom action bar
-    is a bespoke horizontal icon-bar host bound to the same `ActiveExhibit`
-    store (the "nav_rail → bottom action bar" re-host in spirit).
+  - `F-rail-shape` (resolved) — the `nav_rail` mark gained `Orientation`
+    (RX-2 FR-5b): `NavRailHorizontal` lays destinations left-to-right as a
+    bottom action bar, with the same selection contract and horizontal focus
+    movement. The narrow bottom action bar is now a horizontal `nav_rail`
+    (`nav_rail_test.go` golden + keyboard axis tests; covered-alive as
+    `navigation/nav_rail`).
   - `F-dirtylayout-routing` (from P9) — tab/store-driven layout must route
     through `RuntimeServices.Invalidate`; the shell's pane switching and the
     narrow overlays follow this.
 - **E9/prior slice work** — E6 Mark Playground (tabs + interactive families),
   Capability Index, E1–E5, and the framework feedback from those slices
-  (F-scroll-content, F-card-content, F-e6-internal, F-tabs-host).
+  (F-e6-internal, F-tabs-host).
 - **F-overlay-precedent (resolved)** — E5's dirty-node highlighting now renders
   through the framework's `diagnostics.Overlay` (`HighlightDirty` +
   `DirtyFlagColor`), so the dirty-highlight drawing is a single source and E5
@@ -169,10 +171,11 @@ slices (P0–P10) are superseded but their framework feedback remains below.
   E1 flushes on row insert/update/remove + window changes). The bar aggregates
   the window by region. Enforced by `TestRealtime_barAggregatesWindow`.
 - **F-jump-live-button (resolved)** — FR-window's "jump to live" is now a real
-  UI affordance: an `icon_button` (a direct E1 child, since the controls Card's
-  content is self-projected and not hit-testable — F-card-content) that resets
-  the x-domain to `[now-W, now]` and clears `Paused`. Enforced by
-  `TestRealtime_jumpToLiveButton`.
+  UI affordance: an `icon_button` hosted as a grid cell INSIDE the controls
+  Card (RX-2 FR-5: the Card attaches its content as real tree children, so the
+  button is projected and hit-tested by the runtime). It resets the x-domain
+  to `[now-W, now]` and clears `Paused`. Enforced by
+  `TestRealtime_jumpToLiveButton` and `TestE1_bottomStrip_regionsDoNotOverlap`.
 - **F-tick-arm (resolved)** — the framework's `TickRole` only runs when armed
   (`RequestTick`), and `tickFacets` resets it after each tick, so the owner must
   re-arm every frame — the runtime's own `rearmTicks` phase-1-hook pattern. E1

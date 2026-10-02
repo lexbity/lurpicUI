@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
+	"codeburg.org/lexbit/lurpicui/marks/feedback"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -232,7 +233,7 @@ type Layers struct {
 	tick   facet.TickRole
 
 	control  *e2Control
-	scrim    *overlayBox
+	scrim    *feedback.Scrim
 	tooltip  *overlayBox
 	toast    *overlayBox
 	controls *structure.Card
@@ -258,7 +259,10 @@ func NewLayersFacet(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, id
 	e.Facet = facet.NewFacet()
 
 	e.control = newE2Control(themeCtx, fonts, "covered control")
-	e.scrim = newOverlayBox(gfx.ColorFromRGBA8(0, 0, 0, 120), "modal (HitBlockBelow)", themeCtx, fonts)
+	// The modal scrim is the standard feedback.scrim mark (RX-2 FR-5c): it
+	// dims its layer, blocks hits beneath it (the ZBandModal layer policy),
+	// and its dismissal scope closes the modal.
+	e.scrim = feedback.NewScrim()
 	e.tooltip = newOverlayBox(gfx.ColorFromRGBA8(255, 220, 90, 60), "tooltip (HitPassThrough)", themeCtx, fonts)
 	e.toast = newOverlayBox(gfx.ColorFromRGBA8(90, 180, 120, 255), "toast", themeCtx, fonts)
 	e.buildControls()
@@ -280,7 +284,8 @@ func NewLayersFacet(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, id
 	e.scrim.SetDismissal(facet.DismissalScope{
 		Enabled:  true,
 		Triggers: facet.DismissalTriggerSetPointer | facet.DismissalTriggerSetKey,
-	}, func() { e.modalOpen.Set(false) })
+	})
+	e.scrim.Dismissed.Subscribe(func(signal.Unit) { e.modalOpen.Set(false) })
 	e.tooltip.SetDismissal(facet.DismissalScope{
 		Enabled:  true,
 		Triggers: facet.DismissalTriggerSetPointer,
@@ -446,3 +451,23 @@ func (e *Layers) OnDetach() {
 func (e *Layers) Base() *facet.Facet { e.BindImpl(e); return &e.Facet }
 func (e *Layers) OnActivate()        {}
 func (e *Layers) OnDeactivate()      {}
+
+// ─── Label shaping (was label.go; e2 is its only consumer) ──────────────────
+
+// glyphLabel shapes label and returns a DrawGlyphRun command at the given
+// baseline-origin x, y. Returns nil when the label is unshapeable or empty.
+// The shaper is shared across exhibits (thread-safe since F-shape-fork-race).
+func glyphLabel(x, y float32, label string, shaper *text.Shaper, style text.TextStyle, color gfx.Color) gfx.Command {
+	if shaper == nil || label == "" {
+		return nil
+	}
+	shaped := shaper.ShapeSimple(label, style)
+	if shaped == nil || len(shaped.Lines) == 0 || len(shaped.Lines[0].Runs) == 0 {
+		return nil
+	}
+	return gfx.DrawGlyphRun{
+		Run:    shaped.Lines[0].Runs[0],
+		Origin: gfx.Point{X: x, Y: y + 11},
+		Brush:  gfx.SolidBrush(color),
+	}
+}

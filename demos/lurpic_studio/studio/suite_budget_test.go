@@ -8,7 +8,8 @@ import (
 	"time"
 )
 
-// TestMain enforces the RX-1 NFR-6 suite budget (≤ 120s) when the CI sets
+// TestMain enforces the RX-2 NFR-6 suite budget (≤ 150s, raised from the
+// RX-1 120s for the seven new marks) when the CI sets
 // LURPIC_SUITE_BUDGET=<seconds>. Local and -race runs (naturally slower) leave
 // it unset and skip the check; the CMake test-unit target sets it for the CI
 // gate.
@@ -27,9 +28,10 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// coverageBudgetSeconds is the RX-1 NFR-6 sub-budget for the alive-coverage
-// suite (≤ 40s). The coverage tests wrap their body with assertCoverageBudget.
-const coverageBudgetSeconds = 40
+// coverageBudgetSeconds is the RX-2 NFR-6 sub-budget for the alive-coverage
+// suite (≤ 45s, raised from the RX-1 40s). The coverage tests wrap their body
+// with assertCoverageBudget.
+const coverageBudgetSeconds = 45
 
 // assertCoverageBudget fails the test if the wrapped coverage work exceeds the
 // NFR-6 alive-coverage budget.

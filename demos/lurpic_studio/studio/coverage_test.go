@@ -29,6 +29,7 @@ var standardMarks = []marks.Descriptor{
 	{Family: "action", TypeName: "split_button"},
 	{Family: "action", TypeName: "toolbar"},
 	{Family: "feedback", TypeName: "alert"},
+	{Family: "feedback", TypeName: "scrim"},
 	{Family: "feedback", TypeName: "dialog"},
 	{Family: "feedback", TypeName: "notification"},
 	{Family: "feedback", TypeName: "tooltip"},
@@ -120,11 +121,12 @@ func filterCoverageTraps(descs []marks.Descriptor) []marks.Descriptor {
 
 // TestCoverage_liveTreePlacesEveryStandardMark asserts the FR-coverage
 // contract: walking the live facet tree (the same boundary the runtime's
-// projection and hit-testing use) reaches every one of the 48 standard marks,
-// after filtering the three documented traps (§2.8). The walk is the honest
-// coverage measure — marks hosted by composite containers that do not attach
-// content to the facet tree (F-card-content / F-scroll-content) are not
-// "reachable" and are excluded by construction.
+// projection and hit-testing use) reaches every standard mark, after
+// filtering the documented traps (filterCoverageTraps). The container marks
+// (Card, ScrollRegion, Row, Column) attach their content as real tree
+// children post-RX-1/RX-2-P1, so the walk descends into them; the filter
+// handles the remaining intentional exclusions (self-projected internals
+// such as inventory rows).
 func TestCoverage_liveTreePlacesEveryStandardMark(t *testing.T) {
 	start := time.Now()
 	root, _ := newCoverageRoot(t)

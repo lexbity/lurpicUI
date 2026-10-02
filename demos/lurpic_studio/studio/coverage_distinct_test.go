@@ -101,6 +101,7 @@ var placementIntents = map[string]distinctiveBehavior{
 	"status/progress_bar":       behStatusReflection, // status bar/E6: Value binding reflects a store
 	"status/progress_ring":      behStatusReflection, // status bar/E6: Value binding reflects a store
 	"status/status_light":       behStatusReflection, // E5/status bar: Label binding reflects a store
+	"feedback/scrim":            behLayerHitPolicy,   // E2 modal: the scrim IS the HitBlockBelow surface; tap-outside dismissal (RX-2 FR-5c)
 	"structure/card":            behGroupHost,        // E1/E2/E4/E5 controls + inspector/pane: group-parent host
 	"structure/column":          behGroupHost,        // inspector metadata stack (RX-2 P1): linear vertical host
 	"structure/divider":         behReadBinding,      // inspector metadata separator: themed-stroke display mark (NG-5 honest read-only coverage)
@@ -250,13 +251,12 @@ func TestCoverageDistinct_intentMatchesMarkCapability(t *testing.T) {
 	for key, beh := range placementIntents {
 		instances, ok := byKind[key]
 		if !ok {
-			// Marks placed only inside composite containers that self-project
-			// without attaching content to the facet tree (F-card-content /
-			// F-scroll-content) are outside the live-tree walk by construction;
-			// their intent is exercised by the host's own wiring and their
-			// capability is verified by the marks' own contract tests.
-			// Skip the capability gate for them; the placed-multiset test plus
-			// the per-family interaction tests cover their exercise.
+			// Marks placed only inside composite containers whose content
+			// renders without tree children are outside the live-tree walk by
+			// construction; their intent is exercised by the host's own wiring
+			// and their capability is verified by the marks' own contract
+			// tests. Skip the capability gate for them; the placed-multiset
+			// test plus the per-family interaction tests cover their exercise.
 			continue
 		}
 		if !intentSatisfiesCapability(beh, instances) {

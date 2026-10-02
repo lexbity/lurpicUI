@@ -5,6 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/feedback"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -18,7 +19,7 @@ import (
 // action surfaces (and then clears) feedback through a store-backed write-back
 // loop.
 type playFeedbackFamily struct {
-	scroll *demoList
+	scroll *structure.ScrollRegion
 
 	alert    *feedback.Alert
 	alertMsg *store.ValueStore[string]
@@ -66,7 +67,7 @@ func newPlayFeedbackFamily() *playFeedbackFamily {
 	f.tipTrigger = action.NewButton(marks.Const("Show tooltip"), marks.Const(uiinput.ButtonOutlined))
 	f.tip = feedback.NewTooltip("A tooltip passes pointer input through to the control beneath it.", f.tipOpen)
 
-	f.scroll = newDemoList(listGap,
+	f.scroll = newPlayScroll(listGap,
 		playgroundCard("alert — trigger and clear feedback", f.alertTrigger, f.alert, f.alertClear),
 		playgroundCard("dialog — gate a destructive action", f.dialogOpenTrigger, f.dialog),
 		playgroundCard("notification — transient status", f.toastTrigger, f.toast),

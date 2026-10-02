@@ -36,6 +36,18 @@ type NavRailItem struct {
 	Disabled bool
 }
 
+// NavRailOrientation selects the rail's main axis (config: declared at
+// construction; the zero value is the canonical vertical rail).
+type NavRailOrientation uint8
+
+const (
+	// NavRailVertical lays destinations top-to-bottom (the canonical rail).
+	NavRailVertical NavRailOrientation = iota
+	// NavRailHorizontal lays destinations left-to-right (the bottom
+	// action-bar pattern); keyboard focus moves with Left/Right.
+	NavRailHorizontal
+)
+
 // NavRail implements the navigation.nav_rail canonical mark.
 type NavRail struct {
 	marks.Core
@@ -45,6 +57,10 @@ type NavRail struct {
 	Collapsed   marks.Binding[bool]
 	Disabled    marks.Binding[bool]
 	ActiveIndex *store.ValueStore[int]
+
+	// Orientation selects the main axis. Config: declare it at construction
+	// (plain field per the content/config rule).
+	Orientation NavRailOrientation
 
 	// selection is the FR-8 two-way binding over ActiveIndex (attached in
 	// OnAttach); nil until then, so reads fall back to the store.
@@ -163,6 +179,15 @@ func (r *NavRail) Focusable() bool {
 		return false
 	}
 	return r.Focus.Focusable()
+}
+
+// ItemBounds returns the arranged destination bounds (host and test accessor;
+// valid after arrange, empty bounds for gated rails).
+func (r *NavRail) ItemBounds() []gfx.Rect {
+	if r == nil {
+		return nil
+	}
+	return append([]gfx.Rect(nil), r.cachedItemBounds...)
 }
 
 // SetItems updates the rail destinations.
@@ -324,6 +349,7 @@ func (r *NavRail) syncChildState() {
 }
 
 func (r *NavRail) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+	r.syncOrientationContract()
 	resolved, ok := ctx.Theme.(theme.ResolvedContext)
 	if !ok {
 		resolved = theme.DefaultResolvedContext()
@@ -341,14 +367,25 @@ func (r *NavRail) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	r.syncChildState()
 	grp := navRailGroupPolicy{rail: r}
 	groupSize, _ := grp.MeasureGroup(facet.GroupMeasureContext{MeasureContext: ctx}, r.Children())
-	minWidth := resolved.Density.Scale(224)
-	if r.Collapsed.Get() {
-		minWidth = resolved.Density.Scale(72)
+	var measured gfx.Size
+	if r.Orientation == NavRailHorizontal {
+		// The horizontal rail (bottom action bar) fills its width and hugs
+		// the tallest destination's height.
+		minH := resolved.Density.Scale(48)
+		measured = constraints.Constrain(gfx.Size{
+			W: mathutil.Max(resolved.Density.Scale(96), groupSize.Size.W+r.cachedPadX*2),
+			H: mathutil.Max(minH, groupSize.Size.H+r.cachedPadY*2),
+		})
+	} else {
+		minWidth := resolved.Density.Scale(224)
+		if r.Collapsed.Get() {
+			minWidth = resolved.Density.Scale(72)
+		}
+		measured = constraints.Constrain(gfx.Size{
+			W: mathutil.Max(minWidth, groupSize.Size.W+r.cachedPadX*2),
+			H: mathutil.Max(resolved.Density.Scale(96), groupSize.Size.H+r.cachedPadY*2),
+		})
 	}
-	measured := constraints.Constrain(gfx.Size{
-		W: mathutil.Max(minWidth, groupSize.Size.W+r.cachedPadX*2),
-		H: mathutil.Max(resolved.Density.Scale(96), groupSize.Size.H+r.cachedPadY*2),
-	})
 	r.Layout.MeasuredSize = measured
 	r.Layout.MeasuredResult = facet.MeasureResult{
 		Size: measured,
@@ -367,7 +404,24 @@ func (r *NavRail) measureIntrinsic(ctx facet.MeasureContext, constraints facet.C
 	return r.measure(ctx, constraints).Size
 }
 
+// syncOrientationContract keeps the declared group kind in step with the
+// orientation config (the scroll_region updateParentKind pattern).
+func (r *NavRail) syncOrientationContract() {
+	if r == nil {
+		return
+	}
+	kind := facet.GroupLayoutLinearVertical
+	if r.Orientation == NavRailHorizontal {
+		kind = facet.GroupLayoutLinearHorizontal
+	}
+	if r.Layout.Parent.Kind != kind {
+		r.Layout.Parent.Kind = kind
+		r.Layout.InvalidateCache()
+	}
+}
+
 func (r *NavRail) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
+	r.syncOrientationContract()
 	r.cachedRootBounds = bounds
 	r.cachedRailBounds = bounds
 	r.cachedItemBounds = nil
@@ -377,7 +431,13 @@ func (r *NavRail) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 	r.rebuildChildFacets()
 	r.syncChildState()
+	// The horizontal rail (bottom action bar) is edge-to-edge: destinations
+	// span the full width in equal columns, so only the vertical padding
+	// insets the content. The vertical rail insets on both axes.
 	contentBounds := bounds.Inset(r.cachedPadX, r.cachedPadY)
+	if r.Orientation == NavRailHorizontal {
+		contentBounds = bounds.Inset(0, r.cachedPadY)
+	}
 	if contentBounds.IsEmpty() {
 		contentBounds = bounds
 	}
@@ -548,15 +608,23 @@ func (r *NavRail) onKey(e facet.KeyEvent) bool {
 	if r.Disabled.Get() || len(r.cachedItemFacets) == 0 {
 		return false
 	}
+	// Focus movement keys follow the main axis: Up/Down for the vertical
+	// rail, Left/Right for the horizontal (bottom action bar) rail.
+	var prevKey, nextKey platform.Key
+	if r.Orientation == NavRailHorizontal {
+		prevKey, nextKey = platform.KeyLeft, platform.KeyRight
+	} else {
+		prevKey, nextKey = platform.KeyUp, platform.KeyDown
+	}
 	switch e.Key {
-	case platform.KeyUp, platform.KeyDown, platform.KeyHome, platform.KeyEnd, platform.KeySpace, platform.KeyEnter:
+	case prevKey, nextKey, platform.KeyHome, platform.KeyEnd, platform.KeySpace, platform.KeyEnter:
 		switch e.Kind {
 		case platform.KeyPress, platform.KeyRepeat:
 			switch e.Key {
-			case platform.KeyUp:
+			case prevKey:
 				r.moveFocus(-1)
 				return true
-			case platform.KeyDown:
+			case nextKey:
 				r.moveFocus(1)
 				return true
 			case platform.KeyHome:
@@ -794,7 +862,12 @@ type navRailGroupPolicy struct {
 	rail *NavRail
 }
 
-func (navRailGroupPolicy) Kind() facet.GroupLayoutKind { return facet.GroupLayoutLinearVertical }
+func (p navRailGroupPolicy) Kind() facet.GroupLayoutKind {
+	if p.rail != nil && p.rail.Orientation == NavRailHorizontal {
+		return facet.GroupLayoutLinearHorizontal
+	}
+	return facet.GroupLayoutLinearVertical
+}
 
 func (p navRailGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children []facet.GroupChild) (facet.GroupMeasureResult, error) {
 	if p.rail == nil || len(children) == 0 {
@@ -812,6 +885,14 @@ func (p navRailGroupPolicy) MeasureGroup(ctx facet.GroupMeasureContext, children
 		if size == (gfx.Size{}) {
 			size = child.Layout.Measure(ctx.MeasureContext, facet.Constraints{MaxSize: gfx.Size{W: ctx.Bounds.Width(), H: ctx.Bounds.Height()}}).Size
 		}
+		if p.rail.Orientation == NavRailHorizontal {
+			width += size.W
+			if i < len(ordered)-1 {
+				width += p.rail.cachedGap
+			}
+			height = mathutil.Max(height, size.H)
+			continue
+		}
 		width = mathutil.Max(width, size.W)
 		height += size.H
 		if i < len(ordered)-1 {
@@ -826,6 +907,30 @@ func (p navRailGroupPolicy) ArrangeGroup(ctx facet.GroupArrangeContext, children
 		return nil, nil
 	}
 	ordered := orderedNavRailChildren(children)
+	if p.rail.Orientation == NavRailHorizontal {
+		// Bottom-action-bar distribution: equal column share per destination,
+		// full cross-axis height.
+		n := len(ordered)
+		colW := ctx.Bounds.Width() / float32(n)
+		arranged := make([]facet.ArrangedGroupChild, 0, n)
+		for i, idx := range ordered {
+			child := children[idx]
+			if child.Layout == nil {
+				continue
+			}
+			rect := gfx.RectFromXYWH(ctx.Bounds.Min.X+colW*float32(i), ctx.Bounds.Min.Y, colW, ctx.Bounds.Height())
+			child.Layout.Arrange(facet.ArrangeContext{Placement: child.Attachment.Placement}, rect)
+			arranged = append(arranged, facet.ArrangedGroupChild{
+				FacetID:   child.FacetID,
+				MarkID:    child.MarkID,
+				Bounds:    rect,
+				Placement: child.Attachment.Placement,
+				ZOrder:    child.Attachment.ZOrder,
+				Contract:  child.Contract,
+			})
+		}
+		return arranged, nil
+	}
 	y := ctx.Bounds.Min.Y
 	arranged := make([]facet.ArrangedGroupChild, 0, len(ordered))
 	for i, idx := range ordered {

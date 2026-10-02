@@ -96,7 +96,7 @@ func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeSt
 	c.row.PadX = marks.FromDerived(padXCompact, facet.DirtyLayout|facet.DirtyProjection)
 	c.row.PadY = marks.FromDerived(padYCompact, facet.DirtyLayout|facet.DirtyProjection)
 
-	c.AddChild(c.row.Base()) //lurpiclint:ignore LL021 -- the shell hosts the composition row as a regular child, not an overlay
+	c.AddChild(c.row.Base())
 
 	c.layout = facet.LayoutRole{ //lurpiclint:ignore * -- single-child wrapper: background fill + measure/arrange delegation to the row (structure.Row owns the layout)
 		OnMeasure: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

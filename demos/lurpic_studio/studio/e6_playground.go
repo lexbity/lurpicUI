@@ -1,11 +1,16 @@
 package studio
 
 import (
+	"fmt"
+
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/navigation"
+	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -17,11 +22,12 @@ import (
 // mark with a control that exercises a distinctive behavior of that mark
 // (FR-playground, FR-coverage-distinct).
 //
-// The family bodies are hosted by the demo's bespoke scroll list (F-scroll-content:
-// scroll_region draws its content without attaching it to the facet tree, so
-// interactive content cannot live in one); the active body is arranged into the
-// tabs' panel and the inactive bodies to zero bounds, exactly like the Stage
-// gates its exhibits.
+// The family bodies are standard structure.scroll_region marks hosting
+// structure.card compositions (RX-2 P2: both marks attach their content as
+// real facet-tree children, so the interactive playground marks are projected
+// and hit-tested by the runtime); the active body is arranged into the tabs'
+// panel and the inactive bodies to zero bounds, exactly like the Stage gates
+// its exhibits.
 //
 // The family builders live in the sibling files e6_action.go, e6_selection.go,
 // e6_input.go, e6_navigation.go, e6_feedback.go, matching the P9 per-family
@@ -41,8 +47,8 @@ type Playground struct {
 	feedback  *playFeedbackFamily
 	statusFam *playStatusFamily
 
-	bodies   []facet.FacetImpl //lurpiclint:ignore LL012 -- the family body facets are composition structure, not domain state (F-lint-hosts)
-	cleanups []func()          //lurpiclint:ignore LL012 -- subscription cleanup handles are structural lifecycle state (F-lint-hosts)
+	bodies   []facet.FacetImpl
+	cleanups []func()
 }
 
 // listGap is the vertical gap between playground cards.
@@ -78,14 +84,14 @@ func NewPlayground(state *state.AppState) *Playground {
 	}, e.activeTab)
 
 	e.Facet = facet.NewFacet()
-	e.AddChild(e.tabs.Base()) //lurpiclint:ignore LL021 -- E6 hosts a navigational tabs mark as its regular child, not an overlay (LL021 over-fires on field refs)
+	e.AddChild(e.tabs.Base())
 	// The family bodies are real facet-tree children so their cards are
 	// projected and hit-tested by the runtime. The tabs mark arranges the
 	// active body into its panel; the inactive bodies are arranged to zero
 	// bounds below (the Stage gating idiom).
 	for _, body := range e.bodies {
 		if body != nil && body.Base() != nil {
-			e.AddChild(body.Base()) //lurpiclint:ignore LL021 -- E6 hosts playground cards as regular children, not overlays (LL021 over-fires)
+			e.AddChild(body.Base())
 		}
 	}
 
@@ -192,11 +198,50 @@ func (e *Playground) ID() ExhibitID                           { return ExhibitPl
 func (e *Playground) Title() string                           { return "Mark Playground" }
 func (e *Playground) Build(s *state.AppState) facet.FacetImpl { return e }
 
-// playgroundCard builds one playCard hosting one exercise control. The card is
-// the demo's bespoke host (play_card.go, F-card-content) rather than the
-// framework structure.Card, because the framework Card self-projects its
-// content without attaching it to the facet tree and so cannot host interactive
-// marks.
-func playgroundCard(title string, children ...facet.FacetImpl) *playCard {
-	return newPlayCard(title, children...)
+// playgroundCard builds one structure.Card hosting one exercise control: the
+// title text spans the top row and the exercise mark(s) share the body row in
+// equal columns (RX-2 P2: the Card attaches content as real tree children, so
+// the marks inside receive input).
+func playgroundCard(title string, children ...facet.FacetImpl) *structure.Card {
+	card := structure.NewCard(title)
+	n := len(children)
+	if n == 0 {
+		n = 1
+	}
+	card.GridColumns = marks.Const(n)
+	card.GridRows = marks.Const(2)
+	content := []structure.CardChild{{
+		Key:   "title",
+		Facet: primitive.NewText(marks.Const(title)),
+		Grid:  facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: n, RowSpan: 1},
+	}}
+	for i, child := range children {
+		if child == nil {
+			continue
+		}
+		content = append(content, structure.CardChild{
+			Key:   fmt.Sprintf("body%d", i),
+			Facet: child,
+			Grid:  facet.GridPlacement{ColStart: i, RowStart: 1, ColSpan: 1, RowSpan: 1},
+		})
+	}
+	card.ChildrenContent = content
+	return card
+}
+
+// newPlayScroll builds the family body: a structure.scroll_region stacking the
+// family's cards with the shared playground gap (the scroll region hosts its
+// children as real tree members — RX-2 P2).
+func newPlayScroll(gap float32, cards ...facet.FacetImpl) *structure.ScrollRegion {
+	sr := structure.NewScrollRegion("Playground")
+	sr.Gap = marks.Const(gap)
+	kids := make([]structure.ScrollRegionChild, 0, len(cards))
+	for i, c := range cards {
+		if c == nil {
+			continue
+		}
+		kids = append(kids, structure.ScrollRegionChild{Facet: c, MarkID: facet.MarkID(100 + i)})
+	}
+	sr.SetChildren(kids)
+	return sr
 }

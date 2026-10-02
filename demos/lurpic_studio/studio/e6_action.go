@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
@@ -16,7 +17,7 @@ import (
 // ribbonSection stores — the visible feedback of a running action command (the
 // action family's distinctive behavior: command dispatch).
 type playActionFamily struct {
-	scroll      *demoList
+	scroll      *structure.ScrollRegion
 	bar         *action.ActionBar
 	group       *action.ActionGroup
 	ribbon      *action.Ribbon
@@ -102,7 +103,7 @@ func newPlayActionFamily() *playActionFamily {
 		{Child: primitive.NewText(marks.Const("B")), Placement: facet.RadialPlacement{Angle: 4.7124, RadiusTrack: 90}},
 	})
 
-	f.scroll = newDemoList(listGap,
+	f.scroll = newPlayScroll(listGap,
 		playgroundCard("action_bar — click an action", f.bar),
 		playgroundCard("action_group — click an alignment", f.group),
 		playgroundCard("ribbon — click a tab", f.ribbon),

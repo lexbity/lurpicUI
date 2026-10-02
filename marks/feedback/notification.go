@@ -229,7 +229,7 @@ func (n *Notification) Base() *facet.Facet {
 
 // Descriptor satisfies marks.Mark.
 func (n *Notification) Descriptor() marks.Descriptor {
-	return marks.Descriptor{Family: "feedback", TypeName: "notification"}
+	return marks.Descriptor{Family: markTypeFeedback, TypeName: "notification"}
 }
 
 // AccessibilityRole reports the semantic role required by the spec.

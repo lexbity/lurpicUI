@@ -648,7 +648,10 @@ func (sr *ScrollRegion) onScroll(e facet.ScrollEvent) bool {
 	next.Y -= e.DeltaY
 	sr.scrollOffset = sr.clampScrollOffset(next)
 	sr.Scrolled.Emit(sr.scrollOffset)
-	sr.invalidate(facet.DirtyProjection)
+	// The scroll offset positions children at arrange time (the child facets
+	// arrange at their scrolled viewport bounds, so hits and projection stay
+	// bounds-derived) — the re-arrange is mandatory, not just a re-projection.
+	sr.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	return true
 }
 
@@ -682,7 +685,8 @@ func (sr *ScrollRegion) onKey(e facet.KeyEvent) bool {
 	}
 	sr.scrollOffset = sr.clampScrollOffset(sr.scrollOffset)
 	sr.Scrolled.Emit(sr.scrollOffset)
-	sr.invalidate(facet.DirtyProjection)
+	// See onScroll: the offset positions children at arrange time.
+	sr.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	return true
 }
 

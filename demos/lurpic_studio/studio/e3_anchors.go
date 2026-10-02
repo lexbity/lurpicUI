@@ -142,7 +142,7 @@ type Anchors struct {
 
 	pos      *store.ValueStore[gfx.Point]
 	trigger  *e3Trigger
-	popovers []*overlayBox //lurpiclint:ignore LL012 -- handles kept for anchor-tracking assertions in e3_anchors_test.go
+	popovers []*overlayBox
 
 	rt  facet.RuntimeServices
 	ids studioLayerIDs

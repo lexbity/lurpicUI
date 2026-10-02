@@ -106,7 +106,7 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	)
 
 	s.Facet = facet.NewFacet()
-	s.AddChild(s.row.Base()) //lurpiclint:ignore LL021 -- the shell hosts the composition row as a regular child, not an overlay
+	s.AddChild(s.row.Base())
 
 	s.layout = facet.LayoutRole{ //lurpiclint:ignore * -- single-child wrapper: background fill + measure/arrange delegation to the row (structure.Row owns the layout)
 		OnMeasure: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {

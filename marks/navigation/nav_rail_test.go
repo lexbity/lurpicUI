@@ -217,6 +217,55 @@ func TestNavRailGoldenDefault(t *testing.T) {
 	AssertNavRailGolden(t, "default", defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *NavRail) {})
 }
 
+// TestNavRailGoldenHorizontal pins the horizontal rail (RX-2 P2 Orientation)
+// at a bounded width, the bottom-action-bar shape: destinations in equal
+// columns, slim intrinsic height.
+func TestNavRailGoldenHorizontal(t *testing.T) {
+	rail, rt, measureCtx := newNavRailTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	rail.Orientation = NavRailHorizontal
+	facet.Attach(rail, facet.AttachContext{Runtime: rt, Theme: measureCtx})
+	result := rail.LayoutRole().Measure(facet.MeasureContext{
+		Runtime:          rt,
+		Theme:            measureCtx,
+		ContentScale:     1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 120}})
+	if result.Size.H <= 0 || result.Size.H > 120 {
+		t.Fatalf("horizontal rail height = %v, want a slim bar <= 120", result.Size.H)
+	}
+	bounds := gfx.RectFromXYWH(0, 0, 720, result.Size.H)
+	rail.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
+	cmds := rail.ProjectionRole().Project(facet.ProjectionContext{
+		Runtime:      rt,
+		Bounds:       bounds,
+		ContentScale: 1,
+	})
+	if cmds == nil || cmds.Len() == 0 {
+		t.Fatal("expected projected commands for horizontal rail golden")
+	}
+	surface := testkit.NewMemorySurface(721, int(result.Size.H)+1)
+	r := softwarerenderer.NewSoftwareRenderer()
+	if err := r.Initialize(surface); err != nil {
+		t.Fatalf("initialize renderer: %v", err)
+	}
+	frame := &render.Frame{
+		RenderBatchs: []render.RenderBatch{
+			{
+				ID:          1,
+				Bounds:      bounds,
+				Opacity:     1,
+				CommandHash: 1,
+				Commands:    *cmds,
+			},
+		},
+	}
+	if err := r.Submit(frame); err != nil {
+		t.Fatalf("submit frame: %v", err)
+	}
+	testkit.AssertGolden(t, surface, "nav_rail_horizontal")
+}
+
 func TestNavRailGoldenCompact(t *testing.T) {
 	AssertNavRailGolden(t, "compact", defaultTabsTokens(), theme.DensityIDCompact, layout.WritingDirectionLTR, func(r *NavRail) {
 		r.Collapsed = marks.Const(true)
@@ -413,4 +462,70 @@ func TestNavRail_contract_focusable(t *testing.T) {
 			return rail
 		},
 	)
+}
+
+func TestNavRailHorizontal_bottomBarLayout(t *testing.T) {
+	rail, rt, measureCtx := newNavRailTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	rail.Orientation = NavRailHorizontal
+	facet.Attach(rail, facet.AttachContext{Runtime: rt, Theme: measureCtx})
+
+	result := rail.LayoutRole().Measure(facet.MeasureContext{
+		Runtime: rt, Theme: measureCtx, ContentScale: 1,
+		Density:          facet.DensityID(theme.DensityIDComfortable),
+		WritingDirection: facet.WritingDirectionLTR,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 720, H: 200}})
+	if result.Size.H <= 0 || result.Size.H > 200 {
+		t.Fatalf("horizontal rail height = %v, want a slim bar", result.Size.H)
+	}
+	// The group contract switches to the horizontal linear kind.
+	if got := rail.Layout.Parent.Kind; got != facet.GroupLayoutLinearHorizontal {
+		t.Fatalf("parent kind = %v, want horizontal linear", got)
+	}
+
+	rail.LayoutRole().Arrange(facet.ArrangeContext{
+		Runtime: rt, Theme: measureCtx,
+	}, gfx.RectFromXYWH(0, 0, 720, result.Size.H))
+	if rail.LayoutRole().ArrangedBounds.Width() != 720 {
+		t.Fatalf("arranged width = %v, want 720", rail.LayoutRole().ArrangedBounds.Width())
+	}
+
+	// Destinations sit in equal columns left-to-right, full height.
+	n := len(rail.Items)
+	for i, b := range rail.cachedItemBounds {
+		wantMin := float32(i) * (720 / float32(n))
+		if b.Min.X != wantMin {
+			t.Fatalf("item %d Min.X = %v, want %v", i, b.Min.X, wantMin)
+		}
+		if b.Width() != 720/float32(n) {
+			t.Fatalf("item %d width = %v, want %v", i, b.Width(), 720/float32(n))
+		}
+	}
+
+	// A click at the first destination's center activates index 0 (the
+	// selection publishes to the store and the signal fires).
+	store := rail.ActiveIndex
+	store.Set(-1)
+	fired := -1
+	id := rail.Activated.Subscribe(func(i int) { fired = i })
+	defer rail.Activated.Unsubscribe(id)
+	b0 := rail.cachedItemBounds[0]
+	rail.onPointer(facet.PointerEvent{
+		Kind: platform.PointerPress, Button: platform.PointerLeft,
+		Position: gfx.Point{X: (b0.Min.X + b0.Max.X) / 2, Y: (b0.Min.Y + b0.Max.Y) / 2},
+	})
+	rail.onPointer(facet.PointerEvent{
+		Kind: platform.PointerRelease, Button: platform.PointerLeft,
+		Position: gfx.Point{X: (b0.Min.X + b0.Max.X) / 2, Y: (b0.Min.Y + b0.Max.Y) / 2},
+	})
+	if fired != 0 || store.Get() != 0 {
+		t.Fatalf("click at destination 0: fired=%d store=%d, want 0/0", fired, store.Get())
+	}
+
+	// Keyboard focus moves along the main axis (Left/Right), not Up/Down.
+	if !rail.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyRight}) {
+		t.Fatal("Right should move focus in a horizontal rail")
+	}
+	if rail.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyDown}) {
+		t.Fatal("Down must not be consumed by a horizontal rail")
+	}
 }

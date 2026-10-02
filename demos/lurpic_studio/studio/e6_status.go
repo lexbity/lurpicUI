@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/marks/status"
+	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -19,7 +20,7 @@ import (
 // those stores and re-invalidates the mark — the status family's distinctive
 // behavior: a status store reflected by an indicator.
 type playStatusFamily struct {
-	scroll *demoList
+	scroll *structure.ScrollRegion
 
 	badge      *status.Badge
 	tick       *action.Button
@@ -62,7 +63,7 @@ func newPlayStatusFamily() *playStatusFamily {
 	f.bar.Value = marks.FromStore(f.progress, facet.DirtyProjection)
 	f.ring.Value = marks.FromStore(f.progress, facet.DirtyProjection)
 
-	f.scroll = newDemoList(listGap,
+	f.scroll = newPlayScroll(listGap,
 		playgroundCard("badge — count events", f.tick, f.badge),
 		playgroundCard("status_light — toggle online", f.onlineSwitch, f.light),
 		playgroundCard("progress_bar + progress_ring — drag throughput", f.slider, f.bar, f.ring),

@@ -101,47 +101,43 @@ func (r *SiblingOverlay) Check(ctx *Context) []*diag.Diagnostic {
 	return diags
 }
 
-// isLikelyOverlay reports whether expr references a value likely constructed
-// from an overlay package.  It checks the import table for overlay packages
-// and checks if the expression matches known overlay patterns.
+// isLikelyOverlay reports whether expr is an overlay-package constructor
+// result (optionally unwrapped through .Base() / .LayoutRole()). Narrowed
+// (RX-2 Q11): hosting an ALREADY-CONSTRUCTED mark via a field reference is a
+// structural choice (the demo's in-flow idiom), not a violation — the rule
+// fires only where an overlay is constructed and mounted as a plain sibling
+// in the same expression.
 func isLikelyOverlay(expr ast.Expr, imports loader.ImportTable) bool {
-	// Unwrap method calls like x.Base(), x.LayoutRole().
-	if call, ok := expr.(*ast.CallExpr); ok {
-		if sel, ok := call.Fun.(*ast.SelectorExpr); ok {
-			// Recursion into the receiver: r.dialog.Base() -> r.dialog
-			if sel.Sel.Name == "Base" || sel.Sel.Name == "LayoutRole" {
-				return isLikelyOverlay(sel.X, imports)
-			}
-		}
+	call, ok := expr.(*ast.CallExpr)
+	if !ok {
+		return false
 	}
-
-	// Check selector references: r.dialog, r.exportToast, etc.
-	if sel, ok := expr.(*ast.SelectorExpr); ok {
-		// If the field name looks like it could be an overlay type.
-		if overlayTypeNames[sel.Sel.Name] {
-			return true
-		}
-		// Check if the file imports from the overlay package that this
-		// selector chain originates from.
-		if id, ok := sel.X.(*ast.Ident); ok {
-			for local, path := range imports {
-				if local == id.Name {
-					for _, suffix := range overlayPackageSuffixes {
-						if strings.HasSuffix(path, suffix) || path == suffix[1:] {
-							return true
-						}
-					}
-				}
-			}
-		}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return false
+	}
+	// Unwrap x.Base() / x.LayoutRole() to the underlying constructor.
+	if sel.Sel.Name == "Base" || sel.Sel.Name == "LayoutRole" {
 		return isLikelyOverlay(sel.X, imports)
 	}
-
-	// Direct ident (less likely for overlays but check).
-	if _, ok := expr.(*ast.Ident); ok {
-		return true // conservative: any ident could be an overlay
+	// An overlay-package constructor: feedback.NewDialog(...) / New*(...).
+	if !strings.HasPrefix(sel.Sel.Name, "New") {
+		return false
 	}
-
+	id, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	for local, path := range imports {
+		if local != id.Name {
+			continue
+		}
+		for _, suffix := range overlayPackageSuffixes {
+			if strings.HasSuffix(path, suffix) || path == suffix[1:] {
+				return true
+			}
+		}
+	}
 	return false
 }
 

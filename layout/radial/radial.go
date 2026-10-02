@@ -126,11 +126,16 @@ func (p *Policy) Arrange(ctx facet.ArrangeContext, children []Child, bounds gfx.
 			child.size.H,
 		)
 		child.child.Layout.Arrange(facet.ArrangeContext{
-			Runtime:     ctx.Runtime,
-			Theme:       ctx.Theme,
-			Layer:       ctx.Layer,
+			Runtime: ctx.Runtime,
+			Theme:   ctx.Theme,
+			Layer:   ctx.Layer,
+			// The parent-granted contract (the GroupChild's Contract field)
+			// is authoritative: the radial menu grants its children radial
+			// placement there. Reading the child's raw role contract here
+			// would fail the placement check below for children that only
+			// the radial host authorizes.
 			ParentGroup: child.child.Layout.Parent,
-			ChildGroup:  child.child.Layout.Child,
+			ChildGroup:  child.child.Contract,
 			Placement:   child.child.Attachment.Placement,
 		}, rect)
 		arranged = append(arranged, ArrangedChild{
