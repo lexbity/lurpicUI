@@ -171,8 +171,6 @@ func NewPagination(label string, items []PaginationItem, currentIndex *store.Val
 		focusedEntryIndex: 0,
 	}
 	p.Facet = facet.NewFacet()
-	p.AddBinding(p.Label)
-	p.AddBinding(p.Disabled)
 	p.SetItems(items)
 	p.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
@@ -215,7 +213,7 @@ func NewPagination(label string, items []PaginationItem, currentIndex *store.Val
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	p.RegisterRoles()
+	p.RegisterRoles(p)
 	p.AddRole(&p.textRole)
 	p.rebuildChildren()
 	return p

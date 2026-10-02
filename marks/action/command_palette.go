@@ -90,9 +90,6 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 		Activated:      signal.NewSignal[string]("command_palette_activated"),
 	}
 	p.Facet = facet.NewFacet()
-	p.AddBinding(p.Label)
-	p.AddBinding(p.Placeholder)
-	p.AddBinding(p.Disabled)
 
 	p.searchField = input.NewTextField("Search", uiinput.TextInputOutlined, store.NewValueStore(""))
 	p.searchField.Placeholder = marks.Const(p.Placeholder.Get())
@@ -193,7 +190,7 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 	p.Focus.OnFocusGained = func() { p.onFocusGained() }
 	p.Focus.OnFocusLost = func() { p.onFocusLost() }
 	p.textRole.IMEEnabled = false
-	p.RegisterRoles()
+	p.RegisterRoles(p)
 	p.AddRole(&p.textRole)
 	// The palette mark itself is the layer surface (band Modal): the layer
 	// system arranges it with the modal recipe and gates it by Mount, and the

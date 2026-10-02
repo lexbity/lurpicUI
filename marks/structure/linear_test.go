@@ -318,9 +318,12 @@ func TestRow_gap_binding_change_remasures(t *testing.T) {
 		},
 		AxisConfig{},
 	)
-	// Gap is dynamic here (a store-backed binding), so it is assigned after
-	// construction — the sanctioned post-ctor form for content sources.
+	// The Gap field is replaced with a dynamic binding before attach — the
+	// declared-bindings contract (RX-2 Q1): Core subscribes whatever the
+	// fields hold at attach time, so pre-attach replacement just works.
 	r.Gap = marks.FromStore(gapStore, facet.DirtyLayout)
+	r.OnAttach(facet.AttachContext{})
+	defer r.OnDetach()
 
 	constraints := facet.Constraints{MaxSize: gfx.Size{W: 400, H: 50}}
 	_ = r.measure(measureCtx(), constraints)
@@ -427,6 +430,69 @@ func TestDivider_default_color_draws_from_theme(t *testing.T) {
 	cmds := d.buildCommands(d.Layout.ArrangedBounds)
 	if len(cmds) == 0 {
 		t.Fatal("expected themed default divider to draw without an explicit Color")
+	}
+}
+
+// A divider under a stretch cross alignment must fill the row's cross extent
+// at arrange — not trip the linear policy's cross-stretch contract panic.
+func TestDivider_stretch_alignment_fills_cross(t *testing.T) {
+	d := NewDivider()
+	d.Thickness = marks.Const(float32(2))
+	d.Color = marks.Const(gfx.Color{R: 0, G: 0, B: 0, A: 1})
+	c1 := newFixedFacet(40, 20)
+	// A stretch-aligned row requires stretch-capable children; the divider
+	// receives its cross-stretch grant from the axis mark itself.
+	c1.layout.Child.Stretch = facet.StretchPolicy{
+		Width:  facet.StretchWhenParentRequests,
+		Height: facet.StretchWhenParentRequests,
+	}
+
+	r := NewRow(
+		[]AxisChild{
+			{Facet: c1},
+			{Facet: d},
+		},
+		AxisConfig{CrossAlign: CrossAlignStretch},
+	)
+	r.OnAttach(facet.AttachContext{})
+
+	_ = r.measure(measureCtx(), facet.Constraints{MaxSize: gfx.Size{W: 200, H: 50}})
+	r.arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, 200, 50))
+
+	bounds := d.Base().LayoutRole().ArrangedBounds
+	if bounds.Height() != 50 {
+		t.Fatalf("stretched divider expected full cross extent 50, got %#v", bounds)
+	}
+	if bounds.Width() != 2 {
+		t.Fatalf("stretched divider main axis expected thickness 2, got %#v", bounds)
+	}
+	r.OnDetach()
+}
+
+// Measured with unbounded cross constraints (intrinsic measure), a divider
+// hugs at one thickness instead of reporting a zero cross extent.
+func TestDivider_unbounded_cross_hugs_to_thickness(t *testing.T) {
+	d := NewDivider()
+	d.Thickness = marks.Const(float32(2))
+
+	result := d.measure(measureCtx(), facet.Constraints{MaxSize: gfx.Size{W: 0, H: 0}})
+	if result.Size.W != 2 || result.Size.H != 2 {
+		t.Fatalf("unbounded divider expected 2x2 hug, got %#v", result.Size)
+	}
+
+	// Same through a Row measured intrinsically: the divider must not
+	// disappear (cross 0) and must not inflate the row to the full constraint.
+	c1 := newFixedFacet(40, 20)
+	r := NewRow(
+		[]AxisChild{
+			{Facet: c1},
+			{Facet: d},
+		},
+		AxisConfig{},
+	)
+	result = r.measure(measureCtx(), facet.Constraints{MaxSize: gfx.Size{W: 0, H: 0}})
+	if result.Size.H != 20 {
+		t.Fatalf("row with unbounded-constraint divider expected hug height 20, got %#v", result.Size)
 	}
 }
 

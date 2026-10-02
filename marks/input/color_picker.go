@@ -74,9 +74,14 @@ var _ facet.FacetImpl = (*ColorPicker)(nil)
 var _ marks.Mark = (*ColorPicker)(nil)
 var _ layout.AnchorExporter = (*ColorPicker)(nil)
 
-// NewColorPicker constructs a color picker with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// NewColorPicker constructs a color picker with canonical defaults. When
+// value is nil the picker creates an internal store and owns its truth; an
+// injected store is bound, never copied (RX-2 Q2) — Store() exposes the live
+// store either way.
 func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPicker {
+	if value == nil {
+		value = store.NewValueStore(gfx.Color{})
+	}
 	p := &ColorPicker{
 		Label:            marks.Const(strings.TrimSpace(label)),
 		Disabled:         marks.Const(false),
@@ -122,7 +127,7 @@ func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPick
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	p.RegisterRoles()
+	p.RegisterRoles(p)
 	return p
 }
 
@@ -164,17 +169,11 @@ func (p *ColorPicker) CurrentColor() gfx.Color {
 	if p == nil {
 		return gfx.Color{}
 	}
-	if p.Value == nil {
-		return gfx.Color{}
-	}
 	return p.Value.Get()
 }
 
 // OnAttach wires the binding and value store subscriptions.
 func (p *ColorPicker) OnAttach(ctx facet.AttachContext) {
-	if p.Value == nil {
-		return
-	}
 	p.Core.OnAttach(ctx)
 	p.syncHSVCache()
 	facet.Store(facet.Subscribe(p), &p.Value.OnChange, p.Value.Version, func(signal.Change[gfx.Color]) {
@@ -206,8 +205,17 @@ func (p *ColorPicker) OnDetach() {
 	p.cachedTriangleVerts = [3]gfx.Point{}
 }
 
+// Store returns the picker's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (p *ColorPicker) Store() *store.ValueStore[gfx.Color] {
+	if p == nil {
+		return nil
+	}
+	return p.Value
+}
+
 func (p *ColorPicker) syncHSVCache() {
-	if p == nil || p.Value == nil {
+	if p == nil {
 		return
 	}
 	color := p.Value.Get()
@@ -622,9 +630,9 @@ func (p *ColorPicker) applyPointerRegion(region colorPickerRegion, pt gfx.Point,
 	}
 }
 
-// SetColor updates the selected color via the caller's store.
+// SetColor updates the selected color through the value store.
 func (p *ColorPicker) SetColor(color gfx.Color) {
-	if p == nil || p.Value == nil {
+	if p == nil {
 		return
 	}
 	if p.Value.Get() == color {
@@ -638,7 +646,7 @@ func (p *ColorPicker) SetColor(color gfx.Color) {
 }
 
 func (p *ColorPicker) setHSV(hue float64, saturation, brightness float32, emit bool) {
-	if p == nil || p.Value == nil {
+	if p == nil {
 		return
 	}
 	hue = wrapAngle(hue)

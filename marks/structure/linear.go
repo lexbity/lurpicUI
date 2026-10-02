@@ -61,7 +61,7 @@ type AxisConfig struct {
 // exist so descriptors and type identity distinguish the orientations; all
 // layout logic lives here, parameterized by axis. The binding fields are
 // declared on axis and promoted onto both marks.
-type axis struct {
+type Axis struct {
 	// Gap is the spacing between adjacent children along the main axis.
 	Gap marks.Binding[float32]
 	// PadX insets the content horizontally on both sides.
@@ -77,15 +77,18 @@ type axis struct {
 	children   []AxisChild
 }
 
-func newAxis(horizontal bool, children []AxisChild, cfg AxisConfig) axis {
-	return axis{
+func newAxis(horizontal bool, children []AxisChild, cfg AxisConfig) Axis {
+	return Axis{
 		Gap:        marks.Const(cfg.Gap),
 		PadX:       marks.Const(cfg.PadX),
 		PadY:       marks.Const(cfg.PadY),
 		CrossAlign: marks.Const(cfg.CrossAlign),
 		horizontal: horizontal,
-		overflow:   facet.OverflowScroll,
-		children:   append([]AxisChild(nil), children...),
+		// Row/Column are layout-only marks (Q4 boundary: ScrollRegion owns the
+		// viewport). Content exceeding the arranged bounds is clipped; wrap
+		// the axis mark in a ScrollRegion when it must scroll.
+		overflow: facet.OverflowClip,
+		children: append([]AxisChild(nil), children...),
 	}
 }
 
@@ -97,7 +100,7 @@ type axisLayoutSource interface {
 }
 
 // initAxisContracts wires the shared layout contracts onto the mark's core.
-func initAxisContracts(src axisLayoutSource, core *marks.Core, a *axis) {
+func initAxisContracts(src axisLayoutSource, core *marks.Core, a *Axis) {
 	kind := facet.GroupLayoutLinearVertical
 	if a.horizontal {
 		kind = facet.GroupLayoutLinearHorizontal
@@ -215,7 +218,7 @@ func maxFloat32(a, b float32) float32 {
 // groupChildren builds the GroupChild list for the declared children. The
 // per-child cross-axis alignment falls back to the mark-level CrossAlign
 // binding when the child declares CrossAlignStart.
-func (a *axis) groupChildren() []facet.GroupChild {
+func (a *Axis) groupChildren() []facet.GroupChild {
 	out := make([]facet.GroupChild, 0, len(a.children))
 	for i, child := range a.children {
 		if child.Facet == nil || child.Facet.Base() == nil || child.Facet.Base().LayoutRole() == nil {
@@ -229,6 +232,18 @@ func (a *axis) groupChildren() []facet.GroupChild {
 		align := child.Align
 		if align == CrossAlignStart {
 			align = a.CrossAlign.Get()
+		}
+		contract := base.LayoutRole().Child
+		// A divider fills the cross axis by measurement, so a stretch
+		// alignment must resolve to a fill rather than trip the linear
+		// policy's cross-stretch contract check: grant the divider's contract
+		// cross-axis stretch (its main axis stays non-stretching).
+		if _, isDivider := child.Facet.(*Divider); isDivider && align == CrossAlignStretch {
+			if a.horizontal {
+				contract.Stretch.Height = facet.StretchAlways
+			} else {
+				contract.Stretch.Width = facet.StretchAlways
+			}
 		}
 		out = append(out, facet.GroupChild{
 			FacetID: base.ID(),
@@ -245,7 +260,7 @@ func (a *axis) groupChildren() []facet.GroupChild {
 				},
 			},
 			Layout:   base.LayoutRole(),
-			Contract: base.LayoutRole().Child,
+			Contract: contract,
 		})
 	}
 	return out
@@ -263,7 +278,7 @@ func groupChildToLinear(g facet.GroupChild) linear.Child {
 // measure implements the shared axis measurement. Children are measured
 // first (the policy reads each child's cached MeasuredSize), then the linear
 // policy sums them with gap and padding.
-func (a *axis) measure(core *marks.Core, ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+func (a *Axis) measure(core *marks.Core, ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	gap := a.Gap.Get()
 	padX := a.PadX.Get()
 	padY := a.PadY.Get()
@@ -315,7 +330,7 @@ func (a *axis) measure(core *marks.Core, ctx facet.MeasureContext, constraints f
 
 // arrange implements the shared axis arrangement. The policy applies each
 // child's arranged bounds via child.Layout.Arrange.
-func (a *axis) arrange(_ *marks.Core, _ facet.ArrangeContext, bounds gfx.Rect) {
+func (a *Axis) arrange(_ *marks.Core, _ facet.ArrangeContext, bounds gfx.Rect) {
 	if bounds.IsEmpty() {
 		return
 	}
@@ -360,7 +375,7 @@ func attachAxisChildren(core *marks.Core, kids []AxisChild) {
 // input. Row draws no chrome; wrap it in a Card or provide a background.
 type Row struct {
 	marks.Core
-	axis
+	Axis
 }
 
 // Column implements a vertical linear layout mark over layout/linear.
@@ -368,7 +383,7 @@ type Row struct {
 // input. Column draws no chrome; wrap it in a Card or provide a background.
 type Column struct {
 	marks.Core
-	axis
+	Axis
 }
 
 var _ facet.FacetImpl = (*Row)(nil)
@@ -380,27 +395,19 @@ var _ marks.Mark = (*Divider)(nil)
 
 // NewRow constructs a horizontal linear layout mark.
 func NewRow(children []AxisChild, cfg AxisConfig) *Row {
-	r := &Row{axis: newAxis(true, children, cfg)}
+	r := &Row{Axis: newAxis(true, children, cfg)}
 	r.Facet = facet.NewFacet()
-	r.AddBinding(r.Gap)
-	r.AddBinding(r.PadX)
-	r.AddBinding(r.PadY)
-	r.AddBinding(r.CrossAlign)
-	initAxisContracts(r, &r.Core, &r.axis)
-	r.RegisterRoles()
+	initAxisContracts(r, &r.Core, &r.Axis)
+	r.RegisterRoles(r)
 	return r
 }
 
 // NewColumn constructs a vertical linear layout mark.
 func NewColumn(children []AxisChild, cfg AxisConfig) *Column {
-	c := &Column{axis: newAxis(false, children, cfg)}
+	c := &Column{Axis: newAxis(false, children, cfg)}
 	c.Facet = facet.NewFacet()
-	c.AddBinding(c.Gap)
-	c.AddBinding(c.PadX)
-	c.AddBinding(c.PadY)
-	c.AddBinding(c.CrossAlign)
-	initAxisContracts(c, &c.Core, &c.axis)
-	c.RegisterRoles()
+	initAxisContracts(c, &c.Core, &c.Axis)
+	c.RegisterRoles(c)
 	return c
 }
 
@@ -417,13 +424,13 @@ func (r *Row) Descriptor() marks.Descriptor {
 
 // measure delegates to the shared axis implementation.
 func (r *Row) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	return r.axis.measure(&r.Core, ctx, constraints)
+	return r.Axis.measure(&r.Core, ctx, constraints)
 }
 
 // arrange delegates to the shared axis implementation.
 func (r *Row) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	r.Layout.ArrangedBounds = bounds
-	r.axis.arrange(&r.Core, ctx, bounds)
+	r.Axis.arrange(&r.Core, ctx, bounds)
 }
 
 // AccessibilityRole reports the semantic role.
@@ -434,7 +441,7 @@ func (r *Row) Children() []facet.GroupChild {
 	if r == nil {
 		return nil
 	}
-	return r.axis.groupChildren()
+	return r.Axis.groupChildren()
 }
 
 // OnAttach attaches the row's children to the facet tree.
@@ -461,13 +468,13 @@ func (c *Column) Descriptor() marks.Descriptor {
 
 // measure delegates to the shared axis implementation.
 func (c *Column) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
-	return c.axis.measure(&c.Core, ctx, constraints)
+	return c.Axis.measure(&c.Core, ctx, constraints)
 }
 
 // arrange delegates to the shared axis implementation.
 func (c *Column) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	c.Layout.ArrangedBounds = bounds
-	c.axis.arrange(&c.Core, ctx, bounds)
+	c.Axis.arrange(&c.Core, ctx, bounds)
 }
 
 // AccessibilityRole reports the semantic role.
@@ -478,7 +485,7 @@ func (c *Column) Children() []facet.GroupChild {
 	if c == nil {
 		return nil
 	}
-	return c.axis.groupChildren()
+	return c.Axis.groupChildren()
 }
 
 // OnAttach attaches the column's children to the facet tree.
@@ -516,8 +523,6 @@ func NewDivider() *Divider {
 		Color:     marks.Const(gfx.Color{}),
 	}
 	d.Facet = facet.NewFacet()
-	d.AddBinding(d.Thickness)
-	d.AddBinding(d.Color)
 
 	// Divider is a leaf: no group parent contract, no children.
 	d.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone, Overflow: facet.OverflowClip}
@@ -536,8 +541,9 @@ func NewDivider() *Divider {
 		// The divider fills its cross axis through measurement (cross extent
 		// comes from the parent's constraints) and hugs its main axis at
 		// Thickness. Main-axis stretch is deliberately Never: a divider must
-		// never absorb free main-axis space. Do not place a divider with
-		// CrossAxisStretch — its measured cross size already fills the host.
+		// never absorb free main-axis space. A parent-axis CrossAlignStretch
+		// is honored: the axis marks grant the divider's contract cross-axis
+		// stretch, and the policy fills the cross extent at arrange.
 		Stretch: facet.StretchPolicy{
 			Width:  facet.StretchNever,
 			Height: facet.StretchNever,
@@ -553,7 +559,7 @@ func NewDivider() *Divider {
 	d.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return d.buildCommands(d.Layout.ArrangedBounds)
 	}
-	d.RegisterRoles()
+	d.RegisterRoles(d)
 	return d
 }
 
@@ -604,11 +610,23 @@ func (d *Divider) measure(ctx facet.MeasureContext, constraints facet.Constraint
 	if thickness <= 0 {
 		thickness = 1
 	}
+	// The cross extent fills bounded available space. A zero max on the cross
+	// axis means unbounded (the host is measuring intrinsic size): fill would
+	// be infinite, so hug at one thickness — a square dot rather than an
+	// invisible zero-extent stroke.
 	var size gfx.Size
 	if d.strokeVertical() {
-		size = gfx.Size{W: thickness, H: constraints.MaxSize.H}
+		cross := constraints.MaxSize.H
+		if cross <= 0 {
+			cross = thickness
+		}
+		size = gfx.Size{W: thickness, H: cross}
 	} else {
-		size = gfx.Size{W: constraints.MaxSize.W, H: thickness}
+		cross := constraints.MaxSize.W
+		if cross <= 0 {
+			cross = thickness
+		}
+		size = gfx.Size{W: cross, H: thickness}
 	}
 	size = constraints.Constrain(size)
 	d.Layout.MeasuredSize = size

@@ -98,12 +98,6 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 		ColorSlot:       marks.Const(theme.ColorText),
 	}
 	i.Facet = facet.NewFacet()
-	i.AddBinding(i.Label)
-	i.AddBinding(i.AccessibleLabel)
-	i.AddBinding(i.Variant)
-	i.AddBinding(i.Disabled)
-	i.AddBinding(i.Size)
-	i.AddBinding(i.ColorSlot)
 
 	i.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
@@ -156,7 +150,7 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 	i.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return i.buildCommands(i.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	i.RegisterRoles()
+	i.RegisterRoles(i)
 	return i
 }
 

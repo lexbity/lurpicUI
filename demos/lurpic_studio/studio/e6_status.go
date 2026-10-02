@@ -50,12 +50,14 @@ func newPlayStatusFamily() *playStatusFamily {
 
 	f.tick = action.NewButton(marks.Const("Simulate tick"), marks.Const(uiinput.ButtonText))
 	f.badge = status.NewBadge("0")
-	f.badge.Label = marks.FromStore(f.badgeLabel, facet.DirtyProjection)
+	// Label text changes the marks' measured width, so these bindings declare
+	// DirtyLayout (the strip re-measures; RX-1 FR-3 routing).
+	f.badge.Label = marks.FromStore(f.badgeLabel, facet.DirtyLayout|facet.DirtyProjection)
 
 	f.onlineSwitch = selection.NewSwitch("Connection online", f.online)
 	f.light = status.NewStatusLight("Connection")
 	f.light.ShowLabel = marks.Const(true)
-	f.light.Label = marks.FromStore(f.lightLabel, facet.DirtyProjection)
+	f.light.Label = marks.FromStore(f.lightLabel, facet.DirtyLayout|facet.DirtyProjection)
 
 	f.slider = selection.NewSlider("Reload throughput", 0, 100, 1, f.sliderVal)
 	f.bar = status.NewProgressBar("reload")
@@ -71,6 +73,12 @@ func newPlayStatusFamily() *playStatusFamily {
 	return f
 }
 
+// wire subscribes the family's app-domain logic: the tick button counts
+// events into the badge store, the online switch translates state into the
+// light's label, and the slider maps throughput into the progress store.
+// Indicator invalidation is NOT wired here — the marks' declared bindings
+// (bar.Value, ring.Value, badge.Label, light.Label) subscribe their stores at
+// attach and invalidate with their declared flags (RX-2 P3).
 func (f *playStatusFamily) wire() func() {
 	tickID := f.tick.Activated.Subscribe(func(signal.Unit) {
 		n := 0
@@ -85,24 +93,14 @@ func (f *playStatusFamily) wire() func() {
 		} else {
 			f.lightLabel.Set("Offline")
 		}
-		f.light.Invalidate(facet.DirtyProjection)
 	})
 	sliderID := f.sliderVal.OnChange.Subscribe(func(signal.Change[float64]) {
 		f.progress.Set(float32(f.sliderVal.Get() / 100))
-	})
-	progressID := f.progress.OnChange.Subscribe(func(signal.Change[float32]) {
-		f.bar.Invalidate(facet.DirtyProjection)
-		f.ring.Invalidate(facet.DirtyProjection)
-	})
-	badgeID := f.badgeLabel.OnChange.Subscribe(func(signal.Change[string]) {
-		f.badge.Invalidate(facet.DirtyProjection)
 	})
 	return func() {
 		f.tick.Activated.Unsubscribe(tickID)
 		f.online.OnChange.Unsubscribe(onlineID)
 		f.sliderVal.OnChange.Unsubscribe(sliderID)
-		f.progress.OnChange.Unsubscribe(progressID)
-		f.badgeLabel.OnChange.Unsubscribe(badgeID)
 	}
 }
 

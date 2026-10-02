@@ -110,13 +110,6 @@ func NewIcon(source IconSource) *Icon {
 		PreserveAspectRatio: marks.Const(defaultIconPreserveAspectRatio()),
 	}
 	i.Facet = facet.NewFacet()
-	i.AddBinding(i.Size)
-	i.AddBinding(i.ColorSlot)
-	i.AddBinding(i.DensityBehavior)
-	i.AddBinding(i.AccessibleLabel)
-	i.AddBinding(i.Decorative)
-	i.AddBinding(i.HitPadding)
-	i.AddBinding(i.PreserveAspectRatio)
 
 	i.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	i.Layout.Child = facet.GroupChildContract{
@@ -149,7 +142,7 @@ func NewIcon(source IconSource) *Icon {
 	i.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return i.buildCommands(i.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	i.RegisterRoles()
+	i.RegisterRoles(i)
 	return i
 }
 

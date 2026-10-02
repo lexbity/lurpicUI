@@ -89,8 +89,6 @@ func NewSlider(label string, min, max, step float64, value *store.ValueStore[flo
 		Precision: -1,
 	}
 	s.Facet = facet.NewFacet()
-	s.AddBinding(s.Variant)
-	s.AddBinding(s.Disabled)
 
 	s.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -145,7 +143,7 @@ func NewSlider(label string, min, max, step float64, value *store.ValueStore[flo
 		s.onFocusLost()
 	}
 	s.textRole.IMEEnabled = false
-	s.RegisterRoles()
+	s.RegisterRoles(s)
 	s.AddRole(&s.textRole)
 	s.syncChildren()
 	return s
@@ -223,7 +221,7 @@ func (s *Slider) OnAttach(ctx facet.AttachContext) {
 	}
 	s.syncChildren()
 	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[float64]) {
-		s.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "switch.Value")
+		s.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "slider.Value")
 	})
 }
 

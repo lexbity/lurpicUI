@@ -89,11 +89,6 @@ func NewList(label string, entries []ListEntry) *List {
 		cachedRowBounds: make(map[string]gfx.Rect),
 	}
 	l.Facet = facet.NewFacet()
-	l.AddBinding(l.Label)
-	l.AddBinding(l.SectionHeader)
-	l.AddBinding(l.EmptyState)
-	l.AddBinding(l.Disabled)
-	l.AddBinding(l.ItemVariant)
 
 	l.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -140,7 +135,7 @@ func NewList(label string, entries []ListEntry) *List {
 		return l.buildCommands(l.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
 	l.textRole.IMEEnabled = false
-	l.RegisterRoles()
+	l.RegisterRoles(l)
 	l.AddRole(&l.textRole)
 	l.syncChildren()
 	return l

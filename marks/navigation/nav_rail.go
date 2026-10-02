@@ -105,9 +105,6 @@ func NewNavRail(label string, items []NavRailItem, activeIndex *store.ValueStore
 		pressedIndex: -1,
 	}
 	r.Facet = facet.NewFacet()
-	r.AddBinding(r.Label)
-	r.AddBinding(r.Collapsed)
-	r.AddBinding(r.Disabled)
 	r.SetItems(items)
 	r.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -151,7 +148,7 @@ func NewNavRail(label string, items []NavRailItem, activeIndex *store.ValueStore
 	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return r.buildCommands(r.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	r.RegisterRoles()
+	r.RegisterRoles(r)
 	r.AddRole(&r.textRole)
 	return r
 }

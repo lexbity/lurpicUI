@@ -58,10 +58,6 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 		cachedRowGap: 0,
 	}
 	g.Facet = facet.NewFacet()
-	g.AddBinding(g.Label)
-	g.AddBinding(g.EmptyState)
-	g.AddBinding(g.ItemVariant)
-	g.AddBinding(g.Disabled)
 
 	g.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -119,8 +115,8 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 	g.Focus.OnFocusGained = func() { g.onFocusGained() }
 	g.Focus.OnFocusLost = func() { g.onFocusLost() }
 	g.textRole.IMEEnabled = false
-	g.Viewport.Transform = gfx.Identity()
-	g.RegisterRoles()
+	g.EnableViewport()
+	g.RegisterRoles(g)
 	g.AddRole(&g.textRole)
 	return g
 }

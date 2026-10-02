@@ -1,6 +1,7 @@
 package marks
 
 import (
+	"strings"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -24,7 +25,7 @@ func newBaseTestMark() *baseTestMark {
 	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.Layout.ArrangedBounds = bounds
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	return m
 }
 
@@ -53,7 +54,7 @@ func newBindingTestMark(s *store.ValueStore[string]) *bindingTestMark {
 	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.Layout.ArrangedBounds = bounds
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	return m
 }
 
@@ -88,7 +89,7 @@ func newBuildCommandsTestMark() *buildCommandsTestMark {
 			},
 		}
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	return m
 }
 
@@ -115,8 +116,8 @@ func TestBase_register_roles_wires_layout(t *testing.T) {
 }
 
 func TestBase_register_roles_skips_unconfigured_roles(t *testing.T) {
-	c := Core{}
-	c.RegisterRoles()
+	c := &Core{}
+	c.RegisterRoles(c)
 	if role := c.LayoutRole(); role != nil {
 		t.Fatal("expected LayoutRole to be nil when not configured")
 	}
@@ -196,7 +197,7 @@ func TestBase_binding_attached_layout_flagged_reroutes(t *testing.T) {
 	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.Layout.ArrangedBounds = bounds
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 	s.Set("updated")
@@ -339,7 +340,7 @@ func TestBase_build_commands_empty_returns_nil(t *testing.T) {
 	m.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return nil
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 
 	ctx := facet.ProjectionContext{
 		Bounds:       gfx.RectFromXYWH(0, 0, 100, 50),
@@ -410,7 +411,7 @@ func newLifecycleTestMark(s *store.ValueStore[string]) *lifecycleTestMark {
 			},
 		}
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	return m
 }
 
@@ -512,7 +513,7 @@ func TestBase_binding_with_derived_store(t *testing.T) {
 	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.Layout.ArrangedBounds = bounds
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 
@@ -540,7 +541,7 @@ func newAnchorExportTestMark() *anchorExportTestMark {
 	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.Layout.ArrangedBounds = bounds
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	return m
 }
 
@@ -587,7 +588,7 @@ func TestBase_multiple_bindings_all_invalidate(t *testing.T) {
 	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.Layout.ArrangedBounds = bounds
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 
@@ -609,5 +610,209 @@ func TestBase_multiple_bindings_all_invalidate(t *testing.T) {
 	// invalidation of Q3); the declared flags govern the unattached fallback.
 	if flags&facet.DirtyProjection == 0 {
 		t.Error("expected DirtyProjection after attached int binding change — FR-3 re-project")
+	}
+}
+
+// --- Declared bindings (RX-2 P3 / Q1) ---
+
+type declaredMark struct {
+	Core
+	Label Binding[string]
+}
+
+func newDeclaredMark(s *store.ValueStore[string]) *declaredMark {
+	m := &declaredMark{
+		Label: FromStore(s, facet.DirtyProjection),
+	}
+	m.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		return facet.MeasureResult{Size: gfx.Size{W: 100, H: 50}}
+	}
+	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		m.Layout.ArrangedBounds = bounds
+	}
+	m.RegisterRoles(m)
+	return m
+}
+
+func (m *declaredMark) Base() *facet.Facet {
+	m.BindImpl(m)
+	return &m.Facet
+}
+func (m *declaredMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
+func (m *declaredMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *declaredMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *declaredMark) OnDeactivate()                    { m.Core.OnDeactivate() }
+
+// The struct field is the declaration: an exported binding field swapped
+// before attach — with no AddBinding call anywhere — is subscribed at attach.
+func TestBase_declared_binding_swap_before_attach_subscribes(t *testing.T) {
+	s := store.NewValueStore("initial")
+	m := newDeclaredMark(s)
+
+	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
+	s.Set("updated")
+
+	if flags := m.DirtyFlags(); flags&facet.DirtyProjection == 0 {
+		t.Fatal("declared binding field swapped pre-attach was not subscribed at attach (RX-2 FR-1)")
+	}
+}
+
+// A Const field is skipped; swapping it to dynamic AFTER attach is the
+// unsupported direction — the contract is pre-attach assignment. This test
+// pins that Const fields cause no subscription (no leak, no panic).
+func TestBase_declared_const_field_skipped(t *testing.T) {
+	m := newDeclaredMark(nil)
+	if m.Label.IsDynamic() {
+		t.Fatal("expected Const field")
+	}
+	m.Label = Const("literal")
+	facet.Attach(m, facet.AttachContext{})
+	if got := len(m.cleanups); got != 0 {
+		t.Fatalf("Const declared field subscribed %d handlers, want 0", got)
+	}
+}
+
+// Each attach subscribes exactly once per dynamic declared field: the
+// cleanup bag holds one entry per subscribed binding while attached, and
+// dispose empties it. (Dispose is terminal — the lifecycle has no
+// detach-to-reattach; a re-attach of a fresh instance starts from a clean
+// bag, so the count is a per-attach exactly-once proof.)
+func TestBase_declared_binding_subscribes_exactly_once(t *testing.T) {
+	s := store.NewValueStore("initial")
+	m := newDeclaredMark(s)
+
+	facet.Attach(m, facet.AttachContext{})
+	if got := len(m.cleanups); got != 1 {
+		t.Fatalf("attach: %d cleanups for one dynamic declared field, want exactly 1 (RX-2 FR-1)", got)
+	}
+	facet.Dispose(m)
+	if got := len(m.cleanups); got != 0 {
+		t.Fatalf("after dispose: %d cleanups, want 0", got)
+	}
+
+	// A fresh instance of the same type shares the cached declaration and
+	// subscribes exactly once again.
+	fresh := newDeclaredMark(store.NewValueStore("fresh"))
+	facet.Attach(fresh, facet.AttachContext{})
+	if got := len(fresh.cleanups); got != 1 {
+		t.Fatalf("fresh instance after cache warm: %d cleanups, want exactly 1", got)
+	}
+}
+
+type optOutMark struct {
+	Core
+	Label Binding[string] `binding:"-"`
+}
+
+func (m *optOutMark) Base() *facet.Facet {
+	m.BindImpl(m)
+	return &m.Facet
+}
+func (m *optOutMark) OnAttach(ctx facet.AttachContext) { m.Core.OnAttach(ctx) }
+func (m *optOutMark) OnDetach()                        { m.Core.OnDetach() }
+func (m *optOutMark) OnActivate()                      { m.Core.OnActivate() }
+func (m *optOutMark) OnDeactivate()                    { m.Core.OnDeactivate() }
+
+// The `binding:"-"` struct tag opts a field out of declaration.
+func TestBase_declared_binding_tag_optout(t *testing.T) {
+	s := store.NewValueStore("initial")
+	m := &optOutMark{Label: FromStore(s, facet.DirtyProjection)}
+	m.RegisterRoles(m)
+
+	facet.Attach(m, facet.AttachContext{})
+	s.Set("updated")
+
+	if flags := m.DirtyFlags(); flags != 0 {
+		t.Fatal("binding:\"-\" field was subscribed — the opt-out tag was ignored")
+	}
+}
+
+type embeddedBindings struct {
+	Value Binding[string]
+}
+
+type unexportedCarrierMark struct {
+	Core
+	embeddedBindings // anonymous embedded, unexported type: promoted author surface
+}
+
+func (m *unexportedCarrierMark) Base() *facet.Facet { m.BindImpl(m); return &m.Facet }
+
+// An unexported embedded struct carrying binding fields cannot be read by
+// the declaration walk — RegisterRoles must fail closed instead of silently
+// dead-binding the author's fields (the exact bug class RX-2 Q1 kills).
+func TestBase_declared_binding_unexported_embedded_panics(t *testing.T) {
+	defer func() {
+		r := recover()
+		if r == nil {
+			t.Fatal("expected panic for binding fields hidden behind an unexported embedded struct")
+		}
+		msg, ok := r.(string)
+		if !ok || !strings.Contains(msg, "export the embedded struct") {
+			t.Fatalf("panic = %v, want embedded-struct guidance", r)
+		}
+	}()
+	m := &unexportedCarrierMark{}
+	m.RegisterRoles(m)
+}
+
+func TestBase_register_roles_panics_on_nil_self(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for nil self")
+		}
+	}()
+	(&Core{}).RegisterRoles(nil)
+}
+
+func TestBase_register_roles_panics_on_non_pointer(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for non-pointer self")
+		}
+	}()
+	(&Core{}).RegisterRoles(struct{}{})
+}
+
+func TestBase_register_roles_panics_on_second_instance(t *testing.T) {
+	defer func() {
+		if recover() == nil {
+			t.Fatal("expected panic for a second RegisterRoles with a different instance")
+		}
+	}()
+	a := &declaredMark{}
+	a.RegisterRoles(a)
+	b := &declaredMark{}
+	a.RegisterRoles(b)
+}
+
+// The declaration cache is keyed by type: two instances of one type share the
+// walk (and each attach reads its own field values through it).
+func TestBase_declared_binding_cache_shared_per_type(t *testing.T) {
+	s1 := store.NewValueStore("one")
+	s2 := store.NewValueStore("two")
+	a := newDeclaredMark(s1)
+	b := newDeclaredMark(s2)
+
+	facet.Attach(a, facet.AttachContext{})
+	facet.Attach(b, facet.AttachContext{})
+
+	s1.Set("changed")
+	if a.DirtyFlags()&facet.DirtyProjection == 0 {
+		t.Fatal("instance A binding dead after shared-type cache")
+	}
+	if b.DirtyFlags()&facet.DirtyProjection != 0 {
+		t.Fatal("instance B invalidated by instance A's store — cache cross-wired")
+	}
+}
+
+// A mark with no binding fields at all walks to an empty declaration and
+// attaches cleanly (the Cache hit path for binding-free marks).
+func TestBase_declared_binding_free_mark_attaches(t *testing.T) {
+	m := newBaseTestMark()
+	facet.Attach(m, facet.AttachContext{})
+	m.Base().ClearDirty(facet.DirtyAll)
+	if got := len(m.cleanups); got != 0 {
+		t.Fatalf("binding-free mark subscribed %d handlers, want 0", got)
 	}
 }

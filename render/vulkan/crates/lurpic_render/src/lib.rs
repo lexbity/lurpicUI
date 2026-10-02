@@ -607,7 +607,7 @@ unsafe extern "C" fn lurpic_render_submit_and_readback(
         let pixels = vulkan::readback_frame(data, len, width, height)?;
         // The GPU readback produces BGRA (B8G8R8A8). Readback is RGBA.
         let out = unsafe { std::slice::from_raw_parts_mut(out_pixels, out_len) };
-        for (i, px) in pixels.chunks_exact(4).enumerate() {
+        for (i, px) in pixels.as_chunks::<4>().0.iter().enumerate() {
             let off = i * 4;
             out[off] = px[2];
             out[off + 1] = px[1];

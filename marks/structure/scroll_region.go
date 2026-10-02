@@ -107,12 +107,6 @@ func NewScrollRegion(label string) *ScrollRegion {
 		cachedChildBounds: make(map[facet.FacetID]gfx.Rect),
 	}
 	sr.Facet = facet.NewFacet()
-	sr.AddBinding(sr.Label)
-	sr.AddBinding(sr.Disabled)
-	sr.AddBinding(sr.Direction)
-	sr.AddBinding(sr.Gap)
-	sr.AddBinding(sr.ScrollToEnd)
-	sr.AddBinding(sr.ContentInset)
 
 	sr.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -168,8 +162,8 @@ func NewScrollRegion(label string) *ScrollRegion {
 	sr.Focus.OnFocusGained = func() { sr.onFocusGained() }
 	sr.Focus.OnFocusLost = func() { sr.onFocusLost() }
 	sr.textRole.IMEEnabled = false
-	sr.Viewport.Transform = gfx.Identity()
-	sr.RegisterRoles()
+	sr.EnableViewport()
+	sr.RegisterRoles(sr)
 	sr.AddRole(&sr.textRole)
 	sr.updateParentKind()
 	return sr

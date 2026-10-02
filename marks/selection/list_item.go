@@ -97,18 +97,6 @@ func NewListItem(label marks.Binding[string]) *ListItem {
 		ShowFocusRing:          marks.Const(true),
 	}
 	li.Facet = facet.NewFacet()
-	li.AddBinding(li.Label)
-	li.AddBinding(li.LeadingIconRef)
-	li.AddBinding(li.SupportingText)
-	li.AddBinding(li.Variant)
-	li.AddBinding(li.Selected)
-	li.AddBinding(li.Active)
-	li.AddBinding(li.Disabled)
-	li.AddBinding(li.ShowLabel)
-	li.AddBinding(li.ShowContainer)
-	li.AddBinding(li.ShowLeadingIcon)
-	li.AddBinding(li.ShowSelectionIndicator)
-	li.AddBinding(li.ShowFocusRing)
 
 	li.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -150,7 +138,7 @@ func NewListItem(label marks.Binding[string]) *ListItem {
 	li.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return li.buildCommands(li.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	li.RegisterRoles()
+	li.RegisterRoles(li)
 	li.AddRole(&li.textRole)
 	return li
 }

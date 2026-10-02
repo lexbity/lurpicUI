@@ -91,8 +91,6 @@ func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[
 		Value:        value,
 	}
 	rg.Facet = facet.NewFacet()
-	rg.AddBinding(rg.Variant)
-	rg.AddBinding(rg.Disabled)
 	rg.SetOptions(options)
 
 	rg.Layout.Parent = facet.GroupParentContract{
@@ -137,7 +135,7 @@ func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[
 	rg.Focus.OnFocusGained = func() { rg.onFocusGained() }
 	rg.Focus.OnFocusLost = func() { rg.onFocusLost() }
 	rg.textRole.IMEEnabled = false
-	rg.RegisterRoles()
+	rg.RegisterRoles(rg)
 	rg.AddRole(&rg.textRole)
 	return rg
 }

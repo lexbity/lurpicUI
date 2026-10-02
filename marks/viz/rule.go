@@ -47,8 +47,6 @@ func NewRule(value marks.Binding[float64], orientation RuleOrientation, scale *r
 		StrokeWidth: 1,
 	}
 	r.Facet = facet.NewFacet()
-	r.AddBinding(r.Value)
-	r.AddBinding(r.Color)
 
 	r.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		syncThemeColor(ctx.Theme, &r.themeColor, theme.ColorBorder)
@@ -61,7 +59,7 @@ func NewRule(value marks.Binding[float64], orientation RuleOrientation, scale *r
 	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return r.buildCommands(r.Layout.ArrangedBounds)
 	}
-	r.RegisterRoles()
+	r.RegisterRoles(r)
 	return r
 }
 

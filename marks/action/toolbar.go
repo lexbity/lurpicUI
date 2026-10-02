@@ -107,8 +107,6 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 		Activated:    signal.NewSignal[MarkAction]("toolbar_activated"),
 	}
 	t.Facet = facet.NewFacet()
-	t.AddBinding(t.Label)
-	t.AddBinding(t.Disabled)
 
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
@@ -158,7 +156,7 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	t.RegisterRoles()
+	t.RegisterRoles(t)
 	t.AddRole(&t.textRole)
 	t.syncChildren()
 	return t

@@ -118,8 +118,6 @@ func NewTreeNavigator(label string, nodes []TreeNode, selection *store.ValueStor
 		Selection: selection,
 	}
 	t.Facet = facet.NewFacet()
-	t.AddBinding(t.Label)
-	t.AddBinding(t.Disabled)
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   treeNavigatorGroupPolicy{tree: t},
@@ -159,12 +157,12 @@ func NewTreeNavigator(label string, nodes []TreeNode, selection *store.ValueStor
 	t.Focus.TabIndex = 0
 	t.Focus.OnFocusGained = func() { t.onFocusGained() }
 	t.Focus.OnFocusLost = func() { t.onFocusLost() }
-	t.Viewport.Transform = gfx.Identity()
+	t.EnableViewport()
 	t.textRole.IMEEnabled = false
 	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	t.RegisterRoles()
+	t.RegisterRoles(t)
 	t.AddRole(&t.textRole)
 	return t
 }

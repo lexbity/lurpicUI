@@ -74,17 +74,9 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	s.ring.Value = marks.FromStore(feed.JobProgress, facet.DirtyLayout|facet.DirtyProjection)
 	s.badge.Label = marks.FromDerived(shell.RowCount, facet.DirtyLayout|facet.DirtyProjection)
 	s.caption.Content = marks.FromDerived(titleText, facet.DirtyLayout|facet.DirtyProjection)
-
-	// The binding fields above are assigned after construction (the marks'
-	// constructors register their own default Const bindings via AddBinding).
-	// Register the replaced bindings explicitly so the marks' OnAttach
-	// subscribes them — an unregistered binding field reads live but never
-	// invalidates (RX-1 A-6; replaced by declared bindings in RX-2 P3).
-	s.light.AddBinding(s.light.Disabled)
-	s.bar.AddBinding(s.bar.Value)
-	s.ring.AddBinding(s.ring.Value)
-	s.badge.AddBinding(s.badge.Label)
-	s.caption.AddBinding(s.caption.Content)
+	// The binding fields above are assigned after construction, before any
+	// attach. Declared bindings (RX-2 P3) subscribe whatever the fields hold
+	// at attach time — no re-registration is needed or possible.
 
 	// The weighted bar absorbs the free width after the hug-sized light,
 	// ring, badge, and caption are placed; vertical centering keeps the

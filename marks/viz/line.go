@@ -47,8 +47,6 @@ func NewLine[T any](
 		Color:       marks.Const(gfx.Color{}),
 	}
 	l.Facet = facet.NewFacet()
-	l.AddBinding(l.StrokeWidth)
-	l.AddBinding(l.Color)
 
 	l.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		syncThemeColor(ctx.Theme, &l.themeColor, theme.ColorPrimary)
@@ -61,7 +59,7 @@ func NewLine[T any](
 	l.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return l.buildCommands(l.Layout.ArrangedBounds)
 	}
-	l.RegisterRoles()
+	l.RegisterRoles(l)
 	return l
 }
 
@@ -76,20 +74,22 @@ func (l *Line[T]) Descriptor() marks.Descriptor {
 
 func (l *Line[T]) OnAttach(ctx facet.AttachContext) {
 	l.Core.OnAttach(ctx)
-	l.cleanups = append(l.cleanups,
-		l.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
-			l.Invalidate(facet.DirtyProjection)
-		}),
-		l.Store.OnRemoveSubscribe(func(e store.CollectionRemoveEvent[T]) {
-			l.Invalidate(facet.DirtyProjection)
-		}),
-		l.Store.OnUpdateSubscribe(func(e store.CollectionUpdateEvent[T]) {
-			l.Invalidate(facet.DirtyProjection)
-		}),
-		l.Store.OnReplaceSubscribe(func(signal.Unit) {
-			l.Invalidate(facet.DirtyProjection)
-		}),
-	)
+	if l.Store != nil {
+		l.cleanups = append(l.cleanups,
+			l.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
+				l.Invalidate(facet.DirtyProjection)
+			}),
+			l.Store.OnRemoveSubscribe(func(e store.CollectionRemoveEvent[T]) {
+				l.Invalidate(facet.DirtyProjection)
+			}),
+			l.Store.OnUpdateSubscribe(func(e store.CollectionUpdateEvent[T]) {
+				l.Invalidate(facet.DirtyProjection)
+			}),
+			l.Store.OnReplaceSubscribe(func(signal.Unit) {
+				l.Invalidate(facet.DirtyProjection)
+			}),
+		)
+	}
 	if l.XScale != nil {
 		signal.Track(l.Subs(), &l.XScale.OnChange, func(signal.Unit) {
 			l.Invalidate(facet.DirtyProjection)

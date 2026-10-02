@@ -82,8 +82,6 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 		Placement: facet.AnchorPlacement{Side: facet.AnchorAbove},
 	}
 	t.Facet = facet.NewFacet()
-	t.AddBinding(t.Content)
-	t.AddBinding(t.Disabled)
 
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -140,7 +138,7 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	t.RegisterRoles()
+	t.RegisterRoles(t)
 	t.AddRole(&t.textRole)
 	t.syncChildren()
 	surface := &tooltipSurfaceChild{Facet: facet.NewFacet(), parent: t}

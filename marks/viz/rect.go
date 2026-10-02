@@ -60,9 +60,6 @@ func NewBar[T any](
 		hitDirty:  true,
 	}
 	b.Facet = facet.NewFacet()
-	b.AddBinding(b.Padding)
-	b.AddBinding(b.Baseline)
-	b.AddBinding(b.Color)
 
 	b.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		syncThemeColor(ctx.Theme, &b.themeColor, theme.ColorPrimary)
@@ -86,7 +83,7 @@ func NewBar[T any](
 	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return b.buildCommands(b.Layout.ArrangedBounds)
 	}
-	b.RegisterRoles()
+	b.RegisterRoles(b)
 	return b
 }
 
@@ -101,24 +98,26 @@ func (b *Bar[T]) Descriptor() marks.Descriptor {
 
 func (b *Bar[T]) OnAttach(ctx facet.AttachContext) {
 	b.Core.OnAttach(ctx)
-	b.cleanups = append(b.cleanups,
-		b.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
-			b.hitDirty = true
-			b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
-		}),
-		b.Store.OnRemoveSubscribe(func(e store.CollectionRemoveEvent[T]) {
-			b.hitDirty = true
-			b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
-		}),
-		b.Store.OnUpdateSubscribe(func(e store.CollectionUpdateEvent[T]) {
-			b.hitDirty = true
-			b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
-		}),
-		b.Store.OnReplaceSubscribe(func(signal.Unit) {
-			b.hitDirty = true
-			b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
-		}),
-	)
+	if b.Store != nil {
+		b.cleanups = append(b.cleanups,
+			b.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
+				b.hitDirty = true
+				b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+			}),
+			b.Store.OnRemoveSubscribe(func(e store.CollectionRemoveEvent[T]) {
+				b.hitDirty = true
+				b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+			}),
+			b.Store.OnUpdateSubscribe(func(e store.CollectionUpdateEvent[T]) {
+				b.hitDirty = true
+				b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+			}),
+			b.Store.OnReplaceSubscribe(func(signal.Unit) {
+				b.hitDirty = true
+				b.Invalidate(facet.DirtyProjection | facet.DirtyHit)
+			}),
+		)
+	}
 	if b.YScale != nil {
 		signal.Track(b.Subs(), &b.YScale.OnChange, func(signal.Unit) {
 			b.Invalidate(facet.DirtyProjection)

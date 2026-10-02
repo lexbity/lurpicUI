@@ -17,7 +17,7 @@ type ParentWithCore struct {
 
 func newParentWithCore() *ParentWithCore {
 	p := &ParentWithCore{child: &Child{}}
-	p.Core.RegisterRoles()
+	p.Core.RegisterRoles(p)
 	p.Facet.AddChild(p.child.Base())
 	return p
 }

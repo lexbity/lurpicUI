@@ -151,17 +151,6 @@ func NewNotification(title, message string, open *store.ValueStore[bool]) *Notif
 		Open:               open,
 	}
 	n.Facet = facet.NewFacet()
-	n.AddBinding(n.Title)
-	n.AddBinding(n.Message)
-	n.AddBinding(n.IconRef)
-	n.AddBinding(n.ActionLabel)
-	n.AddBinding(n.ActionDisabled)
-	n.AddBinding(n.CloseButtonLabel)
-	n.AddBinding(n.ContentLayoutMode)
-	n.AddBinding(n.ContentGridColumns)
-	n.AddBinding(n.ContentGridRows)
-	n.AddBinding(n.ContentChildren)
-	n.AddBinding(n.Disabled)
 
 	n.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -212,7 +201,7 @@ func NewNotification(title, message string, open *store.ValueStore[bool]) *Notif
 	n.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return n.buildCommands(n.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	n.RegisterRoles()
+	n.RegisterRoles(n)
 	n.AddRole(&n.textRole)
 	n.syncChildren()
 	surface := &notificationSurfaceChild{Facet: facet.NewFacet(), parent: n}
@@ -1017,7 +1006,7 @@ func newNotificationContentGroup(parent *Notification) *notificationContentGroup
 	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return g.buildCommands(g.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	g.RegisterRoles()
+	g.RegisterRoles(g)
 	g.AddRole(&g.textRole)
 	return g
 }

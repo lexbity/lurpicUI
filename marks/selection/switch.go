@@ -76,8 +76,6 @@ func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
 		Label:    label,
 	}
 	s.Facet = facet.NewFacet()
-	s.AddBinding(s.Variant)
-	s.AddBinding(s.Disabled)
 
 	s.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -119,7 +117,7 @@ func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
 	s.Focus.OnFocusGained = func() { s.onFocusGained() }
 	s.Focus.OnFocusLost = func() { s.onFocusLost() }
 	s.textRole.IMEEnabled = false
-	s.RegisterRoles()
+	s.RegisterRoles(s)
 	s.AddRole(&s.textRole)
 	return s
 }

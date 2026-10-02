@@ -40,7 +40,7 @@ func NewDataMark[T any](
 		regionStore: region,
 	}
 	m.Facet = facet.NewFacet()
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	m.Binder = NewCollectionBinder(parent, store, factory)
 	return m
 }

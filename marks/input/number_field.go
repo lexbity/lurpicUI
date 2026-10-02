@@ -110,8 +110,13 @@ var _ layout.AnchorExporter = (*NumberField)(nil)
 var _ marks.Mark = (*NumberField)(nil)
 
 // NewNumberField constructs an input.number_field mark with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the field creates an internal store and owns its truth;
+// an injected store is bound, never copied (RX-2 Q2) — Store() exposes the
+// live store either way.
 func NewNumberField(label string, value *store.ValueStore[float64]) *NumberField {
+	if value == nil {
+		value = store.NewValueStore(float64(0))
+	}
 	nf := &NumberField{
 		Label:       marks.Const(label),
 		Placeholder: marks.Const(""),
@@ -171,7 +176,7 @@ func NewNumberField(label string, value *store.ValueStore[float64]) *NumberField
 		return nf.buildCommands(nf.Layout.ArrangedBounds, ctx.Runtime)
 	}
 	nf.textRole.IMEEnabled = true
-	nf.RegisterRoles()
+	nf.RegisterRoles(nf)
 	nf.AddRole(&nf.textRole)
 	return nf
 }
@@ -221,9 +226,6 @@ func (nf *NumberField) ExportAnchors(ctx layout.AnchorExportContext) layout.Anch
 func (nf *NumberField) Children() []facet.GroupChild { return nil }
 
 func (nf *NumberField) OnAttach(ctx facet.AttachContext) {
-	if nf.Value == nil {
-		return
-	}
 	nf.Core.OnAttach(ctx)
 	nf.syncEditingText()
 	facet.Store(facet.Subscribe(nf), &nf.Value.OnChange, nf.Value.Version, func(signal.Change[float64]) {
@@ -892,8 +894,17 @@ func (nf *NumberField) interactionState() theme.InteractionState {
 	}
 }
 
+// Store returns the field's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (nf *NumberField) Store() *store.ValueStore[float64] {
+	if nf == nil {
+		return nil
+	}
+	return nf.Value
+}
+
 func (nf *NumberField) currentValue() float64 {
-	if nf == nil || nf.Value == nil {
+	if nf == nil {
 		return 0
 	}
 	return nf.Value.Get()
@@ -930,7 +941,7 @@ func (nf *NumberField) clampValue(value float64) float64 {
 }
 
 func (nf *NumberField) setValueCanonical(value float64) {
-	if nf == nil || nf.Value == nil {
+	if nf == nil {
 		return
 	}
 	nf.Value.Set(nf.clampValue(value))

@@ -96,7 +96,6 @@ func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 		pressedToolbarIndex: -1,
 		Activated:           signal.NewSignal[int]("ribbon_activated"),
 	}
-	r.AddBinding(r.Disabled)
 
 	r.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -138,7 +137,7 @@ func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return r.buildCommands(r.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	r.RegisterRoles()
+	r.RegisterRoles(r)
 	r.AddRole(&r.textRole)
 	r.syncChildren()
 	return r

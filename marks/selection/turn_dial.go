@@ -77,8 +77,6 @@ func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[f
 		DialSize:  72,
 	}
 	td.Facet = facet.NewFacet()
-	td.AddBinding(td.Label)
-	td.AddBinding(td.Disabled)
 
 	td.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -133,7 +131,7 @@ func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[f
 	td.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return td.buildCommands(td.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	td.RegisterRoles()
+	td.RegisterRoles(td)
 	return td
 }
 

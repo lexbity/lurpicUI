@@ -228,3 +228,55 @@ func TestTextFieldValueSurvivesDispose(t *testing.T) {
 		},
 	)
 }
+
+// TestTextField_nilValue_internalStore pins RX-2 FR-2: a zero-config
+// text field (nil value store) constructs with an internal store, renders,
+// accepts text, writes its store, and subscribes its Disabled binding —
+// the pre-P3 OnAttach early return made all of that silently dead.
+func TestTextField_nilValue_internalStore(t *testing.T) {
+	tf := NewTextField("Notes", uiinput.TextInputFilled, nil)
+	if tf.Value == nil {
+		t.Fatal("nil-value construction must create an internal store (RX-2 Q2)")
+	}
+	rt := textFieldRuntimeStub{
+		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		fonts:     testkit.TestFontRegistry(t),
+	}
+
+	facet.Attach(tf, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
+	_ = tf.Layout.Measure(facet.MeasureContext{
+		Runtime:      rt,
+		Theme:        theme.DefaultResolvedContext(),
+		ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 360, H: 180}})
+	tf.Layout.Arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, tf.Layout.MeasuredSize.W, tf.Layout.MeasuredSize.H))
+
+	tf.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: tf.cachedFieldBounds.Min.X + 4, Y: tf.cachedFieldBounds.Min.Y + 4}, Button: platform.PointerLeft})
+	tf.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: gfx.Point{X: tf.cachedFieldBounds.Min.X + 4, Y: tf.cachedFieldBounds.Min.Y + 4}, Button: platform.PointerLeft})
+	tf.setCaretAtEnd(false)
+	if !tf.onText(facet.TextEvent{Text: "hello"}) {
+		t.Fatal("expected text input to be handled on a nil-value-constructed field")
+	}
+	if got := tf.Store().Get(); got != "hello" {
+		t.Fatalf("internal store value = %q, want %q", got, "hello")
+	}
+	if got := tf.currentValue(); got != "hello" {
+		t.Fatalf("currentValue = %q, want %q", got, "hello")
+	}
+}
+
+// TestTextField_disabled_binding_alive pins the FR-2 second half: a
+// Disabled store toggle invalidates within the frame on a zero-config field.
+func TestTextField_disabled_binding_alive(t *testing.T) {
+	disabled := store.NewValueStore(false)
+	tf := NewTextField("Notes", uiinput.TextInputFilled, nil)
+	tf.Disabled = marks.FromStore(disabled, facet.DirtyProjection)
+
+	facet.Attach(tf, facet.AttachContext{})
+	tf.Base().ClearDirty(facet.DirtyAll)
+
+	disabled.Set(true)
+	if flags := tf.Base().DirtyFlags(); flags&facet.DirtyProjection == 0 {
+		t.Fatal("Disabled store toggle did not invalidate the field within the frame (RX-2 FR-2 / FR-1)")
+	}
+}

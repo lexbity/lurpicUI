@@ -321,13 +321,6 @@ func NewPopupPalette(label string, tools []PopupPaletteTool, open *store.ValueSt
 		Activated:     signal.NewSignal[MarkAction]("popup_palette_activated"),
 	}
 	p.Facet = facet.NewFacet()
-	p.AddBinding(p.Label)
-	p.AddBinding(p.Disabled)
-	p.AddBinding(p.ShowBottomBar)
-	p.AddBinding(p.Zoom)
-	p.AddBinding(p.CanvasOnly)
-	p.AddBinding(p.MirrorCanvas)
-	p.AddBinding(p.SelectedIndex)
 
 	p.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
@@ -387,7 +380,7 @@ func NewPopupPalette(label string, tools []PopupPaletteTool, open *store.ValueSt
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	p.RegisterRoles()
+	p.RegisterRoles(p)
 
 	p.composition = newPopupPaletteComposition(p)
 	surface := &popupPaletteSurfaceChild{Facet: facet.NewFacet(), parent: p}

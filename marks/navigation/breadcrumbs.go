@@ -85,8 +85,6 @@ func NewBreadcrumbs(label string, items []BreadcrumbItem, currentIndex *store.Va
 		focusedIndex: len(items) - 1,
 	}
 	b.Facet = facet.NewFacet()
-	b.AddBinding(b.Label)
-	b.AddBinding(b.Disabled)
 	b.SetItems(items)
 	b.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
@@ -128,7 +126,7 @@ func NewBreadcrumbs(label string, items []BreadcrumbItem, currentIndex *store.Va
 	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return b.buildCommands(b.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	b.RegisterRoles()
+	b.RegisterRoles(b)
 	b.AddRole(&b.textRole)
 	return b
 }

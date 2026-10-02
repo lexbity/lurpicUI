@@ -77,11 +77,6 @@ func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.Button
 		Disabled:        marks.Const(false),
 	}
 	b.Facet = facet.NewFacet()
-	b.AddBinding(b.Label)
-	b.AddBinding(b.Variant)
-	b.AddBinding(b.LeadingIconRef)
-	b.AddBinding(b.TrailingIconRef)
-	b.AddBinding(b.Disabled)
 
 	b.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
@@ -134,7 +129,7 @@ func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.Button
 	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return b.buildCommands(b.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	b.RegisterRoles()
+	b.RegisterRoles(b)
 	b.AddRole(&b.textRole)
 	return b
 }

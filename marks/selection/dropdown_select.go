@@ -111,12 +111,6 @@ func NewDropdownSelect(label string, options []DropdownOption, value *store.Valu
 		activeIndex: 0,
 	}
 	ds.Facet = facet.NewFacet()
-	ds.AddBinding(ds.Label)
-	ds.AddBinding(ds.Placeholder)
-	ds.AddBinding(ds.Options)
-	ds.AddBinding(ds.Variant)
-	ds.AddBinding(ds.Disabled)
-	ds.AddBinding(ds.Invalid)
 
 	ds.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -153,7 +147,7 @@ func NewDropdownSelect(label string, options []DropdownOption, value *store.Valu
 	ds.Focus.TabIndex = 0
 	ds.Focus.OnFocusGained = func() { ds.onFocusGained() }
 	ds.Focus.OnFocusLost = func() { ds.onFocusLost() }
-	ds.Viewport.Transform = gfx.Identity()
+	ds.EnableViewport()
 	ds.textRole.IMEEnabled = false
 
 	ds.listboxFacet = &listboxChild{Facet: facet.NewFacet(), parent: ds}
@@ -162,7 +156,7 @@ func NewDropdownSelect(label string, options []DropdownOption, value *store.Valu
 	ds.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return ds.buildCommands(ds.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	ds.RegisterRoles()
+	ds.RegisterRoles(ds)
 	ds.AddRole(&ds.textRole)
 	return ds
 }

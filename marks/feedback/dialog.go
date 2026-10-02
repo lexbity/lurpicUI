@@ -152,15 +152,6 @@ func NewDialog(title, body string, actions []DialogAction, open *store.ValueStor
 		Open:               open,
 	}
 	d.Facet = facet.NewFacet()
-	d.AddBinding(d.Title)
-	d.AddBinding(d.Body)
-	d.AddBinding(d.ContentLayoutMode)
-	d.AddBinding(d.ContentGridColumns)
-	d.AddBinding(d.ContentGridRows)
-	d.AddBinding(d.Actions)
-	d.AddBinding(d.ContentChildren)
-	d.AddBinding(d.CloseButtonLabel)
-	d.AddBinding(d.Disabled)
 
 	d.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -216,7 +207,7 @@ func NewDialog(title, body string, actions []DialogAction, open *store.ValueStor
 	d.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return d.buildCommands(d.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	d.RegisterRoles()
+	d.RegisterRoles(d)
 	d.AddRole(&d.textRole)
 	d.syncChildren()
 	surface := &dialogSurfaceChild{Facet: facet.NewFacet(), parent: d}
@@ -949,7 +940,7 @@ func newDialogActionGroup(parent *Dialog) *dialogActionGroup {
 		g.Layout.ArrangedBounds = bounds
 		g.arrange(ctx, bounds)
 	}
-	g.RegisterRoles()
+	g.RegisterRoles(g)
 	return g
 }
 
@@ -1178,7 +1169,7 @@ func newDialogBodyGroup(parent *Dialog) *dialogBodyGroup {
 	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return g.buildCommands(g.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	g.RegisterRoles()
+	g.RegisterRoles(g)
 	g.AddRole(&g.textRole)
 	return g
 }

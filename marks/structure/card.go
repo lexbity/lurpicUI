@@ -47,6 +47,9 @@ type CardChild struct {
 type Card struct {
 	marks.Core
 
+	// Label is the card's accessible name (AccessibilityRole "group"). It is
+	// never rendered: hosts that show a title add their own Text child, so
+	// title styling and placement stay host-owned.
 	Label       marks.Binding[string]
 	Disabled    marks.Binding[bool]
 	LayoutMode  marks.Binding[CardLayoutMode]
@@ -90,7 +93,8 @@ var _ facet.FacetImpl = (*Card)(nil)
 var _ layout.AnchorExporter = (*Card)(nil)
 var _ marks.Mark = (*Card)(nil)
 
-// NewCard constructs a structure.card mark with canonical defaults.
+// NewCard constructs a structure.card mark with canonical defaults. The label
+// is the accessible name only — the card never renders it.
 func NewCard(label string) *Card {
 	c := &Card{
 		Label:       marks.Const(label),
@@ -102,13 +106,6 @@ func NewCard(label string) *Card {
 		FlexColumns: marks.Const(false),
 	}
 	c.Facet = facet.NewFacet()
-	c.AddBinding(c.Label)
-	c.AddBinding(c.Disabled)
-	c.AddBinding(c.LayoutMode)
-	c.AddBinding(c.GridColumns)
-	c.AddBinding(c.GridRows)
-	c.AddBinding(c.FlexRows)
-	c.AddBinding(c.FlexColumns)
 
 	c.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutGrid,
@@ -165,7 +162,7 @@ func NewCard(label string) *Card {
 		return false
 	}
 	c.textRole.IMEEnabled = false
-	c.RegisterRoles()
+	c.RegisterRoles(c)
 	c.AddRole(&c.textRole)
 	return c
 }

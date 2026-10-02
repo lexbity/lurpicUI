@@ -153,8 +153,6 @@ func NewTable(label string, data TableData, selection *store.ValueStore[string])
 		Scrolled:             signal.NewSignal[gfx.Point]("table_scrolled"),
 	}
 	t.Facet = facet.NewFacet()
-	t.AddBinding(t.Label)
-	t.AddBinding(t.Disabled)
 
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutGrid,
@@ -209,15 +207,10 @@ func NewTable(label string, data TableData, selection *store.ValueStore[string])
 	t.Focus.TabIndex = 0
 	t.Focus.OnFocusGained = func() { t.onFocusGained() }
 	t.Focus.OnFocusLost = func() { t.onFocusLost() }
-	t.Viewport.Transform = gfx.Identity()
+	t.EnableViewport()
 	t.textRole.IMEEnabled = false
-	t.RegisterRoles()
+	t.RegisterRoles(t)
 	t.AddRole(&t.textRole)
-	if t.Data != nil {
-		t.Data.OnChange.Subscribe(func(_ signal.Change[TableData]) {
-			t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		})
-	}
 	t.syncChildren()
 	return t
 }
@@ -287,6 +280,14 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 
 func (t *Table) OnAttach(ctx facet.AttachContext) {
 	t.Core.OnAttach(ctx)
+	if t.Data != nil {
+		// Detach-managed (RX-2 FR-4): the Data subscription lives for the
+		// attach, so a replaced Data source pre-attach is honored and a
+		// detached table stops observing its snapshot store.
+		facet.Store(facet.Subscribe(t), &t.Data.OnChange, t.Data.Version, func(signal.Change[TableData]) {
+			t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "table.Data")
+		})
+	}
 	if t.Selection != nil {
 		facet.Store(facet.Subscribe(t), &t.Selection.OnChange, t.Selection.Version, func(signal.Change[string]) {
 			t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "table.Selection")

@@ -73,10 +73,6 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 	if a.fonts != nil {
 		a.shaper = text.NewShaper(a.fonts)
 	}
-	a.AddBinding(a.Orientation)
-	a.AddBinding(a.TickCount)
-	a.AddBinding(a.TickLength)
-	a.AddBinding(a.LabelSize)
 
 	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		a.syncTheme(ctx)
@@ -91,7 +87,7 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 	a.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return a.buildCommands(a.Layout.ArrangedBounds)
 	}
-	a.RegisterRoles()
+	a.RegisterRoles(a)
 	return a
 }
 

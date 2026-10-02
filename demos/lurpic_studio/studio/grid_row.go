@@ -62,7 +62,7 @@ func newGridRow(rows *store.CollectionStore[dataset.Row], id store.ItemID, style
 	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return r.cellCommands(r.Layout.ArrangedBounds)
 	}
-	r.RegisterRoles()
+	r.RegisterRoles(r)
 	return r
 }
 

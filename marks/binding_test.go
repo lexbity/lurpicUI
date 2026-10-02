@@ -233,7 +233,7 @@ func TestDerived_binding_invalidates_facet_without_user_get(t *testing.T) {
 	m.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		m.Layout.ArrangedBounds = bounds
 	}
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 

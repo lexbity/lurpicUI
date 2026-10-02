@@ -114,10 +114,6 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 		Activated:    signal.NewSignal[MarkAction]("action_bar_activated"),
 	}
 	a.Facet = facet.NewFacet()
-	a.AddBinding(a.Label)
-	a.AddBinding(a.Actions)
-	a.AddBinding(a.Overflow)
-	a.AddBinding(a.Disabled)
 
 	a.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
@@ -171,7 +167,7 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 	a.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return a.buildCommands(a.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	a.RegisterRoles()
+	a.RegisterRoles(a)
 	a.AddRole(&a.textRole)
 	a.syncItems()
 	return a

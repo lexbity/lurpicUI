@@ -137,9 +137,6 @@ func NewButtonGroup(label string, options []ButtonGroupOption, value *store.Valu
 		Value:        value,
 	}
 	bg.Facet = facet.NewFacet()
-	bg.AddBinding(bg.Label)
-	bg.AddBinding(bg.Mode)
-	bg.AddBinding(bg.Disabled)
 	bg.SetOptions(options)
 
 	bg.Layout.Parent = facet.GroupParentContract{
@@ -194,7 +191,7 @@ func NewButtonGroup(label string, options []ButtonGroupOption, value *store.Valu
 	bg.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return bg.buildCommands(bg.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	bg.RegisterRoles()
+	bg.RegisterRoles(bg)
 	bg.AddRole(&bg.textRole)
 	bg.rebuildChildren()
 	return bg
@@ -1043,7 +1040,7 @@ func newButtonGroupItem(parent *ButtonGroup, index int, option ButtonGroupOption
 	it.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return it.buildCommands(it.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	it.RegisterRoles()
+	it.RegisterRoles(it)
 	it.AddRole(&it.textRole)
 	return it
 }

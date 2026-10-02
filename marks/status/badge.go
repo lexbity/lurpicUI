@@ -59,9 +59,6 @@ func NewBadge(label string) *Badge {
 		Disabled: marks.Const(false),
 	}
 	b.Facet = facet.NewFacet()
-	b.AddBinding(b.Label)
-	b.AddBinding(b.IconRef)
-	b.AddBinding(b.Disabled)
 
 	b.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -98,7 +95,7 @@ func NewBadge(label string) *Badge {
 	b.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return b.buildCommands(b.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	b.RegisterRoles()
+	b.RegisterRoles(b)
 	b.syncChildren()
 	return b
 }

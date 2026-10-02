@@ -48,9 +48,6 @@ func NewStatusLight(label string) *StatusLight {
 		Disabled:  marks.Const(false),
 	}
 	s.Facet = facet.NewFacet()
-	s.AddBinding(s.Label)
-	s.AddBinding(s.ShowLabel)
-	s.AddBinding(s.Disabled)
 
 	s.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	s.Layout.Child = facet.GroupChildContract{
@@ -81,7 +78,7 @@ func NewStatusLight(label string) *StatusLight {
 	s.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return s.buildCommands(s.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	s.RegisterRoles()
+	s.RegisterRoles(s)
 	s.syncChildren()
 	return s
 }

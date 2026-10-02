@@ -52,9 +52,6 @@ func NewProgressBar(label string) *ProgressBar {
 		Disabled: marks.Const(false),
 	}
 	p.Facet = facet.NewFacet()
-	p.AddBinding(p.Label)
-	p.AddBinding(p.Value)
-	p.AddBinding(p.Disabled)
 
 	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	p.Layout.Child = facet.GroupChildContract{
@@ -85,7 +82,7 @@ func NewProgressBar(label string) *ProgressBar {
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	p.RegisterRoles()
+	p.RegisterRoles(p)
 	p.syncLabelFacet()
 	return p
 }

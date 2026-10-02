@@ -181,10 +181,6 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		Activated:       signal.NewSignal[MarkAction]("menu_button_activated"),
 	}
 	m.Facet = facet.NewFacet()
-	m.AddBinding(m.Label)
-	m.AddBinding(m.AccessibleLabel)
-	m.AddBinding(m.TriggerIconRef)
-	m.AddBinding(m.Disabled)
 
 	m.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -239,7 +235,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 	m.Focus.OnFocusGained = func() { m.onFocusGained() }
 	m.Focus.OnFocusLost = func() { m.onFocusLost() }
 	m.textRole.IMEEnabled = false
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	m.AddRole(&m.textRole)
 	surface := &menuButtonSurfaceChild{Facet: facet.NewFacet(), parent: m}
 	facet.AttachLayer(m, surface, facet.LayerAttachment{Band: facet.ZBandPopover})

@@ -100,14 +100,6 @@ func NewAlert(title, message string) *Alert {
 		Disabled:           marks.Const(false),
 	}
 	a.Facet = facet.NewFacet()
-	a.AddBinding(a.Title)
-	a.AddBinding(a.Message)
-	a.AddBinding(a.IconRef)
-	a.AddBinding(a.ActionLabel)
-	a.AddBinding(a.ActionIconRef)
-	a.AddBinding(a.CloseButtonLabel)
-	a.AddBinding(a.CloseButtonIconRef)
-	a.AddBinding(a.Disabled)
 
 	a.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -158,7 +150,7 @@ func NewAlert(title, message string) *Alert {
 	a.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return a.buildCommands(a.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
-	a.RegisterRoles()
+	a.RegisterRoles(a)
 	a.AddRole(&a.textRole)
 	a.syncChildren()
 	return a

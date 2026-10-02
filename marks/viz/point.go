@@ -51,8 +51,6 @@ func NewPoint[T any](
 		Activated: signal.NewSignal[signal.Unit]("Point.Activated"),
 	}
 	p.Facet = facet.NewFacet()
-	p.AddBinding(p.Radius)
-	p.AddBinding(p.Color)
 
 	p.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		syncThemeColor(ctx.Theme, &p.themeColor, theme.ColorPrimary)
@@ -76,7 +74,7 @@ func NewPoint[T any](
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return p.buildCommands(p.Layout.ArrangedBounds)
 	}
-	p.RegisterRoles()
+	p.RegisterRoles(p)
 	return p
 }
 
@@ -91,20 +89,22 @@ func (p *Point[T]) Descriptor() marks.Descriptor {
 
 func (p *Point[T]) OnAttach(ctx facet.AttachContext) {
 	p.Core.OnAttach(ctx)
-	p.cleanups = append(p.cleanups,
-		p.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
-			p.Invalidate(facet.DirtyProjection)
-		}),
-		p.Store.OnRemoveSubscribe(func(e store.CollectionRemoveEvent[T]) {
-			p.Invalidate(facet.DirtyProjection)
-		}),
-		p.Store.OnUpdateSubscribe(func(e store.CollectionUpdateEvent[T]) {
-			p.Invalidate(facet.DirtyProjection)
-		}),
-		p.Store.OnReplaceSubscribe(func(signal.Unit) {
-			p.Invalidate(facet.DirtyProjection)
-		}),
-	)
+	if p.Store != nil {
+		p.cleanups = append(p.cleanups,
+			p.Store.OnInsertSubscribe(func(e store.CollectionInsertEvent[T]) {
+				p.Invalidate(facet.DirtyProjection)
+			}),
+			p.Store.OnRemoveSubscribe(func(e store.CollectionRemoveEvent[T]) {
+				p.Invalidate(facet.DirtyProjection)
+			}),
+			p.Store.OnUpdateSubscribe(func(e store.CollectionUpdateEvent[T]) {
+				p.Invalidate(facet.DirtyProjection)
+			}),
+			p.Store.OnReplaceSubscribe(func(signal.Unit) {
+				p.Invalidate(facet.DirtyProjection)
+			}),
+		)
+	}
 	if p.XScale != nil {
 		signal.Track(p.Subs(), &p.XScale.OnChange, func(signal.Unit) {
 			p.Invalidate(facet.DirtyProjection)

@@ -93,8 +93,13 @@ var _ layout.AnchorExporter = (*TextField)(nil)
 var _ marks.Mark = (*TextField)(nil)
 
 // NewTextField constructs an input.text_field mark with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the field creates an internal store and owns its truth;
+// an injected store is bound, never copied (RX-2 Q2) — Store() exposes the
+// live store either way.
 func NewTextField(label string, variant uiinput.TextInputVariant, value *store.ValueStore[string]) *TextField {
+	if value == nil {
+		value = store.NewValueStore("")
+	}
 	tf := &TextField{
 		Label:       marks.Const(label),
 		Placeholder: marks.Const(""),
@@ -165,7 +170,7 @@ func NewTextField(label string, variant uiinput.TextInputVariant, value *store.V
 		return tf.buildCommands(tf.Layout.ArrangedBounds, ctx.Runtime)
 	}
 	tf.textRole.IMEEnabled = true
-	tf.RegisterRoles()
+	tf.RegisterRoles(tf)
 	tf.AddRole(&tf.textRole)
 	return tf
 }
@@ -220,9 +225,6 @@ func (tf *TextField) Children() []facet.GroupChild {
 }
 
 func (tf *TextField) OnAttach(ctx facet.AttachContext) {
-	if tf.Value == nil {
-		return
-	}
 	tf.Core.OnAttach(ctx)
 	facet.Store(facet.Subscribe(tf), &tf.Value.OnChange, tf.Value.Version, func(signal.Change[string]) {
 		tf.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "textField.Value")
@@ -894,8 +896,17 @@ func (tf *TextField) interactionState() theme.InteractionState {
 	}
 }
 
+// Store returns the field's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (tf *TextField) Store() *store.ValueStore[string] {
+	if tf == nil {
+		return nil
+	}
+	return tf.Value
+}
+
 func (tf *TextField) currentValue() string {
-	if tf == nil || tf.Value == nil {
+	if tf == nil {
 		return ""
 	}
 	return tf.Value.Get()
@@ -1083,7 +1094,7 @@ func (tf *TextField) deleteBackward() bool {
 }
 
 func (tf *TextField) insertText(textValue string) {
-	if tf.ReadOnly.Get() || tf.Value == nil {
+	if tf.ReadOnly.Get() {
 		return
 	}
 	if tf.cachedValueLayout == nil {
@@ -1109,7 +1120,7 @@ func (tf *TextField) insertText(textValue string) {
 }
 
 func (tf *TextField) setValueRunes(runes []rune) {
-	if tf == nil || tf.Value == nil {
+	if tf == nil {
 		return
 	}
 	tf.Value.Set(string(runes))

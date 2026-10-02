@@ -110,10 +110,6 @@ func NewCheckbox(label string, value *store.ValueStore[CheckboxState]) *Checkbox
 		Value:      value,
 	}
 	c.Facet = facet.NewFacet()
-	c.AddBinding(c.Label)
-	c.AddBinding(c.HelperText)
-	c.AddBinding(c.Variant)
-	c.AddBinding(c.Disabled)
 
 	c.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,
@@ -167,7 +163,7 @@ func NewCheckbox(label string, value *store.ValueStore[CheckboxState]) *Checkbox
 		c.onFocusLost()
 	}
 	c.textRole.IMEEnabled = false
-	c.RegisterRoles()
+	c.RegisterRoles(c)
 	c.AddRole(&c.textRole)
 	return c
 }

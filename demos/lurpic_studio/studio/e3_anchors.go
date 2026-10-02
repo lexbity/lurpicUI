@@ -99,7 +99,7 @@ func newE3Trigger(themeCtx theme.ResolvedContext, fonts *text.FontRegistry, pos 
 		}
 		return true
 	}
-	t.RegisterRoles()
+	t.RegisterRoles(t)
 	return t
 }
 

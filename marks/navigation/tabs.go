@@ -97,9 +97,6 @@ func NewTabs(label string, items []TabItem, activeIndex *store.ValueStore[int]) 
 		pressedIndex: -1,
 	}
 	t.Facet = facet.NewFacet()
-	t.AddBinding(t.Label)
-	t.AddBinding(t.Variant)
-	t.AddBinding(t.Disabled)
 	t.SetItems(items)
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
@@ -142,7 +139,7 @@ func NewTabs(label string, items []TabItem, activeIndex *store.ValueStore[int]) 
 	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return t.buildCommands(t.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	t.RegisterRoles()
+	t.RegisterRoles(t)
 	t.AddRole(&t.textRole)
 	return t
 }

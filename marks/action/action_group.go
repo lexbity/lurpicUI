@@ -121,9 +121,6 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 		Activated:    signal.NewSignal[MarkAction]("action_group_activated"),
 	}
 	g.Facet = facet.NewFacet()
-	g.AddBinding(g.Label)
-	g.AddBinding(g.Actions)
-	g.AddBinding(g.Disabled)
 
 	g.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
@@ -164,7 +161,7 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return g.buildCommands(g.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	g.RegisterRoles()
+	g.RegisterRoles(g)
 	g.AddRole(&g.textRole)
 	return g
 }

@@ -46,7 +46,6 @@ func NewScrim() *Scrim {
 		Dismissed: signal.NewSignal[signal.Unit]("scrim_dismissed"),
 	}
 	s.Facet = facet.NewFacet()
-	s.AddBinding(s.Color)
 
 	// The scrim is a leaf that fills whatever its host or layer arranges.
 	s.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone, Overflow: facet.OverflowClip}
@@ -80,7 +79,7 @@ func NewScrim() *Scrim {
 	s.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return s.hitTest(p) }
 	s.Input.OnPointer = func(e facet.PointerEvent) bool { return s.onPointer(e) }
 	s.Input.OnDismiss = func(e facet.DismissEvent) bool { return s.onDismiss(e) }
-	s.RegisterRoles()
+	s.RegisterRoles(s)
 	return s
 }
 

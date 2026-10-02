@@ -133,9 +133,6 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 		groupNavItemsFacet: facet.NewFacet(),
 	}
 	d.Facet = facet.NewFacet()
-	d.AddBinding(d.Label)
-	d.AddBinding(d.Subtitle)
-	d.AddBinding(d.Disabled)
 	d.SetSections(sections)
 	d.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
@@ -179,7 +176,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 	d.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return d.buildCommands(d.Layout.ArrangedBounds, ctx.Runtime)
 	}
-	d.RegisterRoles()
+	d.RegisterRoles(d)
 	surface := &navDrawerSurfaceChild{Facet: facet.NewFacet(), parent: d}
 	facet.AttachLayer(d, surface, facet.LayerAttachment{Band: facet.ZBandPopover})
 	d.surfaceChild = surface

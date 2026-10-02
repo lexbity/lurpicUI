@@ -160,11 +160,6 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		Activated:      signal.NewSignal[MarkAction]("split_button_activated"),
 	}
 	s.Facet = facet.NewFacet()
-	s.AddBinding(s.Label)
-	s.AddBinding(s.Key)
-	s.AddBinding(s.Items)
-	s.AddBinding(s.PrimaryIconRef)
-	s.AddBinding(s.Disabled)
 
 	s.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
@@ -222,7 +217,7 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 	s.Focus.OnFocusGained = func() { s.onFocusGained() }
 	s.Focus.OnFocusLost = func() { s.onFocusLost() }
 	s.textRole.IMEEnabled = false
-	s.RegisterRoles()
+	s.RegisterRoles(s)
 	s.AddRole(&s.textRole)
 	surface := &splitButtonSurfaceChild{Facet: facet.NewFacet(), parent: s}
 	facet.AttachLayer(s, surface, facet.LayerAttachment{Band: facet.ZBandPopover})

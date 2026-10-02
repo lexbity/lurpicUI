@@ -69,14 +69,6 @@ func NewText(content marks.Binding[string]) *Text {
 		MultiLine:  marks.Const(false),
 	}
 	t.Facet = facet.NewFacet()
-	t.AddBinding(t.Content)
-	t.AddBinding(t.Typography)
-	t.AddBinding(t.Foreground)
-	t.AddBinding(t.Disabled)
-	t.AddBinding(t.Overflow)
-	t.AddBinding(t.Alignment)
-	t.AddBinding(t.MaxWidth)
-	t.AddBinding(t.MultiLine)
 
 	t.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone, Overflow: facet.OverflowClip}
 	t.Layout.Child = facet.GroupChildContract{
@@ -106,7 +98,7 @@ func NewText(content marks.Binding[string]) *Text {
 	t.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
 		return t.buildCommands(ctx)
 	}
-	t.RegisterRoles()
+	t.RegisterRoles(t)
 	t.AddRole(&t.textRole)
 	return t
 }

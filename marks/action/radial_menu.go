@@ -159,9 +159,6 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 		focusFromPointer:   false,
 	}
 	m.Facet = facet.NewFacet()
-	m.AddBinding(m.Label)
-	m.AddBinding(m.Disabled)
-	m.AddBinding(m.RadialChildren)
 
 	m.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutRadial,
@@ -206,7 +203,7 @@ func NewRadialMenu(label string, center facet.FacetImpl, children []RadialChild)
 	m.Focus.TabIndex = 0
 	m.Focus.OnFocusGained = func() { m.onFocusGained() }
 	m.Focus.OnFocusLost = func() { m.onFocusLost() }
-	m.RegisterRoles()
+	m.RegisterRoles(m)
 	m.attachCenterChild(center)
 	m.attachRadialChildren(children)
 	surface := &radialMenuSurfaceChild{Facet: facet.NewFacet(), parent: m}

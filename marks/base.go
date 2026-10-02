@@ -1,6 +1,10 @@
 package marks
 
 import (
+	"fmt"
+	"reflect"
+	"sync"
+
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -11,6 +15,85 @@ type bindingSubscriber interface {
 	SubscribeOnChange(func()) func()
 	DirtyFlags() facet.DirtyFlags
 	IsDynamic() bool
+}
+
+var bindingSubscriberType = reflect.TypeOf((*bindingSubscriber)(nil)).Elem()
+
+var coreType = reflect.TypeOf(Core{})
+
+// bindingField is one declared binding field of a mark: the index path from
+// the mark struct to the field holding the Binding value.
+type bindingField struct {
+	path []int
+}
+
+// bindingDecl is the per-mark-type declaration of binding fields, computed
+// once and shared by every instance of the type.
+type bindingDecl struct {
+	fields []bindingField
+}
+
+// bindingFieldCache caches the declared-binding walk per mark type. Writers
+// are first-attach (RegisterRoles) per type; readers are all later attaches.
+// Types live for the process, so the cache is never evicted.
+var bindingFieldCache sync.Map // reflect.Type -> *bindingDecl
+
+// declareBindings walks the mark's struct type and records every exported
+// binding field: top-level fields plus one level of anonymous embedded
+// structs (excluding the embedded Core). The struct declaration is the
+// entire binding contract — registration is structural, never imperative.
+func declareBindings(t reflect.Type) *bindingDecl {
+	if d, ok := bindingFieldCache.Load(t); ok {
+		return d.(*bindingDecl)
+	}
+	d := &bindingDecl{}
+	walkBindingFields(t.Elem(), nil, d, t)
+	actual, _ := bindingFieldCache.LoadOrStore(t, d)
+	return actual.(*bindingDecl)
+}
+
+func walkBindingFields(structType reflect.Type, prefix []int, d *bindingDecl, owner reflect.Type) {
+	for i := 0; i < structType.NumField(); i++ {
+		f := structType.Field(i)
+		path := append(append([]int(nil), prefix...), i)
+		if tag, ok := f.Tag.Lookup("binding"); ok && tag == "-" {
+			continue
+		}
+		if f.Anonymous {
+			ft := f.Type
+			for ft.Kind() == reflect.Pointer {
+				ft = ft.Elem()
+			}
+			if ft == coreType {
+				continue
+			}
+			if len(prefix) == 0 {
+				if f.PkgPath != "" {
+					// An embedded unexported struct's exported members are
+					// author surface (the language promotes them), but the
+					// reflect walk cannot read values through the unexported
+					// field. Fail closed: silent skips are the dead-binding
+					// bug class this machinery exists to kill.
+					for j := 0; j < ft.NumField(); j++ {
+						if ft.Field(j).Type.Implements(bindingSubscriberType) {
+							panic(fmt.Sprintf("marks: %s embeds unexported struct %s with binding field %s; export the embedded struct so declared bindings can subscribe it", owner, ft, ft.Field(j).Name))
+						}
+					}
+					continue
+				}
+				walkBindingFields(ft, path, d, owner)
+				continue
+			}
+		}
+		if f.PkgPath != "" {
+			// Unexported fields are not author surface; internal-only dynamic
+			// subscriptions use facet.Store(facet.Subscribe(...)) instead.
+			continue
+		}
+		if f.Type.Implements(bindingSubscriberType) {
+			d.fields = append(d.fields, bindingField{path: path})
+		}
+	}
 }
 
 // Core eliminates per-mark boilerplate through composition.
@@ -39,9 +122,20 @@ type Core struct {
 	// When set, RegisterRoles auto-wires ProjectionRole.OnProject.
 	BuildCommands func(ctx facet.ProjectionContext) []gfx.Command
 
+	// subscriptions holds bindings registered via AddBinding — the
+	// mark-internal path for bindings created after construction. Declared
+	// binding fields (the structural path) are separate and win by default.
 	subscriptions []bindingSubscriber
 	cleanups      []func()
 	rolesReady    bool
+
+	// selfPtr/selfValue are the mark instance passed to RegisterRoles. The
+	// declared binding fields are read through selfValue at OnAttach — field
+	// values may still change between construction and attach, and the
+	// attach-time read is what makes pre-attach replacement work.
+	selfPtr   any
+	selfValue reflect.Value
+	declared  *bindingDecl
 
 	// rt is the runtime captured at attach, used to route binding invalidations
 	// into the runtime's per-frame dirty bookkeeping so the frame's dirty
@@ -50,9 +144,17 @@ type Core struct {
 	rt facet.RuntimeServices
 }
 
-// AddBinding registers a dynamic binding. Core subscribes to the binding's
-// source in OnAttach and invalidates the facet with the binding's declared
-// dirty flags on every source change. Const/nil bindings are silently skipped.
+// AddBinding registers a mark-internal dynamic binding: Core subscribes to
+// the binding's source in OnAttach and invalidates the facet with the
+// binding's declared dirty flags on every source change. Const/nil bindings
+// are silently skipped.
+//
+// This is the mark-internal path for bindings the mark creates itself after
+// construction. An author's binding contract is declared by the exported
+// binding FIELDS of the mark struct: Core subscribes every dynamic field at
+// attach (declared bindings), so assignment before attach is the authoring
+// contract and AddBinding call sites are illegal outside the marks package
+// (lurpiclint LL037).
 func (c *Core) AddBinding(s bindingSubscriber) {
 	if s == nil || !s.IsDynamic() {
 		return
@@ -60,16 +162,36 @@ func (c *Core) AddBinding(s bindingSubscriber) {
 	c.subscriptions = append(c.subscriptions, s)
 }
 
-// RegisterRoles scans the exported role fields and registers every configured
-// role with the Facet via AddRole. Safe to call multiple times.
+// RegisterRoles declares every exported binding field of the mark (structural
+// binding declaration — Core subscribes dynamic fields at attach, so a field
+// replaced any time before attach just works) and registers every configured
+// role with the Facet via AddRole.
+//
+// Call once at the end of the constructor, passing the mark itself (the
+// pointer-receiver instance): `m.RegisterRoles(m)`. Safe to call multiple
+// times with the same instance; a second call with a different instance
+// panics (a copy-paste construction bug). Self must be a non-nil pointer to a
+// struct — anything else panics (fail-closed misconfiguration).
 //
 // If BuildCommands is set, ProjectionRole.OnProject is auto-wired to wrap
-// BuildCommands in a CommandList. Marks call this at the end of their
-// constructor.
-func (c *Core) RegisterRoles() {
+// BuildCommands in a CommandList.
+func (c *Core) RegisterRoles(self any) {
 	if c.rolesReady {
+		if c.selfPtr != self {
+			panic("marks: RegisterRoles called twice with different mark instances on " + reflect.TypeOf(self).String())
+		}
 		return
 	}
+	if self == nil {
+		panic("marks: RegisterRoles requires the mark instance (the pointer under construction), got nil")
+	}
+	t := reflect.TypeOf(self)
+	if t.Kind() != reflect.Pointer || t.Elem().Kind() != reflect.Struct {
+		panic("marks: RegisterRoles must be called with the mark pointer (struct), got " + t.String())
+	}
+	c.selfPtr = self
+	c.selfValue = reflect.ValueOf(self).Elem()
+	c.declared = declareBindings(t)
 	c.rolesReady = true
 
 	if c.Layout.OnMeasure != nil {
@@ -114,32 +236,61 @@ func (c *Core) RegisterRoles() {
 	}
 }
 
-// OnAttach subscribes all registered dynamic bindings, invalidating the
-// Facet on every source change. Marks call this from their OnAttach, passing
-// the AttachContext through so Core can capture the runtime for the
-// reactivity route.
+// OnAttach subscribes every dynamic declared binding field (read live from
+// the mark instance — values may have changed since construction) plus any
+// mark-internal AddBinding registrations, invalidating the Facet on every
+// source change. Marks call this from their OnAttach, passing the
+// AttachContext through so Core can capture the runtime for the reactivity
+// route.
 func (c *Core) OnAttach(ctx facet.AttachContext) {
 	c.rt = ctx.Runtime
-	for _, s := range c.subscriptions {
-		flags := s.DirtyFlags()
-		cleanup := s.SubscribeOnChange(func() {
-			// RX-1 FR-3: a binding-visible content change MUST re-measure,
-			// re-arrange through ancestor policies, and re-project within one
-			// frame, with zero author-written invalidation routing. When a
-			// runtime is attached the change routes through the layout
-			// package's propagation entry point; without a runtime it falls
-			// back to local flags (standalone/construction projections). A
-			// panicking handler is quarantined through the runtime's
-			// facet-callback recovery hook (tick-style guardedInvoke shape,
-			// copied — marks does not import runtime).
-			facet.RunRecovered("binding", c.ID(), func() {
-				c.InvalidateContent(flags, "binding")
-			})
-		})
-		if cleanup != nil {
-			c.cleanups = append(c.cleanups, cleanup)
+	if c.declared != nil && c.selfValue.IsValid() {
+		for _, f := range c.declared.fields {
+			v := c.selfValue
+			for _, idx := range f.path {
+				v = v.Field(idx)
+			}
+			s, ok := v.Interface().(bindingSubscriber)
+			if !ok || !s.IsDynamic() {
+				continue
+			}
+			c.subscribeBinding(s)
 		}
 	}
+	for _, s := range c.subscriptions {
+		c.subscribeBinding(s)
+	}
+}
+
+// subscribeBinding wires one dynamic binding's source changes to facet
+// invalidation (the shared body of both declared and internal subscription).
+func (c *Core) subscribeBinding(s bindingSubscriber) {
+	flags := s.DirtyFlags()
+	cleanup := s.SubscribeOnChange(func() {
+		// RX-1 FR-3: a binding-visible content change MUST re-measure,
+		// re-arrange through ancestor policies, and re-project within one
+		// frame, with zero author-written invalidation routing. When a
+		// runtime is attached the change routes through the layout
+		// package's propagation entry point; without a runtime it falls
+		// back to local flags (standalone/construction projections). A
+		// panicking handler is quarantined through the runtime's
+		// facet-callback recovery hook (tick-style guardedInvoke shape,
+		// copied — marks does not import runtime).
+		facet.RunRecovered("binding", c.ID(), func() {
+			c.InvalidateContent(flags, "binding")
+		})
+	})
+	if cleanup != nil {
+		c.cleanups = append(c.cleanups, cleanup)
+	}
+}
+
+// EnableViewport declares that this mark hosts runtime-driven scrollable
+// content: it arms the Viewport role (identity transform) so RegisterRoles
+// registers it. Every scroll-capable mark MUST call this from its
+// constructor; the mark never sets Viewport.Transform by hand.
+func (c *Core) EnableViewport() {
+	c.Viewport.Transform = gfx.Identity()
 }
 
 // InvalidateContent routes a content change at this mark through the RX-1 FR-3
