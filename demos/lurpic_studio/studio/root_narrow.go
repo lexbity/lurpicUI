@@ -199,13 +199,13 @@ func (n *NarrowShell) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 func (n *NarrowShell) OnAttach(ctx facet.AttachContext) {
 	// A press on the scrim (outside the drawer/sheet) dismisses both narrow
 	// overlays (FR-17b).
-	n.scrim.Dismissed.Subscribe(func(signal.Unit) {
+	scrimID := n.scrim.Dismissed.Subscribe(func(signal.Unit) {
 		n.shell.IndexOpen.Set(false)
 		n.shell.InspectorOpen.Set(false)
 	})
 	// A bottom-bar destination switches the exhibit (the rail publishes the
 	// selection to the shared drawer index store via its FR-8 binding).
-	n.bar.Activated.Subscribe(func(index int) {
+	barID := n.bar.Activated.Subscribe(func(index int) {
 		if index >= 0 && index < len(exhibitCatalog) {
 			n.setActive(exhibitCatalog[index].id)
 		}
@@ -228,6 +228,8 @@ func (n *NarrowShell) OnAttach(ctx facet.AttachContext) {
 		layout.PropagateContentDirty(n, ctx.Runtime, "narrow.inspectorOpen", facet.DirtyLayout|facet.DirtyProjection)
 	})
 	n.cleanup = func() {
+		n.scrim.Dismissed.Unsubscribe(scrimID)
+		n.bar.Activated.Unsubscribe(barID)
 		n.drawer.Activated.Unsubscribe(drawerID)
 		n.shell.ActiveExhibit.OnChange.Unsubscribe(activeID)
 		n.shell.IndexOpen.OnChange.Unsubscribe(indexOpenID)

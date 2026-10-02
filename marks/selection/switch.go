@@ -8,7 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -60,6 +59,8 @@ type Switch struct {
 	cachedLabelGap         float32
 	cachedLabelStyle       text.TextStyle
 	cachedWritingDirection facet.WritingDirection
+
+	valueBind *marks.ScalarBinding[bool]
 }
 
 var _ facet.FacetImpl = (*Switch)(nil)
@@ -67,8 +68,13 @@ var _ layout.AnchorExporter = (*Switch)(nil)
 var _ marks.Mark = (*Switch)(nil)
 
 // NewSwitch constructs a selection.switch mark with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the switch creates an internal store (off) and owns its
+// truth; an injected store is bound, never copied (RX-2 Q2) — Store()
+// exposes the live store either way.
 func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
+	if value == nil {
+		value = store.NewValueStore(false)
+	}
 	s := &Switch{
 		Variant:  marks.Const(uiinput.SwitchStandard),
 		Disabled: marks.Const(false),
@@ -119,6 +125,7 @@ func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
 	s.textRole.IMEEnabled = false
 	s.RegisterRoles(s)
 	s.AddRole(&s.textRole)
+	s.valueBind = marks.BindScalar(s, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, nil)
 	return s
 }
 
@@ -165,15 +172,19 @@ func (s *Switch) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 // Children returns the facet's immediate child list.
 func (s *Switch) Children() []facet.GroupChild { return nil }
 
-// OnAttach wires store invalidation for the value store.
+// Store returns the switch's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (s *Switch) Store() *store.ValueStore[bool] {
+	if s == nil {
+		return nil
+	}
+	return s.valueBind.Store()
+}
+
+// OnAttach wires the value contract for the value store.
 func (s *Switch) OnAttach(ctx facet.AttachContext) {
 	s.Core.OnAttach(ctx)
-	if s.Value == nil {
-		return
-	}
-	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[bool]) {
-		s.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "switch.Value")
-	})
+	s.valueBind.Attach(s)
 }
 
 // OnActivate is unused.
@@ -529,7 +540,7 @@ func (s *Switch) SetChecked(checked bool) {
 	if s.Value.Get() == checked {
 		return
 	}
-	s.Value.Set(checked)
+	s.valueBind.Write(checked)
 	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 

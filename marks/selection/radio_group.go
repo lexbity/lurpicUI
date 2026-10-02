@@ -10,7 +10,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -73,6 +72,8 @@ type RadioGroup struct {
 	cachedGroupLabelStyle  text.TextStyle
 	cachedItemLabelStyle   text.TextStyle
 	cachedWritingDirection facet.WritingDirection
+
+	valueBind *marks.ScalarBinding[string]
 }
 
 var _ facet.FacetImpl = (*RadioGroup)(nil)
@@ -80,8 +81,13 @@ var _ layout.AnchorExporter = (*RadioGroup)(nil)
 var _ marks.Mark = (*RadioGroup)(nil)
 
 // NewRadioGroup constructs a selection.radio_group mark with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the group creates an internal store (no selection) and
+// owns its truth; an injected store is bound, never copied (RX-2 Q2) —
+// Store() exposes the live store either way.
 func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[string]) *RadioGroup {
+	if value == nil {
+		value = store.NewValueStore("")
+	}
 	rg := &RadioGroup{
 		Variant:      marks.Const(uiinput.RadioGroupStandard),
 		Disabled:     marks.Const(false),
@@ -137,7 +143,19 @@ func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[
 	rg.textRole.IMEEnabled = false
 	rg.RegisterRoles(rg)
 	rg.AddRole(&rg.textRole)
+	rg.valueBind = marks.BindScalar(rg, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, func(string) {
+		rg.focusedIndex = rg.selectedIndex()
+	})
 	return rg
+}
+
+// Store returns the radio group's value store — internal when constructed
+// with a nil value, the injected store otherwise.
+func (rg *RadioGroup) Store() *store.ValueStore[string] {
+	if rg == nil {
+		return nil
+	}
+	return rg.valueBind.Store()
 }
 
 // Base satisfies facet.FacetImpl.
@@ -185,16 +203,10 @@ func (rg *RadioGroup) ExportAnchors(ctx layout.AnchorExportContext) layout.Ancho
 // Children returns the facet's immediate child list.
 func (rg *RadioGroup) Children() []facet.GroupChild { return nil }
 
-// OnAttach wires store invalidation for the value store.
+// OnAttach wires the value contract for the value store.
 func (rg *RadioGroup) OnAttach(ctx facet.AttachContext) {
 	rg.Core.OnAttach(ctx)
-	if rg.Value == nil {
-		return
-	}
-	facet.Store(facet.Subscribe(rg), &rg.Value.OnChange, rg.Value.Version, func(signal.Change[string]) {
-		rg.focusedIndex = rg.selectedIndex()
-		rg.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "radioGroup.Value")
-	})
+	rg.valueBind.Attach(rg)
 }
 
 // OnActivate is unused.
@@ -756,7 +768,7 @@ func (rg *RadioGroup) SetValue(value string) {
 	if rg.Value.Get() == value {
 		return
 	}
-	rg.Value.Set(value)
+	rg.valueBind.Write(value)
 	rg.focusedIndex = rg.selectedIndex()
 	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }

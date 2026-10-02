@@ -10,32 +10,25 @@ import (
 )
 
 // playSelectFamily is the Selection playground: checkbox, switch, slider,
-// turn_dial, radio_group, dropdown_select, button_group, list_item. Each mark
-// binds a ValueStore that its own pointer/key interaction writes (the
-// selection family's distinctive behavior: exclusive vs multiple store
-// write-back).
+// turn_dial, radio_group, dropdown_select, button_group, list_item. Every
+// value mark owns its truth (RX-2 Q2) — the family holds no ceremony stores;
+// the accessors expose each mark's live store for the inspector and tests.
 type playSelectFamily struct {
 	scroll *structure.ScrollRegion
 
 	checkbox *selection.Checkbox
 
 	toggle *selection.Switch
-	tgl    *store.ValueStore[bool]
 
-	slider    *selection.Slider
-	sliderVal *store.ValueStore[float64]
+	slider *selection.Slider
 
-	dial    *selection.TurnDial
-	dialVal *store.ValueStore[float64]
+	dial *selection.TurnDial
 
-	radio    *selection.RadioGroup
-	radioVal *store.ValueStore[string]
+	radio *selection.RadioGroup
 
 	dropdown *selection.DropdownSelect
-	ddVal    *store.ValueStore[string]
 
 	segments *selection.ButtonGroup
-	groupVal *store.ValueStore[[]string]
 
 	item         *selection.ListItem
 	itemSelected *store.ValueStore[bool]
@@ -44,34 +37,27 @@ type playSelectFamily struct {
 
 // newPlaySelectFamily builds the Selection family playground.
 func newPlaySelectFamily() *playSelectFamily {
-	f := &playSelectFamily{
-		tgl:       store.NewValueStore(false),
-		sliderVal: store.NewValueStore(60.0),
-		dialVal:   store.NewValueStore(40.0),
-		radioVal:  store.NewValueStore("revenue"),
-		ddVal:     store.NewValueStore("day"),
-		groupVal:  store.NewValueStore([]string{"day"}),
-	}
+	f := &playSelectFamily{}
 
-	f.checkbox = selection.NewCheckbox("Show grid", store.NewValueStore(selection.CheckboxStateOff))
-	f.toggle = selection.NewSwitch("Live updates", f.tgl)
-	f.slider = selection.NewSlider("Opacity", 0, 100, 5, f.sliderVal)
-	f.dial = selection.NewTurnDial("Smoothing", 0, 100, 1, f.dialVal)
+	f.checkbox = selection.NewCheckbox("Show grid", nil)
+	f.toggle = selection.NewSwitch("Live updates", nil)
+	f.slider = selection.NewSlider("Opacity", 0, 100, 5, nil)
+	f.dial = selection.NewTurnDial("Smoothing", 0, 100, 1, nil)
 	f.radio = selection.NewRadioGroup("Chart type", []selection.RadioOption{
 		{Value: "replay", Label: "Rolling"},
 		{Value: "hist", Label: "Histogram"},
 		{Value: "stack", Label: "Stacked"},
-	}, f.radioVal)
+	}, nil)
 	f.dropdown = selection.NewDropdownSelect("Aggregation", []selection.DropdownOption{
 		{Value: "day", Label: "Daily"},
 		{Value: "week", Label: "Weekly"},
 		{Value: "month", Label: "Monthly"},
-	}, f.ddVal)
+	}, nil)
 	f.segments = selection.NewButtonGroup("Time range", []selection.ButtonGroupOption{
 		{Key: "day", Label: "1D"},
 		{Key: "week", Label: "1W"},
 		{Key: "month", Label: "1M"},
-	}, f.groupVal)
+	}, nil)
 	f.segments.Mode = marks.Const(selection.ButtonGroupExclusive)
 
 	f.itemSelected = store.NewValueStore(false)
@@ -106,28 +92,28 @@ func (f *playSelectFamily) wire() func() {
 	return func() { f.item.Activated.Unsubscribe(itemID) }
 }
 
-// Checkbox returns the checkbox state store.
+// CheckboxState returns the checkbox's live store.
 func (f *playSelectFamily) CheckboxState() *store.ValueStore[selection.CheckboxState] {
-	return f.checkbox.Value
+	return f.checkbox.Store()
 }
 
-// Toggle returns the switch's store.
-func (f *playSelectFamily) Toggle() *store.ValueStore[bool] { return f.tgl }
+// Toggle returns the switch's live store.
+func (f *playSelectFamily) Toggle() *store.ValueStore[bool] { return f.toggle.Store() }
 
-// SliderValue returns the slider's store.
-func (f *playSelectFamily) Slider() *store.ValueStore[float64] { return f.sliderVal }
+// SliderValue returns the slider's live store.
+func (f *playSelectFamily) Slider() *store.ValueStore[float64] { return f.slider.Store() }
 
-// Dial returns the turn_dial's store.
-func (f *playSelectFamily) Dial() *store.ValueStore[float64] { return f.dialVal }
+// Dial returns the turn_dial's live store.
+func (f *playSelectFamily) Dial() *store.ValueStore[float64] { return f.dial.Store() }
 
-// Radio returns the radio_group's store.
-func (f *playSelectFamily) Radio() *store.ValueStore[string] { return f.radioVal }
+// Radio returns the radio_group's live store.
+func (f *playSelectFamily) Radio() *store.ValueStore[string] { return f.radio.Store() }
 
-// Dropdown returns the dropdown store.
-func (f *playSelectFamily) Dropdown() *store.ValueStore[string] { return f.ddVal }
+// Dropdown returns the dropdown's live store.
+func (f *playSelectFamily) Dropdown() *store.ValueStore[string] { return f.dropdown.Store() }
 
-// ButtonGroup returns the button_group's store.
-func (f *playSelectFamily) ButtonGroup() *store.ValueStore[[]string] { return f.groupVal }
+// ButtonGroup returns the button_group's live store.
+func (f *playSelectFamily) ButtonGroup() *store.ValueStore[[]string] { return f.segments.Store() }
 
 // ItemSelected returns the list_item's selection store.
 func (f *playSelectFamily) ItemSelected() *store.ValueStore[bool] { return f.itemSelected }

@@ -71,3 +71,31 @@ func TestInspector_derived_binding_reprojects_within_two_frames(t *testing.T) {
 		t.Fatalf("expected a quiet frame after the switch settled, got dirty facets=%v", snap)
 	}
 }
+
+// TestInspector_value_mark_reprojects_within_one_frame proves RX-2 FR-7 at
+// the playground level: an external write to a value mark's store (the slider
+// is mark-internal truth here, written by the test as a shell would) re-syncs
+// and re-projects the mark within one frame — the value contract's clause (b),
+// riding the same binding-visible-change route as declared bindings.
+func TestInspector_value_mark_reprojects_within_one_frame(t *testing.T) {
+	e, h := newE6Harness(t)
+	switchTab(t, e, h, 1) // the Selection family hosts the slider
+
+	slider := e.Selection().slider
+	sliderID := slider.Base().ID()
+	if slider.Value.Get() == 80 {
+		t.Fatal("precondition: slider already at the test value")
+	}
+
+	e.Selection().Slider().Set(80)
+	h.RunFrame()
+
+	snap := h.Runtime().LastDirtySnapshot()
+	if flags := snap[sliderID]; flags&facet.DirtyProjection == 0 {
+		t.Fatalf("slider facet was not invalidated within one frame of the store write "+
+			"(dirty=%v) — the value contract's re-sync stalled", flags)
+	}
+	if got := slider.Value.Get(); got != 80 {
+		t.Fatalf("slider value = %v, want 80", got)
+	}
+}

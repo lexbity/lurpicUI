@@ -232,11 +232,12 @@ type Layers struct {
 	layout facet.LayoutRole
 	tick   facet.TickRole
 
-	control  *e2Control
-	scrim    *feedback.Scrim
-	tooltip  *overlayBox
-	toast    *overlayBox
-	controls *structure.Card
+	control     *e2Control
+	scrim       *feedback.Scrim
+	tooltip     *overlayBox
+	toast       *overlayBox
+	toastButton *action.Button
+	controls    *structure.Card
 
 	modalOpen  *store.ValueStore[bool]
 	tooltipOn  *store.ValueStore[bool]
@@ -331,10 +332,7 @@ func (e *Layers) buildControls() {
 	modalSwitch := selection.NewSwitch("Modal", e.modalOpen)
 	tooltipSwitch := selection.NewSwitch("Tooltip", e.tooltipOn)
 	toastButton := action.NewButton(marks.Const("Show toast"), marks.Const(uiinput.ButtonFilled))
-	toastButton.Activated.Subscribe(func(signal.Unit) {
-		e.toastOn.Set(true)
-		e.toastUntil = time.Now().Add(2 * time.Second)
-	})
+	e.toastButton = toastButton
 
 	e.controls = structure.NewCard("Layers")
 	e.controls.GridColumns = marks.Const(3)
@@ -434,10 +432,17 @@ func (e *Layers) OnAttach(ctx facet.AttachContext) {
 	idToast := e.toastOn.OnChange.Subscribe(func(signal.Change[bool]) {
 		e.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	})
+	// The toast button lives in the controls card; its subscription rides the
+	// exhibit's attach lifecycle like every other store subscription.
+	idToastButton := e.toastButton.Activated.Subscribe(func(signal.Unit) {
+		e.toastOn.Set(true)
+		e.toastUntil = time.Now().Add(2 * time.Second)
+	})
 	e.cln = func() {
 		e.modalOpen.OnChange.Unsubscribe(idModal)
 		e.tooltipOn.OnChange.Unsubscribe(idTooltip)
 		e.toastOn.OnChange.Unsubscribe(idToast)
+		e.toastButton.Activated.Unsubscribe(idToastButton)
 	}
 }
 

@@ -68,6 +68,8 @@ type ColorPicker struct {
 	cachedInnerRadius    float32
 	cachedTriangleRadius float32
 	cachedTriangleVerts  [3]gfx.Point
+
+	valueBind *marks.ScalarBinding[gfx.Color]
 }
 
 var _ facet.FacetImpl = (*ColorPicker)(nil)
@@ -128,6 +130,9 @@ func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPick
 		return p.buildCommands(p.Layout.ArrangedBounds, ctx.Runtime)
 	}
 	p.RegisterRoles(p)
+	p.valueBind = marks.BindScalar(p, value, facet.DirtyProjection|facet.DirtyHit, func(gfx.Color) {
+		p.syncHSVCache()
+	})
 	return p
 }
 
@@ -172,14 +177,10 @@ func (p *ColorPicker) CurrentColor() gfx.Color {
 	return p.Value.Get()
 }
 
-// OnAttach wires the binding and value store subscriptions.
+// OnAttach wires the value contract over the value store.
 func (p *ColorPicker) OnAttach(ctx facet.AttachContext) {
 	p.Core.OnAttach(ctx)
-	p.syncHSVCache()
-	facet.Store(facet.Subscribe(p), &p.Value.OnChange, p.Value.Version, func(signal.Change[gfx.Color]) {
-		p.syncHSVCache()
-		p.InvalidateWithSource(facet.DirtyProjection|facet.DirtyHit, "colorPicker.Value")
-	})
+	p.valueBind.Attach(p)
 }
 
 // OnActivate is unused.
@@ -638,7 +639,7 @@ func (p *ColorPicker) SetColor(color gfx.Color) {
 	if p.Value.Get() == color {
 		return
 	}
-	p.Value.Set(color)
+	p.valueBind.Write(color)
 	p.syncHSVCache()
 	p.syncGeometry()
 	p.ColorChanged.Emit(color)
@@ -664,7 +665,7 @@ func (p *ColorPicker) setHSV(hue float64, saturation, brightness float32, emit b
 	p.cachedSaturation = saturation
 	p.cachedBrightness = brightness
 	p.cachedAlpha = alpha
-	p.Value.Set(color)
+	p.valueBind.Write(color)
 	p.syncGeometry()
 	if emit {
 		p.ColorChanged.Emit(color)

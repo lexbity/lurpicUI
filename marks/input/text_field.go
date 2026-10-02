@@ -8,7 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -86,6 +85,8 @@ type TextField struct {
 	cachedRadius            float32
 	cachedCaretWidth        float32
 	cachedMinFieldWidth     float32
+
+	valueBind *marks.ScalarBinding[string]
 }
 
 var _ facet.FacetImpl = (*TextField)(nil)
@@ -172,6 +173,7 @@ func NewTextField(label string, variant uiinput.TextInputVariant, value *store.V
 	tf.textRole.IMEEnabled = true
 	tf.RegisterRoles(tf)
 	tf.AddRole(&tf.textRole)
+	tf.valueBind = marks.BindScalar(tf, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, nil)
 	return tf
 }
 
@@ -226,9 +228,7 @@ func (tf *TextField) Children() []facet.GroupChild {
 
 func (tf *TextField) OnAttach(ctx facet.AttachContext) {
 	tf.Core.OnAttach(ctx)
-	facet.Store(facet.Subscribe(tf), &tf.Value.OnChange, tf.Value.Version, func(signal.Change[string]) {
-		tf.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "textField.Value")
-	})
+	tf.valueBind.Attach(tf)
 }
 
 func (tf *TextField) OnActivate()   { tf.Core.OnActivate() }
@@ -1098,7 +1098,7 @@ func (tf *TextField) insertText(textValue string) {
 		return
 	}
 	if tf.cachedValueLayout == nil {
-		tf.Value.Set(tf.currentValue() + textValue)
+		tf.valueBind.Write(tf.currentValue() + textValue)
 		return
 	}
 	value := []rune(tf.currentValue())
@@ -1123,7 +1123,7 @@ func (tf *TextField) setValueRunes(runes []rune) {
 	if tf == nil {
 		return
 	}
-	tf.Value.Set(string(runes))
+	tf.valueBind.Write(string(runes))
 }
 
 func (tf *TextField) ensureCaretLayout() {

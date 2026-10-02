@@ -12,7 +12,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -103,6 +102,8 @@ type NumberField struct {
 	cachedMinFieldWidth     float32
 	cachedStepperWidth      float32
 	cachedWritingDirection  facet.WritingDirection
+
+	valueBind *marks.ScalarBinding[float64]
 }
 
 var _ facet.FacetImpl = (*NumberField)(nil)
@@ -178,6 +179,11 @@ func NewNumberField(label string, value *store.ValueStore[float64]) *NumberField
 	nf.textRole.IMEEnabled = true
 	nf.RegisterRoles(nf)
 	nf.AddRole(&nf.textRole)
+	nf.valueBind = marks.BindScalar(nf, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, func(float64) {
+		if !nf.editing || !nf.parseError {
+			nf.syncEditingText()
+		}
+	})
 	return nf
 }
 
@@ -227,13 +233,7 @@ func (nf *NumberField) Children() []facet.GroupChild { return nil }
 
 func (nf *NumberField) OnAttach(ctx facet.AttachContext) {
 	nf.Core.OnAttach(ctx)
-	nf.syncEditingText()
-	facet.Store(facet.Subscribe(nf), &nf.Value.OnChange, nf.Value.Version, func(signal.Change[float64]) {
-		if !nf.editing || !nf.parseError {
-			nf.syncEditingText()
-		}
-		nf.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "numberField.Value")
-	})
+	nf.valueBind.Attach(nf)
 }
 
 func (nf *NumberField) OnActivate()   { nf.Core.OnActivate() }
@@ -944,7 +944,7 @@ func (nf *NumberField) setValueCanonical(value float64) {
 	if nf == nil {
 		return
 	}
-	nf.Value.Set(nf.clampValue(value))
+	nf.valueBind.Write(nf.clampValue(value))
 	nf.syncEditingText()
 	nf.parseError = false
 	nf.editing = false
@@ -1157,7 +1157,13 @@ func (nf *NumberField) applyEditedText() bool {
 		return false
 	}
 	if nf.Value != nil {
-		nf.Value.Set(nf.clampValue(value))
+		nf.valueBind.Write(nf.clampValue(value))
+		// The value contract's echo guard swallows this write's store
+		// notification, so the re-sync the subscription used to perform on
+		// delivery happens here, with the same editing/parse-error guard.
+		if !nf.editing || !nf.parseError {
+			nf.syncEditingText()
+		}
 	}
 	return true
 }

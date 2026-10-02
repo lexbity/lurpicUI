@@ -23,9 +23,10 @@ type playNavFamily struct {
 	railActive *store.ValueStore[int]
 	railSelect *store.ValueStore[int]
 
-	drawer     *navigation.NavDrawer
+	drawer *navigation.NavDrawer
+	// drawerOpen stays app-domain: the family opens the drawer initially and
+	// closes it on item activation, so it injects the store (RX-2 Q2).
 	drawerOpen *store.ValueStore[bool]
-	current    *store.ValueStore[int]
 	lastItem   *store.ValueStore[int]
 
 	tree *navigation.TreeNavigator
@@ -45,7 +46,6 @@ func newPlayNavFamily() *playNavFamily {
 		railActive:     store.NewValueStore(0),
 		railSelect:     store.NewValueStore(-1),
 		drawerOpen:     store.NewValueStore(true),
-		current:        store.NewValueStore(0),
 		lastItem:       store.NewValueStore(-1),
 		pageIndex:      store.NewValueStore(1),
 		pageActivated:  store.NewValueStore(-1),
@@ -69,7 +69,7 @@ func newPlayNavFamily() *playNavFamily {
 			{Key: "pipelines", Label: "Pipelines"},
 			{Key: "console", Label: "Console"},
 		}},
-	}, f.drawerOpen, f.current)
+	}, f.drawerOpen, nil)
 	f.drawer.Subtitle = marks.Const("lurpic studio places")
 
 	f.tree = navigation.NewTreeNavigator("Families", []navigation.TreeNode{

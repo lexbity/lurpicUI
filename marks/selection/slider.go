@@ -12,7 +12,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -69,6 +68,8 @@ type Slider struct {
 	cachedWritingDirection facet.WritingDirection
 	cachedLabelFacet       *primitive.Text
 	cachedValueFacet       *primitive.Text
+
+	valueBind *marks.ScalarBinding[float64]
 }
 
 var _ facet.FacetImpl = (*Slider)(nil)
@@ -76,8 +77,13 @@ var _ layout.AnchorExporter = (*Slider)(nil)
 var _ marks.Mark = (*Slider)(nil)
 
 // NewSlider constructs a selection.slider mark with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the slider creates an internal store seeded at the
+// normalized minimum and owns its truth; an injected store is bound, never
+// copied (RX-2 Q2) — Store() exposes the live store either way.
 func NewSlider(label string, min, max, step float64, value *store.ValueStore[float64]) *Slider {
+	if value == nil {
+		value = store.NewValueStore(math.Min(min, max))
+	}
 	s := &Slider{
 		Variant:   marks.Const[uiinput.SliderVariant](0),
 		Disabled:  marks.Const(false),
@@ -145,6 +151,7 @@ func NewSlider(label string, min, max, step float64, value *store.ValueStore[flo
 	s.textRole.IMEEnabled = false
 	s.RegisterRoles(s)
 	s.AddRole(&s.textRole)
+	s.valueBind = marks.BindScalar(s, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, nil)
 	s.syncChildren()
 	return s
 }
@@ -213,16 +220,20 @@ func (s *Slider) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach wires store invalidation for the value store.
+// Store returns the slider's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (s *Slider) Store() *store.ValueStore[float64] {
+	if s == nil {
+		return nil
+	}
+	return s.valueBind.Store()
+}
+
+// OnAttach wires the value contract for the value store.
 func (s *Slider) OnAttach(ctx facet.AttachContext) {
 	s.Core.OnAttach(ctx)
-	if s.Value == nil {
-		return
-	}
+	s.valueBind.Attach(s)
 	s.syncChildren()
-	facet.Store(facet.Subscribe(s), &s.Value.OnChange, s.Value.Version, func(signal.Change[float64]) {
-		s.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "slider.Value")
-	})
 }
 
 // OnActivate is unused.
@@ -998,7 +1009,7 @@ func (s *Slider) SetValue(value float64) {
 	if s.Value.Get() == clamped {
 		return
 	}
-	s.Value.Set(clamped)
+	s.valueBind.Write(clamped)
 	s.syncChildren()
 	s.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }

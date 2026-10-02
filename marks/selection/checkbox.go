@@ -9,7 +9,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -88,6 +87,8 @@ type Checkbox struct {
 	cachedTextRow          *ListItem
 	cachedTickFacet        *gfxsvg.SVGFacet
 	cachedMixedFacet       *gfxsvg.SVGFacet
+
+	valueBind *marks.ScalarBinding[CheckboxState]
 }
 
 var _ facet.FacetImpl = (*Checkbox)(nil)
@@ -100,8 +101,13 @@ var (
 )
 
 // NewCheckbox constructs a selection.checkbox mark with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the checkbox creates an internal store (off) and owns its
+// truth; an injected store is bound, never copied (RX-2 Q2) — Store()
+// exposes the live store either way.
 func NewCheckbox(label string, value *store.ValueStore[CheckboxState]) *Checkbox {
+	if value == nil {
+		value = store.NewValueStore(CheckboxStateOff)
+	}
 	c := &Checkbox{
 		Label:      marks.Const(label),
 		HelperText: marks.Const(""),
@@ -165,7 +171,17 @@ func NewCheckbox(label string, value *store.ValueStore[CheckboxState]) *Checkbox
 	c.textRole.IMEEnabled = false
 	c.RegisterRoles(c)
 	c.AddRole(&c.textRole)
+	c.valueBind = marks.BindScalar(c, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, nil)
 	return c
+}
+
+// Store returns the checkbox's value store — internal when constructed with
+// a nil value, the injected store otherwise.
+func (c *Checkbox) Store() *store.ValueStore[CheckboxState] {
+	if c == nil {
+		return nil
+	}
+	return c.valueBind.Store()
 }
 
 // Base satisfies facet.FacetImpl.
@@ -215,15 +231,10 @@ func (c *Checkbox) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSe
 // Children returns the facet's immediate child list.
 func (c *Checkbox) Children() []facet.GroupChild { return nil }
 
-// OnAttach wires store invalidation for the value store.
+// OnAttach wires the value contract for the value store.
 func (c *Checkbox) OnAttach(ctx facet.AttachContext) {
 	c.Core.OnAttach(ctx)
-	if c.Value == nil {
-		return
-	}
-	facet.Store(facet.Subscribe(c), &c.Value.OnChange, c.Value.Version, func(signal.Change[CheckboxState]) {
-		c.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "checkbox.Value")
-	})
+	c.valueBind.Attach(c)
 }
 
 // OnActivate is unused.
@@ -759,7 +770,7 @@ func (c *Checkbox) SetState(state CheckboxState) {
 	if c.Value.Get() == state {
 		return
 	}
-	c.Value.Set(state)
+	c.valueBind.Write(state)
 	c.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 

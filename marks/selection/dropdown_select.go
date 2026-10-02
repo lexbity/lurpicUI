@@ -10,7 +10,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -91,6 +90,8 @@ type DropdownSelect struct {
 	cachedLabelStyle       text.TextStyle
 	cachedValueStyle       text.TextStyle
 	cachedWritingDirection facet.WritingDirection
+
+	valueBind *marks.ScalarBinding[string]
 }
 
 var _ facet.FacetImpl = (*DropdownSelect)(nil)
@@ -98,8 +99,13 @@ var _ layout.AnchorExporter = (*DropdownSelect)(nil)
 var _ marks.Mark = (*DropdownSelect)(nil)
 
 // NewDropdownSelect constructs a dropdown select with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the select creates an internal store (no selection) and
+// owns its truth; an injected store is bound, never copied (RX-2 Q2) —
+// Store() exposes the live store either way.
 func NewDropdownSelect(label string, options []DropdownOption, value *store.ValueStore[string]) *DropdownSelect {
+	if value == nil {
+		value = store.NewValueStore("")
+	}
 	ds := &DropdownSelect{
 		Label:       marks.Const(label),
 		Placeholder: marks.Const("Select..."),
@@ -158,7 +164,19 @@ func NewDropdownSelect(label string, options []DropdownOption, value *store.Valu
 	}
 	ds.RegisterRoles(ds)
 	ds.AddRole(&ds.textRole)
+	ds.valueBind = marks.BindScalar(ds, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, func(string) {
+		ds.syncActiveIndex()
+	})
 	return ds
+}
+
+// Store returns the select's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (ds *DropdownSelect) Store() *store.ValueStore[string] {
+	if ds == nil {
+		return nil
+	}
+	return ds.valueBind.Store()
 }
 
 // Base satisfies facet.FacetImpl.
@@ -216,16 +234,10 @@ func (ds *DropdownSelect) Children() []facet.GroupChild {
 	}}
 }
 
-// OnAttach wires store invalidation for the bound value store.
+// OnAttach wires the value contract for the bound value store.
 func (ds *DropdownSelect) OnAttach(ctx facet.AttachContext) {
 	ds.Core.OnAttach(ctx)
-	if ds.Value == nil {
-		return
-	}
-	facet.Store(facet.Subscribe(ds), &ds.Value.OnChange, ds.Value.Version, func(signal.Change[string]) {
-		ds.syncActiveIndex()
-		ds.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "dropdownSelect.Value")
-	})
+	ds.valueBind.Attach(ds)
 }
 
 // OnActivate is unused.
@@ -847,7 +859,12 @@ func (ds *DropdownSelect) chooseIndex(i int) {
 	if i < 0 || i >= len(ds.Options.Get()) {
 		return
 	}
-	ds.Value.Set(ds.Options.Get()[i].Value)
+	ds.valueBind.Write(ds.Options.Get()[i].Value)
+	// The value contract's echo guard swallows this write's store
+	// notification, so the re-sync the subscription used to perform on
+	// delivery happens here.
+	ds.syncActiveIndex()
+	ds.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 func (ds *DropdownSelect) navigateKey(key platform.Key) {

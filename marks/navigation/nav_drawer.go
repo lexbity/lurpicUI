@@ -72,6 +72,9 @@ type NavDrawer struct {
 	// OnAttach); nil until then, so reads fall back to the store.
 	selection *SelectionBinding[int]
 
+	// openBind is the RX-2 Q2 value contract over Open.
+	openBind *marks.ScalarBinding[bool]
+
 	Activated signal.Signal[int]
 
 	hoveredIndex     int
@@ -120,6 +123,15 @@ var _ marks.Mark = (*NavDrawer)(nil)
 
 // NewNavDrawer constructs a navigation.nav_drawer mark with canonical defaults.
 func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueStore[bool], currentIndex *store.ValueStore[int]) *NavDrawer {
+	// The mark owns truth unless the app injects stores (RX-2 Q2): a nil
+	// open starts closed, a nil currentIndex starts at the first item; the
+	// live stores are exposed through OpenStore()/CurrentIndexStore().
+	if open == nil {
+		open = store.NewValueStore(false)
+	}
+	if currentIndex == nil {
+		currentIndex = store.NewValueStore(0)
+	}
 	d := &NavDrawer{
 		Label:              marks.Const(label),
 		Subtitle:           marks.Const(""),
@@ -177,6 +189,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 		return d.buildCommands(d.Layout.ArrangedBounds, ctx.Runtime)
 	}
 	d.RegisterRoles(d)
+	d.openBind = marks.BindScalar(d, open, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, nil)
 	surface := &navDrawerSurfaceChild{Facet: facet.NewFacet(), parent: d}
 	facet.AttachLayer(d, surface, facet.LayerAttachment{Band: facet.ZBandPopover})
 	d.surfaceChild = surface
@@ -295,17 +308,42 @@ func (d *NavDrawer) Children() []facet.GroupChild {
 
 // OnAttach wires the FR-8 selection binding over CurrentIndex (attach-time
 // sync, re-sync on every change, publish back, echo guard) alongside the
-// Open-store invalidation.
+// RX-2 value contract over Open.
 func (d *NavDrawer) OnAttach(ctx facet.AttachContext) {
 	d.Core.OnAttach(ctx)
-	if d.Open != nil {
-		facet.Store(facet.Subscribe(d), &d.Open.OnChange, d.Open.Version, func(signal.Change[bool]) {
-			d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navDrawer.Open")
-		})
-	}
+	d.openBind.Attach(d)
 	d.selection = BindSelection(d, d.CurrentIndex, func(int) {
 		d.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "navDrawer.CurrentIndex")
 	})
+}
+
+// OpenStore returns the drawer's open store — internal when constructed
+// with a nil open, the injected store otherwise.
+func (d *NavDrawer) OpenStore() *store.ValueStore[bool] {
+	if d == nil {
+		return nil
+	}
+	return d.openBind.Store()
+}
+
+// CurrentIndexStore returns the drawer's current-index store — internal
+// when constructed with a nil index, the injected store otherwise.
+func (d *NavDrawer) CurrentIndexStore() *store.ValueStore[int] {
+	if d == nil {
+		return nil
+	}
+	return d.CurrentIndex
+}
+
+// SetOpen opens or closes the drawer (write-back through the value
+// contract); the store's echo of this write is swallowed by the guard, so
+// the local invalidation here is required.
+func (d *NavDrawer) SetOpen(open bool) {
+	if d == nil || d.Open == nil || d.Open.Get() == open {
+		return
+	}
+	d.openBind.Write(open)
+	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // OnActivate is unused.
@@ -833,8 +871,7 @@ func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
 			return true
 		}
 		if d.Open.Get() {
-			d.Open.Set(false)
-			d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+			d.SetOpen(false)
 			return true
 		}
 		return false
@@ -849,8 +886,7 @@ func (d *NavDrawer) onPointer(e facet.PointerEvent) bool {
 		if wasPressed {
 			if hit := d.indexAt(e.Position); hit >= 0 && hit == idx && !d.isDisabledIndex(hit) {
 				d.activateIndex(hit)
-				d.Open.Set(false)
-				d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+				d.SetOpen(false)
 				return true
 			}
 			return true
@@ -892,8 +928,7 @@ func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
 				d.setLastFocus()
 				return true
 			case platform.KeyEscape:
-				d.Open.Set(false)
-				d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+				d.SetOpen(false)
 				return true
 			case platform.KeySpace, platform.KeyEnter:
 				d.pressedIndex = d.clampedFocusedIndex()
@@ -908,8 +943,7 @@ func (d *NavDrawer) onKey(e facet.KeyEvent) bool {
 				d.invalidate(facet.DirtyProjection)
 				if wasPressed && idx >= 0 {
 					d.activateIndex(idx)
-					d.Open.Set(false)
-					d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+					d.SetOpen(false)
 					return true
 				}
 			}
@@ -923,8 +957,7 @@ func (d *NavDrawer) onDismiss(e facet.DismissEvent) bool {
 	if d.Disabled.Get() || !d.Open.Get() {
 		return false
 	}
-	d.Open.Set(false)
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	d.SetOpen(false)
 	return true
 }
 

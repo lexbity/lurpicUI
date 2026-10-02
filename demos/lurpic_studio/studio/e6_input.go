@@ -14,33 +14,27 @@ import (
 // writes its Value store; the number field's steppers/keys write its Value
 // store; the color picker's hue wheel and arrows write its Color store (the
 // input family's distinctive behavior: the IME/write-back loop that lands user
-// input in a store).
+// input in a store). Every mark owns its truth (RX-2 Q2) — the family holds
+// no ceremony stores; the accessors expose each mark's live store.
 type playInputFamily struct {
 	scroll *structure.ScrollRegion
 
 	field *input.TextField
-	name  *store.ValueStore[string]
 
 	number *input.NumberField
-	amount *store.ValueStore[float64]
 
 	picker *input.ColorPicker
-	color  *store.ValueStore[gfx.Color]
 
 	glyph *primitive.Icon
 }
 
 // newPlayInputFamily builds the Input family playground.
 func newPlayInputFamily() *playInputFamily {
-	f := &playInputFamily{
-		name:   store.NewValueStore(""),
-		amount: store.NewValueStore(12.0),
-		color:  store.NewValueStore(gfx.ColorFromRGBA8(66, 133, 244, 255)),
-	}
+	f := &playInputFamily{}
 
-	f.field = input.NewTextField("Source name", uiinput.TextInputOutlined, f.name)
-	f.number = input.NewNumberField("Reload after (s)", f.amount)
-	f.picker = input.NewColorPicker("Series color", f.color)
+	f.field = input.NewTextField("Source name", uiinput.TextInputOutlined, nil)
+	f.number = input.NewNumberField("Reload after (s)", nil)
+	f.picker = input.NewColorPicker("Series color", nil)
 	f.glyph = primitive.NewIcon(primitive.IconSVG(iconRealtime))
 
 	f.scroll = newPlayScroll(listGap,
@@ -55,11 +49,11 @@ func newPlayInputFamily() *playInputFamily {
 // wire has nothing beyond the marks' own store bindings.
 func (f *playInputFamily) wire() func() { return nil }
 
-// Name returns the text field's Value store.
-func (f *playInputFamily) Name() *store.ValueStore[string] { return f.name }
+// Name returns the text field's live Value store.
+func (f *playInputFamily) Name() *store.ValueStore[string] { return f.field.Store() }
 
-// Amount returns the number field's Value store.
-func (f *playInputFamily) Amount() *store.ValueStore[float64] { return f.amount }
+// Amount returns the number field's live Value store.
+func (f *playInputFamily) Amount() *store.ValueStore[float64] { return f.number.Store() }
 
-// Color returns the color picker's Color store.
-func (f *playInputFamily) Color() *store.ValueStore[gfx.Color] { return f.color }
+// Color returns the color picker's live Color store.
+func (f *playInputFamily) Color() *store.ValueStore[gfx.Color] { return f.picker.Store() }

@@ -36,7 +36,6 @@ type playFeedbackFamily struct {
 	toastTrigger *action.Button
 
 	tip        *feedback.Tooltip
-	tipOpen    *store.ValueStore[bool]
 	tipTrigger *action.Button
 }
 
@@ -46,7 +45,6 @@ func newPlayFeedbackFamily() *playFeedbackFamily {
 		alertMsg:   store.NewValueStore("All sources are healthy."),
 		dialogOpen: store.NewValueStore(false),
 		toastOpen:  store.NewValueStore(false),
-		tipOpen:    store.NewValueStore(false),
 	}
 
 	f.alertTrigger = action.NewButton(marks.Const("Trigger fault"), marks.Const(uiinput.ButtonFilled))
@@ -65,7 +63,7 @@ func newPlayFeedbackFamily() *playFeedbackFamily {
 	f.toast = feedback.NewNotification("Export complete", "The chart image was written to disk.", f.toastOpen)
 
 	f.tipTrigger = action.NewButton(marks.Const("Show tooltip"), marks.Const(uiinput.ButtonOutlined))
-	f.tip = feedback.NewTooltip("A tooltip passes pointer input through to the control beneath it.", f.tipOpen)
+	f.tip = feedback.NewTooltip("A tooltip passes pointer input through to the control beneath it.", nil)
 
 	f.scroll = newPlayScroll(listGap,
 		playgroundCard("alert — trigger and clear feedback", f.alertTrigger, f.alert, f.alertClear),
@@ -101,10 +99,10 @@ func (f *playFeedbackFamily) wire() func() {
 		f.toastOpen.Set(false)
 	})
 	tipID := f.tipTrigger.Activated.Subscribe(func(signal.Unit) {
-		f.tipOpen.Set(true)
+		f.tip.Show()
 	})
 	tipDismiss := f.tip.Dismissed.Subscribe(func(signal.Unit) {
-		f.tipOpen.Set(false)
+		f.tip.Hide()
 	})
 	return func() {
 		f.alertTrigger.Activated.Unsubscribe(alertID)
@@ -122,7 +120,7 @@ func (f *playFeedbackFamily) wire() func() {
 func (f *playFeedbackFamily) AlertMessage() *store.ValueStore[string] { return f.alertMsg }
 func (f *playFeedbackFamily) DialogOpen() *store.ValueStore[bool]     { return f.dialogOpen }
 func (f *playFeedbackFamily) ToastOpen() *store.ValueStore[bool]      { return f.toastOpen }
-func (f *playFeedbackFamily) TipOpen() *store.ValueStore[bool]        { return f.tipOpen }
+func (f *playFeedbackFamily) TipOpen() *store.ValueStore[bool]        { return f.tip.Store() }
 func (f *playFeedbackFamily) Alert() *feedback.Alert                  { return f.alert }
 func (f *playFeedbackFamily) Dialog() *feedback.Dialog                { return f.dialog }
 func (f *playFeedbackFamily) Toast() *feedback.Notification           { return f.toast }

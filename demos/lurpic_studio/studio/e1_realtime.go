@@ -88,7 +88,6 @@ type Realtime struct {
 	// chart point press or a grid row click — shows the selected row's details
 	// anchored to the chart).
 	tip     *feedback.Tooltip
-	tipOpen *store.ValueStore[bool]
 	tipText *store.ValueStore[string]
 
 	reshapeUnsub []func()
@@ -140,9 +139,8 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.grid = NewEditableGrid(appState.Rows, fonts, themeCtx, e.brush)
 	e.table = structure.NewTable("Latest", latestTableData(appState.Rows), nil)
 	e.legend = structure.NewList("Feed legend", bucketLegendEntries(appState.BarBuckets.Get()))
-	e.tipOpen = store.NewValueStore(false)
 	e.tipText = store.NewValueStore("")
-	e.tip = feedback.NewTooltip("", e.tipOpen)
+	e.tip = feedback.NewTooltip("", nil)
 	e.tip.Content = marks.FromStore(e.tipText, facet.DirtyLayout|facet.DirtyProjection)
 	e.tip.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	e.buildControls()
@@ -186,7 +184,7 @@ func (e *Realtime) Reshape() *action.RadialMenu { return e.reshape }
 func (e *Realtime) Jump() *action.IconButton { return e.jump }
 
 // TipOpen returns the anchored tooltip's visibility store.
-func (e *Realtime) TipOpen() *store.ValueStore[bool] { return e.tipOpen }
+func (e *Realtime) TipOpen() *store.ValueStore[bool] { return e.tip.Store() }
 
 // TipText returns the anchored tooltip's content store.
 func (e *Realtime) TipText() *store.ValueStore[string] { return e.tipText }
@@ -548,17 +546,17 @@ func (e *Realtime) flushWindowedDeriveds() {
 func (e *Realtime) updateSelectionTip(id store.ItemID) {
 	if id == 0 {
 		e.tipText.Set("")
-		e.tipOpen.Set(false)
+		e.tip.Hide()
 		return
 	}
 	row, ok := rowByID(e.appState.Rows, id)
 	if !ok {
 		e.tipText.Set("")
-		e.tipOpen.Set(false)
+		e.tip.Hide()
 		return
 	}
 	e.tipText.Set(fmt.Sprintf("%s · %s · %.1f", row.Time.Format("15:04:05"), row.Region, row.Value))
-	e.tipOpen.Set(true)
+	e.tip.Show()
 	// The tooltip's Open/content bindings re-project it, but its bubble was
 	// measured while closed; routing the content change through the RX-1 FR-3
 	// propagation re-measures and re-arranges it so the bubble renders.

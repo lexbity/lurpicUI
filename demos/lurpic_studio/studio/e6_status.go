@@ -31,11 +31,10 @@ type playStatusFamily struct {
 	lightLabel   *store.ValueStore[string]
 	onlineSwitch *selection.Switch
 
-	slider    *selection.Slider
-	sliderVal *store.ValueStore[float64]
-	progress  *store.ValueStore[float32]
-	bar       *status.ProgressBar
-	ring      *status.ProgressRing
+	slider   *selection.Slider
+	progress *store.ValueStore[float32]
+	bar      *status.ProgressBar
+	ring     *status.ProgressRing
 }
 
 // newPlayStatusFamily builds the Status family playground.
@@ -45,7 +44,6 @@ func newPlayStatusFamily() *playStatusFamily {
 		online:     store.NewValueStore(true),
 		lightLabel: store.NewValueStore("Online"),
 		progress:   store.NewValueStore(float32(0.4)),
-		sliderVal:  store.NewValueStore(40.0),
 	}
 
 	f.tick = action.NewButton(marks.Const("Simulate tick"), marks.Const(uiinput.ButtonText))
@@ -59,7 +57,7 @@ func newPlayStatusFamily() *playStatusFamily {
 	f.light.ShowLabel = marks.Const(true)
 	f.light.Label = marks.FromStore(f.lightLabel, facet.DirtyLayout|facet.DirtyProjection)
 
-	f.slider = selection.NewSlider("Reload throughput", 0, 100, 1, f.sliderVal)
+	f.slider = selection.NewSlider("Reload throughput", 0, 100, 1, nil)
 	f.bar = status.NewProgressBar("reload")
 	f.ring = status.NewProgressRing("reload")
 	f.bar.Value = marks.FromStore(f.progress, facet.DirtyProjection)
@@ -94,20 +92,20 @@ func (f *playStatusFamily) wire() func() {
 			f.lightLabel.Set("Offline")
 		}
 	})
-	sliderID := f.sliderVal.OnChange.Subscribe(func(signal.Change[float64]) {
-		f.progress.Set(float32(f.sliderVal.Get() / 100))
+	sliderID := f.slider.Store().OnChange.Subscribe(func(signal.Change[float64]) {
+		f.progress.Set(float32(f.slider.Store().Get() / 100))
 	})
 	return func() {
 		f.tick.Activated.Unsubscribe(tickID)
 		f.online.OnChange.Unsubscribe(onlineID)
-		f.sliderVal.OnChange.Unsubscribe(sliderID)
+		f.slider.Store().OnChange.Unsubscribe(sliderID)
 	}
 }
 
 // StatusBadge returns the badge's label store.
 func (f *playStatusFamily) BadgeLabel() *store.ValueStore[string] { return f.badgeLabel }
 func (f *playStatusFamily) Online() *store.ValueStore[bool]       { return f.online }
-func (f *playStatusFamily) Slider() *store.ValueStore[float64]    { return f.sliderVal }
+func (f *playStatusFamily) Slider() *store.ValueStore[float64]    { return f.slider.Store() }
 func (f *playStatusFamily) Progress() *store.ValueStore[float32]  { return f.progress }
 func (f *playStatusFamily) Badge() *status.Badge                  { return f.badge }
 func (f *playStatusFamily) Light() *status.StatusLight            { return f.light }

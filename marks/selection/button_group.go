@@ -64,8 +64,13 @@ type ButtonGroup struct {
 
 	Activated signal.Signal[string]
 
-	Label    marks.Binding[string]
-	Options  []ButtonGroupOption
+	Label   marks.Binding[string]
+	Options []ButtonGroupOption
+	// Value holds the selected keys. []string is non-comparable, so the
+	// scalar value contract (marks.ScalarBinding) does not apply — RX-2 Q2
+	// puts collections outside the scalar contract. The subscription in
+	// OnAttach carries the contract clauses inline: attach re-sync,
+	// write-back on user edit, equality guard against redundant writes.
 	Value    *store.ValueStore[[]string]
 	Mode     marks.Binding[ButtonGroupMode]
 	Disabled marks.Binding[bool]
@@ -125,8 +130,15 @@ var _ marks.Mark = (*ButtonGroup)(nil)
 var _ facet.FacetImpl = (*buttonGroupItem)(nil)
 
 // NewButtonGroup constructs a selection.button_group mark with canonical defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the group creates an internal store (no selection) and
+// owns its truth; an injected store is bound, never copied (RX-2 Q2) —
+// Store() exposes the live store either way. The value is a []string key
+// set, which is non-comparable and therefore outside the scalar value
+// contract; the store subscription carries its clauses inline.
 func NewButtonGroup(label string, options []ButtonGroupOption, value *store.ValueStore[[]string]) *ButtonGroup {
+	if value == nil {
+		value = store.NewValueStore[[]string](nil)
+	}
 	bg := &ButtonGroup{
 		Label:        marks.Const(label),
 		Mode:         marks.Const(ButtonGroupExclusive),
@@ -195,6 +207,15 @@ func NewButtonGroup(label string, options []ButtonGroupOption, value *store.Valu
 	bg.AddRole(&bg.textRole)
 	bg.rebuildChildren()
 	return bg
+}
+
+// Store returns the group's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (bg *ButtonGroup) Store() *store.ValueStore[[]string] {
+	if bg == nil {
+		return nil
+	}
+	return bg.Value
 }
 
 // Base satisfies facet.FacetImpl.
@@ -314,6 +335,8 @@ func (bg *ButtonGroup) OnAttach(ctx facet.AttachContext) {
 	if bg.Value == nil {
 		return
 	}
+	// Inline value-contract clauses: []string is non-comparable, so
+	// marks.ScalarBinding cannot carry them (see the Value field comment).
 	facet.Store(facet.Subscribe(bg), &bg.Value.OnChange, bg.Value.Version, func(signal.Change[[]string]) {
 		bg.syncChildState()
 		bg.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "buttonGroup.Value")

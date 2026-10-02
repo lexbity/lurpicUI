@@ -58,14 +58,21 @@ type TurnDial struct {
 	cachedLabelHeight      float32
 	cachedValueHeight      float32
 	cachedWritingDirection facet.WritingDirection
+
+	valueBind *marks.ScalarBinding[float64]
 }
 
 var _ facet.FacetImpl = (*TurnDial)(nil)
 var _ marks.Mark = (*TurnDial)(nil)
 
 // NewTurnDial constructs a selection.turn_dial mark with defaults.
-// The value store is supplied by the caller — the mark never creates its own.
+// When value is nil the dial creates an internal store seeded at the
+// normalized minimum and owns its truth; an injected store is bound, never
+// copied (RX-2 Q2) — Store() exposes the live store either way.
 func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[float64]) *TurnDial {
+	if value == nil {
+		value = store.NewValueStore(math.Min(min, max))
+	}
 	td := &TurnDial{
 		Label:     marks.Const(label),
 		Disabled:  marks.Const(false),
@@ -132,7 +139,17 @@ func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[f
 		return td.buildCommands(td.Layout.ArrangedBounds, ctx.Runtime, ctx.ContentScale)
 	}
 	td.RegisterRoles(td)
+	td.valueBind = marks.BindScalar(td, value, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, nil)
 	return td
+}
+
+// Store returns the dial's value store — internal when constructed with a
+// nil value, the injected store otherwise.
+func (td *TurnDial) Store() *store.ValueStore[float64] {
+	if td == nil {
+		return nil
+	}
+	return td.valueBind.Store()
 }
 
 // Base satisfies facet.FacetImpl.
@@ -193,17 +210,12 @@ func (td *TurnDial) invalidate(flags facet.DirtyFlags) {
 	if td == nil {
 		return
 	}
-	td.Base().Invalidate(flags)
+	td.Invalidate(flags)
 }
 
 func (td *TurnDial) OnAttach(ctx facet.AttachContext) {
 	td.Core.OnAttach(ctx)
-	if td.Value == nil {
-		return
-	}
-	facet.Store(facet.Subscribe(td), &td.Value.OnChange, td.Value.Version, func(signal.Change[float64]) {
-		td.InvalidateWithSource(facet.DirtyProjection, "turnDial.Value")
-	})
+	td.valueBind.Attach(td)
 }
 
 func (td *TurnDial) OnActivate()   { td.Core.OnActivate() }
@@ -731,7 +743,7 @@ func (td *TurnDial) updateValueFromPoint(p gfx.Point) {
 
 	frac := angle / 270.0
 	minV, maxV := td.normalizedRange()
-	td.Value.Set(minV + frac*(maxV-minV))
+	td.SetValue(minV + frac*(maxV-minV))
 }
 
 func (td *TurnDial) onKey(e facet.KeyEvent) bool {
@@ -770,8 +782,21 @@ func (td *TurnDial) adjustValue(delta float64) bool {
 	if delta == 0 {
 		return true
 	}
-	td.Value.Set(td.clampValue(td.currentValue() + delta))
+	td.SetValue(td.clampValue(td.currentValue() + delta))
 	return true
+}
+
+// SetValue updates the canonical numeric value.
+func (td *TurnDial) SetValue(value float64) {
+	if td == nil || td.Value == nil {
+		return
+	}
+	clamped := td.clampValue(value)
+	if td.Value.Get() == clamped {
+		return
+	}
+	td.valueBind.Write(clamped)
+	td.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 type turnDialGroupPolicy struct{}

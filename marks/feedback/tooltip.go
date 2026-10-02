@@ -67,6 +67,8 @@ type Tooltip struct {
 
 	surfaceChild  *tooltipSurfaceChild
 	surfaceLayout facet.LayoutRole
+
+	openBind *marks.ScalarBinding[bool]
 }
 
 var _ facet.FacetImpl = (*Tooltip)(nil)
@@ -74,7 +76,13 @@ var _ layout.AnchorExporter = (*Tooltip)(nil)
 var _ marks.Mark = (*Tooltip)(nil)
 
 // NewTooltip constructs a feedback.tooltip mark with canonical defaults.
+// When open is nil the tooltip creates an internal store (closed) and owns
+// its open state — Show()/Hide() drive it; an injected store is bound, never
+// copied (RX-2 Q2) — Store() exposes the live store either way.
 func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
+	if open == nil {
+		open = store.NewValueStore(false)
+	}
 	t := &Tooltip{
 		Content:   marks.Const(content),
 		Open:      open,
@@ -144,7 +152,44 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 	surface := &tooltipSurfaceChild{Facet: facet.NewFacet(), parent: t}
 	facet.AttachLayer(t, surface, facet.LayerAttachment{Band: facet.ZBandTooltip})
 	t.surfaceChild = surface
+	t.openBind = marks.BindScalar(t, open, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, nil)
 	return t
+}
+
+// Store returns the tooltip's open store — internal when constructed with a
+// nil open, the injected store otherwise.
+func (t *Tooltip) Store() *store.ValueStore[bool] {
+	if t == nil {
+		return nil
+	}
+	return t.openBind.Store()
+}
+
+// Show opens the tooltip (write-back through the value contract).
+func (t *Tooltip) Show() {
+	if t == nil {
+		return
+	}
+	t.setOpen(true)
+}
+
+// Hide closes the tooltip (write-back through the value contract).
+func (t *Tooltip) Hide() {
+	if t == nil {
+		return
+	}
+	t.setOpen(false)
+}
+
+// setOpen publishes an open-state change through the value contract and
+// refreshes the mark's own render state — the store's echo of this write is
+// swallowed by the guard, so the local invalidation here is required.
+func (t *Tooltip) setOpen(open bool) {
+	if t == nil || t.Open == nil || t.Open.Get() == open {
+		return
+	}
+	t.openBind.Write(open)
+	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // Base satisfies facet.FacetImpl.
@@ -221,15 +266,10 @@ func (t *Tooltip) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet
 	return out
 }
 
-// OnAttach delegates to Core.
+// OnAttach wires the value contract for the open store.
 func (t *Tooltip) OnAttach(ctx facet.AttachContext) {
 	t.Core.OnAttach(ctx)
-	if t.Open == nil {
-		return
-	}
-	facet.Store(facet.Subscribe(t), &t.Open.OnChange, t.Open.Version, func(signal.Change[bool]) {
-		t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "tooltip.Open")
-	})
+	t.openBind.Attach(t)
 }
 
 // OnActivate delegates to Core.
@@ -583,7 +623,7 @@ func (t *Tooltip) openFalseAndDismiss() {
 	if t == nil {
 		return
 	}
-	t.Open.Set(false)
+	t.setOpen(false)
 	t.hovered = false
 	t.pressed = false
 	t.Dismissed.Emit(signal.Unit{})
