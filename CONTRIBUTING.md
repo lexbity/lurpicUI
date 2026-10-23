@@ -15,6 +15,17 @@ the build orchestration layer.
 
 1. Configure a build directory if needed.
    - `cmake -S . -B build`
+
+Dependencies are resolved from the Go module proxy by default. For
+network-free builds, populate the local vendor tree once (it is gitignored
+and never committed):
+
+```
+go mod vendor
+```
+
+Re-run it whenever `go.mod` changes; builds fail loudly if the vendor tree
+and `go.mod` drift apart.`
 2. Run the repo lint gate before handing off Go changes.
    - `cmake --build build --target lint`
 3. Run the unit-test target for the framework.

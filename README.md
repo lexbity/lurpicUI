@@ -18,6 +18,10 @@ It provides:
 - Rust toolchain and `cargo-ndk`
 - `adb` if you want to install or inspect builds on a device or emulator
 
+Dependencies download from the Go module proxy on first build; run
+`go mod vendor` once if you need network-free builds (the vendor tree is
+local-only and gitignored).
+
 **Platform notes:**
 
 - Platform support is currently Linux desktop and Android.
