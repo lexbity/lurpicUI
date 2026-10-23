@@ -36,7 +36,7 @@ func TestColorPickerSetColorSyncsHSV(t *testing.T) {
 func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
 	picker := NewColorPicker("Palette", defaultColorPickerStore())
 	var emitted []gfx.Color
-	picker.ColorChanged.Subscribe(func(c gfx.Color) {
+	picker.Changed.Subscribe(func(c gfx.Color) {
 		emitted = append(emitted, c)
 	})
 

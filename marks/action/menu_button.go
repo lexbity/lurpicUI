@@ -11,7 +11,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -76,7 +75,7 @@ type MenuButton struct {
 	AccessibleLabel marks.Binding[string]
 	TriggerIconRef  marks.Binding[string]
 	Disabled        marks.Binding[bool]
-	Entries         []MenuButtonEntry
+	Entries         marks.Binding[[]MenuButtonEntry]
 	Open            bool
 
 	textRole facet.TextRole
@@ -174,11 +173,11 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		AccessibleLabel: marks.Const(""),
 		TriggerIconRef:  marks.Const(""),
 		Disabled:        marks.Const(false),
-		Entries:         normalizeMenuButtonEntries(entries),
+		Entries:         marks.Const(normalizeMenuButtonEntries(entries)),
 		focusedIndex:    -1,
 		hoveredIndex:    -1,
 		pressedIndex:    -1,
-		Activated:       signal.NewSignal[MarkAction]("menu_button_activated"),
+		Activated:       signal.NewSignal[MarkAction]("menu_button.activated"),
 	}
 	m.Facet = facet.NewFacet()
 
@@ -187,7 +186,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 		Policy: menuButtonGroupPolicy{button: m},
 	}
 	m.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := m.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -229,7 +228,7 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 	m.Input.OnKey = func(e facet.KeyEvent) bool { return m.onKey(e) }
 	m.Input.OnDismiss = func(e facet.DismissEvent) bool { return m.onDismiss(e) }
 	m.Focus.Focusable = func() bool {
-		return !m.Disabled.Get() && (strings.TrimSpace(m.Label.Get()) != "" || strings.TrimSpace(m.AccessibleLabel.Get()) != "" || len(m.Entries) > 0)
+		return !m.Disabled.Get() && (strings.TrimSpace(m.Label.Get()) != "" || strings.TrimSpace(m.AccessibleLabel.Get()) != "" || len(m.Entries.Get()) > 0)
 	}
 	m.Focus.TabIndex = 0
 	m.Focus.OnFocusGained = func() { m.onFocusGained() }
@@ -247,6 +246,14 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 func (m *MenuButton) Base() *facet.Facet {
 	m.BindImpl(m)
 	return &m.Facet
+}
+
+// Focusable reports whether the MenuButton can take keyboard focus.
+func (m *MenuButton) Focusable() bool {
+	if m.Focus.Focusable == nil {
+		return false
+	}
+	return m.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -268,7 +275,7 @@ func (m *MenuButton) AccessibleName() string {
 	if name := strings.TrimSpace(m.Label.Get()); name != "" {
 		return name
 	}
-	for _, entry := range m.Entries {
+	for _, entry := range m.Entries.Get() {
 		if entry.Kind != MenuButtonEntryItem {
 			continue
 		}
@@ -408,7 +415,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	if triggerLabel == "" {
 		triggerLabel = strings.TrimSpace(m.AccessibleLabel.Get())
 	}
-	shaper := m.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(420)
@@ -430,12 +437,12 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 		m.cachedTriggerLabelBounds = gfx.Rect{}
 	}
 
-	layouts := make([]menuButtonEntryLayout, len(m.Entries))
+	layouts := make([]menuButtonEntryLayout, len(m.Entries.Get()))
 	maxEntryW := float32(0)
 	totalMenuH := float32(0)
-	layoutVersion := hashMenuButtonEntries(m.Entries)
-	for i := range m.Entries {
-		entry := m.Entries[i]
+	layoutVersion := hashMenuButtonEntries(m.Entries.Get())
+	for i := range m.Entries.Get() {
+		entry := m.Entries.Get()[i]
 		layouts[i].entry = entry
 		switch entry.Kind {
 		case MenuButtonEntryDivider:
@@ -509,15 +516,15 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	m.cachedTriggerMeasuredH = triggerH
 
 	menuW := mathutil.Max(maxEntryW, triggerW)
-	if len(m.Entries) > 0 {
+	if len(m.Entries.Get()) > 0 {
 		menuW = mathutil.Max(menuW, resolved.Density.Scale(160))
 	}
 	m.cachedMenuMeasuredW = menuW
 	menuH := float32(0)
-	if m.Open && len(m.Entries) > 0 {
+	if m.Open && len(m.Entries.Get()) > 0 {
 		menuH = totalMenuH
-		if len(m.Entries) > 1 {
-			menuH += m.cachedRowGap * float32(len(m.Entries)-1)
+		if len(m.Entries.Get()) > 1 {
+			menuH += m.cachedRowGap * float32(len(m.Entries.Get())-1)
 		}
 	}
 	m.cachedMenuMeasuredH = menuH
@@ -529,7 +536,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 		W: mathutil.Max(triggerW, menuW) + m.cachedPadX*2,
 		H: m.cachedPadY*2 + triggerH,
 	}
-	if m.Open && len(m.Entries) > 0 {
+	if m.Open && len(m.Entries.Get()) > 0 {
 		size.H += m.cachedGap + menuH
 	}
 	size = constraints.Constrain(size)
@@ -1134,27 +1141,6 @@ func (m *MenuButton) entryState(index int) theme.InteractionState {
 	}
 }
 
-func (m *MenuButton) newShaper(runtime any) *text.Shaper {
-	registry := m.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (m *MenuButton) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
-}
-
 func normalizeMenuButtonEntries(entries []MenuButtonEntry) []MenuButtonEntry {
 	if len(entries) == 0 {
 		return nil
@@ -1213,25 +1199,7 @@ func iconAssetCommands(runtime any, ref string, bounds gfx.Rect, material theme.
 	if runtime == nil || ref == "" || bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}
-	type iconProvider interface {
-		IconResolver() runtimepkg.IconResolver
-	}
-	var (
-		asset runtimepkg.IconAsset
-		ok    bool
-	)
-	if provider, okProvider := runtime.(iconProvider); okProvider {
-		if resolver := provider.IconResolver(); resolver != nil {
-			asset, ok = resolver.ResolveIcon(ref)
-		}
-	}
-	if !ok {
-		if resolver, okResolver := runtime.(interface {
-			ResolveIcon(string) (runtimepkg.IconAsset, bool)
-		}); okResolver {
-			asset, ok = resolver.ResolveIcon(ref)
-		}
-	}
+	asset, ok := marks.ResolveIconFrom(runtime, ref)
 	if !ok || len(asset.Path.Segments) == 0 {
 		return nil
 	}

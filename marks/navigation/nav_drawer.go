@@ -6,7 +6,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -75,7 +74,7 @@ type NavDrawer struct {
 	// openBind is the RX-2 Q2 value contract over Open.
 	openBind *marks.ScalarBinding[bool]
 
-	Activated signal.Signal[int]
+	Selected signal.Signal[int]
 
 	hoveredIndex     int
 	pressedIndex     int
@@ -133,6 +132,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 		currentIndex = store.NewValueStore(0)
 	}
 	d := &NavDrawer{
+		Selected:           signal.NewSignal[int]("nav_drawer.selected"),
 		Label:              marks.Const(label),
 		Subtitle:           marks.Const(""),
 		Open:               open,
@@ -145,7 +145,19 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 		groupNavItemsFacet: facet.NewFacet(),
 	}
 	d.Facet = facet.NewFacet()
-	d.SetSections(sections)
+	// Sections are config (Q3 rule): normalized once at construction.
+	next := append([]NavDrawerSection(nil), sections...)
+	for i := range next {
+		next[i].Label = strings.TrimSpace(next[i].Label)
+		for j := range next[i].Items {
+			next[i].Items[j].Key = strings.TrimSpace(next[i].Items[j].Key)
+			next[i].Items[j].Label = strings.TrimSpace(next[i].Items[j].Label)
+			next[i].Items[j].IconRef = strings.TrimSpace(next[i].Items[j].IconRef)
+		}
+	}
+	d.Sections = next
+	d.rebuildFlatItems()
+	d.clampIndices()
 	d.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   navDrawerGroupPolicy{drawer: d},
@@ -202,6 +214,9 @@ func (d *NavDrawer) Base() *facet.Facet {
 	return &d.Facet
 }
 
+// Focusable reports whether the NavDrawer can take keyboard focus.
+func (d *NavDrawer) Focusable() bool { return d.Focus.Focusable != nil }
+
 // Descriptor satisfies marks.Mark.
 func (d *NavDrawer) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeNavigation, TypeName: "nav_drawer"}
@@ -214,24 +229,6 @@ func (d *NavDrawer) AccessibilityRole() string { return markTypeNavigation }
 func (d *NavDrawer) AccessibleName() string { return d.Label.Get() }
 
 // SetSections updates the drawer sections.
-func (d *NavDrawer) SetSections(sections []NavDrawerSection) {
-	if d == nil {
-		return
-	}
-	next := append([]NavDrawerSection(nil), sections...)
-	for i := range next {
-		next[i].Label = strings.TrimSpace(next[i].Label)
-		for j := range next[i].Items {
-			next[i].Items[j].Key = strings.TrimSpace(next[i].Items[j].Key)
-			next[i].Items[j].Label = strings.TrimSpace(next[i].Items[j].Label)
-			next[i].Items[j].IconRef = strings.TrimSpace(next[i].Items[j].IconRef)
-		}
-	}
-	d.Sections = next
-	d.rebuildFlatItems()
-	d.clampIndices()
-	d.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
 
 // ExportAnchors publishes the drawer anchor set.
 func (d *NavDrawer) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
@@ -490,7 +487,7 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 			}
 		}
 		if d.cachedFlatItems[i].IconRef != "" {
-			if asset, ok := d.resolveIcon(ctx.Runtime, d.cachedFlatItems[i].IconRef); ok {
+			if asset, ok := marks.ResolveIconFrom(ctx.Runtime, d.cachedFlatItems[i].IconRef); ok {
 				d.cachedIconAssets[i] = asset
 			}
 		}
@@ -782,7 +779,7 @@ func (d *NavDrawer) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 			}
 		}
 		if len(d.cachedIconAssets) > i && len(d.cachedIconAssets[i].Path.Segments) > 0 && len(d.cachedIconBounds) > i && !d.cachedIconBounds[i].IsEmpty() {
-			cmds = append(cmds, d.iconCommands(d.cachedIconAssets[i], d.cachedIconBounds[i], items)...)
+			cmds = append(cmds, marks.IconCommands(d.cachedIconAssets[i], d.cachedIconBounds[i], items)...)
 		}
 		if i < len(d.cachedItemLabelFacets) && !theme.IsTransparentMaterial(items) && !d.cachedItemBounds[i].IsEmpty() {
 			if projected := d.cachedItemLabelFacets[i].Base().ProjectionRole().Project(facet.ProjectionContext{Runtime: runtimeServicesOrNil(runtime), Bounds: d.cachedItemLabelFacets[i].Base().LayoutRole().ArrangedBounds, ContentScale: 1}); projected != nil {
@@ -1082,7 +1079,7 @@ func (d *NavDrawer) activateIndex(index int) {
 		return
 	}
 	d.selection.Publish(index)
-	d.Activated.Emit(index)
+	d.Selected.Emit(index)
 	d.invalidate(facet.DirtyProjection)
 }
 
@@ -1205,47 +1202,6 @@ func (d *NavDrawer) drawerWidth(resolved theme.ResolvedContext) float32 {
 		}
 	}
 	return width
-}
-
-func (d *NavDrawer) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, bool) {
-	type iconProvider interface {
-		IconResolver() runtimepkg.IconResolver
-	}
-	if runtime == nil {
-		return runtimepkg.IconAsset{}, false
-	}
-	if provider, ok := runtime.(iconProvider); ok {
-		if resolver := provider.IconResolver(); resolver != nil {
-			return resolver.ResolveIcon(ref)
-		}
-	}
-	if resolver, ok := runtime.(interface {
-		ResolveIcon(string) (runtimepkg.IconAsset, bool)
-	}); ok {
-		return resolver.ResolveIcon(ref)
-	}
-	return runtimepkg.IconAsset{}, false
-}
-
-func (d *NavDrawer) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if len(asset.Path.Segments) == 0 || bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
-		return nil
-	}
-	box := asset.ViewBox
-	if box.IsEmpty() {
-		box = gfxsvg.Bounds(asset.Path)
-	}
-	if box.IsEmpty() || box.Width() == 0 || box.Height() == 0 {
-		return nil
-	}
-	sx := bounds.Width() / box.Width()
-	sy := bounds.Height() / box.Height()
-	scale := mathutil.Min(sx, sy)
-	if scale <= 0 {
-		return nil
-	}
-	target := gfxsvg.Transformed(asset.Path, gfx.Identity().Multiply(gfx.Translation(bounds.Min.X-box.Min.X*scale, bounds.Min.Y-box.Min.Y*scale)).Multiply(gfx.Scale(scale, scale)))
-	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(theme.MaterialColor(material))}}
 }
 
 type navDrawerGroupPolicy struct {

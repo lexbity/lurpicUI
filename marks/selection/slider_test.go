@@ -36,7 +36,7 @@ func (s sliderRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 func TestSliderMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	slider.SetValue(50)
-	slider.Label = "Volume"
+	slider.Label = marks.Const("Volume")
 
 	facet.Attach(slider, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 	result := slider.LayoutRole().Measure(facet.MeasureContext{
@@ -309,7 +309,7 @@ func TestSliderGoldenSkeuomorphicPressed(t *testing.T) {
 func assertSliderSkeuomorphicGolden(t *testing.T, name string, mutate func(*Slider)) {
 	t.Helper()
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	slider.Label = "Slider"
+	slider.Label = marks.Const("Slider")
 	slider.SetValue(50)
 	if mutate != nil {
 		mutate(slider)
@@ -371,7 +371,7 @@ func assertSliderSkeuomorphicGolden(t *testing.T, name string, mutate func(*Slid
 func AssertSliderGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Slider)) {
 	t.Helper()
 	slider, rt, measureCtx := newSliderTestFixture(t, tokens, density, direction)
-	slider.Label = "Slider"
+	slider.Label = marks.Const("Slider")
 	slider.SetValue(50)
 	if mutate != nil {
 		mutate(slider)

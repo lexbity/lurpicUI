@@ -24,12 +24,6 @@ scale/                      pure core — stdlib only
   extent.go           Extent, ExtentBy[T], NiceExtent
   zoom.go             PanDomain, ZoomDomain (semantic zoom transforms)
 
-scale/colorscale/            imports gfx for Color
-  colorspace.go       sRGB↔linear, OKLab conversions
-  ramp.go             Ramp, InterpolationSpace, built-in ramps
-  sequential.go       SequentialColor
-  diverging.go        DivergingColor
-
 scale/reactive/              imports store, signal
   reactive.go         ReactiveScale, NewXxxReactive, NewXxxReactiveFromDerived
   domain_source.go    DomainFromCollection[T]
@@ -99,25 +93,6 @@ point := scale.NewPoint(
 )
 point.Position("Y")     // → 100
 point.InvertRange(50)   // → ("X", true)  nearest-member
-```
-
-### Color scales
-
-```go
-s := colorscale.NewSequential(
-    0, 100,
-    colorscale.RampViridis,
-    colorscale.InterpolationOKLab,
-)
-col := s.Map(50)                // → gfx.Color at perceptual midpoint
-
-d := colorscale.NewDiverging(
-    -1, 1, 0,
-    colorscale.RampBlueWhiteRedLow,
-    colorscale.RampBlueWhiteRedHigh,
-    colorscale.InterpolationOKLab,
-)
-col := d.Map(0)                 // → white (midpoint)
 ```
 
 ### Reactive (live data)

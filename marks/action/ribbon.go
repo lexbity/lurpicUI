@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	shared "codeburg.org/lexbit/lurpicui/theme/recipes"
@@ -42,11 +43,11 @@ type Ribbon struct {
 
 	textRole facet.TextRole
 
-	Activated signal.Signal[int]
+	Selected signal.Signal[int]
 
-	Label       string
-	Sections    []RibbonSection
-	ActiveIndex int
+	Label       marks.Binding[string]
+	Sections    marks.Binding[[]RibbonSection]
+	ActiveIndex *store.ValueStore[int]
 	Disabled    marks.Binding[bool]
 
 	hoveredTabIndex     int
@@ -83,18 +84,22 @@ var _ layout.AnchorExporter = (*Ribbon)(nil)
 var _ marks.Mark = (*Ribbon)(nil)
 
 // NewRibbon constructs an action.ribbon mark with canonical defaults.
-func NewRibbon(label string, sections []RibbonSection) *Ribbon {
+func NewRibbon(label string, sections []RibbonSection, activeIndex *store.ValueStore[int]) *Ribbon {
+	if activeIndex == nil {
+		activeIndex = store.NewValueStore(0)
+	}
 	r := &Ribbon{
 		Core:                marks.Core{Facet: facet.NewFacet()},
-		Label:               label,
-		Sections:            normalizeRibbonSections(sections),
+		Label:               marks.Const(label),
+		Sections:            marks.Const(normalizeRibbonSections(sections)),
+		ActiveIndex:         activeIndex,
 		Disabled:            marks.Const(false),
 		focusedTabIndex:     -1,
 		hoveredTabIndex:     -1,
 		pressedTabIndex:     -1,
 		hoveredToolbarIndex: -1,
 		pressedToolbarIndex: -1,
-		Activated:           signal.NewSignal[int]("ribbon_activated"),
+		Selected:            signal.NewSignal[int]("ribbon.selected"),
 	}
 
 	r.Layout.Parent = facet.GroupParentContract{
@@ -131,7 +136,7 @@ func NewRibbon(label string, sections []RibbonSection) *Ribbon {
 	r.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return r.hitTest(p) }
 	r.Input.OnPointer = func(e facet.PointerEvent) bool { return r.onPointer(e) }
 	r.Input.OnKey = func(e facet.KeyEvent) bool { return r.onKey(e) }
-	r.Focus.Focusable = func() bool { return !r.Disabled.Get() && len(r.Sections) > 0 }
+	r.Focus.Focusable = func() bool { return !r.Disabled.Get() && len(r.Sections.Get()) > 0 }
 	r.Focus.OnFocusGained = func() { r.onFocusGained() }
 	r.Focus.OnFocusLost = func() { r.onFocusLost() }
 	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
@@ -149,6 +154,14 @@ func (r *Ribbon) Base() *facet.Facet {
 	return &r.Facet
 }
 
+// Focusable reports whether the Ribbon can take keyboard focus.
+func (r *Ribbon) Focusable() bool {
+	if r.Focus.Focusable == nil {
+		return false
+	}
+	return r.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (r *Ribbon) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeAction, TypeName: "ribbon"}
@@ -162,10 +175,10 @@ func (r *Ribbon) AccessibleName() string {
 	if r == nil {
 		return ""
 	}
-	if name := strings.TrimSpace(r.Label); name != "" {
+	if name := strings.TrimSpace(r.Label.Get()); name != "" {
 		return name
 	}
-	for _, section := range r.Sections {
+	for _, section := range r.Sections.Get() {
 		if name := strings.TrimSpace(section.Label); name != "" {
 			return name
 		}
@@ -245,8 +258,19 @@ func (r *Ribbon) Children() []facet.GroupChild {
 	return out
 }
 
-// OnAttach subscribes binding sources.
-func (r *Ribbon) OnAttach(ctx facet.AttachContext) { r.Core.OnAttach(ctx) }
+// OnAttach subscribes binding sources and the ActiveIndex selection store
+// (external writes re-sync the mark's tab state).
+func (r *Ribbon) OnAttach(ctx facet.AttachContext) {
+	r.Core.OnAttach(ctx)
+	if r.ActiveIndex != nil {
+		facet.Store(facet.Subscribe(r), &r.ActiveIndex.OnChange, r.ActiveIndex.Version, func(signal.Change[int]) {
+			// View-only re-sync: a store write inside this handler would
+			// re-emit OnChange (ValueStore.Set emits unconditionally) and
+			// loop the frame's signal delivery.
+			r.syncActiveSection()
+		})
+	}
+}
 
 // OnActivate is unused.
 func (r *Ribbon) OnActivate() { r.Core.OnActivate() }
@@ -288,17 +312,19 @@ func (r *Ribbon) syncChildren() {
 	if r == nil {
 		return
 	}
-	if len(r.Sections) == 0 {
+	if len(r.Sections.Get()) == 0 {
 		r.cachedTabButtons = nil
 		r.cachedSectionToolbars = nil
 		r.focusedTabIndex = -1
-		r.ActiveIndex = 0
+		if r.ActiveIndex.Get() != 0 {
+			r.ActiveIndex.Set(0)
+		}
 		return
 	}
-	if len(r.cachedTabButtons) != len(r.Sections) {
-		next := make([]*Button, len(r.Sections))
-		for i := range r.Sections {
-			section := r.Sections[i]
+	if len(r.cachedTabButtons) != len(r.Sections.Get()) {
+		next := make([]*Button, len(r.Sections.Get()))
+		for i := range r.Sections.Get() {
+			section := r.Sections.Get()[i]
 			btn := NewButton(marks.Const(section.Label), marks.Const(uiinput.ButtonText))
 			btn.LeadingIconRef = marks.Const(section.IconRef)
 			btn.Disabled = marks.Const(r.Disabled.Get() || section.Disabled)
@@ -315,7 +341,7 @@ func (r *Ribbon) syncChildren() {
 			if btn == nil {
 				continue
 			}
-			section := r.Sections[i]
+			section := r.Sections.Get()[i]
 			btn.Label = marks.Const(section.Label)
 			btn.LeadingIconRef = marks.Const(section.IconRef)
 			{
@@ -332,10 +358,12 @@ func (r *Ribbon) syncChildren() {
 			}
 		}
 	}
-	r.ActiveIndex = r.clampSectionIndex(r.ActiveIndex)
+	if idx := r.clampSectionIndex(r.ActiveIndex.Get()); idx != r.ActiveIndex.Get() {
+		r.ActiveIndex.Set(idx)
+	}
 	r.focusedTabIndex = r.clampSectionIndex(r.focusedTabIndex)
 	if r.focusedTabIndex < 0 {
-		r.focusedTabIndex = r.ActiveIndex
+		r.focusedTabIndex = r.ActiveIndex.Get()
 	}
 	r.syncButtonVariants()
 	r.syncToolbarChildren()
@@ -346,7 +374,7 @@ func (r *Ribbon) syncButtonVariants() {
 		if btn == nil {
 			continue
 		}
-		if i == r.ActiveIndex {
+		if i == r.ActiveIndex.Get() {
 			btn.Variant = marks.Const(uiinput.ButtonTonal)
 			btn.Invalidate(facet.DirtyProjection)
 		} else {
@@ -587,7 +615,7 @@ func (r *Ribbon) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		}
 	}
 	if r.textRole.Layout == nil && len(r.cachedTabButtons) > 0 {
-		if btn := r.cachedTabButtons[r.clampSectionIndex(r.ActiveIndex)]; btn != nil && btn.Base() != nil && btn.Base().TextRole() != nil {
+		if btn := r.cachedTabButtons[r.clampSectionIndex(r.ActiveIndex.Get())]; btn != nil && btn.Base() != nil && btn.Base().TextRole() != nil {
 			r.textRole.Layout = btn.Base().TextRole().Layout
 		}
 	}
@@ -774,7 +802,7 @@ func (r *Ribbon) onKey(e facet.KeyEvent) bool {
 
 func (r *Ribbon) onFocusGained() {
 	r.focusedVisible = true
-	r.focusedTabIndex = r.clampSectionIndex(r.ActiveIndex)
+	r.focusedTabIndex = r.clampSectionIndex(r.ActiveIndex.Get())
 	if btn := r.focusedButton(); btn != nil {
 		btn.onFocusGained()
 	}
@@ -791,15 +819,15 @@ func (r *Ribbon) onFocusLost() {
 }
 
 func (r *Ribbon) selectSection(index int, emit bool) {
-	if r == nil || len(r.Sections) == 0 {
+	if r == nil || len(r.Sections.Get()) == 0 {
 		return
 	}
 	index = r.clampSectionIndex(index)
 	if index < 0 {
 		return
 	}
-	previous := r.ActiveIndex
-	r.ActiveIndex = index
+	previous := r.ActiveIndex.Get()
+	r.ActiveIndex.Set(r.clampSectionIndex(index))
 	r.focusedTabIndex = index
 	r.syncButtonVariants()
 	r.syncToolbarChildren()
@@ -812,9 +840,22 @@ func (r *Ribbon) selectSection(index int, emit bool) {
 		if btn := r.focusedButton(); btn != nil {
 			btn.onFocusGained()
 		}
-		r.Activated.Emit(index)
+		r.Selected.Emit(index)
 		r.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 	}
+}
+
+// syncActiveSection re-syncs the view state from ActiveIndex without
+// touching the store — the re-sync half of selectSection, safe to call from
+// the ActiveIndex OnChange handler (a write there would re-emit and cycle).
+func (r *Ribbon) syncActiveSection() {
+	if r == nil || len(r.Sections.Get()) == 0 {
+		return
+	}
+	r.focusedTabIndex = r.clampSectionIndex(r.ActiveIndex.Get())
+	r.syncButtonVariants()
+	r.syncToolbarChildren()
+	r.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 func (r *Ribbon) activateSection(index int, emit bool) {
@@ -836,25 +877,25 @@ func (r *Ribbon) focusedButton() *Button {
 }
 
 func (r *Ribbon) activeSection() *RibbonSection {
-	if r == nil || len(r.Sections) == 0 {
+	if r == nil || len(r.Sections.Get()) == 0 {
 		return nil
 	}
-	idx := r.clampSectionIndex(r.ActiveIndex)
-	if idx < 0 || idx >= len(r.Sections) {
+	idx := r.clampSectionIndex(r.ActiveIndex.Get())
+	if idx < 0 || idx >= len(r.Sections.Get()) {
 		return nil
 	}
-	return &r.Sections[idx]
+	return &r.Sections.Get()[idx]
 }
 
 func (r *Ribbon) clampSectionIndex(index int) int {
-	if len(r.Sections) == 0 {
+	if len(r.Sections.Get()) == 0 {
 		return -1
 	}
 	if index < 0 {
 		return 0
 	}
-	if index >= len(r.Sections) {
-		return len(r.Sections) - 1
+	if index >= len(r.Sections.Get()) {
+		return len(r.Sections.Get()) - 1
 	}
 	return index
 }

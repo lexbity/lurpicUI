@@ -183,6 +183,14 @@ func (tf *TextField) Base() *facet.Facet {
 	return &tf.Facet
 }
 
+// Focusable reports whether the TextField can take keyboard focus.
+func (tf *TextField) Focusable() bool {
+	if tf.Focus.Focusable == nil {
+		return false
+	}
+	return tf.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (tf *TextField) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: "input", TypeName: "text_field"}
@@ -399,7 +407,7 @@ func (tf *TextField) resolveProjectionTheme(runtime any) (theme.StyleContext, sh
 }
 
 func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.Constraints, resolved theme.ResolvedContext) (*text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout) {
-	shaper := tf.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		return nil, nil, nil, nil, nil, nil
 	}
@@ -503,27 +511,6 @@ func (tf *TextField) availableWidth(constraints facet.Constraints, resolved them
 		return constraints.MaxSize.W
 	}
 	return float32(resolved.Spacing(theme.SpacingXL)) * 6
-}
-
-func (tf *TextField) newShaper(runtime any) *text.Shaper {
-	registry := tf.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (tf *TextField) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func (tf *TextField) ensureTextLayout(layout *text.TextLayout, style text.TextStyle, allowEmpty bool) *text.TextLayout {
@@ -882,18 +869,7 @@ func (tf *TextField) onFocusLost() {
 }
 
 func (tf *TextField) interactionState() theme.InteractionState {
-	switch {
-	case tf.Disabled.Get():
-		return theme.StateDisabled
-	case tf.pressed:
-		return theme.StatePressed
-	case tf.hovered:
-		return theme.StateHover
-	case tf.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(tf.Disabled.Get(), tf.pressed, tf.hovered, tf.focusedVisible)
 }
 
 // Store returns the field's value store — internal when constructed with a

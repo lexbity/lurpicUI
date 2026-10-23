@@ -130,7 +130,7 @@ func TestAlertInteractionsEmitActionAndDismiss(t *testing.T) {
 	}, gfx.RectFromXYWH(0, 0, alert.Layout.MeasuredSize.W, alert.Layout.MeasuredSize.H))
 
 	var actioned, dismissed int
-	alert.Actioned.Subscribe(func(signal.Unit) { actioned++ })
+	alert.Activated.Subscribe(func(signal.Unit) { actioned++ })
 	alert.Dismissed.Subscribe(func(signal.Unit) { dismissed++ })
 
 	actionButton := alert.cachedActionButton

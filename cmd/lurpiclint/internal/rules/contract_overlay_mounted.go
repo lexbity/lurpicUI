@@ -189,7 +189,6 @@ func (r *OverlayMissingMount) isOverlayConstructor(call *ast.CallExpr, f *loader
 		"NewDialog":         true,
 		"NewNavDrawer":      true,
 		"NewCommandPalette": true,
-		"NewPopupPalette":   true,
 		"NewNotification":   true,
 		"NewTooltip":        true,
 	}

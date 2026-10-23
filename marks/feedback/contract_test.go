@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -187,4 +188,14 @@ func TestTooltip_contract_accessible(t *testing.T) {
 		func(label string) facet.FacetImpl { return NewTooltip(label, store.NewValueStore(true)) },
 		"tooltip",
 	)
+}
+
+func TestDialog_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		// The dialog's focus gate is Disabled && Open; the contract builder
+		// proves the enabled path, so the dialog is constructed open.
+		dialog := NewDialog("title", "body", nil, store.NewValueStore(true))
+		dialog.Disabled = marks.Const(disabled)
+		return dialog
+	})
 }

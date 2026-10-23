@@ -205,12 +205,12 @@ func (n *NarrowShell) OnAttach(ctx facet.AttachContext) {
 	})
 	// A bottom-bar destination switches the exhibit (the rail publishes the
 	// selection to the shared drawer index store via its FR-8 binding).
-	barID := n.bar.Activated.Subscribe(func(index int) {
+	barID := n.bar.Selected.Subscribe(func(index int) {
 		if index >= 0 && index < len(exhibitCatalog) {
 			n.setActive(exhibitCatalog[index].id)
 		}
 	})
-	drawerID := n.drawer.Activated.Subscribe(func(index int) {
+	drawerID := n.drawer.Selected.Subscribe(func(index int) {
 		if index >= 0 && index < len(exhibitCatalog) {
 			n.setActive(exhibitCatalog[index].id)
 			n.shell.IndexOpen.Set(false)
@@ -229,8 +229,8 @@ func (n *NarrowShell) OnAttach(ctx facet.AttachContext) {
 	})
 	n.cleanup = func() {
 		n.scrim.Dismissed.Unsubscribe(scrimID)
-		n.bar.Activated.Unsubscribe(barID)
-		n.drawer.Activated.Unsubscribe(drawerID)
+		n.bar.Selected.Unsubscribe(barID)
+		n.drawer.Selected.Unsubscribe(drawerID)
 		n.shell.ActiveExhibit.OnChange.Unsubscribe(activeID)
 		n.shell.IndexOpen.OnChange.Unsubscribe(indexOpenID)
 		n.shell.InspectorOpen.OnChange.Unsubscribe(inspectorOpenID)

@@ -10,7 +10,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/layout/grid"
 	"codeburg.org/lexbit/lurpicui/layout/linear"
-	"codeburg.org/lexbit/lurpicui/layout/radial"
 	"codeburg.org/lexbit/lurpicui/layout/split"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
@@ -125,11 +124,6 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 		}
 		if _, err := g.Measure([]grid.Child{}, gfx.Size{W: 800, H: 600}); err != nil {
 			t.Fatalf("grid.Measure empty: %v", err)
-		}
-
-		rad := radial.New(radial.Config{})
-		if rad == nil {
-			t.Fatal("radial.New returned nil")
 		}
 
 		sp := split.New(split.Config{Axis: split.Horizontal, DividerSize: 4})

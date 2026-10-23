@@ -38,7 +38,7 @@ const (
 type ColorPicker struct {
 	marks.Core
 
-	ColorChanged signal.Signal[gfx.Color]
+	Changed signal.Signal[gfx.Color]
 
 	Label    marks.Binding[string]
 	Value    *store.ValueStore[gfx.Color]
@@ -85,6 +85,7 @@ func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPick
 		value = store.NewValueStore(gfx.Color{})
 	}
 	p := &ColorPicker{
+		Changed:          signal.NewSignal[gfx.Color]("color_picker.changed"),
 		Label:            marks.Const(strings.TrimSpace(label)),
 		Disabled:         marks.Const(false),
 		Value:            value,
@@ -95,7 +96,7 @@ func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPick
 
 	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	p.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial | facet.SupportsLinear,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := p.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -140,6 +141,14 @@ func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPick
 func (p *ColorPicker) Base() *facet.Facet {
 	p.BindImpl(p)
 	return &p.Facet
+}
+
+// Focusable reports whether the ColorPicker can take keyboard focus.
+func (p *ColorPicker) Focusable() bool {
+	if p.Focus.Focusable == nil {
+		return false
+	}
+	return p.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -642,7 +651,7 @@ func (p *ColorPicker) SetColor(color gfx.Color) {
 	p.valueBind.Write(color)
 	p.syncHSVCache()
 	p.syncGeometry()
-	p.ColorChanged.Emit(color)
+	p.Changed.Emit(color)
 	p.invalidate(facet.DirtyProjection | facet.DirtyHit)
 }
 
@@ -668,7 +677,7 @@ func (p *ColorPicker) setHSV(hue float64, saturation, brightness float32, emit b
 	p.valueBind.Write(color)
 	p.syncGeometry()
 	if emit {
-		p.ColorChanged.Emit(color)
+		p.Changed.Emit(color)
 	}
 	p.invalidate(facet.DirtyProjection | facet.DirtyHit)
 }

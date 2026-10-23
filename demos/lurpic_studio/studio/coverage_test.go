@@ -23,8 +23,6 @@ var standardMarks = []marks.Descriptor{
 	{Family: "action", TypeName: "command_palette"},
 	{Family: "action", TypeName: "icon_button"},
 	{Family: "action", TypeName: "menu_button"},
-	{Family: "action", TypeName: "popup_palette"},
-	{Family: "action", TypeName: "radial_menu"},
 	{Family: "action", TypeName: "ribbon"},
 	{Family: "action", TypeName: "split_button"},
 	{Family: "action", TypeName: "toolbar"},
@@ -177,13 +175,13 @@ func TestCoverage_eachExhibitPlacesItsMarks(t *testing.T) {
 	}
 
 	e1 := placed(ExhibitRealtime)
-	for _, key := range []string{"viz/line", "viz/area", "viz/bar", "viz/point", "viz/axis", "viz/rule", "structure/table", "structure/list", "input/text_field", "action/radial_menu", "feedback/tooltip"} {
+	for _, key := range []string{"viz/line", "viz/area", "viz/bar", "viz/point", "viz/axis", "viz/rule", "structure/table", "structure/list", "input/text_field", "selection/turn_dial", "feedback/tooltip"} {
 		if !e1[key] {
 			t.Fatalf("E1 does not place %s", key)
 		}
 	}
 	e6 := placed(ExhibitPlayground)
-	for _, key := range []string{"navigation/tabs", "navigation/nav_rail", "action/split_button", "action/menu_button", "action/radial_menu", "feedback/notification", "feedback/tooltip", "navigation/breadcrumbs", "selection/list_item", "primitive/icon"} {
+	for _, key := range []string{"navigation/tabs", "navigation/nav_rail", "action/split_button", "action/menu_button", "feedback/notification", "feedback/tooltip", "navigation/breadcrumbs", "selection/list_item", "primitive/icon"} {
 		if !e6[key] {
 			t.Fatalf("E6 does not place %s", key)
 		}

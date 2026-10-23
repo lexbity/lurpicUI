@@ -414,17 +414,10 @@ func (i *Icon) resolveSourceWithKey(runtime any) (string, iconResolvedSource, bo
 		if strings.TrimSpace(string(src)) == "" {
 			return "", iconResolvedSource{}, false
 		}
-		type resolver interface {
-			ResolveIcon(ref string) (runtimepkg.IconAsset, bool)
-		}
 		if runtime == nil {
 			return "", iconResolvedSource{}, false
 		}
-		var asset runtimepkg.IconAsset
-		var ok bool
-		if provider, okProvider := runtime.(resolver); okProvider {
-			asset, ok = provider.ResolveIcon(string(src))
-		}
+		asset, ok := marks.ResolveIconFrom(runtime, string(src))
 		if !ok {
 			return "", iconResolvedSource{}, false
 		}

@@ -129,7 +129,7 @@ func TestNavRailPointerAndKeyboardInteraction(t *testing.T) {
 	rail.LayoutRole().Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	activated := -1
-	rail.Activated.Subscribe(func(index int) {
+	rail.Selected.Subscribe(func(index int) {
 		activated = index
 	})
 
@@ -506,8 +506,8 @@ func TestNavRailHorizontal_bottomBarLayout(t *testing.T) {
 	store := rail.ActiveIndex
 	store.Set(-1)
 	fired := -1
-	id := rail.Activated.Subscribe(func(i int) { fired = i })
-	defer rail.Activated.Unsubscribe(id)
+	id := rail.Selected.Subscribe(func(i int) { fired = i })
+	defer rail.Selected.Unsubscribe(id)
 	b0 := rail.cachedItemBounds[0]
 	rail.onPointer(facet.PointerEvent{
 		Kind: platform.PointerPress, Button: platform.PointerLeft,

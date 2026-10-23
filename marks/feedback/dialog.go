@@ -67,11 +67,20 @@ func (m DialogContentLayoutMode) String() string {
 	}
 }
 
-// DialogAction describes one dialog action button.
+// DialogAction describes one dialog action button. Key is the identity
+// reported in DialogResult; when empty the Label is used.
 type DialogAction struct {
+	Key      string
 	Label    string
 	Variant  uiinput.ButtonVariant
 	Disabled bool
+}
+
+// DialogResult reports one dialog activation: the action's index and its
+// key (the action Key, or its Label when no Key was set).
+type DialogResult struct {
+	Index int
+	Key   string
 }
 
 // DialogContentChild describes one reusable child facet placed inside the dialog body.
@@ -89,7 +98,7 @@ type Dialog struct {
 
 	textRole facet.TextRole
 
-	Actioned  signal.Signal[int]
+	Activated signal.Signal[DialogResult]
 	Dismissed signal.Signal[signal.Unit]
 
 	Title              marks.Binding[string]
@@ -140,6 +149,8 @@ const dialogDefaultCloseSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 // NewDialog constructs a feedback.dialog mark with canonical defaults.
 func NewDialog(title, body string, actions []DialogAction, open *store.ValueStore[bool]) *Dialog {
 	d := &Dialog{
+		Dismissed:          signal.NewSignal[signal.Unit]("dialog.dismissed"),
+		Activated:          signal.NewSignal[DialogResult]("dialog.activated"),
 		Title:              marks.Const(title),
 		Body:               marks.Const(body),
 		ContentLayoutMode:  marks.Const(DialogContentLayoutVertical),
@@ -220,6 +231,14 @@ func NewDialog(title, body string, actions []DialogAction, open *store.ValueStor
 func (d *Dialog) Base() *facet.Facet {
 	d.BindImpl(d)
 	return &d.Facet
+}
+
+// Focusable reports whether the Dialog can take keyboard focus.
+func (d *Dialog) Focusable() bool {
+	if d.Focus.Focusable == nil {
+		return false
+	}
+	return d.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -819,7 +838,14 @@ func (d *Dialog) onAction(index int) {
 	if d == nil || d.Disabled.Get() || !d.Open.Get() {
 		return
 	}
-	d.Actioned.Emit(index)
+	key := ""
+	if actions := d.Actions.Get(); index >= 0 && index < len(actions) {
+		key = actions[index].Key
+		if key == "" {
+			key = actions[index].Label
+		}
+	}
+	d.Activated.Emit(DialogResult{Index: index, Key: key})
 	d.closeAndDismiss()
 }
 

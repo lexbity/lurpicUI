@@ -252,3 +252,67 @@ func TestTurnDial_contract_accessible(t *testing.T) {
 		"slider",
 	)
 }
+
+func TestButtonGroup_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		group := NewButtonGroup("group", []ButtonGroupOption{{Key: "k", Label: "L"}}, store.NewValueStore([]string{}))
+		group.Disabled = marks.Const(disabled)
+		return group
+	})
+}
+
+func TestCheckbox_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		box := NewCheckbox("check", store.NewValueStore(CheckboxStateOff))
+		box.Disabled = marks.Const(disabled)
+		return box
+	})
+}
+
+func TestDropdownSelect_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		select_ := NewDropdownSelect("select", nil, store.NewValueStore(""))
+		select_.Disabled = marks.Const(disabled)
+		return select_
+	})
+}
+
+func TestListItem_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		item := NewListItem(marks.Const("item"))
+		item.Disabled = marks.Const(disabled)
+		return item
+	})
+}
+
+func TestRadioGroup_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		group := NewRadioGroup("radio", []RadioOption{{Value: "k", Label: "L"}}, store.NewValueStore(""))
+		group.Disabled = marks.Const(disabled)
+		return group
+	})
+}
+
+func TestSlider_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		slider := NewSlider("slider", 0, 1, 0.1, store.NewValueStore(0.5))
+		slider.Disabled = marks.Const(disabled)
+		return slider
+	})
+}
+
+func TestSwitch_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		sw := NewSwitch("switch", store.NewValueStore(false))
+		sw.Disabled = marks.Const(disabled)
+		return sw
+	})
+}
+
+func TestTurnDial_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		dial := NewTurnDial("dial", 0, 3, 1, store.NewValueStore(0.0))
+		dial.Disabled = marks.Const(disabled)
+		return dial
+	})
+}

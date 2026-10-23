@@ -54,6 +54,8 @@ repository state.
 | LL034 | error | Layer-attached facet must not also be a group-arranged child (RX-1 Q4 layer exclusivity). | [`contract_layer_exclusive.go`](../cmd/lurpiclint/internal/rules/contract_layer_exclusive.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |
 | LL035 | warn | `OnProject` closures must not write stores; projection is read-only. | [`contract_layer_exclusive.go`](../cmd/lurpiclint/internal/rules/contract_layer_exclusive.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |
 | LL036 | warn | `GridRows`/`GridColumns` count above 16 is suspicious; counts do not size tracks (RX-1 Q6 / FR-6). | [`contract_grid_count.go`](../cmd/lurpiclint/internal/rules/contract_grid_count.go) and [`rules_test.go`](../cmd/lurpiclint/internal/rules/rules_test.go) |
+| LL037 | error | `AddBinding` called outside the marks package; marks declare bindings as exported `marks.Binding` fields. | [`contract_add_binding.go`](../cmd/lurpiclint/internal/rules/contract_add_binding.go) |
+| LL038 | error | Local re-declaration of a runtime-access provider interface (`FontRegistry`/`IconResolver`/`ResolveIcon`) in a marks subpackage; use the marks root helpers (`marks.ShaperFor`, `marks.ResolveIconFrom`, `marks.IconCommands`) exactly once. | [`reinvent_runtime_provider.go`](../cmd/lurpiclint/internal/rules/reinvent_runtime_provider.go) and [`ll038_test.go`](../cmd/lurpiclint/internal/rules/ll038_test.go) |
 
 ## Notes
 

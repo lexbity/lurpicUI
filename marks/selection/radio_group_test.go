@@ -19,7 +19,7 @@ import (
 
 func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	rg.Label = "Size"
+	rg.Label = marks.Const("Size")
 	rg.SetValue("medium")
 
 	facet.Attach(rg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
@@ -46,7 +46,7 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if rg.textRole.Layout == nil {
 		t.Fatal("expected group label text layout")
 	}
-	if rg.cachedGroupLabelRect.IsEmpty() || len(rg.cachedItemRows) != len(rg.Options) {
+	if rg.cachedGroupLabelRect.IsEmpty() || len(rg.cachedItemRows) != len(rg.Options.Get()) {
 		t.Fatalf("expected item geometry, got label=%#v rows=%d", rg.cachedGroupLabelRect, len(rg.cachedItemRows))
 	}
 
@@ -105,7 +105,7 @@ func TestRadioGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestRadioGroupPointerAndKeyboardInteraction(t *testing.T) {
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	rg.Label = "Size"
+	rg.Label = marks.Const("Size")
 	facet.Attach(rg, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 	result := rg.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
@@ -263,7 +263,7 @@ func TestRadioGroupGoldenSelected(t *testing.T) {
 func AssertRadioGroupGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*RadioGroup)) {
 	t.Helper()
 	rg, rt, measureCtx := newRadioGroupTestFixture(t, tokens, density, direction)
-	rg.Label = "Size"
+	rg.Label = marks.Const("Size")
 	if mutate != nil {
 		mutate(rg)
 	}

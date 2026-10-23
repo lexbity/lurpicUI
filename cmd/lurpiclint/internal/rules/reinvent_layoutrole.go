@@ -37,7 +37,7 @@ func (r *ReinventLayoutRole) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
 	for _, f := range ctx.Files {
-		if isLayoutOrMarksPackage(f) || isGraphPackage(f) {
+		if isLayoutOrMarksPackage(f) {
 			continue
 		}
 		fid := facetIdent(f.Imports)

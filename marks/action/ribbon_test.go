@@ -36,8 +36,8 @@ func TestRibbonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := ribbon.AccessibleName(); got != "Document ribbon" {
 		t.Fatalf("accessible name = %q, want Document ribbon", got)
 	}
-	if len(ribbon.cachedTabButtons) != len(ribbon.Sections) {
-		t.Fatalf("tab buttons = %d, want %d", len(ribbon.cachedTabButtons), len(ribbon.Sections))
+	if len(ribbon.cachedTabButtons) != len(ribbon.Sections.Get()) {
+		t.Fatalf("tab buttons = %d, want %d", len(ribbon.cachedTabButtons), len(ribbon.Sections.Get()))
 	}
 	if ribbon.cachedRootBounds.IsEmpty() || ribbon.cachedTabBounds[0].IsEmpty() || len(ribbon.cachedToolbarBounds) == 0 {
 		t.Fatalf("expected arranged geometry, got root=%#v tabs=%#v toolbars=%#v", ribbon.cachedRootBounds, ribbon.cachedTabBounds, ribbon.cachedToolbarBounds)
@@ -103,7 +103,7 @@ func TestRibbonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	ribbon.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: theme.DefaultResolvedContext(), ParentGroup: ribbon.Layout.Parent, ChildGroup: ribbon.Layout.Child}, bounds)
 
 	activated := -1
-	ribbon.Activated.Subscribe(func(index int) {
+	ribbon.Selected.Subscribe(func(index int) {
 		activated = index
 	})
 
@@ -117,7 +117,7 @@ func TestRibbonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	if !ribbon.onPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: secondCenter, Button: platform.PointerLeft}) {
 		t.Fatal("expected pointer release to be handled")
 	}
-	if got := ribbon.ActiveIndex; got != 1 {
+	if got := ribbon.ActiveIndex.Get(); got != 1 {
 		t.Fatalf("active index after pointer = %d, want 1", got)
 	}
 	if activated != 1 {
@@ -127,20 +127,20 @@ func TestRibbonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	if !ribbon.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyRight}) {
 		t.Fatal("expected right key to be handled")
 	}
-	if got := ribbon.ActiveIndex; got != 2 {
+	if got := ribbon.ActiveIndex.Get(); got != 2 {
 		t.Fatalf("active index after right = %d, want 2", got)
 	}
 	if !ribbon.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyHome}) {
 		t.Fatal("expected home key to be handled")
 	}
-	if got := ribbon.ActiveIndex; got != 0 {
+	if got := ribbon.ActiveIndex.Get(); got != 0 {
 		t.Fatalf("active index after home = %d, want 0", got)
 	}
 	if !ribbon.onKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEnd}) {
 		t.Fatal("expected end key to be handled")
 	}
-	if got := ribbon.ActiveIndex; got != len(ribbon.Sections)-1 {
-		t.Fatalf("active index after end = %d, want %d", got, len(ribbon.Sections)-1)
+	if got := ribbon.ActiveIndex.Get(); got != len(ribbon.Sections.Get())-1 {
+		t.Fatalf("active index after end = %d, want %d", got, len(ribbon.Sections.Get())-1)
 	}
 
 	ribbon.onFocusLost()
@@ -243,7 +243,7 @@ func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntime
 				}, nil),
 			},
 		},
-	})
+	}, nil)
 	rt := buttonRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),

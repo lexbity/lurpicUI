@@ -244,7 +244,7 @@ var canonicalContainerMarks = []string{
 	"Toolbar", "ActionGroup", "CommandPalette",
 	"ButtonGroup", "DropdownSelect",
 	"Dialog", "Notification", "Alert", "Tooltip",
-	"RadialMenu", "SplitButton",
+	"SplitButton",
 	"NavDrawer", "NavRail", "Tabs", "Pagination", "TreeNavigator", "Breadcrumbs",
 	"Badge",
 }

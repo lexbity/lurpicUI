@@ -66,7 +66,7 @@ type NavRail struct {
 	// OnAttach); nil until then, so reads fall back to the store.
 	selection *SelectionBinding[int]
 
-	Activated signal.Signal[int]
+	Selected signal.Signal[int]
 
 	textRole facet.TextRole
 
@@ -96,6 +96,7 @@ var _ marks.Mark = (*NavRail)(nil)
 // NewNavRail constructs a navigation.nav_rail mark with canonical defaults.
 func NewNavRail(label string, items []NavRailItem, activeIndex *store.ValueStore[int]) *NavRail {
 	r := &NavRail{
+		Selected:     signal.NewSignal[int]("nav_rail.selected"),
 		Label:        marks.Const(label),
 		Collapsed:    marks.Const(false),
 		Disabled:     marks.Const(false),
@@ -105,7 +106,17 @@ func NewNavRail(label string, items []NavRailItem, activeIndex *store.ValueStore
 		pressedIndex: -1,
 	}
 	r.Facet = facet.NewFacet()
-	r.SetItems(items)
+	// Items are config (Q3 rule): normalized once at construction.
+	next := append([]NavRailItem(nil), items...)
+	for i := range next {
+		next[i].Key = strings.TrimSpace(next[i].Key)
+		next[i].Label = strings.TrimSpace(next[i].Label)
+		next[i].IconRef = strings.TrimSpace(next[i].IconRef)
+	}
+	r.Items = next
+	r.rebuildChildFacets()
+	r.clampIndices()
+
 	r.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   navRailGroupPolicy{rail: r},
@@ -185,23 +196,6 @@ func (r *NavRail) ItemBounds() []gfx.Rect {
 		return nil
 	}
 	return append([]gfx.Rect(nil), r.cachedItemBounds...)
-}
-
-// SetItems updates the rail destinations.
-func (r *NavRail) SetItems(items []NavRailItem) {
-	if r == nil {
-		return
-	}
-	next := append([]NavRailItem(nil), items...)
-	for i := range next {
-		next[i].Key = strings.TrimSpace(next[i].Key)
-		next[i].Label = strings.TrimSpace(next[i].Label)
-		next[i].IconRef = strings.TrimSpace(next[i].IconRef)
-	}
-	r.Items = next
-	r.rebuildChildFacets()
-	r.clampIndices()
-	r.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // ExportAnchors publishes the rail anchor set.
@@ -751,7 +745,7 @@ func (r *NavRail) activateIndex(index int) {
 	}
 	r.selection.Publish(index)
 	r.syncChildState()
-	r.Activated.Emit(index)
+	r.Selected.Emit(index)
 	r.invalidate(facet.DirtyProjection)
 }
 

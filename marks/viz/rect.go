@@ -56,7 +56,7 @@ func NewBar[T any](
 		Padding:   marks.Const[float32](0.1),
 		Color:     marks.Const(gfx.Color{}),
 		Baseline:  marks.Const(0.0),
-		Activated: signal.NewSignal[signal.Unit]("Bar.Activated"),
+		Activated: signal.NewSignal[signal.Unit]("bar.activated"),
 		hitDirty:  true,
 	}
 	b.Facet = facet.NewFacet()

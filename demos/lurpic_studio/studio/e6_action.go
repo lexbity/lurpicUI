@@ -1,42 +1,35 @@
 package studio
 
 import (
-	"codeburg.org/lexbit/lurpicui/facet"
-	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
-	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
 // playActionFamily is the Action playground: action_bar, action_group, ribbon,
-// a standalone toolbar, split_button, menu_button, popup_palette, and
-// radial_menu. Each mark's Activated event writes the shared lastAction /
-// ribbonSection stores — the visible feedback of a running action command (the
-// action family's distinctive behavior: command dispatch).
+// a standalone toolbar, split_button, and menu_button. Each mark's Activated
+// event writes the shared lastAction / ribbonSection stores — the visible
+// feedback of a running action command (the action family's distinctive
+// behavior: command dispatch).
 type playActionFamily struct {
-	scroll      *structure.ScrollRegion
-	bar         *action.ActionBar
-	group       *action.ActionGroup
-	ribbon      *action.Ribbon
-	toolbar     *action.Toolbar
-	split       *action.SplitButton
-	menu        *action.MenuButton
-	palette     *action.PopupPalette
-	radial      *action.RadialMenu
-	lastAction  *store.ValueStore[string]
-	ribbonTab   *store.ValueStore[int]
-	paletteOpen *store.ValueStore[bool]
+	scroll     *structure.ScrollRegion
+	bar        *action.ActionBar
+	group      *action.ActionGroup
+	ribbon     *action.Ribbon
+	toolbar    *action.Toolbar
+	split      *action.SplitButton
+	menu       *action.MenuButton
+	lastAction *store.ValueStore[string]
+	ribbonTab  *store.ValueStore[int]
 }
 
 // newPlayActionFamily builds the Action family playground.
 func newPlayActionFamily() *playActionFamily {
 	f := &playActionFamily{
-		lastAction:  store.NewValueStore(""),
-		ribbonTab:   store.NewValueStore(0),
-		paletteOpen: store.NewValueStore(false),
+		lastAction: store.NewValueStore(""),
+		ribbonTab:  store.NewValueStore(0),
 	}
 
 	f.bar = action.NewActionBar("File", []action.ActionBarAction{
@@ -63,10 +56,13 @@ func newPlayActionFamily() *playActionFamily {
 			{Key: "link", Label: "Link"},
 		}},
 	}, nil)
+	// The ribbon's active section is the app-domain ribbonTab store, injected
+	// so the shell reads it directly (RX-2 Q2 injected-truth path) — no
+	// mirror subscription.
 	f.ribbon = action.NewRibbon("Editing", []action.RibbonSection{
 		{Key: "home", Label: "Home", Toolbars: []*action.Toolbar{boldTB}},
 		{Key: "insert", Label: "Insert", Toolbars: []*action.Toolbar{insertTB}},
-	})
+	}, f.ribbonTab)
 
 	// A standalone toolbar (the ribbon's toolbars are internal sub-marks, so a
 	// hosted toolbar is the tree-reachable instance).
@@ -88,21 +84,6 @@ func newPlayActionFamily() *playActionFamily {
 		{Kind: action.MenuButtonEntryDivider},
 		{Key: "file.close", Label: "Close", Kind: action.MenuButtonEntryItem, Destructive: true},
 	})
-	f.palette = action.NewPopupPalette("Brush", []action.PopupPaletteTool{
-		{Key: "red", Label: "Red", Color: gfx.ColorFromRGBA8(230, 80, 80, 255)},
-		{Key: "green", Label: "Green", Color: gfx.ColorFromRGBA8(80, 200, 115, 255)},
-		{Key: "blue", Label: "Blue", Color: gfx.ColorFromRGBA8(80, 140, 245, 255)},
-	}, f.paletteOpen)
-
-	// A radial menu: a center glyph ringed by chart-type choices.
-	center := primitive.NewText(marks.Const("◈"))
-	f.radial = action.NewRadialMenu("Chart", center, []action.RadialChild{
-		{Child: primitive.NewText(marks.Const("L")), Placement: facet.RadialPlacement{Angle: 0, RadiusTrack: 90}},
-		{Child: primitive.NewText(marks.Const("A")), Placement: facet.RadialPlacement{Angle: 1.5708, RadiusTrack: 90}},
-		{Child: primitive.NewText(marks.Const("P")), Placement: facet.RadialPlacement{Angle: 3.1416, RadiusTrack: 90}},
-		{Child: primitive.NewText(marks.Const("B")), Placement: facet.RadialPlacement{Angle: 4.7124, RadiusTrack: 90}},
-	})
-
 	f.scroll = newPlayScroll(listGap,
 		playgroundCard("action_bar — click an action", f.bar),
 		playgroundCard("action_group — click an alignment", f.group),
@@ -110,8 +91,6 @@ func newPlayActionFamily() *playActionFamily {
 		playgroundCard("toolbar — click a format", f.toolbar),
 		playgroundCard("split_button — split an action", f.split),
 		playgroundCard("menu_button — open the menu", f.menu),
-		playgroundCard("popup_palette — pick a color", f.palette),
-		playgroundCard("radial_menu — hover a ring", f.radial),
 	)
 	return f
 }
@@ -122,18 +101,23 @@ func newPlayActionFamily() *playActionFamily {
 func (f *playActionFamily) wire() func() {
 	barID := f.bar.Activated.Subscribe(func(ma action.MarkAction) { f.lastAction.Set(ma.Key) })
 	groupID := f.group.Activated.Subscribe(func(ma action.MarkAction) { f.lastAction.Set(ma.Key) })
-	ribbonID := f.ribbon.Activated.Subscribe(func(index int) { f.ribbonTab.Set(index) })
+	// The ribbon publishes its selection into the injected ribbonTab store
+	// (FR-8 truth); this subscription surfaces the chosen section in the
+	// family's lastAction readout.
+	ribbonID := f.ribbon.Selected.Subscribe(func(index int) {
+		if sections := f.ribbon.Sections.Get(); index >= 0 && index < len(sections) {
+			f.lastAction.Set(sections[index].Label)
+		}
+	})
 	toolbarID := f.toolbar.Activated.Subscribe(func(ma action.MarkAction) { f.lastAction.Set(ma.Key) })
 	splitID := f.split.Activated.Subscribe(func(ma action.MarkAction) { f.lastAction.Set(ma.Key) })
 	menuID := f.menu.Activated.Subscribe(func(ma action.MarkAction) { f.lastAction.Set(ma.Key) })
-	paletteID := f.palette.Activated.Subscribe(func(ma action.MarkAction) { f.lastAction.Set(ma.Key) })
 	return func() {
 		f.bar.Activated.Unsubscribe(barID)
 		f.group.Activated.Unsubscribe(groupID)
-		f.ribbon.Activated.Unsubscribe(ribbonID)
+		f.ribbon.Selected.Unsubscribe(ribbonID)
 		f.toolbar.Activated.Unsubscribe(toolbarID)
 		f.split.Activated.Unsubscribe(splitID)
 		f.menu.Activated.Unsubscribe(menuID)
-		f.palette.Activated.Unsubscribe(paletteID)
 	}
 }

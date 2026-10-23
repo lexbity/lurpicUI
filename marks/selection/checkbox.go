@@ -190,6 +190,14 @@ func (c *Checkbox) Base() *facet.Facet {
 	return &c.Facet
 }
 
+// Focusable reports whether the Checkbox can take keyboard focus.
+func (c *Checkbox) Focusable() bool {
+	if c.Focus.Focusable == nil {
+		return false
+	}
+	return c.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (c *Checkbox) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeSelection, TypeName: "checkbox"}
@@ -687,18 +695,7 @@ func (c *Checkbox) onFocusLost() {
 }
 
 func (c *Checkbox) interactionState() theme.InteractionState {
-	switch {
-	case c.Disabled.Get():
-		return theme.StateDisabled
-	case c.pressed:
-		return theme.StatePressed
-	case c.hovered:
-		return theme.StateHover
-	case c.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(c.Disabled.Get(), c.pressed, c.hovered, c.focusedVisible)
 }
 
 func (c *Checkbox) selectedState() theme.InteractionState {

@@ -22,7 +22,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/rules"
 )
 
-const version = "0.1.0-dev"
+var version = "0.1.0-dev"
 
 // checkFlags holds parsed flags for the `check` subcommand.
 type checkFlags struct {

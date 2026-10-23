@@ -60,7 +60,7 @@ func TestRibbonGoldenRTL(t *testing.T) {
 
 func TestRibbonGoldenSelected(t *testing.T) {
 	AssertRibbonGolden(t, "selected", defaultActionBarTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR, func(r *Ribbon) {
-		r.ActiveIndex = 1
+		r.ActiveIndex.Set(1)
 	})
 }
 

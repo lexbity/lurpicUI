@@ -37,7 +37,9 @@ func (s *ValueStore[T]) Get() T {
 	return s.value
 }
 
-// Set updates the value immediately and emits OnChange if the value changed.
+// Set updates the value immediately and emits OnChange unconditionally —
+// even when the value is unchanged — so subscribers must tolerate redundant
+// deliveries (marks deduplicate with echo guards, see marks/value.go).
 func (s *ValueStore[T]) Set(value T) {
 	syncutil.AssertRuntimeThread()
 	syncutil.AssertNotAnchorExporting("store.Set")

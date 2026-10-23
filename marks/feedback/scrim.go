@@ -43,7 +43,7 @@ var _ marks.Mark = (*Scrim)(nil)
 func NewScrim() *Scrim {
 	s := &Scrim{
 		Color:     marks.Const(gfx.Color{}),
-		Dismissed: signal.NewSignal[signal.Unit]("scrim_dismissed"),
+		Dismissed: signal.NewSignal[signal.Unit]("scrim.dismissed"),
 	}
 	s.Facet = facet.NewFacet()
 

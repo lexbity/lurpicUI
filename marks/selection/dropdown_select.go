@@ -185,6 +185,14 @@ func (ds *DropdownSelect) Base() *facet.Facet {
 	return &ds.Facet
 }
 
+// Focusable reports whether the DropdownSelect can take keyboard focus.
+func (ds *DropdownSelect) Focusable() bool {
+	if ds.Focus.Focusable == nil {
+		return false
+	}
+	return ds.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (ds *DropdownSelect) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeSelection, TypeName: "dropdown_select"}
@@ -293,7 +301,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	ds.cachedOptionPad = float32(resolved.Spacing(theme.SpacingS))
 	ds.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	ds.cachedValueStyle = resolved.TextStyle(theme.TextBodyM)
-	shaper := ds.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(320)
@@ -769,18 +777,7 @@ func (ds *DropdownSelect) onFocusLost() {
 }
 
 func (ds *DropdownSelect) interactionState() theme.InteractionState {
-	switch {
-	case ds.Disabled.Get():
-		return theme.StateDisabled
-	case ds.pressed:
-		return theme.StatePressed
-	case ds.hovered:
-		return theme.StateHover
-	case ds.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(ds.Disabled.Get(), ds.pressed, ds.hovered, ds.focusedVisible)
 }
 
 func (ds *DropdownSelect) valueState() theme.InteractionState {
@@ -936,27 +933,6 @@ func (ds *DropdownSelect) chevronPath(bounds gfx.Rect) gfx.Path {
 		LineTo(gfx.Point{X: bounds.Min.X + bounds.Width()*0.5, Y: bounds.Max.Y}).
 		LineTo(gfx.Point{X: bounds.Max.X, Y: bounds.Min.Y + bounds.Height()*0.35}).
 		Build()
-}
-
-func (ds *DropdownSelect) newShaper(runtime any) *text.Shaper {
-	registry := ds.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (ds *DropdownSelect) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func minInt(a, b int) int {

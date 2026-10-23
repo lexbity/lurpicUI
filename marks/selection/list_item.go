@@ -83,6 +83,7 @@ var _ marks.Mark = (*ListItem)(nil)
 // NewListItem constructs a selection.list_item mark with canonical defaults.
 func NewListItem(label marks.Binding[string]) *ListItem {
 	li := &ListItem{
+		Activated:              signal.NewSignal[signal.Unit]("list_item.activated"),
 		Label:                  label,
 		LeadingIconRef:         marks.Const(""),
 		SupportingText:         marks.Const(""),
@@ -147,6 +148,14 @@ func NewListItem(label marks.Binding[string]) *ListItem {
 func (li *ListItem) Base() *facet.Facet {
 	li.BindImpl(li)
 	return &li.Facet
+}
+
+// Focusable reports whether the ListItem can take keyboard focus.
+func (li *ListItem) Focusable() bool {
+	if li.Focus.Focusable == nil {
+		return false
+	}
+	return li.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -231,7 +240,7 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	li.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(10))
 	li.cachedGap = float32(resolved.Spacing(theme.SpacingXS))
 	li.cachedRadius = float32(resolved.Radius(theme.RadiusS))
-	shaper := li.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(320)
@@ -503,23 +512,7 @@ func (li *ListItem) leadingIconCommands(runtime any, material theme.Material) []
 }
 
 func (li *ListItem) resolveIcon(runtime any) (runtimepkg.IconAsset, bool) {
-	type iconProvider interface {
-		IconResolver() runtimepkg.IconResolver
-	}
-	if runtime == nil {
-		return runtimepkg.IconAsset{}, false
-	}
-	if provider, ok := runtime.(iconProvider); ok {
-		if resolver := provider.IconResolver(); resolver != nil {
-			return resolver.ResolveIcon(li.LeadingIconRef.Get())
-		}
-	}
-	if resolver, ok := runtime.(interface {
-		ResolveIcon(string) (runtimepkg.IconAsset, bool)
-	}); ok {
-		return resolver.ResolveIcon(li.LeadingIconRef.Get())
-	}
-	return runtimepkg.IconAsset{}, false
+	return marks.ResolveIconFrom(runtime, li.LeadingIconRef.Get())
 }
 
 func (li *ListItem) hitTest(p gfx.Point) facet.HitResult {
@@ -635,39 +628,7 @@ func (li *ListItem) onFocusLost() {
 }
 
 func (li *ListItem) interactionState() theme.InteractionState {
-	switch {
-	case li.Disabled.Get():
-		return theme.StateDisabled
-	case li.pressed:
-		return theme.StatePressed
-	case li.hovered:
-		return theme.StateHover
-	case li.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
-}
-
-func (li *ListItem) newShaper(runtime any) *text.Shaper {
-	registry := li.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (li *ListItem) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
+	return marks.InteractionStateFor(li.Disabled.Get(), li.pressed, li.hovered, li.focusedVisible)
 }
 
 type listItemGroupPolicy struct{}

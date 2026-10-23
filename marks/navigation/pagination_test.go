@@ -111,7 +111,7 @@ func TestPaginationPointerKeyboardAndFocus(t *testing.T) {
 	}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	activated := -1
-	pagination.Activated.Subscribe(func(index int) { activated = index })
+	pagination.Selected.Subscribe(func(index int) { activated = index })
 
 	lastIdx := len(pagination.entryProj.entryBounds) - 1
 	nextCenter := gfx.Point{
@@ -338,14 +338,16 @@ func TestPaginationEntryCacheReDerivesOnVersionMismatch(t *testing.T) {
 
 	// Changing an item label (itemsHash changes) re-derives even when the
 	// CurrentIndex version is unchanged by the re-measure itself — Items has
-	// no Version(), so the hash is its staleness signal. SetItems also clamps
-	// the index (which bumps the store version once); capture the version
-	// after that clamp so the assertion isolates the measure path.
+	// no Version(), so the hash is its staleness signal. The pre-attach
+	// Items assignment (the Q3 config path) replaced the fixture's items;
+	// this measure exercises the same re-derive on the renamed set.
 	items := make([]PaginationItem, 10)
 	for i := 0; i < 10; i++ {
 		items[i] = PaginationItem{Key: "page-" + strconv.Itoa(i+1), Label: "renamed-" + strconv.Itoa(i+1)}
 	}
-	pagination.SetItems(items)
+	pagination.Items = items
+	pagination.clampIndices()
+	pagination.rebuildChildren()
 	versionBeforeMeasure := uint64(pagination.CurrentIndex.Version())
 	hashBeforeMeasure := pagination.entryProj.itemsHash
 	measure()

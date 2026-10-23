@@ -70,8 +70,8 @@ type tableChildSpec struct {
 type Table struct {
 	marks.Core
 
-	Activated signal.Signal[int]
-	Scrolled  signal.Signal[gfx.Point]
+	Selected signal.Signal[int]
+	Scrolled signal.Signal[gfx.Point]
 
 	Label     marks.Binding[string]
 	Disabled  marks.Binding[bool]
@@ -136,6 +136,7 @@ var _ marks.Mark = (*Table)(nil)
 // The selection store is supplied by the caller — the mark never creates its own.
 func NewTable(label string, data TableData, selection *store.ValueStore[string]) *Table {
 	t := &Table{
+		Selected:             signal.NewSignal[int]("table.selected"),
 		Label:                marks.Const(label),
 		Disabled:             marks.Const(false),
 		Data:                 store.NewValueStore(cloneTableData(data)),
@@ -150,7 +151,7 @@ func NewTable(label string, data TableData, selection *store.ValueStore[string])
 		cachedBodyCells:      make(map[string]map[string]*primitive.Text),
 		cachedSelectionCells: make(map[string]*primitive.Text),
 		cachedSortIndicators: make(map[string]*primitive.Text),
-		Scrolled:             signal.NewSignal[gfx.Point]("table_scrolled"),
+		Scrolled:             signal.NewSignal[gfx.Point]("table.scrolled"),
 	}
 	t.Facet = facet.NewFacet()
 
@@ -1021,7 +1022,7 @@ func (t *Table) onPointer(e facet.PointerEvent) bool {
 			t.focusFromPointer = true
 			t.focusedVisible = false
 			t.selectRow(rowIndex)
-			t.Activated.Emit(rowIndex)
+			t.Selected.Emit(rowIndex)
 			t.ensureFocusedRowVisible()
 			t.invalidate(facet.DirtyProjection)
 			return true
@@ -1105,7 +1106,7 @@ func (t *Table) onKey(e facet.KeyEvent) bool {
 	case platform.KeyEnter, platform.KeySpace:
 		if t.focusedRowIndex >= 0 {
 			t.selectRow(t.focusedRowIndex)
-			t.Activated.Emit(t.focusedRowIndex)
+			t.Selected.Emit(t.focusedRowIndex)
 		}
 	default:
 		return false

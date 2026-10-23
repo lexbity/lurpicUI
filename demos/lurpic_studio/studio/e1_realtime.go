@@ -81,7 +81,7 @@ type Realtime struct {
 	timeRange   *store.ValueStore[[]string]
 
 	controls *structure.Card
-	reshape  *action.RadialMenu
+	reshape  *selection.TurnDial
 	jump     *action.IconButton
 
 	// tip is the chart-side anchored tooltip (FR-brush: a selection — from a
@@ -177,8 +177,8 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 // Canvas returns the chart canvas.
 func (e *Realtime) Canvas() *ChartCanvas { return e.canvas }
 
-// Reshape returns the radial chart-reshape dial.
-func (e *Realtime) Reshape() *action.RadialMenu { return e.reshape }
+// Reshape returns the chart-reshape dial.
+func (e *Realtime) Reshape() *selection.TurnDial { return e.reshape }
 
 // Jump returns the jump-to-live button.
 func (e *Realtime) Jump() *action.IconButton { return e.jump }
@@ -219,45 +219,32 @@ func (e *Realtime) RuleValue() *store.ValueStore[float64] { return e.ruleValue }
 // TimeRange returns the selected time-range keys (the button group's store).
 func (e *Realtime) TimeRange() *store.ValueStore[[]string] { return e.timeRange }
 
-// buildReshapeDial builds the radial_menu chart-reshape control (the §3.3 E1
-// placement: radial_menu · chart reshape · radial layout). Its four radial
-// children are icon buttons, one per chart type; clicking one writes ChartType,
-// re-projecting the canvas series. icon_button children are used because the
-// radial policy arranges its children with Radial placement, which the plain
-// button mark's child contract does not declare.
+// buildReshapeDial builds the chart-reshape dial (the §3.3 E1 placement:
+// turn_dial · chart reshape · discrete positions). The dial's four discrete
+// positions map one-to-one onto the chart types: turning it writes ChartType,
+// re-projecting the canvas series, and chart-type writes from the controls
+// radio group turn the dial to match. Both directions are echo-guarded — the
+// stores do not dedupe same-value writes, so an unguarded write-back loop
+// would trip the runtime's signal-cycle guard.
 func (e *Realtime) buildReshapeDial() {
-	types := []struct {
-		key  string
-		icon string
-	}{
-		{ChartLine.String(), iconChartLine},
-		{ChartArea.String(), iconChartArea},
-		{ChartPoint.String(), iconChartPoint},
-		{ChartBar.String(), iconChartBar},
-	}
-	children := make([]action.RadialChild, 0, len(types))
-	for i, t := range types {
-		btn := action.NewIconButton(primitive.IconSVG(t.icon))
-		key := t.key
-		id := btn.Activated.Subscribe(func(signal.Unit) {
-			if e.chartType.Get() != key {
-				e.chartType.Set(key)
-			}
-		})
-		e.reshapeUnsub = append(e.reshapeUnsub, func() { btn.Activated.Unsubscribe(id) })
-		children = append(children, action.RadialChild{
-			Child:     btn,
-			Placement: facet.RadialPlacement{Angle: float64(i) * 2 * math.Pi / float64(len(types)), RadiusTrack: reshapeDialRadius},
-		})
-	}
-	center := action.NewIconButton(primitive.IconSVG(iconRealtime))
-	e.reshape = action.NewRadialMenu("Chart type", center, children)
-	e.reshape.DefaultTrackRadius = reshapeDialRadius
+	dial := store.NewValueStore(float64(chartTypeFromString(e.chartType.Get())))
+	e.reshape = selection.NewTurnDial("Chart type", float64(ChartLine), float64(ChartBar), 1, dial)
+	dialID := dial.OnChange.Subscribe(func(ch signal.Change[float64]) {
+		v := math.Round(math.Min(math.Max(ch.New, float64(ChartLine)), float64(ChartBar)))
+		if key := ChartType(uint8(v)).String(); e.chartType.Get() != key {
+			e.chartType.Set(key)
+		}
+	})
+	typeID := e.chartType.OnChange.Subscribe(func(ch signal.Change[string]) {
+		if v := float64(chartTypeFromString(ch.New)); dial.Get() != v {
+			dial.Set(v)
+		}
+	})
+	e.reshapeUnsub = append(e.reshapeUnsub,
+		func() { dial.OnChange.Unsubscribe(dialID) },
+		func() { e.chartType.OnChange.Unsubscribe(typeID) },
+	)
 }
-
-// reshapeDialRadius is the radial_menu's track radius (a compact dial that
-// fits the E1 bottom strip).
-const reshapeDialRadius float32 = 44
 
 func (e *Realtime) buildControls() {
 	liveSwitch := selection.NewSwitch("Live", e.feed.Live())
@@ -270,7 +257,7 @@ func (e *Realtime) buildControls() {
 	seriesPicker := input.NewColorPicker("Series color", e.seriesColor)
 	opacitySlider := selection.NewSlider("Opacity", 0.1, 1, 0.05, e.opacity)
 	gridCheck := selection.NewCheckbox("Grid", e.gridState)
-	maxField := input.NewNumberField("Y max", e.appState.YAxisMax)
+	maxField := input.NewNumberField("Y max", 0, 0, 1, -1, e.appState.YAxisMax)
 	rangeButtons := selection.NewButtonGroup("Time range", []selection.ButtonGroupOption{
 		{Key: "30s", Label: "30s"},
 		{Key: "60s", Label: "60s"},
@@ -368,7 +355,7 @@ func (e *Realtime) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	e.grid.Base().LayoutRole().Arrange(ctx, gfx.RectFromXYWH(bounds.Min.X, bounds.Min.Y+canvasH, bounds.Width(), gridHeight))
 
 	// Bottom strip: the controls card (which hosts the jump-to-live button
-	// as a grid cell — RX-2 FR-5) on the left, the radial reshape dial in
+	// as a grid cell — RX-2 FR-5) on the left, the reshape dial in
 	// the middle, and the table + feed legend stacked on the right.
 	bottomY := bounds.Min.Y + canvasH + gridHeight
 	controlsW := bounds.Width() * 0.5

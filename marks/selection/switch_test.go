@@ -21,7 +21,7 @@ import (
 
 func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	sw.Label = "Label"
+	sw.Label = marks.Const("Label")
 	sw.SetChecked(true)
 
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
@@ -102,7 +102,7 @@ func TestSwitchMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestSwitchPointerAndKeyboardInteraction(t *testing.T) {
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	sw.Label = "Label"
+	sw.Label = marks.Const("Label")
 	facet.Attach(sw, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 	result := sw.LayoutRole().Measure(facet.MeasureContext{
 		Runtime:          rt,
@@ -265,7 +265,7 @@ func TestSwitchGoldenSkeuomorphicPressed(t *testing.T) {
 func assertSwitchSkeuomorphicGolden(t *testing.T, name string, mutate func(*Switch)) {
 	t.Helper()
 	sw, rt, measureCtx := newSwitchTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	sw.Label = "Label"
+	sw.Label = marks.Const("Label")
 	sw.SetChecked(true)
 	if mutate != nil {
 		mutate(sw)
@@ -327,7 +327,7 @@ func assertSwitchSkeuomorphicGolden(t *testing.T, name string, mutate func(*Swit
 func AssertSwitchGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Switch)) {
 	t.Helper()
 	sw, rt, measureCtx := newSwitchTestFixture(t, tokens, density, direction)
-	sw.Label = "Label"
+	sw.Label = marks.Const("Label")
 	sw.SetChecked(true)
 	if mutate != nil {
 		mutate(sw)

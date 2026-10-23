@@ -21,7 +21,7 @@ func TestActionBar_contract_group_children(t *testing.T) {
 func TestRibbon_contract_group_children(t *testing.T) {
 	contracttest.AssertGroupChildren(t,
 		func() facet.FacetImpl {
-			return NewRibbon("label", []RibbonSection{{Key: "home", Label: "Home"}})
+			return NewRibbon("label", []RibbonSection{{Key: "home", Label: "Home"}}, nil)
 		},
 		func(facet.FacetImpl) {},
 	)
@@ -53,24 +53,6 @@ func TestMenuButton_contract_group_children(t *testing.T) {
 			m := NewMenuButton("label", []MenuButtonEntry{{Key: "a", Label: "Alpha"}})
 			m.Open = true
 			return m
-		},
-		func(facet.FacetImpl) {},
-	)
-}
-
-func TestPopupPalette_contract_group_children(t *testing.T) {
-	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl {
-			return NewPopupPalette("label", nil, store.NewValueStore(true))
-		},
-		func(facet.FacetImpl) {},
-	)
-}
-
-func TestRadialMenu_contract_group_children(t *testing.T) {
-	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl {
-			return NewRadialMenu("label", nil, nil)
 		},
 		func(facet.FacetImpl) {},
 	)

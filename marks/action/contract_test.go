@@ -186,53 +186,6 @@ func TestMenuButton_contract_accessible(t *testing.T) {
 	)
 }
 
-func TestPopupPalette_contract_anchor_export(t *testing.T) {
-	_, rt, resolved := newPopupPaletteFixture(t, defaultPopupPaletteTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
-
-	contracttest.AssertAnchorExport(t,
-		func() facet.FacetImpl {
-			return NewPopupPalette("contract palette", []PopupPaletteTool{
-				{Key: "brush", Label: "Brush", IconRef: "brush"},
-				{Key: "eraser", Label: "Eraser", IconRef: "eraser"},
-			}, store.NewValueStore(true))
-		},
-		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
-			actionContractArrange(m, rt, resolved, b)
-		},
-		bounds, resolved,
-	)
-}
-
-func TestPopupPalette_contract_accessible(t *testing.T) {
-	contracttest.AssertAccessible(t,
-		func(label string) facet.FacetImpl {
-			return NewPopupPalette(label, nil, store.NewValueStore(true))
-		},
-		"toolbar",
-	)
-}
-
-func TestRadialMenu_contract_anchor_export(t *testing.T) {
-	_, rt, resolved := newRadialMenuGoldenFixture(t, defaultRadialMenuTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
-
-	contracttest.AssertAnchorExport(t,
-		func() facet.FacetImpl { return NewRadialMenu("contract radial", nil, nil) },
-		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
-			actionContractArrange(m, rt, resolved, b)
-		},
-		bounds, resolved,
-	)
-}
-
-func TestRadialMenu_contract_accessible(t *testing.T) {
-	contracttest.AssertAccessible(t,
-		func(label string) facet.FacetImpl { return NewRadialMenu(label, nil, nil) },
-		"radial_menu",
-	)
-}
-
 func TestRibbon_contract_anchor_export(t *testing.T) {
 	_, rt := newRibbonFixture(t, defaultActionBarTokens())
 	ctx := theme.DefaultResolvedContext()
@@ -242,7 +195,7 @@ func TestRibbon_contract_anchor_export(t *testing.T) {
 		func() facet.FacetImpl {
 			return NewRibbon("contract ribbon", []RibbonSection{
 				{Key: "home", Label: "Home"},
-			})
+			}, nil)
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			actionContractArrange(m, rt, ctx, b)
@@ -253,7 +206,7 @@ func TestRibbon_contract_anchor_export(t *testing.T) {
 
 func TestRibbon_contract_accessible(t *testing.T) {
 	contracttest.AssertAccessible(t,
-		func(label string) facet.FacetImpl { return NewRibbon(label, nil) },
+		func(label string) facet.FacetImpl { return NewRibbon(label, nil, nil) },
 		"toolbar",
 	)
 }
@@ -333,4 +286,83 @@ func TestButton_contract_binding_not_severed(t *testing.T) {
 			return m.(*Button).Label.Get()
 		},
 	)
+}
+
+// The Focusable contract tests below are the LL033 proofs for every action
+// mark that declares Focusable() directly (the value-contract work added the
+// direct declarations; the static rule requires the dynamic helper to be
+// wired in the same package).
+
+func TestActionBar_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		bar := NewActionBar("actions", nil)
+		bar.Disabled = marks.Const(disabled)
+		return bar
+	})
+}
+
+func TestActionGroup_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		group := NewActionGroup(marks.Const("group"), marks.Const([]ActionGroupAction{{Key: "k", Label: "L"}}))
+		group.Disabled = marks.Const(disabled)
+		return group
+	})
+}
+
+func TestButton_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		button := NewButton(marks.Const("save"), marks.Const(uiinput.ButtonFilled))
+		button.Disabled = marks.Const(disabled)
+		return button
+	})
+}
+
+func TestCommandPalette_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		// The palette's focus gate is Disabled && Open; the contract builder
+		// proves the enabled path, so the palette is constructed open.
+		palette := NewCommandPalette(marks.Const("palette"), nil, store.NewValueStore(true))
+		palette.Disabled = marks.Const(disabled)
+		return palette
+	})
+}
+
+func TestIconButton_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		button := NewIconButton(primitive.IconSVG("M0 0h1v1z"))
+		button.Disabled = marks.Const(disabled)
+		return button
+	})
+}
+
+func TestMenuButton_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		menu := NewMenuButton("menu", nil)
+		menu.Disabled = marks.Const(disabled)
+		return menu
+	})
+}
+
+func TestRibbon_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		ribbon := NewRibbon("ribbon", []RibbonSection{{Key: "home", Label: "Home"}}, nil)
+		ribbon.Disabled = marks.Const(disabled)
+		return ribbon
+	})
+}
+
+func TestSplitButton_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		split := NewSplitButton("split", nil)
+		split.Disabled = marks.Const(disabled)
+		return split
+	})
+}
+
+func TestToolbar_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		toolbar := NewToolbar(marks.Const("toolbar"), []ToolbarGroup{{Key: "g", Actions: []ActionGroupAction{{Key: "k", Label: "L"}}}}, nil)
+		toolbar.Disabled = marks.Const(disabled)
+		return toolbar
+	})
 }

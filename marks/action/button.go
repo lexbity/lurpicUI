@@ -70,6 +70,7 @@ var _ marks.Mark = (*Button)(nil)
 // NewButton constructs a button with canonical defaults.
 func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.ButtonVariant]) *Button {
 	b := &Button{
+		Activated:       signal.NewSignal[signal.Unit]("button.activated"),
 		Label:           label,
 		Variant:         variant,
 		LeadingIconRef:  marks.Const(""),
@@ -138,6 +139,14 @@ func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.Button
 func (b *Button) Base() *facet.Facet {
 	b.BindImpl(b)
 	return &b.Facet
+}
+
+// Focusable reports whether the Button can take keyboard focus.
+func (b *Button) Focusable() bool {
+	if b.Focus.Focusable == nil {
+		return false
+	}
+	return b.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -341,7 +350,7 @@ func (b *Button) resolveLabelLayout(ctx facet.MeasureContext, constraints facet.
 	if maxWidth < 0 {
 		maxWidth = 0
 	}
-	shaper := b.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		return nil, text.TextStyle{}
 	}
@@ -390,37 +399,7 @@ func resolvedIconSize(ctx facet.MeasureContext) float32 {
 }
 
 func (b *Button) iconResolver(runtime any) runtimepkg.IconResolver {
-	if runtime == nil {
-		return nil
-	}
-	type provider interface {
-		IconResolver() runtimepkg.IconResolver
-	}
-	if p, ok := runtime.(provider); ok {
-		return p.IconResolver()
-	}
-	return nil
-}
-
-func (b *Button) newShaper(runtime any) *text.Shaper {
-	registry := b.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (b *Button) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
+	return marks.IconResolverFrom(runtime)
 }
 
 func (b *Button) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
@@ -657,18 +636,7 @@ func (b *Button) onFocusLost() {
 }
 
 func (b *Button) interactionState() theme.InteractionState {
-	switch {
-	case b.Disabled.Get():
-		return theme.StateDisabled
-	case b.pressed:
-		return theme.StatePressed
-	case b.hovered:
-		return theme.StateHover
-	case b.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(b.Disabled.Get(), b.pressed, b.hovered, b.focusedVisible)
 }
 
 type buttonGroupPolicy struct{}

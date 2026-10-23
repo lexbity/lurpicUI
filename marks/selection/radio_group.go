@@ -39,8 +39,8 @@ type RadioGroup struct {
 
 	Value *store.ValueStore[string]
 
-	Label    string
-	Options  []RadioOption
+	Label    marks.Binding[string]
+	Options  marks.Binding[[]RadioOption]
 	Variant  marks.Binding[uiinput.RadioGroupVariant]
 	Disabled marks.Binding[bool]
 
@@ -88,16 +88,32 @@ func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[
 	if value == nil {
 		value = store.NewValueStore("")
 	}
+	options = normalizeRadioOptions(options)
+	// Canonical default: a value matching no option selects the first one
+	// (the normalization SetOptions used to perform; config is normalized at
+	// construction per the Q3 rule).
+	if len(options) > 0 {
+		found := false
+		for _, opt := range options {
+			if opt.Value == value.Get() {
+				found = true
+				break
+			}
+		}
+		if !found {
+			value.Set(options[0].Value)
+		}
+	}
 	rg := &RadioGroup{
 		Variant:      marks.Const(uiinput.RadioGroupStandard),
 		Disabled:     marks.Const(false),
-		Label:        label,
+		Label:        marks.Const(label),
+		Options:      marks.Const(options),
 		hoveredIndex: -1,
 		pressedIndex: -1,
 		Value:        value,
 	}
 	rg.Facet = facet.NewFacet()
-	rg.SetOptions(options)
 
 	rg.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
@@ -136,7 +152,7 @@ func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[
 	}
 	rg.Input.OnPointer = func(e facet.PointerEvent) bool { return rg.onPointer(e) }
 	rg.Input.OnKey = func(e facet.KeyEvent) bool { return rg.onKey(e) }
-	rg.Focus.Focusable = func() bool { return !rg.Disabled.Get() && len(rg.Options) > 0 }
+	rg.Focus.Focusable = func() bool { return !rg.Disabled.Get() && len(rg.Options.Get()) > 0 }
 	rg.Focus.TabIndex = 0
 	rg.Focus.OnFocusGained = func() { rg.onFocusGained() }
 	rg.Focus.OnFocusLost = func() { rg.onFocusLost() }
@@ -164,6 +180,14 @@ func (rg *RadioGroup) Base() *facet.Facet {
 	return &rg.Facet
 }
 
+// Focusable reports whether the RadioGroup can take keyboard focus.
+func (rg *RadioGroup) Focusable() bool {
+	if rg.Focus.Focusable == nil {
+		return false
+	}
+	return rg.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (rg *RadioGroup) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeSelection, TypeName: "radio_group"}
@@ -177,7 +201,7 @@ func (rg *RadioGroup) AccessibleName() string {
 	if rg == nil {
 		return ""
 	}
-	return rg.Label
+	return rg.Label.Get()
 }
 
 // ExportAnchors publishes the radio-group anchor set.
@@ -262,20 +286,20 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	rg.cachedGroupGap = float32(resolved.Spacing(theme.SpacingXS))
 	rg.cachedGroupLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	rg.cachedItemLabelStyle = resolved.TextStyle(theme.TextBodyM)
-	shaper := rg.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = radioGroupDefaultMaxWidth(resolved)
 	}
-	groupLabelLayout := shaper.ShapeTruncated(rg.Label, rg.cachedGroupLabelStyle, maxWidth)
+	groupLabelLayout := shaper.ShapeTruncated(rg.Label.Get(), rg.cachedGroupLabelStyle, maxWidth)
 	groupLabelH := text.Height(groupLabelLayout)
-	itemLayouts := make([]*text.TextLayout, len(rg.Options))
-	itemWidths := make([]float32, len(rg.Options))
-	itemHeights := make([]float32, len(rg.Options))
+	itemLayouts := make([]*text.TextLayout, len(rg.Options.Get()))
+	itemWidths := make([]float32, len(rg.Options.Get()))
+	itemHeights := make([]float32, len(rg.Options.Get()))
 	controlTarget := mathutil.Max(rg.cachedControlSize, resolved.Density.Scale(resolved.TokenSet().Spacing.TouchTarget))
 	itemMaxTextWidth := mathutil.Max(0, maxWidth-rg.cachedControlSize-rg.cachedControlGap)
-	for i, opt := range rg.Options {
+	for i, opt := range rg.Options.Get() {
 		if shaper != nil {
 			shaper.SetContentScale(ctx.ContentScale)
 			itemLayouts[i] = shaper.ShapeTruncated(opt.Label, rg.cachedItemLabelStyle, itemMaxTextWidth)
@@ -293,7 +317,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	}
 	totalItemHeight := float32(0)
 	maxItemWidth := float32(0)
-	for i := range rg.Options {
+	for i := range rg.Options.Get() {
 		rowWidth := rg.cachedControlSize + rg.cachedControlGap
 		if itemLayouts[i] != nil {
 			rowWidth += itemWidths[i]
@@ -302,7 +326,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 			maxItemWidth = rowWidth
 		}
 		totalItemHeight += rowHeight
-		if i+1 < len(rg.Options) {
+		if i+1 < len(rg.Options.Get()) {
 			totalItemHeight += rg.cachedItemGap
 		}
 	}
@@ -311,7 +335,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		width = maxWidth
 	}
 	height := groupLabelH
-	if groupLabelH > 0 && len(rg.Options) > 0 {
+	if groupLabelH > 0 && len(rg.Options.Get()) > 0 {
 		height += rg.cachedGroupGap
 	}
 	height += totalItemHeight
@@ -357,19 +381,19 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		return
 	}
 	selected := rg.selectedIndex()
-	if rg.focusedIndex < 0 || rg.focusedIndex >= len(rg.Options) {
+	if rg.focusedIndex < 0 || rg.focusedIndex >= len(rg.Options.Get()) {
 		rg.focusedIndex = selected
 	}
 	groupLabelH := text.Height(rg.cachedGroupLabel)
 	rowHeight := mathutil.Max(rg.cachedControlSize, rg.cachedControlGap)
-	items := make([]gfx.Rect, 0, len(rg.Options))
-	controls := make([]gfx.Rect, 0, len(rg.Options))
-	labels := make([]gfx.Rect, 0, len(rg.Options))
-	focusRects := make([]gfx.Rect, 0, len(rg.Options))
+	items := make([]gfx.Rect, 0, len(rg.Options.Get()))
+	controls := make([]gfx.Rect, 0, len(rg.Options.Get()))
+	labels := make([]gfx.Rect, 0, len(rg.Options.Get()))
+	focusRects := make([]gfx.Rect, 0, len(rg.Options.Get()))
 	totalItemHeight := float32(0)
-	for i := range rg.Options {
+	for i := range rg.Options.Get() {
 		totalItemHeight += rowHeight
-		if i+1 < len(rg.Options) {
+		if i+1 < len(rg.Options.Get()) {
 			totalItemHeight += rg.cachedItemGap
 		}
 	}
@@ -381,7 +405,7 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		rg.cachedGroupLabelRect = stack[0]
 	}
 	itemsTop := stack[1].Min.Y
-	for i, opt := range rg.Options {
+	for i, opt := range rg.Options.Get() {
 		labelLayout := rg.cachedItemLayouts[i]
 		labelW := float32(0)
 		labelH := float32(0)
@@ -406,7 +430,7 @@ func (rg *RadioGroup) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		labels = append(labels, labelRect)
 		focusRects = append(focusRects, rowRect.Inset(-2, -2))
 		itemsTop += rowHeight
-		if i+1 < len(rg.Options) {
+		if i+1 < len(rg.Options.Get()) {
 			itemsTop += rg.cachedItemGap
 		}
 		_ = opt
@@ -464,7 +488,7 @@ func (rg *RadioGroup) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command 
 	if rg.cachedGroupLabel != nil {
 		cmds = append(cmds, primitive.TextLayoutCommands(rg.cachedGroupLabel, rg.cachedGroupLabelRect, gfx.SolidBrush(theme.MaterialColor(groupLabel)))...)
 	}
-	for i := range rg.Options {
+	for i := range rg.Options.Get() {
 		state := rg.optionState(i)
 		controlMaterial := slots.RadioControl.Resolve(state, tokens)
 		labelMaterial := slots.ItemLabel.Resolve(state, tokens)
@@ -596,7 +620,7 @@ func (rg *RadioGroup) onPointer(e facet.PointerEvent) bool {
 }
 
 func (rg *RadioGroup) onKey(e facet.KeyEvent) bool {
-	if rg.Disabled.Get() || len(rg.Options) == 0 {
+	if rg.Disabled.Get() || len(rg.Options.Get()) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -632,7 +656,7 @@ func (rg *RadioGroup) onKey(e facet.KeyEvent) bool {
 		}
 	case platform.KeyEnd:
 		if e.Kind == platform.KeyPress || e.Kind == platform.KeyRepeat {
-			rg.selectIndex(len(rg.Options) - 1)
+			rg.selectIndex(len(rg.Options.Get()) - 1)
 			return true
 		}
 	}
@@ -698,7 +722,7 @@ func (rg *RadioGroup) selectedIndex() int {
 	if rg == nil {
 		return -1
 	}
-	if len(rg.Options) == 0 {
+	if len(rg.Options.Get()) == 0 {
 		return -1
 	}
 	value := rg.currentValue()
@@ -720,7 +744,7 @@ func (rg *RadioGroup) isSelectedIndex(idx int) bool {
 }
 
 func (rg *RadioGroup) focusIndexOrSelected() int {
-	if rg.focusedIndex >= 0 && rg.focusedIndex < len(rg.Options) {
+	if rg.focusedIndex >= 0 && rg.focusedIndex < len(rg.Options.Get()) {
 		return rg.focusedIndex
 	}
 	if idx := rg.selectedIndex(); idx >= 0 {
@@ -730,15 +754,15 @@ func (rg *RadioGroup) focusIndexOrSelected() int {
 }
 
 func (rg *RadioGroup) selectIndex(idx int) {
-	if idx < 0 || idx >= len(rg.Options) {
+	if idx < 0 || idx >= len(rg.Options.Get()) {
 		return
 	}
 	rg.focusedIndex = idx
-	rg.SetValue(rg.Options[idx].Value)
+	rg.SetValue(rg.Options.Get()[idx].Value)
 }
 
 func (rg *RadioGroup) moveSelection(delta int) {
-	if len(rg.Options) == 0 {
+	if len(rg.Options.Get()) == 0 {
 		return
 	}
 	idx := rg.focusIndexOrSelected()
@@ -746,8 +770,8 @@ func (rg *RadioGroup) moveSelection(delta int) {
 	if idx < 0 {
 		idx = 0
 	}
-	if idx >= len(rg.Options) {
-		idx = len(rg.Options) - 1
+	if idx >= len(rg.Options.Get()) {
+		idx = len(rg.Options.Get()) - 1
 	}
 	rg.selectIndex(idx)
 }
@@ -758,11 +782,11 @@ func (rg *RadioGroup) SetValue(value string) {
 		return
 	}
 	value = strings.TrimSpace(value)
-	if len(rg.Options) > 0 {
+	if len(rg.Options.Get()) > 0 {
 		if idx := rg.optionIndexByValue(value); idx >= 0 {
-			value = rg.Options[idx].Value
+			value = rg.Options.Get()[idx].Value
 		} else {
-			value = rg.Options[0].Value
+			value = rg.Options.Get()[0].Value
 		}
 	}
 	if rg.Value.Get() == value {
@@ -773,11 +797,8 @@ func (rg *RadioGroup) SetValue(value string) {
 	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
-// SetOptions updates the available radio options.
-func (rg *RadioGroup) SetOptions(options []RadioOption) {
-	if rg == nil {
-		return
-	}
+// normalizeRadioOptions trims option labels/values into canonical form.
+func normalizeRadioOptions(options []RadioOption) []RadioOption {
 	next := append([]RadioOption(nil), options...)
 	if len(next) > 0 {
 		for i := range next {
@@ -785,14 +806,7 @@ func (rg *RadioGroup) SetOptions(options []RadioOption) {
 			next[i].Label = strings.TrimSpace(next[i].Label)
 		}
 	}
-	rg.Options = next
-	if rg.Value != nil && len(next) > 0 {
-		if rg.optionIndexByValue(rg.Value.Get()) < 0 {
-			rg.Value.Set(next[0].Value)
-		}
-	}
-	rg.focusedIndex = rg.selectedIndex()
-	rg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return next
 }
 
 func (rg *RadioGroup) itemIndexAt(p gfx.Point) int {
@@ -805,33 +819,12 @@ func (rg *RadioGroup) itemIndexAt(p gfx.Point) int {
 }
 
 func (rg *RadioGroup) optionIndexByValue(value string) int {
-	for i := range rg.Options {
-		if rg.Options[i].Value == value {
+	for i := range rg.Options.Get() {
+		if rg.Options.Get()[i].Value == value {
 			return i
 		}
 	}
 	return -1
-}
-
-func (rg *RadioGroup) newShaper(runtime any) *text.Shaper {
-	registry := rg.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (rg *RadioGroup) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func radioControlSize(resolved theme.ResolvedContext) float32 {

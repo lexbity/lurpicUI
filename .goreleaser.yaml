@@ -1,0 +1,105 @@
+# goreleaser release configuration for lurpicUI desktop artifacts.
+#
+# Scope (deliberate):
+#   - `lurpic` and `lurpiclint` CLI binaries. Both are CGO-free (verified:
+#     cmd/lurpic and cmd/lurpiclint have no platform/linux dependency), so
+#     they cross-compile cleanly.
+#   - linux is amd64-only for now: the Rust Vulkan bridge cdylib that ships
+#     in the linux archive is built by the release host and is arch-specific,
+#     so an arm64-linux archive would need a cross-compiled cdylib. Add it
+#     when the cross-build (cargo --target aarch64-unknown-linux-gnu) is
+#     wired into CI.
+#   - darwin ships the CLIs only — there is no Vulkan surface on darwin.
+#   - Android release artifacts stay in the `lurpic` CLI pipeline
+#     (cargo-ndk + APK packaging); goreleaser does not own that path.
+#
+# Versioning aligns with the CMake/CPack git-describe scheme: tag the repo to
+# cut a release; snapshot builds fall back to the short commit hash.
+version: 2
+
+project_name: lurpicui
+
+before:
+  hooks:
+    # The Vulkan bridge is dlopened by the linux desktop runtime from
+    # LURPIC_RENDER_RUST_LIBRARY or from lib/ next to the binary.
+    - cargo build --release --manifest-path render/vulkan/crates/lurpic_render/Cargo.toml
+
+builds:
+  - id: lurpic-linux
+    main: ./cmd/lurpic
+    binary: lurpic
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+  - id: lurpiclint-linux
+    main: ./cmd/lurpiclint
+    binary: lurpiclint
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+  - id: lurpic-darwin
+    main: ./cmd/lurpic
+    binary: lurpic
+    env: [CGO_ENABLED=0]
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+  - id: lurpiclint-darwin
+    main: ./cmd/lurpiclint
+    binary: lurpiclint
+    env: [CGO_ENABLED=0]
+    goos: [darwin]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: linux
+    ids: [lurpic-linux, lurpiclint-linux]
+    name_template: >-
+      {{ .ProjectName }}_{{ trimV .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENCE
+      - README.md
+      # Arch-matched Vulkan bridge for the linux desktop runtime. Consumers
+      # point LURPIC_RENDER_RUST_LIBRARY at lib/liblurpic_render.so (or copy
+      # it next to the binary).
+      - src: render/vulkan/crates/lurpic_render/target/release/liblurpic_render.so
+        dst: lib
+
+  - id: darwin
+    ids: [lurpic-darwin, lurpiclint-darwin]
+    name_template: >-
+      {{ .ProjectName }}_{{ trimV .Version }}_{{ .Os }}_{{ .Arch }}
+    files:
+      - LICENCE
+      - README.md
+
+checksum:
+  name_template: "checksums.txt"
+
+changelog:
+  sort: commits
+  use: github
+  filters:
+    exclude:
+      - "^devdocs:"
+      - "^ chore"
+      - "^test"
+
+release:
+  github:
+    owner: lexbity
+    name: lurpicUI
+  draft: true
+  prerelease: auto
+  mode: keep-existing

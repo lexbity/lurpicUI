@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -58,7 +59,7 @@ func TestNumberField_contract_anchor_export(t *testing.T) {
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewNumberField("Amount", store.NewValueStore(float64(0)))
+			return NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore(float64(0)))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			nf := m.(*NumberField)
@@ -84,7 +85,7 @@ func TestNumberField_contract_anchor_export(t *testing.T) {
 func TestNumberField_contract_accessible(t *testing.T) {
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewNumberField(label, store.NewValueStore(float64(0)))
+			return NewNumberField(label, 0, 0, 1, -1, store.NewValueStore(float64(0)))
 		},
 		"spinbutton",
 	)
@@ -130,4 +131,28 @@ func TestTextField_contract_accessible(t *testing.T) {
 		},
 		"textbox",
 	)
+}
+
+func TestColorPicker_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		picker := NewColorPicker("color", store.NewValueStore(gfx.Color{}))
+		picker.Disabled = marks.Const(disabled)
+		return picker
+	})
+}
+
+func TestNumberField_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		field := NewNumberField("number", 0, 10, 1, 1, store.NewValueStore(0.0))
+		field.Disabled = marks.Const(disabled)
+		return field
+	})
+}
+
+func TestTextField_contract_focusable(t *testing.T) {
+	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
+		field := NewTextField("text", uiinput.TextInputOutlined, store.NewValueStore(""))
+		field.Disabled = marks.Const(disabled)
+		return field
+	})
 }

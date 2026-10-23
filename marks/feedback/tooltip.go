@@ -84,6 +84,7 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 		open = store.NewValueStore(false)
 	}
 	t := &Tooltip{
+		Dismissed: signal.NewSignal[signal.Unit]("tooltip.dismissed"),
 		Content:   marks.Const(content),
 		Open:      open,
 		Disabled:  marks.Const(false),

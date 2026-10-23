@@ -21,7 +21,7 @@ import (
 func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	bg.Label = marks.Const("Choices")
-	bg.SetOptions([]ButtonGroupOption{
+	bg.Options = marks.Const([]ButtonGroupOption{
 		{Key: "test-item-1", Label: "test-item-1"},
 		{Key: "test-item-2", Label: "test-item-2"},
 		{Key: "test-item-3", Label: "test-item-3"},
@@ -90,7 +90,7 @@ func TestButtonGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 
 func TestButtonGroupPointerKeyboardAndStoreBehavior(t *testing.T) {
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	bg.SetOptions([]ButtonGroupOption{
+	bg.Options = marks.Const([]ButtonGroupOption{
 		{Key: "test-item-1", Label: "test-item-1"},
 		{Key: "test-item-2", Label: "test-item-2"},
 		{Key: "test-item-3", Label: "test-item-3"},
@@ -140,7 +140,7 @@ func TestButtonGroupPointerKeyboardAndStoreBehavior(t *testing.T) {
 
 func TestButtonGroupComposesPrimitiveTextAndIconChildren(t *testing.T) {
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	bg.SetOptions([]ButtonGroupOption{
+	bg.Options = marks.Const([]ButtonGroupOption{
 		{
 			Key:   "test-item-1",
 			Label: "test-item-1",
@@ -171,7 +171,7 @@ func TestButtonGroupComposesPrimitiveTextAndIconChildren(t *testing.T) {
 
 func TestButtonGroupFocusAndDisabledBehavior(t *testing.T) {
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	bg.SetOptions([]ButtonGroupOption{
+	bg.Options = marks.Const([]ButtonGroupOption{
 		{Key: "test-item-1", Label: "test-item-1"},
 		{Key: "test-item-2", Label: "test-item-2"},
 	})
@@ -202,7 +202,7 @@ func TestButtonGroupFocusAndDisabledBehavior(t *testing.T) {
 
 func TestButtonGroupStoreInvalidation(t *testing.T) {
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
-	bg.SetOptions([]ButtonGroupOption{
+	bg.Options = marks.Const([]ButtonGroupOption{
 		{Key: "test-item-1", Label: "test-item-1"},
 		{Key: "test-item-2", Label: "test-item-2"},
 	})
@@ -268,7 +268,7 @@ func AssertButtonGroupGolden(t *testing.T, name string, tokens theme.Tokens, den
 	t.Helper()
 	bg, rt, measureCtx := newButtonGroupTestFixture(t, tokens, density, direction)
 	bg.Label = marks.Const("Choices")
-	bg.SetOptions([]ButtonGroupOption{
+	bg.Options = marks.Const([]ButtonGroupOption{
 		{Key: "test-item-1", Label: "test-item-1"},
 		{Key: "test-item-2", Label: "test-item-2"},
 		{Key: "test-item-3", Label: "test-item-3"},

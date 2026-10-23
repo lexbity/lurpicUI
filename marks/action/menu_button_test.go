@@ -312,10 +312,10 @@ func TestMenuButtonGoldenDestructiveHover(t *testing.T) {
 func TestMenuButtonMixedDirectionLabelAndEntriesUseSharedTextLayout(t *testing.T) {
 	btn, rt := newMenuButtonFixture(t)
 	btn.Label = marks.Const("הגדרות Settings")
-	btn.Entries = []MenuButtonEntry{
+	btn.Entries = marks.Const([]MenuButtonEntry{
 		{Kind: MenuButtonEntrySection, Label: "פעולות Actions"},
 		{Key: "rename", Label: "שינוי שם Rename", Shortcut: "Cmd+R"},
-	}
+	})
 
 	ctx := theme.DefaultResolvedContext()
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: ctx})

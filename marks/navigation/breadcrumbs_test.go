@@ -119,7 +119,7 @@ func TestBreadcrumbsPointerAndKeyboardInteraction(t *testing.T) {
 	bc.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	activated := -1
-	bc.Activated.Subscribe(func(index int) {
+	bc.Selected.Subscribe(func(index int) {
 		activated = index
 	})
 

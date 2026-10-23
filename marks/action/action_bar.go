@@ -111,7 +111,7 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
-		Activated:    signal.NewSignal[MarkAction]("action_bar_activated"),
+		Activated:    signal.NewSignal[MarkAction]("action_bar.activated"),
 	}
 	a.Facet = facet.NewFacet()
 
@@ -177,6 +177,14 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 func (a *ActionBar) Base() *facet.Facet {
 	a.BindImpl(a)
 	return &a.Facet
+}
+
+// Focusable reports whether the ActionBar can take keyboard focus.
+func (a *ActionBar) Focusable() bool {
+	if a.Focus.Focusable == nil {
+		return false
+	}
+	return a.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -543,7 +551,7 @@ func (a *ActionBar) resolveLabelLayout(ctx facet.MeasureContext, resolved theme.
 	if label == "" {
 		return nil
 	}
-	shaper := a.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		return nil
 	}
@@ -740,18 +748,7 @@ func (a *ActionBar) onFocusLost() {
 }
 
 func (a *ActionBar) interactionState() theme.InteractionState {
-	switch {
-	case a.Disabled.Get():
-		return theme.StateDisabled
-	case a.pressed:
-		return theme.StatePressed
-	case a.hovered:
-		return theme.StateHover
-	case a.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(a.Disabled.Get(), a.pressed, a.hovered, a.focusedVisible)
 }
 
 func (a *ActionBar) pointInFocusRing(p gfx.Point) bool {
@@ -798,27 +795,6 @@ func (a *ActionBar) setFocusIndex(index int) {
 	}
 	a.focusedIndex = index
 	a.invalidate(facet.DirtyProjection)
-}
-
-func (a *ActionBar) newShaper(runtime any) *text.Shaper {
-	registry := a.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (a *ActionBar) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func normalizeActionBarActions(actions []ActionBarAction) []ActionBarAction {

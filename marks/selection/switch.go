@@ -31,7 +31,7 @@ type Switch struct {
 
 	Value *store.ValueStore[bool]
 
-	Label    string
+	Label    marks.Binding[string]
 	Variant  marks.Binding[uiinput.SwitchVariant]
 	Disabled marks.Binding[bool]
 
@@ -79,7 +79,7 @@ func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
 		Variant:  marks.Const(uiinput.SwitchStandard),
 		Disabled: marks.Const(false),
 		Value:    value,
-		Label:    label,
+		Label:    marks.Const(label),
 	}
 	s.Facet = facet.NewFacet()
 
@@ -135,6 +135,14 @@ func (s *Switch) Base() *facet.Facet {
 	return &s.Facet
 }
 
+// Focusable reports whether the Switch can take keyboard focus.
+func (s *Switch) Focusable() bool {
+	if s.Focus.Focusable == nil {
+		return false
+	}
+	return s.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (s *Switch) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeSelection, TypeName: "switch"}
@@ -148,7 +156,7 @@ func (s *Switch) AccessibleName() string {
 	if s == nil {
 		return ""
 	}
-	return s.Label
+	return s.Label.Get()
 }
 
 // ExportAnchors publishes the switch anchor set.
@@ -238,14 +246,14 @@ func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	s.cachedRowGap = float32(resolved.Spacing(theme.SpacingS))
 	s.cachedLabelGap = float32(resolved.Spacing(theme.SpacingXS))
 	s.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
-	shaper := s.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = switchDefaultMaxWidth(resolved)
 	}
 	if shaper != nil {
 		shaper.SetContentScale(ctx.ContentScale)
-		s.cachedLabelLayout = shaper.ShapeTruncated(s.Label, s.cachedLabelStyle, maxWidth)
+		s.cachedLabelLayout = shaper.ShapeTruncated(s.Label.Get(), s.cachedLabelStyle, maxWidth)
 	} else {
 		s.cachedLabelLayout = nil
 	}
@@ -504,18 +512,7 @@ func (s *Switch) onFocusLost() {
 }
 
 func (s *Switch) interactionState() theme.InteractionState {
-	switch {
-	case s.Disabled.Get():
-		return theme.StateDisabled
-	case s.pressed:
-		return theme.StatePressed
-	case s.hovered:
-		return theme.StateHover
-	case s.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(s.Disabled.Get(), s.pressed, s.hovered, s.focusedVisible)
 }
 
 func (s *Switch) selectedState() theme.InteractionState {
@@ -552,27 +549,6 @@ func (s *Switch) isChecked() bool {
 		return false
 	}
 	return s.Value.Get()
-}
-
-func (s *Switch) newShaper(runtime any) *text.Shaper {
-	registry := s.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (s *Switch) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func switchControlWidth(resolved theme.ResolvedContext) float32 {

@@ -134,7 +134,7 @@ func TestTreeNavigatorPointerKeyboardAndScroll(t *testing.T) {
 	if !tree.cachedVisibleNodes[0].Node.Expanded {
 		t.Fatal("expected first node to expand after disclosure click")
 	}
-	tree.SetExpandedPath("test-item-1", true)
+	tree.mutateTree(func(nodes []TreeNode) { setExpandedByPath(nodes, "test-item-1", true) })
 
 	secondRowCenter := gfx.Point{
 		X: tree.cachedRowBounds[1].Min.X + tree.cachedRowBounds[1].Width()*0.5,

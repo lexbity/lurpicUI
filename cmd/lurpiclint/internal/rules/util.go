@@ -151,14 +151,6 @@ func isFacetPackage(f *loader.ParsedFile) bool {
 		strings.HasPrefix(cleanPath, "facet/")
 }
 
-// isGraphPackage reports whether the file lives inside the graph/ package
-// tree, where internal geometry authoring is legitimate.
-func isGraphPackage(f *loader.ParsedFile) bool {
-	cleanPath := filepath.ToSlash(f.Path)
-	return strings.Contains(cleanPath, "/graph/") ||
-		strings.HasPrefix(cleanPath, "graph/")
-}
-
 // isMarksPackage reports whether the file lives inside the marks/ package tree.
 func isMarksPackage(f *loader.ParsedFile) bool {
 	cleanPath := filepath.ToSlash(f.Path)
@@ -349,13 +341,11 @@ var overlayTypeNames = map[string]bool{
 	"notification":   true,
 	"tooltip":        true,
 	"commandPalette": true,
-	"popupPalette":   true,
 	"navDrawer":      true,
 	"Dialog":         true,
 	"Notification":   true,
 	"Tooltip":        true,
 	"CommandPalette": true,
-	"PopupPalette":   true,
 	"NavDrawer":      true,
 }
 

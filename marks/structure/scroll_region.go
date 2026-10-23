@@ -103,7 +103,7 @@ func NewScrollRegion(label string) *ScrollRegion {
 		Gap:               marks.Const(float32(0)),
 		ScrollToEnd:       marks.Const(false),
 		ContentInset:      marks.Const(ContentInsets{}),
-		Scrolled:          signal.NewSignal[gfx.Point]("scroll_region_scrolled"),
+		Scrolled:          signal.NewSignal[gfx.Point]("scroll_region.scrolled"),
 		cachedChildBounds: make(map[facet.FacetID]gfx.Rect),
 	}
 	sr.Facet = facet.NewFacet()
@@ -174,6 +174,9 @@ func (sr *ScrollRegion) Base() *facet.Facet {
 	sr.BindImpl(sr)
 	return &sr.Facet
 }
+
+// Focusable reports whether the ScrollRegion can take keyboard focus.
+func (sr *ScrollRegion) Focusable() bool { return sr.Focus.Focusable != nil }
 
 // Descriptor satisfies marks.Mark.
 func (sr *ScrollRegion) Descriptor() marks.Descriptor {

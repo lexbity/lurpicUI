@@ -157,7 +157,7 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		focusedIndex:   -1,
 		hoveredIndex:   -1,
 		pressedIndex:   -1,
-		Activated:      signal.NewSignal[MarkAction]("split_button_activated"),
+		Activated:      signal.NewSignal[MarkAction]("split_button.activated"),
 	}
 	s.Facet = facet.NewFacet()
 
@@ -166,7 +166,7 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		Policy: splitButtonGroupPolicy{},
 	}
 	s.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := s.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -242,6 +242,14 @@ func (s *SplitButton) setOpen(open bool) {
 func (s *SplitButton) Base() *facet.Facet {
 	s.BindImpl(s)
 	return &s.Facet
+}
+
+// Focusable reports whether the SplitButton can take keyboard focus.
+func (s *SplitButton) Focusable() bool {
+	if s.Focus.Focusable == nil {
+		return false
+	}
+	return s.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -372,27 +380,6 @@ func (s *SplitButton) resolveProjectionTheme(runtime any) shared.SplitButtonSlot
 	return s.cachedRecipe
 }
 
-func (s *SplitButton) newShaper(runtime any) *text.Shaper {
-	registry := s.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (s *SplitButton) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
-}
-
 func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	resolved, recipe, ok := s.resolveTheme(ctx)
 	if !ok {
@@ -422,7 +409,7 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(420)
 	}
-	shaper := s.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	var primaryLayout *text.TextLayout
 	if shaper != nil && strings.TrimSpace(s.Label.Get()) != "" {
 		shaper.SetContentScale(ctx.ContentScale)

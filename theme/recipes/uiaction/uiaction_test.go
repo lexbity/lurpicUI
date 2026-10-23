@@ -97,36 +97,6 @@ func TestResolveCommandPaletteRecipe_exposes_expected_slots(t *testing.T) {
 	}
 }
 
-func TestResolvePopupPaletteRecipe_exposes_expected_slots(t *testing.T) {
-	slots, report := ResolvePopupPaletteRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()})
-	if report.Variant != theme.VariantKey("default") {
-		t.Fatalf("popup palette variant = %q, want default", report.Variant)
-	}
-	for _, name := range []string{"Root", "PaletteSurface", "ToolItems", "ToolGroup", "AnchorArrow", "FocusRing"} {
-		if _, ok := report.SlotSource(name); !ok {
-			t.Fatalf("expected popup palette slot source for %s", name)
-		}
-	}
-	if !allPopupPaletteFieldsPresent(slots) {
-		t.Fatalf("popup palette slots contain zero values: %#v", slots)
-	}
-}
-
-func TestResolveRadialMenuRecipe_exposes_expected_slots(t *testing.T) {
-	slots, report := ResolveRadialMenuRecipe(theme.StyleContext{Tokens: theme.DefaultTokens()})
-	if report.Variant != theme.VariantKey("default") {
-		t.Fatalf("radial menu variant = %q, want default", report.Variant)
-	}
-	for _, name := range []string{"Root", "Surface", "CenterSlot", "RadialTrack", "AnchorArrow", "FocusRing"} {
-		if _, ok := report.SlotSource(name); !ok {
-			t.Fatalf("expected radial menu slot source for %s", name)
-		}
-	}
-	if !allRadialMenuFieldsPresent(slots) {
-		t.Fatalf("radial menu slots contain zero values: %#v", slots)
-	}
-}
-
 func allMenuButtonFieldsPresent[T any](value T) bool {
 	rv := reflect.ValueOf(value)
 	if rv.Kind() == reflect.Pointer {
@@ -208,38 +178,6 @@ func allRibbonFieldsPresent[T any](value T) bool {
 }
 
 func allCommandPaletteFieldsPresent[T any](value T) bool {
-	rv := reflect.ValueOf(value)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return false
-	}
-	for i := 0; i < rv.NumField(); i++ {
-		if rv.Field(i).IsZero() {
-			return false
-		}
-	}
-	return true
-}
-
-func allPopupPaletteFieldsPresent[T any](value T) bool {
-	rv := reflect.ValueOf(value)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if rv.Kind() != reflect.Struct {
-		return false
-	}
-	for i := 0; i < rv.NumField(); i++ {
-		if rv.Field(i).IsZero() {
-			return false
-		}
-	}
-	return true
-}
-
-func allRadialMenuFieldsPresent[T any](value T) bool {
 	rv := reflect.ValueOf(value)
 	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()

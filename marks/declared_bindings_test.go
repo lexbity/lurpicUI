@@ -41,22 +41,20 @@ var allMarksFactories = map[string]func() facet.FacetImpl{
 	"command_palette": func() facet.FacetImpl {
 		return action.NewCommandPalette(marks.Const("palette"), nil, store.NewValueStore(false))
 	},
-	"icon_button":   func() facet.FacetImpl { return action.NewIconButton(primitive.IconSVG("M0 0h1v1z")) },
-	"menu_button":   func() facet.FacetImpl { return action.NewMenuButton("menu", nil) },
-	"popup_palette": func() facet.FacetImpl { return action.NewPopupPalette("tools", nil, store.NewValueStore(false)) },
-	"radial_menu":   func() facet.FacetImpl { return action.NewRadialMenu("radial", nil, nil) },
-	"ribbon":        func() facet.FacetImpl { return action.NewRibbon("ribbon", nil) },
-	"split_button":  func() facet.FacetImpl { return action.NewSplitButton("split", nil) },
-	"toolbar":       func() facet.FacetImpl { return action.NewToolbar(marks.Const("toolbar"), nil, nil) },
-	"alert":         func() facet.FacetImpl { return feedback.NewAlert("title", "message") },
-	"scrim":         func() facet.FacetImpl { return feedback.NewScrim() },
-	"dialog":        func() facet.FacetImpl { return feedback.NewDialog("title", "body", nil, store.NewValueStore(false)) },
+	"icon_button":  func() facet.FacetImpl { return action.NewIconButton(primitive.IconSVG("M0 0h1v1z")) },
+	"menu_button":  func() facet.FacetImpl { return action.NewMenuButton("menu", nil) },
+	"ribbon":       func() facet.FacetImpl { return action.NewRibbon("ribbon", nil, nil) },
+	"split_button": func() facet.FacetImpl { return action.NewSplitButton("split", nil) },
+	"toolbar":      func() facet.FacetImpl { return action.NewToolbar(marks.Const("toolbar"), nil, nil) },
+	"alert":        func() facet.FacetImpl { return feedback.NewAlert("title", "message") },
+	"scrim":        func() facet.FacetImpl { return feedback.NewScrim() },
+	"dialog":       func() facet.FacetImpl { return feedback.NewDialog("title", "body", nil, store.NewValueStore(false)) },
 	"notification": func() facet.FacetImpl {
 		return feedback.NewNotification("title", "message", store.NewValueStore(false))
 	},
 	"tooltip":      func() facet.FacetImpl { return feedback.NewTooltip("content", store.NewValueStore(false)) },
 	"color_picker": func() facet.FacetImpl { return input.NewColorPicker("color", nil) },
-	"number_field": func() facet.FacetImpl { return input.NewNumberField("count", nil) },
+	"number_field": func() facet.FacetImpl { return input.NewNumberField("count", 0, 0, 1, -1, nil) },
 	"text_field":   func() facet.FacetImpl { return input.NewTextField("name", uiinput.TextInputOutlined, nil) },
 	"breadcrumbs":  func() facet.FacetImpl { return navigation.NewBreadcrumbs("crumbs", nil, store.NewValueStore(0)) },
 	"nav_drawer": func() facet.FacetImpl {
@@ -101,7 +99,7 @@ var allMarksFactories = map[string]func() facet.FacetImpl{
 // (demos/lurpic_studio/studio/coverage_test.go). When a mark joins the
 // collection, both lists grow together — a mismatch here means the
 // conformance walk is silently skipping a mark.
-const expectedMarkCount = 52
+const expectedMarkCount = 50
 
 func TestDeclaredBindings_allMarks_alive(t *testing.T) {
 	// The walker mints dynamic bindings per element type; the registrations

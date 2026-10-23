@@ -65,7 +65,7 @@ type ButtonGroup struct {
 	Activated signal.Signal[string]
 
 	Label   marks.Binding[string]
-	Options []ButtonGroupOption
+	Options marks.Binding[[]ButtonGroupOption]
 	// Value holds the selected keys. []string is non-comparable, so the
 	// scalar value contract (marks.ScalarBinding) does not apply — RX-2 Q2
 	// puts collections outside the scalar contract. The subscription in
@@ -140,7 +140,9 @@ func NewButtonGroup(label string, options []ButtonGroupOption, value *store.Valu
 		value = store.NewValueStore[[]string](nil)
 	}
 	bg := &ButtonGroup{
+		Activated:    signal.NewSignal[string]("button_group.activated"),
 		Label:        marks.Const(label),
+		Options:      marks.Const(normalizeButtonGroupOptions(options)),
 		Mode:         marks.Const(ButtonGroupExclusive),
 		Disabled:     marks.Const(false),
 		hoveredIndex: -1,
@@ -149,7 +151,6 @@ func NewButtonGroup(label string, options []ButtonGroupOption, value *store.Valu
 		Value:        value,
 	}
 	bg.Facet = facet.NewFacet()
-	bg.SetOptions(options)
 
 	bg.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
@@ -184,7 +185,7 @@ func NewButtonGroup(label string, options []ButtonGroupOption, value *store.Valu
 	bg.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return bg.hitTest(p) }
 	bg.Input.OnPointer = func(e facet.PointerEvent) bool { return bg.onPointer(e) }
 	bg.Input.OnKey = func(e facet.KeyEvent) bool { return bg.onKey(e) }
-	bg.Focus.Focusable = func() bool { return !bg.Disabled.Get() && len(bg.Options) > 0 }
+	bg.Focus.Focusable = func() bool { return !bg.Disabled.Get() && len(bg.Options.Get()) > 0 }
 	bg.Focus.TabIndex = 0
 	bg.Focus.OnFocusGained = func() { bg.onFocusGained() }
 	bg.Focus.OnFocusLost = func() { bg.onFocusLost() }
@@ -224,6 +225,14 @@ func (bg *ButtonGroup) Base() *facet.Facet {
 	return &bg.Facet
 }
 
+// Focusable reports whether the ButtonGroup can take keyboard focus.
+func (bg *ButtonGroup) Focusable() bool {
+	if bg.Focus.Focusable == nil {
+		return false
+	}
+	return bg.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (bg *ButtonGroup) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeSelection, TypeName: "button_group"}
@@ -235,21 +244,14 @@ func (bg *ButtonGroup) AccessibilityRole() string { return "group" }
 // AccessibleName reports the semantic name source required by the spec.
 func (bg *ButtonGroup) AccessibleName() string { return bg.Label.Get() }
 
-// SetOptions updates the available buttons.
-func (bg *ButtonGroup) SetOptions(options []ButtonGroupOption) {
-	if bg == nil {
-		return
-	}
+// normalizeButtonGroupOptions trims option keys/labels into canonical form.
+func normalizeButtonGroupOptions(options []ButtonGroupOption) []ButtonGroupOption {
 	next := append([]ButtonGroupOption(nil), options...)
 	for i := range next {
 		next[i].Key = strings.TrimSpace(next[i].Key)
 		next[i].Label = strings.TrimSpace(next[i].Label)
 	}
-	bg.Options = next
-	bg.rebuildChildren()
-	bg.clampSelection()
-	bg.syncChildState()
-	bg.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+	return next
 }
 
 // SetSelectedKeys updates the canonical selected keys.
@@ -374,20 +376,20 @@ func (bg *ButtonGroup) rebuildChildren() {
 	if bg == nil {
 		return
 	}
-	if len(bg.cachedItems) != len(bg.Options) {
-		bg.cachedItems = make([]*buttonGroupItem, len(bg.Options))
+	if len(bg.cachedItems) != len(bg.Options.Get()) {
+		bg.cachedItems = make([]*buttonGroupItem, len(bg.Options.Get()))
 	}
-	for i := range bg.Options {
+	for i := range bg.Options.Get() {
 		if bg.cachedItems[i] == nil {
-			bg.cachedItems[i] = newButtonGroupItem(bg, i, bg.Options[i])
+			bg.cachedItems[i] = newButtonGroupItem(bg, i, bg.Options.Get()[i])
 		}
 		child := bg.cachedItems[i]
 		child.parent = bg
 		child.index = i
-		child.setLabel(bg.Options[i].Label)
-		child.setIcon(bg.Options[i].Icon)
-		child.setDisabled(bg.Disabled.Get() || bg.Options[i].Disabled)
-		child.setSelected(bg.isSelectedKey(bg.Options[i].Key))
+		child.setLabel(bg.Options.Get()[i].Label)
+		child.setIcon(bg.Options.Get()[i].Icon)
+		child.setDisabled(bg.Disabled.Get() || bg.Options.Get()[i].Disabled)
+		child.setSelected(bg.isSelectedKey(bg.Options.Get()[i].Key))
 		child.cachedWritingDirection = bg.cachedWritingDirection
 	}
 }
@@ -398,13 +400,13 @@ func (bg *ButtonGroup) syncChildState() {
 	}
 	for i := range bg.cachedItems {
 		child := bg.cachedItems[i]
-		if child == nil || i >= len(bg.Options) {
+		if child == nil || i >= len(bg.Options.Get()) {
 			continue
 		}
-		child.setLabel(bg.Options[i].Label)
-		child.setIcon(bg.Options[i].Icon)
-		child.setDisabled(bg.Disabled.Get() || bg.Options[i].Disabled)
-		child.setSelected(bg.isSelectedKey(bg.Options[i].Key))
+		child.setLabel(bg.Options.Get()[i].Label)
+		child.setIcon(bg.Options.Get()[i].Icon)
+		child.setDisabled(bg.Disabled.Get() || bg.Options.Get()[i].Disabled)
+		child.setSelected(bg.isSelectedKey(bg.Options.Get()[i].Key))
 		child.cachedWritingDirection = bg.cachedWritingDirection
 	}
 }
@@ -712,7 +714,7 @@ func (bg *ButtonGroup) onPointer(e facet.PointerEvent) bool {
 }
 
 func (bg *ButtonGroup) onKey(e facet.KeyEvent) bool {
-	if bg.Disabled.Get() || len(bg.Options) == 0 {
+	if bg.Disabled.Get() || len(bg.Options.Get()) == 0 {
 		return false
 	}
 	switch e.Key {
@@ -733,7 +735,7 @@ func (bg *ButtonGroup) onKey(e facet.KeyEvent) bool {
 		}
 	case platform.KeyEnd:
 		if e.Kind == platform.KeyPress || e.Kind == platform.KeyRepeat {
-			bg.setFocusIndex(len(bg.Options) - 1)
+			bg.setFocusIndex(len(bg.Options.Get()) - 1)
 			return true
 		}
 	case platform.KeySpace, platform.KeyEnter:
@@ -796,7 +798,7 @@ func (bg *ButtonGroup) interactionState() theme.InteractionState {
 }
 
 func (bg *ButtonGroup) selectedIndex() int {
-	if bg == nil || len(bg.Options) == 0 || bg.Value == nil {
+	if bg == nil || len(bg.Options.Get()) == 0 || bg.Value == nil {
 		return -1
 	}
 	selected := bg.normalizeSelection(bg.Value.Get())
@@ -809,7 +811,7 @@ func (bg *ButtonGroup) selectedIndex() int {
 }
 
 func (bg *ButtonGroup) focusIndexOrSelected() int {
-	if bg.focusedIndex >= 0 && bg.focusedIndex < len(bg.Options) {
+	if bg.focusedIndex >= 0 && bg.focusedIndex < len(bg.Options.Get()) {
 		return bg.focusedIndex
 	}
 	if idx := bg.selectedIndex(); idx >= 0 {
@@ -819,7 +821,7 @@ func (bg *ButtonGroup) focusIndexOrSelected() int {
 }
 
 func (bg *ButtonGroup) setFocusIndex(idx int) {
-	if idx < 0 || idx >= len(bg.Options) {
+	if idx < 0 || idx >= len(bg.Options.Get()) {
 		return
 	}
 	bg.focusedIndex = idx
@@ -827,15 +829,15 @@ func (bg *ButtonGroup) setFocusIndex(idx int) {
 }
 
 func (bg *ButtonGroup) moveFocus(delta int) {
-	if len(bg.Options) == 0 {
+	if len(bg.Options.Get()) == 0 {
 		return
 	}
 	idx := bg.focusIndexOrSelected() + delta
 	if idx < 0 {
 		idx = 0
 	}
-	if idx >= len(bg.Options) {
-		idx = len(bg.Options) - 1
+	if idx >= len(bg.Options.Get()) {
+		idx = len(bg.Options.Get()) - 1
 	}
 	bg.focusedIndex = idx
 	if bg.Mode.Get() == ButtonGroupExclusive {
@@ -846,10 +848,10 @@ func (bg *ButtonGroup) moveFocus(delta int) {
 }
 
 func (bg *ButtonGroup) activateIndex(idx int) {
-	if idx < 0 || idx >= len(bg.Options) || bg.isDisabledIndex(idx) {
+	if idx < 0 || idx >= len(bg.Options.Get()) || bg.isDisabledIndex(idx) {
 		return
 	}
-	key := bg.Options[idx].Key
+	key := bg.Options.Get()[idx].Key
 	if key == "" {
 		return
 	}
@@ -865,9 +867,9 @@ func (bg *ButtonGroup) activateIndex(idx int) {
 
 func (bg *ButtonGroup) toggleKey(key string) {
 	current := bg.normalizeSelection(bg.currentSelection())
-	next := make([]string, 0, len(bg.Options))
+	next := make([]string, 0, len(bg.Options.Get()))
 	found := false
-	for _, option := range bg.Options {
+	for _, option := range bg.Options.Get() {
 		if option.Key == "" || bg.isDisabledKey(option.Key) {
 			continue
 		}
@@ -896,12 +898,12 @@ func (bg *ButtonGroup) currentSelection() []string {
 }
 
 func (bg *ButtonGroup) normalizeSelection(keys []string) []string {
-	if bg == nil || len(bg.Options) == 0 {
+	if bg == nil || len(bg.Options.Get()) == 0 {
 		return nil
 	}
 	seen := make(map[string]struct{}, len(keys))
 	out := make([]string, 0, len(keys))
-	for _, option := range bg.Options {
+	for _, option := range bg.Options.Get() {
 		if option.Key == "" || bg.isDisabledKey(option.Key) {
 			continue
 		}
@@ -923,16 +925,6 @@ func (bg *ButtonGroup) normalizeSelection(keys []string) []string {
 	return out
 }
 
-func (bg *ButtonGroup) clampSelection() {
-	if bg == nil {
-		return
-	}
-	if bg.Value == nil {
-		return
-	}
-	bg.Value.Set(bg.normalizeSelection(bg.Value.Get()))
-}
-
 func (bg *ButtonGroup) isSelectedKey(key string) bool {
 	if key == "" || bg == nil {
 		return false
@@ -946,27 +938,27 @@ func (bg *ButtonGroup) isSelectedKey(key string) bool {
 }
 
 func (bg *ButtonGroup) isDisabledIndex(idx int) bool {
-	if idx < 0 || idx >= len(bg.Options) {
+	if idx < 0 || idx >= len(bg.Options.Get()) {
 		return true
 	}
-	return bg.Disabled.Get() || bg.Options[idx].Disabled
+	return bg.Disabled.Get() || bg.Options.Get()[idx].Disabled
 }
 
 func (bg *ButtonGroup) isDisabledKey(key string) bool {
 	if key == "" {
 		return true
 	}
-	for i := range bg.Options {
-		if bg.Options[i].Key == key {
-			return bg.Disabled.Get() || bg.Options[i].Disabled
+	for i := range bg.Options.Get() {
+		if bg.Options.Get()[i].Key == key {
+			return bg.Disabled.Get() || bg.Options.Get()[i].Disabled
 		}
 	}
 	return true
 }
 
 func (bg *ButtonGroup) indexByKey(key string) int {
-	for i := range bg.Options {
-		if bg.Options[i].Key == key {
+	for i := range bg.Options.Get() {
+		if bg.Options.Get()[i].Key == key {
 			return i
 		}
 	}
@@ -974,10 +966,10 @@ func (bg *ButtonGroup) indexByKey(key string) int {
 }
 
 func (bg *ButtonGroup) keyAt(idx int) string {
-	if idx < 0 || idx >= len(bg.Options) {
+	if idx < 0 || idx >= len(bg.Options.Get()) {
 		return ""
 	}
-	return bg.Options[idx].Key
+	return bg.Options.Get()[idx].Key
 }
 
 func sameStringSlice(a, b []string) bool {
@@ -1440,7 +1432,7 @@ func groupChildForFacet(base *facet.Facet, order int) facet.GroupChild {
 }
 
 func (bg *ButtonGroup) onChildPointer(index int, e facet.PointerEvent) bool {
-	if bg == nil || bg.Disabled.Get() || index < 0 || index >= len(bg.Options) || bg.isDisabledIndex(index) {
+	if bg == nil || bg.Disabled.Get() || index < 0 || index >= len(bg.Options.Get()) || bg.isDisabledIndex(index) {
 		return false
 	}
 	switch e.Kind {

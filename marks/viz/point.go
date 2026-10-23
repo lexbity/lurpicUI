@@ -48,7 +48,7 @@ func NewPoint[T any](
 		YScale:    yScale,
 		Radius:    marks.Const[float32](4),
 		Color:     marks.Const(gfx.Color{}),
-		Activated: signal.NewSignal[signal.Unit]("Point.Activated"),
+		Activated: signal.NewSignal[signal.Unit]("point.activated"),
 	}
 	p.Facet = facet.NewFacet()
 

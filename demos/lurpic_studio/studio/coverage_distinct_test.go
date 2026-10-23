@@ -26,7 +26,6 @@ const (
 	behScrollOverflow    distinctiveBehavior = "scroll / overflow"
 	behModalGate         distinctiveBehavior = "modal visibility gate"
 	behTransientStatus   distinctiveBehavior = "transient status (auto-dismiss)"
-	behRadialLayout      distinctiveBehavior = "radial layout"
 	behIME               distinctiveBehavior = "IME + write-back loop"
 	behPicker            distinctiveBehavior = "picker store write-back"
 	behDial              distinctiveBehavior = "dial store write-back"
@@ -66,18 +65,15 @@ const (
 // Rev. 2.2 correction: the prior table assigned mechanically impossible intents
 // to read-only display marks (primitive/icon, primitive/text, structure/card as
 // behWriteBack — they have no *store.ValueStore field and no signal field, so a
-// write-back loop is impossible) and assigned "action/popup_palette" to
-// behAnchorTracking while the demo's only popup_palette placement (E6) wires its
-// Activated signal to a command-dispatch handler. These entries are corrected
-// below to the behavior each mark's writable surface can actually carry, and
-// two gates now cross-check the map against the live mark instances (capability
-// gate) and the demo's real wiring (exercise gate) instead of the prior
-// self-referential key-presence tests.
+// write-back loop is impossible). These entries are corrected below to the
+// behavior each mark's writable surface can actually carry, and two gates now
+// cross-check the map against the live mark instances (capability gate) and the
+// demo's real wiring (exercise gate) instead of the prior self-referential
+// key-presence tests.
 var placementIntents = map[string]distinctiveBehavior{
 	// E1 — realtime flagship.
 	"action/split_button":       behCommandDispatch,  // E1 export + E6: Activated writes lastAction
 	"action/menu_button":        behCommandDispatch,  // E6: Activated writes lastAction
-	"action/radial_menu":        behRadialLayout,     // E1 reshape + E6: radial policy arranges children
 	"action/toolbar":            behCommandDispatch,  // E6: standalone toolbar Activated writes lastAction
 	"feedback/alert":            behReadBinding,      // E1 invalid-cell + E6: message read from a bound store; alert has no *ValueStore
 	"feedback/notification":     behTransientStatus,  // E2/E6: Open store toggled + Dismissed signal
@@ -131,7 +127,6 @@ var placementIntents = map[string]distinctiveBehavior{
 	"action/action_group":       behCommandDispatch, // E6: Activated writes lastAction
 	"action/command_palette":    behCommandDispatch, // shell: Ctrl+K → registry Execute mutates state (internal dispatch; Activated carries no external subscriber by design)
 	"action/icon_button":        behCommandDispatch, // E1 jump-to-live + chrome ⌘K/theme: Activated → demo
-	"action/popup_palette":      behCommandDispatch, // E6: Activated writes lastAction (was behAnchorTracking — corrected; E6 placement does not anchor)
 	"action/ribbon":             behCommandDispatch, // E6: section Activated writes ribbonTab
 	"navigation/nav_drawer":     behNavStructure,    // E6 + narrow shell: Activated emits index
 	"navigation/nav_rail":       behNavStructure,    // E6 navigation playground: Activated writes railSelect
@@ -164,9 +159,9 @@ const (
 // mark's input handler writes a store it holds); the command/dispatch family
 // requires a signal field (the mark emits a dispatch event); viz behaviors
 // require the viz family; the group-host behavior requires a group-parent
-// contract; read-binding requires a marks.Binding field. behNone and
-// behRadialLayout carry no surface requirement (they are honest classifications
-// for marks whose distinctive behavior is placement, not a writable surface).
+// contract; read-binding requires a marks.Binding field. behNone carries no
+// surface requirement (it is the honest classification for marks whose
+// distinctive behavior is placement, not a writable surface).
 var intentSurface = map[distinctiveBehavior]surfaceKind{
 	behWriteBack:         surfaceValueStore,
 	behExclusiveSelect:   surfaceValueStore,
@@ -184,7 +179,6 @@ var intentSurface = map[distinctiveBehavior]surfaceKind{
 	behGroupHost:         surfaceGroupParent,
 	behVizProjection:     surfaceViz,
 	behScaleProjection:   surfaceViz,
-	behRadialLayout:      surfaceNone,
 	behLayerHitPolicy:    surfaceNone,            // exercised via layer config around marks, not a mark surface (F-layerhit-collective)
 	behNone:              surfaceNone,            // read-only display; honest no-distinctive-behavior classification (NG-5)
 	behAnchorTracking:    surfaceAnchorPlacement, // the mark must consume an anchor config (have an AnchorPlacement field); exporting anchors alone is not anchor-tracking
@@ -275,12 +269,9 @@ func TestCoverageDistinct_intentMatchesMarkCapability(t *testing.T) {
 // that the mark is capable of it). The one documented exception is
 // action/command_palette, whose dispatch is internal (registry Execute
 // callbacks), verified by TestShellCommandPalette_registeredCommandRuns.
-//
-// This gate is what would have caught the Rev. 2.2 popup_palette mismatch
-// transitively: the only honest command-dispatch surface for popup_palette is
-// its Activated signal, and E6 subscribes to it. Combined with the capability
-// gate (which rejects impossible intents), it makes the intent map a verified
-// claim rather than a self-attested label.
+// Combined with the capability gate (which rejects impossible intents), the
+// exercise gate makes the intent map a verified claim rather than a
+// self-attested label.
 func TestCoverageDistinct_commandDispatchIsExercised(t *testing.T) {
 	root, _ := newCoverageRoot(t)
 	byKind := markInstancesByKind(root)
@@ -511,7 +502,7 @@ func signalHasSubscribers(m marks.Mark) bool {
 // write-back loop (the mark's input handler writes the value store it holds).
 // Read-only display marks (icon, text, card) lack it entirely, so a
 // behWriteBack intent is impossible for them; the Open-only marks
-// (popup_palette, dialog, notification, tooltip) hold only the visibility gate,
+// (dialog, notification, tooltip) hold only the visibility gate,
 // so a behWriteBack intent is impossible for them too (they are behCommandDispatch
 // / behModalGate / behTransientStatus, whose exercise is verified separately).
 //
@@ -530,10 +521,8 @@ func markHasValueStoreField(m marks.Mark) bool {
 // markHasAnchorPlacementField reports whether the mark consumes an anchor
 // placement config (holds a field of type facet.AnchorPlacement). This is the
 // honest "anchor tracking" surface: the mark is placed relative to an anchor.
-// Marks that only EXPORT anchors (popup_palette is a layout.AnchorExporter for
-// its popovers) without CONSUMING an anchor placement do not carry this surface,
-// so a behAnchorTracking intent is impossible for them — the gate that catches
-// the Rev. 2.2 popup_palette ⇄ behAnchorTracking mismatch.
+// Marks that only EXPORT anchors without CONSUMING an anchor placement do not
+// carry this surface, so a behAnchorTracking intent is impossible for them.
 func markHasAnchorPlacementField(m marks.Mark) bool {
 	return anyField(m, func(t reflect.Type) bool {
 		return t.PkgPath() == facetPkgPath && t.Name() == "AnchorPlacement"

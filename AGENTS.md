@@ -2,6 +2,20 @@ no stubs
 no shims
 no aliases
 no compat
+no copy-paste plumbing
+
+# De-duplication
+Shared mark plumbing lives in the marks root package exactly once — use it, do
+not re-declare it per mark:
+
+- font registry / shaper access: `marks.ShaperFor`, `marks.FontRegistryFrom`
+- icon resolution and rendering: `marks.IconResolverFrom`, `marks.ResolveIconFrom`, `marks.IconCommands`
+- interaction-state decision table: `marks.InteractionStateFor`
+
+Do not re-declare runtime-provider interfaces (`FontRegistry` / `IconResolver`
+/ `ResolveIcon` duck types), hover/press/focus decision tables, or other
+shared plumbing inside a mark. lurpiclint LL038 enforces the provider rule;
+new shared capability probes are added to the marks root package once.
 
 # Verification
 For Go code changes, run `cmake --build build --target lint` before handing work back.

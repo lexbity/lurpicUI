@@ -35,7 +35,7 @@ type Slider struct {
 
 	Value *store.ValueStore[float64]
 
-	Label     string
+	Label     marks.Binding[string]
 	Min       float64
 	Max       float64
 	Step      float64
@@ -88,7 +88,7 @@ func NewSlider(label string, min, max, step float64, value *store.ValueStore[flo
 		Variant:   marks.Const[uiinput.SliderVariant](0),
 		Disabled:  marks.Const(false),
 		Value:     value,
-		Label:     label,
+		Label:     marks.Const(label),
 		Min:       min,
 		Max:       max,
 		Step:      step,
@@ -162,6 +162,14 @@ func (s *Slider) Base() *facet.Facet {
 	return &s.Facet
 }
 
+// Focusable reports whether the Slider can take keyboard focus.
+func (s *Slider) Focusable() bool {
+	if s.Focus.Focusable == nil {
+		return false
+	}
+	return s.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (s *Slider) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeSelection, TypeName: "slider"}
@@ -177,7 +185,7 @@ func (s *Slider) AccessibleName() string {
 	if s == nil {
 		return ""
 	}
-	return s.Label
+	return s.Label.Get()
 }
 
 // ExportAnchors publishes the slider anchor set.
@@ -190,7 +198,7 @@ func (s *Slider) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet 
 		return nil
 	}
 	out := s.DefaultAnchors(bounds, ctx)
-	if s.cachedLabelFacet != nil && s.Label != "" {
+	if s.cachedLabelFacet != nil && s.Label.Get() != "" {
 		if tr := s.cachedLabelFacet.Base().TextRole(); tr != nil && tr.Layout != nil {
 			out["baseline"] = gfx.Point{X: s.cachedLabelBounds.Min.X, Y: s.cachedLabelBounds.Min.Y + tr.Layout.Baseline}
 		}
@@ -211,7 +219,7 @@ func (s *Slider) Children() []facet.GroupChild {
 	}
 	s.syncChildren()
 	out := make([]facet.GroupChild, 0, 2)
-	if s.cachedLabelFacet != nil && s.Label != "" {
+	if s.cachedLabelFacet != nil && s.Label.Get() != "" {
 		out = append(out, s.sliderGroupChild(s.cachedLabelFacet.Base(), sliderMarkIDRoot, 0))
 	}
 	if s.cachedValueFacet != nil {
@@ -275,9 +283,9 @@ func (s *Slider) syncChildren() {
 		return
 	}
 	if s.cachedLabelFacet == nil {
-		s.cachedLabelFacet = primitive.NewText(marks.Const(s.Label))
+		s.cachedLabelFacet = primitive.NewText(marks.Const(s.Label.Get()))
 	} else {
-		s.cachedLabelFacet.Content = marks.Const(s.Label)
+		s.cachedLabelFacet.Content = marks.Const(s.Label.Get())
 		s.cachedLabelFacet.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 	}
 	s.cachedLabelFacet.Typography = marks.Const(theme.TextLabelM)
@@ -355,7 +363,7 @@ func (s *Slider) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	}
 
 	var labelSize gfx.Size
-	if s.Label != "" && s.cachedLabelFacet != nil {
+	if s.Label.Get() != "" && s.cachedLabelFacet != nil {
 		labelSize = s.cachedLabelFacet.Base().LayoutRole().Measure(ctx, facet.Constraints{
 			MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H},
 		}).Size
@@ -431,7 +439,7 @@ func (s *Slider) arrange(ctx facet.ArrangeContext, bounds gfx.Rect) {
 	}
 
 	var labelH float32
-	if s.Label != "" && s.cachedLabelFacet != nil {
+	if s.Label.Get() != "" && s.cachedLabelFacet != nil {
 		labelH = s.cachedLabelFacet.Base().LayoutRole().MeasuredSize.H
 	}
 
@@ -586,7 +594,7 @@ func (s *Slider) buildCommands(bounds gfx.Rect, runtime any, contentScale float3
 
 	textColor := theme.MaterialColor(valueLabel)
 
-	if s.Label != "" && s.cachedLabelFacet != nil {
+	if s.Label.Get() != "" && s.cachedLabelFacet != nil {
 		if projected := s.cachedLabelFacet.Base().ProjectionRole().Project(facet.ProjectionContext{
 			Runtime:      runtimeServicesOrNil(runtime),
 			Bounds:       s.cachedLabelBounds,

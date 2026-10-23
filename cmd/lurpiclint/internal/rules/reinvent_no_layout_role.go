@@ -35,7 +35,7 @@ func (r *NoLayoutRole) Check(ctx *Context) []*diag.Diagnostic {
 	pkgCache := make(map[string]*pkgInfo)
 
 	for _, f := range ctx.Files {
-		if isLayoutOrMarksPackage(f) || isRuntimePackage(f) || isGraphPackage(f) {
+		if isLayoutOrMarksPackage(f) || isRuntimePackage(f) {
 			continue
 		}
 

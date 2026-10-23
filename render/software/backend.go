@@ -16,19 +16,11 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 
-	gotextrender "github.com/go-text/render"
 	"github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
 	_ "golang.org/x/image/tiff"
 	"golang.org/x/image/vector"
 )
-
-var _ = text.GlyphRun{}
-var _ = gotextrender.Renderer{}
-
-type blitSurface interface {
-	render.SoftwareSurface
-}
 
 type RenderBatchCacheEntry struct {
 	bounds      gfx.Rect
@@ -58,7 +50,7 @@ type renderState struct {
 
 type SoftwareRenderer struct {
 	mu               sync.RWMutex
-	surface          blitSurface
+	surface          render.SoftwareSurface
 	output           *image.RGBA
 	texBackend       *render.SoftwareBackend
 	RenderBatchCache map[render.RenderBatchID]*RenderBatchCacheEntry
@@ -83,7 +75,7 @@ func (r *SoftwareRenderer) Initialize(surface render.Surface) error {
 	if surface == nil {
 		return errors.New("software renderer: nil surface")
 	}
-	blit, ok := surface.(blitSurface)
+	blit, ok := surface.(render.SoftwareSurface)
 	if !ok {
 		return errors.New("software renderer: surface must implement render.SoftwareSurface")
 	}

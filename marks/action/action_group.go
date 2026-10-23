@@ -118,7 +118,7 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 		hoveredIndex: -1,
 		pressedIndex: -1,
 		focusedIndex: -1,
-		Activated:    signal.NewSignal[MarkAction]("action_group_activated"),
+		Activated:    signal.NewSignal[MarkAction]("action_group.activated"),
 	}
 	g.Facet = facet.NewFacet()
 
@@ -127,7 +127,7 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 		Policy: actionGroupPolicy{group: g},
 	}
 	g.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := g.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -170,6 +170,14 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 func (g *ActionGroup) Base() *facet.Facet {
 	g.BindImpl(g)
 	return &g.Facet
+}
+
+// Focusable reports whether the ActionGroup can take keyboard focus.
+func (g *ActionGroup) Focusable() bool {
+	if g.Focus.Focusable == nil {
+		return false
+	}
+	return g.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -289,27 +297,6 @@ func (g *ActionGroup) resolveProjectionTheme(runtime any) shared.ActionGroupSlot
 	return g.cachedRecipe
 }
 
-func (g *ActionGroup) newShaper(runtime any) *text.Shaper {
-	registry := g.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (g *ActionGroup) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
-}
-
 func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 	resolved, recipe, ok := g.resolveTheme(ctx)
 	if !ok {
@@ -328,7 +315,7 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	g.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	g.cachedItemStyle = resolved.TextStyle(theme.TextLabelM)
 
-	shaper := g.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(480)

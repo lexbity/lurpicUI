@@ -114,7 +114,7 @@ func (r *ValueStoreManufacture) Check(ctx *Context) []*diag.Diagnostic {
 	for _, pkg := range ctx.Pkgs {
 		for _, pf := range pkg.Files {
 			// Skip framework packages.
-			if isLayoutOrMarksPackage(pf) || isRuntimePackage(pf) || isGraphPackage(pf) {
+			if isLayoutOrMarksPackage(pf) || isRuntimePackage(pf) {
 				continue
 			}
 

@@ -84,9 +84,14 @@ func init() {
 	register[[]action.ActionBarAction]()
 	register[action.ActionGroupAction]()
 	register[[]action.ActionGroupAction]()
-	register[[]action.RadialChild]()
 	register[[]action.SplitButtonItem]()
 	register[*action.ActionBarAction]()
+	register[action.MenuButtonEntry]()
+	register[[]action.MenuButtonEntry]()
+	register[action.ToolbarGroup]()
+	register[[]action.ToolbarGroup]()
+	register[action.RibbonSection]()
+	register[[]action.RibbonSection]()
 	register[svg.SVGPreserveAspectRatio]()
 }
 

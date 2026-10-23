@@ -175,26 +175,21 @@ func TestRealtime_chartTypeGoldens(t *testing.T) {
 	}
 }
 
-// TestRealtime_radialReshapeChangesChartType drives the E1 radial_menu
-// chart-reshape dial (the §3.3 placement: radial_menu · chart reshape · radial
-// layout): clicking a radial icon-button child writes ChartType and the canvas
-// re-projects the matching series.
-func TestRealtime_radialReshapeChangesChartType(t *testing.T) {
+// TestRealtime_dialReshapeChangesChartType drives the E1 chart-reshape dial
+// (the §3.3 placement: turn_dial · chart reshape · discrete positions):
+// turning the dial to a new discrete position writes ChartType and the
+// canvas re-projects the matching series. The dial's own pointer/keyboard
+// mechanics are proven by marks/selection/turn_dial_test.go; this test owns
+// the E1 wiring — dial store → ChartType → canvas series.
+func TestRealtime_dialReshapeChangesChartType(t *testing.T) {
 	e, h := newE1Harness(t)
-	menu := e.Reshape()
-	b := e6Arranged(t, menu)
-	cx := b.Min.X + b.Width()*0.5
-	cy := b.Min.Y + b.Height()*0.5
+	dial := e.Reshape()
 
-	// The four children sit at the cardinal angles around the center. Click the
-	// top child (angle 270° → the "bar" glyph) and the right child (angle 0° →
-	// the "line" glyph).
-	testkit.DriveClick(h, cx, cy-reshapeDialRadius)
-	if got := e.ChartType().Get(); got != ChartBar.String() {
-		t.Fatalf("top radial child set chart type %q, want %q", got, ChartBar.String())
-	}
+	dial.Store().Set(float64(ChartBar))
 	h.RunFrame()
-	// The canvas's active series follows the chart type.
+	if got := e.ChartType().Get(); got != ChartBar.String() {
+		t.Fatalf("dial position 3 set chart type %q, want %q", got, ChartBar.String())
+	}
 	if got := e.Canvas().ChartTypeStore().Get(); got != ChartBar.String() {
 		t.Fatalf("canvas chart type = %q, want %q", got, ChartBar.String())
 	}
@@ -202,9 +197,12 @@ func TestRealtime_radialReshapeChangesChartType(t *testing.T) {
 		t.Fatal("bar series is not arranged after the reshape")
 	}
 
-	testkit.DriveClick(h, cx+reshapeDialRadius, cy)
-	if got := e.ChartType().Get(); got != ChartLine.String() {
-		t.Fatalf("right radial child set chart type %q, want %q", got, ChartLine.String())
+	// The reverse direction: a chart-type write from the controls radio
+	// group turns the dial to the matching position (echo-guarded).
+	e.ChartType().Set(ChartLine.String())
+	h.RunFrame()
+	if got := dial.Store().Get(); got != float64(ChartLine) {
+		t.Fatalf("chart-type write turned dial to %v, want %v", got, float64(ChartLine))
 	}
 }
 

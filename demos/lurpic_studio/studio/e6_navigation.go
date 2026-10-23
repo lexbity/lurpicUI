@@ -120,29 +120,29 @@ func newPlayNavFamily() *playNavFamily {
 
 // wire subscribes the navigation family's activations.
 func (f *playNavFamily) wire() func() {
-	railSubID := f.rail.Activated.Subscribe(func(index int) {
+	railSubID := f.rail.Selected.Subscribe(func(index int) {
 		f.railSelect.Set(index)
 	})
-	drawerID := f.drawer.Activated.Subscribe(func(index int) {
+	drawerID := f.drawer.Selected.Subscribe(func(index int) {
 		f.lastItem.Set(index)
 		f.drawerOpen.Set(false)
 	})
-	pagerID := f.pager.Activated.Subscribe(func(index int) {
+	pagerID := f.pager.Selected.Subscribe(func(index int) {
 		f.pageActivated.Set(index)
 	})
 	pageID := f.pageIndex.OnChange.Subscribe(func(signal.Change[int]) {
 		f.pageActivated.Set(f.pageIndex.Get())
 	})
-	crumbID := f.crumbs.Activated.Subscribe(func(index int) {
+	crumbID := f.crumbs.Selected.Subscribe(func(index int) {
 		f.crumbActivated.Set(index)
 		f.crumbIndex.Set(index)
 	})
 	return func() {
-		f.rail.Activated.Unsubscribe(railSubID)
-		f.drawer.Activated.Unsubscribe(drawerID)
-		f.pager.Activated.Unsubscribe(pagerID)
+		f.rail.Selected.Unsubscribe(railSubID)
+		f.drawer.Selected.Unsubscribe(drawerID)
+		f.pager.Selected.Unsubscribe(pagerID)
 		f.pageIndex.OnChange.Unsubscribe(pageID)
-		f.crumbs.Activated.Unsubscribe(crumbID)
+		f.crumbs.Selected.Unsubscribe(crumbID)
 	}
 }
 

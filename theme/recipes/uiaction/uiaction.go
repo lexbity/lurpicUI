@@ -71,24 +71,6 @@ func ResolveCommandPaletteRecipe(ctx theme.StyleContext, overrides ...theme.Slot
 	return resolved, report
 }
 
-// ResolvePopupPaletteRecipe resolves the popup palette slots and provenance.
-func ResolvePopupPaletteRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.PopupPaletteSlots]) (shared.PopupPaletteSlots, theme.RecipeReport) {
-	slots := popupPaletteBase(ctx)
-	report := newReport("uiaction", theme.VariantKey("default"), slots)
-	resolved := theme.ResolveSlot(slots, overrides...)
-	annotateOverrides(&report, slots, resolved)
-	return resolved, report
-}
-
-// ResolveRadialMenuRecipe resolves the radial menu slots and provenance.
-func ResolveRadialMenuRecipe(ctx theme.StyleContext, overrides ...theme.SlotPatch[shared.RadialMenuSlots]) (shared.RadialMenuSlots, theme.RecipeReport) {
-	slots := radialMenuBase(ctx)
-	report := newReport("uiaction", theme.VariantKey("default"), slots)
-	resolved := theme.ResolveSlot(slots, overrides...)
-	annotateOverrides(&report, slots, resolved)
-	return resolved, report
-}
-
 func actionBarBase(ctx theme.StyleContext) shared.ActionBarSlots {
 	tokens := ctx.Tokens
 	return shared.ActionBarSlots{
@@ -185,30 +167,6 @@ func commandPaletteBase(ctx theme.StyleContext) shared.CommandPaletteSlots {
 		ShortcutLabel: markStyleFromColor(tokens.Color.OnSurfaceVariant),
 		EmptyState:    markStyleFromColor(tokens.Color.OnSurfaceVariant),
 		FocusRing:     strokeStyle(tokens.Color.Primary, 2),
-	}
-}
-
-func popupPaletteBase(ctx theme.StyleContext) shared.PopupPaletteSlots {
-	tokens := ctx.Tokens
-	return shared.PopupPaletteSlots{
-		Root:           transparentStyle(),
-		PaletteSurface: roundedSurfaceStyle(tokens.Color.SurfaceInverse, tokens.Color.OnSurfaceVariant, 1),
-		ToolItems:      markStyleFromColor(tokens.Color.OnSurface),
-		ToolGroup:      markStyleFromColor(tokens.Color.OnSurfaceVariant),
-		AnchorArrow:    strokeStyle(tokens.Color.Primary, 2),
-		FocusRing:      strokeStyle(tokens.Color.Primary, 2),
-	}
-}
-
-func radialMenuBase(ctx theme.StyleContext) shared.RadialMenuSlots {
-	tokens := ctx.Tokens
-	return shared.RadialMenuSlots{
-		Root:        transparentStyle(),
-		Surface:     roundedSurfaceStyle(tokens.Color.Surface, tokens.Color.OnSurfaceVariant, 1),
-		CenterSlot:  roundedSurfaceStyle(tokens.Color.SurfaceVariant, tokens.Color.OnSurfaceVariant, 1),
-		RadialTrack: strokeStyle(tokens.Color.OnSurfaceVariant, 1),
-		AnchorArrow: strokeStyle(tokens.Color.Primary, 2),
-		FocusRing:   strokeStyle(tokens.Color.Primary, 2),
 	}
 }
 

@@ -74,6 +74,7 @@ func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[f
 		value = store.NewValueStore(math.Min(min, max))
 	}
 	td := &TurnDial{
+		Activated: signal.NewSignal[signal.Unit]("turn_dial.activated"),
 		Label:     marks.Const(label),
 		Disabled:  marks.Const(false),
 		Value:     value,
@@ -158,6 +159,14 @@ func (td *TurnDial) Base() *facet.Facet {
 	return &td.Facet
 }
 
+// Focusable reports whether the TurnDial can take keyboard focus.
+func (td *TurnDial) Focusable() bool {
+	if td.Focus.Focusable == nil {
+		return false
+	}
+	return td.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (td *TurnDial) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeSelection, TypeName: "turn_dial"}
@@ -234,32 +243,11 @@ func (td *TurnDial) OnDetach() {
 	td.cachedValueHeight = 0
 }
 
-func (td *TurnDial) newShaper(runtime any) *text.Shaper {
-	registry := td.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (td *TurnDial) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
-}
-
 func (td *TurnDial) resolveLayouts(ctx facet.MeasureContext, constraints facet.Constraints, resolved theme.ResolvedContext) (*text.TextLayout, *text.TextLayout) {
 	labelStyle := resolved.TextStyle(theme.TextLabelM)
 	valueStyle := resolved.TextStyle(theme.TextBodyS)
 
-	shaper := td.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		var labelLayout *text.TextLayout
 		if td.Label.Get() != "" {

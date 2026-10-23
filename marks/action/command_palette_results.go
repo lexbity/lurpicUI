@@ -53,7 +53,7 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 		ItemVariant:  marks.Const(uiinput.ListItemStandard),
 		Disabled:     marks.Const(false),
 		parent:       parent,
-		Activated:    signal.NewSignal[int]("command_palette_results_activated"),
+		Activated:    signal.NewSignal[int]("command_palette_results.activated"),
 		activeIndex:  -1,
 		cachedRowGap: 0,
 	}

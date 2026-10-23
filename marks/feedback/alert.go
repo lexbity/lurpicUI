@@ -37,7 +37,7 @@ type Alert struct {
 
 	textRole facet.TextRole
 
-	Actioned  signal.Signal[signal.Unit]
+	Activated signal.Signal[signal.Unit]
 	Dismissed signal.Signal[signal.Unit]
 
 	Title              marks.Binding[string]
@@ -90,6 +90,8 @@ const (
 // NewAlert constructs a feedback.alert mark with canonical defaults.
 func NewAlert(title, message string) *Alert {
 	a := &Alert{
+		Dismissed:          signal.NewSignal[signal.Unit]("alert.dismissed"),
+		Activated:          signal.NewSignal[signal.Unit]("alert.activated"),
 		Title:              marks.Const(title),
 		Message:            marks.Const(message),
 		IconRef:            marks.Const(""),
@@ -361,7 +363,7 @@ func (a *Alert) syncChildren() {
 			a.cachedActionButton = action.NewButton(marks.Const(actionLabel), marks.Const(uiinput.ButtonText))
 			a.cachedActionButton.Activated.Subscribe(func(signal.Unit) {
 				if a != nil {
-					a.Actioned.Emit(signal.Unit{})
+					a.Activated.Emit(signal.Unit{})
 				}
 			})
 		} else {

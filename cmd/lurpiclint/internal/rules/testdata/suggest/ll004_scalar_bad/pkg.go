@@ -14,7 +14,7 @@ func newChart() *viz.Bar[BarBucket] {
 	data := []BarBucket{{"NA", 100.0}, {"EU", 200.0}}
 	s := scale.NewLinear()
 
-	// LL004 (info): scalar accessor closures; prefer data.Encoding.
+	// LL004 (info): scalar accessor closures; prefer marks.Encoding.
 	return viz.NewBar(data,
 		func(b BarBucket) string { return b.Region },
 		func(b BarBucket) float64 { return b.Revenue },

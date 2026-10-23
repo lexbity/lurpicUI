@@ -45,7 +45,7 @@ type Toolbar struct {
 	Activated signal.Signal[MarkAction]
 
 	Label    marks.Binding[string]
-	Groups   []ToolbarGroup
+	Groups   marks.Binding[[]ToolbarGroup]
 	Overflow *ToolbarOverflow
 	Disabled marks.Binding[bool]
 
@@ -98,13 +98,13 @@ var _ marks.Mark = (*Toolbar)(nil)
 func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *ToolbarOverflow) *Toolbar {
 	t := &Toolbar{
 		Label:        label,
-		Groups:       normalizeToolbarGroups(groups),
+		Groups:       marks.Const(normalizeToolbarGroups(groups)),
 		Overflow:     normalizeToolbarOverflow(overflow),
 		Disabled:     marks.Const(false),
 		focusedIndex: -1,
 		hoveredIndex: -1,
 		pressedIndex: -1,
-		Activated:    signal.NewSignal[MarkAction]("toolbar_activated"),
+		Activated:    signal.NewSignal[MarkAction]("toolbar.activated"),
 	}
 	t.Facet = facet.NewFacet()
 
@@ -113,7 +113,7 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 		Policy: toolbarGroupPolicy{toolbar: t},
 	}
 	t.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial,
+		SupportedPlacement: facet.SupportsLinear | facet.SupportsGrid | facet.SupportsAnchor,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := t.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -147,7 +147,7 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 		return t.onKey(e)
 	}
 	t.Focus.Focusable = func() bool {
-		return !t.Disabled.Get() && (len(t.Groups) > 0 || t.Overflow != nil)
+		return !t.Disabled.Get() && (len(t.Groups.Get()) > 0 || t.Overflow != nil)
 	}
 	t.Focus.TabIndex = 0
 	t.Focus.OnFocusGained = func() { t.onFocusGained() }
@@ -168,6 +168,14 @@ func (t *Toolbar) Base() *facet.Facet {
 	return &t.Facet
 }
 
+// Focusable reports whether the Toolbar can take keyboard focus.
+func (t *Toolbar) Focusable() bool {
+	if t.Focus.Focusable == nil {
+		return false
+	}
+	return t.Focus.Focusable()
+}
+
 // Descriptor satisfies marks.Mark.
 func (t *Toolbar) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeAction, TypeName: markTypeToolbar}
@@ -184,7 +192,7 @@ func (t *Toolbar) AccessibleName() string {
 	if name := strings.TrimSpace(t.Label.Get()); name != "" {
 		return name
 	}
-	for _, group := range t.Groups {
+	for _, group := range t.Groups.Get() {
 		for _, action := range group.Actions {
 			if name := strings.TrimSpace(action.AccessibleLabel); name != "" {
 				return name
@@ -341,8 +349,8 @@ func (t *Toolbar) childSpecs() []toolbarChildSpec {
 	if t == nil {
 		return nil
 	}
-	specs := make([]toolbarChildSpec, 0, len(t.Groups)+1)
-	for _, group := range t.Groups {
+	specs := make([]toolbarChildSpec, 0, len(t.Groups.Get())+1)
+	for _, group := range t.Groups.Get() {
 		specs = append(specs, toolbarChildSpec{kind: toolbarChildGroup, group: normalizeToolbarGroup(group)})
 	}
 	if overflow := normalizeToolbarOverflow(t.Overflow); overflow != nil {
@@ -443,7 +451,7 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 			c.overflow.Label = marks.Const("")
 			c.overflow.AccessibleLabel = marks.Const(spec.overflow.AccessibleLabel)
 			c.overflow.TriggerIconRef = marks.Const(spec.overflow.TriggerIconRef)
-			c.overflow.Entries = normalizeMenuButtonEntries(spec.overflow.Entries)
+			c.overflow.Entries = marks.Const(normalizeMenuButtonEntries(spec.overflow.Entries))
 			c.overflow.focusedIndex = -1
 			c.overflow.hoveredIndex = -1
 			c.overflow.pressedIndex = -1
@@ -1174,7 +1182,7 @@ func (t *Toolbar) childEnabled(index int) bool {
 	case toolbarChildGroup:
 		return child.group != nil && !child.group.Disabled.Get() && len(child.group.Actions.Get()) > 0
 	case toolbarChildOverflow:
-		return child.overflow != nil && !child.overflow.Disabled.Get() && len(child.overflow.Entries) > 0
+		return child.overflow != nil && !child.overflow.Disabled.Get() && len(child.overflow.Entries.Get()) > 0
 	default:
 		return false
 	}

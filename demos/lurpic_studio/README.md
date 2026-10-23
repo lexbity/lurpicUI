@@ -96,9 +96,9 @@ slices (P0–P10) are superseded but their framework feedback remains below.
   filtered), and the alive coverage proves each of those marks is arranged,
   pixel-visible, and (for interactive marks) drives a mutation through a
   subscription. This required placing the previously-unplaced
-  action/feedback/navigation marks (split_button, menu_button, radial_menu,
-  popup_palette, standalone toolbar, notification, tooltip, breadcrumbs,
-  list_item, icon, list) with genuine homes in E6 and E1.
+  action/feedback/navigation marks (split_button, menu_button, standalone
+  toolbar, notification, tooltip, breadcrumbs, list_item, icon, list) with
+  genuine homes in E6 and E1.
 - **Framework feedback (P10):**
   - `F-resp` (spec) — the responsive contract uses store identity, never mark
     pointers: the wide and narrow arrangements are distinct mark instances bound
@@ -144,15 +144,12 @@ slices (P0–P10) are superseded but their framework feedback remains below.
   wheel zoom — via an idempotent `pauseLive()`. Enforced by
   `TestRealtime_liveTailPauseAndJumpToLive` (now driving the real gestures) and
   `TestRealtime_selectionClickDoesNotPause`.
-- **F-radial-reshape (resolved)** — the §3.3 E1 placement listed
-  `radial_menu(chart reshape · radial layout)`, but the radial menu was only
-  placed in E6 and unbound. E1 now hosts a `radial_menu` chart-reshape dial in
-  the bottom strip: four `icon_button` radial children (one per chart type)
-  write `ChartType`, re-projecting the canvas series. `icon_button` children
-  are required because the radial policy arranges children with Radial
-  placement, which the plain `button` mark's contract does not declare.
-  Enforced by `TestRealtime_radialReshapeChangesChartType` and the coverage
-  audit's E1 placement assertion.
+- **F-reshape-dial (resolved)** — the §3.3 E1 chart-reshape placement is a
+  `turn_dial` with four discrete positions (one per chart type): turning it
+  writes `ChartType`, re-projecting the canvas series, and chart-type writes
+  from the controls radio group turn the dial to match (echo-guarded both
+  ways). Enforced by `TestRealtime_dialReshapeChangesChartType` and the
+  coverage audit's E1 placement assertion.
 - **F-brush-chartside (resolved)** — FR-brush's chart-side half is now real:
   `chart_canvas.go` subscribes to `Selection` and draws the highlight — a ring
   around the selected data point for the temporal series, a band outline for
@@ -317,7 +314,7 @@ Every claim below links to the test that proves it (RX-1 NFR-10).
       zero OS reads; `StudioThemeContext()` never consults the framework default
       (`theme_pin_test.go` + `theme.Default()` grep gate).
 - [x] RX-1 FR-20: every standard mark is arranged AND renders non-background
-      pixels in some frame (48/48 — `TestCoverageAlive_allStandardMarksRender`),
+      pixels in some frame (50/50 — `TestCoverageAlive_allStandardMarksRender`),
       every interactive mark drives a mutation through a subscription
       (`TestCoverageAlive_interactiveMarksMutateState`), and a dead palette is
       rejected by the walker (`TestCoverageAlive_detectsDeadPalette`).
@@ -331,7 +328,7 @@ Every claim below links to the test that proves it (RX-1 NFR-10).
       registered command switches the active exhibit (`shell_wiring_test.go`).
 - [x] P10: status bar wired — connection light, progress bar/ring in lock-step,
       row-count badge, active-exhibit caption (`shell_wiring_test.go`).
-- [x] P10: coverage audit — the live-tree walk reaches 48/48 standard marks
+- [x] P10: coverage audit — the live-tree walk reaches 50/50 standard marks
       (`coverage_test.go`); every placed mark carries a distinctive behavior
       (`coverage_distinct_test.go`).
 - [x] P10: `go test ./demos/lurpic_studio/... -race`, `cmake --build build

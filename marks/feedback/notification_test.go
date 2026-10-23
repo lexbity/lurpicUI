@@ -132,7 +132,7 @@ func TestNotificationInteractionsEmitActionAndDismiss(t *testing.T) {
 	}, gfx.RectFromXYWH(0, 0, notification.Layout.MeasuredSize.W, notification.Layout.MeasuredSize.H))
 
 	var actioned, dismissed int
-	notification.Actioned.Subscribe(func(signal.Unit) { actioned++ })
+	notification.Activated.Subscribe(func(signal.Unit) { actioned++ })
 	notification.Dismissed.Subscribe(func(signal.Unit) { dismissed++ })
 
 	if notification.cachedActionButton == nil {

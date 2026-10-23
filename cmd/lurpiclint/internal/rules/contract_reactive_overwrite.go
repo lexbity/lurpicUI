@@ -52,7 +52,7 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 
 		for _, pf := range pkg.Files {
 			// Skip framework packages (allowlist gate).
-			if isLayoutOrMarksPackage(pf) || isRuntimePackage(pf) || isGraphPackage(pf) {
+			if isLayoutOrMarksPackage(pf) || isRuntimePackage(pf) {
 				continue
 			}
 
@@ -103,7 +103,7 @@ func (r *ReactiveBindingOverwrite) Check(ctx *Context) []*diag.Diagnostic {
 		callerFields := callerSuppliedStoreFields(pkg, imports)
 
 		for _, pf := range pkg.Files {
-			if isLayoutOrMarksPackage(pf) || isRuntimePackage(pf) || isGraphPackage(pf) {
+			if isLayoutOrMarksPackage(pf) || isRuntimePackage(pf) {
 				continue
 			}
 

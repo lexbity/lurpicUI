@@ -20,7 +20,6 @@ import (
 var stateExempt = map[string]string{
 	"progress_ring/rtl":         "centered circular indicator with optional centered label; radial symmetry makes RTL a no-op",
 	"status_light/rtl":          "small centered circular status indicator; no directional content to mirror",
-	"radial_menu/rtl":           "all RadialChild placements use explicit angles; auto-distribution would reverse sweep under RTL but this fixture has no auto-placed children",
 	"command_palette/focused":   "command palette is closed by default (Open=false); cachedSurfaceBounds is empty so no focus ring can render",
 	"command_palette/open":      "command palette defaults to Open=true in singleton golden test; 'open' variant sets the same value as default",
 	"dialog/open":               "dialog defaults to Open=true; test sets the same value — open state is the default render state",

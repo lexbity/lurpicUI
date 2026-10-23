@@ -86,7 +86,7 @@ func (f *playFeedbackFamily) wire() func() {
 			f.dialogOpen.Set(true)
 		}
 	})
-	actionID := f.dialog.Actioned.Subscribe(func(int) {
+	actionID := f.dialog.Activated.Subscribe(func(feedback.DialogResult) {
 		f.dialogOpen.Set(false)
 	})
 	dismissID := f.dialog.Dismissed.Subscribe(func(signal.Unit) {
@@ -108,7 +108,7 @@ func (f *playFeedbackFamily) wire() func() {
 		f.alertTrigger.Activated.Unsubscribe(alertID)
 		f.alertClear.Activated.Unsubscribe(clearID)
 		f.dialogOpenTrigger.Activated.Unsubscribe(openID)
-		f.dialog.Actioned.Unsubscribe(actionID)
+		f.dialog.Activated.Unsubscribe(actionID)
 		f.dialog.Dismissed.Unsubscribe(dismissID)
 		f.toastTrigger.Activated.Unsubscribe(toastID)
 		f.toast.Dismissed.Unsubscribe(toastDismiss)

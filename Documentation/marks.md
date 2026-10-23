@@ -32,7 +32,7 @@ The current authored families in the tree are:
 | Package | Marks |
 |---|---|
 | `marks/primitive` | text, icon |
-| `marks/action` | button, icon_button, split_button, menu_button, toolbar, ribbon, action_bar, action_group, radial_menu, command_palette, popup_palette |
+| `marks/action` | button, icon_button, split_button, menu_button, toolbar, ribbon, action_bar, action_group, command_palette |
 | `marks/input` | text_field, number_field, color_picker |
 | `marks/selection` | checkbox, radio_group, slider, switch, dropdown_select, button_group, list_item, turn_dial |
 | `marks/navigation` | breadcrumbs, nav_drawer, nav_rail, pagination, tabs, tree_navigator |

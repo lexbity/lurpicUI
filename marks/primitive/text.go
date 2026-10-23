@@ -182,7 +182,7 @@ func (t *Text) resolveLayout(ctx facet.MeasureContext, constraints facet.Constra
 	}
 	style := resolved.TextStyle(t.Typography.Get())
 	maxWidth := t.effectiveMaxWidth(constraints)
-	shaper := t.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		return nil, text.TextStyle{}, false
 	}
@@ -226,27 +226,6 @@ func (t *Text) effectiveMaxWidth(constraints facet.Constraints) float32 {
 		return 0
 	}
 	return maxWidth
-}
-
-func (t *Text) newShaper(runtime any) *text.Shaper {
-	registry := t.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (t *Text) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func (t *Text) buildCommands(ctx facet.ProjectionContext) []gfx.Command {

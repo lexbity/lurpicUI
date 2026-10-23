@@ -124,7 +124,7 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 	tabs.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, bounds)
 
 	activated := -1
-	tabs.Activated.Subscribe(func(index int) {
+	tabs.Selected.Subscribe(func(index int) {
 		activated = index
 	})
 

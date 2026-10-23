@@ -139,7 +139,7 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 	drawer.Layout.Arrange(facet.ArrangeContext{Runtime: rt, Theme: measureCtx}, gfx.RectFromXYWH(0, 0, result.Size.W, result.Size.H))
 
 	activated := -1
-	drawer.Activated.Subscribe(func(index int) {
+	drawer.Selected.Subscribe(func(index int) {
 		activated = index
 	})
 

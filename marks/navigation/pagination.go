@@ -130,7 +130,7 @@ type Pagination struct {
 	CurrentIndex *store.ValueStore[int]
 	Disabled     marks.Binding[bool]
 
-	Activated signal.Signal[int]
+	Selected signal.Signal[int]
 
 	textRole facet.TextRole
 
@@ -165,13 +165,23 @@ var _ marks.Mark = (*Pagination)(nil)
 // NewPagination constructs a navigation.pagination mark with canonical defaults.
 func NewPagination(label string, items []PaginationItem, currentIndex *store.ValueStore[int]) *Pagination {
 	p := &Pagination{
+		Selected:          signal.NewSignal[int]("pagination.selected"),
 		Label:             marks.Const(label),
 		CurrentIndex:      currentIndex,
 		Disabled:          marks.Const(false),
 		focusedEntryIndex: 0,
 	}
 	p.Facet = facet.NewFacet()
-	p.SetItems(items)
+	// Items are config (Q3 rule): normalized once at construction.
+	next := append([]PaginationItem(nil), items...)
+	for i := range next {
+		next[i].Key = strings.TrimSpace(next[i].Key)
+		next[i].Label = strings.TrimSpace(next[i].Label)
+	}
+	p.Items = next
+	p.rebuildChildren()
+	p.clampIndices()
+
 	p.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   paginationGroupPolicy{pagination: p},
@@ -225,6 +235,9 @@ func (p *Pagination) Base() *facet.Facet {
 	return &p.Facet
 }
 
+// Focusable reports whether the Pagination can take keyboard focus.
+func (p *Pagination) Focusable() bool { return p.Focus.Focusable != nil }
+
 // Descriptor satisfies marks.Mark.
 func (p *Pagination) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeNavigation, TypeName: "pagination"}
@@ -235,22 +248,6 @@ func (p *Pagination) AccessibilityRole() string { return markTypeNavigation }
 
 // AccessibleName reports the semantic name source required by the spec.
 func (p *Pagination) AccessibleName() string { return p.Label.Get() }
-
-// SetItems updates the page list.
-func (p *Pagination) SetItems(items []PaginationItem) {
-	if p == nil {
-		return
-	}
-	next := append([]PaginationItem(nil), items...)
-	for i := range next {
-		next[i].Key = strings.TrimSpace(next[i].Key)
-		next[i].Label = strings.TrimSpace(next[i].Label)
-	}
-	p.Items = next
-	p.rebuildChildren()
-	p.clampIndices()
-	p.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
 
 // ExportAnchors publishes the pagination anchor set.
 func (p *Pagination) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
@@ -496,7 +493,7 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 	proj.entryKinds = make([]paginationChildKind, 0, len(visible))
 	proj.entryIndices = make([]int, 0, len(visible))
 	proj.entryLabels = make([]string, 0, len(visible))
-	shaper := p.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	totalW := float32(0)
 	maxH := float32(0)
 	for i, child := range visible {
@@ -584,7 +581,7 @@ func (p *Pagination) measureChildSize(ctx facet.MeasureContext, constraints face
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := resolved.TextStyle(theme.TextLabelM)
-	shaper := p.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	content := childLabelForKind(p, kind, index, label)
 	layout := (*text.TextLayout)(nil)
 	if shaper != nil && content != "" {
@@ -865,7 +862,7 @@ func (p *Pagination) onKey(e facet.KeyEvent) bool {
 	case platform.KeyHome:
 		if e.Kind == platform.KeyPress {
 			p.setCurrentIndex(0)
-			p.Activated.Emit(0)
+			p.Selected.Emit(0)
 			return true
 		}
 	case platform.KeyEnd:
@@ -873,7 +870,7 @@ func (p *Pagination) onKey(e facet.KeyEvent) bool {
 			if len(p.Items) > 0 {
 				last := len(p.Items) - 1
 				p.setCurrentIndex(last)
-				p.Activated.Emit(last)
+				p.Selected.Emit(last)
 				return true
 			}
 		}
@@ -895,7 +892,7 @@ func (p *Pagination) onKey(e facet.KeyEvent) bool {
 			return true
 		case platform.KeyRelease:
 			if p.currentVisibleEntryIndex() >= 0 {
-				p.Activated.Emit(p.clampedCurrentIndex())
+				p.Selected.Emit(p.clampedCurrentIndex())
 			}
 			return true
 		}
@@ -947,7 +944,7 @@ func (p *Pagination) activateEntry(entryIndex int) {
 	case paginationChildPage:
 		if idx := p.entryProj.entryIndices[entryIndex]; idx >= 0 {
 			p.setCurrentIndex(idx)
-			p.Activated.Emit(idx)
+			p.Selected.Emit(idx)
 			p.focusedEntryIndex = entryIndex
 		}
 	}
@@ -965,7 +962,7 @@ func (p *Pagination) moveCurrent(delta int) {
 		next = len(p.Items) - 1
 	}
 	p.setCurrentIndex(next)
-	p.Activated.Emit(next)
+	p.Selected.Emit(next)
 	p.focusedEntryIndex = p.currentVisibleEntryIndex()
 }
 
@@ -1034,27 +1031,6 @@ func (p *Pagination) markIDForChild(child *paginationChild) facet.MarkID {
 	default:
 		return paginationMarkIDRoot
 	}
-}
-
-func (p *Pagination) newShaper(runtime any) *text.Shaper {
-	registry := p.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (p *Pagination) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func childLabelForKind(p *Pagination, kind paginationChildKind, index int, label string) string {

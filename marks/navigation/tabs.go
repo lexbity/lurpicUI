@@ -5,7 +5,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
-	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -50,7 +49,7 @@ type Tabs struct {
 	Disabled    marks.Binding[bool]
 	ActiveIndex *store.ValueStore[int]
 
-	Activated signal.Signal[int]
+	Selected signal.Signal[int]
 
 	textRole facet.TextRole
 
@@ -89,6 +88,7 @@ var _ marks.Mark = (*Tabs)(nil)
 // NewTabs constructs a navigation.tabs mark with canonical defaults.
 func NewTabs(label string, items []TabItem, activeIndex *store.ValueStore[int]) *Tabs {
 	t := &Tabs{
+		Selected:     signal.NewSignal[int]("tabs.selected"),
 		Label:        marks.Const(label),
 		Variant:      marks.Const(uinav.TabsStandard),
 		Disabled:     marks.Const(false),
@@ -97,7 +97,16 @@ func NewTabs(label string, items []TabItem, activeIndex *store.ValueStore[int]) 
 		pressedIndex: -1,
 	}
 	t.Facet = facet.NewFacet()
-	t.SetItems(items)
+	// Items are config (Q3 rule): normalized once at construction.
+	next := append([]TabItem(nil), items...)
+	for i := range next {
+		next[i].Key = strings.TrimSpace(next[i].Key)
+		next[i].Label = strings.TrimSpace(next[i].Label)
+		next[i].IconRef = strings.TrimSpace(next[i].IconRef)
+	}
+	t.Items = next
+	t.clampActiveIndex()
+
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,
 		Policy:   tabsGroupPolicy{},
@@ -167,22 +176,6 @@ func (t *Tabs) Focusable() bool {
 		return false
 	}
 	return t.Focus.Focusable()
-}
-
-// SetItems updates the tab item list.
-func (t *Tabs) SetItems(items []TabItem) {
-	if t == nil {
-		return
-	}
-	next := append([]TabItem(nil), items...)
-	for i := range next {
-		next[i].Key = strings.TrimSpace(next[i].Key)
-		next[i].Label = strings.TrimSpace(next[i].Label)
-		next[i].IconRef = strings.TrimSpace(next[i].IconRef)
-	}
-	t.Items = next
-	t.clampActiveIndex()
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // ExportAnchors publishes the tabs anchor set.
@@ -306,7 +299,7 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		t.cachedTabLabelStyle = resolved.TextStyle(theme.TextLabelS)
 	}
 	t.cachedPanelStyle = resolved.TextStyle(theme.TextHeadingS)
-	shaper := t.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		t.cachedTabLabelLayouts = nil
 		t.cachedPanelLayout = nil
@@ -326,7 +319,7 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		item := t.Items[i]
 		labelLayouts[i] = shaper.ShapeTruncated(item.Label, t.cachedTabLabelStyle, maxWidth)
 		if item.IconRef != "" {
-			if asset, ok := t.resolveIcon(ctx.Runtime, item.IconRef); ok {
+			if asset, ok := marks.ResolveIconFrom(ctx.Runtime, item.IconRef); ok {
 				iconAssets[i] = asset
 			}
 		}
@@ -593,7 +586,7 @@ func (t *Tabs) buildCommands(bounds gfx.Rect, runtime any) []gfx.Command {
 		}
 		if asset := t.cachedIconAssets[i]; len(asset.Path.Segments) > 0 && !t.cachedIconBounds[i].IsEmpty() {
 			iconColor := tabLabel
-			cmds = append(cmds, t.iconCommands(asset, t.cachedIconBounds[i], iconColor)...)
+			cmds = append(cmds, marks.IconCommands(asset, t.cachedIconBounds[i], iconColor)...)
 		}
 	}
 	if t.focusedVisible && !theme.IsTransparentMaterial(focus) {
@@ -724,7 +717,7 @@ func (t *Tabs) onKey(e facet.KeyEvent) bool {
 				t.pressedIndex = -1
 				t.invalidate(facet.DirtyProjection)
 				if wasPressed {
-					t.Activated.Emit(t.clampedActiveIndex())
+					t.Selected.Emit(t.clampedActiveIndex())
 					return true
 				}
 			}
@@ -826,11 +819,11 @@ func (t *Tabs) activateIndex(index int) {
 		return
 	}
 	if t.ActiveIndex.Get() == index {
-		t.Activated.Emit(index)
+		t.Selected.Emit(index)
 		return
 	}
 	t.ActiveIndex.Set(index)
-	t.Activated.Emit(index)
+	t.Selected.Emit(index)
 	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
@@ -940,70 +933,8 @@ func (t *Tabs) tabWidth(index int) float32 {
 	return t.cachedTabPadX*2 + 48
 }
 
-func (t *Tabs) newShaper(runtime any) *text.Shaper {
-	registry := t.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (t *Tabs) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
-}
-
 func (t *Tabs) textCommands(layout *text.TextLayout, bounds gfx.Rect, material theme.Material) []gfx.Command {
 	return primitive.TextLayoutCommands(layout, bounds, gfx.SolidBrush(theme.MaterialColor(material)))
-}
-
-func (t *Tabs) iconCommands(asset runtimepkg.IconAsset, bounds gfx.Rect, material theme.Material) []gfx.Command {
-	if len(asset.Path.Segments) == 0 || bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
-		return nil
-	}
-	box := asset.ViewBox
-	if box.IsEmpty() {
-		box = gfxsvg.Bounds(asset.Path)
-	}
-	if box.IsEmpty() || box.Width() == 0 || box.Height() == 0 {
-		return nil
-	}
-	sx := bounds.Width() / box.Width()
-	sy := bounds.Height() / box.Height()
-	scale := mathutil.Min(sx, sy)
-	if scale <= 0 {
-		return nil
-	}
-	target := gfxsvg.Transformed(asset.Path, gfx.Identity().Multiply(gfx.Translation(bounds.Min.X-box.Min.X*scale, bounds.Min.Y-box.Min.Y*scale)).Multiply(gfx.Scale(scale, scale)))
-	return []gfx.Command{gfx.FillPath{Path: target, Brush: gfx.SolidBrush(theme.MaterialColor(material))}}
-}
-
-func (t *Tabs) resolveIcon(runtime any, ref string) (runtimepkg.IconAsset, bool) {
-	type iconProvider interface {
-		IconResolver() runtimepkg.IconResolver
-	}
-	if runtime == nil {
-		return runtimepkg.IconAsset{}, false
-	}
-	if provider, ok := runtime.(iconProvider); ok {
-		if resolver := provider.IconResolver(); resolver != nil {
-			return resolver.ResolveIcon(ref)
-		}
-	}
-	if resolver, ok := runtime.(interface {
-		ResolveIcon(string) (runtimepkg.IconAsset, bool)
-	}); ok {
-		return resolver.ResolveIcon(ref)
-	}
-	return runtimepkg.IconAsset{}, false
 }
 
 type tabsGroupPolicy struct{}

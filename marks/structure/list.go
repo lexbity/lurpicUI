@@ -43,7 +43,7 @@ type ListEntry struct {
 type List struct {
 	marks.Core
 
-	Activated signal.Signal[int]
+	Selected signal.Signal[int]
 
 	Label         marks.Binding[string]
 	SectionHeader marks.Binding[string]
@@ -78,6 +78,7 @@ var _ marks.Mark = (*List)(nil)
 // NewList constructs a structure.list mark with canonical defaults.
 func NewList(label string, entries []ListEntry) *List {
 	l := &List{
+		Selected:        signal.NewSignal[int]("list.selected"),
 		Label:           marks.Const(label),
 		SectionHeader:   marks.Const(""),
 		EmptyState:      marks.Const(""),

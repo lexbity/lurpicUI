@@ -12,7 +12,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -173,6 +172,9 @@ func (t *TreeNavigator) Base() *facet.Facet {
 	return &t.Facet
 }
 
+// Focusable reports whether the TreeNavigator can take keyboard focus.
+func (t *TreeNavigator) Focusable() bool { return t.Focus.Focusable != nil }
+
 // Descriptor satisfies marks.Mark.
 func (t *TreeNavigator) Descriptor() marks.Descriptor {
 	return marks.Descriptor{Family: markTypeNavigation, TypeName: "tree_navigator"}
@@ -187,38 +189,6 @@ func (t *TreeNavigator) AccessibleName() string {
 		return ""
 	}
 	return t.Label.Get()
-}
-
-// SetNodes updates the canonical tree data store.
-func (t *TreeNavigator) SetNodes(nodes []TreeNode) {
-	if t == nil {
-		return
-	}
-	if t.Data == nil {
-		t.Data = store.NewValueStore[[]TreeNode](cloneTreeNodes(nodes))
-		t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-		return
-	}
-	t.Data.Set(cloneTreeNodes(nodes))
-}
-
-// SetSelectedPath updates the selected node path through the FR-8 selection
-// store (the tree no longer mutates TreeNode.Selected in the data; rendering
-// derives each row's Selected from the store).
-func (t *TreeNavigator) SetSelectedPath(path string) {
-	if t.selection != nil {
-		t.selection.Publish(path)
-	} else if t.Selection != nil {
-		t.Selection.Set(path)
-	}
-	t.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
-}
-
-// SetExpandedPath updates the expanded state for a node in the store data.
-func (t *TreeNavigator) SetExpandedPath(path string, expanded bool) {
-	t.mutateTree(func(nodes []TreeNode) {
-		setExpandedByPath(nodes, path, expanded)
-	})
 }
 
 // ExportAnchors publishes the tree anchor set.
@@ -1221,26 +1191,6 @@ func cloneTreeNodes(nodes []TreeNode) []TreeNode {
 	return out
 }
 
-func resolveIconAsset(runtime any, ref string) (runtimepkg.IconAsset, bool) {
-	type iconProvider interface {
-		IconResolver() runtimepkg.IconResolver
-	}
-	if runtime == nil {
-		return runtimepkg.IconAsset{}, false
-	}
-	if provider, ok := runtime.(iconProvider); ok {
-		if resolver := provider.IconResolver(); resolver != nil {
-			return resolver.ResolveIcon(ref)
-		}
-	}
-	if resolver, ok := runtime.(interface {
-		ResolveIcon(string) (runtimepkg.IconAsset, bool)
-	}); ok {
-		return resolver.ResolveIcon(ref)
-	}
-	return runtimepkg.IconAsset{}, false
-}
-
 func clampFloat(v, minV, maxV float32) float32 {
 	if v < minV {
 		return minV
@@ -1255,7 +1205,7 @@ func iconCommandsForRef(runtime any, ref string, bounds gfx.Rect, material theme
 	if bounds.IsEmpty() || theme.IsTransparentMaterial(material) || strings.TrimSpace(ref) == "" {
 		return nil
 	}
-	asset, ok := resolveIconAsset(runtime, ref)
+	asset, ok := marks.ResolveIconFrom(runtime, ref)
 	if !ok || len(asset.Path.Segments) == 0 {
 		return nil
 	}

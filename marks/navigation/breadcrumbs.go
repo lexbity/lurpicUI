@@ -44,7 +44,7 @@ type Breadcrumbs struct {
 	CurrentIndex *store.ValueStore[int]
 	Disabled     marks.Binding[bool]
 
-	Activated signal.Signal[int]
+	Selected signal.Signal[int]
 
 	textRole facet.TextRole
 
@@ -79,13 +79,21 @@ var _ marks.Mark = (*Breadcrumbs)(nil)
 // NewBreadcrumbs constructs a navigation.breadcrumbs mark with canonical defaults.
 func NewBreadcrumbs(label string, items []BreadcrumbItem, currentIndex *store.ValueStore[int]) *Breadcrumbs {
 	b := &Breadcrumbs{
+		Selected:     signal.NewSignal[int]("breadcrumbs.selected"),
 		Label:        marks.Const(label),
 		CurrentIndex: currentIndex,
 		Disabled:     marks.Const(false),
 		focusedIndex: len(items) - 1,
 	}
 	b.Facet = facet.NewFacet()
-	b.SetItems(items)
+	// Items are config (Q3 rule): normalized once at construction.
+	next := append([]BreadcrumbItem(nil), items...)
+	for i := range next {
+		next[i].Label = strings.TrimSpace(next[i].Label)
+	}
+	b.Items = next
+	b.clampIndices()
+
 	b.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,
 		Policy: breadcrumbsGroupPolicy{},
@@ -154,20 +162,6 @@ func (b *Breadcrumbs) Focusable() bool {
 		return false
 	}
 	return b.Focus.Focusable()
-}
-
-// SetItems updates the breadcrumb items.
-func (b *Breadcrumbs) SetItems(items []BreadcrumbItem) {
-	if b == nil {
-		return
-	}
-	next := append([]BreadcrumbItem(nil), items...)
-	for i := range next {
-		next[i].Label = strings.TrimSpace(next[i].Label)
-	}
-	b.Items = next
-	b.clampIndices()
-	b.invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
 }
 
 // ExportAnchors publishes the breadcrumbs anchor set.
@@ -255,7 +249,7 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	b.cachedCurrentStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedSeparatorStyle = resolved.TextStyle(theme.TextLabelM)
 
-	shaper := b.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		b.cachedLabelLayouts = nil
 		b.cachedSeparatorLayout = nil
@@ -677,7 +671,7 @@ func (b *Breadcrumbs) activateIndex(index int) {
 	if index < 0 || index >= len(b.Items) || b.isDisabledIndex(index) || index == b.clampedCurrentIndex() {
 		return
 	}
-	b.Activated.Emit(index)
+	b.Selected.Emit(index)
 }
 
 func (b *Breadcrumbs) moveFocus(delta int) {
@@ -853,27 +847,6 @@ func (b *Breadcrumbs) currentLabelBounds() gfx.Rect {
 		return gfx.Rect{}
 	}
 	return b.cachedLabelBounds[idx]
-}
-
-func (b *Breadcrumbs) newShaper(runtime any) *text.Shaper {
-	registry := b.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (b *Breadcrumbs) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 type breadcrumbsGroupPolicy struct{}

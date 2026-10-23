@@ -88,6 +88,7 @@ var _ marks.Mark = (*IconButton)(nil)
 // NewIconButton constructs an action.icon_button mark with canonical defaults.
 func NewIconButton(source primitive.IconSource) *IconButton {
 	i := &IconButton{
+		Activated:       signal.NewSignal[signal.Unit]("icon_button.activated"),
 		Icon:            source,
 		DensityBehavior: primitive.IconDensityScaleWithDensity,
 		Label:           marks.Const(""),
@@ -105,7 +106,7 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 		Overflow: facet.OverflowClip,
 	}
 	i.Layout.Child = facet.GroupChildContract{
-		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsRadial | facet.SupportsLinear,
+		SupportedPlacement: facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsLinear,
 		Intrinsic: func(ctx facet.MeasureContext, constraints facet.Constraints) facet.IntrinsicSize {
 			size := i.measureIntrinsic(ctx, constraints)
 			return facet.IntrinsicSize{Min: size, Preferred: size, Max: size}
@@ -158,6 +159,14 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 func (i *IconButton) Base() *facet.Facet {
 	i.BindImpl(i)
 	return &i.Facet
+}
+
+// Focusable reports whether the IconButton can take keyboard focus.
+func (i *IconButton) Focusable() bool {
+	if i.Focus.Focusable == nil {
+		return false
+	}
+	return i.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -474,17 +483,7 @@ func (i *IconButton) resolveSource(runtime any) iconButtonResolvedSource {
 			}
 			return iconButtonResolvedSource{}
 		}
-		type resolver interface {
-			ResolveIcon(ref string) (runtimepkg.IconAsset, bool)
-		}
-		provider, ok := runtime.(resolver)
-		if !ok {
-			if i.cachedSource.kind != iconButtonSourceNone {
-				return i.cachedSource
-			}
-			return iconButtonResolvedSource{}
-		}
-		asset, ok := provider.ResolveIcon(ref)
+		asset, ok := marks.ResolveIconFrom(runtime, ref)
 		if !ok {
 			if i.cachedSource.kind != iconButtonSourceNone {
 				return i.cachedSource
@@ -655,18 +654,7 @@ func (i *IconButton) onFocusLost() {
 }
 
 func (i *IconButton) interactionState() theme.InteractionState {
-	switch {
-	case i.Disabled.Get():
-		return theme.StateDisabled
-	case i.pressed:
-		return theme.StatePressed
-	case i.hovered:
-		return theme.StateHover
-	case i.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(i.Disabled.Get(), i.pressed, i.hovered, i.focusedVisible)
 }
 
 func hashString(value string) uint64 {

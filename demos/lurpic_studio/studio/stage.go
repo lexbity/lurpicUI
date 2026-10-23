@@ -12,11 +12,10 @@ import (
 //
 // F-stage resolved: the stage uses visibility-gating — only the active child
 // is measured and arranged; inactive exhibits are arranged to zero bounds.
-// The layout/stack alternative would overlay every child at one origin and
+// An overlay-stack alternative would place every child at one origin and
 // measure all of them, so it needs the same gating while doing strictly more
-// work (N measures instead of 1); it is therefore a deprecation candidate,
-// not the stage's mechanism. A plain layout/linear host cannot gate either,
-// because its measuredSize fallback re-measures any child with a zero
+// work (N measures instead of 1). A plain layout/linear host cannot gate
+// either, because its measuredSize fallback re-measures any child with a zero
 // MeasuredSize — so the stage is a bespoke single-active-child host.
 type Stage struct {
 	facet.Facet

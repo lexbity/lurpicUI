@@ -12,14 +12,11 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/text"
-	gotextrender "github.com/go-text/render"
 	"github.com/go-text/typesetting/font"
 	ot "github.com/go-text/typesetting/font/opentype"
 	_ "golang.org/x/image/tiff"
 	"golang.org/x/image/vector"
 )
-
-var _ = gotextrender.Renderer{}
 
 type glyphEntry struct {
 	bitmap  *image.Alpha

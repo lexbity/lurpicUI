@@ -81,7 +81,7 @@ type Notification struct {
 
 	textRole facet.TextRole
 
-	Actioned  signal.Signal[signal.Unit]
+	Activated signal.Signal[signal.Unit]
 	Dismissed signal.Signal[signal.Unit]
 
 	Title              marks.Binding[string]
@@ -137,6 +137,8 @@ const notificationDefaultIconSVG = `<svg xmlns="http://www.w3.org/2000/svg" view
 // NewNotification constructs a feedback.notification mark with canonical defaults.
 func NewNotification(title, message string, open *store.ValueStore[bool]) *Notification {
 	n := &Notification{
+		Dismissed:          signal.NewSignal[signal.Unit]("notification.dismissed"),
+		Activated:          signal.NewSignal[signal.Unit]("notification.activated"),
 		Title:              marks.Const(title),
 		Message:            marks.Const(message),
 		IconRef:            marks.Const(""),
@@ -411,7 +413,7 @@ func (n *Notification) syncChildren() {
 			n.cachedActionButton = action.NewButton(marks.Const(strings.TrimSpace(n.ActionLabel.Get())), marks.Const(uiinput.ButtonText))
 			n.cachedActionButton.Activated.Subscribe(func(signal.Unit) {
 				if n != nil && !n.Disabled.Get() && n.Open.Get() {
-					n.Actioned.Emit(signal.Unit{})
+					n.Activated.Emit(signal.Unit{})
 				}
 			})
 		}

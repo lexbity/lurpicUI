@@ -44,7 +44,7 @@ func TestE1_controlsCard_cellsDoNotOverlap(t *testing.T) {
 }
 
 // TestE1_bottomStrip_regionsDoNotOverlap asserts RX-1 FR-15 / AC-10: the
-// controls card, radial reshape dial, feed legend, and table occupy
+// controls card, reshape dial, feed legend, and table occupy
 // non-overlapping arranged regions in the bottom strip, and the jump-to-live
 // button is arranged INSIDE the controls card (RX-2 FR-5 — the jump button
 // lives in the card, so it must not overlap the card and must stay reachable).

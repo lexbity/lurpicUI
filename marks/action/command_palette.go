@@ -87,7 +87,7 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 		Open:           open,
 		focusedVisible: true,
 		activeIndex:    -1,
-		Activated:      signal.NewSignal[string]("command_palette_activated"),
+		Activated:      signal.NewSignal[string]("command_palette.activated"),
 	}
 	p.Facet = facet.NewFacet()
 
@@ -205,6 +205,14 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 func (p *CommandPalette) Base() *facet.Facet {
 	p.BindImpl(p)
 	return &p.Facet
+}
+
+// Focusable reports whether the CommandPalette can take keyboard focus.
+func (p *CommandPalette) Focusable() bool {
+	if p.Focus.Focusable == nil {
+		return false
+	}
+	return p.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -542,18 +550,7 @@ func (p *CommandPalette) resolveProjectionTheme(runtime any) (theme.StyleContext
 }
 
 func (p *CommandPalette) interactionState() theme.InteractionState {
-	switch {
-	case p.Disabled.Get():
-		return theme.StateDisabled
-	case p.pressed:
-		return theme.StatePressed
-	case p.hovered:
-		return theme.StateHover
-	case p.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(p.Disabled.Get(), p.pressed, p.hovered, p.focusedVisible)
 }
 
 func (p *CommandPalette) onSearchKey(e facet.KeyEvent) bool {
@@ -633,6 +630,7 @@ func (p *CommandPalette) onFocusGained() {
 		return
 	}
 	p.focusedVisible = true
+	p.invalidate(facet.DirtyProjection)
 }
 
 func (p *CommandPalette) onFocusLost() {
@@ -640,6 +638,7 @@ func (p *CommandPalette) onFocusLost() {
 		return
 	}
 	p.focusedVisible = false
+	p.invalidate(facet.DirtyProjection)
 }
 
 func (p *CommandPalette) hitTest(pt gfx.Point) facet.HitResult {

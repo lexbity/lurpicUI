@@ -55,14 +55,19 @@ type NumberField struct {
 	HelperText  marks.Binding[string]
 	WarningText marks.Binding[string]
 	ErrorText   marks.Binding[string]
-	Min         marks.Binding[float64]
-	Max         marks.Binding[float64]
-	Step        marks.Binding[float64]
-	Precision   marks.Binding[int]
-	Validation  marks.Binding[NumberFieldValidation]
-	Required    marks.Binding[bool]
-	Disabled    marks.Binding[bool]
-	ReadOnly    marks.Binding[bool]
+	// Min/Max clamp the canonical value when Min < Max; 0,0 (the default)
+	// leaves the value unclamped. Step is the stepper/key increment; the
+	// default 1. Precision >= 0 formats with fixed decimals, -1 (default)
+	// formats minimally. Config per the Q3 rule: declared once at
+	// construction — changing a clamp means building a new mark.
+	Min        float64
+	Max        float64
+	Step       float64
+	Precision  int
+	Validation marks.Binding[NumberFieldValidation]
+	Required   marks.Binding[bool]
+	Disabled   marks.Binding[bool]
+	ReadOnly   marks.Binding[bool]
 
 	textRole facet.TextRole
 
@@ -114,20 +119,20 @@ var _ marks.Mark = (*NumberField)(nil)
 // When value is nil the field creates an internal store and owns its truth;
 // an injected store is bound, never copied (RX-2 Q2) — Store() exposes the
 // live store either way.
-func NewNumberField(label string, value *store.ValueStore[float64]) *NumberField {
+func NewNumberField(label string, min, max, step float64, precision int, value *store.ValueStore[float64]) *NumberField {
 	if value == nil {
 		value = store.NewValueStore(float64(0))
 	}
 	nf := &NumberField{
+		Min:         min,
+		Max:         max,
+		Step:        step,
+		Precision:   precision,
 		Label:       marks.Const(label),
 		Placeholder: marks.Const(""),
 		HelperText:  marks.Const(""),
 		WarningText: marks.Const(""),
 		ErrorText:   marks.Const(""),
-		Min:         marks.Const(float64(0)),
-		Max:         marks.Const(float64(0)),
-		Step:        marks.Const(float64(1)),
-		Precision:   marks.Const(-1),
 		Validation:  marks.Const(NumberFieldValidationDefault),
 		Required:    marks.Const(false),
 		Disabled:    marks.Const(false),
@@ -191,6 +196,14 @@ func NewNumberField(label string, value *store.ValueStore[float64]) *NumberField
 func (nf *NumberField) Base() *facet.Facet {
 	nf.BindImpl(nf)
 	return &nf.Facet
+}
+
+// Focusable reports whether the NumberField can take keyboard focus.
+func (nf *NumberField) Focusable() bool {
+	if nf.Focus.Focusable == nil {
+		return false
+	}
+	return nf.Focus.Focusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -414,7 +427,7 @@ func (nf *NumberField) resolveProjectionTheme(runtime any) (theme.StyleContext, 
 }
 
 func (nf *NumberField) resolveLayouts(ctx facet.MeasureContext, constraints facet.Constraints, resolved theme.ResolvedContext) (*text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout) {
-	shaper := nf.newShaper(ctx.Runtime)
+	shaper := marks.ShaperFor(ctx.Runtime)
 	if shaper == nil {
 		return nil, nil, nil, nil, nil, nil
 	}
@@ -513,27 +526,6 @@ func (nf *NumberField) availableWidth(constraints facet.Constraints, resolved th
 		return constraints.MaxSize.W
 	}
 	return float32(resolved.Spacing(theme.SpacingXL)) * 6
-}
-
-func (nf *NumberField) newShaper(runtime any) *text.Shaper {
-	registry := nf.fontRegistry(runtime)
-	if registry == nil {
-		return nil
-	}
-	return text.NewShaper(registry)
-}
-
-func (nf *NumberField) fontRegistry(runtime any) *text.FontRegistry {
-	if runtime == nil {
-		return nil
-	}
-	type fontRegistryProvider interface {
-		FontRegistry() *text.FontRegistry
-	}
-	if provider, ok := runtime.(fontRegistryProvider); ok {
-		return provider.FontRegistry()
-	}
-	return nil
 }
 
 func (nf *NumberField) ensureTextLayout(layout *text.TextLayout, style text.TextStyle, allowEmpty bool) *text.TextLayout {
@@ -819,12 +811,12 @@ func (nf *NumberField) onKey(e facet.KeyEvent) bool {
 		}
 	case platform.KeyHome:
 		if e.Kind == platform.KeyPress {
-			nf.setValueCanonical(nf.Min.Get())
+			nf.setValueCanonical(nf.Min)
 			return true
 		}
 	case platform.KeyEnd:
 		if e.Kind == platform.KeyPress {
-			nf.setValueCanonical(nf.Max.Get())
+			nf.setValueCanonical(nf.Max)
 			return true
 		}
 	case platform.KeyBackspace:
@@ -880,18 +872,7 @@ func (nf *NumberField) onFocusLost() {
 }
 
 func (nf *NumberField) interactionState() theme.InteractionState {
-	switch {
-	case nf.Disabled.Get():
-		return theme.StateDisabled
-	case nf.pressed:
-		return theme.StatePressed
-	case nf.hovered:
-		return theme.StateHover
-	case nf.focusedVisible:
-		return theme.StateFocused
-	default:
-		return theme.StateDefault
-	}
+	return marks.InteractionStateFor(nf.Disabled.Get(), nf.pressed, nf.hovered, nf.focusedVisible)
 }
 
 // Store returns the field's value store — internal when constructed with a
@@ -919,19 +900,19 @@ func (nf *NumberField) formatValue(value float64) string {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		value = 0
 	}
-	if nf.Precision.Get() >= 0 {
-		return strconv.FormatFloat(value, 'f', nf.Precision.Get(), 64)
+	if nf.Precision >= 0 {
+		return strconv.FormatFloat(value, 'f', nf.Precision, 64)
 	}
 	return strconv.FormatFloat(value, 'f', -1, 64)
 }
 
 func (nf *NumberField) clampValue(value float64) float64 {
-	if nf.Min.Get() < nf.Max.Get() {
-		if value < nf.Min.Get() {
-			value = nf.Min.Get()
+	if nf.Min < nf.Max {
+		if value < nf.Min {
+			value = nf.Min
 		}
-		if value > nf.Max.Get() {
-			value = nf.Max.Get()
+		if value > nf.Max {
+			value = nf.Max
 		}
 	}
 	if math.IsNaN(value) || math.IsInf(value, 0) {
@@ -954,7 +935,7 @@ func (nf *NumberField) setValueCanonical(value float64) {
 }
 
 func (nf *NumberField) incrementValue(direction float64) {
-	step := nf.Step.Get()
+	step := nf.Step
 	if step == 0 {
 		step = 1
 	}

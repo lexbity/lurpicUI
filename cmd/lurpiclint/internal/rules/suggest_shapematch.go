@@ -29,7 +29,7 @@ func (r *SuggestShapeMatch) Check(ctx *Context) []*diag.Diagnostic {
 	var diags []*diag.Diagnostic
 
 	// Extension: flag scalar accessor closures in viz.New* calls and
-	// suggest data.Encoding for declarative specification instead.
+	// suggest marks.Encoding for declarative specification instead.
 	for _, f := range ctx.Files {
 		ast.Inspect(f.AST, func(n ast.Node) bool {
 			call, ok := n.(*ast.CallExpr)
@@ -53,11 +53,11 @@ func (r *SuggestShapeMatch) Check(ctx *Context) []*diag.Diagnostic {
 					RuleID:   r.ID(),
 					Severity: r.DefaultSeverity(),
 					Pos:      f.Fset.Position(fn.Pos()),
-					Message:  "scalar accessor closure passed to viz.New*; consider using data.Encoding for declarative channel specification",
+					Message:  "scalar accessor closure passed to viz.New*; consider using marks.Encoding for declarative channel specification",
 					Teach: diag.Teaching{
 						Did:      "passed scalar accessor closure to viz.New*",
-						UseThis:  "data.Encoding with explicit channel specification",
-						IndexRef: "marks/data/",
+						UseThis:  "marks.Encoding with explicit channel specification",
+						IndexRef: "marks/",
 					},
 				})
 			}

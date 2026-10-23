@@ -131,8 +131,9 @@ func TestDialogInteractionsEmitActionAndDismiss(t *testing.T) {
 		Placement:   facet.Placement{Mode: facet.PlacementLinear},
 	}, gfx.RectFromXYWH(0, 0, dialog.Layout.MeasuredSize.W, dialog.Layout.MeasuredSize.H))
 
-	var actioned, dismissed int
-	dialog.Actioned.Subscribe(func(i int) { actioned = i + 1 })
+	var dlgResult DialogResult
+	var dismissed int
+	dialog.Activated.Subscribe(func(r DialogResult) { dlgResult = r })
 	dialog.Dismissed.Subscribe(func(signal.Unit) { dismissed++ })
 
 	actions := dialog.cachedActionsFacet
@@ -146,8 +147,8 @@ func TestDialogInteractionsEmitActionAndDismiss(t *testing.T) {
 	if !actions.Buttons[1].Base().InputRole().OnPointer(facet.PointerEvent{Kind: platform.PointerRelease, Position: actionBounds.Min, Button: platform.PointerLeft}) {
 		t.Fatal("expected action release to be handled")
 	}
-	if actioned != 2 {
-		t.Fatalf("expected second action emission, got %d", actioned)
+	if dlgResult.Index != 1 {
+		t.Fatalf("expected second action result, got %+v", dlgResult)
 	}
 	if dismissed != 1 {
 		t.Fatalf("expected dismiss emission after action, got %d", dismissed)

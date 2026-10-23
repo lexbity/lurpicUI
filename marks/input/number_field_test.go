@@ -20,9 +20,9 @@ import (
 )
 
 func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
-	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
-	nf.Step = marks.Const(float64(0.5))
-	nf.Precision = marks.Const(2)
+	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
+	nf.Step = 0.5
+	nf.Precision = 2
 	nf.Value.Set(12.5)
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
@@ -96,8 +96,8 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
-	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
-	nf.Step = marks.Const(float64(2))
+	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
+	nf.Step = 2
 	nf.Value.Set(10)
 	rt := textFieldRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
@@ -171,7 +171,7 @@ func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 }
 
 func TestNumberFieldGraphemeBackspaceDeletesWholeCluster(t *testing.T) {
-	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
+	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
 	nf.editing = true
 	nf.editingText = "12"
 	nf.cachedValueLayout = textLayoutForTest(t, "12")
@@ -246,8 +246,8 @@ func TestNumberFieldGoldenRTL(t *testing.T) {
 
 func renderNumberFieldSurface(t *testing.T, direction layout.WritingDirection, goldenName string, mutate func(*NumberField)) *testkit.MemorySurface {
 	t.Helper()
-	nf := NewNumberField("Amount", store.NewValueStore[float64](0))
-	nf.Precision = marks.Const(2)
+	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
+	nf.Precision = 2
 	nf.Value.Set(123.45)
 	nf.HelperText = marks.Const("Enter a quantity.")
 	nf.WarningText = marks.Const("Quantity is advisory.")
@@ -324,7 +324,7 @@ func TestNumberFieldValueSurvivesDispose(t *testing.T) {
 		t,
 		func() *store.ValueStore[float64] { return store.NewValueStore(float64(0)) },
 		func(s *store.ValueStore[float64]) facet.FacetImpl {
-			return NewNumberField("test", s)
+			return NewNumberField("test", 0, 0, 1, -1, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*NumberField).setValueCanonical(42)

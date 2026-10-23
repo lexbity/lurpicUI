@@ -138,26 +138,6 @@ type CommandPaletteSlots struct {
 	FocusRing     theme.MarkStyle
 }
 
-// PopupPaletteSlots describes styling for an anchored popup palette mark.
-type PopupPaletteSlots struct {
-	Root           theme.MarkStyle
-	PaletteSurface theme.MarkStyle
-	ToolItems      theme.MarkStyle
-	ToolGroup      theme.MarkStyle
-	AnchorArrow    theme.MarkStyle
-	FocusRing      theme.MarkStyle
-}
-
-// RadialMenuSlots describes styling for a composed radial menu mark.
-type RadialMenuSlots struct {
-	Root        theme.MarkStyle
-	Surface     theme.MarkStyle
-	CenterSlot  theme.MarkStyle
-	RadialTrack theme.MarkStyle
-	AnchorArrow theme.MarkStyle
-	FocusRing   theme.MarkStyle
-}
-
 // ButtonGroupSlots describes styling for a segmented button-group mark.
 type ButtonGroupSlots struct {
 	Root              theme.MarkStyle

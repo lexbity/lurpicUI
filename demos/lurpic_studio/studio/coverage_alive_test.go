@@ -201,7 +201,6 @@ var aliveNonInteractive = map[string]string{
 	"structure/divider":         "static themed stroke (behReadBinding, NG-5)",
 	"action/ribbon":             "internal section buttons not attached to the facet tree (F-e6-internal)",
 	"action/menu_button":        "popup trigger renders no output in the harness (demo quirk); popup interaction exercised by the mark's own contract tests (marks/action/menu_button_test.go)",
-	"action/popup_palette":      "popup trigger renders no output in the harness (demo quirk); popup interaction exercised by the mark's own contract tests (marks/action)",
 	"navigation/tabs":           "E6 family-switch host; ActiveIndex driven by the host (F-tabs-host)",
 	"selection/dropdown_select": "option list is covered by the playground scroll-list content in the harness; option selection exercised by the mark's own contract tests (marks/selection/dropdown_select_test.go)",
 	"structure/table":           "read-only snapshot projection (behReadBinding)",
@@ -269,16 +268,6 @@ var aliveDrivers = map[string]aliveDriver{
 		testkit.DriveClick(h, cmdK.Min.X+cmdK.Width()*0.5, cmdK.Min.Y+cmdK.Height()*0.5)
 		h.RunFrame()
 		return root.Shell().CommandOpen.Get()
-	},
-	"action/radial_menu": func(t *testing.T, root *Root, h *testkit.Harness) bool {
-		e1 := root.Stage().RootFor(ExhibitRealtime).(*Realtime)
-		before := e1.ChartType().Get()
-		b := testkit.RegionOf(e1.Reshape())
-		cx := b.Min.X + b.Width()*0.5
-		cy := b.Min.Y + b.Height()*0.5
-		testkit.DriveClick(h, cx, cy-reshapeDialRadius)
-		h.RunFrame()
-		return e1.ChartType().Get() != before
 	},
 	"action/split_button": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		// The primary action is the button's left label; clicking it emits
@@ -608,8 +597,6 @@ func TestCoverageAlive_interactiveMarksMutateState(t *testing.T) {
 			[]string{"navigation/nav_rail", "navigation/nav_drawer", "navigation/breadcrumbs", "navigation/pagination"}},
 		{func(t *testing.T, root *Root, h *testkit.Harness) { switchExhibit(t, root, h, ExhibitLayers) },
 			[]string{"feedback/scrim"}},
-		{func(t *testing.T, root *Root, h *testkit.Harness) { switchExhibit(t, root, h, ExhibitRealtime) },
-			[]string{"action/radial_menu"}},
 		{nil, []string{"navigation/tree_navigator", "action/command_palette", "action/icon_button"}},
 	}
 

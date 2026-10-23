@@ -2,12 +2,6 @@
   "entries": [
     {
       "rule_id": "LL012",
-      "file": "/home/lex/Public/lurpicUI/marks/data/datamark_test.go",
-      "line": 17,
-      "message": "field id looks like domain state; facets should be stateless (Principles 1 and 8)"
-    },
-    {
-      "rule_id": "LL012",
       "file": "/home/lex/Public/lurpicUI/marks/data/join_test.go",
       "line": 16,
       "message": "field id looks like domain state; facets should be stateless (Principles 1 and 8)"
