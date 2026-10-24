@@ -36,25 +36,26 @@ type driveRuntimeSink struct {
 	// addresses, exposed via sys.info until Phase 7's frame.completed
 	// subscription consumes the stream.
 	recentWrites []string
-	// preempted is the interim own.preempted buffer (QP-11): preemption
-	// notifications until Phase 7's subscription stream replaces it. DELETED
-	// in Phase 7 — no compat.
-	preempted []PreemptedNotice
+	// consumer is the drive server's event fan-out (P7); nil until the
+	// server registers (structural opt-in).
+	consumer driveEventConsumer
+	// lastVersions is the state.changed version-diff state per named store.
+	lastMu       sync.Mutex
+	lastVersions map[string]uint64
 }
 
-// PreemptedNotice is one buffered own.preempted notification (interim
-// until P7).
-type PreemptedNotice struct {
-	CommandID uint64 `json:"command_id"`
-	ClientID  string `json:"client_id"`
-}
-
-// bufferPreempted records an own.preempted notification (QP-11 interim).
-func (s *driveRuntimeSink) bufferPreempted(commandID uint64, clientID string) {
-	s.preempted = append(s.preempted, PreemptedNotice{CommandID: commandID, ClientID: clientID})
-	if len(s.preempted) > 64 {
-		s.preempted = s.preempted[len(s.preempted)-64:]
+// notifyPreempted publishes own.preempted for the severed step (QP-11:
+// direct fan-out through the event consumer).
+func (s *driveRuntimeSink) notifyPreempted(commandID uint64, clientID string) {
+	payload, err := json.Marshal(map[string]any{
+		"command_id": commandID,
+		"client_id":  clientID,
+		"by":         "human",
+	})
+	if err != nil {
+		return
 	}
+	s.publishEvent("own.preempted", "", "", payload)
 }
 
 // recordWrite appends one store.write address to the bounded frame log.
@@ -103,7 +104,12 @@ func (s *driveRuntimeSink) Epoch() uint64 { return s.epoch.Load() }
 // when cfg.Drive.Enabled. LDP is otherwise absent from the runtime: the
 // frame loop sees one nil pointer check per frame (NFR-4).
 func (rt *Runtime) installDriveSink() {
-	rt.driveSink = &driveRuntimeSink{rt: rt, stats: &drive.Stats{}, wake: make(chan struct{}, 1)}
+	rt.driveSink = &driveRuntimeSink{
+		rt:           rt,
+		stats:        &drive.Stats{},
+		wake:         make(chan struct{}, 1),
+		lastVersions: make(map[string]uint64),
+	}
 }
 
 // DriveSink returns the drive seam, or nil when LDP is disabled (FR-4).

@@ -84,10 +84,9 @@ func (rt *Runtime) endInputStep(step *driveInputStep) {
 // preemptInputStep severs an in-flight drive input step (QP-11): the
 // remaining synthesized events are voided from the pending set — gesture
 // recognizers exercise exactly the abort paths a human yank produces —
-// ownership returns to the human, and the own.preempted notification is
-// buffered for the driving connection (interim: the notification rides the
-// command reply as input.preempted until Phase 7's subscription stream;
-// the buffer is deleted there, no compat).
+// ownership returns to the human, and own.preempted fans out through the
+// event consumer (the command reply carries input.preempted to the driving
+// connection).
 func (rt *Runtime) preemptInputStep() {
 	step := rt.driveInputStep
 	if step == nil {
@@ -107,7 +106,7 @@ func (rt *Runtime) preemptInputStep() {
 	}
 	rt.pendingEvents = kept
 	rt.inputOwnership.Set(InputOwnership{Owner: OwnerHuman})
-	rt.driveSink.bufferPreempted(step.commandID, step.clientID)
+	rt.driveSink.notifyPreempted(step.commandID, step.clientID)
 }
 
 // scanForPreemption is the input-phase observation (QP-11, FR-15): any

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 )
@@ -171,14 +172,18 @@ const (
 
 // Server owns the listener socket and its connections.
 type Server struct {
-	cfg     Config
-	stats   *Stats
-	ln      net.Listener
-	connsMu sync.Mutex
-	conns   map[*conn]struct{}
-	wg      sync.WaitGroup
-	stopCh  chan struct{}
-	closed  bool
+	cfg   Config
+	stats *Stats
+	clock func() time.Time
+	// hasSubscribers gates the runtime's publish work (zero subscribers ⇒
+	// the cut flush does nothing).
+	hasSubscribers atomic.Bool
+	ln             net.Listener
+	connsMu        sync.Mutex
+	conns          map[*conn]struct{}
+	wg             sync.WaitGroup
+	stopCh         chan struct{}
+	closed         bool
 }
 
 // Listen binds the Unix socket (mode 0600) and writes the token file
@@ -219,6 +224,7 @@ func Listen(cfg Config) (*Server, error) {
 	s := &Server{
 		cfg:    cfg,
 		stats:  cfg.Stats,
+		clock:  time.Now,
 		ln:     ln,
 		conns:  make(map[*conn]struct{}),
 		stopCh: make(chan struct{}),
@@ -228,8 +234,31 @@ func Listen(cfg Config) (*Server, error) {
 	}
 	s.wg.Add(1)
 	go s.acceptLoop()
+
+	// Event fan-out registration (QP-1: the server declares the consumer-side
+	// seam; the runtime sink opts in when it supports publishing).
+	if consumer, ok := cfg.Sink.(interface {
+		SetEventConsumer(func(class, store, testID string, params json.RawMessage))
+	}); ok {
+		consumer.SetEventConsumer(func(class, store, testID string, params json.RawMessage) {
+			s.fanOut(class, store, testID, params)
+		})
+	}
 	return s, nil
 }
+
+// fanOut routes one event to every connection's subscription table.
+func (s *Server) fanOut(class, store, testID string, params json.RawMessage) {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	for c := range s.conns {
+		c.fanOut(class, store, testID, params)
+	}
+}
+
+// clockNowEpoch reports the sink's current epoch for replies that never
+// cross the runtime (local methods).
+func (s *Server) clockNowEpoch() uint64 { return s.cfg.Sink.Epoch() }
 
 // SocketPath reports the bound socket path.
 func (s *Server) SocketPath() string { return s.cfg.SocketPath }
@@ -288,14 +317,82 @@ func (s *Server) Close() error {
 	return err
 }
 
-// conn is one authenticated-or-pending client connection. Exactly one
-// goroutine (serve) reads and writes it, so per-connection ordering is
-// guaranteed by construction (QP-3).
+// conn is one authenticated-or-pending client connection. The serve
+// goroutine reads requests and writes responses; the subscription pump
+// writes notifications (P7). Socket writes are serialized by writeMu so the
+// two writers never interleave mid-line; per-connection request ordering
+// (QP-3) is unaffected.
 type conn struct {
-	srv    *Server
-	nc     net.Conn
-	cache  *responseCache
-	authed bool
+	srv      *Server
+	nc       net.Conn
+	cache    *responseCache
+	authed   bool
+	subs     *subTable
+	writeMu  sync.Mutex
+	pumpOnce sync.Once
+	stopPump chan struct{}
+}
+
+// writeLine serializes one line onto the socket. A line already ending in
+// a newline (the response encoder's terminator) passes through unchanged;
+// bare notification payloads get one appended.
+func (c *conn) writeLine(line []byte) {
+	c.writeMu.Lock()
+	defer c.writeMu.Unlock()
+	if len(line) > 0 && line[len(line)-1] == '\n' {
+		_, _ = c.nc.Write(line)
+		return
+	}
+	_, _ = c.nc.Write(append(line, '\n'))
+}
+
+// startPump launches the subscription writer goroutine (once): drains each
+// subscription FIFO to the socket and detaches on backpressure deadlines
+// (QP-13: detached loudly with sub.dead, never blocking the runtime thread).
+// The pump wakes on the signal channel (publish/subscribe/detach all notify
+// it) — no sleep-polling.
+func (c *conn) startPump() {
+	c.pumpOnce.Do(func() {
+		go func() {
+			for {
+				select {
+				case <-c.stopPump:
+					return
+				case id := <-c.subs.detachCh:
+					c.subs.cancel(id)
+					n := proto.Notification{
+						Method: "sub.dead",
+						Params: json.RawMessage(`{"id":` + fmt.Sprint(id) + `,"reason":"backpressure"}`),
+					}
+					if out, err := json.Marshal(n); err == nil {
+						c.writeLine(out)
+					}
+				case <-c.subs.activity:
+				}
+				// Drain everything currently queued before parking again.
+				c.subs.mu.Lock()
+				for _, sub := range c.subs.subs {
+					for {
+						select {
+						case n := <-sub.fifo:
+							if out, err := json.Marshal(n); err == nil {
+								c.writeLine(out)
+							}
+							continue
+						default:
+						}
+						break
+					}
+				}
+				c.subs.mu.Unlock()
+			}
+		}()
+	})
+}
+
+// fanOut routes one runtime event into this connection's subscriptions.
+func (c *conn) fanOut(class, store, testID string, params json.RawMessage) {
+	c.subs.publish(class, store, testID, params)
 }
 
 // helloParams is the sys.hello parameter payload.
@@ -317,6 +414,9 @@ func (c *conn) serve() {
 	reader := bufio.NewReaderSize(c.nc, 64*1024)
 	writer := bufio.NewWriter(c.nc)
 	c.cache = newResponseCache(idempotencyCapacity)
+	c.subs = newSubTable(c.srv.clock)
+	defer close(c.stopPump)
+	c.startPump()
 
 	first := true
 	for {
@@ -440,6 +540,8 @@ type methodSpec struct {
 // checked per step by the runtime against Grants.Allows — so the connection
 // level needs no grant of its own.
 var methods = map[string]methodSpec{
+	"sub.watch":      {local: true, grant: grantRead},
+	"sub.cancel":     {local: true, grant: grantRead},
 	"sys.hello":      {local: true},
 	"sys.ping":       {grant: "read"},
 	"sys.info":       {grant: "read"},
@@ -496,10 +598,17 @@ func (c *conn) dispatch(req proto.Request, w *bufio.Writer) proto.Response {
 		})
 	}
 	if spec.local {
-		return c.writeError(w, req.ID, &proto.Error{
-			Code:   proto.ErrInternal,
-			Detail: "method " + req.Method + " is not available post-handshake",
-		})
+		switch req.Method {
+		case "sub.watch":
+			return c.subWatch(req, w)
+		case "sub.cancel":
+			return c.subCancel(req, w)
+		default:
+			return c.writeError(w, req.ID, &proto.Error{
+				Code:   proto.ErrInternal,
+				Detail: "method " + req.Method + " is not available post-handshake",
+			})
+		}
 	}
 	// Cross the seam: the runtime thread executes at the next cut and
 	// replies exactly once (QP-1, QP-6).
@@ -516,6 +625,57 @@ func (c *conn) dispatch(req proto.Request, w *bufio.Writer) proto.Response {
 		return c.writeError(w, req.ID, result.Err)
 	}
 	return c.writeResult(w, req, result.Payload, result.Frame)
+}
+
+// subWatchParams is the sub.watch payload.
+type subWatchParams struct {
+	Filter Filter `json:"filter"`
+}
+
+// subWatch registers a subscription filter and replies with its id
+// (QP-13). Events flow from the runtime's cut flush through the server's
+// fan-out into this connection's FIFO.
+func (c *conn) subWatch(req proto.Request, w *bufio.Writer) proto.Response {
+	var p subWatchParams
+	if len(req.Params) > 0 {
+		if err := json.Unmarshal(req.Params, &p); err != nil {
+			return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: "sub.watch params: " + err.Error()})
+		}
+	}
+	switch p.Filter.Class {
+	case classStateChanged, classTreeChanged, classFrameDone, classOwnPreempted:
+	default:
+		return c.writeError(w, req.ID, &proto.Error{
+			Code:   proto.ErrInternal,
+			Detail: `filter.class must be state.changed, tree.changed, frame.completed, or own.preempted`,
+		})
+	}
+	id := c.subs.subscribe(p.Filter)
+	payload, err := json.Marshal(map[string]uint64{"id": id})
+	if err != nil {
+		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: err.Error()})
+	}
+	c.srv.connsMu.Lock()
+	c.srv.hasSubscribers.Store(true)
+	c.srv.connsMu.Unlock()
+	return c.writeResult(w, req, payload, c.srv.clockNowEpoch())
+}
+
+// subCancelParams is the sub.cancel payload.
+type subCancelParams struct {
+	ID uint64 `json:"id"`
+}
+
+// subCancel removes a subscription.
+func (c *conn) subCancel(req proto.Request, w *bufio.Writer) proto.Response {
+	var p subCancelParams
+	if len(req.Params) == 0 || json.Unmarshal(req.Params, &p) != nil {
+		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: "sub.cancel requires id"})
+	}
+	if !c.subs.cancel(p.ID) {
+		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrUnresolved, Detail: "no subscription"})
+	}
+	return c.writeResult(w, req, json.RawMessage(`{"cancelled":true}`), c.srv.clockNowEpoch())
 }
 
 func (c *conn) hasGrant(name string) bool {
@@ -572,9 +732,8 @@ func (c *conn) emit(w *bufio.Writer, res proto.Response) {
 	} else {
 		out = append(out, '\n')
 	}
-	// A write error means the client is gone; the next read fails and
-	// closes the connection, so the error needs no handling here.
-	_, _ = w.Write(out)
+	c.writeLine(out)
+	_ = w
 }
 
 func (s *Server) removeConn(c *conn) {

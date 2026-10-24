@@ -162,5 +162,37 @@ func driveFlagSet() *flag.FlagSet {
 	fs.String("text", "", "accessible-name text locator")
 	fs.String("kind", "", "descriptor kind locator (family/typeName)")
 	fs.String("depth", "", "tree.dump depth")
+	fs.String("class", "", "watch class (state.changed, tree.changed, frame.completed, own.preempted)")
+	fs.String("store", "", "watch named store")
 	return fs
+}
+
+// cmdDriveWatch implements `lurpic drive watch [--class C] [--store S]` —
+// subscribes and streams notifications to stdout until interrupted
+// (LDP QP-13).
+func cmdDriveWatch(fs *flag.FlagSet, conn *driveJSON) int {
+	filter := map[string]string{"class": "frame.completed"}
+	if v := fs.Lookup("class"); v != nil && v.Value.String() != "" {
+		filter["class"] = v.Value.String()
+	}
+	if v := fs.Lookup("store"); v != nil && v.Value.String() != "" {
+		filter["store"] = v.Value.String()
+	}
+	res, err := conn.call("sub.watch", map[string]any{"filter": filter})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "drive: %v\n", err)
+		return 1
+	}
+	if !res.OK {
+		fmt.Fprintf(os.Stderr, "drive: %v\n", res.Error)
+		return 1
+	}
+	fmt.Printf("subscribed id=%s\n", strings.TrimSpace(string(res.Result)))
+	for {
+		line, err := conn.rw.ReadString('\n')
+		if err != nil {
+			return 0
+		}
+		fmt.Print(line)
+	}
 }

@@ -249,10 +249,39 @@ func TestDriveInput_PreemptionByPlatformEvent(t *testing.T) {
 	if own := rt.inputOwnership.Get(); own.Owner != OwnerHuman {
 		t.Fatalf("ownership after preemption = %v", own.Owner)
 	}
-	// The interim own.preempted buffer holds the notification (deleted in P7).
-	sink := rt.DriveSink().(*driveRuntimeSink)
-	if len(sink.preempted) == 0 || sink.preempted[0].CommandID != 9 {
-		t.Fatalf("preempted buffer = %+v", sink.preempted)
+	// own.preempted fans out through the event consumer (P7: no interim
+	// buffer — the P5 one was deleted, no compat).
+	var preemptedPayloads []json.RawMessage
+	rt.driveSink.SetEventConsumer(func(class, store, testID string, params json.RawMessage) {
+		if class == "own.preempted" {
+			preemptedPayloads = append(preemptedPayloads, params)
+		}
+	})
+	// Re-run a short drag with the consumer attached: the platform event
+	// severs it and own.preempted fires.
+	q.EnqueueDrive(platform.EventPointer{
+		Kind: platform.PointerMove, Position: gfx.Point{X: 7, Y: 7}, Source: platform.SourcePlatform,
+	})
+	cmd2 := drive.Command{ID: 10, Method: "input.drag", Grants: allGrants(), Reply: make(chan drive.Result, 1)}
+	dragParams, merr := json.Marshal(map[string]any{"from_x": 0, "from_y": 0, "to_x": 100, "to_y": 50, "steps": 40})
+	if merr != nil {
+		t.Fatalf("marshal: %v", merr)
+	}
+	cmd2.Params = dragParams
+	rt.DriveSink().Enqueue(cmd2)
+	for i := 256; i < 512; i++ {
+		rt.RunOneFrameAt(epoch.Add(time.Duration(i) * time.Second))
+		select {
+		case res2 := <-cmd2.Reply:
+			if res2.Err == nil || res2.Err.Code != "input.preempted" {
+				t.Fatalf("second drag result = %+v, want input.preempted", res2.Err)
+			}
+			i = 1000
+		default:
+		}
+	}
+	if len(preemptedPayloads) == 0 {
+		t.Fatal("own.preempted must fan out through the event consumer")
 	}
 	// No drive pointer events survive in the pending set.
 	for _, ev := range rt.pendingEvents {

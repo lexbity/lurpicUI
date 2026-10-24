@@ -45,12 +45,14 @@ func cmdDrive(args []string) int {
 			fmt.Printf("ok frame=%d\n", res.Frame)
 			return 0
 		})
+	case "watch":
+		return cmdDriveRun(fs, cmdDriveWatch)
 	case "resolve":
 		return cmdDriveRun(fs, cmdDriveResolve)
 	case "tree":
 		return cmdDriveRun(fs, cmdDriveTree)
 	default:
-		fmt.Fprintf(os.Stderr, "drive: unknown verb %q (ping, resolve, tree)\n", verb)
+		fmt.Fprintf(os.Stderr, "drive: unknown verb %q (ping, watch, resolve, tree)\n", verb)
 		return 1
 	}
 }

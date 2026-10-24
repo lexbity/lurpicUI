@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -27,6 +28,7 @@ type NamedStore struct {
 // happens at startup (or before the first frame via Runtime.RegisterNamedStore),
 // reads and writes happen at cuts on the runtime thread.
 type Registry struct {
+	mu     sync.RWMutex
 	byName map[string]any
 }
 
@@ -59,12 +61,16 @@ func (r *Registry) Register(name string, s any) error {
 	if err := ValidateStore(s); err != nil {
 		return fmt.Errorf("drive: named store %q: %w", name, err)
 	}
+	r.mu.Lock()
 	r.byName[name] = s
+	r.mu.Unlock()
 	return nil
 }
 
 // Names returns the sorted registered names.
 func (r *Registry) Names() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	out := make([]string, 0, len(r.byName))
 	for name := range r.byName {
 		out = append(out, name)
@@ -75,8 +81,40 @@ func (r *Registry) Names() []string {
 
 // Lookup returns the store registered under name.
 func (r *Registry) Lookup(name string) (any, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	s, ok := r.byName[name]
 	return s, ok
+}
+
+// Snapshot returns the sorted (name, store, version) triples — the cut-flush
+// state.changed diff input.
+type NamedVersion struct {
+	Name    string
+	Store   any
+	Version uint64
+}
+
+// Snapshot versions every named store.
+func (r *Registry) Snapshot() []NamedVersion {
+	names := r.Names()
+	out := make([]NamedVersion, 0, len(names))
+	for _, name := range names {
+		st, ok := r.Lookup(name)
+		if !ok {
+			continue
+		}
+		out = append(out, NamedVersion{Name: name, Store: st, Version: storeVersionOfAny(st)})
+	}
+	return out
+}
+
+// storeVersionOfAny reads a store's version through its canonical method.
+func storeVersionOfAny(s any) uint64 {
+	if v, ok := s.(interface{ Version() store.Version }); ok {
+		return uint64(v.Version())
+	}
+	return 0
 }
 
 // ValidateStore accepts exactly the three addressable store shapes

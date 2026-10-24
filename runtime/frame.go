@@ -277,6 +277,12 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	// passes; drain them into the frame total here, after every arrange site
 	// has run (RX-1 Q5 / NFR-8).
 	stats.OverflowClampedCount = int(facet.DrainOverflowClamped())
+	// LDP P7 cut flush: subscription events for the finished frame
+	// (frame.completed, tree.changed, state.changed) — one nil check when
+	// no consumer is registered.
+	if rt.driveSink != nil {
+		rt.flushEvents(stats)
+	}
 	if rt.driveSink != nil {
 		stats.DriveCommandsDrained = rt.driveSink.drainedThisFrame
 		rt.driveSink.drainedThisFrame = 0
