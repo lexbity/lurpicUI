@@ -1,6 +1,7 @@
 package locate
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -200,4 +201,30 @@ func TestResolve_NilRoot(t *testing.T) {
 	if _, _, err := Resolve(nilImpl, Locator{TestID: "x"}, describe, nil); err == nil {
 		t.Fatal("nil root must be unresolved")
 	}
+}
+
+func FuzzLocator(f *testing.F) {
+	for _, seed := range []string{
+		`{"testid":"save-btn"}`,
+		`{"role":"button","name":"Save"}`,
+		`{"key":"row-17"}`,
+		`{"text":"Export PNG"}`,
+		`{"kind":"action/button"}`,
+		`{"coords":[1,2]}`,
+		`null`,
+		`{"coords":["x",null]}`,
+	} {
+		f.Add(seed)
+	}
+	root := newLocateFacet("root", "shell/root", "region", "", "")
+	child := newLocateFacet("save-btn", "action/button", "button", "Save", "")
+	root.AddChild(child.Base())
+	facet.Attach(root, facet.AttachContext{})
+	f.Fuzz(func(t *testing.T, raw string) {
+		var locator Locator
+		if err := json.Unmarshal([]byte(raw), &locator); err != nil {
+			return
+		}
+		_, _, _ = Resolve(impl(root), locator, describe, nil)
+	})
 }

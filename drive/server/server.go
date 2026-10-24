@@ -643,21 +643,11 @@ type subWatchParams struct {
 // (QP-13). Events flow from the runtime's cut flush through the server's
 // fan-out into this connection's FIFO.
 func (c *conn) subWatch(req proto.Request, w *bufio.Writer) proto.Response {
-	var p subWatchParams
-	if len(req.Params) > 0 {
-		if err := json.Unmarshal(req.Params, &p); err != nil {
-			return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: "sub.watch params: " + err.Error()})
-		}
+	filter, err := parseSubscriptionFilter(req.Params)
+	if err != nil {
+		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: "sub.watch params: " + err.Error()})
 	}
-	switch p.Filter.Class {
-	case classStateChanged, classTreeChanged, classFrameDone, classOwnPreempted:
-	default:
-		return c.writeError(w, req.ID, &proto.Error{
-			Code:   proto.ErrInternal,
-			Detail: `filter.class must be state.changed, tree.changed, frame.completed, or own.preempted`,
-		})
-	}
-	id := c.subs.subscribe(p.Filter)
+	id := c.subs.subscribe(filter)
 	payload, err := json.Marshal(map[string]uint64{"id": id})
 	if err != nil {
 		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: err.Error()})
@@ -666,6 +656,21 @@ func (c *conn) subWatch(req proto.Request, w *bufio.Writer) proto.Response {
 	c.srv.hasSubscribers.Store(true)
 	c.srv.connsMu.Unlock()
 	return c.writeResult(w, req, payload, c.srv.clockNowEpoch())
+}
+
+func parseSubscriptionFilter(params json.RawMessage) (Filter, error) {
+	var p subWatchParams
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &p); err != nil {
+			return Filter{}, err
+		}
+	}
+	switch p.Filter.Class {
+	case classStateChanged, classTreeChanged, classFrameDone, classOwnPreempted:
+		return p.Filter, nil
+	default:
+		return Filter{}, errors.New(`filter.class must be state.changed, tree.changed, frame.completed, or own.preempted`)
+	}
 }
 
 // subCancelParams is the sub.cancel payload.

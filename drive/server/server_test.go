@@ -243,6 +243,35 @@ func TestServer_GrantDenied(t *testing.T) {
 	}
 }
 
+func TestGrantMatrix(t *testing.T) {
+	srv, sink, socket, token := startTestServer(t, Grants{})
+	c := dial(t, socket)
+	if res := c.hello(token); !res.OK {
+		t.Fatalf("hello failed: %+v", res.Error)
+	}
+	before := srv.stats.grantDenied.Load()
+	checked := 0
+	for _, spec := range proto.Registry {
+		if spec.Grant == "" {
+			continue
+		}
+		checked++
+		res := c.call(spec.Name, nil)
+		if res.OK || res.Error == nil || res.Error.Code != proto.ErrGrant {
+			t.Errorf("%s without %s grant = %+v, want grant.denied", spec.Name, spec.Grant, res)
+		}
+	}
+	if checked == 0 {
+		t.Fatal("registry has no grant-protected methods")
+	}
+	if got := srv.stats.grantDenied.Load() - before; got != uint64(checked) {
+		t.Errorf("grant-denied counter delta = %d, want %d", got, checked)
+	}
+	if got := sink.enqueuedCount(); got != 0 {
+		t.Errorf("denied methods reached the runtime sink %d times", got)
+	}
+}
+
 func TestServer_RetryCachedDoesNotRedispatch(t *testing.T) {
 	_, sink, socket, token := startTestServer(t, Grants{Read: true})
 	c := dial(t, socket)
