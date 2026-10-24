@@ -219,7 +219,7 @@ func driveInfo(rt *Runtime, _ drive.Command) driveOutcome {
 	payload, err := json.Marshal(map[string]any{
 		"v":       proto.ProtocolMajor,
 		"frame":   rt.driveSink.Epoch(),
-		"methods": driveInfoMethodList,
+		"methods": proto.MethodNames(),
 		"drive": map[string]any{
 			"commandsDrained":       drained,
 			"responsesSent":         sent,
@@ -234,12 +234,6 @@ func driveInfo(rt *Runtime, _ drive.Command) driveOutcome {
 	}
 	return payloadOutcome(payload, rt.driveSink.Epoch())
 }
-
-// driveInfoMethodList is the sorted method list reported by sys.info. It is
-// a separate literal (not derived from driveMethods) to break the
-// package-level initialization cycle map→handler→map; a test asserts the
-// two stay in sync.
-var driveInfoMethodList = []string{"cmd.execute", "cmd.list", "derived.read", "facet.query", "frame.packet", "frame.pixels", "frame.run", "input.click", "input.drag", "input.focus", "input.move", "input.press", "input.release", "input.scroll", "input.type", "locate.resolve", "store.list", "store.read", "store.write", "sys.info", "sys.ping", "time.advance", "time.mode", "tree.dump"}
 
 // driveDispatch runs one command's handler on the runtime thread and replies
 // exactly once. A handler panic is converted to a typed internal.panic

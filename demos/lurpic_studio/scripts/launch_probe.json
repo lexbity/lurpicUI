@@ -1,0 +1,13 @@
+{
+  "name": "launch_probe",
+  "description": "Studio reference driver script (LDP Phase 9): hello → tree.dump → store.read → input.click → facet.query verification → frame packet hashes. CI runs this headless through the in-process sink (budget-gated); the live variant runs the same script over the socket with `lurpic drive`.",
+  "window": { "width": 1280, "height": 800 },
+  "steps": [
+    { "op": "sys.ping" },
+    { "op": "tree.dump", "from": { "testid": "studio.root" }, "depth": 2 },
+    { "op": "store.read", "name": "e1.chartType", "expect": { "kind": "input/text_field", "value_present": true } },
+    { "op": "input.click", "x": 900, "y": 60 },
+    { "op": "facet.query", "target": { "testid": "e1.canvas" }, "details": true, "expect": { "bounds_nonempty": true } },
+    { "op": "frame.packet", "expect": { "hash_nonzero": true } }
+  ]
+}

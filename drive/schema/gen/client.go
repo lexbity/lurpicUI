@@ -50,6 +50,8 @@ func Methods() []string {
 		"store.list",
 		"store.read",
 		"store.write",
+		"sub.cancel",
+		"sub.watch",
 		"sys.hello",
 		"sys.info",
 		"sys.ping",
@@ -155,6 +157,16 @@ func (c *Client) StoreRead(name string) (json.RawMessage, error) {
 // The response carries bypassed_app_invariants (QP-12).
 func (c *Client) StoreWrite(name string, value any) (json.RawMessage, error) {
 	return c.call("store.write", map[string]any{"name": name, "value": value})
+}
+
+// SubCancel removes a subscription.
+func (c *Client) SubCancel(id uint64) (json.RawMessage, error) {
+	return c.call("sub.cancel", map[string]uint64{"id": id})
+}
+
+// SubWatch registers a subscription filter.
+func (c *Client) SubWatch(filter map[string]string) (json.RawMessage, error) {
+	return c.call("sub.watch", map[string]any{"filter": filter})
 }
 
 // SysHello performs the handshake with the token.

@@ -1,0 +1,118 @@
+// {{.AppName}}-mcp is a generated per-app MCP bridge (LDP Phase 9): one MCP
+// tool per LDP method, each forwarding to the app's drive socket over the
+// local transport. The socket never leaves the machine (`adb forward` for
+// remote debugging); exposure is the bridge author's decision.
+//
+// Generated from the LDP schema by `lurpic mcp init`. DO NOT EDIT —
+// regenerate instead.
+package main
+
+import (
+	"bufio"
+	"context"
+	"encoding/json"
+	"flag"
+	"fmt"
+	"net"
+	"os"
+	"strings"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+)
+
+// transport is the LDP socket round trip: newline-delimited JSON envelopes
+// with token auth in sys.hello.
+type transport struct {
+	conn net.Conn
+	rw   *bufio.ReadWriter
+	next uint64
+}
+
+func dial(socket, tokenFile string) (*transport, error) {
+	token, err := os.ReadFile(tokenFile)
+	if err != nil {
+		return nil, fmt.Errorf("read token: %w", err)
+	}
+	conn, err := net.Dial("unix", socket)
+	if err != nil {
+		return nil, fmt.Errorf("dial: %w", err)
+	}
+	t := &transport{conn: conn, rw: bufio.NewReadWriter(bufio.NewReader(conn), bufio.NewWriter(conn))}
+	// Handshake.
+	res, err := t.call("sys.hello", map[string]string{"token": strings.TrimSpace(string(token))})
+	if err != nil {
+		return nil, err
+	}
+	var hello struct {
+		V int `json:"v"`
+	}
+	if err := json.Unmarshal(res, &hello); err != nil || hello.V != 1 {
+		return nil, fmt.Errorf("protocol mismatch: %s", res)
+	}
+	return t, nil
+}
+
+// call sends one request and returns the response payload (a protocol error
+// surfaces as a Go error).
+func (t *transport) call(method string, params any) (json.RawMessage, error) {
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return nil, err
+	}
+	t.next++
+	req := fmt.Sprintf(`{"v":1,"id":%d,"method":%q,"params":%s}`, t.next, method, raw)
+	if _, err := t.rw.WriteString(req + "\n"); err != nil {
+		return nil, err
+	}
+	if err := t.rw.Flush(); err != nil {
+		return nil, err
+	}
+	line, err := t.rw.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	var res struct {
+		OK     bool            `json:"ok"`
+		Result json.RawMessage `json:"result"`
+		Error  *struct {
+			Code   string `json:"code"`
+			Detail string `json:"detail"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal([]byte(line), &res); err != nil {
+		return nil, fmt.Errorf("decode %q: %w", line, err)
+	}
+	if !res.OK {
+		detail := ""
+		if res.Error != nil {
+			detail = res.Error.Code + ": " + res.Error.Detail
+		}
+		return nil, fmt.Errorf("%s", detail)
+	}
+	return res.Result, nil
+}
+
+func main() {
+	socket := flag.String("socket", "", "drive socket path")
+	tokenFile := flag.String("token-file", "", "drive token file path")
+	flag.Parse()
+	if *socket == "" || *tokenFile == "" {
+		fmt.Fprintln(os.Stderr, "--socket and --token-file are required")
+		os.Exit(1)
+	}
+	t, err := dial(*socket, *tokenFile)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "dial: %v\n", err)
+		os.Exit(1)
+	}
+
+	server := mcp.NewServer(&mcp.Implementation{Name: "{{.AppName}}-mcp", Version: "1.0.0"}, nil)
+	ctx := context.Background()
+
+{{.Tools}}
+
+	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
+		fmt.Fprintf(os.Stderr, "serve: %v\n", err)
+		os.Exit(1)
+	}
+}

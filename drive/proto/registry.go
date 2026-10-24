@@ -62,6 +62,8 @@ var Registry = []MethodSpec{
 	{Name: "time.mode", Grant: GrantTime, Mutating: true, Twin: "n/a"},
 	{Name: "time.advance", Grant: GrantTime, Mutating: true, Twin: "n/a"},
 	{Name: "frame.run", Grant: "", Mutating: true, Twin: "n/a"},
+	{Name: "sub.watch", Grant: GrantRead, Mutating: false, Tier: TierStructural},
+	{Name: "sub.cancel", Grant: GrantRead, Mutating: false, Tier: TierStructural},
 }
 
 // MethodGrant returns the registry's grant for a method (the runtime's

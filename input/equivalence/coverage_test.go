@@ -73,17 +73,19 @@ func TestRegistrySyncWithRuntimeTable(t *testing.T) {
 	}
 	registryMethods := map[string]bool{}
 	for _, spec := range proto.Registry {
-		if spec.Name == "sys.hello" {
-			continue // handshake, not a runtime-dispatched method
-		}
 		registryMethods[spec.Name] = true
-		if !runtimeMethods[spec.Name] {
-			t.Errorf("registry method %q is not in the runtime dispatch table (sys.info)", spec.Name)
-		}
 	}
+	// sys.info derives its list from proto.Registry, so the reported methods
+	// must equal the registry exactly.
 	for _, m := range info.Methods {
 		if !registryMethods[m] {
 			t.Errorf("runtime method %q is not in proto.Registry", m)
+		}
+		registryMethods[m] = false
+	}
+	for m := range registryMethods {
+		if registryMethods[m] {
+			t.Errorf("registry method %q is not reported by sys.info", m)
 		}
 	}
 }

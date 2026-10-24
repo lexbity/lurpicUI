@@ -22,6 +22,8 @@ For Go code changes, run `cmake --build build --target lint` before handing work
 This runs both golangci-lint (repo quality) and lurpiclint (framework-contract checking).
 
 To run tests: `cmake --build build --target test-unit`
+Drive protocol suite: `cmake --build build --target test-drive`
+Differential verb-equivalence suite: `cmake --build build --target test-equivalence`
 
 # Building apps with lurpicUI
 When building an application with lurpicUI, use the lurpiclint analyzer to get capability awareness

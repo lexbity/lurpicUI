@@ -25,6 +25,14 @@ type DirtySink struct {
 	paused    bool
 	snapshots int
 	live      bool
+
+	// drive counters from the last frame (LDP §3.9; zero until the drive
+	// seam is enabled).
+	driveCmds   uint64
+	driveSent   uint64
+	driveDenied uint64
+	drivePanics uint64
+	hasDrive    bool
 }
 
 // NewDirtySink builds a sink retaining up to retention snapshots.
@@ -35,9 +43,26 @@ func NewDirtySink(retention int) *DirtySink {
 	return &DirtySink{retention: retention}
 }
 
-// OnFrame satisfies runtime.DiagnosticsHook. The sink's value is the dirty
-// snapshots, not per-frame stats, so this is a no-op.
-func (s *DirtySink) OnFrame(diagnostics.FrameStats) {}
+// OnFrame records the frame's drive counters (LDP P10): the E5 diagnostics
+// overlay renders them as one row. Zero until the drive seam is enabled and
+// a client has connected (FR-4/QP-13 gating).
+func (s *DirtySink) OnFrame(stats diagnostics.FrameStats) {
+	s.mu.Lock()
+	s.driveCmds = uint64(max(0, stats.DriveCommandsDrained))
+	s.driveSent = stats.DriveResponsesSent
+	s.driveDenied = stats.DriveGrantDenied
+	s.drivePanics = stats.DriveSocketGoroutinePanics
+	s.hasDrive = true
+	s.mu.Unlock()
+}
+
+// DriveCounters returns the last frame's drive counters (cmd drained, sent,
+// denied, panics) and whether the drive seam reported at all.
+func (s *DirtySink) DriveCounters() (uint64, uint64, uint64, uint64, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.driveCmds, s.driveSent, s.driveDenied, s.drivePanics, s.hasDrive
+}
 
 // OnDirtySnapshot stages a frame's snapshot into the ring buffer.
 func (s *DirtySink) OnDirtySnapshot(snap runtime.DirtySnapshot) {

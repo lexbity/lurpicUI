@@ -64,13 +64,6 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	// step's remaining synthesized events never reach the pipeline.
 	driveConsumed := 0
 	if rt.driveInputStep != nil {
-		println("DEBUG scan events=", len(newEvents), "sources:", func() string {
-			s := ""
-			for _, e := range newEvents {
-				s += eventSource(e).String() + ","
-			}
-			return s
-		}())
 		rt.scanForPreemption(newEvents)
 		for _, ev := range newEvents {
 			if eventSource(ev) == platform.SourceDrive {

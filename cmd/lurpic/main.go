@@ -47,6 +47,8 @@ func main() {
 		os.Exit(cmdScreenshot(os.Args[2:]))
 	case "drive":
 		os.Exit(cmdDrive(os.Args[2:]))
+	case "mcp":
+		os.Exit(cmdMCP(os.Args[2:]))
 	case "version":
 		os.Exit(cmdVersion())
 	case "help", "-h", "--help":
@@ -71,6 +73,7 @@ Usage:
   lurpic crash [flags]            Pull tombstones and symbolicate crash dumps
   lurpic screenshot [flags]       Capture device screenshot for golden testing
   lurpic drive [flags] <verb>     LDP verbs: ping, watch, resolve, tree, --check
+  lurpic mcp init <app> --out dir Scaffold a per-app MCP bridge from the LDP schema
   lurpic clean                    Remove build artifacts
   lurpic version                  Print version information
   lurpic help                     Show this help message

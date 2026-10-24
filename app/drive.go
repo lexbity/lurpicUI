@@ -126,6 +126,12 @@ func wireDriveEnv(cfg *Config) (DriveConfig, error) {
 	if err != nil {
 		return DriveConfig{}, err
 	}
+	if driveCfg.Enabled {
+		// Android release builds refuse LDP at startup (§3.8 gate).
+		if err := androidDriveGate(); err != nil {
+			return DriveConfig{}, err
+		}
+	}
 	cfg.Drive = driveCfg
 	cfg.Runtime.Drive.Enabled = driveCfg.Enabled
 	return driveCfg, nil

@@ -1,6 +1,7 @@
 package studio
 
 import (
+	"fmt"
 	"strconv"
 	"time"
 
@@ -83,11 +84,13 @@ type Propagation struct {
 	paused     *store.ValueStore[bool]
 	retention  *store.ValueStore[float64]
 	dirtyCount *store.ValueStore[string]
+	driveLine  *store.ValueStore[string]
 	notLive    *store.ValueStore[bool]
 
-	controls *structure.Card
-	badge    *status.Badge
-	light    *status.StatusLight
+	controls   *structure.Card
+	badge      *status.Badge
+	driveBadge *status.Badge
+	light      *status.StatusLight
 
 	shaper    *text.Shaper
 	textStyle text.TextStyle
@@ -125,6 +128,7 @@ func NewPropagationFacet(sink *DirtySink, fonts *text.FontRegistry, themeCtx the
 		paused:     store.NewValueStore(false),
 		retention:  store.NewValueStore(10.0),
 		dirtyCount: store.NewValueStore("0"),
+		driveLine:  store.NewValueStore(""),
 		notLive:    store.NewValueStore(true),
 	}
 	e.Facet = facet.NewFacet()
@@ -194,6 +198,12 @@ func NewPropagationFacet(sink *DirtySink, fonts *text.FontRegistry, themeCtx the
 			if latest, ok := e.sink.Latest(); ok {
 				e.dirtyCount.Set(strconv.Itoa(len(latest.Dirty)))
 			}
+			// LDP P10: the drive counters row (zero until a drive client
+			// talks to the app).
+			if cmds, sent, denied, panics, hasDrive := e.sink.DriveCounters(); hasDrive {
+				e.driveLine.Set(fmt.Sprintf("drive: drained=%d sent=%d denied=%d panics=%d",
+					cmds, sent, denied, panics))
+			}
 			e.notLive.Set(e.sink.Paused() || !e.sink.Live())
 		} else {
 			e.notLive.Set(true)
@@ -208,6 +218,10 @@ func NewPropagationFacet(sink *DirtySink, fonts *text.FontRegistry, themeCtx the
 
 // DirtyCount returns the badge's store (the latest dirty count).
 func (e *Propagation) DirtyCount() *store.ValueStore[string] { return e.dirtyCount }
+
+// DriveLine returns the drive-counters overlay row (empty until the drive
+// seam reports).
+func (e *Propagation) DriveLine() *store.ValueStore[string] { return e.driveLine }
 
 // NotLive returns the status light's store (true when the sink is not live).
 func (e *Propagation) NotLive() *store.ValueStore[bool] { return e.notLive }
@@ -225,6 +239,9 @@ func (e *Propagation) buildControls() {
 	retentionSlider := selection.NewSlider("Retention", 1, 30, 1, e.retention)
 	e.badge = status.NewBadge("")
 	e.badge.Label = marks.FromStore(e.dirtyCount, facet.DirtyProjection)
+	e.driveBadge = status.NewBadge("")
+	e.driveBadge.Label = marks.FromStore(e.driveLine, facet.DirtyProjection)
+	e.driveBadge.Label = marks.FromStore(e.driveLine, facet.DirtyProjection)
 	e.light = status.NewStatusLight("sink")
 	e.light.ShowLabel = marks.Const(false)
 	e.light.Disabled = marks.FromStore(e.notLive, facet.DirtyProjection)
@@ -236,6 +253,7 @@ func (e *Propagation) buildControls() {
 		{Key: "pause", Facet: pauseSwitch, Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}},
 		{Key: "retention", Facet: retentionSlider, Grid: facet.GridPlacement{ColStart: 1, RowStart: 0, ColSpan: 1, RowSpan: 1}},
 		{Key: "dirty", Facet: e.badge, Grid: facet.GridPlacement{ColStart: 0, RowStart: 1, ColSpan: 1, RowSpan: 1}},
+		{Key: "drive", Facet: e.driveBadge, Grid: facet.GridPlacement{ColStart: 1, RowStart: 1, ColSpan: 1, RowSpan: 1}},
 		{Key: "live", Facet: e.light, Grid: facet.GridPlacement{ColStart: 1, RowStart: 1, ColSpan: 1, RowSpan: 1}},
 	}
 }

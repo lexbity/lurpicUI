@@ -197,7 +197,6 @@ func (q *gatedQueue) Poll() []platform.Event {
 		return nil
 	}
 	q.polls++
-	println("POLL polls=", q.polls, "after=", q.humanAfter, "queued=", len(q.events))
 	if q.polls == q.humanAfter {
 		// The human event lands at the FRONT: it is observed by the next
 		// poll, mid-step — appending would defer it until after the step

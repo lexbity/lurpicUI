@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"net"
 	"os"
 	"strings"
@@ -152,4 +154,12 @@ func cmdDriveWatch(fs *flag.FlagSet, conn *driveJSON) int {
 		}
 		fmt.Print(line)
 	}
+}
+
+// parseGo validates Go source at parse level (no compile: the scaffold's
+// SDK dependency belongs to the generated module).
+func parseGo(src []byte) error {
+	fset := token.NewFileSet()
+	_, err := parser.ParseFile(fset, "main.go", src, parser.AllErrors)
+	return err
 }

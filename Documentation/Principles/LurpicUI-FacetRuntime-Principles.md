@@ -137,6 +137,31 @@ Principle 13:
 Assets are demand-loaded, reference-counted, and evicted on budget pressure — never eagerly released and never retained beyond their consumer's lifetime. An asset handle is a weak reference to cooked data. The asset system, not the facet, owns the decoded resource. Facets hold handles; the runtime holds memory.
 
 
+## Principle 14 — Actuation is the fourth seam
+
+The engine is consumed through four framework seams: platform (input),
+render (output), diagnostics (observation), and drive (actuation). Each is
+an interface pair defined consumer-side and wired at the app layer — the
+same ownership pattern as Principle 10.
+
+LDP (the drive seam) makes the engine actuable under the same rules that
+make it readable: explicit, typed, fail-loud. Three invariants distinguish
+actuation from ad-hoc test hooks:
+
+Every verb has a GUI twin, proven equivalent by measurement (the differential
+corpus in `input/equivalence`), never by sharing code — sharing would make
+the equivalence claim vacuous. The runtime owns time and input arbitration: a
+driver can single-step frames (virtual time) but a human event always
+preempts a scripted gesture mid-flight. Author identity is TestIDs on facets,
+set at construction and unique while attached — automation addresses what the
+author named, at the same cut boundaries the frame pipeline uses.
+
+What this rules out: out-of-band state pokes that bypass the input pipeline,
+reflection-driven addressing of unnamed facets, mid-frame reads, and silent
+event drops in subscriptions. The tradeoff this acknowledges: every verb is
+doubled (verb + GUI twin + corpus), and automation is slower than a native
+API would be. The payoff: what a script can do, a user can do — provably.
+
 ## The principles as a decision filter
 
 These thirteen principles are most useful when a design decision is ambiguous. 

@@ -117,6 +117,11 @@ func (s *Stats) AddResponseSent()         { s.responsesSent.Add(1) }
 func (s *Stats) AddGrantDenied()          { s.grantDenied.Add(1) }
 func (s *Stats) AddSocketGoroutinePanic() { s.socketGoroutinePanics.Add(1) }
 
+// StatsSnapshot exposes the cumulative counters (load-test diagnostics).
+func (s *Server) StatsSnapshot() (drained, sent, denied, panics uint64) {
+	return s.stats.Snapshot()
+}
+
 // Snapshot returns the cumulative counter values.
 func (s *Stats) Snapshot() (commandsDrained, responsesSent, grantDenied, socketGoroutinePanics uint64) {
 	return s.commandsDrained.Load(), s.responsesSent.Load(),
@@ -408,6 +413,7 @@ func (c *conn) serve() {
 	defer func() {
 		if r := recover(); r != nil {
 			c.srv.stats.AddSocketGoroutinePanic()
+			fmt.Fprintf(os.Stderr, "drive: connection goroutine panic: %v\n", r)
 			_ = c.nc.Close()
 		}
 	}()
@@ -415,6 +421,7 @@ func (c *conn) serve() {
 	writer := bufio.NewWriter(c.nc)
 	c.cache = newResponseCache(idempotencyCapacity)
 	c.subs = newSubTable(c.srv.clock)
+	c.stopPump = make(chan struct{})
 	defer close(c.stopPump)
 	c.startPump()
 

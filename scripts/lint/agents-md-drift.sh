@@ -19,9 +19,10 @@ if [ -z "$targets" ]; then
 fi
 
 for target in $targets; do
-  # Each target must appear as an add_custom_target(<name> in CMakeLists.txt
-  # OR as a target in add_dependencies.
-  if grep -qE "add_custom_target\($target" "$CMAKE_LISTS"; then
+  # Each target must be defined in CMakeLists.txt — either directly
+  # (add_custom_target(<name>) or as a helper-created test target
+  # (lurpic_add_go_test_target(NAME <name>).
+  if grep -qE "add_custom_target\($target|NAME $target$" "$CMAKE_LISTS"; then
     echo "AGENTS-MD-DRIFT: OK  $target → $CMAKE_LISTS"
   else
     echo "AGENTS-MD-DRIFT: MISSING  $target referenced in $AGENTS_MD but not defined in $CMAKE_LISTS"

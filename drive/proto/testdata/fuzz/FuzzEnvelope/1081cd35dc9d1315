@@ -1,0 +1,2 @@
+go test fuzz v1
+string("{\"v\":2,\"id\":0,\"method\"g\",\"params\":null}")

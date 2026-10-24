@@ -144,12 +144,19 @@ func TestDrive_HandlerPanicBecomesTypedError(t *testing.T) {
 }
 
 func TestDrive_InfoMethodListMatchesTable(t *testing.T) {
-	if len(driveInfoMethodList) != len(driveMethods) {
-		t.Fatalf("sys.info lists %d methods, table has %d", len(driveInfoMethodList), len(driveMethods))
-	}
-	for _, name := range driveInfoMethodList {
-		if _, ok := driveMethods[name]; !ok {
-			t.Fatalf("sys.info lists %q which is not in the method table", name)
+	// sys.info derives its list from proto.Registry (the single source of
+	// truth); the runtime's own dispatch table must be a subset — the
+	// server handles sub.* locally, everything else executes here.
+	for name := range driveMethods {
+		found := false
+		for _, m := range proto.MethodNames() {
+			if m == name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("runtime method %q is not in proto.Registry", name)
 		}
 	}
 }

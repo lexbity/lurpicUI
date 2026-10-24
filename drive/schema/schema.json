@@ -158,6 +158,18 @@
       "mutating": true,
       "name": "frame.run",
       "twin": "n/a"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "sub.watch",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "sub.cancel",
+      "tier": "structural"
     }
   ],
   "protocol": 1,

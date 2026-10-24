@@ -198,6 +198,14 @@ func (b *androidBuilder) buildGoLibrary(arch Architecture) error {
 		"-o", output,
 	}
 
+	// LDP §3.8: the lurpicdrive build tag gates the Android drive seam to
+	// debuggable builds. Debug builds are debuggable (the manifest sets
+	// android:debuggable="true"); release builds never get the tag, so the
+	// drive gate stub is linked and LDP is refused at startup.
+	if !b.release {
+		args = append(args, "-tags", "lurpicdrive")
+	}
+
 	// Release builds: strip symbols and remove path metadata for smaller
 	// APK size and to avoid leaking host paths. Unstripped copies are
 	// retained separately for crash symbolication (see emitDebugSymbolsZip).
@@ -530,6 +538,7 @@ type ManifestData struct {
 	UsesGLES              bool
 	AllowBackup           bool
 	NetworkSecurityConfig string
+	Debuggable            bool
 }
 
 const manifestTemplate = `<?xml version="1.0" encoding="utf-8"?>
@@ -549,6 +558,7 @@ const manifestTemplate = `<?xml version="1.0" encoding="utf-8"?>
     <application
         android:label="{{.AppName}}"
         android:hasCode="true"
+        android:debuggable="{{.Debuggable}}"
         android:extractNativeLibs="{{.ExtractNativeLibs}}"
         android:allowBackup="{{.AllowBackup}}"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -590,6 +600,7 @@ func (b *androidBuilder) generateManifest() error {
 		UsesGLES:              true,  // software fallback uses GLES-compatible pipeline
 		AllowBackup:           false, // no backup by default; enable via config
 		NetworkSecurityConfig: b.config.Android.NetworkSecurityConfig,
+		Debuggable:            !b.release, // LDP §3.8: the drive seam tag pairs with debuggability
 	}
 
 	tmpl, err := template.New("manifest").Parse(manifestTemplate)
