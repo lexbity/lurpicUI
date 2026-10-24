@@ -126,6 +126,7 @@ func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *lay
 	}, dividerSize)
 
 	r.Facet = facet.NewFacet()
+	r.SetTestID("studio.root")
 	r.AddChild(r.chrome.Base())
 	r.AddChild(r.gallery.Base())
 	r.AddChild(r.narrow.Base())

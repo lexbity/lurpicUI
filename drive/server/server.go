@@ -430,12 +430,14 @@ type methodSpec struct {
 // checked per step by the runtime against Grants.Allows — so the connection
 // level needs no grant of its own.
 var methods = map[string]methodSpec{
-	"sys.hello":    {local: true},
-	"sys.ping":     {grant: "read"},
-	"sys.info":     {grant: "read"},
-	"time.mode":    {grant: "time"},
-	"time.advance": {grant: "time"},
-	"frame.run":    {},
+	"sys.hello":      {local: true},
+	"sys.ping":       {grant: "read"},
+	"sys.info":       {grant: "read"},
+	"locate.resolve": {grant: "read"},
+	"tree.dump":      {grant: "read"},
+	"time.mode":      {grant: "time"},
+	"time.advance":   {grant: "time"},
+	"frame.run":      {},
 }
 
 // MethodGrant reports the grant a method requires ("" = none at connection

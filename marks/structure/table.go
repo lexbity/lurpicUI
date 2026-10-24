@@ -524,6 +524,7 @@ func (t *Table) syncChildren() {
 				cell.Content = marks.Const(content)
 				cell.Invalidate(facet.DirtyLayout | facet.DirtyProjection)
 			}
+			cell.Key = cellKey // the row:column key is the cell's stable identity (KeyedItem)
 			cell.Typography = marks.Const(theme.TextBodyM)
 			cell.Foreground = marks.Const(theme.ColorText)
 			cell.Overflow = marks.Const(primitive.TextOverflowTruncate)

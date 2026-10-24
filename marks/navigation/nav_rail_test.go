@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -12,17 +13,16 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type navRailRuntimeStub struct {
 	tabsRuntimeStub
-	icons map[string]runtimepkg.IconAsset
+	icons map[string]icon.Asset
 }
 
-func (s navRailRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (s navRailRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	asset, ok := s.icons[ref]
 	return asset, ok
 }
@@ -393,8 +393,8 @@ func newNavRailTestFixture(t *testing.T, tokens theme.Tokens, density theme.Dens
 	return rail, rt, resolved
 }
 
-func navRailTestIcons() map[string]runtimepkg.IconAsset {
-	return map[string]runtimepkg.IconAsset{
+func navRailTestIcons() map[string]icon.Asset {
+	return map[string]icon.Asset{
 		"user":                       navRailIconAsset("user", gfx.CirclePath(gfx.Point{X: 12, Y: 9}, 4.5)),
 		"home":                       navRailIconAsset("home", gfx.NewPath().MoveTo(gfx.Point{X: 5, Y: 12}).LineTo(gfx.Point{X: 12, Y: 6}).LineTo(gfx.Point{X: 19, Y: 12}).LineTo(gfx.Point{X: 19, Y: 19}).LineTo(gfx.Point{X: 13, Y: 19}).LineTo(gfx.Point{X: 13, Y: 14}).LineTo(gfx.Point{X: 11, Y: 14}).LineTo(gfx.Point{X: 11, Y: 19}).LineTo(gfx.Point{X: 5, Y: 19}).Close().Build()),
 		"bell":                       navRailIconAsset("bell", gfx.CirclePath(gfx.Point{X: 12, Y: 10}, 5.5)),
@@ -406,8 +406,8 @@ func navRailTestIcons() map[string]runtimepkg.IconAsset {
 	}
 }
 
-func navRailIconAsset(ref string, path gfx.Path) runtimepkg.IconAsset {
-	return runtimepkg.NewIconAsset(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
+func navRailIconAsset(ref string, path gfx.Path) icon.Asset {
+	return icon.New(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
 }
 
 func TestNavRail_contract_anchor_export(t *testing.T) {

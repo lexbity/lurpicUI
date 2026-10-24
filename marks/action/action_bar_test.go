@@ -6,12 +6,12 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -21,7 +21,7 @@ type actionBarRuntimeStub struct {
 	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
-	icons     runtimepkg.IconResolver
+	icons     icon.Resolver
 }
 
 func (s actionBarRuntimeStub) RootStyleContext() any { return s.rootStyle }
@@ -29,13 +29,13 @@ func (s actionBarRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s actionBarRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
-func (s actionBarRuntimeStub) IconResolver() runtimepkg.IconResolver {
+func (s actionBarRuntimeStub) IconResolver() icon.Resolver {
 	return s.icons
 }
 
-type actionBarIconResolverStub map[string]runtimepkg.IconAsset
+type actionBarIconResolverStub map[string]icon.Asset
 
-func (r actionBarIconResolverStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (r actionBarIconResolverStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	asset, ok := r[ref]
 	return asset, ok
 }
@@ -214,8 +214,8 @@ func newActionBarFixture(t *testing.T) (*ActionBar, actionBarRuntimeStub) {
 	return bar, rt
 }
 
-func mustActionBarIconAsset(ref string) runtimepkg.IconAsset {
-	return runtimepkg.NewIconAsset(ref, 1, gfx.RectPath(gfx.RectFromXYWH(0, 0, 24, 24)), gfx.RectFromXYWH(0, 0, 24, 24))
+func mustActionBarIconAsset(ref string) icon.Asset {
+	return icon.New(ref, 1, gfx.RectPath(gfx.RectFromXYWH(0, 0, 24, 24)), gfx.RectFromXYWH(0, 0, 24, 24))
 }
 
 func allActionBarFieldsPresent[T any](value T) bool {

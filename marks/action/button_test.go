@@ -6,12 +6,12 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -22,7 +22,7 @@ type buttonRuntimeStub struct {
 	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
-	icons     runtimepkg.IconResolver
+	icons     icon.Resolver
 }
 
 func (s buttonRuntimeStub) RootStyleContext() any { return s.rootStyle }
@@ -30,13 +30,13 @@ func (s buttonRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s buttonRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
-func (s buttonRuntimeStub) IconResolver() runtimepkg.IconResolver {
+func (s buttonRuntimeStub) IconResolver() icon.Resolver {
 	return s.icons
 }
 
-type buttonIconResolverStub map[string]runtimepkg.IconAsset
+type buttonIconResolverStub map[string]icon.Asset
 
-func (r buttonIconResolverStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (r buttonIconResolverStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	asset, ok := r[ref]
 	return asset, ok
 }

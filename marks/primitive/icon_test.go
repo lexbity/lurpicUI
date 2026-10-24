@@ -7,17 +7,17 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type iconRuntimeStub struct {
 	contracttest.NoopRuntime
 	rootStyle     any
-	icons         map[string]runtimepkg.IconAsset
+	icons         map[string]icon.Asset
 	assetManager  assets.Manager
 	assetRegistry *assets.AssetRegistryStore
 }
@@ -28,7 +28,7 @@ func (s iconRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 }
 func (s iconRuntimeStub) AssetManager() assets.Manager              { return s.assetManager }
 func (s iconRuntimeStub) AssetRegistry() *assets.AssetRegistryStore { return s.assetRegistry }
-func (s iconRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (s iconRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	asset, ok := s.icons[ref]
 	return asset, ok
 }
@@ -104,8 +104,8 @@ func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
 	tokens.Color.Primary = gfx.ColorFromRGBA8(24, 48, 72, 255)
 	rt := iconRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		icons: map[string]runtimepkg.IconAsset{
-			"chevron-down": runtimepkg.NewIconAsset(
+		icons: map[string]icon.Asset{
+			"chevron-down": icon.New(
 				"chevron-down",
 				17,
 				gfx.RectPath(gfx.RectFromXYWH(0, 0, 24, 24)),

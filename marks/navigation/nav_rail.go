@@ -308,6 +308,7 @@ func (r *NavRail) rebuildChildFacets() {
 			r.cachedItemFacets[i] = selection.NewListItem(marks.Const(r.Items[i].Label))
 		}
 		item := r.cachedItemFacets[i]
+		item.Key = r.Items[i].Key // the rail item key is the row's stable key (KeyedItem)
 		item.Label = marks.Const(r.Items[i].Label)
 		item.LeadingIconRef = marks.Const(r.Items[i].IconRef)
 		item.Selected = marks.Const(i == r.clampedActiveIndex())

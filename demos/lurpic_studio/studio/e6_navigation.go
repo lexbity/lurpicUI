@@ -58,6 +58,7 @@ func newPlayNavFamily() *playNavFamily {
 		{Key: "realtime", Label: "Realtime", IconRef: iconRealtime},
 		{Key: "shell", Label: "Shell", IconRef: iconLayers},
 	}, f.railActive)
+	f.rail.Base().SetTestID("e6.navigation.rail")
 
 	f.drawer = navigation.NewNavDrawer("Sources", []navigation.NavDrawerSection{
 		{Label: "Enterprise", Items: []navigation.NavDrawerItem{

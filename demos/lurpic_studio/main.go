@@ -3,6 +3,8 @@
 package main
 
 import (
+	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
+
 	"embed"
 	"fmt"
 	"os"
@@ -35,6 +37,9 @@ func main() {
 		os.Exit(1)
 	}
 	cfg.Runtime.LayerRegistry = reg
+	// LDP locator metadata: adapt the marks canonical interfaces for the
+	// drive locator walk (kind/role/name/key matching).
+	cfg.Runtime.DescribeMark = drivedesc.Describe
 	cfg.Theme = studio.StudioThemeContext()
 	seed, err := loadSeed()
 	if err != nil {

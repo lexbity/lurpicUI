@@ -32,6 +32,9 @@ const (
 type Text struct {
 	marks.Core
 
+	// Key carries the host-assigned stable identity (a table's row:column
+	// cell key) for LDP key locators (marks.KeyedItem). Empty when unkeyed.
+	Key        string
 	Content    marks.Binding[string]
 	Typography marks.Binding[theme.TextToken]
 	Foreground marks.Binding[theme.ColorToken]
@@ -104,6 +107,9 @@ func NewText(content marks.Binding[string]) *Text {
 }
 
 // Base satisfies facet.FacetImpl.
+// ItemKey returns the host-assigned stable key (marks.KeyedItem).
+func (t *Text) ItemKey() string { return t.Key }
+
 func (t *Text) Base() *facet.Facet {
 	t.BindImpl(t)
 	return &t.Facet

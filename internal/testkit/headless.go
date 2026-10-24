@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
+	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -141,6 +142,7 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	rtcfg.LayerRegistry = config.LayerRegistry
 	rtcfg.ThemeResolver = config.ThemeResolver
 	rtcfg.Drive.Enabled = config.Drive
+	rtcfg.DescribeMark = drivedesc.Describe
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {
 		t.Fatalf("runtime: %v", err)

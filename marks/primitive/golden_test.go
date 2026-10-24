@@ -9,11 +9,11 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"github.com/go-text/typesetting/font"
@@ -75,7 +75,7 @@ func TestPrimitiveIconGolden(t *testing.T) {
 	tokens.Color.Primary = gfx.ColorFromRGBA8(38, 82, 122, 255)
 	rt := iconRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
-		icons:     map[string]runtimepkg.IconAsset{},
+		icons:     map[string]icon.Asset{},
 	}
 	surface := renderPrimitiveIcon(t, mark, rt, "primitive_icon_inline")
 	testkit.AssertGolden(t, surface, "primitive_icon_inline")

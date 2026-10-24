@@ -69,6 +69,10 @@ func newGridRow(rows *store.CollectionStore[dataset.Row], id store.ItemID, style
 // RowID returns the row's collection id.
 func (r *gridRow) RowID() store.ItemID { return r.id }
 
+// ItemKey is the KeyedItem adoption (LDP Phase 3): the row's collection id
+// is its stable locator key, addressable as e1.grid.row.<key>.
+func (r *gridRow) ItemKey() string { return strconv.FormatUint(uint64(r.id), 10) }
+
 // cellCommands draws the three column cells from the current row data.
 func (r *gridRow) cellCommands(bounds gfx.Rect) []gfx.Command {
 	if bounds.IsEmpty() {

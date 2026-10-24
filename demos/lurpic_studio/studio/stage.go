@@ -49,6 +49,8 @@ func NewStage(exhibits []Exhibit, appState *state.AppState, activeExhibit *store
 		if root == nil {
 			continue
 		}
+		// Author identity per exhibit root (Debt-6): stage.<exhibit>.
+		root.Base().SetTestID("stage." + string(e.ID()))
 		s.roots[e.ID()] = root
 		s.AddChild(root.Base())
 	}

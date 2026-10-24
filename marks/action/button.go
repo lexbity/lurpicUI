@@ -3,12 +3,12 @@ package action
 import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -59,8 +59,8 @@ type Button struct {
 	cachedRadius        float32
 	cachedTokens        theme.Tokens
 	cachedRecipe        shared.ButtonSlots
-	cachedLeadingAsset  runtimepkg.IconAsset
-	cachedTrailingAsset runtimepkg.IconAsset
+	cachedLeadingAsset  icon.Asset
+	cachedTrailingAsset icon.Asset
 }
 
 var _ facet.FacetImpl = (*Button)(nil)
@@ -212,8 +212,8 @@ func (b *Button) OnDetach() {
 	b.cachedRadius = 0
 	b.cachedTokens = theme.Tokens{}
 	b.cachedRecipe = shared.ButtonSlots{}
-	b.cachedLeadingAsset = runtimepkg.IconAsset{}
-	b.cachedTrailingAsset = runtimepkg.IconAsset{}
+	b.cachedLeadingAsset = icon.Asset{}
+	b.cachedTrailingAsset = icon.Asset{}
 }
 
 func (b *Button) invalidate(flags facet.DirtyFlags) {
@@ -368,9 +368,9 @@ func (b *Button) resolveIconBoxes(ctx facet.MeasureContext, recipe shared.Button
 	return leading, trailing
 }
 
-func (b *Button) resolveIconBox(ctx facet.MeasureContext, ref string, style theme.MarkStyle) (gfx.Rect, runtimepkg.IconAsset) {
+func (b *Button) resolveIconBox(ctx facet.MeasureContext, ref string, style theme.MarkStyle) (gfx.Rect, icon.Asset) {
 	if ref == "" {
-		return gfx.Rect{}, runtimepkg.IconAsset{}
+		return gfx.Rect{}, icon.Asset{}
 	}
 	iconSize := resolvedIconSize(ctx)
 	if resolver := b.iconResolver(ctx.Runtime); resolver != nil {
@@ -387,7 +387,7 @@ func (b *Button) resolveIconBox(ctx facet.MeasureContext, ref string, style them
 		}
 	}
 	_ = style
-	return gfx.RectFromXYWH(0, 0, iconSize, iconSize), runtimepkg.IconAsset{}
+	return gfx.RectFromXYWH(0, 0, iconSize, iconSize), icon.Asset{}
 }
 
 func resolvedIconSize(ctx facet.MeasureContext) float32 {
@@ -398,7 +398,7 @@ func resolvedIconSize(ctx facet.MeasureContext) float32 {
 	return resolved.Density.Scale(resolved.TokenSet().Spacing.IconSize)
 }
 
-func (b *Button) iconResolver(runtime any) runtimepkg.IconResolver {
+func (b *Button) iconResolver(runtime any) icon.Resolver {
 	return marks.IconResolverFrom(runtime)
 }
 

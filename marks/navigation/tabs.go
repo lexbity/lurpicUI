@@ -5,12 +5,12 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -77,7 +77,7 @@ type Tabs struct {
 	cachedPanelPadY        float32
 	cachedIndicatorH       float32
 	cachedWritingDirection facet.WritingDirection
-	cachedIconAssets       []runtimepkg.IconAsset
+	cachedIconAssets       []icon.Asset
 	cachedIconBounds       []gfx.Rect
 }
 
@@ -311,7 +311,7 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		maxWidth = resolved.Density.Scale(960)
 	}
 	labelLayouts := make([]*text.TextLayout, len(t.Items))
-	iconAssets := make([]runtimepkg.IconAsset, len(t.Items))
+	iconAssets := make([]icon.Asset, len(t.Items))
 	iconBounds := make([]gfx.Rect, len(t.Items))
 	tabWidths := make([]float32, len(t.Items))
 	tabHeights := make([]float32, len(t.Items))

@@ -7,13 +7,13 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -236,8 +236,8 @@ func newMenuButtonFixture(t *testing.T) (*MenuButton, buttonRuntimeStub) {
 	return btn, rt
 }
 
-func mustMenuButtonIconAsset(ref string) runtimepkg.IconAsset {
-	return runtimepkg.NewIconAsset(ref, 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 7), gfx.RectFromXYWH(0, 0, 24, 24))
+func mustMenuButtonIconAsset(ref string) icon.Asset {
+	return icon.New(ref, 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 7), gfx.RectFromXYWH(0, 0, 24, 24))
 }
 
 func allMenuButtonFieldsPresent[T any](value T) bool {

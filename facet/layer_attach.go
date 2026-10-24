@@ -24,6 +24,25 @@ func (b ZBand) Valid() bool {
 	return b < zBandMax
 }
 
+func (b ZBand) String() string {
+	switch b {
+	case ZBandBase:
+		return "base"
+	case ZBandContent:
+		return "content"
+	case ZBandPopover:
+		return "popover"
+	case ZBandModal:
+		return "modal"
+	case ZBandTooltip:
+		return "tooltip"
+	case ZBandToast:
+		return "toast"
+	default:
+		return "ZBand(unknown)"
+	}
+}
+
 // LayerRecipeRef points at a named layer layout recipe (centered modal,
 // anchored popover, free, grid). When set, it overrides the recipe the layer
 // registry descriptor provides.

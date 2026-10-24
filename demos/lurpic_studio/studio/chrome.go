@@ -54,8 +54,8 @@ func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeSt
 	c := &ChromeStack{
 		shell:      shell,
 		title:      primitive.NewText(marks.Const("Lurpic Studio")),
-		cmdK:       action.NewIconButton(primitive.IconSVG(cmdKIcon)),
-		theme:      action.NewIconButton(primitive.IconSVG(themeIcon)),
+		cmdK:       newChromeIconButton("shell.cmdk", primitive.IconSVG(cmdKIcon)),
+		theme:      newChromeIconButton("shell.theme", primitive.IconSVG(themeIcon)),
 		background: themeCtx.Color(theme.ColorSurface),
 	}
 	c.Facet = facet.NewFacet()
@@ -173,3 +173,12 @@ func (c *ChromeStack) OnActivate() {}
 
 // OnDeactivate is unused.
 func (c *ChromeStack) OnDeactivate() {}
+
+// newChromeIconButton constructs a chrome icon button carrying its author
+// TestID (LDP Phase 3, Debt-6): interactive chrome is addressable by
+// contract, enforced by TestCoverage_testids.
+func newChromeIconButton(testID string, source primitive.IconSource) *action.IconButton {
+	b := action.NewIconButton(source)
+	b.Base().SetTestID(testID)
+	return b
+}

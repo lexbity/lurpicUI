@@ -48,21 +48,26 @@ func newPlayFeedbackFamily() *playFeedbackFamily {
 	}
 
 	f.alertTrigger = action.NewButton(marks.Const("Trigger fault"), marks.Const(uiinput.ButtonFilled))
+	f.alertTrigger.Base().SetTestID("e6.feedback.alert-trigger")
 	f.alertClear = action.NewButton(marks.Const("Clear"), marks.Const(uiinput.ButtonOutlined))
+	f.alertClear.Base().SetTestID("e6.feedback.alert-clear")
 	f.alert = feedback.NewAlert("Sources", "All sources are healthy.")
 	f.alert.Message = marks.FromStore(f.alertMsg, facet.DirtyProjection)
 	f.alert.CloseButtonLabel = marks.Const("Clear")
 
 	f.dialogOpenTrigger = action.NewButton(marks.Const("Open dialog"), marks.Const(uiinput.ButtonFilled))
+	f.dialogOpenTrigger.Base().SetTestID("e6.feedback.dialog-open")
 	f.dialog = feedback.NewDialog("Delete source?", "This removes the selected source row.", []feedback.DialogAction{
 		{Label: "Cancel", Variant: uiinput.ButtonOutlined},
 		{Label: "Delete", Variant: uiinput.ButtonFilled},
 	}, f.dialogOpen)
 
 	f.toastTrigger = action.NewButton(marks.Const("Show notification"), marks.Const(uiinput.ButtonOutlined))
+	f.toastTrigger.Base().SetTestID("e6.feedback.toast")
 	f.toast = feedback.NewNotification("Export complete", "The chart image was written to disk.", f.toastOpen)
 
 	f.tipTrigger = action.NewButton(marks.Const("Show tooltip"), marks.Const(uiinput.ButtonOutlined))
+	f.tipTrigger.Base().SetTestID("e6.feedback.tooltip")
 	f.tip = feedback.NewTooltip("A tooltip passes pointer input through to the control beneath it.", nil)
 
 	f.scroll = newPlayScroll(listGap,

@@ -1,6 +1,9 @@
 package marks
 
-import "codeburg.org/lexbit/lurpicui/layout"
+import (
+	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/layout"
+)
 
 // Focusable is implemented by marks that can receive keyboard focus.
 type Focusable interface {
@@ -21,6 +24,20 @@ type Accessible interface {
 type Customizable any
 
 // theme variant/recipe surface (reserved for future use)
+
+// KeyedItem is implemented by collection-child marks (list items, tree rows,
+// table cells) so LDP locators can address them by stable key — the item's
+// ItemID, node path, or row:column key. Implemented once per mark; the key
+// returns "" when the host assigned none.
+type KeyedItem interface{ ItemKey() string }
+
+// HostsChildren is implemented by group marks whose children are hosted
+// virtually (projected by the host rather than attached as facet-tree
+// children — tree rows, table cells, dropdown entries). LDP locators walk
+// hosted children so keyed addressing reaches every visible row.
+type HostsChildren interface {
+	HostedChildren() []facet.FacetImpl
+}
 
 // DataBound is implemented by marks that bind a store.CollectionStore
 // together with associated scales.

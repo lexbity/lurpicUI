@@ -125,6 +125,10 @@ type Runtime struct {
 	// is drained at the head of phase 2 on this thread (QP-6); see
 	// drive_runtime.go.
 	driveSink *driveRuntimeSink
+
+	// liveTestIDs is the author-identity registry (QP-7): TestID → facet ID
+	// for attached facets. Installed as the facet-package registry in New.
+	liveTestIDs liveTestIDs
 }
 
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {
@@ -177,6 +181,8 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		poisonReports:    make(map[facet.FacetID]*poisonReport),
 		recoveryDisabled: config.RecoveryDisabled,
 	}
+	rt.liveTestIDs = make(liveTestIDs)
+	facet.SetTestIDRegistry(rt.liveTestIDs)
 	rt.clock = NewClock(wallNow)
 	rt.inputSystem.SetTimeSource(rt.clock.Now)
 	rt.clock.SetGestureGuard(rt.inputSystem.GestureActive)

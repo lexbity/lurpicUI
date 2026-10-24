@@ -142,11 +142,13 @@ var driveMethods map[string]driveHandler
 
 func init() {
 	driveMethods = map[string]driveHandler{
-		"sys.ping":     drivePing,
-		"sys.info":     driveInfo,
-		"time.mode":    driveTimeMode,
-		"time.advance": driveTimeAdvance,
-		"frame.run":    driveFrameRun,
+		"sys.ping":       drivePing,
+		"sys.info":       driveInfo,
+		"time.mode":      driveTimeMode,
+		"time.advance":   driveTimeAdvance,
+		"frame.run":      driveFrameRun,
+		"locate.resolve": driveLocateResolve,
+		"tree.dump":      driveTreeDump,
 	}
 }
 
@@ -181,7 +183,7 @@ func driveInfo(rt *Runtime, _ drive.Command) driveOutcome {
 // a separate literal (not derived from driveMethods) to break the
 // package-level initialization cycle map→handler→map; a test asserts the
 // two stay in sync.
-var driveInfoMethodList = []string{"frame.run", "sys.info", "sys.ping", "time.advance", "time.mode"}
+var driveInfoMethodList = []string{"frame.run", "locate.resolve", "sys.info", "sys.ping", "time.advance", "time.mode", "tree.dump"}
 
 // driveDispatch runs one command's handler on the runtime thread and replies
 // exactly once. A handler panic is converted to a typed internal.panic

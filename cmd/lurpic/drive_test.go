@@ -67,3 +67,66 @@ func TestCmdDrive_RequiresFlagsAndVerb(t *testing.T) {
 		t.Fatal("unknown verb must fail")
 	}
 }
+
+func TestCmdDrive_ResolveAndTreeEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "drive.sock")
+	token := strings.Repeat("ab", 32)
+	srv, err := drive.Listen(drive.Config{
+		SocketPath: socket,
+		Token:      token,
+		Grants:     drive.Grants{Read: true},
+		Sink:       locateSink{},
+	})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+
+	// resolve with a locator: the sink fabricates a match.
+	orig := os.Stdout
+	r, w, _ := os.Pipe()
+	os.Stdout = w
+	code := cmdDrive([]string{"resolve", "--socket", socket, "--token-file", socket + ".token", "--testid", "shell.cmdk"})
+	w.Close()
+	os.Stdout = orig
+	out, _ := io.ReadAll(r)
+	if code != 0 {
+		t.Fatalf("resolve exit = %d, output %q", code, out)
+	}
+	if !strings.Contains(string(out), `"path"`) {
+		t.Fatalf("resolve output = %q", out)
+	}
+
+	// tree: same fabricated response shape.
+	r2, w2, _ := os.Pipe()
+	os.Stdout = w2
+	code = cmdDrive([]string{"tree", "--socket", socket, "--token-file", socket + ".token", "--testid", "shell.cmdk", "--depth", "2"})
+	w2.Close()
+	os.Stdout = orig
+	out2, _ := io.ReadAll(r2)
+	if code != 0 {
+		t.Fatalf("tree exit = %d, output %q", code, out2)
+	}
+	if !strings.Contains(string(out2), `"nodes"`) {
+		t.Fatalf("tree output = %q", out2)
+	}
+}
+
+// locateSink answers locate.resolve / tree.dump with plausible payloads.
+type locateSink struct{}
+
+func (locateSink) Enqueue(cmd drive.Command) {
+	var payload json.RawMessage
+	switch cmd.Method {
+	case "locate.resolve":
+		payload = json.RawMessage(`{"path":"studio.root/shell.cmdk","testid":"shell.cmdk","facet_id":42}`)
+	case "tree.dump":
+		payload = json.RawMessage(`{"nodes":[{"path":"studio.root","kind":"shell/root","testid":"studio.root"}]}`)
+	default:
+		payload = json.RawMessage(`{"pong":true}`)
+	}
+	cmd.Reply <- drive.Result{Payload: payload, Frame: 3}
+}
+
+func (locateSink) Epoch() uint64 { return 3 }

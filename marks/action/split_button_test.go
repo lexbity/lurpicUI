@@ -7,13 +7,13 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -242,11 +242,11 @@ func newSplitButtonFixture(t *testing.T) (*SplitButton, buttonRuntimeStub) {
 	return btn, rt
 }
 
-func mustSplitButtonIconAsset(ref string) runtimepkg.IconAsset {
+func mustSplitButtonIconAsset(ref string) icon.Asset {
 	circle := gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 9)
 	star := splitButtonStarPath(gfx.Point{X: 12, Y: 12}, 5.8, 2.4)
 	combined := combineIconPaths(circle, star)
-	return runtimepkg.NewIconAsset(ref, 1, combined, gfx.RectFromXYWH(0, 0, 24, 24))
+	return icon.New(ref, 1, combined, gfx.RectFromXYWH(0, 0, 24, 24))
 }
 
 func splitButtonStarPath(center gfx.Point, outerRadius, innerRadius float32) gfx.Path {

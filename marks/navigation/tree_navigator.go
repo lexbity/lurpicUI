@@ -775,6 +775,23 @@ func (t *TreeNavigator) syncRowFacets() {
 	}
 }
 
+// HostedChildren is the marks.HostsChildren adoption (LDP Phase 3): the
+// visible rows are hosted projection children, so the locator walk reaches
+// them through this view instead of the facet tree.
+func (t *TreeNavigator) HostedChildren() []facet.FacetImpl {
+	if t == nil {
+		return nil
+	}
+	t.rebuildVisibleNodes()
+	out := make([]facet.FacetImpl, 0, len(t.cachedVisibleNodes))
+	for i := range t.cachedVisibleNodes {
+		if row := t.rowFacetForPath(t.cachedVisibleNodes[i].Path); row != nil {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
 func (t *TreeNavigator) rowFacetForPath(path string) *selection.ListItem {
 	if t.cachedRowFacets == nil {
 		t.cachedRowFacets = make(map[string]*selection.ListItem)
@@ -783,6 +800,7 @@ func (t *TreeNavigator) rowFacetForPath(path string) *selection.ListItem {
 		return row
 	}
 	row := selection.NewListItem(marks.Const(""))
+	row.Key = path // the node path is the row's stable key (KeyedItem)
 	row.ShowContainer = marks.Const(false)
 	row.ShowSelectionIndicator = marks.Const(true)
 	row.ShowFocusRing = marks.Const(false)

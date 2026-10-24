@@ -7,23 +7,23 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type treeNavigatorRuntimeStub struct {
 	tabsRuntimeStub
-	icons map[string]runtimepkg.IconAsset
+	icons map[string]icon.Asset
 }
 
-func (s treeNavigatorRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (s treeNavigatorRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	asset, ok := s.icons[ref]
 	return asset, ok
 }
@@ -346,7 +346,7 @@ func newTreeNavigatorTestFixture(t *testing.T, tokens theme.Tokens, density them
 	}, nil)
 	rt := treeNavigatorRuntimeStub{
 		tabsRuntimeStub: tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts},
-		icons: map[string]runtimepkg.IconAsset{
+		icons: map[string]icon.Asset{
 			"chevron-right": treeNavigatorIconAsset("chevron-right", gfx.NewPath().MoveTo(gfx.Point{X: 9, Y: 6}).LineTo(gfx.Point{X: 15, Y: 12}).LineTo(gfx.Point{X: 9, Y: 18}).Build()),
 			"chevron-down":  treeNavigatorIconAsset("chevron-down", gfx.NewPath().MoveTo(gfx.Point{X: 6, Y: 9}).LineTo(gfx.Point{X: 12, Y: 15}).LineTo(gfx.Point{X: 18, Y: 9}).Build()),
 		},
@@ -354,8 +354,8 @@ func newTreeNavigatorTestFixture(t *testing.T, tokens theme.Tokens, density them
 	return tree, rt, resolved
 }
 
-func treeNavigatorIconAsset(ref string, path gfx.Path) runtimepkg.IconAsset {
-	return runtimepkg.NewIconAsset(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
+func treeNavigatorIconAsset(ref string, path gfx.Path) icon.Asset {
+	return icon.New(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
 }
 
 func deepTreeNodes(depth int) []TreeNode {

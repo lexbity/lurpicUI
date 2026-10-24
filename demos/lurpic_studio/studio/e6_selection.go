@@ -40,29 +40,37 @@ func newPlaySelectFamily() *playSelectFamily {
 	f := &playSelectFamily{}
 
 	f.checkbox = selection.NewCheckbox("Show grid", nil)
+	f.checkbox.Base().SetTestID("e6.selection.checkbox")
 	f.toggle = selection.NewSwitch("Live updates", nil)
+	f.toggle.Base().SetTestID("e6.selection.toggle")
 	f.slider = selection.NewSlider("Opacity", 0, 100, 5, nil)
+	f.slider.Base().SetTestID("e6.selection.slider")
 	f.dial = selection.NewTurnDial("Smoothing", 0, 100, 1, nil)
+	f.dial.Base().SetTestID("e6.selection.dial")
 	f.radio = selection.NewRadioGroup("Chart type", []selection.RadioOption{
 		{Value: "replay", Label: "Rolling"},
 		{Value: "hist", Label: "Histogram"},
 		{Value: "stack", Label: "Stacked"},
 	}, nil)
+	f.radio.Base().SetTestID("e6.selection.radio")
 	f.dropdown = selection.NewDropdownSelect("Aggregation", []selection.DropdownOption{
 		{Value: "day", Label: "Daily"},
 		{Value: "week", Label: "Weekly"},
 		{Value: "month", Label: "Monthly"},
 	}, nil)
+	f.dropdown.Base().SetTestID("e6.selection.dropdown")
 	f.segments = selection.NewButtonGroup("Time range", []selection.ButtonGroupOption{
 		{Key: "day", Label: "1D"},
 		{Key: "week", Label: "1W"},
 		{Key: "month", Label: "1M"},
 	}, nil)
+	f.segments.Base().SetTestID("e6.selection.segments")
 	f.segments.Mode = marks.Const(selection.ButtonGroupExclusive)
 
 	f.itemSelected = store.NewValueStore(false)
 	f.itemHits = store.NewValueStore(0)
 	f.item = selection.NewListItem(marks.Const("Selected source row"))
+	f.item.Base().SetTestID("e6.selection.item")
 	f.item.ShowSelectionIndicator = marks.Const(true)
 	f.item.Selected = marks.FromStore(f.itemSelected, facet.DirtyProjection)
 

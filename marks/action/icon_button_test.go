@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -15,7 +16,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -24,14 +24,14 @@ import (
 type iconButtonRuntimeStub struct {
 	contracttest.NoopRuntime
 	rootStyle any
-	icons     map[string]runtimepkg.IconAsset
+	icons     map[string]icon.Asset
 }
 
 func (s iconButtonRuntimeStub) RootStyleContext() any { return s.rootStyle }
 func (s iconButtonRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
-func (s iconButtonRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (s iconButtonRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	asset, ok := s.icons[ref]
 	return asset, ok
 }

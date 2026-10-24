@@ -78,12 +78,16 @@ func newPlayActionFamily() *playActionFamily {
 		{Key: "export.png", Label: "Export PNG"},
 		{Key: "export.csv", Label: "Export CSV"},
 	})
+	f.split.Base().SetTestID("e6.action.split")
 	f.menu = action.NewMenuButton("File", []action.MenuButtonEntry{
 		{Key: "file.new", Label: "New", Kind: action.MenuButtonEntryItem},
 		{Key: "file.open", Label: "Open", Kind: action.MenuButtonEntryItem},
 		{Kind: action.MenuButtonEntryDivider},
 		{Key: "file.close", Label: "Close", Kind: action.MenuButtonEntryItem, Destructive: true},
 	})
+	f.menu.Base().SetTestID("e6.action.menu")
+	f.bar.Base().SetTestID("e6.action.bar")
+	f.toolbar.Base().SetTestID("e6.action.toolbar")
 	f.scroll = newPlayScroll(listGap,
 		playgroundCard("action_bar — click an action", f.bar),
 		playgroundCard("action_group — click an alignment", f.group),

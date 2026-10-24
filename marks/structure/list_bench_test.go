@@ -6,8 +6,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -24,7 +24,7 @@ func benchmarkListMeasureArrangeProject(b *testing.B, n int) {
 	fonts := testkit.TestFontRegistry(b)
 	rt := listRuntimeStub{
 		fonts: fonts,
-		icons: map[string]runtimepkg.IconAsset{},
+		icons: map[string]icon.Asset{},
 	}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 960, 4800)

@@ -2,11 +2,16 @@ package runtime
 
 import (
 	goruntime "runtime"
+
 	"sync"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/icon"
+
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
+	"codeburg.org/lexbit/lurpicui/drive/locate"
+	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -37,7 +42,7 @@ type Config struct {
 	GestureConfig   input.GestureConfig
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
-	IconResolver    IconResolver
+	IconResolver    icon.Resolver
 	AssetManager    assets.Manager
 	AssetRegistry   *assets.AssetRegistryStore
 	CommandRegistry *CommandRegistry
@@ -53,6 +58,13 @@ type Config struct {
 	// runtime thread (QP-1/QP-6). Disabled by default (FR-4): no socket, no
 	// sink, one nil check per frame.
 	Drive DriveRuntimeConfig
+
+	// DescribeMark adapts facet implementations to the drive locator's
+	// metadata view (kind/role/name/key). Injected by the app layer because
+	// the canonical adapters live in the marks package, which imports this
+	// one (see drive/describe). Nil disables kind/role/name/key matching —
+	// only TestID and coords resolve.
+	DescribeMark func(impl facet.FacetImpl) locate.Meta
 
 	// AssetDiagnosticsEnabled controls whether asset-path events (mount,
 	// extract, stream, evict) are logged through the runtime logger.

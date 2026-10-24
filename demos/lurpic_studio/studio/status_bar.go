@@ -52,10 +52,10 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	}, shell.ActiveExhibit)
 
 	s := &StatusBar{
-		light:        status.NewStatusLight("connection"),
-		bar:          status.NewProgressBar("feed"),
-		ring:         status.NewProgressRing("feed"),
-		badge:        status.NewBadge(""),
+		light:        newStatusMark("shell.status.light", func() *status.StatusLight { return status.NewStatusLight("connection") }),
+		bar:          newStatusMark("shell.status.bar", func() *status.ProgressBar { return status.NewProgressBar("feed") }),
+		ring:         newStatusMark("shell.status.ring", func() *status.ProgressRing { return status.NewProgressRing("feed") }),
+		badge:        newStatusMark("shell.status.badge", func() *status.Badge { return status.NewBadge("") }),
 		caption:      primitive.NewText(marks.Const("Lurpic Studio")),
 		notConnected: notConnected,
 		titleText:    titleText,
@@ -155,3 +155,11 @@ func (s *StatusBar) OnAttach(_ facet.AttachContext) {}
 func (s *StatusBar) OnDetach()                      {}
 func (s *StatusBar) OnActivate()                    {}
 func (s *StatusBar) OnDeactivate()                  {}
+
+// newStatusMark constructs a status-bar mark carrying its author TestID
+// (Debt-6): the status strip is the studio's reference drive surface.
+func newStatusMark[T facet.FacetImpl](testID string, build func() T) T {
+	m := build()
+	m.Base().SetTestID(testID)
+	return m
+}

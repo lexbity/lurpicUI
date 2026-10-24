@@ -26,6 +26,7 @@ func Attach(f FacetImpl, ctx AttachContext) {
 			role.onAttach(base)
 		}
 		frame.impl.OnAttach(ctx)
+		base.registerTestID()
 		base.setState(StateAttached)
 		children := base.childrenSnapshot()
 		for i := len(children) - 1; i >= 0; i-- {
@@ -119,6 +120,7 @@ func Dispose(f FacetImpl) {
 		}
 		frame.impl.OnDetach()
 		base.releaseSubscriptions()
+		base.releaseTestID()
 		base.setState(StateDisposed)
 	}
 }

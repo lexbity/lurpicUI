@@ -98,6 +98,7 @@ func NewEditableGrid(rows *store.CollectionStore[dataset.Row], fonts *text.FontR
 		return newGridRow(rows, rows.Identify(r), g.style)
 	})
 	g.editor = input.NewTextField("Cell", uiinput.TextInputOutlined, g.cellValue)
+	g.editor.Base().SetTestID("e1.grid.editor")
 	g.alert = feedback.NewAlert("Invalid value", "")
 	g.alert.Message = marks.FromStore(g.invalid, facet.DirtyLayout|facet.DirtyProjection)
 	g.editorMount = store.NewValueStore(false)

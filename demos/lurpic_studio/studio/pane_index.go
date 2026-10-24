@@ -44,6 +44,7 @@ func NewExhibitIndex(shell *ShellState) *ExhibitIndex {
 	p.Facet = facet.NewFacet()
 
 	p.tree = navigation.NewTreeNavigator("Exhibit tree", indexTreeNodes(shell.ActiveExhibit.Get()), p.treeSel)
+	p.tree.Base().SetTestID("index.tree")
 
 	p.AddChild(p.tree.Base())
 

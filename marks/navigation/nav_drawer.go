@@ -6,12 +6,12 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -98,7 +98,7 @@ type NavDrawer struct {
 	cachedItemHeight       float32
 	cachedDrawerWidth      float32
 	cachedWritingDirection facet.WritingDirection
-	cachedIconAssets       []runtimepkg.IconAsset
+	cachedIconAssets       []icon.Asset
 	cachedIconBounds       []gfx.Rect
 	cachedFlatSectionIndex []int
 	cachedFlatItems        []NavDrawerItem
@@ -478,7 +478,7 @@ func (d *NavDrawer) measure(ctx facet.MeasureContext, constraints facet.Constrai
 		subtitleSize = d.cachedSubtitleFacet.Base().LayoutRole().Measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: maxWidth, H: constraints.MaxSize.H}}).Size
 	}
 	flatCount := len(d.cachedFlatItems)
-	d.cachedIconAssets = make([]runtimepkg.IconAsset, flatCount)
+	d.cachedIconAssets = make([]icon.Asset, flatCount)
 	d.cachedIconBounds = make([]gfx.Rect, flatCount)
 	for i := range d.cachedFlatItems {
 		if i < len(d.cachedItemLabelFacets) {

@@ -6,12 +6,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -35,6 +35,11 @@ type ListItem struct {
 	marks.Core
 
 	Activated signal.Signal[signal.Unit]
+
+	// Key carries the host-assisted stable identity (a tree node path, a
+	// list entry key) for LDP key locators (marks.KeyedItem). Empty when
+	// the host assigned none.
+	Key string
 
 	LeadingIconRef         marks.Binding[string]
 	Label                  marks.Binding[string]
@@ -145,6 +150,9 @@ func NewListItem(label marks.Binding[string]) *ListItem {
 }
 
 // Base satisfies facet.FacetImpl.
+// ItemKey returns the host-assigned stable key (marks.KeyedItem).
+func (li *ListItem) ItemKey() string { return li.Key }
+
 func (li *ListItem) Base() *facet.Facet {
 	li.BindImpl(li)
 	return &li.Facet
@@ -511,7 +519,7 @@ func (li *ListItem) leadingIconCommands(runtime any, material theme.Material) []
 	return cmds
 }
 
-func (li *ListItem) resolveIcon(runtime any) (runtimepkg.IconAsset, bool) {
+func (li *ListItem) resolveIcon(runtime any) (icon.Asset, bool) {
 	return marks.ResolveIconFrom(runtime, li.LeadingIconRef.Get())
 }
 

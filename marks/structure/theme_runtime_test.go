@@ -5,9 +5,9 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -35,7 +35,7 @@ func TestListResolveThemeTokensInProjection(t *testing.T) {
 	rt := listThemeRuntimeStub{
 		listRuntimeStub: listRuntimeStub{
 			fonts: fonts,
-			icons: map[string]runtimepkg.IconAsset{},
+			icons: map[string]icon.Asset{},
 		},
 		rootStyle: rootStyle,
 	}

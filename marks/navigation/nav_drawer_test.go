@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -12,17 +13,16 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type navDrawerRuntimeStub struct {
 	tabsRuntimeStub
-	icons map[string]runtimepkg.IconAsset
+	icons map[string]icon.Asset
 }
 
-func (s navDrawerRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (s navDrawerRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	asset, ok := s.icons[ref]
 	return asset, ok
 }
@@ -390,8 +390,8 @@ func newNavDrawerTestFixture(t *testing.T, tokens theme.Tokens, density theme.De
 	return drawer, rt, resolved
 }
 
-func navDrawerTestIcons() map[string]runtimepkg.IconAsset {
-	return map[string]runtimepkg.IconAsset{
+func navDrawerTestIcons() map[string]icon.Asset {
+	return map[string]icon.Asset{
 		"inbox":              navDrawerIconAsset("inbox", gfx.NewPath().MoveTo(gfx.Point{X: 4, Y: 7}).LineTo(gfx.Point{X: 20, Y: 7}).LineTo(gfx.Point{X: 20, Y: 17}).LineTo(gfx.Point{X: 4, Y: 17}).Close().Build()),
 		"outbox":             navDrawerIconAsset("outbox", gfx.PolylinePath([]gfx.Point{{X: 4, Y: 12}, {X: 20, Y: 6}, {X: 17, Y: 12}, {X: 20, Y: 18}}, true)),
 		"heart":              navDrawerIconAsset("heart", gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6)),
@@ -403,6 +403,6 @@ func navDrawerTestIcons() map[string]runtimepkg.IconAsset {
 	}
 }
 
-func navDrawerIconAsset(ref string, path gfx.Path) runtimepkg.IconAsset {
-	return runtimepkg.NewIconAsset(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
+func navDrawerIconAsset(ref string, path gfx.Path) icon.Asset {
+	return icon.New(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
 }

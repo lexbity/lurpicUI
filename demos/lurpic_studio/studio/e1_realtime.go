@@ -146,6 +146,7 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 	e.buildControls()
 	e.buildReshapeDial()
 	e.buildJumpButton()
+	e.canvas.Base().SetTestID("e1.canvas")
 	e.AddChild(e.canvas.Base())
 	e.AddChild(e.grid.Base())
 	e.AddChild(e.controls.Base())
@@ -229,6 +230,7 @@ func (e *Realtime) TimeRange() *store.ValueStore[[]string] { return e.timeRange 
 func (e *Realtime) buildReshapeDial() {
 	dial := store.NewValueStore(float64(chartTypeFromString(e.chartType.Get())))
 	e.reshape = selection.NewTurnDial("Chart type", float64(ChartLine), float64(ChartBar), 1, dial)
+	e.reshape.Base().SetTestID("e1.reshape")
 	dialID := dial.OnChange.Subscribe(func(ch signal.Change[float64]) {
 		v := math.Round(math.Min(math.Max(ch.New, float64(ChartLine)), float64(ChartBar)))
 		if key := ChartType(uint8(v)).String(); e.chartType.Get() != key {
@@ -248,6 +250,7 @@ func (e *Realtime) buildReshapeDial() {
 
 func (e *Realtime) buildControls() {
 	liveSwitch := selection.NewSwitch("Live", e.feed.Live())
+	liveSwitch.Base().SetTestID("e1.controls.live")
 	chartRadio := selection.NewRadioGroup("Chart type", []selection.RadioOption{
 		{Value: ChartLine.String(), Label: "Line"},
 		{Value: ChartArea.String(), Label: "Area"},
@@ -255,16 +258,23 @@ func (e *Realtime) buildControls() {
 		{Value: ChartBar.String(), Label: "Bars"},
 	}, e.chartType)
 	seriesPicker := input.NewColorPicker("Series color", e.seriesColor)
+	seriesPicker.Base().SetTestID("e1.controls.color")
 	opacitySlider := selection.NewSlider("Opacity", 0.1, 1, 0.05, e.opacity)
+	opacitySlider.Base().SetTestID("e1.controls.opacity")
 	gridCheck := selection.NewCheckbox("Grid", e.gridState)
+	gridCheck.Base().SetTestID("e1.controls.grid")
 	maxField := input.NewNumberField("Y max", 0, 0, 1, -1, e.appState.YAxisMax)
+	maxField.Base().SetTestID("e1.controls.ymax")
 	rangeButtons := selection.NewButtonGroup("Time range", []selection.ButtonGroupOption{
 		{Key: "30s", Label: "30s"},
 		{Key: "60s", Label: "60s"},
 		{Key: "120s", Label: "120s"},
 	}, e.timeRange)
+	chartRadio.Base().SetTestID("e1.controls.chart")
+	rangeButtons.Base().SetTestID("e1.controls.range")
 
 	e.controls = structure.NewCard("Chart controls")
+	e.controls.Base().SetTestID("e1.controls.card")
 	e.controls.GridColumns = marks.Const(4)
 	e.controls.GridRows = marks.Const(3)
 	// The controls card flex-fills its arranged bottom-strip cell (FR-6 flex
@@ -272,6 +282,7 @@ func (e *Realtime) buildControls() {
 	e.controls.FlexRows = marks.Const(true)
 	e.controls.FlexColumns = marks.Const(true)
 	e.jump = action.NewIconButton(primitive.IconSVG(iconJumpLive))
+	e.jump.Base().SetTestID("e1.controls.jump")
 	e.controls.ChildrenContent = []structure.CardChild{
 		{Key: "live", Facet: liveSwitch, Grid: facet.GridPlacement{ColStart: 0, RowStart: 0, ColSpan: 1, RowSpan: 1}},
 		{Key: "chart", Facet: chartRadio, Grid: facet.GridPlacement{ColStart: 1, RowStart: 0, ColSpan: 2, RowSpan: 1}},

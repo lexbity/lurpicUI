@@ -7,13 +7,13 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -145,7 +145,7 @@ func newActionGroupFixture(t *testing.T) (*ActionGroup, buttonRuntimeStub) {
 	return group, rt
 }
 
-func mustActionGroupIconAsset(ref string) runtimepkg.IconAsset {
+func mustActionGroupIconAsset(ref string) icon.Asset {
 	var path gfx.Path
 	switch ref {
 	case "edit":
@@ -157,7 +157,7 @@ func mustActionGroupIconAsset(ref string) runtimepkg.IconAsset {
 	default:
 		path = actionGroupMoreIconPath()
 	}
-	return runtimepkg.NewIconAsset(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
+	return icon.New(ref, 1, path, gfx.RectFromXYWH(0, 0, 24, 24))
 }
 
 func actionGroupEditIconPath() gfx.Path {

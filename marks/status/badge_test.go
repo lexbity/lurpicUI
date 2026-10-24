@@ -7,13 +7,13 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -23,7 +23,7 @@ type badgeRuntimeStub struct {
 	contracttest.NoopRuntime
 	rootStyle any
 	fonts     *text.FontRegistry
-	icons     map[string]runtimepkg.IconAsset
+	icons     map[string]icon.Asset
 }
 
 func (s badgeRuntimeStub) RootStyleContext() any { return s.rootStyle }
@@ -31,13 +31,13 @@ func (s badgeRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s badgeRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
-func (s badgeRuntimeStub) ResolveIcon(ref string) (runtimepkg.IconAsset, bool) {
+func (s badgeRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	if s.icons == nil {
-		return runtimepkg.IconAsset{}, false
+		return icon.Asset{}, false
 	}
 	asset, ok := s.icons[ref]
 	if !ok {
-		return runtimepkg.IconAsset{}, false
+		return icon.Asset{}, false
 	}
 	return asset.Clone(), true
 }
@@ -48,8 +48,8 @@ func TestBadgeMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
-		icons: map[string]runtimepkg.IconAsset{
-			"status-dot": runtimepkg.NewIconAsset("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),
+		icons: map[string]icon.Asset{
+			"status-dot": icon.New("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),
 		},
 	}
 	ctx := badgeResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -136,8 +136,8 @@ func AssertBadgeGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	rt := badgeRuntimeStub{
 		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
-		icons: map[string]runtimepkg.IconAsset{
-			"status-dot": runtimepkg.NewIconAsset("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),
+		icons: map[string]icon.Asset{
+			"status-dot": icon.New("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),
 		},
 	}
 	ctx := badgeResolvedContext(tokens, density, direction)

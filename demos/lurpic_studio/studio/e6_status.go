@@ -47,17 +47,20 @@ func newPlayStatusFamily() *playStatusFamily {
 	}
 
 	f.tick = action.NewButton(marks.Const("Simulate tick"), marks.Const(uiinput.ButtonText))
+	f.tick.Base().SetTestID("e6.status.tick")
 	f.badge = status.NewBadge("0")
 	// Label text changes the marks' measured width, so these bindings declare
 	// DirtyLayout (the strip re-measures; RX-1 FR-3 routing).
 	f.badge.Label = marks.FromStore(f.badgeLabel, facet.DirtyLayout|facet.DirtyProjection)
 
 	f.onlineSwitch = selection.NewSwitch("Connection online", f.online)
+	f.onlineSwitch.Base().SetTestID("e6.status.online")
 	f.light = status.NewStatusLight("Connection")
 	f.light.ShowLabel = marks.Const(true)
 	f.light.Label = marks.FromStore(f.lightLabel, facet.DirtyLayout|facet.DirtyProjection)
 
 	f.slider = selection.NewSlider("Reload throughput", 0, 100, 1, nil)
+	f.slider.Base().SetTestID("e6.status.slider")
 	f.bar = status.NewProgressBar("reload")
 	f.ring = status.NewProgressRing("reload")
 	f.bar.Value = marks.FromStore(f.progress, facet.DirtyProjection)

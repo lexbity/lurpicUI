@@ -33,8 +33,11 @@ func newPlayInputFamily() *playInputFamily {
 	f := &playInputFamily{}
 
 	f.field = input.NewTextField("Source name", uiinput.TextInputOutlined, nil)
+	f.field.Base().SetTestID("e6.input.field")
 	f.number = input.NewNumberField("Reload after (s)", 0, 0, 1, -1, nil)
+	f.number.Base().SetTestID("e6.input.number")
 	f.picker = input.NewColorPicker("Series color", nil)
+	f.picker.Base().SetTestID("e6.input.color")
 	f.glyph = primitive.NewIcon(primitive.IconSVG(iconRealtime))
 
 	f.scroll = newPlayScroll(listGap,

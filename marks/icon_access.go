@@ -3,20 +3,20 @@ package marks
 import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
-	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // iconProvider is the duck-typed runtime capability exposing the icon
 // resolver. Runtime services objects satisfy it structurally.
 type iconProvider interface {
-	IconResolver() runtime.IconResolver
+	IconResolver() icon.Resolver
 }
 
 // IconResolverFrom returns the runtime's icon resolver, or nil when the
 // runtime is nil or exposes no resolver.
-func IconResolverFrom(rt any) runtime.IconResolver {
+func IconResolverFrom(rt any) icon.Resolver {
 	if rt == nil {
 		return nil
 	}
@@ -30,9 +30,9 @@ func IconResolverFrom(rt any) runtime.IconResolver {
 // capability: either an IconResolver() provider or a direct ResolveIcon
 // implementation. ok is false when the runtime exposes no resolver or the
 // reference is unknown.
-func ResolveIconFrom(rt any, ref string) (runtime.IconAsset, bool) {
+func ResolveIconFrom(rt any, ref string) (icon.Asset, bool) {
 	if rt == nil {
-		return runtime.IconAsset{}, false
+		return icon.Asset{}, false
 	}
 	if provider, ok := rt.(iconProvider); ok {
 		if resolver := provider.IconResolver(); resolver != nil {
@@ -40,17 +40,17 @@ func ResolveIconFrom(rt any, ref string) (runtime.IconAsset, bool) {
 		}
 	}
 	if resolver, ok := rt.(interface {
-		ResolveIcon(string) (runtime.IconAsset, bool)
+		ResolveIcon(string) (icon.Asset, bool)
 	}); ok {
 		return resolver.ResolveIcon(ref)
 	}
-	return runtime.IconAsset{}, false
+	return icon.Asset{}, false
 }
 
 // IconCommands renders a resolved icon asset fitted inside bounds with the
 // given material: aspect-preserving uniform scale, translated into the box.
 // It returns nil for empty paths, empty bounds, or transparent materials.
-func IconCommands(asset runtime.IconAsset, bounds gfx.Rect, material theme.Material) []gfx.Command {
+func IconCommands(asset icon.Asset, bounds gfx.Rect, material theme.Material) []gfx.Command {
 	if len(asset.Path.Segments) == 0 || bounds.IsEmpty() || theme.IsTransparentMaterial(material) {
 		return nil
 	}

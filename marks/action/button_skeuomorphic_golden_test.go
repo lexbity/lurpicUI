@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -13,7 +14,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -30,7 +30,7 @@ const skeuoButtonCheckSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="24" 
   <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 11.917 9.724 16.5 19 7.5"/>
 </svg>`
 
-func mustSkeuoButtonIconAsset(ref, svgSrc string) runtimepkg.IconAsset {
+func mustSkeuoButtonIconAsset(ref, svgSrc string) icon.Asset {
 	doc, err := gfxsvg.ParseSVGString(svgSrc)
 	if err != nil {
 		panic("button_skeuomorphic_golden_test: parse svg " + ref + ": " + err.Error())
@@ -39,7 +39,7 @@ func mustSkeuoButtonIconAsset(ref, svgSrc string) runtimepkg.IconAsset {
 	for _, el := range doc.Elements {
 		path.Segments = append(path.Segments, el.Path.Segments...)
 	}
-	return runtimepkg.NewIconAsset(ref, 1, path, doc.ViewBox)
+	return icon.New(ref, 1, path, doc.ViewBox)
 }
 
 func TestButtonGoldenSkeuomorphic(t *testing.T) {

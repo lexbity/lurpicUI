@@ -12,9 +12,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	svgnorm "codeburg.org/lexbit/lurpicui/gfx/svg"
+	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -85,7 +85,7 @@ const (
 
 type iconResolvedSource struct {
 	kind     iconResolvedSourceKind
-	asset    runtimepkg.IconAsset
+	asset    icon.Asset
 	managed  assets.Handle
 	drawable gfx.DrawableRef
 	doc      svgnorm.SVGDocument
