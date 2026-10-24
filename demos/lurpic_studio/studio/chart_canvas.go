@@ -309,6 +309,22 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 }
 
 // Rows returns the canvas's collection.
+// DriveDetails exposes canvas internals for automation/debugging (the
+// sanctioned bespoke-host escape hatch, LDP §3.7): the plot rect (empty at
+// launch is the known E1 blank-chart bug, pinned by TestDemoBlankChart),
+// the current domains, and the plotted row counts.
+func (c *ChartCanvas) DriveDetails() map[string]any {
+	yDomain, yDirty := c.yDomain.Peek()
+	return map[string]any{
+		"plot":         c.plot,
+		"xDomain":      c.xDomain.Get(),
+		"yDomain":      yDomain,
+		"yDomainDirty": yDirty,
+		"seriesCount":  c.windowedRows.Len(),
+		"retained":     c.rows.Len(),
+	}
+}
+
 func (c *ChartCanvas) Rows() *store.CollectionStore[dataset.Row] { return c.rows }
 
 // XDomain returns the zoom-mutable x-domain store.

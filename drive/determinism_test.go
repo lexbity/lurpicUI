@@ -14,7 +14,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/runtime"
 )
 
 // TestDeterminism_VirtualReplay is the NFR-6 proof: the same studio seed +
@@ -114,7 +113,7 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 		default:
 			t.Fatalf("advance %d did not reply after its frame", i)
 		}
-		hashes = append(hashes, framePacketHash(h.Runtime()))
+		hashes = append(hashes, h.Runtime().FramePacketHash())
 	}
 	return hashes
 }
@@ -160,21 +159,4 @@ func loadDeterminismSeed(t *testing.T) []dataset.Row {
 		t.Fatalf("parse seed: %v", err)
 	}
 	return rows
-}
-
-// framePacketHash folds the primary window frame's batch command hashes into
-// one packet digest. Batch identity (RenderBatchID, a per-process facet ID)
-// is deliberately excluded: identity is runtime-scoped, not content — the
-// determinism claim (NFR-6) is about what is drawn, in what order.
-func framePacketHash(rt *runtime.Runtime) uint64 {
-	frame := rt.WindowFrames()["__primary__"]
-	if frame == nil {
-		return 0
-	}
-	h := uint64(14695981039346656037)
-	h = (h ^ uint64(len(frame.RenderBatchs))) * 1099511628211
-	for i := range frame.RenderBatchs {
-		h = (h ^ frame.RenderBatchs[i].CommandHash) * 1099511628211
-	}
-	return h
 }

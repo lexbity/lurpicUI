@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/drive/locate"
+	"codeburg.org/lexbit/lurpicui/drive/readstore"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/log"
@@ -58,6 +59,11 @@ type Config struct {
 	// runtime thread (QP-1/QP-6). Disabled by default (FR-4): no socket, no
 	// sink, one nil check per frame.
 	Drive DriveRuntimeConfig
+
+	// NamedStores registers app-domain stores under stable LDP names at
+	// startup (QP-8 path b). Validated at construction: a collision or a
+	// non-store value fails the runtime build.
+	NamedStores []readstore.NamedStore
 
 	// DescribeMark adapts facet implementations to the drive locator's
 	// metadata view (kind/role/name/key). Injected by the app layer because

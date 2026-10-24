@@ -65,6 +65,12 @@ type Config struct {
 	// Drive is populated from LURPIC_DRIVE in Run (the single parse site);
 	// a zero value here is ignored. LDP is disabled by default (FR-4).
 	Drive DriveConfig
+
+	// OnRuntime runs once after runtime construction, before the first
+	// frame — the window for post-build wiring the root builder cannot do
+	// itself (registering LDP named stores, installing runtime-scoped
+	// services). Nil is the common case.
+	OnRuntime func(*runtime.Runtime)
 }
 
 // BuildContext is passed to the root builder after engine startup.

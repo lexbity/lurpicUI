@@ -9,6 +9,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
+	"codeburg.org/lexbit/lurpicui/drive/readstore"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/input"
@@ -129,6 +130,9 @@ type Runtime struct {
 	// liveTestIDs is the author-identity registry (QP-7): TestID → facet ID
 	// for attached facets. Installed as the facet-package registry in New.
 	liveTestIDs liveTestIDs
+
+	// namedStores is the LDP named-store registry (QP-8 path b).
+	namedStores *readstore.Registry
 }
 
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {
@@ -183,6 +187,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	}
 	rt.liveTestIDs = make(liveTestIDs)
 	facet.SetTestIDRegistry(rt.liveTestIDs)
+	if err := rt.initNamedRegistry(); err != nil {
+		return nil, err
+	}
 	rt.clock = NewClock(wallNow)
 	rt.inputSystem.SetTimeSource(rt.clock.Now)
 	rt.clock.SetGestureGuard(rt.inputSystem.GestureActive)
@@ -243,6 +250,29 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 
 func (rt *Runtime) CommandRegistry() *CommandRegistry {
 	return rt.config.CommandRegistry
+}
+
+// LastPrimaryFrame returns the most recent submitted primary-window frame
+// (nil before the first submit).
+func (rt *Runtime) LastPrimaryFrame() *render.Frame {
+	return rt.lastWindowFrames["__primary__"]
+}
+
+// FramePacketHash folds the primary frame's batch command hashes into one
+// packet digest. Batch identity (a per-process facet ID) is excluded: the
+// digest is content — what is drawn, in what order — so Virtual-mode replays
+// compare equal across runs (NFR-6) and frame.packet reports a stable hash.
+func (rt *Runtime) FramePacketHash() uint64 {
+	frame := rt.LastPrimaryFrame()
+	if frame == nil {
+		return 0
+	}
+	h := uint64(14695981039346656037)
+	h = (h ^ uint64(len(frame.RenderBatchs))) * 1099511628211
+	for i := range frame.RenderBatchs {
+		h = (h ^ frame.RenderBatchs[i].CommandHash) * 1099511628211
+	}
+	return h
 }
 
 // Clock returns the runtime's time service (QP-5).

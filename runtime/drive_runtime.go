@@ -32,6 +32,18 @@ type driveRuntimeSink struct {
 	pendingAdvances []pendingAdvance
 	// drainedThisFrame feeds the per-frame FrameStats counter.
 	drainedThisFrame int
+	// recentWrites is the drive frame log (QP-12): the last 64 store.write
+	// addresses, exposed via sys.info until Phase 7's frame.completed
+	// subscription consumes the stream.
+	recentWrites []string
+}
+
+// recordWrite appends one store.write address to the bounded frame log.
+func (s *driveRuntimeSink) recordWrite(address string) {
+	s.recentWrites = append(s.recentWrites, address)
+	if len(s.recentWrites) > 64 {
+		s.recentWrites = s.recentWrites[len(s.recentWrites)-64:]
+	}
 }
 
 // pendingAdvance pairs an advance duration with the command awaiting its
@@ -149,6 +161,13 @@ func init() {
 		"frame.run":      driveFrameRun,
 		"locate.resolve": driveLocateResolve,
 		"tree.dump":      driveTreeDump,
+		"store.list":     driveStoreList,
+		"store.read":     driveStoreRead,
+		"store.write":    driveStoreWrite,
+		"derived.read":   driveDerivedRead,
+		"facet.query":    driveFacetQuery,
+		"frame.pixels":   driveFramePixels,
+		"frame.packet":   driveFramePacket,
 	}
 }
 
@@ -166,11 +185,13 @@ func driveInfo(rt *Runtime, _ drive.Command) driveOutcome {
 		"v":       proto.ProtocolMajor,
 		"frame":   rt.driveSink.Epoch(),
 		"methods": driveInfoMethodList,
-		"drive": map[string]uint64{
+		"drive": map[string]any{
 			"commandsDrained":       drained,
 			"responsesSent":         sent,
 			"grantDenied":           denied,
 			"socketGoroutinePanics": panics,
+			"recentWrites":          rt.driveSink.recentWrites,
+			"namedStores":           rt.namedStores.Names(),
 		},
 	})
 	if err != nil {
@@ -183,7 +204,7 @@ func driveInfo(rt *Runtime, _ drive.Command) driveOutcome {
 // a separate literal (not derived from driveMethods) to break the
 // package-level initialization cycle map→handler→map; a test asserts the
 // two stay in sync.
-var driveInfoMethodList = []string{"frame.run", "locate.resolve", "sys.info", "sys.ping", "time.advance", "time.mode", "tree.dump"}
+var driveInfoMethodList = []string{"derived.read", "facet.query", "frame.packet", "frame.pixels", "frame.run", "locate.resolve", "store.list", "store.read", "store.write", "sys.info", "sys.ping", "time.advance", "time.mode", "tree.dump"}
 
 // driveDispatch runs one command's handler on the runtime thread and replies
 // exactly once. A handler panic is converted to a typed internal.panic

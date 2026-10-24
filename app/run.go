@@ -345,6 +345,12 @@ func Run(config Config, builder RootBuilder) error {
 	if config.Diagnostics != nil {
 		rt.EnableDiagnostics(config.Diagnostics)
 	}
+	// Post-build wiring the root builder cannot do itself (LDP named-store
+	// registration, runtime-scoped services). Runs on the caller goroutine
+	// before the first frame.
+	if config.OnRuntime != nil {
+		config.OnRuntime(rt)
+	}
 
 	primeRuntime(rt)
 	if window != nil {

@@ -105,6 +105,19 @@ func (d *Derived[T]) Get() T {
 	return next
 }
 
+// Peek returns the last computed value and whether the derived is dirty,
+// WITHOUT recomputing and without touching versions or cache keys (QP-9):
+// an observation must never perturb the observed frame. A dirty:true result
+// means "what you see is not what the next frame computes" — a driver that
+// needs the flushed value advances a frame (Virtual mode) or reads after the
+// next cut. Never computed (fresh derived) reports the zero value, dirty.
+func (d *Derived[T]) Peek() (T, bool) {
+	frameDerivedEvals.Add(1)
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.value, d.dirty || (d.initialized && d.sourcesChangedLocked())
+}
+
 // Version returns the version of the last computed value.
 func (d *Derived[T]) Version() Version {
 	return d.version.Current()

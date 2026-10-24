@@ -16,6 +16,7 @@ import (
 type locateProbe struct {
 	facet.Facet
 	layout facet.LayoutRole
+	render facet.RenderRole
 
 	kind string
 	role string
@@ -63,6 +64,10 @@ func newLocateProbe(testID, kind, role, name, key string) *locateProbe {
 	}
 	p.layout.Child.SupportedPlacement = facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear
 	p.AddRole(&p.layout)
+	p.render.OnCollect = func(list *gfx.CommandList, bounds gfx.Rect) {
+		list.Add(gfx.FillRect{Rect: bounds, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(40, 40, 40, 255))})
+	}
+	p.AddRole(&p.render)
 	return p
 }
 
