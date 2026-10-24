@@ -125,6 +125,9 @@ func TestCommandPaletteSearchNavigationAndActivation(t *testing.T) {
 	palette.Activated.Subscribe(func(id string) { activated = id })
 	if entry, ok := palette.registry.Lookup("edit.find"); ok {
 		entry.Execute = func() { executed = entry.ID }
+		// Register is collision-panicking (the cmd.execute surface must be
+		// collision-free); handler replacement is Unregister + Register.
+		palette.registry.Unregister(entry.ID)
 		palette.registry.Register(entry)
 	}
 

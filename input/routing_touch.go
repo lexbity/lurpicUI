@@ -105,7 +105,7 @@ func (s *System) syntheticPointerEvents(touch *touchState, e platform.TouchEvent
 	}
 	modality := s.CurrentInputModality()
 	s.SetInputModality(facet.InputModalityPointer)
-	ptrEvent := platform.EventPointer{Position: gfx.Point{X: e.X, Y: e.Y}}
+	ptrEvent := platform.EventPointer{Position: gfx.Point{X: e.X, Y: e.Y}, Source: platform.SourcePlatform}
 	switch e.Phase {
 	case platform.TouchDown:
 		ptrEvent.Kind = platform.PointerPress

@@ -284,6 +284,12 @@ func (a *eventQueueAdapter) Push(e platform.Event) {
 	// Events from Android come through the bridge, not this method
 }
 
+// EnqueueDrive is unsupported on the one-way Android adapter: drive input
+// synthesis targets the app's own queue on desktop/testkit surfaces.
+func (a *eventQueueAdapter) EnqueueDrive(evs ...platform.Event) {
+	panic("platform: EnqueueDrive on the one-way Android event adapter")
+}
+
 func (a *eventQueueAdapter) convert(e bridge.Event) platform.Event {
 	return convertBridgeEvent(a.app, e)
 }
@@ -386,6 +392,7 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 			}
 		}
 		return platform.EventPointer{
+			Source:    platform.SourcePlatform,
 			Kind:      ptrKind,
 			Position:  gfx.Point{X: e.X, Y: e.Y},
 			Button:    btn,
@@ -393,6 +400,7 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 		}
 	case bridge.EventTypeScroll:
 		return platform.EventScroll{
+			Source:   platform.SourcePlatform,
 			Position: gfx.Point{X: e.X, Y: e.Y},
 			DeltaX:   e.Major,
 			DeltaY:   e.Minor,
@@ -407,6 +415,7 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 			kind = platform.KeyRepeat
 		}
 		return platform.EventKey{
+			Source:    platform.SourcePlatform,
 			Kind:      kind,
 			Key:       e.Key,
 			Modifiers: e.Modifiers,

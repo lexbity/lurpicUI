@@ -1,7 +1,9 @@
 package runtime
 
 import (
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -9,6 +11,21 @@ import (
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
 )
+
+// commandIDPattern: registration-time name validation (Debt-3 upgrade).
+// Command IDs are the LDP app-semantic mutation surface (cmd.execute), so
+// they are validated, versioned names — not palette plumbing strings.
+var commandIDPattern = regexp.MustCompile(`^[a-z0-9.]+$`)
+
+// CommandSpec is the enumerable command descriptor (cmd.list output): the
+// registry's public mutation surface, versioned by the registry version.
+type CommandSpec struct {
+	ID       string `json:"id"`
+	Title    string `json:"title"`
+	Category string `json:"category,omitempty"`
+	Disabled bool   `json:"disabled,omitempty"`
+	Hidden   bool   `json:"hidden,omitempty"`
+}
 
 // CommandEntry describes one registered command that can be surfaced by command palette UIs.
 type CommandEntry struct {
@@ -41,7 +58,11 @@ func NewCommandRegistry() *CommandRegistry {
 	}
 }
 
-// Register adds or replaces a command entry.
+// Register adds a command entry. Registration is authoring time and
+// fail-loud (Debt-3 upgrade): an invalid ID (must match [a-z0-9.]+), an
+// empty title, or a collision with a live ID panics — the palette UIs and
+// the LDP cmd.execute surface both key on these names, so a silent replace
+// or a malformed ID would corrupt the app's public mutation surface.
 func (r *CommandRegistry) Register(entry CommandEntry) {
 	syncutil.AssertRuntimeThread()
 	if r == nil {
@@ -52,8 +73,11 @@ func (r *CommandRegistry) Register(entry CommandEntry) {
 	entry.Category = strings.TrimSpace(entry.Category)
 	entry.Shortcut = strings.TrimSpace(entry.Shortcut)
 	entry.IconRef = strings.TrimSpace(entry.IconRef)
-	if entry.ID == "" || entry.Title == "" {
-		return
+	if !commandIDPattern.MatchString(entry.ID) {
+		panic("runtime: command ID " + strconv.Quote(entry.ID) + " is invalid — IDs must match [a-z0-9.]+ (the cmd.execute surface)")
+	}
+	if entry.Title == "" {
+		panic("runtime: command " + entry.ID + " registered with an empty title")
 	}
 	for i := range entry.Keywords {
 		entry.Keywords[i] = strings.TrimSpace(entry.Keywords[i])
@@ -62,10 +86,37 @@ func (r *CommandRegistry) Register(entry CommandEntry) {
 	if r.entries == nil {
 		r.entries = make(map[string]CommandEntry)
 	}
+	if _, exists := r.entries[entry.ID]; exists {
+		r.mu.Unlock()
+		panic("runtime: command ID " + entry.ID + " registered twice — the cmd.execute surface must be collision-free")
+	}
 	r.entries[entry.ID] = entry
 	r.version.Increment()
 	r.mu.Unlock()
 	r.OnChange.Emit(signal.Fired)
+}
+
+// List returns the registry's enumerable command specs, sorted by ID — the
+// cmd.list output (Debt-3: the registry is the app's public mutation
+// surface, enumerable and versioned).
+func (r *CommandRegistry) List() []CommandSpec {
+	if r == nil {
+		return nil
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	out := make([]CommandSpec, 0, len(r.entries))
+	for _, entry := range r.entries {
+		out = append(out, CommandSpec{
+			ID:       entry.ID,
+			Title:    entry.Title,
+			Category: entry.Category,
+			Disabled: entry.Disabled,
+			Hidden:   entry.Hidden,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 // Unregister removes a command by ID.

@@ -241,14 +241,17 @@ func TestStoreWrite_LabeledAndLogged(t *testing.T) {
 			t.Fatal("store.write must land in the frame log")
 		}
 	}
-	// Collection writes refused with a typed error (Phase 5).
+	// Collection writes insert by decoded item (Phase 5).
 	res = driveCallOn(t, rt, "store.write", map[string]any{
 		"target": map[string]string{"testid": "probe"},
 		"field":  "Rows",
-		"value":  []string{"x"},
+		"value":  map[string]any{"op": "insert", "item": "zz"},
 	}, allGrants())
-	if res.Err == nil || !strings.Contains(res.Err.Detail, "Phase 5") {
-		t.Fatalf("err = %+v, want the Phase 5 refusal", res.Err)
+	if res.Err != nil {
+		t.Fatalf("collection write: %v", res.Err)
+	}
+	if got := probe.Rows.Len(); got != 3 {
+		t.Fatalf("Rows.Len after insert = %d, want 3", got)
 	}
 	// Wrong-typed payload: typed error, no write.
 	res = driveCallOn(t, rt, "store.write", map[string]any{

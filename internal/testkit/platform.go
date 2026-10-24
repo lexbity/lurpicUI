@@ -54,6 +54,17 @@ func (q *nullEventQueue) Push(e platform.Event) {
 	q.mu.Unlock()
 }
 
+// EnqueueDrive injects LDP-synthesized events: same lock, same FIFO.
+func (q *nullEventQueue) EnqueueDrive(evs ...platform.Event) {
+	q.mu.Lock()
+	for len(q.events)+len(evs) > q.capacity {
+		q.cond.Wait()
+	}
+	q.events = append(q.events, evs...)
+	q.cond.Broadcast()
+	q.mu.Unlock()
+}
+
 func (q *nullEventQueue) Poll() []platform.Event {
 	q.mu.Lock()
 	defer q.mu.Unlock()

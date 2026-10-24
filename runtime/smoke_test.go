@@ -157,7 +157,14 @@ func (q *queue) Poll() []platform.Event {
 	return out
 }
 
+func (q *queue) EnqueueDrive(evs ...platform.Event) {
+	q.mu.Lock()
+	q.events = append(q.events, evs...)
+	q.mu.Unlock()
+}
+
 func (q *queue) Wait(timeout time.Duration) []platform.Event {
+
 	return q.Poll()
 }
 

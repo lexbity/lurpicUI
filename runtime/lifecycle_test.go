@@ -46,7 +46,15 @@ func (q *fakeEventQueue) Poll() []platform.Event {
 	q.mu.Unlock()
 	return e
 }
-func (q *fakeEventQueue) Wait(timeout time.Duration) []platform.Event { return q.Poll() }
+func (q *fakeEventQueue) Wait(timeout time.Duration) []platform.Event {
+	return q.Poll()
+}
+
+func (q *fakeEventQueue) EnqueueDrive(evs ...platform.Event) {
+	q.mu.Lock()
+	q.events = append(q.events, evs...)
+	q.mu.Unlock()
+}
 
 func (a *lifecycleApp) Events() platform.EventQueue { return a.events }
 func (a *lifecycleApp) Destroy()                    {}

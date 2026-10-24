@@ -6,15 +6,15 @@ import (
 )
 
 func PointerMove(x, y float32) platform.EventPointer {
-	return platform.EventPointer{Kind: platform.PointerMove, Position: gfx.Point{X: x, Y: y}}
+	return platform.EventPointer{Kind: platform.PointerMove, Position: gfx.Point{X: x, Y: y}, Source: platform.SourcePlatform}
 }
 
 func PointerPress(x, y float32, button platform.PointerButton) platform.EventPointer {
-	return platform.EventPointer{Kind: platform.PointerPress, Position: gfx.Point{X: x, Y: y}, Button: button}
+	return platform.EventPointer{Kind: platform.PointerPress, Position: gfx.Point{X: x, Y: y}, Button: button, Source: platform.SourcePlatform}
 }
 
 func PointerRelease(x, y float32, button platform.PointerButton) platform.EventPointer {
-	return platform.EventPointer{Kind: platform.PointerRelease, Position: gfx.Point{X: x, Y: y}, Button: button}
+	return platform.EventPointer{Kind: platform.PointerRelease, Position: gfx.Point{X: x, Y: y}, Button: button, Source: platform.SourcePlatform}
 }
 
 func LeftClick(x, y float32) []platform.Event {
@@ -37,19 +37,19 @@ func Drag(fromX, fromY, toX, toY float32) []platform.Event {
 }
 
 func Scroll(x, y, deltaX, deltaY float32) platform.EventScroll {
-	return platform.EventScroll{Position: gfx.Point{X: x, Y: y}, DeltaX: deltaX, DeltaY: deltaY}
+	return platform.EventScroll{Position: gfx.Point{X: x, Y: y}, DeltaX: deltaX, DeltaY: deltaY, Source: platform.SourcePlatform}
 }
 
 func KeyPress(key platform.Key, mods platform.ModifierKeys) platform.EventKey {
-	return platform.EventKey{Kind: platform.KeyPress, Key: key, Modifiers: mods}
+	return platform.EventKey{Kind: platform.KeyPress, Key: key, Modifiers: mods, Source: platform.SourcePlatform}
 }
 
 func KeyRelease(key platform.Key, mods platform.ModifierKeys) platform.EventKey {
-	return platform.EventKey{Kind: platform.KeyRelease, Key: key, Modifiers: mods}
+	return platform.EventKey{Kind: platform.KeyRelease, Key: key, Modifiers: mods, Source: platform.SourcePlatform}
 }
 
 func TypeText(s string) platform.EventText {
-	return platform.EventText{Text: s}
+	return platform.EventText{Text: s, Source: platform.SourcePlatform}
 }
 
 func Chord(key platform.Key, mod platform.ModifierKeys) []platform.Event {

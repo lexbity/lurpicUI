@@ -59,6 +59,25 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	rt.drainGPUUploadResults()
 
 	newEvents := rt.collectPlatformEvents()
+	// LDP QP-11: a platform (human) event observed while a drive input step
+	// is in flight preempts the step per event — before any routing, so the
+	// step's remaining synthesized events never reach the pipeline.
+	driveConsumed := 0
+	if rt.driveInputStep != nil {
+		println("DEBUG scan events=", len(newEvents), "sources:", func() string {
+			s := ""
+			for _, e := range newEvents {
+				s += eventSource(e).String() + ","
+			}
+			return s
+		}())
+		rt.scanForPreemption(newEvents)
+		for _, ev := range newEvents {
+			if eventSource(ev) == platform.SourceDrive {
+				driveConsumed++
+			}
+		}
+	}
 	rt.pendingEvents = append(rt.pendingEvents, newEvents...)
 	rt.pendingEvents = rt.handleWindowEvents(rt.pendingEvents)
 	if drainer, ok := rt.assetManager.(interface{ DrainInvalidations() int }); ok {
@@ -78,6 +97,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	dismissalEvents := rt.dismissalEventsForPointerPresses(rt.pendingEvents, currentHitMap)
 	routedEvents := rt.inputSystem.Process(rt.pendingEvents, currentHitMap, rt.root)
 	rt.pendingEvents = rt.pendingEvents[:0]
+	// LDP QP-11: routed drive events count against the in-flight step.
+	if driveConsumed > 0 && rt.driveInputStep != nil {
+		rt.driveInputStep.pending -= driveConsumed
+	}
 	routedEvents = append(dismissalEvents, routedEvents...)
 	routedEvents = append(routedEvents, hoverEvents...)
 	for _, re := range routedEvents {

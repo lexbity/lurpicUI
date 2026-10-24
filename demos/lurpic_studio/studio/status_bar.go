@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/status"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
+	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -30,11 +31,12 @@ type StatusBar struct {
 	layout facet.LayoutRole
 	render facet.RenderRole
 
-	row   *structure.Row
-	light *status.StatusLight
-	bar   *status.ProgressBar
-	ring  *status.ProgressRing
-	badge *status.Badge
+	row     *structure.Row
+	light   *status.StatusLight
+	driving *status.StatusLight
+	bar     *status.ProgressBar
+	ring    *status.ProgressRing
+	badge   *status.Badge
 
 	caption      *primitive.Text
 	notConnected *store.Derived[bool]
@@ -53,6 +55,7 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 
 	s := &StatusBar{
 		light:        newStatusMark("shell.status.light", func() *status.StatusLight { return status.NewStatusLight("connection") }),
+		driving:      newStatusMark("shell.status.driving", func() *status.StatusLight { return status.NewStatusLight("driving") }),
 		bar:          newStatusMark("shell.status.bar", func() *status.ProgressBar { return status.NewProgressBar("feed") }),
 		ring:         newStatusMark("shell.status.ring", func() *status.ProgressRing { return status.NewProgressRing("feed") }),
 		badge:        newStatusMark("shell.status.badge", func() *status.Badge { return status.NewBadge("") }),
@@ -63,6 +66,12 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	}
 	s.light.ShowLabel = marks.Const(false)
 	s.light.Disabled = marks.FromDerived(notConnected, facet.DirtyProjection)
+	// The driving light (Debt-6 completion, LDP QP-11): lit only while a
+	// drive client owns input. BindOwnership wires the runtime's ownership
+	// store post-construction (app.Config.OnRuntime); until then the light
+	// stays dim — a human owns input by default.
+	s.driving.ShowLabel = marks.Const(false)
+	s.driving.Disabled = marks.Const(true)
 	// Progress value and badge/caption text change the marks' measured size
 	// (bar length, badge width, caption length), so these bindings declare
 	// DirtyLayout — under RX-1 FR-3 a DirtyLayout-declaring content change
@@ -84,6 +93,7 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	s.row = structure.NewRow(
 		[]structure.AxisChild{
 			{Facet: s.light, MarkID: 1},
+			{Facet: s.driving, MarkID: 6},
 			{Facet: s.bar, MarkID: 2, Weight: 1},
 			{Facet: s.ring, MarkID: 3},
 			{Facet: s.badge, MarkID: 4},
@@ -133,6 +143,23 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 
 // Light returns the connection status_light.
 func (s *StatusBar) Light() *status.StatusLight { return s.light }
+
+// Driving returns the input-ownership status_light (lit while a drive
+// client owns input).
+func (s *StatusBar) Driving() *status.StatusLight { return s.driving }
+
+// BindOwnership wires the runtime's input-ownership store into the driving
+// light: lit exactly while Owner == OwnerClient (LDP QP-11 reference
+// indicator). Called from app.Config.OnRuntime, before the first frame.
+func (s *StatusBar) BindOwnership(ownership *store.ValueStore[runtimepkg.InputOwnership]) {
+	if ownership == nil {
+		return
+	}
+	lit := store.NewDerived(func() bool {
+		return ownership.Get().Owner == runtimepkg.OwnerClient
+	}, ownership)
+	s.driving.Disabled = marks.FromDerived(lit, facet.DirtyProjection)
+}
 
 // Bar returns the feed progress_bar.
 func (s *StatusBar) Bar() *status.ProgressBar { return s.bar }

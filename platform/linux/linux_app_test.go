@@ -200,6 +200,12 @@ func (q *eventQueue) Poll() []platform.Event {
 	q.mu.Unlock()
 	return out
 }
+func (q *eventQueue) EnqueueDrive(evs ...platform.Event) {
+	q.mu.Lock()
+	q.pending = append(q.pending, evs...)
+	q.mu.Unlock()
+}
+
 func (q *eventQueue) Wait(timeout time.Duration) []platform.Event {
 	if q == nil {
 		return nil

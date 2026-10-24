@@ -52,6 +52,7 @@ func TestCoverage_testids(t *testing.T) {
 		"shell.status.bar",
 		"shell.status.ring",
 		"shell.status.badge",
+		"shell.status.driving",
 		"index.tree",
 		"e1.controls.card",
 		"e1.controls.live",

@@ -13,4 +13,8 @@ type EventQueue interface {
 	Push(Event)
 	Poll() []Event
 	Wait(timeout time.Duration) []Event
+	// EnqueueDrive injects LDP-synthesized events (QP-10): the same
+	// mutex-guarded FIFO, the same drain, explicit provenance. Ordering
+	// relative to same-frame platform events is unspecified by design.
+	EnqueueDrive(evs ...Event)
 }

@@ -3,10 +3,12 @@ package studio
 import (
 	"encoding/json"
 	"reflect"
+	"regexp"
 	"sort"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/app"
+	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
@@ -72,6 +74,7 @@ func TestDrive_namedStores(t *testing.T) {
 		"e1.opacity",
 		"e1.seriesColor",
 		"e1.timeRange",
+		"runtime.input.ownership",
 		"shell.active",
 	}
 	if !reflect.DeepEqual(named, want) {
@@ -139,6 +142,44 @@ func TestDemoBlankChart(t *testing.T) {
 }
 
 var _ = drivedesc.Describe
+
+// TestCommandRegistry_audit is the G5.5 freeze: cmd.list output equals the
+// frozen sorted registry — the studio's public mutation surface (Debt-3) is
+// versioned names, and registry drift is a reviewable diff.
+func TestCommandRegistry_audit(t *testing.T) {
+	shell := NewShellState(state.NewAppState(seedRows(t)))
+	registry, _ := ShellCommands(shell, nil)
+
+	specs := registry.List()
+	ids := make([]string, 0, len(specs))
+	for _, s := range specs {
+		ids = append(ids, s.ID)
+		if !regexpCommandID.MatchString(s.ID) {
+			t.Errorf("command %q violates the [a-z0-9.]+ surface contract", s.ID)
+		}
+	}
+	want := []string{
+		"exhibit.anchors",
+		"exhibit.capabilities",
+		"exhibit.layers",
+		"exhibit.playground",
+		"exhibit.policies",
+		"exhibit.propagation",
+		"exhibit.realtime",
+		"feed.toggle",
+		"index.toggle",
+		"inspector.toggle",
+	}
+	if !reflect.DeepEqual(ids, want) {
+		t.Fatalf("command registry = %v, want frozen %v", ids, want)
+	}
+	if registry.Version() == 0 {
+		t.Fatal("the registry must stamp a version")
+	}
+}
+
+// regexpCommandID mirrors runtime's registration-time validation contract.
+var regexpCommandID = regexp.MustCompile(`^[a-z0-9.]+$`)
 
 // gfxRectJSON mirrors gfx.Rect's JSON shape ({Min:{X,Y},Max:{X,Y}}).
 type gfxRectJSON struct {

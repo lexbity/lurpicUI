@@ -36,15 +36,15 @@ func ParseGrants(s string) (Grants, error) {
 	}
 	for _, name := range strings.Split(s, ",") {
 		switch strings.TrimSpace(name) {
-		case "read":
+		case grantRead:
 			g.Read = true
-		case "input":
+		case grantInput:
 			g.Input = true
-		case "write":
+		case grantWrite:
 			g.Write = true
-		case "time":
+		case grantTime:
 			g.Time = true
-		case "admin":
+		case grantAdmin:
 			g.Admin = true
 		default:
 			return Grants{}, fmt.Errorf("drive: unknown grant %q (want read, input, write, time, admin)", name)
@@ -65,15 +65,15 @@ func (g Grants) Allows(name string) bool {
 		return true
 	}
 	switch name {
-	case "read":
+	case grantRead:
 		return g.Read
-	case "input":
+	case grantInput:
 		return g.Input
-	case "write":
+	case grantWrite:
 		return g.Write
-	case "time":
+	case grantTime:
 		return g.Time
-	case "admin":
+	case grantAdmin:
 		return false
 	default:
 		return false
@@ -87,8 +87,8 @@ func (g Grants) String() string {
 		on bool
 		n  string
 	}{
-		{g.Read, "read"}, {g.Input, "input"}, {g.Write, "write"},
-		{g.Time, "time"}, {g.Admin, "admin"},
+		{g.Read, grantRead}, {g.Input, grantInput}, {g.Write, grantWrite},
+		{g.Time, grantTime}, {g.Admin, grantAdmin},
 	} {
 		if entry.on {
 			names = append(names, entry.n)
@@ -158,6 +158,16 @@ type Config struct {
 
 // idempotencyCapacity is the per-connection retry window (QP-3).
 const idempotencyCapacity = 1024
+
+// Grant names (the canonical vocabulary across tables, Allows, and the
+// parser).
+const (
+	grantRead  = "read"
+	grantInput = "input"
+	grantWrite = "write"
+	grantTime  = "time"
+	grantAdmin = "admin"
+)
 
 // Server owns the listener socket and its connections.
 type Server struct {
@@ -442,6 +452,16 @@ var methods = map[string]methodSpec{
 	"frame.pixels":   {grant: "read"},
 	"frame.packet":   {grant: "read"},
 	"store.write":    {grant: "write"},
+	"input.click":    {grant: grantInput},
+	"input.press":    {grant: grantInput},
+	"input.release":  {grant: grantInput},
+	"input.move":     {grant: grantInput},
+	"input.drag":     {grant: grantInput},
+	"input.type":     {grant: grantInput},
+	"input.scroll":   {grant: grantInput},
+	"input.focus":    {grant: grantInput},
+	"cmd.list":       {grant: "read"},
+	"cmd.execute":    {grant: "write"},
 	"time.mode":      {grant: "time"},
 	"time.advance":   {grant: "time"},
 	"frame.run":      {},

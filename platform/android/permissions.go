@@ -14,12 +14,12 @@ import (
 type Permission string
 
 const (
-	PermissionCamera              Permission = "android.permission.CAMERA"
-	PermissionMicrophone          Permission = "android.permission.RECORD_AUDIO"
-	PermissionStorage             Permission = "android.permission.READ_EXTERNAL_STORAGE"
-	PermissionPostNotifications   Permission = "android.permission.POST_NOTIFICATIONS"
-	PermissionLocationFine        Permission = "android.permission.ACCESS_FINE_LOCATION"
-	PermissionLocationCoarse      Permission = "android.permission.ACCESS_COARSE_LOCATION"
+	PermissionCamera            Permission = "android.permission.CAMERA"
+	PermissionMicrophone        Permission = "android.permission.RECORD_AUDIO"
+	PermissionStorage           Permission = "android.permission.READ_EXTERNAL_STORAGE"
+	PermissionPostNotifications Permission = "android.permission.POST_NOTIFICATIONS"
+	PermissionLocationFine      Permission = "android.permission.ACCESS_FINE_LOCATION"
+	PermissionLocationCoarse    Permission = "android.permission.ACCESS_COARSE_LOCATION"
 )
 
 // PermissionResult reports the current state of a runtime permission request.
@@ -42,11 +42,11 @@ type pendingRequest struct {
 }
 
 var (
-	pendingPermissionMu  sync.Mutex
-	pendingPermissions   = make(map[int32]pendingRequest)
-	nextPermissionCode   int32 = 1
-	deniedHooksMu        sync.RWMutex
-	deniedHooks          []DeniedCallback
+	pendingPermissionMu sync.Mutex
+	pendingPermissions        = make(map[int32]pendingRequest)
+	nextPermissionCode  int32 = 1
+	deniedHooksMu       sync.RWMutex
+	deniedHooks         []DeniedCallback
 )
 
 func init() {

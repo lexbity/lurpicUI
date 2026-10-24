@@ -13,23 +13,23 @@ import (
 
 var errCgoRequired = errors.New("android audio: requires CGO")
 
-func cAAudioAvailable() bool                        { return false }
+func cAAudioAvailable() bool { return false }
 func cAAudioStreamOpen(int, int, int, bool) (unsafe.Pointer, error) {
 	return nil, errCgoRequired
 }
 func cAAudioStreamWrite(unsafe.Pointer, []int16) (int, error) {
 	return 0, errCgoRequired
 }
-func cAAudioStreamPause(unsafe.Pointer) error        { return errCgoRequired }
-func cAAudioStreamResume(unsafe.Pointer) error       { return errCgoRequired }
-func cAAudioStreamClose(unsafe.Pointer) error        { return errCgoRequired }
-func cAAudioStreamLatency(unsafe.Pointer) int        { return 0 }
+func cAAudioStreamPause(unsafe.Pointer) error  { return errCgoRequired }
+func cAAudioStreamResume(unsafe.Pointer) error { return errCgoRequired }
+func cAAudioStreamClose(unsafe.Pointer) error  { return errCgoRequired }
+func cAAudioStreamLatency(unsafe.Pointer) int  { return 0 }
 func cOpenSLStreamOpen(int, int, int) (unsafe.Pointer, error) {
 	return nil, errCgoRequired
 }
 func cOpenSLStreamWrite(unsafe.Pointer, []int16) (int, error) {
 	return 0, errCgoRequired
 }
-func cOpenSLStreamPause(unsafe.Pointer) error         { return errCgoRequired }
-func cOpenSLStreamResume(unsafe.Pointer) error        { return errCgoRequired }
-func cOpenSLStreamClose(unsafe.Pointer) error         { return errCgoRequired }
+func cOpenSLStreamPause(unsafe.Pointer) error  { return errCgoRequired }
+func cOpenSLStreamResume(unsafe.Pointer) error { return errCgoRequired }
+func cOpenSLStreamClose(unsafe.Pointer) error  { return errCgoRequired }

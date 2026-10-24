@@ -36,9 +36,12 @@ func (rt *Runtime) handleWindowEvents(events []platform.Event) []platform.Event 
 		case platform.BackEvent:
 			// Route back as an Escape key press + release to trigger
 			// navigation-back behaviour in the facet system.
+			// Engine-internal synthesis (back navigation), not drive: the
+			// SourcePlatform stamp is honest provenance, and the preemption
+			// scan never sees these (they enter pendingEvents directly).
 			rt.pendingEvents = append(rt.pendingEvents,
-				platform.EventKey{Kind: platform.KeyPress, Key: platform.KeyEscape},
-				platform.EventKey{Kind: platform.KeyRelease, Key: platform.KeyEscape},
+				platform.EventKey{Kind: platform.KeyPress, Key: platform.KeyEscape, Source: platform.SourcePlatform},
+				platform.EventKey{Kind: platform.KeyRelease, Key: platform.KeyEscape, Source: platform.SourcePlatform},
 			)
 		case platform.VsyncEvent:
 			if rt.frameTimer != nil {

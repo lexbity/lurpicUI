@@ -59,6 +59,7 @@ type fakeQueue struct{}
 func (fakeQueue) Push(platform.Event)                         {}
 func (fakeQueue) Poll() []platform.Event                      { return nil }
 func (fakeQueue) Wait(timeout time.Duration) []platform.Event { return nil }
+func (fakeQueue) EnqueueDrive(...platform.Event)              {}
 
 type fakeClipboard struct {
 	text string

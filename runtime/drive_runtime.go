@@ -36,6 +36,25 @@ type driveRuntimeSink struct {
 	// addresses, exposed via sys.info until Phase 7's frame.completed
 	// subscription consumes the stream.
 	recentWrites []string
+	// preempted is the interim own.preempted buffer (QP-11): preemption
+	// notifications until Phase 7's subscription stream replaces it. DELETED
+	// in Phase 7 — no compat.
+	preempted []PreemptedNotice
+}
+
+// PreemptedNotice is one buffered own.preempted notification (interim
+// until P7).
+type PreemptedNotice struct {
+	CommandID uint64 `json:"command_id"`
+	ClientID  string `json:"client_id"`
+}
+
+// bufferPreempted records an own.preempted notification (QP-11 interim).
+func (s *driveRuntimeSink) bufferPreempted(commandID uint64, clientID string) {
+	s.preempted = append(s.preempted, PreemptedNotice{CommandID: commandID, ClientID: clientID})
+	if len(s.preempted) > 64 {
+		s.preempted = s.preempted[len(s.preempted)-64:]
+	}
 }
 
 // recordWrite appends one store.write address to the bounded frame log.
@@ -168,6 +187,16 @@ func init() {
 		"facet.query":    driveFacetQuery,
 		"frame.pixels":   driveFramePixels,
 		"frame.packet":   driveFramePacket,
+		"input.click":    driveInputClick,
+		"input.press":    driveInputPress,
+		"input.release":  driveInputRelease,
+		"input.move":     driveInputMove,
+		"input.drag":     driveInputDrag,
+		"input.type":     driveInputType,
+		"input.scroll":   driveInputScroll,
+		"input.focus":    driveInputFocus,
+		"cmd.list":       driveCmdList,
+		"cmd.execute":    driveCmdExecute,
 	}
 }
 
@@ -204,7 +233,7 @@ func driveInfo(rt *Runtime, _ drive.Command) driveOutcome {
 // a separate literal (not derived from driveMethods) to break the
 // package-level initialization cycle map→handler→map; a test asserts the
 // two stay in sync.
-var driveInfoMethodList = []string{"derived.read", "facet.query", "frame.packet", "frame.pixels", "frame.run", "locate.resolve", "store.list", "store.read", "store.write", "sys.info", "sys.ping", "time.advance", "time.mode", "tree.dump"}
+var driveInfoMethodList = []string{"cmd.execute", "cmd.list", "derived.read", "facet.query", "frame.packet", "frame.pixels", "frame.run", "input.click", "input.drag", "input.focus", "input.move", "input.press", "input.release", "input.scroll", "input.type", "locate.resolve", "store.list", "store.read", "store.write", "sys.info", "sys.ping", "time.advance", "time.mode", "tree.dump"}
 
 // driveDispatch runs one command's handler on the runtime thread and replies
 // exactly once. A handler panic is converted to a typed internal.panic

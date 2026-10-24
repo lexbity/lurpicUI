@@ -26,40 +26,40 @@ var ErrAudioNotAvailable = errors.New("android audio: no audio backend available
 type BackendKind int
 
 const (
-	BackendAAudio  BackendKind = iota // AAudio (primary)
-	BackendOpenSL                     // OpenSL ES (fallback)
+	BackendAAudio BackendKind = iota // AAudio (primary)
+	BackendOpenSL                    // OpenSL ES (fallback)
 )
 
 // Backend is the singleton audio backend manager.
 type Backend struct {
-	mu            sync.Mutex
-	streams       map[int]*stream
-	nextStreamID  int
-	focusCB       func(platform.AudioFocusChange)
-	currentState  platform.AudioState
-	backendKind   BackendKind
-	volume        float32
+	mu           sync.Mutex
+	streams      map[int]*stream
+	nextStreamID int
+	focusCB      func(platform.AudioFocusChange)
+	currentState platform.AudioState
+	backendKind  BackendKind
+	volume       float32
 }
 
 // stream wraps an active audio output stream.
 type stream struct {
-	id            int
-	config        platform.AudioConfig
-	backend       BackendKind
-	state         platform.AudioState
-	closeFn       func() error
-	pauseFn       func() error
-	resumeFn      func() error
-	writeFn       func([]int16) (int, error)
-	latencyFn     func() int
+	id        int
+	config    platform.AudioConfig
+	backend   BackendKind
+	state     platform.AudioState
+	closeFn   func() error
+	pauseFn   func() error
+	resumeFn  func() error
+	writeFn   func([]int16) (int, error)
+	latencyFn func() int
 }
 
-func (s *stream) Write(samples []int16) (int, error)    { return s.writeFn(samples) }
-func (s *stream) Pause() error                          { return s.pauseFn() }
-func (s *stream) Resume() error                         { return s.resumeFn() }
-func (s *stream) Close() error                          { return s.closeFn() }
-func (s *stream) State() platform.AudioState             { return s.state }
-func (s *stream) Latency() int                          { return s.latencyFn() }
+func (s *stream) Write(samples []int16) (int, error) { return s.writeFn(samples) }
+func (s *stream) Pause() error                       { return s.pauseFn() }
+func (s *stream) Resume() error                      { return s.resumeFn() }
+func (s *stream) Close() error                       { return s.closeFn() }
+func (s *stream) State() platform.AudioState         { return s.state }
+func (s *stream) Latency() int                       { return s.latencyFn() }
 
 // NewBackend creates the audio backend, attempting AAudio first and falling
 // back to OpenSL ES.

@@ -181,8 +181,15 @@ func driveStoreWrite(rt *Runtime, cmd drive.Command) driveOutcome {
 	if perr != nil {
 		return errorOutcome(perr, rt.driveSink.Epoch())
 	}
-	if err := readstore.WriteValue(s, p.Value); err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+	switch readstore.Kind(s) {
+	case "collection":
+		if err := readstore.WriteCollection(s, p.Value); err != nil {
+			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		}
+	default:
+		if err := readstore.WriteValue(s, p.Value); err != nil {
+			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		}
 	}
 	rt.driveSink.recordWrite(label)
 	payload, err := json.Marshal(map[string]any{

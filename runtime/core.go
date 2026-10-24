@@ -133,6 +133,13 @@ type Runtime struct {
 
 	// namedStores is the LDP named-store registry (QP-8 path b).
 	namedStores *readstore.Registry
+
+	// inputOwnership is the app-readable ownership store (QP-11), registered
+	// under runtime.input.ownership when the drive seam is enabled.
+	inputOwnership *store.ValueStore[InputOwnership]
+	// driveInputStep is the in-flight drive input command (QP-11); nil when
+	// no step owns input.
+	driveInputStep *driveInputStep
 }
 
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {
@@ -189,6 +196,11 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	facet.SetTestIDRegistry(rt.liveTestIDs)
 	if err := rt.initNamedRegistry(); err != nil {
 		return nil, err
+	}
+	if config.Drive.Enabled {
+		if err := rt.installInputOwnership(); err != nil {
+			return nil, err
+		}
 	}
 	rt.clock = NewClock(wallNow)
 	rt.inputSystem.SetTimeSource(rt.clock.Now)

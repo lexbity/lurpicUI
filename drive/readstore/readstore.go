@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/store"
@@ -171,31 +172,87 @@ func ReadDerivedPeek(s any) (json.RawMessage, bool, error) {
 	return value, out[1].Bool(), nil
 }
 
-// WriteValue stores a decoded JSON value into a ValueStore. Collection
-// writes are Phase 5 (refused here with a typed error); Derived is
-// read-only by construction.
+// WriteValue stores a decoded JSON value into a ValueStore.
 func WriteValue(s any, payload json.RawMessage) error {
-	switch Kind(s) {
-	case "value":
-	case "collection":
-		return fmt.Errorf("drive: collection writes land in Phase 5; store.write refuses collections for now")
-	default:
-		return fmt.Errorf("drive: %T is not a writable *store.ValueStore", s)
+	if Kind(s) != "value" {
+		return fmt.Errorf("drive: %T is not a writable *store.ValueStore (use WriteCollection for collections)", s)
 	}
 	v := reflect.ValueOf(s)
 	set := v.MethodByName("Set")
 	if !set.IsValid() {
 		return fmt.Errorf("drive: %T has no Set — not a writable store", s)
 	}
-	paramType := set.Type().In(0)
-	target := reflect.New(paramType)
+	item, err := decodeAs(set.Type().In(0), payload)
+	if err != nil {
+		return err
+	}
+	set.Call([]reflect.Value{item})
+	return nil
+}
+
+// collectionWrite is a collection mutation (LDP Phase 5): Insert appends a
+// decoded item; Update replaces the item carrying the decoded item's ID
+// (the collection's identify function assigns identity); Remove drops by ID.
+type collectionWrite struct {
+	Op     string          `json:"op"` // "insert" | "update" | "remove"
+	Item   json.RawMessage `json:"item,omitempty"`
+	ItemID uint64          `json:"id,omitempty"`
+}
+
+// WriteCollection applies one collection mutation. The reflection surface is
+// the store's own Insert/Update/Remove/Identify methods — no new state.
+func WriteCollection(s any, payload json.RawMessage) error {
+	if Kind(s) != "collection" {
+		return fmt.Errorf("drive: %T is not a *store.CollectionStore", s)
+	}
+	var w collectionWrite
+	if err := json.Unmarshal(payload, &w); err != nil {
+		return fmt.Errorf("drive: collection write params: %w", err)
+	}
+	v := reflect.ValueOf(s)
+	switch w.Op {
+	case "insert", "update":
+		// The item type comes from the store's own method signature — no
+		// generic-type reflection gymnastics.
+		method := "Insert"
+		if w.Op == "update" {
+			method = "Update"
+		}
+		m := v.MethodByName(method)
+		if !m.IsValid() {
+			return fmt.Errorf("drive: %T has no %s method", s, method)
+		}
+		item, err := decodeAs(m.Type().In(0), w.Item)
+		if err != nil {
+			return err
+		}
+		m.Call([]reflect.Value{item})
+		return nil
+	case "remove":
+		remove := v.MethodByName("Remove")
+		if !remove.IsValid() {
+			return fmt.Errorf("drive: %T has no Remove method", s)
+		}
+		id := reflect.New(remove.Type().In(0))
+		if err := json.Unmarshal([]byte(strconv.FormatUint(w.ItemID, 10)), id.Interface()); err != nil {
+			return fmt.Errorf("drive: collection remove id: %w", err)
+		}
+		remove.Call([]reflect.Value{id.Elem()})
+		return nil
+	default:
+		return fmt.Errorf("drive: collection write op must be insert, update, or remove")
+	}
+}
+
+// decodeAs decodes JSON into a freshly allocated value of type t.
+func decodeAs(t reflect.Type, payload json.RawMessage) (reflect.Value, error) {
+	target := reflect.New(t)
 	if len(payload) > 0 {
 		if err := json.Unmarshal(payload, target.Interface()); err != nil {
-			return fmt.Errorf("drive: store.write value does not decode to %s: %w", paramType, err)
+			return reflect.Value{}, fmt.Errorf("drive: value does not decode to %s: %w", t, err)
 		}
 	}
-	set.Call([]reflect.Value{target.Elem()})
-	return nil
+	return target.Elem(), nil
 }
 
 // StoreField is one structural addressing hit: an exported field of a

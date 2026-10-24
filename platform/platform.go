@@ -81,11 +81,40 @@ const (
 	PointerCancel
 )
 
+// EventSource names who injected an input event (LDP QP-10): the platform
+// bridge (a human device) or the drive (LDP input synthesis). Events flow
+// through hit-testing, capture, and gesture recognition identically —
+// provenance is observable, never a shortcut. Marks that are
+// security-sensitive may refuse drive-sourced input via
+// facet.EventIsSynthetic.
+type EventSource uint8
+
+const (
+	// SourcePlatform is the human input path. Every platform-bridge
+	// construction site sets it explicitly; the zero value is not a valid
+	// source.
+	SourcePlatform EventSource = iota + 1
+	// SourceDrive marks LDP-synthesized input.
+	SourceDrive
+)
+
+func (s EventSource) String() string {
+	switch s {
+	case SourcePlatform:
+		return "platform"
+	case SourceDrive:
+		return "drive"
+	default:
+		return "EventSource(unknown)"
+	}
+}
+
 type EventPointer struct {
 	Kind      PointerEventKind
 	Position  gfx.Point
 	Button    PointerButton
 	Modifiers ModifierKeys
+	Source    EventSource
 }
 
 type EventScroll struct {
@@ -94,6 +123,7 @@ type EventScroll struct {
 	DeltaY    float32
 	Precise   bool
 	Modifiers ModifierKeys
+	Source    EventSource
 }
 
 type KeyEventKind uint8
@@ -153,10 +183,12 @@ type EventKey struct {
 	Kind      KeyEventKind
 	Key       Key
 	Modifiers ModifierKeys
+	Source    EventSource
 }
 
 type EventText struct {
-	Text string
+	Text   string
+	Source EventSource
 }
 
 type EventIMECompose struct {

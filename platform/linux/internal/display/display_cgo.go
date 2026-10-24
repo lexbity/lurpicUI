@@ -671,6 +671,16 @@ func (q *eventQueue) Push(e platform.Event) {
 	q.mu.Unlock()
 }
 
+// EnqueueDrive injects LDP-synthesized events: same lock, same FIFO.
+func (q *eventQueue) EnqueueDrive(evs ...platform.Event) {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	q.pending = append(q.pending, evs...)
+	q.mu.Unlock()
+}
+
 func (q *eventQueue) Poll() []platform.Event {
 	if q == nil {
 		return nil
@@ -854,11 +864,11 @@ func (a *app) translateKeyEvent(ev *C.xcb_generic_event_t, press bool) []platfor
 		kind = platform.KeyPress
 	}
 	out := []platform.Event{
-		platform.EventKey{Kind: kind, Key: key, Modifiers: mod},
+		platform.EventKey{Kind: kind, Key: key, Modifiers: mod, Source: platform.SourcePlatform},
 	}
 	if press {
 		if text, ok := common.TextFromKeysym(uint32(keysym)); ok {
-			out = append(out, platform.EventText{Text: text})
+			out = append(out, platform.EventText{Text: text, Source: platform.SourcePlatform})
 		}
 	}
 	return out
@@ -885,6 +895,7 @@ func (a *app) translatePointerButton(ev *C.xcb_generic_event_t, press bool) []pl
 			Button:    button,
 			Position:  gfx.Point{X: float32(b.event_x), Y: float32(b.event_y)},
 			Modifiers: common.ModifiersFromState(uint16(b.state)),
+			Source:    platform.SourcePlatform,
 		},
 	}
 }
@@ -896,6 +907,7 @@ func (a *app) translateMotion(ev *C.xcb_generic_event_t) []platform.Event {
 			Kind:      platform.PointerMove,
 			Position:  gfx.Point{X: float32(m.event_x), Y: float32(m.event_y)},
 			Modifiers: common.ModifiersFromState(uint16(m.state)),
+			Source:    platform.SourcePlatform,
 		},
 	}
 }
@@ -911,6 +923,7 @@ func (a *app) translateEnterLeave(ev *C.xcb_generic_event_t, enter bool) []platf
 			Kind:      kind,
 			Position:  gfx.Point{X: float32(e.event_x), Y: float32(e.event_y)},
 			Modifiers: common.ModifiersFromState(uint16(e.state)),
+			Source:    platform.SourcePlatform,
 		},
 	}
 }

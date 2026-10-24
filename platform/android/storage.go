@@ -78,9 +78,9 @@ func NewStorage(activity unsafe.Pointer) *AppStorage {
 }
 
 const (
-	_storageFilesDir       = 0
-	_storageCacheDir       = 1
-	_storageExternalFiles  = 2
+	_storageFilesDir      = 0
+	_storageCacheDir      = 1
+	_storageExternalFiles = 2
 )
 
 func (s *AppStorage) getPath(which int) string {
@@ -96,10 +96,10 @@ func (s *AppStorage) getPath(which int) string {
 }
 
 // FilesDir returns the internal files directory path, or "" if unavailable.
-func (s *AppStorage) FilesDir() string       { return s.getPath(_storageFilesDir) }
+func (s *AppStorage) FilesDir() string { return s.getPath(_storageFilesDir) }
 
 // CacheDir returns the internal cache directory path, or "" if unavailable.
-func (s *AppStorage) CacheDir() string       { return s.getPath(_storageCacheDir) }
+func (s *AppStorage) CacheDir() string { return s.getPath(_storageCacheDir) }
 
 // ExternalFilesDir returns the external files directory path, or "" if unavailable.
 func (s *AppStorage) ExternalFilesDir() string { return s.getPath(_storageExternalFiles) }
