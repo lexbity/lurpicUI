@@ -5,7 +5,7 @@ the build orchestration layer.
 
 ## Prerequisites
 
-- Go 1.25 or newer
+- Go 1.27.2 or newer
 - CMake
 - Rust toolchain and `cargo-ndk` for the Vulkan backend
 - Android SDK, NDK, and JDK for Android builds

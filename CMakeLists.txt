@@ -269,6 +269,13 @@ _lurpic_add_test_suite_target(
 )
 list(APPEND _lurpic_test_all_targets test-integration)
 
+lurpic_add_go_test_target(
+  NAME test-drive
+  DESCRIPTION "Lurpic Drive Protocol suite"
+  PACKAGES ./drive/...
+)
+list(APPEND _lurpic_test_all_targets test-drive)
+
 add_custom_target(test-all
   DEPENDS ${_lurpic_test_all_targets}
   COMMENT "Aggregate Go test suite for the current configuration"

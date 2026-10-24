@@ -12,7 +12,7 @@ It provides:
 
 ## Requirements
 
-- Go 1.25 or newer
+- Go 1.27.2 or newer
 - CMake for the build, test, and lint workflow
 - Android SDK, NDK, and JDK for Android builds
 - Rust toolchain and `cargo-ndk`

@@ -48,6 +48,12 @@ type Config struct {
 	Logger          log.Logger
 	DiagnosticsHook DiagnosticsHook
 
+	// Drive enables the Lurpic Drive Protocol seam: the runtime installs a
+	// drive sink whose inbox is drained at the head of phase 2 on the
+	// runtime thread (QP-1/QP-6). Disabled by default (FR-4): no socket, no
+	// sink, one nil check per frame.
+	Drive DriveRuntimeConfig
+
 	// AssetDiagnosticsEnabled controls whether asset-path events (mount,
 	// extract, stream, evict) are logged through the runtime logger.
 	// When false (default), asset diagnostics are collected in FrameStats
@@ -80,6 +86,13 @@ type Config struct {
 	// When nil, a GPU-fatal submit error surfaces as a fatal render error
 	// instead of falling back.
 	SoftwareBackendFactory func(surface render.Surface) (render.Backend, error)
+}
+
+// DriveRuntimeConfig configures the runtime's drive integration. The socket,
+// token, and grants live in the app layer (app.DriveConfig); the runtime
+// only owns execution-at-a-cut.
+type DriveRuntimeConfig struct {
+	Enabled bool
 }
 
 // DefaultConfig returns a valid runtime configuration.

@@ -117,6 +117,11 @@ type Runtime struct {
 	projectionInProgress atomic.Bool
 
 	onFrameSubmitted func() // test hook; set only in tests to signal frame completion
+
+	// driveSink is non-nil only when Config.Drive.Enabled (FR-4). Its inbox
+	// is drained at the head of phase 2 on this thread (QP-6); see
+	// drive_runtime.go.
+	driveSink *driveRuntimeSink
 }
 
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {
@@ -177,6 +182,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	rt.renderPipeline.fallbackFactory = rt.softwareFallbackBackend
 	rt.renderPipeline.onFallback = rt.notifyBackendFallback
 	rt.lifecycleCond = sync.NewCond(&rt.lifecycleMu)
+	if config.Drive.Enabled {
+		rt.installDriveSink()
+	}
 	if rt.rootStyleContext == nil {
 		theme.NewRootStyleContext(rt, theme.DefaultTokens(), nil)
 	}

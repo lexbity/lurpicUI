@@ -54,6 +54,17 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	rt.drainGPUUploadResults()
 
 	newEvents := rt.collectPlatformEvents()
+	// LDP cut (QP-6): drive commands drained here execute on the runtime
+	// thread at the boundary between frame N's submit and frame N+1's event
+	// phase. When disabled this is one nil check; when idle, one atomic load.
+	if rt.driveSink != nil {
+		rt.driveSink.epoch.Store(rt.frameNumber)
+		stats.DriveCommandsDrained = rt.driveDrain()
+		_, sent, denied, panics := rt.driveSink.stats.Snapshot()
+		stats.DriveResponsesSent = sent
+		stats.DriveGrantDenied = denied
+		stats.DriveSocketGoroutinePanics = panics
+	}
 	rt.pendingEvents = append(rt.pendingEvents, newEvents...)
 	rt.pendingEvents = rt.handleWindowEvents(rt.pendingEvents)
 	if drainer, ok := rt.assetManager.(interface{ DrainInvalidations() int }); ok {

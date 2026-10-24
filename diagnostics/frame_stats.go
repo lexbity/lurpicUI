@@ -95,6 +95,16 @@ type FrameStats struct {
 	// after a callback panic (FR-8). Zero on healthy runs; a monitoring hook
 	// or test can detect non-zero poison without parsing logs.
 	PoisonedFacets int
+
+	// Drive counters (LDP §3.9). DriveCommandsDrained is frame-scoped: the
+	// number of drive commands executed at this frame's cut. The remaining
+	// three are cumulative-since-startup snapshots, copied from the shared
+	// drive stats so a diagnostics consumer sees them without a second seam.
+	// All four are zero when LDP is disabled (FR-4).
+	DriveCommandsDrained       int
+	DriveResponsesSent         uint64
+	DriveGrantDenied           uint64
+	DriveSocketGoroutinePanics uint64
 }
 
 // PoisonReport describes the first failure of a quarantined facet. It is

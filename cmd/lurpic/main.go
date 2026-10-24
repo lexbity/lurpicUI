@@ -45,6 +45,8 @@ func main() {
 		os.Exit(cmdCrash(os.Args[2:]))
 	case "screenshot":
 		os.Exit(cmdScreenshot(os.Args[2:]))
+	case "drive":
+		os.Exit(cmdDrive(os.Args[2:]))
 	case "version":
 		os.Exit(cmdVersion())
 	case "help", "-h", "--help":
@@ -68,6 +70,7 @@ Usage:
   lurpic logcat [flags]           Stream or clear device logcat
   lurpic crash [flags]            Pull tombstones and symbolicate crash dumps
   lurpic screenshot [flags]       Capture device screenshot for golden testing
+  lurpic drive [flags] ping       Ping a running app's drive socket (LDP)
   lurpic clean                    Remove build artifacts
   lurpic version                  Print version information
   lurpic help                     Show this help message

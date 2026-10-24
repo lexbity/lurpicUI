@@ -61,6 +61,10 @@ type Config struct {
 	// when non-nil, so an implementer may add optional capabilities (e.g. a
 	// DirtySnapshotSink) by type assertion without widening any interface.
 	Diagnostics runtime.DiagnosticsHook
+
+	// Drive is populated from LURPIC_DRIVE in Run (the single parse site);
+	// a zero value here is ignored. LDP is disabled by default (FR-4).
+	Drive DriveConfig
 }
 
 // BuildContext is passed to the root builder after engine startup.

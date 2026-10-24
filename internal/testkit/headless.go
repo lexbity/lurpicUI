@@ -22,6 +22,9 @@ type HarnessConfig struct {
 	ThemeResolver    *theme.ThemeResolver    // optional; the anchored-layer recipe resolver
 	Backend          render.Backend          // optional; defaults to software renderer
 	WritingDirection layout.WritingDirection // empty defaults to LTR
+	// Drive installs the runtime drive sink in-process (no socket), enabling
+	// the DriveHarness and direct drive.Sink access.
+	Drive bool
 }
 
 // DefaultHarnessConfig returns an 800x600 harness config.
@@ -120,6 +123,7 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	rtcfg.FontRegistry = fonts
 	rtcfg.LayerRegistry = config.LayerRegistry
 	rtcfg.ThemeResolver = config.ThemeResolver
+	rtcfg.Drive.Enabled = config.Drive
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {
 		t.Fatalf("runtime: %v", err)
