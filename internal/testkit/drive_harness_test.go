@@ -47,8 +47,10 @@ func TestDriveHarness_InfoReportsEpoch(t *testing.T) {
 	if info.V != proto.ProtocolMajor {
 		t.Fatalf("v = %d", info.V)
 	}
-	if info.Frame != 4 {
-		t.Fatalf("frame = %d, want 4", info.Frame)
+	// QP-6: sys.info reports the cut epoch — the last completed frame (3);
+	// the call executes at the boundary before frame 4.
+	if info.Frame != 3 {
+		t.Fatalf("frame = %d, want the cut epoch 3", info.Frame)
 	}
 	if info.Drive.CommandsDrained != 1 {
 		t.Fatalf("commandsDrained = %d, want 1", info.Drive.CommandsDrained)

@@ -100,7 +100,7 @@ func (rt *Runtime) poison(id facet.FacetID, role string, r any) {
 		Role:      role,
 		Panic:     r,
 		Stack:     rt.captureStack(4),
-		FirstSeen: time.Now(),
+		FirstSeen: rt.clock.Now(),
 	}
 	rt.poisonReports[id] = report
 	// Subtree quarantine: mark all active descendants poisoned without

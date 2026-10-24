@@ -55,8 +55,18 @@ func main() {
 }
 
 // loadSeed reads and parses the metrics.csv snapshot (the seed for the shared
-// AppState; the streaming feed reshapes it).
+// AppState; the streaming feed reshapes it). LURPIC_SEED, when set, names a
+// CSV file on disk used instead of the embedded snapshot — the determinism
+// harness (LDP Phase 2) pins the seed this way so two runs replay identical
+// data.
 func loadSeed() ([]dataset.Row, error) {
+	if path := os.Getenv("LURPIC_SEED"); path != "" {
+		data, err := os.ReadFile(path) //nolint:gosec // operator-supplied seed path by design
+		if err != nil {
+			return nil, fmt.Errorf("read LURPIC_SEED %q: %w", path, err)
+		}
+		return dataset.Parse(data)
+	}
 	data, err := embeddedFonts.ReadFile("assets/metrics.csv")
 	if err != nil {
 		return nil, fmt.Errorf("read embedded metrics.csv: %w", err)

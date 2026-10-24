@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	drive "codeburg.org/lexbit/lurpicui/drive/server"
@@ -22,6 +23,22 @@ type driveRuntimeSink struct {
 	mu    sync.Mutex // guards inbox append vs. swap-nil drain
 	inbox atomic.Pointer[[]drive.Command]
 	epoch atomic.Uint64
+	// wake unblocks the parked Virtual-mode Run loop (QP-5); buffered 1 so
+	// Enqueue never blocks.
+	wake chan struct{}
+	// pendingAdvances are virtual-time advances requested at a cut by the
+	// time.advance handler; drivePostFrame executes each as exactly one full
+	// frame and then replies. Runtime-thread only.
+	pendingAdvances []pendingAdvance
+	// drainedThisFrame feeds the per-frame FrameStats counter.
+	drainedThisFrame int
+}
+
+// pendingAdvance pairs an advance duration with the command awaiting its
+// post-frame reply.
+type pendingAdvance struct {
+	d   time.Duration
+	cmd drive.Command
 }
 
 // Enqueue implements drive.Sink. Thread-safe; the command executes at the
@@ -42,6 +59,10 @@ func (s *driveRuntimeSink) Enqueue(cmd drive.Command) {
 	if s.rt.frameTimer != nil {
 		s.rt.frameTimer.RequestFrame()
 	}
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
 }
 
 // Epoch implements drive.Sink: the frame epoch at the last cut.
@@ -51,7 +72,7 @@ func (s *driveRuntimeSink) Epoch() uint64 { return s.epoch.Load() }
 // when cfg.Drive.Enabled. LDP is otherwise absent from the runtime: the
 // frame loop sees one nil pointer check per frame (NFR-4).
 func (rt *Runtime) installDriveSink() {
-	rt.driveSink = &driveRuntimeSink{rt: rt, stats: &drive.Stats{}}
+	rt.driveSink = &driveRuntimeSink{rt: rt, stats: &drive.Stats{}, wake: make(chan struct{}, 1)}
 }
 
 // DriveSink returns the drive seam, or nil when LDP is disabled (FR-4).
@@ -86,31 +107,58 @@ func (rt *Runtime) driveDrain() int {
 	// Counted before execution so a sys.info in this batch observes the
 	// batch it belongs to.
 	s.stats.AddCommandsDrained(len(commands))
+	s.drainedThisFrame += len(commands)
 	for _, c := range commands {
 		rt.driveDispatch(c)
 	}
 	return len(commands)
 }
 
-// driveHandler executes one drive method on the runtime thread.
-type driveHandler func(rt *Runtime, params json.RawMessage) (json.RawMessage, *proto.Error)
+// driveOutcome is a handler's result: either an immediate Result, or a
+// deferred one (time.advance replies only after its frame has executed).
+type driveOutcome struct {
+	result   drive.Result
+	deferred bool
+}
+
+func payloadOutcome(payload json.RawMessage, frame uint64) driveOutcome {
+	return driveOutcome{result: drive.Result{Payload: payload, Frame: frame}}
+}
+
+func errorOutcome(perr *proto.Error, frame uint64) driveOutcome {
+	return driveOutcome{result: drive.Result{Err: perr, Frame: frame}}
+}
+
+// driveHandler executes one drive method on the runtime thread. Handlers run
+// at a cut; only time.advance defers its reply (to after its frame).
+type driveHandler func(rt *Runtime, cmd drive.Command) driveOutcome
 
 // driveMethods is the runtime-side method table. The server-side table owns
-// grants and connection concerns; this table owns execution semantics.
-var driveMethods = map[string]driveHandler{
-	"sys.ping": drivePing,
-	"sys.info": driveInfo,
+// connection concerns (framing, auth); this table owns execution semantics.
+// Grant names live in the server table (drive.MethodGrant) — one source.
+// Populated in init: a composite literal initializer would form an
+// initialization cycle through the step executor back into the map.
+var driveMethods map[string]driveHandler
+
+func init() {
+	driveMethods = map[string]driveHandler{
+		"sys.ping":     drivePing,
+		"sys.info":     driveInfo,
+		"time.mode":    driveTimeMode,
+		"time.advance": driveTimeAdvance,
+		"frame.run":    driveFrameRun,
+	}
 }
 
-func drivePing(_ *Runtime, _ json.RawMessage) (json.RawMessage, *proto.Error) {
+func drivePing(rt *Runtime, _ drive.Command) driveOutcome {
 	payload, err := json.Marshal(map[string]bool{"pong": true})
 	if err != nil {
-		return nil, &proto.Error{Code: proto.ErrInternal, Detail: err.Error()}
+		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
 	}
-	return payload, nil
+	return payloadOutcome(payload, rt.driveSink.Epoch())
 }
 
-func driveInfo(rt *Runtime, _ json.RawMessage) (json.RawMessage, *proto.Error) {
+func driveInfo(rt *Runtime, _ drive.Command) driveOutcome {
 	drained, sent, denied, panics := rt.driveSink.stats.Snapshot()
 	payload, err := json.Marshal(map[string]any{
 		"v":       proto.ProtocolMajor,
@@ -124,16 +172,16 @@ func driveInfo(rt *Runtime, _ json.RawMessage) (json.RawMessage, *proto.Error) {
 		},
 	})
 	if err != nil {
-		return nil, &proto.Error{Code: proto.ErrInternal, Detail: err.Error()}
+		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
 	}
-	return payload, nil
+	return payloadOutcome(payload, rt.driveSink.Epoch())
 }
 
 // driveInfoMethodList is the sorted method list reported by sys.info. It is
 // a separate literal (not derived from driveMethods) to break the
 // package-level initialization cycle map→handler→map; a test asserts the
 // two stay in sync.
-var driveInfoMethodList = []string{"sys.info", "sys.ping"}
+var driveInfoMethodList = []string{"frame.run", "sys.info", "sys.ping", "time.advance", "time.mode"}
 
 // driveDispatch runs one command's handler on the runtime thread and replies
 // exactly once. A handler panic is converted to a typed internal.panic
@@ -158,6 +206,58 @@ func (rt *Runtime) driveDispatch(cmd drive.Command) {
 		}
 		return
 	}
-	payload, perr := handler(rt, cmd.Params)
-	cmd.Reply <- drive.Result{Payload: payload, Err: perr, Frame: frame()}
+	// Grant check at the execution seam too (FR-3): the socket server checks
+	// per request, the runtime re-checks so the in-process harness path and
+	// frame.run steps cannot bypass it.
+	if grant, _ := drive.MethodGrant(cmd.Method); grant != "" && !cmd.Grants.Allows(grant) {
+		rt.driveSink.stats.AddGrantDenied()
+		cmd.Reply <- drive.Result{
+			Err:   &proto.Error{Code: proto.ErrGrant, Detail: grant},
+			Frame: frame(),
+		}
+		return
+	}
+	out := handler(rt, cmd)
+	if out.deferred {
+		return
+	}
+	cmd.Reply <- out.result
+}
+
+// drivePostFrame completes virtual-time advances deferred at the last cut:
+// each pending advance moves the clock and runs exactly one full frame, then
+// replies with the new epoch (FR-5). Advances orphaned by a mode flip back
+// to Wall are refused with a typed error, never silently dropped.
+func (rt *Runtime) drivePostFrame() {
+	if rt.driveSink == nil {
+		return
+	}
+	pending := rt.driveSink.pendingAdvances
+	if len(pending) == 0 {
+		return
+	}
+	rt.driveSink.pendingAdvances = nil
+	for _, adv := range pending {
+		if rt.clock.Mode() != ClockVirtual {
+			adv.cmd.Reply <- drive.Result{
+				Err: &proto.Error{
+					Code:   proto.ErrTimeMode,
+					Detail: "clock left virtual mode before the advance executed",
+				},
+				Frame: rt.driveSink.Epoch(),
+			}
+			continue
+		}
+		now := rt.clock.Advance(adv.d)
+		rt.runFrame(now, true)
+		payload, err := json.Marshal(map[string]uint64{"frame": rt.frameNumber})
+		if err != nil {
+			adv.cmd.Reply <- drive.Result{
+				Err:   &proto.Error{Code: proto.ErrInternal, Detail: err.Error()},
+				Frame: rt.driveSink.Epoch(),
+			}
+			continue
+		}
+		adv.cmd.Reply <- drive.Result{Payload: payload, Frame: rt.frameNumber}
+	}
 }

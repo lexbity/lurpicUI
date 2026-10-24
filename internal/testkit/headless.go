@@ -2,6 +2,7 @@ package testkit
 
 import (
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -74,6 +75,22 @@ type Harness struct {
 	fonts      *text.FontRegistry
 	rt         *runtime.Runtime
 	FrameCount int
+	// frameClock is the synthetic frame-time source: RunFrame seeds the
+	// runtime clock from it before each frame, so frame dt is fully under
+	// the test's control (zero by default — headless frames carry no
+	// spontaneous elapsed time; a feed or cadence only ticks when the test
+	// asks for it via SetFramePeriod).
+	frameClock  time.Time
+	framePeriod time.Duration
+}
+
+// SetFramePeriod makes each subsequent RunFrame advance the harness clock by
+// d, so every frame observes dt = d. Zero (the default) keeps dt at 0.
+func (h *Harness) SetFramePeriod(d time.Duration) {
+	if h == nil {
+		return
+	}
+	h.framePeriod = d
 }
 
 // NewHarness creates a headless harness and registers cleanup.
@@ -141,7 +158,12 @@ func (h *Harness) RunFrame() {
 		return
 	}
 	if h.rt != nil {
-		h.rt.RunOneFrame()
+		if h.frameClock.IsZero() {
+			// Fixed epoch: with a zero period every frame has dt = 0.
+			h.frameClock = time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+		}
+		h.rt.RunOneFrameAt(h.frameClock)
+		h.frameClock = h.frameClock.Add(h.framePeriod)
 	}
 	h.FrameCount++
 }

@@ -332,12 +332,15 @@ func (s *Shaper) Shape(p Paragraph) *TextLayout {
 	return layout
 }
 
-// shapeMu serializes the vendored harfbuzz shape calls. The font Face's
-// glyph-extents cache (go-text/typesetting/font.extentsCache) is not
+// shapeMu serializes the vendored font.Face cache accesses. The Face's
+// caches (glyph-extents extentsCache and the cmap lookup caches) are not
 // synchronized, so when the runtime's forked projection shapes text in
-// parallel goroutines over the shared registry faces, concurrent Shape calls
-// race that cache (F-shape-fork-race). Shaping is demand-driven and cached at
-// the projection layer, so the serialization is cheap in practice.
+// parallel goroutines over the shared registry faces, concurrent Shape,
+// segmentation, and face-resolution calls race those caches
+// (F-shape-fork-race; re-surfaced by typesetting v0.3.5's splitByFace
+// segmentation, which resolves faces outside the shape call itself).
+// Shaping is demand-driven and cached at the projection layer, so the
+// serialization is cheap in practice.
 var shapeMu sync.Mutex
 
 func (s *Shaper) shapeSegment(seg resolvedSegment, style TextStyle) *gotextshaping.Output {
@@ -599,6 +602,8 @@ func (m registryFontMap) ResolveFace(r rune) *font.Face {
 	if len(m.faces) == 0 {
 		return nil
 	}
+	shapeMu.Lock()
+	defer shapeMu.Unlock()
 	for _, face := range m.faces {
 		if face == nil {
 			continue

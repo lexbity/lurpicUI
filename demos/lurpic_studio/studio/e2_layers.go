@@ -307,7 +307,7 @@ func NewLayersFacet(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, id
 		},
 	}
 	e.tick = facet.TickRole{OnTick: func(dt time.Duration) {
-		if e.toastOn.Get() && time.Now().After(e.toastUntil) {
+		if e.toastOn.Get() && e.rt.Now().After(e.toastUntil) {
 			e.toastOn.Set(false)
 		}
 	}}
@@ -436,7 +436,7 @@ func (e *Layers) OnAttach(ctx facet.AttachContext) {
 	// exhibit's attach lifecycle like every other store subscription.
 	idToastButton := e.toastButton.Activated.Subscribe(func(signal.Unit) {
 		e.toastOn.Set(true)
-		e.toastUntil = time.Now().Add(2 * time.Second)
+		e.toastUntil = e.rt.Now().Add(2 * time.Second)
 	})
 	e.cln = func() {
 		e.modalOpen.OnChange.Unsubscribe(idModal)

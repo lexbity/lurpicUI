@@ -50,6 +50,9 @@ type Runtime struct {
 	frameNumber  uint64
 	frameTimer   *FrameTimer
 	contentScale float32
+	// clock is the engine time service (QP-5): Wall reads the system clock,
+	// Virtual single-steps on driver advances. Runtime-thread owned.
+	clock *Clock
 
 	dirtyFacets      map[facet.FacetID]facet.DirtyFlags
 	dirtySources     map[facet.FacetID]string
@@ -174,6 +177,10 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		poisonReports:    make(map[facet.FacetID]*poisonReport),
 		recoveryDisabled: config.RecoveryDisabled,
 	}
+	rt.clock = NewClock(wallNow)
+	rt.inputSystem.SetTimeSource(rt.clock.Now)
+	rt.clock.SetGestureGuard(rt.inputSystem.GestureActive)
+	rt.frameTimer.SetTimeSource(rt.clock.Now)
 	rt.renderPipeline = newRenderPipeline(backend)
 	// Slice 10 (Q9/FR-12): the render thread swaps a fatal GPU backend for the
 	// software backend bound to the current surface; the swap notifies the
@@ -231,6 +238,14 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 func (rt *Runtime) CommandRegistry() *CommandRegistry {
 	return rt.config.CommandRegistry
 }
+
+// Clock returns the runtime's time service (QP-5).
+func (rt *Runtime) Clock() *Clock { return rt.clock }
+
+// Now returns the current engine time (RuntimeServices accessor). Called on
+// the runtime thread; marks read the clock so Virtual-mode replay is
+// deterministic.
+func (rt *Runtime) Now() time.Time { return rt.clock.Now() }
 
 func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) *render.Frame {
 	return assembleFrameWithLayers(output, dirtySnapshot, rt)
@@ -491,16 +506,14 @@ func (rt *Runtime) RequestFrame() {
 	rt.frameTimer.RequestFrame()
 }
 
-// SetFrameClock advances the simulated frame clock: the next frame's delta
-// time is measured from the given instant. It is a test seam — headless
-// harnesses never call FrameTimer.Wait (which seeds the clock in the real app
-// loop), so dt stays zero and TickRole cadence cannot be exercised. Seeding
-// the clock lets a test drive the real frame-tick path end to end (AC-1).
+// SetFrameClock seeds the simulated frame clock: the next frame's delta time
+// is measured from the given instant. It is a test seam — headless harnesses
+// never call FrameTimer.Wait, so dt stays zero and TickRole cadence cannot be
+// exercised. Seeding the clock lets a test drive the real frame-tick path end
+// to end (AC-1). The clock owns frame deltas (QP-5), so the seed goes there.
 func (rt *Runtime) SetFrameClock(now time.Time) {
-	if rt == nil || rt.frameTimer == nil {
+	if rt == nil || rt.clock == nil {
 		return
 	}
-	rt.frameTimer.mu.Lock()
-	rt.frameTimer.lastFrame = now
-	rt.frameTimer.mu.Unlock()
+	rt.clock.SeedLastFrame(now)
 }

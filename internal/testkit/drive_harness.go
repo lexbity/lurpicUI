@@ -57,7 +57,15 @@ func (h *DriveHarness) Call(method string, params any) (json.RawMessage, *proto.
 		raw = enc
 	}
 	h.nextID++
-	cmd := drive.Command{ID: h.nextID, Method: method, Params: raw, Reply: make(chan drive.Result, 1)}
+	// The in-process harness is the trusted path: commands carry the full
+	// grant set (the socket path is where grants are scoped).
+	cmd := drive.Command{
+		ID:     h.nextID,
+		Method: method,
+		Params: raw,
+		Grants: drive.Grants{Read: true, Input: true, Write: true, Time: true, Admin: true},
+		Reply:  make(chan drive.Result, 1),
+	}
 	h.Sink().Enqueue(cmd)
 	for i := 0; i < driveReplyFrames; i++ {
 		h.RunFrame()

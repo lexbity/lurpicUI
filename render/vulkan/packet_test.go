@@ -1,6 +1,8 @@
 package vulkan
 
 import (
+	"time"
+
 	"encoding/binary"
 	"image"
 	"image/color"
@@ -554,6 +556,7 @@ type iconPacketRuntime struct {
 }
 
 func (s iconPacketRuntime) Schedule(j job.AnyJob)  {}
+func (s iconPacketRuntime) Now() time.Time         { return time.Time{} }
 func (s iconPacketRuntime) CancelJob(id job.JobID) {}
 func (s iconPacketRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }

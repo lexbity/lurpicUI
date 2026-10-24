@@ -53,6 +53,33 @@ func ParseGrants(s string) (Grants, error) {
 	return g, nil
 }
 
+// Allows reports whether the grant set authorizes the named grant. Admin
+// implies every grant. This is the single grant decision table: the server
+// checks it per connection request, and the runtime re-checks it per
+// frame.run step.
+func (g Grants) Allows(name string) bool {
+	if name == "" {
+		return true
+	}
+	if g.Admin {
+		return true
+	}
+	switch name {
+	case "read":
+		return g.Read
+	case "input":
+		return g.Input
+	case "write":
+		return g.Write
+	case "time":
+		return g.Time
+	case "admin":
+		return false
+	default:
+		return false
+	}
+}
+
 // String renders the grant set as the canonical comma list.
 func (g Grants) String() string {
 	names := make([]string, 0, 5)
@@ -398,12 +425,27 @@ type methodSpec struct {
 	local bool   // handled on the connection goroutine
 }
 
-// methods is the Phase 1 method table. Later phases extend it; unknown
-// methods fail with a typed error, never a panic (NFR-9).
+// methods is the method table. Unknown methods fail with a typed error,
+// never a panic (NFR-9). frame.run's grant is the union of its steps —
+// checked per step by the runtime against Grants.Allows — so the connection
+// level needs no grant of its own.
 var methods = map[string]methodSpec{
-	"sys.hello": {local: true},
-	"sys.ping":  {grant: "read"},
-	"sys.info":  {grant: "read"},
+	"sys.hello":    {local: true},
+	"sys.ping":     {grant: "read"},
+	"sys.info":     {grant: "read"},
+	"time.mode":    {grant: "time"},
+	"time.advance": {grant: "time"},
+	"frame.run":    {},
+}
+
+// MethodGrant reports the grant a method requires ("" = none at connection
+// level). Exported so the runtime's per-step checks read the same table.
+func MethodGrant(method string) (string, bool) {
+	spec, ok := methods[method]
+	if !ok {
+		return "", false
+	}
+	return spec.grant, true
 }
 
 func (c *conn) dispatch(req proto.Request, w *bufio.Writer) proto.Response {
@@ -450,24 +492,7 @@ func (c *conn) dispatch(req proto.Request, w *bufio.Writer) proto.Response {
 }
 
 func (c *conn) hasGrant(name string) bool {
-	if name == "" {
-		return true
-	}
-	g := c.srv.cfg.Grants
-	switch name {
-	case "read":
-		return g.Read || g.Admin
-	case "input":
-		return g.Input || g.Admin
-	case "write":
-		return g.Write || g.Admin
-	case "time":
-		return g.Time || g.Admin
-	case "admin":
-		return g.Admin
-	default:
-		return false
-	}
+	return c.srv.cfg.Grants.Allows(name)
 }
 
 func (c *conn) writeResult(w *bufio.Writer, req proto.Request, payload json.RawMessage, frame uint64) proto.Response {

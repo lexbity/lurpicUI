@@ -115,6 +115,11 @@ func DefaultConfig() Config {
 	}
 }
 
+// wallNow is the runtime package's wall-clock source (Debt-4): the single
+// read point beside the Clock's injected source. Engine code reads time
+// through the Clock, never directly.
+var wallNow = time.Now
+
 // FrameTimer controls frame pacing.
 type FrameTimer struct {
 	targetFPS    int
@@ -122,7 +127,29 @@ type FrameTimer struct {
 	lastFrame    time.Time
 	requestCh    chan struct{}
 	vsyncCh      chan int64 // receives vsync frameTimeNanos from platform
-	mu           sync.Mutex
+	// nowFn is the pacing time source (Debt-4): the runtime clock, so pacing
+	// reads the same seam as every other engine time consumer. Nil means wall
+	// time (FrameTimer used standalone, e.g. in tests).
+	nowFn func() time.Time
+	mu    sync.Mutex
+}
+
+// SetTimeSource installs the pacing time source. Called once by the runtime
+// constructor with the clock.
+func (t *FrameTimer) SetTimeSource(fn func() time.Time) {
+	t.mu.Lock()
+	t.nowFn = fn
+	t.mu.Unlock()
+}
+
+func (t *FrameTimer) now() time.Time {
+	t.mu.Lock()
+	fn := t.nowFn
+	t.mu.Unlock()
+	if fn != nil {
+		return fn()
+	}
+	return wallNow()
 }
 
 // NewFrameTimer constructs a timer for the given target FPS.
@@ -155,7 +182,7 @@ func (t *FrameTimer) Vsync(frameTimeNanos int64) {
 func (t *FrameTimer) Wait() time.Time {
 
 	if t == nil {
-		return time.Now()
+		return t.now()
 	}
 	if runtimeTraceActive() {
 		runtimeTracef("FrameTimer.Wait enter last=%v", t.lastFrame.IsZero())
@@ -176,7 +203,7 @@ func (t *FrameTimer) Wait() time.Time {
 	}
 
 	// Fall back to timer-based pacing.
-	tick := time.Now()
+	tick := t.now()
 	t.mu.Lock()
 	last := t.lastFrame
 	t.mu.Unlock()
@@ -219,7 +246,7 @@ func (t *FrameTimer) Wait() time.Time {
 		default:
 		}
 	}
-	now := time.Now()
+	now := t.now()
 	t.mu.Lock()
 	t.lastFrame = now
 	t.mu.Unlock()

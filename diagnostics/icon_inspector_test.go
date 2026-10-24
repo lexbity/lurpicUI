@@ -1,6 +1,8 @@
 package diagnostics_test
 
 import (
+	"time"
+
 	"strings"
 	"testing"
 
@@ -18,6 +20,7 @@ type iconInspectorRuntime struct {
 }
 
 func (s iconInspectorRuntime) Schedule(j job.AnyJob)  {}
+func (s iconInspectorRuntime) Now() time.Time         { return time.Time{} }
 func (s iconInspectorRuntime) CancelJob(id job.JobID) {}
 func (s iconInspectorRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }

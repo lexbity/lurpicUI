@@ -1,6 +1,8 @@
 package software
 
 import (
+	"time"
+
 	"bytes"
 	"image"
 	"image/color"
@@ -309,6 +311,7 @@ type iconRenderRuntime struct {
 }
 
 func (s iconRenderRuntime) Schedule(j job.AnyJob)  {}
+func (s iconRenderRuntime) Now() time.Time         { return time.Time{} }
 func (s iconRenderRuntime) CancelJob(id job.JobID) {}
 func (s iconRenderRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }

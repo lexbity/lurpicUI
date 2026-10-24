@@ -1,6 +1,8 @@
 package layout
 
 import (
+	"time"
+
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -15,6 +17,7 @@ type recordingRuntime struct {
 }
 
 func (r *recordingRuntime) Schedule(j job.AnyJob)  {}
+func (r *recordingRuntime) Now() time.Time         { return time.Time{} }
 func (r *recordingRuntime) CancelJob(id job.JobID) {}
 func (r *recordingRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 	if r.invalidated == nil {

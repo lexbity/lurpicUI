@@ -278,17 +278,17 @@ func TestRealtime_jumpToLiveButton(t *testing.T) {
 // carries a real >= cadence delta, the runtime's tickFacets drives the armed
 // role → feed → row append → chart re-project. This is the exact path the real
 // app uses (the frame loop seeds the clock via FrameTimer.Wait; a headless
-// harness must seed it explicitly via Runtime.SetFrameClock).
+// harness must drive dt explicitly via SetFramePeriod).
 func TestRealtime_tickRoleStreamsChart(t *testing.T) {
 	e, h := newE1Harness(t)
 	before := e.appState.Rows.Len()
 
-	// Seed the frame clock so the next frame's delta >= the feed cadence. The
-	// runtime's tickFacets resets the role after each tick, so arming is proven
-	// by the fact that the frame path actually drives the feed: with the seed,
-	// a frame's phase-1 hook re-arms the role, tickFacets runs it with the
-	// real delta, and a row lands — the exact path the real app uses.
-	h.Runtime().SetFrameClock(time.Now().Add(-2 * DefaultFeedCadence))
+	// Give every frame a delta >= the feed cadence. The runtime's tickFacets
+	// resets the role after each tick, so arming is proven by the fact that
+	// the frame path actually drives the feed: with the period, a frame's
+	// phase-1 hook re-arms the role, tickFacets runs it with the delta, and a
+	// row lands — the exact path the real app uses.
+	h.SetFramePeriod(2 * DefaultFeedCadence)
 	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
 
 	// The windowed chart re-projected the streamed row (1 seed row -> 2).

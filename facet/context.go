@@ -1,6 +1,8 @@
 package facet
 
 import (
+	"time"
+
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/job"
 )
@@ -28,4 +30,8 @@ type RuntimeServices interface {
 	Schedule(j job.AnyJob)
 	CancelJob(id job.JobID)
 	Invalidate(id FacetID, flags DirtyFlags, source string)
+	// Now returns the engine time (QP-5: the runtime clock). Marks that time
+	// behavior (a toast expiry, a cadence) read this — never wall time — so
+	// Virtual-mode replay is deterministic.
+	Now() time.Time
 }

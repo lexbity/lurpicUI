@@ -14,9 +14,27 @@ import (
 const debugDisableSurfaceCreated = false
 
 func (rt *Runtime) RunOneFrame() {
+	rt.RunOneFrameAt(rt.clock.Now())
+}
 
+// RunOneFrameAt runs one frame observing the supplied instant. It is the
+// headless-harness seam: a test owns frame time completely (dt = now − the
+// previous frame's now). In Virtual mode the parameter is ignored — the
+// virtual clock is the only time authority (QP-5).
+func (rt *Runtime) RunOneFrameAt(now time.Time) {
 	_ = rt.start()
-	rt.runFrame(time.Now(), true)
+	if rt.clock.Mode() == ClockVirtual {
+		now = rt.clock.Now()
+	}
+	// LDP cut (QP-6): drain drive commands at the boundary before the frame
+	// body begins — handlers (frame.run, time.advance) may run their own
+	// frames, which must never nest inside another frame's locks.
+	rt.driveDrain()
+	rt.runFrame(now, true)
+	// Virtual-mode advances deferred by this frame's drain complete here:
+	// each pending advance runs exactly one full frame and then replies
+	// (QP-5: Advance returns after exactly one complete frame).
+	rt.drivePostFrame()
 }
 
 func (rt *Runtime) Run() error {
@@ -55,12 +73,43 @@ func (rt *Runtime) Run() error {
 			<-rt.doneCh
 			return nil
 		}
+		if rt.clock.Mode() == ClockVirtual {
+			// Virtual mode single-steps (QP-5): park until a drive command
+			// arrives (advance/mode/reads), execute it at the cut between
+			// frames, and never render on vsync.
+			if !rt.virtualParkStep() {
+				return nil
+			}
+			continue
+		}
 		now := rt.frameTimer.Wait()
 		if runtimeTraceActive() {
 			runtimeTracef("Run loop got frame tick frame=%d now=%s", rt.frameNumber+1, now.Format(time.RFC3339Nano))
 		}
+		// LDP cut (QP-6): drain between frames, before this frame's body.
+		rt.driveDrain()
 		rt.runFrame(now, false)
+		rt.drivePostFrame()
 	}
+}
+
+// virtualParkStep blocks until a drive command (or shutdown) wakes the
+// runtime, then drains the inbox at the cut between frames. It renders
+// nothing: in Virtual mode frames happen only inside time.advance (via
+// drivePostFrame). Returns false when shutdown was signaled.
+func (rt *Runtime) virtualParkStep() bool {
+	var wake <-chan struct{}
+	if rt.driveSink != nil {
+		wake = rt.driveSink.wake
+	}
+	select {
+	case <-rt.shutdownCh:
+		return false
+	case <-wake:
+	}
+	rt.driveDrain()
+	rt.drivePostFrame()
+	return true
 }
 
 func (rt *Runtime) Shutdown() {

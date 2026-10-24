@@ -1,8 +1,6 @@
 package input
 
 import (
-	"time"
-
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -16,7 +14,7 @@ func (s *System) processPointer(e platform.EventPointer, hitMap *projection.HitM
 	s.SetInputModality(facet.InputModalityPointer)
 	ptr := s.getOrCreatePointer(0)
 	ptr.Position = e.Position
-	ptr.LastMoveTime = time.Now()
+	ptr.LastMoveTime = s.now()
 	switch e.Kind {
 	case platform.PointerPress:
 		out := s.handlePress(ptr, e, hitMap)
@@ -56,7 +54,7 @@ func (s *System) handlePress(ptr *pointerState, e platform.EventPointer, hitMap 
 	ptr.PressedButton = e.Button
 	ptr.PressPosition = e.Position
 	ptr.DragActive = false
-	ptr.clickCount = s.resolveClickCount(e.Position, time.Now())
+	ptr.clickCount = s.resolveClickCount(e.Position, s.now())
 	local := hit.Local
 
 	ptr.PressTarget = &captureTarget{FacetID: hit.FacetID, MarkID: hit.MarkID}
@@ -164,7 +162,7 @@ func (s *System) handleMove(ptr *pointerState, e platform.EventPointer, hitMap *
 		out = append(out, RoutedEvent{Target: hit.FacetID, Event: PointerEnterEvent{Position: hit.Local, ScreenPos: e.Position, MarkID: hit.MarkID}})
 	}
 	out = append(out, RoutedEvent{Target: hit.FacetID, Event: PointerMoveEvent{Position: hit.Local, ScreenPos: e.Position, Modifiers: e.Modifiers, MarkID: hit.MarkID}})
-	s.hover.OnMove(hit.FacetID, hit.MarkID, time.Now())
+	s.hover.OnMove(hit.FacetID, hit.MarkID, s.now())
 	ptr.Position = e.Position
 	return out
 }

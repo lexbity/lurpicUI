@@ -1,6 +1,8 @@
 package contracttest
 
 import (
+	"time"
+
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
@@ -25,12 +27,16 @@ type contractRuntime struct {
 
 // NoopRuntime is a reusable no-op implementation of facet.RuntimeServices
 // for use in tests. Mark test stubs can embed this instead of re-declaring
-// the three no-op methods (Schedule, CancelJob, Invalidate) on every stub.
+// the four no-op methods (Schedule, CancelJob, Invalidate, Now) on every
+// stub. Now returns the zero time: contract tests do not exercise timed
+// behavior.
 type NoopRuntime struct{}
 
-func (NoopRuntime) Schedule(j job.AnyJob)                                              {}
-func (NoopRuntime) CancelJob(id job.JobID)                                             {}
-func (NoopRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
+func (NoopRuntime) Schedule(j job.AnyJob)  {}
+func (NoopRuntime) CancelJob(id job.JobID) {}
+func (NoopRuntime) Now() time.Time         { return time.Time{} }
+func (NoopRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
+}
 
 // AssertValueSurvivesDispose verifies that a writable-value mark uses the
 // caller's store (P1) — the value in the caller's store survives a

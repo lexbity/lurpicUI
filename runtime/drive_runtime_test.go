@@ -24,7 +24,7 @@ func mustDriveRuntime(t testing.TB) *Runtime {
 }
 
 func drivePingCmd(id uint64) drive.Command {
-	return drive.Command{ID: id, Method: "sys.ping", Reply: make(chan drive.Result, 1)}
+	return drive.Command{ID: id, Method: "sys.ping", Grants: drive.Grants{Read: true}, Reply: make(chan drive.Result, 1)}
 }
 
 func TestDrive_DisabledByDefaultNoSink(t *testing.T) {
@@ -64,8 +64,11 @@ func TestDrive_CommandExecutesAtCut(t *testing.T) {
 	if err := json.Unmarshal(res.Payload, &payload); err != nil || !payload.Pong {
 		t.Fatalf("payload = %s (%v)", res.Payload, err)
 	}
-	if res.Frame != 2 {
-		t.Fatalf("frame = %d, want 2 (the cut that executed the command)", res.Frame)
+	// QP-6: the reply carries the epoch of the cut it observed — the last
+	// completed frame (frame 1); the command executes at the boundary before
+	// frame 2.
+	if res.Frame != 1 {
+		t.Fatalf("frame = %d, want 1 (the cut after the first frame)", res.Frame)
 	}
 	stats := rt.LastFrameStats()
 	if stats.DriveCommandsDrained != 1 {
@@ -88,8 +91,8 @@ func TestDrive_MultipleCommandsInOrder(t *testing.T) {
 	rt.RunOneFrame()
 	for i, cmd := range cmds {
 		res := <-cmd.Reply
-		if res.Err != nil || res.Frame != 2 {
-			t.Fatalf("cmd %d: %+v (frame %d)", i, res.Err, res.Frame)
+		if res.Err != nil || res.Frame != 1 {
+			t.Fatalf("cmd %d: %+v (frame %d, want the cut epoch 1)", i, res.Err, res.Frame)
 		}
 	}
 	if got := rt.LastFrameStats().DriveCommandsDrained; got != n {
@@ -118,11 +121,11 @@ func TestDrive_HandlerPanicBecomesTypedError(t *testing.T) {
 	// Inject a panicking handler for the duration of the test; the dispatch
 	// recover must convert it to a typed internal.panic result and reply
 	// exactly once (QP-16, NFR-7).
-	driveMethods["sys.panic-test"] = func(*Runtime, json.RawMessage) (json.RawMessage, *proto.Error) {
+	driveMethods["sys.panic-test"] = func(*Runtime, drive.Command) driveOutcome {
 		panic("boom")
 	}
 	defer delete(driveMethods, "sys.panic-test")
-	cmd := drive.Command{ID: 3, Method: "sys.panic-test", Reply: make(chan drive.Result, 1)}
+	cmd := drive.Command{ID: 3, Method: "sys.panic-test", Grants: drive.Grants{Read: true}, Reply: make(chan drive.Result, 1)}
 	rt.DriveSink().Enqueue(cmd)
 	rt.RunOneFrame()
 	res := <-cmd.Reply
@@ -154,7 +157,7 @@ func TestDrive_InfoMethodListMatchesTable(t *testing.T) {
 func TestDrive_SysInfoReportsCounters(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	rt.RunOneFrame()
-	cmd := drive.Command{ID: 2, Method: "sys.info", Reply: make(chan drive.Result, 1)}
+	cmd := drive.Command{ID: 2, Method: "sys.info", Grants: drive.Grants{Read: true}, Reply: make(chan drive.Result, 1)}
 	rt.DriveSink().Enqueue(cmd)
 	rt.RunOneFrame()
 	res := <-cmd.Reply
@@ -175,8 +178,8 @@ func TestDrive_SysInfoReportsCounters(t *testing.T) {
 	if payload.V != proto.ProtocolMajor {
 		t.Fatalf("v = %d", payload.V)
 	}
-	if payload.Frame != 2 {
-		t.Fatalf("frame = %d, want 2", payload.Frame)
+	if payload.Frame != 1 {
+		t.Fatalf("frame = %d, want the cut epoch 1", payload.Frame)
 	}
 	if payload.Drive.CommandsDrained != 1 {
 		t.Fatalf("commandsDrained = %d, want 1", payload.Drive.CommandsDrained)

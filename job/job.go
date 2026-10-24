@@ -134,6 +134,20 @@ type Pool struct {
 	wg sync.WaitGroup
 }
 
+// Pending reports the number of submitted jobs not yet observable as
+// drained results: in-flight (active), queued on the submission channels,
+// and completed-but-undrained. Zero means the pool is fully drained (the
+// drive frame.run jobsDrained predicate).
+func (p *Pool) Pending() int {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	active := len(p.active)
+	p.mu.Unlock()
+	return active + len(p.interactive) + len(p.background) + len(p.results)
+}
+
 // Pause stops workers from pulling new jobs until Resume is called.
 func (p *Pool) Pause() {
 	p.pauseMu.Lock()

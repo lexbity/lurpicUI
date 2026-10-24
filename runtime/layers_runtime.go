@@ -491,7 +491,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		if group == nil {
 			continue
 		}
-		recipeStart := time.Now()
+		recipeStart := rt.clock.Now()
 		recipe := rt.resolveLayerRecipe(group.desc, parentBounds)
 		override, hasOverride, err := rt.layerRecipeOverride(group.children, parentBounds)
 		if err != nil {
@@ -505,7 +505,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			recipe = override
 		}
 		policy := layout.ResolveLayerLayoutPolicy(recipe)
-		stats.specResolution += time.Since(recipeStart)
+		stats.specResolution += rt.clock.Now().Sub(recipeStart)
 		layerCtx := facet.LayerContext{
 			ID:         facet.LayerID(group.desc.ID),
 			HitPolicy:  facet.HitPolicy(group.desc.HitPolicy),
@@ -532,12 +532,12 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			WritingDirection: facet.WritingDirectionLTR,
 			AnchorCache:      cache,
 		}
-		measureStart := time.Now()
+		measureStart := rt.clock.Now()
 		measureResult, err := policy.MeasureLayer(measureCtx, group.children)
 		if err != nil {
 			panic(err)
 		}
-		stats.structuralMeasure += time.Since(measureStart)
+		stats.structuralMeasure += rt.clock.Now().Sub(measureStart)
 		layerBounds := parentBounds
 		if measureResult.Size.W > 0 || measureResult.Size.H > 0 {
 			layerBounds = gfx.RectFromXYWH(parentBounds.Min.X, parentBounds.Min.Y, measureResult.Size.W, measureResult.Size.H)
@@ -556,12 +556,12 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			LayerMeasureContext: measureCtx,
 			ClipRect:            layerFrame.ClipRect,
 		}
-		arrangeStart := time.Now()
+		arrangeStart := rt.clock.Now()
 		arranged, err := policy.ArrangeLayer(arrangeCtx, group.children)
 		if err != nil {
 			panic(err)
 		}
-		stats.arrange += time.Since(arrangeStart)
+		stats.arrange += rt.clock.Now().Sub(arrangeStart)
 		if len(arranged) == 0 {
 			for _, child := range group.children {
 				if child.Layout != nil {

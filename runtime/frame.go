@@ -35,6 +35,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	defer rt.frameMu.RUnlock()
 	rt.frameNumber++
 	stats := diagnostics.FrameStats{FrameNumber: rt.frameNumber}
+	// LDP cut (QP-6): the frame epoch advances here; drive commands are
+	// drained by the frame callers at the cut before this frame begins.
+	if rt.driveSink != nil {
+		rt.driveSink.epoch.Store(rt.frameNumber)
+	}
 	// RX-1 P5: frame-scoped derived counters. Reset here so the flush and any
 	// lazy Get across the frame accumulate into this frame's totals, which the
 	// diagnostics snapshot below reports.
@@ -54,17 +59,6 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	rt.drainGPUUploadResults()
 
 	newEvents := rt.collectPlatformEvents()
-	// LDP cut (QP-6): drive commands drained here execute on the runtime
-	// thread at the boundary between frame N's submit and frame N+1's event
-	// phase. When disabled this is one nil check; when idle, one atomic load.
-	if rt.driveSink != nil {
-		rt.driveSink.epoch.Store(rt.frameNumber)
-		stats.DriveCommandsDrained = rt.driveDrain()
-		_, sent, denied, panics := rt.driveSink.stats.Snapshot()
-		stats.DriveResponsesSent = sent
-		stats.DriveGrantDenied = denied
-		stats.DriveSocketGoroutinePanics = panics
-	}
 	rt.pendingEvents = append(rt.pendingEvents, newEvents...)
 	rt.pendingEvents = rt.handleWindowEvents(rt.pendingEvents)
 	if drainer, ok := rt.assetManager.(interface{ DrainInvalidations() int }); ok {
@@ -74,10 +68,9 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	}
 
 	hoverEvents := rt.inputSystem.TickHover(now)
-	dt := time.Duration(0)
-	if rt.frameTimer != nil && !rt.frameTimer.lastFrame.IsZero() {
-		dt = now.Sub(rt.frameTimer.lastFrame)
-	}
+	// Frame dt comes from the clock (QP-5): wall deltas in Wall mode, virtual
+	// deltas in Virtual mode — the same seam every engine time consumer uses.
+	dt := rt.clock.FrameDelta(now)
 	rt.runPhase1TickHooks(dt)
 	rt.tickFacets(dt)
 
@@ -121,19 +114,19 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		sink.OnDirtySnapshot(rt.buildDirtySnapshot(rt.frameNumber))
 	}
 
-	layoutStart := time.Now()
+	layoutStart := rt.clock.Now()
 	if rt.hasLayoutDirty() {
 		w, h := rt.windowSize()
 		rt.runLayoutPass(gfx.Size{W: float32(w), H: float32(h)})
 	} else {
 		rt.lastArrangeCount = 0
 	}
-	stats.LayoutDuration = time.Since(layoutStart)
+	stats.LayoutDuration = rt.clock.Now().Sub(layoutStart)
 	stats.ArrangeCount = rt.lastArrangeCount
 
-	layerStart := time.Now()
+	layerStart := rt.clock.Now()
 	phaseStats := rt.resolveLayerTree()
-	stats.LayoutResolveDuration = time.Since(layerStart)
+	stats.LayoutResolveDuration = rt.clock.Now().Sub(layerStart)
 	stats.LayoutDuration += stats.LayoutResolveDuration
 	stats.LayerResolutionDuration = phaseStats.specResolution
 	stats.AnchorExportDuration = phaseStats.anchorExport
@@ -143,7 +136,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	stats.LayerResolveCount = phaseStats.groups
 	stats.LayersUnmountedSkips = phaseStats.unmountedSkips
 
-	projStart := time.Now()
+	projStart := rt.clock.Now()
 	if rt.focusManager != nil {
 		rt.focusManager.RebuildTabOrder(rt.root)
 	}
@@ -156,21 +149,21 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	// projection walk reads stable stores and never trips a mid-walk lazy
 	// recompute. The flush skips clean deriveds (one flag check each), so the
 	// quiet steady state contributes zero to the derived counters.
-	flushStart := time.Now()
+	flushStart := rt.clock.Now()
 	flush := store.FlushDerived()
 	stats.DerivedEvaluated = flush.Evaluated
 	stats.DerivedRecomputed = flush.Recomputed
-	stats.DerivedFlushDuration = time.Since(flushStart)
+	stats.DerivedFlushDuration = rt.clock.Now().Sub(flushStart)
 
 	rt.projectionInProgress.Store(true)
 	frameOut := rt.projectionSystem.Run(rt.root, projection.FrameInfo{
 		Number:    rt.frameNumber,
-		DeltaTime: now.Sub(rt.frameTimer.lastFrame),
+		DeltaTime: dt,
 		WallTime:  now,
 	})
 	rt.projectionInProgress.Store(false)
 
-	stats.ProjectDuration = time.Since(projStart)
+	stats.ProjectDuration = rt.clock.Now().Sub(projStart)
 	stats.ProjectedFacets = rt.projectionSystem.ProjectedFacets
 	stats.CacheHits = rt.projectionSystem.CacheHits
 	stats.ProjectionEmptyBoundsSkips = rt.projectionSystem.EmptyBoundsSkips
@@ -184,7 +177,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		stats.RenderBatchCount = len(frameOut.RenderBatchs)
 	}
 
-	renderStart := time.Now()
+	renderStart := rt.clock.Now()
 	// Do not hand a frame to the renderer unless the platform surface is live.
 	// Android can lose the surface independently of the runtime; in that state
 	// the frame still advances, but submission must wait for a recreated surface.
@@ -231,7 +224,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 		androidTracef("runFrame skip n=%d surfaceReady=%v frameOut=%v renderPipeline=%v",
 			rt.frameNumber, rt.isSurfaceReady(), frameOut != nil, rt.renderPipeline != nil)
 	}
-	stats.RenderDuration = time.Since(renderStart)
+	stats.RenderDuration = rt.clock.Now().Sub(renderStart)
 	rt.updateIMECursorRect()
 
 	// Check for device generation change (device lost + recreate).
@@ -261,6 +254,14 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	// passes; drain them into the frame total here, after every arrange site
 	// has run (RX-1 Q5 / NFR-8).
 	stats.OverflowClampedCount = int(facet.DrainOverflowClamped())
+	if rt.driveSink != nil {
+		stats.DriveCommandsDrained = rt.driveSink.drainedThisFrame
+		rt.driveSink.drainedThisFrame = 0
+		_, sent, denied, panics := rt.driveSink.stats.Snapshot()
+		stats.DriveResponsesSent = sent
+		stats.DriveGrantDenied = denied
+		stats.DriveSocketGoroutinePanics = panics
+	}
 	rt.lastStats = stats
 	if diag := rt.diagnosticsHook(); diag != nil {
 		diag.OnFrame(stats)

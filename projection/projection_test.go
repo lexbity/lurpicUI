@@ -16,6 +16,7 @@ type projectionRuntimeStub struct{}
 
 func (projectionRuntimeStub) Schedule(j job.AnyJob)  {}
 func (projectionRuntimeStub) CancelJob(id job.JobID) {}
+func (projectionRuntimeStub) Now() time.Time         { return time.Time{} }
 func (projectionRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 

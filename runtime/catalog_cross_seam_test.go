@@ -1,6 +1,8 @@
 package runtime_test
 
 import (
+	"time"
+
 	"os"
 	"path/filepath"
 	"runtime"
@@ -27,6 +29,7 @@ type catalogRT struct {
 
 func (catalogRT) Schedule(j job.AnyJob)                                              {}
 func (catalogRT) CancelJob(id job.JobID)                                             {}
+func (catalogRT) Now() time.Time                                                     { return time.Time{} }
 func (catalogRT) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
 func (s catalogRT) RootStyleContext() any                                            { return s.rootStyle }
 func (s catalogRT) FacetByID(id facet.FacetID) facet.FacetImpl                       { return nil }

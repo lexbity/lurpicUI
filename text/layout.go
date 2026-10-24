@@ -603,6 +603,8 @@ func faceCoversText(face *font.Face, runes []rune) bool {
 	if face == nil {
 		return false
 	}
+	shapeMu.Lock()
+	defer shapeMu.Unlock()
 	for _, r := range runes {
 		if _, ok := face.NominalGlyph(r); !ok {
 			return false

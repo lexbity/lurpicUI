@@ -166,6 +166,46 @@ type System struct {
 	hoverEnabled bool
 	modality     facet.InputModality
 	clickHistory clickHistory
+	// now is the engine time source (the runtime clock, Debt-4/QP-5): every
+	// routing timestamp — hover settle, double-click window, move times —
+	// reads it so Virtual-mode replay is deterministic. Nil means wall time
+	// (the zero configuration before the runtime wires it).
+	nowFn func() time.Time
+}
+
+// SetTimeSource installs the engine time source. Called once by the runtime
+// with the clock; engine code must not read wall time directly.
+func (s *System) SetTimeSource(fn func() time.Time) {
+	if s == nil {
+		return
+	}
+	s.nowFn = fn
+}
+
+func (s *System) now() time.Time {
+	if s.nowFn != nil {
+		return s.nowFn()
+	}
+	return time.Now()
+}
+
+// GestureActive reports whether any pointer drag or touch sequence is
+// mid-flight (the QP-5 mode-switch guard).
+func (s *System) GestureActive() bool {
+	if s == nil {
+		return false
+	}
+	for _, ptr := range s.pointers {
+		if ptr.DragActive {
+			return true
+		}
+	}
+	for _, ts := range s.touches {
+		if ts.Active {
+			return true
+		}
+	}
+	return false
 }
 
 // NewSystem constructs an input state manager.
