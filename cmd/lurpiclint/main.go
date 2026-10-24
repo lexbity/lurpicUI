@@ -14,6 +14,8 @@ import (
 	"sort"
 	"strings"
 
+	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/driveschema"
+
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/capabilities"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/capindex"
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/config"
@@ -59,6 +61,8 @@ func run(args []string) int {
 		return runVersion()
 	case "baseline":
 		return runBaseline(args[2:])
+	case "drive-schema":
+		return driveschema.Run(args[2:])
 	case "verify-layout":
 		return runVerifyLayout(args[2:])
 	case "help", "-h", "--help":

@@ -16,9 +16,11 @@ import (
 // request/response over the socket, one command per invocation. Phase 8
 // replaces this with the generated typed client.
 type driveJSON struct {
-	rw   *bufio.ReadWriter
-	conn net.Conn
-	next uint64
+	rw        *bufio.ReadWriter
+	conn      net.Conn
+	next      uint64
+	token     string
+	lastFrame uint64
 }
 
 func driveConnect(socket, tokenFile string) (*driveJSON, error) {
@@ -31,7 +33,7 @@ func driveConnect(socket, tokenFile string) (*driveJSON, error) {
 		return nil, fmt.Errorf("dial: %w", err)
 	}
 	rw := bufio.NewReadWriter(bufio.NewReader(nc), bufio.NewWriter(nc))
-	c := &driveJSON{rw: rw, conn: nc}
+	c := &driveJSON{rw: rw, conn: nc, token: strings.TrimSpace(string(token))}
 	helloParams, err := json.Marshal(map[string]string{"token": strings.TrimSpace(string(token))})
 	if err != nil {
 		_ = nc.Close()
@@ -47,6 +49,23 @@ func driveConnect(socket, tokenFile string) (*driveJSON, error) {
 		return nil, fmt.Errorf("hello rejected: %s", res.Error.Error())
 	}
 	return c, nil
+}
+
+// Call implements gen.Transport: the typed client routes through the same
+// wire round trip, recording the last reply's frame epoch.
+func (c *driveJSON) Call(method string, params any) (json.RawMessage, error) {
+	res, err := c.call(method, params)
+	if err != nil {
+		return nil, err
+	}
+	if !res.OK {
+		if res.Error != nil {
+			return nil, res.Error
+		}
+		return nil, fmt.Errorf("drive: request failed")
+	}
+	c.lastFrame = res.Frame
+	return res.Result, nil
 }
 
 func (c *driveJSON) call(method string, params any) (proto.Response, error) {
@@ -87,68 +106,6 @@ func (c *driveJSON) call(method string, params any) (proto.Response, error) {
 }
 
 func (c *driveJSON) close() { _ = c.conn.Close() }
-
-// cmdDriveResolve implements `lurpic drive resolve --testid ID [--role R
-// --name N] [--key K] [--text T] [--kind K] [--coords X,Y]` — prints the
-// resolved match or the typed locator error.
-func cmdDriveResolve(fs *flag.FlagSet, conn *driveJSON) int {
-	locator := map[string]string{}
-	if v := fs.Lookup("testid"); v != nil && v.Value.String() != "" {
-		locator["testid"] = v.Value.String()
-	}
-	if v := fs.Lookup("role"); v != nil && v.Value.String() != "" {
-		locator["role"] = v.Value.String()
-	}
-	if v := fs.Lookup("name"); v != nil && v.Value.String() != "" {
-		locator["name"] = v.Value.String()
-	}
-	if v := fs.Lookup("key"); v != nil && v.Value.String() != "" {
-		locator["key"] = v.Value.String()
-	}
-	if v := fs.Lookup("text"); v != nil && v.Value.String() != "" {
-		locator["text"] = v.Value.String()
-	}
-	if v := fs.Lookup("kind"); v != nil && v.Value.String() != "" {
-		locator["kind"] = v.Value.String()
-	}
-	res, err := conn.call("locate.resolve", map[string]any{"locator": locator})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "drive: %v\n", err)
-		return 1
-	}
-	if !res.OK {
-		fmt.Fprintf(os.Stderr, "drive: %v\n", res.Error)
-		return 1
-	}
-	fmt.Println(string(res.Result))
-	return 0
-}
-
-// cmdDriveTree implements `lurpic drive tree [--from locator-flag...] [--depth N]`
-// — prints the subtree dump as JSON.
-func cmdDriveTree(fs *flag.FlagSet, conn *driveJSON) int {
-	params := map[string]any{}
-	if v := fs.Lookup("testid"); v != nil && v.Value.String() != "" {
-		params["from"] = map[string]string{"testid": v.Value.String()}
-	}
-	if v := fs.Lookup("depth"); v != nil {
-		var depth int
-		if _, err := fmt.Sscanf(v.Value.String(), "%d", &depth); err == nil && depth > 0 {
-			params["depth"] = depth
-		}
-	}
-	res, err := conn.call("tree.dump", params)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "drive: %v\n", err)
-		return 1
-	}
-	if !res.OK {
-		fmt.Fprintf(os.Stderr, "drive: %v\n", res.Error)
-		return 1
-	}
-	fmt.Println(string(res.Result))
-	return 0
-}
 
 // driveFlagSet builds the shared drive verb flags.
 func driveFlagSet() *flag.FlagSet {

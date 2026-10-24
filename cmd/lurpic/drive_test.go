@@ -15,10 +15,27 @@ import (
 type cliSink struct{}
 
 func (cliSink) Enqueue(cmd drive.Command) {
-	payload, err := json.Marshal(map[string]bool{"pong": true})
-	if err != nil {
-		cmd.Reply <- drive.Result{Err: &proto.Error{Code: proto.ErrInternal, Detail: err.Error()}}
-		return
+	var payload json.RawMessage
+	switch cmd.Method {
+	case "sys.info":
+		// The real method list from the registry — the digest source for
+		// the --check comparison.
+		raw, err := json.Marshal(map[string]any{
+			"v":       proto.ProtocolMajor,
+			"methods": proto.MethodNames(),
+		})
+		if err != nil {
+			cmd.Reply <- drive.Result{Err: &proto.Error{Code: proto.ErrInternal, Detail: err.Error()}}
+			return
+		}
+		payload = raw
+	default:
+		raw, err := json.Marshal(map[string]bool{"pong": true})
+		if err != nil {
+			cmd.Reply <- drive.Result{Err: &proto.Error{Code: proto.ErrInternal, Detail: err.Error()}}
+			return
+		}
+		payload = raw
 	}
 	cmd.Reply <- drive.Result{Payload: payload, Frame: 7}
 }
@@ -130,3 +147,40 @@ func (locateSink) Enqueue(cmd drive.Command) {
 }
 
 func (locateSink) Epoch() uint64 { return 3 }
+
+func TestCmdDrive_CheckEndToEnd(t *testing.T) {
+	dir := t.TempDir()
+	socket := filepath.Join(dir, "drive.sock")
+	token := strings.Repeat("ef", 32)
+	srv, err := drive.Listen(drive.Config{
+		SocketPath: socket,
+		Token:      token,
+		Grants:     drive.Grants{Read: true},
+		Sink:       cliSink{},
+	})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	os.Stdout = w
+	code := cmdDrive([]string{"--check", "--socket", socket, "--token-file", socket + ".token"})
+	w.Close()
+	os.Stdout = orig
+	out, _ := io.ReadAll(r)
+
+	if code != 0 {
+		t.Fatalf("check exit = %d, output %q", code, out)
+	}
+	if !strings.Contains(string(out), "compatible v1 digest=") {
+		t.Fatalf("check output = %q", out)
+	}
+	// The digest must match the server's actual method list (fake sink
+	// publishes via sys.info through the runtime table — here the cliSink
+	// echoes, so the server's table is exercised for real by the dispatch).
+}

@@ -1,0 +1,165 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Generated from drive/proto/registry.go by lurpiclint drive-schema. DO NOT EDIT.",
+  "methods": [
+    {
+      "grant": "",
+      "mutating": false,
+      "name": "sys.hello"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "sys.ping"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "sys.info"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "locate.resolve",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "tree.dump",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "store.list",
+      "tier": "domain"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "store.read",
+      "tier": "domain"
+    },
+    {
+      "grant": "write",
+      "mutating": true,
+      "name": "store.write",
+      "tier": "domain",
+      "twin": "store.write/value"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "derived.read",
+      "tier": "view"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "facet.query",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "frame.pixels",
+      "tier": "render"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "frame.packet",
+      "tier": "render"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "cmd.list",
+      "tier": "app"
+    },
+    {
+      "grant": "write",
+      "mutating": true,
+      "name": "cmd.execute",
+      "tier": "app",
+      "twin": "cmd.execute/palette"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.click",
+      "tier": "input",
+      "twin": "input.click/button"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.press",
+      "tier": "input",
+      "twin": "input.press/slider"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.release",
+      "tier": "input",
+      "twin": "input.release/slider"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.move",
+      "tier": "input",
+      "twin": "input.move/button"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.drag",
+      "tier": "input",
+      "twin": "input.drag/slider"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.type",
+      "tier": "input",
+      "twin": "input.type/textfield"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.scroll",
+      "tier": "input",
+      "twin": "input.scroll/table"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.focus",
+      "tier": "input",
+      "twin": "input.focus/textfield"
+    },
+    {
+      "grant": "time",
+      "mutating": true,
+      "name": "time.mode",
+      "twin": "n/a"
+    },
+    {
+      "grant": "time",
+      "mutating": true,
+      "name": "time.advance",
+      "twin": "n/a"
+    },
+    {
+      "grant": "",
+      "mutating": true,
+      "name": "frame.run",
+      "twin": "n/a"
+    }
+  ],
+  "protocol": 1,
+  "title": "LDP — Lurpic Drive Protocol methods"
+}
