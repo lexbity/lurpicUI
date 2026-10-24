@@ -187,6 +187,9 @@ func driveInputDrag(rt *Runtime, cmd drive.Command) driveOutcome {
 	if berr != nil {
 		return errorOutcome(berr, rt.driveSink.Epoch())
 	}
+	// The default grammar mirrors testkit.Drag exactly (5 interpolated moves
+	// at t=i/6, release at the target) so drag equivalence measures the input
+	// pipeline, not a difference between the two drivers' event scripts.
 	steps := p.Steps
 	if steps <= 0 {
 		steps = 5
@@ -200,7 +203,7 @@ func driveInputDrag(rt *Runtime, cmd drive.Command) driveOutcome {
 		Position: gfx.Point{X: p.FromX, Y: p.FromY}, Source: platform.SourceDrive,
 	})
 	for i := 1; i <= steps; i++ {
-		t := float32(i) / float32(steps)
+		t := float32(i) / float32(steps+1)
 		evs = append(evs, platform.EventPointer{
 			Kind: platform.PointerMove, Button: btn,
 			Position: gfx.Point{

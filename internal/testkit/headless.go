@@ -27,6 +27,9 @@ type HarnessConfig struct {
 	// Drive installs the runtime drive sink in-process (no socket), enabling
 	// the DriveHarness and direct drive.Sink access.
 	Drive bool
+	// CommandRegistry wires the app's command registry (the cmd.execute
+	// surface). Nil means no registry configured.
+	CommandRegistry *runtime.CommandRegistry
 }
 
 // DefaultHarnessConfig returns an 800x600 harness config.
@@ -143,6 +146,7 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	rtcfg.ThemeResolver = config.ThemeResolver
 	rtcfg.Drive.Enabled = config.Drive
 	rtcfg.DescribeMark = drivedesc.Describe
+	rtcfg.CommandRegistry = config.CommandRegistry
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {
 		t.Fatalf("runtime: %v", err)

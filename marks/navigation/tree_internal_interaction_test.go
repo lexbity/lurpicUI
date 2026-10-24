@@ -38,7 +38,7 @@ func TestTreeNavigator_rowClickSelects(t *testing.T) {
 	}
 	cx := row.Min.X + 8 // the row label area, away from the disclosure
 	cy := row.Min.Y + row.Height()*0.5
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	h.RunFrame()
 
 	if got := selection.Get(); got != "root/sibling" {

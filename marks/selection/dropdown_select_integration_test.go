@@ -41,7 +41,7 @@ func openDropdown(t *testing.T, h *testkit.Harness, ds *DropdownSelect) {
 	cx := trigger.Min.X + trigger.Width()/2
 	cy := trigger.Min.Y + trigger.Height()/2
 
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	if !ds.open {
 		t.Fatal("expected the trigger click to open the listbox")
 	}

@@ -40,7 +40,7 @@ func TestPalette_goldenOpenViaChromeCmdK(t *testing.T) {
 	root, h := newResponsiveShell(t, 1280, 800)
 	h.RunFrames(2)
 	cmdK := root.ChromeStack().CmdK().Base().LayoutRole().ArrangedBounds
-	testkit.DriveClick(h, cmdK.Min.X+cmdK.Width()*0.5, cmdK.Min.Y+cmdK.Height()*0.5)
+	testkit.DriveClickAt(h, cmdK.Min.X+cmdK.Width()*0.5, cmdK.Min.Y+cmdK.Height()*0.5)
 	h.RunFrames(2)
 	if !root.Shell().CommandOpen.Get() {
 		t.Fatal("chrome ⌘K button did not open the palette")

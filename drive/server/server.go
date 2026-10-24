@@ -468,13 +468,11 @@ var methods = map[string]methodSpec{
 }
 
 // MethodGrant reports the grant a method requires ("" = none at connection
-// level). Exported so the runtime's per-step checks read the same table.
+// level). The authoritative table is proto.Registry — this wrapper keeps the
+// connection-level grant enforcement and the runtime's per-step checks on
+// the single source (P8 registry).
 func MethodGrant(method string) (string, bool) {
-	spec, ok := methods[method]
-	if !ok {
-		return "", false
-	}
-	return spec.grant, true
+	return proto.MethodGrant(method)
 }
 
 func (c *conn) dispatch(req proto.Request, w *bufio.Writer) proto.Response {

@@ -10,7 +10,7 @@ import "testing"
 func TestIntegration_ClickInsideFiresHandler(t *testing.T) {
 	root := newClickCounterFacet()
 	h := NewHarness(t, testHarnessConfig(t), root)
-	DriveClick(h, 5, 5)
+	DriveClickAt(h, 5, 5)
 	if root.clickCount != 1 {
 		t.Fatalf("expected clickCount=1 after DriveClick inside bounds, got %d", root.clickCount)
 	}
@@ -19,7 +19,7 @@ func TestIntegration_ClickInsideFiresHandler(t *testing.T) {
 func TestIntegration_ClickOutsideDoesNotFire(t *testing.T) {
 	root := newClickCounterFacet()
 	h := NewHarness(t, testHarnessConfig(t), root)
-	DriveClick(h, 999, 999)
+	DriveClickAt(h, 999, 999)
 	if root.clickCount != 0 {
 		t.Fatalf("expected clickCount=0 after DriveClick outside bounds, got %d", root.clickCount)
 	}
@@ -28,8 +28,8 @@ func TestIntegration_ClickOutsideDoesNotFire(t *testing.T) {
 func TestIntegration_DoubleClickFiresTwice(t *testing.T) {
 	root := newClickCounterFacet()
 	h := NewHarness(t, testHarnessConfig(t), root)
-	DriveClick(h, 5, 5)
-	DriveClick(h, 5, 5)
+	DriveClickAt(h, 5, 5)
+	DriveClickAt(h, 5, 5)
 	if root.clickCount != 2 {
 		t.Fatalf("expected clickCount=2 after two DriveClicks, got %d", root.clickCount)
 	}

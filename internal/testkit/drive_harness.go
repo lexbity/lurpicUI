@@ -32,6 +32,23 @@ func NewDriveHarness(t testing.TB, w, h float32, root facet.FacetImpl) *DriveHar
 		LayerRegistry: StandardLayerRegistry(t),
 		Drive:         true,
 	}
+	return NewDriveHarnessWithConfig(t, cfg, root)
+}
+
+// NewDriveHarnessWithConfig boots the drive harness with a caller-built
+// config (the harness layer fills LayerRegistry/Drive defaults when unset).
+func NewDriveHarnessWithConfig(t testing.TB, cfg HarnessConfig, root facet.FacetImpl) *DriveHarness {
+	t.Helper()
+	cfg.Drive = true
+	if cfg.Width <= 0 {
+		cfg.Width = 480
+	}
+	if cfg.Height <= 0 {
+		cfg.Height = 240
+	}
+	if cfg.LayerRegistry == nil {
+		cfg.LayerRegistry = StandardLayerRegistry(t)
+	}
 	return &DriveHarness{Harness: NewHarness(t, cfg, root)}
 }
 

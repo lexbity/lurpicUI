@@ -228,7 +228,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Action().lastAction.Get()
 		b := testkit.RegionOf(e6.Action().bar)
-		testkit.DriveClick(h, b.Min.X+80, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+80, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Action().lastAction.Get() != before
 	},
@@ -236,7 +236,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Action().lastAction.Get()
 		b := testkit.RegionOf(e6.Action().group)
-		testkit.DriveClick(h, b.Min.X+50, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+50, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Action().lastAction.Get() != before
 	},
@@ -244,7 +244,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Feedback().AlertMessage().Get()
 		c := aliveCenter(e6.Feedback().AlertTrigger())
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		h.RunFrame()
 		return e6.Feedback().AlertMessage().Get() != before
 	},
@@ -265,7 +265,7 @@ var aliveDrivers = map[string]aliveDriver{
 			h.RunFrame()
 		}
 		cmdK := root.ChromeStack().CmdK().Base().LayoutRole().ArrangedBounds
-		testkit.DriveClick(h, cmdK.Min.X+cmdK.Width()*0.5, cmdK.Min.Y+cmdK.Height()*0.5)
+		testkit.DriveClickAt(h, cmdK.Min.X+cmdK.Width()*0.5, cmdK.Min.Y+cmdK.Height()*0.5)
 		h.RunFrame()
 		return root.Shell().CommandOpen.Get()
 	},
@@ -277,7 +277,7 @@ var aliveDrivers = map[string]aliveDriver{
 		b := testkit.RegionOf(e6.Action().split)
 		// The card-grid cell is wider than the old bespoke card; 20% lands
 		// inside the primary (label) half of the split button.
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.2, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+b.Width()*0.2, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Action().lastAction.Get() != before
 	},
@@ -285,7 +285,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Action().lastAction.Get()
 		b := testkit.RegionOf(e6.Action().toolbar)
-		testkit.DriveClick(h, b.Min.X+40, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+40, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Action().lastAction.Get() != before
 	},
@@ -300,7 +300,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e2.ModalOpen().Set(true)
 		h.RunFrame()
 		c := aliveCenter(e2.scrim)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		h.RunFrame()
 		return !e2.ModalOpen().Get()
 	},
@@ -311,7 +311,7 @@ var aliveDrivers = map[string]aliveDriver{
 			h.RunFrame()
 		}
 		c := aliveCenter(e6.Feedback().DialogOpenTrigger())
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		h.RunFrame()
 		return e6.Feedback().DialogOpen().Get()
 	},
@@ -322,7 +322,7 @@ var aliveDrivers = map[string]aliveDriver{
 			h.RunFrame()
 		}
 		c := aliveCenter(e6.Feedback().ToastTrigger())
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		h.RunFrame()
 		return e6.Feedback().ToastOpen().Get()
 	},
@@ -330,7 +330,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Input().Color().Get()
 		c := aliveCenter(e6.Input().picker)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		testkit.DriveKeyPress(h, platform.KeyRight, 0)
 		testkit.DriveKeyRelease(h, platform.KeyRight, 0)
 		h.RunFrame()
@@ -340,7 +340,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Input().Amount().Get()
 		c := aliveCenter(e6.Input().number)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		testkit.DriveKeyPress(h, platform.KeyUp, 0)
 		testkit.DriveKeyRelease(h, platform.KeyUp, 0)
 		h.RunFrame()
@@ -349,7 +349,7 @@ var aliveDrivers = map[string]aliveDriver{
 	"input/text_field": func(t *testing.T, root *Root, h *testkit.Harness) bool {
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		c := aliveCenter(e6.Input().field)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		testkit.DriveType(h, "alpha")
 		h.RunFrame()
 		return e6.Input().Name().Get() != ""
@@ -363,7 +363,7 @@ var aliveDrivers = map[string]aliveDriver{
 			return false
 		}
 		// The card grid centers the crumbs; 50% lands on the second crumb.
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Navigation().crumbActivated.Get() != before
 	},
@@ -375,7 +375,7 @@ var aliveDrivers = map[string]aliveDriver{
 		if b.IsEmpty() {
 			return false
 		}
-		testkit.DriveClick(h, b.Min.X+40, b.Min.Y+130)
+		testkit.DriveClickAt(h, b.Min.X+40, b.Min.Y+130)
 		h.RunFrame()
 		return e6.Navigation().lastItem.Get() != before
 	},
@@ -388,7 +388,7 @@ var aliveDrivers = map[string]aliveDriver{
 		if b.IsEmpty() {
 			return false
 		}
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.2)
+		testkit.DriveClickAt(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.2)
 		h.RunFrame()
 		return e6.Navigation().railSelect.Get() != before
 	},
@@ -397,7 +397,7 @@ var aliveDrivers = map[string]aliveDriver{
 		scrollFamilyTo(t, h, e6.Navigation().scroll, e6.Navigation().pager)
 		before := e6.Navigation().pageActivated.Get()
 		b := testkit.RegionOf(e6.Navigation().pager)
-		testkit.DriveClick(h, b.Min.X+4, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+4, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Navigation().pageActivated.Get() != before
 	},
@@ -409,7 +409,7 @@ var aliveDrivers = map[string]aliveDriver{
 			return false
 		}
 		before := root.Shell().ActiveExhibit.Get()
-		testkit.DriveClick(h, b.Min.X+10, b.Min.Y+28)
+		testkit.DriveClickAt(h, b.Min.X+10, b.Min.Y+28)
 		h.RunFrame()
 		return root.Shell().ActiveExhibit.Get() != before
 	},
@@ -420,7 +420,7 @@ var aliveDrivers = map[string]aliveDriver{
 		b := testkit.RegionOf(e6.Selection().segments)
 		// The card grid centers the group; the middle option is never the
 		// pre-selected first key.
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return !sameStringSlice(before, e6.Selection().ButtonGroup().Get())
 	},
@@ -428,7 +428,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Selection().CheckboxState().Get()
 		c := aliveCenter(e6.Selection().checkbox)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		h.RunFrame()
 		return e6.Selection().CheckboxState().Get() != before
 	},
@@ -440,7 +440,7 @@ var aliveDrivers = map[string]aliveDriver{
 		if b.IsEmpty() {
 			return false
 		}
-		testkit.DriveClick(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
+		testkit.DriveClickAt(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
 		h.RunFrame()
 		return e6.Selection().ItemHits().Get() != before
 	},
@@ -449,7 +449,7 @@ var aliveDrivers = map[string]aliveDriver{
 		scrollFamilyTo(t, h, e6.Selection().scroll, e6.Selection().radio)
 		before := e6.Selection().Radio().Get()
 		c := aliveCenter(e6.Selection().radio)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		h.RunFrame()
 		return e6.Selection().Radio().Get() != before
 	},
@@ -458,7 +458,7 @@ var aliveDrivers = map[string]aliveDriver{
 		before := e6.Selection().Slider().Get()
 		sl := testkit.RegionOf(e6.Selection().slider)
 		slY := sl.Min.Y + sl.Height()*0.5
-		testkit.DriveDrag(h, sl.Min.X+sl.Width()*0.2, slY, sl.Min.X+sl.Width()*0.8, slY)
+		testkit.DriveDragFromTo(h, sl.Min.X+sl.Width()*0.2, slY, sl.Min.X+sl.Width()*0.8, slY)
 		h.RunFrame()
 		return e6.Selection().Slider().Get() != before
 	},
@@ -466,7 +466,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Selection().Toggle().Get()
 		c := aliveCenter(e6.Selection().toggle)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		h.RunFrame()
 		return e6.Selection().Toggle().Get() != before
 	},
@@ -474,7 +474,7 @@ var aliveDrivers = map[string]aliveDriver{
 		e6 := root.Stage().RootFor(ExhibitPlayground).(*Playground)
 		before := e6.Selection().Dial().Get()
 		c := aliveCenter(e6.Selection().dial)
-		testkit.DriveClick(h, c.X, c.Y)
+		testkit.DriveClickAt(h, c.X, c.Y)
 		testkit.DriveKeyPress(h, platform.KeyRight, 0)
 		testkit.DriveKeyRelease(h, platform.KeyRight, 0)
 		h.RunFrame()

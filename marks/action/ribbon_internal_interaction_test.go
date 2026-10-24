@@ -33,7 +33,7 @@ func TestRibbon_sectionTabClickActivates(t *testing.T) {
 	}
 	cx := tab.Min.X + tab.Width()*0.5
 	cy := tab.Min.Y + tab.Height()*0.5
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	h.RunFrame()
 	if r.ActiveIndex.Get() != 2 {
 		t.Fatalf("after tab click active section = %d, want 2 (F-e6-internal)", r.ActiveIndex.Get())

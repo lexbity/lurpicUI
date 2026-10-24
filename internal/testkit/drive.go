@@ -30,10 +30,10 @@ func Warmup(h *Harness) {
 	}
 }
 
-// DriveClick routes a left-button press+release click at (x,y) through the
+// DriveClickAt routes a left-button press+release click at (x,y) through the
 // runtime, running a warmup frame first and a frame after each of the press
 // and release. The release is what fires activation-style handlers.
-func DriveClick(h *Harness, x, y float32) {
+func DriveClickAt(h *Harness, x, y float32) {
 	if h == nil {
 		return
 	}
@@ -74,10 +74,10 @@ func DriveType(h *Harness, s string) {
 	h.RunFrame()
 }
 
-// DriveDrag routes a press at (fromX,fromY), interpolated moves to (toX,toY),
+// DriveDragFromTo routes a press at (fromX,fromY), interpolated moves to (toX,toY),
 // and a release, running a frame after each event so hit-testing and hover
 // track the moving pointer.
-func DriveDrag(h *Harness, fromX, fromY, toX, toY float32) {
+func DriveDragFromTo(h *Harness, fromX, fromY, toX, toY float32) {
 	if h == nil {
 		return
 	}

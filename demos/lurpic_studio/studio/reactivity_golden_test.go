@@ -38,7 +38,7 @@ func TestReactivity_compactToggle_golden(t *testing.T) {
 	if themeBtn.IsEmpty() {
 		t.Fatal("chrome theme button not arranged")
 	}
-	testkit.DriveClick(h, themeBtn.Min.X+themeBtn.Width()*0.5, themeBtn.Min.Y+themeBtn.Height()*0.5)
+	testkit.DriveClickAt(h, themeBtn.Min.X+themeBtn.Width()*0.5, themeBtn.Min.Y+themeBtn.Height()*0.5)
 	h.RunFrames(2)
 
 	if !root.Shell().Compact.Get() {

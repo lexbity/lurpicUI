@@ -30,7 +30,7 @@ func TestShellCommandPalette_chromeButtonOpens(t *testing.T) {
 	if cmdK.IsEmpty() {
 		t.Fatal("chrome ⌘K button not arranged")
 	}
-	testkit.DriveClick(h, cmdK.Min.X+cmdK.Width()*0.5, cmdK.Min.Y+cmdK.Height()*0.5)
+	testkit.DriveClickAt(h, cmdK.Min.X+cmdK.Width()*0.5, cmdK.Min.Y+cmdK.Height()*0.5)
 	if !root.Shell().CommandOpen.Get() {
 		t.Fatal("chrome ⌘K button did not open the palette")
 	}
@@ -136,7 +136,7 @@ func TestShellIndexPane_switchesExhibit(t *testing.T) {
 		t.Fatal("index tree_navigator not arranged")
 	}
 	leaf := gfx.Point{X: tree.Min.X + 60, Y: tree.Min.Y + 24}
-	testkit.DriveClick(h, leaf.X, leaf.Y)
+	testkit.DriveClickAt(h, leaf.X, leaf.Y)
 	h.RunFrame()
 	// The tree's selection must reflect into ActiveExhibit: whichever leaf the
 	// click selected, ActiveExhibit agrees.
@@ -163,7 +163,7 @@ func TestShellChrome_compactToggleReLays(t *testing.T) {
 		t.Fatal("chrome theme button not arranged")
 	}
 	titleBefore := root.ChromeStack().Title().Base().LayoutRole().ArrangedBounds.Min.X
-	testkit.DriveClick(h, themeBtn.Min.X+themeBtn.Width()*0.5, themeBtn.Min.Y+themeBtn.Height()*0.5)
+	testkit.DriveClickAt(h, themeBtn.Min.X+themeBtn.Width()*0.5, themeBtn.Min.Y+themeBtn.Height()*0.5)
 	if !root.Shell().Compact.Get() {
 		t.Fatal("theme button did not toggle compact density")
 	}

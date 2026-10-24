@@ -250,7 +250,7 @@ func TestResponsive_narrowRailStaysInertInWideAfterExhibitSwitch(t *testing.T) {
 	if plot.IsEmpty() {
 		t.Fatal("E1 chart plot not arranged")
 	}
-	testkit.DriveClick(h, plot.Min.X+plot.Width()*0.5, plot.Min.Y+plot.Height()*0.5)
+	testkit.DriveClickAt(h, plot.Min.X+plot.Width()*0.5, plot.Min.Y+plot.Height()*0.5)
 	if got := root.Shell().ActiveExhibit.Get(); got != ExhibitLayers {
 		t.Fatalf("chart click switched the exhibit to %v, want %v", got, ExhibitLayers)
 	}
@@ -273,7 +273,7 @@ func TestResponsive_narrowDrawerSwitchesExhibit(t *testing.T) {
 	if first.IsEmpty() {
 		t.Fatal("narrow rail first destination not arranged")
 	}
-	testkit.DriveClick(h, first.Min.X+first.Width()*0.5, first.Min.Y+first.Height()*0.5)
+	testkit.DriveClickAt(h, first.Min.X+first.Width()*0.5, first.Min.Y+first.Height()*0.5)
 	if got := root.Shell().ActiveExhibit.Get(); got != exhibitCatalog[0].id {
 		t.Fatalf("narrow rail selected %v, want %v", got, exhibitCatalog[0].id)
 	}

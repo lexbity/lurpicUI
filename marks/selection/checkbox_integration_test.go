@@ -34,12 +34,12 @@ func TestCheckboxIntegration_ClickTogglesStore(t *testing.T) {
 	cx := ctrl.Min.X + ctrl.Width()/2
 	cy := ctrl.Min.Y + ctrl.Height()/2
 
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	if got := value.Get(); got != CheckboxStateOn {
 		t.Fatalf("expected the first click to toggle to CheckboxStateOn, got %v", got)
 	}
 
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	if got := value.Get(); got != CheckboxStateOff {
 		t.Fatalf("expected the second click to toggle back to CheckboxStateOff, got %v", got)
 	}
@@ -56,7 +56,7 @@ func TestCheckboxIntegration_ToggleChangesPixels(t *testing.T) {
 
 	offPixel := h.Surface().PixelAt(px, py)
 
-	testkit.DriveClick(h, float32(px), float32(py))
+	testkit.DriveClickAt(h, float32(px), float32(py))
 
 	if got := value.Get(); got != CheckboxStateOn {
 		t.Fatalf("expected CheckboxStateOn after the click, got %v", got)
@@ -78,7 +78,7 @@ func TestCheckboxIntegration_RapidToggleSequence(t *testing.T) {
 	// count must end on CheckboxStateOn and no click may be dropped.
 	trace := make([]CheckboxState, 0, 5)
 	for i := 0; i < 5; i++ {
-		testkit.DriveClick(h, cx, cy)
+		testkit.DriveClickAt(h, cx, cy)
 		trace = append(trace, value.Get())
 	}
 

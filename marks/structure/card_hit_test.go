@@ -61,7 +61,7 @@ func TestCardHostedMarkHitTestable(t *testing.T) {
 	}
 
 	// A real click toggles the button.
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	if got := atomic.LoadInt32(&activations); got != 1 {
 		t.Fatalf("expected 1 activation after DriveClick, got %d", got)
 	}

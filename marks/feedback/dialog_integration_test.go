@@ -41,7 +41,7 @@ func TestDialogIntegration_ClickOutsideDismisses(t *testing.T) {
 	// Click far outside the dialog's bounds: the press lands on the root's
 	// base layer, so the dialog's own pointer handler is not involved — the
 	// dismissal comes from the runtime's dismissal events.
-	testkit.DriveClick(h, 300, 180)
+	testkit.DriveClickAt(h, 300, 180)
 
 	if open.Get() {
 		t.Fatal("expected the outside click to dismiss the dialog")
@@ -69,7 +69,7 @@ func TestDialogIntegration_PlainChildDoesNotDismiss(t *testing.T) {
 	h.Runtime().AddFacet(root, dlg, facet.Attachment{})
 
 	testkit.Warmup(h)
-	testkit.DriveClick(h, 300, 180)
+	testkit.DriveClickAt(h, 300, 180)
 
 	if !open.Get() {
 		t.Fatal("expected a plain (non-layer) dialog child to survive an outside click")

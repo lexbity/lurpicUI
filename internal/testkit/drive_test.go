@@ -15,7 +15,7 @@ func TestDriveClick_RunsWarmupFrameFirst(t *testing.T) {
 	if h.FrameCount != 0 {
 		t.Fatalf("fresh harness FrameCount = %d, want 0", h.FrameCount)
 	}
-	DriveClick(h, 5, 5)
+	DriveClickAt(h, 5, 5)
 	// warmup + press frame + release frame
 	if h.FrameCount < 3 {
 		t.Fatalf("DriveClick ran %d frames, want >= 3 (warmup + press + release)", h.FrameCount)
@@ -26,7 +26,7 @@ func TestDriveClick_NoWarmupIfAlreadyRun(t *testing.T) {
 	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
 	h.RunFrame()
 	before := h.FrameCount
-	DriveClick(h, 5, 5)
+	DriveClickAt(h, 5, 5)
 	// No double-warmup: only the press and release frames run.
 	if got := h.FrameCount - before; got != 2 {
 		t.Fatalf("DriveClick after an existing frame ran %d frames, want 2", got)
@@ -84,17 +84,17 @@ func TestDriveDrag_RunsWarmupThenEventPerFrame(t *testing.T) {
 	if got := len(Drag(0, 0, 10, 10)); got != 7 {
 		t.Fatalf("Drag events = %d, want 7", got)
 	}
-	DriveDrag(h, 0, 0, 10, 10)
+	DriveDragFromTo(h, 0, 0, 10, 10)
 	if h.FrameCount != 8 {
 		t.Fatalf("DriveDrag ran %d frames, want 8 (warmup + 7 events)", h.FrameCount)
 	}
 }
 
 func TestDriveHelpers_NilHarness_NoPanic(t *testing.T) {
-	DriveClick(nil, 1, 1)
+	DriveClickAt(nil, 1, 1)
 	DriveKeyPress(nil, platform.KeyTab, 0)
 	DriveKeyRelease(nil, platform.KeyTab, 0)
 	DriveType(nil, "x")
-	DriveDrag(nil, 0, 0, 1, 1)
+	DriveDragFromTo(nil, 0, 0, 1, 1)
 	DriveScroll(nil, 1, 1, 0, 0)
 }

@@ -39,7 +39,7 @@ func TestTooltipIntegration_ClickOutsideDismisses(t *testing.T) {
 
 	// Click far outside the tooltip's bounds; the tooltip's own handler is not
 	// involved, so a close here can only come from the runtime dismissal path.
-	testkit.DriveClick(h, 300, 180)
+	testkit.DriveClickAt(h, 300, 180)
 
 	if open.Get() {
 		t.Fatal("expected the outside click to dismiss the tooltip")

@@ -34,7 +34,7 @@ func TestTextFieldIntegration_ClickFocusAndType(t *testing.T) {
 	h, cx, cy := newTextFieldIntegration(t, value)
 
 	// Click to focus the field, then type.
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	testkit.DriveType(h, "hello")
 
 	if got := value.Get(); got != "hello" {
@@ -46,7 +46,7 @@ func TestTextFieldIntegration_TypeAppendsToExistingValue(t *testing.T) {
 	value := store.NewValueStore("")
 	h, cx, cy := newTextFieldIntegration(t, value)
 
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 	testkit.DriveType(h, "hello")
 	if got := value.Get(); got != "hello" {
 		t.Fatalf("expected the first typed batch to be stored, got %q", got)

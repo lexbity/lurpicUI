@@ -182,7 +182,7 @@ func TestScrollRegion_hostsInteractiveChildClick(t *testing.T) {
 	if b.IsEmpty() {
 		t.Fatal("child button was not arranged inside the scroll region")
 	}
-	testkit.DriveClick(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
+	testkit.DriveClickAt(h, b.Min.X+b.Width()*0.5, b.Min.Y+b.Height()*0.5)
 	h.RunFrame()
 	if !fired {
 		t.Fatal("click inside the scroll region did not reach the child button (interactive content not hosted)")

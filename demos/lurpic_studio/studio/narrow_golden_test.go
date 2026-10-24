@@ -131,7 +131,7 @@ func TestNarrow_outsideTapClosesDrawer(t *testing.T) {
 	// Tap the scrim at a stage point away from the drawer's left edge.
 	stage := root.Stage().Base().LayoutRole().ArrangedBounds
 	pt := gfx.Point{X: stage.Min.X + stage.Width()*0.7, Y: stage.Min.Y + stage.Height()*0.5}
-	testkit.DriveClick(h, pt.X, pt.Y)
+	testkit.DriveClickAt(h, pt.X, pt.Y)
 	h.RunFrame()
 	if root.Shell().IndexOpen.Get() {
 		t.Fatal("tapping the scrim did not close the drawer (FR-17b)")

@@ -38,7 +38,7 @@ func TestSliderIntegration_DragMutatesStore(t *testing.T) {
 		t.Fatalf("expected initial value 20, got %v", before)
 	}
 
-	testkit.DriveDrag(h, startX, startY, endX, startY)
+	testkit.DriveDragFromTo(h, startX, startY, endX, startY)
 
 	after := value.Get()
 	if after <= before {

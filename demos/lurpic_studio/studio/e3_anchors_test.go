@@ -94,7 +94,7 @@ func TestE3_triggerInertWhenInactive(t *testing.T) {
 	if plot.IsEmpty() {
 		t.Fatal("E1 chart plot not arranged")
 	}
-	testkit.DriveClick(h, 268, 188)
+	testkit.DriveClickAt(h, 268, 188)
 	if got := root.Shell().ActiveExhibit.Get(); got != ExhibitRealtime {
 		t.Fatalf("click at the dormant trigger position switched the exhibit to %v", got)
 	}

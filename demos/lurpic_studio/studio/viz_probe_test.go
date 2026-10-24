@@ -188,7 +188,7 @@ func TestVizProbe_panZoomInput(t *testing.T) {
 	cy := probe.PlotRect().Min.Y + probe.PlotRect().Height()*0.5
 
 	before := probe.XDomain().Get()
-	testkit.DriveDrag(h, cx, cy, cx+50, cy)
+	testkit.DriveDragFromTo(h, cx, cy, cx+50, cy)
 	after := probe.XDomain().Get()
 	if after == before {
 		t.Fatal("drag did not pan the x-domain")

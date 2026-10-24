@@ -129,7 +129,7 @@ func TestRealtime_liveTailPauseAndJumpToLive(t *testing.T) {
 
 	// A pan gesture also pauses (FR-window). A drag must move beyond the
 	// drag threshold to count as a pan.
-	testkit.DriveDrag(h, plot.Min.X+plot.Width()*0.2, midY, plot.Min.X+plot.Width()*0.4, midY)
+	testkit.DriveDragFromTo(h, plot.Min.X+plot.Width()*0.2, midY, plot.Min.X+plot.Width()*0.4, midY)
 	if !e.appState.Paused.Get() {
 		t.Fatal("pan drag did not set Paused (FR-window)")
 	}
@@ -147,7 +147,7 @@ func TestRealtime_selectionClickDoesNotPause(t *testing.T) {
 		t.Fatal("chart plot is empty; cannot drive a selection click")
 	}
 	// Click on the plot center (no drag movement): a selection candidate.
-	testkit.DriveClick(h, plot.Min.X+plot.Width()*0.5, plot.Min.Y+plot.Height()*0.5)
+	testkit.DriveClickAt(h, plot.Min.X+plot.Width()*0.5, plot.Min.Y+plot.Height()*0.5)
 	if e.appState.Paused.Get() {
 		t.Fatal("a plain selection click paused the live tail (over-trigger)")
 	}
@@ -260,7 +260,7 @@ func TestRealtime_jumpToLiveButton(t *testing.T) {
 	if jb.IsEmpty() {
 		t.Fatal("jump-to-live button not arranged")
 	}
-	testkit.DriveClick(h, jb.Min.X+jb.Width()*0.5, jb.Min.Y+jb.Height()*0.5)
+	testkit.DriveClickAt(h, jb.Min.X+jb.Width()*0.5, jb.Min.Y+jb.Height()*0.5)
 	if e.appState.Paused.Get() {
 		t.Fatal("jump-to-live button did not clear Paused")
 	}

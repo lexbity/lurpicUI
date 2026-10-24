@@ -34,7 +34,7 @@ func TestDropdownSelect_popupItemClickSelects(t *testing.T) {
 	}
 	tx := trigger.Min.X + trigger.Width()*0.5
 	ty := trigger.Min.Y + trigger.Height()*0.5
-	testkit.DriveClick(h, tx, ty)
+	testkit.DriveClickAt(h, tx, ty)
 	h.RunFrames(3)
 	if !sel.open {
 		t.Fatal("trigger click did not open the listbox")
@@ -48,7 +48,7 @@ func TestDropdownSelect_popupItemClickSelects(t *testing.T) {
 	option := optionRects[1]
 	ox := option.Min.X + option.Width()*0.5
 	oy := option.Min.Y + option.Height()*0.5
-	testkit.DriveClick(h, ox, oy)
+	testkit.DriveClickAt(h, ox, oy)
 	h.RunFrame()
 
 	if got := value.Get(); got != "canb" {

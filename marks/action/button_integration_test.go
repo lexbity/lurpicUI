@@ -46,7 +46,7 @@ func TestButtonIntegration_ClickActivatesHandler(t *testing.T) {
 	cx := b.Min.X + b.Width()/2
 	cy := b.Min.Y + b.Height()/2
 
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 
 	if got := atomic.LoadInt32(&activations); got != 1 {
 		t.Fatalf("expected 1 activation after DriveClick at the button center, got %d", got)
@@ -61,7 +61,7 @@ func TestButtonIntegration_ClickOutsideDoesNotActivate(t *testing.T) {
 	testkit.Warmup(h)
 
 	// Click far outside the window; nothing should fire.
-	testkit.DriveClick(h, 999, 999)
+	testkit.DriveClickAt(h, 999, 999)
 
 	if got := atomic.LoadInt32(&activations); got != 0 {
 		t.Fatalf("expected 0 activations after DriveClick outside the window, got %d", got)
@@ -118,7 +118,7 @@ func TestButtonIntegration_SizedBoxNonRootRoutesClick(t *testing.T) {
 	cx := box.Min.X + box.Width()/2
 	cy := box.Min.Y + box.Height()/2
 
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 
 	if got := atomic.LoadInt32(&activations); got != 1 {
 		t.Fatalf("expected 1 activation via SizedBox-mounted button, got %d", got)

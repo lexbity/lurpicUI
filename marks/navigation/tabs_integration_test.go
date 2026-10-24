@@ -37,7 +37,7 @@ func TestTabsIntegration_ClickActivatesTab(t *testing.T) {
 	cx := tab.Min.X + tab.Width()/2
 	cy := tab.Min.Y + tab.Height()/2
 
-	testkit.DriveClick(h, cx, cy)
+	testkit.DriveClickAt(h, cx, cy)
 
 	if got := active.Get(); got != 1 {
 		t.Fatalf("expected the click to activate the second tab (index 1), got %d", got)

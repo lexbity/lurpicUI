@@ -103,13 +103,13 @@ func TestPlayground_actionFamilyDispatch(t *testing.T) {
 
 	bar := e6Arranged(t, e.Action().bar)
 	// The bar's action buttons sit on the left after the "File" label.
-	testkit.DriveClick(h, bar.Min.X+80, bar.Min.Y+bar.Height()*0.5)
+	testkit.DriveClickAt(h, bar.Min.X+80, bar.Min.Y+bar.Height()*0.5)
 	if got := e.Action().lastAction.Get(); got == "" {
 		t.Fatalf("action_bar click did not dispatch (lastAction=%q)", got)
 	}
 
 	group := e6Arranged(t, e.Action().group)
-	testkit.DriveClick(h, group.Min.X+50, group.Min.Y+group.Height()*0.5)
+	testkit.DriveClickAt(h, group.Min.X+50, group.Min.Y+group.Height()*0.5)
 	if got := e.Action().lastAction.Get(); got == "" {
 		t.Fatalf("action_group click did not dispatch (lastAction=%q)", got)
 	}
@@ -134,14 +134,14 @@ func TestPlayground_selectionFamilyWriteBack(t *testing.T) {
 
 	// Checkbox toggles its Value store.
 	cb := playCenter(e.Selection().checkbox)
-	testkit.DriveClick(h, cb.X, cb.Y)
+	testkit.DriveClickAt(h, cb.X, cb.Y)
 	if got := e.Selection().CheckboxState().Get(); got != selection.CheckboxStateOn {
 		t.Fatalf("checkbox did not toggle: state=%v", got)
 	}
 
 	// Switch toggles its bool store.
 	tg := playCenter(e.Selection().toggle)
-	testkit.DriveClick(h, tg.X, tg.Y)
+	testkit.DriveClickAt(h, tg.X, tg.Y)
 	if !e.Selection().Toggle().Get() {
 		t.Fatalf("switch did not set store true")
 	}
@@ -150,14 +150,14 @@ func TestPlayground_selectionFamilyWriteBack(t *testing.T) {
 	sl := e6Arranged(t, e.Selection().slider)
 	before := e.Selection().Slider().Get()
 	slY := sl.Min.Y + sl.Height()*0.5
-	testkit.DriveDrag(h, sl.Min.X+sl.Width()*0.2, slY, sl.Min.X+sl.Width()*0.8, slY)
+	testkit.DriveDragFromTo(h, sl.Min.X+sl.Width()*0.2, slY, sl.Min.X+sl.Width()*0.8, slY)
 	if got := e.Selection().Slider().Get(); got == before {
 		t.Fatalf("slider drag did not change value (%v)", got)
 	}
 
 	// Turn dial responds to the right arrow key after focus.
 	dl := playCenter(e.Selection().dial)
-	testkit.DriveClick(h, dl.X, dl.Y)
+	testkit.DriveClickAt(h, dl.X, dl.Y)
 	before = e.Selection().Dial().Get()
 	testkit.DriveKeyPress(h, platform.KeyRight, 0)
 	testkit.DriveKeyRelease(h, platform.KeyRight, 0)
@@ -167,7 +167,7 @@ func TestPlayground_selectionFamilyWriteBack(t *testing.T) {
 
 	// Radio group select lands in its store.
 	rd := e6Arranged(t, e.Selection().radio)
-	testkit.DriveClick(h, rd.Min.X+rd.Width()*0.5, rd.Min.Y+rd.Height()*0.5)
+	testkit.DriveClickAt(h, rd.Min.X+rd.Width()*0.5, rd.Min.Y+rd.Height()*0.5)
 	if got := e.Selection().Radio().Get(); got == "" {
 		t.Fatalf("radio_group select did not land in store")
 	}
@@ -179,7 +179,7 @@ func TestPlayground_selectionFamilyWriteBack(t *testing.T) {
 	beforeVal := e.Selection().ButtonGroup().Get()
 	// The card grid centers the group; the middle option is never the
 	// pre-selected first key, so the click provably changes the selection.
-	testkit.DriveClick(h, seg.Min.X+seg.Width()*0.5, seg.Min.Y+seg.Height()*0.5)
+	testkit.DriveClickAt(h, seg.Min.X+seg.Width()*0.5, seg.Min.Y+seg.Height()*0.5)
 	if got := e.Selection().ButtonGroup().Get(); fmt.Sprint(got) == fmt.Sprint(beforeVal) {
 		t.Fatalf("button_group click did not change selection (%v)", got)
 	}
@@ -193,14 +193,14 @@ func TestPlayground_inputFamilyWriteBack(t *testing.T) {
 	switchTab(t, e, h, 2)
 
 	f := playCenter(e.Input().field)
-	testkit.DriveClick(h, f.X, f.Y)
+	testkit.DriveClickAt(h, f.X, f.Y)
 	testkit.DriveType(h, "alpha")
 	if got := e.Input().Name().Get(); got != "alpha" {
 		t.Fatalf("text_field typed value = %q, want alpha", got)
 	}
 
 	n := playCenter(e.Input().number)
-	testkit.DriveClick(h, n.X, n.Y)
+	testkit.DriveClickAt(h, n.X, n.Y)
 	before := e.Input().Amount().Get()
 	testkit.DriveKeyPress(h, platform.KeyUp, 0)
 	testkit.DriveKeyRelease(h, platform.KeyUp, 0)
@@ -210,7 +210,7 @@ func TestPlayground_inputFamilyWriteBack(t *testing.T) {
 
 	c := playCenter(e.Input().picker)
 	beforeColor := e.Input().Color().Get()
-	testkit.DriveClick(h, c.X, c.Y)
+	testkit.DriveClickAt(h, c.X, c.Y)
 	testkit.DriveKeyPress(h, platform.KeyRight, 0)
 	testkit.DriveKeyRelease(h, platform.KeyRight, 0)
 	if got := e.Input().Color().Get(); got == beforeColor {
@@ -227,7 +227,7 @@ func TestPlayground_navigationFamily(t *testing.T) {
 
 	// The open drawer panel sits on the left of its card; click the first item.
 	db := e6Arranged(t, e.Navigation().drawer)
-	testkit.DriveClick(h, db.Min.X+40, db.Min.Y+130)
+	testkit.DriveClickAt(h, db.Min.X+40, db.Min.Y+130)
 	if got := e.Navigation().lastItem.Get(); got < 0 {
 		t.Fatalf("nav_drawer item click did not activate (lastItem=%d)", got)
 	}
@@ -238,7 +238,7 @@ func TestPlayground_navigationFamily(t *testing.T) {
 	before := e.Navigation().pageActivated.Get()
 	// The right arrow always activates the adjacent page (the center of the
 	// mark falls between page buttons).
-	testkit.DriveClick(h, pg.Min.X+pg.Width()*0.95, pg.Min.Y+pg.Height()*0.5)
+	testkit.DriveClickAt(h, pg.Min.X+pg.Width()*0.95, pg.Min.Y+pg.Height()*0.5)
 	if got := e.Navigation().pageActivated.Get(); got == before {
 		t.Fatalf("pagination click did not activate a page (%d)", got)
 	}
@@ -251,13 +251,13 @@ func TestPlayground_feedbackFamily(t *testing.T) {
 	switchTab(t, e, h, 4)
 
 	at := playCenter(e.Feedback().AlertTrigger())
-	testkit.DriveClick(h, at.X, at.Y)
+	testkit.DriveClickAt(h, at.X, at.Y)
 	if got := e.Feedback().AlertMessage().Get(); got == "All sources are healthy." {
 		t.Fatalf("alert trigger did not change the alert message")
 	}
 
 	dt := playCenter(e.Feedback().DialogOpenTrigger())
-	testkit.DriveClick(h, dt.X, dt.Y)
+	testkit.DriveClickAt(h, dt.X, dt.Y)
 	if !e.Feedback().DialogOpen().Get() {
 		t.Fatalf("dialog trigger did not open the dialog")
 	}
@@ -271,13 +271,13 @@ func TestPlayground_statusFamily(t *testing.T) {
 	switchTab(t, e, h, 5)
 
 	tk := playCenter(e.Status().Tick())
-	testkit.DriveClick(h, tk.X, tk.Y)
+	testkit.DriveClickAt(h, tk.X, tk.Y)
 	if got := e.Status().BadgeLabel().Get(); got == "0" {
 		t.Fatalf("tick did not bump the badge (label=%q)", got)
 	}
 
 	os := playCenter(e.Status().onlineSwitch)
-	testkit.DriveClick(h, os.X, os.Y)
+	testkit.DriveClickAt(h, os.X, os.Y)
 	if got := e.Status().Light().Label.Get(); got != "Offline" {
 		t.Fatalf("online switch did not flip the light (label=%q)", got)
 	}
@@ -285,7 +285,7 @@ func TestPlayground_statusFamily(t *testing.T) {
 	sl := e6Arranged(t, e.Status().slider)
 	before := e.Status().Progress().Get()
 	slY := sl.Min.Y + sl.Height()*0.5
-	testkit.DriveDrag(h, sl.Min.X+sl.Width()*0.8, slY, sl.Min.X+sl.Width()*0.2, slY)
+	testkit.DriveDragFromTo(h, sl.Min.X+sl.Width()*0.8, slY, sl.Min.X+sl.Width()*0.2, slY)
 	if got := e.Status().Progress().Get(); got == before {
 		t.Fatalf("throughput slider did not drive progress (%v)", got)
 	}

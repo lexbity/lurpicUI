@@ -103,7 +103,7 @@ func TestInputPipeline_click_on_facet(t *testing.T) {
 	// DriveClick bakes in the warmup frame so the hit map exists before the
 	// press is injected. Without it, the press is dropped against a nil hit
 	// map and no handler fires (see drive.go for the warmup contract).
-	DriveClick(h, 5, 5)
+	DriveClickAt(h, 5, 5)
 
 	if root.clickCount != 1 {
 		t.Fatalf("click did not fire: clickCount=%d (expected 1) — input pipeline routing broken", root.clickCount)

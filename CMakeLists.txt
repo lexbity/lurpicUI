@@ -276,6 +276,13 @@ lurpic_add_go_test_target(
 )
 list(APPEND _lurpic_test_all_targets test-drive)
 
+lurpic_add_go_test_target(
+  NAME test-equivalence
+  DESCRIPTION "Differential verb-equivalence corpus suite"
+  PACKAGES ./input/equivalence/...
+)
+list(APPEND _lurpic_test_all_targets test-equivalence)
+
 add_custom_target(test-all
   DEPENDS ${_lurpic_test_all_targets}
   COMMENT "Aggregate Go test suite for the current configuration"
