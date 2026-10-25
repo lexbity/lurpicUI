@@ -4,7 +4,6 @@ package main
 
 import (
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
-	"codeburg.org/lexbit/lurpicui/runtime"
 
 	"embed"
 	"fmt"
@@ -41,6 +40,7 @@ func main() {
 	// LDP locator metadata: adapt the marks canonical interfaces for the
 	// drive locator walk (kind/role/name/key matching).
 	cfg.Runtime.DescribeMark = drivedesc.Describe
+	cfg.Runtime.HostedChildren = drivedesc.HostedChildren
 	cfg.Theme = studio.StudioThemeContext()
 	seed, err := loadSeed()
 	if err != nil {
@@ -52,20 +52,8 @@ func main() {
 	// the same object by pointer through the root builder.
 	sink := studio.NewDirtySink(10)
 	cfg.Diagnostics = sink
-	var rootRef facet.FacetImpl
-	cfg.OnRuntime = func(rt *runtime.Runtime) {
-		if r, ok := rootRef.(*studio.Root); ok {
-			for _, ns := range r.NamedStores() {
-				if err := rt.RegisterNamedStore(ns.Name, ns.Store); err != nil {
-					fmt.Fprintf(os.Stderr, "lurpic_studio: register %s: %v\n", ns.Name, err)
-					os.Exit(1)
-				}
-			}
-		}
-	}
 	if err := app.Run(cfg, func(ctx app.BuildContext) facet.FacetImpl {
-		rootRef = studio.BuildRoot(ctx, sink, seed, reg)
-		return rootRef
+		return studio.BuildRoot(ctx, sink, seed, reg)
 	}); err != nil {
 		fmt.Fprintf(os.Stderr, "lurpic_studio: %v\n", err)
 		os.Exit(1)

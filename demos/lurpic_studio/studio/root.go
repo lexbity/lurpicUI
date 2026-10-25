@@ -1,10 +1,11 @@
 package studio
 
 import (
+	"encoding/json"
+
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
-	"codeburg.org/lexbit/lurpicui/drive/readstore"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -13,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -251,21 +253,21 @@ func (r *Root) Narrow() *NarrowShell { return r.narrow }
 // Shell returns the shared shell state.
 func (r *Root) Shell() *ShellState { return r.shell }
 
-// NamedStores returns the studio's app-domain store registry (LDP QP-8
-// path b): the addresses a driver reads without structural reflection.
-// Registered by main via app.Config.OnRuntime; TestDrive_namedStores freezes
-// the set — additions are a reviewable diff.
-func (r *Root) NamedStores() []readstore.NamedStore {
+// ReadExports declares stable app-wide read capabilities. Declarations are
+// collected before the drive contract freezes, independent of live values.
+func (r *Root) ReadExports() []store.ReadExport {
 	e1, ok := r.stage.RootFor(ExhibitRealtime).(*Realtime)
 	if !ok {
 		return nil
 	}
-	return []readstore.NamedStore{
-		{Name: "e1.chartType", Store: e1.ChartType()},
-		{Name: "e1.seriesColor", Store: e1.SeriesColor()},
-		{Name: "e1.opacity", Store: e1.Opacity()},
-		{Name: "e1.timeRange", Store: e1.TimeRange()},
-		{Name: "shell.active", Store: r.shell.ActiveExhibit},
+	return []store.ReadExport{
+		store.ValueExport("e1.chartType", e1.ChartType(), store.ViewState, "string", 64, store.JSONFreezer[string]),
+		store.ValueExport("e1.seriesColor", e1.SeriesColor(), store.ViewState, "gfx.Color", 128, store.JSONFreezer[gfx.Color]),
+		store.ValueExport("e1.opacity", e1.Opacity(), store.ViewState, "number", 64, store.JSONFreezer[float64]),
+		store.ValueExport("e1.timeRange", e1.TimeRange(), store.ViewState, "array<string>", 1024, func(value []string) (json.RawMessage, error) {
+			return json.Marshal(append([]string(nil), value...))
+		}),
+		store.ValueExport("shell.active", r.shell.ActiveExhibit, store.ViewState, "string", 64, store.JSONFreezer[ExhibitID]),
 	}
 }
 

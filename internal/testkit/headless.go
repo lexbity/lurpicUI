@@ -166,6 +166,7 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	rtcfg.Drive.Sessions = config.DriveSessions
 	rtcfg.Drive.Stats = config.DriveStats
 	rtcfg.DescribeMark = drivedesc.Describe
+	rtcfg.HostedChildren = drivedesc.HostedChildren
 	rtcfg.CommandRegistry = config.CommandRegistry
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {

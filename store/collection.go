@@ -1,6 +1,7 @@
 package store
 
 import (
+	"fmt"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
@@ -100,6 +101,54 @@ func (s *CollectionStore[T]) All() []T {
 	out := make([]T, len(s.items))
 	copy(out, s.items)
 	return out
+}
+
+// AllVersioned returns an ordered copy and the version observed under the
+// same read lock. Immutable protocol snapshots use this instead of combining
+// All and Version, which could otherwise describe different collection
+// states when a non-runtime observer races a mutation.
+func (s *CollectionStore[T]) AllVersioned() ([]T, Version) {
+	items, version, _ := s.AllVersionedLimit(int(^uint(0) >> 1))
+	return items, version
+}
+
+// AllVersionedLimit is AllVersioned with an explicit pre-copy item bound.
+// It refuses before allocating when a declared immutable capture would exceed
+// its configured cardinality budget.
+func (s *CollectionStore[T]) AllVersionedLimit(maxItems int) ([]T, Version, error) {
+	if maxItems < 0 {
+		return nil, 0, fmt.Errorf("store: negative collection snapshot item limit")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.items) > maxItems {
+		return nil, s.version.Current(), fmt.Errorf("store: collection snapshot has %d items, exceeding the %d item limit", len(s.items), maxItems)
+	}
+	if len(s.items) == 0 {
+		return []T{}, s.version.Current(), nil
+	}
+	out := make([]T, len(s.items))
+	copy(out, s.items)
+	return out, s.version.Current(), nil
+}
+
+// Page returns a copy of a bounded page, total item count, and the collection
+// version captured under the same read lock. It is intended for immutable
+// observation exports that must not copy an unbounded collection at once.
+func (s *CollectionStore[T]) Page(offset, limit int) ([]T, int, Version) {
+	if offset < 0 || limit < 1 || limit > 256 {
+		panic("store: Page requires offset >= 0 and limit in [1,256]")
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	total := len(s.items)
+	if offset >= total {
+		return []T{}, total, s.version.Current()
+	}
+	end := min(total, offset+limit)
+	items := make([]T, end-offset)
+	copy(items, s.items[offset:end])
+	return items, total, s.version.Current()
 }
 
 // Identify returns the stable ItemID for the given item.

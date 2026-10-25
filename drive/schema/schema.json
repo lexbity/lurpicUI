@@ -15,6 +15,42 @@
     {
       "grant": "read",
       "mutating": false,
+      "name": "locate.resolve",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "tree.dump",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "store.list",
+      "tier": "domain"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "store.read",
+      "tier": "domain"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "derived.read",
+      "tier": "view"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "facet.query",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
       "name": "cmd.list",
       "tier": "app"
     },
@@ -106,6 +142,6 @@
     }
   ],
   "protocol": 2,
-  "schema_digest": "sha256:063b8ae3ce41279196244c72963603fafd0fd54294f457257449c34982953cff",
+  "schema_digest": "sha256:3c37d076dc2cae0f6687740c7c7040ffeb38f8c6cdd874a3a53056f3216a057f",
   "title": "LDP — Lurpic Drive Protocol methods"
 }

@@ -122,12 +122,15 @@ func TestDriveLocate_AmbiguousReportsCandidates(t *testing.T) {
 	if perr == nil || perr.Code != "locator.ambiguous" {
 		t.Fatalf("err = %+v, want locator.ambiguous", perr)
 	}
-	var cands []locateCandidate
-	if err := json.Unmarshal([]byte(perr.Detail[strings.IndexByte(perr.Detail, '['):]), &cands); err != nil {
-		t.Fatalf("detail %q: %v", perr.Detail, err)
+	var details struct {
+		Candidates []locateCandidate `json:"candidates"`
+		Truncated  bool              `json:"truncated"`
 	}
-	if len(cands) != 2 {
-		t.Fatalf("candidates = %d, want 2", len(cands))
+	if err := json.Unmarshal(perr.Details, &details); err != nil {
+		t.Fatalf("details %q: %v", perr.Details, err)
+	}
+	if len(details.Candidates) != 2 || details.Truncated {
+		t.Fatalf("candidate details = %+v, want two complete candidates", details)
 	}
 }
 

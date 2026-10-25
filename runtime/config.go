@@ -12,7 +12,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/drive/locate"
-	"codeburg.org/lexbit/lurpicui/drive/readstore"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/log"
@@ -20,6 +19,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -63,10 +63,9 @@ type Config struct {
 	// sink, one nil check per frame.
 	Drive DriveRuntimeConfig
 
-	// NamedStores registers app-domain stores under stable LDP names at
-	// startup (QP-8 path b). Validated at construction: a collision or a
-	// non-store value fails the runtime build.
-	NamedStores []readstore.NamedStore
+	// ReadExports declares app-wide read capabilities before the runtime
+	// contract catalog freezes and the drive listener starts.
+	ReadExports []store.ReadExport
 
 	// DescribeMark adapts facet implementations to the drive locator's
 	// metadata view (kind/role/name/key). Injected by the app layer because
@@ -74,6 +73,9 @@ type Config struct {
 	// one (see drive/describe). Nil disables kind/role/name/key matching —
 	// only TestID and coords resolve.
 	DescribeMark func(impl facet.FacetImpl) locate.Meta
+	// HostedChildren returns visible mark-owned children. App wiring supplies
+	// the canonical capability probe from the marks root package.
+	HostedChildren func(impl facet.FacetImpl) []facet.FacetImpl
 
 	// AssetDiagnosticsEnabled controls whether asset-path events (mount,
 	// extract, stream, evict) are logged through the runtime logger.
@@ -114,6 +116,10 @@ type Config struct {
 // only owns execution-at-a-cut.
 type DriveRuntimeConfig struct {
 	Enabled bool
+	// ObservationNodeCapacity and ObservationByteCapacity bound the optional
+	// immutable structural-read index. Zero selects the finite defaults.
+	ObservationNodeCapacity int
+	ObservationByteCapacity int
 	// Sessions is the instance session table; the runtime admits commands
 	// through its ledgers. Required when Enabled.
 	Sessions *drive.SessionTable

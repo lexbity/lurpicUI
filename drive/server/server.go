@@ -635,6 +635,7 @@ func (c *conn) create(hp helloParams) (json.RawMessage, *proto.Error) {
 		"next_id":               strconv.FormatUint(sess.Ledger().HighWater()+1, 10),
 		"grants":                grantList(sess.Grants),
 		"schema_digest":         proto.SchemaDigest(),
+		"export_schema_digest":  c.srv.cfg.Port.Observe().ExportSchemaDigest,
 		"limits":                limitsDocument(),
 	}
 	enc, merr := json.Marshal(out)
@@ -670,6 +671,7 @@ func (c *conn) resume(hp helloParams) (json.RawMessage, *proto.Error) {
 		"next_id":               strconv.FormatUint(sess.Ledger().HighWater()+1, 10),
 		"grants":                grantList(sess.Grants),
 		"schema_digest":         proto.SchemaDigest(),
+		"export_schema_digest":  c.srv.cfg.Port.Observe().ExportSchemaDigest,
 		"limits":                limitsDocument(),
 	}
 	enc, merr := json.Marshal(out)

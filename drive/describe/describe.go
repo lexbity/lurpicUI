@@ -32,3 +32,8 @@ func Describe(impl facet.FacetImpl) locate.Meta {
 	}
 	return m
 }
+
+// HostedChildren exposes the root marks capability probe to runtime wiring.
+func HostedChildren(impl facet.FacetImpl) []facet.FacetImpl {
+	return marks.HostedChildrenFor(impl)
+}

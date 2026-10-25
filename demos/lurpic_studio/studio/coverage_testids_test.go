@@ -38,7 +38,7 @@ func TestCoverage_testids(t *testing.T) {
 
 	rt := h.Runtime()
 	resolve := func(l locate.Locator) (locate.Match, *locate.Error) {
-		m, _, lerr := locate.Resolve(rt.Root(), l, drivedesc.Describe, nil)
+		m, _, lerr := locate.Resolve(rt.Root(), l, drivedesc.Describe, nil, drivedesc.HostedChildren)
 		return m, lerr
 	}
 

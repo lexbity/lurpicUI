@@ -67,14 +67,11 @@ type Fixture struct {
 	stores []versionedStore
 }
 
-// RegisterNames binds the fixture's stores for trajectory capture (the same
-// names both paths observe).
-func (f *Fixture) RegisterNames(t testing.TB, pairs map[string]versionedStore) {
+// CaptureVersions declares the fixture's stores for trajectory comparison.
+// These private test observations do not register protocol capabilities.
+func (f *Fixture) CaptureVersions(t testing.TB, pairs map[string]versionedStore) {
 	t.Helper()
-	for name, s := range pairs {
-		if err := f.Harness.Runtime().RegisterNamedStore(name, s); err != nil {
-			t.Fatalf("register %s: %v", name, err)
-		}
+	for name := range pairs {
 		f.names = append(f.names, name)
 	}
 	// insertion sort for deterministic capture order

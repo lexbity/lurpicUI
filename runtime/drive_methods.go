@@ -17,8 +17,8 @@ type driveHandler func(rt *Runtime, cmd drive.Command) driveOutcome
 // driveMethods is the runtime-side execution table — the trusted-seam
 // surface plus every advertised v2 method. The advertised surface is the
 // proto registry (one source); entries never advertised on the major-2
-// wire are trusted testkit-seam methods whose native v2 slices land in
-// later slices. store.write has no entry: the direct mutation surface is
+// wire are trusted testkit-seam methods whose native v2 slices have not
+// landed. store.write has no entry: the direct mutation surface is
 // deleted, not hidden.
 //
 // Populated in init: a composite literal initializer would form an
@@ -102,13 +102,32 @@ func driveInfo(rt *Runtime, cmd drive.Command) driveOutcome {
 	advertised := proto.AdvertisedMethodNames()
 	all := proto.MethodNames()
 	payload, err := json.Marshal(map[string]any{
-		"v":               proto.ProtocolMajor,
-		"cut":             rt.drivePort.Cut(),
-		driveJSONFrameKey: rt.drivePort.Frame(),
-		"schema_digest":   proto.SchemaDigest(),
-		"methods":         advertised,
-		"trusted_methods": all,
-		"named_stores":    rt.namedStores.Names(),
+		"v":                    proto.ProtocolMajor,
+		"cut":                  rt.drivePort.Cut(),
+		driveJSONFrameKey:      rt.drivePort.Frame(),
+		"schema_digest":        proto.SchemaDigest(),
+		"export_schema_digest": rt.drivePort.Observe().ExportSchemaDigest,
+		"methods":              advertised,
+		"trusted_methods":      all,
+		"named_stores":         rt.namedStores.Names(),
+		"observation_index": map[string]any{
+			"active": rt.driveObservation != nil,
+			"nodes": func() int {
+				if rt.driveObservation == nil {
+					return 0
+				}
+				return len(rt.driveObservation.entries)
+			}(),
+			"bytes": func() int {
+				if rt.driveObservation == nil {
+					return 0
+				}
+				return rt.driveObservation.bytes
+			}(),
+			"exhausted":     rt.driveObservation != nil && rt.driveObservation.exhausted,
+			"node_capacity": rt.config.Drive.ObservationNodeCapacity,
+			"byte_capacity": rt.config.Drive.ObservationByteCapacity,
+		},
 		"drive": map[string]any{
 			"commands_admitted":       snap.CommandsAdmitted,
 			"commands_drained":        snap.CommandsDrained,

@@ -11,19 +11,24 @@ import (
 // registration happens in the attach transition, release in dispose, both on
 // the runtime thread (dispose takes frameMu's write lock). Implements
 // facet.TestIDRegistry.
-type liveTestIDs map[string]facet.FacetID
+type liveTestIdentity struct {
+	id      facet.FacetID
+	context string
+}
 
-func (m liveTestIDs) Register(testID string, id facet.FacetID) {
+type liveTestIDs map[string]liveTestIdentity
+
+func (m liveTestIDs) Register(testID string, id facet.FacetID, context string) {
 	if prev, exists := m[testID]; exists {
 		panic(fmt.Sprintf(
-			"runtime: duplicate live TestID %q: facet %d and facet %d both claim it — author identities must be unique while attached (Principle 11)",
-			testID, prev, id))
+			"runtime: duplicate live TestID %q: facet %d at %s and facet %d at %s both claim it — author identities must be unique while attached (Principle 11)",
+			testID, prev.id, prev.context, id, context))
 	}
-	m[testID] = id
+	m[testID] = liveTestIdentity{id: id, context: context}
 }
 
 func (m liveTestIDs) Release(testID string, id facet.FacetID) {
-	if prev, exists := m[testID]; exists && prev == id {
+	if prev, exists := m[testID]; exists && prev.id == id {
 		delete(m, testID)
 	}
 }
@@ -31,5 +36,5 @@ func (m liveTestIDs) Release(testID string, id facet.FacetID) {
 // TestID resolves an author identity to its live facet ID (used by the drive
 // locator walk). Zero when unknown.
 func (rt *Runtime) FacetIDForTestID(testID string) facet.FacetID {
-	return rt.liveTestIDs[testID]
+	return rt.liveTestIDs[testID].id
 }

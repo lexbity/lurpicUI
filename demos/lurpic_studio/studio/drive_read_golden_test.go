@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/app"
+	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -17,6 +18,11 @@ import (
 // newStudioDriveHarness boots the full studio root headless with the drive
 // sink and the marks describe adapter installed.
 func newStudioDriveHarness(t *testing.T, w, hgt int) *testkit.DriveHarness {
+	t.Helper()
+	return newStudioDriveHarnessWithRows(t, w, hgt, seedRows(t))
+}
+
+func newStudioDriveHarnessWithRows(t *testing.T, w, hgt int, rows []dataset.Row) *testkit.DriveHarness {
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	reg, err := StudioLayerRegistry()
@@ -29,21 +35,12 @@ func newStudioDriveHarness(t *testing.T, w, hgt int) *testkit.DriveHarness {
 		WindowSize:   gfx.Size{W: float32(w), H: float32(hgt)},
 		ContentScale: 1,
 		Theme:        themeCtx,
-	}, NewDirtySink(10), seedRows(t), reg)
+	}, NewDirtySink(10), rows, reg)
 	cfg := testkit.StandardHarnessConfig(t, w, hgt)
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = themeCtx.Resolver
 	cfg.Drive = true
 	h := testkit.NewDriveHarness(t, float32(w), float32(hgt), root)
-	// The live app registers named stores in app.Config.OnRuntime; the
-	// harness replays that wiring against the harness runtime.
-	if r, ok := root.(*Root); ok {
-		for _, ns := range r.NamedStores() {
-			if err := h.Runtime().RegisterNamedStore(ns.Name, ns.Store); err != nil {
-				t.Fatalf("register %s: %v", ns.Name, err)
-			}
-		}
-	}
 	return h
 }
 
@@ -54,18 +51,17 @@ func TestDrive_namedStores(t *testing.T) {
 	h := newStudioDriveHarness(t, 1280, 800)
 	payload := h.CallOK("store.list", nil)
 	var got struct {
-		Stores []struct {
-			Target string `json:"target"`
-			Field  string `json:"field"`
-		} `json:"stores"`
+		Exports []struct {
+			Name string `json:"name"`
+		} `json:"exports"`
 	}
 	if err := json.Unmarshal(payload, &got); err != nil {
 		t.Fatalf("payload: %v", err)
 	}
-	named := make([]string, 0, len(got.Stores))
-	for _, s := range got.Stores {
-		if s.Field == "" {
-			named = append(named, s.Target)
+	named := make([]string, 0, len(got.Exports))
+	for _, export := range got.Exports {
+		if export.Name != "" {
+			named = append(named, export.Name)
 		}
 	}
 	sort.Strings(named)
@@ -115,25 +111,16 @@ func TestDrivingAndVirtualIndicator(t *testing.T) {
 	}
 }
 
-// TestDemoBlankChart is the spec's motivating diagnostic, executable as a
-// command (acceptance criterion 7): facet.query {testid: "e1.canvas",
-// "details": true} inspects the canvas plot rect at the launch cut.
-//
-// The spec pinned the known E1 blank-chart launch bug here with
-// assert-empty-at-launch, flipping to assert-non-empty when §F-1's fix
-// landed. Verification during Phase 4 (with a faithful gfx.Rect decode)
-// shows the bug does NOT reproduce in the current tree: the plot rect is
-// non-degenerate from the launch cut. The detector therefore runs at its
-// healthy polarity — non-empty plot, populated series, real bounds — and
-// fails loudly if a blank-at-launch (arranged-but-never-drawing) regression
-// ever lands. This test is that regression's detector (§F-1).
-func TestDemoBlankChart(t *testing.T) {
+// TestStudioLaunchChartDiagnostic proves the actual launch chart is healthy
+// and that the same diagnostic rejects a real empty-series, non-drawing
+// fixture rather than merely accepting its geometry.
+func TestStudioLaunchChartDiagnostic(t *testing.T) {
 	h := newStudioDriveHarness(t, 1280, 800)
 	h.RunFrame() // cut 1: the launch cut
 
 	query := map[string]any{
 		"target":  map[string]string{"testid": "e1.canvas"},
-		"details": true,
+		"details": []string{"plot", "seriesCount"},
 	}
 	payload := h.CallOK("facet.query", query)
 	var launch struct {
@@ -146,18 +133,33 @@ func TestDemoBlankChart(t *testing.T) {
 	if err := json.Unmarshal(payload, &launch); err != nil {
 		t.Fatalf("payload %s: %v", payload, err)
 	}
-	if launch.Details.Plot.empty() {
-		t.Fatalf("BLANK CHART AT LAUNCH (the pinned E1 bug): plot = %+v — the detector caught a regression", launch.Details.Plot)
+	if !healthyChartDiagnostic(launch.Details.Plot, launch.Bounds, launch.Details.SeriesCount) {
+		t.Fatalf("launch chart diagnostic failed: %+v", launch)
 	}
-	if launch.Details.Plot.Max.X <= launch.Details.Plot.Min.X ||
-		launch.Details.Plot.Max.Y <= launch.Details.Plot.Min.Y {
-		t.Fatalf("degenerate launch plot: %+v", launch.Details.Plot)
+}
+
+func TestChartDiagnosticDetectsNonDrawingFixture(t *testing.T) {
+	h := newStudioDriveHarnessWithRows(t, 1280, 800, nil)
+	h.RunFrame()
+	payload := h.CallOK("facet.query", map[string]any{
+		"target":  map[string]string{"testid": "e1.canvas"},
+		"details": []string{"plot", "seriesCount"},
+	})
+	var observed struct {
+		Bounds  *gfxRectJSON `json:"bounds"`
+		Details struct {
+			Plot        gfxRectJSON `json:"plot"`
+			SeriesCount int         `json:"seriesCount"`
+		} `json:"details"`
 	}
-	if launch.Bounds == nil {
-		t.Fatal("launch canvas must report arranged bounds")
+	if err := json.Unmarshal(payload, &observed); err != nil {
+		t.Fatalf("empty chart diagnostic payload %s: %v", payload, err)
 	}
-	if launch.Details.SeriesCount == 0 {
-		t.Fatalf("launch canvas plots zero series from the seed: %+v", launch.Details)
+	if observed.Details.Plot.empty() || observed.Bounds == nil || observed.Details.SeriesCount != 0 {
+		t.Fatalf("empty-series fixture did not exercise the non-drawing chart contract: %+v", observed)
+	}
+	if healthyChartDiagnostic(observed.Details.Plot, observed.Bounds, observed.Details.SeriesCount) {
+		t.Fatal("launch chart diagnostic accepted a non-drawing fixture")
 	}
 }
 
@@ -209,4 +211,9 @@ type gfxRectJSON struct {
 
 func (r gfxRectJSON) empty() bool {
 	return r.Min.X == 0 && r.Min.Y == 0 && r.Max.X == 0 && r.Max.Y == 0
+}
+
+func healthyChartDiagnostic(plot gfxRectJSON, bounds *gfxRectJSON, seriesCount int) bool {
+	return !plot.empty() && plot.Max.X > plot.Min.X && plot.Max.Y > plot.Min.Y &&
+		bounds != nil && bounds.Max.X > bounds.Min.X && bounds.Max.Y > bounds.Min.Y && seriesCount > 0
 }

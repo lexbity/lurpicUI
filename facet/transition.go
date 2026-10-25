@@ -1,5 +1,7 @@
 package facet
 
+import "fmt"
+
 // FacetImpl is implemented by every concrete facet type.
 type FacetImpl interface {
 	Base() *Facet
@@ -11,26 +13,50 @@ type FacetImpl interface {
 
 // Attach transitions a facet from Created to Attached.
 func Attach(f FacetImpl, ctx AttachContext) {
+	attached := make([]*Facet, 0, 16)
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			for i := len(attached) - 1; i >= 0; i-- {
+				base := attached[i]
+				base.releaseTestID()
+				base.bindTestIDRegistry(nil)
+			}
+			panic(recovered)
+		}
+	}()
 	type attachFrame struct {
-		impl FacetImpl
+		impl    FacetImpl
+		context string
 	}
-	stack := []attachFrame{{impl: f}}
+	rootContext := ctx.IdentityContext
+	if rootContext == "" {
+		rootContext = "runtime"
+	}
+	stack := []attachFrame{{impl: f, context: rootContext}}
 	for len(stack) > 0 {
 		frame := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
 		base := baseOf(frame.impl)
 		frame.impl = concreteImpl(base, frame.impl)
 		requireState(base, StateCreated, StateAttached)
+		base.bindTestIDRegistry(ctx.TestIDs)
 		roles := base.rolesSnapshot()
 		for _, role := range roles {
 			role.onAttach(base)
 		}
-		frame.impl.OnAttach(ctx)
-		base.registerTestID()
+		attachContext := ctx
+		segment := base.TestID()
+		if segment == "" {
+			segment = fmt.Sprintf("facet#%d", base.ID())
+		}
+		attachContext.IdentityContext = frame.context + "/" + segment
+		frame.impl.OnAttach(attachContext)
+		base.registerTestID(attachContext.IdentityContext)
 		base.setState(StateAttached)
+		attached = append(attached, base)
 		children := base.childrenSnapshot()
 		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, attachFrame{impl: concreteImpl(children[i], children[i])})
+			stack = append(stack, attachFrame{impl: concreteImpl(children[i], children[i]), context: attachContext.IdentityContext})
 		}
 	}
 }

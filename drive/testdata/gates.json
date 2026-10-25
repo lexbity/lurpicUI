@@ -247,6 +247,85 @@
           "count": 1
         }
       ]
+    },
+    "S5": {
+      "tests": [
+        {
+          "package": "./drive",
+          "tests": [
+            "TestV2SocketExplicitReadSurface",
+            "TestDocsMatchRegistry"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./drive/locate",
+          "tests": [
+            "TestResolve_Zero_Unresolved",
+            "TestResolve_UniqueByTestID",
+            "TestResolve_Multiple_AmbiguousWithCandidates",
+            "TestResolve_AmbiguityCappedAtTen",
+            "TestResolve_RoleAndName",
+            "TestResolve_KeyExact",
+            "TestResolve_ScopedAndOneofValidation",
+            "TestResolve_CoordsUsesHitMap",
+            "TestVisibleTreeBoundedNeverReturnsPartialAsComplete"
+          ],
+          "timeout": "2m",
+          "count": 1
+        },
+        {
+          "package": "./drive/readstore",
+          "tests": [
+            "TestRegistryValidatesExplicitDeclarationsAndFreezes",
+            "TestTypedExportCaptureAndCollectionPages",
+            "TestExportReadNeverMutatesAndFreezesMutablePayload",
+            "TestDerivedExportPeekDoesNotEvaluateOrMutate"
+          ],
+          "timeout": "2m",
+          "count": 1
+        },
+        {
+          "package": "./runtime",
+          "tests": [
+            "TestStoreRead_StructuralField",
+            "TestStoreRead_NamedAndFailClosed",
+            "TestStoreRead_CollectionSnapshotPinsVersion",
+            "TestExportSchemaDigestTracksDeclarationsNotLiveState",
+            "TestStoreList_UnionOfNamedAndStructural",
+            "TestDerivedRead_PeekSemantics",
+            "TestFacetQuery_Shape",
+            "TestTreeDumpSnapshotIsImmutableAndSessionBound",
+            "TestSnapshotCopyOnWriteCutIsolation",
+            "TestSnapshotIndexCapacityDoesNotRestrictApp",
+            "TestTreeObservationIndexRefreshesAtFrameCut",
+            "TestResolveUsesCutObservationIndex",
+            "TestTestIDRegistriesAreRuntimeScoped"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./input",
+          "tests": [
+            "TestCapturesFacetReportsPointerAndTouchOwnership"
+          ],
+          "timeout": "2m",
+          "count": 1
+        },
+        {
+          "package": "./demos/lurpic_studio/studio",
+          "tests": [
+            "TestCoverage_testids",
+            "TestDrive_namedStores",
+            "TestStudioLaunchChartDiagnostic",
+            "TestChartDiagnosticDetectsNonDrawingFixture"
+          ],
+          "timeout": "5m",
+          "count": 1
+        }
+      ]
     }
   },
   "format_excludes": [

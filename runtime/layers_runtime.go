@@ -280,6 +280,7 @@ func (rt *Runtime) markFacetDirtyByID(id facet.FacetID, flags facet.DirtyFlags, 
 	if id == 0 {
 		return
 	}
+	rt.invalidateDriveObservation()
 	rt.dirtyFacets[id] |= flags
 	if source != "" {
 		rt.dirtySources[id] = source

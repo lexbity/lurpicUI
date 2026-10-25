@@ -8,44 +8,28 @@ import "fmt"
 // contract: a silent duplicate would make automation intermittently target
 // the wrong facet.
 type TestIDRegistry interface {
-	Register(testID string, id FacetID)
+	Register(testID string, id FacetID, context string)
 	Release(testID string, id FacetID)
 }
 
-// testIDRegistry is the installed registry (runtime.New wires the runtime's
-// live map). Package-level like SetCollectPhaseCheck: attach transitions are
-// runtime-thread events and the registry is installed before any tree
-// attaches.
-var testIDRegistry TestIDRegistry
-
-// SetTestIDRegistry installs the live TestID registry. Called by the runtime
-// constructor; reinstalling replaces the previous registry (last-constructed
-// runtime wins — the same contract as store.SetSignalQueueHook and
-// facet.SetCollectPhaseCheck, which test processes exercise with many
-// runtimes).
-func SetTestIDRegistry(r TestIDRegistry) {
-	testIDRegistry = r
-}
-
-// ResetTestIDRegistryForTest clears the registry (test seams only).
-func ResetTestIDRegistryForTest() { testIDRegistry = nil }
-
 // registerTestID validates and registers the facet's TestID at attach. A
 // collision panics naming both facets (Principle 11).
-func (f *Facet) registerTestID() {
-	if f.testID == "" || testIDRegistry == nil {
+func (f *Facet) registerTestID(context string) {
+	if f.testID == "" || f.testIDRegistry == nil {
 		return
 	}
-	testIDRegistry.Register(f.testID, f.id)
+	f.testIDRegistry.Register(f.testID, f.id, context)
 }
 
 // releaseTestID removes the facet's TestID from the live registry at dispose.
 func (f *Facet) releaseTestID() {
-	if f.testID == "" || testIDRegistry == nil {
+	if f.testID == "" || f.testIDRegistry == nil {
 		return
 	}
-	testIDRegistry.Release(f.testID, f.id)
+	f.testIDRegistry.Release(f.testID, f.id)
 }
+
+func (f *Facet) bindTestIDRegistry(registry TestIDRegistry) { f.testIDRegistry = registry }
 
 // SetTestID assigns the author identity used by LDP locators (QP-7). It MUST
 // be called during construction: assignment after the Created state panics,

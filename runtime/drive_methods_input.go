@@ -61,7 +61,7 @@ func (p *inputPointParams) resolve(rt *Runtime) (gfx.Point, platform.PointerButt
 		if p.X != nil || p.Y != nil {
 			return gfx.Point{}, 0, &proto.Error{Code: proto.ErrInvalidParams, Detail: "target and coordinates are mutually exclusive"}
 		}
-		m, _, lerr := locate.Resolve(rt.root, *p.Target, rt.driveDescribe, rt.driveHitTest)
+		m, _, lerr := locate.Resolve(rt.root, *p.Target, rt.driveDescribe, rt.driveHitTest, rt.visibleChildren)
 		if lerr != nil {
 			return gfx.Point{}, 0, driveLocateError(lerr)
 		}
@@ -119,7 +119,7 @@ func bindInputTarget(rt *Runtime, step *driveInputStep, locator *locate.Locator,
 	if locator == nil || step == nil {
 		return nil
 	}
-	mark, _, err := locate.Resolve(rt.root, *locator, rt.driveDescribe, rt.driveHitTest)
+	mark, _, err := locate.Resolve(rt.root, *locator, rt.driveDescribe, rt.driveHitTest, rt.visibleChildren)
 	if err != nil {
 		return driveLocateError(err)
 	}
@@ -390,7 +390,7 @@ func (p inputLocationParams) resolve(rt *Runtime) (gfx.Point, *locate.Locator, f
 		if p.X != nil || p.Y != nil {
 			return gfx.Point{}, nil, 0, &proto.Error{Code: proto.ErrInvalidParams, Detail: "target and coordinates are mutually exclusive"}
 		}
-		mark, _, err := locate.Resolve(rt.root, *p.Target, rt.driveDescribe, rt.driveHitTest)
+		mark, _, err := locate.Resolve(rt.root, *p.Target, rt.driveDescribe, rt.driveHitTest, rt.visibleChildren)
 		if err != nil {
 			return gfx.Point{}, nil, 0, driveLocateError(err)
 		}
@@ -649,7 +649,7 @@ func driveInputFocus(rt *Runtime, cmd drive.Command) driveOutcome {
 	if p.Window != "" && p.Window != drivePrimaryWindow {
 		return errorOutcome(&proto.Error{Code: proto.ErrTargetUnavailable, Detail: drivePrimaryWindowUnavailable})
 	}
-	m, _, lerr := locate.Resolve(rt.root, p.Target, rt.driveDescribe, rt.driveHitTest)
+	m, _, lerr := locate.Resolve(rt.root, p.Target, rt.driveDescribe, rt.driveHitTest, rt.visibleChildren)
 	if lerr != nil {
 		return errorOutcome(driveLocateError(lerr))
 	}

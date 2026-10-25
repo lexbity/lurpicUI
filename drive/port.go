@@ -91,9 +91,10 @@ const (
 // publishes atomically; transport workers read it without touching live
 // engine state.
 type PublishedSnapshot struct {
-	Cut        string // sealed cut identifier (decimal string)
-	Frame      string // last submitted frame (decimal string)
-	InstanceID string
+	Cut                string // sealed cut identifier (decimal string)
+	Frame              string // last submitted frame (decimal string)
+	InstanceID         string
+	ExportSchemaDigest string
 }
 
 // RuntimePort is the runtime side of the seam. Implementations drain at a

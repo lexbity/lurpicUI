@@ -52,7 +52,7 @@ func newButtonFixture(t testing.TB) *Fixture {
 		clicks.Set(clicks.Get() + 1)
 	})
 	fix := fixtureHarness(t, btn)
-	fix.RegisterNames(t, map[string]versionedStore{
+	fix.CaptureVersions(t, map[string]versionedStore{
 		"clicks": clicks,
 	})
 	return fix
@@ -64,7 +64,7 @@ func newSliderFixture(t testing.TB) *Fixture {
 	value := store.NewValueStore(0.5)
 	slider := selection.NewSlider("Opacity", 0, 1, 0.1, value)
 	fix := fixtureHarness(t, slider)
-	fix.RegisterNames(t, map[string]versionedStore{
+	fix.CaptureVersions(t, map[string]versionedStore{
 		"slider.value": value,
 	})
 	return fix
@@ -95,7 +95,7 @@ func newTextFixture(t testing.TB) *Fixture {
 	}); perr != nil {
 		t.Fatalf("focus field-a: %v", perr)
 	}
-	fix.RegisterNames(t, map[string]versionedStore{
+	fix.CaptureVersions(t, map[string]versionedStore{
 		"field.a": valueA,
 		"field.b": valueB,
 	})
@@ -142,7 +142,7 @@ func newPaletteFixture(t testing.TB) *Fixture {
 		registry.Execute("toggle.enabled")
 	})
 	fix := fixtureHarnessWithRegistry(t, btn, registry)
-	fix.RegisterNames(t, map[string]versionedStore{
+	fix.CaptureVersions(t, map[string]versionedStore{
 		"toggled": toggled,
 	})
 	return fix

@@ -525,6 +525,7 @@ func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
 		return
 	}
 	parent.RemoveChild(child.Base())
+	rt.invalidateDriveObservation()
 	if rt.childAttachments != nil {
 		delete(rt.childAttachments, child.Base().ID())
 	}
@@ -546,6 +547,7 @@ func (rt *Runtime) UpdateChildAttachment(child facet.FacetImpl, attachment facet
 	if rt.childAttachments == nil {
 		rt.childAttachments = make(map[facet.FacetID]facet.Attachment)
 	}
+	rt.invalidateDriveObservation()
 	rt.childAttachments[child.Base().ID()] = attachment
 	if parent := child.Base().Parent(); parent != nil {
 		parent.InvalidateWithSource(facet.DirtyLayout, "runtime.UpdateChildAttachment")

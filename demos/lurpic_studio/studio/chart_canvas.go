@@ -308,24 +308,19 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 	return c
 }
 
-// Rows returns the canvas's collection.
-// DriveDetails exposes canvas internals for automation/debugging (the
-// sanctioned bespoke-host escape hatch, LDP §3.7): the plot rect (empty at
-// launch is the known E1 blank-chart bug, pinned by TestDemoBlankChart),
-// the current domains, and the plotted row counts.
-func (c *ChartCanvas) DriveDetails() map[string]any {
-	yDomain, yDirty := c.yDomain.Peek()
-	return map[string]any{
-		"plot":         c.plot,
-		"xDomain":      c.xDomain.Get(),
-		"yDomain":      yDomain,
-		"yDomainDirty": yDirty,
-		"seriesCount":  c.windowedRows.Len(),
-		"retained":     c.rows.Len(),
+func (c *ChartCanvas) Rows() *store.CollectionStore[dataset.Row] { return c.rows }
+
+// ReadExports declares typed chart stores and bounded immutable diagnostics.
+func (c *ChartCanvas) ReadExports() []store.ReadExport {
+	return []store.ReadExport{
+		store.FacetCollectionExport("rows", c.rows, store.DomainState, "studio.dataset.Row", 16<<10, store.JSONFreezer[dataset.Row]),
+		store.FacetValueExport("xDomain", c.xDomain, store.ViewState, "array<number,2>", 64, store.JSONFreezer[[2]float64]),
+		store.FacetDerivedExport("yDomain", c.yDomain, store.ViewState, "array<number,2>", 64, store.JSONFreezer[[2]float64]),
+		store.FacetDetailExport("plot", "gfx.Rect", 64, func() gfx.Rect { return c.plot }, store.JSONFreezer[gfx.Rect]),
+		store.FacetDetailExport("seriesCount", "integer", 32, c.windowedRows.Len, store.JSONFreezer[int]),
+		store.FacetDetailExport("retained", "integer", 32, c.rows.Len, store.JSONFreezer[int]),
 	}
 }
-
-func (c *ChartCanvas) Rows() *store.CollectionStore[dataset.Row] { return c.rows }
 
 // XDomain returns the zoom-mutable x-domain store.
 func (c *ChartCanvas) XDomain() *store.ValueStore[[2]float64] { return c.xDomain }

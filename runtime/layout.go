@@ -33,7 +33,11 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 		Runtime: rt,
 		Assets:  facet.AssetServices{Manager: rt.assetManager},
 		Stores:  facet.StoreServices{AssetRegistry: rt.config.AssetRegistry},
+		TestIDs: rt.liveTestIDs,
 	})
+	if err := rt.registerTreeReadExports(root); err != nil {
+		panic("runtime: read export declaration changed after startup: " + err.Error())
+	}
 	rt.subscribeLayerMounts(root)
 }
 
@@ -106,6 +110,7 @@ func (rt *Runtime) markTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
 	if root == nil {
 		return
 	}
+	rt.invalidateDriveObservation()
 	stack := []facet.FacetImpl{root}
 	for len(stack) > 0 {
 		node := stack[len(stack)-1]

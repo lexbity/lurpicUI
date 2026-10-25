@@ -1,74 +1,45 @@
-// Package readstore implements the LDP store-addressing model (QP-8): a
-// named registry for app-domain stores plus a fail-closed structural walk
-// over a facet's exported store fields. The runtime executes reads and
-// writes through this package on the runtime thread, at a cut.
+// Package readstore owns the transport-independent registry for explicit,
+// immutable store read capabilities. It contains no reflection or mutation
+// dispatch; declarations are typed by store.ReadExport constructors.
 package readstore
 
 import (
-	"encoding/json"
 	"fmt"
-	"reflect"
 	"sort"
-	"strconv"
-	"strings"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
-// NamedStore binds an app-domain store to a stable name (QP-8 path (b) —
-// the preferred address for app-domain stores). Store must be
-// *store.ValueStore[T], *store.CollectionStore[T], or *store.Derived[T].
-type NamedStore struct {
-	Name  string
-	Store any
-}
-
-// Registry is the named-store surface. Runtime-thread owned: registration
-// happens at startup (or before the first frame via Runtime.RegisterNamedStore),
-// reads and writes happen at cuts on the runtime thread.
+// Registry is the frozen named-export catalog for one app instance.
 type Registry struct {
 	mu     sync.RWMutex
-	byName map[string]any
+	byName map[string]store.ReadExport
+	frozen bool
 }
 
-// NewRegistry validates and indexes the startup set (fail-loud: a name
-// collision or a non-store value is a startup error, never a silent skip).
-func NewRegistry(named []NamedStore) (*Registry, error) {
-	r := &Registry{byName: make(map[string]any, len(named))}
-	for _, ns := range named {
-		if ns.Name == "" {
-			return nil, fmt.Errorf("drive: named store with empty name (%T)", ns.Store)
+// NewRegistry validates declarations and rejects duplicate names before the
+// app publishes its protocol contract.
+func NewRegistry(exports []store.ReadExport) (*Registry, error) {
+	r := &Registry{byName: make(map[string]store.ReadExport, len(exports))}
+	for _, export := range exports {
+		info := export.Info()
+		if !export.Valid() || info.Name == "" || info.Field != "" {
+			return nil, fmt.Errorf("drive: invalid named read export %q", info.Name)
 		}
-		if err := ValidateStore(ns.Store); err != nil {
-			return nil, fmt.Errorf("drive: named store %q: %w", ns.Name, err)
+		if _, exists := r.byName[info.Name]; exists {
+			return nil, fmt.Errorf("drive: read export %q registered twice", info.Name)
 		}
-		if _, exists := r.byName[ns.Name]; exists {
-			return nil, fmt.Errorf("drive: named store %q registered twice", ns.Name)
-		}
-		r.byName[ns.Name] = ns.Store
+		r.byName[info.Name] = export
 	}
 	return r, nil
 }
 
-// Register adds one store after startup (runtime thread, before frames).
-// Re-registering an existing name replaces it — the freeze tests make
-// registry churn a reviewable diff, so the replacement is honest.
-func (r *Registry) Register(name string, s any) error {
-	if name == "" {
-		return fmt.Errorf("drive: named store with empty name (%T)", s)
-	}
-	if err := ValidateStore(s); err != nil {
-		return fmt.Errorf("drive: named store %q: %w", name, err)
-	}
-	r.mu.Lock()
-	r.byName[name] = s
-	r.mu.Unlock()
-	return nil
-}
-
-// Names returns the sorted registered names.
+// Names returns public names in deterministic order.
 func (r *Registry) Names() []string {
+	if r == nil {
+		return nil
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	out := make([]string, 0, len(r.byName))
@@ -79,291 +50,45 @@ func (r *Registry) Names() []string {
 	return out
 }
 
-// Lookup returns the store registered under name.
-func (r *Registry) Lookup(name string) (any, bool) {
+// Lookup returns only the declared immutable capture capability.
+func (r *Registry) Lookup(name string) (store.ReadExport, bool) {
+	if r == nil {
+		return store.ReadExport{}, false
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	s, ok := r.byName[name]
-	return s, ok
+	export, ok := r.byName[name]
+	return export, ok
 }
 
-// Snapshot returns the sorted (name, store, version) triples — the cut-flush
-// state.changed diff input.
-type NamedVersion struct {
-	Name    string
-	Store   any
-	Version uint64
-}
-
-// Snapshot versions every named store.
-func (r *Registry) Snapshot() []NamedVersion {
-	names := r.Names()
-	out := make([]NamedVersion, 0, len(names))
-	for _, name := range names {
-		st, ok := r.Lookup(name)
-		if !ok {
-			continue
-		}
-		out = append(out, NamedVersion{Name: name, Store: st, Version: storeVersionOfAny(st)})
+// Register is only available before Freeze. Runtime construction freezes the
+// catalog before listener startup; connected sessions never see mutation.
+func (r *Registry) Register(export store.ReadExport) error {
+	if r == nil {
+		return fmt.Errorf("drive: nil read export registry")
 	}
-	return out
-}
-
-// storeVersionOfAny reads a store's version through its canonical method.
-func storeVersionOfAny(s any) uint64 {
-	if v, ok := s.(interface{ Version() store.Version }); ok {
-		return uint64(v.Version())
+	info := export.Info()
+	if !export.Valid() || info.Name == "" || info.Field != "" {
+		return fmt.Errorf("drive: invalid named read export %q", info.Name)
 	}
-	return 0
-}
-
-// ValidateStore accepts exactly the three addressable store shapes
-// (fail-closed: anything else is an error naming the actual type).
-func ValidateStore(s any) error {
-	if s == nil {
-		return fmt.Errorf("nil store")
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.frozen {
+		return fmt.Errorf("drive: read export catalog is frozen")
 	}
-	switch s.(type) {
-	case *store.ValueStore[any]:
-		return nil
+	if _, exists := r.byName[info.Name]; exists {
+		return fmt.Errorf("drive: read export %q registered twice", info.Name)
 	}
-	t := reflect.TypeOf(s)
-	if t.Kind() != reflect.Pointer {
-		return fmt.Errorf("%T is not a store pointer", s)
-	}
-	// Instantiated generics carry type parameters in their name
-	// ("ValueStore[float64]"); match on the bare name.
-	switch strings.SplitN(t.Elem().Name(), "[", 2)[0] {
-	case "ValueStore", "CollectionStore", "Derived":
-		return nil
-	default:
-		return fmt.Errorf("%T is not *store.ValueStore, *store.CollectionStore, or *store.Derived", s)
-	}
-}
-
-// Kind classifies a store value for store.list output.
-func Kind(s any) string {
-	if s == nil {
-		return ""
-	}
-	t := reflect.TypeOf(s)
-	if t.Kind() != reflect.Pointer {
-		return ""
-	}
-	switch strings.SplitN(t.Elem().Name(), "[", 2)[0] {
-	case "ValueStore":
-		return "value"
-	case "CollectionStore":
-		return "collection"
-	case "Derived":
-		return "derived"
-	default:
-		return ""
-	}
-}
-
-// ReadValue returns a store's current value as JSON: ValueStore.Get,
-// CollectionStore.All (as an array), or Derived.Peek's last computed value.
-// The reflection surface is bounded to these method names — no interface{}
-// escape hatch beyond the JSON encoding itself.
-func ReadValue(s any) (json.RawMessage, error) {
-	if s == nil {
-		return nil, fmt.Errorf("drive: nil store")
-	}
-	v := reflect.ValueOf(s)
-	if v.Kind() != reflect.Pointer || v.IsNil() {
-		return nil, fmt.Errorf("drive: %T is not a non-nil store pointer", s)
-	}
-	switch Kind(s) {
-	case "collection":
-		all := v.MethodByName("All").Call(nil)[0]
-		return marshalReflect(all)
-	default:
-		get := v.MethodByName("Get")
-		if !get.IsValid() {
-			return nil, fmt.Errorf("drive: %T has no Get — not a readable store", s)
-		}
-		return marshalReflect(get.Call(nil)[0])
-	}
-}
-
-// ReadDerivedPeek returns a Derived's last computed value and dirty flag
-// without recomputing (QP-9). A non-derived store is a typed error —
-// derived.read on a value store would silently duplicate store.read.
-func ReadDerivedPeek(s any) (json.RawMessage, bool, error) {
-	if s == nil {
-		return nil, false, fmt.Errorf("drive: nil store")
-	}
-	if Kind(s) != "derived" {
-		return nil, false, fmt.Errorf("drive: %T is not a *store.Derived (derived.read is peek-only)", s)
-	}
-	v := reflect.ValueOf(s)
-	peek := v.MethodByName("Peek")
-	if !peek.IsValid() {
-		return nil, false, fmt.Errorf("drive: %T has no Peek", s)
-	}
-	out := peek.Call(nil)
-	value, err := marshalReflect(out[0])
-	if err != nil {
-		return nil, false, err
-	}
-	return value, out[1].Bool(), nil
-}
-
-// WriteValue stores a decoded JSON value into a ValueStore.
-func WriteValue(s any, payload json.RawMessage) error {
-	if Kind(s) != "value" {
-		return fmt.Errorf("drive: %T is not a writable *store.ValueStore (use WriteCollection for collections)", s)
-	}
-	v := reflect.ValueOf(s)
-	set := v.MethodByName("Set")
-	if !set.IsValid() {
-		return fmt.Errorf("drive: %T has no Set — not a writable store", s)
-	}
-	item, err := decodeAs(set.Type().In(0), payload)
-	if err != nil {
-		return err
-	}
-	set.Call([]reflect.Value{item})
+	r.byName[info.Name] = export
 	return nil
 }
 
-// collectionWrite is a collection mutation (LDP Phase 5): Insert appends a
-// decoded item; Update replaces the item carrying the decoded item's ID
-// (the collection's identify function assigns identity); Remove drops by ID.
-type collectionWrite struct {
-	Op     string          `json:"op"` // "insert" | "update" | "remove"
-	Item   json.RawMessage `json:"item,omitempty"`
-	ItemID uint64          `json:"id,omitempty"`
-}
-
-// WriteCollection applies one collection mutation. The reflection surface is
-// the store's own Insert/Update/Remove/Identify methods — no new state.
-func WriteCollection(s any, payload json.RawMessage) error {
-	if Kind(s) != "collection" {
-		return fmt.Errorf("drive: %T is not a *store.CollectionStore", s)
+// Freeze closes registration and is idempotent.
+func (r *Registry) Freeze() {
+	if r == nil {
+		return
 	}
-	var w collectionWrite
-	if err := json.Unmarshal(payload, &w); err != nil {
-		return fmt.Errorf("drive: collection write params: %w", err)
-	}
-	v := reflect.ValueOf(s)
-	switch w.Op {
-	case "insert", "update":
-		// The item type comes from the store's own method signature — no
-		// generic-type reflection gymnastics.
-		method := "Insert"
-		if w.Op == "update" {
-			method = "Update"
-		}
-		m := v.MethodByName(method)
-		if !m.IsValid() {
-			return fmt.Errorf("drive: %T has no %s method", s, method)
-		}
-		item, err := decodeAs(m.Type().In(0), w.Item)
-		if err != nil {
-			return err
-		}
-		m.Call([]reflect.Value{item})
-		return nil
-	case "remove":
-		remove := v.MethodByName("Remove")
-		if !remove.IsValid() {
-			return fmt.Errorf("drive: %T has no Remove method", s)
-		}
-		id := reflect.New(remove.Type().In(0))
-		if err := json.Unmarshal([]byte(strconv.FormatUint(w.ItemID, 10)), id.Interface()); err != nil {
-			return fmt.Errorf("drive: collection remove id: %w", err)
-		}
-		remove.Call([]reflect.Value{id.Elem()})
-		return nil
-	default:
-		return fmt.Errorf("drive: collection write op must be insert, update, or remove")
-	}
-}
-
-// decodeAs decodes JSON into a freshly allocated value of type t.
-func decodeAs(t reflect.Type, payload json.RawMessage) (reflect.Value, error) {
-	target := reflect.New(t)
-	if len(payload) > 0 {
-		if err := json.Unmarshal(payload, target.Interface()); err != nil {
-			return reflect.Value{}, fmt.Errorf("drive: value does not decode to %s: %w", t, err)
-		}
-	}
-	return target.Elem(), nil
-}
-
-// StoreField is one structural addressing hit: an exported field of a
-// facet's implementation that holds an addressable store.
-type StoreField struct {
-	Name string
-	Kind string
-}
-
-// StructFields enumerates a facet implementation's addressable store fields
-// (fail-closed reflection: exported fields only, only the three store
-// shapes, panicking types are skipped — they cannot be addressed).
-func StructFields(impl any) []StoreField {
-	if impl == nil {
-		return nil
-	}
-	t := reflect.TypeOf(impl)
-	for t != nil && t.Kind() == reflect.Pointer {
-		t = t.Elem()
-	}
-	if t == nil || t.Kind() != reflect.Struct {
-		return nil
-	}
-	out := make([]StoreField, 0, 4)
-	for i := 0; i < t.NumField(); i++ {
-		f := t.Field(i)
-		if f.PkgPath != "" {
-			continue // unexported
-		}
-		if kind := Kind(reflect.Zero(f.Type).Interface()); kind != "" {
-			// reflect.Zero of a store pointer type: Kind only needs the
-			// type, and a typed nil is fine for classification.
-			out = append(out, StoreField{Name: f.Name, Kind: kind})
-		}
-	}
-	return out
-}
-
-// FieldStore resolves a facet implementation's named store field
-// (fail-closed: unknown or unaddressable fields are errors naming the
-// field's actual type, never a zero value).
-func FieldStore(impl any, field string) (any, error) {
-	if impl == nil {
-		return nil, fmt.Errorf("drive: nil facet implementation")
-	}
-	v := reflect.ValueOf(impl)
-	if v.Kind() == reflect.Pointer {
-		if v.IsNil() {
-			return nil, fmt.Errorf("drive: nil facet implementation")
-		}
-		v = v.Elem()
-	}
-	if v.Kind() != reflect.Struct {
-		return nil, fmt.Errorf("drive: facet implementation %T is not a struct", impl)
-	}
-	f := v.FieldByName(field)
-	if !f.IsValid() {
-		return nil, fmt.Errorf("drive: facet %T has no field %q", impl, field)
-	}
-	if !f.CanInterface() {
-		return nil, fmt.Errorf("drive: facet %T field %q is unexported", impl, field)
-	}
-	s := f.Interface()
-	if err := ValidateStore(s); err != nil {
-		return nil, fmt.Errorf("drive: facet %T field %q: %w", impl, field, err)
-	}
-	return s, nil
-}
-
-func marshalReflect(v reflect.Value) (json.RawMessage, error) {
-	payload, err := json.Marshal(v.Interface())
-	if err != nil {
-		return nil, fmt.Errorf("drive: store value %s is not JSON-encodable: %w", v.Type(), err)
-	}
-	return payload, nil
+	r.mu.Lock()
+	r.frozen = true
+	r.mu.Unlock()
 }

@@ -73,3 +73,31 @@ func TestTestID_ReleaseOnDispose(t *testing.T) {
 		t.Fatalf("TestID still live after dispose: %d", got)
 	}
 }
+
+func TestTestIDRegistriesAreRuntimeScoped(t *testing.T) {
+	makeRuntime := func(t *testing.T) (*Runtime, *runtimeRenderFacet) {
+		t.Helper()
+		root := buildBenchmarkTree()
+		root.SetTestID("shared.author.id")
+		cfg := DefaultConfig()
+		cfg.LayerRegistry = testLayerRegistry(t)
+		rt, err := New(cfg, nil, &testWindow{width: 100, height: 100}, &backendFixture{}, root)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(rt.Shutdown)
+		rt.RunOneFrame()
+		return rt, root
+	}
+	first, firstRoot := makeRuntime(t)
+	second, secondRoot := makeRuntime(t)
+	if first.FacetIDForTestID("shared.author.id") != firstRoot.Base().ID() {
+		t.Fatalf("first runtime identity leaked: got %d want %d", first.FacetIDForTestID("shared.author.id"), firstRoot.Base().ID())
+	}
+	if second.FacetIDForTestID("shared.author.id") != secondRoot.Base().ID() {
+		t.Fatalf("second runtime identity = %d want %d", second.FacetIDForTestID("shared.author.id"), secondRoot.Base().ID())
+	}
+	if firstRoot.Base().ID() == secondRoot.Base().ID() {
+		t.Fatal("fixture facet identities must be independent")
+	}
+}

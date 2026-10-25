@@ -23,6 +23,10 @@ type AttachContext struct {
 	Theme   any
 	Assets  AssetServices
 	Stores  StoreServices
+	TestIDs TestIDRegistry
+	// IdentityContext is the runtime-owned structural attach path used in
+	// duplicate author-ID diagnostics. It is not a public locator path.
+	IdentityContext string
 }
 
 // RuntimeServices is the narrow subset of runtime capabilities facets may see.

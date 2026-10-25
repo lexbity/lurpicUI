@@ -212,6 +212,25 @@ func (s *System) GestureActive() bool {
 	return false
 }
 
+// CapturesFacet reports whether an active pointer press or touch sequence is
+// currently owned by the facet. It is a read-only interaction observation.
+func (s *System) CapturesFacet(id facet.FacetID) bool {
+	if s == nil || id == 0 {
+		return false
+	}
+	for _, pointer := range s.pointers {
+		if pointer.PressTarget != nil && pointer.PressTarget.FacetID == id {
+			return true
+		}
+	}
+	for _, touch := range s.touches {
+		if touch.Active && touch.Target == id {
+			return true
+		}
+	}
+	return false
+}
+
 // NewSystem constructs an input state manager.
 func NewSystem(config GestureConfig) *System {
 	if config.DragThreshold == 0 {

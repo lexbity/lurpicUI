@@ -137,7 +137,18 @@ type Runtime struct {
 	liveTestIDs liveTestIDs
 
 	// namedStores is the LDP named-store registry (QP-8 path b).
-	namedStores *readstore.Registry
+	namedStores           *readstore.Registry
+	namedExportOwners     map[string]facet.FacetID
+	facetReadExports      map[facet.FacetID]map[string]store.ReadExport
+	readExportsFrozen     bool
+	treeSnapshots         map[string]treeSnapshot
+	nextTreeSnapshot      uint64
+	treeSnapshotBytes     int
+	storeReadSnapshots    map[string]storeReadSnapshot
+	nextStoreSnapshot     uint64
+	storeSnapshotBytes    int
+	storeSnapshotReserved int
+	driveObservation      *driveObservationIndex
 
 	// driveInputStep is the in-flight drive input command (QP-11); nil when
 	// no step owns input.
@@ -151,6 +162,20 @@ type Runtime struct {
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {
 	if config.TargetFPS <= 0 {
 		return nil, errors.New("runtime: TargetFPS must be greater than zero")
+	}
+	if config.Drive.Enabled {
+		if config.Drive.ObservationNodeCapacity == 0 {
+			config.Drive.ObservationNodeCapacity = driveObservationNodeLimit
+		}
+		if config.Drive.ObservationByteCapacity == 0 {
+			config.Drive.ObservationByteCapacity = driveObservationByteLimit
+		}
+		if config.Drive.ObservationNodeCapacity < 1 || config.Drive.ObservationNodeCapacity > 262144 {
+			return nil, errors.New("runtime: drive observation node capacity must be in [1,262144]")
+		}
+		if config.Drive.ObservationByteCapacity < 1 || config.Drive.ObservationByteCapacity > 64<<20 {
+			return nil, errors.New("runtime: drive observation byte capacity must be in [1,64 MiB]")
+		}
 	}
 	if config.FontRegistry == nil {
 		return nil, errors.New("runtime: FontRegistry is required")
@@ -214,8 +239,12 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		recoveryDisabled:      config.RecoveryDisabled,
 	}
 	rt.liveTestIDs = make(liveTestIDs)
-	facet.SetTestIDRegistry(rt.liveTestIDs)
+	rt.facetReadExports = make(map[facet.FacetID]map[string]store.ReadExport)
+	rt.namedExportOwners = make(map[string]facet.FacetID)
 	if err := rt.initNamedRegistry(); err != nil {
+		return nil, err
+	}
+	if err := rt.registerTreeReadExports(root); err != nil {
 		return nil, err
 	}
 	rt.inputSystem.SetTimeSource(rt.clock.Now)

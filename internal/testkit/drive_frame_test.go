@@ -19,17 +19,17 @@ func TestDriveFramePacket_HashAndEpoch(t *testing.T) {
 	h.RunFrame()
 	payload := h.CallOK("frame.packet", nil)
 	var got struct {
-		Epoch   uint64 `json:"epoch"`
-		Hash    uint64 `json:"hash"`
+		Epoch   string `json:"epoch"`
+		Hash    string `json:"hash"`
 		Batches int    `json:"batches"`
 	}
 	if err := json.Unmarshal(payload, &got); err != nil {
 		t.Fatalf("payload: %v", err)
 	}
-	if got.Hash == 0 {
+	if got.Hash == "" || got.Hash == "0" {
 		t.Fatal("a rendered frame must hash nonzero")
 	}
-	if got.Epoch == 0 {
+	if got.Epoch == "" || got.Epoch == "0" {
 		t.Fatal("epoch must be reported")
 	}
 }

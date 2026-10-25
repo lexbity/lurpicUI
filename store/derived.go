@@ -112,7 +112,6 @@ func (d *Derived[T]) Get() T {
 // needs the flushed value advances a frame (Virtual mode) or reads after the
 // next cut. Never computed (fresh derived) reports the zero value, dirty.
 func (d *Derived[T]) Peek() (T, bool) {
-	frameDerivedEvals.Add(1)
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.value, d.dirty || (d.initialized && d.sourcesChangedLocked())

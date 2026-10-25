@@ -124,6 +124,90 @@ func main() {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
 		})
 
+	// locate.resolve forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "locate.resolve", Description: "LDP locate.resolve (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("locate.resolve", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// tree.dump forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "tree.dump", Description: "LDP tree.dump (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("tree.dump", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// store.list forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "store.list", Description: "LDP store.list (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("store.list", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// store.read forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "store.read", Description: "LDP store.read (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("store.read", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// derived.read forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "derived.read", Description: "LDP derived.read (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("derived.read", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// facet.query forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "facet.query", Description: "LDP facet.query (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("facet.query", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
 	// cmd.list forwards to the LDP method of the same name.
 	mcp.AddTool(server, &mcp.Tool{Name: "cmd.list", Description: "LDP cmd.list (grant: read)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {

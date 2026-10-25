@@ -321,6 +321,13 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 		stats.DriveGrantDenied = snap.GrantDenied
 		stats.DriveSocketGoroutinePanics = snap.SocketGoroutinePanics
 	}
+	if rt.driveObservation != nil {
+		if rt.driveObservation.dirty {
+			rt.refreshDriveObservation(rt.driveObservation)
+		} else {
+			rt.driveObservation.cut, rt.driveObservation.frame = rt.observationCutAndFrame()
+		}
+	}
 	rt.lastStats = stats
 	if diag := rt.diagnosticsHook(); diag != nil {
 		diag.OnFrame(stats)

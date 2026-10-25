@@ -8,9 +8,10 @@ import (
 // Facet is the base type embedded by all concrete facet implementations.
 // It owns identity, lifecycle state, child structure, and local dirty state.
 type Facet struct {
-	id     FacetID
-	state  LifecycleState
-	testID string // author identity for LDP locators (QP-7); set in Created only
+	id             FacetID
+	state          LifecycleState
+	testID         string // author identity for LDP locators (QP-7); set in Created only
+	testIDRegistry TestIDRegistry
 
 	parent   *Facet
 	children []*Facet

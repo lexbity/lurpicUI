@@ -152,13 +152,14 @@ func TestV2SocketRuntimePing(t *testing.T) {
 		t.Fatalf("hello rejected: %s", hres.Error)
 	}
 	var hr struct {
-		InstanceID   string   `json:"instance_id"`
-		SessionID    string   `json:"session_id"`
-		Credential   string   `json:"resume_credential"`
-		Generation   string   `json:"connection_generation"`
-		NextID       string   `json:"next_id"`
-		SchemaDigest string   `json:"schema_digest"`
-		Grants       []string `json:"grants"`
+		InstanceID         string   `json:"instance_id"`
+		SessionID          string   `json:"session_id"`
+		Credential         string   `json:"resume_credential"`
+		Generation         string   `json:"connection_generation"`
+		NextID             string   `json:"next_id"`
+		SchemaDigest       string   `json:"schema_digest"`
+		ExportSchemaDigest string   `json:"export_schema_digest"`
+		Grants             []string `json:"grants"`
 	}
 	if err := json.Unmarshal(hres.Result, &hr); err != nil {
 		t.Fatalf("hello payload: %v", err)
@@ -171,6 +172,9 @@ func TestV2SocketRuntimePing(t *testing.T) {
 	}
 	if hr.SchemaDigest != proto.SchemaDigest() {
 		t.Fatalf("schema digest = %s, want %s", hr.SchemaDigest, proto.SchemaDigest())
+	}
+	if !strings.HasPrefix(hr.ExportSchemaDigest, "sha256:") {
+		t.Fatalf("hello export schema digest = %q", hr.ExportSchemaDigest)
 	}
 
 	// Advance the app so the pong identifies real rendered progress.
@@ -634,6 +638,7 @@ func TestV2RejectsLegacyMutation(t *testing.T) {
 // session table (the production wiring the app layer performs).
 func startV2Server(t *testing.T, h *testkit.DriveHarness, socket, token string) (*server.Server, error) {
 	t.Helper()
+	h.Runtime().FreezeReadExports()
 	return server.Listen(server.Config{
 		SocketPath: socket,
 		Token:      token,
@@ -647,4 +652,125 @@ func startV2Server(t *testing.T, h *testkit.DriveHarness, socket, token string) 
 func decimalFrame(s string) uint64 {
 	v, _ := strconv.ParseUint(s, 10, 64)
 	return v
+}
+
+// TestV2SocketExplicitReadSurface exercises the S5 observations over the
+// authenticated Unix transport and the real studio runtime.
+func TestV2SocketExplicitReadSurface(t *testing.T) {
+	socket, token, h := v2SocketServer(t)
+	srv, err := startV2Server(t, h, socket, token)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+	nc, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer nc.Close()
+	if err := nc.SetDeadline(time.Now().Add(30 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	rw := bufio.NewReadWriter(bufio.NewReader(nc), bufio.NewWriter(nc))
+	call := func(id, method string, params any) proto.Response {
+		t.Helper()
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request, err := json.Marshal(proto.Request{V: proto.ProtocolMajor, ID: id, Method: method, Params: raw})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := rw.Write(append(request, '\n')); err != nil {
+			t.Fatal(err)
+		}
+		if err := rw.Flush(); err != nil {
+			t.Fatal(err)
+		}
+		type received struct {
+			response proto.Response
+			err      error
+		}
+		result := make(chan received, 1)
+		go func() {
+			line, err := rw.ReadString('\n')
+			if err != nil {
+				result <- received{err: err}
+				return
+			}
+			response, err := proto.DecodeResponse([]byte(strings.TrimSuffix(line, "\n")))
+			result <- received{response: response, err: err}
+		}()
+		for i := 0; i < 128; i++ {
+			select {
+			case got := <-result:
+				if got.err != nil {
+					t.Fatal(got.err)
+				}
+				return got.response
+			default:
+			}
+			h.RunFrame()
+			time.Sleep(time.Millisecond)
+		}
+		select {
+		case got := <-result:
+			if got.err != nil {
+				t.Fatal(got.err)
+			}
+			return got.response
+		case <-time.After(30 * time.Second):
+			t.Fatalf("%s did not reply", method)
+		}
+		return proto.Response{}
+	}
+	hello := call("1", "sys.hello", map[string]any{"token": token, "client_name": "s5-read-test", "create_session": true})
+	if !hello.OK {
+		t.Fatalf("hello: %s", hello.Error)
+	}
+	listed := call("1", "store.list", map[string]any{"limit": 256})
+	if !listed.OK {
+		t.Fatalf("store.list: %s", listed.Error)
+	}
+	var catalog struct {
+		Exports []struct {
+			Name string `json:"name"`
+		} `json:"exports"`
+	}
+	if err := json.Unmarshal(listed.Result, &catalog); err != nil {
+		t.Fatalf("store.list result %s: %v", listed.Result, err)
+	}
+	found := false
+	for _, entry := range catalog.Exports {
+		found = found || entry.Name == "e1.chartType"
+	}
+	if !found {
+		t.Fatalf("explicit export missing from catalog: %s", listed.Result)
+	}
+	read := call("2", "store.read", map[string]any{"name": "e1.chartType"})
+	if !read.OK {
+		t.Fatalf("store.read: %s", read.Error)
+	}
+	var value struct {
+		Value string `json:"value"`
+	}
+	if err := json.Unmarshal(read.Result, &value); err != nil || value.Value == "" {
+		t.Fatalf("store.read result %s: %v", read.Result, err)
+	}
+	resolved := call("3", "locate.resolve", map[string]any{"locator": map[string]string{"testid": "shell.cmdk"}})
+	if !resolved.OK {
+		t.Fatalf("locate.resolve: %s", resolved.Error)
+	}
+	dumped := call("4", "tree.dump", map[string]any{"limit": 1})
+	if !dumped.OK {
+		t.Fatalf("tree.dump: %s", dumped.Error)
+	}
+	var tree struct {
+		Snapshot string `json:"snapshot"`
+		Nodes    []any  `json:"nodes"`
+	}
+	if err := json.Unmarshal(dumped.Result, &tree); err != nil || tree.Snapshot == "" || len(tree.Nodes) != 1 {
+		t.Fatalf("tree.dump result %s: %v", dumped.Result, err)
+	}
 }

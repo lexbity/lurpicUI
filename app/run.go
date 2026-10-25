@@ -337,18 +337,6 @@ func Run(config Config, builder RootBuilder) error {
 	}
 	backendOwnedByRuntime = true
 
-	// LDP: boot the drive server after runtime construction (the sink must
-	// exist) and tear it down on the existing shutdown path. Disabled by
-	// default: nothing here runs unless LURPIC_DRIVE is set (FR-4).
-	if driveCfg.Enabled {
-		srv, err := startDriveServer(&driveCfg, rt)
-		if err != nil {
-			return fmt.Errorf("app: drive: %w", err)
-		}
-		defer func() { _ = srv.Close() }()
-		logDriveSocket(config.Runtime.Logger, driveCfg)
-	}
-
 	// F-diag-access: enable the caller's diagnostics hook on the runtime at
 	// startup. The app layer never inspects the hook.
 	if config.Diagnostics != nil {
@@ -359,6 +347,18 @@ func Run(config Config, builder RootBuilder) error {
 	// before the first frame.
 	if config.OnRuntime != nil {
 		config.OnRuntime(rt)
+	}
+	// Freeze every protocol-visible export before the listener can publish the
+	// app contract. Runtime declarations were collected from the built tree;
+	// OnRuntime may add only explicit named exports during this startup window.
+	rt.FreezeReadExports()
+	if driveCfg.Enabled {
+		srv, err := startDriveServer(&driveCfg, rt)
+		if err != nil {
+			return fmt.Errorf("app: drive: %w", err)
+		}
+		defer func() { _ = srv.Close() }()
+		logDriveSocket(config.Runtime.Logger, driveCfg)
 	}
 
 	primeRuntime(rt)

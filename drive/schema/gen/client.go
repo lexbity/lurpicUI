@@ -34,6 +34,8 @@ func Methods() []string {
 	return []string{
 		"cmd.execute",
 		"cmd.list",
+		"derived.read",
+		"facet.query",
 		"frame.run",
 		"input.click",
 		"input.drag",
@@ -43,17 +45,21 @@ func Methods() []string {
 		"input.release",
 		"input.scroll",
 		"input.type",
+		"locate.resolve",
 		"op.status",
+		"store.list",
+		"store.read",
 		"sys.hello",
 		"sys.ping",
 		"time.advance",
 		"time.mode",
+		"tree.dump",
 	}
 }
 
 // SchemaDigest returns the canonical schema digest of Methods().
 func SchemaDigest() string {
-	return "sha256:063b8ae3ce41279196244c72963603fafd0fd54294f457257449c34982953cff"
+	return "sha256:3c37d076dc2cae0f6687740c7c7040ffeb38f8c6cdd874a3a53056f3216a057f"
 }
 
 // CmdExecute sends cmd.execute with optional params.
@@ -64,6 +70,16 @@ func (c *Client) CmdExecute(params any) (json.RawMessage, error) {
 // CmdList sends cmd.list with optional params.
 func (c *Client) CmdList(params any) (json.RawMessage, error) {
 	return c.call("cmd.list", params)
+}
+
+// DerivedRead sends derived.read with optional params.
+func (c *Client) DerivedRead(params any) (json.RawMessage, error) {
+	return c.call("derived.read", params)
+}
+
+// FacetQuery sends facet.query with optional params.
+func (c *Client) FacetQuery(params any) (json.RawMessage, error) {
+	return c.call("facet.query", params)
 }
 
 // FrameRun sends frame.run with optional params.
@@ -111,9 +127,24 @@ func (c *Client) InputType(params any) (json.RawMessage, error) {
 	return c.call("input.type", params)
 }
 
+// LocateResolve sends locate.resolve with optional params.
+func (c *Client) LocateResolve(params any) (json.RawMessage, error) {
+	return c.call("locate.resolve", params)
+}
+
 // OpStatus sends op.status with optional params.
 func (c *Client) OpStatus(params any) (json.RawMessage, error) {
 	return c.call("op.status", params)
+}
+
+// StoreList sends store.list with optional params.
+func (c *Client) StoreList(params any) (json.RawMessage, error) {
+	return c.call("store.list", params)
+}
+
+// StoreRead sends store.read with optional params.
+func (c *Client) StoreRead(params any) (json.RawMessage, error) {
+	return c.call("store.read", params)
 }
 
 // SysHello performs the handshake: token + create_session.
@@ -138,4 +169,9 @@ func (c *Client) TimeAdvance(params any) (json.RawMessage, error) {
 // TimeMode sends time.mode with optional params.
 func (c *Client) TimeMode(params any) (json.RawMessage, error) {
 	return c.call("time.mode", params)
+}
+
+// TreeDump sends tree.dump with optional params.
+func (c *Client) TreeDump(params any) (json.RawMessage, error) {
+	return c.call("tree.dump", params)
 }

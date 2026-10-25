@@ -65,13 +65,6 @@ func TestStudioProbe(t *testing.T) {
 	cfg.ThemeResolver = themeCtx.Resolver
 	cfg.Drive = true
 	h := testkit.NewDriveHarness(t, 1280, 800, root)
-	if r, ok := root.(*studio.Root); ok {
-		for _, ns := range r.NamedStores() {
-			if err := h.Runtime().RegisterNamedStore(ns.Name, ns.Store); err != nil {
-				t.Fatalf("register %s: %v", ns.Name, err)
-			}
-		}
-	}
 	h.RunFrame()
 
 	step := func(method string, params any) json.RawMessage {
@@ -118,7 +111,7 @@ func TestStudioProbe(t *testing.T) {
 	// 5. facet.query verification: the canvas is arranged, non-empty.
 	query := step("facet.query", map[string]any{
 		"target":  script.Steps[4].Target,
-		"details": true,
+		"details": []string{"plot", "seriesCount"},
 	})
 	var q struct {
 		Bounds *struct{ Min, Max struct{ X, Y float32 } } `json:"bounds"`
@@ -133,13 +126,13 @@ func TestStudioProbe(t *testing.T) {
 	// 6. frame.packet: self-report of the packet hash.
 	packet := step("frame.packet", nil)
 	var pk struct {
-		Epoch uint64 `json:"epoch"`
-		Hash  uint64 `json:"hash"`
+		Epoch string `json:"epoch"`
+		Hash  string `json:"hash"`
 	}
 	if err := json.Unmarshal(packet, &pk); err != nil {
 		t.Fatalf("frame.packet payload: %v", err)
 	}
-	if pk.Hash == 0 || pk.Epoch == 0 {
+	if pk.Hash == "" || pk.Epoch == "" || pk.Hash == "0" || pk.Epoch == "0" {
 		t.Fatalf("packet self-report = %+v", pk)
 	}
 }

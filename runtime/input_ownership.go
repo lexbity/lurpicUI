@@ -148,7 +148,7 @@ func (rt *Runtime) drivePrepareInputFrame() {
 		return
 	}
 	if step.targetLocator != nil {
-		mark, _, err := locate.Resolve(rt.root, *step.targetLocator, rt.driveDescribe, rt.driveHitTest)
+		mark, _, err := locate.Resolve(rt.root, *step.targetLocator, rt.driveDescribe, rt.driveHitTest, rt.visibleChildren)
 		if err != nil || mark.Base.ID() != step.targetFacet {
 			rt.finishInputStep(step, &proto.Error{Code: proto.ErrTargetUnavailable, Detail: "the pinned input target disappeared or changed lifetime"})
 			return

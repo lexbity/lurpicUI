@@ -39,6 +39,9 @@ type drivePort struct {
 	epoch atomic.Uint64
 	// cut is the sealed cut identifier: it advances when a frame is sealed.
 	cut atomic.Uint64
+	// exportSchemaDigest is frozen before the listener starts and contains no
+	// live facet/store state. It crosses the transport seam as immutable text.
+	exportSchemaDigest atomic.Value
 
 	// wake unblocks the parked Virtual-mode Run loop; buffered 1 so Submit
 	// never blocks.
@@ -138,11 +141,20 @@ func (p *drivePort) Observe() drive.PublishedSnapshot {
 	if p.sessions != nil {
 		inst = p.sessions.InstanceID()
 	}
-	return drive.PublishedSnapshot{
-		Cut:        strconv.FormatUint(p.cut.Load(), 10),
-		Frame:      strconv.FormatUint(p.epoch.Load(), 10),
-		InstanceID: inst,
+	digest := ""
+	if value := p.exportSchemaDigest.Load(); value != nil {
+		digest, _ = value.(string)
 	}
+	return drive.PublishedSnapshot{
+		Cut:                strconv.FormatUint(p.cut.Load(), 10),
+		Frame:              strconv.FormatUint(p.epoch.Load(), 10),
+		InstanceID:         inst,
+		ExportSchemaDigest: digest,
+	}
+}
+
+func (p *drivePort) setExportSchemaDigest(digest string) {
+	p.exportSchemaDigest.Store(digest)
 }
 
 // Cut returns the sealed cut identifier (decimal string attribution for
@@ -368,6 +380,7 @@ func (rt *Runtime) driveDrain() int {
 		return 0
 	}
 	p := rt.drivePort
+	rt.cleanupDriveReadSnapshots()
 	p.serviceControl()
 	rt.driveCollectRenderCompletions()
 	cmds := p.claim()

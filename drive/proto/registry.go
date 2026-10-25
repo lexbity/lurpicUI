@@ -41,19 +41,19 @@ const (
 )
 
 // Registry is the full method table. Advertised entries are the complete
-// major-2 wire surface (S1: hello + ping at a real cut); non-advertised
-// entries are trusted testkit-seam methods whose native v2 slices land in
-// later slices. The write grant and store.write have no entry at all.
+// major-2 wire surface. Non-advertised entries are trusted testkit-seam
+// methods whose native v2 slices have not landed. The read/locator surface
+// is advertised from S5; the write grant and store.write have no entry.
 var Registry = []MethodSpec{
 	{Name: "sys.hello", Grant: "", Advertised: true},
 	{Name: "sys.ping", Grant: GrantRead, Advertised: true},
 	{Name: "sys.info", Grant: GrantRead, Tier: TierStructural},
-	{Name: "locate.resolve", Grant: GrantRead, Tier: TierStructural},
-	{Name: "tree.dump", Grant: GrantRead, Tier: TierStructural},
-	{Name: "store.list", Grant: GrantRead, Tier: TierDomain},
-	{Name: "store.read", Grant: GrantRead, Tier: TierDomain},
-	{Name: "derived.read", Grant: GrantRead, Tier: TierView},
-	{Name: "facet.query", Grant: GrantRead, Tier: TierStructural},
+	{Name: "locate.resolve", Grant: GrantRead, Tier: TierStructural, Advertised: true},
+	{Name: "tree.dump", Grant: GrantRead, Tier: TierStructural, Advertised: true},
+	{Name: "store.list", Grant: GrantRead, Tier: TierDomain, Advertised: true},
+	{Name: "store.read", Grant: GrantRead, Tier: TierDomain, Advertised: true},
+	{Name: "derived.read", Grant: GrantRead, Tier: TierView, Advertised: true},
+	{Name: "facet.query", Grant: GrantRead, Tier: TierStructural, Advertised: true},
 	{Name: "frame.pixels", Grant: GrantRead, Tier: TierRender},
 	{Name: "frame.packet", Grant: GrantRead, Tier: TierRender},
 	{Name: "cmd.list", Grant: GrantRead, Tier: TierApp, Advertised: true},

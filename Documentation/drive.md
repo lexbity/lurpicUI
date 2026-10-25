@@ -51,7 +51,10 @@ advertised wire surface today:
 - `sys.hello` — version/instance/session negotiation; create with the
   launcher token, or resume with the instance/session/credential triple.
   The result carries instance/session/generation, `next_id`, grants, the
-  schema digest, and the limits document.
+  protocol schema digest, frozen read-export contract digest, and limits
+  document. The export digest covers declared names/field patterns, kinds,
+  schemas, state classes, and byte bounds; live values and versions do not
+  change it.
 - `sys.ping` — cut-exact liveness: the pong identifies the sealed cut and
   last submitted frame it observes.
 - `cmd.list` — lists visible GUI-backed commands with their exact positive
@@ -87,6 +90,28 @@ advertised wire surface today:
 - `op.status` — reports the retained state and outcome of an operation owned
   by the authenticated session; expired outcomes return the operation.expired
   error.
+- `locate.resolve` — resolves one exact author ID, role/name, scoped key,
+  accessible name, kind, or hit-map coordinate locator. Ambiguity candidates
+  are typed error details, capped at ten with an explicit truncation flag.
+- `tree.dump` — returns pre-order structural pages from a bounded cut
+  observation index. The first page captures an immutable, session-owned
+  snapshot; later pages use its opaque snapshot ID and decimal-string offset.
+  Snapshots expire after 60 seconds and count toward an 8 MiB per-runtime
+  retention budget. Index capacity exhaustion returns the resource-limit error and
+  leaves ordinary app rendering available.
+- `facet.query` — reports structural/layout/focus/hit/layer facts and only
+  explicitly declared typed detail captures.
+- `store.list` — pages the frozen explicit export catalog, including each
+  export's domain/view class, kind, schema name, version, and byte bound.
+- `store.read` — reads a named scalar or bounded collection page, or an
+  explicitly declared `{target, field}` capability. A collection whose first
+  page is incomplete returns a session-owned snapshot handle; later pages use
+  that handle and a decimal-string offset, preserving one source version for
+  the full read. Handles expire after 60 seconds and count toward the
+  8 MiB per-runtime frozen-export budget. Undeclared fields fail closed;
+  derived/detail exports use their dedicated read method.
+- `derived.read` — returns the last computed derived value and dirty/version
+  metadata through Peek without flushing, evaluating, or changing counters.
 - `input.click`, `input.press`, `input.release`, `input.move`, `input.drag`,
   `input.type`, `input.scroll`, and `input.focus` — require the `input` grant
   and enter the ordinary platform event queue. Each synthesized atom is
@@ -104,8 +129,10 @@ advertised wire surface today:
   and clears capture at the next safe boundary. `input.focus` performs real
   Tab/Shift-Tab traversal and reports the number of hops.
 
-Reads, streams, and artifacts remain later slices. The advertised registry
-is the authoritative list of methods implemented by this build.
+Streams and artifact transfer remain later slices. The advertised registry
+is the authoritative list of methods implemented by this build. Read exports
+are declarations made by app/mark authors; the framework does not reflect over
+Go fields or infer writable capabilities.
 
 ## Wire
 

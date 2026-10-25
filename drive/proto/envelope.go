@@ -61,10 +61,11 @@ type Notification struct {
 // retry the same admission or recover per the error contract — never
 // "execute the same mutation under a new ID".
 type Error struct {
-	Code        ErrorCode `json:"code"`
-	Detail      string    `json:"detail,omitempty"`
-	Retryable   bool      `json:"retryable,omitempty"`
-	NonAdmitted bool      `json:"non_admitted,omitempty"`
+	Code        ErrorCode       `json:"code"`
+	Detail      string          `json:"detail,omitempty"`
+	Details     json.RawMessage `json:"details,omitempty"`
+	Retryable   bool            `json:"retryable,omitempty"`
+	NonAdmitted bool            `json:"non_admitted,omitempty"`
 }
 
 // Error implements the error interface so proto errors flow through Go code.

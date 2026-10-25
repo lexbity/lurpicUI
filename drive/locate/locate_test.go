@@ -2,6 +2,7 @@ package locate
 
 import (
 	"encoding/json"
+	"math"
 	"strings"
 	"testing"
 
@@ -49,7 +50,7 @@ func describe(impl facet.FacetImpl) Meta {
 }
 
 func newLocateFacet(testID, kind, role, name, key string) *locateFacet {
-	f := &locateFacet{kind: kind, role: role, name: name, key: key}
+	f := &locateFacet{Facet: facet.NewFacet(), kind: kind, role: role, name: name, key: key}
 	f.BindImpl(f)
 	f.SetTestID(testID)
 	return f
@@ -71,19 +72,31 @@ func impl(f *locateFacet) facet.FacetImpl { return f }
 
 func TestResolve_Zero_Unresolved(t *testing.T) {
 	root, _, _, _ := tree()
-	_, _, err := Resolve(impl(root), Locator{TestID: "no-such"}, describe, nil)
+	_, _, err := Resolve(impl(root), Locator{TestID: "no-such"}, describe, nil, nil)
 	if err == nil || err.Code != "locator.unresolved" {
 		t.Fatalf("err = %+v, want locator.unresolved", err)
 	}
-	_, _, err = Resolve(impl(root), Locator{Text: "Nonexistent"}, describe, nil)
+	_, _, err = Resolve(impl(root), Locator{Text: "Nonexistent"}, describe, nil, nil)
 	if err == nil || err.Code != "locator.unresolved" {
 		t.Fatalf("err = %+v, want locator.unresolved", err)
 	}
 }
 
+func TestVisibleTreeBoundedNeverReturnsPartialAsComplete(t *testing.T) {
+	root, _, _, _ := tree()
+	nodes, exceeded := VisibleTreeBounded(root, describe, nil, 4)
+	if exceeded || len(nodes) != 4 {
+		t.Fatalf("exact-capacity tree = %d nodes, exceeded=%v", len(nodes), exceeded)
+	}
+	partial, exceeded := VisibleTreeBounded(root, describe, nil, 3)
+	if !exceeded || partial != nil {
+		t.Fatalf("over-capacity tree returned partial=%d exceeded=%v", len(partial), exceeded)
+	}
+}
+
 func TestResolve_UniqueByTestID(t *testing.T) {
 	root, save, _, _ := tree()
-	m, _, err := Resolve(impl(root), Locator{TestID: "save-btn"}, describe, nil)
+	m, _, err := Resolve(impl(root), Locator{TestID: "save-btn"}, describe, nil, nil)
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -98,7 +111,7 @@ func TestResolve_UniqueByTestID(t *testing.T) {
 func TestResolve_Multiple_AmbiguousWithCandidates(t *testing.T) {
 	root, _, _, _ := tree()
 	// Two action/button facets exist.
-	m, cands, err := Resolve(impl(root), Locator{Kind: "action/button"}, describe, nil)
+	m, cands, err := Resolve(impl(root), Locator{Kind: "action/button"}, describe, nil, nil)
 	if err == nil || err.Code != "locator.ambiguous" {
 		t.Fatalf("err = %+v, want locator.ambiguous", err)
 	}
@@ -123,7 +136,7 @@ func TestResolve_AmbiguityCappedAtTen(t *testing.T) {
 		root.AddChild(child.Base())
 	}
 	facet.Attach(root, facet.AttachContext{})
-	_, cands, err := Resolve(impl(root), Locator{Kind: "action/button"}, describe, nil)
+	_, cands, err := Resolve(impl(root), Locator{Kind: "action/button"}, describe, nil, nil)
 	if err == nil || err.Code != "locator.ambiguous" {
 		t.Fatalf("err = %+v", err)
 	}
@@ -134,19 +147,19 @@ func TestResolve_AmbiguityCappedAtTen(t *testing.T) {
 
 func TestResolve_RoleAndName(t *testing.T) {
 	root, _, export, _ := tree()
-	m, _, err := Resolve(impl(root), Locator{Role: "button", Name: "Export PNG"}, describe, nil)
+	m, _, err := Resolve(impl(root), Locator{Role: "button", Name: "Export PNG"}, describe, nil, nil)
 	if err != nil {
 		t.Fatalf("resolve role+name: %v", err)
 	}
 	if m.Base.ID() != export.Base().ID() {
 		t.Fatal("resolved the wrong button")
 	}
-	// Bare role with two buttons is ambiguous.
-	if _, _, err := Resolve(impl(root), Locator{Role: "button"}, describe, nil); err == nil || err.Code != "locator.ambiguous" {
-		t.Fatalf("err = %+v, want ambiguous", err)
+	// Bare role is an invalid oneof shape because role/name must be supplied together.
+	if _, _, err := Resolve(impl(root), Locator{Role: "button"}, describe, nil, nil); err == nil || err.Code != "protocol.invalid_params" {
+		t.Fatalf("err = %+v, want invalid_params", err)
 	}
 	// Text matches AccessibleName only, exact.
-	m, _, err = Resolve(impl(root), Locator{Text: "Save"}, describe, nil)
+	m, _, err = Resolve(impl(root), Locator{Text: "Save"}, describe, nil, nil)
 	if err != nil {
 		t.Fatalf("resolve text: %v", err)
 	}
@@ -154,14 +167,14 @@ func TestResolve_RoleAndName(t *testing.T) {
 		t.Fatal("text resolved the wrong facet")
 	}
 	// Substring never matches.
-	if _, _, err := Resolve(impl(root), Locator{Text: "Sav"}, describe, nil); err == nil || err.Code != "locator.unresolved" {
+	if _, _, err := Resolve(impl(root), Locator{Text: "Sav"}, describe, nil, nil); err == nil || err.Code != "locator.unresolved" {
 		t.Fatalf("err = %+v, substring must not match", err)
 	}
 }
 
 func TestResolve_KeyExact(t *testing.T) {
 	root, _, _, listRow := tree()
-	m, _, err := Resolve(impl(root), Locator{Key: "row-17"}, describe, nil)
+	m, _, err := Resolve(impl(root), Locator{Key: "row-17"}, describe, nil, nil)
 	if err != nil {
 		t.Fatalf("resolve key: %v", err)
 	}
@@ -169,8 +182,29 @@ func TestResolve_KeyExact(t *testing.T) {
 		t.Fatal("key resolved the wrong facet")
 	}
 	// Substring never matches.
-	if _, _, err := Resolve(impl(root), Locator{Key: "row-1"}, describe, nil); err == nil {
+	if _, _, err := Resolve(impl(root), Locator{Key: "row-1"}, describe, nil, nil); err == nil {
 		t.Fatal("key substring must not match")
+	}
+}
+
+func TestResolve_ScopedAndOneofValidation(t *testing.T) {
+	root := newLocateFacet("root", "shell/root", "region", "", "")
+	container := newLocateFacet("toolbar", "structure/toolbar", "toolbar", "Actions", "")
+	save := newLocateFacet("save-btn", "action/button", "button", "Save", "")
+	export := newLocateFacet("export-btn", "action/button", "button", "Export", "")
+	container.AddChild(save.Base())
+	container.AddChild(export.Base())
+	root.Base().AddChild(container.Base())
+	facet.Attach(root, facet.AttachContext{})
+	match, _, err := Resolve(impl(root), Locator{Role: "button", Name: "Save", Within: &Locator{TestID: "toolbar"}}, describe, nil, nil)
+	if err != nil || match.Base.ID() != save.Base().ID() {
+		t.Fatalf("scoped resolve = (%v, %v), want Save in toolbar", match.Base, err)
+	}
+	if _, _, err := Resolve(impl(root), Locator{TestID: "toolbar", Kind: "structure/toolbar"}, describe, nil, nil); err == nil || err.Code != "protocol.invalid_params" {
+		t.Fatalf("mixed locator branches err=%v, want invalid_params", err)
+	}
+	if _, _, err := Resolve(impl(root), Locator{Coords: &[2]float32{float32(math.NaN()), 0}}, describe, nil, nil); err == nil || err.Code != "protocol.invalid_params" {
+		t.Fatalf("non-finite coords err=%v, want invalid_params", err)
 	}
 }
 
@@ -183,7 +217,7 @@ func TestResolve_CoordsUsesHitMap(t *testing.T) {
 		}
 		return nil, false
 	}
-	m, _, err := Resolve(impl(root), Locator{Coords: &[2]float32{10, 20}}, describe, testHit)
+	m, _, err := Resolve(impl(root), Locator{Coords: &[2]float32{10, 20}}, describe, testHit, nil)
 	if err != nil {
 		t.Fatalf("resolve coords: %v", err)
 	}
@@ -191,14 +225,14 @@ func TestResolve_CoordsUsesHitMap(t *testing.T) {
 		t.Fatal("coords resolved the wrong facet")
 	}
 	// A miss is unresolved, not ambiguous — even though several facets exist.
-	if _, _, err := Resolve(impl(root), Locator{Coords: &[2]float32{99, 99}}, describe, testHit); err == nil || err.Code != "locator.unresolved" {
+	if _, _, err := Resolve(impl(root), Locator{Coords: &[2]float32{99, 99}}, describe, testHit, nil); err == nil || err.Code != "locator.unresolved" {
 		t.Fatalf("err = %+v", err)
 	}
 }
 
 func TestResolve_NilRoot(t *testing.T) {
 	var nilImpl facet.FacetImpl
-	if _, _, err := Resolve(nilImpl, Locator{TestID: "x"}, describe, nil); err == nil {
+	if _, _, err := Resolve(nilImpl, Locator{TestID: "x"}, describe, nil, nil); err == nil {
 		t.Fatal("nil root must be unresolved")
 	}
 }
@@ -225,6 +259,6 @@ func FuzzLocator(f *testing.F) {
 		if err := json.Unmarshal([]byte(raw), &locator); err != nil {
 			return
 		}
-		_, _, _ = Resolve(impl(root), locator, describe, nil)
+		_, _, _ = Resolve(impl(root), locator, describe, nil, nil)
 	})
 }
