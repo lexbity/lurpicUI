@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "fixture": "studio-determinism-v1",
+  "seed": "demos/lurpic_studio/assets/metrics.csv",
+  "surface": {"width": 1280, "height": 800},
+  "clock": "Virtual",
+  "warmup_frames": 1,
+  "non_race": {
+    "test": "TestDeterminismThousandConsecutiveFrames",
+    "ready_frames_per_run": 1000,
+    "independent_runs": 2,
+    "required_observations": ["canonical packet SHA-256", "ready software surface SHA-256", "consecutive frame number"]
+  },
+  "race": {
+    "test": "TestDeterminismRaceScript120Frames",
+    "ready_frames_per_run": 120,
+    "independent_runs": 2,
+    "required_observations": ["canonical packet SHA-256", "ready software surface SHA-256", "consecutive frame number"]
+  },
+  "acceptance_state": "not-yet-executed"
+}

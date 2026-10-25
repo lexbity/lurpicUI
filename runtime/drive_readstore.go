@@ -17,6 +17,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/render/canonical"
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
@@ -641,11 +642,15 @@ func driveFramePacket(rt *Runtime, _ drive.Command) driveOutcome {
 	if frame == nil {
 		return errorOutcome(&proto.Error{Code: proto.ErrRenderUnavailable, Detail: "no frame submitted yet"})
 	}
+	digest, err := canonical.Digest(frame)
+	if err != nil {
+		return errorOutcome(&proto.Error{Code: proto.ErrRenderFailed, Detail: "canonical frame encoding failed"})
+	}
 	payload, err := json.Marshal(struct {
 		Epoch   string `json:"epoch"`
 		Hash    string `json:"hash"`
 		Batches int    `json:"batches"`
-	}{strconv.FormatUint(rt.drivePort.Epoch(), 10), strconv.FormatUint(rt.FramePacketHash(), 10), len(frame.RenderBatchs)})
+	}{strconv.FormatUint(rt.drivePort.Epoch(), 10), digest, len(frame.RenderBatchs)})
 	if err != nil {
 		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: "frame packet encoding failed"})
 	}

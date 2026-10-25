@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "gates": [
+    {
+      "id": "P1.test-evidence.host",
+      "phase": "P1",
+      "package": "./internal/testevidence",
+      "tests": ["TestRequiredSkipFails", "TestRequiredSubtestSkipFails", "TestMissingSelectionFails", "TestWrongBuildModeFails", "TestWatchdogTerminatesStalledBinary", "TestTruncatedJSONFails", "TestMissingArtifactFails", "TestPassingGateWritesEvidence"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 120000, "package_timeout_ms": 1200000,
+      "fixture": "p1-evidence-v1"
+    },
+    {
+      "id": "P1.test-evidence.race",
+      "phase": "P1",
+      "package": "./internal/testevidence",
+      "tests": ["TestRequiredSkipFails", "TestRequiredSubtestSkipFails", "TestMissingSelectionFails", "TestWrongBuildModeFails", "TestWatchdogTerminatesStalledBinary", "TestTruncatedJSONFails", "TestMissingArtifactFails", "TestPassingGateWritesEvidence"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 120000, "package_timeout_ms": 1200000,
+      "fixture": "p1-evidence-v1"
+    },
+    {
+      "id": "P1.canonical.host",
+      "phase": "P1",
+      "package": "./render/canonical",
+      "tests": ["TestCanonicalEveryFieldMutation", "TestCanonicalCommandInventory", "TestCanonicalAssetGenerationChangesDigest", "TestCanonicalGlyphRunFields", "TestCanonicalFrameMetadataMutation", "TestCanonicalRejectsNonFiniteValues", "TestNegativeOpacityDigest"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-canonical-v1"
+    },
+    {
+      "id": "P1.canonical.race",
+      "phase": "P1",
+      "package": "./render/canonical",
+      "tests": ["TestCanonicalEveryFieldMutation", "TestCanonicalCommandInventory", "TestCanonicalAssetGenerationChangesDigest", "TestCanonicalGlyphRunFields", "TestCanonicalFrameMetadataMutation", "TestCanonicalRejectsNonFiniteValues", "TestNegativeOpacityDigest"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-canonical-v1"
+    },
+    {
+      "id": "P1.renderutil.host",
+      "phase": "P1",
+      "package": "./internal/renderutil",
+      "tests": ["TestRenderBatchCache_unchanged_detection", "TestRenderBatchCache_ignoresCollidingCommandHash"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-canonical-v1"
+    },
+    {
+      "id": "P1.renderutil.race",
+      "phase": "P1",
+      "package": "./internal/renderutil",
+      "tests": ["TestRenderBatchCache_unchanged_detection", "TestRenderBatchCache_ignoresCollidingCommandHash"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-canonical-v1"
+    },
+    {
+      "id": "P1.runtime-clock.host",
+      "phase": "P1",
+      "package": "./runtime",
+      "tests": ["TestPhaseTimingUsesWallClockInVirtual", "TestReads_DoNotPerturbFrames"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-runtime-v1"
+    },
+    {
+      "id": "P1.runtime-clock.race",
+      "phase": "P1",
+      "package": "./runtime",
+      "tests": ["TestPhaseTimingUsesWallClockInVirtual", "TestReads_DoNotPerturbFrames"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-runtime-v1"
+    },
+    {
+      "id": "P1.control-await.host",
+      "phase": "P1",
+      "package": "./internal/testkit",
+      "tests": ["TestControlAwaitCreatesNoFrame"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-control-v1"
+    },
+    {
+      "id": "P1.control-await.race",
+      "phase": "P1",
+      "package": "./internal/testkit",
+      "tests": ["TestControlAwaitCreatesNoFrame"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-control-v1"
+    },
+    {
+      "id": "P1.listener-stop.host",
+      "phase": "P1",
+      "package": "./drive/server",
+      "tests": ["TestListenerStoppedAcknowledgment"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-server-v1"
+    },
+    {
+      "id": "P1.listener-stop.race",
+      "phase": "P1",
+      "package": "./drive/server",
+      "tests": ["TestListenerStoppedAcknowledgment"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-server-v1"
+    },
+    {
+      "id": "P1.equivalence-negative.host",
+      "phase": "P1",
+      "package": "./input/equivalence",
+      "tests": ["TestNegativeWrongCadence", "TestNegativeZeroScroll", "TestNegativeSkippedHover", "TestNegativeMissingCancel", "TestNegativeControl_SkewedTwinDiverges"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-equivalence-v1"
+    },
+    {
+      "id": "P1.equivalence-negative.race",
+      "phase": "P1",
+      "package": "./input/equivalence",
+      "tests": ["TestNegativeWrongCadence", "TestNegativeZeroScroll", "TestNegativeSkippedHover", "TestNegativeMissingCancel", "TestNegativeControl_SkewedTwinDiverges"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p1-equivalence-v1"
+    },
+    {
+      "id": "P1.driving-indicator.host",
+      "phase": "P1",
+      "package": "./demos/lurpic_studio/studio",
+      "tests": ["TestDrivingAndVirtualIndicator", "TestNegativeDrivingIndicator"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "studio-determinism-v1"
+    },
+    {
+      "id": "P1.driving-indicator.race",
+      "phase": "P1",
+      "package": "./demos/lurpic_studio/studio",
+      "tests": ["TestDrivingAndVirtualIndicator", "TestNegativeDrivingIndicator"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "studio-determinism-v1"
+    },
+    {
+      "id": "P1.determinism-thousand.host",
+      "phase": "P1",
+      "package": "./drive",
+      "tests": ["TestDeterminismThousandConsecutiveFrames"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 150000, "package_timeout_ms": 1200000,
+      "fixture": "studio-determinism-v1"
+    },
+    {
+      "id": "P1.determinism-race.race",
+      "phase": "P1",
+      "package": "./drive",
+      "tests": ["TestDeterminismRaceScript120Frames"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 180000, "package_timeout_ms": 1200000,
+      "fixture": "studio-determinism-v1"
+    }
+  ]
+}

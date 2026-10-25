@@ -492,7 +492,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 		if group == nil {
 			continue
 		}
-		recipeStart := rt.clock.Now()
+		recipeStart := rt.clock.WallNow()
 		recipe := rt.resolveLayerRecipe(group.desc, parentBounds)
 		override, hasOverride, err := rt.layerRecipeOverride(group.children, parentBounds)
 		if err != nil {
@@ -506,7 +506,7 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			recipe = override
 		}
 		policy := layout.ResolveLayerLayoutPolicy(recipe)
-		stats.specResolution += rt.clock.Now().Sub(recipeStart)
+		stats.specResolution += rt.clock.WallNow().Sub(recipeStart)
 		layerCtx := facet.LayerContext{
 			ID:         facet.LayerID(group.desc.ID),
 			HitPolicy:  facet.HitPolicy(group.desc.HitPolicy),
@@ -533,12 +533,12 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			WritingDirection: facet.WritingDirectionLTR,
 			AnchorCache:      cache,
 		}
-		measureStart := rt.clock.Now()
+		measureStart := rt.clock.WallNow()
 		measureResult, err := policy.MeasureLayer(measureCtx, group.children)
 		if err != nil {
 			panic(err)
 		}
-		stats.structuralMeasure += rt.clock.Now().Sub(measureStart)
+		stats.structuralMeasure += rt.clock.WallNow().Sub(measureStart)
 		layerBounds := parentBounds
 		if measureResult.Size.W > 0 || measureResult.Size.H > 0 {
 			layerBounds = gfx.RectFromXYWH(parentBounds.Min.X, parentBounds.Min.Y, measureResult.Size.W, measureResult.Size.H)
@@ -557,12 +557,12 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			LayerMeasureContext: measureCtx,
 			ClipRect:            layerFrame.ClipRect,
 		}
-		arrangeStart := rt.clock.Now()
+		arrangeStart := rt.clock.WallNow()
 		arranged, err := policy.ArrangeLayer(arrangeCtx, group.children)
 		if err != nil {
 			panic(err)
 		}
-		stats.arrange += rt.clock.Now().Sub(arrangeStart)
+		stats.arrange += rt.clock.WallNow().Sub(arrangeStart)
 		if len(arranged) == 0 {
 			for _, child := range group.children {
 				if child.Layout != nil {

@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "evidence_state": "missing",
+  "performance_reference": {
+    "architecture": "ARM64",
+    "ram_bytes": 2147483648,
+    "surface": "720x1280",
+    "refresh_hz": 60,
+    "backend": "Vulkan",
+    "physical_device_required": true,
+    "model": null,
+    "soc": null,
+    "os_build": null,
+    "driver": null,
+    "build_fingerprint": null,
+    "serial_hash": null
+  },
+  "modern_lifecycle_reference": {
+    "api_level_minimum": 34,
+    "physical_device_required": true,
+    "model": null,
+    "soc": null,
+    "os_build": null,
+    "driver": null,
+    "build_fingerprint": null,
+    "serial_hash": null
+  },
+  "acceptance_state": "blocking"
+}

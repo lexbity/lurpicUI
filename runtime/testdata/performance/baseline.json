@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "kind": "historical-audit-summary",
+  "source_revision": "f014474",
+  "source_date": "2026-10-25",
+  "raw_profiles_committed": false,
+  "limitation": "Temporary audit profiles were not durable. These observations are provenance only and are not release baselines or acceptance results.",
+  "observations": [
+    {
+      "workload": "two studio runs, 1000 advances each, software, non-race",
+      "duration_seconds": 28.29,
+      "cumulative_allocated_bytes_approx": 14271551488,
+      "sampled_heap_in_use_bytes_at_end_approx": 39845888,
+      "includes_fixture_initialization": true,
+      "limitations": ["not process peak", "not PSS", "not native or GPU accounting"]
+    },
+    {
+      "workload": "same profile CPU and allocation profiles",
+      "find_facet_by_id_and_callees_alloc_percent": 38.92,
+      "harfbuzz_shaping_alloc_percent": 33.64,
+      "compositing_cpu_sample_percent": 38.49,
+      "limitations": ["cumulative call-tree percentages overlap and must not be summed"]
+    },
+    {
+      "workload": "race package pass from audit",
+      "drive_seconds": 62.15,
+      "runtime_seconds": 14.18,
+      "equivalence_seconds": 4.94,
+      "studio_seconds": 177.62,
+      "limitations": ["runtime and server failed", "studio skipped two coverage tests", "some experiments overlapped studio"]
+    },
+    {
+      "workload": "fixed-label shaper microbenchmark",
+      "fresh_microseconds": 128.6,
+      "reused_microseconds": 75.4,
+      "fresh_allocated_bytes": 75394,
+      "reused_allocated_bytes": 32643,
+      "fresh_allocations": 1024,
+      "reused_allocations": 293,
+      "limitations": ["single operation experiment, not application improvement evidence"]
+    },
+    {
+      "workload": "flat-tree identity resolution sweep",
+      "nodes_128_ms": 0.203,
+      "nodes_512_ms": 2.90,
+      "nodes_2048_ms": 64.8,
+      "allocated_mib_128": 0.68,
+      "allocated_mib_512": 11.55,
+      "allocated_mib_2048": 232.69,
+      "limitations": ["microbenchmark, not live app latency"]
+    },
+    {
+      "workload": "mutation experiments",
+      "observed": "zero scroll and seven additional click frames passed equivalence; opacity, bounds and clip changes did not change packet hash",
+      "limitations": ["insufficient assertions; demonstrates an oracle defect"]
+    },
+    {
+      "workload": "eight cleaned-up harness lifetimes",
+      "observed_retained_runtime_client_entries": 8,
+      "limitations": ["testkit-specific map retention, separate from production ownership"]
+    }
+  ]
+}

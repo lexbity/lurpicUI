@@ -1,0 +1,21 @@
+{
+  "schema_version": 1,
+  "evidence_state": "descriptor-only",
+  "reference_class": "Ryzen 7 5800X3D, 16 logical CPUs",
+  "observed_machine": {
+    "cpu": "AMD Ryzen 7 5800X3D 8-Core Processor",
+    "logical_cpus": 16,
+    "os": "EndeavourOS Linux 6.18.57-2-lts x86_64",
+    "go": "go1.27.3-X:nodwarf5",
+    "goos": "linux",
+    "goarch": "amd64",
+    "cgo_enabled": 1
+  },
+  "measurement_conditions": {
+    "cpu_governor": "not pinned; observed scaling enabled",
+    "thermal_state": "not captured",
+    "race_status": "per gate entry",
+    "evidence_directory": "build/runtime-evidence"
+  },
+  "acceptance_state": "missing-measurement"
+}

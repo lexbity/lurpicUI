@@ -3,6 +3,8 @@ package runtime
 import (
 	"testing"
 	"time"
+
+	"codeburg.org/lexbit/lurpicui/render/canonical"
 )
 
 // TestReads_DoNotPerturbFrames is the QP-9 proof (G4.2): interleaving the
@@ -19,20 +21,20 @@ func TestReads_DoNotPerturbFrames(t *testing.T) {
 	}
 	for i := range hashesWithout {
 		if hashesWithout[i] != hashesWith[i] {
-			t.Fatalf("read perturbation diverged the packet trajectory at frame %d: %#x vs %#x",
+			t.Fatalf("read perturbation diverged the canonical packet trajectory at frame %d: %s vs %s",
 				i, hashesWithout[i], hashesWith[i])
 		}
 	}
 }
 
-func readPerturbationRun(t *testing.T, withReads bool) []uint64 {
+func readPerturbationRun(t *testing.T, withReads bool) []string {
 	t.Helper()
 	rt, probe := newReadRuntime(t)
 	probe.Rows.Insert("gamma") // give the derived real sources
 	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	rt.RunOneFrameAt(epoch) // settle
 
-	hashes := make([]uint64, 0, 8)
+	hashes := make([]string, 0, 8)
 	for i := 0; i < 6; i++ {
 		if withReads {
 			// Interleave every read method, including derived.read (the
@@ -51,7 +53,11 @@ func readPerturbationRun(t *testing.T, withReads bool) []uint64 {
 			driveCall(t, rt, "frame.packet", nil, allGrants())
 		}
 		rt.RunOneFrameAt(epoch.Add(time.Duration(i+1) * time.Second))
-		hashes = append(hashes, rt.FramePacketHash())
+		digest, err := canonical.Digest(rt.LastPrimaryFrame())
+		if err != nil {
+			t.Fatalf("canonical frame digest: %v", err)
+		}
+		hashes = append(hashes, digest)
 	}
 	return hashes
 }

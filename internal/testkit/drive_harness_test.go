@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
+	"codeburg.org/lexbit/lurpicui/runtime"
 )
 
 func TestDriveHarness_PingAtCut(t *testing.T) {
@@ -22,9 +23,33 @@ func TestDriveHarness_PingAtCut(t *testing.T) {
 	if err := json.Unmarshal(payload, &got); err != nil || !got.Pong {
 		t.Fatalf("payload = %s (%v)", payload, err)
 	}
-	// The command executed at the cut of the frame after the enqueue.
-	if h.FrameCount != 2 {
-		t.Fatalf("frame count = %d, want 2", h.FrameCount)
+	// Ping is control-only and is answered without authorizing another frame.
+	if h.FrameCount != 1 {
+		t.Fatalf("frame count = %d, want 1", h.FrameCount)
+	}
+}
+
+func TestControlAwaitCreatesNoFrame(t *testing.T) {
+	cfg := StandardHarnessConfig(t, 100, 100)
+	cfg.Clock = runtime.ClockConfig{InitialMode: runtime.ClockVirtual, EpochNS: 1_800_000_000_000_000_000}
+	h := NewDriveHarnessWithConfig(t, cfg, newClickCounterFacet())
+	h.RunFrame() // the one explicit virtual bootstrap frame
+	before := h.Runtime().LastFrameStats().FrameNumber
+	if before != 1 {
+		t.Fatalf("bootstrap frame = %d, want 1", before)
+	}
+	payload, perr := h.Call("sys.ping", nil)
+	if perr != nil {
+		t.Fatalf("sys.ping: %v", perr)
+	}
+	var got struct {
+		Pong bool `json:"pong"`
+	}
+	if err := json.Unmarshal(payload, &got); err != nil || !got.Pong {
+		t.Fatalf("payload = %s (%v)", payload, err)
+	}
+	if after := h.Runtime().LastFrameStats().FrameNumber; after != before {
+		t.Fatalf("control await advanced frame from %d to %d", before, after)
 	}
 }
 

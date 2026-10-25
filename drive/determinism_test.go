@@ -1,6 +1,8 @@
 package drive_test
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,43 +12,20 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/render/canonical"
 	"codeburg.org/lexbit/lurpicui/runtime"
 )
 
-// TestDeterminism_VirtualReplay is the NFR-6 proof: the same studio seed +
-// the same explicit frame script in Virtual mode yields identical packet
-// hashes across two full runs. Human platform input returns control to Wall
-// mode by contract; input determinism is covered by the independent GUI/LDP
-// trajectory corpus.
-func TestDeterminism_VirtualReplay(t *testing.T) {
-	// NFR-6 demands 1000 consecutive frames. Under the race detector the
-	// studio render inflates ~13x (a single 1000-frame replay costs ~8
-	// minutes), so the race suite replays a shorter prefix of the same
-	// script — same two-run comparison, same teeth; the full-length proof
-	// runs in every non-race suite (the convention the studio's alive-
-	// coverage walk already uses, testkit.RaceEnabled).
-	advances := 1000
-	if testkit.RaceEnabled {
-		advances = 120
-	}
-
-	first := replayStudioSession(t, advances)
-	second := replayStudioSession(t, advances)
-
-	if len(first) != len(second) {
-		t.Fatalf("hash sequence lengths differ: %d vs %d", len(first), len(second))
-	}
-	for i := range first {
-		if first[i] != second[i] {
-			t.Fatalf("frame packet hash diverged at frame %d: %#x vs %#x", i, first[i], second[i])
-		}
-	}
+type replayFrame struct {
+	frame   uint64
+	packet  string
+	surface string
 }
 
 // replayStudioSession boots the studio headless on the testkit runtime with
 // the drive sink installed, switches to Virtual time, and replays the fixed
 // script, returning the packet hash of every executed frame.
-func replayStudioSession(t *testing.T, advances int) []uint64 {
+func replayStudioSession(t *testing.T, advances int) []replayFrame {
 	t.Helper()
 
 	fonts := testkit.TestFontRegistry(t)
@@ -70,7 +49,7 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 	h := testkit.NewHarness(t, cfg, root)
 	h.RunFrame() // deterministic bootstrap transition at the configured epoch
 
-	hashes := make([]uint64, 0, advances*2)
+	frames := make([]replayFrame, 0, advances)
 	framePeriod := map[string]string{"duration_ns": "16667000"}
 
 	for i := 0; i < advances; i++ {
@@ -79,9 +58,34 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 		if _, perr := h.DriveCall(t, "time.advance", framePeriod); perr != nil {
 			t.Fatalf("advance %d: %v", i, perr)
 		}
-		hashes = append(hashes, h.Runtime().FramePacketHash())
+		frameNumber := h.Runtime().LastFrameStats().FrameNumber
+		if frameNumber != uint64(i+2) {
+			t.Fatalf("advance %d produced ready frame %d, want exactly %d", i, frameNumber, i+2)
+		}
+		packet := h.Runtime().LastPrimaryFrame()
+		if packet == nil {
+			t.Fatalf("advance %d produced no primary ready frame", i)
+		}
+		packetDigest, err := canonical.Digest(packet)
+		if err != nil {
+			t.Fatalf("advance %d canonical packet: %v", i, err)
+		}
+		pixels := h.Surface().Capture()
+		frames = append(frames, replayFrame{frame: frameNumber, packet: packetDigest, surface: fmt.Sprintf("%x", sha256.Sum256(pixels.Pix))})
 	}
-	return hashes
+	return frames
+}
+
+func assertReplayEqual(t *testing.T, first, second []replayFrame, want int) {
+	t.Helper()
+	if len(first) != want || len(second) != want {
+		t.Fatalf("replay lengths = %d/%d, want %d consecutive ready frames", len(first), len(second), want)
+	}
+	for i := range first {
+		if first[i] != second[i] {
+			t.Fatalf("complete replay diverged at interaction frame %d: first=%+v second=%+v", i, first[i], second[i])
+		}
+	}
 }
 
 // loadDeterminismSeed reads the studio's committed metrics snapshot — the

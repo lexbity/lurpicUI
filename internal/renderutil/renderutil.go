@@ -1,11 +1,12 @@
 package renderutil
 
 import (
+	"fmt"
 	"image"
-	"reflect"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/render/canonical"
 )
 
 type RenderBatchDiffKind uint8
@@ -34,10 +35,11 @@ type RenderBatchCache struct {
 }
 
 type RenderBatchSnapshot struct {
-	RenderBatch render.RenderBatch
-	commands    []gfx.Command
-	order       int
-	complexMove bool
+	RenderBatch    render.RenderBatch
+	commands       []gfx.Command
+	commandDigests []string
+	order          int
+	complexMove    bool
 }
 
 func NewRenderBatchCache() *RenderBatchCache {
@@ -65,6 +67,7 @@ func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
 			diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, RenderBatch.Bounds)
 			continue
 		}
+		currentDigests := mustCommandDigests(RenderBatch.Commands.Commands)
 
 		if snap.order != idx || !rectEqual(snap.RenderBatch.Bounds, RenderBatch.Bounds) || snap.RenderBatch.Opacity != RenderBatch.Opacity {
 			diff.RenderBatchs[RenderBatch.ID] = RenderBatchDiff{Kind: RenderBatchFullChange, DirtyRects: []gfx.Rect{unionRects(snap.RenderBatch.Bounds, RenderBatch.Bounds)}}
@@ -72,7 +75,7 @@ func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
 			continue
 		}
 
-		if snap.RenderBatch.CommandHash == RenderBatch.CommandHash && reflect.DeepEqual(snap.commands, RenderBatch.Commands.Commands) {
+		if stringSlicesEqual(snap.commandDigests, currentDigests) {
 			diff.RenderBatchs[RenderBatch.ID] = RenderBatchDiff{Kind: RenderBatchUnchanged}
 			continue
 		}
@@ -83,7 +86,7 @@ func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
 			continue
 		}
 
-		kind, dirty := detectPartialChange(snap.commands, RenderBatch.Commands.Commands)
+		kind, dirty := detectPartialChange(snap.commands, RenderBatch.Commands.Commands, snap.commandDigests, currentDigests)
 		if kind == RenderBatchPartialChange {
 			diff.RenderBatchs[RenderBatch.ID] = RenderBatchDiff{Kind: kind, DirtyRects: dirty}
 			diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, dirty...)
@@ -125,11 +128,13 @@ func (c *RenderBatchCache) Update(frame *render.Frame, rasterBuffers map[render.
 	for idx, RenderBatch := range frame.RenderBatchs {
 		cmds := make([]gfx.Command, len(RenderBatch.Commands.Commands))
 		copy(cmds, RenderBatch.Commands.Commands)
+		commandDigests := mustCommandDigests(cmds)
 		snap := RenderBatchSnapshot{
-			RenderBatch: RenderBatch,
-			commands:    cmds,
-			order:       idx,
-			complexMove: hasComplexTransforms(cmds),
+			RenderBatch:    RenderBatch,
+			commands:       cmds,
+			commandDigests: commandDigests,
+			order:          idx,
+			complexMove:    hasComplexTransforms(cmds),
 		}
 		_ = rasterBuffers[RenderBatch.ID]
 		c.RenderBatchs[RenderBatch.ID] = snap
@@ -137,7 +142,7 @@ func (c *RenderBatchCache) Update(frame *render.Frame, rasterBuffers map[render.
 	}
 }
 
-func detectPartialChange(oldCmds, newCmds []gfx.Command) (RenderBatchDiffKind, []gfx.Rect) {
+func detectPartialChange(oldCmds, newCmds []gfx.Command, oldDigests, newDigests []string) (RenderBatchDiffKind, []gfx.Rect) {
 	maxLen := len(oldCmds)
 	if len(newCmds) > maxLen {
 		maxLen = len(newCmds)
@@ -149,14 +154,7 @@ func detectPartialChange(oldCmds, newCmds []gfx.Command) (RenderBatchDiffKind, [
 	var dirty []gfx.Rect
 	changed := 0
 	for i := 0; i < maxLen; i++ {
-		var oldCmd, newCmd gfx.Command
-		if i < len(oldCmds) {
-			oldCmd = oldCmds[i]
-		}
-		if i < len(newCmds) {
-			newCmd = newCmds[i]
-		}
-		if reflect.DeepEqual(oldCmd, newCmd) {
+		if i < len(oldDigests) && i < len(newDigests) && oldDigests[i] == newDigests[i] {
 			continue
 		}
 		changed++
@@ -179,6 +177,26 @@ func detectPartialChange(oldCmds, newCmds []gfx.Command) (RenderBatchDiffKind, [
 		return RenderBatchFullChange, nil
 	}
 	return RenderBatchPartialChange, RemoveContained(MergeRects(dirty, 0.25))
+}
+
+func mustCommandDigests(commands []gfx.Command) []string {
+	digests, err := canonical.CommandDigests(gfx.CommandList{Commands: commands})
+	if err != nil {
+		panic(fmt.Errorf("renderutil: canonical command contract: %w", err))
+	}
+	return digests
+}
+
+func stringSlicesEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func commandBounds(cmd gfx.Command) gfx.Rect {

@@ -166,6 +166,26 @@ func TestRenderBatchCache_partialchange_detection(t *testing.T) {
 	}
 }
 
+func TestRenderBatchCache_ignoresCollidingCommandHash(t *testing.T) {
+	cache := NewRenderBatchCache()
+	old := &render.Frame{RenderBatchs: []render.RenderBatch{{
+		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Opacity: 1, CommandHash: 77,
+		Commands: gfx.CommandList{Commands: []gfx.Command{
+			gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+		}},
+	}}}
+	cache.Update(old, nil)
+	changed := &render.Frame{RenderBatchs: []render.RenderBatch{{
+		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Opacity: 1, CommandHash: 77,
+		Commands: gfx.CommandList{Commands: []gfx.Command{
+			gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
+		}},
+	}}}
+	if got := cache.Diff(changed).RenderBatchs[1].Kind; got != RenderBatchFullChange {
+		t.Fatalf("diff with colliding fast hash = %v, want full change", got)
+	}
+}
+
 func TestRenderBatchCache_complexTransform_forces_full(t *testing.T) {
 	cache := NewRenderBatchCache()
 	frame1 := &render.Frame{

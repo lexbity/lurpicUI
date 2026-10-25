@@ -2,6 +2,7 @@ package studio
 
 import (
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"regexp"
 	"sort"
@@ -13,6 +14,10 @@ import (
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/marks/status"
+	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/render/canonical"
 )
 
 // newStudioDriveHarness boots the full studio root headless with the drive
@@ -92,16 +97,24 @@ func TestDrive_namedStores(t *testing.T) {
 
 func TestDrivingAndVirtualIndicator(t *testing.T) {
 	h := newStudioDriveHarness(t, 1280, 800)
+	h.RunFrame()
 	root := h.Runtime().Root().(*Root)
 	driving := root.StatusBar().Driving()
 	if !driving.Disabled.Get() {
 		t.Fatal("driving indicator must be dim while Wall mode has no client owner")
 	}
+	before := h.Runtime().LastPrimaryFrame()
 	if _, perr := h.Call("time.mode", map[string]string{"mode": "virtual"}); perr != nil {
 		t.Fatalf("enter Virtual mode: %v", perr)
 	}
-	if driving.Disabled.Get() {
-		t.Fatal("driving indicator must light while a client owns Virtual time")
+	if _, perr := h.Call("time.advance", map[string]string{"duration_ns": "16667000"}); perr != nil {
+		t.Fatalf("advance indicator frame: %v", perr)
+	}
+	if err := requireDrivingIndicatorLit(driving); err != nil {
+		t.Fatal(err)
+	}
+	if err := requirePacketChange(t, before, h.Runtime().LastPrimaryFrame(), "the driving indicator must alter the visible packet"); err != nil {
+		t.Fatal(err)
 	}
 	if _, perr := h.Call("time.mode", map[string]string{"mode": "wall"}); perr != nil {
 		t.Fatalf("return to Wall mode: %v", perr)
@@ -109,6 +122,51 @@ func TestDrivingAndVirtualIndicator(t *testing.T) {
 	if !driving.Disabled.Get() {
 		t.Fatal("driving indicator must return to dim after the time lease is released")
 	}
+}
+
+func TestNegativeDrivingIndicator(t *testing.T) {
+	h := newStudioDriveHarness(t, 1280, 800)
+	root := h.Runtime().Root().(*Root)
+	indicator := root.StatusBar().Driving()
+	// The deliberate defect pins the display dim even when control ownership
+	// changes. The same packet assertion used by the positive test must catch it.
+	indicator.Disabled = marks.Const(true)
+	h.RunFrame()
+	if _, perr := h.Call("time.mode", map[string]string{"mode": "virtual"}); perr != nil {
+		t.Fatalf("enter Virtual mode: %v", perr)
+	}
+	if _, perr := h.Call("time.advance", map[string]string{"duration_ns": "16667000"}); perr != nil {
+		t.Fatalf("advance indicator frame: %v", perr)
+	}
+	if err := requireDrivingIndicatorLit(indicator); err == nil {
+		t.Fatal("the driving-indicator assertion accepted a deliberately pinned-dim indicator")
+	}
+}
+
+func requireDrivingIndicatorLit(indicator *status.StatusLight) error {
+	if indicator == nil || indicator.Disabled.Get() {
+		return fmt.Errorf("driving indicator must be lit while Virtual time is owned")
+	}
+	return nil
+}
+
+func requirePacketChange(t *testing.T, before, current *render.Frame, reason string) error {
+	t.Helper()
+	if before == nil || current == nil {
+		return fmt.Errorf("%s: before/current frame is nil", reason)
+	}
+	beforeDigest, err := canonical.Digest(before)
+	if err != nil {
+		return fmt.Errorf("%s: digest before: %w", reason, err)
+	}
+	currentDigest, err := canonical.Digest(current)
+	if err != nil {
+		return fmt.Errorf("%s: digest current: %w", reason, err)
+	}
+	if beforeDigest == currentDigest {
+		return fmt.Errorf("%s: canonical digest unchanged (%s)", reason, beforeDigest)
+	}
+	return nil
 }
 
 // TestStudioLaunchChartDiagnostic proves the actual launch chart is healthy

@@ -7,10 +7,16 @@
 package equivalence
 
 import (
+	"crypto/sha256"
+	"encoding/binary"
+	"fmt"
+	"sort"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/render/canonical"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -63,8 +69,9 @@ const (
 type Fixture struct {
 	Harness *testkit.DriveHarness
 	// names/stores are the version-captured named stores, sorted by name.
-	names  []string
-	stores []versionedStore
+	names        []string
+	stores       []versionedStore
+	facetTestIDs []string
 }
 
 // CaptureVersions declares the fixture's stores for trajectory comparison.
@@ -88,39 +95,94 @@ func (f *Fixture) CaptureVersions(t testing.TB, pairs map[string]versionedStore)
 // Trajectory is the per-cut observation stream: packet hash, dirty-facet
 // digest, and named-store versions.
 type Trajectory struct {
-	Hashes   []uint64
-	Dirty    []uint64
-	Versions [][]uint64
+	Frames []FrameObservation
 }
 
-// capture runs settleFrames frames and observes each cut.
-func (f *Fixture) capture(settleFrames int) Trajectory {
-	rt := f.Harness.Runtime()
-	tr := Trajectory{}
-	for i := 0; i < settleFrames; i++ {
-		f.Harness.RunFrame()
-		tr.Hashes = append(tr.Hashes, rt.FramePacketHash())
-		tr.Dirty = append(tr.Dirty, dirtyDigest(rt))
-		versions := make([]uint64, 0, len(f.stores))
-		for _, s := range f.stores {
-			versions = append(versions, uint64(s.Version()))
+// FrameObservation is one completed frame's independent semantic and pixel
+// evidence, captured synchronously before later input can change the surface.
+type FrameObservation struct {
+	Number   uint64
+	Packet   string
+	Surface  string
+	Dirty    string
+	Versions []uint64
+}
+
+// observe installs complete frame capture before the first interaction atom.
+func (f *Fixture) observe(t testing.TB, tr *Trajectory) func() error {
+	t.Helper()
+	var captureErr error
+	f.Harness.SetFrameObserver(func(rt *runtime.Runtime, surface *testkit.MemorySurface) {
+		if captureErr != nil {
+			return
 		}
-		tr.Versions = append(tr.Versions, versions)
-	}
-	return tr
+		frame := rt.LastPrimaryFrame()
+		if frame == nil {
+			// No submission leaves the previous complete surface in place. The
+			// empty packet distinguishes that state from a newly submitted one;
+			// the independently captured surface remains authoritative pixels.
+			frame = &render.Frame{}
+		}
+		packet, err := canonical.Digest(frame)
+		if err != nil {
+			captureErr = fmt.Errorf("canonical frame %d: %w", rt.LastFrameStats().FrameNumber, err)
+			return
+		}
+		pixels := surface.Capture()
+		versions := make([]uint64, 0, len(f.stores))
+		for _, store := range f.stores {
+			versions = append(versions, uint64(store.Version()))
+		}
+		dirty, err := dirtyDigest(rt, f.facetTestIDs)
+		if err != nil {
+			captureErr = err
+			return
+		}
+		tr.Frames = append(tr.Frames, FrameObservation{
+			Number:   rt.LastFrameStats().FrameNumber,
+			Packet:   packet,
+			Surface:  fmt.Sprintf("%x", sha256.Sum256(pixels.Pix)),
+			Dirty:    dirty,
+			Versions: versions,
+		})
+	})
+	return func() error { return captureErr }
 }
 
 // dirtyDigest folds the frame's dirty-facet set into one digest (the same
 // set the runtime re-lays-out).
-func dirtyDigest(rt *runtime.Runtime) uint64 {
+func dirtyDigest(rt *runtime.Runtime, stableIDs []string) (string, error) {
 	snap := rt.LastDirtySnapshot()
-	h := uint64(14695981039346656037)
-	h = (h ^ uint64(len(snap))) * 1099511628211
-	for id, flags := range snap {
-		h = (h ^ uint64(id)) * 1099511628211
-		h = (h ^ uint64(flags)) * 1099511628211
+	type dirtyEntry struct {
+		id    string
+		flags uint64
 	}
-	return h
+	entries := make([]dirtyEntry, 0, len(snap))
+	for _, testID := range stableIDs {
+		id := rt.FacetIDForTestID(testID)
+		if id == 0 {
+			return "", fmt.Errorf("stable fixture identity %q is not live", testID)
+		}
+		if flags := snap[id]; flags != 0 {
+			entries = append(entries, dirtyEntry{id: testID, flags: uint64(flags)})
+		}
+	}
+	if len(entries) != len(snap) {
+		return "", fmt.Errorf("dirty snapshot has %d facets but only %d stable fixture identities", len(snap), len(entries))
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].id < entries[j].id })
+	h := sha256.New()
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], uint64(len(entries)))
+	_, _ = h.Write(buf[:])
+	for _, entry := range entries {
+		binary.BigEndian.PutUint64(buf[:], uint64(len(entry.id)))
+		_, _ = h.Write(buf[:])
+		_, _ = h.Write([]byte(entry.id))
+		binary.BigEndian.PutUint64(buf[:], entry.flags)
+		_, _ = h.Write(buf[:])
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 // AssertEquivalent runs the pair twice — LDP verb path and testkit GUI path
@@ -132,6 +194,8 @@ func AssertEquivalent(t testing.TB, p Pair) {
 
 	runPath := func(viaDrive bool) Trajectory {
 		fix := p.Fixture(t)
+		trajectory := Trajectory{}
+		checkCapture := fix.observe(t, &trajectory)
 		if viaDrive {
 			if perr := p.Verb(fix.Harness); perr != nil {
 				t.Fatalf("verb %s failed: %v", p.Name, perr)
@@ -139,35 +203,57 @@ func AssertEquivalent(t testing.TB, p Pair) {
 		} else {
 			p.GUI(fix.Harness.Harness)
 		}
-		return fix.capture(settleFrames)
+		for i := 0; i < settleFrames; i++ {
+			fix.Harness.RunFrame()
+		}
+		if err := checkCapture(); err != nil {
+			t.Fatalf("%s trajectory capture: %v", p.Name, err)
+		}
+		return trajectory
 	}
 
 	drive := runPath(true)
 	gui := runPath(false)
 
-	if len(drive.Hashes) != len(gui.Hashes) {
-		t.Fatalf("trajectory lengths differ: %d vs %d", len(drive.Hashes), len(gui.Hashes))
+	if p.Compare != CompareCommandBoundary && len(drive.Frames) != len(gui.Frames) {
+		t.Fatalf("trajectory frame counts differ: %d vs %d", len(drive.Frames), len(gui.Frames))
+		return
 	}
-	for i := range drive.Hashes {
-		if p.Compare == CompareCommandBoundary {
-			for j := range drive.Versions[i] {
-				if drive.Versions[i][j] != gui.Versions[i][j] {
-					t.Fatalf("%s: store version diverged at settle frame %d (store %d): %d vs %d",
-						p.Name, i, j, drive.Versions[i][j], gui.Versions[i][j])
-				}
+	if p.Compare == CompareCommandBoundary {
+		if len(drive.Frames) == 0 || len(gui.Frames) == 0 {
+			t.Fatalf("command boundary produced no observed frames: %d/%d", len(drive.Frames), len(gui.Frames))
+			return
+		}
+		driveFinal := drive.Frames[len(drive.Frames)-1].Versions
+		guiFinal := gui.Frames[len(gui.Frames)-1].Versions
+		if len(driveFinal) != len(guiFinal) {
+			t.Fatalf("command state shapes differ: %d vs %d", len(driveFinal), len(guiFinal))
+			return
+		}
+		for i := range driveFinal {
+			if driveFinal[i] != guiFinal[i] {
+				t.Fatalf("%s: command application state diverged (store %d): %d vs %d", p.Name, i, driveFinal[i], guiFinal[i])
 			}
-			continue
 		}
-		if drive.Hashes[i] != gui.Hashes[i] {
-			t.Fatalf("%s: packet hash diverged at settle frame %d: %#x vs %#x", p.Name, i, drive.Hashes[i], gui.Hashes[i])
+		return
+	}
+	for i := range drive.Frames {
+		if drive.Frames[i].Number != gui.Frames[i].Number {
+			t.Fatalf("%s: frame number diverged at interaction frame %d: %d vs %d", p.Name, i, drive.Frames[i].Number, gui.Frames[i].Number)
 		}
-		if drive.Dirty[i] != gui.Dirty[i] {
-			t.Fatalf("%s: dirty-facet digest diverged at settle frame %d: %#x vs %#x", p.Name, i, drive.Dirty[i], gui.Dirty[i])
+		if drive.Frames[i].Packet != gui.Frames[i].Packet {
+			t.Fatalf("%s: canonical packet diverged at interaction frame %d: %s vs %s", p.Name, i, drive.Frames[i].Packet, gui.Frames[i].Packet)
 		}
-		for j := range drive.Versions[i] {
-			if drive.Versions[i][j] != gui.Versions[i][j] {
-				t.Fatalf("%s: store version diverged at settle frame %d (store %d): %d vs %d",
-					p.Name, i, j, drive.Versions[i][j], gui.Versions[i][j])
+		if drive.Frames[i].Surface != gui.Frames[i].Surface {
+			t.Fatalf("%s: ready software pixels diverged at interaction frame %d: %s vs %s", p.Name, i, drive.Frames[i].Surface, gui.Frames[i].Surface)
+		}
+		if drive.Frames[i].Dirty != gui.Frames[i].Dirty {
+			t.Fatalf("%s: sorted dirty-facet digest diverged at interaction frame %d: %s vs %s", p.Name, i, drive.Frames[i].Dirty, gui.Frames[i].Dirty)
+		}
+		for j := range drive.Frames[i].Versions {
+			if drive.Frames[i].Versions[j] != gui.Frames[i].Versions[j] {
+				t.Fatalf("%s: store version diverged at interaction frame %d (store %d): %d vs %d",
+					p.Name, i, j, drive.Frames[i].Versions[j], gui.Frames[i].Versions[j])
 			}
 		}
 	}

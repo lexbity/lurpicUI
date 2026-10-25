@@ -582,10 +582,47 @@ func TestListenerPanicSupervisor(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("supervisor was not signaled")
 	}
+	select {
+	case <-srv.Stopped():
+	case <-time.After(2 * time.Second):
+		t.Fatal("transport-stopped acknowledgment was not delivered")
+	}
 	// The listener closed: the socket path is unlinked and the server no
 	// longer accepts.
 	if _, serr := os.Lstat(socket); !os.IsNotExist(serr) {
 		t.Fatalf("panicked listener left the socket behind: %v", serr)
 	}
 	_ = srv.Close()
+}
+
+func TestListenerStoppedAcknowledgment(t *testing.T) {
+	dir := testDriveDir(t)
+	for i := 0; i < 100; i++ {
+		socket := filepath.Join(dir, strconv.Itoa(i)+".sock")
+		supervisor := make(chan error, 1)
+		srv, err := Listen(Config{
+			SocketPath: socket,
+			Token:      testToken(),
+			Port:       &fakePort{},
+			Sessions:   newTestSessions(t),
+			Supervisor: func(err error) { supervisor <- err },
+			acceptHook: func() { panic("ack-cycle") },
+		})
+		if err != nil {
+			t.Fatalf("cycle %d listen: %v", i, err)
+		}
+		select {
+		case <-supervisor:
+		case <-time.After(2 * time.Second):
+			t.Fatalf("cycle %d: listener supervisor was not called", i)
+		}
+		select {
+		case <-srv.Stopped():
+		case <-time.After(2 * time.Second):
+			t.Fatalf("cycle %d: transport stop did not complete", i)
+		}
+		if _, err := os.Lstat(socket); !os.IsNotExist(err) {
+			t.Fatalf("cycle %d: socket cleanup incomplete: %v", i, err)
+		}
+	}
 }

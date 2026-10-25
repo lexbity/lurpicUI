@@ -73,6 +73,23 @@ func (rt *Runtime) RunOneFrameAt(now time.Time) {
 	}
 }
 
+// RunControlTurn services queued drive control and completed render
+// acknowledgments without authorizing or executing an application frame. It is
+// the scheduler seam for headless clients that need to await a control reply.
+// A caller that needs frame work must authorize it separately through the
+// normal scheduler.
+func (rt *Runtime) RunControlTurn() error {
+	if rt == nil {
+		return fmt.Errorf("runtime: control turn on nil runtime")
+	}
+	if err := rt.start(); err != nil {
+		return err
+	}
+	rt.driveDrain()
+	rt.driveCollectRenderCompletions()
+	return nil
+}
+
 func (rt *Runtime) runBootstrapFrame(waitForRender bool) bool {
 	if !rt.bootstrapFramePending {
 		return false

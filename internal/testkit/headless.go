@@ -1,6 +1,7 @@
 package testkit
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -89,6 +90,10 @@ type Harness struct {
 	// driveSessions is the session table backing the in-process drive seam
 	// (nil when Drive is disabled).
 	driveSessions *drive.SessionTable
+	driveMu       sync.Mutex
+	driveClient   *harnessDriveClient
+	frameObserver func(*runtime.Runtime, *MemorySurface)
+	observedFrame uint64
 	// frameClock is the synthetic frame-time source: RunFrame seeds the
 	// runtime clock from it before each frame, so frame dt is fully under
 	// the test's control (zero by default — headless frames carry no
@@ -175,6 +180,12 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	h := &Harness{t: t, app: app, surface: surface, fonts: fonts, rt: rt, driveSessions: config.DriveSessions}
 	t.Cleanup(func() {
 		rt.Shutdown()
+		h.driveMu.Lock()
+		if h.driveClient != nil && h.driveSessions != nil {
+			h.driveSessions.Revoke(h.driveClient.sess.ID)
+			h.driveClient = nil
+		}
+		h.driveMu.Unlock()
 		app.Destroy()
 	})
 	return h
@@ -191,8 +202,24 @@ func (h *Harness) RunFrame() {
 		}
 		h.rt.RunOneFrameAt(h.frameClock)
 		h.frameClock = h.frameClock.Add(h.framePeriod)
+		if h.frameObserver != nil {
+			frame := h.rt.LastFrameStats().FrameNumber
+			if frame != 0 && frame != h.observedFrame {
+				h.observedFrame = frame
+				h.frameObserver(h.rt, h.surface)
+			}
+		}
 	}
 	h.FrameCount++
+}
+
+// SetFrameObserver installs a synchronous observer for each newly completed
+// runtime frame. It is intended for test evidence installed before input.
+func (h *Harness) SetFrameObserver(observer func(*runtime.Runtime, *MemorySurface)) {
+	if h == nil {
+		return
+	}
+	h.frameObserver = observer
 }
 
 func (h *Harness) RunFrames(n int) {

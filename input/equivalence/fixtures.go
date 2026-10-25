@@ -1,9 +1,11 @@
 package equivalence
 
 import (
+	"fmt"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
@@ -32,6 +34,7 @@ func fixtureHarness(t testing.TB, root facet.FacetImpl) *Fixture {
 // cmd.execute fixture).
 func fixtureHarnessWithRegistry(t testing.TB, root facet.FacetImpl, reg *runtime.CommandRegistry) *Fixture {
 	t.Helper()
+	stableIDs := assignStableFixtureIDs(root)
 	cfg := testkit.StandardHarnessConfig(t, 480, 240)
 	cfg.CommandRegistry = reg
 	h := testkit.NewDriveHarnessWithConfig(t, cfg, root)
@@ -39,7 +42,33 @@ func fixtureHarnessWithRegistry(t testing.TB, root facet.FacetImpl, reg *runtime
 	// documented first-frame contract) — both corpus paths boot from the
 	// same settled state.
 	h.RunFrame()
-	return &Fixture{Harness: h}
+	return &Fixture{Harness: h, facetTestIDs: stableIDs}
+}
+
+func assignStableFixtureIDs(root facet.FacetImpl) []string {
+	if root == nil || root.Base() == nil {
+		return nil
+	}
+	ids := make([]string, 0)
+	sequence := 0
+	var visit func(*facet.Facet)
+	visit = func(base *facet.Facet) {
+		if base == nil {
+			return
+		}
+		id := base.TestID()
+		if id == "" {
+			id = fmt.Sprintf("equivalence-node-%04d", sequence)
+			base.SetTestID(id)
+		}
+		sequence++
+		ids = append(ids, id)
+		for _, child := range base.Children() {
+			visit(child)
+		}
+	}
+	visit(root.Base())
+	return ids
 }
 
 // newButtonFixture builds a Button whose activation increments a named
@@ -117,7 +146,22 @@ func (r *twoFieldRoot) OnDeactivate()                {}
 func newScrollFixture(t testing.TB) *Fixture {
 	t.Helper()
 	region := structure.NewScrollRegion("Feed")
-	return fixtureHarness(t, region)
+	offset := store.NewValueStore(gfx.Point{})
+	region.Scrolled.Subscribe(func(value gfx.Point) { offset.Set(value) })
+	children := make([]structure.ScrollRegionChild, 0, 16)
+	for i := 0; i < 16; i++ {
+		row := action.NewButton(marks.Const(fmt.Sprintf("Feed row %02d", i)), marks.Const(uiinput.ButtonFilled))
+		row.Base().SetTestID(fmt.Sprintf("scroll-row-%02d", i))
+		children = append(children, structure.ScrollRegionChild{
+			Facet:  row,
+			MarkID: facet.MarkID(i + 10),
+			ZOrder: int32(i),
+		})
+	}
+	region.SetChildren(children)
+	fix := fixtureHarness(t, region)
+	fix.CaptureVersions(t, map[string]versionedStore{"scroll.offset": offset})
+	return fix
 }
 
 // newPaletteFixture builds the cmd.execute fixture: a registry command whose

@@ -166,19 +166,19 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 		sink.OnDirtySnapshot(rt.buildDirtySnapshot(rt.frameNumber))
 	}
 
-	layoutStart := rt.clock.Now()
+	layoutStart := rt.clock.WallNow()
 	if rt.hasLayoutDirty() {
 		w, h := rt.windowSize()
 		rt.runLayoutPass(gfx.Size{W: float32(w), H: float32(h)})
 	} else {
 		rt.lastArrangeCount = 0
 	}
-	stats.LayoutDuration = rt.clock.Now().Sub(layoutStart)
+	stats.LayoutDuration = rt.clock.WallNow().Sub(layoutStart)
 	stats.ArrangeCount = rt.lastArrangeCount
 
-	layerStart := rt.clock.Now()
+	layerStart := rt.clock.WallNow()
 	phaseStats := rt.resolveLayerTree()
-	stats.LayoutResolveDuration = rt.clock.Now().Sub(layerStart)
+	stats.LayoutResolveDuration = rt.clock.WallNow().Sub(layerStart)
 	stats.LayoutDuration += stats.LayoutResolveDuration
 	stats.LayerResolutionDuration = phaseStats.specResolution
 	stats.AnchorExportDuration = phaseStats.anchorExport
@@ -188,7 +188,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	stats.LayerResolveCount = phaseStats.groups
 	stats.LayersUnmountedSkips = phaseStats.unmountedSkips
 
-	projStart := rt.clock.Now()
+	projStart := rt.clock.WallNow()
 	if rt.focusManager != nil {
 		rt.focusManager.RebuildTabOrder(rt.root)
 	}
@@ -201,11 +201,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	// projection walk reads stable stores and never trips a mid-walk lazy
 	// recompute. The flush skips clean deriveds (one flag check each), so the
 	// quiet steady state contributes zero to the derived counters.
-	flushStart := rt.clock.Now()
+	flushStart := rt.clock.WallNow()
 	flush := store.FlushDerived()
 	stats.DerivedEvaluated = flush.Evaluated
 	stats.DerivedRecomputed = flush.Recomputed
-	stats.DerivedFlushDuration = rt.clock.Now().Sub(flushStart)
+	stats.DerivedFlushDuration = rt.clock.WallNow().Sub(flushStart)
 
 	rt.projectionInProgress.Store(true)
 	frameOut := rt.projectionSystem.Run(rt.root, projection.FrameInfo{
@@ -215,7 +215,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	})
 	rt.projectionInProgress.Store(false)
 
-	stats.ProjectDuration = rt.clock.Now().Sub(projStart)
+	stats.ProjectDuration = rt.clock.WallNow().Sub(projStart)
 	stats.ProjectedFacets = rt.projectionSystem.ProjectedFacets
 	stats.CacheHits = rt.projectionSystem.CacheHits
 	stats.ProjectionEmptyBoundsSkips = rt.projectionSystem.EmptyBoundsSkips
@@ -229,7 +229,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 		stats.RenderBatchCount = len(frameOut.RenderBatchs)
 	}
 
-	renderStart := rt.clock.Now()
+	renderStart := rt.clock.WallNow()
 	// Do not hand a frame to the renderer unless the platform surface is live.
 	// Android can lose the surface independently of the runtime; in that state
 	// the frame still advances, but submission must wait for a recreated surface.
@@ -280,7 +280,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 		androidTracef("runFrame skip n=%d surfaceReady=%v frameOut=%v renderPipeline=%v",
 			rt.frameNumber, rt.isSurfaceReady(), frameOut != nil, rt.renderPipeline != nil)
 	}
-	stats.RenderDuration = rt.clock.Now().Sub(renderStart)
+	stats.RenderDuration = rt.clock.WallNow().Sub(renderStart)
 	rt.updateIMECursorRect()
 
 	// Check for device generation change (device lost + recreate).

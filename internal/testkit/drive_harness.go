@@ -2,7 +2,6 @@ package testkit
 
 import (
 	"encoding/json"
-	"errors"
 	"strconv"
 	"testing"
 
@@ -111,23 +110,7 @@ func (h *DriveHarness) Call(method string, params any) (json.RawMessage, *proto.
 	if err := h.Port().Submit(cmd); err != nil {
 		h.t.Fatalf("testkit: submit drive %q: %v", method, err)
 	}
-	for i := 0; i < driveReplyFrames; i++ {
-		h.RunFrame()
-		select {
-		case res := <-cmd.Reply:
-			if res.Err == nil {
-				return res.Payload, nil
-			}
-			var perr *proto.Error
-			if !errors.As(res.Err, &perr) {
-				perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: res.Err.Error()}
-			}
-			return res.Payload, perr
-		default:
-		}
-	}
-	h.t.Fatalf("testkit: drive method %q did not reply within %d frames", method, driveReplyFrames)
-	return nil, nil
+	return awaitDriveReply(h.t, h.rt.RunControlTurn, h.RunFrame, cmd.Reply, driveReplyFrames, method)
 }
 
 // CallOK is Call with a success assertion, returning the payload.

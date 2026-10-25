@@ -316,23 +316,6 @@ func (rt *Runtime) LastPrimaryFrame() *render.Frame {
 	return rt.lastWindowFrames["__primary__"]
 }
 
-// FramePacketHash folds the primary frame's batch command hashes into one
-// packet digest. Batch identity (a per-process facet ID) is excluded: the
-// digest is content — what is drawn, in what order — so Virtual-mode replays
-// compare equal across runs (NFR-6) and frame.packet reports a stable hash.
-func (rt *Runtime) FramePacketHash() uint64 {
-	frame := rt.LastPrimaryFrame()
-	if frame == nil {
-		return 0
-	}
-	h := uint64(14695981039346656037)
-	h = (h ^ uint64(len(frame.RenderBatchs))) * 1099511628211
-	for i := range frame.RenderBatchs {
-		h = (h ^ frame.RenderBatchs[i].CommandHash) * 1099511628211
-	}
-	return h
-}
-
 // Clock returns the runtime's time service (QP-5).
 func (rt *Runtime) Clock() *Clock { return rt.clock }
 

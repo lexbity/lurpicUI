@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "repository_baseline": "f014474",
+  "fixtures": [
+    {
+      "id": "studio-determinism-v1",
+      "root": "demos/lurpic_studio",
+      "seed": "assets/metrics.csv",
+      "seed_sha256": "5c503722d52a0358eee7cf879bba7bb49089ee3fd7d42a8bc1c4eaf12e5e702e",
+      "font": "internal/fontdata/testdata/NotoSans-Regular.ttf",
+      "font_sha256": "4c8d67001d3c2977e5d6bf0a4f8add80cd564bd1df60b7569fd23751e7dda02a",
+      "surface": "1280x800",
+      "script": "drive.TestDeterminismThousandConsecutiveFrames or drive.TestDeterminismRaceScript120Frames"
+    },
+    {
+      "id": "p1-evidence-v1",
+      "root": "internal/testevidence",
+      "contents": "real go test binaries for skip, missing selection, wrong build mode, watchdog, truncated JSON, and artifact rejection"
+    },
+    {
+      "id": "p1-canonical-v1",
+      "root": "render/canonical",
+      "contents": "production gfx command variants and render packet field mutations"
+    },
+    {
+      "id": "p1-runtime-v1",
+      "root": "runtime",
+      "contents": "one virtual-time frame with an independently advancing injected wall source"
+    },
+    {
+      "id": "p1-control-v1",
+      "root": "internal/testkit",
+      "contents": "parked virtual runtime services sys.ping without advancing a frame"
+    }
+  ]
+}

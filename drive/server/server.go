@@ -86,6 +86,8 @@ type Server struct {
 	nextConnID atomic.Uint64
 	stopCh     chan struct{}
 	stopOnce   sync.Once
+	acceptDone chan struct{}
+	stopped    chan struct{}
 	closed     bool
 	// acceptPanicSeen is unused bookkeeping; the accept goroutine exits on
 	// its own and Close joins only the per-connection goroutines.
@@ -125,18 +127,25 @@ func Listen(cfg Config) (*Server, error) {
 		return nil, err
 	}
 	s := &Server{
-		cfg:    cfg,
-		stats:  cfg.Stats,
-		now:    cfg.Now,
-		ln:     bound.listener,
-		conns:  make(map[*conn]struct{}),
-		stopCh: make(chan struct{}),
+		cfg:        cfg,
+		stats:      cfg.Stats,
+		now:        cfg.Now,
+		ln:         bound.listener,
+		conns:      make(map[*conn]struct{}),
+		stopCh:     make(chan struct{}),
+		acceptDone: make(chan struct{}),
+		stopped:    make(chan struct{}),
 	}
 	if s.stats == nil {
 		s.stats = &drive.Stats{}
 	}
 	s.socketDev, s.socketIno = bound.socketDev, bound.socketIno
 	s.tokenDev, s.tokenIno = bound.tokenDev, bound.tokenIno
+	go func() {
+		<-s.acceptDone
+		s.nextConn.Wait()
+		close(s.stopped)
+	}()
 	go s.acceptLoop()
 	return s, nil
 }
@@ -155,6 +164,12 @@ func validateToken(token string) error {
 
 // SocketPath reports the bound socket path.
 func (s *Server) SocketPath() string { return s.cfg.SocketPath }
+
+// Stopped is closed after the listener has exited, every connection reader
+// and writer has returned, and owned socket/token paths have been removed.
+// A listener panic supervisor can await this signal instead of treating its
+// notification as proof that transport cleanup has completed.
+func (s *Server) Stopped() <-chan struct{} { return s.stopped }
 
 // InstanceID reports the owning instance identity.
 func (s *Server) InstanceID() string { return s.cfg.Sessions.InstanceID() }
@@ -188,6 +203,7 @@ func (s *Server) supervisorError(err error) {
 }
 
 func (s *Server) acceptLoop() {
+	defer close(s.acceptDone)
 	// A panic in the listener goroutine signals the supervisor and closes
 	// the listener; it never takes the app down. The close skips the
 	// goroutine wait: this goroutine's own WaitGroup slot releases only
@@ -212,7 +228,7 @@ func (s *Server) acceptLoop() {
 			default:
 			}
 			s.supervisorError(fmt.Errorf("accept: %w", err))
-			_ = s.Close()
+			s.stopTransport(false)
 			return
 		}
 		s.connsMu.Lock()
@@ -242,6 +258,7 @@ func (s *Server) acceptLoop() {
 // individual runtime reply.
 func (s *Server) Close() error {
 	s.stopTransport(true)
+	<-s.stopped
 	return nil
 }
 
