@@ -612,8 +612,9 @@ func (c *conn) hello(req proto.Request) bool {
 	}
 	c.authed = true
 	c.sendResult(req.ID, result, "", "")
-	// Clear the hello deadline; authenticated sessions own the keepalive
-	// lease, not per-line idle deadlines.
+	// Clear the hello deadline. Authenticated connections have no per-line
+	// idle deadline; EOF/write failure is delivered as an out-of-band runtime
+	// control signal and fences the attached generation.
 	_ = c.nc.SetReadDeadline(time.Time{})
 	return false
 }
@@ -705,7 +706,7 @@ func (c *conn) dispatch(req proto.Request) {
 		Grants:     sess.Grants,
 		Reply:      make(chan drive.Result, 1),
 	}
-	if req.Method == "cmd.execute" {
+	if req.Method == "cmd.execute" || req.Method == "time.mode" || req.Method == "time.advance" || req.Method == "frame.run" {
 		cmd.Accepted = make(chan drive.Receipt, 1)
 	}
 	if err := c.srv.cfg.Port.Submit(cmd); err != nil {

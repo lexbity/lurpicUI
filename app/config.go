@@ -76,6 +76,7 @@ type Config struct {
 // BuildContext is passed to the root builder after engine startup.
 type BuildContext struct {
 	FontRegistry *text.FontRegistry
+	Clock        runtime.EngineClock
 	WindowSize   gfx.Size
 	ContentScale float32
 	Theme        theme.ResolvedContext

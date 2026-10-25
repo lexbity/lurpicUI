@@ -54,7 +54,9 @@ type Runtime struct {
 	contentScale float32
 	// clock is the engine time service (QP-5): Wall reads the system clock,
 	// Virtual single-steps on driver advances. Runtime-thread owned.
-	clock *Clock
+	clock                  *Clock
+	bootstrapFramePending  bool
+	bootstrapFrameAwaiting bool
 
 	dirtyFacets      map[facet.FacetID]facet.DirtyFlags
 	dirtySources     map[facet.FacetID]string
@@ -161,6 +163,18 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if backend == nil {
 		return nil, errors.New("runtime: backend is required")
 	}
+	preparedClock := config.PreparedClock
+	if preparedClock == nil {
+		var err error
+		preparedClock, err = PrepareClock(config.Clock)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if preparedClock.clock == nil {
+		return nil, errors.New("runtime: prepared clock is invalid")
+	}
+	config.PreparedClock = preparedClock
 	if config.WorkerCount <= 0 {
 		config.WorkerCount = DefaultConfig().WorkerCount
 	}
@@ -168,32 +182,34 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		config.Logger = log.NopLogger{}
 	}
 	rt := &Runtime{
-		config:           config,
-		projectionSystem: projection.NewSystem(),
-		inputSystem:      input.NewSystem(config.GestureConfig),
-		focusManager:     facet.NewFocusManager(),
-		jobPool:          job.NewPool(config.WorkerCount),
-		layerRegistry:    config.LayerRegistry,
-		assetManager:     config.AssetManager,
-		platformApp:      platformApp,
-		window:           window,
-		windowBindings:   copyWindowBindings(config.WindowBindings, window),
-		root:             root,
-		frameTimer:       NewFrameTimer(config.TargetFPS),
-		dirtyFacets:      make(map[facet.FacetID]facet.DirtyFlags),
-		dirtySources:     make(map[facet.FacetID]string),
-		childAttachments: make(map[facet.FacetID]facet.Attachment),
-		anchorCaches:     make(map[facet.FacetID]*layout.AnchorPositionCache),
-		projectionLayers: make(map[facet.FacetID]facet.ProjectionLayer),
-		lastWindowFrames: make(map[string]*render.Frame),
-		shutdownCh:       make(chan struct{}),
-		doneCh:           make(chan struct{}),
-		log:              config.Logger,
-		diag:             config.DiagnosticsHook,
-		surfaceReady:     true,
-		poisoned:         make(map[facet.FacetID]struct{}),
-		poisonReports:    make(map[facet.FacetID]*poisonReport),
-		recoveryDisabled: config.RecoveryDisabled,
+		config:                config,
+		clock:                 preparedClock.clock,
+		bootstrapFramePending: preparedClock.bootstrap,
+		projectionSystem:      projection.NewSystem(),
+		inputSystem:           input.NewSystem(config.GestureConfig),
+		focusManager:          facet.NewFocusManager(),
+		jobPool:               job.NewPool(config.WorkerCount),
+		layerRegistry:         config.LayerRegistry,
+		assetManager:          config.AssetManager,
+		platformApp:           platformApp,
+		window:                window,
+		windowBindings:        copyWindowBindings(config.WindowBindings, window),
+		root:                  root,
+		frameTimer:            NewFrameTimer(config.TargetFPS),
+		dirtyFacets:           make(map[facet.FacetID]facet.DirtyFlags),
+		dirtySources:          make(map[facet.FacetID]string),
+		childAttachments:      make(map[facet.FacetID]facet.Attachment),
+		anchorCaches:          make(map[facet.FacetID]*layout.AnchorPositionCache),
+		projectionLayers:      make(map[facet.FacetID]facet.ProjectionLayer),
+		lastWindowFrames:      make(map[string]*render.Frame),
+		shutdownCh:            make(chan struct{}),
+		doneCh:                make(chan struct{}),
+		log:                   config.Logger,
+		diag:                  config.DiagnosticsHook,
+		surfaceReady:          true,
+		poisoned:              make(map[facet.FacetID]struct{}),
+		poisonReports:         make(map[facet.FacetID]*poisonReport),
+		recoveryDisabled:      config.RecoveryDisabled,
 	}
 	rt.liveTestIDs = make(liveTestIDs)
 	facet.SetTestIDRegistry(rt.liveTestIDs)
@@ -205,10 +221,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 			return nil, err
 		}
 	}
-	rt.clock = NewClock(wallNow)
 	rt.inputSystem.SetTimeSource(rt.clock.Now)
 	rt.clock.SetGestureGuard(rt.inputSystem.GestureActive)
-	rt.frameTimer.SetTimeSource(rt.clock.Now)
+	rt.frameTimer.SetPacingClock(rt.clock.WallNow)
 	rt.renderPipeline = newRenderPipeline(backend)
 	// Slice 10 (Q9/FR-12): the render thread swaps a fatal GPU backend for the
 	// software backend bound to the current surface; the swap notifies the

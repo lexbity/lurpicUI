@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -90,19 +91,22 @@ type Result[Input, Output any] struct {
 	Cancelled bool
 }
 
-type anyResult struct {
+type DrainedResult struct {
 	jobID     JobID
+	ownerID   uint64
+	sequence  uint64
 	cancelled bool
 	err       error
 	committed bool
 	commitFn  func() bool
 }
 
-func (r anyResult) JobID() JobID    { return r.jobID }
-func (r anyResult) Cancelled() bool { return r.cancelled }
-func (r anyResult) Committed() bool { return r.committed }
-func (r anyResult) Err() error      { return r.err }
-func (r *anyResult) Commit() {
+func (r DrainedResult) JobID() JobID    { return r.jobID }
+func (r DrainedResult) OwnerID() uint64 { return r.ownerID }
+func (r DrainedResult) Cancelled() bool { return r.cancelled }
+func (r DrainedResult) Committed() bool { return r.committed }
+func (r DrainedResult) Err() error      { return r.err }
+func (r *DrainedResult) Commit() {
 	r.committed = false
 	if r.commitFn != nil {
 		r.committed = r.commitFn()
@@ -111,9 +115,10 @@ func (r *anyResult) Commit() {
 
 type queuedJob struct {
 	jobID    JobID
+	sequence uint64
 	priority Priority
 	cancel   *CancelToken
-	execute  func() anyResult
+	execute  func() DrainedResult
 }
 
 // Pool manages a bounded worker goroutine set and job queues.
@@ -123,11 +128,15 @@ type Pool struct {
 
 	interactive chan queuedJob
 	background  chan queuedJob
-	results     chan anyResult
+	results     chan DrainedResult
 	shutdown    chan struct{}
 
-	mu     sync.Mutex
-	active map[JobID]*CancelToken
+	mu              sync.Mutex
+	active          map[JobID]*CancelToken
+	nextSequence    uint64
+	pendingSequence map[uint64]bool // false until its result is in results; removed by Drain
+	frontierWake    chan struct{}
+	drainedSequence map[uint64]struct{} // result received before worker publication bookkeeping
 	// ready counts results already published to the bounded result channel.
 	// drainedEarly pairs the rare receive-before-publish-bookkeeping race.
 	// Both maps are bounded by result capacity plus worker count.
@@ -167,6 +176,42 @@ func (p *Pool) Ready(id JobID) bool {
 	return p.ready[id] > 0
 }
 
+// Frontier returns the highest job submission sequence assigned so far.
+// A Virtual frame freezes this value at its sealed cut.
+func (p *Pool) Frontier() uint64 {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.nextSequence
+}
+
+// ReadyThrough reports whether every job through frontier has a terminal
+// worker result published for phase-1 draining.
+func (p *Pool) ReadyThrough(frontier uint64) bool {
+	if p == nil {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for sequence, ready := range p.pendingSequence {
+		if sequence <= frontier && !ready {
+			return false
+		}
+	}
+	return true
+}
+
+// FrontierWake is a coalesced notification that worker terminal state may
+// have changed. Receivers must recheck ReadyThrough.
+func (p *Pool) FrontierWake() <-chan struct{} {
+	if p == nil {
+		return nil
+	}
+	return p.frontierWake
+}
+
 // Pause stops workers from pulling new jobs until Resume is called.
 func (p *Pool) Pause() {
 	p.pauseMu.Lock()
@@ -197,15 +242,18 @@ func NewPool(workerCount int) *Pool {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Pool{
-		ctx:          ctx,
-		cancel:       cancel,
-		interactive:  make(chan queuedJob),
-		background:   make(chan queuedJob, workerCount*4),
-		results:      make(chan anyResult, workerCount*4),
-		shutdown:     make(chan struct{}),
-		active:       make(map[JobID]*CancelToken),
-		ready:        make(map[JobID]int, workerCount*4),
-		drainedEarly: make(map[JobID]int, workerCount),
+		ctx:             ctx,
+		cancel:          cancel,
+		interactive:     make(chan queuedJob),
+		background:      make(chan queuedJob, workerCount*4),
+		results:         make(chan DrainedResult, workerCount*4),
+		shutdown:        make(chan struct{}),
+		active:          make(map[JobID]*CancelToken),
+		pendingSequence: make(map[uint64]bool, workerCount*4+workerCount),
+		frontierWake:    make(chan struct{}, 1),
+		drainedSequence: make(map[uint64]struct{}, workerCount),
+		ready:           make(map[JobID]int, workerCount*4),
+		drainedEarly:    make(map[JobID]int, workerCount),
 	}
 	p.pauseCond = sync.NewCond(&p.pauseMu)
 	for i := 0; i < workerCount; i++ {
@@ -243,18 +291,27 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 		prev.cancel()
 	}
 	p.active[job.ID] = cancelToken
+	p.nextSequence++
+	if p.nextSequence == 0 {
+		p.mu.Unlock()
+		panic("job: submission sequence exhausted")
+	}
+	sequence := p.nextSequence
+	p.pendingSequence[sequence] = false
 	p.mu.Unlock()
 
 	snap := job.Snapshot
 	q := queuedJob{
 		jobID:    job.ID,
+		sequence: sequence,
 		priority: job.Priority,
 		cancel:   cancelToken,
 	}
-	q.execute = func() anyResult {
+	q.execute = func() DrainedResult {
 		output, err := job.Work(snap, cancelToken)
-		res := anyResult{
+		res := DrainedResult{
 			jobID:     job.ID,
+			sequence:  sequence,
 			cancelled: cancelToken.Cancelled(),
 			err:       err,
 		}
@@ -279,6 +336,7 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 
 	select {
 	case <-p.ctx.Done():
+		p.rollbackSubmission(job.ID, sequence, cancelToken)
 		return errors.New("job: pool closed")
 	default:
 	}
@@ -288,12 +346,14 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 		select {
 		case p.interactive <- q:
 		case <-p.ctx.Done():
+			p.rollbackSubmission(job.ID, sequence, cancelToken)
 			return errors.New("job: pool closed")
 		}
 	default:
 		select {
 		case p.background <- q:
 		case <-p.ctx.Done():
+			p.rollbackSubmission(job.ID, sequence, cancelToken)
 			return errors.New("job: pool closed")
 		}
 	}
@@ -324,12 +384,32 @@ func (p *Pool) SubmitAny(j AnyJob, afterCommit func(AnyResult)) error {
 }
 
 // Drain returns all available completed results without blocking.
-func (p *Pool) Drain() []anyResult {
-	var out []anyResult
+func (p *Pool) Drain() []DrainedResult {
+	return p.drain(false)
+}
+
+// DrainOrdered commits the currently published result set in submission
+// sequence order. Virtual frames use it after their frozen job frontier is
+// terminal, so worker completion order changes latency only.
+func (p *Pool) DrainOrdered() []DrainedResult {
+	return p.drain(true)
+}
+
+func (p *Pool) drain(ordered bool) []DrainedResult {
+	var out []DrainedResult
+collect:
 	for {
 		select {
 		case res := <-p.results:
 			p.mu.Lock()
+			if ready, exists := p.pendingSequence[res.sequence]; exists {
+				delete(p.pendingSequence, res.sequence)
+				if !ready {
+					p.drainedSequence[res.sequence] = struct{}{}
+				}
+			} else {
+				p.drainedSequence[res.sequence] = struct{}{}
+			}
 			if p.ready[res.jobID] > 0 {
 				p.ready[res.jobID]--
 				if p.ready[res.jobID] == 0 {
@@ -339,14 +419,20 @@ func (p *Pool) Drain() []anyResult {
 				p.drainedEarly[res.jobID]++
 			}
 			p.mu.Unlock()
-			if !res.cancelled && res.err == nil {
-				res.Commit()
-			}
 			out = append(out, res)
 		default:
-			return out
+			break collect
 		}
 	}
+	if ordered && len(out) > 1 {
+		sort.Slice(out, func(i, j int) bool { return out[i].sequence < out[j].sequence })
+	}
+	for i := range out {
+		if !out[i].cancelled && out[i].err == nil {
+			out[i].Commit()
+		}
+	}
+	return out
 }
 
 // CancelJob cancels a specific job by ID.
@@ -449,6 +535,11 @@ func (p *Pool) execute(q queuedJob) {
 	select {
 	case p.results <- res:
 		p.mu.Lock()
+		if _, drained := p.drainedSequence[q.sequence]; drained {
+			delete(p.drainedSequence, q.sequence)
+		} else {
+			p.pendingSequence[q.sequence] = true
+		}
 		if p.drainedEarly[q.jobID] > 0 {
 			p.drainedEarly[q.jobID]--
 			if p.drainedEarly[q.jobID] == 0 {
@@ -458,7 +549,20 @@ func (p *Pool) execute(q queuedJob) {
 			p.ready[q.jobID]++
 		}
 		p.mu.Unlock()
+		select {
+		case p.frontierWake <- struct{}{}:
+		default:
+		}
 	case <-p.shutdown:
 	case <-p.ctx.Done():
 	}
+}
+
+func (p *Pool) rollbackSubmission(id JobID, sequence uint64, token *CancelToken) {
+	p.mu.Lock()
+	delete(p.pendingSequence, sequence)
+	if p.active[id] == token {
+		delete(p.active, id)
+	}
+	p.mu.Unlock()
 }

@@ -50,10 +50,15 @@ type drivePort struct {
 	controlKeys   map[controlKey]int
 	controlWanted atomic.Bool
 
-	// pendingAdvances are virtual-time advances admitted at a cut by the
-	// time.advance handler; drivePostFrame executes each as exactly one
-	// full frame and then completes the ledger + reply. Runtime-thread only.
-	pendingAdvances []pendingAdvance
+	// frameTokens are explicit frame-control work admitted at a sealed cut.
+	// The top-level scheduler consumes them; handlers never enter runFrame.
+	frameTokens         []pendingFrameToken
+	pendingFrameTokens  map[uint64]pendingFrameToken
+	framePlan           *framePlan
+	currentFramePlan    *framePlan
+	timeOwnerSession    string
+	timeOwnerGeneration uint64
+	bootstrapTimeUntil  time.Time
 	// pendingCommandActivations are admitted GUI-backed commands waiting
 	// for the next normal frame's activation boundary. pendingCommandFrames
 	// retain their immutable outcome until that frame's render acknowledgment.
@@ -77,6 +82,7 @@ type controlKey struct {
 // explicitly (capacity.busy, non-admitted), never blocks or grows without
 // bound.
 const maxInboxLen = 65536
+const driveReasonConnectionLost = "connection.lost"
 
 // ErrInboxFull is Submit's explicit overload result.
 var ErrInboxFull = errors.New("runtime: drive inbox at capacity")
@@ -164,6 +170,7 @@ func (rt *Runtime) installDrivePort() error {
 		pendingCommandFrames: make(map[uint64][]pendingCommand),
 		waitingCommandJobs:   make(map[string]pendingCommand),
 		commandJobScopes:     make(map[job.JobID]*commandJobScope),
+		pendingFrameTokens:   make(map[uint64]pendingFrameToken),
 	}
 	if rt.drivePort.stats == nil {
 		rt.drivePort.stats = &drive.Stats{}
@@ -224,11 +231,36 @@ func (p *drivePort) serviceControl() {
 // an in-flight drive input step owned by that session/generation; applied
 // effects stand and nothing new starts.
 func (p *drivePort) fenceGeneration(session string, generation uint64) {
+	for i := 0; i < len(p.frameTokens); {
+		token := p.frameTokens[i]
+		if token.entry != nil && token.cmd.Session == session && token.cmd.Generation == generation {
+			p.frameTokens = append(p.frameTokens[:i], p.frameTokens[i+1:]...)
+			if token.plan == nil {
+				p.completeFrameToken(token, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: driveReasonConnectionLost}})
+			}
+			continue
+		}
+		i++
+	}
+	for frame, token := range p.pendingFrameTokens {
+		if token.cmd.Session == session && token.cmd.Generation == generation {
+			delete(p.pendingFrameTokens, frame)
+			if token.plan == nil {
+				p.completeFrameToken(token, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: driveReasonConnectionLost}, Frame: strconv.FormatUint(frame, 10)})
+			}
+		}
+	}
+	if p.framePlan != nil && p.framePlan.cmd.Session == session && p.framePlan.cmd.Generation == generation {
+		p.rt.finishFramePlan(p.framePlan, &proto.Error{Code: proto.ErrOperationCancelled, Detail: driveReasonConnectionLost})
+	}
+	if p.timeOwnerSession == session && p.timeOwnerGeneration == generation {
+		p.releaseTimeOwner(true)
+	}
 	for i := 0; i < len(p.pendingCommandActivations); {
 		pending := p.pendingCommandActivations[i]
 		if pending.cmd.Session == session && pending.cmd.Generation == generation {
 			p.pendingCommandActivations = append(p.pendingCommandActivations[:i], p.pendingCommandActivations[i+1:]...)
-			p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+			p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: driveReasonConnectionLost}})
 			continue
 		}
 		i++
@@ -237,7 +269,7 @@ func (p *drivePort) fenceGeneration(session string, generation uint64) {
 		kept := pending[:0]
 		for _, command := range pending {
 			if command.cmd.Session == session && command.cmd.Generation == generation {
-				p.finishCommand(command, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+				p.finishCommand(command, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: driveReasonConnectionLost}})
 				continue
 			}
 			kept = append(kept, command)
@@ -250,7 +282,7 @@ func (p *drivePort) fenceGeneration(session string, generation uint64) {
 	}
 	for opID, pending := range p.waitingCommandJobs {
 		if pending.cmd.Session == session && pending.cmd.Generation == generation {
-			p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+			p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: driveReasonConnectionLost}})
 			delete(p.waitingCommandJobs, opID)
 		}
 	}
@@ -266,6 +298,54 @@ func (p *drivePort) fenceGeneration(session string, generation uint64) {
 		p.rt.preemptInputStepOwned(func(*driveInputStep) bool { return true })
 	}
 	p.stats.AddPreempted()
+}
+
+func (p *drivePort) acquireTimeOwner(cmd drive.Command) *proto.Error {
+	if p == nil || cmd.Session == "" || cmd.Generation == 0 {
+		return &proto.Error{Code: proto.ErrSessionFenced, Detail: "time ownership requires an attached session"}
+	}
+	if p.timeOwnerSession == "" {
+		p.timeOwnerSession = cmd.Session
+		p.timeOwnerGeneration = cmd.Generation
+		p.bootstrapTimeUntil = time.Time{}
+		return nil
+	}
+	if p.timeOwnerSession == cmd.Session && p.timeOwnerGeneration == cmd.Generation {
+		return nil
+	}
+	return &proto.Error{Code: proto.ErrTimeBusy, Detail: "virtual time is owned by another session"}
+}
+
+func (p *drivePort) ownsTime(cmd drive.Command) bool {
+	return p != nil && p.timeOwnerSession == cmd.Session && p.timeOwnerGeneration == cmd.Generation
+}
+
+func (p *drivePort) releaseTimeOwner(forceWall bool) {
+	if p == nil {
+		return
+	}
+	p.timeOwnerSession = ""
+	p.timeOwnerGeneration = 0
+	p.bootstrapTimeUntil = time.Time{}
+	if forceWall && p.rt.clock.Mode() == ClockVirtual {
+		p.rt.clock.SetWall()
+		p.frameTokens = append(p.frameTokens, pendingFrameToken{mode: "wall"})
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
+		if p.rt.frameTimer != nil {
+			p.rt.frameTimer.RequestFrame()
+		}
+	}
+}
+
+func (p *drivePort) expireBootstrapLease() bool {
+	if p == nil || p.timeOwnerSession != "" || p.bootstrapTimeUntil.IsZero() || p.rt.clock.WallNow().Before(p.bootstrapTimeUntil) {
+		return false
+	}
+	p.releaseTimeOwner(true)
+	return true
 }
 
 // sealCut advances the sealed cut after a frame's submission completes.
@@ -338,6 +418,10 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 			p.publishCommandReceipt(cmd, entry)
 			return
 		}
+		if entry.Admitted && entry.State == drive.EntryAdmitted && p.attachFrameWaiter(cmd, entry) {
+			p.publishCommandReceipt(cmd, entry)
+			return
+		}
 		p.replayRetained(cmd, entry)
 		return
 	case drive.LookupExpired:
@@ -373,6 +457,19 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 		} else {
 			p.reply(cmd, nil, perr, true)
 		}
+		return
+	}
+	if p.framePlan != nil && spec.Mutating {
+		perr := &proto.Error{Code: proto.ErrInputBusy, Detail: "an exclusive frame plan is active"}
+		if rej, err := ledger.ClaimRejection(id, canonical, perr); err == nil {
+			p.replyClaimed(cmd, rej, nil, perr)
+		} else {
+			p.reply(cmd, nil, perr, true)
+		}
+		return
+	}
+	if (cmd.Method == "time.advance" || cmd.Method == "time.mode" || cmd.Method == "frame.run") && len(p.frameTokens)+len(p.pendingFrameTokens) >= maxPendingDriveCommands {
+		p.reply(cmd, nil, &proto.Error{Code: proto.ErrCapacityBusy, Retryable: true, NonAdmitted: true}, true)
 		return
 	}
 	if grant := specGrant(spec); grant != "" && !cmd.Grants.Allows(grant) {
@@ -451,12 +548,30 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 
 	out := rt.driveExecute(cmd)
 	if out.deferred {
-		// The deferred completer (drivePostFrame) owns the ledger
-		// completion and reply.
+		// The top-level scheduler owns frame execution and completion.
 		out.entry = claimed
-		p.pendingAdvances = append(p.pendingAdvances, pendingAdvance{
-			d: out.d, cmd: cmd, entry: claimed,
-		})
+		p.publishCommandReceipt(cmd, claimed)
+		if out.frameToken == nil {
+			panic("runtime: deferred drive operation has no frame token")
+		}
+		out.frameToken.cmd = cmd
+		out.frameToken.entry = claimed
+		out.frameToken.frontier = rt.jobPool.Frontier()
+		out.frameToken.frontierSet = true
+		if out.frameToken.plan != nil {
+			if p.framePlan != nil {
+				p.completeClaimed(claimed, cmd, drive.Result{Err: &proto.Error{Code: proto.ErrInputBusy, Detail: "another frame plan is active"}})
+				return
+			}
+			p.framePlan = out.frameToken.plan
+			p.framePlan.cmd = cmd
+			p.framePlan.entry = claimed
+		}
+		p.frameTokens = append(p.frameTokens, *out.frameToken)
+		select {
+		case p.wake <- struct{}{}:
+		default:
+		}
 		return
 	}
 	p.completeClaimed(claimed, cmd, out.result)
@@ -492,11 +607,10 @@ type driveOutcome struct {
 	result     drive.Result
 	deferred   bool
 	activation *commandActivation
+	frameToken *pendingFrameToken
 	// entry is set by the admitter for deferred outcomes so the completer
 	// records the immutable terminal record.
 	entry *drive.Entry
-	// d carries a deferred advance's duration (time.advance only).
-	d time.Duration
 }
 
 const maxPendingDriveCommands = 128
@@ -542,6 +656,44 @@ func (p *drivePort) publishCommandReceipt(cmd drive.Command, entry *drive.Entry)
 		AcceptedFrame: entry.AcceptedFrame, NextID: sess.Ledger().HighWater() + 1,
 	}:
 	default:
+	}
+}
+
+func (p *drivePort) attachFrameWaiter(cmd drive.Command, entry *drive.Entry) bool {
+	add := func(waiters *[]drive.Command) bool {
+		if len(*waiters) >= maxCommandWaiters {
+			return false
+		}
+		*waiters = append(*waiters, cmd)
+		return true
+	}
+	for i := range p.frameTokens {
+		if p.frameTokens[i].entry != nil && p.frameTokens[i].entry.OpID == entry.OpID {
+			return add(&p.frameTokens[i].waiters)
+		}
+	}
+	for frame, token := range p.pendingFrameTokens {
+		if token.entry != nil && token.entry.OpID == entry.OpID {
+			if !add(&token.waiters) {
+				return false
+			}
+			p.pendingFrameTokens[frame] = token
+			return true
+		}
+	}
+	if p.framePlan != nil && p.framePlan.entry != nil && p.framePlan.entry.OpID == entry.OpID {
+		return add(&p.framePlan.waiters)
+	}
+	return false
+}
+
+func (p *drivePort) completeFrameToken(token pendingFrameToken, result drive.Result) {
+	p.completeClaimed(token.entry, token.cmd, result)
+	for _, waiter := range token.waiters {
+		select {
+		case waiter.Reply <- result:
+		default:
+		}
 	}
 }
 
@@ -602,7 +754,7 @@ func (rt *Runtime) driveActivatePendingCommands() {
 	p.pendingCommandActivations = p.pendingCommandActivations[1:]
 	sess, ok := p.sessions.Get(pending.cmd.Session)
 	if !ok || sess.Generation() != pending.cmd.Generation || sess.State() != drive.SessionAttached {
-		p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+		p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: driveReasonConnectionLost}})
 		return
 	}
 	var invoked bool
@@ -732,7 +884,7 @@ func (rt *Runtime) driveCollectRenderCompletions() {
 	for {
 		select {
 		case completion := <-rt.renderPipeline.Completions():
-			rt.driveCompleteCommandFrame(p, completion)
+			rt.driveHandleRenderCompletion(completion)
 		default:
 			return
 		}
@@ -868,13 +1020,4 @@ func (p *drivePort) replayRetained(cmd drive.Command, entry *drive.Entry) {
 	case cmd.Reply <- res:
 	default:
 	}
-}
-
-// pendingAdvance pairs an admitted advance with its claimed ledger entry;
-// drivePostFrame executes each as exactly one full frame, then completes
-// the record and replies. Runtime-thread only.
-type pendingAdvance struct {
-	d     time.Duration
-	cmd   drive.Command
-	entry *drive.Entry
 }

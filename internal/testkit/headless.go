@@ -20,6 +20,7 @@ import (
 // HarnessConfig configures a headless harness.
 type HarnessConfig struct {
 	Width, Height    int
+	Clock            runtime.ClockConfig
 	Fonts            []text.FontSource
 	LayerRegistry    *layout.LayerRegistry
 	ThemeResolver    *theme.ThemeResolver    // optional; the anchored-layer recipe resolver
@@ -150,6 +151,7 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 		t.Fatalf("initialize backend: %v", err)
 	}
 	rtcfg := runtime.DefaultConfig()
+	rtcfg.Clock = config.Clock
 	rtcfg.FontRegistry = fonts
 	rtcfg.LayerRegistry = config.LayerRegistry
 	rtcfg.ThemeResolver = config.ThemeResolver

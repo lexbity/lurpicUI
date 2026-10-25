@@ -29,9 +29,27 @@
       "grant": "",
       "mutating": false,
       "name": "op.status"
+    },
+    {
+      "grant": "time",
+      "mutating": true,
+      "name": "time.mode",
+      "twin": "n/a"
+    },
+    {
+      "grant": "time",
+      "mutating": true,
+      "name": "time.advance",
+      "twin": "n/a"
+    },
+    {
+      "grant": "time",
+      "mutating": true,
+      "name": "frame.run",
+      "twin": "n/a"
     }
   ],
   "protocol": 2,
-  "schema_digest": "sha256:c042df836185fb7b352c43a25307a930ad8df780449739004dfcd1d081e66a01",
+  "schema_digest": "sha256:0f741e46e833b78f81112c031f728eb2dfbb2e4e74d88a93a66e49bef605407c",
   "title": "LDP — Lurpic Drive Protocol methods"
 }

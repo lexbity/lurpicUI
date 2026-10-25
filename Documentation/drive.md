@@ -64,14 +64,31 @@ advertised wire surface today:
   fenced by the owning session generation. A disconnect cancels the operation
   and prevents any uncommitted continuation from mutating app state; already
   applied callback effects are not rolled back.
+- `time.mode` — requires the `time` grant. `{"mode":"virtual"}` acquires
+  the session's time lease and completes after its single zero-delta
+  transition frame is ready. `{"mode":"wall"}` releases that lease after
+  its transition frame. Repeating the current mode is idempotent and creates
+  no frame. A driver transition during a held gesture is rejected.
+- `time.advance` — requires the `time` grant and the controlling time lease.
+  `{"duration_ns":"16666667"}` advances engine time by the bounded integer
+  duration and completes after exactly one frame has a ready surface. Reads
+  while Virtual is parked create no frame. Pure jobs in the prior cut's
+  frontier finish before an authorized Virtual frame begins; their results
+  commit in submission order during phase 1.
+- `frame.run` — requires `time` plus the union of grants used by its plan.
+  It accepts a bounded command-only plan in this slice: GUI-backed
+  `cmd.execute` steps, an explicit bounded frame tail, and registered
+  read-only `then` requests. The plan owns the Virtual frame tokens; input
+  steps, nested plans, mode changes, and operation-control requests are
+  rejected. A plan completes only after its final submitted frame is ready.
 - `op.status` — reports the retained state and outcome of an operation owned
   by the authenticated session; expired outcomes return the operation.expired
   error.
 
-Later slices port time control, input, reads, streams, and artifacts with
-their complete contracts; those methods are not advertised or dispatched
-over the socket yet. Unported methods return `protocol.unknown_method` and
-old clients are rejected by the major handshake.
+Later slices port input, reads, streams, and artifacts with their complete
+contracts. In this slice the implemented time methods and bounded
+command-only `frame.run` are advertised; other unported methods return
+`protocol.unknown_method` and old clients are rejected by the major handshake.
 
 ## Wire
 
@@ -110,6 +127,12 @@ exposure is the bridge author's decision (see `lurpic mcp init`).
   known operation ID. Do not issue the command under a new ID until its old
   outcome is known. A new app instance is a new identity and old outcomes are
   unavailable (`instance.changed`).
+- **Virtual time**: request time.mode with mode=virtual before advancing; only
+  the owning session may submit `time.advance` or `frame.run`. Disconnect
+  releases ownership independently of engine time. Use time.advance with a
+  duration_ns value from 1 through 1000000000 to request one frame, or
+  frame.run for a bounded, ordered command plan. An input-only client never
+  advances frames implicitly.
 - **Request/result expiry**: retention is bounded (entries and bytes per
   session); an evicted ID answers `request.expired` and the high-water
   mark never moves backwards.

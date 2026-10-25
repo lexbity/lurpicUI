@@ -67,9 +67,9 @@ var Registry = []MethodSpec{
 	{Name: "input.type", Grant: GrantInput, Mutating: true, Twin: "input.type/textfield", Tier: TierInput},
 	{Name: "input.scroll", Grant: GrantInput, Mutating: true, Twin: "input.scroll/table", Tier: TierInput},
 	{Name: "input.focus", Grant: GrantInput, Mutating: true, Twin: "input.focus/textfield", Tier: TierInput},
-	{Name: "time.mode", Grant: GrantTime, Mutating: true, Twin: "n/a"},
-	{Name: "time.advance", Grant: GrantTime, Mutating: true, Twin: "n/a"},
-	{Name: "frame.run", Grant: "", Mutating: true, Twin: "n/a"},
+	{Name: "time.mode", Grant: GrantTime, Mutating: true, Twin: "n/a", Advertised: true},
+	{Name: "time.advance", Grant: GrantTime, Mutating: true, Twin: "n/a", Advertised: true},
+	{Name: "frame.run", Grant: GrantTime, Mutating: true, Twin: "n/a", Advertised: true},
 	{Name: "sub.watch", Grant: GrantRead, Tier: TierStructural},
 	{Name: "sub.cancel", Grant: GrantRead, Tier: TierStructural},
 }

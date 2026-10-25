@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +128,23 @@ func TestDefaultConfig_non_zero_fps(t *testing.T) {
 func TestRun_nil_builder_errors(t *testing.T) {
 	if err := Run(DefaultConfig("title", 10, 20), nil); err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestVirtualStartupRequiresDriveTimeGrant(t *testing.T) {
+	t.Setenv("LURPIC_DRIVE", "on:read")
+	cfg := DefaultConfig("virtual", 10, 20)
+	cfg.Runtime.Clock = runtime.ClockConfig{InitialMode: runtime.ClockVirtual, EpochNS: 1_800_000_000_000_000_000}
+	built := false
+	err := Run(cfg, func(BuildContext) facet.FacetImpl {
+		built = true
+		return nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "virtual startup requires the drive time grant") {
+		t.Fatalf("Run error=%v, want virtual-startup time-grant rejection", err)
+	}
+	if built {
+		t.Fatal("root builder ran before virtual startup grant validation")
 	}
 }
 

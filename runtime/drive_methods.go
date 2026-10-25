@@ -126,76 +126,123 @@ func driveInfo(rt *Runtime, cmd drive.Command) driveOutcome {
 	return payloadOutcome(payload)
 }
 
-// drivePostFrame completes admitted virtual-time advances deferred at the
-// last cut: each moves the clock, runs exactly one full frame, then
-// completes its immutable terminal record and replies (the reply carries
-// the new frame/cut attribution). Advances orphaned by a mode flip back to
-// Wall are refused with a typed error, never silently dropped.
-func (rt *Runtime) drivePostFrame() {
+// runScheduledVirtualFrame consumes one admitted frame token through the
+// same top-level entry point used by the live loop and headless harness.
+func (rt *Runtime) runScheduledVirtualFrame(waitForRender bool) bool {
+	p := rt.drivePort
+	if p == nil || len(p.frameTokens) == 0 {
+		return false
+	}
+	if rt.renderPipeline == nil || !rt.isSurfaceReady() {
+		return false
+	}
+	token := p.frameTokens[0]
+	if !token.frontierSet {
+		token.frontier = rt.jobPool.Frontier()
+		token.frontierSet = true
+		p.frameTokens[0] = token
+	}
+	if !rt.jobPool.ReadyThrough(token.frontier) {
+		return false
+	}
+	reserved := false
+	if !waitForRender && rt.renderPipeline != nil && rt.isSurfaceReady() {
+		reserved = rt.renderPipeline.TryReserveFrame()
+		if !reserved {
+			return false
+		}
+	}
+	token = p.frameTokens[0]
+	copy(p.frameTokens, p.frameTokens[1:])
+	p.frameTokens[len(p.frameTokens)-1] = pendingFrameToken{}
+	p.frameTokens = p.frameTokens[:len(p.frameTokens)-1]
+	if token.duration > 0 {
+		if !rt.clock.CanAdvance(token.duration) {
+			p.completeFrameToken(token, drive.Result{Err: &proto.Error{Code: proto.ErrInvalidParams, Detail: "duration overflows engine time"}})
+			return true
+		}
+	}
+	now := rt.clock.Now()
+	if token.duration > 0 {
+		now = rt.clock.Advance(token.duration)
+	}
+	frame := rt.frameNumber + 1
+	if token.plan != nil {
+		p.currentFramePlan = token.plan
+	}
+	if token.entry != nil {
+		p.pendingFrameTokens[frame] = token
+	}
+	rt.runFrame(now, waitForRender, reserved)
+	p.currentFramePlan = nil
+	if waitForRender && rt.lastRenderCompletion.Frame == frame {
+		rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
+	}
+	return true
+}
+
+func (rt *Runtime) driveHandleRenderCompletion(completion RenderCompletion) {
+	if rt.bootstrapFrameAwaiting && completion.Frame == rt.frameNumber {
+		rt.bootstrapFrameAwaiting = false
+		if completion.Ready && completion.Err == nil && rt.drivePort != nil && rt.drivePort.timeOwnerSession == "" {
+			rt.drivePort.bootstrapTimeUntil = rt.clock.WallNow().Add(10 * time.Second)
+		}
+	}
 	if rt.drivePort == nil {
 		return
 	}
 	p := rt.drivePort
-	p.serviceControl()
-	if rt.lastRenderCompletion.Frame != 0 {
-		rt.driveCompleteCommandFrame(p, rt.lastRenderCompletion)
-	}
-	rt.driveCollectRenderCompletions()
-	pending := p.pendingAdvances
-	if len(pending) == 0 {
+	rt.driveCompleteCommandFrame(p, completion)
+	token, ok := p.pendingFrameTokens[completion.Frame]
+	if !ok {
 		return
 	}
-	p.pendingAdvances = nil
-	for _, adv := range pending {
-		if rt.clock.Mode() != ClockVirtual {
-			p.completeClaimed(adv.entry, adv.cmd, drive.Result{Err: &proto.Error{
-				Code:   proto.ErrTimeMode,
-				Detail: "clock left virtual mode before the advance executed",
-			}})
-			continue
-		}
-		priorFrame := p.Epoch()
-		now := rt.clock.Advance(adv.d)
-		rt.runFrame(now, true, false)
-		completion := rt.lastRenderCompletion
-		rt.driveCompleteCommandFrame(p, completion)
-		if p.Epoch() == priorFrame || completion.Frame != p.Epoch() || !completion.Ready {
-			detail := "submitted frame did not produce a ready surface acknowledgment"
-			if completion.Err != nil {
-				detail = completion.Err.Error()
-			}
-			p.completeClaimed(adv.entry, adv.cmd, drive.Result{Err: &proto.Error{
-				Code: proto.ErrRenderFailed, Detail: detail,
-			}})
-			continue
-		}
-		payload, err := json.Marshal(map[string]string{
-			driveJSONFrameKey: p.Frame(),
-			"cut":             p.Cut(),
-			"render_status":   "ready",
-			"ready_frame":     strconv.FormatUint(completion.Frame, 10),
-			"ready_backend":   completion.Backend,
-		})
-		if err != nil {
-			p.completeClaimed(adv.entry, adv.cmd, drive.Result{
-				Err: &proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()},
-			})
-			continue
-		}
-		p.completeClaimed(adv.entry, adv.cmd, drive.Result{Payload: payload})
+	delete(p.pendingFrameTokens, completion.Frame)
+	if token.plan != nil {
+		rt.driveCompletePlanFrame(token.plan, completion)
+		return
 	}
+	if token.mode == "wall" && p.timeOwnerSession == token.cmd.Session && p.timeOwnerGeneration == token.cmd.Generation {
+		p.releaseTimeOwner(false)
+	}
+	if completion.Err != nil || !completion.Ready {
+		detail := "submitted frame did not produce a ready surface acknowledgment"
+		if completion.Err != nil {
+			detail = completion.Err.Error()
+		}
+		p.completeFrameToken(token, drive.Result{Err: &proto.Error{Code: proto.ErrRenderFailed, Detail: detail}, Frame: p.Frame(), Cut: p.Cut()})
+		return
+	}
+	payload, err := json.Marshal(map[string]string{
+		driveJSONFrameKey: p.Frame(),
+		"cut":             p.Cut(),
+		"render_status":   "ready",
+		"ready_frame":     strconv.FormatUint(completion.Frame, 10),
+		"ready_backend":   completion.Backend,
+		"mode":            token.mode,
+	})
+	if err != nil {
+		p.completeFrameToken(token, drive.Result{Err: &proto.Error{Code: proto.ErrInternalPanic, Detail: "frame result encoding failed"}})
+		return
+	}
+	p.completeFrameToken(token, drive.Result{Payload: payload, Frame: p.Frame(), Cut: p.Cut()})
 }
 
-// durationSeconds is a JSON float of seconds; time advance uses it.
-type durationSeconds float64
-
-// Duration converts to a time.Duration.
-func (d durationSeconds) Duration() time.Duration {
-	return time.Duration(float64(d) * float64(time.Second))
+type pendingFrameToken struct {
+	cmd         drive.Command
+	entry       *drive.Entry
+	duration    time.Duration
+	mode        string
+	plan        *framePlan
+	frontier    uint64
+	frontierSet bool
+	waiters     []drive.Command
 }
 
-// deferredAdvance builds time.advance's deferred outcome: the admitter
-// owns the ledger entry; drivePostFrame completes it after the frame.
-func deferredAdvance(d durationSeconds) driveOutcome {
-	return driveOutcome{deferred: true, d: d.Duration()}
+func deferredFrame(duration time.Duration) driveOutcome {
+	return driveOutcome{deferred: true, frameToken: &pendingFrameToken{duration: duration}}
+}
+
+func deferredMode(mode string) driveOutcome {
+	return driveOutcome{deferred: true, frameToken: &pendingFrameToken{mode: mode}}
 }

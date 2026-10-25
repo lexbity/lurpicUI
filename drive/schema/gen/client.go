@@ -34,15 +34,18 @@ func Methods() []string {
 	return []string{
 		"cmd.execute",
 		"cmd.list",
+		"frame.run",
 		"op.status",
 		"sys.hello",
 		"sys.ping",
+		"time.advance",
+		"time.mode",
 	}
 }
 
 // SchemaDigest returns the canonical schema digest of Methods().
 func SchemaDigest() string {
-	return "sha256:c042df836185fb7b352c43a25307a930ad8df780449739004dfcd1d081e66a01"
+	return "sha256:0f741e46e833b78f81112c031f728eb2dfbb2e4e74d88a93a66e49bef605407c"
 }
 
 // CmdExecute sends cmd.execute with optional params.
@@ -53,6 +56,11 @@ func (c *Client) CmdExecute(params any) (json.RawMessage, error) {
 // CmdList sends cmd.list with optional params.
 func (c *Client) CmdList(params any) (json.RawMessage, error) {
 	return c.call("cmd.list", params)
+}
+
+// FrameRun sends frame.run with optional params.
+func (c *Client) FrameRun(params any) (json.RawMessage, error) {
+	return c.call("frame.run", params)
 }
 
 // OpStatus sends op.status with optional params.
@@ -72,4 +80,14 @@ func (c *Client) SysHello(token string) (json.RawMessage, error) {
 // SysPing sends sys.ping and returns the payload (pong, cut, frame).
 func (c *Client) SysPing() (json.RawMessage, error) {
 	return c.call("sys.ping", nil)
+}
+
+// TimeAdvance sends time.advance with optional params.
+func (c *Client) TimeAdvance(params any) (json.RawMessage, error) {
+	return c.call("time.advance", params)
+}
+
+// TimeMode sends time.mode with optional params.
+func (c *Client) TimeMode(params any) (json.RawMessage, error) {
+	return c.call("time.mode", params)
 }

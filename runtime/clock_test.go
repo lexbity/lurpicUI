@@ -174,3 +174,49 @@ func TestClock_JobsStayCorrectUnderVirtualMode(t *testing.T) {
 		time.Sleep(time.Millisecond)
 	}
 }
+
+func TestClockDomainIsolation(t *testing.T) {
+	wall := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	clock := NewClock(func() time.Time { return wall })
+	start := clock.Now()
+	if err := clock.SetVirtual(); err != nil {
+		t.Fatal(err)
+	}
+	virtual := clock.Now()
+	clock.Advance(3 * time.Hour)
+	if !clock.Now().Equal(virtual.Add(3 * time.Hour)) {
+		t.Fatal("virtual advance was not exact")
+	}
+	clock.SetWall()
+	wall = wall.Add(5 * time.Second)
+	if got, want := clock.Now(), virtual.Add(3*time.Hour+5*time.Second); !got.Equal(want) {
+		t.Fatalf("wall return jumped engine time: got %v want %v (initial %v)", got, want, start)
+	}
+	if got := clock.FrameDelta(clock.Now()); got != 0 {
+		t.Fatalf("first frame after mode transition dt=%v want 0", got)
+	}
+
+	prepared, err := PrepareClock(ClockConfig{InitialMode: ClockVirtual, EpochNS: 1_800_000_000_123_456_789})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := buildBenchmarkTree()
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.PreparedClock = prepared
+	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rt.Shutdown()
+	if got := prepared.View().Now(); !got.Equal(rt.Clock().Now()) {
+		t.Fatalf("builder/runtime clock split: view=%v runtime=%v", got, rt.Clock().Now())
+	}
+	if got := rt.Clock().Now().UnixNano(); got != prepared.View().Now().UnixNano() {
+		t.Fatalf("prepared epoch changed: %d", got)
+	}
+	rt.RunOneFrame()
+	if rt.bootstrapFramePending {
+		t.Fatal("bootstrap transition frame was not consumed")
+	}
+}

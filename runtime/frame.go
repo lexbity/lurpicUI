@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/input"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
@@ -109,6 +110,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	// activation boundary as application commands. Their signals join this
 	// frame's phase-6 batch; transport workers never invoke app code.
 	rt.driveActivatePendingCommands()
+	rt.driveActivatePendingPlanStep()
 	rt.deliverSignals()
 	if runtimeTraceActive() {
 		runtimeTracef("runFrame after-signals n=%d pending=%d dirty=%d", rt.frameNumber, len(rt.pendingEvents), len(rt.dirtyFacets))
@@ -515,7 +517,12 @@ func (rt *Runtime) drainJobResults() (committed int, discarded int) {
 	if rt.jobPool == nil {
 		return committed, 0
 	}
-	results := rt.jobPool.Drain()
+	var results []job.DrainedResult
+	if rt.clock.Mode() == ClockVirtual {
+		results = rt.jobPool.DrainOrdered()
+	} else {
+		results = rt.jobPool.Drain()
+	}
 	for _, r := range results {
 		if rt.drivePort != nil {
 			rt.drivePort.commandJobFinished(r.JobID(), r.Cancelled(), r.Committed(), r.Err(), rt.frameNumber)

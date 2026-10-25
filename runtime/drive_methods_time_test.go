@@ -4,315 +4,547 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
+	"codeburg.org/lexbit/lurpicui/job"
 )
 
-func TestDrive_TimeModeVirtualAndBack(t *testing.T) {
+func TestDrive_TimeModeTransitionsOwnExactlyOneFrame(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
+	before := rt.frameNumber
 	res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants())
 	if res.Err != nil {
 		t.Fatalf("time.mode virtual: %v", res.Err)
 	}
-	if rt.Clock().Mode() != ClockVirtual {
-		t.Fatal("clock must be virtual")
+	var transition struct {
+		Mode       string `json:"mode"`
+		Frame      string `json:"frame"`
+		ReadyFrame string `json:"ready_frame"`
+		Status     string `json:"render_status"`
+	}
+	if err := json.Unmarshal(res.Payload, &transition); err != nil {
+		t.Fatal(err)
+	}
+	if transition.Mode != "virtual" || transition.Frame == "" || transition.Frame != transition.ReadyFrame || transition.Status != "ready" {
+		t.Fatalf("virtual transition did not identify its ready surface: %+v (%s)", transition, res.Payload)
+	}
+	if rt.Clock().Mode() != ClockVirtual || rt.frameNumber != before+1 {
+		t.Fatalf("virtual transition mode/frame = %s/%d, want virtual/%d", rt.Clock().Mode(), rt.frameNumber, before+1)
+	}
+	before = rt.frameNumber
+	res = driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants())
+	if res.Err != nil || rt.frameNumber != before {
+		t.Fatalf("idempotent transition result=%v frames=%d want no frame", res.Err, rt.frameNumber-before)
 	}
 	res = driveCall(t, rt, "time.mode", map[string]string{"mode": "wall"}, allGrants())
-	if res.Err != nil {
-		t.Fatalf("time.mode wall: %v", res.Err)
+	if res.Err != nil || rt.Clock().Mode() != ClockWall || rt.frameNumber != before+1 {
+		t.Fatalf("wall transition result=%v mode=%s frames=%d", res.Err, rt.Clock().Mode(), rt.frameNumber-before)
 	}
-	if rt.Clock().Mode() != ClockWall {
-		t.Fatal("clock must be wall")
+	if res = driveCall(t, rt, "time.mode", map[string]string{"mode": "quantum"}, allGrants()); resultCode(res.Err) != string(proto.ErrInvalidParams) {
+		t.Fatalf("unknown mode error = %+v", res.Err)
 	}
-	// Unknown mode is a typed error, not a panic.
-	res = driveCall(t, rt, "time.mode", map[string]string{"mode": "quantum"}, allGrants())
-	if resultCode(res.Err) != string(proto.ErrInvalidParams) {
-		t.Fatalf("err = %+v", res.Err)
+}
+
+func TestVirtualEntryTransitionFrameReady(t *testing.T) {
+	prepared, err := PrepareClock(ClockConfig{InitialMode: ClockVirtual, EpochNS: 1_800_000_000_000_000_000})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.Drive.Enabled = true
+	testSessionTable(t, &cfg)
+	cfg.PreparedClock = prepared
+	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, buildBenchmarkTree())
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- rt.Run() }()
+	defer func() { rt.Shutdown(); <-done }()
+	deadline := time.Now().Add(3 * time.Second)
+	for rt.DrivePort().Observe().Frame == "0" {
+		if time.Now().After(deadline) {
+			t.Fatal("virtual startup did not finish its ready bootstrap frame")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if rt.DrivePort().Observe().Frame != "1" {
+		t.Fatalf("bootstrap frame=%s, want one parked virtual frame", rt.DrivePort().Observe().Frame)
+	}
+	frame := rt.DrivePort().Observe().Frame
+	time.Sleep(10 * time.Millisecond)
+	if got := rt.DrivePort().Observe().Frame; got != frame {
+		t.Fatalf("parked bootstrap produced extra frame: %s -> %s", frame, got)
+	}
+}
+
+func TestRenderCreditDoesNotBlockControl(t *testing.T) {
+	rtRoot := buildBenchmarkTree()
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.Drive.Enabled = true
+	testSessionTable(t, &cfg)
+	backend := &delayedCommandBackend{
+		started: make(chan struct{}, 1),
+		release: make(chan struct{}, 1),
+	}
+	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, backend, rtRoot)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := testClientFor(t, rt)
+	done := make(chan error, 1)
+	go func() { done <- rt.Run() }()
+	defer func() {
+		select {
+		case backend.release <- struct{}{}:
+		default:
+		}
+		rt.Shutdown()
+		<-done
+	}()
+	transition := enqueueDriveCommand(t, client, "time.mode", map[string]string{"mode": "virtual"})
+	select {
+	case result := <-transition.Reply:
+		if result.Err != nil {
+			t.Fatalf("virtual transition failed: %v", result.Err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("virtual transition did not complete")
+	}
+	backend.delay.Store(true)
+	advance := enqueueDriveCommand(t, client, "time.advance", map[string]string{"duration_ns": "1000000"})
+	select {
+	case <-backend.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("virtual transition did not reach the render worker")
+	}
+	ping := enqueueDriveCommand(t, client, "sys.ping", map[string]any{})
+	select {
+	case result := <-ping.Reply:
+		if result.Err != nil {
+			t.Fatalf("control ping failed while render was blocked: %v", result.Err)
+		}
+	case <-time.After(250 * time.Millisecond):
+		t.Fatal("runtime control service waited for render completion")
+	}
+	select {
+	case result := <-advance.Reply:
+		t.Fatalf("advance completed before its render acknowledgment: %+v", result)
+	default:
+	}
+	backend.release <- struct{}{}
+	select {
+	case result := <-advance.Reply:
+		if result.Err != nil {
+			t.Fatalf("advance result: %v", result.Err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("advance did not complete after render acknowledgment")
 	}
 }
 
 func TestDrive_TimeModeRefusesMidGesture(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
-	// Simulate a mid-gesture platform pointer via the guard the input phase
-	// installs; the clock consults it on every virtual switch (QP-5).
 	rt.Clock().SetGestureGuard(func() bool { return true })
 	res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants())
-	if resultCode(res.Err) != string(proto.ErrTimeMode) {
-		t.Fatalf("err = %+v, want time.mode", res.Err)
+	if resultCode(res.Err) != string(proto.ErrGestureActive) {
+		t.Fatalf("err = %+v, want gesture-active", res.Err)
 	}
 	if rt.Clock().Mode() != ClockWall {
-		t.Fatal("mode must remain wall after refusal")
+		t.Fatal("mode changed after refused transition")
 	}
 }
 
 func TestDrive_TimeModeGrantDenied(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
-	beforeDenied := rt.DriveStats().Load().GrantDenied
+	before := rt.DriveStats().Load().GrantDenied
 	res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, drive.Grants{Read: true})
 	if resultCode(res.Err) != string(proto.ErrGrant) {
 		t.Fatalf("err = %+v, want grant.denied", res.Err)
 	}
-	if denied := rt.DriveStats().Load().GrantDenied; denied != beforeDenied+1 {
-		t.Fatalf("grant-denied counter = %d, want %d", denied, beforeDenied+1)
+	if got := rt.DriveStats().Load().GrantDenied; got != before+1 {
+		t.Fatalf("grant-denied counter = %d, want %d", got, before+1)
 	}
 	if rt.Clock().Mode() != ClockWall {
-		t.Fatal("denied command must not execute")
+		t.Fatal("denied command changed mode")
 	}
 }
 
 func TestDrive_AdvanceRequiresVirtual(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
-	res := driveCall(t, rt, "time.advance", map[string]float64{"d": 0.016}, allGrants())
+	res := driveCall(t, rt, "time.advance", map[string]string{"duration_ns": "16666667"}, allGrants())
 	if resultCode(res.Err) != string(proto.ErrTimeMode) {
 		t.Fatalf("err = %+v, want time.mode", res.Err)
 	}
 }
 
-func TestDrive_AdvanceRunsExactlyOneFrame(t *testing.T) {
-	rt := mustDriveRuntime(t)
-	defer rt.Shutdown()
-	rt.RunOneFrameAt(time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC))
-	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
-		t.Fatalf("time.mode: %v", res.Err)
-	}
-	beforeFrame := rt.frameNumber
-	beforeNow := rt.Clock().Now()
-
-	// Manual advance: submit, then one RunOneFrameAt executes the wake
-	// frame (drain defers the reply) and the post-frame advance. Admission
-	// claims the next contiguous ledger ID.
-	client := testClientFor(t, rt)
-	client.next++
-	cmd := drive.Command{
-		Trusted:    true,
-		Session:    client.sess.ID,
-		Generation: client.sess.Generation(),
-		ID:         client.next,
-		Method:     "time.advance",
-		Params:     json.RawMessage(`{"d":0.5}`),
-		Grants:     allGrants(),
-		Reply:      make(chan drive.Result, 1),
-	}
-	if err := rt.DrivePort().Submit(cmd); err != nil {
-		t.Fatalf("submit: %v", err)
-	}
-	rt.RunOneFrameAt(rt.Clock().Now())
-	select {
-	case res := <-cmd.Reply:
+func TestAdvanceExactlyOneLiveAndHeadless(t *testing.T) {
+	t.Run("headless", func(t *testing.T) {
+		rt := mustDriveRuntime(t)
+		defer rt.Shutdown()
+		if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
+			t.Fatal(res.Err)
+		}
+		before := rt.frameNumber
+		res := driveCall(t, rt, "time.advance", map[string]string{"duration_ns": "500000000"}, allGrants())
 		if res.Err != nil {
-			t.Fatalf("advance: %v", res.Err)
+			t.Fatal(res.Err)
+		}
+		if got := rt.frameNumber - before; got != 1 {
+			t.Fatalf("headless advance frames=%d want 1", got)
 		}
 		var payload struct {
-			Frame string `json:"frame"`
+			Frame  string `json:"frame"`
+			Ready  string `json:"ready_frame"`
+			Status string `json:"render_status"`
 		}
 		if err := json.Unmarshal(res.Payload, &payload); err != nil {
-			t.Fatalf("payload: %v", err)
+			t.Fatal(err)
 		}
-		if payload.Frame != strconv.FormatUint(rt.frameNumber, 10) {
-			t.Fatalf("reply frame = %s, want the just-submitted frame %d", payload.Frame, rt.frameNumber)
+		if payload.Frame != strconv.FormatUint(rt.frameNumber, 10) || payload.Ready != payload.Frame || payload.Status != "ready" {
+			t.Fatalf("advance result = %+v", payload)
 		}
-	default:
-		t.Fatal("advance reply missing after its frame")
-	}
-	if rt.frameNumber != beforeFrame+2 {
-		t.Fatalf("frames run = %d, want 2 (wake + advance)", rt.frameNumber-beforeFrame)
-	}
-	if got := rt.Clock().Now(); !got.Equal(beforeNow.Add(500 * time.Millisecond)) {
-		t.Fatalf("clock after advance = %v, want %v", got, beforeNow.Add(500*time.Millisecond))
-	}
+	})
+	t.Run("live", func(t *testing.T) {
+		rt := mustDriveRuntime(t)
+		client := testClientFor(t, rt)
+		done := make(chan error, 1)
+		go func() { done <- rt.Run() }()
+		defer func() { rt.Shutdown(); <-done }()
+		// The first wall frame is driven by the runtime loop. The mode request
+		// owns its explicit transition frame and then parks.
+		frameNumber := func() uint64 {
+			value, _ := strconv.ParseUint(rt.DrivePort().Observe().Frame, 10, 64)
+			return value
+		}
+		waitFor := func(pred func() bool) bool {
+			deadline := time.After(3 * time.Second)
+			for {
+				if pred() {
+					return true
+				}
+				select {
+				case <-deadline:
+					return false
+				case <-time.After(time.Millisecond):
+				}
+			}
+		}
+		if !waitFor(func() bool { return frameNumber() > 0 }) {
+			t.Fatal("live loop did not submit bootstrap wall frame")
+		}
+		call := func(method string, params any) drive.Result {
+			raw, err := json.Marshal(params)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client.next++
+			cmd := drive.Command{Session: client.sess.ID, Generation: client.sess.Generation(), ID: client.next, OpID: rt.config.Drive.Sessions.InstanceID() + "/" + client.sess.ID + "/" + strconv.FormatUint(client.next, 10), Method: method, Params: raw, Grants: client.sess.Grants, Reply: make(chan drive.Result, 1)}
+			if err := rt.DrivePort().Submit(cmd); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case result := <-cmd.Reply:
+				return result
+			case <-time.After(3 * time.Second):
+				t.Fatalf("live %s did not complete", method)
+			}
+			return drive.Result{}
+		}
+		res := call("time.mode", map[string]string{"mode": "virtual"})
+		if res.Err != nil {
+			t.Fatal(res.Err)
+		}
+		before := frameNumber()
+		res = call("time.advance", map[string]string{"duration_ns": "500000000"})
+		if res.Err != nil {
+			t.Fatal(res.Err)
+		}
+		if got := frameNumber() - before; got != 1 {
+			t.Fatalf("live advance frames=%d want 1", got)
+		}
+	})
 }
 
-func TestDrive_AdvanceRejectsNonPositive(t *testing.T) {
+func TestParkedReadDoesNotRender(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
 	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
-		t.Fatalf("time.mode: %v", res.Err)
+		t.Fatal(res.Err)
 	}
-	res := driveCall(t, rt, "time.advance", map[string]float64{"d": 0}, allGrants())
-	if res.Err == nil || !strings.Contains(errDetail(res.Err), "must be > 0") {
-		t.Fatalf("err = %+v", res.Err)
+	before := rt.frameNumber
+	res := driveCall(t, rt, "sys.ping", nil, allGrants())
+	if res.Err != nil {
+		t.Fatal(res.Err)
 	}
-}
-
-func TestDrive_FrameRunRequiresVirtual(t *testing.T) {
-	rt := mustDriveRuntime(t)
-	defer rt.Shutdown()
-	res := driveCall(t, rt, "frame.run", map[string]any{"steps": []any{}}, allGrants())
-	if resultCode(res.Err) != string(proto.ErrTimeMode) {
-		t.Fatalf("err = %+v, want time.mode", res.Err)
+	if rt.frameNumber != before {
+		t.Fatalf("parked read rendered frame %d -> %d", before, rt.frameNumber)
 	}
 }
 
-func TestDrive_FrameRunStepsAdvanceThen(t *testing.T) {
+func TestDrive_AdvanceRejectsDurationBoundsAndOverflow(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
 	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
-		t.Fatalf("time.mode: %v", res.Err)
+		t.Fatal(res.Err)
 	}
-	beforeFrame := rt.frameNumber
+	for _, value := range []string{"0", "1000000001", "-1", "18446744073709551616", "1.5"} {
+		res := driveCall(t, rt, "time.advance", map[string]string{"duration_ns": value}, allGrants())
+		if resultCode(res.Err) != string(proto.ErrInvalidParams) {
+			t.Errorf("duration %q error=%+v, want invalid_params", value, res.Err)
+		}
+	}
+}
+
+func TestFramePlanBudgetAndThenReads(t *testing.T) {
+	var activations atomic.Int32
+	rt := mustDriveRuntimeWithCommand(t, func() { activations.Add(1) })
+	defer rt.Shutdown()
+	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+	before := rt.frameNumber
 	res := driveCall(t, rt, "frame.run", map[string]any{
 		"steps": []map[string]any{
-			{"method": "sys.ping"},
-			{"method": "time.advance", "params": map[string]float64{"d": 0.1}},
+			{"method": "cmd.execute", "params": map[string]any{"name": "fixture.plan", "version": 1}},
+			{"method": "cmd.execute", "params": map[string]any{"name": "fixture.plan", "version": 1}},
 		},
-		"advance": map[string]any{"frames": 3},
-		"then":    []map[string]any{{"method": "sys.ping"}},
+		"step_duration_ns": "16666667",
+		"advance":          map[string]any{"frames": 2},
+		"max_frames":       4,
+		"then":             []map[string]any{{"method": "sys.ping", "params": map[string]any{}}},
 	}, allGrants())
 	if res.Err != nil {
 		t.Fatalf("frame.run: %v (%s)", res.Err, errDetail(res.Err))
 	}
+	if got := activations.Load(); got != 2 {
+		t.Fatalf("GUI command activations=%d want 2", got)
+	}
+	if got := rt.frameNumber - before; got != 4 {
+		t.Fatalf("plan frames=%d want 4", got)
+	}
 	var payload struct {
-		Applied int               `json:"applied"`
-		Frames  int               `json:"frames"`
+		State   string            `json:"state"`
+		Applied int               `json:"applied_steps"`
+		Frames  string            `json:"frames"`
 		Then    []json.RawMessage `json:"then"`
+		Ready   string            `json:"ready_frame"`
 	}
 	if err := json.Unmarshal(res.Payload, &payload); err != nil {
-		t.Fatalf("payload %s: %v", res.Payload, err)
+		t.Fatal(err)
 	}
-	if payload.Applied != 1 {
-		t.Fatalf("applied = %d, want 1", payload.Applied)
-	}
-	// step 1 (ping) runs its own frame; step 2 (advance) runs one frame;
-	// the advance policy runs 3 → 5 frames total.
-	if payload.Frames != 5 {
-		t.Fatalf("frames = %d, want 5", payload.Frames)
-	}
-	// The manual harness path runs one carrying frame (the drain host) plus
-	// the transaction's own frames.
-	if rt.frameNumber != beforeFrame+6 {
-		t.Fatalf("frames run = %d, want 6 (carrying frame + 5)", rt.frameNumber-beforeFrame)
-	}
-	if len(payload.Then) != 1 {
-		t.Fatalf("then results = %d", len(payload.Then))
+	if payload.State != "completed" || payload.Applied != 2 || payload.Frames != "4" || len(payload.Then) != 1 || payload.Ready != strconv.FormatUint(rt.frameNumber, 10) {
+		t.Fatalf("plan result=%+v payload=%s", payload, res.Payload)
 	}
 }
 
-func TestDrive_FrameRunValidation(t *testing.T) {
+func TestPlanDisconnectStopsNextStep(t *testing.T) {
+	var activations atomic.Int32
+	rt := mustDriveRuntimeWithCommand(t, func() { activations.Add(1) })
+	defer rt.Shutdown()
+	client := testClientFor(t, rt)
+	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+	plan := enqueueDriveCommand(t, client, "frame.run", map[string]any{
+		"steps": []map[string]any{
+			{"method": "cmd.execute", "params": map[string]any{"name": "fixture.plan", "version": 1}},
+			{"method": "cmd.execute", "params": map[string]any{"name": "fixture.plan", "version": 1}},
+		},
+		"step_duration_ns": "1000000",
+		"max_frames":       2,
+	})
+	// The first top-level turn admits the plan and consumes its first frame.
+	rt.RunOneFrameAt(time.Time{})
+	if got := activations.Load(); got != 1 {
+		t.Fatalf("first plan frame activations=%d want 1", got)
+	}
+	rt.DrivePort().SignalControl(drive.ControlSignal{Session: client.sess.ID, Generation: client.sess.Generation()})
+	rt.RunOneFrameAt(time.Time{})
+	select {
+	case result := <-plan.Reply:
+		if resultCode(result.Err) != string(proto.ErrOperationCancelled) {
+			t.Fatalf("plan terminal error=%+v, want operation.cancelled", result.Err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("disconnected plan did not terminalize at the next safe boundary")
+	}
+	if got := activations.Load(); got != 1 {
+		t.Fatalf("disconnect allowed another plan step: activations=%d want 1", got)
+	}
+}
+
+func TestFramePlanGrantUnionAndBounds(t *testing.T) {
+	rt := mustDriveRuntime(t)
+	defer rt.Shutdown()
+	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, drive.Grants{Time: true}); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+	params := map[string]any{"steps": []map[string]any{{"method": "cmd.execute", "params": map[string]any{"name": "fixture.missing", "version": 1}}}, "step_duration_ns": "1", "max_frames": 1}
+	if res := driveCall(t, rt, "frame.run", params, drive.Grants{Time: true}); resultCode(res.Err) != string(proto.ErrGrant) {
+		t.Fatalf("missing command grant err=%+v", res.Err)
+	}
+	params = map[string]any{"steps": []map[string]any{{"method": "cmd.execute", "params": map[string]any{"name": "fixture.missing", "version": 1}}}, "step_duration_ns": "1", "max_frames": 1}
+	res := driveCall(t, rt, "frame.run", params, allGrants())
+	if resultCode(res.Err) != string(proto.ErrCommandUnavailable) {
+		t.Fatalf("missing command err=%+v", res.Err)
+	}
+	params = map[string]any{"steps": []map[string]any{{"method": "input.click", "params": map[string]any{}}}, "step_duration_ns": "1", "max_frames": 1}
+	res = driveCall(t, rt, "frame.run", params, allGrants())
+	if resultCode(res.Err) != string(proto.ErrUnknownMethod) {
+		t.Fatalf("unported input step err=%+v", res.Err)
+	}
+	params = map[string]any{"steps": []map[string]any{{"method": "cmd.execute", "params": map[string]any{"name": "x", "version": 1}}}, "step_duration_ns": "1", "max_frames": 0}
+	res = driveCall(t, rt, "frame.run", params, allGrants())
+	if resultCode(res.Err) != string(proto.ErrInvalidParams) {
+		t.Fatalf("missing max_frames err=%+v", res.Err)
+	}
+}
+
+func TestFramePlanUntilQuiescentIsBounded(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
 	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
-		t.Fatalf("time.mode: %v", res.Err)
+		t.Fatal(res.Err)
 	}
-	cases := []struct {
-		name   string
-		params map[string]any
-		code   proto.ErrorCode
-		detail string
-	}{
-		{
-			name:   "until without max",
-			params: map[string]any{"advance": map[string]any{"until": map[string]any{"quiescent": map[string]int{"frames": 2}}}},
-			code:   proto.ErrInvalidParams,
-			detail: "positive max",
-		},
-		{
-			name:   "frames and until both",
-			params: map[string]any{"advance": map[string]any{"frames": 1, "until": map[string]any{"max": 5}}},
-			code:   proto.ErrInvalidParams,
-			detail: "mutually exclusive",
-		},
-		{
-			name:   "unknown step method",
-			params: map[string]any{"steps": []map[string]any{{"method": "no.such"}}},
-			code:   proto.ErrInvalidParams,
-			detail: "unknown method",
-		},
-		{
-			name:   "until without predicates",
-			params: map[string]any{"advance": map[string]any{"until": map[string]any{"max": 5}}},
-			code:   proto.ErrInvalidParams,
-			detail: "at least one predicate",
-		},
+	before := rt.frameNumber
+	res := driveCall(t, rt, "frame.run", map[string]any{
+		"steps": []any{}, "step_duration_ns": "1000000",
+		"advance":    map[string]any{"until": map[string]any{"quiescent_frames": 2, "jobs_drained": true, "max_frames": 4}},
+		"max_frames": 4,
+	}, allGrants())
+	if res.Err != nil {
+		t.Fatal(res.Err)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			res := driveCall(t, rt, "frame.run", tc.params, allGrants())
-			if resultCode(res.Err) != string(tc.code) {
-				t.Fatalf("err = %+v, want %s", res.Err, tc.code)
+	if got := rt.frameNumber - before; got < 2 || got > 4 {
+		t.Fatalf("until frames=%d want 2..4", got)
+	}
+}
+
+func TestFramePlanTotalBudgetReportsProgress(t *testing.T) {
+	var activations atomic.Int32
+	rt := mustDriveRuntimeWithCommand(t, func() { activations.Add(1) })
+	defer rt.Shutdown()
+	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
+		t.Fatal(res.Err)
+	}
+	res := driveCall(t, rt, "frame.run", map[string]any{
+		"steps":            []map[string]any{{"method": "cmd.execute", "params": map[string]any{"name": "fixture.plan", "version": 1}}, {"method": "cmd.execute", "params": map[string]any{"name": "fixture.plan", "version": 1}}},
+		"step_duration_ns": "1", "max_frames": 1,
+	}, allGrants())
+	if resultCode(res.Err) != string(proto.ErrInvalidParams) || !strings.Contains(errDetail(res.Err), "declared plan budget") {
+		t.Fatalf("budget result=%+v detail=%s", res.Err, errDetail(res.Err))
+	}
+	if got := activations.Load(); got != 0 {
+		t.Fatalf("invalid plan activations=%d want 0", got)
+	}
+}
+
+func mustDriveRuntimeWithCommand(t *testing.T, execute func()) *Runtime {
+	t.Helper()
+	root := buildBenchmarkTree()
+	cfg := DefaultConfig()
+	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.Drive.Enabled = true
+	testSessionTable(t, &cfg)
+	registry := NewCommandRegistry()
+	registry.Register(CommandEntry{ID: "fixture.plan", Version: 1, Title: "Plan fixture", Execute: execute})
+	cfg.CommandRegistry = registry
+	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)
+	if err != nil {
+		t.Fatalf("new runtime: %v", err)
+	}
+	t.Cleanup(func() { rt.Shutdown() })
+	return rt
+}
+
+func TestVirtualJobCompletionOrderIndependent(t *testing.T) {
+	for _, releaseOrder := range [][]int{{1, 2}, {2, 1}} {
+		t.Run(strconv.Itoa(releaseOrder[0])+"-then-"+strconv.Itoa(releaseOrder[1]), func(t *testing.T) {
+			var rt *Runtime
+			started := make(chan int, 2)
+			release := map[int]chan struct{}{1: make(chan struct{}), 2: make(chan struct{})}
+			var mu sync.Mutex
+			var committed []int
+			rt = mustDriveRuntimeWithCommand(t, func() {
+				for i := 1; i <= 2; i++ {
+					value := i
+					rt.Schedule(job.BindJob(uint64(rt.root.Base().ID()), job.Job[int, int]{
+						ID: job.JobID(9200 + value), Snapshot: job.NewSnapshot(value),
+						Work: func(snap job.Snapshot[int], _ *job.CancelToken) (int, error) {
+							started <- snap.Data
+							<-release[snap.Data]
+							return snap.Data, nil
+						},
+					}, func(result int) { mu.Lock(); committed = append(committed, result); mu.Unlock() }))
+				}
+			})
+			defer rt.Shutdown()
+			client := testClientFor(t, rt)
+			if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
+				t.Fatal(res.Err)
 			}
-			if !strings.Contains(errDetail(res.Err), tc.detail) {
-				t.Fatalf("detail %q must contain %q", errDetail(res.Err), tc.detail)
+			command := enqueueDriveCommand(t, client, "cmd.execute", map[string]any{"name": "fixture.plan", "version": 1})
+			if res := driveCall(t, rt, "time.advance", map[string]string{"duration_ns": "1000000"}, allGrants()); res.Err != nil {
+				t.Fatal(res.Err)
+			}
+			seen := map[int]bool{}
+			for len(seen) < 2 {
+				seen[<-started] = true
+			}
+			for _, value := range releaseOrder {
+				close(release[value])
+			}
+			frontier := rt.jobPool.Frontier()
+			deadline := time.Now().Add(time.Second)
+			for !rt.jobPool.ReadyThrough(frontier) {
+				if time.Now().After(deadline) {
+					t.Fatal("pure job frontier did not complete")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			if res := driveCall(t, rt, "time.advance", map[string]string{"duration_ns": "1000000"}, allGrants()); res.Err != nil {
+				t.Fatal(res.Err)
+			}
+			select {
+			case res := <-command.Reply:
+				if res.Err != nil {
+					t.Fatalf("command result: %v", res.Err)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("command did not complete after its owned jobs")
+			}
+			mu.Lock()
+			got := append([]int(nil), committed...)
+			mu.Unlock()
+			if len(got) != 2 || got[0] != 1 || got[1] != 2 {
+				t.Fatalf("commit order=%v, want submission order [1 2]", got)
 			}
 		})
 	}
 }
 
-func TestDrive_FrameRunGrantDeniedPerStep(t *testing.T) {
-	rt := mustDriveRuntime(t)
-	defer rt.Shutdown()
-	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, drive.Grants{Time: true}); res.Err != nil {
-		t.Fatalf("time.mode: %v", res.Err)
+func enqueueDriveCommand(t testing.TB, client *driveTestClient, method string, params any) drive.Command {
+	t.Helper()
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
 	}
-	// A step needing `read` under a connection without it aborts the run
-	// before anything executes (FR-3).
-	res := driveCall(t, rt, "frame.run", map[string]any{
-		"steps": []map[string]any{{"method": "sys.ping"}},
-	}, drive.Grants{Time: true})
-	if resultCode(res.Err) != string(proto.ErrGrant) {
-		t.Fatalf("err = %+v, want grant.denied", res.Err)
+	client.next++
+	cmd := drive.Command{Trusted: true, Session: client.sess.ID, Generation: client.sess.Generation(), ID: client.next, OpID: client.rt.config.Drive.Sessions.InstanceID() + "/" + client.sess.ID + "/" + strconv.FormatUint(client.next, 10), Method: method, Params: raw, Grants: client.sess.Grants, Reply: make(chan drive.Result, 1)}
+	if err := client.rt.DrivePort().Submit(cmd); err != nil {
+		t.Fatal(err)
 	}
-	if !strings.Contains(errDetail(res.Err), "sys.ping") {
-		t.Fatalf("detail %q must name the denied step", errDetail(res.Err))
-	}
-}
-
-func TestDrive_FrameRunUntilQuiescent(t *testing.T) {
-	rt := mustDriveRuntime(t)
-	defer rt.Shutdown()
-	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
-		t.Fatalf("time.mode: %v", res.Err)
-	}
-	res := driveCall(t, rt, "frame.run", map[string]any{
-		"advance": map[string]any{
-			"until": map[string]any{
-				"quiescent":   map[string]int{"frames": 2},
-				"jobsDrained": true,
-				"max":         30,
-			},
-		},
-	}, allGrants())
-	if res.Err != nil {
-		t.Fatalf("frame.run: %v", res.Err)
-	}
-	var payload struct {
-		Frames int `json:"frames"`
-	}
-	if err := json.Unmarshal(res.Payload, &payload); err != nil {
-		t.Fatalf("payload: %v", err)
-	}
-	if payload.Frames > 30 {
-		t.Fatalf("frames = %d exceeds max 30", payload.Frames)
-	}
-}
-
-func TestDrive_FrameRunUntilBudgetExhaustion(t *testing.T) {
-	rt := mustDriveRuntime(t)
-	defer rt.Shutdown()
-	if res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); res.Err != nil {
-		t.Fatalf("time.mode: %v", res.Err)
-	}
-	// A quiescence demand the tree can never satisfy inside a tiny budget
-	// fails loudly with the applied/frames report (§3.5).
-	res := driveCall(t, rt, "frame.run", map[string]any{
-		"steps": []map[string]any{{"method": "sys.ping"}},
-		"advance": map[string]any{
-			"until": map[string]any{
-				"quiescent": map[string]int{"frames": 2},
-				"max":       1,
-			},
-		},
-	}, allGrants())
-	if resultCode(res.Err) != string(proto.ErrTimeMode) {
-		t.Fatalf("err = %+v, want time.mode budget error", res.Err)
-	}
-	if !strings.Contains(errDetail(res.Err), "applied") {
-		t.Fatalf("detail %q must carry the applied/frames report", errDetail(res.Err))
-	}
+	return cmd
 }

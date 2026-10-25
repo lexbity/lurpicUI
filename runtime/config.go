@@ -41,6 +41,8 @@ type backendFallbackSink interface {
 // Config configures the runtime core.
 type Config struct {
 	TargetFPS       int
+	Clock           ClockConfig
+	PreparedClock   *PreparedClock
 	GestureConfig   input.GestureConfig
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
@@ -151,24 +153,22 @@ type FrameTimer struct {
 	lastFrame    time.Time
 	requestCh    chan struct{}
 	vsyncCh      chan int64 // receives vsync frameTimeNanos from platform
-	// nowFn is the pacing time source (Debt-4): the runtime clock, so pacing
-	// reads the same seam as every other engine time consumer. Nil means wall
-	// time (FrameTimer used standalone, e.g. in tests).
-	nowFn func() time.Time
-	mu    sync.Mutex
+	// paceNow is monotonic wall time. It must never be the logical engine
+	// clock because a fixed virtual epoch would make pacing deadlines stale.
+	paceNow func() time.Time
+	mu      sync.Mutex
 }
 
-// SetTimeSource installs the pacing time source. Called once by the runtime
-// constructor with the clock.
-func (t *FrameTimer) SetTimeSource(fn func() time.Time) {
+// SetPacingClock installs the monotonic wall clock used only for pacing.
+func (t *FrameTimer) SetPacingClock(fn func() time.Time) {
 	t.mu.Lock()
-	t.nowFn = fn
+	t.paceNow = fn
 	t.mu.Unlock()
 }
 
 func (t *FrameTimer) now() time.Time {
 	t.mu.Lock()
-	fn := t.nowFn
+	fn := t.paceNow
 	t.mu.Unlock()
 	if fn != nil {
 		return fn()
@@ -241,7 +241,7 @@ func (t *FrameTimer) Wait() time.Time {
 		return tick
 	}
 	next := last.Add(t.targetPeriod)
-	if delay := time.Until(next); delay > 0 {
+	if delay := next.Sub(t.now()); delay > 0 {
 		select {
 		case <-t.requestCh:
 		case frameTimeNanos := <-t.vsyncCh:

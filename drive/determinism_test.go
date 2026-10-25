@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/runtime"
 )
 
 // TestDeterminism_VirtualReplay is the NFR-6 proof: the same studio seed +
@@ -66,16 +67,12 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = themeCtx.Resolver
 	cfg.Drive = true
+	cfg.Clock = runtime.ClockConfig{InitialMode: runtime.ClockVirtual, EpochNS: 1_800_000_000_000_000_000}
 	h := testkit.NewHarness(t, cfg, root)
-	h.RunFrame() // settle the initial dirty-all frame
-
-	// Virtual mode through the protocol itself.
-	if _, perr := h.DriveCall(t, "time.mode", map[string]string{"mode": "virtual"}); perr != nil {
-		t.Fatalf("time.mode virtual: %v", perr)
-	}
+	h.RunFrame() // deterministic bootstrap transition at the configured epoch
 
 	hashes := make([]uint64, 0, advances*2)
-	framePeriod := map[string]any{"d": 0.016667}
+	framePeriod := map[string]string{"duration_ns": "16667000"}
 
 	for i := 0; i < advances; i++ {
 		// Deterministic input timeline: a pointer move every 61 advances
@@ -89,8 +86,8 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 			h.InjectEvent(testkit.PointerMove(320+float32(i%97), 200+float32(i%53)))
 		}
 
-		// One DriveCall carries the drain; drivePostFrame then executes the
-		// advance frame and replies — exactly one frame per advance.
+		// Each explicit token executes one frame and returns only after its
+		// ready surface acknowledgment.
 		if _, perr := h.DriveCall(t, "time.advance", framePeriod); perr != nil {
 			t.Fatalf("advance %d: %v", i, perr)
 		}

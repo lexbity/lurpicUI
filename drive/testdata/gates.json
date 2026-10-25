@@ -157,6 +157,51 @@
           "count": 1
         }
       ]
+    },
+    "S3": {
+      "tests": [
+        {
+          "package": "./runtime",
+          "tests": [
+            "TestDrive_TimeModeTransitionsOwnExactlyOneFrame",
+            "TestVirtualEntryTransitionFrameReady",
+            "TestRenderCreditDoesNotBlockControl",
+            "TestDrive_TimeModeRefusesMidGesture",
+            "TestDrive_TimeModeGrantDenied",
+            "TestDrive_AdvanceRequiresVirtual",
+            "TestDrive_AdvanceRejectsDurationBoundsAndOverflow",
+            "TestAdvanceExactlyOneLiveAndHeadless",
+            "TestParkedReadDoesNotRender",
+            "TestFramePlanBudgetAndThenReads",
+            "TestFramePlanGrantUnionAndBounds",
+            "TestFramePlanUntilQuiescentIsBounded",
+            "TestFramePlanTotalBudgetReportsProgress",
+            "TestPlanDisconnectStopsNextStep",
+            "TestVirtualJobCompletionOrderIndependent",
+            "TestClockDomainIsolation",
+            "TestRenderCreditWindowIsBoundedAndNonblocking"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./drive",
+          "tests": [
+            "TestDeterminism_VirtualReplay",
+            "TestDocsMatchRegistry"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./app",
+          "tests": [
+            "TestVirtualStartupRequiresDriveTimeGrant"
+          ],
+          "timeout": "2m",
+          "count": 1
+        }
+      ]
     }
   },
   "format_excludes": [

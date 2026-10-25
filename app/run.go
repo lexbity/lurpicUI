@@ -183,6 +183,14 @@ func Run(config Config, builder RootBuilder) error {
 	if err != nil {
 		return err
 	}
+	if config.Runtime.Clock.InitialMode == runtime.ClockVirtual && driveCfg.Enabled && !driveCfg.Grants.Time {
+		return errors.New("app: virtual startup requires the drive time grant")
+	}
+	preparedClock, err := runtime.PrepareClock(config.Runtime.Clock)
+	if err != nil {
+		return fmt.Errorf("app: engine clock: %w", err)
+	}
+	config.Runtime.PreparedClock = preparedClock
 
 	platformApp := config.PlatformApp
 	createdPlatformApp := false
@@ -298,6 +306,7 @@ func Run(config Config, builder RootBuilder) error {
 
 	root := builder(BuildContext{
 		FontRegistry: fontRegistry,
+		Clock:        preparedClock.View(),
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: contentScale,
 		Theme:        themeContext,

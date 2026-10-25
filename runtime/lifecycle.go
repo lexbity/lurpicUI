@@ -23,18 +23,48 @@ func (rt *Runtime) RunOneFrame() {
 // virtual clock is the only time authority (QP-5).
 func (rt *Runtime) RunOneFrameAt(now time.Time) {
 	_ = rt.start()
-	if rt.clock.Mode() == ClockVirtual {
-		now = rt.clock.Now()
-	}
-	// LDP cut (QP-6): drain drive commands at the boundary before the frame
-	// body begins — handlers (frame.run, time.advance) may run their own
-	// frames, which must never nest inside another frame's locks.
 	rt.driveDrain()
+	if rt.clock.Mode() == ClockVirtual {
+		if rt.bootstrapFramePending {
+			rt.runBootstrapFrame(true)
+			return
+		}
+		// Parked reads/control work consumes no app frame. Explicit frame
+		// tokens are consumed once, through the same scheduler as Run.
+		rt.runScheduledVirtualFrame(true)
+		return
+	}
+	if rt.drivePort != nil && len(rt.drivePort.frameTokens) != 0 {
+		rt.runScheduledVirtualFrame(true)
+		return
+	}
+	// RunOneFrameAt is the headless scheduler boundary: in Wall mode its
+	// caller supplies the engine instant for this frame. Run() selects the
+	// same instant from rt.clock.Now() after wall pacing.
 	rt.runFrame(now, true, false)
-	// Virtual-mode advances deferred by this frame's drain complete here:
-	// each pending advance runs exactly one full frame and then replies
-	// (QP-5: Advance returns after exactly one complete frame).
-	rt.drivePostFrame()
+	if rt.lastRenderCompletion.Frame == rt.frameNumber {
+		rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
+	}
+}
+
+func (rt *Runtime) runBootstrapFrame(waitForRender bool) bool {
+	if !rt.bootstrapFramePending {
+		return false
+	}
+	reserved := false
+	if !waitForRender && rt.renderPipeline != nil && rt.isSurfaceReady() {
+		reserved = rt.renderPipeline.TryReserveFrame()
+		if !reserved {
+			return false
+		}
+	}
+	rt.bootstrapFramePending = false
+	rt.bootstrapFrameAwaiting = true
+	rt.runFrame(rt.clock.Now(), waitForRender, reserved)
+	if waitForRender && rt.lastRenderCompletion.Frame == rt.frameNumber {
+		rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
+	}
+	return true
 }
 
 func (rt *Runtime) Run() error {
@@ -74,20 +104,28 @@ func (rt *Runtime) Run() error {
 			return nil
 		}
 		if rt.clock.Mode() == ClockVirtual {
-			// Virtual mode single-steps (QP-5): park until a drive command
-			// arrives (advance/mode/reads), execute it at the cut between
-			// frames, and never render on vsync.
+			// Virtual mode parks between explicit frame tokens. Control reads
+			// and render acknowledgments remain serviceable without a frame.
 			if !rt.virtualParkStep() {
 				return nil
 			}
 			continue
 		}
-		now := rt.frameTimer.Wait()
+		pacingNow := rt.frameTimer.Wait() // wall pacing only; the body reads engine time.
 		if runtimeTraceActive() {
-			runtimeTracef("Run loop got frame tick frame=%d now=%s", rt.frameNumber+1, now.Format(time.RFC3339Nano))
+			runtimeTracef("Run loop got frame tick frame=%d pace=%s", rt.frameNumber+1, pacingNow.Format(time.RFC3339Nano))
 		}
 		// LDP cut (QP-6): drain between frames, before this frame's body.
 		rt.driveDrain()
+		if rt.drivePort != nil && len(rt.drivePort.frameTokens) != 0 {
+			if !rt.runScheduledVirtualFrame(false) && rt.clock.Mode() == ClockVirtual {
+				continue
+			}
+			continue
+		}
+		if rt.clock.Mode() == ClockVirtual {
+			continue
+		}
 		reserved := false
 		if rt.renderPipeline != nil && rt.isSurfaceReady() {
 			reserved = rt.renderPipeline.TryReserveFrame()
@@ -97,28 +135,87 @@ func (rt *Runtime) Run() error {
 				continue
 			}
 		}
-		rt.runFrame(now, false, reserved)
-		rt.drivePostFrame()
+		rt.runFrame(rt.clock.Now(), false, reserved)
 	}
 }
 
 // virtualParkStep blocks until a drive command (or shutdown) wakes the
 // runtime, then drains the inbox at the cut between frames. It renders
 // nothing: in Virtual mode frames happen only inside time.advance (via
-// drivePostFrame). Returns false when shutdown was signaled.
+// top-level scheduler). Returns false when shutdown was signaled.
 func (rt *Runtime) virtualParkStep() bool {
 	var wake <-chan struct{}
 	if rt.drivePort != nil {
 		wake = rt.drivePort.wake
 	}
-	select {
-	case <-rt.shutdownCh:
-		return false
-	case <-wake:
+	for {
+		if rt.bootstrapFramePending {
+			if rt.runBootstrapFrame(false) {
+				return true
+			}
+		}
+		if rt.drivePort != nil && len(rt.drivePort.frameTokens) > 0 && rt.runScheduledVirtualFrame(false) {
+			return true
+		}
+		var completions <-chan RenderCompletion
+		if rt.renderPipeline != nil {
+			completions = rt.renderPipeline.Completions()
+		}
+		var jobWake <-chan struct{}
+		if rt.jobPool != nil {
+			jobWake = rt.jobPool.FrontierWake()
+		}
+		var leaseTimer *time.Timer
+		var leaseWake <-chan time.Time
+		if rt.drivePort != nil && rt.drivePort.timeOwnerSession == "" && !rt.drivePort.bootstrapTimeUntil.IsZero() {
+			delay := rt.drivePort.bootstrapTimeUntil.Sub(rt.clock.WallNow())
+			if delay < 0 {
+				delay = 0
+			}
+			leaseTimer = time.NewTimer(delay)
+			leaseWake = leaseTimer.C
+		}
+		select {
+		case <-rt.shutdownCh:
+			if leaseTimer != nil {
+				leaseTimer.Stop()
+			}
+			return false
+		case completion := <-completions:
+			if leaseTimer != nil {
+				leaseTimer.Stop()
+			}
+			rt.driveHandleRenderCompletion(completion)
+		case <-jobWake:
+			if leaseTimer != nil {
+				leaseTimer.Stop()
+			}
+			// Recheck the frozen frontier below; worker completion never
+			// commits app state outside phase 1.
+		case <-wake:
+			if leaseTimer != nil {
+				leaseTimer.Stop()
+			}
+			rt.driveDrain()
+		case <-leaseWake:
+			rt.drivePort.expireBootstrapLease()
+		}
+		if !rt.waitIfPausedOrStopped() {
+			return false
+		}
+		if rt.drivePort != nil && len(rt.drivePort.frameTokens) > 0 {
+			if rt.runScheduledVirtualFrame(false) {
+				return true
+			}
+			// Credit is returned by a render completion. Stay responsive to
+			// control and shutdown while waiting for it.
+			continue
+		}
+		if rt.clock.Mode() != ClockVirtual {
+			return true
+		}
+		// Control wakeups can be spurious/coalesced; with no work, park again.
 	}
-	rt.driveDrain()
-	rt.drivePostFrame()
-	return true
 }
 
 func (rt *Runtime) Shutdown() {
