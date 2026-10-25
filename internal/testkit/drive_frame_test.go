@@ -64,6 +64,5 @@ func newLocateHarnessNoFrame(t *testing.T) *DriveHarness {
 	save := newLocateProbe("probe-save", "action/button", "button", "Save", "")
 	root.AddChild(save.Base())
 	cfg := StandardHarnessConfig(t, 200, 120)
-	cfg.Drive = true
-	return &DriveHarness{Harness: NewHarness(t, cfg, root)}
+	return NewDriveHarnessWithConfig(t, cfg, root)
 }

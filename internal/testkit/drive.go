@@ -1,7 +1,15 @@
 package testkit
 
 import (
+	"encoding/json"
+	"errors"
+	"sync"
+	"testing"
+
+	"codeburg.org/lexbit/lurpicui/drive"
+	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/runtime"
 )
 
 // The runtime processes input events against the PREVIOUS frame's hit map
@@ -96,4 +104,84 @@ func DriveScroll(h *Harness, x, y, deltaX, deltaY float32) {
 	Warmup(h)
 	h.InjectEvent(Scroll(x, y, deltaX, deltaY))
 	h.RunFrame()
+}
+
+// harnessDriveClient is one Harness's sequential trusted session client.
+type harnessDriveClient struct {
+	mu   sync.Mutex
+	rt   *runtime.Runtime
+	sess *drive.Session
+	next uint64
+}
+
+var (
+	driveClientMu sync.Mutex
+	driveClients  = map[*runtime.Runtime]*harnessDriveClient{}
+)
+
+// DriveCall submits one drive method through the in-process port and runs
+// frames until the runtime thread replies at a cut. The trusted session
+// carries the full grant set; admission (ledger claim, grants, dispatch)
+// is the same runtime-thread path a socket command takes.
+func (h *Harness) DriveCall(t testing.TB, method string, params any) (json.RawMessage, *proto.Error) {
+	t.Helper()
+	driveClientMu.Lock()
+	c, ok := driveClients[h.rt]
+	driveClientMu.Unlock()
+	if !ok {
+		if h.driveSessions == nil {
+			t.Fatalf("testkit: drive not enabled on this harness")
+		}
+		sess, _, err := h.driveSessions.Create(drive.Grants{
+			Read: true, Input: true, Command: true, Time: true, Admin: true,
+		})
+		if err != nil {
+			t.Fatalf("testkit: drive session: %v", err)
+		}
+		c = &harnessDriveClient{rt: h.rt, sess: sess}
+		driveClientMu.Lock()
+		driveClients[h.rt] = c
+		driveClientMu.Unlock()
+	}
+	var raw json.RawMessage
+	if params != nil {
+		enc, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("marshal drive params: %v", err)
+		}
+		raw = enc
+	}
+	c.mu.Lock()
+	c.next++
+	id := c.next
+	cmd := drive.Command{
+		Session:    c.sess.ID,
+		Generation: c.sess.Generation(),
+		ID:         id,
+		Method:     method,
+		Params:     raw,
+		Grants:     c.sess.Grants,
+		Reply:      make(chan drive.Result, 1),
+	}
+	c.mu.Unlock()
+	if err := h.rt.DrivePort().Submit(cmd); err != nil {
+		t.Fatalf("testkit: submit drive %q: %v", method, err)
+	}
+	for i := 0; i < 256; i++ {
+		h.RunFrame()
+		select {
+		case res := <-cmd.Reply:
+			if res.Err == nil {
+				return res.Payload, nil
+			}
+			var perr *proto.Error
+			if !errors.As(res.Err, &perr) {
+				perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: res.Err.Error()}
+			}
+			return res.Payload, perr
+		default:
+		}
+	}
+	t.Fatalf("testkit: drive %q did not reply within 256 frames", method)
+	return nil, nil
 }

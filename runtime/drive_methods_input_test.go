@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -62,6 +62,7 @@ func newInputRuntime(t *testing.T, queue platform.EventQueue) (*Runtime, *inputP
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
+	testSessionTable(t, &cfg)
 	rt, err := New(cfg, &inputQueueApp{q: queue}, &testWindow{width: 200, height: 100}, &backendFixture{}, probe)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
@@ -71,30 +72,11 @@ func newInputRuntime(t *testing.T, queue platform.EventQueue) (*Runtime, *inputP
 	return rt, probe
 }
 
-// inputDriveCall runs one drive input verb to completion.
+// inputDriveCall runs one drive input verb to completion through the
+// trusted session client.
 func inputDriveCall(t *testing.T, rt *Runtime, method string, params any, grants drive.Grants) drive.Result {
 	t.Helper()
-	var raw json.RawMessage
-	if params != nil {
-		enc, err := json.Marshal(params)
-		if err != nil {
-			t.Fatalf("marshal: %v", err)
-		}
-		raw = enc
-	}
-	cmd := drive.Command{ID: 1, Method: method, Params: raw, Grants: grants, Reply: make(chan drive.Result, 1)}
-	rt.DriveSink().Enqueue(cmd)
-	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := 0; i < 256; i++ {
-		rt.RunOneFrameAt(epoch.Add(time.Duration(i) * time.Second))
-		select {
-		case res := <-cmd.Reply:
-			return res
-		default:
-		}
-	}
-	t.Fatalf("drive %q did not reply", method)
-	return drive.Result{}
+	return driveCall(t, rt, method, params, grants)
 }
 
 // recordQueue records enqueued events so tests observe the injection path.
@@ -222,65 +204,55 @@ func TestDriveInput_PreemptionByPlatformEvent(t *testing.T) {
 	}
 	rt, _ := newInputRuntime(t, q)
 
-	cmd := drive.Command{ID: 9, Method: "input.drag", Grants: allGrants(), Reply: make(chan drive.Result, 1)}
-	enc, err := json.Marshal(map[string]any{"from_x": 0, "from_y": 0, "to_x": 100, "to_y": 50, "steps": 40})
-	if err != nil {
-		t.Fatalf("marshal: %v", err)
-	}
-	cmd.Params = enc
-	rt.DriveSink().Enqueue(cmd)
-	epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	var res drive.Result
-	for i := 0; i < 256; i++ {
-		rt.RunOneFrameAt(epoch.Add(time.Duration(i) * time.Second))
-		select {
-		case res = <-cmd.Reply:
-		default:
+	{
+		var raw json.RawMessage
+		// A long drag leaves atoms pending when the human event severs it.
+		raw, err := json.Marshal(map[string]any{"from_x": 0, "from_y": 0, "to_x": 100, "to_y": 50, "steps": 40})
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
 		}
-		if res.Payload != nil || res.Err != nil {
-			break
+		client := testClientFor(t, rt)
+		client.next++
+		cmd := drive.Command{
+			Session:    client.sess.ID,
+			Generation: client.sess.Generation(),
+			ID:         client.next,
+			Method:     "input.drag",
+			Params:     raw,
+			Grants:     allGrants(),
+			Reply:      make(chan drive.Result, 1),
+		}
+		if err := rt.DrivePort().Submit(cmd); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
+		epoch := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+		for i := 0; i < 256; i++ {
+			rt.RunOneFrameAt(epoch.Add(time.Duration(i) * time.Second))
+			select {
+			case res = <-cmd.Reply:
+			default:
+			}
+			if res.Payload != nil || res.Err != nil {
+				break
+			}
 		}
 	}
-	if res.Err == nil || res.Err.Code != "input.preempted" {
+	if got := resultCode(res.Err); got != "input.preempted" {
 		t.Fatalf("result = %+v, want input.preempted", res.Err)
 	}
 	// Ownership returned to human.
 	if own := rt.inputOwnership.Get(); own.Owner != OwnerHuman {
 		t.Fatalf("ownership after preemption = %v", own.Owner)
 	}
-	// own.preempted fans out through the event consumer (P7: no interim
-	// buffer — the P5 one was deleted, no compat).
-	var preemptedPayloads []json.RawMessage
-	rt.driveSink.SetEventConsumer(func(class, store, testID string, params json.RawMessage) {
-		if class == "own.preempted" {
-			preemptedPayloads = append(preemptedPayloads, params)
-		}
-	})
-	// Re-run a short drag with the consumer attached: the platform event
-	// severs it and own.preempted fires.
+	// The runtime counters the preemption; the sub.* event fan-out and the
+	// own.preempted notification return with their native v2 slices.
 	q.EnqueueDrive(platform.EventPointer{
 		Kind: platform.PointerMove, Position: gfx.Point{X: 7, Y: 7}, Source: platform.SourcePlatform,
 	})
-	cmd2 := drive.Command{ID: 10, Method: "input.drag", Grants: allGrants(), Reply: make(chan drive.Result, 1)}
-	dragParams, merr := json.Marshal(map[string]any{"from_x": 0, "from_y": 0, "to_x": 100, "to_y": 50, "steps": 40})
-	if merr != nil {
-		t.Fatalf("marshal: %v", merr)
-	}
-	cmd2.Params = dragParams
-	rt.DriveSink().Enqueue(cmd2)
-	for i := 256; i < 512; i++ {
-		rt.RunOneFrameAt(epoch.Add(time.Duration(i) * time.Second))
-		select {
-		case res2 := <-cmd2.Reply:
-			if res2.Err == nil || res2.Err.Code != "input.preempted" {
-				t.Fatalf("second drag result = %+v, want input.preempted", res2.Err)
-			}
-			i = 1000
-		default:
-		}
-	}
-	if len(preemptedPayloads) == 0 {
-		t.Fatal("own.preempted must fan out through the event consumer")
+	res2 := driveCall(t, rt, "input.drag", map[string]any{"from_x": 0, "from_y": 0, "to_x": 100, "to_y": 50, "steps": 40}, allGrants())
+	if got := resultCode(res2.Err); got != "input.preempted" {
+		t.Fatalf("second drag result = %+v, want input.preempted", res2.Err)
 	}
 	// No drive pointer events survive in the pending set.
 	for _, ev := range rt.pendingEvents {
@@ -324,14 +296,14 @@ func TestDriveInput_GrantMatrix(t *testing.T) {
 		{"input.focus", map[string]any{"target": map[string]string{"testid": "probe"}}},
 	}
 	for _, v := range verbs {
-		res := inputDriveCall(t, rt, v.method, v.params, drive.Grants{Read: true, Write: true, Time: true})
-		if res.Err == nil || res.Err.Code != "grant.denied" {
+		res := inputDriveCall(t, rt, v.method, v.params, drive.Grants{Read: true, Command: true, Time: true})
+		if res.Err == nil || resultCode(res.Err) != "grant.denied" {
 			t.Errorf("%s without input grant = %+v, want grant.denied", v.method, res.Err)
 		}
 	}
 	// The read-only set works with just the input grant missing.
 	res := inputDriveCall(t, rt, "cmd.execute", map[string]any{"id": "nope"}, drive.Grants{Input: true})
-	if res.Err == nil || res.Err.Code != "grant.denied" {
+	if res.Err == nil || resultCode(res.Err) != "grant.denied" {
 		t.Fatalf("cmd.execute without write grant = %+v, want grant.denied", res.Err)
 	}
 }
@@ -340,8 +312,7 @@ func TestDriveInput_TypeRequiresIMEFocus(t *testing.T) {
 	q := &recordQueue{}
 	rt, _ := newInputRuntime(t, q)
 	// No focused mark at all: typed refusal.
-	if res := inputDriveCall(t, rt, "input.type", map[string]any{"text": "hi"}, allGrants()); res.Err == nil ||
-		!strings.Contains(res.Err.Detail, "focused text mark") {
+	if res := inputDriveCall(t, rt, "input.type", map[string]any{"text": "hi"}, allGrants()); resultCode(res.Err) == "" || !strings.Contains(errDetail(res.Err), "focused text mark") {
 		t.Fatalf("err = %+v", res.Err)
 	}
 }

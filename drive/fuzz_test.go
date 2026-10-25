@@ -6,14 +6,13 @@ import (
 	"testing"
 )
 
-// TestFuzzCorpusCommitted is the G10.5 corpus-maturity gate: all three LDP
+// TestFuzzCorpusCommitted is the G10.5 corpus-maturity gate: the live LDP
 // fuzz targets retain committed seeds so scheduled runs exercise requests,
 // locators, and subscription filters from their first iteration.
 func TestFuzzCorpusCommitted(t *testing.T) {
 	for _, target := range []string{
 		filepath.Join("proto", "testdata", "fuzz", "FuzzEnvelope"),
 		filepath.Join("locate", "testdata", "fuzz", "FuzzLocator"),
-		filepath.Join("server", "testdata", "fuzz", "FuzzFilter"),
 	} {
 		entries, err := os.ReadDir(target)
 		if err != nil {

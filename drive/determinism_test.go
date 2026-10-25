@@ -1,7 +1,6 @@
 package drive_test
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,8 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
-	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -73,13 +70,12 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 	h.RunFrame() // settle the initial dirty-all frame
 
 	// Virtual mode through the protocol itself.
-	if _, perr := driveCall(t, h, "time.mode", map[string]string{"mode": "virtual"}); perr != nil {
+	if _, perr := h.DriveCall(t, "time.mode", map[string]string{"mode": "virtual"}); perr != nil {
 		t.Fatalf("time.mode virtual: %v", perr)
 	}
 
 	hashes := make([]uint64, 0, advances*2)
-	framePeriod := json.RawMessage(`{"d":0.016667}`)
-	nextID := uint64(1)
+	framePeriod := map[string]any{"d": 0.016667}
 
 	for i := 0; i < advances; i++ {
 		// Deterministic input timeline: a pointer move every 61 advances
@@ -93,56 +89,14 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 			h.InjectEvent(testkit.PointerMove(320+float32(i%97), 200+float32(i%53)))
 		}
 
-		nextID++
-		cmd := drive.Command{
-			ID:     nextID,
-			Method: "time.advance",
-			Params: framePeriod,
-			Grants: drive.Grants{Time: true},
-			Reply:  make(chan drive.Result, 1),
-		}
-		h.Runtime().DriveSink().Enqueue(cmd)
-		// One harness frame carries the drain; drivePostFrame then executes
-		// the advance frame and replies.
-		h.RunFrame()
-		select {
-		case res := <-cmd.Reply:
-			if res.Err != nil {
-				t.Fatalf("advance %d: %v", i, res.Err)
-			}
-		default:
-			t.Fatalf("advance %d did not reply after its frame", i)
+		// One DriveCall carries the drain; drivePostFrame then executes the
+		// advance frame and replies — exactly one frame per advance.
+		if _, perr := h.DriveCall(t, "time.advance", framePeriod); perr != nil {
+			t.Fatalf("advance %d: %v", i, perr)
 		}
 		hashes = append(hashes, h.Runtime().FramePacketHash())
 	}
 	return hashes
-}
-
-// driveCall runs one drive command to completion through the in-process sink.
-func driveCall(t *testing.T, h *testkit.Harness, method string, params any) (json.RawMessage, *proto.Error) {
-	t.Helper()
-	raw, err := json.Marshal(params)
-	if err != nil {
-		t.Fatalf("marshal params: %v", err)
-	}
-	cmd := drive.Command{
-		ID:     1,
-		Method: method,
-		Params: raw,
-		Grants: drive.Grants{Time: true, Read: true},
-		Reply:  make(chan drive.Result, 1),
-	}
-	h.Runtime().DriveSink().Enqueue(cmd)
-	for i := 0; i < 128; i++ {
-		h.RunFrame()
-		select {
-		case res := <-cmd.Reply:
-			return res.Payload, res.Err
-		default:
-		}
-	}
-	t.Fatalf("drive %q did not reply", method)
-	return nil, nil
 }
 
 // loadDeterminismSeed reads the studio's committed metrics snapshot — the

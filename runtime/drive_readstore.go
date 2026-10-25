@@ -7,10 +7,10 @@ import (
 	"image"
 	"image/png"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/locate"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/drive/readstore"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -72,12 +72,12 @@ func (t storeTarget) resolve(rt *Runtime) (any, string, *proto.Error) {
 		}
 		s, err := readstore.FieldStore(m.Impl, t.Field)
 		if err != nil {
-			return nil, "", &proto.Error{Code: proto.ErrInternal, Detail: err.Error()}
+			return nil, "", &proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()}
 		}
 		return s, m.Path + "." + t.Field, nil
 	default:
 		return nil, "", &proto.Error{
-			Code:   proto.ErrInternal,
+			Code:   proto.ErrInternalPanic,
 			Detail: `store address requires "name" or both "target" and "field"`,
 		}
 	}
@@ -118,9 +118,9 @@ func driveStoreList(rt *Runtime, _ drive.Command) driveOutcome {
 	}
 	payload, err := json.Marshal(map[string]any{"stores": out})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }
 
 // driveStoreRead implements store.read (grant read, cut-exact): the store's
@@ -129,16 +129,16 @@ func driveStoreRead(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p storeTarget
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "store.read params: " + err.Error()}, rt.driveSink.Epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "store.read params: " + err.Error()})
 		}
 	}
 	s, label, perr := p.resolve(rt)
 	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
+		return errorOutcome(perr)
 	}
 	value, err := readstore.ReadValue(s)
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
 	payload, err := json.Marshal(map[string]any{
 		"address": label,
@@ -146,9 +146,9 @@ func driveStoreRead(rt *Runtime, cmd drive.Command) driveOutcome {
 		"version": storeVersionOf(s),
 	})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }
 
 // storeVersionOf reads a store's version through its canonical method
@@ -160,64 +160,22 @@ func storeVersionOf(s any) uint64 {
 	return 0
 }
 
-// storeWriteParams is the store.write payload.
-type storeWriteParams struct {
-	storeTarget
-	Value json.RawMessage `json:"value,omitempty"`
-}
-
-// driveStoreWrite implements store.write (grant write, QP-12): the
-// debugging tool of last resort. Responses carry bypassed_app_invariants
-// and the write lands in the drive frame log; the preferred mutation paths
-// are input.* and cmd.execute.
-func driveStoreWrite(rt *Runtime, cmd drive.Command) driveOutcome {
-	var p storeWriteParams
-	if len(cmd.Params) > 0 {
-		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "store.write params: " + err.Error()}, rt.driveSink.Epoch())
-		}
-	}
-	s, label, perr := p.resolve(rt)
-	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
-	}
-	switch readstore.Kind(s) {
-	case "collection":
-		if err := readstore.WriteCollection(s, p.Value); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
-		}
-	default:
-		if err := readstore.WriteValue(s, p.Value); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
-		}
-	}
-	rt.driveSink.recordWrite(label)
-	payload, err := json.Marshal(map[string]any{
-		"address":                 label,
-		"bypassed_app_invariants": true,
-	})
-	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
-	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
-}
-
 // driveDerivedRead implements derived.read (grant read, QP-9): Peek only —
 // an observation must not perturb the observed frame.
 func driveDerivedRead(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p storeTarget
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "derived.read params: " + err.Error()}, rt.driveSink.Epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "derived.read params: " + err.Error()})
 		}
 	}
 	s, label, perr := p.resolve(rt)
 	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
+		return errorOutcome(perr)
 	}
 	value, dirty, err := readstore.ReadDerivedPeek(s)
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
 	payload, err := json.Marshal(map[string]any{
 		"address": label,
@@ -225,9 +183,9 @@ func driveDerivedRead(rt *Runtime, cmd drive.Command) driveOutcome {
 		"dirty":   dirty,
 	})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }
 
 // facetQueryParams is the facet.query payload.
@@ -244,12 +202,12 @@ func driveFacetQuery(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p facetQueryParams
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "facet.query params: " + err.Error()}, rt.driveSink.Epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "facet.query params: " + err.Error()})
 		}
 	}
 	m, _, lerr := locate.Resolve(rt.root, p.Target, rt.driveDescribe, rt.driveHitTest)
 	if lerr != nil {
-		return errorOutcome(driveLocateError(lerr), rt.driveSink.Epoch())
+		return errorOutcome(driveLocateError(lerr))
 	}
 	out := map[string]any{
 		"path":     m.Path,
@@ -294,9 +252,9 @@ func driveFacetQuery(rt *Runtime, cmd drive.Command) driveOutcome {
 	}
 	payload, err := json.Marshal(out)
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }
 
 // driveFramePixels implements frame.pixels (grant read, FR-13): PNG bytes of
@@ -308,20 +266,20 @@ func driveFramePixels(rt *Runtime, _ drive.Command) driveOutcome {
 	surface := rt.softwareSurface()
 	if surface == nil {
 		return errorOutcome(&proto.Error{
-			Code: proto.ErrInternal,
+			Code: proto.ErrInternalPanic,
 			Detail: "frame.pixels requires a software surface " +
 				"(vulkan readback lands with render/equivalence, tolerance psnr>=40db)",
-		}, rt.driveSink.Epoch())
+		})
 	}
 	if err := surface.Lock(); err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "surface lock: " + err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: "surface lock: " + err.Error()})
 	}
 	w, h := surface.Size()
 	img := imageFromBuffer(surface.Buffer(), surface.Stride(), w, h)
 	_ = surface.Unlock(nil)
 	var out bytes.Buffer
 	if err := png.Encode(&out, img); err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "png encode: " + err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: "png encode: " + err.Error()})
 	}
 	payload, err := json.Marshal(map[string]any{
 		"png":    pngDataURL(out.Bytes()),
@@ -329,9 +287,9 @@ func driveFramePixels(rt *Runtime, _ drive.Command) driveOutcome {
 		"height": h,
 	})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }
 
 // driveFramePacket implements frame.packet (grant read): the last submitted
@@ -340,19 +298,19 @@ func driveFramePacket(rt *Runtime, _ drive.Command) driveOutcome {
 	frame := rt.LastPrimaryFrame()
 	if frame == nil {
 		return errorOutcome(&proto.Error{
-			Code:   proto.ErrInternal,
+			Code:   proto.ErrInternalPanic,
 			Detail: "no frame submitted yet",
-		}, rt.driveSink.Epoch())
+		})
 	}
 	payload, err := json.Marshal(map[string]any{
-		"epoch":   rt.driveSink.Epoch(),
+		"epoch":   rt.drivePort.Epoch(),
 		"hash":    rt.FramePacketHash(),
 		"batches": len(frame.RenderBatchs),
 	})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }
 
 // softwareSurface returns the render target when it is a software surface

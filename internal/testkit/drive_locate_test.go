@@ -82,10 +82,9 @@ func newLocateHarness(t *testing.T) *DriveHarness {
 	root.AddChild(row.Base())
 
 	cfg := StandardHarnessConfig(t, 200, 120)
-	cfg.Drive = true
-	h := NewHarness(t, cfg, root)
+	h := NewDriveHarnessWithConfig(t, cfg, root)
 	h.RunFrame()
-	return &DriveHarness{Harness: h}
+	return h
 }
 
 func TestDriveLocate_ResolveByTestID(t *testing.T) {

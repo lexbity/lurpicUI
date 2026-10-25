@@ -99,8 +99,8 @@ func (rt *Runtime) Run() error {
 // drivePostFrame). Returns false when shutdown was signaled.
 func (rt *Runtime) virtualParkStep() bool {
 	var wake <-chan struct{}
-	if rt.driveSink != nil {
-		wake = rt.driveSink.wake
+	if rt.drivePort != nil {
+		wake = rt.drivePort.wake
 	}
 	select {
 	case <-rt.shutdownCh:

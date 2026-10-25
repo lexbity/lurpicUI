@@ -53,9 +53,9 @@ func TestEveryMutatingVerbHasATwin(t *testing.T) {
 func TestRegistrySyncWithRuntimeTable(t *testing.T) {
 	fix := newButtonFixture(t)
 	rt := fix.Harness.Runtime()
-	driveSink := rt.DriveSink()
-	if driveSink == nil {
-		t.Fatal("drive sink not installed")
+	drivePort := rt.DrivePort()
+	if drivePort == nil {
+		t.Fatal("drive port not installed")
 	}
 
 	// The runtime's method list arrives via sys.info.
@@ -67,25 +67,35 @@ func TestRegistrySyncWithRuntimeTable(t *testing.T) {
 		t.Fatalf("sys.info payload: %v", err)
 	}
 
-	runtimeMethods := map[string]bool{}
-	for _, m := range info.Methods {
-		runtimeMethods[m] = true
+	// sys.info reports the advertised wire surface; it must equal the
+	// registry's advertised set exactly (D12: no unported method is on the
+	// air). The trusted seam surface is a subset of the full registry.
+	advertised := map[string]bool{}
+	for _, m := range proto.AdvertisedMethodNames() {
+		advertised[m] = true
 	}
-	registryMethods := map[string]bool{}
+	if len(info.Methods) != len(advertised) {
+		t.Fatalf("sys.info methods = %d, advertised registry = %d", len(info.Methods), len(advertised))
+	}
+	for _, m := range info.Methods {
+		if !advertised[m] {
+			t.Errorf("sys.info method %q is not in the advertised registry", m)
+		}
+	}
+	var trusted struct {
+		Methods []string `json:"trusted_methods"`
+	}
+	if err := json.Unmarshal(payload, &trusted); err != nil {
+		t.Fatalf("sys.info trusted_methods: %v", err)
+	}
+	registryAll := map[string]bool{}
 	for _, spec := range proto.Registry {
-		registryMethods[spec.Name] = true
+		registryAll[spec.Name] = true
 	}
-	// sys.info derives its list from proto.Registry, so the reported methods
-	// must equal the registry exactly.
-	for _, m := range info.Methods {
-		if !registryMethods[m] {
-			t.Errorf("runtime method %q is not in proto.Registry", m)
-		}
-		registryMethods[m] = false
-	}
-	for m := range registryMethods {
-		if registryMethods[m] {
-			t.Errorf("registry method %q is not reported by sys.info", m)
+	for _, m := range trusted.Methods {
+		if !registryAll[m] {
+			t.Errorf("trusted runtime method %q is not in proto.Registry", m)
 		}
 	}
+
 }

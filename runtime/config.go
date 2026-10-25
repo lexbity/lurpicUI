@@ -2,9 +2,10 @@ package runtime
 
 import (
 	goruntime "runtime"
-
 	"sync"
 	"time"
+
+	"codeburg.org/lexbit/lurpicui/drive"
 
 	"codeburg.org/lexbit/lurpicui/icon"
 
@@ -111,6 +112,11 @@ type Config struct {
 // only owns execution-at-a-cut.
 type DriveRuntimeConfig struct {
 	Enabled bool
+	// Sessions is the instance session table; the runtime admits commands
+	// through its ledgers. Required when Enabled.
+	Sessions *drive.SessionTable
+	// Stats is the shared drive counter set; a private one when nil.
+	Stats *drive.Stats
 }
 
 // DefaultConfig returns a valid runtime configuration.

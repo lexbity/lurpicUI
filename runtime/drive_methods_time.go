@@ -2,10 +2,11 @@ package runtime
 
 import (
 	"encoding/json"
+	"errors"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 )
 
 // timeModeParams is the time.mode payload.
@@ -16,11 +17,10 @@ type timeModeParams struct {
 // driveTimeMode implements time.mode (FR-5): switches Wall↔Virtual with the
 // `time` grant and the mid-gesture guard (QP-5).
 func driveTimeMode(rt *Runtime, cmd drive.Command) driveOutcome {
-	epoch := func() uint64 { return rt.driveSink.Epoch() }
 	var p timeModeParams
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "time.mode params: " + err.Error()}, epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "time.mode params: " + err.Error()})
 		}
 	}
 	switch p.Mode {
@@ -28,19 +28,19 @@ func driveTimeMode(rt *Runtime, cmd drive.Command) driveOutcome {
 		rt.clock.SetWall()
 	case "virtual":
 		if err := rt.clock.SetVirtual(); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrTimeMode, Detail: err.Error()}, epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrTimeMode, Detail: err.Error()})
 		}
 	default:
 		return errorOutcome(&proto.Error{
-			Code:   proto.ErrInternal,
+			Code:   proto.ErrInvalidParams,
 			Detail: `time.mode mode must be "wall" or "virtual"`,
-		}, epoch())
+		})
 	}
 	payload, err := json.Marshal(map[string]string{"mode": p.Mode})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, epoch())
+	return payloadOutcome(payload)
 }
 
 // timeAdvanceParams is the time.advance payload.
@@ -51,27 +51,22 @@ type timeAdvanceParams struct {
 // driveTimeAdvance implements time.advance (FR-5): defers the reply to after
 // exactly one complete frame has executed on the advanced clock (QP-5).
 func driveTimeAdvance(rt *Runtime, cmd drive.Command) driveOutcome {
-	epoch := func() uint64 { return rt.driveSink.Epoch() }
 	if rt.clock.Mode() != ClockVirtual {
 		return errorOutcome(&proto.Error{
 			Code:   proto.ErrTimeMode,
 			Detail: "time.advance requires virtual mode (call time.mode first)",
-		}, epoch())
+		})
 	}
 	var p timeAdvanceParams
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "time.advance params: " + err.Error()}, epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "time.advance params: " + err.Error()})
 		}
 	}
 	if p.D <= 0 {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "time.advance d must be > 0"}, epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "time.advance d must be > 0"})
 	}
-	rt.driveSink.pendingAdvances = append(rt.driveSink.pendingAdvances, pendingAdvance{
-		d:   time.Duration(p.D * float64(time.Second)),
-		cmd: cmd,
-	})
-	return driveOutcome{deferred: true}
+	return deferredAdvance(durationSeconds(p.D))
 }
 
 // frameRunStep is one step (or then-read) of a frame transaction (§3.5).
@@ -114,69 +109,68 @@ type frameRunErrorPayload struct {
 // mode only — Wall mode's cuts are vsync-driven and cannot be stepped
 // synchronously.
 func driveFrameRun(rt *Runtime, cmd drive.Command) driveOutcome {
-	epoch := func() uint64 { return rt.driveSink.Epoch() }
 	if rt.clock.Mode() != ClockVirtual {
 		return errorOutcome(&proto.Error{
 			Code:   proto.ErrTimeMode,
 			Detail: "frame.run requires virtual mode (call time.mode first)",
-		}, epoch())
+		})
 	}
 	var p frameRunParams
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "frame.run params: " + err.Error()}, epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "frame.run params: " + err.Error()})
 		}
 	}
 	if p.Advance != nil {
 		if p.Advance.Frames != nil && p.Advance.Until != nil {
 			return errorOutcome(&proto.Error{
-				Code:   proto.ErrInternal,
+				Code:   proto.ErrInvalidParams,
 				Detail: "frame.run advance: frames and until are mutually exclusive",
-			}, epoch())
+			})
 		}
 		if p.Advance.Until != nil {
 			if p.Advance.Until.Max <= 0 {
 				return errorOutcome(&proto.Error{
-					Code:   proto.ErrInternal,
+					Code:   proto.ErrInvalidParams,
 					Detail: "frame.run advance.until requires a positive max",
-				}, epoch())
+				})
 			}
 			if p.Advance.Until.Quiescent != nil && p.Advance.Until.Quiescent.Frames <= 0 {
 				return errorOutcome(&proto.Error{
-					Code:   proto.ErrInternal,
+					Code:   proto.ErrInvalidParams,
 					Detail: "frame.run advance.until.quiescent requires a positive frames count",
-				}, epoch())
+				})
 			}
 			if p.Advance.Until.Quiescent == nil && !p.Advance.Until.JobsDrained {
 				return errorOutcome(&proto.Error{
-					Code:   proto.ErrInternal,
+					Code:   proto.ErrInvalidParams,
 					Detail: "frame.run advance.until requires at least one predicate",
-				}, epoch())
+				})
 			}
 		}
 		if p.Advance.Frames != nil && *p.Advance.Frames < 0 {
 			return errorOutcome(&proto.Error{
-				Code:   proto.ErrInternal,
+				Code:   proto.ErrInvalidParams,
 				Detail: "frame.run advance.frames must be >= 0",
-			}, epoch())
+			})
 		}
 	}
 
 	// Validate every step's method and grant before executing anything:
 	// grant denials must not half-apply a transaction (FR-3).
 	for _, step := range append(append([]frameRunStep{}, p.Steps...), p.Then...) {
-		grant, known := drive.MethodGrant(step.Method)
+		grant, known := proto.MethodGrant(step.Method)
 		if !known {
 			return errorOutcome(&proto.Error{
-				Code:   proto.ErrInternal,
+				Code:   proto.ErrInvalidParams,
 				Detail: "unknown method in frame.run: " + step.Method,
-			}, epoch())
+			})
 		}
 		if grant != "" && !cmd.Grants.Allows(grant) {
 			return errorOutcome(&proto.Error{
 				Code:   proto.ErrGrant,
 				Detail: grant + " (frame.run step " + step.Method + ")",
-			}, epoch())
+			})
 		}
 	}
 
@@ -214,7 +208,7 @@ func driveFrameRun(rt *Runtime, cmd drive.Command) driveOutcome {
 					Code: proto.ErrTimeMode,
 					Detail: jsonDetail("advance budget exhausted before the idle predicate was satisfied",
 						applied, framesRun),
-				}, epoch())
+				})
 			}
 		}
 	}
@@ -234,9 +228,9 @@ func driveFrameRun(rt *Runtime, cmd drive.Command) driveOutcome {
 		"then":    thenResults,
 	})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.frameNumber)
+	return payloadOutcome(payload)
 }
 
 // driveExecStep executes one frame.run step at the current cut and returns
@@ -248,22 +242,22 @@ func (rt *Runtime) driveExecStep(cmd drive.Command, step frameRunStep) (json.Raw
 		var p timeAdvanceParams
 		if len(step.Params) > 0 {
 			if err := json.Unmarshal(step.Params, &p); err != nil || p.D <= 0 {
-				return nil, &proto.Error{Code: proto.ErrInternal, Detail: "time.advance step params invalid"}
+				return nil, &proto.Error{Code: proto.ErrInvalidParams, Detail: "time.advance step params invalid"}
 			}
 		} else {
-			return nil, &proto.Error{Code: proto.ErrInternal, Detail: "time.advance step requires d"}
+			return nil, &proto.Error{Code: proto.ErrInvalidParams, Detail: "time.advance step requires d"}
 		}
 		now := rt.clock.Advance(time.Duration(p.D * float64(time.Second)))
 		rt.runFrame(now, true)
 		payload, err := json.Marshal(map[string]uint64{"frame": rt.frameNumber})
 		if err != nil {
-			return nil, &proto.Error{Code: proto.ErrInternal, Detail: err.Error()}
+			return nil, &proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()}
 		}
 		return payload, nil
 	}
 	handler, ok := driveMethods[step.Method]
 	if !ok {
-		return nil, &proto.Error{Code: proto.ErrInternal, Detail: "unknown method: " + step.Method}
+		return nil, &proto.Error{Code: proto.ErrInvalidParams, Detail: "unknown method: " + step.Method}
 	}
 	out := handler(rt, drive.Command{
 		ID:     cmd.ID,
@@ -273,10 +267,14 @@ func (rt *Runtime) driveExecStep(cmd drive.Command, step frameRunStep) (json.Raw
 		Reply:  make(chan drive.Result, 1),
 	})
 	if out.deferred {
-		return nil, &proto.Error{Code: proto.ErrInternal, Detail: "method cannot be deferred inside frame.run"}
+		return nil, &proto.Error{Code: proto.ErrInvalidParams, Detail: "method cannot be deferred inside frame.run"}
 	}
 	if out.result.Err != nil {
-		return nil, out.result.Err
+		var perr *proto.Error
+		if !errors.As(out.result.Err, &perr) {
+			perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: out.result.Err.Error()}
+		}
+		return nil, perr
 	}
 	return out.result.Payload, nil
 }
@@ -323,9 +321,9 @@ func frameRunAbort(rt *Runtime, applied, framesRun int, perr *proto.Error) drive
 		Detail:  perr.Detail,
 	})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return errorOutcome(&proto.Error{Code: perr.Code, Detail: string(payload)}, rt.driveSink.Epoch())
+	return errorOutcome(&proto.Error{Code: perr.Code, Detail: string(payload)})
 }
 
 func jsonDetail(msg string, applied, frames int) string {

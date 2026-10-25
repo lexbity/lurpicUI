@@ -45,6 +45,7 @@ func TestDriveInputType_IMEFidelity(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
+	testSessionTable(t, &cfg)
 	rt, err := New(cfg, &inputQueueApp{q: q}, &testWindow{width: 200, height: 100}, &backendFixture{}, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)

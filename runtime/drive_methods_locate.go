@@ -3,9 +3,9 @@ package runtime
 import (
 	"encoding/json"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/locate"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 )
@@ -34,12 +34,12 @@ func driveLocateResolve(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p locateResolveParams
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "locate.resolve params: " + err.Error()}, rt.driveSink.Epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: "locate.resolve params: " + err.Error()})
 		}
 	}
 	m, _, lerr := locate.Resolve(rt.root, p.Locator, rt.driveDescribe, rt.driveHitTest)
 	if lerr != nil {
-		return errorOutcome(driveLocateError(lerr), rt.driveSink.Epoch())
+		return errorOutcome(driveLocateError(lerr))
 	}
 	payload, err := json.Marshal(map[string]any{
 		"path":     m.Path,
@@ -47,9 +47,9 @@ func driveLocateResolve(rt *Runtime, cmd drive.Command) driveOutcome {
 		"facet_id": uint64(m.Base.ID()),
 	})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }
 
 // driveDescribe adapts a facet implementation to the locator's metadata
@@ -109,14 +109,14 @@ func driveTreeDump(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p treeDumpParams
 	if len(cmd.Params) > 0 {
 		if err := json.Unmarshal(cmd.Params, &p); err != nil {
-			return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "tree.dump params: " + err.Error()}, rt.driveSink.Epoch())
+			return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: "tree.dump params: " + err.Error()})
 		}
 	}
 	root := rt.root
 	if p.From != nil {
 		m, _, lerr := locate.Resolve(rt.root, *p.From, rt.driveDescribe, rt.driveHitTest)
 		if lerr != nil {
-			return errorOutcome(driveLocateError(lerr), rt.driveSink.Epoch())
+			return errorOutcome(driveLocateError(lerr))
 		}
 		root = m.Impl
 	}
@@ -174,7 +174,7 @@ func driveTreeDump(rt *Runtime, cmd drive.Command) driveOutcome {
 	}
 	payload, err := json.Marshal(map[string]any{"nodes": out})
 	if err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
 	}
-	return payloadOutcome(payload, rt.driveSink.Epoch())
+	return payloadOutcome(payload)
 }

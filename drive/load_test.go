@@ -5,64 +5,84 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
+	server "codeburg.org/lexbit/lurpicui/drive/server"
 )
 
-// loadSink answers every command at the cut with a per-command frame epoch.
-type loadSink struct {
+// loadPort is a synchronous fake runtime port: it answers each submitted
+// ping from the submitting goroutine, standing in for the runtime thread.
+type loadPort struct {
 	mu    sync.Mutex
-	epoch uint64
+	count int
 }
 
-func (s *loadSink) Enqueue(cmd drive.Command) {
-	s.mu.Lock()
-	s.epoch++
-	frame := s.epoch
-	s.mu.Unlock()
-	payload, merr := json.Marshal(map[string]uint64{"frame": frame})
-	if merr != nil { // cannot fail for this payload; keep the sink total
-		payload = json.RawMessage(`{"frame":0}`)
+func (p *loadPort) Submit(cmd drive.Command) error {
+	if cmd.Reply == nil {
+		panic("loadPort: command without a reply channel")
 	}
-	cmd.Reply <- drive.Result{Payload: payload, Frame: frame}
+	p.mu.Lock()
+	p.count++
+	frame := uint64(p.count)
+	p.mu.Unlock()
+	payload, merr := json.Marshal(map[string]any{"pong": true, "cut": strconv.FormatUint(frame, 10), "frame": strconv.FormatUint(frame, 10)})
+	if merr != nil { // cannot fail for this payload; keep the port total
+		payload = json.RawMessage(`{"pong":true,"cut":"0","frame":"0"}`)
+	}
+	cmd.Reply <- drive.Result{Payload: payload, Cut: strconv.FormatUint(frame, 10), Frame: strconv.FormatUint(frame, 10)}
+	return nil
 }
 
-func (s *loadSink) Epoch() uint64 {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.epoch
+func (p *loadPort) SignalControl(drive.ControlSignal) {}
+func (p *loadPort) Observe() drive.PublishedSnapshot  { return drive.PublishedSnapshot{} }
+func (p *loadPort) handled() int {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.count
 }
 
-// TestLoadTenClients is the G10.4 load gate: 10 concurrent clients, mixed
-// verbs, budget-gated. Every reply must be well-formed and carry a
-// monotonically increasing frame within its client.
-func TestLoadTenClients(t *testing.T) {
-	dir := t.TempDir()
-	socket := filepath.Join(dir, "drive.sock")
+// startLoadServer binds a v2 server against the fake port with a live
+// session table.
+func startLoadServer(t *testing.T) (*server.Server, *loadPort, string, string) {
+	t.Helper()
+	dir, err := os.MkdirTemp("", "ldp") // 0700, short (unix path bound)
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket := filepath.Join(dir, "d.sock")
 	token := strings.Repeat("ab", 32)
-	sink := &loadSink{}
-	srv, err := drive.Listen(drive.Config{
+	inst, err := drive.NewInstance()
+	if err != nil {
+		t.Fatalf("instance: %v", err)
+	}
+	port := &loadPort{}
+	srv, err := server.Listen(server.Config{
 		SocketPath: socket,
 		Token:      token,
-		Grants:     drive.Grants{Read: true, Write: true, Input: true, Time: true, Admin: true},
-		Sink:       sink,
+		Grants:     drive.Grants{Read: true, Input: true, Command: true, Time: true, Admin: true},
+		Sessions:   drive.NewSessionTable(inst),
+		Port:       port,
 	})
 	if err != nil {
 		t.Fatalf("listen: %v", err)
 	}
-	defer srv.Close()
+	t.Cleanup(func() { _ = srv.Close() })
+	return srv, port, socket, token
+}
 
-	// Surface the server-side panic counter in the failure output: a broken
-	// pipe on every client means a connection goroutine panicked.
-	t.Cleanup(func() {
-		d, s, g, p := srv.StatsSnapshot()
-		t.Logf("drive stats: drained=%d sent=%d grantDenied=%d panics=%d", d, s, g, p)
-	})
+// TestLoadTenClients is the load gate: 10 concurrent authenticated
+// clients, contiguous session IDs, mixed ping volume. Every reply must be
+// well-formed and carry a monotonically non-decreasing frame attribution.
+func TestLoadTenClients(t *testing.T) {
+	srv, port, socket, token := startLoadServer(t)
 
 	const clients = 10
 	const perClient = 50
@@ -80,71 +100,89 @@ func TestLoadTenClients(t *testing.T) {
 			}
 			defer nc.Close()
 			rw := bufio.NewReadWriter(bufio.NewReader(nc), bufio.NewWriter(nc))
-			next := uint64(0)
-			// params is pre-encoded JSON (json.RawMessage): marshaling any
-			// here would double-encode []byte params as base64 strings.
-			call := func(method string, params json.RawMessage) (proto.Response, error) {
-				next++
-				req, err := json.Marshal(proto.Request{V: proto.ProtocolMajor, ID: next, Method: method, Params: params})
-				if err != nil {
-					return proto.Response{}, err
-				}
-				if _, err := rw.Write(append(req, '\n')); err != nil {
-					return proto.Response{}, err
-				}
-				if err := rw.Flush(); err != nil {
-					return proto.Response{}, err
-				}
-				line, err := rw.ReadString('\n')
-				if err != nil {
-					return proto.Response{}, err
-				}
-				var res proto.Response
-				if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &res); err != nil {
-					return proto.Response{}, err
-				}
-				return res, nil
-			}
-			// Handshake.
-			helloParams, err := json.Marshal(map[string]string{"token": token})
+			// Handshake: create a session under the launcher's grants.
+			hello, err := json.Marshal(proto.Request{
+				V:      proto.ProtocolMajor,
+				ID:     "1",
+				Method: "sys.hello",
+				Params: json.RawMessage(fmt.Sprintf(`{"token":%q,"client_name":"load","create_session":true}`, token)),
+			})
 			if err != nil {
 				errCh <- fmt.Errorf("client %d marshal hello: %w", client, err)
 				return
 			}
-			if _, err := call("sys.hello", helloParams); err != nil {
-				errCh <- fmt.Errorf("client %d hello: %w", client, err)
+			if _, err := rw.Write(append(hello, '\n')); err != nil {
+				errCh <- fmt.Errorf("client %d hello write: %w", client, err)
 				return
 			}
-			// Mixed verbs, ordered per client.
+			if err := rw.Flush(); err != nil {
+				errCh <- fmt.Errorf("client %d hello flush: %w", client, err)
+				return
+			}
+			line, err := rw.ReadString('\n')
+			if err != nil {
+				errCh <- fmt.Errorf("client %d hello read: %w", client, err)
+				return
+			}
+			hres, err := proto.DecodeResponse([]byte(strings.TrimRight(line, "\n")))
+			if err != nil || !hres.OK {
+				errCh <- fmt.Errorf("client %d hello: %w (%s)", client, err, hres.Error.Error())
+				return
+			}
+			var hr struct {
+				SessionID string `json:"session_id"`
+			}
+			if err := json.Unmarshal(hres.Result, &hr); err != nil {
+				errCh <- fmt.Errorf("client %d hello payload: %w", client, err)
+				return
+			}
+			// Mixed ping volume, contiguous IDs, ordered per client. Across
+			// sessions there is no promised request order; each client's
+			// frames are non-decreasing as its requests execute in order.
 			var lastFrame uint64
 			for i := 0; i < perClient; i++ {
-				var res proto.Response
-				switch i % 3 {
-				case 0:
-					res, err = call("sys.ping", nil)
-				case 1:
-					clickParams, merr := json.Marshal(map[string]float32{"x": float32(i), "y": float32(client)})
-					if merr != nil {
-						errCh <- fmt.Errorf("client %d marshal click: %w", client, merr)
-						return
-					}
-					res, err = call("input.click", clickParams)
-				default:
-					res, err = call("store.read", json.RawMessage(`{"name":"store"}`))
-				}
+				id := strconv.FormatUint(uint64(i+2), 10)
+				req, err := json.Marshal(proto.Request{
+					V: proto.ProtocolMajor, ID: id, Method: "sys.ping",
+					Params: json.RawMessage(`{}`),
+				})
 				if err != nil {
-					errCh <- fmt.Errorf("client %d call %d: %w", client, i, err)
+					errCh <- fmt.Errorf("client %d marshal ping: %w", client, err)
+					return
+				}
+				if _, err := rw.Write(append(req, '\n')); err != nil {
+					errCh <- fmt.Errorf("client %d write %d: %w", client, i, err)
+					return
+				}
+				if err := rw.Flush(); err != nil {
+					errCh <- fmt.Errorf("client %d flush %d: %w", client, i, err)
+					return
+				}
+				line, err := rw.ReadString('\n')
+				if err != nil {
+					errCh <- fmt.Errorf("client %d read %d: %w", client, i, err)
+					return
+				}
+				res, err := proto.DecodeResponse([]byte(strings.TrimRight(line, "\n")))
+				if err != nil {
+					errCh <- fmt.Errorf("client %d decode %d: %w", client, i, err)
 					return
 				}
 				if !res.OK {
 					errCh <- fmt.Errorf("client %d call %d failed: %s", client, i, res.Error.Error())
 					return
 				}
-				if res.Frame < lastFrame {
-					errCh <- fmt.Errorf("client %d frame went backwards: %d after %d", client, res.Frame, lastFrame)
+				frame, perr := strconv.ParseUint(res.Frame, 10, 64)
+				if perr != nil {
+					errCh <- fmt.Errorf("client %d frame %q is not decimal: %w", client, res.Frame, perr)
 					return
 				}
-				lastFrame = res.Frame
+				if frame < lastFrame {
+					errCh <- fmt.Errorf("client %d frame went backwards: %d after %d", client, frame, lastFrame)
+					return
+				}
+				lastFrame = frame
+				_ = hr.SessionID
 			}
 		}(c)
 	}
@@ -156,7 +194,8 @@ func TestLoadTenClients(t *testing.T) {
 	if t.Failed() {
 		return
 	}
-	if sink.Epoch() < clients*perClient/3 {
-		t.Fatalf("sink epoch = %d, want at least the ping volume", sink.Epoch())
+	if got := port.handled(); got != clients*perClient {
+		t.Fatalf("port handled %d pings, want exactly the request volume %d", got, clients*perClient)
 	}
+	_ = srv
 }

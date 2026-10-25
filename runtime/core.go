@@ -122,10 +122,9 @@ type Runtime struct {
 
 	onFrameSubmitted func() // test hook; set only in tests to signal frame completion
 
-	// driveSink is non-nil only when Config.Drive.Enabled (FR-4). Its inbox
-	// is drained at the head of phase 2 on this thread (QP-6); see
-	// drive_runtime.go.
-	driveSink *driveRuntimeSink
+	// drivePort is non-nil only when Config.Drive.Enabled. Its bounded
+	// inbox is admitted at a cut on this thread; see drive_port.go.
+	drivePort *drivePort
 
 	// liveTestIDs is the author-identity registry (QP-7): TestID → facet ID
 	// for attached facets. Installed as the facet-package registry in New.
@@ -215,7 +214,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	rt.renderPipeline.onFallback = rt.notifyBackendFallback
 	rt.lifecycleCond = sync.NewCond(&rt.lifecycleMu)
 	if config.Drive.Enabled {
-		rt.installDriveSink()
+		if err := rt.installDrivePort(); err != nil {
+			return nil, err
+		}
 	}
 	if rt.rootStyleContext == nil {
 		theme.NewRootStyleContext(rt, theme.DefaultTokens(), nil)

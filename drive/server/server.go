@@ -1,198 +1,102 @@
-// Package server implements the LDP transport: a Unix-socket listener with
-// token auth, grant enforcement, per-connection ordering, idempotent
-// retries, and panic containment (QP-1..QP-4, QP-16). The package imports
-// nothing from runtime; the runtime-side seam is the Sink interface,
-// declared here (Principle 10: interfaces live in the consumer).
+// Package server implements the LDP v2 transport: a Unix-socket listener
+// with launcher-token auth, resumable app-instance sessions (D1), bounded
+// reader/writer separation, strict envelope framing, and panic containment.
+// The package imports nothing from runtime; the runtime side of the seam is
+// drive.RuntimePort, declared in the drive root and installed explicitly at
+// app construction before Listen (Principle 10).
 package server
 
 import (
 	"bufio"
+	"bytes"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
-	"strings"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 )
 
-// Grants is the capability bitmap baked into the connection at Listen time
-// (QP-4). The launcher encodes the grant set into the token via
-// LURPIC_DRIVE=on:read,input; the server parses it once.
-type Grants struct {
-	Read, Input, Write, Time, Admin bool
-}
-
-// ParseGrants parses a comma-separated grant list ("read,input"). Unknown
-// grants are an error — fail-loud, no silent best-effort subset.
-func ParseGrants(s string) (Grants, error) {
-	var g Grants
-	if s == "" {
-		return g, nil
-	}
-	for _, name := range strings.Split(s, ",") {
-		switch strings.TrimSpace(name) {
-		case grantRead:
-			g.Read = true
-		case grantInput:
-			g.Input = true
-		case grantWrite:
-			g.Write = true
-		case grantTime:
-			g.Time = true
-		case grantAdmin:
-			g.Admin = true
-		default:
-			return Grants{}, fmt.Errorf("drive: unknown grant %q (want read, input, write, time, admin)", name)
-		}
-	}
-	return g, nil
-}
-
-// Allows reports whether the grant set authorizes the named grant. Admin
-// implies every grant. This is the single grant decision table: the server
-// checks it per connection request, and the runtime re-checks it per
-// frame.run step.
-func (g Grants) Allows(name string) bool {
-	if name == "" {
-		return true
-	}
-	if g.Admin {
-		return true
-	}
-	switch name {
-	case grantRead:
-		return g.Read
-	case grantInput:
-		return g.Input
-	case grantWrite:
-		return g.Write
-	case grantTime:
-		return g.Time
-	case grantAdmin:
-		return false
-	default:
-		return false
-	}
-}
-
-// String renders the grant set as the canonical comma list.
-func (g Grants) String() string {
-	names := make([]string, 0, 5)
-	for _, entry := range []struct {
-		on bool
-		n  string
-	}{
-		{g.Read, grantRead}, {g.Input, grantInput}, {g.Write, grantWrite},
-		{g.Time, grantTime}, {g.Admin, grantAdmin},
-	} {
-		if entry.on {
-			names = append(names, entry.n)
-		}
-	}
-	return strings.Join(names, ",")
-}
-
-// Stats is the shared, thread-safe drive counter set (§3.9). One instance is
-// owned by the runtime sink and shared with the server so both sides count
-// into the same FrameStats surface and sys.info output.
-type Stats struct {
-	commandsDrained       atomic.Uint64
-	responsesSent         atomic.Uint64
-	grantDenied           atomic.Uint64
-	socketGoroutinePanics atomic.Uint64
-}
-
-// AddCommandsDrained and friends count into the shared drive counter set;
-// exported because both the server (connection goroutines) and the runtime
-// sink (runtime thread) own different counters.
-func (s *Stats) AddCommandsDrained(n int) { s.commandsDrained.Add(uint64(n)) } //nolint:gosec // count is bounded by drained commands
-
-func (s *Stats) AddResponseSent()         { s.responsesSent.Add(1) }
-func (s *Stats) AddGrantDenied()          { s.grantDenied.Add(1) }
-func (s *Stats) AddSocketGoroutinePanic() { s.socketGoroutinePanics.Add(1) }
-
-// StatsSnapshot exposes the cumulative counters (load-test diagnostics).
-func (s *Server) StatsSnapshot() (drained, sent, denied, panics uint64) {
-	return s.stats.Snapshot()
-}
-
-// Snapshot returns the cumulative counter values.
-func (s *Stats) Snapshot() (commandsDrained, responsesSent, grantDenied, socketGoroutinePanics uint64) {
-	return s.commandsDrained.Load(), s.responsesSent.Load(),
-		s.grantDenied.Load(), s.socketGoroutinePanics.Load()
-}
-
-// Command is one driver request crossing the seam toward the runtime thread.
-type Command struct {
-	ID     uint64
-	Method string
-	Params json.RawMessage
-	Grants Grants
-	Reply  chan Result // buffered 1; the runtime thread sends exactly once
-}
-
-// Result is the runtime thread's reply to a Command.
-type Result struct {
-	Payload json.RawMessage
-	Err     *proto.Error
-	Frame   uint64
-}
-
-// Sink is the runtime-side seam (QP-1). Implementations drain at a cut on
-// the runtime thread and reply exactly once per command.
-type Sink interface {
-	// Enqueue is thread-safe; the runtime drains the command at the next cut.
-	Enqueue(cmd Command)
-	// Epoch reports the current frame epoch.
-	Epoch() uint64
-}
+// Transport policy constants (the finite defaults of the RFC table).
+const (
+	// outboxCapacity bounds each connection's writer queue; overflow is a
+	// transport fault, never unbounded memory.
+	outboxCapacity = 256
+	// writeDeadline bounds one blocked write; expiry closes the connection.
+	writeDeadline = 2 * time.Second
+	// lineDeadline bounds one incomplete line, starting at its first byte.
+	lineDeadline = 2 * time.Second
+	// helloDeadline bounds the time to the authenticated hello from accept.
+	helloDeadline = 2 * time.Second
+	// maxClientNameBytes bounds sys.hello's client_name.
+	maxClientNameBytes = 128
+	// maxSessionsPerInstance mirrors drive.MaxSessions for the connection
+	// bound (64 live authenticated connections).
+	maxConnections = 64
+)
 
 // Config configures Listen.
 type Config struct {
-	SocketPath string // absolute; parent dir created 0700
-	Token      string // 32 random bytes, hex, by the launcher
-	Grants     Grants // fixed for every connection of this server
-	Sink       Sink   // must be non-nil
-	Stats      *Stats // optional; a private one is created when nil
+	// SocketPath is the absolute private Unix-socket path.
+	SocketPath string
+	// Token is the launcher token: 32 random bytes hex-encoded (64 chars).
+	Token string
+	// Grants is the launcher's grant policy applied to newly created
+	// sessions. Resume never widens a session's grants.
+	Grants drive.Grants
+	// Sessions is the instance session table (owned by the app wiring).
+	Sessions *drive.SessionTable
+	// Port is the runtime side of the seam; installed before Listen.
+	Port drive.RuntimePort
+	// Stats is the shared drive counter set; a private one when nil.
+	Stats *drive.Stats
+	// Now is the wall clock (injectable for tests); time.Now when nil.
+	Now func() time.Time
+	// Supervisor is signaled when the listener goroutine fails fatally
+	// (panic or accept error while not closing). The default logs to
+	// stderr; a production app installs a shutdown signal.
+	Supervisor func(err error)
+
+	// acceptHook is an in-package test injection point invoked once when
+	// the accept loop starts (nil in production). It lives on Config so
+	// it is written before Listen starts the accept goroutine.
+	acceptHook func()
 }
 
-// idempotencyCapacity is the per-connection retry window (QP-3).
-const idempotencyCapacity = 1024
-
-// Grant names (the canonical vocabulary across tables, Allows, and the
-// parser).
-const (
-	grantRead  = "read"
-	grantInput = "input"
-	grantWrite = "write"
-	grantTime  = "time"
-	grantAdmin = "admin"
-)
-
-// Server owns the listener socket and its connections.
+// Server owns the listener socket and its connections, and implements the
+// runtime-facing drive.TransportEvents side of the seam.
 type Server struct {
-	cfg   Config
-	stats *Stats
-	clock func() time.Time
-	// hasSubscribers gates the runtime's publish work (zero subscribers ⇒
-	// the cut flush does nothing).
-	hasSubscribers atomic.Bool
-	ln             net.Listener
-	connsMu        sync.Mutex
-	conns          map[*conn]struct{}
-	wg             sync.WaitGroup
-	stopCh         chan struct{}
-	closed         bool
+	cfg        Config
+	stats      *drive.Stats
+	now        func() time.Time
+	ln         net.Listener
+	nextConn   sync.WaitGroup
+	connsMu    sync.Mutex
+	conns      map[*conn]struct{}
+	nextConnID atomic.Uint64
+	stopCh     chan struct{}
+	stopOnce   sync.Once
+	closed     bool
+	// acceptPanicSeen is unused bookkeeping; the accept goroutine exits on
+	// its own and Close joins only the per-connection goroutines.
+	socketDev uint64 // owned socket inode (dev,ino for cleanup)
+	socketIno uint64
+	tokenDev  uint64
+	tokenIno  uint64
 }
 
-// Listen binds the Unix socket (mode 0600) and writes the token file
-// (<path>.token, mode 0600) before accepting connections.
+// Listen binds the Unix socket and writes the token file under strict
+// ownership rules, then starts accepting. It never unlinks a pre-existing
+// socket or token: stale-path cleanup is an explicit operator action.
 func Listen(cfg Config) (*Server, error) {
 	if cfg.SocketPath == "" {
 		return nil, fmt.Errorf("drive: SocketPath is required")
@@ -200,84 +104,104 @@ func Listen(cfg Config) (*Server, error) {
 	if cfg.Token == "" {
 		return nil, fmt.Errorf("drive: Token is required")
 	}
-	if cfg.Sink == nil {
-		return nil, fmt.Errorf("drive: Sink is required")
+	if cfg.Port == nil {
+		return nil, fmt.Errorf("drive: Port is required")
+	}
+	if cfg.Sessions == nil {
+		return nil, fmt.Errorf("drive: Sessions table is required")
 	}
 	if !filepath.IsAbs(cfg.SocketPath) {
 		return nil, fmt.Errorf("drive: SocketPath %q must be absolute", cfg.SocketPath)
 	}
-	if err := os.MkdirAll(filepath.Dir(cfg.SocketPath), 0o700); err != nil {
-		return nil, fmt.Errorf("drive: socket dir: %w", err)
+	if err := validateToken(cfg.Token); err != nil {
+		return nil, err
 	}
-	tokenPath := cfg.SocketPath + ".token"
-	if err := os.WriteFile(tokenPath, []byte(cfg.Token), 0o600); err != nil {
-		return nil, fmt.Errorf("drive: token file: %w", err)
+	if cfg.Now == nil {
+		cfg.Now = time.Now
 	}
-	// A stale socket from a previous run would make Listen fail; remove it.
-	// The 0600 token file next to it gates access, so the unlink is safe.
-	if err := os.Remove(cfg.SocketPath); err != nil && !os.IsNotExist(err) {
-		return nil, fmt.Errorf("drive: remove stale socket: %w", err)
-	}
-	ln, err := net.Listen("unix", cfg.SocketPath)
+	bound, err := bind(cfg.SocketPath, cfg.Token)
 	if err != nil {
-		return nil, fmt.Errorf("drive: listen: %w", err)
-	}
-	if err := os.Chmod(cfg.SocketPath, 0o600); err != nil {
-		_ = ln.Close()
-		return nil, fmt.Errorf("drive: socket mode: %w", err)
+		return nil, err
 	}
 	s := &Server{
 		cfg:    cfg,
 		stats:  cfg.Stats,
-		clock:  time.Now,
-		ln:     ln,
+		now:    cfg.Now,
+		ln:     bound.listener,
 		conns:  make(map[*conn]struct{}),
 		stopCh: make(chan struct{}),
 	}
 	if s.stats == nil {
-		s.stats = &Stats{}
+		s.stats = &drive.Stats{}
 	}
-	s.wg.Add(1)
+	s.socketDev, s.socketIno = bound.socketDev, bound.socketIno
+	s.tokenDev, s.tokenIno = bound.tokenDev, bound.tokenIno
 	go s.acceptLoop()
-
-	// Event fan-out registration (QP-1: the server declares the consumer-side
-	// seam; the runtime sink opts in when it supports publishing).
-	if consumer, ok := cfg.Sink.(interface {
-		SetEventConsumer(func(class, store, testID string, params json.RawMessage))
-	}); ok {
-		consumer.SetEventConsumer(func(class, store, testID string, params json.RawMessage) {
-			s.fanOut(class, store, testID, params)
-		})
-	}
 	return s, nil
 }
 
-// fanOut routes one event to every connection's subscription table.
-func (s *Server) fanOut(class, store, testID string, params json.RawMessage) {
-	s.connsMu.Lock()
-	defer s.connsMu.Unlock()
-	for c := range s.conns {
-		c.fanOut(class, store, testID, params)
+// validateToken enforces the 32-byte hex token grammar before any
+// comparison.
+func validateToken(token string) error {
+	if len(token) != 64 {
+		return fmt.Errorf("drive: token must be 64 hex characters (32 bytes), got %d", len(token))
 	}
+	if _, err := hex.DecodeString(token); err != nil {
+		return fmt.Errorf("drive: token is not hex: %w", err)
+	}
+	return nil
 }
-
-// clockNowEpoch reports the sink's current epoch for replies that never
-// cross the runtime (local methods).
-func (s *Server) clockNowEpoch() uint64 { return s.cfg.Sink.Epoch() }
 
 // SocketPath reports the bound socket path.
 func (s *Server) SocketPath() string { return s.cfg.SocketPath }
 
+// InstanceID reports the owning instance identity.
+func (s *Server) InstanceID() string { return s.cfg.Sessions.InstanceID() }
+
+// CloseTransport implements drive.TransportEvents: the runtime (or server
+// policy) closes one connection; the reader observes the loss and fences
+// the owning session's work through the control signal path.
+func (s *Server) CloseTransport(connID drive.ConnectionID, reason drive.TransportReason) {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	for c := range s.conns {
+		if c.id == connID {
+			c.close(reason)
+		}
+	}
+}
+
+// ConnectionCount reports live connections (diagnostics).
+func (s *Server) ConnectionCount() int {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	return len(s.conns)
+}
+
+func (s *Server) supervisorError(err error) {
+	if s.cfg.Supervisor != nil {
+		s.cfg.Supervisor(err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "drive: listener fatal: %v\n", err)
+}
+
 func (s *Server) acceptLoop() {
-	defer s.wg.Done()
-	// QP-16: a panic in the listener goroutine shuts the socket down and
-	// counts; it never takes the app down.
+	// A panic in the listener goroutine signals the supervisor and closes
+	// the listener; it never takes the app down. The close skips the
+	// goroutine wait: this goroutine's own WaitGroup slot releases only
+	// after this defer completes, so joining here would deadlock.
 	defer func() {
 		if r := recover(); r != nil {
 			s.stats.AddSocketGoroutinePanic()
-			_ = s.Close()
+			err := fmt.Errorf("listener panic: %v", r)
+			s.supervisorError(err)
+			s.stopTransport(false)
 		}
 	}()
+	if s.cfg.acceptHook != nil {
+		s.cfg.acceptHook()
+	}
 	for {
 		nc, err := s.ln.Accept()
 		if err != nil {
@@ -286,184 +210,227 @@ func (s *Server) acceptLoop() {
 				return
 			default:
 			}
+			s.supervisorError(fmt.Errorf("accept: %w", err))
+			_ = s.Close()
 			return
 		}
-		c := &conn{srv: s, nc: nc}
 		s.connsMu.Lock()
-		if s.closed {
+		if s.closed || len(s.conns) >= maxConnections {
 			s.connsMu.Unlock()
 			_ = nc.Close()
 			continue
 		}
+		c := &conn{
+			srv:    s,
+			id:     drive.ConnectionID(s.nextConnID.Add(1)),
+			nc:     nc,
+			outbox: make(chan []byte, outboxCapacity),
+			done:   make(chan struct{}),
+		}
 		s.conns[c] = struct{}{}
 		s.connsMu.Unlock()
-		s.wg.Add(1)
+		s.nextConn.Add(2)
+		go c.writeLoop()
 		go c.serve()
 	}
 }
 
-// Close unlinks the socket and token file and detaches every client.
+// Close stops the transport: it fences connection generations, cancels
+// readers/writers, unlinks only its own inodes, and never waits for an
+// individual runtime reply.
 func (s *Server) Close() error {
-	s.connsMu.Lock()
-	if s.closed {
-		s.connsMu.Unlock()
-		return nil
-	}
-	s.closed = true
-	close(s.stopCh)
-	for c := range s.conns {
-		_ = c.nc.Close()
-	}
-	s.connsMu.Unlock()
-	err := s.ln.Close()
-	_ = os.Remove(s.cfg.SocketPath)
-	_ = os.Remove(s.cfg.SocketPath + ".token")
-	s.wg.Wait()
-	return err
+	s.stopTransport(true)
+	return nil
 }
 
-// conn is one authenticated-or-pending client connection. The serve
-// goroutine reads requests and writes responses; the subscription pump
-// writes notifications (P7). Socket writes are serialized by writeMu so the
-// two writers never interleave mid-line; per-connection request ordering
-// (QP-3) is unaffected.
-type conn struct {
-	srv      *Server
-	nc       net.Conn
-	cache    *responseCache
-	authed   bool
-	subs     *subTable
-	writeMu  sync.Mutex
-	pumpOnce sync.Once
-	stopPump chan struct{}
-}
-
-// writeLine serializes one line onto the socket. A line already ending in
-// a newline (the response encoder's terminator) passes through unchanged;
-// bare notification payloads get one appended.
-func (c *conn) writeLine(line []byte) {
-	c.writeMu.Lock()
-	defer c.writeMu.Unlock()
-	if len(line) > 0 && line[len(line)-1] == '\n' {
-		_, _ = c.nc.Write(line)
+// stopTransport performs the close body once. join controls whether the
+// caller joins the connection goroutines: a self-close from the accept
+// loop must not join, because that goroutine cannot wait on itself.
+func (s *Server) stopTransport(join bool) {
+	s.stopOnce.Do(s.stopBody)
+	if !join {
 		return
 	}
-	_, _ = c.nc.Write(append(line, '\n'))
+	// Join the connection goroutines; readers blocked on a runtime reply
+	// abort via their done channel and never hang the close.
+	s.nextConn.Wait()
 }
 
-// startPump launches the subscription writer goroutine (once): drains each
-// subscription FIFO to the socket and detaches on backpressure deadlines
-// (QP-13: detached loudly with sub.dead, never blocking the runtime thread).
-// The pump wakes on the signal channel (publish/subscribe/detach all notify
-// it) — no sleep-polling.
-func (c *conn) startPump() {
-	c.pumpOnce.Do(func() {
-		go func() {
-			for {
-				select {
-				case <-c.stopPump:
-					return
-				case id := <-c.subs.detachCh:
-					c.subs.cancel(id)
-					n := proto.Notification{
-						Method: "sub.dead",
-						Params: json.RawMessage(`{"id":` + fmt.Sprint(id) + `,"reason":"backpressure"}`),
-					}
-					if out, err := json.Marshal(n); err == nil {
-						c.writeLine(out)
-					}
-				case <-c.subs.activity:
-				}
-				// Drain everything currently queued before parking again.
-				c.subs.mu.Lock()
-				for _, sub := range c.subs.subs {
-					for {
-						select {
-						case n := <-sub.fifo:
-							if out, err := json.Marshal(n); err == nil {
-								c.writeLine(out)
-							}
-							continue
-						default:
-						}
-						break
-					}
-				}
-				c.subs.mu.Unlock()
-			}
-		}()
+// stopBody is the idempotent close body.
+func (s *Server) stopBody() {
+	s.connsMu.Lock()
+	s.closed = true
+	close(s.stopCh)
+	conns := make([]*conn, 0, len(s.conns))
+	for c := range s.conns {
+		conns = append(conns, c)
+	}
+	s.connsMu.Unlock()
+	for _, c := range conns {
+		c.close(drive.ReasonServerStop)
+	}
+	_ = s.ln.Close()
+	s.unlinkOwned(s.cfg.SocketPath, s.socketDev, s.socketIno)
+	s.unlinkOwned(s.cfg.SocketPath+".token", s.tokenDev, s.tokenIno)
+}
+
+// unlinkOwned removes path only when its inode matches the one this server
+// created — cleanup never deletes an unrelated file.
+func (s *Server) unlinkOwned(path string, dev, ino uint64) {
+	st, err := os.Lstat(path)
+	if err != nil {
+		return
+	}
+	d, i := fileIdentity(st)
+	if d == dev && i == ino {
+		_ = os.Remove(path)
+	}
+}
+
+// conn is one client connection: one reader goroutine (this serve), one
+// writer goroutine draining the bounded outbox with a write deadline.
+type conn struct {
+	srv    *Server
+	id     drive.ConnectionID
+	nc     net.Conn
+	outbox chan []byte
+	done   chan struct{}
+	// writeMu serializes close vs. writer-fault bookkeeping.
+	closeOnce sync.Once
+
+	authed  bool
+	session *drive.Session
+
+	// draining marks a controlled close: the writer finishes the queued
+	// lines before the socket closes, so a final typed error still lands.
+	draining atomic.Bool
+	// pendingWriteLines counts lines enqueued but not yet written; the
+	// graceful close waits for zero (channel length alone would race the
+	// receive-before-write window).
+	pendingWriteLines atomic.Int64
+}
+
+// close tears the connection down exactly once; every goroutine observing
+// done aborts its pending work.
+// finish stops the reader and closes the connection after the writer has
+// flushed the queued lines.
+func (c *conn) finish(reason drive.TransportReason) {
+	c.draining.Store(true)
+	_ = c.nc.SetReadDeadline(time.Time{})
+	go func() {
+		deadline := time.Now().Add(writeDeadline)
+		for c.pendingWriteLines.Load() > 0 && time.Now().Before(deadline) {
+			time.Sleep(50 * time.Microsecond)
+		}
+		c.close(reason)
+	}()
+}
+
+func (c *conn) close(reason drive.TransportReason) {
+	c.closeOnce.Do(func() {
+		_ = c.nc.Close()
+		close(c.done)
+		c.srv.connsMu.Lock()
+		delete(c.srv.conns, c)
+		c.srv.connsMu.Unlock()
+		if c.session != nil {
+			gen := c.session.Generation()
+			c.session.Detach(c.srv.now())
+			c.srv.cfg.Port.SignalControl(drive.ControlSignal{
+				Kind:       drive.SignalConnectionLost,
+				Reason:     reason,
+				Session:    c.session.ID,
+				Generation: gen,
+			})
+			c.session = nil
+		}
 	})
 }
 
-// fanOut routes one runtime event into this connection's subscriptions.
-func (c *conn) fanOut(class, store, testID string, params json.RawMessage) {
-	c.subs.publish(class, store, testID, params)
+// sendLine enqueues one encoded line onto the writer's outbox. A full
+// outbox is a transport fault: the peer stopped reading, so the connection
+// closes (never unbounded buffering, never blocking the reader).
+func (c *conn) sendLine(line []byte) bool {
+	c.pendingWriteLines.Add(1)
+	select {
+	case c.outbox <- line:
+		return true
+	default:
+		c.pendingWriteLines.Add(-1)
+		c.close(drive.ReasonWriteFault)
+		return false
+	}
 }
 
-// helloParams is the sys.hello parameter payload.
-type helloParams struct {
-	Token string `json:"token"`
+func (c *conn) writeLoop() {
+	defer c.srv.nextConn.Done()
+	for {
+		select {
+		case <-c.done:
+			return
+		case line := <-c.outbox:
+			_ = c.nc.SetWriteDeadline(c.srv.now().Add(writeDeadline))
+			if _, err := c.nc.Write(line); err != nil {
+				c.pendingWriteLines.Add(-1)
+				c.close(drive.ReasonWriteFault)
+				return
+			}
+			c.pendingWriteLines.Add(-1)
+		}
+	}
 }
 
 func (c *conn) serve() {
-	defer c.srv.wg.Done()
-	defer c.srv.removeConn(c)
-	// QP-16: a panic on the connection goroutine is recovered, counted, and
-	// the connection is dropped. The app keeps rendering (NFR-7).
+	defer c.srv.nextConn.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			c.srv.stats.AddSocketGoroutinePanic()
 			fmt.Fprintf(os.Stderr, "drive: connection goroutine panic: %v\n", r)
-			_ = c.nc.Close()
+			c.close(drive.ReasonWriteFault)
 		}
 	}()
 	reader := bufio.NewReaderSize(c.nc, 64*1024)
-	writer := bufio.NewWriter(c.nc)
-	c.cache = newResponseCache(idempotencyCapacity)
-	c.subs = newSubTable(c.srv.clock)
-	c.stopPump = make(chan struct{})
-	defer close(c.stopPump)
-	c.startPump()
-
-	first := true
+	// Hello must arrive within its own deadline from accept.
+	_ = c.nc.SetReadDeadline(c.srv.now().Add(helloDeadline))
 	for {
+		// Incomplete-line deadlines start at the first byte of each line
+		// and are absolute for that line.
+		_ = c.nc.SetReadDeadline(c.srv.now().Add(lineDeadline))
 		line, err := readLine(reader)
 		if err != nil {
 			if errors.Is(err, errLineTooLong) {
-				// Typed error with no request id to attribute (the line never
-				// decoded); not cached, since caching is id-keyed.
-				res := proto.Response{OK: false, Error: &proto.Error{
-					Code:   proto.ErrInternal,
-					Detail: fmt.Sprintf("line exceeds %d bytes", proto.MaxLineBytes),
-				}, Frame: c.srv.cfg.Sink.Epoch()}
-				c.srv.stats.AddResponseSent()
-				if enc, err := json.Marshal(res); err == nil {
-					enc = append(enc, '\n')
-					_, _ = writer.Write(enc)
-					_ = writer.Flush()
-				}
-			}
-			_ = c.nc.Close()
-			return
-		}
-		if len(line) > 0 {
-			if _, closeAfter := c.handleLine(line, first, writer); closeAfter {
-				_ = writer.Flush()
-				_ = c.nc.Close()
+				c.sendError("", proto.Error{
+					Code:        proto.ErrLineLimit,
+					Detail:      err.Error(),
+					NonAdmitted: true,
+				}, true)
+				c.finish(drive.ReasonIdle)
 				return
 			}
+			c.close(drive.ReasonEOF)
+			return
 		}
-		_ = writer.Flush()
-		first = false
+		closeAfter := c.handleLine(line)
+		if closeAfter {
+			c.finish(c.closeReason())
+			return
+		}
 	}
 }
 
-// errLineTooLong marks a line that exceeded the 4 MiB input bound (NFR-9).
+// closeReason reports why the connection closes after the response of a
+// failed handshake.
+func (c *conn) closeReason() drive.TransportReason {
+	if c.authed {
+		return drive.ReasonEOF
+	}
+	return drive.ReasonAuth
+}
+
+// errLineTooLong marks a line beyond the 4 MiB bound.
 var errLineTooLong = fmt.Errorf("line exceeds %d bytes", proto.MaxLineBytes)
 
 // readLine reads one newline-terminated line without the trailing newline.
-// A line longer than MaxLineBytes is consumed and reported as
-// errLineTooLong; the caller answers a typed error and closes.
 func readLine(r *bufio.Reader) ([]byte, error) {
 	var buf []byte
 	for {
@@ -489,267 +456,307 @@ func readLine(r *bufio.Reader) ([]byte, error) {
 	}
 }
 
-// handleLine decodes and executes one request line. It returns whether the
-// connection must close after the response is flushed.
-func (c *conn) handleLine(line []byte, first bool, w *bufio.Writer) (resp proto.Response, closeAfter bool) {
-	var req proto.Request
-	if err := json.Unmarshal(line, &req); err != nil {
-		return c.writeError(w, 0, &proto.Error{
-			Code:   proto.ErrInternal,
-			Detail: "malformed request: " + err.Error(),
-		}), !c.authed
-	}
-	if req.V != proto.ProtocolMajor {
-		return c.writeError(w, req.ID, &proto.Error{
-			Code:   proto.ErrVersion,
-			Detail: fmt.Sprintf("client major %d, server major %d", req.V, proto.ProtocolMajor),
-		}), true
+// isLineLimit reports a line-limit rejection without allocating a target
+// pointer per check.
+func isLineLimit(err error) bool {
+	var lle *proto.LineLimitError
+	return errors.As(err, &lle)
+}
+
+// handleLine decodes and executes one request line. Returns whether the
+// connection must close after the response flushes.
+func (c *conn) handleLine(line []byte) bool {
+	req, err := proto.DecodeRequest(line)
+	if err != nil {
+		var verr *proto.VersionError
+		switch {
+		case errors.As(err, &verr):
+			// A wrong major is a hard handshake break.
+			c.sendError(req.ID, proto.Error{
+				Code:        proto.ErrVersionMismatch,
+				Detail:      verr.Error(),
+				NonAdmitted: true,
+			}, true)
+			return true
+		case isLineLimit(err):
+			c.sendError("", proto.Error{
+				Code:        proto.ErrLineLimit,
+				Detail:      err.Error(),
+				NonAdmitted: true,
+			}, true)
+			return true
+		default:
+			// Malformed framing happens before admission and never consumes
+			// an ID. Pre-auth it is indistinguishable from an attack: close
+			// after one safe error; post-auth it is a typed, survivable
+			// error.
+			c.sendError(req.ID, proto.Error{
+				Code:        proto.ErrMalformed,
+				Detail:      err.Error(),
+				NonAdmitted: true,
+			}, !c.authed)
+			return !c.authed
+		}
 	}
 	if !c.authed {
-		if !first || req.Method != "sys.hello" {
-			return c.writeError(w, req.ID, &proto.Error{
-				Code:   proto.ErrAuth,
-				Detail: "first request must be sys.hello",
-			}), true
+		if req.Method != "sys.hello" {
+			c.sendError(req.ID, proto.Error{
+				Code:        proto.ErrAuth,
+				Detail:      "first request must be sys.hello",
+				NonAdmitted: true,
+			}, true)
+			return true
 		}
-		return c.hello(req, w)
+		return c.hello(req)
 	}
-	return c.dispatch(req, w), false
+	if req.Method == "sys.hello" {
+		// Re-hello on an authenticated connection cannot re-negotiate the
+		// session silently; the client opens a new connection for that.
+		c.sendError(req.ID, proto.Error{
+			Code:        proto.ErrAuth,
+			Detail:      "session renegotiation requires a new connection",
+			NonAdmitted: true,
+		}, false)
+		return false
+	}
+	c.dispatch(req)
+	return false
 }
 
-func (c *conn) hello(req proto.Request, w *bufio.Writer) (resp proto.Response, closeAfter bool) {
-	var hp helloParams
-	if len(req.Params) > 0 {
-		if err := json.Unmarshal(req.Params, &hp); err != nil {
-			return c.writeError(w, req.ID, &proto.Error{
-				Code:   proto.ErrAuth,
-				Detail: "malformed sys.hello params",
-			}), true
-		}
+// helloParams is the strictly validated sys.hello payload: exactly one of
+// create_session or resume.
+type helloParams struct {
+	Token         string        `json:"token"`
+	ClientName    string        `json:"client_name,omitempty"`
+	CreateSession bool          `json:"create_session,omitempty"`
+	Resume        *resumeParams `json:"resume,omitempty"`
+}
+
+type resumeParams struct {
+	InstanceID string `json:"instance_id"`
+	SessionID  string `json:"session_id"`
+	Credential string `json:"resume_credential"`
+}
+
+func (c *conn) hello(req proto.Request) bool {
+	if len(req.Params) == 0 {
+		c.sendError(req.ID, proto.Error{
+			Code:        proto.ErrInvalidParams,
+			Detail:      "sys.hello requires params",
+			NonAdmitted: true,
+		}, true)
+		return true
 	}
-	if hp.Token != c.srv.cfg.Token {
-		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrAuth}), true
+	var hp helloParams
+	dec := json.NewDecoder(bytes.NewReader(req.Params))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&hp); err != nil {
+		c.sendError(req.ID, proto.Error{
+			Code:        proto.ErrInvalidParams,
+			Detail:      "sys.hello params: " + err.Error(),
+			NonAdmitted: true,
+		}, true)
+		return true
+	}
+	if len(hp.ClientName) > maxClientNameBytes {
+		c.sendError(req.ID, proto.Error{
+			Code:        proto.ErrInvalidParams,
+			Detail:      "client_name exceeds 128 bytes",
+			NonAdmitted: true,
+		}, true)
+		return true
+	}
+	if (hp.CreateSession && hp.Resume != nil) || (!hp.CreateSession && hp.Resume == nil) {
+		c.sendError(req.ID, proto.Error{
+			Code:        proto.ErrInvalidParams,
+			Detail:      "exactly one of create_session or resume is required",
+			NonAdmitted: true,
+		}, true)
+		return true
+	}
+	// Constant-time token comparison after strict length validation.
+	if subtle.ConstantTimeCompare([]byte(hp.Token), []byte(c.srv.cfg.Token)) != 1 {
+		c.sendError(req.ID, proto.Error{Code: proto.ErrAuth, NonAdmitted: true}, true)
+		return true
+	}
+
+	var result json.RawMessage
+	var err *proto.Error
+	if hp.Resume != nil {
+		result, err = c.resume(hp)
+	} else {
+		result, err = c.create(hp)
+	}
+	if err != nil {
+		c.sendError(req.ID, *err, true)
+		return true
 	}
 	c.authed = true
-	return c.writeResult(w, req, json.RawMessage(fmt.Sprintf(`{"v":%d}`, proto.ProtocolMajor)), 0), false
+	c.sendResult(req.ID, result, "", "")
+	// Clear the hello deadline; authenticated sessions own the keepalive
+	// lease, not per-line idle deadlines.
+	_ = c.nc.SetReadDeadline(time.Time{})
+	return false
 }
 
-// methodSpec is the server-side dispatch entry. Grant is enforced before
-// execution (FR-3); local methods are answered in-connection without
-// crossing the sink.
-type methodSpec struct {
-	grant string // "" = no grant needed
-	local bool   // handled on the connection goroutine
-}
-
-// methods is the method table. Unknown methods fail with a typed error,
-// never a panic (NFR-9). frame.run's grant is the union of its steps —
-// checked per step by the runtime against Grants.Allows — so the connection
-// level needs no grant of its own.
-var methods = map[string]methodSpec{
-	"sub.watch":      {local: true, grant: grantRead},
-	"sub.cancel":     {local: true, grant: grantRead},
-	"sys.hello":      {local: true},
-	"sys.ping":       {grant: "read"},
-	"sys.info":       {grant: "read"},
-	"locate.resolve": {grant: "read"},
-	"tree.dump":      {grant: "read"},
-	"store.list":     {grant: "read"},
-	"store.read":     {grant: "read"},
-	"derived.read":   {grant: "read"},
-	"facet.query":    {grant: "read"},
-	"frame.pixels":   {grant: "read"},
-	"frame.packet":   {grant: "read"},
-	"store.write":    {grant: "write"},
-	"input.click":    {grant: grantInput},
-	"input.press":    {grant: grantInput},
-	"input.release":  {grant: grantInput},
-	"input.move":     {grant: grantInput},
-	"input.drag":     {grant: grantInput},
-	"input.type":     {grant: grantInput},
-	"input.scroll":   {grant: grantInput},
-	"input.focus":    {grant: grantInput},
-	"cmd.list":       {grant: "read"},
-	"cmd.execute":    {grant: "write"},
-	"time.mode":      {grant: "time"},
-	"time.advance":   {grant: "time"},
-	"frame.run":      {},
-}
-
-// MethodGrant reports the grant a method requires ("" = none at connection
-// level). The authoritative table is proto.Registry — this wrapper keeps the
-// connection-level grant enforcement and the runtime's per-step checks on
-// the single source (P8 registry).
-func MethodGrant(method string) (string, bool) {
-	return proto.MethodGrant(method)
-}
-
-func (c *conn) dispatch(req proto.Request, w *bufio.Writer) proto.Response {
-	if cached, ok := c.cache.get(req.ID); ok {
-		cached.Cached = true
-		c.emit(w, cached)
-		return cached
-	}
-	spec, known := methods[req.Method]
-	if !known {
-		return c.writeError(w, req.ID, &proto.Error{
-			Code:   proto.ErrInternal,
-			Detail: "unknown method: " + req.Method,
-		})
-	}
-	if !c.hasGrant(spec.grant) {
-		c.srv.stats.AddGrantDenied()
-		return c.writeError(w, req.ID, &proto.Error{
-			Code:   proto.ErrGrant,
-			Detail: spec.grant,
-		})
-	}
-	if spec.local {
-		switch req.Method {
-		case "sub.watch":
-			return c.subWatch(req, w)
-		case "sub.cancel":
-			return c.subCancel(req, w)
-		default:
-			return c.writeError(w, req.ID, &proto.Error{
-				Code:   proto.ErrInternal,
-				Detail: "method " + req.Method + " is not available post-handshake",
-			})
-		}
-	}
-	// Cross the seam: the runtime thread executes at the next cut and
-	// replies exactly once (QP-1, QP-6).
-	cmd := Command{
-		ID:     req.ID,
-		Method: req.Method,
-		Params: req.Params,
-		Grants: c.srv.cfg.Grants,
-		Reply:  make(chan Result, 1),
-	}
-	c.srv.cfg.Sink.Enqueue(cmd)
-	result := <-cmd.Reply
-	if result.Err != nil {
-		return c.writeError(w, req.ID, result.Err)
-	}
-	return c.writeResult(w, req, result.Payload, result.Frame)
-}
-
-// subWatchParams is the sub.watch payload.
-type subWatchParams struct {
-	Filter Filter `json:"filter"`
-}
-
-// subWatch registers a subscription filter and replies with its id
-// (QP-13). Events flow from the runtime's cut flush through the server's
-// fan-out into this connection's FIFO.
-func (c *conn) subWatch(req proto.Request, w *bufio.Writer) proto.Response {
-	filter, err := parseSubscriptionFilter(req.Params)
+// create allocates a fresh session under the launcher's grant policy.
+func (c *conn) create(hp helloParams) (json.RawMessage, *proto.Error) {
+	sess, cred, err := c.srv.cfg.Sessions.Create(c.srv.cfg.Grants)
 	if err != nil {
-		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: "sub.watch params: " + err.Error()})
+		return nil, &proto.Error{Code: proto.ErrCapacityBusy, Detail: err.Error(), Retryable: true, NonAdmitted: true}
 	}
-	id := c.subs.subscribe(filter)
-	payload, err := json.Marshal(map[string]uint64{"id": id})
+	c.session = sess
+	out := map[string]any{
+		"instance_id":           sess.InstanceID,
+		"session_id":            sess.ID,
+		"resume_credential":     cred,
+		"connection_generation": strconv.FormatUint(sess.Generation(), 10),
+		"next_id":               strconv.FormatUint(sess.Ledger().HighWater()+1, 10),
+		"grants":                grantList(sess.Grants),
+		"schema_digest":         proto.SchemaDigest(),
+		"limits":                limitsDocument(),
+	}
+	enc, merr := json.Marshal(out)
+	if merr != nil {
+		return nil, &proto.Error{Code: proto.ErrInternalPanic, Detail: "hello encoding failed"}
+	}
+	return enc, nil
+}
+
+// resume authenticates and attaches a new connection generation, fencing
+// the replaced generation's outstanding work.
+func (c *conn) resume(hp helloParams) (json.RawMessage, *proto.Error) {
+	if hp.Resume.InstanceID != c.srv.cfg.Sessions.InstanceID() {
+		return nil, &proto.Error{Code: proto.ErrInstanceChanged, Detail: "instance identity mismatch"}
+	}
+	sess, gen, err := c.srv.cfg.Sessions.Resume(hp.Resume.SessionID, hp.Resume.Credential)
 	if err != nil {
-		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: err.Error()})
+		return nil, &proto.Error{Code: proto.ErrSessionExpired, Detail: "unknown or expired session or credential"}
 	}
-	c.srv.connsMu.Lock()
-	c.srv.hasSubscribers.Store(true)
-	c.srv.connsMu.Unlock()
-	return c.writeResult(w, req, payload, c.srv.clockNowEpoch())
-}
-
-func parseSubscriptionFilter(params json.RawMessage) (Filter, error) {
-	var p subWatchParams
-	if len(params) > 0 {
-		if err := json.Unmarshal(params, &p); err != nil {
-			return Filter{}, err
-		}
-	}
-	switch p.Filter.Class {
-	case classStateChanged, classTreeChanged, classFrameDone, classOwnPreempted:
-		return p.Filter, nil
-	default:
-		return Filter{}, errors.New(`filter.class must be state.changed, tree.changed, frame.completed, or own.preempted`)
-	}
-}
-
-// subCancelParams is the sub.cancel payload.
-type subCancelParams struct {
-	ID uint64 `json:"id"`
-}
-
-// subCancel removes a subscription.
-func (c *conn) subCancel(req proto.Request, w *bufio.Writer) proto.Response {
-	var p subCancelParams
-	if len(req.Params) == 0 || json.Unmarshal(req.Params, &p) != nil {
-		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrInternal, Detail: "sub.cancel requires id"})
-	}
-	if !c.subs.cancel(p.ID) {
-		return c.writeError(w, req.ID, &proto.Error{Code: proto.ErrUnresolved, Detail: "no subscription"})
-	}
-	return c.writeResult(w, req, json.RawMessage(`{"cancelled":true}`), c.srv.clockNowEpoch())
-}
-
-func (c *conn) hasGrant(name string) bool {
-	return c.srv.cfg.Grants.Allows(name)
-}
-
-func (c *conn) writeResult(w *bufio.Writer, req proto.Request, payload json.RawMessage, frame uint64) proto.Response {
-	res := proto.Response{ID: req.ID, OK: true, Result: payload, Frame: frame}
-	c.finish(w, res)
-	return res
-}
-
-func (c *conn) writeError(w *bufio.Writer, id uint64, perr *proto.Error) proto.Response {
-	res := proto.Response{ID: id, OK: false, Error: perr, Frame: c.srv.cfg.Sink.Epoch()}
-	c.finish(w, res)
-	return res
-}
-
-func (c *conn) finish(w *bufio.Writer, res proto.Response) {
-	if c.authed {
-		c.cache.put(res.ID, res)
-	}
-	c.srv.stats.AddResponseSent()
-	c.emit(w, res)
-}
-
-// mustNoPayloadResponse encodes an internal error response with no raw
-// payload fields. Marshal of a payload-free response cannot fail; a panic
-// here would be contained by the connection recover anyway.
-func mustNoPayloadResponse(res proto.Response) []byte {
-	enc, err := json.Marshal(proto.Response{
-		ID:    res.ID,
-		OK:    false,
-		Error: &proto.Error{Code: proto.ErrInternal, Detail: "response encoding failed"},
-		Frame: res.Frame,
+	c.session = sess
+	// Fence the replaced generation even if its old socket has not reported
+	// EOF yet; a delayed old-generation EOF must not cancel new work.
+	c.srv.cfg.Port.SignalControl(drive.ControlSignal{
+		Kind:       drive.SignalConnectionLost,
+		Reason:     drive.ReasonServerStop,
+		Session:    sess.ID,
+		Generation: gen - 1,
 	})
-	if err != nil {
-		panic("drive: payload-free response marshal failed: " + err.Error())
+	out := map[string]any{
+		"instance_id":           sess.InstanceID,
+		"session_id":            sess.ID,
+		"connection_generation": strconv.FormatUint(gen, 10),
+		"next_id":               strconv.FormatUint(sess.Ledger().HighWater()+1, 10),
+		"grants":                grantList(sess.Grants),
+		"schema_digest":         proto.SchemaDigest(),
+		"limits":                limitsDocument(),
 	}
-	return enc
+	enc, merr := json.Marshal(out)
+	if merr != nil {
+		return nil, &proto.Error{Code: proto.ErrInternalPanic, Detail: "hello encoding failed"}
+	}
+	return enc, nil
 }
 
-// emit marshals and writes one response; it neither caches nor counts
-// (used for cache hits, which were already counted when first produced).
-func (c *conn) emit(w *bufio.Writer, res proto.Response) {
-	out, err := json.Marshal(res)
-	if err != nil {
-		// Marshal of already-raw payloads cannot fail in practice; if it
-		// does, contain it as a typed error rather than killing the app.
-		c.srv.stats.AddSocketGoroutinePanic()
-		// The fallback carries no raw payload, so its marshal cannot fail.
-		fallback := mustNoPayloadResponse(res)
-		out = append(fallback, '\n')
-	} else {
-		out = append(out, '\n')
+// dispatch forwards one authenticated, well-typed request to the runtime
+// port. Admission — ledger claim, grants, availability, execution — happens
+// on the runtime thread at a cut; socket receipt is not acceptance.
+func (c *conn) dispatch(req proto.Request) {
+	sess := c.session
+	id, _ := proto.ValidateRequestID(req.ID)
+	cmd := drive.Command{
+		Connection: c.id,
+		Session:    sess.ID,
+		Generation: sess.Generation(),
+		ID:         id,
+		OpID:       sess.InstanceID + "/" + sess.ID + "/" + req.ID,
+		Method:     req.Method,
+		Params:     req.Params,
+		Grants:     sess.Grants,
+		Reply:      make(chan drive.Result, 1),
 	}
-	c.writeLine(out)
-	_ = w
+	if err := c.srv.cfg.Port.Submit(cmd); err != nil {
+		// Bounded-inbox overload is transient and explicitly non-admitted.
+		c.sendError(req.ID, proto.Error{
+			Code:        proto.ErrCapacityBusy,
+			Detail:      "runtime inbox at capacity",
+			Retryable:   true,
+			NonAdmitted: true,
+		}, false)
+		return
+	}
+	// The reader goroutine waits for the runtime's exactly-once reply. A
+	// connection close aborts the wait without writing a socket byte.
+	select {
+	case res := <-cmd.Reply:
+		var perr *proto.Error
+		if res.Err != nil {
+			errors.As(res.Err, &perr)
+			if perr == nil {
+				perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: res.Err.Error()}
+			}
+		}
+		if perr != nil {
+			c.sendError(req.ID, *perr, false)
+			return
+		}
+		c.sendResult(req.ID, res.Payload, res.Cut, res.Frame)
+	case <-c.done:
+	}
 }
 
-func (s *Server) removeConn(c *conn) {
-	s.connsMu.Lock()
-	delete(s.conns, c)
-	s.connsMu.Unlock()
+func (c *conn) sendResult(id string, payload json.RawMessage, cut, frame string) {
+	res := proto.Response{V: proto.ProtocolMajor, ID: id, OK: true, Result: payload, Cut: cut, Frame: frame}
+	c.send(res)
+	c.srv.stats.AddResponseSent()
+}
+
+func (c *conn) sendError(id string, perr proto.Error, nonAdmitted bool) {
+	res := proto.Response{V: proto.ProtocolMajor, ID: id, OK: false, Error: &perr, NonAdmitted: nonAdmitted || perr.NonAdmitted}
+	c.send(res)
+}
+
+// send encodes one response line onto the outbox. Marshal of strictly
+// validated payloads cannot fail; if it ever does, the connection closes.
+func (c *conn) send(res proto.Response) {
+	enc, err := json.Marshal(res)
+	if err != nil {
+		c.close(drive.ReasonWriteFault)
+		return
+	}
+	c.sendLine(append(enc, '\n'))
+}
+
+// grantList renders the grant set as the canonical sorted-ish list for
+// hello results.
+func grantList(g drive.Grants) []string {
+	var out []string
+	for _, e := range []struct {
+		on bool
+		n  string
+	}{
+		{g.Read, drive.GrantRead}, {g.Input, drive.GrantInput},
+		{g.Command, drive.GrantCommand}, {g.Time, drive.GrantTime},
+		{g.Admin, drive.GrantAdmin},
+	} {
+		if e.on {
+			out = append(out, e.n)
+		}
+	}
+	return out
+}
+
+// limitsDocument is the finite resource-limit inventory of this build. S1
+// declares the bounds its path enforces; later slices extend it.
+func limitsDocument() map[string]any {
+	return map[string]any{
+		"sessions":                 drive.MaxSessions(),
+		"connections":              maxConnections,
+		"ledger_entries":           drive.LedgerMaxEntries(),
+		"ledger_bytes":             drive.LedgerMaxBytes(),
+		"line_bytes":               proto.MaxLineBytes,
+		"incomplete_line_seconds":  int(lineDeadline.Seconds()),
+		"write_seconds":            int(writeDeadline.Seconds()),
+		"session_recovery_minutes": int(drive.SessionRecoveryTTL().Minutes()),
+	}
 }

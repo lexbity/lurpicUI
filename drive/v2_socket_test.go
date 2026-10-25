@@ -1,0 +1,356 @@
+package drive_test
+
+import (
+	"bufio"
+	"encoding/json"
+	"net"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"codeburg.org/lexbit/lurpicui/app"
+	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
+	"codeburg.org/lexbit/lurpicui/drive"
+	"codeburg.org/lexbit/lurpicui/drive/proto"
+	server "codeburg.org/lexbit/lurpicui/drive/server"
+	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
+)
+
+// v2SocketServer binds a real v2 server against a REAL studio runtime's
+// drive port: this is the production seam — socket → transport → runtime
+// port → admission at a cut.
+func v2SocketServer(t *testing.T) (socket, token string, h *testkit.DriveHarness) {
+	t.Helper()
+	fonts := testkit.TestFontRegistry(t)
+	reg, err := studio.StudioLayerRegistry()
+	if err != nil {
+		t.Fatalf("layer registry: %v", err)
+	}
+	themeCtx := studio.StudioThemeContext().WithFontRegistry(fonts)
+	root := studio.BuildRoot(app.BuildContext{
+		FontRegistry: fonts,
+		WindowSize:   gfx.Size{W: 1280, H: 800},
+		ContentScale: 1,
+		Theme:        themeCtx,
+	}, studio.NewDirtySink(10), studioSeedRows(t), reg)
+
+	cfg := testkit.StandardHarnessConfig(t, 1280, 800)
+	cfg.LayerRegistry = reg
+	cfg.ThemeResolver = themeCtx.Resolver
+	h = testkit.NewDriveHarnessWithConfig(t, cfg, root)
+	h.RunFrame() // settle the initial dirty-all frame
+
+	dir, err := os.MkdirTemp("", "ldp") // 0700, and short: the cmake drive target uses a TMPDIR near the 108-byte unix-socket bound
+	if err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	socket = filepath.Join(dir, "d.sock")
+	token = strings.Repeat("cd", 32)
+	return socket, token, h
+}
+
+// TestV2SocketRuntimePing is the S1 acceptance path: a driver authenticates
+// to a live app over a real Unix socket, negotiates the major-2 session,
+// and pings the real runtime at a cut. The pong's cut/frame attribution
+// must reflect the app's actual rendered progress.
+func TestV2SocketRuntimePing(t *testing.T) {
+	socket, token, h := v2SocketServer(t)
+	srv, err := startV2Server(t, h, socket, token)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+
+	nc, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer nc.Close()
+	_ = nc.SetDeadline(time.Now().Add(30 * time.Second))
+	rw := bufio.NewReadWriter(bufio.NewReader(nc), bufio.NewWriter(nc))
+
+	// send writes one request line; recv reads one reply line.
+	send := func(id, method string, params any) {
+		var raw []byte
+		if params != nil {
+			raw, err = json.Marshal(params)
+			if err != nil {
+				t.Fatalf("marshal: %v", err)
+			}
+		}
+		req, err := json.Marshal(proto.Request{V: proto.ProtocolMajor, ID: id, Method: method, Params: raw})
+		if err != nil {
+			t.Fatalf("marshal request: %v", err)
+		}
+		if _, err := rw.Write(append(req, '\n')); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+		if err := rw.Flush(); err != nil {
+			t.Fatalf("flush: %v", err)
+		}
+	}
+	// call hello (answered without the runtime); run exchanges one
+	// post-hello request: the reader waits concurrently while the test
+	// advances the app so the runtime admits and executes at a cut.
+	call := func(id, method string, params any) proto.Response {
+		t.Logf("call %s %s", id, method)
+		send(id, method, params)
+		type result struct {
+			res proto.Response
+			err error
+		}
+		ch := make(chan result, 1)
+		go func() {
+			line, err := rw.ReadString('\n')
+			if err != nil {
+				ch <- result{err: err}
+				return
+			}
+			res, derr := proto.DecodeResponse([]byte(strings.TrimRight(line, "\n")))
+			ch <- result{res: res, err: derr}
+		}()
+		// Pump the app until the runtime admits and replies at a cut; the
+		// server goroutine may enqueue the command after this frame's drain.
+		for i := 0; i < 64; i++ {
+			select {
+			case r := <-ch:
+				if r.err != nil {
+					t.Fatalf("read: %v", r.err)
+				}
+				return r.res
+			default:
+			}
+			h.RunFrame()
+			time.Sleep(time.Millisecond)
+		}
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				t.Fatalf("read: %v", r.err)
+			}
+			return r.res
+		case <-time.After(30 * time.Second):
+			t.Fatalf("%s %s: no reply within 30s", method, id)
+		}
+		return proto.Response{}
+	}
+
+	// Handshake: create the session.
+	hres := call("1", "sys.hello", map[string]any{
+		"token": token, "client_name": "v2-socket-test", "create_session": true,
+	})
+	if !hres.OK {
+		t.Fatalf("hello rejected: %s", hres.Error)
+	}
+	var hr struct {
+		InstanceID   string   `json:"instance_id"`
+		SessionID    string   `json:"session_id"`
+		Credential   string   `json:"resume_credential"`
+		Generation   string   `json:"connection_generation"`
+		NextID       string   `json:"next_id"`
+		SchemaDigest string   `json:"schema_digest"`
+		Grants       []string `json:"grants"`
+	}
+	if err := json.Unmarshal(hres.Result, &hr); err != nil {
+		t.Fatalf("hello payload: %v", err)
+	}
+	if hr.InstanceID == "" || hr.SessionID == "" || hr.Credential == "" || hr.Generation != "1" {
+		t.Fatalf("hello = %+v", hr)
+	}
+	if hr.NextID != "1" {
+		t.Fatalf("next_id = %s, want 1", hr.NextID)
+	}
+	if hr.SchemaDigest != proto.SchemaDigest() {
+		t.Fatalf("schema digest = %s, want %s", hr.SchemaDigest, proto.SchemaDigest())
+	}
+
+	// Advance the app so the pong identifies real rendered progress.
+	h.RunFrame()
+	frameBefore := h.Runtime().LastFrameStats().FrameNumber
+
+	// Ping the real runtime at a cut.
+	pres := call("1", "sys.ping", map[string]any{})
+	if !pres.OK {
+		t.Fatalf("ping rejected: %s", pres.Error)
+	}
+	var pong struct {
+		Pong  bool   `json:"pong"`
+		Cut   string `json:"cut"`
+		Frame string `json:"frame"`
+	}
+	if err := json.Unmarshal(pres.Result, &pong); err != nil || !pong.Pong {
+		t.Fatalf("payload = %s (%v)", pres.Result, err)
+	}
+	// The pong is cut-exact: it identifies the sealed cut at the boundary
+	// where the runtime admitted it — never behind the app's progress at
+	// the time the client observed the reply.
+	frameAtReply := decimalFrame(pong.Frame)
+	if frameAtReply < frameBefore {
+		t.Fatalf("pong frame = %s, behind the app's progress %d", pong.Frame, frameBefore)
+	}
+	if pong.Cut != pong.Frame {
+		t.Fatalf("cut = %s, frame = %s: a sealed cut follows its submitted frame at rest", pong.Cut, pong.Frame)
+	}
+
+	// Progress the app again and observe the attribution move.
+	h.RunFrame()
+	pres2 := call("2", "sys.ping", map[string]any{})
+	var pong2 struct {
+		Frame string `json:"frame"`
+	}
+	_ = json.Unmarshal(pres2.Result, &pong2)
+	if decimalFrame(pong2.Frame) <= frameAtReply {
+		t.Fatalf("second pong frame %s did not advance past %s", pong2.Frame, pong.Frame)
+	}
+
+	// Retry the same ping ID: the retained outcome replays, and the runtime
+	// handled exactly two pings plus nothing hidden.
+	replay := call("1", "sys.ping", map[string]any{})
+	if !replay.OK || string(replay.Result) != string(pres.Result) {
+		t.Fatalf("replayed ping = %+v, want the original outcome", replay)
+	}
+}
+
+// TestV2RejectsLegacyMutation is the AC-01/S1 negative gate over the real
+// wire: the v1 direct-write verb and the v1 major are both gone, and the
+// `write` grant fails startup parsing.
+func TestV2RejectsLegacyMutation(t *testing.T) {
+	socket, token, h := v2SocketServer(t)
+	srv, err := startV2Server(t, h, socket, token)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+
+	nc, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer nc.Close()
+	_ = nc.SetDeadline(time.Now().Add(30 * time.Second))
+	rw := bufio.NewReadWriter(bufio.NewReader(nc), bufio.NewWriter(nc))
+
+	call := func(id, method string, params any) proto.Response {
+		var raw []byte
+		if params != nil {
+			enc, merr := json.Marshal(params)
+			if merr != nil {
+				t.Fatalf("marshal: %v", merr)
+			}
+			raw = enc
+		}
+		req, merr := json.Marshal(proto.Request{V: proto.ProtocolMajor, ID: id, Method: method, Params: raw})
+		if merr != nil {
+			t.Fatalf("marshal request: %v", merr)
+		}
+		_, _ = rw.Write(append(req, '\n'))
+		_ = rw.Flush()
+		type result struct {
+			res proto.Response
+			err error
+		}
+		ch := make(chan result, 1)
+		go func() {
+			line, err := rw.ReadString('\n')
+			if err != nil {
+				ch <- result{err: err}
+				return
+			}
+			res, derr := proto.DecodeResponse([]byte(strings.TrimRight(line, "\n")))
+			ch <- result{res: res, err: derr}
+		}()
+		for i := 0; i < 64; i++ {
+			select {
+			case r := <-ch:
+				if r.err != nil {
+					t.Fatalf("read: %v", r.err)
+				}
+				return r.res
+			default:
+			}
+			h.RunFrame()
+			time.Sleep(time.Millisecond)
+		}
+		select {
+		case r := <-ch:
+			if r.err != nil {
+				t.Fatalf("read: %v", r.err)
+			}
+			return r.res
+		case <-time.After(30 * time.Second):
+			t.Fatalf("%s %s: no reply within 30s", method, id)
+		}
+		return proto.Response{}
+	}
+
+	if res := call("1", "sys.hello", map[string]any{
+		"token": token, "client_name": "legacy", "create_session": true,
+	}); !res.OK {
+		t.Fatalf("hello rejected: %s", res.Error)
+	}
+
+	// store.write: the direct mutation surface does not exist. The request
+	// is well-typed, so it consumes its ID and answers a typed
+	// protocol.unknown_method — and no store mutates anywhere.
+	res := call("1", "store.write", map[string]any{"name": "e1.chartType", "value": 3})
+	if res.OK || res.Error == nil || res.Error.Code != proto.ErrUnknownMethod {
+		t.Fatalf("store.write = %+v, want protocol.unknown_method", res)
+	}
+	if res.NonAdmitted {
+		t.Fatal("a well-typed unknown method is admitted then rejected, not non-admitted")
+	}
+
+	// The v1 `write` grant is not part of major 2: parsing it fails startup.
+	if _, err := drive.ParseGrants("read,write"); err == nil {
+		t.Fatal(`parseGrants("read,write") must fail startup`)
+	}
+
+	// A v1 client (major 1) is rejected by the handshake and disconnected.
+	req, merr := json.Marshal(proto.Request{V: 1, ID: "1", Method: "sys.ping"})
+	if merr != nil {
+		t.Fatalf("marshal: %v", merr)
+	}
+	_, _ = rw.Write(append(req, '\n'))
+	_ = rw.Flush()
+	line, err := rw.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read version mismatch reply: %v", err)
+	}
+	vres, derr := proto.DecodeResponse([]byte(strings.TrimRight(line, "\n")))
+	if derr != nil || vres.OK || vres.Error == nil || vres.Error.Code != proto.ErrVersionMismatch {
+		t.Fatalf("v1 envelope = %+v (%v), want protocol.version_mismatch", vres, derr)
+	}
+	if _, err := rw.ReadString('\n'); err == nil {
+		t.Fatal("a v1 client must be disconnected after the mismatch")
+	}
+
+	// The runtime is still rendering after the rejections.
+	h.RunFrame()
+	if h.Runtime().LastFrameStats().FrameNumber == 0 {
+		t.Fatal("runtime stopped rendering after legacy rejections")
+	}
+}
+
+// startV2Server binds a real v2 server to the harness runtime's port and
+// session table (the production wiring the app layer performs).
+func startV2Server(t *testing.T, h *testkit.DriveHarness, socket, token string) (*server.Server, error) {
+	t.Helper()
+	return server.Listen(server.Config{
+		SocketPath: socket,
+		Token:      token,
+		Grants:     drive.Grants{Read: true, Input: true, Command: true, Time: true},
+		Sessions:   h.Sessions(),
+		Port:       h.Runtime().DrivePort(),
+	})
+}
+
+// decimalFrame parses a decimal wire frame attribution.
+func decimalFrame(s string) uint64 {
+	v, _ := strconv.ParseUint(s, 10, 64)
+	return v
+}

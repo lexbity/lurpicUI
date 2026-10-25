@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 )
 
 func mustDriveRuntime(t testing.TB) *Runtime {
@@ -15,6 +15,7 @@ func mustDriveRuntime(t testing.TB) *Runtime {
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
+	testSessionTable(t, &cfg)
 	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
@@ -23,15 +24,16 @@ func mustDriveRuntime(t testing.TB) *Runtime {
 	return rt
 }
 
-func drivePingCmd(id uint64) drive.Command {
-	return drive.Command{ID: id, Method: "sys.ping", Grants: drive.Grants{Read: true}, Reply: make(chan drive.Result, 1)}
+func drivePingCmd(rt *Runtime, t testing.TB) drive.Result {
+	t.Helper()
+	return driveCall(t, rt, "sys.ping", nil, allGrants())
 }
 
 func TestDrive_DisabledByDefaultNoSink(t *testing.T) {
 	rt := mustRuntimeTree(t, buildBenchmarkTree())
 	defer rt.Shutdown()
-	if rt.DriveSink() != nil {
-		t.Fatal("DriveSink must be nil when disabled")
+	if rt.DrivePort() != nil {
+		t.Fatal("DrivePort must be nil when disabled")
 	}
 	if rt.DriveStats() != nil {
 		t.Fatal("DriveStats must be nil when disabled")
@@ -50,25 +52,23 @@ func TestDrive_CommandExecutesAtCut(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	rt.RunOneFrame() // frame 1: establishes epoch 1
 
-	cmd := drivePingCmd(1)
-	rt.DriveSink().Enqueue(cmd)
+	res := drivePingCmd(rt, t)
 
-	rt.RunOneFrame() // frame 2: drains at the cut
-	res := <-cmd.Reply
 	if res.Err != nil {
 		t.Fatalf("ping error: %+v", res.Err)
 	}
 	var payload struct {
-		Pong bool `json:"pong"`
+		Pong  bool   `json:"pong"`
+		Cut   string `json:"cut"`
+		Frame string `json:"frame"`
 	}
 	if err := json.Unmarshal(res.Payload, &payload); err != nil || !payload.Pong {
 		t.Fatalf("payload = %s (%v)", res.Payload, err)
 	}
-	// QP-6: the reply carries the epoch of the cut it observed — the last
-	// completed frame (frame 1); the command executes at the boundary before
-	// frame 2.
-	if res.Frame != 1 {
-		t.Fatalf("frame = %d, want 1 (the cut after the first frame)", res.Frame)
+	// The pong observes the sealed cut of the last completed frame (frame
+	// 1); the command executes at the boundary before frame 2.
+	if res.Frame != "1" || res.Cut != "1" || payload.Frame != "1" {
+		t.Fatalf("cut/frame = %s/%s (payload %s), want the sealed cut after frame 1", res.Cut, res.Frame, payload.Frame)
 	}
 	stats := rt.LastFrameStats()
 	if stats.DriveCommandsDrained != 1 {
@@ -83,16 +83,27 @@ func TestDrive_MultipleCommandsInOrder(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	rt.RunOneFrame()
 	const n = 4
+	client := testClientFor(t, rt)
 	cmds := make([]drive.Command, n)
 	for i := range cmds {
-		cmds[i] = drivePingCmd(uint64(i + 1))
-		rt.DriveSink().Enqueue(cmds[i])
+		client.next++
+		cmds[i] = drive.Command{
+			Session:    client.sess.ID,
+			Generation: client.sess.Generation(),
+			ID:         client.next,
+			Method:     "sys.ping",
+			Grants:     allGrants(),
+			Reply:      make(chan drive.Result, 1),
+		}
+		if err := rt.DrivePort().Submit(cmds[i]); err != nil {
+			t.Fatalf("submit: %v", err)
+		}
 	}
 	rt.RunOneFrame()
 	for i, cmd := range cmds {
 		res := <-cmd.Reply
-		if res.Err != nil || res.Frame != 1 {
-			t.Fatalf("cmd %d: %+v (frame %d, want the cut epoch 1)", i, res.Err, res.Frame)
+		if res.Err != nil || res.Frame != "1" {
+			t.Fatalf("cmd %d: %+v (frame %s, want the sealed cut \"1\")", i, res.Err, res.Frame)
 		}
 	}
 	if got := rt.LastFrameStats().DriveCommandsDrained; got != n {
@@ -103,15 +114,12 @@ func TestDrive_MultipleCommandsInOrder(t *testing.T) {
 func TestDrive_UnknownMethodTypedError(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	rt.RunOneFrame()
-	cmd := drive.Command{ID: 9, Method: "sys.nope", Reply: make(chan drive.Result, 1)}
-	rt.DriveSink().Enqueue(cmd)
-	rt.RunOneFrame()
-	res := <-cmd.Reply
-	if res.Err == nil || res.Err.Code != proto.ErrInternal {
-		t.Fatalf("result err = %+v, want internal typed error", res.Err)
+	res := driveCall(t, rt, "sys.nope", nil, allGrants())
+	if resultCode(res.Err) != string(proto.ErrUnknownMethod) {
+		t.Fatalf("result err = %+v, want protocol.unknown_method", res.Err)
 	}
-	if !strings.Contains(res.Err.Detail, "sys.nope") {
-		t.Fatalf("detail %q must name the method", res.Err.Detail)
+	if !strings.Contains(errDetail(res.Err), "sys.nope") {
+		t.Fatalf("detail %q must name the method", errDetail(res.Err))
 	}
 }
 
@@ -125,15 +133,20 @@ func TestDrive_HandlerPanicBecomesTypedError(t *testing.T) {
 		panic("boom")
 	}
 	defer delete(driveMethods, "sys.panic-test")
-	cmd := drive.Command{ID: 3, Method: "sys.panic-test", Grants: drive.Grants{Read: true}, Reply: make(chan drive.Result, 1)}
-	rt.DriveSink().Enqueue(cmd)
-	rt.RunOneFrame()
-	res := <-cmd.Reply
-	if res.Err == nil || res.Err.Code != proto.ErrInternal {
+	// The dispatch recover wraps handler execution (driveExecute); the
+	// panicking handler is invoked directly on the runtime thread.
+	cmd := drive.Command{
+		Method: "sys.panic-test",
+		Grants: allGrants(),
+		Reply:  make(chan drive.Result, 1),
+	}
+	out := rt.driveExecute(cmd)
+	res := out.result
+	if resultCode(res.Err) != string(proto.ErrInternalPanic) {
 		t.Fatalf("result err = %+v, want internal.panic", res.Err)
 	}
-	if !strings.Contains(res.Err.Detail, "boom") {
-		t.Fatalf("detail %q must carry the panic value", res.Err.Detail)
+	if !strings.Contains(errDetail(res.Err), "boom") {
+		t.Fatalf("detail %q must carry the panic value", errDetail(res.Err))
 	}
 	// Exactly-once reply.
 	select {
@@ -164,19 +177,16 @@ func TestDrive_InfoMethodListMatchesTable(t *testing.T) {
 func TestDrive_SysInfoReportsCounters(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	rt.RunOneFrame()
-	cmd := drive.Command{ID: 2, Method: "sys.info", Grants: drive.Grants{Read: true}, Reply: make(chan drive.Result, 1)}
-	rt.DriveSink().Enqueue(cmd)
-	rt.RunOneFrame()
-	res := <-cmd.Reply
+	res := driveCall(t, rt, "sys.info", nil, allGrants())
 	if res.Err != nil {
 		t.Fatalf("sys.info error: %+v", res.Err)
 	}
 	var payload struct {
 		V       int      `json:"v"`
-		Frame   uint64   `json:"frame"`
+		Frame   string   `json:"frame"`
 		Methods []string `json:"methods"`
 		Drive   struct {
-			CommandsDrained uint64 `json:"commandsDrained"`
+			CommandsDrained uint64 `json:"commands_drained"`
 		} `json:"drive"`
 	}
 	if err := json.Unmarshal(res.Payload, &payload); err != nil {
@@ -185,8 +195,8 @@ func TestDrive_SysInfoReportsCounters(t *testing.T) {
 	if payload.V != proto.ProtocolMajor {
 		t.Fatalf("v = %d", payload.V)
 	}
-	if payload.Frame != 1 {
-		t.Fatalf("frame = %d, want the cut epoch 1", payload.Frame)
+	if payload.Frame != "1" {
+		t.Fatalf("frame = %s, want the sealed cut after frame 1", payload.Frame)
 	}
 	if payload.Drive.CommandsDrained != 1 {
 		t.Fatalf("commandsDrained = %d, want 1", payload.Drive.CommandsDrained)
@@ -215,6 +225,7 @@ func BenchmarkFrameDriveIdle(b *testing.B) {
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(b)
 	cfg.Drive.Enabled = true
+	testSessionTable(b, &cfg)
 	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)
 	if err != nil {
 		b.Fatalf("new runtime: %v", err)

@@ -2,10 +2,12 @@ package testkit
 
 import (
 	"encoding/json"
+	"errors"
+	"strconv"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/facet"
 )
 
@@ -13,14 +15,16 @@ import (
 // runtime thread to drain the command at a cut.
 const driveReplyFrames = 128
 
-// DriveHarness boots a facet tree on the testkit runtime with the drive sink
-// installed in-process (no socket) and exposes Call(method, params), which
-// enqueues a drive command and runs frames until the runtime thread has
-// executed it at a cut — the in-process equivalent of a socket round trip
-// (NFR-1 in-process path).
+// DriveHarness boots a facet tree on the testkit runtime with the drive
+// port installed in-process (no socket) and exposes Call(method, params),
+// which submits a drive command and runs frames until the runtime thread
+// has admitted and executed it at a cut — the in-process equivalent of a
+// socket round trip.
 type DriveHarness struct {
 	*Harness
-	nextID uint64
+	nextID   uint64
+	sessions *drive.SessionTable
+	session  *drive.Session
 }
 
 // NewDriveHarness constructs the in-process drive harness.
@@ -49,15 +53,30 @@ func NewDriveHarnessWithConfig(t testing.TB, cfg HarnessConfig, root facet.Facet
 	if cfg.LayerRegistry == nil {
 		cfg.LayerRegistry = StandardLayerRegistry(t)
 	}
-	return &DriveHarness{Harness: NewHarness(t, cfg, root)}
+	if cfg.DriveSessions == nil {
+		inst, err := drive.NewInstance()
+		if err != nil {
+			t.Fatalf("testkit: drive instance: %v", err)
+		}
+		cfg.DriveSessions = drive.NewSessionTable(inst)
+	}
+	sessions := cfg.DriveSessions
+	// The trusted in-process session carries the full grant set; grant
+	// scoping is the socket path's concern.
+	sess, _, err := sessions.Create(drive.Grants{Read: true, Input: true, Command: true, Time: true, Admin: true})
+	if err != nil {
+		t.Fatalf("testkit: drive session: %v", err)
+	}
+	h := &DriveHarness{Harness: NewHarness(t, cfg, root), sessions: sessions, session: sess}
+	return h
 }
 
-// Sink returns the runtime's drive seam.
-func (h *DriveHarness) Sink() drive.Sink {
-	if h.rt == nil || h.rt.DriveSink() == nil {
-		h.t.Fatal("testkit: drive sink not installed")
+// Port returns the runtime's drive seam.
+func (h *DriveHarness) Port() drive.RuntimePort {
+	if h.rt == nil || h.rt.DrivePort() == nil {
+		h.t.Fatal("testkit: drive port not installed")
 	}
-	return h.rt.DriveSink()
+	return h.rt.DrivePort()
 }
 
 // Call executes one drive method at a cut and returns its payload or typed
@@ -75,20 +94,34 @@ func (h *DriveHarness) Call(method string, params any) (json.RawMessage, *proto.
 	}
 	h.nextID++
 	// The in-process harness is the trusted path: commands carry the full
-	// grant set (the socket path is where grants are scoped).
+	// grant set (the socket path is where grants are scoped). Admission —
+	// ledger claim, grants, dispatch — is the same runtime-thread path the
+	// socket uses.
 	cmd := drive.Command{
-		ID:     h.nextID,
-		Method: method,
-		Params: raw,
-		Grants: drive.Grants{Read: true, Input: true, Write: true, Time: true, Admin: true},
-		Reply:  make(chan drive.Result, 1),
+		Session:    h.session.ID,
+		Generation: h.session.Generation(),
+		ID:         h.nextID,
+		OpID:       h.sessions.InstanceID() + "/" + h.session.ID + "/" + strconv.FormatUint(h.nextID, 10),
+		Method:     method,
+		Params:     raw,
+		Grants:     h.session.Grants,
+		Reply:      make(chan drive.Result, 1),
 	}
-	h.Sink().Enqueue(cmd)
+	if err := h.Port().Submit(cmd); err != nil {
+		h.t.Fatalf("testkit: submit drive %q: %v", method, err)
+	}
 	for i := 0; i < driveReplyFrames; i++ {
 		h.RunFrame()
 		select {
 		case res := <-cmd.Reply:
-			return res.Payload, res.Err
+			if res.Err == nil {
+				return res.Payload, nil
+			}
+			var perr *proto.Error
+			if !errors.As(res.Err, &perr) {
+				perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: res.Err.Error()}
+			}
+			return res.Payload, perr
 		default:
 		}
 	}
@@ -105,3 +138,7 @@ func (h *DriveHarness) CallOK(method string, params any) json.RawMessage {
 	}
 	return payload
 }
+
+// Sessions exposes the harness's drive session table (the socket test
+// path binds a real server against it).
+func (h *DriveHarness) Sessions() *drive.SessionTable { return h.sessions }

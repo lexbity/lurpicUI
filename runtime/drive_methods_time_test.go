@@ -2,44 +2,14 @@ package runtime
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 )
-
-func allGrants() drive.Grants {
-	return drive.Grants{Read: true, Input: true, Write: true, Time: true, Admin: true}
-}
-
-// driveCall enqueues a command and runs frames until the runtime thread has
-// replied (the manual-frame equivalent of the socket round trip).
-func driveCall(t *testing.T, rt *Runtime, method string, params any, grants drive.Grants) drive.Result {
-	t.Helper()
-	var raw json.RawMessage
-	if params != nil {
-		enc, err := json.Marshal(params)
-		if err != nil {
-			t.Fatalf("marshal params: %v", err)
-		}
-		raw = enc
-	}
-	cmd := drive.Command{ID: 1, Method: method, Params: raw, Grants: grants, Reply: make(chan drive.Result, 1)}
-	rt.DriveSink().Enqueue(cmd)
-	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := 0; i < 128; i++ {
-		rt.RunOneFrameAt(base.Add(time.Duration(i) * time.Second))
-		select {
-		case res := <-cmd.Reply:
-			return res
-		default:
-		}
-	}
-	t.Fatalf("drive %q did not reply within 128 frames", method)
-	return drive.Result{}
-}
 
 func TestDrive_TimeModeVirtualAndBack(t *testing.T) {
 	rt := mustDriveRuntime(t)
@@ -60,7 +30,7 @@ func TestDrive_TimeModeVirtualAndBack(t *testing.T) {
 	}
 	// Unknown mode is a typed error, not a panic.
 	res = driveCall(t, rt, "time.mode", map[string]string{"mode": "quantum"}, allGrants())
-	if res.Err == nil || res.Err.Code != proto.ErrInternal {
+	if resultCode(res.Err) != string(proto.ErrInvalidParams) {
 		t.Fatalf("err = %+v", res.Err)
 	}
 }
@@ -72,7 +42,7 @@ func TestDrive_TimeModeRefusesMidGesture(t *testing.T) {
 	// installs; the clock consults it on every virtual switch (QP-5).
 	rt.Clock().SetGestureGuard(func() bool { return true })
 	res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants())
-	if res.Err == nil || res.Err.Code != proto.ErrTimeMode {
+	if resultCode(res.Err) != string(proto.ErrTimeMode) {
 		t.Fatalf("err = %+v, want time.mode", res.Err)
 	}
 	if rt.Clock().Mode() != ClockWall {
@@ -83,12 +53,12 @@ func TestDrive_TimeModeRefusesMidGesture(t *testing.T) {
 func TestDrive_TimeModeGrantDenied(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
-	_, _, beforeDenied, _ := rt.DriveStats().Snapshot()
+	beforeDenied := rt.DriveStats().Load().GrantDenied
 	res := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, drive.Grants{Read: true})
-	if res.Err == nil || res.Err.Code != proto.ErrGrant {
+	if resultCode(res.Err) != string(proto.ErrGrant) {
 		t.Fatalf("err = %+v, want grant.denied", res.Err)
 	}
-	if _, _, denied, _ := rt.DriveStats().Snapshot(); denied != beforeDenied+1 {
+	if denied := rt.DriveStats().Load().GrantDenied; denied != beforeDenied+1 {
 		t.Fatalf("grant-denied counter = %d, want %d", denied, beforeDenied+1)
 	}
 	if rt.Clock().Mode() != ClockWall {
@@ -100,7 +70,7 @@ func TestDrive_AdvanceRequiresVirtual(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
 	res := driveCall(t, rt, "time.advance", map[string]float64{"d": 0.016}, allGrants())
-	if res.Err == nil || res.Err.Code != proto.ErrTimeMode {
+	if resultCode(res.Err) != string(proto.ErrTimeMode) {
 		t.Fatalf("err = %+v, want time.mode", res.Err)
 	}
 }
@@ -115,16 +85,23 @@ func TestDrive_AdvanceRunsExactlyOneFrame(t *testing.T) {
 	beforeFrame := rt.frameNumber
 	beforeNow := rt.Clock().Now()
 
-	// Manual advance: enqueue, then one RunOneFrameAt executes the wake
-	// frame (drain defers the reply) and the post-frame advance.
+	// Manual advance: submit, then one RunOneFrameAt executes the wake
+	// frame (drain defers the reply) and the post-frame advance. Admission
+	// claims the next contiguous ledger ID.
+	client := testClientFor(t, rt)
+	client.next++
 	cmd := drive.Command{
-		ID:     7,
-		Method: "time.advance",
-		Params: json.RawMessage(`{"d":0.5}`),
-		Grants: allGrants(),
-		Reply:  make(chan drive.Result, 1),
+		Session:    client.sess.ID,
+		Generation: client.sess.Generation(),
+		ID:         client.next,
+		Method:     "time.advance",
+		Params:     json.RawMessage(`{"d":0.5}`),
+		Grants:     allGrants(),
+		Reply:      make(chan drive.Result, 1),
 	}
-	rt.DriveSink().Enqueue(cmd)
+	if err := rt.DrivePort().Submit(cmd); err != nil {
+		t.Fatalf("submit: %v", err)
+	}
 	rt.RunOneFrameAt(rt.Clock().Now())
 	select {
 	case res := <-cmd.Reply:
@@ -132,13 +109,13 @@ func TestDrive_AdvanceRunsExactlyOneFrame(t *testing.T) {
 			t.Fatalf("advance: %v", res.Err)
 		}
 		var payload struct {
-			Frame uint64 `json:"frame"`
+			Frame string `json:"frame"`
 		}
 		if err := json.Unmarshal(res.Payload, &payload); err != nil {
 			t.Fatalf("payload: %v", err)
 		}
-		if payload.Frame != rt.frameNumber {
-			t.Fatalf("reply frame = %d, want the just-submitted frame %d", payload.Frame, rt.frameNumber)
+		if payload.Frame != strconv.FormatUint(rt.frameNumber, 10) {
+			t.Fatalf("reply frame = %s, want the just-submitted frame %d", payload.Frame, rt.frameNumber)
 		}
 	default:
 		t.Fatal("advance reply missing after its frame")
@@ -158,7 +135,7 @@ func TestDrive_AdvanceRejectsNonPositive(t *testing.T) {
 		t.Fatalf("time.mode: %v", res.Err)
 	}
 	res := driveCall(t, rt, "time.advance", map[string]float64{"d": 0}, allGrants())
-	if res.Err == nil || !strings.Contains(res.Err.Detail, "must be > 0") {
+	if res.Err == nil || !strings.Contains(errDetail(res.Err), "must be > 0") {
 		t.Fatalf("err = %+v", res.Err)
 	}
 }
@@ -167,7 +144,7 @@ func TestDrive_FrameRunRequiresVirtual(t *testing.T) {
 	rt := mustDriveRuntime(t)
 	defer rt.Shutdown()
 	res := driveCall(t, rt, "frame.run", map[string]any{"steps": []any{}}, allGrants())
-	if res.Err == nil || res.Err.Code != proto.ErrTimeMode {
+	if resultCode(res.Err) != string(proto.ErrTimeMode) {
 		t.Fatalf("err = %+v, want time.mode", res.Err)
 	}
 }
@@ -188,7 +165,7 @@ func TestDrive_FrameRunStepsAdvanceThen(t *testing.T) {
 		"then":    []map[string]any{{"method": "sys.ping"}},
 	}, allGrants())
 	if res.Err != nil {
-		t.Fatalf("frame.run: %v (%s)", res.Err, res.Err.Detail)
+		t.Fatalf("frame.run: %v (%s)", res.Err, errDetail(res.Err))
 	}
 	var payload struct {
 		Applied int               `json:"applied"`
@@ -231,36 +208,36 @@ func TestDrive_FrameRunValidation(t *testing.T) {
 		{
 			name:   "until without max",
 			params: map[string]any{"advance": map[string]any{"until": map[string]any{"quiescent": map[string]int{"frames": 2}}}},
-			code:   proto.ErrInternal,
+			code:   proto.ErrInvalidParams,
 			detail: "positive max",
 		},
 		{
 			name:   "frames and until both",
 			params: map[string]any{"advance": map[string]any{"frames": 1, "until": map[string]any{"max": 5}}},
-			code:   proto.ErrInternal,
+			code:   proto.ErrInvalidParams,
 			detail: "mutually exclusive",
 		},
 		{
 			name:   "unknown step method",
 			params: map[string]any{"steps": []map[string]any{{"method": "no.such"}}},
-			code:   proto.ErrInternal,
+			code:   proto.ErrInvalidParams,
 			detail: "unknown method",
 		},
 		{
 			name:   "until without predicates",
 			params: map[string]any{"advance": map[string]any{"until": map[string]any{"max": 5}}},
-			code:   proto.ErrInternal,
+			code:   proto.ErrInvalidParams,
 			detail: "at least one predicate",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			res := driveCall(t, rt, "frame.run", tc.params, allGrants())
-			if res.Err == nil || res.Err.Code != tc.code {
+			if resultCode(res.Err) != string(tc.code) {
 				t.Fatalf("err = %+v, want %s", res.Err, tc.code)
 			}
-			if !strings.Contains(res.Err.Detail, tc.detail) {
-				t.Fatalf("detail %q must contain %q", res.Err.Detail, tc.detail)
+			if !strings.Contains(errDetail(res.Err), tc.detail) {
+				t.Fatalf("detail %q must contain %q", errDetail(res.Err), tc.detail)
 			}
 		})
 	}
@@ -277,11 +254,11 @@ func TestDrive_FrameRunGrantDeniedPerStep(t *testing.T) {
 	res := driveCall(t, rt, "frame.run", map[string]any{
 		"steps": []map[string]any{{"method": "sys.ping"}},
 	}, drive.Grants{Time: true})
-	if res.Err == nil || res.Err.Code != proto.ErrGrant {
+	if resultCode(res.Err) != string(proto.ErrGrant) {
 		t.Fatalf("err = %+v, want grant.denied", res.Err)
 	}
-	if !strings.Contains(res.Err.Detail, "sys.ping") {
-		t.Fatalf("detail %q must name the denied step", res.Err.Detail)
+	if !strings.Contains(errDetail(res.Err), "sys.ping") {
+		t.Fatalf("detail %q must name the denied step", errDetail(res.Err))
 	}
 }
 
@@ -331,10 +308,10 @@ func TestDrive_FrameRunUntilBudgetExhaustion(t *testing.T) {
 			},
 		},
 	}, allGrants())
-	if res.Err == nil || res.Err.Code != proto.ErrTimeMode {
+	if resultCode(res.Err) != string(proto.ErrTimeMode) {
 		t.Fatalf("err = %+v, want time.mode budget error", res.Err)
 	}
-	if !strings.Contains(res.Err.Detail, "applied") {
-		t.Fatalf("detail %q must carry the applied/frames report", res.Err.Detail)
+	if !strings.Contains(errDetail(res.Err), "applied") {
+		t.Fatalf("detail %q must carry the applied/frames report", errDetail(res.Err))
 	}
 }

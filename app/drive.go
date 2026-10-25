@@ -9,31 +9,42 @@ import (
 	"strconv"
 	"strings"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/runtime"
 )
 
 // DriveConfig is the app-layer drive configuration. The environment is the
-// single source (parseDriveEnv); LDP is disabled unless LURPIC_DRIVE is set
-// (FR-4).
+// single source (parseDriveEnv); LDP is disabled unless LURPIC_DRIVE is set.
 type DriveConfig struct {
 	Enabled    bool
 	SocketPath string
 	GrantsSpec string
-	Grants     server.Grants
+	Grants     drive.Grants
+	// Instance is the app launch's random identity; Sessions is the table
+	// it issues. Both are created by wireDriveEnv when enabled and shared
+	// by the runtime (admission) and the server (transport).
+	Instance Instance
+	Sessions *drive.SessionTable
+	// Stats is the shared drive counter set.
+	Stats *drive.Stats
 }
+
+// Instance is the drive.Instance type at app scope (the app layer owns the
+// lifecycle: one identity per launch, created in wireDriveEnv).
+type Instance = drive.Instance
 
 // driveDefaultGrants is the grant set for a bare "on": least privilege —
 // reads only. Automation that needs more asks for it explicitly
 // (on:read,input).
 const driveDefaultGrants = "read"
 
-// parseDriveEnv parses LURPIC_DRIVE. Grammar (QP-4):
+// parseDriveEnv parses LURPIC_DRIVE. Grammar:
 //
 //	off                          → disabled
 //	on[:grant,grant...]          → default socket, optional grants
-//	unix:<path>[:grant,grant...] → explicit socket, optional grants
+//	unix:<path>[:grant,grant...] → explicit absolute socket, optional grants
 //
 // Empty string disables. Anything else is a startup error — fail-loud, no
 // best-effort guessing. This is the only LURPIC_DRIVE parse site in the
@@ -49,6 +60,9 @@ func parseDriveEnv(v string) (DriveConfig, error) {
 		path, grants, hasGrants := strings.Cut(rest, ":")
 		if path == "" {
 			return DriveConfig{}, fmt.Errorf("app: LURPIC_DRIVE=unix:<path> requires a path")
+		}
+		if !strings.HasPrefix(path, "/") {
+			return DriveConfig{}, fmt.Errorf("app: LURPIC_DRIVE socket path %q must be absolute and private", path)
 		}
 		cfg.SocketPath = path
 		if hasGrants {
@@ -69,7 +83,7 @@ func parseDriveEnv(v string) (DriveConfig, error) {
 	if cfg.GrantsSpec == "" {
 		return DriveConfig{}, fmt.Errorf("app: LURPIC_DRIVE=%q has an empty grant list", v)
 	}
-	grants, err := server.ParseGrants(cfg.GrantsSpec)
+	grants, err := drive.ParseGrants(cfg.GrantsSpec)
 	if err != nil {
 		return DriveConfig{}, fmt.Errorf("app: LURPIC_DRIVE grants: %w", err)
 	}
@@ -86,10 +100,10 @@ func defaultDriveSocketPath() (string, error) {
 	return dir + "/lurpic-" + strconv.Itoa(os.Getpid()) + "/drive.sock", nil
 }
 
-// startDriveServer boots the LDP server for the configured app and runtime.
-// It generates the 32-byte token, binds the socket, and shares the runtime's
-// drive counters so both sides count into one surface. The caller owns
-// Close.
+// startDriveServer boots the LDP v2 server for the configured app and
+// runtime: it generates the 32-byte launcher token, binds the socket under
+// the ownership rules, and installs the explicitly-constructed ports. The
+// caller owns Close.
 func startDriveServer(cfg *DriveConfig, rt *runtime.Runtime) (*server.Server, error) {
 	if !cfg.Enabled {
 		return nil, errors.New("app: drive disabled")
@@ -101,45 +115,60 @@ func startDriveServer(cfg *DriveConfig, rt *runtime.Runtime) (*server.Server, er
 		}
 		cfg.SocketPath = path
 	}
+	if cfg.Sessions == nil {
+		return nil, errors.New("app: drive session table missing (wireDriveEnv)")
+	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, fmt.Errorf("app: drive token: %w", err)
 	}
-	sink := rt.DriveSink()
-	if sink == nil {
-		return nil, errors.New("app: runtime drive sink missing (Runtime.Config.Drive.Enabled)")
+	port := rt.DrivePort()
+	if port == nil {
+		return nil, errors.New("app: runtime drive port missing (Runtime.Config.Drive.Enabled)")
 	}
 	return server.Listen(server.Config{
 		SocketPath: cfg.SocketPath,
 		Token:      hex.EncodeToString(raw),
 		Grants:     cfg.Grants,
-		Sink:       sink,
+		Sessions:   cfg.Sessions,
+		Port:       port,
 		Stats:      rt.DriveStats(),
 	})
 }
 
 // wireDriveEnv applies the single LURPIC_DRIVE parse to the app and runtime
-// configurations. Returns the parsed config so Run can log and start the
-// server after runtime construction.
+// configurations. When enabled it creates the instance identity, the
+// session table, and the shared counter set, and installs them on the
+// runtime configuration BEFORE the runtime is constructed — both sides of
+// the seam are explicit at startup.
 func wireDriveEnv(cfg *Config) (DriveConfig, error) {
 	driveCfg, err := parseDriveEnv(os.Getenv("LURPIC_DRIVE"))
 	if err != nil {
 		return DriveConfig{}, err
 	}
 	if driveCfg.Enabled {
-		// Android release builds refuse LDP at startup (§3.8 gate).
+		// Android release builds refuse LDP at startup (the build-tag gate).
 		if err := androidDriveGate(); err != nil {
 			return DriveConfig{}, err
 		}
+		inst, err := drive.NewInstance()
+		if err != nil {
+			return DriveConfig{}, fmt.Errorf("app: drive instance: %w", err)
+		}
+		driveCfg.Instance = inst
+		driveCfg.Sessions = drive.NewSessionTable(inst)
+		driveCfg.Stats = &drive.Stats{}
 	}
 	cfg.Drive = driveCfg
 	cfg.Runtime.Drive.Enabled = driveCfg.Enabled
+	cfg.Runtime.Drive.Sessions = driveCfg.Sessions
+	cfg.Runtime.Drive.Stats = driveCfg.Stats
 	return driveCfg, nil
 }
 
 // logDriveSocket announces the bound socket so a driver can find it.
 func logDriveSocket(logger log.Logger, cfg DriveConfig) {
-	line := fmt.Sprintf("drive: socket=%s grants=%s", cfg.SocketPath, cfg.Grants.String())
+	line := fmt.Sprintf("drive: socket=%s grants=%s instance=%s", cfg.SocketPath, cfg.Grants.String(), cfg.Instance.ID)
 	if logger != nil {
 		logger.Info(line)
 		return

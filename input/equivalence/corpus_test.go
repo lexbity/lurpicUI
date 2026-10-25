@@ -143,21 +143,11 @@ func corpusTest() []Pair {
 				testkit.DriveClickAt(h, 240, 120)
 			},
 		},
-		{
-			Name:      "store.write/value",
-			Fixture:   newValueFixture,
-			GUIHelper: "testkit.DriveClickAt (checkbox click)",
-			Verb: func(h *testkit.DriveHarness) *proto.Error {
-				_, perr := h.Call("store.write", map[string]any{
-					"name":  "checkbox",
-					"value": 1,
-				})
-				return perr
-			},
-			GUI:     func(h *testkit.Harness) { testkit.DriveClickAt(h, 240, 120) },
-			Compare: CompareStores,
-		},
 	}
+
+	// The direct-write verb must not exist (AC-01): no corpus pair can
+	// prove an equivalence for a surface protocol major 2 does not have.
+	// The negative gate below executes the real dispatch path.
 }
 
 // TestCorpus runs every pair (G6.2).
@@ -166,5 +156,18 @@ func TestCorpus(t *testing.T) {
 		t.Run(p.Name, func(t *testing.T) {
 			AssertEquivalent(t, p)
 		})
+	}
+}
+
+// TestStoreWriteHasNoEquivalent is the AC-01 negative control executed
+// against the real in-process admission path: store.write is not in the
+// registry, so the runtime answers protocol.unknown_method and no store
+// mutates. A skipped or absent negative control here would let a poke verb
+// return silently.
+func TestStoreWriteHasNoEquivalent(t *testing.T) {
+	fix := newButtonFixture(t)
+	_, perr := fix.Harness.Call("store.write", map[string]any{"name": "checkbox", "value": 1})
+	if perr == nil || perr.Code != proto.ErrUnknownMethod {
+		t.Fatalf("store.write = %v, want protocol.unknown_method", perr)
 	}
 }

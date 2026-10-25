@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
+	"codeburg.org/lexbit/lurpicui/drive"
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -24,9 +25,14 @@ type HarnessConfig struct {
 	ThemeResolver    *theme.ThemeResolver    // optional; the anchored-layer recipe resolver
 	Backend          render.Backend          // optional; defaults to software renderer
 	WritingDirection layout.WritingDirection // empty defaults to LTR
-	// Drive installs the runtime drive sink in-process (no socket), enabling
-	// the DriveHarness and direct drive.Sink access.
+	// Drive installs the runtime drive port in-process (no socket),
+	// enabling the DriveHarness and direct drive.RuntimePort access.
 	Drive bool
+	// DriveSessions is the session table the runtime admits commands
+	// through; the DriveHarness installs one when unset.
+	DriveSessions *drive.SessionTable
+	// DriveStats is the shared drive counter set; a private one when nil.
+	DriveStats *drive.Stats
 	// CommandRegistry wires the app's command registry (the cmd.execute
 	// surface). Nil means no registry configured.
 	CommandRegistry *runtime.CommandRegistry
@@ -79,6 +85,9 @@ type Harness struct {
 	fonts      *text.FontRegistry
 	rt         *runtime.Runtime
 	FrameCount int
+	// driveSessions is the session table backing the in-process drive seam
+	// (nil when Drive is disabled).
+	driveSessions *drive.SessionTable
 	// frameClock is the synthetic frame-time source: RunFrame seeds the
 	// runtime clock from it before each frame, so frame dt is fully under
 	// the test's control (zero by default — headless frames carry no
@@ -145,13 +154,22 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 	rtcfg.LayerRegistry = config.LayerRegistry
 	rtcfg.ThemeResolver = config.ThemeResolver
 	rtcfg.Drive.Enabled = config.Drive
+	if config.Drive && config.DriveSessions == nil {
+		inst, err := drive.NewInstance()
+		if err != nil {
+			t.Fatalf("drive instance: %v", err)
+		}
+		config.DriveSessions = drive.NewSessionTable(inst)
+	}
+	rtcfg.Drive.Sessions = config.DriveSessions
+	rtcfg.Drive.Stats = config.DriveStats
 	rtcfg.DescribeMark = drivedesc.Describe
 	rtcfg.CommandRegistry = config.CommandRegistry
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {
 		t.Fatalf("runtime: %v", err)
 	}
-	h := &Harness{t: t, app: app, surface: surface, fonts: fonts, rt: rt}
+	h := &Harness{t: t, app: app, surface: surface, fonts: fonts, rt: rt, driveSessions: config.DriveSessions}
 	t.Cleanup(func() {
 		rt.Shutdown()
 		app.Destroy()

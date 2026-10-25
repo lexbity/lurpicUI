@@ -145,16 +145,3 @@ func newPaletteFixture(t testing.TB) *Fixture {
 	})
 	return fix
 }
-
-// newValueFixture builds a checkbox bound to a named store — the indirect
-// GUI twin of store.write.
-func newValueFixture(t testing.TB) *Fixture {
-	t.Helper()
-	value := store.NewValueStore(selection.CheckboxStateOff)
-	box := selection.NewCheckbox("Enabled", value)
-	fix := fixtureHarness(t, box)
-	fix.RegisterNames(t, map[string]versionedStore{
-		"checkbox": value,
-	})
-	return fix
-}

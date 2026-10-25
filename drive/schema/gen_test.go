@@ -53,10 +53,10 @@ func TestClientCoversRegistry(t *testing.T) {
 		client[m] = true
 	}
 	registry := map[string]bool{}
-	for _, spec := range proto.Registry {
+	for _, spec := range proto.AdvertisedRegistry() {
 		registry[spec.Name] = true
 		if !client[spec.Name] {
-			t.Errorf("registry method %q has no generated client method", spec.Name)
+			t.Errorf("advertised method %q has no generated client method", spec.Name)
 		}
 	}
 	for m := range client {
@@ -85,8 +85,13 @@ func TestSchemaJSONValid(t *testing.T) {
 	if doc.Protocol != proto.ProtocolMajor {
 		t.Fatalf("protocol = %d, want %d", doc.Protocol, proto.ProtocolMajor)
 	}
-	if len(doc.Methods) != len(proto.Registry) {
-		t.Fatalf("methods = %d, want %d", len(doc.Methods), len(proto.Registry))
+	if len(doc.Methods) != len(proto.AdvertisedRegistry()) {
+		t.Fatalf("methods = %d, want the advertised registry of %d", len(doc.Methods), len(proto.AdvertisedRegistry()))
+	}
+	for _, spec := range proto.Registry {
+		if spec.Name == "store.write" {
+			t.Fatalf("store.write remains in the registry")
+		}
 	}
 }
 

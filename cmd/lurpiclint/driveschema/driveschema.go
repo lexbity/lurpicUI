@@ -53,11 +53,12 @@ func gofmtSource(src []byte) ([]byte, error) {
 	return format.Source(src)
 }
 
-// schemaJSON builds the JSON Schema document: every registry method with its
-// grant, mutating flag, tier, twin, and result shape.
+// schemaJSON builds the JSON Schema document: every advertised registry
+// method with its grant, mutating flag, tier, twin, and result shape. The
+// major-2 schema never contains an unported method (D12) or a write grant.
 func schemaJSON() ([]byte, error) {
 	methods := make([]map[string]any, 0, len(proto.Registry))
-	for _, spec := range proto.Registry {
+	for _, spec := range proto.AdvertisedRegistry() {
 		m := map[string]any{
 			"name":     spec.Name,
 			"grant":    spec.Grant,
@@ -72,11 +73,12 @@ func schemaJSON() ([]byte, error) {
 		methods = append(methods, m)
 	}
 	doc := map[string]any{
-		"$schema":     "https://json-schema.org/draft/2020-12/schema",
-		"title":       "LDP — Lurpic Drive Protocol methods",
-		"protocol":    proto.ProtocolMajor,
-		"description": "Generated from drive/proto/registry.go by lurpiclint drive-schema. DO NOT EDIT.",
-		"methods":     methods,
+		"$schema":       "https://json-schema.org/draft/2020-12/schema",
+		"title":         "LDP — Lurpic Drive Protocol methods",
+		"protocol":      proto.ProtocolMajor,
+		"schema_digest": proto.SchemaDigest(),
+		"description":   "Generated from drive/proto/registry.go by lurpiclint drive-schema. DO NOT EDIT.",
+		"methods":       methods,
 	}
 	out, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
@@ -98,7 +100,9 @@ func clientName(method string) string {
 }
 
 // clientGo renders the typed client: a transport-agnostic Client whose
-// per-method calls cover every registry entry (compile-time pairing, G8.3).
+// per-method calls cover every advertised registry entry (compile-time
+// pairing). The generated method list is the major-2 wire surface only —
+// unported methods are absent, and store.write cannot be generated at all.
 func clientGo() []byte {
 	var sb strings.Builder
 	sb.WriteString(`// Package gen is the typed LDP client generated from
@@ -130,169 +134,48 @@ func (c *Client) call(method string, params any) (json.RawMessage, error) {
 	return c.Transport.Call(method, params)
 }
 
-// Methods returns the client's method names, sorted (the registry list the
-// client covers; the drift gate pairs this against the registry).
+// Methods returns the client's method names, sorted (the advertised
+// registry list the client covers; the drift gate pairs this against the
+// registry).
 func Methods() []string {
 	return []string{
 `)
-	names := proto.MethodNames()
+	names := proto.AdvertisedMethodNames()
 	for _, name := range names {
 		sb.WriteString("\t\t\"" + name + "\",\n")
 	}
 	sb.WriteString("\t}\n}\n\n")
 
+	// SchemaDigest is the server-side digest this client is compatible
+	// with (lurpic drive --check compares hello's schema_digest against a
+	// digest of Methods() in the same canonical form).
+	sb.WriteString("// SchemaDigest returns the canonical schema digest of Methods().\n")
+	sb.WriteString("func SchemaDigest() string {\n")
+	sb.WriteString("\treturn \"" + proto.SchemaDigest() + "\"\n")
+	sb.WriteString("}\n\n")
+
 	// Deterministic method order for emission.
-	sorted := append([]proto.MethodSpec(nil), proto.Registry...)
+	sorted := append([]proto.MethodSpec(nil), proto.AdvertisedRegistry()...)
 	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Name < sorted[j].Name })
 	for _, spec := range sorted {
 		name := clientName(spec.Name)
 		switch spec.Name {
 		case "sys.ping":
-			sb.WriteString(`// ` + name + ` sends sys.ping and returns the payload ({"pong":true}).
-func (c *Client) ` + name + `() (json.RawMessage, error) {
-	return c.call("sys.ping", nil)
-}
-
-`)
+			sb.WriteString("// " + name + " sends sys.ping and returns the payload (pong, cut, frame).\n" +
+				"func (c *Client) " + name + "() (json.RawMessage, error) {\n" +
+				"\treturn c.call(\"sys.ping\", nil)\n}\n\n")
 		case "sys.hello":
-			sb.WriteString(`// ` + name + ` performs the handshake with the token.
-func (c *Client) ` + name + `(token string) (json.RawMessage, error) {
-	params, err := json.Marshal(map[string]string{"token": token})
-	if err != nil {
-		return nil, err
-	}
-	return c.call("sys.hello", params)
-}
-
-`)
-		case "sub.watch":
-			sb.WriteString(`// ` + name + ` registers a subscription filter.
-func (c *Client) ` + name + `(filter map[string]string) (json.RawMessage, error) {
-	return c.call("sub.watch", map[string]any{"filter": filter})
-}
-
-`)
-		case "sub.cancel":
-			sb.WriteString(`// ` + name + ` removes a subscription.
-func (c *Client) ` + name + `(id uint64) (json.RawMessage, error) {
-	return c.call("sub.cancel", map[string]uint64{"id": id})
-}
-
-`)
-		case "cmd.execute":
-			sb.WriteString(`// ` + name + ` dispatches a registered command.
-func (c *Client) ` + name + `(id string) (json.RawMessage, error) {
-	return c.call("cmd.execute", map[string]string{"id": id})
-}
-
-`)
-		case "input.type":
-			sb.WriteString(`// ` + name + ` types text into the focused IME mark.
-func (c *Client) ` + name + `(text string) (json.RawMessage, error) {
-	return c.call("input.type", map[string]string{"text": text})
-}
-
-`)
-		case "input.drag":
-			sb.WriteString(`// ` + name + ` drags from (fromX,fromY) to (toX,toY).
-func (c *Client) ` + name + `(fromX, fromY, toX, toY float32) (json.RawMessage, error) {
-	return c.call("input.drag", map[string]float32{"from_x": fromX, "from_y": fromY, "to_x": toX, "to_y": toY})
-}
-
-`)
-		case "input.scroll":
-			sb.WriteString(`// ` + name + ` scrolls at (x,y) by (deltaX,deltaY).
-func (c *Client) ` + name + `(x, y, deltaX, deltaY float32) (json.RawMessage, error) {
-	return c.call("input.scroll", map[string]any{
-		"x": x, "y": y, "delta_x": deltaX, "delta_y": deltaY,
-	})
-}
-
-`)
-		case "input.focus":
-			sb.WriteString(`// ` + name + ` focuses the target (a locator map, e.g. {"testid":"..."}).
-func (c *Client) ` + name + `(target map[string]string) (json.RawMessage, error) {
-	return c.call("input.focus", map[string]any{"target": target})
-}
-
-`)
-		case "store.write":
-			sb.WriteString(`// ` + name + ` writes a value or collection mutation to the addressed store.
-// The response carries bypassed_app_invariants (QP-12).
-func (c *Client) ` + name + `(name string, value any) (json.RawMessage, error) {
-	return c.call("store.write", map[string]any{"name": name, "value": value})
-}
-
-`)
-		case "store.read":
-			sb.WriteString(`// ` + name + ` reads a named store.
-func (c *Client) ` + name + `(name string) (json.RawMessage, error) {
-	return c.call("store.read", map[string]string{"name": name})
-}
-
-`)
-		case "derived.read":
-			sb.WriteString(`// ` + name + ` peeks a named derived (value + dirty flag).
-func (c *Client) ` + name + `(name string) (json.RawMessage, error) {
-	return c.call("derived.read", map[string]string{"name": name})
-}
-
-`)
-		case "locate.resolve":
-			sb.WriteString(`// ` + name + ` resolves a locator (a map, e.g. {"testid":"..."}).
-func (c *Client) ` + name + `(locator map[string]string) (json.RawMessage, error) {
-	return c.call("locate.resolve", map[string]any{"locator": locator})
-}
-
-`)
-		case "facet.query":
-			sb.WriteString(`// ` + name + ` queries a facet (target locator map, details flag).
-func (c *Client) ` + name + `(target map[string]string, details bool) (json.RawMessage, error) {
-	return c.call("facet.query", map[string]any{"target": target, "details": details})
-}
-
-`)
-		case "frame.run":
-			sb.WriteString(`// ` + name + ` applies steps and an advance policy (§3.5).
-func (c *Client) ` + name + `(steps []map[string]any, advance map[string]any) (json.RawMessage, error) {
-	return c.call("frame.run", map[string]any{"steps": steps, "advance": advance})
-}
-
-`)
-		case "time.mode":
-			sb.WriteString(`// ` + name + ` switches the clock ("wall" or "virtual").
-func (c *Client) ` + name + `(mode string) (json.RawMessage, error) {
-	return c.call("time.mode", map[string]string{"mode": mode})
-}
-
-`)
-		case "time.advance":
-			sb.WriteString(`// ` + name + ` advances virtual time by d seconds; the reply lands after
-// exactly one complete frame (QP-5).
-func (c *Client) ` + name + `(d float64) (json.RawMessage, error) {
-	return c.call("time.advance", map[string]float64{"d": d})
-}
-
-`)
+			sb.WriteString("// " + name + " performs the handshake: token + create_session.\n" +
+				"func (c *Client) " + name + "(token string) (json.RawMessage, error) {\n" +
+				"\tparams, err := json.Marshal(map[string]any{\"token\": token, \"client_name\": \"gen-client\", \"create_session\": true})\n" +
+				"\tif err != nil {\n\t\treturn nil, err\n\t}\n" +
+				"\treturn c.call(\"sys.hello\", params)\n}\n\n")
 		default:
-			// Generic shape for parameterless or x/y verbs.
-			if spec.Name == "sys.info" || spec.Name == "store.list" || spec.Name == "cmd.list" ||
-				spec.Name == "frame.packet" || spec.Name == "frame.pixels" || spec.Name == "tree.dump" {
-				sb.WriteString(`// ` + name + ` sends ` + spec.Name + ` with optional params.
-func (c *Client) ` + name + `(params any) (json.RawMessage, error) {
-	return c.call("` + spec.Name + `", params)
-}
-
-`)
-				continue
-			}
-			// input.click/press/release/move: x/y (+button).
-			sb.WriteString(`// ` + name + ` sends ` + spec.Name + ` at (x,y).
-func (c *Client) ` + name + `(x, y float32) (json.RawMessage, error) {
-	return c.call("` + spec.Name + `", map[string]float32{"x": x, "y": y})
-}
-
-`)
+			// Generic shape for future advertised methods; a native v2
+			// slice replaces this with its concrete typed call.
+			sb.WriteString("// " + name + " sends " + spec.Name + " with optional params.\n" +
+				"func (c *Client) " + name + "(params any) (json.RawMessage, error) {\n" +
+				"\treturn c.call(\"" + spec.Name + "\", params)\n}\n\n")
 		}
 	}
 	return []byte(sb.String())

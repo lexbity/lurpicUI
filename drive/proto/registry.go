@@ -1,30 +1,36 @@
 package proto
 
-// MethodSpec is one LDP method's contract (the single source of truth
-// consumed by the runtime dispatch tables' sync test, this registry's
-// coverage gates, the docs parity test, and the Phase 8 schema generator).
+// MethodSpec is one LDP method's contract — the single source of truth
+// consumed by the schema generator, the docs parity gate, the server's
+// dispatch table, and the runtime's trusted-seam sync test.
 type MethodSpec struct {
-	Name     string // "input.click"
-	Grant    string // "read" | "input" | "write" | "time" | "admin" | ""
+	Name     string // "sys.ping"
+	Grant    string // "read" | "input" | "command" | "time" | "admin" | ""
 	Mutating bool
 	// Twin names the input/equivalence corpus pair proving the verb
-	// equivalent to its GUI twin (FR-23). "n/a" marks time-control verbs
-	// (time.mode/time.advance/frame.run): they are step infrastructure, not
-	// GUI-addressable mutations. REQUIRED non-empty when Mutating.
+	// equivalent to its GUI twin. REQUIRED non-empty when Mutating.
+	// "n/a" marks infrastructure verbs that prove their own contracts.
 	Twin string
-	Tier string // domain|view|structural|render|input|app|"" (§3.7)
+	Tier string // domain|view|structural|render|input|app|""
+	// Advertised marks a fully ported v2 method. A major-2 build advertises
+	// only implemented methods (RFC D12); unported entries stay in this
+	// table for the trusted in-process testkit seam but MUST NOT appear in
+	// the wire registry, schema, client, or docs until their native v2
+	// slice lands.
+	Advertised bool
 }
 
-// Grant tier/name constants (the canonical grant vocabulary; shared with
-// drive/server's parser and grant table).
+// Grant names (the canonical v2 vocabulary; the v1 "write" spelling is
+// invalid, not an alias).
 const (
-	GrantRead  = "read"
-	GrantWrite = "write"
-	GrantInput = "input"
-	GrantTime  = "time"
+	GrantRead    = "read"
+	GrantInput   = "input"
+	GrantCommand = "command"
+	GrantTime    = "time"
+	GrantAdmin   = "admin"
 )
 
-// Tier names (§3.7 read tiers + interaction tiers).
+// Tier names (read tiers + interaction tiers).
 const (
 	TierDomain     = "domain"
 	TierView       = "view"
@@ -34,23 +40,24 @@ const (
 	TierApp        = "app"
 )
 
-// Registry is the full method table. It MUST stay in sync with the runtime's
-// driveMethods table and the server's grant table (both sync-tested).
+// Registry is the full method table. Advertised entries are the complete
+// major-2 wire surface (S1: hello + ping at a real cut); non-advertised
+// entries are trusted testkit-seam methods whose native v2 slices land in
+// later slices. The write grant and store.write have no entry at all.
 var Registry = []MethodSpec{
-	{Name: "sys.hello", Grant: "", Mutating: false},
-	{Name: "sys.ping", Grant: GrantRead, Mutating: false},
-	{Name: "sys.info", Grant: GrantRead, Mutating: false},
-	{Name: "locate.resolve", Grant: GrantRead, Mutating: false, Tier: TierStructural},
-	{Name: "tree.dump", Grant: GrantRead, Mutating: false, Tier: TierStructural},
-	{Name: "store.list", Grant: GrantRead, Mutating: false, Tier: TierDomain},
-	{Name: "store.read", Grant: GrantRead, Mutating: false, Tier: TierDomain},
-	{Name: "store.write", Grant: GrantWrite, Mutating: true, Twin: "store.write/value", Tier: TierDomain},
-	{Name: "derived.read", Grant: GrantRead, Mutating: false, Tier: TierView},
-	{Name: "facet.query", Grant: GrantRead, Mutating: false, Tier: TierStructural},
-	{Name: "frame.pixels", Grant: GrantRead, Mutating: false, Tier: TierRender},
-	{Name: "frame.packet", Grant: GrantRead, Mutating: false, Tier: TierRender},
-	{Name: "cmd.list", Grant: GrantRead, Mutating: false, Tier: TierApp},
-	{Name: "cmd.execute", Grant: GrantWrite, Mutating: true, Twin: "cmd.execute/palette", Tier: TierApp},
+	{Name: "sys.hello", Grant: "", Advertised: true},
+	{Name: "sys.ping", Grant: GrantRead, Advertised: true},
+	{Name: "sys.info", Grant: GrantRead, Tier: TierStructural},
+	{Name: "locate.resolve", Grant: GrantRead, Tier: TierStructural},
+	{Name: "tree.dump", Grant: GrantRead, Tier: TierStructural},
+	{Name: "store.list", Grant: GrantRead, Tier: TierDomain},
+	{Name: "store.read", Grant: GrantRead, Tier: TierDomain},
+	{Name: "derived.read", Grant: GrantRead, Tier: TierView},
+	{Name: "facet.query", Grant: GrantRead, Tier: TierStructural},
+	{Name: "frame.pixels", Grant: GrantRead, Tier: TierRender},
+	{Name: "frame.packet", Grant: GrantRead, Tier: TierRender},
+	{Name: "cmd.list", Grant: GrantRead, Tier: TierApp},
+	{Name: "cmd.execute", Grant: GrantCommand, Mutating: true, Twin: "cmd.execute/palette", Tier: TierApp},
 	{Name: "input.click", Grant: GrantInput, Mutating: true, Twin: "input.click/button", Tier: TierInput},
 	{Name: "input.press", Grant: GrantInput, Mutating: true, Twin: "input.press/slider", Tier: TierInput},
 	{Name: "input.release", Grant: GrantInput, Mutating: true, Twin: "input.release/slider", Tier: TierInput},
@@ -62,8 +69,21 @@ var Registry = []MethodSpec{
 	{Name: "time.mode", Grant: GrantTime, Mutating: true, Twin: "n/a"},
 	{Name: "time.advance", Grant: GrantTime, Mutating: true, Twin: "n/a"},
 	{Name: "frame.run", Grant: "", Mutating: true, Twin: "n/a"},
-	{Name: "sub.watch", Grant: GrantRead, Mutating: false, Tier: TierStructural},
-	{Name: "sub.cancel", Grant: GrantRead, Mutating: false, Tier: TierStructural},
+	{Name: "sub.watch", Grant: GrantRead, Tier: TierStructural},
+	{Name: "sub.cancel", Grant: GrantRead, Tier: TierStructural},
+}
+
+// AdvertisedRegistry returns the wire surface: fully ported major-2 methods
+// only. The schema generator, sys.hello's capability list, the server
+// dispatch table, and the docs parity gate all consume this list.
+func AdvertisedRegistry() []MethodSpec {
+	out := make([]MethodSpec, 0, len(Registry))
+	for _, spec := range Registry {
+		if spec.Advertised {
+			out = append(out, spec)
+		}
+	}
+	return out
 }
 
 // MethodGrant returns the registry's grant for a method (the runtime's
@@ -77,17 +97,54 @@ func MethodGrant(method string) (string, bool) {
 	return "", false
 }
 
-// MethodNames returns the sorted registry names (stable output for docs and
-// sys.info parity).
+// IsAdvertised reports whether the method is on the major-2 wire surface.
+func IsAdvertised(method string) bool {
+	for _, spec := range Registry {
+		if spec.Name == method {
+			return spec.Advertised
+		}
+	}
+	return false
+}
+
+// AdvertisedMethodNames returns the sorted advertised method names (stable
+// output for the schema digest and sys.hello's capability list).
+func AdvertisedMethodNames() []string {
+	out := make([]string, 0, len(Registry))
+	for _, spec := range Registry {
+		if spec.Advertised {
+			out = append(out, spec.Name)
+		}
+	}
+	sortStrings(out)
+	return out
+}
+
+// MethodNames returns the sorted names of every registry entry — the
+// trusted-seam surface the runtime dispatch table must match exactly.
 func MethodNames() []string {
 	out := make([]string, 0, len(Registry))
 	for _, spec := range Registry {
 		out = append(out, spec.Name)
 	}
-	for i := 1; i < len(out); i++ {
-		for j := i; j > 0 && out[j] < out[j-1]; j-- {
-			out[j], out[j-1] = out[j-1], out[j]
+	sortStrings(out)
+	return out
+}
+
+// sortStrings is an in-place insertion sort; registry tables are tiny and
+// this keeps the package dependency-free.
+func sortStrings(s []string) {
+	for i := 1; i < len(s); i++ {
+		for j := i; j > 0 && s[j] < s[j-1]; j-- {
+			s[j], s[j-1] = s[j-1], s[j]
 		}
 	}
-	return out
+}
+
+// SchemaDigest is the deterministic schema digest returned by sys.hello:
+// sha256 over "v2\x00" plus the sorted advertised method names, hex-encoded
+// with a sha256: prefix. Both endpoints compute it from the same registry.
+func SchemaDigest() string {
+	// Implemented in schema_digest.go (crypto/sha256).
+	return schemaDigest()
 }

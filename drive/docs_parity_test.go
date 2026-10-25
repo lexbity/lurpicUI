@@ -20,20 +20,26 @@ func TestDocsMatchRegistry(t *testing.T) {
 	}
 	doc := string(raw)
 
-	registry := proto.MethodNames()
-	for _, m := range registry {
+	// Forward: every ADVERTISED method (the major-2 wire surface) must be
+	// documented. Unported trusted-seam entries stay out of the doc until
+	// their native slice lands (D12: the advertised surface is the doc).
+	advertised := proto.AdvertisedMethodNames()
+	for _, m := range advertised {
 		if !strings.Contains(doc, m) {
-			t.Errorf("registry method %q is missing from Documentation/drive.md — update the doc with the method", m)
+			t.Errorf("advertised method %q is missing from Documentation/drive.md — update the doc with the method", m)
 		}
+	}
+	// The v1 direct-write surface must be gone from docs and registry.
+	if strings.Contains(doc, "store.write") {
+		t.Errorf("Documentation/drive.md still names store.write — the direct-write surface is deleted")
 	}
 	// Reverse direction: backtick-quoted dotted tokens must exist in the
 	// registry (catches stale doc entries). Prose punctuation never survives
 	// the backtick extraction, so no heuristics are needed.
 	registrySet := map[string]bool{}
-	for _, m := range registry {
+	for _, m := range proto.MethodNames() {
 		registrySet[m] = true
 	}
-	_ = registrySet
 	for _, line := range strings.Split(doc, "\n") {
 		if !strings.Contains(line, "`") {
 			continue
@@ -77,6 +83,15 @@ var nonDispatchTokens = map[string]bool{
 	"state.changed":   true,
 	"tree.changed":    true,
 	"frame.completed": true,
+	// v2 typed error codes named in the doc.
+	"request.conflict":          true,
+	"request.expired":           true,
+	"request.gap":               true,
+	"instance.changed":          true,
+	"protocol.unknown_method":   true,
+	"protocol.malformed":        true,
+	"protocol.line_limit":       true,
+	"protocol.version_mismatch": true,
 }
 
 // isLikelyMethodName filters module paths, slash-paths, events, error codes,

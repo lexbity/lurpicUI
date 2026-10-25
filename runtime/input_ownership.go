@@ -59,6 +59,10 @@ func (rt *Runtime) Ownership() *store.ValueStore[InputOwnership] {
 type driveInputStep struct {
 	commandID uint64
 	clientID  string
+	// sessionID/generation bind the step to its admitting session and
+	// connection generation so a lost generation fences exactly this work.
+	sessionID  string
+	generation uint64
 	// pending counts the step's synthesized events not yet consumed by the
 	// input phase; the step ends when it reaches zero.
 	pending int
@@ -88,8 +92,21 @@ func (rt *Runtime) endInputStep(step *driveInputStep) {
 // event consumer (the command reply carries input.preempted to the driving
 // connection).
 func (rt *Runtime) preemptInputStep() {
+	rt.preemptInputStepOwned(func(*driveInputStep) bool { return true })
+}
+
+// preemptInputStepFor fences one session/generation's step: only a step
+// owned by the fenced context is severed.
+func (rt *Runtime) preemptInputStepFor(session string, generation uint64) {
+	rt.preemptInputStepOwned(func(step *driveInputStep) bool {
+		return step.sessionID == session && step.generation == generation
+	})
+}
+
+// preemptInputStepOwned severs matching in-flight drive input steps.
+func (rt *Runtime) preemptInputStepOwned(owns func(*driveInputStep) bool) {
 	step := rt.driveInputStep
-	if step == nil {
+	if step == nil || !owns(step) {
 		return
 	}
 	step.preempted = true
@@ -106,7 +123,6 @@ func (rt *Runtime) preemptInputStep() {
 	}
 	rt.pendingEvents = kept
 	rt.inputOwnership.Set(InputOwnership{Owner: OwnerHuman})
-	rt.driveSink.notifyPreempted(step.commandID, step.clientID)
 }
 
 // scanForPreemption is the input-phase observation (QP-11, FR-15): any

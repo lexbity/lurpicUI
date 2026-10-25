@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/locate"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
 )
@@ -28,7 +28,7 @@ type inputPointParams struct {
 func (p *inputPointParams) decode(rt *Runtime, raw json.RawMessage) (gfx.Point, platform.PointerButton, *proto.Error) {
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, p); err != nil {
-			return gfx.Point{}, 0, &proto.Error{Code: proto.ErrInternal, Detail: "input params: " + err.Error()}
+			return gfx.Point{}, 0, &proto.Error{Code: proto.ErrInternalPanic, Detail: "input params: " + err.Error()}
 		}
 	}
 	btn, berr := pointerButtonOf(p.Button)
@@ -46,7 +46,7 @@ func (p *inputPointParams) decode(rt *Runtime, raw json.RawMessage) (gfx.Point, 
 				return gfx.Point{X: b.Min.X + b.Width()*0.5, Y: b.Min.Y + b.Height()*0.5}, btn, nil
 			}
 		}
-		return gfx.Point{}, 0, &proto.Error{Code: proto.ErrInternal, Detail: "target has no arranged bounds (no frame projected?)"}
+		return gfx.Point{}, 0, &proto.Error{Code: proto.ErrInvalidParams, Detail: "target has no arranged bounds (no frame projected?)"}
 	}
 	return gfx.Point{X: p.X, Y: p.Y}, btn, nil
 }
@@ -61,7 +61,7 @@ func pointerButtonOf(name string) (platform.PointerButton, *proto.Error) {
 	case "right":
 		return platform.PointerRight, nil
 	default:
-		return 0, &proto.Error{Code: proto.ErrInternal, Detail: "button must be left, middle, or right"}
+		return 0, &proto.Error{Code: proto.ErrInvalidParams, Detail: "button must be left, middle, or right"}
 	}
 }
 
@@ -80,9 +80,9 @@ func (rt *Runtime) driveInputQueue() platform.EventQueue {
 func (rt *Runtime) runInputStep(cmd drive.Command, evs []platform.Event) driveOutcome {
 	queue := rt.driveInputQueue()
 	if queue == nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "no platform event queue"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: "no platform event queue"})
 	}
-	step := &driveInputStep{commandID: cmd.ID, clientID: "drive", pending: len(evs)}
+	step := &driveInputStep{commandID: cmd.ID, clientID: "drive", sessionID: cmd.Session, generation: cmd.Generation, pending: len(evs)}
 	rt.beginInputStep(step)
 	queue.EnqueueDrive(evs...)
 	defer rt.endInputStep(step)
@@ -100,17 +100,17 @@ func (rt *Runtime) runInputStep(cmd drive.Command, evs []platform.Event) driveOu
 	}
 	if step.preempted {
 		return errorOutcome(&proto.Error{
-			Code:   proto.ErrPreempted,
+			Code:   proto.ErrInputPreempted,
 			Detail: "input step severed by a platform event (ownership returned to human)",
-		}, rt.driveSink.Epoch())
+		})
 	}
 	if step.pending > 0 {
 		return errorOutcome(&proto.Error{
-			Code:   proto.ErrInternal,
+			Code:   proto.ErrInternalPanic,
 			Detail: fmt.Sprintf("input step did not settle: %d events unconsumed", step.pending),
-		}, rt.driveSink.Epoch())
+		})
 	}
-	return payloadOutcome(json.RawMessage(`{"consumed":true}`), rt.driveSink.Epoch())
+	return payloadOutcome(json.RawMessage(`{"consumed":true}`))
 }
 
 // driveInputClick implements input.click: press + release at one point
@@ -120,7 +120,7 @@ func driveInputClick(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputPointParams
 	pt, btn, perr := p.decode(rt, cmd.Params)
 	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
+		return errorOutcome(perr)
 	}
 	return rt.runInputStep(cmd, []platform.Event{
 		platform.EventPointer{Kind: platform.PointerPress, Position: pt, Button: btn, Source: platform.SourceDrive},
@@ -132,7 +132,7 @@ func driveInputPress(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputPointParams
 	pt, btn, perr := p.decode(rt, cmd.Params)
 	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
+		return errorOutcome(perr)
 	}
 	return rt.runInputStep(cmd, []platform.Event{
 		platform.EventPointer{Kind: platform.PointerPress, Position: pt, Button: btn, Source: platform.SourceDrive},
@@ -143,7 +143,7 @@ func driveInputRelease(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputPointParams
 	pt, btn, perr := p.decode(rt, cmd.Params)
 	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
+		return errorOutcome(perr)
 	}
 	return rt.runInputStep(cmd, []platform.Event{
 		platform.EventPointer{Kind: platform.PointerRelease, Position: pt, Button: btn, Source: platform.SourceDrive},
@@ -154,7 +154,7 @@ func driveInputMove(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputPointParams
 	pt, _, perr := p.decode(rt, cmd.Params)
 	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
+		return errorOutcome(perr)
 	}
 	return rt.runInputStep(cmd, []platform.Event{
 		platform.EventPointer{Kind: platform.PointerMove, Position: pt, Source: platform.SourceDrive},
@@ -178,14 +178,14 @@ type inputDragParams struct {
 func driveInputDrag(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputDragParams
 	if len(cmd.Params) == 0 {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.drag requires from_x/from_y/to_x/to_y"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.drag requires from_x/from_y/to_x/to_y"})
 	}
 	if err := json.Unmarshal(cmd.Params, &p); err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.drag params: " + err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.drag params: " + err.Error()})
 	}
 	btn, berr := pointerButtonOf(p.Button)
 	if berr != nil {
-		return errorOutcome(berr, rt.driveSink.Epoch())
+		return errorOutcome(berr)
 	}
 	// The default grammar mirrors testkit.Drag exactly (5 interpolated moves
 	// at t=i/6, release at the target) so drag equivalence measures the input
@@ -195,7 +195,7 @@ func driveInputDrag(rt *Runtime, cmd drive.Command) driveOutcome {
 		steps = 5
 	}
 	if steps > 128 {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.drag steps must be <= 128"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.drag steps must be <= 128"})
 	}
 	evs := make([]platform.Event, 0, steps+2)
 	evs = append(evs, platform.EventPointer{
@@ -233,24 +233,24 @@ type inputTypeParams struct {
 func driveInputType(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputTypeParams
 	if len(cmd.Params) == 0 {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.type requires text"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.type requires text"})
 	}
 	if err := json.Unmarshal(cmd.Params, &p); err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.type params: " + err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.type params: " + err.Error()})
 	}
 	if p.Text == "" {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.type text must be non-empty"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.type text must be non-empty"})
 	}
 	if rt.focusManager == nil || rt.focusManager.FocusedImpl() == nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.type requires a focused text mark"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.type requires a focused text mark"})
 	}
 	focused := rt.focusManager.FocusedImpl()
 	tr := focused.Base().TextRole()
 	if tr == nil || !tr.IMEEnabled {
 		return errorOutcome(&proto.Error{
-			Code:   proto.ErrInternal,
+			Code:   proto.ErrInternalPanic,
 			Detail: "input.type requires an IME-enabled focused text mark (synthetic key-code routes diverge from real keyboards)",
-		}, rt.driveSink.Epoch())
+		})
 	}
 	return rt.runInputStep(cmd, []platform.Event{
 		platform.EventText{Text: p.Text, Source: platform.SourceDrive},
@@ -270,7 +270,7 @@ func driveInputScroll(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputScrollParams
 	pt, _, perr := p.decode(rt, cmd.Params)
 	if perr != nil {
-		return errorOutcome(perr, rt.driveSink.Epoch())
+		return errorOutcome(perr)
 	}
 	return rt.runInputStep(cmd, []platform.Event{
 		platform.EventScroll{
@@ -291,23 +291,23 @@ type inputFocusParams struct {
 func driveInputFocus(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p inputFocusParams
 	if len(cmd.Params) == 0 {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.focus requires target"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.focus requires target"})
 	}
 	if err := json.Unmarshal(cmd.Params, &p); err != nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "input.focus params: " + err.Error()}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "input.focus params: " + err.Error()})
 	}
 	m, _, lerr := locate.Resolve(rt.root, p.Target, rt.driveDescribe, rt.driveHitTest)
 	if lerr != nil {
-		return errorOutcome(driveLocateError(lerr), rt.driveSink.Epoch())
+		return errorOutcome(driveLocateError(lerr))
 	}
 	if rt.focusManager == nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrInternal, Detail: "no focus manager"}, rt.driveSink.Epoch())
+		return errorOutcome(&proto.Error{Code: proto.ErrInvalidParams, Detail: "no focus manager"})
 	}
 	if !rt.focusManager.SetFocus(m.Impl) {
 		return errorOutcome(&proto.Error{
-			Code:   proto.ErrInternal,
+			Code:   proto.ErrInternalPanic,
 			Detail: "focus refused (the mark is not focusable or focus rules rejected it)",
-		}, rt.driveSink.Epoch())
+		})
 	}
-	return payloadOutcome(json.RawMessage(`{"focused":true}`), rt.driveSink.Epoch())
+	return payloadOutcome(json.RawMessage(`{"focused":true}`))
 }

@@ -527,6 +527,14 @@ add_custom_target(lint-lurpiclint-ci
 )
 add_dependencies(lint-lurpiclint-ci build-lurpiclint)
 
+add_custom_target(drive-gate
+  COMMAND ${LURPIC_GO_EXECUTABLE} run ./scripts/drive-gate --format
+  COMMAND ${LURPIC_GO_EXECUTABLE} run ./scripts/drive-gate --suite S1
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Run the drive gate manifest (S1) and the gofmt/parse gate"
+  VERBATIM
+)
+
 add_custom_target(lint
   DEPENDS lint-golangci lint-lurpiclint $<$<BOOL:${LURPIC_HAVE_CLIPPY}>:lint-rust-clippy>
   COMMENT "Run all linters (golangci-lint + lurpiclint + cargo clippy)"

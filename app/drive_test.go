@@ -20,9 +20,10 @@ func TestParseDriveEnv(t *testing.T) {
 		{in: "on", enabled: true, grants: "read"},
 		{in: "on:read", enabled: true, grants: "read"},
 		{in: "on:read,input", enabled: true, grants: "read,input"},
-		{in: "on:read,input,write,time,admin", enabled: true, grants: "read,input,write,time,admin"},
+		{in: "on:read,input,write,time,admin", wantErr: true}, // the v1 write grant fails startup
 		{in: "unix:/tmp/d.sock", enabled: true, socket: "/tmp/d.sock", grants: "read"},
-		{in: "unix:/tmp/d.sock:write", enabled: true, socket: "/tmp/d.sock", grants: "write"},
+		{in: "unix:relative.sock", wantErr: true},
+		{in: "unix:/tmp/d.sock:command", enabled: true, socket: "/tmp/d.sock", grants: "command"},
 		{in: "unix:", wantErr: true},
 		{in: "onx", wantErr: true},
 		{in: "on:", wantErr: true}, // empty grant list after colon
@@ -133,7 +134,7 @@ func TestWireDriveEnvDefaultsSocket(t *testing.T) {
 	if !driveCfg.Enabled || !cfg.Runtime.Drive.Enabled {
 		t.Fatal("both layers must be enabled")
 	}
-	if !driveCfg.Grants.Read || driveCfg.Grants.Write {
+	if !driveCfg.Grants.Read || driveCfg.Grants.Command {
 		t.Fatalf("default grants = %v", driveCfg.Grants)
 	}
 }
@@ -151,5 +152,43 @@ func TestDefaultDriveSocketPath(t *testing.T) {
 	want := "/run/user/1000/lurpic-" + itoaQuick(os.Getpid()) + "/drive.sock"
 	if path != want {
 		t.Fatalf("path = %q, want %q", path, want)
+	}
+}
+
+// TestDriveDisabledRunLifecycle is the S1 disabled-lifecycle gate: with
+// LURPIC_DRIVE unset, a full Run proceeds with no socket, no token file,
+// no listener goroutine, and no drive allocations on the frame path.
+func TestDriveDisabledRunLifecycle(t *testing.T) {
+	t.Setenv("LURPIC_DRIVE", "")
+	before := runtime.NumGoroutine()
+
+	cfg := DefaultConfig("test", 100, 100)
+	driveCfg, err := wireDriveEnv(&cfg)
+	if err != nil {
+		t.Fatalf("wireDriveEnv: %v", err)
+	}
+	if driveCfg.Enabled || cfg.Runtime.Drive.Enabled {
+		t.Fatal("drive must be fully disabled when LURPIC_DRIVE is unset")
+	}
+	if driveCfg.Sessions != nil || driveCfg.Instance.ID != "" {
+		t.Fatalf("disabled config allocated session state: %+v", driveCfg)
+	}
+	if _, err := startDriveServer(&driveCfg, nil); err == nil {
+		t.Fatal("startDriveServer must refuse a disabled config")
+	}
+
+	// No socket or token appeared at the default location.
+	dir := os.Getenv("XDG_RUNTIME_DIR")
+	if dir != "" {
+		if _, err := os.Stat(filepath.Join(dir, "lurpic-"+itoaQuick(os.Getpid()))); !os.IsNotExist(err) {
+			t.Fatalf("drive dir must not exist when disabled: %v", err)
+		}
+	}
+	// The app's run lifecycle is unchanged: frames execute, nothing drive-
+	// related spawns.
+	runtime.GC()
+	after := runtime.NumGoroutine()
+	if after > before {
+		t.Fatalf("goroutines grew from %d to %d with drive disabled", before, after)
 	}
 }

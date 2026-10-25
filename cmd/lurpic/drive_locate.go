@@ -5,24 +5,31 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"go/parser"
-	"go/token"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 )
 
-// driveJSON is the shared client plumbing for the drive verbs: handshake,
-// request/response over the socket, one command per invocation. Phase 8
-// replaces this with the generated typed client.
+// driveJSON is the shared client plumbing for the drive verbs: authenticated
+// hello (session create), strict v2 request/response over the socket, one
+// command per invocation. The wire envelope is the generated proto package;
+// the CLI never hand-rolls message shapes.
 type driveJSON struct {
-	rw        *bufio.ReadWriter
-	conn      net.Conn
-	next      uint64
-	token     string
-	lastFrame uint64
+	rw    *bufio.ReadWriter
+	conn  net.Conn
+	next  uint64
+	token string
+	// hello result retained for diagnostics and future resume flows.
+	instanceID   string
+	sessionID    string
+	credential   string
+	generation   string
+	schemaDigest string
+	lastCut      string
+	lastFrame    string
 }
 
 func driveConnect(socket, tokenFile string) (*driveJSON, error) {
@@ -36,12 +43,9 @@ func driveConnect(socket, tokenFile string) (*driveJSON, error) {
 	}
 	rw := bufio.NewReadWriter(bufio.NewReader(nc), bufio.NewWriter(nc))
 	c := &driveJSON{rw: rw, conn: nc, token: strings.TrimSpace(string(token))}
-	helloParams, err := json.Marshal(map[string]string{"token": strings.TrimSpace(string(token))})
-	if err != nil {
-		_ = nc.Close()
-		return nil, err
-	}
-	res, err := c.call("sys.hello", json.RawMessage(helloParams))
+	res, err := c.call("sys.hello", json.RawMessage(fmt.Sprintf(
+		`{"token":%s,"client_name":"lurpic-cli","create_session":true}`,
+		mustQuote(c.token))))
 	if err != nil {
 		_ = nc.Close()
 		return nil, fmt.Errorf("hello: %w", err)
@@ -50,11 +54,35 @@ func driveConnect(socket, tokenFile string) (*driveJSON, error) {
 		_ = nc.Close()
 		return nil, fmt.Errorf("hello rejected: %s", res.Error.Error())
 	}
+	var hr struct {
+		InstanceID   string   `json:"instance_id"`
+		SessionID    string   `json:"session_id"`
+		Credential   string   `json:"resume_credential"`
+		Generation   string   `json:"connection_generation"`
+		SchemaDigest string   `json:"schema_digest"`
+		Methods      []string `json:"methods"`
+	}
+	if err := json.Unmarshal(res.Result, &hr); err != nil {
+		_ = nc.Close()
+		return nil, fmt.Errorf("hello payload: %w", err)
+	}
+	c.instanceID, c.sessionID, c.credential = hr.InstanceID, hr.SessionID, hr.Credential
+	c.generation, c.schemaDigest = hr.Generation, hr.SchemaDigest
 	return c, nil
 }
 
+// mustQuote JSON-encodes one string; marshal of a plain string cannot fail.
+func mustQuote(s string) string {
+	enc, err := json.Marshal(s)
+	if err != nil {
+		// Unreachable for plain strings; keep the token out of the message.
+		return `""`
+	}
+	return string(enc)
+}
+
 // Call implements gen.Transport: the typed client routes through the same
-// wire round trip, recording the last reply's frame epoch.
+// wire round trip, recording the last reply's cut/frame attribution.
 func (c *driveJSON) Call(method string, params any) (json.RawMessage, error) {
 	res, err := c.call(method, params)
 	if err != nil {
@@ -66,7 +94,7 @@ func (c *driveJSON) Call(method string, params any) (json.RawMessage, error) {
 		}
 		return nil, fmt.Errorf("drive: request failed")
 	}
-	c.lastFrame = res.Frame
+	c.lastCut, c.lastFrame = res.Cut, res.Frame
 	return res.Result, nil
 }
 
@@ -86,7 +114,12 @@ func (c *driveJSON) call(method string, params any) (proto.Response, error) {
 		}
 	}
 	c.next++
-	req, err := json.Marshal(proto.Request{V: proto.ProtocolMajor, ID: c.next, Method: method, Params: raw})
+	req, err := json.Marshal(proto.Request{
+		V:      proto.ProtocolMajor,
+		ID:     strconv.FormatUint(c.next, 10),
+		Method: method,
+		Params: raw,
+	})
 	if err != nil {
 		return proto.Response{}, err
 	}
@@ -100,66 +133,21 @@ func (c *driveJSON) call(method string, params any) (proto.Response, error) {
 	if err != nil {
 		return proto.Response{}, err
 	}
-	var res proto.Response
-	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &res); err != nil {
-		return proto.Response{}, fmt.Errorf("decode %q: %w", line, err)
+	line = strings.TrimRight(line, "\n")
+	res, derr := proto.DecodeResponse([]byte(line))
+	if derr != nil {
+		return proto.Response{}, fmt.Errorf("decode %q: %w", line, derr)
 	}
 	return res, nil
 }
 
 func (c *driveJSON) close() { _ = c.conn.Close() }
 
-// driveFlagSet builds the shared drive verb flags.
+// driveFlagSet builds the shared drive verb flags. The major-2 CLI speaks
+// hello + ping only; observation verbs return with their native v2 slices.
 func driveFlagSet() *flag.FlagSet {
 	fs := flag.NewFlagSet("drive-flags", flag.ContinueOnError)
 	fs.String("socket", "", "drive socket path")
 	fs.String("token-file", "", "drive token file path")
-	fs.String("testid", "", "author TestID locator")
-	fs.String("role", "", "accessibility role locator")
-	fs.String("name", "", "accessible name (with --role)")
-	fs.String("key", "", "collection key locator")
-	fs.String("text", "", "accessible-name text locator")
-	fs.String("kind", "", "descriptor kind locator (family/typeName)")
-	fs.String("depth", "", "tree.dump depth")
-	fs.String("class", "", "watch class (state.changed, tree.changed, frame.completed, own.preempted)")
-	fs.String("store", "", "watch named store")
 	return fs
-}
-
-// cmdDriveWatch implements `lurpic drive watch [--class C] [--store S]` —
-// subscribes and streams notifications to stdout until interrupted
-// (LDP QP-13).
-func cmdDriveWatch(fs *flag.FlagSet, conn *driveJSON) int {
-	filter := map[string]string{"class": "frame.completed"}
-	if v := fs.Lookup("class"); v != nil && v.Value.String() != "" {
-		filter["class"] = v.Value.String()
-	}
-	if v := fs.Lookup("store"); v != nil && v.Value.String() != "" {
-		filter["store"] = v.Value.String()
-	}
-	res, err := conn.call("sub.watch", map[string]any{"filter": filter})
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "drive: %v\n", err)
-		return 1
-	}
-	if !res.OK {
-		fmt.Fprintf(os.Stderr, "drive: %v\n", res.Error)
-		return 1
-	}
-	fmt.Printf("subscribed id=%s\n", strings.TrimSpace(string(res.Result)))
-	for {
-		line, err := conn.rw.ReadString('\n')
-		if err != nil {
-			return 0
-		}
-		fmt.Print(line)
-	}
-}
-
-// parseGo validates Go source at parse level (no compile: the scaffold's
-// SDK dependency belongs to the generated module).
-func parseGo(src []byte) error {
-	fset := token.NewFileSet()
-	_, err := parser.ParseFile(fset, "main.go", src, parser.AllErrors)
-	return err
 }

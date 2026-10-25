@@ -9,7 +9,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
-	drive "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 )
@@ -77,33 +76,11 @@ func TestStudioProbe(t *testing.T) {
 
 	step := func(method string, params any) json.RawMessage {
 		t.Helper()
-		cmd := drive.Command{
-			ID:     1,
-			Method: method,
-			Grants: drive.Grants{Read: true, Input: true},
-			Reply:  make(chan drive.Result, 1),
+		payload, perr := h.Call(method, params)
+		if perr != nil {
+			t.Fatalf("probe step %s: %v", method, perr)
 		}
-		if params != nil {
-			enc, err := json.Marshal(params)
-			if err != nil {
-				t.Fatalf("marshal %s params: %v", method, err)
-			}
-			cmd.Params = enc
-		}
-		h.Runtime().DriveSink().Enqueue(cmd)
-		for i := 0; i < 64; i++ {
-			h.RunFrame()
-			select {
-			case res := <-cmd.Reply:
-				if res.Err != nil {
-					t.Fatalf("probe step %s: %v", method, res.Err)
-				}
-				return res.Payload
-			default:
-			}
-		}
-		t.Fatalf("probe step %s did not reply", method)
-		return nil
+		return payload
 	}
 
 	// 1. hello-equivalent: sys.ping through the in-process sink.

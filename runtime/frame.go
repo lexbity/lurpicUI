@@ -35,10 +35,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	defer rt.frameMu.RUnlock()
 	rt.frameNumber++
 	stats := diagnostics.FrameStats{FrameNumber: rt.frameNumber}
-	// LDP cut (QP-6): the frame epoch advances here; drive commands are
-	// drained by the frame callers at the cut before this frame begins.
-	if rt.driveSink != nil {
-		rt.driveSink.epoch.Store(rt.frameNumber)
+	// LDP cut: the frame number is published at submission; the sealed cut
+	// advances at the seal point at the end of this frame.
+	if rt.drivePort != nil {
+		rt.drivePort.epoch.Store(rt.frameNumber)
 	}
 	// RX-1 P5: frame-scoped derived counters. Reset here so the flush and any
 	// lazy Get across the frame accumulate into this frame's totals, which the
@@ -270,19 +270,16 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	// passes; drain them into the frame total here, after every arrange site
 	// has run (RX-1 Q5 / NFR-8).
 	stats.OverflowClampedCount = int(facet.DrainOverflowClamped())
-	// LDP P7 cut flush: subscription events for the finished frame
-	// (frame.completed, tree.changed, state.changed) — one nil check when
-	// no consumer is registered.
-	if rt.driveSink != nil {
-		rt.flushEvents(stats)
-	}
-	if rt.driveSink != nil {
-		stats.DriveCommandsDrained = rt.driveSink.drainedThisFrame
-		rt.driveSink.drainedThisFrame = 0
-		_, sent, denied, panics := rt.driveSink.stats.Snapshot()
-		stats.DriveResponsesSent = sent
-		stats.DriveGrantDenied = denied
-		stats.DriveSocketGoroutinePanics = panics
+	// Seal the cut after submission: observations from here on identify
+	// this frame's sealed cut.
+	if rt.drivePort != nil {
+		rt.drivePort.sealCut(rt.frameNumber)
+		stats.DriveCommandsDrained = rt.drivePort.drainedThisFrame
+		rt.drivePort.drainedThisFrame = 0
+		snap := rt.drivePort.stats.Load()
+		stats.DriveResponsesSent = snap.ResponsesSent
+		stats.DriveGrantDenied = snap.GrantDenied
+		stats.DriveSocketGoroutinePanics = snap.SocketGoroutinePanics
 	}
 	rt.lastStats = stats
 	if diag := rt.diagnosticsHook(); diag != nil {

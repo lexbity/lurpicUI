@@ -1,7 +1,6 @@
 package readstore
 
 import (
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -107,34 +106,10 @@ func TestReadDerivedPeek_PeekOnly(t *testing.T) {
 	}
 }
 
-func TestWriteValue_TypedDecode(t *testing.T) {
-	vs := store.NewValueStore(0.5)
-	if err := WriteValue(vs, json.RawMessage("0.25")); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	if vs.Get() != 0.25 {
-		t.Fatalf("value = %v", vs.Get())
-	}
-	if err := WriteValue(vs, json.RawMessage(`"text"`)); err == nil {
-		t.Fatal("type-mismatched payload must fail")
-	}
-	if vs.Get() != 0.25 {
-		t.Fatalf("failed write mutated: %v", vs.Get())
-	}
-	// Collections refuse (Phase 5) without mutating.
-	cs := store.NewCollectionStore(func(s string) store.ItemID { return 0 })
-	if err := WriteValue(cs, json.RawMessage(`["x"]`)); err == nil {
-		t.Fatal("collection write must refuse")
-	}
-	if cs.Len() != 0 {
-		t.Fatalf("refused write mutated: %d items", cs.Len())
-	}
-	// Derived is read-only by construction.
-	dv := store.NewDerived(func() int { return 1 })
-	if err := WriteValue(dv, json.RawMessage("2")); err == nil {
-		t.Fatal("derived write must refuse")
-	}
-}
+// The write helpers were deleted with protocol major 2 (AC-01): there is
+// no protocol mutation surface at this layer, so the typed-write tests have
+// no subject. Ordinary app-store mutation APIs keep their own tests in
+// package store.
 
 type fieldProbe struct {
 	Opacity *store.ValueStore[float64]

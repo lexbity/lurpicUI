@@ -157,3 +157,11 @@ func renderMain(appName string, methods []schemaMethod) (string, error) {
 	}
 	return main, nil
 }
+
+// parseGo validates Go source at parse level (no compile: the scaffold's
+// SDK dependency belongs to the generated module).
+func parseGo(src []byte) error {
+	fset := token.NewFileSet()
+	_, err := parser.ParseFile(fset, "main.go", src, parser.AllErrors)
+	return err
+}

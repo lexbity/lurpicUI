@@ -38,17 +38,17 @@ func readPerturbationRun(t *testing.T, withReads bool) []uint64 {
 			// Interleave every read method, including derived.read (the
 			// dangerous one — it touches the derived's cache state) and
 			// facet.query with details.
-			driveCallOn(t, rt, "store.read", map[string]any{
+			driveCall(t, rt, "store.read", map[string]any{
 				"target": map[string]string{"testid": "probe"}, "field": "Opacity",
 			}, allGrants())
-			driveCallOn(t, rt, "derived.read", map[string]any{
+			driveCall(t, rt, "derived.read", map[string]any{
 				"target": map[string]string{"testid": "probe"}, "field": "Computed",
 			}, allGrants())
-			driveCallOn(t, rt, "facet.query", map[string]any{
+			driveCall(t, rt, "facet.query", map[string]any{
 				"target": map[string]string{"testid": "probe"}, "details": true,
 			}, allGrants())
-			driveCallOn(t, rt, "store.list", nil, allGrants())
-			driveCallOn(t, rt, "frame.packet", nil, allGrants())
+			driveCall(t, rt, "store.list", nil, allGrants())
+			driveCall(t, rt, "frame.packet", nil, allGrants())
 		}
 		rt.RunOneFrameAt(epoch.Add(time.Duration(i+1) * time.Second))
 		hashes = append(hashes, rt.FramePacketHash())

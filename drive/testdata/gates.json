@@ -1,0 +1,103 @@
+{
+  "suites": {
+    "S1": {
+      "tests": [
+        {
+          "package": "./drive/proto",
+          "tests": [
+            "TestRequestRoundTrip",
+            "TestDecodeRequest_Rejects",
+            "TestDecodeResponse_Strict",
+            "TestSchemaDigest_IsStableAndSensitive",
+            "TestRegistry_AdvertisedSurfaceHasNoWrite"
+          ],
+          "timeout": "2m",
+          "count": 1
+        },
+        {
+          "package": "./drive/server",
+          "tests": [
+            "TestStrictEnvelopeDispatch",
+            "TestSocketOwnershipAndUnwind",
+            "TestCloseWithoutRuntimeReply",
+            "TestListenerPanicSupervisor",
+            "TestServer_HelloCreateSession"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./drive",
+          "tests": [
+            "TestLedgerClaimContiguous",
+            "TestLedgerFIFOEvictionPreservesHighWater",
+            "TestLedgerRejectionsRetained",
+            "TestSessionCreateResumeFence",
+            "TestSessionExpiry",
+            "TestSessionBoundIsFinite",
+            "TestGrants",
+            "TestV2SocketRuntimePing",
+            "TestV2RejectsLegacyMutation",
+            "TestLoadTenClients",
+            "TestDocsMatchRegistry",
+            "TestLiveCLIPingPath"
+          ],
+          "timeout": "10m",
+          "count": 1
+        },
+        {
+          "package": "./runtime",
+          "tests": [
+            "TestDriveInboxExactlyOnce",
+            "TestDriveInboxBoundedOverload",
+            "TestDrive_IdleDrainZeroAlloc",
+            "TestStoreWrite_Absent",
+            "TestStoreWrite_NoWriteGrant"
+          ],
+          "timeout": "10m",
+          "count": 1
+        },
+        {
+          "package": "./input/equivalence",
+          "tests": [
+            "TestStoreWriteHasNoEquivalent",
+            "TestEveryMutatingVerbHasATwin"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./runtime",
+          "tests": [
+            "TestDrive_TimeModeGrantDenied"
+          ],
+          "timeout": "2m",
+          "count": 1
+        },
+        {
+          "package": "./app",
+          "tests": [
+            "TestDriveDisabledRunLifecycle",
+            "TestParseDriveEnv"
+          ],
+          "timeout": "2m",
+          "count": 1
+        },
+        {
+          "package": "./cmd/lurpic",
+          "tests": [
+            "TestCmdDrive_PingEndToEnd",
+            "TestCmdDrive_CheckEndToEnd",
+            "TestCmdDrive_CheckDetectsSkew",
+            "TestCmdDrive_UnadvertisedVerbFails"
+          ],
+          "timeout": "2m",
+          "count": 1
+        }
+      ]
+    }
+  },
+  "format_excludes": [
+    "codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/rules/testdata/ll035_bad"
+  ]
+}

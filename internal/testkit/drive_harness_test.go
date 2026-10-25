@@ -36,9 +36,9 @@ func TestDriveHarness_InfoReportsEpoch(t *testing.T) {
 	payload := h.CallOK("sys.info", nil)
 	var info struct {
 		V     int    `json:"v"`
-		Frame uint64 `json:"frame"`
+		Frame string `json:"frame"`
 		Drive struct {
-			CommandsDrained uint64 `json:"commandsDrained"`
+			CommandsDrained uint64 `json:"commands_drained"`
 		} `json:"drive"`
 	}
 	if err := json.Unmarshal(payload, &info); err != nil {
@@ -47,10 +47,10 @@ func TestDriveHarness_InfoReportsEpoch(t *testing.T) {
 	if info.V != proto.ProtocolMajor {
 		t.Fatalf("v = %d", info.V)
 	}
-	// QP-6: sys.info reports the cut epoch — the last completed frame (3);
-	// the call executes at the boundary before frame 4.
-	if info.Frame != 3 {
-		t.Fatalf("frame = %d, want the cut epoch 3", info.Frame)
+	// The call executes at the boundary before frame 4: it observes the
+	// sealed cut after frame 3.
+	if info.Frame != "3" {
+		t.Fatalf("frame = %s, want the cut after frame 3", info.Frame)
 	}
 	if info.Drive.CommandsDrained != 1 {
 		t.Fatalf("commandsDrained = %d, want 1", info.Drive.CommandsDrained)
@@ -61,7 +61,7 @@ func TestDriveHarness_UnknownMethodTypedError(t *testing.T) {
 	root := newClickCounterFacet()
 	h := NewDriveHarness(t, 100, 100, root)
 	_, perr := h.Call("sys.nope", nil)
-	if perr == nil || perr.Code != proto.ErrInternal {
+	if perr == nil || perr.Code != proto.ErrUnknownMethod {
 		t.Fatalf("err = %+v, want typed internal error", perr)
 	}
 }
@@ -69,7 +69,7 @@ func TestDriveHarness_UnknownMethodTypedError(t *testing.T) {
 func TestDriveHarness_PlainHarnessHasNoSink(t *testing.T) {
 	root := newClickCounterFacet()
 	h := NewHarness(t, testHarnessConfig(t), root)
-	if h.Runtime().DriveSink() != nil {
+	if h.Runtime().DrivePort() != nil {
 		t.Fatal("plain Harness must not install a drive sink")
 	}
 }
