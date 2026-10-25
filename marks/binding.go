@@ -12,6 +12,7 @@ type BindingKind uint8
 const (
 	BindConst BindingKind = iota
 	BindStore
+	BindRuntime
 )
 
 // Binding[T] is a named reference to truth — not truth itself.
@@ -88,6 +89,16 @@ func FromDerived[T any](d *store.Derived[T], dirty facet.DirtyFlags) Binding[T] 
 	}
 }
 
+// FromRuntime reads a readonly runtime-owned observation. The runtime
+// invalidates the bound facet through its typed control subscription; this
+// binding does not create or persist application state.
+func FromRuntime[T any](read func() T, dirty facet.DirtyFlags) Binding[T] {
+	if read == nil {
+		return Binding[T]{kind: BindConst}
+	}
+	return Binding[T]{kind: BindRuntime, dirty: dirty, ref: &bindingRef[T]{read: read}}
+}
+
 // Get returns the current value.
 //
 // For const bindings the literal is returned directly. For store bindings the
@@ -106,7 +117,7 @@ func (b Binding[T]) Get() T {
 
 // IsDynamic reports whether the binding is backed by a store.
 func (b Binding[T]) IsDynamic() bool {
-	return b.kind == BindStore
+	return b.kind != BindConst
 }
 
 // DirtyFlags returns the flags that should be raised when the source changes.

@@ -19,6 +19,12 @@ func (projectionRuntimeStub) CancelJob(id job.JobID) {}
 func (projectionRuntimeStub) Now() time.Time         { return time.Time{} }
 func (projectionRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
+func (projectionRuntimeStub) ControlSnapshot() facet.ControlSnapshot {
+	return facet.DefaultControlSnapshot()
+}
+func (projectionRuntimeStub) WatchControl(id facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	return facet.WatchNoControl(id, callback)
+}
 
 type projectionLayerRuntimeStub struct {
 	projectionRuntimeStub

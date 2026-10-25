@@ -27,6 +27,7 @@ var driveMethods map[string]driveHandler
 
 const driveJSONFrameKey = "frame"
 const driveMethodCommandExecute = "cmd.execute"
+const driveMethodInputRelease = "input.release"
 
 func init() {
 	driveMethods = map[string]driveHandler{
@@ -45,7 +46,7 @@ func init() {
 		"frame.packet":            driveFramePacket,
 		"input.click":             driveInputClick,
 		"input.press":             driveInputPress,
-		"input.release":           driveInputRelease,
+		driveMethodInputRelease:   driveInputRelease,
 		"input.move":              driveInputMove,
 		"input.drag":              driveInputDrag,
 		"input.type":              driveInputType,
@@ -169,10 +170,12 @@ func (rt *Runtime) runScheduledVirtualFrame(waitForRender bool) bool {
 	frame := rt.frameNumber + 1
 	if token.plan != nil {
 		p.currentFramePlan = token.plan
+		rt.drivePreparePlanInputStep(token.plan)
 	}
 	if token.entry != nil {
 		p.pendingFrameTokens[frame] = token
 	}
+	rt.drivePrepareInputFrame()
 	rt.runFrame(now, waitForRender, reserved)
 	p.currentFramePlan = nil
 	if waitForRender && rt.lastRenderCompletion.Frame == frame {

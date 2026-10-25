@@ -31,9 +31,16 @@ func (catalogRT) Schedule(j job.AnyJob)                                         
 func (catalogRT) CancelJob(id job.JobID)                                             {}
 func (catalogRT) Now() time.Time                                                     { return time.Time{} }
 func (catalogRT) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}
-func (s catalogRT) RootStyleContext() any                                            { return s.rootStyle }
-func (s catalogRT) FacetByID(id facet.FacetID) facet.FacetImpl                       { return nil }
-func (s catalogRT) FontRegistry() *text.FontRegistry                                 { return s.fonts }
+func (catalogRT) ControlSnapshot() facet.ControlSnapshot {
+	return facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall}
+}
+func (catalogRT) WatchControl(_ facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	callback(facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall})
+	return func() {}
+}
+func (s catalogRT) RootStyleContext() any                      { return s.rootStyle }
+func (s catalogRT) FacetByID(id facet.FacetID) facet.FacetImpl { return nil }
+func (s catalogRT) FontRegistry() *text.FontRegistry           { return s.fonts }
 
 func findModuleRoot() string {
 	dir, err := filepath.Abs(".")

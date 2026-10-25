@@ -25,6 +25,31 @@ func (rt *Runtime) RunOneFrameAt(now time.Time) {
 	_ = rt.start()
 	rt.driveDrain()
 	if rt.clock.Mode() == ClockVirtual {
+		parkedEvents := rt.collectPlatformEvents()
+		if len(parkedEvents) != 0 {
+			human := false
+			for _, event := range parkedEvents {
+				if isHumanInput(event) {
+					human = true
+					break
+				}
+			}
+			if human {
+				rt.preemptDriveForHuman()
+				kept := parkedEvents[:0]
+				for _, event := range parkedEvents {
+					if eventSource(event) != platform.SourceDrive {
+						kept = append(kept, event)
+					}
+				}
+				rt.pendingEvents = append(rt.pendingEvents, kept...)
+				if rt.drivePort != nil && len(rt.drivePort.frameTokens) != 0 {
+					rt.runScheduledVirtualFrame(true)
+				}
+				return
+			}
+			rt.pendingEvents = append(rt.pendingEvents, parkedEvents...)
+		}
 		if rt.bootstrapFramePending {
 			rt.runBootstrapFrame(true)
 			return
@@ -38,6 +63,7 @@ func (rt *Runtime) RunOneFrameAt(now time.Time) {
 		rt.runScheduledVirtualFrame(true)
 		return
 	}
+	rt.drivePrepareInputFrame()
 	// RunOneFrameAt is the headless scheduler boundary: in Wall mode its
 	// caller supplies the engine instant for this frame. Run() selects the
 	// same instant from rt.clock.Now() after wall pacing.
@@ -117,6 +143,10 @@ func (rt *Runtime) Run() error {
 		}
 		// LDP cut (QP-6): drain between frames, before this frame's body.
 		rt.driveDrain()
+		// Render acknowledgments release bounded frame credits even when the
+		// drive seam is disabled. Drain them at the runtime control turn before
+		// attempting another ordinary Wall frame.
+		rt.driveCollectRenderCompletions()
 		if rt.drivePort != nil && len(rt.drivePort.frameTokens) != 0 {
 			if !rt.runScheduledVirtualFrame(false) && rt.clock.Mode() == ClockVirtual {
 				continue
@@ -135,6 +165,7 @@ func (rt *Runtime) Run() error {
 				continue
 			}
 		}
+		rt.drivePrepareInputFrame()
 		rt.runFrame(rt.clock.Now(), false, reserved)
 	}
 }
@@ -149,6 +180,30 @@ func (rt *Runtime) virtualParkStep() bool {
 		wake = rt.drivePort.wake
 	}
 	for {
+		// Platform queues are polled before consuming an authorized frame token:
+		// a parked controller must yield even when several advances are queued.
+		parkedEvents := rt.collectPlatformEvents()
+		if len(parkedEvents) != 0 {
+			human := false
+			for _, event := range parkedEvents {
+				if isHumanInput(event) {
+					human = true
+					break
+				}
+			}
+			if human {
+				rt.preemptDriveForHuman()
+				kept := parkedEvents[:0]
+				for _, event := range parkedEvents {
+					if eventSource(event) != platform.SourceDrive {
+						kept = append(kept, event)
+					}
+				}
+				rt.pendingEvents = append(rt.pendingEvents, kept...)
+				return true
+			}
+			rt.pendingEvents = append(rt.pendingEvents, parkedEvents...)
+		}
 		if rt.bootstrapFramePending {
 			if rt.runBootstrapFrame(false) {
 				return true
@@ -175,30 +230,65 @@ func (rt *Runtime) virtualParkStep() bool {
 			leaseTimer = time.NewTimer(delay)
 			leaseWake = leaseTimer.C
 		}
+		platformWake := time.NewTimer(10 * time.Millisecond)
 		select {
 		case <-rt.shutdownCh:
+			platformWake.Stop()
 			if leaseTimer != nil {
 				leaseTimer.Stop()
 			}
 			return false
 		case completion := <-completions:
+			platformWake.Stop()
 			if leaseTimer != nil {
 				leaseTimer.Stop()
 			}
 			rt.driveHandleRenderCompletion(completion)
 		case <-jobWake:
+			platformWake.Stop()
 			if leaseTimer != nil {
 				leaseTimer.Stop()
 			}
 			// Recheck the frozen frontier below; worker completion never
 			// commits app state outside phase 1.
 		case <-wake:
+			platformWake.Stop()
 			if leaseTimer != nil {
 				leaseTimer.Stop()
 			}
 			rt.driveDrain()
 		case <-leaseWake:
+			platformWake.Stop()
 			rt.drivePort.expireBootstrapLease()
+		case <-platformWake.C:
+			events := rt.collectPlatformEvents()
+			human := false
+			for _, event := range events {
+				if isHumanInput(event) {
+					human = true
+					break
+				}
+			}
+			if human {
+				if rt.driveInputStep != nil {
+					rt.preemptInputStep()
+				}
+				kept := events[:0]
+				for _, event := range events {
+					if eventSource(event) != platform.SourceDrive {
+						kept = append(kept, event)
+					}
+				}
+				rt.pendingEvents = append(rt.pendingEvents, kept...)
+				if rt.drivePort != nil {
+					rt.drivePort.releaseTimeOwner(true)
+				}
+				return true
+			}
+			if len(events) != 0 {
+				rt.pendingEvents = append(rt.pendingEvents, events...)
+				return true
+			}
 		}
 		if !rt.waitIfPausedOrStopped() {
 			return false

@@ -24,6 +24,12 @@ func (s iconInspectorRuntime) Now() time.Time         { return time.Time{} }
 func (s iconInspectorRuntime) CancelJob(id job.JobID) {}
 func (s iconInspectorRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
+func (s iconInspectorRuntime) ControlSnapshot() facet.ControlSnapshot {
+	return facet.DefaultControlSnapshot()
+}
+func (s iconInspectorRuntime) WatchControl(id facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	return facet.WatchNoControl(id, callback)
+}
 func (s iconInspectorRuntime) RootStyleContext() any { return s.rootStyle }
 func (s iconInspectorRuntime) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

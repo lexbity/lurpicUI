@@ -14,9 +14,6 @@ func (s *System) processKey(e platform.EventKey) []RoutedEvent {
 	if s.focusManager != nil && s.focusManager.Focused() != 0 {
 		targetID = s.focusManager.Focused()
 	}
-	if targetID == 0 {
-		return nil
-	}
 	if e.Kind == platform.KeyPress && e.Key == platform.KeyTab && s.focusManager != nil {
 		oldFocus := targetID
 		if e.Modifiers&platform.ModShift != 0 {
@@ -33,6 +30,9 @@ func (s *System) processKey(e platform.EventKey) []RoutedEvent {
 		// synchronously via FocusManager.SetFocus. Emitting routed
 		// FocusGainedEvent/FocusLostEvent here would fire the callbacks a
 		// second time when the frame loop delivers them.
+		return nil
+	}
+	if targetID == 0 {
 		return nil
 	}
 	// Without a focus manager there is no tab-traversal model; deliver Tab as

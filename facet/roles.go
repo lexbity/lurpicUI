@@ -75,12 +75,14 @@ func (r *HitRole) HitTest(p gfx.Point) HitResult {
 
 // PointerEvent is delivered to facets during pointer routing.
 type PointerEvent struct {
-	Kind      platform.PointerEventKind
-	Position  gfx.Point
-	ScreenPos gfx.Point
-	Button    platform.PointerButton
-	Modifiers platform.ModifierKeys
-	MarkID    MarkID
+	Kind        platform.PointerEventKind
+	Position    gfx.Point
+	ScreenPos   gfx.Point
+	Button      platform.PointerButton
+	Modifiers   platform.ModifierKeys
+	MarkID      MarkID
+	Source      platform.EventSource
+	Attribution platform.InputAttribution
 }
 
 // TouchEvent is delivered to facets during touch routing.
@@ -93,38 +95,51 @@ type TouchEvent struct {
 	ScreenStart gfx.Point
 	Pressure    float32
 	MarkID      MarkID
+	Source      platform.EventSource
+	Attribution platform.InputAttribution
 }
 
 // ScrollEvent is delivered to facets during scroll routing.
 type ScrollEvent struct {
-	Position  gfx.Point
-	DeltaX    float32
-	DeltaY    float32
-	Precise   bool
-	Modifiers platform.ModifierKeys
+	Position    gfx.Point
+	DeltaX      float32
+	DeltaY      float32
+	Precise     bool
+	Modifiers   platform.ModifierKeys
+	Source      platform.EventSource
+	Attribution platform.InputAttribution
 }
 
 // KeyEvent is delivered to facets during key routing.
 type KeyEvent struct {
-	Kind      platform.KeyEventKind
-	Key       platform.Key
-	Modifiers platform.ModifierKeys
+	Kind        platform.KeyEventKind
+	Key         platform.Key
+	Modifiers   platform.ModifierKeys
+	Source      platform.EventSource
+	Attribution platform.InputAttribution
 }
 
 // TextEvent is delivered to facets during text input routing.
 type TextEvent struct {
-	Text      string
-	Composing bool
+	Text        string
+	Composing   bool
+	Source      platform.EventSource
+	Attribution platform.InputAttribution
 }
+
+// EventIsSynthetic reports whether an event came from LDP input synthesis.
+func EventIsSynthetic(source platform.EventSource) bool { return source == platform.SourceDrive }
 
 // DismissEvent is delivered when a layer is dismissed by an outside interaction.
 type DismissEvent struct {
-	Trigger    DismissalTrigger
-	ScreenPos  gfx.Point
-	HitFacetID FacetID
-	HitMarkID  MarkID
-	HitLayerID LayerID
-	HitOrder   int
+	Trigger     DismissalTrigger
+	ScreenPos   gfx.Point
+	HitFacetID  FacetID
+	HitMarkID   MarkID
+	HitLayerID  LayerID
+	HitOrder    int
+	Source      platform.EventSource
+	Attribution platform.InputAttribution
 }
 
 // InputRole participates in direct input handling inside the resolved layer contract.

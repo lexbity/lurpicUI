@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -308,6 +309,7 @@ func (p *drivePort) acquireTimeOwner(cmd drive.Command) *proto.Error {
 		p.timeOwnerSession = cmd.Session
 		p.timeOwnerGeneration = cmd.Generation
 		p.bootstrapTimeUntil = time.Time{}
+		p.rt.notifyControlChanged()
 		return nil
 	}
 	if p.timeOwnerSession == cmd.Session && p.timeOwnerGeneration == cmd.Generation {
@@ -329,7 +331,9 @@ func (p *drivePort) releaseTimeOwner(forceWall bool) {
 	p.bootstrapTimeUntil = time.Time{}
 	if forceWall && p.rt.clock.Mode() == ClockVirtual {
 		p.rt.clock.SetWall()
-		p.frameTokens = append(p.frameTokens, pendingFrameToken{mode: "wall"})
+		// Human/disconnect/lease safety exits do not synthesize a second
+		// transition frame. The next ordinary Wall frame performs cleanup and
+		// projects the released control state.
 		select {
 		case p.wake <- struct{}{}:
 		default:
@@ -338,6 +342,7 @@ func (p *drivePort) releaseTimeOwner(forceWall bool) {
 			p.rt.frameTimer.RequestFrame()
 		}
 	}
+	p.rt.notifyControlChanged()
 }
 
 func (p *drivePort) expireBootstrapLease() bool {
@@ -468,6 +473,15 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 		}
 		return
 	}
+	if strings.HasPrefix(cmd.Method, "input.") && rt.driveInputStep != nil && !(rt.driveInputStep.held && rt.driveInputStep.sessionID == cmd.Session && rt.driveInputStep.generation == cmd.Generation && (cmd.Method == "input.move" || cmd.Method == driveMethodInputRelease)) {
+		perr := &proto.Error{Code: proto.ErrInputBusy, Detail: "another input operation owns the actuator"}
+		if rej, err := ledger.ClaimRejection(id, canonical, perr); err == nil {
+			p.replyClaimed(cmd, rej, nil, perr)
+		} else {
+			p.reply(cmd, nil, perr, true)
+		}
+		return
+	}
 	if (cmd.Method == "time.advance" || cmd.Method == "time.mode" || cmd.Method == "frame.run") && len(p.frameTokens)+len(p.pendingFrameTokens) >= maxPendingDriveCommands {
 		p.reply(cmd, nil, &proto.Error{Code: proto.ErrCapacityBusy, Retryable: true, NonAdmitted: true}, true)
 		return
@@ -476,6 +490,15 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 		p.stats.AddGrantDenied()
 		p.stats.AddAdmissionRejected()
 		perr := &proto.Error{Code: proto.ErrGrant, Detail: grant}
+		if rej, err := ledger.ClaimRejection(id, canonical, perr); err == nil {
+			p.replyClaimed(cmd, rej, nil, perr)
+		} else {
+			p.reply(cmd, nil, perr, true)
+		}
+		return
+	}
+	if strings.HasPrefix(cmd.Method, "input.") && rt.clock.Mode() == ClockVirtual && !p.ownsTime(cmd) {
+		perr := &proto.Error{Code: proto.ErrTimeBusy, Detail: "virtual input requires ownership of the time lease"}
 		if rej, err := ledger.ClaimRejection(id, canonical, perr); err == nil {
 			p.replyClaimed(cmd, rej, nil, perr)
 		} else {
@@ -547,6 +570,14 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 	}
 
 	out := rt.driveExecute(cmd)
+	if out.inputStep != nil {
+		out.entry = claimed
+		out.inputStep.entry = claimed
+		out.inputStep.cmd = cmd
+		rt.beginInputStep(out.inputStep)
+		p.publishCommandReceipt(cmd, claimed)
+		return
+	}
 	if out.deferred {
 		// The top-level scheduler owns frame execution and completion.
 		out.entry = claimed
@@ -608,6 +639,7 @@ type driveOutcome struct {
 	deferred   bool
 	activation *commandActivation
 	frameToken *pendingFrameToken
+	inputStep  *driveInputStep
 	// entry is set by the admitter for deferred outcomes so the completer
 	// records the immutable terminal record.
 	entry *drive.Entry
@@ -877,8 +909,7 @@ func (p *drivePort) commandJobFinished(id job.JobID, cancelled, committed bool, 
 // at a runtime control turn. A late acknowledgment cannot revive an operation
 // removed by disconnect fencing.
 func (rt *Runtime) driveCollectRenderCompletions() {
-	p := rt.drivePort
-	if p == nil || rt.renderPipeline == nil {
+	if rt.renderPipeline == nil {
 		return
 	}
 	for {

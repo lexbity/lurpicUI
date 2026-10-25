@@ -560,6 +560,12 @@ func (s iconPacketRuntime) Now() time.Time         { return time.Time{} }
 func (s iconPacketRuntime) CancelJob(id job.JobID) {}
 func (s iconPacketRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
+func (s iconPacketRuntime) ControlSnapshot() facet.ControlSnapshot {
+	return facet.DefaultControlSnapshot()
+}
+func (s iconPacketRuntime) WatchControl(id facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	return facet.WatchNoControl(id, callback)
+}
 func (s iconPacketRuntime) RootStyleContext() any { return s.rootStyle }
 func (s iconPacketRuntime) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

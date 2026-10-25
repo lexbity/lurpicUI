@@ -7,7 +7,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/marks/status"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
-	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -42,7 +41,9 @@ type StatusBar struct {
 	notConnected *store.Derived[bool]
 	titleText    *store.Derived[string]
 
-	background gfx.Color
+	background    gfx.Color
+	controlCancel func()
+	controlState  facet.ControlSnapshot
 }
 
 // NewStatusBar builds the status strip over the shared shell state and the
@@ -66,12 +67,12 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	}
 	s.light.ShowLabel = marks.Const(false)
 	s.light.Disabled = marks.FromDerived(notConnected, facet.DirtyProjection)
-	// The driving light (Debt-6 completion, LDP QP-11): lit only while a
-	// drive client owns input. BindOwnership wires the runtime's ownership
-	// store post-construction (app.Config.OnRuntime); until then the light
-	// stays dim — a human owns input by default.
+	// Runtime control ownership is observed through the typed readonly
+	// RuntimeServices seam during attachment; it is never application state.
 	s.driving.ShowLabel = marks.Const(false)
-	s.driving.Disabled = marks.Const(true)
+	s.driving.Disabled = marks.FromRuntime(func() bool {
+		return !s.controlState.ClientOwnsInput() && s.controlState.TimeOwnerSession == ""
+	}, facet.DirtyProjection)
 	// Progress value and badge/caption text change the marks' measured size
 	// (bar length, badge width, caption length), so these bindings declare
 	// DirtyLayout — under RX-1 FR-3 a DirtyLayout-declaring content change
@@ -148,19 +149,6 @@ func (s *StatusBar) Light() *status.StatusLight { return s.light }
 // client owns input).
 func (s *StatusBar) Driving() *status.StatusLight { return s.driving }
 
-// BindOwnership wires the runtime's input-ownership store into the driving
-// light: lit exactly while Owner == OwnerClient (LDP QP-11 reference
-// indicator). Called from app.Config.OnRuntime, before the first frame.
-func (s *StatusBar) BindOwnership(ownership *store.ValueStore[runtimepkg.InputOwnership]) {
-	if ownership == nil {
-		return
-	}
-	lit := store.NewDerived(func() bool {
-		return ownership.Get().Owner == runtimepkg.OwnerClient
-	}, ownership)
-	s.driving.Disabled = marks.FromDerived(lit, facet.DirtyProjection)
-}
-
 // Bar returns the feed progress_bar.
 func (s *StatusBar) Bar() *status.ProgressBar { return s.bar }
 
@@ -177,11 +165,23 @@ func (s *StatusBar) Caption() *primitive.Text { return s.caption }
 // instance).
 func (s *StatusBar) Row() *structure.Row { return s.row }
 
-func (s *StatusBar) Base() *facet.Facet             { s.BindImpl(s); return &s.Facet }
-func (s *StatusBar) OnAttach(_ facet.AttachContext) {}
-func (s *StatusBar) OnDetach()                      {}
-func (s *StatusBar) OnActivate()                    {}
-func (s *StatusBar) OnDeactivate()                  {}
+func (s *StatusBar) Base() *facet.Facet { s.BindImpl(s); return &s.Facet }
+func (s *StatusBar) OnAttach(ctx facet.AttachContext) {
+	if ctx.Runtime == nil {
+		return
+	}
+	s.controlCancel = ctx.Runtime.WatchControl(s.Base().ID(), func(state facet.ControlSnapshot) {
+		s.controlState = state
+	})
+}
+func (s *StatusBar) OnDetach() {
+	if s.controlCancel != nil {
+		s.controlCancel()
+		s.controlCancel = nil
+	}
+}
+func (s *StatusBar) OnActivate()   {}
+func (s *StatusBar) OnDeactivate() {}
 
 // newStatusMark constructs a status-bar mark carrying its author TestID
 // (Debt-6): the status strip is the studio's reference drive surface.

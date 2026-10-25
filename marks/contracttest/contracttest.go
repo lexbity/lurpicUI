@@ -25,12 +25,28 @@ type contractRuntime struct {
 	NoopRuntime
 }
 
+func (contractRuntime) ControlSnapshot() facet.ControlSnapshot {
+	return facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall}
+}
+func (contractRuntime) WatchControl(_ facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	callback(facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall})
+	return func() {}
+}
+
 // NoopRuntime is a reusable no-op implementation of facet.RuntimeServices
 // for use in tests. Mark test stubs can embed this instead of re-declaring
 // the four no-op methods (Schedule, CancelJob, Invalidate, Now) on every
 // stub. Now returns the zero time: contract tests do not exercise timed
 // behavior.
 type NoopRuntime struct{}
+
+func (NoopRuntime) ControlSnapshot() facet.ControlSnapshot {
+	return facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall}
+}
+func (NoopRuntime) WatchControl(_ facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	callback(facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall})
+	return func() {}
+}
 
 func (NoopRuntime) Schedule(j job.AnyJob)  {}
 func (NoopRuntime) CancelJob(id job.JobID) {}

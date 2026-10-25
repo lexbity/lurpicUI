@@ -31,6 +31,62 @@
       "name": "op.status"
     },
     {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.click",
+      "tier": "input",
+      "twin": "input.click/button"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.press",
+      "tier": "input",
+      "twin": "input.press/slider"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.release",
+      "tier": "input",
+      "twin": "input.release/slider"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.move",
+      "tier": "input",
+      "twin": "input.move/button"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.drag",
+      "tier": "input",
+      "twin": "input.drag/slider"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.type",
+      "tier": "input",
+      "twin": "input.type/textfield"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.scroll",
+      "tier": "input",
+      "twin": "input.scroll/table"
+    },
+    {
+      "grant": "input",
+      "mutating": true,
+      "name": "input.focus",
+      "tier": "input",
+      "twin": "input.focus/textfield"
+    },
+    {
       "grant": "time",
       "mutating": true,
       "name": "time.mode",
@@ -50,6 +106,6 @@
     }
   ],
   "protocol": 2,
-  "schema_digest": "sha256:0f741e46e833b78f81112c031f728eb2dfbb2e4e74d88a93a66e49bef605407c",
+  "schema_digest": "sha256:063b8ae3ce41279196244c72963603fafd0fd54294f457257449c34982953cff",
   "title": "LDP — Lurpic Drive Protocol methods"
 }

@@ -1,109 +1,115 @@
 package runtime
 
 import (
+	"encoding/json"
+	"strconv"
+
+	"codeburg.org/lexbit/lurpicui/drive"
+	"codeburg.org/lexbit/lurpicui/drive/locate"
+	"codeburg.org/lexbit/lurpicui/drive/proto"
+	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/store"
 )
 
-// OwnerKind names who owns input this event (LDP QP-11).
-type OwnerKind uint8
-
-const (
-	// OwnerHuman is the default: platform events are accepted.
-	OwnerHuman OwnerKind = iota
-	// OwnerClient marks a drive input step in flight.
-	OwnerClient
-)
-
-func (o OwnerKind) String() string {
-	switch o {
-	case OwnerHuman:
-		return "human"
-	case OwnerClient:
-		return "client"
-	default:
-		return "OwnerKind(unknown)"
-	}
-}
-
-// InputOwnership is the app-readable input-ownership state (QP-11): which
-// client's events the runtime accepts. The studio status bar binds it to the
-// "driving" light; drivers read it via the named store
-// runtime.input.ownership. Focus and ownership are orthogonal: a driver may
-// move focus (input.focus) without owning input.
-type InputOwnership struct {
-	Owner    OwnerKind `json:"owner"`
-	ClientID string    `json:"client_id,omitempty"`
-}
-
-// inputOwnershipName is the named-store address of the ownership store.
-const inputOwnershipName = "runtime.input.ownership"
-
-// installInputOwnership creates the ownership store and registers it under
-// its stable name. Called from New when the drive seam is enabled.
-func (rt *Runtime) installInputOwnership() error {
-	rt.inputOwnership = store.NewValueStore(InputOwnership{Owner: OwnerHuman})
-	return rt.RegisterNamedStore(inputOwnershipName, rt.inputOwnership)
-}
-
-// Ownership returns the input-ownership store (nil when the drive seam is
-// disabled). The studio status bar binds its "driving" light through it.
-func (rt *Runtime) Ownership() *store.ValueStore[InputOwnership] {
-	return rt.inputOwnership
-}
-
-// driveInputStep wraps one drive input command's event sequence (QP-11):
-// request-scoped ownership — there is no standing grant to revoke. The step
-// begins when the verb enqueues its synthesized events and ends when the
-// runtime has consumed them (or the step was preempted).
 type driveInputStep struct {
-	commandID uint64
-	clientID  string
-	// sessionID/generation bind the step to its admitting session and
-	// connection generation so a lost generation fences exactly this work.
-	sessionID  string
-	generation uint64
-	// pending counts the step's synthesized events not yet consumed by the
-	// input phase; the step ends when it reaches zero.
-	pending int
-	// preempted marks the step as severed: the reply reports input.preempted
-	// instead of success.
-	preempted bool
+	sessionID         string
+	generation        uint64
+	preempted         bool
+	plan              *framePlan
+	cmd               drive.Command
+	entry             *drive.Entry
+	events            []platform.Event
+	completed         int
+	focusTarget       facet.FacetID
+	held              bool
+	release           bool
+	gesture           string
+	position          gfx.Point
+	button            platform.PointerButton
+	modifiers         platform.ModifierKeys
+	device            string
+	touchID           uint64
+	targetLocator     *locate.Locator
+	targetFacet       facet.FacetID
+	targetFollowPoint bool
+	preserveHeld      *driveInputStep
 }
 
-// beginInputStep flips ownership to the client for the step's duration.
-func (rt *Runtime) beginInputStep(step *driveInputStep) {
-	rt.inputOwnership.Set(InputOwnership{Owner: OwnerClient, ClientID: step.clientID})
-	rt.driveInputStep = step
+type controlWatcher struct {
+	id       uint64
+	callback func(facet.ControlSnapshot)
 }
 
-// endInputStep clears request-scoped ownership.
-func (rt *Runtime) endInputStep(step *driveInputStep) {
-	if rt.driveInputStep == step {
-		rt.driveInputStep = nil
+func (rt *Runtime) ControlSnapshot() facet.ControlSnapshot {
+	s := facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall}
+	if rt.driveInputStep != nil {
+		s.InputOwner = facet.ControlOwnerClient
+		s.InputSession = rt.driveInputStep.sessionID
+		s.InputGeneration = rt.driveInputStep.generation
+		if rt.driveInputStep.held {
+			s.HeldGestures = 1
+		}
 	}
-	rt.inputOwnership.Set(InputOwnership{Owner: OwnerHuman})
+	if rt.clock != nil && rt.clock.Mode() == ClockVirtual {
+		s.TimeMode = facet.ControlTimeVirtual
+	}
+	if rt.drivePort != nil {
+		s.TimeOwnerSession = rt.drivePort.timeOwnerSession
+		s.TimeGeneration = rt.drivePort.timeOwnerGeneration
+	}
+	return s
 }
 
-// preemptInputStep severs an in-flight drive input step (QP-11): the
-// remaining synthesized events are voided from the pending set — gesture
-// recognizers exercise exactly the abort paths a human yank produces —
-// ownership returns to the human, and own.preempted fans out through the
-// event consumer (the command reply carries input.preempted to the driving
-// connection).
+func (rt *Runtime) WatchControl(id facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	if id == 0 || callback == nil {
+		panic("runtime: control observation requires an attached facet identity and callback")
+	}
+	rt.controlWatchSeq++
+	watchID := rt.controlWatchSeq
+	rt.controlWatchers[id] = append(rt.controlWatchers[id], controlWatcher{id: watchID, callback: callback})
+	callback(rt.ControlSnapshot())
+	return func() {
+		callbacks := rt.controlWatchers[id]
+		for i, candidate := range callbacks {
+			if candidate.id == watchID {
+				rt.controlWatchers[id] = append(callbacks[:i], callbacks[i+1:]...)
+				if len(rt.controlWatchers[id]) == 0 {
+					delete(rt.controlWatchers, id)
+				}
+				return
+			}
+		}
+	}
+}
+
+// Go functions cannot be compared except to nil. A subscription therefore
+// returns an idempotent closure that removes its exact insertion slot.
+func (rt *Runtime) notifyControlChanged() {
+	snapshot := rt.ControlSnapshot()
+	for id, callbacks := range rt.controlWatchers {
+		rt.Invalidate(id, facet.DirtyProjection, "runtime.control")
+		for _, watcher := range callbacks {
+			watcher.callback(snapshot)
+		}
+	}
+}
+
+func (rt *Runtime) beginInputStep(step *driveInputStep) {
+	rt.driveInputStep = step
+	rt.notifyControlChanged()
+}
+
 func (rt *Runtime) preemptInputStep() {
 	rt.preemptInputStepOwned(func(*driveInputStep) bool { return true })
 }
 
-// preemptInputStepFor fences one session/generation's step: only a step
-// owned by the fenced context is severed.
 func (rt *Runtime) preemptInputStepFor(session string, generation uint64) {
 	rt.preemptInputStepOwned(func(step *driveInputStep) bool {
 		return step.sessionID == session && step.generation == generation
 	})
 }
 
-// preemptInputStepOwned severs matching in-flight drive input steps.
 func (rt *Runtime) preemptInputStepOwned(owns func(*driveInputStep) bool) {
 	step := rt.driveInputStep
 	if step == nil || !owns(step) {
@@ -111,49 +117,269 @@ func (rt *Runtime) preemptInputStepOwned(owns func(*driveInputStep) bool) {
 	}
 	step.preempted = true
 	rt.driveInputStep = nil
-	// Void the step's remaining synthesized events: they never reach the
-	// input pipeline.
 	kept := rt.pendingEvents[:0]
 	for _, ev := range rt.pendingEvents {
-		if eventSource(ev) == platform.SourceDrive {
-			step.pending--
-			continue
+		if eventSource(ev) != platform.SourceDrive {
+			kept = append(kept, ev)
 		}
-		kept = append(kept, ev)
 	}
+	kept = append(kept, inputCancellationEvent(step)...)
 	rt.pendingEvents = kept
-	rt.inputOwnership.Set(InputOwnership{Owner: OwnerHuman})
+	if rt.drivePort != nil && step.entry != nil {
+		rt.drivePort.completeClaimed(step.entry, step.cmd, drive.Result{Err: &proto.Error{Code: proto.ErrInputPreempted, Detail: "input sequence stopped before its next atom"}, Frame: rt.drivePort.Frame(), Cut: rt.drivePort.Cut()})
+	}
+	rt.notifyControlChanged()
 }
 
-// scanForPreemption is the input-phase observation (QP-11, FR-15): any
-// SourcePlatform event observed while a drive input step is in flight
-// preempts the step, per event — a scripted drag can be severed mid-gesture
-// by a stray human move, and that is the honest outcome.
-func (rt *Runtime) scanForPreemption(events []platform.Event) {
-	if rt.driveInputStep == nil {
+func inputCancellationEvent(step *driveInputStep) []platform.Event {
+	if step.device == driveDeviceTouch && step.touchID != 0 {
+		return []platform.Event{platform.TouchEvent{SequenceID: step.touchID, Phase: platform.TouchCancel, X: step.position.X, Y: step.position.Y, Source: platform.SourceRuntimeCancel, Attribution: platform.InputAttribution{Session: step.sessionID, Generation: step.generation, Operation: step.cmd.OpID}}}
+	}
+	return []platform.Event{platform.EventPointer{Kind: platform.PointerCancel, Source: platform.SourceRuntimeCancel, Attribution: platform.InputAttribution{Session: step.sessionID, Generation: step.generation, Operation: step.cmd.OpID}}}
+}
+
+func (rt *Runtime) drivePrepareInputFrame() {
+	step := rt.driveInputStep
+	if step == nil || step.preempted || step.completed >= len(step.events) || rt.drivePort == nil {
 		return
 	}
-	for _, ev := range events {
-		if eventSource(ev) == platform.SourcePlatform {
-			rt.preemptInputStep()
+	if step.focusTarget != 0 && rt.focusManager != nil && rt.focusManager.Focused() == step.focusTarget {
+		rt.finishInputStep(step, nil)
+		return
+	}
+	if step.targetLocator != nil {
+		mark, _, err := locate.Resolve(rt.root, *step.targetLocator, rt.driveDescribe, rt.driveHitTest)
+		if err != nil || mark.Base.ID() != step.targetFacet {
+			rt.finishInputStep(step, &proto.Error{Code: proto.ErrTargetUnavailable, Detail: "the pinned input target disappeared or changed lifetime"})
 			return
 		}
+		if layout := mark.Base.LayoutRole(); layout == nil || layout.ArrangedBounds.IsEmpty() {
+			rt.finishInputStep(step, &proto.Error{Code: proto.ErrTargetUnavailable, Detail: "the pinned input target is no longer arranged"})
+			return
+		} else if step.targetFollowPoint {
+			center := driveRectCenter(layout.ArrangedBounds)
+			step.position = center
+			event := step.events[step.completed]
+			switch current := event.(type) {
+			case platform.EventPointer:
+				current.Position = center
+				step.events[step.completed] = current
+			case platform.TouchEvent:
+				current.X, current.Y = center.X, center.Y
+				step.events[step.completed] = current
+			}
+		}
+	}
+	queue := rt.driveInputQueue()
+	if queue == nil {
+		rt.preemptInputStep()
+		return
+	}
+	event := step.events[step.completed]
+	setDriveAttribution(&event, step.cmd)
+	queue.EnqueueDrive(event)
+}
+
+func setDriveAttribution(event *platform.Event, cmd drive.Command) {
+	if event == nil {
+		return
+	}
+	a := platform.InputAttribution{Session: cmd.Session, Generation: cmd.Generation, Operation: cmd.OpID}
+	switch e := (*event).(type) {
+	case platform.EventPointer:
+		e.Attribution = a
+		*event = e
+	case platform.EventKey:
+		e.Attribution = a
+		*event = e
+	case platform.EventScroll:
+		e.Attribution = a
+		*event = e
+	case platform.EventText:
+		e.Attribution = a
+		*event = e
+	case platform.EventIMECompose:
+		e.Attribution = a
+		*event = e
+	case platform.EventIMECommit:
+		e.Attribution = a
+		*event = e
+	case platform.TouchEvent:
+		e.Attribution = a
+		*event = e
 	}
 }
 
-// eventSource extracts an event's provenance (the input taxonomy: pointer,
-// key, scroll, and text events carry Source).
-func eventSource(ev platform.Event) platform.EventSource {
-	switch e := ev.(type) {
-	case platform.EventPointer:
-		return e.Source
-	case platform.EventKey:
-		return e.Source
-	case platform.EventScroll:
-		return e.Source
-	case platform.EventText:
-		return e.Source
-	default:
-		return platform.SourcePlatform
+func (rt *Runtime) driveInputAtomApplied(count int) {
+	step := rt.driveInputStep
+	if step == nil || count == 0 {
+		return
 	}
+	step.completed += count
+	if step.plan != nil {
+		if step.completed >= len(step.events) {
+			step.plan.inputAtomsComplete = true
+			if step.held {
+				rt.driveInputStep = step
+			} else if step.preserveHeld != nil && !step.release {
+				step.preserveHeld.position = step.position
+				step.preserveHeld.modifiers = step.modifiers
+				rt.driveInputStep = step.preserveHeld
+			} else {
+				rt.driveInputStep = nil
+			}
+			rt.notifyControlChanged()
+		}
+		return
+	}
+	if step.focusTarget != 0 && rt.focusManager != nil && rt.focusManager.Focused() == step.focusTarget {
+		rt.finishInputStep(step, nil)
+		return
+	}
+	if step.completed < len(step.events) {
+		return
+	}
+	if step.focusTarget != 0 {
+		rt.finishInputStep(step, &proto.Error{Code: proto.ErrTargetNotFocusable, Detail: "Tab traversal did not reach target within max_hops"})
+		return
+	}
+	rt.finishInputStep(step, nil)
+}
+
+func (rt *Runtime) finishInputStep(step *driveInputStep, failure *proto.Error) {
+	if rt.driveInputStep != step {
+		return
+	}
+	if step.plan != nil && failure != nil {
+		if step.completed > 0 {
+			rt.pendingEvents = append(rt.pendingEvents, inputCancellationEvent(step)...)
+		}
+		step.plan.failure = failure
+		rt.driveInputStep = nil
+		rt.notifyControlChanged()
+		return
+	}
+	if failure != nil && step.completed > 0 {
+		rt.pendingEvents = append(rt.pendingEvents, inputCancellationEvent(step)...)
+	}
+	if failure == nil && step.held {
+		rt.driveInputStep = step
+	} else if step.preserveHeld != nil && failure == nil && !step.release {
+		step.preserveHeld.position = step.position
+		step.preserveHeld.modifiers = step.modifiers
+		rt.driveInputStep = step.preserveHeld
+	} else {
+		rt.driveInputStep = nil
+	}
+	if rt.drivePort != nil && step.entry != nil {
+		result := drive.Result{Frame: rt.drivePort.Frame(), Cut: rt.drivePort.Cut()}
+		if failure != nil {
+			result.Err = failure
+		} else if step.held {
+			payload, err := json.Marshal(struct {
+				ConsumedAtoms int    `json:"consumed_atoms"`
+				GestureHandle string `json:"gesture_handle"`
+				Device        string `json:"device,omitempty"`
+				AtomsPerFrame int    `json:"atoms_per_frame"`
+			}{step.completed, step.gesture, step.device, 1})
+			if err != nil {
+				result.Err = &proto.Error{Code: proto.ErrInternalPanic, Detail: "gesture handle encoding failed"}
+			} else {
+				result.Payload = payload
+			}
+		} else if step.focusTarget != 0 {
+			payload, err := json.Marshal(map[string]any{"focus_hops": step.completed / 2, "focused": strconv.FormatUint(uint64(step.focusTarget), 10)})
+			if err != nil {
+				result.Err = &proto.Error{Code: proto.ErrInternalPanic, Detail: "focus progress encoding failed"}
+			} else {
+				result.Payload = payload
+			}
+		} else {
+			payload, err := json.Marshal(struct {
+				ConsumedAtoms int    `json:"consumed_atoms"`
+				Device        string `json:"device,omitempty"`
+				AtomsPerFrame int    `json:"atoms_per_frame"`
+			}{step.completed, step.device, 1})
+			if err != nil {
+				result.Err = &proto.Error{Code: proto.ErrInternalPanic, Detail: "input progress encoding failed"}
+			} else {
+				result.Payload = payload
+			}
+		}
+		rt.drivePort.completeClaimed(step.entry, step.cmd, result)
+		if step.held && failure == nil {
+			step.entry = nil
+		}
+	}
+	rt.notifyControlChanged()
+}
+
+func (rt *Runtime) ownedGesture(cmd drive.Command, handle string) (*driveInputStep, *proto.Error) {
+	held := rt.driveInputStep
+	if held == nil || !held.held || held.sessionID != cmd.Session || held.generation != cmd.Generation {
+		return nil, &proto.Error{Code: proto.ErrInputPreempted, Detail: "no held gesture is owned by this session generation"}
+	}
+	if handle == "" || handle != held.gesture {
+		return nil, &proto.Error{Code: proto.ErrInputPreempted, Detail: "gesture handle is invalid or expired"}
+	}
+	return held, nil
+}
+
+func (rt *Runtime) preemptDriveForHuman() {
+	if rt.driveInputStep != nil {
+		rt.preemptInputStep()
+	}
+	if rt.drivePort == nil {
+		return
+	}
+	p := rt.drivePort
+	reason := &proto.Error{Code: proto.ErrInputPreempted, Detail: "human input took control before the next scheduled step"}
+	seenPlans := make(map[*framePlan]struct{})
+	for i := 0; i < len(p.frameTokens); {
+		token := p.frameTokens[i]
+		p.frameTokens = append(p.frameTokens[:i], p.frameTokens[i+1:]...)
+		if token.plan != nil {
+			if _, seen := seenPlans[token.plan]; !seen {
+				seenPlans[token.plan] = struct{}{}
+				rt.finishFramePlan(token.plan, reason)
+			}
+		} else if token.entry != nil {
+			p.completeFrameToken(token, drive.Result{Err: reason, Frame: p.Frame(), Cut: p.Cut()})
+		}
+	}
+	for frame, token := range p.pendingFrameTokens {
+		if token.plan != nil {
+			if _, seen := seenPlans[token.plan]; !seen {
+				seenPlans[token.plan] = struct{}{}
+				rt.finishFramePlan(token.plan, reason)
+			}
+		} else if token.entry != nil {
+			p.completeFrameToken(token, drive.Result{Err: reason, Frame: strconv.FormatUint(frame, 10), Cut: p.Cut()})
+		}
+		delete(p.pendingFrameTokens, frame)
+	}
+	if p.framePlan != nil {
+		if _, seen := seenPlans[p.framePlan]; !seen {
+			rt.finishFramePlan(p.framePlan, reason)
+		}
+	}
+	for i := 0; i < len(p.pendingCommandActivations); {
+		pending := p.pendingCommandActivations[i]
+		p.pendingCommandActivations = append(p.pendingCommandActivations[:i], p.pendingCommandActivations[i+1:]...)
+		p.finishCommand(pending, drive.Result{Err: reason, Frame: p.Frame(), Cut: p.Cut()})
+	}
+	for _, pending := range p.waitingCommandJobs {
+		p.cancelCommandJobs(pending.jobScope)
+		p.finishCommand(pending, drive.Result{Err: reason, Frame: p.Frame(), Cut: p.Cut()})
+	}
+	p.waitingCommandJobs = make(map[string]pendingCommand)
+	p.releaseTimeOwner(true)
+}
+
+func isHumanInput(ev platform.Event) bool {
+	return eventSource(ev) == platform.SourcePlatform && platform.IsInputEvent(ev)
+}
+
+func eventSource(ev platform.Event) platform.EventSource {
+	return platform.EventSourceOf(ev)
 }

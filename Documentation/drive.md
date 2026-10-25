@@ -76,19 +76,36 @@ advertised wire surface today:
   frontier finish before an authorized Virtual frame begins; their results
   commit in submission order during phase 1.
 - `frame.run` — requires `time` plus the union of grants used by its plan.
-  It accepts a bounded command-only plan in this slice: GUI-backed
-  `cmd.execute` steps, an explicit bounded frame tail, and registered
-  read-only `then` requests. The plan owns the Virtual frame tokens; input
-  steps, nested plans, mode changes, and operation-control requests are
-  rejected. A plan completes only after its final submitted frame is ready.
+	It accepts GUI-backed `cmd.execute` steps and the registered `input.*`
+	steps, an explicit bounded frame tail, and registered read-only `then`
+	requests. Input macros expand into their canonical per-frame atoms. A
+	plan-local `bind_gesture` on `input.press` and matching `use_gesture` on
+	`input.move`/`input.release` retain capture only within that plan; every
+	bound gesture must be released before success. Nested plans, mode changes,
+	and operation-control requests are rejected. A plan completes only after
+	its final submitted frame is ready.
 - `op.status` — reports the retained state and outcome of an operation owned
   by the authenticated session; expired outcomes return the operation.expired
   error.
+- `input.click`, `input.press`, `input.release`, `input.move`, `input.drag`,
+  `input.type`, `input.scroll`, and `input.focus` — require the `input` grant
+  and enter the ordinary platform event queue. Each synthesized atom is
+  collected at a frame boundary; Virtual mode remains parked until the time
+  owner explicitly advances it. Device defaults to the current input modality
+  (`mouse` unless touch is active) and accepts explicit `mouse` or `touch`.
+  Mouse click is move/press/release; touch click is touch-down/touch-up. Drag
+  uses `from` and `to` location oneofs plus `move_count` (default 5, range
+  1..128), then emits its canonical start atom, interpolated moves, and
+  release. Point methods accept `window:"primary"`; unavailable windows fail
+  explicitly. Results report the selected device and one atom per frame.
+  `input.press` returns a session- and connection-generation-bound
+  `gesture_handle`; matching `input.move` and `input.release` requests must
+  present it. Human input or connection loss cancels the unstarted remainder
+  and clears capture at the next safe boundary. `input.focus` performs real
+  Tab/Shift-Tab traversal and reports the number of hops.
 
-Later slices port input, reads, streams, and artifacts with their complete
-contracts. In this slice the implemented time methods and bounded
-command-only `frame.run` are advertised; other unported methods return
-`protocol.unknown_method` and old clients are rejected by the major handshake.
+Reads, streams, and artifacts remain later slices. The advertised registry
+is the authoritative list of methods implemented by this build.
 
 ## Wire
 

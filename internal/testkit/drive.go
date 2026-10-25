@@ -46,6 +46,8 @@ func DriveClickAt(h *Harness, x, y float32) {
 		return
 	}
 	Warmup(h)
+	h.InjectEvent(PointerMove(x, y))
+	h.RunFrame()
 	h.InjectEvent(PointerPress(x, y, platform.PointerLeft))
 	h.RunFrame()
 	h.InjectEvent(PointerRelease(x, y, platform.PointerLeft))

@@ -55,7 +55,6 @@ func main() {
 	var rootRef facet.FacetImpl
 	cfg.OnRuntime = func(rt *runtime.Runtime) {
 		if r, ok := rootRef.(*studio.Root); ok {
-			r.StatusBar().BindOwnership(rt.Ownership())
 			for _, ns := range r.NamedStores() {
 				if err := rt.RegisterNamedStore(ns.Name, ns.Store); err != nil {
 					fmt.Fprintf(os.Stderr, "lurpic_studio: register %s: %v\n", ns.Name, err)

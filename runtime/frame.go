@@ -66,12 +66,36 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	rt.drainGPUUploadResults()
 
 	newEvents := rt.collectPlatformEvents()
-	// LDP QP-11: a platform (human) event observed while a drive input step
-	// is in flight preempts the step per event — before any routing, so the
-	// step's remaining synthesized events never reach the pipeline.
+	// Human input wins the complete collected batch before any drive event is
+	// routed or another owned continuation is selected.
 	driveConsumed := 0
+	activeStep := rt.driveInputStep
+	humanInput := false
+	for _, event := range newEvents {
+		if isHumanInput(event) {
+			humanInput = true
+			break
+		}
+	}
+	if humanInput {
+		rt.preemptDriveForHuman()
+	}
+	if activeStep != nil {
+		if rt.driveInputStep == nil {
+			// The atom was queued for this cut but had not started. When a
+			// human event shares the poll batch, discard that drive generation
+			// before routing either event; recognizer state was cancelled by the
+			// normal runtime cancellation path above.
+			kept := newEvents[:0]
+			for _, ev := range newEvents {
+				if eventSource(ev) != platform.SourceDrive {
+					kept = append(kept, ev)
+				}
+			}
+			newEvents = kept
+		}
+	}
 	if rt.driveInputStep != nil {
-		rt.scanForPreemption(newEvents)
 		for _, ev := range newEvents {
 			if eventSource(ev) == platform.SourceDrive {
 				driveConsumed++
@@ -98,13 +122,13 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	routedEvents := rt.inputSystem.Process(rt.pendingEvents, currentHitMap, rt.root)
 	rt.pendingEvents = rt.pendingEvents[:0]
 	// LDP QP-11: routed drive events count against the in-flight step.
-	if driveConsumed > 0 && rt.driveInputStep != nil {
-		rt.driveInputStep.pending -= driveConsumed
-	}
 	routedEvents = append(dismissalEvents, routedEvents...)
 	routedEvents = append(routedEvents, hoverEvents...)
 	for _, re := range routedEvents {
 		_ = input.Deliver(re, rt.root)
+	}
+	if driveConsumed > 0 {
+		rt.driveInputAtomApplied(driveConsumed)
 	}
 	// Accepted GUI-backed drive commands enter the same ordinary frame
 	// activation boundary as application commands. Their signals join this
@@ -345,13 +369,18 @@ func (rt *Runtime) dismissalEventsForPointerPresses(events []platform.Event, hit
 			targetID = hit.FacetID
 			markID = hit.MarkID
 		}
-		out = append(out, rt.dismissalEventsForPress(targetID, input.PointerPressEvent{
+		dismissals := rt.dismissalEventsForPress(targetID, input.PointerPressEvent{
 			Position:  gfx.Point{X: press.Position.X, Y: press.Position.Y},
 			ScreenPos: gfx.Point{X: press.Position.X, Y: press.Position.Y},
 			Button:    press.Button,
 			Modifiers: press.Modifiers,
 			MarkID:    markID,
-		}, hitMap)...)
+		}, hitMap)
+		for i := range dismissals {
+			dismissals[i].Source = press.Source
+			dismissals[i].Attribution = press.Attribution
+		}
+		out = append(out, dismissals...)
 	}
 	return out
 }

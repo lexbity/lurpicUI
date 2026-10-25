@@ -16,9 +16,9 @@ func TestDriveClick_RunsWarmupFrameFirst(t *testing.T) {
 		t.Fatalf("fresh harness FrameCount = %d, want 0", h.FrameCount)
 	}
 	DriveClickAt(h, 5, 5)
-	// warmup + press frame + release frame
-	if h.FrameCount < 3 {
-		t.Fatalf("DriveClick ran %d frames, want >= 3 (warmup + press + release)", h.FrameCount)
+	// warmup + move + press + release frames
+	if h.FrameCount < 4 {
+		t.Fatalf("DriveClick ran %d frames, want >= 4 (warmup + three input atoms)", h.FrameCount)
 	}
 }
 
@@ -27,9 +27,9 @@ func TestDriveClick_NoWarmupIfAlreadyRun(t *testing.T) {
 	h.RunFrame()
 	before := h.FrameCount
 	DriveClickAt(h, 5, 5)
-	// No double-warmup: only the press and release frames run.
-	if got := h.FrameCount - before; got != 2 {
-		t.Fatalf("DriveClick after an existing frame ran %d frames, want 2", got)
+	// No double-warmup: move, press, and release each get their own frame.
+	if got := h.FrameCount - before; got != 3 {
+		t.Fatalf("DriveClick after an existing frame ran %d frames, want 3", got)
 	}
 }
 
@@ -80,13 +80,13 @@ func TestDriveScroll_RunsWarmupThenEventFrame(t *testing.T) {
 
 func TestDriveDrag_RunsWarmupThenEventPerFrame(t *testing.T) {
 	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
-	// Drag builds press + 5 moves + release = 7 events.
-	if got := len(Drag(0, 0, 10, 10)); got != 7 {
-		t.Fatalf("Drag events = %d, want 7", got)
+	// Drag builds start move + press + 5 moves + release = 8 events.
+	if got := len(Drag(0, 0, 10, 10)); got != 8 {
+		t.Fatalf("Drag events = %d, want 8", got)
 	}
 	DriveDragFromTo(h, 0, 0, 10, 10)
-	if h.FrameCount != 8 {
-		t.Fatalf("DriveDrag ran %d frames, want 8 (warmup + 7 events)", h.FrameCount)
+	if h.FrameCount != 9 {
+		t.Fatalf("DriveDrag ran %d frames, want 9 (warmup + 8 events)", h.FrameCount)
 	}
 }
 

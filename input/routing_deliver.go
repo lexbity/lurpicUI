@@ -16,7 +16,12 @@ func (s *System) TickHover(now time.Time) []RoutedEvent {
 	if !s.hoverEnabled {
 		return nil
 	}
-	return s.hover.Tick(now, s.config)
+	routed := s.hover.Tick(now, s.config)
+	for i := range routed {
+		routed[i].Source = s.lastPointerSource
+		routed[i].Attribution = s.lastPointerAttribution
+	}
+	return routed
 }
 
 func (s *System) Process(events []platform.Event, hitMap *projection.HitMap, tree facet.FacetImpl) []RoutedEvent {
@@ -26,6 +31,12 @@ func (s *System) Process(events []platform.Event, hitMap *projection.HitMap, tre
 	s.focusTree = tree
 	var routed []RoutedEvent
 	for _, e := range events {
+		switch e.(type) {
+		case platform.EventPointer, platform.TouchEvent:
+			s.lastPointerSource = platform.EventSourceOf(e)
+			s.lastPointerAttribution = platform.InputAttributionOf(e)
+		}
+		start := len(routed)
 		switch ev := e.(type) {
 		case platform.EventPointer:
 			routed = append(routed, s.processPointer(ev, hitMap)...)
@@ -47,6 +58,10 @@ func (s *System) Process(events []platform.Event, hitMap *projection.HitMap, tre
 				s.focus.Clear()
 				s.SetInputModality(facet.InputModalityUnknown)
 			}
+		}
+		for i := start; i < len(routed); i++ {
+			routed[i].Source = platform.EventSourceOf(e)
+			routed[i].Attribution = platform.InputAttributionOf(e)
 		}
 	}
 	return routed
@@ -97,10 +112,10 @@ func Deliver(event RoutedEvent, tree facet.FacetImpl) bool {
 		return false
 	}
 	if !isBubbling(event.Event) {
-		return deliverEventToFacet(path[len(path)-1], event.Event)
+		return deliverEventToFacet(path[len(path)-1], event.Event, event.Source, event.Attribution)
 	}
 	for i := len(path) - 1; i >= 0; i-- {
-		if deliverEventToFacet(path[i], event.Event) {
+		if deliverEventToFacet(path[i], event.Event, event.Source, event.Attribution) {
 			return true
 		}
 	}
@@ -157,7 +172,7 @@ func findFacetPath(root facet.FacetImpl, target facet.FacetID) []facet.FacetImpl
 	return nil
 }
 
-func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
+func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent, source platform.EventSource, attribution platform.InputAttribution) bool {
 	if target == nil || event == nil {
 		return false
 	}
@@ -167,23 +182,25 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 	}
 	switch ev := event.(type) {
 	case PointerPressEvent:
-		return deliverPointer(base, platform.PointerPress, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID)
+		return deliverPointer(base, platform.PointerPress, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID, source, attribution)
 	case PointerMoveEvent:
-		return deliverPointer(base, platform.PointerMove, ev.Position, ev.ScreenPos, platform.PointerNone, ev.Modifiers, ev.MarkID)
+		return deliverPointer(base, platform.PointerMove, ev.Position, ev.ScreenPos, platform.PointerNone, ev.Modifiers, ev.MarkID, source, attribution)
 	case PointerReleaseEvent:
-		return deliverPointer(base, platform.PointerRelease, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID)
+		return deliverPointer(base, platform.PointerRelease, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID, source, attribution)
 	case PointerEnterEvent:
-		return deliverPointer(base, platform.PointerEnter, ev.Position, ev.ScreenPos, platform.PointerNone, 0, ev.MarkID)
+		return deliverPointer(base, platform.PointerEnter, ev.Position, ev.ScreenPos, platform.PointerNone, 0, ev.MarkID, source, attribution)
 	case PointerLeaveEvent:
-		return deliverPointer(base, platform.PointerLeave, gfx.Point{}, gfx.Point{}, platform.PointerNone, 0, ev.MarkID)
+		return deliverPointer(base, platform.PointerLeave, gfx.Point{}, gfx.Point{}, platform.PointerNone, 0, ev.MarkID, source, attribution)
+	case PointerCancelEvent:
+		return deliverPointer(base, platform.PointerCancel, gfx.Point{}, gfx.Point{}, platform.PointerNone, 0, ev.MarkID, source, attribution)
 	case ClickEvent:
-		return deliverPointer(base, platform.PointerRelease, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID)
+		return deliverPointer(base, platform.PointerRelease, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID, source, attribution)
 	case DragStartEvent:
-		return deliverPointer(base, platform.PointerPress, ev.StartPosition, ev.ScreenStart, ev.Button, ev.Modifiers, ev.MarkID)
+		return deliverPointer(base, platform.PointerPress, ev.StartPosition, ev.ScreenStart, ev.Button, ev.Modifiers, ev.MarkID, source, attribution)
 	case DragMoveEvent:
-		return deliverPointer(base, platform.PointerMove, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID)
+		return deliverPointer(base, platform.PointerMove, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID, source, attribution)
 	case DragEndEvent:
-		return deliverPointer(base, platform.PointerRelease, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID)
+		return deliverPointer(base, platform.PointerRelease, ev.Position, ev.ScreenPos, ev.Button, ev.Modifiers, ev.MarkID, source, attribution)
 	case ScrollEvent:
 		role := base.InputRole()
 		if role == nil || role.OnScroll == nil {
@@ -191,11 +208,13 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 		}
 		return runRecovered("scroll", base.ID(), func() bool {
 			return role.OnScroll(facet.ScrollEvent{
-				Position:  ev.Position,
-				DeltaX:    ev.DeltaX,
-				DeltaY:    ev.DeltaY,
-				Precise:   ev.Precise,
-				Modifiers: ev.Modifiers,
+				Position:    ev.Position,
+				DeltaX:      ev.DeltaX,
+				DeltaY:      ev.DeltaY,
+				Precise:     ev.Precise,
+				Modifiers:   ev.Modifiers,
+				Source:      source,
+				Attribution: attribution,
 			})
 		})
 	case KeyInputEvent:
@@ -205,9 +224,11 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 		}
 		return runRecovered("key", base.ID(), func() bool {
 			return role.OnKey(facet.KeyEvent{
-				Kind:      ev.Kind,
-				Key:       ev.Key,
-				Modifiers: ev.Modifiers,
+				Kind:        ev.Kind,
+				Key:         ev.Key,
+				Modifiers:   ev.Modifiers,
+				Source:      source,
+				Attribution: attribution,
 			})
 		})
 	case TextInputEvent:
@@ -216,7 +237,7 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 			return false
 		}
 		return runRecovered("text", base.ID(), func() bool {
-			return role.OnText(facet.TextEvent{Text: ev.Text, Composing: ev.Composing})
+			return role.OnText(facet.TextEvent{Text: ev.Text, Composing: ev.Composing, Source: source, Attribution: attribution})
 		})
 	case DismissEvent:
 		role := base.InputRole()
@@ -225,12 +246,14 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 		}
 		return runRecovered("dismiss", base.ID(), func() bool {
 			return role.OnDismiss(facet.DismissEvent{
-				Trigger:    ev.Trigger,
-				ScreenPos:  ev.ScreenPos,
-				HitFacetID: ev.HitFacetID,
-				HitMarkID:  ev.HitMarkID,
-				HitLayerID: ev.HitLayerID,
-				HitOrder:   ev.HitOrder,
+				Trigger:     ev.Trigger,
+				ScreenPos:   ev.ScreenPos,
+				HitFacetID:  ev.HitFacetID,
+				HitMarkID:   ev.HitMarkID,
+				HitLayerID:  ev.HitLayerID,
+				HitOrder:    ev.HitOrder,
+				Source:      source,
+				Attribution: attribution,
 			})
 		})
 	case TouchInputEvent:
@@ -239,7 +262,10 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 			return false
 		}
 		return runRecovered("touch", base.ID(), func() bool {
-			return role.OnTouch(ev.Event)
+			touch := ev.Event
+			touch.Source = source
+			touch.Attribution = attribution
+			return role.OnTouch(touch)
 		})
 	case FocusGainedEvent:
 		if role := base.FocusRole(); role != nil && role.OnFocusGained != nil {
@@ -262,26 +288,28 @@ func deliverEventToFacet(target facet.FacetImpl, event DeliveredEvent) bool {
 	}
 }
 
-func deliverPointer(base *facet.Facet, kind platform.PointerEventKind, local, screen gfx.Point, button platform.PointerButton, mods platform.ModifierKeys, markID facet.MarkID) bool {
+func deliverPointer(base *facet.Facet, kind platform.PointerEventKind, local, screen gfx.Point, button platform.PointerButton, mods platform.ModifierKeys, markID facet.MarkID, source platform.EventSource, attribution platform.InputAttribution) bool {
 	role := base.InputRole()
 	if role == nil || role.OnPointer == nil {
 		return false
 	}
 	return runRecovered("pointer", base.ID(), func() bool {
 		return role.OnPointer(facet.PointerEvent{
-			Kind:      kind,
-			Position:  local,
-			ScreenPos: screen,
-			Button:    button,
-			Modifiers: mods,
-			MarkID:    markID,
+			Kind:        kind,
+			Position:    local,
+			ScreenPos:   screen,
+			Button:      button,
+			Modifiers:   mods,
+			MarkID:      markID,
+			Source:      source,
+			Attribution: attribution,
 		})
 	})
 }
 
 func isBubbling(e DeliveredEvent) bool {
 	switch e.(type) {
-	case PointerEnterEvent, PointerLeaveEvent, HoverSettledEvent, FocusGainedEvent, FocusLostEvent, DismissEvent:
+	case PointerEnterEvent, PointerLeaveEvent, PointerCancelEvent, HoverSettledEvent, FocusGainedEvent, FocusLostEvent, DismissEvent:
 		return false
 	default:
 		return true

@@ -37,6 +37,8 @@ type PointerLeaveEvent struct {
 	MarkID facet.MarkID
 }
 
+type PointerCancelEvent struct{ MarkID facet.MarkID }
+
 // Gesture events.
 type ClickEvent struct {
 	Position, ScreenPos gfx.Point
@@ -114,6 +116,7 @@ func (PointerMoveEvent) isDeliveredEvent()    {}
 func (PointerReleaseEvent) isDeliveredEvent() {}
 func (PointerEnterEvent) isDeliveredEvent()   {}
 func (PointerLeaveEvent) isDeliveredEvent()   {}
+func (PointerCancelEvent) isDeliveredEvent()  {}
 func (ScrollEvent) isDeliveredEvent()         {}
 func (KeyInputEvent) isDeliveredEvent()       {}
 func (TextInputEvent) isDeliveredEvent()      {}

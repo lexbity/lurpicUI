@@ -39,6 +39,10 @@ func (diagRuntimeStub) Now() time.Time         { return time.Time{} }
 func (diagRuntimeStub) CancelJob(id job.JobID) {}
 func (diagRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
+func (diagRuntimeStub) ControlSnapshot() facet.ControlSnapshot { return facet.DefaultControlSnapshot() }
+func (diagRuntimeStub) WatchControl(id facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	return facet.WatchNoControl(id, callback)
+}
 
 func buildDiagTree(t *testing.T) (*diagTestFacet, *diagTestFacet, *diagTestFacet) {
 	t.Helper()

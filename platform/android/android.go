@@ -366,6 +366,7 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 		return platform.WindowEvent{Kind: kind, Window: uintptr(e.Window)}
 	case bridge.EventTypeTouch:
 		return platform.TouchEvent{
+			Source:     platform.SourcePlatform,
 			SequenceID: uint64(e.PointerID),
 			Phase:      platform.TouchPhase(e.Phase),
 			X:          e.X,
@@ -450,9 +451,9 @@ func convertBridgeEvent(a *App, e bridge.Event) platform.Event {
 		// Deliver to the registered audio focus callback if any.
 		return platform.AudioFocusEvent{Change: change}
 	case bridge.EventTypeIMECompose:
-		return platform.EventIMECompose{Text: e.Text, CursorPos: e.CursorPos}
+		return platform.EventIMECompose{Text: e.Text, CursorPos: e.CursorPos, Source: platform.SourcePlatform}
 	case bridge.EventTypeIMECommit:
-		return platform.EventIMECommit{Text: e.Text}
+		return platform.EventIMECommit{Text: e.Text, Source: platform.SourcePlatform}
 	case bridge.EventTypeWindowInsets:
 		if a != nil {
 			a.currentInsets = EdgeInsets{

@@ -515,16 +515,16 @@ func TestAssertNotBlank_fails_on_blank_surface(t *testing.T) {
 	}
 }
 
-func TestSyntheticEvents_leftclick_is_press_release(t *testing.T) {
+func TestSyntheticEvents_leftclick_is_move_press_release(t *testing.T) {
 	got := LeftClick(1, 2)
-	if len(got) != 2 {
+	if len(got) != 3 {
 		t.Fatalf("len = %d", len(got))
 	}
 }
 
 func TestSyntheticEvents_drag_has_intermediate_moves(t *testing.T) {
 	got := Drag(0, 0, 10, 10)
-	if len(got) != 7 {
+	if len(got) != 8 {
 		t.Fatalf("len = %d", len(got))
 	}
 	if _, ok := got[0].(platform.EventPointer); !ok {

@@ -19,6 +19,7 @@ func PointerRelease(x, y float32, button platform.PointerButton) platform.EventP
 
 func LeftClick(x, y float32) []platform.Event {
 	return []platform.Event{
+		PointerMove(x, y),
 		PointerPress(x, y, platform.PointerLeft),
 		PointerRelease(x, y, platform.PointerLeft),
 	}
@@ -26,6 +27,7 @@ func LeftClick(x, y float32) []platform.Event {
 
 func Drag(fromX, fromY, toX, toY float32) []platform.Event {
 	events := []platform.Event{
+		PointerMove(fromX, fromY),
 		PointerPress(fromX, fromY, platform.PointerLeft),
 	}
 	for i := 1; i <= 5; i++ {

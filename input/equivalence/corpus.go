@@ -42,10 +42,9 @@ type Pair struct {
 	GUIHelper string
 	// Compare scopes the assertion. CompareAll (default) asserts packet
 	// hashes, dirty digests, and store versions — the input.* verbs' claim.
-	// CompareStores asserts only store-version trajectories: the sanctioned
-	// scope for store.write's INDIRECT twin (registry: "yes (indirect)") —
-	// a GUI gesture carries pointer artifacts (hover, press visuals) a
-	// direct store write legitimately lacks.
+	// CompareCommandBoundary checks application state after the GUI command
+	// dispatcher boundary. Pointer hover/press visuals are outside a command's
+	// semantic twin.
 	Compare CompareScope
 }
 
@@ -55,8 +54,8 @@ type CompareScope uint8
 const (
 	// CompareAll asserts packets, dirty sets, and store versions.
 	CompareAll CompareScope = iota
-	// CompareStores asserts only store versions.
-	CompareStores
+	// CompareCommandBoundary asserts the command's application-state trajectory.
+	CompareCommandBoundary
 )
 
 // Fixture is a booted mark tree with named stores registered for version
@@ -153,7 +152,7 @@ func AssertEquivalent(t testing.TB, p Pair) {
 		t.Fatalf("trajectory lengths differ: %d vs %d", len(drive.Hashes), len(gui.Hashes))
 	}
 	for i := range drive.Hashes {
-		if p.Compare == CompareStores {
+		if p.Compare == CompareCommandBoundary {
 			for j := range drive.Versions[i] {
 				if drive.Versions[i][j] != gui.Versions[i][j] {
 					t.Fatalf("%s: store version diverged at settle frame %d (store %d): %d vs %d",

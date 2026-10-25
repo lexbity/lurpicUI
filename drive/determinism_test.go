@@ -10,15 +10,14 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/runtime"
 )
 
 // TestDeterminism_VirtualReplay is the NFR-6 proof: the same studio seed +
-// the same command script in Virtual mode yields identical frame packet
-// hashes across two full runs. The script interleaves time advances with a
-// deterministic input timeline (pointer moves that trigger hover settle on
-// virtual time, periodic clicks on stage chrome).
+// the same explicit frame script in Virtual mode yields identical packet
+// hashes across two full runs. Human platform input returns control to Wall
+// mode by contract; input determinism is covered by the independent GUI/LDP
+// trajectory corpus.
 func TestDeterminism_VirtualReplay(t *testing.T) {
 	// NFR-6 demands 1000 consecutive frames. Under the race detector the
 	// studio render inflates ~13x (a single 1000-frame replay costs ~8
@@ -75,17 +74,6 @@ func replayStudioSession(t *testing.T, advances int) []uint64 {
 	framePeriod := map[string]string{"duration_ns": "16667000"}
 
 	for i := 0; i < advances; i++ {
-		// Deterministic input timeline: a pointer move every 61 advances
-		// (hover settle then fires on virtual time), a click every 211.
-		switch {
-		case i%211 == 100:
-			h.InjectEvent(testkit.PointerPress(640, 60, platform.PointerLeft))
-		case i%211 == 101:
-			h.InjectEvent(testkit.PointerRelease(640, 60, platform.PointerLeft))
-		case i%61 == 30:
-			h.InjectEvent(testkit.PointerMove(320+float32(i%97), 200+float32(i%53)))
-		}
-
 		// Each explicit token executes one frame and returns only after its
 		// ready surface acknowledgment.
 		if _, perr := h.DriveCall(t, "time.advance", framePeriod); perr != nil {

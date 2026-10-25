@@ -19,6 +19,13 @@ type recordingRuntime struct {
 func (r *recordingRuntime) Schedule(j job.AnyJob)  {}
 func (r *recordingRuntime) Now() time.Time         { return time.Time{} }
 func (r *recordingRuntime) CancelJob(id job.JobID) {}
+func (r *recordingRuntime) ControlSnapshot() facet.ControlSnapshot {
+	return facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall}
+}
+func (r *recordingRuntime) WatchControl(_ facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	callback(r.ControlSnapshot())
+	return func() {}
+}
 func (r *recordingRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 	if r.invalidated == nil {
 		r.invalidated = make(map[facet.FacetID]facet.DirtyFlags)

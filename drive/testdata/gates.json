@@ -202,6 +202,51 @@
           "count": 1
         }
       ]
+    },
+    "S4": {
+      "tests": [
+        {
+          "package": "./runtime",
+          "tests": [
+            "TestInputSocketPalette",
+            "TestGestureDisconnectCleanup",
+            "TestWallRunDrainsRenderCompletionsWithoutDrive",
+            "TestDriveInput_ClickSynthesizesPlatformShapedEvents",
+            "TestDriveTouchClickUsesOneContactAcrossSeparateFrames",
+            "TestDriveScrollPreservesAllInputValues",
+            "TestDriveInput_PreemptionByPlatformEvent",
+            "TestHumanPreemptsSamePollBatch",
+            "TestHumanWakesParkedRuntimeAndReturnsToWall",
+            "TestDriveInput_FocusWithoutPointer",
+            "TestHeldGestureCannotCrossSession",
+            "TestDriveInputDragRejectsLegacyAndMixedLocationShapes",
+            "TestDriveInputType_IMEFidelity",
+            "TestDriveInput_TypeRequiresIMEFocus",
+            "TestFramePlanBoundGestureUsesCanonicalInputAtoms",
+            "TestFramePlanGrantUnionAndBounds",
+            "TestPlanDisconnectStopsNextStep"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./input/equivalence",
+          "tests": [
+            "TestEveryMutatingVerbHasATwin",
+            "TestCorpus"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./demos/lurpic_studio/studio",
+          "tests": [
+            "TestDrivingAndVirtualIndicator"
+          ],
+          "timeout": "2m",
+          "count": 1
+        }
+      ]
     }
   },
   "format_excludes": [

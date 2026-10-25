@@ -152,6 +152,118 @@ func main() {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
 		})
 
+	// input.click forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.click", Description: "LDP input.click (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.click", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// input.press forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.press", Description: "LDP input.press (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.press", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// input.release forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.release", Description: "LDP input.release (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.release", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// input.move forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.move", Description: "LDP input.move (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.move", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// input.drag forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.drag", Description: "LDP input.drag (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.drag", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// input.type forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.type", Description: "LDP input.type (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.type", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// input.scroll forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.scroll", Description: "LDP input.scroll (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.scroll", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// input.focus forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "input.focus", Description: "LDP input.focus (grant: input)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("input.focus", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
 	// time.mode forwards to the LDP method of the same name.
 	mcp.AddTool(server, &mcp.Tool{Name: "time.mode", Description: "LDP time.mode (grant: time)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {

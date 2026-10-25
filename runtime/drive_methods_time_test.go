@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/platform"
 )
 
 func TestDrive_TimeModeTransitionsOwnExactlyOneFrame(t *testing.T) {
@@ -400,15 +402,57 @@ func TestFramePlanGrantUnionAndBounds(t *testing.T) {
 	if resultCode(res.Err) != string(proto.ErrCommandUnavailable) {
 		t.Fatalf("missing command err=%+v", res.Err)
 	}
-	params = map[string]any{"steps": []map[string]any{{"method": "input.click", "params": map[string]any{}}}, "step_duration_ns": "1", "max_frames": 1}
-	res = driveCall(t, rt, "frame.run", params, allGrants())
-	if resultCode(res.Err) != string(proto.ErrUnknownMethod) {
-		t.Fatalf("unported input step err=%+v", res.Err)
+	inputRT, _ := newInputRuntime(t, &recordQueue{})
+	if mode := driveCall(t, inputRT, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); mode.Err != nil {
+		t.Fatal(mode.Err)
+	}
+	params = map[string]any{"steps": []map[string]any{{"method": "input.click", "params": map[string]any{"x": 1, "y": 1}}}, "step_duration_ns": "1", "max_frames": 3}
+	res = driveCall(t, inputRT, "frame.run", params, allGrants())
+	if res.Err != nil {
+		t.Fatalf("input click frame plan err=%+v (%s)", res.Err, errDetail(res.Err))
 	}
 	params = map[string]any{"steps": []map[string]any{{"method": "cmd.execute", "params": map[string]any{"name": "x", "version": 1}}}, "step_duration_ns": "1", "max_frames": 0}
 	res = driveCall(t, rt, "frame.run", params, allGrants())
 	if resultCode(res.Err) != string(proto.ErrInvalidParams) {
 		t.Fatalf("missing max_frames err=%+v", res.Err)
+	}
+}
+
+func TestFramePlanBoundGestureUsesCanonicalInputAtoms(t *testing.T) {
+	q := &recordQueue{}
+	rt, _ := newInputRuntime(t, q)
+	defer rt.Shutdown()
+	if result := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); result.Err != nil {
+		t.Fatal(result.Err)
+	}
+	before := rt.frameNumber
+	result := driveCall(t, rt, "frame.run", map[string]any{
+		"steps": []map[string]any{
+			{"method": "input.press", "bind_gesture": "drag", "params": map[string]any{"x": 10, "y": 10}},
+			{"method": "input.move", "use_gesture": "drag", "params": map[string]any{"x": 20, "y": 10}},
+			{"method": "input.release", "use_gesture": "drag", "params": map[string]any{}},
+		},
+		"step_duration_ns": "1000000",
+		"max_frames":       4,
+	}, allGrants())
+	if result.Err != nil {
+		t.Fatalf("frame.run gesture plan: %v (%s)", result.Err, errDetail(result.Err))
+	}
+	if got := rt.frameNumber - before; got != 4 {
+		t.Fatalf("gesture plan frames=%d want four canonical atoms", got)
+	}
+	var kinds []platform.PointerEventKind
+	for _, event := range q.seenDriveEvents() {
+		if pointer, ok := event.(platform.EventPointer); ok && pointer.Source == platform.SourceDrive {
+			kinds = append(kinds, pointer.Kind)
+		}
+	}
+	want := []platform.PointerEventKind{platform.PointerMove, platform.PointerPress, platform.PointerMove, platform.PointerRelease}
+	if !reflect.DeepEqual(kinds, want) {
+		t.Fatalf("gesture atom kinds=%v want %v", kinds, want)
+	}
+	if rt.driveInputStep != nil {
+		t.Fatal("successful frame plan left its gesture held")
 	}
 }
 

@@ -221,6 +221,31 @@ func TestRuntime_clean_lifecycle(t *testing.T) {
 	}
 }
 
+func TestWallRunDrainsRenderCompletionsWithoutDrive(t *testing.T) {
+	backend := &backendFixture{}
+	rt, _ := mustLifecycleRuntime(t, backend)
+	if rt.drivePort != nil {
+		t.Fatal("drive port must be disabled for this regression test")
+	}
+	runDone := make(chan error, 1)
+	go func() { runDone <- rt.Run() }()
+	defer rt.Shutdown()
+
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+	timeout := time.NewTimer(time.Second)
+	defer timeout.Stop()
+	for backend.submitCount.Load() < 8 {
+		select {
+		case err := <-runDone:
+			t.Fatalf("runtime stopped before sustaining frames: %v", err)
+		case <-ticker.C:
+		case <-timeout.C:
+			t.Fatalf("Wall frame loop stalled after %d submissions without a drive port", backend.submitCount.Load())
+		}
+	}
+}
+
 func TestRuntime_shutdown_idempotent(t *testing.T) {
 	rt, _ := mustLifecycleRuntime(t, nil)
 	rt.Shutdown()

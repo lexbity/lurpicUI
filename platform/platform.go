@@ -96,6 +96,8 @@ const (
 	SourcePlatform EventSource = iota + 1
 	// SourceDrive marks LDP-synthesized input.
 	SourceDrive
+	// SourceRuntimeCancel marks framework cancellation routed to recognizers.
+	SourceRuntimeCancel
 )
 
 func (s EventSource) String() string {
@@ -104,26 +106,30 @@ func (s EventSource) String() string {
 		return "platform"
 	case SourceDrive:
 		return "drive"
+	case SourceRuntimeCancel:
+		return "runtime_cancel"
 	default:
 		return "EventSource(unknown)"
 	}
 }
 
 type EventPointer struct {
-	Kind      PointerEventKind
-	Position  gfx.Point
-	Button    PointerButton
-	Modifiers ModifierKeys
-	Source    EventSource
+	Kind        PointerEventKind
+	Position    gfx.Point
+	Button      PointerButton
+	Modifiers   ModifierKeys
+	Source      EventSource
+	Attribution InputAttribution
 }
 
 type EventScroll struct {
-	Position  gfx.Point
-	DeltaX    float32
-	DeltaY    float32
-	Precise   bool
-	Modifiers ModifierKeys
-	Source    EventSource
+	Position    gfx.Point
+	DeltaX      float32
+	DeltaY      float32
+	Precise     bool
+	Modifiers   ModifierKeys
+	Source      EventSource
+	Attribution InputAttribution
 }
 
 type KeyEventKind uint8
@@ -180,24 +186,38 @@ const (
 )
 
 type EventKey struct {
-	Kind      KeyEventKind
-	Key       Key
-	Modifiers ModifierKeys
-	Source    EventSource
+	Kind        KeyEventKind
+	Key         Key
+	Modifiers   ModifierKeys
+	Source      EventSource
+	Attribution InputAttribution
 }
 
 type EventText struct {
-	Text   string
-	Source EventSource
+	Text        string
+	Source      EventSource
+	Attribution InputAttribution
 }
 
 type EventIMECompose struct {
-	Text      string
-	CursorPos int
+	Text        string
+	CursorPos   int
+	Source      EventSource
+	Attribution InputAttribution
 }
 
 type EventIMECommit struct {
-	Text string
+	Text        string
+	Source      EventSource
+	Attribution InputAttribution
+}
+
+// InputAttribution identifies the operation that produced a synthesized
+// event. Platform events leave it empty; it contains no credential material.
+type InputAttribution struct {
+	Session    string
+	Generation uint64
+	Operation  string
 }
 
 type ModifierKeys uint8
@@ -284,10 +304,65 @@ type ConfigurationChangedEvent struct {
 // TouchEvent represents a touch contact event on Android.
 // Multiple TouchEvents with the same SequenceID belong to one finger's gesture.
 type TouchEvent struct {
-	SequenceID uint64     // identifies this contact across down/move/up
-	Phase      TouchPhase // Down, Move, Up, Cancel
-	X, Y       float32    // surface-relative position
-	Pressure   float32    // 0.0 to 1.0
+	SequenceID  uint64     // identifies this contact across down/move/up
+	Phase       TouchPhase // Down, Move, Up, Cancel
+	X, Y        float32    // surface-relative position
+	Pressure    float32    // 0.0 to 1.0
+	Source      EventSource
+	Attribution InputAttribution
+}
+
+// IsInputEvent classifies only human-actuatable input. Lifecycle, vsync,
+// and routine window bookkeeping do not preempt a controller.
+func IsInputEvent(event Event) bool {
+	switch event.(type) {
+	case EventPointer, EventScroll, EventKey, EventText, EventIMECompose, EventIMECommit, TouchEvent:
+		return true
+	default:
+		return false
+	}
+}
+
+func EventSourceOf(event Event) EventSource {
+	switch e := event.(type) {
+	case EventPointer:
+		return e.Source
+	case EventScroll:
+		return e.Source
+	case EventKey:
+		return e.Source
+	case EventText:
+		return e.Source
+	case EventIMECompose:
+		return e.Source
+	case EventIMECommit:
+		return e.Source
+	case TouchEvent:
+		return e.Source
+	default:
+		return SourceRuntimeCancel
+	}
+}
+
+func InputAttributionOf(event Event) InputAttribution {
+	switch e := event.(type) {
+	case EventPointer:
+		return e.Attribution
+	case EventScroll:
+		return e.Attribution
+	case EventKey:
+		return e.Attribution
+	case EventText:
+		return e.Attribution
+	case EventIMECompose:
+		return e.Attribution
+	case EventIMECommit:
+		return e.Attribution
+	case TouchEvent:
+		return e.Attribution
+	default:
+		return InputAttribution{}
+	}
 }
 
 // TouchPhase represents the phase of a touch event

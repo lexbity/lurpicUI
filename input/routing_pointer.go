@@ -30,8 +30,13 @@ func (s *System) processPointer(e platform.EventPointer, hitMap *projection.HitM
 	case platform.PointerRelease:
 		return s.handleRelease(ptr, e, hitMap)
 	case platform.PointerCancel:
+		target := ptr.PressTarget
+		var out []RoutedEvent
+		if target != nil {
+			out = append(out, RoutedEvent{Target: target.FacetID, Event: PointerCancelEvent{MarkID: target.MarkID}})
+		}
 		s.handleCancel(ptr)
-		return nil
+		return out
 	default:
 		return nil
 	}

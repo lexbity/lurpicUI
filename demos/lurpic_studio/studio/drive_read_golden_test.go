@@ -74,7 +74,6 @@ func TestDrive_namedStores(t *testing.T) {
 		"e1.opacity",
 		"e1.seriesColor",
 		"e1.timeRange",
-		"runtime.input.ownership",
 		"shell.active",
 	}
 	if !reflect.DeepEqual(named, want) {
@@ -92,6 +91,27 @@ func TestDrive_namedStores(t *testing.T) {
 	}
 	if value.Value != string(ExhibitRealtime) {
 		t.Fatalf("shell.active = %q, want %q", value.Value, ExhibitRealtime)
+	}
+}
+
+func TestDrivingAndVirtualIndicator(t *testing.T) {
+	h := newStudioDriveHarness(t, 1280, 800)
+	root := h.Runtime().Root().(*Root)
+	driving := root.StatusBar().Driving()
+	if !driving.Disabled.Get() {
+		t.Fatal("driving indicator must be dim while Wall mode has no client owner")
+	}
+	if _, perr := h.Call("time.mode", map[string]string{"mode": "virtual"}); perr != nil {
+		t.Fatalf("enter Virtual mode: %v", perr)
+	}
+	if driving.Disabled.Get() {
+		t.Fatal("driving indicator must light while a client owns Virtual time")
+	}
+	if _, perr := h.Call("time.mode", map[string]string{"mode": "wall"}); perr != nil {
+		t.Fatalf("return to Wall mode: %v", perr)
+	}
+	if !driving.Disabled.Get() {
+		t.Fatal("driving indicator must return to dim after the time lease is released")
 	}
 }
 

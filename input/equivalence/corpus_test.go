@@ -1,6 +1,7 @@
 package equivalence
 
 import (
+	"encoding/json"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
@@ -17,7 +18,7 @@ func corpusTest() []Pair {
 		{
 			Name:      "input.click/button",
 			Fixture:   newButtonFixture,
-			GUIHelper: "testkit.DriveClickAt",
+			GUIHelper: "testkit.DriveClickAt (move, press, release cuts)",
 			Verb: func(h *testkit.DriveHarness) *proto.Error {
 				_, perr := h.Call("input.click", map[string]any{"x": 240, "y": 120})
 				return perr
@@ -34,6 +35,8 @@ func corpusTest() []Pair {
 			},
 			GUI: func(h *testkit.Harness) {
 				testkit.Warmup(h)
+				h.InjectEvent(testkit.PointerMove(240, 120))
+				h.RunFrame()
 				h.InjectEvent(testkit.PointerPress(240, 120, 1))
 				h.RunFrame()
 			},
@@ -43,11 +46,25 @@ func corpusTest() []Pair {
 			Fixture:   newSliderFixture,
 			GUIHelper: "testkit pointer release",
 			Verb: func(h *testkit.DriveHarness) *proto.Error {
-				_, perr := h.Call("input.release", map[string]any{"x": 240, "y": 120})
+				payload, perr := h.Call("input.press", map[string]any{"x": 240, "y": 120})
+				if perr != nil {
+					return perr
+				}
+				var press struct {
+					Handle string `json:"gesture_handle"`
+				}
+				if err := json.Unmarshal(payload, &press); err != nil {
+					return &proto.Error{Code: proto.ErrInvalidParams, Detail: err.Error()}
+				}
+				_, perr = h.Call("input.release", map[string]any{"gesture_handle": press.Handle})
 				return perr
 			},
 			GUI: func(h *testkit.Harness) {
 				testkit.Warmup(h)
+				h.InjectEvent(testkit.PointerMove(240, 120))
+				h.RunFrame()
+				h.InjectEvent(testkit.PointerPress(240, 120, 1))
+				h.RunFrame()
 				h.InjectEvent(testkit.PointerRelease(240, 120, 1))
 				h.RunFrame()
 			},
@@ -58,7 +75,8 @@ func corpusTest() []Pair {
 			GUIHelper: "testkit.DriveDragFromTo",
 			Verb: func(h *testkit.DriveHarness) *proto.Error {
 				_, perr := h.Call("input.drag", map[string]any{
-					"from_x": 100, "from_y": 120, "to_x": 300, "to_y": 120,
+					"from": map[string]any{"x": 100, "y": 120},
+					"to":   map[string]any{"x": 300, "y": 120},
 				})
 				return perr
 			},
@@ -130,6 +148,7 @@ func corpusTest() []Pair {
 			Name:      "cmd.execute/palette",
 			Fixture:   newPaletteFixture,
 			GUIHelper: "testkit.DriveClickAt (activation path)",
+			Compare:   CompareCommandBoundary,
 			Verb: func(h *testkit.DriveHarness) *proto.Error {
 				_, perr := h.Call("cmd.execute", map[string]any{"name": "toggle.enabled", "version": 1})
 				return perr

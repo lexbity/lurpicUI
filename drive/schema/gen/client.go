@@ -35,6 +35,14 @@ func Methods() []string {
 		"cmd.execute",
 		"cmd.list",
 		"frame.run",
+		"input.click",
+		"input.drag",
+		"input.focus",
+		"input.move",
+		"input.press",
+		"input.release",
+		"input.scroll",
+		"input.type",
 		"op.status",
 		"sys.hello",
 		"sys.ping",
@@ -45,7 +53,7 @@ func Methods() []string {
 
 // SchemaDigest returns the canonical schema digest of Methods().
 func SchemaDigest() string {
-	return "sha256:0f741e46e833b78f81112c031f728eb2dfbb2e4e74d88a93a66e49bef605407c"
+	return "sha256:063b8ae3ce41279196244c72963603fafd0fd54294f457257449c34982953cff"
 }
 
 // CmdExecute sends cmd.execute with optional params.
@@ -61,6 +69,46 @@ func (c *Client) CmdList(params any) (json.RawMessage, error) {
 // FrameRun sends frame.run with optional params.
 func (c *Client) FrameRun(params any) (json.RawMessage, error) {
 	return c.call("frame.run", params)
+}
+
+// InputClick sends input.click with optional params.
+func (c *Client) InputClick(params any) (json.RawMessage, error) {
+	return c.call("input.click", params)
+}
+
+// InputDrag sends input.drag with optional params.
+func (c *Client) InputDrag(params any) (json.RawMessage, error) {
+	return c.call("input.drag", params)
+}
+
+// InputFocus sends input.focus with optional params.
+func (c *Client) InputFocus(params any) (json.RawMessage, error) {
+	return c.call("input.focus", params)
+}
+
+// InputMove sends input.move with optional params.
+func (c *Client) InputMove(params any) (json.RawMessage, error) {
+	return c.call("input.move", params)
+}
+
+// InputPress sends input.press with optional params.
+func (c *Client) InputPress(params any) (json.RawMessage, error) {
+	return c.call("input.press", params)
+}
+
+// InputRelease sends input.release with optional params.
+func (c *Client) InputRelease(params any) (json.RawMessage, error) {
+	return c.call("input.release", params)
+}
+
+// InputScroll sends input.scroll with optional params.
+func (c *Client) InputScroll(params any) (json.RawMessage, error) {
+	return c.call("input.scroll", params)
+}
+
+// InputType sends input.type with optional params.
+func (c *Client) InputType(params any) (json.RawMessage, error) {
+	return c.call("input.type", params)
 }
 
 // OpStatus sends op.status with optional params.

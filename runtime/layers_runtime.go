@@ -1028,7 +1028,7 @@ func windowBindingString(binding layout.WindowBinding) string {
 	case layout.WindowBindingPrimary:
 		fallthrough
 	default:
-		return "primary"
+		return drivePrimaryWindow
 	}
 }
 

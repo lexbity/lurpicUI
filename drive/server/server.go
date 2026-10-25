@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -706,7 +707,7 @@ func (c *conn) dispatch(req proto.Request) {
 		Grants:     sess.Grants,
 		Reply:      make(chan drive.Result, 1),
 	}
-	if req.Method == "cmd.execute" || req.Method == "time.mode" || req.Method == "time.advance" || req.Method == "frame.run" {
+	if req.Method == "cmd.execute" || req.Method == "time.mode" || req.Method == "time.advance" || req.Method == "frame.run" || strings.HasPrefix(req.Method, "input.") {
 		cmd.Accepted = make(chan drive.Receipt, 1)
 	}
 	if err := c.srv.cfg.Port.Submit(cmd); err != nil {

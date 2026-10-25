@@ -315,6 +315,12 @@ func (s iconRenderRuntime) Now() time.Time         { return time.Time{} }
 func (s iconRenderRuntime) CancelJob(id job.JobID) {}
 func (s iconRenderRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
+func (s iconRenderRuntime) ControlSnapshot() facet.ControlSnapshot {
+	return facet.DefaultControlSnapshot()
+}
+func (s iconRenderRuntime) WatchControl(id facet.FacetID, callback func(facet.ControlSnapshot)) func() {
+	return facet.WatchNoControl(id, callback)
+}
 func (s iconRenderRuntime) RootStyleContext() any { return s.rootStyle }
 func (s iconRenderRuntime) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil

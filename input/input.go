@@ -73,8 +73,10 @@ func (HoverSettledEvent) isDeliveredEvent() {}
 
 // RoutedEvent couples a routed event with its target facet.
 type RoutedEvent struct {
-	Target facet.FacetID
-	Event  DeliveredEvent
+	Target      facet.FacetID
+	Event       DeliveredEvent
+	Source      platform.EventSource
+	Attribution platform.InputAttribution
 }
 
 // hoverState tracks hover firing for the current idle period.
@@ -156,16 +158,18 @@ type clickHistory struct {
 
 // System stores input gesture state without performing routing yet.
 type System struct {
-	config       GestureConfig
-	pointers     map[PointerID]*pointerState
-	touches      map[uint64]*touchState
-	focus        focusState
-	focusManager *facet.FocusManager
-	focusTree    facet.FacetImpl
-	hover        hoverState
-	hoverEnabled bool
-	modality     facet.InputModality
-	clickHistory clickHistory
+	config                 GestureConfig
+	pointers               map[PointerID]*pointerState
+	touches                map[uint64]*touchState
+	focus                  focusState
+	focusManager           *facet.FocusManager
+	focusTree              facet.FacetImpl
+	hover                  hoverState
+	hoverEnabled           bool
+	modality               facet.InputModality
+	clickHistory           clickHistory
+	lastPointerSource      platform.EventSource
+	lastPointerAttribution platform.InputAttribution
 	// now is the engine time source (the runtime clock, Debt-4/QP-5): every
 	// routing timestamp — hover settle, double-click window, move times —
 	// reads it so Virtual-mode replay is deterministic. Nil means wall time
@@ -286,6 +290,14 @@ func (s *System) SetInputModality(modality facet.InputModality) {
 		return
 	}
 	s.modality = modality
+}
+
+// InputModality reports the last observed physical interaction mode.
+func (s *System) InputModality() facet.InputModality {
+	if s == nil {
+		return facet.InputModalityUnknown
+	}
+	return s.modality
 }
 
 // CurrentInputModality reports the last observed input family.
