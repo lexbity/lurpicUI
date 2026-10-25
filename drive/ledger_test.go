@@ -3,9 +3,63 @@ package drive
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 )
+
+func checkLedgerSequence(t testing.TB, sequence []byte) {
+	t.Helper()
+	if len(sequence) > 4096 {
+		sequence = sequence[:4096]
+	}
+	l := NewLedger()
+	var highWater uint64
+	for i, action := range sequence {
+		id := highWater + 1
+		digest := canonical("fixture.request", fmt.Sprintf(`{"action":%d,"index":%d}`, action, i))
+		var err error
+		var entry *Entry
+		if action&1 == 0 {
+			entry, err = l.Claim(id, digest, fmt.Sprintf("instance/session/%d", id))
+		} else {
+			entry, err = l.ClaimRejection(id, digest, errors.New("fixture rejection"))
+		}
+		if err != nil || entry == nil {
+			t.Fatalf("claim contiguous ID %d: entry=%v err=%v", id, entry, err)
+		}
+		highWater = id
+		if action&1 == 0 {
+			l.CompleteResult(entry, json.RawMessage(`{"state":"completed"}`), "1", "1")
+		}
+		if got := l.HighWater(); got != highWater {
+			t.Fatalf("high-water=%d after ID %d, want %d", got, id, highWater)
+		}
+		if id > 1 {
+			before := l.HighWater()
+			if _, err := l.Claim(id-1, digest, "replay"); err == nil {
+				t.Fatalf("expired or retained ID %d became claimable again", id-1)
+			}
+			if got := l.HighWater(); got != before {
+				t.Fatalf("replay moved high-water from %d to %d", before, got)
+			}
+		}
+	}
+}
+
+func TestLedgerModelAtMostOnce(t *testing.T) {
+	for _, sequence := range [][]byte{{}, {0}, {1}, {0, 1, 0, 1}, make([]byte, 1200)} {
+		checkLedgerSequence(t, sequence)
+	}
+}
+
+func FuzzLedgerAtMostOnce(f *testing.F) {
+	f.Add([]byte{0, 1, 0, 1})
+	f.Add(make([]byte, 1100))
+	f.Fuzz(func(t *testing.T, sequence []byte) {
+		checkLedgerSequence(t, sequence)
+	})
+}
 
 func canonical(method string, params string) [32]byte {
 	return CanonicalRequest(method, json.RawMessage(params))
@@ -89,9 +143,11 @@ func TestLedgerFIFOEvictionPreservesHighWater(t *testing.T) {
 	// ledgerMaxEntries is 1024; claim more and confirm the first IDs evict.
 	const n = ledgerMaxEntries + 50
 	for i := uint64(1); i <= n; i++ {
-		if _, err := l.Claim(i, canonical("sys.ping", "{}"), "op"); err != nil {
+		entry, err := l.Claim(i, canonical("sys.ping", "{}"), "op")
+		if err != nil {
 			t.Fatalf("claim %d: %v", i, err)
 		}
+		l.CompleteResult(entry, json.RawMessage(`{}`), "1", "1")
 	}
 	if got := l.HighWater(); got != n {
 		t.Fatalf("high-water = %d, want %d", got, n)
@@ -104,6 +160,63 @@ func TestLedgerFIFOEvictionPreservesHighWater(t *testing.T) {
 	}
 	if got := l.EarliestRetained(); got != n-uint64(ledgerMaxEntries)+1 {
 		t.Fatalf("earliest retained = %d", got)
+	}
+}
+
+// TestExpiredRequestNeverRedispatched drives the bounded ledger through
+// repeated FIFO eviction. Once an admitted ID expires, retry lookup remains
+// terminally expired and the sequence high-water cannot be claimed again.
+func TestExpiredRequestNeverRedispatched(t *testing.T) {
+	l := NewLedger()
+	request := canonical("cmd.execute", `{"name":"fixture.activate","version":1}`)
+	var dispatches uint64
+	const requests = 10_000
+	for id := uint64(1); id <= requests; id++ {
+		if status, _ := l.Lookup(id); status != LookupUnknown {
+			t.Fatalf("next id %d lookup = %v, want unknown", id, status)
+		}
+		entry, err := l.Claim(id, request, "operation")
+		if err != nil {
+			t.Fatalf("claim %d: %v", id, err)
+		}
+		dispatches++
+		l.CompleteResult(entry, json.RawMessage(`{"state":"completed"}`), "1", "1")
+	}
+	if dispatches != requests {
+		t.Fatalf("initial dispatches = %d, want %d", dispatches, requests)
+	}
+	for id := uint64(1); id <= requests-uint64(ledgerMaxEntries); id++ {
+		status, entry := l.Lookup(id)
+		if status != LookupExpired || entry != nil {
+			t.Fatalf("retry id %d = %v, entry=%+v; want expired", id, status, entry)
+		}
+		if _, err := l.Claim(id, request, "operation"); err == nil {
+			t.Fatalf("expired id %d was claimable again", id)
+		}
+	}
+	if got := l.HighWater(); got != requests {
+		t.Fatalf("high-water after expired retries = %d, want %d", got, requests)
+	}
+}
+
+func TestLedgerPinsActiveEntriesDuringTerminalEviction(t *testing.T) {
+	l := NewLedger()
+	active, err := l.Claim(1, canonical("cmd.execute", `{}`), "active")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id := uint64(2); id <= ledgerMaxEntries+1; id++ {
+		entry, claimErr := l.Claim(id, canonical("sys.ping", `{}`), "read")
+		if claimErr != nil {
+			t.Fatalf("claim %d: %v", id, claimErr)
+		}
+		l.CompleteResult(entry, json.RawMessage(`{}`), "1", "1")
+	}
+	if status, got := l.Lookup(1); status != LookupRetained || got != active || active.State != EntryAdmitted {
+		t.Fatalf("active entry after terminal retention pressure = %v %+v", status, got)
+	}
+	if status, _ := l.Lookup(2); status != LookupExpired {
+		t.Fatalf("oldest terminal result status = %v, want expired", status)
 	}
 }
 

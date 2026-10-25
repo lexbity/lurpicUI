@@ -100,18 +100,13 @@ func startServerWithPort(t *testing.T, grants drive.Grants, port drive.RuntimePo
 	return srv, fp, socket, token
 }
 
-// testDriveDir is a private 0700 directory for the bind path (t.TempDir
-// carries a looser mode on some platforms; the socket directory must be
-// private by policy, not by luck).
+// testDriveDir is a private temporary directory for Unix socket tests.
 func testDriveDir(t *testing.T) string {
 	t.Helper()
-	// MkdirTemp is 0700 and keeps the path short: the cmake drive target
-	// points TMPDIR into build/, near the 108-byte unix-socket bound.
-	dir, err := os.MkdirTemp("", "ldp")
-	if err != nil {
-		t.Fatalf("mkdir: %v", err)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	return dir
 }
 

@@ -83,6 +83,7 @@ var nonDispatchTokens = map[string]bool{
 	"state.changed":   true,
 	"tree.changed":    true,
 	"frame.completed": true,
+	"op.completed":    true,
 	// v2 typed error codes named in the doc.
 	"request.conflict":          true,
 	"request.expired":           true,

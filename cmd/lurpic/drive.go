@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
@@ -22,14 +23,14 @@ func cmdDrive(args []string) int {
 	verb := ""
 	rest := make([]string, 0, len(args))
 	for _, a := range args {
-		if verb == "" && (a == "ping" || a == "--check") {
+		if verb == "" && (a == "ping" || a == "--check" || a == "commands" || a == "execute" || a == "op-status") {
 			verb = a
 			continue
 		}
 		rest = append(rest, a)
 	}
 	if verb == "" {
-		fmt.Fprintln(os.Stderr, "drive: a verb is required (ping, --check)")
+		fmt.Fprintln(os.Stderr, "drive: a verb is required (ping, --check, commands, execute, op-status)")
 		return 1
 	}
 	fs := driveFlagSet()
@@ -38,11 +39,12 @@ func cmdDrive(args []string) int {
 	}
 	socket := fs.Lookup("socket").Value.String()
 	tokenFile := fs.Lookup("token-file").Value.String()
+	sessionFile := fs.Lookup("session-file").Value.String()
 	if socket == "" || tokenFile == "" {
 		fmt.Fprintln(os.Stderr, "drive: --socket and --token-file are required")
 		return 1
 	}
-	conn, err := driveConnect(socket, tokenFile)
+	conn, err := driveConnect(socket, tokenFile, sessionFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "drive: %v\n", err)
 		return 1
@@ -66,8 +68,43 @@ func cmdDrive(args []string) int {
 		return 0
 	case "--check":
 		return cmdDriveCheck(conn)
+	case "commands":
+		payload, err := (&gen.Client{Transport: conn}).CmdList(map[string]any{})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "drive: %v\n", err)
+			return 1
+		}
+		fmt.Println(string(payload))
+		return 0
+	case "execute":
+		name := fs.Lookup("name").Value.String()
+		version, _ := strconv.ParseUint(fs.Lookup("version").Value.String(), 10, 64)
+		if name == "" || version == 0 {
+			fmt.Fprintln(os.Stderr, "drive: execute requires --name and positive --version")
+			return 1
+		}
+		payload, err := (&gen.Client{Transport: conn}).CmdExecute(map[string]any{"name": name, "version": version})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "drive: %v\n", err)
+			return 1
+		}
+		fmt.Println(string(payload))
+		return 0
+	case "op-status":
+		operationID := fs.Lookup("operation-id").Value.String()
+		if operationID == "" {
+			fmt.Fprintln(os.Stderr, "drive: op-status requires --operation-id")
+			return 1
+		}
+		payload, err := (&gen.Client{Transport: conn}).OpStatus(map[string]string{"operation_id": operationID})
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "drive: %v\n", err)
+			return 1
+		}
+		fmt.Println(string(payload))
+		return 0
 	default:
-		fmt.Fprintf(os.Stderr, "drive: unknown verb %q (ping, --check)\n", verb)
+		fmt.Fprintf(os.Stderr, "drive: unknown verb %q (ping, --check, commands, execute, op-status)\n", verb)
 		return 1
 	}
 }

@@ -154,6 +154,30 @@ func TestCommandPaletteSearchNavigationAndActivation(t *testing.T) {
 	}
 }
 
+func TestCommandGUIContract(t *testing.T) {
+	palette, rt, resolved := newCommandPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
+	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
+	_ = palette.Layout.Measure(facet.MeasureContext{
+		Runtime: rt, Theme: resolved, ContentScale: 1,
+	}, facet.Constraints{MaxSize: gfx.Size{W: 1280, H: 720}})
+	palette.Layout.Arrange(facet.ArrangeContext{
+		Runtime: rt, Theme: resolved, ParentGroup: palette.Layout.Parent, ChildGroup: palette.Layout.Child,
+	}, gfx.RectFromXYWH(0, 0, 1280, 720))
+	var activations int
+	entry, ok := palette.registry.Lookup("edit.find")
+	if !ok {
+		t.Fatal("GUI command fixture is not registered")
+	}
+	entry.Execute = func() { activations++ }
+	palette.registry.Unregister(entry.ID)
+	palette.registry.Register(entry)
+	palette.searchField.Value.Set("find")
+	palette.searchField.Base().InputRole().OnKey(facet.KeyEvent{Kind: platform.KeyPress, Key: platform.KeyEnter})
+	if activations != 1 || palette.Open.Get() {
+		t.Fatalf("GUI activation count=%d palette-open=%v; want one shared registry dispatch and closed palette", activations, palette.Open.Get())
+	}
+}
+
 func TestCommandPaletteDisabledBehavior(t *testing.T) {
 	palette, rt, resolved := newCommandPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
@@ -313,6 +337,7 @@ func newCommandPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.D
 	registry := runtimepkg.NewCommandRegistry()
 	registry.Register(runtimepkg.CommandEntry{
 		ID:       "edit.find",
+		Version:  1,
 		Title:    "Find in Files",
 		Category: "Edit",
 		Shortcut: "Ctrl+Shift+F",
@@ -320,12 +345,14 @@ func newCommandPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.D
 	})
 	registry.Register(runtimepkg.CommandEntry{
 		ID:       "view.toggle",
+		Version:  1,
 		Title:    "Toggle Sidebar",
 		Category: "View",
 		Shortcut: "Ctrl+B",
 	})
 	registry.Register(runtimepkg.CommandEntry{
 		ID:       "git.open",
+		Version:  1,
 		Title:    "Open Repository",
 		Category: "Git",
 		Shortcut: "Ctrl+Shift+G",

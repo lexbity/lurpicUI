@@ -215,6 +215,7 @@ func TestDriveInput_PreemptionByPlatformEvent(t *testing.T) {
 		client := testClientFor(t, rt)
 		client.next++
 		cmd := drive.Command{
+			Trusted:    true,
 			Session:    client.sess.ID,
 			Generation: client.sess.Generation(),
 			ID:         client.next,
@@ -281,7 +282,7 @@ func TestDriveInput_GrantMatrix(t *testing.T) {
 	rt, _ := newInputRuntime(t, q)
 
 	// Every verb × the grant sets that matter: input verbs require the
-	// input grant; cmd.execute requires write; reads require read.
+	// input grant; cmd.execute requires command; reads require read.
 	verbs := []struct {
 		method string
 		params any
@@ -302,9 +303,9 @@ func TestDriveInput_GrantMatrix(t *testing.T) {
 		}
 	}
 	// The read-only set works with just the input grant missing.
-	res := inputDriveCall(t, rt, "cmd.execute", map[string]any{"id": "nope"}, drive.Grants{Input: true})
+	res := inputDriveCall(t, rt, "cmd.execute", map[string]any{"name": "nope", "version": 1}, drive.Grants{Input: true})
 	if res.Err == nil || resultCode(res.Err) != "grant.denied" {
-		t.Fatalf("cmd.execute without write grant = %+v, want grant.denied", res.Err)
+		t.Fatalf("cmd.execute without command grant = %+v, want grant.denied", res.Err)
 	}
 }
 

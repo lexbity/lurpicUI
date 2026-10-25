@@ -94,15 +94,18 @@ type anyResult struct {
 	jobID     JobID
 	cancelled bool
 	err       error
-	commitFn  func()
+	committed bool
+	commitFn  func() bool
 }
 
 func (r anyResult) JobID() JobID    { return r.jobID }
 func (r anyResult) Cancelled() bool { return r.cancelled }
+func (r anyResult) Committed() bool { return r.committed }
 func (r anyResult) Err() error      { return r.err }
-func (r anyResult) Commit() {
+func (r *anyResult) Commit() {
+	r.committed = false
 	if r.commitFn != nil {
-		r.commitFn()
+		r.committed = r.commitFn()
 	}
 }
 
@@ -125,7 +128,12 @@ type Pool struct {
 
 	mu     sync.Mutex
 	active map[JobID]*CancelToken
-	closed bool
+	// ready counts results already published to the bounded result channel.
+	// drainedEarly pairs the rare receive-before-publish-bookkeeping race.
+	// Both maps are bounded by result capacity plus worker count.
+	ready        map[JobID]int
+	drainedEarly map[JobID]int
+	closed       bool
 
 	pauseMu   sync.Mutex
 	pauseCond *sync.Cond
@@ -146,6 +154,17 @@ func (p *Pool) Pending() int {
 	active := len(p.active)
 	p.mu.Unlock()
 	return active + len(p.interactive) + len(p.background) + len(p.results)
+}
+
+// Ready reports whether a result for id has been published and awaits Drain.
+// It is intended for runtime coordination and deterministic tests.
+func (p *Pool) Ready(id JobID) bool {
+	if p == nil {
+		return false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.ready[id] > 0
 }
 
 // Pause stops workers from pulling new jobs until Resume is called.
@@ -178,13 +197,15 @@ func NewPool(workerCount int) *Pool {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Pool{
-		ctx:         ctx,
-		cancel:      cancel,
-		interactive: make(chan queuedJob),
-		background:  make(chan queuedJob, workerCount*4),
-		results:     make(chan anyResult, workerCount*4),
-		shutdown:    make(chan struct{}),
-		active:      make(map[JobID]*CancelToken),
+		ctx:          ctx,
+		cancel:       cancel,
+		interactive:  make(chan queuedJob),
+		background:   make(chan queuedJob, workerCount*4),
+		results:      make(chan anyResult, workerCount*4),
+		shutdown:     make(chan struct{}),
+		active:       make(map[JobID]*CancelToken),
+		ready:        make(map[JobID]int, workerCount*4),
+		drainedEarly: make(map[JobID]int, workerCount),
 	}
 	p.pauseCond = sync.NewCond(&p.pauseMu)
 	for i := 0; i < workerCount; i++ {
@@ -196,6 +217,14 @@ func NewPool(workerCount int) *Pool {
 
 // Schedule submits a job to the pool.
 func Schedule[I, O any](p *Pool, job Job[I, O], onCommit func(O)) error {
+	return ScheduleGuarded(p, job, nil, onCommit)
+}
+
+// ScheduleGuarded submits a job whose commit is allowed only while the
+// supplied immutable-scope predicate remains true. The predicate is checked
+// on the consumer thread immediately before version validation and mutation.
+// It must be nonblocking and safe to call from that thread.
+func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool, onCommit func(O)) error {
 	syncutil.AssertNotAnchorExporting("job.Schedule")
 	if p == nil {
 		return errors.New("job: nil pool")
@@ -230,15 +259,19 @@ func Schedule[I, O any](p *Pool, job Job[I, O], onCommit func(O)) error {
 			err:       err,
 		}
 		if !res.cancelled && err == nil {
-			res.commitFn = func() {
+			res.commitFn = func() bool {
+				if commitAllowed != nil && !commitAllowed() {
+					return false
+				}
 				if snap.currentVersions != nil {
 					if !snap.StillValid(snap.currentVersions()...) {
-						return
+						return false
 					}
 				}
 				if onCommit != nil {
 					onCommit(output)
 				}
+				return true
 			}
 		}
 		return res
@@ -273,7 +306,16 @@ func (p *Pool) submitAny(j AnyJob, afterCommit func(AnyResult)) error {
 	if p == nil || j == nil {
 		return errors.New("job: nil pool or job")
 	}
-	return j.submit(p, afterCommit)
+	return j.submit(p, nil, afterCommit)
+}
+
+// SubmitAnyGuarded submits an opaque job with a runtime-owned commit fence.
+func (p *Pool) SubmitAnyGuarded(j AnyJob, commitAllowed func() bool, afterCommit func(AnyResult)) error {
+	syncutil.AssertNotAnchorExporting("job.SubmitAnyGuarded")
+	if p == nil || j == nil {
+		return errors.New("job: nil pool or job")
+	}
+	return j.submit(p, commitAllowed, afterCommit)
 }
 
 // SubmitAny enqueues an opaque job and invokes afterCommit after a successful commit.
@@ -287,8 +329,18 @@ func (p *Pool) Drain() []anyResult {
 	for {
 		select {
 		case res := <-p.results:
-			if res.commitFn != nil && !res.cancelled && res.err == nil {
-				res.commitFn()
+			p.mu.Lock()
+			if p.ready[res.jobID] > 0 {
+				p.ready[res.jobID]--
+				if p.ready[res.jobID] == 0 {
+					delete(p.ready, res.jobID)
+				}
+			} else {
+				p.drainedEarly[res.jobID]++
+			}
+			p.mu.Unlock()
+			if !res.cancelled && res.err == nil {
+				res.Commit()
 			}
 			out = append(out, res)
 		default:
@@ -396,6 +448,16 @@ func (p *Pool) execute(q queuedJob) {
 
 	select {
 	case p.results <- res:
+		p.mu.Lock()
+		if p.drainedEarly[q.jobID] > 0 {
+			p.drainedEarly[q.jobID]--
+			if p.drainedEarly[q.jobID] == 0 {
+				delete(p.drainedEarly, q.jobID)
+			}
+		} else {
+			p.ready[q.jobID]++
+		}
+		p.mu.Unlock()
 	case <-p.shutdown:
 	case <-p.ctx.Done():
 	}

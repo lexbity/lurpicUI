@@ -21,6 +21,7 @@ var commandIDPattern = regexp.MustCompile(`^[a-z0-9.]+$`)
 // registry's public mutation surface, versioned by the registry version.
 type CommandSpec struct {
 	ID       string `json:"id"`
+	Version  uint64 `json:"version"`
 	Title    string `json:"title"`
 	Category string `json:"category,omitempty"`
 	Disabled bool   `json:"disabled,omitempty"`
@@ -30,6 +31,7 @@ type CommandSpec struct {
 // CommandEntry describes one registered command that can be surfaced by command palette UIs.
 type CommandEntry struct {
 	ID       string
+	Version  uint64
 	Title    string
 	Category string
 	Shortcut string
@@ -73,6 +75,9 @@ func (r *CommandRegistry) Register(entry CommandEntry) {
 	entry.Category = strings.TrimSpace(entry.Category)
 	entry.Shortcut = strings.TrimSpace(entry.Shortcut)
 	entry.IconRef = strings.TrimSpace(entry.IconRef)
+	if entry.Version == 0 {
+		panic("runtime: command " + entry.ID + " must declare a positive contract version")
+	}
 	if !commandIDPattern.MatchString(entry.ID) {
 		panic("runtime: command ID " + strconv.Quote(entry.ID) + " is invalid — IDs must match [a-z0-9.]+ (the cmd.execute surface)")
 	}
@@ -107,8 +112,12 @@ func (r *CommandRegistry) List() []CommandSpec {
 	defer r.mu.RUnlock()
 	out := make([]CommandSpec, 0, len(r.entries))
 	for _, entry := range r.entries {
+		if entry.Hidden || entry.Execute == nil {
+			continue
+		}
 		out = append(out, CommandSpec{
 			ID:       entry.ID,
+			Version:  entry.Version,
 			Title:    entry.Title,
 			Category: entry.Category,
 			Disabled: entry.Disabled,
@@ -205,6 +214,21 @@ func (r *CommandRegistry) Execute(id string) bool {
 	}
 	entry, ok := r.Lookup(id)
 	if !ok || entry.Disabled || entry.Execute == nil {
+		return false
+	}
+	entry.Execute()
+	return true
+}
+
+// ExecuteVersion dispatches the registered GUI command only when the
+// caller names the exact contract version visible in cmd.list. The GUI
+// palette continues to use Execute, so both routes share the same handler.
+func (r *CommandRegistry) ExecuteVersion(id string, version uint64) bool {
+	if r == nil || version == 0 {
+		return false
+	}
+	entry, ok := r.Lookup(id)
+	if !ok || entry.Version != version || entry.Hidden || entry.Disabled || entry.Execute == nil {
 		return false
 	}
 	entry.Execute()

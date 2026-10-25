@@ -121,16 +121,18 @@ func newScrollFixture(t testing.TB) *Fixture {
 }
 
 // newPaletteFixture builds the cmd.execute fixture: a registry command whose
-// Execute flips a named store, bound to an activation button. The drive verb
-// dispatches registry.Execute directly; the GUI twin clicks the button —
-// palette activation routes through the same registry.Execute dispatch.
+// Execute flips a named store, bound to an activation button. The drive
+// operation schedules the registered GUI command at a runtime frame boundary;
+// the GUI twin clicks the button, whose palette path uses the same registry
+// entry and callback.
 func newPaletteFixture(t testing.TB) *Fixture {
 	t.Helper()
 	toggled := store.NewValueStore(false)
 	registry := runtime.NewCommandRegistry()
 	registry.Register(runtime.CommandEntry{
-		ID:    "toggle.enabled",
-		Title: "Toggle enabled",
+		ID:      "toggle.enabled",
+		Version: 1,
+		Title:   "Toggle enabled",
 		Execute: func() {
 			toggled.Set(!toggled.Get())
 		},

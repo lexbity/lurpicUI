@@ -92,10 +92,10 @@ func TestFrameTimer_basics(t *testing.T) {
 
 func TestRenderPipeline_submit_blocks_on_full(t *testing.T) {
 	pipe := newRenderPipeline(&backendFixture{})
-	pipe.Submit(&render.Frame{})
+	pipe.Submit(&render.Frame{}, 1)
 	done := make(chan struct{})
 	go func() {
-		pipe.Submit(&render.Frame{})
+		pipe.Submit(&render.Frame{}, 2)
 		close(done)
 	}()
 	select {

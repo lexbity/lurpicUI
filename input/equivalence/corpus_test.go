@@ -131,7 +131,7 @@ func corpusTest() []Pair {
 			Fixture:   newPaletteFixture,
 			GUIHelper: "testkit.DriveClickAt (activation path)",
 			Verb: func(h *testkit.DriveHarness) *proto.Error {
-				_, perr := h.Call("cmd.execute", map[string]any{"id": "toggle.enabled"})
+				_, perr := h.Call("cmd.execute", map[string]any{"name": "toggle.enabled", "version": 1})
 				return perr
 			},
 			GUI: func(h *testkit.Harness) {

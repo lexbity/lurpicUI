@@ -170,7 +170,7 @@ func FuzzEnvelope(f *testing.F) {
 	f.Fuzz(func(t *testing.T, line string) {
 		// The property is "no panic": every input, however hostile, is a
 		// typed error or a valid envelope — never a crash.
-		_, _ = DecodeRequest([]byte(line))  //nolint:errcheck // fuzz property
-		_, _ = DecodeResponse([]byte(line)) //nolint:errcheck // fuzz property
+		_, _ = DecodeRequest([]byte(line))
+		_, _ = DecodeResponse([]byte(line))
 	})
 }

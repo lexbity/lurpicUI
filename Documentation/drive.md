@@ -54,11 +54,24 @@ advertised wire surface today:
   schema digest, and the limits document.
 - `sys.ping` — cut-exact liveness: the pong identifies the sealed cut and
   last submitted frame it observes.
+- `cmd.list` — lists visible GUI-backed commands with their exact positive
+  contract versions.
+- `cmd.execute` — requires the `command` grant and an exact `{name, version}`.
+  The runtime returns an accepted operation receipt, schedules the shared
+  GUI command dispatcher at the next frame activation boundary, and sends
+  `op.completed` only after the activation frame is ready and all command-owned
+  job continuations have committed in a later ready frame. Their commits are
+  fenced by the owning session generation. A disconnect cancels the operation
+  and prevents any uncommitted continuation from mutating app state; already
+  applied callback effects are not rolled back.
+- `op.status` — reports the retained state and outcome of an operation owned
+  by the authenticated session; expired outcomes return the operation.expired
+  error.
 
-Later slices port the remaining methods (time control, input, commands,
-reads, streams, artifacts) with their complete contracts; until then the
-server answers `protocol.unknown_method` for them and old clients are
-rejected by the major handshake.
+Later slices port time control, input, reads, streams, and artifacts with
+their complete contracts; those methods are not advertised or dispatched
+over the socket yet. Unported methods return `protocol.unknown_method` and
+old clients are rejected by the major handshake.
 
 ## Wire
 
@@ -83,12 +96,20 @@ exposure is the bridge author's decision (see `lurpic mcp init`).
 
 ## Ops runbook
 
+- **Command automation**: configure the launcher with `read,command` grants,
+  then use `lurpic drive commands`, `lurpic drive execute --name <name>
+  --version <n>`, and `lurpic drive op-status --operation-id <id>`. Add
+  `--session-file <path>` to reuse a local 0600 credential file across CLI
+  invocations. Without that option each invocation creates a new session.
 - **Token rotation**: restart the app. The token file is regenerated next
   to the socket on every launch; there is no rotation without restart.
-- **Lost responses**: resume the session with its credential and query the
-  retained outcome by request ID. Never replay a pending mutation under a
-  fresh identity; a new app instance is a new instance identity and old
-  outcomes are unavailable (`instance.changed`).
+- **Lost command completion**: `execute` resumes the session and retries the
+  same request ID after a lost receipt, then queries `op.status` if the
+  completion notification is lost. Pass `--session-file` to retain the 0600
+  credential if the CLI process exits; reconnect with that file and query the
+  known operation ID. Do not issue the command under a new ID until its old
+  outcome is known. A new app instance is a new identity and old outcomes are
+  unavailable (`instance.changed`).
 - **Request/result expiry**: retention is bounded (entries and bytes per
   session); an evicted ID answers `request.expired` and the high-water
   mark never moves backwards.

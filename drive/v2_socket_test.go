@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,12 +19,13 @@ import (
 	server "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 )
 
 // v2SocketServer binds a real v2 server against a REAL studio runtime's
 // drive port: this is the production seam — socket → transport → runtime
 // port → admission at a cut.
-func v2SocketServer(t *testing.T) (socket, token string, h *testkit.DriveHarness) {
+func v2SocketServer(t *testing.T, registries ...*runtimepkg.CommandRegistry) (socket, token string, h *testkit.DriveHarness) {
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	reg, err := studio.StudioLayerRegistry()
@@ -41,14 +43,16 @@ func v2SocketServer(t *testing.T) (socket, token string, h *testkit.DriveHarness
 	cfg := testkit.StandardHarnessConfig(t, 1280, 800)
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = themeCtx.Resolver
+	if len(registries) > 0 {
+		cfg.CommandRegistry = registries[0]
+	}
 	h = testkit.NewDriveHarnessWithConfig(t, cfg, root)
 	h.RunFrame() // settle the initial dirty-all frame
 
-	dir, err := os.MkdirTemp("", "ldp") // 0700, and short: the cmake drive target uses a TMPDIR near the 108-byte unix-socket bound
-	if err != nil {
-		t.Fatalf("mkdir: %v", err)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	socket = filepath.Join(dir, "d.sock")
 	token = strings.Repeat("cd", 32)
 	return socket, token, h
@@ -213,6 +217,296 @@ func TestV2SocketRuntimePing(t *testing.T) {
 	replay := call("1", "sys.ping", map[string]any{})
 	if !replay.OK || string(replay.Result) != string(pres.Result) {
 		t.Fatalf("replayed ping = %+v, want the original outcome", replay)
+	}
+}
+
+// runLostCommandResponseRecovery proves the S2 recovery seam over the real
+// Unix socket and studio runtime: the first terminal response is deliberately
+// left unread and its connection is closed, then the same session retries
+// the same ID after resume. The registered GUI dispatcher runs once.
+func runLostCommandResponseRecovery(t *testing.T) {
+	var activations atomic.Int32
+	commands := runtimepkg.NewCommandRegistry()
+	commands.Register(runtimepkg.CommandEntry{
+		ID: "fixture.activate", Version: 1, Title: "Activate fixture",
+		Execute: func() { activations.Add(1) },
+	})
+	socket, token, h := v2SocketServer(t, commands)
+	srv, err := startV2Server(t, h, socket, token)
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+
+	encode := func(id, method string, params any) []byte {
+		t.Helper()
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatal(err)
+		}
+		line, err := json.Marshal(proto.Request{V: proto.ProtocolMajor, ID: id, Method: method, Params: raw})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return append(line, '\n')
+	}
+	readResponse := func(nc net.Conn) proto.Response {
+		t.Helper()
+		_ = nc.SetReadDeadline(time.Now().Add(10 * time.Second))
+		line, err := bufio.NewReader(nc).ReadString('\n')
+		if err != nil {
+			t.Fatalf("read response: %v", err)
+		}
+		res, err := proto.DecodeResponse([]byte(strings.TrimSuffix(line, "\n")))
+		if err != nil {
+			t.Fatalf("decode response: %v", err)
+		}
+		return res
+	}
+	first, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Write(encode("1", "sys.hello", map[string]any{
+		"token": token, "client_name": "s2-recovery", "create_session": true,
+	})); err != nil {
+		t.Fatal(err)
+	}
+	hello := readResponse(first)
+	if !hello.OK {
+		t.Fatalf("hello: %s", hello.Error)
+	}
+	var session struct {
+		InstanceID string `json:"instance_id"`
+		SessionID  string `json:"session_id"`
+		Credential string `json:"resume_credential"`
+	}
+	if err := json.Unmarshal(hello.Result, &session); err != nil {
+		t.Fatal(err)
+	}
+	commandParams := map[string]any{"name": "fixture.activate", "version": 1}
+	if _, err := first.Write(encode("1", "cmd.execute", commandParams)); err != nil {
+		t.Fatal(err)
+	}
+	receiptCh := make(chan proto.Response, 1)
+	go func() { receiptCh <- readResponse(first) }()
+	// Drive the real frame loop until the accepted receipt and callback are
+	// observed. The terminal notification is intentionally left unread: a
+	// caller can lose it after the effect and recover by the same ID.
+	var receipt proto.Response
+	receivedReceipt := false
+	for i := 0; i < 64 && (!receivedReceipt || activations.Load() == 0); i++ {
+		select {
+		case receipt = <-receiptCh:
+			receivedReceipt = true
+		default:
+		}
+		h.RunFrame()
+		time.Sleep(time.Millisecond)
+	}
+	if !receivedReceipt || !receipt.OK {
+		t.Fatalf("command acceptance receipt not received: %+v", receipt)
+	}
+	var accepted struct {
+		OperationID string `json:"operation_id"`
+		State       string `json:"state"`
+	}
+	if err := json.Unmarshal(receipt.Result, &accepted); err != nil || accepted.State != "accepted" {
+		t.Fatalf("command receipt=%s err=%v", receipt.Result, err)
+	}
+	if activations.Load() != 1 {
+		t.Fatalf("first command activations = %d, want 1", activations.Load())
+	}
+	_ = first.Close()
+	for i := 0; i < 64; i++ {
+		sess, ok := h.Sessions().Get(session.SessionID)
+		if ok && sess.State() == drive.SessionDetached {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+
+	second, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if _, err := second.Write(encode("1", "sys.hello", map[string]any{
+		"token": token, "client_name": "s2-recovery", "resume": map[string]any{
+			"instance_id": session.InstanceID, "session_id": session.SessionID, "resume_credential": session.Credential,
+		},
+	})); err != nil {
+		t.Fatal(err)
+	}
+	resumed := readResponse(second)
+	if !resumed.OK {
+		t.Fatalf("resume: %s", resumed.Error)
+	}
+	var state struct {
+		NextID string `json:"next_id"`
+	}
+	if err := json.Unmarshal(resumed.Result, &state); err != nil || state.NextID != "2" {
+		t.Fatalf("resume next_id=%q err=%v, want 2", state.NextID, err)
+	}
+	if _, err := second.Write(encode("1", "cmd.execute", commandParams)); err != nil {
+		t.Fatal(err)
+	}
+	awaitResponse := func() proto.Response {
+		t.Helper()
+		responseCh := make(chan proto.Response, 1)
+		go func() { responseCh <- readResponse(second) }()
+		for i := 0; i < 64; i++ {
+			select {
+			case res := <-responseCh:
+				return res
+			default:
+				h.RunFrame()
+				time.Sleep(time.Millisecond)
+			}
+		}
+		t.Fatal("resumed request did not receive a response")
+		return proto.Response{}
+	}
+	replay := awaitResponse()
+	if !replay.OK {
+		t.Fatalf("retry rejected: %s", replay.Error)
+	}
+	if activations.Load() != 1 {
+		t.Fatalf("retry dispatched command again: activations=%d", activations.Load())
+	}
+	opID := session.InstanceID + "/" + session.SessionID + "/1"
+	if _, err := second.Write(encode("2", "op.status", map[string]string{"operation_id": opID})); err != nil {
+		t.Fatal(err)
+	}
+	statusResponse := awaitResponse()
+	if !statusResponse.OK {
+		t.Fatalf("op.status rejected: %s", statusResponse.Error)
+	}
+	var status struct {
+		OperationID string `json:"operation_id"`
+		State       string `json:"state"`
+	}
+	if err := json.Unmarshal(statusResponse.Result, &status); err != nil {
+		t.Fatal(err)
+	}
+	if status.OperationID != opID || status.State != "completed" {
+		t.Fatalf("op.status = %+v", status)
+	}
+	if _, err := second.Write(encode("1", "cmd.execute", map[string]any{"name": "fixture.other", "version": 1})); err != nil {
+		t.Fatal(err)
+	}
+	conflict := awaitResponse()
+	if conflict.OK || conflict.Error == nil || conflict.Error.Code != proto.ErrRequestConflict {
+		t.Fatalf("changed payload retry = %+v, want request.conflict", conflict)
+	}
+	if activations.Load() != 1 {
+		t.Fatalf("conflicting retry changed activation count to %d", activations.Load())
+	}
+}
+
+func TestSessionLostResponseRecovered(t *testing.T) {
+	runLostCommandResponseRecovery(t)
+}
+
+func TestRequestPayloadConflict(t *testing.T) {
+	runLostCommandResponseRecovery(t)
+}
+
+type observedDrivePort struct {
+	drive.RuntimePort
+	submitted chan struct{}
+}
+
+func (p *observedDrivePort) Submit(cmd drive.Command) error {
+	if err := p.RuntimePort.Submit(cmd); err != nil {
+		return err
+	}
+	select {
+	case p.submitted <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func TestSocketDisconnectQueuedDoesNotActivate(t *testing.T) {
+	var activations atomic.Int32
+	commands := runtimepkg.NewCommandRegistry()
+	commands.Register(runtimepkg.CommandEntry{ID: "fixture.activate", Version: 1, Title: "Activate fixture", Execute: func() { activations.Add(1) }})
+	socket, token, h := v2SocketServer(t, commands)
+	port := &observedDrivePort{RuntimePort: h.Runtime().DrivePort(), submitted: make(chan struct{}, 1)}
+	srv, err := server.Listen(server.Config{
+		SocketPath: socket, Token: token,
+		Grants:   drive.Grants{Read: true, Input: true, Command: true, Time: true},
+		Sessions: h.Sessions(), Port: port,
+	})
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer srv.Close()
+	encode := func(id, method string, params any) []byte {
+		t.Helper()
+		raw, marshalErr := json.Marshal(params)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		line, marshalErr := json.Marshal(proto.Request{V: proto.ProtocolMajor, ID: id, Method: method, Params: raw})
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		return append(line, '\n')
+	}
+	first, err := net.Dial("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Write(encode("1", "sys.hello", map[string]any{"token": token, "client_name": "s2-disconnect", "create_session": true})); err != nil {
+		t.Fatal(err)
+	}
+	line, err := bufio.NewReader(first).ReadString('\n')
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hello proto.Response
+	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &hello); err != nil || !hello.OK {
+		t.Fatalf("hello=%+v err=%v", hello, err)
+	}
+	var session struct {
+		SessionID string `json:"session_id"`
+	}
+	if err := json.Unmarshal(hello.Result, &session); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.Write(encode("1", "cmd.execute", map[string]any{"name": "fixture.activate", "version": 1})); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-port.submitted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("socket request did not reach the runtime inbox")
+	}
+	_ = first.Close()
+	detached := false
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		sess, ok := h.Sessions().Get(session.SessionID)
+		if ok && sess.State() == drive.SessionDetached {
+			detached = true
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if !detached {
+		t.Fatal("connection loss did not detach the session")
+	}
+	h.RunFrame()
+	sess, ok := h.Sessions().Get(session.SessionID)
+	if !ok {
+		t.Fatal("detached session disappeared before its recovery lifetime")
+	}
+	if highWater := sess.Ledger().HighWater(); highWater != 0 {
+		t.Fatalf("disconnected pre-admission request consumed sequence: high-water=%d", highWater)
+	}
+	if activations.Load() != 0 {
+		t.Fatalf("queued request activated after disconnect: %d", activations.Load())
 	}
 }
 

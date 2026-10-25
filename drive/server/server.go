@@ -221,11 +221,12 @@ func (s *Server) acceptLoop() {
 			continue
 		}
 		c := &conn{
-			srv:    s,
-			id:     drive.ConnectionID(s.nextConnID.Add(1)),
-			nc:     nc,
-			outbox: make(chan []byte, outboxCapacity),
-			done:   make(chan struct{}),
+			srv:          s,
+			id:           drive.ConnectionID(s.nextConnID.Add(1)),
+			nc:           nc,
+			outbox:       make(chan []byte, outboxCapacity),
+			done:         make(chan struct{}),
+			pendingCalls: make(chan struct{}, 32),
 		}
 		s.conns[c] = struct{}{}
 		s.connsMu.Unlock()
@@ -295,11 +296,16 @@ type conn struct {
 	nc     net.Conn
 	outbox chan []byte
 	done   chan struct{}
+	// pendingCalls bounds post-hello requests whose runtime outcome has not
+	// yet been written. The reader itself never waits on runtime execution.
+	pendingCalls chan struct{}
 	// writeMu serializes close vs. writer-fault bookkeeping.
 	closeOnce sync.Once
+	attachMu  sync.RWMutex
 
-	authed  bool
-	session *drive.Session
+	authed     bool
+	session    *drive.Session
+	generation uint64
 
 	// draining marks a controlled close: the writer finishes the queued
 	// lines before the socket closes, so a final typed error still lands.
@@ -333,18 +339,31 @@ func (c *conn) close(reason drive.TransportReason) {
 		c.srv.connsMu.Lock()
 		delete(c.srv.conns, c)
 		c.srv.connsMu.Unlock()
-		if c.session != nil {
-			gen := c.session.Generation()
-			c.session.Detach(c.srv.now())
-			c.srv.cfg.Port.SignalControl(drive.ControlSignal{
-				Kind:       drive.SignalConnectionLost,
-				Reason:     reason,
-				Session:    c.session.ID,
-				Generation: gen,
-			})
-			c.session = nil
+		sess, generation := c.attachment()
+		if sess != nil {
+			if sess.DetachGeneration(generation, c.srv.now()) {
+				c.srv.cfg.Port.SignalControl(drive.ControlSignal{
+					Kind:       drive.SignalConnectionLost,
+					Reason:     reason,
+					Session:    sess.ID,
+					Generation: generation,
+				})
+			}
 		}
 	})
+}
+
+func (c *conn) attachment() (*drive.Session, uint64) {
+	c.attachMu.RLock()
+	defer c.attachMu.RUnlock()
+	return c.session, c.generation
+}
+
+func (c *conn) attach(session *drive.Session, generation uint64) {
+	c.attachMu.Lock()
+	c.session = session
+	c.generation = generation
+	c.attachMu.Unlock()
 }
 
 // sendLine enqueues one encoded line onto the writer's outbox. A full
@@ -605,7 +624,7 @@ func (c *conn) create(hp helloParams) (json.RawMessage, *proto.Error) {
 	if err != nil {
 		return nil, &proto.Error{Code: proto.ErrCapacityBusy, Detail: err.Error(), Retryable: true, NonAdmitted: true}
 	}
-	c.session = sess
+	c.attach(sess, sess.Generation())
 	out := map[string]any{
 		"instance_id":           sess.InstanceID,
 		"session_id":            sess.ID,
@@ -633,7 +652,7 @@ func (c *conn) resume(hp helloParams) (json.RawMessage, *proto.Error) {
 	if err != nil {
 		return nil, &proto.Error{Code: proto.ErrSessionExpired, Detail: "unknown or expired session or credential"}
 	}
-	c.session = sess
+	c.attach(sess, gen)
 	// Fence the replaced generation even if its old socket has not reported
 	// EOF yet; a delayed old-generation EOF must not cancel new work.
 	c.srv.cfg.Port.SignalControl(drive.ControlSignal{
@@ -662,12 +681,23 @@ func (c *conn) resume(hp helloParams) (json.RawMessage, *proto.Error) {
 // port. Admission — ledger claim, grants, availability, execution — happens
 // on the runtime thread at a cut; socket receipt is not acceptance.
 func (c *conn) dispatch(req proto.Request) {
-	sess := c.session
+	select {
+	case c.pendingCalls <- struct{}{}:
+	default:
+		c.sendError(req.ID, proto.Error{Code: proto.ErrCapacityBusy, Retryable: true, NonAdmitted: true}, false)
+		return
+	}
+	sess, generation := c.attachment()
+	if sess == nil {
+		<-c.pendingCalls
+		c.sendError(req.ID, proto.Error{Code: proto.ErrAuth, NonAdmitted: true}, false)
+		return
+	}
 	id, _ := proto.ValidateRequestID(req.ID)
 	cmd := drive.Command{
 		Connection: c.id,
 		Session:    sess.ID,
-		Generation: sess.Generation(),
+		Generation: generation,
 		ID:         id,
 		OpID:       sess.InstanceID + "/" + sess.ID + "/" + req.ID,
 		Method:     req.Method,
@@ -675,7 +705,11 @@ func (c *conn) dispatch(req proto.Request) {
 		Grants:     sess.Grants,
 		Reply:      make(chan drive.Result, 1),
 	}
+	if req.Method == "cmd.execute" {
+		cmd.Accepted = make(chan drive.Receipt, 1)
+	}
 	if err := c.srv.cfg.Port.Submit(cmd); err != nil {
+		<-c.pendingCalls
 		// Bounded-inbox overload is transient and explicitly non-admitted.
 		c.sendError(req.ID, proto.Error{
 			Code:        proto.ErrCapacityBusy,
@@ -685,24 +719,92 @@ func (c *conn) dispatch(req proto.Request) {
 		}, false)
 		return
 	}
-	// The reader goroutine waits for the runtime's exactly-once reply. A
-	// connection close aborts the wait without writing a socket byte.
-	select {
-	case res := <-cmd.Reply:
-		var perr *proto.Error
-		if res.Err != nil {
-			errors.As(res.Err, &perr)
-			if perr == nil {
-				perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: res.Err.Error()}
-			}
-		}
-		if perr != nil {
-			c.sendError(req.ID, *perr, false)
+	go c.awaitCommand(req.ID, cmd)
+}
+
+func (c *conn) awaitCommand(requestID string, cmd drive.Command) {
+	defer func() { <-c.pendingCalls }()
+	var receipt *drive.Receipt
+	if cmd.Accepted != nil {
+		select {
+		case r := <-cmd.Accepted:
+			receipt = &r
+		case res := <-cmd.Reply:
+			c.sendCommandResult(requestID, res)
+			return
+		case <-c.done:
 			return
 		}
-		c.sendResult(req.ID, res.Payload, res.Cut, res.Frame)
+	}
+	if receipt != nil {
+		payload, err := json.Marshal(map[string]string{
+			"operation_id":   receipt.OperationID,
+			"state":          "accepted",
+			"accepted_cut":   receipt.AcceptedCut,
+			"accepted_frame": receipt.AcceptedFrame,
+			"next_id":        strconv.FormatUint(receipt.NextID, 10),
+		})
+		if err != nil {
+			c.close(drive.ReasonWriteFault)
+			return
+		}
+		c.sendResult(requestID, payload, receipt.AcceptedCut, receipt.AcceptedFrame)
+	}
+	select {
+	case res := <-cmd.Reply:
+		if receipt != nil {
+			c.sendOperationCompletion(cmd.OpID, res)
+		} else {
+			c.sendCommandResult(requestID, res)
+		}
 	case <-c.done:
 	}
+}
+
+func (c *conn) sendCommandResult(id string, res drive.Result) {
+	var perr *proto.Error
+	if res.Err != nil {
+		errors.As(res.Err, &perr)
+		if perr == nil {
+			perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: res.Err.Error()}
+		}
+	}
+	if perr != nil {
+		c.sendError(id, *perr, false)
+		return
+	}
+	c.sendResult(id, res.Payload, res.Cut, res.Frame)
+}
+
+func (c *conn) sendOperationCompletion(operationID string, res drive.Result) {
+	outcome := map[string]any{"operation_id": operationID, "state": "completed", "result": res.Payload, "frame": res.Frame, "cut": res.Cut}
+	if res.Err != nil {
+		var perr *proto.Error
+		if !errors.As(res.Err, &perr) {
+			perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: "operation failed"}
+		}
+		state := "failed"
+		if perr.Code == proto.ErrOperationCancelled {
+			state = "cancelled"
+		}
+		outcome["state"] = state
+		outcome["error"] = perr
+	}
+	params, err := json.Marshal(map[string]any{"operation_id": operationID, "outcome": outcome})
+	if err != nil {
+		c.close(drive.ReasonWriteFault)
+		return
+	}
+	c.sendNotification("op.completed", params, res.Cut, res.Frame)
+}
+
+func (c *conn) sendNotification(method string, params json.RawMessage, cut, frame string) {
+	line, err := json.Marshal(proto.Notification{V: proto.ProtocolMajor, Method: method, Params: params, Cut: cut, Frame: frame})
+	if err != nil {
+		c.close(drive.ReasonWriteFault)
+		return
+	}
+	c.sendLine(append(line, '\n'))
 }
 
 func (c *conn) sendResult(id string, payload json.RawMessage, cut, frame string) {

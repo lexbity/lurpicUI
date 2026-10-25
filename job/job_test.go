@@ -425,7 +425,7 @@ func TestBindJob_onCommit_called(t *testing.T) {
 		commits = v
 	})
 
-	if err := j.submit(p, nil); err != nil {
+	if err := j.submit(p, nil, nil); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
 	waitForResults(t, p, 1)
@@ -451,7 +451,7 @@ func TestBindJob_afterCommit_called(t *testing.T) {
 		order = append(order, "commit")
 	})
 
-	if err := j.submit(p, func(result AnyResult) {
+	if err := j.submit(p, nil, func(result AnyResult) {
 		if result.JobID() != 1 || result.OwnerID() != 99 || result.Cancelled() || result.Err() != nil {
 			t.Fatalf("unexpected result: %#v", result)
 		}
@@ -487,7 +487,7 @@ func TestBindJob_afterCommit_not_called_on_cancel(t *testing.T) {
 	}, func(v int) {
 		onCommitCalled = true
 	})
-	if err := first.submit(p, func(AnyResult) {
+	if err := first.submit(p, nil, func(AnyResult) {
 		afterCommitCalled = true
 	}); err != nil {
 		t.Fatalf("submit first: %v", err)
@@ -501,7 +501,7 @@ func TestBindJob_afterCommit_not_called_on_cancel(t *testing.T) {
 		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
 			return snap.Data, nil
 		},
-	}, nil).submit(p, nil); err != nil {
+	}, nil).submit(p, nil, nil); err != nil {
 		t.Fatalf("submit second: %v", err)
 	}
 	close(release)
@@ -540,7 +540,7 @@ func TestBindJob_afterCommit_not_called_on_error(t *testing.T) {
 	}, func(v int) {
 		onCommitCalled = true
 	})
-	if err := j.submit(p, func(AnyResult) {
+	if err := j.submit(p, nil, func(AnyResult) {
 		afterCommitCalled = true
 	}); err != nil {
 		t.Fatalf("submit: %v", err)
@@ -552,6 +552,40 @@ func TestBindJob_afterCommit_not_called_on_error(t *testing.T) {
 	}
 	if onCommitCalled || afterCommitCalled {
 		t.Fatalf("callbacks should not run on error: commit=%v after=%v", onCommitCalled, afterCommitCalled)
+	}
+}
+
+func TestScheduleGuardedFencesLateCommit(t *testing.T) {
+	p := NewPool(1)
+	defer p.Shutdown()
+
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var allowed atomic.Bool
+	allowed.Store(true)
+	var commits atomic.Int32
+	j := BindJob(17, Job[int, int]{
+		ID:       17,
+		Snapshot: NewSnapshot(5),
+		Work: func(snap Snapshot[int], _ *CancelToken) (int, error) {
+			close(started)
+			<-release
+			return snap.Data * 2, nil
+		},
+	}, func(int) { commits.Add(1) })
+	if err := p.SubmitAnyGuarded(j, allowed.Load, nil); err != nil {
+		t.Fatalf("submit guarded job: %v", err)
+	}
+	<-started
+	allowed.Store(false)
+	close(release)
+	waitForResults(t, p, 1)
+	results := p.Drain()
+	if len(results) != 1 {
+		t.Fatalf("guarded job produced %d results, want one", len(results))
+	}
+	if results[0].Committed() || commits.Load() != 0 {
+		t.Fatalf("guarded late result committed: committed=%v callbacks=%d", results[0].Committed(), commits.Load())
 	}
 }
 

@@ -5,6 +5,7 @@ type AnyResult interface {
 	JobID() JobID
 	OwnerID() uint64
 	Cancelled() bool
+	Committed() bool
 	Err() error
 }
 
@@ -13,9 +14,11 @@ type boundResult struct {
 	ownerID   uint64
 	err       error
 	cancelled bool
+	committed bool
 }
 
 func (r *boundResult) JobID() JobID    { return r.jobID }
 func (r *boundResult) OwnerID() uint64 { return r.ownerID }
 func (r *boundResult) Cancelled() bool { return r.cancelled }
+func (r *boundResult) Committed() bool { return r.committed }
 func (r *boundResult) Err() error      { return r.err }

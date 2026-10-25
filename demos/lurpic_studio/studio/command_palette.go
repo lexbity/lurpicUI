@@ -17,6 +17,7 @@ func ShellCommands(shell *ShellState, toggleLive func()) (*runtimepkg.CommandReg
 		entry := e
 		registry.Register(runtimepkg.CommandEntry{
 			ID:       "exhibit." + string(entry.id),
+			Version:  1,
 			Title:    "Open " + entry.title,
 			Category: exhibitGroupCatalog,
 			Keywords: []string{entry.group, string(entry.id)},
@@ -30,6 +31,7 @@ func ShellCommands(shell *ShellState, toggleLive func()) (*runtimepkg.CommandReg
 	}
 	registry.Register(runtimepkg.CommandEntry{
 		ID:       "feed.toggle",
+		Version:  1,
 		Title:    "Toggle the streaming feed",
 		Category: exhibitGroupRealtime,
 		Keywords: []string{"live", "stream", "feed"},
@@ -42,6 +44,7 @@ func ShellCommands(shell *ShellState, toggleLive func()) (*runtimepkg.CommandReg
 	})
 	registry.Register(runtimepkg.CommandEntry{
 		ID:       "index.toggle",
+		Version:  1,
 		Title:    "Toggle the exhibit index",
 		Category: exhibitGroupShell,
 		Keywords: []string{"sources", "index", "drawer"},
@@ -52,6 +55,7 @@ func ShellCommands(shell *ShellState, toggleLive func()) (*runtimepkg.CommandReg
 	})
 	registry.Register(runtimepkg.CommandEntry{
 		ID:       "inspector.toggle",
+		Version:  1,
 		Title:    "Toggle the inspector",
 		Category: exhibitGroupShell,
 		Keywords: []string{"inspector", "details"},

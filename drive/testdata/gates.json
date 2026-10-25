@@ -95,6 +95,68 @@
           "count": 1
         }
       ]
+    },
+    "S2": {
+      "tests": [
+        {
+          "package": "./drive",
+          "tests": [
+            "TestSessionLostResponseRecovered",
+            "TestRequestPayloadConflict",
+            "TestSocketDisconnectQueuedDoesNotActivate",
+            "TestResumeGenerationFencesOldEOF",
+            "TestSessionInstanceRestart",
+            "TestExpiredRequestNeverRedispatched",
+            "TestLedgerPinsActiveEntriesDuringTerminalEviction",
+            "TestLedgerModelAtMostOnce"
+          ],
+          "timeout": "10m",
+          "count": 1
+        },
+        {
+          "package": "./runtime",
+          "tests": [
+            "TestDriveVersionedCommandUsesGUIRegistryDispatcher",
+            "TestCommandListOnlyExposesGUIBackedEntries",
+            "TestDisconnectCancelsQueuedCommand",
+            "TestCommandCallbackPanicIsTerminalAndNotRetried",
+            "TestCommandWaitsForRenderAcknowledgment",
+            "TestCommandAwaitsOwnedJobCommitAndReadyFrame",
+            "TestDisconnectFencesCommandJobCommit",
+            "TestSoftwareSurfaceReadyAcknowledgment",
+            "TestRenderCreditWindowIsBoundedAndNonblocking"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./job",
+          "tests": [
+            "TestScheduleGuardedFencesLateCommit"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./cmd/lurpic",
+          "tests": [
+            "TestCLIResumes0600SessionFile",
+            "TestCLICommandNotificationMayOvertakeReceipt",
+            "TestCLIRecoversLostCommandReceiptWithSameID",
+            "TestCLIAwaitRecoversThroughOperationStatus"
+          ],
+          "timeout": "5m",
+          "count": 1
+        },
+        {
+          "package": "./marks/action",
+          "tests": [
+            "TestCommandGUIContract"
+          ],
+          "timeout": "5m",
+          "count": 1
+        }
+      ]
     }
   },
   "format_excludes": [

@@ -11,9 +11,27 @@
       "grant": "read",
       "mutating": false,
       "name": "sys.ping"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "cmd.list",
+      "tier": "app"
+    },
+    {
+      "grant": "command",
+      "mutating": true,
+      "name": "cmd.execute",
+      "tier": "app",
+      "twin": "cmd.execute/palette"
+    },
+    {
+      "grant": "",
+      "mutating": false,
+      "name": "op.status"
     }
   ],
   "protocol": 2,
-  "schema_digest": "sha256:4d9ae899dad43c573b7df036d31dc4592f7e0ae6ac44b68b0360d974393fc66c",
+  "schema_digest": "sha256:c042df836185fb7b352c43a25307a930ad8df780449739004dfcd1d081e66a01",
   "title": "LDP — Lurpic Drive Protocol methods"
 }

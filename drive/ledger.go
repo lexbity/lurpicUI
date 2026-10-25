@@ -45,6 +45,8 @@ type Entry struct {
 	// rejections); ResultErr is the retained typed error.
 	ResultPayload json.RawMessage
 	ResultErr     error
+	AcceptedCut   string
+	AcceptedFrame string
 	ResultCut     string
 	ResultFrame   string
 }
@@ -181,12 +183,23 @@ func (l *Ledger) CompleteResult(e *Entry, payload json.RawMessage, cut, frame st
 		return
 	}
 	e.State = EntryTerminal
-	e.ResultPayload = payload
+	e.ResultPayload = append(json.RawMessage(nil), payload...)
 	e.ResultErr = nil
 	e.ResultCut = cut
 	e.ResultFrame = frame
-	l.bytes += len(payload)
+	l.bytes += len(e.ResultPayload)
 	l.evictLocked()
+}
+
+// MarkAccepted records the immutable cut metadata for an accepted operation.
+func (l *Ledger) MarkAccepted(e *Entry, cut, frame string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if e != l.findLocked(e.ID) || e.State != EntryAdmitted {
+		return
+	}
+	e.AcceptedCut = cut
+	e.AcceptedFrame = frame
 }
 
 // CompleteError records an entry's immutable failed outcome.
@@ -216,8 +229,23 @@ func (l *Ledger) findLocked(id uint64) *Entry {
 // admitted high-water is preserved across eviction.
 func (l *Ledger) evictLocked() {
 	for len(l.entries) > 0 && (len(l.entries) > ledgerMaxEntries || l.bytes > ledgerMaxBytes) {
-		old := l.entries[0]
-		l.entries = l.entries[1:]
+		terminalIndex := -1
+		for i, entry := range l.entries {
+			if entry.State == EntryTerminal {
+				terminalIndex = i
+				break
+			}
+		}
+		if terminalIndex < 0 {
+			// Active operations are pinned. Admission separately bounds their
+			// count and bytes, so terminal retention must yield before evicting
+			// an outcome that is still being executed.
+			return
+		}
+		old := l.entries[terminalIndex]
+		copy(l.entries[terminalIndex:], l.entries[terminalIndex+1:])
+		l.entries[len(l.entries)-1] = nil
+		l.entries = l.entries[:len(l.entries)-1]
 		l.bytes -= ledgerEntryOverhead + len(old.ResultPayload)
 	}
 	if len(l.entries) == 0 {

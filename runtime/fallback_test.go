@@ -106,7 +106,7 @@ func TestRenderPipeline_GPUFatalFallsBackToSoftware(t *testing.T) {
 	}}}
 
 	// Frame 1 triggers the GPU-fatal swap (the frame itself is dropped).
-	p.SubmitAndWait(frame)
+	p.SubmitAndWait(frame, 1)
 	if !gpu.destroyed.Load() {
 		t.Fatal("GPU backend must be destroyed on ErrGPUFatal")
 	}
@@ -118,7 +118,7 @@ func TestRenderPipeline_GPUFatalFallsBackToSoftware(t *testing.T) {
 
 	// Frame 2 renders on the software backend: the surface receives a blit.
 	before := surface.blits()
-	p.SubmitAndWait(frame)
+	p.SubmitAndWait(frame, 2)
 	if surface.blits() <= before {
 		t.Fatal("software backend must render frames after the fallback")
 	}
@@ -147,7 +147,7 @@ func TestRenderPipeline_GPUFatalDoesNotFatalShutdown(t *testing.T) {
 	}()
 
 	frame := &render.Frame{}
-	p.SubmitAndWait(frame)
+	p.SubmitAndWait(frame, 3)
 
 	select {
 	case err := <-p.fatalCh:

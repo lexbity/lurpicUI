@@ -31,13 +31,14 @@ type pendingSignal struct{ deliver func() }
 type Runtime struct {
 	config Config
 
-	projectionSystem *projection.System
-	inputSystem      *input.System
-	focusManager     *facet.FocusManager
-	jobPool          *job.Pool
-	renderPipeline   *RenderPipeline
-	layerRegistry    *layout.LayerRegistry
-	assetManager     assets.Manager
+	projectionSystem     *projection.System
+	inputSystem          *input.System
+	focusManager         *facet.FocusManager
+	jobPool              *job.Pool
+	renderPipeline       *RenderPipeline
+	lastRenderCompletion RenderCompletion
+	layerRegistry        *layout.LayerRegistry
+	assetManager         assets.Manager
 	// assetUploader tracks the pipeline's upload adapter so a GPU→software
 	// backend swap can close the old adapter and re-wire the asset manager
 	// (Slice 10, FR-12).
@@ -125,6 +126,9 @@ type Runtime struct {
 	// drivePort is non-nil only when Config.Drive.Enabled. Its bounded
 	// inbox is admitted at a cut on this thread; see drive_port.go.
 	drivePort *drivePort
+	// currentDriveJobScope is set only while a socket-originated application
+	// command callback is executing on the runtime thread.
+	currentDriveJobScope *commandJobScope
 
 	// liveTestIDs is the author-identity registry (QP-7): TestID → facet ID
 	// for attached facets. Installed as the facet-package registry in New.
@@ -494,8 +498,12 @@ func (rt *Runtime) Schedule(j job.AnyJob) {
 	if j == nil || rt.jobPool == nil {
 		return
 	}
+	scope := rt.currentDriveJobScope
+	if scope != nil && !rt.drivePort.registerCommandJob(scope, j.JobID()) {
+		return
+	}
 	ownerID := facet.FacetID(j.OwnerID())
-	_ = rt.jobPool.SubmitAny(j, func(result job.AnyResult) {
+	afterCommit := func(result job.AnyResult) {
 		f := rt.findFacetByID(rt.root, ownerID)
 		if f == nil || f.Base() == nil {
 			return
@@ -513,7 +521,16 @@ func (rt *Runtime) Schedule(j job.AnyJob) {
 		if rt.frameTimer != nil {
 			rt.frameTimer.RequestFrame()
 		}
-	})
+	}
+	var err error
+	if scope != nil {
+		err = rt.jobPool.SubmitAnyGuarded(j, scope.active.Load, afterCommit)
+		if err != nil {
+			rt.drivePort.rollbackCommandJob(scope, j.JobID(), err)
+		}
+		return
+	}
+	_ = rt.jobPool.SubmitAny(j, afterCommit)
 }
 
 func (rt *Runtime) CancelJob(id job.JobID) {

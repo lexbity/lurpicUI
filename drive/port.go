@@ -28,6 +28,9 @@ const (
 type Command struct {
 	// Connection is the admitting transport connection.
 	Connection ConnectionID
+	// Trusted marks in-process testkit commands. Socket transports never set
+	// it; this keeps unported methods out of the major-2 dispatch surface.
+	Trusted bool
 	// Session and Generation bind the command to its admitting session and
 	// connection generation (fencing).
 	Session    string
@@ -41,8 +44,20 @@ type Command struct {
 	Params json.RawMessage
 	// Grants is the immutable session grant set.
 	Grants Grants
+	// Accepted publishes an operation receipt before application work
+	// completes. The buffered channel never blocks the runtime thread.
+	Accepted chan Receipt
 	// Reply is buffered 1; the runtime thread sends exactly once.
 	Reply chan Result
+}
+
+// Receipt identifies an admitted operation at the cut that claimed its
+// request ID.
+type Receipt struct {
+	OperationID   string
+	AcceptedCut   string
+	AcceptedFrame string
+	NextID        uint64
 }
 
 // Result is the runtime thread's reply to a Command.

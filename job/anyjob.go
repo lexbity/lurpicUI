@@ -7,7 +7,7 @@ package job
 type AnyJob interface {
 	JobID() JobID
 	OwnerID() uint64
-	submit(pool *Pool, afterCommit func(AnyResult)) error
+	submit(pool *Pool, commitAllowed func() bool, afterCommit func(AnyResult)) error
 }
 
 // BindJob wraps a typed Job together with its owning facet and commit hook.
@@ -24,13 +24,13 @@ type boundJob[I, O any] struct {
 func (b *boundJob[I, O]) JobID() JobID    { return b.job.ID }
 func (b *boundJob[I, O]) OwnerID() uint64 { return b.ownerID }
 
-func (b *boundJob[I, O]) submit(pool *Pool, afterCommit func(AnyResult)) error {
-	return Schedule(pool, b.job, func(o O) {
+func (b *boundJob[I, O]) submit(pool *Pool, commitAllowed func() bool, afterCommit func(AnyResult)) error {
+	return ScheduleGuarded(pool, b.job, commitAllowed, func(o O) {
 		if b.onCommit != nil {
 			b.onCommit(o)
 		}
 		if afterCommit != nil {
-			afterCommit(&boundResult{jobID: b.job.ID, ownerID: b.ownerID})
+			afterCommit(&boundResult{jobID: b.job.ID, ownerID: b.ownerID, committed: true})
 		}
 	})
 }

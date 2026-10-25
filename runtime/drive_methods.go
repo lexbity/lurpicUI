@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"encoding/json"
+	"strconv"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/drive"
@@ -24,31 +25,35 @@ type driveHandler func(rt *Runtime, cmd drive.Command) driveOutcome
 // initialization cycle through the step executor back into the map.
 var driveMethods map[string]driveHandler
 
+const driveJSONFrameKey = "frame"
+const driveMethodCommandExecute = "cmd.execute"
+
 func init() {
 	driveMethods = map[string]driveHandler{
-		"sys.ping":       drivePing,
-		"sys.info":       driveInfo,
-		"time.mode":      driveTimeMode,
-		"time.advance":   driveTimeAdvance,
-		"frame.run":      driveFrameRun,
-		"locate.resolve": driveLocateResolve,
-		"tree.dump":      driveTreeDump,
-		"store.list":     driveStoreList,
-		"store.read":     driveStoreRead,
-		"derived.read":   driveDerivedRead,
-		"facet.query":    driveFacetQuery,
-		"frame.pixels":   driveFramePixels,
-		"frame.packet":   driveFramePacket,
-		"input.click":    driveInputClick,
-		"input.press":    driveInputPress,
-		"input.release":  driveInputRelease,
-		"input.move":     driveInputMove,
-		"input.drag":     driveInputDrag,
-		"input.type":     driveInputType,
-		"input.scroll":   driveInputScroll,
-		"input.focus":    driveInputFocus,
-		"cmd.list":       driveCmdList,
-		"cmd.execute":    driveCmdExecute,
+		"sys.ping":                drivePing,
+		"sys.info":                driveInfo,
+		"time.mode":               driveTimeMode,
+		"time.advance":            driveTimeAdvance,
+		"frame.run":               driveFrameRun,
+		"locate.resolve":          driveLocateResolve,
+		"tree.dump":               driveTreeDump,
+		"store.list":              driveStoreList,
+		"store.read":              driveStoreRead,
+		"derived.read":            driveDerivedRead,
+		"facet.query":             driveFacetQuery,
+		"frame.pixels":            driveFramePixels,
+		"frame.packet":            driveFramePacket,
+		"input.click":             driveInputClick,
+		"input.press":             driveInputPress,
+		"input.release":           driveInputRelease,
+		"input.move":              driveInputMove,
+		"input.drag":              driveInputDrag,
+		"input.type":              driveInputType,
+		"input.scroll":            driveInputScroll,
+		"input.focus":             driveInputFocus,
+		"cmd.list":                driveCmdList,
+		driveMethodCommandExecute: driveCmdExecute,
+		"op.status":               driveOpStatus,
 	}
 }
 
@@ -79,9 +84,9 @@ func drivePing(rt *Runtime, cmd drive.Command) driveOutcome {
 		}
 	}
 	payload, err := json.Marshal(map[string]any{
-		"pong":  true,
-		"cut":   rt.drivePort.Cut(),
-		"frame": rt.drivePort.Frame(),
+		"pong":            true,
+		"cut":             rt.drivePort.Cut(),
+		driveJSONFrameKey: rt.drivePort.Frame(),
 	})
 	if err != nil {
 		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})
@@ -98,7 +103,7 @@ func driveInfo(rt *Runtime, cmd drive.Command) driveOutcome {
 	payload, err := json.Marshal(map[string]any{
 		"v":               proto.ProtocolMajor,
 		"cut":             rt.drivePort.Cut(),
-		"frame":           rt.drivePort.Frame(),
+		driveJSONFrameKey: rt.drivePort.Frame(),
 		"schema_digest":   proto.SchemaDigest(),
 		"methods":         advertised,
 		"trusted_methods": all,
@@ -131,6 +136,11 @@ func (rt *Runtime) drivePostFrame() {
 		return
 	}
 	p := rt.drivePort
+	p.serviceControl()
+	if rt.lastRenderCompletion.Frame != 0 {
+		rt.driveCompleteCommandFrame(p, rt.lastRenderCompletion)
+	}
+	rt.driveCollectRenderCompletions()
 	pending := p.pendingAdvances
 	if len(pending) == 0 {
 		return
@@ -144,11 +154,27 @@ func (rt *Runtime) drivePostFrame() {
 			}})
 			continue
 		}
+		priorFrame := p.Epoch()
 		now := rt.clock.Advance(adv.d)
-		rt.runFrame(now, true)
+		rt.runFrame(now, true, false)
+		completion := rt.lastRenderCompletion
+		rt.driveCompleteCommandFrame(p, completion)
+		if p.Epoch() == priorFrame || completion.Frame != p.Epoch() || !completion.Ready {
+			detail := "submitted frame did not produce a ready surface acknowledgment"
+			if completion.Err != nil {
+				detail = completion.Err.Error()
+			}
+			p.completeClaimed(adv.entry, adv.cmd, drive.Result{Err: &proto.Error{
+				Code: proto.ErrRenderFailed, Detail: detail,
+			}})
+			continue
+		}
 		payload, err := json.Marshal(map[string]string{
-			"frame": p.Frame(),
-			"cut":   p.Cut(),
+			driveJSONFrameKey: p.Frame(),
+			"cut":             p.Cut(),
+			"render_status":   "ready",
+			"ready_frame":     strconv.FormatUint(completion.Frame, 10),
+			"ready_backend":   completion.Backend,
 		})
 		if err != nil {
 			p.completeClaimed(adv.entry, adv.cmd, drive.Result{

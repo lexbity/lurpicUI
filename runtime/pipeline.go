@@ -9,8 +9,21 @@ import (
 )
 
 type frameHandoff struct {
-	frame  *render.Frame
-	doneCh chan struct{}
+	frame    *render.Frame
+	frameID  uint64
+	doneCh   chan RenderCompletion
+	async    bool
+	reserved bool
+}
+
+// RenderCompletion is the immutable acknowledgment returned to the runtime
+// after the render worker finishes its submission call. Software backends
+// draw synchronously in Submit, so Ready identifies an available surface.
+type RenderCompletion struct {
+	Frame   uint64
+	Backend string
+	Ready   bool
+	Err     error
 }
 
 // RenderPipeline hands frames to the render backend with capacity-1 backpressure.
@@ -26,6 +39,8 @@ type RenderPipeline struct {
 	uploadQueue *render.UploadQueue
 	handoffCh   chan frameHandoff
 	fatalCh     chan error
+	completedCh chan RenderCompletion
+	frameCredit chan struct{}
 	destroyOnce sync.Once
 
 	// fromKind names the initially-selected backend for the fallback diagnostic
@@ -50,8 +65,15 @@ func newRenderPipeline(backend render.Backend) *RenderPipeline {
 		backend:   backend,
 		handoffCh: make(chan frameHandoff, 1),
 		fatalCh:   make(chan error, 1),
-		fromKind:  backendKindName(backend),
+		// At most one handoff is queued while another frame is in the
+		// backend. Two slots retain every completion until the runtime's next
+		// control turn without making render completion block the runtime.
+		completedCh: make(chan RenderCompletion, 2),
+		frameCredit: make(chan struct{}, 2),
+		fromKind:    backendKindName(backend),
 	}
+	p.frameCredit <- struct{}{}
+	p.frameCredit <- struct{}{}
 	if tb, ok := backend.(render.TextureBackend); ok {
 		p.uploadQueue = render.NewUploadQueue(tb, 1024)
 	}
@@ -91,21 +113,69 @@ func (p *RenderPipeline) UploadQueue() *render.UploadQueue {
 }
 
 // Submit sends a frame to the render backend pipeline.
-func (p *RenderPipeline) Submit(frame *render.Frame) {
+func (p *RenderPipeline) Submit(frame *render.Frame, frameID uint64) {
 	if p == nil || p.Backend() == nil {
 		return
 	}
-	p.handoffCh <- frameHandoff{frame: frame}
+	p.reserveFrame()
+	p.SubmitReserved(frame, frameID)
+}
+
+// TryReserveFrame reserves one of the pipeline's two bounded in-flight frame
+// groups before the runtime begins a frame. It never waits for the renderer.
+func (p *RenderPipeline) TryReserveFrame() bool {
+	if p == nil || p.Backend() == nil {
+		return false
+	}
+	select {
+	case <-p.frameCredit:
+		return true
+	default:
+		return false
+	}
+}
+
+// SubmitReserved transfers a previously reserved frame group to the render
+// worker. The capacity reservation guarantees this handoff cannot block.
+func (p *RenderPipeline) SubmitReserved(frame *render.Frame, frameID uint64) {
+	if p == nil {
+		return
+	}
+	p.handoffCh <- frameHandoff{frame: frame, frameID: frameID, async: true, reserved: true}
+}
+
+// ReleaseFrameReservation returns a frame group when a reserved frame exits
+// before renderer submission.
+func (p *RenderPipeline) ReleaseFrameReservation() {
+	if p == nil {
+		return
+	}
+	p.frameCredit <- struct{}{}
+}
+
+func (p *RenderPipeline) reserveFrame() {
+	<-p.frameCredit
+}
+
+// Completions exposes immutable render acknowledgments to the runtime
+// control loop. The channel is bounded by the pipeline's two in-flight
+// frame groups.
+func (p *RenderPipeline) Completions() <-chan RenderCompletion {
+	if p == nil {
+		return nil
+	}
+	return p.completedCh
 }
 
 // SubmitAndWait hands a frame to the renderer and waits for completion.
-func (p *RenderPipeline) SubmitAndWait(frame *render.Frame) {
+func (p *RenderPipeline) SubmitAndWait(frame *render.Frame, frameID uint64) RenderCompletion {
 	if p == nil || p.Backend() == nil {
-		return
+		return RenderCompletion{Frame: frameID, Err: errors.New("runtime: render backend unavailable")}
 	}
-	done := make(chan struct{})
-	p.handoffCh <- frameHandoff{frame: frame, doneCh: done}
-	<-done
+	done := make(chan RenderCompletion, 1)
+	p.reserveFrame()
+	p.handoffCh <- frameHandoff{frame: frame, frameID: frameID, doneCh: done, reserved: true}
+	return <-done
 }
 
 // swapToSoftwareFallback tears down the failing GPU backend and installs a
@@ -192,30 +262,47 @@ func (rt *renderThread) run() {
 	for handoff := range rt.pipeline.handoffCh {
 		backend := rt.pipeline.Backend()
 		if backend == nil || handoff.frame == nil {
-			if handoff.doneCh != nil {
-				close(handoff.doneCh)
-			}
+			rt.publishCompletion(handoff, RenderCompletion{Frame: handoff.frameID, Err: errors.New("runtime: render backend unavailable")})
 			continue
 		}
 		if q := rt.pipeline.UploadQueue(); q != nil {
 			q.DrainBudget()
 		}
-		if err := backend.Submit(handoff.frame); err != nil {
+		submitErr := backend.Submit(handoff.frame)
+		if submitErr != nil {
 			var fatal *render.ErrGPUFatal
-			if errors.As(err, &fatal) {
+			if errors.As(submitErr, &fatal) {
 				// GPU-fatal: one-shot swap to software (Q9). The frame in flight
 				// is dropped; the next frame renders on the software backend.
-				rt.pipeline.swapToSoftwareFallback(err)
+				rt.pipeline.swapToSoftwareFallback(submitErr)
 			} else {
 				select {
-				case rt.pipeline.fatalCh <- err:
+				case rt.pipeline.fatalCh <- submitErr:
 				default:
 				}
 			}
 		}
-		if handoff.doneCh != nil {
-			close(handoff.doneCh)
+		rt.publishCompletion(handoff, RenderCompletion{
+			Frame: handoff.frameID, Backend: backendKindName(backend),
+			Ready: submitErr == nil, Err: submitErr,
+		})
+	}
+}
+
+func (rt *renderThread) publishCompletion(handoff frameHandoff, completion RenderCompletion) {
+	if handoff.doneCh != nil {
+		handoff.doneCh <- completion
+		close(handoff.doneCh)
+		if handoff.reserved {
+			rt.pipeline.ReleaseFrameReservation()
 		}
+		return
+	}
+	if handoff.async {
+		rt.pipeline.completedCh <- completion
+	}
+	if handoff.reserved {
+		rt.pipeline.ReleaseFrameReservation()
 	}
 }
 

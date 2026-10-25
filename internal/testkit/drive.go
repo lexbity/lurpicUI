@@ -155,6 +155,7 @@ func (h *Harness) DriveCall(t testing.TB, method string, params any) (json.RawMe
 	c.next++
 	id := c.next
 	cmd := drive.Command{
+		Trusted:    true,
 		Session:    c.sess.ID,
 		Generation: c.sess.Generation(),
 		ID:         id,

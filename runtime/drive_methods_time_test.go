@@ -91,6 +91,7 @@ func TestDrive_AdvanceRunsExactlyOneFrame(t *testing.T) {
 	client := testClientFor(t, rt)
 	client.next++
 	cmd := drive.Command{
+		Trusted:    true,
 		Session:    client.sess.ID,
 		Generation: client.sess.Generation(),
 		ID:         client.next,

@@ -98,6 +98,7 @@ func (h *DriveHarness) Call(method string, params any) (json.RawMessage, *proto.
 	// ledger claim, grants, dispatch — is the same runtime-thread path the
 	// socket uses.
 	cmd := drive.Command{
+		Trusted:    true,
 		Session:    h.session.ID,
 		Generation: h.session.Generation(),
 		ID:         h.nextID,

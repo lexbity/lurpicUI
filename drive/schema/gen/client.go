@@ -32,6 +32,9 @@ func (c *Client) call(method string, params any) (json.RawMessage, error) {
 // registry).
 func Methods() []string {
 	return []string{
+		"cmd.execute",
+		"cmd.list",
+		"op.status",
 		"sys.hello",
 		"sys.ping",
 	}
@@ -39,7 +42,22 @@ func Methods() []string {
 
 // SchemaDigest returns the canonical schema digest of Methods().
 func SchemaDigest() string {
-	return "sha256:4d9ae899dad43c573b7df036d31dc4592f7e0ae6ac44b68b0360d974393fc66c"
+	return "sha256:c042df836185fb7b352c43a25307a930ad8df780449739004dfcd1d081e66a01"
+}
+
+// CmdExecute sends cmd.execute with optional params.
+func (c *Client) CmdExecute(params any) (json.RawMessage, error) {
+	return c.call("cmd.execute", params)
+}
+
+// CmdList sends cmd.list with optional params.
+func (c *Client) CmdList(params any) (json.RawMessage, error) {
+	return c.call("cmd.list", params)
+}
+
+// OpStatus sends op.status with optional params.
+func (c *Client) OpStatus(params any) (json.RawMessage, error) {
+	return c.call("op.status", params)
 }
 
 // SysHello performs the handshake: token + create_session.

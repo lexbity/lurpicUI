@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,15 +16,174 @@ import (
 	"codeburg.org/lexbit/lurpicui/drive/server"
 )
 
+func TestCLICommandNotificationMayOvertakeReceipt(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+	c := &driveJSON{rw: bufio.NewReadWriter(bufio.NewReader(clientConn), bufio.NewWriter(clientConn)), conn: clientConn}
+	serverDone := make(chan error, 1)
+	go func() {
+		defer close(serverDone)
+		reader := bufio.NewReader(serverConn)
+		if _, err := reader.ReadString('\n'); err != nil {
+			serverDone <- err
+			return
+		}
+		writer := bufio.NewWriter(serverConn)
+		notification, err := json.Marshal(proto.Notification{
+			V: proto.ProtocolMajor, Method: "op.completed",
+			Params: json.RawMessage(`{"operation_id":"instance/session/1","outcome":{"state":"completed","result":{"render_status":"ready"}}}`),
+		})
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := writer.Write(append(notification, '\n')); err != nil {
+			serverDone <- err
+			return
+		}
+		if err := writer.Flush(); err != nil {
+			serverDone <- err
+			return
+		}
+		receipt, err := json.Marshal(proto.Response{
+			V: proto.ProtocolMajor, ID: "1", OK: true,
+			Result: json.RawMessage(`{"operation_id":"instance/session/1","state":"accepted"}`),
+		})
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		_, err = writer.Write(append(receipt, '\n'))
+		if err == nil {
+			err = writer.Flush()
+		}
+		serverDone <- err
+	}()
+
+	result, err := c.Call("cmd.execute", map[string]any{"name": "fixture.activate", "version": 1})
+	if err != nil {
+		t.Fatalf("Call: %v", err)
+	}
+	var outcome struct {
+		State string `json:"state"`
+	}
+	if err := json.Unmarshal(result, &outcome); err != nil || outcome.State != "completed" {
+		t.Fatalf("outcome=%s err=%v", result, err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestCLIRecoversLostCommandReceiptWithSameID(t *testing.T) {
+	firstClient, firstServer := net.Pipe()
+	secondClient, secondServer := net.Pipe()
+	c := &driveJSON{rw: bufio.NewReadWriter(bufio.NewReader(firstClient), bufio.NewWriter(firstClient)), conn: firstClient}
+	c.reconnect = func() (*driveJSON, error) {
+		return &driveJSON{rw: bufio.NewReadWriter(bufio.NewReader(secondClient), bufio.NewWriter(secondClient)), conn: secondClient, next: 1}, nil
+	}
+	firstDone := make(chan struct{})
+	go func() {
+		defer close(firstDone)
+		_, _ = bufio.NewReader(firstServer).ReadString('\n')
+		_ = firstServer.Close()
+	}()
+	secondDone := make(chan error, 1)
+	go func() {
+		line, err := bufio.NewReader(secondServer).ReadString('\n')
+		if err != nil {
+			secondDone <- err
+			return
+		}
+		var request proto.Request
+		if err := json.Unmarshal([]byte(line), &request); err != nil {
+			secondDone <- err
+			return
+		}
+		if request.ID != "1" || request.Method != "cmd.execute" {
+			secondDone <- fmt.Errorf("retried request id=%q method=%q", request.ID, request.Method)
+			return
+		}
+		writer := bufio.NewWriter(secondServer)
+		_, err = fmt.Fprintln(writer, `{"v":2,"id":"1","ok":true,"result":{"operation_id":"I/S/1","state":"completed","render_status":"ready"}}`)
+		if err == nil {
+			err = writer.Flush()
+		}
+		secondDone <- err
+	}()
+	result, err := c.Call("cmd.execute", map[string]any{"name": "fixture.activate", "version": 1})
+	if err != nil {
+		t.Fatalf("Call after lost receipt: %v", err)
+	}
+	if !strings.Contains(string(result), `"state":"completed"`) {
+		t.Fatalf("recovered result = %s", result)
+	}
+	if err := <-secondDone; err != nil {
+		t.Fatal(err)
+	}
+	<-firstDone
+	_ = firstClient.Close()
+	_ = secondClient.Close()
+	_ = secondServer.Close()
+}
+
+func TestCLIAwaitRecoversThroughOperationStatus(t *testing.T) {
+	firstClient, firstServer := net.Pipe()
+	secondClient, secondServer := net.Pipe()
+	c := &driveJSON{rw: bufio.NewReadWriter(bufio.NewReader(firstClient), bufio.NewWriter(firstClient)), conn: firstClient}
+	c.reconnect = func() (*driveJSON, error) {
+		return &driveJSON{rw: bufio.NewReadWriter(bufio.NewReader(secondClient), bufio.NewWriter(secondClient)), conn: secondClient, next: 1}, nil
+	}
+	go func() {
+		_ = firstServer.Close()
+	}()
+	statusDone := make(chan error, 1)
+	go func() {
+		line, err := bufio.NewReader(secondServer).ReadString('\n')
+		if err != nil {
+			statusDone <- err
+			return
+		}
+		var request proto.Request
+		if err := json.Unmarshal([]byte(line), &request); err != nil {
+			statusDone <- err
+			return
+		}
+		if request.ID != "2" || request.Method != "op.status" {
+			statusDone <- fmt.Errorf("recovery request id=%q method=%q", request.ID, request.Method)
+			return
+		}
+		writer := bufio.NewWriter(secondServer)
+		_, err = fmt.Fprintln(writer, `{"v":2,"id":"2","ok":true,"result":{"state":"completed","result":{"operation_id":"I/S/1","render_status":"ready"}}}`)
+		if err == nil {
+			err = writer.Flush()
+		}
+		statusDone <- err
+	}()
+	result, err := c.Await("I/S/1")
+	if err != nil {
+		t.Fatalf("Await after disconnect: %v", err)
+	}
+	if !strings.Contains(string(result), `"render_status":"ready"`) {
+		t.Fatalf("recovered outcome = %s", result)
+	}
+	if err := <-statusDone; err != nil {
+		t.Fatal(err)
+	}
+	_ = firstClient.Close()
+	_ = secondClient.Close()
+	_ = secondServer.Close()
+}
+
 // startCLIServer binds a real v2 server with a synchronous fake runtime
 // port answering pings; the CLI runs against it over a real Unix socket.
 func startCLIServer(t *testing.T) (socket, token string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ldp") // 0700, short (unix path bound)
-	if err != nil {
-		t.Fatalf("mkdir: %v", err)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	socket = filepath.Join(dir, "d.sock")
 	token = strings.Repeat("ef", 32)
 	inst, err := drive.NewInstance()
@@ -134,6 +294,39 @@ func TestCmdDrive_CheckEndToEnd(t *testing.T) {
 	}
 	if !strings.HasPrefix(out, "compatible v2 digest=sha256:") {
 		t.Fatalf("check output = %q", out)
+	}
+}
+
+func TestCLIResumes0600SessionFile(t *testing.T) {
+	socket, _ := startCLIServer(t)
+	tokenFile := socket + ".token"
+	sessionFile := filepath.Join(t.TempDir(), "session.json")
+	args := []string{"--socket", socket, "--token-file", tokenFile, "--session-file", sessionFile, "--check"}
+	for i := 0; i < 2; i++ {
+		code, out := runCmdDrive(t, args...)
+		if code != 0 || !strings.HasPrefix(out, "compatible v2 digest=sha256:") {
+			t.Fatalf("invocation %d exit=%d output=%q", i, code, out)
+		}
+	}
+	info, err := os.Stat(sessionFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("session file mode=%#o, want 0600", info.Mode().Perm())
+	}
+	conn, err := driveConnect(socket, tokenFile, sessionFile)
+	if err != nil {
+		t.Fatalf("connect with saved session: %v", err)
+	}
+	defer conn.close()
+	resumed, err := conn.reconnect()
+	if err != nil {
+		t.Fatalf("resume an already resumed session: %v", err)
+	}
+	defer resumed.close()
+	if resumed.sessionID != conn.sessionID || resumed.generation == conn.generation {
+		t.Fatalf("second resume session/generation = %s/%s, want %s/new generation", resumed.sessionID, resumed.generation, conn.sessionID)
 	}
 }
 

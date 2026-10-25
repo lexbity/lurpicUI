@@ -14,7 +14,13 @@ import (
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
-func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
+func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bool) {
+	frameCreditTransferred := false
+	defer func() {
+		if reservedFrameCredit && !frameCreditTransferred {
+			rt.renderPipeline.ReleaseFrameReservation()
+		}
+	}()
 
 	if rt.isPaused() {
 		return
@@ -99,6 +105,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 	for _, re := range routedEvents {
 		_ = input.Deliver(re, rt.root)
 	}
+	// Accepted GUI-backed drive commands enter the same ordinary frame
+	// activation boundary as application commands. Their signals join this
+	// frame's phase-6 batch; transport workers never invoke app code.
+	rt.driveActivatePendingCommands()
 	rt.deliverSignals()
 	if runtimeTraceActive() {
 		runtimeTracef("runFrame after-signals n=%d pending=%d dirty=%d", rt.frameNumber, len(rt.pendingEvents), len(rt.dirtyFacets))
@@ -221,9 +231,13 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender bool) {
 			}
 		}
 		if waitForRender {
-			rt.renderPipeline.SubmitAndWait(frame)
+			rt.lastRenderCompletion = rt.renderPipeline.SubmitAndWait(frame, rt.frameNumber)
 		} else {
-			rt.renderPipeline.Submit(frame)
+			if !reservedFrameCredit {
+				panic("runtime: asynchronous frame started without render credit")
+			}
+			rt.renderPipeline.SubmitReserved(frame, rt.frameNumber)
+			frameCreditTransferred = true
 		}
 		// First-frame marker: CI smoke tests grep logcat for this string to
 		// verify the app launched and rendered at least one frame. The marker
@@ -503,12 +517,19 @@ func (rt *Runtime) drainJobResults() (committed int, discarded int) {
 	}
 	results := rt.jobPool.Drain()
 	for _, r := range results {
+		if rt.drivePort != nil {
+			rt.drivePort.commandJobFinished(r.JobID(), r.Cancelled(), r.Committed(), r.Err(), rt.frameNumber)
+		}
 		if r.Cancelled() {
 			discarded++
 			continue
 		}
 		if err := r.Err(); err != nil {
 			rt.log.Debug("job result error", "jobID", r.JobID(), "err", err)
+			discarded++
+			continue
+		}
+		if !r.Committed() {
 			discarded++
 			continue
 		}

@@ -124,6 +124,34 @@ func main() {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
 		})
 
+	// cmd.list forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "cmd.list", Description: "LDP cmd.list (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("cmd.list", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// cmd.execute forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "cmd.execute", Description: "LDP cmd.execute (grant: command)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("cmd.execute", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
 
 	if err := server.Run(ctx, &mcp.StdioTransport{}); err != nil {
 		fmt.Fprintf(os.Stderr, "serve: %v\n", err)

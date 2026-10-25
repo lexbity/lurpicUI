@@ -52,11 +52,10 @@ func (p *loadPort) handled() int {
 // session table.
 func startLoadServer(t *testing.T) (*server.Server, *loadPort, string, string) {
 	t.Helper()
-	dir, err := os.MkdirTemp("", "ldp") // 0700, short (unix path bound)
-	if err != nil {
-		t.Fatalf("mkdir: %v", err)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatalf("chmod temp dir: %v", err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(dir) })
 	socket := filepath.Join(dir, "d.sock")
 	token := strings.Repeat("ab", 32)
 	inst, err := drive.NewInstance()

@@ -30,7 +30,7 @@ func (rt *Runtime) RunOneFrameAt(now time.Time) {
 	// body begins — handlers (frame.run, time.advance) may run their own
 	// frames, which must never nest inside another frame's locks.
 	rt.driveDrain()
-	rt.runFrame(now, true)
+	rt.runFrame(now, true, false)
 	// Virtual-mode advances deferred by this frame's drain complete here:
 	// each pending advance runs exactly one full frame and then replies
 	// (QP-5: Advance returns after exactly one complete frame).
@@ -88,7 +88,16 @@ func (rt *Runtime) Run() error {
 		}
 		// LDP cut (QP-6): drain between frames, before this frame's body.
 		rt.driveDrain()
-		rt.runFrame(now, false)
+		reserved := false
+		if rt.renderPipeline != nil && rt.isSurfaceReady() {
+			reserved = rt.renderPipeline.TryReserveFrame()
+			if !reserved {
+				// Keep serving control work while the bounded render window is
+				// full. The next frame tick or control wake retries admission.
+				continue
+			}
+		}
+		rt.runFrame(now, false, reserved)
 		rt.drivePostFrame()
 	}
 }

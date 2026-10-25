@@ -129,6 +129,33 @@ func (s *Session) Detach(now time.Time) {
 	}
 }
 
+// DetachGeneration detaches only the connection generation that observed
+// loss. A delayed EOF from a replaced connection must not detach the new
+// attachment or signal cancellation for its work.
+func (s *Session) DetachGeneration(generation uint64, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state != SessionAttached || s.generation != generation {
+		return false
+	}
+	s.state = SessionDetached
+	s.detachedAt = now
+	return true
+}
+
+// WithAttachedGeneration runs fn while the session generation is fenced
+// against concurrent resume/detach. The callback must be short and must
+// not call back into Session.
+func (s *Session) WithAttachedGeneration(generation uint64, fn func()) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.state != SessionAttached || s.generation != generation {
+		return false
+	}
+	fn()
+	return true
+}
+
 // ExpiredDue reports whether a detached session's recovery TTL has passed.
 func (s *Session) ExpiredDue(now time.Time) bool {
 	s.mu.Lock()
@@ -149,7 +176,11 @@ func (s *Session) Expire() {
 // VerifyCredential reports whether the presented resume credential matches.
 // Comparison is constant-time over the hash.
 func (s *Session) VerifyCredential(credential string) bool {
-	sum := sha256.Sum256([]byte(credential))
+	raw, err := hex.DecodeString(credential)
+	if err != nil || len(raw) != resumeCredentialBytes {
+		return false
+	}
+	sum := sha256.Sum256(raw)
 	return hmac.Equal(sum[:], s.credentialHash)
 }
 

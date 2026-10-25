@@ -187,7 +187,7 @@ func driveFrameRun(rt *Runtime, cmd drive.Command) driveOutcome {
 		// next cut for the following step. Steps that already ran their own
 		// frame (time.advance) crossed it themselves.
 		if step.Method != "time.advance" {
-			rt.runFrame(rt.clock.Now(), true)
+			rt.runFrame(rt.clock.Now(), true, false)
 			framesRun++
 		} else {
 			framesRun++
@@ -198,7 +198,7 @@ func driveFrameRun(rt *Runtime, cmd drive.Command) driveOutcome {
 		switch {
 		case p.Advance.Frames != nil:
 			for i := 0; i < *p.Advance.Frames; i++ {
-				rt.runFrame(rt.clock.Advance(rt.framePeriod()), true)
+				rt.runFrame(rt.clock.Advance(rt.framePeriod()), true, false)
 				framesRun++
 			}
 		case p.Advance.Until != nil:
@@ -248,8 +248,8 @@ func (rt *Runtime) driveExecStep(cmd drive.Command, step frameRunStep) (json.Raw
 			return nil, &proto.Error{Code: proto.ErrInvalidParams, Detail: "time.advance step requires d"}
 		}
 		now := rt.clock.Advance(time.Duration(p.D * float64(time.Second)))
-		rt.runFrame(now, true)
-		payload, err := json.Marshal(map[string]uint64{"frame": rt.frameNumber})
+		rt.runFrame(now, true, false)
+		payload, err := json.Marshal(map[string]uint64{driveJSONFrameKey: rt.frameNumber})
 		if err != nil {
 			return nil, &proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()}
 		}
@@ -289,7 +289,7 @@ func (rt *Runtime) runUntilIdle(u *frameRunUntil, framesRun *int) bool {
 	}
 	quiet := 0
 	for i := 0; i < u.Max; i++ {
-		rt.runFrame(rt.clock.Advance(rt.framePeriod()), true)
+		rt.runFrame(rt.clock.Advance(rt.framePeriod()), true, false)
 		*framesRun++
 		stats := rt.LastFrameStats()
 		if stats.DirtyFacets == 0 && stats.ArrangeCount == 0 {

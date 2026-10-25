@@ -50,8 +50,8 @@ func TestLiveCLIPingPath(t *testing.T) {
 	h := testkit.NewDriveHarnessWithConfig(t, cfg, root)
 	h.RunFrame()
 
-	dir, err := os.MkdirTemp("", "ldp") // 0700, short (unix path bound)
-	if err != nil {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	socket := filepath.Join(dir, "d.sock")

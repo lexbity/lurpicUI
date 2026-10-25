@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
+	"codeburg.org/lexbit/lurpicui/job"
 )
 
 // drivePort is the runtime-side implementation of drive.RuntimePort. The
@@ -53,6 +54,14 @@ type drivePort struct {
 	// time.advance handler; drivePostFrame executes each as exactly one
 	// full frame and then completes the ledger + reply. Runtime-thread only.
 	pendingAdvances []pendingAdvance
+	// pendingCommandActivations are admitted GUI-backed commands waiting
+	// for the next normal frame's activation boundary. pendingCommandFrames
+	// retain their immutable outcome until that frame's render acknowledgment.
+	pendingCommandActivations []pendingCommand
+	pendingCommandFrames      map[uint64][]pendingCommand
+	waitingCommandJobs        map[string]pendingCommand
+	commandJobScopes          map[job.JobID]*commandJobScope
+	activeCommandCount        int
 
 	// drainedThisFrame feeds the per-frame FrameStats counter.
 	drainedThisFrame int
@@ -147,11 +156,14 @@ func (rt *Runtime) installDrivePort() error {
 		return errors.New("runtime: drive enabled without a session table")
 	}
 	rt.drivePort = &drivePort{
-		rt:          rt,
-		stats:       rt.config.Drive.Stats,
-		sessions:    rt.config.Drive.Sessions,
-		wake:        make(chan struct{}, 1),
-		controlKeys: make(map[controlKey]int),
+		rt:                   rt,
+		stats:                rt.config.Drive.Stats,
+		sessions:             rt.config.Drive.Sessions,
+		wake:                 make(chan struct{}, 1),
+		controlKeys:          make(map[controlKey]int),
+		pendingCommandFrames: make(map[uint64][]pendingCommand),
+		waitingCommandJobs:   make(map[string]pendingCommand),
+		commandJobScopes:     make(map[job.JobID]*commandJobScope),
 	}
 	if rt.drivePort.stats == nil {
 		rt.drivePort.stats = &drive.Stats{}
@@ -212,6 +224,36 @@ func (p *drivePort) serviceControl() {
 // an in-flight drive input step owned by that session/generation; applied
 // effects stand and nothing new starts.
 func (p *drivePort) fenceGeneration(session string, generation uint64) {
+	for i := 0; i < len(p.pendingCommandActivations); {
+		pending := p.pendingCommandActivations[i]
+		if pending.cmd.Session == session && pending.cmd.Generation == generation {
+			p.pendingCommandActivations = append(p.pendingCommandActivations[:i], p.pendingCommandActivations[i+1:]...)
+			p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+			continue
+		}
+		i++
+	}
+	for frame, pending := range p.pendingCommandFrames {
+		kept := pending[:0]
+		for _, command := range pending {
+			if command.cmd.Session == session && command.cmd.Generation == generation {
+				p.finishCommand(command, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+				continue
+			}
+			kept = append(kept, command)
+		}
+		if len(kept) == 0 {
+			delete(p.pendingCommandFrames, frame)
+		} else {
+			p.pendingCommandFrames[frame] = kept
+		}
+	}
+	for opID, pending := range p.waitingCommandJobs {
+		if pending.cmd.Session == session && pending.cmd.Generation == generation {
+			p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+			delete(p.waitingCommandJobs, opID)
+		}
+	}
 	// A fenced step severs like a human preemption: remaining synthesized
 	// events void, recognizers abort through the normal path, ownership
 	// returns to the human. Applied effects stand.
@@ -242,6 +284,7 @@ func (rt *Runtime) driveDrain() int {
 	}
 	p := rt.drivePort
 	p.serviceControl()
+	rt.driveCollectRenderCompletions()
 	cmds := p.claim()
 	if len(cmds) == 0 {
 		return 0
@@ -266,6 +309,10 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 		p.reply(cmd, nil, &proto.Error{Code: proto.ErrSessionExpired, Detail: "unknown session", NonAdmitted: true}, true)
 		return
 	}
+	if sess.Generation() != cmd.Generation || sess.State() != drive.SessionAttached {
+		p.reply(cmd, nil, &proto.Error{Code: proto.ErrSessionFenced, Detail: "connection generation is no longer attached", NonAdmitted: true}, true)
+		return
+	}
 	ledger := sess.Ledger()
 	canonical := drive.CanonicalRequest(cmd.Method, cmd.Params)
 	id := cmd.ID
@@ -281,6 +328,14 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 				Code:   proto.ErrRequestConflict,
 				Detail: "a different well-typed request was admitted under this id",
 			}, true)
+			return
+		}
+		if cmd.Method == driveMethodCommandExecute && entry.Admitted && entry.State == drive.EntryAdmitted {
+			if !p.attachCommandWaiter(cmd, entry) {
+				p.reply(cmd, nil, &proto.Error{Code: proto.ErrCapacityBusy, Retryable: true}, true)
+				return
+			}
+			p.publishCommandReceipt(cmd, entry)
 			return
 		}
 		p.replayRetained(cmd, entry)
@@ -310,7 +365,7 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 	// Availability + grants: permanent rejections consume and retain their
 	// ID so a lost rejection cannot become a later accepted request.
 	spec, known := registrySpec(cmd.Method)
-	if !known {
+	if !known || (!spec.Advertised && !cmd.Trusted) {
 		p.stats.AddAdmissionRejected()
 		perr := &proto.Error{Code: proto.ErrUnknownMethod, Detail: "unknown method: " + cmd.Method}
 		if rej, err := ledger.ClaimRejection(id, canonical, perr); err == nil {
@@ -331,10 +386,47 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 		}
 		return
 	}
+	var commandOutcome driveOutcome
+	if cmd.Method == driveMethodCommandExecute {
+		if p.activeCommandCount >= maxPendingDriveCommands {
+			p.reply(cmd, nil, &proto.Error{Code: proto.ErrCapacityBusy, Retryable: true, NonAdmitted: true}, true)
+			return
+		}
+		if rt.renderPipeline == nil || !rt.isSurfaceReady() {
+			perr := &proto.Error{Code: proto.ErrRenderUnavailable, Detail: "no ready render surface for command activation"}
+			if rej, claimErr := ledger.ClaimRejection(id, canonical, perr); claimErr == nil {
+				p.replyClaimed(cmd, rej, nil, perr)
+			} else {
+				p.reply(cmd, nil, perr, true)
+			}
+			return
+		}
+		commandOutcome = rt.driveExecute(cmd)
+		if commandOutcome.result.Err != nil {
+			var perr *proto.Error
+			if !errors.As(commandOutcome.result.Err, &perr) {
+				perr = &proto.Error{Code: proto.ErrInternalPanic, Detail: "command validation failed"}
+			}
+			if rej, claimErr := ledger.ClaimRejection(id, canonical, perr); claimErr == nil {
+				p.replyClaimed(cmd, rej, nil, perr)
+			} else {
+				p.reply(cmd, nil, perr, true)
+			}
+			return
+		}
+	}
 
 	// Claim the ledger entry and advance the high-water atomically on the
 	// runtime thread, before scheduling work.
-	entry, err := ledger.Claim(id, canonical, cmd.OpID)
+	var claimed *drive.Entry
+	var err error
+	attached := sess.WithAttachedGeneration(cmd.Generation, func() {
+		claimed, err = ledger.Claim(id, canonical, cmd.OpID)
+	})
+	if !attached {
+		p.reply(cmd, nil, &proto.Error{Code: proto.ErrSessionFenced, Detail: "connection generation was replaced before admission", NonAdmitted: true}, true)
+		return
+	}
 	if err != nil {
 		p.reply(cmd, nil, &proto.Error{
 			Code:        proto.ErrRequestGap,
@@ -344,18 +436,30 @@ func (rt *Runtime) driveAdmit(p *drivePort, cmd drive.Command) {
 		return
 	}
 	p.stats.AddCommandsAdmitted(1)
+	ledger.MarkAccepted(claimed, p.Cut(), p.Frame())
+	if cmd.Method == driveMethodCommandExecute {
+		p.publishCommandReceipt(cmd, claimed)
+	}
+	if cmd.Method == driveMethodCommandExecute {
+		scope := &commandJobScope{operationID: claimed.OpID, jobs: make(map[job.JobID]struct{})}
+		scope.active.Store(true)
+		pending := pendingCommand{cmd: cmd, entry: claimed, activation: commandOutcome.activation, jobScope: scope}
+		p.pendingCommandActivations = append(p.pendingCommandActivations, pending)
+		p.activeCommandCount++
+		return
+	}
 
 	out := rt.driveExecute(cmd)
 	if out.deferred {
 		// The deferred completer (drivePostFrame) owns the ledger
 		// completion and reply.
-		out.entry = entry
+		out.entry = claimed
 		p.pendingAdvances = append(p.pendingAdvances, pendingAdvance{
-			d: out.d, cmd: cmd, entry: entry,
+			d: out.d, cmd: cmd, entry: claimed,
 		})
 		return
 	}
-	p.completeClaimed(entry, cmd, out.result)
+	p.completeClaimed(claimed, cmd, out.result)
 }
 
 // driveExecute dispatches one admitted command to its handler. A handler
@@ -366,7 +470,7 @@ func (rt *Runtime) driveExecute(cmd drive.Command) (out driveOutcome) {
 			rt.drivePort.stats.AddHandlerPanic()
 			out = driveOutcome{
 				result: drive.Result{
-					Err: &proto.Error{Code: proto.ErrInternalPanic, Detail: fmt.Sprint(r)},
+					Err: &proto.Error{Code: proto.ErrInternalPanic, Detail: "runtime handler panicked"},
 					Cut: rt.drivePort.Cut(), Frame: rt.drivePort.Frame(),
 				},
 			}
@@ -385,13 +489,304 @@ func (rt *Runtime) driveExecute(cmd drive.Command) (out driveOutcome) {
 // driveOutcome is a handler's result: either an immediate Result, or a
 // deferred one (time.advance replies only after its frame has executed).
 type driveOutcome struct {
-	result   drive.Result
-	deferred bool
+	result     drive.Result
+	deferred   bool
+	activation *commandActivation
 	// entry is set by the admitter for deferred outcomes so the completer
 	// records the immutable terminal record.
 	entry *drive.Entry
 	// d carries a deferred advance's duration (time.advance only).
 	d time.Duration
+}
+
+const maxPendingDriveCommands = 128
+const maxCommandWaiters = 32
+
+type commandActivation struct {
+	name    string
+	version uint64
+}
+
+type pendingCommand struct {
+	cmd        drive.Command
+	entry      *drive.Entry
+	activation *commandActivation
+	failure    *proto.Error
+	waiters    []drive.Command
+	jobScope   *commandJobScope
+}
+
+// commandJobScope is runtime-owned authority for continuations scheduled by
+// one GUI command activation. The worker only calls active.Load through the
+// commit gate; the runtime thread owns jobs, counts, and failure attribution.
+type commandJobScope struct {
+	operationID string
+	active      atomic.Bool
+	jobs        map[job.JobID]struct{}
+	total       int
+	completed   int
+	failure     *proto.Error
+}
+
+func (p *drivePort) publishCommandReceipt(cmd drive.Command, entry *drive.Entry) {
+	if cmd.Accepted == nil {
+		return
+	}
+	sess, ok := p.sessions.Get(cmd.Session)
+	if !ok {
+		return
+	}
+	select {
+	case cmd.Accepted <- drive.Receipt{
+		OperationID: entry.OpID, AcceptedCut: entry.AcceptedCut,
+		AcceptedFrame: entry.AcceptedFrame, NextID: sess.Ledger().HighWater() + 1,
+	}:
+	default:
+	}
+}
+
+func (p *drivePort) attachCommandWaiter(cmd drive.Command, entry *drive.Entry) bool {
+	appendWaiter := func(pending *pendingCommand) bool {
+		if len(pending.waiters) >= maxCommandWaiters {
+			return false
+		}
+		pending.waiters = append(pending.waiters, cmd)
+		return true
+	}
+	for i := range p.pendingCommandActivations {
+		if p.pendingCommandActivations[i].entry.OpID == entry.OpID {
+			return appendWaiter(&p.pendingCommandActivations[i])
+		}
+	}
+	for frame := range p.pendingCommandFrames {
+		pending := p.pendingCommandFrames[frame]
+		for i := range pending {
+			if pending[i].entry.OpID == entry.OpID {
+				if !appendWaiter(&pending[i]) {
+					return false
+				}
+				p.pendingCommandFrames[frame] = pending
+				return true
+			}
+		}
+	}
+	if pending, ok := p.waitingCommandJobs[entry.OpID]; ok {
+		if !appendWaiter(&pending) {
+			return false
+		}
+		p.waitingCommandJobs[entry.OpID] = pending
+		return true
+	}
+	return false
+}
+
+// driveActivatePendingCommands runs one accepted application command at the
+// runtime's frame activation boundary. The command and the GUI palette share
+// CommandRegistry.ExecuteVersion; the socket thread never invokes app code.
+func (rt *Runtime) driveActivatePendingCommands() {
+	p := rt.drivePort
+	if p == nil {
+		return
+	}
+	p.serviceControl()
+	if len(p.pendingCommandActivations) == 0 {
+		return
+	}
+	// Application commands execute FIFO through their rendered/job terminal
+	// boundary. A later callback cannot start while an earlier activation or
+	// one of its owned continuations is still pending.
+	if len(p.pendingCommandFrames) != 0 || len(p.waitingCommandJobs) != 0 {
+		return
+	}
+	pending := p.pendingCommandActivations[0]
+	p.pendingCommandActivations = p.pendingCommandActivations[1:]
+	sess, ok := p.sessions.Get(pending.cmd.Session)
+	if !ok || sess.Generation() != pending.cmd.Generation || sess.State() != drive.SessionAttached {
+		p.finishCommand(pending, drive.Result{Err: &proto.Error{Code: proto.ErrOperationCancelled, Detail: "connection.lost"}})
+		return
+	}
+	var invoked bool
+	var recovered any
+	rt.currentDriveJobScope = pending.jobScope
+	func() {
+		defer func() { recovered = recover() }()
+		registry := rt.CommandRegistry()
+		if registry != nil {
+			invoked = registry.ExecuteVersion(pending.activation.name, pending.activation.version)
+		}
+	}()
+	rt.currentDriveJobScope = nil
+	if recovered != nil {
+		p.stats.AddHandlerPanic()
+		pending.failure = &proto.Error{Code: proto.ErrInternalPanic, Detail: "command callback panicked after activation began; effect is unknown_partial"}
+	} else if !invoked {
+		pending.failure = &proto.Error{Code: proto.ErrCommandUnavailable, Detail: "command became unavailable before activation"}
+	}
+	if pending.failure == nil && pending.jobScope.failure != nil {
+		pending.failure = pending.jobScope.failure
+	}
+	p.pendingCommandFrames[rt.frameNumber] = append(p.pendingCommandFrames[rt.frameNumber], pending)
+	if len(p.pendingCommandActivations) > 0 && rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
+func (p *drivePort) finishCommand(pending pendingCommand, result drive.Result) {
+	if pending.jobScope != nil {
+		if result.Err != nil {
+			p.cancelCommandJobs(pending.jobScope)
+		} else if len(pending.jobScope.jobs) == 0 {
+			pending.jobScope.active.Store(false)
+		}
+	}
+	delete(p.waitingCommandJobs, pending.entry.OpID)
+	if p.activeCommandCount > 0 {
+		p.activeCommandCount--
+	}
+	p.completeClaimed(pending.entry, pending.cmd, result)
+	for _, waiter := range pending.waiters {
+		select {
+		case waiter.Reply <- result:
+		default:
+		}
+	}
+}
+
+func (p *drivePort) cancelCommandJobs(scope *commandJobScope) {
+	if scope == nil {
+		return
+	}
+	scope.active.Store(false)
+	for id := range scope.jobs {
+		if p.rt.jobPool != nil {
+			p.rt.jobPool.CancelJob(id)
+		}
+	}
+}
+
+func (p *drivePort) registerCommandJob(scope *commandJobScope, id job.JobID) bool {
+	if scope == nil || !scope.active.Load() || id == 0 {
+		return false
+	}
+	if _, exists := scope.jobs[id]; exists {
+		panic("runtime: command operation scheduled a duplicate job ID")
+	}
+	if _, exists := p.commandJobScopes[id]; exists {
+		panic("runtime: command operation reused an active scoped job ID")
+	}
+	scope.jobs[id] = struct{}{}
+	scope.total++
+	p.commandJobScopes[id] = scope
+	return true
+}
+
+func (p *drivePort) rollbackCommandJob(scope *commandJobScope, id job.JobID, err error) {
+	delete(scope.jobs, id)
+	delete(p.commandJobScopes, id)
+	scope.failure = &proto.Error{Code: proto.ErrCommandFailed, Detail: "could not schedule operation-owned command job"}
+	_ = err // app-specific errors are not safe protocol diagnostics
+}
+
+func (p *drivePort) commandJobFinished(id job.JobID, cancelled, committed bool, jobErr error, frame uint64) {
+	scope := p.commandJobScopes[id]
+	if scope == nil {
+		return
+	}
+	delete(p.commandJobScopes, id)
+	delete(scope.jobs, id)
+	scope.completed++
+	if !scope.active.Load() {
+		return
+	}
+	if cancelled || jobErr != nil || !committed {
+		scope.failure = &proto.Error{Code: proto.ErrCommandFailed, Detail: "operation-owned command job did not complete"}
+		p.cancelCommandJobs(scope)
+		if pending, ok := p.waitingCommandJobs[scope.operationID]; ok {
+			pending.failure = scope.failure
+			p.finishCommand(pending, drive.Result{Err: scope.failure})
+		}
+		return
+	}
+	if len(scope.jobs) != 0 {
+		return
+	}
+	if pending, ok := p.waitingCommandJobs[scope.operationID]; ok {
+		delete(p.waitingCommandJobs, scope.operationID)
+		if scope.failure != nil {
+			pending.failure = scope.failure
+			p.finishCommand(pending, drive.Result{Err: scope.failure})
+			return
+		}
+		p.pendingCommandFrames[frame] = append(p.pendingCommandFrames[frame], pending)
+	}
+}
+
+// driveCollectRenderCompletions consumes immutable renderer acknowledgments
+// at a runtime control turn. A late acknowledgment cannot revive an operation
+// removed by disconnect fencing.
+func (rt *Runtime) driveCollectRenderCompletions() {
+	p := rt.drivePort
+	if p == nil || rt.renderPipeline == nil {
+		return
+	}
+	for {
+		select {
+		case completion := <-rt.renderPipeline.Completions():
+			rt.driveCompleteCommandFrame(p, completion)
+		default:
+			return
+		}
+	}
+}
+
+func (rt *Runtime) driveCompleteCommandFrame(p *drivePort, completion RenderCompletion) {
+	pending := p.pendingCommandFrames[completion.Frame]
+	if len(pending) == 0 {
+		return
+	}
+	delete(p.pendingCommandFrames, completion.Frame)
+	for _, command := range pending {
+		if command.failure == nil && command.jobScope != nil && command.jobScope.failure != nil {
+			command.failure = command.jobScope.failure
+		}
+		if command.failure == nil && completion.Err == nil && completion.Ready && command.jobScope != nil && len(command.jobScope.jobs) > 0 {
+			p.waitingCommandJobs[command.entry.OpID] = command
+			continue
+		}
+		result := drive.Result{Cut: p.Cut(), Frame: strconv.FormatUint(completion.Frame, 10)}
+		if command.failure != nil {
+			result.Err = command.failure
+		} else if completion.Err != nil || !completion.Ready {
+			detail := "render acknowledgment did not report a ready surface"
+			if completion.Err != nil {
+				detail = completion.Err.Error()
+			}
+			result.Err = &proto.Error{Code: proto.ErrRenderFailed, Detail: detail}
+		} else {
+			ownedJobs, completedJobs := 0, 0
+			if command.jobScope != nil {
+				ownedJobs = command.jobScope.total
+				completedJobs = command.jobScope.completed
+			}
+			payload, err := json.Marshal(map[string]string{
+				"operation_id":   command.entry.OpID,
+				"state":          "completed",
+				"executed":       command.activation.name,
+				"version":        strconv.FormatUint(command.activation.version, 10),
+				"applied_frame":  strconv.FormatUint(completion.Frame, 10),
+				"render_status":  "ready",
+				"ready_backend":  completion.Backend,
+				"owned_jobs":     strconv.Itoa(ownedJobs),
+				"jobs_completed": strconv.Itoa(completedJobs),
+			})
+			if err != nil {
+				result.Err = &proto.Error{Code: proto.ErrInternalPanic, Detail: "operation outcome encoding failed"}
+			} else {
+				result.Payload = payload
+			}
+		}
+		p.finishCommand(command, result)
+	}
 }
 
 func payloadOutcome(payload json.RawMessage) driveOutcome {
