@@ -58,8 +58,7 @@ func newTickDirtyFacet(scope *store.Scope) *tickDirtyFacet {
 func (f *tickDirtyFacet) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 
 // dirtyWorkloadRoot builds a tree of N store-driven facets so each frame's
-// projection pass forks (the tree exceeds the fork threshold) and re-projects
-// every dirty leaf. The root arranges its children to real non-empty bounds —
+// projection pass re-projects every dirty leaf. The root arranges its children to real non-empty bounds —
 // the arranged-to-real-bounds contract the RX-1 FR-1 empty-bounds gate assumes;
 // a facet left at empty arranged bounds is treated as gated and pruned.
 func dirtyWorkloadRoot(scope *store.Scope, n int) facet.FacetImpl {
@@ -119,7 +118,7 @@ func measureProjectMedian(t *testing.T, scope *store.Scope, root facet.FacetImpl
 // equivalent projection-time distributions.
 func TestRuntime_DirtySnapshotSinkFrameNeutrality(t *testing.T) {
 	const (
-		facets  = 48 // exceeds the projection fork threshold; projection-dominant
+		facets  = 48 // projection-dominant workload
 		warm    = 80
 		samples = 400
 		// Caps are float64 to avoid int64 truncation when scaled by durations.

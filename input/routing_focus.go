@@ -49,11 +49,7 @@ func (s *System) requestFocus(targetID facet.FacetID, tree facet.FacetImpl) face
 		if role == nil {
 			continue
 		}
-		focusable := true
-		if role.Focusable != nil {
-			focusable = role.Focusable()
-		}
-		if !focusable {
+		if !role.IsFocusable() {
 			continue
 		}
 		if s.focusManager != nil {

@@ -159,10 +159,10 @@ func NewTextField(ownerScope *store.Scope, label string, variant uiinput.TextInp
 	tf.Input.OnText = func(e facet.TextEvent) bool {
 		return tf.onText(e)
 	}
-	tf.Focus.Focusable = func() bool {
+	tf.Focus.SetFocusable(func() bool {
 		return !tf.Disabled.Get()
-	}
-	tf.Focus.TabIndex = 0
+	})
+	tf.Focus.SetTabIndex(0)
 	tf.Focus.OnFocusGained = func() {
 		tf.onFocusGained()
 	}
@@ -187,10 +187,10 @@ func (tf *TextField) Base() *facet.Facet {
 
 // Focusable reports whether the TextField can take keyboard focus.
 func (tf *TextField) Focusable() bool {
-	if tf.Focus.Focusable == nil {
+	if !tf.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return tf.Focus.Focusable()
+	return tf.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

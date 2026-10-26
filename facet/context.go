@@ -36,6 +36,9 @@ type AttachContext struct {
 	// current materialized children. The runtime owns the resulting identity
 	// links; hosts call this only when that materialized set changes.
 	OnHostedChildrenChanged func(FacetID, []FacetImpl)
+	// OnTickActivityChanged maintains the runtime's ordered active-tick list.
+	OnTickActivityChanged func(FacetID, *TickRole, bool)
+	OnFocusPolicyChanged  func(FacetID)
 	// IdentityContext is the runtime-owned structural attach path used in
 	// duplicate author-ID diagnostics. It is not a public locator path.
 	IdentityContext string

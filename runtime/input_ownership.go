@@ -98,6 +98,9 @@ func (rt *Runtime) notifyControlChanged() {
 func (rt *Runtime) beginInputStep(step *driveInputStep) {
 	rt.driveInputStep = step
 	rt.notifyControlChanged()
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
 }
 
 func (rt *Runtime) preemptInputStep() {
@@ -129,6 +132,9 @@ func (rt *Runtime) preemptInputStepOwned(owns func(*driveInputStep) bool) {
 		rt.drivePort.completeClaimed(step.entry, step.cmd, drive.Result{Err: &proto.Error{Code: proto.ErrInputPreempted, Detail: "input sequence stopped before its next atom"}, Frame: rt.drivePort.Frame(), Cut: rt.drivePort.Cut()})
 	}
 	rt.notifyControlChanged()
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
 }
 
 func inputCancellationEvent(step *driveInputStep) []platform.Event {
@@ -237,6 +243,9 @@ func (rt *Runtime) driveInputAtomApplied(count int) {
 		return
 	}
 	if step.completed < len(step.events) {
+		if rt.frameTimer != nil {
+			rt.frameTimer.RequestFrame()
+		}
 		return
 	}
 	if step.focusTarget != 0 {

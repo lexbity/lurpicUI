@@ -189,7 +189,7 @@ func TestButtonGroupFocusAndDisabledBehavior(t *testing.T) {
 	}
 
 	bg.Disabled = marks.Const(true)
-	if bg.FocusRole().Focusable() {
+	if bg.FocusRole().IsFocusable() {
 		t.Fatal("expected disabled button-group to be unfocusable")
 	}
 	if bg.onChildPointer(0, facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {

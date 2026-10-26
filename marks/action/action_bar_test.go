@@ -169,7 +169,7 @@ func TestActionBarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	}
 
 	bar.Disabled = marks.Const(true)
-	if bar.Focus.Focusable() {
+	if bar.Focus.IsFocusable() {
 		t.Fatal("expected disabled action bar to be unfocusable")
 	}
 	if bar.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: first, Button: platform.PointerLeft}) {

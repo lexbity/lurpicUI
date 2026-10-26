@@ -227,10 +227,10 @@ func NewMenuButton(label string, entries []MenuButtonEntry) *MenuButton {
 	m.Input.OnPointer = func(e facet.PointerEvent) bool { return m.onPointer(e) }
 	m.Input.OnKey = func(e facet.KeyEvent) bool { return m.onKey(e) }
 	m.Input.OnDismiss = func(e facet.DismissEvent) bool { return m.onDismiss(e) }
-	m.Focus.Focusable = func() bool {
+	m.Focus.SetFocusable(func() bool {
 		return !m.Disabled.Get() && (strings.TrimSpace(m.Label.Get()) != "" || strings.TrimSpace(m.AccessibleLabel.Get()) != "" || len(m.Entries.Get()) > 0)
-	}
-	m.Focus.TabIndex = 0
+	})
+	m.Focus.SetTabIndex(0)
 	m.Focus.OnFocusGained = func() { m.onFocusGained() }
 	m.Focus.OnFocusLost = func() { m.onFocusLost() }
 	m.textRole.IMEEnabled = false
@@ -250,10 +250,10 @@ func (m *MenuButton) Base() *facet.Facet {
 
 // Focusable reports whether the MenuButton can take keyboard focus.
 func (m *MenuButton) Focusable() bool {
-	if m.Focus.Focusable == nil {
+	if !m.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return m.Focus.Focusable()
+	return m.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

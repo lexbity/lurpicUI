@@ -460,7 +460,7 @@ func (e *Layers) OnDeactivate()      {}
 
 // glyphLabel shapes label and returns a DrawGlyphRun command at the given
 // baseline-origin x, y. Returns nil when the label is unshapeable or empty.
-// The shaper is shared across exhibits (thread-safe since F-shape-fork-race).
+// The runtime-owned text service is shared across exhibits.
 func glyphLabel(x, y float32, label string, shaper *text.ShapeSession, style text.TextStyle, color gfx.Color) gfx.Command {
 	if shaper == nil || label == "" {
 		return nil

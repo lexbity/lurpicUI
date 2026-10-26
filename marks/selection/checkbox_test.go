@@ -178,7 +178,7 @@ func TestCheckboxFocusAndDisabledBehavior(t *testing.T) {
 	}
 
 	cb.Disabled = marks.Const(true)
-	if cb.Focus.Focusable() {
+	if cb.Focus.IsFocusable() {
 		t.Fatal("expected disabled checkbox to be unfocusable")
 	}
 	if cb.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {

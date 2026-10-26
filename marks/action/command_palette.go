@@ -187,8 +187,8 @@ func NewCommandPalette(ownerScope *store.Scope, label marks.Binding[string], reg
 	p.Input.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
 	p.Input.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
 	p.Input.OnDismiss = func(e facet.DismissEvent) bool { return p.onDismiss(e) }
-	p.Focus.Focusable = func() bool { return !p.Disabled.Get() && p.Open.Get() }
-	p.Focus.TabIndex = -1
+	p.Focus.SetFocusable(func() bool { return !p.Disabled.Get() && p.Open.Get() })
+	p.Focus.SetTabIndex(-1)
 	p.Focus.OnFocusGained = func() { p.onFocusGained() }
 	p.Focus.OnFocusLost = func() { p.onFocusLost() }
 	p.textRole.IMEEnabled = false
@@ -211,10 +211,10 @@ func (p *CommandPalette) Base() *facet.Facet {
 
 // Focusable reports whether the CommandPalette can take keyboard focus.
 func (p *CommandPalette) Focusable() bool {
-	if p.Focus.Focusable == nil {
+	if !p.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return p.Focus.Focusable()
+	return p.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

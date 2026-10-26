@@ -44,6 +44,8 @@ func Attach(f FacetImpl, ctx AttachContext) {
 		frame.impl = concreteImpl(base, frame.impl)
 		requireState(base, StateCreated, StateAttached)
 		base.onDisposed = ctx.OnFacetDisposed
+		base.onTickActivityChanged = ctx.OnTickActivityChanged
+		base.onFocusPolicyChanged = ctx.OnFocusPolicyChanged
 		hooked = append(hooked, base)
 		base.bindTestIDRegistry(ctx.TestIDs)
 		roles := base.rolesSnapshot()

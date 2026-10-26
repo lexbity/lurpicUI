@@ -29,16 +29,12 @@ func gatesTraceActive() bool {
 }
 
 // traceGate logs one gate decision for the current frame, honoring the
-// per-frame line cap. walkNode — and therefore traceGate — runs on forked
-// goroutines (walkChildSubtrees), so the line counter and writer are guarded
-// by System.statsMu; holding it across the write also keeps concurrent trace
-// lines from interleaving mid-line.
+// per-frame line cap. Author callbacks and gate tracing run on the runtime
+// thread, so the trace writer needs no cross-worker synchronization.
 func (s *System) traceGate(facetID facet.FacetID, reason string) {
 	if s == nil || !gatesTraceActive() {
 		return
 	}
-	s.statsMu.Lock()
-	defer s.statsMu.Unlock()
 	if s.gatesTraceLines >= gateTraceLineCap {
 		return
 	}

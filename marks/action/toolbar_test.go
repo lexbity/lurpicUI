@@ -145,7 +145,7 @@ func TestToolbarPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	}
 
 	toolbar.Disabled = marks.Const(true)
-	if toolbar.Focus.Focusable() {
+	if toolbar.Focus.IsFocusable() {
 		t.Fatal("expected disabled toolbar to be unfocusable")
 	}
 	if toolbar.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: firstActionBounds.Min.X + 1, Y: firstActionBounds.Min.Y + 1}, Button: platform.PointerLeft}) {

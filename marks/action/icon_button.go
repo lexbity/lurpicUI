@@ -139,9 +139,9 @@ func NewIconButton(source primitive.IconSource) *IconButton {
 	i.Input.OnKey = func(e facet.KeyEvent) bool {
 		return i.onKey(e)
 	}
-	i.Focus.Focusable = func() bool {
+	i.Focus.SetFocusable(func() bool {
 		return !i.Disabled.Get()
-	}
+	})
 	i.Focus.OnFocusGained = func() {
 		i.onFocusGained()
 	}
@@ -163,10 +163,10 @@ func (i *IconButton) Base() *facet.Facet {
 
 // Focusable reports whether the IconButton can take keyboard focus.
 func (i *IconButton) Focusable() bool {
-	if i.Focus.Focusable == nil {
+	if !i.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return i.Focus.Focusable()
+	return i.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

@@ -248,12 +248,19 @@ func (rt *Runtime) markFacetDirtyByID(id facet.FacetID, flags facet.DirtyFlags, 
 		return
 	}
 	rt.invalidateDriveObservation()
-	rt.dirtyFacets[id] |= flags
-	if source != "" {
-		rt.dirtySources[id] = source
-	}
+	rt.recordInvalidation(id, flags, source)
+	rt.markFocusDirty(id)
 	if f := rt.liveFacet(id); f != nil && f.Base() != nil {
 		f.Base().InvalidateWithSource(flags, source)
+	}
+}
+
+func (rt *Runtime) markFocusDirty(id facet.FacetID) {
+	if rt == nil || rt.focusDirty {
+		return
+	}
+	if impl := rt.liveFacet(id); impl != nil && impl.Base() != nil && impl.Base().FocusRole() != nil {
+		rt.focusDirty = true
 	}
 }
 

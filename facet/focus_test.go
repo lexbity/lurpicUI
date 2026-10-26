@@ -13,12 +13,28 @@ type focusTestFacet struct {
 
 func newFocusTestFacet(tabIndex int, focusable bool) *focusTestFacet {
 	f := &focusTestFacet{Facet: NewFacet()}
-	f.focusRole.TabIndex = tabIndex
-	f.focusRole.Focusable = func() bool { return focusable }
+	f.focusRole.SetTabIndex(tabIndex)
+	f.focusRole.SetFocusable(func() bool { return focusable })
 	f.focusRole.OnFocusGained = func() { f.gained++ }
 	f.focusRole.OnFocusLost = func() { f.lost++ }
 	f.AddRole(&f.focusRole)
 	return f
+}
+
+func TestFocusOrderReleaseClearsRetiredReferences(t *testing.T) {
+	root := newFocusTestFacet(0, true)
+	child := newFocusTestFacet(1, true)
+	root.AddChild(child.Base())
+	manager := NewFocusManager()
+	manager.RebuildTabOrder(root)
+	childID := child.ID()
+	root.RemoveChild(child.Base())
+	manager.RebuildTabOrder(root)
+	for _, entry := range manager.entries[:cap(manager.entries)] {
+		if entry.impl != nil && entry.impl.Base().ID() == childID {
+			t.Fatalf("focus-order backing retained retired facet %d", childID)
+		}
+	}
 }
 
 func (f *focusTestFacet) Base() *Facet               { return &f.Facet }

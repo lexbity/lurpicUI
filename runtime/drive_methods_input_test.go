@@ -70,7 +70,7 @@ func newInputRuntimeWithSessions(t *testing.T, queue platform.EventQueue, sessio
 	probe.AddRole(&probe.layout)
 	probe.AddRole(&probe.input)
 	probe.AddRole(&probe.hit)
-	probe.focus.Focusable = func() bool { return true }
+	probe.focus.SetFocusable(func() bool { return true })
 	probe.AddRole(&probe.focus)
 
 	cfg := testConfig(t)
@@ -185,6 +185,24 @@ func runInputSocketScenario(t *testing.T, disconnectHeldGesture bool) {
 	sessions := drive.NewSessionTable(instance)
 	queue := &recordQueue{}
 	rt, probe := newInputRuntimeWithSessions(t, queue, sessions)
+	control := make(chan facet.ControlSnapshot, 16)
+	unwatch := rt.WatchControl(rt.root.Base().ID(), func(snapshot facet.ControlSnapshot) {
+		select {
+		case control <- snapshot:
+		default:
+		}
+	})
+	runDone := make(chan error, 1)
+	go func() { runDone <- rt.Run() }()
+	t.Cleanup(func() {
+		rt.Shutdown()
+		select {
+		case <-runDone:
+		case <-time.After(2 * time.Second):
+			t.Error("runtime did not stop")
+		}
+		unwatch()
+	})
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -196,7 +214,6 @@ func runInputSocketScenario(t *testing.T, disconnectHeldGesture bool) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = srv.Close() })
-	go func() { _ = rt.Run() }()
 	conn, err := net.Dial("unix", socket)
 	if err != nil {
 		t.Fatal(err)
@@ -305,18 +322,32 @@ func runInputSocketScenario(t *testing.T, disconnectHeldGesture bool) {
 	if !accepted || !completed {
 		t.Fatal("socket press did not reach terminal completion")
 	}
-	if state := rt.ControlSnapshot(); state.InputOwner != facet.ControlOwnerClient || state.HeldGestures != 1 {
+	awaitControl := func(want func(facet.ControlSnapshot) bool) (facet.ControlSnapshot, bool) {
+		deadline := time.NewTimer(time.Second)
+		defer deadline.Stop()
+		for {
+			select {
+			case state := <-control:
+				if want(state) {
+					return state, true
+				}
+			case <-deadline.C:
+				return facet.ControlSnapshot{}, false
+			}
+		}
+	}
+	if state, ok := awaitControl(func(state facet.ControlSnapshot) bool {
+		return state.InputOwner == facet.ControlOwnerClient && state.HeldGestures == 1
+	}); !ok {
 		t.Fatalf("press did not retain its owned gesture: %+v", state)
 	}
 	if err := conn.Close(); err != nil {
 		t.Fatal(err)
 	}
-	deadline = time.Now().Add(time.Second)
-	for rt.ControlSnapshot().InputOwner != facet.ControlOwnerHuman && time.Now().Before(deadline) {
-		time.Sleep(time.Millisecond)
-	}
-	state := rt.ControlSnapshot()
-	if state.InputOwner != facet.ControlOwnerHuman || state.HeldGestures != 0 {
+	state, ok := awaitControl(func(state facet.ControlSnapshot) bool {
+		return state.InputOwner == facet.ControlOwnerHuman && state.HeldGestures == 0
+	})
+	if !ok {
 		t.Fatalf("disconnect did not cancel held gesture: %+v", state)
 	}
 }
@@ -545,18 +576,47 @@ func TestHumanWakesParkedRuntimeAndReturnsToWall(t *testing.T) {
 	if result := driveCall(t, rt, "time.mode", map[string]string{"mode": "virtual"}, allGrants()); result.Err != nil {
 		t.Fatal(result.Err)
 	}
-	go func() { _ = rt.Run() }()
+	control := make(chan facet.ControlSnapshot, 8)
+	unwatch := rt.WatchControl(rt.root.Base().ID(), func(snapshot facet.ControlSnapshot) {
+		select {
+		case control <- snapshot:
+		default:
+		}
+	})
+	done := make(chan error, 1)
+	go func() { done <- rt.Run() }()
 	q.EnqueueDrive(platform.EventPointer{Kind: platform.PointerMove, Position: gfx.Point{X: 7, Y: 9}, Source: platform.SourcePlatform})
 	deadline := time.Now().Add(time.Second)
-	for rt.clock.Mode() != ClockWall && time.Now().Before(deadline) {
+	var snapshot facet.ControlSnapshot
+	for time.Now().Before(deadline) {
+		select {
+		case snapshot = <-control:
+			if snapshot.TimeMode == facet.ControlTimeWall {
+				goto wall
+			}
+		default:
+		}
 		time.Sleep(time.Millisecond)
 	}
-	if rt.clock.Mode() != ClockWall {
+	if snapshot.TimeMode != facet.ControlTimeWall {
+		rt.Shutdown()
 		t.Fatal("human input did not wake the parked runtime")
 	}
-	if own := rt.ControlSnapshot(); own.TimeMode != facet.ControlTimeWall || own.InputOwner != facet.ControlOwnerHuman {
-		t.Fatalf("control snapshot after human wake=%+v", own)
+
+wall:
+	if snapshot.InputOwner != facet.ControlOwnerHuman {
+		t.Fatalf("control snapshot after human wake=%+v", snapshot)
 	}
+	rt.Shutdown()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("runtime did not stop")
+	}
+	unwatch()
 }
 
 func TestDriveInput_FocusWithoutPointer(t *testing.T) {

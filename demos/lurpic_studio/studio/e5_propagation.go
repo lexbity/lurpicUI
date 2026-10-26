@@ -260,7 +260,7 @@ func (e *Propagation) buildControls() {
 
 // captureTree snapshots the shell facet tree via the runtime inspector. It
 // runs on the runtime thread (the tick), so the cached tree is stable when the
-// (possibly forked) projection reads it.
+// serial projection reads it.
 func (e *Propagation) captureTree() {
 	rt, ok := e.rt.(*runtime.Runtime)
 	if !ok || rt == nil {

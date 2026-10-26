@@ -187,8 +187,8 @@ func NewButtonGroup(ownerScope *store.Scope, label string, options []ButtonGroup
 	bg.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return bg.hitTest(p) }
 	bg.Input.OnPointer = func(e facet.PointerEvent) bool { return bg.onPointer(e) }
 	bg.Input.OnKey = func(e facet.KeyEvent) bool { return bg.onKey(e) }
-	bg.Focus.Focusable = func() bool { return !bg.Disabled.Get() && len(bg.Options.Get()) > 0 }
-	bg.Focus.TabIndex = 0
+	bg.Focus.SetFocusable(func() bool { return !bg.Disabled.Get() && len(bg.Options.Get()) > 0 })
+	bg.Focus.SetTabIndex(0)
 	bg.Focus.OnFocusGained = func() { bg.onFocusGained() }
 	bg.Focus.OnFocusLost = func() { bg.onFocusLost() }
 	bg.textRole.IMEEnabled = false
@@ -229,10 +229,10 @@ func (bg *ButtonGroup) Base() *facet.Facet {
 
 // Focusable reports whether the ButtonGroup can take keyboard focus.
 func (bg *ButtonGroup) Focusable() bool {
-	if bg.Focus.Focusable == nil {
+	if !bg.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return bg.Focus.Focusable()
+	return bg.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

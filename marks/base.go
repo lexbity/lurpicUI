@@ -227,7 +227,7 @@ func (c *Core) RegisterRoles(self any) {
 		c.Input.OnDismiss != nil {
 		c.AddRole(&c.Input)
 	}
-	if c.Focus.Focusable != nil {
+	if c.Focus.HasFocusablePredicate() {
 		c.AddRole(&c.Focus)
 	}
 	if c.Viewport.Transform != (gfx.Transform{}) {

@@ -87,6 +87,13 @@ type hoverState struct {
 	firedThisIdle bool
 }
 
+func (h *hoverState) nextDeadline(cfg GestureConfig) (time.Time, bool) {
+	if h == nil || h.currentFacet == 0 || h.firedThisIdle || cfg.HoverDelay <= 0 || h.lastMoveTime.IsZero() {
+		return time.Time{}, false
+	}
+	return h.lastMoveTime.Add(cfg.HoverDelay), true
+}
+
 // Tick returns hover events once the pointer has been idle long enough.
 func (h *hoverState) Tick(now time.Time, cfg GestureConfig) []RoutedEvent {
 	if h == nil || h.currentFacet == 0 || h.firedThisIdle {

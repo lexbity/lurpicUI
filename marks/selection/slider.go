@@ -140,10 +140,10 @@ func NewSlider(ownerScope *store.Scope, label string, min, max, step float64, va
 	s.Input.OnKey = func(e facet.KeyEvent) bool {
 		return s.onKey(e)
 	}
-	s.Focus.Focusable = func() bool {
+	s.Focus.SetFocusable(func() bool {
 		return !s.Disabled.Get()
-	}
-	s.Focus.TabIndex = 0
+	})
+	s.Focus.SetTabIndex(0)
 	s.Focus.OnFocusGained = func() {
 		s.onFocusGained()
 	}
@@ -166,10 +166,10 @@ func (s *Slider) Base() *facet.Facet {
 
 // Focusable reports whether the Slider can take keyboard focus.
 func (s *Slider) Focusable() bool {
-	if s.Focus.Focusable == nil {
+	if !s.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return s.Focus.Focusable()
+	return s.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

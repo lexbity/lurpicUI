@@ -126,8 +126,8 @@ func NewBreadcrumbs(label string, items []BreadcrumbItem, currentIndex *store.Va
 	b.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return b.hitTest(p) }
 	b.Input.OnPointer = func(e facet.PointerEvent) bool { return b.onPointer(e) }
 	b.Input.OnKey = func(e facet.KeyEvent) bool { return b.onKey(e) }
-	b.Focus.Focusable = func() bool { return !b.Disabled.Get() && len(b.Items) > 0 }
-	b.Focus.TabIndex = 0
+	b.Focus.SetFocusable(func() bool { return !b.Disabled.Get() && len(b.Items) > 0 })
+	b.Focus.SetTabIndex(0)
 	b.Focus.OnFocusGained = func() { b.onFocusGained() }
 	b.Focus.OnFocusLost = func() { b.onFocusLost() }
 	b.textRole.IMEEnabled = false
@@ -158,10 +158,10 @@ func (b *Breadcrumbs) AccessibleName() string { return b.Label.Get() }
 
 // Focusable reports whether the breadcrumbs can receive keyboard focus.
 func (b *Breadcrumbs) Focusable() bool {
-	if b.Focus.Focusable == nil {
+	if !b.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return b.Focus.Focusable()
+	return b.Focus.IsFocusable()
 }
 
 // ExportAnchors publishes the breadcrumbs anchor set.

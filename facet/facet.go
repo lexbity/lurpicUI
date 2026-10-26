@@ -14,14 +14,16 @@ type Facet struct {
 	testID         string // author identity for LDP locators (QP-7); set in Created only
 	testIDRegistry TestIDRegistry
 
-	parent     *Facet
-	children   []*Facet
-	impl       FacetImpl
-	roles      []Role
-	subs       signal.Subscriptions
-	storeScope *store.Scope
-	onDisposed func(FacetID)
-	textLeases []*text.LayoutLease
+	parent                *Facet
+	children              []*Facet
+	impl                  FacetImpl
+	roles                 []Role
+	subs                  signal.Subscriptions
+	storeScope            *store.Scope
+	onDisposed            func(FacetID)
+	onTickActivityChanged func(FacetID, *TickRole, bool)
+	onFocusPolicyChanged  func(FacetID)
+	textLeases            []*text.LayoutLease
 
 	dirtyLayout       bool
 	dirtyProjection   bool
@@ -112,6 +114,10 @@ func (f *Facet) Children() []*Facet {
 	return out
 }
 
+// HasChildren reports whether the facet has any immediate children without
+// copying the public child snapshot.
+func (f *Facet) HasChildren() bool { return f != nil && len(f.children) != 0 }
+
 // VisitChildren visits the current immediate children without allocating a
 // public snapshot. The callback must not mutate the tree or retain the child
 // implementations; return false to stop the visit early.
@@ -161,13 +167,9 @@ func (f *Facet) VisitChildrenReverse(visit func(FacetImpl) bool) bool {
 // Concrete facets call this from their Base method so lifecycle traversal can
 // dispatch to the real implementation when they are nested as children.
 //
-// Binding is write-once: the implementation is bound by the first call
-// (facet.Attach walks the tree single-threaded and binds every facet before
-// the runtime loop starts) and every later call is a read-only no-op. This
-// makes concurrent Base() calls during the runtime's forked projection
-// race-free — without it, theme style resolution walks the tree calling
-// Base() on facets that are simultaneously projecting in parallel goroutines
-// (F-fork-race).
+// Binding is write-once: the implementation is bound by the first call and
+// every later call is a read-only no-op. This keeps the canonical lifecycle
+// owner stable while the runtime walks facets and resolves mark capabilities.
 func (f *Facet) BindImpl(impl FacetImpl) {
 	if impl == nil {
 		return

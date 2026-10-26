@@ -151,8 +151,8 @@ func NewNavRail(label string, items []NavRailItem, activeIndex *store.ValueStore
 	r.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return r.hitTest(p) }
 	r.Input.OnPointer = func(e facet.PointerEvent) bool { return r.onPointer(e) }
 	r.Input.OnKey = func(e facet.KeyEvent) bool { return r.onKey(e) }
-	r.Focus.Focusable = func() bool { return !r.Disabled.Get() && len(r.cachedItemFacets) > 0 }
-	r.Focus.TabIndex = 0
+	r.Focus.SetFocusable(func() bool { return !r.Disabled.Get() && len(r.cachedItemFacets) > 0 })
+	r.Focus.SetTabIndex(0)
 	r.Focus.OnFocusGained = func() { r.onFocusGained() }
 	r.Focus.OnFocusLost = func() { r.onFocusLost() }
 	r.textRole.IMEEnabled = false
@@ -183,10 +183,10 @@ func (r *NavRail) AccessibleName() string { return r.Label.Get() }
 
 // Focusable reports whether the nav rail can receive keyboard focus.
 func (r *NavRail) Focusable() bool {
-	if r.Focus.Focusable == nil {
+	if !r.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return r.Focus.Focusable()
+	return r.Focus.IsFocusable()
 }
 
 // ItemBounds returns the arranged destination bounds (host and test accessor;

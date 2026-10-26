@@ -56,7 +56,7 @@ func TestTreeNavigatorMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := tree.AccessibleName(); got != "Project tree" {
 		t.Fatalf("accessible name = %q, want Project tree", got)
 	}
-	if !tree.Focus.Focusable() {
+	if !tree.Focus.IsFocusable() {
 		t.Fatal("expected tree navigator to be focusable")
 	}
 	if len(tree.Children()) != len(tree.cachedVisibleNodes) {

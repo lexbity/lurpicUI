@@ -208,8 +208,8 @@ func NewTable(ownerScope *store.Scope, label string, data TableData, selection *
 	t.Input.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
 	t.Input.OnScroll = func(e facet.ScrollEvent) bool { return t.onScroll(e) }
 	t.Input.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
-	t.Focus.Focusable = func() bool { return !t.Disabled.Get() && len(t.cachedRowKeys) > 0 }
-	t.Focus.TabIndex = 0
+	t.Focus.SetFocusable(func() bool { return !t.Disabled.Get() && len(t.cachedRowKeys) > 0 })
+	t.Focus.SetTabIndex(0)
 	t.Focus.OnFocusGained = func() { t.onFocusGained() }
 	t.Focus.OnFocusLost = func() { t.onFocusLost() }
 	t.EnableViewport()
@@ -239,10 +239,10 @@ func (t *Table) AccessibleName() string { return strings.TrimSpace(t.Label.Get()
 
 // Focusable reports whether the table can receive keyboard focus.
 func (t *Table) Focusable() bool {
-	if t.Focus.Focusable == nil {
+	if !t.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return t.Focus.Focusable()
+	return t.Focus.IsFocusable()
 }
 
 // Children returns the immediate child list.

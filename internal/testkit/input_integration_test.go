@@ -79,8 +79,8 @@ func newInputTestFacet(tabIndex int, label string) *inputTestFacet {
 		f.layout.ArrangedBounds = bounds
 	}
 	f.layout.Child.SupportedPlacement = facet.SupportsGrid | facet.SupportsAnchor | facet.SupportsFree | facet.SupportsLinear
-	f.focus.Focusable = func() bool { return true }
-	f.focus.TabIndex = tabIndex
+	f.focus.SetFocusable(func() bool { return true })
+	f.focus.SetTabIndex(tabIndex)
 	f.AddRole(&f.layout)
 	f.AddRole(&f.hit)
 	f.AddRole(&f.input)

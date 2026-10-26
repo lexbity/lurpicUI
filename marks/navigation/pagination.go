@@ -215,8 +215,8 @@ func NewPagination(label string, items []PaginationItem, currentIndex *store.Val
 	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
 	p.Input.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
 	p.Input.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
-	p.Focus.Focusable = func() bool { return !p.Disabled.Get() && len(p.Items) > 0 }
-	p.Focus.TabIndex = 0
+	p.Focus.SetFocusable(func() bool { return !p.Disabled.Get() && len(p.Items) > 0 })
+	p.Focus.SetTabIndex(0)
 	p.Focus.OnFocusGained = func() { p.onFocusGained() }
 	p.Focus.OnFocusLost = func() { p.onFocusLost() }
 	p.textRole.IMEEnabled = false
@@ -236,7 +236,7 @@ func (p *Pagination) Base() *facet.Facet {
 }
 
 // Focusable reports whether the Pagination can take keyboard focus.
-func (p *Pagination) Focusable() bool { return p.Focus.Focusable != nil }
+func (p *Pagination) Focusable() bool { return p.Focus.HasFocusablePredicate() }
 
 // Descriptor satisfies marks.Mark.
 func (p *Pagination) Descriptor() marks.Descriptor {

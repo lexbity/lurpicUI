@@ -66,7 +66,7 @@ func (f *panicFocusTestFacet) OnDeactivate()              {}
 
 func newPanicFocusTestFacet(panicGained, panicLost bool) *panicFocusTestFacet {
 	f := &panicFocusTestFacet{Facet: NewFacet(), panicGained: panicGained, panicLost: panicLost}
-	f.focus.Focusable = func() bool { return true }
+	f.focus.SetFocusable(func() bool { return true })
 	f.focus.OnFocusGained = func() {
 		f.gainedCalls++
 		if f.panicGained {

@@ -221,7 +221,7 @@ func TestRuntime_clean_lifecycle(t *testing.T) {
 	}
 }
 
-func TestWallRunDrainsRenderCompletionsWithoutDrive(t *testing.T) {
+func TestWallRunDrainsRenderCompletionsAndParksWithoutDrive(t *testing.T) {
 	backend := &backendFixture{}
 	rt, _ := mustLifecycleRuntime(t, backend)
 	if rt.drivePort != nil {
@@ -231,18 +231,26 @@ func TestWallRunDrainsRenderCompletionsWithoutDrive(t *testing.T) {
 	go func() { runDone <- rt.Run() }()
 	defer rt.Shutdown()
 
-	ticker := time.NewTicker(5 * time.Millisecond)
-	defer ticker.Stop()
-	timeout := time.NewTimer(time.Second)
-	defer timeout.Stop()
-	for backend.submitCount.Load() < 8 {
+	deadline := time.Now().Add(time.Second)
+	for backend.submitCount.Load() == 0 && time.Now().Before(deadline) {
 		select {
 		case err := <-runDone:
-			t.Fatalf("runtime stopped before sustaining frames: %v", err)
-		case <-ticker.C:
-		case <-timeout.C:
-			t.Fatalf("Wall frame loop stalled after %d submissions without a drive port", backend.submitCount.Load())
+			t.Fatalf("runtime stopped before its initial frame: %v", err)
+		case <-time.After(time.Millisecond):
 		}
+	}
+	baseline := backend.submitCount.Load()
+	time.Sleep(75 * time.Millisecond)
+	if got := backend.submitCount.Load(); got != baseline {
+		t.Fatalf("idle runtime continued submitting without work: baseline=%d current=%d", baseline, got)
+	}
+	rt.RequestFrame()
+	deadline = time.Now().Add(time.Second)
+	for backend.submitCount.Load() <= baseline && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+	}
+	if got := backend.submitCount.Load(); got <= baseline {
+		t.Fatalf("runtime did not resume after explicit frame request: baseline=%d current=%d", baseline, got)
 	}
 }
 
@@ -769,7 +777,7 @@ func (f *panicFocusFacet) OnActivate()                      {}
 func (f *panicFocusFacet) OnDeactivate()                    {}
 
 func (f *panicFocusFacet) init() {
-	f.focus.Focusable = func() bool { return true }
+	f.focus.SetFocusable(func() bool { return true })
 	f.focus.OnFocusGained = func() { panic("boom") }
 	f.focus.OnFocusLost = func() {}
 	f.AddRole(&f.focus)

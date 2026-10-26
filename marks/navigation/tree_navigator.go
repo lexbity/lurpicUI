@@ -154,8 +154,8 @@ func NewTreeNavigator(ownerScope *store.Scope, label string, nodes []TreeNode, s
 	t.Input.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
 	t.Input.OnScroll = func(e facet.ScrollEvent) bool { return t.onScroll(e) }
 	t.Input.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
-	t.Focus.Focusable = func() bool { return !t.Disabled.Get() && len(t.cachedVisibleNodes) > 0 }
-	t.Focus.TabIndex = 0
+	t.Focus.SetFocusable(func() bool { return !t.Disabled.Get() && len(t.cachedVisibleNodes) > 0 })
+	t.Focus.SetTabIndex(0)
 	t.Focus.OnFocusGained = func() { t.onFocusGained() }
 	t.Focus.OnFocusLost = func() { t.onFocusLost() }
 	t.EnableViewport()
@@ -175,7 +175,7 @@ func (t *TreeNavigator) Base() *facet.Facet {
 }
 
 // Focusable reports whether the TreeNavigator can take keyboard focus.
-func (t *TreeNavigator) Focusable() bool { return t.Focus.Focusable != nil }
+func (t *TreeNavigator) Focusable() bool { return t.Focus.HasFocusablePredicate() }
 
 // Descriptor satisfies marks.Mark.
 func (t *TreeNavigator) Descriptor() marks.Descriptor {

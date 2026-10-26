@@ -153,7 +153,14 @@ func (rt *Runtime) Run() error {
 			}
 			continue
 		}
+		if !rt.hasWallFrameWork() {
+			if !rt.waitForWallWork() {
+				return nil
+			}
+			continue
+		}
 		pacingNow := rt.frameTimer.Wait() // wall pacing only; the body reads engine time.
+		rt.wallWakePending.Store(false)
 		if runtimeTraceActive() {
 			runtimeTracef("Run loop got frame tick frame=%d pace=%s", rt.frameNumber+1, pacingNow.Format(time.RFC3339Nano))
 		}
@@ -184,6 +191,74 @@ func (rt *Runtime) Run() error {
 		rt.drivePrepareInputFrame()
 		rt.runFrame(rt.clock.Now(), false, reserved)
 	}
+}
+
+func (rt *Runtime) hasWallFrameWork() bool {
+	if rt.wallWakePending.Load() || rt.bootstrapFramePending || len(rt.pendingEvents) != 0 ||
+		len(rt.dirtyFacets) != 0 || len(rt.activeTickFacets) != 0 {
+		return true
+	}
+	if step := rt.driveInputStep; step != nil && !step.preempted && step.completed < len(step.events) {
+		return true
+	}
+	if rt.drivePort != nil && len(rt.drivePort.frameTokens) != 0 {
+		return true
+	}
+	if rt.frameTimer != nil && len(rt.frameTimer.requestCh) != 0 {
+		return true
+	}
+	return false
+}
+
+func (rt *Runtime) waitForWallWork() bool {
+	requestWake, vsyncWake := rt.frameTimer.idleChannels()
+	var jobWake <-chan struct{}
+	if rt.jobPool != nil {
+		jobWake = rt.jobPool.FrontierWake()
+	}
+	var driveWake <-chan struct{}
+	if rt.drivePort != nil {
+		driveWake = rt.drivePort.wake
+	}
+	var renderWake <-chan RenderCompletion
+	if rt.renderPipeline != nil {
+		renderWake = rt.renderPipeline.Completions()
+	}
+	var hoverTimer *time.Timer
+	var hoverWake <-chan time.Time
+	if deadline, ok := rt.inputSystem.NextHoverDeadline(); ok {
+		delay := deadline.Sub(rt.clock.Now())
+		if delay < 0 {
+			delay = 0
+		}
+		hoverTimer = time.NewTimer(delay)
+		hoverWake = hoverTimer.C
+	}
+	stopHoverTimer := func() {
+		if hoverTimer != nil {
+			hoverTimer.Stop()
+		}
+	}
+	select {
+	case <-rt.shutdownCh:
+		stopHoverTimer()
+		return false
+	case <-requestWake:
+		rt.wallWakePending.Store(true)
+	case <-vsyncWake:
+		// A pacing callback is only an opportunity to present already-eligible
+		// work; it does not create application work by itself.
+	case <-jobWake:
+		rt.wallWakePending.Store(true)
+	case completion := <-renderWake:
+		rt.driveHandleRenderCompletion(completion)
+	case <-driveWake:
+		rt.driveDrain()
+	case <-hoverWake:
+		rt.wallWakePending.Store(true)
+	}
+	stopHoverTimer()
+	return !isChannelClosed(rt.shutdownCh)
 }
 
 // virtualParkStep blocks until a drive command (or shutdown) wakes the
@@ -453,6 +528,9 @@ func (rt *Runtime) shutdown() error {
 	rt.runShutdownHooks()
 	rt.clearShutdownHooks()
 	rt.disposeTree(rt.root)
+	if rt.focusManager != nil {
+		rt.focusManager.Reset()
+	}
 	rt.jobPool.Shutdown()
 	rt.clearPhase1TickHooks()
 	rt.rootStyleSubs.Release()
@@ -519,6 +597,9 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment facet.Atta
 		panic(fmt.Sprintf("runtime: parent facet %d is not live in this runtime", parentBase.ID()))
 	}
 	parentBase.AddChildRuntime(childBase)
+	rt.projectionSystem.InvalidateTopology()
+	rt.focusDirty = true
+	rt.layerTreeDirty = true
 	if rt.childAttachments == nil {
 		rt.childAttachments = make(map[facet.FacetID]facet.Attachment)
 	}
@@ -545,8 +626,7 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment facet.Atta
 		rt.projectionLayers = make(map[facet.FacetID]facet.ProjectionLayer)
 	}
 	parentBase.InvalidateWithSource(facet.DirtyLayout, "runtime.AddFacet")
-	rt.dirtyFacets[parentBase.ID()] |= facet.DirtyLayout
-	rt.dirtySources[parentBase.ID()] = "runtime.AddFacet"
+	rt.recordInvalidation(parentBase.ID(), facet.DirtyLayout, "runtime.AddFacet")
 	rt.markTreeDirty(child, facet.DirtyAll)
 	if rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()
@@ -562,6 +642,9 @@ func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
 		return
 	}
 	parent.RemoveChild(child.Base())
+	rt.projectionSystem.InvalidateTopology()
+	rt.focusDirty = true
+	rt.layerTreeDirty = true
 	rt.invalidateDriveObservation()
 	if rt.childAttachments != nil {
 		delete(rt.childAttachments, child.Base().ID())
@@ -570,8 +653,7 @@ func (rt *Runtime) RemoveFacet(child facet.FacetImpl) {
 		delete(rt.projectionLayers, child.Base().ID())
 	}
 	parent.InvalidateWithSource(facet.DirtyLayout, "runtime.RemoveFacet")
-	rt.dirtyFacets[parent.ID()] |= facet.DirtyLayout
-	rt.dirtySources[parent.ID()] = "runtime.RemoveFacet"
+	rt.recordInvalidation(parent.ID(), facet.DirtyLayout, "runtime.RemoveFacet")
 	if rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()
 	}
@@ -586,10 +668,12 @@ func (rt *Runtime) UpdateChildAttachment(child facet.FacetImpl, attachment facet
 	}
 	rt.invalidateDriveObservation()
 	rt.childAttachments[child.Base().ID()] = attachment
+	rt.projectionSystem.InvalidateTopology()
+	rt.focusDirty = true
+	rt.layerTreeDirty = true
 	if parent := child.Base().Parent(); parent != nil {
 		parent.InvalidateWithSource(facet.DirtyLayout, "runtime.UpdateChildAttachment")
-		rt.dirtyFacets[parent.ID()] |= facet.DirtyLayout
-		rt.dirtySources[parent.ID()] = "runtime.UpdateChildAttachment"
+		rt.recordInvalidation(parent.ID(), facet.DirtyLayout, "runtime.UpdateChildAttachment")
 	}
 	if rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()

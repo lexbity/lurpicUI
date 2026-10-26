@@ -160,10 +160,10 @@ func NewCheckbox(ownerScope *store.Scope, label string, value *store.ValueStore[
 	c.Input.OnKey = func(e facet.KeyEvent) bool {
 		return c.onKey(e)
 	}
-	c.Focus.Focusable = func() bool {
+	c.Focus.SetFocusable(func() bool {
 		return !c.Disabled.Get()
-	}
-	c.Focus.TabIndex = 0
+	})
+	c.Focus.SetTabIndex(0)
 	c.Focus.OnFocusGained = func() {
 		c.onFocusGained()
 	}
@@ -194,10 +194,10 @@ func (c *Checkbox) Base() *facet.Facet {
 
 // Focusable reports whether the Checkbox can take keyboard focus.
 func (c *Checkbox) Focusable() bool {
-	if c.Focus.Focusable == nil {
+	if !c.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return c.Focus.Focusable()
+	return c.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

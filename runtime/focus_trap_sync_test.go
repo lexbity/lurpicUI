@@ -30,7 +30,7 @@ func TestRuntime_syncFocusTraps_restoresPreviousFocus(t *testing.T) {
 	root := newRuntimeFocusFacet(0)
 	outside := newRuntimeFocusFacet(0)
 	trap := newRuntimeFocusFacet(10)
-	trap.focus.Focusable = func() bool { return false }
+	trap.focus.SetFocusable(func() bool { return false })
 	inner := newRuntimeFocusFacet(0)
 	root.Base().AddChildRuntime(outside.Base())
 	root.Base().AddChildRuntime(trap.Base())

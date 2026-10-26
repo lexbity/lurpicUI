@@ -178,7 +178,7 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 		t.Fatal("expected keyboard focus to show focus ring")
 	}
 	tabs.Disabled = marks.Const(true)
-	if tabs.Focus.Focusable() {
+	if tabs.Focus.IsFocusable() {
 		t.Fatal("expected disabled tabs to be unfocusable")
 	}
 	if tabs.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: secondCenter, Button: platform.PointerLeft}) {

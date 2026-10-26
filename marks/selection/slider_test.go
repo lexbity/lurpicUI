@@ -219,7 +219,7 @@ func TestSliderFocusAndDisabledBehavior(t *testing.T) {
 	}
 
 	slider.Disabled = marks.Const(true)
-	if slider.FocusRole().Focusable() {
+	if slider.FocusRole().IsFocusable() {
 		t.Fatal("expected disabled slider to be unfocusable")
 	}
 	if slider.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {

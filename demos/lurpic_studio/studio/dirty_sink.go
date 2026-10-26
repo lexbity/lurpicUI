@@ -14,10 +14,8 @@ import (
 // never renders synchronously — the frame's critical path is unchanged
 // (NFR-introspect-neutral).
 //
-// Concurrency: the runtime invokes OnDirtySnapshot on the runtime thread, while
-// the E5 facet's projection may run in a forked projection goroutine, so the
-// buffer is mutex-guarded. In practice the access is single-producer /
-// single-consumer, but the lock keeps -race honest under forked projection.
+// Access is serial on the runtime thread. The mutex also protects the
+// diagnostic snapshot from test and status readers outside that thread.
 type DirtySink struct {
 	mu        sync.Mutex
 	buf       []runtime.DirtySnapshot // last retention snapshots, oldest first

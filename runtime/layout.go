@@ -41,6 +41,8 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 		OnFacetTreeAttached:     rt.onFacetTreeAttached,
 		OnFacetDisposed:         rt.onFacetDisposed,
 		OnHostedChildrenChanged: rt.onHostedChildrenChanged,
+		OnTickActivityChanged:   rt.onTickActivityChanged,
+		OnFocusPolicyChanged:    rt.onFocusPolicyChanged,
 	})
 	if err := rt.registerTreeReadExports(root); err != nil {
 		panic("runtime: read export declaration changed after startup: " + err.Error())
@@ -48,21 +50,79 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 	rt.subscribeLayerMounts(root)
 }
 
+func (rt *Runtime) onFocusPolicyChanged(id facet.FacetID) {
+	if rt == nil || id == 0 {
+		return
+	}
+	rt.focusDirty = true
+	if rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
 func (rt *Runtime) onFacetTreeAttached(root facet.FacetImpl) {
+	rt.projectionSystem.InvalidateTopology()
+	rt.focusDirty = true
+	rt.layerTreeDirty = true
 	if rt.liveIndex == nil {
 		rt.liveIndex = newLiveIndex()
 	}
 	rt.liveIndex.registerTree(root)
 	rt.refreshHostedDescendants(root)
+	rt.refreshTickActivities(root)
 }
 
 func (rt *Runtime) onFacetDisposed(id facet.FacetID) {
+	rt.projectionSystem.ForgetFacet(id)
+	rt.focusDirty = true
+	rt.layerTreeDirty = true
+	rt.removeActiveTickFacet(id)
 	if rt.liveIndex != nil {
 		rt.liveIndex.removeSubtree(id)
 	}
 }
 
+func (rt *Runtime) onTickActivityChanged(id facet.FacetID, role *facet.TickRole, active bool) {
+	if rt == nil || id == 0 || role == nil {
+		return
+	}
+	if active {
+		if _, exists := rt.activeTickByID[id]; exists {
+			return
+		}
+		impl := rt.liveFacet(id)
+		if impl == nil || impl.Base() == nil || impl.Base().TickRole() != role {
+			return
+		}
+		rt.activeTickByID[id] = len(rt.activeTickFacets)
+		rt.activeTickFacets = append(rt.activeTickFacets, impl)
+		if rt.frameTimer != nil {
+			rt.frameTimer.RequestFrame()
+		}
+		return
+	}
+	rt.removeActiveTickFacet(id)
+}
+
+func (rt *Runtime) removeActiveTickFacet(id facet.FacetID) {
+	index, exists := rt.activeTickByID[id]
+	if !exists {
+		return
+	}
+	last := len(rt.activeTickFacets) - 1
+	copy(rt.activeTickFacets[index:], rt.activeTickFacets[index+1:])
+	rt.activeTickFacets[last] = nil
+	rt.activeTickFacets = rt.activeTickFacets[:last]
+	for i := index; i < last; i++ {
+		rt.activeTickByID[rt.activeTickFacets[i].Base().ID()] = i
+	}
+	delete(rt.activeTickByID, id)
+}
+
 func (rt *Runtime) onHostedChildrenChanged(hostID facet.FacetID, children []facet.FacetImpl) {
+	rt.projectionSystem.InvalidateTopology()
+	rt.focusDirty = true
+	rt.layerTreeDirty = true
 	if hostID == 0 || rt.liveIndex == nil {
 		return
 	}
@@ -71,6 +131,28 @@ func (rt *Runtime) onHostedChildrenChanged(hostID facet.FacetID, children []face
 	}
 	rt.liveIndex.registerHosted(hostID, children)
 	rt.refreshHostedDescendants(children...)
+	rt.refreshTickActivities(children...)
+}
+
+func (rt *Runtime) refreshTickActivities(roots ...facet.FacetImpl) {
+	stack := append([]facet.FacetImpl(nil), roots...)
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		impl := stack[last]
+		stack[last] = nil
+		stack = stack[:last]
+		if impl == nil || impl.Base() == nil || impl.Base().State() == facet.StateDisposed {
+			continue
+		}
+		base := impl.Base()
+		if role := base.TickRole(); role != nil && role.IsActive() {
+			rt.onTickActivityChanged(base.ID(), role, true)
+		}
+		base.VisitChildrenReverse(func(child facet.FacetImpl) bool {
+			stack = append(stack, child)
+			return true
+		})
+	}
 }
 
 func (rt *Runtime) refreshHostedDescendants(roots ...facet.FacetImpl) {
@@ -208,8 +290,7 @@ func (rt *Runtime) markTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
 		}
 		base := node.Base()
 		base.InvalidateWithSource(flags, "runtime.markTreeDirty")
-		rt.dirtyFacets[base.ID()] = flags
-		rt.dirtySources[base.ID()] = "runtime.markTreeDirty"
+		rt.recordInvalidation(base.ID(), flags, "runtime.markTreeDirty")
 		base.VisitChildrenReverse(func(child facet.FacetImpl) bool {
 			stack = append(stack, child)
 			return true

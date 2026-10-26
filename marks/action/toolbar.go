@@ -146,10 +146,10 @@ func NewToolbar(label marks.Binding[string], groups []ToolbarGroup, overflow *To
 	t.Input.OnKey = func(e facet.KeyEvent) bool {
 		return t.onKey(e)
 	}
-	t.Focus.Focusable = func() bool {
+	t.Focus.SetFocusable(func() bool {
 		return !t.Disabled.Get() && (len(t.Groups.Get()) > 0 || t.Overflow != nil)
-	}
-	t.Focus.TabIndex = 0
+	})
+	t.Focus.SetTabIndex(0)
 	t.Focus.OnFocusGained = func() { t.onFocusGained() }
 	t.Focus.OnFocusLost = func() { t.onFocusLost() }
 	t.textRole.IMEEnabled = false
@@ -170,10 +170,10 @@ func (t *Toolbar) Base() *facet.Facet {
 
 // Focusable reports whether the Toolbar can take keyboard focus.
 func (t *Toolbar) Focusable() bool {
-	if t.Focus.Focusable == nil {
+	if !t.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return t.Focus.Focusable()
+	return t.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -413,7 +413,7 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 	case toolbarChildGroup:
 		if c.group == nil {
 			c.group = NewActionGroup(marks.Const(""), marks.Const(spec.group.Actions))
-			c.group.Focus.Focusable = func() bool { return false }
+			c.group.Focus.SetFocusable(func() bool { return false })
 			c.subID = c.group.Activated.Subscribe(func(ma MarkAction) {
 				if c.parent != nil {
 					c.parent.Activated.Emit(ma)
@@ -441,7 +441,7 @@ func (c *toolbarChild) setSpec(spec toolbarChildSpec) {
 			c.overflow = NewMenuButton("", spec.overflow.Entries)
 			c.overflow.TriggerIconRef = marks.Const(spec.overflow.TriggerIconRef)
 			c.overflow.AccessibleLabel = marks.Const(spec.overflow.AccessibleLabel)
-			c.overflow.Focus.Focusable = func() bool { return false }
+			c.overflow.Focus.SetFocusable(func() bool { return false })
 			c.subID = c.overflow.Activated.Subscribe(func(ma MarkAction) {
 				if c.parent != nil {
 					c.parent.Activated.Emit(ma)

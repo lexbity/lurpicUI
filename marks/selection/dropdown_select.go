@@ -151,8 +151,8 @@ func NewDropdownSelect(ownerScope *store.Scope, label string, options []Dropdown
 	ds.Input.OnScroll = func(e facet.ScrollEvent) bool { return ds.onScroll(e) }
 	ds.Input.OnKey = func(e facet.KeyEvent) bool { return ds.onKey(e) }
 	ds.Input.OnDismiss = func(e facet.DismissEvent) bool { return ds.onDismiss(e) }
-	ds.Focus.Focusable = func() bool { return !ds.Disabled.Get() }
-	ds.Focus.TabIndex = 0
+	ds.Focus.SetFocusable(func() bool { return !ds.Disabled.Get() })
+	ds.Focus.SetTabIndex(0)
 	ds.Focus.OnFocusGained = func() { ds.onFocusGained() }
 	ds.Focus.OnFocusLost = func() { ds.onFocusLost() }
 	ds.EnableViewport()
@@ -189,10 +189,10 @@ func (ds *DropdownSelect) Base() *facet.Facet {
 
 // Focusable reports whether the DropdownSelect can take keyboard focus.
 func (ds *DropdownSelect) Focusable() bool {
-	if ds.Focus.Focusable == nil {
+	if !ds.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return ds.Focus.Focusable()
+	return ds.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

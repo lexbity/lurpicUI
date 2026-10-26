@@ -118,9 +118,9 @@ func NewButton(label marks.Binding[string], variant marks.Binding[uiinput.Button
 	b.Input.OnKey = func(e facet.KeyEvent) bool {
 		return b.onKey(e)
 	}
-	b.Focus.Focusable = func() bool {
+	b.Focus.SetFocusable(func() bool {
 		return !b.Disabled.Get()
-	}
+	})
 	b.Focus.OnFocusGained = func() {
 		b.onFocusGained()
 	}
@@ -143,10 +143,10 @@ func (b *Button) Base() *facet.Facet {
 
 // Focusable reports whether the Button can take keyboard focus.
 func (b *Button) Focusable() bool {
-	if b.Focus.Focusable == nil {
+	if !b.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return b.Focus.Focusable()
+	return b.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

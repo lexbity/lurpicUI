@@ -20,11 +20,21 @@ type FocusTrapState struct {
 // FocusManager tracks which facet currently holds keyboard focus.
 // One instance, owned by the runtime, consulted by the input system.
 type FocusManager struct {
-	focused     FacetID
-	focusedImpl FacetImpl
-	tabOrder    []FacetID
-	byID        map[FacetID]FacetImpl
-	traps       []focusTrapFrame
+	focused      FacetID
+	focusedImpl  FacetImpl
+	tabOrder     []FacetID
+	byID         map[FacetID]FacetImpl
+	traps        []focusTrapFrame
+	entries      []focusEntry
+	walkStack    []FacetImpl
+	RebuildCount uint64
+}
+
+type focusEntry struct {
+	id    FacetID
+	index int
+	order int
+	impl  FacetImpl
 }
 
 type focusTrapFrame struct {
@@ -38,6 +48,24 @@ func NewFocusManager() *FocusManager {
 	return &FocusManager{
 		byID: make(map[FacetID]FacetImpl),
 	}
+}
+
+// Reset drops retained facet references when the owning runtime closes.
+func (m *FocusManager) Reset() {
+	if m == nil {
+		return
+	}
+	m.focused = 0
+	m.focusedImpl = nil
+	clear(m.tabOrder)
+	m.tabOrder = m.tabOrder[:0]
+	clear(m.byID)
+	clear(m.traps)
+	m.traps = m.traps[:0]
+	clear(m.entries)
+	m.entries = m.entries[:0]
+	clear(m.walkStack)
+	m.walkStack = m.walkStack[:0]
 }
 
 // SetFocus grants focus to the given facet, revoking it from the current holder.
@@ -172,28 +200,27 @@ func (m *FocusManager) TabPrev() {
 	m.focusByID(order[(idx-1+len(order))%len(order)])
 }
 
-// RebuildTabOrder walks the tree and re-collects tab order.
-// Called by the runtime after layout and projection each frame.
+// RebuildTabOrder walks the tree and re-collects tab order. The runtime calls
+// it after focus policy or topology invalidation, not on unchanged frames.
 func (m *FocusManager) RebuildTabOrder(root FacetImpl) {
 	m.tabOrder = m.tabOrder[:0]
-	m.byID = make(map[FacetID]FacetImpl)
+	clear(m.byID)
+	clear(m.entries)
+	m.entries = m.entries[:0]
+	m.walkStack = m.walkStack[:0]
+	m.RebuildCount++
 	if root == nil {
 		m.focused = 0
 		m.focusedImpl = nil
 		return
 	}
-	type entry struct {
-		id    FacetID
-		index int
-		order int
-		impl  FacetImpl
-	}
-	entries := make([]entry, 0, 8)
 	seq := 0
-	stack := []FacetImpl{root}
-	for len(stack) > 0 {
-		impl := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
+	m.walkStack = append(m.walkStack, root)
+	for len(m.walkStack) > 0 {
+		last := len(m.walkStack) - 1
+		impl := m.walkStack[last]
+		m.walkStack[last] = nil
+		m.walkStack = m.walkStack[:last]
 		if impl == nil {
 			continue
 		}
@@ -203,29 +230,30 @@ func (m *FocusManager) RebuildTabOrder(root FacetImpl) {
 		}
 		m.byID[base.ID()] = impl
 		if role := base.FocusRole(); role != nil {
-			focusable := true
-			if role.Focusable != nil {
-				focusable = role.Focusable()
-			}
-			if role.TabIndex >= 0 && focusable {
-				entries = append(entries, entry{id: base.ID(), index: role.TabIndex, order: seq, impl: impl})
+			focusable := role.IsFocusable()
+			if role.TabOrder() >= 0 && focusable {
+				m.entries = append(m.entries, focusEntry{id: base.ID(), index: role.TabOrder(), order: seq, impl: impl})
 			}
 		}
 		seq++
-		children := base.Children()
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, children[i])
-		}
+		base.VisitChildrenReverse(func(child FacetImpl) bool {
+			m.walkStack = append(m.walkStack, child)
+			return true
+		})
 	}
 
-	sort.SliceStable(entries, func(i, j int) bool {
-		if entries[i].index != entries[j].index {
-			return entries[i].index < entries[j].index
+	sort.SliceStable(m.entries, func(i, j int) bool {
+		if m.entries[i].index != m.entries[j].index {
+			return m.entries[i].index < m.entries[j].index
 		}
-		return entries[i].order < entries[j].order
+		return m.entries[i].order < m.entries[j].order
 	})
-	m.tabOrder = make([]FacetID, len(entries))
-	for i, e := range entries {
+	if cap(m.tabOrder) < len(m.entries) {
+		m.tabOrder = make([]FacetID, len(m.entries))
+	} else {
+		m.tabOrder = m.tabOrder[:len(m.entries)]
+	}
+	for i, e := range m.entries {
 		m.tabOrder[i] = e.id
 	}
 	if m.focused != 0 {
@@ -382,11 +410,7 @@ func (m *FocusManager) isFocusable(target FacetImpl) bool {
 	if role == nil {
 		return false
 	}
-	focusable := true
-	if role.Focusable != nil {
-		focusable = role.Focusable()
-	}
-	return focusable
+	return role.IsFocusable()
 }
 
 func (m *FocusManager) canFocus(target FacetImpl) bool {

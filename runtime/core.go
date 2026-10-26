@@ -62,6 +62,9 @@ type Runtime struct {
 
 	dirtyFacets      map[facet.FacetID]facet.DirtyFlags
 	dirtySources     map[facet.FacetID]string
+	nextDirtyFacets  map[facet.FacetID]facet.DirtyFlags
+	nextDirtySources map[facet.FacetID]string
+	dirtyCaptured    bool
 	childAttachments map[facet.FacetID]facet.Attachment
 	anchorCaches     map[facet.FacetID]*layout.AnchorPositionCache
 	projectionLayers map[facet.FacetID]facet.ProjectionLayer
@@ -74,7 +77,9 @@ type Runtime struct {
 	rootStyleContext any
 	rootStyleSubs    signal.Subscriptions
 	phase1HooksMu    sync.RWMutex
-	phase1Hooks      []func(time.Duration)
+	phase1Hooks      []phase1HookSlot
+	phase1HookFree   []int
+	phase1HookSeq    uint64
 	shutdownHooksMu  sync.RWMutex
 	shutdownHooks    []func()
 	lifecycleMu      sync.Mutex
@@ -117,11 +122,18 @@ type Runtime struct {
 	poisoned         map[facet.FacetID]struct{}
 	poisonReports    map[facet.FacetID]*poisonReport
 	recoveryDisabled bool
+	focusDirty       bool
+	focusRebuilds    uint64
+	layerTreeDirty   bool
+	activeTickFacets []facet.FacetImpl
+	activeTickByID   map[facet.FacetID]int
+	tickWork         []facet.FacetImpl
 
 	// projectionInProgress is a runtime-thread guard used by store mutations.
 	// The store package consults this so writes that would invalidate the
 	// current projection phase fail loudly instead of corrupting frame order.
 	projectionInProgress atomic.Bool
+	wallWakePending      atomic.Bool
 
 	onFrameSubmitted func() // test hook; set only in tests to signal frame completion
 
@@ -232,6 +244,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		projectionSystem:      projection.NewSystem(),
 		inputSystem:           input.NewSystem(config.GestureConfig),
 		focusManager:          facet.NewFocusManager(),
+		focusDirty:            true,
+		layerTreeDirty:        true,
+		activeTickByID:        make(map[facet.FacetID]int),
 		jobPool:               job.NewPool(config.WorkerCount),
 		layerRegistry:         config.LayerRegistry,
 		assetManager:          config.AssetManager,
@@ -243,6 +258,8 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		frameTimer:            NewFrameTimer(config.TargetFPS),
 		dirtyFacets:           make(map[facet.FacetID]facet.DirtyFlags),
 		dirtySources:          make(map[facet.FacetID]string),
+		nextDirtyFacets:       make(map[facet.FacetID]facet.DirtyFlags),
+		nextDirtySources:      make(map[facet.FacetID]string),
 		childAttachments:      make(map[facet.FacetID]facet.Attachment),
 		anchorCaches:          make(map[facet.FacetID]*layout.AnchorPositionCache),
 		projectionLayers:      make(map[facet.FacetID]facet.ProjectionLayer),
@@ -342,6 +359,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 			})
 		}
 	}
+	rt.projectionSystem.SetRuntime(rt)
 
 	return rt, nil
 }
@@ -580,8 +598,7 @@ func (rt *Runtime) Schedule(j job.AnyJob) {
 			pr.OnJobResult(result)
 		})
 		f.Base().InvalidateWithSource(facet.DirtyProjection, "job.OnJobResult")
-		rt.dirtyFacets[ownerID] |= facet.DirtyProjection
-		rt.dirtySources[ownerID] = "job.OnJobResult"
+		rt.recordInvalidation(ownerID, facet.DirtyProjection, "job.OnJobResult")
 		if rt.frameTimer != nil {
 			rt.frameTimer.RequestFrame()
 		}
@@ -607,10 +624,8 @@ func (rt *Runtime) CancelJob(id job.JobID) {
 func (rt *Runtime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 
 	rt.config.StoreScope.QueueSignal(func() {
-		rt.dirtyFacets[id] |= flags
-		if source != "" {
-			rt.dirtySources[id] = source
-		}
+		rt.recordInvalidation(id, flags, source)
+		rt.markFocusDirty(id)
 		if rt.root != nil && rt.root.Base() != nil && rt.root.Base().ID() == id {
 			rt.root.Base().InvalidateWithSource(flags, source)
 		}

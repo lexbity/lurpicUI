@@ -154,6 +154,8 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	// frame, but this snapshot must stay stable for the current frame's layout,
 	// projection, and dirty-region assembly.
 	dirtySnapshot := rt.copyDirtyFacets()
+	rt.beginNextDirtyGeneration()
+	defer rt.sealDirtyGeneration()
 	rt.lastDirtySnapshot = dirtySnapshot
 	stats.DirtyFacets = len(dirtySnapshot)
 	stats.PoisonedFacets = rt.PoisonedCount()
@@ -176,7 +178,12 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	stats.ArrangeCount = rt.lastArrangeCount
 
 	layerStart := rt.clock.WallNow()
-	phaseStats := rt.resolveLayerTree()
+	var phaseStats layoutPhaseStats
+	if rt.layerTreeDirty {
+		rt.layerTreeDirty = false
+		phaseStats = rt.resolveLayerTree()
+		rt.syncFocusTraps()
+	}
 	stats.LayoutResolveDuration = rt.clock.WallNow().Sub(layerStart)
 	stats.LayoutDuration += stats.LayoutResolveDuration
 	stats.LayerResolutionDuration = phaseStats.specResolution
@@ -188,11 +195,11 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	stats.LayersUnmountedSkips = phaseStats.unmountedSkips
 
 	projStart := rt.clock.WallNow()
-	if rt.focusManager != nil {
+	if rt.focusManager != nil && rt.focusDirty {
 		rt.focusManager.RebuildTabOrder(rt.root)
+		rt.focusDirty = false
+		rt.focusRebuilds++
 	}
-	rt.syncFocusTraps()
-	rt.projectionSystem.SetRuntime(rt)
 
 	// RX-1 P5: the derived flush runs before the projection phase. Bindings and
 	// signal delivery above applied the frame's state changes; flushing dirty
@@ -331,11 +338,9 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	if diag := rt.diagnosticsHook(); diag != nil {
 		diag.OnFrame(stats)
 	}
-	if len(dirtySnapshot) > 0 && rt.frameTimer != nil {
+	if (len(dirtySnapshot) > 0 || len(rt.activeTickFacets) > 0) && rt.frameTimer != nil {
 		rt.frameTimer.RequestFrame()
 	}
-	rt.dirtyFacets = make(map[facet.FacetID]facet.DirtyFlags)
-	rt.dirtySources = make(map[facet.FacetID]string)
 	if rt.onFrameSubmitted != nil {
 		rt.onFrameSubmitted()
 	}
@@ -584,18 +589,27 @@ func (rt *Runtime) drainJobResults() (committed int, discarded int) {
 }
 
 func (rt *Runtime) tickFacets(dt time.Duration) {
-	rt.walkActive(rt.root, func(f facet.FacetImpl) {
+	rt.tickWork = append(rt.tickWork[:0], rt.activeTickFacets...)
+	clear(rt.activeTickByID)
+	clear(rt.activeTickFacets)
+	rt.activeTickFacets = rt.activeTickFacets[:0]
+	for _, f := range rt.tickWork {
+		if f == nil || f.Base() == nil || f.Base().State() != facet.StateActive {
+			continue
+		}
 		tr := f.Base().TickRole()
 		if tr == nil || !tr.IsActive() {
-			return
+			continue
 		}
+		tr.Reset()
 		if tr.OnTick != nil {
 			rt.guardedInvoke(f.Base().ID(), "tick", func() {
 				tr.OnTick(dt)
 			})
 		}
-		tr.Reset()
-	})
+	}
+	clear(rt.tickWork)
+	rt.tickWork = rt.tickWork[:0]
 }
 
 func (rt *Runtime) walkActive(root facet.FacetImpl, fn func(facet.FacetImpl)) {

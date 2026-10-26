@@ -152,7 +152,7 @@ func TestRibbonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	}
 
 	ribbon.Disabled = marks.Const(true)
-	if ribbon.Focus.Focusable() {
+	if ribbon.Focus.IsFocusable() {
 		t.Fatal("expected disabled ribbon to be unfocusable")
 	}
 	if ribbon.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: secondCenter, Button: platform.PointerLeft}) {

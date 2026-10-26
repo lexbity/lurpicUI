@@ -154,8 +154,8 @@ func NewActionGroup(label marks.Binding[string], actions marks.Binding[[]ActionG
 	g.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return g.hitTest(p) }
 	g.Input.OnPointer = func(e facet.PointerEvent) bool { return g.onPointer(e) }
 	g.Input.OnKey = func(e facet.KeyEvent) bool { return g.onKey(e) }
-	g.Focus.Focusable = func() bool { return !g.Disabled.Get() && len(g.Actions.Get()) > 0 }
-	g.Focus.TabIndex = 0
+	g.Focus.SetFocusable(func() bool { return !g.Disabled.Get() && len(g.Actions.Get()) > 0 })
+	g.Focus.SetTabIndex(0)
 	g.Focus.OnFocusGained = func() { g.onFocusGained() }
 	g.Focus.OnFocusLost = func() { g.onFocusLost() }
 	g.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
@@ -174,10 +174,10 @@ func (g *ActionGroup) Base() *facet.Facet {
 
 // Focusable reports whether the ActionGroup can take keyboard focus.
 func (g *ActionGroup) Focusable() bool {
-	if g.Focus.Focusable == nil {
+	if !g.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return g.Focus.Focusable()
+	return g.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

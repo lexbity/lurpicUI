@@ -176,8 +176,8 @@ func NewNumberField(ownerScope *store.Scope, label string, min, max, step float6
 	nf.Input.OnPointer = func(e facet.PointerEvent) bool { return nf.onPointer(e) }
 	nf.Input.OnKey = func(e facet.KeyEvent) bool { return nf.onKey(e) }
 	nf.Input.OnText = func(e facet.TextEvent) bool { return nf.onText(e) }
-	nf.Focus.Focusable = func() bool { return !nf.Disabled.Get() }
-	nf.Focus.TabIndex = 0
+	nf.Focus.SetFocusable(func() bool { return !nf.Disabled.Get() })
+	nf.Focus.SetTabIndex(0)
 	nf.Focus.OnFocusGained = func() { nf.onFocusGained() }
 	nf.Focus.OnFocusLost = func() { nf.onFocusLost() }
 	nf.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
@@ -202,10 +202,10 @@ func (nf *NumberField) Base() *facet.Facet {
 
 // Focusable reports whether the NumberField can take keyboard focus.
 func (nf *NumberField) Focusable() bool {
-	if nf.Focus.Focusable == nil {
+	if !nf.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return nf.Focus.Focusable()
+	return nf.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

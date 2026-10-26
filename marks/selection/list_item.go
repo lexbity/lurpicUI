@@ -136,8 +136,8 @@ func NewListItem(label marks.Binding[string]) *ListItem {
 	li.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return li.hitTest(p) }
 	li.Input.OnPointer = func(e facet.PointerEvent) bool { return li.onPointer(e) }
 	li.Input.OnKey = func(e facet.KeyEvent) bool { return li.onKey(e) }
-	li.Focus.Focusable = func() bool { return !li.Disabled.Get() }
-	li.Focus.TabIndex = 0
+	li.Focus.SetFocusable(func() bool { return !li.Disabled.Get() })
+	li.Focus.SetTabIndex(0)
 	li.Focus.OnFocusGained = func() { li.onFocusGained() }
 	li.Focus.OnFocusLost = func() { li.onFocusLost() }
 	li.textRole.IMEEnabled = false
@@ -160,10 +160,10 @@ func (li *ListItem) Base() *facet.Facet {
 
 // Focusable reports whether the ListItem can take keyboard focus.
 func (li *ListItem) Focusable() bool {
-	if li.Focus.Focusable == nil {
+	if !li.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return li.Focus.Focusable()
+	return li.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

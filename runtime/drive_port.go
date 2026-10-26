@@ -106,9 +106,6 @@ func (p *drivePort) Submit(cmd drive.Command) error {
 	p.inbox = append(p.inbox, cmd)
 	p.inboxMu.Unlock()
 	p.nonEmpty.Store(true)
-	if p.rt.frameTimer != nil {
-		p.rt.frameTimer.RequestFrame()
-	}
 	select {
 	case p.wake <- struct{}{}:
 	default:
@@ -128,9 +125,6 @@ func (p *drivePort) SignalControl(sig drive.ControlSignal) {
 	select {
 	case p.wake <- struct{}{}:
 	default:
-	}
-	if p.rt.frameTimer != nil {
-		p.rt.frameTimer.RequestFrame()
 	}
 }
 

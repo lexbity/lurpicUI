@@ -174,7 +174,7 @@ func TestSwitchFocusAndDisabledBehavior(t *testing.T) {
 	}
 
 	sw.Disabled = marks.Const(true)
-	if sw.FocusRole().Focusable() {
+	if sw.FocusRole().IsFocusable() {
 		t.Fatal("expected disabled switch to be unfocusable")
 	}
 	if sw.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {

@@ -186,7 +186,7 @@ func TestCommandPaletteDisabledBehavior(t *testing.T) {
 	palette, rt, resolved := newCommandPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	facet.Attach(palette, facet.AttachContext{Runtime: rt, Theme: resolved})
 	palette.Disabled = marks.Const(true)
-	if palette.Focus.Focusable() {
+	if palette.Focus.IsFocusable() {
 		t.Fatal("expected disabled palette to be unfocusable")
 	}
 	if palette.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {

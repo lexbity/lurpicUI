@@ -179,7 +179,7 @@ func TestRadioGroupFocusAndDisabledBehavior(t *testing.T) {
 	}
 
 	rg.Disabled = marks.Const(true)
-	if rg.FocusRole().Focusable() {
+	if rg.FocusRole().IsFocusable() {
 		t.Fatal("expected disabled radio group to be unfocusable")
 	}
 	if rg.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {

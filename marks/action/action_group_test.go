@@ -98,7 +98,7 @@ func TestActionGroupMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	}
 
 	group.Disabled = marks.Const(true)
-	if group.Focus.Focusable() {
+	if group.Focus.IsFocusable() {
 		t.Fatal("expected disabled action group to be unfocusable")
 	}
 	if group.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: first, Button: platform.PointerLeft}) {

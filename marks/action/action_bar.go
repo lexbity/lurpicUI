@@ -156,10 +156,10 @@ func NewActionBar(label string, actions []ActionBarAction) *ActionBar {
 	a.Input.OnKey = func(e facet.KeyEvent) bool {
 		return a.onKey(e)
 	}
-	a.Focus.Focusable = func() bool {
+	a.Focus.SetFocusable(func() bool {
 		return !a.Disabled.Get() && (strings.TrimSpace(a.Label.Get()) != "" || len(a.Actions.Get()) > 0 || a.Overflow.Get() != nil)
-	}
-	a.Focus.TabIndex = 0
+	})
+	a.Focus.SetTabIndex(0)
 	a.Focus.OnFocusGained = func() { a.onFocusGained() }
 	a.Focus.OnFocusLost = func() { a.onFocusLost() }
 	a.textRole.IMEEnabled = false
@@ -181,10 +181,10 @@ func (a *ActionBar) Base() *facet.Facet {
 
 // Focusable reports whether the ActionBar can take keyboard focus.
 func (a *ActionBar) Focusable() bool {
-	if a.Focus.Focusable == nil {
+	if !a.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return a.Focus.Focusable()
+	return a.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.
@@ -912,7 +912,7 @@ func (it *actionBarItem) setSpec(spec ActionBarAction) {
 		if it.iconButton == nil {
 			it.iconButton = NewIconButton(primitive.IconRef(spec.IconRef))
 			it.iconButton.AccessibleLabel = marks.Const(spec.AccessibleLabel)
-			it.iconButton.Focus.Focusable = func() bool { return false }
+			it.iconButton.Focus.SetFocusable(func() bool { return false })
 			it.subID = it.iconButton.Activated.Subscribe(func(signal.Unit) {
 				if it.parent != nil {
 					it.parent.Activated.Emit(MarkAction{Key: it.parent.itemKeyAt(it.index), Source: "action_bar"})
@@ -929,7 +929,7 @@ func (it *actionBarItem) setSpec(spec ActionBarAction) {
 			if strings.TrimSpace(spec.IconRef) != "" {
 				it.button.LeadingIconRef = marks.Const(spec.IconRef)
 			}
-			it.button.Focus.Focusable = func() bool { return false }
+			it.button.Focus.SetFocusable(func() bool { return false })
 			it.subID = it.button.Activated.Subscribe(func(signal.Unit) {
 				if it.parent != nil {
 					it.parent.Activated.Emit(MarkAction{Key: it.parent.itemKeyAt(it.index), Source: "action_bar"})

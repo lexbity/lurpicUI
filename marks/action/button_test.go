@@ -238,7 +238,7 @@ func TestButtonFocusVisibleAndDisabledBehavior(t *testing.T) {
 	}
 
 	btn.Disabled = marks.Const(true)
-	if btn.Focus.Focusable() {
+	if btn.Focus.IsFocusable() {
 		t.Fatal("expected disabled button to be unfocusable")
 	}
 	if btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: gfx.Point{X: 1, Y: 1}, Button: platform.PointerLeft}) {

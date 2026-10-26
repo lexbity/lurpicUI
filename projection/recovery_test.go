@@ -216,13 +216,13 @@ func TestProject_QuarantinesPanickingForkedSubtree(t *testing.T) {
 	rec := &recoveryStub{}
 	sys.SetRuntime(rec)
 
-	// A panic in a forked worker must be recovered (not a process crash) and
+	// A panic in an author callback must be recovered (not a process crash) and
 	// quarantined; every sibling still projects.
 	if out := sys.Run(root, FrameInfo{}); out == nil {
 		t.Fatal("expected frame output")
 	}
 	if !rec.isPoisoned(children[panicIdx].Base().ID()) {
-		t.Fatal("expected the panicking forked facet to be quarantined")
+		t.Fatal("expected the panicking facet to be quarantined")
 	}
 	for i, child := range children {
 		if i == panicIdx {

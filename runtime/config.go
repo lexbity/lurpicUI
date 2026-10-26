@@ -304,6 +304,13 @@ func (t *FrameTimer) RequestFrame() {
 	}
 }
 
+func (t *FrameTimer) idleChannels() (<-chan struct{}, <-chan int64) {
+	if t == nil {
+		return nil, nil
+	}
+	return t.requestCh, t.vsyncCh
+}
+
 // FrameInfo constructs projection timing info.
 func (t *FrameTimer) FrameInfo(n uint64, now time.Time) projection.FrameInfo {
 	t.mu.Lock()

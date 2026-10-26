@@ -210,8 +210,8 @@ func NewDialog(title, body string, actions []DialogAction, open *store.ValueStor
 	d.Input.OnPointer = func(e facet.PointerEvent) bool { return d.onPointer(e) }
 	d.Input.OnKey = func(e facet.KeyEvent) bool { return d.onKey(e) }
 	d.Input.OnDismiss = func(e facet.DismissEvent) bool { return d.onDismiss(e) }
-	d.Focus.Focusable = func() bool { return !d.Disabled.Get() && d.Open.Get() }
-	d.Focus.TabIndex = 0
+	d.Focus.SetFocusable(func() bool { return !d.Disabled.Get() && d.Open.Get() })
+	d.Focus.SetTabIndex(0)
 	d.Focus.OnFocusGained = func() { d.OnFocusGained() }
 	d.Focus.OnFocusLost = func() { d.OnFocusLost() }
 	d.textRole.IMEEnabled = false
@@ -235,10 +235,10 @@ func (d *Dialog) Base() *facet.Facet {
 
 // Focusable reports whether the Dialog can take keyboard focus.
 func (d *Dialog) Focusable() bool {
-	if d.Focus.Focusable == nil {
+	if !d.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return d.Focus.Focusable()
+	return d.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

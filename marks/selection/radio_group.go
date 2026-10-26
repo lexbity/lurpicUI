@@ -154,8 +154,8 @@ func NewRadioGroup(ownerScope *store.Scope, label string, options []RadioOption,
 	}
 	rg.Input.OnPointer = func(e facet.PointerEvent) bool { return rg.onPointer(e) }
 	rg.Input.OnKey = func(e facet.KeyEvent) bool { return rg.onKey(e) }
-	rg.Focus.Focusable = func() bool { return !rg.Disabled.Get() && len(rg.Options.Get()) > 0 }
-	rg.Focus.TabIndex = 0
+	rg.Focus.SetFocusable(func() bool { return !rg.Disabled.Get() && len(rg.Options.Get()) > 0 })
+	rg.Focus.SetTabIndex(0)
 	rg.Focus.OnFocusGained = func() { rg.onFocusGained() }
 	rg.Focus.OnFocusLost = func() { rg.onFocusLost() }
 	rg.textRole.IMEEnabled = false
@@ -184,10 +184,10 @@ func (rg *RadioGroup) Base() *facet.Facet {
 
 // Focusable reports whether the RadioGroup can take keyboard focus.
 func (rg *RadioGroup) Focusable() bool {
-	if rg.Focus.Focusable == nil {
+	if !rg.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return rg.Focus.Focusable()
+	return rg.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

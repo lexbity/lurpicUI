@@ -55,7 +55,7 @@ func TestNavDrawerMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := drawer.AccessibleName(); got != "Main navigation" {
 		t.Fatalf("accessible name = %q, want Main navigation", got)
 	}
-	if !drawer.Focus.Focusable() {
+	if !drawer.Focus.IsFocusable() {
 		t.Fatal("expected open drawer to be focusable")
 	}
 	children := drawer.Children()
@@ -208,7 +208,7 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 	}
 
 	drawer.Disabled = marks.Const(true)
-	if drawer.Focus.Focusable() {
+	if drawer.Focus.IsFocusable() {
 		t.Fatal("expected disabled drawer to be unfocusable")
 	}
 	if drawer.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: itemCenter, Button: platform.PointerLeft}) {

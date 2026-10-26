@@ -23,6 +23,9 @@ func newMountTestTree(t *testing.T) (*Runtime, *runtimeRenderFacet, *runtimeRend
 		host.layout.Arrange(ctx, bounds)
 	}
 	layer := newRuntimeRenderFacet("layer", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{R: 200, A: 255})
+	root.BindImpl(root)
+	host.BindImpl(host)
+	layer.BindImpl(layer)
 	mount := store.NewValueStore(scope, false)
 	root.AddChild(host.Base())
 	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
@@ -102,7 +105,8 @@ func TestRuntimeLayersMountUnmountClearsPixels(t *testing.T) {
 	mount.Set(false)
 	rt.RunOneFrame()
 	if _, ok := rt.ResolveProjectionLayer(layer.Base().ID()); ok {
-		t.Fatalf("unmounted layer still resolves a projection layer")
+		t.Fatalf("unmounted layer still resolves a projection layer; dirty=%v layer-resolves=%d dirty-layer=%v",
+			rt.lastDirtySnapshot, rt.lastStats.LayerResolveCount, rt.dirtyFacets[layer.Base().ID()])
 	}
 	for _, s := range rt.projectionSystem.OutputSnapshots() {
 		if s.FacetID == layer.Base().ID() && s.CommandCount != 0 {
@@ -129,9 +133,6 @@ func TestRuntimeLayersMountFlipMarksChildDirtyWithoutAppRouting(t *testing.T) {
 	layer := newRuntimeRenderFacet("layer", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{R: 200, A: 255})
 	mount := store.NewValueStore(scope, false)
 	root.AddChild(host.Base())
-	// runtimeRenderFacet uses the embedded Base (no BindImpl); bind so the
-	// runtime's Mount subscription (subscribeLayerMounts, keyed on Impl())
-	// registers — real marks bind in their Base.
 	layer.BindImpl(layer)
 	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
 

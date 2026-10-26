@@ -201,7 +201,7 @@ func TestDropdownSelectFocusAndDisabledBehavior(t *testing.T) {
 	}
 
 	sel.Disabled = marks.Const(true)
-	if sel.FocusRole().Focusable() {
+	if sel.FocusRole().IsFocusable() {
 		t.Fatal("expected disabled dropdown select to be unfocusable")
 	}
 	if sel.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: centerPoint(bounds), Button: platform.PointerLeft}) {

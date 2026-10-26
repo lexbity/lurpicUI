@@ -232,8 +232,8 @@ func newLayoutCountLeaf(size gfx.Size) *layoutCountLeaf {
 
 func newRuntimeFocusFacet(tabIndex int) *runtimeFocusFacet {
 	f := &runtimeFocusFacet{Facet: facet.NewFacet()}
-	f.focus.Focusable = func() bool { return true }
-	f.focus.TabIndex = tabIndex
+	f.focus.SetFocusable(func() bool { return true })
+	f.focus.SetTabIndex(tabIndex)
 	f.AddRole(&f.focus)
 	return f
 }

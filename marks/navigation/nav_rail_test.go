@@ -55,7 +55,7 @@ func TestNavRailMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := rail.AccessibleName(); got != "Primary rail" {
 		t.Fatalf("accessible name = %q, want Primary rail", got)
 	}
-	if !rail.FocusRole().Focusable() {
+	if !rail.FocusRole().IsFocusable() {
 		t.Fatal("expected nav rail to be focusable")
 	}
 	children := rail.Children()
@@ -167,7 +167,7 @@ func TestNavRailPointerAndKeyboardInteraction(t *testing.T) {
 	}
 
 	rail.Disabled = marks.Const(true)
-	if rail.FocusRole().Focusable() {
+	if rail.FocusRole().IsFocusable() {
 		t.Fatal("expected disabled nav rail to be unfocusable")
 	}
 	if rail.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: secondCenter, Button: platform.PointerLeft}) {

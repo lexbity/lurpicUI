@@ -24,6 +24,15 @@ func (s *System) TickHover(now time.Time) []RoutedEvent {
 	return routed
 }
 
+// NextHoverDeadline reports the next engine-time deadline that can emit a
+// settled-hover event.
+func (s *System) NextHoverDeadline() (time.Time, bool) {
+	if s == nil || !s.hoverEnabled {
+		return time.Time{}, false
+	}
+	return s.hover.nextDeadline(s.config)
+}
+
 func (s *System) Process(events []platform.Event, hitMap *projection.HitMap, tree facet.FacetImpl) []RoutedEvent {
 	if s == nil {
 		return nil

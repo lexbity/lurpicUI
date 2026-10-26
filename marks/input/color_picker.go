@@ -125,8 +125,8 @@ func NewColorPicker(ownerScope *store.Scope, label string, value *store.ValueSto
 	p.Hit.OnHitTest = func(pt gfx.Point) facet.HitResult { return p.hitTest(pt) }
 	p.Input.OnPointer = func(e facet.PointerEvent) bool { return p.onPointer(e) }
 	p.Input.OnKey = func(e facet.KeyEvent) bool { return p.onKey(e) }
-	p.Focus.Focusable = func() bool { return !p.Disabled.Get() }
-	p.Focus.TabIndex = 0
+	p.Focus.SetFocusable(func() bool { return !p.Disabled.Get() })
+	p.Focus.SetTabIndex(0)
 	p.Focus.OnFocusGained = func() { p.onFocusGained() }
 	p.Focus.OnFocusLost = func() { p.onFocusLost() }
 	p.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
@@ -147,10 +147,10 @@ func (p *ColorPicker) Base() *facet.Facet {
 
 // Focusable reports whether the ColorPicker can take keyboard focus.
 func (p *ColorPicker) Focusable() bool {
-	if p.Focus.Focusable == nil {
+	if !p.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return p.Focus.Focusable()
+	return p.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

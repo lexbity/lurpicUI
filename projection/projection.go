@@ -1,7 +1,6 @@
 package projection
 
 import (
-	"sync"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -83,89 +82,6 @@ type RenderBatchOutput struct {
 	Opacity   float32
 }
 
-const projectionForkThreshold = 8
-
-type subtreeResult struct {
-	outputs []*ProjectionOutput
-}
-
-// ProjectionOutputPartition is an isolated append-only slice of projection outputs.
-// Each worker or sequential walk can own one partition and merge later.
-type ProjectionOutputPartition struct {
-	Outputs []*ProjectionOutput
-}
-
-// Append adds an output to the partition.
-func (p *ProjectionOutputPartition) Append(output *ProjectionOutput) {
-	if p == nil || output == nil {
-		return
-	}
-	p.Outputs = append(p.Outputs, output)
-}
-
-// ProjectionOutputPartitions groups isolated output partitions for later merging.
-type ProjectionOutputPartitions struct {
-	Partitions []*ProjectionOutputPartition
-}
-
-// NewPartition appends and returns a fresh partition.
-func (p *ProjectionOutputPartitions) NewPartition() *ProjectionOutputPartition {
-	if p == nil {
-		return nil
-	}
-	part := &ProjectionOutputPartition{}
-	p.Partitions = append(p.Partitions, part)
-	return part
-}
-
-// Flatten merges all partition outputs in encounter order.
-func (p *ProjectionOutputPartitions) Flatten() []*ProjectionOutput {
-	if p == nil || len(p.Partitions) == 0 {
-		return nil
-	}
-	var total int
-	for _, part := range p.Partitions {
-		if part != nil {
-			total += len(part.Outputs)
-		}
-	}
-	if total == 0 {
-		return nil
-	}
-	out := make([]*ProjectionOutput, 0, total)
-	for _, part := range p.Partitions {
-		if part == nil || len(part.Outputs) == 0 {
-			continue
-		}
-		out = append(out, part.Outputs...)
-	}
-	return out
-}
-
-func mergePreOrderOutputs(dst []*ProjectionOutput, results []subtreeResult) []*ProjectionOutput {
-	total := len(dst)
-	for i := range results {
-		total += len(results[i].outputs)
-	}
-	if total == len(dst) {
-		if len(dst) == 0 {
-			return nil
-		}
-		out := make([]*ProjectionOutput, len(dst))
-		copy(out, dst)
-		return out
-	}
-	out := make([]*ProjectionOutput, 0, total)
-	out = append(out, dst...)
-	for i := range results {
-		if len(results[i].outputs) == 0 {
-			continue
-		}
-		out = append(out, results[i].outputs...)
-	}
-	return out
-}
-
 type FrameOutput struct {
 	RenderBatchs        []RenderBatchOutput
 	HitMap              *HitMap
@@ -206,14 +122,13 @@ type System struct {
 	runtime          facet.RuntimeServices
 	layerResolver    LayerResolver
 	recoverySurface  facetRecovery
-	cacheMu          sync.Mutex
-	statsMu          sync.Mutex
-	// nodeList is a reusable pre-order node buffer for the per-frame
-	// subtreeHasLayer aggregation (reused across frames to keep the projection
-	// gate allocation-free on the steady-state path). It is mutated only in
-	// buildProjectionTree on the runtime thread before the projection forks;
-	// forked walks read subtreeHasLayer afterwards.
-	nodeList []*projectionNode
+	// nodeList is the retained pre-order node buffer used to aggregate
+	// subtreeHasLayer when lifecycle invalidates projection topology.
+	nodeList         []*projectionNode
+	topologyRoot     facet.FacetImpl
+	topologyRootNode *projectionNode
+	topologyDirty    bool
+	TopologyRebuilds uint64
 	// frameNumber is the most recent Run's frame number (for LURPIC_TRACE=gates
 	// gate-decision tracing, NFR-8).
 	frameNumber uint64
@@ -281,8 +196,18 @@ type projectionNode struct {
 
 func NewSystem() *System {
 	return &System{
-		outputCache: make(map[facet.FacetID]*ProjectionOutput),
-		dirtySet:    make(map[facet.FacetID]struct{}),
+		outputCache:   make(map[facet.FacetID]*ProjectionOutput),
+		dirtySet:      make(map[facet.FacetID]struct{}),
+		topologyDirty: true,
+	}
+}
+
+// InvalidateTopology tells the runtime-owned projection graph that lifecycle
+// or hosted-child publication changed. It is called only at those canonical
+// mutation seams; unchanged frames reuse the retained graph.
+func (s *System) InvalidateTopology() {
+	if s != nil {
+		s.topologyDirty = true
 	}
 }
 
@@ -335,20 +260,27 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	s.HitTestCount = 0
 	s.frameNumber = frame.Number
 	s.gatesTraceLines = 0
+	clear(s.frameOutputs)
 	s.frameOutputs = s.frameOutputs[:0]
-	rootNode := s.buildProjectionTree(root)
+	if s.topologyRoot != root {
+		s.topologyRoot = root
+		s.topologyDirty = true
+	}
+	if s.topologyDirty {
+		s.topologyRootNode = s.buildProjectionTree(root)
+		s.topologyDirty = false
+		s.TopologyRebuilds++
+	}
+	rootNode := s.topologyRootNode
 	if rootNode != nil {
 		dirty := s.collectDirtyFlags(rootNode)
 		s.propagateDirty(rootNode, dirty)
-		partitions := ProjectionOutputPartitions{}
-		partition := partitions.NewPartition()
-		s.walkNode(rootNode, gfx.Identity(), nil, dirty, partition)
-		s.frameOutputs = partitions.Flatten()
+		s.walkNode(rootNode, gfx.Identity(), nil, dirty)
 		s.clearTreeDirty(rootNode)
 	}
 	out := s.assembleFrameOutput()
 	s.currentHitMap = out.HitMap
-	s.dirtySet = make(map[facet.FacetID]struct{})
+	clear(s.dirtySet)
 	return out
 }
 
@@ -362,6 +294,11 @@ func (s *System) Reset() {
 	s.frameOutputs = nil
 	s.dirtySet = make(map[facet.FacetID]struct{})
 	s.currentHitMap = nil
+	clear(s.nodeList)
+	s.nodeList = s.nodeList[:0]
+	s.topologyRoot = nil
+	s.topologyRootNode = nil
+	s.topologyDirty = true
 	s.ProjectedFacets = 0
 	s.CacheHits = 0
 	s.EmptyBoundsSkips = 0
@@ -371,6 +308,15 @@ func (s *System) Reset() {
 	s.CollectCount = 0
 	s.MaterializeCount = 0
 	s.HitTestCount = 0
+}
+
+// ForgetFacet releases projection output retained for a disposed lifetime.
+func (s *System) ForgetFacet(id facet.FacetID) {
+	if s == nil || id == 0 {
+		return
+	}
+	delete(s.outputCache, id)
+	s.topologyDirty = true
 }
 
 // CurrentHitMap returns the hit map computed during the most recent run.
@@ -448,6 +394,7 @@ func (s *System) buildProjectionTree(root facet.FacetImpl) *projectionNode {
 		impl: root,
 		base: base,
 	}
+	clear(s.nodeList)
 	s.nodeList = s.nodeList[:0]
 	type buildFrame struct {
 		impl facet.FacetImpl
@@ -461,15 +408,13 @@ func (s *System) buildProjectionTree(root facet.FacetImpl) *projectionNode {
 			continue
 		}
 		s.nodeList = append(s.nodeList, frame.node)
-		children := frame.node.base.Children()
-		if len(children) == 0 {
+		if !frame.node.base.HasChildren() {
 			continue
 		}
-		frame.node.children = make([]*projectionNode, 0, len(children))
-		for i := 0; i < len(children); i++ {
-			child := children[i]
+		frame.node.children = frame.node.children[:0]
+		frame.node.base.VisitChildren(func(child facet.FacetImpl) bool {
 			if child == nil || child.Base() == nil {
-				continue
+				return true
 			}
 			childNode := &projectionNode{
 				impl:   child,
@@ -477,7 +422,8 @@ func (s *System) buildProjectionTree(root facet.FacetImpl) *projectionNode {
 				parent: frame.node,
 			}
 			frame.node.children = append(frame.node.children, childNode)
-		}
+			return true
+		})
 		for i := len(frame.node.children) - 1; i >= 0; i-- {
 			stack = append(stack, buildFrame{impl: frame.node.children[i].impl, node: frame.node.children[i]})
 		}
@@ -519,7 +465,7 @@ func (s *System) isLayer(id facet.FacetID) bool {
 // callbacks (OnProject/OnCollect/OnHitTest registration) are recovered by the
 // runtime's facetRecovery surface so a panicking mark quarantines only its own
 // subtree instead of terminating the run.
-func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags, partition *ProjectionOutputPartition) {
+func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags) {
 	if node == nil || node.base == nil || node.impl == nil {
 		return
 	}
@@ -559,8 +505,8 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 		// would re-run at empty bounds (the cache key already carries bounds,
 		// so the gated re-arrange is a cache miss) and contribute stale
 		// commands from a hidden host (A-1/A-2/A-3). The empty output still
-		// participates in the partition append so pre-order bookkeeping stays
-		// consistent; zero bounds contribute no commands, no hit regions, and
+		// participates in pre-order output bookkeeping; zero bounds contribute
+		// no commands, no hit regions, and
 		// no dirty region. Facets without a LayoutRole have no arranged bounds
 		// to be gated by (the stage/host gating model arranges hosts to empty);
 		// they keep their current projection behavior. Layer facets are exempt
@@ -581,9 +527,7 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 			}
 		}
 		gated := mountGated || (!hasLayer && base.LayoutRole() != nil && bounds.IsEmpty())
-		s.statsMu.Lock()
 		s.GateCount++
-		s.statsMu.Unlock()
 		var output *ProjectionOutput
 		if gated {
 			if mountGated {
@@ -595,9 +539,7 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 				s.addEmptyBoundsSkip()
 				s.traceGate(facetID, "empty-bounds")
 			}
-			s.statsMu.Lock()
 			s.PruneCount++
-			s.statsMu.Unlock()
 			output = &ProjectionOutput{FacetID: facetID, Bounds: gfx.Rect{}}
 		} else {
 			cacheKey := s.computeCacheKey(frame.node.impl, resolvedTransform, frame.parentChildCtx, layerCtx, hasLayer)
@@ -613,11 +555,7 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 				s.addCacheHit()
 			}
 		}
-		if partition != nil {
-			partition.Append(output)
-		} else {
-			s.frameOutputs = append(s.frameOutputs, output)
-		}
+		s.frameOutputs = append(s.frameOutputs, output)
 		children := frame.node.children
 		if len(children) == 0 {
 			continue
@@ -630,15 +568,6 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 			continue
 		}
 		childCtx := output.ChildContext
-		if s.shouldForkChildren(frame.node) {
-			results := s.walkChildSubtrees(children, resolvedTransform, childCtx, dirty)
-			if partition != nil {
-				partition.Outputs = mergePreOrderOutputs(partition.Outputs, results)
-			} else {
-				s.frameOutputs = mergePreOrderOutputs(s.frameOutputs, results)
-			}
-			continue
-		}
 		for i := len(children) - 1; i >= 0; i-- {
 			if rec != nil && children[i] != nil && children[i].base != nil && rec.IsPoisoned(children[i].base.ID()) {
 				// Do not descend into a quarantined subtree.
@@ -653,70 +582,10 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 	}
 }
 
-func (s *System) walkChildSubtrees(children []*projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags) []subtreeResult {
-	if len(children) == 0 {
-		return nil
-	}
-	results := make([]subtreeResult, len(children))
-	var wg sync.WaitGroup
-	for i := range children {
-		child := children[i]
-		if child == nil {
-			continue
-		}
-		wg.Add(1)
-		go func(idx int, node *projectionNode) {
-			defer wg.Done()
-			results[idx] = s.walkSubtree(node, parentTransform, parentChildCtx, dirty)
-		}(i, child)
-	}
-	wg.Wait()
-	return results
-}
-
-func (s *System) walkSubtree(node *projectionNode, parentTransform gfx.Transform, parentChildCtx *ChildProjectionContext, dirty map[facet.FacetID]facet.DirtyFlags) subtreeResult {
-	part := &ProjectionOutputPartition{}
-	s.walkNode(node, parentTransform, parentChildCtx, dirty, part)
-	outputs := append([]*ProjectionOutput(nil), part.Outputs...)
-	return subtreeResult{outputs: outputs}
-}
-
-func (s *System) shouldForkChildren(node *projectionNode) bool {
-	if node == nil {
-		return false
-	}
-	if len(node.children) <= 1 {
-		return false
-	}
-	return countProjectionNodes(node) > projectionForkThreshold
-}
-
-func countProjectionNodes(node *projectionNode) int {
-	if node == nil {
-		return 0
-	}
-	total := 0
-	stack := []*projectionNode{node}
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if n == nil || n.base == nil {
-			continue
-		}
-		total++
-		for i := len(n.children) - 1; i >= 0; i-- {
-			stack = append(stack, n.children[i])
-		}
-	}
-	return total
-}
-
 func (s *System) loadCachedOutput(id facet.FacetID) *ProjectionOutput {
 	if s == nil || id == 0 {
 		return nil
 	}
-	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
 	return s.outputCache[id]
 }
 
@@ -724,45 +593,35 @@ func (s *System) storeCachedOutput(id facet.FacetID, output *ProjectionOutput) {
 	if s == nil || id == 0 || output == nil {
 		return
 	}
-	s.cacheMu.Lock()
 	s.outputCache[id] = output
-	s.cacheMu.Unlock()
 }
 
 func (s *System) addProjectedFacet() {
 	if s == nil {
 		return
 	}
-	s.statsMu.Lock()
 	s.ProjectedFacets++
-	s.statsMu.Unlock()
 }
 
 func (s *System) addCacheHit() {
 	if s == nil {
 		return
 	}
-	s.statsMu.Lock()
 	s.CacheHits++
-	s.statsMu.Unlock()
 }
 
 func (s *System) addEmptyBoundsSkip() {
 	if s == nil {
 		return
 	}
-	s.statsMu.Lock()
 	s.EmptyBoundsSkips++
-	s.statsMu.Unlock()
 }
 
 func (s *System) addCacheMissByBounds() {
 	if s == nil {
 		return
 	}
-	s.statsMu.Lock()
 	s.CacheMissesByBounds++
-	s.statsMu.Unlock()
 }
 
 func (s *System) project(
@@ -804,9 +663,7 @@ func (s *System) project(
 			}
 		})
 	} else if rr := base.RenderRole(); rr != nil && rr.OnCollect != nil {
-		s.statsMu.Lock()
 		s.CollectCount++
-		s.statsMu.Unlock()
 		s.runGuarded(base.ID(), "collect", func() {
 			if cmds := rr.Collect(bounds); cmds != nil {
 				output.Commands = *cmds
@@ -814,14 +671,10 @@ func (s *System) project(
 		})
 	}
 	if len(output.Commands.Commands) > 0 {
-		s.statsMu.Lock()
 		s.MaterializeCount++
-		s.statsMu.Unlock()
 	}
 	if hr := base.HitRole(); hr != nil && hr.OnHitTest != nil {
-		s.statsMu.Lock()
 		s.HitTestCount++
-		s.statsMu.Unlock()
 		if rec := s.recovery(); rec == nil || !rec.IsPoisoned(base.ID()) {
 			output.HitRegions = []HitRegion{{
 				Bounds: bounds,
@@ -846,7 +699,7 @@ func (s *System) project(
 	}
 	output.ContentScale = s.currentContentScale()
 	output.InputModality = s.currentInputModality()
-	if base.ViewportRole() != nil || len(base.Children()) > 0 {
+	if base.ViewportRole() != nil || base.HasChildren() {
 		childCtx := &ChildProjectionContext{
 			Transform:   resolvedTransform,
 			WorldBounds: resolvedTransform.TransformRect(bounds),
@@ -1087,7 +940,7 @@ func (s *System) resolveEffectiveClip(
 			if groupClip, ok := layout.GroupClipRect(worldBounds, layoutRole.Parent); ok {
 				clip, hasClip = layout.IntersectClipRects(clip, hasClip, groupClip)
 			}
-		} else if base.ViewportRole() != nil || len(base.Children()) > 0 {
+		} else if base.ViewportRole() != nil || base.HasChildren() {
 			clip, hasClip = layout.IntersectClipRects(clip, hasClip, worldBounds)
 		}
 	}

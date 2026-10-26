@@ -120,8 +120,8 @@ func NewSwitch(ownerScope *store.Scope, label string, value *store.ValueStore[bo
 	s.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return s.hitTest(p) }
 	s.Input.OnPointer = func(e facet.PointerEvent) bool { return s.onPointer(e) }
 	s.Input.OnKey = func(e facet.KeyEvent) bool { return s.onKey(e) }
-	s.Focus.Focusable = func() bool { return !s.Disabled.Get() }
-	s.Focus.TabIndex = 0
+	s.Focus.SetFocusable(func() bool { return !s.Disabled.Get() })
+	s.Focus.SetTabIndex(0)
 	s.Focus.OnFocusGained = func() { s.onFocusGained() }
 	s.Focus.OnFocusLost = func() { s.onFocusLost() }
 	s.textRole.IMEEnabled = false
@@ -139,10 +139,10 @@ func (s *Switch) Base() *facet.Facet {
 
 // Focusable reports whether the Switch can take keyboard focus.
 func (s *Switch) Focusable() bool {
-	if s.Focus.Focusable == nil {
+	if !s.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return s.Focus.Focusable()
+	return s.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

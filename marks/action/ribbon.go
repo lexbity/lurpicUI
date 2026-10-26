@@ -138,7 +138,7 @@ func NewRibbon(ownerScope *store.Scope, label string, sections []RibbonSection, 
 	r.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return r.hitTest(p) }
 	r.Input.OnPointer = func(e facet.PointerEvent) bool { return r.onPointer(e) }
 	r.Input.OnKey = func(e facet.KeyEvent) bool { return r.onKey(e) }
-	r.Focus.Focusable = func() bool { return !r.Disabled.Get() && len(r.Sections.Get()) > 0 }
+	r.Focus.SetFocusable(func() bool { return !r.Disabled.Get() && len(r.Sections.Get()) > 0 })
 	r.Focus.OnFocusGained = func() { r.onFocusGained() }
 	r.Focus.OnFocusLost = func() { r.onFocusLost() }
 	r.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
@@ -158,10 +158,10 @@ func (r *Ribbon) Base() *facet.Facet {
 
 // Focusable reports whether the Ribbon can take keyboard focus.
 func (r *Ribbon) Focusable() bool {
-	if r.Focus.Focusable == nil {
+	if !r.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return r.Focus.Focusable()
+	return r.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

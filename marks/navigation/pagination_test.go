@@ -43,7 +43,7 @@ func TestPaginationMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	if got := pagination.AccessibleName(); got != "Pages" {
 		t.Fatalf("accessible name = %q, want Pages", got)
 	}
-	if !pagination.Focus.Focusable() {
+	if !pagination.Focus.IsFocusable() {
 		t.Fatal("expected pagination to be focusable")
 	}
 	if len(pagination.Children()) == 0 {
@@ -142,7 +142,7 @@ func TestPaginationPointerKeyboardAndFocus(t *testing.T) {
 		t.Fatal("expected keyboard focus to show focus ring")
 	}
 	pagination.Disabled = marks.Const(true)
-	if pagination.Focus.Focusable() {
+	if pagination.Focus.IsFocusable() {
 		t.Fatal("expected disabled pagination to be unfocusable")
 	}
 }

@@ -126,9 +126,9 @@ func NewTurnDial(ownerScope *store.Scope, label string, min, max, step float64, 
 	td.Input.OnKey = func(e facet.KeyEvent) bool {
 		return td.onKey(e)
 	}
-	td.Focus.Focusable = func() bool {
+	td.Focus.SetFocusable(func() bool {
 		return !td.Disabled.Get()
-	}
+	})
 	td.Focus.OnFocusGained = func() {
 		td.focusedVisible = !td.focusFromPointer
 		td.invalidate(facet.DirtyProjection)
@@ -163,10 +163,10 @@ func (td *TurnDial) Base() *facet.Facet {
 
 // Focusable reports whether the TurnDial can take keyboard focus.
 func (td *TurnDial) Focusable() bool {
-	if td.Focus.Focusable == nil {
+	if !td.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return td.Focus.Focusable()
+	return td.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

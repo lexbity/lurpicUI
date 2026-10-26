@@ -200,7 +200,7 @@ func TestScrollRegion_keyboardPageKeysClamp(t *testing.T) {
 	children := scrollRegionVerticalChildren() // 12 text rows: content exceeds the viewport
 	sr, h := newScrollHarness(t, children)
 
-	sr.Focus.Focusable = func() bool { return true }
+	sr.Focus.SetFocusable(func() bool { return true })
 	h.Runtime().SetFocus(sr)
 	h.RunFrame()
 

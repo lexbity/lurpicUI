@@ -157,10 +157,46 @@ type InputRole struct {
 
 // FocusRole participates in keyboard focus management inside the resolved layer contract.
 type FocusRole struct {
-	Focusable     func() bool
-	OnFocusGained func()
-	OnFocusLost   func()
-	TabIndex      int
+	focusable       func() bool
+	tabIndex        int
+	OnFocusGained   func()
+	OnFocusLost     func()
+	onPolicyChanged func()
+}
+
+func (r *FocusRole) SetFocusable(predicate func() bool) {
+	if r == nil {
+		return
+	}
+	r.focusable = predicate
+	r.policyChanged()
+}
+
+func (r *FocusRole) SetTabIndex(index int) {
+	if r == nil {
+		return
+	}
+	r.tabIndex = index
+	r.policyChanged()
+}
+
+func (r *FocusRole) HasFocusablePredicate() bool { return r != nil && r.focusable != nil }
+
+func (r *FocusRole) IsFocusable() bool {
+	return r == nil || r.focusable == nil || r.focusable()
+}
+
+func (r *FocusRole) TabOrder() int {
+	if r == nil {
+		return -1
+	}
+	return r.tabIndex
+}
+
+func (r *FocusRole) policyChanged() {
+	if r.onPolicyChanged != nil {
+		r.onPolicyChanged()
+	}
 }
 
 // ViewportRole defines an authored local transform inside the resolved layer contract.
@@ -294,8 +330,9 @@ func (r *TextRole) CollectSelectionGeometry() *TextSelectionGeometry {
 
 // TickRole receives per-frame updates.
 type TickRole struct {
-	OnTick func(dt time.Duration)
-	active bool
+	OnTick            func(dt time.Duration)
+	active            bool
+	onActivityChanged func(bool)
 }
 
 // RequestTick keeps the role active for the next frame.
@@ -305,6 +342,9 @@ func (r *TickRole) RequestTick() {
 		return
 	}
 	r.active = true
+	if r.onActivityChanged != nil {
+		r.onActivityChanged(true)
+	}
 }
 
 // IsActive reports whether the role requested another tick.
@@ -319,6 +359,9 @@ func (r *TickRole) Reset() {
 		return
 	}
 	r.active = false
+	if r.onActivityChanged != nil {
+		r.onActivityChanged(false)
+	}
 }
 
 func (r *RenderRole) onAttach(f *Facet) {
@@ -354,11 +397,16 @@ func (r *InputRole) onDispose(f *Facet) {
 	r.OnDismiss = nil
 }
 
-func (r *FocusRole) onAttach(f *Facet)     {}
+func (r *FocusRole) onAttach(f *Facet) {
+	if f.onFocusPolicyChanged != nil {
+		r.onPolicyChanged = func() { f.onFocusPolicyChanged(f.ID()) }
+	}
+}
 func (r *FocusRole) onActivate(f *Facet)   {}
 func (r *FocusRole) onDeactivate(f *Facet) {}
 func (r *FocusRole) onDispose(f *Facet) {
-	r.Focusable = nil
+	r.focusable = nil
+	r.onPolicyChanged = nil
 	r.OnFocusGained = nil
 	r.OnFocusLost = nil
 }
@@ -387,10 +435,17 @@ func (r *TextRole) onDispose(f *Facet) {
 	r.Layout = nil
 }
 
-func (r *TickRole) onAttach(f *Facet)     {}
+func (r *TickRole) onAttach(f *Facet) {
+	if f.onTickActivityChanged != nil {
+		r.onActivityChanged = func(active bool) {
+			f.onTickActivityChanged(f.ID(), r, active)
+		}
+	}
+}
 func (r *TickRole) onActivate(f *Facet)   {}
 func (r *TickRole) onDeactivate(f *Facet) {}
 func (r *TickRole) onDispose(f *Facet) {
 	r.OnTick = nil
 	r.active = false
+	r.onActivityChanged = nil
 }

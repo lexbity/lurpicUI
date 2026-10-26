@@ -195,8 +195,8 @@ func NewNavDrawer(ownerScope *store.Scope, label string, sections []NavDrawerSec
 	d.Input.OnPointer = func(e facet.PointerEvent) bool { return d.onPointer(e) }
 	d.Input.OnKey = func(e facet.KeyEvent) bool { return d.onKey(e) }
 	d.Input.OnDismiss = func(e facet.DismissEvent) bool { return d.onDismiss(e) }
-	d.Focus.Focusable = func() bool { return !d.Disabled.Get() && d.Open.Get() && len(d.cachedFlatItems) > 0 }
-	d.Focus.TabIndex = 0
+	d.Focus.SetFocusable(func() bool { return !d.Disabled.Get() && d.Open.Get() && len(d.cachedFlatItems) > 0 })
+	d.Focus.SetTabIndex(0)
 	d.Focus.OnFocusGained = func() { d.onFocusGained() }
 	d.Focus.OnFocusLost = func() { d.onFocusLost() }
 	d.BuildCommands = func(ctx facet.ProjectionContext) []gfx.Command {
@@ -217,7 +217,7 @@ func (d *NavDrawer) Base() *facet.Facet {
 }
 
 // Focusable reports whether the NavDrawer can take keyboard focus.
-func (d *NavDrawer) Focusable() bool { return d.Focus.Focusable != nil }
+func (d *NavDrawer) Focusable() bool { return d.Focus.HasFocusablePredicate() }
 
 // Descriptor satisfies marks.Mark.
 func (d *NavDrawer) Descriptor() marks.Descriptor {

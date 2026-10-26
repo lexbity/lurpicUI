@@ -210,10 +210,10 @@ func NewSplitButton(label string, items []SplitButtonItem) *SplitButton {
 		s.setOpen(false)
 		return true
 	}
-	s.Focus.Focusable = func() bool {
+	s.Focus.SetFocusable(func() bool {
 		return !s.Disabled.Get() && (strings.TrimSpace(s.Label.Get()) != "" || len(s.Items.Get()) > 0)
-	}
-	s.Focus.TabIndex = 0
+	})
+	s.Focus.SetTabIndex(0)
 	s.Focus.OnFocusGained = func() { s.onFocusGained() }
 	s.Focus.OnFocusLost = func() { s.onFocusLost() }
 	s.textRole.IMEEnabled = false
@@ -246,10 +246,10 @@ func (s *SplitButton) Base() *facet.Facet {
 
 // Focusable reports whether the SplitButton can take keyboard focus.
 func (s *SplitButton) Focusable() bool {
-	if s.Focus.Focusable == nil {
+	if !s.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return s.Focus.Focusable()
+	return s.Focus.IsFocusable()
 }
 
 // Descriptor satisfies marks.Mark.

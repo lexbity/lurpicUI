@@ -158,8 +158,8 @@ func NewScrollRegion(label string) *ScrollRegion {
 	sr.Input.OnPointer = func(e facet.PointerEvent) bool { return sr.onPointer(e) }
 	sr.Input.OnScroll = func(e facet.ScrollEvent) bool { return sr.onScroll(e) }
 	sr.Input.OnKey = func(e facet.KeyEvent) bool { return sr.onKey(e) }
-	sr.Focus.Focusable = func() bool { return !sr.Disabled.Get() }
-	sr.Focus.TabIndex = 0
+	sr.Focus.SetFocusable(func() bool { return !sr.Disabled.Get() })
+	sr.Focus.SetTabIndex(0)
 	sr.Focus.OnFocusGained = func() { sr.onFocusGained() }
 	sr.Focus.OnFocusLost = func() { sr.onFocusLost() }
 	sr.textRole.IMEEnabled = false
@@ -177,7 +177,7 @@ func (sr *ScrollRegion) Base() *facet.Facet {
 }
 
 // Focusable reports whether the ScrollRegion can take keyboard focus.
-func (sr *ScrollRegion) Focusable() bool { return sr.Focus.Focusable != nil }
+func (sr *ScrollRegion) Focusable() bool { return sr.Focus.HasFocusablePredicate() }
 
 // Descriptor satisfies marks.Mark.
 func (sr *ScrollRegion) Descriptor() marks.Descriptor {

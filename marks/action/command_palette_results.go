@@ -110,8 +110,8 @@ func newCommandPaletteResultsGroup(parent *CommandPalette) *commandPaletteResult
 	g.Input.OnScroll = func(e facet.ScrollEvent) bool { return g.onScroll(e) }
 	g.Input.OnKey = func(e facet.KeyEvent) bool { return g.onKey(e) }
 	g.Input.OnDismiss = func(e facet.DismissEvent) bool { return g.onDismiss(e) }
-	g.Focus.Focusable = func() bool { return !g.Disabled.Get() && len(g.rows) > 0 }
-	g.Focus.TabIndex = 1
+	g.Focus.SetFocusable(func() bool { return !g.Disabled.Get() && len(g.rows) > 0 })
+	g.Focus.SetTabIndex(1)
 	g.Focus.OnFocusGained = func() { g.onFocusGained() }
 	g.Focus.OnFocusLost = func() { g.onFocusLost() }
 	g.textRole.IMEEnabled = false

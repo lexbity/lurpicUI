@@ -197,7 +197,7 @@ func TestSplitButtonPointerKeyboardAndDisabledBehavior(t *testing.T) {
 	}
 
 	btn.Disabled = marks.Const(true)
-	if btn.Focus.Focusable() {
+	if btn.Focus.IsFocusable() {
 		t.Fatal("expected disabled split button to be unfocusable")
 	}
 	if btn.onPointer(facet.PointerEvent{Kind: platform.PointerPress, Position: primaryCenter, Button: platform.PointerLeft}) {

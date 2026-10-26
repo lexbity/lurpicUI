@@ -140,8 +140,8 @@ func NewTabs(label string, items []TabItem, activeIndex *store.ValueStore[int]) 
 	t.Hit.OnHitTest = func(p gfx.Point) facet.HitResult { return t.hitTest(p) }
 	t.Input.OnPointer = func(e facet.PointerEvent) bool { return t.onPointer(e) }
 	t.Input.OnKey = func(e facet.KeyEvent) bool { return t.onKey(e) }
-	t.Focus.Focusable = func() bool { return !t.Disabled.Get() && len(t.Items) > 0 }
-	t.Focus.TabIndex = 0
+	t.Focus.SetFocusable(func() bool { return !t.Disabled.Get() && len(t.Items) > 0 })
+	t.Focus.SetTabIndex(0)
 	t.Focus.OnFocusGained = func() { t.onFocusGained() }
 	t.Focus.OnFocusLost = func() { t.onFocusLost() }
 	t.textRole.IMEEnabled = false
@@ -172,10 +172,10 @@ func (t *Tabs) AccessibleName() string { return t.Label.Get() }
 
 // Focusable reports whether the tabs can receive keyboard focus.
 func (t *Tabs) Focusable() bool {
-	if t.Focus.Focusable == nil {
+	if !t.Focus.HasFocusablePredicate() {
 		return false
 	}
-	return t.Focus.Focusable()
+	return t.Focus.IsFocusable()
 }
 
 // ExportAnchors publishes the tabs anchor set.

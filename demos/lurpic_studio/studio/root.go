@@ -212,10 +212,8 @@ func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *lay
 			return false
 		},
 	}
-	r.focus = facet.FocusRole{
-		Focusable: func() bool { return true },
-		TabIndex:  0,
-	}
+	r.focus.SetFocusable(func() bool { return true })
+	r.focus.SetTabIndex(0)
 	r.AddRole(&r.layout)
 	r.AddRole(&r.render)
 	r.AddRole(&r.hit)
