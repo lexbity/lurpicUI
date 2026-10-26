@@ -48,6 +48,8 @@ type renderState struct {
 }
 
 type SoftwareRenderer struct {
+	windowID         string
+	windows          map[string]*SoftwareRenderer
 	mu               sync.RWMutex
 	surface          render.SoftwareSurface
 	output           *image.RGBA
@@ -58,11 +60,13 @@ type SoftwareRenderer struct {
 	width            int
 	height           int
 
+	strokeScratch  gfx.StrokeScratch
 	rasterizeCount int
 }
 
 func NewSoftwareRenderer() *SoftwareRenderer {
 	return &SoftwareRenderer{
+		windowID:         render.PrimaryWindow,
 		RenderBatchCache: make(map[render.RenderBatchID]*RenderBatchCacheEntry),
 		diffCache:        renderutil.NewRenderBatchCache(),
 		glyphAtlas:       &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)},
@@ -105,6 +109,10 @@ func (r *SoftwareRenderer) Resize(width, height int) error {
 func (r *SoftwareRenderer) Destroy() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	for id, window := range r.windows {
+		window.Destroy()
+		delete(r.windows, id)
+	}
 	r.surface = nil
 	r.output = nil
 	r.width = 0
@@ -118,6 +126,9 @@ func (r *SoftwareRenderer) Destroy() {
 func (r *SoftwareRenderer) EvictCaches() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	for _, window := range r.windows {
+		window.EvictCaches()
+	}
 	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
 	r.diffCache = renderutil.NewRenderBatchCache()
 	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
@@ -139,6 +150,9 @@ func (r *SoftwareRenderer) GlyphRasterizeCount() int {
 }
 
 func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
+	if frame != nil && frame.WindowID() != r.windowID {
+		return r.SubmitWindow(frame.WindowID(), frame)
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.surface == nil {
@@ -356,9 +370,9 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, frame *rende
 	}
 	stack := []renderState{state}
 
-	frame.VisitBatchCommands(batchIndex, func(cmd gfx.Command) bool {
+	frame.VisitBatchCommands(batchIndex, func(cmd gfx.CommandView) bool {
 		state = stack[len(stack)-1]
-		switch c := cmd.(type) {
+		switch c := cmd.Scalars().(type) {
 		case gfx.PushTransform:
 			next := state
 			next.transform = next.transform.Multiply(c.Matrix)
@@ -385,36 +399,33 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, frame *rende
 				stack = stack[:len(stack)-1]
 			}
 		case gfx.FillRect:
-			fillRect(target, state, c.Rect, c.Brush)
-		case gfx.StrokeRect:
-			strokeRect(target, state, c.Rect, c.Stroke, c.Brush)
+			fillRect(target, state, c.Rect, cmd.Brush())
+		case gfx.StrokeRect, gfx.StrokePath, gfx.DrawPolyline:
+			segments := cmd.ExpandStroke(&r.strokeScratch)
+			rasterizePath(target, state, gfx.ReadPath(gfx.Path{Segments: segments}), cmd.Brush(), 1)
 		case gfx.FillPath:
-			fillPath(target, state, c.Path, c.Brush)
-		case gfx.StrokePath:
-			strokePath(target, state, c.Path, c.Stroke, c.Brush)
-		case gfx.DrawPolyline:
-			drawPolyline(target, state, c.Points, c.Stroke, c.Brush, c.Closed)
+			rasterizePath(target, state, cmd.Path(), cmd.Brush(), 1)
 		case gfx.DrawPoints:
-			drawPoints(target, state, c.Points, c.Radius, c.Brush)
+			drawPoints(target, state, cmd.Points(), c.Radius, cmd.Brush())
 		case gfx.DrawGlyphRun:
-			r.drawGlyphRun(target, state, c)
+			r.drawGlyphRun(target, state, c, cmd)
 		case gfx.DrawSelectionRects:
-			for _, rr := range c.Rects {
-				fillRect(target, state, rr, c.Brush)
+			for rr := range cmd.Rects().All() {
+				fillRect(target, state, rr, cmd.Brush())
 			}
 		case gfx.DrawImage:
 			drawImage(target, state, c)
 		case gfx.DrawTexture:
 			r.drawTexture(target, state, c)
 		case gfx.DrawBlurredShadow:
-			drawBlurredShadow(target, state, c)
+			drawBlurredShadow(target, state, c, cmd.Path())
 		case gfx.BeginRenderBatch, gfx.EndRenderBatch:
 		}
 		return true
 	})
 }
 
-func fillRect(target *image.RGBA, state renderState, rect gfx.Rect, brush gfx.Brush) {
+func fillRect(target *image.RGBA, state renderState, rect gfx.Rect, brush gfx.BrushView) {
 	if state.transform.B != 0 || state.transform.C != 0 {
 		// Non-axis-preserving transform (rotation/shear): the rect becomes a
 		// polygon. Rasterize it as a filled contour so rotated rects render as
@@ -477,55 +488,27 @@ func fillRect(target *image.RGBA, state renderState, rect gfx.Rect, brush gfx.Br
 
 // rectAsPath expresses a rect as a closed four-corner contour, used by
 // fillRect when the transform is non-axis-preserving.
-func rectAsPath(rect gfx.Rect) gfx.Path {
+func rectAsPath(rect gfx.Rect) gfx.PathView {
 	corners := []gfx.Point{
 		rect.Min,
 		{X: rect.Max.X, Y: rect.Min.Y},
 		rect.Max,
 		{X: rect.Min.X, Y: rect.Max.Y},
 	}
-	return gfx.Path{Segments: []gfx.PathSegment{
+	return gfx.ReadPath(gfx.Path{Segments: []gfx.PathSegment{
 		{Verb: gfx.PathMoveTo, Pts: [3]gfx.Point{corners[0]}},
 		{Verb: gfx.PathLineTo, Pts: [3]gfx.Point{corners[1]}},
 		{Verb: gfx.PathLineTo, Pts: [3]gfx.Point{corners[2]}},
 		{Verb: gfx.PathLineTo, Pts: [3]gfx.Point{corners[3]}},
 		{Verb: gfx.PathClose},
-	}}
+	}})
 }
 
-func strokeRect(target *image.RGBA, state renderState, rect gfx.Rect, stroke gfx.StrokeStyle, brush gfx.Brush) {
-	if stroke.Width <= 0 {
+func drawPoints(target *image.RGBA, state renderState, pts gfx.Values[gfx.Point], radius float32, brush gfx.BrushView) {
+	if pts.Len() == 0 || radius <= 0 {
 		return
 	}
-	// Slice 8: the stroke is expanded to its fill path (caps/joins/miter/dash
-	// honored) and rasterized through the same path fill the GPU uses, so the
-	// oracle and the GPU pipeline render the identical polygon.
-	rasterizePath(target, state, gfx.ExpandStroke(gfx.RectPath(rect), stroke), brush, 1)
-}
-
-func fillPath(target *image.RGBA, state renderState, path gfx.Path, brush gfx.Brush) {
-	rasterizePath(target, state, path, brush, 1)
-}
-
-func strokePath(target *image.RGBA, state renderState, path gfx.Path, stroke gfx.StrokeStyle, brush gfx.Brush) {
-	if len(path.Segments) == 0 || stroke.Width <= 0 {
-		return
-	}
-	rasterizePath(target, state, gfx.ExpandStroke(path, stroke), brush, 1)
-}
-
-func drawPolyline(target *image.RGBA, state renderState, pts []gfx.Point, stroke gfx.StrokeStyle, brush gfx.Brush, closed bool) {
-	if len(pts) == 0 || stroke.Width <= 0 {
-		return
-	}
-	rasterizePath(target, state, gfx.ExpandStroke(gfx.PolylinePath(pts, closed), stroke), brush, 1)
-}
-
-func drawPoints(target *image.RGBA, state renderState, pts []gfx.Point, radius float32, brush gfx.Brush) {
-	if len(pts) == 0 || radius <= 0 {
-		return
-	}
-	for _, p := range pts {
+	for p := range pts.All() {
 		fillRect(target, state, gfx.RectFromXYWH(p.X-radius, p.Y-radius, radius*2, radius*2), brush)
 	}
 }
@@ -537,14 +520,14 @@ func drawPoints(target *image.RGBA, state renderState, pts []gfx.Point, radius f
 // Gaussian (sigma = radius/3, kernel = exp(-i^2 / 2 sigma^2) normalized), and
 // composited tinted with the premultiplied shadow color at the offset, clipped
 // to the active clip rect. `Inner` inverts the mask source before blurring.
-func drawBlurredShadow(target *image.RGBA, state renderState, cmd gfx.DrawBlurredShadow) {
-	if target == nil || len(cmd.Path.Segments) == 0 || cmd.Color.A <= 0 {
+func drawBlurredShadow(target *image.RGBA, state renderState, cmd gfx.DrawBlurredShadow, path gfx.PathView) {
+	if target == nil || path.Segments.Len() == 0 || cmd.Color.A <= 0 {
 		return
 	}
 
 	var transformed gfx.Path
-	transformed.Segments = make([]gfx.PathSegment, 0, len(cmd.Path.Segments))
-	for _, seg := range cmd.Path.Segments {
+	transformed.Segments = make([]gfx.PathSegment, 0, path.Segments.Len())
+	for seg := range path.Segments.All() {
 		out := gfx.PathSegment{Verb: seg.Verb}
 		for i := range seg.Pts {
 			out.Pts[i] = state.transform.TransformPoint(seg.Pts[i])
@@ -552,7 +535,7 @@ func drawBlurredShadow(target *image.RGBA, state renderState, cmd gfx.DrawBlurre
 		transformed.Segments = append(transformed.Segments, out)
 	}
 
-	pb := pathBounds(transformed)
+	pb := pathBounds(gfx.ReadPath(transformed))
 	if pb.IsEmpty() {
 		return
 	}
@@ -681,15 +664,15 @@ func drawBlurredShadow(target *image.RGBA, state renderState, cmd gfx.DrawBlurre
 	}
 }
 
-func (r *SoftwareRenderer) drawGlyphRun(target *image.RGBA, state renderState, cmd gfx.DrawGlyphRun) {
-	if target == nil || len(cmd.Run.Glyphs) == 0 {
+func (r *SoftwareRenderer) drawGlyphRun(target *image.RGBA, state renderState, cmd gfx.DrawGlyphRun, view gfx.CommandView) {
+	if target == nil || view.Glyphs().Len() == 0 {
 		return
 	}
 	atlas := r.glyphAtlas
 	if atlas == nil {
 		return
 	}
-	for _, glyph := range cmd.Run.Glyphs {
+	for glyph := range view.Glyphs().All() {
 		entry := atlas.getOrRasterize(cmd.Run, glyph)
 		if entry == nil || entry.bitmap == nil {
 			continue
@@ -698,18 +681,18 @@ func (r *SoftwareRenderer) drawGlyphRun(target *image.RGBA, state renderState, c
 			X: cmd.Origin.X + glyph.X + entry.offsetX,
 			Y: cmd.Origin.Y + glyph.Y + entry.offsetY,
 		})
-		drawGlyphBitmap(target, state, entry, pos, cmd.Brush)
+		drawGlyphBitmap(target, state, entry, pos, view.Brush())
 	}
 }
 
-func rasterizePath(target *image.RGBA, state renderState, path gfx.Path, brush gfx.Brush, opacity float32) {
-	if target == nil || len(path.Segments) == 0 {
+func rasterizePath(target *image.RGBA, state renderState, path gfx.PathView, brush gfx.BrushView, opacity float32) {
+	if target == nil || path.Segments.Len() == 0 {
 		return
 	}
 
 	var transformed gfx.Path
-	transformed.Segments = make([]gfx.PathSegment, 0, len(path.Segments))
-	for _, seg := range path.Segments {
+	transformed.Segments = make([]gfx.PathSegment, 0, path.Segments.Len())
+	for seg := range path.Segments.All() {
 		out := gfx.PathSegment{Verb: seg.Verb}
 		for i := range seg.Pts {
 			out.Pts[i] = state.transform.TransformPoint(seg.Pts[i])
@@ -717,7 +700,7 @@ func rasterizePath(target *image.RGBA, state renderState, path gfx.Path, brush g
 		transformed.Segments = append(transformed.Segments, out)
 	}
 
-	bounds := pathBounds(transformed)
+	bounds := pathBounds(gfx.ReadPath(transformed))
 	rr := intersectRects(bounds, state.clip)
 	if rr.IsEmpty() {
 		return
@@ -942,7 +925,7 @@ func outlineBounds(outline font.GlyphOutline, scale float32) (minX, minY, maxX, 
 	return
 }
 
-func drawGlyphBitmap(target *image.RGBA, state renderState, entry *glyphEntry, pos gfx.Point, brush gfx.Brush) {
+func drawGlyphBitmap(target *image.RGBA, state renderState, entry *glyphEntry, pos gfx.Point, brush gfx.BrushView) {
 	if target == nil || entry == nil {
 		return
 	}
@@ -1058,7 +1041,7 @@ func drawImage(target *image.RGBA, state renderState, cmd gfx.DrawImage) {
 	}
 }
 
-func sampleBrush(brush gfx.Brush, p gfx.Point, bounds gfx.Rect) gfx.Color {
+func sampleBrush(brush gfx.BrushView, p gfx.Point, bounds gfx.Rect) gfx.Color {
 	switch brush.Kind {
 	case gfx.BrushSolid:
 		return brush.Color
@@ -1069,19 +1052,19 @@ func sampleBrush(brush gfx.Brush, p gfx.Point, bounds gfx.Rect) gfx.Color {
 	}
 }
 
-func sampleLinearGradient(brush gfx.Brush, p gfx.Point) gfx.Color {
+func sampleLinearGradient(brush gfx.BrushView, p gfx.Point) gfx.Color {
 	stops := brush.GradientStops
-	if len(stops) == 0 {
+	if stops.Len() == 0 {
 		return gfx.Color{}
 	}
-	if len(stops) == 1 {
-		return stops[0].Color
+	if stops.Len() == 1 {
+		return stops.At(0).Color
 	}
 	dx := brush.GradientEnd.X - brush.GradientStart.X
 	dy := brush.GradientEnd.Y - brush.GradientStart.Y
 	denom := dx*dx + dy*dy
 	if denom == 0 {
-		return stops[len(stops)-1].Color
+		return stops.At(stops.Len() - 1).Color
 	}
 	t := ((p.X-brush.GradientStart.X)*dx + (p.Y-brush.GradientStart.Y)*dy) / denom
 	if t < 0 {
@@ -1091,12 +1074,12 @@ func sampleLinearGradient(brush gfx.Brush, p gfx.Point) gfx.Color {
 		t = 1
 	}
 
-	left := stops[0]
-	right := stops[len(stops)-1]
-	for i := 0; i < len(stops)-1; i++ {
-		if t >= stops[i].Offset && t <= stops[i+1].Offset {
-			left = stops[i]
-			right = stops[i+1]
+	left := stops.At(0)
+	right := stops.At(stops.Len() - 1)
+	for i := 0; i < stops.Len()-1; i++ {
+		if t >= stops.At(i).Offset && t <= stops.At(i+1).Offset {
+			left = stops.At(i)
+			right = stops.At(i + 1)
 			break
 		}
 	}
@@ -1216,10 +1199,10 @@ func lerpColor(a, b gfx.Color, t float32) gfx.Color {
 	}
 }
 
-func pathBounds(path gfx.Path) gfx.Rect {
+func pathBounds(path gfx.PathView) gfx.Rect {
 	var bounds gfx.Rect
 	first := true
-	for _, seg := range path.Segments {
+	for seg := range path.Segments.All() {
 		var count int
 		switch seg.Verb {
 		case gfx.PathMoveTo, gfx.PathLineTo:

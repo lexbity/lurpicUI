@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"sync/atomic"
+	"unicode/utf8"
 	"unsafe"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -14,9 +16,11 @@ import (
 // FrameInput is mutable assembly data. SealFrame copies it into a single
 // immutable command page and transfers the supplied reservation to that page.
 type FrameInput struct {
-	Batches      []BatchInput
-	Layers       []LayerInput
-	DirtyRegions []gfx.Rect
+	WindowID          string
+	SurfaceGeneration uint64
+	Batches           []BatchInput
+	Layers            []LayerInput
+	DirtyRegions      []gfx.Rect
 }
 
 type BatchInput struct {
@@ -50,14 +54,16 @@ type FrameLayer struct {
 }
 
 type frameStorage struct {
-	generation    uint64
-	page          *gfx.CommandPage
-	batches       []FrameBatch
-	commandRanges []gfx.CommandRange
-	layers        []FrameLayer
-	dirty         []gfx.Rect
-	reservation   *membudget.Reservation
-	refs          atomic.Int64
+	windowID          string
+	surfaceGeneration uint64
+	generation        uint64
+	page              *gfx.CommandPage
+	batches           []FrameBatch
+	commandRanges     []gfx.CommandRange
+	layers            []FrameLayer
+	dirty             []gfx.Rect
+	reservation       *membudget.Reservation
+	refs              atomic.Int64
 }
 
 type frameLease struct {
@@ -72,12 +78,17 @@ type Frame struct{ lease *frameLease }
 const maxFrameLeases = 8
 
 func EstimateFrameBytes(input FrameInput) (uint64, error) {
+	if len(input.WindowID) > 256 || !utf8.ValidString(input.WindowID) || strings.ContainsRune(input.WindowID, 0) {
+		return 0, errors.New("render: window ID exceeds 256 bytes")
+	}
 	commandCount := 0
-	var total uint64
+	// Reserve directory and lease capacity even before a frame joins its group.
+	// A group with multiple windows keeps these independent prepaid capacities.
+	total := uint64(unsafe.Sizeof(frameGroupStorage{})) + uint64(maxFrameLeases)*(uint64(unsafe.Sizeof(frameGroupLease{}))+uint64(unsafe.Sizeof(FrameGroup{}))) + uint64(len(input.WindowID)) + uint64(unsafe.Sizeof(membudget.Reservation{}))
 	if err := addFrameBytes(&total, uint64(unsafe.Sizeof(frameStorage{}))); err != nil {
 		return 0, err
 	}
-	if err := addFrameBytes(&total, uint64(unsafe.Sizeof(Frame{}))); err != nil {
+	if err := addFrameBytes(&total, uint64(maxFrameLeases)*uint64(unsafe.Sizeof(Frame{}))+uint64(unsafe.Sizeof(gfx.CommandPage{}))); err != nil {
 		return 0, err
 	}
 	leaseBytes, err := checkedFrameProduct(maxFrameLeases, unsafe.Sizeof(frameLease{}))
@@ -189,7 +200,13 @@ func SealFrame(input FrameInput, reservation *membudget.Reservation) (*Frame, er
 		_ = page.Release()
 		return nil, fmt.Errorf("render: publish frame reservation: %w", err)
 	}
-	storage := &frameStorage{generation: reservation.ID(), page: page, batches: batches, commandRanges: ranges, layers: layers, dirty: append([]gfx.Rect(nil), input.DirtyRegions...), reservation: reservation}
+	windowID := PrimaryWindow
+	if input.WindowID != "" {
+		windowID = strings.Clone(input.WindowID)
+	}
+	dirty := make([]gfx.Rect, len(input.DirtyRegions))
+	copy(dirty, input.DirtyRegions)
+	storage := &frameStorage{windowID: windowID, surfaceGeneration: input.SurfaceGeneration, generation: reservation.ID(), page: page, batches: batches, commandRanges: ranges, layers: layers, dirty: dirty, reservation: reservation}
 	storage.refs.Store(1)
 	return &Frame{lease: &frameLease{storage: storage}}, nil
 }
@@ -212,6 +229,19 @@ func (f *Frame) storage() *frameStorage {
 func (f *Frame) BatchCount() int {
 	if s := f.storage(); s != nil {
 		return len(s.batches)
+	}
+	return 0
+}
+
+func (f *Frame) WindowID() string {
+	if s := f.storage(); s != nil {
+		return s.windowID
+	}
+	return ""
+}
+func (f *Frame) SurfaceGeneration() uint64 {
+	if s := f.storage(); s != nil {
+		return s.surfaceGeneration
 	}
 	return 0
 }
@@ -254,7 +284,7 @@ func (f *Frame) DirtyRegionAt(index int) (gfx.Rect, bool) {
 	return s.dirty[index], true
 }
 
-func (f *Frame) VisitBatchCommands(index int, visit func(gfx.Command) bool) bool {
+func (f *Frame) VisitBatchCommands(index int, visit func(gfx.CommandView) bool) bool {
 	s := f.storage()
 	if s == nil || index < 0 || index >= len(s.commandRanges) {
 		return false
@@ -271,15 +301,13 @@ func (f *Frame) BatchCommandCount(index int) (int, bool) {
 	return s.commandRanges[index].Len(), true
 }
 
-// AppendBatchCommands copies command interface values into caller-owned
-// scratch; nested payloads remain immutable frame-page values.
-func (f *Frame) AppendBatchCommands(index int, dst []gfx.Command) ([]gfx.Command, bool) {
+// BatchCommands returns an immutable command range tied to this frame lease.
+func (f *Frame) BatchCommands(index int) (gfx.CommandRange, bool) {
 	s := f.storage()
 	if s == nil || index < 0 || index >= len(s.commandRanges) {
-		return dst, false
+		return gfx.CommandRange{}, false
 	}
-	s.commandRanges[index].Visit(func(command gfx.Command) bool { dst = append(dst, command); return true })
-	return dst, true
+	return s.commandRanges[index], true
 }
 
 func (f *Frame) BackingBytes() uint64 {
@@ -344,5 +372,7 @@ func (f *Frame) Release() error {
 	if err := s.reservation.Acknowledge(); err != nil {
 		return err
 	}
+	s.reservation = nil
+	s.windowID = ""
 	return pageErr
 }

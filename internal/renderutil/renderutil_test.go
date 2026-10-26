@@ -278,7 +278,7 @@ func TestRemoveContained_partial_overlap_both_kept(t *testing.T) {
 }
 
 func TestCommandBounds_fillrect(t *testing.T) {
-	got := commandBounds(gfx.FillRect{Rect: gfx.RectFromXYWH(10, 10, 50, 50)})
+	got := commandBounds(gfx.ReadCommand(gfx.FillRect{Rect: gfx.RectFromXYWH(10, 10, 50, 50)}))
 	want := gfx.RectFromXYWH(10, 10, 50, 50)
 	if !rectEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
@@ -286,10 +286,10 @@ func TestCommandBounds_fillrect(t *testing.T) {
 }
 
 func TestCommandBounds_strokerect_expands(t *testing.T) {
-	got := commandBounds(gfx.StrokeRect{
+	got := commandBounds(gfx.ReadCommand(gfx.StrokeRect{
 		Rect:   gfx.RectFromXYWH(10, 10, 50, 50),
 		Stroke: gfx.DefaultStroke(4),
-	})
+	}))
 	want := gfx.RectFromXYWH(8, 8, 54, 54)
 	if !rectEqual(got, want) {
 		t.Fatalf("got %#v want %#v", got, want)
@@ -297,7 +297,7 @@ func TestCommandBounds_strokerect_expands(t *testing.T) {
 }
 
 func TestCommandBounds_state_commands_empty(t *testing.T) {
-	if got := commandBounds(gfx.PushTransform{}); !got.IsEmpty() {
+	if got := commandBounds(gfx.ReadCommand(gfx.PushTransform{})); !got.IsEmpty() {
 		t.Fatalf("got %#v", got)
 	}
 }

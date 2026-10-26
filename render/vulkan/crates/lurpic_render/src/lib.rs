@@ -523,20 +523,9 @@ pub extern "C" fn lurpic_render_create_surface_android(
     })
 }
 
-#[cfg(target_os = "android")]
 #[no_mangle]
-pub extern "C" fn lurpic_render_recreate_surface_android(
-    android_window: *mut c_void,
-    width: u32,
-    height: u32,
-) -> RenderResult {
-    let result = catch_render_result("recreate_surface_android", || {
-        vulkan::recreate_surface_android(android_window, width, height)
-    });
-    if result == RenderResult::Ok {
-        DEVICE_GENERATION.fetch_add(1, Ordering::SeqCst);
-    }
-    result
+pub extern "C" fn lurpic_render_activate_surface(surface: usize) -> RenderResult {
+    catch_render_result("activate_surface", || vulkan::activate_surface(surface))
 }
 
 #[no_mangle]

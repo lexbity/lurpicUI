@@ -22,6 +22,7 @@ import (
 func main() {
 	root := flag.String("root", ".", "repository root")
 	phase := flag.String("phase", "", "phase to run (empty selects every manifest phase)")
+	all := flag.Bool("all", false, "run every implemented manifest phase in dependency order")
 	mode := flag.String("mode", "", "build mode: host or race")
 	count := flag.Int("count", 0, "repetition override (0 uses manifest values)")
 	contracts := flag.String("contracts", "", "run source contracts for a phase or all")
@@ -65,30 +66,33 @@ func main() {
 		fmt.Printf("runtime-gate: contracts %s passed\n", contractPhase)
 		return
 	}
-	if *phase == "" {
-		fail("--phase is required")
-	}
-	if *phase != "P1" && *phase != "P2" && *phase != "P3" && *phase != "P4" && *phase != "P5" && *phase != "P6" {
-		fail("phase %s is not implemented", *phase)
-	}
 	if *mode != "" && *mode != testevidence.ModeHost && *mode != testevidence.ModeRace {
 		fail("mode must be host or race, got %q", *mode)
+	}
+	if *all && *phase != "" {
+		fail("--all cannot be combined with --phase")
+	}
+	phases := []string{*phase}
+	if *all || *phase == "" {
+		phases = []string{"P1", "P2", "P3", "P4", "P5", "P6"}
 	}
 	manifest := filepath.Join(*root, "runtime", "testdata", "performance", "gates.json")
 	runner := &testevidence.Runner{
 		Root:         *root,
 		EvidenceRoot: filepath.Join(*root, "build", "runtime-evidence"),
 	}
-	report, err := runner.Run(context.Background(), manifest, testevidence.Options{
-		Phase:   *phase,
-		Mode:    *mode,
-		Count:   *count,
-		Backend: *backend,
-	})
-	if err != nil {
-		fail("%v", err)
+	for _, phase := range phases {
+		if phase != "P1" && phase != "P2" && phase != "P3" && phase != "P4" && phase != "P5" && phase != "P6" {
+			fail("phase %s is not implemented", phase)
+		}
+		report, err := runner.Run(context.Background(), manifest, testevidence.Options{
+			Phase: phase, Mode: *mode, Count: *count, Backend: *backend,
+		})
+		if err != nil {
+			fail("phase %s: %v", phase, err)
+		}
+		fmt.Printf("runtime-gate: phase %s passed (%d gate(s), evidence in %s)\n", phase, len(report.Gates), report.EvidenceDir)
 	}
-	fmt.Printf("runtime-gate: phase %s passed (%d gate(s), evidence in %s)\n", *phase, len(report.Gates), report.EvidenceDir)
 }
 
 func runBenchmarkMeasure(root, phase, benchmark, pkg, fixturePath string, repetitions int) error {

@@ -329,6 +329,14 @@ impl InstanceRing {
         self.fences[slot].handle()
     }
 
+    /// Waits for the current submission to finish using this ring slot. The
+    /// render owner calls this before acknowledging the frame to the runtime;
+    /// the next begin_frame will reset the already-signaled fence for reuse.
+    pub fn wait_current_frame(&self) -> Result<(), (RenderResult, String)> {
+        let slot = ((self.frame_index - 1) % self.frames as u64) as usize;
+        self.fences[slot].wait(u64::MAX)
+    }
+
     /// The ring slot of the current frame (0..frames-1), used to index
     /// per-slot resources (e.g. descriptor pools in Slice 4).
     pub fn current_slot(&self) -> usize {

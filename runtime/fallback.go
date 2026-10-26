@@ -1,8 +1,6 @@
 package runtime
 
 import (
-	"errors"
-
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -37,25 +35,8 @@ func (rt *Runtime) currentSurface() render.Surface {
 	return nil
 }
 
-// softwareFallbackBackend is the RenderPipeline's fallback factory: it binds a
-// freshly-built software backend (from Config.SoftwareBackendFactory, owned by
-// the app layer) to the current platform surface (FR-12). Called on the render
-// thread after a GPU-fatal submit error.
-func (rt *Runtime) softwareFallbackBackend() (render.Backend, error) {
-	if rt.config.SoftwareBackendFactory == nil {
-		return nil, errors.New("runtime: no software backend factory configured for the GPU-fatal fallback")
-	}
-	surface := rt.currentSurface()
-	if surface == nil {
-		return nil, errors.New("runtime: no platform surface for software fallback")
-	}
-	return rt.config.SoftwareBackendFactory(surface)
-}
-
-// notifyBackendFallback is the RenderPipeline's onFallback hook: logs the
-// swap, emits the OnBackendFallback diagnostic (for hooks that opt in), and
-// re-wires the asset texture releaser/uploader to the software backend so
-// texture eviction and upload keep working after the swap.
+// notifyBackendFallback applies the render owner's immutable completion notice
+// on the runtime thread, including diagnostics and asset backend publication.
 func (rt *Runtime) notifyBackendFallback(from, reason string) {
 	rt.log.Warn("runtime: GPU render backend failed; falling back to software for the session",
 		"from", from, "reason", reason)

@@ -241,19 +241,7 @@ func OffsetContourInto(dst []PathSegment, segs []PathSegment, d float32) []PathS
 	return dst
 }
 
-func RectPath(r Rect) Path {
-	if r.IsEmpty() {
-		return Path{}
-	}
-
-	return NewPath().
-		MoveTo(Point{X: r.Min.X, Y: r.Min.Y}).
-		LineTo(Point{X: r.Max.X, Y: r.Min.Y}).
-		LineTo(Point{X: r.Max.X, Y: r.Max.Y}).
-		LineTo(Point{X: r.Min.X, Y: r.Max.Y}).
-		Close().
-		Build()
-}
+func RectPath(r Rect) Path { return Path{Segments: appendRectSegments(nil, r)} }
 
 func RoundedRectPath(r Rect, radius float32) Path {
 	if r.IsEmpty() {
@@ -319,19 +307,22 @@ func CirclePath(center Point, radius float32) Path {
 		Build()
 }
 
-func PolylinePath(pts []Point, closed bool) Path {
-	if len(pts) == 0 {
-		return Path{}
-	}
+func PolylinePath(points []Point, closed bool) Path {
+	return Path{Segments: appendPolylineSegments(nil, points, closed)}
+}
 
-	builder := NewPath().MoveTo(pts[0])
-	for i := 1; i < len(pts); i++ {
-		builder.LineTo(pts[i])
+func appendPolylineSegments(dst []PathSegment, points []Point, closed bool) []PathSegment {
+	if len(points) == 0 {
+		return dst
+	}
+	dst = append(dst, PathSegment{Verb: PathMoveTo, Pts: [3]Point{points[0]}})
+	for _, point := range points[1:] {
+		dst = append(dst, PathSegment{Verb: PathLineTo, Pts: [3]Point{point}})
 	}
 	if closed {
-		builder.Close()
+		dst = append(dst, PathSegment{Verb: PathClose})
 	}
-	return builder.Build()
+	return dst
 }
 
 func LinePath(start, end Point) Path {
@@ -339,4 +330,16 @@ func LinePath(start, end Point) Path {
 		MoveTo(start).
 		LineTo(end).
 		Build()
+}
+
+func appendRectSegments(dst []PathSegment, r Rect) []PathSegment {
+	if r.IsEmpty() {
+		return dst
+	}
+	return append(dst,
+		PathSegment{Verb: PathMoveTo, Pts: [3]Point{r.Min}},
+		PathSegment{Verb: PathLineTo, Pts: [3]Point{{X: r.Max.X, Y: r.Min.Y}}},
+		PathSegment{Verb: PathLineTo, Pts: [3]Point{r.Max}},
+		PathSegment{Verb: PathLineTo, Pts: [3]Point{{X: r.Min.X, Y: r.Max.Y}}},
+		PathSegment{Verb: PathClose})
 }

@@ -12,7 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
-func TestBackendSubmitGlyphRun_updatesGlyphAtlasAndPacketStats(t *testing.T) {
+func TestHeadlessGlyphPacketUpdatesAtlasAndStats(t *testing.T) {
 	if err := Shutdown(); err != nil {
 		t.Skipf("Vulkan unavailable: %v", err)
 	}
@@ -60,8 +60,13 @@ func TestBackendSubmitGlyphRun_updatesGlyphAtlasAndPacketStats(t *testing.T) {
 		},
 	})
 
-	if err := backend.Submit(frame); err != nil {
-		t.Fatalf("submit: %v", err)
+	defer frame.Release()
+	packet, err := backend.encoder.Encode(frame, backend.images)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := SubmitFrame(packet); err != nil {
+		t.Fatalf("headless packet admission: %v", err)
 	}
 	if got, err := testLastBatchCount(); err != nil {
 		t.Fatalf("last batch count: %v", err)

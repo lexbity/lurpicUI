@@ -8,9 +8,9 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/job"
-	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
+	"codeburg.org/lexbit/lurpicui/render"
 )
 
 func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit, reservedCleanupCredit bool) {
@@ -258,13 +258,14 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit, r
 				b.Bounds, len(b.Commands.Commands), b.Opacity)
 		}
 		windowInputs := rt.assembleWindowFrames(frameOut, dirtySnapshot)
-		input := windowInputs[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})]
+		input := windowInputs[render.PrimaryWindow]
 		if diag := rt.diagnosticsHook(); diag != nil {
 			if oi, ok := diag.(overlayInjector); ok {
 				oi.InjectOverlay(&input, stats)
 			}
 		}
-		frame, sealErr := rt.sealFrameInput(input)
+		windowInputs[render.PrimaryWindow] = input
+		frame, sealErr := rt.sealFrameGroup(windowInputs, reservedCleanupCredit)
 		if sealErr != nil {
 			rt.lastRenderCompletion = RenderCompletion{Frame: rt.frameNumber, Backend: backendKindName(rt.renderPipeline.Backend()), Err: sealErr}
 			rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
@@ -287,12 +288,18 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit, r
 			if !reservedFrameCredit && !reservedCleanupCredit {
 				panic("runtime: asynchronous frame started without render credit")
 			}
+			var submitErr error
 			if reservedCleanupCredit {
-				rt.renderPipeline.SubmitCleanupReserved(frame, rt.frameNumber)
+				submitErr = rt.renderPipeline.SubmitCleanupReserved(frame, rt.frameNumber)
 			} else {
-				rt.renderPipeline.SubmitReserved(frame, rt.frameNumber)
+				submitErr = rt.renderPipeline.SubmitReserved(frame, rt.frameNumber)
 			}
 			frameCreditTransferred = true
+			if submitErr != nil {
+				rt.lastRenderCompletion = RenderCompletion{Frame: rt.frameNumber, ResourceGeneration: view.Generation(), Err: submitErr}
+				rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
+				return
+			}
 		}
 		// First-frame marker: CI smoke tests grep logcat for this string to
 		// verify the app launched and rendered at least one frame. The marker
@@ -311,11 +318,6 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit, r
 	}
 	stats.RenderDuration = rt.clock.WallNow().Sub(renderStart)
 	rt.updateIMECursorRect()
-
-	// Check for device generation change (device lost + recreate).
-	// When the generation bumps, all GPU-cached texture IDs become invalid
-	// and are lazily re-uploaded on next use.
-	rt.checkDeviceGeneration()
 
 	// Collect asset manager diagnostics for the frame.
 	if rt.assetManager != nil {

@@ -72,23 +72,12 @@ func TestRenderPipeline_GPUFatalFallsBackToSoftware(t *testing.T) {
 
 	gpu := &fatalOnceBackend{}
 	p := newRenderPipeline(gpu)
-	p.fallbackFactory = func() (render.Backend, error) {
+	p.fallbackFactory = func(render.Surface) (render.Backend, error) {
 		r := software.NewSoftwareRenderer()
 		if err := r.Initialize(surface); err != nil {
 			return nil, err
 		}
 		return r, nil
-	}
-
-	var (
-		mu        sync.Mutex
-		gotFrom   string
-		gotReason string
-	)
-	p.onFallback = func(from, reason string) {
-		mu.Lock()
-		gotFrom, gotReason = from, reason
-		mu.Unlock()
 	}
 
 	done := make(chan struct{})
@@ -107,21 +96,27 @@ func TestRenderPipeline_GPUFatalFallsBackToSoftware(t *testing.T) {
 	}}})
 
 	// Frame 1 triggers the GPU-fatal swap (the frame itself is dropped).
-	p.SubmitAndWait(frame, 1)
+	first, err := frame.Retain()
+	if err != nil {
+		t.Fatal(err)
+	}
+	completion := p.SubmitAndWait(testframe.Group(first), 1)
 	if !gpu.destroyed.Load() {
 		t.Fatal("GPU backend must be destroyed on ErrGPUFatal")
 	}
-	mu.Lock()
-	if gotFrom == "" || gotReason == "" {
-		t.Fatalf("OnBackendFallback must be emitted (from=%q reason=%q)", gotFrom, gotReason)
+	if completion.FallbackFrom == "" || completion.FallbackReason == "" {
+		t.Fatal("fallback completion notice was missing")
 	}
-	mu.Unlock()
 
 	// Frame 2 renders on the software backend: the surface receives a blit.
 	before := surface.blits()
-	p.SubmitAndWait(frame, 2)
+	p.SubmitAndWait(testframe.Group(frame), 2)
 	if surface.blits() <= before {
 		t.Fatal("software backend must render frames after the fallback")
+	}
+	pixel := surface.Buffer()[8*surface.Stride()+8*4:]
+	if pixel[0] != 30 || pixel[1] != 60 || pixel[2] != 200 || pixel[3] != 255 {
+		t.Fatalf("fallback did not draw the held immutable packet: %v", pixel[:4])
 	}
 
 	p.destroy()
@@ -137,7 +132,7 @@ func TestRenderPipeline_GPUFatalDoesNotFatalShutdown(t *testing.T) {
 
 	gpu := &fakeBackend{submitErr: errors.New("packet parse error")}
 	p := newRenderPipeline(gpu)
-	p.fallbackFactory = func() (render.Backend, error) {
+	p.fallbackFactory = func(render.Surface) (render.Backend, error) {
 		return software.NewSoftwareRenderer(), nil
 	}
 
@@ -148,7 +143,7 @@ func TestRenderPipeline_GPUFatalDoesNotFatalShutdown(t *testing.T) {
 	}()
 
 	frame := testframe.Seal(render.FrameInput{})
-	p.SubmitAndWait(frame, 3)
+	p.SubmitAndWait(testframe.Group(frame), 3)
 
 	select {
 	case err := <-p.fatalCh:
@@ -200,6 +195,13 @@ func TestRuntime_WiresFallbackAndEmitsDiagnostic(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.DiagnosticsHook = hook
+	cfg.SoftwareBackendFactory = func(surface render.Surface) (render.Backend, error) {
+		backend := software.NewSoftwareRenderer()
+		if err := backend.Initialize(surface); err != nil {
+			return nil, err
+		}
+		return backend, nil
+	}
 	rt, err := New(cfg, nil, nil, &fakeBackend{}, &root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
@@ -207,11 +209,18 @@ func TestRuntime_WiresFallbackAndEmitsDiagnostic(t *testing.T) {
 	if rt.renderPipeline.fallbackFactory == nil {
 		t.Fatal("Runtime must wire the software fallback factory (Q9)")
 	}
-	if rt.renderPipeline.onFallback == nil {
-		t.Fatal("Runtime must wire the OnBackendFallback hook")
+	defer rt.Shutdown()
+	group, err := rt.sealFrameGroup(map[string]render.FrameInput{render.PrimaryWindow: {}}, false)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	rt.notifyBackendFallback("*vulkan.Backend", "device lost")
+	rt.pendingFrameViews[1] = group
+	notice := RenderCompletion{Frame: 1, ResourceGeneration: group.Generation(), Err: errors.New("device lost"), FallbackFrom: "*vulkan.Backend", FallbackReason: "device lost"}
+	rt.driveHandleRenderCompletion(notice)
+	rt.driveHandleRenderCompletion(notice)
+	if len(hook.events) != 1 {
+		t.Fatal("fallback notice was not applied exactly once at the runtime boundary")
+	}
 	ev, ok := hook.last()
 	if !ok {
 		t.Fatal("OnBackendFallback diagnostic must be emitted")

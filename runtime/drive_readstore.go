@@ -618,8 +618,11 @@ func driveFramePixels(rt *Runtime, _ drive.Command) driveOutcome {
 		return errorOutcome(&proto.Error{Code: proto.ErrRenderUnavailable, Detail: "surface lock failed"})
 	}
 	w, h := surface.Size()
-	img := imageFromBuffer(surface.Buffer(), surface.Stride(), w, h)
+	img, copyErr := copySurfaceImage(surface.Buffer(), surface.Stride(), w, h)
 	_ = surface.Unlock(nil)
+	if copyErr != nil {
+		return errorOutcome(&proto.Error{Code: proto.ErrRenderFailed, Detail: copyErr.Error()})
+	}
 	var out bytes.Buffer
 	if err := png.Encode(&out, img); err != nil {
 		return errorOutcome(&proto.Error{Code: proto.ErrRenderFailed, Detail: "png encoding failed"})
@@ -669,8 +672,17 @@ func (rt *Runtime) softwareSurface() render.SoftwareSurface {
 	return nil
 }
 
-func imageFromBuffer(buf []byte, stride, w, h int) image.Image {
-	return &image.RGBA{Pix: buf, Stride: stride, Rect: image.Rect(0, 0, w, h)}
+// copySurfaceImage freezes rows while the caller owns the platform lock.
+// The trusted pre-S7 software capture can encode after releasing that lock.
+func copySurfaceImage(buf []byte, stride, w, h int) (*image.RGBA, error) {
+	if w <= 0 || h <= 0 || w > 16384 || h > 16384 || stride < w*4 || h > len(buf)/stride {
+		return nil, errors.New("runtime: invalid software capture backing")
+	}
+	imageCopy := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		copy(imageCopy.Pix[y*imageCopy.Stride:y*imageCopy.Stride+w*4], buf[y*stride:y*stride+w*4])
+	}
+	return imageCopy, nil
 }
 
 func pngDataURL(pngBytes []byte) string {

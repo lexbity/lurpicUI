@@ -245,7 +245,7 @@ static void onNativeWindowRedrawNeeded(ANativeActivity* activity, ANativeWindow*
          g_redraw_needed_depth, (void*)activity, (void*)window, (int)gettid());
     DBG_STACK("onNativeWindowRedrawNeeded");
     /* Surface recreation, swapchain rebuild, and redraw are driven by the
-     * Vulkan backend's recreate path (lurpic_render_recreate_surface_android)
+     * render owner's queued native-surface creation path
      * through the native window lifecycle callbacks. This callback serves as
      * an additional hint that the window content needs repainting. */
     g_redraw_needed_depth--;

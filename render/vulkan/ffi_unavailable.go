@@ -97,3 +97,7 @@ func DestroyImage(handle uint64) error {
 }
 
 func resetRustLibraryLoaderForTest() {}
+
+func ActivateSurface(uintptr) error {
+	return errors.New("vulkan: surface activation requires the native renderer")
+}

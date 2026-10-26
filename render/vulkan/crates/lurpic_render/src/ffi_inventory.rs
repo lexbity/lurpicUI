@@ -27,6 +27,7 @@ pub struct FfiSymbol {
 
 #[allow(dead_code)]
 pub const FFI_SYMBOLS: &[FfiSymbol] = &[
+    FfiSymbol { name: "lurpic_render_activate_surface", ret: "int32_t", args: "uintptr_t surface", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_build_pipeline_probe", ret: "int32_t", args: "void", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_create_image", ret: "int32_t", args: "const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_create_surface_android", ret: "int32_t", args: "void *window, uintptr_t instance, uint32_t width, uint32_t height, uintptr_t *out_surface", platform: "android", test_only: false },
@@ -38,7 +39,6 @@ pub const FFI_SYMBOLS: &[FfiSymbol] = &[
     FfiSymbol { name: "lurpic_render_last_error", ret: "const char *", args: "void", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_query_capabilities", ret: "int32_t", args: "void *out", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_query_pipeline_features", ret: "int32_t", args: "void *out", platform: "", test_only: false },
-    FfiSymbol { name: "lurpic_render_recreate_surface_android", ret: "int32_t", args: "void *window, uint32_t width, uint32_t height", platform: "android", test_only: false },
     FfiSymbol { name: "lurpic_render_reset_atlas", ret: "void", args: "void", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_resize", ret: "int32_t", args: "int32_t width, int32_t height", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_set_validation", ret: "int32_t", args: "uint32_t enabled", platform: "", test_only: false },

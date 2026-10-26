@@ -1,12 +1,112 @@
 package render_test
 
 import (
+	"reflect"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/render/canonical"
+	"codeburg.org/lexbit/lurpicui/text"
 )
+
+func TestFrameCommandViewsCannotMutatePage(t *testing.T) {
+	stops := []gfx.GradientStop{{Offset: 0, Color: gfx.Color{R: 1, A: 1}}, {Offset: 1, Color: gfx.Color{B: 1, A: 1}}}
+	brush := gfx.LinearGradientBrush(gfx.Point{}, gfx.Point{X: 20}, stops)
+	path := gfx.RectPath(gfx.RectFromXYWH(0, 0, 20, 20))
+	stroke := gfx.DefaultStroke(2)
+	stroke.Dash = []float32{2, 3}
+	commands := []gfx.Command{
+		gfx.FillRect{Brush: brush}, gfx.StrokeRect{Brush: brush, Stroke: stroke},
+		gfx.FillPath{Path: path, Brush: brush}, gfx.StrokePath{Path: path, Brush: brush, Stroke: stroke},
+		gfx.DrawPolyline{Points: []gfx.Point{{X: 1}}, Stroke: stroke, Brush: brush},
+		gfx.DrawPoints{Points: []gfx.Point{{Y: 2}}, Brush: brush},
+		gfx.DrawGlyphRun{Run: text.GlyphRun{Glyphs: []text.PositionedGlyph{{GlyphID: 1}}, GraphemeAdvances: []float32{2}, Text: "x"}, Brush: brush},
+		gfx.DrawSelectionRects{Rects: []gfx.Rect{gfx.RectFromXYWH(0, 0, 2, 3)}, Brush: brush},
+		gfx.DrawBlurredShadow{Path: path},
+	}
+	input := render.FrameInput{Batches: []render.BatchInput{{Commands: gfx.CommandList{Commands: commands}}}}
+	_, reservation := reserveFrame(t, input, 0)
+	frame, err := render.SealFrame(input, reservation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer frame.Release()
+	before, err := canonical.Digest(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stops[0].Color.R = .25
+	path.Segments[0].Pts[0].X = 999
+	stroke.Dash[0] = 999
+	frame.VisitBatchCommands(0, func(command gfx.CommandView) bool {
+		var check func(reflect.Value)
+		check = func(value reflect.Value) {
+			if value.Kind() == reflect.Slice && !value.IsNil() {
+				t.Fatalf("scalar accessor leaked writable slice %s", value.Type())
+			}
+			if value.Kind() == reflect.Struct {
+				for i := 0; i < value.NumField(); i++ {
+					if value.Type().Field(i).IsExported() {
+						check(value.Field(i))
+					}
+				}
+			}
+		}
+		check(reflect.ValueOf(command.Scalars()))
+		if command.Points().Len() > 0 {
+			point := command.Points().At(0)
+			point.X = 999
+		}
+		if command.Path().Segments.Len() > 0 {
+			segment := command.Path().Segments.At(0)
+			segment.Pts[0].X = 999
+		}
+		if command.Brush().GradientStops.Len() > 0 {
+			stop := command.Brush().GradientStops.At(0)
+			stop.Offset = 999
+		}
+		return true
+	})
+	after, err := canonical.Digest(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before != after {
+		t.Fatal("source or reader mutation changed sealed command page")
+	}
+	if allocations := testing.AllocsPerRun(100, func() {
+		frame.VisitBatchCommands(0, func(command gfx.CommandView) bool { _ = command.Scalars(); return true })
+	}); allocations != 0 {
+		t.Fatalf("immutable reads allocate: %v", allocations)
+	}
+}
+
+func TestFrameReservationIncludesNestedCommandPayloads(t *testing.T) {
+	const elements = 4096
+	brush := gfx.LinearGradientBrush(gfx.Point{}, gfx.Point{X: 1}, make([]gfx.GradientStop, elements))
+	path := gfx.Path{Segments: make([]gfx.PathSegment, elements)}
+	stroke := gfx.DefaultStroke(1)
+	stroke.Dash = make([]float32, elements)
+	for name, command := range map[string]gfx.Command{
+		"fill-gradient":        gfx.FillRect{Brush: brush},
+		"stroke-gradient-dash": gfx.StrokeRect{Brush: brush, Stroke: stroke},
+		"fill-path":            gfx.FillPath{Path: path, Brush: brush},
+		"stroke-path":          gfx.StrokePath{Path: path, Brush: brush, Stroke: stroke},
+		"glyph-gradient":       gfx.DrawGlyphRun{Brush: brush},
+	} {
+		t.Run(name, func(t *testing.T) {
+			bytes, err := gfx.EstimateCommandPageBytes([]gfx.Command{command})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if bytes < elements*20 {
+				t.Fatalf("nested backing undercharged: %d bytes", bytes)
+			}
+		})
+	}
+}
 
 func reserveFrame(t *testing.T, input render.FrameInput, extra uint64) (*membudget.Wallet, *membudget.Reservation) {
 	t.Helper()
@@ -71,7 +171,7 @@ func TestFrameBatchMetadataAndCommands(t *testing.T) {
 		t.Fatalf("batch=%+v", b)
 	}
 	count := 0
-	if !frame.VisitBatchCommands(0, func(gfx.Command) bool { count++; return true }) || count != 1 {
+	if !frame.VisitBatchCommands(0, func(gfx.CommandView) bool { count++; return true }) || count != 1 {
 		t.Fatalf("command count=%d", count)
 	}
 }
@@ -91,7 +191,7 @@ func TestFramePagesWaitForAllConsumers(t *testing.T) {
 	points[0].X = 99
 	input.Batches[0].ID = 2
 	var x float32
-	frame.VisitBatchCommands(0, func(command gfx.Command) bool { x = command.(gfx.DrawPolyline).Points[0].X; return false })
+	frame.VisitBatchCommands(0, func(command gfx.CommandView) bool { x = command.Points().At(0).X; return false })
 	if x != 2 {
 		t.Fatalf("sealed command changed with input: x=%v", x)
 	}

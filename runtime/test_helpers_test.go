@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -50,6 +51,15 @@ func testConfig(t testing.TB) Config {
 	scope := store.NewScope()
 	t.Cleanup(scope.Close)
 	return testConfigForScope(t, scope)
+}
+
+func testFrameStorage(t testing.TB, capacity, packetCap uint64) *frameStorage {
+	t.Helper()
+	s, err := newFrameStorage(capacity, packetCap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return s
 }
 
 func testConfigForScope(t testing.TB, scope *store.Scope) Config {
@@ -412,4 +422,15 @@ func newRuntimeHitFacet(name string, bounds gfx.Rect, fill color.RGBA) *runtimeH
 	f.AddRole(&f.render)
 	f.AddRole(&f.hit)
 	return f
+}
+
+func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirty map[facet.FacetID]facet.DirtyFlags) (*render.Frame, error) {
+	input := assembleFrameInputWithLayers(output, dirty, rt)
+	group, err := rt.sealFrameGroup(map[string]render.FrameInput{render.PrimaryWindow: input}, false)
+	if err != nil {
+		return nil, err
+	}
+	frame, err := group.RetainWindow(0)
+	_ = group.Release()
+	return frame, err
 }

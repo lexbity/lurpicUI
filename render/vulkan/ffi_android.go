@@ -47,7 +47,7 @@ int lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint3
 int lurpic_render_destroy_image(uint64_t handle);
 void lurpic_render_reset_atlas(void);
 int lurpic_render_create_surface_android(void *android_window, uintptr_t instance, uint32_t width, uint32_t height, uintptr_t *out_surface);
-int lurpic_render_recreate_surface_android(void *android_window, uint32_t width, uint32_t height);
+int lurpic_render_activate_surface(uintptr_t surface);
 int lurpic_render_resize(int width, int height);
 unsigned long long lurpic_render_device_generation(void);
 void lurpic_render_unload(void);
@@ -132,14 +132,6 @@ func CreateAndroidSurface(window uintptr, instance uintptr, width, height uint32
 		return 0, errors.New("vulkan: Rust returned a zero surface handle")
 	}
 	return uintptr(out), nil
-}
-
-func RecreateAndroidSurface(window uintptr, width, height uint32) error {
-	return translateStatus(C.lurpic_render_recreate_surface_android(
-		unsafe.Pointer(window),
-		C.uint32_t(width),
-		C.uint32_t(height),
-	))
 }
 
 func Resize(width, height int) error {
@@ -297,4 +289,8 @@ func cErrorMessage() string {
 		return C.GoString(errPtr)
 	}
 	return ""
+}
+
+func ActivateSurface(surface uintptr) error {
+	return translateStatus(C.lurpic_render_activate_surface(C.uintptr_t(surface)))
 }

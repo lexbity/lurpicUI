@@ -10,6 +10,7 @@ import (
 	"math"
 	"sync"
 
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/text"
 	"github.com/go-text/typesetting/font"
@@ -65,12 +66,12 @@ func cachedRasterizeGlyph(run text.GlyphRun, glyph text.PositionedGlyph, sizeBit
 	return entry
 }
 
-func uploadGlyphRun(run text.GlyphRun) error {
-	if run.Face.CacheKey() == 0 || len(run.Glyphs) == 0 {
+func uploadGlyphRun(run text.GlyphRun, glyphs gfx.Values[text.PositionedGlyph]) error {
+	if run.Face.CacheKey() == 0 || glyphs.Len() == 0 {
 		return nil
 	}
 	sizeBits := renderutil.GlyphSizeBits(run)
-	for _, glyph := range run.Glyphs {
+	for glyph := range glyphs.All() {
 		if err := uploadGlyphEntry(run, glyph, sizeBits); err != nil {
 			return err
 		}

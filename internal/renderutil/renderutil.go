@@ -192,14 +192,14 @@ func detectPartialChange(oldBounds, newBounds []gfx.Rect, oldDigests, newDigests
 func batchMetadata(frame *render.Frame, index int) (digests []string, bounds []gfx.Rect, complex bool) {
 	digests = make([]string, 0)
 	bounds = make([]gfx.Rect, 0)
-	visitOK := frame.VisitBatchCommands(index, func(command gfx.Command) bool {
+	visitOK := frame.VisitBatchCommands(index, func(command gfx.CommandView) bool {
 		digest, err := canonical.DigestCommand(command)
 		if err != nil {
 			panic(fmt.Errorf("renderutil: canonical command contract: %w", err))
 		}
 		digests = append(digests, digest)
 		bounds = append(bounds, commandBounds(command))
-		if transform, ok := command.(gfx.PushTransform); ok && !transform.Matrix.IsIdentity() {
+		if transform, ok := command.Scalars().(gfx.PushTransform); ok && !transform.Matrix.IsIdentity() {
 			complex = true
 		}
 		return true
@@ -222,22 +222,22 @@ func stringSlicesEqual(a, b []string) bool {
 	return true
 }
 
-func commandBounds(cmd gfx.Command) gfx.Rect {
-	switch c := cmd.(type) {
+func commandBounds(cmd gfx.CommandView) gfx.Rect {
+	switch c := cmd.Scalars().(type) {
 	case gfx.FillRect:
 		return c.Rect
 	case gfx.StrokeRect:
 		return c.Rect.Inset(-c.Stroke.Width/2, -c.Stroke.Width/2)
 	case gfx.FillPath:
-		return pathBounds(c.Path)
+		return pathBounds(cmd.Path())
 	case gfx.StrokePath:
-		return pathBounds(c.Path).Inset(-c.Stroke.Width/2, -c.Stroke.Width/2)
+		return pathBounds(cmd.Path()).Inset(-c.Stroke.Width/2, -c.Stroke.Width/2)
 	case gfx.DrawPolyline:
-		return pointsBounds(c.Points).Inset(-c.Stroke.Width/2, -c.Stroke.Width/2)
+		return pointsBounds(cmd.Points()).Inset(-c.Stroke.Width/2, -c.Stroke.Width/2)
 	case gfx.DrawGlyphRun:
 		return gfx.Rect{}
 	case gfx.DrawSelectionRects:
-		return rectUnionAll(c.Rects)
+		return rectUnionAll(cmd.Rects())
 	case gfx.DrawImage:
 		return c.DestRect
 	default:
@@ -331,12 +331,13 @@ func RenderBatchDirtyMap(diffs map[render.RenderBatchID]RenderBatchDiff) map[ren
 	return out
 }
 
-func rectUnionAll(rects []gfx.Rect) gfx.Rect {
-	if len(rects) == 0 {
+func rectUnionAll(rects gfx.Values[gfx.Rect]) gfx.Rect {
+	if rects.Len() == 0 {
 		return gfx.Rect{}
 	}
-	out := rects[0]
-	for _, r := range rects[1:] {
+	out := rects.At(0)
+	for i := 1; i < rects.Len(); i++ {
+		r := rects.At(i)
 		out = unionRects(out, r)
 	}
 	return out
@@ -405,10 +406,10 @@ func intersectRects(a, b gfx.Rect) gfx.Rect {
 	return gfx.Rect{Min: gfx.Point{X: minX, Y: minY}, Max: gfx.Point{X: maxX, Y: maxY}}
 }
 
-func pathBounds(path gfx.Path) gfx.Rect {
+func pathBounds(path gfx.PathView) gfx.Rect {
 	var bounds gfx.Rect
 	first := true
-	for _, seg := range path.Segments {
+	for seg := range path.Segments.All() {
 		count := 0
 		switch seg.Verb {
 		case gfx.PathMoveTo, gfx.PathLineTo:
@@ -445,12 +446,13 @@ func pathBounds(path gfx.Path) gfx.Rect {
 	return bounds
 }
 
-func pointsBounds(pts []gfx.Point) gfx.Rect {
-	if len(pts) == 0 {
+func pointsBounds(pts gfx.Values[gfx.Point]) gfx.Rect {
+	if pts.Len() == 0 {
 		return gfx.Rect{}
 	}
-	bounds := gfx.Rect{Min: pts[0], Max: pts[0]}
-	for _, p := range pts[1:] {
+	bounds := gfx.Rect{Min: pts.At(0), Max: pts.At(0)}
+	for i := 1; i < pts.Len(); i++ {
+		p := pts.At(i)
 		if p.X < bounds.Min.X {
 			bounds.Min.X = p.X
 		}

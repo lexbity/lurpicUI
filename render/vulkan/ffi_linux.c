@@ -8,6 +8,7 @@
 static void *lurpic_render_handle = NULL;
 
 // GEN-FFI-START fn-declarations
+static int32_t (*lurpic_render_activate_surface_fn)(uintptr_t surface) = NULL;
 static int32_t (*lurpic_render_build_pipeline_probe_fn)(void) = NULL;
 static int32_t (*lurpic_render_create_image_fn)(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle) = NULL;
 static int32_t (*lurpic_render_create_xcb_surface_fn)(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface) = NULL;
@@ -47,6 +48,7 @@ static const char * (*lurpic_render_version_fn)(void) = NULL;
 // GEN-FFI-END fn-declarations
 static void lurpic_render_reset_fns(void) {
 // GEN-FFI-START unload
+  lurpic_render_activate_surface_fn = NULL;
   lurpic_render_build_pipeline_probe_fn = NULL;
   lurpic_render_create_image_fn = NULL;
   lurpic_render_create_xcb_surface_fn = NULL;
@@ -144,6 +146,7 @@ int lurpic_render_load(const char *library_path) {
 
   dlerror();
 // GEN-FFI-START dlsym
+  LOAD_SYM(lurpic_render_activate_surface_fn, "lurpic_render_activate_surface", int32_t(*)(uintptr_t surface));
   LOAD_SYM(lurpic_render_build_pipeline_probe_fn, "lurpic_render_build_pipeline_probe", int32_t(*)(void));
   LOAD_SYM(lurpic_render_create_image_fn, "lurpic_render_create_image", int32_t(*)(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle));
   LOAD_SYM(lurpic_render_create_xcb_surface_fn, "lurpic_render_create_xcb_surface", int32_t(*)(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface));
@@ -190,6 +193,22 @@ int lurpic_render_load(const char *library_path) {
 }
 
 // GEN-FFI-START wrappers
+int32_t lurpic_render_activate_surface(uintptr_t surface) {
+  if (lurpic_render_activate_surface_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_activate_surface_fn(surface);
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
 int32_t lurpic_render_build_pipeline_probe(void) {
   if (lurpic_render_build_pipeline_probe_fn == NULL) {
     set_error("vulkan: Rust library not loaded");

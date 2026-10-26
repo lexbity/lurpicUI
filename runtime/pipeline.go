@@ -11,39 +11,78 @@ import (
 )
 
 type frameHandoff struct {
-	frame              *render.Frame
+	frame              *render.FrameGroup
 	frameID            uint64
 	resourceGeneration uint64
+	sequence           uint64
 	doneCh             chan RenderCompletion
 	async              bool
 	reserved           bool
 	cleanup            bool
 }
 
+type renderLifecycleKind uint8
+
+const (
+	renderLifecycleSurfaceLost renderLifecycleKind = iota + 1
+	renderLifecycleSurfaceCreated
+	renderLifecycleEvictCaches
+)
+
+type renderLifecycleRequest struct {
+	targets     [render.MaxFrameWindows]render.WindowTarget
+	targetCount int
+	kind        renderLifecycleKind
+	surface     render.Surface
+	generation  uint64
+	sequence    uint64
+}
+
+const (
+	maxRenderLifecycleRequests = 16
+	maxOutstandingFrames       = 3 // two ordinary groups and one cleanup group
+)
+
 // RenderCompletion is the immutable acknowledgment returned to the runtime
 // after the render worker finishes its submission call. Software backends
 // draw synchronously in Submit, so Ready identifies an available surface.
-type RenderCompletion struct {
-	Frame              uint64
-	ResourceGeneration uint64
-	Backend            string
-	Ready              bool
-	Err                error
+type WindowCompletion struct {
+	render.WindowDescriptor
+	Ready bool
 }
 
-// RenderPipeline hands frames to the render backend with capacity-1 backpressure.
+type RenderCompletion struct {
+	FallbackFrom        string
+	FallbackReason      string
+	WindowCount         int
+	Windows             [render.MaxFrameWindows]WindowCompletion
+	Frame               uint64
+	ResourceGeneration  uint64
+	Lifecycle           renderLifecycleKind
+	LifecycleGeneration uint64
+	DeviceGeneration    uint64
+	HasDeviceGeneration bool
+	Backend             string
+	Ready               bool
+	Err                 error
+}
+
+// RenderPipeline hands frames to the render backend through two prepaid
+// ordinary groups plus an independent cleanup group.
 //
 // Slice 10 (Q9/FR-12): on a *render.ErrGPUFatal from Submit, the render thread
 // destroys the GPU backend and swaps in a software backend bound to the current
 // platform surface for the rest of the session (one-shot, no auto-retry). The
-// `mu` guards `backend`/`uploadQueue` against the runtime thread's lifecycle
-// reads (device generation, surface lost/created, eviction).
+// render thread owns every backend call, including lifecycle changes and
+// device-generation queries. `mu` protects pointer publication and fallback
+// replacement for capability readers.
 type RenderPipeline struct {
 	mu                sync.RWMutex
 	backend           render.Backend
 	uploadQueue       *render.UploadQueue
 	handoffCh         chan frameHandoff
 	cleanupHandoffCh  chan frameHandoff
+	lifecycleCh       chan renderLifecycleRequest
 	fatalCh           chan error
 	completedCh       chan RenderCompletion
 	frameCredit       chan struct{}
@@ -52,38 +91,42 @@ type RenderPipeline struct {
 	doneCh            chan struct{}
 	shutdownRequested bool
 	workerStarted     atomic.Bool
+	sequence          atomic.Uint64
+	orderMu           sync.Mutex
 
 	// fromKind names the initially-selected backend for the fallback diagnostic
 	// (e.g. "*vulkan.Backend").
 	fromKind string
-	// fallbackFactory lazily builds a software backend bound to the current
-	// platform surface. Set by the runtime constructor; nil disables fallback.
-	fallbackFactory func() (render.Backend, error)
-	// onFallback is invoked on the render thread after a successful GPU→software
-	// swap (may be nil). The runtime uses it to log, emit the OnBackendFallback
-	// diagnostic (config.go's backendFallbackSink), and re-wire the asset
-	// texture backend.
-	onFallback func(from, reason string)
+	// Startup/lifecycle capture supplies native targets. The render worker
+	// never calls a runtime getter or an authored callback during fallback.
+	targets         [render.MaxFrameWindows]render.WindowTarget
+	targetCount     int
+	fallbackFactory func(render.Surface) (render.Backend, error)
 }
 
 type renderThread struct {
-	pipeline *RenderPipeline
+	surfaceDestroyed bool
+	pipeline         *RenderPipeline
 }
 
 func newRenderPipeline(backend render.Backend) *RenderPipeline {
 	p := &RenderPipeline{
 		backend:          backend,
-		handoffCh:        make(chan frameHandoff, 1),
+		handoffCh:        make(chan frameHandoff, 2),
 		cleanupHandoffCh: make(chan frameHandoff, 1),
+		lifecycleCh:      make(chan renderLifecycleRequest, maxRenderLifecycleRequests),
 		fatalCh:          make(chan error, 1),
-		// At most one handoff is queued while another frame is in the
-		// backend. Two slots retain every completion until the runtime's next
-		// control turn without making render completion block the runtime.
-		completedCh:   make(chan RenderCompletion, 3),
+		// Keep every possible acknowledgment buffered: the lifecycle queue may
+		// hold its full capacity while one more request is executing, alongside
+		// both ordinary frame groups and the reserved cleanup group. Completion
+		// publication must not strand the render owner during shutdown.
+		completedCh:   make(chan RenderCompletion, maxRenderLifecycleRequests+1+maxOutstandingFrames),
 		frameCredit:   make(chan struct{}, 2),
 		cleanupCredit: make(chan struct{}, 1),
 		doneCh:        make(chan struct{}),
 		fromKind:      backendKindName(backend),
+		targetCount:   1,
+		targets:       [render.MaxFrameWindows]render.WindowTarget{{ID: render.PrimaryWindow}},
 	}
 	p.frameCredit <- struct{}{}
 	p.frameCredit <- struct{}{}
@@ -103,8 +146,8 @@ func backendKindName(b render.Backend) string {
 	return fmt.Sprintf("%T", b)
 }
 
-// Backend returns the current backend (nil when none / mid-swap). Locked read
-// for the runtime thread; the render thread's swap serializes against it.
+// Backend returns the current backend pointer for capability wiring. Callers
+// must not invoke backend methods; all such calls belong to the render owner.
 func (p *RenderPipeline) Backend() render.Backend {
 	if p == nil {
 		return nil
@@ -133,22 +176,16 @@ func (p *RenderPipeline) UploadQueue() *render.UploadQueue {
 	return p.uploadQueue
 }
 
-// Submit sends a frame to the render backend pipeline.
-func (p *RenderPipeline) Submit(frame *render.Frame, frameID uint64) {
-	if p == nil || p.Backend() == nil {
-		if frame != nil {
-			_ = frame.Release()
-		}
-		return
-	}
-	p.reserveFrame()
-	p.SubmitReserved(frame, frameID)
-}
-
 // TryReserveFrame reserves one of the pipeline's two bounded in-flight frame
 // groups before the runtime begins a frame. It never waits for the renderer.
 func (p *RenderPipeline) TryReserveFrame() bool {
-	if p == nil || p.Backend() == nil {
+	if p == nil {
+		return false
+	}
+	p.mu.RLock()
+	available := p.backend != nil && !p.shutdownRequested
+	p.mu.RUnlock()
+	if !available {
 		return false
 	}
 	select {
@@ -161,11 +198,40 @@ func (p *RenderPipeline) TryReserveFrame() bool {
 
 // SubmitReserved transfers a previously reserved frame group to the render
 // worker. The capacity reservation guarantees this handoff cannot block.
-func (p *RenderPipeline) SubmitReserved(frame *render.Frame, frameID uint64) {
-	if p == nil {
-		return
+func (p *RenderPipeline) SubmitReserved(frame *render.FrameGroup, frameID uint64) error {
+	return p.enqueueFrame(frameHandoff{frame: frame, frameID: frameID, resourceGeneration: frame.Generation(), async: true, reserved: true})
+}
+
+func (p *RenderPipeline) enqueueFrame(handoff frameHandoff) error {
+	p.orderMu.Lock()
+	defer p.orderMu.Unlock()
+	p.mu.RLock()
+	stopping := p.shutdownRequested
+	p.mu.RUnlock()
+	sequence, sequenceErr := p.nextSequenceLocked()
+	if stopping || sequenceErr != nil {
+		if handoff.frame != nil {
+			_ = handoff.frame.Release()
+		}
+		if handoff.reserved {
+			if handoff.cleanup {
+				p.ReleaseCleanupFrameReservation()
+			} else {
+				p.ReleaseFrameReservation()
+			}
+		}
+		if sequenceErr != nil {
+			return sequenceErr
+		}
+		return errors.New("runtime: render pipeline is shutting down")
 	}
-	p.handoffCh <- frameHandoff{frame: frame, frameID: frameID, resourceGeneration: frame.Generation(), async: true, reserved: true}
+	handoff.sequence = sequence
+	if handoff.cleanup {
+		p.cleanupHandoffCh <- handoff
+	} else {
+		p.handoffCh <- handoff
+	}
+	return nil
 }
 
 // ReleaseFrameReservation returns a frame group when a reserved frame exits
@@ -174,13 +240,23 @@ func (p *RenderPipeline) ReleaseFrameReservation() {
 	if p == nil {
 		return
 	}
-	p.frameCredit <- struct{}{}
+	select {
+	case p.frameCredit <- struct{}{}:
+	default:
+		panic("runtime: duplicate ordinary frame credit release")
+	}
 }
 
 // TryReserveCleanupFrame claims the independent cleanup group even when both
 // ordinary frame groups are held by a delayed renderer.
 func (p *RenderPipeline) TryReserveCleanupFrame() bool {
-	if p == nil || p.Backend() == nil {
+	if p == nil {
+		return false
+	}
+	p.mu.RLock()
+	available := p.backend != nil && !p.shutdownRequested
+	p.mu.RUnlock()
+	if !available {
 		return false
 	}
 	select {
@@ -191,18 +267,19 @@ func (p *RenderPipeline) TryReserveCleanupFrame() bool {
 	}
 }
 
-func (p *RenderPipeline) SubmitCleanupReserved(frame *render.Frame, frameID uint64) {
-	if p == nil {
-		return
-	}
-	p.cleanupHandoffCh <- frameHandoff{frame: frame, frameID: frameID, resourceGeneration: frame.Generation(), async: true, reserved: true, cleanup: true}
+func (p *RenderPipeline) SubmitCleanupReserved(frame *render.FrameGroup, frameID uint64) error {
+	return p.enqueueFrame(frameHandoff{frame: frame, frameID: frameID, resourceGeneration: frame.Generation(), async: true, reserved: true, cleanup: true})
 }
 
 func (p *RenderPipeline) ReleaseCleanupFrameReservation() {
 	if p == nil {
 		return
 	}
-	p.cleanupCredit <- struct{}{}
+	select {
+	case p.cleanupCredit <- struct{}{}:
+	default:
+		panic("runtime: duplicate cleanup frame credit release")
+	}
 }
 
 func (p *RenderPipeline) reserveFrame() {
@@ -220,7 +297,7 @@ func (p *RenderPipeline) Completions() <-chan RenderCompletion {
 }
 
 // SubmitAndWait hands a frame to the renderer and waits for completion.
-func (p *RenderPipeline) SubmitAndWait(frame *render.Frame, frameID uint64) RenderCompletion {
+func (p *RenderPipeline) SubmitAndWait(frame *render.FrameGroup, frameID uint64) RenderCompletion {
 	if p == nil || p.Backend() == nil {
 		generation := frame.Generation()
 		if frame != nil {
@@ -230,8 +307,48 @@ func (p *RenderPipeline) SubmitAndWait(frame *render.Frame, frameID uint64) Rend
 	}
 	done := make(chan RenderCompletion, 1)
 	p.reserveFrame()
-	p.handoffCh <- frameHandoff{frame: frame, frameID: frameID, resourceGeneration: frame.Generation(), doneCh: done, reserved: true}
+	generation := frame.Generation()
+	if err := p.enqueueFrame(frameHandoff{frame: frame, frameID: frameID, resourceGeneration: generation, doneCh: done, reserved: true}); err != nil {
+		return RenderCompletion{Frame: frameID, ResourceGeneration: generation, Err: err}
+	}
 	return <-done
+}
+
+func (p *RenderPipeline) requestLifecycle(kind renderLifecycleKind, surface render.Surface, generation uint64, targets []render.WindowTarget) error {
+	if p == nil {
+		return errors.New("runtime: render pipeline unavailable")
+	}
+	p.orderMu.Lock()
+	defer p.orderMu.Unlock()
+	p.mu.RLock()
+	stopping := p.shutdownRequested
+	p.mu.RUnlock()
+	if stopping {
+		return errors.New("runtime: render pipeline is shutting down")
+	}
+	if len(targets) > render.MaxFrameWindows {
+		return errors.New("runtime: too many lifecycle windows")
+	}
+	sequence, err := p.nextSequenceLocked()
+	if err != nil {
+		return err
+	}
+	request := renderLifecycleRequest{kind: kind, surface: surface, generation: generation, sequence: sequence, targetCount: len(targets)}
+	copy(request.targets[:], targets)
+	select {
+	case p.lifecycleCh <- request:
+		return nil
+	default:
+		return errors.New("runtime: render lifecycle request capacity exhausted")
+	}
+}
+
+// nextSequenceLocked is called only under orderMu, before publication.
+func (p *RenderPipeline) nextSequenceLocked() (uint64, error) {
+	if p.sequence.Load() == ^uint64(0) {
+		return 0, errors.New("runtime: render submission sequence exhausted")
+	}
+	return p.sequence.Add(1), nil
 }
 
 // swapToSoftwareFallback tears down the failing GPU backend and installs a
@@ -239,94 +356,79 @@ func (p *RenderPipeline) SubmitAndWait(frame *render.Frame, frameID uint64) Rend
 // after an ErrGPUFatal; the frame in flight is dropped (one dropped frame is
 // acceptable). If the software backend cannot be built, the failure surfaces on
 // fatalCh (the runtime shuts down) rather than silently stalling.
-func (p *RenderPipeline) swapToSoftwareFallback(reason error) {
-	p.mu.Lock()
-	old := p.backend
-	if old == nil || p.fallbackFactory == nil {
-		p.mu.Unlock()
-		return
+func (p *RenderPipeline) swapToSoftwareFallback(reason error) (string, error) {
+	p.mu.RLock()
+	old, factory, from := p.backend, p.fallbackFactory, p.fromKind
+	p.mu.RUnlock()
+	if old == nil || factory == nil {
+		return "", fmt.Errorf("runtime: software fallback unavailable after %w", reason)
 	}
-	// Hold the lock across the teardown + swap so the runtime thread's backend
-	// reads never observe a half-swapped state.
-	old.Destroy()
-	backend, err := p.fallbackFactory()
-	if err != nil {
-		p.mu.Unlock()
-		select {
-		case p.fatalCh <- fmt.Errorf("runtime: software fallback after GPU fatal (%w): %w", reason, err):
-		default:
+	var primary render.Surface
+	for _, target := range p.targets[:p.targetCount] {
+		if target.ID == render.PrimaryWindow {
+			primary = target.Surface
 		}
-		return
 	}
-	p.backend = backend
-	if tb, ok := backend.(render.TextureBackend); ok {
-		p.uploadQueue = render.NewUploadQueue(tb, 1024)
+	old.Destroy()
+	backend, err := factory(primary)
+	if err != nil {
+		return "", fmt.Errorf("runtime: software fallback after %w: %w", reason, err)
 	}
-	fromKind := p.fromKind
+	if p.targetCount > 1 {
+		multi, ok := backend.(render.WindowBackend)
+		if !ok {
+			backend.Destroy()
+			return "", errors.New("runtime: fallback backend lacks window-set contract")
+		}
+		if err := multi.ConfigureWindows(p.targets[:p.targetCount]); err != nil {
+			backend.Destroy()
+			return "", err
+		}
+	}
+	var uploads *render.UploadQueue
+	if textures, ok := backend.(render.TextureBackend); ok {
+		uploads = render.NewUploadQueue(textures, 1024)
+	}
+	p.mu.Lock()
+	p.backend, p.uploadQueue = backend, uploads
 	p.mu.Unlock()
-
-	if p.onFallback != nil {
-		p.onFallback(fromKind, reason.Error())
-	}
+	return from, nil
 }
 
-// destroyBackend destroys the current backend under the pipeline lock (used at
-// shutdown and on surface loss). The backend object is kept so a subsequent
-// surface-created event can re-initialize or recreate it (the lifecycle
-// contract); a GPU-fatal fallback replaces it wholesale.
-func (p *RenderPipeline) destroyBackend() {
-	if p == nil {
-		return
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.backend != nil {
-		p.backend.Destroy()
-	}
+// QueueSurfaceLost serializes backend teardown after all previously accepted
+// submissions and before any later submission.
+func (p *RenderPipeline) QueueSurfaceLost(generation uint64) error {
+	return p.requestLifecycle(renderLifecycleSurfaceLost, nil, generation, nil)
 }
 
-// recreateOrInitialize rebuilds the backend against a new platform surface under
-// the pipeline lock (preferring the lighter Recreate path when available).
-func (p *RenderPipeline) recreateOrInitialize(surface render.Surface) error {
-	if p == nil || surface == nil {
-		return nil
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if p.backend == nil {
-		return errors.New("runtime: no render backend to reinitialize")
-	}
-	if recreatable, ok := p.backend.(render.RecreatableBackend); ok {
-		return recreatable.Recreate(surface)
-	}
-	return p.backend.Initialize(surface)
+// QueueSurfaceCreated serializes surface recreation on the render owner. The
+// returned readiness is published only by the matching completion.
+func (p *RenderPipeline) QueueSurfaceCreated(surface render.Surface, generation uint64, targets []render.WindowTarget) error {
+	return p.requestLifecycle(renderLifecycleSurfaceCreated, surface, generation, targets)
 }
 
-// evictCaches forwards to a CacheEvictor backend under the pipeline lock.
-func (p *RenderPipeline) evictCaches() {
-	if p == nil {
-		return
-	}
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	if evictor, ok := p.backend.(render.CacheEvictor); ok {
-		evictor.EvictCaches()
-	}
+// QueueCacheEviction asks the render owner to release its reconstructible
+// caches without making runtime control wait for a backend lock or GPU fence.
+func (p *RenderPipeline) QueueCacheEviction(generation uint64) error {
+	return p.requestLifecycle(renderLifecycleEvictCaches, nil, generation, nil)
 }
 
 func (rt *renderThread) run() {
 	defer func() {
-		rt.pipeline.mu.Lock()
-		if rt.pipeline.shutdownRequested && rt.pipeline.backend != nil {
-			rt.pipeline.backend.Destroy()
+		rt.pipeline.mu.RLock()
+		stopping, backend := rt.pipeline.shutdownRequested, rt.pipeline.backend
+		rt.pipeline.mu.RUnlock()
+		if stopping && backend != nil {
+			backend.Destroy()
 		}
-		rt.pipeline.mu.Unlock()
 		close(rt.pipeline.doneCh)
 	}()
 	ordinary := rt.pipeline.handoffCh
 	cleanup := rt.pipeline.cleanupHandoffCh
+	lifecycle := rt.pipeline.lifecycleCh
 	var ordinaryPending, cleanupPending *frameHandoff
-	for ordinary != nil || cleanup != nil {
+	var lifecyclePending *renderLifecycleRequest
+	for ordinary != nil || cleanup != nil || lifecycle != nil {
 		if ordinaryPending == nil && ordinary != nil {
 			select {
 			case handoff, ok := <-ordinary:
@@ -349,17 +451,42 @@ func (rt *renderThread) run() {
 			default:
 			}
 		}
-		if ordinaryPending != nil || cleanupPending != nil {
-			if ordinaryPending == nil || cleanupPending != nil && cleanupPending.frameID < ordinaryPending.frameID {
+		if lifecyclePending == nil && lifecycle != nil {
+			select {
+			case request, ok := <-lifecycle:
+				if ok {
+					lifecyclePending = &request
+				} else {
+					lifecycle = nil
+				}
+			default:
+			}
+		}
+		if ordinaryPending != nil || cleanupPending != nil || lifecyclePending != nil {
+			ordinarySeq, cleanupSeq, lifecycleSeq := ^uint64(0), ^uint64(0), ^uint64(0)
+			if ordinaryPending != nil {
+				ordinarySeq = ordinaryPending.sequence
+			}
+			if cleanupPending != nil {
+				cleanupSeq = cleanupPending.sequence
+			}
+			if lifecyclePending != nil {
+				lifecycleSeq = lifecyclePending.sequence
+			}
+			switch {
+			case lifecycleSeq < ordinarySeq && lifecycleSeq < cleanupSeq:
+				rt.processLifecycle(*lifecyclePending)
+				lifecyclePending = nil
+			case cleanupSeq < ordinarySeq:
 				rt.process(*cleanupPending)
 				cleanupPending = nil
-			} else {
+			default:
 				rt.process(*ordinaryPending)
 				ordinaryPending = nil
 			}
 			continue
 		}
-		if ordinary == nil && cleanup == nil {
+		if ordinary == nil && cleanup == nil && lifecycle == nil {
 			break
 		}
 		select {
@@ -375,6 +502,12 @@ func (rt *renderThread) run() {
 			} else {
 				ordinary = nil
 			}
+		case request, ok := <-lifecycle:
+			if ok {
+				lifecyclePending = &request
+			} else {
+				lifecycle = nil
+			}
 		}
 	}
 	if ordinaryPending != nil {
@@ -383,15 +516,92 @@ func (rt *renderThread) run() {
 	if cleanupPending != nil {
 		rt.process(*cleanupPending)
 	}
+	if lifecyclePending != nil {
+		rt.processLifecycle(*lifecyclePending)
+	}
+}
+
+func (rt *renderThread) processLifecycle(request renderLifecycleRequest) {
+	p := rt.pipeline
+	p.mu.RLock()
+	backend := p.backend
+	p.mu.RUnlock()
+	var err error
+	if backend == nil {
+		err = errors.New("runtime: render backend unavailable for lifecycle operation")
+	} else {
+		func() {
+			defer func() {
+				if recovered := recover(); recovered != nil {
+					err = fmt.Errorf("runtime: render lifecycle backend panic: %v", recovered)
+				}
+			}()
+			switch request.kind {
+			case renderLifecycleSurfaceLost:
+				backend.Destroy()
+				rt.surfaceDestroyed = true
+			case renderLifecycleSurfaceCreated:
+				if request.surface == nil {
+					err = errors.New("runtime: nil surface in render lifecycle request")
+					return
+				}
+				if recreatable, ok := backend.(render.RecreatableBackend); ok && !rt.surfaceDestroyed {
+					err = recreatable.Recreate(request.surface)
+				} else {
+					err = backend.Initialize(request.surface)
+				}
+				if err == nil && request.targetCount > 1 {
+					if multi, ok := backend.(render.WindowBackend); ok {
+						err = multi.ConfigureWindows(request.targets[:request.targetCount])
+					} else {
+						err = errors.New("runtime: recreated backend lacks window-set contract")
+					}
+				}
+				if err == nil {
+					rt.surfaceDestroyed = false
+					p.targets = [render.MaxFrameWindows]render.WindowTarget{}
+					p.targetCount = request.targetCount
+					copy(p.targets[:], request.targets[:request.targetCount])
+					if p.targetCount == 0 {
+						p.targetCount = 1
+						p.targets[0] = render.WindowTarget{ID: render.PrimaryWindow, Surface: request.surface}
+					}
+				}
+			case renderLifecycleEvictCaches:
+				if evictor, ok := backend.(render.CacheEvictor); ok {
+					evictor.EvictCaches()
+				}
+			default:
+				err = fmt.Errorf("runtime: unknown render lifecycle operation %d", request.kind)
+			}
+		}()
+	}
+	completion := RenderCompletion{
+		Lifecycle: request.kind, LifecycleGeneration: request.generation,
+		Backend: backendKindName(backend), Ready: err == nil, Err: err,
+	}
+	if backend != nil {
+		completion.DeviceGeneration, completion.HasDeviceGeneration, err = queryDeviceGeneration(backend)
+		if err != nil && completion.Err == nil {
+			completion.Err = err
+			completion.Ready = false
+		}
+	}
+	p.completedCh <- completion
 }
 
 func (rt *renderThread) process(handoff frameHandoff) {
 	backend := rt.pipeline.Backend()
-	var submitErr error
+	completion := RenderCompletion{Frame: handoff.frameID, ResourceGeneration: handoff.resourceGeneration, Backend: backendKindName(backend)}
 	if backend == nil || handoff.frame == nil {
-		submitErr = errors.New("runtime: render backend unavailable")
+		completion.Err = errors.New("runtime: render backend unavailable")
 	} else {
-		submitErr = func() (err error) {
+		completion.WindowCount = handoff.frame.WindowCount()
+		for i := 0; i < completion.WindowCount; i++ {
+			descriptor, _ := handoff.frame.WindowAt(i)
+			completion.Windows[i].WindowDescriptor = descriptor
+		}
+		completion.Err = func() (err error) {
 			defer func() {
 				if recovered := recover(); recovered != nil {
 					err = fmt.Errorf("runtime: render backend panic: %v", recovered)
@@ -400,38 +610,85 @@ func (rt *renderThread) process(handoff frameHandoff) {
 			if q := rt.pipeline.UploadQueue(); q != nil {
 				q.DrainBudget()
 			}
-			return backend.Submit(handoff.frame)
+			for i := 0; i < completion.WindowCount; i++ {
+				frame, retainErr := handoff.frame.RetainWindow(i)
+				if retainErr != nil {
+					return retainErr
+				}
+				submitErr := func() (err error) {
+					defer func() {
+						releaseErr := frame.Release()
+						if err == nil {
+							err = releaseErr
+						}
+					}()
+					if multi, ok := backend.(render.WindowBackend); ok {
+						return multi.SubmitWindow(completion.Windows[i].ID, frame)
+					}
+					if completion.WindowCount != 1 || completion.Windows[i].ID != render.PrimaryWindow {
+						return errors.New("runtime: backend lacks required window-set rendering contract")
+					}
+					return backend.Submit(frame)
+				}()
+				if submitErr != nil {
+					return fmt.Errorf("runtime: render window %q: %w", completion.Windows[i].ID, submitErr)
+				}
+				completion.Windows[i].Ready = true
+			}
+			return nil
 		}()
 	}
-	// Submit is the backend's immutable-page consumption boundary. Backends
-	// that retain data beyond this call must hold a separate frame lease. The
-	// transferred lease is released for both ordinary errors and panics.
 	if handoff.frame != nil {
-		if releaseErr := handoff.frame.Release(); submitErr == nil && releaseErr != nil {
-			submitErr = releaseErr
+		if err := handoff.frame.Release(); completion.Err == nil {
+			completion.Err = err
 		}
 	}
-	if submitErr != nil {
+	if completion.Err != nil {
 		var fatal *render.ErrGPUFatal
-		if errors.As(submitErr, &fatal) {
-			// GPU-fatal: one-shot swap to software (Q9). The frame in flight
-			// is dropped; the next frame renders on the software backend.
-			rt.pipeline.swapToSoftwareFallback(submitErr)
+		if errors.As(completion.Err, &fatal) {
+			from, err := rt.pipeline.swapToSoftwareFallback(completion.Err)
+			if err != nil {
+				select {
+				case rt.pipeline.fatalCh <- err:
+				default:
+				}
+			} else {
+				completion.FallbackFrom = from
+				completion.FallbackReason = completion.Err.Error()
+			}
 		} else {
 			select {
-			case rt.pipeline.fatalCh <- submitErr:
+			case rt.pipeline.fatalCh <- completion.Err:
 			default:
 			}
 		}
 	}
-	backendName := "unknown"
 	if backend != nil {
-		backendName = backendKindName(backend)
+		completion.DeviceGeneration, completion.HasDeviceGeneration, completion.Err = mergeDeviceGeneration(backend, completion.Err)
 	}
-	rt.publishCompletion(handoff, RenderCompletion{
-		Frame: handoff.frameID, ResourceGeneration: handoff.resourceGeneration, Backend: backendName,
-		Ready: submitErr == nil, Err: submitErr,
-	})
+	completion.Ready = completion.Err == nil
+	rt.publishCompletion(handoff, completion)
+}
+
+func mergeDeviceGeneration(backend render.Backend, currentErr error) (uint64, bool, error) {
+	generation, ok, err := queryDeviceGeneration(backend)
+	if currentErr == nil {
+		currentErr = err
+	}
+	return generation, ok, currentErr
+}
+
+func queryDeviceGeneration(backend render.Backend) (generation uint64, ok bool, err error) {
+	provider, ok := backend.(render.DeviceGenerationProvider)
+	if !ok {
+		return 0, false, nil
+	}
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("runtime: render backend device-generation panic: %v", recovered)
+		}
+	}()
+	return provider.DeviceGeneration(), true, nil
 }
 
 func (rt *renderThread) publishCompletion(handoff frameHandoff, completion RenderCompletion) {
@@ -461,8 +718,14 @@ func (rt *renderThread) publishCompletion(handoff frameHandoff, completion Rende
 
 func (p *RenderPipeline) destroy() {
 	p.destroyOnce.Do(func() {
+		p.orderMu.Lock()
+		p.mu.Lock()
+		p.shutdownRequested = true
+		p.mu.Unlock()
 		close(p.handoffCh)
 		close(p.cleanupHandoffCh)
+		close(p.lifecycleCh)
+		p.orderMu.Unlock()
 	})
 }
 
@@ -472,16 +735,11 @@ func (p *RenderPipeline) shutdown(timeout time.Duration) bool {
 	}
 	p.mu.Lock()
 	p.shutdownRequested = true
-	if !p.workerStarted.Load() {
-		if p.backend != nil {
-			p.backend.Destroy()
-		}
-		p.mu.Unlock()
-		p.destroy()
-		close(p.doneCh)
-		return true
-	}
+	startWorker := !p.workerStarted.Load()
 	p.mu.Unlock()
+	if startWorker {
+		p.start()
+	}
 	p.destroy()
 	return p.waitStopped(timeout)
 }

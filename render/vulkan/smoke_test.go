@@ -38,17 +38,10 @@ func isVulkanUnsupported(err error) bool {
 	return false
 }
 
-// TestVulkanBackend_InitAndSubmitSmoke proves the Vulkan backend initializes a
-// loader/instance/device and submits a minimal frame through the FFI on machines
-// with a working Vulkan driver, skipping gracefully elsewhere.
-//
-// The backend is initialized without a platform surface: the Present path needs
-// a real native window surface (a test fake cannot back a real swapchain), while
-// the no-surface path still exercises the full loader + instance + device +
-// frame-submit pipeline that this smoke is for. It asserts only init + submit
-// success — true software<->Vulkan pixel parity needs an offscreen readback path
-// and is out of scope (see the readiness spec, NG-3).
-func TestVulkanBackend_InitAndSubmitSmoke(t *testing.T) {
+// TestVulkanHeadlessPacketAdmission checks native packet decoding separately
+// from surface readiness. A backend with no native surface must refuse a
+// promised render; the direct FFI admission path is an encoding test only.
+func TestVulkanHeadlessPacketAdmission(t *testing.T) {
 	var backend vulkan.Backend
 	if err := backend.Initialize(nil); err != nil {
 		if isVulkanUnsupported(err) {
@@ -59,7 +52,15 @@ func TestVulkanBackend_InitAndSubmitSmoke(t *testing.T) {
 	defer backend.Destroy()
 
 	frame := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{}})
-	if err := backend.Submit(frame); err != nil {
-		t.Fatalf("Submit: %v", err)
+	defer frame.Release()
+	if err := backend.Submit(frame); err == nil {
+		t.Fatal("headless backend reported a successful render")
+	}
+	packet, err := vulkan.EncodeFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := vulkan.SubmitFrame(packet); err != nil {
+		t.Fatalf("native packet admission: %v", err)
 	}
 }

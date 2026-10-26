@@ -347,18 +347,36 @@
       "id": "P6.frame-pages.host",
       "phase": "P6",
       "package": "./render",
-      "tests": ["TestFrameLayerRangesPreserveBatchOrder", "TestFrameBatchMetadataAndCommands", "TestFramePagesWaitForAllConsumers", "TestFramePagesRejectLateGenerationRelease", "TestFrameRefusesInsufficientReservation", "TestFrameReleasedAccessIsUnavailable", "TestFrameLeaseCountIsBoundedByReservedMetadata"],
+      "tests": ["TestFrameLayerRangesPreserveBatchOrder", "TestFrameBatchMetadataAndCommands", "TestFramePagesWaitForAllConsumers", "TestFramePagesRejectLateGenerationRelease", "TestFrameRefusesInsufficientReservation", "TestFrameReleasedAccessIsUnavailable", "TestFrameLeaseCountIsBoundedByReservedMetadata", "TestFrameCommandViewsCannotMutatePage", "TestFrameReservationIncludesNestedCommandPayloads"],
       "mode": "host", "tags": [], "backend": "software", "required": true,
       "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p6-frame-pages-v1"
+    },
+    {
+      "id": "P6.frame-pages.race",
+      "phase": "P6",
+      "package": "./render",
+      "tests": ["TestFrameLayerRangesPreserveBatchOrder", "TestFrameBatchMetadataAndCommands", "TestFramePagesWaitForAllConsumers", "TestFramePagesRejectLateGenerationRelease", "TestFrameRefusesInsufficientReservation", "TestFrameReleasedAccessIsUnavailable", "TestFrameLeaseCountIsBoundedByReservedMetadata", "TestFrameCommandViewsCannotMutatePage", "TestFrameReservationIncludesNestedCommandPayloads"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
       "fixture": "p6-frame-pages-v1"
     },
     {
       "id": "P6.frame-pipeline.host",
       "phase": "P6",
       "package": "./runtime",
-      "tests": ["TestRenderCompletionAcknowledgesReleasedGenerationOnFailure", "TestCleanupCreditSurvivesBlockedRenderer", "TestFailedAndLateFrameAcknowledgmentsPreserveLastReady", "TestSoftwareSurfaceReadyAcknowledgment"],
+      "tests": ["TestRenderCompletionAcknowledgesReleasedGenerationOnFailure", "TestCleanupCreditSurvivesBlockedRenderer", "TestRenderPipelineBuffersMaximumOutstandingAcknowledgments", "TestPacketCapacityRefusedWithoutPartialPublish", "TestFailedAndLateFrameAcknowledgmentsPreserveLastReady", "TestSoftwareSurfaceReadyAcknowledgment", "TestRenderLifecycleOperationsAreOrderedWithFrames", "TestRuntime_surface_loss_prevents_submit", "TestStaleRenderLifecycleAcknowledgmentCannotRestoreSurface", "TestMultiwindowReadySetExact", "TestFrameGroupAdmissionUsesAggregatePacketCap", "TestSurfaceLossInvalidatesDelayedReadySet", "TestReservedFrameRejectedAfterShutdownReleasesStorage", "TestStoppedRuntimeCannotStart", "TestCaptureFreezesSoftwarePixelsBeforeEncoding", "TestRenderPipeline_GPUFatalFallsBackToSoftware", "TestRenderPipeline_GPUFatalDoesNotFatalShutdown", "TestRuntime_WiresFallbackAndEmitsDiagnostic", "TestCleanupPacketCapacitySurvivesPinnedOrdinaryPackets", "TestResourcePolicyRejectsMissingCleanupCapacity"],
       "mode": "host", "tags": [], "backend": "software", "required": true,
       "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p6-frame-pipeline-v1"
+    },
+    {
+      "id": "P6.frame-pipeline.race",
+      "phase": "P6",
+      "package": "./runtime",
+      "tests": ["TestRenderCompletionAcknowledgesReleasedGenerationOnFailure", "TestCleanupCreditSurvivesBlockedRenderer", "TestRenderPipelineBuffersMaximumOutstandingAcknowledgments", "TestPacketCapacityRefusedWithoutPartialPublish", "TestFailedAndLateFrameAcknowledgmentsPreserveLastReady", "TestSoftwareSurfaceReadyAcknowledgment", "TestRenderLifecycleOperationsAreOrderedWithFrames", "TestRuntime_surface_loss_prevents_submit", "TestStaleRenderLifecycleAcknowledgmentCannotRestoreSurface", "TestMultiwindowReadySetExact", "TestFrameGroupAdmissionUsesAggregatePacketCap", "TestSurfaceLossInvalidatesDelayedReadySet", "TestReservedFrameRejectedAfterShutdownReleasesStorage", "TestStoppedRuntimeCannotStart", "TestCaptureFreezesSoftwarePixelsBeforeEncoding", "TestRenderPipeline_GPUFatalFallsBackToSoftware", "TestRenderPipeline_GPUFatalDoesNotFatalShutdown", "TestRuntime_WiresFallbackAndEmitsDiagnostic", "TestCleanupPacketCapacitySurvivesPinnedOrdinaryPackets", "TestResourcePolicyRejectsMissingCleanupCapacity"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
       "fixture": "p6-frame-pipeline-v1"
     },
     {
@@ -369,6 +387,18 @@
       "mode": "host", "tags": [], "backend": "software", "required": true,
       "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
       "fixture": "p6-font-page-lifetime-v1"
-    }
+    },
+    {
+      "id": "P6.font-page-lifetime.race",
+      "phase": "P6",
+      "package": "./text",
+      "tests": ["TestSealedGlyphPagePinsFontChargeUntilRelease"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p6-font-page-lifetime-v1"
+    },
+    {"id": "P6.batch-reservations.host","phase": "P6","package": "./internal/membudget","tests": ["TestBatchReservationRefusalIsAtomic","TestWalletPartitionsProtectCapacityAndIdentity","TestWalletPartitionRequiresUnallocatedCompletePlan"],"mode": "host","tags": [],"backend": "software","required": true,"repetitions": 1,"test_budget_ms": 30000,"package_timeout_ms": 120000,"fixture": "p6-window-set-admission-v1"},
+    {"id": "P6.batch-reservations.race","phase": "P6","package": "./internal/membudget","tests": ["TestBatchReservationRefusalIsAtomic","TestWalletPartitionsProtectCapacityAndIdentity","TestWalletPartitionRequiresUnallocatedCompletePlan"],"mode": "race","tags": [],"backend": "software","required": true,"repetitions": 10,"test_budget_ms": 30000,"package_timeout_ms": 1200000,"fixture": "p6-window-set-admission-v1"},
+    {"id": "P6.ffi-drift.host","phase": "P6","package": "./render/vulkan","tests": ["TestFFISymbols_InSync","TestFFISymbols_WrappersExist"],"mode": "host","tags": [],"backend": "software","required": true,"repetitions": 1,"test_budget_ms": 30000,"package_timeout_ms": 120000,"fixture": "p6-window-ffi-v1"}
   ]
 }

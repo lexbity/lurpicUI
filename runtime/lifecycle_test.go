@@ -29,6 +29,21 @@ type lifecycleApp struct {
 	onSurfaceCreated func(platform.Surface)
 }
 
+func TestStoppedRuntimeCannotStart(t *testing.T) {
+	rt, _ := mustLifecycleRuntime(t, &backendFixture{})
+	rt.Shutdown()
+	if err := rt.Run(); err == nil {
+		t.Fatal("stopped runtime entered its live loop")
+	}
+	rt.RunOneFrame()
+	if rt.root.Base().State() != facet.StateDisposed {
+		t.Fatalf("stopped tree reactivated: %v", rt.root.Base().State())
+	}
+	if rt.frameNumber != 0 {
+		t.Fatal("stopped runtime executed a frame")
+	}
+}
+
 type fakeEventQueue struct {
 	mu     sync.Mutex
 	events []platform.Event
@@ -271,6 +286,7 @@ func TestRuntime_backend_initialize_failure(t *testing.T) {
 	app.triggerSurfaceLost()
 
 	app.triggerSurfaceCreated(&testSurface{})
+	awaitRuntimeCondition(t, rt, func() bool { return bf.initCount.Load() == 1 })
 
 	if bf.initCount.Load() != 1 {
 		t.Fatalf("expected 1 init attempt, got %d", bf.initCount.Load())
@@ -342,8 +358,10 @@ func TestRuntime_surface_loss_prevents_submit(t *testing.T) {
 		t.Fatal("expected at least 1 submit before loss")
 	}
 
-	// Surface loss — destroy is called, surfaceReady becomes false.
+	// Surface loss is queued to the render owner; control does not wait for the
+	// backend callback and readiness closes immediately.
 	app.triggerSurfaceLost()
+	awaitRuntimeCondition(t, rt, func() bool { return rb.destroyCount.Load() == 1 })
 
 	if rb.destroyCount.Load() != 1 {
 		t.Fatalf("expected 1 destroy, got %d", rb.destroyCount.Load())
@@ -360,14 +378,15 @@ func TestRuntime_surface_loss_prevents_submit(t *testing.T) {
 		t.Fatalf("expected 0 submits while surface absent, got %d", rb.submitCount.Load())
 	}
 
-	// Surface restore — Recreate is called instead of Initialize.
+	// Surface restore initializes the backend after its prior destruction.
 	app.triggerSurfaceCreated(&testSurface{})
+	awaitRuntimeCondition(t, rt, func() bool { return rt.isSurfaceReady() })
 
-	if rb.recreateCount.Load() != 1 {
-		t.Fatalf("expected 1 recreate after restore, got %d", rb.recreateCount.Load())
+	if rb.recreateCount.Load() != 0 {
+		t.Fatalf("destroyed backend was recreated without initialization: %d", rb.recreateCount.Load())
 	}
-	if rb.initCount.Load() != 0 {
-		t.Fatalf("expected 0 init calls (used Recreate), got %d", rb.initCount.Load())
+	if rb.initCount.Load() != 1 {
+		t.Fatalf("expected one initialization after restore, got %d", rb.initCount.Load())
 	}
 	if !rt.isSurfaceReady() {
 		t.Fatal("expected surfaceReady=true after surface restore")
@@ -379,6 +398,37 @@ func TestRuntime_surface_loss_prevents_submit(t *testing.T) {
 	rt.RunOneFrame()
 	if rb.submitCount.Load() != 2 {
 		t.Fatalf("expected 2 submits after restore, got %d", rb.submitCount.Load())
+	}
+}
+
+func awaitRuntimeCondition(t *testing.T, rt *Runtime, condition func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := rt.RunControlTurn(); err != nil {
+			t.Fatalf("run lifecycle control turn: %v", err)
+		}
+		if condition() {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("runtime condition did not become true before timeout")
+}
+
+func TestStaleRenderLifecycleAcknowledgmentCannotRestoreSurface(t *testing.T) {
+	rt := &Runtime{surfaceLifecycleGeneration: 4}
+	rt.handleRenderLifecycleCompletion(RenderCompletion{
+		Lifecycle: renderLifecycleSurfaceCreated, LifecycleGeneration: 3, Ready: true,
+	})
+	if rt.isSurfaceReady() {
+		t.Fatal("stale surface-created acknowledgment restored readiness")
+	}
+	rt.handleRenderLifecycleCompletion(RenderCompletion{
+		Lifecycle: renderLifecycleSurfaceCreated, LifecycleGeneration: 4, Ready: true,
+	})
+	if !rt.isSurfaceReady() {
+		t.Fatal("current surface-created acknowledgment did not restore readiness")
 	}
 }
 
@@ -394,6 +444,7 @@ func TestRuntime_surface_loss_and_recovery(t *testing.T) {
 
 	// Surface loss — destroy is called.
 	app.triggerSurfaceLost()
+	awaitRuntimeCondition(t, rt, func() bool { return bf.destroyCount.Load() == 1 })
 
 	if bf.destroyCount.Load() != 1 {
 		t.Fatalf("expected 1 destroy, got %d", bf.destroyCount.Load())
@@ -409,6 +460,7 @@ func TestRuntime_surface_loss_and_recovery(t *testing.T) {
 
 	// Surface restore — reinitialize.
 	app.triggerSurfaceCreated(&testSurface{})
+	awaitRuntimeCondition(t, rt, func() bool { return bf.initCount.Load() == 1 && rt.isSurfaceReady() })
 
 	if bf.initCount.Load() != 1 {
 		t.Fatalf("expected 1 init after restore, got %d", bf.initCount.Load())

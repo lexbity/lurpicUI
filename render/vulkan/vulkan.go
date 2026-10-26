@@ -51,6 +51,8 @@ type Backend struct {
 	// Backend owns the Vulkan process-wide lifecycle in this Go wrapper.
 	// Initialize/Destroy may be called multiple times across surface changes,
 	// while Recreate handles the lighter surface/swapchain-only path.
+	surfaces    map[string]uintptr
+	targets     []render.WindowTarget
 	initialized bool
 	hasSurface  bool
 	images      *imageCache
@@ -73,6 +75,7 @@ func (b *Backend) Initialize(s render.Surface) error {
 		return fmt.Errorf("vulkan backend: init: %w", err)
 	}
 	b.images = newImageCache()
+	b.surfaces = make(map[string]uintptr)
 	if vs, ok := s.(render.VulkanSurface); ok {
 		instance := InstanceHandle()
 		if instance == 0 {
@@ -84,6 +87,7 @@ func (b *Backend) Initialize(s render.Surface) error {
 			return err
 		} else if surface != 0 {
 			b.hasSurface = true
+			b.surfaces[render.PrimaryWindow] = surface
 		}
 	}
 	b.initialized = true
@@ -103,6 +107,13 @@ func (b *Backend) Submit(f *render.Frame) error {
 		return errNotImplemented
 	}
 	if f != nil {
+		handle := b.surfaces[f.WindowID()]
+		if handle == 0 {
+			return fmt.Errorf("vulkan: window %q has no live native surface", f.WindowID())
+		}
+		if err := ActivateSurface(handle); err != nil {
+			return err
+		}
 		packet, err := b.encoder.Encode(f, b.images)
 		if err != nil {
 			return err
@@ -146,35 +157,24 @@ func (b *Backend) BuildPipelineProbe() error {
 // Recreate rebuilds the Vulkan surface + swapchain for a new platform Surface.
 // The runtime uses this when the platform surface changes but the Vulkan device
 // itself can stay alive. That is cheaper than a full Initialize/Destroy cycle.
-func (b *Backend) Recreate(s render.Surface) error {
+func (b *Backend) Recreate(surface render.Surface) error {
 	if !b.initialized {
 		return errors.New("vulkan backend: not initialized")
 	}
-	vs, ok := s.(render.VulkanSurface)
-	if !ok {
+	if _, ok := surface.(render.VulkanSurface); !ok {
 		return errors.New("vulkan backend: surface does not support Vulkan")
 	}
-	instance := InstanceHandle()
-	if instance == 0 {
-		return errors.New("vulkan backend: instance unavailable")
+	targets := append([]render.WindowTarget(nil), b.targets...)
+	if err := b.Initialize(surface); err != nil {
+		return err
 	}
-	w, h := s.Size()
-
-	// Destroy the old surface state and create a fresh one. On Android this
-	// calls into Rust which does lurpic_render_recreate_surface_android.
-	surface, err := vs.CreateVulkanSurface(instance)
-	if err != nil {
-		return fmt.Errorf("vulkan backend: recreate surface: %w", err)
-	}
-	if surface == 0 {
-		b.hasSurface = false
-		return errors.New("vulkan backend: recreate returned zero surface")
-	}
-	b.hasSurface = true
-
-	// Resize the swapchain to match the new surface dimensions.
-	if err := Resize(w, h); err != nil {
-		return fmt.Errorf("vulkan backend: recreate resize: %w", err)
+	if len(targets) > 1 {
+		for i := range targets {
+			if targets[i].ID == render.PrimaryWindow {
+				targets[i].Surface = surface
+			}
+		}
+		return b.ConfigureWindows(targets)
 	}
 	return nil
 }
@@ -198,6 +198,8 @@ func (b *Backend) Destroy() {
 		_ = Shutdown()
 		b.initialized = false
 		b.hasSurface = false
+		b.surfaces = nil
+		b.targets = nil
 	}
 }
 
@@ -262,3 +264,62 @@ func (b *Backend) TranscodeTarget() render.TextureFormat {
 	vb := render.NewVulkanBackend(0)
 	return vb.TranscodeTarget()
 }
+
+func (b *Backend) ConfigureWindows(targets []render.WindowTarget) error {
+	if !b.initialized || len(targets) == 0 || len(targets) > render.MaxFrameWindows {
+		return errors.New("vulkan: invalid window configuration")
+	}
+	if len(b.surfaces) > 1 {
+		return errors.New("vulkan: window configuration is already installed")
+	}
+	seen := make(map[string]bool, len(targets))
+	for _, target := range targets {
+		if target.ID == "" || seen[target.ID] || target.Surface == nil {
+			return fmt.Errorf("vulkan: invalid window target %q", target.ID)
+		}
+		seen[target.ID] = true
+		if _, ok := target.Surface.(render.VulkanSurface); !ok {
+			return fmt.Errorf("vulkan: window %q lacks native surface support", target.ID)
+		}
+	}
+	if !seen[render.PrimaryWindow] || b.surfaces[render.PrimaryWindow] == 0 {
+		return errors.New("vulkan: primary native surface unavailable")
+	}
+	configured := false
+	defer func() {
+		if !configured {
+			b.Destroy()
+		}
+	}()
+	for _, target := range targets {
+		if target.ID == render.PrimaryWindow {
+			continue
+		}
+		native := target.Surface.(render.VulkanSurface)
+		handle, err := native.CreateVulkanSurface(InstanceHandle())
+		if err != nil {
+			return fmt.Errorf("vulkan: create window %q: %w", target.ID, err)
+		}
+		if handle == 0 {
+			return fmt.Errorf("vulkan: window %q returned no surface", target.ID)
+		}
+		b.surfaces[target.ID] = handle
+	}
+	b.targets = append([]render.WindowTarget(nil), targets...)
+	if err := ActivateSurface(b.surfaces[render.PrimaryWindow]); err != nil {
+		return err
+	}
+	configured = true
+	return nil
+}
+func (b *Backend) SubmitWindow(id string, frame *render.Frame) error {
+	if frame == nil || frame.WindowID() != id {
+		return fmt.Errorf("render: packet window does not match target %q", id)
+	}
+	if !b.initialized {
+		return errNotImplemented
+	}
+	return b.Submit(frame)
+}
+
+var _ render.WindowBackend = (*Backend)(nil)

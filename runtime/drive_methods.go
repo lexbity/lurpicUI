@@ -2,11 +2,13 @@ package runtime
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
+	"codeburg.org/lexbit/lurpicui/render"
 )
 
 // driveHandler executes one drive method on the runtime thread. Handlers
@@ -204,7 +206,19 @@ func (rt *Runtime) runScheduledVirtualFrame(waitForRender bool) bool {
 }
 
 func (rt *Runtime) driveHandleRenderCompletion(completion RenderCompletion) {
-	rt.completeFrameView(completion)
+	if completion.Lifecycle != 0 {
+		rt.handleRenderLifecycleCompletion(completion)
+		return
+	}
+	rt.observeRenderDeviceGeneration(completion)
+	var accepted bool
+	completion, accepted = rt.completeFrameView(completion)
+	if !accepted && completion.ResourceGeneration != 0 {
+		return
+	}
+	if completion.FallbackFrom != "" {
+		rt.notifyBackendFallback(completion.FallbackFrom, completion.FallbackReason)
+	}
 	if rt.bootstrapFrameAwaiting && completion.Frame == rt.frameNumber {
 		rt.bootstrapFrameAwaiting = false
 		if completion.Ready && completion.Err == nil && rt.drivePort != nil && rt.drivePort.timeOwnerSession == "" {
@@ -251,28 +265,104 @@ func (rt *Runtime) driveHandleRenderCompletion(completion RenderCompletion) {
 	p.completeFrameToken(token, drive.Result{Payload: payload, Frame: p.Frame(), Cut: p.Cut()})
 }
 
-func (rt *Runtime) completeFrameView(completion RenderCompletion) {
-	rt.frameViewMu.Lock()
-	defer rt.frameViewMu.Unlock()
-	frame := rt.pendingFrameViews[completion.Frame]
-	if frame == nil {
-		return
+func (rt *Runtime) handleRenderLifecycleCompletion(completion RenderCompletion) {
+	if completion.HasDeviceGeneration {
+		rt.observeRenderDeviceGeneration(completion)
 	}
-	if completion.ResourceGeneration == 0 || frame.Generation() != completion.ResourceGeneration {
-		// An acknowledgment from an earlier allocation cannot complete or free
-		// the current frame that happens to share an application frame number.
-		return
-	}
-	delete(rt.pendingFrameViews, completion.Frame)
-	if completion.Ready && completion.Err == nil {
-		old := rt.lastWindowFrames["__primary__"]
-		rt.lastWindowFrames["__primary__"] = frame
-		if old != nil {
-			_ = old.Release()
+	if completion.Lifecycle != renderLifecycleSurfaceCreated {
+		if completion.Err != nil && rt.log != nil {
+			rt.log.Error("runtime: render lifecycle operation failed", "operation", completion.Lifecycle, "generation", completion.LifecycleGeneration, "error", completion.Err)
 		}
 		return
 	}
-	_ = frame.Release()
+	rt.lifecycleMu.Lock()
+	if completion.LifecycleGeneration != rt.surfaceLifecycleGeneration {
+		rt.lifecycleMu.Unlock()
+		return
+	}
+	ready := completion.Ready && completion.Err == nil
+	rt.surfaceReady = ready
+	rt.lifecycleMu.Unlock()
+	if completion.Err != nil && rt.log != nil {
+		rt.log.Error("runtime: render surface recreation failed", "generation", completion.LifecycleGeneration, "error", completion.Err)
+	}
+	if ready && rt.frameTimer != nil {
+		rt.frameTimer.RequestFrame()
+	}
+}
+
+func (rt *Runtime) observeRenderDeviceGeneration(completion RenderCompletion) {
+	if rt == nil || !completion.HasDeviceGeneration {
+		return
+	}
+	rt.lastDeviceGeneration = completion.DeviceGeneration
+	rt.hasDeviceGeneration = true
+	if rt.assetManager == nil {
+		return
+	}
+	if ev, ok := rt.assetManager.(interface{ CheckDeviceGeneration(uint64) bool }); ok {
+		if ev.CheckDeviceGeneration(completion.DeviceGeneration) && rt.log != nil {
+			rt.log.Info("runtime: device generation changed; GPU LODs invalidated", "generation", completion.DeviceGeneration)
+		}
+	}
+}
+
+func (rt *Runtime) completeFrameView(completion RenderCompletion) (RenderCompletion, bool) {
+	rt.frameViewMu.Lock()
+	defer rt.frameViewMu.Unlock()
+	group := rt.pendingFrameViews[completion.Frame]
+	if group == nil {
+		return completion, false
+	}
+	if completion.ResourceGeneration == 0 || group.Generation() != completion.ResourceGeneration {
+		return completion, false
+	}
+	delete(rt.pendingFrameViews, completion.Frame)
+	defer func() { _ = group.Release() }()
+	if !completion.Ready || completion.Err != nil {
+		return completion, true
+	}
+	invalid := func(reason string) (RenderCompletion, bool) {
+		completion.Ready = false
+		completion.Err = fmt.Errorf("runtime: ready frame invalidated: %s", reason)
+		return completion, true
+	}
+	if completion.Frame < rt.lastReadyFrame {
+		return invalid("newer frame is already ready")
+	}
+	if completion.WindowCount != group.WindowCount() {
+		return invalid("window set count differs")
+	}
+	for i := 0; i < group.WindowCount(); i++ {
+		want, _ := group.WindowAt(i)
+		got := completion.Windows[i]
+		if !got.Ready || got.WindowDescriptor != want {
+			return invalid("window identity or generation differs")
+		}
+		if want.ID == render.PrimaryWindow && want.SurfaceGeneration != rt.surfaceLifecycleGeneration {
+			return invalid("surface generation ended")
+		}
+	}
+	next := make(map[string]*render.Frame, group.WindowCount())
+	for i := 0; i < group.WindowCount(); i++ {
+		descriptor, _ := group.WindowAt(i)
+		frame, err := group.RetainWindow(i)
+		if err != nil {
+			for _, retained := range next {
+				_ = retained.Release()
+			}
+			completion.Err = err
+			completion.Ready = false
+			return completion, true
+		}
+		next[descriptor.ID] = frame
+	}
+	for _, old := range rt.lastWindowFrames {
+		_ = old.Release()
+	}
+	rt.lastWindowFrames = next
+	rt.lastReadyFrame = completion.Frame
+	return completion, true
 }
 
 func (rt *Runtime) releaseFrameViews() {

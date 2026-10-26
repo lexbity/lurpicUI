@@ -373,8 +373,13 @@ fn create_device(
     features_ext_dynamic_state.extended_dynamic_state = vk::TRUE;
 
     let queue_infos = [queue_info];
+    // Presentation is not promoted by the Vulkan 1.3 feature floor. Enable
+    // swapchain explicitly before ash loads its device entry points; otherwise
+    // the first real window calls an unavailable function and aborts at FFI.
+    let device_extensions = [ash::khr::swapchain::NAME.as_ptr()];
     let create_info = vk::DeviceCreateInfo::default()
         .queue_create_infos(&queue_infos)
+        .enabled_extension_names(&device_extensions)
         .push_next(&mut features12)
         .push_next(&mut features13)
         .push_next(&mut features_ext_dynamic_state);

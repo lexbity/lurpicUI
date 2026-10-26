@@ -20,56 +20,56 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
-func BenchmarkVulkan_NodeScene(b *testing.B) {
+func BenchmarkVulkanHeadlessPacket_NodeScene(b *testing.B) {
 	for _, nodes := range []int{1000, 10000, 100000} {
 		b.Run(perfscene.Describe(nodes), func(b *testing.B) {
 			backend := mustBenchmarkBackend(b)
 			defer backend.Destroy()
 			base := perfscene.NodeFrame(nodes, 2048, 2048)
 			defer base.Release()
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if err := backend.Submit(base); err != nil {
-					b.Fatalf("submit: %v", err)
-				}
-			}
+			benchmarkHeadlessPacketAdmission(b, backend, base)
 		})
 	}
 }
 
-func BenchmarkVulkan_ImageScene(b *testing.B) {
+func BenchmarkVulkanHeadlessPacket_ImageScene(b *testing.B) {
 	for _, images := range []int{1000, 10000, 100000} {
 		b.Run(perfscene.Describe(images), func(b *testing.B) {
 			backend := mustBenchmarkBackend(b)
 			defer backend.Destroy()
 			base := perfscene.ImageFrame(images, 2048, 2048)
 			defer base.Release()
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if err := backend.Submit(base); err != nil {
-					b.Fatalf("submit: %v", err)
-				}
-			}
+			benchmarkHeadlessPacketAdmission(b, backend, base)
 		})
 	}
 }
 
-func BenchmarkVulkan_TextScene(b *testing.B) {
+func BenchmarkVulkanHeadlessPacket_TextScene(b *testing.B) {
 	for _, runs := range []int{1000, 10000, 100000} {
 		b.Run(perfscene.Describe(runs), func(b *testing.B) {
 			backend := mustBenchmarkBackend(b)
 			defer backend.Destroy()
 			base := benchmarkVulkanTextFrame(b, runs)
-			b.ReportAllocs()
-			b.ResetTimer()
-			for i := 0; i < b.N; i++ {
-				if err := backend.Submit(base); err != nil {
-					b.Fatalf("submit: %v", err)
-				}
-			}
+			defer base.Release()
+			benchmarkHeadlessPacketAdmission(b, backend, base)
 		})
+	}
+}
+
+// These microbenchmarks measure encoding and native packet admission only.
+// Offscreen raster/readback benchmarks below exercise actual GPU rendering.
+func benchmarkHeadlessPacketAdmission(b *testing.B, backend *Backend, frame *render.Frame) {
+	b.Helper()
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		packet, err := backend.encoder.Encode(frame, backend.images)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := SubmitFrame(packet); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 

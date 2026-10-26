@@ -242,8 +242,8 @@ func TestCorpusCoversEveryGeometryCommand(t *testing.T) {
 	for _, fx := range fixtures {
 		frame := fx.Frame()
 		for i := 0; i < frame.BatchCount(); i++ {
-			frame.VisitBatchCommands(i, func(cmd gfx.Command) bool {
-				seen[cmdName(cmd)] = true
+			frame.VisitBatchCommands(i, func(cmd gfx.CommandView) bool {
+				seen[cmdName(cmd.Scalars())] = true
 				return true
 			})
 		}

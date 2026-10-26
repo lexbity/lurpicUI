@@ -163,15 +163,42 @@ if [[ "$phase" == *P6* ]]; then
 	expect_absent 'NewCommandPage\(' gfx render
 	expect_absent 'reflect\.DeepEqual' internal/renderutil render
 	grep -q 'func SealCommandPageFromSource' gfx/command_pages.go
+	grep -q 'type CommandView struct' gfx/command_view.go
+	grep -q 'type Values\[T any\] struct' gfx/command_view.go
+	expect_absent 'AppendBatchCommands|commandScratch|rectStrokeAnnulus|recreate_surface_android' gfx render platform -g '*.go' -g '*.rs' -g '*.c' -g '!**/vendor/**'
+	grep -q 'func TakeFrameGroup' render/frame_group.go
+	grep -q 'rt.frameStorage.reserve(sizes, cleanup)' runtime/core.go
+	grep -q 'wallet.Partition(3\*packetCap, packetCap, capacity-4\*packetCap)' runtime/frame_storage.go
+	grep -q 'func TestCleanupPacketCapacitySurvivesPinnedOrdinaryPackets' runtime/frame_storage_test.go
+	grep -q 'SubmitWindow' render/software/windows.go
+	grep -q 'SubmitWindow' render/vulkan/vulkan.go
+	grep -q 'activate_surface' render/vulkan/crates/lurpic_render/src/ffi_inventory.rs
+	grep -q 'func TestMultiwindowReadySetExact' runtime/frame_group_test.go
+	expect_absent 'onFallback|softwareFallbackBackend' runtime -g '*.go' -g '!**/*_test.go'
+	grep -q 'FallbackFrom' runtime/drive_methods.go
 	grep -q 'func (f \*Frame) Retain()' render/frame_pages.go
 	grep -q 'func (f \*Frame) Generation()' render/frame_pages.go
-	grep -q 'ResourceGeneration uint64' runtime/pipeline.go
+	grep -Eq 'ResourceGeneration[[:space:]]+uint64' runtime/pipeline.go
 	grep -q 'TryReserveCleanupFrame' runtime/pipeline.go
 	grep -q 'SubmitCleanupReserved' runtime/pipeline.go
+	grep -q 'QueueSurfaceLost' runtime/pipeline.go
+	grep -q 'QueueSurfaceCreated' runtime/pipeline.go
+	grep -q 'QueueCacheEviction' runtime/pipeline.go
+	grep -q 'func (rt \*renderThread) processLifecycle' runtime/pipeline.go
+	grep -q 'nextSequenceLocked' runtime/pipeline.go
+	grep -q 'maxRenderLifecycleRequests+1+maxOutstandingFrames' runtime/pipeline.go
+	grep -q 'make(chan frameHandoff, 2)' runtime/pipeline.go
+	grep -q 'wait_current_frame' render/vulkan/crates/lurpic_render/src/ring_buffer.rs
+	grep -q 'self.ring.as_ref().unwrap().wait_current_frame()' render/vulkan/crates/lurpic_render/src/vulkan.rs
+	expect_absent 'destroyBackend|recreateOrInitialize|\.evictCaches\(' runtime/surface.go runtime
 	grep -q 'RetainLastPrimaryFrame' runtime/core.go
 	grep -q 'PinForRender' text/registry.go
 	grep -q 'func TestFramePagesWaitForAllConsumers' render/frame_test.go
 	grep -q 'func TestCleanupCreditSurvivesBlockedRenderer' runtime/pipeline_test.go
+	grep -q 'func TestRenderPipelineBuffersMaximumOutstandingAcknowledgments' runtime/pipeline_test.go
+	grep -q 'func TestPacketCapacityRefusedWithoutPartialPublish' runtime/frame_lifetime_test.go
+	grep -q 'func TestRenderLifecycleOperationsAreOrderedWithFrames' runtime/pipeline_test.go
+	grep -q 'func TestStaleRenderLifecycleAcknowledgmentCannotRestoreSurface' runtime/lifecycle_test.go
 	grep -q 'func TestFailedAndLateFrameAcknowledgmentsPreserveLastReady' runtime/frame_lifetime_test.go
 	grep -q 'func TestSealedGlyphPagePinsFontChargeUntilRelease' text/render_page_lifetime_test.go
 	printf '%s\n' 'runtime-gate: P6 source contracts passed'

@@ -36,6 +36,21 @@ type Backend interface {
 	Destroy()
 }
 
+// WindowTarget is captured at startup; native surface use belongs to the
+// render owner after configuration completes.
+type WindowTarget struct {
+	ID      string
+	Surface Surface
+}
+
+// WindowBackend is required when a runtime targets more than one window.
+// Every configured target must render through the same owner and backend.
+type WindowBackend interface {
+	Backend
+	ConfigureWindows([]WindowTarget) error
+	SubmitWindow(string, *Frame) error
+}
+
 // CacheEvictor is implemented by render backends that retain recoverable caches.
 // It allows the runtime to ask the backend to release memory under pressure
 // without tearing the backend down completely.

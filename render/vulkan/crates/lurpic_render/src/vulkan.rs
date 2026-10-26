@@ -21,7 +21,7 @@ use crate::frame::FrameStats;
 use crate::frame_encoder::{DrawKind, FrameEncoder, ShadowFill, Textures};
 use crate::gpu::allocator::{GpuBuffer, ImageAllocation, MemoryLocation};
 use crate::gpu::context::{AshContext, GpuContext, PhysicalDeviceFeatures};
-use crate::gpu::resources::{DescriptorPool, Image, ImageView, Sampler};
+use crate::gpu::resources::{DescriptorPool, Fence, Image, ImageView, Sampler};
 use crate::gpu::surface;
 use crate::image_store::{ImageFormat, ImageStore};
 use crate::pipeline::blur::{BlurPipeline, BLUR_SCRATCH_FORMAT};
@@ -295,7 +295,23 @@ impl SwapchainDirty {
     }
 }
 
+struct WindowSurface {
+    surface: Option<vk::SurfaceKHR>,
+    swapchain_loader: Option<ash::khr::swapchain::Device>,
+    swapchain: Option<vk::SwapchainKHR>,
+    images: Vec<vk::Image>,
+    views: Vec<ImageView>,
+    extent: vk::Extent2D,
+    format: vk::Format,
+    width: u32,
+    height: u32,
+    pending: Option<DecodedFrame>,
+    last: Option<DecodedFrame>,
+    dirty: SwapchainDirty,
+}
+
 pub struct VulkanState {
+    parked_windows: Vec<WindowSurface>,
     // Drop order: swapchain/surface/render targets first, then the context
     // (command pool -> device -> instance via its RAII guards).
     surface: Option<vk::SurfaceKHR>,
@@ -305,6 +321,7 @@ pub struct VulkanState {
     swapchain_views: Vec<ImageView>,
     swapchain_extent: vk::Extent2D,
     swapchain_format: vk::Format,
+    acquire_fence: Fence,
     command_buffer: Option<vk::CommandBuffer>,
     msaa: Option<MsaaTarget>,
     readback: Option<ReadbackTarget>,
@@ -343,13 +360,13 @@ pub struct VulkanState {
 
 impl Drop for VulkanState {
     fn drop(&mut self) {
-        self.destroy_swapchain_resources();
-        if let Some(surface) = self.surface.take() {
-            if let Some(loader) = self.context.surface_loader() {
-                unsafe {
-                    loader.destroy_surface(surface, None);
-                }
-            }
+        // Presentation may still own a swapchain image after the frame's
+        // graphics fence. Teardown is confined to the render owner.
+        let _ = unsafe { self.context.device().device_wait_idle() };
+        let active = self.take_window();
+        self.destroy_window(active);
+        while let Some(window) = self.parked_windows.pop() {
+            self.destroy_window(window);
         }
     }
 }
@@ -470,8 +487,8 @@ pub fn create_xcb_surface(
             "instance handle does not match the active renderer".to_string(),
         ));
     }
-    if let Some(surface) = state.surface {
-        return Ok(surface.as_raw() as usize);
+    if state.parked_windows.len() + usize::from(state.surface.is_some()) >= 8 {
+        return Err((RenderResult::OutOfMemory, "Vulkan window capacity exhausted".to_string()));
     }
     let surface_handle = surface::create_xcb_surface(
         state.context.entry(),
@@ -482,10 +499,7 @@ pub fn create_xcb_surface(
         connection,
         window,
     )?;
-    state.surface = Some(surface_handle);
-    state.requested_width = width;
-    state.requested_height = height;
-    state.recreate_swapchain()?;
+    state.register_window(surface_handle, width, height)?;
     Ok(surface_handle.as_raw() as usize)
 }
 
@@ -507,8 +521,8 @@ pub fn create_android_surface(
             "instance handle does not match the active renderer".to_string(),
         ));
     }
-    if let Some(surface) = state.surface {
-        return Ok(surface.as_raw() as usize);
+    if state.parked_windows.len() + usize::from(state.surface.is_some()) >= 8 {
+        return Err((RenderResult::OutOfMemory, "Vulkan window capacity exhausted".to_string()));
     }
     let surface_handle = surface::create_android_surface(
         state.context.entry(),
@@ -518,44 +532,20 @@ pub fn create_android_surface(
         state.context.queue_family(),
         android_window,
     )?;
-    state.surface = Some(surface_handle);
-    state.requested_width = width;
-    state.requested_height = height;
-    state.recreate_swapchain()?;
+    state.register_window(surface_handle, width, height)?;
     Ok(surface_handle.as_raw() as usize)
 }
 
-#[cfg(target_os = "android")]
-pub fn recreate_surface_android(
-    android_window: *mut c_void,
-    width: u32,
-    height: u32,
-) -> Result<(), (RenderResult, String)> {
+pub fn activate_surface(handle: usize) -> Result<(), (RenderResult, String)> {
     let mut guard = state_lock();
-    let state = guard.as_mut().ok_or((
-        RenderResult::InitFailed,
-        "renderer is not initialized".to_string(),
-    ))?;
-    if let Some(old) = state.surface.take() {
-        if let Some(loader) = state.context.surface_loader() {
-            unsafe {
-                loader.destroy_surface(old, None);
-            }
-        }
-    }
-    state.destroy_swapchain_resources();
-    let surface_handle = surface::create_android_surface(
-        state.context.entry(),
-        state.context.instance(),
-        state.context.surface_loader().unwrap(),
-        state.context.physical_device(),
-        state.context.queue_family(),
-        android_window,
-    )?;
-    state.surface = Some(surface_handle);
-    state.requested_width = width;
-    state.requested_height = height;
-    state.recreate_swapchain()?;
+    let state = guard.as_mut().ok_or((RenderResult::InitFailed, "renderer is not initialized".to_string()))?;
+    if state.surface.is_some_and(|surface| surface.as_raw() as usize == handle) { return Ok(()); }
+    let index = state.parked_windows.iter().position(|window| window.surface.is_some_and(|surface| surface.as_raw() as usize == handle))
+        .ok_or((RenderResult::InvalidHandle, "unknown Vulkan window surface".to_string()))?;
+    let next = state.parked_windows.remove(index);
+    let previous = state.take_window();
+    state.install_window(next);
+    if previous.surface.is_some() { state.parked_windows.push(previous); }
     Ok(())
 }
 
@@ -866,6 +856,8 @@ impl VulkanState {
         }
 
         Ok(Self {
+            acquire_fence: Fence::new(context.device(), false)?,
+            parked_windows: Vec::with_capacity(7),
             surface: None,
             swapchain_loader: None,
             swapchain: None,
@@ -910,7 +902,65 @@ impl VulkanState {
         })
     }
 
+    fn take_window(&mut self) -> WindowSurface {
+        WindowSurface {
+            surface: self.surface.take(),
+            swapchain_loader: self.swapchain_loader.take(),
+            swapchain: self.swapchain.take(),
+            images: std::mem::take(&mut self.swapchain_images),
+            views: std::mem::take(&mut self.swapchain_views),
+            extent: std::mem::take(&mut self.swapchain_extent),
+            format: std::mem::replace(&mut self.swapchain_format, vk::Format::UNDEFINED),
+            width: self.requested_width,
+            height: self.requested_height,
+            pending: self.pending_frame.take(),
+            last: self.last_frame.take(),
+            dirty: std::mem::replace(&mut self.swapchain_dirty, SwapchainDirty::new(0)),
+        }
+    }
+
+    fn install_window(&mut self, window: WindowSurface) {
+        self.surface = window.surface;
+        self.swapchain_loader = window.swapchain_loader;
+        self.swapchain = window.swapchain;
+        self.swapchain_images = window.images;
+        self.swapchain_views = window.views;
+        self.swapchain_extent = window.extent;
+        self.swapchain_format = window.format;
+        self.requested_width = window.width;
+        self.requested_height = window.height;
+        self.pending_frame = window.pending;
+        self.last_frame = window.last;
+        self.swapchain_dirty = window.dirty;
+    }
+
+    fn destroy_window(&self, mut window: WindowSurface) {
+        window.views.clear();
+        if let (Some(loader), Some(swapchain)) = (window.swapchain_loader.take(), window.swapchain.take()) {
+            unsafe { loader.destroy_swapchain(swapchain, None); }
+        }
+        if let (Some(loader), Some(surface)) = (self.context.surface_loader(), window.surface.take()) {
+            unsafe { loader.destroy_surface(surface, None); }
+        }
+    }
+
+    fn register_window(&mut self, surface: vk::SurfaceKHR, width: u32, height: u32) -> Result<(), (RenderResult, String)> {
+        let previous = self.take_window();
+        self.surface = Some(surface);
+        self.requested_width = width;
+        self.requested_height = height;
+        if let Err(error) = self.recreate_swapchain() {
+            let failed = self.take_window();
+            self.destroy_window(failed);
+            self.install_window(previous);
+            return Err(error);
+        }
+        if previous.surface.is_some() { self.parked_windows.push(previous); }
+        Ok(())
+    }
+
     fn destroy_swapchain_resources(&mut self) {
+        self.swapchain_views.clear();
         if let (Some(loader), Some(swapchain)) =
             (self.swapchain_loader.take(), self.swapchain.take())
         {
@@ -919,7 +969,6 @@ impl VulkanState {
             }
         }
         self.swapchain_images.clear();
-        self.swapchain_views.clear();
         self.swapchain_format = vk::Format::UNDEFINED;
     }
 
@@ -1339,9 +1388,9 @@ impl VulkanState {
     }
 
     /// The shared GPU render: encodes the frame, records the instanced solid
-    /// draws into `resolve` (MSAA -> resolve), and submits. `copy_out` carries
-    /// the frame's instance data out of the ring; the caller owns synchronization
-    /// (present vs wait-idle). `dirty` carries the frame's dirty regions (Slice
+    /// draws into `resolve` (MSAA -> resolve), and waits for its submission
+    /// fence before the owner can acknowledge the target. `dirty` carries the
+    /// frame's dirty regions (Slice
     /// 10, Q13): when non-empty and the device gate is enabled, draws are
     /// scissor-restricted to the dirty union, and a present-side target is
     /// preserved (per-region clears) instead of fully cleared.
@@ -1873,6 +1922,11 @@ impl VulkanState {
         let fence = self.ring.as_ref().unwrap().take_fence();
         unsafe { device.queue_submit(self.context.queue(), &[submit_info], fence) }
             .map_err(|e| vk_error("vkQueueSubmit", e.as_raw()))?;
+        // The runtime treats Submit returning successfully as a ready-frame
+        // acknowledgment. Keep this wait on the render owner and do not
+        // publish completion while the GPU can still be using the sealed
+        // frame's encoded resources or target image.
+        self.ring.as_ref().unwrap().wait_current_frame()?;
         Ok(())
     }
 
@@ -2388,21 +2442,23 @@ impl VulkanState {
             ));
         };
 
+        self.acquire_fence.reset()?;
         let (image_index, _) = match unsafe {
             swapchain_loader.acquire_next_image(
                 swapchain,
                 u64::MAX,
                 vk::Semaphore::null(),
-                vk::Fence::null(),
+                self.acquire_fence.handle(),
             )
         } {
             Ok(result) => result,
             Err(e) if e == vk::Result::ERROR_OUT_OF_DATE_KHR || e == vk::Result::SUBOPTIMAL_KHR => {
                 self.recreate_swapchain()?;
-                return Ok(());
+                return Err((RenderResult::VulkanError, "surface invalidated before frame rendering".to_string()));
             }
             Err(e) => return Err(vk_error("vkAcquireNextImageKHR", e.as_raw())),
         };
+        self.acquire_fence.wait(u64::MAX)?;
         if image_index as usize >= self.swapchain_views.len() {
             return Err((
                 RenderResult::VulkanError,
@@ -2451,7 +2507,7 @@ impl VulkanState {
             Ok(true) | Ok(false) => Ok(()),
             Err(e) if e == vk::Result::ERROR_OUT_OF_DATE_KHR || e == vk::Result::SUBOPTIMAL_KHR => {
                 self.recreate_swapchain()?;
-                Ok(())
+                Err((RenderResult::VulkanError, "surface invalidated during frame presentation".to_string()))
             }
             Err(e) => Err(vk_error("vkQueuePresentKHR", e.as_raw())),
         }
@@ -2488,10 +2544,6 @@ impl VulkanState {
             clear,
             dirty,
         )?;
-
-        let device = self.context.device();
-        unsafe { device.queue_wait_idle(self.context.queue()) }
-            .map_err(|e| vk_error("vkQueueWaitIdle", e.as_raw()))?;
 
         let size = (width as usize) * (height as usize) * 4;
         let mut pixels = vec![0u8; size];

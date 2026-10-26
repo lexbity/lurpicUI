@@ -23,6 +23,9 @@ func (p ResourcePolicy) Validate() error {
 	if err := p.Plan.Validate(); err != nil {
 		return err
 	}
+	if p.Plan.Caps[membudget.Frame] < 4*framePacketCapacity(p.Plan.Profile)+frameSealScratchBytes {
+		return errors.New("runtime: frame wallet must fit four packet groups and scratch")
+	}
 	if p.TextLimits.MaxSourceBytes <= 0 || p.TextLimits.MaxGlyphs <= 0 || p.TextLimits.MaxLines <= 0 || p.TextLimits.MaxParagraphSpans <= 0 || p.TextLimits.MaxLayouts <= 0 || p.TextLimits.MaxGlyphEntries <= 0 || p.TextLimits.MaxFontFaces <= 0 {
 		return errors.New("runtime: text resource limits must all be positive")
 	}

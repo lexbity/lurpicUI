@@ -62,10 +62,10 @@ func DestroyImage(uint64) error { return nil }
 func CreateAndroidSurface(uintptr, uintptr, uint32, uint32) (uintptr, error) {
 	return 0, errCGORequired
 }
-func RecreateAndroidSurface(uintptr, uint32, uint32) error {
-	return errCGORequired
-}
+
 func QueryCapabilities() (Capabilities, error) {
 	return Capabilities{}, errCGORequired
 }
 func resetRustLibraryLoaderForTest() {}
+
+func ActivateSurface(uintptr) error { return errCGORequired }

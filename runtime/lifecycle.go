@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -21,7 +22,9 @@ func (rt *Runtime) RunOneFrame() {
 // previous frame's now). In Virtual mode the parameter is ignored — the
 // virtual clock is the only time authority (QP-5).
 func (rt *Runtime) RunOneFrameAt(now time.Time) {
-	_ = rt.start()
+	if err := rt.start(); err != nil {
+		return
+	}
 	rt.driveDrain()
 	if rt.clock.Mode() == ClockVirtual {
 		parkedEvents := rt.collectPlatformEvents()
@@ -478,9 +481,28 @@ func (rt *Runtime) Shutdown() {
 }
 
 func (rt *Runtime) start() error {
+	rt.shutdownMu.Lock()
+	stopped := rt.stopping
+	rt.shutdownMu.Unlock()
+	if stopped {
+		return errors.New("runtime: cannot start a stopped runtime")
+	}
 
 	var startErr error
 	rt.startOnce.Do(func() {
+		rt.shutdownMu.Lock()
+		if rt.stopping {
+			rt.shutdownMu.Unlock()
+			startErr = errors.New("runtime: cannot start a stopped runtime")
+			return
+		}
+		// Claim startup before touching the tree. The shutdown supervisor
+		// waits for the startup barrier before disposing any runtime graph.
+		rt.started = true
+		rt.shutdownMu.Unlock()
+		go rt.superviseShutdown()
+		// A startup panic must also release shutdown's ownership barrier.
+		defer close(rt.startupDone)
 		if runtimeTraceActive() {
 			runtimeTracef("start begin runtimeThread=%v", syncutil.OnRuntimeThread())
 		}
@@ -494,10 +516,6 @@ func (rt *Runtime) start() error {
 		rt.attachTree(rt.root)
 		rt.activateTree(rt.root)
 		rt.markTreeDirty(rt.root, facet.DirtyAll)
-		go rt.superviseShutdown()
-		rt.shutdownMu.Lock()
-		rt.started = true
-		rt.shutdownMu.Unlock()
 		if runtimeTraceActive() {
 			runtimeTracef("start complete")
 		}
@@ -566,6 +584,7 @@ func (rt *Runtime) bindLifecycleCallbacks() {
 func (rt *Runtime) superviseShutdown() {
 	defer close(rt.doneCh)
 	<-rt.shutdownCh
+	<-rt.startupDone
 	_ = rt.shutdown()
 }
 

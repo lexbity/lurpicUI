@@ -129,24 +129,26 @@ func TestFrameTimerWakeWithoutRemainingWorkDoesNotAuthorizeFrame(t *testing.T) {
 	}
 }
 
-func TestRenderPipeline_submit_blocks_on_full(t *testing.T) {
+func TestRenderPipeline_reservedGroupsFitTheHandoffWindow(t *testing.T) {
 	pipe := newRenderPipeline(&backendFixture{})
-	pipe.Submit(testframe.Seal(render.FrameInput{}), 1)
-	done := make(chan struct{})
-	go func() {
-		pipe.Submit(testframe.Seal(render.FrameInput{}), 2)
-		close(done)
-	}()
-	select {
-	case <-done:
-		t.Fatal("second submit should block")
-	case <-time.After(20 * time.Millisecond):
+	if !pipe.TryReserveFrame() || !pipe.TryReserveFrame() {
+		t.Fatal("two configured frame groups were not available")
 	}
-	<-pipe.handoffCh
-	select {
-	case <-done:
-	case <-time.After(20 * time.Millisecond):
-		t.Fatal("expected second submit to unblock after drain")
+	pipe.SubmitReserved(testframe.Group(testframe.Seal(render.FrameInput{})), 1)
+	pipe.SubmitReserved(testframe.Group(testframe.Seal(render.FrameInput{})), 2)
+	if got := len(pipe.handoffCh); got != 2 {
+		t.Fatalf("queued ordinary handoffs=%d, want both reserved groups", got)
+	}
+	if pipe.TryReserveFrame() {
+		pipe.ReleaseFrameReservation()
+		t.Fatal("ordinary frame admission exceeded its two-group window")
+	}
+	for i := 0; i < 2; i++ {
+		handoff := <-pipe.handoffCh
+		if err := handoff.frame.Release(); err != nil {
+			t.Fatalf("release queued frame: %v", err)
+		}
+		pipe.ReleaseFrameReservation()
 	}
 }
 
@@ -300,18 +302,18 @@ func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 	if frame == nil || frame.BatchCount() != 1 {
 		t.Fatalf("frame = %#v", frame)
 	}
-	cmds, ok := frame.AppendBatchCommands(0, nil)
+	cmds, ok := frame.BatchCommands(0)
 	if !ok {
 		t.Fatal("batch command page unavailable")
 	}
-	if len(cmds) < 3 {
+	if cmds.Len() < 3 {
 		t.Fatalf("commands = %#v", cmds)
 	}
-	if _, ok := cmds[0].(gfx.PushTransform); !ok {
-		t.Fatalf("first command = %T", cmds[0])
+	if _, ok := cmds.At(0).Scalars().(gfx.PushTransform); !ok {
+		t.Fatalf("first command = %T", cmds.At(0).Scalars())
 	}
-	if _, ok := cmds[len(cmds)-1].(gfx.PopTransform); !ok {
-		t.Fatalf("last command = %T", cmds[len(cmds)-1])
+	if _, ok := cmds.At(cmds.Len() - 1).Scalars().(gfx.PopTransform); !ok {
+		t.Fatalf("last command = %T", cmds.At(cmds.Len()-1).Scalars())
 	}
 }
 

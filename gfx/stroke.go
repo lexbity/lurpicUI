@@ -32,9 +32,10 @@ type Polyline struct {
 // Vulkan encoder can expand strokes without heap allocations (NFR-6). The
 // scratch grows on demand and reuses capacity across frames.
 type StrokeScratch struct {
-	points       []Point    // shared point arena (flattened subpaths + dash pieces)
-	subpaths     []Polyline // flattened subpaths / dash pieces (ranges into points)
-	pieces       []Polyline // dash on-pieces (ranges into points)
+	commandPath  []PathSegment // source geometry assembled from immutable command views
+	points       []Point       // shared point arena (flattened subpaths + dash pieces)
+	subpaths     []Polyline    // flattened subpaths / dash pieces (ranges into points)
+	pieces       []Polyline    // dash on-pieces (ranges into points)
 	out          []PathSegment
 	cur          []Point       // current subpath points during flatten
 	dashCurrent  []Point       // current dash on-piece

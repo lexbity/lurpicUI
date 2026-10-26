@@ -3,10 +3,13 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/diagnostics"
@@ -45,8 +48,7 @@ type Runtime struct {
 	// backend swap can close the old adapter and re-wire the asset manager
 	// (Slice 10, FR-12).
 	assetUploader *assetUploader
-	frameWallet   *membudget.Wallet
-	packetCap     uint64
+	frameStorage  *frameStorage
 
 	platformApp    platform.App
 	window         platform.Window
@@ -76,7 +78,8 @@ type Runtime struct {
 	hitTraceEnabled   bool
 	pendingEvents     []platform.Event
 	lastWindowFrames  map[string]*render.Frame
-	pendingFrameViews map[uint64]*render.Frame
+	pendingFrameViews map[uint64]*render.FrameGroup
+	lastReadyFrame    uint64
 	frameViewMu       sync.RWMutex
 	diagMu            sync.RWMutex
 	diag              DiagnosticsHook
@@ -98,11 +101,15 @@ type Runtime struct {
 	// loss. The runtime may keep ticking and processing input while the
 	// platform surface is absent, but the backend must not receive frames until
 	// a fresh surface has been created successfully.
-	surfaceReady bool
-	imeVisible   bool
+	surfaceReady               bool
+	surfaceLifecycleGeneration uint64
+	lastDeviceGeneration       uint64
+	hasDeviceGeneration        bool
+	imeVisible                 bool
 
-	shutdownCh chan struct{}
-	doneCh     chan struct{}
+	shutdownCh  chan struct{}
+	startupDone chan struct{}
+	doneCh      chan struct{}
 
 	lastStats         diagnostics.FrameStats
 	lastDirtySnapshot map[facet.FacetID]facet.DirtyFlags
@@ -180,6 +187,15 @@ type Runtime struct {
 }
 
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {
+	if len(config.WindowBindings) >= render.MaxFrameWindows {
+		return nil, fmt.Errorf("runtime: too many named windows (maximum total %d)", render.MaxFrameWindows)
+	}
+	for name, binding := range config.WindowBindings {
+		if name == "" || name == render.PrimaryWindow || len(name) > 256 || !utf8.ValidString(name) || strings.ContainsRune(name, 0) || binding == nil {
+			return nil, fmt.Errorf("runtime: invalid named window binding %q", name)
+		}
+	}
+
 	if config.TargetFPS <= 0 {
 		return nil, errors.New("runtime: TargetFPS must be greater than zero")
 	}
@@ -245,13 +261,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if config.Logger == nil {
 		config.Logger = log.NopLogger{}
 	}
-	frameWallet, err := membudget.NewWallet(config.Resources.Plan.Caps[membudget.Frame])
+	storage, err := newFrameStorage(config.Resources.Plan.Caps[membudget.Frame], framePacketCapacity(config.Resources.Plan.Profile))
 	if err != nil {
 		return nil, fmt.Errorf("runtime: frame wallet: %w", err)
-	}
-	packetCap := uint64(8 << 20)
-	if config.Resources.Plan.Profile == membudget.Compact {
-		packetCap = 2 << 20
 	}
 	rt := &Runtime{
 		config:                config,
@@ -263,7 +275,6 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		focusDirty:            true,
 		layerTreeDirty:        true,
 		activeTickByID:        make(map[facet.FacetID]int),
-		jobPool:               job.NewPool(config.WorkerCount),
 		layerRegistry:         config.LayerRegistry,
 		assetManager:          config.AssetManager,
 		platformApp:           platformApp,
@@ -280,10 +291,10 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		anchorCaches:          make(map[facet.FacetID]*layout.AnchorPositionCache),
 		projectionLayers:      make(map[facet.FacetID]facet.ProjectionLayer),
 		lastWindowFrames:      make(map[string]*render.Frame),
-		pendingFrameViews:     make(map[uint64]*render.Frame),
-		frameWallet:           frameWallet,
-		packetCap:             packetCap,
+		pendingFrameViews:     make(map[uint64]*render.FrameGroup),
+		frameStorage:          storage,
 		shutdownCh:            make(chan struct{}),
+		startupDone:           make(chan struct{}),
 		doneCh:                make(chan struct{}),
 		log:                   config.Logger,
 		diag:                  config.DiagnosticsHook,
@@ -293,11 +304,16 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		controlWatchers:       make(map[facet.FacetID][]controlWatcher),
 		recoveryDisabled:      config.RecoveryDisabled,
 	}
+	if err := rt.validateWindowBindings(); err != nil {
+		return nil, err
+	}
+	if err := rt.configureRenderWindows(backend); err != nil {
+		return nil, err
+	}
 	rt.liveIndex.registerTree(root)
 	if err := rt.validateFacetStoreScopes(root); err != nil {
 		return nil, err
 	}
-	config.StoreScope.Bind(config.StoreIdentity)
 	rt.liveTestIDs = make(liveTestIDs)
 	rt.facetReadExports = make(map[facet.FacetID]map[string]store.ReadExport)
 	rt.namedExportOwners = make(map[string]facet.FacetID)
@@ -315,8 +331,12 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	// software backend bound to the current surface; the swap notifies the
 	// runtime so it can log, emit OnBackendFallback, and re-wire the asset
 	// texture releaser/uploader to the software backend.
-	rt.renderPipeline.fallbackFactory = rt.softwareFallbackBackend
-	rt.renderPipeline.onFallback = rt.notifyBackendFallback
+	rt.renderPipeline.fallbackFactory = config.SoftwareBackendFactory
+	targets := rt.renderWindowTargets(rt.currentSurface())
+	if len(targets) > 0 {
+		rt.renderPipeline.targetCount = len(targets)
+		copy(rt.renderPipeline.targets[:], targets)
+	}
 	rt.lifecycleCond = sync.NewCond(&rt.lifecycleMu)
 	if config.Drive.Enabled {
 		if err := rt.installDrivePort(); err != nil {
@@ -329,9 +349,6 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	rt.inputSystem.SetFocusManager(rt.focusManager)
 	if cap, ok := platform.PointerCapableOf(platformApp); ok {
 		rt.inputSystem.SetHoverSupported(cap.SupportsHover())
-	}
-	if err := rt.validateWindowBindings(); err != nil {
-		return nil, err
 	}
 	if err := rt.validateLayerRecipes(); err != nil {
 		return nil, err
@@ -352,6 +369,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		}
 		return nil, err
 	}
+	config.StoreScope.Bind(config.StoreIdentity)
 	store.SetProjectionActiveCheck(func() bool {
 		return rt.projectionInProgress.Load()
 	})
@@ -378,6 +396,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 			})
 		}
 	}
+	rt.jobPool = job.NewPool(config.WorkerCount)
 	rt.projectionSystem.SetRuntime(rt)
 
 	return rt, nil
@@ -409,31 +428,76 @@ func (rt *Runtime) Clock() *Clock { return rt.clock }
 // deterministic.
 func (rt *Runtime) Now() time.Time { return rt.clock.Now() }
 
-func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) (*render.Frame, error) {
-	return rt.sealFrameInput(assembleFrameInputWithLayers(output, dirtySnapshot, rt))
-}
-
-func (rt *Runtime) sealFrameInput(input render.FrameInput) (*render.Frame, error) {
-	bytes, err := render.EstimateFrameBytes(input)
+func (rt *Runtime) sealFrameGroup(inputs map[string]render.FrameInput, cleanup bool) (*render.FrameGroup, error) {
+	if len(inputs) == 0 || len(inputs) > render.MaxFrameWindows {
+		return nil, fmt.Errorf("runtime: invalid frame window set size %d", len(inputs))
+	}
+	scratchCharge, err := rt.frameStorage.scratch.Reserve(frameSealScratchBytes)
 	if err != nil {
-		return nil, fmt.Errorf("runtime: estimate sealed frame: %w", err)
+		return nil, fmt.Errorf("runtime: reserve frame seal scratch: %w", err)
 	}
-	if bytes > rt.packetCap {
-		return nil, fmt.Errorf("runtime: frame packet requires %d bytes, cap is %d", bytes, rt.packetCap)
+	defer func() { _ = scratchCharge.Cancel() }()
+	var scratch frameSealScratch
+	defer func() { clear(scratch.keys[:]); clear(scratch.frames[:]) }()
+	keys := scratch.keys[:0]
+	for key := range inputs {
+		keys = append(keys, key)
 	}
-	if bytes == 0 {
-		bytes = 1
+	slices.SortFunc(keys, func(a, b string) int {
+		if a == b {
+			return 0
+		}
+		if a == render.PrimaryWindow {
+			return -1
+		}
+		if b == render.PrimaryWindow {
+			return 1
+		}
+		return strings.Compare(a, b)
+	})
+	sizes := scratch.sizes[:len(keys)]
+	var total uint64
+	for i, key := range keys {
+		input := inputs[key]
+		input.WindowID = key
+		bytes, err := render.EstimateFrameBytes(input)
+		if err != nil {
+			return nil, fmt.Errorf("runtime: estimate window %q: %w", key, err)
+		}
+		if bytes > rt.frameStorage.packetCap-total {
+			return nil, &membudget.ResourceLimit{Requested: bytes, Used: total, Capacity: rt.frameStorage.packetCap}
+		}
+		total += bytes
+		sizes[i] = bytes
 	}
-	reservation, err := rt.frameWallet.Reserve(bytes)
+	reservations, err := rt.frameStorage.reserve(sizes, cleanup)
 	if err != nil {
-		return nil, fmt.Errorf("runtime: frame resource limit: %w", err)
+		return nil, fmt.Errorf("runtime: reserve frame window set: %w", err)
 	}
-	frame, err := render.SealFrame(input, reservation)
+	frames := scratch.frames[:len(keys)]
+	for i, key := range keys {
+		input := inputs[key]
+		input.WindowID = key
+		frames[i], err = render.SealFrame(input, reservations[i])
+		if err != nil {
+			for j := range reservations {
+				if frames[j] != nil {
+					_ = frames[j].Release()
+				} else {
+					_ = reservations[j].Cancel()
+				}
+			}
+			return nil, fmt.Errorf("runtime: seal window %q: %w", key, err)
+		}
+	}
+	group, err := render.TakeFrameGroup(frames)
 	if err != nil {
-		_ = reservation.Cancel()
-		return nil, fmt.Errorf("runtime: seal frame: %w", err)
+		for _, frame := range frames {
+			_ = frame.Release()
+		}
+		return nil, err
 	}
-	return frame, nil
+	return group, nil
 }
 
 // RetainWindowFrames returns owned leases for all latest acknowledged windows.
@@ -561,7 +625,15 @@ func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySna
 		return nil
 	}
 	grouped := make(map[string]*projection.FrameOutput)
-	order := make([]string, 0)
+	order := []string{render.PrimaryWindow}
+	grouped[render.PrimaryWindow] = &projection.FrameOutput{}
+	for key := range rt.windowBindings {
+		if key != render.PrimaryWindow {
+			order = append(order, key)
+			grouped[key] = &projection.FrameOutput{}
+		}
+	}
+	sort.Strings(order[1:])
 	for _, po := range output.RenderBatchs {
 		key := windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})
 		if rt != nil {
@@ -589,7 +661,14 @@ func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySna
 		if group == nil {
 			continue
 		}
-		out[key] = assembleFrameInputWithLayers(group, dirtySnapshot, rt)
+		input := assembleFrameInputWithLayers(group, dirtySnapshot, rt)
+		input.WindowID = key
+		if key == render.PrimaryWindow {
+			input.SurfaceGeneration = rt.surfaceLifecycleGeneration
+		} else {
+			input.SurfaceGeneration = 1
+		}
+		out[key] = input
 	}
 	return out
 }

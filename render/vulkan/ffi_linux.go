@@ -31,6 +31,7 @@ typedef struct {
 
 int lurpic_render_load(const char *library_path);
 // GEN-FFI-START declarations
+int32_t lurpic_render_activate_surface(uintptr_t surface);
 int32_t lurpic_render_build_pipeline_probe(void);
 int32_t lurpic_render_create_image(const unsigned char *pixels, uintptr_t len, uint32_t width, uint32_t height, uint32_t stride, uint32_t format, uint64_t *out_handle);
 int32_t lurpic_render_create_xcb_surface(uintptr_t instance, uintptr_t connection, uint32_t window, uint32_t width, uint32_t height, uintptr_t *out_surface);
@@ -630,4 +631,11 @@ func resetRustLibraryLoaderForTest() {
 	rustLibraryLoadOnce = sync.Once{}
 	rustLibraryLoadErr = nil
 	rustLibraryPathResolver = defaultRustLibraryPath
+}
+
+func ActivateSurface(surface uintptr) error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	return translateStatus(C.lurpic_render_activate_surface(C.uintptr_t(surface)))
 }

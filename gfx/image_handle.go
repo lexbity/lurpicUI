@@ -44,7 +44,7 @@ func NewImageHandle(src *image.RGBA, generation uint64) (ImageHandle, error) {
 		}
 		copy(pixels[y*src.Stride:y*src.Stride+width*4], src.Pix[off:off+width*4])
 	}
-	return NewImageHandlePixels(pixels, width, height, src.Stride, generation)
+	return takeImageHandlePixels(pixels, width, height, src.Stride, generation), nil
 }
 
 // NewImageHandlePixels registers an already-owned pixel buffer by copying it.
@@ -52,7 +52,11 @@ func NewImageHandlePixels(pixels []byte, width, height, stride int, generation u
 	if width <= 0 || height <= 0 || width > math.MaxInt/4 || stride < width*4 || height > math.MaxInt/stride || len(pixels) != height*stride {
 		return ImageHandle{}, errors.New("gfx: invalid immutable pixel dimensions or backing")
 	}
-	owned := append([]byte(nil), pixels...)
+	owned := copyValues(pixels)
+	return takeImageHandlePixels(owned, width, height, stride, generation), nil
+}
+
+func takeImageHandlePixels(owned []byte, width, height, stride int, generation uint64) ImageHandle {
 	return ImageHandle{asset: &imageAsset{
 		generation: generation,
 		width:      width,
@@ -60,7 +64,7 @@ func NewImageHandlePixels(pixels []byte, width, height, stride int, generation u
 		stride:     stride,
 		pixels:     owned,
 		digest:     sha256.Sum256(owned),
-	}}, nil
+	}}
 }
 
 func (h ImageHandle) IsZero() bool { return h.asset == nil }

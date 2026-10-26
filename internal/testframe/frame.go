@@ -35,6 +35,14 @@ func Seal(input render.FrameInput) *render.Frame {
 	return frame
 }
 
+func Group(frames ...*render.Frame) *render.FrameGroup {
+	group, err := render.TakeFrameGroup(frames)
+	if err != nil {
+		panic(err)
+	}
+	return group
+}
+
 func Image(value any) gfx.ImageHandle {
 	if value == nil {
 		return gfx.ImageHandle{}

@@ -80,7 +80,7 @@ func CommandDigests(list gfx.CommandList) ([]string, error) {
 		e.h.Reset()
 		e.err = nil
 		e.writeTag("command")
-		if err := e.writeCommand(command); err != nil {
+		if err := e.writeCommand(gfx.ReadCommand(command)); err != nil {
 			return nil, fmt.Errorf("canonical: command %d: %w", i, err)
 		}
 		if e.err != nil {
@@ -92,7 +92,7 @@ func CommandDigests(list gfx.CommandList) ([]string, error) {
 }
 
 // DigestCommand encodes one complete command for bounded render-diff metadata.
-func DigestCommand(command gfx.Command) (string, error) {
+func DigestCommand(command gfx.CommandView) (string, error) {
 	e := NewEncoder()
 	e.writeTag("command")
 	if err := e.writeCommand(command); err != nil {
@@ -114,6 +114,8 @@ func (e *Encoder) WriteFrame(frame *render.Frame) error {
 		return nil
 	}
 	e.writeTag("frame")
+	e.writeString(frame.WindowID())
+	e.writeUint64(frame.SurfaceGeneration())
 	e.writeTag("layers")
 	if err := e.writeCount(frame.LayerCount()); err != nil {
 		return err
@@ -173,8 +175,8 @@ func (e *Encoder) writeFrameBatch(frame *render.Frame, index int) error {
 	}
 	commandIndex := 0
 	var commandErr error
-	if !frame.VisitBatchCommands(index, func(command gfx.Command) bool {
-		if command == nil {
+	if !frame.VisitBatchCommands(index, func(command gfx.CommandView) bool {
+		if command.Scalars() == nil {
 			commandErr = fmt.Errorf("canonical: nil command at index %d", commandIndex)
 			return false
 		}
@@ -210,15 +212,15 @@ func (e *Encoder) writeCommands(list gfx.CommandList) error {
 		if command == nil {
 			return fmt.Errorf("canonical: nil command at index %d", i)
 		}
-		if err := e.writeCommand(command); err != nil {
+		if err := e.writeCommand(gfx.ReadCommand(command)); err != nil {
 			return fmt.Errorf("canonical: command %d: %w", i, err)
 		}
 	}
 	return e.err
 }
 
-func (e *Encoder) writeCommand(command gfx.Command) error {
-	switch c := command.(type) {
+func (e *Encoder) writeCommand(command gfx.CommandView) error {
+	switch c := command.Scalars().(type) {
 	case gfx.PushTransform:
 		e.writeTag("PushTransform")
 		e.writeTransform(c.Matrix)
@@ -237,41 +239,41 @@ func (e *Encoder) writeCommand(command gfx.Command) error {
 	case gfx.FillRect:
 		e.writeTag("FillRect")
 		e.writeRect(c.Rect)
-		e.writeBrush(c.Brush)
+		e.writeBrush(command.Brush())
 	case gfx.StrokeRect:
 		e.writeTag("StrokeRect")
 		e.writeRect(c.Rect)
-		e.writeStroke(c.Stroke)
-		e.writeBrush(c.Brush)
+		e.writeStroke(c.Stroke, command.StrokeDash())
+		e.writeBrush(command.Brush())
 	case gfx.FillPath:
 		e.writeTag("FillPath")
-		e.writePath(c.Path)
-		e.writeBrush(c.Brush)
+		e.writePath(command.Path())
+		e.writeBrush(command.Brush())
 	case gfx.StrokePath:
 		e.writeTag("StrokePath")
-		e.writePath(c.Path)
-		e.writeStroke(c.Stroke)
-		e.writeBrush(c.Brush)
+		e.writePath(command.Path())
+		e.writeStroke(c.Stroke, command.StrokeDash())
+		e.writeBrush(command.Brush())
 	case gfx.DrawPolyline:
 		e.writeTag("DrawPolyline")
-		e.writePoints(c.Points)
-		e.writeStroke(c.Stroke)
-		e.writeBrush(c.Brush)
+		e.writePoints(command.Points())
+		e.writeStroke(c.Stroke, command.StrokeDash())
+		e.writeBrush(command.Brush())
 		e.writeBool(c.Closed)
 	case gfx.DrawPoints:
 		e.writeTag("DrawPoints")
-		e.writePoints(c.Points)
+		e.writePoints(command.Points())
 		e.writeFloat32(c.Radius)
-		e.writeBrush(c.Brush)
+		e.writeBrush(command.Brush())
 	case gfx.DrawGlyphRun:
 		e.writeTag("DrawGlyphRun")
-		e.writeGlyphRun(c.Run)
+		e.writeGlyphRun(c.Run, command.Glyphs(), command.GraphemeAdvances())
 		e.writePoint(c.Origin)
-		e.writeBrush(c.Brush)
+		e.writeBrush(command.Brush())
 	case gfx.DrawSelectionRects:
 		e.writeTag("DrawSelectionRects")
-		e.writeRects(c.Rects)
-		e.writeBrush(c.Brush)
+		e.writeRects(command.Rects())
+		e.writeBrush(command.Brush())
 	case gfx.DrawImage:
 		e.writeTag("DrawImage")
 		e.writeImage(c.Image)
@@ -288,7 +290,7 @@ func (e *Encoder) writeCommand(command gfx.Command) error {
 		e.writeFloat32(c.Opacity)
 	case gfx.DrawBlurredShadow:
 		e.writeTag("DrawBlurredShadow")
-		e.writePath(c.Path)
+		e.writePath(command.Path())
 		e.writeColor(c.Color)
 		e.writeFloat32(c.BlurRadius)
 		e.writePoint(c.Offset)
@@ -305,10 +307,13 @@ func (e *Encoder) writeCommand(command gfx.Command) error {
 	return nil
 }
 
-func (e *Encoder) writeGlyphRun(run text.GlyphRun) {
+func (e *Encoder) writeGlyphRun(run text.GlyphRun, glyphs gfx.Values[text.PositionedGlyph], advances gfx.Values[float32]) {
 	e.writeTag("glyph-run")
-	e.writeUint64(uint64(len(run.Glyphs)))
-	for _, glyph := range run.Glyphs {
+	if err := e.writeCount(glyphs.Len()); err != nil {
+		e.err = err
+		return
+	}
+	for glyph := range glyphs.All() {
 		e.writeUint32(glyph.GlyphID)
 		e.writeFloat32(glyph.X)
 		e.writeFloat32(glyph.Y)
@@ -326,8 +331,11 @@ func (e *Encoder) writeGlyphRun(run text.GlyphRun) {
 	e.writeString(run.Text)
 	e.writeInt64(int64(run.Direction))
 	e.writeInt64(int64(run.Level))
-	e.writeUint64(uint64(len(run.GraphemeAdvances)))
-	for _, advance := range run.GraphemeAdvances {
+	if err := e.writeCount(advances.Len()); err != nil {
+		e.err = err
+		return
+	}
+	for advance := range advances.All() {
 		e.writeFloat32(advance)
 	}
 	e.writeString(string(run.Language))
@@ -374,10 +382,13 @@ func (e *Encoder) writeImage(img gfx.ImageHandle) {
 	e.writeBytes(digest[:])
 }
 
-func (e *Encoder) writePath(path gfx.Path) {
+func (e *Encoder) writePath(path gfx.PathView) {
 	e.writeTag("path")
-	e.writeUint64(uint64(len(path.Segments)))
-	for _, segment := range path.Segments {
+	if err := e.writeCount(path.Segments.Len()); err != nil {
+		e.err = err
+		return
+	}
+	for segment := range path.Segments.All() {
 		e.writeUint8(uint8(segment.Verb))
 		// Encode the full fixed point array. SegmentPointCount decides how
 		// many points a renderer reads; unused points are still field content
@@ -388,27 +399,33 @@ func (e *Encoder) writePath(path gfx.Path) {
 	}
 }
 
-func (e *Encoder) writeStroke(stroke gfx.StrokeStyle) {
+func (e *Encoder) writeStroke(stroke gfx.StrokeStyle, dash gfx.Values[float32]) {
 	e.writeTag("stroke")
 	e.writeFloat32(stroke.Width)
 	e.writeUint8(uint8(stroke.Cap))
 	e.writeUint8(uint8(stroke.Join))
 	e.writeFloat32(stroke.MiterLimit)
-	e.writeUint64(uint64(len(stroke.Dash)))
-	for _, dash := range stroke.Dash {
+	if err := e.writeCount(dash.Len()); err != nil {
+		e.err = err
+		return
+	}
+	for dash := range dash.All() {
 		e.writeFloat32(dash)
 	}
 	e.writeFloat32(stroke.DashOffset)
 }
 
-func (e *Encoder) writeBrush(brush gfx.Brush) {
+func (e *Encoder) writeBrush(brush gfx.BrushView) {
 	e.writeTag("brush")
 	e.writeUint8(uint8(brush.Kind))
 	e.writeColor(brush.Color)
 	e.writePoint(brush.GradientStart)
 	e.writePoint(brush.GradientEnd)
-	e.writeUint64(uint64(len(brush.GradientStops)))
-	for _, stop := range brush.GradientStops {
+	if err := e.writeCount(brush.GradientStops.Len()); err != nil {
+		e.err = err
+		return
+	}
+	for stop := range brush.GradientStops.All() {
 		e.writeFloat32(stop.Offset)
 		e.writeColor(stop.Color)
 	}
@@ -430,9 +447,12 @@ func (e *Encoder) writeTransform(transform gfx.Transform) {
 	e.writeFloat32(transform.TY)
 }
 
-func (e *Encoder) writePoints(points []gfx.Point) {
-	e.writeUint64(uint64(len(points)))
-	for _, point := range points {
+func (e *Encoder) writePoints(points gfx.Values[gfx.Point]) {
+	if err := e.writeCount(points.Len()); err != nil {
+		e.err = err
+		return
+	}
+	for point := range points.All() {
 		e.writePoint(point)
 	}
 }
@@ -447,9 +467,12 @@ func (e *Encoder) writeRect(rect gfx.Rect) {
 	e.writePoint(rect.Max)
 }
 
-func (e *Encoder) writeRects(rects []gfx.Rect) {
-	e.writeUint64(uint64(len(rects)))
-	for _, rect := range rects {
+func (e *Encoder) writeRects(rects gfx.Values[gfx.Rect]) {
+	if err := e.writeCount(rects.Len()); err != nil {
+		e.err = err
+		return
+	}
+	for rect := range rects.All() {
 		e.writeRect(rect)
 	}
 }

@@ -121,8 +121,8 @@ func TestRenderAssembly_retainedOutput(t *testing.T) {
 		t.Fatal("assembled batch dropped its commands")
 	}
 	found := false
-	frame.VisitBatchCommands(0, func(command gfx.Command) bool {
-		if _, ok := command.(gfx.FillRect); ok {
+	frame.VisitBatchCommands(0, func(command gfx.CommandView) bool {
+		if _, ok := command.Scalars().(gfx.FillRect); ok {
 			found = true
 		}
 		return true

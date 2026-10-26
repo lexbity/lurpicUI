@@ -94,14 +94,11 @@ func collectBatchesInto(out []batchWithClip, frame *render.Frame) []batchWithCli
 // returned packet aliases the internal output buffer and remains valid only
 // until the next Encode on the same encoder.
 type frameEncoder struct {
-	batches        []batchWithClip
-	encoded        []encodedBatch
-	payload        packetWriter
-	out            packetWriter
-	strokeScratch  gfx.StrokeScratch
-	pathSegs       []gfx.PathSegment
-	commandScratch []gfx.Command
-	rectScratch    rectStrokeScratch
+	batches       []batchWithClip
+	encoded       []encodedBatch
+	payload       packetWriter
+	out           packetWriter
+	strokeScratch gfx.StrokeScratch
 }
 
 func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([]byte, error) {
@@ -118,13 +115,11 @@ func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([
 	e.batches = collectBatchesInto(e.batches, frame)
 	for _, item := range e.batches {
 		base := e.payload.buf.Len()
-		e.commandScratch = e.commandScratch[:0]
-		var okCommands bool
-		e.commandScratch, okCommands = frame.AppendBatchCommands(item.index, e.commandScratch)
+		commandsView, okCommands := frame.BatchCommands(item.index)
 		if !okCommands {
 			return nil, errors.New("vulkan: frame command page was released during encoding")
 		}
-		transform, commands, ok, err := encodeBatchInto(&e.payload, item.batch, e.commandScratch, item.clip, assets, &e.strokeScratch, &e.pathSegs, &e.rectScratch)
+		transform, commands, ok, err := encodeBatchInto(&e.payload, item.batch, commandsView, item.clip, assets, &e.strokeScratch)
 		if err != nil {
 			return nil, err
 		}
@@ -191,25 +186,26 @@ type encodedBatch struct {
 // transform) into the batch header so it travels as packet metadata. The
 // wrapper is only extracted when it provably brackets the whole batch: the
 // transform depth must return to zero exactly at the final command.
-func extractBatchTransform(cmds []gfx.Command) (gfx.Transform, []gfx.Command, bool) {
-	if len(cmds) < 2 {
+func extractBatchTransform(cmds gfx.CommandRange) (gfx.Transform, gfx.CommandRange, bool) {
+	if cmds.Len() < 2 {
 		return gfx.Identity(), cmds, false
 	}
-	pt, ok := cmds[0].(gfx.PushTransform)
+	pt, ok := cmds.At(0).Scalars().(gfx.PushTransform)
 	if !ok {
 		return gfx.Identity(), cmds, false
 	}
-	if _, ok := cmds[len(cmds)-1].(gfx.PopTransform); !ok {
+	if _, ok := cmds.At(cmds.Len() - 1).Scalars().(gfx.PopTransform); !ok {
 		return gfx.Identity(), cmds, false
 	}
 	depth := 0
-	for i, c := range cmds {
+	for i := 0; i < cmds.Len(); i++ {
+		c := cmds.At(i).Scalars()
 		switch c.(type) {
 		case gfx.PushTransform:
 			depth++
 		case gfx.PopTransform:
 			depth--
-			if depth < 0 || (depth == 0 && i != len(cmds)-1) {
+			if depth < 0 || (depth == 0 && i != cmds.Len()-1) {
 				return gfx.Identity(), cmds, false
 			}
 		}
@@ -217,73 +213,74 @@ func extractBatchTransform(cmds []gfx.Command) (gfx.Transform, []gfx.Command, bo
 	if depth != 0 {
 		return gfx.Identity(), cmds, false
 	}
-	return pt.Matrix, cmds[1 : len(cmds)-1], true
+	return pt.Matrix, cmds.Slice(1, cmds.Len()-1), true
 }
 
 // encodeBatchInto writes the batch's command payload into w (a shared pooled
 // buffer) and returns the extracted transform and command count. It returns
 // ok=false when the batch contributes no decodable commands.
-func encodeBatchInto(w *packetWriter, batch render.FrameBatch, cmds []gfx.Command, clip gfx.Rect, assets imageAssetUploader, strokeScratch *gfx.StrokeScratch, pathSegs *[]gfx.PathSegment, rectScratch *rectStrokeScratch) (gfx.Transform, int, bool, error) {
-	if len(cmds) == 0 {
+func encodeBatchInto(w *packetWriter, batch render.FrameBatch, cmds gfx.CommandRange, clip gfx.Rect, assets imageAssetUploader, strokeScratch *gfx.StrokeScratch) (gfx.Transform, int, bool, error) {
+	if cmds.Len() == 0 {
 		return gfx.Transform{}, 0, false, nil
 	}
 
 	transform, cmds, _ := extractBatchTransform(cmds)
-	if len(cmds) == 0 {
+	if cmds.Len() == 0 {
 		return gfx.Transform{}, 0, false, nil
 	}
 
 	commands := 0
-	for _, cmd := range cmds {
-		switch c := cmd.(type) {
+	for commandIndex := 0; commandIndex < cmds.Len(); commandIndex++ {
+		cmd := cmds.At(commandIndex)
+		switch c := cmd.Scalars().(type) {
 		case gfx.FillRect:
 			commands++
 			w.writeU8(packetCmdFillRect)
 			w.writeRect(c.Rect)
-			if err := w.writeBrush(c.Brush); err != nil {
+			if err := w.writeBrush(cmd.Brush()); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.StrokeRect:
 			commands++
-			if err := encodeStrokeExpanded(w, c, strokeScratch, pathSegs, rectScratch); err != nil {
+			if err := encodeStrokeExpanded(w, cmd, strokeScratch); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.FillPath:
 			commands++
 			w.writeU8(packetCmdFillPath)
-			w.writePath(c.Path)
-			if err := w.writeBrush(c.Brush); err != nil {
+			w.writePath(cmd.Path())
+			if err := w.writeBrush(cmd.Brush()); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.StrokePath:
 			commands++
-			if err := encodeStrokeExpanded(w, c, strokeScratch, pathSegs, rectScratch); err != nil {
+			if err := encodeStrokeExpanded(w, cmd, strokeScratch); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawPolyline:
 			commands++
-			if err := encodeStrokeExpanded(w, c, strokeScratch, pathSegs, rectScratch); err != nil {
+			if err := encodeStrokeExpanded(w, cmd, strokeScratch); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawPoints:
 			commands++
 			w.writeU8(packetCmdDrawPoints)
-			w.writeU32(uint32(len(c.Points))) //nolint:gosec // integer overflow conversion
-			for _, p := range c.Points {
+			w.writeU32(uint32(cmd.Points().Len())) //nolint:gosec // integer overflow conversion
+			for p := range cmd.Points().All() {
 				w.writePoint(p)
 			}
 			w.writeF32(c.Radius)
-			if err := w.writeBrush(c.Brush); err != nil {
+			if err := w.writeBrush(cmd.Brush()); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawSelectionRects:
 			commands++
 			w.writeU8(packetCmdDrawSelectionRects)
-			w.writeU32(uint32(len(c.Rects))) //nolint:gosec // integer overflow conversion
-			for _, rr := range c.Rects {
+			w.writeU32(uint32(cmd.Rects().Len())) //nolint:gosec // integer overflow conversion
+			for rr := range cmd.Rects().All() {
 				w.writeRect(rr)
 			}
-			if err := w.writeBrush(c.Brush); err != nil {
+			if err := w.writeBrush(cmd.Brush()); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.PushTransform:
@@ -308,7 +305,7 @@ func encodeBatchInto(w *packetWriter, batch render.FrameBatch, cmds []gfx.Comman
 			commands++
 			w.writeU8(packetCmdPopOpacity)
 		case gfx.DrawGlyphRun:
-			if err := uploadGlyphRun(c.Run); err != nil {
+			if err := uploadGlyphRun(c.Run, cmd.Glyphs()); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 			commands++
@@ -323,13 +320,13 @@ func encodeBatchInto(w *packetWriter, batch render.FrameBatch, cmds []gfx.Comman
 			}
 			w.writeU32(math.Float32bits(size))
 			w.writePoint(c.Origin)
-			w.writeU32(uint32(len(c.Run.Glyphs))) //nolint:gosec // integer overflow conversion
-			for _, glyph := range c.Run.Glyphs {
+			w.writeU32(uint32(cmd.Glyphs().Len())) //nolint:gosec // integer overflow conversion
+			for glyph := range cmd.Glyphs().All() {
 				w.writeU32(glyph.GlyphID)
 				w.writeF32(glyph.X)
 				w.writeF32(glyph.Y)
 			}
-			if err := w.writeBrush(c.Brush); err != nil {
+			if err := w.writeBrush(cmd.Brush()); err != nil {
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawImage:
@@ -361,7 +358,7 @@ func encodeBatchInto(w *packetWriter, batch render.FrameBatch, cmds []gfx.Comman
 		case gfx.DrawBlurredShadow:
 			commands++
 			w.writeU8(packetCmdDrawBlurredShadow)
-			w.writePath(c.Path)
+			w.writePath(cmd.Path())
 			w.writeColor8(c.Color)
 			w.writeF32(c.BlurRadius)
 			w.writePoint(c.Offset)
@@ -450,7 +447,7 @@ func (w *packetWriter) writeTransform(t gfx.Transform) {
 // writeBrush encodes both brush kinds without loss. The gfx BrushKind surface
 // is sealed to solid/linear-gradient; any other kind is a caller contract
 // violation and is surfaced as an error rather than silently degraded.
-func (w *packetWriter) writeBrush(brush gfx.Brush) error {
+func (w *packetWriter) writeBrush(brush gfx.BrushView) error {
 	switch brush.Kind {
 	case gfx.BrushSolid:
 		w.writeU8(packetBrushSolid)
@@ -460,8 +457,8 @@ func (w *packetWriter) writeBrush(brush gfx.Brush) error {
 		w.writeU8(packetBrushLinearGradient)
 		w.writePoint(brush.GradientStart)
 		w.writePoint(brush.GradientEnd)
-		w.writeU32(uint32(len(brush.GradientStops))) //nolint:gosec // integer overflow conversion
-		for _, stop := range brush.GradientStops {
+		w.writeU32(uint32(brush.GradientStops.Len())) //nolint:gosec // integer overflow conversion
+		for stop := range brush.GradientStops.All() {
 			w.writeF32(stop.Offset)
 			w.writeColor8(stop.Color)
 		}
@@ -474,20 +471,14 @@ func (w *packetWriter) writeBrush(brush gfx.Brush) error {
 // writePath encodes a path as two parallel arrays: the verb sequence followed
 // by the concatenated point sequence (MoveTo/LineTo carry 1 point, QuadTo 2,
 // CubicTo 3, Close 0).
-func (w *packetWriter) writePath(path gfx.Path) {
-	w.writePathSegments(path.Segments)
-}
-
-// writePathSegments encodes a path's segments (the shape writePath accepts;
-// the shared helper lets the stroke expansion write its pooled segment slice
-// directly without an intermediate gfx.Path).
-func (w *packetWriter) writePathSegments(segs []gfx.PathSegment) {
+func (w *packetWriter) writePath(path gfx.PathView) {
+	segs := path.Segments
 	pointCount := 0
-	for _, seg := range segs {
+	for seg := range segs.All() {
 		pointCount += gfx.SegmentPointCount(seg.Verb)
 	}
-	w.writeU32(uint32(len(segs))) //nolint:gosec // integer overflow conversion
-	for _, seg := range segs {
+	w.writeU32(uint32(segs.Len())) //nolint:gosec // integer overflow conversion
+	for seg := range segs.All() {
 		switch seg.Verb {
 		case gfx.PathMoveTo:
 			w.writeU8(0)
@@ -502,7 +493,7 @@ func (w *packetWriter) writePathSegments(segs []gfx.PathSegment) {
 		}
 	}
 	w.writeU32(uint32(pointCount))
-	for _, seg := range segs {
+	for seg := range segs.All() {
 		switch seg.Verb {
 		case gfx.PathMoveTo, gfx.PathLineTo:
 			w.writePoint(seg.Pts[0])
