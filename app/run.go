@@ -330,7 +330,7 @@ func Run(config Config, builder RootBuilder) error {
 	}
 	defer func() { _ = textService.Close() }()
 
-	backend, selectedRender, err := initBackend(config.Render, surface, config.Runtime.Logger)
+	backend, selectedRender, err := initBackend(config.Render, surface, config.Runtime.Logger, resources)
 	if err != nil {
 		return err
 	}
@@ -427,7 +427,7 @@ func Run(config Config, builder RootBuilder) error {
 	return runRuntime(rt)
 }
 
-func initBackend(preferred RenderBackendKind, surface render.Surface, logger log.Logger) (render.Backend, RenderBackendKind, error) {
+func initBackend(preferred RenderBackendKind, surface render.Surface, logger log.Logger, resources runtime.ResourcePolicy) (render.Backend, RenderBackendKind, error) {
 	if surface == nil {
 		return nil, preferred, errors.New("app: window surface is nil")
 	}
@@ -463,6 +463,11 @@ func initBackend(preferred RenderBackendKind, surface render.Surface, logger log
 		backend := newBackend(kind)
 		if backend == nil {
 			return nil, errors.New("app: backend constructor returned nil")
+		}
+		if _, ok := backend.(*vulkan.Backend); ok {
+			if err := vulkan.SetResourceBudget(resources.Plan.Caps[membudget.GPU]); err != nil {
+				return nil, fmt.Errorf("app: configure Vulkan resource budget: %w", err)
+			}
 		}
 		if logger != nil {
 			logger.Info("app: backend initialize begin",

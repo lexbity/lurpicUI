@@ -22,12 +22,13 @@ type Capabilities struct {
 
 var errCGORequired = errors.New("vulkan: requires CGO (android NDK)")
 
-func Version() (string, error) { return "", errCGORequired }
-func Init() error              { return errCGORequired }
-func Shutdown() error          { return nil }
-func InstanceHandle() uintptr  { return 0 }
-func DeviceGeneration() uint64 { return 0 }
-func SubmitFrame([]byte) error { return errCGORequired }
+func Version() (string, error)       { return "", errCGORequired }
+func Init() error                    { return errCGORequired }
+func SetResourceBudget(uint64) error { return errCGORequired }
+func Shutdown() error                { return nil }
+func InstanceHandle() uintptr        { return 0 }
+func DeviceGeneration() uint64       { return 0 }
+func SubmitFrame([]byte) error       { return errCGORequired }
 func SubmitAndReadback([]byte, int, int) ([]byte, error) {
 	return nil, errCGORequired
 }
@@ -35,6 +36,8 @@ func SetValidation(bool) error         { return errCGORequired }
 func ForceSwappedRendering(bool) error { return errCGORequired }
 func BuildPipelineProbe() error        { return errCGORequired }
 func InjectDeviceLost() error          { return errCGORequired }
+
+func ResourceSnapshot() (ResourceUsage, error) { return ResourceUsage{}, errCGORequired }
 
 type PipelineFeatures struct {
 	DynamicRendering     uint32

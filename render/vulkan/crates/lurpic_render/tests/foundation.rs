@@ -164,6 +164,7 @@ fn clear_pipeline_builds_and_renders() {
             image,
             requirements,
             lurpic_render::gpu::allocator::MemoryLocation::GpuOnly,
+            lurpic_render::gpu::resource_tracker::ResourceKind::GpuResources,
         )
         .expect("image memory");
     unsafe {

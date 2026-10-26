@@ -22,6 +22,7 @@ use crate::error::vk_error;
 use crate::gpu::allocator::{ImageAllocation, MemoryLocation};
 use crate::gpu::context::GpuContext;
 use crate::gpu::resources::{Fence, Image, ImageView};
+use crate::gpu::resource_tracker::ResourceKind;
 use crate::RenderResult;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -35,9 +36,10 @@ pub enum ImageFormat {
 /// `height` are held for drop ordering and future mip work; the frame encoder
 /// reads `view` to build descriptor sets.
 pub struct StoredImage {
-    #[allow(dead_code)] // held for RAII drop ordering with the device
-    pub image: Image,
+    // Field order is Vulkan destruction order: view before image before memory.
     pub view: ImageView,
+    #[allow(dead_code)]
+    pub image: Image,
     #[allow(dead_code)] // held for RAII drop ordering with the device
     pub allocation: ImageAllocation,
     #[allow(dead_code)] // retained for future mip-level work
@@ -100,18 +102,34 @@ impl ImageStore {
             image.handle(),
             requirements,
             MemoryLocation::GpuOnly,
+            ResourceKind::ImageTextures,
         )?;
-        unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) }
-            .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
+        if let Err(error) = unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) } {
+            let error = vk_error("vkBindImageMemory", error.as_raw());
+            drop(image);
+            drop(allocation);
+            return Err(error);
+        }
 
-        upload_rgba(ctx, image.handle(), &rgba, width, height)?;
+        if let Err(error) = upload_rgba(ctx, image.handle(), &rgba, width, height) {
+            drop(image);
+            drop(allocation);
+            return Err(error);
+        }
 
-        let view = ImageView::new(
+        let view = match ImageView::new(
             device,
             image.handle(),
             vk::Format::R8G8B8A8_UNORM,
             vk::ImageAspectFlags::COLOR,
-        )?;
+        ) {
+            Ok(view) => view,
+            Err(error) => {
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
 
         let handle = self.next_handle;
         self.next_handle += 1;

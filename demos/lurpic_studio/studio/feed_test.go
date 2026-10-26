@@ -109,12 +109,16 @@ func TestFeed_trimToMaxLongRun(t *testing.T) {
 
 	seedCount := appState.Rows.Len()
 	const ticks = 60
-	driveTicks(feed, ticks)
-	// Wait until the last feed row (the highest id) has committed and trimmed.
-	h.RunUntil(func() bool {
-		rows := appState.Rows.All()
-		return len(rows) > 0 && rows[len(rows)-1].ID == uint64(seedCount+ticks)
-	}, 300)
+	for tick := 1; tick <= ticks; tick++ {
+		driveTicks(feed, 1)
+		wantID := uint64(seedCount + tick)
+		if !h.RunUntil(func() bool {
+			rows := appState.Rows.All()
+			return len(rows) > 0 && rows[len(rows)-1].ID == wantID
+		}, 60) {
+			t.Fatalf("feed row %d did not commit within 60 frames", wantID)
+		}
+	}
 	h.RunFrames(20)
 
 	got := appState.Rows.Len()

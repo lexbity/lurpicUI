@@ -41,6 +41,8 @@ pub const FFI_SYMBOLS: &[FfiSymbol] = &[
     FfiSymbol { name: "lurpic_render_query_pipeline_features", ret: "int32_t", args: "void *out", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_reset_atlas", ret: "void", args: "void", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_resize", ret: "int32_t", args: "int32_t width, int32_t height", platform: "", test_only: false },
+    FfiSymbol { name: "lurpic_render_resource_snapshot", ret: "int32_t", args: "void *out_snapshot", platform: "", test_only: false },
+    FfiSymbol { name: "lurpic_render_set_resource_budget", ret: "int32_t", args: "uint64_t bytes", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_set_validation", ret: "int32_t", args: "uint32_t enabled", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_shutdown", ret: "int32_t", args: "void", platform: "", test_only: false },
     FfiSymbol { name: "lurpic_render_submit_and_readback", ret: "int32_t", args: "const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len", platform: "", test_only: false },

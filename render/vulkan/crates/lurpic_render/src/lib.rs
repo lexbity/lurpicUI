@@ -94,7 +94,11 @@ static VALIDATION_ENABLED: AtomicU64 = AtomicU64::new(0);
 /// (VK_ERROR_DEVICE_LOST) so the runtime can invalidate GPU-cached texture IDs
 /// (render.DeviceGenerationProvider). Also bumped by the inject test hook.
 pub(crate) fn bump_device_generation() {
-    DEVICE_GENERATION.fetch_add(1, Ordering::SeqCst);
+    gpu::resource_tracker::bump_device_generation()
+        .unwrap_or_else(|(_, error)| panic!("Vulkan device generation invariant: {error}"));
+    DEVICE_GENERATION
+        .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |generation| generation.checked_add(1))
+        .unwrap_or_else(|_| panic!("Vulkan device generation exhausted"));
 }
 
 fn last_error() -> &'static Mutex<Vec<u8>> {
@@ -373,13 +377,12 @@ pub extern "C" fn lurpic_render_last_error() -> *const c_char {
 
 #[no_mangle]
 pub extern "C" fn lurpic_render_init() -> RenderResult {
-    let result = catch_render_result("init", || {
-        vulkan::init(VALIDATION_ENABLED.load(Ordering::SeqCst) != 0)
-    });
-    if result == RenderResult::Ok {
-        DEVICE_GENERATION.fetch_add(1, Ordering::SeqCst);
-    }
-    result
+    catch_render_result("init", || {
+        if vulkan::init(VALIDATION_ENABLED.load(Ordering::SeqCst) != 0)? {
+            bump_device_generation();
+        }
+        Ok(())
+    })
 }
 
 /// Enables/disables the Khronos validation layer for the NEXT `init`. The flag
@@ -390,6 +393,12 @@ pub extern "C" fn lurpic_render_set_validation(enabled: u32) -> RenderResult {
         VALIDATION_ENABLED.store((enabled != 0) as u64, Ordering::SeqCst);
         Ok(())
     })
+}
+
+/// Sets the renderer-owned GPU allocation cap before initialization.
+#[no_mangle]
+pub extern "C" fn lurpic_render_set_resource_budget(bytes: u64) -> RenderResult {
+    catch_render_result("set_resource_budget", || gpu::resource_tracker::set_budget(bytes))
 }
 
 /// Test-only: forces the solid pipeline to render through the RG-swapped
@@ -829,6 +838,26 @@ pub extern "C" fn lurpic_render_test_validation_error_count() -> u64 {
 #[no_mangle]
 pub extern "C" fn lurpic_render_device_generation() -> u64 {
     DEVICE_GENERATION.load(Ordering::SeqCst)
+}
+
+/// Returns a snapshot of current resource usage (P9).
+#[no_mangle]
+unsafe extern "C" fn lurpic_render_resource_snapshot(
+    out_snapshot: *mut gpu::resource_tracker::ResourceSnapshot,
+) -> RenderResult {
+    catch_render_result("resource_snapshot", || {
+        if out_snapshot.is_null() {
+            return Err((
+                RenderResult::InvalidHandle,
+                "resource snapshot pointer is null".to_string(),
+            ));
+        }
+        let snapshot = gpu::resource_tracker::snapshot();
+        unsafe {
+            *out_snapshot = snapshot;
+        }
+        Ok(())
+    })
 }
 
 #[cfg(all(test, feature = "test-exports"))]

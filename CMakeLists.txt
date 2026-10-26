@@ -541,6 +541,18 @@ add_custom_target(lint
   VERBATIM
 )
 
+# Disk-space reclamation for the caches under build/ and the Rust target/
+# directory. Intended to be run after test/check sessions; the next build
+# recompiles everything it deleted. See scripts/clean-cache.sh for scope.
+add_custom_target(clean-cache
+  COMMAND "${CMAKE_COMMAND}" -E env
+    bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/clean-cache.sh"
+    --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Delete the Go build cache, Go temp dir, and the Rust crate target directory"
+  VERBATIM
+)
+
 add_custom_target(android-emulator
   COMMAND "${CMAKE_CURRENT_BINARY_DIR}/lurpic" run android --emulator
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"

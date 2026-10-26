@@ -21,6 +21,8 @@ static int32_t (*lurpic_render_query_capabilities_fn)(void *out) = NULL;
 static int32_t (*lurpic_render_query_pipeline_features_fn)(void *out) = NULL;
 static void (*lurpic_render_reset_atlas_fn)(void) = NULL;
 static int32_t (*lurpic_render_resize_fn)(int32_t width, int32_t height) = NULL;
+static int32_t (*lurpic_render_resource_snapshot_fn)(void *out_snapshot) = NULL;
+static int32_t (*lurpic_render_set_resource_budget_fn)(uint64_t bytes) = NULL;
 static int32_t (*lurpic_render_set_validation_fn)(uint32_t enabled) = NULL;
 static int32_t (*lurpic_render_shutdown_fn)(void) = NULL;
 static int32_t (*lurpic_render_submit_and_readback_fn)(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len) = NULL;
@@ -61,6 +63,8 @@ static void lurpic_render_reset_fns(void) {
   lurpic_render_query_pipeline_features_fn = NULL;
   lurpic_render_reset_atlas_fn = NULL;
   lurpic_render_resize_fn = NULL;
+  lurpic_render_resource_snapshot_fn = NULL;
+  lurpic_render_set_resource_budget_fn = NULL;
   lurpic_render_set_validation_fn = NULL;
   lurpic_render_shutdown_fn = NULL;
   lurpic_render_submit_and_readback_fn = NULL;
@@ -159,6 +163,8 @@ int lurpic_render_load(const char *library_path) {
   LOAD_SYM(lurpic_render_query_pipeline_features_fn, "lurpic_render_query_pipeline_features", int32_t(*)(void *out));
   LOAD_SYM(lurpic_render_reset_atlas_fn, "lurpic_render_reset_atlas", void(*)(void));
   LOAD_SYM(lurpic_render_resize_fn, "lurpic_render_resize", int32_t(*)(int32_t width, int32_t height));
+  LOAD_SYM(lurpic_render_resource_snapshot_fn, "lurpic_render_resource_snapshot", int32_t(*)(void *out_snapshot));
+  LOAD_SYM(lurpic_render_set_resource_budget_fn, "lurpic_render_set_resource_budget", int32_t(*)(uint64_t bytes));
   LOAD_SYM(lurpic_render_set_validation_fn, "lurpic_render_set_validation", int32_t(*)(uint32_t enabled));
   LOAD_SYM(lurpic_render_shutdown_fn, "lurpic_render_shutdown", int32_t(*)(void));
   LOAD_SYM(lurpic_render_submit_and_readback_fn, "lurpic_render_submit_and_readback", int32_t(*)(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len));
@@ -356,6 +362,38 @@ int32_t lurpic_render_resize(int32_t width, int32_t height) {
     return -1;
   }
   int32_t result = lurpic_render_resize_fn(width, height);
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
+int32_t lurpic_render_resource_snapshot(void *out_snapshot) {
+  if (lurpic_render_resource_snapshot_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_resource_snapshot_fn(out_snapshot);
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
+int32_t lurpic_render_set_resource_budget(uint64_t bytes) {
+  if (lurpic_render_set_resource_budget_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_set_resource_budget_fn(bytes);
   if (result == 0) {
     set_error("");
   } else if (lurpic_render_last_error_fn != NULL) {

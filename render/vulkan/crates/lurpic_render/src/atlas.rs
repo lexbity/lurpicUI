@@ -18,6 +18,7 @@ use ash::vk;
 use crate::error::vk_error;
 use crate::gpu::allocator::{ImageAllocation, MemoryLocation};
 use crate::gpu::context::GpuContext;
+use crate::gpu::resource_tracker::ResourceKind;
 use crate::gpu::resources::{Fence, Image, ImageView, Sampler};
 use crate::RenderResult;
 
@@ -269,10 +270,14 @@ impl GlyphAtlas {
     }
 
     pub fn reset(&mut self) {
-        self.image = None;
-        self.view = None;
-        self.sampler = None;
-        self.allocation = None;
+        let old_view = self.view.take();
+        let old_sampler = self.sampler.take();
+        let old_image = self.image.take();
+        let old_allocation = self.allocation.take();
+        drop(old_view);
+        drop(old_sampler);
+        drop(old_image);
+        drop(old_allocation);
         self.skyline = Skyline::new(INITIAL_ATLAS_SIZE, INITIAL_ATLAS_SIZE);
         self.size = INITIAL_ATLAS_SIZE;
         self.entries.clear();
@@ -400,17 +405,32 @@ impl GlyphAtlas {
             image.handle(),
             requirements,
             MemoryLocation::GpuOnly,
+            ResourceKind::AtlasTextures,
         )?;
-        unsafe {
-            device.bind_image_memory(image.handle(), allocation.memory(), 0)
+        if let Err(error) = unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) } {
+            let error = vk_error("vkBindImageMemory", error.as_raw());
+            drop(image);
+            drop(allocation);
+            return Err(error);
         }
-        .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
-        let view = ImageView::new(device, image.handle(), vk::Format::R8G8_UNORM, vk::ImageAspectFlags::COLOR)?;
+        let view = match ImageView::new(
+            device,
+            image.handle(),
+            vk::Format::R8G8_UNORM,
+            vk::ImageAspectFlags::COLOR,
+        ) {
+            Ok(view) => view,
+            Err(error) => {
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
         // LINEAR filtering: the SDF shader samples the distance field between
         // texels so the smoothstep reconstruction anti-aliases. The bitmap
         // shader snaps to exact texel centers, where a linear filter returns
         // the texel itself.
-        let sampler = Sampler::new(
+        let sampler = match Sampler::new(
             device,
             &vk::SamplerCreateInfo {
                 mag_filter: vk::Filter::LINEAR,
@@ -421,11 +441,23 @@ impl GlyphAtlas {
                 address_mode_w: vk::SamplerAddressMode::CLAMP_TO_EDGE,
                 ..Default::default()
             },
-        )?;
-        self.image = Some(image);
-        self.view = Some(view);
-        self.sampler = Some(sampler);
-        self.allocation = Some(allocation);
+        ) {
+            Ok(sampler) => sampler,
+            Err(error) => {
+                drop(view);
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
+        let old_view = self.view.replace(view);
+        let old_sampler = self.sampler.replace(sampler);
+        let old_image = self.image.replace(image);
+        let old_allocation = self.allocation.replace(allocation);
+        drop(old_view);
+        drop(old_sampler);
+        drop(old_image);
+        drop(old_allocation);
         self.size = size;
         self.skyline.reset(size, size);
         Ok(())
@@ -501,16 +533,52 @@ impl GlyphAtlas {
         let live: Vec<(GlyphKey, GlyphEntry)> = std::mem::take(&mut self.entries)
             .into_iter()
             .collect();
+        let old_size = self.size;
+        let old_skyline = self.skyline.clone();
+        let old_lru = std::mem::take(&mut self.lru);
+        let old_view = self.view.take();
+        let old_sampler = self.sampler.take();
+        let old_image = self.image.take();
+        let old_allocation = self.allocation.take();
         self.lru.clear();
-        // Recreate the image at the larger size (drops the old view; the frame
-        // renderer captures the current view after all uploads for the frame).
-        self.image = None;
-        self.view = None;
-        self.allocation = None;
-        self.create_image(ctx, new_size)?;
-        for (key, entry) in live {
-            self.reupload(ctx, &key, &entry)?;
+        if let Err(error) = self.create_image(ctx, new_size) {
+            self.view = old_view;
+            self.sampler = old_sampler;
+            self.image = old_image;
+            self.allocation = old_allocation;
+            self.size = old_size;
+            self.skyline = old_skyline;
+            self.entries = live.into_iter().collect();
+            self.lru = old_lru;
+            return Err(error);
         }
+        for (key, entry) in &live {
+            if let Err(error) = self.reupload(ctx, key, entry) {
+                let new_view = self.view.take();
+                let new_sampler = self.sampler.take();
+                let new_image = self.image.take();
+                let new_allocation = self.allocation.take();
+                drop(new_view);
+                drop(new_sampler);
+                drop(new_image);
+                drop(new_allocation);
+                self.size = old_size;
+                self.skyline = old_skyline;
+                self.entries = live.into_iter().collect();
+                self.lru = old_lru;
+                self.view = old_view;
+                self.sampler = old_sampler;
+                self.image = old_image;
+                self.allocation = old_allocation;
+                return Err(error);
+            }
+        }
+        // GPU submission is synchronous on this render owner. The old atlas is
+        // no longer referenced after every live glyph has been uploaded.
+        drop(old_view);
+        drop(old_sampler);
+        drop(old_image);
+        drop(old_allocation);
         Ok(())
     }
 
@@ -672,6 +740,19 @@ impl GlyphAtlas {
 impl Default for GlyphAtlas {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for GlyphAtlas {
+    fn drop(&mut self) {
+        let view = self.view.take();
+        let sampler = self.sampler.take();
+        let image = self.image.take();
+        let allocation = self.allocation.take();
+        drop(view);
+        drop(sampler);
+        drop(image);
+        drop(allocation);
     }
 }
 

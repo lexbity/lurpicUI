@@ -12,6 +12,10 @@ func Init() error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
+func SetResourceBudget(uint64) error {
+	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
 func Shutdown() error {
 	return nil
 }
@@ -46,6 +50,10 @@ func BuildPipelineProbe() error {
 
 func InjectDeviceLost() error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
+func ResourceSnapshot() (ResourceUsage, error) {
+	return ResourceUsage{}, errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
 type PipelineFeatures struct {

@@ -25,6 +25,10 @@ To run tests: `cmake --build build --target test-unit`
 Drive protocol suite: `cmake --build build --target test-drive`
 Differential verb-equivalence suite: `cmake --build build --target test-equivalence`
 
+To reclaim disk space after long test/check sessions: `cmake --build build --target clean-cache`
+(deletes build/go-cache, build/go-tmp, and the Rust target/ directory; preview with
+`scripts/clean-cache.sh --dry-run`).
+
 # Building apps with lurpicUI
 When building an application with lurpicUI, use the lurpiclint analyzer to get capability awareness
 and check for framework-contract violations:

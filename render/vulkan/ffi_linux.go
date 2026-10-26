@@ -29,6 +29,15 @@ typedef struct {
 	uint32_t tile_based;
 } lurpic_render_pipeline_features;
 
+typedef struct {
+	uint64_t live_bytes[6];
+	uint64_t reserved_bytes[6];
+	uint64_t retiring_bytes[6];
+	uint64_t live_counts[6];
+	uint64_t device_generation;
+	uint64_t budget_bytes;
+} LurpicRenderResourceSnapshot;
+
 int lurpic_render_load(const char *library_path);
 // GEN-FFI-START declarations
 int32_t lurpic_render_activate_surface(uintptr_t surface);
@@ -44,6 +53,8 @@ int32_t lurpic_render_query_capabilities(void *out);
 int32_t lurpic_render_query_pipeline_features(void *out);
 void lurpic_render_reset_atlas(void);
 int32_t lurpic_render_resize(int32_t width, int32_t height);
+int32_t lurpic_render_resource_snapshot(void *out_snapshot);
+int32_t lurpic_render_set_resource_budget(uint64_t bytes);
 int32_t lurpic_render_set_validation(uint32_t enabled);
 int32_t lurpic_render_shutdown(void);
 int32_t lurpic_render_submit_and_readback(const unsigned char *data, uintptr_t len, uint32_t width, uint32_t height, unsigned char *out_pixels, uintptr_t out_len);
@@ -185,6 +196,18 @@ func Init() error {
 	return translateStatus(C.lurpic_render_init())
 }
 
+// SetResourceBudget configures the renderer-owned Vulkan allocation cap.
+// Call it during startup before Vulkan resource creation.
+func SetResourceBudget(bytes uint64) error {
+	if bytes == 0 {
+		return errors.New("vulkan: GPU resource budget must be positive")
+	}
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	return translateStatus(C.lurpic_render_set_resource_budget(C.uint64_t(bytes)))
+}
+
 func Shutdown() error {
 	if err := loadRustLibrary(); err != nil {
 		return err
@@ -204,6 +227,24 @@ func DeviceGeneration() uint64 {
 		return 0
 	}
 	return uint64(C.lurpic_render_device_generation())
+}
+
+// ResourceSnapshot returns a snapshot of current resource usage (P9).
+func ResourceSnapshot() (ResourceUsage, error) {
+	if err := loadRustLibrary(); err != nil {
+		return ResourceUsage{}, err
+	}
+	var snap C.LurpicRenderResourceSnapshot
+	if err := translateStatus(C.lurpic_render_resource_snapshot(unsafe.Pointer(&snap))); err != nil {
+		return ResourceUsage{}, err
+	}
+	return ResourceUsage{
+		LiveBytes:        [6]uint64{uint64(snap.live_bytes[0]), uint64(snap.live_bytes[1]), uint64(snap.live_bytes[2]), uint64(snap.live_bytes[3]), uint64(snap.live_bytes[4]), uint64(snap.live_bytes[5])},
+		ReservedBytes:    [6]uint64{uint64(snap.reserved_bytes[0]), uint64(snap.reserved_bytes[1]), uint64(snap.reserved_bytes[2]), uint64(snap.reserved_bytes[3]), uint64(snap.reserved_bytes[4]), uint64(snap.reserved_bytes[5])},
+		RetiringBytes:    [6]uint64{uint64(snap.retiring_bytes[0]), uint64(snap.retiring_bytes[1]), uint64(snap.retiring_bytes[2]), uint64(snap.retiring_bytes[3]), uint64(snap.retiring_bytes[4]), uint64(snap.retiring_bytes[5])},
+		LiveCounts:       [6]uint64{uint64(snap.live_counts[0]), uint64(snap.live_counts[1]), uint64(snap.live_counts[2]), uint64(snap.live_counts[3]), uint64(snap.live_counts[4]), uint64(snap.live_counts[5])},
+		DeviceGeneration: uint64(snap.device_generation), BudgetBytes: uint64(snap.budget_bytes),
+	}, nil
 }
 
 // SetValidation toggles the Khronos validation layer for the next Init.
@@ -322,10 +363,11 @@ func SubmitFrame(data []byte) error {
 // pipeline, and returns RGBA pixels at the requested size. This is the readback
 // path the equivalence harness uses; it does not require a surface.
 func SubmitAndReadback(data []byte, width, height int) ([]byte, error) {
-	if width <= 0 || height <= 0 {
-		return nil, errors.New("vulkan: readback dimensions must be positive")
+	size, err := readbackBufferSize(width, height)
+	if err != nil {
+		return nil, err
 	}
-	out := make([]byte, width*height*4)
+	out := make([]byte, size)
 	if err := submitAndReadbackInto(data, width, height, out); err != nil {
 		return nil, err
 	}
@@ -336,14 +378,18 @@ func SubmitAndReadback(data []byte, width, height int) ([]byte, error) {
 // into out. It performs no Go heap allocations (NFR-6): the benchmark reuses
 // the output buffer across iterations.
 func submitAndReadbackInto(data []byte, width, height int, out []byte) error {
-	if err := loadRustLibrary(); err != nil {
+	size, err := readbackBufferSize(width, height)
+	if err != nil {
 		return err
-	}
-	if len(out) < width*height*4 {
-		return errors.New("vulkan: readback output buffer too small")
 	}
 	if len(data) == 0 {
 		return errors.New("vulkan: readback requires a non-empty frame packet")
+	}
+	if len(out) < size {
+		return errors.New("vulkan: readback output buffer too small")
+	}
+	if err := loadRustLibrary(); err != nil {
+		return err
 	}
 	return translateSubmitError(translateStatus(C.lurpic_render_submit_and_readback(
 		(*C.uchar)(unsafe.Pointer(&data[0])),

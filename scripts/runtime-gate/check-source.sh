@@ -203,3 +203,43 @@ if [[ "$phase" == *P6* ]]; then
 	grep -q 'func TestSealedGlyphPagePinsFontChargeUntilRelease' text/render_page_lifetime_test.go
 	printf '%s\n' 'runtime-gate: P6 source contracts passed'
 fi
+
+if [[ "$phase" == *P9* ]]; then
+	for package in render/vulkan app internal/membudget runtime; do
+		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
+		if [ -z "$files" ]; then
+			printf 'source inventory is empty for %s\n' "$package" >&2
+			exit 1
+		fi
+	done
+	for source in render/vulkan/crates/lurpic_render/src/gpu/resource_tracker.rs render/vulkan/crates/lurpic_render/src/gpu/allocator.rs render/vulkan/crates/lurpic_render/src/atlas.rs render/vulkan/crates/lurpic_render/src/image_store.rs render/vulkan/crates/lurpic_render/src/ffi_inventory.rs; do
+		if [ ! -s "$source" ]; then
+			printf 'required P9 source is missing or empty: %s\n' "$source" >&2
+			exit 1
+		fi
+	done
+	grep -q 'BTreeMap<u64, Record>' render/vulkan/crates/lurpic_render/src/gpu/resource_tracker.rs
+	grep -q 'MAX_TRACKED_ALLOCATIONS' render/vulkan/crates/lurpic_render/src/gpu/resource_tracker.rs
+	grep -q 'pub fn reserve(bytes: u64, kind: ResourceKind)' render/vulkan/crates/lurpic_render/src/gpu/resource_tracker.rs
+	grep -q 'pub fn acknowledge(&self, id: u64, generation: u64)' render/vulkan/crates/lurpic_render/src/gpu/resource_tracker.rs
+	grep -q 'requirements.size, resource_kind' render/vulkan/crates/lurpic_render/src/gpu/allocator.rs
+	grep -q 'publish(charge, allocation_size)' render/vulkan/crates/lurpic_render/src/gpu/allocator.rs
+	grep -q 'ResourceKind::AtlasTextures' render/vulkan/crates/lurpic_render/src/atlas.rs
+	grep -q 'ResourceKind::ImageTextures' render/vulkan/crates/lurpic_render/src/image_store.rs
+	grep -q 'ResourceKind::StagingBuffers' render/vulkan/crates/lurpic_render/src/gpu/allocator.rs
+	grep -q 'ResourceKind::RingBuffers' render/vulkan/crates/lurpic_render/src/gpu/allocator.rs
+	grep -q 'lurpic_render_resource_snapshot' render/vulkan/crates/lurpic_render/src/ffi_inventory.rs
+	grep -q 'lurpic_render_set_resource_budget' render/vulkan/crates/lurpic_render/src/ffi_inventory.rs
+	grep -q 'vulkan.SetResourceBudget(resources.Plan.Caps\[membudget.GPU\])' app/run.go
+	grep -q 'func ResourceSnapshot() (ResourceUsage, error)' render/vulkan/ffi_linux.go
+	grep -q 'func TestVulkanActualAllocationBudget' render/vulkan/resource_test.go
+	grep -q 'func TestVulkanFenceRetainsPhysicalCharge' render/vulkan/resource_test.go
+	grep -q 'func TestVulkanResizeGenerationAndCapture' render/vulkan/resource_test.go
+	grep -q 'func TestVulkanDeviceLossNoFalseReady' render/vulkan/resource_test.go
+	grep -q 'BenchmarkVulkanSubmit_AcceptanceCorpus' scripts/runtime-gate/main.go
+	grep -q 'func validateBenchmarkOutput' scripts/runtime-gate/main.go
+	grep -q 'func TestValidateBenchmarkOutputRequiresMeasurement' scripts/runtime-gate/main_test.go
+	grep -q 'AllocationScheme::DedicatedBuffer(buffer)' render/vulkan/crates/lurpic_render/src/gpu/allocator.rs
+	expect_absent 'atlas_reserve_growth|atlas_complete_growth|AtlasReserveGrowth|AtlasCompleteGrowth' render/vulkan
+	printf '%s\n' 'runtime-gate: P9 source contracts passed'
+fi

@@ -329,18 +329,9 @@ func (r *SoftwareRenderer) renderFullRedraw(frame *render.Frame) {
 			return
 		}
 
-		// Calculate the batch's pixel rectangle
-		batchRect := image.Rect(
-			int(math.Floor(float64(batch.Bounds.Min.X))),
-			int(math.Floor(float64(batch.Bounds.Min.Y))),
-			int(math.Ceil(float64(batch.Bounds.Max.X))),
-			int(math.Ceil(float64(batch.Bounds.Max.Y))),
-		)
-
-		// Clear the batch area
-		clearRectInRGBA(r.output, batchRect)
-
-		// Render the batch directly to the output
+		// The frame clear above initializes the output once. Clearing a later
+		// batch's bounds here would erase lower batches before alpha compositing;
+		// render the canonical batch order directly over the existing pixels.
 		r.rasterizeRenderBatchToOutput(r.output, frame, i, batch, clips[i])
 		r.rasterizeCount++
 	}
@@ -360,7 +351,7 @@ func (r *SoftwareRenderer) renderPartialRedraw(frame *render.Frame, damage *Dama
 	// For each damaged tile, render it to a temporary buffer then composite to output
 	for _, info := range tileInfos {
 		// Create a temporary buffer for this tile
-		tileBuffer := image.NewRGBA(info.tileRect)
+		tileBuffer := image.NewRGBA(image.Rect(0, 0, info.tileRect.Dx(), info.tileRect.Dy()))
 		clearRGBA(tileBuffer)
 
 		// Render all batches that intersect this tile
@@ -429,12 +420,17 @@ func (r *SoftwareRenderer) rasterizeRenderBatchToOutput(target *image.RGBA, fram
 	batchPixelRect := image.Rect(minX, minY, maxX, maxY)
 
 	state := renderState{
-		transform: gfx.Translation(float32(-batch.Bounds.Min.X), float32(-batch.Bounds.Min.Y)),
-		clip:      gfx.RectFromXYWH(0, 0, float32(batchPixelRect.Dx()), float32(batchPixelRect.Dy())),
-		opacity:   1,
+		transform: gfx.Identity(),
+		clip: gfx.RectFromXYWH(
+			float32(batchPixelRect.Min.X),
+			float32(batchPixelRect.Min.Y),
+			float32(batchPixelRect.Dx()),
+			float32(batchPixelRect.Dy()),
+		),
+		opacity: batch.Opacity,
 	}
 	if !clip.IsEmpty() {
-		state.clip = intersectRects(state.clip, state.transform.TransformRect(clip))
+		state.clip = intersectRects(state.clip, clip)
 	}
 	stack := []renderState{state}
 
@@ -499,37 +495,24 @@ func (r *SoftwareRenderer) rasterizeRenderBatchToTile(target *image.RGBA, frame 
 		return
 	}
 
-	// Calculate the tile offset relative to batch coordinates
-	tileOffsetX := float32(tileRect.Min.X)
-	tileOffsetY := float32(tileRect.Min.Y)
-
 	state := renderState{
-		transform: gfx.Translation(
-			-batch.Bounds.Min.X+tileOffsetX,
-			-batch.Bounds.Min.Y+tileOffsetY,
-		),
-		clip: gfx.RectFromXYWH(
-			tileOffsetX-batch.Bounds.Min.X,
-			tileOffsetY-batch.Bounds.Min.Y,
-			float32(target.Bounds().Dx()),
-			float32(target.Bounds().Dy()),
-		),
-		opacity: 1,
+		transform: gfx.Translation(-float32(tileRect.Min.X), -float32(tileRect.Min.Y)),
+		clip:      gfx.RectFromXYWH(0, 0, float32(target.Bounds().Dx()), float32(target.Bounds().Dy())),
+		opacity:   batch.Opacity,
 	}
 
 	if !clip.IsEmpty() {
-		// Transform clip to batch-local coordinates
-		clipInBatch := gfx.Rect{
+		clipInTile := gfx.Rect{
 			Min: gfx.Point{
-				X: clip.Min.X - batch.Bounds.Min.X + tileOffsetX,
-				Y: clip.Min.Y - batch.Bounds.Min.Y + tileOffsetY,
+				X: clip.Min.X - float32(tileRect.Min.X),
+				Y: clip.Min.Y - float32(tileRect.Min.Y),
 			},
 			Max: gfx.Point{
-				X: clip.Max.X - batch.Bounds.Min.X + tileOffsetX,
-				Y: clip.Max.Y - batch.Bounds.Min.Y + tileOffsetY,
+				X: clip.Max.X - float32(tileRect.Min.X),
+				Y: clip.Max.Y - float32(tileRect.Min.Y),
 			},
 		}
-		state.clip = intersectRects(state.clip, clipInBatch)
+		state.clip = intersectRects(state.clip, clipInTile)
 	}
 
 	stack := []renderState{state}
@@ -628,33 +611,6 @@ func (r *SoftwareRenderer) allocateOutput(width, height int) {
 	r.width = width
 	r.height = height
 	r.output = image.NewRGBA(image.Rect(0, 0, width, height))
-}
-
-// clearRectInRGBA clears a rectangle within an RGBA image
-func clearRectInRGBA(img *image.RGBA, r image.Rectangle) {
-	if img == nil || r.Empty() {
-		return
-	}
-
-	// Clamp rectangle to image bounds
-	r = r.Intersect(img.Bounds())
-	if r.Empty() {
-		return
-	}
-
-	for y := r.Min.Y; y < r.Max.Y; y++ {
-		start := y*img.Stride + r.Min.X*4
-		end := y*img.Stride + r.Max.X*4
-		if end > len(img.Pix) {
-			end = len(img.Pix)
-		}
-		if start < end {
-			// Clear the row segment
-			for i := start; i < end; i++ {
-				img.Pix[i] = 0
-			}
-		}
-	}
 }
 
 func (r *SoftwareRenderer) blitToSurface() error {

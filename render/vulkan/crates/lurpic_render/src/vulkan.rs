@@ -21,6 +21,7 @@ use crate::frame::FrameStats;
 use crate::frame_encoder::{DrawKind, FrameEncoder, ShadowFill, Textures};
 use crate::gpu::allocator::{GpuBuffer, ImageAllocation, MemoryLocation};
 use crate::gpu::context::{AshContext, GpuContext, PhysicalDeviceFeatures};
+use crate::gpu::resource_tracker::ResourceKind;
 use crate::gpu::resources::{DescriptorPool, Fence, Image, ImageView, Sampler};
 use crate::gpu::surface;
 use crate::image_store::{ImageFormat, ImageStore};
@@ -236,6 +237,35 @@ enum ResolveTarget {
     },
 }
 
+fn create_bound_image(
+    context: &dyn GpuContext,
+    image_info: &vk::ImageCreateInfo,
+    kind: ResourceKind,
+) -> Result<(Image, ImageAllocation), (RenderResult, String)> {
+    let device = context.device();
+    let image = Image::new(device, image_info)?;
+    let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
+    let allocation = match context.allocator().allocate_image_memory(
+        image.handle(),
+        requirements,
+        MemoryLocation::GpuOnly,
+        kind,
+    ) {
+        Ok(allocation) => allocation,
+        Err(error) => {
+            drop(image);
+            return Err(error);
+        }
+    };
+    if let Err(error) = unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) } {
+        let error = vk_error("vkBindImageMemory", error.as_raw());
+        drop(image);
+        drop(allocation);
+        return Err(error);
+    }
+    Ok((image, allocation))
+}
+
 /// Per-swapchain-image dirty-rect state (Slice 10, Q13). A multi-buffered
 /// swapchain image's content is stale by `image_count` frames, so the effective
 /// redraw region for image k is the union of dirty regions accumulated since
@@ -382,18 +412,18 @@ fn state_lock() -> std::sync::MutexGuard<'static, Option<VulkanState>> {
         .expect("vulkan state mutex poisoned")
 }
 
-pub fn init(validation_enabled: bool) -> Result<(), (RenderResult, String)> {
+pub fn init(validation_enabled: bool) -> Result<bool, (RenderResult, String)> {
     let mut guard = state_lock();
     if guard.is_some() {
         clear_last_error();
-        return Ok(());
+        return Ok(false);
     }
 
     let context = AshContext::init(validation_enabled)?;
     let state = VulkanState::new(context)?;
     *guard = Some(state);
     clear_last_error();
-    Ok(())
+    Ok(true)
 }
 
 pub fn shutdown() -> Result<(), (RenderResult, String)> {
@@ -1145,7 +1175,6 @@ impl VulkanState {
         extent: vk::Extent2D,
     ) -> Result<BlurScratch, (RenderResult, String)> {
         let device = self.context.device();
-        let allocator = self.context.allocator();
         let image_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
             format: BLUR_SCRATCH_FORMAT,
@@ -1162,21 +1191,20 @@ impl VulkanState {
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
-        let image = Image::new(device, &image_info)?;
-        let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
-        let allocation = allocator.allocate_image_memory(
-            image.handle(),
-            requirements,
-            MemoryLocation::GpuOnly,
-        )?;
-        unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) }
-            .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
-        let view = ImageView::new(
+        let (image, allocation) = create_bound_image(&self.context, &image_info, ResourceKind::GpuResources)?;
+        let view = match ImageView::new(
             device,
             image.handle(),
             BLUR_SCRATCH_FORMAT,
             vk::ImageAspectFlags::COLOR,
-        )?;
+        ) {
+            Ok(view) => view,
+            Err(error) => {
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
         Ok(BlurScratch {
             view,
             image,
@@ -1209,7 +1237,6 @@ impl VulkanState {
             return Ok(());
         }
         let device = self.context.device();
-        let allocator = self.context.allocator();
         let image_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
             format: STENCIL_FORMAT,
@@ -1226,23 +1253,20 @@ impl VulkanState {
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
-        let image = Image::new(device, &image_info)?;
-        let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
-        let allocation = allocator.allocate_image_memory(
-            image.handle(),
-            requirements,
-            MemoryLocation::GpuOnly,
-        )?;
-        unsafe {
-            device.bind_image_memory(image.handle(), allocation.memory(), 0)
-        }
-        .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
-        let view = ImageView::new(
+        let (image, allocation) = create_bound_image(&self.context, &image_info, ResourceKind::GpuResources)?;
+        let view = match ImageView::new(
             device,
             image.handle(),
             STENCIL_FORMAT,
             vk::ImageAspectFlags::DEPTH | vk::ImageAspectFlags::STENCIL,
-        )?;
+        ) {
+            Ok(view) => view,
+            Err(error) => {
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
         self.stencil = Some(StencilTarget {
             view,
             image,
@@ -1266,8 +1290,6 @@ impl VulkanState {
             return Ok(());
         }
         let device = self.context.device();
-        let allocator = self.context.allocator();
-
         let image_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
             format,
@@ -1284,16 +1306,15 @@ impl VulkanState {
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
-        let image = Image::new(device, &image_info)?;
-        let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
-        let allocation = allocator.allocate_image_memory(
-            image.handle(),
-            requirements,
-            MemoryLocation::GpuOnly,
-        )?;
-        unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) }
-            .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
-        let view = ImageView::new(device, image.handle(), format, vk::ImageAspectFlags::COLOR)?;
+        let (image, allocation) = create_bound_image(&self.context, &image_info, ResourceKind::GpuResources)?;
+        let view = match ImageView::new(device, image.handle(), format, vk::ImageAspectFlags::COLOR) {
+            Ok(view) => view,
+            Err(error) => {
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
         self.msaa = Some(MsaaTarget {
             view,
             image,
@@ -1318,7 +1339,6 @@ impl VulkanState {
             return Ok(());
         }
         let device = self.context.device();
-        let allocator = self.context.allocator();
         let image_info = vk::ImageCreateInfo {
             image_type: vk::ImageType::TYPE_2D,
             format,
@@ -1335,23 +1355,39 @@ impl VulkanState {
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
-        let image = Image::new(device, &image_info)?;
-        let requirements = unsafe { device.get_image_memory_requirements(image.handle()) };
-        let allocation = allocator.allocate_image_memory(
-            image.handle(),
-            requirements,
-            MemoryLocation::GpuOnly,
-        )?;
-        unsafe { device.bind_image_memory(image.handle(), allocation.memory(), 0) }
-            .map_err(|e| vk_error("vkBindImageMemory", e.as_raw()))?;
-        let view = ImageView::new(device, image.handle(), format, vk::ImageAspectFlags::COLOR)?;
+        let (image, allocation) = create_bound_image(&self.context, &image_info, ResourceKind::GpuResources)?;
+        let view = match ImageView::new(device, image.handle(), format, vk::ImageAspectFlags::COLOR) {
+            Ok(view) => view,
+            Err(error) => {
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
         // GpuToCpu (host-visible, cached): reading back 1080p via write-combined
         // CpuToGpu memory was measured at ~240ms for the 8MB copy.
-        let staging = allocator.create_buffer(
-            (extent.width as u64) * (extent.height as u64) * 4,
+        let staging_size = u64::from(extent.width)
+            .checked_mul(u64::from(extent.height))
+            .and_then(|pixels| pixels.checked_mul(4));
+        let Some(staging_size) = staging_size else {
+            drop(view);
+            drop(image);
+            drop(allocation);
+            return Err((RenderResult::OutOfMemory, "readback staging size overflow".to_string()));
+        };
+        let staging = match self.context.allocator().create_buffer(
+            staging_size,
             vk::BufferUsageFlags::TRANSFER_DST,
             MemoryLocation::GpuToCpu,
-        )?;
+        ) {
+            Ok(staging) => staging,
+            Err(error) => {
+                drop(view);
+                drop(image);
+                drop(allocation);
+                return Err(error);
+            }
+        };
         self.readback = Some(ReadbackTarget {
             view,
             image,

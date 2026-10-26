@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -23,6 +24,10 @@ import (
 type fakeSurface struct {
 	width  int
 	height int
+}
+
+func standardResourcePolicy() runtime.ResourcePolicy {
+	return runtime.DefaultResourcePolicy(membudget.Standard)
 }
 
 func (s *fakeSurface) Buffer() []byte           { return nil }
@@ -364,7 +369,7 @@ func TestInitBackend_envOverrideVulkan(t *testing.T) {
 		return &fakeBackend{}
 	}
 
-	backend, kind, err := initBackend(RenderBackendSoftware, &fakeSurface{}, nil)
+	backend, kind, err := initBackend(RenderBackendSoftware, &fakeSurface{}, nil, standardResourcePolicy())
 	if err != nil {
 		t.Fatalf("initBackend: %v", err)
 	}
@@ -386,7 +391,7 @@ func TestInitBackend_envOverrideSoftware(t *testing.T) {
 		return &fakeBackend{}
 	}
 
-	backend, kind, err := initBackend(RenderBackendVulkan, &fakeSurface{}, nil)
+	backend, kind, err := initBackend(RenderBackendVulkan, &fakeSurface{}, nil, standardResourcePolicy())
 	if err != nil {
 		t.Fatalf("initBackend: %v", err)
 	}
@@ -402,7 +407,7 @@ func TestInitBackend_envOverrideSoftware(t *testing.T) {
 func TestInitBackend_envOverrideInvalid(t *testing.T) {
 	t.Setenv("LURPIC_RENDER_BACKEND", "invalid_value")
 
-	_, _, err := initBackend(RenderBackendVulkan, &fakeSurface{}, nil)
+	_, _, err := initBackend(RenderBackendVulkan, &fakeSurface{}, nil, standardResourcePolicy())
 	if err == nil {
 		t.Fatal("expected error for invalid LURPIC_RENDER_BACKEND value")
 	}
@@ -417,7 +422,7 @@ func TestInitBackend_envUnsetUsesDefault(t *testing.T) {
 	}
 
 	// Not setting LURPIC_RENDER_BACKEND — should use the preferred value
-	backend, kind, err := initBackend(RenderBackendSoftware, &fakeSurface{}, nil)
+	backend, kind, err := initBackend(RenderBackendSoftware, &fakeSurface{}, nil, standardResourcePolicy())
 	if err != nil {
 		t.Fatalf("initBackend: %v", err)
 	}
@@ -502,7 +507,7 @@ func TestInitBackend_androidVulkanFallbackOnAnyError(t *testing.T) {
 		return &fakeBackend{}
 	}
 
-	backend, kind, err := initBackend(RenderBackendVulkan, surface, nil)
+	backend, kind, err := initBackend(RenderBackendVulkan, surface, nil, standardResourcePolicy())
 	if err != nil {
 		t.Fatalf("initBackend: %v", err)
 	}
@@ -682,7 +687,7 @@ func TestDeviceInit_NoCapableDeviceFallsBack(t *testing.T) {
 		return &fakeBackend{}
 	}
 
-	backend, selected, err := initBackend(RenderBackendVulkan, surface, nil)
+	backend, selected, err := initBackend(RenderBackendVulkan, surface, nil, standardResourcePolicy())
 	if err != nil {
 		t.Fatalf("expected graceful fallback, got error: %v", err)
 	}
@@ -718,7 +723,7 @@ func TestInitBackend_HonestCapabilityDetection(t *testing.T) {
 		return errors.New("simulated pipeline build failure")
 	}
 
-	backend, selected, err := initBackend(RenderBackendVulkan, &fakeSurface{width: 64, height: 64}, nil)
+	backend, selected, err := initBackend(RenderBackendVulkan, &fakeSurface{width: 64, height: 64}, nil, standardResourcePolicy())
 	if err != nil {
 		t.Fatalf("initBackend: %v", err)
 	}

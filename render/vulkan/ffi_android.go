@@ -29,6 +29,15 @@ typedef struct {
 	uint32_t tile_based;
 } lurpic_render_pipeline_features;
 
+typedef struct {
+	uint64_t live_bytes[6];
+	uint64_t reserved_bytes[6];
+	uint64_t retiring_bytes[6];
+	uint64_t live_counts[6];
+	uint64_t device_generation;
+	uint64_t budget_bytes;
+} LurpicRenderResourceSnapshot;
+
 const char *lurpic_render_version(void);
 const char *lurpic_render_last_error(void);
 int lurpic_render_init(void);
@@ -37,6 +46,7 @@ uintptr_t lurpic_render_instance_handle(void);
 int lurpic_render_query_capabilities(LurpicRenderCapabilities *out);
 int lurpic_render_query_pipeline_features(lurpic_render_pipeline_features *out);
 int lurpic_render_set_validation(uint32_t enabled);
+int lurpic_render_set_resource_budget(uint64_t bytes);
 int lurpic_render_test_force_swapped_rendering(uint32_t enabled);
 int lurpic_render_build_pipeline_probe(void);
 int lurpic_render_test_inject_device_lost(void);
@@ -50,6 +60,7 @@ int lurpic_render_create_surface_android(void *android_window, uintptr_t instanc
 int lurpic_render_activate_surface(uintptr_t surface);
 int lurpic_render_resize(int width, int height);
 unsigned long long lurpic_render_device_generation(void);
+int lurpic_render_resource_snapshot(void *out_snapshot);
 void lurpic_render_unload(void);
 */
 import "C"
@@ -88,6 +99,15 @@ func Init() error {
 	return translateStatus(C.lurpic_render_init())
 }
 
+// SetResourceBudget configures the renderer-owned Vulkan allocation cap.
+// Call it during startup before Vulkan resource creation.
+func SetResourceBudget(bytes uint64) error {
+	if bytes == 0 {
+		return errors.New("vulkan: GPU resource budget must be positive")
+	}
+	return translateStatus(C.lurpic_render_set_resource_budget(C.uint64_t(bytes)))
+}
+
 func Shutdown() error {
 	return translateStatus(C.lurpic_render_shutdown())
 }
@@ -98,6 +118,21 @@ func InstanceHandle() uintptr {
 
 func DeviceGeneration() uint64 {
 	return uint64(C.lurpic_render_device_generation())
+}
+
+// ResourceSnapshot returns a snapshot of current resource usage (P9).
+func ResourceSnapshot() (ResourceUsage, error) {
+	var snap C.LurpicRenderResourceSnapshot
+	if err := translateStatus(C.lurpic_render_resource_snapshot(&snap)); err != nil {
+		return ResourceUsage{}, err
+	}
+	return ResourceUsage{
+		LiveBytes:        [6]uint64{uint64(snap.live_bytes[0]), uint64(snap.live_bytes[1]), uint64(snap.live_bytes[2]), uint64(snap.live_bytes[3]), uint64(snap.live_bytes[4]), uint64(snap.live_bytes[5])},
+		ReservedBytes:    [6]uint64{uint64(snap.reserved_bytes[0]), uint64(snap.reserved_bytes[1]), uint64(snap.reserved_bytes[2]), uint64(snap.reserved_bytes[3]), uint64(snap.reserved_bytes[4]), uint64(snap.reserved_bytes[5])},
+		RetiringBytes:    [6]uint64{uint64(snap.retiring_bytes[0]), uint64(snap.retiring_bytes[1]), uint64(snap.retiring_bytes[2]), uint64(snap.retiring_bytes[3]), uint64(snap.retiring_bytes[4]), uint64(snap.retiring_bytes[5])},
+		LiveCounts:       [6]uint64{uint64(snap.live_counts[0]), uint64(snap.live_counts[1]), uint64(snap.live_counts[2]), uint64(snap.live_counts[3]), uint64(snap.live_counts[4]), uint64(snap.live_counts[5])},
+		DeviceGeneration: uint64(snap.device_generation), BudgetBytes: uint64(snap.budget_bytes),
+	}, nil
 }
 
 func QueryCapabilities() (Capabilities, error) {
@@ -148,13 +183,14 @@ func SubmitFrame(data []byte) error {
 // SubmitAndReadback decodes a packet v2 frame, renders it through the GPU
 // pipeline, and returns RGBA pixels at the requested size.
 func SubmitAndReadback(data []byte, width, height int) ([]byte, error) {
-	if width <= 0 || height <= 0 {
-		return nil, errors.New("vulkan: readback dimensions must be positive")
+	size, err := readbackBufferSize(width, height)
+	if err != nil {
+		return nil, err
 	}
 	if len(data) == 0 {
 		return nil, errors.New("vulkan: readback requires a non-empty frame packet")
 	}
-	out := make([]byte, width*height*4)
+	out := make([]byte, size)
 	if err := translateStatus(C.lurpic_render_submit_and_readback(
 		(*C.uchar)(&data[0]),
 		C.uintptr_t(len(data)),

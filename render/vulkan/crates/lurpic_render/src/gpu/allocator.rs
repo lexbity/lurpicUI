@@ -1,4 +1,4 @@
-//! Memory allocation (Q6/FR-16).
+//! Memory allocation (Q6/FR-16/P9).
 //!
 //! Two tiers behind an `Allocator` trait:
 //! - `GpuAllocator` wraps `gpu-allocator` for long-lived resources (textures,
@@ -10,6 +10,9 @@
 //! `GpuBuffer` is self-freeing (RAII): its `Drop` returns the allocation to
 //! the allocator and destroys the buffer, so a buffer cannot leak on the
 //! device-lost path.
+//!
+//! Resource tracking (P9) records all GPU allocations and reports them through
+//! the global ledger for budget accounting.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -17,6 +20,9 @@ use std::rc::Rc;
 use ash::vk;
 
 use crate::error::vk_error;
+use crate::gpu::resource_tracker::{
+    ResourceKind, acknowledge, cancel, publish, reservation_generation, reserve, retire,
+};
 use crate::RenderResult;
 
 /// Memory placement class mirroring `gpu_allocator::vulkan::MemoryLocation`.
@@ -42,6 +48,7 @@ pub trait Allocator {
         image: vk::Image,
         requirements: vk::MemoryRequirements,
         location: MemoryLocation,
+        kind: ResourceKind,
     ) -> Result<ImageAllocation, (RenderResult, String)>;
     fn free(&self, allocation: ImageAllocation);
     /// Resets per-frame transient state (called at fence signal).
@@ -126,6 +133,20 @@ impl Allocator for GpuAllocator {
         let buffer = unsafe { inner.device.create_buffer(&create_info, None) }
             .map_err(|e| vk_error("vkCreateBuffer", e.as_raw()))?;
         let requirements = unsafe { inner.device.get_buffer_memory_requirements(buffer) };
+        let resource_kind = if usage.intersects(vk::BufferUsageFlags::TRANSFER_SRC | vk::BufferUsageFlags::TRANSFER_DST) {
+            ResourceKind::StagingBuffers
+        } else {
+            ResourceKind::RingBuffers
+        };
+        let charge = match reserve(requirements.size, resource_kind) {
+            Ok(charge) => charge,
+            Err(error) => {
+                unsafe { inner.device.destroy_buffer(buffer, None); }
+                return Err(error);
+            }
+        };
+        let generation = reservation_generation(charge)
+            .unwrap_or_else(|(_, error)| panic!("Vulkan buffer reservation invariant: {error}"));
         let desc = gpu_allocator::vulkan::AllocationCreateDesc {
             name: "lurpic_buffer",
             requirements,
@@ -136,6 +157,7 @@ impl Allocator for GpuAllocator {
         let allocation = match inner.gpu.allocate(&desc) {
             Ok(a) => a,
             Err(e) => {
+                cancel(charge).unwrap_or_else(|(_, error)| panic!("Vulkan buffer reservation invariant: {error}"));
                 unsafe {
                     inner.device.destroy_buffer(buffer, None);
                 }
@@ -147,16 +169,28 @@ impl Allocator for GpuAllocator {
         };
         let memory = unsafe { allocation.memory() };
         if let Err(e) = unsafe { inner.device.bind_buffer_memory(buffer, memory, 0) } {
-            let _ = inner.gpu.free(allocation);
             unsafe {
                 inner.device.destroy_buffer(buffer, None);
             }
+            if inner.gpu.free(allocation).is_ok() {
+                cancel(charge).unwrap_or_else(|(_, error)| panic!("Vulkan buffer reservation invariant: {error}"));
+            }
             return Err(vk_error("vkBindBufferMemory", e.as_raw()));
+        }
+        let allocation_size = allocation.size();
+        if let Err(error) = publish(charge, allocation_size) {
+            unsafe { inner.device.destroy_buffer(buffer, None); }
+            if inner.gpu.free(allocation).is_ok() {
+                cancel(charge).unwrap_or_else(|(_, error)| panic!("Vulkan buffer reservation invariant: {error}"));
+            }
+            return Err(error);
         }
         Ok(GpuBuffer {
             allocator: self.clone(),
             buffer,
             allocation: Some(allocation),
+            charge,
+            generation,
             size,
         })
     }
@@ -166,6 +200,7 @@ impl Allocator for GpuAllocator {
         image: vk::Image,
         requirements: vk::MemoryRequirements,
         location: MemoryLocation,
+        kind: ResourceKind,
     ) -> Result<ImageAllocation, (RenderResult, String)> {
         let mut inner = self.inner.borrow_mut();
         let desc = gpu_allocator::vulkan::AllocationCreateDesc {
@@ -175,15 +210,29 @@ impl Allocator for GpuAllocator {
             linear: false,
             allocation_scheme: gpu_allocator::vulkan::AllocationScheme::DedicatedImage(image),
         };
+        let charge = reserve(requirements.size, kind)?;
+        let generation = reservation_generation(charge)
+            .unwrap_or_else(|(_, error)| panic!("Vulkan image reservation invariant: {error}"));
         match inner.gpu.allocate(&desc) {
-            Ok(allocation) => Ok(ImageAllocation {
-                allocator: self.clone(),
-                allocation: Some(allocation),
-            }),
-            Err(e) => Err((
-                RenderResult::OutOfMemory,
-                format!("allocate image memory: {}", e),
-            )),
+            Ok(allocation) => {
+                let allocation_size = allocation.size();
+                if let Err(error) = publish(charge, allocation_size) {
+                    if inner.gpu.free(allocation).is_ok() {
+                        cancel(charge).unwrap_or_else(|(_, error)| panic!("Vulkan image reservation invariant: {error}"));
+                    }
+                    return Err(error);
+                }
+                Ok(ImageAllocation {
+                    allocator: self.clone(),
+                    allocation: Some(allocation),
+                    charge,
+                    generation,
+                })
+            }
+            Err(e) => {
+                cancel(charge).unwrap_or_else(|(_, error)| panic!("Vulkan image reservation invariant: {error}"));
+                Err((RenderResult::OutOfMemory, format!("allocate image memory: {}", e)))
+            }
         }
     }
 
@@ -201,6 +250,8 @@ pub struct GpuBuffer {
     allocator: GpuAllocator,
     buffer: vk::Buffer,
     allocation: Option<gpu_allocator::vulkan::Allocation>,
+    charge: u64,
+    generation: u64,
     size: u64,
 }
 
@@ -266,11 +317,13 @@ impl GpuBuffer {
 impl Drop for GpuBuffer {
     fn drop(&mut self) {
         let mut inner = self.allocator.inner.borrow_mut();
+        unsafe { inner.device.destroy_buffer(self.buffer, None); }
         if let Some(allocation) = self.allocation.take() {
-            let _ = inner.gpu.free(allocation);
-        }
-        unsafe {
-            inner.device.destroy_buffer(self.buffer, None);
+            retire(self.charge).unwrap_or_else(|(_, error)| panic!("Vulkan buffer retirement invariant: {error}"));
+            if inner.gpu.free(allocation).is_ok() {
+                acknowledge(self.charge, self.generation)
+                    .unwrap_or_else(|(_, error)| panic!("Vulkan buffer release invariant: {error}"));
+            }
         }
     }
 }
@@ -280,6 +333,8 @@ impl Drop for GpuBuffer {
 pub struct ImageAllocation {
     allocator: GpuAllocator,
     allocation: Option<gpu_allocator::vulkan::Allocation>,
+    charge: u64,
+    generation: u64,
 }
 
 #[allow(dead_code)]
@@ -294,7 +349,11 @@ impl Drop for ImageAllocation {
     fn drop(&mut self) {
         let mut inner = self.allocator.inner.borrow_mut();
         if let Some(allocation) = self.allocation.take() {
-            let _ = inner.gpu.free(allocation);
+            retire(self.charge).unwrap_or_else(|(_, error)| panic!("Vulkan image retirement invariant: {error}"));
+            if inner.gpu.free(allocation).is_ok() {
+                acknowledge(self.charge, self.generation)
+                    .unwrap_or_else(|(_, error)| panic!("Vulkan image release invariant: {error}"));
+            }
         }
     }
 }
