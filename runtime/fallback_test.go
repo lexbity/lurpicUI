@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
 )
@@ -96,14 +97,14 @@ func TestRenderPipeline_GPUFatalFallsBackToSoftware(t *testing.T) {
 		(&renderThread{pipeline: p}).run()
 	}()
 
-	frame := &render.Frame{RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{{
 		ID:      1,
 		Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 		Opacity: 1,
 		Commands: gfx.CommandList{Commands: []gfx.Command{
 			gfx.FillRect{Rect: gfx.RectFromXYWH(4, 4, 40, 40), Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(30, 60, 200, 255))},
 		}},
-	}}}
+	}}})
 
 	// Frame 1 triggers the GPU-fatal swap (the frame itself is dropped).
 	p.SubmitAndWait(frame, 1)
@@ -146,7 +147,7 @@ func TestRenderPipeline_GPUFatalDoesNotFatalShutdown(t *testing.T) {
 		(&renderThread{pipeline: p}).run()
 	}()
 
-	frame := &render.Frame{}
+	frame := testframe.Seal(render.FrameInput{})
 	p.SubmitAndWait(frame, 3)
 
 	select {

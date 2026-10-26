@@ -1,14 +1,17 @@
 package theme
 
 import (
+	"errors"
 	"image"
 	"math/rand"
 	"sync"
+
+	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
 // TextureData represents a loaded or procedurally generated texture.
 type TextureData struct {
-	Image   *image.RGBA
+	Image   gfx.ImageHandle
 	Name    string
 	IsNoise bool
 }
@@ -20,16 +23,26 @@ var (
 )
 
 // RegisterTexture registers a new image asset and returns its unique handle.
-func RegisterTexture(img *image.RGBA, name string) TextureRef {
+func RegisterTexture(img *image.RGBA, name string) (TextureRef, error) {
+	if img == nil {
+		return 0, errors.New("theme: texture image is required")
+	}
 	registryMu.Lock()
 	defer registryMu.Unlock()
 	ref := nextRef
+	if ref == 0 {
+		return 0, errors.New("theme: texture identity space exhausted")
+	}
+	handle, err := gfx.NewImageHandle(img, uint64(ref))
+	if err != nil {
+		return 0, err
+	}
 	nextRef++
 	textures[ref] = TextureData{
-		Image: img,
+		Image: handle,
 		Name:  name,
 	}
-	return ref
+	return ref, nil
 }
 
 // GetTexture retrieves a texture from the registry, falling back to procedural generators if necessary.
@@ -61,12 +74,20 @@ func generateProcedural(ref TextureRef) (TextureData, bool) {
 	switch ref {
 	case TextureBrushedMetal:
 		img := generateBrushedMetal()
-		data := TextureData{Image: img, Name: "brushed_metal"}
+		handle, err := gfx.NewImageHandle(img, uint64(ref))
+		if err != nil {
+			return TextureData{}, false
+		}
+		data := TextureData{Image: handle, Name: "brushed_metal"}
 		textures[ref] = data
 		return data, true
 	case TextureMicroNoise:
 		img := generateMicroNoise()
-		data := TextureData{Image: img, Name: "micro_noise", IsNoise: true}
+		handle, err := gfx.NewImageHandle(img, uint64(ref))
+		if err != nil {
+			return TextureData{}, false
+		}
+		data := TextureData{Image: handle, Name: "micro_noise", IsNoise: true}
 		textures[ref] = data
 		return data, true
 	default:

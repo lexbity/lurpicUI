@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 )
@@ -64,8 +65,8 @@ func TestDrawTexture_Rendered(t *testing.T) {
 	}()
 
 	const width, height = 32, 32
-	texFrame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	texFrame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
 			Opacity: 1,
@@ -79,15 +80,15 @@ func TestDrawTexture_Rendered(t *testing.T) {
 				},
 			}},
 		}},
-	}
-	imgFrame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	})
+	imgFrame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
 			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawImage{
-					Image:    img,
+					Image:    testframe.Image(img),
 					DestRect: gfx.RectFromXYWH(4, 4, 16, 16),
 					SrcRect:  gfx.RectFromXYWH(0, 0, 8, 8),
 					Sampling: gfx.SamplingNearest,
@@ -95,7 +96,7 @@ func TestDrawTexture_Rendered(t *testing.T) {
 				},
 			}},
 		}},
-	}
+	})
 
 	texOut := renderFramePixels(t, texFrame, width, height)
 	imgOut := renderFramePixels(t, imgFrame, width, height)
@@ -148,14 +149,14 @@ func TestDrawImage_Bilinear(t *testing.T) {
 	img.SetRGBA(1, 1, color.RGBA{R: 255, G: 255, B: 255, A: 255})
 
 	const width, height = 4, 4
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
 			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawImage{
-					Image:    img,
+					Image:    testframe.Image(img),
 					DestRect: gfx.RectFromXYWH(0, 0, width, height),
 					SrcRect:  gfx.RectFromXYWH(0, 0, 2, 2),
 					Sampling: gfx.SamplingBilinear,
@@ -163,7 +164,7 @@ func TestDrawImage_Bilinear(t *testing.T) {
 				},
 			}},
 		}},
-	}
+	})
 	out := renderFramePixels(t, frame, width, height)
 
 	// At dest pixel (2,2) center (2.5,2.5), sx = sy = 2.5/4*2 = 1.25.
@@ -186,14 +187,14 @@ func TestDrawImage_Bilinear(t *testing.T) {
 
 	// The bilinear result must differ from the nearest result (proving the
 	// linear filter is actually applied, not falling back to nearest).
-	nearestFrame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	nearestFrame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, width, height),
 			Opacity: 1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{
 				gfx.DrawImage{
-					Image:    img,
+					Image:    testframe.Image(img),
 					DestRect: gfx.RectFromXYWH(0, 0, width, height),
 					SrcRect:  gfx.RectFromXYWH(0, 0, 2, 2),
 					Sampling: gfx.SamplingNearest,
@@ -201,7 +202,7 @@ func TestDrawImage_Bilinear(t *testing.T) {
 				},
 			}},
 		}},
-	}
+	})
 	nearest := renderFramePixels(t, nearestFrame, width, height)
 	if bytes.Equal(out, nearest) {
 		t.Fatal("bilinear output equals nearest output; the linear filter was not applied")
@@ -280,8 +281,8 @@ func TestDrawTexture_UnknownHandleRejected(t *testing.T) {
 		}
 	}()
 
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 32, 32),
 			Opacity: 1,
@@ -295,7 +296,7 @@ func TestDrawTexture_UnknownHandleRejected(t *testing.T) {
 				},
 			}},
 		}},
-	}
+	})
 	packet, err := vulkan.EncodeFrame(frame)
 	if err != nil {
 		t.Fatalf("encode: %v", err)

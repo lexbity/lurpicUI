@@ -1,6 +1,7 @@
 package primitive
 
 import (
+	"image"
 	"io/fs"
 	"testing"
 
@@ -8,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/icon"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
@@ -299,7 +301,7 @@ func TestIconMark_progressiveAssetLOD1UsesImage(t *testing.T) {
 	t.Cleanup(scope.Close)
 	reg := assets.NewAssetRegistryStore()
 	id := assets.AssetID{2}
-	reg.SetLODReady(id, 1, &assets.DecodedSVGLOD1{RGBA: make([]byte, 32*32*4)}, 1)
+	reg.SetLODReady(id, 1, &assets.DecodedSVGLOD1{Image: testframe.Image(image.NewRGBA(image.Rect(0, 0, 32, 32)))}, 1)
 
 	rt := iconRuntimeStub{
 		rootStyle:     theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),

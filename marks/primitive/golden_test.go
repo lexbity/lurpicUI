@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/membudget"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -251,17 +252,17 @@ func submitCommands(t *testing.T, surface *testkit.MemorySurface, bounds gfx.Rec
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	if err := r.Submit(&render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	if err := r.Submit(testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    gfx.CommandList{Commands: cmds},
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: cmds},
 			},
 		},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
 }

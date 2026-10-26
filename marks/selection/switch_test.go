@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -310,15 +311,15 @@ func assertSwitchSkeuomorphicGolden(t *testing.T, name string, mutate func(*Swit
 	bgBrush := gfx.SolidBrush(bgColor)
 	bgCmd := gfx.FillPath{Path: bgPath, Brush: bgBrush}
 
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)),
-			Opacity:     1,
-			CommandHash: 1,
-			Commands:    gfx.CommandList{Commands: append([]gfx.Command{bgCmd}, cmds.Commands...)},
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)),
+			Opacity: 1,
+
+			Commands: gfx.CommandList{Commands: append([]gfx.Command{bgCmd}, cmds.Commands...)},
 		}},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
@@ -363,15 +364,15 @@ func renderSwitchToSurface(t *testing.T, sw *Switch, rt sliderRuntimeStub, measu
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      bounds,
-			Opacity:     1,
-			CommandHash: 1,
-			Commands:    gfx.CommandList{Commands: cmds.Commands},
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID:      1,
+			Bounds:  bounds,
+			Opacity: 1,
+
+			Commands: gfx.CommandList{Commands: cmds.Commands},
 		}},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}

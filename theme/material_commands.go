@@ -47,12 +47,12 @@ func MaterialCommands(path gfx.Path, material Material) []gfx.Command {
 				continue
 			}
 			texData, ok := GetTexture(fill.Texture.Ref)
-			if ok && texData.Image != nil {
+			if ok && !texData.Image.IsZero() {
 				bounds := pathBounds(path)
 				cmds = append(cmds, gfx.DrawImage{
 					Image:    texData.Image,
 					DestRect: bounds,
-					SrcRect:  gfx.Rect{Max: gfx.Point{X: float32(texData.Image.Bounds().Dx()), Y: float32(texData.Image.Bounds().Dy())}},
+					SrcRect:  gfx.Rect{Max: gfx.Point{X: float32(texData.Image.Width()), Y: float32(texData.Image.Height())}},
 					Sampling: gfx.SamplingBilinear,
 					Opacity:  materialOpacity * fill.Opacity,
 				})

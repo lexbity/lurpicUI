@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
@@ -21,19 +22,19 @@ import (
 )
 
 func TestEncodeFramePacket_v2Header(t *testing.T) {
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          7,
-				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity:     0.75,
-				CommandHash: 1,
+				ID:      7,
+				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
+				Opacity: 0.75,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, G: 0.5, B: 0.25, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -66,28 +67,17 @@ func TestEncodeFramePacket_v2Header(t *testing.T) {
 
 func TestEncodeFramePacket_v2BatchHeader(t *testing.T) {
 	transform := gfx.Transform{A: 2, B: 0, C: 0, D: 2, TX: 3, TY: 4}
-	frame := &render.Frame{
-		FramePacket: render.FramePacket{
-			Layers: []render.LayeredBatch{
-				{
-					RenderOrder: 1,
-					ClipRect:    gfx.RectFromXYWH(1, 2, 20, 30),
-					Batches: []render.RenderBatch{
-						{
-							ID:      9,
-							Bounds:  gfx.RectFromXYWH(0, 0, 50, 50),
-							Opacity: 0.5,
-							Commands: gfx.CommandList{Commands: []gfx.Command{
-								gfx.PushTransform{Matrix: transform},
-								gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
-								gfx.PopTransform{},
-							}},
-						},
-					},
-				},
-			},
-		},
-	}
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID: 9, Bounds: gfx.RectFromXYWH(0, 0, 50, 50), Opacity: 0.5,
+			Commands: gfx.CommandList{Commands: []gfx.Command{
+				gfx.PushTransform{Matrix: transform},
+				gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
+				gfx.PopTransform{},
+			}},
+		}},
+		Layers: []render.LayerInput{{RenderOrder: 1, ClipRect: gfx.RectFromXYWH(1, 2, 20, 30), FirstBatch: 0, BatchCount: 1}},
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -132,8 +122,8 @@ func TestEncodeFramePacket_fullStrokeStyle(t *testing.T) {
 		Dash:       []float32{4, 2, 1},
 		DashOffset: 1.5,
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
 				ID:      1,
 				Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
@@ -147,7 +137,7 @@ func TestEncodeFramePacket_fullStrokeStyle(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -179,8 +169,8 @@ func TestEncodeFramePacket_gradientBrushNotDropped(t *testing.T) {
 			{Offset: 1, Color: gfx.Color{B: 1, A: 1}},
 		},
 	)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
 				ID:      1,
 				Bounds:  gfx.RectFromXYWH(0, 0, 32, 32),
@@ -190,7 +180,7 @@ func TestEncodeFramePacket_gradientBrushNotDropped(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -216,8 +206,8 @@ func TestEncodeFramePacket_gradientBrushNotDropped(t *testing.T) {
 }
 
 func TestEncodeFramePacket_drawTextureDecodes(t *testing.T) {
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
 				ID:      1,
 				Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
@@ -233,7 +223,7 @@ func TestEncodeFramePacket_drawTextureDecodes(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -260,8 +250,8 @@ func TestEncodeFramePacket_drawTextureDecodes(t *testing.T) {
 
 func TestEncodeFramePacket_drawBlurredShadowDecodes(t *testing.T) {
 	path := gfx.CirclePath(gfx.Point{X: 16, Y: 16}, 8)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
 				ID:      1,
 				Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
@@ -277,7 +267,7 @@ func TestEncodeFramePacket_drawBlurredShadowDecodes(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -315,8 +305,8 @@ func TestEncodeFramePacket_allOpcodesRoundTrip(t *testing.T) {
 		},
 	)
 	stroke := gfx.DefaultStroke(2)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
 				ID:      1,
 				Bounds:  gfx.RectFromXYWH(0, 0, 128, 128),
@@ -345,7 +335,7 @@ func TestEncodeFramePacket_allOpcodesRoundTrip(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -402,13 +392,13 @@ func TestEncodeFramePacket_drawGlyphRun_preserves_origin_and_glyph_positions(t *
 			{GlyphID: 65, X: 3.5, Y: 4.25, Advance: 7.5},
 		},
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          7,
-				Bounds:      gfx.RectFromXYWH(0, 0, 64, 64),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      7,
+				Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{
 						Run:    run,
@@ -418,7 +408,7 @@ func TestEncodeFramePacket_drawGlyphRun_preserves_origin_and_glyph_positions(t *
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
@@ -450,15 +440,15 @@ func TestEncodeFramePacket_drawImageBatch(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
 	uploader := &fakeImageUploader{handle: 99}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
 				ID:      7,
 				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
 				Opacity: 1,
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawImage{
-						Image:    img,
+						Image:    testframe.Image(img),
 						DestRect: gfx.RectFromXYWH(1, 2, 3, 4),
 						SrcRect:  gfx.RectFromXYWH(0, 0, 1, 1),
 						Sampling: gfx.SamplingBilinear,
@@ -467,7 +457,7 @@ func TestEncodeFramePacket_drawImageBatch(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	packet, err := encodeFramePacketWithAssets(frame, uploader)
 	if err != nil {
@@ -516,17 +506,17 @@ func TestEncodeFramePacket_primitiveIconCommands(t *testing.T) {
 	if cmds == nil || len(cmds.Commands) == 0 {
 		t.Fatal("expected icon commands")
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          7,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    *cmds,
+				ID:      7,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: *cmds,
 			},
 		},
-	}
+	})
 	packet, err := encodeFramePacket(frame)
 	if err != nil {
 		t.Fatalf("encodeFramePacket: %v", err)
@@ -548,7 +538,7 @@ type fakeImageUploader struct {
 	calls  int
 }
 
-func (s *fakeImageUploader) ensureImage(img *image.RGBA) (uint64, error) {
+func (s *fakeImageUploader) ensureImage(img gfx.ImageHandle) (uint64, error) {
 	s.calls++
 	return s.handle, nil
 }

@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/icon"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -251,17 +252,17 @@ func TestNavRailGoldenHorizontal(t *testing.T) {
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    *cmds,
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: *cmds,
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
@@ -354,17 +355,17 @@ func renderNavRailToSurface(t *testing.T, rail *NavRail, rt navRailRuntimeStub, 
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    *cmds,
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: *cmds,
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}

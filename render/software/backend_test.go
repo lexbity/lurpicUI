@@ -20,6 +20,7 @@ import (
 	"github.com/go-text/typesetting/font"
 
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	ot "github.com/go-text/typesetting/font/opentype"
 )
 
@@ -91,12 +92,11 @@ func newRenderer(t *testing.T, w, h int) (*SoftwareRenderer, *testSurface) {
 	return r, surf
 }
 
-func solidRenderBatch(id render.RenderBatchID, bounds gfx.Rect, hash uint64, c gfx.Color) render.RenderBatch {
-	return render.RenderBatch{
-		ID:          id,
-		Bounds:      bounds,
-		Opacity:     1,
-		CommandHash: hash,
+func solidRenderBatch(id render.RenderBatchID, bounds gfx.Rect, c gfx.Color) render.BatchInput {
+	return render.BatchInput{
+		ID:      id,
+		Bounds:  bounds,
+		Opacity: 1,
 		Commands: gfx.CommandList{Commands: []gfx.Command{
 			gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, bounds.Width(), bounds.Height()), Brush: gfx.SolidBrush(c)},
 		}},
@@ -110,11 +110,11 @@ func pxAt(s *testSurface, x, y int) color.RGBA {
 
 func TestSoftwareRenderer_fillrect_solid(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), gfx.Color{R: 1, A: 1}),
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -154,20 +154,20 @@ func TestSoftwareRenderer_initialize_rejects_generic_surface(t *testing.T) {
 
 func TestSoftwareRenderer_fillrect_alpha_blend(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, G: 1, B: 1, A: 1}),
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), gfx.Color{R: 1, G: 1, B: 1, A: 1}),
 			{
-				ID:          2,
-				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
-				Opacity:     1,
-				CommandHash: 2,
+				ID:      2,
+				Bounds:  gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 0.5})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -186,19 +186,19 @@ func TestSoftwareRenderer_fillpath_antialiased(t *testing.T) {
 		LineTo(gfx.Point{X: 10.5, Y: 24.75}).
 		Close().
 		Build()
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 32, 32),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 32, 32),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillPath{Path: path, Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -213,19 +213,19 @@ func TestSoftwareRenderer_strokepath_rasterizes(t *testing.T) {
 		MoveTo(gfx.Point{X: 4, Y: 4}).
 		LineTo(gfx.Point{X: 28, Y: 20}).
 		Build()
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 32, 32),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 32, 32),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.StrokePath{Path: path, Stroke: gfx.DefaultStroke(4), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -261,17 +261,17 @@ func TestSoftwareRenderer_rendersPrimitiveIcon(t *testing.T) {
 		t.Fatal("expected icon commands")
 	}
 	r, s := newRenderer(t, int(size.W), int(size.H))
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    *cmds,
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: *cmds,
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -283,20 +283,20 @@ func TestSoftwareRenderer_rendersPrimitiveIcon(t *testing.T) {
 
 func TestSoftwareRenderer_transform_stack_translates(t *testing.T) {
 	r, s := newRenderer(t, 150, 150)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 150, 150),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushTransform{Matrix: gfx.Translation(100, 100)},
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -332,19 +332,19 @@ func (s iconRenderRuntime) FacetByID(id facet.FacetID) facet.FacetImpl {
 
 func TestSoftwareRenderer_batch_bounds_are_localized(t *testing.T) {
 	r, s := newRenderer(t, 80, 80)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(20, 30, 10, 10),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(20, 30, 10, 10),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(20, 30, 10, 10), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -358,20 +358,20 @@ func TestSoftwareRenderer_batch_bounds_are_localized(t *testing.T) {
 
 func TestSoftwareRenderer_clip_rect_clips(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 100, 100),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushClipRect{Rect: gfx.RectFromXYWH(0, 0, 50, 50)},
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 100, 100), Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -385,20 +385,20 @@ func TestSoftwareRenderer_clip_rect_clips(t *testing.T) {
 
 func TestSoftwareRenderer_clip_rect_translates_with_batch_bounds(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(20, 30, 40, 40),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(20, 30, 40, 40),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushClipRect{Rect: gfx.RectFromXYWH(20, 30, 20, 20)},
 					gfx.FillRect{Rect: gfx.RectFromXYWH(20, 30, 40, 40), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -412,20 +412,20 @@ func TestSoftwareRenderer_clip_rect_translates_with_batch_bounds(t *testing.T) {
 
 func TestSoftwareRenderer_opacity_stack(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushOpacity{Alpha: 0.5},
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 20, 20), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -438,11 +438,11 @@ func TestSoftwareRenderer_opacity_stack(t *testing.T) {
 
 func TestSoftwareRenderer_RenderBatch_caching_skip(t *testing.T) {
 	r, _ := newRenderer(t, 20, 20)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), 1, gfx.Color{R: 1, A: 1}),
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), gfx.Color{R: 1, A: 1}),
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit1: %v", err)
 	}
@@ -457,20 +457,20 @@ func TestSoftwareRenderer_RenderBatch_caching_skip(t *testing.T) {
 
 func TestSoftwareRenderer_RenderBatch_compositing_order(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), gfx.Color{R: 1, A: 1}),
 			{
-				ID:          2,
-				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
-				Opacity:     1,
-				CommandHash: 2,
+				ID:      2,
+				Bounds:  gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -484,20 +484,20 @@ func TestSoftwareRenderer_RenderBatch_compositing_order(t *testing.T) {
 
 func TestSoftwareRenderer_multiRenderBatch_opacity(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), gfx.Color{R: 1, A: 1}),
 			{
-				ID:          2,
-				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
-				Opacity:     0.5,
-				CommandHash: 2,
+				ID:      2,
+				Bounds:  gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity: 0.5,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 20, 20), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -516,16 +516,16 @@ func TestSoftwareRenderer_drawimage_nearest(t *testing.T) {
 	src.SetRGBA(0, 1, color.RGBA{B: 255, A: 255})
 	src.SetRGBA(1, 1, color.RGBA{R: 255, G: 255, B: 255, A: 255})
 
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 8, 8),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 8, 8),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawImage{
-						Image:    src,
+						Image:    testframe.Image(src),
 						DestRect: gfx.RectFromXYWH(0, 0, 4, 4),
 						SrcRect:  gfx.RectFromXYWH(0, 0, 2, 2),
 						Sampling: gfx.SamplingNearest,
@@ -534,7 +534,7 @@ func TestSoftwareRenderer_drawimage_nearest(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -551,22 +551,22 @@ func TestSoftwareRenderer_drawimage_nearest(t *testing.T) {
 
 func TestSoftwareRenderer_resize_reallocates(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 100, 100), 1, gfx.Color{R: 1, A: 1}),
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 100, 100), gfx.Color{R: 1, A: 1}),
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit1: %v", err)
 	}
 	if err := r.Resize(200, 200); err != nil {
 		t.Fatalf("resize: %v", err)
 	}
-	frame = &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 200, 200), 2, gfx.Color{G: 1, A: 1}),
+	frame = testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 200, 200), gfx.Color{G: 1, A: 1}),
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit2: %v", err)
 	}
@@ -589,11 +589,11 @@ func TestSoftwareRenderer_blit_clamps_to_live_surface_size(t *testing.T) {
 	if err := r.Initialize(surf); err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), 1, gfx.Color{R: 1, A: 1}),
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
+			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 20, 20), gfx.Color{R: 1, A: 1}),
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -607,36 +607,36 @@ func TestSoftwareRenderer_blit_clamps_to_live_surface_size(t *testing.T) {
 
 func TestSoftwareRenderer_unbalanced_push_pop(t *testing.T) {
 	r, s := newRenderer(t, 150, 150)
-	frame1 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame1 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 150, 150),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushTransform{Matrix: gfx.Translation(100, 100)},
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame1); err != nil {
 		t.Fatalf("submit1: %v", err)
 	}
-	frame2 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame2 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 150, 150),
-				Opacity:     1,
-				CommandHash: 2,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 150, 150),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame2); err != nil {
 		t.Fatalf("submit2: %v", err)
 	}
@@ -648,13 +648,13 @@ func TestSoftwareRenderer_unbalanced_push_pop(t *testing.T) {
 func TestSoftwareRenderer_drawglyphrun_produces_pixels(t *testing.T) {
 	r, s := newRenderer(t, 80, 80)
 	run := testGlyphRun(t, "Hello", 18)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{
 						Run:    run,
@@ -664,7 +664,7 @@ func TestSoftwareRenderer_drawglyphrun_produces_pixels(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -676,13 +676,13 @@ func TestSoftwareRenderer_drawglyphrun_produces_pixels(t *testing.T) {
 func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
 	r, s := newRenderer(t, 80, 80)
 	run := testGlyphRun(t, "Hi", 18)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{
 						Run:    run,
@@ -692,7 +692,7 @@ func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -704,28 +704,28 @@ func TestSoftwareRenderer_drawglyphrun_color_matches_brush(t *testing.T) {
 func TestSoftwareRenderer_drawglyphrun_atlas_caches(t *testing.T) {
 	r, _ := newRenderer(t, 80, 80)
 	run := testGlyphRun(t, "A", 18)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 10, Y: 10}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 			{
-				ID:          2,
-				Bounds:      gfx.RectFromXYWH(0, 0, 80, 80),
-				Opacity:     1,
-				CommandHash: 2,
+				ID:      2,
+				Bounds:  gfx.RectFromXYWH(0, 0, 80, 80),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 20, Y: 10}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -737,20 +737,20 @@ func TestSoftwareRenderer_drawglyphrun_atlas_caches(t *testing.T) {
 func TestSoftwareRenderer_drawglyphrun_clipped_by_cliprect(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
 	run := testGlyphRun(t, "Clip", 28)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 100, 100),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushClipRect{Rect: gfx.RectFromXYWH(0, 0, 20, 100)},
 					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 0, Y: 0}, Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -765,20 +765,20 @@ func TestSoftwareRenderer_drawglyphrun_clipped_by_cliprect(t *testing.T) {
 func TestSoftwareRenderer_drawglyphrun_translated(t *testing.T) {
 	r, s := newRenderer(t, 100, 100)
 	run := testGlyphRun(t, "Move", 18)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 100, 100),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 100, 100),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushTransform{Matrix: gfx.Translation(40, 15)},
 					gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 0, Y: 0}, Brush: gfx.SolidBrush(gfx.Color{B: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -935,13 +935,13 @@ func TestRasterizeBitmapGlyph_uses_raw_black_and_white_size(t *testing.T) {
 
 func TestSoftwareRenderer_drawselectionrects_fills_region(t *testing.T) {
 	r, s := newRenderer(t, 40, 40)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 40, 40),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 40, 40),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawSelectionRects{
 						Rects: []gfx.Rect{gfx.RectFromXYWH(5, 5, 10, 10)},
@@ -950,7 +950,7 @@ func TestSoftwareRenderer_drawselectionrects_fills_region(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -961,19 +961,19 @@ func TestSoftwareRenderer_drawselectionrects_fills_region(t *testing.T) {
 
 func TestSoftwareRenderer_drawglyphrun_empty_no_panic(t *testing.T) {
 	r, s := newRenderer(t, 40, 40)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 40, 40),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 40, 40),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{Run: text.GlyphRun{}, Origin: gfx.Point{X: 0, Y: 0}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}
@@ -1108,13 +1108,13 @@ func TestSoftwareRenderer_drawtexture(t *testing.T) {
 		t.Fatalf("UploadTexture failed: %v", err)
 	}
 
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 8, 8),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 8, 8),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawTexture{
 						TextureID: uint64(texID),
@@ -1126,7 +1126,7 @@ func TestSoftwareRenderer_drawtexture(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)

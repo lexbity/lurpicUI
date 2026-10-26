@@ -1,10 +1,6 @@
 package gfx
 
-import (
-	"image"
-
-	"codeburg.org/lexbit/lurpicui/text"
-)
+import "codeburg.org/lexbit/lurpicui/text"
 
 type Command interface {
 	isCommand()
@@ -82,7 +78,7 @@ const (
 )
 
 type DrawImage struct {
-	Image    *image.RGBA
+	Image    ImageHandle
 	DestRect Rect
 	SrcRect  Rect
 	Sampling SamplingMode

@@ -54,9 +54,9 @@ func main() {
 	if *contracts != "" {
 		contractPhase := *contracts
 		if contractPhase == "all" {
-			contractPhase = "P1,P2,P3,P4,P5"
+			contractPhase = "P1,P2,P3,P4,P5,P6"
 		}
-		if contractPhase != "P1" && contractPhase != "P2" && contractPhase != "P3" && contractPhase != "P4" && contractPhase != "P5" && contractPhase != "P1,P2" && contractPhase != "P1,P2,P3" && contractPhase != "P1,P2,P3,P4" && contractPhase != "P1,P2,P3,P4,P5" {
+		if contractPhase != "P1" && contractPhase != "P2" && contractPhase != "P3" && contractPhase != "P4" && contractPhase != "P5" && contractPhase != "P6" && contractPhase != "P1,P2" && contractPhase != "P1,P2,P3" && contractPhase != "P1,P2,P3,P4" && contractPhase != "P1,P2,P3,P4,P5" && contractPhase != "P1,P2,P3,P4,P5,P6" {
 			fail("source contracts for %s are not implemented", contractPhase)
 		}
 		if err := runContracts(*root, contractPhase); err != nil {
@@ -68,7 +68,7 @@ func main() {
 	if *phase == "" {
 		fail("--phase is required")
 	}
-	if *phase != "P1" && *phase != "P2" && *phase != "P3" && *phase != "P4" && *phase != "P5" {
+	if *phase != "P1" && *phase != "P2" && *phase != "P3" && *phase != "P4" && *phase != "P5" && *phase != "P6" {
 		fail("phase %s is not implemented", *phase)
 	}
 	if *mode != "" && *mode != testevidence.ModeHost && *mode != testevidence.ModeRace {

@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
@@ -46,17 +47,17 @@ func TestAxisGoldenLinear(t *testing.T) {
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	if err := r.Submit(&render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	if err := r.Submit(testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    gfx.CommandList{Commands: cmds.Commands},
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: cmds.Commands},
 			},
 		},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
 
@@ -122,17 +123,17 @@ func TestAxisGoldenLinearTop(t *testing.T) {
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	if err := r.Submit(&render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	if err := r.Submit(testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    gfx.CommandList{Commands: cmds.Commands},
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: cmds.Commands},
 			},
 		},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
 
@@ -227,17 +228,17 @@ func renderAxisGolden(t *testing.T, cmds []gfx.Command, bounds gfx.Rect, w, h in
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	if err := r.Submit(&render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	if err := r.Submit(testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    gfx.CommandList{Commands: cmds},
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: cmds},
 			},
 		},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
 	return surface

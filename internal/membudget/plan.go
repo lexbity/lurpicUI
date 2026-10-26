@@ -139,6 +139,20 @@ func (r *Reservation) ID() uint64 {
 	return r.id
 }
 
+// Bytes reports the exact reserved backing capacity assigned to this token.
+func (r *Reservation) Bytes() uint64 {
+	if r == nil || r.wallet == nil {
+		return 0
+	}
+	r.wallet.mu.Lock()
+	defer r.wallet.mu.Unlock()
+	entry, ok := r.wallet.allocations[r.id]
+	if !ok {
+		return 0
+	}
+	return entry.bytes
+}
+
 func (r *Reservation) Publish() error {
 	return r.transition(allocationReserved, allocationLive)
 }

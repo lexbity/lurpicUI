@@ -2,7 +2,6 @@ package renderutil
 
 import (
 	"fmt"
-	"image"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -35,8 +34,8 @@ type RenderBatchCache struct {
 }
 
 type RenderBatchSnapshot struct {
-	RenderBatch    render.RenderBatch
-	commands       []gfx.Command
+	Batch          render.FrameBatch
+	commandBounds  []gfx.Rect
 	commandDigests []string
 	order          int
 	complexMove    bool
@@ -49,17 +48,27 @@ func NewRenderBatchCache() *RenderBatchCache {
 }
 
 func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
+	batchCount := 0
+	if frame != nil {
+		batchCount = frame.BatchCount()
+	}
 	diff := &FrameDiff{
-		RenderBatchs: make(map[render.RenderBatchID]RenderBatchDiff, len(frame.RenderBatchs)),
+		RenderBatchs: make(map[render.RenderBatchID]RenderBatchDiff, batchCount),
 	}
 	if c == nil || frame == nil {
 		return diff
 	}
 
 	old := c.RenderBatchs
-	seen := make(map[render.RenderBatchID]struct{}, len(frame.RenderBatchs))
+	seen := make(map[render.RenderBatchID]struct{}, batchCount)
 
-	for idx, RenderBatch := range frame.RenderBatchs {
+	currentBatches := make([]render.FrameBatch, batchCount)
+	for idx := 0; idx < batchCount; idx++ {
+		RenderBatch, ok := frame.BatchAt(idx)
+		if !ok {
+			continue
+		}
+		currentBatches[idx] = RenderBatch
 		seen[RenderBatch.ID] = struct{}{}
 		snap, ok := old[RenderBatch.ID]
 		if !ok {
@@ -67,11 +76,11 @@ func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
 			diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, RenderBatch.Bounds)
 			continue
 		}
-		currentDigests := mustCommandDigests(RenderBatch.Commands.Commands)
+		currentDigests, currentBounds, currentComplex := batchMetadata(frame, idx)
 
-		if snap.order != idx || !rectEqual(snap.RenderBatch.Bounds, RenderBatch.Bounds) || snap.RenderBatch.Opacity != RenderBatch.Opacity {
-			diff.RenderBatchs[RenderBatch.ID] = RenderBatchDiff{Kind: RenderBatchFullChange, DirtyRects: []gfx.Rect{unionRects(snap.RenderBatch.Bounds, RenderBatch.Bounds)}}
-			diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, unionRects(snap.RenderBatch.Bounds, RenderBatch.Bounds))
+		if snap.order != idx || !rectEqual(snap.Batch.Bounds, RenderBatch.Bounds) || snap.Batch.Opacity != RenderBatch.Opacity {
+			diff.RenderBatchs[RenderBatch.ID] = RenderBatchDiff{Kind: RenderBatchFullChange, DirtyRects: []gfx.Rect{unionRects(snap.Batch.Bounds, RenderBatch.Bounds)}}
+			diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, unionRects(snap.Batch.Bounds, RenderBatch.Bounds))
 			continue
 		}
 
@@ -80,13 +89,13 @@ func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
 			continue
 		}
 
-		if snap.complexMove || hasComplexTransforms(RenderBatch.Commands.Commands) {
+		if snap.complexMove || currentComplex {
 			diff.RenderBatchs[RenderBatch.ID] = RenderBatchDiff{Kind: RenderBatchFullChange, DirtyRects: []gfx.Rect{RenderBatch.Bounds}}
 			diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, RenderBatch.Bounds)
 			continue
 		}
 
-		kind, dirty := detectPartialChange(snap.commands, RenderBatch.Commands.Commands, snap.commandDigests, currentDigests)
+		kind, dirty := detectPartialChange(snap.commandBounds, currentBounds, snap.commandDigests, currentDigests)
 		if kind == RenderBatchPartialChange {
 			diff.RenderBatchs[RenderBatch.ID] = RenderBatchDiff{Kind: kind, DirtyRects: dirty}
 			diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, dirty...)
@@ -101,12 +110,12 @@ func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
 		if _, ok := seen[id]; ok {
 			continue
 		}
-		diff.RenderBatchs[id] = RenderBatchDiff{Kind: RenderBatchRemoved, DirtyRects: []gfx.Rect{snap.RenderBatch.Bounds}}
-		diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, snap.RenderBatch.Bounds)
+		diff.RenderBatchs[id] = RenderBatchDiff{Kind: RenderBatchRemoved, DirtyRects: []gfx.Rect{snap.Batch.Bounds}}
+		diff.CompositeDirtyRects = append(diff.CompositeDirtyRects, snap.Batch.Bounds)
 	}
 
-	if len(frame.RenderBatchs) > 0 {
-		diff.CompositeDirtyRects = PropagateDirty(frame.RenderBatchs, RenderBatchDirtyMap(diff.RenderBatchs))
+	if batchCount > 0 {
+		diff.CompositeDirtyRects = PropagateDirty(currentBatches, RenderBatchDirtyMap(diff.RenderBatchs))
 		diff.CompositeDirtyRects = MergeRects(diff.CompositeDirtyRects, 0.25)
 		diff.CompositeDirtyRects = RemoveContained(diff.CompositeDirtyRects)
 	}
@@ -114,7 +123,7 @@ func (c *RenderBatchCache) Diff(frame *render.Frame) *FrameDiff {
 	return diff
 }
 
-func (c *RenderBatchCache) Update(frame *render.Frame, rasterBuffers map[render.RenderBatchID]*image.RGBA) {
+func (c *RenderBatchCache) Update(frame *render.Frame) {
 	if c == nil {
 		return
 	}
@@ -123,29 +132,30 @@ func (c *RenderBatchCache) Update(frame *render.Frame, rasterBuffers map[render.
 		c.order = c.order[:0]
 		return
 	}
-	c.RenderBatchs = make(map[render.RenderBatchID]RenderBatchSnapshot, len(frame.RenderBatchs))
+	c.RenderBatchs = make(map[render.RenderBatchID]RenderBatchSnapshot, frame.BatchCount())
 	c.order = c.order[:0]
-	for idx, RenderBatch := range frame.RenderBatchs {
-		cmds := make([]gfx.Command, len(RenderBatch.Commands.Commands))
-		copy(cmds, RenderBatch.Commands.Commands)
-		commandDigests := mustCommandDigests(cmds)
+	for idx := 0; idx < frame.BatchCount(); idx++ {
+		RenderBatch, ok := frame.BatchAt(idx)
+		if !ok {
+			continue
+		}
+		commandDigests, commandBounds, complexMove := batchMetadata(frame, idx)
 		snap := RenderBatchSnapshot{
-			RenderBatch:    RenderBatch,
-			commands:       cmds,
+			Batch:          RenderBatch,
+			commandBounds:  commandBounds,
 			commandDigests: commandDigests,
 			order:          idx,
-			complexMove:    hasComplexTransforms(cmds),
+			complexMove:    complexMove,
 		}
-		_ = rasterBuffers[RenderBatch.ID]
 		c.RenderBatchs[RenderBatch.ID] = snap
 		c.order = append(c.order, RenderBatch.ID)
 	}
 }
 
-func detectPartialChange(oldCmds, newCmds []gfx.Command, oldDigests, newDigests []string) (RenderBatchDiffKind, []gfx.Rect) {
-	maxLen := len(oldCmds)
-	if len(newCmds) > maxLen {
-		maxLen = len(newCmds)
+func detectPartialChange(oldBounds, newBounds []gfx.Rect, oldDigests, newDigests []string) (RenderBatchDiffKind, []gfx.Rect) {
+	maxLen := len(oldDigests)
+	if len(newDigests) > maxLen {
+		maxLen = len(newDigests)
 	}
 	if maxLen == 0 {
 		return RenderBatchUnchanged, nil
@@ -158,13 +168,13 @@ func detectPartialChange(oldCmds, newCmds []gfx.Command, oldDigests, newDigests 
 			continue
 		}
 		changed++
-		if i < len(oldCmds) {
-			if r := commandBounds(oldCmds[i]); !r.IsEmpty() {
+		if i < len(oldBounds) {
+			if r := oldBounds[i]; !r.IsEmpty() {
 				dirty = append(dirty, r)
 			}
 		}
-		if i < len(newCmds) {
-			if r := commandBounds(newCmds[i]); !r.IsEmpty() {
+		if i < len(newBounds) {
+			if r := newBounds[i]; !r.IsEmpty() {
 				dirty = append(dirty, r)
 			}
 		}
@@ -179,12 +189,25 @@ func detectPartialChange(oldCmds, newCmds []gfx.Command, oldDigests, newDigests 
 	return RenderBatchPartialChange, RemoveContained(MergeRects(dirty, 0.25))
 }
 
-func mustCommandDigests(commands []gfx.Command) []string {
-	digests, err := canonical.CommandDigests(gfx.CommandList{Commands: commands})
-	if err != nil {
-		panic(fmt.Errorf("renderutil: canonical command contract: %w", err))
+func batchMetadata(frame *render.Frame, index int) (digests []string, bounds []gfx.Rect, complex bool) {
+	digests = make([]string, 0)
+	bounds = make([]gfx.Rect, 0)
+	visitOK := frame.VisitBatchCommands(index, func(command gfx.Command) bool {
+		digest, err := canonical.DigestCommand(command)
+		if err != nil {
+			panic(fmt.Errorf("renderutil: canonical command contract: %w", err))
+		}
+		digests = append(digests, digest)
+		bounds = append(bounds, commandBounds(command))
+		if transform, ok := command.(gfx.PushTransform); ok && !transform.Matrix.IsIdentity() {
+			complex = true
+		}
+		return true
+	})
+	if !visitOK {
+		panic("renderutil: released frame command page")
 	}
-	return digests
+	return digests, bounds, complex
 }
 
 func stringSlicesEqual(a, b []string) bool {
@@ -220,18 +243,6 @@ func commandBounds(cmd gfx.Command) gfx.Rect {
 	default:
 		return gfx.Rect{}
 	}
-}
-
-func hasComplexTransforms(cmds []gfx.Command) bool {
-	for _, cmd := range cmds {
-		switch c := cmd.(type) {
-		case gfx.PushTransform:
-			if !c.Matrix.IsIdentity() {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func MergeRects(rects []gfx.Rect, tolerance float32) []gfx.Rect {
@@ -286,7 +297,7 @@ func RemoveContained(rects []gfx.Rect) []gfx.Rect {
 	return append([]gfx.Rect(nil), out...)
 }
 
-func PropagateDirty(RenderBatchs []render.RenderBatch, perRenderBatchDirty map[render.RenderBatchID][]gfx.Rect) []gfx.Rect {
+func PropagateDirty(RenderBatchs []render.FrameBatch, perRenderBatchDirty map[render.RenderBatchID][]gfx.Rect) []gfx.Rect {
 	var out []gfx.Rect
 	for i, RenderBatch := range RenderBatchs {
 		dirty := perRenderBatchDirty[RenderBatch.ID]

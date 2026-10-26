@@ -235,7 +235,7 @@ func TestCommandWaitsForRenderAcknowledgment(t *testing.T) {
 	if !rt.renderPipeline.TryReserveFrame() {
 		t.Fatal("could not reserve render credit for test frame")
 	}
-	rt.runFrame(time.Date(2026, 1, 1, 0, 0, 1, 0, time.UTC), false, true)
+	rt.runFrame(time.Date(2026, 1, 1, 0, 0, 1, 0, time.UTC), false, true, false)
 	select {
 	case <-backend.started:
 	case <-time.After(5 * time.Second):

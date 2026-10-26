@@ -451,10 +451,8 @@ func buildOverlayTree(t *testing.T) (*diagTestFacet, *diagTestFacet, *diagTestFa
 	return root, child, grand
 }
 
-func baseFrame() *render.Frame {
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{Bounds: gfx.RectFromXYWH(0, 0, 200, 100)}},
-	}
+func baseFrame() *render.FrameInput {
+	return &render.FrameInput{Batches: []render.BatchInput{{Bounds: gfx.RectFromXYWH(0, 0, 200, 100)}}}
 }
 
 func TestOverlay_inactive_by_default(t *testing.T) {
@@ -485,8 +483,8 @@ func TestOverlay_inject_inactive_noop(t *testing.T) {
 	o := NewOverlay()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	if len(frame.RenderBatchs) != 1 {
-		t.Fatalf("expected 1 RenderBatch, got %d", len(frame.RenderBatchs))
+	if len(frame.Batches) != 1 {
+		t.Fatalf("expected 1 RenderBatch, got %d", len(frame.Batches))
 	}
 }
 
@@ -495,8 +493,8 @@ func TestOverlay_inject_adds_RenderBatch(t *testing.T) {
 	o.Toggle()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	if len(frame.RenderBatchs) != 2 {
-		t.Fatalf("expected 2 RenderBatchs, got %d", len(frame.RenderBatchs))
+	if len(frame.Batches) != 2 {
+		t.Fatalf("expected 2 RenderBatchs, got %d", len(frame.Batches))
 	}
 }
 
@@ -505,7 +503,7 @@ func TestOverlay_inject_RenderBatch_is_topmost(t *testing.T) {
 	o.Toggle()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	last := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	last := frame.Batches[len(frame.Batches)-1]
 	if last.ID != 0 {
 		t.Fatalf("overlay RenderBatch ID should be 0 (no cache), got %v", last.ID)
 	}
@@ -517,7 +515,7 @@ func TestOverlay_inject_produces_commands(t *testing.T) {
 	root, _, _ := buildOverlayTree(t)
 	frame := baseFrame()
 	o.Inject(frame, NewInspector(root), nil, FrameStats{})
-	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	overlay := frame.Batches[len(frame.Batches)-1]
 	if overlay.Commands.Len() == 0 {
 		t.Fatal("expected non-empty command list from overlay")
 	}
@@ -529,7 +527,7 @@ func TestOverlay_bounds_drawn_for_each_facet(t *testing.T) {
 	root, _, _ := buildOverlayTree(t)
 	frame := baseFrame()
 	o.Inject(frame, NewInspector(root), nil, FrameStats{})
-	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	overlay := frame.Batches[len(frame.Batches)-1]
 	count := 0
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.StrokeRect); ok {
@@ -549,7 +547,7 @@ func TestOverlay_dirty_facets_highlighted(t *testing.T) {
 	root.Base().InvalidateWithSource(facet.DirtyProjection, "test")
 	frame := baseFrame()
 	o.Inject(frame, NewInspector(root), nil, FrameStats{})
-	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	overlay := frame.Batches[len(frame.Batches)-1]
 	hasFillRect := false
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.FillRect); ok {
@@ -572,7 +570,7 @@ func TestOverlay_timing_bar_present(t *testing.T) {
 	}
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, stats)
-	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	overlay := frame.Batches[len(frame.Batches)-1]
 	hasFillRect := false
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.FillRect); ok {
@@ -590,7 +588,7 @@ func TestOverlay_no_cache_id(t *testing.T) {
 	o.Toggle()
 	frame := baseFrame()
 	o.Inject(frame, nil, nil, FrameStats{})
-	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	overlay := frame.Batches[len(frame.Batches)-1]
 	if overlay.ID != 0 {
 		t.Fatalf("overlay RenderBatch should have ID=0 (no cache), got %v", overlay.ID)
 	}
@@ -619,7 +617,7 @@ func TestOverlay_hit_regions_drawn(t *testing.T) {
 	probe := NewHitProbe(nil, hitMap)
 	frame := baseFrame()
 	o.Inject(frame, nil, probe, FrameStats{})
-	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	overlay := frame.Batches[len(frame.Batches)-1]
 	count := 0
 	for _, cmd := range overlay.Commands.Commands {
 		if _, ok := cmd.(gfx.StrokeRect); ok {
@@ -651,7 +649,7 @@ func TestOverlay_anchor_visualization_draws_connectors(t *testing.T) {
 	})
 	frame := baseFrame()
 	o.Inject(frame, insp, nil, FrameStats{})
-	overlay := frame.RenderBatchs[len(frame.RenderBatchs)-1]
+	overlay := frame.Batches[len(frame.Batches)-1]
 	hasPolyline := false
 	hasFillRect := false
 	for _, cmd := range overlay.Commands.Commands {

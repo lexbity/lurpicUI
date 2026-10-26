@@ -7,6 +7,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -41,13 +42,13 @@ func TestBackendSubmitGlyphRun_updatesGlyphAtlasAndPacketStats(t *testing.T) {
 	}
 	defer backend.Destroy()
 
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 64, 64),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.DrawGlyphRun{
 						Run:    run,
@@ -57,7 +58,7 @@ func TestBackendSubmitGlyphRun_updatesGlyphAtlasAndPacketStats(t *testing.T) {
 				}},
 			},
 		},
-	}
+	})
 
 	if err := backend.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)

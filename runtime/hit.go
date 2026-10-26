@@ -298,7 +298,7 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 
 // overlayInjector is satisfied by diagnostics.Hook when an Overlay is set.
 type overlayInjector interface {
-	InjectOverlay(frame *render.Frame, stats diagnostics.FrameStats)
+	InjectOverlay(frame *render.FrameInput, stats diagnostics.FrameStats)
 }
 
 var _ facet.RuntimeServices = (*Runtime)(nil)

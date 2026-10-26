@@ -7,14 +7,15 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/equivalence"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 )
 
 func gradientFrame(origin, end gfx.Point, stops []gfx.GradientStop) *render.Frame {
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	return testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 			Opacity: 1,
@@ -25,7 +26,7 @@ func gradientFrame(origin, end gfx.Point, stops []gfx.GradientStop) *render.Fram
 				},
 			}},
 		}},
-	}
+	})
 }
 
 // TestGradient_SwappedStopsChangesOutput is the Slice 6 negative control: two
@@ -87,8 +88,8 @@ func TestGradient_IdenticalBatchesMerge(t *testing.T) {
 	green := gfx.ColorFromRGBA8(60, 200, 90, 255)
 
 	// Two distinct gradients side by side.
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 			Opacity: 1,
@@ -103,7 +104,7 @@ func TestGradient_IdenticalBatchesMerge(t *testing.T) {
 				},
 			}},
 		}},
-	}
+	})
 	out1 := renderFramePixels(t, frame, 64, 64)
 	out2 := renderFramePixels(t, frame, 64, 64)
 

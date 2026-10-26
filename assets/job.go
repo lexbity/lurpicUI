@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
 )
@@ -687,7 +688,11 @@ func decodeJobPayload(typ AssetType, lod int, data []byte, backend BackendType) 
 		case 0:
 			return &DecodedSVGLOD0{Data: append([]byte(nil), data...)}, nil
 		case 1:
-			return &DecodedSVGLOD1{RGBA: append([]byte(nil), data...)}, nil
+			image, err := gfx.NewImageHandlePixels(data, 32, 32, 128, 0)
+			if err != nil {
+				return nil, fmt.Errorf("svg lod1 image: %w", err)
+			}
+			return &DecodedSVGLOD1{Image: image}, nil
 		case 2:
 			if len(data) < 4 {
 				return nil, fmt.Errorf("svg lod2 payload too small: %d", len(data))
@@ -719,7 +724,7 @@ type DecodedSVGLOD0 struct {
 
 // DecodedSVGLOD1 contains a 32x32 RGBA bitmap.
 type DecodedSVGLOD1 struct {
-	RGBA []byte
+	Image gfx.ImageHandle
 }
 
 // DecodedSVGLOD2 contains the packed dominant color.

@@ -1,29 +1,29 @@
 package vulkan
 
 import (
-	"image"
 	"sync"
+
+	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
 type imageAsset struct {
 	handle uint64
-	hash   uint64
 }
 
 type imageCache struct {
 	mu     sync.Mutex
-	assets map[uint64]imageAsset
+	assets map[[32]byte]imageAsset
 }
 
 func newImageCache() *imageCache {
-	return &imageCache{assets: make(map[uint64]imageAsset)}
+	return &imageCache{assets: make(map[[32]byte]imageAsset)}
 }
 
-func (c *imageCache) ensureImage(img *image.RGBA) (uint64, error) {
-	if c == nil || img == nil {
+func (c *imageCache) ensureImage(img gfx.ImageHandle) (uint64, error) {
+	if c == nil || img.IsZero() {
 		return 0, nil
 	}
-	key := hashImage(img)
+	key := img.ContentDigest()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if asset, ok := c.assets[key]; ok {
@@ -33,7 +33,7 @@ func (c *imageCache) ensureImage(img *image.RGBA) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	c.assets[key] = imageAsset{handle: handle, hash: key}
+	c.assets[key] = imageAsset{handle: handle}
 	return handle, nil
 }
 
@@ -49,17 +49,13 @@ func (c *imageCache) destroyAll() {
 	}
 }
 
-func createImageAsset(img *image.RGBA) (uint64, error) {
-	if img == nil {
+func createImageAsset(img gfx.ImageHandle) (uint64, error) {
+	if img.IsZero() {
 		return 0, nil
 	}
-	return UploadImage(
-		img.Pix,
-		img.Bounds().Dx(),
-		img.Bounds().Dy(),
-		img.Stride,
-		0,
-	)
+	pixels := img.CopyPixels()
+	defer clear(pixels)
+	return UploadImage(pixels, img.Width(), img.Height(), img.Stride(), 0)
 }
 
 func destroyImageAsset(handle uint64) error {

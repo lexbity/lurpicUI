@@ -17,6 +17,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/store"
 
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -337,15 +338,15 @@ func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*
 	bgBrush := gfx.SolidBrush(bgColor)
 	bgCmd := gfx.FillPath{Path: bgPath, Brush: bgBrush}
 
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)),
-			Opacity:     1,
-			CommandHash: 1,
-			Commands:    gfx.CommandList{Commands: append([]gfx.Command{bgCmd}, cmds.Commands...)},
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, float32(surfaceW), float32(surfaceH)),
+			Opacity: 1,
+
+			Commands: gfx.CommandList{Commands: append([]gfx.Command{bgCmd}, cmds.Commands...)},
 		}},
-	}
+	})
 
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)

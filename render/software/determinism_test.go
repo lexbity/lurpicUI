@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 )
 
@@ -45,15 +46,15 @@ func buildRepresentativeScene(t *testing.T) gfx.CommandList {
 func renderScene(t *testing.T, scene gfx.CommandList) []byte {
 	t.Helper()
 	r, s := newRenderer(t, determinismSceneW, determinismSceneH)
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      gfx.RectFromXYWH(0, 0, determinismSceneW, determinismSceneH),
-			Opacity:     1,
-			CommandHash: 1,
-			Commands:    scene,
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID:      1,
+			Bounds:  gfx.RectFromXYWH(0, 0, determinismSceneW, determinismSceneH),
+			Opacity: 1,
+
+			Commands: scene,
 		}},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit: %v", err)
 	}

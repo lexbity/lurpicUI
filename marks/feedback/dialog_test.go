@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -360,15 +361,14 @@ func AssertDialogGolden(t *testing.T, name string, tokens theme.Tokens, density 
 	if err := renderer.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      canvas,
-			Opacity:     1,
-			Commands:    *cmds,
-			CommandHash: 1,
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID:       1,
+			Bounds:   canvas,
+			Opacity:  1,
+			Commands: *cmds,
 		}},
-	}
+	})
 	if err := renderer.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}

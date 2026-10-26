@@ -14,7 +14,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/input"
-	"codeburg.org/lexbit/lurpicui/internal/hashutil"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
@@ -28,6 +27,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
+
+var ErrNoReadyFrame = errors.New("runtime: no primary ready frame")
 
 type Runtime struct {
 	config Config
@@ -44,6 +45,8 @@ type Runtime struct {
 	// backend swap can close the old adapter and re-wire the asset manager
 	// (Slice 10, FR-12).
 	assetUploader *assetUploader
+	frameWallet   *membudget.Wallet
+	packetCap     uint64
 
 	platformApp    platform.App
 	window         platform.Window
@@ -61,34 +64,36 @@ type Runtime struct {
 	bootstrapFramePending  bool
 	bootstrapFrameAwaiting bool
 
-	dirtyFacets      map[facet.FacetID]facet.DirtyFlags
-	dirtySources     map[facet.FacetID]string
-	nextDirtyFacets  map[facet.FacetID]facet.DirtyFlags
-	nextDirtySources map[facet.FacetID]string
-	dirtyCaptured    bool
-	childAttachments map[facet.FacetID]facet.Attachment
-	anchorCaches     map[facet.FacetID]*layout.AnchorPositionCache
-	projectionLayers map[facet.FacetID]facet.ProjectionLayer
-	lastHitTrace     diagnostics.HitTestTrace
-	hitTraceEnabled  bool
-	pendingEvents    []platform.Event
-	lastWindowFrames map[string]*render.Frame
-	diagMu           sync.RWMutex
-	diag             DiagnosticsHook
-	rootStyleContext any
-	rootStyleSubs    signal.Subscriptions
-	phase1HooksMu    sync.RWMutex
-	phase1Hooks      []phase1HookSlot
-	phase1HookActive []int
-	phase1HookFree   []int
-	phase1HookSeq    uint64
-	phase1Dispatches int
-	shutdownHooksMu  sync.RWMutex
-	shutdownHooks    []func()
-	lifecycleMu      sync.Mutex
-	lifecycleCond    *sync.Cond
-	paused           bool
-	lifecycleBound   bool
+	dirtyFacets       map[facet.FacetID]facet.DirtyFlags
+	dirtySources      map[facet.FacetID]string
+	nextDirtyFacets   map[facet.FacetID]facet.DirtyFlags
+	nextDirtySources  map[facet.FacetID]string
+	dirtyCaptured     bool
+	childAttachments  map[facet.FacetID]facet.Attachment
+	anchorCaches      map[facet.FacetID]*layout.AnchorPositionCache
+	projectionLayers  map[facet.FacetID]facet.ProjectionLayer
+	lastHitTrace      diagnostics.HitTestTrace
+	hitTraceEnabled   bool
+	pendingEvents     []platform.Event
+	lastWindowFrames  map[string]*render.Frame
+	pendingFrameViews map[uint64]*render.Frame
+	frameViewMu       sync.RWMutex
+	diagMu            sync.RWMutex
+	diag              DiagnosticsHook
+	rootStyleContext  any
+	rootStyleSubs     signal.Subscriptions
+	phase1HooksMu     sync.RWMutex
+	phase1Hooks       []phase1HookSlot
+	phase1HookActive  []int
+	phase1HookFree    []int
+	phase1HookSeq     uint64
+	phase1Dispatches  int
+	shutdownHooksMu   sync.RWMutex
+	shutdownHooks     []func()
+	lifecycleMu       sync.Mutex
+	lifecycleCond     *sync.Cond
+	paused            bool
+	lifecycleBound    bool
 	// surfaceReady gates render submission after a lifecycle-driven surface
 	// loss. The runtime may keep ticking and processing input while the
 	// platform surface is absent, but the backend must not receive frames until
@@ -240,6 +245,14 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if config.Logger == nil {
 		config.Logger = log.NopLogger{}
 	}
+	frameWallet, err := membudget.NewWallet(config.Resources.Plan.Caps[membudget.Frame])
+	if err != nil {
+		return nil, fmt.Errorf("runtime: frame wallet: %w", err)
+	}
+	packetCap := uint64(8 << 20)
+	if config.Resources.Plan.Profile == membudget.Compact {
+		packetCap = 2 << 20
+	}
 	rt := &Runtime{
 		config:                config,
 		clock:                 preparedClock.clock,
@@ -267,6 +280,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		anchorCaches:          make(map[facet.FacetID]*layout.AnchorPositionCache),
 		projectionLayers:      make(map[facet.FacetID]facet.ProjectionLayer),
 		lastWindowFrames:      make(map[string]*render.Frame),
+		pendingFrameViews:     make(map[uint64]*render.Frame),
+		frameWallet:           frameWallet,
+		packetCap:             packetCap,
 		shutdownCh:            make(chan struct{}),
 		doneCh:                make(chan struct{}),
 		log:                   config.Logger,
@@ -371,10 +387,18 @@ func (rt *Runtime) CommandRegistry() *CommandRegistry {
 	return rt.config.CommandRegistry
 }
 
-// LastPrimaryFrame returns the most recent submitted primary-window frame
-// (nil before the first submit).
-func (rt *Runtime) LastPrimaryFrame() *render.Frame {
-	return rt.lastWindowFrames["__primary__"]
+// RetainLastPrimaryFrame returns an owned lease for the latest acknowledged
+// primary-window frame. The caller must Release it after encoding or reading.
+func (rt *Runtime) RetainLastPrimaryFrame() (*render.Frame, error) {
+	if rt == nil {
+		return nil, ErrNoReadyFrame
+	}
+	rt.frameViewMu.RLock()
+	defer rt.frameViewMu.RUnlock()
+	if rt.lastWindowFrames["__primary__"] == nil {
+		return nil, ErrNoReadyFrame
+	}
+	return rt.lastWindowFrames["__primary__"].Retain()
 }
 
 // Clock returns the runtime's time service (QP-5).
@@ -385,19 +409,56 @@ func (rt *Runtime) Clock() *Clock { return rt.clock }
 // deterministic.
 func (rt *Runtime) Now() time.Time { return rt.clock.Now() }
 
-func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) *render.Frame {
-	return assembleFrameWithLayers(output, dirtySnapshot, rt)
+func (rt *Runtime) assembleFrame(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) (*render.Frame, error) {
+	return rt.sealFrameInput(assembleFrameInputWithLayers(output, dirtySnapshot, rt))
 }
 
-func (rt *Runtime) WindowFrames() map[string]*render.Frame {
+func (rt *Runtime) sealFrameInput(input render.FrameInput) (*render.Frame, error) {
+	bytes, err := render.EstimateFrameBytes(input)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: estimate sealed frame: %w", err)
+	}
+	if bytes > rt.packetCap {
+		return nil, fmt.Errorf("runtime: frame packet requires %d bytes, cap is %d", bytes, rt.packetCap)
+	}
+	if bytes == 0 {
+		bytes = 1
+	}
+	reservation, err := rt.frameWallet.Reserve(bytes)
+	if err != nil {
+		return nil, fmt.Errorf("runtime: frame resource limit: %w", err)
+	}
+	frame, err := render.SealFrame(input, reservation)
+	if err != nil {
+		_ = reservation.Cancel()
+		return nil, fmt.Errorf("runtime: seal frame: %w", err)
+	}
+	return frame, nil
+}
+
+// RetainWindowFrames returns owned leases for all latest acknowledged windows.
+// The caller must Release every returned frame.
+func (rt *Runtime) RetainWindowFrames() (map[string]*render.Frame, error) {
+	if rt == nil {
+		return map[string]*render.Frame{}, nil
+	}
+	rt.frameViewMu.RLock()
+	defer rt.frameViewMu.RUnlock()
 	if len(rt.lastWindowFrames) == 0 {
-		return nil
+		return map[string]*render.Frame{}, nil
 	}
 	out := make(map[string]*render.Frame, len(rt.lastWindowFrames))
 	for k, v := range rt.lastWindowFrames {
-		out[k] = v
+		retained, err := v.Retain()
+		if err != nil {
+			for _, frame := range out {
+				_ = frame.Release()
+			}
+			return nil, fmt.Errorf("runtime: retain window %q frame: %w", k, err)
+		}
+		out[k] = retained
 	}
-	return out
+	return out, nil
 }
 
 type frameLayerResolver interface {
@@ -411,12 +472,12 @@ type frameBatchItem struct {
 	z     int
 	clip  gfx.Rect
 	index int
-	batch render.RenderBatch
+	batch render.BatchInput
 }
 
-func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags, resolver frameLayerResolver) *render.Frame {
+func assembleFrameInputWithLayers(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags, resolver frameLayerResolver) render.FrameInput {
 	if output == nil {
-		return &render.Frame{}
+		return render.FrameInput{}
 	}
 	items := make([]frameBatchItem, 0, len(output.RenderBatchs))
 	for i, RenderBatch := range output.RenderBatchs {
@@ -442,12 +503,11 @@ func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[f
 		if !RenderBatch.Transform.IsIdentity() {
 			cmds.Add(gfx.PopTransform{})
 		}
-		rb := render.RenderBatch{
-			ID:          render.RenderBatchID(RenderBatch.FacetID),
-			Bounds:      RenderBatch.Bounds,
-			Opacity:     RenderBatch.Opacity,
-			Commands:    cmds,
-			CommandHash: hashutil.HashCommandList(cmds),
+		rb := render.BatchInput{
+			ID:       render.RenderBatchID(RenderBatch.FacetID),
+			Bounds:   RenderBatch.Bounds,
+			Opacity:  RenderBatch.Opacity,
+			Commands: cmds,
 		}
 		item := frameBatchItem{index: i, batch: rb}
 		if resolver != nil {
@@ -470,22 +530,19 @@ func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[f
 		}
 		return items[i].index < items[j].index
 	})
-	out := &render.Frame{
-		RenderBatchs: make([]render.RenderBatch, 0, len(items)),
-		FramePacket: render.FramePacket{
-			Layers: make([]render.LayeredBatch, 0, len(items)),
-		},
-	}
+	out := render.FrameInput{Batches: make([]render.BatchInput, 0, len(items)), Layers: make([]render.LayerInput, 0, len(items))}
 	hasLayer := false
 	var currentOrder int
 	var currentClip gfx.Rect
 	for _, item := range items {
-		out.RenderBatchs = append(out.RenderBatchs, item.batch)
+		batchIndex := len(out.Batches)
+		out.Batches = append(out.Batches, item.batch)
 		if !hasLayer || currentOrder != item.order || currentClip != item.clip {
-			out.Layers = append(out.Layers, render.LayeredBatch{
+			out.Layers = append(out.Layers, render.LayerInput{
 				RenderOrder: item.order,
 				ClipRect:    item.clip,
-				Batches:     []render.RenderBatch{item.batch},
+				FirstBatch:  batchIndex,
+				BatchCount:  1,
 			})
 			currentOrder = item.order
 			currentClip = item.clip
@@ -493,13 +550,13 @@ func assembleFrameWithLayers(output *projection.FrameOutput, dirtySnapshot map[f
 			continue
 		}
 		last := len(out.Layers) - 1
-		out.Layers[last].Batches = append(out.Layers[last].Batches, item.batch)
+		out.Layers[last].BatchCount++
 	}
 	out.DirtyRegions = computeDirtyRegions(output, dirtySnapshot)
 	return out
 }
 
-func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) map[string]*render.Frame {
+func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) map[string]render.FrameInput {
 	if output == nil {
 		return nil
 	}
@@ -526,13 +583,13 @@ func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySna
 			group.SelectionGeometries[po.FacetID] = sel
 		}
 	}
-	out := make(map[string]*render.Frame, len(grouped))
+	out := make(map[string]render.FrameInput, len(grouped))
 	for _, key := range order {
 		group := grouped[key]
 		if group == nil {
 			continue
 		}
-		out[key] = assembleFrameWithLayers(group, dirtySnapshot, rt)
+		out[key] = assembleFrameInputWithLayers(group, dirtySnapshot, rt)
 	}
 	return out
 }

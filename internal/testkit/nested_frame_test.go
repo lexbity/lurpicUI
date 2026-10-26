@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
 )
@@ -34,17 +35,17 @@ func TestStrokeNestedRoundedRects(t *testing.T) {
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	if err := r.Submit(&render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	if err := r.Submit(testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    cmds,
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: cmds,
 			},
 		},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
 

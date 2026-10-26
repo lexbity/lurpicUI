@@ -3,12 +3,11 @@ package vulkan
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
-	"image"
 	"math"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/internal/hashutil"
 	"codeburg.org/lexbit/lurpicui/render"
 )
 
@@ -56,12 +55,13 @@ func encodeFramePacket(frame *render.Frame) ([]byte, error) {
 }
 
 type imageAssetUploader interface {
-	ensureImage(img *image.RGBA) (uint64, error)
+	ensureImage(img gfx.ImageHandle) (uint64, error)
 }
 
 // batchWithClip pairs a batch with the layer clip rect that governs it, if any.
 type batchWithClip struct {
-	batch render.RenderBatch
+	index int
+	batch render.FrameBatch
 	clip  gfx.Rect
 }
 
@@ -69,16 +69,21 @@ type batchWithClip struct {
 // to out, reusing its capacity across frames.
 func collectBatchesInto(out []batchWithClip, frame *render.Frame) []batchWithClip {
 	out = out[:0]
-	if len(frame.Layers) > 0 {
-		for _, layer := range frame.Layers {
-			for _, b := range layer.Batches {
-				out = append(out, batchWithClip{batch: b, clip: layer.ClipRect})
-			}
+	clips := make([]gfx.Rect, frame.BatchCount())
+	for i := 0; i < frame.LayerCount(); i++ {
+		layer, ok := frame.LayerAt(i)
+		if !ok {
+			continue
 		}
-		return out
+		for j := layer.FirstBatch; j < layer.FirstBatch+layer.BatchCount; j++ {
+			clips[j] = layer.ClipRect
+		}
 	}
-	for _, b := range frame.RenderBatchs {
-		out = append(out, batchWithClip{batch: b})
+	for i := 0; i < frame.BatchCount(); i++ {
+		b, ok := frame.BatchAt(i)
+		if ok {
+			out = append(out, batchWithClip{index: i, batch: b, clip: clips[i]})
+		}
 	}
 	return out
 }
@@ -89,13 +94,14 @@ func collectBatchesInto(out []batchWithClip, frame *render.Frame) []batchWithCli
 // returned packet aliases the internal output buffer and remains valid only
 // until the next Encode on the same encoder.
 type frameEncoder struct {
-	batches       []batchWithClip
-	encoded       []encodedBatch
-	payload       packetWriter
-	out           packetWriter
-	strokeScratch gfx.StrokeScratch
-	pathSegs      []gfx.PathSegment
-	rectScratch   rectStrokeScratch
+	batches        []batchWithClip
+	encoded        []encodedBatch
+	payload        packetWriter
+	out            packetWriter
+	strokeScratch  gfx.StrokeScratch
+	pathSegs       []gfx.PathSegment
+	commandScratch []gfx.Command
+	rectScratch    rectStrokeScratch
 }
 
 func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([]byte, error) {
@@ -112,7 +118,13 @@ func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([
 	e.batches = collectBatchesInto(e.batches, frame)
 	for _, item := range e.batches {
 		base := e.payload.buf.Len()
-		transform, commands, ok, err := encodeBatchInto(&e.payload, item.batch, item.clip, assets, &e.strokeScratch, &e.pathSegs, &e.rectScratch)
+		e.commandScratch = e.commandScratch[:0]
+		var okCommands bool
+		e.commandScratch, okCommands = frame.AppendBatchCommands(item.index, e.commandScratch)
+		if !okCommands {
+			return nil, errors.New("vulkan: frame command page was released during encoding")
+		}
+		transform, commands, ok, err := encodeBatchInto(&e.payload, item.batch, e.commandScratch, item.clip, assets, &e.strokeScratch, &e.pathSegs, &e.rectScratch)
 		if err != nil {
 			return nil, err
 		}
@@ -131,11 +143,15 @@ func (e *frameEncoder) Encode(frame *render.Frame, assets imageAssetUploader) ([
 	w := &e.out
 	w.writeString(framePacketMagic)
 	w.writeU32(framePacketVersion)
-	w.writeU32(0)                               // surface_w
-	w.writeU32(0)                               // surface_h
-	w.writeF32(1)                               // device_pixel_ratio
-	w.writeU32(uint32(len(frame.DirtyRegions))) //nolint:gosec // integer overflow conversion
-	for _, region := range frame.DirtyRegions {
+	w.writeU32(0)                                // surface_w
+	w.writeU32(0)                                // surface_h
+	w.writeF32(1)                                // device_pixel_ratio
+	w.writeU32(uint32(frame.DirtyRegionCount())) //nolint:gosec // integer overflow conversion
+	for i := 0; i < frame.DirtyRegionCount(); i++ {
+		region, ok := frame.DirtyRegionAt(i)
+		if !ok {
+			return nil, errors.New("vulkan: frame damage page was released during encoding")
+		}
 		w.writeRect(region)
 	}
 	w.writeU32(uint32(len(e.encoded))) //nolint:gosec // integer overflow conversion
@@ -163,7 +179,7 @@ func encodeFramePacketWithAssets(frame *render.Frame, assets imageAssetUploader)
 }
 
 type encodedBatch struct {
-	batch     render.RenderBatch
+	batch     render.FrameBatch
 	transform gfx.Transform
 	clip      gfx.Rect
 	payload   []byte
@@ -207,12 +223,12 @@ func extractBatchTransform(cmds []gfx.Command) (gfx.Transform, []gfx.Command, bo
 // encodeBatchInto writes the batch's command payload into w (a shared pooled
 // buffer) and returns the extracted transform and command count. It returns
 // ok=false when the batch contributes no decodable commands.
-func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, assets imageAssetUploader, strokeScratch *gfx.StrokeScratch, pathSegs *[]gfx.PathSegment, rectScratch *rectStrokeScratch) (gfx.Transform, int, bool, error) {
-	if batch.Commands.Len() == 0 {
+func encodeBatchInto(w *packetWriter, batch render.FrameBatch, cmds []gfx.Command, clip gfx.Rect, assets imageAssetUploader, strokeScratch *gfx.StrokeScratch, pathSegs *[]gfx.PathSegment, rectScratch *rectStrokeScratch) (gfx.Transform, int, bool, error) {
+	if len(cmds) == 0 {
 		return gfx.Transform{}, 0, false, nil
 	}
 
-	transform, cmds, _ := extractBatchTransform(batch.Commands.Commands)
+	transform, cmds, _ := extractBatchTransform(cmds)
 	if len(cmds) == 0 {
 		return gfx.Transform{}, 0, false, nil
 	}
@@ -317,7 +333,7 @@ func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, a
 				return gfx.Transform{}, 0, false, err
 			}
 		case gfx.DrawImage:
-			if c.Image == nil {
+			if c.Image.IsZero() {
 				continue
 			}
 			if assets == nil {
@@ -371,20 +387,6 @@ func encodeBatchInto(w *packetWriter, batch render.RenderBatch, clip gfx.Rect, a
 		return gfx.Transform{}, 0, false, nil
 	}
 	return transform, commands, true, nil
-}
-
-func hashImage(img *image.RGBA) uint64 {
-	if img == nil {
-		return 0
-	}
-	b := hashutil.NewCacheKeyBuilder()
-	b.WriteUint32(uint32(img.Rect.Min.X)) //nolint:gosec // integer overflow conversion
-	b.WriteUint32(uint32(img.Rect.Min.Y)) //nolint:gosec // integer overflow conversion
-	b.WriteUint32(uint32(img.Rect.Max.X)) //nolint:gosec // integer overflow conversion
-	b.WriteUint32(uint32(img.Rect.Max.Y)) //nolint:gosec // integer overflow conversion
-	b.WriteUint32(uint32(img.Stride))     //nolint:gosec // integer overflow conversion
-	b.WriteBytes(img.Pix)
-	return b.Sum()
 }
 
 func (w *packetWriter) writeBytes(b []byte) {

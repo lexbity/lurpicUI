@@ -1,7 +1,6 @@
 package hashutil
 
 import (
-	"image"
 	"math"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -129,7 +128,10 @@ func hashCommand(b *CacheKeyBuilder, cmd gfx.Command) {
 		hashBrush(b, c.Brush)
 	case gfx.DrawImage:
 		b.WriteString("DrawImage")
-		hashImage(b, c.Image)
+		b.WriteUint8(1)
+		b.WriteUint64(c.Image.Generation())
+		digest := c.Image.ContentDigest()
+		b.WriteBytes(digest[:])
 		hashRect(b, c.DestRect)
 		hashRect(b, c.SrcRect)
 		b.WriteUint8(uint8(c.Sampling))
@@ -143,17 +145,6 @@ func hashCommand(b *CacheKeyBuilder, cmd gfx.Command) {
 	default:
 		b.WriteString("UnknownCommand")
 	}
-}
-
-func hashImage(b *CacheKeyBuilder, img *image.RGBA) {
-	if img == nil {
-		b.WriteUint8(0)
-		return
-	}
-	b.WriteUint8(1)
-	hashRect(b, gfx.Rect{Min: gfx.Point{X: float32(img.Rect.Min.X), Y: float32(img.Rect.Min.Y)}, Max: gfx.Point{X: float32(img.Rect.Max.X), Y: float32(img.Rect.Max.Y)}})
-	b.WriteUint64(uint64(img.Stride)) //nolint:gosec // integer overflow conversion
-	b.WriteBytes(img.Pix)
 }
 
 func hashPath(b *CacheKeyBuilder, path gfx.Path) {

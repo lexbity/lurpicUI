@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/equivalence"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
@@ -22,8 +23,8 @@ func sharpChevronStroke(miterLimit float32) *render.Frame {
 		LineTo(gfx.Point{X: 32, Y: 10}).
 		LineTo(gfx.Point{X: 44, Y: 48}).
 		Build()
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	return testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 			Opacity: 1,
@@ -31,7 +32,7 @@ func sharpChevronStroke(miterLimit float32) *render.Frame {
 				gfx.StrokePath{Path: path, Stroke: stroke, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(70, 120, 230, 255))},
 			}},
 		}},
-	}
+	})
 }
 
 // TestStrokeExpand_MiterLimitIsHonored is the Slice 8 negative control: the GPU
@@ -91,8 +92,8 @@ func TestStrokeExpand_CapsAndJoinsRender(t *testing.T) {
 		LineTo(gfx.Point{X: 48, Y: 8}).
 		LineTo(gfx.Point{X: 48, Y: 48}).
 		Build()
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 			Opacity: 1,
@@ -100,7 +101,7 @@ func TestStrokeExpand_CapsAndJoinsRender(t *testing.T) {
 				gfx.StrokePath{Path: path, Stroke: stroke, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(230, 60, 60, 255))},
 			}},
 		}},
-	}
+	})
 
 	soft, err := equivalence.RenderSoftware(frame, 64, 64)
 	if err != nil {

@@ -241,11 +241,13 @@ func TestCorpusCoversEveryGeometryCommand(t *testing.T) {
 	seen := make(map[string]bool)
 	for _, fx := range fixtures {
 		frame := fx.Frame()
-		for _, b := range frame.RenderBatchs {
-			for _, cmd := range b.Commands.Commands {
+		for i := 0; i < frame.BatchCount(); i++ {
+			frame.VisitBatchCommands(i, func(cmd gfx.Command) bool {
 				seen[cmdName(cmd)] = true
-			}
+				return true
+			})
 		}
+		_ = frame.Release()
 	}
 	for _, required := range []string{
 		"FillRect", "StrokeRect", "FillPath", "StrokePath",

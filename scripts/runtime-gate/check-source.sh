@@ -150,3 +150,29 @@ if [[ "$phase" == *P5* ]]; then
 	grep -q 'func TestPhase1HookReleaseCompactsActiveEntries' runtime/phase_hooks_runtime_test.go
 	printf '%s\n' 'runtime-gate: P5 source contracts passed'
 fi
+
+if [[ "$phase" == *P6* ]]; then
+	for package in gfx render runtime text; do
+		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
+		if [ -z "$files" ]; then
+			printf 'source inventory is empty for %s\n' "$package" >&2
+			exit 1
+		fi
+	done
+	expect_absent 'type[[:space:]]+(RenderBatch|LayeredBatch|FramePacket)[[:space:]]+struct|RenderBatchs[[:space:]]+\[\]RenderBatch' render
+	expect_absent 'NewCommandPage\(' gfx render
+	expect_absent 'reflect\.DeepEqual' internal/renderutil render
+	grep -q 'func SealCommandPageFromSource' gfx/command_pages.go
+	grep -q 'func (f \*Frame) Retain()' render/frame_pages.go
+	grep -q 'func (f \*Frame) Generation()' render/frame_pages.go
+	grep -q 'ResourceGeneration uint64' runtime/pipeline.go
+	grep -q 'TryReserveCleanupFrame' runtime/pipeline.go
+	grep -q 'SubmitCleanupReserved' runtime/pipeline.go
+	grep -q 'RetainLastPrimaryFrame' runtime/core.go
+	grep -q 'PinForRender' text/registry.go
+	grep -q 'func TestFramePagesWaitForAllConsumers' render/frame_test.go
+	grep -q 'func TestCleanupCreditSurvivesBlockedRenderer' runtime/pipeline_test.go
+	grep -q 'func TestFailedAndLateFrameAcknowledgmentsPreserveLastReady' runtime/frame_lifetime_test.go
+	grep -q 'func TestSealedGlyphPagePinsFontChargeUntilRelease' text/render_page_lifetime_test.go
+	printf '%s\n' 'runtime-gate: P6 source contracts passed'
+fi

@@ -11,14 +11,16 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
-	"codeburg.org/lexbit/lurpicui/render"
 )
 
-func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bool) {
+func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit, reservedCleanupCredit bool) {
 	frameCreditTransferred := false
 	defer func() {
 		if reservedFrameCredit && !frameCreditTransferred {
 			rt.renderPipeline.ReleaseFrameReservation()
+		}
+		if reservedCleanupCredit && !frameCreditTransferred {
+			rt.renderPipeline.ReleaseCleanupFrameReservation()
 		}
 	}()
 
@@ -255,24 +257,41 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 			androidTracef("runFrame first-batch bounds=%v commands=%d opacity=%.3f",
 				b.Bounds, len(b.Commands.Commands), b.Opacity)
 		}
-		windowFrames := rt.assembleWindowFrames(frameOut, dirtySnapshot)
-		rt.lastWindowFrames = windowFrames
-		frame := windowFrames[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})]
-		if frame == nil {
-			frame = &render.Frame{}
-		}
+		windowInputs := rt.assembleWindowFrames(frameOut, dirtySnapshot)
+		input := windowInputs[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})]
 		if diag := rt.diagnosticsHook(); diag != nil {
 			if oi, ok := diag.(overlayInjector); ok {
-				oi.InjectOverlay(frame, stats)
+				oi.InjectOverlay(&input, stats)
 			}
 		}
+		frame, sealErr := rt.sealFrameInput(input)
+		if sealErr != nil {
+			rt.lastRenderCompletion = RenderCompletion{Frame: rt.frameNumber, Backend: backendKindName(rt.renderPipeline.Backend()), Err: sealErr}
+			rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
+			return
+		}
+		view, retainErr := frame.Retain()
+		if retainErr != nil {
+			_ = frame.Release()
+			rt.lastRenderCompletion = RenderCompletion{Frame: rt.frameNumber, Err: retainErr}
+			rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
+			return
+		}
+		rt.frameViewMu.Lock()
+		rt.pendingFrameViews[rt.frameNumber] = view
+		rt.frameViewMu.Unlock()
 		if waitForRender {
 			rt.lastRenderCompletion = rt.renderPipeline.SubmitAndWait(frame, rt.frameNumber)
+			rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
 		} else {
-			if !reservedFrameCredit {
+			if !reservedFrameCredit && !reservedCleanupCredit {
 				panic("runtime: asynchronous frame started without render credit")
 			}
-			rt.renderPipeline.SubmitReserved(frame, rt.frameNumber)
+			if reservedCleanupCredit {
+				rt.renderPipeline.SubmitCleanupReserved(frame, rt.frameNumber)
+			} else {
+				rt.renderPipeline.SubmitReserved(frame, rt.frameNumber)
+			}
 			frameCreditTransferred = true
 		}
 		// First-frame marker: CI smoke tests grep logcat for this string to

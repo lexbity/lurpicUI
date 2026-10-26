@@ -2,7 +2,6 @@ package primitive
 
 import (
 	"fmt"
-	"image"
 	"math"
 	"strings"
 
@@ -609,13 +608,12 @@ func buildManagedAssetCommands(ref gfx.DrawableRef, handle assets.Handle, target
 	case 1:
 		if entry != nil {
 			if lod1, ok := entry.LODHandles[1].(*assets.DecodedSVGLOD1); ok {
-				img := rgbaFromBytes(lod1.RGBA, 32, 32)
-				if img == nil {
+				if lod1.Image.IsZero() {
 					return nil
 				}
 				return []gfx.Command{
 					gfx.PushTransform{Matrix: transform},
-					gfx.DrawImage{Image: img, DestRect: target, SrcRect: gfx.RectFromXYWH(0, 0, 32, 32), Sampling: gfx.SamplingBilinear, Opacity: 1},
+					gfx.DrawImage{Image: lod1.Image, DestRect: target, SrcRect: gfx.RectFromXYWH(0, 0, 32, 32), Sampling: gfx.SamplingBilinear, Opacity: 1},
 					gfx.PopTransform{},
 				}
 			}
@@ -633,15 +631,6 @@ func buildManagedAssetCommands(ref gfx.DrawableRef, handle assets.Handle, target
 		}
 	}
 	return nil
-}
-
-func rgbaFromBytes(src []byte, width, height int) *image.RGBA {
-	if len(src) < width*height*4 {
-		return nil
-	}
-	img := image.NewRGBA(image.Rect(0, 0, width, height))
-	copy(img.Pix, src[:width*height*4])
-	return img
 }
 
 func buildCSGCommands(data []byte, target gfx.Rect, color gfx.Color, transform gfx.Transform) []gfx.Command {

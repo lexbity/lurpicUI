@@ -7,6 +7,7 @@ package corpus
 
 import (
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/equivalence"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -42,12 +43,29 @@ func All(reg *text.FontRegistry) []equivalence.FrameFixture {
 
 // flatFrame builds a layerless frame from a single batch's commands.
 func flatFrame(id uint64, bounds gfx.Rect, opacity float32, cmds ...gfx.Command) *render.Frame {
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:       render.RenderBatchID(id),
-			Bounds:   bounds,
-			Opacity:  opacity,
-			Commands: gfx.CommandList{Commands: cmds},
-		}},
+	return seal(render.FrameInput{Batches: []render.BatchInput{{ID: render.RenderBatchID(id), Bounds: bounds, Opacity: opacity, Commands: gfx.CommandList{Commands: cmds}}}})
+}
+
+func seal(input render.FrameInput) *render.Frame {
+	bytes, err := render.EstimateFrameBytes(input)
+	if err != nil {
+		panic(err)
 	}
+	if bytes == 0 {
+		bytes = 1
+	}
+	wallet, err := membudget.NewWallet(bytes)
+	if err != nil {
+		panic(err)
+	}
+	reservation, err := wallet.Reserve(bytes)
+	if err != nil {
+		panic(err)
+	}
+	frame, err := render.SealFrame(input, reservation)
+	if err != nil {
+		_ = reservation.Cancel()
+		panic(err)
+	}
+	return frame
 }

@@ -9,13 +9,13 @@ package equivalence
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"sort"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
-	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/canonical"
 	"codeburg.org/lexbit/lurpicui/runtime"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -116,12 +116,19 @@ func (f *Fixture) observe(t testing.TB, tr *Trajectory) func() error {
 		if captureErr != nil {
 			return
 		}
-		frame := rt.LastPrimaryFrame()
+		frame, err := rt.RetainLastPrimaryFrame()
+		if err != nil && !errors.Is(err, runtime.ErrNoReadyFrame) {
+			captureErr = fmt.Errorf("retain ready frame %d: %w", rt.LastFrameStats().FrameNumber, err)
+			return
+		}
+		if frame != nil {
+			defer func() { _ = frame.Release() }()
+		}
 		if frame == nil {
 			// No submission leaves the previous complete surface in place. The
 			// empty packet distinguishes that state from a newly submitted one;
 			// the independently captured surface remains authoritative pixels.
-			frame = &render.Frame{}
+			frame = nil
 		}
 		packet, err := canonical.Digest(frame)
 		if err != nil {

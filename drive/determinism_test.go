@@ -66,11 +66,15 @@ func replayStudioSession(t *testing.T, advances int) []replayFrame {
 		if frameNumber != uint64(i+2) {
 			t.Fatalf("advance %d produced ready frame %d, want exactly %d", i, frameNumber, i+2)
 		}
-		packet := h.Runtime().LastPrimaryFrame()
+		packet, err := h.Runtime().RetainLastPrimaryFrame()
+		if err != nil {
+			t.Fatalf("advance %d frame lease: %v", i, err)
+		}
 		if packet == nil {
 			t.Fatalf("advance %d produced no primary ready frame", i)
 		}
 		packetDigest, err := canonical.Digest(packet)
+		_ = packet.Release()
 		if err != nil {
 			t.Fatalf("advance %d canonical packet: %v", i, err)
 		}

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/equivalence"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
@@ -13,8 +14,8 @@ import (
 
 // shadowFrame builds a single-shadow frame with the given blur radius.
 func shadowFrame(radius float32, inner bool) *render.Frame {
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	return testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 			Opacity: 1,
@@ -28,7 +29,7 @@ func shadowFrame(radius float32, inner bool) *render.Frame {
 				},
 			}},
 		}},
-	}
+	})
 }
 
 // TestBlurredShadow_Rendered proves the GPU blur pipeline renders a shadow: the

@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -258,11 +259,11 @@ func renderTooltipSurface(t *testing.T, tokens theme.Tokens, density theme.Densi
 	if cmds != nil {
 		frameCmds = *cmds
 	}
-	if err := renderer.Submit(&render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID: 1, Bounds: canvas, Opacity: 1, Commands: frameCmds, CommandHash: 1,
+	if err := renderer.Submit(testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID: 1, Bounds: canvas, Opacity: 1, Commands: frameCmds,
 		}},
-	}); err != nil {
+	})); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}
 	return surface

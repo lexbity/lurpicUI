@@ -14,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 	"codeburg.org/lexbit/lurpicui/internal/perfscene"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -24,12 +25,12 @@ func BenchmarkVulkan_NodeScene(b *testing.B) {
 		b.Run(perfscene.Describe(nodes), func(b *testing.B) {
 			backend := mustBenchmarkBackend(b)
 			defer backend.Destroy()
-			base := perfscene.NodeFrame(nodes, 2048, 2048, 0)
+			base := perfscene.NodeFrame(nodes, 2048, 2048)
+			defer base.Release()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				frame := perfscene.CloneWithNonce(base, uint64(i+1))
-				if err := backend.Submit(frame); err != nil {
+				if err := backend.Submit(base); err != nil {
 					b.Fatalf("submit: %v", err)
 				}
 			}
@@ -42,12 +43,12 @@ func BenchmarkVulkan_ImageScene(b *testing.B) {
 		b.Run(perfscene.Describe(images), func(b *testing.B) {
 			backend := mustBenchmarkBackend(b)
 			defer backend.Destroy()
-			base := perfscene.ImageFrame(images, 2048, 2048, 0)
+			base := perfscene.ImageFrame(images, 2048, 2048)
+			defer base.Release()
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				frame := perfscene.CloneWithNonce(base, uint64(i+1))
-				if err := backend.Submit(frame); err != nil {
+				if err := backend.Submit(base); err != nil {
 					b.Fatalf("submit: %v", err)
 				}
 			}
@@ -64,8 +65,7 @@ func BenchmarkVulkan_TextScene(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				frame := perfscene.CloneWithNonce(base, uint64(i+1))
-				if err := backend.Submit(frame); err != nil {
+				if err := backend.Submit(base); err != nil {
 					b.Fatalf("submit: %v", err)
 				}
 			}
@@ -136,14 +136,14 @@ func BenchmarkVulkanSubmit_SolidRects(b *testing.B) {
 			Brush: gfx.SolidBrush(gfx.Color{R: float32(i%255) / 255, G: 0.4, B: 0.6, A: 1}),
 		})
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:       1,
 			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
 			Opacity:  1,
 			Commands: gfx.CommandList{Commands: cmds},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)
@@ -218,8 +218,8 @@ func BenchmarkVulkanClipMechanism_Discard(b *testing.B) {
 			Brush: gfx.SolidBrush(gfx.Color{R: 0.5, G: 0.4, B: 0.6, A: 1}),
 		})
 	}
-	deepClip := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	deepClip := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, w, h),
 			Opacity: 1,
@@ -227,9 +227,9 @@ func BenchmarkVulkanClipMechanism_Discard(b *testing.B) {
 				gfx.PushClipRect{Rect: gfx.RectFromXYWH(w/2-32, h/2-32, 64, 64)},
 			}, append(cmds, gfx.PopClip{})...)},
 		}},
-	}
-	noClip := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	})
+	noClip := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, w, h),
 			Opacity: 1,
@@ -237,7 +237,7 @@ func BenchmarkVulkanClipMechanism_Discard(b *testing.B) {
 				gfx.PushClipRect{Rect: gfx.RectFromXYWH(0, 0, w, h)},
 			}, append(cmds, gfx.PopClip{})...)},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	out := make([]byte, w*h*4)
@@ -346,14 +346,14 @@ func BenchmarkVulkanSubmit_Textures(b *testing.B) {
 			Opacity:   1,
 		})
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:       1,
 			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
 			Opacity:  1,
 			Commands: gfx.CommandList{Commands: cmds},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)
@@ -443,14 +443,14 @@ func BenchmarkVulkanSubmit_Glyphs(b *testing.B) {
 			Brush:  gfx.SolidBrush(gfx.ColorFromRGBA8(20, 20, 24, 255)),
 		})
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:       1,
 			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
 			Opacity:  1,
 			Commands: gfx.CommandList{Commands: cmds},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)
@@ -532,14 +532,14 @@ func BenchmarkVulkanSubmit_Gradients(b *testing.B) {
 			cmds = append(cmds, gfx.FillRect{Rect: gfx.RectFromXYWH(x, y, 64, h/gradients), Brush: brush})
 		}
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:       1,
 			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
 			Opacity:  1,
 			Commands: gfx.CommandList{Commands: cmds},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)
@@ -620,14 +620,14 @@ func BenchmarkVulkanSubmit_Shadows(b *testing.B) {
 			Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(240, 240, 244, 255)),
 		})
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:       1,
 			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
 			Opacity:  1,
 			Commands: gfx.CommandList{Commands: cmds},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)
@@ -691,17 +691,17 @@ func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 			Brush:  gfx.SolidBrush(gfx.Color{R: 1, G: 1, B: 1, A: 1}),
 		})
 	}
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	return testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 2048, 2048),
-				Opacity:     1,
-				CommandHash: uint64(runs) << 32,
-				Commands:    gfx.CommandList{Commands: cmds},
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 2048, 2048),
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: cmds},
 			},
 		},
-	}
+	})
 }
 
 // chartAreaPath builds a chart-area fill path (the shape `marks/viz/area.go`
@@ -754,8 +754,8 @@ func BenchmarkVulkanSubmit_PathFill(b *testing.B) {
 
 	const w, h = 1920, 1080
 	const teeth = 20
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, w, h),
 			Opacity: 1,
@@ -766,7 +766,7 @@ func BenchmarkVulkanSubmit_PathFill(b *testing.B) {
 				},
 			}},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)
@@ -867,14 +867,14 @@ func BenchmarkVulkanSubmit_Strokes(b *testing.B) {
 			Brush:  gfx.SolidBrush(gfx.ColorFromRGBA8(230, 60, 60, 255)),
 		})
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:       1,
 			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
 			Opacity:  1,
 			Commands: gfx.CommandList{Commands: cmds},
 		}},
-	}
+	})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)
@@ -1013,10 +1013,10 @@ func BenchmarkVulkanSubmit_AcceptanceCorpus(b *testing.B) {
 		Color: gfx.ColorFromRGBA8(0, 0, 0, 120), BlurRadius: 8, Offset: gfx.Point{Y: 6}})
 	cmds = append(cmds, gfx.FillRect{Rect: card, Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(240, 240, 244, 255))})
 
-	frame := &render.Frame{RenderBatchs: []render.RenderBatch{{
+	frame := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{{
 		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, w, h), Opacity: 1,
 		Commands: gfx.CommandList{Commands: cmds},
-	}}}
+	}}})
 
 	var enc frameEncoder
 	packet, err := enc.Encode(frame, nil)

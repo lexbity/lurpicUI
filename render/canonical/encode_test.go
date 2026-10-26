@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -39,6 +40,7 @@ func TestCanonicalEveryFieldMutation(t *testing.T) {
 	baseStroke := gfx.StrokeStyle{Width: 2, Cap: gfx.LineCapRound, Join: gfx.LineJoinBevel, MiterLimit: 7, Dash: []float32{2, 3}, DashOffset: 1}
 	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	img.Pix[0], img.Pix[3] = 10, 255
+	imgHandle := testframe.Image(img)
 
 	mutations := []struct {
 		name string
@@ -54,7 +56,7 @@ func TestCanonicalEveryFieldMutation(t *testing.T) {
 		{"polyline", gfx.DrawPolyline{Points: []gfx.Point{{X: 1, Y: 2}}, Stroke: baseStroke, Brush: baseBrush}, gfx.DrawPolyline{Points: []gfx.Point{{X: 1, Y: 2}}, Stroke: baseStroke, Brush: baseBrush, Closed: true}},
 		{"points", gfx.DrawPoints{Points: []gfx.Point{{X: 1, Y: 2}}, Radius: 2, Brush: baseBrush}, gfx.DrawPoints{Points: []gfx.Point{{X: 1, Y: 2}}, Radius: 3, Brush: baseBrush}},
 		{"selection", gfx.DrawSelectionRects{Rects: []gfx.Rect{gfx.RectFromXYWH(0, 0, 2, 3)}, Brush: baseBrush}, gfx.DrawSelectionRects{Rects: []gfx.Rect{gfx.RectFromXYWH(0, 0, 2, 4)}, Brush: baseBrush}},
-		{"image", gfx.DrawImage{Image: img, DestRect: gfx.RectFromXYWH(0, 0, 4, 4), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 1}, gfx.DrawImage{Image: img, DestRect: gfx.RectFromXYWH(0, 0, 4, 4), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: .5}},
+		{"image", gfx.DrawImage{Image: imgHandle, DestRect: gfx.RectFromXYWH(0, 0, 4, 4), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 1}, gfx.DrawImage{Image: imgHandle, DestRect: gfx.RectFromXYWH(0, 0, 4, 4), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: .5}},
 		{"texture", gfx.DrawTexture{TextureID: 1, DestRect: gfx.RectFromXYWH(0, 0, 4, 4), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 1}, gfx.DrawTexture{TextureID: 2, DestRect: gfx.RectFromXYWH(0, 0, 4, 4), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 1}},
 		{"shadow", gfx.DrawBlurredShadow{Path: basePath, Color: gfx.Color{A: 1}, BlurRadius: 2, Offset: gfx.Point{X: 1}, Inner: true}, gfx.DrawBlurredShadow{Path: basePath, Color: gfx.Color{A: 1}, BlurRadius: 3, Offset: gfx.Point{X: 1}, Inner: true}},
 		{"batch-cache-id", gfx.BeginRenderBatch{Bounds: gfx.RectFromXYWH(0, 0, 4, 4), CacheID: 1}, gfx.BeginRenderBatch{Bounds: gfx.RectFromXYWH(0, 0, 4, 4), CacheID: 2}},
@@ -145,10 +147,8 @@ func TestCanonicalAssetGenerationChangesDigest(t *testing.T) {
 	first := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	second := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	first.Pix[0], second.Pix[0] = 1, 2
-	imageCommand := func(img *image.RGBA) gfx.Command {
-		return gfx.DrawImage{Image: img, DestRect: gfx.RectFromXYWH(0, 0, 1, 1), Opacity: 1}
-	}
-	if a, b := digestCommand(t, imageCommand(first)), digestCommand(t, imageCommand(second)); a == b {
+	firstHandle, secondHandle := testframe.Image(first), testframe.Image(second)
+	if a, b := digestCommand(t, gfx.DrawImage{Image: firstHandle}), digestCommand(t, gfx.DrawImage{Image: secondHandle}); a == b {
 		t.Fatal("image content change with the same dimensions did not change digest")
 	}
 }
@@ -192,33 +192,29 @@ func TestCanonicalGlyphRunFields(t *testing.T) {
 }
 
 func TestCanonicalFrameMetadataMutation(t *testing.T) {
-	base := &render.Frame{
-		FramePacket: render.FramePacket{Layers: []render.LayeredBatch{{
-			RenderOrder: 2,
-			ClipRect:    gfx.RectFromXYWH(0, 0, 8, 8),
-			Batches:     []render.RenderBatch{{Bounds: gfx.RectFromXYWH(1, 1, 4, 4), Opacity: 1}},
-		}}},
-		RenderBatchs: []render.RenderBatch{{Bounds: gfx.RectFromXYWH(1, 1, 4, 4), Opacity: 1}},
+	baseInput := render.FrameInput{
+		Layers:       []render.LayerInput{{RenderOrder: 2, ClipRect: gfx.RectFromXYWH(0, 0, 8, 8), FirstBatch: 0, BatchCount: 1}},
+		Batches:      []render.BatchInput{{Bounds: gfx.RectFromXYWH(1, 1, 4, 4), Opacity: 1}},
 		DirtyRegions: []gfx.Rect{gfx.RectFromXYWH(1, 1, 4, 4)},
 	}
+	base := testframe.Seal(baseInput)
+	defer base.Release()
 	mutations := []struct {
 		name   string
-		mutate func(*render.Frame)
+		mutate func(*render.FrameInput)
 	}{
-		{"layer-order", func(f *render.Frame) { f.Layers[0].RenderOrder++ }},
-		{"layer-clip", func(f *render.Frame) { f.Layers[0].ClipRect.Max.X++ }},
-		{"batch-bounds", func(f *render.Frame) { f.Layers[0].Batches[0].Bounds.Max.X++; f.RenderBatchs[0].Bounds.Max.X++ }},
-		{"batch-opacity", func(f *render.Frame) { f.Layers[0].Batches[0].Opacity = .5; f.RenderBatchs[0].Opacity = .5 }},
-		{"damage-region", func(f *render.Frame) { f.DirtyRegions[0].Max.X++ }},
+		{"layer-order", func(f *render.FrameInput) { f.Layers[0].RenderOrder++ }},
+		{"layer-clip", func(f *render.FrameInput) { f.Layers[0].ClipRect.Max.X++ }},
+		{"batch-bounds", func(f *render.FrameInput) { f.Batches[0].Bounds.Max.X++ }},
+		{"batch-opacity", func(f *render.FrameInput) { f.Batches[0].Opacity = .5 }},
+		{"damage-region", func(f *render.FrameInput) { f.DirtyRegions[0].Max.X++ }},
 	}
 	for _, mutation := range mutations {
 		t.Run(mutation.name, func(t *testing.T) {
-			changed := &render.Frame{
-				FramePacket:  render.FramePacket{Layers: []render.LayeredBatch{{RenderOrder: base.Layers[0].RenderOrder, ClipRect: base.Layers[0].ClipRect, Batches: []render.RenderBatch{{Bounds: base.Layers[0].Batches[0].Bounds, Opacity: base.Layers[0].Batches[0].Opacity}}}}},
-				RenderBatchs: append([]render.RenderBatch(nil), base.RenderBatchs...),
-				DirtyRegions: append([]gfx.Rect(nil), base.DirtyRegions...),
-			}
-			mutation.mutate(changed)
+			changedInput := render.FrameInput{Layers: append([]render.LayerInput(nil), baseInput.Layers...), Batches: append([]render.BatchInput(nil), baseInput.Batches...), DirtyRegions: append([]gfx.Rect(nil), baseInput.DirtyRegions...)}
+			mutation.mutate(&changedInput)
+			changed := testframe.Seal(changedInput)
+			defer changed.Release()
 			if digestFrame(t, base) == digestFrame(t, changed) {
 				t.Fatalf("frame metadata field %s did not change digest", mutation.name)
 			}
@@ -230,7 +226,8 @@ func TestCanonicalRejectsNonFiniteValues(t *testing.T) {
 	if _, err := DigestCommands(gfx.CommandList{Commands: []gfx.Command{gfx.PushOpacity{Alpha: float32(math.NaN())}}}); err == nil {
 		t.Fatal("non-finite command value must be rejected")
 	}
-	frame := &render.Frame{RenderBatchs: []render.RenderBatch{{Opacity: 1}}}
+	frame := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{{Opacity: 1}}})
+	defer frame.Release()
 	if _, err := Digest(frame); err != nil {
 		t.Fatalf("finite frame: %v", err)
 	}
@@ -238,20 +235,16 @@ func TestCanonicalRejectsNonFiniteValues(t *testing.T) {
 
 func TestNegativeOpacityDigest(t *testing.T) {
 	frame := func(opacity float32) *render.Frame {
-		return &render.Frame{
-			FramePacket: render.FramePacket{Layers: []render.LayeredBatch{{
-				RenderOrder: 2,
-				ClipRect:    gfx.RectFromXYWH(0, 0, 10, 10),
-				Batches: []render.RenderBatch{{
-					Bounds:  gfx.RectFromXYWH(1, 1, 8, 8),
-					Opacity: opacity,
-					Commands: gfx.CommandList{Commands: []gfx.Command{
-						gfx.FillRect{Rect: gfx.RectFromXYWH(1, 1, 8, 8), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
-					}},
+		return testframe.Seal(render.FrameInput{
+			Layers: []render.LayerInput{{RenderOrder: 2, ClipRect: gfx.RectFromXYWH(0, 0, 10, 10), FirstBatch: 0, BatchCount: 1}},
+			Batches: []render.BatchInput{{
+				Bounds:  gfx.RectFromXYWH(1, 1, 8, 8),
+				Opacity: opacity,
+				Commands: gfx.CommandList{Commands: []gfx.Command{
+					gfx.FillRect{Rect: gfx.RectFromXYWH(1, 1, 8, 8), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
-			}}},
-			RenderBatchs: []render.RenderBatch{{Bounds: gfx.RectFromXYWH(1, 1, 8, 8), Opacity: opacity}},
-		}
+			}},
+		})
 	}
 	a, err := Digest(frame(1))
 	if err != nil {

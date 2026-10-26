@@ -4,10 +4,7 @@ import (
 	"fmt"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/text"
 )
-
-var _ = text.GlyphRun{}
 
 type Surface interface {
 	Size() (width, height int)
@@ -31,32 +28,6 @@ type SoftwareSurface interface {
 }
 
 type RenderBatchID uint64
-
-type RenderBatch struct {
-	ID          RenderBatchID
-	Bounds      gfx.Rect
-	Opacity     float32
-	Commands    gfx.CommandList
-	CommandHash uint64
-}
-
-// LayeredBatch groups render batches by layer order and clip rect.
-type LayeredBatch struct {
-	RenderOrder int
-	ClipRect    gfx.Rect
-	Batches     []RenderBatch
-}
-
-// FramePacket carries layer-ordered batches.
-type FramePacket struct {
-	Layers []LayeredBatch
-}
-
-type Frame struct {
-	FramePacket
-	RenderBatchs []RenderBatch
-	DirtyRegions []gfx.Rect
-}
 
 type Backend interface {
 	Initialize(surface Surface) error

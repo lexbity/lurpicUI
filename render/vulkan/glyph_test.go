@@ -8,6 +8,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -34,8 +35,8 @@ func latinGlyphs(size float32) []text.PositionedGlyph {
 }
 
 func glyphFrame(run text.GlyphRun, origin gfx.Point, w, h int, ink gfx.Color) *render.Frame {
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	return testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, float32(w), float32(h)),
 			Opacity: 1,
@@ -43,7 +44,7 @@ func glyphFrame(run text.GlyphRun, origin gfx.Point, w, h int, ink gfx.Color) *r
 				gfx.DrawGlyphRun{Run: run, Origin: origin, Brush: gfx.SolidBrush(ink)},
 			}},
 		}},
-	}
+	})
 }
 
 // TestSDF_CrispAtLargeSize verifies the Slice 5 SDF path renders large glyphs

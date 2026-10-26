@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 )
@@ -14,9 +15,9 @@ import (
 // rectFrame builds a single-rect frame. `dirty` optionally sets the frame's
 // dirty regions (Slice 10, Q13).
 func rectFrame(dirty ...gfx.Rect) *render.Frame {
-	return &render.Frame{
+	return testframe.Seal(render.FrameInput{
 		DirtyRegions: dirty,
-		RenderBatchs: []render.RenderBatch{{
+		Batches: []render.BatchInput{{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 			Opacity: 1,
@@ -27,7 +28,7 @@ func rectFrame(dirty ...gfx.Rect) *render.Frame {
 				},
 			}},
 		}},
-	}
+	})
 }
 
 // TestVulkanSubmitAndReadback_DeviceLostReturnsErrGPUFatal proves the device

@@ -130,7 +130,7 @@ func geometryFixtures() []equivalence.FrameFixture {
 		fixture{
 			name: "layer_clip", width: 64, height: 64,
 			frame: func() *render.Frame {
-				b := render.RenderBatch{
+				b := render.BatchInput{
 					ID:      1,
 					Bounds:  gfx.RectFromXYWH(0, 0, 64, 64),
 					Opacity: 1,
@@ -138,12 +138,7 @@ func geometryFixtures() []equivalence.FrameFixture {
 						gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 64, 64), Brush: gfx.SolidBrush(blue)},
 					}},
 				}
-				return &render.Frame{
-					RenderBatchs: []render.RenderBatch{b},
-					FramePacket: render.FramePacket{Layers: []render.LayeredBatch{
-						{RenderOrder: 0, ClipRect: gfx.RectFromXYWH(8, 8, 32, 32), Batches: []render.RenderBatch{b}},
-					}},
-				}
+				return seal(render.FrameInput{Batches: []render.BatchInput{b}, Layers: []render.LayerInput{{RenderOrder: 0, ClipRect: gfx.RectFromXYWH(8, 8, 32, 32), FirstBatch: 0, BatchCount: 1}}})
 			},
 		},
 		fixture{

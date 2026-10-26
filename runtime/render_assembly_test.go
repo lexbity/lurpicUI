@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -63,15 +64,15 @@ func TestRenderAssembly_stableBackToFront(t *testing.T) {
 		1: 1000,
 	}}
 
-	frame := assembleFrameWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
+	frame := assembleFrameInputWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
 
 	wantOrder := []facet.FacetID{1, 2, 3} // base → floating → modal
-	if len(frame.RenderBatchs) != len(wantOrder) {
-		t.Fatalf("RenderBatchs = %d, want %d", len(frame.RenderBatchs), len(wantOrder))
+	if len(frame.Batches) != len(wantOrder) {
+		t.Fatalf("RenderBatchs = %d, want %d", len(frame.Batches), len(wantOrder))
 	}
 	for i, id := range wantOrder {
-		if frame.RenderBatchs[i].ID != render.RenderBatchID(id) {
-			t.Fatalf("batch[%d].ID = %d, want %d", i, frame.RenderBatchs[i].ID, id)
+		if frame.Batches[i].ID != render.RenderBatchID(id) {
+			t.Fatalf("batch[%d].ID = %d, want %d", i, frame.Batches[i].ID, id)
 		}
 	}
 }
@@ -87,15 +88,15 @@ func TestRenderAssembly_layeredBatchGrouping(t *testing.T) {
 	}
 	resolver := stubLayerResolver{orders: map[facet.FacetID]int{1: 1000, 2: 1000, 3: 7000}}
 
-	frame := assembleFrameWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
+	frame := assembleFrameInputWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
 
 	if len(frame.Layers) != 2 {
 		t.Fatalf("LayeredBatch count = %d, want 2 (base group + modal group)", len(frame.Layers))
 	}
-	if frame.Layers[0].RenderOrder != 1000 || len(frame.Layers[0].Batches) != 2 {
+	if frame.Layers[0].RenderOrder != 1000 || frame.Layers[0].BatchCount != 2 {
 		t.Fatalf("base group = %+v, want order 1000 with 2 batches", frame.Layers[0])
 	}
-	if frame.Layers[1].RenderOrder != 7000 || len(frame.Layers[1].Batches) != 1 {
+	if frame.Layers[1].RenderOrder != 7000 || frame.Layers[1].BatchCount != 1 {
 		t.Fatalf("modal group = %+v, want order 7000 with 1 batch", frame.Layers[1])
 	}
 }
@@ -109,16 +110,25 @@ func TestRenderAssembly_retainedOutput(t *testing.T) {
 	}
 	resolver := stubLayerResolver{orders: map[facet.FacetID]int{1: 1000}}
 
-	frame := assembleFrameWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
-	if len(frame.RenderBatchs) != 1 {
-		t.Fatalf("RenderBatchs = %d, want 1", len(frame.RenderBatchs))
+	input := assembleFrameInputWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
+	frame := testframe.Seal(input)
+	t.Cleanup(func() { _ = frame.Release() })
+	if frame.BatchCount() != 1 {
+		t.Fatalf("RenderBatchs = %d, want 1", frame.BatchCount())
 	}
-	b := frame.RenderBatchs[0]
-	if len(b.Commands.Commands) == 0 {
+	count, ok := frame.BatchCommandCount(0)
+	if !ok || count == 0 {
 		t.Fatal("assembled batch dropped its commands")
 	}
-	if b.CommandHash == 0 {
-		t.Fatal("assembled batch has a zero command hash")
+	found := false
+	frame.VisitBatchCommands(0, func(command gfx.Command) bool {
+		if _, ok := command.(gfx.FillRect); ok {
+			found = true
+		}
+		return true
+	})
+	if !found {
+		t.Fatal("assembled command page does not contain FillRect")
 	}
 }
 
@@ -133,16 +143,16 @@ func TestRenderAssembly_stableUnderShuffle(t *testing.T) {
 	}
 	resolver := stubLayerResolver{orders: map[facet.FacetID]int{1: 1000, 2: 5000, 3: 7000}}
 
-	frameA := assembleFrameWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
+	frameA := assembleFrameInputWithLayers(&projection.FrameOutput{RenderBatchs: inputs}, nil, resolver)
 	reversed := []projection.RenderBatchOutput{inputs[2], inputs[1], inputs[0]}
-	frameB := assembleFrameWithLayers(&projection.FrameOutput{RenderBatchs: reversed}, nil, resolver)
+	frameB := assembleFrameInputWithLayers(&projection.FrameOutput{RenderBatchs: reversed}, nil, resolver)
 
-	if len(frameA.RenderBatchs) != len(frameB.RenderBatchs) {
-		t.Fatalf("batch counts differ: %d vs %d", len(frameA.RenderBatchs), len(frameB.RenderBatchs))
+	if len(frameA.Batches) != len(frameB.Batches) {
+		t.Fatalf("batch counts differ: %d vs %d", len(frameA.Batches), len(frameB.Batches))
 	}
-	for i := range frameA.RenderBatchs {
-		if frameA.RenderBatchs[i].ID != frameB.RenderBatchs[i].ID {
-			t.Fatalf("batch[%d] differs under shuffle: %d vs %d", i, frameA.RenderBatchs[i].ID, frameB.RenderBatchs[i].ID)
+	for i := range frameA.Batches {
+		if frameA.Batches[i].ID != frameB.Batches[i].ID {
+			t.Fatalf("batch[%d] differs under shuffle: %d vs %d", i, frameA.Batches[i].ID, frameB.Batches[i].ID)
 		}
 	}
 	if len(frameA.Layers) != len(frameB.Layers) {

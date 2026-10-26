@@ -106,9 +106,12 @@ func assembledBatchIDs(t *testing.T, rt *Runtime) []uint64 {
 	if frame == nil {
 		return nil
 	}
-	ids := make([]uint64, 0, len(frame.RenderBatchs))
-	for _, b := range frame.RenderBatchs {
-		ids = append(ids, uint64(b.ID))
+	ids := make([]uint64, 0, frame.BatchCount())
+	for i := 0; i < frame.BatchCount(); i++ {
+		b, ok := frame.BatchAt(i)
+		if ok {
+			ids = append(ids, uint64(b.ID))
+		}
 	}
 	return ids
 }

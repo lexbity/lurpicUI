@@ -75,13 +75,13 @@ func (o *Overlay) IsActive() bool {
 
 // Inject adds an overlay RenderBatch to the top of frame.
 // No-op when inactive or frame is nil.
-func (o *Overlay) Inject(frame *render.Frame, inspector *Inspector, hitProbe *HitProbe, stats FrameStats) {
+func (o *Overlay) Inject(frame *render.FrameInput, inspector *Inspector, hitProbe *HitProbe, stats FrameStats) {
 	if o == nil || !o.active || frame == nil {
 		return
 	}
 
 	var surfaceSize gfx.Size
-	for _, l := range frame.RenderBatchs {
+	for _, l := range frame.Batches {
 		if l.Bounds.Max.X > surfaceSize.W {
 			surfaceSize.W = l.Bounds.Max.X
 		}
@@ -108,26 +108,22 @@ func (o *Overlay) Inject(frame *render.Frame, inspector *Inspector, hitProbe *Hi
 	}
 	o.drawTimingBar(&list, stats, surfaceSize)
 
-	frame.RenderBatchs = append(frame.RenderBatchs, render.RenderBatch{
+	batchIndex := len(frame.Batches)
+	frame.Batches = append(frame.Batches, render.BatchInput{
 		Bounds:   gfx.Rect{Max: gfx.Point{X: surfaceSize.W, Y: surfaceSize.H}},
 		Opacity:  1.0,
 		Commands: list,
 	})
-	frame.Layers = append(frame.Layers, render.LayeredBatch{
+	frame.Layers = append(frame.Layers, render.LayerInput{
 		RenderOrder: int(^uint(0) >> 1),
-		Batches: []render.RenderBatch{
-			{
-				Bounds:   gfx.Rect{Max: gfx.Point{X: surfaceSize.W, Y: surfaceSize.H}},
-				Opacity:  1.0,
-				Commands: list,
-			},
-		},
+		FirstBatch:  batchIndex,
+		BatchCount:  1,
 	})
 }
 
 // InjectOverlay is called by the runtime after frame assembly to inject the overlay.
 // It satisfies the runtime's overlayInjector interface when Overlay is active.
-func (h *Hook) InjectOverlay(frame *render.Frame, stats FrameStats) {
+func (h *Hook) InjectOverlay(frame *render.FrameInput, stats FrameStats) {
 	if h == nil || h.Overlay == nil || !h.Overlay.IsActive() {
 		return
 	}

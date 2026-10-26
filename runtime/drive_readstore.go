@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	"image/png"
@@ -635,10 +636,14 @@ func driveFramePixels(rt *Runtime, _ drive.Command) driveOutcome {
 }
 
 func driveFramePacket(rt *Runtime, _ drive.Command) driveOutcome {
-	frame := rt.LastPrimaryFrame()
-	if frame == nil {
-		return errorOutcome(&proto.Error{Code: proto.ErrRenderUnavailable, Detail: "no frame submitted yet"})
+	frame, retainErr := rt.RetainLastPrimaryFrame()
+	if retainErr != nil {
+		if errors.Is(retainErr, ErrNoReadyFrame) {
+			return errorOutcome(&proto.Error{Code: proto.ErrRenderUnavailable, Detail: "no frame submitted yet"})
+		}
+		return errorOutcome(&proto.Error{Code: proto.ErrRenderFailed, Detail: "ready frame lease unavailable"})
 	}
+	defer func() { _ = frame.Release() }()
 	digest, err := canonical.Digest(frame)
 	if err != nil {
 		return errorOutcome(&proto.Error{Code: proto.ErrRenderFailed, Detail: "canonical frame encoding failed"})
@@ -647,7 +652,7 @@ func driveFramePacket(rt *Runtime, _ drive.Command) driveOutcome {
 		Epoch   string `json:"epoch"`
 		Hash    string `json:"hash"`
 		Batches int    `json:"batches"`
-	}{strconv.FormatUint(rt.drivePort.Epoch(), 10), digest, len(frame.RenderBatchs)})
+	}{strconv.FormatUint(rt.drivePort.Epoch(), 10), digest, frame.BatchCount()})
 	if err != nil {
 		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: "frame packet encoding failed"})
 	}

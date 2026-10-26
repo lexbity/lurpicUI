@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 )
 
@@ -81,8 +82,8 @@ func frameFromFuzzSeed(data []byte) *render.Frame {
 	if len(cmds) == 0 || !drawable {
 		cmds = append(cmds, gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 4, 4), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})})
 	}
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	return testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
 				ID:       1,
 				Bounds:   gfx.RectFromXYWH(0, 0, 128, 128),
@@ -90,7 +91,7 @@ func frameFromFuzzSeed(data []byte) *render.Frame {
 				Commands: gfx.CommandList{Commands: cmds},
 			},
 		},
-	}
+	})
 }
 
 func rectFromByte(b byte) gfx.Rect {

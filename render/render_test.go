@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 )
@@ -21,25 +22,16 @@ func TestRenderBackendInterface_vulkan_satisfies(t *testing.T) {
 }
 
 func TestFrame_dirty_regions_nil_safe(t *testing.T) {
-	frame := render.Frame{}
-	if frame.DirtyRegions != nil {
-		t.Fatal("expected zero Frame dirty regions to be nil")
-	}
-	if got := len(frame.DirtyRegions); got != 0 {
-		t.Fatalf("expected len(nil dirty regions) == 0, got %d", got)
+	frame := testframe.Seal(render.FrameInput{})
+	defer frame.Release()
+	if got := frame.DirtyRegionCount(); got != 0 {
+		t.Fatalf("dirty region count = %d, want 0", got)
 	}
 }
 
 func TestRenderBatchID_zero_valid(t *testing.T) {
 	if render.RenderBatchID(0) != 0 {
 		t.Fatal("expected RenderBatchID(0) to be a valid zero value")
-	}
-}
-
-func TestRenderBatch_commandhash_field_present(t *testing.T) {
-	RenderBatch := render.RenderBatch{CommandHash: 0}
-	if RenderBatch.CommandHash != 0 {
-		t.Fatalf("expected zero command hash, got %d", RenderBatch.CommandHash)
 	}
 }
 
@@ -55,7 +47,7 @@ func TestRenderSurfaceInterface_satisfiable(t *testing.T) {
 }
 
 func TestRenderRenderBatch_uses_gfx_types(t *testing.T) {
-	RenderBatch := render.RenderBatch{
+	RenderBatch := render.BatchInput{
 		ID:     7,
 		Bounds: gfx.RectFromXYWH(1, 2, 3, 4),
 	}

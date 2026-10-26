@@ -16,6 +16,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/store"
 
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -294,15 +295,14 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	if err := renderer.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      bounds,
-			Opacity:     1,
-			Commands:    merged,
-			CommandHash: 1,
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID:       1,
+			Bounds:   bounds,
+			Opacity:  1,
+			Commands: merged,
 		}},
-	}
+	})
 	if err := renderer.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}

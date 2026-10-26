@@ -66,7 +66,7 @@ func (rt *Runtime) RunOneFrameAt(now time.Time) {
 	// RunOneFrameAt is the headless scheduler boundary: in Wall mode its
 	// caller supplies the engine instant for this frame. Run() selects the
 	// same instant from rt.clock.Now() after wall pacing.
-	rt.runFrame(now, true, false)
+	rt.runFrame(now, true, false, false)
 	if rt.lastRenderCompletion.Frame == rt.frameNumber {
 		rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
 	}
@@ -102,7 +102,7 @@ func (rt *Runtime) runBootstrapFrame(waitForRender bool) bool {
 	}
 	rt.bootstrapFramePending = false
 	rt.bootstrapFrameAwaiting = true
-	rt.runFrame(rt.clock.Now(), waitForRender, reserved)
+	rt.runFrame(rt.clock.Now(), waitForRender, reserved, false)
 	if waitForRender && rt.lastRenderCompletion.Frame == rt.frameNumber {
 		rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
 	}
@@ -188,16 +188,20 @@ func (rt *Runtime) Run() error {
 			continue
 		}
 		reserved := false
+		cleanupReserved := false
 		if rt.renderPipeline != nil && rt.isSurfaceReady() {
 			reserved = rt.renderPipeline.TryReserveFrame()
-			if !reserved {
+			if !reserved && rt.hasPendingHumanInput() {
+				cleanupReserved = rt.renderPipeline.TryReserveCleanupFrame()
+			}
+			if !reserved && !cleanupReserved {
 				// Keep serving control work while the bounded render window is
 				// full. The next frame tick or control wake retries admission.
 				continue
 			}
 		}
 		rt.drivePrepareInputFrame()
-		rt.runFrame(rt.clock.Now(), false, reserved)
+		rt.runFrame(rt.clock.Now(), false, reserved, cleanupReserved)
 	}
 }
 
@@ -214,6 +218,15 @@ func (rt *Runtime) hasWallFrameWork() bool {
 	}
 	if rt.frameTimer != nil && len(rt.frameTimer.requestCh) != 0 {
 		return true
+	}
+	return false
+}
+
+func (rt *Runtime) hasPendingHumanInput() bool {
+	for _, event := range rt.pendingEvents {
+		if isHumanInput(event) {
+			return true
+		}
 	}
 	return false
 }
@@ -475,7 +488,7 @@ func (rt *Runtime) start() error {
 			syncutil.RegisterRuntimeThread()
 		}
 		rt.installRecoveryHooks()
-		go (&renderThread{pipeline: rt.renderPipeline}).run()
+		rt.renderPipeline.start()
 		rt.bindLifecycleCallbacks()
 		rt.contentScale = rt.effectiveContentScale()
 		rt.attachTree(rt.root)
@@ -569,9 +582,12 @@ func (rt *Runtime) shutdown() error {
 	rt.clearPhase1TickHooks()
 	rt.rootStyleSubs.Release()
 	if rt.renderPipeline != nil {
-		rt.renderPipeline.destroy()
+		// Native submission may be blocked. The render owner retains its page
+		// lease and performs backend destruction when it eventually returns;
+		// control shutdown remains bounded while that charge stays live.
+		rt.renderPipeline.shutdown(2 * time.Second)
 	}
-	rt.renderPipeline.destroyBackend()
+	rt.releaseFrameViews()
 	rt.config.StoreScope.Close()
 	if rt.config.TextService != nil {
 		_ = rt.config.TextService.Close()

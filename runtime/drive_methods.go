@@ -195,7 +195,7 @@ func (rt *Runtime) runScheduledVirtualFrame(waitForRender bool) bool {
 		p.pendingFrameTokens[frame] = token
 	}
 	rt.drivePrepareInputFrame()
-	rt.runFrame(now, waitForRender, reserved)
+	rt.runFrame(now, waitForRender, reserved, false)
 	p.currentFramePlan = nil
 	if waitForRender && rt.lastRenderCompletion.Frame == frame {
 		rt.driveHandleRenderCompletion(rt.lastRenderCompletion)
@@ -204,6 +204,7 @@ func (rt *Runtime) runScheduledVirtualFrame(waitForRender bool) bool {
 }
 
 func (rt *Runtime) driveHandleRenderCompletion(completion RenderCompletion) {
+	rt.completeFrameView(completion)
 	if rt.bootstrapFrameAwaiting && completion.Frame == rt.frameNumber {
 		rt.bootstrapFrameAwaiting = false
 		if completion.Ready && completion.Err == nil && rt.drivePort != nil && rt.drivePort.timeOwnerSession == "" {
@@ -248,6 +249,43 @@ func (rt *Runtime) driveHandleRenderCompletion(completion RenderCompletion) {
 		return
 	}
 	p.completeFrameToken(token, drive.Result{Payload: payload, Frame: p.Frame(), Cut: p.Cut()})
+}
+
+func (rt *Runtime) completeFrameView(completion RenderCompletion) {
+	rt.frameViewMu.Lock()
+	defer rt.frameViewMu.Unlock()
+	frame := rt.pendingFrameViews[completion.Frame]
+	if frame == nil {
+		return
+	}
+	if completion.ResourceGeneration == 0 || frame.Generation() != completion.ResourceGeneration {
+		// An acknowledgment from an earlier allocation cannot complete or free
+		// the current frame that happens to share an application frame number.
+		return
+	}
+	delete(rt.pendingFrameViews, completion.Frame)
+	if completion.Ready && completion.Err == nil {
+		old := rt.lastWindowFrames["__primary__"]
+		rt.lastWindowFrames["__primary__"] = frame
+		if old != nil {
+			_ = old.Release()
+		}
+		return
+	}
+	_ = frame.Release()
+}
+
+func (rt *Runtime) releaseFrameViews() {
+	rt.frameViewMu.Lock()
+	defer rt.frameViewMu.Unlock()
+	for frameID, frame := range rt.pendingFrameViews {
+		_ = frame.Release()
+		delete(rt.pendingFrameViews, frameID)
+	}
+	for windowID, frame := range rt.lastWindowFrames {
+		_ = frame.Release()
+		delete(rt.lastWindowFrames, windowID)
+	}
 }
 
 type pendingFrameToken struct {

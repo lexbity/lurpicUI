@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/equivalence"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
@@ -41,14 +42,14 @@ func holedPath(innerOpposite bool) gfx.Path {
 }
 
 func pathFillFrame(path gfx.Path, brush gfx.Brush, w, h int) *render.Frame {
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
+	return testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
 			ID:       1,
 			Bounds:   gfx.RectFromXYWH(0, 0, float32(w), float32(h)),
 			Opacity:  1,
 			Commands: gfx.CommandList{Commands: []gfx.Command{gfx.FillPath{Path: path, Brush: brush}}},
 		}},
-	}
+	})
 }
 
 func renderVulkanPixels(t *testing.T, frame *render.Frame, w, h int) []byte {

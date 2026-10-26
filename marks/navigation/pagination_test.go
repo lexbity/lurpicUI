@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
@@ -254,17 +255,17 @@ func renderPaginationToSurface(t *testing.T, pagination *Pagination, rt tabsRunt
 	if cmds != nil {
 		commands = *cmds
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    commands,
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: commands,
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}

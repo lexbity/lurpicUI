@@ -1,29 +1,29 @@
 package renderutil
 
 import (
-	"image"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 )
 
 func TestRenderBatchCache_unchanged_detection(t *testing.T) {
 	cache := NewRenderBatchCache()
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
-	cache.Update(frame, nil)
+	})
+	cache.Update(frame)
 	diff := cache.Diff(frame)
 	if got := diff.RenderBatchs[1].Kind; got != RenderBatchUnchanged {
 		t.Fatalf("kind = %v, want unchanged", got)
@@ -35,19 +35,19 @@ func TestRenderBatchCache_unchanged_detection(t *testing.T) {
 
 func TestRenderBatchCache_added_detection(t *testing.T) {
 	cache := NewRenderBatchCache()
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	diff := cache.Diff(frame)
 	if got := diff.RenderBatchs[1].Kind; got != RenderBatchAdded {
 		t.Fatalf("kind = %v, want added", got)
@@ -56,32 +56,32 @@ func TestRenderBatchCache_added_detection(t *testing.T) {
 
 func TestRenderBatchCache_removed_detection(t *testing.T) {
 	cache := NewRenderBatchCache()
-	frame1 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame1 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 			{
-				ID:          2,
-				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
-				Opacity:     1,
-				CommandHash: 2,
+				ID:      2,
+				Bounds:  gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 20, 20), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
 				}},
 			},
 		},
-	}
-	cache.Update(frame1, nil)
-	frame2 := &render.Frame{
-		RenderBatchs: frame1.RenderBatchs[:1],
-	}
+	})
+	cache.Update(frame1)
+	frame2 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{ID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Opacity: 1}},
+	})
 	diff := cache.Diff(frame2)
 	if got := diff.RenderBatchs[2].Kind; got != RenderBatchRemoved {
 		t.Fatalf("kind = %v, want removed", got)
@@ -90,33 +90,33 @@ func TestRenderBatchCache_removed_detection(t *testing.T) {
 
 func TestRenderBatchCache_fullchange_on_bounds_change(t *testing.T) {
 	cache := NewRenderBatchCache()
-	frame1 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame1 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
-	cache.Update(frame1, nil)
-	frame2 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	})
+	cache.Update(frame1)
+	frame2 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 20, 20),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 20, 20),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	diff := cache.Diff(frame2)
 	if got := diff.RenderBatchs[1].Kind; got != RenderBatchFullChange {
 		t.Fatalf("kind = %v, want full change", got)
@@ -132,30 +132,30 @@ func TestRenderBatchCache_partialchange_detection(t *testing.T) {
 		oldCmds[i] = gfx.FillRect{Rect: rect, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})}
 		newCmds[i] = oldCmds[i]
 	}
-	frame1 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame1 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 100, 10),
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    gfx.CommandList{Commands: oldCmds},
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 100, 10),
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: oldCmds},
 			},
 		},
-	}
-	cache.Update(frame1, nil)
+	})
+	cache.Update(frame1)
 	newCmds[3] = gfx.FillRect{Rect: gfx.RectFromXYWH(300, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})}
-	frame2 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame2 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 100, 10),
-				Opacity:     1,
-				CommandHash: 2,
-				Commands:    gfx.CommandList{Commands: newCmds},
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 100, 10),
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: newCmds},
 			},
 		},
-	}
+	})
 	diff := cache.Diff(frame2)
 	RenderBatchDiff := diff.RenderBatchs[1]
 	if RenderBatchDiff.Kind != RenderBatchPartialChange {
@@ -168,19 +168,19 @@ func TestRenderBatchCache_partialchange_detection(t *testing.T) {
 
 func TestRenderBatchCache_ignoresCollidingCommandHash(t *testing.T) {
 	cache := NewRenderBatchCache()
-	old := &render.Frame{RenderBatchs: []render.RenderBatch{{
-		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Opacity: 1, CommandHash: 77,
+	old := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{{
+		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Opacity: 1,
 		Commands: gfx.CommandList{Commands: []gfx.Command{
 			gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 		}},
-	}}}
-	cache.Update(old, nil)
-	changed := &render.Frame{RenderBatchs: []render.RenderBatch{{
-		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Opacity: 1, CommandHash: 77,
+	}}})
+	cache.Update(old)
+	changed := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{{
+		ID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10), Opacity: 1,
 		Commands: gfx.CommandList{Commands: []gfx.Command{
 			gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
 		}},
-	}}}
+	}}})
 	if got := cache.Diff(changed).RenderBatchs[1].Kind; got != RenderBatchFullChange {
 		t.Fatalf("diff with colliding fast hash = %v, want full change", got)
 	}
@@ -188,34 +188,34 @@ func TestRenderBatchCache_ignoresCollidingCommandHash(t *testing.T) {
 
 func TestRenderBatchCache_complexTransform_forces_full(t *testing.T) {
 	cache := NewRenderBatchCache()
-	frame1 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame1 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity:     1,
-				CommandHash: 1,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 				}},
 			},
 		},
-	}
-	cache.Update(frame1, nil)
-	frame2 := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	})
+	cache.Update(frame1)
+	frame2 := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity:     1,
-				CommandHash: 2,
+				ID:      1,
+				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
+				Opacity: 1,
+
 				Commands: gfx.CommandList{Commands: []gfx.Command{
 					gfx.PushTransform{Matrix: gfx.Translation(1, 0)},
 					gfx.FillRect{Rect: gfx.RectFromXYWH(0, 0, 10, 10), Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
 				}},
 			},
 		},
-	}
+	})
 	diff := cache.Diff(frame2)
 	if got := diff.RenderBatchs[1].Kind; got != RenderBatchFullChange {
 		t.Fatalf("kind = %v, want full change", got)
@@ -303,7 +303,7 @@ func TestCommandBounds_state_commands_empty(t *testing.T) {
 }
 
 func TestPropagateDirty_through_transparent_RenderBatch(t *testing.T) {
-	RenderBatchs := []render.RenderBatch{
+	RenderBatchs := []render.FrameBatch{
 		{
 			ID:      1,
 			Bounds:  gfx.RectFromXYWH(0, 0, 100, 100),
@@ -334,25 +334,5 @@ func TestPropagateDirty_through_transparent_RenderBatch(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected overlap %v in %#v", want, got)
-	}
-}
-
-func TestRenderBatchCache_update_stores_buffers(t *testing.T) {
-	cache := NewRenderBatchCache()
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			{
-				ID:      1,
-				Bounds:  gfx.RectFromXYWH(0, 0, 10, 10),
-				Opacity: 1,
-			},
-		},
-	}
-	bufs := map[render.RenderBatchID]*image.RGBA{
-		1: image.NewRGBA(image.Rect(0, 0, 10, 10)),
-	}
-	cache.Update(frame, bufs)
-	if _, ok := cache.RenderBatchs[1]; !ok {
-		t.Fatal("expected RenderBatch snapshot")
 	}
 }

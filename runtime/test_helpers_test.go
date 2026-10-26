@@ -71,7 +71,6 @@ type backendFixture struct {
 	initCount       atomic.Int32
 	submitCount     atomic.Int32
 	destroyCount    atomic.Int32
-	lastFrame       atomic.Pointer[render.Frame]
 }
 
 func (s *backendFixture) Initialize(surface render.Surface) error {
@@ -80,7 +79,6 @@ func (s *backendFixture) Initialize(surface render.Surface) error {
 }
 func (s *backendFixture) Submit(frame *render.Frame) error {
 	s.submitCount.Add(1)
-	s.lastFrame.Store(frame)
 	if s.submitFailAfter.Load() > 0 && s.submitCount.Load() >= s.submitFailAfter.Load() && s.submitErr != nil {
 		return s.submitErr
 	}
@@ -109,6 +107,7 @@ type recordingBackend struct {
 	initializeCount int
 	destroyCount    int
 	lastSurface     render.Surface
+	frames          []*render.Frame
 }
 
 func (r *recordingBackend) Initialize(surface render.Surface) error {
@@ -118,12 +117,22 @@ func (r *recordingBackend) Initialize(surface render.Surface) error {
 }
 func (r *recordingBackend) Submit(frame *render.Frame) error {
 	r.submitCount++
-	r.last = frame
+	retained, err := frame.Retain()
+	if err != nil {
+		return err
+	}
+	r.frames = append(r.frames, retained)
+	r.last = retained
 	return nil
 }
 func (r *recordingBackend) Resize(width, height int) error { return nil }
 func (r *recordingBackend) Destroy() {
 	r.destroyCount++
+	for _, frame := range r.frames {
+		_ = frame.Release()
+	}
+	r.frames = nil
+	r.last = nil
 }
 
 type runtimeTestFacet struct {

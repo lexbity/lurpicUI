@@ -6,11 +6,12 @@ import (
 	"image/color"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/render"
 )
 
 // NodeFrame returns a single-batch scene with many solid rect commands.
-func NodeFrame(nodes int, width, height int, nonce uint64) *render.Frame {
+func NodeFrame(nodes int, width, height int) *render.Frame {
 	if nodes < 0 {
 		nodes = 0
 	}
@@ -38,21 +39,11 @@ func NodeFrame(nodes int, width, height int, nonce uint64) *render.Frame {
 		})
 	}
 	bounds := gfx.RectFromXYWH(0, 0, float32(width), float32(height))
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: uint64(nodes)<<32 ^ nonce,
-				Commands:    gfx.CommandList{Commands: cmds},
-			},
-		},
-	}
+	return SealFrame(render.FrameInput{Batches: []render.BatchInput{{ID: 1, Bounds: bounds, Opacity: 1, Commands: gfx.CommandList{Commands: cmds}}}})
 }
 
 // ImageFrame returns a single-batch scene with many image draws.
-func ImageFrame(images int, width, height int, nonce uint64) *render.Frame {
+func ImageFrame(images int, width, height int) *render.Frame {
 	if images < 0 {
 		images = 0
 	}
@@ -62,12 +53,16 @@ func ImageFrame(images int, width, height int, nonce uint64) *render.Frame {
 			src.SetRGBA(x, y, imageRGBA(x, y))
 		}
 	}
+	handle, err := gfx.NewImageHandle(src, 1)
+	if err != nil {
+		panic(err)
+	}
 	cmds := make([]gfx.Command, 0, images)
 	for i := 0; i < images; i++ {
 		x := float32((i * 9) % max(1, width-4))
 		y := float32((i * 11) % max(1, height-4))
 		cmds = append(cmds, gfx.DrawImage{
-			Image:    src,
+			Image:    handle,
 			DestRect: gfx.RectFromXYWH(x, y, 4, 4),
 			SrcRect:  gfx.RectFromXYWH(0, 0, 4, 4),
 			Sampling: gfx.SamplingNearest,
@@ -75,17 +70,32 @@ func ImageFrame(images int, width, height int, nonce uint64) *render.Frame {
 		})
 	}
 	bounds := gfx.RectFromXYWH(0, 0, float32(width), float32(height))
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{
-			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: uint64(images)<<32 ^ nonce,
-				Commands:    gfx.CommandList{Commands: cmds},
-			},
-		},
+	return SealFrame(render.FrameInput{Batches: []render.BatchInput{{ID: 1, Bounds: bounds, Opacity: 1, Commands: gfx.CommandList{Commands: cmds}}}})
+}
+
+// SealFrame builds an immutable benchmark fixture with an exact local wallet.
+func SealFrame(input render.FrameInput) *render.Frame {
+	bytes, err := render.EstimateFrameBytes(input)
+	if err != nil {
+		panic(err)
 	}
+	if bytes == 0 {
+		bytes = 1
+	}
+	wallet, err := membudget.NewWallet(bytes)
+	if err != nil {
+		panic(err)
+	}
+	reservation, err := wallet.Reserve(bytes)
+	if err != nil {
+		panic(err)
+	}
+	frame, err := render.SealFrame(input, reservation)
+	if err != nil {
+		_ = reservation.Cancel()
+		panic(err)
+	}
+	return frame
 }
 
 func imageRGBA(x, y int) color.RGBA {
@@ -106,31 +116,6 @@ func max(a, b int) int {
 		return a
 	}
 	return b
-}
-
-// CloneWithNonce returns a shallow copy whose command hashes are perturbed by
-// nonce, forcing cache-driven renderers to process the frame again.
-func CloneWithNonce(frame *render.Frame, nonce uint64) *render.Frame {
-	if frame == nil {
-		return nil
-	}
-	out := *frame
-	if len(frame.RenderBatchs) > 0 {
-		out.RenderBatchs = append([]render.RenderBatch(nil), frame.RenderBatchs...)
-		for i := range out.RenderBatchs {
-			out.RenderBatchs[i].CommandHash ^= nonce + uint64(i+1)
-		}
-	}
-	if len(frame.Layers) > 0 {
-		out.Layers = append([]render.LayeredBatch(nil), frame.Layers...)
-		for i := range out.Layers {
-			out.Layers[i].Batches = append([]render.RenderBatch(nil), frame.Layers[i].Batches...)
-			for j := range out.Layers[i].Batches {
-				out.Layers[i].Batches[j].CommandHash ^= nonce + uint64(i+j+1)
-			}
-		}
-	}
-	return &out
 }
 
 // Describe formats benchmark sub-test names.

@@ -15,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/store"
 
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -390,15 +391,15 @@ func renderMenuButtonToSurface(t *testing.T, btn *MenuButton, rt buttonRuntimeSt
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:          1,
-			Bounds:      bounds,
-			Opacity:     1,
-			CommandHash: 1,
-			Commands:    gfx.CommandList{Commands: cmds.Commands},
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{{
+			ID:      1,
+			Bounds:  bounds,
+			Opacity: 1,
+
+			Commands: gfx.CommandList{Commands: cmds.Commands},
 		}},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}

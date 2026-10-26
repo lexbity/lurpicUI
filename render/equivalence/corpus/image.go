@@ -23,6 +23,13 @@ func imageFixtures() []equivalence.FrameFixture {
 		}
 		return img
 	}
+	handle := func(img *image.RGBA) gfx.ImageHandle {
+		asset, err := gfx.NewImageHandle(img, 1)
+		if err != nil {
+			panic(err)
+		}
+		return asset
+	}
 
 	return []equivalence.FrameFixture{
 		// DrawImage fixtures render through the Slice 4 texture pipeline: the
@@ -35,7 +42,7 @@ func imageFixtures() []equivalence.FrameFixture {
 				img := checker(16, 16)
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
 					gfx.DrawImage{
-						Image:    img,
+						Image:    handle(img),
 						DestRect: gfx.RectFromXYWH(8, 8, 16, 16),
 						SrcRect:  gfx.RectFromXYWH(0, 0, 16, 16),
 						Sampling: gfx.SamplingNearest,
@@ -50,7 +57,7 @@ func imageFixtures() []equivalence.FrameFixture {
 				img := checker(8, 8)
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
 					gfx.DrawImage{
-						Image:    img,
+						Image:    handle(img),
 						DestRect: gfx.RectFromXYWH(8, 8, 32, 32),
 						SrcRect:  gfx.RectFromXYWH(0, 0, 8, 8),
 						Sampling: gfx.SamplingNearest,
@@ -65,7 +72,7 @@ func imageFixtures() []equivalence.FrameFixture {
 				img := checker(8, 8)
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
 					gfx.DrawImage{
-						Image:    img,
+						Image:    handle(img),
 						DestRect: gfx.RectFromXYWH(8, 8, 32, 32),
 						SrcRect:  gfx.RectFromXYWH(0, 0, 8, 8),
 						Sampling: gfx.SamplingBilinear,
@@ -80,7 +87,7 @@ func imageFixtures() []equivalence.FrameFixture {
 				img := checker(32, 32)
 				return flatFrame(1, gfx.RectFromXYWH(0, 0, 64, 64), 1,
 					gfx.DrawImage{
-						Image:    img,
+						Image:    handle(img),
 						DestRect: gfx.RectFromXYWH(8, 8, 16, 16),
 						SrcRect:  gfx.RectFromXYWH(0, 0, 32, 32),
 						Sampling: gfx.SamplingBilinear,

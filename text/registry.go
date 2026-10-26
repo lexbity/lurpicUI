@@ -20,16 +20,18 @@ const maxFontSourceNameBytes = 1024
 
 // FontRegistry manages loaded font sources and face resolution.
 type FontRegistry struct {
-	mu          sync.RWMutex
-	faceMu      sync.Mutex
-	faces       []*fontFaceRecord
-	generation  uint64
-	sourceBytes uint64
-	sourceCount int
-	maxFaces    int
-	wallet      *membudget.Wallet
-	charges     []*membudget.Reservation
-	closed      bool
+	mu              sync.RWMutex
+	faceMu          sync.Mutex
+	faces           []*fontFaceRecord
+	generation      uint64
+	sourceBytes     uint64
+	sourceCount     int
+	maxFaces        int
+	wallet          *membudget.Wallet
+	charges         []*membudget.Reservation
+	renderPins      int
+	chargesReleased bool
+	closed          bool
 }
 
 // NewFontRegistry creates a registry whose retained source bytes are charged
@@ -170,8 +172,8 @@ func (r *FontRegistry) registerFontData(ownedData []byte, name string, reservati
 
 func maxAddressableInt() int { return int(^uint(0) >> 1) }
 
-// Close releases retained font source charges after all service layout leases
-// have ended. Repeated calls are harmless.
+// Close retires the registry. Source charges remain live while immutable render
+// pages pin resolved faces and are released after the final page acknowledgment.
 func (r *FontRegistry) Close() error {
 	if r == nil {
 		return nil
@@ -191,7 +193,18 @@ func (r *FontRegistry) close() error {
 }
 
 func (r *FontRegistry) closeLocked() error {
-	if r.closed {
+	if r.closed && r.chargesReleased {
+		return nil
+	}
+	r.closed = true
+	if r.renderPins != 0 {
+		return nil
+	}
+	return r.releaseChargesLocked()
+}
+
+func (r *FontRegistry) releaseChargesLocked() error {
+	if r.chargesReleased {
 		return nil
 	}
 	for _, charge := range r.charges {
@@ -203,7 +216,7 @@ func (r *FontRegistry) closeLocked() error {
 	r.faces = nil
 	r.sourceBytes = 0
 	r.sourceCount = 0
-	r.closed = true
+	r.chargesReleased = true
 	r.generation++
 	return nil
 }
@@ -359,6 +372,65 @@ func (f FontFace) CacheKey() uint64 {
 		return 0
 	}
 	return f.face.cacheKey
+}
+
+// FontRenderLease pins the owning font registry until a sealed render page is
+// acknowledged. It is separate from text layout leases because a frame may
+// outlive the mark/layout that produced its glyphs.
+type FontRenderLease struct {
+	mu       sync.Mutex
+	registry *FontRegistry
+	released bool
+}
+
+func (f FontFace) PinForRender() (*FontRenderLease, error) {
+	if f.face == nil {
+		return nil, errors.New("text: unresolved font face cannot be pinned for rendering")
+	}
+	r := f.face.registry
+	if r == nil {
+		return nil, errors.New("text: resolved font face has no owner registry")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed || r.chargesReleased {
+		return nil, errors.New("text: cannot pin a retired font registry for rendering")
+	}
+	if r.renderPins == math.MaxInt {
+		return nil, errors.New("text: render font pin count exhausted")
+	}
+	r.renderPins++
+	return &FontRenderLease{registry: r}, nil
+}
+
+func (l *FontRenderLease) Release() error {
+	if l == nil {
+		return nil
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	r := l.registry
+	if r == nil {
+		if l.released {
+			return errors.New("text: duplicate font render lease release")
+		}
+		return errors.New("text: invalid font render lease")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if l.released {
+		return errors.New("text: duplicate font render lease release")
+	}
+	l.released = true
+	l.registry = nil
+	if r.renderPins <= 0 {
+		return errors.New("text: font render pin underflow")
+	}
+	r.renderPins--
+	if r.closed && r.renderPins == 0 {
+		return r.releaseChargesLocked()
+	}
+	return nil
 }
 
 func computeFontCacheKey(data []byte, index int) uint64 {

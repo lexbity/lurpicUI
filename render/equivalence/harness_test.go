@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 )
@@ -15,16 +16,14 @@ type simpleRect struct{}
 func (simpleRect) Name() string     { return "simple_rect" }
 func (simpleRect) Size() (int, int) { return 16, 16 }
 func (simpleRect) Frame() *render.Frame {
-	return &render.Frame{
-		RenderBatchs: []render.RenderBatch{{
-			ID:      1,
-			Bounds:  gfx.RectFromXYWH(0, 0, 16, 16),
-			Opacity: 1,
-			Commands: gfx.CommandList{Commands: []gfx.Command{
-				gfx.FillRect{Rect: gfx.RectFromXYWH(4, 4, 8, 8), Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(255, 0, 0, 255))},
-			}},
+	return testframe.Seal(render.FrameInput{Batches: []render.BatchInput{{
+		ID:      1,
+		Bounds:  gfx.RectFromXYWH(0, 0, 16, 16),
+		Opacity: 1,
+		Commands: gfx.CommandList{Commands: []gfx.Command{
+			gfx.FillRect{Rect: gfx.RectFromXYWH(4, 4, 8, 8), Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(255, 0, 0, 255))},
 		}},
-	}
+	}}})
 }
 
 func simpleRectFixture() FrameFixture { return simpleRect{} }

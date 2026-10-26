@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 )
@@ -57,7 +58,7 @@ func TestVulkanBackend_InitAndSubmitSmoke(t *testing.T) {
 	}
 	defer backend.Destroy()
 
-	frame := &render.Frame{RenderBatchs: []render.RenderBatch{}}
+	frame := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{}})
 	if err := backend.Submit(frame); err != nil {
 		t.Fatalf("Submit: %v", err)
 	}

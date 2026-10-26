@@ -24,7 +24,7 @@ func TestPhaseTimingUsesWallClockInVirtual(t *testing.T) {
 	if err := rt.start(); err != nil {
 		t.Fatalf("start runtime: %v", err)
 	}
-	rt.runFrame(engineBefore, true, false)
+	rt.runFrame(engineBefore, true, false, false)
 	stats := rt.LastFrameStats()
 	if got := clock.Now(); !got.Equal(engineBefore) {
 		t.Fatalf("instrumentation advanced engine time: before=%v after=%v", engineBefore, got)

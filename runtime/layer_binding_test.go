@@ -112,10 +112,10 @@ func TestRuntime_assembleWindowFrames_groups_by_binding(t *testing.T) {
 	if len(frames) != 2 {
 		t.Fatalf("frames = %#v", frames)
 	}
-	if got := frames[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})]; got == nil || len(got.RenderBatchs) != 1 {
+	if got := frames[windowBindingKey(layout.WindowBinding{Kind: layout.WindowBindingPrimary})]; len(got.Batches) != 1 {
 		t.Fatalf("primary frame = %#v", got)
 	}
-	if got := frames["tools"]; got == nil || len(got.RenderBatchs) != 1 {
+	if got := frames["tools"]; len(got.Batches) != 1 {
 		t.Fatalf("tools frame = %#v", got)
 	}
 }

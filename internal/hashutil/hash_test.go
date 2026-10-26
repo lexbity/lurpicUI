@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
@@ -50,10 +51,10 @@ func TestHashutil_order_matters(t *testing.T) {
 func TestHashutil_image_content_affects_hash(t *testing.T) {
 	img := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	img.SetRGBA(0, 0, color.RGBA{R: 255, A: 255})
-	cl1 := gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: img}}}
+	cl1 := gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: testframe.Image(img)}}}
 	img2 := image.NewRGBA(image.Rect(0, 0, 1, 1))
 	img2.SetRGBA(0, 0, color.RGBA{G: 255, A: 255})
-	cl2 := gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: img2}}}
+	cl2 := gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: testframe.Image(img2)}}}
 	if HashCommandList(cl1) == HashCommandList(cl2) {
 		t.Fatal("expected different hashes")
 	}
@@ -112,7 +113,7 @@ func TestHashutil_command_variants_cover_sensitive_fields(t *testing.T) {
 		gfx.PushOpacity{Alpha: 0.5},
 		gfx.DrawGlyphRun{Run: glyphRun, Origin: gfx.Point{X: 3, Y: 4}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 		gfx.DrawImage{
-			Image:    img1,
+			Image:    testframe.Image(img1),
 			DestRect: gfx.RectFromXYWH(1, 1, 2, 2),
 			SrcRect:  gfx.RectFromXYWH(0, 0, 1, 1),
 			Sampling: gfx.SamplingBilinear,
@@ -147,13 +148,13 @@ func TestHashutil_command_variants_cover_sensitive_fields(t *testing.T) {
 		t.Fatal("expected glyph brush to affect hash")
 	}
 
-	if HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: img1, DestRect: gfx.RectFromXYWH(1, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingBilinear, Opacity: 0.75}}}) ==
-		HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: img2, DestRect: gfx.RectFromXYWH(1, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingBilinear, Opacity: 0.75}}}) {
+	if HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: testframe.Image(img1), DestRect: gfx.RectFromXYWH(1, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingBilinear, Opacity: 0.75}}}) ==
+		HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: testframe.Image(img2), DestRect: gfx.RectFromXYWH(1, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingBilinear, Opacity: 0.75}}}) {
 		t.Fatal("expected image pixels to affect hash")
 	}
 
-	if HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: img1, DestRect: gfx.RectFromXYWH(1, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 0.75}}}) ==
-		HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: img1, DestRect: gfx.RectFromXYWH(2, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 0.75}}}) {
+	if HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: testframe.Image(img1), DestRect: gfx.RectFromXYWH(1, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 0.75}}}) ==
+		HashCommandList(gfx.CommandList{Commands: []gfx.Command{gfx.DrawImage{Image: testframe.Image(img1), DestRect: gfx.RectFromXYWH(2, 1, 2, 2), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 0.75}}}) {
 		t.Fatal("expected destination rect to affect hash")
 	}
 }
@@ -189,8 +190,8 @@ func TestHashutil_all_command_helpers_are_covered(t *testing.T) {
 		gfx.DrawPoints{Points: []gfx.Point{{X: 6, Y: 7}, {X: 8, Y: 9}}, Radius: 2, Brush: gradient},
 		gfx.DrawGlyphRun{Run: text.GlyphRun{}, Origin: gfx.Point{X: 9, Y: 10}, Brush: gfx.SolidBrush(gfx.Color{R: 1, A: 1})},
 		gfx.DrawSelectionRects{Rects: []gfx.Rect{gfx.RectFromXYWH(0, 0, 1, 1), gfx.RectFromXYWH(1, 1, 2, 2)}, Brush: gfx.SolidBrush(gfx.Color{G: 1, A: 1})},
-		gfx.DrawImage{Image: nil, DestRect: gfx.RectFromXYWH(0, 0, 3, 3), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 0.25},
-		gfx.DrawImage{Image: img, DestRect: gfx.RectFromXYWH(1, 1, 3, 3), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingBilinear, Opacity: 0.75},
+		gfx.DrawImage{Image: testframe.Image(nil), DestRect: gfx.RectFromXYWH(0, 0, 3, 3), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 0.25},
+		gfx.DrawImage{Image: testframe.Image(img), DestRect: gfx.RectFromXYWH(1, 1, 3, 3), SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingBilinear, Opacity: 0.75},
 		gfx.PopOpacity{},
 		gfx.PopClip{},
 		gfx.BeginRenderBatch{Bounds: gfx.RectFromXYWH(0, 0, 10, 10), CacheID: 7},

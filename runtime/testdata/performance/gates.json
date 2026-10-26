@@ -342,6 +342,33 @@
       "mode": "race", "tags": [], "backend": "software", "required": true,
       "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
       "fixture": "studio-switched-stage-v1"
+    },
+    {
+      "id": "P6.frame-pages.host",
+      "phase": "P6",
+      "package": "./render",
+      "tests": ["TestFrameLayerRangesPreserveBatchOrder", "TestFrameBatchMetadataAndCommands", "TestFramePagesWaitForAllConsumers", "TestFramePagesRejectLateGenerationRelease", "TestFrameRefusesInsufficientReservation", "TestFrameReleasedAccessIsUnavailable", "TestFrameLeaseCountIsBoundedByReservedMetadata"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p6-frame-pages-v1"
+    },
+    {
+      "id": "P6.frame-pipeline.host",
+      "phase": "P6",
+      "package": "./runtime",
+      "tests": ["TestRenderCompletionAcknowledgesReleasedGenerationOnFailure", "TestCleanupCreditSurvivesBlockedRenderer", "TestFailedAndLateFrameAcknowledgmentsPreserveLastReady", "TestSoftwareSurfaceReadyAcknowledgment"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p6-frame-pipeline-v1"
+    },
+    {
+      "id": "P6.font-page-lifetime.host",
+      "phase": "P6",
+      "package": "./text",
+      "tests": ["TestSealedGlyphPagePinsFontChargeUntilRelease"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p6-font-page-lifetime-v1"
     }
   ]
 }

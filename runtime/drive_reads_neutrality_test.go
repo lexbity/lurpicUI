@@ -53,7 +53,14 @@ func readPerturbationRun(t *testing.T, withReads bool) []string {
 			driveCall(t, rt, "frame.packet", nil, allGrants())
 		}
 		rt.RunOneFrameAt(epoch.Add(time.Duration(i+1) * time.Second))
-		digest, err := canonical.Digest(rt.LastPrimaryFrame())
+		frame, err := rt.RetainLastPrimaryFrame()
+		if err != nil {
+			t.Fatalf("retain ready frame: %v", err)
+		}
+		digest, err := canonical.Digest(frame)
+		if frame != nil {
+			_ = frame.Release()
+		}
 		if err != nil {
 			t.Fatalf("canonical frame digest: %v", err)
 		}

@@ -109,7 +109,11 @@ func TestDrivingAndVirtualIndicator(t *testing.T) {
 	if !driving.Disabled.Get() {
 		t.Fatal("driving indicator must be dim while Wall mode has no client owner")
 	}
-	before := h.Runtime().LastPrimaryFrame()
+	before, err := h.Runtime().RetainLastPrimaryFrame()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer before.Release()
 	if _, perr := h.Call("time.mode", map[string]string{"mode": "virtual"}); perr != nil {
 		t.Fatalf("enter Virtual mode: %v", perr)
 	}
@@ -119,7 +123,12 @@ func TestDrivingAndVirtualIndicator(t *testing.T) {
 	if err := requireDrivingIndicatorLit(driving); err != nil {
 		t.Fatal(err)
 	}
-	if err := requirePacketChange(t, before, h.Runtime().LastPrimaryFrame(), "the driving indicator must alter the visible packet"); err != nil {
+	after, err := h.Runtime().RetainLastPrimaryFrame()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer after.Release()
+	if err := requirePacketChange(t, before, after, "the driving indicator must alter the visible packet"); err != nil {
 		t.Fatal(err)
 	}
 	if _, perr := h.Call("time.mode", map[string]string{"mode": "wall"}); perr != nil {

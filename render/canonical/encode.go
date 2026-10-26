@@ -19,7 +19,6 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"image"
 	"math"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -92,6 +91,19 @@ func CommandDigests(list gfx.CommandList) ([]string, error) {
 	return digests, nil
 }
 
+// DigestCommand encodes one complete command for bounded render-diff metadata.
+func DigestCommand(command gfx.Command) (string, error) {
+	e := NewEncoder()
+	e.writeTag("command")
+	if err := e.writeCommand(command); err != nil {
+		return "", err
+	}
+	if e.err != nil {
+		return "", e.err
+	}
+	return e.Sum(), nil
+}
+
 // WriteFrame encodes a frame's complete packet: layer order and clips, each
 // batch's bounds/opacity/order, every command, and the damaged-region record.
 // Process identities (RenderBatchID) and local cache indexes (CommandHash) are
@@ -102,47 +114,94 @@ func (e *Encoder) WriteFrame(frame *render.Frame) error {
 		return nil
 	}
 	e.writeTag("frame")
-	if err := e.writePacket(&frame.FramePacket); err != nil {
+	e.writeTag("layers")
+	if err := e.writeCount(frame.LayerCount()); err != nil {
 		return err
 	}
-	e.writeTag("flat-batches")
-	if err := e.writeBatches(frame.RenderBatchs); err != nil {
-		return err
-	}
-	e.writeTag("dirty-regions")
-	e.writeRects(frame.DirtyRegions)
-	return e.err
-}
-
-func (e *Encoder) writePacket(packet *render.FramePacket) error {
-	if packet == nil {
-		e.writeTag("packet.nil")
-		return nil
-	}
-	e.writeTag("packet.layers")
-	e.writeUint64(uint64(len(packet.Layers)))
-	for _, layer := range packet.Layers {
+	for i := 0; i < frame.LayerCount(); i++ {
+		layer, ok := frame.LayerAt(i)
+		if !ok {
+			return errors.New("canonical: released frame layer")
+		}
 		e.writeTag("layer")
 		e.writeInt64(int64(layer.RenderOrder))
 		e.writeRect(layer.ClipRect)
-		if err := e.writeBatches(layer.Batches); err != nil {
+		if err := e.writeCount(layer.FirstBatch); err != nil {
 			return err
 		}
+		if err := e.writeCount(layer.BatchCount); err != nil {
+			return err
+		}
+	}
+	e.writeTag("batches")
+	if err := e.writeCount(frame.BatchCount()); err != nil {
+		return err
+	}
+	for i := 0; i < frame.BatchCount(); i++ {
+		if err := e.writeFrameBatch(frame, i); err != nil {
+			return err
+		}
+	}
+	e.writeTag("dirty-regions")
+	if err := e.writeCount(frame.DirtyRegionCount()); err != nil {
+		return err
+	}
+	for i := 0; i < frame.DirtyRegionCount(); i++ {
+		rect, ok := frame.DirtyRegionAt(i)
+		if !ok {
+			return errors.New("canonical: released frame damage")
+		}
+		e.writeRect(rect)
+	}
+	return e.err
+}
+
+func (e *Encoder) writeFrameBatch(frame *render.Frame, index int) error {
+	batch, ok := frame.BatchAt(index)
+	if !ok {
+		return errors.New("canonical: invalid frame batch range")
+	}
+	e.writeTag("batch")
+	e.writeRect(batch.Bounds)
+	e.writeFloat32(batch.Opacity)
+	count, ok := frame.BatchCommandCount(index)
+	if !ok {
+		return errors.New("canonical: invalid command range")
+	}
+	if err := e.writeCount(count); err != nil {
+		return err
+	}
+	commandIndex := 0
+	var commandErr error
+	if !frame.VisitBatchCommands(index, func(command gfx.Command) bool {
+		if command == nil {
+			commandErr = fmt.Errorf("canonical: nil command at index %d", commandIndex)
+			return false
+		}
+		if err := e.writeCommand(command); err != nil {
+			commandErr = fmt.Errorf("canonical: command %d: %w", commandIndex, err)
+			return false
+		}
+		commandIndex++
+		return true
+	}) {
+		return errors.New("canonical: released frame command page")
+	}
+	if commandErr != nil {
+		return commandErr
+	}
+	if e.err != nil {
+		return e.err
 	}
 	return nil
 }
 
-func (e *Encoder) writeBatches(batches []render.RenderBatch) error {
-	e.writeUint64(uint64(len(batches)))
-	for _, batch := range batches {
-		e.writeTag("batch")
-		e.writeRect(batch.Bounds)
-		e.writeFloat32(batch.Opacity)
-		if err := e.writeCommands(batch.Commands); err != nil {
-			return err
-		}
+func (e *Encoder) writeCount(value int) error {
+	if value < 0 {
+		return errors.New("canonical: negative frame count or range")
 	}
-	return nil
+	e.writeUint64(uint64(value))
+	return e.err
 }
 
 func (e *Encoder) writeCommands(list gfx.CommandList) error {
@@ -301,18 +360,18 @@ func (e *Encoder) writeTextRect(rect text.Rect) {
 	e.writeFloat32(rect.Max.Y)
 }
 
-func (e *Encoder) writeImage(img *image.RGBA) {
-	if img == nil {
+func (e *Encoder) writeImage(img gfx.ImageHandle) {
+	if img.IsZero() {
 		e.writeTag("image.nil")
 		return
 	}
 	e.writeTag("image")
-	e.writeInt64(int64(img.Rect.Min.X))
-	e.writeInt64(int64(img.Rect.Min.Y))
-	e.writeInt64(int64(img.Rect.Max.X))
-	e.writeInt64(int64(img.Rect.Max.Y))
-	e.writeInt64(int64(img.Stride))
-	e.writeBytes(img.Pix)
+	e.writeUint64(img.Generation())
+	e.writeInt64(int64(img.Width()))
+	e.writeInt64(int64(img.Height()))
+	e.writeInt64(int64(img.Stride()))
+	digest := img.ContentDigest()
+	e.writeBytes(digest[:])
 }
 
 func (e *Encoder) writePath(path gfx.Path) {

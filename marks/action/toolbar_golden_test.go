@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/store"
 
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -108,17 +109,17 @@ func renderToolbarSurface(t *testing.T, tokens theme.Tokens, density theme.Densi
 	if err := r.Initialize(surface); err != nil {
 		t.Fatalf("initialize renderer: %v", err)
 	}
-	frame := &render.Frame{
-		RenderBatchs: []render.RenderBatch{
+	frame := testframe.Seal(render.FrameInput{
+		Batches: []render.BatchInput{
 			{
-				ID:          1,
-				Bounds:      bounds,
-				Opacity:     1,
-				CommandHash: 1,
-				Commands:    gfx.CommandList{Commands: cmds.Commands},
+				ID:      1,
+				Bounds:  bounds,
+				Opacity: 1,
+
+				Commands: gfx.CommandList{Commands: cmds.Commands},
 			},
 		},
-	}
+	})
 	if err := r.Submit(frame); err != nil {
 		t.Fatalf("submit frame: %v", err)
 	}

@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
@@ -130,10 +131,10 @@ func TestFrameTimerWakeWithoutRemainingWorkDoesNotAuthorizeFrame(t *testing.T) {
 
 func TestRenderPipeline_submit_blocks_on_full(t *testing.T) {
 	pipe := newRenderPipeline(&backendFixture{})
-	pipe.Submit(&render.Frame{}, 1)
+	pipe.Submit(testframe.Seal(render.FrameInput{}), 1)
 	done := make(chan struct{})
 	go func() {
-		pipe.Submit(&render.Frame{}, 2)
+		pipe.Submit(testframe.Seal(render.FrameInput{}), 2)
 		close(done)
 	}()
 	select {
@@ -291,11 +292,18 @@ func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 			},
 		},
 	}
-	frame := rt.assembleFrame(output, map[facet.FacetID]facet.DirtyFlags{1: facet.DirtyAll})
-	if frame == nil || len(frame.RenderBatchs) != 1 {
+	frame, err := rt.assembleFrame(output, map[facet.FacetID]facet.DirtyFlags{1: facet.DirtyAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer frame.Release()
+	if frame == nil || frame.BatchCount() != 1 {
 		t.Fatalf("frame = %#v", frame)
 	}
-	cmds := frame.RenderBatchs[0].Commands.Commands
+	cmds, ok := frame.AppendBatchCommands(0, nil)
+	if !ok {
+		t.Fatal("batch command page unavailable")
+	}
 	if len(cmds) < 3 {
 		t.Fatalf("commands = %#v", cmds)
 	}
@@ -304,9 +312,6 @@ func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 	}
 	if _, ok := cmds[len(cmds)-1].(gfx.PopTransform); !ok {
 		t.Fatalf("last command = %T", cmds[len(cmds)-1])
-	}
-	if frame.RenderBatchs[0].CommandHash == 0 {
-		t.Fatal("expected command hash")
 	}
 }
 
@@ -318,12 +323,17 @@ func TestRuntime_assembleFrame_dirty_regions(t *testing.T) {
 			{FacetID: 2, Bounds: gfx.RectFromXYWH(10, 10, 10, 10)},
 		},
 	}
-	frame := rt.assembleFrame(output, map[facet.FacetID]facet.DirtyFlags{2: facet.DirtyProjection})
-	if got := len(frame.DirtyRegions); got != 1 {
+	frame, err := rt.assembleFrame(output, map[facet.FacetID]facet.DirtyFlags{2: facet.DirtyProjection})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer frame.Release()
+	if got := frame.DirtyRegionCount(); got != 1 {
 		t.Fatalf("dirty regions = %d, want 1", got)
 	}
-	if frame.DirtyRegions[0] != (gfx.RectFromXYWH(10, 10, 10, 10)) {
-		t.Fatalf("dirty regions = %#v", frame.DirtyRegions)
+	got, ok := frame.DirtyRegionAt(0)
+	if !ok || got != (gfx.RectFromXYWH(10, 10, 10, 10)) {
+		t.Fatalf("dirty region = %#v", got)
 	}
 }
 
@@ -341,7 +351,7 @@ func TestRuntime_addfacet_visible_next_frame(t *testing.T) {
 	if got := rt.LastFrameStats().RenderBatchCount; got <= before {
 		t.Fatalf("RenderBatch count = %d, before = %d", got, before)
 	}
-	if backend.last == nil || len(backend.last.RenderBatchs) != 2 {
+	if backend.last == nil || backend.last.BatchCount() != 2 {
 		t.Fatalf("backend frame = %#v", backend.last)
 	}
 	rt.Shutdown()
@@ -376,7 +386,11 @@ func TestRuntime_render_batches_follow_registry_order(t *testing.T) {
 	}
 	firstIndex := -1
 	secondIndex := -1
-	for i, batch := range frame.RenderBatchs {
+	for i := 0; i < frame.BatchCount(); i++ {
+		batch, ok := frame.BatchAt(i)
+		if !ok {
+			t.Fatal("batch page unavailable")
+		}
 		switch batch.ID {
 		case render.RenderBatchID(first.ID()):
 			firstIndex = i
@@ -385,7 +399,7 @@ func TestRuntime_render_batches_follow_registry_order(t *testing.T) {
 		}
 	}
 	if firstIndex == -1 || secondIndex == -1 {
-		t.Fatalf("missing child batches in frame: %#v", frame.RenderBatchs)
+		t.Fatalf("missing child batches in frame: count=%d", frame.BatchCount())
 	}
 	if secondIndex > firstIndex {
 		t.Fatalf("registry order violated: second layer index %d should be before first layer index %d", secondIndex, firstIndex)
