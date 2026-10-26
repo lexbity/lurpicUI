@@ -32,8 +32,8 @@ func TestBar_produces_fill_rects(t *testing.T) {
 		func(i barItem) float64 { return i.val },
 		yScale,
 	)
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(barItem{id: 1, cat: "A", val: 50})
 	s.Insert(barItem{id: 2, cat: "B", val: 80})
@@ -67,8 +67,8 @@ func TestBar_empty_store(t *testing.T) {
 			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 100, 100)
 	b.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -91,8 +91,8 @@ func TestBar_bar_count_matches_data(t *testing.T) {
 		func(i barItem) float64 { return i.val },
 		yScale,
 	)
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(barItem{id: 1, cat: "A", val: 10})
 	s.Insert(barItem{id: 2, cat: "B", val: 20})
@@ -121,8 +121,8 @@ func TestBar_hit_test_returns_member(t *testing.T) {
 		func(i barItem) float64 { return i.val },
 		yScale,
 	)
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(barItem{id: 1, cat: "A", val: 50})
 	s.Insert(barItem{id: 2, cat: "B", val: 80})
@@ -155,8 +155,8 @@ func TestBar_hit_test_misses_gap(t *testing.T) {
 		yScale,
 	)
 	b.Padding = marks.Const[float32](0.3) // creates gaps between bars
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(barItem{id: 1, cat: "A", val: 50})
 	s.Insert(barItem{id: 2, cat: "B", val: 80})

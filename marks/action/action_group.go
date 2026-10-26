@@ -315,7 +315,7 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	g.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	g.cachedItemStyle = resolved.TextStyle(theme.TextLabelM)
 
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &g.Facet)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(480)

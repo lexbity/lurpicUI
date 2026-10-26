@@ -71,7 +71,7 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 
 	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
 		if ctx.Runtime != nil {
-			a.shaper = marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+			a.shaper = marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &a.Facet)
 		}
 		a.syncTheme(ctx)
 		s := a.measureSize()
@@ -79,7 +79,7 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 	}
 	a.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
 		if ctx.Runtime != nil {
-			a.shaper = marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+			a.shaper = marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &a.Facet)
 		}
 		a.Layout.ArrangedBounds = bounds
 		a.syncThemeWithTheme(ctx.Theme)
@@ -103,7 +103,7 @@ func (a *Axis) Descriptor() marks.Descriptor {
 
 func (a *Axis) OnAttach(ctx facet.AttachContext) {
 	a.Core.OnAttach(ctx)
-	a.shaper = marks.ShapeFor(ctx.Runtime, 1)
+	a.shaper = marks.ShapeFor(ctx.Runtime, 1, &a.Facet)
 	if a.Scale != nil {
 		signal.Track(a.Subs(), &a.Scale.OnChange, func(signal.Unit) {
 			a.Invalidate(facet.DirtyLayout | facet.DirtyProjection)

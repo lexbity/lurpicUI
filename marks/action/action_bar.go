@@ -551,7 +551,7 @@ func (a *ActionBar) resolveLabelLayout(ctx facet.MeasureContext, resolved theme.
 	if label == "" {
 		return nil
 	}
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &a.Facet)
 	if shaper == nil {
 		return nil
 	}

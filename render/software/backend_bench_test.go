@@ -73,10 +73,7 @@ func benchmarkRenderer(b *testing.B, w, h int) (*SoftwareRenderer, *testSurface)
 
 func benchmarkTextFrame(b *testing.B, runs int) *render.Frame {
 	b.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		b.Fatalf("NewFontRegistry: %v", err)
-	}
+	reg := newSoftwareEmptyFontRegistry(b)
 	fontData := fontdata.TestFontBytes()
 	if err := reg.LoadFontBytes(fontData, "Noto Sans"); err != nil {
 		b.Fatalf("LoadFontBytes: %v", err)

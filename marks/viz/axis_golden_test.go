@@ -1,7 +1,6 @@
 package viz
 
 import (
-	"sync"
 	"testing"
 	"time"
 
@@ -25,7 +24,7 @@ func TestAxisGoldenLinear(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisBottom))
-	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 10, 300, 30)
 	a.Layout.Measure(facet.MeasureContext{
@@ -72,7 +71,7 @@ func TestAxisGoldenLinearLeft(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisLeft))
-	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 10, 40, 200)
 	a.Layout.Measure(facet.MeasureContext{
@@ -101,7 +100,7 @@ func TestAxisGoldenLinearTop(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisTop))
-	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 10, 300, 30)
 	a.Layout.Measure(facet.MeasureContext{
@@ -148,7 +147,7 @@ func TestAxisGoldenLinearRight(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisRight))
-	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 10, 40, 200)
 	a.Layout.Measure(facet.MeasureContext{
@@ -182,7 +181,7 @@ func timeAxisFixture(t *testing.T, startMs, endMs float64, tickCount int, golden
 	rs := reactive.NewTimeReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisBottom))
-	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 10, 300, 30)
 	a.Layout.Measure(facet.MeasureContext{}, facet.Constraints{MaxSize: gfx.Size{W: 400, H: 60}})
@@ -244,25 +243,20 @@ func renderAxisGolden(t *testing.T, cmds []gfx.Command, bounds gfx.Rect, w, h in
 	return surface
 }
 
-type axisGoldenRuntime struct{ contracttest.NoopRuntime }
-
-var vizFontRegistryOnce sync.Once
-var vizFontRegistryVal *text.FontRegistry
-
-func (axisGoldenRuntime) FontRegistry() *text.FontRegistry {
-	vizFontRegistryOnce.Do(func() {
-		reg, err := text.NewFontRegistry()
-		if err != nil {
-			panic("testkit: NewFontRegistry: " + err.Error())
-		}
-		if err := reg.LoadFontBytes(testkit.TestFontBytes(), "NotoSans-Regular.ttf"); err != nil {
-			panic("testkit: LoadFontBytes: " + err.Error())
-		}
-		vizFontRegistryVal = reg
-	})
-	return vizFontRegistryVal
+type axisGoldenRuntime struct {
+	contracttest.NoopRuntime
+	fonts   *text.FontRegistry
+	service *text.Service
 }
 
-func (r axisGoldenRuntime) TextService() *text.Service {
-	return contracttest.NewTextService(r.FontRegistry())
+func newAxisGoldenRuntime(t *testing.T) axisGoldenRuntime {
+	t.Helper()
+	fonts := testkit.NewFontRegistry(t)
+	if err := fonts.LoadFontBytes(testkit.TestFontBytes(), "NotoSans-Regular.ttf"); err != nil {
+		t.Fatal(err)
+	}
+	return axisGoldenRuntime{fonts: fonts, service: testkit.TestTextService(t, fonts)}
 }
+
+func (r axisGoldenRuntime) FontRegistry() *text.FontRegistry { return r.fonts }
+func (r axisGoldenRuntime) TextService() *text.Service       { return r.service }

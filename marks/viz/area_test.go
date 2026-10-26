@@ -26,8 +26,8 @@ func TestArea_produces_fill_path(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	a.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 0, y: 5})
 	s.Insert(scatterItem{id: 2, x: 5, y: 8})
@@ -66,8 +66,8 @@ func TestArea_path_forms_closed_polygon(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	a.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 0, y: 5})
 	s.Insert(scatterItem{id: 2, x: 10, y: 5})
@@ -107,8 +107,8 @@ func TestArea_empty_store(t *testing.T) {
 			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	a.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 100, 100)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)

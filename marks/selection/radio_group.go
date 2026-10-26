@@ -288,7 +288,7 @@ func (rg *RadioGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	rg.cachedGroupGap = float32(resolved.Spacing(theme.SpacingXS))
 	rg.cachedGroupLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	rg.cachedItemLabelStyle = resolved.TextStyle(theme.TextBodyM)
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &rg.Facet)
 
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {

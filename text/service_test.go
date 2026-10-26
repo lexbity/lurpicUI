@@ -13,18 +13,18 @@ import (
 
 func serviceFixture(t *testing.T, limits Limits) (*Service, *membudget.Wallet) {
 	t.Helper()
-	registry, err := NewFontRegistry()
+	wallet, err := membudget.NewWallet(8 << 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewFontRegistry(wallet, limits.MaxFontFaces)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.LoadFontBytes(testFontBytes, "Noto Sans"); err != nil {
 		t.Fatal(err)
 	}
-	wallet, err := membudget.NewWallet(8 << 20)
-	if err != nil {
-		t.Fatal(err)
-	}
-	service, err := NewService(registry, wallet, limits)
+	service, err := NewService(registry, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,8 +53,116 @@ func TestTextServiceReuseAndBudget(t *testing.T) {
 		t.Fatalf("stats = %d/%d/%d/%d", hits, misses, entries, bytes)
 	}
 	_, _, live, _ := wallet.Snapshot()
-	if live != bytes {
-		t.Fatalf("wallet live = %d, cache bytes = %d", live, bytes)
+	if live != bytes+s.registry.SourceBytes() {
+		t.Fatalf("wallet live = %d, cache bytes = %d, font sources = %d", live, bytes, s.registry.SourceBytes())
+	}
+}
+
+func TestFontSourcesStayChargedUntilLastLayoutLease(t *testing.T) {
+	limits := DefaultLimits(membudget.Standard)
+	wallet, err := membudget.NewWallet(8 << 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewFontRegistry(wallet, limits.MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.LoadFontBytes(testFontBytes, "Noto Sans"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, live, _ := wallet.Snapshot()
+	if live != registry.SourceBytes() {
+		t.Fatalf("font source charge = %d, retained source bytes = %d", live, registry.SourceBytes())
+	}
+	service, err := NewService(registry, limits)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := service.Shape(ShapeRequest{Content: "pinned font", Style: TextStyle{Family: "Noto Sans", Size: 14}, Scale: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, live, _ = wallet.Snapshot()
+	if live == 0 || registry.FaceCount() == 0 {
+		t.Fatal("service close released font data while a layout lease was live")
+	}
+	lease.Release()
+	_, reserved, live, retiring := wallet.Snapshot()
+	if reserved != 0 || live != 0 || retiring != 0 || registry.FaceCount() != 0 {
+		t.Fatalf("final lease release left font/service state: reserved=%d live=%d retiring=%d faces=%d", reserved, live, retiring, registry.FaceCount())
+	}
+}
+
+func TestFontSourceReservationRefusesBeforeRetainingBytes(t *testing.T) {
+	limits := DefaultLimits(membudget.Standard)
+	wallet, err := membudget.NewWallet(uint64(len(testFontBytes) - 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewFontRegistry(wallet, limits.MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.LoadFontBytes(testFontBytes, "Noto Sans"); err == nil {
+		t.Fatal("font source larger than wallet was accepted")
+	}
+	if got := registry.SourceBytes(); got != 0 {
+		t.Fatalf("retained source bytes = %d after refusal", got)
+	}
+	_, reserved, live, retiring := wallet.Snapshot()
+	if reserved != 0 || live != 0 || retiring != 0 {
+		t.Fatalf("refused source left wallet charges: reserved=%d live=%d retiring=%d", reserved, live, retiring)
+	}
+}
+
+func TestFontSourceNameLimitPrecedesReservation(t *testing.T) {
+	wallet, err := membudget.NewWallet(1 << 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewFontRegistry(wallet, DefaultLimits(membudget.Compact).MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := strings.Repeat("n", maxFontSourceNameBytes+1)
+	if err := registry.LoadFontBytes(testFontBytes, name); err == nil {
+		t.Fatal("expected oversized source name to be refused")
+	}
+	_, reserved, live, retiring := wallet.Snapshot()
+	if reserved != 0 || live != 0 || retiring != 0 || registry.SourceCount() != 0 {
+		t.Fatalf("oversized name changed ownership: reserved=%d live=%d retiring=%d sources=%d", reserved, live, retiring, registry.SourceCount())
+	}
+	if err := registry.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestClosedFontRegistryRejectsAdmissionAndService(t *testing.T) {
+	wallet, err := membudget.NewWallet(1 << 20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	limits := DefaultLimits(membudget.Compact)
+	registry, err := NewFontRegistry(wallet, limits.MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.LoadFontBytes(testFontBytes, "late-font"); err == nil {
+		t.Fatal("closed registry accepted a font source")
+	}
+	if _, err := NewService(registry, limits); err == nil {
+		t.Fatal("closed registry produced a text service")
+	}
+	_, reserved, live, retiring := wallet.Snapshot()
+	if reserved != 0 || live != 0 || retiring != 0 {
+		t.Fatalf("closed registry admission changed wallet: reserved=%d live=%d retiring=%d", reserved, live, retiring)
 	}
 }
 
@@ -179,20 +287,20 @@ func TestTextRejectsOversizedFontFamilyBeforeKeyAllocation(t *testing.T) {
 }
 
 func TestTextScratchRefusalPrecedesShaping(t *testing.T) {
-	registry, err := NewFontRegistry()
+	limits := DefaultLimits(membudget.Standard)
+	limits.MaxSourceBytes, limits.MaxGlyphs, limits.MaxLines = 128, 100, 4
+	wallet, err := membudget.NewWallet(uint64(len(testFontBytes)) + 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewFontRegistry(wallet, limits.MaxFontFaces)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := registry.LoadFontBytes(testFontBytes, "Noto Sans"); err != nil {
 		t.Fatal(err)
 	}
-	limits := DefaultLimits(membudget.Standard)
-	limits.MaxSourceBytes, limits.MaxGlyphs, limits.MaxLines = 128, 100, 4
-	wallet, err := membudget.NewWallet(64 << 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	s, err := NewService(registry, wallet, limits)
+	s, err := NewService(registry, limits)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,17 +340,28 @@ func TestTextParagraphSpanLimitPrecedesCopyAndShape(t *testing.T) {
 }
 
 func BenchmarkTextServiceLabel(b *testing.B) {
-	registry, err := NewFontRegistry()
-	if err != nil {
-		b.Fatal(err)
-	}
-	if err := registry.LoadFontBytes(testFontBytes, "Noto Sans"); err != nil {
-		b.Fatal(err)
+	newRegistry := func(b *testing.B) *FontRegistry {
+		b.Helper()
+		wallet, err := membudget.NewWallet(membudget.DefaultPlan(membudget.Standard).Caps[membudget.Text])
+		if err != nil {
+			b.Fatal(err)
+		}
+		registry, err := NewFontRegistry(wallet, DefaultLimits(membudget.Standard).MaxFontFaces)
+		if err != nil {
+			b.Fatal(err)
+		}
+		if err := registry.LoadFontBytes(testFontBytes, "Noto Sans"); err != nil {
+			b.Fatal(err)
+		}
+		b.Cleanup(func() { _ = registry.Close() })
+		return registry
 	}
 	style := TextStyle{Family: "Noto Sans", Size: 14}
 	request := ShapeRequest{Content: "Service label 0123456789", Style: style, Scale: 1}
 	b.Run("fresh-engine", func(b *testing.B) {
+		registry := newRegistry(b)
 		b.ReportAllocs()
+		b.ResetTimer()
 		for range b.N {
 			layout := newShaper(registry).ShapeSimple(request.Content, style)
 			if layout == nil {
@@ -251,16 +370,14 @@ func BenchmarkTextServiceLabel(b *testing.B) {
 		}
 	})
 	b.Run("reused-service", func(b *testing.B) {
-		wallet, err := membudget.NewWallet(membudget.DefaultPlan(membudget.Standard).Caps[membudget.Text])
-		if err != nil {
-			b.Fatal(err)
-		}
-		service, err := NewService(registry, wallet, DefaultLimits(membudget.Standard))
+		registry := newRegistry(b)
+		service, err := NewService(registry, DefaultLimits(membudget.Standard))
 		if err != nil {
 			b.Fatal(err)
 		}
 		defer func() { _ = service.Close() }()
 		b.ReportAllocs()
+		b.ResetTimer()
 		for range b.N {
 			lease, err := service.Shape(request)
 			if err != nil {
@@ -310,8 +427,15 @@ func TestTextLeasePinsCacheUntilRelease(t *testing.T) {
 	b.Release()
 	s.Trim(0)
 	_, _, live, _ := wallet.Snapshot()
+	if live != s.registry.SourceBytes() {
+		t.Fatalf("trim retained %d bytes beyond font sources (%d)", live, s.registry.SourceBytes())
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, _, live, _ = wallet.Snapshot()
 	if live != 0 {
-		t.Fatalf("trim retained %d bytes", live)
+		t.Fatalf("close retained %d bytes", live)
 	}
 }
 

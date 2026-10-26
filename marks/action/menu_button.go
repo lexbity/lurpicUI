@@ -415,7 +415,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	if triggerLabel == "" {
 		triggerLabel = strings.TrimSpace(m.AccessibleLabel.Get())
 	}
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &m.Facet)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(420)

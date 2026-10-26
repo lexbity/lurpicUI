@@ -26,8 +26,8 @@ func TestLine_produces_polyline(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 0, y: 0})
 	s.Insert(scatterItem{id: 2, x: 5, y: 5})
@@ -66,8 +66,8 @@ func TestLine_positions_ordered(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 0, y: 0})
 	s.Insert(scatterItem{id: 2, x: 5, y: 5})
@@ -104,8 +104,8 @@ func TestLine_empty_store(t *testing.T) {
 			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 100, 100)
 	l.Layout.Arrange(facet.ArrangeContext{}, bounds)

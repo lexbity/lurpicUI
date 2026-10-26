@@ -135,9 +135,6 @@ var newBackend = func(kind RenderBackendKind) render.Backend {
 var probeVulkanPipeline = func(b *vulkan.Backend) error {
 	return b.BuildPipelineProbe()
 }
-var newFontRegistry = func() (*text.FontRegistry, error) {
-	return text.NewFontRegistry()
-}
 
 // softwareFallbackFactory builds a software renderer bound to the given surface
 // for the runtime's GPU-fatal fallback (Q9/FR-12). The app layer owns backend
@@ -287,12 +284,13 @@ func Run(config Config, builder RootBuilder) error {
 	if err != nil {
 		return err
 	}
-	fontRegistry, err := loadFontRegistry(config.Fonts)
+	fontRegistry, err := loadFontRegistry(config.Fonts, textWallet, resources.TextLimits.MaxFontFaces)
 	if err != nil {
 		return err
 	}
-	textService, err := text.NewService(fontRegistry, textWallet, resources.TextLimits)
+	textService, err := text.NewService(fontRegistry, resources.TextLimits)
 	if err != nil {
+		_ = fontRegistry.Close()
 		return fmt.Errorf("app: text service: %w", err)
 	}
 	defer func() { _ = textService.Close() }()
@@ -516,11 +514,17 @@ func normalizeConfig(config *Config) {
 	}
 }
 
-func loadFontRegistry(sources []FontSource) (*text.FontRegistry, error) {
-	registry, err := newFontRegistry()
+func loadFontRegistry(sources []FontSource, wallet *membudget.Wallet, maxFaces int) (*text.FontRegistry, error) {
+	registry, err := text.NewFontRegistry(wallet, maxFaces)
 	if err != nil {
 		return nil, err
 	}
+	loaded := false
+	defer func() {
+		if !loaded {
+			_ = registry.Close()
+		}
+	}()
 	for _, src := range sources {
 		if src.Path != "" && len(src.Data) > 0 {
 			return nil, fmt.Errorf("app: font source %q cannot specify both Path and Data", src.Name)
@@ -540,5 +544,6 @@ func loadFontRegistry(sources []FontSource) (*text.FontRegistry, error) {
 			}
 		}
 	}
+	loaded = true
 	return registry, nil
 }

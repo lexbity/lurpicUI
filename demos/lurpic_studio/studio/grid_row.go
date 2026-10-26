@@ -47,10 +47,10 @@ type gridRow struct {
 // newGridRow builds a cell band for the given row.
 func newGridRow(rows *store.CollectionStore[dataset.Row], id store.ItemID, style gridStyle) *gridRow {
 	r := &gridRow{rows: rows, id: id, style: style}
-	if style.text != nil {
-		r.shaper, _ = style.text.AtScale(1)
-	}
 	r.Facet = facet.NewFacet()
+	if style.text != nil {
+		r.shaper = marks.ShapeForService(style.text, 1, &r.Facet)
+	}
 	r.Layout.OnMeasure = func(_ facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: gfx.Size{W: c.MaxSize.W, H: gridRowHeight}}
 	}

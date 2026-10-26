@@ -21,7 +21,7 @@ func TestRuleGoldenHorizontal(t *testing.T) {
 	r := NewRule(marks.Const(50.0), RuleHorizontal, rs)
 	r.Color = marks.Const(gfx.Color{R: 0.8, G: 0.2, B: 0.2, A: 1})
 	r.StrokeWidth = 2
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 10, 280, 180)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -45,7 +45,7 @@ func TestRuleGoldenVertical(t *testing.T) {
 	r := NewRule(marks.Const(30.0), RuleVertical, rs)
 	r.Color = marks.Const(gfx.Color{R: 0.2, G: 0.6, B: 0.2, A: 1})
 	r.StrokeWidth = 1.5
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 10, 300, 200)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)

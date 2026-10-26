@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"github.com/go-text/typesetting/di"
 	"github.com/go-text/typesetting/language"
 	xtextbidi "golang.org/x/text/unicode/bidi"
@@ -40,10 +41,7 @@ func TestWeight_constants_distinct(t *testing.T) {
 }
 
 func TestFontRegistry_new_no_error(t *testing.T) {
-	reg, err := NewFontRegistry()
-	if err != nil {
-		t.Fatalf("NewFontRegistry: %v", err)
-	}
+	reg := newRegistryForTest(t)
 	if reg == nil {
 		t.Fatal("expected registry")
 	}
@@ -53,14 +51,14 @@ func TestFontRegistry_new_no_error(t *testing.T) {
 }
 
 func TestFontRegistry_load_font_file_missing(t *testing.T) {
-	reg, _ := NewFontRegistry()
+	reg := newRegistryForTest(t)
 	if err := reg.LoadFontFile(filepath.Join(t.TempDir(), "missing.ttf")); err == nil {
 		t.Fatal("expected error")
 	}
 }
 
 func TestFontRegistry_load_font_bytes(t *testing.T) {
-	reg, _ := NewFontRegistry()
+	reg := newRegistryForTest(t)
 	data := testFontBytes
 	if err := reg.LoadFontBytes(data, "roboto"); err != nil {
 		t.Fatalf("LoadFontBytes: %v", err)
@@ -71,14 +69,14 @@ func TestFontRegistry_load_font_bytes(t *testing.T) {
 }
 
 func TestFontRegistry_resolve_never_nil(t *testing.T) {
-	reg, _ := NewFontRegistry()
+	reg := newRegistryForTest(t)
 	if got := reg.Resolve(TextStyle{Family: "NoSuchFontXYZPQR"}); !got.IsZero() {
 		t.Fatalf("expected zero face, got %#v", got)
 	}
 }
 
 func TestFontRegistry_resolve_respects_weight(t *testing.T) {
-	reg, _ := NewFontRegistry()
+	reg := newRegistryForTest(t)
 	regularData := testFontBytes
 	boldData := testFontBoldBytes
 	if err := reg.LoadFontBytes(regularData, "roboto-regular"); err != nil {
@@ -113,7 +111,7 @@ func TestTextSpan_empty_string(t *testing.T) {
 }
 
 func TestLoadFontFile_roundtrip(t *testing.T) {
-	reg, _ := NewFontRegistry()
+	reg := newRegistryForTest(t)
 	path := filepath.Join(t.TempDir(), "NotoSans-Regular.ttf")
 	if err := os.WriteFile(path, testFontBytes, 0644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
@@ -123,6 +121,34 @@ func TestLoadFontFile_roundtrip(t *testing.T) {
 	}
 	if got := reg.Resolve(TextStyle{Family: "Noto Sans"}); got.IsZero() {
 		t.Fatal("expected loaded face")
+	}
+}
+
+func TestFontFileSourceAdmissionHonorsWallet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "NotoSans-Regular.ttf")
+	if err := os.WriteFile(path, testFontBytes, 0600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	wallet, err := membudget.NewWallet(1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewFontRegistry(wallet, DefaultLimits(membudget.Compact).MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.LoadFontFile(path); err == nil {
+		t.Fatal("expected source admission refusal")
+	}
+	capacity, reserved, live, retiring := wallet.Snapshot()
+	if capacity != 1 || reserved != 0 || live != 0 || retiring != 0 {
+		t.Fatalf("wallet after refused font file: capacity=%d reserved=%d live=%d retiring=%d", capacity, reserved, live, retiring)
+	}
+	if registry.SourceCount() != 0 || registry.FaceCount() != 0 {
+		t.Fatalf("refused source was published: sources=%d faces=%d", registry.SourceCount(), registry.FaceCount())
+	}
+	if err := registry.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -1046,10 +1072,7 @@ func TestShaper_multistyle_span(t *testing.T) {
 }
 
 func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
-	reg, err := NewFontRegistry()
-	if err != nil {
-		t.Fatalf("NewFontRegistry: %v", err)
-	}
+	reg := newRegistryForTest(t)
 
 	latinData := testFontBytes
 	emojiData := testEmojiFontBytes
@@ -1104,14 +1127,26 @@ func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
 
 func mustTestRegistry(t *testing.T, path string) (*FontRegistry, string) {
 	t.Helper()
-	reg, err := NewFontRegistry()
-	if err != nil {
-		t.Fatalf("NewFontRegistry: %v", err)
-	}
+	reg := newRegistryForTest(t)
 	if err := reg.LoadFontBytes(testFontBytes, "NotoSans-Regular.ttf"); err != nil {
 		t.Fatalf("LoadFontBytes: %v", err)
 	}
 	return reg, reg.FirstFamily()
+}
+
+func newRegistryForTest(t *testing.T) *FontRegistry {
+	t.Helper()
+	profile := membudget.Standard
+	wallet, err := membudget.NewWallet(membudget.DefaultPlan(profile).Caps[membudget.Text])
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := NewFontRegistry(wallet, DefaultLimits(profile).MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = registry.Close() })
+	return registry
 }
 
 func shapedASCII(t *testing.T, text string) *TextLayout {

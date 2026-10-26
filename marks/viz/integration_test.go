@@ -22,12 +22,14 @@ type chartFixture struct {
 	yDomain  *store.ValueStore[[2]float64]
 	yRange   *store.ValueStore[[2]float64]
 	bounds   gfx.Rect
+	runtime  axisGoldenRuntime
 }
 
 func newChartFixture(t *testing.T) *chartFixture {
 	scope := store.NewScope()
 	t.Cleanup(scope.Close)
 	f := &chartFixture{}
+	f.runtime = newAxisGoldenRuntime(t)
 
 	f.barStore = store.NewCollectionStore(scope, barID)
 	f.ptStore = store.NewCollectionStore(scope, scatterID)
@@ -64,10 +66,9 @@ func newChartFixture(t *testing.T) *chartFixture {
 }
 
 func (f *chartFixture) attach() {
-	rt := vizRuntimeStub{}
-	f.barMark.OnAttach(facet.AttachContext{Runtime: rt})
-	f.ptMark.OnAttach(facet.AttachContext{Runtime: rt})
-	f.axisMark.OnAttach(facet.AttachContext{Runtime: rt})
+	f.barMark.OnAttach(facet.AttachContext{Runtime: f.runtime})
+	f.ptMark.OnAttach(facet.AttachContext{Runtime: f.runtime})
+	f.axisMark.OnAttach(facet.AttachContext{Runtime: f.runtime})
 }
 
 func (f *chartFixture) arrange() {

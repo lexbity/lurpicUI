@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/text"
 )
 
@@ -58,9 +59,18 @@ func TestGlyphAtlasKeyFromRunStability(t *testing.T) {
 
 func mustFontRegistry(t *testing.T) *text.FontRegistry {
 	t.Helper()
-	reg, err := text.NewFontRegistry()
+	limits := text.DefaultLimits(membudget.Standard)
+	wallet, err := membudget.NewWallet(membudget.DefaultPlan(membudget.Standard).Caps[membudget.Text])
 	if err != nil {
-		t.Fatalf("NewFontRegistry: %v", err)
+		t.Fatal(err)
 	}
-	return reg
+	registry, err := text.NewFontRegistry(wallet, limits.MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.LoadFontBytes(fontdata.TestFontBytes(), "Noto Sans"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = registry.Close() })
+	return registry
 }

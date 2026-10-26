@@ -188,7 +188,7 @@ func (t *Text) resolveLayout(ctx facet.MeasureContext, constraints facet.Constra
 	}
 	style := resolved.TextStyle(t.Typography.Get())
 	maxWidth := t.effectiveMaxWidth(constraints)
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &t.Facet)
 	if shaper == nil {
 		return nil, text.TextStyle{}, false
 	}

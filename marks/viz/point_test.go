@@ -34,8 +34,8 @@ func TestPoint_produces_draw_points(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(p, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	p.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 1, y: 2})
 	s.Insert(scatterItem{id: 2, x: 5, y: 5})
@@ -74,8 +74,8 @@ func TestPoint_positions_through_scales(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(p, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	p.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 0, y: 0})
 	s.Insert(scatterItem{id: 2, x: 10, y: 10})
@@ -111,8 +111,8 @@ func TestPoint_empty_store_no_points(t *testing.T) {
 		func(i scatterItem) float64 { return i.y },
 		xScale, yScale,
 	)
-	facet.Attach(p, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	p.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(p, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	p.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 100, 100)
 	p.Layout.Arrange(facet.ArrangeContext{}, bounds)

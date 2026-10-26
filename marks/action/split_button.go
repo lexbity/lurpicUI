@@ -409,7 +409,7 @@ func (s *SplitButton) measure(ctx facet.MeasureContext, constraints facet.Constr
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(420)
 	}
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &s.Facet)
 	var primaryLayout *text.TextLayout
 	if shaper != nil && strings.TrimSpace(s.Label.Get()) != "" {
 		primaryLayout = shaper.ShapeTruncated(strings.TrimSpace(s.Label.Get()), primaryStyle, maxWidth)

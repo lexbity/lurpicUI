@@ -9,14 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
-	"codeburg.org/lexbit/lurpicui/text"
 )
-
-type vizRuntimeStub struct{ contracttest.NoopRuntime }
-
-func (vizRuntimeStub) TextService() *text.Service {
-	return contracttest.NewTextService((axisGoldenRuntime{}).FontRegistry())
-}
 
 func TestRule_horizontal_at_value(t *testing.T) {
 	scope := store.NewScope()
@@ -26,7 +19,7 @@ func TestRule_horizontal_at_value(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(50.0), RuleHorizontal, rs)
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 300, 200)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -57,7 +50,7 @@ func TestRule_vertical_at_value(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(25.0), RuleVertical, rs)
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 300, 200)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -85,7 +78,7 @@ func TestRule_at_lower_bound(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(0.0), RuleHorizontal, rs)
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 20, 300, 200)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -104,7 +97,7 @@ func TestRule_at_upper_bound(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(100.0), RuleHorizontal, rs)
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 20, 300, 200)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -123,7 +116,7 @@ func TestRule_out_of_bounds_clamps(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(200.0), RuleVertical, rs)
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(10, 20, 300, 200)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -140,7 +133,7 @@ func TestRule_out_of_bounds_clamps(t *testing.T) {
 
 func TestRule_nil_scale_returns_nil(t *testing.T) {
 	r := NewRule(marks.Const(50.0), RuleHorizontal, nil)
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 100, 100)
 	r.Layout.Arrange(facet.ArrangeContext{}, bounds)

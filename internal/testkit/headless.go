@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/drive"
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -124,10 +125,16 @@ func NewHarness(t testing.TB, scope *store.Scope, config HarnessConfig, root fac
 		config.Height = 600
 	}
 	app := NewNullApp(config.Width, config.Height)
-	fonts, err := text.NewFontRegistry()
+	resources := runtime.DefaultResourcePolicy(membudget.Standard)
+	textWallet, err := membudget.NewWallet(resources.Plan.Caps[membudget.Text])
+	if err != nil {
+		t.Fatalf("text wallet: %v", err)
+	}
+	fonts, err := text.NewFontRegistry(textWallet, resources.TextLimits.MaxFontFaces)
 	if err != nil {
 		t.Fatalf("font registry: %v", err)
 	}
+	t.Cleanup(func() { _ = fonts.Close() })
 	for _, src := range config.Fonts {
 		if src.Path != "" {
 			if err := fonts.LoadFontFile(src.Path); err != nil {

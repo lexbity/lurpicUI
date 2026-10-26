@@ -415,10 +415,7 @@ func BenchmarkVulkanSubmit_Glyphs(b *testing.B) {
 	defer func() { _ = Shutdown() }()
 
 	const w, h = 1920, 1080
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		b.Fatalf("NewFontRegistry: %v", err)
-	}
+	reg := testkit.NewFontRegistry(b)
 	if err := reg.LoadFontBytes(fontdata.TestFontBytes(), "Noto Sans"); err != nil {
 		b.Fatalf("LoadFontBytes: %v", err)
 	}
@@ -672,10 +669,7 @@ func BenchmarkVulkanSubmit_Shadows(b *testing.B) {
 
 func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 	b.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		b.Fatalf("NewFontRegistry: %v", err)
-	}
+	reg := testkit.NewFontRegistry(b)
 	fontData := fontdata.TestFontBytes()
 	if err := reg.LoadFontBytes(fontData, "Noto Sans"); err != nil {
 		b.Fatalf("LoadFontBytes: %v", err)
@@ -969,10 +963,7 @@ func BenchmarkVulkanSubmit_AcceptanceCorpus(b *testing.B) {
 	defer func() { _ = Shutdown() }()
 
 	const w, h = 1920, 1080
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		b.Fatalf("NewFontRegistry: %v", err)
-	}
+	reg := testkit.NewFontRegistry(b)
 	if err := reg.LoadFontBytes(fontdata.TestFontBytes(), "Noto Sans"); err != nil {
 		b.Fatalf("LoadFontBytes: %v", err)
 	}

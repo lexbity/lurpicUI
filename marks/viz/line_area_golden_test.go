@@ -30,8 +30,8 @@ func TestLineGoldenEmpty(t *testing.T) {
 	l.StrokeWidth = marks.Const[float32](2)
 	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(20, 20, 300, 300)
 	l.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -64,8 +64,8 @@ func TestLineGoldenSingleDatum(t *testing.T) {
 	l.StrokeWidth = marks.Const[float32](2)
 	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 5, y: 5})
 
@@ -96,8 +96,8 @@ func TestLineGoldenDegenerateDomain(t *testing.T) {
 	l.StrokeWidth = marks.Const[float32](2)
 	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 5, y: 5})
 
@@ -128,8 +128,8 @@ func TestLineGoldenBasic(t *testing.T) {
 	l.StrokeWidth = marks.Const[float32](2)
 	l.Color = marks.Const(gfx.Color{R: 0.1, G: 0.3, B: 0.7, A: 1})
 
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 0, y: 1})
 	s.Insert(scatterItem{id: 2, x: 2, y: 5})
@@ -164,8 +164,8 @@ func TestAreaGoldenEmpty(t *testing.T) {
 	)
 	a.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3})
 
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	a.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(20, 20, 300, 300)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -197,8 +197,8 @@ func TestAreaGoldenBasic(t *testing.T) {
 	)
 	a.Color = marks.Const(gfx.Color{R: 0.2, G: 0.4, B: 0.8, A: 0.3})
 
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	a.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	a.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 0, y: 1})
 	s.Insert(scatterItem{id: 2, x: 2, y: 5})

@@ -45,8 +45,8 @@ func TestLineDefaultColor_ResolvedFromTheme(t *testing.T) {
 	// Deliberately do NOT set l.Color — leave the gfx.Color{} default so the
 	// theme-resolution path is the only source of a visible color.
 
-	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	l.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(l, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	l.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(scatterItem{id: 1, x: 5, y: 5})
 
@@ -90,8 +90,8 @@ func TestRuleDefaultColor_ResolvedFromTheme(t *testing.T) {
 	r := NewRule(marks.Const(5.0), RuleHorizontal, scale)
 	// Deliberately do NOT set r.Color.
 
-	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	r.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(r, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	r.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	themeCtx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(20, 20, 300, 300)

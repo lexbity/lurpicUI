@@ -984,10 +984,7 @@ func TestSoftwareRenderer_drawglyphrun_empty_no_panic(t *testing.T) {
 
 func TestGlyphAtlas_independent_per_face_and_size(t *testing.T) {
 	r, _ := newRenderer(t, 40, 40)
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("registry: %v", err)
-	}
+	reg := newSoftwareEmptyFontRegistry(t)
 	regular := fontdata.TestFontBytes()
 	boldItalic := fontdata.TestFontBoldBytes()
 	if err := reg.LoadFontBytes(regular, "roboto-regular"); err != nil {
@@ -1025,10 +1022,7 @@ func TestGlyphAtlas_independent_per_face_and_size(t *testing.T) {
 
 func testGlyphRun(t *testing.T, label string, size float32) text.GlyphRun {
 	t.Helper()
-	reg, err := text.NewFontRegistry()
-	if err != nil {
-		t.Fatalf("registry: %v", err)
-	}
+	reg := newSoftwareEmptyFontRegistry(t)
 	data := fontdata.TestFontBytes()
 	if err := reg.LoadFontBytes(data, "roboto-regular"); err != nil {
 		t.Fatalf("load font: %v", err)

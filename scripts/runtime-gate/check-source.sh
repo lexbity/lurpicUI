@@ -99,7 +99,8 @@ if [[ "$phase" == *P4* ]]; then
 	expect_absent 'NewShaper' text marks runtime app demos -g '*.go' -g '!**/*_test.go'
 	expect_absent 'sync\.Pool' internal/membudget text -g '*.go' -g '!**/*_test.go'
 	grep -q '^func ShaperFor(runtime any) \*text.Service' marks/runtime_access.go
-	grep -q '^func NewService(registry \*FontRegistry, wallet \*membudget.Wallet, limits Limits)' text/service.go
+	grep -q '^func NewService(registry \*FontRegistry, limits Limits)' text/service.go
+	grep -q '^func NewFontRegistry(wallet \*membudget.Wallet, maxFaces int)' text/registry.go
 	grep -q 'func (s \*Service) Shape(r ShapeRequest) (\*LayoutLease, error)' text/service.go
 	grep -q 'func (s \*Service) Trim(targetBytes uint64)' text/service.go
 	grep -q 'func (p ResourcePolicy) Validate() error' runtime/resource_policy.go

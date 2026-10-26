@@ -248,7 +248,7 @@ func (s *Switch) measure(ctx facet.MeasureContext, constraints facet.Constraints
 	s.cachedRowGap = float32(resolved.Spacing(theme.SpacingS))
 	s.cachedLabelGap = float32(resolved.Spacing(theme.SpacingXS))
 	s.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &s.Facet)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = switchDefaultMaxWidth(resolved)

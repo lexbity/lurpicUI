@@ -303,7 +303,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	ds.cachedOptionPad = float32(resolved.Spacing(theme.SpacingS))
 	ds.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	ds.cachedValueStyle = resolved.TextStyle(theme.TextBodyM)
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &ds.Facet)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(320)

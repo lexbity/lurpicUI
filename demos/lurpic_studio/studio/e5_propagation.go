@@ -134,9 +134,7 @@ func NewPropagationFacet(ownerScope *store.Scope, sink *DirtySink, service *text
 	}
 	e.Facet = facet.NewFacet()
 	e.OwnStoreScope(scope)
-	if service != nil {
-		e.shaper, _ = service.AtScale(1)
-	}
+	e.shaper = marks.ShapeForService(service, 1, &e.Facet)
 	e.textStyle = themeCtx.TextStyle(theme.TextLabelS)
 	e.textColor = themeCtx.Color(theme.ColorText)
 	e.dimColor = themeCtx.Color(theme.ColorTextSecondary)

@@ -2,6 +2,7 @@ package runtime
 
 import (
 	"errors"
+	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -182,18 +183,10 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if err := config.Resources.Validate(); err != nil {
 		return nil, err
 	}
-	if config.TextService == nil {
-		wallet, err := membudget.NewWallet(config.Resources.Plan.Caps[membudget.Text])
-		if err != nil {
-			return nil, err
-		}
-		service, err := text.NewService(config.FontRegistry, wallet, config.Resources.TextLimits)
-		if err != nil {
-			return nil, err
-		}
-		config.TextService = service
+	if got, want := config.FontRegistry.WalletCapacity(), config.Resources.Plan.Caps[membudget.Text]; got != want {
+		return nil, fmt.Errorf("runtime: font registry text wallet capacity %d does not match resource plan %d", got, want)
 	}
-	if config.TextService.Registry() != config.FontRegistry {
+	if config.TextService != nil && config.TextService.Registry() != config.FontRegistry {
 		return nil, errors.New("runtime: TextService must use Config.FontRegistry")
 	}
 	if config.LayerRegistry == nil {
@@ -307,7 +300,20 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if err := rt.validateLayerRecipes(); err != nil {
 		return nil, err
 	}
+	createdTextService := false
+	if config.TextService == nil {
+		service, err := text.NewService(config.FontRegistry, config.Resources.TextLimits)
+		if err != nil {
+			return nil, err
+		}
+		config.TextService = service
+		rt.config.TextService = service
+		createdTextService = true
+	}
 	if err := config.TextService.BindRuntime(); err != nil {
+		if createdTextService {
+			_ = config.TextService.Close()
+		}
 		return nil, err
 	}
 	store.SetProjectionActiveCheck(func() bool {

@@ -79,8 +79,7 @@ func TestFontRegistry_has_family(t *testing.T) {
 
 func TestFontRegistry_sources_non_empty(t *testing.T) {
 	reg := TestFontRegistry(t)
-	sources := reg.Sources()
-	if len(sources) == 0 {
-		t.Fatal("TestFontRegistry: Sources() is empty")
+	if reg.SourceCount() == 0 {
+		t.Fatal("TestFontRegistry: source count is zero")
 	}
 }

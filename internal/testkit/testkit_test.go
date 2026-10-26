@@ -312,7 +312,7 @@ func TestHarness_creates_without_panic(t *testing.T) {
 	if h == nil || h.Runtime() == nil || h.Surface() == nil {
 		t.Fatal("expected initialized harness")
 	}
-	if got := len(h.fonts.Sources()); got == 0 {
+	if got := h.fonts.SourceCount(); got == 0 {
 		t.Fatalf("fonts = %d", got)
 	}
 }

@@ -3,6 +3,7 @@ package facet
 import (
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 // Facet is the base type embedded by all concrete facet implementations.
@@ -20,6 +21,7 @@ type Facet struct {
 	subs       signal.Subscriptions
 	storeScope *store.Scope
 	onDisposed func(FacetID)
+	textLeases []*text.LayoutLease
 
 	dirtyLayout       bool
 	dirtyProjection   bool
@@ -32,6 +34,44 @@ type Facet struct {
 	// The runtime picks this up during layer resolution.
 	layer    LayerAttachment
 	layerSet bool
+}
+
+// ReplaceTextLeases releases the previous shaped layouts for this facet.
+// The facet calls this at a shaping boundary before adopting the next set.
+func (f *Facet) ReplaceTextLeases() {
+	if f == nil {
+		return
+	}
+	f.releaseTextLeases(true)
+}
+
+// ReleaseTextLeases ends all shaped-layout ownership and drops the backing
+// lease table. Disposal uses this to release per-facet high-water storage.
+func (f *Facet) ReleaseTextLeases() {
+	if f == nil {
+		return
+	}
+	f.releaseTextLeases(false)
+}
+
+func (f *Facet) releaseTextLeases(retainCapacity bool) {
+	for _, lease := range f.textLeases {
+		lease.Release()
+	}
+	clear(f.textLeases)
+	if retainCapacity {
+		f.textLeases = f.textLeases[:0]
+		return
+	}
+	f.textLeases = nil
+}
+
+// KeepTextLease transfers a layout lease to the facet lifecycle owner.
+func (f *Facet) KeepTextLease(lease *text.LayoutLease) {
+	if f == nil || lease == nil {
+		return
+	}
+	f.textLeases = append(f.textLeases, lease)
 }
 
 // NewFacet constructs a facet in the Created state with a unique ID.

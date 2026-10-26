@@ -135,17 +135,19 @@ func DefaultConfig() Config {
 	if workers < 1 {
 		workers = 1
 	}
-	reg, _ := text.NewFontRegistry()
 	profile := membudget.Standard
 	if goruntime.GOOS == "android" {
 		profile = membudget.Compact
 	}
+	resources := DefaultResourcePolicy(profile)
+	wallet, _ := membudget.NewWallet(resources.Plan.Caps[membudget.Text])
+	reg, _ := text.NewFontRegistry(wallet, resources.TextLimits.MaxFontFaces)
 	return Config{
 		TargetFPS:     60,
 		GestureConfig: input.DefaultGestureConfig(),
 		WorkerCount:   workers,
 		FontRegistry:  reg,
-		Resources:     DefaultResourcePolicy(profile),
+		Resources:     resources,
 
 		AssetsResidencyMode: "auto",
 	}

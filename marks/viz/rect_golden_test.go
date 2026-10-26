@@ -27,8 +27,8 @@ func TestBarGoldenEmpty(t *testing.T) {
 	b.Padding = marks.Const[float32](0.2)
 	b.Color = marks.Const(gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1})
 
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(30, 20, 240, 280)
 	b.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -58,8 +58,8 @@ func TestBarGoldenSingleDatum(t *testing.T) {
 	b.Padding = marks.Const[float32](0.2)
 	b.Color = marks.Const(gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1})
 
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(barItem{id: 1, cat: "Single", val: 50})
 
@@ -87,8 +87,8 @@ func TestBarGoldenBasic(t *testing.T) {
 	b.Padding = marks.Const[float32](0.2)
 	b.Color = marks.Const(gfx.Color{R: 0.2, G: 0.5, B: 0.8, A: 1})
 
-	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
-	b.OnAttach(facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(b, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
+	b.OnAttach(facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	s.Insert(barItem{id: 1, cat: "Q1", val: 25})
 	s.Insert(barItem{id: 2, cat: "Q2", val: 60})

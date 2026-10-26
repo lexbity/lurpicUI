@@ -22,7 +22,7 @@ func TestAxis_computes_entries_from_ticks(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisBottom))
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 200, 30)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -46,7 +46,7 @@ func TestAxis_bottom_ticks_are_stroked(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisBottom))
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 200, 30)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -67,7 +67,7 @@ func TestAxis_bottom_ticks_are_stroked(t *testing.T) {
 
 func TestAxis_nil_scale_returns_nil(t *testing.T) {
 	a := NewAxis(nil, marks.Const(AxisBottom))
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 200, 30)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -85,7 +85,7 @@ func TestAxis_left_orientation_ticks(t *testing.T) {
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisLeft))
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 40, 200)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -115,7 +115,7 @@ func TestAxis_all_orientations_emit_ticks_and_labels(t *testing.T) {
 		rs := reactive.NewLinearReactive(scope, domain, rng)
 
 		a := NewAxis(rs, marks.Const(orient))
-		facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+		facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 		var bounds gfx.Rect
 		switch orient {
@@ -161,7 +161,7 @@ func TestAxis_label_collision_skips_overlapping(t *testing.T) {
 
 	a := NewAxis(rs, marks.Const(AxisBottom))
 	a.TickCount = marks.Const(20)
-	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 60, 30)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)
@@ -192,13 +192,14 @@ func TestAxis_label_collision_skips_overlapping(t *testing.T) {
 func TestAxis_left_label_column_measured_from_widest_tick(t *testing.T) {
 	scope := store.NewScope()
 	t.Cleanup(scope.Close)
-	fonts := (axisGoldenRuntime{}).FontRegistry()
+	axisRuntime := newAxisGoldenRuntime(t)
+	fonts := axisRuntime.FontRegistry()
 	domain := store.NewValueStore(scope, [2]float64{0, 1000})
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	a := NewAxis(rs, marks.Const(AxisLeft))
-	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
+	facet.Attach(a, facet.AttachContext{Runtime: axisRuntime})
 
 	a.Layout.Measure(facet.MeasureContext{ContentScale: 1}, facet.Constraints{MaxSize: gfx.Size{W: 120, H: 240}})
 	size := a.Layout.MeasuredSize
@@ -248,7 +249,7 @@ func TestAxis_tick_count_respected(t *testing.T) {
 
 	a := NewAxis(rs, marks.Const(AxisBottom))
 	a.TickCount = marks.Const(3)
-	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
+	facet.Attach(a, facet.AttachContext{Runtime: newAxisGoldenRuntime(t)})
 
 	bounds := gfx.RectFromXYWH(0, 0, 200, 30)
 	a.Layout.Arrange(facet.ArrangeContext{}, bounds)

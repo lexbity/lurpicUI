@@ -409,7 +409,7 @@ func (tf *TextField) resolveProjectionTheme(runtime any) (theme.StyleContext, sh
 }
 
 func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.Constraints, resolved theme.ResolvedContext) (*text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout) {
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &tf.Facet)
 	if shaper == nil {
 		return nil, nil, nil, nil, nil, nil
 	}

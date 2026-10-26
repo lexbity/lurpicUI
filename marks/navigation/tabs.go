@@ -299,7 +299,7 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		t.cachedTabLabelStyle = resolved.TextStyle(theme.TextLabelS)
 	}
 	t.cachedPanelStyle = resolved.TextStyle(theme.TextHeadingS)
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &t.Facet)
 	if shaper == nil {
 		t.cachedTabLabelLayouts = nil
 		t.cachedPanelLayout = nil

@@ -221,7 +221,7 @@
       "id": "P4.text-service.host",
       "phase": "P4",
       "package": "./text",
-      "tests": ["TestTextServiceReuseAndBudget", "TestTextScaleDoesNotLeakBetweenRequests", "TestTextKeyIncludesDirectionAndFontGeneration", "TestTextKeyIncludesParagraphLanguageAndScript", "TestTextServiceShapesRTLCombiningAndEmojiRequests", "TestTextRejectsInvalidRequestBeforeShaping", "TestTextRejectsOversizedFontFamilyBeforeKeyAllocation", "TestTextScratchRefusalPrecedesShaping", "TestTextParagraphSpanLimitPrecedesCopyAndShape", "TestOversizeShapeRefusedBeforeShape", "TestTextLeasePinsCacheUntilRelease", "TestTextTwoServicesReleaseIndependently", "TestTextServiceConcurrentRequests", "TestTextServiceBindsToOnlyOneRuntime", "TestShaper_mixed_direction_visual_order", "TestShaper_uses_fallback_face_for_symbol_run", "TestShapeTruncated_grapheme_boundary"],
+      "tests": ["TestTextServiceReuseAndBudget", "TestFontSourcesStayChargedUntilLastLayoutLease", "TestFontSourceReservationRefusesBeforeRetainingBytes", "TestFontSourceNameLimitPrecedesReservation", "TestClosedFontRegistryRejectsAdmissionAndService", "TestFontFileSourceAdmissionHonorsWallet", "TestTextScaleDoesNotLeakBetweenRequests", "TestTextKeyIncludesDirectionAndFontGeneration", "TestTextKeyIncludesParagraphLanguageAndScript", "TestTextServiceShapesRTLCombiningAndEmojiRequests", "TestTextRejectsInvalidRequestBeforeShaping", "TestTextRejectsOversizedFontFamilyBeforeKeyAllocation", "TestTextScratchRefusalPrecedesShaping", "TestTextParagraphSpanLimitPrecedesCopyAndShape", "TestOversizeShapeRefusedBeforeShape", "TestTextLeasePinsCacheUntilRelease", "TestTextTwoServicesReleaseIndependently", "TestTextServiceConcurrentRequests", "TestTextServiceBindsToOnlyOneRuntime", "TestShaper_mixed_direction_visual_order", "TestShaper_uses_fallback_face_for_symbol_run", "TestShapeTruncated_grapheme_boundary"],
       "mode": "host", "tags": [], "backend": "software", "required": true,
       "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
       "fixture": "p4-text-v1"
@@ -230,16 +230,34 @@
       "id": "P4.text-service.race",
       "phase": "P4",
       "package": "./text",
-      "tests": ["TestTextServiceReuseAndBudget", "TestTextScaleDoesNotLeakBetweenRequests", "TestTextKeyIncludesDirectionAndFontGeneration", "TestTextKeyIncludesParagraphLanguageAndScript", "TestTextServiceShapesRTLCombiningAndEmojiRequests", "TestTextRejectsInvalidRequestBeforeShaping", "TestTextRejectsOversizedFontFamilyBeforeKeyAllocation", "TestTextScratchRefusalPrecedesShaping", "TestTextParagraphSpanLimitPrecedesCopyAndShape", "TestOversizeShapeRefusedBeforeShape", "TestTextLeasePinsCacheUntilRelease", "TestTextTwoServicesReleaseIndependently", "TestTextServiceConcurrentRequests", "TestTextServiceBindsToOnlyOneRuntime", "TestShaper_mixed_direction_visual_order", "TestShaper_uses_fallback_face_for_symbol_run", "TestShapeTruncated_grapheme_boundary"],
+      "tests": ["TestTextServiceReuseAndBudget", "TestFontSourcesStayChargedUntilLastLayoutLease", "TestFontSourceReservationRefusesBeforeRetainingBytes", "TestFontSourceNameLimitPrecedesReservation", "TestClosedFontRegistryRejectsAdmissionAndService", "TestFontFileSourceAdmissionHonorsWallet", "TestTextScaleDoesNotLeakBetweenRequests", "TestTextKeyIncludesDirectionAndFontGeneration", "TestTextKeyIncludesParagraphLanguageAndScript", "TestTextServiceShapesRTLCombiningAndEmojiRequests", "TestTextRejectsInvalidRequestBeforeShaping", "TestTextRejectsOversizedFontFamilyBeforeKeyAllocation", "TestTextScratchRefusalPrecedesShaping", "TestTextParagraphSpanLimitPrecedesCopyAndShape", "TestOversizeShapeRefusedBeforeShape", "TestTextLeasePinsCacheUntilRelease", "TestTextTwoServicesReleaseIndependently", "TestTextServiceConcurrentRequests", "TestTextServiceBindsToOnlyOneRuntime", "TestShaper_mixed_direction_visual_order", "TestShaper_uses_fallback_face_for_symbol_run", "TestShapeTruncated_grapheme_boundary"],
       "mode": "race", "tags": [], "backend": "software", "required": true,
       "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
       "fixture": "p4-text-v1"
     },
     {
+      "id": "P4.text-lease-lifecycle.host",
+      "phase": "P4",
+      "package": "./marks",
+      "tests": ["TestShapeForPinsLayoutsUntilFacetDispose", "TestShapeForReplacesPriorFacetLeaseSet"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p4-text-lease-v1"
+    },
+    {
+      "id": "P4.text-lease-lifecycle.race",
+      "phase": "P4",
+      "package": "./marks",
+      "tests": ["TestShapeForPinsLayoutsUntilFacetDispose", "TestShapeForReplacesPriorFacetLeaseSet"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p4-text-lease-v1"
+    },
+    {
       "id": "P4.resource-policy.host",
       "phase": "P4",
       "package": "./runtime",
-      "tests": ["TestDefaultResourceProfiles", "TestResourcePolicyRejectsUnreservedTextGrowth", "TestResourcePolicyRejectsUninitializedPlan"],
+      "tests": ["TestDefaultResourceProfiles", "TestResourcePolicyRejectsUnreservedTextGrowth", "TestResourcePolicyRejectsUninitializedPlan", "TestRuntimeRejectsFontWalletOutsideResourcePlan"],
       "mode": "host", "tags": [], "backend": "software", "required": true,
       "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
       "fixture": "p4-resource-policy-v1"
@@ -248,7 +266,7 @@
       "id": "P4.resource-policy.race",
       "phase": "P4",
       "package": "./runtime",
-      "tests": ["TestDefaultResourceProfiles", "TestResourcePolicyRejectsUnreservedTextGrowth", "TestResourcePolicyRejectsUninitializedPlan"],
+      "tests": ["TestDefaultResourceProfiles", "TestResourcePolicyRejectsUnreservedTextGrowth", "TestResourcePolicyRejectsUninitializedPlan", "TestRuntimeRejectsFontWalletOutsideResourcePlan"],
       "mode": "race", "tags": [], "backend": "software", "required": true,
       "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
       "fixture": "p4-resource-policy-v1"

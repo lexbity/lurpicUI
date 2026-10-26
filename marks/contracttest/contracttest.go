@@ -50,11 +50,7 @@ func NewTextService(registry *text.FontRegistry) *text.Service {
 	if registry == nil {
 		return nil
 	}
-	wallet, err := membudget.NewWallet(membudget.DefaultPlan(membudget.Standard).Caps[membudget.Text])
-	if err != nil {
-		panic(err)
-	}
-	service, err := text.NewService(registry, wallet, text.DefaultLimits(membudget.Standard))
+	service, err := text.NewService(registry, text.DefaultLimits(membudget.Standard))
 	if err != nil {
 		panic(err)
 	}

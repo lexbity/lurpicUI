@@ -493,7 +493,7 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 	proj.entryKinds = make([]paginationChildKind, 0, len(visible))
 	proj.entryIndices = make([]int, 0, len(visible))
 	proj.entryLabels = make([]string, 0, len(visible))
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &p.Facet)
 	totalW := float32(0)
 	maxH := float32(0)
 	for i, child := range visible {
@@ -580,7 +580,7 @@ func (p *Pagination) measureChildSize(ctx facet.MeasureContext, constraints face
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := resolved.TextStyle(theme.TextLabelM)
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.TransientShaperFor(ctx.Runtime, ctx.ContentScale)
 	content := childLabelForKind(p, kind, index, label)
 	layout := (*text.TextLayout)(nil)
 	if shaper != nil && content != "" {

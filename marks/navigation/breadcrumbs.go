@@ -249,7 +249,7 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	b.cachedCurrentStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedSeparatorStyle = resolved.TextStyle(theme.TextLabelM)
 
-	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale, &b.Facet)
 	if shaper == nil {
 		b.cachedLabelLayouts = nil
 		b.cachedSeparatorLayout = nil

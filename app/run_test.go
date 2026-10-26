@@ -540,7 +540,6 @@ func restoreHooks(t *testing.T) {
 	t.Helper()
 	oldNewPlatformApp := newPlatformApp
 	oldNewBackend := newBackend
-	oldNewFontRegistry := newFontRegistry
 	oldNewRuntime := newRuntime
 	oldPrimeRuntime := primeRuntime
 	oldRunRuntime := runRuntime
@@ -548,7 +547,6 @@ func restoreHooks(t *testing.T) {
 	t.Cleanup(func() {
 		newPlatformApp = oldNewPlatformApp
 		newBackend = oldNewBackend
-		newFontRegistry = oldNewFontRegistry
 		newRuntime = oldNewRuntime
 		primeRuntime = oldPrimeRuntime
 		runRuntime = oldRunRuntime

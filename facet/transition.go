@@ -150,6 +150,7 @@ func Dispose(f FacetImpl) {
 			role.onDispose(base)
 		}
 		frame.impl.OnDetach()
+		base.ReleaseTextLeases()
 		base.releaseSubscriptions()
 		base.releaseStoreScope()
 		base.releaseTestID()

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/internal/membudget"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 func TestDefaultResourceProfiles(t *testing.T) {
@@ -31,5 +32,23 @@ func TestResourcePolicyRejectsUnreservedTextGrowth(t *testing.T) {
 func TestResourcePolicyRejectsUninitializedPlan(t *testing.T) {
 	if err := (ResourcePolicy{}).Validate(); err == nil {
 		t.Fatal("zero policy was accepted as an implicit unlimited/default plan")
+	}
+}
+
+func TestRuntimeRejectsFontWalletOutsideResourcePlan(t *testing.T) {
+	policy := DefaultResourcePolicy(membudget.Compact)
+	wallet, err := membudget.NewWallet(policy.Plan.Caps[membudget.Text])
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := text.NewFontRegistry(wallet, policy.TextLimits.MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer registry.Close()
+	config := DefaultConfig()
+	config.FontRegistry = registry
+	if _, err := New(config, nil, nil, nil, nil); err == nil {
+		t.Fatal("runtime accepted a compact registry under the standard plan")
 	}
 }

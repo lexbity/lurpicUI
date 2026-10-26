@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/icon"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
@@ -267,10 +268,16 @@ func submitCommands(t *testing.T, surface *testkit.MemorySurface, bounds gfx.Rec
 
 func mustPrimitiveTextRegistry(t *testing.T) *text.FontRegistry {
 	t.Helper()
-	reg, err := text.NewFontRegistry()
+	limits := text.DefaultLimits(membudget.Standard)
+	wallet, err := membudget.NewWallet(128 << 20)
 	if err != nil {
-		t.Fatalf("new font registry: %v", err)
+		t.Fatal(err)
 	}
+	reg, err := text.NewFontRegistry(wallet, limits.MaxFontFaces)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reg.Close() })
 	if err := reg.LoadFontBytes(testkit.TestFontBytes(), "NotoSans-Regular.ttf"); err != nil {
 		t.Fatalf("load font: %v", err)
 	}

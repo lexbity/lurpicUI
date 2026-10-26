@@ -85,65 +85,76 @@ type cacheEntry struct {
 // Service serializes access to one reusable shaping engine and owns its
 // immutable layout cache. Callers release leases when replacing a layout.
 type Service struct {
-	mu                sync.Mutex
-	registry          *FontRegistry
-	shaper            *Shaper
-	wallet            *membudget.Wallet
-	limits            Limits
-	entries           map[string]*cacheEntry
-	lru               list.List
-	cacheBytes        uint64
-	cacheGlyphEntries int
-	closed            bool
-	runtimeBound      bool
-	hits, misses      uint64
+	mu                 sync.Mutex
+	registry           *FontRegistry
+	shaper             *Shaper
+	wallet             *membudget.Wallet
+	limits             Limits
+	entries            map[string]*cacheEntry
+	lru                list.List
+	cacheBytes         uint64
+	cacheGlyphEntries  int
+	fontRegistryClosed bool
+	closed             bool
+	runtimeBound       bool
+	hits, misses       uint64
 }
 
 // ShapeSession binds one immutable content scale to a runtime-owned service.
 // It is a value request context; it does not change shared service state.
 type ShapeSession struct {
-	service *Service
-	scale   float32
+	service    *Service
+	scale      float32
+	leaseOwner LayoutLeaseOwner
 }
 
-func (s *Service) AtScale(scale float32) (*ShapeSession, error) {
+// LayoutLeaseOwner retains service-produced layouts for the same lifetime as
+// their runtime owner. It is implemented by the facet root without coupling
+// text to the runtime package.
+type LayoutLeaseOwner interface {
+	KeepTextLease(*LayoutLease)
+}
+
+func (s *Service) AtScale(scale float32, owner LayoutLeaseOwner) (*ShapeSession, error) {
 	if s == nil {
 		return nil, errors.New("text: nil service")
 	}
 	if !finite(scale) || scale <= 0 {
 		return nil, errors.New("text: scale must be finite and positive")
 	}
-	return &ShapeSession{service: s, scale: scale}, nil
+	return &ShapeSession{service: s, scale: scale, leaseOwner: owner}, nil
 }
 
 func (s *ShapeSession) ShapeSimple(content string, style TextStyle) *TextLayout {
-	l, err := s.service.ShapeSimple(content, style, s.scale)
-	if err != nil {
-		panic(err)
-	}
-	return l
+	return s.shape(ShapeRequest{Content: content, Style: style, Scale: s.scale})
 }
 func (s *ShapeSession) ShapeTruncated(content string, style TextStyle, width float32) *TextLayout {
-	l, err := s.service.ShapeTruncated(content, style, width, s.scale)
-	if err != nil {
-		panic(err)
-	}
-	return l
+	return s.shape(ShapeRequest{Content: content, Style: style, MaxWidth: width, Scale: s.scale, Overflow: OverflowTruncate})
 }
 func (s *ShapeSession) Shape(p Paragraph) *TextLayout {
-	l, err := s.service.ShapeParagraph(p, s.scale)
+	return s.shape(ShapeRequest{Paragraph: &p, Scale: s.scale, MaxWidth: p.MaxWidth, Direction: p.Direction, Alignment: p.Alignment, Overflow: OverflowWrap})
+}
+
+func (s *ShapeSession) shape(request ShapeRequest) *TextLayout {
+	if s == nil || s.service == nil {
+		panic("text: shape session is nil")
+	}
+	lease, err := s.service.Shape(request)
 	if err != nil {
 		panic(err)
 	}
-	return l
+	if s.leaseOwner != nil {
+		s.leaseOwner.KeepTextLease(lease)
+		return lease.Layout
+	}
+	layout := lease.Layout
+	lease.Release()
+	return layout
 }
 
-func NewService(registry *FontRegistry, wallet *membudget.Wallet, limits Limits) (*Service, error) {
+func NewService(registry *FontRegistry, limits Limits) (*Service, error) {
 	if registry == nil {
 		return nil, errors.New("text: font registry is required")
-	}
-	if wallet == nil {
-		return nil, errors.New("text: text wallet is required")
 	}
 	if limits.MaxSourceBytes <= 0 || limits.MaxGlyphs <= 0 || limits.MaxLines <= 0 || limits.MaxParagraphSpans <= 0 || limits.MaxLayouts <= 0 || limits.MaxGlyphEntries <= 0 || limits.MaxFontFaces <= 0 {
 		return nil, errors.New("text: all service limits must be positive")
@@ -154,7 +165,7 @@ func NewService(registry *FontRegistry, wallet *membudget.Wallet, limits Limits)
 	if err := registry.setFaceLimit(limits.MaxFontFaces); err != nil {
 		return nil, err
 	}
-	return &Service{registry: registry, shaper: newShaper(registry), wallet: wallet, limits: limits, entries: make(map[string]*cacheEntry)}, nil
+	return &Service{registry: registry, shaper: newShaper(registry), wallet: registry.wallet, limits: limits, entries: make(map[string]*cacheEntry)}, nil
 }
 
 // LayoutLease pins one immutable cached layout until Release.
@@ -185,6 +196,7 @@ func (l *LayoutLease) Release() {
 			s.cacheGlyphEntries -= l.entry.glyphs
 			l.entry.layout = nil
 			_ = l.entry.charge.Release()
+			s.releaseFontChargeIfClosedLocked()
 		}
 	}
 	l.Layout = nil
@@ -426,7 +438,18 @@ func (s *Service) Close() error {
 		}
 		el = prev
 	}
+	s.releaseFontChargeIfClosedLocked()
 	return nil
+}
+
+func (s *Service) releaseFontChargeIfClosedLocked() {
+	if !s.closed || len(s.entries) != 0 || s.fontRegistryClosed {
+		return
+	}
+	if err := s.registry.close(); err != nil {
+		panic(fmt.Errorf("text: close font registry: %w", err))
+	}
+	s.fontRegistryClosed = true
 }
 
 func (s *Service) Stats() (hits, misses uint64, entries int, cacheBytes uint64) {

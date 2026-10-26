@@ -58,9 +58,7 @@ type e2Control struct {
 func newE2Control(themeCtx theme.ResolvedContext, service *text.Service, label string) *e2Control {
 	c := &e2Control{color: gfx.ColorFromRGBA8(60, 120, 220, 255), label: label}
 	c.Facet = facet.NewFacet()
-	if service != nil {
-		c.shaper, _ = service.AtScale(1)
-	}
+	c.shaper = marks.ShapeForService(service, 1, &c.Facet)
 	c.style = themeCtx.TextStyle(theme.TextLabelM)
 	c.layout = facet.LayoutRole{ //lurpiclint:ignore LL001 -- bespoke exhibition leaf mark: a fixed-size base-layer control; no built-in layout container matches
 		OnMeasure: func(_ facet.MeasureContext, cst facet.Constraints) facet.MeasureResult {
@@ -143,9 +141,7 @@ func newOverlayBox(fill gfx.Color, label string, themeCtx theme.ResolvedContext,
 		o.size = size[0]
 	}
 	o.Facet = facet.NewFacet()
-	if service != nil {
-		o.shaper, _ = service.AtScale(1)
-	}
+	o.shaper = marks.ShapeForService(service, 1, &o.Facet)
 	o.style = themeCtx.TextStyle(theme.TextLabelS)
 	o.textCl = themeCtx.Color(theme.ColorText)
 	o.layout = facet.LayoutRole{ //lurpiclint:ignore LL001 -- bespoke share leaf mark: a fill/layer box sized by its layer policy
