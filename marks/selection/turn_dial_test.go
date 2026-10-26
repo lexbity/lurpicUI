@@ -300,13 +300,15 @@ func AssertTurnDialGolden(t *testing.T, name string, tokens theme.Tokens, densit
 }
 
 func newTurnDialTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*TurnDial, sliderRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.NewResolvedContext(tokens).WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	td := NewTurnDial("Label", 0, 100, 1, store.NewValueStore(float64(0)))
+	td := NewTurnDial(scope, "Label", 0, 100, 1, store.NewValueStore(scope, float64(0)))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return td, rt, resolved
 }
@@ -316,11 +318,13 @@ func darkSliderTokens() theme.Tokens {
 }
 
 func TestTurnDialValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[float64](
 		t,
-		func() *store.ValueStore[float64] { return store.NewValueStore(float64(0)) },
+		func() *store.ValueStore[float64] { return store.NewValueStore(scope, float64(0)) },
 		func(s *store.ValueStore[float64]) facet.FacetImpl {
-			return NewTurnDial("test", 0, 100, 1, s)
+			return NewTurnDial(scope, "test", 0, 100, 1, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*TurnDial).adjustValue(42)

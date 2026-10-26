@@ -9,9 +9,11 @@ import (
 )
 
 func TestNavDrawer_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
 		func() facet.FacetImpl {
-			return NewNavDrawer("label", nil, store.NewValueStore(false), store.NewValueStore(0))
+			return NewNavDrawer(scope, "label", nil, store.NewValueStore(scope, false), store.NewValueStore(scope, 0))
 		},
 		func(facet.FacetImpl) {},
 	)

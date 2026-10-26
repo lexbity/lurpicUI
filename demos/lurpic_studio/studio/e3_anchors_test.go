@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // assertAnchoredOverlay verifies the E3 geometry contract: popovers sit below
@@ -37,8 +38,9 @@ func TestE3_anchorTracking(t *testing.T) {
 	themeCtx := StudioThemeContext()
 	reg, _ := StudioLayerRegistry()
 	ids := studioLayersFrom(reg)
-	e3 := NewAnchorsFacet(testkit.TestFontRegistry(t), themeCtx, ids)
-	h := newStudioHarness(t, 800, 600, e3)
+	scope := store.NewScope()
+	e3 := NewAnchorsFacet(scope, testkit.TestFontRegistry(t), themeCtx, ids)
+	h := newStudioHarness(t, scope, 800, 600, e3)
 	h.RunFrame()
 	h.RunFrame()
 
@@ -108,8 +110,9 @@ func TestE3Drag_draggingTriggerMovesPopovers(t *testing.T) {
 	themeCtx := StudioThemeContext()
 	reg, _ := StudioLayerRegistry()
 	ids := studioLayersFrom(reg)
-	e3 := NewAnchorsFacet(testkit.TestFontRegistry(t), themeCtx, ids)
-	h := newStudioHarness(t, 800, 600, e3)
+	scope := store.NewScope()
+	e3 := NewAnchorsFacet(scope, testkit.TestFontRegistry(t), themeCtx, ids)
+	h := newStudioHarness(t, scope, 800, 600, e3)
 	h.RunFrame()
 	h.RunFrame()
 

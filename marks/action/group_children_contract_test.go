@@ -19,9 +19,11 @@ func TestActionBar_contract_group_children(t *testing.T) {
 }
 
 func TestRibbon_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
 		func() facet.FacetImpl {
-			return NewRibbon("label", []RibbonSection{{Key: "home", Label: "Home"}}, nil)
+			return NewRibbon(scope, "label", []RibbonSection{{Key: "home", Label: "Home"}}, nil)
 		},
 		func(facet.FacetImpl) {},
 	)
@@ -39,9 +41,11 @@ func TestToolbar_contract_group_children(t *testing.T) {
 }
 
 func TestCommandPalette_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
 		func() facet.FacetImpl {
-			return NewCommandPalette(marks.Const("label"), nil, store.NewValueStore(true))
+			return NewCommandPalette(scope, marks.Const("label"), nil, store.NewValueStore(scope, true))
 		},
 		func(facet.FacetImpl) {},
 	)

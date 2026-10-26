@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"fmt"
 	"sort"
 
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -29,6 +30,9 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 	if root == nil {
 		return
 	}
+	if err := rt.validateFacetStoreScopes(root); err != nil {
+		panic(err)
+	}
 	facet.Attach(root, facet.AttachContext{
 		Runtime: rt,
 		Assets:  facet.AssetServices{Manager: rt.assetManager},
@@ -39,6 +43,36 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 		panic("runtime: read export declaration changed after startup: " + err.Error())
 	}
 	rt.subscribeLayerMounts(root)
+}
+
+func (rt *Runtime) validateFacetStoreScopes(root facet.FacetImpl) error {
+	stack := []facet.FacetImpl{root}
+	for len(stack) > 0 {
+		impl := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if impl == nil || impl.Base() == nil {
+			continue
+		}
+		base := impl.Base()
+		if owned := base.StoreScope(); owned != nil && !rt.config.StoreScope.Owns(owned) {
+			return fmt.Errorf("runtime: facet %d reactive scope is outside the configured application scope", base.ID())
+		}
+		if base.IsLayer() {
+			if mount := base.LayerAttachment().Mount; mount != nil && !rt.config.StoreScope.Owns(mount.OwnerScope()) {
+				return fmt.Errorf("runtime: facet %d layer mount store is outside the configured application scope", base.ID())
+			}
+		}
+		for _, child := range base.Children() {
+			if child != nil {
+				if childImpl := child.Impl(); childImpl != nil {
+					stack = append(stack, childImpl)
+				} else {
+					stack = append(stack, child)
+				}
+			}
+		}
+	}
+	return nil
 }
 
 // subscribeLayerMounts wires every layer-attached facet's Mount store into the

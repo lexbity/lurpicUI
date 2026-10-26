@@ -9,13 +9,16 @@ import (
 )
 
 func TestTransaction_deferCall_order_and_nil_safe(t *testing.T) {
-	tx := &Transaction{}
+	scope := NewScope()
+	defer scope.Close()
+	tx := Begin(scope)
 	var got []string
 
 	tx.deferCall(nil)
 	tx.deferCall(func() { got = append(got, "first") })
 	tx.deferCall(func() { got = append(got, "second") })
 	tx.Commit()
+	scope.FlushSignals()
 
 	want := []string{"first", "second"}
 	if len(got) != len(want) {
@@ -29,8 +32,10 @@ func TestTransaction_deferCall_order_and_nil_safe(t *testing.T) {
 }
 
 func TestTransaction_defers_signals_until_commit(t *testing.T) {
-	s := NewValueStore(1)
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 1)
+	tx := Begin(scope)
 	called := 0
 	s.OnChange.Subscribe(func(signal.Change[int]) { called++ })
 
@@ -40,15 +45,21 @@ func TestTransaction_defers_signals_until_commit(t *testing.T) {
 	}
 
 	tx.Commit()
+	if called != 0 {
+		t.Fatalf("called before signal boundary = %d", called)
+	}
+	scope.FlushSignals()
 	if called != 1 {
 		t.Fatalf("called after commit = %d", called)
 	}
 }
 
 func TestTransaction_signals_fire_in_mutation_order(t *testing.T) {
-	a := NewValueStore(1)
-	b := NewValueStore(2)
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	b := NewValueStore(scope, 2)
+	tx := Begin(scope)
 	var got []string
 	a.OnChange.Subscribe(func(signal.Change[int]) {
 		got = append(got, "a")
@@ -60,6 +71,7 @@ func TestTransaction_signals_fire_in_mutation_order(t *testing.T) {
 	a.SetTx(10, tx)
 	b.SetTx(20, tx)
 	tx.Commit()
+	scope.FlushSignals()
 
 	want := []string{"a", "b"}
 	if len(got) != len(want) {
@@ -73,8 +85,10 @@ func TestTransaction_signals_fire_in_mutation_order(t *testing.T) {
 }
 
 func TestTransaction_rollback_discards_mutations(t *testing.T) {
-	s := NewValueStore(1)
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 1)
+	tx := Begin(scope)
 	called := 0
 	s.OnChange.Subscribe(func(signal.Change[int]) { called++ })
 
@@ -90,20 +104,25 @@ func TestTransaction_rollback_discards_mutations(t *testing.T) {
 }
 
 func TestTransaction_mutations_staged(t *testing.T) {
-	s := NewValueStore(1)
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 1)
+	tx := Begin(scope)
 	s.SetTx(2, tx)
 	if got := s.Get(); got != 1 {
 		t.Fatalf("got %d, expected staged value of 1", got)
 	}
 	tx.Commit()
+	scope.FlushSignals()
 	if got := s.Get(); got != 2 {
 		t.Fatalf("got %d, expected committed value of 2", got)
 	}
 }
 
 func TestTransaction_commit_after_commit_panics(t *testing.T) {
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	tx := Begin(scope)
 	tx.Commit()
 	defer func() {
 		if recover() == nil {
@@ -114,9 +133,11 @@ func TestTransaction_commit_after_commit_panics(t *testing.T) {
 }
 
 func TestTransaction_multi_store_atomic(t *testing.T) {
-	a := NewValueStore(1)
-	b := NewValueStore(2)
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	b := NewValueStore(scope, 2)
+	tx := Begin(scope)
 	var got []string
 	a.OnChange.Subscribe(func(signal.Change[int]) {
 		got = append(got, "a")
@@ -134,6 +155,7 @@ func TestTransaction_multi_store_atomic(t *testing.T) {
 	a.SetTx(10, tx)
 	b.SetTx(20, tx)
 	tx.Commit()
+	scope.FlushSignals()
 
 	want := []string{"a", "b"}
 	if len(got) != len(want) {
@@ -146,35 +168,27 @@ func TestTransaction_multi_store_atomic(t *testing.T) {
 	}
 }
 
-func TestSignalQueueHook_defers_until_invoked_and_nil_restores_immediate(t *testing.T) {
-	var queued []func()
-	SetSignalQueueHook(func(fn func()) {
-		queued = append(queued, fn)
-	})
-	defer SetSignalQueueHook(nil)
-
+func TestScopeQueueSignal_defers_until_signal_boundary(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	called := 0
-	enqueueSignal(func() { called++ })
+	scope.QueueSignal(func() { called++ })
 	if called != 0 {
 		t.Fatalf("called before flushing queue = %d", called)
 	}
-	if len(queued) != 1 {
-		t.Fatalf("queued = %d", len(queued))
+	if queued := scope.FlushSignals(); queued != 1 {
+		t.Fatalf("queued = %d", queued)
 	}
-	queued[0]()
 	if called != 1 {
 		t.Fatalf("called after flush = %d", called)
 	}
 
-	SetSignalQueueHook(nil)
-	enqueueSignal(func() { called++ })
-	if called != 2 {
-		t.Fatalf("called after restore = %d", called)
-	}
 }
 
 func TestTransaction_commit_is_atomic_under_concurrent_access(t *testing.T) {
-	tx := &Transaction{}
+	scope := NewScope()
+	defer scope.Close()
+	tx := Begin(scope)
 	var successes atomic.Int64
 	var panics atomic.Int64
 	var wg sync.WaitGroup

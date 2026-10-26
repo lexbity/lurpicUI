@@ -9,14 +9,18 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func TestProgressBarMeasureProjectAnchorsAndAccessibility(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bar := newProgressBarFixture()
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, badgeTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, badgeTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(badgeTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -103,13 +107,15 @@ func TestProgressBarGoldenRTL(t *testing.T) {
 }
 
 func AssertProgressBarGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*ProgressBar)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	bar := newProgressBarFixture()
 	if mutate != nil {
 		mutate(bar)
 	}
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, density, direction)

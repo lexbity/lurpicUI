@@ -69,9 +69,10 @@ var _ marks.Mark = (*TurnDial)(nil)
 // When value is nil the dial creates an internal store seeded at the
 // normalized minimum and owns its truth; an injected store is bound, never
 // copied (RX-2 Q2) — Store() exposes the live store either way.
-func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[float64]) *TurnDial {
+func NewTurnDial(ownerScope *store.Scope, label string, min, max, step float64, value *store.ValueStore[float64]) *TurnDial {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore(math.Min(min, max))
+		value = store.NewValueStore(ownedScope, math.Min(min, max))
 	}
 	td := &TurnDial{
 		Activated: signal.NewSignal[signal.Unit]("turn_dial.activated"),
@@ -85,6 +86,7 @@ func NewTurnDial(label string, min, max, step float64, value *store.ValueStore[f
 		DialSize:  72,
 	}
 	td.Facet = facet.NewFacet()
+	td.Facet.OwnStoreScope(ownedScope)
 
 	td.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,

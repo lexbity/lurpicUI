@@ -24,10 +24,12 @@ func newIntegrationTabs(t *testing.T, active *store.ValueStore[int]) *Tabs {
 }
 
 func TestTabsIntegration_ClickActivatesTab(t *testing.T) {
-	active := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	active := store.NewValueStore(scope, 0)
 	tabs := newIntegrationTabs(t, active)
 
-	h := testkit.NewStandardHarness(t, 480, 200, tabs)
+	h := testkit.NewStandardHarness(t, scope, 480, 200, tabs)
 	testkit.Warmup(h)
 
 	tab := tabs.cachedTabBounds[1]
@@ -45,10 +47,12 @@ func TestTabsIntegration_ClickActivatesTab(t *testing.T) {
 }
 
 func TestTabsIntegration_KeyRightActivatesNextTab(t *testing.T) {
-	active := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	active := store.NewValueStore(scope, 0)
 	tabs := newIntegrationTabs(t, active)
 
-	h := testkit.NewStandardHarness(t, 480, 200, tabs)
+	h := testkit.NewStandardHarness(t, scope, 480, 200, tabs)
 	h.Runtime().SetFocus(tabs)
 	h.RunFrame()
 
@@ -64,8 +68,10 @@ func TestTabsIntegration_KeyRightActivatesNextTab(t *testing.T) {
 }
 
 func TestTabsIntegration_TabKeyTraversesFocus(t *testing.T) {
-	activeA := store.NewValueStore(0)
-	activeB := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	activeA := store.NewValueStore(scope, 0)
+	activeB := store.NewValueStore(scope, 0)
 	tabsA := newIntegrationTabs(t, activeA)
 	tabsB := newIntegrationTabs(t, activeB)
 
@@ -74,7 +80,7 @@ func TestTabsIntegration_TabKeyTraversesFocus(t *testing.T) {
 	col.Add(layout.Fixed(tabsA))
 	col.Add(layout.Fixed(tabsB))
 
-	h := testkit.NewStandardHarness(t, 480, 440, col)
+	h := testkit.NewStandardHarness(t, scope, 480, 440, col)
 	rt := h.Runtime()
 	rt.SetFocus(tabsA)
 	h.RunFrame()
@@ -92,9 +98,11 @@ func TestTabsIntegration_TabKeyTraversesFocus(t *testing.T) {
 }
 
 func TestTabsIntegration_TabVisitsEachInOrder(t *testing.T) {
-	tabsA := newIntegrationTabs(t, store.NewValueStore(0))
-	tabsB := newIntegrationTabs(t, store.NewValueStore(0))
-	tabsC := newIntegrationTabs(t, store.NewValueStore(0))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tabsA := newIntegrationTabs(t, store.NewValueStore(scope, 0))
+	tabsB := newIntegrationTabs(t, store.NewValueStore(scope, 0))
+	tabsC := newIntegrationTabs(t, store.NewValueStore(scope, 0))
 
 	// Record every focus-gained transition, chaining the mark's own handler.
 	// OnFocusGained fires once per transition (synchronously from
@@ -119,7 +127,7 @@ func TestTabsIntegration_TabVisitsEachInOrder(t *testing.T) {
 	col.Add(layout.Fixed(tabsB))
 	col.Add(layout.Fixed(tabsC))
 
-	h := testkit.NewStandardHarness(t, 480, 560, col)
+	h := testkit.NewStandardHarness(t, scope, 480, 560, col)
 	rt := h.Runtime()
 	rt.SetFocus(tabsA)
 	h.RunFrame()

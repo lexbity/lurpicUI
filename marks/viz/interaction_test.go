@@ -11,9 +11,11 @@ import (
 )
 
 func TestScreenToData_round_trip_scatter(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 	s := rs.Get()
 
 	layer := facet.ProjectionLayer{
@@ -38,9 +40,11 @@ func TestScreenToData_round_trip_scatter(t *testing.T) {
 }
 
 func TestScreenToData_with_pan_zoom(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 	s := rs.Get()
 
 	layer := facet.ProjectionLayer{
@@ -71,9 +75,11 @@ func TestScreenToData_with_pan_zoom(t *testing.T) {
 }
 
 func TestScreenToDataY_round_trip(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 	s := rs.Get()
 
 	layer := facet.ProjectionLayer{

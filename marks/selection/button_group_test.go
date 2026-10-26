@@ -213,6 +213,7 @@ func TestButtonGroupStoreInvalidation(t *testing.T) {
 		t.Fatalf("expected one tracked store version, got %d", len(initial))
 	}
 	bg.Value.Set([]string{"test-item-2"})
+	bg.Value.OwnerScope().FlushSignals()
 	if flags := bg.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -324,21 +325,25 @@ func renderButtonGroupToSurface(t *testing.T, bg *ButtonGroup, rt sliderRuntimeS
 }
 
 func newButtonGroupTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*ButtonGroup, sliderRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	bg := NewButtonGroup("Choices", nil, store.NewValueStore[[]string](nil))
+	bg := NewButtonGroup(scope, "Choices", nil, store.NewValueStore[[]string](scope, nil))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return bg, rt, resolved
 }
 
 func TestButtonGroupValueSurvivesDispose(t *testing.T) {
-	s := store.NewValueStore[[]string](nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore[[]string](scope, nil)
 
-	m := NewButtonGroup("test", []ButtonGroupOption{{Key: "a", Label: "A"}}, s)
+	m := NewButtonGroup(scope, "test", []ButtonGroupOption{{Key: "a", Label: "A"}}, s)
 	facet.Attach(m, facet.AttachContext{Runtime: sliderRuntimeStub{}})
 	m.SetSelectedKeys("a")
 
@@ -349,7 +354,7 @@ func TestButtonGroupValueSurvivesDispose(t *testing.T) {
 
 	facet.Dispose(m)
 
-	m2 := NewButtonGroup("test", []ButtonGroupOption{{Key: "a", Label: "A"}}, s)
+	m2 := NewButtonGroup(scope, "test", []ButtonGroupOption{{Key: "a", Label: "A"}}, s)
 	facet.Attach(m2, facet.AttachContext{Runtime: sliderRuntimeStub{}})
 	got := s.Get()
 	if !reflect.DeepEqual(got, want) {

@@ -162,6 +162,42 @@
       "mode": "race", "tags": [], "backend": "software", "required": true,
       "repetitions": 1, "test_budget_ms": 180000, "package_timeout_ms": 1200000,
       "fixture": "studio-determinism-v1"
+    },
+    {
+      "id": "P2.store-scope.host",
+      "phase": "P2",
+      "package": "./store",
+      "tests": ["TestScopeCloseUnsubscribesAncestorSources", "TestScopeThousandReactiveChildCyclesReturnToBaseline", "TestScopeCloseFencesQueuedSignals", "TestRootScopeFlushesDescendantSignalsAndDerivedWork", "TestClosedScopeRejectsReactiveValueUse", "TestScopeFlushVisitsOnlyDirtyDerivedGraph", "TestScopeRejectsForeignAndSiblingSources", "TestScopeRejectsUndeclaredDerivedReads", "TestScopeSubscriptionSlotGeneration", "TestScopeBindsToOneRuntimeIdentity"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p2-reactive-scope-v1"
+    },
+    {
+      "id": "P2.store-scope.race",
+      "phase": "P2",
+      "package": "./store",
+      "tests": ["TestScopeCloseUnsubscribesAncestorSources", "TestScopeThousandReactiveChildCyclesReturnToBaseline", "TestScopeCloseFencesQueuedSignals", "TestRootScopeFlushesDescendantSignalsAndDerivedWork", "TestClosedScopeRejectsReactiveValueUse", "TestScopeFlushVisitsOnlyDirtyDerivedGraph", "TestScopeRejectsForeignAndSiblingSources", "TestScopeRejectsUndeclaredDerivedReads", "TestScopeSubscriptionSlotGeneration", "TestScopeBindsToOneRuntimeIdentity"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p2-reactive-scope-v1"
+    },
+    {
+      "id": "P2.runtime-isolation.host",
+      "phase": "P2",
+      "package": "./runtime",
+      "tests": ["TestTwoRuntimeScopesCloseIndependently", "TestRuntimeRejectsFacetScopeOutsideApplication"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p2-reactive-runtime-v1"
+    },
+    {
+      "id": "P2.runtime-isolation.race",
+      "phase": "P2",
+      "package": "./runtime",
+      "tests": ["TestTwoRuntimeScopesCloseIndependently", "TestRuntimeRejectsFacetScopeOutsideApplication"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p2-reactive-runtime-v1"
     }
   ]
 }

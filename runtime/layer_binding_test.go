@@ -27,7 +27,7 @@ func TestRuntimeNew_primaryWindowBinding_defaulted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("freeze: %v", err)
 	}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = reg
 	root := facet.NewFacet()
 	rt, err := New(cfg, &nilApp{}, &testWindow{width: 640, height: 480}, &backendFixture{}, &root)
@@ -58,7 +58,7 @@ func TestRuntimeNew_rejects_unknown_named_windowBinding(t *testing.T) {
 	if err != nil {
 		t.Fatalf("freeze: %v", err)
 	}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = reg
 	root := facet.NewFacet()
 	if _, err := New(cfg, &nilApp{}, &testWindow{width: 640, height: 480}, &backendFixture{}, &root); err == nil {

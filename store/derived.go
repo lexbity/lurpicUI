@@ -12,24 +12,15 @@ type versionedInvalidatable interface {
 	Version() Version
 }
 
-// Derived is a read-only computed store.
-//
-// It memoizes one computed value and marks itself dirty when any source store
-// changes version. The actual recomputation still happens lazily on Get so the
-// runtime pays the cost only when a consumer asks for the value.
-//
-// Derived exposes two signals:
-//
-//   - OnChange emits after a recomputation observes a new value (inside Get,
-//     after the memoized value has been updated).
-//   - OnInvalidated emits eagerly on the clean→dirty transition, before any
-//     recomputation runs. It exists so consumers that need to react to a
-//     potential value change (bindings, RX-1 FR-2) are not forced to wait for a
-//     lazy Get to be called by somebody else — which is exactly what a
-//     projection cache hit never does.
+// Derived memoizes a computation whose complete source set is declared at
+// construction. Its owner scope schedules dirty work and owns every upstream
+// release token.
 type Derived[T any] struct {
-	version VersionSource
-	compute func() T
+	scope    *Scope
+	version  VersionSource
+	compute  func() T
+	rank     uint64
+	sequence uint64
 
 	mu             sync.RWMutex
 	value          T
@@ -37,54 +28,75 @@ type Derived[T any] struct {
 	initialized    bool
 	sourceVersions []Version
 	sources        []versionedInvalidatable
-	invalidations  []func()
+	releases       []Subscription
+	invalidations  invalidationSet
 
 	OnChange      signal.Signal[signal.Change[T]]
 	OnInvalidated signal.Signal[struct{}]
 }
 
-func NewDerived[T any](compute func() T, sources ...Invalidatable) *Derived[T] {
+// NewDerived creates a lazy derived value owned by scope. Sources must belong
+// to this scope or one of its ancestors; sibling and cross-runtime edges fail.
+func NewDerived[T any](scope *Scope, compute func() T, sources ...Invalidatable) *Derived[T] {
+	requireScope(scope)
+	if compute == nil {
+		panic("store: derived compute function is required")
+	}
 	d := &Derived[T]{
+		scope:         scope,
 		compute:       compute,
 		dirty:         true,
 		OnChange:      signal.NewSignal[signal.Change[T]]("Derived.OnChange"),
 		OnInvalidated: signal.NewSignal[struct{}]("Derived.OnInvalidated"),
 	}
-	if len(sources) > 0 {
-		d.sources = make([]versionedInvalidatable, 0, len(sources))
-		for _, src := range sources {
-			vs, ok := src.(versionedInvalidatable)
-			if !ok {
-				panic(fmt.Sprintf("store: Derived source %T does not implement Version() — all Derived sources must be versioned", src))
-			}
-			d.sources = append(d.sources, vs)
-			vs.addInvalidationTarget(d.markDirty)
+	for _, source := range sources {
+		if source == nil {
+			panic("store: nil derived source")
+		}
+		vs, ok := source.(versionedInvalidatable)
+		if !ok {
+			panic(fmt.Sprintf("store: Derived source %T does not implement Version()", source))
+		}
+		sourceScope := vs.storeScope()
+		if sourceScope == nil || !sourceScope.ancestorOf(scope) {
+			panic("store: derived dependency must be in the same scope or an ancestor")
+		}
+		d.sources = append(d.sources, vs)
+		if parent, ok := source.(interface{ scopeRank() uint64 }); ok && parent.scopeRank()+1 > d.rank {
+			d.rank = parent.scopeRank() + 1
 		}
 	}
-	registerDerived(d)
+	d.sequence = scope.registerDerived(d)
+	for _, source := range d.sources {
+		d.releases = append(d.releases, source.addInvalidationTarget(d.markDirty))
+	}
+	scope.addResource(d)
 	return d
 }
 
-// Get returns the current derived value, recomputing if dirty or stale.
-// The version snapshot is updated only after recomputation succeeds so chained
-// derived stores can tell whether they are still reading the same source state.
+// Get returns the current derived value, recomputing it when dirty.
 func (d *Derived[T]) Get() T {
-	frameDerivedEvals.Add(1)
+	d.scope.assertDerivedReadAllowed(d)
+	d.scope.recordDerivedGet(false)
 	d.mu.RLock()
 	if d.initialized && !d.dirty && !d.sourcesChangedLocked() {
 		value := d.value
 		d.mu.RUnlock()
 		return value
 	}
+	compute := d.compute
 	d.mu.RUnlock()
-
-	if d.compute == nil {
+	if compute == nil {
 		var zero T
 		return zero
 	}
 
-	frameDerivedRecomputes.Add(1)
-	next := d.compute()
+	d.scope.pushComputing(d)
+	var next T
+	func() {
+		defer d.scope.popComputing(d)
+		next = compute()
+	}()
 	d.mu.Lock()
 	old := d.value
 	d.value = next
@@ -92,26 +104,21 @@ func (d *Derived[T]) Get() T {
 	d.dirty = false
 	d.sourceVersions = d.snapshotSourceVersionsLocked()
 	d.version.Increment()
-	invalidations := append([]func(){}, d.invalidations...)
+	invalidations := d.invalidations.snapshot()
 	d.mu.Unlock()
+	d.scope.recordDerivedRecompute()
 	for _, fn := range invalidations {
-		if fn != nil {
-			fn()
-		}
+		fn()
 	}
-	enqueueSignal(func() {
+	d.scope.enqueueSignal(func() {
 		d.OnChange.Emit(signal.Change[T]{Old: old, New: next})
 	})
 	return next
 }
 
-// Peek returns the last computed value and whether the derived is dirty,
-// WITHOUT recomputing and without touching versions or cache keys (QP-9):
-// an observation must never perturb the observed frame. A dirty:true result
-// means "what you see is not what the next frame computes" — a driver that
-// needs the flushed value advances a frame (Virtual mode) or reads after the
-// next cut. Never computed (fresh derived) reports the zero value, dirty.
+// Peek returns the last computed value and whether the derived is dirty.
 func (d *Derived[T]) Peek() (T, bool) {
+	d.scope.assertUsable()
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.value, d.dirty || (d.initialized && d.sourcesChangedLocked())
@@ -119,28 +126,22 @@ func (d *Derived[T]) Peek() (T, bool) {
 
 // Version returns the version of the last computed value.
 func (d *Derived[T]) Version() Version {
+	d.scope.assertUsable()
 	return d.version.Current()
 }
 
-// markDirty flags the Derived dirty and emits OnInvalidated exactly once per
-// clean→dirty transition.
-//
-// The emission is deferred through enqueueSignal so it always runs in the
-// signal-delivery phase of the owning runtime (or immediately in unit tests
-// without a queue hook) — never from the writer's stack. N upstream writes
-// inside one dirty period coalesce into a single notification because the
-// transition is detected under the same mutex that guards the dirty flag.
-//
-// A never-initialized Derived (no Get has run) is never "clean", so a write
-// before the first Get emits nothing: there are no consumers yet, and the
-// first projection is always uncached and therefore fresh (RX-1 FR-2 corollary).
 func (d *Derived[T]) markDirty() {
 	d.mu.Lock()
 	wasClean := d.initialized && !d.dirty
 	d.dirty = true
 	d.mu.Unlock()
+	d.scope.enqueueDerived(d)
 	if wasClean {
-		enqueueSignal(func() {
+		invalidations := d.invalidations.snapshot()
+		d.scope.enqueueSignal(func() {
+			for _, fn := range invalidations {
+				fn()
+			}
 			d.OnInvalidated.Emit(struct{}{})
 		})
 	}
@@ -150,8 +151,8 @@ func (d *Derived[T]) sourcesChangedLocked() bool {
 	if len(d.sources) != len(d.sourceVersions) {
 		return true
 	}
-	for i, src := range d.sources {
-		if src.Version() != d.sourceVersions[i] {
+	for i, source := range d.sources {
+		if source.Version() != d.sourceVersions[i] {
 			return true
 		}
 	}
@@ -162,18 +163,60 @@ func (d *Derived[T]) snapshotSourceVersionsLocked() []Version {
 	if len(d.sources) == 0 {
 		return []Version{}
 	}
-	out := make([]Version, len(d.sources))
-	for i, src := range d.sources {
-		out[i] = src.Version()
+	versions := make([]Version, len(d.sources))
+	for i, source := range d.sources {
+		versions[i] = source.Version()
 	}
-	return out
+	return versions
 }
 
-func (d *Derived[T]) addInvalidationTarget(fn func()) {
-	if fn == nil {
-		return
+func (d *Derived[T]) addInvalidationTarget(fn func()) Subscription {
+	return d.invalidations.add(fn)
+}
+
+func (d *Derived[T]) storeScope() *Scope    { return d.scope }
+func (d *Derived[T]) OwnerScope() *Scope    { return d.scope }
+func (d *Derived[T]) scopeRank() uint64     { return d.rank }
+func (d *Derived[T]) scopeSequence() uint64 { return d.sequence }
+
+func (d *Derived[T]) declares(source any) bool {
+	for _, declared := range d.sources {
+		if declared == source {
+			return true
+		}
 	}
+	return false
+}
+
+func (d *Derived[T]) flushIfDirty() bool {
+	d.mu.RLock()
+	dirty := !d.initialized || d.dirty || d.sourcesChangedLocked()
+	d.mu.RUnlock()
+	if !dirty {
+		return false
+	}
+	d.Get()
+	return true
+}
+
+func (d *Derived[T]) closeScopeResource() {
 	d.mu.Lock()
-	d.invalidations = append(d.invalidations, fn)
+	for i := range d.releases {
+		d.releases[i].Release()
+	}
+	d.releases = nil
+	for i := range d.sources {
+		d.sources[i] = nil
+	}
+	d.sources = nil
+	d.sourceVersions = nil
+	d.compute = nil
+	var zero T
+	d.value = zero
+	d.initialized = false
+	d.dirty = true
+	d.invalidations.clear()
+	d.OnChange.UnsubscribeAll()
+	d.OnInvalidated.UnsubscribeAll()
 	d.mu.Unlock()
 }

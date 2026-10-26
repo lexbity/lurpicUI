@@ -84,9 +84,10 @@ var _ layout.AnchorExporter = (*Ribbon)(nil)
 var _ marks.Mark = (*Ribbon)(nil)
 
 // NewRibbon constructs an action.ribbon mark with canonical defaults.
-func NewRibbon(label string, sections []RibbonSection, activeIndex *store.ValueStore[int]) *Ribbon {
+func NewRibbon(ownerScope *store.Scope, label string, sections []RibbonSection, activeIndex *store.ValueStore[int]) *Ribbon {
+	ownedScope := ownerScope.Child()
 	if activeIndex == nil {
-		activeIndex = store.NewValueStore(0)
+		activeIndex = store.NewValueStore(ownedScope, 0)
 	}
 	r := &Ribbon{
 		Core:                marks.Core{Facet: facet.NewFacet()},
@@ -101,6 +102,7 @@ func NewRibbon(label string, sections []RibbonSection, activeIndex *store.ValueS
 		pressedToolbarIndex: -1,
 		Selected:            signal.NewSignal[int]("ribbon.selected"),
 	}
+	r.Core.Facet.OwnStoreScope(ownedScope)
 
 	r.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,

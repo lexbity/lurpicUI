@@ -10,6 +10,7 @@ import (
 func TestRuntime_signal_cycle_panics(t *testing.T) {
 	rt := mustRuntime(t)
 	defer rt.Shutdown()
+	scope := rt.config.StoreScope
 
 	// start() sets the signal queue hook so enqueueSignal queues instead of
 	// delivering recursively.
@@ -17,7 +18,7 @@ func TestRuntime_signal_cycle_panics(t *testing.T) {
 		t.Fatalf("start: %v", err)
 	}
 
-	v := store.NewValueStore(0)
+	v := store.NewValueStore(scope, 0)
 	v.OnChange.Subscribe(func(c signal.Change[int]) {
 		if c.New == 1 {
 			v.Set(2)
@@ -28,7 +29,7 @@ func TestRuntime_signal_cycle_panics(t *testing.T) {
 
 	// Queue a signal that creates a cycle: handler toggles the value,
 	// which queues another signal, which toggles again, etc.
-	rt.queueSignal(func() {
+	rt.config.StoreScope.QueueSignal(func() {
 		v.Set(1)
 	})
 

@@ -13,6 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -43,10 +45,12 @@ func (s badgeRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 }
 
 func TestBadgeMeasureProjectAnchorsAndAccessibility(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	badge := newBadgeFixture()
 	tokens := badgeTokens()
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: map[string]icon.Asset{
 			"status-dot": icon.New("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),
@@ -128,13 +132,15 @@ func TestBadgeGoldenRTL(t *testing.T) {
 }
 
 func AssertBadgeGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Badge)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	badge := newBadgeFixture()
 	if mutate != nil {
 		mutate(badge)
 	}
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: map[string]icon.Asset{
 			"status-dot": icon.New("status-dot", 1, gfx.CirclePath(gfx.Point{X: 12, Y: 12}, 6), gfx.RectFromXYWH(0, 0, 24, 24)),

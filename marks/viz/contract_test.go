@@ -12,13 +12,15 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
-func newContractLinearScale() *reactive.ReactiveScale {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	return reactive.NewLinearReactive(domain, rng)
+func newContractLinearScale(scope *store.Scope) *reactive.ReactiveScale {
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	return reactive.NewLinearReactive(scope, domain, rng)
 }
 
 func TestAxis_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	fonts := (axisGoldenRuntime{}).FontRegistry()
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
@@ -26,7 +28,7 @@ func TestAxis_contract_anchor_export(t *testing.T) {
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewAxis(newContractLinearScale(), marks.Const(AxisBottom), fonts)
+			return NewAxis(newContractLinearScale(scope), marks.Const(AxisBottom), fonts)
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			a := m.(*Axis)
@@ -50,13 +52,15 @@ func TestAxis_contract_anchor_export(t *testing.T) {
 }
 
 func TestRule_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewRule(marks.Const(50.0), RuleHorizontal, newContractLinearScale())
+			return NewRule(marks.Const(50.0), RuleHorizontal, newContractLinearScale(scope))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			r := m.(*Rule)

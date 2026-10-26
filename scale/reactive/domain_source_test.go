@@ -13,12 +13,14 @@ type testItem struct {
 }
 
 func TestDomainFromCollection_basic(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 10})
 	coll.Insert(testItem{id: 2, val: 50})
 	coll.Insert(testItem{id: 3, val: 5})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	d := domainDerived.Get()
 	if d[0] != 5 || d[1] != 50 {
 		t.Fatalf("extent = [%f,%f], want [5,50]", d[0], d[1])
@@ -26,8 +28,10 @@ func TestDomainFromCollection_basic(t *testing.T) {
 }
 
 func TestDomainFromCollection_empty(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	d := domainDerived.Get()
 	if d[0] != 0 || d[1] != 0 {
 		t.Fatalf("empty extent = [%f,%f], want [0,0]", d[0], d[1])
@@ -35,10 +39,12 @@ func TestDomainFromCollection_empty(t *testing.T) {
 }
 
 func TestDomainFromCollection_single_item(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 42})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	d := domainDerived.Get()
 	if d[0] != 42 || d[1] != 42 {
 		t.Fatalf("single extent = [%f,%f], want [42,42]", d[0], d[1])
@@ -46,11 +52,13 @@ func TestDomainFromCollection_single_item(t *testing.T) {
 }
 
 func TestDomainFromCollection_insert_updates_extent(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 10})
 	coll.Insert(testItem{id: 2, val: 50})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	domainDerived.Get()
 
 	coll.Insert(testItem{id: 3, val: 100})
@@ -61,12 +69,14 @@ func TestDomainFromCollection_insert_updates_extent(t *testing.T) {
 }
 
 func TestDomainFromCollection_remove_updates_extent(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 5})
 	coll.Insert(testItem{id: 2, val: 50})
 	coll.Insert(testItem{id: 3, val: 10})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	domainDerived.Get()
 
 	coll.Remove(1)
@@ -77,11 +87,13 @@ func TestDomainFromCollection_remove_updates_extent(t *testing.T) {
 }
 
 func TestDomainFromCollection_update_changes_extent(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 10})
 	coll.Insert(testItem{id: 2, val: 50})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	domainDerived.Get()
 
 	coll.Update(testItem{id: 2, val: 100})
@@ -92,11 +104,13 @@ func TestDomainFromCollection_update_changes_extent(t *testing.T) {
 }
 
 func TestDomainFromCollection_replace_changes_extent(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 10})
 	coll.Insert(testItem{id: 2, val: 50})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	domainDerived.Get()
 
 	coll.Replace([]testItem{
@@ -110,11 +124,13 @@ func TestDomainFromCollection_replace_changes_extent(t *testing.T) {
 }
 
 func TestDomainFromCollection_noop_update_stable(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 10})
 	coll.Insert(testItem{id: 2, val: 50})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
 	domainDerived.Get()
 
 	coll.Update(testItem{id: 1, val: 10})
@@ -125,15 +141,17 @@ func TestDomainFromCollection_noop_update_stable(t *testing.T) {
 }
 
 func TestDomainFromCollection_chained_to_reactive(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 5})
 	coll.Insert(testItem{id: 2, val: 15})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
-	rng := store.NewValueStore([2]float64{0, 500})
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
 
-	rngDerived := bridgeToDerived(rng)
-	rs := NewLinearReactiveFromDerived(domainDerived, rngDerived)
+	rngDerived := bridgeToDerived(scope, rng)
+	rs := NewLinearReactiveFromDerived(scope, domainDerived, rngDerived)
 
 	s := rs.Get()
 	if got := s.Map(10); got != 250 {
@@ -144,23 +162,27 @@ func TestDomainFromCollection_chained_to_reactive(t *testing.T) {
 	// (this triggers recompute + OnChange → ValueStore bridge update),
 	// then read the reactive scale.
 	coll.Insert(testItem{id: 3, val: 25})
+	scope.FlushSignals()
 	domainDerived.Get() // triggers OnChange → updates bridged ValueStore
-	s = rs.Get()        // reads updated domain from ValueStore
+	scope.FlushSignals()
+	s = rs.Get() // reads updated domain from ValueStore
 	if got := s.Map(10); got != 125 {
 		t.Fatalf("after insert Map(10) = %f, want 125", got)
 	}
 }
 
 func TestDomainFromCollection_chained_log_reactive(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 10})
 	coll.Insert(testItem{id: 2, val: 100})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
-	rng := store.NewValueStore([2]float64{0, 500})
-	rngDerived := bridgeToDerived(rng)
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rngDerived := bridgeToDerived(scope, rng)
 
-	rs := NewLogReactiveFromDerived(domainDerived, rngDerived, scale.WithBase(10))
+	rs := NewLogReactiveFromDerived(scope, domainDerived, rngDerived, scale.WithBase(10))
 	s := rs.Get()
 	if s.Kind() != scale.KindLog {
 		t.Fatalf("kind = %s, want KindLog", s.Kind())
@@ -168,15 +190,17 @@ func TestDomainFromCollection_chained_log_reactive(t *testing.T) {
 }
 
 func TestDomainFromCollection_chained_time_reactive(t *testing.T) {
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 0})
 	coll.Insert(testItem{id: 2, val: 1000})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
-	rng := store.NewValueStore([2]float64{0, 500})
-	rngDerived := bridgeToDerived(rng)
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rngDerived := bridgeToDerived(scope, rng)
 
-	rs := NewTimeReactiveFromDerived(domainDerived, rngDerived)
+	rs := NewTimeReactiveFromDerived(scope, domainDerived, rngDerived)
 	s := rs.Get()
 	if s.Kind() != scale.KindTime {
 		t.Fatalf("kind = %s, want KindTime", s.Kind())
@@ -184,9 +208,8 @@ func TestDomainFromCollection_chained_time_reactive(t *testing.T) {
 }
 
 // bridgeToDerived wraps a ValueStore as a Derived for use with FromDerived.
-func bridgeToDerived(vs *store.ValueStore[[2]float64]) *store.Derived[[2]float64] {
-	return store.NewDerived(
-		func() [2]float64 { return vs.Get() },
+func bridgeToDerived(scope *store.Scope, vs *store.ValueStore[[2]float64]) *store.Derived[[2]float64] {
+	return store.NewDerived(scope, func() [2]float64 { return vs.Get() },
 		vs,
 	)
 }

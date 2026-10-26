@@ -54,7 +54,7 @@ func TestRuntime_materializesOnlyTargetedLayerPolicies(t *testing.T) {
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 300, 200), color.RGBA{A: 255})
 	child := newRuntimeRenderFacet("materialized", gfx.RectFromXYWH(0, 0, 40, 20), color.RGBA{R: 255, A: 255})
 	rt, err := New(func() Config {
-		cfg := DefaultConfig()
+		cfg := testConfig(t)
 		cfg.LayerRegistry = reg
 		cfg.ThemeResolver = resolver
 		return cfg

@@ -9,11 +9,12 @@ import (
 
 // MapStore holds an observable key/value map.
 type MapStore[K comparable, V any] struct {
+	scope   *Scope
 	version VersionSource
 
 	mu            sync.RWMutex
 	entries       map[K]V
-	invalidations []func()
+	invalidations invalidationSet
 
 	onSet    signal.Signal[MapSetEvent[K, V]]
 	onDelete signal.Signal[MapDeleteEvent[K, V]]
@@ -32,17 +33,22 @@ type MapDeleteEvent[K comparable, V any] struct {
 	Value V
 }
 
-func NewMapStore[K comparable, V any]() *MapStore[K, V] {
-	return &MapStore[K, V]{
+func NewMapStore[K comparable, V any](scope *Scope) *MapStore[K, V] {
+	requireScope(scope)
+	s := &MapStore[K, V]{
+		scope:    scope,
 		entries:  make(map[K]V),
 		onSet:    signal.NewSignal[MapSetEvent[K, V]]("MapStore.onSet"),
 		onDelete: signal.NewSignal[MapDeleteEvent[K, V]]("MapStore.onDelete"),
 		onClear:  signal.NewSignal[signal.Unit]("MapStore.onClear"),
 	}
+	scope.addResource(s)
+	return s
 }
 
 // Get returns the value for a key.
 func (s *MapStore[K, V]) Get(key K) (V, bool) {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	value, ok := s.entries[key]
@@ -51,6 +57,7 @@ func (s *MapStore[K, V]) Get(key K) (V, bool) {
 
 // Has reports whether a key exists.
 func (s *MapStore[K, V]) Has(key K) bool {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	_, ok := s.entries[key]
@@ -59,6 +66,7 @@ func (s *MapStore[K, V]) Has(key K) bool {
 
 // Len returns the number of entries.
 func (s *MapStore[K, V]) Len() int {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.entries)
@@ -66,6 +74,7 @@ func (s *MapStore[K, V]) Len() int {
 
 // Snapshot returns a copy of the underlying map.
 func (s *MapStore[K, V]) Snapshot() map[K]V {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.entries) == 0 {
@@ -80,6 +89,7 @@ func (s *MapStore[K, V]) Snapshot() map[K]V {
 
 // Version returns the current store version.
 func (s *MapStore[K, V]) Version() Version {
+	s.scope.assertUsable()
 	return s.version.Current()
 }
 
@@ -117,7 +127,11 @@ func (s *MapStore[K, V]) ClearTx(tx *Transaction) {
 }
 
 func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
+	if tx != nil {
+		tx.requireScope(s.scope)
+	}
 	if tx != nil {
 		var previous V
 		var ok bool
@@ -128,7 +142,7 @@ func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
 				previous, ok = s.entries[key]
 				s.entries[key] = value
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -146,7 +160,7 @@ func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
 	previous, ok := s.entries[key]
 	s.entries[key] = value
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -157,11 +171,15 @@ func (s *MapStore[K, V]) set(key K, value V, tx *Transaction) {
 		}
 		s.onSet.Emit(MapSetEvent[K, V]{Key: key, Value: value, Previous: previous, WasNew: !ok})
 	}
-	notify()
+	s.scope.enqueueSignal(notify)
 }
 
 func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
+	if tx != nil {
+		tx.requireScope(s.scope)
+	}
 	if tx != nil {
 		var value V
 		var ok bool
@@ -178,7 +196,7 @@ func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
 				}
 				delete(s.entries, key)
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -203,7 +221,7 @@ func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
 	}
 	delete(s.entries, key)
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -214,11 +232,15 @@ func (s *MapStore[K, V]) delete(key K, tx *Transaction) {
 		}
 		s.onDelete.Emit(MapDeleteEvent[K, V]{Key: key, Value: value})
 	}
-	notify()
+	s.scope.enqueueSignal(notify)
 }
 
 func (s *MapStore[K, V]) clear(tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
+	if tx != nil {
+		tx.requireScope(s.scope)
+	}
 	if tx != nil {
 		var invalidations []func()
 		var skipped bool
@@ -232,7 +254,7 @@ func (s *MapStore[K, V]) clear(tx *Transaction) {
 				}
 				s.entries = make(map[K]V)
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -256,7 +278,7 @@ func (s *MapStore[K, V]) clear(tx *Transaction) {
 	}
 	s.entries = make(map[K]V)
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -267,14 +289,22 @@ func (s *MapStore[K, V]) clear(tx *Transaction) {
 		}
 		s.onClear.Emit(signal.Fired)
 	}
-	notify()
+	s.scope.enqueueSignal(notify)
 }
 
-func (s *MapStore[K, V]) addInvalidationTarget(fn func()) {
-	if fn == nil {
-		return
-	}
+func (s *MapStore[K, V]) addInvalidationTarget(fn func()) Subscription {
+	return s.invalidations.add(fn)
+}
+
+func (s *MapStore[K, V]) storeScope() *Scope { return s.scope }
+func (s *MapStore[K, V]) OwnerScope() *Scope { return s.scope }
+
+func (s *MapStore[K, V]) closeScopeResource() {
 	s.mu.Lock()
-	s.invalidations = append(s.invalidations, fn)
+	s.entries = nil
+	s.invalidations.clear()
+	s.onSet.UnsubscribeAll()
+	s.onDelete.UnsubscribeAll()
+	s.onClear.UnsubscribeAll()
 	s.mu.Unlock()
 }

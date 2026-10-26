@@ -25,14 +25,16 @@ type chartFixture struct {
 }
 
 func newChartFixture(t *testing.T) *chartFixture {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	f := &chartFixture{}
 
-	f.barStore = store.NewCollectionStore(barID)
-	f.ptStore = store.NewCollectionStore(scatterID)
+	f.barStore = store.NewCollectionStore(scope, barID)
+	f.ptStore = store.NewCollectionStore(scope, scatterID)
 
-	f.yDomain = store.NewValueStore([2]float64{0, 100})
-	f.yRange = store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(f.yDomain, f.yRange)
+	f.yDomain = store.NewValueStore(scope, [2]float64{0, 100})
+	f.yRange = store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, f.yDomain, f.yRange)
 
 	f.barMark = NewBar(f.barStore,
 		func(i barItem) string { return i.cat },
@@ -45,9 +47,8 @@ func newChartFixture(t *testing.T) *chartFixture {
 	f.ptMark = NewPoint(f.ptStore,
 		func(i scatterItem) float64 { return i.x },
 		func(i scatterItem) float64 { return i.y },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 10}),
-			store.NewValueStore([2]float64{0, 300}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 10}),
+			store.NewValueStore(scope, [2]float64{0, 300}),
 		),
 		yScale,
 	)

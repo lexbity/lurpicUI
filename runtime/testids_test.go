@@ -79,7 +79,7 @@ func TestTestIDRegistriesAreRuntimeScoped(t *testing.T) {
 		t.Helper()
 		root := buildBenchmarkTree()
 		root.SetTestID("shared.author.id")
-		cfg := DefaultConfig()
+		cfg := testConfig(t)
 		cfg.LayerRegistry = testLayerRegistry(t)
 		rt, err := New(cfg, nil, &testWindow{width: 100, height: 100}, &backendFixture{}, root)
 		if err != nil {

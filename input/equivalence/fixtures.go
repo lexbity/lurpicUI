@@ -25,19 +25,19 @@ import (
 // interaction differs.
 
 // fixtureHarness boots a DriveHarness over the mark root.
-func fixtureHarness(t testing.TB, root facet.FacetImpl) *Fixture {
+func fixtureHarness(t testing.TB, scope *store.Scope, root facet.FacetImpl) *Fixture {
 	t.Helper()
-	return fixtureHarnessWithRegistry(t, root, nil)
+	return fixtureHarnessWithRegistry(t, scope, root, nil)
 }
 
 // fixtureHarnessWithRegistry additionally wires the command registry (the
 // cmd.execute fixture).
-func fixtureHarnessWithRegistry(t testing.TB, root facet.FacetImpl, reg *runtime.CommandRegistry) *Fixture {
+func fixtureHarnessWithRegistry(t testing.TB, scope *store.Scope, root facet.FacetImpl, reg *runtime.CommandRegistry) *Fixture {
 	t.Helper()
 	stableIDs := assignStableFixtureIDs(root)
 	cfg := testkit.StandardHarnessConfig(t, 480, 240)
 	cfg.CommandRegistry = reg
-	h := testkit.NewDriveHarnessWithConfig(t, cfg, root)
+	h := testkit.NewDriveHarnessWithConfig(t, scope, cfg, root)
 	// Settle frame: the first projection builds the hit map (testkit's
 	// documented first-frame contract) — both corpus paths boot from the
 	// same settled state.
@@ -75,12 +75,14 @@ func assignStableFixtureIDs(root facet.FacetImpl) []string {
 // counter store (the click/move observable).
 func newButtonFixture(t testing.TB) *Fixture {
 	t.Helper()
-	clicks := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	clicks := store.NewValueStore(scope, 0)
 	btn := action.NewButton(marks.Const("OK"), marks.Const(uiinput.ButtonFilled))
 	btn.Activated.Subscribe(func(signal.Unit) {
 		clicks.Set(clicks.Get() + 1)
 	})
-	fix := fixtureHarness(t, btn)
+	fix := fixtureHarness(t, scope, btn)
 	fix.CaptureVersions(t, map[string]versionedStore{
 		"clicks": clicks,
 	})
@@ -90,9 +92,11 @@ func newButtonFixture(t testing.TB) *Fixture {
 // newSliderFixture builds a Slider over a named value store.
 func newSliderFixture(t testing.TB) *Fixture {
 	t.Helper()
-	value := store.NewValueStore(0.5)
-	slider := selection.NewSlider("Opacity", 0, 1, 0.1, value)
-	fix := fixtureHarness(t, slider)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, 0.5)
+	slider := selection.NewSlider(scope, "Opacity", 0, 1, 0.1, value)
+	fix := fixtureHarness(t, scope, slider)
 	fix.CaptureVersions(t, map[string]versionedStore{
 		"slider.value": value,
 	})
@@ -105,11 +109,13 @@ func newSliderFixture(t testing.TB) *Fixture {
 // current focus target.
 func newTextFixture(t testing.TB) *Fixture {
 	t.Helper()
-	valueA := store.NewValueStore("")
-	valueB := store.NewValueStore("")
-	fieldA := input.NewTextField("Source name", uiinput.TextInputOutlined, valueA)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	valueA := store.NewValueStore(scope, "")
+	valueB := store.NewValueStore(scope, "")
+	fieldA := input.NewTextField(scope, "Source name", uiinput.TextInputOutlined, valueA)
 	fieldA.Base().SetTestID("field-a")
-	fieldB := input.NewTextField("Target name", uiinput.TextInputOutlined, valueB)
+	fieldB := input.NewTextField(scope, "Target name", uiinput.TextInputOutlined, valueB)
 	fieldB.Base().SetTestID("field-b")
 
 	root := &twoFieldRoot{}
@@ -118,7 +124,7 @@ func newTextFixture(t testing.TB) *Fixture {
 	root.AddChild(fieldA.Base())
 	root.AddChild(fieldB.Base())
 
-	fix := fixtureHarness(t, root)
+	fix := fixtureHarness(t, scope, root)
 	if _, perr := fix.Harness.Call("input.focus", map[string]any{
 		"target": map[string]string{"testid": "field-a"},
 	}); perr != nil {
@@ -145,8 +151,10 @@ func (r *twoFieldRoot) OnDeactivate()                {}
 // newScrollFixture builds a scroll region (the scroll-observable host).
 func newScrollFixture(t testing.TB) *Fixture {
 	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	region := structure.NewScrollRegion("Feed")
-	offset := store.NewValueStore(gfx.Point{})
+	offset := store.NewValueStore(scope, gfx.Point{})
 	region.Scrolled.Subscribe(func(value gfx.Point) { offset.Set(value) })
 	children := make([]structure.ScrollRegionChild, 0, 16)
 	for i := 0; i < 16; i++ {
@@ -159,7 +167,7 @@ func newScrollFixture(t testing.TB) *Fixture {
 		})
 	}
 	region.SetChildren(children)
-	fix := fixtureHarness(t, region)
+	fix := fixtureHarness(t, scope, region)
 	fix.CaptureVersions(t, map[string]versionedStore{"scroll.offset": offset})
 	return fix
 }
@@ -171,7 +179,9 @@ func newScrollFixture(t testing.TB) *Fixture {
 // entry and callback.
 func newPaletteFixture(t testing.TB) *Fixture {
 	t.Helper()
-	toggled := store.NewValueStore(false)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	toggled := store.NewValueStore(scope, false)
 	registry := runtime.NewCommandRegistry()
 	registry.Register(runtime.CommandEntry{
 		ID:      "toggle.enabled",
@@ -185,7 +195,7 @@ func newPaletteFixture(t testing.TB) *Fixture {
 	btn.Activated.Subscribe(func(signal.Unit) {
 		registry.Execute("toggle.enabled")
 	})
-	fix := fixtureHarnessWithRegistry(t, btn, registry)
+	fix := fixtureHarnessWithRegistry(t, scope, btn, registry)
 	fix.CaptureVersions(t, map[string]versionedStore{
 		"toggled": toggled,
 	})

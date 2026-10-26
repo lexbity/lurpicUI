@@ -5,21 +5,27 @@ import (
 )
 
 func TestValueStore_mutation_during_projection_panics(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	withActiveProjectionCheck(t)
 	defer expectProjectionPanic(t)
-	s := NewValueStore(0)
+	s := NewValueStore(scope, 0)
 	s.Set(1)
 }
 
 func TestMapStore_mutation_during_projection_panics(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	withActiveProjectionCheck(t)
 	defer expectProjectionPanic(t)
-	m := NewMapStore[string, int]()
+	m := NewMapStore[string, int](scope)
 	m.Set("key", 1)
 }
 
 func TestMapStore_delete_during_projection_panics(t *testing.T) {
-	m := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	m := NewMapStore[string, int](scope)
 	m.Set("key", 1)
 	withActiveProjectionCheck(t)
 	defer expectProjectionPanic(t)
@@ -27,14 +33,18 @@ func TestMapStore_delete_during_projection_panics(t *testing.T) {
 }
 
 func TestCollectionStore_insert_during_projection_panics(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	withActiveProjectionCheck(t)
 	defer expectProjectionPanic(t)
-	c := NewCollectionStore(func(v int) ItemID { return ItemID(v) })
+	c := NewCollectionStore(scope, func(v int) ItemID { return ItemID(v) })
 	c.Insert(1)
 }
 
 func TestCollectionStore_remove_during_projection_panics(t *testing.T) {
-	c := NewCollectionStore(func(v int) ItemID { return ItemID(v) })
+	scope := NewScope()
+	defer scope.Close()
+	c := NewCollectionStore(scope, func(v int) ItemID { return ItemID(v) })
 	c.Insert(1)
 	withActiveProjectionCheck(t)
 	defer expectProjectionPanic(t)

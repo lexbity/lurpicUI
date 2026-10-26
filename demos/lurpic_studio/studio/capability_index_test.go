@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/capabilities"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // TestCapabilityIndex_catalogMatchesScan asserts FR-capindex: the demo's
@@ -154,12 +155,13 @@ func TestCapabilityIndex_tableRows(t *testing.T) {
 // exhibit area, the provenance row is visible at the top, and the table's
 // FR-7 row virtualization builds only a window of the rows (not all of them).
 func TestCapabilityIndex_rendersCatalog(t *testing.T) {
+	scope := store.NewScope()
 	root := findStudioModuleRoot()
 	if root == "" {
 		t.Skip("source tree unavailable (no go.mod found)")
 	}
-	f := NewCapabilityIndexFacet()
-	h := testkit.NewStandardHarness(t, 960, 600, f)
+	f := NewCapabilityIndexFacet(scope)
+	h := testkit.NewStandardHarness(t, scope, 960, 600, f)
 	h.RunFrame()
 
 	tbl := f.Table()
@@ -186,12 +188,13 @@ func TestCapabilityIndex_rendersCatalog(t *testing.T) {
 // table to the bottom brings the totals row into the built window (reachable
 // by scroll), and the provenance note is reachable back at the top.
 func TestCapabilityIndex_totalsReachableByScroll(t *testing.T) {
+	scope := store.NewScope()
 	root := findStudioModuleRoot()
 	if root == "" {
 		t.Skip("source tree unavailable (no go.mod found)")
 	}
-	f := NewCapabilityIndexFacet()
-	h := testkit.NewStandardHarness(t, 960, 600, f)
+	f := NewCapabilityIndexFacet(scope)
+	h := testkit.NewStandardHarness(t, scope, 960, 600, f)
 	h.RunFrame()
 
 	tbl := f.Table()

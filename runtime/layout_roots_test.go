@@ -97,10 +97,12 @@ func (nopRuntimeGroupPolicy) ArrangeGroup(facet.GroupArrangeContext, []facet.Gro
 // host re-measures the whole subtree instead of re-arranging the facet in
 // isolation.
 func TestLayoutDirtyRoots_resolvesMidTreeFacetToNearestRoot(t *testing.T) {
-	left := newStoreSizedLeaf(10, store.NewValueStore[float32](0))
-	right := newStoreSizedLeaf(20, store.NewValueStore[float32](0))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	left := newStoreSizedLeaf(10, store.NewValueStore[float32](scope, 0))
+	right := newStoreSizedLeaf(20, store.NewValueStore[float32](scope, 0))
 	host := newReactiveGroupHost(left, right)
-	rt := mustRuntimeTree(t, host)
+	rt := mustRuntimeTreeWithScope(t, scope, host)
 
 	// Mark everything dirty and run one layout pass so the tree settles.
 	rt.markTreeDirty(host, facet.DirtyLayout)
@@ -121,11 +123,13 @@ func TestLayoutDirtyRoots_resolvesMidTreeFacetToNearestRoot(t *testing.T) {
 // re-arranges it within one frame, pushing the sibling so the two never
 // overlap.
 func TestLayoutReactivity_leafGrowsRelaysParentPushesSibling(t *testing.T) {
-	extra := store.NewValueStore[float32](0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	extra := store.NewValueStore[float32](scope, 0)
 	left := newStoreSizedLeaf(9, extra)
-	right := newStoreSizedLeaf(30, store.NewValueStore[float32](0))
+	right := newStoreSizedLeaf(30, store.NewValueStore[float32](scope, 0))
 	host := newReactiveGroupHost(left, right)
-	rt := mustRuntimeTree(t, host)
+	rt := mustRuntimeTreeWithScope(t, scope, host)
 
 	rt.markTreeDirty(host, facet.DirtyLayout)
 	rt.runLayoutPass(gfx.Size{W: 400, H: 100})

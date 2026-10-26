@@ -29,11 +29,13 @@ func (s textFieldRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 func (s textFieldRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
-	tf := NewTextField("Email", uiinput.TextInputOutlined, store.NewValueStore[string](""))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tf := NewTextField(scope, "Email", uiinput.TextInputOutlined, store.NewValueStore[string](scope, ""))
 	tf.Placeholder = marks.Const("name@example.com")
 	tf.HelperText = marks.Const("We will not share this address.")
 	rt := textFieldRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -97,9 +99,11 @@ func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestTextFieldStoreChangeAndEditing(t *testing.T) {
-	tf := NewTextField("Name", uiinput.TextInputFilled, store.NewValueStore[string](""))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tf := NewTextField(scope, "Name", uiinput.TextInputFilled, store.NewValueStore[string](scope, ""))
 	rt := textFieldRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -117,6 +121,7 @@ func TestTextFieldStoreChangeAndEditing(t *testing.T) {
 	}
 
 	tf.Value.Set("Alice")
+	tf.Value.OwnerScope().FlushSignals()
 	if flags := tf.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -160,7 +165,9 @@ func TestTextFieldStoreChangeAndEditing(t *testing.T) {
 }
 
 func TestTextFieldGraphemeBackspaceDeletesWholeCluster(t *testing.T) {
-	tf := NewTextField("Name", uiinput.TextInputFilled, store.NewValueStore[string](""))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tf := NewTextField(scope, "Name", uiinput.TextInputFilled, store.NewValueStore[string](scope, ""))
 	content := "a\u0301b"
 	tf.Value.Set(content)
 	tf.cachedValueLayout = textLayoutForTest(t, content)
@@ -193,8 +200,10 @@ func TestTextFieldGoldenDisabled(t *testing.T) {
 }
 
 func AssertTextFieldGolden(t *testing.T, name string, mutate func(*TextField)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	tf := NewTextField("Email", uiinput.TextInputOutlined, store.NewValueStore[string](""))
+	tf := NewTextField(scope, "Email", uiinput.TextInputOutlined, store.NewValueStore[string](scope, ""))
 	tf.Placeholder = marks.Const("name@example.com")
 	tf.HelperText = marks.Const("We will never share this value.")
 	tf.Validation = marks.Const(TextFieldValidationWarning)
@@ -202,7 +211,7 @@ func AssertTextFieldGolden(t *testing.T, name string, mutate func(*TextField)) {
 	if mutate != nil {
 		mutate(tf)
 	}
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 420, 220), tf)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 420, 220), tf)
 	h.RunFrame()
 	testkit.AssertGolden(t, h.Surface(), "text_field_"+name)
 }
@@ -217,11 +226,13 @@ func textLayoutForTest(t *testing.T, content string) *text.TextLayout {
 }
 
 func TestTextFieldValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[string](
 		t,
-		func() *store.ValueStore[string] { return store.NewValueStore("") },
+		func() *store.ValueStore[string] { return store.NewValueStore(scope, "") },
 		func(s *store.ValueStore[string]) facet.FacetImpl {
-			return NewTextField("test", uiinput.TextInputFilled, s)
+			return NewTextField(scope, "test", uiinput.TextInputFilled, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*TextField).setValueRunes([]rune("hello"))
@@ -234,12 +245,14 @@ func TestTextFieldValueSurvivesDispose(t *testing.T) {
 // accepts text, writes its store, and subscribes its Disabled binding —
 // the pre-P3 OnAttach early return made all of that silently dead.
 func TestTextField_nilValue_internalStore(t *testing.T) {
-	tf := NewTextField("Notes", uiinput.TextInputFilled, nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tf := NewTextField(scope, "Notes", uiinput.TextInputFilled, nil)
 	if tf.Value == nil {
 		t.Fatal("nil-value construction must create an internal store (RX-2 Q2)")
 	}
 	rt := textFieldRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -268,14 +281,17 @@ func TestTextField_nilValue_internalStore(t *testing.T) {
 // TestTextField_disabled_binding_alive pins the FR-2 second half: a
 // Disabled store toggle invalidates within the frame on a zero-config field.
 func TestTextField_disabled_binding_alive(t *testing.T) {
-	disabled := store.NewValueStore(false)
-	tf := NewTextField("Notes", uiinput.TextInputFilled, nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	disabled := store.NewValueStore(scope, false)
+	tf := NewTextField(scope, "Notes", uiinput.TextInputFilled, nil)
 	tf.Disabled = marks.FromStore(disabled, facet.DirtyProjection)
 
 	facet.Attach(tf, facet.AttachContext{})
 	tf.Base().ClearDirty(facet.DirtyAll)
 
 	disabled.Set(true)
+	scope.FlushSignals()
 	if flags := tf.Base().DirtyFlags(); flags&facet.DirtyProjection == 0 {
 		t.Fatal("Disabled store toggle did not invalidate the field within the frame (RX-2 FR-2 / FR-1)")
 	}

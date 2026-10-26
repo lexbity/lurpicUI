@@ -12,9 +12,11 @@ import (
 )
 
 func TestRuleGoldenHorizontal(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(50.0), RuleHorizontal, rs)
 	r.Color = marks.Const(gfx.Color{R: 0.8, G: 0.2, B: 0.2, A: 1})
@@ -34,9 +36,11 @@ func TestRuleGoldenHorizontal(t *testing.T) {
 }
 
 func TestRuleGoldenVertical(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(30.0), RuleVertical, rs)
 	r.Color = marks.Const(gfx.Color{R: 0.2, G: 0.6, B: 0.2, A: 1})

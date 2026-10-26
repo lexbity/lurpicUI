@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -62,6 +63,8 @@ func (m iconAssetManagerStub) Invalidate(path string)     {}
 func (m iconAssetManagerStub) Stats() assets.ManagerStats { return assets.ManagerStats{} }
 
 func TestIconMark_defaultsSizeAndMissingSourceFallback(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	mark := NewIcon(nil)
 	if !mark.Decorative.Get() {
 		t.Fatal("expected icons to default to decorative")
@@ -79,7 +82,7 @@ func TestIconMark_defaultsSizeAndMissingSourceFallback(t *testing.T) {
 		t.Fatalf("density behavior = %v, want scale-with-density", mark.DensityBehavior.Get())
 	}
 
-	rt := iconRuntimeStub{rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil)}
+	rt := iconRuntimeStub{rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil)}
 	facet.Attach(mark, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
 	result := mark.Layout.Measure(facet.MeasureContext{
 		Runtime:      rt,
@@ -100,10 +103,12 @@ func TestIconMark_defaultsSizeAndMissingSourceFallback(t *testing.T) {
 }
 
 func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	tokens := theme.DefaultTokens()
 	tokens.Color.Primary = gfx.ColorFromRGBA8(24, 48, 72, 255)
 	rt := iconRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		icons: map[string]icon.Asset{
 			"chevron-down": icon.New(
 				"chevron-down",
@@ -164,7 +169,7 @@ func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
 	updatedTokens := tokens
 	updatedTokens.Color.Primary = gfx.ColorFromRGBA8(200, 10, 20, 255)
 	rt2 := iconRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, updatedTokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, updatedTokens, nil),
 		icons:     rt.icons,
 	}
 	cmds2 := mark.Projection.Project(facet.ProjectionContext{
@@ -182,9 +187,11 @@ func TestIconMark_resolverProjectionColorAnchorsAndHit(t *testing.T) {
 }
 
 func TestIconMark_densityBehaviorsAndInlineSVG(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	inline := IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3l4 4 4-4"/></svg>`)
 	compact := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(theme.DensityIDCompact, theme.DefaultTokens()))
-	baseRuntime := iconRuntimeStub{rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil)}
+	baseRuntime := iconRuntimeStub{rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil)}
 
 	scaled := NewIcon(inline)
 	scaled.Size = marks.Const[float32](16)
@@ -253,12 +260,14 @@ func TestIconMark_densityBehaviorsAndInlineSVG(t *testing.T) {
 }
 
 func TestIconMark_progressiveAssetLOD2UsesColorFill(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	reg := assets.NewAssetRegistryStore()
 	id := assets.AssetID{1}
 	reg.SetLODReady(id, 2, &assets.DecodedSVGLOD2{DominantColor: 0x44332211}, 1)
 
 	rt := iconRuntimeStub{
-		rootStyle:     theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle:     theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		assetManager:  iconAssetManagerStub{reg: reg, id: id},
 		assetRegistry: reg,
 	}
@@ -286,12 +295,14 @@ func TestIconMark_progressiveAssetLOD2UsesColorFill(t *testing.T) {
 }
 
 func TestIconMark_progressiveAssetLOD1UsesImage(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	reg := assets.NewAssetRegistryStore()
 	id := assets.AssetID{2}
 	reg.SetLODReady(id, 1, &assets.DecodedSVGLOD1{RGBA: make([]byte, 32*32*4)}, 1)
 
 	rt := iconRuntimeStub{
-		rootStyle:     theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle:     theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		assetManager:  iconAssetManagerStub{reg: reg, id: id},
 		assetRegistry: reg,
 	}

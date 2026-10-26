@@ -204,6 +204,7 @@ func TestCheckboxStoreInvalidation(t *testing.T) {
 		t.Fatalf("expected one tracked store version, got %d", len(initial))
 	}
 	cb.Value.Set(CheckboxStateOn)
+	cb.Value.OwnerScope().FlushSignals()
 	if flags := cb.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -214,11 +215,13 @@ func TestCheckboxStoreInvalidation(t *testing.T) {
 }
 
 func TestCheckboxValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[CheckboxState](
 		t,
-		func() *store.ValueStore[CheckboxState] { return store.NewValueStore(CheckboxStateOff) },
+		func() *store.ValueStore[CheckboxState] { return store.NewValueStore(scope, CheckboxStateOff) },
 		func(s *store.ValueStore[CheckboxState]) facet.FacetImpl {
-			return NewCheckbox("test", s)
+			return NewCheckbox(scope, "test", s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*Checkbox).SetState(CheckboxStateOn)
@@ -334,13 +337,15 @@ func renderCheckboxToSurface(t *testing.T, cb *Checkbox, rt sliderRuntimeStub, m
 }
 
 func newCheckboxTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Checkbox, sliderRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := mustCheckboxFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	cb := NewCheckbox("Checkbox", store.NewValueStore(CheckboxStateOff))
+	cb := NewCheckbox(scope, "Checkbox", store.NewValueStore(scope, CheckboxStateOff))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return cb, rt, resolved
 }

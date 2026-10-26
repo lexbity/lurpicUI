@@ -12,6 +12,7 @@ import (
 // Notifications are deferred until after all mutations have run so observers
 // only see the final post-commit snapshot.
 type Transaction struct {
+	scope     *Scope
 	mutations []func()
 	deferred  []func()
 	committed atomic.Bool
@@ -19,9 +20,16 @@ type Transaction struct {
 
 // Begin starts a transaction on the runtime thread.
 // Transactions are a frame-local batching mechanism, not a cross-thread lock.
-func Begin() *Transaction {
+func Begin(scope *Scope) *Transaction {
 	syncutil.AssertRuntimeThread()
-	return &Transaction{}
+	requireScope(scope)
+	return &Transaction{scope: scope}
+}
+
+func (t *Transaction) requireScope(scope *Scope) {
+	if t == nil || t.scope != scope {
+		panic("store: transaction and mutation must share the same scope")
+	}
 }
 
 func (t *Transaction) stage(mutate func(), notify func()) {
@@ -56,6 +64,7 @@ func (t *Transaction) Commit() {
 	if t == nil {
 		return
 	}
+	t.scope.assertUsable()
 	if !t.committed.CompareAndSwap(false, true) {
 		panic("store: Commit called on completed transaction")
 	}
@@ -70,7 +79,7 @@ func (t *Transaction) Commit() {
 	t.deferred = nil
 	for _, fn := range deferred {
 		if fn != nil {
-			fn()
+			t.scope.enqueueSignal(fn)
 		}
 	}
 }

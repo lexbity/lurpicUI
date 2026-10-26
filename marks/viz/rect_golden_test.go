@@ -12,10 +12,12 @@ import (
 )
 
 func TestBarGoldenEmpty(t *testing.T) {
-	s := store.NewCollectionStore(barID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },
@@ -41,10 +43,12 @@ func TestBarGoldenEmpty(t *testing.T) {
 }
 
 func TestBarGoldenSingleDatum(t *testing.T) {
-	s := store.NewCollectionStore(barID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },
@@ -68,10 +72,12 @@ func TestBarGoldenSingleDatum(t *testing.T) {
 }
 
 func TestBarGoldenBasic(t *testing.T) {
-	s := store.NewCollectionStore(barID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },

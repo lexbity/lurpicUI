@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -82,15 +83,17 @@ func standardMarkSet() map[string]bool {
 // newCoverageRoot builds the full shell at the wide breakpoint so every exhibit
 // and the shell's own marks are in the live tree.
 func newCoverageRoot(t *testing.T) (*Root, *testkit.Harness) {
+	scope := store.NewScope()
 	t.Helper()
 	ctx := app.BuildContext{
+		StoreScope:   scope,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
 		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	root := NewRoot(ctx, nil, seedRows(t), nil)
-	h := testkit.NewStandardHarness(t, 1280, 800, root)
+	h := testkit.NewStandardHarness(t, scope, 1280, 800, root)
 	h.RunFrame()
 	return root, h
 }

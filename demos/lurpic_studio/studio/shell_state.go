@@ -44,18 +44,18 @@ type ShellState struct {
 }
 
 // NewShellState builds the shell's shared stores over the app state.
-func NewShellState(appState *state.AppState) *ShellState {
-	rowCount := store.NewDerived(func() string {
+func NewShellState(scope *store.Scope, appState *state.AppState) *ShellState {
+	rowCount := store.NewDerived(scope, func() string {
 		return fmt.Sprintf("%d rows", appState.Rows.Len())
 	}, appState.Rows)
 	return &ShellState{
-		ActiveExhibit: store.NewValueStore(ExhibitRealtime),
-		CommandOpen:   store.NewValueStore(false),
-		IndexOpen:     store.NewValueStore(false),
-		InspectorOpen: store.NewValueStore(false),
-		Connection:    store.NewValueStore(true),
+		ActiveExhibit: store.NewValueStore(scope, ExhibitRealtime),
+		CommandOpen:   store.NewValueStore(scope, false),
+		IndexOpen:     store.NewValueStore(scope, false),
+		InspectorOpen: store.NewValueStore(scope, false),
+		Connection:    store.NewValueStore(scope, true),
 		RowCount:      rowCount,
-		Compact:       store.NewValueStore(false),
+		Compact:       store.NewValueStore(scope, false),
 		AppState:      appState,
 	}
 }

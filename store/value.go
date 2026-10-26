@@ -9,29 +9,36 @@ import (
 
 // Invalidatable is implemented by all store types.
 type Invalidatable interface {
-	addInvalidationTarget(func())
+	addInvalidationTarget(func()) Subscription
+	storeScope() *Scope
 }
 
 // ValueStore holds a single observable value of type T.
 type ValueStore[T any] struct {
+	scope   *Scope
 	version VersionSource
 
 	mu            sync.RWMutex
 	value         T
-	invalidations []func()
+	invalidations invalidationSet
 
 	OnChange signal.Signal[signal.Change[T]]
 }
 
-func NewValueStore[T any](initial T) *ValueStore[T] {
-	return &ValueStore[T]{
+func NewValueStore[T any](scope *Scope, initial T) *ValueStore[T] {
+	requireScope(scope)
+	s := &ValueStore[T]{
+		scope:    scope,
 		value:    initial,
 		OnChange: signal.NewSignal[signal.Change[T]]("ValueStore.OnChange"),
 	}
+	scope.addResource(s)
+	return s
 }
 
 // Get returns the current value.
 func (s *ValueStore[T]) Get() T {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.value
@@ -55,13 +62,16 @@ func (s *ValueStore[T]) SetTx(value T, tx *Transaction) {
 
 // Version returns the current store version.
 func (s *ValueStore[T]) Version() Version {
+	s.scope.assertUsable()
 	return s.version.Current()
 }
 
 func (s *ValueStore[T]) set(value T, tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
 
 	if tx != nil {
+		tx.requireScope(s.scope)
 		var old T
 		var invalidations []func()
 		tx.stage(
@@ -70,7 +80,7 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 				old = s.value
 				s.value = value
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -89,7 +99,7 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 	old := s.value
 	s.value = value
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -100,14 +110,21 @@ func (s *ValueStore[T]) set(value T, tx *Transaction) {
 		}
 		s.OnChange.Emit(signal.Change[T]{Old: old, New: value})
 	}
-	enqueueSignal(notify)
+	s.scope.enqueueSignal(notify)
 }
 
-func (s *ValueStore[T]) addInvalidationTarget(fn func()) {
-	if fn == nil {
-		return
-	}
+func (s *ValueStore[T]) addInvalidationTarget(fn func()) Subscription {
+	return s.invalidations.add(fn)
+}
+
+func (s *ValueStore[T]) storeScope() *Scope { return s.scope }
+func (s *ValueStore[T]) OwnerScope() *Scope { return s.scope }
+
+func (s *ValueStore[T]) closeScopeResource() {
 	s.mu.Lock()
-	s.invalidations = append(s.invalidations, fn)
+	var zero T
+	s.value = zero
+	s.invalidations.clear()
+	s.OnChange.UnsubscribeAll()
 	s.mu.Unlock()
 }

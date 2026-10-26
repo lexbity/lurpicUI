@@ -13,10 +13,12 @@ import (
 // assertion is load-bearing; the drag maps the pointer x across the track.
 
 func TestSliderIntegration_DragMutatesStore(t *testing.T) {
-	value := store.NewValueStore(20.0)
-	sl := NewSlider("Volume", 0, 100, 1, value)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, 20.0)
+	sl := NewSlider(scope, "Volume", 0, 100, 1, value)
 
-	h := testkit.NewStandardHarness(t, 400, 80, sl)
+	h := testkit.NewStandardHarness(t, scope, 400, 80, sl)
 	testkit.Warmup(h)
 
 	thumb := sl.cachedThumbBounds
@@ -50,10 +52,12 @@ func TestSliderIntegration_DragMutatesStore(t *testing.T) {
 }
 
 func TestSliderIntegration_KeyboardAdjustsStore(t *testing.T) {
-	value := store.NewValueStore(50.0)
-	sl := NewSlider("Volume", 0, 100, 10, value)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, 50.0)
+	sl := NewSlider(scope, "Volume", 0, 100, 10, value)
 
-	h := testkit.NewStandardHarness(t, 400, 80, sl)
+	h := testkit.NewStandardHarness(t, scope, 400, 80, sl)
 	rt := h.Runtime()
 	rt.SetFocus(sl)
 	h.RunFrame()

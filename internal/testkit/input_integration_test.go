@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 type clickCounterFacet struct {
@@ -97,8 +98,10 @@ func (f *inputTestFacet) OnActivate()                      {}
 func (f *inputTestFacet) OnDeactivate()                    {}
 
 func TestInputPipeline_click_on_facet(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := newClickCounterFacet()
-	h := NewHarness(t, testHarnessConfig(t), root)
+	h := NewHarness(t, scope, testHarnessConfig(t), root)
 
 	// DriveClick bakes in the warmup frame so the hit map exists before the
 	// press is injected. Without it, the press is dropped against a nil hit
@@ -111,8 +114,10 @@ func TestInputPipeline_click_on_facet(t *testing.T) {
 }
 
 func TestInputPipeline_click_outside_hit_region(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := newClickCounterFacet()
-	h := NewHarness(t, testHarnessConfig(t), root)
+	h := NewHarness(t, scope, testHarnessConfig(t), root)
 
 	// Click far outside the facet's hit region.
 	h.InjectEvent(PointerPress(999, 999, platform.PointerLeft))
@@ -126,11 +131,13 @@ func TestInputPipeline_click_outside_hit_region(t *testing.T) {
 }
 
 func TestInputPipeline_keyboard_tab_moves_focus(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	a := newInputTestFacet(0, "A")
 	b := newInputTestFacet(1, "B")
 
 	root := newTestRenderFacet()
-	h := NewHarness(t, testHarnessConfig(t), root)
+	h := NewHarness(t, scope, testHarnessConfig(t), root)
 	rt := h.Runtime()
 	rt.AddFacet(root, a, facet.Attachment{})
 	rt.AddFacet(root, b, facet.Attachment{})
@@ -149,8 +156,10 @@ func TestInputPipeline_keyboard_tab_moves_focus(t *testing.T) {
 }
 
 func TestInputPipeline_click_outside_is_safe(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := newClickCounterFacet()
-	h := NewHarness(t, testHarnessConfig(t), root)
+	h := NewHarness(t, scope, testHarnessConfig(t), root)
 
 	// Click outside should not crash or route to facet.
 	h.InjectEvent(PointerPress(-10, -10, platform.PointerLeft))

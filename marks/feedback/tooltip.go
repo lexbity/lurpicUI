@@ -79,9 +79,10 @@ var _ marks.Mark = (*Tooltip)(nil)
 // When open is nil the tooltip creates an internal store (closed) and owns
 // its open state — Show()/Hide() drive it; an injected store is bound, never
 // copied (RX-2 Q2) — Store() exposes the live store either way.
-func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
+func NewTooltip(ownerScope *store.Scope, content string, open *store.ValueStore[bool]) *Tooltip {
+	ownedScope := ownerScope.Child()
 	if open == nil {
-		open = store.NewValueStore(false)
+		open = store.NewValueStore(ownedScope, false)
 	}
 	t := &Tooltip{
 		Dismissed: signal.NewSignal[signal.Unit]("tooltip.dismissed"),
@@ -91,6 +92,7 @@ func NewTooltip(content string, open *store.ValueStore[bool]) *Tooltip {
 		Placement: facet.AnchorPlacement{Side: facet.AnchorAbove},
 	}
 	t.Facet = facet.NewFacet()
+	t.Facet.OwnStoreScope(ownedScope)
 
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,

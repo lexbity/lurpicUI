@@ -36,10 +36,10 @@ type sinkDirtyFacet struct {
 	proj   facet.ProjectionRole
 }
 
-func newSinkDirtyFacet() (*sinkDirtyFacet, *store.ValueStore[string]) {
+func newSinkDirtyFacet(scope *store.Scope) (*sinkDirtyFacet, *store.ValueStore[string]) {
 	f := &sinkDirtyFacet{}
 	f.Facet = facet.NewFacet()
-	s := store.NewValueStore("a")
+	s := store.NewValueStore(scope, "a")
 	f.layout = facet.LayoutRole{
 		OnMeasure: func(_ facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
 			return facet.MeasureResult{Size: c.MaxSize}
@@ -63,8 +63,9 @@ func (f *sinkDirtyFacet) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 // snapshot per frame at the dirty-set snapshot point, with the Dirty set and
 // the per-facet source matching the runtime's own dirty bookkeeping.
 func TestRuntime_DirtySnapshotSinkFiresOncePerFrame(t *testing.T) {
-	f, s := newSinkDirtyFacet()
-	rt := mustRuntimeTree(t, f)
+	scope := store.NewScope()
+	f, s := newSinkDirtyFacet(scope)
+	rt := mustRuntimeTreeWithScope(t, scope, f)
 	sink := &recordingDirtySink{}
 	rt.EnableDiagnostics(sink)
 

@@ -24,7 +24,7 @@ func TestRuntimeOverflowClampedCountWired(t *testing.T) {
 		child.layout.Arrange(ctx, gfx.RectFromXYWH(0, 0, 40, 30))
 	}
 	rt, err := New(func() Config {
-		cfg := DefaultConfig()
+		cfg := testConfig(t)
 		cfg.LayerRegistry = testLayerRegistry(t)
 		cfg.DiagnosticsHook = hook
 		return cfg

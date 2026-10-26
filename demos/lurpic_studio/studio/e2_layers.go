@@ -35,8 +35,8 @@ func NewLayersData(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids
 
 func (p *LayersData) ID() ExhibitID { return ExhibitLayers }
 func (p *LayersData) Title() string { return "Layers & Hit Routing" }
-func (p *LayersData) Build(_ *state.AppState) facet.FacetImpl {
-	return NewLayersFacet(p.fonts, p.theme, p.ids)
+func (p *LayersData) Build(_ *state.AppState, scope *store.Scope) facet.FacetImpl {
+	return NewLayersFacet(scope, p.fonts, p.theme, p.ids)
 }
 
 // e2Control is the base-layer control the modal scrim covers (FR-layers): a
@@ -250,14 +250,17 @@ type Layers struct {
 }
 
 // NewLayersFacet builds the E2 facet.
-func NewLayersFacet(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Layers {
+// replacement below
+func NewLayersFacet(ownerScope *store.Scope, fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Layers {
+	scope := ownerScope.Child()
 	e := &Layers{
-		modalOpen: store.NewValueStore(false),
-		tooltipOn: store.NewValueStore(true),
-		toastOn:   store.NewValueStore(false),
+		modalOpen: store.NewValueStore(scope, false),
+		tooltipOn: store.NewValueStore(scope, true),
+		toastOn:   store.NewValueStore(scope, false),
 		ids:       ids,
 	}
 	e.Facet = facet.NewFacet()
+	e.OwnStoreScope(scope)
 
 	e.control = newE2Control(themeCtx, fonts, "covered control")
 	// The modal scrim is the standard feedback.scrim mark (RX-2 FR-5c): it
@@ -329,8 +332,8 @@ func (e *Layers) TooltipOn() *store.ValueStore[bool] { return e.tooltipOn }
 func (e *Layers) ToastOn() *store.ValueStore[bool] { return e.toastOn }
 
 func (e *Layers) buildControls() {
-	modalSwitch := selection.NewSwitch("Modal", e.modalOpen)
-	tooltipSwitch := selection.NewSwitch("Tooltip", e.tooltipOn)
+	modalSwitch := selection.NewSwitch(e.StoreScope(), "Modal", e.modalOpen)
+	tooltipSwitch := selection.NewSwitch(e.StoreScope(), "Tooltip", e.tooltipOn)
 	toastButton := action.NewButton(marks.Const("Show toast"), marks.Const(uiinput.ButtonFilled))
 	e.toastButton = toastButton
 

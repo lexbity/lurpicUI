@@ -8,7 +8,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/platform"
-	"codeburg.org/lexbit/lurpicui/store"
 )
 
 const debugDisableSurfaceCreated = false
@@ -366,7 +365,6 @@ func (rt *Runtime) start() error {
 		if !syncutil.OnRuntimeThread() {
 			syncutil.RegisterRuntimeThread()
 		}
-		store.SetSignalQueueHook(rt.queueSignal)
 		rt.installRecoveryHooks()
 		go (&renderThread{pipeline: rt.renderPipeline}).run()
 		rt.bindLifecycleCallbacks()
@@ -462,7 +460,7 @@ func (rt *Runtime) shutdown() error {
 		rt.renderPipeline.destroy()
 	}
 	rt.renderPipeline.destroyBackend()
-	store.SetSignalQueueHook(nil)
+	rt.config.StoreScope.Close()
 	input.ClearRecoveryHook()
 	facet.ClearCallbackRecoveryHook()
 	syncutil.ResetRuntimeThreadForTest()

@@ -106,17 +106,19 @@ var _ marks.Mark = (*TreeNavigator)(nil)
 // defaults. selection, when non-nil, is the FR-8 selection store the mark binds
 // two-way; when nil, the tree creates a private one seeded from the nodes'
 // declared Selected flags.
-func NewTreeNavigator(label string, nodes []TreeNode, selection *store.ValueStore[string]) *TreeNavigator {
+func NewTreeNavigator(ownerScope *store.Scope, label string, nodes []TreeNode, selection *store.ValueStore[string]) *TreeNavigator {
+	ownedScope := ownerScope.Child()
 	if selection == nil {
-		selection = store.NewValueStore(selectedPathOf(nodes))
+		selection = store.NewValueStore(ownedScope, selectedPathOf(nodes))
 	}
 	t := &TreeNavigator{
 		Label:     marks.Const(label),
 		Disabled:  marks.Const(false),
-		Data:      store.NewValueStore[[]TreeNode](cloneTreeNodes(nodes)),
+		Data:      store.NewValueStore[[]TreeNode](ownedScope, cloneTreeNodes(nodes)),
 		Selection: selection,
 	}
 	t.Facet = facet.NewFacet()
+	t.Facet.OwnStoreScope(ownedScope)
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,
 		Policy:   treeNavigatorGroupPolicy{tree: t},
@@ -254,7 +256,10 @@ func (t *TreeNavigator) Children() []facet.GroupChild {
 func (t *TreeNavigator) OnAttach(ctx facet.AttachContext) {
 	t.Core.OnAttach(ctx)
 	if t.Data == nil {
-		t.Data = store.NewValueStore[[]TreeNode](nil)
+		if t.Facet.StoreScope() == nil {
+			panic("navigation: disposed tree navigator cannot recreate its data store")
+		}
+		t.Data = store.NewValueStore[[]TreeNode](t.Facet.StoreScope(), nil)
 	}
 	facet.Store(facet.Subscribe(t), &t.Data.OnChange, t.Data.Version, func(signal.Change[[]TreeNode]) {
 		t.InvalidateWithSource(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, "treeNavigator.Data")
@@ -953,7 +958,10 @@ func (t *TreeNavigator) mutateTree(mutator func([]TreeNode)) {
 		return
 	}
 	if t.Data == nil {
-		t.Data = store.NewValueStore[[]TreeNode](nil)
+		if t.Facet.StoreScope() == nil {
+			panic("navigation: disposed tree navigator cannot recreate its data store")
+		}
+		t.Data = store.NewValueStore[[]TreeNode](t.Facet.StoreScope(), nil)
 	}
 	nodes := cloneTreeNodes(t.Data.Get())
 	mutator(nodes)

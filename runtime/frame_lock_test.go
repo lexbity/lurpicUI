@@ -189,7 +189,7 @@ func waitForSettledSubmits(t *testing.T, b *submitSignalBackend, minStable time.
 func TestRun_DoesNotWaitAfterShutdownSignal(t *testing.T) {
 	b := &submitSignalBackend{}
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.TargetFPS = 4 // short frame period; long enough to park in Wait
 	cfg.LayerRegistry = testLayerRegistry(t)
 	rt, err := New(cfg, nil, nil, b, &root)

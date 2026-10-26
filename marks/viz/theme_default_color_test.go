@@ -26,13 +26,15 @@ import (
 // If syncThemeColor is ever moved back to OnAttach, or the OnMeasure/OnArrange
 // callbacks stop calling it, this golden flips to a blank surface and fails.
 func TestLineDefaultColor_ResolvedFromTheme(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 300})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	l := NewLine(s,
 		func(i scatterItem) float64 { return i.x },
@@ -79,9 +81,11 @@ func TestLineDefaultColor_ResolvedFromTheme(t *testing.T) {
 // which resolves a neutral ColorBorder token (not primary) and has zero
 // natural size. It pins that the guide line is theme-tinted, not black.
 func TestRuleDefaultColor_ResolvedFromTheme(t *testing.T) {
-	dom := store.NewValueStore([2]float64{0, 10})
-	rng := store.NewValueStore([2]float64{0, 300})
-	scale := reactive.NewLinearReactive(dom, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	dom := store.NewValueStore(scope, [2]float64{0, 10})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	scale := reactive.NewLinearReactive(scope, dom, rng)
 
 	r := NewRule(marks.Const(5.0), RuleHorizontal, scale)
 	// Deliberately do NOT set r.Color.

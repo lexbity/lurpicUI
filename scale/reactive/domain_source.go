@@ -10,10 +10,11 @@ import (
 // derived store invalidates whenever the collection changes (insert, remove,
 // update, replace), making it suitable as a domain source for ReactiveScale.
 func DomainFromCollection[T any](
+	scope *store.Scope,
 	coll *store.CollectionStore[T],
 	accessor func(T) float64,
 ) *store.Derived[[2]float64] {
-	return store.NewDerived(
+	return store.NewDerived(scope,
 		func() [2]float64 {
 			items := coll.All()
 			lo, hi := scale.ExtentBy(items, accessor)

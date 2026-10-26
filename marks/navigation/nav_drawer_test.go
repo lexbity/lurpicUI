@@ -220,11 +220,13 @@ func TestNavDrawerPointerKeyboardDismissalAndFocus(t *testing.T) {
 }
 
 func TestNavDrawerCurrentIndexSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[int](
 		t,
-		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func() *store.ValueStore[int] { return store.NewValueStore(scope, 0) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
-			return NewNavDrawer("Nav", []NavDrawerSection{
+			return NewNavDrawer(scope, "Nav", []NavDrawerSection{
 				{
 					Label: "Section",
 					Items: []NavDrawerItem{
@@ -233,7 +235,7 @@ func TestNavDrawerCurrentIndexSurvivesDispose(t *testing.T) {
 						{Key: "three", Label: "Three", IconRef: "icon3"},
 					},
 				},
-			}, store.NewValueStore(true), s)
+			}, store.NewValueStore(scope, true), s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*NavDrawer).CurrentIndex.Set(2)
@@ -355,13 +357,15 @@ func renderNavDrawerToSurface(t *testing.T, drawer *NavDrawer, rt navDrawerRunti
 }
 
 func newNavDrawerTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*NavDrawer, navDrawerRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	drawer := NewNavDrawer("Main navigation", []NavDrawerSection{
+	drawer := NewNavDrawer(scope, "Main navigation", []NavDrawerSection{
 		{
 			Label: "Primary",
 			Items: []NavDrawerItem{
@@ -382,7 +386,7 @@ func newNavDrawerTestFixture(t *testing.T, tokens theme.Tokens, density theme.De
 				{Key: "account", Label: "Settings & account", IconRef: "cog"},
 			},
 		},
-	}, store.NewValueStore(true), store.NewValueStore(0))
+	}, store.NewValueStore(scope, true), store.NewValueStore(scope, 0))
 	rt := navDrawerRuntimeStub{
 		tabsRuntimeStub: tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts},
 		icons:           navDrawerTestIcons(),

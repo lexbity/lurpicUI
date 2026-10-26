@@ -56,6 +56,9 @@ func (rt *Runtime) registerFacetReadExports(id facet.FacetID, exports []store.Re
 		if !export.Valid() {
 			return fmt.Errorf("invalid export declaration")
 		}
+		if owner := export.OwnerScope(); owner != nil && !rt.config.StoreScope.Owns(owner) {
+			return fmt.Errorf("export source scope is outside the configured application scope")
+		}
 		info := export.Info()
 		if info.Name != "" {
 			if owner, exists := rt.namedExportOwners[info.Name]; exists {

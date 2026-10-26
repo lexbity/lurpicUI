@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // probeScript mirrors demos/lurpic_studio/scripts/launch_probe.json: the
@@ -34,7 +35,11 @@ type probeScript struct {
 // packet hashes. It proves the studio is drivable end to end and self-reports
 // its frame packet hashes.
 func TestStudioProbe(t *testing.T) {
-	// Load the committed script (a schema for the probe, reviewed like code).
+	scope :=
+		// Load the committed script (a schema for the probe, reviewed like code).
+		store.NewScope()
+	t.Cleanup(scope.Close)
+
 	raw, err := os.ReadFile(filepath.Join("..", "demos", "lurpic_studio", "scripts", "launch_probe.json"))
 	if err != nil {
 		t.Fatalf("read probe script: %v", err)
@@ -54,6 +59,7 @@ func TestStudioProbe(t *testing.T) {
 	}
 	themeCtx := studio.StudioThemeContext().WithFontRegistry(fonts)
 	root := studio.BuildRoot(app.BuildContext{
+		StoreScope:   scope,
 		FontRegistry: fonts,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
@@ -64,7 +70,7 @@ func TestStudioProbe(t *testing.T) {
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = themeCtx.Resolver
 	cfg.Drive = true
-	h := testkit.NewDriveHarness(t, 1280, 800, root)
+	h := testkit.NewDriveHarness(t, scope, 1280, 800, root)
 	h.RunFrame()
 
 	step := func(method string, params any) json.RawMessage {

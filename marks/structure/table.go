@@ -134,12 +134,13 @@ var _ marks.Mark = (*Table)(nil)
 
 // NewTable constructs a structure.table mark with canonical defaults.
 // The selection store is supplied by the caller — the mark never creates its own.
-func NewTable(label string, data TableData, selection *store.ValueStore[string]) *Table {
+func NewTable(ownerScope *store.Scope, label string, data TableData, selection *store.ValueStore[string]) *Table {
+	ownedScope := ownerScope.Child()
 	t := &Table{
 		Selected:             signal.NewSignal[int]("table.selected"),
 		Label:                marks.Const(label),
 		Disabled:             marks.Const(false),
-		Data:                 store.NewValueStore(cloneTableData(data)),
+		Data:                 store.NewValueStore(ownedScope, cloneTableData(data)),
 		Selection:            selection,
 		focusedRowIndex:      -1,
 		pressedRowIndex:      -1,
@@ -154,6 +155,7 @@ func NewTable(label string, data TableData, selection *store.ValueStore[string])
 		Scrolled:             signal.NewSignal[gfx.Point]("table.scrolled"),
 	}
 	t.Facet = facet.NewFacet()
+	t.Facet.OwnStoreScope(ownedScope)
 
 	t.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutGrid,
@@ -354,7 +356,10 @@ func (t *Table) syncChildren() {
 		return
 	}
 	if t.Data == nil {
-		t.Data = store.NewValueStore(TableData{})
+		if t.Facet.StoreScope() == nil {
+			panic("structure: disposed table cannot recreate its data store")
+		}
+		t.Data = store.NewValueStore(t.Facet.StoreScope(), TableData{})
 	}
 	data := t.data()
 	allRows := sortedTableRows(data)

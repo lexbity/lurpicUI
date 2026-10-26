@@ -40,6 +40,10 @@ type backendFallbackSink interface {
 
 // Config configures the runtime core.
 type Config struct {
+	// StoreScope owns every reactive store reachable from the root application.
+	// It must be created before the root builder and is closed at shutdown.
+	StoreScope      *store.Scope
+	StoreIdentity   *store.RuntimeIdentity
 	TargetFPS       int
 	Clock           ClockConfig
 	PreparedClock   *PreparedClock

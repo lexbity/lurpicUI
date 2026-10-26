@@ -1,13 +1,12 @@
 package vulkan
 
 import (
-	"time"
-
 	"encoding/binary"
 	"image"
 	"image/color"
 	"math"
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -16,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -493,9 +493,11 @@ func TestEncodeFramePacket_drawImageBatch(t *testing.T) {
 }
 
 func TestEncodeFramePacket_primitiveIconCommands(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	tokens := theme.DefaultTokens()
 	tokens.Color.Primary = gfx.ColorFromRGBA8(90, 40, 200, 255)
-	rt := iconPacketRuntime{rootStyle: theme.NewRootStyleContext(nil, tokens, nil)}
+	rt := iconPacketRuntime{rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil)}
 	icon := primitive.NewIcon(primitive.IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="currentColor"><path d="M1 1H9V9H1Z"/></svg>`))
 	icon.ColorSlot = marks.Const(theme.ColorPrimary)
 	facet.Attach(icon, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})

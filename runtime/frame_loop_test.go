@@ -64,17 +64,19 @@ func TestFrameLoopDirtyTreeRebuiltPerFrame(t *testing.T) {
 // contract: a store write dirties a derived, and the frame's flush recomputes
 // it (DerivedRecomputed > 0) before the projection reads it.
 func TestFrameLoopDerivedFlushBeforeProjection(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := facet.NewFacet()
-	rt := mustRuntimeTree(t, &root)
+	rt := mustRuntimeTreeWithScope(t, scope, &root)
 	// Start the runtime first so its signal queue is the live hook: store
 	// writes defer derived invalidation through the runtime's queue, which the
 	// next frame drains before the flush.
 	rt.RunOneFrame()
 
-	src := store.NewValueStore(1)
-	derived := store.NewDerived(func() int { return src.Get() * 2 }, src)
+	src := store.NewValueStore(scope, 1)
+	derived := store.NewDerived(scope, func() int { return src.Get() * 2 }, src)
 	_ = derived.Get() // initialize (clean)
-	store.ResetFrameDerivedCounters()
+	scope.ResetFrameDerivedCounters()
 
 	src.Set(2)
 	rt.RunOneFrame()
@@ -96,17 +98,19 @@ func TestFrameLoopDerivedFlushBeforeProjection(t *testing.T) {
 // recompute count reflects the recomputation regardless of which path triggered
 // it.
 func TestFrameLoopLazyRecomputeCounts(t *testing.T) {
-	src := store.NewValueStore(10)
-	derived := store.NewDerived(func() int { return src.Get() + 1 }, src)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	src := store.NewValueStore(scope, 10)
+	derived := store.NewDerived(scope, func() int { return src.Get() + 1 }, src)
 	if got := derived.Get(); got != 11 {
 		t.Fatalf("initial derived = %d, want 11", got)
 	}
-	store.ResetFrameDerivedCounters()
+	scope.ResetFrameDerivedCounters()
 	src.Set(20)
 	if got := derived.Get(); got != 21 {
 		t.Fatalf("lazy derived = %d, want 21", got)
 	}
-	evals, recomputes := store.SnapshotFrameDerivedCounters()
+	evals, recomputes := scope.FrameDerivedCounters()
 	if evals != 1 || recomputes != 1 {
 		t.Fatalf("frame derived counters = %d/%d, want 1/1", evals, recomputes)
 	}
@@ -116,11 +120,13 @@ func TestFrameLoopLazyRecomputeCounts(t *testing.T) {
 // in the quiet steady state (no writes between frames) the derived flush
 // evaluates and recomputes nothing.
 func TestFrameLoopSteadyStateDerivedQuiet(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := facet.NewFacet()
-	rt := mustRuntimeTree(t, &root)
+	rt := mustRuntimeTreeWithScope(t, scope, &root)
 
-	src := store.NewValueStore(1)
-	_ = store.NewDerived(func() int { return src.Get() }, src)
+	src := store.NewValueStore(scope, 1)
+	_ = store.NewDerived(scope, func() int { return src.Get() }, src)
 	rt.RunOneFrame()
 	rt.RunOneFrame()
 

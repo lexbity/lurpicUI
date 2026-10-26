@@ -44,14 +44,14 @@ type Feed struct {
 // NewFeed builds a feed over the shared app state. The synthetic clock starts
 // just past the seed window's end so the live tail includes the recent seed
 // rows. SetRuntime must be called once attached.
-func NewFeed(appState *state.AppState, ownerID uint64) *Feed {
+func NewFeed(scope *store.Scope, appState *state.AppState, ownerID uint64) *Feed {
 	hi := appState.LiveWindow.Get()[1]
 	start := time.Unix(int64(hi), 0)
 	return &Feed{
 		appState:    appState,
-		cadence:     store.NewValueStore(DefaultFeedCadence),
-		live:        store.NewValueStore(true),
-		JobProgress: store.NewValueStore(float32(0)),
+		cadence:     store.NewValueStore(scope, DefaultFeedCadence),
+		live:        store.NewValueStore(scope, true),
+		JobProgress: store.NewValueStore(scope, float32(0)),
 		synthetic:   start.Add(DefaultFeedCadence),
 		ownerID:     ownerID,
 	}

@@ -6,13 +6,15 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // newE4Harness builds the E4 exhibit as the root and runs one frame.
 func newE4Harness(t *testing.T) (*LayoutPolicies, *testkit.Harness) {
+	scope := store.NewScope()
 	t.Helper()
-	e := NewLayoutPolicies()
-	h := testkit.NewStandardHarness(t, 640, 360, e)
+	e := NewLayoutPolicies(scope)
+	h := testkit.NewStandardHarness(t, scope, 640, 360, e)
 	h.RunFrame()
 	return e, h
 }
@@ -113,12 +115,14 @@ func surfacesEqual(a, b *image.RGBA) bool {
 // TestLayoutPolicies_flexVsFixedGoldens pins the two variants and proves they
 // differ byte-wise (NFR-determinism: variant goldens must discriminate).
 func TestLayoutPolicies_flexVsFixedGoldens(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	flex, h := newE4Harness(t)
 	_ = flex
 	testkit.AssertGolden(t, h.Surface(), "e4_flex")
 
-	fixed := NewLayoutPolicies()
-	h2 := testkit.NewStandardHarness(t, 640, 360, fixed)
+	fixed := NewLayoutPolicies(scope)
+	h2 := testkit.NewStandardHarness(t, scope, 640, 360, fixed)
 	fixed.FlexFixed().Set(false)
 	h2.RunFrame()
 	testkit.AssertGolden(t, h2.Surface(), "e4_fixed")

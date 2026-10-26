@@ -13,6 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -224,6 +226,8 @@ func TestSplitButtonRecipe_allSlotsPresent(t *testing.T) {
 }
 
 func newSplitButtonFixture(t *testing.T) (*SplitButton, buttonRuntimeStub) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	btn := NewSplitButton("Label", []SplitButtonItem{
 		{Key: "create", Label: "Create new"},
@@ -233,7 +237,7 @@ func newSplitButtonFixture(t *testing.T) (*SplitButton, buttonRuntimeStub) {
 	btn.Key = marks.Const("create")
 	btn.PrimaryIconRef = marks.Const("star")
 	rt := buttonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"star": mustSplitButtonIconAsset("star"),
@@ -387,10 +391,12 @@ func renderSplitButtonToSurface(t *testing.T, btn *SplitButton, rt buttonRuntime
 }
 
 func newSplitButtonGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*SplitButton, buttonRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	rtTokens := tokens
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	btn := NewSplitButton("Label", []SplitButtonItem{
 		{Key: "create", Label: "Create new"},

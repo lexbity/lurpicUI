@@ -65,16 +65,16 @@ func identifyRow(r dataset.Row) store.ItemID { return store.ItemID(r.ID) }
 // NewAppState builds the store topology, seeds it with the given rows
 // (stamping each with a monotonic id), anchors the live window on the last
 // seed timestamp, and trims to MaxRows. MaxRows defaults to DefaultMaxRows.
-func NewAppState(seed []dataset.Row) *AppState {
+func NewAppState(scope *store.Scope, seed []dataset.Row) *AppState {
 	a := &AppState{
-		Rows:          store.NewCollectionStore(identifyRow),
-		LiveWindow:    store.NewValueStore([2]float64{0, DefaultWindowSeconds}),
-		Paused:        store.NewValueStore(false),
-		YAxisMax:      store.NewValueStore(DefaultYAxisMax),
-		WindowSeconds: store.NewValueStore(DefaultWindowSeconds),
+		Rows:          store.NewCollectionStore(scope, identifyRow),
+		LiveWindow:    store.NewValueStore(scope, [2]float64{0, DefaultWindowSeconds}),
+		Paused:        store.NewValueStore(scope, false),
+		YAxisMax:      store.NewValueStore(scope, DefaultYAxisMax),
+		WindowSeconds: store.NewValueStore(scope, DefaultWindowSeconds),
 		MaxRows:       DefaultMaxRows,
 	}
-	buildDeriveds(a)
+	buildDeriveds(scope, a)
 	for _, r := range seed {
 		a.InsertRow(r)
 	}

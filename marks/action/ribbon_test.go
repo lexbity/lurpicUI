@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 )
@@ -180,8 +181,10 @@ func TestRibbonRecipe_allSlotsPresent(t *testing.T) {
 }
 
 func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntimeStub) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	ribbon := NewRibbon("Document ribbon", []RibbonSection{
+	ribbon := NewRibbon(scope, "Document ribbon", []RibbonSection{
 		{
 			Key:   "home",
 			Label: "Home",
@@ -245,7 +248,7 @@ func newRibbonFixture(t *testing.T, tokens theme.Tokens) (*Ribbon, buttonRuntime
 		},
 	}, nil)
 	rt := buttonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"paste":  mustActionGroupIconAsset("edit"),

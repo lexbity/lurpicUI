@@ -78,7 +78,8 @@ var _ layout.AnchorExporter = (*CommandPalette)(nil)
 var _ marks.Mark = (*CommandPalette)(nil)
 
 // NewCommandPalette constructs an action.command_palette mark with canonical defaults.
-func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.CommandRegistry, open *store.ValueStore[bool]) *CommandPalette {
+func NewCommandPalette(ownerScope *store.Scope, label marks.Binding[string], registry *runtimepkg.CommandRegistry, open *store.ValueStore[bool]) *CommandPalette {
+	ownedScope := ownerScope.Child()
 	p := &CommandPalette{
 		Label:          label,
 		Placeholder:    marks.Const("Type a command or search"),
@@ -90,8 +91,9 @@ func NewCommandPalette(label marks.Binding[string], registry *runtimepkg.Command
 		Activated:      signal.NewSignal[string]("command_palette.activated"),
 	}
 	p.Facet = facet.NewFacet()
+	p.Facet.OwnStoreScope(ownedScope)
 
-	p.searchField = input.NewTextField("Search", uiinput.TextInputOutlined, store.NewValueStore(""))
+	p.searchField = input.NewTextField(ownedScope, "Search", uiinput.TextInputOutlined, store.NewValueStore(ownedScope, ""))
 	p.searchField.Placeholder = marks.Const(p.Placeholder.Get())
 	p.resultsList = newCommandPaletteResultsGroup(p)
 	p.resultsList.Disabled = marks.Const(p.Disabled.Get() || !p.Open.Get())

@@ -80,9 +80,10 @@ var _ layout.AnchorExporter = (*ColorPicker)(nil)
 // value is nil the picker creates an internal store and owns its truth; an
 // injected store is bound, never copied (RX-2 Q2) — Store() exposes the live
 // store either way.
-func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPicker {
+func NewColorPicker(ownerScope *store.Scope, label string, value *store.ValueStore[gfx.Color]) *ColorPicker {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore(gfx.Color{})
+		value = store.NewValueStore(ownedScope, gfx.Color{})
 	}
 	p := &ColorPicker{
 		Changed:          signal.NewSignal[gfx.Color]("color_picker.changed"),
@@ -93,6 +94,7 @@ func NewColorPicker(label string, value *store.ValueStore[gfx.Color]) *ColorPick
 	}
 	p.syncHSVCache()
 	p.Facet = facet.NewFacet()
+	p.Facet.OwnStoreScope(ownedScope)
 
 	p.Layout.Parent = facet.GroupParentContract{Kind: facet.GroupLayoutNone}
 	p.Layout.Child = facet.GroupChildContract{

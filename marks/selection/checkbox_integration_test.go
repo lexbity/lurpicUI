@@ -16,9 +16,11 @@ import (
 // newCheckboxIntegration builds a mounted Checkbox harness, runs the warmup
 // frame, and returns the control box for click-target computation.
 func newCheckboxIntegration(t *testing.T, value *store.ValueStore[CheckboxState]) (*testkit.Harness, *Checkbox, gfx.Rect) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	cb := NewCheckbox("Enable notifications", value)
-	h := testkit.NewStandardHarness(t, 200, 60, cb)
+	cb := NewCheckbox(scope, "Enable notifications", value)
+	h := testkit.NewStandardHarness(t, scope, 200, 60, cb)
 	testkit.Warmup(h)
 	ctrl := cb.cachedControlBounds
 	if ctrl.IsEmpty() {
@@ -28,7 +30,9 @@ func newCheckboxIntegration(t *testing.T, value *store.ValueStore[CheckboxState]
 }
 
 func TestCheckboxIntegration_ClickTogglesStore(t *testing.T) {
-	value := store.NewValueStore(CheckboxStateOff)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, CheckboxStateOff)
 	h, _, ctrl := newCheckboxIntegration(t, value)
 
 	cx := ctrl.Min.X + ctrl.Width()/2
@@ -46,7 +50,9 @@ func TestCheckboxIntegration_ClickTogglesStore(t *testing.T) {
 }
 
 func TestCheckboxIntegration_ToggleChangesPixels(t *testing.T) {
-	value := store.NewValueStore(CheckboxStateOff)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, CheckboxStateOff)
 	h, _, ctrl := newCheckboxIntegration(t, value)
 
 	// Sample inside the control box but away from the white checkmark that
@@ -68,7 +74,9 @@ func TestCheckboxIntegration_ToggleChangesPixels(t *testing.T) {
 }
 
 func TestCheckboxIntegration_RapidToggleSequence(t *testing.T) {
-	value := store.NewValueStore(CheckboxStateOff)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, CheckboxStateOff)
 	h, _, ctrl := newCheckboxIntegration(t, value)
 
 	cx := ctrl.Min.X + ctrl.Width()/2

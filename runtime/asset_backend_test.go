@@ -74,7 +74,7 @@ func TestTextureReleaser_wiredThroughNew(t *testing.T) {
 
 	backend := &fakeBackend{supportsTexture: true}
 	root := &runtimeTestFacet{Facet: facet.NewFacet()}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 
@@ -102,7 +102,7 @@ func TestTextureReleaser_wiredThroughNew_textureBackendReachesBackend(t *testing
 
 	fb := &fakeBackend{supportsTexture: true}
 	root := &runtimeTestFacet{Facet: facet.NewFacet()}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 
@@ -138,7 +138,7 @@ func TestTextureReleaser_backendWithoutTextureSupport_skipsWiring(t *testing.T) 
 
 	fb := &fakeBackend{supportsTexture: false}
 	root := &runtimeTestFacet{Facet: facet.NewFacet()}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 
@@ -239,7 +239,7 @@ func TestAssetUploader_wiredThroughNew(t *testing.T) {
 
 	fb := &fakeBackend{supportsTexture: true}
 	root := &runtimeTestFacet{Facet: facet.NewFacet()}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 

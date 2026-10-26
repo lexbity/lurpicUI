@@ -13,6 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -34,11 +36,13 @@ func (s alertRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 func (s alertRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	alert := newAlertFixture()
 	tokens := alertTokens()
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -105,11 +109,13 @@ func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestAlertInteractionsEmitActionAndDismiss(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	alert := newAlertFixture()
 	tokens := alertTokens()
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -213,13 +219,15 @@ func TestAlertGoldenRTL(t *testing.T) {
 }
 
 func AssertAlertGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Alert)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	alert := newAlertFixture()
 	if mutate != nil {
 		mutate(alert)
 	}
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := alertResolvedContext(tokens, density, direction)

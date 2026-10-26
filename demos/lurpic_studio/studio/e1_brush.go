@@ -19,10 +19,10 @@ type BrushStores struct {
 }
 
 // NewBrushStores builds a fresh linked-brushing channel set.
-func NewBrushStores() BrushStores {
+func NewBrushStores(scope *store.Scope) BrushStores {
 	return BrushStores{
-		Hover:       store.NewValueStore[*store.ItemID](nil),
-		HoverRegion: store.NewValueStore(""),
-		Selection:   store.NewValueStore[store.ItemID](0),
+		Hover:       store.NewValueStore[*store.ItemID](scope, nil),
+		HoverRegion: store.NewValueStore(scope, ""),
+		Selection:   store.NewValueStore[store.ItemID](scope, 0),
 	}
 }

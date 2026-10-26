@@ -17,8 +17,10 @@ import (
 )
 
 func TestTableGeometryContracts(t *testing.T) {
-	selection := store.NewValueStore("")
-	table := NewTable("Geometry table", TableData{
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	selection := store.NewValueStore(scope, "")
+	table := NewTable(scope, "Geometry table", TableData{
 		Columns: []TableColumn{
 			{Key: "id", Label: "ID", Align: facet.AlignEnd},
 			{Key: "name", Label: "Name"},
@@ -134,7 +136,7 @@ func TestTableGeometryContracts(t *testing.T) {
 }
 
 func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
-	table := newTableFixture()
+	table := newTableFixture(t)
 	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := listResolvedContext(listTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -195,7 +197,7 @@ func TestTableMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestTableStoreChangeInvalidatesStructure(t *testing.T) {
-	table := newTableFixture()
+	table := newTableFixture(t)
 	fonts := testkit.TestFontRegistry(t)
 	rt := cardRuntimeStub{fonts: fonts}
 	facet.Attach(table, facet.AttachContext{Runtime: rt})
@@ -210,6 +212,7 @@ func TestTableStoreChangeInvalidatesStructure(t *testing.T) {
 		{Key: "row-2", Cells: []string{"E", "F", "G", "H"}},
 	}
 	table.Data.Set(data)
+	table.Data.OwnerScope().FlushSignals()
 
 	// (1) Store version advanced.
 	if got := table.Data.Version(); got == oldVersion {
@@ -229,7 +232,7 @@ func TestTableStoreChangeInvalidatesStructure(t *testing.T) {
 }
 
 func TestTableSubscriptionSelectionInvalidates(t *testing.T) {
-	table := newTableFixture()
+	table := newTableFixture(t)
 	fonts := testkit.TestFontRegistry(t)
 	rt := cardRuntimeStub{fonts: fonts}
 	facet.Attach(table, facet.AttachContext{Runtime: rt})
@@ -245,6 +248,7 @@ func TestTableSubscriptionSelectionInvalidates(t *testing.T) {
 	oldSV := table.Base().SubscribedVersions()
 
 	table.Selection.Set("row-3")
+	table.Selection.OwnerScope().FlushSignals()
 
 	// (1) Facet dirty flags raised.
 	flags := table.Base().DirtyFlags()
@@ -292,7 +296,7 @@ func TestTableGoldenRTL(t *testing.T) {
 
 func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Table)) *testkit.MemorySurface {
 	t.Helper()
-	table := newTableGoldenFixture()
+	table := newTableGoldenFixture(t)
 	if mutate != nil {
 		mutate(table)
 	}
@@ -343,9 +347,12 @@ func AssertTableGolden(t *testing.T, name string, tokens theme.Tokens, density t
 	return surface
 }
 
-func newTableFixture() *Table {
-	selection := store.NewValueStore("row-3")
-	return NewTable("Sample table", TableData{
+func newTableFixture(t *testing.T) *Table {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	selection := store.NewValueStore(scope, "row-3")
+	return NewTable(scope, "Sample table", TableData{
 		Columns: []TableColumn{
 			{Key: "id", Label: "ID"},
 			{Key: "name", Label: "Long item name"},
@@ -369,8 +376,11 @@ func newTableFixture() *Table {
 	}, selection)
 }
 
-func newTableGoldenFixture() *Table {
-	return NewTable("Load balancer table", TableData{
+func newTableGoldenFixture(t *testing.T) *Table {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	return NewTable(scope, "Load balancer table", TableData{
 		Columns: []TableColumn{
 			{Key: "name", Label: "Name"},
 			{Key: "rule", Label: "Rule"},
@@ -416,7 +426,7 @@ func TestTable_contract_anchor_export(t *testing.T) {
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
-		func() facet.FacetImpl { return newTableFixture() },
+		func() facet.FacetImpl { return newTableFixture(t) },
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			t := m.(*Table)
 			t.Layout.Measure(facet.MeasureContext{
@@ -439,11 +449,13 @@ func TestTable_contract_anchor_export(t *testing.T) {
 }
 
 func TestTableSelectionSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[string](
 		t,
-		func() *store.ValueStore[string] { return store.NewValueStore("") },
+		func() *store.ValueStore[string] { return store.NewValueStore(scope, "") },
 		func(s *store.ValueStore[string]) facet.FacetImpl {
-			return NewTable("test", TableData{
+			return NewTable(scope, "test", TableData{
 				Columns: []TableColumn{{Key: "a", Label: "A"}},
 				Rows:    []TableRow{{Key: "r1", Cells: []string{"v1"}}, {Key: "r2", Cells: []string{"v2"}}},
 			}, s)
@@ -456,34 +468,38 @@ func TestTableSelectionSurvivesDispose(t *testing.T) {
 
 func TestTable_contract_group_children(t *testing.T) {
 	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl { return newTableFixture() },
+		func() facet.FacetImpl { return newTableFixture(t) },
 		func(facet.FacetImpl) {},
 	)
 }
 
 func TestTable_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewTable(label, TableData{
+			return NewTable(scope, label, TableData{
 				Columns:        []TableColumn{{Key: "id", Label: "ID"}},
 				Rows:           []TableRow{{Key: "r1", Cells: []string{"v1"}}},
 				SortColumnKey:  "id",
 				SortDescending: false,
-			}, store.NewValueStore(""))
+			}, store.NewValueStore(scope, ""))
 		},
 		"table",
 	)
 }
 
 func TestTable_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t,
 		func(disabled bool) facet.FacetImpl {
-			t := NewTable("test", TableData{
+			t := NewTable(scope, "test", TableData{
 				Columns:        []TableColumn{{Key: "id", Label: "ID"}},
 				Rows:           []TableRow{{Key: "r1", Cells: []string{"v1"}}},
 				SortColumnKey:  "id",
 				SortDescending: false,
-			}, store.NewValueStore(""))
+			}, store.NewValueStore(scope, ""))
 			t.Disabled = marks.Const(disabled)
 			return t
 		},

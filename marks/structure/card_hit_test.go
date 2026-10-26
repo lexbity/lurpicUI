@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 	"codeburg.org/lexbit/lurpicui/theme/templates"
@@ -21,6 +22,8 @@ import (
 // AddChild), so the runtime projects and hit-tests it. A button in a card is
 // clickable through real pointer input.
 func TestCardHostedMarkHitTestable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	var activations int32
 	btn := action.NewButton(marks.Const("Do it"), marks.Const(uiinput.ButtonFilled))
 	btn.Activated.Subscribe(func(signal.Unit) {
@@ -35,7 +38,7 @@ func TestCardHostedMarkHitTestable(t *testing.T) {
 		{Key: "label", Facet: primitive.NewText(marks.Const("content")), Grid: facet.GridPlacement{ColStart: 0, RowStart: 1, ColSpan: 1, RowSpan: 1}},
 	}
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 400, 200), card)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 400, 200), card)
 	testkit.Warmup(h)
 
 	// The card attached its content as tree children.

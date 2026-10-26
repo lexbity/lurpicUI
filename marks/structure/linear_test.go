@@ -254,14 +254,13 @@ func TestColumn_arranges_children_top_to_bottom(t *testing.T) {
 // assertion for font and style resolution during measure.
 type rowTestRuntime struct {
 	contracttest.NoopRuntime
-	fonts *text.FontRegistry
+	fonts     *text.FontRegistry
+	rootStyle any
 }
 
 func (s rowTestRuntime) FontRegistry() *text.FontRegistry { return s.fonts }
 
-func (rowTestRuntime) RootStyleContext() any {
-	return theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil)
-}
+func (s rowTestRuntime) RootStyleContext() any { return s.rootStyle }
 
 func TestRow_hosts_interactive_child(t *testing.T) {
 	btn := action.NewButton(marks.Const("Save"), marks.Const(uiinput.ButtonFilled))
@@ -282,7 +281,12 @@ func TestRow_hosts_interactive_child(t *testing.T) {
 	}
 
 	ctx := measureCtx()
-	ctx.Runtime = rowTestRuntime{fonts: testkit.TestFontRegistry(t)}
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	ctx.Runtime = rowTestRuntime{
+		fonts:     testkit.TestFontRegistry(t),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
+	}
 	_ = r.measure(ctx, facet.Constraints{MaxSize: gfx.Size{W: 300, H: 60}})
 	r.arrange(facet.ArrangeContext{}, gfx.RectFromXYWH(0, 0, 300, 60))
 
@@ -307,10 +311,12 @@ func TestRow_hosts_interactive_child(t *testing.T) {
 }
 
 func TestRow_gap_binding_change_remasures(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	c1 := newFixedFacet(40, 20)
 	c2 := newFixedFacet(60, 20)
 
-	gapStore := store.NewValueStore(float32(0))
+	gapStore := store.NewValueStore(scope, float32(0))
 	r := NewRow(
 		[]AxisChild{
 			{Facet: c1},

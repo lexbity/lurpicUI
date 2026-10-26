@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // fixedPane is a minimal test facet that measures to a fixed size — a fixture
@@ -42,9 +43,10 @@ func paneRect(t *testing.T, p Pane) gfx.Rect {
 }
 
 func runSplit(t *testing.T, panes []Pane) []gfx.Rect {
+	scope := store.NewScope()
 	t.Helper()
 	split := NewGallerySplit(panes, dividerSize)
-	h := testkit.NewStandardHarness(t, 1280, 600, split)
+	h := testkit.NewStandardHarness(t, scope, 1280, 600, split)
 	h.RunFrame()
 	out := make([]gfx.Rect, len(panes))
 	for i := range panes {
@@ -147,13 +149,14 @@ func TestGallerySplit_nPaneProperty(t *testing.T) {
 // contract: arranging the split twice must not trip the "called twice" panic
 // (fresh handles per arrange pass).
 func TestGallerySplit_handlesAreFreshPerPass(t *testing.T) {
+	scope := store.NewScope()
 	panes := []Pane{
 		{Facet: newFixedPane(200, 100), FixedWidth: 200, MinWidth: 200},
 		{Facet: newFixedPane(100, 100), Flex: 1, MinWidth: 100},
 		{Facet: newFixedPane(240, 100), FixedWidth: 240, MinWidth: 240},
 	}
 	split := NewGallerySplit(panes, dividerSize)
-	h := testkit.NewStandardHarness(t, 1280, 600, split)
+	h := testkit.NewStandardHarness(t, scope, 1280, 600, split)
 	h.RunFrame()
 	h.RunFrame() // a second frame re-arranges without panic
 	if got := paneRect(t, panes[1]).Width(); got == 0 {

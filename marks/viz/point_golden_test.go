@@ -12,13 +12,15 @@ import (
 )
 
 func TestPointGoldenEmpty(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 300})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	p := NewPoint(s,
 		func(i scatterItem) float64 { return i.x },
@@ -44,13 +46,15 @@ func TestPointGoldenEmpty(t *testing.T) {
 }
 
 func TestPointGoldenSingleDatum(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 300})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	p := NewPoint(s,
 		func(i scatterItem) float64 { return i.x },
@@ -74,13 +78,15 @@ func TestPointGoldenSingleDatum(t *testing.T) {
 }
 
 func TestPointGoldenDegenerateDomain(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{5, 5})
-	xRng := store.NewValueStore([2]float64{0, 300})
-	yDom := store.NewValueStore([2]float64{5, 5})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{5, 5})
+	xRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yDom := store.NewValueStore(scope, [2]float64{5, 5})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	p := NewPoint(s,
 		func(i scatterItem) float64 { return i.x },
@@ -104,13 +110,15 @@ func TestPointGoldenDegenerateDomain(t *testing.T) {
 }
 
 func TestPointGoldenScatter(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 300})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	p := NewPoint(s,
 		func(i scatterItem) float64 { return i.x },

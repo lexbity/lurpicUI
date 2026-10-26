@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // overlayBackground is the distinct color the overlay test root fills the
@@ -85,7 +86,7 @@ func dismissalRegistry(t *testing.T) *layout.LayerRegistry {
 // dismissal-enabled registry, returning the harness and the modal layer's ID.
 // Overlays are mounted on the root with facet.AttachLayer before this call and
 // bound to the modal layer with UpdateChildAttachment afterwards.
-func newOverlayHarness(t *testing.T, root facet.FacetImpl) (*testkit.Harness, facet.LayerID) {
+func newOverlayHarness(t *testing.T, scope *store.Scope, root facet.FacetImpl) (*testkit.Harness, facet.LayerID) {
 	t.Helper()
 	reg := dismissalRegistry(t)
 	desc, ok := reg.LookupName("app.modal")
@@ -94,6 +95,6 @@ func newOverlayHarness(t *testing.T, root facet.FacetImpl) (*testkit.Harness, fa
 	}
 	cfg := testkit.StandardHarnessConfig(t, 320, 200)
 	cfg.LayerRegistry = reg
-	h := testkit.NewHarness(t, cfg, root)
+	h := testkit.NewHarness(t, scope, cfg, root)
 	return h, facet.LayerID(desc.ID)
 }

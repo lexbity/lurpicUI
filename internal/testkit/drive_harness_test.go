@@ -6,11 +6,14 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 func TestDriveHarness_PingAtCut(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := newClickCounterFacet()
-	h := NewDriveHarness(t, 100, 100, root)
+	h := NewDriveHarness(t, scope, 100, 100, root)
 	h.RunFrame() // epoch 1
 
 	payload, perr := h.Call("sys.ping", nil)
@@ -30,9 +33,11 @@ func TestDriveHarness_PingAtCut(t *testing.T) {
 }
 
 func TestControlAwaitCreatesNoFrame(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	cfg := StandardHarnessConfig(t, 100, 100)
 	cfg.Clock = runtime.ClockConfig{InitialMode: runtime.ClockVirtual, EpochNS: 1_800_000_000_000_000_000}
-	h := NewDriveHarnessWithConfig(t, cfg, newClickCounterFacet())
+	h := NewDriveHarnessWithConfig(t, scope, cfg, newClickCounterFacet())
 	h.RunFrame() // the one explicit virtual bootstrap frame
 	before := h.Runtime().LastFrameStats().FrameNumber
 	if before != 1 {
@@ -54,8 +59,10 @@ func TestControlAwaitCreatesNoFrame(t *testing.T) {
 }
 
 func TestDriveHarness_InfoReportsEpoch(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := newClickCounterFacet()
-	h := NewDriveHarness(t, 100, 100, root)
+	h := NewDriveHarness(t, scope, 100, 100, root)
 	h.RunFrames(3)
 
 	payload := h.CallOK("sys.info", nil)
@@ -83,8 +90,10 @@ func TestDriveHarness_InfoReportsEpoch(t *testing.T) {
 }
 
 func TestDriveHarness_UnknownMethodTypedError(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := newClickCounterFacet()
-	h := NewDriveHarness(t, 100, 100, root)
+	h := NewDriveHarness(t, scope, 100, 100, root)
 	_, perr := h.Call("sys.nope", nil)
 	if perr == nil || perr.Code != proto.ErrUnknownMethod {
 		t.Fatalf("err = %+v, want typed internal error", perr)
@@ -92,8 +101,10 @@ func TestDriveHarness_UnknownMethodTypedError(t *testing.T) {
 }
 
 func TestDriveHarness_PlainHarnessHasNoSink(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := newClickCounterFacet()
-	h := NewHarness(t, testHarnessConfig(t), root)
+	h := NewHarness(t, scope, testHarnessConfig(t), root)
 	if h.Runtime().DrivePort() != nil {
 		t.Fatal("plain Harness must not install a drive sink")
 	}

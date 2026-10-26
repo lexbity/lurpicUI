@@ -239,10 +239,12 @@ func TestPool_error_result_in_drain(t *testing.T) {
 }
 
 func TestPool_commit_fn_not_called_when_stale(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	p := NewPool(1)
 	defer p.Shutdown()
 
-	v := store.NewValueStore(1)
+	v := store.NewValueStore(scope, 1)
 	commits := int32(0)
 	snap := BindCurrentVersions(NewSnapshot(v.Get(), v.Version()), func() []store.Version {
 		return []store.Version{v.Version()}
@@ -269,10 +271,12 @@ func TestPool_commit_fn_not_called_when_stale(t *testing.T) {
 }
 
 func TestPool_commit_fn_called_when_valid(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	p := NewPool(1)
 	defer p.Shutdown()
 
-	v := store.NewValueStore(1)
+	v := store.NewValueStore(scope, 1)
 	commits := int32(0)
 	snap := BindCurrentVersions(NewSnapshot(v.Get(), v.Version()), func() []store.Version {
 		return []store.Version{v.Version()}
@@ -384,7 +388,9 @@ func TestPool_shutdown_clean(t *testing.T) {
 }
 
 func TestPool_worker_goroutine_cannot_touch_store(t *testing.T) {
-	v := store.NewValueStore(1)
+	scope := store.NewScope()
+	defer scope.Close()
+	v := store.NewValueStore(scope, 1)
 	snap := NewSnapshot(v.Get(), v.Version())
 	if snap.Data != 1 {
 		t.Fatalf("got %d", snap.Data)

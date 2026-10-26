@@ -11,6 +11,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
@@ -28,6 +30,7 @@ func newStudioDriveHarness(t *testing.T, w, hgt int) *testkit.DriveHarness {
 }
 
 func newStudioDriveHarnessWithRows(t *testing.T, w, hgt int, rows []dataset.Row) *testkit.DriveHarness {
+	scope := store.NewScope()
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	reg, err := StudioLayerRegistry()
@@ -36,6 +39,7 @@ func newStudioDriveHarnessWithRows(t *testing.T, w, hgt int, rows []dataset.Row)
 	}
 	themeCtx := StudioThemeContext().WithFontRegistry(fonts)
 	root := BuildRoot(app.BuildContext{
+		StoreScope:   scope,
 		FontRegistry: fonts,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(hgt)},
 		ContentScale: 1,
@@ -45,7 +49,7 @@ func newStudioDriveHarnessWithRows(t *testing.T, w, hgt int, rows []dataset.Row)
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = themeCtx.Resolver
 	cfg.Drive = true
-	h := testkit.NewDriveHarness(t, float32(w), float32(hgt), root)
+	h := testkit.NewDriveHarness(t, scope, float32(w), float32(hgt), root)
 	return h
 }
 
@@ -227,8 +231,10 @@ var _ = drivedesc.Describe
 // frozen sorted registry — the studio's public mutation surface (Debt-3) is
 // versioned names, and registry drift is a reviewable diff.
 func TestCommandRegistry_audit(t *testing.T) {
-	shell := NewShellState(state.NewAppState(seedRows(t)))
-	registry, _ := ShellCommands(shell, nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	shell := NewShellState(scope, state.NewAppState(scope, seedRows(t)))
+	registry, _ := ShellCommands(scope, shell, nil)
 
 	specs := registry.List()
 	ids := make([]string, 0, len(specs))

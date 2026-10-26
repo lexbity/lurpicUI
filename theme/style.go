@@ -125,11 +125,11 @@ func (ctx StyleContext) Derive(overrides StyleContextOverride) StyleContext {
 }
 
 // NewRootStyleContext constructs the root style context store.
-func NewRootStyleContext(rt any, tokens Tokens, materials *MaterialRegistry) *StyleContextStore {
+func NewRootStyleContext(scope *store.Scope, rt any, tokens Tokens, materials *MaterialRegistry) *StyleContextStore {
 	if materials == nil {
 		materials = NewMaterialRegistry()
 	}
-	store := store.NewValueStore(StyleContext{
+	store := store.NewValueStore(scope, StyleContext{
 		Tokens:    tokens,
 		Materials: materials,
 		Depth:     0,

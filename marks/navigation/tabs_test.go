@@ -189,9 +189,11 @@ func TestTabsPointerAndKeyboardInteraction(t *testing.T) {
 }
 
 func TestTabsActiveIndexSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[int](
 		t,
-		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func() *store.ValueStore[int] { return store.NewValueStore(scope, 0) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
 			return NewTabs("Tabs", []TabItem{
 				{Label: "Tab 1"},
@@ -305,18 +307,20 @@ func renderTabsToSurface(t *testing.T, tabs *Tabs, rt tabsRuntimeStub, measureCt
 }
 
 func newTabsTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Tabs, tabsRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	tabs := NewTabs("Primary navigation", []TabItem{
 		{Key: "dashboard", Label: "Dashboard"},
 		{Key: "monitoring", Label: "Monitoring"},
 		{Key: "activity", Label: "Activity"},
 		{Key: "settings", Label: "Settings"},
-	}, store.NewValueStore(0))
+	}, store.NewValueStore(scope, 0))
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return tabs, rt, resolved
 }
@@ -419,24 +423,28 @@ func TestTabs_contract_anchor_export(t *testing.T) {
 }
 
 func TestTabs_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
 			return NewTabs(label, []TabItem{
 				{Key: "a", Label: "A"},
 				{Key: "b", Label: "B"},
-			}, store.NewValueStore(0))
+			}, store.NewValueStore(scope, 0))
 		},
 		"tablist",
 	)
 }
 
 func TestTabs_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t,
 		func(disabled bool) facet.FacetImpl {
 			tabs := NewTabs("test", []TabItem{
 				{Key: "a", Label: "A"},
 				{Key: "b", Label: "B"},
-			}, store.NewValueStore(0))
+			}, store.NewValueStore(scope, 0))
 			tabs.Disabled = marks.Const(disabled)
 			return tabs
 		},

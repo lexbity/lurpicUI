@@ -43,18 +43,19 @@ func (p *readProbe) ReadExports() []store.ReadExport {
 }
 
 func newReadRuntime(t *testing.T) (*Runtime, *readProbe) {
+	scope := store.NewScope()
 	t.Helper()
 	probe := &readProbe{}
 	probe.Facet = facet.NewFacet()
 	probe.BindImpl(probe)
 	probe.SetTestID("probe")
-	probe.Opacity = store.NewValueStore(0.0)
+	probe.Opacity = store.NewValueStore(scope, 0.0)
 	probe.Opacity.Set(0.75)
-	probe.Label = store.NewValueStore("hello")
-	probe.Rows = store.NewCollectionStore(func(s string) store.ItemID { return store.ItemID(len(s)) })
+	probe.Label = store.NewValueStore(scope, "hello")
+	probe.Rows = store.NewCollectionStore(scope, func(s string) store.ItemID { return store.ItemID(len(s)) })
 	probe.Rows.Insert("alpha")
 	probe.Rows.Insert("beta")
-	probe.Computed = store.NewDerived(func() int { return probe.Rows.Len() * 2 }, probe.Rows)
+	probe.Computed = store.NewDerived(scope, func() int { return probe.Rows.Len() * 2 }, probe.Rows)
 	probe.layout.OnMeasure = func(ctx facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
 		return facet.MeasureResult{Size: gfx.Size{W: 80, H: 24}}
 	}
@@ -66,6 +67,8 @@ func newReadRuntime(t *testing.T) (*Runtime, *readProbe) {
 
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.StoreScope = scope
+	cfg.StoreIdentity = store.NewRuntimeIdentity()
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
 	rt, err := New(cfg, nil, &testWindow{width: 200, height: 100}, &backendFixture{}, probe)
@@ -535,7 +538,7 @@ func TestSnapshotIndexCapacityDoesNotRestrictApp(t *testing.T) {
 		child.BindImpl(child)
 		root.AddChildRuntime(child)
 	}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	cfg.Drive.ObservationNodeCapacity = 2

@@ -30,9 +30,10 @@ func (p *imeProbe) OnDeactivate()                {}
 // EventText — the IME route a real keyboard takes — and the focused text
 // field's store ends with exactly the synthesized text.
 func TestDriveInputType_IMEFidelity(t *testing.T) {
+	scope := store.NewScope()
 	q := &recordQueue{}
-	value := store.NewValueStore("")
-	field := input.NewTextField("Source name", uiinput.TextInputOutlined, value)
+	value := store.NewValueStore(scope, "")
+	field := input.NewTextField(scope, "Source name", uiinput.TextInputOutlined, value)
 	field.SetTestID("probe-field")
 
 	root := &imeProbe{}
@@ -44,6 +45,8 @@ func TestDriveInputType_IMEFidelity(t *testing.T) {
 
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.StoreScope = scope
+	cfg.StoreIdentity = store.NewRuntimeIdentity()
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
 	rt, err := New(cfg, &inputQueueApp{q: q}, &testWindow{width: 200, height: 100}, &backendFixture{}, root)

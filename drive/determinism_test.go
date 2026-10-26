@@ -14,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/render/canonical"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 type replayFrame struct {
@@ -26,6 +27,8 @@ type replayFrame struct {
 // the drive sink installed, switches to Virtual time, and replays the fixed
 // script, returning the packet hash of every executed frame.
 func replayStudioSession(t *testing.T, advances int) []replayFrame {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 
 	fonts := testkit.TestFontRegistry(t)
@@ -35,6 +38,7 @@ func replayStudioSession(t *testing.T, advances int) []replayFrame {
 	}
 	themeCtx := studio.StudioThemeContext().WithFontRegistry(fonts)
 	root := studio.BuildRoot(app.BuildContext{
+		StoreScope:   scope,
 		FontRegistry: fonts,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
@@ -46,7 +50,7 @@ func replayStudioSession(t *testing.T, advances int) []replayFrame {
 	cfg.ThemeResolver = themeCtx.Resolver
 	cfg.Drive = true
 	cfg.Clock = runtime.ClockConfig{InitialMode: runtime.ClockVirtual, EpochNS: 1_800_000_000_000_000_000}
-	h := testkit.NewHarness(t, cfg, root)
+	h := testkit.NewHarness(t, scope, cfg, root)
 	h.RunFrame() // deterministic bootstrap transition at the configured epoch
 
 	frames := make([]replayFrame, 0, advances)

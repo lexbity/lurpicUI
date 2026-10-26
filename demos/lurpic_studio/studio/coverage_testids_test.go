@@ -5,6 +5,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/app"
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/dataset"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/drive/locate"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -16,6 +18,7 @@ import (
 // tree through the LDP locator engine. A missing TestID fails with the
 // facet's kind; the enumerated list is the studio's driver surface.
 func TestCoverage_testids(t *testing.T) {
+	scope := store.NewScope()
 	fonts := testkit.TestFontRegistry(t)
 	reg, err := StudioLayerRegistry()
 	if err != nil {
@@ -23,6 +26,7 @@ func TestCoverage_testids(t *testing.T) {
 	}
 	themeCtx := StudioThemeContext().WithFontRegistry(fonts)
 	root := BuildRoot(app.BuildContext{
+		StoreScope:   scope,
 		FontRegistry: fonts,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
@@ -33,7 +37,7 @@ func TestCoverage_testids(t *testing.T) {
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = themeCtx.Resolver
 	cfg.Drive = true
-	h := testkit.NewHarness(t, cfg, root)
+	h := testkit.NewHarness(t, scope, cfg, root)
 	h.RunFrame()
 
 	rt := h.Runtime()

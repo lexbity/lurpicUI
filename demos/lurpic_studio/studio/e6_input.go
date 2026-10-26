@@ -29,14 +29,15 @@ type playInputFamily struct {
 }
 
 // newPlayInputFamily builds the Input family playground.
-func newPlayInputFamily() *playInputFamily {
+func newPlayInputFamily(ownerScope *store.Scope) *playInputFamily {
+	scope := ownerScope.Child()
 	f := &playInputFamily{}
 
-	f.field = input.NewTextField("Source name", uiinput.TextInputOutlined, nil)
+	f.field = input.NewTextField(scope, "Source name", uiinput.TextInputOutlined, nil)
 	f.field.Base().SetTestID("e6.input.field")
-	f.number = input.NewNumberField("Reload after (s)", 0, 0, 1, -1, nil)
+	f.number = input.NewNumberField(scope, "Reload after (s)", 0, 0, 1, -1, nil)
 	f.number.Base().SetTestID("e6.input.number")
-	f.picker = input.NewColorPicker("Series color", nil)
+	f.picker = input.NewColorPicker(scope, "Series color", nil)
 	f.picker.Base().SetTestID("e6.input.color")
 	f.glyph = primitive.NewIcon(primitive.IconSVG(iconRealtime))
 
@@ -46,6 +47,7 @@ func newPlayInputFamily() *playInputFamily {
 		playgroundCard("color_picker — drag or arrow", f.picker),
 		playgroundCard("icon — a standalone vector glyph", f.glyph),
 	)
+	f.scroll.Base().OwnStoreScope(scope)
 	return f
 }
 

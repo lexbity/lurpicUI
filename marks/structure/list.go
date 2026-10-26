@@ -76,7 +76,8 @@ var _ layout.AnchorExporter = (*List)(nil)
 var _ marks.Mark = (*List)(nil)
 
 // NewList constructs a structure.list mark with canonical defaults.
-func NewList(label string, entries []ListEntry) *List {
+func NewList(ownerScope *store.Scope, label string, entries []ListEntry) *List {
+	ownedScope := ownerScope.Child()
 	l := &List{
 		Selected:        signal.NewSignal[int]("list.selected"),
 		Label:           marks.Const(label),
@@ -84,12 +85,13 @@ func NewList(label string, entries []ListEntry) *List {
 		EmptyState:      marks.Const(""),
 		Disabled:        marks.Const(false),
 		ItemVariant:     marks.Const(uiinput.ListItemStandard),
-		Data:            store.NewValueStore(cloneListEntries(entries)),
+		Data:            store.NewValueStore(ownedScope, cloneListEntries(entries)),
 		scrollRegion:    NewScrollRegion(label),
 		cachedRows:      make(map[string]*selection.ListItem),
 		cachedRowBounds: make(map[string]gfx.Rect),
 	}
 	l.Facet = facet.NewFacet()
+	l.Facet.OwnStoreScope(ownedScope)
 
 	l.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,

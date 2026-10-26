@@ -40,11 +40,12 @@ type chartMargins struct {
 // a scale constructor that consumes ValueStores. It subscribes the eager
 // OnInvalidated signal (RX-1 FR-2), so the bridge recomputes and updates on
 // the clean→dirty transition itself — no external Get() flush is ever needed.
-func bridgeDerived(d *store.Derived[[2]float64]) *store.ValueStore[[2]float64] {
-	vs := store.NewValueStore(d.Get())
-	d.OnInvalidated.Subscribe(func(struct{}) {
+func bridgeDerived(scope *store.Scope, d *store.Derived[[2]float64]) *store.ValueStore[[2]float64] {
+	vs := store.NewValueStore(scope, d.Get())
+	id := d.OnInvalidated.Subscribe(func(struct{}) {
 		vs.Set(d.Get())
 	})
+	scope.OwnRelease(func() { d.OnInvalidated.Unsubscribe(id) })
 	return vs
 }
 
@@ -194,7 +195,11 @@ const dragThreshold = 4
 // NewChartCanvas builds a chart canvas over the caller's stores. Missing
 // optional stores default to sensible values (line series, theme color, full
 // opacity, grid off, rule at 0).
-func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
+func NewChartCanvas(ownerScope *store.Scope, cfg ChartConfig) *ChartCanvas {
+	if ownerScope == nil {
+		panic("studio: chart canvas reactive owner scope is required")
+	}
+	canvasScope := ownerScope.Child()
 	c := &ChartCanvas{
 		rows:           cfg.Rows,
 		xDomain:        cfg.XDomain,
@@ -216,24 +221,26 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 		gridColor:      cfg.Theme.Color(theme.ColorBorder),
 		selectionColor: gfx.ColorFromRGBA8(220, 60, 120, 220),
 	}
+	c.Facet = facet.NewFacet()
+	c.Facet.OwnStoreScope(canvasScope)
 	if c.chartType == nil {
-		c.chartType = store.NewValueStore(ChartLine.String())
+		c.chartType = store.NewValueStore(canvasScope, ChartLine.String())
 	}
 	if c.seriesColor == nil {
-		c.seriesColor = store.NewValueStore(gfx.Color{})
+		c.seriesColor = store.NewValueStore(canvasScope, gfx.Color{})
 	}
 	if c.opacity == nil {
-		c.opacity = store.NewValueStore(1.0)
+		c.opacity = store.NewValueStore(canvasScope, 1.0)
 	}
 	if c.showGrid == nil {
-		c.showGrid = store.NewValueStore(false)
+		c.showGrid = store.NewValueStore(canvasScope, false)
 	}
 	if c.ruleValue == nil {
-		c.ruleValue = store.NewValueStore(0.0)
+		c.ruleValue = store.NewValueStore(canvasScope, 0.0)
 	}
-	c.effective = store.NewValueStore(c.effectiveColorValue())
+	c.effective = store.NewValueStore(canvasScope, c.effectiveColorValue())
 
-	c.windowedRows = store.NewCollectionStore(vizRowID)
+	c.windowedRows = store.NewCollectionStore(canvasScope, vizRowID)
 	if cfg.WindowedRows != nil {
 		c.windowedSource = cfg.WindowedRows
 		c.syncWindowed(cfg.WindowedRows.Get())
@@ -241,8 +248,8 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 		c.syncWindowed(c.rows.All())
 	}
 
-	c.xScale = reactive.NewTimeReactive(c.xDomain, c.xRange)
-	c.yScale = reactive.NewLinearReactive(bridgeDerived(c.yDomain), c.yRange)
+	c.xScale = reactive.NewTimeReactive(canvasScope, c.xDomain, c.xRange)
+	c.yScale = reactive.NewLinearReactive(canvasScope, bridgeDerived(canvasScope, c.yDomain), c.yRange)
 	c.zoom = reactive.NewZoomController(c.xDomain)
 
 	c.line = viz.NewLine(c.windowedRows, vizRowTime, vizRowValue, c.xScale, c.yScale)
@@ -259,7 +266,6 @@ func NewChartCanvas(cfg ChartConfig) *ChartCanvas {
 	c.yAxis = viz.NewAxis(c.yScale, marks.Const(viz.AxisLeft), cfg.Fonts)
 	c.rule = viz.NewRule(marks.FromStore(c.ruleValue, facet.DirtyProjection), viz.RuleHorizontal, c.yScale)
 
-	c.Facet = facet.NewFacet()
 	c.AddChild(c.line.Base())
 	c.AddChild(c.area.Base())
 	c.AddChild(c.point.Base())

@@ -13,6 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -148,11 +150,13 @@ func TestScrollRegionViewportRoleRegisteredWithIdentityTransform(t *testing.T) {
 // newScrollHarness mounts a scroll region hosting the given children as the
 // harness root and warms it for interaction.
 func newScrollHarness(t *testing.T, children []ScrollRegionChild) (*ScrollRegion, *testkit.Harness) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	sr := NewScrollRegion("Scrollable region")
 	sr.Gap = marks.Const[float32](8)
 	sr.SetChildren(children)
-	h := testkit.NewStandardHarness(t, 320, 160, sr)
+	h := testkit.NewStandardHarness(t, scope, 320, 160, sr)
 	testkit.Warmup(h)
 	return sr, h
 }

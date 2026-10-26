@@ -19,13 +19,15 @@ type scatterItem struct {
 func scatterID(i scatterItem) store.ItemID { return i.id }
 
 func TestPoint_produces_draw_points(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 200})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 200})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 200})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 200})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	p := NewPoint(s,
 		func(i scatterItem) float64 { return i.x },
@@ -57,13 +59,15 @@ func TestPoint_produces_draw_points(t *testing.T) {
 }
 
 func TestPoint_positions_through_scales(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 200})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 200})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 200})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 200})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	p := NewPoint(s,
 		func(i scatterItem) float64 { return i.x },
@@ -92,14 +96,14 @@ func TestPoint_positions_through_scales(t *testing.T) {
 }
 
 func TestPoint_empty_store_no_points(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xScale := reactive.NewLinearReactive(
-		store.NewValueStore([2]float64{0, 1}),
-		store.NewValueStore([2]float64{0, 100}),
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xScale := reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+		store.NewValueStore(scope, [2]float64{0, 100}),
 	)
-	yScale := reactive.NewLinearReactive(
-		store.NewValueStore([2]float64{0, 1}),
-		store.NewValueStore([2]float64{0, 100}),
+	yScale := reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+		store.NewValueStore(scope, [2]float64{0, 100}),
 	)
 
 	p := NewPoint(s,
@@ -120,9 +124,11 @@ func TestPoint_empty_store_no_points(t *testing.T) {
 }
 
 func TestPoint_Contract_ScaleInvalidates(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertScaleInvalidates(t,
-		func(scale *reactive.ReactiveScale) facet.FacetImpl {
-			return NewPoint(store.NewCollectionStore(scatterID),
+		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewPoint(store.NewCollectionStore(scope, scatterID),
 				func(i scatterItem) float64 { return i.x },
 				func(i scatterItem) float64 { return i.y },
 				scale, nil,

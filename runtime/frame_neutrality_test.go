@@ -21,8 +21,8 @@ type tickDirtyFacet struct {
 	store  *store.ValueStore[string]
 }
 
-func newTickDirtyFacet() *tickDirtyFacet {
-	f := &tickDirtyFacet{store: store.NewValueStore("idle")}
+func newTickDirtyFacet(scope *store.Scope) *tickDirtyFacet {
+	f := &tickDirtyFacet{store: store.NewValueStore(scope, "idle")}
 	f.Facet = facet.NewFacet()
 	f.layout = facet.LayoutRole{
 		OnMeasure: func(_ facet.MeasureContext, c facet.Constraints) facet.MeasureResult {
@@ -62,7 +62,7 @@ func (f *tickDirtyFacet) Base() *facet.Facet { f.BindImpl(f); return &f.Facet }
 // every dirty leaf. The root arranges its children to real non-empty bounds —
 // the arranged-to-real-bounds contract the RX-1 FR-1 empty-bounds gate assumes;
 // a facet left at empty arranged bounds is treated as gated and pruned.
-func dirtyWorkloadRoot(n int) facet.FacetImpl {
+func dirtyWorkloadRoot(scope *store.Scope, n int) facet.FacetImpl {
 	root := facet.NewFacet()
 	root.BindImpl(&root)
 	var rootLayout facet.LayoutRole
@@ -85,16 +85,16 @@ func dirtyWorkloadRoot(n int) facet.FacetImpl {
 	}
 	root.AddRole(&rootLayout)
 	for i := 0; i < n; i++ {
-		root.AddChildRuntime(newTickDirtyFacet().Base())
+		root.AddChildRuntime(newTickDirtyFacet(scope).Base())
 	}
 	return &root
 }
 
 // measureProjectMedian runs warm frames + samples sampled frames and returns
 // the median ProjectDuration and the p90 (both robust to CI noise).
-func measureProjectMedian(t *testing.T, root facet.FacetImpl, sink DiagnosticsHook, warm, samples int) (median, p90 time.Duration) {
+func measureProjectMedian(t *testing.T, scope *store.Scope, root facet.FacetImpl, sink DiagnosticsHook, warm, samples int) (median, p90 time.Duration) {
 	t.Helper()
-	rt := mustRuntimeTree(t, root)
+	rt := mustRuntimeTreeWithScope(t, scope, root)
 	if sink != nil {
 		rt.EnableDiagnostics(sink)
 	}
@@ -126,10 +126,12 @@ func TestRuntime_DirtySnapshotSinkFrameNeutrality(t *testing.T) {
 		medianCap float64 = 1.10 // with-sink median within 10% of baseline
 		p90Cap    float64 = 1.25 // no tail regression beyond 25%
 	)
-	baselineMedian, baselineP90 := measureProjectMedian(t, dirtyWorkloadRoot(facets), nil, warm, samples)
+	baselineScope := store.NewScope()
+	baselineMedian, baselineP90 := measureProjectMedian(t, baselineScope, dirtyWorkloadRoot(baselineScope, facets), nil, warm, samples)
 
 	sink := &recordingDirtySink{}
-	probeMedian, probeP90 := measureProjectMedian(t, dirtyWorkloadRoot(facets), sink, warm, samples)
+	probeScope := store.NewScope()
+	probeMedian, probeP90 := measureProjectMedian(t, probeScope, dirtyWorkloadRoot(probeScope, facets), sink, warm, samples)
 
 	if probeMedian > time.Duration(float64(baselineMedian)*medianCap) {
 		t.Fatalf("sink perturbed projection: median with-sink=%v vs baseline=%v (cap %v)", probeMedian, baselineMedian, time.Duration(float64(baselineMedian)*medianCap))

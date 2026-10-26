@@ -3,6 +3,7 @@ package studio
 import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // ExhibitID identifies a gallery exhibit.
@@ -31,5 +32,5 @@ const (
 type Exhibit interface {
 	ID() ExhibitID
 	Title() string
-	Build(state *state.AppState) facet.FacetImpl
+	Build(state *state.AppState, scope *store.Scope) facet.FacetImpl
 }

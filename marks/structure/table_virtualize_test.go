@@ -13,7 +13,10 @@ import (
 )
 
 // newThousandRowTable builds a 1000-row table with stable row keys.
-func newThousandRowTable() *Table {
+func newThousandRowTable(t *testing.T) *Table {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rows := make([]TableRow, 0, 1000)
 	for i := 0; i < 1000; i++ {
 		rows = append(rows, TableRow{
@@ -21,14 +24,14 @@ func newThousandRowTable() *Table {
 			Cells: []string{fmt.Sprintf("%04d", i), fmt.Sprintf("item %04d", i), "Ready"},
 		})
 	}
-	return NewTable("Thousand rows", TableData{
+	return NewTable(scope, "Thousand rows", TableData{
 		Columns: []TableColumn{
 			{Key: "id", Label: "ID"},
 			{Key: "name", Label: "Item"},
 			{Key: "status", Label: "Status"},
 		},
 		Rows: rows,
-	}, store.NewValueStore(""))
+	}, store.NewValueStore(scope, ""))
 }
 
 func virtualizeTestCtx(t *testing.T, table *Table, bounds gfx.Rect) (cardRuntimeStub, theme.ResolvedContext) {
@@ -67,7 +70,7 @@ func countBuiltBodyCells(t *Table) int {
 // arranged, projected) — the built body-cell count is bounded by the window,
 // not the row count.
 func TestTableVirtualize_windowBoundedToViewport(t *testing.T) {
-	table := newThousandRowTable()
+	table := newThousandRowTable(t)
 	bounds := gfx.RectFromXYWH(0, 0, 480, 180)
 	virtualizeTestCtx(t, table, bounds)
 
@@ -95,7 +98,7 @@ func TestTableVirtualize_windowBoundedToViewport(t *testing.T) {
 // TestTableVirtualize_scrollToBottomProjectsLastRow pins FR-7: scrolling to the
 // bottom re-virtualizes so the last row is built and the window reaches the end.
 func TestTableVirtualize_scrollToBottomProjectsLastRow(t *testing.T) {
-	table := newThousandRowTable()
+	table := newThousandRowTable(t)
 	bounds := gfx.RectFromXYWH(0, 0, 480, 180)
 	virtualizeTestCtx(t, table, bounds)
 
@@ -130,7 +133,7 @@ func TestTableVirtualize_scrollToBottomProjectsLastRow(t *testing.T) {
 // row keys are absolute (row.Key + absolute index), so the same row's cells are
 // reused across the scroll window rather than re-keyed by window position.
 func TestTableVirtualize_identityStableAcrossScroll(t *testing.T) {
-	table := newThousandRowTable()
+	table := newThousandRowTable(t)
 	bounds := gfx.RectFromXYWH(0, 0, 480, 180)
 	virtualizeTestCtx(t, table, bounds)
 
@@ -165,7 +168,7 @@ func TestTableVirtualize_identityStableAcrossScroll(t *testing.T) {
 // TestTableVirtualize_resizeReVirtualizes pins FR-7: a larger viewport widens
 // the built window; a smaller one narrows it.
 func TestTableVirtualize_resizeReVirtualizes(t *testing.T) {
-	table := newThousandRowTable()
+	table := newThousandRowTable(t)
 	small := gfx.RectFromXYWH(0, 0, 480, 90)
 	virtualizeTestCtx(t, table, small)
 	smallStart, smallEnd := table.VisibleRange()

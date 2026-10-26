@@ -41,16 +41,17 @@ type playNavFamily struct {
 }
 
 // newPlayNavFamily builds the Navigation family playground.
-func newPlayNavFamily() *playNavFamily {
+func newPlayNavFamily(ownerScope *store.Scope) *playNavFamily {
+	scope := ownerScope.Child()
 	f := &playNavFamily{
-		railActive:     store.NewValueStore(0),
-		railSelect:     store.NewValueStore(-1),
-		drawerOpen:     store.NewValueStore(true),
-		lastItem:       store.NewValueStore(-1),
-		pageIndex:      store.NewValueStore(1),
-		pageActivated:  store.NewValueStore(-1),
-		crumbIndex:     store.NewValueStore(0),
-		crumbActivated: store.NewValueStore(-1),
+		railActive:     store.NewValueStore(scope, 0),
+		railSelect:     store.NewValueStore(scope, -1),
+		drawerOpen:     store.NewValueStore(scope, true),
+		lastItem:       store.NewValueStore(scope, -1),
+		pageIndex:      store.NewValueStore(scope, 1),
+		pageActivated:  store.NewValueStore(scope, -1),
+		crumbIndex:     store.NewValueStore(scope, 0),
+		crumbActivated: store.NewValueStore(scope, -1),
 	}
 
 	f.rail = navigation.NewNavRail("Catalog groups", []navigation.NavRailItem{
@@ -60,7 +61,7 @@ func newPlayNavFamily() *playNavFamily {
 	}, f.railActive)
 	f.rail.Base().SetTestID("e6.navigation.rail")
 
-	f.drawer = navigation.NewNavDrawer("Sources", []navigation.NavDrawerSection{
+	f.drawer = navigation.NewNavDrawer(scope, "Sources", []navigation.NavDrawerSection{
 		{Label: "Enterprise", Items: []navigation.NavDrawerItem{
 			{Key: "sources", Label: "Sources"},
 			{Key: "hub", Label: "Hub"},
@@ -73,7 +74,7 @@ func newPlayNavFamily() *playNavFamily {
 	}, f.drawerOpen, nil)
 	f.drawer.Subtitle = marks.Const("lurpic studio places")
 
-	f.tree = navigation.NewTreeNavigator("Families", []navigation.TreeNode{
+	f.tree = navigation.NewTreeNavigator(scope, "Families", []navigation.TreeNode{
 		{
 			Key:   "action",
 			Label: "Action",
@@ -116,6 +117,7 @@ func newPlayNavFamily() *playNavFamily {
 		playgroundCard("pagination — flip pages", f.pager),
 		playgroundCard("breadcrumbs — trace the path", f.crumbs),
 	)
+	f.scroll.Base().OwnStoreScope(scope)
 	return f
 }
 

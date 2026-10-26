@@ -89,17 +89,17 @@ type Root struct {
 // The layer registry carries the studio custom layers (E2 hit policies, E3
 // anchored recipe).
 func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *layout.LayerRegistry) *Root {
-	appState := state.NewAppState(seed)
-	shell := NewShellState(appState)
+	appState := state.NewAppState(ctx.StoreScope, seed)
+	shell := NewShellState(ctx.StoreScope, appState)
 	ids := studioLayersFrom(reg)
 
-	stage := NewStage([]Exhibit{
+	stage := NewStage(ctx.StoreScope, []Exhibit{
 		NewRealtimeData(ctx.FontRegistry, ctx.Theme),
-		NewLayoutPolicies(),
+		NewLayoutPolicies(ctx.StoreScope),
 		NewLayersData(ctx.FontRegistry, ctx.Theme, ids),
 		NewAnchorsData(ctx.FontRegistry, ctx.Theme, ids),
 		NewPropagationData(sink, ctx.FontRegistry, ctx.Theme),
-		NewPlayground(appState),
+		NewPlayground(ctx.StoreScope, appState),
 		NewCapabilityIndexData(),
 	}, appState, shell.ActiveExhibit)
 
@@ -111,16 +111,16 @@ func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *lay
 
 	r := &Root{
 		shell:      shell,
-		chrome:     NewChromeStack(ctx.Theme, shell),
-		index:      NewExhibitIndex(shell),
-		inspector:  NewExhibitInspector(shell, counts),
-		narrow:     NewNarrowShell(shell, counts),
+		chrome:     NewChromeStack(ctx.StoreScope, ctx.Theme, shell),
+		index:      NewExhibitIndex(ctx.StoreScope, shell),
+		inspector:  NewExhibitInspector(ctx.StoreScope, shell, counts),
+		narrow:     NewNarrowShell(ctx.StoreScope, shell, counts),
 		stage:      stage,
-		status:     NewStatusBar(ctx.Theme, shell, feed, exhibitTitle),
+		status:     NewStatusBar(ctx.StoreScope, ctx.Theme, shell, feed, exhibitTitle),
 		layoutMode: LayoutWide,
 		gap:        0,
 	}
-	r.registry, r.palette = ShellCommands(shell, r.toggleLive)
+	r.registry, r.palette = ShellCommands(ctx.StoreScope, shell, r.toggleLive)
 
 	r.gallery = NewGallerySplit([]Pane{
 		{Facet: r.index, FixedWidth: indexPaneWidth, MinWidth: indexPaneWidth},

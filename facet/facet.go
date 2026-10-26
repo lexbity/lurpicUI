@@ -13,11 +13,12 @@ type Facet struct {
 	testID         string // author identity for LDP locators (QP-7); set in Created only
 	testIDRegistry TestIDRegistry
 
-	parent   *Facet
-	children []*Facet
-	impl     FacetImpl
-	roles    []Role
-	subs     signal.Subscriptions
+	parent     *Facet
+	children   []*Facet
+	impl       FacetImpl
+	roles      []Role
+	subs       signal.Subscriptions
+	storeScope *store.Scope
 
 	dirtyLayout       bool
 	dirtyProjection   bool
@@ -117,6 +118,33 @@ func (f *Facet) DirtyFlags() DirtyFlags {
 // Subs returns the facet-owned subscription bag.
 func (f *Facet) Subs() *signal.Subscriptions {
 	return &f.subs
+}
+
+// OwnStoreScope assigns the facet's explicitly created reactive child scope.
+// Disposal closes this scope after detach hooks and subscriptions have run.
+func (f *Facet) OwnStoreScope(scope *store.Scope) {
+	if f == nil || scope == nil {
+		panic("facet: owned store scope is required")
+	}
+	if f.storeScope != nil && f.storeScope != scope {
+		panic("facet: store scope already assigned")
+	}
+	f.storeScope = scope
+}
+
+// StoreScope returns the facet-owned reactive scope, if it has one.
+func (f *Facet) StoreScope() *store.Scope {
+	if f == nil {
+		return nil
+	}
+	return f.storeScope
+}
+
+func (f *Facet) releaseStoreScope() {
+	if f.storeScope != nil {
+		f.storeScope.Close()
+		f.storeScope = nil
+	}
 }
 
 // SubscribedVersions returns a copy of the versions registered for cache keys.

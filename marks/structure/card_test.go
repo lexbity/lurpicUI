@@ -31,7 +31,7 @@ type cardRuntimeStub struct {
 func (s cardRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
-	card := newCardFixture()
+	card := newCardFixture(t)
 	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 
@@ -105,7 +105,7 @@ func TestCardLayoutModes(t *testing.T) {
 	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := cardResolvedContext(cardTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	for _, mode := range []CardLayoutMode{CardLayoutGrid, CardLayoutVertical, CardLayoutHorizontal} {
-		card := newCardFixture()
+		card := newCardFixture(t)
 		card.LayoutMode = marks.Const(mode)
 		facet.Attach(card, facet.AttachContext{Runtime: rt, Theme: ctx})
 		result := card.Layout.Measure(facet.MeasureContext{
@@ -148,7 +148,7 @@ func TestCardGoldenRTL(t *testing.T) {
 
 func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Card)) *testkit.MemorySurface {
 	t.Helper()
-	card := newCardFixture()
+	card := newCardFixture(t)
 	if mutate != nil {
 		mutate(card)
 	}
@@ -190,7 +190,10 @@ func AssertCardGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	return surface
 }
 
-func newCardFixture() *Card {
+func newCardFixture(t *testing.T) *Card {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	card := NewCard("Default size card")
 	card.GridColumns = marks.Const(3)
 	card.GridRows = marks.Const(3)
@@ -215,7 +218,7 @@ func newCardFixture() *Card {
 		},
 		{
 			Key:    "field",
-			Facet:  input.NewTextField("Notes", uiinput.TextInputOutlined, store.NewValueStore[string]("")),
+			Facet:  input.NewTextField(scope, "Notes", uiinput.TextInputOutlined, store.NewValueStore[string](scope, "")),
 			Grid:   facet.GridPlacement{ColStart: 1, RowStart: 1, ColSpan: 2, RowSpan: 1},
 			MarkID: cardMarkIDFirstChild + 3,
 		},
@@ -337,7 +340,7 @@ func TestCard_contract_anchor_export(t *testing.T) {
 
 func TestCard_contract_group_children(t *testing.T) {
 	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl { return newCardFixture() },
+		func() facet.FacetImpl { return newCardFixture(t) },
 		func(facet.FacetImpl) {},
 	)
 }
@@ -360,7 +363,7 @@ func TestCard_contract_accessible(t *testing.T) {
 // scroll offset moves the content instead of silently clipping or compressing
 // tracks (the A-8/A-9 class).
 func TestCardScrollViewport_overflowScrolls(t *testing.T) {
-	card := newCardFixture()
+	card := newCardFixture(t)
 	card.FlexRows = marks.Const(true)
 	card.FlexColumns = marks.Const(true)
 	rt := cardRuntimeStub{fonts: testkit.TestFontRegistry(t)}

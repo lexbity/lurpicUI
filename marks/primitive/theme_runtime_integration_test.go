@@ -7,16 +7,19 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func TestTextResolveThemeTokensInProjection(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	sentinel := gfx.Color{R: 18.0 / 255.0, G: 52.0 / 255.0, B: 86.0 / 255.0, A: 1}
 
 	tok := theme.DefaultTokens()
 	tok.Color.OnSurface = sentinel
 
-	rootStyle := theme.NewRootStyleContext(nil, tok, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, tok, nil)
 	fonts := testkit.TestFontRegistry(t)
 	rt := textRuntimeStub{
 		rootStyle: rootStyle,

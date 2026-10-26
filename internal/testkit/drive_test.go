@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // The Drive* helpers bake in the warmup-frame contract: a fresh harness has
@@ -11,7 +12,9 @@ import (
 // one frame per injected event.
 
 func TestDriveClick_RunsWarmupFrameFirst(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	if h.FrameCount != 0 {
 		t.Fatalf("fresh harness FrameCount = %d, want 0", h.FrameCount)
 	}
@@ -23,7 +26,9 @@ func TestDriveClick_RunsWarmupFrameFirst(t *testing.T) {
 }
 
 func TestDriveClick_NoWarmupIfAlreadyRun(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	h.RunFrame()
 	before := h.FrameCount
 	DriveClickAt(h, 5, 5)
@@ -34,7 +39,9 @@ func TestDriveClick_NoWarmupIfAlreadyRun(t *testing.T) {
 }
 
 func TestWarmup_Idempotent(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	Warmup(h)
 	Warmup(h)
 	if h.FrameCount != 1 {
@@ -47,7 +54,9 @@ func TestWarmup_NilHarness_NoPanic(t *testing.T) {
 }
 
 func TestDriveKeyPress_RunsWarmupThenEventFrame(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	DriveKeyPress(h, platform.KeyTab, 0)
 	if h.FrameCount != 2 {
 		t.Fatalf("DriveKeyPress ran %d frames, want 2 (warmup + event)", h.FrameCount)
@@ -55,7 +64,9 @@ func TestDriveKeyPress_RunsWarmupThenEventFrame(t *testing.T) {
 }
 
 func TestDriveKeyRelease_RunsWarmupThenEventFrame(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	DriveKeyRelease(h, platform.KeyTab, 0)
 	if h.FrameCount != 2 {
 		t.Fatalf("DriveKeyRelease ran %d frames, want 2 (warmup + event)", h.FrameCount)
@@ -63,7 +74,9 @@ func TestDriveKeyRelease_RunsWarmupThenEventFrame(t *testing.T) {
 }
 
 func TestDriveType_RunsWarmupThenEventFrame(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	DriveType(h, "hi")
 	if h.FrameCount != 2 {
 		t.Fatalf("DriveType ran %d frames, want 2 (warmup + event)", h.FrameCount)
@@ -71,7 +84,9 @@ func TestDriveType_RunsWarmupThenEventFrame(t *testing.T) {
 }
 
 func TestDriveScroll_RunsWarmupThenEventFrame(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	DriveScroll(h, 10, 10, 0, -1)
 	if h.FrameCount != 2 {
 		t.Fatalf("DriveScroll ran %d frames, want 2 (warmup + event)", h.FrameCount)
@@ -79,7 +94,9 @@ func TestDriveScroll_RunsWarmupThenEventFrame(t *testing.T) {
 }
 
 func TestDriveDrag_RunsWarmupThenEventPerFrame(t *testing.T) {
-	h := NewHarness(t, testHarnessConfig(t), newClickCounterFacet())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	h := NewHarness(t, scope, testHarnessConfig(t), newClickCounterFacet())
 	// Drag builds start move + press + 5 moves + release = 8 events.
 	if got := len(Drag(0, 0, 10, 10)); got != 8 {
 		t.Fatalf("Drag events = %d, want 8", got)

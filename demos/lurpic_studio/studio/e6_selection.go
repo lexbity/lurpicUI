@@ -36,30 +36,31 @@ type playSelectFamily struct {
 }
 
 // newPlaySelectFamily builds the Selection family playground.
-func newPlaySelectFamily() *playSelectFamily {
+func newPlaySelectFamily(ownerScope *store.Scope) *playSelectFamily {
+	scope := ownerScope.Child()
 	f := &playSelectFamily{}
 
-	f.checkbox = selection.NewCheckbox("Show grid", nil)
+	f.checkbox = selection.NewCheckbox(scope, "Show grid", nil)
 	f.checkbox.Base().SetTestID("e6.selection.checkbox")
-	f.toggle = selection.NewSwitch("Live updates", nil)
+	f.toggle = selection.NewSwitch(scope, "Live updates", nil)
 	f.toggle.Base().SetTestID("e6.selection.toggle")
-	f.slider = selection.NewSlider("Opacity", 0, 100, 5, nil)
+	f.slider = selection.NewSlider(scope, "Opacity", 0, 100, 5, nil)
 	f.slider.Base().SetTestID("e6.selection.slider")
-	f.dial = selection.NewTurnDial("Smoothing", 0, 100, 1, nil)
+	f.dial = selection.NewTurnDial(scope, "Smoothing", 0, 100, 1, nil)
 	f.dial.Base().SetTestID("e6.selection.dial")
-	f.radio = selection.NewRadioGroup("Chart type", []selection.RadioOption{
+	f.radio = selection.NewRadioGroup(scope, "Chart type", []selection.RadioOption{
 		{Value: "replay", Label: "Rolling"},
 		{Value: "hist", Label: "Histogram"},
 		{Value: "stack", Label: "Stacked"},
 	}, nil)
 	f.radio.Base().SetTestID("e6.selection.radio")
-	f.dropdown = selection.NewDropdownSelect("Aggregation", []selection.DropdownOption{
+	f.dropdown = selection.NewDropdownSelect(scope, "Aggregation", []selection.DropdownOption{
 		{Value: "day", Label: "Daily"},
 		{Value: "week", Label: "Weekly"},
 		{Value: "month", Label: "Monthly"},
 	}, nil)
 	f.dropdown.Base().SetTestID("e6.selection.dropdown")
-	f.segments = selection.NewButtonGroup("Time range", []selection.ButtonGroupOption{
+	f.segments = selection.NewButtonGroup(scope, "Time range", []selection.ButtonGroupOption{
 		{Key: "day", Label: "1D"},
 		{Key: "week", Label: "1W"},
 		{Key: "month", Label: "1M"},
@@ -67,8 +68,8 @@ func newPlaySelectFamily() *playSelectFamily {
 	f.segments.Base().SetTestID("e6.selection.segments")
 	f.segments.Mode = marks.Const(selection.ButtonGroupExclusive)
 
-	f.itemSelected = store.NewValueStore(false)
-	f.itemHits = store.NewValueStore(0)
+	f.itemSelected = store.NewValueStore(scope, false)
+	f.itemHits = store.NewValueStore(scope, 0)
 	f.item = selection.NewListItem(marks.Const("Selected source row"))
 	f.item.Base().SetTestID("e6.selection.item")
 	f.item.ShowSelectionIndicator = marks.Const(true)
@@ -84,6 +85,7 @@ func newPlaySelectFamily() *playSelectFamily {
 		playgroundCard("button_group — choose range", f.segments),
 		playgroundCard("list_item — click to select", f.item),
 	)
+	f.scroll.Base().OwnStoreScope(scope)
 	return f
 }
 

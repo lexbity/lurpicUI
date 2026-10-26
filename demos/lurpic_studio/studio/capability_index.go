@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks/structure"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // CapabilityIndex is the read-only Capability Index exhibit. It renders the
@@ -41,8 +42,8 @@ type CapabilityIndexData struct{}
 func NewCapabilityIndexData() *CapabilityIndexData { return &CapabilityIndexData{} }
 func (d *CapabilityIndexData) ID() ExhibitID       { return ExhibitCapabilities }
 func (d *CapabilityIndexData) Title() string       { return "Capability Index" }
-func (d *CapabilityIndexData) Build(_ *state.AppState) facet.FacetImpl {
-	return NewCapabilityIndexFacet()
+func (d *CapabilityIndexData) Build(_ *state.AppState, scope *store.Scope) facet.FacetImpl {
+	return NewCapabilityIndexFacet(scope)
 }
 
 // capCatalogOnce caches the module-wide AST scan per process.
@@ -97,19 +98,21 @@ type capabilityGroup struct {
 
 // NewCapabilityIndexFacet builds the read-only catalog view over a single
 // structure.table mark.
-func NewCapabilityIndexFacet() *CapabilityIndex {
+func NewCapabilityIndexFacet(ownerScope *store.Scope) *CapabilityIndex {
+	scope := ownerScope.Child()
 	e := &CapabilityIndex{}
 	e.Facet = facet.NewFacet()
+	e.OwnStoreScope(scope)
 
 	caps, err := loadCapabilities()
 	if err != nil {
 		// R-fake-viz: never fabricate the catalog; surface the honest note.
-		e.table = structure.NewTable("Capability catalog", capabilityNoteTable("The Capability Index could not be generated.", err.Error()), nil)
+		e.table = structure.NewTable(scope, "Capability catalog", capabilityNoteTable("The Capability Index could not be generated.", err.Error()), nil)
 		buildIndexHost(e)
 		return e
 	}
 
-	e.table = structure.NewTable("Capability catalog", capabilityTableData(caps), nil)
+	e.table = structure.NewTable(scope, "Capability catalog", capabilityTableData(caps), nil)
 	buildIndexHost(e)
 	return e
 }

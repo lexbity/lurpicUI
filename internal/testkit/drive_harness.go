@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // driveReplyFrames bounds how many frames Call runs while waiting for the
@@ -27,7 +28,7 @@ type DriveHarness struct {
 }
 
 // NewDriveHarness constructs the in-process drive harness.
-func NewDriveHarness(t testing.TB, w, h float32, root facet.FacetImpl) *DriveHarness {
+func NewDriveHarness(t testing.TB, scope *store.Scope, w, h float32, root facet.FacetImpl) *DriveHarness {
 	t.Helper()
 	cfg := HarnessConfig{
 		Width:         int(w),
@@ -35,12 +36,12 @@ func NewDriveHarness(t testing.TB, w, h float32, root facet.FacetImpl) *DriveHar
 		LayerRegistry: StandardLayerRegistry(t),
 		Drive:         true,
 	}
-	return NewDriveHarnessWithConfig(t, cfg, root)
+	return NewDriveHarnessWithConfig(t, scope, cfg, root)
 }
 
 // NewDriveHarnessWithConfig boots the drive harness with a caller-built
 // config (the harness layer fills LayerRegistry/Drive defaults when unset).
-func NewDriveHarnessWithConfig(t testing.TB, cfg HarnessConfig, root facet.FacetImpl) *DriveHarness {
+func NewDriveHarnessWithConfig(t testing.TB, scope *store.Scope, cfg HarnessConfig, root facet.FacetImpl) *DriveHarness {
 	t.Helper()
 	cfg.Drive = true
 	if cfg.Width <= 0 {
@@ -66,7 +67,7 @@ func NewDriveHarnessWithConfig(t testing.TB, cfg HarnessConfig, root facet.Facet
 	if err != nil {
 		t.Fatalf("testkit: drive session: %v", err)
 	}
-	h := &DriveHarness{Harness: NewHarness(t, cfg, root), sessions: sessions, session: sess}
+	h := &DriveHarness{Harness: NewHarness(t, scope, cfg, root), sessions: sessions, session: sess}
 	return h
 }
 

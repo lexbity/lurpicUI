@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // bindingSources maps one binding element type to a minter that builds a
@@ -16,21 +17,21 @@ import (
 // import the packages under test (import cycle in test).
 var (
 	bindingSourcesMu sync.RWMutex
-	bindingSources   = map[reflect.Type]func(facet.DirtyFlags) (binding any, write func()){}
+	bindingSources   = map[reflect.Type]func(*store.Scope, facet.DirtyFlags) (binding any, write func()){}
 )
 
 // RegisterBindingSource registers a minter for one concrete binding element
 // type. The walker fails closed on an uncovered type — a mark that grows a
 // new binding element type needs a new registration in
 // internal/bindingsources, and the conformance walk surfaces the gap.
-func RegisterBindingSource[T any](minter func(facet.DirtyFlags) (binding any, write func())) {
+func RegisterBindingSource[T any](minter func(*store.Scope, facet.DirtyFlags) (binding any, write func())) {
 	var zero T
 	bindingSourcesMu.Lock()
 	defer bindingSourcesMu.Unlock()
 	bindingSources[reflect.TypeOf(zero)] = minter
 }
 
-func bindingSourceFor(t reflect.Type) func(facet.DirtyFlags) (any, func()) {
+func bindingSourceFor(t reflect.Type) func(*store.Scope, facet.DirtyFlags) (any, func()) {
 	bindingSourcesMu.RLock()
 	defer bindingSourcesMu.RUnlock()
 	return bindingSources[t]
@@ -92,18 +93,18 @@ func implementsBinding(t reflect.Type) bool {
 // in before attach is subscribed at attach — a store write after attach
 // invalidates the facet within the frame — and the subscription is cleaned up
 // on dispose. The mark factory must build a fresh instance per call.
-func AssertBindingsAlive(t *testing.T, mk func() facet.FacetImpl) {
+func AssertBindingsAlive(t *testing.T, scope *store.Scope, mk func(*store.Scope) facet.FacetImpl) {
 	t.Helper()
-	probe := mk()
+	probe := mk(scope)
 	fields := bindingFields(reflect.TypeOf(probe).Elem())
 	for _, path := range fields {
-		assertBindingAlive(t, mk, path)
+		assertBindingAlive(t, scope, mk, path)
 	}
 }
 
-func assertBindingAlive(t *testing.T, mk func() facet.FacetImpl, path []int) {
+func assertBindingAlive(t *testing.T, scope *store.Scope, mk func(*store.Scope) facet.FacetImpl, path []int) {
 	t.Helper()
-	m := mk()
+	m := mk(scope)
 	target := reflect.ValueOf(m).Elem()
 	for _, idx := range path {
 		target = target.Field(idx)
@@ -119,7 +120,7 @@ func assertBindingAlive(t *testing.T, mk func() facet.FacetImpl, path []int) {
 	if mint == nil {
 		t.Fatalf("no binding source registered for element type %s (register it via testkit.RegisterBindingSource in internal/bindingsources)", valField.Type)
 	}
-	binding, write := mint(facet.DirtyProjection)
+	binding, write := mint(scope, facet.DirtyProjection)
 
 	// Swap the field to a dynamic binding before attach, exactly as an
 	// author would.
@@ -135,6 +136,7 @@ func assertBindingAlive(t *testing.T, mk func() facet.FacetImpl, path []int) {
 	}
 
 	write()
+	scope.FlushSignals()
 	if flags := m.Base().DirtyFlags(); flags&facet.DirtyProjection == 0 {
 		t.Fatalf("%T: declared binding field at path %v is dead — a store write after attach did not invalidate the facet (RX-2 FR-1)", m, path)
 	}

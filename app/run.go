@@ -17,6 +17,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/render/vulkan"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -304,7 +305,11 @@ func Run(config Config, builder RootBuilder) error {
 		return err
 	}
 
+	storeScope := store.NewScope()
+	storeIdentity := store.NewRuntimeIdentity()
+	defer storeScope.Close()
 	root := builder(BuildContext{
+		StoreScope:   storeScope,
 		FontRegistry: fontRegistry,
 		Clock:        preparedClock.View(),
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
@@ -316,6 +321,8 @@ func Run(config Config, builder RootBuilder) error {
 	}
 
 	rtConfig := config.Runtime
+	rtConfig.StoreScope = storeScope
+	rtConfig.StoreIdentity = storeIdentity
 	rtConfig.FontRegistry = fontRegistry
 	// The runtime needs the theme resolver to resolve layer/group layout
 	// recipes (e.g. an anchored-popover layer) during the layer pass.

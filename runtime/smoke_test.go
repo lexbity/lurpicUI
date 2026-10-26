@@ -17,7 +17,7 @@ import (
 )
 
 func TestRuntimeNew_validation(t *testing.T) {
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	layerRegistry, err := layout.StandardLayerRegistry()
 	if err != nil {
 		t.Fatalf("standard layer registry: %v", err)
@@ -27,19 +27,19 @@ func TestRuntimeNew_validation(t *testing.T) {
 	if _, err := New(cfg, nil, nil, &backendFixture{}, &facet.Facet{}); err == nil {
 		t.Fatal("expected error for nil font registry")
 	}
-	cfg = DefaultConfig()
+	cfg = testConfig(t)
 	cfg.LayerRegistry = layerRegistry
 	cfg.LayerRegistry = nil
 	if _, err := New(cfg, nil, nil, &backendFixture{}, &facet.Facet{}); err == nil {
 		t.Fatal("expected error for nil layer registry")
 	}
-	cfg = DefaultConfig()
+	cfg = testConfig(t)
 	cfg.LayerRegistry = layerRegistry
 	cfg.TargetFPS = 0
 	if _, err := New(cfg, nil, nil, &backendFixture{}, &facet.Facet{}); err == nil {
 		t.Fatal("expected error for zero target fps")
 	}
-	cfg = DefaultConfig()
+	cfg = testConfig(t)
 	cfg.LayerRegistry = layerRegistry
 	if _, err := New(cfg, nil, nil, &backendFixture{}, nil); err == nil {
 		t.Fatal("expected error for nil root")
@@ -366,7 +366,7 @@ func phase17Registry(t *testing.T) *layout.LayerRegistry {
 func newPhase17Runtime(t *testing.T, root facet.FacetImpl) (*Runtime, *queueApp) {
 	t.Helper()
 	app := &queueApp{}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = phase17Registry(t)
 	window := &testWindow{width: 400, height: 400}
 	rt, err := New(cfg, app, window, &backendFixture{}, root)

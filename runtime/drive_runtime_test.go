@@ -17,7 +17,7 @@ import (
 func mustDriveRuntime(t testing.TB) *Runtime {
 	t.Helper()
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
@@ -131,7 +131,7 @@ func TestDrive_UnknownMethodTypedError(t *testing.T) {
 
 func TestDriveVersionedCommandUsesGUIRegistryDispatcher(t *testing.T) {
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
@@ -201,7 +201,7 @@ func (b *delayedCommandBackend) Submit(frame *render.Frame) error {
 
 func TestCommandWaitsForRenderAcknowledgment(t *testing.T) {
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	table := testSessionTable(t, &cfg)
@@ -313,7 +313,7 @@ func TestCommandWaitsForRenderAcknowledgment(t *testing.T) {
 
 func TestDisconnectCancelsQueuedCommand(t *testing.T) {
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	table := testSessionTable(t, &cfg)
@@ -395,7 +395,7 @@ func TestDisconnectCancelsQueuedCommand(t *testing.T) {
 
 func TestDisconnectFencesCommandJobCommit(t *testing.T) {
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	table := testSessionTable(t, &cfg)
@@ -483,7 +483,7 @@ func TestDisconnectFencesCommandJobCommit(t *testing.T) {
 
 func TestCommandAwaitsOwnedJobCommitAndReadyFrame(t *testing.T) {
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	table := testSessionTable(t, &cfg)
@@ -562,7 +562,7 @@ func waitForCommandJobResult(t *testing.T, pool *job.Pool, id job.JobID) {
 
 func TestCommandCallbackPanicIsTerminalAndNotRetried(t *testing.T) {
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
@@ -703,7 +703,7 @@ func TestDrive_IdleDrainZeroAlloc(t *testing.T) {
 // and no clients (G1.5): must report 0 allocs/op.
 func BenchmarkFrameDriveIdle(b *testing.B) {
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(b)
 	cfg.LayerRegistry = testLayerRegistry(b)
 	cfg.Drive.Enabled = true
 	testSessionTable(b, &cfg)

@@ -21,11 +21,13 @@ import (
 )
 
 func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
-	tt := newTooltipFixture()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tt := newTooltipFixture(t)
 	tokens := tooltipTokens()
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -102,11 +104,13 @@ func TestTooltipMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestTooltipDismissalAndOpenState(t *testing.T) {
-	tt := newTooltipFixture()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tt := newTooltipFixture(t)
 	tokens := tooltipTokens()
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -165,11 +169,13 @@ func TestTooltipRecipe_exposes_expected_slots(t *testing.T) {
 }
 
 func TestTooltipOpenSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[bool](
 		t,
-		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func() *store.ValueStore[bool] { return store.NewValueStore(scope, true) },
 		func(s *store.ValueStore[bool]) facet.FacetImpl {
-			return NewTooltip("Content", s)
+			return NewTooltip(scope, "Content", s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*Tooltip).openFalseAndDismiss()
@@ -214,13 +220,15 @@ func TestTooltipGoldenRTL(t *testing.T) {
 }
 
 func renderTooltipSurface(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Tooltip), w, h int) *testkit.MemorySurface {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	tt := newTooltipFixture()
+	tt := newTooltipFixture(t)
 	if mutate != nil {
 		mutate(tt)
 	}
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := alertResolvedContext(tokens, density, direction)
@@ -279,8 +287,11 @@ func AssertTooltipGolden(t *testing.T, name string, tokens theme.Tokens, density
 	return surface
 }
 
-func newTooltipFixture() *Tooltip {
-	tt := NewTooltip("Press and hold for more details.", store.NewValueStore(true))
+func newTooltipFixture(t *testing.T) *Tooltip {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tt := NewTooltip(scope, "Press and hold for more details.", store.NewValueStore(scope, true))
 	tt.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	return tt
 }

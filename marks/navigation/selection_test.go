@@ -25,7 +25,9 @@ func (f *selectionTestFacet) OnDeactivate()                {}
 // a store write before attach is adopted at bind time, so the mark's internal
 // selection is correct on the first frame without any replay.
 func TestSelectionBinding_preAttachWriteThenBind(t *testing.T) {
-	sel := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	sel := store.NewValueStore(scope, 0)
 	sel.Set(3) // pre-attach write
 	f := &selectionTestFacet{}
 	b := BindSelection(f, sel, func(v int) { f.syncs++; f.last = v })
@@ -41,10 +43,13 @@ func TestSelectionBinding_preAttachWriteThenBind(t *testing.T) {
 // write mid-session re-syncs the mark's internal selection and runs onSync so
 // the mark re-renders within the same store-change delivery.
 func TestSelectionBinding_externalWriteReSyncs(t *testing.T) {
-	sel := store.NewValueStore(1)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	sel := store.NewValueStore(scope, 1)
 	f := &selectionTestFacet{}
 	b := BindSelection(f, sel, func(v int) { f.syncs++; f.last = v })
 	sel.Set(5)
+	scope.FlushSignals()
 	if got := b.Current(); got != 5 {
 		t.Fatalf("Current() = %d, want 5 after external write", got)
 	}
@@ -57,7 +62,9 @@ func TestSelectionBinding_externalWriteReSyncs(t *testing.T) {
 // published through the binding lands in the store, and the echo of that own
 // write does not re-fire onSync (the mark already holds the value).
 func TestSelectionBinding_publishWritesStore(t *testing.T) {
-	sel := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	sel := store.NewValueStore(scope, 0)
 	f := &selectionTestFacet{}
 	b := BindSelection(f, sel, func(v int) { f.syncs++; f.last = v })
 	b.Publish(7)
@@ -74,7 +81,9 @@ func TestSelectionBinding_publishWritesStore(t *testing.T) {
 // suppresses re-sync of values the mark already holds, so an external write
 // that the mark echoes settles after one onSync.
 func TestSelectionBinding_echoGuardPreventsLoop(t *testing.T) {
-	sel := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	sel := store.NewValueStore(scope, 0)
 	f := &selectionTestFacet{}
 	b := BindSelection(f, sel, func(v int) {
 		f.syncs++
@@ -88,6 +97,7 @@ func TestSelectionBinding_echoGuardPreventsLoop(t *testing.T) {
 	}
 
 	sel.Set(2) // external write, echoed back by the handler
+	scope.FlushSignals()
 	if f.syncs != 1 || f.last != 2 {
 		t.Fatalf("external write onSync = (%d, last %d), want (1, 2) — must settle after one pass", f.syncs, f.last)
 	}
@@ -100,7 +110,9 @@ func TestSelectionBinding_echoGuardPreventsLoop(t *testing.T) {
 // mark: a rail whose ActiveIndex store was written before attach renders the
 // pre-attach selection on its first frame.
 func TestNavRailBinding_preAttachWriteSurvivesAttach(t *testing.T) {
-	sel := store.NewValueStore(-1)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	sel := store.NewValueStore(scope, -1)
 	sel.Set(1) // pre-attach write
 	rail := NewNavRail("Rail", []NavRailItem{
 		{Label: "A", IconRef: "a"},
@@ -116,13 +128,17 @@ func TestNavRailBinding_preAttachWriteSurvivesAttach(t *testing.T) {
 // external ActiveIndex write after attach re-syncs the rail's internal
 // selection through the binding.
 func TestNavRailBinding_externalWriteReSyncs(t *testing.T) {
-	sel := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	sel := store.NewValueStore(scope, 0)
 	rail := NewNavRail("Rail", []NavRailItem{
 		{Label: "A", IconRef: "a"},
 		{Label: "B", IconRef: "b"},
 	}, sel)
 	facet.Attach(rail, facet.AttachContext{})
 	sel.Set(1)
+	scope.FlushSignals()
+	scope.FlushSignals()
 	if got := rail.clampedActiveIndex(); got != 1 {
 		t.Fatalf("clampedActiveIndex = %d, want 1 after external write", got)
 	}

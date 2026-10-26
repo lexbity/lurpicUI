@@ -8,8 +8,10 @@ import (
 )
 
 func TestRegistryValidatesExplicitDeclarationsAndFreezes(t *testing.T) {
-	first := store.ValueExport("a", store.NewValueStore(1), store.DomainState, "integer", 32, store.JSONFreezer[int])
-	second := store.ValueExport("b", store.NewValueStore(2), store.ViewState, "integer", 32, store.JSONFreezer[int])
+	scope := store.NewScope()
+	defer scope.Close()
+	first := store.ValueExport("a", store.NewValueStore(scope, 1), store.DomainState, "integer", 32, store.JSONFreezer[int])
+	second := store.ValueExport("b", store.NewValueStore(scope, 2), store.ViewState, "integer", 32, store.JSONFreezer[int])
 	if _, err := NewRegistry([]store.ReadExport{first, first}); err == nil {
 		t.Fatal("duplicate public name must fail")
 	}
@@ -23,17 +25,19 @@ func TestRegistryValidatesExplicitDeclarationsAndFreezes(t *testing.T) {
 	if _, ok := registry.Lookup("missing"); ok {
 		t.Fatal("undeclared name resolved")
 	}
-	if err := registry.Register(store.ValueExport("c", store.NewValueStore(3), store.DomainState, "integer", 32, store.JSONFreezer[int])); err != nil {
+	if err := registry.Register(store.ValueExport("c", store.NewValueStore(scope, 3), store.DomainState, "integer", 32, store.JSONFreezer[int])); err != nil {
 		t.Fatalf("pre-freeze registration: %v", err)
 	}
 	registry.Freeze()
-	if err := registry.Register(store.ValueExport("d", store.NewValueStore(4), store.DomainState, "integer", 32, store.JSONFreezer[int])); err == nil {
+	if err := registry.Register(store.ValueExport("d", store.NewValueStore(scope, 4), store.DomainState, "integer", 32, store.JSONFreezer[int])); err == nil {
 		t.Fatal("frozen catalog accepted a new export")
 	}
 }
 
 func TestTypedExportCaptureAndCollectionPages(t *testing.T) {
-	rows := store.NewCollectionStore(func(s string) store.ItemID {
+	scope := store.NewScope()
+	defer scope.Close()
+	rows := store.NewCollectionStore(scope, func(s string) store.ItemID {
 		switch s {
 		case "alpha":
 			return 1
@@ -61,7 +65,7 @@ func TestTypedExportCaptureAndCollectionPages(t *testing.T) {
 	if err != nil || allVersion != version || len(all) != 3 || string(all[0]) != `"alpha"` || string(all[2]) != `"gamma"` {
 		t.Fatalf("immutable collection capture = %q version=%d err=%v", all, allVersion, err)
 	}
-	value := store.ValueExport("label", store.NewValueStore("hello"), store.ViewState, "string", 32, store.JSONFreezer[string])
+	value := store.ValueExport("label", store.NewValueStore(scope, "hello"), store.ViewState, "string", 32, store.JSONFreezer[string])
 	payload, _, _, _, err := value.Capture(0, 1)
 	if err != nil || string(payload) != `"hello"` {
 		t.Fatalf("value=%s err=%v", payload, err)
@@ -72,8 +76,10 @@ func TestTypedExportCaptureAndCollectionPages(t *testing.T) {
 }
 
 func TestExportReadNeverMutatesAndFreezesMutablePayload(t *testing.T) {
-	value := store.NewValueStore("stable")
-	rows := store.NewCollectionStore(func([]int) store.ItemID { return 1 })
+	scope := store.NewScope()
+	defer scope.Close()
+	value := store.NewValueStore(scope, "stable")
+	rows := store.NewCollectionStore(scope, func([]int) store.ItemID { return 1 })
 	item := []int{3, 5, 8}
 	rows.Insert(item)
 	export := store.CollectionExport("rows", rows, store.DomainState, "array<integer>", 1024, store.JSONFreezer[[]int])
@@ -100,17 +106,19 @@ func TestExportReadNeverMutatesAndFreezesMutablePayload(t *testing.T) {
 }
 
 func TestDerivedExportPeekDoesNotEvaluateOrMutate(t *testing.T) {
-	source := store.NewValueStore(2)
+	scope := store.NewScope()
+	defer scope.Close()
+	source := store.NewValueStore(scope, 2)
 	evaluations := 0
-	derived := store.NewDerived(func() int { evaluations++; return source.Get() * 3 }, source)
+	derived := store.NewDerived(scope, func() int { evaluations++; return source.Get() * 3 }, source)
 	export := store.DerivedExport("triple", derived, store.ViewState, "integer", 32, store.JSONFreezer[int])
 	source.Set(4)
-	beforeEvals, beforeRecomputes := store.SnapshotFrameDerivedCounters()
+	beforeEvals, beforeRecomputes := scope.FrameDerivedCounters()
 	value, version, _, dirty, err := export.Capture(0, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	afterEvals, afterRecomputes := store.SnapshotFrameDerivedCounters()
+	afterEvals, afterRecomputes := scope.FrameDerivedCounters()
 	if string(value) != "0" || version != 0 || !dirty {
 		t.Fatalf("peek value=%s version=%d dirty=%v", value, version, dirty)
 	}

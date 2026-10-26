@@ -319,7 +319,7 @@ func TestPoison_OneShot_Logging(t *testing.T) {
 	root := facet.NewFacet()
 	root.AddChild(&panicFacet.Facet)
 
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.Logger = logger
 	cfg.LayerRegistry = testLayerRegistry(t)
 	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
@@ -425,7 +425,7 @@ func TestRecoveryDisabled_ReRaises_WithAttribution(t *testing.T) {
 	root := facet.NewFacet()
 	root.AddChild(&panicFacet.Facet)
 
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.RecoveryDisabled = true
 	cfg.LayerRegistry = testLayerRegistry(t)
 	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
@@ -499,7 +499,7 @@ func TestPoison_ReflectedInFrameStats(t *testing.T) {
 	root := facet.NewFacet()
 	root.AddChild(&panicFacet.Facet)
 
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.DiagnosticsHook = hook
 	cfg.LayerRegistry = testLayerRegistry(t)
 	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
@@ -525,7 +525,7 @@ func TestOnFacetPoisoned_HookFires(t *testing.T) {
 	root := facet.NewFacet()
 	root.AddChild(&panicFacet.Facet)
 
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.DiagnosticsHook = hook
 	cfg.LayerRegistry = testLayerRegistry(t)
 	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)

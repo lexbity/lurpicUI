@@ -9,9 +9,11 @@ import (
 )
 
 func TestStore_mutations_require_runtime_thread(t *testing.T) {
-	vs := NewValueStore(0)
-	ms := NewMapStore[string, int]()
-	cs := NewCollectionStore(func(v int) ItemID { return ItemID(v) })
+	scope := NewScope()
+	defer scope.Close()
+	vs := NewValueStore(scope, 0)
+	ms := NewMapStore[string, int](scope)
+	cs := NewCollectionStore(scope, func(v int) ItemID { return ItemID(v) })
 
 	cases := []struct {
 		name   string

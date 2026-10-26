@@ -46,20 +46,22 @@ type testExhibit struct {
 	block *block
 }
 
-func (t testExhibit) ID() ExhibitID                         { return t.id }
-func (t testExhibit) Title() string                         { return t.title }
-func (t testExhibit) Build(*state.AppState) facet.FacetImpl { return t.block }
+func (t testExhibit) ID() ExhibitID                                       { return t.id }
+func (t testExhibit) Title() string                                       { return t.title }
+func (t testExhibit) Build(*state.AppState, *store.Scope) facet.FacetImpl { return t.block }
 
 func blockBounds(f facet.FacetImpl) gfx.Rect {
 	return f.Base().LayoutRole().ArrangedBounds
 }
 
 func TestStage_switchesActiveExhibit(t *testing.T) {
-	appState := state.NewAppState(nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	appState := state.NewAppState(scope, nil)
 	a := &testExhibit{id: ExhibitPolicies, title: "Policies", block: newBlock(gfx.Color{R: 1, A: 1})}
 	b := &testExhibit{id: ExhibitLayers, title: "Layers", block: newBlock(gfx.Color{B: 1, A: 1})}
-	stage := NewStage([]Exhibit{a, b}, appState, store.NewValueStore(ExhibitID("")))
-	h := testkit.NewStandardHarness(t, 400, 300, stage)
+	stage := NewStage(scope, []Exhibit{a, b}, appState, store.NewValueStore(scope, ExhibitID("")))
+	h := testkit.NewStandardHarness(t, scope, 400, 300, stage)
 	h.RunFrame()
 
 	if got := stage.ActiveExhibit().Get(); got != ExhibitPolicies {
@@ -88,11 +90,13 @@ func TestStage_switchesActiveExhibit(t *testing.T) {
 // exhibit keeps a zero measured size — the mechanism that avoids per-frame
 // layout work for every exhibit.
 func TestStage_measuresOnlyActive(t *testing.T) {
-	appState := state.NewAppState(nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	appState := state.NewAppState(scope, nil)
 	a := &testExhibit{id: ExhibitPolicies, title: "Policies", block: newBlock(gfx.Color{R: 1, A: 1})}
 	b := &testExhibit{id: ExhibitLayers, title: "Layers", block: newBlock(gfx.Color{B: 1, A: 1})}
-	stage := NewStage([]Exhibit{a, b}, appState, store.NewValueStore(ExhibitID("")))
-	h := testkit.NewStandardHarness(t, 400, 300, stage)
+	stage := NewStage(scope, []Exhibit{a, b}, appState, store.NewValueStore(scope, ExhibitID("")))
+	h := testkit.NewStandardHarness(t, scope, 400, 300, stage)
 	h.RunFrame()
 
 	if got := a.block.Base().LayoutRole().MeasuredSize; got == (gfx.Size{}) {
@@ -124,11 +128,13 @@ func TestStage_measuresOnlyActive(t *testing.T) {
 // disturbing the inactive exhibit (a dirty-layout storm would re-measure every
 // exhibit).
 func TestStage_noLayoutStorm(t *testing.T) {
-	appState := state.NewAppState(nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	appState := state.NewAppState(scope, nil)
 	a := &testExhibit{id: ExhibitPolicies, title: "Policies", block: newBlock(gfx.Color{R: 1, A: 1})}
 	b := &testExhibit{id: ExhibitLayers, title: "Layers", block: newBlock(gfx.Color{B: 1, A: 1})}
-	stage := NewStage([]Exhibit{a, b}, appState, store.NewValueStore(ExhibitID("")))
-	h := testkit.NewStandardHarness(t, 400, 300, stage)
+	stage := NewStage(scope, []Exhibit{a, b}, appState, store.NewValueStore(scope, ExhibitID("")))
+	h := testkit.NewStandardHarness(t, scope, 400, 300, stage)
 	h.RunFrame()
 
 	stage.ActiveExhibit().Set(ExhibitLayers)

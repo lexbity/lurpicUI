@@ -119,9 +119,10 @@ var _ marks.Mark = (*NumberField)(nil)
 // When value is nil the field creates an internal store and owns its truth;
 // an injected store is bound, never copied (RX-2 Q2) — Store() exposes the
 // live store either way.
-func NewNumberField(label string, min, max, step float64, precision int, value *store.ValueStore[float64]) *NumberField {
+func NewNumberField(ownerScope *store.Scope, label string, min, max, step float64, precision int, value *store.ValueStore[float64]) *NumberField {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore(float64(0))
+		value = store.NewValueStore(ownedScope, float64(0))
 	}
 	nf := &NumberField{
 		Min:         min,
@@ -140,6 +141,7 @@ func NewNumberField(label string, min, max, step float64, precision int, value *
 		Value:       value,
 	}
 	nf.Facet = facet.NewFacet()
+	nf.Facet.OwnStoreScope(ownedScope)
 
 	nf.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,

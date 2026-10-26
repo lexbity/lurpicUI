@@ -19,6 +19,7 @@ func TestRuntime_rootStyleContext_installed_and_dirty_on_change(t *testing.T) {
 	next := store.Get()
 	next.Depth++
 	store.Set(next)
+	rt.deliverSignals()
 
 	if got := rt.dirtyFacets[root.ID()] & facet.DirtyLayout; got == 0 {
 		t.Fatalf("expected dirty layout after style change, dirty=%v", rt.dirtyFacets[root.ID()])

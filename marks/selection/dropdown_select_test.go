@@ -227,6 +227,7 @@ func TestDropdownSelectStoreInvalidation(t *testing.T) {
 		t.Fatalf("expected one tracked store version, got %d", len(initial))
 	}
 	sel.Value.Set("perth")
+	sel.Value.OwnerScope().FlushSignals()
 	if flags := sel.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -349,13 +350,15 @@ func renderDropdownSelectToSurface(t *testing.T, sel *DropdownSelect, rt sliderR
 }
 
 func newDropdownSelectTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*DropdownSelect, sliderRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	sel := NewDropdownSelect("What city do you live in?", []DropdownOption{
+	sel := NewDropdownSelect(scope, "What city do you live in?", []DropdownOption{
 		{Value: "adelaide", Label: "Adelaide"},
 		{Value: "brisbane", Label: "Brisbane"},
 		{Value: "canberra", Label: "Canberra"},
@@ -364,17 +367,19 @@ func newDropdownSelectTestFixture(t *testing.T, tokens theme.Tokens, density the
 		{Value: "melbourne", Label: "Melbourne"},
 		{Value: "perth", Label: "Perth"},
 		{Value: "sydney", Label: "Sydney"},
-	}, store.NewValueStore[string](""))
+	}, store.NewValueStore[string](scope, ""))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return sel, rt, resolved
 }
 
 func TestDropdownSelectValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[string](
 		t,
-		func() *store.ValueStore[string] { return store.NewValueStore("") },
+		func() *store.ValueStore[string] { return store.NewValueStore(scope, "") },
 		func(s *store.ValueStore[string]) facet.FacetImpl {
-			return NewDropdownSelect("test", []DropdownOption{{Value: "a", Label: "A"}}, s)
+			return NewDropdownSelect(scope, "test", []DropdownOption{{Value: "a", Label: "A"}}, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*DropdownSelect).chooseIndex(0)

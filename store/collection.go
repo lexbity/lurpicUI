@@ -19,6 +19,7 @@ type ItemID uint64
 // That ordering keeps derived stores and facet subscribers from observing a
 // partially-updated collection.
 type CollectionStore[T any] struct {
+	scope    *Scope
 	version  VersionSource
 	identify func(T) ItemID
 
@@ -28,7 +29,7 @@ type CollectionStore[T any] struct {
 	// invalidations is copied on mutation and fired after the lock is released.
 	// Callers re-enter the runtime through those hooks, so they must only run
 	// once the collection state and version are already committed.
-	invalidations []func()
+	invalidations invalidationSet
 
 	onInsert  signal.Signal[CollectionInsertEvent[T]]
 	onRemove  signal.Signal[CollectionRemoveEvent[T]]
@@ -54,8 +55,10 @@ type CollectionUpdateEvent[T any] struct {
 	New   T
 }
 
-func NewCollectionStore[T any](identify func(T) ItemID) *CollectionStore[T] {
-	return &CollectionStore[T]{
+func NewCollectionStore[T any](scope *Scope, identify func(T) ItemID) *CollectionStore[T] {
+	requireScope(scope)
+	s := &CollectionStore[T]{
+		scope:     scope,
 		identify:  identify,
 		index:     make(map[ItemID]int),
 		onInsert:  signal.NewSignal[CollectionInsertEvent[T]]("CollectionStore.onInsert"),
@@ -63,10 +66,13 @@ func NewCollectionStore[T any](identify func(T) ItemID) *CollectionStore[T] {
 		onUpdate:  signal.NewSignal[CollectionUpdateEvent[T]]("CollectionStore.onUpdate"),
 		onReplace: signal.NewSignal[signal.Unit]("CollectionStore.onReplace"),
 	}
+	scope.addResource(s)
+	return s
 }
 
 // Get returns the item with the given ID.
 func (s *CollectionStore[T]) Get(id ItemID) (T, bool) {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	idx, ok := s.index[id]
@@ -79,6 +85,7 @@ func (s *CollectionStore[T]) Get(id ItemID) (T, bool) {
 
 // At returns the item at index i.
 func (s *CollectionStore[T]) At(i int) T {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.items[i]
@@ -86,6 +93,7 @@ func (s *CollectionStore[T]) At(i int) T {
 
 // Len returns the number of items in the collection.
 func (s *CollectionStore[T]) Len() int {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.items)
@@ -93,6 +101,7 @@ func (s *CollectionStore[T]) Len() int {
 
 // All returns a snapshot copy of the collection.
 func (s *CollectionStore[T]) All() []T {
+	s.scope.assertDerivedReadAllowed(s)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	if len(s.items) == 0 {
@@ -158,6 +167,7 @@ func (s *CollectionStore[T]) Identify(item T) ItemID {
 
 // Version returns the current store version.
 func (s *CollectionStore[T]) Version() Version {
+	s.scope.assertUsable()
 	return s.version.Current()
 }
 
@@ -214,7 +224,11 @@ func (s *CollectionStore[T]) ReplaceTx(items []T, tx *Transaction) {
 }
 
 func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
+	if tx != nil {
+		tx.requireScope(s.scope)
+	}
 	id := s.identify(item)
 	if tx != nil {
 		var old T
@@ -236,7 +250,7 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 					s.index[id] = idx
 				}
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -259,7 +273,7 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 		old := s.items[idx]
 		s.items[idx] = item
 		s.version.Increment()
-		invalidations := append([]func(){}, s.invalidations...)
+		invalidations := s.invalidations.snapshot()
 		s.mu.Unlock()
 		notify := func() {
 			for _, fn := range invalidations {
@@ -269,7 +283,7 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 			}
 			s.onUpdate.Emit(CollectionUpdateEvent[T]{ID: id, Index: idx, Old: old, New: item})
 		}
-		notify()
+		s.scope.enqueueSignal(notify)
 		return
 	}
 
@@ -277,7 +291,7 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 	s.items = append(s.items, item)
 	s.index[id] = idx
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -288,11 +302,15 @@ func (s *CollectionStore[T]) insert(item T, tx *Transaction) {
 		}
 		s.onInsert.Emit(CollectionInsertEvent[T]{Item: item, Index: idx})
 	}
-	notify()
+	s.scope.enqueueSignal(notify)
 }
 
 func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
+	if tx != nil {
+		tx.requireScope(s.scope)
+	}
 	if tx != nil {
 		var item T
 		var idx int
@@ -318,7 +336,7 @@ func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 					s.index[s.identify(s.items[i])] = i
 				}
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -351,7 +369,7 @@ func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 		s.index[s.identify(s.items[i])] = i
 	}
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -362,11 +380,15 @@ func (s *CollectionStore[T]) remove(id ItemID, tx *Transaction) {
 		}
 		s.onRemove.Emit(CollectionRemoveEvent[T]{ID: id, Index: idx, Item: item})
 	}
-	notify()
+	s.scope.enqueueSignal(notify)
 }
 
 func (s *CollectionStore[T]) update(item T, tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
+	if tx != nil {
+		tx.requireScope(s.scope)
+	}
 	id := s.identify(item)
 	if tx != nil {
 		var old T
@@ -386,7 +408,7 @@ func (s *CollectionStore[T]) update(item T, tx *Transaction) {
 				old = s.items[existingIdx]
 				s.items[existingIdx] = item
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -412,7 +434,7 @@ func (s *CollectionStore[T]) update(item T, tx *Transaction) {
 	old := s.items[idx]
 	s.items[idx] = item
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -423,11 +445,15 @@ func (s *CollectionStore[T]) update(item T, tx *Transaction) {
 		}
 		s.onUpdate.Emit(CollectionUpdateEvent[T]{ID: id, Index: idx, Old: old, New: item})
 	}
-	notify()
+	s.scope.enqueueSignal(notify)
 }
 
 func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
+	s.scope.assertUsable()
 	assertNotProjecting()
+	if tx != nil {
+		tx.requireScope(s.scope)
+	}
 	if tx != nil {
 		var invalidations []func()
 		tx.stage(
@@ -439,7 +465,7 @@ func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
 					s.index[s.identify(item)] = i
 				}
 				s.version.Increment()
-				invalidations = append([]func(){}, s.invalidations...)
+				invalidations = s.invalidations.snapshot()
 				s.mu.Unlock()
 			},
 			func() {
@@ -460,7 +486,7 @@ func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
 		s.index[s.identify(item)] = i
 	}
 	s.version.Increment()
-	invalidations := append([]func(){}, s.invalidations...)
+	invalidations := s.invalidations.snapshot()
 	s.mu.Unlock()
 
 	notify := func() {
@@ -471,15 +497,25 @@ func (s *CollectionStore[T]) replace(items []T, tx *Transaction) {
 		}
 		s.onReplace.Emit(signal.Fired)
 	}
-	notify()
+	s.scope.enqueueSignal(notify)
 }
 
-func (s *CollectionStore[T]) addInvalidationTarget(fn func()) {
-	if fn == nil {
-		return
-	}
+func (s *CollectionStore[T]) addInvalidationTarget(fn func()) Subscription {
+	return s.invalidations.add(fn)
+}
+
+func (s *CollectionStore[T]) storeScope() *Scope { return s.scope }
+func (s *CollectionStore[T]) OwnerScope() *Scope { return s.scope }
+
+func (s *CollectionStore[T]) closeScopeResource() {
 	s.mu.Lock()
-	s.invalidations = append(s.invalidations, fn)
+	s.items = nil
+	s.index = nil
+	s.invalidations.clear()
+	s.onInsert.UnsubscribeAll()
+	s.onRemove.UnsubscribeAll()
+	s.onUpdate.UnsubscribeAll()
+	s.onReplace.UnsubscribeAll()
 	s.mu.Unlock()
 }
 

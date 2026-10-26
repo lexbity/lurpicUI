@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
@@ -18,6 +19,8 @@ import (
 // runtime projects and hit-tests it at its arranged (scrolled) bounds. A
 // button in a scroll region is clickable through real pointer input.
 func TestScrollRegionHostedMarkHitTestable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	var activations int32
 	btn := action.NewButton(marks.Const("Go"), marks.Const(uiinput.ButtonFilled))
 	btn.Activated.Subscribe(func(signal.Unit) {
@@ -32,7 +35,7 @@ func TestScrollRegionHostedMarkHitTestable(t *testing.T) {
 		{Facet: primitive.NewText(marks.Const("last row")), MarkID: 3},
 	})
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 240, 160), sr)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 240, 160), sr)
 	testkit.Warmup(h)
 
 	// The scroll content is attached as tree children.

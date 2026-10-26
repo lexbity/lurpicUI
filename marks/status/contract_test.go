@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -19,10 +20,12 @@ func TestBadge_contract_group_children(t *testing.T) {
 }
 
 func TestBadge_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := badgeTokens()
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -57,10 +60,12 @@ func TestBadge_contract_accessible(t *testing.T) {
 }
 
 func TestProgressBar_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := badgeTokens()
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -94,10 +99,12 @@ func TestProgressBar_contract_accessible(t *testing.T) {
 }
 
 func TestProgressRing_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := badgeTokens()
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -131,10 +138,12 @@ func TestProgressRing_contract_accessible(t *testing.T) {
 }
 
 func TestStatusLight_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := badgeTokens()
 	rt := badgeRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := badgeResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)

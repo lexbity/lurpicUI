@@ -60,7 +60,9 @@ func (m *valueTestMark) edit(v string) {
 
 // (a) attach-time sync: the mark adopts the store's current value.
 func TestScalarBinding_attachSync_fromPresetStore(t *testing.T) {
-	s := store.NewValueStore("preset")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "preset")
 	m := newValueTestMark(s)
 	facet.Attach(m, facet.AttachContext{})
 	if m.mirror != "preset" {
@@ -71,10 +73,13 @@ func TestScalarBinding_attachSync_fromPresetStore(t *testing.T) {
 // (b) re-sync: an external store write mid-session re-applies within the
 // delivery and invalidates the mark.
 func TestScalarBinding_resync_externalWrite(t *testing.T) {
-	s := store.NewValueStore("a")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "a")
 	m := newValueTestMark(s)
 	facet.Attach(m, facet.AttachContext{})
 	s.Set("b")
+	scope.FlushSignals()
 	if m.mirror != "b" {
 		t.Fatalf("re-sync: mirror = %q, want %q", m.mirror, "b")
 	}
@@ -86,7 +91,9 @@ func TestScalarBinding_resync_externalWrite(t *testing.T) {
 // (c)+(d) write-back + echo guard: N consecutive user edits produce exactly
 // N store changes, and no change notification re-enters the mark's apply.
 func TestScalarBinding_writeBack_echoGuard(t *testing.T) {
-	s := store.NewValueStore("")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "")
 	changes := 0
 	s.OnChange.Subscribe(func(signal.Change[string]) { changes++ })
 	m := newValueTestMark(s)
@@ -97,6 +104,7 @@ func TestScalarBinding_writeBack_echoGuard(t *testing.T) {
 
 	for i, v := range []string{"one", "two", "three", "four"} {
 		m.edit(v)
+		scope.FlushSignals()
 		if changes != i+1 {
 			t.Fatalf("edit %d: store changes = %d, want %d", i+1, changes, i+1)
 		}
@@ -112,7 +120,9 @@ func TestScalarBinding_writeBack_echoGuard(t *testing.T) {
 // (d) documented consequence: a store change to the value the mark already
 // holds does not re-apply — the value is already applied.
 func TestScalarBinding_echoGuard_externalSameValueSwallowed(t *testing.T) {
-	s := store.NewValueStore("")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "")
 	m := newValueTestMark(s)
 	facet.Attach(m, facet.AttachContext{})
 
@@ -121,11 +131,13 @@ func TestScalarBinding_echoGuard_externalSameValueSwallowed(t *testing.T) {
 
 	m.edit("v1")
 	s.Set("v1") // no store change → no emission; the mark already holds it
+	scope.FlushSignals()
 	if applies != 0 {
 		t.Fatalf("external write of the held value re-applied (%d times)", applies)
 	}
 	// A different external value still re-syncs.
 	s.Set("v2")
+	scope.FlushSignals()
 	if applies != 1 || m.mirror != "v2" {
 		t.Fatalf("external differing write: applies = %d, mirror = %q", applies, m.mirror)
 	}
@@ -136,13 +148,16 @@ func TestScalarBinding_echoGuard_externalSameValueSwallowed(t *testing.T) {
 // write is a real change and MUST re-sync (the naive lastWritten guard
 // swallows it and the mark serves stale state).
 func TestScalarBinding_echoGuard_externalInterleaveResyncs(t *testing.T) {
-	s := store.NewValueStore("")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "")
 	m := newValueTestMark(s)
 	facet.Attach(m, facet.AttachContext{})
 
 	m.edit("v1")
 	s.Set("v2")
 	s.Set("v1")
+	scope.FlushSignals()
 	if m.mirror != "v1" {
 		t.Fatalf("external write back to the user's value was swallowed: mirror = %q, store = %q", m.mirror, s.Get())
 	}
@@ -151,7 +166,9 @@ func TestScalarBinding_echoGuard_externalInterleaveResyncs(t *testing.T) {
 // Dispose ends delivery: a store write after dispose must not touch the mark
 // and must not panic (the subscription bag is released with the facet).
 func TestScalarBinding_dispose_stopsDelivery(t *testing.T) {
-	s := store.NewValueStore("a")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "a")
 	m := newValueTestMark(s)
 	facet.Attach(m, facet.AttachContext{})
 	facet.Dispose(m)
@@ -163,6 +180,8 @@ func TestScalarBinding_dispose_stopsDelivery(t *testing.T) {
 
 // A panicking apply is quarantined through the recovery hook, not propagated.
 func TestScalarBinding_applyPanic_quarantined(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	facet.SetCallbackRecoveryHook(func(id facet.FacetID, role string, cb func()) (ran bool) {
 		defer func() {
 			if r := recover(); r != nil {
@@ -174,7 +193,7 @@ func TestScalarBinding_applyPanic_quarantined(t *testing.T) {
 	})
 	defer facet.ClearCallbackRecoveryHook()
 
-	s := store.NewValueStore("a")
+	s := store.NewValueStore(scope, "a")
 	m := newValueTestMark(s)
 	m.bind.apply = func(string) { panic("boom") }
 	facet.Attach(m, facet.AttachContext{})
@@ -194,15 +213,17 @@ func TestScalarBinding_nilStore_noOp(t *testing.T) {
 
 // The binding is generic over any comparable scalar.
 func TestScalarBinding_comparableKinds(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	boolMark := &Core{}
 	boolMark.RegisterRoles(boolMark)
-	b := BindScalar(boolMark, store.NewValueStore(true), facet.DirtyProjection, nil)
+	b := BindScalar(boolMark, store.NewValueStore(scope, true), facet.DirtyProjection, nil)
 	if !b.Store().Get() {
 		t.Fatal("bool scalar: unexpected zero value")
 	}
 	intMark := &Core{}
 	intMark.RegisterRoles(intMark)
-	i := BindScalar(intMark, store.NewValueStore(7), facet.DirtyProjection, nil)
+	i := BindScalar(intMark, store.NewValueStore(scope, 7), facet.DirtyProjection, nil)
 	if i.Store().Get() != 7 {
 		t.Fatal("int scalar: unexpected zero value")
 	}
@@ -211,7 +232,9 @@ func TestScalarBinding_comparableKinds(t *testing.T) {
 // Store() exposes the live store the mark was constructed over — injected
 // stores are bound, never copied.
 func TestScalarBinding_storeAccessor_boundNotCopied(t *testing.T) {
-	s := store.NewValueStore("x")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "x")
 	m := newValueTestMark(s)
 	if m.bind.Store() != s {
 		t.Fatal("Store() must return the injected store itself, not a copy")
@@ -223,13 +246,16 @@ func TestScalarBinding_storeAccessor_boundNotCopied(t *testing.T) {
 // Last-writer-wins converges the mark and the store to one of the two writes.
 // Run under -race -count=10 (NFR-4) to check the interleaving's memory model.
 func TestScalarBinding_interleavedWrites_converge(t *testing.T) {
-	s := store.NewValueStore("")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "")
 	m := newValueTestMark(s)
 	facet.Attach(m, facet.AttachContext{})
 
 	for i := 0; i < 50; i++ {
 		m.edit("user")
 		s.Set("external")
+		scope.FlushSignals()
 		if got := m.mirror; got != s.Get() {
 			t.Fatalf("iteration %d: mirror %q diverged from store %q", i, got, s.Get())
 		}

@@ -78,7 +78,7 @@ func TestRuntimeNewRejectsUnknownLayerRecipe(t *testing.T) {
 		Recipe: facet.LayerRecipeRef{Name: "bogus"},
 	})
 	_, err := New(func() Config {
-		cfg := DefaultConfig()
+		cfg := testConfig(t)
 		cfg.LayerRegistry = reg
 		return cfg
 	}(), nil, nil, &backendFixture{}, root)
@@ -102,7 +102,7 @@ func TestRuntimeNewAcceptsStandardLayerRecipe(t *testing.T) {
 		Recipe: facet.LayerRecipeRef{Name: "modal"},
 	})
 	if _, err := New(func() Config {
-		cfg := DefaultConfig()
+		cfg := testConfig(t)
 		cfg.LayerRegistry = reg
 		return cfg
 	}(), nil, nil, &backendFixture{}, root); err != nil {

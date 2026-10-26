@@ -15,6 +15,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -39,11 +41,13 @@ func (s iconButtonRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 const iconButtonTestSVG = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16M4 12h16"/></svg>`
 
 func TestIconButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
 	btn.AccessibleLabel = marks.Const("Add")
 	btn.Size = marks.Const(float32(24))
 	rt := iconButtonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 	}
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -115,11 +119,13 @@ func TestIconButtonMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestIconButtonActivatesFocusAndDisabledBehavior(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
 	btn.AccessibleLabel = marks.Const("Add")
 	btn.Size = marks.Const(float32(24))
 	rt := iconButtonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 	}
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
@@ -184,12 +190,14 @@ func TestIconButtonActivatesFocusAndDisabledBehavior(t *testing.T) {
 }
 
 func TestIconButtonDensityBehaviorChangesSize(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
 	btn.Size = marks.Const(float32(24))
 	comfortable := theme.DefaultResolvedContext()
 	compact := comfortable.WithDensity(theme.DefaultDensityScale(theme.DensityIDCompact, theme.DefaultTokens()))
 	rt := iconButtonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 	}
 
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: comfortable})
@@ -269,6 +277,8 @@ func TestIconButtonGoldenSkeuomorphicPressed(t *testing.T) {
 }
 
 func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*IconButton)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
 	btn.AccessibleLabel = marks.Const("Add")
@@ -279,7 +289,7 @@ func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*
 
 	measureCtx := theme.DefaultResolvedContext()
 	rt := iconButtonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 	}
 	facet.Attach(btn, facet.AttachContext{Runtime: rt, Theme: measureCtx})
 
@@ -345,6 +355,8 @@ func assertIconButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*
 }
 
 func assertIconButtonGolden(t *testing.T, name string, mutate func(*IconButton)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	btn := NewIconButton(primitive.IconSVG(iconButtonTestSVG))
 	btn.AccessibleLabel = marks.Const("Add")
@@ -357,7 +369,7 @@ func assertIconButtonGolden(t *testing.T, name string, mutate func(*IconButton))
 		Height:        96,
 		LayerRegistry: testkit.StandardLayerRegistry(t),
 	}
-	h := testkit.NewHarness(t, cfg, btn)
+	h := testkit.NewHarness(t, scope, cfg, btn)
 	h.RunFrame()
 	h.RunFrame()
 	testkit.AssertGolden(t, h.Surface(), "icon_button_"+name)

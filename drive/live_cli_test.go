@@ -13,6 +13,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	server "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -36,6 +38,8 @@ func (r *minimalRoot) OnDeactivate()                {}
 // the full lurpic-drive-cli wire path (hello create → ping) through a raw
 // socket client: the same bytes the CLI sends.
 func TestLiveCLIPingPath(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	root := &minimalRoot{}
 	root.Facet = facet.NewFacet()
 	root.BindImpl(root)
@@ -47,7 +51,7 @@ func TestLiveCLIPingPath(t *testing.T) {
 	root.AddRole(&root.layout)
 
 	cfg := testkit.StandardHarnessConfig(t, 200, 120)
-	h := testkit.NewDriveHarnessWithConfig(t, cfg, root)
+	h := testkit.NewDriveHarnessWithConfig(t, scope, cfg, root)
 	h.RunFrame()
 
 	dir := t.TempDir()

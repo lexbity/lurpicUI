@@ -8,11 +8,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // newStudioHarness builds a harness with the studio layer registry and theme
 // resolver (the demo's runtime configuration).
-func newStudioHarness(t *testing.T, w, h int, root facet.FacetImpl) *testkit.Harness {
+func newStudioHarness(t *testing.T, scope *store.Scope, w, h int, root facet.FacetImpl) *testkit.Harness {
 	t.Helper()
 	reg, err := StudioLayerRegistry()
 	if err != nil {
@@ -21,7 +22,7 @@ func newStudioHarness(t *testing.T, w, h int, root facet.FacetImpl) *testkit.Har
 	cfg := testkit.StandardHarnessConfig(t, w, h)
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = StudioThemeContext().Resolver
-	harness := testkit.NewHarness(t, cfg, root)
+	harness := testkit.NewHarness(t, scope, cfg, root)
 	harness.RunFrame()
 	return harness
 }
@@ -41,8 +42,9 @@ func TestE2_blockingAndPassThrough(t *testing.T) {
 	themeCtx := StudioThemeContext()
 	reg, _ := StudioLayerRegistry()
 	ids := studioLayersFrom(reg)
-	e2 := NewLayersFacet(testkit.TestFontRegistry(t), themeCtx, ids)
-	h := newStudioHarness(t, 800, 600, e2)
+	scope := store.NewScope()
+	e2 := NewLayersFacet(scope, testkit.TestFontRegistry(t), themeCtx, ids)
+	h := newStudioHarness(t, scope, 800, 600, e2)
 	h.RunFrame()
 
 	// The control's center: E2 arranges it in the middle of the content area.

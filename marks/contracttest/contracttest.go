@@ -143,28 +143,32 @@ func AssertBindingNotSevered[T comparable](t TB,
 // After changeScale the assertion checks that the mark's facet has raised
 // DirtyProjection since the last use.
 func AssertScaleInvalidates(t TB,
-	build func(scale *reactive.ReactiveScale) facet.FacetImpl,
+	build func(*store.Scope, *reactive.ReactiveScale) facet.FacetImpl,
 	changeScale func(domain *store.ValueStore[[2]float64]),
 ) {
 	t.Helper()
 	ctx := facet.AttachContext{Runtime: contractRuntime{}}
+	scope := store.NewScope()
+	defer scope.Close()
 
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	m := build(rs)
+	m := build(scope, rs)
 	facet.Attach(m, ctx)
 	defer facet.Dispose(m)
 
 	m.Base().ClearDirty(facet.DirtyAll)
 
 	changeScale(domain)
+	scope.FlushSignals()
 
 	// The ReactiveScale's derived recomputes lazily on Get (store/derived.go);
 	// the projection pass reads the scale, so force the recompute here. That is
 	// what emits OnChange, which the mark's subscription must observe.
 	rs.Get()
+	scope.FlushSignals()
 
 	flags := m.Base().DirtyFlags()
 	if flags&facet.DirtyProjection == 0 {

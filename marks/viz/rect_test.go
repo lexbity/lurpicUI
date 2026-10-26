@@ -20,10 +20,12 @@ type barItem struct {
 func barID(i barItem) store.ItemID { return i.id }
 
 func TestBar_produces_fill_rects(t *testing.T) {
-	s := store.NewCollectionStore(barID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },
@@ -55,13 +57,14 @@ func TestBar_produces_fill_rects(t *testing.T) {
 }
 
 func TestBar_empty_store(t *testing.T) {
-	s := store.NewCollectionStore(barID)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },
 		func(i barItem) float64 { return i.val },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
 	facet.Attach(b, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -76,10 +79,12 @@ func TestBar_empty_store(t *testing.T) {
 }
 
 func TestBar_bar_count_matches_data(t *testing.T) {
-	s := store.NewCollectionStore(barID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },
@@ -104,10 +109,12 @@ func TestBar_bar_count_matches_data(t *testing.T) {
 }
 
 func TestBar_hit_test_returns_member(t *testing.T) {
-	s := store.NewCollectionStore(barID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },
@@ -135,10 +142,12 @@ func TestBar_hit_test_returns_member(t *testing.T) {
 }
 
 func TestBar_hit_test_misses_gap(t *testing.T) {
-	s := store.NewCollectionStore(barID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, barID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	b := NewBar(s,
 		func(i barItem) string { return i.cat },
@@ -168,9 +177,11 @@ func TestBar_hit_test_misses_gap(t *testing.T) {
 }
 
 func TestBar_Contract_ScaleInvalidates(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertScaleInvalidates(t,
-		func(scale *reactive.ReactiveScale) facet.FacetImpl {
-			return NewBar(store.NewCollectionStore(barID),
+		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewBar(store.NewCollectionStore(scope, barID),
 				func(i barItem) string { return i.cat },
 				func(i barItem) float64 { return i.val },
 				scale,

@@ -15,9 +15,11 @@ import (
 // newTextFieldIntegration builds a mounted TextField harness, runs the warmup
 // frame, and returns the field-bounds center for the click target.
 func newTextFieldIntegration(t *testing.T, value *store.ValueStore[string]) (*testkit.Harness, float32, float32) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	tf := NewTextField("Email", uiinput.TextInputOutlined, value)
-	h := testkit.NewStandardHarness(t, 320, 120, tf)
+	tf := NewTextField(scope, "Email", uiinput.TextInputOutlined, value)
+	h := testkit.NewStandardHarness(t, scope, 320, 120, tf)
 	testkit.Warmup(h)
 
 	field := tf.cachedFieldBounds
@@ -30,7 +32,9 @@ func newTextFieldIntegration(t *testing.T, value *store.ValueStore[string]) (*te
 }
 
 func TestTextFieldIntegration_ClickFocusAndType(t *testing.T) {
-	value := store.NewValueStore("")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, "")
 	h, cx, cy := newTextFieldIntegration(t, value)
 
 	// Click to focus the field, then type.
@@ -43,7 +47,9 @@ func TestTextFieldIntegration_ClickFocusAndType(t *testing.T) {
 }
 
 func TestTextFieldIntegration_TypeAppendsToExistingValue(t *testing.T) {
-	value := store.NewValueStore("")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, "")
 	h, cx, cy := newTextFieldIntegration(t, value)
 
 	testkit.DriveClickAt(h, cx, cy)

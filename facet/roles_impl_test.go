@@ -153,8 +153,10 @@ func TestLayoutRole_unsupported_placement_mode_panics(t *testing.T) {
 }
 
 func TestTrackStore_registers_version_source(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	f := NewFacet()
-	v := store.NewValueStore(1)
+	v := store.NewValueStore(scope, 1)
 	Store(Subscribe(&f), &v.OnChange, v.Version, func(signal.Change[int]) {})
 	got := f.SubscribedVersions()
 	if len(got) != 1 || got[0] != v.Version() {

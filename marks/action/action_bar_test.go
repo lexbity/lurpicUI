@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -194,6 +195,8 @@ func TestActionBarRecipe_allSlotsPresent(t *testing.T) {
 }
 
 func newActionBarFixture(t *testing.T) (*ActionBar, actionBarRuntimeStub) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	bar := NewActionBar("224 selected", []ActionBarAction{
 		{Key: "edit", Label: "Edit", IconRef: "edit"},
@@ -202,7 +205,7 @@ func newActionBarFixture(t *testing.T) (*ActionBar, actionBarRuntimeStub) {
 	})
 	bar.Overflow = marks.Const(&ActionBarAction{Key: "more", AccessibleLabel: "More options", IconRef: "more"})
 	rt := actionBarRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: actionBarIconResolverStub{
 			"edit":   mustActionBarIconAsset("edit"),

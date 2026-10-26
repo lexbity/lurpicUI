@@ -37,6 +37,8 @@ import (
 //     (Path unused — the embedded-data source), matching testkit's harness
 //     convention.
 func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Run("app entry (§1.1)", func(t *testing.T) {
 		pinDefaultConfigFunc(app.DefaultConfig)
 		pinRunFunc(app.Run)
@@ -66,8 +68,8 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 	})
 
 	t.Run("mark core / binding / descriptor (§1.2)", func(t *testing.T) {
-		vs := store.NewValueStore(7)
-		derived := store.NewDerived(func() int { return vs.Get() + 1 }, vs)
+		vs := store.NewValueStore(scope, 7)
+		derived := store.NewDerived(scope, func() int { return vs.Get() + 1 }, vs)
 
 		constB := marks.Const(3)
 		storeB := marks.FromStore(vs, facet.DirtyLayout|facet.DirtyProjection)
@@ -92,9 +94,9 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 	})
 
 	t.Run("store topology (§1.4)", func(t *testing.T) {
-		vs := store.NewValueStore(1.0)
-		rows := store.NewCollectionStore(identityRow)
-		derived := store.NewDerived(func() [2]float64 {
+		vs := store.NewValueStore(scope, 1.0)
+		rows := store.NewCollectionStore(scope, identityRow)
+		derived := store.NewDerived(scope, func() [2]float64 {
 			lo := float64(0)
 			hi := float64(rows.Len())
 			return [2]float64{lo, hi}
@@ -176,17 +178,17 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 	})
 
 	t.Run("viz marks + reactive scales (§1.8)", func(t *testing.T) {
-		xDomain := store.NewValueStore([2]float64{0, 100})
-		xRange := store.NewValueStore([2]float64{0, 800})
-		yDomain := store.NewValueStore([2]float64{0, 1000})
-		yRange := store.NewValueStore([2]float64{800, 0})
-		xScale := reactive.NewTimeReactive(xDomain, xRange)
-		yScale := reactive.NewLinearReactive(yDomain, yRange)
+		xDomain := store.NewValueStore(scope, [2]float64{0, 100})
+		xRange := store.NewValueStore(scope, [2]float64{0, 800})
+		yDomain := store.NewValueStore(scope, [2]float64{0, 1000})
+		yRange := store.NewValueStore(scope, [2]float64{800, 0})
+		xScale := reactive.NewTimeReactive(scope, xDomain, xRange)
+		yScale := reactive.NewLinearReactive(scope, yDomain, yRange)
 		if xScale == nil || yScale == nil {
 			t.Fatal("reactive scale constructed nil")
 		}
 
-		rows := store.NewCollectionStore(identityRow)
+		rows := store.NewCollectionStore(scope, identityRow)
 		x := func(r dataset.Row) float64 { return float64(r.Time.Unix()) }
 		y := func(r dataset.Row) float64 { return r.Value }
 		cat := func(r dataset.Row) string { return r.Region }
@@ -210,8 +212,8 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 			}
 		}
 
-		_ = reactive.DomainFromCollection(rows, func(r dataset.Row) float64 { return float64(r.Time.Unix()) })
-		_ = reactive.RangeFromRegion(0, 800)
+		_ = reactive.DomainFromCollection(scope, rows, func(r dataset.Row) float64 { return float64(r.Time.Unix()) })
+		_ = reactive.RangeFromRegion(scope, 0, 800)
 		zc := reactive.NewZoomController(xDomain)
 		if zc == nil {
 			t.Fatal("NewZoomController returned nil")

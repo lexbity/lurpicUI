@@ -366,7 +366,9 @@ func TestProjectionSystem_clean_facet_uses_cache(t *testing.T) {
 }
 
 func TestProjectionSystem_dirty_facet_reprojects(t *testing.T) {
-	shared := store.NewValueStore[int](1)
+	scope := store.NewScope()
+	defer scope.Close()
+	shared := store.NewValueStore[int](scope, 1)
 	root := newTrackedProjectionFacet("root", gfx.RectFromXYWH(0, 0, 100, 100), shared)
 	child := newProjectionTestFacet("child", gfx.RectFromXYWH(10, 10, 20, 20))
 	root.AddChild(&child.Facet)
@@ -377,6 +379,7 @@ func TestProjectionSystem_dirty_facet_reprojects(t *testing.T) {
 	firstRootKey := sys.outputCache[root.ID()].CacheKey
 
 	shared.Set(2)
+	scope.FlushSignals()
 	sys.Run(root, FrameInfo{Number: 2})
 
 	if got := sys.ProjectedFacets; got != 1 {
@@ -452,7 +455,9 @@ func TestProjectionSystem_cache_key_changes_on_transform_change(t *testing.T) {
 }
 
 func TestProjectionSystem_cache_key_changes_on_store_version(t *testing.T) {
-	s := store.NewValueStore[int](1)
+	scope := store.NewScope()
+	defer scope.Close()
+	s := store.NewValueStore[int](scope, 1)
 	root := newTrackedProjectionFacet("root", gfx.RectFromXYWH(0, 0, 100, 100), s)
 	attachTree(root)
 
@@ -463,6 +468,7 @@ func TestProjectionSystem_cache_key_changes_on_store_version(t *testing.T) {
 	first := sys.outputCache[root.ID()].CacheKey
 
 	s.Set(2)
+	scope.FlushSignals()
 	sys.Run(root, frame)
 	second := sys.outputCache[root.ID()].CacheKey
 	if first == second {

@@ -14,13 +14,15 @@ import (
 )
 
 func TestColorPicker_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewColorPicker("Palette", store.NewValueStore(gfx.Color{R: 1, G: 0, B: 0, A: 1}))
+			return NewColorPicker(scope, "Palette", store.NewValueStore(scope, gfx.Color{R: 1, G: 0, B: 0, A: 1}))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			c := m.(*ColorPicker)
@@ -44,22 +46,26 @@ func TestColorPicker_contract_anchor_export(t *testing.T) {
 }
 
 func TestColorPicker_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewColorPicker(label, store.NewValueStore(gfx.Color{R: 1, G: 0, B: 0, A: 1}))
+			return NewColorPicker(scope, label, store.NewValueStore(scope, gfx.Color{R: 1, G: 0, B: 0, A: 1}))
 		},
 		"colorpicker",
 	)
 }
 
 func TestNumberField_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rt := numberFieldRuntimeStub{fonts: testkit.TestFontRegistry(t)}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore(float64(0)))
+			return NewNumberField(scope, "Amount", 0, 0, 1, -1, store.NewValueStore(scope, float64(0)))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			nf := m.(*NumberField)
@@ -83,17 +89,21 @@ func TestNumberField_contract_anchor_export(t *testing.T) {
 }
 
 func TestNumberField_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewNumberField(label, 0, 0, 1, -1, store.NewValueStore(float64(0)))
+			return NewNumberField(scope, label, 0, 0, 1, -1, store.NewValueStore(scope, float64(0)))
 		},
 		"spinbutton",
 	)
 }
 
 func TestTextField_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rt := textFieldRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := theme.DefaultResolvedContext()
@@ -101,7 +111,7 @@ func TestTextField_contract_anchor_export(t *testing.T) {
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewTextField("Email", uiinput.TextInputOutlined, store.NewValueStore(""))
+			return NewTextField(scope, "Email", uiinput.TextInputOutlined, store.NewValueStore(scope, ""))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			tf := m.(*TextField)
@@ -125,33 +135,41 @@ func TestTextField_contract_anchor_export(t *testing.T) {
 }
 
 func TestTextField_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewTextField(label, uiinput.TextInputOutlined, store.NewValueStore(""))
+			return NewTextField(scope, label, uiinput.TextInputOutlined, store.NewValueStore(scope, ""))
 		},
 		"textbox",
 	)
 }
 
 func TestColorPicker_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		picker := NewColorPicker("color", store.NewValueStore(gfx.Color{}))
+		picker := NewColorPicker(scope, "color", store.NewValueStore(scope, gfx.Color{}))
 		picker.Disabled = marks.Const(disabled)
 		return picker
 	})
 }
 
 func TestNumberField_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		field := NewNumberField("number", 0, 10, 1, 1, store.NewValueStore(0.0))
+		field := NewNumberField(scope, "number", 0, 10, 1, 1, store.NewValueStore(scope, 0.0))
 		field.Disabled = marks.Const(disabled)
 		return field
 	})
 }
 
 func TestTextField_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		field := NewTextField("text", uiinput.TextInputOutlined, store.NewValueStore(""))
+		field := NewTextField(scope, "text", uiinput.TextInputOutlined, store.NewValueStore(scope, ""))
 		field.Disabled = marks.Const(disabled)
 		return field
 	})

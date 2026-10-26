@@ -12,7 +12,9 @@ import (
 // store, and a user-edit write-back lands in it. Before the value contract a
 // nil store silently disabled every subscription (the B-2 bug class).
 func TestValueMarks_nilStoreConstruction(t *testing.T) {
-	slider := NewSlider("Opacity", 0, 100, 5, nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	slider := NewSlider(scope, "Opacity", 0, 100, 5, nil)
 	if slider.Store() == nil {
 		t.Fatal("slider: nil store did not create an internal store")
 	}
@@ -24,7 +26,7 @@ func TestValueMarks_nilStoreConstruction(t *testing.T) {
 		t.Fatalf("slider: user edit did not write the internal store: %v", slider.Store().Get())
 	}
 
-	sw := NewSwitch("Live", nil)
+	sw := NewSwitch(scope, "Live", nil)
 	if sw.Store() == nil {
 		t.Fatal("switch: nil store did not create an internal store")
 	}
@@ -33,7 +35,7 @@ func TestValueMarks_nilStoreConstruction(t *testing.T) {
 		t.Fatal("switch: user edit did not write the internal store")
 	}
 
-	cb := NewCheckbox("Grid", nil)
+	cb := NewCheckbox(scope, "Grid", nil)
 	if cb.Store() == nil {
 		t.Fatal("checkbox: nil store did not create an internal store")
 	}
@@ -42,7 +44,7 @@ func TestValueMarks_nilStoreConstruction(t *testing.T) {
 		t.Fatal("checkbox: user edit did not write the internal store")
 	}
 
-	radio := NewRadioGroup("Chart", []RadioOption{{Value: "a", Label: "A"}}, nil)
+	radio := NewRadioGroup(scope, "Chart", []RadioOption{{Value: "a", Label: "A"}}, nil)
 	if radio.Store() == nil {
 		t.Fatal("radio_group: nil store did not create an internal store")
 	}
@@ -51,7 +53,7 @@ func TestValueMarks_nilStoreConstruction(t *testing.T) {
 		t.Fatal("radio_group: user edit did not write the internal store")
 	}
 
-	dd := NewDropdownSelect("Agg", []DropdownOption{{Value: "d", Label: "D"}}, nil)
+	dd := NewDropdownSelect(scope, "Agg", []DropdownOption{{Value: "d", Label: "D"}}, nil)
 	if dd.Store() == nil {
 		t.Fatal("dropdown_select: nil store did not create an internal store")
 	}
@@ -60,7 +62,7 @@ func TestValueMarks_nilStoreConstruction(t *testing.T) {
 		t.Fatal("dropdown_select: user edit did not write the internal store")
 	}
 
-	dial := NewTurnDial("Smooth", 10, 90, 1, nil)
+	dial := NewTurnDial(scope, "Smooth", 10, 90, 1, nil)
 	if dial.Store() == nil {
 		t.Fatal("turn_dial: nil store did not create an internal store")
 	}
@@ -72,7 +74,7 @@ func TestValueMarks_nilStoreConstruction(t *testing.T) {
 		t.Fatal("turn_dial: user edit did not write the internal store")
 	}
 
-	bg := NewButtonGroup("Range", []ButtonGroupOption{{Key: "d", Label: "D"}}, nil)
+	bg := NewButtonGroup(scope, "Range", []ButtonGroupOption{{Key: "d", Label: "D"}}, nil)
 	if bg.Store() == nil {
 		t.Fatal("button_group: nil store did not create an internal store")
 	}
@@ -92,8 +94,10 @@ func TestValueMarks_nilStoreConstruction(t *testing.T) {
 // TestValueMarks_injectedStoreBoundNotCopied pins the injection half of the
 // doctrine: an injected store is the live truth, not a copied seed.
 func TestValueMarks_injectedStoreBoundNotCopied(t *testing.T) {
-	s := store.NewValueStore(25.0)
-	slider := NewSlider("Opacity", 0, 100, 5, s)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, 25.0)
+	slider := NewSlider(scope, "Opacity", 0, 100, 5, s)
 	if slider.Store() != s {
 		t.Fatal("slider: Store() must return the injected store itself")
 	}

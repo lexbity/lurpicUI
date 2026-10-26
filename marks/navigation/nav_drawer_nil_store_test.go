@@ -17,7 +17,9 @@ var drawerSections = []NavDrawerSection{
 // drawer: nil open/currentIndex stores mean the mark owns both — before the
 // value contract a nil open store made every Open.Get() dereference nil.
 func TestNavDrawer_nilStoreConstruction(t *testing.T) {
-	d := NewNavDrawer("Sources", drawerSections, nil, nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	d := NewNavDrawer(scope, "Sources", drawerSections, nil, nil)
 	if d.OpenStore() == nil {
 		t.Fatal("nil open did not create an internal store")
 	}
@@ -40,9 +42,11 @@ func TestNavDrawer_nilStoreConstruction(t *testing.T) {
 // TestNavDrawer_injectedStoresBoundNotCopied pins the injection half: an
 // injected open store is the live truth in both directions.
 func TestNavDrawer_injectedStoresBoundNotCopied(t *testing.T) {
-	open := store.NewValueStore(false)
-	current := store.NewValueStore(0)
-	d := NewNavDrawer("Sources", drawerSections, open, current)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	open := store.NewValueStore(scope, false)
+	current := store.NewValueStore(scope, 0)
+	d := NewNavDrawer(scope, "Sources", drawerSections, open, current)
 	if d.OpenStore() != open || d.CurrentIndexStore() != current {
 		t.Fatal("Store accessors must return the injected stores themselves")
 	}

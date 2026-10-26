@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
 )
@@ -173,6 +174,8 @@ func TestToolbarRecipe_allSlotsPresent(t *testing.T) {
 }
 
 func newToolbarFixture(t *testing.T) (*Toolbar, buttonRuntimeStub) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	toolbar := NewToolbar(marks.Const("Actions"), []ToolbarGroup{
 		{
@@ -198,7 +201,7 @@ func newToolbarFixture(t *testing.T) (*Toolbar, buttonRuntimeStub) {
 		},
 	})
 	rt := buttonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"close":     mustActionGroupIconAsset("edit"),

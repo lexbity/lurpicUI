@@ -13,6 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -125,6 +127,8 @@ func TestActionGroupRecipe_allSlotsPresent(t *testing.T) {
 }
 
 func newActionGroupFixture(t *testing.T) (*ActionGroup, buttonRuntimeStub) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	group := NewActionGroup(marks.Const("Action group"), marks.Const([]ActionGroupAction{
 		{Key: "edit", Label: "Edit", IconRef: "edit"},
@@ -133,7 +137,7 @@ func newActionGroupFixture(t *testing.T) (*ActionGroup, buttonRuntimeStub) {
 		{Key: "more", AccessibleLabel: "More options", IconRef: "more"},
 	}))
 	rt := buttonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"edit":   mustActionGroupIconAsset("edit"),
@@ -305,10 +309,12 @@ func renderActionGroupSurface(t *testing.T, tokens theme.Tokens, density theme.D
 }
 
 func newActionGroupGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*ActionGroup, buttonRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	rtTokens := tokens
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	group := NewActionGroup(marks.Const("Action group"), marks.Const([]ActionGroupAction{
 		{Key: "edit", Label: "Edit", IconRef: "edit"},

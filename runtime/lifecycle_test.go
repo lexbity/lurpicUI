@@ -140,7 +140,7 @@ func (s *testSurface) Scale() float32   { return 1 }
 func mustLifecycleRuntime(t *testing.T, b render.Backend) (*Runtime, *lifecycleApp) {
 	t.Helper()
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	app := &lifecycleApp{events: &fakeEventQueue{}}
 	win := &testWindow{width: 800, height: 600}
@@ -157,7 +157,7 @@ func mustLifecycleRuntime(t *testing.T, b render.Backend) (*Runtime, *lifecycleA
 func mustLifecycleRuntimeWithAssetsAndApp(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) (*Runtime, *lifecycleApp) {
 	t.Helper()
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 	cfg.AssetRegistry = reg
@@ -457,13 +457,14 @@ func TestRuntime_resume_after_pause(t *testing.T) {
 func TestRuntime_signal_delivery_cross_store_cascade(t *testing.T) {
 	bf := &backendFixture{}
 	rt, _ := mustLifecycleRuntime(t, bf)
+	scope := rt.config.StoreScope
 
 	if err := rt.start(); err != nil {
 		t.Fatalf("start: %v", err)
 	}
 
-	a := store.NewValueStore(1)
-	b := store.NewValueStore("")
+	a := store.NewValueStore(scope, 1)
+	b := store.NewValueStore(scope, "")
 	var order []string
 
 	a.OnChange.Subscribe(func(c signal.Change[int]) {
@@ -475,7 +476,7 @@ func TestRuntime_signal_delivery_cross_store_cascade(t *testing.T) {
 		order = append(order, "b-notify")
 	})
 
-	rt.queueSignal(func() {
+	rt.config.StoreScope.QueueSignal(func() {
 		order = append(order, "queue-set")
 		a.Set(2)
 	})

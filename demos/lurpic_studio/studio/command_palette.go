@@ -4,13 +4,14 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/action"
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // ShellCommands builds the shell-wide command registry and the command palette
 // mark bound to the shared CommandOpen store (FR-cmd). Registered commands
 // switch exhibits, toggle the E1 feed, and open the narrow-mode sheets — each
 // mutating observable state so running a command is visibly reactive.
-func ShellCommands(shell *ShellState, toggleLive func()) (*runtimepkg.CommandRegistry, *action.CommandPalette) {
+func ShellCommands(scope *store.Scope, shell *ShellState, toggleLive func()) (*runtimepkg.CommandRegistry, *action.CommandPalette) {
 	registry := runtimepkg.NewCommandRegistry()
 
 	for _, e := range exhibitCatalog {
@@ -65,6 +66,6 @@ func ShellCommands(shell *ShellState, toggleLive func()) (*runtimepkg.CommandReg
 		},
 	})
 
-	palette := action.NewCommandPalette(marks.Const("Lurpic Studio commands"), registry, shell.CommandOpen)
+	palette := action.NewCommandPalette(scope, marks.Const("Lurpic Studio commands"), registry, shell.CommandOpen)
 	return registry, palette
 }

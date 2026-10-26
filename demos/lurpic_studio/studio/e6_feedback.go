@@ -40,11 +40,12 @@ type playFeedbackFamily struct {
 }
 
 // newPlayFeedbackFamily builds the Feedback family playground.
-func newPlayFeedbackFamily() *playFeedbackFamily {
+func newPlayFeedbackFamily(ownerScope *store.Scope) *playFeedbackFamily {
+	scope := ownerScope.Child()
 	f := &playFeedbackFamily{
-		alertMsg:   store.NewValueStore("All sources are healthy."),
-		dialogOpen: store.NewValueStore(false),
-		toastOpen:  store.NewValueStore(false),
+		alertMsg:   store.NewValueStore(scope, "All sources are healthy."),
+		dialogOpen: store.NewValueStore(scope, false),
+		toastOpen:  store.NewValueStore(scope, false),
 	}
 
 	f.alertTrigger = action.NewButton(marks.Const("Trigger fault"), marks.Const(uiinput.ButtonFilled))
@@ -68,7 +69,7 @@ func newPlayFeedbackFamily() *playFeedbackFamily {
 
 	f.tipTrigger = action.NewButton(marks.Const("Show tooltip"), marks.Const(uiinput.ButtonOutlined))
 	f.tipTrigger.Base().SetTestID("e6.feedback.tooltip")
-	f.tip = feedback.NewTooltip("A tooltip passes pointer input through to the control beneath it.", nil)
+	f.tip = feedback.NewTooltip(scope, "A tooltip passes pointer input through to the control beneath it.", nil)
 
 	f.scroll = newPlayScroll(listGap,
 		playgroundCard("alert — trigger and clear feedback", f.alertTrigger, f.alert, f.alertClear),
@@ -76,6 +77,7 @@ func newPlayFeedbackFamily() *playFeedbackFamily {
 		playgroundCard("notification — transient status", f.toastTrigger, f.toast),
 		playgroundCard("tooltip — transient hint", f.tipTrigger, f.tip),
 	)
+	f.scroll.Base().OwnStoreScope(scope)
 	return f
 }
 

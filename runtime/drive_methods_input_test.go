@@ -73,7 +73,7 @@ func newInputRuntimeWithSessions(t *testing.T, queue platform.EventQueue, sessio
 	probe.focus.Focusable = func() bool { return true }
 	probe.AddRole(&probe.focus)
 
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	if sessions == nil {

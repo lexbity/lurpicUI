@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/state"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // feedHost is a minimal facet that owns a Feed and exposes it to the runtime
@@ -25,12 +26,12 @@ func (h *feedHost) OnDeactivate()                    {}
 // newFeedHarness builds a feed over the app state and attaches it to a
 // runtime. The warmup frame triggers the runtime's start (attach), so the
 // feed's runtime services are wired before any tick.
-func newFeedHarness(t *testing.T, appState *state.AppState) (*Feed, *testkit.Harness) {
+func newFeedHarness(t *testing.T, scope *store.Scope, appState *state.AppState) (*Feed, *testkit.Harness) {
 	t.Helper()
 	host := &feedHost{}
 	host.Facet = facet.NewFacet()
-	host.feed = NewFeed(appState, uint64(host.Facet.ID()))
-	h := testkit.NewStandardHarness(t, 400, 300, host)
+	host.feed = NewFeed(scope, appState, uint64(host.Facet.ID()))
+	h := testkit.NewStandardHarness(t, scope, 400, 300, host)
 	h.RunFrame()
 	return host.feed, h
 }
@@ -44,8 +45,9 @@ func driveTicks(f *Feed, n int) {
 }
 
 func TestFeed_ticksAppendRows(t *testing.T) {
-	appState := state.NewAppState(seedRows(t))
-	feed, h := newFeedHarness(t, appState)
+	scope := store.NewScope()
+	appState := state.NewAppState(scope, seedRows(t))
+	feed, h := newFeedHarness(t, scope, appState)
 	before := appState.Rows.Len()
 	windowBefore := appState.LiveWindow.Get()
 
@@ -77,8 +79,9 @@ func TestFeed_ticksAppendRows(t *testing.T) {
 }
 
 func TestFeed_liveTailPausesWhenPaused(t *testing.T) {
-	appState := state.NewAppState(seedRows(t))
-	feed, h := newFeedHarness(t, appState)
+	scope := store.NewScope()
+	appState := state.NewAppState(scope, seedRows(t))
+	feed, h := newFeedHarness(t, scope, appState)
 	appState.Paused.Set(true)
 	before := appState.Rows.Len()
 	windowBefore := appState.LiveWindow.Get()
@@ -99,9 +102,10 @@ func TestFeed_liveTailPausesWhenPaused(t *testing.T) {
 // ticks than MaxRows never exceeds the cap, and the evicted rows are always
 // the oldest by id.
 func TestFeed_trimToMaxLongRun(t *testing.T) {
-	appState := state.NewAppState(seedRows(t))
+	scope := store.NewScope()
+	appState := state.NewAppState(scope, seedRows(t))
 	appState.MaxRows = 20
-	feed, h := newFeedHarness(t, appState)
+	feed, h := newFeedHarness(t, scope, appState)
 
 	seedCount := appState.Rows.Len()
 	const ticks = 60
@@ -128,8 +132,9 @@ func TestFeed_trimToMaxLongRun(t *testing.T) {
 }
 
 func TestFeed_jobProgressPulses(t *testing.T) {
-	appState := state.NewAppState(seedRows(t))
-	feed, h := newFeedHarness(t, appState)
+	scope := store.NewScope()
+	appState := state.NewAppState(scope, seedRows(t))
+	feed, h := newFeedHarness(t, scope, appState)
 
 	feed.OnTick(100 * time.Millisecond)
 	if got := feed.JobProgress.Get(); got != 0 {
@@ -144,9 +149,10 @@ func TestFeed_jobProgressPulses(t *testing.T) {
 }
 
 func TestFeed_cancelNoLeak(t *testing.T) {
+	scope := store.NewScope()
 	testkit.CheckNoLeaks(t)
-	appState := state.NewAppState(seedRows(t))
-	feed, h := newFeedHarness(t, appState)
+	appState := state.NewAppState(scope, seedRows(t))
+	feed, h := newFeedHarness(t, scope, appState)
 	driveTicks(feed, 5)
 	h.RunUntil(func() bool { return appState.Rows.Len() >= 40+5 }, 60)
 	feed.Cancel()

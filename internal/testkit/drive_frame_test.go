@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // TestDriveFramePacket_HashAndEpoch: frame.packet reports the last submitted
@@ -59,10 +61,11 @@ func TestDriveFramePixels_SoftwareSurface(t *testing.T) {
 // newLocateHarnessNoFrame builds the locate harness without its settling
 // frame (the caller owns the frame timeline).
 func newLocateHarnessNoFrame(t *testing.T) *DriveHarness {
+	scope := store.NewScope()
 	t.Helper()
 	root := newLocateProbe("probe-root", "shell/root", "region", "", "")
 	save := newLocateProbe("probe-save", "action/button", "button", "Save", "")
 	root.AddChild(save.Base())
 	cfg := StandardHarnessConfig(t, 200, 120)
-	return NewDriveHarnessWithConfig(t, cfg, root)
+	return NewDriveHarnessWithConfig(t, scope, cfg, root)
 }

@@ -28,8 +28,8 @@ func NewAnchorsData(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, id
 
 func (p *AnchorsData) ID() ExhibitID { return ExhibitAnchors }
 func (p *AnchorsData) Title() string { return "Anchored Overlays" }
-func (p *AnchorsData) Build(_ *state.AppState) facet.FacetImpl {
-	return NewAnchorsFacet(p.fonts, p.theme, p.ids)
+func (p *AnchorsData) Build(_ *state.AppState, scope *store.Scope) facet.FacetImpl {
+	return NewAnchorsFacet(scope, p.fonts, p.theme, p.ids)
 }
 
 // e3Trigger is the draggable anchor trigger: a circle that exports its bounds
@@ -150,12 +150,14 @@ type Anchors struct {
 }
 
 // NewAnchorsFacet builds the E3 facet.
-func NewAnchorsFacet(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Anchors {
+func NewAnchorsFacet(ownerScope *store.Scope, fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Anchors {
+	scope := ownerScope.Child()
 	e := &Anchors{
-		pos: store.NewValueStore(gfx.Point{X: 240, Y: 160}),
+		pos: store.NewValueStore(scope, gfx.Point{X: 240, Y: 160}),
 		ids: ids,
 	}
 	e.Facet = facet.NewFacet()
+	e.OwnStoreScope(scope)
 	e.trigger = newE3Trigger(themeCtx, fonts, e.pos, e)
 	e.popovers = []*overlayBox{
 		newOverlayBox(gfx.ColorFromRGBA8(230, 130, 60, 255), "menu", themeCtx, fonts, gfx.Size{W: 120, H: 48}),

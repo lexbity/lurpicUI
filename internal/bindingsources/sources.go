@@ -29,9 +29,9 @@ import (
 )
 
 func register[T any]() {
-	testkit.RegisterBindingSource[T](func(flags facet.DirtyFlags) (binding any, write func()) {
+	testkit.RegisterBindingSource[T](func(scope *store.Scope, flags facet.DirtyFlags) (binding any, write func()) {
 		var zero T
-		s := store.NewValueStore(zero)
+		s := store.NewValueStore(scope, zero)
 		return marks.FromStore(s, flags), func() { s.Set(zero) }
 	})
 }

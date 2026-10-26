@@ -4,18 +4,20 @@ import (
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // TestCapabilityIndex_goldenTop pins the catalog at scroll top: the provenance
 // note row renders at the top of the table (fully visible), and the table's
 // chrome and first section are present (RX-1 FR-14 / AC-7).
 func TestCapabilityIndex_goldenTop(t *testing.T) {
+	scope := store.NewScope()
 	root := findStudioModuleRoot()
 	if root == "" {
 		t.Skip("source tree unavailable (no go.mod found)")
 	}
-	f := NewCapabilityIndexFacet()
-	h := testkit.NewStandardHarness(t, 960, 600, f)
+	f := NewCapabilityIndexFacet(scope)
+	h := testkit.NewStandardHarness(t, scope, 960, 600, f)
 	h.RunFrame()
 	testkit.AssertGolden(t, h.Surface(), "capindex_top")
 }
@@ -23,12 +25,13 @@ func TestCapabilityIndex_goldenTop(t *testing.T) {
 // TestCapabilityIndex_goldenMiddle drives the table's scroll to a middle band
 // (VisibleRange-driven) and pins the render (AC-7: middle rows sampled).
 func TestCapabilityIndex_goldenMiddle(t *testing.T) {
+	scope := store.NewScope()
 	root := findStudioModuleRoot()
 	if root == "" {
 		t.Skip("source tree unavailable (no go.mod found)")
 	}
-	f := NewCapabilityIndexFacet()
-	h := testkit.NewStandardHarness(t, 960, 600, f)
+	f := NewCapabilityIndexFacet(scope)
+	h := testkit.NewStandardHarness(t, scope, 960, 600, f)
 	h.RunFrame()
 
 	tbl := f.Table()
@@ -48,12 +51,13 @@ func TestCapabilityIndex_goldenMiddle(t *testing.T) {
 // TestCapabilityIndex_goldenBottom scrolls to the bottom of the catalog and
 // pins the totals note row (AC-7: totals reachable by scroll).
 func TestCapabilityIndex_goldenBottom(t *testing.T) {
+	scope := store.NewScope()
 	root := findStudioModuleRoot()
 	if root == "" {
 		t.Skip("source tree unavailable (no go.mod found)")
 	}
-	f := NewCapabilityIndexFacet()
-	h := testkit.NewStandardHarness(t, 960, 600, f)
+	f := NewCapabilityIndexFacet(scope)
+	h := testkit.NewStandardHarness(t, scope, 960, 600, f)
 	h.RunFrame()
 
 	tbl := f.Table()

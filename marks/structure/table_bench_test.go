@@ -12,6 +12,8 @@ import (
 )
 
 func benchmarkTableMeasureArrangeProject(b *testing.B, n int) {
+	scope := store.NewScope()
+	b.Cleanup(scope.Close)
 	columns := []TableColumn{
 		{Key: "id", Label: "ID"},
 		{Key: "name", Label: "Name"},
@@ -35,13 +37,13 @@ func benchmarkTableMeasureArrangeProject(b *testing.B, n int) {
 	rt := cardRuntimeStub{fonts: fonts}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 1280, 800)
-	selection := store.NewValueStore("")
+	selection := store.NewValueStore(scope, "")
 
 	b.ReportAllocs()
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		t := NewTable("Benchmark table", data, selection)
+		t := NewTable(scope, "Benchmark table", data, selection)
 		facet.Attach(t, facet.AttachContext{Runtime: rt, Theme: ctx})
 		t.Layout.Measure(facet.MeasureContext{
 			Runtime:          rt,

@@ -70,7 +70,7 @@ func TestAssetDiagnostics_FrameStatsPopulated(t *testing.T) {
 	}
 
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = fixture
 	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
@@ -164,7 +164,7 @@ func TestAssetDiagnostics_LoadImageWithPathIDRegistry(t *testing.T) {
 	mgr := assets.NewManager(reg, &passthroughSource{}, assets.BackendSoftware, nil, idReg)
 
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 	cfg.AssetRegistry = reg
@@ -265,7 +265,7 @@ func (f *assetDiagFixtureWithID) Stats() assets.ManagerStats { return assets.Man
 func rtWithManager(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistryStore) *Runtime {
 	t.Helper()
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = mgr
 	cfg.AssetRegistry = reg
@@ -279,7 +279,7 @@ func rtWithManager(t *testing.T, mgr assets.Manager, reg *assets.AssetRegistrySt
 func TestAssetDiagnostics_ManagerAccessors(t *testing.T) {
 	fixture := &assetDiagFixture{}
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = fixture
 	cfg.AssetRegistry = assets.NewAssetRegistryStore()
@@ -298,7 +298,7 @@ func TestAssetDiagnostics_ManagerAccessors(t *testing.T) {
 
 func TestAssetDiagnostics_StatsAreZeroWithoutManager(t *testing.T) {
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.AssetManager = nil
 	rt, err := New(cfg, nil, nil, &backendFixture{}, &root)
@@ -326,7 +326,7 @@ func TestAssetDiagnostics_StatsAreZeroWithoutManager(t *testing.T) {
 func TestAssetDiagnostics_EventLogMethods(t *testing.T) {
 	log := &recordingLog{}
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Logger = log
 	cfg.AssetDiagnosticsEnabled = true

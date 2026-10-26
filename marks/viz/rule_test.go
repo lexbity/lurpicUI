@@ -14,9 +14,11 @@ import (
 type vizRuntimeStub struct{ contracttest.NoopRuntime }
 
 func TestRule_horizontal_at_value(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(50.0), RuleHorizontal, rs)
 	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -43,9 +45,11 @@ func TestRule_horizontal_at_value(t *testing.T) {
 }
 
 func TestRule_vertical_at_value(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(25.0), RuleVertical, rs)
 	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -69,9 +73,11 @@ func TestRule_vertical_at_value(t *testing.T) {
 }
 
 func TestRule_at_lower_bound(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(0.0), RuleHorizontal, rs)
 	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -86,9 +92,11 @@ func TestRule_at_lower_bound(t *testing.T) {
 }
 
 func TestRule_at_upper_bound(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(100.0), RuleHorizontal, rs)
 	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -103,9 +111,11 @@ func TestRule_at_upper_bound(t *testing.T) {
 }
 
 func TestRule_out_of_bounds_clamps(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	r := NewRule(marks.Const(200.0), RuleVertical, rs)
 	facet.Attach(r, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -137,7 +147,7 @@ func TestRule_nil_scale_returns_nil(t *testing.T) {
 
 func TestRule_Contract_ScaleInvalidates(t *testing.T) {
 	contracttest.AssertScaleInvalidates(t,
-		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
 			return NewRule(marks.Const(50.0), RuleHorizontal, scale)
 		},
 		func(domain *store.ValueStore[[2]float64]) {

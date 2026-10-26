@@ -182,9 +182,11 @@ func TestProjectionGate_quarantinedFacetGatesCleanly(t *testing.T) {
 // prune, not an FR-1 empty-bounds skip (NFR-8 LayersUnmountedSkips owns that
 // counter at the runtime layer pass).
 func TestProjectionGate_unmountedLayerGatedByMountState(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	host := newProjectionTestFacet("host", gfx.RectFromXYWH(0, 0, 100, 100))
 	layer := newProjectionTestFacet("layer", gfx.RectFromXYWH(10, 10, 50, 50))
-	mount := store.NewValueStore(false)
+	mount := store.NewValueStore(scope, false)
 	// AttachLayer records the layer contract (band + mount gate) and adds the
 	// child; no projection-layer entry is registered, mirroring the runtime
 	// skipping the unmounted layer's resolve.
@@ -212,11 +214,15 @@ func TestProjectionGate_unmountedLayerGatedByMountState(t *testing.T) {
 // gate: the same layer-attached facet with Mount true and a resolved
 // projection layer projects normally through layerCtx.
 func TestProjectionGate_mountedLayerProjects(t *testing.T) {
-	// A zero-arranged host (as a Stage gates an inactive exhibit): its mounted
-	// layer resolves its own bounds via layerCtx and still projects.
+	scope :=
+		// A zero-arranged host (as a Stage gates an inactive exhibit): its mounted
+		// layer resolves its own bounds via layerCtx and still projects.
+		store.NewScope()
+	defer scope.Close()
+
 	host := newProjectionTestFacet("host", gfx.Rect{})
 	layer := newProjectionTestFacet("layer", gfx.RectFromXYWH(0, 0, 100, 100))
-	mount := store.NewValueStore(true)
+	mount := store.NewValueStore(scope, true)
 	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
 	attachTree(host)
 

@@ -11,12 +11,14 @@ import (
 	"codeburg.org/lexbit/lurpicui/store"
 )
 
-func defaultColorPickerStore() *store.ValueStore[gfx.Color] {
-	return store.NewValueStore(gfx.Color{R: 1, G: 0, B: 0, A: 1}) // red, opaque
+func defaultColorPickerStore(scope *store.Scope) *store.ValueStore[gfx.Color] {
+	return store.NewValueStore(scope, gfx.Color{R: 1, G: 0, B: 0, A: 1}) // red, opaque
 }
 
 func TestColorPickerSetColorSyncsHSV(t *testing.T) {
-	picker := NewColorPicker("Palette", defaultColorPickerStore())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	picker := NewColorPicker(scope, "Palette", defaultColorPickerStore(scope))
 	picker.SetColor(gfx.ColorFromRGBA8(255, 0, 0, 255))
 
 	if !nearFloat64(picker.cachedHue, 0, 0.001) {
@@ -34,7 +36,9 @@ func TestColorPickerSetColorSyncsHSV(t *testing.T) {
 }
 
 func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
-	picker := NewColorPicker("Palette", defaultColorPickerStore())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	picker := NewColorPicker(scope, "Palette", defaultColorPickerStore(scope))
 	var emitted []gfx.Color
 	picker.Changed.Subscribe(func(c gfx.Color) {
 		emitted = append(emitted, c)
@@ -73,7 +77,9 @@ func TestColorPickerPointerSelectsWheelAndTriangle(t *testing.T) {
 }
 
 func TestColorPickerBuildCommandsProducesGeometry(t *testing.T) {
-	picker := NewColorPicker("Palette", defaultColorPickerStore())
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	picker := NewColorPicker(scope, "Palette", defaultColorPickerStore(scope))
 	picker.Layout.Arrange(facet.ArrangeContext{Placement: facet.Placement{Mode: facet.PlacementGrid}}, gfx.RectFromXYWH(0, 0, 200, 200))
 	cmds := picker.buildCommands(picker.Layout.ArrangedBounds, nil)
 	if len(cmds) == 0 {
@@ -96,11 +102,13 @@ func nearFloat64(a, b, tol float64) bool {
 }
 
 func TestColorPickerValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[gfx.Color](
 		t,
-		func() *store.ValueStore[gfx.Color] { return store.NewValueStore(gfx.Color{}) },
+		func() *store.ValueStore[gfx.Color] { return store.NewValueStore(scope, gfx.Color{}) },
 		func(s *store.ValueStore[gfx.Color]) facet.FacetImpl {
-			return NewColorPicker("test", s)
+			return NewColorPicker(scope, "test", s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*ColorPicker).SetColor(gfx.Color{R: 1, G: 0, B: 0, A: 1})

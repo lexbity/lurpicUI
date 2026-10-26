@@ -46,19 +46,20 @@ type ExhibitInspector struct {
 // NewExhibitInspector builds the inspector over the shared shell state. counts
 // maps an exhibit id to its demonstrated mark count (computed once by walking
 // each exhibit's root facet tree).
-func NewExhibitInspector(shell *ShellState, counts map[ExhibitID]int) *ExhibitInspector {
+func NewExhibitInspector(ownerScope *store.Scope, shell *ShellState, counts map[ExhibitID]int) *ExhibitInspector {
+	scope := ownerScope.Child()
 	p := &ExhibitInspector{shell: shell}
 
-	titleDesc := store.NewDerived(func() string {
+	titleDesc := store.NewDerived(scope, func() string {
 		return exhibitTitle(shell.ActiveExhibit.Get())
 	}, shell.ActiveExhibit)
-	descStore := store.NewDerived(func() string {
+	descStore := store.NewDerived(scope, func() string {
 		return exhibitDescription(shell.ActiveExhibit.Get())
 	}, shell.ActiveExhibit)
-	countDesc := store.NewDerived(func() string {
+	countDesc := store.NewDerived(scope, func() string {
 		return markCountText(counts[shell.ActiveExhibit.Get()])
 	}, shell.ActiveExhibit)
-	hintDesc := store.NewDerived(func() string {
+	hintDesc := store.NewDerived(scope, func() string {
 		return "Try: " + exhibitHint(shell.ActiveExhibit.Get())
 	}, shell.ActiveExhibit)
 
@@ -99,6 +100,7 @@ func NewExhibitInspector(shell *ShellState, counts map[ExhibitID]int) *ExhibitIn
 	}
 
 	p.Facet = facet.NewFacet()
+	p.OwnStoreScope(scope)
 	p.AddChild(p.card.Base())
 
 	p.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke inspector-pane host (F-lint-hosts)
@@ -128,8 +130,8 @@ func NewExhibitInspector(shell *ShellState, counts map[ExhibitID]int) *ExhibitIn
 // NewSheetInspector builds the narrow-mode bottom sheet: the wide inspector
 // plus a static drag-handle affordance and an Escape dismissal (FR-17c). The
 // drag handle is a visual affordance only; drag-to-dismiss is a named follow-on.
-func NewSheetInspector(shell *ShellState, counts map[ExhibitID]int) *ExhibitInspector {
-	p := NewExhibitInspector(shell, counts)
+func NewSheetInspector(scope *store.Scope, shell *ShellState, counts map[ExhibitID]int) *ExhibitInspector {
+	p := NewExhibitInspector(scope, shell, counts)
 	p.sheetMode = true
 
 	p.render = facet.RenderRole{

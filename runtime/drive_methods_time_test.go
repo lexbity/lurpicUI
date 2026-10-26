@@ -58,7 +58,7 @@ func TestVirtualEntryTransitionFrameReady(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
@@ -89,7 +89,7 @@ func TestVirtualEntryTransitionFrameReady(t *testing.T) {
 
 func TestRenderCreditDoesNotBlockControl(t *testing.T) {
 	rtRoot := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
@@ -498,7 +498,7 @@ func TestFramePlanTotalBudgetReportsProgress(t *testing.T) {
 func mustDriveRuntimeWithCommand(t *testing.T, execute func()) *Runtime {
 	t.Helper()
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)

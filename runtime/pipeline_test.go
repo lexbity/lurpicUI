@@ -141,7 +141,7 @@ func TestRenderPipeline_destroy_is_idempotent(t *testing.T) {
 func TestRenderPipeline_destroy_backend_destroyed_on_shutdown(t *testing.T) {
 	fb := &fakeBackend{}
 	root := &runtimeTestFacet{Facet: facet.NewFacet()}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	rt, err := New(cfg, nil, nil, fb, root)
 	if err != nil {

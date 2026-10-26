@@ -9,9 +9,11 @@ import (
 )
 
 func TestNewLinearReactive_basic(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	s := rs.Get()
 	if s.Kind() != scale.KindLinear {
@@ -27,11 +29,13 @@ func TestNewLinearReactive_basic(t *testing.T) {
 // transition itself, so a scale built from derived sources stays live with zero
 // external Get() flushing (the chart's old arrange() force-flush pattern).
 func TestBridgeDerived_eagerUpdateWithoutExternalGet(t *testing.T) {
-	dsrc := store.NewValueStore([2]float64{0, 10})
-	dd := store.NewDerived(func() [2]float64 { return dsrc.Get() }, dsrc)
-	rsrc := store.NewValueStore([2]float64{0, 100})
-	rd := store.NewDerived(func() [2]float64 { return rsrc.Get() }, rsrc)
-	rs := NewLinearReactiveFromDerived(dd, rd)
+	scope := store.NewScope()
+	defer scope.Close()
+	dsrc := store.NewValueStore(scope, [2]float64{0, 10})
+	dd := store.NewDerived(scope, func() [2]float64 { return dsrc.Get() }, dsrc)
+	rsrc := store.NewValueStore(scope, [2]float64{0, 100})
+	rd := store.NewDerived(scope, func() [2]float64 { return rsrc.Get() }, rsrc)
+	rs := NewLinearReactiveFromDerived(scope, dd, rd)
 
 	before := rs.Get()
 	if got := before.Map(5); got != 50 {
@@ -42,6 +46,7 @@ func TestBridgeDerived_eagerUpdateWithoutExternalGet(t *testing.T) {
 	// OnInvalidated (no external dd.Get() here); the scale's derived then sees
 	// the source version change and recomputes on its own Get.
 	dsrc.Set([2]float64{0, 20})
+	scope.FlushSignals()
 	after := rs.Get()
 	if got := after.Map(5); got != 25 {
 		t.Fatalf("post-change Map(5) = %f, want 25 (domain now 0..20 over range 0..100)", got)
@@ -49,9 +54,11 @@ func TestBridgeDerived_eagerUpdateWithoutExternalGet(t *testing.T) {
 }
 
 func TestNewLogReactive_basic(t *testing.T) {
-	domain := store.NewValueStore([2]float64{1, 1000})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLogReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{1, 1000})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLogReactive(scope, domain, rng)
 
 	s := rs.Get()
 	if s.Kind() != scale.KindLog {
@@ -60,9 +67,11 @@ func TestNewLogReactive_basic(t *testing.T) {
 }
 
 func TestNewTimeReactive_basic(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 1000})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewTimeReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 1000})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewTimeReactive(scope, domain, rng)
 
 	s := rs.Get()
 	if s.Kind() != scale.KindTime {
@@ -71,9 +80,11 @@ func TestNewTimeReactive_basic(t *testing.T) {
 }
 
 func TestReactiveScale_version_bumps_on_domain_change(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	rs.Get() // prime cache (version 1)
 	v0 := rs.Version()
@@ -86,9 +97,11 @@ func TestReactiveScale_version_bumps_on_domain_change(t *testing.T) {
 }
 
 func TestReactiveScale_scale_updates_after_domain_change(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	// Map before change
 	s1 := rs.Get()
@@ -107,9 +120,11 @@ func TestReactiveScale_scale_updates_after_domain_change(t *testing.T) {
 }
 
 func TestReactiveScale_no_recompute_when_unchanged(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	rs.Get() // prime cache → version 1
 	v0 := rs.Version()
@@ -123,9 +138,11 @@ func TestReactiveScale_no_recompute_when_unchanged(t *testing.T) {
 }
 
 func TestReactiveScale_version_bumps_on_range_change(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	rs.Get() // prime cache
 	v0 := rs.Version()
@@ -138,9 +155,11 @@ func TestReactiveScale_version_bumps_on_range_change(t *testing.T) {
 }
 
 func TestReactiveScale_get_after_stale(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	// Initial Get
 	s := rs.Get()
@@ -159,31 +178,39 @@ func TestReactiveScale_get_after_stale(t *testing.T) {
 }
 
 func TestReactiveScale_supports_scale_interface(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	var sc scale.Scale = rs.Get()
 	_ = sc
 }
 
 func TestReactiveScale_supports_invertible_interface(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	var inv = rs.Get()
 	_ = inv
 }
 
 func TestReactiveScale_multiple_independent_scales(t *testing.T) {
-	// Two reactive scales sharing the same domain store
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng1 := store.NewValueStore([2]float64{0, 500})
-	rng2 := store.NewValueStore([2]float64{0, 1000})
+	scope :=
+		// Two reactive scales sharing the same domain store
+		store.NewScope()
+	defer scope.Close()
 
-	rs1 := NewLinearReactive(domain, rng1)
-	rs2 := NewLinearReactive(domain, rng2)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng1 := store.NewValueStore(scope, [2]float64{0, 500})
+	rng2 := store.NewValueStore(scope, [2]float64{0, 1000})
+
+	rs1 := NewLinearReactive(scope, domain, rng1)
+	rs2 := NewLinearReactive(scope, domain, rng2)
 
 	// Both reflect the same domain
 	s1 := rs1.Get()
@@ -206,9 +233,11 @@ func TestReactiveScale_multiple_independent_scales(t *testing.T) {
 }
 
 func TestReactiveScale_with_options(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng, scale.WithClamp(scale.OutOfRangeClamp))
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng, scale.WithClamp(scale.OutOfRangeClamp))
 
 	// Clamp should be active
 	s := rs.Get()
@@ -225,21 +254,25 @@ func TestReactiveScale_with_options(t *testing.T) {
 }
 
 func TestNewLogReactive_panics_on_invalid_domain(t *testing.T) {
-	domain := store.NewValueStore([2]float64{-1, 10}) // crosses zero
-	rng := store.NewValueStore([2]float64{0, 500})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{-1, 10}) // crosses zero
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
 	defer func() {
 		if r := recover(); r == nil {
 			t.Fatal("expected panic for invalid log domain")
 		}
 	}()
-	rs := NewLogReactive(domain, rng)
+	rs := NewLogReactive(scope, domain, rng)
 	rs.Get() // triggers the compute function which panics
 }
 
 func TestReactiveScale_log_with_options(t *testing.T) {
-	domain := store.NewValueStore([2]float64{1, 1000})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLogReactive(domain, rng, scale.WithBase(2))
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{1, 1000})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLogReactive(scope, domain, rng, scale.WithBase(2))
 
 	s := rs.Get()
 	if s.Kind() != scale.KindLog {
@@ -248,21 +281,24 @@ func TestReactiveScale_log_with_options(t *testing.T) {
 }
 
 func TestReactiveScale_onchange_fires(t *testing.T) {
-	// ReactiveScale's underlying store.Derived fires OnChange on recompute.
-	// We verify this by subscribing to the derived's OnChange directly.
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
+	scope :=
+		// ReactiveScale's underlying store.Derived fires OnChange on recompute.
+		// We verify this by subscribing to the derived's OnChange directly.
+		store.NewScope()
+	defer scope.Close()
+
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
 
 	fired := 0
-	derived := store.NewDerived(
-		func() scale.InvertibleScale {
-			d := domain.Get()
-			r := rng.Get()
-			return scale.NewLinear(
-				scale.WithDomain(d[0], d[1]),
-				scale.WithRange(r[0], r[1]),
-			)
-		},
+	derived := store.NewDerived(scope, func() scale.InvertibleScale {
+		d := domain.Get()
+		r := rng.Get()
+		return scale.NewLinear(
+			scale.WithDomain(d[0], d[1]),
+			scale.WithRange(r[0], r[1]),
+		)
+	},
 		domain, rng,
 	)
 	derived.OnChange.Subscribe(func(c signal.Change[scale.InvertibleScale]) {
@@ -270,14 +306,17 @@ func TestReactiveScale_onchange_fires(t *testing.T) {
 	})
 
 	derived.Get() // initial compute (fires OnChange)
+	scope.FlushSignals()
 	if fired == 0 {
 		t.Fatal("expected OnChange to fire on initial compute")
 	}
 
 	// Change domain — triggers recompute on next Get
 	domain.Set([2]float64{0, 200})
+	scope.FlushSignals()
 	before := fired
 	derived.Get()
+	scope.FlushSignals()
 	if fired <= before {
 		t.Fatal("expected OnChange to fire after domain change")
 	}
@@ -286,9 +325,11 @@ func TestReactiveScale_onchange_fires(t *testing.T) {
 // --- benchmarks ---
 
 func BenchmarkReactiveScaleGet(b *testing.B) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 
 	b.ReportAllocs()
 	b.ResetTimer()

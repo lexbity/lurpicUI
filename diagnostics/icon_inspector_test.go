@@ -1,10 +1,9 @@
 package diagnostics_test
 
 import (
-	"time"
-
 	"strings"
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
@@ -12,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -36,10 +36,12 @@ func (s iconInspectorRuntime) FacetByID(id facet.FacetID) facet.FacetImpl {
 }
 
 func TestInspector_describe_includes_icon_snapshot(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	icon := primitive.NewIcon(primitive.IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="currentColor"><path d="M1 1H9V9H1Z"/></svg>`))
 	icon.Decorative = marks.Const(false)
 	icon.AccessibleLabel = marks.Const("Square")
-	rt := iconInspectorRuntime{rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil)}
+	rt := iconInspectorRuntime{rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil)}
 	facet.Attach(icon, facet.AttachContext{Runtime: rt, Theme: theme.DefaultResolvedContext()})
 	size := icon.Base().LayoutRole().Measure(facet.MeasureContext{
 		Runtime:      rt,

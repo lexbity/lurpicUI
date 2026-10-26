@@ -36,11 +36,13 @@ func (s notificationRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 func (s notificationRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
-	notification := newNotificationFixture()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	notification := newNotificationFixture(t)
 	tokens := notificationTokens()
 	resolved := notificationResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := notificationRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -107,11 +109,13 @@ func TestNotificationMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestNotificationInteractionsEmitActionAndDismiss(t *testing.T) {
-	notification := newNotificationFixture()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	notification := newNotificationFixture(t)
 	tokens := notificationTokens()
 	resolved := notificationResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := notificationRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -184,9 +188,11 @@ func TestNotificationRecipe_exposes_expected_slots(t *testing.T) {
 }
 
 func TestNotificationOpenSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[bool](
 		t,
-		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func() *store.ValueStore[bool] { return store.NewValueStore(scope, true) },
 		func(s *store.ValueStore[bool]) facet.FacetImpl {
 			return NewNotification("Title", "Message", s)
 		},
@@ -250,10 +256,12 @@ func TestNotificationGoldenGridContent(t *testing.T) {
 }
 
 func AssertNotificationGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Notification)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	notification := newNotificationFixture()
+	notification := newNotificationFixture(t)
 	rt := notificationRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := notificationResolvedContext(tokens, density, direction)
@@ -300,8 +308,11 @@ func AssertNotificationGolden(t *testing.T, name string, tokens theme.Tokens, de
 	testkit.AssertGolden(t, surface, "notification_"+name)
 }
 
-func newNotificationFixture() *Notification {
-	notification := NewNotification("Saved", "Draft was synced successfully.", store.NewValueStore(true))
+func newNotificationFixture(t *testing.T) *Notification {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	notification := NewNotification("Saved", "Draft was synced successfully.", store.NewValueStore(scope, true))
 	notification.ActionLabel = marks.Const("Undo")
 	notification.CloseButtonLabel = marks.Const("Dismiss")
 	return notification

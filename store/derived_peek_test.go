@@ -11,9 +11,11 @@ import (
 // computed value and the dirty flag without recomputing, without bumping
 // versions, without shifting cache keys, and without emitting OnChange.
 func TestDerivedPeek_NeverMutates(t *testing.T) {
-	src := NewValueStore(1)
+	scope := NewScope()
+	defer scope.Close()
+	src := NewValueStore(scope, 1)
 	computations := atomic.Int64{}
-	d := NewDerived(func() int {
+	d := NewDerived(scope, func() int {
 		computations.Add(1)
 		return src.Get() * 10
 	}, src)
@@ -83,8 +85,10 @@ func TestDerivedPeek_NeverMutates(t *testing.T) {
 // TestDerivedPeek_FreshDerived: a never-computed derived peeks as the zero
 // value, dirty.
 func TestDerivedPeek_FreshDerived(t *testing.T) {
-	src := NewValueStore("x")
-	d := NewDerived(func() string { return src.Get() + "!" }, src)
+	scope := NewScope()
+	defer scope.Close()
+	src := NewValueStore(scope, "x")
+	d := NewDerived(scope, func() string { return src.Get() + "!" }, src)
 	value, dirty := d.Peek()
 	if !dirty {
 		t.Fatal("fresh derived must report dirty")

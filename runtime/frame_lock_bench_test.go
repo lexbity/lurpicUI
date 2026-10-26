@@ -12,7 +12,7 @@ import (
 // lock cost at 200 ns/frame; the uncontended read lock is a single atomic op.
 func BenchmarkRunOneFrame(b *testing.B) {
 	root := facet.NewFacet()
-	cfg := DefaultConfig()
+	cfg := testConfig(b)
 	reg, err := layout.StandardLayerRegistry()
 	if err != nil {
 		b.Fatal(err)

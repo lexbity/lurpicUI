@@ -21,10 +21,12 @@ func TestAlert_contract_group_children(t *testing.T) {
 }
 
 func TestAlert_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := alertTokens()
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
@@ -58,22 +60,26 @@ func TestAlert_contract_accessible(t *testing.T) {
 }
 
 func TestDialog_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl { return NewDialog("title", "body", nil, store.NewValueStore(true)) },
+		func() facet.FacetImpl { return NewDialog("title", "body", nil, store.NewValueStore(scope, true)) },
 		func(facet.FacetImpl) {},
 	)
 }
 
 func TestDialog_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := dialogTokens()
 	rt := dialogRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	contracttest.AssertAnchorExport(t,
-		func() facet.FacetImpl { return newDialogFixture() },
+		func() facet.FacetImpl { return newDialogFixture(t) },
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			x := m.(*Dialog)
 			x.Layout.Measure(facet.MeasureContext{
@@ -95,29 +101,35 @@ func TestDialog_contract_anchor_export(t *testing.T) {
 }
 
 func TestDialog_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
-		func(label string) facet.FacetImpl { return NewDialog(label, "", nil, store.NewValueStore(true)) },
+		func(label string) facet.FacetImpl { return NewDialog(label, "", nil, store.NewValueStore(scope, true)) },
 		"dialog",
 	)
 }
 
 func TestNotification_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl { return NewNotification("title", "body", store.NewValueStore(true)) },
+		func() facet.FacetImpl { return NewNotification("title", "body", store.NewValueStore(scope, true)) },
 		func(facet.FacetImpl) {},
 	)
 }
 
 func TestNotification_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := notificationTokens()
 	rt := notificationRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := notificationResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	contracttest.AssertAnchorExport(t,
-		func() facet.FacetImpl { return newNotificationFixture() },
+		func() facet.FacetImpl { return newNotificationFixture(t) },
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			x := m.(*Notification)
 			x.Layout.Measure(facet.MeasureContext{
@@ -139,29 +151,37 @@ func TestNotification_contract_anchor_export(t *testing.T) {
 }
 
 func TestNotification_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
-		func(label string) facet.FacetImpl { return NewNotification(label, "", store.NewValueStore(true)) },
+		func(label string) facet.FacetImpl {
+			return NewNotification(label, "", store.NewValueStore(scope, true))
+		},
 		"status",
 	)
 }
 
 func TestTooltip_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl { return NewTooltip("content", store.NewValueStore(true)) },
+		func() facet.FacetImpl { return NewTooltip(scope, "content", store.NewValueStore(scope, true)) },
 		func(facet.FacetImpl) {},
 	)
 }
 
 func TestTooltip_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 	tokens := tooltipTokens()
 	rt := alertRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	contracttest.AssertAnchorExport(t,
-		func() facet.FacetImpl { return newTooltipFixture() },
+		func() facet.FacetImpl { return newTooltipFixture(t) },
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			x := m.(*Tooltip)
 			x.Layout.Measure(facet.MeasureContext{
@@ -184,17 +204,21 @@ func TestTooltip_contract_anchor_export(t *testing.T) {
 }
 
 func TestTooltip_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
-		func(label string) facet.FacetImpl { return NewTooltip(label, store.NewValueStore(true)) },
+		func(label string) facet.FacetImpl { return NewTooltip(scope, label, store.NewValueStore(scope, true)) },
 		"tooltip",
 	)
 }
 
 func TestDialog_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
 		// The dialog's focus gate is Disabled && Open; the contract builder
 		// proves the enabled path, so the dialog is constructed open.
-		dialog := NewDialog("title", "body", nil, store.NewValueStore(true))
+		dialog := NewDialog("title", "body", nil, store.NewValueStore(scope, true))
 		dialog.Disabled = marks.Const(disabled)
 		return dialog
 	})

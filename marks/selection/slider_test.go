@@ -244,6 +244,7 @@ func TestSliderStoreInvalidation(t *testing.T) {
 		t.Fatalf("expected one tracked store version, got %d", len(initial))
 	}
 	slider.Value.Set(75)
+	slider.Value.OwnerScope().FlushSignals()
 	if flags := slider.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -424,13 +425,15 @@ func renderSliderToSurface(t *testing.T, slider *Slider, rt sliderRuntimeStub, m
 }
 
 func newSliderTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Slider, sliderRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	slider := NewSlider("Slider", 0, 100, 5, store.NewValueStore(float64(0)))
+	slider := NewSlider(scope, "Slider", 0, 100, 5, store.NewValueStore(scope, float64(0)))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return slider, rt, resolved
 }
@@ -503,11 +506,13 @@ func toThemeTokens(t templates.Tokens) theme.Tokens {
 }
 
 func TestSliderValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[float64](
 		t,
-		func() *store.ValueStore[float64] { return store.NewValueStore(float64(0)) },
+		func() *store.ValueStore[float64] { return store.NewValueStore(scope, float64(0)) },
 		func(s *store.ValueStore[float64]) facet.FacetImpl {
-			return NewSlider("test", 0, 100, 1, s)
+			return NewSlider(scope, "test", 0, 100, 1, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*Slider).SetValue(42)

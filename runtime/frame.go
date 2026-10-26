@@ -12,7 +12,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
-	"codeburg.org/lexbit/lurpicui/store"
 )
 
 func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bool) {
@@ -50,7 +49,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	// RX-1 P5: frame-scoped derived counters. Reset here so the flush and any
 	// lazy Get across the frame accumulate into this frame's totals, which the
 	// diagnostics snapshot below reports.
-	store.ResetFrameDerivedCounters()
+	rt.config.StoreScope.ResetFrameDerivedCountersTree()
 
 	// The frame loop is intentionally ordered. Jobs and platform events are
 	// drained before input so state changes affect the same frame. Layout runs
@@ -202,7 +201,7 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	// recompute. The flush skips clean deriveds (one flag check each), so the
 	// quiet steady state contributes zero to the derived counters.
 	flushStart := rt.clock.WallNow()
-	flush := store.FlushDerived()
+	flush := rt.config.StoreScope.FlushDerived()
 	stats.DerivedEvaluated = flush.Evaluated
 	stats.DerivedRecomputed = flush.Recomputed
 	stats.DerivedFlushDuration = rt.clock.WallNow().Sub(flushStart)

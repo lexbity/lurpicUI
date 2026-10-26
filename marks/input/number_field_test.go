@@ -20,12 +20,14 @@ import (
 )
 
 func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
-	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	nf := NewNumberField(scope, "Amount", 0, 0, 1, -1, store.NewValueStore[float64](scope, 0))
 	nf.Step = 0.5
 	nf.Precision = 2
 	nf.Value.Set(12.5)
 	rt := textFieldRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -96,11 +98,13 @@ func TestNumberFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
-	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	nf := NewNumberField(scope, "Amount", 0, 0, 1, -1, store.NewValueStore[float64](scope, 0))
 	nf.Step = 2
 	nf.Value.Set(10)
 	rt := textFieldRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -118,6 +122,7 @@ func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 	}
 
 	nf.Value.Set(12)
+	nf.Value.OwnerScope().FlushSignals()
 	if flags := nf.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -171,7 +176,9 @@ func TestNumberFieldStoreChangeStepperKeyboardAndEditing(t *testing.T) {
 }
 
 func TestNumberFieldGraphemeBackspaceDeletesWholeCluster(t *testing.T) {
-	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	nf := NewNumberField(scope, "Amount", 0, 0, 1, -1, store.NewValueStore[float64](scope, 0))
 	nf.editing = true
 	nf.editingText = "12"
 	nf.cachedValueLayout = textLayoutForTest(t, "12")
@@ -245,8 +252,10 @@ func TestNumberFieldGoldenRTL(t *testing.T) {
 }
 
 func renderNumberFieldSurface(t *testing.T, direction layout.WritingDirection, goldenName string, mutate func(*NumberField)) *testkit.MemorySurface {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	nf := NewNumberField("Amount", 0, 0, 1, -1, store.NewValueStore[float64](0))
+	nf := NewNumberField(scope, "Amount", 0, 0, 1, -1, store.NewValueStore[float64](scope, 0))
 	nf.Precision = 2
 	nf.Value.Set(123.45)
 	nf.HelperText = marks.Const("Enter a quantity.")
@@ -320,11 +329,13 @@ func allNumberFieldFieldsPresent[T any](value T) bool {
 }
 
 func TestNumberFieldValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[float64](
 		t,
-		func() *store.ValueStore[float64] { return store.NewValueStore(float64(0)) },
+		func() *store.ValueStore[float64] { return store.NewValueStore(scope, float64(0)) },
 		func(s *store.ValueStore[float64]) facet.FacetImpl {
-			return NewNumberField("test", 0, 0, 1, -1, s)
+			return NewNumberField(scope, "test", 0, 0, 1, -1, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*NumberField).setValueCanonical(42)

@@ -13,8 +13,10 @@ import (
 
 // newResponsiveShell builds the shell at the given window size.
 func newResponsiveShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
+	scope := store.NewScope()
 	t.Helper()
 	ctx := app.BuildContext{
+		StoreScope:   scope,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
@@ -28,7 +30,7 @@ func newResponsiveShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
 	cfg := testkit.StandardHarnessConfig(t, w, h)
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = StudioThemeContext().Resolver
-	harness := testkit.NewHarness(t, cfg, root)
+	harness := testkit.NewHarness(t, scope, cfg, root)
 	harness.RunFrame()
 	return root, harness
 }

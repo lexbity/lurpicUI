@@ -7,21 +7,24 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // newShell returns a harness running one frame of the gallery shell at the
 // given window size.
 func newShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
+	scope := store.NewScope()
 	t.Helper()
 	ctx := app.BuildContext{
+		StoreScope:   scope,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
 		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	root := NewRoot(ctx, nil, nil, nil)
-	harness := testkit.NewStandardHarness(t, w, h, root)
+	harness := testkit.NewStandardHarness(t, scope, w, h, root)
 	harness.RunFrame()
 	return root, harness
 }

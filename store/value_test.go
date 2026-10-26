@@ -26,7 +26,9 @@ func TestVersionSource_increment_monotonic(t *testing.T) {
 }
 
 func TestVersionSource_zero_is_null(t *testing.T) {
-	s := NewValueStore(1)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 1)
 	if got := s.Version(); got != 0 {
 		t.Fatalf("initial version = %d", got)
 	}
@@ -37,14 +39,18 @@ func TestVersionSource_zero_is_null(t *testing.T) {
 }
 
 func TestValueStore_get_initial_value(t *testing.T) {
-	s := NewValueStore(42)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 42)
 	if got := s.Get(); got != 42 {
 		t.Fatalf("got %d", got)
 	}
 }
 
 func TestValueStore_set_changes_value(t *testing.T) {
-	s := NewValueStore(42)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 42)
 	s.Set(99)
 	if got := s.Get(); got != 99 {
 		t.Fatalf("got %d", got)
@@ -52,7 +58,9 @@ func TestValueStore_set_changes_value(t *testing.T) {
 }
 
 func TestValueStore_set_increments_version(t *testing.T) {
-	s := NewValueStore(42)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 42)
 	ver := s.Version()
 	s.Set(99)
 	if got := s.Version(); got <= ver {
@@ -61,11 +69,14 @@ func TestValueStore_set_increments_version(t *testing.T) {
 }
 
 func TestValueStore_onchange_fires_with_old_and_new(t *testing.T) {
-	s := NewValueStore(10)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 10)
 	var got signal.Change[int]
 	s.OnChange.Subscribe(func(c signal.Change[int]) { got = c })
 
 	s.Set(20)
+	scope.FlushSignals()
 
 	if got.Old != 10 || got.New != 20 {
 		t.Fatalf("got %#v", got)
@@ -73,14 +84,19 @@ func TestValueStore_onchange_fires_with_old_and_new(t *testing.T) {
 }
 
 func TestValueStore_multiple_sets_correct_change_chain(t *testing.T) {
-	// immediate-delivery mode only
-	s := NewValueStore(1)
+	scope :=
+		// immediate-delivery mode only
+		NewScope()
+	defer scope.Close()
+
+	s := NewValueStore(scope, 1)
 	var got []signal.Change[int]
 	s.OnChange.Subscribe(func(c signal.Change[int]) { got = append(got, c) })
 
 	s.Set(2)
 	s.Set(3)
 	s.Set(4)
+	scope.FlushSignals()
 
 	want := []signal.Change[int]{
 		{Old: 1, New: 2},
@@ -98,7 +114,9 @@ func TestValueStore_multiple_sets_correct_change_chain(t *testing.T) {
 }
 
 func TestValueStore_get_from_goroutine_safe(t *testing.T) {
-	s := NewValueStore(42)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 42)
 	done := make(chan int, 1)
 	go func() {
 		done <- s.Get()
@@ -109,8 +127,10 @@ func TestValueStore_get_from_goroutine_safe(t *testing.T) {
 }
 
 func TestValueStore_setTx_defers_signal_until_commit(t *testing.T) {
-	s := NewValueStore(1)
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 1)
+	tx := Begin(scope)
 	called := 0
 	s.OnChange.Subscribe(func(signal.Change[int]) { called++ })
 
@@ -123,6 +143,7 @@ func TestValueStore_setTx_defers_signal_until_commit(t *testing.T) {
 	}
 
 	tx.Commit()
+	scope.FlushSignals()
 	if called != 1 {
 		t.Fatalf("called after commit = %d", called)
 	}
@@ -132,8 +153,10 @@ func TestValueStore_setTx_defers_signal_until_commit(t *testing.T) {
 }
 
 func TestValueStore_setTx_staged_mutation(t *testing.T) {
-	s := NewValueStore(1)
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewValueStore(scope, 1)
+	tx := Begin(scope)
 	s.SetTx(2, tx)
 	if got := s.Get(); got != 1 {
 		t.Fatalf("get before commit = %d", got)
@@ -151,14 +174,11 @@ func TestValueStore_interface_implementation(t *testing.T) {
 	var _ Invalidatable = (*ValueStore[int])(nil)
 }
 
-func TestValueStore_change_chain_under_queued_hook(t *testing.T) {
-	var queue []func()
-	SetSignalQueueHook(func(fn func()) {
-		queue = append(queue, fn)
-	})
-	defer SetSignalQueueHook(nil)
+func TestValueStore_change_chain_under_scope_queue(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 
-	s := NewValueStore(1)
+	s := NewValueStore(scope, 1)
 	var got []signal.Change[int]
 	s.OnChange.Subscribe(func(c signal.Change[int]) { got = append(got, c) })
 
@@ -172,9 +192,7 @@ func TestValueStore_change_chain_under_queued_hook(t *testing.T) {
 	}
 
 	// Drain the queue in order.
-	for _, fn := range queue {
-		fn()
-	}
+	scope.FlushSignals()
 
 	want := []signal.Change[int]{
 		{Old: 1, New: 2},

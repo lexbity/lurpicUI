@@ -17,20 +17,23 @@ type dataItem struct {
 
 func TestIntegration_full_live_data_chain(t *testing.T) {
 	// 1. Data in a CollectionStore
-	coll := store.NewCollectionStore(func(i dataItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+
+	coll := store.NewCollectionStore(scope, func(i dataItem) store.ItemID { return i.id })
 	coll.Insert(dataItem{id: 1, val: 10})
 	coll.Insert(dataItem{id: 2, val: 50})
 	coll.Insert(dataItem{id: 3, val: 90})
 
 	// 2. Reactive domain from collection extent
-	domainDerived := DomainFromCollection(coll, func(i dataItem) float64 { return i.val })
+	domainDerived := DomainFromCollection(scope, coll, func(i dataItem) float64 { return i.val })
 
 	// 3. Range from plot region (e.g., a 500px-wide plot area)
-	rng := RangeFromRegion(0, 500)
-	rngDerived := bridgeToDerived(rng)
+	rng := RangeFromRegion(scope, 0, 500)
+	rngDerived := bridgeToDerived(scope, rng)
 
 	// 4. Reactive scale chain
-	rs := NewLinearReactiveFromDerived(domainDerived, rngDerived)
+	rs := NewLinearReactiveFromDerived(scope, domainDerived, rngDerived)
 	domainDerived.Get() // prime the chain
 	rngDerived.Get()
 	s := rs.Get()
@@ -92,15 +95,17 @@ func TestIntegration_full_live_data_chain(t *testing.T) {
 }
 
 func TestIntegration_reactive_scale_ticks_update_on_data_change(t *testing.T) {
-	coll := store.NewCollectionStore(func(i dataItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i dataItem) store.ItemID { return i.id })
 	coll.Insert(dataItem{id: 1, val: 10})
 	coll.Insert(dataItem{id: 2, val: 90})
 
-	domainDerived := DomainFromCollection(coll, func(i dataItem) float64 { return i.val })
-	rng := RangeFromRegion(0, 500)
-	rngDerived := bridgeToDerived(rng)
+	domainDerived := DomainFromCollection(scope, coll, func(i dataItem) float64 { return i.val })
+	rng := RangeFromRegion(scope, 0, 500)
+	rngDerived := bridgeToDerived(scope, rng)
 
-	rs := NewLinearReactiveFromDerived(domainDerived, rngDerived)
+	rs := NewLinearReactiveFromDerived(scope, domainDerived, rngDerived)
 	domainDerived.Get()
 	rngDerived.Get()
 
@@ -110,7 +115,9 @@ func TestIntegration_reactive_scale_ticks_update_on_data_change(t *testing.T) {
 
 	// Extend data range
 	coll.Insert(dataItem{id: 3, val: 900})
+	scope.FlushSignals()
 	domainDerived.Get() // trigger recompute
+	scope.FlushSignals()
 	s = rs.Get()
 	ticker = s.(scale.Ticker)
 	afterTicks := ticker.Ticks(5)
@@ -129,15 +136,17 @@ func TestIntegration_reactive_scale_ticks_update_on_data_change(t *testing.T) {
 }
 
 func TestIntegration_reactive_scale_resize_updates_scale(t *testing.T) {
-	coll := store.NewCollectionStore(func(i dataItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i dataItem) store.ItemID { return i.id })
 	coll.Insert(dataItem{id: 1, val: 0})
 	coll.Insert(dataItem{id: 2, val: 100})
 
-	domainDerived := DomainFromCollection(coll, func(i dataItem) float64 { return i.val })
-	rng := RangeFromRegion(0, 500)
-	rngDerived := bridgeToDerived(rng)
+	domainDerived := DomainFromCollection(scope, coll, func(i dataItem) float64 { return i.val })
+	rng := RangeFromRegion(scope, 0, 500)
+	rngDerived := bridgeToDerived(scope, rng)
 
-	rs := NewLinearReactiveFromDerived(domainDerived, rngDerived)
+	rs := NewLinearReactiveFromDerived(scope, domainDerived, rngDerived)
 	domainDerived.Get()
 	rngDerived.Get()
 
@@ -148,7 +157,9 @@ func TestIntegration_reactive_scale_resize_updates_scale(t *testing.T) {
 
 	// Resize: wider plot area
 	rng.Set([2]float64{0, 1000})
+	scope.FlushSignals()
 	rngDerived.Get() // trigger bridge
+	scope.FlushSignals()
 	s = rs.Get()
 	if got := s.Map(50); got != 500 {
 		t.Fatalf("after resize Map(50) = %f, want 500", got)
@@ -156,14 +167,16 @@ func TestIntegration_reactive_scale_resize_updates_scale(t *testing.T) {
 }
 
 func TestIntegration_zoom_then_hit_test(t *testing.T) {
-	coll := store.NewCollectionStore(func(i dataItem) store.ItemID { return i.id })
+	scope := store.NewScope()
+	defer scope.Close()
+	coll := store.NewCollectionStore(scope, func(i dataItem) store.ItemID { return i.id })
 	coll.Insert(dataItem{id: 1, val: 10})
 	coll.Insert(dataItem{id: 2, val: 90})
 
-	domainStore := store.NewValueStore([2]float64{10, 90})
-	rng := store.NewValueStore([2]float64{0, 500})
+	domainStore := store.NewValueStore(scope, [2]float64{10, 90})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
 
-	rs := NewLinearReactive(domainStore, rng)
+	rs := NewLinearReactive(scope, domainStore, rng)
 	zc := NewZoomController(domainStore)
 
 	s := rs.Get()
@@ -199,7 +212,9 @@ func TestIntegration_zoom_then_hit_test(t *testing.T) {
 }
 
 func TestIntegration_band_from_range_snapshot(t *testing.T) {
-	rng := RangeFromRegion(0, 300)
+	scope := store.NewScope()
+	defer scope.Close()
+	rng := RangeFromRegion(scope, 0, 300)
 	members := []string{"Jan", "Feb", "Mar"}
 
 	s := scale.NewBand(members, scale.WithRange(rng.Get()[0], rng.Get()[1]))
@@ -214,10 +229,12 @@ func TestIntegration_band_from_range_snapshot(t *testing.T) {
 }
 
 func TestIntegration_time_scale_with_reactive_domain(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 31536000000}) // ~1 year in ms
-	rng := store.NewValueStore([2]float64{0, 500})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 31536000000}) // ~1 year in ms
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
 
-	rs := NewTimeReactive(domain, rng)
+	rs := NewTimeReactive(scope, domain, rng)
 	s := rs.Get()
 
 	ticker, ok := s.(scale.Ticker)

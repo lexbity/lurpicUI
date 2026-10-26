@@ -9,9 +9,11 @@ import (
 )
 
 func TestDerived_computes_initial_value(t *testing.T) {
-	a := NewValueStore(2)
-	b := NewValueStore(3)
-	d := NewDerived(func() int { return a.Get() + b.Get() }, a, b)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 2)
+	b := NewValueStore(scope, 3)
+	d := NewDerived(scope, func() int { return a.Get() + b.Get() }, a, b)
 
 	if got := d.Get(); got != 5 {
 		t.Fatalf("got %d", got)
@@ -22,8 +24,10 @@ func TestDerived_computes_initial_value(t *testing.T) {
 }
 
 func TestDerived_recomputes_when_source_changes(t *testing.T) {
-	a := NewValueStore(2)
-	d := NewDerived(func() int { return a.Get() * 2 }, a)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 2)
+	d := NewDerived(scope, func() int { return a.Get() * 2 }, a)
 	if got := d.Get(); got != 4 {
 		t.Fatalf("got %d", got)
 	}
@@ -34,9 +38,11 @@ func TestDerived_recomputes_when_source_changes(t *testing.T) {
 }
 
 func TestDerived_lazy_does_not_recompute_until_get(t *testing.T) {
-	a := NewValueStore(1)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
 	calls := 0
-	d := NewDerived(func() int {
+	d := NewDerived(scope, func() int {
 		calls++
 		return a.Get()
 	}, a)
@@ -53,13 +59,16 @@ func TestDerived_lazy_does_not_recompute_until_get(t *testing.T) {
 }
 
 func TestDerived_recomputation_always_emits(t *testing.T) {
-	a := NewValueStore(1)
-	d := NewDerived(func() int { return a.Get() % 2 }, a)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	d := NewDerived(scope, func() int { return a.Get() % 2 }, a)
 	_ = d.Get()
 	var called int32
 	d.OnChange.Subscribe(func(signal.Change[int]) { called++ })
 	a.Set(3)
 	_ = d.Get()
+	scope.FlushSignals()
 
 	if called == 0 {
 		t.Fatal("expected signal from recomputed derived value")
@@ -67,9 +76,11 @@ func TestDerived_recomputation_always_emits(t *testing.T) {
 }
 
 func TestDerived_multiple_sources(t *testing.T) {
-	a := NewValueStore(1)
-	b := NewValueStore(2)
-	d := NewDerived(func() int { return a.Get() + b.Get() }, a, b)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	b := NewValueStore(scope, 2)
+	d := NewDerived(scope, func() int { return a.Get() + b.Get() }, a, b)
 	if got := d.Get(); got != 3 {
 		t.Fatalf("got %d", got)
 	}
@@ -84,8 +95,10 @@ func TestDerived_multiple_sources(t *testing.T) {
 }
 
 func TestDerived_version_increments_on_change(t *testing.T) {
-	a := NewValueStore(1)
-	d := NewDerived(func() int { return a.Get() }, a)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	d := NewDerived(scope, func() int { return a.Get() }, a)
 	_ = d.Get()
 	ver := d.Version()
 	a.Set(2)
@@ -96,13 +109,15 @@ func TestDerived_version_increments_on_change(t *testing.T) {
 }
 
 func TestDerived_of_derived_propagates(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	syncutil.ResetRuntimeThreadForTest()
 	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
 	syncutil.RegisterRuntimeThread()
 
-	a := NewValueStore(10)
-	b := NewDerived(func() int { return a.Get() * 2 }, a)
-	c := NewDerived(func() int { return b.Get() + 1 }, b)
+	a := NewValueStore(scope, 10)
+	b := NewDerived(scope, func() int { return a.Get() * 2 }, a)
+	c := NewDerived(scope, func() int { return b.Get() + 1 }, b)
 
 	if got := c.Get(); got != 21 {
 		t.Fatalf("initial c = %d, want 21", got)
@@ -126,16 +141,18 @@ func TestDerived_of_derived_propagates(t *testing.T) {
 }
 
 func TestDerived_diamond_recomputes_once(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	syncutil.ResetRuntimeThreadForTest()
 	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
 	syncutil.RegisterRuntimeThread()
 
-	a := NewValueStore(1)
+	a := NewValueStore(scope, 1)
 
 	var bCalls, cCalls, dCalls int32
-	b := NewDerived(func() int { atomic.AddInt32(&bCalls, 1); return a.Get() + 10 }, a)
-	c := NewDerived(func() int { atomic.AddInt32(&cCalls, 1); return a.Get() + 100 }, a)
-	d := NewDerived(func() int {
+	b := NewDerived(scope, func() int { atomic.AddInt32(&bCalls, 1); return a.Get() + 10 }, a)
+	c := NewDerived(scope, func() int { atomic.AddInt32(&cCalls, 1); return a.Get() + 100 }, a)
+	d := NewDerived(scope, func() int {
 		atomic.AddInt32(&dCalls, 1)
 		return b.Get() + c.Get()
 	}, b, c)
@@ -167,12 +184,14 @@ func TestDerived_diamond_recomputes_once(t *testing.T) {
 }
 
 func TestDerived_no_sources_is_constant(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	syncutil.ResetRuntimeThreadForTest()
 	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
 	syncutil.RegisterRuntimeThread()
 
 	var calls int32
-	d := NewDerived(func() int {
+	d := NewDerived(scope, func() int {
 		atomic.AddInt32(&calls, 1)
 		return 42
 	})
@@ -198,14 +217,15 @@ func TestDerived_no_sources_is_constant(t *testing.T) {
 	}
 }
 
-func TestDerived_nil_compute_returns_zero(t *testing.T) {
-	d := NewDerived[int](nil)
-	if got := d.Get(); got != 0 {
-		t.Fatalf("got %d, want 0", got)
-	}
+func TestDerived_rejects_nil_compute(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
+	assertPanics(t, "nil derived compute", func() { NewDerived[int](scope, nil) })
 }
 
 func TestDerived_non_versioned_source_is_detected(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	type nonVersionedSrc struct {
 		Invalidatable
 	}
@@ -213,7 +233,7 @@ func TestDerived_non_versioned_source_is_detected(t *testing.T) {
 	panicked := false
 	func() {
 		defer func() { panicked = recover() != nil }()
-		NewDerived(func() int { return 1 }, src)
+		NewDerived(scope, func() int { return 1 }, src)
 	}()
 	if !panicked {
 		t.Fatal("expected panic for non-versioned Derived source, got none")
@@ -221,8 +241,10 @@ func TestDerived_non_versioned_source_is_detected(t *testing.T) {
 }
 
 func TestDerived_onInvalidated_fires_on_clean_to_dirty_transition(t *testing.T) {
-	a := NewValueStore(1)
-	d := NewDerived(func() int { return a.Get() }, a)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	d := NewDerived(scope, func() int { return a.Get() }, a)
 	_ = d.Get() // initialize and settle clean
 
 	var fired int32
@@ -230,6 +252,7 @@ func TestDerived_onInvalidated_fires_on_clean_to_dirty_transition(t *testing.T) 
 	defer d.OnInvalidated.Unsubscribe(id)
 
 	a.Set(2)
+	scope.FlushSignals()
 	if fired != 1 {
 		t.Fatalf("OnInvalidated fired %d times after one clean->dirty transition, want 1", fired)
 	}
@@ -237,18 +260,17 @@ func TestDerived_onInvalidated_fires_on_clean_to_dirty_transition(t *testing.T) 
 	// A read settles clean again; the next write fires once more.
 	_ = d.Get()
 	a.Set(3)
+	scope.FlushSignals()
 	if fired != 2 {
 		t.Fatalf("OnInvalidated fired %d times after second transition, want 2", fired)
 	}
 }
 
 func TestDerived_onInvalidated_coalesces_multiple_writes(t *testing.T) {
-	var queue []func()
-	SetSignalQueueHook(func(fn func()) { queue = append(queue, fn) })
-	defer SetSignalQueueHook(nil)
-
-	a := NewValueStore(1)
-	d := NewDerived(func() int { return a.Get() }, a)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	d := NewDerived(scope, func() int { return a.Get() }, a)
 	_ = d.Get() // initialize and settle clean
 
 	var fired int32
@@ -262,13 +284,7 @@ func TestDerived_onInvalidated_coalesces_multiple_writes(t *testing.T) {
 	a.Set(4)
 
 	// Drain the notification queue, then the coalesced OnInvalidated emission.
-	for len(queue) > 0 {
-		batch := append([]func(){}, queue...)
-		queue = queue[:0]
-		for _, fn := range batch {
-			fn()
-		}
-	}
+	scope.FlushSignals()
 	if fired != 1 {
 		t.Fatalf("OnInvalidated fired %d times for 3 writes in one dirty period, want 1", fired)
 	}
@@ -280,8 +296,10 @@ func TestDerived_onInvalidated_coalesces_multiple_writes(t *testing.T) {
 }
 
 func TestDerived_onInvalidated_no_emission_before_initialized(t *testing.T) {
-	a := NewValueStore(1)
-	d := NewDerived(func() int { return a.Get() }, a)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	d := NewDerived(scope, func() int { return a.Get() }, a)
 	// Never Get()'d: the derived is dirty from construction and is never
 	// "clean", so a write before the first read must not emit (RX-1 FR-2
 	// corollary: the first projection is uncached and therefore fresh).
@@ -291,6 +309,7 @@ func TestDerived_onInvalidated_no_emission_before_initialized(t *testing.T) {
 	defer d.OnInvalidated.Unsubscribe(id)
 
 	a.Set(2)
+	scope.FlushSignals()
 	if fired != 0 {
 		t.Fatalf("OnInvalidated fired %d times before first Get, want 0", fired)
 	}
@@ -298,15 +317,19 @@ func TestDerived_onInvalidated_no_emission_before_initialized(t *testing.T) {
 	// After initialization settles clean, a write emits.
 	_ = d.Get()
 	a.Set(3)
+	scope.FlushSignals()
 	if fired != 1 {
 		t.Fatalf("OnInvalidated fired %d times after init+write, want 1", fired)
 	}
 }
 
 func TestDerived_onInvalidated_precedes_recomputed_onchange(t *testing.T) {
-	a := NewValueStore(1)
-	d := NewDerived(func() int { return a.Get() * 10 }, a)
+	scope := NewScope()
+	defer scope.Close()
+	a := NewValueStore(scope, 1)
+	d := NewDerived(scope, func() int { return a.Get() * 10 }, a)
 	_ = d.Get() // initialize: value 10
+	scope.FlushSignals()
 
 	var invalidated int
 	var changed int
@@ -322,6 +345,7 @@ func TestDerived_onInvalidated_precedes_recomputed_onchange(t *testing.T) {
 	defer d.OnChange.Unsubscribe(idC)
 
 	a.Set(2)
+	scope.FlushSignals()
 
 	// OnInvalidated fires eagerly on the transition; the binding's forced
 	// Get() recomputes within that delivery, so OnChange fires once as a
@@ -338,12 +362,14 @@ func TestDerived_onInvalidated_precedes_recomputed_onchange(t *testing.T) {
 }
 
 func TestDerived_onInvalidated_race_concurrent_set_get(t *testing.T) {
+	scope := NewScope()
+	defer scope.Close()
 	syncutil.ResetRuntimeThreadForTest()
 	t.Cleanup(syncutil.ResetRuntimeThreadForTest)
 	syncutil.RegisterRuntimeThread()
 
-	a := NewValueStore(0)
-	d := NewDerived(func() int { return a.Get() }, a)
+	a := NewValueStore(scope, 0)
+	d := NewDerived(scope, func() int { return a.Get() }, a)
 
 	var fired int32
 	id := d.OnInvalidated.Subscribe(func(struct{}) { fired++ })

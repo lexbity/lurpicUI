@@ -5,6 +5,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -75,6 +76,7 @@ type Config struct {
 
 // BuildContext is passed to the root builder after engine startup.
 type BuildContext struct {
+	StoreScope   *store.Scope
 	FontRegistry *text.FontRegistry
 	Clock        runtime.EngineClock
 	WindowSize   gfx.Size

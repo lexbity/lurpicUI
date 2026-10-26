@@ -11,13 +11,15 @@ import (
 )
 
 func TestArea_produces_fill_path(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 200})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 200})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 200})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 200})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	a := NewArea(s,
 		func(i scatterItem) float64 { return i.x },
@@ -49,13 +51,15 @@ func TestArea_produces_fill_path(t *testing.T) {
 }
 
 func TestArea_path_forms_closed_polygon(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 200})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 200})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 200})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 200})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	a := NewArea(s,
 		func(i scatterItem) float64 { return i.x },
@@ -90,17 +94,17 @@ func TestArea_path_forms_closed_polygon(t *testing.T) {
 }
 
 func TestArea_empty_store(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
 	a := NewArea(s,
 		func(i scatterItem) float64 { return i.x },
 		func(i scatterItem) float64 { return i.y },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -115,9 +119,11 @@ func TestArea_empty_store(t *testing.T) {
 }
 
 func TestArea_Contract_ScaleInvalidates(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertScaleInvalidates(t,
-		func(scale *reactive.ReactiveScale) facet.FacetImpl {
-			return NewArea(store.NewCollectionStore(scatterID),
+		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewArea(store.NewCollectionStore(scope, scatterID),
 				func(i scatterItem) float64 { return i.x },
 				func(i scatterItem) float64 { return i.y },
 				scale, nil,

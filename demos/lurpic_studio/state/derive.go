@@ -21,16 +21,16 @@ type RegionBucket struct {
 // (probe-confirmed staleness in store.Derived), so independent source sets
 // plus the shared pure helpers below keep every derived correct in a single
 // Get() (F-derived-independence).
-func buildDeriveds(a *AppState) {
-	a.VisibleRows = store.NewDerived(func() []dataset.Row {
+func buildDeriveds(scope *store.Scope, a *AppState) {
+	a.VisibleRows = store.NewDerived(scope, func() []dataset.Row {
 		return visibleRowsIn(a.Rows.All(), a.LiveWindow.Get())
 	}, a.Rows, a.LiveWindow)
 
-	a.YDomain = store.NewDerived(func() [2]float64 {
+	a.YDomain = store.NewDerived(scope, func() [2]float64 {
 		return yDomainOf(visibleRowsIn(a.Rows.All(), a.LiveWindow.Get()), a.YAxisMax.Get())
 	}, a.Rows, a.LiveWindow, a.YAxisMax)
 
-	a.BarBuckets = store.NewDerived(func() []RegionBucket {
+	a.BarBuckets = store.NewDerived(scope, func() []RegionBucket {
 		return bucketByRegion(visibleRowsIn(a.Rows.All(), a.LiveWindow.Get()))
 	}, a.Rows, a.LiveWindow)
 }

@@ -36,14 +36,16 @@ type ExhibitIndex struct {
 // mark binds the shell's ActiveExhibit through its FR-8 selection store
 // (treeSel), so a store write re-syncs the tree through the mark's own
 // contract.
-func NewExhibitIndex(shell *ShellState) *ExhibitIndex {
+func NewExhibitIndex(ownerScope *store.Scope, shell *ShellState) *ExhibitIndex {
+	scope := ownerScope.Child()
 	p := &ExhibitIndex{
 		shell:   shell,
-		treeSel: store.NewValueStore(selectedPathForExhibit(shell.ActiveExhibit.Get())),
+		treeSel: store.NewValueStore(scope, selectedPathForExhibit(shell.ActiveExhibit.Get())),
 	}
 	p.Facet = facet.NewFacet()
+	p.OwnStoreScope(scope)
 
-	p.tree = navigation.NewTreeNavigator("Exhibit tree", indexTreeNodes(shell.ActiveExhibit.Get()), p.treeSel)
+	p.tree = navigation.NewTreeNavigator(scope, "Exhibit tree", indexTreeNodes(shell.ActiveExhibit.Get()), p.treeSel)
 	p.tree.Base().SetTestID("index.tree")
 
 	p.AddChild(p.tree.Base())

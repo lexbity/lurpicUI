@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -52,8 +53,10 @@ func TestIcon_contract_accessible(t *testing.T) {
 }
 
 func TestText_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	ctx := theme.DefaultResolvedContext()

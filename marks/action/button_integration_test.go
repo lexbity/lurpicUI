@@ -9,6 +9,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/signal"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
 )
 
@@ -32,11 +33,13 @@ func newIntegrationButton(t *testing.T, activations *int32) *Button {
 }
 
 func TestButtonIntegration_ClickActivatesHandler(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	var activations int32
 	btn := newIntegrationButton(t, &activations)
 
 	// Q7 path 1: mount the mark directly as the harness root. It fills the window.
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 120, 48), btn)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 120, 48), btn)
 	testkit.Warmup(h)
 
 	b := btn.Layout.ArrangedBounds
@@ -54,10 +57,12 @@ func TestButtonIntegration_ClickActivatesHandler(t *testing.T) {
 }
 
 func TestButtonIntegration_ClickOutsideDoesNotActivate(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	var activations int32
 	btn := newIntegrationButton(t, &activations)
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 120, 48), btn)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 120, 48), btn)
 	testkit.Warmup(h)
 
 	// Click far outside the window; nothing should fire.
@@ -69,10 +74,12 @@ func TestButtonIntegration_ClickOutsideDoesNotActivate(t *testing.T) {
 }
 
 func TestButtonIntegration_PressAndReleaseChangePixels(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	var activations int32
 	btn := newIntegrationButton(t, &activations)
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 120, 48), btn)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 120, 48), btn)
 	testkit.Warmup(h)
 
 	b := btn.Layout.ArrangedBounds
@@ -101,6 +108,8 @@ func TestButtonIntegration_PressAndReleaseChangePixels(t *testing.T) {
 }
 
 func TestButtonIntegration_SizedBoxNonRootRoutesClick(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	var activations int32
 	btn := newIntegrationButton(t, &activations)
 
@@ -108,7 +117,7 @@ func TestButtonIntegration_SizedBoxNonRootRoutesClick(t *testing.T) {
 	// container. The SizedBox hosts the button; the button fills its bounds.
 	host := layout.NewSizedBox(120, 48, btn)
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 120, 48), host)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 120, 48), host)
 	testkit.Warmup(h)
 
 	box := host.Base().LayoutRole().ArrangedBounds

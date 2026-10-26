@@ -10,13 +10,15 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks/selection"
 	"codeburg.org/lexbit/lurpicui/platform"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // newE6Harness mounts the E6 playground as the root and runs one frame.
 func newE6Harness(t *testing.T) (*Playground, *testkit.Harness) {
+	scope := store.NewScope()
 	t.Helper()
-	e := NewPlayground(state.NewAppState(nil))
-	h := testkit.NewStandardHarness(t, 960, 600, e)
+	e := NewPlayground(scope, state.NewAppState(scope, nil))
+	h := testkit.NewStandardHarness(t, scope, 960, 600, e)
 	h.RunFrame()
 	return e, h
 }

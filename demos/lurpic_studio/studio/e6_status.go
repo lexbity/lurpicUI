@@ -38,12 +38,13 @@ type playStatusFamily struct {
 }
 
 // newPlayStatusFamily builds the Status family playground.
-func newPlayStatusFamily() *playStatusFamily {
+func newPlayStatusFamily(ownerScope *store.Scope) *playStatusFamily {
+	scope := ownerScope.Child()
 	f := &playStatusFamily{
-		badgeLabel: store.NewValueStore("0"),
-		online:     store.NewValueStore(true),
-		lightLabel: store.NewValueStore("Online"),
-		progress:   store.NewValueStore(float32(0.4)),
+		badgeLabel: store.NewValueStore(scope, "0"),
+		online:     store.NewValueStore(scope, true),
+		lightLabel: store.NewValueStore(scope, "Online"),
+		progress:   store.NewValueStore(scope, float32(0.4)),
 	}
 
 	f.tick = action.NewButton(marks.Const("Simulate tick"), marks.Const(uiinput.ButtonText))
@@ -53,13 +54,13 @@ func newPlayStatusFamily() *playStatusFamily {
 	// DirtyLayout (the strip re-measures; RX-1 FR-3 routing).
 	f.badge.Label = marks.FromStore(f.badgeLabel, facet.DirtyLayout|facet.DirtyProjection)
 
-	f.onlineSwitch = selection.NewSwitch("Connection online", f.online)
+	f.onlineSwitch = selection.NewSwitch(scope, "Connection online", f.online)
 	f.onlineSwitch.Base().SetTestID("e6.status.online")
 	f.light = status.NewStatusLight("Connection")
 	f.light.ShowLabel = marks.Const(true)
 	f.light.Label = marks.FromStore(f.lightLabel, facet.DirtyLayout|facet.DirtyProjection)
 
-	f.slider = selection.NewSlider("Reload throughput", 0, 100, 1, nil)
+	f.slider = selection.NewSlider(scope, "Reload throughput", 0, 100, 1, nil)
 	f.slider.Base().SetTestID("e6.status.slider")
 	f.bar = status.NewProgressBar("reload")
 	f.ring = status.NewProgressRing("reload")
@@ -71,6 +72,7 @@ func newPlayStatusFamily() *playStatusFamily {
 		playgroundCard("status_light — toggle online", f.onlineSwitch, f.light),
 		playgroundCard("progress_bar + progress_ring — drag throughput", f.slider, f.bar, f.ring),
 	)
+	f.scroll.Base().OwnStoreScope(scope)
 	return f
 }
 

@@ -14,7 +14,9 @@ import (
 // 2x-pre-RX-2 budget is recorded in the RX-2 P3 slice output against this
 // bench; steady-state frames never touch the walk.
 func BenchmarkCore_attach_50_mark_tree(b *testing.B) {
-	s := store.NewValueStore("bench")
+	scope := store.NewScope()
+	b.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "bench")
 
 	b.ReportAllocs()
 	for b.Loop() {

@@ -5,6 +5,8 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	gfxsvg "codeburg.org/lexbit/lurpicui/gfx/svg"
 	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/mathutil"
@@ -13,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiinput"
@@ -60,15 +63,19 @@ func TestButtonGoldenSkeuomorphicPressed(t *testing.T) {
 }
 
 func AssertButtonSkeuomorphicGolden(t *testing.T, name string, mutate func(*Button)) {
-	t.Helper()
+	scope := store.NewScope(
 
 	// Build button with real flowbite icon paths rather than placeholder rects.
+	)
+	t.Cleanup(scope.Close)
+	t.Helper()
+
 	btn := NewButton(marks.Const("Save changes"), marks.Const(uiinput.ButtonFilled))
 	btn.LeadingIconRef = marks.Const("floppy-disk")
 	btn.TrailingIconRef = marks.Const("check")
 
 	rt := buttonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, toThemeTokens(templates.Notes().Tokens), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, toThemeTokens(templates.Notes().Tokens), nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"floppy-disk": mustSkeuoButtonIconAsset("floppy-disk", skeuoButtonFloppyDiskSVG),

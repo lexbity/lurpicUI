@@ -205,6 +205,7 @@ func TestRadioGroupStoreInvalidation(t *testing.T) {
 		t.Fatalf("expected one tracked store version, got %d", len(initial))
 	}
 	rg.Value.Set("large")
+	rg.Value.OwnerScope().FlushSignals()
 	if flags := rg.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -309,27 +310,31 @@ func renderRadioGroupToSurface(t *testing.T, rg *RadioGroup, rt sliderRuntimeStu
 }
 
 func newRadioGroupTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*RadioGroup, sliderRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	rg := NewRadioGroup("Size", []RadioOption{
+	rg := NewRadioGroup(scope, "Size", []RadioOption{
 		{Value: "small", Label: "Small"},
 		{Value: "medium", Label: "Medium"},
 		{Value: "large", Label: "Large"},
-	}, store.NewValueStore[string](""))
+	}, store.NewValueStore[string](scope, ""))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return rg, rt, resolved
 }
 
 func TestRadioGroupValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[string](
 		t,
-		func() *store.ValueStore[string] { return store.NewValueStore("a") },
+		func() *store.ValueStore[string] { return store.NewValueStore(scope, "a") },
 		func(s *store.ValueStore[string]) facet.FacetImpl {
-			return NewRadioGroup("test", []RadioOption{{Value: "a", Label: "A"}, {Value: "b", Label: "B"}}, s)
+			return NewRadioGroup(scope, "test", []RadioOption{{Value: "a", Label: "A"}, {Value: "b", Label: "B"}}, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*RadioGroup).SetValue("b")

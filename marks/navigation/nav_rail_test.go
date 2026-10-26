@@ -201,9 +201,11 @@ func TestNavRailCollapsedHidesLabels(t *testing.T) {
 }
 
 func TestNavRailActiveIndexSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[int](
 		t,
-		func() *store.ValueStore[int] { return store.NewValueStore(-1) },
+		func() *store.ValueStore[int] { return store.NewValueStore(scope, -1) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
 			return NewNavRail("Rail", []NavRailItem{{Label: "Item 1", IconRef: "icon1"}}, s)
 		},
@@ -370,11 +372,13 @@ func renderNavRailToSurface(t *testing.T, rail *NavRail, rt navRailRuntimeStub, 
 }
 
 func newNavRailTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*NavRail, navRailRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	rail := NewNavRail("Primary rail", []NavRailItem{
 		{Key: "profile", Label: "Profile", IconRef: "user"},
@@ -385,7 +389,7 @@ func newNavRailTestFixture(t *testing.T, tokens theme.Tokens, density theme.Dens
 		{Key: "theme", Label: "Theme", IconRef: "moon"},
 		{Key: "settings", Label: "Settings", IconRef: "cog"},
 		{Key: "logout", Label: "Log out", IconRef: "arrow-up-right-from-square"},
-	}, store.NewValueStore(-1))
+	}, store.NewValueStore(scope, -1))
 	rt := navRailRuntimeStub{
 		tabsRuntimeStub: tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts},
 		icons:           navRailTestIcons(),
@@ -441,23 +445,27 @@ func TestNavRail_contract_anchor_export(t *testing.T) {
 }
 
 func TestNavRail_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
 			return NewNavRail(label, []NavRailItem{
 				{Key: "home", Label: "Home", IconRef: "home"},
 				{Key: "profile", Label: "Profile", IconRef: "user"},
-			}, store.NewValueStore(-1))
+			}, store.NewValueStore(scope, -1))
 		},
 		"navigation",
 	)
 }
 
 func TestNavRail_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t,
 		func(disabled bool) facet.FacetImpl {
 			rail := NewNavRail("test", []NavRailItem{
 				{Key: "home", Label: "Home", IconRef: "home"},
-			}, store.NewValueStore(-1))
+			}, store.NewValueStore(scope, -1))
 			rail.Disabled = marks.Const(disabled)
 			return rail
 		},

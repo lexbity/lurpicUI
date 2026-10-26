@@ -73,15 +73,16 @@ type EditableGrid struct {
 
 // NewEditableGrid builds the spreadsheet over the shared rows store, using the
 // given brush stores for linked highlighting.
-func NewEditableGrid(rows *store.CollectionStore[dataset.Row], fonts *text.FontRegistry, themeCtx theme.ResolvedContext, brush BrushStores) *EditableGrid {
+func NewEditableGrid(ownerScope *store.Scope, rows *store.CollectionStore[dataset.Row], fonts *text.FontRegistry, themeCtx theme.ResolvedContext, brush BrushStores) *EditableGrid {
+	gridScope := ownerScope.Child()
 	g := &EditableGrid{
 		rows:        rows,
 		hover:       brush.Hover,
 		hoverRegion: brush.HoverRegion,
 		selection:   brush.Selection,
-		cellValue:   store.NewValueStore(""),
-		editID:      store.NewValueStore(store.ItemID(0)),
-		invalid:     store.NewValueStore(""),
+		cellValue:   store.NewValueStore(gridScope, ""),
+		editID:      store.NewValueStore(gridScope, store.ItemID(0)),
+		invalid:     store.NewValueStore(gridScope, ""),
 		rowHeight:   gridRowHeight,
 		bg:          themeCtx.Color(theme.ColorSurfaceVariant),
 		hoverBg:     themeCtx.Color(theme.ColorSurface),
@@ -94,15 +95,16 @@ func NewEditableGrid(rows *store.CollectionStore[dataset.Row], fonts *text.FontR
 	}
 
 	g.Facet = facet.NewFacet()
+	g.Facet.OwnStoreScope(gridScope)
 	g.binder = data.NewCollectionBinder(&g.Facet, rows, func(r dataset.Row) facet.FacetImpl {
 		return newGridRow(rows, rows.Identify(r), g.style)
 	})
-	g.editor = input.NewTextField("Cell", uiinput.TextInputOutlined, g.cellValue)
+	g.editor = input.NewTextField(gridScope, "Cell", uiinput.TextInputOutlined, g.cellValue)
 	g.editor.Base().SetTestID("e1.grid.editor")
 	g.alert = feedback.NewAlert("Invalid value", "")
 	g.alert.Message = marks.FromStore(g.invalid, facet.DirtyLayout|facet.DirtyProjection)
-	g.editorMount = store.NewValueStore(false)
-	g.alertMount = store.NewValueStore(false)
+	g.editorMount = store.NewValueStore(gridScope, false)
+	g.alertMount = store.NewValueStore(gridScope, false)
 	// The editor and alert are layer-attached (Mount-gated) and positioned by
 	// the layer system's free recipe from a host-pushed attachment placement
 	// (RX-1 Q4 exclusivity): the host never arranges a layer child. The

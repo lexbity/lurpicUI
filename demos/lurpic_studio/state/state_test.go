@@ -14,7 +14,9 @@ func rowAt(sec int64, value float64, region string) dataset.Row {
 }
 
 func TestInsertRow_monotonicIDs(t *testing.T) {
-	a := NewAppState(nil)
+	scope := store.NewScope()
+	defer scope.Close()
+	a := NewAppState(scope, nil)
 	id1 := a.InsertRow(rowAt(100, 10, "north"))
 	id2 := a.InsertRow(rowAt(200, 20, "south"))
 	id3 := a.InsertRow(rowAt(300, 30, "east"))
@@ -37,12 +39,14 @@ func TestInsertRow_monotonicIDs(t *testing.T) {
 }
 
 func TestNewAppState_seedsAndAnchorsWindow(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	seed := []dataset.Row{
 		rowAt(100, 10, "north"),
 		rowAt(120, 20, "south"),
 		rowAt(150, 30, "east"),
 	}
-	a := NewAppState(seed)
+	a := NewAppState(scope, seed)
 	if a.Rows.Len() != 3 {
 		t.Fatalf("seeded rows = %d, want 3", a.Rows.Len())
 	}
@@ -56,11 +60,13 @@ func TestNewAppState_seedsAndAnchorsWindow(t *testing.T) {
 }
 
 func TestNewAppState_trimsSeedToMaxRows(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	seed := make([]dataset.Row, 0, DefaultMaxRows+1)
 	for i := 0; i < DefaultMaxRows+1; i++ {
 		seed = append(seed, rowAt(int64(100+i), float64(i), "north"))
 	}
-	a := NewAppState(seed)
+	a := NewAppState(scope, seed)
 	if a.Rows.Len() != DefaultMaxRows {
 		t.Fatalf("rows after construction = %d, want %d", a.Rows.Len(), DefaultMaxRows)
 	}
@@ -74,7 +80,9 @@ func TestNewAppState_trimsSeedToMaxRows(t *testing.T) {
 }
 
 func TestAnchorLiveWindow(t *testing.T) {
-	a := NewAppState(nil)
+	scope := store.NewScope()
+	defer scope.Close()
+	a := NewAppState(scope, nil)
 	a.WindowSeconds.Set(30)
 	a.AnchorLiveWindow(1000)
 	if w := a.LiveWindow.Get(); w != [2]float64{970, 1000} {
@@ -83,8 +91,10 @@ func TestAnchorLiveWindow(t *testing.T) {
 }
 
 func TestVisibleRows_matrix(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	t.Run("closed window preserves order", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 1, "a"))
 		a.InsertRow(rowAt(150, 2, "b"))
 		a.InsertRow(rowAt(200, 3, "c"))
@@ -99,7 +109,7 @@ func TestVisibleRows_matrix(t *testing.T) {
 	})
 
 	t.Run("out-of-window rows excluded", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(10, 1, "a"))
 		a.InsertRow(rowAt(20, 2, "b"))
 		a.LiveWindow.Set([2]float64{30, 40})
@@ -109,7 +119,7 @@ func TestVisibleRows_matrix(t *testing.T) {
 	})
 
 	t.Run("insert lands in window", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 1, "a"))
 		a.LiveWindow.Set([2]float64{0, 200})
 		_ = a.VisibleRows.Get() // prime
@@ -122,8 +132,10 @@ func TestVisibleRows_matrix(t *testing.T) {
 }
 
 func TestYDomain_matrix(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	t.Run("empty falls back", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.LiveWindow.Set([2]float64{0, 1000})
 		if got := a.YDomain.Get(); got != [2]float64{0, 1} {
 			t.Fatalf("YDomain(empty) = %v, want [0 1]", got)
@@ -131,7 +143,7 @@ func TestYDomain_matrix(t *testing.T) {
 	})
 
 	t.Run("extent of visible values", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 100, "north"))
 		a.InsertRow(rowAt(200, 300, "south"))
 		a.InsertRow(rowAt(300, 200, "east"))
@@ -142,7 +154,7 @@ func TestYDomain_matrix(t *testing.T) {
 	})
 
 	t.Run("min found on a later row", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 300, "north"))
 		a.InsertRow(rowAt(200, 100, "south"))
 		a.InsertRow(rowAt(300, 250, "east"))
@@ -153,7 +165,7 @@ func TestYDomain_matrix(t *testing.T) {
 	})
 
 	t.Run("hi clamped by YAxisMax", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 100, "north"))
 		a.InsertRow(rowAt(200, 300, "south"))
 		a.LiveWindow.Set([2]float64{0, 1000})
@@ -164,7 +176,7 @@ func TestYDomain_matrix(t *testing.T) {
 	})
 
 	t.Run("zero YAxisMax disables clamp", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 100, "north"))
 		a.InsertRow(rowAt(200, 900, "south"))
 		a.LiveWindow.Set([2]float64{0, 1000})
@@ -175,7 +187,7 @@ func TestYDomain_matrix(t *testing.T) {
 	})
 
 	t.Run("all-equal values widen", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 300, "north"))
 		a.InsertRow(rowAt(200, 300, "south"))
 		a.LiveWindow.Set([2]float64{0, 1000})
@@ -185,7 +197,7 @@ func TestYDomain_matrix(t *testing.T) {
 	})
 
 	t.Run("fully clamped collapses to a band", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 1200, "north"))
 		a.LiveWindow.Set([2]float64{0, 1000})
 		a.YAxisMax.Set(1000)
@@ -195,7 +207,7 @@ func TestYDomain_matrix(t *testing.T) {
 	})
 
 	t.Run("window filters the extent", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 100, "north"))
 		a.InsertRow(rowAt(200, 900, "south"))
 		a.LiveWindow.Set([2]float64{0, 150}) // only the 100s row is visible
@@ -206,8 +218,10 @@ func TestYDomain_matrix(t *testing.T) {
 }
 
 func TestBarBuckets_matrix(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	t.Run("empty", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.LiveWindow.Set([2]float64{0, 1000})
 		if got := a.BarBuckets.Get(); len(got) != 0 {
 			t.Fatalf("BarBuckets(empty) = %v, want empty", got)
@@ -215,7 +229,7 @@ func TestBarBuckets_matrix(t *testing.T) {
 	})
 
 	t.Run("groups by region with sum and count, sorted by name", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 10, "north"))
 		a.InsertRow(rowAt(200, 20, "north"))
 		a.InsertRow(rowAt(300, 5, "south"))
@@ -234,7 +248,7 @@ func TestBarBuckets_matrix(t *testing.T) {
 	})
 
 	t.Run("window filters aggregation", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.InsertRow(rowAt(100, 10, "north"))
 		a.InsertRow(rowAt(200, 20, "south"))
 		a.LiveWindow.Set([2]float64{0, 150}) // only north visible
@@ -250,7 +264,9 @@ func TestBarBuckets_matrix(t *testing.T) {
 // recompute when an irrelevant store changes, and MUST recompute when one of
 // its sources changes.
 func TestNoSpuriousRecompute(t *testing.T) {
-	a := NewAppState(nil)
+	scope := store.NewScope()
+	defer scope.Close()
+	a := NewAppState(scope, nil)
 	a.InsertRow(rowAt(100, 10, "north"))
 	a.LiveWindow.Set([2]float64{0, 1000})
 
@@ -296,7 +312,9 @@ func TestNoSpuriousRecompute(t *testing.T) {
 }
 
 func TestUpdateRow_preservesIdentity(t *testing.T) {
-	a := NewAppState(nil)
+	scope := store.NewScope()
+	defer scope.Close()
+	a := NewAppState(scope, nil)
 	id := a.InsertRow(rowAt(100, 10, "north"))
 	a.LiveWindow.Set([2]float64{0, 1000})
 
@@ -325,8 +343,10 @@ func TestUpdateRow_preservesIdentity(t *testing.T) {
 }
 
 func TestTrimToMax(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	t.Run("evicts oldest, preserves order", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.MaxRows = 3
 		for i := 1; i <= 5; i++ {
 			a.InsertRow(rowAt(int64(100+i), float64(i), "north"))
@@ -347,7 +367,7 @@ func TestTrimToMax(t *testing.T) {
 	})
 
 	t.Run("continues from cursor after growth", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.MaxRows = 3
 		for i := 1; i <= 5; i++ {
 			a.InsertRow(rowAt(int64(100+i), float64(i), "north"))
@@ -362,7 +382,7 @@ func TestTrimToMax(t *testing.T) {
 	})
 
 	t.Run("zero cap evicts everything", func(t *testing.T) {
-		a := NewAppState(nil)
+		a := NewAppState(scope, nil)
 		a.MaxRows = 0
 		a.InsertRow(rowAt(100, 1, "north"))
 		a.InsertRow(rowAt(200, 2, "south"))

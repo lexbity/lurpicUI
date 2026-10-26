@@ -38,12 +38,14 @@ type NarrowShell struct {
 // NewNarrowShell builds the narrow overlay sub-tree over the shared shell
 // state. counts is the per-exhibit demonstrated-mark count map (shared with the
 // wide inspector so both sheets agree).
-func NewNarrowShell(shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
+func NewNarrowShell(ownerScope *store.Scope, shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
+	scope := ownerScope.Child()
 	n := &NarrowShell{
 		shell:    shell,
-		drawerID: store.NewValueStore(exhibitIndex(shell.ActiveExhibit.Get())),
+		drawerID: store.NewValueStore(scope, exhibitIndex(shell.ActiveExhibit.Get())),
 	}
 	n.Facet = facet.NewFacet()
+	n.OwnStoreScope(scope)
 
 	// The hit-blocking scrim behind the drawer and bottom sheet (FR-17b):
 	// it dims the stage and a tap on it (outside the open overlay) dismisses.
@@ -61,7 +63,7 @@ func NewNarrowShell(shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
 		}
 		sections = append(sections, navigation.NavDrawerSection{Label: group, Items: items})
 	}
-	n.drawer = navigation.NewNavDrawer("Exhibits", sections, shell.IndexOpen, n.drawerID)
+	n.drawer = navigation.NewNavDrawer(scope, "Exhibits", sections, shell.IndexOpen, n.drawerID)
 
 	// The bottom action bar is the narrow-mode exhibit selector: a
 	// horizontal nav_rail over the exhibit destinations, collapsed to icons
@@ -76,7 +78,7 @@ func NewNarrowShell(shell *ShellState, counts map[ExhibitID]int) *NarrowShell {
 
 	// The bottom sheet re-hosts the inspector (sheet mode: drag handle +
 	// Escape dismissal, FR-17c).
-	n.sheet = NewSheetInspector(shell, counts)
+	n.sheet = NewSheetInspector(scope, shell, counts)
 
 	n.AddChild(n.scrim.Base())
 	n.AddChild(n.drawer.Base())

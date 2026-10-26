@@ -55,15 +55,16 @@ type Playground struct {
 const listGap = 8
 
 // NewPlayground builds the E6 exhibit.
-func NewPlayground(state *state.AppState) *Playground {
+func NewPlayground(ownerScope *store.Scope, state *state.AppState) *Playground {
+	scope := ownerScope.Child()
 	e := &Playground{
-		activeTab: store.NewValueStore(0),
-		actionFam: newPlayActionFamily(),
-		selectFam: newPlaySelectFamily(),
-		inputFam:  newPlayInputFamily(),
-		navFam:    newPlayNavFamily(),
-		feedback:  newPlayFeedbackFamily(),
-		statusFam: newPlayStatusFamily(),
+		activeTab: store.NewValueStore(scope, 0),
+		actionFam: newPlayActionFamily(scope),
+		selectFam: newPlaySelectFamily(scope),
+		inputFam:  newPlayInputFamily(scope),
+		navFam:    newPlayNavFamily(scope),
+		feedback:  newPlayFeedbackFamily(scope),
+		statusFam: newPlayStatusFamily(scope),
 	}
 
 	e.bodies = []facet.FacetImpl{
@@ -84,6 +85,7 @@ func NewPlayground(state *state.AppState) *Playground {
 	}, e.activeTab)
 
 	e.Facet = facet.NewFacet()
+	e.OwnStoreScope(scope)
 	e.AddChild(e.tabs.Base())
 	// The family bodies are real facet-tree children so their cards are
 	// projected and hit-tested by the runtime. The tabs mark arranges the
@@ -194,9 +196,9 @@ func (e *Playground) OnDetach() {
 	e.cleanups = nil
 }
 
-func (e *Playground) ID() ExhibitID                           { return ExhibitPlayground }
-func (e *Playground) Title() string                           { return "Mark Playground" }
-func (e *Playground) Build(s *state.AppState) facet.FacetImpl { return e }
+func (e *Playground) ID() ExhibitID                                           { return ExhibitPlayground }
+func (e *Playground) Title() string                                           { return "Mark Playground" }
+func (e *Playground) Build(s *state.AppState, _ *store.Scope) facet.FacetImpl { return e }
 
 // playgroundCard builds one structure.Card hosting one exercise control: the
 // title text spans the top row and the exercise mark(s) share the body row in

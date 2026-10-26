@@ -196,7 +196,7 @@ func TestRuntime_WiresFallbackAndEmitsDiagnostic(t *testing.T) {
 	root := &facet.Facet{}
 	root.BindImpl(root)
 	hook := &backendFallbackRecordingHook{}
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.DiagnosticsHook = hook
 	rt, err := New(cfg, nil, nil, &fakeBackend{}, root)

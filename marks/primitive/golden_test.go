@@ -14,16 +14,19 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"github.com/go-text/typesetting/font"
 )
 
 func TestPrimitiveTextGolden(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	mark := NewText(marks.Const("Hello ☺ world _ AaBbCcDdEeFfGgHhIiJjLlMmNnOoPpQqRrSsTtUuVvWwXxYyZz"))
 	mark.Typography = marks.Const(theme.TextBodyM)
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, primitiveGoldenTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, primitiveGoldenTokens(), nil),
 		fonts:     mustPrimitiveTextRegistry(t),
 	}
 	surface := renderPrimitiveText(t, mark, rt, "primitive_text_symbol", 320, 320, 120)
@@ -67,6 +70,8 @@ func TestPrimitiveTextGoldenAnatomy(t *testing.T) {
 }
 
 func TestPrimitiveIconGolden(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	mark := NewIcon(IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 6v12" stroke="#fff" stroke-width="2" stroke-linecap="round"/><path d="M8 10h8" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>`))
 	mark.Decorative = marks.Const(false)
 	mark.AccessibleLabel = marks.Const("Primitive icon")
@@ -74,7 +79,7 @@ func TestPrimitiveIconGolden(t *testing.T) {
 	tokens := primitiveGoldenTokens()
 	tokens.Color.Primary = gfx.ColorFromRGBA8(38, 82, 122, 255)
 	rt := iconRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		icons:     map[string]icon.Asset{},
 	}
 	surface := renderPrimitiveIcon(t, mark, rt, "primitive_icon_inline")
@@ -82,11 +87,13 @@ func TestPrimitiveIconGolden(t *testing.T) {
 }
 
 func renderAndAssertPrimitiveTextGolden(t *testing.T, goldenName, content string, maxWidth float32, surfaceWidth, surfaceHeight int) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	mark := NewText(marks.Const(content))
 	mark.Typography = marks.Const(theme.TextBodyM)
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, primitiveGoldenTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, primitiveGoldenTokens(), nil),
 		fonts:     mustPrimitiveTextRegistry(t),
 	}
 	surface := renderPrimitiveText(t, mark, rt, goldenName, maxWidth, surfaceWidth, surfaceHeight)
@@ -94,11 +101,13 @@ func renderAndAssertPrimitiveTextGolden(t *testing.T, goldenName, content string
 }
 
 func renderAndAssertPrimitiveTextGoldenWithGuides(t *testing.T, goldenName, content string, maxWidth float32, surfaceWidth, surfaceHeight int) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	mark := NewText(marks.Const(content))
 	mark.Typography = marks.Const(theme.TextBodyM)
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, primitiveGoldenTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, primitiveGoldenTokens(), nil),
 		fonts:     mustPrimitiveTextRegistry(t),
 	}
 	surface := renderPrimitiveTextWithGuides(t, mark, rt, goldenName, maxWidth, surfaceWidth, surfaceHeight)
@@ -106,13 +115,15 @@ func renderAndAssertPrimitiveTextGoldenWithGuides(t *testing.T, goldenName, cont
 }
 
 func renderAndAssertPrimitiveTextGoldenWithGuidesAtDensity(t *testing.T, goldenName, content string, maxWidth float32, surfaceWidth, surfaceHeight int, density theme.DensityID) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	mark := NewText(marks.Const(content))
 	mark.Typography = marks.Const(theme.TextBodyM)
 	tokens := primitiveGoldenTokens()
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens))
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     mustPrimitiveTextRegistry(t),
 	}
 	surface := renderPrimitiveTextWithGuidesResolved(t, mark, rt, goldenName, maxWidth, surfaceWidth, surfaceHeight, resolved)

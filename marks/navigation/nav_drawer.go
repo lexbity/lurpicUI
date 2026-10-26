@@ -121,15 +121,16 @@ var _ layout.AnchorExporter = (*NavDrawer)(nil)
 var _ marks.Mark = (*NavDrawer)(nil)
 
 // NewNavDrawer constructs a navigation.nav_drawer mark with canonical defaults.
-func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueStore[bool], currentIndex *store.ValueStore[int]) *NavDrawer {
+func NewNavDrawer(ownerScope *store.Scope, label string, sections []NavDrawerSection, open *store.ValueStore[bool], currentIndex *store.ValueStore[int]) *NavDrawer {
+	ownedScope := ownerScope.Child()
 	// The mark owns truth unless the app injects stores (RX-2 Q2): a nil
 	// open starts closed, a nil currentIndex starts at the first item; the
 	// live stores are exposed through OpenStore()/CurrentIndexStore().
 	if open == nil {
-		open = store.NewValueStore(false)
+		open = store.NewValueStore(ownedScope, false)
 	}
 	if currentIndex == nil {
-		currentIndex = store.NewValueStore(0)
+		currentIndex = store.NewValueStore(ownedScope, 0)
 	}
 	d := &NavDrawer{
 		Selected:           signal.NewSignal[int]("nav_drawer.selected"),
@@ -145,6 +146,7 @@ func NewNavDrawer(label string, sections []NavDrawerSection, open *store.ValueSt
 		groupNavItemsFacet: facet.NewFacet(),
 	}
 	d.Facet = facet.NewFacet()
+	d.Facet.OwnStoreScope(ownedScope)
 	// Sections are config (Q3 rule): normalized once at construction.
 	next := append([]NavDrawerSection(nil), sections...)
 	for i := range next {

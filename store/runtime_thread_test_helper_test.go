@@ -52,10 +52,14 @@ func TestRecoverOffRuntimeThread_smoke(t *testing.T) {
 }
 
 func TestRecoverOffRuntimeThread_off_thread_panics(t *testing.T) {
-	// Register the runtime thread on the test's goroutine, then call Set
-	// from a different goroutine via recoverOffRuntimeThread.
+	scope :=
+		// Register the runtime thread on the test's goroutine, then call Set
+		// from a different goroutine via recoverOffRuntimeThread.
+		NewScope()
+	defer scope.Close()
+
 	withRuntimeThread(t, func() {
-		s := NewValueStore(0)
+		s := NewValueStore(scope, 0)
 		recovered := recoverOffRuntimeThread(t, func() {
 			s.Set(1)
 		})

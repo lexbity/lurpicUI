@@ -14,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -74,9 +75,9 @@ func StandardHarnessConfig(t testing.TB, width, height int) HarnessConfig {
 // NewStandardHarness constructs a Harness from StandardHarnessConfig for the
 // given size and root. It is the canonical constructor for interaction and
 // golden tests that render text-bearing marks.
-func NewStandardHarness(t testing.TB, width, height int, root facet.FacetImpl) *Harness {
+func NewStandardHarness(t testing.TB, scope *store.Scope, width, height int, root facet.FacetImpl) *Harness {
 	t.Helper()
-	return NewHarness(t, StandardHarnessConfig(t, width, height), root)
+	return NewHarness(t, scope, StandardHarnessConfig(t, width, height), root)
 }
 
 // Harness is a lightweight headless test wrapper.
@@ -113,7 +114,7 @@ func (h *Harness) SetFramePeriod(d time.Duration) {
 }
 
 // NewHarness creates a headless harness and registers cleanup.
-func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harness {
+func NewHarness(t testing.TB, scope *store.Scope, config HarnessConfig, root facet.FacetImpl) *Harness {
 	t.Helper()
 	if config.Width <= 0 {
 		config.Width = 800
@@ -156,6 +157,12 @@ func NewHarness(t testing.TB, config HarnessConfig, root facet.FacetImpl) *Harne
 		t.Fatalf("initialize backend: %v", err)
 	}
 	rtcfg := runtime.DefaultConfig()
+	if scope == nil {
+		t.Fatal("testkit: store scope is required")
+	}
+	t.Cleanup(scope.Close)
+	rtcfg.StoreScope = scope
+	rtcfg.StoreIdentity = store.NewRuntimeIdentity()
 	rtcfg.Clock = config.Clock
 	rtcfg.FontRegistry = fonts
 	rtcfg.LayerRegistry = config.LayerRegistry

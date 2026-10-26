@@ -16,15 +16,17 @@ import (
 // routes the hit to the dropdown's listbox layer and the dropdown selects the
 // option through its Value store.
 func TestDropdownSelect_popupItemClickSelects(t *testing.T) {
-	value := store.NewValueStore("")
-	sel := NewDropdownSelect("City", []DropdownOption{
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, "")
+	sel := NewDropdownSelect(scope, "City", []DropdownOption{
 		{Value: "syd", Label: "Sydney"},
 		{Value: "canb", Label: "Canberra"},
 		{Value: "melb", Label: "Melbourne"},
 	}, value)
 	sel.Placeholder = marks.Const("Pick a city")
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 300, 200), sel)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 300, 200), sel)
 	testkit.Warmup(h)
 
 	// Click the trigger to open the listbox.

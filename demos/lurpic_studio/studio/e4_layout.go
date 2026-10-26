@@ -43,16 +43,19 @@ type LayoutPolicies struct {
 }
 
 // NewLayoutPolicies builds the E4 exhibit.
-func NewLayoutPolicies() *LayoutPolicies {
+func NewLayoutPolicies(ownerScope *store.Scope) *LayoutPolicies {
+	scope := ownerScope.Child()
 	e := &LayoutPolicies{
 		paneA:        newPaneCard("Pane A"),
 		paneB:        newPaneCard("Pane B"),
 		paneC:        newPaneCard("Pane C"),
 		paneD:        newPaneCard("Pane D"),
-		extraVisible: store.NewValueStore(false),
-		flexFixed:    store.NewValueStore(true),
-		paneMin:      store.NewValueStore(120.0),
+		extraVisible: store.NewValueStore(scope, false),
+		flexFixed:    store.NewValueStore(scope, true),
+		paneMin:      store.NewValueStore(scope, 120.0),
 	}
+	e.Facet = facet.NewFacet()
+	e.OwnStoreScope(scope)
 	e.buildControls()
 
 	// The split hosts all four pane facets as children; SetPanes (below)
@@ -64,7 +67,6 @@ func NewLayoutPolicies() *LayoutPolicies {
 		{Facet: e.paneD, FixedWidth: 120, MinWidth: 120},
 	}, dividerSize)
 
-	e.Facet = facet.NewFacet()
 	e.AddChild(e.split.Base())
 	e.AddChild(e.controls.Base())
 
@@ -88,8 +90,8 @@ func NewLayoutPolicies() *LayoutPolicies {
 
 func (e *LayoutPolicies) buildControls() {
 	e.addButton = action.NewButton(marks.Const("Toggle D"), marks.Const(uiinput.ButtonFilled))
-	e.minSlider = selection.NewSlider("Min width", 40, 260, 10, e.paneMin)
-	e.flexSwitch = selection.NewSwitch("B: flex", e.flexFixed)
+	e.minSlider = selection.NewSlider(e.StoreScope(), "Min width", 40, 260, 10, e.paneMin)
+	e.flexSwitch = selection.NewSwitch(e.StoreScope(), "B: flex", e.flexFixed)
 
 	e.controls = structure.NewCard("Layout controls")
 	e.controls.LayoutMode = marks.Const(structure.CardLayoutHorizontal)
@@ -180,9 +182,9 @@ func (e *LayoutPolicies) OnDetach() {
 	}
 }
 
-func (e *LayoutPolicies) ID() ExhibitID                         { return ExhibitPolicies }
-func (e *LayoutPolicies) Title() string                         { return "Layout Policies" }
-func (e *LayoutPolicies) Build(*state.AppState) facet.FacetImpl { return e }
+func (e *LayoutPolicies) ID() ExhibitID                                       { return ExhibitPolicies }
+func (e *LayoutPolicies) Title() string                                       { return "Layout Policies" }
+func (e *LayoutPolicies) Build(*state.AppState, *store.Scope) facet.FacetImpl { return e }
 
 func (e *LayoutPolicies) Base() *facet.Facet { e.BindImpl(e); return &e.Facet }
 func (e *LayoutPolicies) OnActivate()        {}

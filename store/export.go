@@ -57,6 +57,7 @@ func (k ExportKind) String() string {
 // capture closure returns immutable JSON bytes while called at a runtime cut;
 // workers never receive a store or application pointer.
 type ReadExport struct {
+	ownerScope        *Scope
 	name              string
 	field             string
 	class             ExportClass
@@ -83,6 +84,9 @@ type ExportInfo struct {
 func (e ReadExport) Info() ExportInfo {
 	return ExportInfo{Name: e.name, Field: e.field, Class: e.class, Kind: e.kind, Schema: e.schema, MaxBytes: e.maxBytes}
 }
+
+// OwnerScope identifies the reactive owner whose lifetime backs this export.
+func (e ReadExport) OwnerScope() *Scope { return e.ownerScope }
 
 // Valid reports whether this value was created by one of the typed
 // constructors and has a complete public contract.
@@ -167,6 +171,7 @@ func valueExport[T any](name, field string, source *ValueStore[T], class ExportC
 	if source == nil || freeze == nil {
 		panic("store: value export requires a non-nil store and freezer")
 	}
+	e.ownerScope = source.OwnerScope()
 	e.version = func() Version { return source.Version() }
 	e.capture = func(offset, limit int) (json.RawMessage, uint64, uint64, bool, error) {
 		if offset != 0 {
@@ -202,6 +207,7 @@ func collectionExport[T any](name, field string, source *CollectionStore[T], cla
 	if source == nil || freeze == nil {
 		panic("store: collection export requires a non-nil store and freezer")
 	}
+	e.ownerScope = source.OwnerScope()
 	e.version = func() Version { return source.Version() }
 	e.collectionLen = source.Len
 	e.capture = func(offset, limit int) (json.RawMessage, uint64, uint64, bool, error) {
@@ -311,6 +317,7 @@ func derivedExport[T any](name, field string, source *Derived[T], class ExportCl
 	if source == nil || freeze == nil {
 		panic("store: derived export requires a non-nil store and freezer")
 	}
+	e.ownerScope = source.OwnerScope()
 	e.version = func() Version { return source.Version() }
 	e.capture = func(offset, limit int) (json.RawMessage, uint64, uint64, bool, error) {
 		if offset != 0 {

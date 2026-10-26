@@ -56,12 +56,14 @@ func (r *failRecorder) Fatalf(format string, args ...any) {
 }
 
 func TestAssertValueSurvivesDispose_DetectsBadMark(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rec := &failRecorder{T: t}
 	AssertValueSurvivesDispose[int](
 		rec,
-		func() *store.ValueStore[int] { return store.NewValueStore[int](0) },
+		func() *store.ValueStore[int] { return store.NewValueStore[int](scope, 0) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
-			m := &badValueMark{Value: store.NewValueStore[int](0)}
+			m := &badValueMark{Value: store.NewValueStore[int](scope, 0)}
 			m.Facet = facet.NewFacet()
 			return m
 		},
@@ -89,13 +91,15 @@ func (m *badDataMark) OnActivate()                    {}
 func (m *badDataMark) OnDeactivate()                  {}
 
 func TestAssertDataBound_DetectsBadMark(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rec := &failRecorder{T: t}
 	ident := func(i int) store.ItemID { return store.ItemID(i) }
 	AssertDataBound[int](
 		rec,
-		func() *store.CollectionStore[int] { return store.NewCollectionStore(ident) },
+		func() *store.CollectionStore[int] { return store.NewCollectionStore(scope, ident) },
 		func(s *store.CollectionStore[int]) facet.FacetImpl {
-			m := &badDataMark{DataStore: store.NewCollectionStore(ident)}
+			m := &badDataMark{DataStore: store.NewCollectionStore(scope, ident)}
 			m.Facet = facet.NewFacet()
 			return m
 		},
@@ -222,9 +226,11 @@ func TestAssertFocusable_DetectsBadMark(t *testing.T) {
 }
 
 func TestAssertValueSurvivesDispose_PassesOnGoodMark(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	AssertValueSurvivesDispose[int](
 		t,
-		func() *store.ValueStore[int] { return store.NewValueStore[int](0) },
+		func() *store.ValueStore[int] { return store.NewValueStore[int](scope, 0) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
 			m := &goodValueMark{Value: s}
 			m.Facet = facet.NewFacet()
@@ -271,7 +277,7 @@ func (m *goodScaleMark) OnDeactivate() {}
 func TestAssertScaleInvalidates_DetectsBadMark(t *testing.T) {
 	rec := &failRecorder{T: t}
 	AssertScaleInvalidates(rec,
-		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
 			m := &badScaleMark{Scale: scale}
 			m.Facet = facet.NewFacet()
 			return m
@@ -290,7 +296,7 @@ func TestAssertScaleInvalidates_DetectsBadMark(t *testing.T) {
 
 func TestAssertScaleInvalidates_PassesOnGoodMark(t *testing.T) {
 	AssertScaleInvalidates(t,
-		func(scale *reactive.ReactiveScale) facet.FacetImpl {
+		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
 			m := &goodScaleMark{Scale: scale}
 			m.Facet = facet.NewFacet()
 			return m
@@ -329,10 +335,12 @@ func (m *goodBindingMark) OnActivate()                    {}
 func (m *goodBindingMark) OnDeactivate()                  {}
 
 func TestAssertBindingNotSevered_DetectsBadMark(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rec := &failRecorder{T: t}
 	AssertBindingNotSevered[int](
 		rec,
-		func() *store.ValueStore[int] { return store.NewValueStore[int](7) },
+		func() *store.ValueStore[int] { return store.NewValueStore[int](scope, 7) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
 			m := &badBindingMark{Value: marks.FromStore(s, facet.DirtyProjection)}
 			m.Facet = facet.NewFacet()
@@ -354,9 +362,11 @@ func TestAssertBindingNotSevered_DetectsBadMark(t *testing.T) {
 }
 
 func TestAssertBindingNotSevered_PassesOnGoodMark(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	AssertBindingNotSevered[int](
 		t,
-		func() *store.ValueStore[int] { return store.NewValueStore[int](7) },
+		func() *store.ValueStore[int] { return store.NewValueStore[int](scope, 7) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
 			m := &goodBindingMark{Value: marks.FromStore(s, facet.DirtyProjection), Source: s}
 			m.Facet = facet.NewFacet()

@@ -36,7 +36,9 @@ func newTickBody() *tickBody {
 // the routing, a generic tabs mark's store change would leave the panel body
 // at stale bounds.
 func TestTabsStoreBoundLayoutRoutesRuntime(t *testing.T) {
-	active := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	active := store.NewValueStore(scope, 0)
 	bodyA := newTickBody()
 	bodyB := newTickBody()
 	tabs := NewTabs("Tabs", []TabItem{
@@ -44,7 +46,7 @@ func TestTabsStoreBoundLayoutRoutesRuntime(t *testing.T) {
 		{Key: "b", Label: "Beta", Body: bodyB},
 	}, active)
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 400, 300), tabs)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 400, 300), tabs)
 	testkit.Warmup(h)
 
 	// Tab A's body is arranged at the panel area.

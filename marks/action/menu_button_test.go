@@ -13,6 +13,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"codeburg.org/lexbit/lurpicui/theme/recipes/uiaction"
@@ -210,6 +212,8 @@ func TestMenuButtonRecipe_allSlotsPresent(t *testing.T) {
 }
 
 func newMenuButtonFixture(t *testing.T) (*MenuButton, buttonRuntimeStub) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	btn := NewMenuButton("Settings", []MenuButtonEntry{
 		{Kind: MenuButtonEntrySection, Label: "Notifications"},
@@ -224,7 +228,7 @@ func newMenuButtonFixture(t *testing.T) (*MenuButton, buttonRuntimeStub) {
 	})
 	btn.TriggerIconRef = marks.Const("settings")
 	rt := buttonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: buttonIconResolverStub{
 			"settings": mustMenuButtonIconAsset("settings"),
@@ -402,10 +406,12 @@ func renderMenuButtonToSurface(t *testing.T, btn *MenuButton, rt buttonRuntimeSt
 }
 
 func newMenuButtonGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*MenuButton, buttonRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	rtTokens := tokens
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	btn := NewMenuButton("Settings", []MenuButtonEntry{
 		{Kind: MenuButtonEntrySection, Label: "Notifications"},

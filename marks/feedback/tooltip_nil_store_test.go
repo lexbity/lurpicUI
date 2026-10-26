@@ -11,7 +11,9 @@ import (
 // value contract a nil store disabled the subscription AND made every
 // Open.Get() render path dereference nil.
 func TestTooltip_nilStoreConstruction(t *testing.T) {
-	tip := NewTooltip("hint", nil)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	tip := NewTooltip(scope, "hint", nil)
 	if tip.Store() == nil {
 		t.Fatal("nil open did not create an internal store")
 	}
@@ -31,8 +33,10 @@ func TestTooltip_nilStoreConstruction(t *testing.T) {
 // TestTooltip_injectedStoreBoundNotCopied pins the injection half: an
 // injected open store is the live truth, and Show/Hide write through it.
 func TestTooltip_injectedStoreBoundNotCopied(t *testing.T) {
-	open := store.NewValueStore(false)
-	tip := NewTooltip("hint", open)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	open := store.NewValueStore(scope, false)
+	tip := NewTooltip(scope, "hint", open)
 	if tip.Store() != open {
 		t.Fatal("Store() must return the injected store itself")
 	}

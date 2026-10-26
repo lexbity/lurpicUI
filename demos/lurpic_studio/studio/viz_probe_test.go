@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks/viz"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -30,9 +31,10 @@ func seedRows(t *testing.T) []dataset.Row {
 
 // newProbeHarness builds the probe over the seed and runs one frame.
 func newProbeHarness(t *testing.T) (*VizProbe, *testkit.Harness) {
+	scope := store.NewScope()
 	t.Helper()
-	probe := NewVizProbe(seedRows(t), testkit.TestFontRegistry(t), theme.DefaultResolvedContext())
-	h := testkit.NewStandardHarness(t, 640, 360, probe)
+	probe := NewVizProbe(scope, seedRows(t), testkit.TestFontRegistry(t), theme.DefaultResolvedContext())
+	h := testkit.NewStandardHarness(t, scope, 640, 360, probe)
 	h.RunFrame()
 	return probe, h
 }
@@ -162,11 +164,14 @@ func TestVizProbe_axisTickLabels(t *testing.T) {
 // a domain Set re-projects the line with DirtyProjection only — never
 // DirtyLayout — and does not dirty the probe shell at all.
 func TestVizProbe_zoomIsolation(t *testing.T) {
-	probe := NewVizProbe(seedRows(t), testkit.TestFontRegistry(t), theme.DefaultResolvedContext())
+	scope := store.NewScope()
+	probe := NewVizProbe(scope, seedRows(t), testkit.TestFontRegistry(t), theme.DefaultResolvedContext())
 	probeMeasureArrange(t, probe, 640, 360)
 
 	probe.ZoomController().Zoom(probe.XScale().Get().Invert(float64(probe.PlotRect().Width()/2)), 2.0)
+	scope.FlushSignals()
 	probe.XScale().Get() // force the scale recompute → its OnChange invalidates the line
+	scope.FlushSignals()
 
 	lineFlags := probe.Line().Base().DirtyFlags()
 	if lineFlags&facet.DirtyLayout != 0 {

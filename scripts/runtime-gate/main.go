@@ -34,21 +34,21 @@ func main() {
 	if *contracts != "" {
 		contractPhase := *contracts
 		if contractPhase == "all" {
-			contractPhase = "P1"
+			contractPhase = "P1,P2"
 		}
-		if contractPhase != "P1" {
+		if contractPhase != "P1" && contractPhase != "P2" && contractPhase != "P1,P2" {
 			fail("source contracts for %s are not implemented", contractPhase)
 		}
-		if err := runContracts(*root); err != nil {
+		if err := runContracts(*root, contractPhase); err != nil {
 			fail("contracts: %v", err)
 		}
-		fmt.Println("runtime-gate: contracts P1 passed")
+		fmt.Printf("runtime-gate: contracts %s passed\n", contractPhase)
 		return
 	}
 	if *phase == "" {
 		fail("--phase P1 is required until later phase manifests exist")
 	}
-	if *phase != "P1" {
+	if *phase != "P1" && *phase != "P2" {
 		fail("phase %s is not implemented", *phase)
 	}
 	if *mode != "" && *mode != testevidence.ModeHost && *mode != testevidence.ModeRace {
@@ -71,9 +71,9 @@ func main() {
 	fmt.Printf("runtime-gate: phase %s passed (%d gate(s), evidence in %s)\n", *phase, len(report.Gates), report.EvidenceDir)
 }
 
-func runContracts(root string) error {
+func runContracts(root, phase string) error {
 	path := filepath.Join(root, "scripts", "runtime-gate", "check-source.sh")
-	cmd := exec.Command("bash", path, root) //nolint:gosec // repository-owned checker
+	cmd := exec.Command("bash", path, root, phase) //nolint:gosec // repository-owned checker
 	cmd.Dir = root
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

@@ -11,13 +11,15 @@ import (
 )
 
 func TestLine_produces_polyline(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 200})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 200})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 200})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 200})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	l := NewLine(s,
 		func(i scatterItem) float64 { return i.x },
@@ -49,13 +51,15 @@ func TestLine_produces_polyline(t *testing.T) {
 }
 
 func TestLine_positions_ordered(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
-	xDom := store.NewValueStore([2]float64{0, 10})
-	xRng := store.NewValueStore([2]float64{0, 200})
-	yDom := store.NewValueStore([2]float64{0, 10})
-	yRng := store.NewValueStore([2]float64{0, 200})
-	xScale := reactive.NewLinearReactive(xDom, xRng)
-	yScale := reactive.NewLinearReactive(yDom, yRng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
+	xDom := store.NewValueStore(scope, [2]float64{0, 10})
+	xRng := store.NewValueStore(scope, [2]float64{0, 200})
+	yDom := store.NewValueStore(scope, [2]float64{0, 10})
+	yRng := store.NewValueStore(scope, [2]float64{0, 200})
+	xScale := reactive.NewLinearReactive(scope, xDom, xRng)
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	l := NewLine(s,
 		func(i scatterItem) float64 { return i.x },
@@ -87,17 +91,17 @@ func TestLine_positions_ordered(t *testing.T) {
 }
 
 func TestLine_empty_store(t *testing.T) {
-	s := store.NewCollectionStore(scatterID)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, scatterID)
 	l := NewLine(s,
 		func(i scatterItem) float64 { return i.x },
 		func(i scatterItem) float64 { return i.y },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
 	facet.Attach(l, facet.AttachContext{Runtime: vizRuntimeStub{}})
@@ -112,9 +116,11 @@ func TestLine_empty_store(t *testing.T) {
 }
 
 func TestLine_Contract_ScaleInvalidates(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertScaleInvalidates(t,
-		func(scale *reactive.ReactiveScale) facet.FacetImpl {
-			return NewLine(store.NewCollectionStore(scatterID),
+		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
+			return NewLine(store.NewCollectionStore(scope, scatterID),
 				func(i scatterItem) float64 { return i.x },
 				func(i scatterItem) float64 { return i.y },
 				scale, nil,

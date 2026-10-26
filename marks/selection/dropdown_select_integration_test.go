@@ -23,9 +23,9 @@ func cityOptions() []DropdownOption {
 
 // mountDropdown mounts the dropdown as the harness root and runs the warmup
 // frame so the trigger bounds exist.
-func mountDropdown(t *testing.T, ds *DropdownSelect) *testkit.Harness {
+func mountDropdown(t *testing.T, scope *store.Scope, ds *DropdownSelect) *testkit.Harness {
 	t.Helper()
-	h := testkit.NewStandardHarness(t, 320, 140, ds)
+	h := testkit.NewStandardHarness(t, scope, 320, 140, ds)
 	testkit.Warmup(h)
 	return h
 }
@@ -55,10 +55,12 @@ func commitWithEnter(h *testkit.Harness) {
 }
 
 func TestDropdownSelectIntegration_OpenNavigateSelect(t *testing.T) {
-	value := store.NewValueStore("")
-	ds := NewDropdownSelect("City", cityOptions(), value)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, "")
+	ds := NewDropdownSelect(scope, "City", cityOptions(), value)
 
-	h := mountDropdown(t, ds)
+	h := mountDropdown(t, scope, ds)
 	openDropdown(t, h, ds)
 
 	// Navigate two steps down, then commit with Enter.
@@ -75,10 +77,12 @@ func TestDropdownSelectIntegration_OpenNavigateSelect(t *testing.T) {
 }
 
 func TestDropdownSelectIntegration_ReopenSelectsDifferentOption(t *testing.T) {
-	value := store.NewValueStore("sydney")
-	ds := NewDropdownSelect("City", cityOptions(), value)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, "sydney")
+	ds := NewDropdownSelect(scope, "City", cityOptions(), value)
 
-	h := mountDropdown(t, ds)
+	h := mountDropdown(t, scope, ds)
 	openDropdown(t, h, ds)
 
 	// Move one option down and commit — replaces the current selection.
@@ -91,10 +95,12 @@ func TestDropdownSelectIntegration_ReopenSelectsDifferentOption(t *testing.T) {
 }
 
 func TestDropdownSelectIntegration_SequenceChangesSelectionTwice(t *testing.T) {
-	value := store.NewValueStore("")
-	ds := NewDropdownSelect("City", cityOptions(), value)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	value := store.NewValueStore(scope, "")
+	ds := NewDropdownSelect(scope, "City", cityOptions(), value)
 
-	h := mountDropdown(t, ds)
+	h := mountDropdown(t, scope, ds)
 
 	// First sequence: open, navigate to the last option, commit.
 	openDropdown(t, h, ds)

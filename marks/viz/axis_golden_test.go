@@ -18,9 +18,11 @@ import (
 )
 
 func TestAxisGoldenLinear(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisBottom), fonts)
@@ -64,9 +66,11 @@ func TestAxisGoldenLinear(t *testing.T) {
 }
 
 func TestAxisGoldenLinearLeft(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisLeft), fonts)
@@ -92,9 +96,11 @@ func TestAxisGoldenLinearLeft(t *testing.T) {
 }
 
 func TestAxisGoldenLinearTop(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisTop), fonts)
@@ -138,9 +144,11 @@ func TestAxisGoldenLinearTop(t *testing.T) {
 }
 
 func TestAxisGoldenLinearRight(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 200})
-	rs := reactive.NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 200})
+	rs := reactive.NewLinearReactive(scope, domain, rng)
 
 	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisRight), fonts)
@@ -170,10 +178,12 @@ func epochMs(year int, month time.Month, day int) float64 {
 }
 
 func timeAxisFixture(t *testing.T, startMs, endMs float64, tickCount int, goldenName string) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	domain := store.NewValueStore([2]float64{startMs, endMs})
-	rng := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewTimeReactive(domain, rng)
+	domain := store.NewValueStore(scope, [2]float64{startMs, endMs})
+	rng := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewTimeReactive(scope, domain, rng)
 
 	fonts := (axisGoldenRuntime{}).FontRegistry()
 	a := NewAxis(rs, marks.Const(AxisBottom), fonts)

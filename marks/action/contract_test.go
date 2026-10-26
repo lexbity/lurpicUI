@@ -109,13 +109,15 @@ func TestButton_contract_accessible(t *testing.T) {
 }
 
 func TestCommandPalette_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	_, rt, resolved := newCommandPaletteFixture(t, theme.DefaultTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	registry := rt.registry
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewCommandPalette(marks.Const("contract palette"), registry, store.NewValueStore(true))
+			return NewCommandPalette(scope, marks.Const("contract palette"), registry, store.NewValueStore(scope, true))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			actionContractArrange(m, rt, resolved, b)
@@ -125,17 +127,21 @@ func TestCommandPalette_contract_anchor_export(t *testing.T) {
 }
 
 func TestCommandPalette_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewCommandPalette(marks.Const(label), nil, store.NewValueStore(true))
+			return NewCommandPalette(scope, marks.Const(label), nil, store.NewValueStore(scope, true))
 		},
 		"dialog_combobox",
 	)
 }
 
 func TestIconButton_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rt := iconButtonRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 	}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
@@ -187,13 +193,15 @@ func TestMenuButton_contract_accessible(t *testing.T) {
 }
 
 func TestRibbon_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	_, rt := newRibbonFixture(t, defaultActionBarTokens())
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewRibbon("contract ribbon", []RibbonSection{
+			return NewRibbon(scope, "contract ribbon", []RibbonSection{
 				{Key: "home", Label: "Home"},
 			}, nil)
 		},
@@ -205,8 +213,10 @@ func TestRibbon_contract_anchor_export(t *testing.T) {
 }
 
 func TestRibbon_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
-		func(label string) facet.FacetImpl { return NewRibbon(label, nil, nil) },
+		func(label string) facet.FacetImpl { return NewRibbon(scope, label, nil, nil) },
 		"toolbar",
 	)
 }
@@ -271,9 +281,11 @@ func TestToolbar_contract_accessible(t *testing.T) {
 }
 
 func TestButton_contract_binding_not_severed(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertBindingNotSevered[string](
 		t,
-		func() *store.ValueStore[string] { return store.NewValueStore("Save") },
+		func() *store.ValueStore[string] { return store.NewValueStore(scope, "Save") },
 		func(s *store.ValueStore[string]) facet.FacetImpl {
 			return NewButton(marks.FromStore(s, facet.DirtyLayout|facet.DirtyProjection), marks.Const(uiinput.ButtonFilled))
 		},
@@ -318,10 +330,12 @@ func TestButton_contract_focusable(t *testing.T) {
 }
 
 func TestCommandPalette_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
 		// The palette's focus gate is Disabled && Open; the contract builder
 		// proves the enabled path, so the palette is constructed open.
-		palette := NewCommandPalette(marks.Const("palette"), nil, store.NewValueStore(true))
+		palette := NewCommandPalette(scope, marks.Const("palette"), nil, store.NewValueStore(scope, true))
 		palette.Disabled = marks.Const(disabled)
 		return palette
 	})
@@ -344,8 +358,10 @@ func TestMenuButton_contract_focusable(t *testing.T) {
 }
 
 func TestRibbon_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		ribbon := NewRibbon("ribbon", []RibbonSection{{Key: "home", Label: "Home"}}, nil)
+		ribbon := NewRibbon(scope, "ribbon", []RibbonSection{{Key: "home", Label: "Home"}}, nil)
 		ribbon.Disabled = marks.Const(disabled)
 		return ribbon
 	})

@@ -7,6 +7,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -14,7 +15,9 @@ import (
 // it measures/arranges to the requested window size. This proves the entry
 // builder yields a facet the runtime can attach, measure, and arrange.
 func TestMainSmoke_rootMeasuresToWindow(t *testing.T) {
+	scope := store.NewScope()
 	ctx := app.BuildContext{
+		StoreScope:   scope,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
@@ -32,7 +35,7 @@ func TestMainSmoke_rootMeasuresToWindow(t *testing.T) {
 		t.Fatal("BuildRoot returned nil")
 	}
 
-	h := testkit.NewStandardHarness(t, 1280, 800, root)
+	h := testkit.NewStandardHarness(t, scope, 1280, 800, root)
 	h.RunFrame()
 
 	lr := root.Base().LayoutRole()

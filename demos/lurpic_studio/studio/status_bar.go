@@ -48,9 +48,10 @@ type StatusBar struct {
 
 // NewStatusBar builds the status strip over the shared shell state and the
 // streaming feed (E1). titleOf maps an exhibit id to its display title.
-func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed, titleOf func(ExhibitID) string) *StatusBar {
-	notConnected := store.NewDerived(func() bool { return !shell.Connection.Get() }, shell.Connection)
-	titleText := store.NewDerived(func() string {
+func NewStatusBar(ownerScope *store.Scope, themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed, titleOf func(ExhibitID) string) *StatusBar {
+	scope := ownerScope.Child()
+	notConnected := store.NewDerived(scope, func() bool { return !shell.Connection.Get() }, shell.Connection)
+	titleText := store.NewDerived(scope, func() string {
 		return titleOf(shell.ActiveExhibit.Get())
 	}, shell.ActiveExhibit)
 
@@ -109,6 +110,7 @@ func NewStatusBar(themeCtx theme.ResolvedContext, shell *ShellState, feed *Feed,
 	)
 
 	s.Facet = facet.NewFacet()
+	s.OwnStoreScope(scope)
 	s.AddChild(s.row.Base())
 
 	s.layout = facet.LayoutRole{ //lurpiclint:ignore * -- single-child wrapper: background fill + measure/arrange delegation to the row (structure.Row owns the layout)

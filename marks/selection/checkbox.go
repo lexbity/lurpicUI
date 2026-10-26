@@ -104,9 +104,10 @@ var (
 // When value is nil the checkbox creates an internal store (off) and owns its
 // truth; an injected store is bound, never copied (RX-2 Q2) — Store()
 // exposes the live store either way.
-func NewCheckbox(label string, value *store.ValueStore[CheckboxState]) *Checkbox {
+func NewCheckbox(ownerScope *store.Scope, label string, value *store.ValueStore[CheckboxState]) *Checkbox {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore(CheckboxStateOff)
+		value = store.NewValueStore(ownedScope, CheckboxStateOff)
 	}
 	c := &Checkbox{
 		Label:      marks.Const(label),
@@ -116,6 +117,7 @@ func NewCheckbox(label string, value *store.ValueStore[CheckboxState]) *Checkbox
 		Value:      value,
 	}
 	c.Facet = facet.NewFacet()
+	c.Facet.OwnStoreScope(ownedScope)
 
 	c.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,

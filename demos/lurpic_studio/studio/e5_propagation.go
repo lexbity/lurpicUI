@@ -36,8 +36,8 @@ func NewPropagationData(sink *DirtySink, fonts *text.FontRegistry, themeCtx them
 
 func (p *PropagationData) ID() ExhibitID { return ExhibitPropagation }
 func (p *PropagationData) Title() string { return "Reactive Propagation" }
-func (p *PropagationData) Build(_ *state.AppState) facet.FacetImpl {
-	return NewPropagationFacet(p.sink, p.fonts, p.theme)
+func (p *PropagationData) Build(_ *state.AppState, scope *store.Scope) facet.FacetImpl {
+	return NewPropagationFacet(scope, p.sink, p.fonts, p.theme)
 }
 
 // propagationNode is one facet in the captured shell tree.
@@ -121,17 +121,19 @@ const (
 )
 
 // NewPropagationFacet builds the E5 facet over the dirty sink.
-func NewPropagationFacet(sink *DirtySink, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Propagation {
+func NewPropagationFacet(ownerScope *store.Scope, sink *DirtySink, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Propagation {
+	scope := ownerScope.Child()
 	e := &Propagation{
 		sink:       sink,
 		overlay:    diagnostics.NewOverlay(),
-		paused:     store.NewValueStore(false),
-		retention:  store.NewValueStore(10.0),
-		dirtyCount: store.NewValueStore("0"),
-		driveLine:  store.NewValueStore(""),
-		notLive:    store.NewValueStore(true),
+		paused:     store.NewValueStore(scope, false),
+		retention:  store.NewValueStore(scope, 10.0),
+		dirtyCount: store.NewValueStore(scope, "0"),
+		driveLine:  store.NewValueStore(scope, ""),
+		notLive:    store.NewValueStore(scope, true),
 	}
 	e.Facet = facet.NewFacet()
+	e.OwnStoreScope(scope)
 	if fonts != nil {
 		e.shaper = text.NewShaper(fonts)
 	}
@@ -235,8 +237,8 @@ func (e *Propagation) EdgeNote() string { return edgeIntrospectionNote }
 func (e *Propagation) TreeArea() gfx.Rect { return e.treeArea }
 
 func (e *Propagation) buildControls() {
-	pauseSwitch := selection.NewSwitch("Pause capture", e.paused)
-	retentionSlider := selection.NewSlider("Retention", 1, 30, 1, e.retention)
+	pauseSwitch := selection.NewSwitch(e.StoreScope(), "Pause capture", e.paused)
+	retentionSlider := selection.NewSlider(e.StoreScope(), "Retention", 1, 30, 1, e.retention)
 	e.badge = status.NewBadge("")
 	e.badge.Label = marks.FromStore(e.dirtyCount, facet.DirtyProjection)
 	e.driveBadge = status.NewBadge("")

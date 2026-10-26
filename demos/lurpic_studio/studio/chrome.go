@@ -50,7 +50,8 @@ type ChromeStack struct {
 // shell state. The ⌘K button opens the command palette; the theme button
 // toggles the shell's compact density (a genuine runtime preference → re-layout
 // response).
-func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeStack {
+func NewChromeStack(ownerScope *store.Scope, themeCtx theme.ResolvedContext, shell *ShellState) *ChromeStack {
+	chromeScope := ownerScope.Child()
 	c := &ChromeStack{
 		shell:      shell,
 		title:      primitive.NewText(marks.Const("Lurpic Studio")),
@@ -59,6 +60,7 @@ func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeSt
 		background: themeCtx.Color(theme.ColorSurface),
 	}
 	c.Facet = facet.NewFacet()
+	c.OwnStoreScope(chromeScope)
 
 	// Compact density is a content change (padding), not a structural one:
 	// the Derived re-resolves on every Compact write and the PadX/PadY
@@ -66,13 +68,13 @@ func NewChromeStack(themeCtx theme.ResolvedContext, shell *ShellState) *ChromeSt
 	gap := float32(themeCtx.Spacing(theme.SpacingS))
 	padX := float32(themeCtx.Spacing(theme.SpacingL))
 	padY := float32(themeCtx.Spacing(theme.SpacingS))
-	padXCompact := store.NewDerived(func() float32 {
+	padXCompact := store.NewDerived(chromeScope, func() float32 {
 		if shell.Compact.Get() {
 			return padX * 0.6
 		}
 		return padX
 	}, shell.Compact)
-	padYCompact := store.NewDerived(func() float32 {
+	padYCompact := store.NewDerived(chromeScope, func() float32 {
 		if shell.Compact.Get() {
 			return padY * 0.6
 		}

@@ -13,6 +13,7 @@ import (
 // gate and a full-coverage render role, mirroring how the studio mounts the
 // command palette on the Modal band.
 func newMountTestTree(t *testing.T) (*Runtime, *runtimeRenderFacet, *runtimeRenderFacet, *store.ValueStore[bool]) {
+	scope := store.NewScope()
 	t.Helper()
 	reg := testLayerRegistry(t)
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{B: 40, A: 255})
@@ -22,18 +23,18 @@ func newMountTestTree(t *testing.T) (*Runtime, *runtimeRenderFacet, *runtimeRend
 		host.layout.Arrange(ctx, bounds)
 	}
 	layer := newRuntimeRenderFacet("layer", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{R: 200, A: 255})
-	mount := store.NewValueStore(false)
+	mount := store.NewValueStore(scope, false)
 	root.AddChild(host.Base())
 	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
 
-	rt, err := New(func() Config {
-		cfg := DefaultConfig()
-		cfg.LayerRegistry = reg
-		return cfg
-	}(), nil, nil, &backendFixture{}, root)
+	cfg := testConfigForScope(t, scope)
+	cfg.LayerRegistry = reg
+	rt, err := New(cfg, nil, nil, &backendFixture{}, root)
 	if err != nil {
+		scope.Close()
 		t.Fatalf("new runtime: %v", err)
 	}
+	t.Cleanup(rt.Shutdown)
 	rt.window = &testWindow{width: 400, height: 300}
 	return rt, host, layer, mount
 }
@@ -116,6 +117,7 @@ func TestRuntimeLayersMountUnmountClearsPixels(t *testing.T) {
 // zero app-side routing or parallel visibility plumbing. The app's old
 // SetVisible compensation is gone; the framework owns the flip.
 func TestRuntimeLayersMountFlipMarksChildDirtyWithoutAppRouting(t *testing.T) {
+	scope := store.NewScope()
 	sink := &recordingDirtySink{}
 	reg := testLayerRegistry(t)
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{B: 40, A: 255})
@@ -125,7 +127,7 @@ func TestRuntimeLayersMountFlipMarksChildDirtyWithoutAppRouting(t *testing.T) {
 		host.layout.Arrange(ctx, bounds)
 	}
 	layer := newRuntimeRenderFacet("layer", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{R: 200, A: 255})
-	mount := store.NewValueStore(false)
+	mount := store.NewValueStore(scope, false)
 	root.AddChild(host.Base())
 	// runtimeRenderFacet uses the embedded Base (no BindImpl); bind so the
 	// runtime's Mount subscription (subscribeLayerMounts, keyed on Impl())
@@ -133,15 +135,15 @@ func TestRuntimeLayersMountFlipMarksChildDirtyWithoutAppRouting(t *testing.T) {
 	layer.BindImpl(layer)
 	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
 
-	rt, err := New(func() Config {
-		cfg := DefaultConfig()
-		cfg.LayerRegistry = reg
-		cfg.DiagnosticsHook = sink
-		return cfg
-	}(), nil, nil, &backendFixture{}, root)
+	cfg := testConfigForScope(t, scope)
+	cfg.LayerRegistry = reg
+	cfg.DiagnosticsHook = sink
+	rt, err := New(cfg, nil, nil, &backendFixture{}, root)
 	if err != nil {
+		scope.Close()
 		t.Fatalf("new runtime: %v", err)
 	}
+	t.Cleanup(rt.Shutdown)
 	rt.window = &testWindow{width: 400, height: 300}
 	rt.RunOneFrame()
 
@@ -163,6 +165,7 @@ func TestRuntimeLayersMountFlipMarksChildDirtyWithoutAppRouting(t *testing.T) {
 // nonzero while the layer is closed, zero once mounted (and zero in the quiet
 // steady state).
 func TestRuntimeLayersUnmountedSkipsCounter(t *testing.T) {
+	scope := store.NewScope()
 	hook := &recordingFrameStats{}
 	reg := testLayerRegistry(t)
 	root := newRuntimeRenderFacet("root", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{B: 40, A: 255})
@@ -172,19 +175,19 @@ func TestRuntimeLayersUnmountedSkipsCounter(t *testing.T) {
 		host.layout.Arrange(ctx, bounds)
 	}
 	layer := newRuntimeRenderFacet("layer", gfx.RectFromXYWH(0, 0, 400, 300), color.RGBA{R: 200, A: 255})
-	mount := store.NewValueStore(false)
+	mount := store.NewValueStore(scope, false)
 	root.AddChild(host.Base())
 	facet.AttachLayer(host, layer, facet.LayerAttachment{Band: facet.ZBandModal, Mount: mount})
 
-	rt, err := New(func() Config {
-		cfg := DefaultConfig()
-		cfg.LayerRegistry = reg
-		cfg.DiagnosticsHook = hook
-		return cfg
-	}(), nil, nil, &backendFixture{}, root)
+	cfg := testConfigForScope(t, scope)
+	cfg.LayerRegistry = reg
+	cfg.DiagnosticsHook = hook
+	rt, err := New(cfg, nil, nil, &backendFixture{}, root)
 	if err != nil {
+		scope.Close()
 		t.Fatalf("new runtime: %v", err)
 	}
+	t.Cleanup(rt.Shutdown)
 	rt.window = &testWindow{width: 400, height: 300}
 
 	rt.RunOneFrame()
@@ -235,7 +238,7 @@ func TestRuntimeLayersBandOrderingStableUnderShuffle(t *testing.T) {
 			facet.AttachLayer(root, modal, facet.LayerAttachment{Band: facet.ZBandModal})
 		}
 		rt, err := New(func() Config {
-			cfg := DefaultConfig()
+			cfg := testConfig(t)
 			cfg.LayerRegistry = reg
 			return cfg
 		}(), nil, nil, &backendFixture{}, root)

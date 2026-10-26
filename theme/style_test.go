@@ -146,14 +146,16 @@ func TestStyleContextDerive_purelyFunctional(t *testing.T) {
 }
 
 func TestNewRootStyleContext_andNearestStyleContext(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	rootFacet := newTestStyleNode(1)
 	childFacet := newTestStyleNode(2)
 	leafFacet := newTestStyleNode(3)
 	rootFacet.AddChild(childFacet)
 	childFacet.AddChild(leafFacet)
 
-	rootStore := NewRootStyleContext(nil, DefaultTokens(), nil)
-	childStore := store.NewValueStore(StyleContext{Tokens: DarkTokens(), Materials: NewMaterialRegistry(), Depth: 1})
+	rootStore := NewRootStyleContext(scope, nil, DefaultTokens(), nil)
+	childStore := store.NewValueStore(scope, StyleContext{Tokens: DarkTokens(), Materials: NewMaterialRegistry(), Depth: 1})
 	childFacet.style = childStore
 
 	tree := &testStyleTree{
@@ -173,14 +175,11 @@ func TestNewRootStyleContext_andNearestStyleContext(t *testing.T) {
 	}
 }
 
-func TestStyleContextStore_change_deferred_by_queue_hook(t *testing.T) {
-	defer store.SetSignalQueueHook(nil)
-	var queued []func()
-	store.SetSignalQueueHook(func(fn func()) {
-		queued = append(queued, fn)
-	})
+func TestStyleContextStore_change_deferred_by_scope_queue(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 
-	ctxStore := NewRootStyleContext(nil, DefaultTokens(), nil)
+	ctxStore := NewRootStyleContext(scope, nil, DefaultTokens(), nil)
 	var called int
 	ctxStore.OnChange.Subscribe(func(signal.Change[StyleContext]) {
 		called++
@@ -193,18 +192,18 @@ func TestStyleContextStore_change_deferred_by_queue_hook(t *testing.T) {
 	if called != 0 {
 		t.Fatalf("handler should not run before queued delivery, got %d", called)
 	}
-	if len(queued) != 1 {
-		t.Fatalf("expected one queued signal, got %d", len(queued))
+	if queued := scope.FlushSignals(); queued != 1 {
+		t.Fatalf("expected one queued signal, got %d", queued)
 	}
-
-	queued[0]()
 	if called != 1 {
 		t.Fatalf("handler should run after queued delivery, got %d", called)
 	}
 }
 
 func TestStyleContextStore_version_increments_on_derive(t *testing.T) {
-	ctxStore := NewRootStyleContext(nil, DefaultTokens(), nil)
+	scope := store.NewScope()
+	defer scope.Close()
+	ctxStore := NewRootStyleContext(scope, nil, DefaultTokens(), nil)
 	before := ctxStore.Version()
 	next := ctxStore.Get()
 	next.Depth++
@@ -215,7 +214,9 @@ func TestStyleContextStore_version_increments_on_derive(t *testing.T) {
 }
 
 func TestNearestStyleContext_noAncestor_returnsRoot(t *testing.T) {
-	rootStore := NewRootStyleContext(nil, DefaultTokens(), nil)
+	scope := store.NewScope()
+	defer scope.Close()
+	rootStore := NewRootStyleContext(scope, nil, DefaultTokens(), nil)
 	root := newTestStyleNode(5)
 	tree := &testStyleTree{
 		nodes: map[uint64]any{root.id: root},
@@ -258,14 +259,16 @@ func TestStyleContextDerive_materialsOverrideDoesNotMutateParent(t *testing.T) {
 }
 
 func TestNearestStyleContext_prefersNearestAncestor(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	rootFacet := newTestStyleNode(10)
 	childFacet := newTestStyleNode(11)
 	leafFacet := newTestStyleNode(12)
 	rootFacet.AddChild(childFacet)
 	childFacet.AddChild(leafFacet)
 
-	rootStore := NewRootStyleContext(nil, DefaultTokens(), nil)
-	childStore := store.NewValueStore(StyleContext{Tokens: DarkTokens(), Materials: NewMaterialRegistry(), Depth: 1})
+	rootStore := NewRootStyleContext(scope, nil, DefaultTokens(), nil)
+	childStore := store.NewValueStore(scope, StyleContext{Tokens: DarkTokens(), Materials: NewMaterialRegistry(), Depth: 1})
 	rootFacet.style = rootStore
 	childFacet.style = childStore
 
@@ -307,6 +310,8 @@ func BenchmarkNearestStyleContext_depth1000(b *testing.B) {
 }
 
 func buildStyleTree(depth int, withChildContext bool) (*testStyleTree, *testStyleNode) {
+	scope := store.NewScope()
+	defer scope.Close()
 	if depth < 1 {
 		depth = 1
 	}
@@ -317,9 +322,9 @@ func buildStyleTree(depth int, withChildContext bool) (*testStyleTree, *testStyl
 			nodes[i-1].AddChild(nodes[i])
 		}
 	}
-	rootStore := NewRootStyleContext(nil, DefaultTokens(), nil)
+	rootStore := NewRootStyleContext(scope, nil, DefaultTokens(), nil)
 	if withChildContext && depth > 1 {
-		childStore := store.NewValueStore(StyleContext{Tokens: DarkTokens(), Materials: NewMaterialRegistry(), Depth: 1})
+		childStore := store.NewValueStore(scope, StyleContext{Tokens: DarkTokens(), Materials: NewMaterialRegistry(), Depth: 1})
 		nodes[depth-2].style = childStore
 	}
 	tree := &testStyleTree{

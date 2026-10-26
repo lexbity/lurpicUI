@@ -80,9 +80,10 @@ var _ marks.Mark = (*Slider)(nil)
 // When value is nil the slider creates an internal store seeded at the
 // normalized minimum and owns its truth; an injected store is bound, never
 // copied (RX-2 Q2) — Store() exposes the live store either way.
-func NewSlider(label string, min, max, step float64, value *store.ValueStore[float64]) *Slider {
+func NewSlider(ownerScope *store.Scope, label string, min, max, step float64, value *store.ValueStore[float64]) *Slider {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore(math.Min(min, max))
+		value = store.NewValueStore(ownedScope, math.Min(min, max))
 	}
 	s := &Slider{
 		Variant:   marks.Const[uiinput.SliderVariant](0),
@@ -95,6 +96,7 @@ func NewSlider(label string, min, max, step float64, value *store.ValueStore[flo
 		Precision: -1,
 	}
 	s.Facet = facet.NewFacet()
+	s.Facet.OwnStoreScope(ownedScope)
 
 	s.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearVertical,

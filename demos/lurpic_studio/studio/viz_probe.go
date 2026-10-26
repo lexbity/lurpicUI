@@ -17,23 +17,23 @@ type VizProbe struct {
 }
 
 // NewVizProbe builds the standalone chart over the given seed rows (Slice P3).
-func NewVizProbe(seed []dataset.Row, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *VizProbe {
-	rows := store.NewCollectionStore(vizRowID)
+func NewVizProbe(scope *store.Scope, seed []dataset.Row, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *VizProbe {
+	rows := store.NewCollectionStore(scope, vizRowID)
 	for i := range seed {
 		seed[i].ID = uint64(i + 1)
 		rows.Insert(seed[i])
 	}
-	xExtent := reactive.DomainFromCollection(rows, vizRowTime)
-	yDomain := reactive.DomainFromCollection(rows, vizRowValue)
-	canvas := NewChartCanvas(ChartConfig{
+	xExtent := reactive.DomainFromCollection(scope, rows, vizRowTime)
+	yDomain := reactive.DomainFromCollection(scope, rows, vizRowValue)
+	canvas := NewChartCanvas(scope, ChartConfig{
 		Fonts:     fonts,
 		Theme:     themeCtx,
 		Rows:      rows,
-		XDomain:   store.NewValueStore(xExtent.Get()),
-		XRange:    store.NewValueStore([2]float64{0, 1}),
+		XDomain:   store.NewValueStore(scope, xExtent.Get()),
+		XRange:    store.NewValueStore(scope, [2]float64{0, 1}),
 		YDomain:   yDomain,
-		YRange:    store.NewValueStore([2]float64{1, 0}),
-		RuleValue: store.NewValueStore(meanValue(seed)),
+		YRange:    store.NewValueStore(scope, [2]float64{1, 0}),
+		RuleValue: store.NewValueStore(scope, meanValue(seed)),
 	})
 	return &VizProbe{ChartCanvas: canvas}
 }

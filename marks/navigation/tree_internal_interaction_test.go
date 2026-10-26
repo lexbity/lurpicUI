@@ -15,17 +15,19 @@ import (
 // composite — the runtime routes the hit to the tree and the tree's own
 // pointer handling publishes the selection to the FR-8 selection store.
 func TestTreeNavigator_rowClickSelects(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	nodes := []TreeNode{
 		{Key: "root", Label: "Root", Expanded: true, Children: []TreeNode{
 			{Key: "child", Label: "Child"},
 			{Key: "sibling", Label: "Sibling"},
 		}},
 	}
-	selection := store.NewValueStore("")
-	tree := NewTreeNavigator("Tree", nodes, selection)
+	selection := store.NewValueStore(scope, "")
+	tree := NewTreeNavigator(scope, "Tree", nodes, selection)
 	tree.Disabled = marks.Const(false)
 
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 300, 200), tree)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 300, 200), tree)
 	testkit.Warmup(h)
 
 	if len(tree.cachedRowBounds) < 3 {

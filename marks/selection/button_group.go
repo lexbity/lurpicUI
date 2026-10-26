@@ -135,9 +135,10 @@ var _ facet.FacetImpl = (*buttonGroupItem)(nil)
 // Store() exposes the live store either way. The value is a []string key
 // set, which is non-comparable and therefore outside the scalar value
 // contract; the store subscription carries its clauses inline.
-func NewButtonGroup(label string, options []ButtonGroupOption, value *store.ValueStore[[]string]) *ButtonGroup {
+func NewButtonGroup(ownerScope *store.Scope, label string, options []ButtonGroupOption, value *store.ValueStore[[]string]) *ButtonGroup {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore[[]string](nil)
+		value = store.NewValueStore[[]string](ownedScope, nil)
 	}
 	bg := &ButtonGroup{
 		Activated:    signal.NewSignal[string]("button_group.activated"),
@@ -151,6 +152,7 @@ func NewButtonGroup(label string, options []ButtonGroupOption, value *store.Valu
 		Value:        value,
 	}
 	bg.Facet = facet.NewFacet()
+	bg.Facet.OwnStoreScope(ownedScope)
 
 	bg.Layout.Parent = facet.GroupParentContract{
 		Kind:     facet.GroupLayoutLinearHorizontal,

@@ -71,9 +71,10 @@ var _ marks.Mark = (*Switch)(nil)
 // When value is nil the switch creates an internal store (off) and owns its
 // truth; an injected store is bound, never copied (RX-2 Q2) — Store()
 // exposes the live store either way.
-func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
+func NewSwitch(ownerScope *store.Scope, label string, value *store.ValueStore[bool]) *Switch {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore(false)
+		value = store.NewValueStore(ownedScope, false)
 	}
 	s := &Switch{
 		Variant:  marks.Const(uiinput.SwitchStandard),
@@ -82,6 +83,7 @@ func NewSwitch(label string, value *store.ValueStore[bool]) *Switch {
 		Label:    marks.Const(label),
 	}
 	s.Facet = facet.NewFacet()
+	s.Facet.OwnStoreScope(ownedScope)
 
 	s.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,

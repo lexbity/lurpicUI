@@ -26,8 +26,6 @@ import (
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
-type pendingSignal struct{ deliver func() }
-
 type Runtime struct {
 	config Config
 
@@ -66,8 +64,6 @@ type Runtime struct {
 	lastHitTrace     diagnostics.HitTestTrace
 	hitTraceEnabled  bool
 	pendingEvents    []platform.Event
-	signalQueue      []pendingSignal
-	signalMu         sync.Mutex // guards signalQueue: forked projection goroutines enqueue signals concurrently (F-signal-queue-race)
 	lastWindowFrames map[string]*render.Frame
 	diagMu           sync.RWMutex
 	diag             DiagnosticsHook
@@ -186,6 +182,12 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if root == nil {
 		return nil, errors.New("runtime: root facet is required")
 	}
+	if config.StoreScope == nil {
+		return nil, errors.New("runtime: StoreScope is required")
+	}
+	if config.StoreIdentity == nil {
+		return nil, errors.New("runtime: StoreIdentity is required")
+	}
 	if backend == nil {
 		return nil, errors.New("runtime: backend is required")
 	}
@@ -238,6 +240,10 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		controlWatchers:       make(map[facet.FacetID][]controlWatcher),
 		recoveryDisabled:      config.RecoveryDisabled,
 	}
+	if err := rt.validateFacetStoreScopes(root); err != nil {
+		return nil, err
+	}
+	config.StoreScope.Bind(config.StoreIdentity)
 	rt.liveTestIDs = make(liveTestIDs)
 	rt.facetReadExports = make(map[facet.FacetID]map[string]store.ReadExport)
 	rt.namedExportOwners = make(map[string]facet.FacetID)
@@ -264,7 +270,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		}
 	}
 	if rt.rootStyleContext == nil {
-		theme.NewRootStyleContext(rt, theme.DefaultTokens(), nil)
+		theme.NewRootStyleContext(config.StoreScope, rt, theme.DefaultTokens(), nil)
 	}
 	rt.inputSystem.SetFocusManager(rt.focusManager)
 	if cap, ok := platform.PointerCapableOf(platformApp); ok {
@@ -566,7 +572,7 @@ func (rt *Runtime) CancelJob(id job.JobID) {
 
 func (rt *Runtime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 
-	rt.queueSignal(func() {
+	rt.config.StoreScope.QueueSignal(func() {
 		rt.dirtyFacets[id] |= flags
 		if source != "" {
 			rt.dirtySources[id] = source
@@ -581,7 +587,7 @@ func (rt *Runtime) MarkTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
 	if root == nil {
 		return
 	}
-	rt.queueSignal(func() {
+	rt.config.StoreScope.QueueSignal(func() {
 		rt.markTreeDirty(root, flags)
 		if rt.frameTimer != nil {
 			rt.frameTimer.RequestFrame()

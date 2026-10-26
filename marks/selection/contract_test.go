@@ -37,24 +37,28 @@ func contractArrange(m facet.FacetImpl, rt facet.RuntimeServices, ctx theme.Reso
 }
 
 func TestButtonGroup_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
 		func() facet.FacetImpl {
-			return NewButtonGroup("label", []ButtonGroupOption{
+			return NewButtonGroup(scope, "label", []ButtonGroupOption{
 				{Key: "a", Label: "A"},
 				{Key: "b", Label: "B"},
-			}, store.NewValueStore([]string{}))
+			}, store.NewValueStore(scope, []string{}))
 		},
 		func(facet.FacetImpl) {},
 	)
 }
 
 func TestButtonGroup_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := contractBounds()
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewButtonGroup("label", nil, store.NewValueStore([]string{}))
+			return NewButtonGroup(scope, "label", nil, store.NewValueStore(scope, []string{}))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			contractArrange(m, rt, ctx, b)
@@ -65,21 +69,25 @@ func TestButtonGroup_contract_anchor_export(t *testing.T) {
 }
 
 func TestButtonGroup_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewButtonGroup(label, nil, store.NewValueStore([]string{}))
+			return NewButtonGroup(scope, label, nil, store.NewValueStore(scope, []string{}))
 		},
 		"group",
 	)
 }
 
 func TestCheckbox_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := contractBounds()
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewCheckbox("label", store.NewValueStore(CheckboxStateOff))
+			return NewCheckbox(scope, "label", store.NewValueStore(scope, CheckboxStateOff))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			contractArrange(m, rt, ctx, b)
@@ -90,18 +98,22 @@ func TestCheckbox_contract_anchor_export(t *testing.T) {
 }
 
 func TestCheckbox_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewCheckbox(label, store.NewValueStore(CheckboxStateOff))
+			return NewCheckbox(scope, label, store.NewValueStore(scope, CheckboxStateOff))
 		},
 		"checkbox",
 	)
 }
 
 func TestDropdownSelect_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
 		func() facet.FacetImpl {
-			ds := NewDropdownSelect("label", []DropdownOption{{Value: "a", Label: "A"}}, store.NewValueStore(""))
+			ds := NewDropdownSelect(scope, "label", []DropdownOption{{Value: "a", Label: "A"}}, store.NewValueStore(scope, ""))
 			ds.open = true
 			return ds
 		},
@@ -110,12 +122,14 @@ func TestDropdownSelect_contract_group_children(t *testing.T) {
 }
 
 func TestDropdownSelect_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := contractBounds()
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewDropdownSelect("label", nil, store.NewValueStore(""))
+			return NewDropdownSelect(scope, "label", nil, store.NewValueStore(scope, ""))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			contractArrange(m, rt, ctx, b)
@@ -126,9 +140,11 @@ func TestDropdownSelect_contract_anchor_export(t *testing.T) {
 }
 
 func TestDropdownSelect_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewDropdownSelect(label, nil, store.NewValueStore(""))
+			return NewDropdownSelect(scope, label, nil, store.NewValueStore(scope, ""))
 		},
 		"combobox",
 	)
@@ -160,13 +176,15 @@ func TestListItem_contract_accessible(t *testing.T) {
 }
 
 func TestRadioGroup_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := contractBounds()
 	fonts := testkit.TestFontRegistry(t)
 	rt := sliderRuntimeStub{fonts: fonts}
 	ctx := theme.DefaultResolvedContext().WithFontRegistry(fonts)
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewRadioGroup("label", nil, store.NewValueStore(""))
+			return NewRadioGroup(scope, "label", nil, store.NewValueStore(scope, ""))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			contractArrange(m, rt, ctx, b)
@@ -177,30 +195,36 @@ func TestRadioGroup_contract_anchor_export(t *testing.T) {
 }
 
 func TestRadioGroup_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewRadioGroup(label, nil, store.NewValueStore(""))
+			return NewRadioGroup(scope, label, nil, store.NewValueStore(scope, ""))
 		},
 		"radiogroup",
 	)
 }
 
 func TestSlider_contract_group_children(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertGroupChildren(t,
 		func() facet.FacetImpl {
-			return NewSlider("label", 0, 100, 1, store.NewValueStore(0.0))
+			return NewSlider(scope, "label", 0, 100, 1, store.NewValueStore(scope, 0.0))
 		},
 		func(facet.FacetImpl) {},
 	)
 }
 
 func TestSlider_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := contractBounds()
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewSlider("label", 0, 100, 1, store.NewValueStore(0.0))
+			return NewSlider(scope, "label", 0, 100, 1, store.NewValueStore(scope, 0.0))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			contractArrange(m, rt, ctx, b)
@@ -211,21 +235,25 @@ func TestSlider_contract_anchor_export(t *testing.T) {
 }
 
 func TestSlider_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewSlider(label, 0, 100, 1, store.NewValueStore(0.0))
+			return NewSlider(scope, label, 0, 100, 1, store.NewValueStore(scope, 0.0))
 		},
 		"slider",
 	)
 }
 
 func TestSwitch_contract_anchor_export(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	bounds := contractBounds()
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewSwitch("label", store.NewValueStore(false))
+			return NewSwitch(scope, "label", store.NewValueStore(scope, false))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			contractArrange(m, rt, ctx, b)
@@ -236,42 +264,52 @@ func TestSwitch_contract_anchor_export(t *testing.T) {
 }
 
 func TestSwitch_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewSwitch(label, store.NewValueStore(false))
+			return NewSwitch(scope, label, store.NewValueStore(scope, false))
 		},
 		"switch",
 	)
 }
 
 func TestTurnDial_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewTurnDial(label, 0, 100, 1, store.NewValueStore(0.0))
+			return NewTurnDial(scope, label, 0, 100, 1, store.NewValueStore(scope, 0.0))
 		},
 		"slider",
 	)
 }
 
 func TestButtonGroup_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		group := NewButtonGroup("group", []ButtonGroupOption{{Key: "k", Label: "L"}}, store.NewValueStore([]string{}))
+		group := NewButtonGroup(scope, "group", []ButtonGroupOption{{Key: "k", Label: "L"}}, store.NewValueStore(scope, []string{}))
 		group.Disabled = marks.Const(disabled)
 		return group
 	})
 }
 
 func TestCheckbox_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		box := NewCheckbox("check", store.NewValueStore(CheckboxStateOff))
+		box := NewCheckbox(scope, "check", store.NewValueStore(scope, CheckboxStateOff))
 		box.Disabled = marks.Const(disabled)
 		return box
 	})
 }
 
 func TestDropdownSelect_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		select_ := NewDropdownSelect("select", nil, store.NewValueStore(""))
+		select_ := NewDropdownSelect(scope, "select", nil, store.NewValueStore(scope, ""))
 		select_.Disabled = marks.Const(disabled)
 		return select_
 	})
@@ -286,32 +324,40 @@ func TestListItem_contract_focusable(t *testing.T) {
 }
 
 func TestRadioGroup_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		group := NewRadioGroup("radio", []RadioOption{{Value: "k", Label: "L"}}, store.NewValueStore(""))
+		group := NewRadioGroup(scope, "radio", []RadioOption{{Value: "k", Label: "L"}}, store.NewValueStore(scope, ""))
 		group.Disabled = marks.Const(disabled)
 		return group
 	})
 }
 
 func TestSlider_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		slider := NewSlider("slider", 0, 1, 0.1, store.NewValueStore(0.5))
+		slider := NewSlider(scope, "slider", 0, 1, 0.1, store.NewValueStore(scope, 0.5))
 		slider.Disabled = marks.Const(disabled)
 		return slider
 	})
 }
 
 func TestSwitch_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		sw := NewSwitch("switch", store.NewValueStore(false))
+		sw := NewSwitch(scope, "switch", store.NewValueStore(scope, false))
 		sw.Disabled = marks.Const(disabled)
 		return sw
 	})
 }
 
 func TestTurnDial_contract_focusable(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertFocusable(t, func(disabled bool) facet.FacetImpl {
-		dial := NewTurnDial("dial", 0, 3, 1, store.NewValueStore(0.0))
+		dial := NewTurnDial(scope, "dial", 0, 3, 1, store.NewValueStore(scope, 0.0))
 		dial.Disabled = marks.Const(disabled)
 		return dial
 	})

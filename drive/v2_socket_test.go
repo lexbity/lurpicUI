@@ -16,9 +16,12 @@ import (
 	"codeburg.org/lexbit/lurpicui/demos/lurpic_studio/studio"
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	server "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+
 	runtimepkg "codeburg.org/lexbit/lurpicui/runtime"
 )
 
@@ -26,6 +29,8 @@ import (
 // drive port: this is the production seam — socket → transport → runtime
 // port → admission at a cut.
 func v2SocketServer(t *testing.T, registries ...*runtimepkg.CommandRegistry) (socket, token string, h *testkit.DriveHarness) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	reg, err := studio.StudioLayerRegistry()
@@ -34,6 +39,7 @@ func v2SocketServer(t *testing.T, registries ...*runtimepkg.CommandRegistry) (so
 	}
 	themeCtx := studio.StudioThemeContext().WithFontRegistry(fonts)
 	root := studio.BuildRoot(app.BuildContext{
+		StoreScope:   scope,
 		FontRegistry: fonts,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
@@ -46,7 +52,7 @@ func v2SocketServer(t *testing.T, registries ...*runtimepkg.CommandRegistry) (so
 	if len(registries) > 0 {
 		cfg.CommandRegistry = registries[0]
 	}
-	h = testkit.NewDriveHarnessWithConfig(t, cfg, root)
+	h = testkit.NewDriveHarnessWithConfig(t, scope, cfg, root)
 	h.RunFrame() // settle the initial dirty-all frame
 
 	dir := t.TempDir()

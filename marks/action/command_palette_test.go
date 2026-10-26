@@ -135,6 +135,7 @@ func TestCommandPaletteSearchNavigationAndActivation(t *testing.T) {
 		t.Fatalf("expected empty query, got %q", palette.searchField.Value.Get())
 	}
 	palette.searchField.Value.Set("find")
+	palette.searchField.Value.OwnerScope().FlushSignals()
 	if len(palette.cachedFiltered) != 1 {
 		t.Fatalf("expected one filtered command, got %d", len(palette.cachedFiltered))
 	}
@@ -213,11 +214,13 @@ func TestCommandPaletteRecipe_allSlotsPresent(t *testing.T) {
 }
 
 func TestCommandPaletteOpenSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[bool](
 		t,
-		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func() *store.ValueStore[bool] { return store.NewValueStore(scope, true) },
 		func(s *store.ValueStore[bool]) facet.FacetImpl {
-			return NewCommandPalette(marks.Const("Search"), nil, s)
+			return NewCommandPalette(scope, marks.Const("Search"), nil, s)
 		},
 		func(m facet.FacetImpl) {
 			cp := m.(*CommandPalette)
@@ -333,6 +336,8 @@ func renderCommandPaletteToSurface(t *testing.T, palette *CommandPalette, rt com
 }
 
 func newCommandPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*CommandPalette, commandPaletteRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	registry := runtimepkg.NewCommandRegistry()
 	registry.Register(runtimepkg.CommandEntry{
@@ -359,9 +364,9 @@ func newCommandPaletteFixture(t *testing.T, tokens theme.Tokens, density theme.D
 	})
 	rtTokens := tokens
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	palette := NewCommandPalette(marks.Const("Command palette"), registry, store.NewValueStore(true))
+	palette := NewCommandPalette(scope, marks.Const("Command palette"), registry, store.NewValueStore(scope, true))
 	rt := commandPaletteRuntimeStub{
 		rootStyle: rootStyle,
 		fonts:     testkit.TestFontRegistry(t),

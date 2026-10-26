@@ -34,7 +34,7 @@ type Stage struct {
 // the shared ActiveExhibit store (the shell's index pane / nav_drawer / command
 // palette drive it; the stage reads it), defaulting to the first catalog entry
 // when the store is empty.
-func NewStage(exhibits []Exhibit, appState *state.AppState, activeExhibit *store.ValueStore[ExhibitID]) *Stage {
+func NewStage(scope *store.Scope, exhibits []Exhibit, appState *state.AppState, activeExhibit *store.ValueStore[ExhibitID]) *Stage {
 	s := &Stage{
 		activeExhibit: activeExhibit,
 		roots:         make(map[ExhibitID]facet.FacetImpl, len(exhibits)),
@@ -45,7 +45,7 @@ func NewStage(exhibits []Exhibit, appState *state.AppState, activeExhibit *store
 	}
 	s.Facet = facet.NewFacet()
 	for _, e := range exhibits {
-		root := e.Build(appState)
+		root := e.Build(appState, scope)
 		if root == nil {
 			continue
 		}

@@ -201,7 +201,7 @@ func TestClockDomainIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	root := buildBenchmarkTree()
-	cfg := DefaultConfig()
+	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.PreparedClock = prepared
 	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)

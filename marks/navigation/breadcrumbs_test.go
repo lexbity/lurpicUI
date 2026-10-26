@@ -171,9 +171,11 @@ func TestBreadcrumbsPointerAndKeyboardInteraction(t *testing.T) {
 }
 
 func TestBreadcrumbsCurrentIndexSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[int](
 		t,
-		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func() *store.ValueStore[int] { return store.NewValueStore(scope, 0) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
 			return NewBreadcrumbs("Breadcrumbs", []BreadcrumbItem{
 				{Label: "Item 1"},
@@ -276,18 +278,20 @@ func renderBreadcrumbsSurface(t *testing.T, tokens theme.Tokens, density theme.D
 }
 
 func newBreadcrumbsTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Breadcrumbs, tabsRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	bc := NewBreadcrumbs("Project trail", []BreadcrumbItem{
 		{Label: "Breadcrumb 1"},
 		{Label: "Breadcrumb 2"},
 		{Label: "Breadcrumb 3"},
 		{Label: "Breadcrumb 4"},
-	}, store.NewValueStore(len([]BreadcrumbItem{
+	}, store.NewValueStore(scope, len([]BreadcrumbItem{
 		{Label: "Breadcrumb 1"},
 		{Label: "Breadcrumb 2"},
 		{Label: "Breadcrumb 3"},
@@ -328,12 +332,14 @@ func TestBreadcrumbs_contract_anchor_export(t *testing.T) {
 }
 
 func TestBreadcrumbs_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
 			return NewBreadcrumbs(label, []BreadcrumbItem{
 				{Label: "Step 1"},
 				{Label: "Step 2"},
-			}, store.NewValueStore(1))
+			}, store.NewValueStore(scope, 1))
 		},
 		"navigation",
 	)

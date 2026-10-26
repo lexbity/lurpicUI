@@ -172,6 +172,8 @@ func TestTreeNavigatorPointerKeyboardAndScroll(t *testing.T) {
 }
 
 func TestTreeNavigatorDeepTreeHelpersIterative(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	const depth = 2048
 	nodes := deepTreeNodes(depth)
 	cloned := cloneTreeNodes(nodes)
@@ -205,7 +207,7 @@ func TestTreeNavigatorDeepTreeHelpersIterative(t *testing.T) {
 		t.Fatalf("expected expansion path %q to be expanded", parentPath)
 	}
 
-	tree := &TreeNavigator{Data: store.NewValueStore(cloneTreeNodes(nodes))}
+	tree := &TreeNavigator{Data: store.NewValueStore(scope, cloneTreeNodes(nodes))}
 	tree.rebuildVisibleNodes()
 	if got := len(tree.cachedVisibleNodes); got != depth {
 		t.Fatalf("visible node count = %d, want %d", got, depth)
@@ -318,13 +320,15 @@ func renderTreeNavigatorToSurface(t *testing.T, tree *TreeNavigator, rt treeNavi
 }
 
 func newTreeNavigatorTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*TreeNavigator, treeNavigatorRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	tree := NewTreeNavigator("Project tree", []TreeNode{
+	tree := NewTreeNavigator(scope, "Project tree", []TreeNode{
 		{
 			Key:      "test-item-1",
 			Label:    "test-item-1",

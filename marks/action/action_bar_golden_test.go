@@ -64,9 +64,11 @@ func TestActionBarGoldenRTL(t *testing.T) {
 }
 
 func TestActionBarComposesWithOtherGroupMarks(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	tokens := defaultActionBarTokens()
 	rt := actionBarRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 		icons: actionBarIconResolverStub{
 			"close": mustActionBarIconAsset("close"),
@@ -261,10 +263,12 @@ func defaultActionBarButtonVariant() uiinput.ButtonVariant {
 }
 
 func newActionBarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*ActionBar, actionBarRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	rtTokens := tokens
 	rtTokens.Density.Mode = actionBarDensityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	bar := NewActionBar("224 selected", []ActionBarAction{
 		{Key: "close", AccessibleLabel: "Close", IconRef: "close"},
@@ -286,11 +290,13 @@ func newActionBarGoldenFixture(t *testing.T, tokens theme.Tokens, density theme.
 }
 
 func newButtonGroupGroupFixture(t *testing.T) *selection.ButtonGroup {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	bg := selection.NewButtonGroup("Choices", []selection.ButtonGroupOption{
+	bg := selection.NewButtonGroup(scope, "Choices", []selection.ButtonGroupOption{
 		{Key: "one", Label: "One"},
 		{Key: "two", Label: "Two"},
-	}, store.NewValueStore[[]string](nil))
+	}, store.NewValueStore[[]string](scope, nil))
 	return bg
 }
 

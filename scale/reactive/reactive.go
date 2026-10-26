@@ -33,12 +33,13 @@ func (r *ReactiveScale) Version() store.Version {
 // (clamp, etc.) are captured at construction and reapplied on every
 // recompute; domain and range from the stores always take precedence.
 func NewLinearReactive(
+	scope *store.Scope,
 	domain *store.ValueStore[[2]float64],
 	rng *store.ValueStore[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
 	rs := &ReactiveScale{OnChange: signal.NewSignal[signal.Unit]("ReactiveScale.OnChange")}
-	derived := store.NewDerived(
+	derived := store.NewDerived(scope,
 		func() scale.InvertibleScale {
 			d := domain.Get()
 			r := rng.Get()
@@ -62,12 +63,13 @@ func NewLinearReactive(
 // NewLogReactive constructs a ReactiveScale over a LogScale. Panics if the
 // initial scale construction fails (programming contract violation).
 func NewLogReactive(
+	scope *store.Scope,
 	domain *store.ValueStore[[2]float64],
 	rng *store.ValueStore[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
 	rs := &ReactiveScale{OnChange: signal.NewSignal[signal.Unit]("ReactiveScale.OnChange")}
-	derived := store.NewDerived(
+	derived := store.NewDerived(scope,
 		func() scale.InvertibleScale {
 			d := domain.Get()
 			r := rng.Get()
@@ -94,12 +96,13 @@ func NewLogReactive(
 
 // NewTimeReactive constructs a ReactiveScale over a TimeScale.
 func NewTimeReactive(
+	scope *store.Scope,
 	domain *store.ValueStore[[2]float64],
 	rng *store.ValueStore[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
 	rs := &ReactiveScale{OnChange: signal.NewSignal[signal.Unit]("ReactiveScale.OnChange")}
-	derived := store.NewDerived(
+	derived := store.NewDerived(scope,
 		func() scale.InvertibleScale {
 			d := domain.Get()
 			r := rng.Get()
@@ -125,46 +128,49 @@ func NewTimeReactive(
 // OnChange on the source Deriveds is used to bridge to ValueStores for
 // version tracking.
 func NewLinearReactiveFromDerived(
+	scope *store.Scope,
 	domain *store.Derived[[2]float64],
 	rng *store.Derived[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
-	domainStore := bridgeDerived(domain)
-	rngStore := bridgeDerived(rng)
-	rs := NewLinearReactive(domainStore, rngStore, opts...)
+	domainStore := bridgeDerived(scope, domain)
+	rngStore := bridgeDerived(scope, rng)
+	rs := NewLinearReactive(scope, domainStore, rngStore, opts...)
 	return rs
 }
 
 // NewLogReactiveFromDerived is like NewLogReactive but accepts
 // *store.Derived sources.
 func NewLogReactiveFromDerived(
+	scope *store.Scope,
 	domain *store.Derived[[2]float64],
 	rng *store.Derived[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
-	domainStore := bridgeDerived(domain)
-	rngStore := bridgeDerived(rng)
-	return NewLogReactive(domainStore, rngStore, opts...)
+	domainStore := bridgeDerived(scope, domain)
+	rngStore := bridgeDerived(scope, rng)
+	return NewLogReactive(scope, domainStore, rngStore, opts...)
 }
 
 // NewTimeReactiveFromDerived is like NewTimeReactive but accepts
 // *store.Derived sources.
 func NewTimeReactiveFromDerived(
+	scope *store.Scope,
 	domain *store.Derived[[2]float64],
 	rng *store.Derived[[2]float64],
 	opts ...scale.Option,
 ) *ReactiveScale {
-	domainStore := bridgeDerived(domain)
-	rngStore := bridgeDerived(rng)
-	return NewTimeReactive(domainStore, rngStore, opts...)
+	domainStore := bridgeDerived(scope, domain)
+	rngStore := bridgeDerived(scope, rng)
+	return NewTimeReactive(scope, domainStore, rngStore, opts...)
 }
 
 // bridgeDerived creates a ValueStore that mirrors the Derived's value. It
 // subscribes the eager OnInvalidated signal (RX-1 FR-2) so the bridge
 // recomputes and updates on the clean→dirty transition itself — consumers
 // never need to force a Get() to keep the bridge live.
-func bridgeDerived(d *store.Derived[[2]float64]) *store.ValueStore[[2]float64] {
-	vs := store.NewValueStore(d.Get())
+func bridgeDerived(scope *store.Scope, d *store.Derived[[2]float64]) *store.ValueStore[[2]float64] {
+	vs := store.NewValueStore(scope, d.Get())
 	d.OnInvalidated.Subscribe(func(struct{}) {
 		vs.Set(d.Get())
 	})

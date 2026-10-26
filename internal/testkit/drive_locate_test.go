@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // locateProbe is a minimal FacetImpl tree for the locator end-to-end tests:
@@ -72,6 +73,8 @@ func newLocateProbe(testID, kind, role, name, key string) *locateProbe {
 }
 
 func newLocateHarness(t *testing.T) *DriveHarness {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	root := newLocateProbe("probe-root", "shell/root", "region", "", "")
 	save := newLocateProbe("probe-save", "action/button", "button", "Save", "")
@@ -82,7 +85,7 @@ func newLocateHarness(t *testing.T) *DriveHarness {
 	root.AddChild(row.Base())
 
 	cfg := StandardHarnessConfig(t, 200, 120)
-	h := NewDriveHarnessWithConfig(t, cfg, root)
+	h := NewDriveHarnessWithConfig(t, scope, cfg, root)
 	h.RunFrame()
 	return h
 }

@@ -84,9 +84,10 @@ var _ marks.Mark = (*RadioGroup)(nil)
 // When value is nil the group creates an internal store (no selection) and
 // owns its truth; an injected store is bound, never copied (RX-2 Q2) —
 // Store() exposes the live store either way.
-func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[string]) *RadioGroup {
+func NewRadioGroup(ownerScope *store.Scope, label string, options []RadioOption, value *store.ValueStore[string]) *RadioGroup {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore("")
+		value = store.NewValueStore(ownedScope, "")
 	}
 	options = normalizeRadioOptions(options)
 	// Canonical default: a value matching no option selects the first one
@@ -114,6 +115,7 @@ func NewRadioGroup(label string, options []RadioOption, value *store.ValueStore[
 		Value:        value,
 	}
 	rg.Facet = facet.NewFacet()
+	rg.Facet.OwnStoreScope(ownedScope)
 
 	rg.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearHorizontal,

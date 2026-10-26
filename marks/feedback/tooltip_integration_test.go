@@ -19,13 +19,15 @@ import (
 // and bound to the registry's dismissal-enabled layer at runtime.
 
 func TestTooltipIntegration_ClickOutsideDismisses(t *testing.T) {
-	open := store.NewValueStore(true)
-	tt := NewTooltip("Deletes permanently", open)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	open := store.NewValueStore(scope, true)
+	tt := NewTooltip(scope, "Deletes permanently", open)
 
 	root := newOverlayRoot()
 	facet.AttachLayer(root, tt, facet.LayerAttachment{Band: facet.ZBandTooltip})
 
-	h, modalID := newOverlayHarness(t, root)
+	h, modalID := newOverlayHarness(t, scope, root)
 	h.Runtime().UpdateChildAttachment(tt, facet.Attachment{LayerID: modalID})
 	testkit.Warmup(h)
 

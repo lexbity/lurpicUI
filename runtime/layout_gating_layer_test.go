@@ -62,7 +62,7 @@ func TestRuntimeResolveAttachedLayersCascadesEmptyWhenHostGated(t *testing.T) {
 	trigger.layout.Child.SupportedPlacement = facet.SupportsFree
 
 	rt, err := New(func() Config {
-		cfg := DefaultConfig()
+		cfg := testConfig(t)
 		cfg.LayerRegistry = reg
 		cfg.ThemeResolver = resolver
 		return cfg
@@ -138,7 +138,7 @@ func TestRuntimeResolveAttachedLayersRootEmptyBoundsDoNotGate(t *testing.T) {
 	trigger.layout.Child.SupportedPlacement = facet.SupportsFree
 
 	rt, err := New(func() Config {
-		cfg := DefaultConfig()
+		cfg := testConfig(t)
 		cfg.LayerRegistry = reg
 		cfg.ThemeResolver = resolver
 		return cfg

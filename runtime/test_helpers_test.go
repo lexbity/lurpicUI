@@ -13,6 +13,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // recordingFrameStats implements DiagnosticsHook and records the last emitted
@@ -41,6 +42,24 @@ func testLayerRegistry(t testing.TB) *layout.LayerRegistry {
 		t.Fatalf("standard layer registry: %v", err)
 	}
 	return r
+}
+
+func testConfig(t testing.TB) Config {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	return testConfigForScope(t, scope)
+}
+
+func testConfigForScope(t testing.TB, scope *store.Scope) Config {
+	t.Helper()
+	if scope == nil {
+		t.Fatal("runtime test config requires an explicit store scope")
+	}
+	cfg := DefaultConfig()
+	cfg.StoreScope = scope
+	cfg.StoreIdentity = store.NewRuntimeIdentity()
+	return cfg
 }
 
 type backendFixture struct {
@@ -255,42 +274,62 @@ func expectPanicContains(t *testing.T, want string, fn func()) {
 func mustRuntime(t *testing.T) *Runtime {
 	t.Helper()
 	root := facet.NewFacet()
+	scope := store.NewScope()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.StoreScope = scope
+	cfg.StoreIdentity = store.NewRuntimeIdentity()
 	// Real window size: facets arranged to empty bounds are gated by the RX-1
 	// FR-1 empty-bounds gate, so a 0x0 test window would prune every arranged
 	// host.
 	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, &root)
 	if err != nil {
+		scope.Close()
 		t.Fatalf("new runtime: %v", err)
 	}
+	t.Cleanup(rt.Shutdown)
 	return rt
 }
 
 func mustRuntimeTree(t testing.TB, root facet.FacetImpl) *Runtime {
 	t.Helper()
+	scope := store.NewScope()
+	return mustRuntimeTreeWithScope(t, scope, root)
+}
+
+func mustRuntimeTreeWithScope(t testing.TB, scope *store.Scope, root facet.FacetImpl) *Runtime {
+	t.Helper()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.StoreScope = scope
+	cfg.StoreIdentity = store.NewRuntimeIdentity()
 	// Real window size (see mustRuntime): the FR-1 gate prunes hosts arranged
 	// to empty bounds, so tests that render must arrange against real bounds.
 	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)
 	if err != nil {
+		scope.Close()
 		t.Fatalf("new runtime: %v", err)
 	}
+	t.Cleanup(rt.Shutdown)
 	return rt
 }
 
 func mustRuntimeWithBackend(t *testing.T, root facet.FacetImpl, backend render.Backend) *Runtime {
 	t.Helper()
+	scope := store.NewScope()
 	cfg := DefaultConfig()
 	cfg.LayerRegistry = testLayerRegistry(t)
+	cfg.StoreScope = scope
+	cfg.StoreIdentity = store.NewRuntimeIdentity()
 	// A real window size is part of the arranged-to-real-bounds contract the
 	// RX-1 FR-1 empty-bounds gate assumes: facets arranged to empty bounds are
 	// gated (a 0x0 window would arrange every test host to empty and prune it).
 	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, backend, root)
 	if err != nil {
+		scope.Close()
 		t.Fatalf("new runtime: %v", err)
 	}
+	t.Cleanup(rt.Shutdown)
 	return rt
 }
 

@@ -97,9 +97,10 @@ var _ marks.Mark = (*TextField)(nil)
 // When value is nil the field creates an internal store and owns its truth;
 // an injected store is bound, never copied (RX-2 Q2) — Store() exposes the
 // live store either way.
-func NewTextField(label string, variant uiinput.TextInputVariant, value *store.ValueStore[string]) *TextField {
+func NewTextField(ownerScope *store.Scope, label string, variant uiinput.TextInputVariant, value *store.ValueStore[string]) *TextField {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore("")
+		value = store.NewValueStore(ownedScope, "")
 	}
 	tf := &TextField{
 		Label:       marks.Const(label),
@@ -115,6 +116,7 @@ func NewTextField(label string, variant uiinput.TextInputVariant, value *store.V
 		Value:       value,
 	}
 	tf.Facet = facet.NewFacet()
+	tf.Facet.OwnStoreScope(ownedScope)
 
 	tf.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,

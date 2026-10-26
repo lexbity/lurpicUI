@@ -20,13 +20,15 @@ import (
 // dismissal-enabled layer at runtime.
 
 func TestDialogIntegration_ClickOutsideDismisses(t *testing.T) {
-	open := store.NewValueStore(true)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	open := store.NewValueStore(scope, true)
 	dlg := NewDialog("Confirm", "This action cannot be undone.", nil, open)
 
 	root := newOverlayRoot()
 	facet.AttachLayer(root, dlg, facet.LayerAttachment{Band: facet.ZBandModal})
 
-	h, modalID := newOverlayHarness(t, root)
+	h, modalID := newOverlayHarness(t, scope, root)
 	h.Runtime().UpdateChildAttachment(dlg, facet.Attachment{LayerID: modalID})
 	testkit.Warmup(h)
 
@@ -56,11 +58,13 @@ func TestDialogIntegration_ClickOutsideDismisses(t *testing.T) {
 }
 
 func TestDialogIntegration_PlainChildDoesNotDismiss(t *testing.T) {
-	open := store.NewValueStore(true)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	open := store.NewValueStore(scope, true)
 	dlg := NewDialog("Confirm", "Body", nil, open)
 
 	root := newOverlayRoot()
-	h, _ := newOverlayHarness(t, root)
+	h, _ := newOverlayHarness(t, scope, root)
 
 	// Deliberate miswire: mount the dialog as a plain child with AddFacet and
 	// no layer attachment — no facet.AttachLayer ZOrder, no LayerID. The

@@ -8,10 +8,13 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/icon"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 func benchmarkListMeasureArrangeProject(b *testing.B, n int) {
+	scope := store.NewScope()
+	b.Cleanup(scope.Close)
 	entries := make([]ListEntry, n)
 	for i := range entries {
 		entries[i] = ListEntry{
@@ -33,7 +36,7 @@ func benchmarkListMeasureArrangeProject(b *testing.B, n int) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		l := NewList("Benchmark list", entries)
+		l := NewList(scope, "Benchmark list", entries)
 		facet.Attach(l, facet.AttachContext{Runtime: rt, Theme: ctx})
 		l.Layout.Measure(facet.MeasureContext{
 			Runtime:          rt,

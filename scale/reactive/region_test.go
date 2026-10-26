@@ -8,7 +8,9 @@ import (
 )
 
 func TestRangeFromRegion_basic(t *testing.T) {
-	rng := RangeFromRegion(0, 500)
+	scope := store.NewScope()
+	defer scope.Close()
+	rng := RangeFromRegion(scope, 0, 500)
 	d := rng.Get()
 	if d[0] != 0 || d[1] != 500 {
 		t.Fatalf("range = [%f,%f], want [0,500]", d[0], d[1])
@@ -16,9 +18,11 @@ func TestRangeFromRegion_basic(t *testing.T) {
 }
 
 func TestRangeFromRegion_updates_scale_on_resize(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := RangeFromRegion(0, 500)
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := RangeFromRegion(scope, 0, 500)
+	rs := NewLinearReactive(scope, domain, rng)
 
 	s := rs.Get()
 	if got := s.Map(50); got != 250 {
@@ -35,8 +39,10 @@ func TestRangeFromRegion_updates_scale_on_resize(t *testing.T) {
 }
 
 func TestRangeFromRegion_version_bumps_on_set(t *testing.T) {
-	rng := RangeFromRegion(0, 500)
-	rs := NewLinearReactive(store.NewValueStore([2]float64{0, 100}), rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	rng := RangeFromRegion(scope, 0, 500)
+	rs := NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 100}), rng)
 	rs.Get() // prime
 	v0 := rs.Version()
 
@@ -49,16 +55,20 @@ func TestRangeFromRegion_version_bumps_on_set(t *testing.T) {
 }
 
 func TestRangeFromRegion_chained_via_scale(t *testing.T) {
-	// End-to-end: domain from collection, range from region
-	coll := store.NewCollectionStore(func(i testItem) store.ItemID { return i.id })
+	scope :=
+		// End-to-end: domain from collection, range from region
+		store.NewScope()
+	defer scope.Close()
+
+	coll := store.NewCollectionStore(scope, func(i testItem) store.ItemID { return i.id })
 	coll.Insert(testItem{id: 1, val: 10})
 	coll.Insert(testItem{id: 2, val: 50})
 
-	domainDerived := DomainFromCollection(coll, func(i testItem) float64 { return i.val })
-	rng := RangeFromRegion(0, 500)
-	rngDerived := bridgeToDerived(rng)
+	domainDerived := DomainFromCollection(scope, coll, func(i testItem) float64 { return i.val })
+	rng := RangeFromRegion(scope, 0, 500)
+	rngDerived := bridgeToDerived(scope, rng)
 
-	rs := NewLinearReactiveFromDerived(domainDerived, rngDerived)
+	rs := NewLinearReactiveFromDerived(scope, domainDerived, rngDerived)
 
 	s := rs.Get()
 	if got := s.Map(30); got != 250 {
@@ -67,7 +77,9 @@ func TestRangeFromRegion_chained_via_scale(t *testing.T) {
 
 	// Change range (simulate resize)
 	rng.Set([2]float64{0, 1000})
+	scope.FlushSignals()
 	rngDerived.Get() // trigger OnChange → bridge updates
+	scope.FlushSignals()
 	rs.Get()
 	s = rs.Get()
 	if got := s.Map(30); got != 500 {
@@ -76,7 +88,9 @@ func TestRangeFromRegion_chained_via_scale(t *testing.T) {
 
 	// Change domain (simulate data change)
 	coll.Insert(testItem{id: 3, val: 100})
+	scope.FlushSignals()
 	domainDerived.Get() // trigger OnChange → bridge
+	scope.FlushSignals()
 	rs.Get()
 	s = rs.Get()
 	if got := s.Map(30); math.Abs(got-222.2222222222222) > 1e-9 {

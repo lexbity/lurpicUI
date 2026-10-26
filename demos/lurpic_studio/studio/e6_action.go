@@ -26,10 +26,11 @@ type playActionFamily struct {
 }
 
 // newPlayActionFamily builds the Action family playground.
-func newPlayActionFamily() *playActionFamily {
+func newPlayActionFamily(ownerScope *store.Scope) *playActionFamily {
+	scope := ownerScope.Child()
 	f := &playActionFamily{
-		lastAction: store.NewValueStore(""),
-		ribbonTab:  store.NewValueStore(0),
+		lastAction: store.NewValueStore(scope, ""),
+		ribbonTab:  store.NewValueStore(scope, 0),
 	}
 
 	f.bar = action.NewActionBar("File", []action.ActionBarAction{
@@ -59,7 +60,7 @@ func newPlayActionFamily() *playActionFamily {
 	// The ribbon's active section is the app-domain ribbonTab store, injected
 	// so the shell reads it directly (RX-2 Q2 injected-truth path) — no
 	// mirror subscription.
-	f.ribbon = action.NewRibbon("Editing", []action.RibbonSection{
+	f.ribbon = action.NewRibbon(scope, "Editing", []action.RibbonSection{
 		{Key: "home", Label: "Home", Toolbars: []*action.Toolbar{boldTB}},
 		{Key: "insert", Label: "Insert", Toolbars: []*action.Toolbar{insertTB}},
 	}, f.ribbonTab)
@@ -96,6 +97,7 @@ func newPlayActionFamily() *playActionFamily {
 		playgroundCard("split_button — split an action", f.split),
 		playgroundCard("menu_button — open the menu", f.menu),
 	)
+	f.scroll.Base().OwnStoreScope(scope)
 	return f
 }
 

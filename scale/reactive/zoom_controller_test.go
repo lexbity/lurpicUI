@@ -9,7 +9,9 @@ import (
 )
 
 func TestZoomController_zoom_in_preserves_focal(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
 	zc := NewZoomController(domain)
 
 	// Build a scale from the initial domain
@@ -31,7 +33,9 @@ func TestZoomController_zoom_in_preserves_focal(t *testing.T) {
 }
 
 func TestZoomController_zoom_out(t *testing.T) {
-	domain := store.NewValueStore([2]float64{25, 75})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{25, 75})
 	zc := NewZoomController(domain)
 
 	// Zoom out 2x
@@ -45,7 +49,9 @@ func TestZoomController_zoom_out(t *testing.T) {
 }
 
 func TestZoomController_pan(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
 	zc := NewZoomController(domain)
 
 	// Pan right by 50
@@ -58,7 +64,9 @@ func TestZoomController_pan(t *testing.T) {
 }
 
 func TestZoomController_pan_reversible(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
 	zc := NewZoomController(domain)
 
 	zc.Pan(50)
@@ -71,7 +79,9 @@ func TestZoomController_pan_reversible(t *testing.T) {
 }
 
 func TestZoomController_zoom_then_pan(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
 	zc := NewZoomController(domain)
 
 	// Zoom in 2x around 50
@@ -90,9 +100,11 @@ func TestZoomController_zoom_then_pan(t *testing.T) {
 }
 
 func TestZoomController_domain_updates_reactive_scale(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 	zc := NewZoomController(domain)
 
 	s := rs.Get()
@@ -117,9 +129,11 @@ func TestZoomController_domain_updates_reactive_scale(t *testing.T) {
 }
 
 func TestZoomController_version_bumps_on_zoom(t *testing.T) {
-	domain := store.NewValueStore([2]float64{0, 100})
-	rng := store.NewValueStore([2]float64{0, 500})
-	rs := NewLinearReactive(domain, rng)
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
+	rng := store.NewValueStore(scope, [2]float64{0, 500})
+	rs := NewLinearReactive(scope, domain, rng)
 	zc := NewZoomController(domain)
 
 	rs.Get() // prime
@@ -134,7 +148,9 @@ func TestZoomController_version_bumps_on_zoom(t *testing.T) {
 }
 
 func TestZoomController_factor_one_is_noop(t *testing.T) {
-	domain := store.NewValueStore([2]float64{10, 100})
+	scope := store.NewScope()
+	defer scope.Close()
+	domain := store.NewValueStore(scope, [2]float64{10, 100})
 	zc := NewZoomController(domain)
 
 	zc.Zoom(50, 1)
@@ -145,9 +161,13 @@ func TestZoomController_factor_one_is_noop(t *testing.T) {
 }
 
 func TestZoomController_no_viewport_imports(t *testing.T) {
-	// Verify no facet or gfx imports by checking that this compiles.
-	// The ZoomController operates purely in data space.
-	domain := store.NewValueStore([2]float64{0, 100})
+	scope :=
+		// Verify no facet or gfx imports by checking that this compiles.
+		// The ZoomController operates purely in data space.
+		store.NewScope()
+	defer scope.Close()
+
+	domain := store.NewValueStore(scope, [2]float64{0, 100})
 	zc := NewZoomController(domain)
 	zc.Zoom(50, 2)
 	zc.Pan(10)

@@ -51,7 +51,9 @@ func (p *testParent) OnDeactivate()                    {}
 // --- Tests ---
 
 func TestBinder_insert_attaches_child(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -61,6 +63,9 @@ func TestBinder_insert_attaches_child(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
+	scope.FlushSignals()
 
 	child := b.Child(1)
 	if child == nil {
@@ -72,9 +77,13 @@ func TestBinder_insert_attaches_child(t *testing.T) {
 }
 
 func TestBinder_insert_with_initial_data(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	s.Insert(testItem{id: 1, name: "one"})
+	scope.FlushSignals()
 	s.Insert(testItem{id: 2, name: "two"})
+	scope.FlushSignals()
 
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
@@ -93,7 +102,9 @@ func TestBinder_insert_with_initial_data(t *testing.T) {
 }
 
 func TestBinder_remove_disposes_child(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -103,7 +114,11 @@ func TestBinder_remove_disposes_child(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	s.Remove(1)
+	scope.FlushSignals()
+	scope.FlushSignals()
 
 	if b.Child(1) != nil {
 		t.Fatal("expected child to be removed after store remove")
@@ -114,7 +129,9 @@ func TestBinder_remove_disposes_child(t *testing.T) {
 }
 
 func TestBinder_update_invalidates_child(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -124,6 +141,9 @@ func TestBinder_update_invalidates_child(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
+	scope.FlushSignals()
 	child := b.Child(1)
 
 	if flags := child.Base().DirtyFlags(); flags != 0 {
@@ -132,13 +152,18 @@ func TestBinder_update_invalidates_child(t *testing.T) {
 
 	s.Update(testItem{id: 1, name: "updated"})
 
+	scope.FlushSignals()
+	scope.FlushSignals()
+
 	if flags := child.Base().DirtyFlags(); flags&facet.DirtyProjection == 0 {
 		t.Fatal("expected DirtyProjection after update")
 	}
 }
 
 func TestBinder_replace_reconciles(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -148,13 +173,18 @@ func TestBinder_replace_reconciles(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	s.Insert(testItem{id: 2, name: "two"})
+	scope.FlushSignals()
 	s.Insert(testItem{id: 3, name: "three"})
+	scope.FlushSignals()
 
 	s.Replace([]testItem{
 		{id: 2, name: "two-replaced"},
 		{id: 4, name: "four"},
 	})
+	scope.FlushSignals()
 
 	if b.Child(1) != nil {
 		t.Fatal("expected item 1 to be removed after replace")
@@ -174,7 +204,9 @@ func TestBinder_replace_reconciles(t *testing.T) {
 }
 
 func TestBinder_remove_nonexistent_id_noops(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -184,10 +216,14 @@ func TestBinder_remove_nonexistent_id_noops(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Remove(999) // should not panic
+
+	scope.FlushSignals()
 }
 
 func TestBinder_insert_duplicate_id_updates(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -197,7 +233,10 @@ func TestBinder_insert_duplicate_id_updates(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	s.Insert(testItem{id: 1, name: "one-again"}) // Insert with same ID triggers Update in CollectionStore
+	scope.FlushSignals()
 
 	children := b.Children()
 	if len(children) != 1 {
@@ -206,7 +245,9 @@ func TestBinder_insert_duplicate_id_updates(t *testing.T) {
 }
 
 func TestBinder_on_detach_disposes_all(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -216,7 +257,10 @@ func TestBinder_on_detach_disposes_all(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	s.Insert(testItem{id: 2, name: "two"})
+	scope.FlushSignals()
 
 	b.OnDetach()
 
@@ -226,13 +270,16 @@ func TestBinder_on_detach_disposes_all(t *testing.T) {
 
 	// After detach, store changes should not affect binder
 	s.Insert(testItem{id: 3, name: "three"})
+	scope.FlushSignals()
 	if b.Child(3) != nil {
 		t.Fatal("expected no child creation after detach")
 	}
 }
 
 func TestBinder_children_in_store_order(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -242,10 +289,16 @@ func TestBinder_children_in_store_order(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 3, name: "three"})
+
+	scope.FlushSignals()
 	s.Insert(testItem{id: 1, name: "one"})
+	scope.FlushSignals()
 	s.Insert(testItem{id: 2, name: "two"})
+	scope.FlushSignals()
 
 	s.Insert(testItem{id: 0, name: "zero"})
+
+	scope.FlushSignals()
 
 	children := b.Children()
 	if len(children) != 4 {
@@ -254,7 +307,9 @@ func TestBinder_children_in_store_order(t *testing.T) {
 }
 
 func TestBinder_reorder_preserves_stable_identity(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -264,8 +319,12 @@ func TestBinder_reorder_preserves_stable_identity(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	s.Insert(testItem{id: 2, name: "two"})
+	scope.FlushSignals()
 	s.Insert(testItem{id: 3, name: "three"})
+	scope.FlushSignals()
 
 	child1Before := b.Child(1)
 	child2Before := b.Child(2)
@@ -297,7 +356,9 @@ func TestBinder_reorder_preserves_stable_identity(t *testing.T) {
 }
 
 func TestBinder_replace_with_empty_disposes_all(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -307,8 +368,12 @@ func TestBinder_replace_with_empty_disposes_all(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	s.Insert(testItem{id: 2, name: "two"})
+	scope.FlushSignals()
 	s.Replace([]testItem{})
+	scope.FlushSignals()
 
 	if len(b.Children()) != 0 {
 		t.Fatalf("expected 0 children after empty replace, got %d", len(b.Children()))
@@ -319,7 +384,9 @@ func TestBinder_replace_with_empty_disposes_all(t *testing.T) {
 }
 
 func TestBinder_replace_with_same_set_no_recreate(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -329,7 +396,10 @@ func TestBinder_replace_with_same_set_no_recreate(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	s.Insert(testItem{id: 2, name: "two"})
+	scope.FlushSignals()
 
 	child1 := b.Child(1)
 
@@ -344,7 +414,9 @@ func TestBinder_replace_with_same_set_no_recreate(t *testing.T) {
 }
 
 func TestBinder_insert_remove_insert_same_id(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -354,15 +426,21 @@ func TestBinder_insert_remove_insert_same_id(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "first"})
+
+	scope.FlushSignals()
 	first := b.Child(1)
 
 	s.Remove(1)
+
+	scope.FlushSignals()
 
 	if b.Child(1) != nil {
 		t.Fatal("expected child to be disposed after remove")
 	}
 
 	s.Insert(testItem{id: 1, name: "second"})
+
+	scope.FlushSignals()
 	second := b.Child(1)
 
 	if second == nil {
@@ -374,7 +452,9 @@ func TestBinder_insert_remove_insert_same_id(t *testing.T) {
 }
 
 func TestBinder_empty_store_no_children(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -389,7 +469,9 @@ func TestBinder_empty_store_no_children(t *testing.T) {
 }
 
 func TestBinder_multiple_updates_all_invalidate(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -399,11 +481,14 @@ func TestBinder_multiple_updates_all_invalidate(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 	child := b.Child(1)
 
 	for i := 0; i < 5; i++ {
 		child.Base().ClearDirty(facet.DirtyAll)
 		s.Update(testItem{id: 1, name: "updated"})
+		scope.FlushSignals()
 		if flags := child.Base().DirtyFlags(); flags&facet.DirtyProjection == 0 {
 			t.Fatalf("iteration %d: expected DirtyProjection after update", i)
 		}
@@ -411,7 +496,9 @@ func TestBinder_multiple_updates_all_invalidate(t *testing.T) {
 }
 
 func TestBinder_child_is_attached(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -421,6 +508,8 @@ func TestBinder_child_is_attached(t *testing.T) {
 	b.OnAttach(facet.AttachContext{Runtime: binderRuntimeStub{}})
 
 	s.Insert(testItem{id: 1, name: "one"})
+
+	scope.FlushSignals()
 
 	child := b.Child(1)
 	if child.Base().State() != facet.StateAttached {
@@ -429,7 +518,9 @@ func TestBinder_child_is_attached(t *testing.T) {
 }
 
 func TestBinder_children_track_insert_index(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -440,8 +531,11 @@ func TestBinder_children_track_insert_index(t *testing.T) {
 
 	// Insert items out of order; the binder should follow store's insert order
 	s.Insert(testItem{id: 10, name: "ten"})
+	scope.FlushSignals()
 	s.Insert(testItem{id: 20, name: "twenty"})
+	scope.FlushSignals()
 	s.Insert(testItem{id: 5, name: "five"})
+	scope.FlushSignals()
 
 	children := b.Children()
 	if len(children) != 3 {
@@ -450,7 +544,9 @@ func TestBinder_children_track_insert_index(t *testing.T) {
 }
 
 func TestBinder_no_leaks_on_dispose(t *testing.T) {
-	s := store.NewCollectionStore(testIdentify)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, testIdentify)
 	p := newTestParent()
 	b := NewCollectionBinder(&p.Facet, s, func(item testItem) facet.FacetImpl {
 		return newTestChild(item)
@@ -461,6 +557,7 @@ func TestBinder_no_leaks_on_dispose(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		s.Insert(testItem{id: store.ItemID(i), name: "item"})
+		scope.FlushSignals()
 	}
 
 	if len(b.Children()) != 10 {

@@ -40,8 +40,8 @@ func NewRealtimeData(fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *
 
 func (e *RealtimeData) ID() ExhibitID { return ExhibitRealtime }
 func (e *RealtimeData) Title() string { return "Realtime Data" }
-func (e *RealtimeData) Build(appState *state.AppState) facet.FacetImpl {
-	return NewRealtimeFacet(appState, e.fonts, e.theme)
+func (e *RealtimeData) Build(appState *state.AppState, ownerScope *store.Scope) facet.FacetImpl {
+	return NewRealtimeFacet(ownerScope, appState, e.fonts, e.theme)
 }
 
 // timeRangeSeconds maps a TimeRange button key to the live-window width W.
@@ -101,29 +101,31 @@ type Realtime struct {
 const gridHeight float32 = 180
 
 // NewRealtimeFacet builds the E1 facet over the shared app state.
-func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Realtime {
+func NewRealtimeFacet(ownerScope *store.Scope, appState *state.AppState, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Realtime {
+	stateScope := ownerScope.Child()
 	e := &Realtime{
 		appState:    appState,
-		chartType:   store.NewValueStore(ChartLine.String()),
-		seriesColor: store.NewValueStore(gfx.Color{}),
-		opacity:     store.NewValueStore(1.0),
-		showGrid:    store.NewValueStore(false),
-		ruleValue:   store.NewValueStore(0.0),
-		gridState:   store.NewValueStore(selection.CheckboxStateOff),
-		timeRange:   store.NewValueStore([]string{"60s"}),
-		brush:       NewBrushStores(),
+		chartType:   store.NewValueStore(stateScope, ChartLine.String()),
+		seriesColor: store.NewValueStore(stateScope, gfx.Color{}),
+		opacity:     store.NewValueStore(stateScope, 1.0),
+		showGrid:    store.NewValueStore(stateScope, false),
+		ruleValue:   store.NewValueStore(stateScope, 0.0),
+		gridState:   store.NewValueStore(stateScope, selection.CheckboxStateOff),
+		timeRange:   store.NewValueStore(stateScope, []string{"60s"}),
+		brush:       NewBrushStores(stateScope),
 	}
 	e.Facet = facet.NewFacet()
-	e.feed = NewFeed(appState, uint64(e.Facet.ID()))
+	e.Facet.OwnStoreScope(stateScope)
+	e.feed = NewFeed(stateScope, appState, uint64(e.Facet.ID()))
 
-	e.canvas = NewChartCanvas(ChartConfig{
+	e.canvas = NewChartCanvas(stateScope, ChartConfig{
 		Fonts:        fonts,
 		Theme:        themeCtx,
 		Rows:         appState.Rows,
 		XDomain:      appState.LiveWindow, // the live-tail window is the x-domain
-		XRange:       store.NewValueStore([2]float64{0, 1}),
+		XRange:       store.NewValueStore(stateScope, [2]float64{0, 1}),
 		YDomain:      appState.YDomain,
-		YRange:       store.NewValueStore([2]float64{1, 0}),
+		YRange:       store.NewValueStore(stateScope, [2]float64{1, 0}),
 		WindowedRows: appState.VisibleRows, // FR-viz: series plot the live-window view
 		Paused:       appState.Paused,
 		ChartType:    e.chartType,
@@ -136,11 +138,11 @@ func NewRealtimeFacet(appState *state.AppState, fonts *text.FontRegistry, themeC
 		Selection:    e.brush.Selection,
 	})
 
-	e.grid = NewEditableGrid(appState.Rows, fonts, themeCtx, e.brush)
-	e.table = structure.NewTable("Latest", latestTableData(appState.Rows), nil)
-	e.legend = structure.NewList("Feed legend", bucketLegendEntries(appState.BarBuckets.Get()))
-	e.tipText = store.NewValueStore("")
-	e.tip = feedback.NewTooltip("", nil)
+	e.grid = NewEditableGrid(stateScope, appState.Rows, fonts, themeCtx, e.brush)
+	e.table = structure.NewTable(stateScope, "Latest", latestTableData(appState.Rows), nil)
+	e.legend = structure.NewList(stateScope, "Feed legend", bucketLegendEntries(appState.BarBuckets.Get()))
+	e.tipText = store.NewValueStore(stateScope, "")
+	e.tip = feedback.NewTooltip(stateScope, "", nil)
 	e.tip.Content = marks.FromStore(e.tipText, facet.DirtyLayout|facet.DirtyProjection)
 	e.tip.Placement = facet.AnchorPlacement{Side: facet.AnchorAbove}
 	e.buildControls()
@@ -228,8 +230,8 @@ func (e *Realtime) TimeRange() *store.ValueStore[[]string] { return e.timeRange 
 // stores do not dedupe same-value writes, so an unguarded write-back loop
 // would trip the runtime's signal-cycle guard.
 func (e *Realtime) buildReshapeDial() {
-	dial := store.NewValueStore(float64(chartTypeFromString(e.chartType.Get())))
-	e.reshape = selection.NewTurnDial("Chart type", float64(ChartLine), float64(ChartBar), 1, dial)
+	dial := store.NewValueStore(e.Facet.StoreScope(), float64(chartTypeFromString(e.chartType.Get())))
+	e.reshape = selection.NewTurnDial(e.Facet.StoreScope(), "Chart type", float64(ChartLine), float64(ChartBar), 1, dial)
 	e.reshape.Base().SetTestID("e1.reshape")
 	dialID := dial.OnChange.Subscribe(func(ch signal.Change[float64]) {
 		v := math.Round(math.Min(math.Max(ch.New, float64(ChartLine)), float64(ChartBar)))
@@ -249,23 +251,23 @@ func (e *Realtime) buildReshapeDial() {
 }
 
 func (e *Realtime) buildControls() {
-	liveSwitch := selection.NewSwitch("Live", e.feed.Live())
+	liveSwitch := selection.NewSwitch(e.Facet.StoreScope(), "Live", e.feed.Live())
 	liveSwitch.Base().SetTestID("e1.controls.live")
-	chartRadio := selection.NewRadioGroup("Chart type", []selection.RadioOption{
+	chartRadio := selection.NewRadioGroup(e.Facet.StoreScope(), "Chart type", []selection.RadioOption{
 		{Value: ChartLine.String(), Label: "Line"},
 		{Value: ChartArea.String(), Label: "Area"},
 		{Value: ChartPoint.String(), Label: "Points"},
 		{Value: ChartBar.String(), Label: "Bars"},
 	}, e.chartType)
-	seriesPicker := input.NewColorPicker("Series color", e.seriesColor)
+	seriesPicker := input.NewColorPicker(e.Facet.StoreScope(), "Series color", e.seriesColor)
 	seriesPicker.Base().SetTestID("e1.controls.color")
-	opacitySlider := selection.NewSlider("Opacity", 0.1, 1, 0.05, e.opacity)
+	opacitySlider := selection.NewSlider(e.Facet.StoreScope(), "Opacity", 0.1, 1, 0.05, e.opacity)
 	opacitySlider.Base().SetTestID("e1.controls.opacity")
-	gridCheck := selection.NewCheckbox("Grid", e.gridState)
+	gridCheck := selection.NewCheckbox(e.Facet.StoreScope(), "Grid", e.gridState)
 	gridCheck.Base().SetTestID("e1.controls.grid")
-	maxField := input.NewNumberField("Y max", 0, 0, 1, -1, e.appState.YAxisMax)
+	maxField := input.NewNumberField(e.Facet.StoreScope(), "Y max", 0, 0, 1, -1, e.appState.YAxisMax)
 	maxField.Base().SetTestID("e1.controls.ymax")
-	rangeButtons := selection.NewButtonGroup("Time range", []selection.ButtonGroupOption{
+	rangeButtons := selection.NewButtonGroup(e.Facet.StoreScope(), "Time range", []selection.ButtonGroupOption{
 		{Key: "30s", Label: "30s"},
 		{Key: "60s", Label: "60s"},
 		{Key: "120s", Label: "120s"},

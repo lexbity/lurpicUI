@@ -10,21 +10,24 @@ import (
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/runtime"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 // newShellWithSink returns a harness running the gallery shell with the E5
 // dirty sink installed on the runtime (the app-config wiring, minus app.Run).
 func newShellWithSink(t *testing.T, w, h int, sink *DirtySink) (*Root, *testkit.Harness) {
+	scope := store.NewScope()
 	t.Helper()
 	ctx := app.BuildContext{
+		StoreScope:   scope,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
 		FontRegistry: testkit.TestFontRegistry(t),
 	}
 	root := NewRoot(ctx, sink, seedRows(t), nil)
-	harness := testkit.NewStandardHarness(t, w, h, root)
+	harness := testkit.NewStandardHarness(t, scope, w, h, root)
 	harness.Runtime().EnableDiagnostics(sink)
 	harness.RunFrame()
 	return root, harness

@@ -14,6 +14,8 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
+
 	softwarerenderer "codeburg.org/lexbit/lurpicui/render/software"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
@@ -21,7 +23,9 @@ import (
 )
 
 func TestListGeometryContracts(t *testing.T) {
-	list := NewList("Geometry list", []ListEntry{
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	list := NewList(scope, "Geometry list", []ListEntry{
 		{Key: "one", Label: "One"},
 		{Key: "two", Label: "Two", SupportingText: strings.Join([]string{"Line one", "Line two"}, "\n")},
 	})
@@ -96,7 +100,7 @@ func (r listIconResolverStub) ResolveIcon(ref string) (icon.Asset, bool) {
 }
 
 func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
-	list := newListFixture()
+	list := newListFixture(t)
 	rt := listRuntimeStub{
 		fonts: testkit.TestFontRegistry(t),
 		icons: map[string]icon.Asset{},
@@ -151,7 +155,7 @@ func TestListMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestListStoreChangeInvalidatesStructure(t *testing.T) {
-	list := newListFixture()
+	list := newListFixture(t)
 	rt := listRuntimeStub{
 		fonts: testkit.TestFontRegistry(t),
 		icons: map[string]icon.Asset{},
@@ -175,6 +179,7 @@ func TestListStoreChangeInvalidatesStructure(t *testing.T) {
 		{Key: "c", Label: "test-item-3"},
 		{Key: "d", Label: "test-item-4"},
 	})
+	list.Data.OwnerScope().FlushSignals()
 
 	// (1) Store version advanced.
 	if got := list.Data.Version(); got == oldVersion {
@@ -207,7 +212,9 @@ func TestListStoreChangeInvalidatesStructure(t *testing.T) {
 }
 
 func TestListConstructionDoesNotSubscribe(t *testing.T) {
-	list := NewList("test", []ListEntry{{Key: "k", Label: "v"}})
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	list := NewList(scope, "test", []ListEntry{{Key: "k", Label: "v"}})
 	if len(list.Base().SubscribedVersions()) != 0 {
 		t.Fatal("List should not subscribe before Attach")
 	}
@@ -257,7 +264,7 @@ func TestListGoldenEmpty(t *testing.T) {
 
 func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*List)) *testkit.MemorySurface {
 	t.Helper()
-	list := newListFixture()
+	list := newListFixture(t)
 	if mutate != nil {
 		mutate(list)
 	}
@@ -302,8 +309,11 @@ func AssertListGolden(t *testing.T, name string, tokens theme.Tokens, density th
 	return surface
 }
 
-func newListFixture() *List {
-	list := NewList("Sample list", []ListEntry{
+func newListFixture(t *testing.T) *List {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	list := NewList(scope, "Sample list", []ListEntry{
 		{Key: "one", Label: "List item text"},
 		{Key: "two", Label: "List item text"},
 		{Key: "three", Label: "List item text"},
@@ -330,7 +340,7 @@ func TestList_contract_anchor_export(t *testing.T) {
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
-		func() facet.FacetImpl { return newListFixture() },
+		func() facet.FacetImpl { return newListFixture(t) },
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			list := m.(*List)
 			list.Layout.Measure(facet.MeasureContext{
@@ -354,15 +364,17 @@ func TestList_contract_anchor_export(t *testing.T) {
 
 func TestList_contract_group_children(t *testing.T) {
 	contracttest.AssertGroupChildren(t,
-		func() facet.FacetImpl { return newListFixture() },
+		func() facet.FacetImpl { return newListFixture(t) },
 		func(facet.FacetImpl) {},
 	)
 }
 
 func TestList_contract_accessible(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertAccessible(t,
 		func(label string) facet.FacetImpl {
-			return NewList(label, []ListEntry{
+			return NewList(scope, label, []ListEntry{
 				{Key: "one", Label: "Item one"},
 				{Key: "two", Label: "Item two"},
 			})

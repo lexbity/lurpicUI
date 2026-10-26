@@ -6,6 +6,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
+	"codeburg.org/lexbit/lurpicui/store"
 )
 
 // TestRibbon_sectionTabClickActivates pins the composite internal-interaction
@@ -15,12 +16,14 @@ import (
 // the press to the tab button, which activates the section. Without the
 // forwarding, the click would land on the ribbon and "Activated never fires".
 func TestRibbon_sectionTabClickActivates(t *testing.T) {
-	r := NewRibbon("Ribbon", []RibbonSection{
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	r := NewRibbon(scope, "Ribbon", []RibbonSection{
 		{Key: "home", Label: "Home", Toolbars: []*Toolbar{NewToolbar(marks.Const("t"), nil, nil)}},
 		{Key: "insert", Label: "Insert", Toolbars: []*Toolbar{NewToolbar(marks.Const("t"), nil, nil)}},
 		{Key: "view", Label: "View", Toolbars: []*Toolbar{NewToolbar(marks.Const("t"), nil, nil)}},
 	}, nil)
-	h := testkit.NewHarness(t, testkit.StandardHarnessConfig(t, 400, 120), r)
+	h := testkit.NewHarness(t, scope, testkit.StandardHarnessConfig(t, 400, 120), r)
 	testkit.Warmup(h)
 
 	if r.ActiveIndex.Get() != 0 {

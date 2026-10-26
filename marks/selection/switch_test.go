@@ -200,6 +200,7 @@ func TestSwitchStoreInvalidation(t *testing.T) {
 		t.Fatalf("expected one tracked store version, got %d", len(initial))
 	}
 	sw.Value.Set(true)
+	sw.Value.OwnerScope().FlushSignals()
 	if flags := sw.Base().DirtyFlags(); flags&(facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit) == 0 {
 		t.Fatalf("expected dirty flags after store update, got %#v", flags)
 	}
@@ -378,23 +379,27 @@ func renderSwitchToSurface(t *testing.T, sw *Switch, rt sliderRuntimeStub, measu
 }
 
 func newSwitchTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Switch, sliderRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
-	sw := NewSwitch("Label", store.NewValueStore(false))
+	sw := NewSwitch(scope, "Label", store.NewValueStore(scope, false))
 	rt := sliderRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return sw, rt, resolved
 }
 
 func TestSwitchValueSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[bool](
 		t,
-		func() *store.ValueStore[bool] { return store.NewValueStore(false) },
+		func() *store.ValueStore[bool] { return store.NewValueStore(scope, false) },
 		func(s *store.ValueStore[bool]) facet.FacetImpl {
-			return NewSwitch("test", s)
+			return NewSwitch(scope, "test", s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*Switch).SetChecked(true)

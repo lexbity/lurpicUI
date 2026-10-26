@@ -14,11 +14,14 @@ type testItem struct {
 func identifyItem(v testItem) ItemID { return v.ID }
 
 func TestCollectionStore_insert_fires_signal(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	var got CollectionInsertEvent[testItem]
 	s.onInsert.Subscribe(func(e CollectionInsertEvent[testItem]) { got = e })
 
 	s.Insert(testItem{ID: 1, Name: "a"})
+	scope.FlushSignals()
 
 	if got.Index != 0 || got.Item.ID != 1 || got.Item.Name != "a" {
 		t.Fatalf("got %#v", got)
@@ -26,7 +29,9 @@ func TestCollectionStore_insert_fires_signal(t *testing.T) {
 }
 
 func TestCollectionStore_insert_existing_id_fires_update(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	inserted := 0
 	updated := 0
 	s.onInsert.Subscribe(func(CollectionInsertEvent[testItem]) { inserted++ })
@@ -34,6 +39,7 @@ func TestCollectionStore_insert_existing_id_fires_update(t *testing.T) {
 
 	s.Insert(testItem{ID: 1, Name: "a"})
 	s.Insert(testItem{ID: 1, Name: "b"})
+	scope.FlushSignals()
 
 	if inserted != 1 || updated != 1 {
 		t.Fatalf("inserted=%d updated=%d", inserted, updated)
@@ -44,12 +50,15 @@ func TestCollectionStore_insert_existing_id_fires_update(t *testing.T) {
 }
 
 func TestCollectionStore_remove_fires_signal(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	var got CollectionRemoveEvent[testItem]
 	s.onRemove.Subscribe(func(e CollectionRemoveEvent[testItem]) { got = e })
 
 	s.Insert(testItem{ID: 1, Name: "a"})
 	s.Remove(1)
+	scope.FlushSignals()
 
 	if got.ID != 1 || got.Index != 0 || got.Item.Name != "a" {
 		t.Fatalf("got %#v", got)
@@ -57,7 +66,9 @@ func TestCollectionStore_remove_fires_signal(t *testing.T) {
 }
 
 func TestCollectionStore_remove_unknown_id_noop(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	called := 0
 	s.onRemove.Subscribe(func(CollectionRemoveEvent[testItem]) { called++ })
 
@@ -69,12 +80,15 @@ func TestCollectionStore_remove_unknown_id_noop(t *testing.T) {
 }
 
 func TestCollectionStore_update_fires_signal(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	var got CollectionUpdateEvent[testItem]
 	s.onUpdate.Subscribe(func(e CollectionUpdateEvent[testItem]) { got = e })
 
 	s.Insert(testItem{ID: 1, Name: "a"})
 	s.Update(testItem{ID: 1, Name: "b"})
+	scope.FlushSignals()
 
 	if got.ID != 1 || got.Index != 0 || got.Old.Name != "a" || got.New.Name != "b" {
 		t.Fatalf("got %#v", got)
@@ -82,7 +96,9 @@ func TestCollectionStore_update_fires_signal(t *testing.T) {
 }
 
 func TestCollectionStore_update_unknown_id_noop(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	called := 0
 	s.onUpdate.Subscribe(func(CollectionUpdateEvent[testItem]) { called++ })
 
@@ -94,11 +110,14 @@ func TestCollectionStore_update_unknown_id_noop(t *testing.T) {
 }
 
 func TestCollectionStore_replace_fires_onreplace(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	called := 0
 	s.onReplace.Subscribe(func(signal.Unit) { called++ })
 
 	s.Replace([]testItem{{ID: 1, Name: "a"}})
+	scope.FlushSignals()
 
 	if called != 1 {
 		t.Fatalf("called = %d", called)
@@ -106,7 +125,9 @@ func TestCollectionStore_replace_fires_onreplace(t *testing.T) {
 }
 
 func TestCollectionStore_replace_clears_previous(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	s.Insert(testItem{ID: 1, Name: "a"})
 	s.Replace([]testItem{{ID: 2, Name: "b"}})
 
@@ -119,7 +140,9 @@ func TestCollectionStore_replace_clears_previous(t *testing.T) {
 }
 
 func TestCollectionStore_tx_methods_defer_in_order(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	var got []string
 	s.addInvalidationTarget(func() { got = append(got, "invalidate") })
 	s.onInsert.Subscribe(func(e CollectionInsertEvent[testItem]) { got = append(got, "insert:"+e.Item.Name) })
@@ -128,9 +151,10 @@ func TestCollectionStore_tx_methods_defer_in_order(t *testing.T) {
 	s.onReplace.Subscribe(func(signal.Unit) { got = append(got, "replace") })
 
 	s.Insert(testItem{ID: 1, Name: "seed"})
+	scope.FlushSignals()
 	got = got[:0]
 
-	tx := Begin()
+	tx := Begin(scope)
 	s.InsertTx(testItem{ID: 2, Name: "b"}, tx)
 	s.UpdateTx(testItem{ID: 1, Name: "seed2"}, tx)
 	s.RemoveTx(1, tx)
@@ -140,6 +164,7 @@ func TestCollectionStore_tx_methods_defer_in_order(t *testing.T) {
 		t.Fatalf("unexpected pre-commit signals: %#v", got)
 	}
 	tx.Commit()
+	scope.FlushSignals()
 
 	want := []string{
 		"invalidate", "insert:b",
@@ -161,7 +186,9 @@ func TestCollectionStore_tx_methods_defer_in_order(t *testing.T) {
 }
 
 func TestCollectionStore_accessors_and_subscribe(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	if s.Len() != 0 {
 		t.Fatalf("len = %d", s.Len())
 	}
@@ -180,6 +207,7 @@ func TestCollectionStore_accessors_and_subscribe(t *testing.T) {
 	seen := 0
 	unsub := s.OnReplaceSubscribe(func(signal.Unit) { seen++ })
 	s.Replace([]testItem{{ID: 1, Name: "a"}})
+	scope.FlushSignals()
 	unsub()
 	s.Replace([]testItem{{ID: 2, Name: "b"}})
 	if seen != 1 {
@@ -197,7 +225,9 @@ func TestCollectionStore_accessors_and_subscribe(t *testing.T) {
 }
 
 func TestCollectionStore_all_returns_copy(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	s.Insert(testItem{ID: 1, Name: "a"})
 	got := s.All()
 	got[0].Name = "changed"
@@ -207,7 +237,9 @@ func TestCollectionStore_all_returns_copy(t *testing.T) {
 }
 
 func TestCollectionStore_get_o1_lookup(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	s.Insert(testItem{ID: 1, Name: "a"})
 	s.Insert(testItem{ID: 2, Name: "b"})
 	s.Remove(1)
@@ -217,7 +249,9 @@ func TestCollectionStore_get_o1_lookup(t *testing.T) {
 }
 
 func TestCollectionStore_version_increments_on_insert(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	ver := s.Version()
 	s.Insert(testItem{ID: 1, Name: "a"})
 	if got := s.Version(); got <= ver {
@@ -226,7 +260,9 @@ func TestCollectionStore_version_increments_on_insert(t *testing.T) {
 }
 
 func TestCollectionStore_version_not_incremented_on_noop(t *testing.T) {
-	s := NewCollectionStore(identifyItem)
+	scope := NewScope()
+	defer scope.Close()
+	s := NewCollectionStore(scope, identifyItem)
 	ver := s.Version()
 	s.Remove(1)
 	if got := s.Version(); got != ver {
@@ -235,11 +271,14 @@ func TestCollectionStore_version_not_incremented_on_noop(t *testing.T) {
 }
 
 func TestMapStore_set_new_key(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	var got MapSetEvent[string, int]
 	s.onSet.Subscribe(func(e MapSetEvent[string, int]) { got = e })
 
 	s.Set("a", 1)
+	scope.FlushSignals()
 
 	if !got.WasNew || got.Key != "a" || got.Value != 1 || got.Previous != 0 {
 		t.Fatalf("got %#v", got)
@@ -247,14 +286,16 @@ func TestMapStore_set_new_key(t *testing.T) {
 }
 
 func TestMapStore_tx_methods_defer_in_order(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	var got []string
 	s.addInvalidationTarget(func() { got = append(got, "invalidate") })
 	s.onSet.Subscribe(func(e MapSetEvent[string, int]) { got = append(got, "set") })
 	s.onDelete.Subscribe(func(e MapDeleteEvent[string, int]) { got = append(got, "delete") })
 	s.onClear.Subscribe(func(signal.Unit) { got = append(got, "clear") })
 
-	tx := Begin()
+	tx := Begin(scope)
 	s.SetTx("a", 1, tx)
 	s.SetTx("b", 2, tx)
 	s.DeleteTx("a", tx)
@@ -264,6 +305,7 @@ func TestMapStore_tx_methods_defer_in_order(t *testing.T) {
 		t.Fatalf("unexpected pre-commit signals: %#v", got)
 	}
 	tx.Commit()
+	scope.FlushSignals()
 
 	want := []string{
 		"invalidate", "set",
@@ -285,7 +327,9 @@ func TestMapStore_tx_methods_defer_in_order(t *testing.T) {
 }
 
 func TestMapStore_accessors_and_version(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	if s.Has("missing") {
 		t.Fatal("expected missing key")
 	}
@@ -300,6 +344,7 @@ func TestMapStore_accessors_and_version(t *testing.T) {
 	}
 
 	s.Set("a", 1)
+	scope.FlushSignals()
 	if !s.Has("a") {
 		t.Fatal("expected key to exist")
 	}
@@ -317,8 +362,10 @@ func TestMapStore_accessors_and_version(t *testing.T) {
 }
 
 func TestMapStore_tx_delete_and_clear_noop_paths(t *testing.T) {
-	s := NewMapStore[string, int]()
-	tx := Begin()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
+	tx := Begin(scope)
 	s.DeleteTx("missing", tx)
 	s.ClearTx(tx)
 	tx.Commit()
@@ -328,12 +375,15 @@ func TestMapStore_tx_delete_and_clear_noop_paths(t *testing.T) {
 }
 
 func TestMapStore_set_existing_key(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	var got MapSetEvent[string, int]
 	s.onSet.Subscribe(func(e MapSetEvent[string, int]) { got = e })
 
 	s.Set("a", 1)
 	s.Set("a", 2)
+	scope.FlushSignals()
 
 	if got.WasNew || got.Key != "a" || got.Value != 2 || got.Previous != 1 {
 		t.Fatalf("got %#v", got)
@@ -341,12 +391,15 @@ func TestMapStore_set_existing_key(t *testing.T) {
 }
 
 func TestMapStore_delete_fires_signal(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	var got MapDeleteEvent[string, int]
 	s.onDelete.Subscribe(func(e MapDeleteEvent[string, int]) { got = e })
 
 	s.Set("a", 1)
 	s.Delete("a")
+	scope.FlushSignals()
 
 	if got.Key != "a" || got.Value != 1 {
 		t.Fatalf("got %#v", got)
@@ -354,7 +407,9 @@ func TestMapStore_delete_fires_signal(t *testing.T) {
 }
 
 func TestMapStore_delete_unknown_key_noop(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	called := 0
 	s.onDelete.Subscribe(func(MapDeleteEvent[string, int]) { called++ })
 
@@ -366,12 +421,15 @@ func TestMapStore_delete_unknown_key_noop(t *testing.T) {
 }
 
 func TestMapStore_clear_fires_onclear(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	called := 0
 	s.onClear.Subscribe(func(signal.Unit) { called++ })
 
 	s.Set("a", 1)
 	s.Clear()
+	scope.FlushSignals()
 
 	if called != 1 {
 		t.Fatalf("called = %d", called)
@@ -382,7 +440,9 @@ func TestMapStore_clear_fires_onclear(t *testing.T) {
 }
 
 func TestMapStore_snapshot_returns_copy(t *testing.T) {
-	s := NewMapStore[string, int]()
+	scope := NewScope()
+	defer scope.Close()
+	s := NewMapStore[string, int](scope)
 	s.Set("a", 1)
 	snap := s.Snapshot()
 	snap["a"] = 2

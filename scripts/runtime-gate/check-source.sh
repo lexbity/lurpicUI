@@ -2,6 +2,7 @@
 set -euo pipefail
 
 root=${1:-.}
+phase=${2:-P1}
 cd "$root"
 
 expect_absent() {
@@ -39,3 +40,24 @@ grep -q 'func TestCanonicalEveryFieldMutation' render/canonical/encode_test.go
 grep -q 'func TestCanonicalCommandInventory' render/canonical/encode_test.go
 
 printf '%s\n' 'runtime-gate: P1 source contracts passed'
+
+if [[ "$phase" == *P2* ]]; then
+	for package in store app scale/reactive marks demos/lurpic_studio; do
+		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
+		if [ -z "$files" ]; then
+			printf 'source inventory is empty for %s\n' "$package" >&2
+			exit 1
+		fi
+	done
+	expect_absent 'SetSignalQueueHook|SnapshotFrameDerivedCounters|derivedMu|deriveds[[:space:]]+\[\]' store runtime app scale/reactive marks demos/lurpic_studio
+	expect_absent 'defaultScope|currentRuntime|currentScope' store runtime app scale/reactive marks demos/lurpic_studio
+	grep -q 'func (s \*Scope) registerDerived' store/scope.go
+	grep -q '^func NewValueStore\[T any\](scope \*Scope,' store/value.go
+	grep -q '^func NewCollectionStore\[T any\](scope \*Scope,' store/collection.go
+	grep -q '^func NewDerived\[T any\](scope \*Scope,' store/derived.go
+	grep -q '^func Begin(scope \*Scope)' store/transaction.go
+	grep -q 'func (s \*Scope) Close()' store/scope.go
+	grep -q 'func (s \*Scope) FlushSignals()' store/scope.go
+	grep -q 'func (s \*Scope) FlushDerived()' store/scope.go
+	printf '%s\n' 'runtime-gate: P2 source contracts passed'
+fi

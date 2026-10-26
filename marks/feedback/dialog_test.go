@@ -35,11 +35,13 @@ func (s dialogRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 func (s dialogRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
-	dialog := newDialogFixture()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	dialog := newDialogFixture(t)
 	tokens := dialogTokens()
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := dialogRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -107,11 +109,13 @@ func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 }
 
 func TestDialogInteractionsEmitActionAndDismiss(t *testing.T) {
-	dialog := newDialogFixture()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	dialog := newDialogFixture(t)
 	tokens := dialogTokens()
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := dialogRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -183,7 +187,7 @@ func TestDialogRecipe_exposes_expected_slots(t *testing.T) {
 }
 
 func TestDialogCustomContentVertical(t *testing.T) {
-	dialog := newDialogFixture()
+	dialog := newDialogFixture(t)
 	dialog.ContentChildren = marks.Const([]DialogContentChild{
 		{Key: "alpha", Facet: primitive.NewText(marks.Const("Alpha"))},
 		{Key: "beta", Facet: primitive.NewText(marks.Const("Beta"))},
@@ -201,7 +205,7 @@ func TestDialogCustomContentVertical(t *testing.T) {
 }
 
 func TestDialogCustomContentHorizontal(t *testing.T) {
-	dialog := newDialogFixture()
+	dialog := newDialogFixture(t)
 	dialog.ContentLayoutMode = marks.Const(DialogContentLayoutHorizontal)
 	dialog.ContentChildren = marks.Const([]DialogContentChild{
 		{Key: "alpha", Facet: primitive.NewText(marks.Const("Alpha"))},
@@ -217,7 +221,7 @@ func TestDialogCustomContentHorizontal(t *testing.T) {
 }
 
 func TestDialogCustomContentGrid(t *testing.T) {
-	dialog := newDialogFixture()
+	dialog := newDialogFixture(t)
 	dialog.ContentLayoutMode = marks.Const(DialogContentLayoutGrid)
 	dialog.ContentGridColumns = marks.Const(2)
 	dialog.ContentGridRows = marks.Const(2)
@@ -238,9 +242,11 @@ func TestDialogCustomContentGrid(t *testing.T) {
 }
 
 func TestDialogOpenSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[bool](
 		t,
-		func() *store.ValueStore[bool] { return store.NewValueStore(true) },
+		func() *store.ValueStore[bool] { return store.NewValueStore(scope, true) },
 		func(s *store.ValueStore[bool]) facet.FacetImpl {
 			return NewDialog("Title", "Body", nil, s)
 		},
@@ -316,10 +322,12 @@ func TestDialogGoldenDismissed(t *testing.T) {
 }
 
 func AssertDialogGolden(t *testing.T, name string, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection, mutate func(*Dialog)) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	dialog := newDialogFixture()
+	dialog := newDialogFixture(t)
 	rt := dialogRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	resolved := alertResolvedContext(tokens, density, direction)
@@ -366,7 +374,10 @@ func AssertDialogGolden(t *testing.T, name string, tokens theme.Tokens, density 
 	testkit.AssertGolden(t, surface, "dialog_"+name)
 }
 
-func newDialogFixture() *Dialog {
+func newDialogFixture(t *testing.T) *Dialog {
+	t.Helper()
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	d := NewDialog(
 		"Confirm destructive action",
 		"This will permanently remove the selected items.",
@@ -374,18 +385,20 @@ func newDialogFixture() *Dialog {
 			{Label: "Cancel", Variant: uiinput.ButtonOutlined},
 			{Label: "Delete", Variant: uiinput.ButtonFilled},
 		},
-		store.NewValueStore(true),
+		store.NewValueStore(scope, true),
 	)
 	d.CloseButtonLabel = marks.Const("Close")
 	return d
 }
 
 func assertDialogContentLayout(t *testing.T, dialog *Dialog, mode DialogContentLayoutMode) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	tokens := dialogTokens()
 	resolved := alertResolvedContext(tokens, theme.DensityIDComfortable, layout.WritingDirectionLTR)
 	rt := dialogRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, tokens, nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 	facet.Attach(dialog, facet.AttachContext{Runtime: rt, Theme: resolved})

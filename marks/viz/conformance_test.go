@@ -21,12 +21,14 @@ func confID(i conformanceItem) store.ItemID { return i.id }
 
 // registeredMarks returns all viz mark instances to test for conformance.
 func registeredMarks(t *testing.T) []marks.Mark {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
-	s := store.NewCollectionStore(confID)
-	yDom := store.NewValueStore([2]float64{0, 100})
-	yRng := store.NewValueStore([2]float64{0, 300})
-	yScale := reactive.NewLinearReactive(yDom, yRng)
-	xScale := reactive.NewLinearReactive(yDom, yRng)
+	s := store.NewCollectionStore(scope, confID)
+	yDom := store.NewValueStore(scope, [2]float64{0, 100})
+	yRng := store.NewValueStore(scope, [2]float64{0, 300})
+	yScale := reactive.NewLinearReactive(scope, yDom, yRng)
+	xScale := reactive.NewLinearReactive(scope, yDom, yRng)
 
 	r := NewRule(marks.Const(50.0), RuleHorizontal, yScale)
 
@@ -80,9 +82,11 @@ func TestConformance_rule_descriptor(t *testing.T) {
 }
 
 func TestConformance_axis_descriptor(t *testing.T) {
-	s := store.NewValueStore([2]float64{0, 100})
-	r := store.NewValueStore([2]float64{0, 300})
-	rs := reactive.NewLinearReactive(s, r)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, [2]float64{0, 100})
+	r := store.NewValueStore(scope, [2]float64{0, 300})
+	rs := reactive.NewLinearReactive(scope, s, r)
 	m := NewAxis(rs, marks.Const(AxisBottom), nil)
 	d := marks.Describe(m)
 	if d.TypeName != "axis" {
@@ -94,17 +98,17 @@ func TestConformance_axis_descriptor(t *testing.T) {
 }
 
 func TestConformance_point_descriptor(t *testing.T) {
-	s := store.NewCollectionStore(confID)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, confID)
 	m := NewPoint(s,
 		func(i conformanceItem) float64 { return i.x },
 		func(i conformanceItem) float64 { return i.y },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
 	d := marks.Describe(m)
@@ -117,17 +121,17 @@ func TestConformance_point_descriptor(t *testing.T) {
 }
 
 func TestConformance_line_descriptor(t *testing.T) {
-	s := store.NewCollectionStore(confID)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, confID)
 	m := NewLine(s,
 		func(i conformanceItem) float64 { return i.x },
 		func(i conformanceItem) float64 { return i.y },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
 	d := marks.Describe(m)
@@ -140,17 +144,17 @@ func TestConformance_line_descriptor(t *testing.T) {
 }
 
 func TestConformance_area_descriptor(t *testing.T) {
-	s := store.NewCollectionStore(confID)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, confID)
 	m := NewArea(s,
 		func(i conformanceItem) float64 { return i.x },
 		func(i conformanceItem) float64 { return i.y },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
 	d := marks.Describe(m)
@@ -163,13 +167,14 @@ func TestConformance_area_descriptor(t *testing.T) {
 }
 
 func TestConformance_bar_descriptor(t *testing.T) {
-	s := store.NewCollectionStore(confID)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewCollectionStore(scope, confID)
 	m := NewBar(s,
 		func(i conformanceItem) string { return i.cat },
 		func(i conformanceItem) float64 { return i.y },
-		reactive.NewLinearReactive(
-			store.NewValueStore([2]float64{0, 1}),
-			store.NewValueStore([2]float64{0, 100}),
+		reactive.NewLinearReactive(scope, store.NewValueStore(scope, [2]float64{0, 1}),
+			store.NewValueStore(scope, [2]float64{0, 100}),
 		),
 	)
 	d := marks.Describe(m)

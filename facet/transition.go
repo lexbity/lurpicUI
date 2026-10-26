@@ -146,6 +146,7 @@ func Dispose(f FacetImpl) {
 		}
 		frame.impl.OnDetach()
 		base.releaseSubscriptions()
+		base.releaseStoreScope()
 		base.releaseTestID()
 		base.setState(StateDisposed)
 	}

@@ -50,7 +50,9 @@ func TestConst_many_copies_return_same_value(t *testing.T) {
 }
 
 func TestStore_returns_initial_value(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	b := FromStore(s, facet.DirtyProjection)
 	if got := b.Get(); got != "initial" {
 		t.Fatalf("Get() = %q, want %q", got, "initial")
@@ -58,7 +60,9 @@ func TestStore_returns_initial_value(t *testing.T) {
 }
 
 func TestStore_is_dynamic(t *testing.T) {
-	s := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, 0)
 	b := FromStore(s, facet.DirtyLayout)
 	if !b.IsDynamic() {
 		t.Fatal("expected IsDynamic = true")
@@ -66,7 +70,9 @@ func TestStore_is_dynamic(t *testing.T) {
 }
 
 func TestStore_reports_declared_dirty_flags(t *testing.T) {
-	s := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, 0)
 	b := FromStore(s, facet.DirtyLayout|facet.DirtyProjection)
 	flags := b.DirtyFlags()
 	if flags&facet.DirtyLayout == 0 {
@@ -78,7 +84,9 @@ func TestStore_reports_declared_dirty_flags(t *testing.T) {
 }
 
 func TestStore_detects_version_change(t *testing.T) {
-	s := store.NewValueStore("a")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "a")
 	b := FromStore(s, facet.DirtyProjection)
 
 	if got := b.Get(); got != "a" {
@@ -93,7 +101,9 @@ func TestStore_detects_version_change(t *testing.T) {
 }
 
 func TestStore_re_reads_after_multiple_sets(t *testing.T) {
-	s := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, 0)
 	b := FromStore(s, facet.DirtyProjection)
 
 	for i := 1; i <= 5; i++ {
@@ -105,7 +115,9 @@ func TestStore_re_reads_after_multiple_sets(t *testing.T) {
 }
 
 func TestStore_subscribe_fires_on_change(t *testing.T) {
-	s := store.NewValueStore("x")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "x")
 	b := FromStore(s, facet.DirtyProjection)
 
 	fired := 0
@@ -116,29 +128,35 @@ func TestStore_subscribe_fires_on_change(t *testing.T) {
 	defer cleanup()
 
 	s.Set("y")
+	scope.FlushSignals()
 	if fired != 1 {
 		t.Fatalf("expected 1 fire, got %d", fired)
 	}
 
 	s.Set("z")
+	scope.FlushSignals()
 	if fired != 2 {
 		t.Fatalf("expected 2 fires, got %d", fired)
 	}
 }
 
 func TestStore_subscribe_cleanup_stops_firing(t *testing.T) {
-	s := store.NewValueStore("a")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "a")
 	b := FromStore(s, facet.DirtyProjection)
 
 	fired := 0
 	cleanup := b.SubscribeOnChange(func() { fired++ })
 	s.Set("b")
+	scope.FlushSignals()
 	if fired != 1 {
 		t.Fatalf("expected 1 fire before cleanup, got %d", fired)
 	}
 
 	cleanup()
 	s.Set("c")
+	scope.FlushSignals()
 	if fired != 1 {
 		t.Fatalf("expected no fire after cleanup, got %d", fired)
 	}
@@ -155,8 +173,10 @@ func TestStore_nil_store_returns_const(t *testing.T) {
 }
 
 func TestDerived_returns_computed_value(t *testing.T) {
-	src := store.NewValueStore(10)
-	d := store.NewDerived(func() int { return src.Get() * 2 }, src)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	src := store.NewValueStore(scope, 10)
+	d := store.NewDerived(scope, func() int { return src.Get() * 2 }, src)
 	b := FromDerived(d, facet.DirtyProjection)
 
 	if got := b.Get(); got != 20 {
@@ -165,8 +185,10 @@ func TestDerived_returns_computed_value(t *testing.T) {
 }
 
 func TestDerived_detects_version_change(t *testing.T) {
-	src := store.NewValueStore(10)
-	d := store.NewDerived(func() int { return src.Get() * 2 }, src)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	src := store.NewValueStore(scope, 10)
+	d := store.NewDerived(scope, func() int { return src.Get() * 2 }, src)
 	b := FromDerived(d, facet.DirtyProjection)
 
 	src.Set(20)
@@ -177,8 +199,10 @@ func TestDerived_detects_version_change(t *testing.T) {
 }
 
 func TestDerived_subscribe_fires_on_change(t *testing.T) {
-	src := store.NewValueStore(1)
-	d := store.NewDerived(func() int { return src.Get() * 3 }, src)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	src := store.NewValueStore(scope, 1)
+	d := store.NewDerived(scope, func() int { return src.Get() * 3 }, src)
 	b := FromDerived(d, facet.DirtyProjection)
 
 	// First Get() initializes the Derived. Subscribe after initialization.
@@ -189,9 +213,10 @@ func TestDerived_subscribe_fires_on_change(t *testing.T) {
 	defer cleanup()
 
 	// A Derived binding subscribes the eager clean->dirty OnInvalidated signal
-	// (RX-1 FR-2), so a source write fires the callback immediately — no
-	// external Get() is required to wake the lazy recompute.
+	// (RX-1 FR-2), so a source write wakes the lazy recompute at the explicit
+	// scope signal boundary without requiring a user Get().
 	src.Set(2)
+	scope.FlushSignals()
 	if fired != 1 {
 		t.Fatalf("expected 1 fire after src.Set, got %d", fired)
 	}
@@ -221,8 +246,10 @@ func TestDerived_nil_derived_returns_const(t *testing.T) {
 // which only emits inside Get() — with no external Get the facet stayed clean
 // and its projection cache served stale output forever (A-6).
 func TestDerived_binding_invalidates_facet_without_user_get(t *testing.T) {
-	src := store.NewValueStore(10)
-	d := store.NewDerived(func() int { return src.Get() * 2 }, src)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	src := store.NewValueStore(scope, 10)
+	d := store.NewDerived(scope, func() int { return src.Get() * 2 }, src)
 
 	m := &derivedTestMark{}
 	m.value = FromDerived(d, facet.DirtyProjection)
@@ -246,6 +273,7 @@ func TestDerived_binding_invalidates_facet_without_user_get(t *testing.T) {
 	// Upstream write. No Get() follows — the binding's OnInvalidated handler
 	// forces the recompute itself and invalidates the facet.
 	src.Set(20)
+	scope.FlushSignals()
 
 	if flags := m.DirtyFlags(); flags&facet.DirtyProjection == 0 {
 		t.Fatalf("bound facet was not invalidated after the write with no user Get (flags=%#v) — the FromDerived binding stalled (A-6)", flags)
@@ -284,7 +312,9 @@ func TestBinding_no_mutation_api(t *testing.T) {
 }
 
 func TestStore_get_does_not_mutate_source(t *testing.T) {
-	s := store.NewValueStore(100)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, 100)
 	b := FromStore(s, facet.DirtyProjection)
 
 	b.Get()

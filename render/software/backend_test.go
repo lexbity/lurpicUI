@@ -1,13 +1,12 @@
 package software
 
 import (
-	"time"
-
 	"bytes"
 	"image"
 	"image/color"
 	"image/png"
 	"testing"
+	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
@@ -15,12 +14,13 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 	"github.com/go-text/typesetting/font"
-	ot "github.com/go-text/typesetting/font/opentype"
 
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
+	ot "github.com/go-text/typesetting/font/opentype"
 )
 
 type testSurface struct {
@@ -235,9 +235,11 @@ func TestSoftwareRenderer_strokepath_rasterizes(t *testing.T) {
 }
 
 func TestSoftwareRenderer_rendersPrimitiveIcon(t *testing.T) {
+	scope := store.NewScope()
+	defer scope.Close()
 	tokens := theme.DefaultTokens()
 	tokens.Color.Primary = gfx.ColorFromRGBA8(18, 52, 86, 255)
-	rt := iconRenderRuntime{rootStyle: theme.NewRootStyleContext(nil, tokens, nil)}
+	rt := iconRenderRuntime{rootStyle: theme.NewRootStyleContext(scope, nil, tokens, nil)}
 	icon := primitive.NewIcon(primitive.IconSVG(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" fill="currentColor"><path d="M1 1H9V9H1Z"/></svg>`))
 	icon.Decorative = marks.Const(false)
 	icon.AccessibleLabel = marks.Const("Square")

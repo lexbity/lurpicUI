@@ -60,6 +60,8 @@ func findModuleRoot() string {
 }
 
 func TestCatalog_buildsFromCapindexAndSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	if testing.Short() {
 		t.Skip("skipping cross-seam catalog test in short mode")
 	}
@@ -118,10 +120,10 @@ func TestCatalog_buildsFromCapindexAndSurvivesDispose(t *testing.T) {
 		Rows:          rows,
 		SortColumnKey: "category",
 	}
-	selection := store.NewValueStore("")
+	selection := store.NewValueStore(scope, "")
 
 	fonts := fontdata.TestFontRegistry(t)
-	rootStyle := theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil)
 	rt := catalogRT{
 		rootStyle: rootStyle,
 		fonts:     fonts,
@@ -129,7 +131,7 @@ func TestCatalog_buildsFromCapindexAndSurvivesDispose(t *testing.T) {
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 1280, 800)
 
-	table := structure.NewTable("marks catalog", data, selection)
+	table := structure.NewTable(scope, "marks catalog", data, selection)
 	facet.Attach(table, facet.AttachContext{Runtime: rt, Theme: ctx})
 	defer facet.Dispose(table)
 
@@ -161,7 +163,7 @@ func TestCatalog_buildsFromCapindexAndSurvivesDispose(t *testing.T) {
 	contracttest.AssertValueSurvivesDispose[string](t,
 		func() *store.ValueStore[string] { return selection },
 		func(s *store.ValueStore[string]) facet.FacetImpl {
-			return structure.NewTable("marks catalog", data, s)
+			return structure.NewTable(scope, "marks catalog", data, s)
 		},
 		func(m facet.FacetImpl) {
 			m.(*structure.Table).Selection.Set(filtered[0].Path)

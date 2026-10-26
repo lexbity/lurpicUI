@@ -145,7 +145,9 @@ func TestBase_register_roles_skips_unconfigured_roles(t *testing.T) {
 }
 
 func TestBase_binding_store_change_invalidates_facet(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := newBindingTestMark(s)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
@@ -155,6 +157,7 @@ func TestBase_binding_store_change_invalidates_facet(t *testing.T) {
 	}
 
 	s.Set("updated")
+	scope.FlushSignals()
 
 	flags := m.DirtyFlags()
 	if flags&facet.DirtyProjection == 0 {
@@ -167,11 +170,14 @@ func TestBase_binding_store_change_invalidates_facet(t *testing.T) {
 // re-measures AND re-projects through the layout propagation, while a
 // projection-only binding stays projection-only.
 func TestBase_binding_attached_remeasures_when_declared(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := newBindingTestMark(s) // declares only DirtyProjection
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 	s.Set("updated")
+	scope.FlushSignals()
 
 	flags := m.DirtyFlags()
 	if flags&facet.DirtyLayout != 0 {
@@ -185,10 +191,12 @@ func TestBase_binding_attached_remeasures_when_declared(t *testing.T) {
 // TestBase_binding_attached_layout_flagged_reroutes proves a binding that
 // declares DirtyLayout routes re-measure through the layout propagation.
 func TestBase_binding_attached_layout_flagged_reroutes(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := &multiBindMark{
 		b1: FromStore(s, facet.DirtyLayout|facet.DirtyProjection),
-		b2: FromStore(store.NewValueStore(0), facet.DirtyLayout),
+		b2: FromStore(store.NewValueStore(scope, 0), facet.DirtyLayout),
 	}
 	m.AddBinding(m.b1)
 	m.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
@@ -201,6 +209,7 @@ func TestBase_binding_attached_layout_flagged_reroutes(t *testing.T) {
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 	s.Set("updated")
+	scope.FlushSignals()
 
 	flags := m.DirtyFlags()
 	if flags&facet.DirtyLayout == 0 {
@@ -215,11 +224,14 @@ func TestBase_binding_attached_layout_flagged_reroutes(t *testing.T) {
 // fallback: without a runtime, a binding change raises exactly the declared
 // flags (no layout route, no implicit re-measure).
 func TestBase_binding_unattached_uses_declared_flags_only(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := newBindingTestMark(s) // declares only DirtyProjection
 
 	facet.Attach(m, facet.AttachContext{})
 	s.Set("updated")
+	scope.FlushSignals()
 
 	flags := m.DirtyFlags()
 	if flags&facet.DirtyLayout != 0 {
@@ -231,11 +243,14 @@ func TestBase_binding_unattached_uses_declared_flags_only(t *testing.T) {
 }
 
 func TestBase_binding_unsubscribe_on_detach(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := newBindingTestMark(s)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 	s.Set("updated")
+	scope.FlushSignals()
 
 	if flags := m.DirtyFlags(); flags&facet.DirtyProjection == 0 {
 		t.Fatal("expected dirty flags after store change while attached")
@@ -425,7 +440,9 @@ func (m *lifecycleTestMark) OnActivate()                      { m.Core.OnActivat
 func (m *lifecycleTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 func TestBase_full_lifecycle_attach_measure_arrange_project(t *testing.T) {
-	s := store.NewValueStore("hello")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "hello")
 	m := newLifecycleTestMark(s)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
@@ -458,7 +475,9 @@ func TestBase_full_lifecycle_attach_measure_arrange_project(t *testing.T) {
 }
 
 func TestBase_full_lifecycle_store_change_triggers_reprojection(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := newLifecycleTestMark(s)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
@@ -471,6 +490,7 @@ func TestBase_full_lifecycle_store_change_triggers_reprojection(t *testing.T) {
 	m.Projection.Project(ctx)
 
 	s.Set("updated")
+	scope.FlushSignals()
 
 	// Dirty flag set by binding subscription
 	if flags := m.DirtyFlags(); flags&facet.DirtyProjection == 0 {
@@ -501,8 +521,10 @@ func (m *derivedTestMark) OnActivate()                      { m.Core.OnActivate(
 func (m *derivedTestMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 func TestBase_binding_with_derived_store(t *testing.T) {
-	src := store.NewValueStore(10)
-	d := store.NewDerived(func() int { return src.Get() * 2 }, src)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	src := store.NewValueStore(scope, 10)
+	d := store.NewDerived(scope, func() int { return src.Get() * 2 }, src)
 
 	m := &derivedTestMark{}
 	m.value = FromDerived(d, facet.DirtyProjection)
@@ -573,8 +595,10 @@ func TestBase_export_anchors_integration(t *testing.T) {
 }
 
 func TestBase_multiple_bindings_all_invalidate(t *testing.T) {
-	s1 := store.NewValueStore("a")
-	s2 := store.NewValueStore(0)
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s1 := store.NewValueStore(scope, "a")
+	s2 := store.NewValueStore(scope, 0)
 
 	m := &multiBindMark{
 		b1: FromStore(s1, facet.DirtyProjection),
@@ -593,6 +617,7 @@ func TestBase_multiple_bindings_all_invalidate(t *testing.T) {
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 
 	s1.Set("b")
+	scope.FlushSignals()
 	flags := m.DirtyFlags()
 	if flags&facet.DirtyProjection == 0 {
 		t.Error("expected DirtyProjection after string binding change")
@@ -601,6 +626,7 @@ func TestBase_multiple_bindings_all_invalidate(t *testing.T) {
 	m.ClearDirty(facet.DirtyAll)
 
 	s2.Set(42)
+	scope.FlushSignals()
 	flags = m.DirtyFlags()
 	if flags&facet.DirtyLayout == 0 {
 		t.Error("expected DirtyLayout after int binding change")
@@ -646,11 +672,14 @@ func (m *declaredMark) OnDeactivate()                    { m.Core.OnDeactivate()
 // The struct field is the declaration: an exported binding field swapped
 // before attach — with no AddBinding call anywhere — is subscribed at attach.
 func TestBase_declared_binding_swap_before_attach_subscribes(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := newDeclaredMark(s)
 
 	facet.Attach(m, facet.AttachContext{Runtime: baseRuntimeStub{}})
 	s.Set("updated")
+	scope.FlushSignals()
 
 	if flags := m.DirtyFlags(); flags&facet.DirtyProjection == 0 {
 		t.Fatal("declared binding field swapped pre-attach was not subscribed at attach (RX-2 FR-1)")
@@ -678,7 +707,9 @@ func TestBase_declared_const_field_skipped(t *testing.T) {
 // detach-to-reattach; a re-attach of a fresh instance starts from a clean
 // bag, so the count is a per-attach exactly-once proof.)
 func TestBase_declared_binding_subscribes_exactly_once(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := newDeclaredMark(s)
 
 	facet.Attach(m, facet.AttachContext{})
@@ -692,7 +723,7 @@ func TestBase_declared_binding_subscribes_exactly_once(t *testing.T) {
 
 	// A fresh instance of the same type shares the cached declaration and
 	// subscribes exactly once again.
-	fresh := newDeclaredMark(store.NewValueStore("fresh"))
+	fresh := newDeclaredMark(store.NewValueStore(scope, "fresh"))
 	facet.Attach(fresh, facet.AttachContext{})
 	if got := len(fresh.cleanups); got != 1 {
 		t.Fatalf("fresh instance after cache warm: %d cleanups, want exactly 1", got)
@@ -715,7 +746,9 @@ func (m *optOutMark) OnDeactivate()                    { m.Core.OnDeactivate() }
 
 // The `binding:"-"` struct tag opts a field out of declaration.
 func TestBase_declared_binding_tag_optout(t *testing.T) {
-	s := store.NewValueStore("initial")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s := store.NewValueStore(scope, "initial")
 	m := &optOutMark{Label: FromStore(s, facet.DirtyProjection)}
 	m.RegisterRoles(m)
 
@@ -789,8 +822,10 @@ func TestBase_register_roles_panics_on_second_instance(t *testing.T) {
 // The declaration cache is keyed by type: two instances of one type share the
 // walk (and each attach reads its own field values through it).
 func TestBase_declared_binding_cache_shared_per_type(t *testing.T) {
-	s1 := store.NewValueStore("one")
-	s2 := store.NewValueStore("two")
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
+	s1 := store.NewValueStore(scope, "one")
+	s2 := store.NewValueStore(scope, "two")
 	a := newDeclaredMark(s1)
 	b := newDeclaredMark(s2)
 
@@ -798,6 +833,7 @@ func TestBase_declared_binding_cache_shared_per_type(t *testing.T) {
 	facet.Attach(b, facet.AttachContext{})
 
 	s1.Set("changed")
+	scope.FlushSignals()
 	if a.DirtyFlags()&facet.DirtyProjection == 0 {
 		t.Fatal("instance A binding dead after shared-type cache")
 	}

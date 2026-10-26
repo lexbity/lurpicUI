@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
+	"codeburg.org/lexbit/lurpicui/store"
 	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
@@ -27,9 +28,11 @@ func (s textRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 func (s textRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
 
 func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	mark := NewText(marks.Const("Hello world"))
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -89,10 +92,12 @@ func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
 }
 
 func TestTextMark_disabled_uses_disabled_color(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	mark := NewText(marks.Const("Disabled"))
 	mark.Disabled = marks.Const(true)
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -123,8 +128,10 @@ func TestTextMark_disabled_uses_disabled_color(t *testing.T) {
 }
 
 func TestTextMark_wrap_and_truncate(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -154,13 +161,15 @@ func TestTextMark_wrap_and_truncate(t *testing.T) {
 }
 
 func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	mark := NewText(marks.Const("AaBbCcGgJjQq"))
 	mark.Overflow = marks.Const(TextOverflowWrap)
 	mark.Alignment = marks.Const(text.AlignCenter)
 	mark.MaxWidth = marks.Const[float32](300)
 
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 
@@ -202,12 +211,14 @@ func TestTextLayoutCommands_use_shaped_line_box_and_baseline(t *testing.T) {
 }
 
 func TestTextLayoutCommands_stack_multiline_runs_with_baseline_offsets(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	mark := NewText(marks.Const("First line\nSecond line"))
 	mark.Overflow = marks.Const(TextOverflowWrap)
 	mark.MaxWidth = marks.Const[float32](300)
 
 	rt := textRuntimeStub{
-		rootStyle: theme.NewRootStyleContext(nil, theme.DefaultTokens(), nil),
+		rootStyle: theme.NewRootStyleContext(scope, nil, theme.DefaultTokens(), nil),
 		fonts:     testkit.TestFontRegistry(t),
 	}
 

@@ -102,9 +102,10 @@ var _ marks.Mark = (*DropdownSelect)(nil)
 // When value is nil the select creates an internal store (no selection) and
 // owns its truth; an injected store is bound, never copied (RX-2 Q2) —
 // Store() exposes the live store either way.
-func NewDropdownSelect(label string, options []DropdownOption, value *store.ValueStore[string]) *DropdownSelect {
+func NewDropdownSelect(ownerScope *store.Scope, label string, options []DropdownOption, value *store.ValueStore[string]) *DropdownSelect {
+	ownedScope := ownerScope.Child()
 	if value == nil {
-		value = store.NewValueStore("")
+		value = store.NewValueStore(ownedScope, "")
 	}
 	ds := &DropdownSelect{
 		Label:       marks.Const(label),
@@ -117,6 +118,7 @@ func NewDropdownSelect(label string, options []DropdownOption, value *store.Valu
 		activeIndex: 0,
 	}
 	ds.Facet = facet.NewFacet()
+	ds.Facet.OwnStoreScope(ownedScope)
 
 	ds.Layout.Parent = facet.GroupParentContract{
 		Kind:   facet.GroupLayoutLinearVertical,

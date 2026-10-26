@@ -148,9 +148,11 @@ func TestPaginationPointerKeyboardAndFocus(t *testing.T) {
 }
 
 func TestPaginationCurrentIndexSurvivesDispose(t *testing.T) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	contracttest.AssertValueSurvivesDispose[int](
 		t,
-		func() *store.ValueStore[int] { return store.NewValueStore(0) },
+		func() *store.ValueStore[int] { return store.NewValueStore(scope, 0) },
 		func(s *store.ValueStore[int]) facet.FacetImpl {
 			return NewPagination("Pages", []PaginationItem{
 				{Label: "Page 1"},
@@ -270,11 +272,13 @@ func renderPaginationToSurface(t *testing.T, pagination *Pagination, rt tabsRunt
 }
 
 func newPaginationTestFixture(t *testing.T, tokens theme.Tokens, density theme.DensityID, direction layout.WritingDirection) (*Pagination, tabsRuntimeStub, theme.ResolvedContext) {
+	scope := store.NewScope()
+	t.Cleanup(scope.Close)
 	t.Helper()
 	fonts := testkit.TestFontRegistry(t)
 	rtTokens := tokens
 	rtTokens.Density.Mode = densityToTemplateMode(density)
-	rootStyle := theme.NewRootStyleContext(nil, rtTokens, nil)
+	rootStyle := theme.NewRootStyleContext(scope, nil, rtTokens, nil)
 	resolved := theme.DefaultResolvedContext().WithDensity(theme.DefaultDensityScale(density, tokens)).WithWritingDirection(direction)
 	items := make([]PaginationItem, 0, 10)
 	for i := 1; i <= 10; i++ {
@@ -283,7 +287,7 @@ func newPaginationTestFixture(t *testing.T, tokens theme.Tokens, density theme.D
 			Label: "test-item-" + strconv.Itoa(i),
 		})
 	}
-	pagination := NewPagination("Pages", items, store.NewValueStore(4))
+	pagination := NewPagination("Pages", items, store.NewValueStore(scope, 4))
 	pagination.CurrentIndex.Set(4)
 	rt := tabsRuntimeStub{rootStyle: rootStyle, fonts: fonts}
 	return pagination, rt, resolved
@@ -328,6 +332,7 @@ func TestPaginationEntryCacheReDerivesOnVersionMismatch(t *testing.T) {
 	// ellipsis window shifts, so the visible indices MUST change and the cache
 	// MUST re-derive (version mismatch).
 	pagination.CurrentIndex.Set(0)
+	pagination.CurrentIndex.OwnerScope().FlushSignals()
 	measure()
 	if pagination.entryProj.version == versionBefore {
 		t.Fatalf("expected version key to advance after CurrentIndex.Set; got %d == %d", pagination.entryProj.version, versionBefore)
@@ -348,6 +353,7 @@ func TestPaginationEntryCacheReDerivesOnVersionMismatch(t *testing.T) {
 	pagination.Items = items
 	pagination.clampIndices()
 	pagination.rebuildChildren()
+	pagination.CurrentIndex.OwnerScope().FlushSignals()
 	versionBeforeMeasure := uint64(pagination.CurrentIndex.Version())
 	hashBeforeMeasure := pagination.entryProj.itemsHash
 	measure()
