@@ -15,8 +15,23 @@ type ResourcePolicy struct {
 	TextLimits text.Limits
 }
 
+// WorkerCounts defines the fixed worker counts for a profile.
+// Per FR-10: Compact uses 2 general + 1 decode, Standard uses 4 general + 2 decode.
+type WorkerCounts struct {
+	GeneralWorkers int
+	DecodeWorkers  int
+}
+
 func DefaultResourcePolicy(profile membudget.Profile) ResourcePolicy {
 	return ResourcePolicy{Plan: membudget.DefaultPlan(profile), TextLimits: text.DefaultLimits(profile)}
+}
+
+// ProfileWorkerCounts returns the fixed worker counts for a profile.
+func ProfileWorkerCounts(profile membudget.Profile) WorkerCounts {
+	if profile == membudget.Compact {
+		return WorkerCounts{GeneralWorkers: 2, DecodeWorkers: 1}
+	}
+	return WorkerCounts{GeneralWorkers: 4, DecodeWorkers: 2}
 }
 
 func (p ResourcePolicy) Validate() error {

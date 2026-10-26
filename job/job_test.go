@@ -68,7 +68,7 @@ func TestSnapshot_still_valid_wrong_count_panics(t *testing.T) {
 }
 
 func TestPool_schedule_and_drain(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	done := make(chan int, 1)
@@ -95,7 +95,7 @@ func TestPool_schedule_and_drain(t *testing.T) {
 }
 
 func TestPool_pause_and_resume_blocks_job_execution(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	p.Pause()
@@ -127,7 +127,7 @@ func TestPool_pause_and_resume_blocks_job_execution(t *testing.T) {
 }
 
 func TestPool_job_cancelled_by_same_id(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	started := make(chan *CancelToken, 1)
@@ -180,7 +180,7 @@ func TestPool_job_cancelled_by_same_id(t *testing.T) {
 }
 
 func TestPool_drain_returns_empty_when_no_results(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 	if got := p.Drain(); len(got) != 0 {
 		t.Fatalf("got %#v", got)
@@ -188,7 +188,7 @@ func TestPool_drain_returns_empty_when_no_results(t *testing.T) {
 }
 
 func TestPool_cancelled_result_in_drain(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	started := make(chan *CancelToken, 1)
@@ -217,7 +217,7 @@ func TestPool_cancelled_result_in_drain(t *testing.T) {
 }
 
 func TestPool_error_result_in_drain(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	err := Schedule(p, Job[int, int]{
@@ -241,7 +241,7 @@ func TestPool_error_result_in_drain(t *testing.T) {
 func TestPool_commit_fn_not_called_when_stale(t *testing.T) {
 	scope := store.NewScope()
 	defer scope.Close()
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	v := store.NewValueStore(scope, 1)
@@ -273,7 +273,7 @@ func TestPool_commit_fn_not_called_when_stale(t *testing.T) {
 func TestPool_commit_fn_called_when_valid(t *testing.T) {
 	scope := store.NewScope()
 	defer scope.Close()
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	v := store.NewValueStore(scope, 1)
@@ -302,7 +302,7 @@ func TestPool_commit_fn_called_when_valid(t *testing.T) {
 }
 
 func TestPool_interactive_before_background(t *testing.T) {
-	p := NewPool(2)
+	p := NewPool(2, nil)
 	defer p.Shutdown()
 
 	release := make(chan struct{})
@@ -347,7 +347,7 @@ func TestPool_interactive_before_background(t *testing.T) {
 }
 
 func TestPool_cancel_all(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	release := make(chan struct{})
@@ -378,7 +378,7 @@ func TestPool_cancel_all(t *testing.T) {
 
 func TestPool_shutdown_clean(t *testing.T) {
 	before := runtime.NumGoroutine()
-	p := NewPool(2)
+	p := NewPool(2, nil)
 	p.Shutdown()
 	time.Sleep(10 * time.Millisecond)
 	after := runtime.NumGoroutine()
@@ -416,7 +416,7 @@ func TestBindJob_jobID(t *testing.T) {
 }
 
 func TestBindJob_onCommit_called(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	commits := 0
@@ -442,7 +442,7 @@ func TestBindJob_onCommit_called(t *testing.T) {
 }
 
 func TestBindJob_afterCommit_called(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	order := make([]string, 0, 2)
@@ -473,7 +473,7 @@ func TestBindJob_afterCommit_called(t *testing.T) {
 }
 
 func TestBindJob_afterCommit_not_called_on_cancel(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	started := make(chan struct{})
@@ -531,7 +531,7 @@ func TestBindJob_afterCommit_not_called_on_cancel(t *testing.T) {
 }
 
 func TestBindJob_afterCommit_not_called_on_error(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	onCommitCalled := false
@@ -562,7 +562,7 @@ func TestBindJob_afterCommit_not_called_on_error(t *testing.T) {
 }
 
 func TestScheduleGuardedFencesLateCommit(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	started := make(chan struct{})
@@ -597,7 +597,7 @@ func TestScheduleGuardedFencesLateCommit(t *testing.T) {
 
 func TestPool_workers_exit_cleanly_when_results_full(t *testing.T) {
 	workerCount := 4
-	p := NewPool(workerCount)
+	p := NewPool(workerCount, nil)
 
 	// Schedule enough jobs to overflow the results channel (capacity = workerCount * 4).
 	// Run scheduling in a background goroutine so the test goroutine can call Shutdown
@@ -628,7 +628,7 @@ func TestPool_workers_exit_cleanly_when_results_full(t *testing.T) {
 }
 
 func TestPool_worker_restarts_after_panic(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	defer p.Shutdown()
 
 	err := Schedule(p, Job[int, int]{
@@ -675,7 +675,7 @@ func TestPool_worker_restarts_after_panic(t *testing.T) {
 func TestPool_10000_jobs_all_complete(t *testing.T) {
 	const numJobs = 10000
 	const numWorkers = 4
-	p := NewPool(numWorkers)
+	p := NewPool(numWorkers, nil)
 	defer p.Shutdown()
 
 	var commits atomic.Int32
@@ -717,7 +717,7 @@ func TestPool_10000_jobs_all_complete(t *testing.T) {
 }
 
 func TestPool_schedule_after_shutdown_returns_error(t *testing.T) {
-	p := NewPool(1)
+	p := NewPool(1, nil)
 	p.Shutdown()
 
 	err := Schedule(p, Job[int, int]{
@@ -734,7 +734,7 @@ func TestPool_schedule_after_shutdown_returns_error(t *testing.T) {
 }
 
 func TestPool_fifo_ordering_within_same_priority(t *testing.T) {
-	p := NewPool(1) // single worker forces FIFO
+	p := NewPool(1, nil) // single worker forces FIFO
 	defer p.Shutdown()
 
 	const numJobs = 20
@@ -780,7 +780,7 @@ func TestPool_fifo_ordering_within_same_priority(t *testing.T) {
 }
 
 func TestPool_cancel_all_stops_queued_jobs(t *testing.T) {
-	p := NewPool(2)
+	p := NewPool(2, nil)
 	defer p.Shutdown()
 
 	release := make(chan struct{})

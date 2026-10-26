@@ -396,7 +396,12 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 			})
 		}
 	}
-	rt.jobPool = job.NewPool(config.WorkerCount)
+	// Create jobs wallet from the resource policy
+	jobsWallet, err := membudget.NewWallet(config.Resources.Plan.Caps[membudget.Jobs])
+	if err != nil {
+		return nil, fmt.Errorf("failed to create jobs wallet: %w", err)
+	}
+	rt.jobPool = job.NewPool(config.WorkerCount, jobsWallet)
 	rt.projectionSystem.SetRuntime(rt)
 
 	return rt, nil

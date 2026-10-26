@@ -131,10 +131,6 @@ type DriveRuntimeConfig struct {
 
 // DefaultConfig returns a valid runtime configuration.
 func DefaultConfig() Config {
-	workers := goruntime.NumCPU() - 1
-	if workers < 1 {
-		workers = 1
-	}
 	profile := membudget.Standard
 	if goruntime.GOOS == "android" {
 		profile = membudget.Compact
@@ -145,7 +141,7 @@ func DefaultConfig() Config {
 	return Config{
 		TargetFPS:     60,
 		GestureConfig: input.DefaultGestureConfig(),
-		WorkerCount:   workers,
+		WorkerCount:   ProfileWorkerCounts(profile).GeneralWorkers,
 		FontRegistry:  reg,
 		Resources:     resources,
 

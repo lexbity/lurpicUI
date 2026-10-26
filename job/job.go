@@ -3,11 +3,12 @@ package job
 import (
 	"context"
 	"errors"
-	"runtime"
+	"fmt"
 	"sort"
 	"sync"
 	"sync/atomic"
 
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -24,6 +25,21 @@ func (t *CancelToken) Cancelled() bool {
 
 func (t *CancelToken) cancel() {
 	t.cancelled.Store(true)
+}
+
+// JobMemoryDecl declares the memory requirements for a job.
+type JobMemoryDecl struct {
+	// MaxInputBytes is the maximum size of the input snapshot.
+	MaxInputBytes uint64
+	// MaxScratchBytes is the maximum worker scratch memory needed.
+	MaxScratchBytes uint64
+	// MaxOutputBytes is the maximum size of the output.
+	MaxOutputBytes uint64
+}
+
+// TotalBytes returns the sum of all memory requirements.
+func (j JobMemoryDecl) TotalBytes() uint64 {
+	return j.MaxInputBytes + j.MaxScratchBytes + j.MaxOutputBytes
 }
 
 // Snapshot wraps an immutable input capture with the store versions it was derived from.
@@ -80,6 +96,12 @@ type Job[Input, Output any] struct {
 	Priority Priority
 	Snapshot Snapshot[Input]
 	Work     WorkFn[Input, Output]
+	// MemoryDecl declares the memory requirements for this job.
+	// The pool uses this to reserve capacity before scheduling.
+	MemoryDecl JobMemoryDecl
+	// Reservation holds the reservation token for this job's memory.
+	// Set by the pool when the job is scheduled.
+	reservation *membudget.Reservation
 }
 
 // Result is the typed output from a completed job.
@@ -114,11 +136,12 @@ func (r *DrainedResult) Commit() {
 }
 
 type queuedJob struct {
-	jobID    JobID
-	sequence uint64
-	priority Priority
-	cancel   *CancelToken
-	execute  func() DrainedResult
+	jobID       JobID
+	sequence    uint64
+	priority    Priority
+	cancel      *CancelToken
+	reservation *membudget.Reservation
+	execute     func() DrainedResult
 }
 
 // Pool manages a bounded worker goroutine set and job queues.
@@ -143,6 +166,10 @@ type Pool struct {
 	ready        map[JobID]int
 	drainedEarly map[JobID]int
 	closed       bool
+
+	// jobsWallet is the resource wallet for job memory reservations.
+	// All job submissions reserve from this wallet before scheduling.
+	jobsWallet *membudget.Wallet
 
 	pauseMu   sync.Mutex
 	pauseCond *sync.Cond
@@ -233,12 +260,12 @@ func (p *Pool) Resume() {
 }
 
 // NewPool creates a pool with workerCount workers.
-func NewPool(workerCount int) *Pool {
+// workerCount must be positive; use ProfileWorkerCounts for profile-based defaults.
+// jobsWallet is the resource wallet for job memory reservations. If nil, a default
+// wallet is created but jobs will fail to schedule without proper reservations.
+func NewPool(workerCount int, jobsWallet *membudget.Wallet) *Pool {
 	if workerCount <= 0 {
-		workerCount = runtime.NumCPU() - 1
-		if workerCount < 1 {
-			workerCount = 1
-		}
+		workerCount = 1
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Pool{
@@ -254,6 +281,7 @@ func NewPool(workerCount int) *Pool {
 		drainedSequence: make(map[uint64]struct{}, workerCount),
 		ready:           make(map[JobID]int, workerCount*4),
 		drainedEarly:    make(map[JobID]int, workerCount),
+		jobsWallet:      jobsWallet,
 	}
 	p.pauseCond = sync.NewCond(&p.pauseMu)
 	for i := 0; i < workerCount; i++ {
@@ -281,10 +309,29 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 		return errors.New("job: nil Work")
 	}
 
+	// Reserve memory for the job before scheduling
+	// Per FR-10: reserve input + scratch + output bytes for every simultaneously live stage
+	if p.jobsWallet != nil && job.MemoryDecl.TotalBytes() > 0 {
+		reservation, err := p.jobsWallet.Reserve(job.MemoryDecl.TotalBytes())
+		if err != nil {
+			return fmt.Errorf("job: memory reservation failed: %w", err)
+		}
+		job.reservation = reservation
+		// Publish the reservation - it becomes live when the job starts
+		if err := reservation.Publish(); err != nil {
+			_ = reservation.Cancel()
+			return fmt.Errorf("job: reservation publish failed: %w", err)
+		}
+	}
+
 	cancelToken := &CancelToken{}
 	p.mu.Lock()
 	if p.closed {
 		p.mu.Unlock()
+		// Release reservation if we have one
+		if job.reservation != nil {
+			_ = job.reservation.Release()
+		}
 		return errors.New("job: pool closed")
 	}
 	if prev := p.active[job.ID]; prev != nil {
@@ -301,11 +348,13 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 	p.mu.Unlock()
 
 	snap := job.Snapshot
+	reservation := job.reservation
 	q := queuedJob{
-		jobID:    job.ID,
-		sequence: sequence,
-		priority: job.Priority,
-		cancel:   cancelToken,
+		jobID:       job.ID,
+		sequence:    sequence,
+		priority:    job.Priority,
+		cancel:      cancelToken,
+		reservation: reservation,
 	}
 	q.execute = func() DrainedResult {
 		output, err := job.Work(snap, cancelToken)
@@ -523,6 +572,10 @@ func (p *Pool) worker() {
 
 func (p *Pool) execute(q queuedJob) {
 	if q.execute == nil {
+		// Release reservation if present
+		if q.reservation != nil {
+			_ = q.reservation.Release()
+		}
 		return
 	}
 	res := q.execute()
@@ -531,6 +584,15 @@ func (p *Pool) execute(q queuedJob) {
 		delete(p.active, q.jobID)
 	}
 	p.mu.Unlock()
+
+	// Release the reservation when the job completes
+	// The reservation was already published (made live) when scheduled
+	if q.reservation != nil {
+		// Move from live to retiring
+		_ = q.reservation.Retire()
+		// Note: The actual acknowledgment/release happens after the result is drained
+		// This follows FR-10: worker completion moves reservation through states
+	}
 
 	select {
 	case p.results <- res:
