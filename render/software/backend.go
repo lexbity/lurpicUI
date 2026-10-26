@@ -22,8 +22,6 @@ import (
 	"golang.org/x/image/vector"
 )
 
-
-
 type glyphEntry struct {
 	bitmap  *image.Alpha
 	image   image.Image
