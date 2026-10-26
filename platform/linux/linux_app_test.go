@@ -129,6 +129,8 @@ func (a *app) Destroy() {
 	a.mu.Unlock()
 }
 
+func (a *app) SetFrameDemand(bool) {}
+
 func (w *window) Surface() platform.Surface      { return w.surface }
 func (w *window) SetTitle(title string)          {}
 func (w *window) Size() (width, height int)      { return w.width, w.height }
@@ -213,6 +215,8 @@ func (q *eventQueue) Wait(timeout time.Duration) []platform.Event {
 	_ = timeout
 	return q.Poll()
 }
+
+func (q *eventQueue) Wake() <-chan struct{} { return nil }
 
 func (c *clipboard) ReadText() (string, error) {
 	if c == nil || c.app == nil {

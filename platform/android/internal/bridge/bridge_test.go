@@ -103,6 +103,25 @@ func TestEventQueue_MultipleEvents(t *testing.T) {
 	}
 }
 
+func TestEventQueue_WakeIsCoalescedAndResetByPoll(t *testing.T) {
+	q := NewEventQueue()
+	q.Push(Event{Type: EventTypeStart})
+	q.Push(Event{Type: EventTypeResume})
+	select {
+	case <-q.Wake():
+	default:
+		t.Fatal("event enqueue did not signal readiness")
+	}
+	if got := q.Poll(); len(got) != 2 {
+		t.Fatalf("poll events = %d, want 2", len(got))
+	}
+	select {
+	case <-q.Wake():
+		t.Fatal("poll left a stale wake")
+	default:
+	}
+}
+
 func TestEventQueue_TouchEvent(t *testing.T) {
 	q := NewEventQueue()
 

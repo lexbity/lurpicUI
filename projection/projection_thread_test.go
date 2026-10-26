@@ -106,3 +106,67 @@ func TestProjectionTopologyReleaseClearsRetiredReferences(t *testing.T) {
 		}
 	}
 }
+
+func TestRuntimeOwnedProjectionQuietFrameSkipsTreeWalk(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 40))
+	child := newProjectionTestFacet("child", gfx.RectFromXYWH(0, 0, 40, 20))
+	root.Base().AddChild(&child.Facet)
+	attachTree(root)
+	sys := NewSystem()
+	sys.SetRuntime(projectionStateRuntimeStub{})
+	sys.MarkDirtyFlags(root.Base().ID(), facet.DirtyAll)
+	sys.MarkDirtyFlags(child.Base().ID(), facet.DirtyAll)
+	sys.BeginDirtyGeneration()
+	first := sys.Run(root, FrameInfo{Number: 1})
+	if first == nil || len(first.RenderBatchs) != 2 {
+		t.Fatalf("initial output batches = %d, want 2", len(first.RenderBatchs))
+	}
+	sys.SealDirtyGeneration()
+	rootCalls, childCalls := root.projectCalls, child.projectCalls
+	quiet := sys.Run(root, FrameInfo{Number: 2})
+	if quiet == nil || len(quiet.RenderBatchs) != 2 {
+		t.Fatalf("quiet output batches = %d, want 2", len(quiet.RenderBatchs))
+	}
+	if sys.GateCount != 0 || sys.ProjectedFacets != 0 || sys.CacheHits != 2 {
+		t.Fatalf("quiet projection work gate=%d projected=%d hits=%d, want 0/0/2", sys.GateCount, sys.ProjectedFacets, sys.CacheHits)
+	}
+	if root.projectCalls != rootCalls || child.projectCalls != childCalls {
+		t.Fatalf("quiet callbacks root=%d/%d child=%d/%d", root.projectCalls, rootCalls, child.projectCalls, childCalls)
+	}
+}
+
+func TestRuntimeOwnedLayoutInvalidationFollowsChangedGeometry(t *testing.T) {
+	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 40))
+	changed := newProjectionTestFacet("changed", gfx.RectFromXYWH(0, 0, 40, 20))
+	unchanged := newProjectionTestFacet("unchanged", gfx.RectFromXYWH(50, 0, 40, 20))
+	root.Base().AddChild(&changed.Facet)
+	root.Base().AddChild(&unchanged.Facet)
+	attachTree(root)
+	sys := NewSystem()
+	sys.SetRuntime(projectionStateRuntimeStub{})
+	sys.MarkDirtyFlags(root.Base().ID(), facet.DirtyAll)
+	sys.BeginDirtyGeneration()
+	sys.Run(root, FrameInfo{Number: 1})
+	sys.SealDirtyGeneration()
+	rootCalls := root.projectCalls
+	changedCalls := changed.projectCalls
+	unchangedCalls := unchanged.projectCalls
+
+	changed.layout.ArrangedBounds = gfx.RectFromXYWH(0, 0, 45, 20)
+	sys.MarkDirtyFlags(root.Base().ID(), facet.DirtyLayout)
+	sys.BeginDirtyGeneration()
+	sys.Run(root, FrameInfo{Number: 2})
+	sys.SealDirtyGeneration()
+	if root.projectCalls != rootCalls+1 {
+		t.Fatalf("layout invalidation root callbacks=%d, want %d", root.projectCalls, rootCalls+1)
+	}
+	if changed.projectCalls != changedCalls+1 {
+		t.Fatalf("changed geometry callbacks=%d, want %d", changed.projectCalls, changedCalls+1)
+	}
+	if unchanged.projectCalls != unchangedCalls {
+		t.Fatalf("unchanged sibling callbacks=%d, want %d", unchanged.projectCalls, unchangedCalls)
+	}
+	if sys.ProjectedFacets != 2 || sys.CacheHits != 1 {
+		t.Fatalf("layout projection work projected=%d cacheHits=%d, want 2/1", sys.ProjectedFacets, sys.CacheHits)
+	}
+}

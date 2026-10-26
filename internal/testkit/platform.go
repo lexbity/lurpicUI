@@ -112,6 +112,8 @@ func (q *nullEventQueue) Wait(timeout time.Duration) []platform.Event {
 	return out
 }
 
+func (q *nullEventQueue) Wake() <-chan struct{} { return nil }
+
 // NullWindow is an in-memory platform.Window implementation.
 type NullWindow struct {
 	mu      sync.Mutex
@@ -215,6 +217,8 @@ func (a *NullApp) NewWindow(opts platform.WindowOptions) (platform.Window, error
 func (a *NullApp) Events() platform.EventQueue {
 	return a.ensureQueue()
 }
+
+func (a *NullApp) SetFrameDemand(bool) {}
 
 func (a *NullApp) Clipboard() platform.Clipboard { return &a.clipboard }
 

@@ -114,6 +114,7 @@ func (rt *Runtime) Run() error {
 	if err := rt.start(); err != nil {
 		return err
 	}
+	defer rt.setPlatformFrameDemand(false)
 	for {
 		if !rt.waitIfPausedOrStopped() {
 			return nil
@@ -146,6 +147,7 @@ func (rt *Runtime) Run() error {
 			return nil
 		}
 		if rt.clock.Mode() == ClockVirtual {
+			rt.setPlatformFrameDemand(false)
 			// Virtual mode parks between explicit frame tokens. Control reads
 			// and render acknowledgments remain serviceable without a frame.
 			if !rt.virtualParkStep() {
@@ -154,12 +156,18 @@ func (rt *Runtime) Run() error {
 			continue
 		}
 		if !rt.hasWallFrameWork() {
+			rt.setPlatformFrameDemand(false)
 			if !rt.waitForWallWork() {
 				return nil
 			}
 			continue
 		}
-		pacingNow := rt.frameTimer.Wait() // wall pacing only; the body reads engine time.
+		rt.setPlatformFrameDemand(true)
+		pacingNow, frameEligible := rt.frameTimer.WaitWithWake(rt.platformEventWake(), rt.drainPlatformEvents, rt.hasWallFrameWork)
+		if !frameEligible {
+			rt.setPlatformFrameDemand(false)
+			continue
+		}
 		rt.wallWakePending.Store(false)
 		if runtimeTraceActive() {
 			runtimeTracef("Run loop got frame tick frame=%d pace=%s", rt.frameNumber+1, pacingNow.Format(time.RFC3339Nano))
@@ -210,6 +218,26 @@ func (rt *Runtime) hasWallFrameWork() bool {
 	return false
 }
 
+func (rt *Runtime) setPlatformFrameDemand(demand bool) {
+	if rt != nil && rt.platformApp != nil {
+		rt.platformApp.SetFrameDemand(demand)
+	}
+}
+
+func (rt *Runtime) platformEventWake() <-chan struct{} {
+	if rt == nil || rt.platformApp == nil || rt.platformApp.Events() == nil {
+		return nil
+	}
+	return rt.platformApp.Events().Wake()
+}
+
+func (rt *Runtime) drainPlatformEvents() {
+	events := rt.handleWindowEvents(rt.collectPlatformEvents())
+	if len(events) != 0 {
+		rt.pendingEvents = append(rt.pendingEvents, events...)
+	}
+}
+
 func (rt *Runtime) waitForWallWork() bool {
 	requestWake, vsyncWake := rt.frameTimer.idleChannels()
 	var jobWake <-chan struct{}
@@ -224,6 +252,7 @@ func (rt *Runtime) waitForWallWork() bool {
 	if rt.renderPipeline != nil {
 		renderWake = rt.renderPipeline.Completions()
 	}
+	eventWake := rt.platformEventWake()
 	var hoverTimer *time.Timer
 	var hoverWake <-chan time.Time
 	if deadline, ok := rt.inputSystem.NextHoverDeadline(); ok {
@@ -252,6 +281,11 @@ func (rt *Runtime) waitForWallWork() bool {
 		rt.wallWakePending.Store(true)
 	case completion := <-renderWake:
 		rt.driveHandleRenderCompletion(completion)
+	case <-eventWake:
+		rt.drainPlatformEvents()
+		if len(rt.pendingEvents) != 0 {
+			rt.wallWakePending.Store(true)
+		}
 	case <-driveWake:
 		rt.driveDrain()
 	case <-hoverWake:

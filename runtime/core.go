@@ -51,9 +51,10 @@ type Runtime struct {
 	root           facet.FacetImpl
 	liveIndex      *liveIndex
 
-	frameNumber  uint64
-	frameTimer   *FrameTimer
-	contentScale float32
+	frameNumber        uint64
+	frameTimer         *FrameTimer
+	contentScale       float32
+	projectionModality facet.InputModality
 	// clock is the engine time service (QP-5): Wall reads the system clock,
 	// Virtual single-steps on driver advances. Runtime-thread owned.
 	clock                  *Clock
@@ -78,8 +79,10 @@ type Runtime struct {
 	rootStyleSubs    signal.Subscriptions
 	phase1HooksMu    sync.RWMutex
 	phase1Hooks      []phase1HookSlot
+	phase1HookActive []int
 	phase1HookFree   []int
 	phase1HookSeq    uint64
+	phase1Dispatches int
 	shutdownHooksMu  sync.RWMutex
 	shutdownHooks    []func()
 	lifecycleMu      sync.Mutex
@@ -625,7 +628,6 @@ func (rt *Runtime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source s
 
 	rt.config.StoreScope.QueueSignal(func() {
 		rt.recordInvalidation(id, flags, source)
-		rt.markFocusDirty(id)
 		if rt.root != nil && rt.root.Base() != nil && rt.root.Base().ID() == id {
 			rt.root.Base().InvalidateWithSource(flags, source)
 		}

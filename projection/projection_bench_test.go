@@ -2,37 +2,49 @@ package projection
 
 import (
 	"fmt"
-	goruntime "runtime"
 	"testing"
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 )
 
-func BenchmarkProjectionSequential(b *testing.B) {
-	for _, depth := range []int{4, 8, 16} {
-		for _, procs := range []int{1, 2, 4} {
-			b.Run(fmt.Sprintf("depth=%d/procs=%d", depth, procs), func(b *testing.B) {
-				benchmarkProjectionTree(b, buildBenchmarkProjectionChain(depth), procs)
-			})
-		}
+func BenchmarkProjectionQuietRetainedTopology(b *testing.B) {
+	for _, count := range []int{512, 2048} {
+		b.Run(fmt.Sprintf("nodes=%d", count), func(b *testing.B) {
+			root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 1280, 800))
+			for i := 1; i < count; i++ {
+				child := newProjectionTestFacet(fmt.Sprintf("child-%d", i), gfx.RectFromXYWH(0, 0, 1, 1))
+				root.Base().AddChild(&child.Facet)
+			}
+			attachTree(root)
+			sys := NewSystem()
+			sys.SetRuntime(projectionStateRuntimeStub{})
+			sys.MarkDirtyFlags(root.Base().ID(), facet.DirtyAll)
+			sys.BeginDirtyGeneration()
+			sys.Run(root, FrameInfo{Number: 1})
+			sys.SealDirtyGeneration()
+			baselineRebuilds := sys.TopologyRebuilds
+			b.ReportAllocs()
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				sys.Run(root, FrameInfo{Number: uint64(i + 2)})
+			}
+			b.StopTimer()
+			if sys.TopologyRebuilds != baselineRebuilds {
+				b.Fatalf("quiet projection rebuilt topology %d times", sys.TopologyRebuilds-baselineRebuilds)
+			}
+			if sys.ProjectedFacets != 0 {
+				b.Fatalf("quiet projection recomputed %d facets", sys.ProjectedFacets)
+			}
+			b.ReportMetric(float64(sys.TopologyRebuilds-baselineRebuilds), "topology-rebuilds/op")
+		})
 	}
 }
 
-func BenchmarkProjectionParallel(b *testing.B) {
-	for _, depth := range []int{2, 3, 4} {
-		for _, procs := range []int{1, 2, 4} {
-			b.Run(fmt.Sprintf("depth=%d/procs=%d", depth, procs), func(b *testing.B) {
-				benchmarkProjectionTree(b, buildBenchmarkProjectionWide(depth, 3), procs)
-			})
-		}
-	}
-}
-
-// BenchmarkProjection_NoPanic measures the projection cost of a wide tree with
-// the facet-recovery surface installed (guarded) versus the pre-recovery stub
-// baseline (unguarded). NFR-3 caps the guarded-vs-unguarded delta at 5%.
-func BenchmarkProjection_NoPanic(b *testing.B) {
+// BenchmarkProjectionRecoveryGuardOverhead compares a wide scene with and
+// without the runtime's facet recovery surface. It is a focused microbenchmark,
+// not a whole-runtime performance acceptance result.
+func BenchmarkProjectionRecoveryGuardOverhead(b *testing.B) {
 	build := func(b *testing.B, rt facet.RuntimeServices) {
 		b.Helper()
 		root := buildBenchmarkProjectionWide(3, 3)
@@ -48,40 +60,6 @@ func BenchmarkProjection_NoPanic(b *testing.B) {
 	}
 	b.Run("unguarded", func(b *testing.B) { build(b, projectionStateRuntimeStub{}) })
 	b.Run("guarded", func(b *testing.B) { build(b, &recoveryStub{}) })
-}
-
-func benchmarkProjectionTree(b *testing.B, root *projectionTestFacet, procs int) {
-	b.Helper()
-	if root == nil {
-		b.Fatal("expected benchmark root")
-	}
-	attachTree(root)
-	sys := NewSystem()
-	sys.SetRuntime(projectionStateRuntimeStub{})
-
-	oldProcs := goruntime.GOMAXPROCS(procs)
-	defer goruntime.GOMAXPROCS(oldProcs)
-
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		sys.MarkDirty(root.Base().ID())
-		sys.Run(root, FrameInfo{Number: uint64(i + 1)})
-	}
-}
-
-func buildBenchmarkProjectionChain(depth int) *projectionTestFacet {
-	if depth < 1 {
-		depth = 1
-	}
-	root := newProjectionTestFacet("chain_root", gfx.RectFromXYWH(0, 0, 32, 16))
-	cur := root
-	for i := 1; i < depth; i++ {
-		child := newProjectionTestFacet(fmt.Sprintf("chain_%d", i), gfx.RectFromXYWH(float32(i*4), float32(i*2), 24, 12))
-		cur.Base().AddChild(&child.Facet)
-		cur = child
-	}
-	return root
 }
 
 func buildBenchmarkProjectionWide(depth, fanout int) *projectionTestFacet {

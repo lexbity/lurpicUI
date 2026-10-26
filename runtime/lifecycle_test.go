@@ -49,6 +49,7 @@ func (q *fakeEventQueue) Poll() []platform.Event {
 func (q *fakeEventQueue) Wait(timeout time.Duration) []platform.Event {
 	return q.Poll()
 }
+func (q *fakeEventQueue) Wake() <-chan struct{} { return nil }
 
 func (q *fakeEventQueue) EnqueueDrive(evs ...platform.Event) {
 	q.mu.Lock()
@@ -57,6 +58,7 @@ func (q *fakeEventQueue) EnqueueDrive(evs ...platform.Event) {
 }
 
 func (a *lifecycleApp) Events() platform.EventQueue { return a.events }
+func (a *lifecycleApp) SetFrameDemand(bool)         {}
 func (a *lifecycleApp) Destroy()                    {}
 func (a *lifecycleApp) OnPause(fn func()) {
 	a.lifecycleMu.Lock()

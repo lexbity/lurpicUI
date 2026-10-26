@@ -30,6 +30,7 @@ func (rt *Runtime) RegisterPhase1TickHook(fn func(time.Duration)) func() {
 	generation := rt.phase1Hooks[index].generation
 	rt.phase1Hooks[index].sequence = sequence
 	rt.phase1Hooks[index].fn = fn
+	rt.phase1HookActive = append(rt.phase1HookActive, index)
 	rt.phase1HooksMu.Unlock()
 	var released bool
 	return func() {
@@ -38,7 +39,9 @@ func (rt *Runtime) RegisterPhase1TickHook(fn func(time.Duration)) func() {
 			slot := &rt.phase1Hooks[index]
 			if slot.generation == generation && slot.sequence == sequence && slot.fn != nil {
 				slot.fn = nil
-				rt.phase1HookFree = append(rt.phase1HookFree, index)
+				if rt.phase1Dispatches == 0 {
+					rt.compactPhase1HooksLocked()
+				}
 			}
 			released = true
 		}
@@ -47,24 +50,47 @@ func (rt *Runtime) RegisterPhase1TickHook(fn func(time.Duration)) func() {
 }
 
 func (rt *Runtime) runPhase1TickHooks(dt time.Duration) {
-	rt.phase1HooksMu.RLock()
+	rt.phase1HooksMu.Lock()
 	limit := rt.phase1HookSeq
-	length := len(rt.phase1Hooks)
-	rt.phase1HooksMu.RUnlock()
+	length := len(rt.phase1HookActive)
+	rt.phase1Dispatches++
+	rt.phase1HooksMu.Unlock()
 	for i := 0; i < length; i++ {
 		rt.phase1HooksMu.RLock()
-		slot := rt.phase1Hooks[i]
+		index := rt.phase1HookActive[i]
+		slot := rt.phase1Hooks[index]
 		rt.phase1HooksMu.RUnlock()
 		if slot.fn != nil && slot.sequence <= limit {
 			slot.fn(dt)
 		}
 	}
+	rt.phase1HooksMu.Lock()
+	rt.phase1Dispatches--
+	if rt.phase1Dispatches == 0 {
+		rt.compactPhase1HooksLocked()
+	}
+	rt.phase1HooksMu.Unlock()
+}
+
+func (rt *Runtime) compactPhase1HooksLocked() {
+	write := 0
+	for _, index := range rt.phase1HookActive {
+		if rt.phase1Hooks[index].fn == nil {
+			rt.phase1HookFree = append(rt.phase1HookFree, index)
+			continue
+		}
+		rt.phase1HookActive[write] = index
+		write++
+	}
+	clear(rt.phase1HookActive[write:])
+	rt.phase1HookActive = rt.phase1HookActive[:write]
 }
 
 func (rt *Runtime) clearPhase1TickHooks() {
 	rt.phase1HooksMu.Lock()
 	clear(rt.phase1Hooks)
 	rt.phase1Hooks = nil
+	rt.phase1HookActive = nil
 	rt.phase1HookFree = nil
 	rt.phase1HooksMu.Unlock()
 }

@@ -9,6 +9,7 @@
  */
 
 #include <android/choreographer.h>
+#include <stdatomic.h>
 #include <android/configuration.h>
 #include <android/native_activity.h>
 #include <android/native_window.h>
@@ -272,42 +273,110 @@ static void onInputQueueDestroyed(ANativeActivity* activity, AInputQueue* queue)
  * 8.3ms at 120 Hz, etc.).
  */
 
-static int g_vsync_registered = 0;
+static _Atomic int g_vsync_registered = 0;
+static _Atomic int g_vsync_desired = 0;
+static _Atomic int g_vsync_update_posted = 0;
+static _Atomic int g_vsync_callback_pending = 0;
+static void vsync_frame_callback(long frameTimeNanos, void* data);
+
+static void post_vsync_callback(AChoreographer* choreographer) {
+    if (choreographer == NULL ||
+        atomic_exchange_explicit(&g_vsync_callback_pending, 1, memory_order_acq_rel)) {
+        return;
+    }
+    AChoreographer_postFrameCallback(choreographer, vsync_frame_callback, NULL);
+}
 
 static void vsync_frame_callback(long frameTimeNanos, void* data) {
     (void)data;
-    goDeliverVsync((int64_t)frameTimeNanos);
+    atomic_store_explicit(&g_vsync_callback_pending, 0, memory_order_release);
 
-    /* Re-register for the next frame so we get continuous vsync events.
-     * AChoreographer_postFrameCallback is thread-safe and can be called
-     * from any thread. */
-    if (g_vsync_registered) {
+    /* A queued callback may outlive a stop request. It is inert while idle;
+     * when demand returns before it runs, it becomes the single active chain. */
+    if (atomic_load_explicit(&g_vsync_desired, memory_order_acquire)) {
+        goDeliverVsync((int64_t)frameTimeNanos);
         AChoreographer* choreographer = AChoreographer_getInstance();
-        if (choreographer != NULL) {
-            AChoreographer_postFrameCallback(choreographer, vsync_frame_callback, NULL);
-        }
+        if (atomic_load_explicit(&g_vsync_desired, memory_order_acquire))
+            post_vsync_callback(choreographer);
     }
 }
 
 /* Start receiving vsync callbacks. Should be called when the app is
  * visible and actively rendering (e.g., onResume / onWindowFocusChanged). */
 static void start_vsync(void) {
-    if (g_vsync_registered) return;
+    if (atomic_exchange_explicit(&g_vsync_registered, 1, memory_order_acq_rel)) return;
     AChoreographer* choreographer = AChoreographer_getInstance();
     if (choreographer == NULL) {
+        atomic_store_explicit(&g_vsync_registered, 0, memory_order_release);
         LOGW("Choreographer not available (pre-API 24 or no main looper)");
         return;
     }
-    g_vsync_registered = 1;
-    AChoreographer_postFrameCallback(choreographer, vsync_frame_callback, NULL);
+    post_vsync_callback(choreographer);
     LOGI("Vsync callbacks started");
 }
 
 /* Stop receiving vsync callbacks. Should be called when the app is
  * paused or no longer visible. */
 static void stop_vsync(void) {
-    g_vsync_registered = 0;
+    atomic_store_explicit(&g_vsync_registered, 0, memory_order_release);
     LOGI("Vsync callbacks stopped");
+}
+
+/* Choreographer instances are associated with the calling thread's looper.
+ * Runtime demand changes arrive on a Go runtime thread. Java's existing
+ * Activity.runOnUiThread surface transfers this request to the UI looper. */
+JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeApplyVsyncDemand(
+        JNIEnv* env, jobject thiz) {
+    (void)env;
+    (void)thiz;
+    for (;;) {
+        int desired = atomic_load_explicit(&g_vsync_desired, memory_order_acquire);
+        int registered = atomic_load_explicit(&g_vsync_registered, memory_order_acquire);
+        if (desired && !registered) {
+            start_vsync();
+        } else if (!desired && registered) {
+            stop_vsync();
+        }
+        atomic_store_explicit(&g_vsync_update_posted, 0, memory_order_release);
+        if (desired == atomic_load_explicit(&g_vsync_desired, memory_order_acquire)) {
+            return;
+        }
+        if (atomic_exchange_explicit(&g_vsync_update_posted, 1, memory_order_acq_rel)) {
+            return;
+        }
+    }
+}
+
+static void request_vsync(int desired) {
+    atomic_store_explicit(&g_vsync_desired, desired != 0, memory_order_release);
+    if (g_activity == NULL || g_activity_object == NULL) {
+        return;
+    }
+    if (atomic_exchange_explicit(&g_vsync_update_posted, 1, memory_order_acq_rel)) {
+        return;
+    }
+    JNIEnv* env = get_jni_env();
+    if (env == NULL) {
+        atomic_store_explicit(&g_vsync_update_posted, 0, memory_order_release);
+        LOGW("unable to attach runtime thread for Choreographer demand update");
+        return;
+    }
+    jclass cls = (*env)->GetObjectClass(env, g_activity_object);
+    jmethodID method = cls == NULL ? NULL : (*env)->GetMethodID(env, cls, "scheduleVsyncDemand", "()V");
+    if (method != NULL) {
+        (*env)->CallVoidMethod(env, g_activity_object, method);
+    }
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        LOGW("Java rejected Choreographer demand update");
+        atomic_store_explicit(&g_vsync_update_posted, 0, memory_order_release);
+    } else if (method == NULL) {
+        atomic_store_explicit(&g_vsync_update_posted, 0, memory_order_release);
+        LOGW("LurpicNativeActivity.scheduleVsyncDemand is unavailable");
+    }
+    if (cls != NULL) {
+        (*env)->DeleteLocalRef(env, cls);
+    }
 }
 
 /* ── Input thread ────────────────────────────────────────────────────── */
@@ -828,11 +897,11 @@ jint bridgeIsPermissionDeclared(const char* permission) {
 }
 
 void bridgeVsyncStart(void) {
-    start_vsync();
+    request_vsync(1);
 }
 
 void bridgeVsyncStop(void) {
-    stop_vsync();
+    request_vsync(0);
 }
 
 JNIEXPORT void JNICALL Java_org_lurpicui_bridge_LurpicNativeActivity_nativeImeCompose(

@@ -365,6 +365,7 @@ var _ platform.App = (*nilApp)(nil)
 type nilApp struct{}
 
 func (n *nilApp) Events() platform.EventQueue { return nil }
+func (n *nilApp) SetFrameDemand(bool)         {}
 func (n *nilApp) Destroy()                    {}
 
 type runtimeHitFacet struct {

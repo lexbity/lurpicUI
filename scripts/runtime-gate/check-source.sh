@@ -108,3 +108,45 @@ if [[ "$phase" == *P4* ]]; then
 	grep -q 'func (r \*Reservation) Cancel() error' internal/membudget/plan.go
 	printf '%s\n' 'runtime-gate: P4 source contracts passed'
 fi
+
+if [[ "$phase" == *P5* ]]; then
+	for package in projection runtime facet platform platform/android platform/linux/internal/display; do
+		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
+		if [ -z "$files" ]; then
+			printf 'source inventory is empty for %s\n' "$package" >&2
+			exit 1
+		fi
+	done
+	expect_absent 'go[[:space:]]+func|walkChildSubtrees|ProjectionOutputPartitions' projection/projection.go
+	expect_absent 'append\(\[\]func\(time\.Duration\)\{\}, rt\.phase1Hooks\.\.\.' runtime/phase_hooks_runtime.go
+	expect_absent 'rt\.dirtyFacets = make|rt\.dirtySources = make' runtime/frame.go
+	expect_absent '^[[:space:]]*(Focusable|TabIndex)[[:space:]]' facet/roles.go
+	grep -q 'func (rt \*Runtime) recordInvalidation' runtime/dirty_work.go
+	grep -q 'nextDirtyFacets' runtime/dirty_work.go
+	grep -q 'phase1HookActive' runtime/phase_hooks_runtime.go
+	grep -q 'func (rt \*Runtime) compactPhase1HooksLocked' runtime/phase_hooks_runtime.go
+	grep -q 'func (rt \*Runtime) hasWallFrameWork' runtime/lifecycle.go
+	grep -q 'func (rt \*Runtime) waitForWallWork' runtime/lifecycle.go
+	grep -q 'OnFacetInvalidated func' facet/context.go
+	grep -q 'MarkDirtyFlags(id, flags)' runtime/dirty_work.go
+	expect_absent 'collectDirtyFlags|propagateDirty|clearTreeDirty|managedDirty|SetManagedInvalidations' projection/projection.go runtime
+	grep -q 'func TestRuntimeOwnedProjectionQuietFrameSkipsTreeWalk' projection/projection_thread_test.go
+	grep -q 'func TestRuntimeOwnedLayoutInvalidationFollowsChangedGeometry' projection/projection_thread_test.go
+	grep -q 'func TestSwitchedGolden_stageReproducesFreshAfterExhibitCycle' demos/lurpic_studio/studio/switched_golden_test.go
+	grep -q 'func TestPendingHoverDeadlineWakesIdle' runtime/idle_test.go
+	grep -q 'func TestFrameTimerWakeWithoutRemainingWorkDoesNotAuthorizeFrame' runtime/smoke_test.go
+	grep -q 'frameEligible func() bool' runtime/config.go
+	grep -q 'func TestReadyWallJobRequestsFrame' runtime/idle_test.go
+	grep -q 'func TestIdleVirtualJobDoesNotAdvance' runtime/idle_test.go
+	grep -q 'SetFrameDemand(bool)' platform/platform.go
+	grep -q 'syncVsyncDemand' platform/android/android.go
+	grep -q 'runOnUiThread(this::nativeApplyVsyncDemand)' cmd/lurpic/androidtmpl/LurpicNativeActivity.java
+	grep -q 'nativeApplyVsyncDemand(' platform/android/internal/bridge/lurpic_android.c
+	grep -q 'g_vsync_update_posted' platform/android/internal/bridge/lurpic_android.c
+	grep -q 'g_vsync_callback_pending' platform/android/internal/bridge/lurpic_android.c
+	grep -q 'func (a \*app) runEventPump' platform/linux/internal/display/display_cgo.go
+	grep -q 'func TestWallRuntimeParksAfterBootstrapUntilFrameRequest' runtime/idle_test.go
+	grep -q 'func TestProjectionCallbacksStaySerialAndPreOrder' projection/projection_thread_test.go
+	grep -q 'func TestPhase1HookReleaseCompactsActiveEntries' runtime/phase_hooks_runtime_test.go
+	printf '%s\n' 'runtime-gate: P5 source contracts passed'
+fi

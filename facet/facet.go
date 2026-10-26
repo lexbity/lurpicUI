@@ -21,6 +21,7 @@ type Facet struct {
 	subs                  signal.Subscriptions
 	storeScope            *store.Scope
 	onDisposed            func(FacetID)
+	onInvalidated         func(FacetID, DirtyFlags, string)
 	onTickActivityChanged func(FacetID, *TickRole, bool)
 	onFocusPolicyChanged  func(FacetID)
 	textLeases            []*text.LayoutLease
@@ -383,6 +384,9 @@ func (f *Facet) InvalidateWithSource(flags DirtyFlags, source string) {
 	}
 	if source != "" {
 		f.lastInvalidatedBy = source
+	}
+	if f.onInvalidated != nil && flags != 0 {
+		f.onInvalidated(f.id, flags, source)
 	}
 }
 

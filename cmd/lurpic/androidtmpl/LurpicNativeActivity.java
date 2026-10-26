@@ -331,6 +331,12 @@ public class LurpicNativeActivity extends NativeActivity implements AudioManager
         });
     }
 
+    public void scheduleVsyncDemand() {
+        runOnUiThread(this::nativeApplyVsyncDemand);
+    }
+
+    private native void nativeApplyVsyncDemand();
+
     @Override
     public void onAudioFocusChange(int focusChange) {
         Log.i(TAG, "onAudioFocusChange: " + focusChange);

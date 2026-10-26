@@ -40,6 +40,7 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 		TestIDs:                 rt.liveTestIDs,
 		OnFacetTreeAttached:     rt.onFacetTreeAttached,
 		OnFacetDisposed:         rt.onFacetDisposed,
+		OnFacetInvalidated:      rt.onFacetInvalidated,
 		OnHostedChildrenChanged: rt.onHostedChildrenChanged,
 		OnTickActivityChanged:   rt.onTickActivityChanged,
 		OnFocusPolicyChanged:    rt.onFocusPolicyChanged,
@@ -60,6 +61,14 @@ func (rt *Runtime) onFocusPolicyChanged(id facet.FacetID) {
 	}
 }
 
+func (rt *Runtime) onFacetInvalidated(id facet.FacetID, flags facet.DirtyFlags, source string) {
+	if rt == nil || id == 0 || flags == 0 {
+		return
+	}
+	rt.invalidateDriveObservation()
+	rt.recordInvalidation(id, flags, source)
+}
+
 func (rt *Runtime) onFacetTreeAttached(root facet.FacetImpl) {
 	rt.projectionSystem.InvalidateTopology()
 	rt.focusDirty = true
@@ -74,6 +83,10 @@ func (rt *Runtime) onFacetTreeAttached(root facet.FacetImpl) {
 
 func (rt *Runtime) onFacetDisposed(id facet.FacetID) {
 	rt.projectionSystem.ForgetFacet(id)
+	delete(rt.dirtyFacets, id)
+	delete(rt.dirtySources, id)
+	delete(rt.nextDirtyFacets, id)
+	delete(rt.nextDirtySources, id)
 	rt.focusDirty = true
 	rt.layerTreeDirty = true
 	rt.removeActiveTickFacet(id)

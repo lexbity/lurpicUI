@@ -32,6 +32,9 @@ type AttachContext struct {
 	// OnFacetDisposed removes a facet lifetime from the runtime's live view
 	// after its detach hooks and owned resources have finished releasing.
 	OnFacetDisposed func(FacetID)
+	// OnFacetInvalidated publishes explicit dirty-domain changes to the runtime
+	// owner so clean projection subtrees can remain dormant.
+	OnFacetInvalidated func(FacetID, DirtyFlags, string)
 	// OnHostedChildrenChanged publishes an immutable snapshot of a host's
 	// current materialized children. The runtime owns the resulting identity
 	// links; hosts call this only when that materialized set changes.

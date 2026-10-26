@@ -135,6 +135,10 @@ func (rt *Runtime) runFrame(now time.Time, waitForRender, reservedFrameCredit bo
 	rt.driveActivatePendingCommands()
 	rt.driveActivatePendingPlanStep()
 	rt.deliverSignals()
+	if modality := rt.inputSystem.CurrentInputModality(); modality != rt.projectionModality {
+		rt.projectionModality = modality
+		rt.markTreeDirty(rt.root, facet.DirtyProjection|facet.DirtyHit)
+	}
 	if runtimeTraceActive() {
 		runtimeTracef("runFrame after-signals n=%d pending=%d dirty=%d", rt.frameNumber, len(rt.pendingEvents), len(rt.dirtyFacets))
 	}

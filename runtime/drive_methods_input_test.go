@@ -131,6 +131,7 @@ func (q *recordQueue) Poll() []platform.Event {
 	return e
 }
 func (q *recordQueue) Wait(timeout time.Duration) []platform.Event { return q.Poll() }
+func (q *recordQueue) Wake() <-chan struct{}                       { return nil }
 
 func TestDriveInput_ClickSynthesizesPlatformShapedEvents(t *testing.T) {
 	q := &recordQueue{}
@@ -497,6 +498,7 @@ func TestHumanPreemptsSamePollBatch(t *testing.T) {
 	t.Fatal("same-batch preemption did not terminalize the operation")
 }
 func (q *gatedQueue) Wait(timeout time.Duration) []platform.Event { return q.Poll() }
+func (q *gatedQueue) Wake() <-chan struct{}                       { return nil }
 
 // TestDriveInput_PreemptionByPlatformEvent (FR-15): a human (SourcePlatform)
 // event observed mid-step severs the step — the reply reports
@@ -737,4 +739,5 @@ type inputQueueApp struct {
 }
 
 func (a *inputQueueApp) Events() platform.EventQueue { return a.q }
+func (a *inputQueueApp) SetFrameDemand(bool)         {}
 func (a *inputQueueApp) Destroy()                    {}

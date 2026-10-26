@@ -13,6 +13,10 @@ type EventQueue interface {
 	Push(Event)
 	Poll() []Event
 	Wait(timeout time.Duration) []Event
+	// Wake returns a coalesced notification when events become available. The
+	// consumer drains the queue after receiving it; the notification carries no
+	// event payload and never mutates runtime state.
+	Wake() <-chan struct{}
 	// EnqueueDrive injects LDP-synthesized events (QP-10): the same
 	// mutex-guarded FIFO, the same drain, explicit provenance. Ordering
 	// relative to same-frame platform events is unspecified by design.

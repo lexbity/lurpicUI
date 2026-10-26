@@ -17,6 +17,7 @@ package display
 #include <xcb/xcb_icccm.h>
 #include <xcb/xcb_keysyms.h>
 #include <X11/keysym.h>
+#include <sys/eventfd.h>
 
 static int lurpic_shmget(size_t size) {
 	return shmget(IPC_PRIVATE, size, IPC_CREAT | 0600);
@@ -89,6 +90,10 @@ static uint32_t lurpic_selection_notify_property(const xcb_selection_notify_even
 	return ev->property;
 }
 
+static int lurpic_eventfd_create(void) {
+	return eventfd(0, EFD_CLOEXEC | EFD_NONBLOCK);
+}
+
 static uint32_t lurpic_selection_notify_requestor(const xcb_selection_notify_event_t *ev) {
 	return ev->requestor;
 }
@@ -133,6 +138,8 @@ import (
 	rendervulkan "codeburg.org/lexbit/lurpicui/render/vulkan"
 )
 
+const epollEdgeTriggered uint32 = 1 << 31
+
 var errNoDisplay = errors.New("linux platform: no X display available")
 
 // NewApp opens the X11 connection, wires epoll to the XCB file descriptor, and
@@ -164,15 +171,20 @@ func NewApp() (platform.App, error) {
 
 	screen := iter.data
 	app := &app{
-		conn:      conn,
-		screen:    screen,
-		epollFD:   -1,
-		windows:   make(map[uint32]*window),
-		keysyms:   C.xcb_key_symbols_alloc(conn),
-		clipboard: &clipboard{},
+		conn:          conn,
+		screen:        screen,
+		epollFD:       -1,
+		wakeFD:        -1,
+		eventPumpDone: make(chan struct{}),
+		windows:       make(map[uint32]*window),
+		keysyms:       C.xcb_key_symbols_alloc(conn),
+		clipboard:     &clipboard{},
 	}
 	app.clipboard.app = app
-	app.events = &eventQueue{app: app}
+	app.events = &eventQueue{
+		app:  app,
+		wake: make(chan struct{}, 1),
+	}
 
 	epfd, err := syscall.EpollCreate1(syscall.EPOLL_CLOEXEC)
 	if err != nil {
@@ -180,10 +192,21 @@ func NewApp() (platform.App, error) {
 		return nil, errors.New("linux platform: epoll create failed")
 	}
 	app.epollFD = epfd
-	ev := &syscall.EpollEvent{Events: syscall.EPOLLIN, Fd: int32(C.xcb_get_file_descriptor(conn))}
+	ev := &syscall.EpollEvent{Events: uint32(syscall.EPOLLIN) | epollEdgeTriggered, Fd: int32(C.xcb_get_file_descriptor(conn))}
 	if err := syscall.EpollCtl(app.epollFD, syscall.EPOLL_CTL_ADD, int(ev.Fd), ev); err != nil {
 		app.Destroy()
 		return nil, errors.New("linux platform: epoll ctl failed")
+	}
+	wakeFD := int(C.lurpic_eventfd_create())
+	if wakeFD < 0 {
+		app.Destroy()
+		return nil, errors.New("linux platform: eventfd create failed")
+	}
+	app.wakeFD = wakeFD
+	wakeEvent := &syscall.EpollEvent{Events: uint32(syscall.EPOLLIN) | epollEdgeTriggered, Fd: int32(wakeFD)}
+	if err := syscall.EpollCtl(app.epollFD, syscall.EPOLL_CTL_ADD, wakeFD, wakeEvent); err != nil {
+		app.Destroy()
+		return nil, errors.New("linux platform: eventfd epoll registration failed")
 	}
 
 	if app.keysyms == nil {
@@ -212,6 +235,8 @@ func NewApp() (platform.App, error) {
 		0,
 		nil,
 	)
+	app.eventPumpStarted = true
+	go app.runEventPump()
 
 	return app, nil
 }
@@ -219,10 +244,14 @@ func NewApp() (platform.App, error) {
 type app struct {
 	conn *C.xcb_connection_t
 
-	screen         *C.xcb_screen_t
-	keysyms        *C.xcb_key_symbols_t
-	epollFD        int
-	clipboardOwner C.xcb_window_t
+	screen           *C.xcb_screen_t
+	keysyms          *C.xcb_key_symbols_t
+	epollFD          int
+	wakeFD           int
+	eventPumpDone    chan struct{}
+	eventPumpStarted bool
+	closed           bool
+	clipboardOwner   C.xcb_window_t
 
 	mu        sync.Mutex
 	windows   map[uint32]*window
@@ -273,6 +302,8 @@ type eventQueue struct {
 	mu      sync.Mutex
 	pending []platform.Event
 	app     *app
+	wake    chan struct{}
+	closed  bool
 }
 
 type clipboard struct {
@@ -423,6 +454,32 @@ func (a *app) NewWindow(opts platform.WindowOptions) (platform.Window, error) {
 
 func (a *app) Events() platform.EventQueue { return a.events }
 
+// X11 input readiness is event driven; frame demand only controls presentation
+// pacing in the runtime and does not alter the X server event subscription.
+func (a *app) SetFrameDemand(bool) {}
+
+func (a *app) runEventPump() {
+	defer close(a.eventPumpDone)
+	var ready [8]syscall.EpollEvent
+	for {
+		n, err := syscall.EpollWait(a.epollFD, ready[:], -1)
+		if err != nil {
+			if err == syscall.EINTR {
+				continue
+			}
+			return
+		}
+		for i := 0; i < n; i++ {
+			if int(ready[i].Fd) == a.wakeFD {
+				var value [8]byte
+				_, _ = syscall.Read(a.wakeFD, value[:])
+				return
+			}
+			a.events.notifyNativeReady()
+		}
+	}
+}
+
 func (a *app) Clipboard() platform.Clipboard { return a.clipboard }
 
 func (a *app) Destroy() {
@@ -430,11 +487,30 @@ func (a *app) Destroy() {
 		return
 	}
 	a.mu.Lock()
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
+	a.closed = true
+	windows := make([]*window, 0, len(a.windows))
 	for _, w := range a.windows {
-		w.destroy()
+		windows = append(windows, w)
 	}
 	a.windows = nil
 	a.mu.Unlock()
+	a.events.close()
+	if a.wakeFD >= 0 {
+		var value [8]byte
+		value[0] = 1
+		_, _ = syscall.Write(a.wakeFD, value[:])
+	}
+	if a.eventPumpStarted {
+		<-a.eventPumpDone
+		a.eventPumpStarted = false
+	}
+	for _, w := range windows {
+		w.destroy()
+	}
 	if a.keysyms != nil {
 		C.xcb_key_symbols_free(a.keysyms)
 		a.keysyms = nil
@@ -446,6 +522,10 @@ func (a *app) Destroy() {
 	if a.epollFD >= 0 {
 		_ = syscall.Close(a.epollFD)
 		a.epollFD = -1
+	}
+	if a.wakeFD >= 0 {
+		_ = syscall.Close(a.wakeFD)
+		a.wakeFD = -1
 	}
 	C.xcb_disconnect(a.conn)
 	a.conn = nil
@@ -667,7 +747,12 @@ func (q *eventQueue) Push(e platform.Event) {
 		return
 	}
 	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
 	q.pending = append(q.pending, e)
+	q.signalLocked()
 	q.mu.Unlock()
 }
 
@@ -677,7 +762,40 @@ func (q *eventQueue) EnqueueDrive(evs ...platform.Event) {
 		return
 	}
 	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
 	q.pending = append(q.pending, evs...)
+	q.signalLocked()
+	q.mu.Unlock()
+}
+
+func (q *eventQueue) Wake() <-chan struct{} { return q.wake }
+
+func (q *eventQueue) signalLocked() {
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (q *eventQueue) notifyNativeReady() {
+	q.mu.Lock()
+	if q.closed {
+		q.mu.Unlock()
+		return
+	}
+	q.signalLocked()
+	q.mu.Unlock()
+}
+
+func (q *eventQueue) close() {
+	q.mu.Lock()
+	if !q.closed {
+		q.closed = true
+		q.signalLocked()
+	}
 	q.mu.Unlock()
 }
 
@@ -686,49 +804,52 @@ func (q *eventQueue) Poll() []platform.Event {
 		return nil
 	}
 	q.mu.Lock()
-	if len(q.pending) > 0 {
-		out := append([]platform.Event(nil), q.pending...)
-		q.pending = q.pending[:0]
-		q.mu.Unlock()
-		return out
+	out := append([]platform.Event(nil), q.pending...)
+	q.pending = q.pending[:0]
+	if q.wake != nil {
+		select {
+		case <-q.wake:
+		default:
+		}
 	}
+	closed := q.closed
 	q.mu.Unlock()
-	if q.app == nil || q.app.conn == nil {
-		return nil
-	}
-	var events []platform.Event
-	for {
-		ev := C.xcb_poll_for_event(q.app.conn)
-		if ev == nil {
-			break
+	if !closed && q.app != nil && q.app.conn != nil {
+		for {
+			ev := C.xcb_poll_for_event(q.app.conn)
+			if ev == nil {
+				break
+			}
+			if translated := q.app.translateEvent(ev); translated != nil {
+				out = append(out, translated...)
+			}
+			C.free(unsafe.Pointer(ev))
 		}
-		if translated := q.app.translateEvent(ev); translated != nil {
-			events = append(events, translated...)
-		}
-		C.free(unsafe.Pointer(ev))
 	}
-	return events
+	return out
 }
 
 func (q *eventQueue) Wait(timeout time.Duration) []platform.Event {
-	if q == nil || q.app == nil || q.app.conn == nil {
+	if q == nil {
 		return q.Poll()
 	}
 	if pending := q.Poll(); len(pending) > 0 {
 		return pending
 	}
-	if q.app.epollFD >= 0 {
-		var events [1]syscall.EpollEvent
-		ms := -1
-		if timeout >= 0 {
-			ms = int(timeout / time.Millisecond)
-			if timeout > 0 && ms == 0 {
-				ms = 1
-			}
+	if timeout == 0 {
+		return nil
+	}
+	if timeout < 0 {
+		select {
+		case <-q.wake:
 		}
-		if n, err := syscall.EpollWait(q.app.epollFD, events[:], ms); err == nil && n > 0 {
-			return q.Poll()
-		}
+		return q.Poll()
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+	select {
+	case <-q.wake:
+	case <-timer.C:
 	}
 	return q.Poll()
 }

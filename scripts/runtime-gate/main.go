@@ -34,12 +34,14 @@ func main() {
 	flag.Parse()
 
 	if *measure {
-		if *phase != "P3" && *phase != "P4" || *mode != "" && *mode != testevidence.ModeHost || *backend != "software" || *androidNDK || *device || *requirePlatform || *requireBackend {
-			fail("measurement supports only host software phases P3 and P4")
+		if *phase != "P3" && *phase != "P4" && *phase != "P5" || *mode != "" && *mode != testevidence.ModeHost || *backend != "software" || *androidNDK || *device || *requirePlatform || *requireBackend {
+			fail("measurement supports only host software phases P3, P4, and P5")
 		}
 		benchmark, pkg, fixture := "BenchmarkIdentityLookupSweep", "./runtime", "runtime/live_index_test.go"
 		if *phase == "P4" {
 			benchmark, pkg, fixture = "BenchmarkTextServiceLabel", "./text", "text/service_test.go"
+		} else if *phase == "P5" {
+			benchmark, pkg, fixture = "BenchmarkProjectionQuietRetainedTopology", "./projection", "projection/projection_bench_test.go"
 		}
 		if err := runBenchmarkMeasure(*root, *phase, benchmark, pkg, fixture, *count); err != nil {
 			fail("%s measurement: %v", *phase, err)
@@ -47,14 +49,14 @@ func main() {
 		return
 	}
 	if *androidNDK || *device || *requirePlatform || *requireBackend || *backend != "software" {
-		fail("requested Android, backend, or platform-evidence path is not implemented in P3")
+		fail("requested Android, backend, or platform-evidence path is not implemented for this phase")
 	}
 	if *contracts != "" {
 		contractPhase := *contracts
 		if contractPhase == "all" {
-			contractPhase = "P1,P2,P3,P4"
+			contractPhase = "P1,P2,P3,P4,P5"
 		}
-		if contractPhase != "P1" && contractPhase != "P2" && contractPhase != "P3" && contractPhase != "P4" && contractPhase != "P1,P2" && contractPhase != "P1,P2,P3" && contractPhase != "P1,P2,P3,P4" {
+		if contractPhase != "P1" && contractPhase != "P2" && contractPhase != "P3" && contractPhase != "P4" && contractPhase != "P5" && contractPhase != "P1,P2" && contractPhase != "P1,P2,P3" && contractPhase != "P1,P2,P3,P4" && contractPhase != "P1,P2,P3,P4,P5" {
 			fail("source contracts for %s are not implemented", contractPhase)
 		}
 		if err := runContracts(*root, contractPhase); err != nil {
@@ -64,9 +66,9 @@ func main() {
 		return
 	}
 	if *phase == "" {
-		fail("--phase P1 is required until later phase manifests exist")
+		fail("--phase is required")
 	}
-	if *phase != "P1" && *phase != "P2" && *phase != "P3" && *phase != "P4" {
+	if *phase != "P1" && *phase != "P2" && *phase != "P3" && *phase != "P4" && *phase != "P5" {
 		fail("phase %s is not implemented", *phase)
 	}
 	if *mode != "" && *mode != testevidence.ModeHost && *mode != testevidence.ModeRace {

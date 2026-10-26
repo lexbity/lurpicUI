@@ -62,6 +62,7 @@ type fakeEventQueue struct{}
 func (q *fakeEventQueue) Push(platform.Event)                         {}
 func (q *fakeEventQueue) Poll() []platform.Event                      { return nil }
 func (q *fakeEventQueue) Wait(timeout time.Duration) []platform.Event { return nil }
+func (q *fakeEventQueue) Wake() <-chan struct{}                       { return nil }
 func (q *fakeEventQueue) EnqueueDrive(...platform.Event)              {}
 
 type fakeClipboard struct{}
@@ -83,12 +84,14 @@ func (a *fakeApp) NewWindow(opts platform.WindowOptions) (platform.Window, error
 	return a.window, nil
 }
 func (a *fakeApp) Events() platform.EventQueue   { return &fakeEventQueue{} }
+func (a *fakeApp) SetFrameDemand(bool)           {}
 func (a *fakeApp) Clipboard() platform.Clipboard { return &fakeClipboard{} }
 func (a *fakeApp) Destroy()                      { a.destroyed = true }
 
 type minimalApp struct{}
 
 func (a *minimalApp) Events() platform.EventQueue { return &fakeEventQueue{} }
+func (a *minimalApp) SetFrameDemand(bool)         {}
 func (a *minimalApp) Destroy()                    {}
 
 type fakeBackend struct {
@@ -436,6 +439,7 @@ type lifecycleApp struct {
 }
 
 func (a *lifecycleApp) Events() platform.EventQueue { return &fakeEventQueue{} }
+func (a *lifecycleApp) SetFrameDemand(bool)         {}
 func (a *lifecycleApp) Destroy()                    { a.destroyed = true }
 func (a *lifecycleApp) Surface() platform.Surface   { return a.surface }
 

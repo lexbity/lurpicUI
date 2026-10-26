@@ -61,6 +61,7 @@ func TestProjectionGate_boundsChangeInvalidatesCache(t *testing.T) {
 	}
 
 	root.layout.ArrangedBounds = gfx.RectFromXYWH(0, 0, 120, 120)
+	sys.MarkDirtyFlags(root.ID(), facet.DirtyLayout)
 	sys.Run(root, FrameInfo{Number: 2, WallTime: time.Unix(1, 0)})
 
 	if sys.CacheMissesByBounds != 1 {
@@ -137,6 +138,7 @@ func TestProjectionGate_clipAncestorResize_reprojectsChild(t *testing.T) {
 	// Resize the clip-ancestor. The child's arranged bounds are unchanged; only
 	// the inherited clip (derived from the ancestor's bounds) moves.
 	root.layout.ArrangedBounds = gfx.RectFromXYWH(0, 0, 80, 80)
+	sys.MarkDirtyFlags(root.ID(), facet.DirtyLayout)
 	sys.Run(root, FrameInfo{Number: 2, WallTime: time.Unix(1, 0)})
 
 	if child.projectCalls != 2 {

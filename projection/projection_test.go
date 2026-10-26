@@ -227,6 +227,13 @@ func attachTree(root facet.FacetImpl) {
 	facet.Attach(root, facet.AttachContext{})
 }
 
+func runProjectionCut(sys *System, root facet.FacetImpl, frame FrameInfo) *FrameOutput {
+	sys.BeginDirtyGeneration()
+	out := sys.Run(root, frame)
+	sys.SealDirtyGeneration()
+	return out
+}
+
 func TestProjectionSystem_initial_run_projects_all(t *testing.T) {
 	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
 	child := newProjectionTestFacet("child", gfx.RectFromXYWH(10, 10, 20, 20))
@@ -353,7 +360,7 @@ func TestProjectionSystem_clean_facet_uses_cache(t *testing.T) {
 
 	sys := NewSystem()
 	sys.Run(root, FrameInfo{})
-	sys.Run(root, FrameInfo{Number: 2})
+	runProjectionCut(sys, root, FrameInfo{Number: 2})
 
 	if got := sys.ProjectedFacets; got != 0 {
 		t.Fatalf("ProjectedFacets = %d, want 0", got)
@@ -381,7 +388,8 @@ func TestProjectionSystem_dirty_facet_reprojects(t *testing.T) {
 
 	shared.Set(2)
 	scope.FlushSignals()
-	sys.Run(root, FrameInfo{Number: 2})
+	sys.MarkDirtyFlags(root.ID(), facet.DirtyProjection)
+	runProjectionCut(sys, root, FrameInfo{Number: 2})
 
 	if got := sys.ProjectedFacets; got != 1 {
 		t.Fatalf("ProjectedFacets = %d, want 1", got)
@@ -404,17 +412,18 @@ func TestProjectionSystem_cache_key_changes_on_bounds_change(t *testing.T) {
 	sys := NewSystem()
 	frame := FrameInfo{}
 
-	sys.Run(root, frame)
+	runProjectionCut(sys, root, frame)
 	first := sys.outputCache[root.ID()].CacheKey
 
 	root.layout.ArrangedBounds = gfx.RectFromXYWH(0, 0, 120, 100)
-	sys.Run(root, frame)
+	sys.MarkDirtyFlags(root.ID(), facet.DirtyLayout)
+	runProjectionCut(sys, root, frame)
 	second := sys.outputCache[root.ID()].CacheKey
 	if first == second {
 		t.Fatal("expected cache key to change when bounds change")
 	}
 
-	sys.Run(root, frame)
+	runProjectionCut(sys, root, frame)
 	third := sys.outputCache[root.ID()].CacheKey
 	if second != third {
 		t.Fatal("cache key changed without input change")
@@ -435,17 +444,18 @@ func TestProjectionSystem_cache_key_changes_on_transform_change(t *testing.T) {
 	sys := NewSystem()
 	frame := FrameInfo{}
 
-	sys.Run(root, frame)
+	runProjectionCut(sys, root, frame)
 	first := sys.outputCache[child.ID()].CacheKey
 
 	root.viewport.SetPanZoom(gfx.Point{X: 25, Y: 40}, 1)
-	sys.Run(root, frame)
+	sys.MarkDirtyFlags(root.ID(), facet.DirtyProjection)
+	runProjectionCut(sys, root, frame)
 	second := sys.outputCache[child.ID()].CacheKey
 	if first == second {
 		t.Fatal("expected child cache key to change when viewport transform changes")
 	}
 
-	sys.Run(root, frame)
+	runProjectionCut(sys, root, frame)
 	third := sys.outputCache[child.ID()].CacheKey
 	if second != third {
 		t.Fatal("cache key changed without input change")
@@ -470,13 +480,14 @@ func TestProjectionSystem_cache_key_changes_on_store_version(t *testing.T) {
 
 	s.Set(2)
 	scope.FlushSignals()
-	sys.Run(root, frame)
+	sys.MarkDirtyFlags(root.ID(), facet.DirtyProjection)
+	runProjectionCut(sys, root, frame)
 	second := sys.outputCache[root.ID()].CacheKey
 	if first == second {
 		t.Fatal("expected cache key to change when store version changes")
 	}
 
-	sys.Run(root, frame)
+	runProjectionCut(sys, root, frame)
 	third := sys.outputCache[root.ID()].CacheKey
 	if second != third {
 		t.Fatal("cache key changed without input change")
@@ -487,7 +498,7 @@ func TestProjectionSystem_cache_key_changes_on_store_version(t *testing.T) {
 }
 
 func cacheKeyFor(sys *System, root facet.FacetImpl, frame FrameInfo) ProjectionCacheKey {
-	sys.Run(root, frame)
+	runProjectionCut(sys, root, frame)
 	return sys.outputCache[root.Base().ID()].CacheKey
 }
 
@@ -528,6 +539,7 @@ func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.
 		layer.LayerID = facet.LayerID(12)
 		rt.layers[root.ID()] = layer
 		sys.SetRuntime(rt)
+		sys.MarkDirty(root.ID())
 		changed := cacheKeyFor(sys, root, frame)
 		if changed == baseline {
 			t.Fatal("expected cache key to change when LayerID changes")
@@ -549,6 +561,7 @@ func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.
 		layer.ClipPolicy = facet.ClipToViewport
 		rt.layers[root.ID()] = layer
 		sys.SetRuntime(rt)
+		sys.MarkDirty(root.ID())
 		changed := cacheKeyFor(sys, root, frame)
 		if changed == baseline {
 			t.Fatal("expected cache key to change when ClipPolicy changes")
@@ -570,6 +583,7 @@ func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.
 		layer.RecipeVersion = 99
 		rt.layers[root.ID()] = layer
 		sys.SetRuntime(rt)
+		sys.MarkDirty(root.ID())
 		changed := cacheKeyFor(sys, root, frame)
 		if changed == baseline {
 			t.Fatal("expected cache key to change when RecipeVersion changes")
@@ -592,6 +606,7 @@ func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.
 
 		rt.contentScale = 2.5
 		sys.SetRuntime(rt)
+		sys.MarkDirty(root.ID())
 		changed := cacheKeyFor(sys, root, frame)
 		if changed == baseline {
 			t.Fatal("expected cache key to change when ContentScale changes")
@@ -614,6 +629,7 @@ func TestProjectionSystem_cache_key_includes_layer_and_runtime_state(t *testing.
 
 		rt.inputModality = facet.InputModalityTouch
 		sys.SetRuntime(rt)
+		sys.MarkDirty(root.ID())
 		changed := cacheKeyFor(sys, root, frame)
 		if changed == baseline {
 			t.Fatal("expected cache key to change when InputModality changes")
@@ -637,8 +653,8 @@ func TestProjectionSystem_Reset_clears_cached_outputs(t *testing.T) {
 	if len(s.outputCache) != 0 {
 		t.Fatalf("expected output cache cleared, got %d", len(s.outputCache))
 	}
-	if len(s.dirtySet) != 0 {
-		t.Fatalf("expected dirty set cleared, got %d", len(s.dirtySet))
+	if len(s.dirtyCurrent) != 0 || len(s.dirtyNext) != 0 {
+		t.Fatalf("expected dirty generations cleared, got current=%d next=%d", len(s.dirtyCurrent), len(s.dirtyNext))
 	}
 	if s.currentHitMap != nil {
 		t.Fatal("expected hit map cleared")
@@ -931,7 +947,7 @@ func TestProjectionSystem_group_clip_wraps_commands_and_child_context(t *testing
 	}
 }
 
-func TestDirtyPropagation_layout_propagates_up(t *testing.T) {
+func TestLayoutInvalidationDoesNotInventProjectionDependencies(t *testing.T) {
 	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
 	child := newProjectionTestFacet("child", gfx.RectFromXYWH(10, 10, 20, 20))
 	root.AddChild(&child.Facet)
@@ -943,14 +959,15 @@ func TestDirtyPropagation_layout_propagates_up(t *testing.T) {
 	dirty := map[facet.FacetID]facet.DirtyFlags{
 		child.ID(): facet.DirtyLayout,
 	}
-	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
+	sys.topologyRootNode = sys.buildProjectionTree(root)
+	sys.propagateProjectionDirty(dirty)
 
-	if dirty[root.ID()]&facet.DirtyLayout == 0 {
-		t.Fatal("expected layout dirty to propagate to parent")
+	if dirty[root.ID()] != 0 || dirty[child.ID()] != facet.DirtyLayout {
+		t.Fatalf("layout invalidation changed undeclared domains: %#v", dirty)
 	}
 }
 
-func TestDirtyPropagation_layout_propagates_down(t *testing.T) {
+func TestLayoutInvalidationDoesNotFanOutAcrossSubtree(t *testing.T) {
 	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
 	child := newProjectionTestFacet("child", gfx.RectFromXYWH(10, 10, 20, 20))
 	sibling := newProjectionTestFacet("sibling", gfx.RectFromXYWH(30, 30, 20, 20))
@@ -962,13 +979,11 @@ func TestDirtyPropagation_layout_propagates_down(t *testing.T) {
 		root.ID(): facet.DirtyLayout,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
+	sys.topologyRootNode = sys.buildProjectionTree(root)
+	sys.propagateProjectionDirty(dirty)
 
-	for _, id := range []facet.FacetID{root.ID(), child.ID(), sibling.ID()} {
-		flags := dirty[id]
-		if flags&facet.DirtyLayout == 0 || flags&facet.DirtyProjection == 0 || flags&facet.DirtyHit == 0 {
-			t.Fatalf("expected dirty flags on %d, got %v", id, flags)
-		}
+	if dirty[root.ID()] != facet.DirtyLayout || len(dirty) != 1 {
+		t.Fatalf("layout invalidation fanned out without changed geometry: %#v", dirty)
 	}
 }
 
@@ -982,14 +997,15 @@ func TestDirtyPropagation_projection_does_not_propagate_up(t *testing.T) {
 		child.ID(): facet.DirtyProjection,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
+	sys.topologyRootNode = sys.buildProjectionTree(root)
+	sys.propagateProjectionDirty(dirty)
 
 	if dirty[root.ID()] != 0 {
 		t.Fatalf("expected parent to remain clean, got %v", dirty[root.ID()])
 	}
 }
 
-func TestDirtyPropagation_projection_propagates_down(t *testing.T) {
+func TestProjectionInvalidationDoesNotForceUnchangedDescendants(t *testing.T) {
 	root := newProjectionTestFacet("root", gfx.RectFromXYWH(0, 0, 100, 100))
 	child := newProjectionTestFacet("child", gfx.RectFromXYWH(10, 10, 20, 20))
 	root.AddChild(&child.Facet)
@@ -999,13 +1015,14 @@ func TestDirtyPropagation_projection_propagates_down(t *testing.T) {
 		root.ID(): facet.DirtyProjection,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
+	sys.topologyRootNode = sys.buildProjectionTree(root)
+	sys.propagateProjectionDirty(dirty)
 
 	if dirty[root.ID()]&facet.DirtyProjection == 0 || dirty[root.ID()]&facet.DirtyHit == 0 {
 		t.Fatalf("expected root projection dirty to include hit, got %v", dirty[root.ID()])
 	}
-	if dirty[child.ID()]&facet.DirtyProjection == 0 || dirty[child.ID()]&facet.DirtyHit == 0 {
-		t.Fatalf("expected child projection dirty to include hit, got %v", dirty[child.ID()])
+	if dirty[child.ID()] != 0 {
+		t.Fatalf("unchanged descendant received invented dependency: %v", dirty[child.ID()])
 	}
 }
 
@@ -1017,7 +1034,8 @@ func TestDirtyPropagation_hit_follows_projection(t *testing.T) {
 		root.ID(): facet.DirtyProjection,
 	}
 	sys := NewSystem()
-	sys.propagateDirty(sys.buildProjectionTree(root), dirty)
+	sys.topologyRootNode = sys.buildProjectionTree(root)
+	sys.propagateProjectionDirty(dirty)
 
 	if dirty[root.ID()]&facet.DirtyHit == 0 {
 		t.Fatalf("expected hit dirty to follow projection, got %v", dirty[root.ID()])

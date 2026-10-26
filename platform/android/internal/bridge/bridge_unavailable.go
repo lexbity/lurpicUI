@@ -109,10 +109,11 @@ type EventQueue struct {
 	cond   *sync.Cond
 	events []Event
 	closed bool
+	wake   chan struct{}
 }
 
 func NewEventQueue() *EventQueue {
-	q := &EventQueue{}
+	q := &EventQueue{wake: make(chan struct{}, 1)}
 	q.cond = sync.NewCond(&q.mu)
 	return q
 }
@@ -122,6 +123,7 @@ func (q *EventQueue) Push(e Event) {
 	defer q.mu.Unlock()
 	if !q.closed {
 		q.events = append(q.events, e)
+		q.signalWakeLocked()
 		q.cond.Broadcast()
 	}
 }
@@ -132,7 +134,24 @@ func (q *EventQueue) EnqueueDrive(evs ...Event) {
 	defer q.mu.Unlock()
 	if !q.closed {
 		q.events = append(q.events, evs...)
+		q.signalWakeLocked()
 		q.cond.Broadcast()
+	}
+}
+
+func (q *EventQueue) Wake() <-chan struct{} { return q.wake }
+
+func (q *EventQueue) signalWakeLocked() {
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (q *EventQueue) drainWakeLocked() {
+	select {
+	case <-q.wake:
+	default:
 	}
 }
 
@@ -141,6 +160,7 @@ func (q *EventQueue) Poll() []Event {
 	defer q.mu.Unlock()
 	events := q.events
 	q.events = nil
+	q.drainWakeLocked()
 	return events
 }
 
@@ -152,6 +172,7 @@ func (q *EventQueue) Wait() []Event {
 	}
 	events := q.events
 	q.events = nil
+	q.drainWakeLocked()
 	return events
 }
 
@@ -159,6 +180,7 @@ func (q *EventQueue) Close() {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.closed = true
+	q.signalWakeLocked()
 	q.cond.Broadcast()
 }
 

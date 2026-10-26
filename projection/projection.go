@@ -97,7 +97,10 @@ type FrameInfo struct {
 type System struct {
 	outputCache     map[facet.FacetID]*ProjectionOutput
 	frameOutputs    []*ProjectionOutput
-	dirtySet        map[facet.FacetID]struct{}
+	dirtyCurrent    map[facet.FacetID]facet.DirtyFlags
+	dirtyNext       map[facet.FacetID]facet.DirtyFlags
+	dirtyCaptured   bool
+	nodesByID       map[facet.FacetID]*projectionNode
 	currentHitMap   *HitMap
 	ProjectedFacets int
 	CacheHits       int
@@ -129,6 +132,7 @@ type System struct {
 	topologyRootNode *projectionNode
 	topologyDirty    bool
 	TopologyRebuilds uint64
+	walkStack        []projectionWalkFrame
 	// frameNumber is the most recent Run's frame number (for LURPIC_TRACE=gates
 	// gate-decision tracing, NFR-8).
 	frameNumber uint64
@@ -194,12 +198,61 @@ type projectionNode struct {
 	subtreeHasLayer bool
 }
 
+type projectionWalkFrame struct {
+	node            *projectionNode
+	parentTransform gfx.Transform
+	parentChildCtx  *ChildProjectionContext
+}
+
 func NewSystem() *System {
 	return &System{
 		outputCache:   make(map[facet.FacetID]*ProjectionOutput),
-		dirtySet:      make(map[facet.FacetID]struct{}),
+		dirtyCurrent:  make(map[facet.FacetID]facet.DirtyFlags),
+		dirtyNext:     make(map[facet.FacetID]facet.DirtyFlags),
+		nodesByID:     make(map[facet.FacetID]*projectionNode),
 		topologyDirty: true,
 	}
+}
+
+// MarkDirtyFlags records an explicit runtime invalidation in the generation
+// that can still be consumed safely.
+func (s *System) MarkDirtyFlags(id facet.FacetID, flags facet.DirtyFlags) {
+	if s == nil || id == 0 || flags == 0 {
+		return
+	}
+	if s.dirtyCurrent == nil {
+		s.dirtyCurrent = make(map[facet.FacetID]facet.DirtyFlags)
+	}
+	if s.dirtyNext == nil {
+		s.dirtyNext = make(map[facet.FacetID]facet.DirtyFlags)
+	}
+	dirty := s.dirtyCurrent
+	if s.dirtyCaptured {
+		dirty = s.dirtyNext
+	}
+	dirty[id] |= flags
+}
+
+// BeginDirtyGeneration seals the current invalidation cut before phases that
+// may publish work for the next frame.
+func (s *System) BeginDirtyGeneration() {
+	if s == nil {
+		return
+	}
+	s.dirtyCaptured = true
+	clear(s.dirtyNext)
+}
+
+// SealDirtyGeneration retires consumed invalidations and promotes any work
+// published after the frame cut.
+func (s *System) SealDirtyGeneration() {
+	if s == nil || !s.dirtyCaptured {
+		return
+	}
+	clear(s.dirtyCurrent)
+	s.dirtyCurrent, s.dirtyNext = s.dirtyNext, s.dirtyCurrent
+	clear(s.dirtyNext)
+	s.dirtyCaptured = false
 }
 
 // InvalidateTopology tells the runtime-owned projection graph that lifecycle
@@ -233,10 +286,7 @@ func (s *System) MarkDirty(id facet.FacetID) {
 	if s == nil || id == 0 {
 		return
 	}
-	if s.dirtySet == nil {
-		s.dirtySet = make(map[facet.FacetID]struct{})
-	}
-	s.dirtySet[id] = struct{}{}
+	s.MarkDirtyFlags(id, facet.DirtyAll)
 }
 
 func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
@@ -245,9 +295,6 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	}
 	if s.outputCache == nil {
 		s.outputCache = make(map[facet.FacetID]*ProjectionOutput)
-	}
-	if s.dirtySet == nil {
-		s.dirtySet = make(map[facet.FacetID]struct{})
 	}
 	s.ProjectedFacets = 0
 	s.CacheHits = 0
@@ -260,27 +307,31 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	s.HitTestCount = 0
 	s.frameNumber = frame.Number
 	s.gatesTraceLines = 0
-	clear(s.frameOutputs)
-	s.frameOutputs = s.frameOutputs[:0]
 	if s.topologyRoot != root {
 		s.topologyRoot = root
 		s.topologyDirty = true
 	}
+	topologyRebuilt := s.topologyDirty
 	if s.topologyDirty {
 		s.topologyRootNode = s.buildProjectionTree(root)
 		s.topologyDirty = false
 		s.TopologyRebuilds++
 	}
 	rootNode := s.topologyRootNode
-	if rootNode != nil {
-		dirty := s.collectDirtyFlags(rootNode)
-		s.propagateDirty(rootNode, dirty)
-		s.walkNode(rootNode, gfx.Identity(), nil, dirty)
-		s.clearTreeDirty(rootNode)
+	dirty := s.dirtyCurrent
+	if !topologyRebuilt && len(dirty) == 0 {
+		s.CacheHits = len(s.frameOutputs)
+	} else {
+		clear(s.frameOutputs)
+		s.frameOutputs = s.frameOutputs[:0]
+		if rootNode != nil {
+			s.propagateProjectionDirty(dirty)
+			s.walkNode(rootNode, gfx.Identity(), nil, dirty)
+			s.clearDirtySnapshot(dirty)
+		}
 	}
 	out := s.assembleFrameOutput()
 	s.currentHitMap = out.HitMap
-	clear(s.dirtySet)
 	return out
 }
 
@@ -292,13 +343,21 @@ func (s *System) Reset() {
 	}
 	s.outputCache = make(map[facet.FacetID]*ProjectionOutput)
 	s.frameOutputs = nil
-	s.dirtySet = make(map[facet.FacetID]struct{})
+	clear(s.dirtyCurrent)
+	clear(s.dirtyNext)
+	s.dirtyCurrent = make(map[facet.FacetID]facet.DirtyFlags)
+	s.dirtyNext = make(map[facet.FacetID]facet.DirtyFlags)
+	s.dirtyCaptured = false
 	s.currentHitMap = nil
 	clear(s.nodeList)
 	s.nodeList = s.nodeList[:0]
+	clear(s.walkStack[:cap(s.walkStack)])
+	s.walkStack = nil
 	s.topologyRoot = nil
 	s.topologyRootNode = nil
 	s.topologyDirty = true
+	clear(s.nodesByID)
+	s.nodesByID = make(map[facet.FacetID]*projectionNode)
 	s.ProjectedFacets = 0
 	s.CacheHits = 0
 	s.EmptyBoundsSkips = 0
@@ -316,6 +375,9 @@ func (s *System) ForgetFacet(id facet.FacetID) {
 		return
 	}
 	delete(s.outputCache, id)
+	delete(s.nodesByID, id)
+	delete(s.dirtyCurrent, id)
+	delete(s.dirtyNext, id)
 	s.topologyDirty = true
 }
 
@@ -394,6 +456,10 @@ func (s *System) buildProjectionTree(root facet.FacetImpl) *projectionNode {
 		impl: root,
 		base: base,
 	}
+	if s.nodesByID == nil {
+		s.nodesByID = make(map[facet.FacetID]*projectionNode)
+	}
+	clear(s.nodesByID)
 	clear(s.nodeList)
 	s.nodeList = s.nodeList[:0]
 	type buildFrame struct {
@@ -408,6 +474,7 @@ func (s *System) buildProjectionTree(root facet.FacetImpl) *projectionNode {
 			continue
 		}
 		s.nodeList = append(s.nodeList, frame.node)
+		s.nodesByID[frame.node.base.ID()] = frame.node
 		if !frame.node.base.HasChildren() {
 			continue
 		}
@@ -469,13 +536,9 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 	if node == nil || node.base == nil || node.impl == nil {
 		return
 	}
-	type walkFrame struct {
-		node            *projectionNode
-		parentTransform gfx.Transform
-		parentChildCtx  *ChildProjectionContext
-	}
 	rec := s.recovery()
-	stack := []walkFrame{{node: node, parentTransform: parentTransform, parentChildCtx: parentChildCtx}}
+	stack := s.walkStack[:0]
+	stack = append(stack, projectionWalkFrame{node: node, parentTransform: parentTransform, parentChildCtx: parentChildCtx})
 	for len(stack) > 0 {
 		frame := stack[len(stack)-1]
 		stack = stack[:len(stack)-1]
@@ -573,13 +636,15 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 				// Do not descend into a quarantined subtree.
 				continue
 			}
-			stack = append(stack, walkFrame{
+			stack = append(stack, projectionWalkFrame{
 				node:            children[i],
 				parentTransform: resolvedTransform,
 				parentChildCtx:  childCtx,
 			})
 		}
 	}
+	clear(stack[:cap(stack)])
+	s.walkStack = stack[:0]
 }
 
 func (s *System) loadCachedOutput(id facet.FacetID) *ProjectionOutput {
@@ -778,18 +843,7 @@ func (s *System) assembleFrameOutput() *FrameOutput {
 	return out
 }
 
-func (s *System) isDirty(id facet.FacetID) bool {
-	if s == nil || id == 0 {
-		return false
-	}
-	_, ok := s.dirtySet[id]
-	return ok
-}
-
 func (s *System) isDirtyWithMap(id facet.FacetID, dirty map[facet.FacetID]facet.DirtyFlags) bool {
-	if s.isDirty(id) {
-		return true
-	}
 	if dirty == nil || id == 0 {
 		return false
 	}
@@ -1017,6 +1071,7 @@ type hitEntry struct {
 	clipRect   gfx.Rect
 	transform  gfx.Transform
 	regions    []HitRegion
+	projected  bool
 }
 
 // HitMapEntry is a synthetic hit-map entry used by tests and input routing helpers.
@@ -1095,6 +1150,15 @@ func (m *HitMap) Entries() []HitMapEntry {
 	for _, entry := range m.entries {
 		regions := make([]HitRegion, len(entry.regions))
 		copy(regions, entry.regions)
+		if entry.projected {
+			for i := range regions {
+				regions[i].FacetID = entry.facetID
+				regions[i].LayerID = entry.layerID
+				regions[i].Placement = entry.placement
+				regions[i].HitPolicy = entry.hitPolicy
+				regions[i].ClipPolicy = entry.clipPolicy
+			}
+		}
 		out = append(out, HitMapEntry{
 			FacetID:    entry.facetID,
 			LayerID:    entry.layerID,
@@ -1143,7 +1207,7 @@ func (m *HitMap) HitTest(screenPoint gfx.Point) *HitTestResult {
 					continue
 				}
 				facetID := entry.facetID
-				if region.FacetID != 0 {
+				if !entry.projected && region.FacetID != 0 {
 					facetID = region.FacetID
 				}
 				return &HitTestResult{
@@ -1156,7 +1220,7 @@ func (m *HitMap) HitTest(screenPoint gfx.Point) *HitTestResult {
 		if hit && entry.hitPolicy == facet.HitBlockBelow {
 			if hitRegion != nil {
 				facetID := entry.facetID
-				if hitRegion.FacetID != 0 {
+				if !entry.projected && hitRegion.FacetID != 0 {
 					facetID = hitRegion.FacetID
 				}
 				return &HitTestResult{
@@ -1184,15 +1248,6 @@ func buildHitMap(outputs []*ProjectionOutput) *HitMap {
 		if po == nil || len(po.HitRegions) == 0 {
 			continue
 		}
-		regions := make([]HitRegion, len(po.HitRegions))
-		copy(regions, po.HitRegions)
-		for i := range regions {
-			regions[i].FacetID = po.FacetID
-			regions[i].LayerID = po.LayerID
-			regions[i].Placement = po.Placement
-			regions[i].HitPolicy = po.LayerHitPolicy
-			regions[i].ClipPolicy = po.LayerClipPolicy
-		}
 		entries = append(entries, hitEntry{
 			facetID:    po.FacetID,
 			layerID:    po.LayerID,
@@ -1200,7 +1255,8 @@ func buildHitMap(outputs []*ProjectionOutput) *HitMap {
 			hitPolicy:  po.LayerHitPolicy,
 			clipPolicy: po.LayerClipPolicy,
 			transform:  po.Transform,
-			regions:    regions,
+			regions:    po.HitRegions,
+			projected:  true,
 		})
 	}
 	return &HitMap{entries: entries}
@@ -1223,112 +1279,27 @@ func collectSelectionGeometries(outputs []*ProjectionOutput) map[facet.FacetID]*
 	return out
 }
 
-func (s *System) collectDirtyFlags(node *projectionNode) map[facet.FacetID]facet.DirtyFlags {
-	dirty := make(map[facet.FacetID]facet.DirtyFlags)
-	stack := []*projectionNode{node}
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if n == nil || n.base == nil {
-			continue
-		}
-		flags := n.base.DirtyFlags()
-		if s != nil && s.isDirty(n.base.ID()) {
-			flags |= facet.DirtyAll
-		}
-		if flags != 0 {
-			dirty[n.base.ID()] |= flags
-		}
-		children := n.children
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, children[i])
-		}
-	}
+// propagateProjectionDirty adds hit invalidation for each changed projection.
+// Descendants are evaluated through their complete immutable parent-context
+// cache keys during the required walk, so unchanged child context does not
+// force author projection callbacks. Changed geometry or clips miss those
+// keys without inventing an authored dependency.
+func (s *System) propagateProjectionDirty(dirty map[facet.FacetID]facet.DirtyFlags) {
 	if len(dirty) == 0 {
-		return nil
-	}
-	return dirty
-}
-
-func (s *System) propagateDirty(node *projectionNode, dirty map[facet.FacetID]facet.DirtyFlags) {
-	if node == nil || node.base == nil || dirty == nil {
 		return
 	}
-	changed := true
-	for changed {
-		changed = false
-		stack := []*projectionNode{node}
-		for len(stack) > 0 {
-			n := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			if n == nil || n.base == nil {
-				continue
-			}
-			id := n.base.ID()
-			flags := dirty[id]
-			if flags&facet.DirtyLayout != 0 {
-				if parent := n.parent; parent != nil {
-					if mergeDirtyFlags(dirty, parent.base.ID(), facet.DirtyLayout) {
-						changed = true
-					}
-				}
-				if s.markSubtreeDirty(n, facet.DirtyLayout|facet.DirtyProjection|facet.DirtyHit, dirty) {
-					changed = true
-				}
-			}
-			if flags&facet.DirtyProjection != 0 {
-				if s.markSubtreeDirty(n, facet.DirtyProjection|facet.DirtyHit, dirty) {
-					changed = true
-				}
-			}
-			children := n.children
-			for i := len(children) - 1; i >= 0; i-- {
-				stack = append(stack, children[i])
-			}
+	for id, flags := range dirty {
+		if flags&facet.DirtyProjection == 0 {
+			continue
 		}
+		mergeDirtyFlags(dirty, id, facet.DirtyHit)
 	}
 }
 
-func (s *System) markSubtreeDirty(node *projectionNode, flags facet.DirtyFlags, dirty map[facet.FacetID]facet.DirtyFlags) bool {
-	if node == nil || node.base == nil {
-		return false
-	}
-	changed := false
-	stack := []*projectionNode{node}
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if n == nil || n.base == nil {
-			continue
-		}
-		if mergeDirtyFlags(dirty, n.base.ID(), flags) {
-			changed = true
-		}
-		children := n.children
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, children[i])
-		}
-	}
-	return changed
-}
-
-func (s *System) clearTreeDirty(node *projectionNode) {
-	if node == nil || node.base == nil {
-		return
-	}
-	stack := []*projectionNode{node}
-	for len(stack) > 0 {
-		n := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		if n == nil || n.base == nil {
-			continue
-		}
-		if flags := n.base.DirtyFlags(); flags != 0 {
-			n.base.ClearDirty(flags)
-		}
-		children := n.children
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, children[i])
+func (s *System) clearDirtySnapshot(dirty map[facet.FacetID]facet.DirtyFlags) {
+	for id, flags := range dirty {
+		if node := s.nodesByID[id]; node != nil && node.base != nil {
+			node.base.ClearDirty(flags)
 		}
 	}
 }

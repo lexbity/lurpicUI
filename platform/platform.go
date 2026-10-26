@@ -30,6 +30,7 @@ type Clipboard interface {
 
 type App interface {
 	Events() EventQueue
+	SetFrameDemand(bool)
 	Destroy()
 }
 

@@ -59,6 +59,7 @@ type fakeQueue struct{}
 func (fakeQueue) Push(platform.Event)                         {}
 func (fakeQueue) Poll() []platform.Event                      { return nil }
 func (fakeQueue) Wait(timeout time.Duration) []platform.Event { return nil }
+func (fakeQueue) Wake() <-chan struct{}                       { return nil }
 func (fakeQueue) EnqueueDrive(...platform.Event)              {}
 
 type fakeClipboard struct {
@@ -86,6 +87,7 @@ func (a *capableApp) NewWindow(opts platform.WindowOptions) (platform.Window, er
 	return a.window, nil
 }
 func (a *capableApp) Events() platform.EventQueue   { return a.queue }
+func (a *capableApp) SetFrameDemand(bool)           {}
 func (a *capableApp) Clipboard() platform.Clipboard { return &a.clip }
 func (a *capableApp) SupportsHover() bool           { return true }
 func (a *capableApp) ShowSoftKeyboard()             { a.imeShowCount++ }
@@ -97,6 +99,7 @@ type plainApp struct {
 }
 
 func (a *plainApp) Events() platform.EventQueue { return a.queue }
+func (a *plainApp) SetFrameDemand(bool)         {}
 func (a *plainApp) Destroy()                    {}
 
 func TestPlatformSurfaceInterface_implementable(t *testing.T) {

@@ -100,4 +100,16 @@ func TestFocusPolicyChangesInvalidateOrderWithoutQuietFrameRebuilds(t *testing.T
 	if got := rt.focusManager.Focused(); got != child.ID() {
 		t.Fatalf("focused after tab = %d, want child %d", got, child.ID())
 	}
+	child.focus.SetFocusable(func() bool { return false })
+	rt.RunOneFrame()
+	if got := rt.focusRebuilds; got != 3 {
+		t.Fatalf("focus rebuilds after eligibility update = %d, want 3", got)
+	}
+	if !rt.focusManager.SetFocus(root) {
+		t.Fatal("restore root focus")
+	}
+	rt.focusManager.TabNext()
+	if got := rt.focusManager.Focused(); got != root.ID() {
+		t.Fatalf("disabled child entered tab order: focused=%d, root=%d", got, root.ID())
+	}
 }

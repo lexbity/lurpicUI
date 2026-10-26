@@ -47,3 +47,30 @@ func TestPhase1HookRegisteredDuringDispatchStartsNextTurn(t *testing.T) {
 	}
 	releaseLater()
 }
+
+func TestPhase1HookReleaseCompactsActiveEntries(t *testing.T) {
+	rt := &Runtime{}
+	calls := 0
+	for i := 0; i < 128; i++ {
+		release := rt.RegisterPhase1TickHook(func(time.Duration) { calls++ })
+		release()
+	}
+	wantRelease := rt.RegisterPhase1TickHook(func(time.Duration) { calls++ })
+	rt.runPhase1TickHooks(0)
+	if calls != 1 {
+		t.Fatalf("active callbacks = %d, want 1", calls)
+	}
+	if got := len(rt.phase1HookActive); got != 1 {
+		t.Fatalf("active hook directory length = %d, want 1", got)
+	}
+	if got := len(rt.phase1HookFree); got != 0 {
+		t.Fatalf("reusable hook slots = %d, want 0", got)
+	}
+	wantRelease()
+	if got := len(rt.phase1HookActive); got != 0 {
+		t.Fatalf("active hook directory after release = %d, want 0", got)
+	}
+	if got := len(rt.phase1HookFree); got != 1 {
+		t.Fatalf("reusable hook slots after release = %d, want 1", got)
+	}
+}

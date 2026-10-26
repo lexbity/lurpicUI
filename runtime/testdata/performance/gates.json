@@ -270,6 +270,78 @@
       "mode": "race", "tags": [], "backend": "software", "required": true,
       "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
       "fixture": "p4-resource-policy-v1"
+    },
+    {
+      "id": "P5.runtime-worklist.host",
+      "phase": "P5",
+      "package": "./runtime",
+      "tests": ["TestInvalidationAfterFrameCaptureSurvivesGenerationSeal", "TestRequestedTickWorkRunsOncePerAuthorizedFrame", "TestFocusPolicyChangesInvalidateOrderWithoutQuietFrameRebuilds", "TestPhase1HookReleaseAndReuseAreGenerationSafe", "TestPhase1HookRegisteredDuringDispatchStartsNextTurn", "TestPhase1HookReleaseCompactsActiveEntries", "TestFrameTimerWakeWithoutRemainingWorkDoesNotAuthorizeFrame"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p5-runtime-worklist-v1"
+    },
+    {
+      "id": "P5.runtime-worklist.race",
+      "phase": "P5",
+      "package": "./runtime",
+      "tests": ["TestInvalidationAfterFrameCaptureSurvivesGenerationSeal", "TestRequestedTickWorkRunsOncePerAuthorizedFrame", "TestFocusPolicyChangesInvalidateOrderWithoutQuietFrameRebuilds", "TestPhase1HookReleaseAndReuseAreGenerationSafe", "TestPhase1HookRegisteredDuringDispatchStartsNextTurn", "TestPhase1HookReleaseCompactsActiveEntries", "TestFrameTimerWakeWithoutRemainingWorkDoesNotAuthorizeFrame"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p5-runtime-worklist-v1"
+    },
+    {
+      "id": "P5.projection-owner.host",
+      "phase": "P5",
+      "package": "./projection",
+      "tests": ["TestProjectionCallbacksStaySerialAndPreOrder", "TestProjectionTopologyRetainedUntilLifecycleInvalidation", "TestProjectionTopologyReleaseClearsRetiredReferences", "TestRuntimeOwnedProjectionQuietFrameSkipsTreeWalk", "TestRuntimeOwnedLayoutInvalidationFollowsChangedGeometry", "TestGateTraceSerialProjection", "TestLayoutInvalidationDoesNotInventProjectionDependencies", "TestLayoutInvalidationDoesNotFanOutAcrossSubtree", "TestDirtyPropagation_projection_does_not_propagate_up", "TestProjectionInvalidationDoesNotForceUnchangedDescendants", "TestDirtyPropagation_hit_follows_projection", "TestDirtyPropagation_accumulates_within_frame"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p5-projection-v1"
+    },
+    {
+      "id": "P5.projection-owner.race",
+      "phase": "P5",
+      "package": "./projection",
+      "tests": ["TestProjectionCallbacksStaySerialAndPreOrder", "TestProjectionTopologyRetainedUntilLifecycleInvalidation", "TestProjectionTopologyReleaseClearsRetiredReferences", "TestRuntimeOwnedProjectionQuietFrameSkipsTreeWalk", "TestRuntimeOwnedLayoutInvalidationFollowsChangedGeometry", "TestGateTraceSerialProjection", "TestLayoutInvalidationDoesNotInventProjectionDependencies", "TestLayoutInvalidationDoesNotFanOutAcrossSubtree", "TestDirtyPropagation_projection_does_not_propagate_up", "TestProjectionInvalidationDoesNotForceUnchangedDescendants", "TestDirtyPropagation_hit_follows_projection", "TestDirtyPropagation_accumulates_within_frame"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p5-projection-v1"
+    },
+    {
+      "id": "P5.wall-idle.host",
+      "phase": "P5",
+      "package": "./runtime",
+      "tests": ["TestWallRuntimeParksAfterBootstrapUntilFrameRequest", "TestWallPlatformEventWakesParkedRuntimeAndRestoresFrameDemand", "TestWallFacetInvalidationSchedulesFrameFromRuntimeCallback", "TestPendingHoverDeadlineWakesIdle", "TestReadyWallJobRequestsFrame", "TestIdleVirtualJobDoesNotAdvance", "TestHumanWakesParkedRuntimeAndReturnsToWall", "TestFrameTimerWaitWithWakeDrainsVsyncOnOwner"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p5-wall-idle-v1"
+    },
+    {
+      "id": "P5.wall-idle.race",
+      "phase": "P5",
+      "package": "./runtime",
+      "tests": ["TestWallRuntimeParksAfterBootstrapUntilFrameRequest", "TestWallPlatformEventWakesParkedRuntimeAndRestoresFrameDemand", "TestWallFacetInvalidationSchedulesFrameFromRuntimeCallback", "TestPendingHoverDeadlineWakesIdle", "TestReadyWallJobRequestsFrame", "TestIdleVirtualJobDoesNotAdvance", "TestHumanWakesParkedRuntimeAndReturnsToWall", "TestFrameTimerWaitWithWakeDrainsVsyncOnOwner"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p5-wall-idle-v1"
+    },
+    {
+      "id": "P5.studio-layout-invalidation.host",
+      "phase": "P5",
+      "package": "./demos/lurpic_studio/studio",
+      "tests": ["TestSwitchedGolden_stageReproducesFreshAfterExhibitCycle"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "studio-switched-stage-v1"
+    },
+    {
+      "id": "P5.studio-layout-invalidation.race",
+      "phase": "P5",
+      "package": "./demos/lurpic_studio/studio",
+      "tests": ["TestSwitchedGolden_stageReproducesFreshAfterExhibitCycle"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "studio-switched-stage-v1"
     }
   ]
 }

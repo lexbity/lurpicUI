@@ -12,6 +12,10 @@ func (rt *Runtime) recordInvalidation(id facet.FacetID, flags facet.DirtyFlags, 
 	if flags&facet.DirtyLayout != 0 {
 		rt.layerTreeDirty = true
 	}
+	if rt.projectionSystem != nil {
+		rt.projectionSystem.MarkDirtyFlags(id, flags)
+	}
+	rt.markFocusDirty(id)
 	facets, sources := rt.dirtyFacets, rt.dirtySources
 	if rt.dirtyCaptured {
 		facets, sources = rt.nextDirtyFacets, rt.nextDirtySources
@@ -26,6 +30,9 @@ func (rt *Runtime) beginNextDirtyGeneration() {
 	rt.dirtyCaptured = true
 	clear(rt.nextDirtyFacets)
 	clear(rt.nextDirtySources)
+	if rt.projectionSystem != nil {
+		rt.projectionSystem.BeginDirtyGeneration()
+	}
 }
 
 func (rt *Runtime) sealDirtyGeneration() {
@@ -34,4 +41,7 @@ func (rt *Runtime) sealDirtyGeneration() {
 	rt.dirtyFacets, rt.nextDirtyFacets = rt.nextDirtyFacets, rt.dirtyFacets
 	rt.dirtySources, rt.nextDirtySources = rt.nextDirtySources, rt.dirtySources
 	rt.dirtyCaptured = false
+	if rt.projectionSystem != nil {
+		rt.projectionSystem.SealDirtyGeneration()
+	}
 }

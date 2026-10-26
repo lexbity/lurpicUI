@@ -90,6 +90,44 @@ func TestFrameTimer_basics(t *testing.T) {
 	}
 }
 
+func TestFrameTimerWaitWithWakeDrainsVsyncOnOwner(t *testing.T) {
+	timer := NewFrameTimer(60)
+	base := time.Now()
+	timer.SetPacingClock(func() time.Time { return base })
+	timer.lastFrame = base
+	wake := make(chan struct{}, 1)
+	wake <- struct{}{}
+	want := base.Add(5 * time.Millisecond)
+	callbackRuns := 0
+	got, eligible := timer.WaitWithWake(wake, func() {
+		callbackRuns++
+		timer.Vsync(want.UnixNano())
+	}, func() bool { return true })
+	if !eligible {
+		t.Fatal("expected pending frame work to remain eligible")
+	}
+	if !got.Equal(want) {
+		t.Fatalf("pacing time = %s, want drained vsync %s", got, want)
+	}
+	if callbackRuns != 1 {
+		t.Fatalf("platform wake callback runs = %d, want 1", callbackRuns)
+	}
+}
+
+func TestFrameTimerWakeWithoutRemainingWorkDoesNotAuthorizeFrame(t *testing.T) {
+	timer := NewFrameTimer(60)
+	base := time.Now()
+	timer.SetPacingClock(func() time.Time { return base })
+	timer.lastFrame = base
+	wake := make(chan struct{}, 1)
+	wake <- struct{}{}
+	work := true
+	got, eligible := timer.WaitWithWake(wake, func() { work = false }, func() bool { return work })
+	if eligible || !got.IsZero() {
+		t.Fatalf("idle wake produced frame time=%s eligible=%t", got, eligible)
+	}
+}
+
 func TestRenderPipeline_submit_blocks_on_full(t *testing.T) {
 	pipe := newRenderPipeline(&backendFixture{})
 	pipe.Submit(&render.Frame{}, 1)
@@ -136,17 +174,40 @@ func (a *queueApp) Events() platform.EventQueue {
 	return a.queue
 }
 
-func (a *queueApp) Destroy() {}
+func (a *queueApp) SetFrameDemand(bool) {}
+func (a *queueApp) Destroy()            {}
 
 type queue struct {
 	mu     sync.Mutex
 	events []platform.Event
+	wake   chan struct{}
 }
 
 func (q *queue) Push(e platform.Event) {
 	q.mu.Lock()
 	q.events = append(q.events, e)
+	q.signalLocked()
 	q.mu.Unlock()
+}
+
+func (q *queue) Wake() <-chan struct{} {
+	q.mu.Lock()
+	if q.wake == nil {
+		q.wake = make(chan struct{}, 1)
+	}
+	wake := q.wake
+	q.mu.Unlock()
+	return wake
+}
+
+func (q *queue) signalLocked() {
+	if q.wake == nil {
+		q.wake = make(chan struct{}, 1)
+	}
+	select {
+	case q.wake <- struct{}{}:
+	default:
+	}
 }
 
 func (q *queue) Poll() []platform.Event {
@@ -154,12 +215,19 @@ func (q *queue) Poll() []platform.Event {
 	defer q.mu.Unlock()
 	out := append([]platform.Event(nil), q.events...)
 	q.events = q.events[:0]
+	if q.wake != nil {
+		select {
+		case <-q.wake:
+		default:
+		}
+	}
 	return out
 }
 
 func (q *queue) EnqueueDrive(evs ...platform.Event) {
 	q.mu.Lock()
 	q.events = append(q.events, evs...)
+	q.signalLocked()
 	q.mu.Unlock()
 }
 

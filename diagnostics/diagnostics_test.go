@@ -152,7 +152,10 @@ func TestInspector_lastinvalidatedby_cleared_after_projection(t *testing.T) {
 	root, _, _ := buildDiagTree(t)
 	root.Base().InvalidateWithSource(facet.DirtyLayout, "testSource")
 	sys := projection.NewSystem()
+	sys.MarkDirtyFlags(root.Base().ID(), facet.DirtyLayout)
+	sys.BeginDirtyGeneration()
 	sys.Run(root, projection.FrameInfo{})
+	sys.SealDirtyGeneration()
 	info, ok := NewInspector(root).Find(root.ID())
 	if !ok {
 		t.Fatal("expected root")

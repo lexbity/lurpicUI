@@ -19,6 +19,7 @@ func Attach(f FacetImpl, ctx AttachContext) {
 		if recovered := recover(); recovered != nil {
 			for i := len(hooked) - 1; i >= 0; i-- {
 				hooked[i].onDisposed = nil
+				hooked[i].onInvalidated = nil
 			}
 			for i := len(attached) - 1; i >= 0; i-- {
 				base := attached[i]
@@ -44,6 +45,7 @@ func Attach(f FacetImpl, ctx AttachContext) {
 		frame.impl = concreteImpl(base, frame.impl)
 		requireState(base, StateCreated, StateAttached)
 		base.onDisposed = ctx.OnFacetDisposed
+		base.onInvalidated = ctx.OnFacetInvalidated
 		base.onTickActivityChanged = ctx.OnTickActivityChanged
 		base.onFocusPolicyChanged = ctx.OnFocusPolicyChanged
 		hooked = append(hooked, base)
@@ -152,6 +154,7 @@ func Dispose(f FacetImpl) {
 			role.onDispose(base)
 		}
 		frame.impl.OnDetach()
+		base.onInvalidated = nil
 		base.ReleaseTextLeases()
 		base.releaseSubscriptions()
 		base.releaseStoreScope()

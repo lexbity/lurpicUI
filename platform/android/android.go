@@ -4,6 +4,7 @@ package android
 
 import (
 	"os"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -33,6 +34,9 @@ type App struct {
 	currentInsets      EdgeInsets
 	audioBackend       *audio.Backend
 	savedInstanceState []byte
+	frameDemandMu      sync.Mutex
+	resumed            bool
+	frameDemand        bool
 }
 
 // lifecycleCallbacks stores registered lifecycle callbacks
@@ -114,14 +118,18 @@ func (a *App) dispatchLifecycleEvent(kind platform.LifecycleKind) {
 	}
 	switch kind {
 	case platform.LifecycleResume:
-		if os.Getenv("LURPIC_SKIP_VSYNC") != "1" {
-			bridge.StartVsync()
-		}
+		a.frameDemandMu.Lock()
+		a.resumed = true
+		a.frameDemandMu.Unlock()
+		a.syncVsyncDemand()
 		for _, f := range a.lifecycleHandlers.onResume {
 			f()
 		}
 	case platform.LifecyclePause:
-		bridge.StopVsync()
+		a.frameDemandMu.Lock()
+		a.resumed = false
+		a.frameDemandMu.Unlock()
+		a.syncVsyncDemand()
 		for _, f := range a.lifecycleHandlers.onPause {
 			f()
 		}
@@ -268,8 +276,36 @@ func (a *App) Events() platform.EventQueue {
 	return &eventQueueAdapter{app: a, queue: a.events}
 }
 
+// SetFrameDemand lets the runtime start Choreographer callbacks only while a
+// Wall frame is eligible or continuously requested.
+func (a *App) SetFrameDemand(demand bool) {
+	if a == nil {
+		return
+	}
+	a.frameDemandMu.Lock()
+	changed := a.frameDemand != demand
+	a.frameDemand = demand
+	a.frameDemandMu.Unlock()
+	if changed {
+		a.syncVsyncDemand()
+	}
+}
+
+func (a *App) syncVsyncDemand() {
+	a.frameDemandMu.Lock()
+	active := a.resumed && a.frameDemand
+	if active && os.Getenv("LURPIC_SKIP_VSYNC") != "1" {
+		bridge.StartVsync()
+		a.frameDemandMu.Unlock()
+		return
+	}
+	bridge.StopVsync()
+	a.frameDemandMu.Unlock()
+}
+
 // Destroy cleans up the Android application.
 func (a *App) Destroy() {
+	bridge.StopVsync()
 	a.events.Close()
 }
 
@@ -283,6 +319,8 @@ func (a *eventQueueAdapter) Push(e platform.Event) {
 	// This adapter is one-way: Android -> Go
 	// Events from Android come through the bridge, not this method
 }
+
+func (a *eventQueueAdapter) Wake() <-chan struct{} { return a.queue.Wake() }
 
 // EnqueueDrive is unsupported on the one-way Android adapter: drive input
 // synthesis targets the app's own queue on desktop/testkit surfaces.

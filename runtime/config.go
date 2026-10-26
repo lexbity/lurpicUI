@@ -216,78 +216,130 @@ func (t *FrameTimer) Vsync(frameTimeNanos int64) {
 // Wait blocks until the next frame should begin. It prefers vsync timing
 // from the platform when available, falling back to timer-based pacing.
 func (t *FrameTimer) Wait() time.Time {
+	now, _ := t.WaitWithWake(nil, nil, nil)
+	return now
+}
+
+// WaitWithWake preserves the pacing deadline while allowing the runtime owner
+// to drain typed platform events, including the VsyncEvent that satisfies this
+// wait. The callback always runs on the caller's thread.
+func (t *FrameTimer) WaitWithWake(wake <-chan struct{}, onWake func(), frameEligible func() bool) (time.Time, bool) {
 
 	if t == nil {
-		return t.now()
+		return time.Time{}, false
 	}
+	eligible := func() bool { return frameEligible == nil || frameEligible() }
 	if runtimeTraceActive() {
 		runtimeTracef("FrameTimer.Wait enter last=%v", t.lastFrame.IsZero())
 	}
 
-	// Try to receive a vsync timestamp first (non-blocking).
-	select {
-	case frameTimeNanos := <-t.vsyncCh:
-		now := time.Unix(0, frameTimeNanos)
-		t.mu.Lock()
-		t.lastFrame = now
-		t.mu.Unlock()
-		if runtimeTraceActive() {
-			runtimeTracef("FrameTimer.Wait used-vsync now=%s", now.Format(time.RFC3339Nano))
-		}
-		return now
-	default:
-	}
-
-	// Fall back to timer-based pacing.
-	tick := t.now()
-	t.mu.Lock()
-	last := t.lastFrame
-	t.mu.Unlock()
-	if last.IsZero() {
-		t.mu.Lock()
-		t.lastFrame = tick
-		t.mu.Unlock()
-		if runtimeTraceActive() {
-			runtimeTracef("FrameTimer.Wait first-tick now=%s", tick.Format(time.RFC3339Nano))
-		}
-		return tick
-	}
-	next := last.Add(t.targetPeriod)
-	if delay := next.Sub(t.now()); delay > 0 {
+	first := true
+	for {
 		select {
-		case <-t.requestCh:
 		case frameTimeNanos := <-t.vsyncCh:
-			now := time.Unix(0, frameTimeNanos)
-			t.mu.Lock()
-			t.lastFrame = now
-			t.mu.Unlock()
-			if runtimeTraceActive() {
-				runtimeTracef("FrameTimer.Wait early-vsync now=%s", now.Format(time.RFC3339Nano))
+			if !eligible() {
+				return time.Time{}, false
 			}
-			return now
-		case <-time.After(delay):
-		}
-	} else {
-		select {
-		case <-t.requestCh:
-		case frameTimeNanos := <-t.vsyncCh:
-			now := time.Unix(0, frameTimeNanos)
-			t.mu.Lock()
-			t.lastFrame = now
-			t.mu.Unlock()
-			if runtimeTraceActive() {
-				runtimeTracef("FrameTimer.Wait late-vsync now=%s", now.Format(time.RFC3339Nano))
-			}
-			return now
+			return t.recordVsync(frameTimeNanos, "vsync"), true
 		default:
 		}
+		tick := t.now()
+		t.mu.Lock()
+		last := t.lastFrame
+		t.mu.Unlock()
+		if last.IsZero() {
+			if !eligible() {
+				return time.Time{}, false
+			}
+			t.mu.Lock()
+			t.lastFrame = tick
+			t.mu.Unlock()
+			if runtimeTraceActive() {
+				runtimeTracef("FrameTimer.Wait first-tick now=%s", tick.Format(time.RFC3339Nano))
+			}
+			return tick, true
+		}
+		delay := last.Add(t.targetPeriod).Sub(t.now())
+		if delay <= 0 {
+			select {
+			case <-t.requestCh:
+			default:
+			}
+			now := t.now()
+			t.mu.Lock()
+			t.lastFrame = now
+			t.mu.Unlock()
+			if runtimeTraceActive() {
+				runtimeTracef("FrameTimer.Wait fallback now=%s", now.Format(time.RFC3339Nano))
+			}
+			return now, true
+		}
+		timer := time.NewTimer(delay)
+		select {
+		case <-t.requestCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			now := t.now()
+			t.mu.Lock()
+			t.lastFrame = now
+			t.mu.Unlock()
+			return now, true
+		case frameTimeNanos := <-t.vsyncCh:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			label := "late-vsync"
+			if first {
+				label = "early-vsync"
+			}
+			if !eligible() {
+				return time.Time{}, false
+			}
+			return t.recordVsync(frameTimeNanos, label), true
+		case <-wake:
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			if onWake != nil {
+				onWake()
+			}
+			if !eligible() {
+				return time.Time{}, false
+			}
+			first = false
+		case <-timer.C:
+			if !eligible() {
+				return time.Time{}, false
+			}
+			now := t.now()
+			t.mu.Lock()
+			t.lastFrame = now
+			t.mu.Unlock()
+			if runtimeTraceActive() {
+				runtimeTracef("FrameTimer.Wait timeout now=%s", now.Format(time.RFC3339Nano))
+			}
+			return now, true
+		}
 	}
-	now := t.now()
+}
+
+func (t *FrameTimer) recordVsync(frameTimeNanos int64, label string) time.Time {
+	now := time.Unix(0, frameTimeNanos)
 	t.mu.Lock()
 	t.lastFrame = now
 	t.mu.Unlock()
 	if runtimeTraceActive() {
-		runtimeTracef("FrameTimer.Wait fallback now=%s", now.Format(time.RFC3339Nano))
+		runtimeTracef("FrameTimer.Wait %s now=%s", label, now.Format(time.RFC3339Nano))
 	}
 	return now
 }
