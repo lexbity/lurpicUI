@@ -128,15 +128,8 @@ func TestSoftwareRenderer_fillrect_solid(t *testing.T) {
 
 func TestSoftwareRenderer_evict_caches_clears_recoverable_state(t *testing.T) {
 	r, _ := newRenderer(t, 20, 20)
-	r.RenderBatchCache[1] = &RenderBatchCacheEntry{buffer: image.NewRGBA(image.Rect(0, 0, 1, 1))}
 	r.rasterizeCount = 3
 	r.EvictCaches()
-	if len(r.RenderBatchCache) != 0 {
-		t.Fatalf("expected render batch cache cleared, got %d", len(r.RenderBatchCache))
-	}
-	if r.diffCache == nil {
-		t.Fatal("expected diff cache reinitialized")
-	}
 	if r.glyphAtlas == nil || len(r.glyphAtlas.entries) != 0 {
 		t.Fatal("expected glyph atlas cleared")
 	}
@@ -436,24 +429,26 @@ func TestSoftwareRenderer_opacity_stack(t *testing.T) {
 	}
 }
 
-func TestSoftwareRenderer_RenderBatch_caching_skip(t *testing.T) {
-	r, _ := newRenderer(t, 20, 20)
-	frame := testframe.Seal(render.FrameInput{
-		Batches: []render.BatchInput{
-			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), gfx.Color{R: 1, A: 1}),
-		},
-	})
-	if err := r.Submit(frame); err != nil {
-		t.Fatalf("submit1: %v", err)
-	}
-	first := r.RasterizeCount()
-	if err := r.Submit(frame); err != nil {
-		t.Fatalf("submit2: %v", err)
-	}
-	if got := r.RasterizeCount(); got != first {
-		t.Fatalf("expected second submit to skip rasterization, got %d -> %d", first, got)
-	}
-}
+// TestSoftwareRenderer_RenderBatch_caching_skip is removed for P6.
+// Caching/optimization will be re-introduced in P7 with the damage/tiling system.
+// func TestSoftwareRenderer_RenderBatch_caching_skip(t *testing.T) {
+// 	r, _ := newRenderer(t, 20, 20)
+// 	frame := testframe.Seal(render.FrameInput{
+// 		Batches: []render.BatchInput{
+// 			solidRenderBatch(1, gfx.RectFromXYWH(0, 0, 10, 10), gfx.Color{R: 1, A: 1}),
+// 		},
+// 	})
+// 	if err := r.Submit(frame); err != nil {
+// 		t.Fatalf("submit1: %v", err)
+// 	}
+// 	first := r.RasterizeCount()
+// 	if err := r.Submit(frame); err != nil {
+// 		t.Fatalf("submit2: %v", err)
+// 	}
+// 	if got := r.RasterizeCount(); got != first {
+// 		t.Fatalf("expected second submit to skip rasterization, got %d -> %d", first, got)
+// 	}
+// }
 
 func TestSoftwareRenderer_RenderBatch_compositing_order(t *testing.T) {
 	r, s := newRenderer(t, 20, 20)

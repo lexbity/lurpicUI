@@ -22,10 +22,7 @@ import (
 	"golang.org/x/image/vector"
 )
 
-type RenderBatchCacheEntry struct {
-	bounds gfx.Rect
-	buffer *image.RGBA
-}
+
 
 type glyphEntry struct {
 	bitmap  *image.Alpha
@@ -48,17 +45,15 @@ type renderState struct {
 }
 
 type SoftwareRenderer struct {
-	windowID         string
-	windows          map[string]*SoftwareRenderer
-	mu               sync.RWMutex
-	surface          render.SoftwareSurface
-	output           *image.RGBA
-	texBackend       *render.SoftwareBackend
-	RenderBatchCache map[render.RenderBatchID]*RenderBatchCacheEntry
-	diffCache        *renderutil.RenderBatchCache
-	glyphAtlas       *glyphAtlas
-	width            int
-	height           int
+	windowID   string
+	windows    map[string]*SoftwareRenderer
+	mu         sync.RWMutex
+	surface    render.SoftwareSurface
+	output     *image.RGBA
+	texBackend *render.SoftwareBackend
+	glyphAtlas *glyphAtlas
+	width      int
+	height     int
 
 	strokeScratch  gfx.StrokeScratch
 	rasterizeCount int
@@ -66,11 +61,9 @@ type SoftwareRenderer struct {
 
 func NewSoftwareRenderer() *SoftwareRenderer {
 	return &SoftwareRenderer{
-		windowID:         render.PrimaryWindow,
-		RenderBatchCache: make(map[render.RenderBatchID]*RenderBatchCacheEntry),
-		diffCache:        renderutil.NewRenderBatchCache(),
-		glyphAtlas:       &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)},
-		texBackend:       &render.SoftwareBackend{},
+		windowID:   render.PrimaryWindow,
+		glyphAtlas: &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)},
+		texBackend: &render.SoftwareBackend{},
 	}
 }
 
@@ -117,8 +110,6 @@ func (r *SoftwareRenderer) Destroy() {
 	r.output = nil
 	r.width = 0
 	r.height = 0
-	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
-	r.diffCache = renderutil.NewRenderBatchCache()
 	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
 }
 
@@ -129,8 +120,6 @@ func (r *SoftwareRenderer) EvictCaches() {
 	for _, window := range r.windows {
 		window.EvictCaches()
 	}
-	r.RenderBatchCache = make(map[render.RenderBatchID]*RenderBatchCacheEntry)
-	r.diffCache = renderutil.NewRenderBatchCache()
 	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
 	r.rasterizeCount = 0
 }
@@ -167,30 +156,8 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 		r.allocateOutput(w, h)
 	}
 
-	diff := r.diffCache.Diff(frame)
-
-	// Steady-state fast path: when every batch in the frame is unchanged
-	// (nothing added, removed, moved, or re-painted), the composited output
-	// from the previous frame is already correct. Skipping the clear +
-	// per-batch composite removes the entire pixel-traffic hot path — a large
-	// share of the software backend's instrumented memory accesses in quiet
-	// frames (and ~2x more under the race detector).
-	//
-	// The gate is the per-batch diff kinds, NOT CompositeDirtyRects: that list
-	// is rebuilt from the *current* frame's batches after removal detection,
-	// so a removed batch (e.g. a closed modal layer) contributes no rect and
-	// the list can read empty while pixels actually changed.
-	if allBatchesUnchanged(diff.RenderBatchs, frame.BatchCount()) {
-		if err := r.blitToSurface(); err != nil {
-			return err
-		}
-		r.diffCache.Update(frame)
-		return nil
-	}
-
 	clearRGBA(r.output)
 
-	seen := make(map[render.RenderBatchID]struct{}, frame.BatchCount())
 	clips := make([]gfx.Rect, frame.BatchCount())
 	for li := 0; li < frame.LayerCount(); li++ {
 		layer, ok := frame.LayerAt(li)
@@ -206,14 +173,6 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 		if !ok {
 			return errors.New("software renderer: frame released during submit")
 		}
-		seen[batch.ID] = struct{}{}
-		ld := diff.RenderBatchs[batch.ID]
-		if ld.Kind == renderutil.RenderBatchUnchanged {
-			if entry := r.RenderBatchCache[batch.ID]; entry != nil && entry.buffer != nil {
-				r.compositeRenderBatch(r.output, entry.buffer, batch.Bounds.Min, batch.Opacity)
-			}
-			continue
-		}
 		sizeW := int(math.Ceil(float64(batch.Bounds.Width())))
 		sizeH := int(math.Ceil(float64(batch.Bounds.Height())))
 		if sizeW < 0 {
@@ -225,14 +184,7 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 		buffer := image.NewRGBA(image.Rect(0, 0, sizeW, sizeH))
 		r.rasterizeRenderBatch(buffer, frame, i, batch, clips[i])
 		r.rasterizeCount++
-		r.RenderBatchCache[batch.ID] = &RenderBatchCacheEntry{bounds: batch.Bounds, buffer: buffer}
 		r.compositeRenderBatch(r.output, buffer, batch.Bounds.Min, batch.Opacity)
-	}
-
-	for id := range r.RenderBatchCache {
-		if _, ok := seen[id]; !ok {
-			delete(r.RenderBatchCache, id)
-		}
 	}
 
 	if len(r.output.Pix) >= 4 {
@@ -245,12 +197,6 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	if err := r.blitToSurface(); err != nil {
 		return err
 	}
-
-	buffers := make(map[render.RenderBatchID]*image.RGBA, len(r.RenderBatchCache))
-	for id, entry := range r.RenderBatchCache {
-		buffers[id] = entry.buffer
-	}
-	r.diffCache.Update(frame)
 	return nil
 }
 
@@ -1099,23 +1045,6 @@ func sampleImageNearest(img gfx.ImageHandle, sx, sy float32) gfx.Color {
 		return gfx.Color{}
 	}
 	return colorFromBytes(r, g, b, a)
-}
-
-// allBatchesUnchanged reports whether every batch in the frame diff is
-// RenderBatchUnchanged and the frame's batch count matches the diff set.
-// Frame count == len(diff) catches removals: a removed batch leaves an entry
-// in diff.RenderBatchs (kind Removed) that is absent from frame.RenderBatchs,
-// so the lengths differ and the fast path correctly falls through.
-func allBatchesUnchanged(diffs map[render.RenderBatchID]renderutil.RenderBatchDiff, frameBatches int) bool {
-	if len(diffs) != frameBatches {
-		return false
-	}
-	for _, d := range diffs {
-		if d.Kind != renderutil.RenderBatchUnchanged {
-			return false
-		}
-	}
-	return true
 }
 
 func blendAt(img *image.RGBA, x, y int, src gfx.Color, opacity float32) {
