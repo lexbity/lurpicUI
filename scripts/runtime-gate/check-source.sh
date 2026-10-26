@@ -205,7 +205,7 @@ if [[ "$phase" == *P6* ]]; then
 fi
 
 if [[ "$phase" == *P9* ]]; then
-	for package in render/vulkan app internal/membudget runtime; do
+	for package in render/vulkan app internal/membudget runtime platform/linux/internal/display; do
 		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
 		if [ -z "$files" ]; then
 			printf 'source inventory is empty for %s\n' "$package" >&2
@@ -236,6 +236,9 @@ if [[ "$phase" == *P9* ]]; then
 	grep -q 'func TestVulkanFenceRetainsPhysicalCharge' render/vulkan/resource_test.go
 	grep -q 'func TestVulkanResizeGenerationAndCapture' render/vulkan/resource_test.go
 	grep -q 'func TestVulkanDeviceLossNoFalseReady' render/vulkan/resource_test.go
+	grep -q 'pub fn test_pause_next_fence_wait' render/vulkan/crates/lurpic_render/src/vulkan.rs
+	grep -q 'func TestVulkanNativeWindowPresentationAndSwapchainResize' platform/linux/internal/display/vulkan_surface_test.go
+	grep -q 'P9.vulkan-native-surface.host' runtime/testdata/performance/gates.json
 	grep -q 'BenchmarkVulkanSubmit_AcceptanceCorpus' scripts/runtime-gate/main.go
 	grep -q 'func validateBenchmarkOutput' scripts/runtime-gate/main.go
 	grep -q 'func TestValidateBenchmarkOutputRequiresMeasurement' scripts/runtime-gate/main_test.go

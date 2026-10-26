@@ -36,6 +36,9 @@ func SetValidation(bool) error         { return errCGORequired }
 func ForceSwappedRendering(bool) error { return errCGORequired }
 func BuildPipelineProbe() error        { return errCGORequired }
 func InjectDeviceLost() error          { return errCGORequired }
+func TestPauseNextFenceWait() error    { return errCGORequired }
+func TestFenceWaitPaused() bool        { return false }
+func TestReleaseFenceWait() error      { return errCGORequired }
 
 func ResourceSnapshot() (ResourceUsage, error) { return ResourceUsage{}, errCGORequired }
 

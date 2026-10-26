@@ -317,6 +317,24 @@ pub extern "C" fn lurpic_render_test_error() -> RenderResult {
 
 #[cfg(feature = "test-exports")]
 #[no_mangle]
+pub extern "C" fn lurpic_render_test_pause_next_fence_wait() -> RenderResult {
+    catch_render_result("test_pause_next_fence_wait", vulkan::test_pause_next_fence_wait)
+}
+
+#[cfg(feature = "test-exports")]
+#[no_mangle]
+pub extern "C" fn lurpic_render_test_fence_wait_paused() -> i32 {
+	if vulkan::test_fence_wait_paused() { 1 } else { 0 }
+}
+
+#[cfg(feature = "test-exports")]
+#[no_mangle]
+pub extern "C" fn lurpic_render_test_release_fence_wait() -> RenderResult {
+    catch_render_result("test_release_fence_wait", vulkan::test_release_fence_wait)
+}
+
+#[cfg(feature = "test-exports")]
+#[no_mangle]
 pub extern "C" fn lurpic_render_test_panic() -> RenderResult {
     catch_render_result("test_panic", || -> Result<(), (RenderResult, String)> {
         panic!("simulated boundary panic")

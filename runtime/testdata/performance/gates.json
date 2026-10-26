@@ -417,6 +417,15 @@
       "mode": "race", "tags": [], "backend": "vulkan", "required": true,
       "repetitions": 10, "test_budget_ms": 120000, "package_timeout_ms": 1200000,
       "fixture": "p9-vulkan-resource-v1"
+    },
+    {
+      "id": "P9.vulkan-native-surface.host",
+      "phase": "P9",
+      "package": "./platform/linux/internal/display",
+      "tests": ["TestVulkanNativeWindowPresentationAndSwapchainResize"],
+      "mode": "host", "tags": ["vulkan_device"], "backend": "vulkan", "required": true,
+      "repetitions": 1, "test_budget_ms": 120000, "package_timeout_ms": 1200000,
+      "fixture": "p9-native-xcb-swapchain-v1"
     }
   ]
 }

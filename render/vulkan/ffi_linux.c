@@ -30,6 +30,7 @@ static int32_t (*lurpic_render_submit_frame_fn)(const unsigned char *data, uintp
 static uint64_t (*lurpic_render_test_destroy_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_drop_count_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_error_fn)(void) = NULL;
+static int32_t (*lurpic_render_test_fence_wait_paused_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_glyph_atlas_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_glyph_atlas_evictions_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_handle_create_fn)(void) = NULL;
@@ -42,7 +43,9 @@ static int32_t (*lurpic_render_test_inject_device_lost_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_last_batch_count_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_last_command_count_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_ok_fn)(void) = NULL;
+static int32_t (*lurpic_render_test_pause_next_fence_wait_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_panic_fn)(void) = NULL;
+static int32_t (*lurpic_render_test_release_fence_wait_fn)(void) = NULL;
 static int32_t (*lurpic_render_test_reset_fn)(void) = NULL;
 static uint64_t (*lurpic_render_test_validation_error_count_fn)(void) = NULL;
 static int32_t (*lurpic_render_upload_glyph_fn)(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len) = NULL;
@@ -72,6 +75,7 @@ static void lurpic_render_reset_fns(void) {
   lurpic_render_test_destroy_count_fn = NULL;
   lurpic_render_test_drop_count_fn = NULL;
   lurpic_render_test_error_fn = NULL;
+  lurpic_render_test_fence_wait_paused_fn = NULL;
   lurpic_render_test_glyph_atlas_count_fn = NULL;
   lurpic_render_test_glyph_atlas_evictions_fn = NULL;
   lurpic_render_test_handle_create_fn = NULL;
@@ -84,7 +88,9 @@ static void lurpic_render_reset_fns(void) {
   lurpic_render_test_last_batch_count_fn = NULL;
   lurpic_render_test_last_command_count_fn = NULL;
   lurpic_render_test_ok_fn = NULL;
+  lurpic_render_test_pause_next_fence_wait_fn = NULL;
   lurpic_render_test_panic_fn = NULL;
+  lurpic_render_test_release_fence_wait_fn = NULL;
   lurpic_render_test_reset_fn = NULL;
   lurpic_render_test_validation_error_count_fn = NULL;
   lurpic_render_upload_glyph_fn = NULL;
@@ -172,6 +178,7 @@ int lurpic_render_load(const char *library_path) {
   LOAD_SYM(lurpic_render_test_destroy_count_fn, "lurpic_render_test_destroy_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_drop_count_fn, "lurpic_render_test_drop_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_error_fn, "lurpic_render_test_error", int32_t(*)(void));
+  LOAD_SYM(lurpic_render_test_fence_wait_paused_fn, "lurpic_render_test_fence_wait_paused", int32_t(*)(void));
   LOAD_SYM(lurpic_render_test_glyph_atlas_count_fn, "lurpic_render_test_glyph_atlas_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_glyph_atlas_evictions_fn, "lurpic_render_test_glyph_atlas_evictions", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_handle_create_fn, "lurpic_render_test_handle_create", uint64_t(*)(void));
@@ -184,7 +191,9 @@ int lurpic_render_load(const char *library_path) {
   LOAD_SYM(lurpic_render_test_last_batch_count_fn, "lurpic_render_test_last_batch_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_last_command_count_fn, "lurpic_render_test_last_command_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_test_ok_fn, "lurpic_render_test_ok", int32_t(*)(void));
+  LOAD_SYM(lurpic_render_test_pause_next_fence_wait_fn, "lurpic_render_test_pause_next_fence_wait", int32_t(*)(void));
   LOAD_SYM(lurpic_render_test_panic_fn, "lurpic_render_test_panic", int32_t(*)(void));
+  LOAD_SYM(lurpic_render_test_release_fence_wait_fn, "lurpic_render_test_release_fence_wait", int32_t(*)(void));
   LOAD_SYM(lurpic_render_test_reset_fn, "lurpic_render_test_reset", int32_t(*)(void));
   LOAD_SYM(lurpic_render_test_validation_error_count_fn, "lurpic_render_test_validation_error_count", uint64_t(*)(void));
   LOAD_SYM(lurpic_render_upload_glyph_fn, "lurpic_render_upload_glyph", int32_t(*)(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len));
@@ -500,6 +509,22 @@ int32_t lurpic_render_test_error(void) {
   }
   return result;
 }
+int32_t lurpic_render_test_fence_wait_paused(void) {
+  if (lurpic_render_test_fence_wait_paused_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_test_fence_wait_paused_fn();
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
 uint64_t lurpic_render_test_glyph_atlas_count(void) {
   if (lurpic_render_test_glyph_atlas_count_fn == NULL) {
     set_error("vulkan: Rust library not loaded");
@@ -636,12 +661,44 @@ int32_t lurpic_render_test_ok(void) {
   }
   return result;
 }
+int32_t lurpic_render_test_pause_next_fence_wait(void) {
+  if (lurpic_render_test_pause_next_fence_wait_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_test_pause_next_fence_wait_fn();
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
 int32_t lurpic_render_test_panic(void) {
   if (lurpic_render_test_panic_fn == NULL) {
     set_error("vulkan: Rust library not loaded");
     return -1;
   }
   int32_t result = lurpic_render_test_panic_fn();
+  if (result == 0) {
+    set_error("");
+  } else if (lurpic_render_last_error_fn != NULL) {
+    const char *msg = lurpic_render_last_error_fn();
+    if (msg != NULL) {
+      set_error(msg);
+    }
+  }
+  return result;
+}
+int32_t lurpic_render_test_release_fence_wait(void) {
+  if (lurpic_render_test_release_fence_wait_fn == NULL) {
+    set_error("vulkan: Rust library not loaded");
+    return -1;
+  }
+  int32_t result = lurpic_render_test_release_fence_wait_fn();
   if (result == 0) {
     set_error("");
   } else if (lurpic_render_last_error_fn != NULL) {

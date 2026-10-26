@@ -62,6 +62,7 @@ int32_t lurpic_render_submit_frame(const unsigned char *data, uintptr_t len);
 uint64_t lurpic_render_test_destroy_count(void);
 uint64_t lurpic_render_test_drop_count(void);
 int32_t lurpic_render_test_error(void);
+int32_t lurpic_render_test_fence_wait_paused(void);
 uint64_t lurpic_render_test_glyph_atlas_count(void);
 uint64_t lurpic_render_test_glyph_atlas_evictions(void);
 uint64_t lurpic_render_test_handle_create(void);
@@ -74,7 +75,9 @@ int32_t lurpic_render_test_inject_device_lost(void);
 uint64_t lurpic_render_test_last_batch_count(void);
 uint64_t lurpic_render_test_last_command_count(void);
 int32_t lurpic_render_test_ok(void);
+int32_t lurpic_render_test_pause_next_fence_wait(void);
 int32_t lurpic_render_test_panic(void);
+int32_t lurpic_render_test_release_fence_wait(void);
 int32_t lurpic_render_test_reset(void);
 uint64_t lurpic_render_test_validation_error_count(void);
 int32_t lurpic_render_upload_glyph(uint64_t font_id, uint32_t glyph_id, uint32_t size_bits, uint32_t width, uint32_t height, float offset_x, float offset_y, float advance, const unsigned char *pixels, uintptr_t len);
@@ -418,6 +421,27 @@ func InjectDeviceLost() error {
 		return err
 	}
 	return translateStatus(C.lurpic_render_test_inject_device_lost())
+}
+
+func TestPauseNextFenceWait() error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	return translateStatus(C.lurpic_render_test_pause_next_fence_wait())
+}
+
+func TestFenceWaitPaused() bool {
+	if err := loadRustLibrary(); err != nil {
+		return false
+	}
+	return C.lurpic_render_test_fence_wait_paused() != 0
+}
+
+func TestReleaseFenceWait() error {
+	if err := loadRustLibrary(); err != nil {
+		return err
+	}
+	return translateStatus(C.lurpic_render_test_release_fence_wait())
 }
 
 func ResetAtlas() {

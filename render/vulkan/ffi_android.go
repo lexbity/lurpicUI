@@ -47,6 +47,9 @@ int lurpic_render_query_capabilities(LurpicRenderCapabilities *out);
 int lurpic_render_query_pipeline_features(lurpic_render_pipeline_features *out);
 int lurpic_render_set_validation(uint32_t enabled);
 int lurpic_render_set_resource_budget(uint64_t bytes);
+int lurpic_render_test_pause_next_fence_wait(void);
+int lurpic_render_test_fence_wait_paused(void);
+int lurpic_render_test_release_fence_wait(void);
 int lurpic_render_test_force_swapped_rendering(uint32_t enabled);
 int lurpic_render_build_pipeline_probe(void);
 int lurpic_render_test_inject_device_lost(void);
@@ -281,6 +284,18 @@ func BuildPipelineProbe() error {
 // result (test-only).
 func InjectDeviceLost() error {
 	return translateStatus(C.lurpic_render_test_inject_device_lost())
+}
+
+func TestPauseNextFenceWait() error {
+	return translateStatus(C.lurpic_render_test_pause_next_fence_wait())
+}
+
+func TestFenceWaitPaused() bool {
+	return C.lurpic_render_test_fence_wait_paused() != 0
+}
+
+func TestReleaseFenceWait() error {
+	return translateStatus(C.lurpic_render_test_release_fence_wait())
 }
 
 // PipelineFeatures mirrors the Rust LurpicRenderPipelineFeatures struct.

@@ -52,6 +52,16 @@ func InjectDeviceLost() error {
 	return errors.New("vulkan: Rust bridge requires linux with cgo")
 }
 
+func TestPauseNextFenceWait() error {
+	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
+func TestFenceWaitPaused() bool { return false }
+
+func TestReleaseFenceWait() error {
+	return errors.New("vulkan: Rust bridge requires linux with cgo")
+}
+
 func ResourceSnapshot() (ResourceUsage, error) {
 	return ResourceUsage{}, errors.New("vulkan: Rust bridge requires linux with cgo")
 }

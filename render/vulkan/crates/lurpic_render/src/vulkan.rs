@@ -8,6 +8,8 @@
 #[cfg(target_os = "android")]
 use std::ffi::c_void;
 use std::sync::{Mutex, OnceLock};
+#[cfg(feature = "test-exports")]
+use std::sync::Condvar;
 
 use ash::vk;
 use ash::vk::Handle;
@@ -56,6 +58,78 @@ static FORCE_SWAPPED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicB
 /// GPU-fatal submit through the real FFI path.
 #[cfg(feature = "test-exports")]
 static INJECT_DEVICE_LOST: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+#[cfg(feature = "test-exports")]
+#[derive(Default)]
+struct FenceWaitTestState {
+    pause_next: bool,
+    paused: bool,
+    released: bool,
+}
+
+#[cfg(feature = "test-exports")]
+struct FenceWaitTestBarrier {
+    state: Mutex<FenceWaitTestState>,
+    changed: Condvar,
+}
+
+#[cfg(feature = "test-exports")]
+fn fence_wait_test_barrier() -> &'static FenceWaitTestBarrier {
+    static BARRIER: OnceLock<FenceWaitTestBarrier> = OnceLock::new();
+    BARRIER.get_or_init(|| FenceWaitTestBarrier {
+        state: Mutex::new(FenceWaitTestState::default()),
+        changed: Condvar::new(),
+    })
+}
+
+#[cfg(feature = "test-exports")]
+pub fn test_pause_next_fence_wait() -> Result<(), (RenderResult, String)> {
+    let barrier = fence_wait_test_barrier();
+    let mut state = barrier.state.lock().map_err(|_| (RenderResult::Panic, "fence test barrier poisoned".to_string()))?;
+    if state.pause_next || state.paused {
+        return Err((RenderResult::InvalidHandle, "a Vulkan fence wait is already paused or armed".to_string()));
+    }
+    state.released = false;
+    state.pause_next = true;
+    Ok(())
+}
+
+#[cfg(feature = "test-exports")]
+pub fn test_fence_wait_paused() -> bool {
+    fence_wait_test_barrier().state.lock().map(|state| state.paused).unwrap_or(false)
+}
+
+#[cfg(feature = "test-exports")]
+pub fn test_release_fence_wait() -> Result<(), (RenderResult, String)> {
+    let barrier = fence_wait_test_barrier();
+    let mut state = barrier.state.lock().map_err(|_| (RenderResult::Panic, "fence test barrier poisoned".to_string()))?;
+    state.pause_next = false;
+    state.released = true;
+    barrier.changed.notify_all();
+    Ok(())
+}
+
+#[cfg(feature = "test-exports")]
+fn pause_at_fence_wait_for_test() -> Result<(), (RenderResult, String)> {
+    let barrier = fence_wait_test_barrier();
+    let mut state = barrier.state.lock().map_err(|_| (RenderResult::Panic, "fence test barrier poisoned".to_string()))?;
+    if !state.pause_next {
+        return Ok(());
+    }
+    state.pause_next = false;
+    state.paused = true;
+    barrier.changed.notify_all();
+    while !state.released {
+        state = barrier.changed.wait(state).map_err(|_| (RenderResult::Panic, "fence test barrier poisoned".to_string()))?;
+    }
+    state.paused = false;
+    state.released = false;
+    barrier.changed.notify_all();
+    Ok(())
+}
+
+#[cfg(not(feature = "test-exports"))]
+fn pause_at_fence_wait_for_test() -> Result<(), (RenderResult, String)> { Ok(()) }
 
 #[cfg(feature = "test-exports")]
 pub fn test_inject_device_lost() -> Result<(), (RenderResult, String)> {
@@ -1962,6 +2036,7 @@ impl VulkanState {
         // acknowledgment. Keep this wait on the render owner and do not
         // publish completion while the GPU can still be using the sealed
         // frame's encoded resources or target image.
+        pause_at_fence_wait_for_test()?;
         self.ring.as_ref().unwrap().wait_current_frame()?;
         Ok(())
     }

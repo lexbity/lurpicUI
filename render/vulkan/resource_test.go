@@ -4,8 +4,11 @@ package vulkan
 
 import (
 	"errors"
+	"runtime"
 	"testing"
+	"time"
 
+	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/testframe"
 	"codeburg.org/lexbit/lurpicui/render"
 )
@@ -78,39 +81,120 @@ func TestVulkanFenceRetainsPhysicalCharge(t *testing.T) {
 		t.Skipf("Vulkan not available: %v", err)
 	}
 	defer b.Destroy()
-	initial, err := ResourceSnapshot()
-	if err != nil {
-		t.Fatal(err)
-	}
 	tempBackend := render.NewVulkanBackend(render.TextureFormatBC7)
-	var handles []render.TextureID
-	for i := 0; i < 5; i++ {
-		handle, err := tempBackend.UploadTexture(render.TextureUploadRequest{
-			AssetID: uint64(i), LOD: 0, PixelData: make([]byte, 128*128*4),
-			Width: 128, Height: 128, Format: render.TextureFormatRGBA8, MipLevels: 1,
-		})
-		if err != nil {
-			t.Fatalf("upload texture %d: %v", i, err)
-		}
-		handles = append(handles, handle)
-	}
-	withResources, err := ResourceSnapshot()
+	empty := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{}})
+	emptyPacket, err := EncodeFrame(empty)
+	empty.Release()
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, handle := range handles {
-		tempBackend.FreeTexture(handle)
+	if _, err := SubmitAndReadback(emptyPacket, 32, 32); err != nil {
+		t.Fatalf("warm readback resources: %v", err)
+	}
+	baseline, err := ResourceSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	textureID, err := tempBackend.UploadTexture(render.TextureUploadRequest{
+		AssetID: 77, LOD: 0, PixelData: make([]byte, 16*16*4),
+		Width: 16, Height: 16, Format: render.TextureFormatRGBA8, MipLevels: 1,
+	})
+	if err != nil {
+		t.Fatalf("upload texture: %v", err)
+	}
+	frame := testframe.Seal(render.FrameInput{Batches: []render.BatchInput{{
+		Bounds: gfx.RectFromXYWH(0, 0, 16, 16), Opacity: 1,
+		Commands: gfx.CommandList{Commands: []gfx.Command{gfx.DrawTexture{
+			TextureID: uint64(textureID), DestRect: gfx.RectFromXYWH(0, 0, 16, 16),
+			SrcRect: gfx.RectFromXYWH(0, 0, 1, 1), Sampling: gfx.SamplingNearest, Opacity: 1,
+		}}},
+	}}})
+	defer frame.Release()
+	packet, err := EncodeFrame(frame)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := TestPauseNextFenceWait(); err != nil {
+		t.Fatalf("arm real submit fence barrier: %v", err)
+	}
+	releaseFence := true
+	defer func() {
+		if releaseFence {
+			if err := TestReleaseFenceWait(); err != nil {
+				t.Errorf("release fence barrier during cleanup: %v", err)
+			}
+		}
+	}()
+	submitDone := make(chan error, 1)
+	go func() {
+		_, err := SubmitAndReadback(packet, 32, 32)
+		submitDone <- err
+	}()
+	waitForFenceTestState(t, true)
+	withTexture, err := ResourceSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if withTexture.TotalManaged() <= baseline.TotalManaged() {
+		t.Fatalf("submitted texture did not retain a physical allocation charge: baseline=%d current=%d", baseline.TotalManaged(), withTexture.TotalManaged())
+	}
+	freeStarted := make(chan struct{})
+	freeDone := make(chan struct{})
+	go func() {
+		close(freeStarted)
+		tempBackend.FreeTexture(textureID)
+		close(freeDone)
+	}()
+	<-freeStarted
+	select {
+	case <-freeDone:
+		t.Fatal("texture was destroyed before the queue submission fence completed")
+	case <-time.After(25 * time.Millisecond):
+	}
+	stillPinned, err := ResourceSnapshot()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillPinned.TotalManaged() != withTexture.TotalManaged() {
+		t.Fatalf("fence-blocked texture charge changed: before=%d while blocked=%d", withTexture.TotalManaged(), stillPinned.TotalManaged())
+	}
+	if err := TestReleaseFenceWait(); err != nil {
+		t.Fatal(err)
+	}
+	releaseFence = false
+	select {
+	case err := <-submitDone:
+		if err != nil {
+			t.Fatalf("render submitted texture: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("render did not complete after releasing its real queue fence")
+	}
+	select {
+	case <-freeDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("texture destruction did not resume after queue completion")
 	}
 	afterFree, err := ResourceSnapshot()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if withResources.TotalManaged() <= initial.TotalManaged() {
-		t.Fatalf("texture uploads did not increase managed bytes: baseline=%d current=%d", initial.TotalManaged(), withResources.TotalManaged())
+	if afterFree.TotalManaged() != baseline.TotalManaged() {
+		t.Errorf("texture charge did not retire after the queue fence: baseline=%d after=%d", baseline.TotalManaged(), afterFree.TotalManaged())
 	}
-	if afterFree.TotalManaged() != initial.TotalManaged() {
-		t.Errorf("synchronous image retirement did not return to baseline: baseline=%d afterFree=%d", initial.TotalManaged(), afterFree.TotalManaged())
+}
+
+func waitForFenceTestState(t *testing.T, want bool) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if TestFenceWaitPaused() == want {
+			return
+		}
+		runtime.Gosched()
+		time.Sleep(time.Millisecond)
 	}
+	t.Fatalf("timed out waiting for Vulkan fence barrier paused=%v", want)
 }
 
 func TestVulkanResizeGenerationAndCapture(t *testing.T) {
