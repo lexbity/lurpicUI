@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -42,6 +43,18 @@ type renderState struct {
 	opacity   float32
 }
 
+// tileRenderingInfo holds information for rendering a single tile
+type tileRenderingInfo struct {
+	// The tile coordinate
+	coord tileCoord
+	// The pixel rectangle this tile covers
+	tileRect image.Rectangle
+	// The surface rectangle this tile covers
+	surfaceRect image.Rectangle
+	// List of batch indices that intersect this tile
+	batchIndices []int
+}
+
 type SoftwareRenderer struct {
 	windowID   string
 	windows    map[string]*SoftwareRenderer
@@ -52,6 +65,14 @@ type SoftwareRenderer struct {
 	glyphAtlas *glyphAtlas
 	width      int
 	height     int
+
+	// Tile-based rendering infrastructure
+	// rasterStorage manages tile-based rendering and damage tracking
+	rasterStorage *RasterStorage
+	// tileCache caches rasterized tiles
+	tileCache *TileCache
+	// tileGrid tracks the tile grid for the current surface
+	tileGrid *TileGrid
 
 	strokeScratch  gfx.StrokeScratch
 	rasterizeCount int
@@ -78,6 +99,33 @@ func (r *SoftwareRenderer) Initialize(surface render.Surface) error {
 	defer r.mu.Unlock()
 	r.surface = blit
 	w, h := surface.Size()
+
+	// Create tile grid
+	r.tileGrid = NewTileGrid(w, h)
+
+	// Create tile cache with a reasonable default configuration
+	// This will be properly configured by the resource plan in a full implementation
+	wallet, err := membudget.NewWallet(48 << 20) // 48 MiB for software raster
+	if err != nil {
+		return err
+	}
+	tileCache, err := NewTileCache(TileCacheConfig{
+		Wallet:     wallet,
+		MaxEntries: 16384, // 4096 for compact, 16384 for standard
+	})
+	if err != nil {
+		return err
+	}
+	r.tileCache = tileCache
+
+	// Create raster storage
+	r.rasterStorage = NewRasterStorage(RasterStorageConfig{
+		WindowID:  r.windowID,
+		TileCache: tileCache,
+		Width:     w,
+		Height:    h,
+	})
+
 	r.allocateOutput(w, h)
 	return nil
 }
@@ -88,6 +136,15 @@ func (r *SoftwareRenderer) Resize(width, height int) error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Update tile grid
+	r.tileGrid = NewTileGrid(width, height)
+
+	// Resize raster storage
+	if r.rasterStorage != nil {
+		r.rasterStorage.Resize(width, height)
+	}
+
 	r.allocateOutput(width, height)
 	if r.surface != nil {
 		if resizable, ok := any(r.surface).(interface{ Resize(int, int) }); ok {
@@ -109,6 +166,9 @@ func (r *SoftwareRenderer) Destroy() {
 	r.width = 0
 	r.height = 0
 	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
+	r.tileCache = nil
+	r.rasterStorage = nil
+	r.tileGrid = nil
 }
 
 // EvictCaches releases recoverable renderer caches without dropping the surface.
@@ -119,6 +179,12 @@ func (r *SoftwareRenderer) EvictCaches() {
 		window.EvictCaches()
 	}
 	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
+	if r.tileCache != nil {
+		r.tileCache.Clear()
+	}
+	if r.rasterStorage != nil {
+		// Clear raster storage will be handled by tile cache eviction
+	}
 	r.rasterizeCount = 0
 }
 
@@ -134,6 +200,56 @@ func (r *SoftwareRenderer) GlyphRasterizeCount() int {
 	r.glyphAtlas.mu.Lock()
 	defer r.glyphAtlas.mu.Unlock()
 	return r.glyphAtlas.rasterizeCount
+}
+
+// calculateTileRenderingInfo determines which batches intersect each damaged tile
+func (r *SoftwareRenderer) calculateTileRenderingInfo(damage *DamageSet, frame *render.Frame, surfaceSize image.Point) []tileRenderingInfo {
+	if damage == nil || frame == nil {
+		return nil
+	}
+
+	var result []tileRenderingInfo
+	tileCoords := damage.Tiles()
+
+	// For each damaged tile, find which batches intersect it
+	for _, coord := range tileCoords {
+		tileRect := coord.tileRect()
+		// Clamp to surface bounds
+		tileRect = tileRect.Intersect(image.Rect(0, 0, surfaceSize.X, surfaceSize.Y))
+		if tileRect.Empty() {
+			continue
+		}
+
+		info := tileRenderingInfo{
+			coord:        coord,
+			tileRect:     tileRect,
+			surfaceRect:  tileRect,
+			batchIndices: []int{},
+		}
+
+		// Find all batches that intersect this tile
+		for i := 0; i < frame.BatchCount(); i++ {
+			batch, ok := frame.BatchAt(i)
+			if !ok {
+				continue
+			}
+			batchRect := image.Rect(
+				int(math.Floor(float64(batch.Bounds.Min.X))),
+				int(math.Floor(float64(batch.Bounds.Min.Y))),
+				int(math.Ceil(float64(batch.Bounds.Max.X))),
+				int(math.Ceil(float64(batch.Bounds.Max.Y))),
+			)
+			if rectanglesIntersect(tileRect, batchRect) {
+				info.batchIndices = append(info.batchIndices, i)
+			}
+		}
+
+		if len(info.batchIndices) > 0 {
+			result = append(result, info)
+		}
+	}
+
+	return result
 }
 
 func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
@@ -154,43 +270,31 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 		r.allocateOutput(w, h)
 	}
 
-	clearRGBA(r.output)
+	// Begin frame in raster storage
+	r.rasterStorage.BeginFrame(frame)
 
-	clips := make([]gfx.Rect, frame.BatchCount())
-	for li := 0; li < frame.LayerCount(); li++ {
-		layer, ok := frame.LayerAt(li)
-		if !ok {
-			return errors.New("software renderer: frame released during submit")
+	// Get current damage
+	damage := r.rasterStorage.Damage()
+
+	// Check if we should do a full redraw
+	shouldFullRedraw := ShouldFullRedraw(damage, r.tileGrid)
+
+	if shouldFullRedraw {
+		// Full redraw - render everything
+		r.renderFullRedraw(frame)
+	} else if !damage.IsEmpty() {
+		// Partial redraw - render only damaged tiles
+		r.renderPartialRedraw(frame, damage)
+	} else {
+		// No damage - check if we still need to render (e.g., first frame)
+		// If there are batches but no damage, it might be the first frame
+		if frame.BatchCount() > 0 {
+			r.renderFullRedraw(frame)
 		}
-		for i := layer.FirstBatch; i < layer.FirstBatch+layer.BatchCount; i++ {
-			clips[i] = layer.ClipRect
-		}
-	}
-	for i := 0; i < frame.BatchCount(); i++ {
-		batch, ok := frame.BatchAt(i)
-		if !ok {
-			return errors.New("software renderer: frame released during submit")
-		}
-		sizeW := int(math.Ceil(float64(batch.Bounds.Width())))
-		sizeH := int(math.Ceil(float64(batch.Bounds.Height())))
-		if sizeW < 0 {
-			sizeW = 0
-		}
-		if sizeH < 0 {
-			sizeH = 0
-		}
-		buffer := image.NewRGBA(image.Rect(0, 0, sizeW, sizeH))
-		r.rasterizeRenderBatch(buffer, frame, i, batch, clips[i])
-		r.rasterizeCount++
-		r.compositeRenderBatch(r.output, buffer, batch.Bounds.Min, batch.Opacity)
 	}
 
-	if len(r.output.Pix) >= 4 {
-		tl := sampleRGBAAt(r.output, 0, 0)
-		center := sampleRGBAAt(r.output, r.width/2, r.height/2)
-		androidTracef("software output sample w=%d h=%d tl=%02x%02x%02x%02x center=%02x%02x%02x%02x",
-			r.width, r.height, tl[0], tl[1], tl[2], tl[3], center[0], center[1], center[2], center[3])
-	}
+	// End frame
+	r.rasterStorage.EndFrame()
 
 	if err := r.blitToSurface(); err != nil {
 		return err
@@ -198,115 +302,135 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	return nil
 }
 
-func (r *SoftwareRenderer) allocateOutput(width, height int) {
-	if width < 0 {
-		width = 0
-	}
-	if height < 0 {
-		height = 0
-	}
-	r.width = width
-	r.height = height
-	r.output = image.NewRGBA(image.Rect(0, 0, width, height))
-}
-
-func (r *SoftwareRenderer) blitToSurface() error {
-	surface := r.surface
-	if surface == nil || r.output == nil {
-		return nil
-	}
-	if err := surface.Lock(); err != nil {
-		return err
-	}
-	defer func() {
-		_ = surface.Unlock(nil)
-	}()
-
-	dst := surface.Buffer()
-	stride := surface.Stride()
-	if len(dst) == 0 || r.output.Stride == 0 {
-		return nil
-	}
-	if stride <= 0 {
-		stride = r.width * 4
-	}
-	rowBytes := r.width * 4
-	if rowBytes > r.output.Stride {
-		rowBytes = r.output.Stride
-	}
-	if rowBytes > stride {
-		rowBytes = stride
-	}
-	maxRows := r.height
-	if maxRows > 0 {
-		if liveRows := len(dst) / stride; liveRows < maxRows {
-			maxRows = liveRows
-		}
-	}
-	for y := 0; y < maxRows; y++ {
-		srcOff := y * r.output.Stride
-		dstOff := y * stride
-		if srcOff >= len(r.output.Pix) || dstOff >= len(dst) {
-			break
-		}
-		n := rowBytes
-		if remaining := len(r.output.Pix) - srcOff; remaining < n {
-			n = remaining
-		}
-		if remaining := len(dst) - dstOff; remaining < n {
-			n = remaining
-		}
-		if n <= 0 {
-			break
-		}
-		copy(dst[dstOff:dstOff+n], r.output.Pix[srcOff:srcOff+n])
-	}
-	return nil
-}
-
-func sampleRGBAAt(img *image.RGBA, x, y int) [4]byte {
-	if img == nil || x < 0 || y < 0 || x >= img.Bounds().Dx() || y >= img.Bounds().Dy() {
-		return [4]byte{}
-	}
-	off := y*img.Stride + x*4
-	if off < 0 || off+4 > len(img.Pix) {
-		return [4]byte{}
-	}
-	var out [4]byte
-	copy(out[:], img.Pix[off:off+4])
-	return out
-}
-
-func (r *SoftwareRenderer) compositeRenderBatch(dst *image.RGBA, src *image.RGBA, offset gfx.Point, opacity float32) {
-	if dst == nil || src == nil || opacity <= 0 {
+// renderFullRedraw renders the entire surface
+func (r *SoftwareRenderer) renderFullRedraw(frame *render.Frame) {
+	if r.output == nil || frame == nil {
 		return
 	}
-	ox := int(math.Round(float64(offset.X)))
-	oy := int(math.Round(float64(offset.Y)))
-	for sy := 0; sy < src.Bounds().Dy(); sy++ {
-		dy := oy + sy
-		if dy < 0 || dy >= dst.Bounds().Dy() {
-			continue
+
+	clearRGBA(r.output)
+
+	clips := make([]gfx.Rect, frame.BatchCount())
+	for li := 0; li < frame.LayerCount(); li++ {
+		layer, ok := frame.LayerAt(li)
+		if !ok {
+			return
 		}
-		for sx := 0; sx < src.Bounds().Dx(); sx++ {
-			dx := ox + sx
-			if dx < 0 || dx >= dst.Bounds().Dx() {
-				continue
-			}
-			sIdx := sy*src.Stride + sx*4
-			dIdx := dy*dst.Stride + dx*4
-			blendPremul(dst.Pix[dIdx:dIdx+4], src.Pix[sIdx:sIdx+4], opacity)
+		for i := layer.FirstBatch; i < layer.FirstBatch+layer.BatchCount; i++ {
+			clips[i] = layer.ClipRect
 		}
+	}
+
+	// For full redraw, we still need to render all batches
+	// But we do it directly to the output, not through per-batch buffers
+	for i := 0; i < frame.BatchCount(); i++ {
+		batch, ok := frame.BatchAt(i)
+		if !ok {
+			return
+		}
+
+		// Calculate the batch's pixel rectangle
+		batchRect := image.Rect(
+			int(math.Floor(float64(batch.Bounds.Min.X))),
+			int(math.Floor(float64(batch.Bounds.Min.Y))),
+			int(math.Ceil(float64(batch.Bounds.Max.X))),
+			int(math.Ceil(float64(batch.Bounds.Max.Y))),
+		)
+
+		// Clear the batch area
+		clearRectInRGBA(r.output, batchRect)
+
+		// Render the batch directly to the output
+		r.rasterizeRenderBatchToOutput(r.output, frame, i, batch, clips[i])
+		r.rasterizeCount++
 	}
 }
 
-func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, frame *render.Frame, batchIndex int, RenderBatch render.FrameBatch, clip gfx.Rect) {
+// renderPartialRedraw renders only damaged tiles
+func (r *SoftwareRenderer) renderPartialRedraw(frame *render.Frame, damage *DamageSet) {
+	if r.output == nil || frame == nil || damage == nil {
+		return
+	}
+
+	surfaceSize := image.Point{X: r.width, Y: r.height}
+
+	// Calculate which tiles need to be rendered and which batches affect them
+	tileInfos := r.calculateTileRenderingInfo(damage, frame, surfaceSize)
+
+	// For each damaged tile, render it to a temporary buffer then composite to output
+	for _, info := range tileInfos {
+		// Create a temporary buffer for this tile
+		tileBuffer := image.NewRGBA(info.tileRect)
+		clearRGBA(tileBuffer)
+
+		// Render all batches that intersect this tile
+		for _, batchIdx := range info.batchIndices {
+			batch, ok := frame.BatchAt(batchIdx)
+			if !ok {
+				continue
+			}
+
+			// Get the clip for this batch
+			clip := r.getBatchClip(frame, batchIdx)
+
+			// Render the batch to the tile buffer
+			// We need to transform the batch to tile-local coordinates
+			r.rasterizeRenderBatchToTile(tileBuffer, frame, batchIdx, batch, clip, info.tileRect)
+		}
+
+		// Composite the tile buffer to the output
+		r.compositeTileToOutput(r.output, tileBuffer, info.surfaceRect)
+
+		r.rasterizeCount++
+		_ = tileBuffer
+	}
+}
+
+// getBatchClip returns the clip rectangle for a batch
+func (r *SoftwareRenderer) getBatchClip(frame *render.Frame, batchIndex int) gfx.Rect {
+	for li := 0; li < frame.LayerCount(); li++ {
+		layer, ok := frame.LayerAt(li)
+		if !ok {
+			return gfx.Rect{}
+		}
+		if batchIndex >= layer.FirstBatch && batchIndex < layer.FirstBatch+layer.BatchCount {
+			return layer.ClipRect
+		}
+	}
+	return gfx.Rect{}
+}
+
+// rasterizeRenderBatchToOutput renders a batch directly to the output image
+func (r *SoftwareRenderer) rasterizeRenderBatchToOutput(target *image.RGBA, frame *render.Frame, batchIndex int, batch render.FrameBatch, clip gfx.Rect) {
 	if target == nil || frame == nil {
 		return
 	}
+
+	// Calculate the batch bounds in pixel coordinates
+	minX := int(math.Floor(float64(batch.Bounds.Min.X)))
+	minY := int(math.Floor(float64(batch.Bounds.Min.Y)))
+	maxX := int(math.Ceil(float64(batch.Bounds.Max.X)))
+	maxY := int(math.Ceil(float64(batch.Bounds.Max.Y)))
+
+	// Clamp to target bounds
+	if minX < 0 {
+		minX = 0
+	}
+	if minY < 0 {
+		minY = 0
+	}
+	if maxX > target.Bounds().Dx() {
+		maxX = target.Bounds().Dx()
+	}
+	if maxY > target.Bounds().Dy() {
+		maxY = target.Bounds().Dy()
+	}
+
+	batchPixelRect := image.Rect(minX, minY, maxX, maxY)
+
 	state := renderState{
-		transform: gfx.Translation(-RenderBatch.Bounds.Min.X, -RenderBatch.Bounds.Min.Y),
-		clip:      gfx.RectFromXYWH(0, 0, float32(target.Bounds().Dx()), float32(target.Bounds().Dy())),
+		transform: gfx.Translation(float32(-batch.Bounds.Min.X), float32(-batch.Bounds.Min.Y)),
+		clip:      gfx.RectFromXYWH(0, 0, float32(batchPixelRect.Dx()), float32(batchPixelRect.Dy())),
 		opacity:   1,
 	}
 	if !clip.IsEmpty() {
@@ -367,6 +491,224 @@ func (r *SoftwareRenderer) rasterizeRenderBatch(target *image.RGBA, frame *rende
 		}
 		return true
 	})
+}
+
+// rasterizeRenderBatchToTile renders a batch to a tile buffer with coordinate transformation
+func (r *SoftwareRenderer) rasterizeRenderBatchToTile(target *image.RGBA, frame *render.Frame, batchIndex int, batch render.FrameBatch, clip gfx.Rect, tileRect image.Rectangle) {
+	if target == nil || frame == nil {
+		return
+	}
+
+	// Calculate the tile offset relative to batch coordinates
+	tileOffsetX := float32(tileRect.Min.X)
+	tileOffsetY := float32(tileRect.Min.Y)
+
+	state := renderState{
+		transform: gfx.Translation(
+			-batch.Bounds.Min.X+tileOffsetX,
+			-batch.Bounds.Min.Y+tileOffsetY,
+		),
+		clip: gfx.RectFromXYWH(
+			tileOffsetX-batch.Bounds.Min.X,
+			tileOffsetY-batch.Bounds.Min.Y,
+			float32(target.Bounds().Dx()),
+			float32(target.Bounds().Dy()),
+		),
+		opacity: 1,
+	}
+
+	if !clip.IsEmpty() {
+		// Transform clip to batch-local coordinates
+		clipInBatch := gfx.Rect{
+			Min: gfx.Point{
+				X: clip.Min.X - batch.Bounds.Min.X + tileOffsetX,
+				Y: clip.Min.Y - batch.Bounds.Min.Y + tileOffsetY,
+			},
+			Max: gfx.Point{
+				X: clip.Max.X - batch.Bounds.Min.X + tileOffsetX,
+				Y: clip.Max.Y - batch.Bounds.Min.Y + tileOffsetY,
+			},
+		}
+		state.clip = intersectRects(state.clip, clipInBatch)
+	}
+
+	stack := []renderState{state}
+
+	frame.VisitBatchCommands(batchIndex, func(cmd gfx.CommandView) bool {
+		state = stack[len(stack)-1]
+		switch c := cmd.Scalars().(type) {
+		case gfx.PushTransform:
+			next := state
+			next.transform = next.transform.Multiply(c.Matrix)
+			stack = append(stack, next)
+		case gfx.PopTransform:
+			if len(stack) > 1 {
+				stack = stack[:len(stack)-1]
+			}
+		case gfx.PushClipRect:
+			next := state
+			clip := state.transform.TransformRect(c.Rect)
+			next.clip = intersectRects(next.clip, clip)
+			stack = append(stack, next)
+		case gfx.PopClip:
+			if len(stack) > 1 {
+				stack = stack[:len(stack)-1]
+			}
+		case gfx.PushOpacity:
+			next := state
+			next.opacity *= c.Alpha
+			stack = append(stack, next)
+		case gfx.PopOpacity:
+			if len(stack) > 1 {
+				stack = stack[:len(stack)-1]
+			}
+		case gfx.FillRect:
+			fillRect(target, state, c.Rect, cmd.Brush())
+		case gfx.StrokeRect, gfx.StrokePath, gfx.DrawPolyline:
+			segments := cmd.ExpandStroke(&r.strokeScratch)
+			rasterizePath(target, state, gfx.ReadPath(gfx.Path{Segments: segments}), cmd.Brush(), 1)
+		case gfx.FillPath:
+			rasterizePath(target, state, cmd.Path(), cmd.Brush(), 1)
+		case gfx.DrawPoints:
+			drawPoints(target, state, cmd.Points(), c.Radius, cmd.Brush())
+		case gfx.DrawGlyphRun:
+			r.drawGlyphRun(target, state, c, cmd)
+		case gfx.DrawSelectionRects:
+			for rr := range cmd.Rects().All() {
+				fillRect(target, state, rr, cmd.Brush())
+			}
+		case gfx.DrawImage:
+			drawImage(target, state, c)
+		case gfx.DrawTexture:
+			r.drawTexture(target, state, c)
+		case gfx.DrawBlurredShadow:
+			drawBlurredShadow(target, state, c, cmd.Path())
+		case gfx.BeginRenderBatch, gfx.EndRenderBatch:
+		}
+		return true
+	})
+}
+
+// compositeTileToOutput composites a tile buffer to the output at the specified rectangle
+func (r *SoftwareRenderer) compositeTileToOutput(dst *image.RGBA, src *image.RGBA, dstRect image.Rectangle) {
+	if dst == nil || src == nil || dstRect.Empty() {
+		return
+	}
+
+	// Simple composite: copy tile to destination
+	for y := 0; y < src.Bounds().Dy(); y++ {
+		srcY := src.Bounds().Min.Y + y
+		dstY := dstRect.Min.Y + y
+		if dstY < 0 || dstY >= dst.Bounds().Dy() {
+			continue
+		}
+		for x := 0; x < src.Bounds().Dx(); x++ {
+			srcX := src.Bounds().Min.X + x
+			dstX := dstRect.Min.X + x
+			if dstX < 0 || dstX >= dst.Bounds().Dx() {
+				continue
+			}
+			srcOff := srcY*src.Stride + srcX*4
+			dstOff := dstY*dst.Stride + dstX*4
+			if srcOff+4 <= len(src.Pix) && dstOff+4 <= len(dst.Pix) {
+				// Alpha composite
+				copy(dst.Pix[dstOff:dstOff+4], src.Pix[srcOff:srcOff+4])
+			}
+		}
+	}
+}
+
+func (r *SoftwareRenderer) allocateOutput(width, height int) {
+	if width < 0 {
+		width = 0
+	}
+	if height < 0 {
+		height = 0
+	}
+	r.width = width
+	r.height = height
+	r.output = image.NewRGBA(image.Rect(0, 0, width, height))
+}
+
+// clearRectInRGBA clears a rectangle within an RGBA image
+func clearRectInRGBA(img *image.RGBA, r image.Rectangle) {
+	if img == nil || r.Empty() {
+		return
+	}
+
+	// Clamp rectangle to image bounds
+	r = r.Intersect(img.Bounds())
+	if r.Empty() {
+		return
+	}
+
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		start := y*img.Stride + r.Min.X*4
+		end := y*img.Stride + r.Max.X*4
+		if end > len(img.Pix) {
+			end = len(img.Pix)
+		}
+		if start < end {
+			// Clear the row segment
+			for i := start; i < end; i++ {
+				img.Pix[i] = 0
+			}
+		}
+	}
+}
+
+func (r *SoftwareRenderer) blitToSurface() error {
+	surface := r.surface
+	if surface == nil || r.output == nil {
+		return nil
+	}
+	if err := surface.Lock(); err != nil {
+		return err
+	}
+	defer func() {
+		_ = surface.Unlock(nil)
+	}()
+
+	dst := surface.Buffer()
+	stride := surface.Stride()
+	if len(dst) == 0 || r.output.Stride == 0 {
+		return nil
+	}
+	if stride <= 0 {
+		stride = r.width * 4
+	}
+	rowBytes := r.width * 4
+	if rowBytes > r.output.Stride {
+		rowBytes = r.output.Stride
+	}
+	if rowBytes > stride {
+		rowBytes = stride
+	}
+	maxRows := r.height
+	if maxRows > 0 {
+		if liveRows := len(dst) / stride; liveRows < maxRows {
+			maxRows = liveRows
+		}
+	}
+	for y := 0; y < maxRows; y++ {
+		srcOff := y * r.output.Stride
+		dstOff := y * stride
+		if srcOff >= len(r.output.Pix) || dstOff >= len(dst) {
+			break
+		}
+		n := rowBytes
+		if remaining := len(r.output.Pix) - srcOff; remaining < n {
+			n = remaining
+		}
+		if remaining := len(dst) - dstOff; remaining < n {
+			n = remaining
+		}
+		if n <= 0 {
+			break
+		}
+		copy(dst[dstOff:dstOff+n], r.output.Pix[srcOff:srcOff+n])
+	}
+	return nil
 }
 
 func fillRect(target *image.RGBA, state renderState, rect gfx.Rect, brush gfx.BrushView) {
@@ -1087,7 +1429,7 @@ func blendPremul(dst []byte, src []byte, opacity float32) {
 	if inv == 0 {
 		// Opaque source with full coverage overwrites: with sa == 255 the
 		// general clause below reduces to dst' = sr, sg, sb and A' = 255
-		// exactly. Direct copy is byte-identical and skips mul255/clamp.
+		// exactly. Direct copy is byte-identical and skip mul255/clamp.
 		dst[0] = sr
 		dst[1] = sg
 		dst[2] = sb
