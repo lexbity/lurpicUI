@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
+	"codeburg.org/lexbit/lurpicui/job"
 	"github.com/klauspost/compress/zstd"
 	"github.com/pierrec/lz4/v4"
 )
@@ -109,6 +111,129 @@ func (s *asyncJobScheduler) Schedule(job *AssetLoadJob) error {
 	return nil
 }
 
+// PoolScheduler schedules asset load jobs through a bounded job.Pool with
+// proper memory reservations. Per FR-10, each job reserves input+scratch+output
+// bytes before scheduling.
+type PoolScheduler struct {
+	pool      *job.Pool
+	results   chan<- *AssetLoadJob
+	wallet    *membudget.Wallet
+	nextJobID uint64
+	mu        sync.Mutex
+}
+
+// NewPoolScheduler creates a scheduler that uses a job.Pool for bounded
+// execution with memory reservations. The wallet is used for reservation
+// tracking (separate from the pool's jobs wallet). Results are sent to the
+// results channel.
+func NewPoolScheduler(pool *job.Pool, wallet *membudget.Wallet, results chan<- *AssetLoadJob) *PoolScheduler {
+	return &PoolScheduler{
+		pool:    pool,
+		wallet:  wallet,
+		results: results,
+	}
+}
+
+// Schedule submits an asset load job through the job pool with memory reservation.
+func (s *PoolScheduler) Schedule(assetJob *AssetLoadJob) error {
+	if s == nil || assetJob == nil || s.pool == nil {
+		return fmt.Errorf("nil pool scheduler, job, or pool")
+	}
+
+	s.mu.Lock()
+	s.nextJobID++
+	jobID := job.JobID(s.nextJobID)
+	s.mu.Unlock()
+
+	// Pre-read the source to get actual size for reservation.
+	// Per FR-10: preflight dimensions/format lengths before expanding.
+	raw, err := assetJob.Source.ReadLOD(assetJob.ID, assetJob.LOD)
+	if err != nil {
+		assetJob.Err = err
+		if s.results != nil {
+			s.results <- assetJob
+		}
+		return nil
+	}
+
+	// Estimate memory requirements.
+	// MaxSourceBytes: actual compressed size
+	// MaxScratchBytes: conservative decompression buffer (4x)
+	// MaxOutputBytes: conservative decoded size (2x for now; could be refined per type)
+	maxSourceBytes := uint64(len(raw))
+	maxScratchBytes := maxSourceBytes * 4
+	maxOutputBytes := maxSourceBytes * 2
+
+	// Reserve from the assets wallet (if present) for accounting.
+	// The pool's jobs wallet handles the actual reservation for the job.
+	var assetReservation *membudget.Reservation
+	if s.wallet != nil && maxSourceBytes+maxScratchBytes+maxOutputBytes > 0 {
+		var err error
+		assetReservation, err = s.wallet.Reserve(maxSourceBytes + maxScratchBytes + maxOutputBytes)
+		if err != nil {
+			assetJob.Err = fmt.Errorf("asset wallet reservation failed: %w", err)
+			if s.results != nil {
+				s.results <- assetJob
+			}
+			return nil
+		}
+		if err := assetReservation.Publish(); err != nil {
+			_ = assetReservation.Cancel()
+			assetJob.Err = fmt.Errorf("asset wallet publish failed: %w", err)
+			if s.results != nil {
+				s.results <- assetJob
+			}
+			return nil
+		}
+	}
+
+	// Build the typed job for the pool.
+	// We don't use version tracking for now since we can't import store.
+	typedJob := job.Job[*AssetLoadJob, *AssetLoadJob]{
+		ID:       jobID,
+		Priority: job.PriorityBackground,
+		Snapshot: job.NewSnapshot(assetJob),
+		MemoryDecl: job.JobMemoryDecl{
+			MaxInputBytes:   maxSourceBytes,
+			MaxScratchBytes: maxScratchBytes,
+			MaxOutputBytes:  maxOutputBytes,
+		},
+		Work: func(snap job.Snapshot[*AssetLoadJob], cancel *job.CancelToken) (*AssetLoadJob, error) {
+			// Get the job from snapshot.
+			loadedJob := snap.Data
+			if loadedJob == nil {
+				return nil, fmt.Errorf("nil job in snapshot")
+			}
+
+			// Execute the actual load/decode.
+			loadedJob.Execute()
+			return loadedJob, loadedJob.Err
+		},
+	}
+
+	// Submit to pool with guarded commit.
+	// The commit function forwards the result to the assets results channel.
+	err = job.ScheduleGuarded(s.pool, typedJob, nil, func(result *AssetLoadJob) {
+		if s.results != nil {
+			s.results <- result
+		}
+		// Release the asset wallet reservation.
+		if assetReservation != nil {
+			_ = assetReservation.Retire()
+			_ = assetReservation.Acknowledge()
+		}
+	})
+	if err != nil {
+		// Clean up asset reservation on failure.
+		if assetReservation != nil {
+			_ = assetReservation.Cancel()
+		}
+		return fmt.Errorf("pool schedule failed: %w", err)
+	}
+
+	return nil
+}
+
 // ManagerImpl owns runtime-thread asset scheduling and commit orchestration.
 // It is the single implementation of the Manager interface and must not be
 // embedded or wrapped — all storage backends feed into it via AssetSource.
@@ -124,9 +249,14 @@ type ManagerImpl struct {
 	cache       *assetCache
 	depTree     ConfigDependencyTree
 
-	mu      sync.Mutex
-	waiting waitingOn
+	// assetsWallet is the membudget.Wallet for asset CPU memory.
+	// Per FR-10: this wallet tracks compressed source, decoded pixels,
+	// conversion buffers, GPU upload staging, and source-result overlap.
+	// When nil, the legacy assetCache system is used.
+	assetsWallet *membudget.Wallet
 
+	mu               sync.Mutex
+	waiting          waitingOn
 	uploadsThisFrame int
 }
 
@@ -193,6 +323,54 @@ func NewManagerWithResidency(registry *AssetRegistryStore, source AssetSource, i
 		m.scheduler = NewAsyncJobScheduler(m.results)
 	} else {
 		m.scheduler = scheduler
+	}
+
+	return m
+}
+
+// NewManagerWithBudget creates a manager that uses a membudget.Wallet for
+// tracking asset memory and optionally uses a job.Pool for scheduling.
+// Per FR-10: the wallet tracks compressed source, decoded pixels, conversion
+// buffers, GPU upload staging, and source-result overlap. The pool provides
+// bounded concurrency with memory reservations.
+// If pool is nil, the manager falls back to the legacy async scheduler.
+func NewManagerWithBudget(registry *AssetRegistryStore, source AssetSource, idReg PathIDRegistry, pool *job.Pool, wallet *membudget.Wallet, uploader TextureUploader, mode ResidencyMode) *ManagerImpl {
+	gpuCapable := uploader != nil && uploader.Budget() > 0
+
+	effectiveMode := mode
+	if !gpuCapable && mode != ResidencyCPUOnly {
+		effectiveMode = ResidencyCPUOnly
+	}
+
+	var bt BackendType
+	switch effectiveMode {
+	case ResidencyGPUResident, ResidencyAuto:
+		bt = BackendVulkan
+	default:
+		bt = BackendSoftware
+	}
+
+	m := &ManagerImpl{
+		registry:     registry,
+		source:       source,
+		idReg:        idReg,
+		backendType:  bt,
+		uploader:     uploader,
+		residency:    mode,
+		results:      make(chan *AssetLoadJob, 32),
+		waiting:      make(waitingOn),
+		assetsWallet: wallet,
+	}
+
+	// Use PoolScheduler if pool is provided, otherwise fall back to async.
+	if pool != nil && wallet != nil {
+		m.scheduler = NewPoolScheduler(pool, wallet, m.results)
+	} else if pool != nil {
+		// Pool without wallet - use pool scheduler without asset wallet tracking.
+		m.scheduler = NewPoolScheduler(pool, nil, m.results)
+	} else {
+		// Legacy async scheduler.
+		m.scheduler = NewAsyncJobScheduler(m.results)
 	}
 
 	return m

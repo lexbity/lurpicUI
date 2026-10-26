@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/internal/membudget"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -43,11 +44,36 @@ func assetBackendFromRuntimeConfig(cfg *runtime.Config) assets.BackendType {
 // environment variables LURPIC_ASSETS_PAK and LURPIC_ASSETS_DIR, then falls
 // back to ./assets.pak and ./assets/. Platform-specific builds (Android)
 // override this variable to inject the platform asset manager.
+//
+// Per P8/FR-10: the asset manager uses the resource plan's AssetsCPU wallet
+// for memory accounting. When a job pool is configured, asset loads go
+// through it with proper reservations.
 var initAssetManager = func(rtConfig *runtime.Config) {
 	if rtConfig.AssetManager != nil {
 		return
 	}
 	backendType := assetBackendFromRuntimeConfig(rtConfig)
+
+	// Get the assets wallet from the resource plan.
+	var assetsWallet *membudget.Wallet
+	if rtConfig.Resources.Plan.Caps[membudget.AssetsCPU] > 0 {
+		var err error
+		assetsWallet, err = membudget.NewWallet(rtConfig.Resources.Plan.Caps[membudget.AssetsCPU])
+		if err != nil {
+			// Fall back to legacy constructor without wallet.
+			assetsWallet = nil
+		}
+	}
+
+	// Get the job pool if configured.
+	// Note: The job pool is created by the runtime and stored in rtConfig internally.
+	// For now, we use nil which will cause the manager to use the async scheduler.
+	// Full P8 integration requires updating the runtime to expose the job pool.
+	var jobPool *job.Pool
+	// The job pool is not yet exposed in Config, so we can't use it here.
+	// This will be updated in a future change.
+	_ = jobPool
+
 	pakPath := os.Getenv("LURPIC_ASSETS_PAK")
 	if pakPath == "" {
 		if _, err := os.Stat("assets.pak"); err == nil {
@@ -62,7 +88,12 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 			// it, so a missing registry is a real misconfiguration worth the
 			// loud warning.
 			idReg := loadIDRegistry("assets/uuid_registry.json", true)
-			rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
+			// Use NewManagerWithBudget to wire the wallet.
+			if assetsWallet != nil {
+				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, pak, idReg, nil, assetsWallet, nil, assets.ResidencyCPUOnly)
+			} else {
+				rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
+			}
 			rtConfig.AssetRegistry = reg
 			return
 		}
@@ -82,7 +113,11 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 			// is normal (path-based lookups just resolve empty in dev), so do
 			// not warn on every launch (R6).
 			idReg := loadIDRegistry(filepath.Join(assetsDir, "uuid_registry.json"), false)
-			rtConfig.AssetManager = assets.NewManager(reg, dev, backendType, nil, idReg)
+			if assetsWallet != nil {
+				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, dev, idReg, nil, assetsWallet, nil, assets.ResidencyCPUOnly)
+			} else {
+				rtConfig.AssetManager = assets.NewManager(reg, dev, backendType, nil, idReg)
+			}
 			rtConfig.AssetRegistry = reg
 		}
 	}

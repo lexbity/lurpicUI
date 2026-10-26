@@ -114,13 +114,14 @@ type Result[Input, Output any] struct {
 }
 
 type DrainedResult struct {
-	jobID     JobID
-	ownerID   uint64
-	sequence  uint64
-	cancelled bool
-	err       error
-	committed bool
-	commitFn  func() bool
+	jobID       JobID
+	ownerID     uint64
+	sequence    uint64
+	cancelled   bool
+	err         error
+	committed   bool
+	commitFn    func() bool
+	reservation *membudget.Reservation
 }
 
 func (r DrainedResult) JobID() JobID    { return r.jobID }
@@ -166,6 +167,9 @@ type Pool struct {
 	ready        map[JobID]int
 	drainedEarly map[JobID]int
 	closed       bool
+	// jobReservations tracks the current reservation for each job ID.
+	// When a job is replaced, the old reservation is cancelled before the new one is published.
+	jobReservations map[JobID]*membudget.Reservation
 
 	// jobsWallet is the resource wallet for job memory reservations.
 	// All job submissions reserve from this wallet before scheduling.
@@ -282,6 +286,7 @@ func NewPool(workerCount int, jobsWallet *membudget.Wallet) *Pool {
 		ready:           make(map[JobID]int, workerCount*4),
 		drainedEarly:    make(map[JobID]int, workerCount),
 		jobsWallet:      jobsWallet,
+		jobReservations: make(map[JobID]*membudget.Reservation, workerCount*4),
 	}
 	p.pauseCond = sync.NewCond(&p.pauseMu)
 	for i := 0; i < workerCount; i++ {
@@ -330,14 +335,20 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 		p.mu.Unlock()
 		// Release reservation if we have one
 		if job.reservation != nil {
-			_ = job.reservation.Release()
+			_ = job.reservation.Cancel()
 		}
 		return errors.New("job: pool closed")
 	}
 	if prev := p.active[job.ID]; prev != nil {
 		prev.cancel()
+		// Cancel the old reservation for this job ID.
+		if oldReservation := p.jobReservations[job.ID]; oldReservation != nil {
+			_ = oldReservation.Cancel()
+			delete(p.jobReservations, job.ID)
+		}
 	}
 	p.active[job.ID] = cancelToken
+	p.jobReservations[job.ID] = job.reservation
 	p.nextSequence++
 	if p.nextSequence == 0 {
 		p.mu.Unlock()
@@ -479,6 +490,19 @@ collect:
 	for i := range out {
 		if !out[i].cancelled && out[i].err == nil {
 			out[i].Commit()
+			// Acknowledge the reservation after successful commit.
+			// Per FR-10: the reservation was live during execution, retired on completion,
+			// and acknowledged after the result is committed and no longer needed.
+			if out[i].reservation != nil {
+				_ = out[i].reservation.Acknowledge()
+			}
+		} else {
+			// For cancelled or errored jobs, release the reservation immediately.
+			// The reservation was retired on completion but never committed,
+			// so we can acknowledge it now.
+			if out[i].reservation != nil {
+				_ = out[i].reservation.Acknowledge()
+			}
 		}
 	}
 	return out
@@ -515,6 +539,14 @@ func (p *Pool) Shutdown() {
 	for _, token := range p.active {
 		if token != nil {
 			token.cancel()
+		}
+	}
+	// Cancel all pending reservations.
+	for _, reservation := range p.jobReservations {
+		if reservation != nil {
+			// Try to cancel if still reserved, or acknowledge if already retired.
+			_ = reservation.Cancel()
+			_ = reservation.Acknowledge()
 		}
 	}
 	p.mu.Unlock()
@@ -582,16 +614,18 @@ func (p *Pool) execute(q queuedJob) {
 	p.mu.Lock()
 	if current := p.active[q.jobID]; current == q.cancel {
 		delete(p.active, q.jobID)
+		delete(p.jobReservations, q.jobID)
 	}
 	p.mu.Unlock()
 
-	// Release the reservation when the job completes
-	// The reservation was already published (made live) when scheduled
+	// Retire the reservation when the job completes.
+	// The reservation was already published (made live) when scheduled.
+	// Per FR-10: worker completion moves reservation to retiring state.
+	// The actual acknowledgment happens after the result is drained and committed.
 	if q.reservation != nil {
-		// Move from live to retiring
 		_ = q.reservation.Retire()
-		// Note: The actual acknowledgment/release happens after the result is drained
-		// This follows FR-10: worker completion moves reservation through states
+		// Attach reservation to result for acknowledgment after drain.
+		res.reservation = q.reservation
 	}
 
 	select {
@@ -625,6 +659,14 @@ func (p *Pool) rollbackSubmission(id JobID, sequence uint64, token *CancelToken)
 	delete(p.pendingSequence, sequence)
 	if p.active[id] == token {
 		delete(p.active, id)
+		// Cancel the reservation since the job was rolled back before execution.
+		if reservation := p.jobReservations[id]; reservation != nil {
+			delete(p.jobReservations, id)
+			// The reservation was published, so we need to cancel and release.
+			// But we can't cancel a published reservation - we need to retire then acknowledge.
+			_ = reservation.Retire()
+			_ = reservation.Acknowledge()
+		}
 	}
 	p.mu.Unlock()
 }
