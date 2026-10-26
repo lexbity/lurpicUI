@@ -217,12 +217,13 @@ func (l *List) OnAttach(ctx facet.AttachContext) {
 	// real tree child and projects itself and its items.
 	if l.scrollRegion != nil && l.scrollRegion.Base() != nil {
 		attached := false
-		for _, existing := range l.Base().Children() {
-			if existing == l.scrollRegion.Base() {
+		l.Base().VisitChildren(func(existing facet.FacetImpl) bool {
+			if existing != nil && existing.Base() == l.scrollRegion.Base() {
 				attached = true
-				break
+				return false
 			}
-		}
+			return true
+		})
 		if !attached {
 			l.AddChild(l.scrollRegion.Base())
 		}
@@ -350,6 +351,7 @@ func (l *List) syncChildren() {
 	}
 	l.scrollRegion.Gap = marks.Const(l.cachedGap)
 	l.scrollRegion.children = content
+	l.scrollRegion.PublishHostedChildren(l.scrollRegion.HostedChildren())
 }
 
 func listScrollChild(mark facet.FacetImpl, markID facet.MarkID, order int) ScrollRegionChild {

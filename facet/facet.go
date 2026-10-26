@@ -19,6 +19,7 @@ type Facet struct {
 	roles      []Role
 	subs       signal.Subscriptions
 	storeScope *store.Scope
+	onDisposed func(FacetID)
 
 	dirtyLayout       bool
 	dirtyProjection   bool
@@ -69,6 +70,51 @@ func (f *Facet) Children() []*Facet {
 	out := make([]*Facet, len(f.children))
 	copy(out, f.children)
 	return out
+}
+
+// VisitChildren visits the current immediate children without allocating a
+// public snapshot. The callback must not mutate the tree or retain the child
+// implementations; return false to stop the visit early.
+func (f *Facet) VisitChildren(visit func(FacetImpl) bool) bool {
+	if f == nil || visit == nil {
+		return true
+	}
+	for _, child := range f.children {
+		if child == nil {
+			continue
+		}
+		impl := child.impl
+		if impl == nil {
+			impl = child
+		}
+		if !visit(impl) {
+			return false
+		}
+	}
+	return true
+}
+
+// VisitChildrenReverse visits immediate children in reverse construction order
+// without allocating a public snapshot. It has the same callback contract as
+// VisitChildren and is intended for owner-managed depth-first stacks.
+func (f *Facet) VisitChildrenReverse(visit func(FacetImpl) bool) bool {
+	if f == nil || visit == nil {
+		return true
+	}
+	for i := len(f.children) - 1; i >= 0; i-- {
+		child := f.children[i]
+		if child == nil {
+			continue
+		}
+		impl := child.impl
+		if impl == nil {
+			impl = child
+		}
+		if !visit(impl) {
+			return false
+		}
+	}
+	return true
 }
 
 // BindImpl records the concrete implementation that owns this base facet.
@@ -249,7 +295,19 @@ func (f *Facet) RemoveChild(child *Facet) {
 	if index < 0 {
 		panic("facet: RemoveChild called for non-child")
 	}
-	f.children = append(f.children[:index], f.children[index+1:]...)
+	copy(f.children[index:], f.children[index+1:])
+	last := len(f.children) - 1
+	f.children[last] = nil
+	f.children = f.children[:last]
+	if cap(f.children) > 8 && len(f.children)*4 <= cap(f.children) {
+		capacity := len(f.children) * 2
+		if capacity < 8 {
+			capacity = 8
+		}
+		children := make([]*Facet, len(f.children), capacity)
+		copy(children, f.children)
+		f.children = children
+	}
 	child.parent = nil
 	if child.state != StateDisposed {
 		Dispose(child)
@@ -449,15 +507,6 @@ func (f *Facet) rolesSnapshot() []Role {
 	}
 	out := make([]Role, len(f.roles))
 	copy(out, f.roles)
-	return out
-}
-
-func (f *Facet) childrenSnapshot() []*Facet {
-	if len(f.children) == 0 {
-		return []*Facet{}
-	}
-	out := make([]*Facet, len(f.children))
-	copy(out, f.children)
 	return out
 }
 

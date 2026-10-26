@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -59,6 +60,7 @@ func testConfigForScope(t testing.TB, scope *store.Scope) Config {
 	cfg := DefaultConfig()
 	cfg.StoreScope = scope
 	cfg.StoreIdentity = store.NewRuntimeIdentity()
+	cfg.HostedChildren = marks.HostedChildrenFor
 	return cfg
 }
 
@@ -279,6 +281,7 @@ func mustRuntime(t *testing.T) *Runtime {
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.StoreScope = scope
 	cfg.StoreIdentity = store.NewRuntimeIdentity()
+	cfg.HostedChildren = marks.HostedChildrenFor
 	// Real window size: facets arranged to empty bounds are gated by the RX-1
 	// FR-1 empty-bounds gate, so a 0x0 test window would prune every arranged
 	// host.
@@ -303,6 +306,7 @@ func mustRuntimeTreeWithScope(t testing.TB, scope *store.Scope, root facet.Facet
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.StoreScope = scope
 	cfg.StoreIdentity = store.NewRuntimeIdentity()
+	cfg.HostedChildren = marks.HostedChildrenFor
 	// Real window size (see mustRuntime): the FR-1 gate prunes hosts arranged
 	// to empty bounds, so tests that render must arrange against real bounds.
 	rt, err := New(cfg, nil, &testWindow{width: 800, height: 600}, &backendFixture{}, root)
@@ -321,6 +325,7 @@ func mustRuntimeWithBackend(t *testing.T, root facet.FacetImpl, backend render.B
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.StoreScope = scope
 	cfg.StoreIdentity = store.NewRuntimeIdentity()
+	cfg.HostedChildren = marks.HostedChildrenFor
 	// A real window size is part of the arranged-to-real-bounds contract the
 	// RX-1 FR-1 empty-bounds gate assumes: facets arranged to empty bounds are
 	// gated (a 0x0 window would arrange every test host to empty and prune it).

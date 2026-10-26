@@ -54,6 +54,48 @@ func TestFacetID_unique_per_facet(t *testing.T) {
 	}
 }
 
+func TestRemoveChildClearsAndShrinksBacking(t *testing.T) {
+	root := NewFacet()
+	children := make([]Facet, 128)
+	for i := range children {
+		children[i] = NewFacet()
+		root.AddChild(&children[i])
+	}
+	for i := range children {
+		root.RemoveChild(&children[i])
+	}
+	if len(root.children) != 0 {
+		t.Fatalf("children remain after removal: %d", len(root.children))
+	}
+	if cap(root.children) > 8 {
+		t.Fatalf("facet retained high-water child capacity: %d", cap(root.children))
+	}
+	for i, child := range root.children[:cap(root.children)] {
+		if child != nil {
+			t.Fatalf("removed child pointer retained in backing slot %d", i)
+		}
+	}
+}
+
+func TestVisitChildrenReverseUsesConstructionOrder(t *testing.T) {
+	root := NewFacet()
+	children := []Facet{NewFacet(), NewFacet(), NewFacet()}
+	for i := range children {
+		root.AddChild(&children[i])
+	}
+	var got []FacetID
+	root.VisitChildrenReverse(func(child FacetImpl) bool {
+		got = append(got, child.Base().ID())
+		return true
+	})
+	for i := range children {
+		want := children[len(children)-1-i].ID()
+		if got[i] != want {
+			t.Fatalf("reverse child %d = %d, want %d (all: %v)", i, got[i], want, got)
+		}
+	}
+}
+
 func TestFacetID_never_zero(t *testing.T) {
 	f := NewFacet()
 	if got := f.ID(); got == 0 {

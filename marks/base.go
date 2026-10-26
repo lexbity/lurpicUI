@@ -133,9 +133,11 @@ type Core struct {
 	// declared binding fields are read through selfValue at OnAttach — field
 	// values may still change between construction and attach, and the
 	// attach-time read is what makes pre-attach replacement work.
-	selfPtr   any
-	selfValue reflect.Value
-	declared  *bindingDecl
+	selfPtr               any
+	selfValue             reflect.Value
+	declared              *bindingDecl
+	hostedChildrenChanged func(facet.FacetID, []facet.FacetImpl)
+	hostedChildrenIDs     []facet.FacetID
 
 	// rt is the runtime captured at attach, used to route binding invalidations
 	// into the runtime's per-frame dirty bookkeeping so the frame's dirty
@@ -244,6 +246,7 @@ func (c *Core) RegisterRoles(self any) {
 // route.
 func (c *Core) OnAttach(ctx facet.AttachContext) {
 	c.rt = ctx.Runtime
+	c.hostedChildrenChanged = ctx.OnHostedChildrenChanged
 	if c.declared != nil && c.selfValue.IsValid() {
 		for _, f := range c.declared.fields {
 			v := c.selfValue
@@ -345,6 +348,54 @@ func (c *Core) OnDetach() {
 		}
 	}
 	c.cleanups = c.cleanups[:0]
+	c.hostedChildrenChanged = nil
+	c.hostedChildrenIDs = nil
+}
+
+// PublishHostedChildren updates the runtime identity view when a mark's
+// materialized child set changes. It is a no-op when identities and order are
+// unchanged, so ordinary measure/project callbacks do not rebuild topology.
+func (c *Core) PublishHostedChildren(children []facet.FacetImpl) {
+	if c == nil {
+		return
+	}
+	count := 0
+	for _, child := range children {
+		if child == nil || child.Base() == nil || child.Base().State() == facet.StateDisposed {
+			continue
+		}
+		count++
+	}
+	if count == len(c.hostedChildrenIDs) {
+		equal := true
+		position := 0
+		for _, child := range children {
+			if child == nil || child.Base() == nil || child.Base().State() == facet.StateDisposed {
+				continue
+			}
+			if child.Base().ID() != c.hostedChildrenIDs[position] {
+				equal = false
+				break
+			}
+			position++
+		}
+		if equal {
+			return
+		}
+	}
+	ids := make([]facet.FacetID, 0, count)
+	filtered := make([]facet.FacetImpl, 0, count)
+	for _, child := range children {
+		if child == nil || child.Base() == nil || child.Base().State() == facet.StateDisposed {
+			continue
+		}
+		ids = append(ids, child.Base().ID())
+		filtered = append(filtered, child)
+	}
+	c.hostedChildrenIDs = ids
+	if c.hostedChildrenChanged != nil {
+		c.hostedChildrenChanged(c.ID(), filtered)
+	}
 }
 
 // OnActivate is a no-op default called from the concrete mark.

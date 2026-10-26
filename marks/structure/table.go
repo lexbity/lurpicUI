@@ -105,6 +105,7 @@ type Table struct {
 	cachedCellBounds      map[facet.FacetID]gfx.Rect
 	cachedChildOrder      []facet.FacetID
 	cachedChildSpecs      []tableChildSpec
+	cachedHostedChildren  []facet.FacetImpl
 	cachedHeaderCells     map[string]*primitive.Text
 	cachedBodyCells       map[string]map[string]*primitive.Text
 	cachedSelectionCells  map[string]*primitive.Text
@@ -131,6 +132,7 @@ type Table struct {
 var _ facet.FacetImpl = (*Table)(nil)
 var _ layout.AnchorExporter = (*Table)(nil)
 var _ marks.Mark = (*Table)(nil)
+var _ marks.HostsChildren = (*Table)(nil)
 
 // NewTable constructs a structure.table mark with canonical defaults.
 // The selection store is supplied by the caller — the mark never creates its own.
@@ -261,6 +263,14 @@ func (t *Table) Children() []facet.GroupChild {
 	return out
 }
 
+// HostedChildren returns the current virtualized header and row cells.
+func (t *Table) HostedChildren() []facet.FacetImpl {
+	if t == nil || len(t.cachedHostedChildren) == 0 {
+		return nil
+	}
+	return append([]facet.FacetImpl(nil), t.cachedHostedChildren...)
+}
+
 // ExportAnchors publishes the table anchor set.
 func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 	if t == nil {
@@ -283,6 +293,7 @@ func (t *Table) ExportAnchors(ctx layout.AnchorExportContext) layout.AnchorSet {
 
 func (t *Table) OnAttach(ctx facet.AttachContext) {
 	t.Core.OnAttach(ctx)
+	t.PublishHostedChildren(t.cachedHostedChildren)
 	if t.Data != nil {
 		// Detach-managed (RX-2 FR-4): the Data subscription lives for the
 		// attach, so a replaced Data source pre-attach is honored and a
@@ -318,6 +329,7 @@ func (t *Table) OnDetach() {
 	t.cachedCellBounds = nil
 	t.cachedChildOrder = nil
 	t.cachedChildSpecs = nil
+	t.cachedHostedChildren = nil
 	t.cachedHeaderCells = nil
 	t.cachedBodyCells = nil
 	t.cachedSelectionCells = nil
@@ -557,6 +569,13 @@ func (t *Table) syncChildren() {
 	t.cachedSelectionCells = selectionCells
 	t.cachedSortIndicators = sortIndicators
 	t.cachedChildSpecs = childSpecs
+	t.cachedHostedChildren = make([]facet.FacetImpl, 0, len(childSpecs))
+	for i := range childSpecs {
+		if childSpecs[i].Facet != nil {
+			t.cachedHostedChildren = append(t.cachedHostedChildren, childSpecs[i].Facet)
+		}
+	}
+	t.PublishHostedChildren(t.cachedHostedChildren)
 	t.cachedColumnKeys = columnKeys
 	t.cachedRowKeys = rowKeys
 	t.cachedShowSelectionColumn = showSelectionColumn

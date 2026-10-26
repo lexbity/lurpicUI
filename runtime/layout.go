@@ -34,15 +34,80 @@ func (rt *Runtime) attachTree(root facet.FacetImpl) {
 		panic(err)
 	}
 	facet.Attach(root, facet.AttachContext{
-		Runtime: rt,
-		Assets:  facet.AssetServices{Manager: rt.assetManager},
-		Stores:  facet.StoreServices{AssetRegistry: rt.config.AssetRegistry},
-		TestIDs: rt.liveTestIDs,
+		Runtime:                 rt,
+		Assets:                  facet.AssetServices{Manager: rt.assetManager},
+		Stores:                  facet.StoreServices{AssetRegistry: rt.config.AssetRegistry},
+		TestIDs:                 rt.liveTestIDs,
+		OnFacetTreeAttached:     rt.onFacetTreeAttached,
+		OnFacetDisposed:         rt.onFacetDisposed,
+		OnHostedChildrenChanged: rt.onHostedChildrenChanged,
 	})
 	if err := rt.registerTreeReadExports(root); err != nil {
 		panic("runtime: read export declaration changed after startup: " + err.Error())
 	}
 	rt.subscribeLayerMounts(root)
+}
+
+func (rt *Runtime) onFacetTreeAttached(root facet.FacetImpl) {
+	if rt.liveIndex == nil {
+		rt.liveIndex = newLiveIndex()
+	}
+	rt.liveIndex.registerTree(root)
+	rt.refreshHostedDescendants(root)
+}
+
+func (rt *Runtime) onFacetDisposed(id facet.FacetID) {
+	if rt.liveIndex != nil {
+		rt.liveIndex.removeSubtree(id)
+	}
+}
+
+func (rt *Runtime) onHostedChildrenChanged(hostID facet.FacetID, children []facet.FacetImpl) {
+	if hostID == 0 || rt.liveIndex == nil {
+		return
+	}
+	if !rt.liveIndex.contains(hostID) {
+		return
+	}
+	rt.liveIndex.registerHosted(hostID, children)
+	rt.refreshHostedDescendants(children...)
+}
+
+func (rt *Runtime) refreshHostedDescendants(roots ...facet.FacetImpl) {
+	if rt.liveIndex == nil || rt.config.HostedChildren == nil {
+		return
+	}
+	stack := append([]facet.FacetImpl(nil), roots...)
+	seen := make(map[facet.FacetID]struct{}, len(stack))
+	for len(stack) > 0 {
+		last := len(stack) - 1
+		impl := stack[last]
+		stack[last] = nil
+		stack = stack[:last]
+		if impl == nil || impl.Base() == nil || impl.Base().State() == facet.StateDisposed {
+			continue
+		}
+		id := impl.Base().ID()
+		if _, visited := seen[id]; visited {
+			continue
+		}
+		seen[id] = struct{}{}
+		impl.Base().VisitChildren(func(child facet.FacetImpl) bool {
+			stack = append(stack, child)
+			return true
+		})
+		hosted := rt.config.HostedChildren(impl)
+		rt.liveIndex.registerHosted(id, hosted)
+		stack = append(stack, hosted...)
+	}
+}
+
+func (rt *Runtime) liveFacet(id facet.FacetID) facet.FacetImpl {
+	if rt == nil || rt.liveIndex == nil {
+		return nil
+	}
+	impl, _, _ := rt.liveIndex.lookup(id)
+	return impl
 }
 
 func (rt *Runtime) validateFacetStoreScopes(root facet.FacetImpl) error {
@@ -62,15 +127,10 @@ func (rt *Runtime) validateFacetStoreScopes(root facet.FacetImpl) error {
 				return fmt.Errorf("runtime: facet %d layer mount store is outside the configured application scope", base.ID())
 			}
 		}
-		for _, child := range base.Children() {
-			if child != nil {
-				if childImpl := child.Impl(); childImpl != nil {
-					stack = append(stack, childImpl)
-				} else {
-					stack = append(stack, child)
-				}
-			}
-		}
+		base.VisitChildren(func(child facet.FacetImpl) bool {
+			stack = append(stack, child)
+			return true
+		})
 	}
 	return nil
 }
@@ -107,16 +167,10 @@ func (rt *Runtime) subscribeLayerMounts(root facet.FacetImpl) {
 				}
 			}
 		}
-		for _, childBase := range base.Children() {
-			if childBase == nil {
-				continue
-			}
-			if impl := childBase.Impl(); impl != nil {
-				stack = append(stack, impl)
-			} else {
-				stack = append(stack, childBase)
-			}
-		}
+		base.VisitChildren(func(child facet.FacetImpl) bool {
+			stack = append(stack, child)
+			return true
+		})
 	}
 }
 
@@ -156,10 +210,10 @@ func (rt *Runtime) markTreeDirty(root facet.FacetImpl, flags facet.DirtyFlags) {
 		base.InvalidateWithSource(flags, "runtime.markTreeDirty")
 		rt.dirtyFacets[base.ID()] = flags
 		rt.dirtySources[base.ID()] = "runtime.markTreeDirty"
-		children := base.Children()
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, children[i])
-		}
+		base.VisitChildrenReverse(func(child facet.FacetImpl) bool {
+			stack = append(stack, child)
+			return true
+		})
 	}
 }
 
@@ -240,7 +294,7 @@ func (rt *Runtime) arrangeDirtyLayoutFacets(roots []facet.FacetImpl) int {
 		if _, ok := rootIDs[id]; ok {
 			continue
 		}
-		f := rt.findFacetByID(rt.root, id)
+		f := rt.liveFacet(id)
 		if f == nil || f.Base() == nil {
 			continue
 		}
@@ -274,7 +328,7 @@ func (rt *Runtime) layoutDirtyRoots() []facet.FacetImpl {
 		if flags&facet.DirtyLayout == 0 {
 			continue
 		}
-		f := rt.findFacetByID(rt.root, id)
+		f := rt.liveFacet(id)
 		if f == nil || f.Base() == nil {
 			continue
 		}
@@ -319,7 +373,7 @@ func (rt *Runtime) invalidateDirtyLayoutCaches() {
 		if flags&facet.DirtyLayout == 0 {
 			continue
 		}
-		f := rt.findFacetByID(rt.root, id)
+		f := rt.liveFacet(id)
 		if f == nil || f.Base() == nil {
 			continue
 		}
@@ -371,11 +425,10 @@ func (rt *Runtime) clearLayoutDirtyTree(f facet.FacetImpl) {
 	if flags := f.Base().DirtyFlags(); flags&facet.DirtyLayout != 0 {
 		f.Base().ClearDirty(facet.DirtyLayout)
 	}
-	for _, child := range f.Base().Children() {
-		if child != nil {
-			rt.clearLayoutDirtyTree(child)
-		}
-	}
+	f.Base().VisitChildren(func(child facet.FacetImpl) bool {
+		rt.clearLayoutDirtyTree(child)
+		return true
+	})
 }
 
 func (rt *Runtime) measureLayoutChild(f facet.FacetImpl, c layout.Constraints) gfx.Size {

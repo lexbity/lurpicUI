@@ -93,6 +93,7 @@ type ScrollRegion struct {
 var _ facet.FacetImpl = (*ScrollRegion)(nil)
 var _ layout.AnchorExporter = (*ScrollRegion)(nil)
 var _ marks.Mark = (*ScrollRegion)(nil)
+var _ marks.HostsChildren = (*ScrollRegion)(nil)
 
 // NewScrollRegion constructs a structure.scroll_region mark with canonical defaults.
 func NewScrollRegion(label string) *ScrollRegion {
@@ -214,7 +215,22 @@ func (sr *ScrollRegion) SetChildren(children []ScrollRegionChild) {
 	next := append([]ScrollRegionChild(nil), children...)
 	sr.children = next
 	sr.syncTreeChildren()
+	sr.PublishHostedChildren(sr.HostedChildren())
 	sr.Invalidate(facet.DirtyLayout | facet.DirtyProjection | facet.DirtyHit)
+}
+
+// HostedChildren returns the current content children owned by this region.
+func (sr *ScrollRegion) HostedChildren() []facet.FacetImpl {
+	if sr == nil || len(sr.children) == 0 {
+		return nil
+	}
+	children := make([]facet.FacetImpl, 0, len(sr.children))
+	for _, child := range sr.children {
+		if child.Facet != nil && child.Facet.Base() != nil && !child.Facet.Base().IsDisposed() {
+			children = append(children, child.Facet)
+		}
+	}
+	return children
 }
 
 // Children returns the facet's immediate child list.
@@ -234,6 +250,7 @@ func (sr *ScrollRegion) Children() []facet.GroupChild {
 func (sr *ScrollRegion) OnAttach(ctx facet.AttachContext) {
 	sr.Core.OnAttach(ctx)
 	sr.syncTreeChildren()
+	sr.PublishHostedChildren(sr.HostedChildren())
 }
 func (sr *ScrollRegion) OnActivate()   { sr.Core.OnActivate() }
 func (sr *ScrollRegion) OnDeactivate() { sr.Core.OnDeactivate() }
@@ -253,12 +270,13 @@ func (sr *ScrollRegion) syncTreeChildren() {
 		}
 		base := child.Facet.Base()
 		attached := false
-		for _, existing := range sr.Base().Children() {
-			if existing == base {
+		sr.Base().VisitChildren(func(existing facet.FacetImpl) bool {
+			if existing != nil && existing.Base() == base {
 				attached = true
-				break
+				return false
 			}
-		}
+			return true
+		})
 		if !attached {
 			sr.Base().AddChild(base)
 		}

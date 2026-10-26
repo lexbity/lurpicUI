@@ -205,19 +205,16 @@ func (rt *Runtime) visibleChildren(impl facet.FacetImpl) []facet.FacetImpl {
 		return nil
 	}
 	base := impl.Base()
-	children := make([]facet.FacetImpl, 0, len(base.Children())+4)
-	seen := make(map[facet.FacetID]struct{}, len(base.Children()))
-	for _, child := range base.Children() {
-		if child == nil || child.State() == facet.StateDisposed {
-			continue
+	children := make([]facet.FacetImpl, 0, 4)
+	seen := make(map[facet.FacetID]struct{}, 4)
+	base.VisitChildren(func(child facet.FacetImpl) bool {
+		if child == nil || child.Base() == nil || child.Base().State() == facet.StateDisposed {
+			return true
 		}
-		childImpl := child.Impl()
-		if childImpl == nil {
-			childImpl = child
-		}
-		children = append(children, childImpl)
-		seen[child.ID()] = struct{}{}
-	}
+		children = append(children, child)
+		seen[child.Base().ID()] = struct{}{}
+		return true
+	})
 	if rt.config.HostedChildren != nil {
 		for _, child := range rt.config.HostedChildren(impl) {
 			if child == nil || child.Base() == nil || child.Base().State() == facet.StateDisposed {

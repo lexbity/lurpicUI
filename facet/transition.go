@@ -14,8 +14,12 @@ type FacetImpl interface {
 // Attach transitions a facet from Created to Attached.
 func Attach(f FacetImpl, ctx AttachContext) {
 	attached := make([]*Facet, 0, 16)
+	hooked := make([]*Facet, 0, 16)
 	defer func() {
 		if recovered := recover(); recovered != nil {
+			for i := len(hooked) - 1; i >= 0; i-- {
+				hooked[i].onDisposed = nil
+			}
 			for i := len(attached) - 1; i >= 0; i-- {
 				base := attached[i]
 				base.releaseTestID()
@@ -39,6 +43,8 @@ func Attach(f FacetImpl, ctx AttachContext) {
 		base := baseOf(frame.impl)
 		frame.impl = concreteImpl(base, frame.impl)
 		requireState(base, StateCreated, StateAttached)
+		base.onDisposed = ctx.OnFacetDisposed
+		hooked = append(hooked, base)
 		base.bindTestIDRegistry(ctx.TestIDs)
 		roles := base.rolesSnapshot()
 		for _, role := range roles {
@@ -54,10 +60,12 @@ func Attach(f FacetImpl, ctx AttachContext) {
 		base.registerTestID(attachContext.IdentityContext)
 		base.setState(StateAttached)
 		attached = append(attached, base)
-		children := base.childrenSnapshot()
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, attachFrame{impl: concreteImpl(children[i], children[i]), context: attachContext.IdentityContext})
-		}
+		stack = appendChildrenReverse(stack, base, func(child FacetImpl) attachFrame {
+			return attachFrame{impl: child, context: attachContext.IdentityContext}
+		})
+	}
+	if ctx.OnFacetTreeAttached != nil {
+		ctx.OnFacetTreeAttached(f)
 	}
 }
 
@@ -83,10 +91,9 @@ func Activate(f FacetImpl) {
 		}
 		frame.impl.OnActivate()
 		base.setState(StateActive)
-		children := base.childrenSnapshot()
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, activateFrame{impl: concreteImpl(children[i], children[i])})
-		}
+		stack = appendChildrenReverse(stack, base, func(child FacetImpl) activateFrame {
+			return activateFrame{impl: child}
+		})
 	}
 }
 
@@ -108,10 +115,9 @@ func Deactivate(f FacetImpl) {
 		}
 		frame.impl.OnDeactivate()
 		base.setState(StateInactive)
-		children := base.childrenSnapshot()
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, deactivateFrame{impl: concreteImpl(children[i], children[i])})
-		}
+		stack = appendChildrenReverse(stack, base, func(child FacetImpl) deactivateFrame {
+			return deactivateFrame{impl: child}
+		})
 	}
 }
 
@@ -134,10 +140,9 @@ func Dispose(f FacetImpl) {
 				panic(invalidTransition(base.State(), StateDisposed))
 			}
 			stack = append(stack, disposeFrame{impl: frame.impl, entered: true})
-			children := base.childrenSnapshot()
-			for i := len(children) - 1; i >= 0; i-- {
-				stack = append(stack, disposeFrame{impl: concreteImpl(children[i], children[i])})
-			}
+			stack = appendChildrenReverse(stack, base, func(child FacetImpl) disposeFrame {
+				return disposeFrame{impl: child}
+			})
 			continue
 		}
 		roles := base.rolesSnapshot()
@@ -149,7 +154,20 @@ func Dispose(f FacetImpl) {
 		base.releaseStoreScope()
 		base.releaseTestID()
 		base.setState(StateDisposed)
+		onDisposed := base.onDisposed
+		base.onDisposed = nil
+		if onDisposed != nil {
+			onDisposed(base.ID())
+		}
 	}
+}
+
+func appendChildrenReverse[T any](stack []T, base *Facet, wrap func(FacetImpl) T) []T {
+	base.VisitChildrenReverse(func(child FacetImpl) bool {
+		stack = append(stack, wrap(child))
+		return true
+	})
+	return stack
 }
 
 func concreteImpl(base *Facet, fallback FacetImpl) FacetImpl {

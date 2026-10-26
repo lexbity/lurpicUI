@@ -109,6 +109,8 @@ func (b *fakeBackend) Destroy()                         { b.destroyed = true }
 
 type fakeRoot struct{ facet.Facet }
 
+func newFakeRoot() *fakeRoot { return &fakeRoot{Facet: facet.NewFacet()} }
+
 func (r *fakeRoot) Base() *facet.Facet               { return &r.Facet }
 func (r *fakeRoot) OnAttach(ctx facet.AttachContext) {}
 func (r *fakeRoot) OnDetach()                        {}
@@ -155,7 +157,7 @@ func TestRun_platform_without_window_capability_errors(t *testing.T) {
 	primeRuntime = func(rt *runtime.Runtime) {}
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 
-	if err := Run(DefaultConfig("title", 10, 20), func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err == nil {
+	if err := Run(DefaultConfig("title", 10, 20), func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -181,7 +183,7 @@ func TestRun_invalid_font_path_errors(t *testing.T) {
 
 	cfg := DefaultConfig("title", 10, 20)
 	cfg.Fonts = []FontSource{{Path: filepath.Join(t.TempDir(), "missing.ttf"), Name: "missing"}}
-	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err == nil {
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -195,7 +197,7 @@ func TestRun_window_title_set(t *testing.T) {
 	runRuntime = func(rt *runtime.Runtime) error { return nil }
 
 	cfg := DefaultConfig("hello", 640, 480)
-	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if app.window == nil || app.window.title != "hello" {
@@ -221,7 +223,7 @@ func TestRun_window_shown_after_first_frame(t *testing.T) {
 		return nil
 	}
 
-	if err := Run(DefaultConfig("hello", 640, 480), func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+	if err := Run(DefaultConfig("hello", 640, 480), func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if !observedHidden {
@@ -249,7 +251,7 @@ func TestRun_build_context_content_scale(t *testing.T) {
 	cfg := DefaultConfig("hello", 640, 480)
 	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
 		observed = ctx.ContentScale
-		return &fakeRoot{}
+		return newFakeRoot()
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -272,7 +274,7 @@ func TestRun_build_context_theme_passthrough(t *testing.T) {
 	cfg.Theme = customTheme
 	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
 		observed = ctx.Theme
-		return &fakeRoot{}
+		return newFakeRoot()
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -290,7 +292,7 @@ func TestRun_font_data_requires_name(t *testing.T) {
 
 	cfg := DefaultConfig("title", 10, 20)
 	cfg.Fonts = []FontSource{{Data: []byte("abc")}}
-	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err == nil {
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err == nil {
 		t.Fatal("expected error")
 	}
 }
@@ -310,7 +312,7 @@ func TestRun_default_backend_prefers_vulkan(t *testing.T) {
 
 	cfg := DefaultConfig("hello", 640, 480)
 	cfg.OnBackendSelected = func(kind RenderBackendKind) { selected = kind }
-	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if selected != RenderBackendVulkan {
@@ -339,7 +341,7 @@ func TestRun_vulkan_falls_back_to_software(t *testing.T) {
 
 	cfg := DefaultConfig("hello", 640, 480)
 	cfg.OnBackendSelected = func(kind RenderBackendKind) { selected = kind }
-	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if selected != RenderBackendSoftware {
@@ -447,7 +449,7 @@ func TestRun_lifecycleSurface_waitsForSurface(t *testing.T) {
 	cfg := DefaultConfig("test", 400, 300)
 	cfg.PlatformApp = app
 	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
-		return &fakeRoot{}
+		return newFakeRoot()
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -472,7 +474,7 @@ func TestRun_lifecycleSurface_vulkanFallback(t *testing.T) {
 	cfg.PlatformApp = app
 	cfg.OnBackendSelected = func(kind RenderBackendKind) { selected = kind }
 	if err := Run(cfg, func(ctx BuildContext) facet.FacetImpl {
-		return &fakeRoot{}
+		return newFakeRoot()
 	}); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
@@ -523,7 +525,7 @@ func TestRun_reuses_supplied_platform_app(t *testing.T) {
 
 	cfg := DefaultConfig("hello", 640, 480)
 	cfg.PlatformApp = app
-	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return &fakeRoot{} }); err != nil {
+	if err := Run(cfg, func(BuildContext) facet.FacetImpl { return newFakeRoot() }); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
 	if calledConstructor {

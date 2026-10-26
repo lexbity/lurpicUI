@@ -114,14 +114,14 @@ func TestRuntimeNewAcceptsStandardLayerRecipe(t *testing.T) {
 // two layer children of one layer group that declare different recipe overrides
 // are a configuration error, not a silently-first-wins ambiguity.
 func TestRuntimeLayerRecipeOverrideConflictingRefsFails(t *testing.T) {
-	rt := mustRuntime(t)
-	root := rt.root
+	root := facet.NewFacet()
 	parent := newRuntimeRenderFacet("parent", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
 	childA := newRuntimeRenderFacet("childA", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
 	childB := newRuntimeRenderFacet("childB", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
-	root.Base().AddChild(parent.Base())
+	root.AddChild(parent.Base())
 	facet.AttachLayer(parent, childA, facet.LayerAttachment{Band: facet.ZBandModal, Recipe: facet.LayerRecipeRef{Name: "modal"}})
 	facet.AttachLayer(parent, childB, facet.LayerAttachment{Band: facet.ZBandModal, Recipe: facet.LayerRecipeRef{Name: "free"}})
+	rt := mustRuntimeTree(t, &root)
 	children := []layout.LayerChild{
 		{FacetID: childA.ID(), Attachment: facet.Attachment{}},
 		{FacetID: childB.ID(), Attachment: facet.Attachment{}},
@@ -138,14 +138,14 @@ func TestRuntimeLayerRecipeOverrideConflictingRefsFails(t *testing.T) {
 // TestRuntimeLayerRecipeOverrideSameRefCoalesces pins the group-level rule's
 // positive path: children that agree on one override resolve to it once.
 func TestRuntimeLayerRecipeOverrideSameRefCoalesces(t *testing.T) {
-	rt := mustRuntime(t)
-	root := rt.root
+	root := facet.NewFacet()
 	parent := newRuntimeRenderFacet("parent", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
 	childA := newRuntimeRenderFacet("childA", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
 	childB := newRuntimeRenderFacet("childB", gfx.RectFromXYWH(0, 0, 100, 100), color.RGBA{A: 255})
-	root.Base().AddChild(parent.Base())
+	root.AddChild(parent.Base())
 	facet.AttachLayer(parent, childA, facet.LayerAttachment{Band: facet.ZBandModal, Recipe: facet.LayerRecipeRef{Name: "modal"}})
 	facet.AttachLayer(parent, childB, facet.LayerAttachment{Band: facet.ZBandModal, Recipe: facet.LayerRecipeRef{Name: "modal"}})
+	rt := mustRuntimeTree(t, &root)
 	children := []layout.LayerChild{
 		{FacetID: childA.ID(), Attachment: facet.Attachment{}},
 		{FacetID: childB.ID(), Attachment: facet.Attachment{}},

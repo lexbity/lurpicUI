@@ -10,6 +10,7 @@ import (
 	drivedesc "codeburg.org/lexbit/lurpicui/drive/describe"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
@@ -178,7 +179,7 @@ func NewHarness(t testing.TB, scope *store.Scope, config HarnessConfig, root fac
 	rtcfg.Drive.Sessions = config.DriveSessions
 	rtcfg.Drive.Stats = config.DriveStats
 	rtcfg.DescribeMark = drivedesc.Describe
-	rtcfg.HostedChildren = drivedesc.HostedChildren
+	rtcfg.HostedChildren = marks.HostedChildrenFor
 	rtcfg.CommandRegistry = config.CommandRegistry
 	rt, err := runtime.New(rtcfg, app, window, backend, root)
 	if err != nil {

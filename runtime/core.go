@@ -46,6 +46,7 @@ type Runtime struct {
 	window         platform.Window
 	windowBindings map[string]platform.Window
 	root           facet.FacetImpl
+	liveIndex      *liveIndex
 
 	frameNumber  uint64
 	frameTimer   *FrameTimer
@@ -188,6 +189,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if config.StoreIdentity == nil {
 		return nil, errors.New("runtime: StoreIdentity is required")
 	}
+	if config.HostedChildren == nil {
+		return nil, errors.New("runtime: HostedChildren capability is required")
+	}
 	if backend == nil {
 		return nil, errors.New("runtime: backend is required")
 	}
@@ -223,6 +227,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		window:                window,
 		windowBindings:        copyWindowBindings(config.WindowBindings, window),
 		root:                  root,
+		liveIndex:             newLiveIndex(),
 		frameTimer:            NewFrameTimer(config.TargetFPS),
 		dirtyFacets:           make(map[facet.FacetID]facet.DirtyFlags),
 		dirtySources:          make(map[facet.FacetID]string),
@@ -240,6 +245,7 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		controlWatchers:       make(map[facet.FacetID][]controlWatcher),
 		recoveryDisabled:      config.RecoveryDisabled,
 	}
+	rt.liveIndex.registerTree(root)
 	if err := rt.validateFacetStoreScopes(root); err != nil {
 		return nil, err
 	}
@@ -534,7 +540,7 @@ func (rt *Runtime) Schedule(j job.AnyJob) {
 	}
 	ownerID := facet.FacetID(j.OwnerID())
 	afterCommit := func(result job.AnyResult) {
-		f := rt.findFacetByID(rt.root, ownerID)
+		f := rt.liveFacet(ownerID)
 		if f == nil || f.Base() == nil {
 			return
 		}

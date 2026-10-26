@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/drive/proto"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/store"
 )
@@ -69,6 +70,7 @@ func newReadRuntime(t *testing.T) (*Runtime, *readProbe) {
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.StoreScope = scope
 	cfg.StoreIdentity = store.NewRuntimeIdentity()
+	cfg.HostedChildren = marks.HostedChildrenFor
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
 	rt, err := New(cfg, nil, &testWindow{width: 200, height: 100}, &backendFixture{}, probe)

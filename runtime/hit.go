@@ -30,7 +30,7 @@ func (rt *Runtime) HitTrace() diagnostics.HitTestTrace {
 
 // FacetByID returns the facet implementation with the given ID, if present.
 func (rt *Runtime) FacetByID(id facet.FacetID) facet.FacetImpl {
-	return rt.findFacetByID(rt.root, id)
+	return rt.liveFacet(id)
 }
 
 // Root returns the runtime's root facet (read accessor for the drive
@@ -194,10 +194,8 @@ func (rt *Runtime) hitTestWithMap(hitMap *projection.HitMap, screenPos gfx.Point
 			policy = layout.LayerHitPolicy(layer.HitPolicy)
 		}
 		parentID := facet.FacetID(0)
-		if child := rt.findFacetByID(rt.root, entry.FacetID); child != nil && child.Base() != nil {
-			if parent := child.Base().Parent(); parent != nil {
-				parentID = parent.ID()
-			}
+		if rt.liveIndex != nil {
+			parentID = rt.liveIndex.parent(entry.FacetID)
 		}
 		local := screenPos
 		if inv, ok := entry.Transform.Inverse(); ok {

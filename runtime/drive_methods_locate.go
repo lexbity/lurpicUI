@@ -86,7 +86,7 @@ func (rt *Runtime) driveHitTest(pt gfx.Point) (facet.FacetImpl, bool) {
 	if hit == nil {
 		return nil, false
 	}
-	impl := rt.findFacetByID(rt.root, hit.FacetID)
+	impl := rt.liveFacet(hit.FacetID)
 	if impl == nil {
 		return nil, false
 	}

@@ -105,7 +105,7 @@ func (rt *Runtime) poison(id facet.FacetID, role string, r any) {
 	rt.poisonReports[id] = report
 	// Subtree quarantine: mark all active descendants poisoned without
 	// re-reporting them.
-	if root := rt.findFacetByID(rt.root, id); root != nil {
+	if root := rt.liveFacet(id); root != nil {
 		report.MarkType = describeMark(root)
 		rt.walkActive(root, func(f facet.FacetImpl) {
 			if f.Base().ID() != id {

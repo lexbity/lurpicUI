@@ -61,3 +61,28 @@ if [[ "$phase" == *P2* ]]; then
 	grep -q 'func (s \*Scope) FlushDerived()' store/scope.go
 	printf '%s\n' 'runtime-gate: P2 source contracts passed'
 fi
+
+if [[ "$phase" == *P3* ]]; then
+	for package in runtime facet marks/navigation marks/structure app; do
+		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
+		if [ -z "$files" ]; then
+			printf 'source inventory is empty for %s\n' "$package" >&2
+			exit 1
+		fi
+	done
+	expect_absent 'findFacetByID|findFacetByID\(' runtime
+	expect_absent '\.Children\(\)' runtime -g '*.go' -g '!**/*_test.go'
+	grep -q 'func (rt \*Runtime) liveFacet(id facet.FacetID)' runtime/layout.go
+	grep -q 'rt.liveIndex.lookup(id)' runtime/layout.go
+	grep -q 'func (f \*Facet) VisitChildren' facet/facet.go
+	grep -q 'func (f \*Facet) VisitChildrenReverse' facet/facet.go
+	grep -q 'OnFacetTreeAttached:.*rt.onFacetTreeAttached' runtime/layout.go
+	grep -q 'OnFacetDisposed:.*rt.onFacetDisposed' runtime/layout.go
+	grep -q 'OnHostedChildrenChanged:.*rt.onHostedChildrenChanged' runtime/layout.go
+	grep -q 'rtConfig.HostedChildren = marks.HostedChildrenFor' app/run.go
+	grep -q 'func (index \*liveIndex) registerHosted' runtime/live_index.go
+	grep -q 'func (index \*liveIndex) removeSubtree' runtime/live_index.go
+	grep -q 'func TestIdentityLookupNoTraversalOrAllocation' runtime/live_index_test.go
+	grep -q 'func BenchmarkIdentityLookupSweep' runtime/live_index_test.go
+	printf '%s\n' 'runtime-gate: P3 source contracts passed'
+fi

@@ -40,7 +40,6 @@ func main() {
 	// LDP locator metadata: adapt the marks canonical interfaces for the
 	// drive locator walk (kind/role/name/key matching).
 	cfg.Runtime.DescribeMark = drivedesc.Describe
-	cfg.Runtime.HostedChildren = drivedesc.HostedChildren
 	cfg.Theme = studio.StudioThemeContext()
 	seed, err := loadSeed()
 	if err != nil {

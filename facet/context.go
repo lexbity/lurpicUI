@@ -24,6 +24,17 @@ type AttachContext struct {
 	Assets  AssetServices
 	Stores  StoreServices
 	TestIDs TestIDRegistry
+	// OnFacetTreeAttached publishes a successfully attached subtree to the
+	// runtime's lifecycle owner. It is invoked once after Attach has completed
+	// the subtree, including children materialized by OnAttach hooks.
+	OnFacetTreeAttached func(FacetImpl)
+	// OnFacetDisposed removes a facet lifetime from the runtime's live view
+	// after its detach hooks and owned resources have finished releasing.
+	OnFacetDisposed func(FacetID)
+	// OnHostedChildrenChanged publishes an immutable snapshot of a host's
+	// current materialized children. The runtime owns the resulting identity
+	// links; hosts call this only when that materialized set changes.
+	OnHostedChildrenChanged func(FacetID, []FacetImpl)
 	// IdentityContext is the runtime-owned structural attach path used in
 	// duplicate author-ID diagnostics. It is not a public locator path.
 	IdentityContext string

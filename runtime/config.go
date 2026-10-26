@@ -78,7 +78,8 @@ type Config struct {
 	// only TestID and coords resolve.
 	DescribeMark func(impl facet.FacetImpl) locate.Meta
 	// HostedChildren returns visible mark-owned children. App wiring supplies
-	// the canonical capability probe from the marks root package.
+	// the canonical capability probe from the marks root package. It is
+	// required so runtime identity coverage includes virtualized children.
 	HostedChildren func(impl facet.FacetImpl) []facet.FacetImpl
 
 	// AssetDiagnosticsEnabled controls whether asset-path events (mount,

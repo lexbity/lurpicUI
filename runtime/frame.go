@@ -612,10 +612,10 @@ func (rt *Runtime) walkActive(root facet.FacetImpl, fn func(facet.FacetImpl)) {
 		if node.Base().State() == facet.StateActive {
 			fn(node)
 		}
-		children := node.Base().Children()
-		for i := len(children) - 1; i >= 0; i-- {
-			stack = append(stack, children[i])
-		}
+		node.Base().VisitChildrenReverse(func(child facet.FacetImpl) bool {
+			stack = append(stack, child)
+			return true
+		})
 	}
 }
 

@@ -12,6 +12,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/layout"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/render/software"
@@ -321,6 +322,7 @@ func Run(config Config, builder RootBuilder) error {
 	}
 
 	rtConfig := config.Runtime
+	rtConfig.HostedChildren = marks.HostedChildrenFor
 	rtConfig.StoreScope = storeScope
 	rtConfig.StoreIdentity = storeIdentity
 	rtConfig.FontRegistry = fontRegistry

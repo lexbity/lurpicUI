@@ -193,13 +193,13 @@ func (h *backendFallbackRecordingHook) last() (diagnostics.BackendFallback, bool
 // wires the render thread's fallback (Q9) and that notifyBackendFallback emits
 // OnBackendFallback to a DiagnosticsHook that structurally opts in.
 func TestRuntime_WiresFallbackAndEmitsDiagnostic(t *testing.T) {
-	root := &facet.Facet{}
-	root.BindImpl(root)
+	root := facet.NewFacet()
+	root.BindImpl(&root)
 	hook := &backendFallbackRecordingHook{}
 	cfg := testConfig(t)
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.DiagnosticsHook = hook
-	rt, err := New(cfg, nil, nil, &fakeBackend{}, root)
+	rt, err := New(cfg, nil, nil, &fakeBackend{}, &root)
 	if err != nil {
 		t.Fatalf("new runtime: %v", err)
 	}

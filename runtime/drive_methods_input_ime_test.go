@@ -6,6 +6,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/input"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/store"
@@ -47,6 +48,7 @@ func TestDriveInputType_IMEFidelity(t *testing.T) {
 	cfg.LayerRegistry = testLayerRegistry(t)
 	cfg.StoreScope = scope
 	cfg.StoreIdentity = store.NewRuntimeIdentity()
+	cfg.HostedChildren = marks.HostedChildrenFor
 	cfg.Drive.Enabled = true
 	testSessionTable(t, &cfg)
 	rt, err := New(cfg, &inputQueueApp{q: q}, &testWindow{width: 200, height: 100}, &backendFixture{}, root)

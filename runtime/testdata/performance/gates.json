@@ -198,6 +198,24 @@
       "mode": "race", "tags": [], "backend": "software", "required": true,
       "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
       "fixture": "p2-reactive-runtime-v1"
+    },
+    {
+      "id": "P3.live-index.host",
+      "phase": "P3",
+      "package": "./runtime",
+      "tests": ["TestIdentityLookupNoTraversalOrAllocation", "TestLiveIndexReplacementGeneration", "TestLiveIndexHostedParity", "TestLiveIndexCapacityFollowsLiveNodes", "TestLiveIndexRejectsDuplicateHostedIdentity", "TestRuntimeAddRemoveFacetUpdatesLiveIdentity", "TestRuntimeFailedAttachLeavesNoLiveIdentity", "TestRuntimeCanonicalHostedChildLifecycle"],
+      "mode": "host", "tags": [], "backend": "software", "required": true,
+      "repetitions": 1, "test_budget_ms": 30000, "package_timeout_ms": 120000,
+      "fixture": "p3-live-index-v1"
+    },
+    {
+      "id": "P3.live-index.race",
+      "phase": "P3",
+      "package": "./runtime",
+      "tests": ["TestIdentityLookupNoTraversalOrAllocation", "TestLiveIndexReplacementGeneration", "TestLiveIndexHostedParity", "TestLiveIndexCapacityFollowsLiveNodes", "TestLiveIndexRejectsDuplicateHostedIdentity", "TestRuntimeAddRemoveFacetUpdatesLiveIdentity", "TestRuntimeFailedAttachLeavesNoLiveIdentity", "TestRuntimeCanonicalHostedChildLifecycle"],
+      "mode": "race", "tags": [], "backend": "software", "required": true,
+      "repetitions": 10, "test_budget_ms": 30000, "package_timeout_ms": 1200000,
+      "fixture": "p3-live-index-v1"
     }
   ]
 }

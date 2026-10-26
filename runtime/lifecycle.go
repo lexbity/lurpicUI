@@ -509,6 +509,12 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment facet.Atta
 	if parentBase == nil || childBase == nil {
 		return
 	}
+	if err := rt.liveIndex.validateNewTree(child); err != nil {
+		panic(err)
+	}
+	if parentBase.State() != facet.StateCreated && !rt.liveIndex.contains(parentBase.ID()) {
+		panic(fmt.Sprintf("runtime: parent facet %d is not live in this runtime", parentBase.ID()))
+	}
 	parentBase.AddChildRuntime(childBase)
 	if rt.childAttachments == nil {
 		rt.childAttachments = make(map[facet.FacetID]facet.Attachment)
@@ -517,8 +523,21 @@ func (rt *Runtime) AddFacet(parent, child facet.FacetImpl, attachment facet.Atta
 	if parentBase.State() == facet.StateCreated {
 		return
 	}
-	rt.attachTree(child)
-	rt.activateTree(child)
+	func() {
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				delete(rt.childAttachments, childBase.ID())
+				if childBase.Parent() == parentBase {
+					parentBase.RemoveChild(childBase)
+				} else if childBase.State() != facet.StateDisposed {
+					facet.Dispose(child)
+				}
+				panic(recovered)
+			}
+		}()
+		rt.attachTree(child)
+		rt.activateTree(child)
+	}()
 	if rt.projectionLayers == nil {
 		rt.projectionLayers = make(map[facet.FacetID]facet.ProjectionLayer)
 	}

@@ -722,6 +722,7 @@ func (t *TreeNavigator) cursorShape() facet.CursorShape {
 }
 
 func (t *TreeNavigator) rebuildVisibleNodes() {
+	previous := t.cachedVisibleNodes
 	nodes := t.nodesSnapshot()
 	out := make([]treeNavigatorVisibleNode, 0, len(nodes))
 	t.walkVisible(nodes, 0, "", &out)
@@ -736,6 +737,34 @@ func (t *TreeNavigator) rebuildVisibleNodes() {
 	if t.focusedPath == "" {
 		t.focusedPath = t.firstVisiblePath()
 	}
+	if !sameTreePaths(previous, out) {
+		t.PublishHostedChildren(t.hostedChildrenSnapshot())
+	}
+}
+
+func sameTreePaths(previous, next []treeNavigatorVisibleNode) bool {
+	if len(previous) != len(next) {
+		return false
+	}
+	for i := range previous {
+		if previous[i].Path != next[i].Path {
+			return false
+		}
+	}
+	return true
+}
+
+func (t *TreeNavigator) hostedChildrenSnapshot() []facet.FacetImpl {
+	if t == nil {
+		return nil
+	}
+	children := make([]facet.FacetImpl, 0, len(t.cachedVisibleNodes))
+	for i := range t.cachedVisibleNodes {
+		if row := t.rowFacetForPath(t.cachedVisibleNodes[i].Path); row != nil {
+			children = append(children, row)
+		}
+	}
+	return children
 }
 
 // selectionPath returns the current selected node path from the FR-8 binding
@@ -788,13 +817,7 @@ func (t *TreeNavigator) HostedChildren() []facet.FacetImpl {
 		return nil
 	}
 	t.rebuildVisibleNodes()
-	out := make([]facet.FacetImpl, 0, len(t.cachedVisibleNodes))
-	for i := range t.cachedVisibleNodes {
-		if row := t.rowFacetForPath(t.cachedVisibleNodes[i].Path); row != nil {
-			out = append(out, row)
-		}
-	}
-	return out
+	return t.hostedChildrenSnapshot()
 }
 
 func (t *TreeNavigator) rowFacetForPath(path string) *selection.ListItem {

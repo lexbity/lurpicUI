@@ -99,9 +99,9 @@ func TestRuntime_DirtySnapshotSinkFiresOncePerFrame(t *testing.T) {
 // TestRuntime_DirtySnapshotSinkNilDirtySet asserts a quiescent frame delivers a
 // snapshot with nil Dirty/Sources (not an empty-map allocation per frame).
 func TestRuntime_DirtySnapshotSinkNilDirtySet(t *testing.T) {
-	root := &facet.Facet{}
-	root.BindImpl(root)
-	rt := mustRuntimeTree(t, root)
+	root := facet.NewFacet()
+	root.BindImpl(&root)
+	rt := mustRuntimeTree(t, &root)
 	sink := &recordingDirtySink{}
 	rt.EnableDiagnostics(sink)
 
@@ -121,9 +121,9 @@ func TestRuntime_DirtySnapshotSinkNilDirtySet(t *testing.T) {
 // does not implement DirtySnapshotSink is skipped cleanly by the type
 // assertion (the interface is not widened).
 func TestRuntime_DirtySnapshotSinkSkipsNonSinkHook(t *testing.T) {
-	root := &facet.Facet{}
-	root.BindImpl(root)
-	rt := mustRuntimeTree(t, root)
+	root := facet.NewFacet()
+	root.BindImpl(&root)
+	rt := mustRuntimeTree(t, &root)
 	hook := &plainDiagHook{}
 	rt.EnableDiagnostics(hook)
 

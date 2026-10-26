@@ -101,8 +101,9 @@ func (rt *Runtime) walkDirtyTree(root facet.FacetImpl, snap *DirtySnapshot) {
 				}
 			}
 		}
-		for _, child := range base.Children() {
+		base.VisitChildrenReverse(func(child facet.FacetImpl) bool {
 			stack = append(stack, child)
-		}
+			return true
+		})
 	}
 }
