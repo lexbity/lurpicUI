@@ -15,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/log"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
@@ -50,6 +51,8 @@ type Config struct {
 	GestureConfig   input.GestureConfig
 	WorkerCount     int
 	FontRegistry    *text.FontRegistry
+	TextService     *text.Service
+	Resources       ResourcePolicy
 	IconResolver    icon.Resolver
 	AssetManager    assets.Manager
 	AssetRegistry   *assets.AssetRegistryStore
@@ -92,12 +95,6 @@ type Config struct {
 	// AssetsResidencyMode selects the GPU residency strategy for decoded
 	// assets: "auto" (GPU-capable backends get GPU residency), "cpu", or "gpu".
 	AssetsResidencyMode string
-	// AssetCPUBudgetMB is the cap for decoded CPU LOD cache.
-	AssetCPUBudgetMB int64
-	// AssetGPUBudgetMB is the cap for GPU-resident textures.
-	AssetGPUBudgetMB int64
-	// AssetUploadBudgetKBPerFrame is the per-frame ceiling for GPU uploads.
-	AssetUploadBudgetKBPerFrame int
 
 	// RecoveryDisabled disables per-facet panic quarantine. When false (the
 	// default), a panicking facet callback quarantines the facet and its
@@ -139,16 +136,18 @@ func DefaultConfig() Config {
 		workers = 1
 	}
 	reg, _ := text.NewFontRegistry()
+	profile := membudget.Standard
+	if goruntime.GOOS == "android" {
+		profile = membudget.Compact
+	}
 	return Config{
 		TargetFPS:     60,
 		GestureConfig: input.DefaultGestureConfig(),
 		WorkerCount:   workers,
 		FontRegistry:  reg,
+		Resources:     DefaultResourcePolicy(profile),
 
-		AssetsResidencyMode:         "auto",
-		AssetCPUBudgetMB:            256,
-		AssetGPUBudgetMB:            192,
-		AssetUploadBudgetKBPerFrame: 4096,
+		AssetsResidencyMode: "auto",
 	}
 }
 

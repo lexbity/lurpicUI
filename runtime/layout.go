@@ -470,8 +470,9 @@ func (rt *Runtime) arrangeLayoutChild(f facet.FacetImpl, bounds gfx.Rect) {
 		themeCtx = rt.themeContext(bounds)
 	}
 	ctx := facet.ArrangeContext{
-		Runtime: rt,
-		Theme:   themeCtx,
+		Runtime:      rt,
+		Theme:        themeCtx,
+		ContentScale: rt.contentScale,
 	}
 	rt.guardedInvoke(f.Base().ID(), "arrange", func() {
 		role.Arrange(ctx, bounds)

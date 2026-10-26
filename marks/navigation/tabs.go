@@ -299,13 +299,12 @@ func (t *Tabs) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 		t.cachedTabLabelStyle = resolved.TextStyle(theme.TextLabelS)
 	}
 	t.cachedPanelStyle = resolved.TextStyle(theme.TextHeadingS)
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	if shaper == nil {
 		t.cachedTabLabelLayouts = nil
 		t.cachedPanelLayout = nil
 		return facet.MeasureResult{}
 	}
-	shaper.SetContentScale(ctx.ContentScale)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(960)

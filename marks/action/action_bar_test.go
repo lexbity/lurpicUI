@@ -30,6 +30,9 @@ func (s actionBarRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s actionBarRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s actionBarRuntimeStub) TextService() *text.Service {
+	return contracttest.NewTextService(s.fonts)
+}
 func (s actionBarRuntimeStub) IconResolver() icon.Resolver {
 	return s.icons
 }

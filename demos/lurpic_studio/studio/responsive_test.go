@@ -15,12 +15,15 @@ import (
 func newResponsiveShell(t *testing.T, w, h int) (*Root, *testkit.Harness) {
 	scope := store.NewScope()
 	t.Helper()
+	fontRegistry := testkit.TestFontRegistry(t)
+	textService := testkit.TestTextService(t, fontRegistry)
 	ctx := app.BuildContext{
 		StoreScope:   scope,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
-		FontRegistry: testkit.TestFontRegistry(t),
+		FontRegistry: fontRegistry,
+		TextService:  textService,
 	}
 	reg, err := StudioLayerRegistry()
 	if err != nil {

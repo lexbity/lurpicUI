@@ -442,11 +442,12 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			for _, child := range group.children {
 				if child.Layout != nil {
 					child.Layout.Arrange(facet.ArrangeContext{
-						Runtime:     rt,
-						Theme:       rt.themeContext(parentBounds),
-						ParentGroup: child.Layout.Parent,
-						ChildGroup:  child.Layout.Child,
-						Placement:   child.Attachment.Placement,
+						Runtime:      rt,
+						Theme:        rt.themeContext(parentBounds),
+						ContentScale: rt.contentScale,
+						ParentGroup:  child.Layout.Parent,
+						ChildGroup:   child.Layout.Child,
+						Placement:    child.Attachment.Placement,
 					}, gfx.Rect{})
 				}
 				rt.projectionLayers[child.FacetID] = emptyLayer
@@ -537,12 +538,13 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			for _, child := range group.children {
 				if child.Layout != nil {
 					child.Layout.Arrange(facet.ArrangeContext{
-						Runtime:     rt,
-						Theme:       measureCtx.Theme,
-						Layer:       layerCtx,
-						ParentGroup: child.Layout.Parent,
-						ChildGroup:  child.Layout.Child,
-						Placement:   child.Attachment.Placement,
+						Runtime:      rt,
+						Theme:        measureCtx.Theme,
+						ContentScale: rt.contentScale,
+						Layer:        layerCtx,
+						ParentGroup:  child.Layout.Parent,
+						ChildGroup:   child.Layout.Child,
+						Placement:    child.Attachment.Placement,
 					}, layerBounds)
 				}
 				childLayer := layerFrame
@@ -558,12 +560,13 @@ func (rt *Runtime) resolveAttachedLayers(parent facet.FacetImpl, accumulated gfx
 			}
 			if child.Layout != nil {
 				child.Layout.Arrange(facet.ArrangeContext{
-					Runtime:     rt,
-					Theme:       measureCtx.Theme,
-					Layer:       layerCtx,
-					ParentGroup: child.Layout.Parent,
-					ChildGroup:  child.Layout.Child,
-					Placement:   child.Attachment.Placement,
+					Runtime:      rt,
+					Theme:        measureCtx.Theme,
+					ContentScale: rt.contentScale,
+					Layer:        layerCtx,
+					ParentGroup:  child.Layout.Parent,
+					ChildGroup:   child.Layout.Child,
+					Placement:    child.Attachment.Placement,
 				}, arrangedChild.Bounds)
 			}
 			childLayer := layerFrame

@@ -81,7 +81,7 @@ func benchmarkTextFrame(b *testing.B, runs int) *render.Frame {
 	if err := reg.LoadFontBytes(fontData, "Noto Sans"); err != nil {
 		b.Fatalf("LoadFontBytes: %v", err)
 	}
-	shaper := text.NewShaper(reg)
+	shaper := testShapeSession(b, reg, 1)
 	style := text.DefaultStyle()
 	style.Family = "Noto Sans"
 	style.Size = 14

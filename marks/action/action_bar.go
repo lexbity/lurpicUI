@@ -551,11 +551,10 @@ func (a *ActionBar) resolveLabelLayout(ctx facet.MeasureContext, resolved theme.
 	if label == "" {
 		return nil
 	}
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	if shaper == nil {
 		return nil
 	}
-	shaper.SetContentScale(ctx.ContentScale)
 	return shaper.ShapeTruncated(label, style, maxWidth)
 }
 

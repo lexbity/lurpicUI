@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/projection"
 	"codeburg.org/lexbit/lurpicui/render"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -33,6 +34,8 @@ func (f *diagTestFacet) OnActivate()                      {}
 func (f *diagTestFacet) OnDeactivate()                    {}
 
 type diagRuntimeStub struct{}
+
+func (diagRuntimeStub) TextService() *text.Service { return nil }
 
 func (diagRuntimeStub) Schedule(j job.AnyJob)  {}
 func (diagRuntimeStub) Now() time.Time         { return time.Time{} }

@@ -33,8 +33,7 @@ type Axis struct {
 	LabelSize   marks.Binding[float32]
 	LabelColor  gfx.Color
 
-	fonts   *text.FontRegistry
-	shaper  *text.Shaper
+	shaper  *text.ShapeSession
 	entries []axisEntry
 
 	themeFontFamily string
@@ -57,7 +56,7 @@ var _ layout.AnchorExporter = (*Axis)(nil)
 var _ marks.Mark = (*Axis)(nil)
 
 // NewAxis constructs an axis mark.
-func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrientation], fonts *text.FontRegistry) *Axis {
+func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrientation]) *Axis {
 	a := &Axis{
 		Scale:           scale,
 		Orientation:     orientation,
@@ -67,19 +66,21 @@ func NewAxis(scale *reactive.ReactiveScale, orientation marks.Binding[AxisOrient
 		LabelColor:      gfx.Color{},
 		themeLabelColor: gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1}, //lurpiclint:ignore LL028 -- theme-synced fallback, overridden at runtime
 		themeTickColor:  gfx.Color{R: 0.3, G: 0.3, B: 0.3, A: 1}, //lurpiclint:ignore LL028 -- theme-synced fallback, overridden at runtime
-		fonts:           fonts,
 	}
 	a.Facet = facet.NewFacet()
-	if a.fonts != nil {
-		a.shaper = text.NewShaper(a.fonts)
-	}
 
 	a.Layout.OnMeasure = func(ctx facet.MeasureContext, constraints facet.Constraints) facet.MeasureResult {
+		if ctx.Runtime != nil {
+			a.shaper = marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+		}
 		a.syncTheme(ctx)
 		s := a.measureSize()
 		return facet.MeasureResult{Size: s}
 	}
 	a.Layout.OnArrange = func(ctx facet.ArrangeContext, bounds gfx.Rect) {
+		if ctx.Runtime != nil {
+			a.shaper = marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
+		}
 		a.Layout.ArrangedBounds = bounds
 		a.syncThemeWithTheme(ctx.Theme)
 		a.computeEntries()
@@ -102,6 +103,7 @@ func (a *Axis) Descriptor() marks.Descriptor {
 
 func (a *Axis) OnAttach(ctx facet.AttachContext) {
 	a.Core.OnAttach(ctx)
+	a.shaper = marks.ShapeFor(ctx.Runtime, 1)
 	if a.Scale != nil {
 		signal.Track(a.Subs(), &a.Scale.OnChange, func(signal.Unit) {
 			a.Invalidate(facet.DirtyLayout | facet.DirtyProjection)

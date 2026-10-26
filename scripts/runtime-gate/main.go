@@ -34,11 +34,15 @@ func main() {
 	flag.Parse()
 
 	if *measure {
-		if *phase != "P3" || *mode != "" && *mode != testevidence.ModeHost || *backend != "software" || *androidNDK || *device || *requirePlatform || *requireBackend {
-			fail("P3 measurement supports only --phase P3 --backend software")
+		if *phase != "P3" && *phase != "P4" || *mode != "" && *mode != testevidence.ModeHost || *backend != "software" || *androidNDK || *device || *requirePlatform || *requireBackend {
+			fail("measurement supports only host software phases P3 and P4")
 		}
-		if err := runP3Measure(*root, *count); err != nil {
-			fail("P3 measurement: %v", err)
+		benchmark, pkg, fixture := "BenchmarkIdentityLookupSweep", "./runtime", "runtime/live_index_test.go"
+		if *phase == "P4" {
+			benchmark, pkg, fixture = "BenchmarkTextServiceLabel", "./text", "text/service_test.go"
+		}
+		if err := runBenchmarkMeasure(*root, *phase, benchmark, pkg, fixture, *count); err != nil {
+			fail("%s measurement: %v", *phase, err)
 		}
 		return
 	}
@@ -48,9 +52,9 @@ func main() {
 	if *contracts != "" {
 		contractPhase := *contracts
 		if contractPhase == "all" {
-			contractPhase = "P1,P2,P3"
+			contractPhase = "P1,P2,P3,P4"
 		}
-		if contractPhase != "P1" && contractPhase != "P2" && contractPhase != "P3" && contractPhase != "P1,P2" && contractPhase != "P1,P2,P3" {
+		if contractPhase != "P1" && contractPhase != "P2" && contractPhase != "P3" && contractPhase != "P4" && contractPhase != "P1,P2" && contractPhase != "P1,P2,P3" && contractPhase != "P1,P2,P3,P4" {
 			fail("source contracts for %s are not implemented", contractPhase)
 		}
 		if err := runContracts(*root, contractPhase); err != nil {
@@ -62,7 +66,7 @@ func main() {
 	if *phase == "" {
 		fail("--phase P1 is required until later phase manifests exist")
 	}
-	if *phase != "P1" && *phase != "P2" && *phase != "P3" {
+	if *phase != "P1" && *phase != "P2" && *phase != "P3" && *phase != "P4" {
 		fail("phase %s is not implemented", *phase)
 	}
 	if *mode != "" && *mode != testevidence.ModeHost && *mode != testevidence.ModeRace {
@@ -85,7 +89,7 @@ func main() {
 	fmt.Printf("runtime-gate: phase %s passed (%d gate(s), evidence in %s)\n", *phase, len(report.Gates), report.EvidenceDir)
 }
 
-func runP3Measure(root string, repetitions int) error {
+func runBenchmarkMeasure(root, phase, benchmark, pkg, fixturePath string, repetitions int) error {
 	started := time.Now().UTC()
 	if repetitions == 0 {
 		repetitions = 5
@@ -93,7 +97,7 @@ func runP3Measure(root string, repetitions int) error {
 	if repetitions < 1 || repetitions > 20 {
 		return fmt.Errorf("measurement repetitions must be in [1,20], got %d", repetitions)
 	}
-	command := []string{"go", "test", "-run=^$", "-bench=^BenchmarkIdentityLookupSweep$", "-benchtime=1s", fmt.Sprintf("-count=%d", repetitions), "-benchmem", "./runtime"}
+	command := []string{"go", "test", "-run=^$", "-bench=^" + benchmark + "$", "-benchtime=1s", fmt.Sprintf("-count=%d", repetitions), "-benchmem", pkg}
 	cmd := exec.Command(command[0], command[1:]...) //nolint:gosec // fixed repository-owned benchmark
 	cmd.Dir = root
 	var output bytes.Buffer
@@ -108,26 +112,63 @@ func runP3Measure(root string, repetitions int) error {
 	if err != nil {
 		return fmt.Errorf("read source revision: %w", err)
 	}
-	fixture, err := os.ReadFile(filepath.Join(root, "runtime", "live_index_test.go")) //nolint:gosec // root is the explicit repository selected by the local caller
+	fixture, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(fixturePath))) //nolint:gosec // root and fixture path are repository-owned command inputs
 	if err != nil {
-		return fmt.Errorf("read benchmark fixture: %w", err)
+		return fmt.Errorf("read benchmark fixture %s: %w", fixturePath, err)
 	}
 	fixtureDigest := fmt.Sprintf("%x", sha256.Sum256(fixture))
+	worktreeDigest, err := benchmarkWorktreeDigest(root)
+	if err != nil {
+		return err
+	}
+	goVersion, err := exec.Command("go", "version").Output()
+	if err != nil {
+		return fmt.Errorf("read Go toolchain version: %w", err)
+	}
 	stamp := started.Format("20060102T150405.000000000Z")
-	evidenceDir := filepath.Join(root, "build", "runtime-evidence", strings.TrimSpace(string(revision)), "P3", "measure", stamp)
+	evidenceDir := filepath.Join(root, "build", "runtime-evidence", strings.TrimSpace(string(revision)), phase, "measure", stamp)
 	if err := os.MkdirAll(evidenceDir, 0o750); err != nil {
 		return err
 	}
-	if err := os.WriteFile(filepath.Join(evidenceDir, "lookup-benchmark.txt"), output.Bytes(), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(evidenceDir, strings.ToLower(phase)+"-benchmark.txt"), output.Bytes(), 0o600); err != nil {
 		return err
 	}
-	metadata := fmt.Sprintf("{\n  \"revision\": %q,\n  \"fixture_digest\": %q,\n  \"command\": %q,\n  \"started_utc\": %q,\n  \"sample_count\": \"10 per size\",\n  \"warmup_count\": \"benchmark harness\",\n  \"result_digest\": %q\n}\n",
-		strings.TrimSpace(string(revision)), fixtureDigest, strings.Join(command, " "), started.Format(time.RFC3339Nano), fmt.Sprintf("%x", sha256.Sum256(output.Bytes())))
+	metadata := fmt.Sprintf("{\n  \"revision\": %q,\n  \"worktree_digest\": %q,\n  \"fixture\": %q,\n  \"fixture_digest\": %q,\n  \"toolchain\": %q,\n  \"package\": %q,\n  \"benchmark\": %q,\n  \"repetitions\": %q,\n  \"command\": %q,\n  \"started_utc\": %q,\n  \"sample_count\": %q,\n  \"warmup_count\": %q,\n  \"result_digest\": %q\n}\n",
+		strings.TrimSpace(string(revision)), worktreeDigest, fixturePath, fixtureDigest, strings.TrimSpace(string(goVersion)), pkg, benchmark, fmt.Sprint(repetitions), strings.Join(command, " "), started.Format(time.RFC3339Nano), fmt.Sprintf("%d per benchmark subcase", repetitions), "benchmark harness warmup", fmt.Sprintf("%x", sha256.Sum256(output.Bytes())))
 	if err := os.WriteFile(filepath.Join(evidenceDir, "metadata.json"), []byte(metadata), 0o600); err != nil { //nolint:gosec // evidenceDir is derived from the caller-selected repository root and fixed path segments
 		return err
 	}
-	fmt.Printf("runtime-gate: P3 lookup measurements recorded in %s\n", evidenceDir)
+	fmt.Printf("runtime-gate: %s measurements recorded in %s\n", phase, evidenceDir)
 	return nil
+}
+
+func benchmarkWorktreeDigest(root string) (string, error) {
+	diff := exec.Command("git", "diff", "--binary", "HEAD", "--")
+	diff.Dir = root
+	tracked, err := diff.Output()
+	if err != nil {
+		return "", fmt.Errorf("read tracked worktree diff: %w", err)
+	}
+	untrackedCmd := exec.Command("git", "ls-files", "--others", "--exclude-standard", "-z")
+	untrackedCmd.Dir = root
+	names, err := untrackedCmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("read untracked worktree files: %w", err)
+	}
+	h := sha256.New()
+	_, _ = h.Write(tracked)
+	for _, name := range bytes.Split(names, []byte{0}) {
+		if len(name) == 0 {
+			continue
+		}
+		_, _ = h.Write(name)
+		content, err := os.ReadFile(filepath.Join(root, string(name))) //nolint:gosec // name comes from git's repository-local untracked-file inventory
+		if err != nil {
+			return "", fmt.Errorf("read untracked worktree file %q: %w", name, err)
+		}
+		_, _ = h.Write(content)
+	}
+	return fmt.Sprintf("%x", h.Sum(nil)), nil
 }
 
 func runContracts(root, phase string) error {

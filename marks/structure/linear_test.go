@@ -259,6 +259,7 @@ type rowTestRuntime struct {
 }
 
 func (s rowTestRuntime) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s rowTestRuntime) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 
 func (s rowTestRuntime) RootStyleContext() any { return s.rootStyle }
 

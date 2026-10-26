@@ -9,9 +9,14 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 type vizRuntimeStub struct{ contracttest.NoopRuntime }
+
+func (vizRuntimeStub) TextService() *text.Service {
+	return contracttest.NewTextService((axisGoldenRuntime{}).FontRegistry())
+}
 
 func TestRule_horizontal_at_value(t *testing.T) {
 	scope := store.NewScope()

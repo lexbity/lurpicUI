@@ -73,7 +73,7 @@ type EditableGrid struct {
 
 // NewEditableGrid builds the spreadsheet over the shared rows store, using the
 // given brush stores for linked highlighting.
-func NewEditableGrid(ownerScope *store.Scope, rows *store.CollectionStore[dataset.Row], fonts *text.FontRegistry, themeCtx theme.ResolvedContext, brush BrushStores) *EditableGrid {
+func NewEditableGrid(ownerScope *store.Scope, rows *store.CollectionStore[dataset.Row], service *text.Service, themeCtx theme.ResolvedContext, brush BrushStores) *EditableGrid {
 	gridScope := ownerScope.Child()
 	g := &EditableGrid{
 		rows:        rows,
@@ -89,7 +89,7 @@ func NewEditableGrid(ownerScope *store.Scope, rows *store.CollectionStore[datase
 		selBg:       themeCtx.Color(theme.ColorPrimary),
 	}
 	g.style = gridStyle{
-		fonts: fonts,
+		text:  service,
 		style: themeCtx.TextStyle(theme.TextBodyS),
 		color: themeCtx.Color(theme.ColorText),
 	}

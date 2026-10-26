@@ -16,20 +16,20 @@ import (
 
 // AnchorsData is the E3 exhibit descriptor.
 type AnchorsData struct {
-	fonts *text.FontRegistry
+	text  *text.Service
 	theme theme.ResolvedContext
 	ids   studioLayerIDs
 }
 
 // NewAnchorsData builds the E3 descriptor.
-func NewAnchorsData(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *AnchorsData {
-	return &AnchorsData{fonts: fonts, theme: themeCtx, ids: ids}
+func NewAnchorsData(service *text.Service, themeCtx theme.ResolvedContext, ids studioLayerIDs) *AnchorsData {
+	return &AnchorsData{text: service, theme: themeCtx, ids: ids}
 }
 
 func (p *AnchorsData) ID() ExhibitID { return ExhibitAnchors }
 func (p *AnchorsData) Title() string { return "Anchored Overlays" }
 func (p *AnchorsData) Build(_ *state.AppState, scope *store.Scope) facet.FacetImpl {
-	return NewAnchorsFacet(scope, p.fonts, p.theme, p.ids)
+	return NewAnchorsFacet(scope, p.text, p.theme, p.ids)
 }
 
 // e3Trigger is the draggable anchor trigger: a circle that exports its bounds
@@ -48,7 +48,7 @@ type e3Trigger struct {
 	host *Anchors
 }
 
-func newE3Trigger(themeCtx theme.ResolvedContext, fonts *text.FontRegistry, pos *store.ValueStore[gfx.Point], host *Anchors) *e3Trigger {
+func newE3Trigger(themeCtx theme.ResolvedContext, service *text.Service, pos *store.ValueStore[gfx.Point], host *Anchors) *e3Trigger {
 	t := &e3Trigger{pos: pos, fill: gfx.ColorFromRGBA8(200, 80, 60, 255), host: host}
 	t.Facet = facet.NewFacet()
 	t.Layout.Child = facet.GroupChildContract{
@@ -150,7 +150,7 @@ type Anchors struct {
 }
 
 // NewAnchorsFacet builds the E3 facet.
-func NewAnchorsFacet(ownerScope *store.Scope, fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Anchors {
+func NewAnchorsFacet(ownerScope *store.Scope, service *text.Service, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Anchors {
 	scope := ownerScope.Child()
 	e := &Anchors{
 		pos: store.NewValueStore(scope, gfx.Point{X: 240, Y: 160}),
@@ -158,11 +158,11 @@ func NewAnchorsFacet(ownerScope *store.Scope, fonts *text.FontRegistry, themeCtx
 	}
 	e.Facet = facet.NewFacet()
 	e.OwnStoreScope(scope)
-	e.trigger = newE3Trigger(themeCtx, fonts, e.pos, e)
+	e.trigger = newE3Trigger(themeCtx, service, e.pos, e)
 	e.popovers = []*overlayBox{
-		newOverlayBox(gfx.ColorFromRGBA8(230, 130, 60, 255), "menu", themeCtx, fonts, gfx.Size{W: 120, H: 48}),
-		newOverlayBox(gfx.ColorFromRGBA8(130, 90, 200, 255), "split", themeCtx, fonts, gfx.Size{W: 120, H: 48}),
-		newOverlayBox(gfx.ColorFromRGBA8(255, 220, 90, 255), "tooltip", themeCtx, fonts, gfx.Size{W: 120, H: 48}),
+		newOverlayBox(gfx.ColorFromRGBA8(230, 130, 60, 255), "menu", themeCtx, service, gfx.Size{W: 120, H: 48}),
+		newOverlayBox(gfx.ColorFromRGBA8(130, 90, 200, 255), "split", themeCtx, service, gfx.Size{W: 120, H: 48}),
+		newOverlayBox(gfx.ColorFromRGBA8(255, 220, 90, 255), "tooltip", themeCtx, service, gfx.Size{W: 120, H: 48}),
 	}
 
 	e.layout = facet.LayoutRole{ //lurpiclint:ignore * -- bespoke exhibit host (F-lint-hosts)

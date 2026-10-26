@@ -32,15 +32,17 @@ func newStudioDriveHarness(t *testing.T, w, hgt int) *testkit.DriveHarness {
 func newStudioDriveHarnessWithRows(t *testing.T, w, hgt int, rows []dataset.Row) *testkit.DriveHarness {
 	scope := store.NewScope()
 	t.Helper()
-	fonts := testkit.TestFontRegistry(t)
+	fontRegistry := testkit.TestFontRegistry(t)
+	textService := testkit.TestTextService(t, fontRegistry)
 	reg, err := StudioLayerRegistry()
 	if err != nil {
 		t.Fatalf("layer registry: %v", err)
 	}
-	themeCtx := StudioThemeContext().WithFontRegistry(fonts)
+	themeCtx := StudioThemeContext().WithFontRegistry(fontRegistry)
 	root := BuildRoot(app.BuildContext{
 		StoreScope:   scope,
-		FontRegistry: fonts,
+		FontRegistry: fontRegistry,
+		TextService:  textService,
 		WindowSize:   gfx.Size{W: float32(w), H: float32(hgt)},
 		ContentScale: 1,
 		Theme:        themeCtx,

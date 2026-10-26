@@ -155,6 +155,7 @@ type fontFaceRecord struct {
 	desc     font.Description
 	source   FontSource
 	cacheKey uint64
+	registry *FontRegistry
 }
 
 // FontFace is an opaque wrapper around a resolved font face record.

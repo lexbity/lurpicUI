@@ -350,11 +350,10 @@ func (b *Button) resolveLabelLayout(ctx facet.MeasureContext, constraints facet.
 	if maxWidth < 0 {
 		maxWidth = 0
 	}
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	if shaper == nil {
 		return nil, text.TextStyle{}
 	}
-	shaper.SetContentScale(ctx.ContentScale)
 	layout := shaper.ShapeTruncated(b.Label.Get(), style, maxWidth)
 	if layout == nil {
 		return nil, text.TextStyle{}

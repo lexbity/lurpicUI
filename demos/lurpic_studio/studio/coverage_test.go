@@ -85,12 +85,15 @@ func standardMarkSet() map[string]bool {
 func newCoverageRoot(t *testing.T) (*Root, *testkit.Harness) {
 	scope := store.NewScope()
 	t.Helper()
+	fontRegistry := testkit.TestFontRegistry(t)
+	textService := testkit.TestTextService(t, fontRegistry)
 	ctx := app.BuildContext{
 		StoreScope:   scope,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
 		Theme:        theme.DefaultResolvedContext(),
-		FontRegistry: testkit.TestFontRegistry(t),
+		FontRegistry: fontRegistry,
+		TextService:  textService,
 	}
 	root := NewRoot(ctx, nil, seedRows(t), nil)
 	h := testkit.NewStandardHarness(t, scope, 1280, 800, root)

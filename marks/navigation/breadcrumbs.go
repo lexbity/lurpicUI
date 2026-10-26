@@ -249,13 +249,12 @@ func (b *Breadcrumbs) measure(ctx facet.MeasureContext, constraints facet.Constr
 	b.cachedCurrentStyle = resolved.TextStyle(theme.TextLabelM)
 	b.cachedSeparatorStyle = resolved.TextStyle(theme.TextLabelM)
 
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	if shaper == nil {
 		b.cachedLabelLayouts = nil
 		b.cachedSeparatorLayout = nil
 		return facet.MeasureResult{}
 	}
-	shaper.SetContentScale(ctx.ContentScale)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(1200)

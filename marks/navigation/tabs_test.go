@@ -27,6 +27,7 @@ type tabsRuntimeStub struct {
 func (s tabsRuntimeStub) RootStyleContext() any                      { return s.rootStyle }
 func (s tabsRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl { return nil }
 func (s tabsRuntimeStub) FontRegistry() *text.FontRegistry           { return s.fonts }
+func (s tabsRuntimeStub) TextService() *text.Service                 { return contracttest.NewTextService(s.fonts) }
 
 func TestTabsMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	tabs, rt, measureCtx := newTabsTestFixture(t, defaultTabsTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)

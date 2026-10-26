@@ -4,9 +4,11 @@ import (
 	"time"
 
 	"codeburg.org/lexbit/lurpicui/facet"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/scale/reactive"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 // TB is the subset of testing.TB consumed by the assertions in this package.
@@ -39,6 +41,25 @@ func (contractRuntime) WatchControl(_ facet.FacetID, callback func(facet.Control
 // stub. Now returns the zero time: contract tests do not exercise timed
 // behavior.
 type NoopRuntime struct{}
+
+func (NoopRuntime) TextService() *text.Service { return nil }
+
+// NewTextService creates a finite service for mark contract tests that supply
+// a real test font registry. It is deliberately not used by production code.
+func NewTextService(registry *text.FontRegistry) *text.Service {
+	if registry == nil {
+		return nil
+	}
+	wallet, err := membudget.NewWallet(membudget.DefaultPlan(membudget.Standard).Caps[membudget.Text])
+	if err != nil {
+		panic(err)
+	}
+	service, err := text.NewService(registry, wallet, text.DefaultLimits(membudget.Standard))
+	if err != nil {
+		panic(err)
+	}
+	return service
+}
 
 func (NoopRuntime) ControlSnapshot() facet.ControlSnapshot {
 	return facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall}

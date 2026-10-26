@@ -55,8 +55,7 @@ func newChartFixture(t *testing.T) *chartFixture {
 	f.ptMark.Radius = marks.Const[float32](4)
 	f.ptMark.Color = marks.Const(gfx.Color{R: 0.9, G: 0.2, B: 0.2, A: 1})
 
-	fonts := (axisGoldenRuntime{}).FontRegistry()
-	f.axisMark = NewAxis(yScale, marks.Const(AxisBottom), fonts)
+	f.axisMark = NewAxis(yScale, marks.Const(AxisBottom))
 	f.axisMark.TickCount = marks.Const(6)
 
 	f.bounds = gfx.RectFromXYWH(30, 20, 240, 280)

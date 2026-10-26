@@ -12,12 +12,15 @@ import (
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/primitive"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
 type iconInspectorRuntime struct {
 	rootStyle any
 }
+
+func (iconInspectorRuntime) TextService() *text.Service { return nil }
 
 func (s iconInspectorRuntime) Schedule(j job.AnyJob)  {}
 func (s iconInspectorRuntime) Now() time.Time         { return time.Time{} }

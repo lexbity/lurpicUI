@@ -31,6 +31,7 @@ func (s buttonRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s buttonRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s buttonRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 func (s buttonRuntimeStub) IconResolver() icon.Resolver {
 	return s.icons
 }

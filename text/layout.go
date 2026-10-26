@@ -599,12 +599,14 @@ func maxInt(a, b int) int {
 	return b
 }
 
-func faceCoversText(face *font.Face, runes []rune) bool {
+func faceCoversText(face *font.Face, registry *FontRegistry, runes []rune) bool {
 	if face == nil {
 		return false
 	}
-	shapeMu.Lock()
-	defer shapeMu.Unlock()
+	if registry != nil {
+		registry.faceMu.Lock()
+		defer registry.faceMu.Unlock()
+	}
 	for _, r := range runes {
 		if _, ok := face.NominalGlyph(r); !ok {
 			return false

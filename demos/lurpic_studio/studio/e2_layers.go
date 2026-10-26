@@ -23,20 +23,20 @@ import (
 
 // LayersData is the E2 exhibit descriptor.
 type LayersData struct {
-	fonts *text.FontRegistry
+	text  *text.Service
 	theme theme.ResolvedContext
 	ids   studioLayerIDs
 }
 
 // NewLayersData builds the E2 descriptor.
-func NewLayersData(fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *LayersData {
-	return &LayersData{fonts: fonts, theme: themeCtx, ids: ids}
+func NewLayersData(service *text.Service, themeCtx theme.ResolvedContext, ids studioLayerIDs) *LayersData {
+	return &LayersData{text: service, theme: themeCtx, ids: ids}
 }
 
 func (p *LayersData) ID() ExhibitID { return ExhibitLayers }
 func (p *LayersData) Title() string { return "Layers & Hit Routing" }
 func (p *LayersData) Build(_ *state.AppState, scope *store.Scope) facet.FacetImpl {
-	return NewLayersFacet(scope, p.fonts, p.theme, p.ids)
+	return NewLayersFacet(scope, p.text, p.theme, p.ids)
 }
 
 // e2Control is the base-layer control the modal scrim covers (FR-layers): a
@@ -51,15 +51,15 @@ type e2Control struct {
 	presses int
 	color   gfx.Color
 	label   string
-	shaper  *text.Shaper
+	shaper  *text.ShapeSession
 	style   text.TextStyle
 }
 
-func newE2Control(themeCtx theme.ResolvedContext, fonts *text.FontRegistry, label string) *e2Control {
+func newE2Control(themeCtx theme.ResolvedContext, service *text.Service, label string) *e2Control {
 	c := &e2Control{color: gfx.ColorFromRGBA8(60, 120, 220, 255), label: label}
 	c.Facet = facet.NewFacet()
-	if fonts != nil {
-		c.shaper = text.NewShaper(fonts)
+	if service != nil {
+		c.shaper, _ = service.AtScale(1)
 	}
 	c.style = themeCtx.TextStyle(theme.TextLabelM)
 	c.layout = facet.LayoutRole{ //lurpiclint:ignore LL001 -- bespoke exhibition leaf mark: a fixed-size base-layer control; no built-in layout container matches
@@ -132,19 +132,19 @@ type overlayBox struct {
 	fill   gfx.Color
 	label  string
 	size   gfx.Size // zero = fill the layer
-	shaper *text.Shaper
+	shaper *text.ShapeSession
 	style  text.TextStyle
 	textCl gfx.Color
 }
 
-func newOverlayBox(fill gfx.Color, label string, themeCtx theme.ResolvedContext, fonts *text.FontRegistry, size ...gfx.Size) *overlayBox {
+func newOverlayBox(fill gfx.Color, label string, themeCtx theme.ResolvedContext, service *text.Service, size ...gfx.Size) *overlayBox {
 	o := &overlayBox{fill: fill, label: label}
 	if len(size) > 0 {
 		o.size = size[0]
 	}
 	o.Facet = facet.NewFacet()
-	if fonts != nil {
-		o.shaper = text.NewShaper(fonts)
+	if service != nil {
+		o.shaper, _ = service.AtScale(1)
 	}
 	o.style = themeCtx.TextStyle(theme.TextLabelS)
 	o.textCl = themeCtx.Color(theme.ColorText)
@@ -251,7 +251,7 @@ type Layers struct {
 
 // NewLayersFacet builds the E2 facet.
 // replacement below
-func NewLayersFacet(ownerScope *store.Scope, fonts *text.FontRegistry, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Layers {
+func NewLayersFacet(ownerScope *store.Scope, service *text.Service, themeCtx theme.ResolvedContext, ids studioLayerIDs) *Layers {
 	scope := ownerScope.Child()
 	e := &Layers{
 		modalOpen: store.NewValueStore(scope, false),
@@ -262,13 +262,13 @@ func NewLayersFacet(ownerScope *store.Scope, fonts *text.FontRegistry, themeCtx 
 	e.Facet = facet.NewFacet()
 	e.OwnStoreScope(scope)
 
-	e.control = newE2Control(themeCtx, fonts, "covered control")
+	e.control = newE2Control(themeCtx, service, "covered control")
 	// The modal scrim is the standard feedback.scrim mark (RX-2 FR-5c): it
 	// dims its layer, blocks hits beneath it (the ZBandModal layer policy),
 	// and its dismissal scope closes the modal.
 	e.scrim = feedback.NewScrim()
-	e.tooltip = newOverlayBox(gfx.ColorFromRGBA8(255, 220, 90, 60), "tooltip (HitPassThrough)", themeCtx, fonts)
-	e.toast = newOverlayBox(gfx.ColorFromRGBA8(90, 180, 120, 255), "toast", themeCtx, fonts)
+	e.tooltip = newOverlayBox(gfx.ColorFromRGBA8(255, 220, 90, 60), "tooltip (HitPassThrough)", themeCtx, service)
+	e.toast = newOverlayBox(gfx.ColorFromRGBA8(90, 180, 120, 255), "toast", themeCtx, service)
 	e.buildControls()
 
 	// The layered overlays declare their layer contract at construction via
@@ -465,7 +465,7 @@ func (e *Layers) OnDeactivate()      {}
 // glyphLabel shapes label and returns a DrawGlyphRun command at the given
 // baseline-origin x, y. Returns nil when the label is unshapeable or empty.
 // The shaper is shared across exhibits (thread-safe since F-shape-fork-race).
-func glyphLabel(x, y float32, label string, shaper *text.Shaper, style text.TextStyle, color gfx.Color) gfx.Command {
+func glyphLabel(x, y float32, label string, shaper *text.ShapeSession, style text.TextStyle, color gfx.Color) gfx.Command {
 	if shaper == nil || label == "" {
 		return nil
 	}

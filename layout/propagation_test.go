@@ -8,6 +8,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 // recordingRuntime records RuntimeServices.Invalidate calls so a test can
@@ -15,6 +16,8 @@ import (
 type recordingRuntime struct {
 	invalidated map[facet.FacetID]facet.DirtyFlags
 }
+
+func (*recordingRuntime) TextService() *text.Service { return nil }
 
 func (r *recordingRuntime) Schedule(j job.AnyJob)  {}
 func (r *recordingRuntime) Now() time.Time         { return time.Time{} }

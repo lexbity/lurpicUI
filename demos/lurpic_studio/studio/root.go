@@ -94,11 +94,11 @@ func NewRoot(ctx app.BuildContext, sink *DirtySink, seed []dataset.Row, reg *lay
 	ids := studioLayersFrom(reg)
 
 	stage := NewStage(ctx.StoreScope, []Exhibit{
-		NewRealtimeData(ctx.FontRegistry, ctx.Theme),
+		NewRealtimeData(ctx.TextService, ctx.Theme),
 		NewLayoutPolicies(ctx.StoreScope),
-		NewLayersData(ctx.FontRegistry, ctx.Theme, ids),
-		NewAnchorsData(ctx.FontRegistry, ctx.Theme, ids),
-		NewPropagationData(sink, ctx.FontRegistry, ctx.Theme),
+		NewLayersData(ctx.TextService, ctx.Theme, ids),
+		NewAnchorsData(ctx.TextService, ctx.Theme, ids),
+		NewPropagationData(sink, ctx.TextService, ctx.Theme),
 		NewPlayground(ctx.StoreScope, appState),
 		NewCapabilityIndexData(),
 	}, appState, shell.ActiveExhibit)

@@ -493,7 +493,7 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 	proj.entryKinds = make([]paginationChildKind, 0, len(visible))
 	proj.entryIndices = make([]int, 0, len(visible))
 	proj.entryLabels = make([]string, 0, len(visible))
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	totalW := float32(0)
 	maxH := float32(0)
 	for i, child := range visible {
@@ -541,7 +541,7 @@ func (p *Pagination) measure(ctx facet.MeasureContext, constraints facet.Constra
 	return p.Layout.MeasuredResult
 }
 
-func (p *Pagination) measureVisibleChild(ctx facet.MeasureContext, constraints facet.Constraints, child *paginationChild, shaper *text.Shaper, maxWidth float32) (gfx.Size, *text.TextLayout) {
+func (p *Pagination) measureVisibleChild(ctx facet.MeasureContext, constraints facet.Constraints, child *paginationChild, shaper *text.ShapeSession, maxWidth float32) (gfx.Size, *text.TextLayout) {
 	if child == nil {
 		return gfx.Size{}, nil
 	}
@@ -553,7 +553,6 @@ func (p *Pagination) measureVisibleChild(ctx facet.MeasureContext, constraints f
 	}
 	layout := (*text.TextLayout)(nil)
 	if shaper != nil && label != "" {
-		shaper.SetContentScale(ctx.ContentScale)
 		layout = shaper.ShapeTruncated(label, style, maxWidth)
 	}
 	padX := p.cachedPadX
@@ -581,11 +580,10 @@ func (p *Pagination) measureChildSize(ctx facet.MeasureContext, constraints face
 		resolved = theme.DefaultResolvedContext()
 	}
 	style := resolved.TextStyle(theme.TextLabelM)
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	content := childLabelForKind(p, kind, index, label)
 	layout := (*text.TextLayout)(nil)
 	if shaper != nil && content != "" {
-		shaper.SetContentScale(ctx.ContentScale)
 		layout = shaper.ShapeTruncated(content, style, constraints.MaxSize.W)
 	}
 	textW := float32(0)

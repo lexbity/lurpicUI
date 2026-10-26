@@ -78,6 +78,7 @@ type Config struct {
 type BuildContext struct {
 	StoreScope   *store.Scope
 	FontRegistry *text.FontRegistry
+	TextService  *text.Service
 	Clock        runtime.EngineClock
 	WindowSize   gfx.Size
 	ContentScale float32

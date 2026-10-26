@@ -4,7 +4,6 @@ import (
 	"math"
 	"sort"
 	"strings"
-	"sync"
 	"unicode"
 
 	"github.com/go-text/typesetting/di"
@@ -29,17 +28,9 @@ type Shaper struct {
 	contentScale float32
 }
 
-// NewShaper constructs a shaper using the provided registry.
-func NewShaper(registry *FontRegistry) *Shaper {
+// newShaper constructs the service-owned shaping engine.
+func newShaper(registry *FontRegistry) *Shaper {
 	return &Shaper{registry: registry, contentScale: 1}
-}
-
-// SetContentScale adjusts the pixels-per-em scale used while shaping.
-func (s *Shaper) SetContentScale(scale float32) {
-	if s == nil || scale <= 0 {
-		return
-	}
-	s.contentScale = scale
 }
 
 // ShapeSimple shapes a single-span paragraph on one line.
@@ -332,17 +323,6 @@ func (s *Shaper) Shape(p Paragraph) *TextLayout {
 	return layout
 }
 
-// shapeMu serializes the vendored font.Face cache accesses. The Face's
-// caches (glyph-extents extentsCache and the cmap lookup caches) are not
-// synchronized, so when the runtime's forked projection shapes text in
-// parallel goroutines over the shared registry faces, concurrent Shape,
-// segmentation, and face-resolution calls race those caches
-// (F-shape-fork-race; re-surfaced by typesetting v0.3.5's splitByFace
-// segmentation, which resolves faces outside the shape call itself).
-// Shaping is demand-driven and cached at the projection layer, so the
-// serialization is cheap in practice.
-var shapeMu sync.Mutex
-
 func (s *Shaper) shapeSegment(seg resolvedSegment, style TextStyle) *gotextshaping.Output {
 	if s == nil {
 		return nil
@@ -357,9 +337,12 @@ func (s *Shaper) shapeSegment(seg resolvedSegment, style TextStyle) *gotextshapi
 		scale = 1
 	}
 	in.Size = fixed.I(int(math.Round(float64(size * scale))))
-	shapeMu.Lock()
-	out := s.shaper.Shape(in)
-	shapeMu.Unlock()
+	var out gotextshaping.Output
+	func() {
+		s.registry.faceMu.Lock()
+		defer s.registry.faceMu.Unlock()
+		out = s.shaper.Shape(in)
+	}()
 	return &out
 }
 
@@ -474,7 +457,7 @@ func (s *Shaper) segmentRunes(runes []rune, availableFaces []*font.Face, style T
 		Script:    script,
 		Language:  resolveLanguage(paragraph.Language, span.Language),
 	}
-	segs := s.segmenter.Split(input, registryFontMap{faces: availableFaces})
+	segs := s.segmenter.Split(input, registryFontMap{faces: availableFaces, registry: s.registry})
 	if len(segs) == 0 {
 		return nil
 	}
@@ -486,7 +469,7 @@ func (s *Shaper) segmentRunes(runes []rune, availableFaces []*font.Face, style T
 		selected := s.registry.Resolve(style)
 		if selected.IsZero() {
 			selected = s.fontFaceFor(seg.Face)
-		} else if selected.GoFace() != nil && !faceCoversText(selected.GoFace(), runes[seg.RunStart:seg.RunEnd]) {
+		} else if selected.GoFace() != nil && !faceCoversText(selected.GoFace(), selected.face.registry, runes[seg.RunStart:seg.RunEnd]) {
 			// Keep fallback segments on the face selected by the segmenter only
 			// when the styled face cannot cover the segment's runes.
 			if fallback := s.fontFaceFor(seg.Face); !fallback.IsZero() {
@@ -595,15 +578,18 @@ func trimSoftSegment(seg softSegment) softSegment {
 }
 
 type registryFontMap struct {
-	faces []*font.Face
+	faces    []*font.Face
+	registry *FontRegistry
 }
 
 func (m registryFontMap) ResolveFace(r rune) *font.Face {
 	if len(m.faces) == 0 {
 		return nil
 	}
-	shapeMu.Lock()
-	defer shapeMu.Unlock()
+	if m.registry != nil {
+		m.registry.faceMu.Lock()
+		defer m.registry.faceMu.Unlock()
+	}
 	for _, face := range m.faces {
 		if face == nil {
 			continue

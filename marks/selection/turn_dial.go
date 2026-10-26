@@ -249,7 +249,7 @@ func (td *TurnDial) resolveLayouts(ctx facet.MeasureContext, constraints facet.C
 	labelStyle := resolved.TextStyle(theme.TextLabelM)
 	valueStyle := resolved.TextStyle(theme.TextBodyS)
 
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	if shaper == nil {
 		var labelLayout *text.TextLayout
 		if td.Label.Get() != "" {
@@ -262,7 +262,6 @@ func (td *TurnDial) resolveLayouts(ctx facet.MeasureContext, constraints facet.C
 		}
 		return labelLayout, valueLayout
 	}
-	shaper.SetContentScale(ctx.ContentScale)
 
 	var labelLayout *text.TextLayout
 	if td.Label.Get() != "" {

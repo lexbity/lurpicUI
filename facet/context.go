@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/job"
+	"codeburg.org/lexbit/lurpicui/text"
 )
 
 // AssetServices exposes runtime asset access to facets.
@@ -42,6 +43,7 @@ type AttachContext struct {
 
 // RuntimeServices is the narrow subset of runtime capabilities facets may see.
 type RuntimeServices interface {
+	TextService() *text.Service
 	Schedule(j job.AnyJob)
 	CancelJob(id job.JobID)
 	Invalidate(id FacetID, flags DirtyFlags, source string)

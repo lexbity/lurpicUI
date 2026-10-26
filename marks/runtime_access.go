@@ -9,6 +9,8 @@ type fontRegistryProvider interface {
 	FontRegistry() *text.FontRegistry
 }
 
+type textServiceProvider interface{ TextService() *text.Service }
+
 // FontRegistryFrom returns the font registry the runtime object exposes, or
 // nil when the runtime is nil or provides no registry.
 func FontRegistryFrom(runtime any) *text.FontRegistry {
@@ -21,12 +23,31 @@ func FontRegistryFrom(runtime any) *text.FontRegistry {
 	return nil
 }
 
-// ShaperFor returns a shaper over the runtime's font registry, or nil when
-// the runtime provides no registry.
-func ShaperFor(runtime any) *text.Shaper {
-	registry := FontRegistryFrom(runtime)
-	if registry == nil {
+// ShaperFor returns the runtime-owned text service. Text shaping never creates
+// an ad-hoc engine in a mark.
+func ShaperFor(runtime any) *text.Service {
+	if runtime == nil {
 		return nil
 	}
-	return text.NewShaper(registry)
+	provider, ok := runtime.(textServiceProvider)
+	if !ok {
+		return nil
+	}
+	return provider.TextService()
+}
+
+// ShapeFor binds a value scale to the shared runtime text service.
+func ShapeFor(runtime any, contentScale float32) *text.ShapeSession {
+	service := ShaperFor(runtime)
+	if service == nil {
+		return nil
+	}
+	if contentScale == 0 {
+		contentScale = 1
+	}
+	session, err := service.AtScale(contentScale)
+	if err != nil {
+		panic(err)
+	}
+	return session
 }

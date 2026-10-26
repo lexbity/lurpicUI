@@ -188,11 +188,10 @@ func (t *Text) resolveLayout(ctx facet.MeasureContext, constraints facet.Constra
 	}
 	style := resolved.TextStyle(t.Typography.Get())
 	maxWidth := t.effectiveMaxWidth(constraints)
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	if shaper == nil {
 		return nil, text.TextStyle{}, false
 	}
-	shaper.SetContentScale(ctx.ContentScale)
 	// FR-9: multi-line copy wraps by default when width-constrained; the
 	// declared overflow only wins when it is a real opt-out (truncate/scroll),
 	// not the default Clip a caller never touched.

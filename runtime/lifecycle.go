@@ -461,6 +461,9 @@ func (rt *Runtime) shutdown() error {
 	}
 	rt.renderPipeline.destroyBackend()
 	rt.config.StoreScope.Close()
+	if rt.config.TextService != nil {
+		_ = rt.config.TextService.Close()
+	}
 	input.ClearRecoveryHook()
 	facet.ClearCallbackRecoveryHook()
 	syncutil.ResetRuntimeThreadForTest()

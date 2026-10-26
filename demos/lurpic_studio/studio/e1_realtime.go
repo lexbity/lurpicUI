@@ -29,19 +29,19 @@ import (
 // RealtimeData is the E1 exhibit descriptor; Build constructs the facet over
 // the shared app state.
 type RealtimeData struct {
-	fonts *text.FontRegistry
+	text  *text.Service
 	theme theme.ResolvedContext
 }
 
 // NewRealtimeData builds the E1 exhibit for the given font registry and theme.
-func NewRealtimeData(fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *RealtimeData {
-	return &RealtimeData{fonts: fonts, theme: themeCtx}
+func NewRealtimeData(service *text.Service, themeCtx theme.ResolvedContext) *RealtimeData {
+	return &RealtimeData{text: service, theme: themeCtx}
 }
 
 func (e *RealtimeData) ID() ExhibitID { return ExhibitRealtime }
 func (e *RealtimeData) Title() string { return "Realtime Data" }
 func (e *RealtimeData) Build(appState *state.AppState, ownerScope *store.Scope) facet.FacetImpl {
-	return NewRealtimeFacet(ownerScope, appState, e.fonts, e.theme)
+	return NewRealtimeFacet(ownerScope, appState, e.text, e.theme)
 }
 
 // timeRangeSeconds maps a TimeRange button key to the live-window width W.
@@ -101,7 +101,7 @@ type Realtime struct {
 const gridHeight float32 = 180
 
 // NewRealtimeFacet builds the E1 facet over the shared app state.
-func NewRealtimeFacet(ownerScope *store.Scope, appState *state.AppState, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Realtime {
+func NewRealtimeFacet(ownerScope *store.Scope, appState *state.AppState, service *text.Service, themeCtx theme.ResolvedContext) *Realtime {
 	stateScope := ownerScope.Child()
 	e := &Realtime{
 		appState:    appState,
@@ -119,7 +119,7 @@ func NewRealtimeFacet(ownerScope *store.Scope, appState *state.AppState, fonts *
 	e.feed = NewFeed(stateScope, appState, uint64(e.Facet.ID()))
 
 	e.canvas = NewChartCanvas(stateScope, ChartConfig{
-		Fonts:        fonts,
+		TextService:  service,
 		Theme:        themeCtx,
 		Rows:         appState.Rows,
 		XDomain:      appState.LiveWindow, // the live-tail window is the x-domain
@@ -138,7 +138,7 @@ func NewRealtimeFacet(ownerScope *store.Scope, appState *state.AppState, fonts *
 		Selection:    e.brush.Selection,
 	})
 
-	e.grid = NewEditableGrid(stateScope, appState.Rows, fonts, themeCtx, e.brush)
+	e.grid = NewEditableGrid(stateScope, appState.Rows, service, themeCtx, e.brush)
 	e.table = structure.NewTable(stateScope, "Latest", latestTableData(appState.Rows), nil)
 	e.legend = structure.NewList(stateScope, "Feed legend", bucketLegendEntries(appState.BarBuckets.Get()))
 	e.tipText = store.NewValueStore(stateScope, "")

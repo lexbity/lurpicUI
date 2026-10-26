@@ -79,6 +79,7 @@ type listRuntimeStub struct {
 }
 
 func (s listRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s listRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 
 func (s listRuntimeStub) IconResolver() icon.Resolver {
 	return listIconResolverStub{icons: s.icons}

@@ -14,6 +14,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 	"codeburg.org/lexbit/lurpicui/internal/perfscene"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
 )
@@ -679,7 +680,7 @@ func benchmarkVulkanTextFrame(b *testing.B, runs int) *render.Frame {
 	if err := reg.LoadFontBytes(fontData, "Noto Sans"); err != nil {
 		b.Fatalf("LoadFontBytes: %v", err)
 	}
-	shaper := text.NewShaper(reg)
+	shaper := testkit.TestShapeSession(b, reg, 1)
 	style := text.DefaultStyle()
 	style.Family = "Noto Sans"
 	style.Size = 14

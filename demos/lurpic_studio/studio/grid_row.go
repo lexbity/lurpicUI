@@ -24,11 +24,9 @@ var gridColumns = []struct {
 	{0.64, 1.00}, // Region
 }
 
-// gridStyle carries the shared text config for grid cells. Each gridRow keeps
-// its own Shaper: the runtime's forked projection shapes row cells in parallel
-// goroutines, and a text.Shaper is not thread-safe (F-shaper-share).
+// gridStyle carries the runtime-owned text service for grid cells.
 type gridStyle struct {
-	fonts *text.FontRegistry
+	text  *text.Service
 	style text.TextStyle
 	color gfx.Color
 }
@@ -43,14 +41,14 @@ type gridRow struct {
 	rows   *store.CollectionStore[dataset.Row]
 	id     store.ItemID
 	style  gridStyle
-	shaper *text.Shaper
+	shaper *text.ShapeSession
 }
 
 // newGridRow builds a cell band for the given row.
 func newGridRow(rows *store.CollectionStore[dataset.Row], id store.ItemID, style gridStyle) *gridRow {
 	r := &gridRow{rows: rows, id: id, style: style}
-	if style.fonts != nil {
-		r.shaper = text.NewShaper(style.fonts)
+	if style.text != nil {
+		r.shaper, _ = style.text.AtScale(1)
 	}
 	r.Facet = facet.NewFacet()
 	r.Layout.OnMeasure = func(_ facet.MeasureContext, c facet.Constraints) facet.MeasureResult {

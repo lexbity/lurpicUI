@@ -29,6 +29,7 @@ type cardRuntimeStub struct {
 }
 
 func (s cardRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s cardRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 
 func TestCardMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	card := newCardFixture(t)

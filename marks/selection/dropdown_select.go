@@ -303,7 +303,7 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	ds.cachedOptionPad = float32(resolved.Spacing(theme.SpacingS))
 	ds.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	ds.cachedValueStyle = resolved.TextStyle(theme.TextBodyM)
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(320)
@@ -311,7 +311,6 @@ func (ds *DropdownSelect) measure(ctx facet.MeasureContext, constraints facet.Co
 	labelLayout := (*text.TextLayout)(nil)
 	valueLayout := (*text.TextLayout)(nil)
 	if shaper != nil {
-		shaper.SetContentScale(ctx.ContentScale)
 		labelLayout = shaper.ShapeTruncated(ds.Label.Get(), ds.cachedLabelStyle, maxWidth)
 		selected := ds.displayValue()
 		if selected == "" {

@@ -25,19 +25,19 @@ import (
 // pointer).
 type PropagationData struct {
 	sink  *DirtySink
-	fonts *text.FontRegistry
+	text  *text.Service
 	theme theme.ResolvedContext
 }
 
 // NewPropagationData builds the E5 descriptor.
-func NewPropagationData(sink *DirtySink, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *PropagationData {
-	return &PropagationData{sink: sink, fonts: fonts, theme: themeCtx}
+func NewPropagationData(sink *DirtySink, service *text.Service, themeCtx theme.ResolvedContext) *PropagationData {
+	return &PropagationData{sink: sink, text: service, theme: themeCtx}
 }
 
 func (p *PropagationData) ID() ExhibitID { return ExhibitPropagation }
 func (p *PropagationData) Title() string { return "Reactive Propagation" }
 func (p *PropagationData) Build(_ *state.AppState, scope *store.Scope) facet.FacetImpl {
-	return NewPropagationFacet(scope, p.sink, p.fonts, p.theme)
+	return NewPropagationFacet(scope, p.sink, p.text, p.theme)
 }
 
 // propagationNode is one facet in the captured shell tree.
@@ -92,7 +92,7 @@ type Propagation struct {
 	driveBadge *status.Badge
 	light      *status.StatusLight
 
-	shaper    *text.Shaper
+	shaper    *text.ShapeSession
 	textStyle text.TextStyle
 	textColor gfx.Color
 	dimColor  gfx.Color
@@ -121,7 +121,7 @@ const (
 )
 
 // NewPropagationFacet builds the E5 facet over the dirty sink.
-func NewPropagationFacet(ownerScope *store.Scope, sink *DirtySink, fonts *text.FontRegistry, themeCtx theme.ResolvedContext) *Propagation {
+func NewPropagationFacet(ownerScope *store.Scope, sink *DirtySink, service *text.Service, themeCtx theme.ResolvedContext) *Propagation {
 	scope := ownerScope.Child()
 	e := &Propagation{
 		sink:       sink,
@@ -134,8 +134,8 @@ func NewPropagationFacet(ownerScope *store.Scope, sink *DirtySink, fonts *text.F
 	}
 	e.Facet = facet.NewFacet()
 	e.OwnStoreScope(scope)
-	if fonts != nil {
-		e.shaper = text.NewShaper(fonts)
+	if service != nil {
+		e.shaper, _ = service.AtScale(1)
 	}
 	e.textStyle = themeCtx.TextStyle(theme.TextLabelS)
 	e.textColor = themeCtx.Color(theme.ColorText)

@@ -128,7 +128,7 @@ func TestLoadFontFile_roundtrip(t *testing.T) {
 
 func TestShaper_shape_simple_non_nil(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.ShapeSimple("abc", style)
@@ -151,14 +151,14 @@ func TestShaper_content_scale_affects_size(t *testing.T) {
 	style := DefaultStyle()
 	style.Family = family
 
-	base := NewShaper(reg)
+	base := newShaper(reg)
 	baseLayout := base.ShapeSimple("hello", style)
 	if baseLayout == nil || baseLayout.Bounds.Width() <= 0 {
 		t.Fatal("expected base layout")
 	}
 
-	scaled := NewShaper(reg)
-	scaled.SetContentScale(2)
+	scaled := newShaper(reg)
+	scaled.contentScale = 2 // direct engine reference test; production uses ShapeRequest.Scale
 	scaledLayout := scaled.ShapeSimple("hello", style)
 	if scaledLayout == nil || scaledLayout.Bounds.Width() <= baseLayout.Bounds.Width() {
 		t.Fatalf("scaled width = %v, base width = %v", scaledLayout.Bounds.Width(), baseLayout.Bounds.Width())
@@ -167,7 +167,7 @@ func TestShaper_content_scale_affects_size(t *testing.T) {
 
 func TestShaper_wrap_at_word_boundary(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	word := shaper.ShapeSimple("Hello", style)
@@ -187,7 +187,7 @@ func TestShaper_wrap_at_word_boundary(t *testing.T) {
 
 func TestShape_preserves_paragraph_metadata(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	paragraph := Paragraph{
@@ -242,7 +242,7 @@ func TestShape_preserves_paragraph_metadata(t *testing.T) {
 
 func TestShaper_first_strong_direction_resolution(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.Shape(Paragraph{
@@ -261,7 +261,7 @@ func TestShaper_first_strong_direction_resolution(t *testing.T) {
 
 func TestShaper_mixed_direction_visual_order(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	text := "abcאבגdef"
@@ -289,7 +289,7 @@ func TestShaper_mixed_direction_visual_order(t *testing.T) {
 
 func TestShaper_isolates_and_embeddings_preserve_visual_runs(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	text := "Hello \u2067אבג\u2069 world"
@@ -312,7 +312,7 @@ func TestShaper_isolates_and_embeddings_preserve_visual_runs(t *testing.T) {
 
 func TestShaper_script_mixed_shaping(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	text := "abcאבג"
@@ -367,7 +367,7 @@ func TestTextRange_cluster_helpers_preserve_unit(t *testing.T) {
 
 func TestShaper_preserves_metrics_and_zero_width_controls(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	content := "a\u200db"
@@ -427,7 +427,7 @@ func runTexts(runs []GlyphRun) []string {
 
 func TestShaper_no_wrap_when_maxwidth_zero(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.Shape(Paragraph{
@@ -441,7 +441,7 @@ func TestShaper_no_wrap_when_maxwidth_zero(t *testing.T) {
 
 func TestShaper_mandatory_newline_always_breaks(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.Shape(Paragraph{
@@ -454,7 +454,7 @@ func TestShaper_mandatory_newline_always_breaks(t *testing.T) {
 
 func TestShaper_wrap_long_word(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.Shape(Paragraph{
@@ -468,7 +468,7 @@ func TestShaper_wrap_long_word(t *testing.T) {
 
 func TestShaper_alignment_center_and_right(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	center := shaper.Shape(Paragraph{
@@ -494,7 +494,7 @@ func TestShaper_alignment_center_and_right(t *testing.T) {
 
 func TestShaper_wrap_alignment_center(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.Shape(Paragraph{
@@ -512,7 +512,7 @@ func TestShaper_wrap_alignment_center(t *testing.T) {
 
 func TestShaper_wrap_alignment_right(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.Shape(Paragraph{
@@ -530,7 +530,7 @@ func TestShaper_wrap_alignment_right(t *testing.T) {
 
 func TestShaper_kerning_pair_changes_glyph_positions(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 
@@ -565,7 +565,7 @@ func TestShaper_kerning_pair_changes_glyph_positions(t *testing.T) {
 
 func TestShaper_alignment_center_mixed_case_preserves_baseline(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 
@@ -598,7 +598,7 @@ func TestShaper_alignment_center_mixed_case_preserves_baseline(t *testing.T) {
 
 func TestShaper_multi_line_bounds(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	single := shaper.ShapeSimple("Hello", style)
@@ -616,7 +616,7 @@ func TestShaper_multi_line_bounds(t *testing.T) {
 
 func TestTextLayout_empty_spans_valid(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.Shape(Paragraph{Spans: []TextSpan{{Text: "", Style: style}}})
@@ -824,7 +824,7 @@ func wrappedHelloWorld(t *testing.T) *TextLayout {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
 	style := DefaultStyle()
 	style.Family = family
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	return shaper.Shape(Paragraph{
 		Spans:     []TextSpan{{Text: "Hello World", Style: style}},
 		MaxWidth:  40,
@@ -872,7 +872,7 @@ func TestShaper_rune_index_correct(t *testing.T) {
 
 func TestShaper_ligature_single_glyph(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.ShapeSimple("fi", style)
@@ -903,7 +903,7 @@ func TestTextLayout_HitTest_after_last_glyph(t *testing.T) {
 
 func TestTextLayout_HitTest_ligature(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.ShapeSimple("fi", style)
@@ -999,7 +999,7 @@ func TestTextLayout_grapheme_word_boundary_and_caret(t *testing.T) {
 
 func TestShaper_empty_string(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.ShapeSimple("", style)
@@ -1023,7 +1023,7 @@ func TestShaper_multistyle_span(t *testing.T) {
 	if err := reg.LoadFontBytes(testFontBoldBytes, "NotoSans-Bold.ttf"); err != nil {
 		t.Fatalf("LoadFontBytes bold: %v", err)
 	}
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	regular := DefaultStyle()
 	regular.Family = family
 	bold := regular
@@ -1066,10 +1066,10 @@ func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
 		if rec == nil || rec.face == nil {
 			continue
 		}
-		if faceCoversText(rec.face, []rune("A")) && !faceCoversText(rec.face, []rune("😀")) {
+		if faceCoversText(rec.face, rec.registry, []rune("A")) && !faceCoversText(rec.face, rec.registry, []rune("😀")) {
 			latinKey = rec.cacheKey
 		}
-		if faceCoversText(rec.face, []rune("😀")) {
+		if faceCoversText(rec.face, rec.registry, []rune("😀")) {
 			emojiKey = rec.cacheKey
 		}
 	}
@@ -1080,7 +1080,7 @@ func TestShaper_uses_fallback_face_for_symbol_run(t *testing.T) {
 		t.Fatal("expected emoji fallback face")
 	}
 
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = reg.faces[0].desc.Family
 	layout := shaper.ShapeSimple("A😀A", style)
@@ -1117,7 +1117,7 @@ func mustTestRegistry(t *testing.T, path string) (*FontRegistry, string) {
 func shapedASCII(t *testing.T, text string) *TextLayout {
 	t.Helper()
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	layout := shaper.ShapeSimple(text, style)
@@ -1133,7 +1133,7 @@ func shapedASCII(t *testing.T, text string) *TextLayout {
 // value causes the overall shaped width to grow relative to the baseline.
 func TestLetterSpacing_increases_advance(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	base := DefaultStyle()
 	base.Family = family
@@ -1156,7 +1156,7 @@ func TestLetterSpacing_increases_advance(t *testing.T) {
 // produces the same width as the default style (which has zero spacing).
 func TestLetterSpacing_zero_matches_baseline(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family
@@ -1180,7 +1180,7 @@ func TestLetterSpacing_zero_matches_baseline(t *testing.T) {
 // to a ligature run ("fi") does not corrupt the glyph count.
 func TestLetterSpacing_does_not_split_cluster(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family
@@ -1202,7 +1202,7 @@ func TestLetterSpacing_does_not_split_cluster(t *testing.T) {
 // box than the raw font metrics alone.
 func TestLineHeight_multiplier_less_than_5(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	base := DefaultStyle()
 	base.Family = family
@@ -1225,7 +1225,7 @@ func TestLineHeight_multiplier_less_than_5(t *testing.T) {
 // used directly as an absolute pixel height rather than as a multiplier.
 func TestLineHeight_absolute_large_value(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family
@@ -1254,7 +1254,7 @@ func TestLineHeight_default_positive(t *testing.T) {
 // paragraph carry the same line-height value (consistent interline spacing).
 func TestLineHeight_multi_line_consistent(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family
@@ -1281,7 +1281,7 @@ func TestLineHeight_multi_line_consistent(t *testing.T) {
 // produces a non-zero advance that grows with the TabWidth multiplier.
 func TestTabWidth_expands_advance(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	narrow := DefaultStyle()
 	narrow.Family = family
@@ -1309,7 +1309,7 @@ func TestTabWidth_expands_advance(t *testing.T) {
 // tab stop aligns to the next multiple of TabWidth×spaceWidth from origin.
 func TestTabWidth_text_before_tab(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family
@@ -1366,7 +1366,7 @@ func TestLineBounds_stackVertically(t *testing.T) {
 // contract or collapsing the layout into glyph-ink bounds.
 func TestLineBoxContract_keeps_content_box_baseline_and_line_box_distinct(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	style.LineHeight = 3
@@ -1404,7 +1404,7 @@ func TestLineBoxContract_keeps_content_box_baseline_and_line_box_distinct(t *tes
 // baseline contract on each line.
 func TestLineBoxContract_stacks_multiline_boxes_without_recomputing_baselines(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	style.LineHeight = 2.5
@@ -1433,7 +1433,7 @@ func TestLineBoxContract_stacks_multiline_boxes_without_recomputing_baselines(t 
 // changes horizontal shaping, not the vertical line-box contract.
 func TestShapeTruncated_preserves_vertical_metrics(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 
@@ -1464,7 +1464,7 @@ func TestShapeTruncated_preserves_vertical_metrics(t *testing.T) {
 // below the baseline.
 func TestLineHeight_extra_leading_centers_baseline(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 	style := DefaultStyle()
 	style.Family = family
 	style.LineHeight = 3
@@ -1521,7 +1521,7 @@ func TestLineMetrics_aggregate_matches_layout(t *testing.T) {
 // mid-cluster even when the cluster contains combining marks.
 func TestShapeTruncated_grapheme_boundary(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family
@@ -1586,7 +1586,7 @@ func TestShapeTruncated_grapheme_boundary(t *testing.T) {
 // the ellipsis "…" is appended and the result fits within maxWidth.
 func TestShapeTruncated_ellipsis_fits(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family
@@ -1612,7 +1612,7 @@ func TestShapeTruncated_ellipsis_fits(t *testing.T) {
 // the full layout without truncation when content fits within maxWidth.
 func TestShapeTruncated_no_truncation_when_fits(t *testing.T) {
 	reg, family := mustTestRegistry(t, testNotoSansRegular)
-	shaper := NewShaper(reg)
+	shaper := newShaper(reg)
 
 	style := DefaultStyle()
 	style.Family = family

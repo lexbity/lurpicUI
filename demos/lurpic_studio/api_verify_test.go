@@ -197,7 +197,7 @@ func TestAPIVerify_signaturesCompileAgainstHead(t *testing.T) {
 		area := viz.NewArea(rows, x, y, xScale, yScale)
 		point := viz.NewPoint(rows, x, y, xScale, yScale)
 		bar := viz.NewBar(rows, cat, y, yScale)
-		axis := viz.NewAxis(xScale, marks.Const(viz.AxisBottom), nil)
+		axis := viz.NewAxis(xScale, marks.Const(viz.AxisBottom))
 		rule := viz.NewRule(marks.Const(0.5), viz.RuleHorizontal, yScale)
 
 		for name, m := range map[string]facet.FacetImpl{

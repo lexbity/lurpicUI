@@ -315,7 +315,7 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 	g.cachedLabelStyle = resolved.TextStyle(theme.TextLabelM)
 	g.cachedItemStyle = resolved.TextStyle(theme.TextLabelM)
 
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(480)
@@ -328,7 +328,6 @@ func (g *ActionGroup) measure(ctx facet.MeasureContext, constraints facet.Constr
 		item := normalizeActionGroupItem(g.Actions.Get()[i])
 		layouts[i].item = item
 		if shaper != nil && strings.TrimSpace(item.Label) != "" {
-			shaper.SetContentScale(ctx.ContentScale)
 			layouts[i].labelLayout = shaper.ShapeTruncated(item.Label, g.cachedLabelStyle, maxWidth)
 		}
 		labelW := text.Width(layouts[i].labelLayout)

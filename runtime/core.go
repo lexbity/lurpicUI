@@ -15,6 +15,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/hashutil"
 	"codeburg.org/lexbit/lurpicui/internal/log"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
@@ -23,6 +24,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/signal"
 	"codeburg.org/lexbit/lurpicui/store"
+	"codeburg.org/lexbit/lurpicui/text"
 	"codeburg.org/lexbit/lurpicui/theme"
 )
 
@@ -177,6 +179,23 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if config.FontRegistry == nil {
 		return nil, errors.New("runtime: FontRegistry is required")
 	}
+	if err := config.Resources.Validate(); err != nil {
+		return nil, err
+	}
+	if config.TextService == nil {
+		wallet, err := membudget.NewWallet(config.Resources.Plan.Caps[membudget.Text])
+		if err != nil {
+			return nil, err
+		}
+		service, err := text.NewService(config.FontRegistry, wallet, config.Resources.TextLimits)
+		if err != nil {
+			return nil, err
+		}
+		config.TextService = service
+	}
+	if config.TextService.Registry() != config.FontRegistry {
+		return nil, errors.New("runtime: TextService must use Config.FontRegistry")
+	}
 	if config.LayerRegistry == nil {
 		return nil, errors.New("runtime: LayerRegistry is required")
 	}
@@ -286,6 +305,9 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		return nil, err
 	}
 	if err := rt.validateLayerRecipes(); err != nil {
+		return nil, err
+	}
+	if err := config.TextService.BindRuntime(); err != nil {
 		return nil, err
 	}
 	store.SetProjectionActiveCheck(func() bool {

@@ -15,8 +15,11 @@ import (
 
 // FontRegistry manages loaded font sources and face resolution.
 type FontRegistry struct {
-	mu    sync.RWMutex
-	faces []*fontFaceRecord
+	mu         sync.RWMutex
+	faceMu     sync.Mutex
+	faces      []*fontFaceRecord
+	generation uint64
+	maxFaces   int
 }
 
 // NewFontRegistry creates an empty registry.
@@ -50,12 +53,22 @@ func (r *FontRegistry) LoadFontBytes(data []byte, name string) error {
 	if strings.TrimSpace(name) == "" {
 		return errors.New("text: font data requires name")
 	}
-	faces, err := font.ParseTTC(bytes.NewReader(data))
+	ownedData := append([]byte(nil), data...)
+	faces, err := font.ParseTTC(bytes.NewReader(ownedData))
 	if err != nil {
 		return fmt.Errorf("text: parse font %q: %w", name, err)
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	validFaces := 0
+	for _, face := range faces {
+		if face != nil && face.Font != nil {
+			validFaces++
+		}
+	}
+	if r.maxFaces > 0 && len(r.faces)+validFaces > r.maxFaces {
+		return fmt.Errorf("text: font face limit %d exceeded", r.maxFaces)
+	}
 	for i, face := range faces {
 		if face == nil || face.Font == nil {
 			continue
@@ -63,12 +76,48 @@ func (r *FontRegistry) LoadFontBytes(data []byte, name string) error {
 		rec := &fontFaceRecord{
 			face:     face,
 			desc:     face.Describe(),
-			source:   FontSource{Name: name, Data: append([]byte(nil), data...)},
-			cacheKey: computeFontCacheKey(data, i),
+			registry: r,
+			source:   FontSource{Name: name, Data: ownedData},
+			cacheKey: computeFontCacheKey(ownedData, i),
 		}
 		r.faces = append(r.faces, rec)
 	}
+	r.generation++
 	return nil
+}
+
+func (r *FontRegistry) setFaceLimit(limit int) error {
+	if r == nil || limit <= 0 {
+		return errors.New("text: invalid font face limit")
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.faces) > limit {
+		return fmt.Errorf("text: loaded %d faces exceeds limit %d", len(r.faces), limit)
+	}
+	if r.maxFaces == 0 || limit < r.maxFaces {
+		r.maxFaces = limit
+	}
+	return nil
+}
+
+// Generation changes whenever the ordered face set changes.
+func (r *FontRegistry) Generation() uint64 {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.generation
+}
+
+func (r *FontRegistry) FaceCount() int {
+	if r == nil {
+		return 0
+	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.faces)
 }
 
 // Sources returns a copy of the loaded font sources.
@@ -83,7 +132,9 @@ func (r *FontRegistry) Sources() []FontSource {
 		if face == nil {
 			continue
 		}
-		out = append(out, face.source)
+		source := face.source
+		source.Data = append([]byte(nil), source.Data...)
+		out = append(out, source)
 	}
 	return out
 }

@@ -90,8 +90,8 @@ func chartTypeFromString(s string) ChartType {
 
 // ChartConfig wires a ChartCanvas to caller-owned stores.
 type ChartConfig struct {
-	Fonts *text.FontRegistry
-	Theme theme.ResolvedContext
+	TextService *text.Service
+	Theme       theme.ResolvedContext
 
 	Rows    *store.CollectionStore[dataset.Row]
 	XDomain *store.ValueStore[[2]float64]
@@ -262,8 +262,8 @@ func NewChartCanvas(ownerScope *store.Scope, cfg ChartConfig) *ChartCanvas {
 	c.point.Color = colorBinding
 	c.bar.Color = colorBinding
 
-	c.xAxis = viz.NewAxis(c.xScale, marks.Const(viz.AxisBottom), cfg.Fonts)
-	c.yAxis = viz.NewAxis(c.yScale, marks.Const(viz.AxisLeft), cfg.Fonts)
+	c.xAxis = viz.NewAxis(c.xScale, marks.Const(viz.AxisBottom))
+	c.yAxis = viz.NewAxis(c.yScale, marks.Const(viz.AxisLeft))
 	c.rule = viz.NewRule(marks.FromStore(c.ruleValue, facet.DirtyProjection), viz.RuleHorizontal, c.yScale)
 
 	c.AddChild(c.line.Base())

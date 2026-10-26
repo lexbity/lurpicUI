@@ -248,7 +248,7 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	li.cachedPadY = mathutil.Max(float32(resolved.Spacing(theme.SpacingS)), resolved.Density.Scale(10))
 	li.cachedGap = float32(resolved.Spacing(theme.SpacingXS))
 	li.cachedRadius = float32(resolved.Radius(theme.RadiusS))
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(320)
@@ -256,7 +256,6 @@ func (li *ListItem) measure(ctx facet.MeasureContext, constraints facet.Constrai
 	labelLayout := (*text.TextLayout)(nil)
 	supportingLayout := (*text.TextLayout)(nil)
 	if shaper != nil {
-		shaper.SetContentScale(ctx.ContentScale)
 		if li.ShowLabel.Get() {
 			labelLayout = shaper.ShapeTruncated(li.Label.Get(), resolved.TextStyle(theme.TextBodyM), maxWidth)
 		}

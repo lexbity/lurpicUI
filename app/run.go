@@ -11,6 +11,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/assets"
 	"codeburg.org/lexbit/lurpicui/gfx"
 	"codeburg.org/lexbit/lurpicui/internal/log"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/platform"
@@ -278,10 +279,23 @@ func Run(config Config, builder RootBuilder) error {
 		return errors.New("app: platform does not provide window or surface")
 	}
 
+	resources := config.Runtime.Resources
+	if err := resources.Validate(); err != nil {
+		return fmt.Errorf("app: resource plan: %w", err)
+	}
+	textWallet, err := membudget.NewWallet(resources.Plan.Caps[membudget.Text])
+	if err != nil {
+		return err
+	}
 	fontRegistry, err := loadFontRegistry(config.Fonts)
 	if err != nil {
 		return err
 	}
+	textService, err := text.NewService(fontRegistry, textWallet, resources.TextLimits)
+	if err != nil {
+		return fmt.Errorf("app: text service: %w", err)
+	}
+	defer func() { _ = textService.Close() }()
 
 	backend, selectedRender, err := initBackend(config.Render, surface, config.Runtime.Logger)
 	if err != nil {
@@ -312,6 +326,7 @@ func Run(config Config, builder RootBuilder) error {
 	root := builder(BuildContext{
 		StoreScope:   storeScope,
 		FontRegistry: fontRegistry,
+		TextService:  textService,
 		Clock:        preparedClock.View(),
 		WindowSize:   gfx.Size{W: float32(w), H: float32(h)},
 		ContentScale: contentScale,
@@ -326,6 +341,8 @@ func Run(config Config, builder RootBuilder) error {
 	rtConfig.StoreScope = storeScope
 	rtConfig.StoreIdentity = storeIdentity
 	rtConfig.FontRegistry = fontRegistry
+	rtConfig.TextService = textService
+	rtConfig.Resources = resources
 	// The runtime needs the theme resolver to resolve layer/group layout
 	// recipes (e.g. an anchored-popover layer) during the layer pass.
 	rtConfig.ThemeResolver = themeContext.Resolver

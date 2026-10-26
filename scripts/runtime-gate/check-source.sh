@@ -41,7 +41,7 @@ grep -q 'func TestCanonicalCommandInventory' render/canonical/encode_test.go
 
 printf '%s\n' 'runtime-gate: P1 source contracts passed'
 
-if [[ "$phase" == *P2* ]]; then
+if [[ "$phase" == *P2* || "$phase" == *P3* || "$phase" == *P4* ]]; then
 	for package in store app scale/reactive marks demos/lurpic_studio; do
 		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
 		if [ -z "$files" ]; then
@@ -62,7 +62,7 @@ if [[ "$phase" == *P2* ]]; then
 	printf '%s\n' 'runtime-gate: P2 source contracts passed'
 fi
 
-if [[ "$phase" == *P3* ]]; then
+if [[ "$phase" == *P3* || "$phase" == *P4* ]]; then
 	for package in runtime facet marks/navigation marks/structure app; do
 		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
 		if [ -z "$files" ]; then
@@ -85,4 +85,25 @@ if [[ "$phase" == *P3* ]]; then
 	grep -q 'func TestIdentityLookupNoTraversalOrAllocation' runtime/live_index_test.go
 	grep -q 'func BenchmarkIdentityLookupSweep' runtime/live_index_test.go
 	printf '%s\n' 'runtime-gate: P3 source contracts passed'
+fi
+
+if [[ "$phase" == *P4* ]]; then
+	for package in text marks runtime app internal/membudget demos/lurpic_studio; do
+		files=$(rg --files "$package" -g '*.go' -g '!**/*_test.go')
+		if [ -z "$files" ]; then
+			printf 'source inventory is empty for %s\n' "$package" >&2
+			exit 1
+		fi
+	done
+	expect_absent 'text\.NewShaper|SetContentScale' marks demos/lurpic_studio runtime -g '*.go' -g '!**/*_test.go'
+	expect_absent 'NewShaper' text marks runtime app demos -g '*.go' -g '!**/*_test.go'
+	expect_absent 'sync\.Pool' internal/membudget text -g '*.go' -g '!**/*_test.go'
+	grep -q '^func ShaperFor(runtime any) \*text.Service' marks/runtime_access.go
+	grep -q '^func NewService(registry \*FontRegistry, wallet \*membudget.Wallet, limits Limits)' text/service.go
+	grep -q 'func (s \*Service) Shape(r ShapeRequest) (\*LayoutLease, error)' text/service.go
+	grep -q 'func (s \*Service) Trim(targetBytes uint64)' text/service.go
+	grep -q 'func (p ResourcePolicy) Validate() error' runtime/resource_policy.go
+	grep -q 'func (w \*Wallet) Reserve(bytes uint64) (\*Reservation, error)' internal/membudget/plan.go
+	grep -q 'func (r \*Reservation) Cancel() error' internal/membudget/plan.go
+	printf '%s\n' 'runtime-gate: P4 source contracts passed'
 fi

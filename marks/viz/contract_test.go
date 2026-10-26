@@ -21,14 +21,13 @@ func newContractLinearScale(scope *store.Scope) *reactive.ReactiveScale {
 func TestAxis_contract_anchor_export(t *testing.T) {
 	scope := store.NewScope()
 	t.Cleanup(scope.Close)
-	fonts := (axisGoldenRuntime{}).FontRegistry()
 	rt := contracttest.NoopRuntime{}
 	ctx := theme.DefaultResolvedContext()
 	bounds := gfx.RectFromXYWH(0, 0, 720, 1400)
 
 	contracttest.AssertAnchorExport(t,
 		func() facet.FacetImpl {
-			return NewAxis(newContractLinearScale(scope), marks.Const(AxisBottom), fonts)
+			return NewAxis(newContractLinearScale(scope), marks.Const(AxisBottom))
 		},
 		func(m facet.FacetImpl, _ facet.AttachContext, b gfx.Rect) {
 			a := m.(*Axis)

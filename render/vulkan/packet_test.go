@@ -557,6 +557,8 @@ type iconPacketRuntime struct {
 	rootStyle any
 }
 
+func (iconPacketRuntime) TextService() *text.Service { return nil }
+
 func (s iconPacketRuntime) Schedule(j job.AnyJob)  {}
 func (s iconPacketRuntime) Now() time.Time         { return time.Time{} }
 func (s iconPacketRuntime) CancelJob(id job.JobID) {}

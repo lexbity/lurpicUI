@@ -24,8 +24,7 @@ func TestAxisGoldenLinear(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 300})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	fonts := (axisGoldenRuntime{}).FontRegistry()
-	a := NewAxis(rs, marks.Const(AxisBottom), fonts)
+	a := NewAxis(rs, marks.Const(AxisBottom))
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
 	bounds := gfx.RectFromXYWH(10, 10, 300, 30)
@@ -72,8 +71,7 @@ func TestAxisGoldenLinearLeft(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	fonts := (axisGoldenRuntime{}).FontRegistry()
-	a := NewAxis(rs, marks.Const(AxisLeft), fonts)
+	a := NewAxis(rs, marks.Const(AxisLeft))
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
 	bounds := gfx.RectFromXYWH(10, 10, 40, 200)
@@ -102,8 +100,7 @@ func TestAxisGoldenLinearTop(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 300})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	fonts := (axisGoldenRuntime{}).FontRegistry()
-	a := NewAxis(rs, marks.Const(AxisTop), fonts)
+	a := NewAxis(rs, marks.Const(AxisTop))
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
 	bounds := gfx.RectFromXYWH(10, 10, 300, 30)
@@ -150,8 +147,7 @@ func TestAxisGoldenLinearRight(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	fonts := (axisGoldenRuntime{}).FontRegistry()
-	a := NewAxis(rs, marks.Const(AxisRight), fonts)
+	a := NewAxis(rs, marks.Const(AxisRight))
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
 	bounds := gfx.RectFromXYWH(10, 10, 40, 200)
@@ -185,8 +181,7 @@ func timeAxisFixture(t *testing.T, startMs, endMs float64, tickCount int, golden
 	rng := store.NewValueStore(scope, [2]float64{0, 300})
 	rs := reactive.NewTimeReactive(scope, domain, rng)
 
-	fonts := (axisGoldenRuntime{}).FontRegistry()
-	a := NewAxis(rs, marks.Const(AxisBottom), fonts)
+	a := NewAxis(rs, marks.Const(AxisBottom))
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
 	bounds := gfx.RectFromXYWH(10, 10, 300, 30)
@@ -266,4 +261,8 @@ func (axisGoldenRuntime) FontRegistry() *text.FontRegistry {
 		vizFontRegistryVal = reg
 	})
 	return vizFontRegistryVal
+}
+
+func (r axisGoldenRuntime) TextService() *text.Service {
+	return contracttest.NewTextService(r.FontRegistry())
 }

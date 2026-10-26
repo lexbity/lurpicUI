@@ -32,6 +32,7 @@ func (s sliderRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s sliderRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s sliderRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 
 func TestSliderMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	slider, rt, measureCtx := newSliderTestFixture(t, defaultSliderTokens(), theme.DensityIDComfortable, layout.WritingDirectionLTR)

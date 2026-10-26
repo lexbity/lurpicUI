@@ -32,7 +32,7 @@ func registeredMarks(t *testing.T) []marks.Mark {
 
 	r := NewRule(marks.Const(50.0), RuleHorizontal, yScale)
 
-	a := NewAxis(yScale, marks.Const(AxisBottom), nil)
+	a := NewAxis(yScale, marks.Const(AxisBottom))
 
 	p := NewPoint(s,
 		func(i conformanceItem) float64 { return i.x },
@@ -87,7 +87,7 @@ func TestConformance_axis_descriptor(t *testing.T) {
 	s := store.NewValueStore(scope, [2]float64{0, 100})
 	r := store.NewValueStore(scope, [2]float64{0, 300})
 	rs := reactive.NewLinearReactive(scope, s, r)
-	m := NewAxis(rs, marks.Const(AxisBottom), nil)
+	m := NewAxis(rs, marks.Const(AxisBottom))
 	d := marks.Describe(m)
 	if d.TypeName != "axis" {
 		t.Errorf("TypeName = %q, want %q", d.TypeName, "axis")

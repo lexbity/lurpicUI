@@ -18,7 +18,7 @@ func newE1Harness(t *testing.T) (*Realtime, *testkit.Harness) {
 	scope := store.NewScope()
 	t.Helper()
 	appState := state.NewAppState(scope, seedRows(t))
-	e := NewRealtimeFacet(scope, appState, testkit.TestFontRegistry(t), theme.DefaultResolvedContext())
+	e := NewRealtimeFacet(scope, appState, testkit.TestTextService(t, testkit.TestFontRegistry(t)), theme.DefaultResolvedContext())
 	h := testkit.NewStandardHarness(t, scope, 640, 480, e)
 	h.RunFrame()
 	return e, h
@@ -162,7 +162,7 @@ func TestRealtime_chartTypeGoldens(t *testing.T) {
 	images := map[string]*image.RGBA{}
 	for _, ct := range types {
 		scope := store.NewScope()
-		probe := NewVizProbe(scope, seedRows(t), testkit.TestFontRegistry(t), theme.DefaultResolvedContext())
+		probe := NewVizProbe(scope, seedRows(t), testkit.TestTextService(t, testkit.TestFontRegistry(t)), theme.DefaultResolvedContext())
 		probe.ChartTypeStore().Set(ct)
 		h := testkit.NewStandardHarness(t, scope, 640, 360, probe)
 		h.RunFrame()

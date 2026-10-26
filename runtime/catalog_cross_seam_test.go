@@ -41,6 +41,7 @@ func (catalogRT) WatchControl(_ facet.FacetID, callback func(facet.ControlSnapsh
 func (s catalogRT) RootStyleContext() any                      { return s.rootStyle }
 func (s catalogRT) FacetByID(id facet.FacetID) facet.FacetImpl { return nil }
 func (s catalogRT) FontRegistry() *text.FontRegistry           { return s.fonts }
+func (catalogRT) TextService() *text.Service                   { return nil }
 
 func findModuleRoot() string {
 	dir, err := filepath.Abs(".")

@@ -305,6 +305,9 @@ type numberFieldRuntimeStub struct {
 }
 
 func (s numberFieldRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s numberFieldRuntimeStub) TextService() *text.Service {
+	return contracttest.NewTextService(s.fonts)
+}
 
 func assertNumberFieldGolden(t *testing.T, name string, mutate func(*NumberField)) {
 	t.Helper()

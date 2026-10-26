@@ -415,7 +415,7 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 	if triggerLabel == "" {
 		triggerLabel = strings.TrimSpace(m.AccessibleLabel.Get())
 	}
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	maxWidth := constraints.MaxSize.W
 	if maxWidth <= 0 {
 		maxWidth = resolved.Density.Scale(420)
@@ -423,7 +423,6 @@ func (m *MenuButton) measure(ctx facet.MeasureContext, constraints facet.Constra
 
 	var triggerLabelLayout *text.TextLayout
 	if shaper != nil && triggerLabel != "" {
-		shaper.SetContentScale(ctx.ContentScale)
 		triggerLabelLayout = shaper.ShapeTruncated(triggerLabel, triggerStyle, maxWidth)
 	}
 	m.cachedTriggerLabelLayout = triggerLabelLayout

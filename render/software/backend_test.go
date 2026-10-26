@@ -312,6 +312,8 @@ type iconRenderRuntime struct {
 	rootStyle any
 }
 
+func (iconRenderRuntime) TextService() *text.Service { return nil }
+
 func (s iconRenderRuntime) Schedule(j job.AnyJob)  {}
 func (s iconRenderRuntime) Now() time.Time         { return time.Time{} }
 func (s iconRenderRuntime) CancelJob(id job.JobID) {}
@@ -1031,7 +1033,7 @@ func testGlyphRun(t *testing.T, label string, size float32) text.GlyphRun {
 	if err := reg.LoadFontBytes(data, "roboto-regular"); err != nil {
 		t.Fatalf("load font: %v", err)
 	}
-	layout := text.NewShaper(reg).ShapeSimple(label, text.TextStyle{Family: "Noto Sans", Size: size})
+	layout := testShapeSession(t, reg, 1).ShapeSimple(label, text.TextStyle{Family: "Noto Sans", Size: size})
 	if layout == nil || len(layout.Lines) == 0 || len(layout.Lines[0].Runs) == 0 {
 		t.Fatalf("expected shaped run for %q", label)
 	}

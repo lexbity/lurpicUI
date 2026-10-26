@@ -26,6 +26,7 @@ func (s textRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s textRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s textRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 
 func TestTextMark_projects_layout_anchors_and_selection(t *testing.T) {
 	scope := store.NewScope()

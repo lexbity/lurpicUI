@@ -409,11 +409,10 @@ func (tf *TextField) resolveProjectionTheme(runtime any) (theme.StyleContext, sh
 }
 
 func (tf *TextField) resolveLayouts(ctx facet.MeasureContext, constraints facet.Constraints, resolved theme.ResolvedContext) (*text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout, *text.TextLayout) {
-	shaper := marks.ShaperFor(ctx.Runtime)
+	shaper := marks.ShapeFor(ctx.Runtime, ctx.ContentScale)
 	if shaper == nil {
 		return nil, nil, nil, nil, nil, nil
 	}
-	shaper.SetContentScale(ctx.ContentScale)
 	labelStyle := resolved.TextStyle(theme.TextLabelM)
 	valueStyle := resolved.TextStyle(theme.TextBodyM)
 	helperStyle := resolved.TextStyle(theme.TextBodyS)

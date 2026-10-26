@@ -5,6 +5,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testkit"
 	"codeburg.org/lexbit/lurpicui/marks"
 	"codeburg.org/lexbit/lurpicui/marks/contracttest"
 	"codeburg.org/lexbit/lurpicui/scale"
@@ -20,7 +21,7 @@ func TestAxis_computes_entries_from_ticks(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	a := NewAxis(rs, marks.Const(AxisBottom), nil)
+	a := NewAxis(rs, marks.Const(AxisBottom))
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
 
 	bounds := gfx.RectFromXYWH(0, 0, 200, 30)
@@ -44,7 +45,7 @@ func TestAxis_bottom_ticks_are_stroked(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	a := NewAxis(rs, marks.Const(AxisBottom), nil)
+	a := NewAxis(rs, marks.Const(AxisBottom))
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
 
 	bounds := gfx.RectFromXYWH(0, 0, 200, 30)
@@ -65,7 +66,7 @@ func TestAxis_bottom_ticks_are_stroked(t *testing.T) {
 }
 
 func TestAxis_nil_scale_returns_nil(t *testing.T) {
-	a := NewAxis(nil, marks.Const(AxisBottom), nil)
+	a := NewAxis(nil, marks.Const(AxisBottom))
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
 
 	bounds := gfx.RectFromXYWH(0, 0, 200, 30)
@@ -83,7 +84,7 @@ func TestAxis_left_orientation_ticks(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	a := NewAxis(rs, marks.Const(AxisLeft), nil)
+	a := NewAxis(rs, marks.Const(AxisLeft))
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
 
 	bounds := gfx.RectFromXYWH(0, 0, 40, 200)
@@ -107,14 +108,13 @@ func TestAxis_left_orientation_ticks(t *testing.T) {
 func TestAxis_all_orientations_emit_ticks_and_labels(t *testing.T) {
 	scope := store.NewScope()
 	t.Cleanup(scope.Close)
-	fonts := (axisGoldenRuntime{}).FontRegistry()
 
 	for _, orient := range []AxisOrientation{AxisBottom, AxisTop, AxisLeft, AxisRight} {
 		domain := store.NewValueStore(scope, [2]float64{0, 100})
 		rng := store.NewValueStore(scope, [2]float64{0, 200})
 		rs := reactive.NewLinearReactive(scope, domain, rng)
 
-		a := NewAxis(rs, marks.Const(orient), fonts)
+		a := NewAxis(rs, marks.Const(orient))
 		facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
 		var bounds gfx.Rect
@@ -153,14 +153,13 @@ func TestAxis_all_orientations_emit_ticks_and_labels(t *testing.T) {
 func TestAxis_label_collision_skips_overlapping(t *testing.T) {
 	scope := store.NewScope()
 	t.Cleanup(scope.Close)
-	fonts := (axisGoldenRuntime{}).FontRegistry()
 
 	// A narrow axis with many ticks ensures labels overlap.
 	domain := store.NewValueStore(scope, [2]float64{0, 100})
 	rng := store.NewValueStore(scope, [2]float64{0, 60})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	a := NewAxis(rs, marks.Const(AxisBottom), fonts)
+	a := NewAxis(rs, marks.Const(AxisBottom))
 	a.TickCount = marks.Const(20)
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
@@ -198,7 +197,7 @@ func TestAxis_left_label_column_measured_from_widest_tick(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	a := NewAxis(rs, marks.Const(AxisLeft), fonts)
+	a := NewAxis(rs, marks.Const(AxisLeft))
 	facet.Attach(a, facet.AttachContext{Runtime: axisGoldenRuntime{}})
 
 	a.Layout.Measure(facet.MeasureContext{ContentScale: 1}, facet.Constraints{MaxSize: gfx.Size{W: 120, H: 240}})
@@ -214,7 +213,7 @@ func TestAxis_left_label_column_measured_from_widest_tick(t *testing.T) {
 	if !ok {
 		t.Fatal("linear scale is not a Ticker")
 	}
-	shaper := text.NewShaper(fonts)
+	shaper := testkit.TestShapeSession(t, fonts, 1)
 	style := text.TextStyle{Size: 11}
 	widest := float32(0)
 	for _, tk := range ticker.Ticks(a.TickCount.Get()) {
@@ -247,7 +246,7 @@ func TestAxis_tick_count_respected(t *testing.T) {
 	rng := store.NewValueStore(scope, [2]float64{0, 200})
 	rs := reactive.NewLinearReactive(scope, domain, rng)
 
-	a := NewAxis(rs, marks.Const(AxisBottom), nil)
+	a := NewAxis(rs, marks.Const(AxisBottom))
 	a.TickCount = marks.Const(3)
 	facet.Attach(a, facet.AttachContext{Runtime: vizRuntimeStub{}})
 
@@ -262,7 +261,7 @@ func TestAxis_tick_count_respected(t *testing.T) {
 func TestAxis_Contract_ScaleInvalidates(t *testing.T) {
 	contracttest.AssertScaleInvalidates(t,
 		func(_ *store.Scope, scale *reactive.ReactiveScale) facet.FacetImpl {
-			return NewAxis(scale, marks.Const(AxisBottom), nil)
+			return NewAxis(scale, marks.Const(AxisBottom))
 		},
 		func(domain *store.ValueStore[[2]float64]) {
 			domain.Set([2]float64{0, 50})

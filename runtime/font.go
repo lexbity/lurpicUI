@@ -7,3 +7,6 @@ import "codeburg.org/lexbit/lurpicui/text"
 func (rt *Runtime) FontRegistry() *text.FontRegistry {
 	return rt.config.FontRegistry
 }
+
+// TextService returns the runtime-owned foreground shaping service.
+func (rt *Runtime) TextService() *text.Service { return rt.config.TextService }

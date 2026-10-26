@@ -34,6 +34,7 @@ func (s alertRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s alertRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s alertRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 
 func TestAlertMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	scope := store.NewScope()

@@ -33,6 +33,7 @@ func (s badgeRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s badgeRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s badgeRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 func (s badgeRuntimeStub) ResolveIcon(ref string) (icon.Asset, bool) {
 	if s.icons == nil {
 		return icon.Asset{}, false

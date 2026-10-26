@@ -27,6 +27,9 @@ func (s textFieldRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s textFieldRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s textFieldRuntimeStub) TextService() *text.Service {
+	return contracttest.NewTextService(s.fonts)
+}
 
 func TestTextFieldMeasureProjectHitAnchorsAndAccessibility(t *testing.T) {
 	scope := store.NewScope()
@@ -219,7 +222,7 @@ func AssertTextFieldGolden(t *testing.T, name string, mutate func(*TextField)) {
 func textLayoutForTest(t *testing.T, content string) *text.TextLayout {
 	t.Helper()
 	reg := testkit.TestFontRegistry(t)
-	shaper := text.NewShaper(reg)
+	shaper := testkit.TestShapeSession(t, reg, 1)
 	style := text.DefaultStyle()
 	style.Family = "noto-sans-regular"
 	return shaper.ShapeSimple(content, style)

@@ -19,15 +19,17 @@ import (
 // facet's kind; the enumerated list is the studio's driver surface.
 func TestCoverage_testids(t *testing.T) {
 	scope := store.NewScope()
-	fonts := testkit.TestFontRegistry(t)
+	fontRegistry := testkit.TestFontRegistry(t)
+	textService := testkit.TestTextService(t, fontRegistry)
 	reg, err := StudioLayerRegistry()
 	if err != nil {
 		t.Fatalf("layer registry: %v", err)
 	}
-	themeCtx := StudioThemeContext().WithFontRegistry(fonts)
+	themeCtx := StudioThemeContext().WithFontRegistry(fontRegistry)
 	root := BuildRoot(app.BuildContext{
 		StoreScope:   scope,
-		FontRegistry: fonts,
+		FontRegistry: fontRegistry,
+		TextService:  textService,
 		WindowSize:   gfx.Size{W: 1280, H: 800},
 		ContentScale: 1,
 		Theme:        themeCtx,

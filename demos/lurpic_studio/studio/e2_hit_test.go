@@ -43,7 +43,7 @@ func TestE2_blockingAndPassThrough(t *testing.T) {
 	reg, _ := StudioLayerRegistry()
 	ids := studioLayersFrom(reg)
 	scope := store.NewScope()
-	e2 := NewLayersFacet(scope, testkit.TestFontRegistry(t), themeCtx, ids)
+	e2 := NewLayersFacet(scope, testkit.TestTextService(t, testkit.TestFontRegistry(t)), themeCtx, ids)
 	h := newStudioHarness(t, scope, 800, 600, e2)
 	h.RunFrame()
 

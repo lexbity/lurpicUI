@@ -368,12 +368,13 @@ type MeasureContext struct {
 
 // ArrangeContext carries the current layout snapshot for arrangement.
 type ArrangeContext struct {
-	Runtime     RuntimeServices
-	Theme       any
-	Layer       LayerContext
-	ParentGroup GroupParentContract
-	ChildGroup  GroupChildContract
-	Placement   Placement
+	Runtime      RuntimeServices
+	Theme        any
+	ContentScale float32
+	Layer        LayerContext
+	ParentGroup  GroupParentContract
+	ChildGroup   GroupChildContract
+	Placement    Placement
 }
 
 // MeasureResult is the concrete measurement result returned by LayoutRole.

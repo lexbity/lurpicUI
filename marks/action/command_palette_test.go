@@ -34,6 +34,9 @@ func (s commandPaletteRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s commandPaletteRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s commandPaletteRuntimeStub) TextService() *text.Service {
+	return contracttest.NewTextService(s.fonts)
+}
 func (s commandPaletteRuntimeStub) CommandRegistry() *runtimepkg.CommandRegistry {
 	return s.registry
 }

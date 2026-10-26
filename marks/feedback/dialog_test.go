@@ -33,6 +33,7 @@ func (s dialogRuntimeStub) FacetByID(id facet.FacetID) facet.FacetImpl {
 	return nil
 }
 func (s dialogRuntimeStub) FontRegistry() *text.FontRegistry { return s.fonts }
+func (s dialogRuntimeStub) TextService() *text.Service       { return contracttest.NewTextService(s.fonts) }
 
 func TestDialogMeasureProjectAnchorsAndAccessibility(t *testing.T) {
 	scope := store.NewScope()

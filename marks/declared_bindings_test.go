@@ -120,7 +120,7 @@ var allMarksFactories = map[string]func(*store.Scope) facet.FacetImpl{
 		return structure.NewTable(scope, "table", structure.TableData{}, nil)
 	},
 	"area":  func(*store.Scope) facet.FacetImpl { return viz.NewArea[int](nil, nil, nil, nil, nil) },
-	"axis":  func(*store.Scope) facet.FacetImpl { return viz.NewAxis(nil, marks.Const(viz.AxisBottom), nil) },
+	"axis":  func(*store.Scope) facet.FacetImpl { return viz.NewAxis(nil, marks.Const(viz.AxisBottom)) },
 	"bar":   func(*store.Scope) facet.FacetImpl { return viz.NewBar[int](nil, nil, nil, nil) },
 	"line":  func(*store.Scope) facet.FacetImpl { return viz.NewLine[int](nil, nil, nil, nil, nil) },
 	"point": func(*store.Scope) facet.FacetImpl { return viz.NewPoint[int](nil, nil, nil, nil, nil) },
