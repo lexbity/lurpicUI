@@ -7,7 +7,6 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/input"
-	"codeburg.org/lexbit/lurpicui/internal/syncutil"
 	"codeburg.org/lexbit/lurpicui/platform"
 )
 
@@ -118,8 +117,23 @@ func (rt *Runtime) Run() error {
 		return err
 	}
 	defer rt.setPlatformFrameDemand(false)
+	defer close(rt.loopStopped)
 	for {
 		if !rt.waitIfPausedOrStopped() {
+			// shutdown observed; claim teardown ownership and execute
+			if rt.teardownClaim.CompareAndSwap(0, 1) {
+				_ = rt.shutdown()
+				rt.closeDoneChOnce()
+			}
+			return nil
+		}
+		// Re-check shutdownCh immediately after wake to handle the race where
+		// Shutdown unpauses the loop but hasn't yet closed shutdownCh.
+		if isChannelClosed(rt.shutdownCh) {
+			if rt.teardownClaim.CompareAndSwap(0, 1) {
+				_ = rt.shutdown()
+				rt.closeDoneChOnce()
+			}
 			return nil
 		}
 		if runtimeTraceActive() {
@@ -127,7 +141,11 @@ func (rt *Runtime) Run() error {
 		}
 		select {
 		case <-rt.shutdownCh:
-			<-rt.doneCh
+			// shutdown observed; claim teardown ownership and execute
+			if rt.teardownClaim.CompareAndSwap(0, 1) {
+				_ = rt.shutdown()
+				rt.closeDoneChOnce()
+			}
 			return nil
 		case err := <-rt.renderPipeline.fatalCh:
 			if err != nil {
@@ -136,17 +154,23 @@ func (rt *Runtime) Run() error {
 				default:
 					close(rt.shutdownCh)
 				}
-				<-rt.doneCh
+				// shutdown observed; claim teardown ownership and execute
+				if rt.teardownClaim.CompareAndSwap(0, 1) {
+					_ = rt.shutdown()
+					rt.closeDoneChOnce()
+				}
 				return fmt.Errorf("runtime: render failure: %w", err)
 			}
 		default:
 		}
 		// Close the gap between the non-blocking select above and
-		// frameTimer.Wait: if shutdown was signaled in that window, drain to
-		// doneCh and exit instead of running a useless frame against a tree
-		// that superviseShutdown may already be disposing.
+		// frameTimer.Wait: if shutdown was signaled in that window, claim
+		// teardown and exit.
 		if isChannelClosed(rt.shutdownCh) {
-			<-rt.doneCh
+			if rt.teardownClaim.CompareAndSwap(0, 1) {
+				_ = rt.shutdown()
+				rt.closeDoneChOnce()
+			}
 			return nil
 		}
 		if rt.clock.Mode() == ClockVirtual {
@@ -154,6 +178,11 @@ func (rt *Runtime) Run() error {
 			// Virtual mode parks between explicit frame tokens. Control reads
 			// and render acknowledgments remain serviceable without a frame.
 			if !rt.virtualParkStep() {
+				// virtualParkStep returns false only when shutdownCh is closed
+				if rt.teardownClaim.CompareAndSwap(0, 1) {
+					_ = rt.shutdown()
+					rt.closeDoneChOnce()
+				}
 				return nil
 			}
 			continue
@@ -161,12 +190,17 @@ func (rt *Runtime) Run() error {
 		if !rt.hasWallFrameWork() {
 			rt.setPlatformFrameDemand(false)
 			if !rt.waitForWallWork() {
+				// waitForWallWork returns false only when shutdownCh is closed
+				if rt.teardownClaim.CompareAndSwap(0, 1) {
+					_ = rt.shutdown()
+					rt.closeDoneChOnce()
+				}
 				return nil
 			}
 			continue
 		}
 		rt.setPlatformFrameDemand(true)
-		pacingNow, frameEligible := rt.frameTimer.WaitWithWake(rt.platformEventWake(), rt.drainPlatformEvents, rt.hasWallFrameWork)
+		pacingNow, frameEligible := rt.frameTimer.WaitWithWake(rt.platformEventWake(), rt.drainPlatformEvents, rt.hasWallFrameWork, rt.shutdownCh)
 		if !frameEligible {
 			rt.setPlatformFrameDemand(false)
 			continue
@@ -209,6 +243,11 @@ func (rt *Runtime) Run() error {
 }
 
 func (rt *Runtime) hasWallFrameWork() bool {
+	// All scheduler state reads must be protected by frameMu.RLock (D7 rule 3).
+	// This is safe: callers are on the runtime thread and not holding frameMu
+	// (the write lock is only held during frame body and disposal).
+	rt.frameMu.RLock()
+	defer rt.frameMu.RUnlock()
 	if rt.wallWakePending.Load() || rt.bootstrapFramePending || len(rt.pendingEvents) != 0 ||
 		len(rt.dirtyFacets) != 0 || len(rt.activeTickFacets) != 0 {
 		return true
@@ -454,6 +493,11 @@ func (rt *Runtime) Shutdown() {
 	rt.shutdownMu.Lock()
 	if rt.stopping {
 		rt.shutdownMu.Unlock()
+		// Idempotent: already shutting down, just wait for completion.
+		// But if we're on the runtime thread, we cannot wait (deadlock).
+		if rt.onRuntimeThread() {
+			return
+		}
 		<-rt.doneCh
 		return
 	}
@@ -461,11 +505,47 @@ func (rt *Runtime) Shutdown() {
 	started := rt.started
 	rt.shutdownMu.Unlock()
 
-	if !started {
-		_ = rt.shutdown()
-		close(rt.doneCh)
+	// If Shutdown is invoked from the runtime thread itself (e.g., from a
+	// facet callback), wake the loop and return immediately (D7 rule 1). The
+	// loop will perform teardown at the next park point. If Run() was never
+	// called, we must perform teardown here since there's no loop.
+	if rt.onRuntimeThread() {
+		// Wake the loop: unpause if paused, and close shutdownCh if not already closed.
+		// This ensures the loop wakes up from any pause/wait state (D7 rule 3).
+		rt.lifecycleMu.Lock()
+		rt.paused = false
+		if rt.lifecycleCond != nil {
+			rt.lifecycleCond.Broadcast()
+		}
+		rt.lifecycleMu.Unlock()
+		select {
+		case <-rt.shutdownCh:
+		default:
+			close(rt.shutdownCh)
+		}
+		// If Run() was never called (loopStopped still open and we're on the
+		// runtime thread, so Run cannot be concurrent), we must perform teardown.
+		select {
+		case <-rt.loopStopped:
+			// Run() has exited; teardown already completed.
+			return
+		default:
+			// Run() was never called; perform teardown here.
+			if rt.teardownClaim.CompareAndSwap(0, 1) {
+				_ = rt.shutdown()
+				rt.closeDoneChOnce()
+			}
+		}
 		return
 	}
+
+	if !started {
+		_ = rt.shutdown()
+		rt.closeDoneChOnce()
+		return
+	}
+
+	// Non-runtime thread path: wake the loop and wait for completion.
 	rt.lifecycleMu.Lock()
 	rt.paused = false
 	if rt.lifecycleCond != nil {
@@ -504,12 +584,10 @@ func (rt *Runtime) start() error {
 		// A startup panic must also release shutdown's ownership barrier.
 		defer close(rt.startupDone)
 		if runtimeTraceActive() {
-			runtimeTracef("start begin runtimeThread=%v", syncutil.OnRuntimeThread())
-		}
-		if !syncutil.OnRuntimeThread() {
-			syncutil.RegisterRuntimeThread()
+			runtimeTracef("start begin runtimeThread=%v", rt.onRuntimeThread())
 		}
 		rt.installRecoveryHooks()
+		rt.runtimeGoroutine = currentGoroutineID()
 		rt.renderPipeline.start()
 		rt.bindLifecycleCallbacks()
 		rt.contentScale = rt.effectiveContentScale()
@@ -582,10 +660,38 @@ func (rt *Runtime) bindLifecycleCallbacks() {
 }
 
 func (rt *Runtime) superviseShutdown() {
-	defer close(rt.doneCh)
 	<-rt.shutdownCh
 	<-rt.startupDone
-	_ = rt.shutdown()
+	// Wait for the loop to perform teardown and close doneCh. If the loop
+	// never runs (Run was never called) or is wedged, the supervisor falls
+	// back to performing teardown itself (D7 rule 3).
+	select {
+	case <-rt.doneCh:
+		// Loop performed teardown.
+		return
+	case <-time.After(rt.teardownGrace):
+		// Loop is wedged or doesn't exist; perform teardown on the supervisor.
+		// Take frameMu (write) to serialize with any in-flight frame or loop
+		// teardown claim (D7 rule 3: supervisor takes frameMu before disposing).
+		rt.frameMu.Lock()
+		defer rt.frameMu.Unlock()
+		// Re-check doneCh under frameMu to handle race with loop exit.
+		select {
+		case <-rt.doneCh:
+			// Loop completed teardown concurrently.
+			return
+		default:
+		}
+		// Loop has not exited; try to claim teardown.
+		if claimed := rt.teardownClaim.CompareAndSwap(0, 1); claimed {
+			fmt.Printf("runtime: supervisor fallback: loop did not exit within %s grace, performing teardown\n", rt.teardownGrace)
+			_ = rt.shutdown()
+			rt.closeDoneChOnce()
+		} else {
+			// Loop already claimed teardown; wait for it to complete.
+			<-rt.doneCh
+		}
+	}
 }
 
 func (rt *Runtime) shutdown() error {
@@ -613,7 +719,7 @@ func (rt *Runtime) shutdown() error {
 	}
 	input.ClearRecoveryHook()
 	facet.ClearCallbackRecoveryHook()
-	syncutil.ResetRuntimeThreadForTest()
+	rt.runtimeGoroutine = 0
 	return nil
 }
 
@@ -625,7 +731,6 @@ func (rt *Runtime) waitIfPausedOrStopped() bool {
 		select {
 		case <-rt.shutdownCh:
 			rt.lifecycleMu.Unlock()
-			<-rt.doneCh
 			return false
 		default:
 		}

@@ -43,13 +43,16 @@ type backendFallbackSink interface {
 type Config struct {
 	// StoreScope owns every reactive store reachable from the root application.
 	// It must be created before the root builder and is closed at shutdown.
-	StoreScope      *store.Scope
-	StoreIdentity   *store.RuntimeIdentity
-	TargetFPS       int
-	Clock           ClockConfig
-	PreparedClock   *PreparedClock
-	GestureConfig   input.GestureConfig
-	WorkerCount     int
+	StoreScope    *store.Scope
+	StoreIdentity *store.RuntimeIdentity
+	TargetFPS     int
+	Clock         ClockConfig
+	PreparedClock *PreparedClock
+	GestureConfig input.GestureConfig
+	WorkerCount   int
+	// ShutdownGrace is the supervisor's bounded wait before falling back to
+	// frameMu-protected teardown when the loop is wedged (D7 rule 3). Default 5s.
+	ShutdownGrace   time.Duration
 	FontRegistry    *text.FontRegistry
 	TextService     *text.Service
 	Resources       ResourcePolicy
@@ -212,17 +215,27 @@ func (t *FrameTimer) Vsync(frameTimeNanos int64) {
 // Wait blocks until the next frame should begin. It prefers vsync timing
 // from the platform when available, falling back to timer-based pacing.
 func (t *FrameTimer) Wait() time.Time {
-	now, _ := t.WaitWithWake(nil, nil, nil)
+	now, _ := t.WaitWithWake(nil, nil, nil, nil)
 	return now
 }
 
 // WaitWithWake preserves the pacing deadline while allowing the runtime owner
 // to drain typed platform events, including the VsyncEvent that satisfies this
-// wait. The callback always runs on the caller's thread.
-func (t *FrameTimer) WaitWithWake(wake <-chan struct{}, onWake func(), frameEligible func() bool) (time.Time, bool) {
+// wait. The callback always runs on the caller's thread. The shutdown channel,
+// if non-nil, is an additional wake source that triggers immediate return with
+// false when closed (D7 rule 1: all park points wake on shutdownCh).
+func (t *FrameTimer) WaitWithWake(wake <-chan struct{}, onWake func(), frameEligible func() bool, shutdown <-chan struct{}) (time.Time, bool) {
 
 	if t == nil {
 		return time.Time{}, false
+	}
+	// If shutdown is already closed, return immediately.
+	if shutdown != nil {
+		select {
+		case <-shutdown:
+			return time.Time{}, false
+		default:
+		}
 	}
 	eligible := func() bool { return frameEligible == nil || frameEligible() }
 	if runtimeTraceActive() {
@@ -232,6 +245,8 @@ func (t *FrameTimer) WaitWithWake(wake <-chan struct{}, onWake func(), frameElig
 	first := true
 	for {
 		select {
+		case <-shutdown:
+			return time.Time{}, false
 		case frameTimeNanos := <-t.vsyncCh:
 			if !eligible() {
 				return time.Time{}, false
@@ -259,7 +274,17 @@ func (t *FrameTimer) WaitWithWake(wake <-chan struct{}, onWake func(), frameElig
 		if delay <= 0 {
 			select {
 			case <-t.requestCh:
+			case <-shutdown:
+				return time.Time{}, false
 			default:
+			}
+			// Check shutdown again after the request check
+			if shutdown != nil {
+				select {
+				case <-shutdown:
+					return time.Time{}, false
+				default:
+				}
 			}
 			now := t.now()
 			t.mu.Lock()
@@ -272,6 +297,9 @@ func (t *FrameTimer) WaitWithWake(wake <-chan struct{}, onWake func(), frameElig
 		}
 		timer := time.NewTimer(delay)
 		select {
+		case <-shutdown:
+			timer.Stop()
+			return time.Time{}, false
 		case <-t.requestCh:
 			if !timer.Stop() {
 				select {
@@ -312,10 +340,26 @@ func (t *FrameTimer) WaitWithWake(wake <-chan struct{}, onWake func(), frameElig
 			if !eligible() {
 				return time.Time{}, false
 			}
+			// Check shutdown after wake
+			if shutdown != nil {
+				select {
+				case <-shutdown:
+					return time.Time{}, false
+				default:
+				}
+			}
 			first = false
 		case <-timer.C:
 			if !eligible() {
 				return time.Time{}, false
+			}
+			// Check shutdown after timer fired
+			if shutdown != nil {
+				select {
+				case <-shutdown:
+					return time.Time{}, false
+				default:
+				}
 			}
 			now := t.now()
 			t.mu.Lock()

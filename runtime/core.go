@@ -3,8 +3,10 @@ package runtime
 import (
 	"errors"
 	"fmt"
+	"runtime"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -32,6 +34,14 @@ import (
 )
 
 var ErrNoReadyFrame = errors.New("runtime: no primary ready frame")
+
+// defaultTeardownGrace returns the configured shutdown grace or the 5-second default.
+func defaultTeardownGrace(config Config) time.Duration {
+	if config.ShutdownGrace > 0 {
+		return config.ShutdownGrace
+	}
+	return 5 * time.Second
+}
 
 type Runtime struct {
 	config Config
@@ -184,6 +194,13 @@ type Runtime struct {
 	controlWatchSeq  uint64
 	nextGestureID    uint64
 	nextDriveTouchID uint64
+
+	// Teardown ownership (D7): single-owner claim and bounded-grace fallback.
+	teardownClaim    atomic.Uint32 // 0 = open, 1 = owner claimed
+	teardownGrace    time.Duration // default 5s, bounded supervisor fallback
+	loopStopped      chan struct{} // closed when Run() loop exits
+	runtimeGoroutine uint64        // goroutine ID of the runtime thread (D7)
+	doneChClosed     atomic.Bool   // guard to prevent double-close of doneCh
 }
 
 func New(config Config, platformApp platform.App, window platform.Window, backend render.Backend, root facet.FacetImpl) (*Runtime, error) {
@@ -303,6 +320,8 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 		poisonReports:         make(map[facet.FacetID]*poisonReport),
 		controlWatchers:       make(map[facet.FacetID][]controlWatcher),
 		recoveryDisabled:      config.RecoveryDisabled,
+		teardownGrace:         defaultTeardownGrace(config),
+		loopStopped:           make(chan struct{}),
 	}
 	if err := rt.validateWindowBindings(); err != nil {
 		return nil, err
@@ -804,4 +823,43 @@ func (rt *Runtime) SetFrameClock(now time.Time) {
 		return
 	}
 	rt.clock.SeedLastFrame(now)
+}
+
+// closeDoneChOnce closes doneCh exactly once, preventing double-close panics.
+func (rt *Runtime) closeDoneChOnce() {
+	if rt.doneChClosed.CompareAndSwap(false, true) {
+		close(rt.doneCh)
+	}
+}
+
+// currentGoroutineID returns the current goroutine ID using runtime.Stack.
+func currentGoroutineID() uint64 {
+	var buf [64]byte
+	n := runtime.Stack(buf[:], false)
+	// Stack output format: "goroutine <id> [<state>]: ..."
+	// We parse the numeric ID at the start.
+	for i := 0; i < n; i++ {
+		if buf[i] == ' ' {
+			start := i + 1
+			for j := start; j < n; j++ {
+				if buf[j] < '0' || buf[j] > '9' {
+					if id, err := strconv.ParseUint(string(buf[start:j]), 10, 64); err == nil {
+						return id
+					}
+					break
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// onRuntimeThread reports whether the current goroutine is the runtime thread.
+// The runtime thread is the one that calls start(), which sets runtimeGoroutine.
+// Before start() is called, no goroutine is the runtime thread.
+func (rt *Runtime) onRuntimeThread() bool {
+	if rt.runtimeGoroutine == 0 {
+		return false
+	}
+	return currentGoroutineID() == rt.runtimeGoroutine
 }

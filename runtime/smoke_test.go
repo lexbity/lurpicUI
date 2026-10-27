@@ -103,7 +103,7 @@ func TestFrameTimerWaitWithWakeDrainsVsyncOnOwner(t *testing.T) {
 	got, eligible := timer.WaitWithWake(wake, func() {
 		callbackRuns++
 		timer.Vsync(want.UnixNano())
-	}, func() bool { return true })
+	}, func() bool { return true }, nil)
 	if !eligible {
 		t.Fatal("expected pending frame work to remain eligible")
 	}
@@ -123,7 +123,7 @@ func TestFrameTimerWakeWithoutRemainingWorkDoesNotAuthorizeFrame(t *testing.T) {
 	wake := make(chan struct{}, 1)
 	wake <- struct{}{}
 	work := true
-	got, eligible := timer.WaitWithWake(wake, func() { work = false }, func() bool { return work })
+	got, eligible := timer.WaitWithWake(wake, func() { work = false }, func() bool { return work }, nil)
 	if eligible || !got.IsZero() {
 		t.Fatalf("idle wake produced frame time=%s eligible=%t", got, eligible)
 	}
