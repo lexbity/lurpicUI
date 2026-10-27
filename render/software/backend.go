@@ -73,6 +73,9 @@ type SoftwareRenderer struct {
 
 	strokeScratch  gfx.StrokeScratch
 	rasterizeCount int
+	// Reusable tile buffer for partial redraw (C11: owner-local buffer to avoid
+	// per-damaged-tile allocation every frame)
+	tileBuffer *image.RGBA
 }
 
 func NewSoftwareRenderer() *SoftwareRenderer {
@@ -106,6 +109,10 @@ func (r *SoftwareRenderer) Initialize(surface render.Surface) error {
 		Width:    w,
 		Height:   h,
 	})
+
+	// Allocate reusable tile buffer (C11: owner-local to avoid per-tile allocation)
+	// Size it to the maximum tile size (TileSize x TileSize)
+	r.tileBuffer = image.NewRGBA(image.Rect(0, 0, TileSize, TileSize))
 
 	r.allocateOutput(w, h)
 	return nil
@@ -224,9 +231,10 @@ func (r *SoftwareRenderer) calculateTileRenderingInfo(damage *DamageSet, frame *
 			}
 		}
 
-		if len(info.batchIndices) > 0 {
-			result = append(result, info)
-		}
+		// Include tiles even if batchIndices is empty: a tile with no batches
+		// (removal case) must be cleared to transparent before compositing
+		// (D2: empty-batch damaged tiles produce a cleared-and-copied tile).
+		result = append(result, info)
 	}
 
 	return result
@@ -265,13 +273,9 @@ func (r *SoftwareRenderer) Submit(frame *render.Frame) error {
 	} else if !damage.IsEmpty() {
 		// Partial redraw - render only damaged tiles
 		r.renderPartialRedraw(frame, damage)
-	} else {
-		// No damage - check if we still need to render (e.g., first frame)
-		// If there are batches but no damage, it might be the first frame
-		if frame.BatchCount() > 0 {
-			r.renderFullRedraw(frame)
-		}
 	}
+	// Quiet frame: zero damage produces zero rasterization work (D1).
+	// The platform buffer blit still runs (platform preservation semantics unchanged).
 
 	// End frame
 	r.rasterStorage.EndFrame()
@@ -328,11 +332,12 @@ func (r *SoftwareRenderer) renderPartialRedraw(frame *render.Frame, damage *Dama
 	// Calculate which tiles need to be rendered and which batches affect them
 	tileInfos := r.calculateTileRenderingInfo(damage, frame, surfaceSize)
 
-	// For each damaged tile, render it to a temporary buffer then composite to output
+	// For each damaged tile, render it to the reusable tile buffer then composite to output (C11)
 	for _, info := range tileInfos {
-		// Create a temporary buffer for this tile
-		tileBuffer := image.NewRGBA(image.Rect(0, 0, info.tileRect.Dx(), info.tileRect.Dy()))
-		clearRGBA(tileBuffer)
+		// Use the reusable tile buffer - all tiles are TileSize x TileSize
+		// so we can reuse the same buffer for all tiles
+		tileBuf := r.tileBuffer
+		clearRGBA(tileBuf)
 
 		// Render all batches that intersect this tile
 		for _, batchIdx := range info.batchIndices {
@@ -346,14 +351,13 @@ func (r *SoftwareRenderer) renderPartialRedraw(frame *render.Frame, damage *Dama
 
 			// Render the batch to the tile buffer
 			// We need to transform the batch to tile-local coordinates
-			r.rasterizeRenderBatchToTile(tileBuffer, frame, batchIdx, batch, clip, info.tileRect)
+			r.rasterizeRenderBatchToTile(tileBuf, frame, batchIdx, batch, clip, info.tileRect)
 		}
 
 		// Composite the tile buffer to the output
-		r.compositeTileToOutput(r.output, tileBuffer, info.surfaceRect)
+		r.compositeTileToOutput(r.output, tileBuf, info.surfaceRect)
 
 		r.rasterizeCount++
-		_ = tileBuffer
 	}
 }
 

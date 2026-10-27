@@ -1,6 +1,9 @@
 package software
 
 import (
+	"image"
+	"math"
+	"slices"
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/render"
@@ -19,10 +22,8 @@ type RasterStorage struct {
 	// frame is the current frame being rendered.
 	frame *render.Frame
 
-	// lastFrame is the previous frame for damage comparison.
-	lastFrame *render.Frame
-
 	// lastFrameTiles maps from tileCoord to the batch IDs that affected it in the last frame.
+	// We only need the tile->batch mapping, not the full frame reference (C10).
 	lastFrameTiles map[tileCoord][]render.RenderBatchID
 
 	// currentDamage tracks which tiles are damaged.
@@ -72,11 +73,37 @@ func (rs *RasterStorage) BeginFrame(frame *render.Frame) {
 
 	rs.currentDamage.Clear()
 
-	// Calculate damage
-	if rs.lastFrame != nil && frame != nil {
-		// Simple damage: all tiles that have different batches
+	surfaceSize := rs.tileGrid.Size
+
+	// Damage is the union of two independent sources (D1):
+	// 1. Declared damage from assembly (conservative support rectangles)
+	// 2. Structural diff as safety net (batch ID list equality)
+
+	// First, add tiles from declared damage regions
+	if frame != nil {
+		for i := 0; i < frame.DirtyRegionCount(); i++ {
+			rect, ok := frame.DirtyRegionAt(i)
+			if ok && !rect.IsEmpty() {
+				// Convert gfx.Rect to image.Rectangle and add affected tiles
+				damageRect := image.Rect(
+					int(rect.Min.X),
+					int(rect.Min.Y),
+					int(math.Ceil(float64(rect.Max.X))),
+					int(math.Ceil(float64(rect.Max.Y))),
+				)
+				for _, coord := range TilesFromRect(damageRect) {
+					rs.currentDamage.AddTile(coord)
+				}
+			}
+		}
+	}
+
+	// Second, compute structural damage from batch ID comparison
+	// This catches reordering, removal, addition, and identity substitution
+	// that declared damage might miss (e.g., content changes with unchanged bounds).
+	if len(rs.lastFrameTiles) > 0 && frame != nil {
+		// Build new frame tile map: tileCoord -> ordered batch IDs
 		newFrameTiles := make(map[tileCoord][]render.RenderBatchID)
-		surfaceSize := rs.tileGrid.Size
 
 		for i := 0; i < frame.BatchCount(); i++ {
 			batch, ok := frame.BatchAt(i)
@@ -88,7 +115,8 @@ func (rs *RasterStorage) BeginFrame(frame *render.Frame) {
 			}
 		}
 
-		// Compare with last frame
+		// Compare with last frame using exact ordered equality (D1)
+		// If batch ID lists differ, mark the tile as damaged
 		for coord, newBatchIDs := range newFrameTiles {
 			oldBatchIDs := rs.lastFrameTiles[coord]
 			if !batchIDsEqual(oldBatchIDs, newBatchIDs) {
@@ -97,6 +125,7 @@ func (rs *RasterStorage) BeginFrame(frame *render.Frame) {
 		}
 
 		// Batches that were in last frame but not in new frame also cause damage
+		// (removal case - the tile needs to be cleared)
 		for coord := range rs.lastFrameTiles {
 			if _, exists := newFrameTiles[coord]; !exists {
 				rs.currentDamage.AddTile(coord)
@@ -105,45 +134,31 @@ func (rs *RasterStorage) BeginFrame(frame *render.Frame) {
 
 		rs.lastFrameTiles = newFrameTiles
 	} else if frame != nil {
-		// No previous frame exists to diff against, so there is no safe
-		// sub-frame damage: batch bounds do not include per-command support
-		// overhang (stroke width, glyph bitmaps, shadow halos), and a partial
-		// first frame would drop those pixels. Full damage forces the full
-		// redraw path, which is the correct production strategy for a first
-		// frame (spec D1/S3 replaces this with support-bounds damage).
-		surfaceSize := rs.tileGrid.Size
-		cols := (surfaceSize.X + TileSize - 1) / TileSize
-		rows := (surfaceSize.Y + TileSize - 1) / TileSize
-		for cy := 0; cy < rows; cy++ {
-			for cx := 0; cx < cols; cx++ {
-				rs.currentDamage.AddTile(tileCoord{X: cx, Y: cy})
-			}
-		}
+		// First frame with no previous frame: compute all tiles from batch bounds
+		// This is the union of all batch coverage for the first frame
+		newFrameTiles := make(map[tileCoord][]render.RenderBatchID)
 		for i := 0; i < frame.BatchCount(); i++ {
 			batch, ok := frame.BatchAt(i)
 			if !ok {
 				continue
 			}
 			for _, coord := range BatchTiles(batch, surfaceSize) {
-				rs.lastFrameTiles[coord] = append(rs.lastFrameTiles[coord], batch.ID)
+				newFrameTiles[coord] = append(newFrameTiles[coord], batch.ID)
+				rs.currentDamage.AddTile(coord)
 			}
 		}
+		rs.lastFrameTiles = newFrameTiles
 	}
 
-	rs.lastFrame = rs.frame
 	rs.frame = frame
+	// lastFrame field removed (C10): only lastFrameTiles is needed for damage comparison
 }
 
-// batchIDsEqual checks if two batch ID slices are equal.
+// batchIDsEqual checks if two batch ID slices are equal using exact
+// ordered equality. This is the safety-net structural diff for damage detection,
+// catching reordering, removal, addition, and identity substitution (D1).
 func batchIDsEqual(a, b []render.RenderBatchID) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	if len(a) == 0 {
-		return true
-	}
-	// Simple check - a proper implementation would do a set comparison
-	return len(a) == len(b)
+	return slices.Equal(a, b)
 }
 
 // EndFrame finishes a frame.
@@ -152,7 +167,9 @@ func (rs *RasterStorage) EndFrame() {
 	defer rs.mu.Unlock()
 
 	rs.framesRendered++
-	rs.currentDamage.Clear()
+	// Damage is cleared at the beginning of BeginFrame (ownership: BeginFrame
+	// computes, Submit consumes, EndFrame retires). This allows the damage set
+	// to survive until the render decision is made (D1).
 }
 
 // Damage returns the current damage set.

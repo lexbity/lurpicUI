@@ -3,6 +3,9 @@ package software
 import (
 	"image"
 	"testing"
+
+	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/render"
 )
 
 func TestTilesFromRect(t *testing.T) {
@@ -205,8 +208,37 @@ func TestShouldFullRedraw(t *testing.T) {
 }
 
 func TestBatchTiles(t *testing.T) {
-	// This test would need render.FrameBatch, which we can't easily create here
-	// without importing the full render package internals
-	// For now, just test that the function exists and doesn't panic
-	t.Skip("Skipping BatchTiles test - requires internal render types")
+	// Test BatchTiles with a simple batch
+	// Create a frame batch with known bounds
+	batch := render.FrameBatch{
+		ID:     1,
+		Bounds: gfx.RectFromXYWH(10, 20, 30, 40),
+	}
+
+	// Calculate which tiles this affects on a 256x256 surface
+	surfaceSize := image.Point{X: 256, Y: 256}
+	tiles := BatchTiles(batch, surfaceSize)
+
+	// Batch at (10,20,30,40) should affect:
+	// - Tile (0,0) containing (0,0) to (64,64)
+	// Since 10-40 is within 0-64, only tile (0,0) should be affected
+	if len(tiles) != 1 {
+		t.Errorf("expected 1 tile, got %d", len(tiles))
+	}
+	if len(tiles) > 0 && (tiles[0].X != 0 || tiles[0].Y != 0) {
+		t.Errorf("expected tile (0,0), got %+v", tiles[0])
+	}
+
+	// Test with a batch that spans multiple tiles
+	// Batch at (60,60,80,80) -> x:60-140, y:60-140
+	// With TileSize=64: x tiles 0-2 (0-64, 64-128, 128-192), y tiles 0-2
+	// So this should affect 3x3 = 9 tiles
+	batch2 := render.FrameBatch{
+		ID:     2,
+		Bounds: gfx.RectFromXYWH(60, 60, 80, 80),
+	}
+	tiles2 := BatchTiles(batch2, surfaceSize)
+	if len(tiles2) != 9 {
+		t.Errorf("expected 9 tiles for spanning batch (60,60,80,80), got %d", len(tiles2))
+	}
 }
