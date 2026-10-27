@@ -149,11 +149,11 @@ func TestFullResultQueueDoesNotSpawnWorkers(t *testing.T) {
 
 	// Use a pool with enough capacity for all jobs.
 	config := PoolConfig{
-		WorkerCount:          2,
-		JobsWallet:           wallet,
-		RequireDeclarations: false,
+		WorkerCount:           2,
+		JobsWallet:            wallet,
+		RequireDeclarations:   false,
 		MaxWaitingInteractive: 100,
-		MaxTotalRecords:     100,
+		MaxTotalRecords:       100,
 	}
 	pool := NewPoolWithConfig(config)
 	defer pool.Shutdown()
@@ -441,7 +441,7 @@ func TestMemoryDeclOverflowRejected(t *testing.T) {
 	decl := JobMemoryDecl{
 		MaxInputBytes:   maxUint64 / 2,
 		MaxScratchBytes: maxUint64 / 2,
-		MaxOutputBytes:  2,  // This pushes the sum beyond maxUint64
+		MaxOutputBytes:  2, // This pushes the sum beyond maxUint64
 	}
 	_, err := decl.TotalBytes()
 	if err == nil {
@@ -459,7 +459,7 @@ func TestMemoryDeclOverflowMidRange(t *testing.T) {
 	// First addition overflows: maxUint64 - 100 + 100 + 1
 	decl := JobMemoryDecl{
 		MaxInputBytes:   maxUint64 - 100,
-		MaxScratchBytes: 101,  // This causes overflow when added to MaxInputBytes
+		MaxScratchBytes: 101, // This causes overflow when added to MaxInputBytes
 		MaxOutputBytes:  0,
 	}
 	_, err := decl.TotalBytes()
@@ -478,11 +478,11 @@ func TestZeroDeclarationRequired(t *testing.T) {
 
 	// Create a pool that requires declarations.
 	config := PoolConfig{
-		WorkerCount:          1,
-		JobsWallet:           wallet,
-		RequireDeclarations: true,
+		WorkerCount:           1,
+		JobsWallet:            wallet,
+		RequireDeclarations:   true,
 		MaxWaitingInteractive: 10,
-		MaxTotalRecords:     20,
+		MaxTotalRecords:       20,
 	}
 	pool := NewPoolWithConfig(config)
 	defer pool.Shutdown()
@@ -518,7 +518,7 @@ func TestClosedPoolReleasesReservation(t *testing.T) {
 	}
 
 	pool := NewPool(1, wallet)
-	
+
 	// Schedule a job to reserve memory.
 	err = Schedule(pool, Job[int, int]{
 		ID:       1,
@@ -536,10 +536,10 @@ func TestClosedPoolReleasesReservation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("first schedule failed: %v", err)
 	}
-	
+
 	// Close the pool.
 	pool.Shutdown()
-	
+
 	// Verify wallet is balanced (reservation was released).
 	cap, reserved, live, retiring := wallet.Snapshot()
 	_ = cap
@@ -559,11 +559,11 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 
 	// Create a pool with a small interactive queue (1 slot).
 	config := PoolConfig{
-		WorkerCount:          1,
-		JobsWallet:           wallet,
-		RequireDeclarations: false,
+		WorkerCount:           1,
+		JobsWallet:            wallet,
+		RequireDeclarations:   false,
 		MaxWaitingInteractive: 1,
-		MaxTotalRecords:     10,
+		MaxTotalRecords:       10,
 	}
 	pool := NewPoolWithConfig(config)
 	defer pool.Shutdown()
@@ -604,12 +604,12 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 		},
 	}, nil)
 	elapsed := time.Since(start)
-	
+
 	// Should get an admission refusal error.
 	if err == nil {
 		t.Fatal("expected admission refusal, got nil")
 	}
-	
+
 	// Check it's the right error type.
 	var refused ErrAdmissionRefused
 	if !errors.As(err, &refused) {
@@ -618,12 +618,12 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 	if refused.Queue != "interactive" {
 		t.Fatalf("expected queue=interactive, got %s", refused.Queue)
 	}
-	
+
 	// Should return immediately (non-blocking).
 	if elapsed > 1*time.Millisecond {
 		t.Fatalf("admission took %v, expected <1ms", elapsed)
 	}
-	
+
 	// Clean up.
 	close(release)
 	waitForResults(t, pool, 1)
@@ -664,7 +664,7 @@ func TestReplacementFencingTerminalOwnership(t *testing.T) {
 	// Replace with a second job (same ID).
 	release2 := make(chan struct{})
 	_ = Schedule(pool, Job[int, int]{
-		ID:       1,  // Same ID
+		ID:       1, // Same ID
 		Priority: PriorityBackground,
 		Snapshot: NewSnapshot(2),
 		Work: func(snap Snapshot[int], cancel *CancelToken) (int, error) {
@@ -770,14 +770,14 @@ func TestShutdownWithQueuedJobsConserves(t *testing.T) {
 
 	// Create a pool with enough capacity for 5 jobs.
 	config := PoolConfig{
-		WorkerCount:          1,
-		JobsWallet:           wallet,
-		RequireDeclarations: false,
+		WorkerCount:           1,
+		JobsWallet:            wallet,
+		RequireDeclarations:   false,
 		MaxWaitingInteractive: 10,
-		MaxTotalRecords:     10,
+		MaxTotalRecords:       10,
 	}
 	pool := NewPoolWithConfig(config)
-	
+
 	// Queue up several jobs.
 	for i := 0; i < 5; i++ {
 		err = Schedule(pool, Job[int, int]{
@@ -822,11 +822,11 @@ func TestQueueCapacityRefusal(t *testing.T) {
 
 	// Create a pool with small queue capacity.
 	config := PoolConfig{
-		WorkerCount:          1,
-		JobsWallet:           wallet,
-		RequireDeclarations: false,
+		WorkerCount:           1,
+		JobsWallet:            wallet,
+		RequireDeclarations:   false,
 		MaxWaitingInteractive: 2,
-		MaxTotalRecords:     10,
+		MaxTotalRecords:       10,
 	}
 	pool := NewPoolWithConfig(config)
 	defer pool.Shutdown()
@@ -872,7 +872,7 @@ func TestQueueCapacityRefusal(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected queue capacity refusal, got nil")
 	}
-	
+
 	var refused ErrAdmissionRefused
 	if !errors.As(err, &refused) {
 		t.Fatalf("expected ErrAdmissionRefused, got %T: %v", err, err)
@@ -890,29 +890,29 @@ func TestReservationConservationRandomInterleavings(t *testing.T) {
 	}
 
 	config := PoolConfig{
-		WorkerCount:          2,
-		JobsWallet:           wallet,
-		RequireDeclarations: false,
+		WorkerCount:           2,
+		JobsWallet:            wallet,
+		RequireDeclarations:   false,
 		MaxWaitingInteractive: 20,
-		MaxTotalRecords:     50,
+		MaxTotalRecords:       50,
 	}
 	_ = NewPoolWithConfig(config)
-	
+
 	// Run for a bounded number of operations.
 	const numOps = 50
 	const numSeeds = 2
-	
+
 	for seed := 0; seed < numSeeds; seed++ {
 		// Create a new pool for each seed.
 		poolForSeed := NewPoolWithConfig(config)
-		
+
 		// Use a deterministic RNG for reproducibility.
 		rng := rand.New(rand.NewSource(int64(seed)))
-		
+
 		// Track all job IDs.
 		jobIDs := make(map[JobID]bool)
 		nextID := JobID(1)
-		
+
 		for i := 0; i < numOps; i++ {
 			// Choose an operation.
 			switch rng.Intn(3) { // Removed shutdown case to avoid complexity
@@ -949,10 +949,10 @@ func TestReservationConservationRandomInterleavings(t *testing.T) {
 				poolForSeed.Drain()
 			}
 		}
-		
+
 		// Clean up.
 		poolForSeed.Shutdown()
-		
+
 		// Final verification.
 		cap, reserved, live, retiring := wallet.Snapshot()
 		_ = cap

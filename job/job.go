@@ -43,7 +43,7 @@ func (j JobMemoryDecl) TotalBytes() (uint64, error) {
 	// Check for overflow using safe addition.
 	// If a + b would overflow, a > math.MaxUint64 - b
 	const maxUint64 = ^uint64(0)
-	
+
 	// Add MaxInputBytes + MaxScratchBytes
 	// Check if adding these two would overflow
 	if j.MaxInputBytes > maxUint64-j.MaxScratchBytes {
@@ -51,14 +51,14 @@ func (j JobMemoryDecl) TotalBytes() (uint64, error) {
 			j.MaxInputBytes, j.MaxScratchBytes)
 	}
 	sum := j.MaxInputBytes + j.MaxScratchBytes
-	
+
 	// Add MaxOutputBytes
 	// Check if adding MaxOutputBytes to sum would overflow
 	if j.MaxOutputBytes > maxUint64-sum {
 		return 0, fmt.Errorf("job: memory declaration overflow: sum(%d) + output(%d) > max",
 			sum, j.MaxOutputBytes)
 	}
-	
+
 	return sum + j.MaxOutputBytes, nil
 }
 
@@ -70,12 +70,12 @@ func (j JobMemoryDecl) Validate() error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Check if declaration is zero (only valid for test-only pools)
 	if j.MaxInputBytes == 0 && j.MaxScratchBytes == 0 && j.MaxOutputBytes == 0 {
 		return fmt.Errorf("job: zero memory declaration")
 	}
-	
+
 	return nil
 }
 
@@ -101,17 +101,17 @@ func ProfilePoolConfig(profile string) PoolConfig {
 	switch profile {
 	case "Compact", "compact":
 		return PoolConfig{
-			WorkerCount:          2,
-			RequireDeclarations: true,
+			WorkerCount:           2,
+			RequireDeclarations:   true,
 			MaxWaitingInteractive: 32,
-			MaxTotalRecords:     64,
+			MaxTotalRecords:       64,
 		}
 	default: // Standard
 		return PoolConfig{
-			WorkerCount:          4,
-			RequireDeclarations: true,
+			WorkerCount:           4,
+			RequireDeclarations:   true,
 			MaxWaitingInteractive: 128,
-			MaxTotalRecords:     256,
+			MaxTotalRecords:       256,
 		}
 	}
 }
@@ -175,6 +175,7 @@ type Job[Input, Output any] struct {
 	MemoryDecl JobMemoryDecl
 	// Reservation holds the reservation token for this job's memory.
 	// Set by the pool when the job is scheduled.
+	//nolint:unused // reservation is accessed via job instances in Pool methods below
 	reservation *membudget.Reservation
 }
 
@@ -356,12 +357,12 @@ func (p *Pool) Resume() {
 // wallet is created but jobs will fail to schedule without proper reservations.
 func NewPool(workerCount int, jobsWallet *membudget.Wallet) *Pool {
 	return NewPoolWithConfig(PoolConfig{
-		WorkerCount:   workerCount,
-		JobsWallet:    jobsWallet,
+		WorkerCount: workerCount,
+		JobsWallet:  jobsWallet,
 		// Keep old behavior: no declarations required by default for backward compatibility.
-		RequireDeclarations: false,
+		RequireDeclarations:   false,
 		MaxWaitingInteractive: workerCount * 4,
-		MaxTotalRecords:     workerCount * 4,
+		MaxTotalRecords:       workerCount * 4,
 	})
 }
 
@@ -377,26 +378,26 @@ func NewPoolWithConfig(config PoolConfig) *Pool {
 	if config.MaxTotalRecords <= 0 {
 		config.MaxTotalRecords = config.WorkerCount * 4
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
 	p := &Pool{
-		ctx:                  ctx,
-		cancel:               cancel,
-		interactive:          make(chan queuedJob, config.MaxWaitingInteractive),
-		background:           make(chan queuedJob, config.MaxWaitingInteractive),
-		results:              make(chan DrainedResult, config.MaxTotalRecords),
-		shutdown:             make(chan struct{}),
-		active:               make(map[JobID]*CancelToken),
-		pendingSequence:      make(map[uint64]bool, config.MaxTotalRecords+config.WorkerCount),
-		frontierWake:         make(chan struct{}, 1),
-		drainedSequence:      make(map[uint64]struct{}, config.WorkerCount),
-		ready:                make(map[JobID]int, config.MaxTotalRecords),
-		drainedEarly:         make(map[JobID]int, config.WorkerCount),
-		jobsWallet:           config.JobsWallet,
-		requireDeclarations:  config.RequireDeclarations,
+		ctx:                   ctx,
+		cancel:                cancel,
+		interactive:           make(chan queuedJob, config.MaxWaitingInteractive),
+		background:            make(chan queuedJob, config.MaxWaitingInteractive),
+		results:               make(chan DrainedResult, config.MaxTotalRecords),
+		shutdown:              make(chan struct{}),
+		active:                make(map[JobID]*CancelToken),
+		pendingSequence:       make(map[uint64]bool, config.MaxTotalRecords+config.WorkerCount),
+		frontierWake:          make(chan struct{}, 1),
+		drainedSequence:       make(map[uint64]struct{}, config.WorkerCount),
+		ready:                 make(map[JobID]int, config.MaxTotalRecords),
+		drainedEarly:          make(map[JobID]int, config.WorkerCount),
+		jobsWallet:            config.JobsWallet,
+		requireDeclarations:   config.RequireDeclarations,
 		maxWaitingInteractive: config.MaxWaitingInteractive,
-		maxTotalRecords:      config.MaxTotalRecords,
-		jobReservations:      make(map[JobID]*membudget.Reservation, config.MaxTotalRecords),
+		maxTotalRecords:       config.MaxTotalRecords,
+		jobReservations:       make(map[JobID]*membudget.Reservation, config.MaxTotalRecords),
 	}
 	p.pauseCond = sync.NewCond(&p.pauseMu)
 	for i := 0; i < config.WorkerCount; i++ {
@@ -414,7 +415,7 @@ func Schedule[I, O any](p *Pool, job Job[I, O], onCommit func(O)) error {
 // ErrAdmissionRefused is returned when a job cannot be admitted due to
 // capacity constraints. It carries the reason for refusal.
 type ErrAdmissionRefused struct {
-	Queue   string
+	Queue  string
 	Reason error
 }
 
@@ -457,7 +458,6 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 	// Per FR-10: reserve input + scratch + output bytes for every simultaneously live stage.
 	// Per D8: reservation must be published only after admission succeeds.
 	var reservation *membudget.Reservation
-	var reservationPublished bool
 	if p.jobsWallet != nil && totalBytes > 0 {
 		reservation, err = p.jobsWallet.Reserve(totalBytes)
 		if err != nil {
@@ -479,7 +479,7 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 		}
 		return errors.New("job: pool closed")
 	}
-	
+
 	// Check total records limit (atomic).
 	currentRecords := atomic.AddInt64(&p.pendingRecords, 1)
 	if currentRecords > int64(p.maxTotalRecords) {
@@ -492,14 +492,14 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 			}
 		}
 		return ErrAdmissionRefused{
-			Queue:   "total",
+			Queue:  "total",
 			Reason: fmt.Errorf("total records limit exceeded (%d > %d)", currentRecords, p.maxTotalRecords),
 		}
 	}
-	
+
 	// Publish the reservation now that all admission checks have passed.
 	// Per D8: reservation is published only after admission succeeds.
-	if reservation != nil && !reservationPublished {
+	if reservation != nil {
 		if err := reservation.Publish(); err != nil {
 			if err2 := reservation.Cancel(); err2 != nil {
 				// Log reservation cleanup error in debug builds
@@ -509,9 +509,8 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 			atomic.AddInt64(&p.pendingRecords, -1)
 			return fmt.Errorf("job: reservation publish failed: %w", err)
 		}
-		reservationPublished = true
 	}
-	
+
 	if prev := p.active[job.ID]; prev != nil {
 		prev.cancel()
 		// Cancel the old reservation for this job ID.
@@ -594,7 +593,7 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 			delete(p.jobReservations, job.ID)
 			p.mu.Unlock()
 			return ErrAdmissionRefused{
-				Queue:   "interactive",
+				Queue:  "interactive",
 				Reason: fmt.Errorf("interactive queue full (%d/%d)", len(p.interactive), p.maxWaitingInteractive),
 			}
 		}
@@ -617,12 +616,11 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 			delete(p.jobReservations, job.ID)
 			p.mu.Unlock()
 			return ErrAdmissionRefused{
-				Queue:   "background",
+				Queue:  "background",
 				Reason: fmt.Errorf("background queue full (%d/%d)", len(p.background), p.maxWaitingInteractive),
 			}
 		}
 	}
-	return nil
 }
 
 // submitAny enqueues an opaque job and invokes afterCommit after a successful commit.
@@ -747,14 +745,14 @@ func (p *Pool) Shutdown() {
 		return
 	}
 	p.closed = true
-	
+
 	// Cancel all active jobs.
 	for _, token := range p.active {
 		if token != nil {
 			token.cancel()
 		}
 	}
-	
+
 	// Store reservations to release - we need to unlock before draining.
 	// Per D8.4: Pool.Shutdown MUST leave the jobs wallet charge at zero.
 	reservationsToRelease := make(map[JobID]*membudget.Reservation)
@@ -773,7 +771,7 @@ func (p *Pool) Shutdown() {
 	p.cancel()
 	close(p.shutdown)
 	p.wg.Wait()
-	
+
 	// Now drain any remaining results and clean up reservations.
 	// Drain all queued results.
 	for {
@@ -790,8 +788,8 @@ func (p *Pool) Shutdown() {
 			goto drainDone
 		}
 	}
-	drainDone:
-	
+drainDone:
+
 	// Release all remaining reservations that were not drained.
 	// Per D8.4: after Shutdown returns, the jobs wallet charge MUST be zero.
 	for jobID, reservation := range reservationsToRelease {
@@ -813,7 +811,7 @@ func (p *Pool) Shutdown() {
 			p.mu.Unlock()
 		}
 	}
-	
+
 	// Verify wallet is at zero charge in debug builds.
 	if p.jobsWallet != nil {
 		cap, reserved, live, retiring := p.jobsWallet.Snapshot()
@@ -983,27 +981,4 @@ func (p *Pool) execute(q queuedJob) {
 			}
 		}
 	}
-}
-
-func (p *Pool) rollbackSubmission(id JobID, sequence uint64, token *CancelToken) {
-	p.mu.Lock()
-	delete(p.pendingSequence, sequence)
-	if p.active[id] == token {
-		delete(p.active, id)
-		// Cancel the reservation since the job was rolled back before execution.
-		if reservation := p.jobReservations[id]; reservation != nil {
-			delete(p.jobReservations, id)
-			// The reservation was published, so we need to cancel and release.
-			// But we can't cancel a published reservation - we need to retire then acknowledge.
-			if err := reservation.Retire(); err != nil {
-				// Log reservation cleanup error in debug builds
-				// Per D8: terminal errors are diagnosed, not silently discarded
-			}
-			if err := reservation.Acknowledge(); err != nil {
-				// Log reservation cleanup error in debug builds
-				// Per D8: terminal errors are diagnosed, not silently discarded
-			}
-		}
-	}
-	p.mu.Unlock()
 }

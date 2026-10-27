@@ -7,6 +7,8 @@ import (
 	"os"
 
 	"codeburg.org/lexbit/lurpicui/assets"
+	"codeburg.org/lexbit/lurpicui/internal/membudget"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/platform/android"
 	"codeburg.org/lexbit/lurpicui/runtime"
 )
@@ -15,10 +17,15 @@ import (
 var newPlatformApp = android.NewApp
 
 func init() {
-	initAssetManager = openAndroidAssetManager
+	// Android initAssetManager needs to accept the jobPool parameter to match
+	// the desktop path signature. Use a wrapper that ignores the pool for now
+	// and update openAndroidAssetManager to use it.
+	initAssetManager = func(rtConfig *runtime.Config, jobPool *job.Pool) {
+		openAndroidAssetManager(rtConfig, jobPool)
+	}
 }
 
-func openAndroidAssetManager(rtConfig *runtime.Config) {
+func openAndroidAssetManager(rtConfig *runtime.Config, jobPool *job.Pool) {
 	if rtConfig.AssetManager != nil {
 		return
 	}
@@ -35,8 +42,32 @@ func openAndroidAssetManager(rtConfig *runtime.Config) {
 	// Load the UUID registry from the APK's assets when available.
 	// The cook pipeline produces uuid_registry.json alongside assets.pak.
 	idReg := loadAndroidIDRegistry()
+	
+	// Get the assets wallet from the resource plan.
+	// Per D9: the application owns pool construction; the runtime and asset manager consume it.
+	var assetsWallet *membudget.Wallet
+	if rtConfig.Resources.Plan.Caps[membudget.AssetsCPU] > 0 {
+		var err error
+		assetsWallet, err = membudget.NewWallet(rtConfig.Resources.Plan.Caps[membudget.AssetsCPU])
+		if err != nil {
+			assetsWallet = nil
+		}
+	}
+	
+	// Per D9: Android uses the identical wiring as desktop.
+	// Platform code specializes only the asset source (pak vs devfs).
 	backendType := assetBackendFromRuntimeConfig(rtConfig)
-	rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
+	if assetsWallet != nil && jobPool != nil {
+		rtConfig.AssetManager = assets.NewManagerWithBudget(reg, pak, idReg, jobPool, assetsWallet, nil, assets.ResidencyCPUOnly)
+	} else if jobPool != nil {
+		rtConfig.AssetManager = assets.NewManagerWithBudget(reg, pak, idReg, jobPool, nil, nil, assets.ResidencyCPUOnly)
+	} else if assetsWallet != nil {
+		rtConfig.AssetManager = assets.NewManagerWithBudget(reg, pak, idReg, nil, assetsWallet, nil, assets.ResidencyCPUOnly)
+	} else {
+		// Fallback to legacy constructor for backward compatibility with tests.
+		// Production code should always provide both pool and wallet.
+		rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
+	}
 	rtConfig.AssetRegistry = reg
 }
 

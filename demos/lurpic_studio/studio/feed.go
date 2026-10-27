@@ -101,7 +101,7 @@ func (f *Feed) submitTick() {
 	appState := f.appState
 	interval := f.cadence.Get()
 	snap := job.NewSnapshot(float64(now.UnixNano())/1e9, appState.Rows.Version())
-	
+
 	// Memory declaration for the job.
 	// Per D9: declarations are required.
 	// Input: float64 snapshot (8 bytes) + version slice (conservatively 32 bytes)
@@ -113,9 +113,9 @@ func (f *Feed) submitTick() {
 		Priority: job.PriorityBackground,
 		Snapshot: snap,
 		MemoryDecl: job.JobMemoryDecl{
-			MaxInputBytes:   40,   // float64 + version info
-			MaxScratchBytes: 0,    // pure compute, no scratch buffers
-			MaxOutputBytes:  128,  // Row struct + string
+			MaxInputBytes:   40,  // float64 + version info
+			MaxScratchBytes: 0,   // pure compute, no scratch buffers
+			MaxOutputBytes:  128, // Row struct + string
 		},
 		Work: func(s job.Snapshot[float64], cancel *job.CancelToken) (dataset.Row, error) {
 			return generateRow(unixToTime(s.Data), interval, tickIndex), nil
