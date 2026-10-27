@@ -59,7 +59,11 @@ func scanDir(t testing.TB, root string, fn func(path string, data []byte)) {
 		}
 		if d.IsDir() {
 			base := filepath.Base(path)
-			if base == ".git" || base == "vendor" {
+			// build/ holds generated outputs and evidence drops (e.g.
+			// build/runtime-evidence review artifacts); a source contract
+			// must not read them, the same rule that keeps them out of
+			// `go list ./...`.
+			if base == ".git" || base == "vendor" || base == "build" {
 				return filepath.SkipDir
 			}
 			return nil

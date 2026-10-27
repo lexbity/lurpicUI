@@ -12,7 +12,6 @@ import (
 	"sync"
 
 	"codeburg.org/lexbit/lurpicui/gfx"
-	"codeburg.org/lexbit/lurpicui/internal/membudget"
 	"codeburg.org/lexbit/lurpicui/internal/renderutil"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/text"
@@ -69,8 +68,6 @@ type SoftwareRenderer struct {
 	// Tile-based rendering infrastructure
 	// rasterStorage manages tile-based rendering and damage tracking
 	rasterStorage *RasterStorage
-	// tileCache caches rasterized tiles
-	tileCache *TileCache
 	// tileGrid tracks the tile grid for the current surface
 	tileGrid *TileGrid
 
@@ -103,27 +100,11 @@ func (r *SoftwareRenderer) Initialize(surface render.Surface) error {
 	// Create tile grid
 	r.tileGrid = NewTileGrid(w, h)
 
-	// Create tile cache with a reasonable default configuration
-	// This will be properly configured by the resource plan in a full implementation
-	wallet, err := membudget.NewWallet(48 << 20) // 48 MiB for software raster
-	if err != nil {
-		return err
-	}
-	tileCache, err := NewTileCache(TileCacheConfig{
-		Wallet:     wallet,
-		MaxEntries: 16384, // 4096 for compact, 16384 for standard
-	})
-	if err != nil {
-		return err
-	}
-	r.tileCache = tileCache
-
 	// Create raster storage
 	r.rasterStorage = NewRasterStorage(RasterStorageConfig{
-		WindowID:  r.windowID,
-		TileCache: tileCache,
-		Width:     w,
-		Height:    h,
+		WindowID: r.windowID,
+		Width:    w,
+		Height:   h,
 	})
 
 	r.allocateOutput(w, h)
@@ -166,7 +147,6 @@ func (r *SoftwareRenderer) Destroy() {
 	r.width = 0
 	r.height = 0
 	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
-	r.tileCache = nil
 	r.rasterStorage = nil
 	r.tileGrid = nil
 }
@@ -179,12 +159,6 @@ func (r *SoftwareRenderer) EvictCaches() {
 		window.EvictCaches()
 	}
 	r.glyphAtlas = &glyphAtlas{entries: make(map[renderutil.GlyphAtlasKey]*glyphEntry)}
-	if r.tileCache != nil {
-		r.tileCache.Clear()
-	}
-	if r.rasterStorage != nil {
-		// Clear raster storage will be handled by tile cache eviction
-	}
 	r.rasterizeCount = 0
 }
 
@@ -200,6 +174,12 @@ func (r *SoftwareRenderer) GlyphRasterizeCount() int {
 	r.glyphAtlas.mu.Lock()
 	defer r.glyphAtlas.mu.Unlock()
 	return r.glyphAtlas.rasterizeCount
+}
+
+// rectanglesIntersect returns true if two integer rectangles intersect.
+func rectanglesIntersect(a, b image.Rectangle) bool {
+	return a.Min.X < b.Max.X && a.Max.X > b.Min.X &&
+		a.Min.Y < b.Max.Y && a.Max.Y > b.Min.Y
 }
 
 // calculateTileRenderingInfo determines which batches intersect each damaged tile

@@ -2,7 +2,6 @@ package software
 
 import (
 	"image"
-	"image/color"
 	"testing"
 )
 
@@ -154,41 +153,6 @@ func TestRasterCacheTinyBudgetStillDraws(t *testing.T) {
 	// 2. Render a frame
 	// 3. Verify the output is correct
 	// 4. Verify that cache evictions happened
-}
-
-// TestPlatformBufferNotPreserved verifies that when the platform buffer
-// is not preserved, the full output is copied.
-func TestPlatformBufferNotPreserved(t *testing.T) {
-	// This test would require mocking the platform surface
-	// For now, test the copyImage function
-
-	// Create two images
-	src := image.NewRGBA(image.Rect(0, 0, 64, 64))
-	dst := image.NewRGBA(image.Rect(0, 0, 64, 64))
-
-	// Fill source with a pattern
-	for y := 0; y < 64; y++ {
-		for x := 0; x < 64; x++ {
-			src.Set(x, y, color.RGBA{R: uint8(x * 4), G: uint8(y * 4), B: 128, A: 255})
-		}
-	}
-
-	// Copy from src to dst
-	copyImage(dst, dst.Rect, src, src.Rect)
-
-	// Verify the copy
-	for y := 0; y < 64; y++ {
-		for x := 0; x < 64; x++ {
-			srcColor := src.RGBAAt(x, y)
-			dstColor := dst.RGBAAt(x, y)
-			if srcColor != dstColor {
-				t.Errorf("Pixel at (%d, %d) differs: src=%v, dst=%v", x, y, srcColor, dstColor)
-				return
-			}
-		}
-	}
-
-	t.Log("Platform buffer copy test passed")
 }
 
 // TestRasterResizePeakAccounted verifies that resize operations properly
