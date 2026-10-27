@@ -3,6 +3,7 @@ package testevidence
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -52,7 +53,7 @@ func fixtureGate(pkg string, tests ...string) Gate {
 	return Gate{
 		ID:               "fixture-gate",
 		Phase:            "fixture",
-		Package:          pkg,
+		Package:          "fixture",
 		Tests:            tests,
 		Mode:             ModeHost,
 		Required:         true,
@@ -235,5 +236,165 @@ func TestPassingGateWritesEvidence(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(report.EvidenceDir, "fixture-gate", "proof.json")); err != nil {
 		t.Fatalf("declared artifact: %v", err)
+	}
+}
+
+// Package-terminal event negative controls (D10.1).
+
+// TestMissingPackageTerminalFails verifies that a stream with valid per-test
+// events but NO package-level terminal event (pass/fail/skip with Test="")
+// fails the gate. This is the core requirement: synthetic wrappers that emit
+// per-test events without a package terminal must not pass.
+func TestMissingPackageTerminalFails(t *testing.T) {
+	root := fixtureModule(t, map[string]string{
+		"pass_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestPass(t *testing.T) {}\n",
+	})
+	// Override go command to produce events without package terminal
+	fakeGo := filepath.Join(root, "fake-go")
+	script := `#!/bin/sh
+case "$2" in
+-list)
+  echo TestPass
+  exit 0
+  ;;
+-json)
+  printf '%s\n' '{"Action":"start","Package":"fixture","Test":""}'
+  printf '%s\n' '{"Action":"run","Package":"fixture","Test":"TestPass"}'
+  printf '%s\n' '{"Action":"pass","Package":"fixture","Test":"TestPass","Elapsed":0.1}'
+  # Missing: {"Action":"pass","Package":"fixture","Test":"","Elapsed":0.1}
+  exit 0
+  ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(fakeGo, []byte(script), 0o755); err != nil {
+		t.Fatalf("fake go: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	runner := &Runner{Root: root, GoCmd: fakeGo, EvidenceRoot: t.TempDir()}
+	report, err := runner.Run(ctx, fixtureManifest(t, []Gate{fixtureGate(".", "TestPass")}), Options{})
+	if err == nil {
+		t.Fatal("a stream with per-test events but no package-terminal event must fail")
+	}
+	if report == nil || report.Gates[0].Passed {
+		t.Fatalf("report = %+v, want failed", report)
+	}
+}
+
+// TestWrongPackageProvenanceFails verifies that package events with a
+// foreign package name (not matching the gate's Package field) fail.
+func TestWrongPackageProvenanceFails(t *testing.T) {
+	root := fixtureModule(t, map[string]string{
+		"pass_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestPass(t *testing.T) {}\n",
+	})
+	fakeGo := filepath.Join(root, "fake-go")
+	script := `#!/bin/sh
+case "$2" in
+-list)
+  echo TestPass
+  exit 0
+  ;;
+-json)
+  printf '%s\n' '{"Action":"start","Package":"foreign","Test":""}'
+  printf '%s\n' '{"Action":"run","Package":"foreign","Test":"TestPass"}'
+  printf '%s\n' '{"Action":"pass","Package":"foreign","Test":"TestPass","Elapsed":0.1}'
+  printf '%s\n' '{"Action":"pass","Package":"foreign","Test":"","Elapsed":0.1}'
+  exit 0
+  ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(fakeGo, []byte(script), 0o755); err != nil {
+		t.Fatalf("fake go: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	runner := &Runner{Root: root, GoCmd: fakeGo, EvidenceRoot: t.TempDir()}
+	report, err := runner.Run(ctx, fixtureManifest(t, []Gate{fixtureGate(".", "TestPass")}), Options{})
+	if err == nil {
+		t.Fatal("package events with wrong provenance must fail")
+	}
+	if report == nil || report.Gates[0].Passed {
+		t.Fatalf("report = %+v, want failed", report)
+	}
+}
+
+// TestAllPackagesTerminalPasses is the positive control: a complete stream
+// with package-terminal events passes.
+func TestAllPackagesTerminalPasses(t *testing.T) {
+	root := fixtureModule(t, map[string]string{
+		"ok_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestPresent(t *testing.T) {}\n",
+	})
+	fakeGo := filepath.Join(root, "fake-go")
+	script := `#!/bin/sh
+case "$2" in
+-list)
+  echo TestPresent
+  exit 0
+  ;;
+-json)
+  printf '%s\n' '{"Action":"start","Package":"fixture","Test":""}'
+  printf '%s\n' '{"Action":"run","Package":"fixture","Test":"TestPresent"}'
+  printf '%s\n' '{"Action":"pass","Package":"fixture","Test":"TestPresent","Elapsed":0.1}'
+  printf '%s\n' '{"Action":"pass","Package":"fixture","Test":"","Elapsed":0.1}'
+  exit 0
+  ;;
+esac
+exit 0
+`
+	if err := os.WriteFile(fakeGo, []byte(script), 0o755); err != nil {
+		t.Fatalf("fake go: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	runner := &Runner{Root: root, GoCmd: fakeGo, EvidenceRoot: t.TempDir()}
+	report, err := runner.Run(ctx, fixtureManifest(t, []Gate{fixtureGate(".", "TestPresent")}), Options{})
+	if err != nil {
+		t.Fatalf("complete stream must pass: %v (%+v)", err, report)
+	}
+	if report == nil || !report.Passed {
+		t.Fatalf("report = %+v, want passed", report)
+	}
+}
+
+// TestScannerErrorFails verifies that a scanner-level error (not a
+// malformed-line error) fails the gate.
+func TestScannerErrorFails(t *testing.T) {
+	root := fixtureModule(t, map[string]string{
+		"ok_test.go": "package fixture\n\nimport \"testing\"\n\nfunc TestOk(t *testing.T) {}\n",
+	})
+	fakeGo := filepath.Join(root, "fake-go")
+	// Produce an oversized line that exceeds the scanner buffer
+	// The scanner uses a 64KB buffer and 4MB max; we exceed the buffer
+	bigLine := strings.Repeat("x", 1024*1024) // 1 MB line
+	script := fmt.Sprintf(`#!/bin/sh
+case "$2" in
+-list)
+  echo TestOk
+  exit 0
+  ;;
+-json)
+  printf '%%s\n' '{"Action":"start","Package":"fixture","Test":""}'
+  printf '%%s\n' '{"Action":"run","Package":"fixture","Test":"TestOk"}'
+  # Emit a line that the scanner will fail to buffer
+  printf '%%s\n' '%s'
+  exit 0
+  ;;
+esac
+exit 0
+`, bigLine)
+	if err := os.WriteFile(fakeGo, []byte(script), 0o755); err != nil {
+		t.Fatalf("fake go: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	runner := &Runner{Root: root, GoCmd: fakeGo, EvidenceRoot: t.TempDir()}
+	report, err := runner.Run(ctx, fixtureManifest(t, []Gate{fixtureGate(".", "TestOk")}), Options{})
+	if err == nil {
+		t.Fatal("a scanner error must fail the gate")
+	}
+	if report == nil || report.Gates[0].Passed {
+		t.Fatalf("report = %+v, want failed", report)
 	}
 }

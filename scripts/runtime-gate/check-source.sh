@@ -5,6 +5,15 @@ root=${1:-.}
 phase=${2:-P1}
 cd "$root"
 
+# P1 build-truth gate: go list ./... must succeed module-wide (V8/D10.3).
+# Any directory containing Go files that is not a proper module package must
+# be excluded via a go.mod stub; otherwise the command fails.
+go_list_output=$(go list ./... 2>&1) || true
+if [[ "$go_list_output" == *"found packages"* ]] || [[ "$go_list_output" != *"codeburg.org/lexbit/lurpicui"* ]]; then
+	printf 'go list ./... failed: %s\n' "$go_list_output" >&2
+	exit 1
+fi
+
 expect_absent() {
 	if rg -n "$@"; then
 		printf '%s\n' 'forbidden source pattern found' >&2

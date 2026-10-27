@@ -71,15 +71,16 @@ type GateResult struct {
 
 // RunRecord is one controlled repetition of a gate.
 type RunRecord struct {
-	Repetition   int      `json:"repetition"`
-	Passed       bool     `json:"passed"`
-	DurationMS   int64    `json:"duration_ms"`
-	ExitCode     int      `json:"exit_code"`
-	TimedOut     bool     `json:"timed_out"`
-	BudgetFailed string   `json:"budget_failed,omitempty"`
-	Completed    []string `json:"completed"`
-	Skipped      []string `json:"skipped,omitempty"`
-	OutputTail   string   `json:"output_tail,omitempty"`
+	Repetition    int      `json:"repetition"`
+	Passed        bool     `json:"passed"`
+	DurationMS    int64    `json:"duration_ms"`
+	ExitCode      int      `json:"exit_code"`
+	TimedOut      bool     `json:"timed_out"`
+	BudgetFailed  string   `json:"budget_failed,omitempty"`
+	Completed     []string `json:"completed"`
+	Skipped       []string `json:"skipped,omitempty"`
+	OutputTail    string   `json:"output_tail,omitempty"`
+	StackCaptured bool     `json:"stack_captured,omitempty"`
 }
 
 // Report is the committed, machine-readable evidence summary.
@@ -105,12 +106,16 @@ type testEvent struct {
 }
 
 type runState struct {
-	mu        sync.Mutex
-	running   map[string]time.Time
-	completed map[string]bool
-	skipped   map[string]bool
-	seenRun   map[string]bool
-	lastLine  time.Time
+	mu               sync.Mutex
+	running          map[string]time.Time
+	completed        map[string]bool
+	skipped          map[string]bool
+	seenRun          map[string]bool
+	lastLine         time.Time
+	packagesSeen     map[string]bool
+	packagesTerminal map[string]bool
+	packageMismatch  []string
+	gatePackage      string
 }
 
 // Run executes the selected manifest slice and writes evidence. It returns a
@@ -265,19 +270,21 @@ func (r *Runner) runGate(ctx context.Context, g Gate, rootDir string) GateResult
 		res.Runs = append(res.Runs, record)
 		if !record.Passed {
 			allPassed = false
-		}
-	}
-	if allPassed {
-		for _, artifact := range g.Artifacts {
-			path := filepath.Join(res.EvidenceDir, artifact)
-			if st, err := os.Stat(path); err != nil || st.IsDir() {
-				res.Failures = append(res.Failures, "missing artifact "+artifact)
+		} else {
+			// Check artifacts per repetition (D10.1): fail fast if artifacts are missing
+			for _, artifact := range g.Artifacts {
+				path := filepath.Join(res.EvidenceDir, artifact)
+				if st, err := os.Stat(path); err != nil || st.IsDir() {
+					res.Failures = append(res.Failures, "missing artifact "+artifact+" (repetition "+fmt.Sprint(rep)+")")
+					allPassed = false
+				}
 			}
-		}
-		for _, caseID := range g.RequiredCaseIDs {
-			path := filepath.Join(res.EvidenceDir, sanitize(caseID)+".json")
-			if st, err := os.Stat(path); err != nil || st.IsDir() {
-				res.Failures = append(res.Failures, "missing case evidence "+caseID)
+			for _, caseID := range g.RequiredCaseIDs {
+				path := filepath.Join(res.EvidenceDir, sanitize(caseID)+".json")
+				if st, err := os.Stat(path); err != nil || st.IsDir() {
+					res.Failures = append(res.Failures, "missing case evidence "+caseID+" (repetition "+fmt.Sprint(rep)+")")
+					allPassed = false
+				}
 			}
 		}
 	}
@@ -376,11 +383,15 @@ func (r *Runner) runOnce(ctx context.Context, g Gate, dir string, rep int) RunRe
 	}
 
 	state := &runState{
-		running:   make(map[string]time.Time),
-		completed: make(map[string]bool),
-		skipped:   make(map[string]bool),
-		seenRun:   make(map[string]bool),
-		lastLine:  r.Now(),
+		running:          make(map[string]time.Time),
+		completed:        make(map[string]bool),
+		skipped:          make(map[string]bool),
+		seenRun:          make(map[string]bool),
+		lastLine:         r.Now(),
+		packagesSeen:     make(map[string]bool),
+		packagesTerminal: make(map[string]bool),
+		packageMismatch:  []string{},
+		gatePackage:      g.Package,
 	}
 	var output bytes.Buffer
 	budgetHit := make(chan string, 1)
@@ -390,7 +401,7 @@ func (r *Runner) runOnce(ctx context.Context, g Gate, dir string, rep int) RunRe
 			budgetHit <- name
 			cancel()
 		})
-	})
+	}, cmd)
 
 	sc := bufio.NewScanner(stdout)
 	sc.Buffer(make([]byte, 64*1024), 4*1024*1024)
@@ -406,6 +417,21 @@ func (r *Runner) runOnce(ctx context.Context, g Gate, dir string, rep int) RunRe
 		}
 		state.mu.Lock()
 		state.lastLine = r.Now()
+		// Handle package-level events (Test == "")
+		if ev.Test == "" {
+			// Track that we've seen this package
+			if ev.Package != "" && ev.Action == "start" {
+				state.packagesSeen[ev.Package] = true
+			}
+			// Mark package as terminal on pass/fail/skip
+			if ev.Package != "" && (ev.Action == "pass" || ev.Action == "fail" || ev.Action == "skip") {
+				state.packagesTerminal[ev.Package] = true
+			}
+			// Check package provenance: ev.Package must match gate.Package
+			if ev.Package != "" && ev.Package != state.gatePackage {
+				state.packageMismatch = append(state.packageMismatch, ev.Package)
+			}
+		}
 		switch ev.Action {
 		case "run":
 			if ev.Test != "" {
@@ -437,12 +463,13 @@ func (r *Runner) runOnce(ctx context.Context, g Gate, dir string, rep int) RunRe
 	waitErr := cmd.Wait()
 	watchdog.Stop()
 	rec.DurationMS = r.Now().Sub(start).Milliseconds()
+	// Record whether stack was captured by the watchdog
+	rec.StackCaptured = watchdog.StackCaptured()
 
-	select {
-	case name := <-budgetHit:
+	// Check if budget was hit - drain the channel if present
+	if len(budgetHit) > 0 {
 		rec.TimedOut = true
-		rec.BudgetFailed = name
-	default:
+		rec.BudgetFailed = <-budgetHit
 	}
 	if runCtx.Err() == context.DeadlineExceeded && !rec.TimedOut {
 		rec.TimedOut = true
@@ -519,6 +546,26 @@ func (r *Runner) verify(g Gate, rec RunRecord, state *runState) bool {
 	// evidence, even if the package exited zero.
 	state.mu.Lock()
 	defer state.mu.Unlock()
+	// Package-terminal event verification (D10.1):
+	// If the process exited successfully (ExitCode==0 and !TimedOut), we require:
+	// 1. Every package that appeared in the stream must have a terminal action
+	// 2. At least one package must have appeared
+	// 3. Every package must match the gate's declared package (provenance)
+	// If the process was killed (timeout, non-zero exit), we cannot require
+	// package-terminal events as the process may have been terminated mid-stream.
+	if rec.ExitCode == 0 && !rec.TimedOut {
+		if len(state.packagesSeen) == 0 {
+			return false
+		}
+		for pkg := range state.packagesSeen {
+			if !state.packagesTerminal[pkg] {
+				return false
+			}
+		}
+		if len(state.packageMismatch) > 0 {
+			return false
+		}
+	}
 	for name := range state.seenRun {
 		if !state.completed[name] && !state.skipped[name] {
 			return false

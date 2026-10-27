@@ -168,7 +168,8 @@ func validateBenchmarkOutput(output []byte, benchmark string) error {
 	if bytes.Contains(output, []byte("--- SKIP: Benchmark"+benchmark)) {
 		return fmt.Errorf("required benchmark %s skipped", benchmark)
 	}
-	benchmarkLine := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(benchmark) + `-[0-9]+[[:space:]]`)
+	// Match: BenchmarkName, BenchmarkName-16, BenchmarkName/sub, BenchmarkName-16/sub
+	benchmarkLine := regexp.MustCompile(`(?m)^` + regexp.QuoteMeta(benchmark) + `(?:-[0-9]+)?(?:/[^\s]*)?[[:space:]]`)
 	if !benchmarkLine.Match(output) {
 		return fmt.Errorf("required benchmark %s did not produce a measurement", benchmark)
 	}
