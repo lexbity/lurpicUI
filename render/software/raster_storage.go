@@ -105,15 +105,26 @@ func (rs *RasterStorage) BeginFrame(frame *render.Frame) {
 
 		rs.lastFrameTiles = newFrameTiles
 	} else if frame != nil {
-		// No old frame, everything is damaged
+		// No previous frame exists to diff against, so there is no safe
+		// sub-frame damage: batch bounds do not include per-command support
+		// overhang (stroke width, glyph bitmaps, shadow halos), and a partial
+		// first frame would drop those pixels. Full damage forces the full
+		// redraw path, which is the correct production strategy for a first
+		// frame (spec D1/S3 replaces this with support-bounds damage).
 		surfaceSize := rs.tileGrid.Size
+		cols := (surfaceSize.X + TileSize - 1) / TileSize
+		rows := (surfaceSize.Y + TileSize - 1) / TileSize
+		for cy := 0; cy < rows; cy++ {
+			for cx := 0; cx < cols; cx++ {
+				rs.currentDamage.AddTile(tileCoord{X: cx, Y: cy})
+			}
+		}
 		for i := 0; i < frame.BatchCount(); i++ {
 			batch, ok := frame.BatchAt(i)
 			if !ok {
 				continue
 			}
 			for _, coord := range BatchTiles(batch, surfaceSize) {
-				rs.currentDamage.AddTile(coord)
 				rs.lastFrameTiles[coord] = append(rs.lastFrameTiles[coord], batch.ID)
 			}
 		}
