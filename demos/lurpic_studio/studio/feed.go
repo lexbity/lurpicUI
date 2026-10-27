@@ -101,10 +101,22 @@ func (f *Feed) submitTick() {
 	appState := f.appState
 	interval := f.cadence.Get()
 	snap := job.NewSnapshot(float64(now.UnixNano())/1e9, appState.Rows.Version())
+	
+	// Memory declaration for the job.
+	// Per D9: declarations are required.
+	// Input: float64 snapshot (8 bytes) + version slice (conservatively 32 bytes)
+	// Scratch: minimal (pure compute, no intermediate buffers)
+	// Output: dataset.Row struct (~100 bytes conservatively)
+	// Use background priority since feed jobs are not truly interactive.
 	aj := job.BindJob(f.ownerID, job.Job[float64, dataset.Row]{
 		ID:       f.jobSeq,
-		Priority: job.PriorityInteractive,
+		Priority: job.PriorityBackground,
 		Snapshot: snap,
+		MemoryDecl: job.JobMemoryDecl{
+			MaxInputBytes:   40,   // float64 + version info
+			MaxScratchBytes: 0,    // pure compute, no scratch buffers
+			MaxOutputBytes:  128,  // Row struct + string
+		},
 		Work: func(s job.Snapshot[float64], cancel *job.CancelToken) (dataset.Row, error) {
 			return generateRow(unixToTime(s.Data), interval, tickIndex), nil
 		},

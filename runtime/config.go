@@ -16,6 +16,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/input"
 	"codeburg.org/lexbit/lurpicui/internal/log"
 	"codeburg.org/lexbit/lurpicui/internal/membudget"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/layout"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/projection"
@@ -98,6 +99,11 @@ type Config struct {
 	// AssetsResidencyMode selects the GPU residency strategy for decoded
 	// assets: "auto" (GPU-capable backends get GPU residency), "cpu", or "gpu".
 	AssetsResidencyMode string
+
+	// JobPool is the job pool used for bounded job execution.
+	// Per D9: the application owns pool construction from the ResourcePlan.
+	// The runtime and asset manager consume it.
+	JobPool *job.Pool
 
 	// RecoveryDisabled disables per-facet panic quarantine. When false (the
 	// default), a panicking facet callback quarantines the facet and its

@@ -420,7 +420,20 @@ func New(config Config, platformApp platform.App, window platform.Window, backen
 	if err != nil {
 		return nil, fmt.Errorf("failed to create jobs wallet: %w", err)
 	}
-	rt.jobPool = job.NewPool(config.WorkerCount, jobsWallet)
+	
+	// Create the job pool with proper configuration.
+	// Per D9: pool construction comes from the ResourcePlan.
+	// Use ProfilePoolConfig to get the proper bounds for the profile.
+	profile := config.Resources.Plan.Profile
+	poolConfig := job.ProfilePoolConfig(profile.String())
+	poolConfig.JobsWallet = jobsWallet
+	poolConfig.WorkerCount = config.WorkerCount
+	
+	rt.jobPool = job.NewPoolWithConfig(poolConfig)
+	// Also store in config so the app layer can use it for asset manager.
+	// Per D9: the application owns pool construction; the runtime and asset manager consume it.
+	config.JobPool = rt.jobPool
+	
 	rt.projectionSystem.SetRuntime(rt)
 
 	return rt, nil

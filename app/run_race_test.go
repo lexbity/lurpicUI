@@ -10,6 +10,7 @@ import (
 	"codeburg.org/lexbit/lurpicui/diagnostics"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/job"
 	"codeburg.org/lexbit/lurpicui/platform"
 	"codeburg.org/lexbit/lurpicui/render"
 	"codeburg.org/lexbit/lurpicui/runtime"
@@ -102,7 +103,7 @@ func setupRaceAppHooks() {
 	newPlatformApp = func() (platform.App, error) { return &fakeApp{}, nil }
 	newBackend = func(RenderBackendKind) render.Backend { return &fakeBackend{} }
 	primeRuntime = func(*runtime.Runtime) {}
-	initAssetManager = func(*runtime.Config) {}
+	initAssetManager = func(*runtime.Config, *job.Pool) {}
 }
 
 // TestApp_Run_ShutdownRace_NoDataRace drives the real app.Run →

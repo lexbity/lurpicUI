@@ -46,9 +46,9 @@ func assetBackendFromRuntimeConfig(cfg *runtime.Config) assets.BackendType {
 // override this variable to inject the platform asset manager.
 //
 // Per P8/FR-10: the asset manager uses the resource plan's AssetsCPU wallet
-// for memory accounting. When a job pool is configured, asset loads go
+// for memory accounting. Per D9: when a job pool is configured, asset loads go
 // through it with proper reservations.
-var initAssetManager = func(rtConfig *runtime.Config) {
+var initAssetManager = func(rtConfig *runtime.Config, jobPool *job.Pool) {
 	if rtConfig.AssetManager != nil {
 		return
 	}
@@ -65,14 +65,8 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 		}
 	}
 
-	// Get the job pool if configured.
-	// Note: The job pool is created by the runtime and stored in rtConfig internally.
-	// For now, we use nil which will cause the manager to use the async scheduler.
-	// Full P8 integration requires updating the runtime to expose the job pool.
-	var jobPool *job.Pool
-	// The job pool is not yet exposed in Config, so we can't use it here.
-	// This will be updated in a future change.
-	_ = jobPool
+	// Use the provided jobPool (passed from the app layer).
+	// Per D9: the application owns pool construction; the runtime and asset manager consume it.
 
 	pakPath := os.Getenv("LURPIC_ASSETS_PAK")
 	if pakPath == "" {
@@ -88,8 +82,15 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 			// it, so a missing registry is a real misconfiguration worth the
 			// loud warning.
 			idReg := loadIDRegistry("assets/uuid_registry.json", true)
-			// Use NewManagerWithBudget to wire the wallet.
-			if assetsWallet != nil {
+			// Use NewManagerWithBudget to wire the wallet and job pool.
+			// Per D9: the manager uses the job pool for bounded scheduling.
+			if assetsWallet != nil && jobPool != nil {
+				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, pak, idReg, jobPool, assetsWallet, nil, assets.ResidencyCPUOnly)
+			} else if jobPool != nil {
+				// Use job pool without wallet (wallet may be nil in some configs).
+				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, pak, idReg, jobPool, nil, nil, assets.ResidencyCPUOnly)
+			} else if assetsWallet != nil {
+				// Fallback: wallet without pool (should not happen in production).
 				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, pak, idReg, nil, assetsWallet, nil, assets.ResidencyCPUOnly)
 			} else {
 				rtConfig.AssetManager = assets.NewManager(reg, pak, backendType, nil, idReg)
@@ -113,7 +114,11 @@ var initAssetManager = func(rtConfig *runtime.Config) {
 			// is normal (path-based lookups just resolve empty in dev), so do
 			// not warn on every launch (R6).
 			idReg := loadIDRegistry(filepath.Join(assetsDir, "uuid_registry.json"), false)
-			if assetsWallet != nil {
+			if assetsWallet != nil && jobPool != nil {
+				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, dev, idReg, jobPool, assetsWallet, nil, assets.ResidencyCPUOnly)
+			} else if jobPool != nil {
+				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, dev, idReg, jobPool, nil, nil, assets.ResidencyCPUOnly)
+			} else if assetsWallet != nil {
 				rtConfig.AssetManager = assets.NewManagerWithBudget(reg, dev, idReg, nil, assetsWallet, nil, assets.ResidencyCPUOnly)
 			} else {
 				rtConfig.AssetManager = assets.NewManager(reg, dev, backendType, nil, idReg)
@@ -330,6 +335,18 @@ func Run(config Config, builder RootBuilder) error {
 	}
 	defer func() { _ = textService.Close() }()
 
+	// Create the job pool from the resource plan.
+	// Per D9: the application owns pool construction from the ResourcePlan.
+	jobsWallet, err := membudget.NewWallet(resources.Plan.Caps[membudget.Jobs])
+	if err != nil {
+		return fmt.Errorf("app: jobs wallet: %w", err)
+	}
+	profile := resources.Plan.Profile
+	poolConfig := job.ProfilePoolConfig(profile.String())
+	poolConfig.JobsWallet = jobsWallet
+	poolConfig.WorkerCount = config.Runtime.WorkerCount
+	jobPool := job.NewPoolWithConfig(poolConfig)
+
 	backend, selectedRender, err := initBackend(config.Render, surface, config.Runtime.Logger, resources)
 	if err != nil {
 		return err
@@ -389,7 +406,9 @@ func Run(config Config, builder RootBuilder) error {
 		}
 		rtConfig.LayerRegistry = layerRegistry
 	}
-	initAssetManager(&rtConfig)
+	// Pass the jobPool to initAssetManager so it can be used for asset loading.
+	// Per D9: the application owns pool construction; the runtime and asset manager consume it.
+	initAssetManager(&rtConfig, jobPool)
 	rt, err := newRuntime(rtConfig, platformApp, window, backend, root)
 	if err != nil {
 		return fmt.Errorf("app: runtime: %w", err)

@@ -628,7 +628,15 @@ func TestPool_workers_exit_cleanly_when_results_full(t *testing.T) {
 }
 
 func TestPool_worker_restarts_after_panic(t *testing.T) {
-	p := NewPool(1, nil)
+	// Use a pool with enough capacity to avoid result drops.
+	config := PoolConfig{
+		WorkerCount:          1,
+		JobsWallet:           nil,
+		RequireDeclarations: false,
+		MaxWaitingInteractive: 10,
+		MaxTotalRecords:     10,
+	}
+	p := NewPoolWithConfig(config)
 	defer p.Shutdown()
 
 	err := Schedule(p, Job[int, int]{
@@ -646,6 +654,9 @@ func TestPool_worker_restarts_after_panic(t *testing.T) {
 	// The panicked job produces no result. Wait briefly for recovery, then
 	// verify a second job completes — proves the worker restarted.
 	time.Sleep(50 * time.Millisecond)
+
+	// Drain the panic result first.
+	p.Drain()
 
 	commits := int32(0)
 	err = Schedule(p, Job[int, int]{
@@ -675,7 +686,15 @@ func TestPool_worker_restarts_after_panic(t *testing.T) {
 func TestPool_10000_jobs_all_complete(t *testing.T) {
 	const numJobs = 10000
 	const numWorkers = 4
-	p := NewPool(numWorkers, nil)
+	// Use a pool with enough capacity for all jobs.
+	config := PoolConfig{
+		WorkerCount:          numWorkers,
+		JobsWallet:           nil,
+		RequireDeclarations: false,
+		MaxWaitingInteractive: numJobs,
+		MaxTotalRecords:     numJobs,
+	}
+	p := NewPoolWithConfig(config)
 	defer p.Shutdown()
 
 	var commits atomic.Int32
@@ -734,7 +753,16 @@ func TestPool_schedule_after_shutdown_returns_error(t *testing.T) {
 }
 
 func TestPool_fifo_ordering_within_same_priority(t *testing.T) {
-	p := NewPool(1, nil) // single worker forces FIFO
+	// Use a pool with enough capacity for all jobs.
+	// single worker forces FIFO.
+	config := PoolConfig{
+		WorkerCount:          1,
+		JobsWallet:           nil,
+		RequireDeclarations: false,
+		MaxWaitingInteractive: 20,
+		MaxTotalRecords:     20,
+	}
+	p := NewPoolWithConfig(config)
 	defer p.Shutdown()
 
 	const numJobs = 20
@@ -780,7 +808,16 @@ func TestPool_fifo_ordering_within_same_priority(t *testing.T) {
 }
 
 func TestPool_cancel_all_stops_queued_jobs(t *testing.T) {
-	p := NewPool(2, nil)
+	// Use a pool with enough capacity for 101 jobs.
+	// The old default was workerCount * 4 = 8, which is too small for this test.
+	config := PoolConfig{
+		WorkerCount:          2,
+		JobsWallet:           nil,
+		RequireDeclarations: false,
+		MaxWaitingInteractive: 101,
+		MaxTotalRecords:     101,
+	}
+	p := NewPoolWithConfig(config)
 	defer p.Shutdown()
 
 	release := make(chan struct{})
