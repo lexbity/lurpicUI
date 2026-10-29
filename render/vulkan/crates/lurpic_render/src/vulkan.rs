@@ -20,7 +20,7 @@ use crate::error::vk_error;
 use crate::frame::{decode_frame, DecodedFrame, Rect};
 #[cfg(feature = "test-exports")]
 use crate::frame::FrameStats;
-use crate::frame_encoder::{DrawKind, FrameEncoder, ShadowFill, Textures};
+use crate::frame_encoder::{DrawKind, FrameEncoder, OpKind, ShadowFill, Textures};
 use crate::gpu::allocator::{GpuBuffer, ImageAllocation, MemoryLocation};
 use crate::gpu::context::{AshContext, GpuContext, PhysicalDeviceFeatures};
 use crate::gpu::resource_tracker::ResourceKind;
@@ -297,6 +297,19 @@ struct BlurHandles {
     sampler_layout: vk::PipelineLayout,
     sampler_set_layout: vk::DescriptorSetLayout,
     unit_quad: vk::Buffer,
+}
+
+/// Per-frame scratch state for the shadow pass pair (S6): the sampler
+/// descriptors for the two R8 scratch images (allocated from the frame's
+/// descriptor pool) plus which scratch image is currently COLOR_ATTACHMENT —
+/// the pair shuttles between COLOR_ATTACHMENT and SHADER_READ_ONLY as
+/// consecutive shadow ops alternate writes and reads, and each pass inserts
+/// only the transition it needs.
+struct ShadowScratch {
+    set_a: vk::DescriptorSet,
+    set_b: vk::DescriptorSet,
+    scratch_a_color: bool,
+    scratch_b_color: bool,
 }
 
 /// Where a frame's resolved pixels land.
@@ -1497,13 +1510,13 @@ impl VulkanState {
         Ok(command_buffer)
     }
 
-    /// The shared GPU render: encodes the frame, records the instanced solid
-    /// draws into `resolve` (MSAA -> resolve), and waits for its submission
-    /// fence before the owner can acknowledge the target. `dirty` carries the
-    /// frame's dirty regions (Slice
-    /// 10, Q13): when non-empty and the device gate is enabled, draws are
-    /// scissor-restricted to the dirty union, and a present-side target is
-    /// preserved (per-region clears) instead of fully cleared.
+    /// The shared GPU render: encodes the frame, walks the encoded ops in
+    /// canonical painter order (S6/D4) into `resolve`, and waits for its
+    /// submission fence before the owner can acknowledge the target. `dirty`
+    /// carries the frame's dirty regions (Slice 10, Q13): when non-empty and
+    /// the device gate is enabled, draws are scissor-restricted to the dirty
+    /// union, and a present-side target is preserved (per-region clears)
+    /// instead of fully cleared.
     #[allow(clippy::too_many_arguments)]
     fn render_into(
         &mut self,
@@ -1667,16 +1680,388 @@ impl VulkanState {
         }
         let msaa = pipeline.samples != vk::SampleCountFlags::TYPE_1;
 
-        // Slice 9: when the frame carries shadows, render them (clear the main
-        // target, then per-shadow mask + separable blur into the R8 scratch +
-        // composite into the target) BEFORE the geometry pass, so shadows sit
-        // behind the content. The geometry pass then loads the target instead of
-        // clearing it. Without shadows the geometry pass clears as before.
-        if !encoded.shadows.is_empty() {
+        // S6/D4: walk the encoded ops in canonical painter order — the render
+        // order IS the command order. Instanced and path-fill ops share one
+        // geometry rendering instance (color + stencil attachments); a shadow
+        // op ends the open instance, records its mask/blur/composite passes
+        // inline at its position, and the walk re-opens the geometry instance
+        // for the ops after it. The first target-writing instance of an
+        // unpreserved frame carries the frame's CLEAR; every later instance
+        // (and every composite into a written target) LOADs so earlier content
+        // survives. With MSAA the instances render into the multisample buffer
+        // with the resolve suppressed and one final instance resolves the
+        // composed frame (resolve applies per rendering instance, so a
+        // mid-stream resolve would clobber an interleaved composite with the
+        // re-resolved earlier geometry).
+        let mut target_open = false;
+        let mut target_initialized = false;
+        let mut preserve_cleared = false;
+        // Bind-state dedup across CONSECUTIVE Instances ops only: pipeline
+        // binds and vertex bindings persist across rendering instances, and a
+        // path fill rebinds binding 0 to the path buffer while shadows bind
+        // their own pipelines — so any interleaved op forces a full rebind.
+        let mut last_instanced: Option<(vk::Pipeline, vk::Buffer, Option<vk::DescriptorSet>)> =
+            None;
+        let mut shadow_scratch: Option<ShadowScratch> = None;
+
+        // The walk's device calls are all `unsafe` ash commands; the safety
+        // contract is the same as the previous rendering section: handles are
+        // valid for the frame's submission, recorded in submission order.
+        unsafe {
+        // The encoder appends ops in command order; validate the canonical
+        // invariant in debug builds.
+        #[cfg(debug_assertions)]
+        for (expected_seq, op) in encoded.ops.iter().enumerate() {
+            debug_assert_eq!(
+                op.seq, expected_seq as u64,
+                "encoded op stream is out of canonical order",
+            );
+        }
+        for op in &encoded.ops {
+            match &op.kind {
+                OpKind::Instances(group) => {
+                    // Per-draw scissor (Slice 3 forward): the clip is
+                    // axis-aligned, so the rasterizer can cull fragments
+                    // outside it before the fragment shader runs. Slice 10
+                    // (Q13): the scissor is further restricted to the dirty
+                    // union; a draw that touches no dirty region is culled
+                    // entirely, and a culled draw does not open the target
+                    // instance.
+                    let Some(scissor) =
+                        redraw_scissor(clip_scissor(&group.push, extent), dirty, extent)
+                    else {
+                        continue;
+                    };
+                    if !target_open {
+                        if preserve && !preserve_cleared {
+                            self.clear_dirty_regions(
+                                command_buffer,
+                                extent,
+                                resolve_view,
+                                resolve_layout,
+                                clear,
+                                dirty,
+                            )?;
+                            preserve_cleared = true;
+                        }
+                        let load = if preserve || target_initialized {
+                            vk::AttachmentLoadOp::LOAD
+                        } else {
+                            vk::AttachmentLoadOp::CLEAR
+                        };
+                        self.begin_geometry_instance(
+                            command_buffer,
+                            extent,
+                            msaa,
+                            resolve_view,
+                            resolve_layout,
+                            clear,
+                            load,
+                        )?;
+                        target_open = true;
+                        target_initialized = true;
+                    }
+                    // Select the pipeline + unit quad for the group's kind.
+                    // Solid, textured, and glyph pipelines share the
+                    // unit-quad (binding 0) + instance (binding 1) layout, so
+                    // a consecutive same-pipeline run skips the pipeline and
+                    // vertex rebinds and updates only scissor/push state.
+                    let (pipe, pipe_layout, unit_quad) = match group.kind {
+                        DrawKind::Solid => (pipeline.handle, pipeline.layout, pipeline.unit_quad),
+                        DrawKind::Textured => {
+                            (textured.handle, textured.layout, textured.unit_quad)
+                        }
+                        DrawKind::GlyphBitmap => (glyph.bitmap, glyph.layout, glyph.unit_quad),
+                        DrawKind::GlyphSdf => (glyph.sdf, glyph.layout, glyph.unit_quad),
+                        DrawKind::Gradient => {
+                            (gradient.handle, gradient.layout, gradient.unit_quad)
+                        }
+                    };
+                    let same_state = last_instanced
+                        .is_some_and(|(p, q, s)| p == pipe && q == unit_quad && s == group.descriptor_set);
+                    if !same_state {
+                        device.cmd_bind_pipeline(
+                            command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            pipe,
+                        );
+                        let vertex_buffers = [unit_quad, instance_buffer];
+                        let offsets = [0u64, 0u64];
+                        device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+                        if let Some(set) = group.descriptor_set {
+                            device.cmd_bind_descriptor_sets(
+                                command_buffer,
+                                vk::PipelineBindPoint::GRAPHICS,
+                                pipe_layout,
+                                0,
+                                &[set],
+                                &[],
+                            );
+                        }
+                    }
+                    last_instanced = Some((pipe, unit_quad, group.descriptor_set));
+                    device.cmd_set_scissor(command_buffer, 0, &[scissor]);
+                    device.cmd_push_constants(
+                        command_buffer,
+                        pipe_layout,
+                        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                        0,
+                        &group.push.bytes(),
+                    );
+                    device.cmd_draw(
+                        command_buffer,
+                        6,
+                        group.instance_count,
+                        0,
+                        group.first_instance,
+                    );
+                }
+                OpKind::PathFill(fill) => {
+                    // Slice 10 (Q13): a fill whose clip touches no dirty
+                    // region is culled entirely; otherwise both passes are
+                    // scissor-restricted to the dirty union.
+                    let Some(fill_scissor) =
+                        redraw_scissor(clip_scissor(&fill.push, extent), dirty, extent)
+                    else {
+                        continue;
+                    };
+                    if !target_open {
+                        if preserve && !preserve_cleared {
+                            self.clear_dirty_regions(
+                                command_buffer,
+                                extent,
+                                resolve_view,
+                                resolve_layout,
+                                clear,
+                                dirty,
+                            )?;
+                            preserve_cleared = true;
+                        }
+                        let load = if preserve || target_initialized {
+                            vk::AttachmentLoadOp::LOAD
+                        } else {
+                            vk::AttachmentLoadOp::CLEAR
+                        };
+                        self.begin_geometry_instance(
+                            command_buffer,
+                            extent,
+                            msaa,
+                            resolve_view,
+                            resolve_layout,
+                            clear,
+                            load,
+                        )?;
+                        target_open = true;
+                        target_initialized = true;
+                    }
+                    // Stencil-buffer path fill (Slice 7): clear the path's
+                    // stencil region, accumulate the winding number over the
+                    // flattened triangles, then fill the path's bounding quad
+                    // keeping only nonzero-winding fragments. Multiple clears
+                    // per rendering instance are valid: intra-pass clears are
+                    // cmd_clear_attachments, the pass's stencil loadOp only
+                    // runs at begin.
+                    let clear_rect = clear_rect_for(fill.clear_rect, extent);
+                    let clear_attachment = vk::ClearAttachment {
+                        aspect_mask: vk::ImageAspectFlags::STENCIL,
+                        color_attachment: 0,
+                        clear_value: vk::ClearValue {
+                            depth_stencil: vk::ClearDepthStencilValue {
+                                depth: 0.0,
+                                stencil: 0,
+                            },
+                        },
+                    };
+                    device.cmd_clear_attachments(
+                        command_buffer,
+                        &[clear_attachment],
+                        &[vk::ClearRect {
+                            rect: clear_rect,
+                            base_array_layer: 0,
+                            layer_count: 1,
+                        }],
+                    );
+
+                    // Winding pass.
+                    device.cmd_bind_pipeline(
+                        command_buffer,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        path_fill.stencil,
+                    );
+                    device.cmd_set_scissor(command_buffer, 0, &[fill_scissor]);
+                    let stencil_push = PushConstants::default_for_stencil(fill.bottom_center_x, surface_size);
+                    device.cmd_push_constants(
+                        command_buffer,
+                        path_fill.stencil_layout,
+                        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                        0,
+                        &stencil_push.bytes(),
+                    );
+                    device.cmd_bind_vertex_buffers(command_buffer, 0, &[path_buffer], &[0]);
+                    device.cmd_draw(
+                        command_buffer,
+                        fill.vertex_count,
+                        1,
+                        fill.first_vertex,
+                        0,
+                    );
+                    // Cover pass: solid or gradient brush, gated by stencil != 0,
+                    // with the winding coverage computed from the contour edges.
+                    let cover_pipe = if fill.push.brush_kind == BRUSH_LINEAR_GRADIENT {
+                        path_fill.cover_gradient
+                    } else {
+                        path_fill.cover_solid
+                    };
+                    device.cmd_bind_pipeline(
+                        command_buffer,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        cover_pipe,
+                    );
+                    // Set 0: gradient UBO (gradient covers only). Set 1: contour
+                    // edges storage buffer (always). The gradient cover's layout
+                    // differs at set 0 (UBO vs empty).
+                    let cover_layout = if fill.push.brush_kind == BRUSH_LINEAR_GRADIENT {
+                        path_fill.cover_gradient_layout
+                    } else {
+                        path_fill.cover_layout
+                    };
+                    if let Some(set) = fill.gradient_descriptor {
+                        device.cmd_bind_descriptor_sets(
+                            command_buffer,
+                            vk::PipelineBindPoint::GRAPHICS,
+                            cover_layout,
+                            0,
+                            &[set],
+                            &[],
+                        );
+                    }
+                    device.cmd_bind_descriptor_sets(
+                        command_buffer,
+                        vk::PipelineBindPoint::GRAPHICS,
+                        cover_layout,
+                        1,
+                        &[fill.segments_descriptor],
+                        &[],
+                    );
+                    let cover_scissor = fill_scissor;
+                    device.cmd_set_scissor(command_buffer, 0, &[cover_scissor]);
+                    device.cmd_push_constants(
+                        command_buffer,
+                        cover_layout,
+                        vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                        0,
+                        &fill.push.bytes(),
+                    );
+                    let cover_buffers = [path_fill.unit_quad, instance_buffer];
+                    device.cmd_bind_vertex_buffers(command_buffer, 0, &cover_buffers, &[0, 0]);
+                    device.cmd_draw(
+                        command_buffer,
+                        6,
+                        1,
+                        0,
+                        fill.cover_first_instance,
+                    );
+                    // The winding pass rebound vertex binding 0 to the path
+                    // buffer and the cover pass to the fill's quad; the next
+                    // Instances op rebinds its own state.
+                    last_instanced = None;
+                }
+                OpKind::Shadow(shadow) => {
+                    // Slice 10 (Q13): a shadow whose composited region touches
+                    // no dirty region is culled entirely (no mask/blur/
+                    // composite work, no instance churn).
+                    let Some(composite_scissor) = redraw_scissor(
+                        clip_scissor(&shadow.composite_push, extent),
+                        dirty,
+                        extent,
+                    ) else {
+                        continue;
+                    };
+                    // The mask/blur passes target the R8 scratch images, so
+                    // the open geometry instance ends here; the next target
+                    // op re-opens it (LOAD — this shadow composites over the
+                    // earlier content and under the later content).
+                    if target_open {
+                        device.cmd_end_rendering(command_buffer);
+                        target_open = false;
+                    }
+                    if shadow_scratch.is_none() {
+                        shadow_scratch = Some(self.begin_shadow_scratch(command_buffer, &blur)?);
+                    }
+                    if preserve && !preserve_cleared {
+                        self.clear_dirty_regions(
+                            command_buffer,
+                            extent,
+                            resolve_view,
+                            resolve_layout,
+                            clear,
+                            dirty,
+                        )?;
+                        preserve_cleared = true;
+                    }
+                    let load = if preserve || target_initialized {
+                        vk::AttachmentLoadOp::LOAD
+                    } else {
+                        // First touch of an unpreserved target: the frame's
+                        // initial clear rides this composite.
+                        vk::AttachmentLoadOp::CLEAR
+                    };
+                    let composite_attachment = self.working_attachment(
+                        msaa,
+                        resolve_view,
+                        resolve_layout,
+                        clear,
+                        load,
+                        false,
+                    );
+                    self.record_shadow(
+                        command_buffer,
+                        &blur,
+                        shadow,
+                        shadow_scratch.as_mut().unwrap(),
+                        instance_buffer,
+                        extent,
+                        composite_attachment,
+                        composite_scissor,
+                    );
+                    target_initialized = true;
+                    last_instanced = None;
+                }
+            }
+        }
+        if target_open {
+            device.cmd_end_rendering(command_buffer);
+        }
+        }
+
+        // MSAA deferred resolve: the walk's instances rendered into the
+        // multisample buffer without resolving; one final instance resolves
+        // the composed frame into the target. The single-sample path (the
+        // only reachable one while msaa_samples() is TYPE_1) rendered into
+        // the target directly and needs no flush.
+        if msaa && target_initialized {
+            let attachment =
+                self.working_attachment(msaa, resolve_view, resolve_layout, clear, vk::AttachmentLoadOp::LOAD, true);
+            let attachments = [attachment];
+            let info = vk::RenderingInfo::default()
+                .render_area(vk::Rect2D {
+                    offset: vk::Offset2D { x: 0, y: 0 },
+                    extent,
+                })
+                .layer_count(1)
+                .color_attachments(&attachments);
+            unsafe {
+                device.cmd_begin_rendering(command_buffer, &info);
+                device.cmd_end_rendering(command_buffer);
+            }
+        }
+
+        // An op stream whose every op was culled (or an empty stream) still
+        // initializes the target: an unpreserved frame clears fully (the
+        // geometry pass's CLEAR load was the previous behavior here), and a
+        // preserved frame still needs its per-region clears.
+        if !target_initialized {
             if preserve {
-                // Dirty-region present redraw: clear only the dirty areas (the
-                // target preserves its prior content), then all shadow
-                // composites LOAD the preserved target.
                 self.clear_dirty_regions(
                     command_buffer,
                     extent,
@@ -1685,267 +2070,28 @@ impl VulkanState {
                     clear,
                     dirty,
                 )?;
-            }
-            self.render_shadows(
-                command_buffer,
-                &blur,
-                &encoded.shadows,
-                instance_buffer,
-                extent,
-                resolve_view,
-                resolve_layout,
-                clear,
-                dirty,
-                preserve,
-            )?;
-        } else if preserve {
-            self.clear_dirty_regions(
-                command_buffer,
-                extent,
-                resolve_view,
-                resolve_layout,
-                clear,
-                dirty,
-            )?;
-        }
-
-        // Geometry pass load op: a preserved (dirty-region present) target
-        // LOADs after the per-region clears; otherwise the whole target is
-        // cleared unless the shadow pre-pass already cleared it.
-        let geometry_load = if preserve {
-            vk::AttachmentLoadOp::LOAD
-        } else if encoded.shadows.is_empty() {
-            vk::AttachmentLoadOp::CLEAR
-        } else {
-            vk::AttachmentLoadOp::LOAD
-        };
-        let color_attachment = if msaa {
-            vk::RenderingAttachmentInfo::default()
-                .image_view(self.msaa.as_ref().unwrap().view.handle())
-                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .resolve_mode(vk::ResolveModeFlags::AVERAGE)
-                .resolve_image_view(resolve_view)
-                .resolve_image_layout(resolve_layout)
-                .load_op(geometry_load)
-                .store_op(vk::AttachmentStoreOp::STORE)
-                .clear_value(clear)
-        } else {
-            // No MSAA: render directly into the resolve image.
-            vk::RenderingAttachmentInfo::default()
-                .image_view(resolve_view)
-                .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
-                .load_op(geometry_load)
-                .store_op(vk::AttachmentStoreOp::STORE)
-                .clear_value(clear)
-        };
-        let color_attachments = [color_attachment];
-        let stencil_attachment = vk::RenderingAttachmentInfo::default()
-            .image_view(self.stencil.as_ref().unwrap().view.handle())
-            .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
-            .load_op(vk::AttachmentLoadOp::CLEAR)
-            .store_op(vk::AttachmentStoreOp::STORE)
-            .clear_value(vk::ClearValue {
-                depth_stencil: vk::ClearDepthStencilValue {
-                    depth: 0.0,
-                    stencil: 0,
-                },
-            });
-        let rendering_info = vk::RenderingInfo::default()
-            .render_area(vk::Rect2D {
-                offset: vk::Offset2D { x: 0, y: 0 },
-                extent,
-            })
-            .layer_count(1)
-            .color_attachments(&color_attachments)
-            .stencil_attachment(&stencil_attachment);
-        unsafe {
-            device.cmd_begin_rendering(command_buffer, &rendering_info);
-            device.cmd_set_viewport(
-                command_buffer,
-                0,
-                &[vk::Viewport {
-                    x: 0.0,
-                    y: 0.0,
-                    width: extent.width as f32,
-                    height: extent.height as f32,
-                    min_depth: 0.0,
-                    max_depth: 1.0,
-                }],
-            );
-            for group in &encoded.groups {
-                // Select the pipeline + unit quad for the group's kind. Solid,
-                // textured, and glyph pipelines share the unit-quad (binding 0)
-                // + instance (binding 1) layout, so the vertex buffers are
-                // re-bound per group with the active pipeline's unit quad.
-                let (pipe, pipe_layout, unit_quad) = match group.kind {
-                    DrawKind::Solid => (pipeline.handle, pipeline.layout, pipeline.unit_quad),
-                    DrawKind::Textured => {
-                        (textured.handle, textured.layout, textured.unit_quad)
-                    }
-                    DrawKind::GlyphBitmap => (glyph.bitmap, glyph.layout, glyph.unit_quad),
-                    DrawKind::GlyphSdf => (glyph.sdf, glyph.layout, glyph.unit_quad),
-                    DrawKind::Gradient => {
-                        (gradient.handle, gradient.layout, gradient.unit_quad)
-                    }
-                };
-                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, pipe);
-                let vertex_buffers = [unit_quad, instance_buffer];
-                let offsets = [0u64, 0u64];
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
-                if let Some(set) = group.descriptor_set {
-                    device.cmd_bind_descriptor_sets(
-                        command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        pipe_layout,
-                        0,
-                        &[set],
-                        &[],
-                    );
+            } else {
+                let attachment = self.working_attachment(
+                    msaa,
+                    resolve_view,
+                    resolve_layout,
+                    clear,
+                    vk::AttachmentLoadOp::CLEAR,
+                    true,
+                );
+                let attachments = [attachment];
+                let info = vk::RenderingInfo::default()
+                    .render_area(vk::Rect2D {
+                        offset: vk::Offset2D { x: 0, y: 0 },
+                        extent,
+                    })
+                    .layer_count(1)
+                    .color_attachments(&attachments);
+                unsafe {
+                    device.cmd_begin_rendering(command_buffer, &info);
+                    device.cmd_end_rendering(command_buffer);
                 }
-                // Per-draw scissor (Slice 3 forward): the clip is axis-aligned,
-                // so the rasterizer can cull fragments outside it before the
-                // fragment shader runs. This is the hardware-idiomatic clip; the
-                // shader discard remains only for the exact float clip boundary.
-                // Slice 10 (Q13): the scissor is further restricted to the dirty
-                // union; a draw that touches no dirty region is culled entirely.
-                let Some(scissor) = redraw_scissor(clip_scissor(&group.push, extent), dirty, extent)
-                else {
-                    continue;
-                };
-                device.cmd_set_scissor(command_buffer, 0, &[scissor]);
-                device.cmd_push_constants(
-                    command_buffer,
-                    pipe_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    &group.push.bytes(),
-                );
-                device.cmd_draw(
-                    command_buffer,
-                    6,
-                    group.instance_count,
-                    0,
-                    group.first_instance,
-                );
             }
-
-            // Stencil-buffer path fills (Slice 7): clear the path's stencil
-            // region, accumulate the winding number over the flattened
-            // triangles, then fill the path's bounding quad keeping only
-            // nonzero-winding fragments.
-            for fill in &encoded.path_fills {
-                // Slice 10 (Q13): a fill whose clip touches no dirty region is
-                // culled entirely; otherwise both passes are scissor-restricted
-                // to the dirty union.
-                let Some(fill_scissor) =
-                    redraw_scissor(clip_scissor(&fill.push, extent), dirty, extent)
-                else {
-                    continue;
-                };
-                // Clear the stencil within the path's world bounds.
-                let clear_rect = clear_rect_for(fill.clear_rect, extent);
-                let clear_attachment = vk::ClearAttachment {
-                    aspect_mask: vk::ImageAspectFlags::STENCIL,
-                    color_attachment: 0,
-                    clear_value: vk::ClearValue {
-                        depth_stencil: vk::ClearDepthStencilValue {
-                            depth: 0.0,
-                            stencil: 0,
-                        },
-                    },
-                };
-                device.cmd_clear_attachments(
-                    command_buffer,
-                    &[clear_attachment],
-                    &[vk::ClearRect {
-                        rect: clear_rect,
-                        base_array_layer: 0,
-                        layer_count: 1,
-                    }],
-                );
-
-                // Winding pass.
-                device.cmd_bind_pipeline(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    path_fill.stencil,
-                );
-                device.cmd_set_scissor(command_buffer, 0, &[fill_scissor]);
-                let stencil_push = PushConstants::default_for_stencil(fill.bottom_center_x, surface_size);
-                device.cmd_push_constants(
-                    command_buffer,
-                    path_fill.stencil_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    &stencil_push.bytes(),
-                );
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &[path_buffer], &[0]);
-                device.cmd_draw(
-                    command_buffer,
-                    fill.vertex_count,
-                    1,
-                    fill.first_vertex,
-                    0,
-                );
-                // Cover pass: solid or gradient brush, gated by stencil != 0,
-                // with the winding coverage computed from the contour edges.
-                let cover_pipe = if fill.push.brush_kind == BRUSH_LINEAR_GRADIENT {
-                    path_fill.cover_gradient
-                } else {
-                    path_fill.cover_solid
-                };
-                device.cmd_bind_pipeline(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    cover_pipe,
-                );
-                // Set 0: gradient UBO (gradient covers only). Set 1: contour
-                // edges storage buffer (always). The gradient cover's layout
-                // differs at set 0 (UBO vs empty).
-                let cover_layout = if fill.push.brush_kind == BRUSH_LINEAR_GRADIENT {
-                    path_fill.cover_gradient_layout
-                } else {
-                    path_fill.cover_layout
-                };
-                if let Some(set) = fill.gradient_descriptor {
-                    device.cmd_bind_descriptor_sets(
-                        command_buffer,
-                        vk::PipelineBindPoint::GRAPHICS,
-                        cover_layout,
-                        0,
-                        &[set],
-                        &[],
-                    );
-                }
-                device.cmd_bind_descriptor_sets(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    cover_layout,
-                    1,
-                    &[fill.segments_descriptor],
-                    &[],
-                );
-                let cover_scissor = fill_scissor;
-                device.cmd_set_scissor(command_buffer, 0, &[cover_scissor]);
-                device.cmd_push_constants(
-                    command_buffer,
-                    cover_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    &fill.push.bytes(),
-                );
-                let cover_buffers = [path_fill.unit_quad, instance_buffer];
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &cover_buffers, &[0, 0]);
-                device.cmd_draw(
-                    command_buffer,
-                    6,
-                    1,
-                    0,
-                    fill.cover_first_instance,
-                );
-            }
-
-            device.cmd_end_rendering(command_buffer);
         }
 
         // Post-render transition + optional copy-out (readback).
@@ -2041,32 +2187,19 @@ impl VulkanState {
         Ok(())
     }
 
-    /// Records the Slice 9 shadow passes ahead of the geometry pass: clears the
-    /// main target (via the first composite's CLEAR load op), then for each
-    /// shadow renders its path coverage mask into the R8 scratch, applies the
-    /// separable Gaussian (H then V), and composites the tinted blurred mask at
-    /// the shadow's offset with premultiplied-over blending.
-    #[allow(clippy::too_many_arguments)]
-    fn render_shadows(
-        &mut self,
+    /// Allocates the shadow pass pair's per-frame sampler descriptors and
+    /// performs the one-time UNDEFINED -> COLOR_ATTACHMENT transitions for
+    /// both R8 scratch images. The per-op transitions are inserted by
+    /// [`Self::record_shadow`] as consecutive shadow ops alternate reads and
+    /// writes.
+    fn begin_shadow_scratch(
+        &self,
         command_buffer: vk::CommandBuffer,
         blur: &BlurHandles,
-        shadows: &[ShadowFill],
-        instance_buffer: vk::Buffer,
-        extent: vk::Extent2D,
-        resolve_view: vk::ImageView,
-        resolve_layout: vk::ImageLayout,
-        clear: vk::ClearValue,
-        dirty: &[Rect],
-        preserve: bool,
-    ) -> Result<(), (RenderResult, String)> {
-        let device = self.context.device();
-
+    ) -> Result<ShadowScratch, (RenderResult, String)> {
         let scratch_a = self.blur_scratch_a.as_ref().unwrap();
         let scratch_b = self.blur_scratch_b.as_ref().unwrap();
         let sampler = self.blur_sampler.as_ref().unwrap().handle();
-        // One sampler descriptor per scratch image; both are bound through the
-        // shared blur/composite layout for the whole frame.
         let set_a = self.allocate_scratch_descriptor(
             scratch_a.view.handle(),
             sampler,
@@ -2077,14 +2210,6 @@ impl VulkanState {
             sampler,
             blur.sampler_set_layout,
         )?;
-
-        let clear_zero = vk::ClearValue {
-            color: vk::ClearColorValue { float32: [0.0; 4] },
-        };
-
-        // The scratch images start UNDEFINED (fresh allocations). Transition
-        // both to COLOR_ATTACHMENT once; the per-shadow loop then shuttles each
-        // between COLOR_ATTACHMENT (writes) and SHADER_READ_ONLY (reads).
         self.transition_image(
             command_buffer,
             scratch_a.image.handle(),
@@ -2105,257 +2230,346 @@ impl VulkanState {
             vk::AccessFlags::empty(),
             vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
         );
+        Ok(ShadowScratch {
+            set_a,
+            set_b,
+            scratch_a_color: true,
+            scratch_b_color: true,
+        })
+    }
 
-        let mut first_shadow = true;
-        let mut first_composite = true;
-        for shadow in shadows {
-            // Slice 10 (Q13): a shadow whose composited region touches no dirty
-            // region is culled entirely (no mask/blur/composite work).
-            let Some(composite_scissor) = redraw_scissor(
-                clip_scissor(&shadow.composite_push, extent),
-                dirty,
+    /// Records one shadow's mask + separable blur + composite passes at the
+    /// shadow's canonical position (S6/D4). The mask renders the path's
+    /// winding coverage into the R8 scratch_a, the separable Gaussian
+    /// (H then V) blurs it across the scratch pair, and the tinted composite
+    /// blends the blurred mask into `composite` (already built with the
+    /// frame's load decision) at `composite_scissor`.
+    #[allow(clippy::too_many_arguments)]
+    fn record_shadow(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        blur: &BlurHandles,
+        shadow: &ShadowFill,
+        scratch: &mut ShadowScratch,
+        instance_buffer: vk::Buffer,
+        extent: vk::Extent2D,
+        composite: vk::RenderingAttachmentInfo<'static>,
+        composite_scissor: vk::Rect2D,
+    ) {
+        let device = self.context.device();
+        let scratch_a_view = self.blur_scratch_a.as_ref().unwrap().view.handle();
+        let scratch_b_view = self.blur_scratch_b.as_ref().unwrap().view.handle();
+        let scratch_a_image = self.blur_scratch_a.as_ref().unwrap().image.handle();
+        let scratch_b_image = self.blur_scratch_b.as_ref().unwrap().image.handle();
+        let clear_zero = vk::ClearValue {
+            color: vk::ClearColorValue { float32: [0.0; 4] },
+        };
+
+        // 1. Mask pass: the path's winding coverage into scratch_a (the pass
+        // clears the scratch, so reads anywhere within the surface are zero
+        // outside the path).
+        if !scratch.scratch_a_color {
+            self.transition_image(
+                command_buffer,
+                scratch_a_image,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::AccessFlags::SHADER_READ,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            );
+        }
+        let mask_attachment = self.scratch_attachment(scratch_a_view, clear_zero);
+        self.begin_rendering(command_buffer, extent, &[mask_attachment], None);
+        unsafe {
+            self.set_full_viewport(command_buffer, extent);
+            device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
                 extent,
-            ) else {
-                first_shadow = false;
-                continue;
-            };
-            // 1. Mask pass: the path's winding coverage into scratch_a (the
-            // scratch is fully cleared, so reads anywhere within the surface
-            // are zero outside the path).
-            if !first_shadow {
-                self.transition_image(
-                    command_buffer,
-                    scratch_a.image.handle(),
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                    vk::PipelineStageFlags::FRAGMENT_SHADER,
-                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                    vk::AccessFlags::SHADER_READ,
-                    vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-                );
-            }
-            let mask_attachment = self.scratch_attachment(scratch_a.view.handle(), clear_zero);
-            self.begin_rendering(command_buffer, extent, &[mask_attachment], None);
-            unsafe {
-                self.set_full_viewport(command_buffer, extent);
-                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent,
-                }]);
-                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.mask);
-                // The mask layout's set 1 binds the contour edges; set 0 is the
-                // empty layout and stays unbound (the shader reads only set 1).
-                device.cmd_bind_descriptor_sets(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    blur.mask_layout,
-                    1,
-                    &[shadow.segments_descriptor],
-                    &[],
-                );
-                let vertex_buffers = [blur.unit_quad, instance_buffer];
-                let offsets = [0u64, 0u64];
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
-                device.cmd_push_constants(
-                    command_buffer,
-                    blur.mask_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    &shadow.mask_push.bytes(),
-                );
-                device.cmd_draw(
-                    command_buffer,
-                    6,
-                    1,
-                    0,
-                    shadow.mask_first_instance,
-                );
-                device.cmd_end_rendering(command_buffer);
-            }
-            self.transition_image(
+            }]);
+            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.mask);
+            // The mask layout's set 1 binds the contour edges; set 0 is the
+            // empty layout and stays unbound (the shader reads only set 1).
+            device.cmd_bind_descriptor_sets(
                 command_buffer,
-                scratch_a.image.handle(),
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-                vk::AccessFlags::SHADER_READ,
+                vk::PipelineBindPoint::GRAPHICS,
+                blur.mask_layout,
+                1,
+                &[shadow.segments_descriptor],
+                &[],
             );
+            let vertex_buffers = [blur.unit_quad, instance_buffer];
+            let offsets = [0u64, 0u64];
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+            device.cmd_push_constants(
+                command_buffer,
+                blur.mask_layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                &shadow.mask_push.bytes(),
+            );
+            device.cmd_draw(
+                command_buffer,
+                6,
+                1,
+                0,
+                shadow.mask_first_instance,
+            );
+            device.cmd_end_rendering(command_buffer);
+        }
+        self.transition_image(
+            command_buffer,
+            scratch_a_image,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::AccessFlags::SHADER_READ,
+        );
+        scratch.scratch_a_color = false;
 
-            // 2. Horizontal blur: scratch_a -> scratch_b.
-            if !first_shadow {
-                self.transition_image(
-                    command_buffer,
-                    scratch_b.image.handle(),
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                    vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                    vk::PipelineStageFlags::FRAGMENT_SHADER,
-                    vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                    vk::AccessFlags::SHADER_READ,
-                    vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-                );
-            }
-            let blur_h_attachment = self.scratch_attachment(scratch_b.view.handle(), clear_zero);
-            self.begin_rendering(command_buffer, extent, &[blur_h_attachment], None);
-            unsafe {
-                self.set_full_viewport(command_buffer, extent);
-                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent,
-                }]);
-                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.blur_h);
-                device.cmd_bind_descriptor_sets(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    blur.sampler_layout,
-                    0,
-                    &[set_a],
-                    &[],
-                );
-                let vertex_buffers = [blur.unit_quad, instance_buffer];
-                let offsets = [0u64, 0u64];
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
-                device.cmd_push_constants(
-                    command_buffer,
-                    blur.sampler_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    &shadow.blur_push.bytes(),
-                );
-                device.cmd_draw(
-                    command_buffer,
-                    6,
-                    1,
-                    0,
-                    shadow.blur_h_first_instance,
-                );
-                device.cmd_end_rendering(command_buffer);
-            }
+        // 2. Horizontal blur: scratch_a -> scratch_b.
+        if !scratch.scratch_b_color {
             self.transition_image(
                 command_buffer,
-                scratch_b.image.handle(),
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+                scratch_b_image,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
                 vk::AccessFlags::SHADER_READ,
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
             );
+        }
+        let blur_h_attachment = self.scratch_attachment(scratch_b_view, clear_zero);
+        self.begin_rendering(command_buffer, extent, &[blur_h_attachment], None);
+        unsafe {
+            self.set_full_viewport(command_buffer, extent);
+            device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent,
+            }]);
+            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.blur_h);
+            device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                blur.sampler_layout,
+                0,
+                &[scratch.set_a],
+                &[],
+            );
+            let vertex_buffers = [blur.unit_quad, instance_buffer];
+            let offsets = [0u64, 0u64];
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+            device.cmd_push_constants(
+                command_buffer,
+                blur.sampler_layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                &shadow.blur_push.bytes(),
+            );
+            device.cmd_draw(
+                command_buffer,
+                6,
+                1,
+                0,
+                shadow.blur_h_first_instance,
+            );
+            device.cmd_end_rendering(command_buffer);
+        }
+        self.transition_image(
+            command_buffer,
+            scratch_b_image,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::AccessFlags::SHADER_READ,
+        );
+        scratch.scratch_b_color = false;
 
-            // 3. Vertical blur: scratch_b -> scratch_a. scratch_a is in
-            // SHADER_READ (the mask pass's post-write transition) for every
-            // shadow, first included.
-            self.transition_image(
+        // 3. Vertical blur: scratch_b -> scratch_a. scratch_a is always
+        // SHADER_READ here (the mask pass's post-write transition), so its
+        // input transition is unconditional.
+        self.transition_image(
+            command_buffer,
+            scratch_a_image,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            vk::AccessFlags::SHADER_READ,
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+        );
+        let blur_v_attachment = self.scratch_attachment(scratch_a_view, clear_zero);
+        self.begin_rendering(command_buffer, extent, &[blur_v_attachment], None);
+        unsafe {
+            self.set_full_viewport(command_buffer, extent);
+            device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent,
+            }]);
+            device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.blur_v);
+            device.cmd_bind_descriptor_sets(
                 command_buffer,
-                scratch_a.image.handle(),
-                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                vk::AccessFlags::SHADER_READ,
-                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+                vk::PipelineBindPoint::GRAPHICS,
+                blur.sampler_layout,
+                0,
+                &[scratch.set_b],
+                &[],
             );
-            let blur_v_attachment = self.scratch_attachment(scratch_a.view.handle(), clear_zero);
-            self.begin_rendering(command_buffer, extent, &[blur_v_attachment], None);
-            unsafe {
-                self.set_full_viewport(command_buffer, extent);
-                device.cmd_set_scissor(command_buffer, 0, &[vk::Rect2D {
-                    offset: vk::Offset2D { x: 0, y: 0 },
-                    extent,
-                }]);
-                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.blur_v);
-                device.cmd_bind_descriptor_sets(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    blur.sampler_layout,
-                    0,
-                    &[set_b],
-                    &[],
-                );
-                let vertex_buffers = [blur.unit_quad, instance_buffer];
-                let offsets = [0u64, 0u64];
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
-                device.cmd_push_constants(
-                    command_buffer,
-                    blur.sampler_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    &shadow.blur_push.bytes(),
-                );
-                device.cmd_draw(
-                    command_buffer,
-                    6,
-                    1,
-                    0,
-                    shadow.blur_v_first_instance,
-                );
-                device.cmd_end_rendering(command_buffer);
-            }
-            self.transition_image(
+            let vertex_buffers = [blur.unit_quad, instance_buffer];
+            let offsets = [0u64, 0u64];
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+            device.cmd_push_constants(
                 command_buffer,
-                scratch_a.image.handle(),
-                vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
-                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
-                vk::AccessFlags::SHADER_READ,
+                blur.sampler_layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                &shadow.blur_push.bytes(),
             );
+            device.cmd_draw(
+                command_buffer,
+                6,
+                1,
+                0,
+                shadow.blur_v_first_instance,
+            );
+            device.cmd_end_rendering(command_buffer);
+        }
+        self.transition_image(
+            command_buffer,
+            scratch_a_image,
+            vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            vk::AccessFlags::SHADER_READ,
+        );
+        scratch.scratch_a_color = false;
 
-            // 4. Composite: tint the blurred mask into the main target. The
-            // first composite clears the target (the frame's initial clear);
-            // later ones load it so multiple shadows accumulate. A preserved
-            // (dirty-region present) target was already cleared per region, so
-            // every composite loads it.
-            let load_op = if preserve {
-                vk::AttachmentLoadOp::LOAD
-            } else if first_composite {
-                vk::AttachmentLoadOp::CLEAR
+        // 4. Composite: tint the blurred mask into the frame target at the
+        // shadow's canonical position.
+        self.begin_rendering(command_buffer, extent, &[composite], None);
+        unsafe {
+            self.set_full_viewport(command_buffer, extent);
+            device.cmd_set_scissor(command_buffer, 0, &[composite_scissor]);
+            device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                blur.composite,
+            );
+            device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                blur.sampler_layout,
+                0,
+                &[scratch.set_a],
+                &[],
+            );
+            let vertex_buffers = [blur.unit_quad, instance_buffer];
+            let offsets = [0u64, 0u64];
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+            device.cmd_push_constants(
+                command_buffer,
+                blur.sampler_layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                &shadow.composite_push.bytes(),
+            );
+            device.cmd_draw(
+                command_buffer,
+                6,
+                1,
+                0,
+                shadow.composite_first_instance,
+            );
+            device.cmd_end_rendering(command_buffer);
+        }
+    }
+
+    /// The color attachment the frame's geometry and shadow composites render
+    /// into: with MSAA the multisample buffer (resolved into the target by a
+    /// final instance when `resolve_at_end`), without it the resolve target
+    /// directly. `resolve_at_end` must be set on exactly the final
+    /// target-touching instance of the walk — resolve applies per rendering
+    /// instance, so resolving mid-walk would clobber interleaved content.
+    #[allow(clippy::too_many_arguments)]
+    fn working_attachment(
+        &self,
+        msaa: bool,
+        resolve_view: vk::ImageView,
+        resolve_layout: vk::ImageLayout,
+        clear: vk::ClearValue,
+        load: vk::AttachmentLoadOp,
+        resolve_at_end: bool,
+    ) -> vk::RenderingAttachmentInfo<'static> {
+        let attachment = vk::RenderingAttachmentInfo::default()
+            .image_view(if msaa {
+                self.msaa.as_ref().unwrap().view.handle()
             } else {
-                vk::AttachmentLoadOp::LOAD
-            };
-            let composite_attachment = vk::RenderingAttachmentInfo::default()
-                .image_view(resolve_view)
-                .image_layout(resolve_layout)
-                .load_op(load_op)
-                .store_op(vk::AttachmentStoreOp::STORE)
-                .clear_value(clear);
-            self.begin_rendering(command_buffer, extent, &[composite_attachment], None);
-            unsafe {
-                self.set_full_viewport(command_buffer, extent);
-                let scissor = composite_scissor;
-                device.cmd_set_scissor(command_buffer, 0, &[scissor]);
-                device.cmd_bind_pipeline(command_buffer, vk::PipelineBindPoint::GRAPHICS, blur.composite);
-                device.cmd_bind_descriptor_sets(
-                    command_buffer,
-                    vk::PipelineBindPoint::GRAPHICS,
-                    blur.sampler_layout,
-                    0,
-                    &[set_a],
-                    &[],
-                );
-                let vertex_buffers = [blur.unit_quad, instance_buffer];
-                let offsets = [0u64, 0u64];
-                device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
-                device.cmd_push_constants(
-                    command_buffer,
-                    blur.sampler_layout,
-                    vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
-                    0,
-                    &shadow.composite_push.bytes(),
-                );
-                device.cmd_draw(
-                    command_buffer,
-                    6,
-                    1,
-                    0,
-                    shadow.composite_first_instance,
-                );
-                device.cmd_end_rendering(command_buffer);
-            }
-            first_composite = false;
-            first_shadow = false;
+                resolve_view
+            })
+            .image_layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .load_op(load)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(clear);
+        if msaa && resolve_at_end {
+            attachment
+                .resolve_mode(vk::ResolveModeFlags::AVERAGE)
+                .resolve_image_view(resolve_view)
+                .resolve_image_layout(resolve_layout)
+        } else {
+            attachment
+        }
+    }
+
+    /// Begins the geometry rendering instance for instanced and path-fill ops
+    /// (color attachment + the stencil attachment path fills clear per fill).
+    /// The caller decides `load`: the walk's first target-touching instance of
+    /// an unpreserved frame CLEARs, every later instance LOADs.
+    #[allow(clippy::too_many_arguments)]
+    fn begin_geometry_instance(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        extent: vk::Extent2D,
+        msaa: bool,
+        resolve_view: vk::ImageView,
+        resolve_layout: vk::ImageLayout,
+        clear: vk::ClearValue,
+        load: vk::AttachmentLoadOp,
+    ) -> Result<(), (RenderResult, String)> {
+        let color_attachment =
+            self.working_attachment(msaa, resolve_view, resolve_layout, clear, load, false);
+        let color_attachments = [color_attachment];
+        let stencil_attachment = vk::RenderingAttachmentInfo::default()
+            .image_view(self.stencil.as_ref().unwrap().view.handle())
+            .image_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .clear_value(vk::ClearValue {
+                depth_stencil: vk::ClearDepthStencilValue {
+                    depth: 0.0,
+                    stencil: 0,
+                },
+            });
+        let rendering_info = vk::RenderingInfo::default()
+            .render_area(vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent,
+            })
+            .layer_count(1)
+            .color_attachments(&color_attachments)
+            .stencil_attachment(&stencil_attachment);
+        unsafe {
+            self.context
+                .device()
+                .cmd_begin_rendering(command_buffer, &rendering_info);
+            self.set_full_viewport(command_buffer, extent);
         }
         Ok(())
     }

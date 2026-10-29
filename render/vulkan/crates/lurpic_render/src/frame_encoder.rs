@@ -1,10 +1,14 @@
-//! Converts a decoded frame into GPU draw groups + instance data (Slice 3).
+//! Converts a decoded frame into one canonical ordered operation stream (S6).
 //!
-//! The encoder walks commands with a transform/clip/opacity stack. Rects
-//! sharing the same push-constant state are batched into one instanced draw;
-//! when the state changes, the batch closes and its instance bytes are flushed
-//! to the ring buffer. The scratch buffer is reused across frames (no per-frame
-//! allocation on the hot path).
+//! The encoder walks commands with a transform/clip/opacity stack and appends
+//! an operation per draw to `EncodedFrame::ops` in exact command order: an
+//! `Instances` op per flushed instance run, a `PathFill` op per stencil fill,
+//! and a `Shadow` op per blurred shadow. Rects sharing the same push-constant
+//! state are batched into one instanced draw; when the state changes — or a
+//! path fill / shadow is emitted between runs — the batch closes and its
+//! instance bytes are flushed to the ring buffer, so batching only ever merges
+//! commands that are adjacent in the command stream. The scratch buffer is
+//! reused across frames (no per-frame allocation on the hot path).
 
 use ash::vk;
 
@@ -205,11 +209,37 @@ impl Textures<'_> {
     }
 }
 
+/// One encoded operation in canonical painter order (S6/D4).
+#[derive(Clone, Debug)]
+pub enum OpKind {
+    /// An instanced quad draw: one pipeline bind + `instance_count` instances
+    /// starting at `first_instance`. Only commands adjacent in the command
+    /// stream merge into one op (the open-group state machine); a path fill or
+    /// shadow between two same-state runs closes the first, so the second
+    /// renders after the interleaved op. Stays inline: this is by far the most
+    /// frequent kind.
+    Instances(DrawGroup),
+    /// A stencil-buffer path fill, recorded inline at its canonical position.
+    PathFill(Box<PathFill>),
+    /// A blurred shadow (mask + separable blur + composite), recorded inline at
+    /// its canonical position: it composites over the content before it and
+    /// under the content after it.
+    Shadow(Box<ShadowFill>),
+}
+
+/// One operation of an encoded frame.
+#[derive(Clone, Debug)]
+pub struct EncodedOp {
+    /// The op's position in the frame's canonical stream. Ops are appended in
+    /// command order, so walking `EncodedFrame::ops` in index order is walking
+    /// in `seq` order.
+    pub seq: u64,
+    pub kind: OpKind,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct EncodedFrame {
-    pub groups: Vec<DrawGroup>,
-    pub path_fills: Vec<PathFill>,
-    pub shadows: Vec<ShadowFill>,
+    pub ops: Vec<EncodedOp>,
 }
 
 /// One stencil-buffer path fill (Slice 7): a winding-triangle stencil pass
@@ -297,9 +327,8 @@ pub struct FrameEncoder {
     current_texture: Option<u64>,
     /// Descriptor set of the open textured/glyph group.
     current_descriptor: Option<vk::DescriptorSet>,
-    groups: Vec<DrawGroup>,
-    path_fills: Vec<PathFill>,
-    shadows: Vec<ShadowFill>,
+    /// Canonical operation stream (S6).
+    ops: Vec<EncodedOp>,
 }
 
 impl Default for FrameEncoder {
@@ -316,9 +345,7 @@ impl Default for FrameEncoder {
             current_kind: None,
             current_texture: None,
             current_descriptor: None,
-            groups: Vec::with_capacity(64),
-            path_fills: Vec::with_capacity(8),
-            shadows: Vec::with_capacity(4),
+            ops: Vec::with_capacity(256),
         }
     }
 }
@@ -344,9 +371,7 @@ impl FrameEncoder {
         self.current_kind = None;
         self.current_texture = None;
         self.current_descriptor = None;
-        self.groups.clear();
-        self.path_fills.clear();
-        self.shadows.clear();
+        self.ops.clear();
 
         let screen = Rect {
             min: crate::geometry::Point { x: 0.0, y: 0.0 },
@@ -372,9 +397,7 @@ impl FrameEncoder {
         self.close_group(ring, allocator)?;
 
         Ok(EncodedFrame {
-            groups: std::mem::take(&mut self.groups),
-            path_fills: std::mem::take(&mut self.path_fills),
-            shadows: std::mem::take(&mut self.shadows),
+            ops: std::mem::take(&mut self.ops),
         })
     }
 
@@ -826,7 +849,13 @@ impl FrameEncoder {
             }
         }
 
-        self.path_fills.push(PathFill {
+        // Canonical order (S6/D4): the fill composites at its command position,
+        // so any open instance run must flush BEFORE it — a run split around a
+        // path fill must not carry the post-fill instances under the fill.
+        // The close happens only after the cull checks above passed: a culled
+        // fill leaves same-state batching intact.
+        self.close_group(ring, allocator)?;
+        self.push_op(OpKind::PathFill(Box::new(PathFill {
             first_vertex,
             vertex_count,
             bottom_center_x: (world_bounds.min.x + world_bounds.max.x) * 0.5,
@@ -847,7 +876,7 @@ impl FrameEncoder {
             },
             gradient_descriptor,
             segments_descriptor,
-        });
+        })));
         Ok(())
     }
 
@@ -1045,7 +1074,12 @@ impl FrameEncoder {
             surface_size,
         };
 
-        self.shadows.push(ShadowFill {
+        // Canonical order (S6/D4): the shadow composites at its command
+        // position (over the content before it, under the content after it),
+        // so the open instance run flushes before it, exactly as for path
+        // fills. Cull-checked above, so culled shadows leave batching intact.
+        self.close_group(ring, allocator)?;
+        self.push_op(OpKind::Shadow(Box::new(ShadowFill {
             mask_first_instance,
             blur_h_first_instance,
             blur_v_first_instance,
@@ -1059,7 +1093,7 @@ impl FrameEncoder {
             mask_push,
             blur_push,
             composite_push,
-        });
+        })));
         Ok(())
     }
 
@@ -1260,15 +1294,24 @@ impl FrameEncoder {
         }
         let (buffer, first, count) = ring.append(allocator, &self.scratch)?;
         let _ = buffer;
-        self.groups.push(DrawGroup {
+        let descriptor_set = self.current_descriptor.take();
+        self.push_op(OpKind::Instances(DrawGroup {
             kind,
             push,
             first_instance: first,
             instance_count: count,
-            descriptor_set: self.current_descriptor.take(),
-        });
+            descriptor_set,
+        }));
         self.scratch.clear();
         Ok(())
+    }
+
+    /// Appends one operation to the canonical stream. Ops are appended in
+    /// command order — `seq` is therefore the op's own index, and the render
+    /// walk needs no re-sort.
+    fn push_op(&mut self, kind: OpKind) {
+        let seq = self.ops.len() as u64;
+        self.ops.push(EncodedOp { seq, kind });
     }
 
     fn push_transform(&mut self, value: Transform) -> Result<(), (RenderResult, String)> {
