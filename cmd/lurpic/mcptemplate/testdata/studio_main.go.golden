@@ -236,6 +236,76 @@ func main() {
 			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
 		})
 
+	// session.list forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "session.list", Description: "LDP session.list (grant: admin)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("session.list", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// session.revoke forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "session.revoke", Description: "LDP session.revoke (grant: admin)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("session.revoke", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// sub.watch forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "sub.watch", Description: "LDP sub.watch (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("sub.watch", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// sub.state forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "sub.state", Description: "LDP sub.state (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("sub.state", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
+	// sub.cancel forwards to the LDP method of the same name.
+	mcp.AddTool(server, &mcp.Tool{Name: "sub.cancel", Description: "LDP sub.cancel (grant: read)"},
+		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {
+			res, err := t.call("sub.cancel", in)
+			if err != nil {
+				return nil, nil, err
+			}
+			var out map[string]any
+			if err := json.Unmarshal(res, &out); err != nil {
+				return nil, nil, err
+			}
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: string(res)}}}, out, nil
+		})
+
 	// input.click forwards to the LDP method of the same name.
 	mcp.AddTool(server, &mcp.Tool{Name: "input.click", Description: "LDP input.click (grant: input)"},
 		func(ctx context.Context, req *mcp.CallToolRequest, in map[string]any) (*mcp.CallToolResult, map[string]any, error) {

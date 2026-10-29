@@ -68,6 +68,7 @@ func startLoadServer(t *testing.T) (*server.Server, *loadPort, string, string) {
 		Token:      token,
 		Grants:     drive.Grants{Read: true, Input: true, Command: true, Time: true, Admin: true},
 		Sessions:   drive.NewSessionTable(inst),
+		Streams:    drive.NewStreamHub(),
 		Port:       port,
 	})
 	if err != nil {

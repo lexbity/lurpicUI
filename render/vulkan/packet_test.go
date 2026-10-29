@@ -549,9 +549,9 @@ type iconPacketRuntime struct {
 
 func (iconPacketRuntime) TextService() *text.Service { return nil }
 
-func (s iconPacketRuntime) Schedule(j job.AnyJob)  {}
-func (s iconPacketRuntime) Now() time.Time         { return time.Time{} }
-func (s iconPacketRuntime) CancelJob(id job.JobID) {}
+func (s iconPacketRuntime) Schedule(j job.AnyJob) error { return nil }
+func (s iconPacketRuntime) Now() time.Time              { return time.Time{} }
+func (s iconPacketRuntime) CancelJob(id job.JobID)      {}
 func (s iconPacketRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 func (s iconPacketRuntime) ControlSnapshot() facet.ControlSnapshot {

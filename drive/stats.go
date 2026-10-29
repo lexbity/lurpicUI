@@ -21,6 +21,7 @@ type Stats struct {
 	requestExpired        atomic.Uint64
 	admissionRejected     atomic.Uint64
 	preempted             atomic.Uint64
+	streamRecordRefused   atomic.Uint64
 }
 
 // AddCommandsAdmitted counts ledger claims.
@@ -39,6 +40,10 @@ func (s *Stats) AddRequestExpired()       { s.requestExpired.Add(1) }
 func (s *Stats) AddAdmissionRejected()    { s.admissionRejected.Add(1) }
 func (s *Stats) AddPreempted()            { s.preempted.Add(1) }
 
+// AddStreamRecordRefused counts cut records the shared log refused (an
+// oversize record) — the log never truncates or silently drops contents.
+func (s *Stats) AddStreamRecordRefused() { s.streamRecordRefused.Add(1) }
+
 // Snapshot returns the cumulative counter values.
 type StatsSnapshot struct {
 	CommandsAdmitted      uint64
@@ -52,6 +57,7 @@ type StatsSnapshot struct {
 	RequestExpired        uint64
 	AdmissionRejected     uint64
 	Preempted             uint64
+	StreamRecordRefused   uint64
 }
 
 // Load reads the full counter set.
@@ -68,5 +74,6 @@ func (s *Stats) Load() StatsSnapshot {
 		RequestExpired:        s.requestExpired.Load(),
 		AdmissionRejected:     s.admissionRejected.Load(),
 		Preempted:             s.preempted.Load(),
+		StreamRecordRefused:   s.streamRecordRefused.Load(),
 	}
 }

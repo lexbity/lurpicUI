@@ -57,6 +57,14 @@ func init() {
 		"cmd.list":                driveCmdList,
 		driveMethodCommandExecute: driveCmdExecute,
 		"op.status":               driveOpStatus,
+		"op.cancel":               driveOpCancel,
+		"session.state":           driveSessionState,
+		"session.list":            driveSessionList,
+		"session.revoke":          driveSessionRevoke,
+		"own.state":               driveOwnState,
+		"sub.watch":               driveSubWatch,
+		"sub.state":               driveSubState,
+		"sub.cancel":              driveSubCancel,
 	}
 }
 
@@ -140,6 +148,7 @@ func driveInfo(rt *Runtime, cmd drive.Command) driveOutcome {
 			"duplicate_hits":          snap.DuplicateHits,
 			"request_conflicts":       snap.RequestConflicts,
 			"request_expired":         snap.RequestExpired,
+			"stream_record_refused":   snap.StreamRecordRefused,
 		},
 	})
 	if err != nil {
@@ -229,6 +238,9 @@ func (rt *Runtime) driveHandleRenderCompletion(completion RenderCompletion) {
 		return
 	}
 	p := rt.drivePort
+	if completion.Ready && completion.Err == nil {
+		p.emitFrameReady(completion.Frame)
+	}
 	rt.driveCompleteCommandFrame(p, completion)
 	token, ok := p.pendingFrameTokens[completion.Frame]
 	if !ok {

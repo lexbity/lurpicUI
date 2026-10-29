@@ -671,11 +671,10 @@ func (rt *Runtime) superviseShutdown() {
 		return
 	case <-time.After(rt.teardownGrace):
 		// Loop is wedged or doesn't exist; perform teardown on the supervisor.
-		// Take frameMu (write) to serialize with any in-flight frame or loop
-		// teardown claim (D7 rule 3: supervisor takes frameMu before disposing).
-		rt.frameMu.Lock()
-		defer rt.frameMu.Unlock()
-		// Re-check doneCh under frameMu to handle race with loop exit.
+		// Serialization against any in-flight frame is provided by
+		// disposeTree's own frameMu write lock — the supervisor must NOT hold
+		// frameMu around shutdown() (disposeTree re-locks it: self-deadlock).
+		// Re-check doneCh to handle a race with loop exit.
 		select {
 		case <-rt.doneCh:
 			// Loop completed teardown concurrently.

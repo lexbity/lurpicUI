@@ -86,6 +86,13 @@ type FrameOutput struct {
 	RenderBatchs        []RenderBatchOutput
 	HitMap              *HitMap
 	SelectionGeometries map[facet.FacetID]*SelectionGeometry
+	// Reprojected lists the facets whose projection output was recomputed
+	// this frame (cache miss or dirty-forced re-projection). Assembly derives
+	// the frame's declared damage regions from this set: a facet that
+	// re-projected — including a pure arranged-bounds move with no dirty
+	// flag — must have its tiles recomposited even when its batch-ID list
+	// per tile is unchanged. Nil on quiet frames (zero re-projections).
+	Reprojected map[facet.FacetID]struct{}
 }
 
 type FrameInfo struct {
@@ -133,6 +140,10 @@ type System struct {
 	topologyDirty    bool
 	TopologyRebuilds uint64
 	walkStack        []projectionWalkFrame
+	// reprojectedScratch collects the facet IDs re-projected during the
+	// current walk (reused buffer; FrameOutput.Reprojected is the per-frame
+	// published view for assembly's declared damage).
+	reprojectedScratch []facet.FacetID
 	// frameNumber is the most recent Run's frame number (for LURPIC_TRACE=gates
 	// gate-decision tracing, NFR-8).
 	frameNumber uint64
@@ -321,9 +332,11 @@ func (s *System) Run(root facet.FacetImpl, frame FrameInfo) *FrameOutput {
 	dirty := s.dirtyCurrent
 	if !topologyRebuilt && len(dirty) == 0 {
 		s.CacheHits = len(s.frameOutputs)
+		s.reprojectedScratch = s.reprojectedScratch[:0]
 	} else {
 		clear(s.frameOutputs)
 		s.frameOutputs = s.frameOutputs[:0]
+		s.reprojectedScratch = s.reprojectedScratch[:0]
 		if rootNode != nil {
 			s.propagateProjectionDirty(dirty)
 			s.walkNode(rootNode, gfx.Identity(), nil, dirty)
@@ -614,6 +627,7 @@ func (s *System) walkNode(node *projectionNode, parentTransform gfx.Transform, p
 				output = s.project(frame.node.impl, resolvedTransform, bounds, frame.parentChildCtx, cacheKey, layerCtx, hasLayer)
 				s.storeCachedOutput(facetID, output)
 				s.addProjectedFacet()
+				s.reprojectedScratch = append(s.reprojectedScratch, facetID)
 			} else {
 				s.addCacheHit()
 			}
@@ -824,6 +838,13 @@ func (s *System) assembleFrameOutput() *FrameOutput {
 	out := &FrameOutput{
 		SelectionGeometries: collectSelectionGeometries(s.frameOutputs),
 		HitMap:              buildHitMap(s.frameOutputs),
+	}
+	if len(s.reprojectedScratch) > 0 {
+		reprojected := make(map[facet.FacetID]struct{}, len(s.reprojectedScratch))
+		for _, id := range s.reprojectedScratch {
+			reprojected[id] = struct{}{}
+		}
+		out.Reprojected = reprojected
 	}
 	for _, po := range s.frameOutputs {
 		if po == nil {

@@ -27,7 +27,7 @@ type catalogRT struct {
 	fonts     *text.FontRegistry
 }
 
-func (catalogRT) Schedule(j job.AnyJob)                                              {}
+func (catalogRT) Schedule(j job.AnyJob) error                                        { return nil }
 func (catalogRT) CancelJob(id job.JobID)                                             {}
 func (catalogRT) Now() time.Time                                                     { return time.Time{} }
 func (catalogRT) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {}

@@ -307,9 +307,9 @@ type iconRenderRuntime struct {
 
 func (iconRenderRuntime) TextService() *text.Service { return nil }
 
-func (s iconRenderRuntime) Schedule(j job.AnyJob)  {}
-func (s iconRenderRuntime) Now() time.Time         { return time.Time{} }
-func (s iconRenderRuntime) CancelJob(id job.JobID) {}
+func (s iconRenderRuntime) Schedule(j job.AnyJob) error { return nil }
+func (s iconRenderRuntime) Now() time.Time              { return time.Time{} }
+func (s iconRenderRuntime) CancelJob(id job.JobID)      {}
 func (s iconRenderRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 func (s iconRenderRuntime) ControlSnapshot() facet.ControlSnapshot {

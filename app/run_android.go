@@ -42,7 +42,7 @@ func openAndroidAssetManager(rtConfig *runtime.Config, jobPool *job.Pool) {
 	// Load the UUID registry from the APK's assets when available.
 	// The cook pipeline produces uuid_registry.json alongside assets.pak.
 	idReg := loadAndroidIDRegistry()
-	
+
 	// Get the assets wallet from the resource plan.
 	// Per D9: the application owns pool construction; the runtime and asset manager consume it.
 	var assetsWallet *membudget.Wallet
@@ -53,7 +53,7 @@ func openAndroidAssetManager(rtConfig *runtime.Config, jobPool *job.Pool) {
 			assetsWallet = nil
 		}
 	}
-	
+
 	// Per D9: Android uses the identical wiring as desktop.
 	// Platform code specializes only the asset source (pak vs devfs).
 	backendType := assetBackendFromRuntimeConfig(rtConfig)

@@ -132,14 +132,17 @@ func TestJobResultCallback_Panic_QuarantinesFacet(t *testing.T) {
 	ownerID := mark.Base().ID()
 
 	j := job.BindJob(uint64(ownerID), job.Job[int, int]{
-		ID:       job.JobID(1),
-		Priority: job.PriorityInteractive,
-		Snapshot: job.NewSnapshot(0),
+		ID:         job.JobID(1),
+		Priority:   job.PriorityInteractive,
+		Snapshot:   job.NewSnapshot(0),
+		MemoryDecl: job.JobMemoryDecl{MaxInputBytes: 16, MaxOutputBytes: 16},
 		Work: func(snap job.Snapshot[int], cancel *job.CancelToken) (int, error) {
 			return 42, nil
 		},
 	}, func(int) {})
-	rt.Schedule(j)
+	if err := rt.Schedule(j); err != nil {
+		t.Fatalf("schedule fixture job: %v", err)
+	}
 
 	// Run frames until the completed job result is drained and its callback
 	// panics (recovered by the runtime).

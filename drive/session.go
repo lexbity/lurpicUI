@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 )
@@ -173,6 +174,14 @@ func (s *Session) Expire() {
 	s.state = SessionExpired
 }
 
+// DetachedAt reports when the session detached (zero while attached or
+// never detached). session.state exposes bounded recovery metadata from it.
+func (s *Session) DetachedAt() time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.detachedAt
+}
+
 // VerifyCredential reports whether the presented resume credential matches.
 // Comparison is constant-time over the hash.
 func (s *Session) VerifyCredential(credential string) bool {
@@ -307,6 +316,33 @@ func (t *SessionTable) Revoke(sessionID string) bool {
 	delete(t.byID, sessionID)
 	t.expired++
 	return true
+}
+
+// SessionSummary is the redacted session.list entry: lifecycle metadata
+// only — no credentials exist to redact, and none are synthesized.
+type SessionSummary struct {
+	ID         string
+	State      SessionState
+	Generation uint64
+	Grants     Grants
+}
+
+// List returns the redacted summaries of every live session, sorted by ID
+// (stable pagination order).
+func (t *SessionTable) List() []SessionSummary {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	out := make([]SessionSummary, 0, len(t.byID))
+	for _, s := range t.byID {
+		out = append(out, SessionSummary{
+			ID:         s.ID,
+			State:      s.State(),
+			Generation: s.Generation(),
+			Grants:     s.Grants,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].ID < out[j].ID })
+	return out
 }
 
 // Sweep expires detached sessions past the recovery TTL. Returns the

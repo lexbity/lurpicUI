@@ -67,6 +67,54 @@
       "name": "op.status"
     },
     {
+      "grant": "",
+      "mutating": false,
+      "name": "op.cancel",
+      "tier": "structural"
+    },
+    {
+      "grant": "",
+      "mutating": false,
+      "name": "session.state",
+      "tier": "structural"
+    },
+    {
+      "grant": "admin",
+      "mutating": false,
+      "name": "session.list",
+      "tier": "structural"
+    },
+    {
+      "grant": "admin",
+      "mutating": false,
+      "name": "session.revoke",
+      "tier": "structural"
+    },
+    {
+      "grant": "",
+      "mutating": false,
+      "name": "own.state",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "sub.watch",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "sub.state",
+      "tier": "structural"
+    },
+    {
+      "grant": "read",
+      "mutating": false,
+      "name": "sub.cancel",
+      "tier": "structural"
+    },
+    {
       "grant": "input",
       "mutating": true,
       "name": "input.click",
@@ -142,6 +190,6 @@
     }
   ],
   "protocol": 2,
-  "schema_digest": "sha256:3c37d076dc2cae0f6687740c7c7040ffeb38f8c6cdd874a3a53056f3216a057f",
+  "schema_digest": "sha256:ca321f0176b012f25fc1490de3c84a837014a5a9b02559e69cc7e40b96548979",
   "title": "LDP — Lurpic Drive Protocol methods"
 }

@@ -210,7 +210,7 @@ func runInputSocketScenario(t *testing.T, disconnectHeldGesture bool) {
 	}
 	socket := filepath.Join(dir, "drive.sock")
 	token := strings.Repeat("ab", 32)
-	srv, err := driveserver.Listen(driveserver.Config{SocketPath: socket, Token: token, Grants: drive.Grants{Read: true, Input: true, Time: true}, Sessions: sessions, Port: rt.DrivePort()})
+	srv, err := driveserver.Listen(driveserver.Config{SocketPath: socket, Token: token, Grants: drive.Grants{Read: true, Input: true, Time: true}, Sessions: sessions, Streams: rt.DriveStreams(), Port: rt.DrivePort()})
 	if err != nil {
 		t.Fatal(err)
 	}

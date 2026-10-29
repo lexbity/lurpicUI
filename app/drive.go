@@ -23,10 +23,12 @@ type DriveConfig struct {
 	GrantsSpec string
 	Grants     drive.Grants
 	// Instance is the app launch's random identity; Sessions is the table
-	// it issues. Both are created by wireDriveEnv when enabled and shared
-	// by the runtime (admission) and the server (transport).
+	// it issues, Streams the shared bounded event log. All are created by
+	// wireDriveEnv when enabled and shared by the runtime (admission,
+	// cut-record publication) and the server (transport).
 	Instance Instance
 	Sessions *drive.SessionTable
+	Streams  *drive.StreamHub
 	// Stats is the shared drive counter set.
 	Stats *drive.Stats
 }
@@ -118,6 +120,9 @@ func startDriveServer(cfg *DriveConfig, rt *runtime.Runtime) (*server.Server, er
 	if cfg.Sessions == nil {
 		return nil, errors.New("app: drive session table missing (wireDriveEnv)")
 	}
+	if cfg.Streams == nil {
+		return nil, errors.New("app: drive stream hub missing (wireDriveEnv)")
+	}
 	raw := make([]byte, 32)
 	if _, err := rand.Read(raw); err != nil {
 		return nil, fmt.Errorf("app: drive token: %w", err)
@@ -131,6 +136,7 @@ func startDriveServer(cfg *DriveConfig, rt *runtime.Runtime) (*server.Server, er
 		Token:      hex.EncodeToString(raw),
 		Grants:     cfg.Grants,
 		Sessions:   cfg.Sessions,
+		Streams:    cfg.Streams,
 		Port:       port,
 		Stats:      rt.DriveStats(),
 	})
@@ -157,11 +163,13 @@ func wireDriveEnv(cfg *Config) (DriveConfig, error) {
 		}
 		driveCfg.Instance = inst
 		driveCfg.Sessions = drive.NewSessionTable(inst)
+		driveCfg.Streams = drive.NewStreamHub()
 		driveCfg.Stats = &drive.Stats{}
 	}
 	cfg.Drive = driveCfg
 	cfg.Runtime.Drive.Enabled = driveCfg.Enabled
 	cfg.Runtime.Drive.Sessions = driveCfg.Sessions
+	cfg.Runtime.Drive.Streams = driveCfg.Streams
 	cfg.Runtime.Drive.Stats = driveCfg.Stats
 	return driveCfg, nil
 }

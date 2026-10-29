@@ -46,9 +46,17 @@ func Methods() []string {
 		"input.scroll",
 		"input.type",
 		"locate.resolve",
+		"op.cancel",
 		"op.status",
+		"own.state",
+		"session.list",
+		"session.revoke",
+		"session.state",
 		"store.list",
 		"store.read",
+		"sub.cancel",
+		"sub.state",
+		"sub.watch",
 		"sys.hello",
 		"sys.ping",
 		"time.advance",
@@ -59,7 +67,7 @@ func Methods() []string {
 
 // SchemaDigest returns the canonical schema digest of Methods().
 func SchemaDigest() string {
-	return "sha256:3c37d076dc2cae0f6687740c7c7040ffeb38f8c6cdd874a3a53056f3216a057f"
+	return "sha256:ca321f0176b012f25fc1490de3c84a837014a5a9b02559e69cc7e40b96548979"
 }
 
 // CmdExecute sends cmd.execute with optional params.
@@ -132,9 +140,34 @@ func (c *Client) LocateResolve(params any) (json.RawMessage, error) {
 	return c.call("locate.resolve", params)
 }
 
+// OpCancel sends op.cancel with optional params.
+func (c *Client) OpCancel(params any) (json.RawMessage, error) {
+	return c.call("op.cancel", params)
+}
+
 // OpStatus sends op.status with optional params.
 func (c *Client) OpStatus(params any) (json.RawMessage, error) {
 	return c.call("op.status", params)
+}
+
+// OwnState sends own.state with optional params.
+func (c *Client) OwnState(params any) (json.RawMessage, error) {
+	return c.call("own.state", params)
+}
+
+// SessionList sends session.list with optional params.
+func (c *Client) SessionList(params any) (json.RawMessage, error) {
+	return c.call("session.list", params)
+}
+
+// SessionRevoke sends session.revoke with optional params.
+func (c *Client) SessionRevoke(params any) (json.RawMessage, error) {
+	return c.call("session.revoke", params)
+}
+
+// SessionState sends session.state with optional params.
+func (c *Client) SessionState(params any) (json.RawMessage, error) {
+	return c.call("session.state", params)
 }
 
 // StoreList sends store.list with optional params.
@@ -145,6 +178,21 @@ func (c *Client) StoreList(params any) (json.RawMessage, error) {
 // StoreRead sends store.read with optional params.
 func (c *Client) StoreRead(params any) (json.RawMessage, error) {
 	return c.call("store.read", params)
+}
+
+// SubCancel sends sub.cancel with optional params.
+func (c *Client) SubCancel(params any) (json.RawMessage, error) {
+	return c.call("sub.cancel", params)
+}
+
+// SubState sends sub.state with optional params.
+func (c *Client) SubState(params any) (json.RawMessage, error) {
+	return c.call("sub.state", params)
+}
+
+// SubWatch sends sub.watch with optional params.
+func (c *Client) SubWatch(params any) (json.RawMessage, error) {
+	return c.call("sub.watch", params)
 }
 
 // SysHello performs the handshake: token + create_session.

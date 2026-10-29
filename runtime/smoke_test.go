@@ -319,13 +319,13 @@ func TestRuntime_assembleFrame_prepends_transform(t *testing.T) {
 
 func TestRuntime_assembleFrame_dirty_regions(t *testing.T) {
 	rt := mustRuntime(t)
-	output := &projection.FrameOutput{
+	frame, err := rt.assembleFrame(&projection.FrameOutput{
 		RenderBatchs: []projection.RenderBatchOutput{
 			{FacetID: 1, Bounds: gfx.RectFromXYWH(0, 0, 10, 10)},
 			{FacetID: 2, Bounds: gfx.RectFromXYWH(10, 10, 10, 10)},
 		},
-	}
-	frame, err := rt.assembleFrame(output, map[facet.FacetID]facet.DirtyFlags{2: facet.DirtyProjection})
+		Reprojected: map[facet.FacetID]struct{}{2: {}},
+	}, map[facet.FacetID]facet.DirtyFlags{2: facet.DirtyProjection})
 	if err != nil {
 		t.Fatal(err)
 	}

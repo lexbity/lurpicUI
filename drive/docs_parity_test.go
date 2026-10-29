@@ -74,21 +74,31 @@ func backtickTokens(line string) []string {
 }
 
 // nonDispatchTokens are documented protocol tokens that are not dispatched
-// methods: server→client events, typed error codes, and wildcards.
+// methods: server→client events, client notifications, typed error codes,
+// revoke reasons, and wildcards.
 var nonDispatchTokens = map[string]bool{
-	"sub.dead":        true,
-	"own.preempted":   true,
-	"input.preempted": true,
-	"input.*":         true,
-	"state.changed":   true,
-	"tree.changed":    true,
-	"frame.completed": true,
-	"op.completed":    true,
+	"sub.dead":           true,
+	"own.preempted":      true,
+	"input.preempted":    true,
+	"input.*":            true,
+	"state.changed":      true,
+	"tree.changed":       true,
+	"frame.completed":    true,
+	"frame.ready":        true,
+	"op.completed":       true,
+	"operation.terminal": true,
+	"sub.data":           true,
+	"sub.expired":        true,
+	"sub.ack":            true,
+	"sys.shutdown":       true,
+	"sys.keepalive":      true,
+	"instance.shutdown":  true,
 	// v2 typed error codes named in the doc.
 	"request.conflict":          true,
 	"request.expired":           true,
 	"request.gap":               true,
 	"instance.changed":          true,
+	"stream.invalid_cursor":     true,
 	"protocol.unknown_method":   true,
 	"protocol.malformed":        true,
 	"protocol.line_limit":       true,

@@ -87,6 +87,9 @@ func (rt *Runtime) WatchControl(id facet.FacetID, callback func(facet.ControlSna
 // returns an idempotent closure that removes its exact insertion slot.
 func (rt *Runtime) notifyControlChanged() {
 	snapshot := rt.ControlSnapshot()
+	if rt.drivePort != nil {
+		rt.drivePort.publishOwners()
+	}
 	for id, callbacks := range rt.controlWatchers {
 		rt.Invalidate(id, facet.DirtyProjection, "runtime.control")
 		for _, watcher := range callbacks {
@@ -342,6 +345,7 @@ func (rt *Runtime) preemptDriveForHuman() {
 		return
 	}
 	p := rt.drivePort
+	p.emitOwnPreempted("human_input")
 	reason := &proto.Error{Code: proto.ErrInputPreempted, Detail: "human input took control before the next scheduled step"}
 	seenPlans := make(map[*framePlan]struct{})
 	for i := 0; i < len(p.frameTokens); {

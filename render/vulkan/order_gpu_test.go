@@ -135,9 +135,9 @@ func TestPainterOrderShadowAfterRect(t *testing.T) {
 			cmds = []gfx.Command{shadow, rect}
 		}
 		return render.BatchInput{
-			ID:      1,
-			Bounds:  gfx.RectFromXYWH(0, 0, w, h),
-			Opacity: 1,
+			ID:       1,
+			Bounds:   gfx.RectFromXYWH(0, 0, w, h),
+			Opacity:  1,
 			Commands: gfx.CommandList{Commands: cmds},
 		}
 	}
@@ -187,10 +187,10 @@ func TestMixedKindInterleavedFourKind(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		off := float32(i) * 6
 		cmds = append(cmds,
-			gfx.FillRect{Rect: gfx.RectFromXYWH(90 + off, 30 + off, 96, 96), Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(40, 120, 220, 255))},
+			gfx.FillRect{Rect: gfx.RectFromXYWH(90+off, 30+off, 96, 96), Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(40, 120, 220, 255))},
 			gfx.FillPath{Path: gfx.RoundedRectPath(gfx.RectFromXYWH(102+off, 42+off, 72, 72), 8), Brush: gfx.SolidBrush(gfx.ColorFromRGBA8(220, 60, 60, 255))},
 			gfx.DrawGlyphRun{Run: run, Origin: gfx.Point{X: 110 + off, Y: 96 + off}, Brush: gfx.SolidBrush(ink)},
-			gfx.DrawImage{Image: tex, DestRect: gfx.RectFromXYWH(114 + off, 54 + off, 48, 48), SrcRect: gfx.RectFromXYWH(0, 0, 8, 8), Sampling: gfx.SamplingNearest, Opacity: 1},
+			gfx.DrawImage{Image: tex, DestRect: gfx.RectFromXYWH(114+off, 54+off, 48, 48), SrcRect: gfx.RectFromXYWH(0, 0, 8, 8), Sampling: gfx.SamplingNearest, Opacity: 1},
 		)
 	}
 	frame := testframe.Seal(render.FrameInput{

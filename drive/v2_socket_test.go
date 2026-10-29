@@ -49,6 +49,7 @@ func v2SocketServer(t *testing.T, registries ...*runtimepkg.CommandRegistry) (so
 	cfg := testkit.StandardHarnessConfig(t, 1280, 800)
 	cfg.LayerRegistry = reg
 	cfg.ThemeResolver = themeCtx.Resolver
+	cfg.DriveStreams = drive.NewStreamHub()
 	if len(registries) > 0 {
 		cfg.CommandRegistry = registries[0]
 	}
@@ -447,7 +448,7 @@ func TestSocketDisconnectQueuedDoesNotActivate(t *testing.T) {
 	srv, err := server.Listen(server.Config{
 		SocketPath: socket, Token: token,
 		Grants:   drive.Grants{Read: true, Input: true, Command: true, Time: true},
-		Sessions: h.Sessions(), Port: port,
+		Sessions: h.Sessions(), Streams: h.DriveStreams(), Port: port,
 	})
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -650,6 +651,7 @@ func startV2Server(t *testing.T, h *testkit.DriveHarness, socket, token string) 
 		Token:      token,
 		Grants:     drive.Grants{Read: true, Input: true, Command: true, Time: true},
 		Sessions:   h.Sessions(),
+		Streams:    h.DriveStreams(),
 		Port:       h.Runtime().DrivePort(),
 	})
 }

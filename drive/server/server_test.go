@@ -88,6 +88,7 @@ func startServerWithPort(t *testing.T, grants drive.Grants, port drive.RuntimePo
 		Grants:     grants,
 		Port:       port,
 		Sessions:   newTestSessions(t),
+		Streams:    drive.NewStreamHub(),
 	})
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -415,6 +416,7 @@ func TestServer_CloseRemovesSocketAndToken(t *testing.T) {
 		Grants:     drive.Grants{Read: true},
 		Port:       &fakePort{},
 		Sessions:   newTestSessions(t),
+		Streams:    drive.NewStreamHub(),
 	})
 	if err != nil {
 		t.Fatalf("listen: %v", err)
@@ -454,7 +456,7 @@ func TestSocketOwnershipAndUnwind(t *testing.T) {
 	if err := os.WriteFile(socket, []byte("not a socket"), 0o644); err != nil {
 		t.Fatalf("seed socket path: %v", err)
 	}
-	_, err := Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t)})
+	_, err := Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t), Streams: drive.NewStreamHub()})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("listen = %v, want an exists refusal", err)
 	}
@@ -469,7 +471,7 @@ func TestSocketOwnershipAndUnwind(t *testing.T) {
 	if err := os.WriteFile(socket+".token", []byte("stale"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t)})
+	_, err = Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t), Streams: drive.NewStreamHub()})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("listen = %v, want a token-collision refusal", err)
 	}
@@ -484,7 +486,7 @@ func TestSocketOwnershipAndUnwind(t *testing.T) {
 	if err := os.Symlink(filepath.Join(dir, "elsewhere"), socket+".token"); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t)})
+	_, err = Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t), Streams: drive.NewStreamHub()})
 	if err == nil || !strings.Contains(err.Error(), "already exists") {
 		t.Fatalf("listen = %v, want a symlink refusal", err)
 	}
@@ -495,19 +497,19 @@ func TestSocketOwnershipAndUnwind(t *testing.T) {
 	if err := os.MkdirAll(private, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Listen(Config{SocketPath: filepath.Join(private, "drive.sock"), Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t)})
+	_, err = Listen(Config{SocketPath: filepath.Join(private, "drive.sock"), Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t), Streams: drive.NewStreamHub()})
 	if err == nil || !strings.Contains(err.Error(), "0700") {
 		t.Fatalf("listen = %v, want a private-directory refusal", err)
 	}
 
 	// A relative socket path is refused.
-	_, err = Listen(Config{SocketPath: "relative.sock", Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t)})
+	_, err = Listen(Config{SocketPath: "relative.sock", Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t), Streams: drive.NewStreamHub()})
 	if err == nil {
 		t.Fatal("relative socket path must be refused")
 	}
 
 	// A wrong-shape token is refused before any filesystem side effect.
-	_, err = Listen(Config{SocketPath: filepath.Join(dir, "ok.sock"), Token: "short", Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t)})
+	_, err = Listen(Config{SocketPath: filepath.Join(dir, "ok.sock"), Token: "short", Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t), Streams: drive.NewStreamHub()})
 	if err == nil {
 		t.Fatal("malformed token must be refused")
 	}
@@ -520,7 +522,7 @@ func TestSocketOwnershipAndUnwind(t *testing.T) {
 	if lerr != nil {
 		t.Fatalf("occupy: %v", lerr)
 	}
-	_, err = Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t)})
+	_, err = Listen(Config{SocketPath: socket, Token: testToken(), Grants: drive.Grants{Read: true}, Port: &fakePort{}, Sessions: newTestSessions(t), Streams: drive.NewStreamHub()})
 	_ = l.Close()
 	if err == nil {
 		t.Fatal("listen must fail on an occupied socket path")
@@ -567,6 +569,7 @@ func TestListenerPanicSupervisor(t *testing.T) {
 		Grants:     drive.Grants{Read: true},
 		Port:       &fakePort{},
 		Sessions:   newTestSessions(t),
+		Streams:    drive.NewStreamHub(),
 		Supervisor: func(err error) { panicked <- err },
 		acceptHook: func() { panic("boom") },
 	})
@@ -605,6 +608,7 @@ func TestListenerStoppedAcknowledgment(t *testing.T) {
 			Token:      testToken(),
 			Port:       &fakePort{},
 			Sessions:   newTestSessions(t),
+			Streams:    drive.NewStreamHub(),
 			Supervisor: func(err error) { supervisor <- err },
 			acceptHook: func() { panic("ack-cycle") },
 		})

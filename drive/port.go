@@ -89,12 +89,16 @@ const (
 
 // PublishedSnapshot is the immutable protocol metadata the runtime
 // publishes atomically; transport workers read it without touching live
-// engine state.
+// engine state. The owner sessions back the transport's keepalive lease
+// enforcement (a suspended controller loses its lease; a silent observer
+// does not).
 type PublishedSnapshot struct {
 	Cut                string // sealed cut identifier (decimal string)
 	Frame              string // last submitted frame (decimal string)
 	InstanceID         string
 	ExportSchemaDigest string
+	TimeOwnerSession   string // session owning the virtual-time lease, "" when none
+	InputOwnerSession  string // session owning an in-flight input gesture, "" when none
 }
 
 // RuntimePort is the runtime side of the seam. Implementations drain at a

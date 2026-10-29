@@ -65,9 +65,9 @@ func (NoopRuntime) WatchControl(_ facet.FacetID, callback func(facet.ControlSnap
 	return func() {}
 }
 
-func (NoopRuntime) Schedule(j job.AnyJob)  {}
-func (NoopRuntime) CancelJob(id job.JobID) {}
-func (NoopRuntime) Now() time.Time         { return time.Time{} }
+func (NoopRuntime) Schedule(j job.AnyJob) error { return nil }
+func (NoopRuntime) CancelJob(id job.JobID)      {}
+func (NoopRuntime) Now() time.Time              { return time.Time{} }
 func (NoopRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 

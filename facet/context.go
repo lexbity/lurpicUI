@@ -50,7 +50,10 @@ type AttachContext struct {
 // RuntimeServices is the narrow subset of runtime capabilities facets may see.
 type RuntimeServices interface {
 	TextService() *text.Service
-	Schedule(j job.AnyJob)
+	// Schedule submits a job to the runtime pool. An error means admission
+	// was refused (declaration, capacity, closed pool): the job never runs
+	// and never commits; the owner reschedules if the work is still wanted.
+	Schedule(j job.AnyJob) error
 	CancelJob(id job.JobID)
 	Invalidate(id FacetID, flags DirtyFlags, source string)
 	// Now returns the engine time (QP-5: the runtime clock). Marks that time

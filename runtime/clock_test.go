@@ -145,16 +145,19 @@ func TestClock_JobsStayCorrectUnderVirtualMode(t *testing.T) {
 	}
 	committed := make(chan string, 1)
 	aj := job.BindJob(uint64(1), job.Job[int, string]{
-		ID:       job.JobID(1),
-		Priority: job.PriorityInteractive,
-		Snapshot: job.NewSnapshot(0, 0),
+		ID:         job.JobID(1),
+		Priority:   job.PriorityInteractive,
+		Snapshot:   job.NewSnapshot(0, 0),
+		MemoryDecl: job.JobMemoryDecl{MaxInputBytes: 16, MaxOutputBytes: 16},
 		Work: func(s job.Snapshot[int], cancel *job.CancelToken) (string, error) {
 			return "row-42", nil
 		},
 	}, func(v string) {
 		committed <- v
 	})
-	rt.jobPool.SubmitAny(aj, func(result job.AnyResult) {})
+	if err := rt.jobPool.SubmitAny(aj, func(result job.AnyResult) {}); err != nil {
+		t.Fatalf("submit fixture job: %v", err)
+	}
 	// Advance virtual time while the job is in flight.
 	rt.clock.Advance(72 * time.Hour)
 	deadline := time.Now().Add(5 * time.Second)

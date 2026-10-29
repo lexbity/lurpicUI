@@ -602,7 +602,7 @@ func (rt *Runtime) driveCompletePlanFrame(plan *framePlan, completion RenderComp
 		plan.thenResults = append(plan.thenResults, out.result.Payload)
 	}
 	payload, err := json.Marshal(map[string]any{
-		"state": "completed", "applied_steps": plan.stepIndex,
+		driveJSONStateKey: "completed", "applied_steps": plan.stepIndex,
 		"frames": strconv.Itoa(plan.frames), "then": plan.thenResults,
 		"render_status": "ready", "ready_frame": p.Frame(),
 	})

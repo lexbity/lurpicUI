@@ -134,6 +134,12 @@ type DriveRuntimeConfig struct {
 	// Sessions is the instance session table; the runtime admits commands
 	// through its ledgers. Required when Enabled.
 	Sessions *drive.SessionTable
+	// Streams is the shared bounded event log the runtime publishes cut
+	// records into (subscriptions, RFC D7). The app wires the SAME instance
+	// into the drive server; when nil the runtime constructs a private hub
+	// (sufficient for in-process harnesses; socket delivery then has no
+	// transport to bind).
+	Streams *drive.StreamHub
 	// Stats is the shared drive counter set; a private one when nil.
 	Stats *drive.Stats
 }

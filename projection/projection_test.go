@@ -14,10 +14,10 @@ import (
 
 type projectionRuntimeStub struct{}
 
-func (projectionRuntimeStub) Schedule(j job.AnyJob)      {}
-func (projectionRuntimeStub) TextService() *text.Service { return nil }
-func (projectionRuntimeStub) CancelJob(id job.JobID)     {}
-func (projectionRuntimeStub) Now() time.Time             { return time.Time{} }
+func (projectionRuntimeStub) Schedule(j job.AnyJob) error { return nil }
+func (projectionRuntimeStub) TextService() *text.Service  { return nil }
+func (projectionRuntimeStub) CancelJob(id job.JobID)      {}
+func (projectionRuntimeStub) Now() time.Time              { return time.Time{} }
 func (projectionRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 func (projectionRuntimeStub) ControlSnapshot() facet.ControlSnapshot {

@@ -524,14 +524,18 @@ func TestVirtualJobCompletionOrderIndependent(t *testing.T) {
 			rt = mustDriveRuntimeWithCommand(t, func() {
 				for i := 1; i <= 2; i++ {
 					value := i
-					rt.Schedule(job.BindJob(uint64(rt.root.Base().ID()), job.Job[int, int]{
+					err := rt.Schedule(job.BindJob(uint64(rt.root.Base().ID()), job.Job[int, int]{
 						ID: job.JobID(9200 + value), Snapshot: job.NewSnapshot(value),
+						MemoryDecl: job.JobMemoryDecl{MaxInputBytes: 16, MaxOutputBytes: 16},
 						Work: func(snap job.Snapshot[int], _ *job.CancelToken) (int, error) {
 							started <- snap.Data
 							<-release[snap.Data]
 							return snap.Data, nil
 						},
 					}, func(result int) { mu.Lock(); committed = append(committed, result); mu.Unlock() }))
+					if err != nil {
+						t.Errorf("schedule fixture job %d: %v", value, err)
+					}
 				}
 			})
 			defer rt.Shutdown()

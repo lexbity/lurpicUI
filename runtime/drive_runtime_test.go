@@ -407,6 +407,9 @@ func TestDisconnectFencesCommandJobCommit(t *testing.T) {
 	registry.Register(CommandEntry{ID: "fixture.job", Version: 1, Title: "Schedule owned job", Execute: func() {
 		rt.Schedule(job.BindJob(uint64(root.Base().ID()), job.Job[int, int]{
 			ID: 7801,
+			MemoryDecl: job.JobMemoryDecl{
+				MaxInputBytes: 16, MaxOutputBytes: 16,
+			},
 			Work: func(snap job.Snapshot[int], _ *job.CancelToken) (int, error) {
 				close(started)
 				<-release
@@ -492,8 +495,9 @@ func TestCommandAwaitsOwnedJobCommitAndReadyFrame(t *testing.T) {
 	registry := NewCommandRegistry()
 	registry.Register(CommandEntry{ID: "fixture.job", Version: 1, Title: "Schedule owned job", Execute: func() {
 		rt.Schedule(job.BindJob(uint64(root.Base().ID()), job.Job[int, int]{
-			ID:       7802,
-			Snapshot: job.NewSnapshot(4),
+			ID:         7802,
+			Snapshot:   job.NewSnapshot(4),
+			MemoryDecl: job.JobMemoryDecl{MaxInputBytes: 16, MaxOutputBytes: 16},
 			Work: func(snap job.Snapshot[int], _ *job.CancelToken) (int, error) {
 				return snap.Data * 2, nil
 			},

@@ -51,6 +51,7 @@ func TestLiveCLIPingPath(t *testing.T) {
 	root.AddRole(&root.layout)
 
 	cfg := testkit.StandardHarnessConfig(t, 200, 120)
+	cfg.DriveStreams = drive.NewStreamHub()
 	h := testkit.NewDriveHarnessWithConfig(t, scope, cfg, root)
 	h.RunFrame()
 
@@ -65,6 +66,7 @@ func TestLiveCLIPingPath(t *testing.T) {
 		Token:      token,
 		Grants:     drive.Grants{Read: true},
 		Sessions:   h.Sessions(),
+		Streams:    h.DriveStreams(),
 		Port:       h.Runtime().DrivePort(),
 	})
 	if err != nil {

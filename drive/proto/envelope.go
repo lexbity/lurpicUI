@@ -274,6 +274,89 @@ func DecodeRequest(line []byte) (Request, error) {
 	return req, nil
 }
 
+// ClientNotification is a client→server push (sys.keepalive, sub.ack): a
+// bounded authenticated control message with no ID, no reply, and no
+// request-sequence consumption (RFC §Wire).
+type ClientNotification struct {
+	V      int             `json:"v"`
+	Method string          `json:"method"`
+	Params json.RawMessage `json:"params,omitempty"`
+}
+
+// DecodeClientNotification strictly decodes one client→server notification
+// line: an object with v, method, and optional params, and nothing else.
+// The method must be a known client notification.
+func DecodeClientNotification(line []byte) (ClientNotification, error) {
+	if len(line) > MaxLineBytes {
+		return ClientNotification{}, &LineLimitError{Size: len(line)}
+	}
+	if !utf8.Valid(line) {
+		return ClientNotification{}, errors.New("line is not valid UTF-8")
+	}
+	dec := json.NewDecoder(bytes.NewReader(line))
+	dec.UseNumber()
+
+	tok, err := dec.Token()
+	if err != nil {
+		return ClientNotification{}, fmt.Errorf("malformed JSON: %w", err)
+	}
+	if delim, ok := tok.(json.Delim); !ok || delim != '{' {
+		return ClientNotification{}, errors.New("envelope must be a JSON object")
+	}
+	var n ClientNotification
+	seen := map[string]bool{}
+	for dec.More() {
+		keyTok, err := dec.Token()
+		if err != nil {
+			return ClientNotification{}, fmt.Errorf("malformed JSON: %w", err)
+		}
+		key, ok := keyTok.(string)
+		if !ok {
+			return ClientNotification{}, errors.New("envelope key must be a string")
+		}
+		if seen[key] {
+			return ClientNotification{}, fmt.Errorf("duplicate envelope key %q", key)
+		}
+		seen[key] = true
+		switch key {
+		case "v":
+			n.V, err = decodeInt(dec)
+			if err != nil {
+				return ClientNotification{}, fmt.Errorf("field v: %w", err)
+			}
+		case "method":
+			n.Method, err = decodeString(dec)
+			if err != nil {
+				return ClientNotification{}, fmt.Errorf("field method: %w", err)
+			}
+		case "params":
+			n.Params, err = decodeParams(dec)
+			if err != nil {
+				return ClientNotification{}, fmt.Errorf("field params: %w", err)
+			}
+		default:
+			return ClientNotification{}, fmt.Errorf("unknown envelope field %q", key)
+		}
+	}
+	if _, err := dec.Token(); err != nil {
+		return ClientNotification{}, fmt.Errorf("malformed JSON: %w", err)
+	}
+	var extra json.RawMessage
+	if err := dec.Decode(&extra); err != io.EOF {
+		return ClientNotification{}, errors.New("trailing data after envelope object")
+	}
+	if n.V != ProtocolMajor {
+		return ClientNotification{}, &VersionError{Got: n.V}
+	}
+	if n.Method == "" {
+		return ClientNotification{}, errors.New("envelope is missing method")
+	}
+	if !IsClientNotification(n.Method) {
+		return ClientNotification{}, fmt.Errorf("unknown client notification %q", n.Method)
+	}
+	return n, nil
+}
+
 // decodeParams strictly decodes the params member: it must be present and a
 // JSON object, and its entire subtree obeys the depth/duplicate/number
 // rules. The raw bytes are re-emitted verbatim for the method layer.

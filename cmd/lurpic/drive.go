@@ -23,14 +23,16 @@ func cmdDrive(args []string) int {
 	verb := ""
 	rest := make([]string, 0, len(args))
 	for _, a := range args {
-		if verb == "" && (a == "ping" || a == "--check" || a == "commands" || a == "execute" || a == "op-status") {
+		if verb == "" && (a == "ping" || a == "--check" || a == "commands" || a == "execute" || a == "op-status" || a == "op-cancel" ||
+			a == "watch" || a == "sub-state" || a == "sub-cancel" || a == "own-state" ||
+			a == "session-state" || a == "session-list" || a == "session-revoke") {
 			verb = a
 			continue
 		}
 		rest = append(rest, a)
 	}
 	if verb == "" {
-		fmt.Fprintln(os.Stderr, "drive: a verb is required (ping, --check, commands, execute, op-status)")
+		fmt.Fprintln(os.Stderr, "drive: a verb is required (ping, --check, commands, execute, op-status, op-cancel, watch, sub-state, sub-cancel, own-state, session-state, session-list, session-revoke)")
 		return 1
 	}
 	fs := driveFlagSet()
@@ -50,6 +52,10 @@ func cmdDrive(args []string) int {
 		return 1
 	}
 	defer conn.close()
+
+	if handled := driveStreamVerbs(verb, fs, conn); handled != 2 {
+		return handled
+	}
 
 	switch verb {
 	case "ping":

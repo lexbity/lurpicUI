@@ -653,7 +653,7 @@ func assembleFrameInputWithLayers(output *projection.FrameOutput, dirtySnapshot 
 		last := len(out.Layers) - 1
 		out.Layers[last].BatchCount++
 	}
-	out.DirtyRegions = computeDirtyRegions(output, dirtySnapshot)
+	out.DirtyRegions = computeDirtyRegions(output)
 	return out
 }
 
@@ -691,6 +691,11 @@ func (rt *Runtime) assembleWindowFrames(output *projection.FrameOutput, dirtySna
 			}
 			group.SelectionGeometries[po.FacetID] = sel
 		}
+	}
+	// Declared damage is derived from the re-projected set (cut-exact); every
+	// window group shares the same read-only set.
+	for _, group := range grouped {
+		group.Reprojected = output.Reprojected
 	}
 	out := make(map[string]render.FrameInput, len(grouped))
 	for _, key := range order {
@@ -731,18 +736,33 @@ func windowBindingKey(binding layout.WindowBinding) string {
 	}
 }
 
-func computeDirtyRegions(output *projection.FrameOutput, dirtySnapshot map[facet.FacetID]facet.DirtyFlags) []gfx.Rect {
+// computeDirtyRegions derives the frame's declared damage from the frame's
+// re-projected facet set (cut-exact): every facet whose projection output was
+// recomputed contributes its current support rect. This covers content
+// changes under dirty flags AND pure arranged-bounds moves, which re-project
+// through the projection cache-key change without any dirty flag. The
+// renderer's structural batch-ID diff remains the independent safety net for
+// appearance, removal, reorder, and cross-tile moves.
+func computeDirtyRegions(output *projection.FrameOutput) []gfx.Rect {
 	if output == nil || len(output.RenderBatchs) == 0 {
+		return nil
+	}
+	if output.Reprojected == nil {
+		// No facet re-projected: either a quiet frame or a dirty-flag-only
+		// frame whose facets all hit the projection cache. Cache hits keep the
+		// previous output, so their pixels are unchanged by definition and no
+		// declared region is owed. (A facet flagged dirty without re-projecting
+		// produced no new commands.)
 		return nil
 	}
 	rects := make([]gfx.Rect, 0, len(output.RenderBatchs))
 	for _, RenderBatch := range output.RenderBatchs {
-		if dirtySnapshot != nil {
-			if flags := dirtySnapshot[RenderBatch.FacetID]; flags == 0 {
-				continue
-			}
+		if _, ok := output.Reprojected[RenderBatch.FacetID]; !ok {
+			continue
 		}
-		rects = append(rects, RenderBatch.Bounds)
+		if !RenderBatch.Bounds.IsEmpty() {
+			rects = append(rects, RenderBatch.Bounds)
+		}
 	}
 	if len(rects) == 0 {
 		return nil
@@ -752,13 +772,17 @@ func computeDirtyRegions(output *projection.FrameOutput, dirtySnapshot map[facet
 	return rects
 }
 
-func (rt *Runtime) Schedule(j job.AnyJob) {
+// Schedule submits j to the runtime's job pool. Admission refusal (memory
+// declaration, capacity, closed pool) is returned to the caller; refusals
+// are also counted in job.Pool Diagnostics. A job that is refused never
+// runs, never commits, and must be rescheduled by its owner.
+func (rt *Runtime) Schedule(j job.AnyJob) error {
 	if j == nil || rt.jobPool == nil {
-		return
+		return nil
 	}
 	scope := rt.currentDriveJobScope
 	if scope != nil && !rt.drivePort.registerCommandJob(scope, j.JobID()) {
-		return
+		return errors.New("runtime: drive command job registration refused")
 	}
 	ownerID := facet.FacetID(j.OwnerID())
 	afterCommit := func(result job.AnyResult) {
@@ -779,15 +803,14 @@ func (rt *Runtime) Schedule(j job.AnyJob) {
 			rt.frameTimer.RequestFrame()
 		}
 	}
-	var err error
 	if scope != nil {
-		err = rt.jobPool.SubmitAnyGuarded(j, scope.active.Load, afterCommit)
+		err := rt.jobPool.SubmitAnyGuarded(j, scope.active.Load, afterCommit)
 		if err != nil {
 			rt.drivePort.rollbackCommandJob(scope, j.JobID(), err)
 		}
-		return
+		return err
 	}
-	_ = rt.jobPool.SubmitAny(j, afterCommit)
+	return rt.jobPool.SubmitAny(j, afterCommit)
 }
 
 func (rt *Runtime) CancelJob(id job.JobID) {

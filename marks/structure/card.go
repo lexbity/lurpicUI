@@ -400,6 +400,21 @@ func (c *Card) measure(ctx facet.MeasureContext, constraints facet.Constraints) 
 }
 
 func (c *Card) measureChildren(ctx facet.MeasureContext, constraints facet.Constraints, children []CardChild) []layoutgrid.Child {
+	// Children live inside the card's padding: measure them under the
+	// CONTENT size, not the card's own max, or wrapped content lays out at
+	// the outer width and overflows the arranged content box. MaxSize.H = 0
+	// is the framework's "no clamp" sentinel and must stay zero.
+	content := constraints.MaxSize
+	content.W -= c.cachedPadX * 2
+	if content.W < 0 {
+		content.W = 0
+	}
+	if content.H > 0 {
+		content.H -= c.cachedPadY * 2
+		if content.H < 0 {
+			content.H = 0
+		}
+	}
 	out := make([]layoutgrid.Child, 0, len(children))
 	for i := range children {
 		spec := children[i]
@@ -410,7 +425,7 @@ func (c *Card) measureChildren(ctx facet.MeasureContext, constraints facet.Const
 		if base == nil || base.LayoutRole() == nil {
 			continue
 		}
-		base.LayoutRole().Measure(ctx, facet.Constraints{MaxSize: constraints.MaxSize})
+		base.LayoutRole().Measure(ctx, facet.Constraints{MaxSize: content})
 		out = append(out, c.gridLayoutChild(spec, i, len(children)))
 	}
 	return out

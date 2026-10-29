@@ -90,6 +90,49 @@ advertised wire surface today:
 - `op.status` — reports the retained state and outcome of an operation owned
   by the authenticated session; expired outcomes return the operation.expired
   error.
+- `op.cancel` — requests cancellation of one of the authenticated session's
+  outstanding operations. Cancellation lands at the next safe boundary;
+  already-applied effects stand and are never rolled back. Cancelling an
+  already-terminal operation is idempotent and returns its outcome. The
+  terminal `op.completed` notification still arrives for a cancelled
+  operation.
+- `session.state` — reports the authenticated session's own protocol state:
+  generation, next request ID, earliest retained outcome, active operation
+  IDs, recovery-expiry metadata while detached, and the current time
+  ownership. It never reports a credential.
+- `session.list` — requires the `admin` grant. Returns the redacted session
+  metadata page (ID, lifecycle state, generation, grants), sorted by session
+  ID, with 1..32 page bounds and a next-cursor continuation.
+- `session.revoke` — requires the `admin` grant. Terminally revokes one
+  session with a typed reason (`operator`, `policy`, or `instance.shutdown`),
+  fences its outstanding operations at the next safe boundary, and cancels
+  its subscriptions. Revoking an unknown or already-revoked session returns
+  the session.expired error.
+- `own.state` — reports the immutable control view: who owns input (human or
+  client, with session/generation attribution), held-gesture count, the
+  engine clock mode, and the time-ownership lease metadata.
+- `sub.watch` — requires the `read` grant. Creates a subscription over the
+  shared bounded event log: exactly one of `after` (a decimal cursor) or
+  `snapshot:true` (the current export-version snapshot plus the stream base),
+  a credit window 1..8, and a filter selecting event classes
+  (`state.changed`, `tree.changed`, `frame.completed`, `frame.ready`,
+  `own.preempted`, `operation.terminal`) and, for `state.changed`, export
+  names. A position below the retained floor returns stream.invalid_cursor
+  rather than pretending the gap is deliverable.
+- `sub.state` — reports a stream's lifecycle (live/expired/cancelled),
+  terminal reason, sent/acknowledged cursors, credit, and the current
+  retention window (floor/head) for the owning session.
+- `sub.cancel` — terminally cancels a stream (idempotent); repeated calls
+  return the terminal state.
+- Server notifications are `op.completed`, `sub.data` (one sealed record per
+  notification, carrying the events that matched the filter),
+  `sub.expired` (once per terminal stream), `own.preempted` (retained event;
+  authoritative state remains queryable), and `sys.shutdown` on server stop.
+  Client notifications are `sys.keepalive` (the lease clock: a controller
+  whose session owns input or time and stays silent beyond the documented
+  keepalive idle bound loses that lease at the next safe boundary) and
+  `sub.ack` (acknowledges a delivered cursor and returns credit). Client
+  notifications carry no ID and never consume one.
 - `locate.resolve` — resolves one exact author ID, role/name, scoped key,
   accessible name, kind, or hit-map coordinate locator. Ambiguity candidates
   are typed error details, capped at ten with an explicit truncation flag.
@@ -162,6 +205,17 @@ exposure is the bridge author's decision (see `lurpic mcp init`).
   --version <n>`, and `lurpic drive op-status --operation-id <id>`. Add
   `--session-file <path>` to reuse a local 0600 credential file across CLI
   invocations. Without that option each invocation creates a new session.
+- **Observing a running app**: `lurpic drive watch --snapshot --duration 30s`
+  subscribes to the shared event log (filter with `--classes
+  state.changed,frame.completed`, `--names e1.chartType`, `--credit 1..8`)
+  and prints every delivered record with its cut/frame attribution,
+  acknowledging each cursor. `lurpic drive own-state` reports who owns input
+  and time; `lurpic drive session-state` reports this session's ledger
+  state; `lurpic drive op-cancel --operation-id <id>` cancels an outstanding
+  operation at the next safe boundary. With the `admin` grant,
+  `lurpic drive session-list` pages the redacted session table and
+  `lurpic drive session-revoke --session-id <id> --reason operator`
+  terminally revokes one.
 - **Token rotation**: restart the app. The token file is regenerated next
   to the socket on every launch; there is no rotation without restart.
 - **Lost command completion**: `execute` resumes the session and retries the

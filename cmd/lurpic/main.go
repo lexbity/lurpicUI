@@ -72,7 +72,7 @@ Usage:
   lurpic logcat [flags]           Stream or clear device logcat
   lurpic crash [flags]            Pull tombstones and symbolicate crash dumps
   lurpic screenshot [flags]       Capture device screenshot for golden testing
-  lurpic drive [flags] <verb>     LDP verbs: ping, watch, resolve, tree, --check
+  lurpic drive [flags] <verb>     LDP verbs: ping, --check, commands, execute, op-status, op-cancel, watch, sub-state, sub-cancel, own-state, session-state, session-list, session-revoke
   lurpic mcp init <app> --out dir Scaffold a per-app MCP bridge from the LDP schema
   lurpic clean                    Remove build artifacts
   lurpic version                  Print version information

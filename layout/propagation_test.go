@@ -19,9 +19,9 @@ type recordingRuntime struct {
 
 func (*recordingRuntime) TextService() *text.Service { return nil }
 
-func (r *recordingRuntime) Schedule(j job.AnyJob)  {}
-func (r *recordingRuntime) Now() time.Time         { return time.Time{} }
-func (r *recordingRuntime) CancelJob(id job.JobID) {}
+func (r *recordingRuntime) Schedule(j job.AnyJob) error { return nil }
+func (r *recordingRuntime) Now() time.Time              { return time.Time{} }
+func (r *recordingRuntime) CancelJob(id job.JobID)      {}
 func (r *recordingRuntime) ControlSnapshot() facet.ControlSnapshot {
 	return facet.ControlSnapshot{InputOwner: facet.ControlOwnerHuman, TimeMode: facet.ControlTimeWall}
 }

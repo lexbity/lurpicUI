@@ -22,9 +22,9 @@ type iconInspectorRuntime struct {
 
 func (iconInspectorRuntime) TextService() *text.Service { return nil }
 
-func (s iconInspectorRuntime) Schedule(j job.AnyJob)  {}
-func (s iconInspectorRuntime) Now() time.Time         { return time.Time{} }
-func (s iconInspectorRuntime) CancelJob(id job.JobID) {}
+func (s iconInspectorRuntime) Schedule(j job.AnyJob) error { return nil }
+func (s iconInspectorRuntime) Now() time.Time              { return time.Time{} }
+func (s iconInspectorRuntime) CancelJob(id job.JobID)      {}
 func (s iconInspectorRuntime) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 func (s iconInspectorRuntime) ControlSnapshot() facet.ControlSnapshot {

@@ -36,6 +36,10 @@ type HarnessConfig struct {
 	// DriveSessions is the session table the runtime admits commands
 	// through; the DriveHarness installs one when unset.
 	DriveSessions *drive.SessionTable
+	// DriveStreams is the shared bounded event log (subscriptions). Set it
+	// when a transport must observe the SAME hub the runtime publishes cut
+	// records into; the runtime constructs a private one when unset.
+	DriveStreams *drive.StreamHub
 	// DriveStats is the shared drive counter set; a private one when nil.
 	DriveStats *drive.Stats
 	// CommandRegistry wires the app's command registry (the cmd.execute
@@ -93,6 +97,7 @@ type Harness struct {
 	// driveSessions is the session table backing the in-process drive seam
 	// (nil when Drive is disabled).
 	driveSessions *drive.SessionTable
+	driveStreams  *drive.StreamHub
 	driveMu       sync.Mutex
 	driveClient   *harnessDriveClient
 	frameObserver func(*runtime.Runtime, *MemorySurface)
@@ -184,6 +189,7 @@ func NewHarness(t testing.TB, scope *store.Scope, config HarnessConfig, root fac
 		config.DriveSessions = drive.NewSessionTable(inst)
 	}
 	rtcfg.Drive.Sessions = config.DriveSessions
+	rtcfg.Drive.Streams = config.DriveStreams
 	rtcfg.Drive.Stats = config.DriveStats
 	rtcfg.DescribeMark = drivedesc.Describe
 	rtcfg.HostedChildren = marks.HostedChildrenFor
@@ -192,7 +198,7 @@ func NewHarness(t testing.TB, scope *store.Scope, config HarnessConfig, root fac
 	if err != nil {
 		t.Fatalf("runtime: %v", err)
 	}
-	h := &Harness{t: t, app: app, surface: surface, fonts: fonts, rt: rt, driveSessions: config.DriveSessions}
+	h := &Harness{t: t, app: app, surface: surface, fonts: fonts, rt: rt, driveSessions: config.DriveSessions, driveStreams: config.DriveStreams}
 	t.Cleanup(func() {
 		rt.Shutdown()
 		h.driveMu.Lock()
@@ -274,6 +280,10 @@ func (h *Harness) InjectEvents(events []platform.Event) {
 }
 
 // Runtime returns the underlying runtime.
+// DriveStreams returns the harness-configured stream hub, or nil when the
+// runtime constructed a private one (set HarnessConfig.DriveStreams to share).
+func (h *Harness) DriveStreams() *drive.StreamHub { return h.driveStreams }
+
 func (h *Harness) Runtime() *runtime.Runtime {
 	if h == nil {
 		return nil

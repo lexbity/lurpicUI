@@ -129,7 +129,9 @@ func (f *Feed) submitTick() {
 		f.JobProgress.Set(float32(1))
 	})
 	if f.rt != nil {
-		f.rt.Schedule(aj)
+		// Saturated-pool refusal drops this cadence's row by contract
+		// (refusal, not stall); the pool's Diagnostics counters record it.
+		_ = f.rt.Schedule(aj)
 	}
 }
 

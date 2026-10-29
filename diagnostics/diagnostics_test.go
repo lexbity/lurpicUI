@@ -37,9 +37,9 @@ type diagRuntimeStub struct{}
 
 func (diagRuntimeStub) TextService() *text.Service { return nil }
 
-func (diagRuntimeStub) Schedule(j job.AnyJob)  {}
-func (diagRuntimeStub) Now() time.Time         { return time.Time{} }
-func (diagRuntimeStub) CancelJob(id job.JobID) {}
+func (diagRuntimeStub) Schedule(j job.AnyJob) error { return nil }
+func (diagRuntimeStub) Now() time.Time              { return time.Time{} }
+func (diagRuntimeStub) CancelJob(id job.JobID)      {}
 func (diagRuntimeStub) Invalidate(id facet.FacetID, flags facet.DirtyFlags, source string) {
 }
 func (diagRuntimeStub) ControlSnapshot() facet.ControlSnapshot { return facet.DefaultControlSnapshot() }

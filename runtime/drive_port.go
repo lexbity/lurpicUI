@@ -26,6 +26,10 @@ type drivePort struct {
 	rt       *Runtime
 	stats    *drive.Stats
 	sessions *drive.SessionTable
+	// hub is the shared bounded event log (subscriptions). Cut records are
+	// appended on the runtime thread at seal boundaries; the transport drains
+	// on its own goroutines.
+	hub *drive.StreamHub
 
 	// inbox is the bounded MPSC queue with ONE synchronization protocol:
 	// append and claim-and-clear both happen under mu; nonEmpty is an
@@ -74,6 +78,17 @@ type drivePort struct {
 
 	// drainedThisFrame feeds the per-frame FrameStats counter.
 	drainedThisFrame int
+
+	// publishedOwners is the atomically published ownership view (time and
+	// input owner sessions) refreshed by notifyControlChanged; Observe reads
+	// it cross-thread without touching live engine state.
+	publishedOwners atomic.Value // publishedOwners{x, y string}
+	// lastExportVersions carries each declared export's version at the last
+	// sealed cut (state.changed deltas, RFC §Streaming).
+	lastExportVersions map[string]uint64
+	// lastTopologyRebuilds observes the projection topology counter at the
+	// last seal (tree.changed fires only on topology change).
+	lastTopologyRebuilds uint64
 }
 
 // controlKey deduplicates control signals per (session, generation).
@@ -139,12 +154,34 @@ func (p *drivePort) Observe() drive.PublishedSnapshot {
 	if value := p.exportSchemaDigest.Load(); value != nil {
 		digest, _ = value.(string)
 	}
+	owners := publishedOwners{}
+	if value := p.publishedOwners.Load(); value != nil {
+		owners, _ = value.(publishedOwners)
+	}
 	return drive.PublishedSnapshot{
 		Cut:                strconv.FormatUint(p.cut.Load(), 10),
 		Frame:              strconv.FormatUint(p.epoch.Load(), 10),
 		InstanceID:         inst,
 		ExportSchemaDigest: digest,
+		TimeOwnerSession:   owners.time,
+		InputOwnerSession:  owners.input,
 	}
+}
+
+// publishedOwners is the immutable ownership view atomically published by
+// notifyControlChanged.
+type publishedOwners struct {
+	time  string
+	input string
+}
+
+// publishOwners refreshes the published ownership view (runtime thread).
+func (p *drivePort) publishOwners() {
+	owners := publishedOwners{time: p.timeOwnerSession}
+	if p.rt.driveInputStep != nil {
+		owners.input = p.rt.driveInputStep.sessionID
+	}
+	p.publishedOwners.Store(owners)
 }
 
 func (p *drivePort) setExportSchemaDigest(digest string) {
@@ -172,6 +209,7 @@ func (rt *Runtime) installDrivePort() error {
 		rt:                   rt,
 		stats:                rt.config.Drive.Stats,
 		sessions:             rt.config.Drive.Sessions,
+		hub:                  rt.config.Drive.Streams,
 		wake:                 make(chan struct{}, 1),
 		controlKeys:          make(map[controlKey]int),
 		pendingCommandFrames: make(map[uint64][]pendingCommand),
@@ -182,6 +220,10 @@ func (rt *Runtime) installDrivePort() error {
 	if rt.drivePort.stats == nil {
 		rt.drivePort.stats = &drive.Stats{}
 	}
+	if rt.drivePort.hub == nil {
+		rt.drivePort.hub = drive.NewStreamHub()
+	}
+	rt.drivePort.lastExportVersions = make(map[string]uint64)
 	return nil
 }
 
@@ -191,6 +233,16 @@ func (rt *Runtime) DrivePort() drive.RuntimePort {
 		return nil
 	}
 	return rt.drivePort
+}
+
+// DriveStreams returns the runtime's shared event-log hub, or nil when LDP
+// is disabled. A transport must bind the SAME instance the runtime publishes
+// cut records into.
+func (rt *Runtime) DriveStreams() *drive.StreamHub {
+	if rt.drivePort == nil {
+		return nil
+	}
+	return rt.drivePort.hub
 }
 
 // DriveStats returns the shared drive counters, or nil when LDP is disabled.
@@ -364,6 +416,7 @@ func (p *drivePort) expireBootstrapLease() bool {
 func (p *drivePort) sealCut(frame uint64) {
 	p.epoch.Store(frame)
 	p.cut.Store(frame)
+	p.emitSealEvents(frame)
 }
 
 // driveDrain admits and executes pending drive commands on the runtime
@@ -959,15 +1012,15 @@ func (rt *Runtime) driveCompleteCommandFrame(p *drivePort, completion RenderComp
 				completedJobs = command.jobScope.completed
 			}
 			payload, err := json.Marshal(map[string]string{
-				"operation_id":   command.entry.OpID,
-				"state":          "completed",
-				"executed":       command.activation.name,
-				"version":        strconv.FormatUint(command.activation.version, 10),
-				"applied_frame":  strconv.FormatUint(completion.Frame, 10),
-				"render_status":  "ready",
-				"ready_backend":  completion.Backend,
-				"owned_jobs":     strconv.Itoa(ownedJobs),
-				"jobs_completed": strconv.Itoa(completedJobs),
+				driveJSONOperationIDKey: command.entry.OpID,
+				driveJSONStateKey:       "completed",
+				"executed":              command.activation.name,
+				"version":               strconv.FormatUint(command.activation.version, 10),
+				"applied_frame":         strconv.FormatUint(completion.Frame, 10),
+				"render_status":         "ready",
+				"ready_backend":         completion.Backend,
+				"owned_jobs":            strconv.Itoa(ownedJobs),
+				"jobs_completed":        strconv.Itoa(completedJobs),
 			})
 			if err != nil {
 				result.Err = &proto.Error{Code: proto.ErrInternalPanic, Detail: "operation outcome encoding failed"}
@@ -1020,11 +1073,24 @@ func (p *drivePort) completeClaimed(entry *drive.Entry, cmd drive.Command, res d
 		} else {
 			ledger.CompleteError(entry, perr)
 		}
+		p.emitOperationTerminal(cmd.OpID, terminalStateName(perr))
 	}
 	select {
 	case cmd.Reply <- res:
 	default:
 	}
+}
+
+// terminalStateName maps a terminal error to the operation.terminal state
+// vocabulary.
+func terminalStateName(perr *proto.Error) string {
+	if perr == nil {
+		return "completed"
+	}
+	if perr.Code == proto.ErrOperationCancelled {
+		return "cancelled"
+	}
+	return "failed"
 }
 
 // replyClaimed records a terminal rejection (already claimed) and replies.

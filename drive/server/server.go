@@ -34,8 +34,12 @@ const (
 	outboxCapacity = 256
 	// writeDeadline bounds one blocked write; expiry closes the connection.
 	writeDeadline = 2 * time.Second
-	// lineDeadline bounds one incomplete line, starting at its first byte.
-	lineDeadline = 2 * time.Second
+	// idleLineDeadline bounds the wait for the next line between lines. It
+	// is deliberately generous: a client legitimately waits for an async
+	// reply (an operation notification, stream delivery) without owing the
+	// server a line. Keepalive traffic (documented: every 2s) keeps lease
+	// holders alive; the keepalive lease bound is separate (keepaliveIdle).
+	idleLineDeadline = 30 * time.Second
 	// helloDeadline bounds the time to the authenticated hello from accept.
 	helloDeadline = 2 * time.Second
 	// maxClientNameBytes bounds sys.hello's client_name.
@@ -56,6 +60,10 @@ type Config struct {
 	Grants drive.Grants
 	// Sessions is the instance session table (owned by the app wiring).
 	Sessions *drive.SessionTable
+	// Streams is the shared bounded event log (subscriptions). The app wires
+	// the SAME instance into the runtime config; Listen binds its delivery
+	// signal to this server's connections.
+	Streams *drive.StreamHub
 	// Port is the runtime side of the seam; installed before Listen.
 	Port drive.RuntimePort
 	// Stats is the shared drive counter set; a private one when nil.
@@ -83,6 +91,7 @@ type Server struct {
 	nextConn   sync.WaitGroup
 	connsMu    sync.Mutex
 	conns      map[*conn]struct{}
+	connByID   map[drive.ConnectionID]*conn
 	nextConnID atomic.Uint64
 	stopCh     chan struct{}
 	stopOnce   sync.Once
@@ -113,6 +122,9 @@ func Listen(cfg Config) (*Server, error) {
 	if cfg.Sessions == nil {
 		return nil, fmt.Errorf("drive: Sessions table is required")
 	}
+	if cfg.Streams == nil {
+		return nil, fmt.Errorf("drive: Streams hub is required")
+	}
 	if !filepath.IsAbs(cfg.SocketPath) {
 		return nil, fmt.Errorf("drive: SocketPath %q must be absolute", cfg.SocketPath)
 	}
@@ -139,16 +151,78 @@ func Listen(cfg Config) (*Server, error) {
 	if s.stats == nil {
 		s.stats = &drive.Stats{}
 	}
+	s.connByID = make(map[drive.ConnectionID]*conn)
 	s.socketDev, s.socketIno = bound.socketDev, bound.socketIno
 	s.tokenDev, s.tokenIno = bound.tokenDev, bound.tokenIno
+	// Stream delivery: the hub signals a ready stream; the signal is routed
+	// to the owning connection's drain goroutine (never blocking the
+	// runtime's append path).
+	s.cfg.Streams.SetNotify(func(streamID string) {
+		st, ok := s.cfg.Streams.Get(streamID)
+		if !ok {
+			return
+		}
+		s.connsMu.Lock()
+		c := s.connByID[st.Connection]
+		s.connsMu.Unlock()
+		if c != nil {
+			c.signalStreamDrain()
+		}
+	})
 	go func() {
 		<-s.acceptDone
 		s.nextConn.Wait()
 		close(s.stopped)
 	}()
 	go s.acceptLoop()
+	go s.leaseLoop()
 	return s, nil
 }
+
+// leaseLoop enforces the keepalive lease contract (RFC §Safe boundaries):
+// a connection whose session owns input or time loses that lease after
+// keepaliveIdle without any authenticated line; observers are never
+// disturbed. Failure detection uses real (injected) wall time.
+func (s *Server) leaseLoop() {
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-s.stopCh:
+			return
+		case <-ticker.C:
+		}
+		snap := s.cfg.Port.Observe()
+		now := s.now()
+		s.connsMu.Lock()
+		conns := make([]*conn, 0, len(s.conns))
+		for c := range s.conns {
+			conns = append(conns, c)
+		}
+		s.connsMu.Unlock()
+		for _, c := range conns {
+			sess, generation := c.attachment()
+			if sess == nil {
+				continue
+			}
+			if sess.ID != snap.TimeOwnerSession && sess.ID != snap.InputOwnerSession {
+				continue
+			}
+			if now.UnixNano()-c.lastActivity.Load() > keepaliveIdle.Nanoseconds() {
+				c.srv.cfg.Port.SignalControl(drive.ControlSignal{
+					Kind:       drive.SignalLeaseExpired,
+					Reason:     drive.ReasonIdle,
+					Session:    sess.ID,
+					Generation: generation,
+				})
+			}
+		}
+	}
+}
+
+// keepaliveIdle is the lease-expiry silence bound (RFC: ten seconds without
+// an authenticated keepalive; clients send one every two seconds).
+const keepaliveIdle = 10 * time.Second
 
 // validateToken enforces the 32-byte hex token grammar before any
 // comparison.
@@ -244,12 +318,17 @@ func (s *Server) acceptLoop() {
 			outbox:       make(chan []byte, outboxCapacity),
 			done:         make(chan struct{}),
 			pendingCalls: make(chan struct{}, 32),
+			streamDrain:  make(chan struct{}, 1),
+			streams:      make(map[string]struct{}),
 		}
+		c.lastActivity.Store(s.now().UnixNano())
 		s.conns[c] = struct{}{}
+		s.connByID[c.id] = c
 		s.connsMu.Unlock()
-		s.nextConn.Add(2)
+		s.nextConn.Add(3)
 		go c.writeLoop()
 		go c.serve()
+		go c.streamLoop()
 	}
 }
 
@@ -285,6 +364,9 @@ func (s *Server) stopBody() {
 		conns = append(conns, c)
 	}
 	s.connsMu.Unlock()
+	for _, c := range conns {
+		c.sendNotification("sys.shutdown", []byte("{}"), "", "")
+	}
 	for _, c := range conns {
 		c.close(drive.ReasonServerStop)
 	}
@@ -325,6 +407,15 @@ type conn struct {
 	session    *drive.Session
 	generation uint64
 
+	// streamDrain wakes the stream delivery loop; streams lists this
+	// connection's bound subscriptions (bound after their sub.watch reply).
+	streamDrain chan struct{}
+	streamsMu   sync.Mutex
+	streams     map[string]struct{}
+	// lastActivity is the last authenticated line's receive instant
+	// (keepalive lease enforcement).
+	lastActivity atomic.Int64
+
 	// draining marks a controlled close: the writer finishes the queued
 	// lines before the socket closes, so a final typed error still lands.
 	draining atomic.Bool
@@ -356,7 +447,11 @@ func (c *conn) close(reason drive.TransportReason) {
 		close(c.done)
 		c.srv.connsMu.Lock()
 		delete(c.srv.conns, c)
+		delete(c.srv.connByID, c.id)
 		c.srv.connsMu.Unlock()
+		if c.srv.cfg.Streams != nil {
+			c.srv.cfg.Streams.CloseConnection(c.id)
+		}
 		sess, generation := c.attachment()
 		if sess != nil {
 			if sess.DetachGeneration(generation, c.srv.now()) {
@@ -430,9 +525,7 @@ func (c *conn) serve() {
 	// Hello must arrive within its own deadline from accept.
 	_ = c.nc.SetReadDeadline(c.srv.now().Add(helloDeadline))
 	for {
-		// Incomplete-line deadlines start at the first byte of each line
-		// and are absolute for that line.
-		_ = c.nc.SetReadDeadline(c.srv.now().Add(lineDeadline))
+		_ = c.nc.SetReadDeadline(c.srv.now().Add(idleLineDeadline))
 		line, err := readLine(reader)
 		if err != nil {
 			if errors.Is(err, errLineTooLong) {
@@ -503,6 +596,27 @@ func isLineLimit(err error) bool {
 // handleLine decodes and executes one request line. Returns whether the
 // connection must close after the response flushes.
 func (c *conn) handleLine(line []byte) bool {
+	// Client notifications (no ID by contract) must route before request
+	// decoding: a strict request decode would reject them as malformed.
+	var peek struct {
+		ID     string `json:"id"`
+		Method string `json:"method"`
+	}
+	_ = json.Unmarshal(line, &peek)
+	if peek.ID == "" && proto.IsClientNotification(peek.Method) {
+		if !c.authed {
+			c.sendError("", proto.Error{Code: proto.ErrAuth, Detail: "authenticate before notifications", NonAdmitted: true}, true)
+			return true
+		}
+		notification, nerr := proto.DecodeClientNotification(line)
+		if nerr != nil {
+			c.sendError("", proto.Error{Code: proto.ErrMalformed, Detail: nerr.Error(), NonAdmitted: true}, false)
+			return false
+		}
+		c.lastActivity.Store(c.srv.now().UnixNano())
+		c.handleClientNotification(notification)
+		return false
+	}
 	req, err := proto.DecodeRequest(line)
 	if err != nil {
 		var verr *proto.VersionError
@@ -546,6 +660,7 @@ func (c *conn) handleLine(line []byte) bool {
 		}
 		return c.hello(req)
 	}
+	c.lastActivity.Store(c.srv.now().UnixNano())
 	if req.Method == "sys.hello" {
 		// Re-hello on an authenticated connection cannot re-negotiate the
 		// session silently; the client opens a new connection for that.
@@ -778,6 +893,14 @@ func (c *conn) awaitCommand(requestID string, cmd drive.Command) {
 		} else {
 			c.sendCommandResult(requestID, res)
 		}
+		if cmd.Method == "sub.watch" && res.Err == nil {
+			var parsed struct {
+				StreamID string `json:"stream_id"`
+			}
+			if json.Unmarshal(res.Payload, &parsed) == nil && parsed.StreamID != "" {
+				c.bindStream(parsed.StreamID)
+			}
+		}
 	case <-c.done:
 	}
 }
@@ -817,6 +940,149 @@ func (c *conn) sendOperationCompletion(operationID string, res drive.Result) {
 		return
 	}
 	c.sendNotification("op.completed", params, res.Cut, res.Frame)
+}
+
+// handleClientNotification processes one authenticated client→server
+// notification: sys.keepalive refreshes the lease clock (the line's
+// lastActivity update is the refresh), sub.ack returns credit.
+func (c *conn) handleClientNotification(n proto.ClientNotification) {
+	if n.Method != "sub.ack" {
+		return
+	}
+	var params struct {
+		StreamID string `json:"stream_id"`
+		Position string `json:"position"`
+	}
+	dec := json.NewDecoder(bytes.NewReader(n.Params))
+	dec.DisallowUnknownFields()
+	if len(n.Params) == 0 || dec.Decode(&params) != nil || params.StreamID == "" {
+		c.sendError("", proto.Error{Code: proto.ErrMalformed, Detail: "sub.ack requires stream_id and position", NonAdmitted: true}, false)
+		return
+	}
+	position, err := strconv.ParseUint(params.Position, 10, 64)
+	if err != nil {
+		c.sendError("", proto.Error{Code: proto.ErrMalformed, Detail: "sub.ack position must be a decimal cursor", NonAdmitted: true}, false)
+		return
+	}
+	sess, _ := c.attachment()
+	if sess == nil {
+		return
+	}
+	state, _, sendable := c.srv.cfg.Streams.Ack(params.StreamID, sess.ID, c.id, position)
+	if state == drive.StreamLive && sendable {
+		c.signalStreamDrain()
+	}
+}
+
+// bindStream registers a successfully created subscription for delivery on
+// this connection (the owning session is re-verified by the hub).
+func (c *conn) bindStream(streamID string) {
+	if c.srv.cfg.Streams == nil {
+		return
+	}
+	sess, _ := c.attachment()
+	if sess == nil {
+		return
+	}
+	state, reason := c.srv.cfg.Streams.BindDelivery(streamID, sess.ID, c.id)
+	c.streamsMu.Lock()
+	c.streams[streamID] = struct{}{}
+	c.streamsMu.Unlock()
+	if state == drive.StreamLive {
+		c.signalStreamDrain()
+		return
+	}
+	c.sendStreamTerminal(streamID, state, reason)
+}
+
+// signalStreamDrain wakes the delivery loop without blocking its caller.
+func (c *conn) signalStreamDrain() {
+	select {
+	case c.streamDrain <- struct{}{}:
+	default:
+	}
+}
+
+// streamLoop delivers sub.data records while the connection lives: the hub
+// owns retention, cursors, and credit; the loop only encodes and writes.
+func (c *conn) streamLoop() {
+	defer c.srv.nextConn.Done()
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-c.streamDrain:
+			c.drainStreams()
+		}
+	}
+}
+
+// drainStreams drains every bound stream and writes one sub.data per
+// record; an expired stream reports exactly one sub.expired notification
+// (its terminal state stays queryable via sub.state).
+func (c *conn) drainStreams() {
+	if c.srv.cfg.Streams == nil {
+		return
+	}
+	sess, _ := c.attachment()
+	if sess == nil {
+		return
+	}
+	c.streamsMu.Lock()
+	ids := make([]string, 0, len(c.streams))
+	for id := range c.streams {
+		ids = append(ids, id)
+	}
+	c.streamsMu.Unlock()
+	for _, id := range ids {
+		recs, state, reason := c.srv.cfg.Streams.Drain(id, sess.ID, c.id)
+		for _, rec := range recs {
+			params, err := json.Marshal(map[string]any{
+				"stream_id": id,
+				"cursor":    strconv.FormatUint(rec.Cursor, 10),
+				"cut":       rec.Cut,
+				"frame":     rec.Frame,
+				"events":    rec.Events,
+			})
+			if err != nil {
+				c.close(drive.ReasonWriteFault)
+				return
+			}
+			if !c.sendLine(mustLine(proto.Notification{V: proto.ProtocolMajor, Method: "sub.data", Params: params, Cut: rec.Cut, Frame: rec.Frame})) {
+				return
+			}
+		}
+		if state == drive.StreamExpired {
+			c.sendStreamTerminal(id, state, reason)
+			c.streamsMu.Lock()
+			delete(c.streams, id)
+			c.streamsMu.Unlock()
+		}
+	}
+}
+
+// sendStreamTerminal reports a stream's terminal state once.
+func (c *conn) sendStreamTerminal(streamID string, state drive.StreamState, reason string) {
+	params, err := json.Marshal(map[string]any{
+		"stream_id": streamID,
+		"state":     string(state),
+		"reason":    reason,
+	})
+	if err != nil {
+		c.close(drive.ReasonWriteFault)
+		return
+	}
+	c.sendNotification("sub.expired", params, "", "")
+}
+
+// mustLine encodes one notification line; it never fails for protocol
+// documents.
+func mustLine(n proto.Notification) []byte {
+	line, err := json.Marshal(n)
+	if err != nil {
+		return []byte(`{"v":2,"method":"sys.shutdown"}`)
+	}
+	return append(line, '\n')
 }
 
 func (c *conn) sendNotification(method string, params json.RawMessage, cut, frame string) {
@@ -878,8 +1144,14 @@ func limitsDocument() map[string]any {
 		"ledger_entries":           drive.LedgerMaxEntries(),
 		"ledger_bytes":             drive.LedgerMaxBytes(),
 		"line_bytes":               proto.MaxLineBytes,
-		"incomplete_line_seconds":  int(lineDeadline.Seconds()),
+		"idle_line_seconds":        int(idleLineDeadline.Seconds()),
 		"write_seconds":            int(writeDeadline.Seconds()),
 		"session_recovery_minutes": int(drive.SessionRecoveryTTL().Minutes()),
+		"stream_records":           drive.DefaultStreamRetention.MaxRecords,
+		"stream_bytes":             drive.DefaultStreamRetention.MaxBytes,
+		"stream_record_bytes":      drive.DefaultStreamRetention.MaxRecordBytes,
+		"stream_retention_minutes": int(drive.DefaultStreamRetention.RetentionAge.Minutes()),
+		"stream_credit_max":        8,
+		"keepalive_idle_seconds":   int(keepaliveIdle.Seconds()),
 	}
 }

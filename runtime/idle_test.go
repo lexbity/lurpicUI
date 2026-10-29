@@ -241,14 +241,17 @@ func TestReadyWallJobRequestsFrame(t *testing.T) {
 	workRelease := make(chan struct{})
 	jobID := job.JobID(91001)
 	work := job.Job[int, int]{
-		ID:       jobID,
-		Snapshot: job.NewSnapshot(1),
+		ID:         jobID,
+		Snapshot:   job.NewSnapshot(1),
+		MemoryDecl: job.JobMemoryDecl{MaxInputBytes: 16, MaxOutputBytes: 16},
 		Work: func(snapshot job.Snapshot[int], _ *job.CancelToken) (int, error) {
 			<-workRelease
 			return snapshot.Data + 1, nil
 		},
 	}
-	rt.Schedule(job.BindJob(uint64(root.Base().ID()), work, func(int) {}))
+	if err := rt.Schedule(job.BindJob(uint64(root.Base().ID()), work, func(int) {})); err != nil {
+		t.Fatalf("schedule fixture job: %v", err)
+	}
 	baseline := backend.submitCount.Load()
 	close(workRelease)
 	if !waitForAtomic(&resultCalls, 1, time.Second) {
@@ -292,14 +295,17 @@ func TestIdleVirtualJobDoesNotAdvance(t *testing.T) {
 	baseline := backend.submitCount.Load()
 	workRelease := make(chan struct{})
 	work := job.Job[int, int]{
-		ID:       91002,
-		Snapshot: job.NewSnapshot(1),
+		ID:         91002,
+		Snapshot:   job.NewSnapshot(1),
+		MemoryDecl: job.JobMemoryDecl{MaxInputBytes: 16, MaxOutputBytes: 16},
 		Work: func(snapshot job.Snapshot[int], _ *job.CancelToken) (int, error) {
 			<-workRelease
 			return snapshot.Data + 1, nil
 		},
 	}
-	rt.Schedule(job.BindJob(uint64(root.Base().ID()), work, func(int) {}))
+	if err := rt.Schedule(job.BindJob(uint64(root.Base().ID()), work, func(int) {})); err != nil {
+		t.Fatalf("schedule fixture job: %v", err)
+	}
 	close(workRelease)
 	frontier := rt.jobPool.Frontier()
 	deadline := time.Now().Add(time.Second)

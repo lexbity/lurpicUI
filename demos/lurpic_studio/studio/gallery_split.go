@@ -133,16 +133,24 @@ func (g *GallerySplit) measure(ctx facet.MeasureContext, c facet.Constraints) fa
 	// "no clamp" sentinel) so Cards report their content height instead of
 	// flex-filling the whole split; the split then stretches to the residual
 	// through Root's linear MainAxisMax.
-	avail := gfx.Size{W: c.MaxSize.W}
+	//
+	// A fixed-width pane measures under ITS OWN width constraint: measuring
+	// it at the full available width lets the pane's subtree lay out text at
+	// window width, so wrapped content (the inspector's description) never
+	// wraps and every measured size leaks past the pane's arranged bounds.
 	for _, p := range g.panes {
 		if p.Facet == nil || p.Facet.Base() == nil {
 			continue
+		}
+		avail := gfx.Size{W: c.MaxSize.W}
+		if p.FixedWidth > 0 {
+			avail.W = p.FixedWidth
 		}
 		if role := p.Facet.Base().LayoutRole(); role != nil {
 			role.Measure(ctx, facet.Constraints{MaxSize: avail})
 		}
 	}
-	nodes := g.childNodes(avail, 0)
+	nodes := g.childNodes(gfx.Size{W: c.MaxSize.W, H: 0}, 0)
 	policy := split.New(split.Config{Axis: split.Horizontal, DividerSize: g.divider})
 	return facet.MeasureResult{Size: policy.Measure(nodes, c.MaxSize)}
 }

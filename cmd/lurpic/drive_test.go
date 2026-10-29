@@ -195,6 +195,7 @@ func startCLIServer(t *testing.T) (socket, token string) {
 		Token:      token,
 		Grants:     drive.Grants{Read: true},
 		Sessions:   drive.NewSessionTable(inst),
+		Streams:    drive.NewStreamHub(),
 		Port:       &cliFakePort{},
 	})
 	if err != nil {

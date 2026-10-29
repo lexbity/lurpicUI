@@ -59,6 +59,14 @@ var Registry = []MethodSpec{
 	{Name: "cmd.list", Grant: GrantRead, Tier: TierApp, Advertised: true},
 	{Name: "cmd.execute", Grant: GrantCommand, Mutating: true, Twin: "cmd.execute/palette", Tier: TierApp, Advertised: true},
 	{Name: "op.status", Grant: "", Advertised: true},
+	{Name: "op.cancel", Grant: "", Tier: TierStructural, Advertised: true},
+	{Name: "session.state", Grant: "", Tier: TierStructural, Advertised: true},
+	{Name: "session.list", Grant: GrantAdmin, Tier: TierStructural, Advertised: true},
+	{Name: "session.revoke", Grant: GrantAdmin, Tier: TierStructural, Advertised: true},
+	{Name: "own.state", Grant: "", Tier: TierStructural, Advertised: true},
+	{Name: "sub.watch", Grant: GrantRead, Tier: TierStructural, Advertised: true},
+	{Name: "sub.state", Grant: GrantRead, Tier: TierStructural, Advertised: true},
+	{Name: "sub.cancel", Grant: GrantRead, Tier: TierStructural, Advertised: true},
 	{Name: "input.click", Grant: GrantInput, Mutating: true, Twin: "input.click/button", Tier: TierInput, Advertised: true},
 	{Name: "input.press", Grant: GrantInput, Mutating: true, Twin: "input.press/slider", Tier: TierInput, Advertised: true},
 	{Name: "input.release", Grant: GrantInput, Mutating: true, Twin: "input.release/slider", Tier: TierInput, Advertised: true},
@@ -72,6 +80,36 @@ var Registry = []MethodSpec{
 	{Name: "frame.run", Grant: GrantTime, Mutating: true, Twin: "n/a", Advertised: true},
 	{Name: "sub.watch", Grant: GrantRead, Tier: TierStructural},
 	{Name: "sub.cancel", Grant: GrantRead, Tier: TierStructural},
+}
+
+// ClientNotifications are the client→server notification methods (no ID,
+// no reply). They are bounded authenticated control messages and never
+// consume request IDs (RFC §Wire).
+var ClientNotifications = []string{"sys.keepalive", "sub.ack"}
+
+// IsClientNotification reports whether m is a client→server notification.
+func IsClientNotification(m string) bool {
+	for _, known := range ClientNotifications {
+		if known == m {
+			return true
+		}
+	}
+	return false
+}
+
+// ServerNotifications are the server→client push methods (RFC §Registry).
+var ServerNotifications = []string{
+	"op.completed", "sub.data", "sub.expired", "own.preempted", "sys.shutdown",
+}
+
+// IsServerNotification reports whether m is a server→client notification.
+func IsServerNotification(m string) bool {
+	for _, known := range ServerNotifications {
+		if known == m {
+			return true
+		}
+	}
+	return false
 }
 
 // AdvertisedRegistry returns the wire surface: fully ported major-2 methods

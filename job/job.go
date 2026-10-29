@@ -262,6 +262,9 @@ type Pool struct {
 
 	// reservationFaults counts terminal call errors (diagnostic).
 	reservationFaults int64
+	// admissionRefusals counts ErrAdmissionRefused returns (diagnostic):
+	// declaration validation failures and capacity refusals.
+	admissionRefusals int64
 
 	pauseMu   sync.Mutex
 	pauseCond *sync.Cond
@@ -282,6 +285,29 @@ func (p *Pool) Pending() int {
 	active := len(p.active)
 	p.mu.Unlock()
 	return active + len(p.interactive) + len(p.background) + len(p.results)
+}
+
+// PoolDiagnostics is the pool's observed fault accounting. Counters are
+// cumulative since construction and never reset.
+type PoolDiagnostics struct {
+	// AdmissionRefusals counts jobs rejected before scheduling: declaration
+	// validation failures and capacity refusals. A caller that discards a
+	// Schedule error is visible here.
+	AdmissionRefusals int64
+	// ReservationFaults counts terminal-call contract violations observed
+	// by the reservation pool (per D8.3 these are never silently discarded).
+	ReservationFaults int64
+}
+
+// Diagnostics reports the pool's fault counters.
+func (p *Pool) Diagnostics() PoolDiagnostics {
+	if p == nil {
+		return PoolDiagnostics{}
+	}
+	return PoolDiagnostics{
+		AdmissionRefusals: atomic.LoadInt64(&p.admissionRefusals),
+		ReservationFaults: atomic.LoadInt64(&p.reservationFaults),
+	}
 }
 
 // Ready reports whether a result for id has been published and awaits Drain.
@@ -444,6 +470,7 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 	// Validate declaration if required.
 	if p.requireDeclarations {
 		if err := job.MemoryDecl.Validate(); err != nil {
+			atomic.AddInt64(&p.admissionRefusals, 1)
 			return err
 		}
 	}
@@ -451,6 +478,7 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 	// Compute total bytes with overflow check.
 	totalBytes, err := job.MemoryDecl.TotalBytes()
 	if err != nil {
+		atomic.AddInt64(&p.admissionRefusals, 1)
 		return err
 	}
 
@@ -491,13 +519,12 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 				// Per D8: terminal errors are diagnosed, not silently discarded
 			}
 		}
+		atomic.AddInt64(&p.admissionRefusals, 1)
 		return ErrAdmissionRefused{
 			Queue:  "total",
 			Reason: fmt.Errorf("total records limit exceeded (%d > %d)", currentRecords, p.maxTotalRecords),
 		}
 	}
-
-	// Publish the reservation now that all admission checks have passed.
 	// Per D8: reservation is published only after admission succeeds.
 	if reservation != nil {
 		if err := reservation.Publish(); err != nil {
@@ -592,6 +619,7 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 			delete(p.active, job.ID)
 			delete(p.jobReservations, job.ID)
 			p.mu.Unlock()
+			atomic.AddInt64(&p.admissionRefusals, 1)
 			return ErrAdmissionRefused{
 				Queue:  "interactive",
 				Reason: fmt.Errorf("interactive queue full (%d/%d)", len(p.interactive), p.maxWaitingInteractive),
@@ -615,6 +643,7 @@ func ScheduleGuarded[I, O any](p *Pool, job Job[I, O], commitAllowed func() bool
 			delete(p.active, job.ID)
 			delete(p.jobReservations, job.ID)
 			p.mu.Unlock()
+			atomic.AddInt64(&p.admissionRefusals, 1)
 			return ErrAdmissionRefused{
 				Queue:  "background",
 				Reason: fmt.Errorf("background queue full (%d/%d)", len(p.background), p.maxWaitingInteractive),

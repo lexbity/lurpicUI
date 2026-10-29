@@ -3,7 +3,6 @@ package runtime
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"strings"
 
@@ -86,6 +85,13 @@ type opStatusParams struct {
 	OperationID string `json:"operation_id"`
 }
 
+// driveJSONOperationIDKey is the wire key naming an operation on every
+// operation-bearing method and notification.
+const (
+	driveJSONOperationIDKey = "operation_id"
+	driveJSONStateKey       = "state"
+)
+
 func driveOpStatus(rt *Runtime, cmd drive.Command) driveOutcome {
 	var p opStatusParams
 	dec := json.NewDecoder(bytes.NewReader(cmd.Params))
@@ -109,30 +115,13 @@ func driveOpStatus(rt *Runtime, cmd drive.Command) driveOutcome {
 	if status != drive.LookupRetained || entry.OpID != p.OperationID {
 		return errorOutcome(&proto.Error{Code: proto.ErrOperationExpired, Detail: "operation outcome is no longer retained"})
 	}
-	state := "running"
-	var result json.RawMessage
-	var failure *proto.Error
 	if entry.State == drive.EntryTerminal {
-		state = "completed"
-		if entry.ResultErr != nil {
-			state = "failed"
-			if !errors.As(entry.ResultErr, &failure) {
-				failure = &proto.Error{Code: proto.ErrCommandFailed, Detail: "operation failed"}
-			}
-			if failure.Code == proto.ErrOperationCancelled {
-				state = "cancelled"
-			}
-		} else {
-			result = append(json.RawMessage(nil), entry.ResultPayload...)
-		}
-	}
-	frame := entry.AcceptedFrame
-	if entry.State == drive.EntryTerminal && entry.ResultFrame != "" {
-		frame = entry.ResultFrame
+		return opStatusPayload(p.OperationID, entry)
 	}
 	payload, err := json.Marshal(map[string]any{
-		"operation_id": p.OperationID, "state": state, "result": result, "error": failure,
-		"accepted_cut": entry.AcceptedCut, driveJSONFrameKey: frame,
+		driveJSONOperationIDKey: p.OperationID, driveJSONStateKey: "running",
+		"result": nil, "error": nil,
+		"accepted_cut": entry.AcceptedCut, driveJSONFrameKey: entry.AcceptedFrame,
 	})
 	if err != nil {
 		return errorOutcome(&proto.Error{Code: proto.ErrInternalPanic, Detail: err.Error()})

@@ -1,515 +1,558 @@
 {
-  "version": 1,
-  "gates": [
-    {
-      "id": "S1-01-drive-proto",
-      "phase": "S1",
-      "package": "./drive/proto",
-      "tests": [
-        "TestRequestRoundTrip",
-        "TestDecodeRequest_Rejects",
-        "TestDecodeResponse_Strict",
-        "TestSchemaDigest_IsStableAndSensitive",
-        "TestRegistry_AdvertisedSurfaceHasNoWrite"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S1-02-drive-server",
-      "phase": "S1",
-      "package": "./drive/server",
-      "tests": [
-        "TestStrictEnvelopeDispatch",
-        "TestSocketOwnershipAndUnwind",
-        "TestCloseWithoutRuntimeReply",
-        "TestListenerPanicSupervisor",
-        "TestServer_HelloCreateSession"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S1-03-drive",
-      "phase": "S1",
-      "package": "./drive",
-      "tests": [
-        "TestLedgerClaimContiguous",
-        "TestLedgerFIFOEvictionPreservesHighWater",
-        "TestLedgerRejectionsRetained",
-        "TestSessionCreateResumeFence",
-        "TestSessionExpiry",
-        "TestSessionBoundIsFinite",
-        "TestGrants",
-        "TestV2SocketRuntimePing",
-        "TestV2RejectsLegacyMutation",
-        "TestLoadTenClients",
-        "TestDocsMatchRegistry",
-        "TestLiveCLIPingPath"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 600000,
-      "package_timeout_ms": 600000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S1-04-runtime",
-      "phase": "S1",
-      "package": "./runtime",
-      "tests": [
-        "TestDriveInboxExactlyOnce",
-        "TestDriveInboxBoundedOverload",
-        "TestDrive_IdleDrainZeroAlloc",
-        "TestStoreWrite_Absent",
-        "TestStoreWrite_NoWriteGrant"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 600000,
-      "package_timeout_ms": 600000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S1-05-input-equivalence",
-      "phase": "S1",
-      "package": "./input/equivalence",
-      "tests": [
-        "TestStoreWriteHasNoEquivalent",
-        "TestEveryMutatingVerbHasATwin"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S1-06-runtime",
-      "phase": "S1",
-      "package": "./runtime",
-      "tests": [
-        "TestDrive_TimeModeGrantDenied"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S1-07-app",
-      "phase": "S1",
-      "package": "./app",
-      "tests": [
-        "TestDriveDisabledRunLifecycle",
-        "TestParseDriveEnv"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S1-08-cmd-lurpic",
-      "phase": "S1",
-      "package": "./cmd/lurpic",
-      "tests": [
-        "TestCmdDrive_PingEndToEnd",
-        "TestCmdDrive_CheckEndToEnd",
-        "TestCmdDrive_CheckDetectsSkew",
-        "TestCmdDrive_UnadvertisedVerbFails"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S2-01-drive",
-      "phase": "S2",
-      "package": "./drive",
-      "tests": [
-        "TestSessionLostResponseRecovered",
-        "TestRequestPayloadConflict",
-        "TestSocketDisconnectQueuedDoesNotActivate",
-        "TestResumeGenerationFencesOldEOF",
-        "TestSessionInstanceRestart",
-        "TestExpiredRequestNeverRedispatched",
-        "TestLedgerPinsActiveEntriesDuringTerminalEviction",
-        "TestLedgerModelAtMostOnce"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 600000,
-      "package_timeout_ms": 600000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S2-02-runtime",
-      "phase": "S2",
-      "package": "./runtime",
-      "tests": [
-        "TestDriveVersionedCommandUsesGUIRegistryDispatcher",
-        "TestCommandListOnlyExposesGUIBackedEntries",
-        "TestDisconnectCancelsQueuedCommand",
-        "TestCommandCallbackPanicIsTerminalAndNotRetried",
-        "TestCommandWaitsForRenderAcknowledgment",
-        "TestCommandAwaitsOwnedJobCommitAndReadyFrame",
-        "TestDisconnectFencesCommandJobCommit",
-        "TestSoftwareSurfaceReadyAcknowledgment",
-        "TestRenderCreditWindowIsBoundedAndNonblocking"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S2-03-job",
-      "phase": "S2",
-      "package": "./job",
-      "tests": [
-        "TestScheduleGuardedFencesLateCommit"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S2-04-cmd-lurpic",
-      "phase": "S2",
-      "package": "./cmd/lurpic",
-      "tests": [
-        "TestCLIResumes0600SessionFile",
-        "TestCLICommandNotificationMayOvertakeReceipt",
-        "TestCLIRecoversLostCommandReceiptWithSameID",
-        "TestCLIAwaitRecoversThroughOperationStatus"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S2-05-marks-action",
-      "phase": "S2",
-      "package": "./marks/action",
-      "tests": [
-        "TestCommandGUIContract"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S3-01-runtime",
-      "phase": "S3",
-      "package": "./runtime",
-      "tests": [
-        "TestDrive_TimeModeTransitionsOwnExactlyOneFrame",
-        "TestVirtualEntryTransitionFrameReady",
-        "TestRenderCreditDoesNotBlockControl",
-        "TestDrive_TimeModeRefusesMidGesture",
-        "TestDrive_TimeModeGrantDenied",
-        "TestDrive_AdvanceRequiresVirtual",
-        "TestDrive_AdvanceRejectsDurationBoundsAndOverflow",
-        "TestAdvanceExactlyOneLiveAndHeadless",
-        "TestParkedReadDoesNotRender",
-        "TestFramePlanBudgetAndThenReads",
-        "TestFramePlanGrantUnionAndBounds",
-        "TestFramePlanUntilQuiescentIsBounded",
-        "TestFramePlanTotalBudgetReportsProgress",
-        "TestPlanDisconnectStopsNextStep",
-        "TestVirtualJobCompletionOrderIndependent",
-        "TestClockDomainIsolation",
-        "TestRenderCreditWindowIsBoundedAndNonblocking"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S3-02-drive",
-      "phase": "S3",
-      "package": "./drive",
-      "tests": [
-        "TestDeterminism_VirtualReplay",
-        "TestDocsMatchRegistry"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S3-03-app",
-      "phase": "S3",
-      "package": "./app",
-      "tests": [
-        "TestVirtualStartupRequiresDriveTimeGrant"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S4-01-runtime",
-      "phase": "S4",
-      "package": "./runtime",
-      "tests": [
-        "TestInputSocketPalette",
-        "TestGestureDisconnectCleanup",
-        "TestWallRunDrainsRenderCompletionsWithoutDrive",
-        "TestDriveInput_ClickSynthesizesPlatformShapedEvents",
-        "TestDriveTouchClickUsesOneContactAcrossSeparateFrames",
-        "TestDriveScrollPreservesAllInputValues",
-        "TestDriveInput_PreemptionByPlatformEvent",
-        "TestHumanPreemptsSamePollBatch",
-        "TestHumanWakesParkedRuntimeAndReturnsToWall",
-        "TestDriveInput_FocusWithoutPointer",
-        "TestHeldGestureCannotCrossSession",
-        "TestDriveInputDragRejectsLegacyAndMixedLocationShapes",
-        "TestDriveInputType_IMEFidelity",
-        "TestDriveInput_TypeRequiresIMEFocus",
-        "TestFramePlanBoundGestureUsesCanonicalInputAtoms",
-        "TestFramePlanGrantUnionAndBounds",
-        "TestPlanDisconnectStopsNextStep"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S4-02-input-equivalence",
-      "phase": "S4",
-      "package": "./input/equivalence",
-      "tests": [
-        "TestEveryMutatingVerbHasATwin",
-        "TestCorpus"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S4-03-demos-lurpic-studio-studio",
-      "phase": "S4",
-      "package": "./demos/lurpic_studio/studio",
-      "tests": [
-        "TestDrivingAndVirtualIndicator"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S5-01-drive",
-      "phase": "S5",
-      "package": "./drive",
-      "tests": [
-        "TestV2SocketExplicitReadSurface",
-        "TestDocsMatchRegistry"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S5-02-drive-locate",
-      "phase": "S5",
-      "package": "./drive/locate",
-      "tests": [
-        "TestResolve_Zero_Unresolved",
-        "TestResolve_UniqueByTestID",
-        "TestResolve_Multiple_AmbiguousWithCandidates",
-        "TestResolve_AmbiguityCappedAtTen",
-        "TestResolve_RoleAndName",
-        "TestResolve_KeyExact",
-        "TestResolve_ScopedAndOneofValidation",
-        "TestResolve_CoordsUsesHitMap",
-        "TestVisibleTreeBoundedNeverReturnsPartialAsComplete"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S5-03-drive-readstore",
-      "phase": "S5",
-      "package": "./drive/readstore",
-      "tests": [
-        "TestRegistryValidatesExplicitDeclarationsAndFreezes",
-        "TestTypedExportCaptureAndCollectionPages",
-        "TestExportReadNeverMutatesAndFreezesMutablePayload",
-        "TestDerivedExportPeekDoesNotEvaluateOrMutate"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S5-04-runtime",
-      "phase": "S5",
-      "package": "./runtime",
-      "tests": [
-        "TestStoreRead_StructuralField",
-        "TestStoreRead_NamedAndFailClosed",
-        "TestStoreRead_CollectionSnapshotPinsVersion",
-        "TestExportSchemaDigestTracksDeclarationsNotLiveState",
-        "TestStoreList_UnionOfNamedAndStructural",
-        "TestDerivedRead_PeekSemantics",
-        "TestFacetQuery_Shape",
-        "TestTreeDumpSnapshotIsImmutableAndSessionBound",
-        "TestSnapshotCopyOnWriteCutIsolation",
-        "TestSnapshotIndexCapacityDoesNotRestrictApp",
-        "TestTreeObservationIndexRefreshesAtFrameCut",
-        "TestResolveUsesCutObservationIndex",
-        "TestTestIDRegistriesAreRuntimeScoped"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S5-05-input",
-      "phase": "S5",
-      "package": "./input",
-      "tests": [
-        "TestCapturesFacetReportsPointerAndTouchOwnership"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 120000,
-      "package_timeout_ms": 120000,
-      "fixture": "ldp-v2"
-    },
-    {
-      "id": "S5-06-demos-lurpic-studio-studio",
-      "phase": "S5",
-      "package": "./demos/lurpic_studio/studio",
-      "tests": [
-        "TestCoverage_testids",
-        "TestDrive_namedStores",
-        "TestStudioLaunchChartDiagnostic",
-        "TestChartDiagnosticDetectsNonDrawingFixture"
-      ],
-      "mode": "host",
-      "tags": [],
-      "backend": "software",
-      "required": true,
-      "repetitions": 1,
-      "test_budget_ms": 300000,
-      "package_timeout_ms": 300000,
-      "fixture": "ldp-v2"
-    }
-  ],
-  "format_excludes": [
-    "codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/rules/testdata/ll035_bad"
-  ]
+ "version": 1,
+ "gates": [
+  {
+   "id": "S1-01-drive-proto",
+   "phase": "S1",
+   "package": "./drive/proto",
+   "tests": [
+    "TestRequestRoundTrip",
+    "TestDecodeRequest_Rejects",
+    "TestDecodeResponse_Strict",
+    "TestSchemaDigest_IsStableAndSensitive",
+    "TestRegistry_AdvertisedSurfaceHasNoWrite"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S1-02-drive-server",
+   "phase": "S1",
+   "package": "./drive/server",
+   "tests": [
+    "TestStrictEnvelopeDispatch",
+    "TestSocketOwnershipAndUnwind",
+    "TestCloseWithoutRuntimeReply",
+    "TestListenerPanicSupervisor",
+    "TestServer_HelloCreateSession"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S1-03-drive",
+   "phase": "S1",
+   "package": "./drive",
+   "tests": [
+    "TestLedgerClaimContiguous",
+    "TestLedgerFIFOEvictionPreservesHighWater",
+    "TestLedgerRejectionsRetained",
+    "TestSessionCreateResumeFence",
+    "TestSessionExpiry",
+    "TestSessionBoundIsFinite",
+    "TestGrants",
+    "TestV2SocketRuntimePing",
+    "TestV2RejectsLegacyMutation",
+    "TestLoadTenClients",
+    "TestDocsMatchRegistry",
+    "TestLiveCLIPingPath"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 600000,
+   "package_timeout_ms": 600000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S1-04-runtime",
+   "phase": "S1",
+   "package": "./runtime",
+   "tests": [
+    "TestDriveInboxExactlyOnce",
+    "TestDriveInboxBoundedOverload",
+    "TestDrive_IdleDrainZeroAlloc",
+    "TestStoreWrite_Absent",
+    "TestStoreWrite_NoWriteGrant"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 600000,
+   "package_timeout_ms": 600000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S1-05-input-equivalence",
+   "phase": "S1",
+   "package": "./input/equivalence",
+   "tests": [
+    "TestStoreWriteHasNoEquivalent",
+    "TestEveryMutatingVerbHasATwin"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S1-06-runtime",
+   "phase": "S1",
+   "package": "./runtime",
+   "tests": [
+    "TestDrive_TimeModeGrantDenied"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S1-07-app",
+   "phase": "S1",
+   "package": "./app",
+   "tests": [
+    "TestDriveDisabledRunLifecycle",
+    "TestParseDriveEnv"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S1-08-cmd-lurpic",
+   "phase": "S1",
+   "package": "./cmd/lurpic",
+   "tests": [
+    "TestCmdDrive_PingEndToEnd",
+    "TestCmdDrive_CheckEndToEnd",
+    "TestCmdDrive_CheckDetectsSkew",
+    "TestCmdDrive_UnadvertisedVerbFails"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S2-01-drive",
+   "phase": "S2",
+   "package": "./drive",
+   "tests": [
+    "TestSessionLostResponseRecovered",
+    "TestRequestPayloadConflict",
+    "TestSocketDisconnectQueuedDoesNotActivate",
+    "TestResumeGenerationFencesOldEOF",
+    "TestSessionInstanceRestart",
+    "TestExpiredRequestNeverRedispatched",
+    "TestLedgerPinsActiveEntriesDuringTerminalEviction",
+    "TestLedgerModelAtMostOnce"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 600000,
+   "package_timeout_ms": 600000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S2-02-runtime",
+   "phase": "S2",
+   "package": "./runtime",
+   "tests": [
+    "TestDriveVersionedCommandUsesGUIRegistryDispatcher",
+    "TestCommandListOnlyExposesGUIBackedEntries",
+    "TestDisconnectCancelsQueuedCommand",
+    "TestCommandCallbackPanicIsTerminalAndNotRetried",
+    "TestCommandWaitsForRenderAcknowledgment",
+    "TestCommandAwaitsOwnedJobCommitAndReadyFrame",
+    "TestDisconnectFencesCommandJobCommit",
+    "TestSoftwareSurfaceReadyAcknowledgment",
+    "TestRenderCreditWindowIsBoundedAndNonblocking"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S2-03-job",
+   "phase": "S2",
+   "package": "./job",
+   "tests": [
+    "TestScheduleGuardedFencesLateCommit"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S2-04-cmd-lurpic",
+   "phase": "S2",
+   "package": "./cmd/lurpic",
+   "tests": [
+    "TestCLIResumes0600SessionFile",
+    "TestCLICommandNotificationMayOvertakeReceipt",
+    "TestCLIRecoversLostCommandReceiptWithSameID",
+    "TestCLIAwaitRecoversThroughOperationStatus"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S2-05-marks-action",
+   "phase": "S2",
+   "package": "./marks/action",
+   "tests": [
+    "TestCommandGUIContract"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S3-01-runtime",
+   "phase": "S3",
+   "package": "./runtime",
+   "tests": [
+    "TestDrive_TimeModeTransitionsOwnExactlyOneFrame",
+    "TestVirtualEntryTransitionFrameReady",
+    "TestRenderCreditDoesNotBlockControl",
+    "TestDrive_TimeModeRefusesMidGesture",
+    "TestDrive_TimeModeGrantDenied",
+    "TestDrive_AdvanceRequiresVirtual",
+    "TestDrive_AdvanceRejectsDurationBoundsAndOverflow",
+    "TestAdvanceExactlyOneLiveAndHeadless",
+    "TestParkedReadDoesNotRender",
+    "TestFramePlanBudgetAndThenReads",
+    "TestFramePlanGrantUnionAndBounds",
+    "TestFramePlanUntilQuiescentIsBounded",
+    "TestFramePlanTotalBudgetReportsProgress",
+    "TestPlanDisconnectStopsNextStep",
+    "TestVirtualJobCompletionOrderIndependent",
+    "TestClockDomainIsolation",
+    "TestRenderCreditWindowIsBoundedAndNonblocking"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S3-02-drive",
+   "phase": "S3",
+   "package": "./drive",
+   "tests": [
+    "TestDeterminismThousandConsecutiveFrames",
+    "TestDocsMatchRegistry"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S3-03-app",
+   "phase": "S3",
+   "package": "./app",
+   "tests": [
+    "TestVirtualStartupRequiresDriveTimeGrant"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S4-01-runtime",
+   "phase": "S4",
+   "package": "./runtime",
+   "tests": [
+    "TestInputSocketPalette",
+    "TestGestureDisconnectCleanup",
+    "TestWallRunDrainsRenderCompletionsAndParksWithoutDrive",
+    "TestDriveInput_ClickSynthesizesPlatformShapedEvents",
+    "TestDriveTouchClickUsesOneContactAcrossSeparateFrames",
+    "TestDriveScrollPreservesAllInputValues",
+    "TestDriveInput_PreemptionByPlatformEvent",
+    "TestHumanPreemptsSamePollBatch",
+    "TestHumanWakesParkedRuntimeAndReturnsToWall",
+    "TestDriveInput_FocusWithoutPointer",
+    "TestHeldGestureCannotCrossSession",
+    "TestDriveInputDragRejectsLegacyAndMixedLocationShapes",
+    "TestDriveInputType_IMEFidelity",
+    "TestDriveInput_TypeRequiresIMEFocus",
+    "TestFramePlanBoundGestureUsesCanonicalInputAtoms",
+    "TestFramePlanGrantUnionAndBounds",
+    "TestPlanDisconnectStopsNextStep"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S4-02-input-equivalence",
+   "phase": "S4",
+   "package": "./input/equivalence",
+   "tests": [
+    "TestEveryMutatingVerbHasATwin",
+    "TestCorpus"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S4-03-demos-lurpic-studio-studio",
+   "phase": "S4",
+   "package": "./demos/lurpic_studio/studio",
+   "tests": [
+    "TestDrivingAndVirtualIndicator"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S5-01-drive",
+   "phase": "S5",
+   "package": "./drive",
+   "tests": [
+    "TestV2SocketExplicitReadSurface",
+    "TestDocsMatchRegistry"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S5-02-drive-locate",
+   "phase": "S5",
+   "package": "./drive/locate",
+   "tests": [
+    "TestResolve_Zero_Unresolved",
+    "TestResolve_UniqueByTestID",
+    "TestResolve_Multiple_AmbiguousWithCandidates",
+    "TestResolve_AmbiguityCappedAtTen",
+    "TestResolve_RoleAndName",
+    "TestResolve_KeyExact",
+    "TestResolve_ScopedAndOneofValidation",
+    "TestResolve_CoordsUsesHitMap",
+    "TestVisibleTreeBoundedNeverReturnsPartialAsComplete"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S5-03-drive-readstore",
+   "phase": "S5",
+   "package": "./drive/readstore",
+   "tests": [
+    "TestRegistryValidatesExplicitDeclarationsAndFreezes",
+    "TestTypedExportCaptureAndCollectionPages",
+    "TestExportReadNeverMutatesAndFreezesMutablePayload",
+    "TestDerivedExportPeekDoesNotEvaluateOrMutate"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S5-04-runtime",
+   "phase": "S5",
+   "package": "./runtime",
+   "tests": [
+    "TestStoreRead_StructuralField",
+    "TestStoreRead_NamedAndFailClosed",
+    "TestStoreRead_CollectionSnapshotPinsVersion",
+    "TestExportSchemaDigestTracksDeclarationsNotLiveState",
+    "TestStoreList_UnionOfNamedAndStructural",
+    "TestDerivedRead_PeekSemantics",
+    "TestFacetQuery_Shape",
+    "TestTreeDumpSnapshotIsImmutableAndSessionBound",
+    "TestSnapshotCopyOnWriteCutIsolation",
+    "TestSnapshotIndexCapacityDoesNotRestrictApp",
+    "TestTreeObservationIndexRefreshesAtFrameCut",
+    "TestResolveUsesCutObservationIndex",
+    "TestTestIDRegistriesAreRuntimeScoped"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S5-05-input",
+   "phase": "S5",
+   "package": "./input",
+   "tests": [
+    "TestCapturesFacetReportsPointerAndTouchOwnership"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 120000,
+   "package_timeout_ms": 120000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S5-06-demos-lurpic-studio-studio",
+   "phase": "S5",
+   "package": "./demos/lurpic_studio/studio",
+   "tests": [
+    "TestCoverage_testids",
+    "TestDrive_namedStores",
+    "TestStudioLaunchChartDiagnostic",
+    "TestChartDiagnosticDetectsNonDrawingFixture"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S6-01-drive-streams",
+   "phase": "S6",
+   "package": "./drive",
+   "tests": [
+    "TestStreamTenThousandContiguousOrExpired",
+    "TestStreamFilteredOrdinalContinuation",
+    "TestSnapshotWatchNoGap",
+    "TestStreamResumeRedelivery",
+    "TestFrozenTimeRetentionExpires",
+    "TestStalledSubscriberCreditBoundsDelivery",
+    "TestOversizeCutExpiresExplicitly",
+    "TestExpiryQueryableAfterLostNotification",
+    "TestCancelIdempotentAndScoped",
+    "TestNotifySignalFires"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  },
+  {
+   "id": "S6-02-drive-socket-streams",
+   "phase": "S6",
+   "package": "./drive",
+   "tests": [
+    "TestV2SocketSessionOwnStateStream",
+    "TestV2SocketAdminAndCancel",
+    "TestStalledSocketDoesNotBlockRuntime"
+   ],
+   "mode": "host",
+   "tags": [],
+   "backend": "software",
+   "required": true,
+   "repetitions": 1,
+   "test_budget_ms": 300000,
+   "package_timeout_ms": 300000,
+   "fixture": "ldp-v2"
+  }
+ ],
+ "format_excludes": [
+  "codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/rules/testdata/ll035_bad"
+ ]
 }

@@ -251,6 +251,15 @@ func (r *Runner) runGate(ctx context.Context, g Gate, rootDir string) GateResult
 		res.Failures = append(res.Failures, "list: "+listErr.Error())
 		return res
 	}
+	// The provenance check compares the stream's Package field (the import
+	// path) against the gate's declared package; resolve the manifest's
+	// relative reference to its import path. A resolution failure falls back
+	// to the manifest spelling — the gate then fails provenance honestly if
+	// the stream disagrees.
+	importPath, pathErr := r.resolvePackagePath(ctx, g.Package)
+	if pathErr != nil {
+		importPath = g.Package
+	}
 	for _, name := range g.Tests {
 		top := name
 		if idx := strings.IndexByte(top, '/'); idx >= 0 {
@@ -266,7 +275,7 @@ func (r *Runner) runGate(ctx context.Context, g Gate, rootDir string) GateResult
 
 	allPassed := true
 	for rep := 1; rep <= g.Repetitions; rep++ {
-		record := r.runOnce(ctx, g, res.EvidenceDir, rep)
+		record := r.runOnce(ctx, g, res.EvidenceDir, rep, importPath)
 		res.Runs = append(res.Runs, record)
 		if !record.Passed {
 			allPassed = false
@@ -308,6 +317,26 @@ func (r *Runner) runGate(ctx context.Context, g Gate, rootDir string) GateResult
 	return res
 }
 
+// resolvePackagePath resolves a manifest package reference ("./drive") to
+// its import path — the identity the go test JSON stream reports in the
+// Package field, which the provenance check compares against.
+func (r *Runner) resolvePackagePath(ctx context.Context, pkg string) (string, error) {
+	cmd := exec.CommandContext(ctx, r.GoCmd, "list", "-f", "{{.ImportPath}}", pkg) //nolint:gosec // committed manifest package
+	cmd.Dir = r.Root
+	cmd.Env = r.env()
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return "", fmt.Errorf("%s: %w: %s", pkg, err, strings.TrimSpace(stderr.String()))
+	}
+	out := strings.TrimSpace(stdout.String())
+	if out == "" {
+		return "", fmt.Errorf("%s: empty import path", pkg)
+	}
+	return out, nil
+}
+
 func (r *Runner) listTests(ctx context.Context, pkg, mode string, tags []string) (map[string]bool, error) {
 	args := []string{"test", "-list", `.*`}
 	args = append(args, modeFlags(mode, tags)...)
@@ -344,7 +373,7 @@ func (r *Runner) listTests(ctx context.Context, pkg, mode string, tags []string)
 // runOnce executes one controlled repetition. go test -json is the only
 // execution path; the runner inspects every action and never treats a process
 // exit status alone as success.
-func (r *Runner) runOnce(ctx context.Context, g Gate, dir string, rep int) RunRecord {
+func (r *Runner) runOnce(ctx context.Context, g Gate, dir string, rep int, importPath string) RunRecord {
 	rec := RunRecord{Repetition: rep}
 	start := r.Now()
 	timeout := time.Duration(g.PackageTimeoutMS) * time.Millisecond
@@ -391,7 +420,7 @@ func (r *Runner) runOnce(ctx context.Context, g Gate, dir string, rep int) RunRe
 		packagesSeen:     make(map[string]bool),
 		packagesTerminal: make(map[string]bool),
 		packageMismatch:  []string{},
-		gatePackage:      g.Package,
+		gatePackage:      importPath,
 	}
 	var output bytes.Buffer
 	budgetHit := make(chan string, 1)

@@ -271,6 +271,24 @@ func (c *driveJSON) nextNotification() (proto.Notification, error) {
 	return notification, nil
 }
 
+// sendClientNotification writes one client→server notification line (no ID,
+// never consumes a request sequence). The periodic sys.keepalive and each
+// sub.ack travel this way.
+func (c *driveJSON) sendClientNotification(method string, params map[string]string) error {
+	line := map[string]any{"v": proto.ProtocolMajor, "method": method}
+	if params != nil {
+		line["params"] = params
+	}
+	raw, err := json.Marshal(line)
+	if err != nil {
+		return err
+	}
+	if _, err := c.rw.Write(append(raw, '\n')); err != nil {
+		return err
+	}
+	return c.rw.Flush()
+}
+
 func (c *driveJSON) call(method string, params any) (proto.Response, error) {
 	var raw json.RawMessage
 	if params != nil {
@@ -369,8 +387,8 @@ func (c *driveJSON) reconnectSession() error {
 
 func (c *driveJSON) close() { _ = c.conn.Close() }
 
-// driveFlagSet builds the shared drive verb flags. The major-2 CLI speaks
-// hello + ping only; observation verbs return with their native v2 slices.
+// driveFlagSet builds the shared drive verb flags covering the full
+// advertised surface: observation, actuation, streams, and administration.
 func driveFlagSet() *flag.FlagSet {
 	fs := flag.NewFlagSet("drive-flags", flag.ContinueOnError)
 	fs.String("socket", "", "drive socket path")
@@ -378,6 +396,17 @@ func driveFlagSet() *flag.FlagSet {
 	fs.String("session-file", "", "optional 0600 file for resuming this session")
 	fs.String("name", "", "registered command name")
 	fs.Uint64("version", 0, "registered command contract version")
-	fs.String("operation-id", "", "operation identity for status recovery")
+	fs.String("operation-id", "", "operation identity for status/cancel")
+	fs.String("stream-id", "", "subscription identity for sub-state/sub-cancel")
+	fs.String("session-id", "", "target session of session-revoke")
+	fs.String("reason", "", "session-revoke reason: operator, policy, instance.shutdown")
+	fs.String("cursor", "", "session.list continuation cursor")
+	fs.String("limit", "", "session.list page limit 1..32")
+	fs.String("classes", "", "watch filter: comma-separated event classes")
+	fs.String("names", "", "watch filter: comma-separated export names")
+	fs.String("after", "", "watch start cursor (exclusive)")
+	fs.String("snapshot", "false", "watch from a fresh export-version snapshot")
+	fs.String("credit", "", "watch credit window 1..8 (default 4)")
+	fs.String("duration", "", "watch loop bound, a Go duration (default 10s)")
 	return fs
 }
