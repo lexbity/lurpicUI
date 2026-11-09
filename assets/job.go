@@ -69,14 +69,17 @@ func (m ResidencyMode) String() string {
 
 // AssetLoadJob loads and decodes one LOD level of one asset.
 type AssetLoadJob struct {
-	ID           AssetID
-	Path         string
-	Type         AssetType
-	LOD          int
-	EntryVersion uint64
-	Source       AssetSource
-	Backend      BackendType
-	StartNs      int64
+	ID   AssetID
+	Path string
+	Type AssetType
+	LOD  int
+	// LoadEpoch is the registry LoadEpoch captured at schedule time. A commit
+	// is dropped when the entry's LoadEpoch has moved on (the entry was
+	// invalidated or its LODs cleared while the job was in flight).
+	LoadEpoch uint64
+	Source    AssetSource
+	Backend   BackendType
+	StartNs   int64
 
 	// PreloadedSource carries the compressed source bytes read once in Schedule.
 	// Per D9: the compressed source is read once and carried in the snapshot;
@@ -253,7 +256,7 @@ func (s *PoolScheduler) Schedule(assetJob *AssetLoadJob) error {
 		Path:            assetJob.Path,
 		Type:            assetJob.Type,
 		LOD:             assetJob.LOD,
-		EntryVersion:    assetJob.EntryVersion,
+		LoadEpoch:       assetJob.LoadEpoch,
 		Source:          assetJob.Source,
 		Backend:         assetJob.Backend,
 		StartNs:         assetJob.StartNs,
@@ -780,13 +783,13 @@ func (m *ManagerImpl) scheduleLOD(id AssetID, path string, typ AssetType, lod in
 	}
 
 	job := &AssetLoadJob{
-		ID:           id,
-		Path:         path,
-		Type:         typ,
-		LOD:          lod,
-		EntryVersion: entry.EntryVersion,
-		Source:       m.source,
-		Backend:      m.backendType,
+		ID:        id,
+		Path:      path,
+		Type:      typ,
+		LOD:       lod,
+		LoadEpoch: entry.LoadEpoch,
+		Source:    m.source,
+		Backend:   m.backendType,
 	}
 	_ = m.scheduler.Schedule(job)
 }
@@ -839,7 +842,10 @@ func (m *ManagerImpl) commitJob(job *AssetLoadJob) {
 	if entry == nil {
 		return
 	}
-	if entry.EntryVersion != job.EntryVersion {
+	// Drop jobs whose entry was invalidated or cleared while in flight.
+	// LoadEpoch (not EntryVersion) is the staleness token: SetLODReady bumps
+	// EntryVersion too, which must not invalidate sibling LOD jobs.
+	if entry.LoadEpoch != job.LoadEpoch {
 		entry.LODInFlight[job.LOD] = false
 		return
 	}

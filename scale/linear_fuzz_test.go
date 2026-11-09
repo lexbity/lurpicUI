@@ -46,13 +46,19 @@ func FuzzLinear_round_trip(f *testing.F) {
 
 		s := NewLinear(WithDomain(dLo, dHi), WithRange(rLo, rHi))
 
+		// The round-trip error is relative to the larger of the value
+		// magnitude and the domain span: Map/Invert normalize to [0,1] and
+		// lerp back, so float64 rounding of the normalized parameter is
+		// amplified by the domain span. A value near the small end of a
+		// huge domain therefore cannot round-trip to eps relative-to-v.
 		const eps = 1e-8
+		span := math.Abs(dHi - dLo)
 		vals := []float64{dLo, (dLo + dHi) / 2, dHi}
 		for _, v := range vals {
 			got := s.Invert(s.Map(v))
 			diff := math.Abs(got - v)
 			mag := math.Max(math.Abs(got), math.Abs(v))
-			if diff > eps && diff/mag > eps {
+			if diff > eps*mag && diff > eps*span {
 				t.Fatalf("Invert(Map(%g)) = %g, want %g (diff %g rel %g) for domain [%g,%g] range [%g,%g]",
 					v, got, v, diff, diff/mag, dLo, dHi, rLo, rHi)
 			}

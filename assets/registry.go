@@ -52,9 +52,14 @@ type RegistryEntry struct {
 	SizeBytes       [3]int64
 	HighestReadyLOD int
 	EntryVersion    uint64
-	Err             error
-	LastUse         int64
-	LoadTimeNs      [3]int64
+	// LoadEpoch is the staleness token for in-flight load jobs. It is bumped
+	// only when loaded LOD state is discarded (Invalidate, ClearLOD), never by
+	// SetLODReady/SetLODGPUReady, so sibling LOD jobs scheduled together do not
+	// invalidate each other on commit.
+	LoadEpoch  uint64
+	Err        error
+	LastUse    int64
+	LoadTimeNs [3]int64
 }
 
 // NewAssetRegistryStore returns an empty registry store.
@@ -176,6 +181,7 @@ func (r *AssetRegistryStore) ClearLOD(id AssetID, lod int) {
 		entry.State = AssetStateLoading
 	}
 	entry.EntryVersion++
+	entry.LoadEpoch++
 	r.globalVersion++
 }
 
@@ -197,6 +203,7 @@ func (r *AssetRegistryStore) Invalidate(id AssetID) {
 	entry.State = AssetStateAbsent
 	entry.Err = nil
 	entry.EntryVersion++
+	entry.LoadEpoch++
 	r.globalVersion++
 	sig := r.signalSetLocked(id)
 	r.mu.Unlock()

@@ -164,7 +164,7 @@ func TestManagerScheduleAndDrainAsync(t *testing.T) {
 	}
 }
 
-func TestCommitJobRejectsStaleVersion(t *testing.T) {
+func TestCommitJobRejectsStaleLoadEpoch(t *testing.T) {
 	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abcdee")
 	reg := NewAssetRegistryStore()
 	mgr := NewManager(reg, staticSource{}, BackendSoftware, nil, nil)
@@ -174,28 +174,74 @@ func TestCommitJobRejectsStaleVersion(t *testing.T) {
 	if entry == nil {
 		t.Fatal("expected entry")
 	}
-	version := entry.EntryVersion
+	epoch := entry.LoadEpoch
+
+	// Invalidate while a load is in flight: the epoch moves, so the in-flight
+	// job must be dropped instead of resurrecting the cleared asset.
+	reg.Invalidate(id)
+	epochAfterInvalidate := reg.Get(id).LoadEpoch
 
 	job := &AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeSVG,
-		LOD:          0,
-		EntryVersion: version - 1,
-		Result:       &DecodedSVGLOD0{Data: []byte("stale")},
-		ElapsedNs:    20,
+		ID:        id,
+		Type:      AssetTypeSVG,
+		LOD:       0,
+		LoadEpoch: epoch,
+		Result:    &DecodedSVGLOD0{Data: []byte("stale")},
+		ElapsedNs: 20,
 	}
 	mgr.commitJob(job)
 
 	entry = reg.Get(id)
-	got, ok := entry.LODHandles[0].(*DecodedSVGLOD0)
-	if !ok {
-		t.Fatalf("unexpected type: %T", entry.LODHandles[0])
+	if entry.State != AssetStateAbsent {
+		t.Fatalf("stale commit changed state: %v", entry.State)
 	}
-	if string(got.Data) != "current" {
-		t.Fatalf("stale commit overwrote payload: %q", got.Data)
+	if entry.LODHandles[0] != nil {
+		t.Fatalf("stale commit resurrected payload: %v", entry.LODHandles[0])
 	}
-	if entry.EntryVersion != version {
-		t.Fatalf("unexpected version after stale commit: %d", entry.EntryVersion)
+	if entry.LoadEpoch != epochAfterInvalidate {
+		t.Fatalf("unexpected epoch after stale commit: %d, want %d", entry.LoadEpoch, epochAfterInvalidate)
+	}
+}
+
+// TestCommitJobSiblingLODsDoNotInvalidateEachOther pins the progressive-LOD
+// contract: scheduleAllLODs submits LODs 2..0 at the same LoadEpoch, and the
+// first LOD to commit must not drop the still in-flight sibling jobs.
+func TestCommitJobSiblingLODsDoNotInvalidateEachOther(t *testing.T) {
+	id := mustAssetID(t, "01234567-89ab-cdef-0123-456789abcff0")
+	reg := NewAssetRegistryStore()
+	mgr := NewManager(reg, staticSource{}, BackendSoftware, nil, nil)
+
+	entry := reg.GetOrCreate(id)
+	entry.Type = AssetTypeImage
+	epoch := entry.LoadEpoch
+
+	// LOD 2 completes first (out of order); LOD 0 is still in flight.
+	mgr.commitJob(&AssetLoadJob{
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       2,
+		LoadEpoch: epoch,
+		Result:    &DecodedImageLOD{Data: []byte("lod2")},
+		ElapsedNs: 1,
+	})
+	mgr.commitJob(&AssetLoadJob{
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: epoch,
+		Result:    &DecodedImageLOD{Data: []byte("lod0")},
+		ElapsedNs: 1,
+	})
+
+	entry = reg.Get(id)
+	if entry.State != AssetStateReady {
+		t.Fatalf("state = %v, want Ready", entry.State)
+	}
+	if entry.LODHandles[0] == nil || entry.LODHandles[2] == nil {
+		t.Fatalf("expected LOD 0 and LOD 2 committed, got %v", entry.LODHandles)
+	}
+	if entry.HighestReadyLOD != 0 {
+		t.Fatalf("HighestReadyLOD = %d, want 0", entry.HighestReadyLOD)
 	}
 }
 
@@ -224,24 +270,24 @@ func TestWaitingOnSchedulesConfigAfterLastDependency(t *testing.T) {
 	reg.GetOrCreate(imageID)
 
 	mgr.commitJob(&AssetLoadJob{
-		ID:           fontID,
-		Type:         AssetTypeFont,
-		LOD:          0,
-		EntryVersion: 0,
-		Result:       &DecodedFontLOD{Data: []byte("font")},
-		ElapsedNs:    1,
+		ID:        fontID,
+		Type:      AssetTypeFont,
+		LOD:       0,
+		LoadEpoch: 0,
+		Result:    &DecodedFontLOD{Data: []byte("font")},
+		ElapsedNs: 1,
 	})
 	if got := len(sched.jobs); got != 0 {
 		t.Fatalf("expected config to still wait on image, got %d scheduled jobs", got)
 	}
 
 	mgr.commitJob(&AssetLoadJob{
-		ID:           imageID,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: 0,
-		Result:       &DecodedImageLOD{Data: []byte("image")},
-		ElapsedNs:    1,
+		ID:        imageID,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: 0,
+		Result:    &DecodedImageLOD{Data: []byte("image")},
+		ElapsedNs: 1,
 	})
 
 	select {
@@ -635,12 +681,12 @@ func TestCommitJob_enqueuesRasterInGPUMode(t *testing.T) {
 	// Create and commit a raster image LOD.
 	reg.GetOrCreate(id)
 	job := &AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: 0,
-		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: 0,
+		Result:    &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs: 100,
 	}
 	m.commitJob(job)
 
@@ -674,12 +720,12 @@ func TestCommitJob_doesNotEnqueueInCPUMode(t *testing.T) {
 
 	reg.GetOrCreate(id)
 	job := &AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: 0,
-		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: 0,
+		Result:    &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs: 100,
 	}
 	m.commitJob(job)
 
@@ -697,12 +743,12 @@ func TestCommitJob_doesNotEnqueueSVG(t *testing.T) {
 
 	reg.GetOrCreate(id)
 	job := &AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeSVG,
-		LOD:          0,
-		EntryVersion: 0,
-		Result:       &DecodedSVGLOD0{Data: []byte("vector-data")},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeSVG,
+		LOD:       0,
+		LoadEpoch: 0,
+		Result:    &DecodedSVGLOD0{Data: []byte("vector-data")},
+		ElapsedNs: 100,
 	}
 	m.commitJob(job)
 
@@ -720,12 +766,12 @@ func TestCommitJob_doesNotEnqueueWhenUploaderNil(t *testing.T) {
 
 	reg.GetOrCreate(id)
 	job := &AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: 0,
-		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: 0,
+		Result:    &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs: 100,
 	}
 	m.commitJob(job)
 
@@ -743,12 +789,12 @@ func TestCommitJob_doesNotEnqueueWhenUploaderBudgetZero(t *testing.T) {
 
 	reg.GetOrCreate(id)
 	job := &AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: 0,
-		Result:       &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: 0,
+		Result:    &DecodedImageLOD{Data: []byte("pixel-data"), Width: 64, Height: 32},
+		ElapsedNs: 100,
 	}
 	m.commitJob(job)
 
@@ -767,12 +813,12 @@ func TestCommitJob_enqueuesWithCorrectAssetIDBytes(t *testing.T) {
 
 	reg.GetOrCreate(id)
 	job := &AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          1,
-		EntryVersion: 0,
-		Result:       &DecodedImageLOD{Data: []byte("more-pixels"), Width: 128, Height: 64},
-		ElapsedNs:    200,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       1,
+		LoadEpoch: 0,
+		Result:    &DecodedImageLOD{Data: []byte("more-pixels"), Width: 128, Height: 64},
+		ElapsedNs: 200,
 	}
 	m.commitJob(job)
 
@@ -994,12 +1040,12 @@ func TestHybridPath_fullCycleUploadDrainResolve(t *testing.T) {
 
 	// 1. Verify enqueue was called by commitJob → enqueueUpload.
 	m.commitJob(&AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: entry.EntryVersion,
-		Result:       &DecodedImageLOD{Data: rgba, Width: 64, Height: 64},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: entry.LoadEpoch,
+		Result:    &DecodedImageLOD{Data: rgba, Width: 64, Height: 64},
+		ElapsedNs: 100,
 	})
 
 	// 2. Simulate upload result from backend.
@@ -1167,12 +1213,12 @@ func TestHybridPath_defaultCPUOnlyNoUploads(t *testing.T) {
 
 	// commitJob with image type → enqueueUpload → no-op in CPU mode.
 	m.commitJob(&AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: entry.EntryVersion,
-		Result:       &DecodedImageLOD{Data: rgba, Width: 32, Height: 32},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: entry.LoadEpoch,
+		Result:    &DecodedImageLOD{Data: rgba, Width: 32, Height: 32},
+		ElapsedNs: 100,
 	})
 
 	if len(uploader.enqueued) != 0 {
@@ -1219,12 +1265,12 @@ func TestHybridPath_gpuBudgetAccounting(t *testing.T) {
 
 	// Enqueue via commitJob.
 	m.commitJob(&AssetLoadJob{
-		ID:           id,
-		Type:         AssetTypeImage,
-		LOD:          0,
-		EntryVersion: entry.EntryVersion,
-		Result:       &DecodedImageLOD{Data: rgba, Width: 64, Height: 64},
-		ElapsedNs:    100,
+		ID:        id,
+		Type:      AssetTypeImage,
+		LOD:       0,
+		LoadEpoch: entry.LoadEpoch,
+		Result:    &DecodedImageLOD{Data: rgba, Width: 64, Height: 64},
+		ElapsedNs: 100,
 	})
 
 	// Send upload result with 16384 GPU bytes.

@@ -390,9 +390,12 @@ func TestPakFSManagerRoundTrip(t *testing.T) {
 		t.Fatal("LoadImage returned zero handle")
 	}
 
+	// LoadImage schedules LODs 2..0 concurrently; drain until the asset
+	// actually reaches Ready, not just until the first job completes.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if n := manager.DrainCompleted(); n > 0 {
+		manager.DrainCompleted()
+		if entry := reg.Get(imageID); entry != nil && entry.State == assets.AssetStateReady {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
