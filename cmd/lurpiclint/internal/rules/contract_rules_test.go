@@ -131,12 +131,12 @@ func TestContractRules_BaselineMatchesBacklog(t *testing.T) {
 		EnabledIDs: []string{"LL029", "LL030", "LL031", "LL032", "LL033"},
 	})
 
-	baseline, err := config.LoadBaseline(filepath.Join(root, "lurpiclint-baseline.json"))
+	baseline, err := config.LoadBaseline(filepath.Join(root, "lurpiclint-baseline.json"), root)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	filtered, stale := config.SuppressByBaseline(diags, baseline)
+	filtered, stale := config.SuppressByBaseline(root, diags, baseline)
 
 	var staleContract []config.BaselineEntry
 	for _, e := range stale {

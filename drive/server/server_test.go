@@ -14,6 +14,7 @@ import (
 
 	"codeburg.org/lexbit/lurpicui/drive"
 	"codeburg.org/lexbit/lurpicui/drive/proto"
+	"codeburg.org/lexbit/lurpicui/internal/testtmp"
 )
 
 // fakePort answers synchronously on the submitting (server connection)
@@ -102,13 +103,11 @@ func startServerWithPort(t *testing.T, grants drive.Grants, port drive.RuntimePo
 }
 
 // testDriveDir is a private temporary directory for Unix socket tests.
+// The path must stay short: t.TempDir() honors GOTMPDIR (the CMake wrapper's
+// <build>/go-tmp), which can exceed the sun_path limit and break bind(2).
 func testDriveDir(t *testing.T) string {
 	t.Helper()
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatalf("chmod temp dir: %v", err)
-	}
-	return dir
+	return testtmp.ShortSocketDir(t)
 }
 
 func newTestSessions(t *testing.T) *drive.SessionTable {

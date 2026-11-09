@@ -41,11 +41,11 @@ func TestRun_ExitCodes(t *testing.T) {
 		{"check with flags", []string{"lurpiclint", "check", "--format", "json", "--severity", "error"}, 0},
 		{"check with --no-suggest", []string{"lurpiclint", "check", "--no-suggest"}, 0},
 		{"check with --include-tests", []string{"lurpiclint", "check", "--include-tests"}, 0},
-		{"check with --root", []string{"lurpiclint", "check", "--root", findModuleRoot()}, 0},
+		{"check with --root", []string{"lurpiclint", "check", "--root", config.ModuleRoot("")}, 0},
 		{"check with --config", []string{"lurpiclint", "check", "--config", ".lurpiclint.toml"}, 0},
 		{"check with --baseline", []string{"lurpiclint", "check", "--baseline", "baseline.json"}, 0},
 		{"check with --rules", []string{"lurpiclint", "check", "--rules", "LL001,LL003"}, 0},
-		{"check with all flags", []string{"lurpiclint", "check", "--format", "github", "--severity", "warn", "--fail-on", "error", "--no-suggest", "--root", findModuleRoot()}, 0},
+		{"check with all flags", []string{"lurpiclint", "check", "--format", "github", "--severity", "warn", "--fail-on", "error", "--no-suggest", "--root", config.ModuleRoot("")}, 0},
 
 		// check – bad flags
 		{"check bad flag", []string{"lurpiclint", "check", "--bad-flag"}, 2},
@@ -127,7 +127,7 @@ func TestRunCheck_FlagParsing(t *testing.T) {
 		{"baseline path", []string{"--baseline", "/some/path/baseline.json", goodPath}, 0},
 		{"rules single", []string{"--rules", "LL003", goodPath}, 0},
 		{"rules multiple", []string{"--rules", "LL001,LL003,LL010", goodPath}, 0},
-		{"root module", []string{"--root", findModuleRoot(), goodPath}, 0},
+		{"root module", []string{"--root", config.ModuleRoot(""), goodPath}, 0},
 		{"paths after flags", []string{"--format", "json", "--severity", "error", goodPath}, 0},
 	}
 
@@ -147,7 +147,7 @@ func TestRunCheck_ContractRulesSeeFrameworkTestFiles(t *testing.T) {
 	// NavRail are all wired, so a check that loads framework _test.go files
 	// (the main.go merge) must produce zero LL033 findings.  With --fail-on=info
 	// a single warn finding would flip the exit code.
-	navDir := filepath.Join(findModuleRoot(), "marks", "navigation")
+	navDir := filepath.Join(config.ModuleRoot(""), "marks", "navigation")
 	got := runCheck([]string{"--rules", "LL033", "--fail-on", "info", navDir})
 	if got != 0 {
 		t.Errorf("runCheck(LL033 on marks/navigation) = %d, want 0 (framework _test.go files not merged into analysis?)", got)
@@ -164,7 +164,7 @@ func TestStaleBaseline_RatchetFires(t *testing.T) {
 	fake := config.Baseline{Entries: []config.BaselineEntry{
 		{
 			RuleID:  "LL030",
-			File:    filepath.Join(findModuleRoot(), "nonexistent.go"),
+			File:    filepath.Join(config.ModuleRoot(""), "nonexistent.go"),
 			Line:    1,
 			Message: "fake stale entry",
 		},
@@ -378,7 +378,7 @@ func TestRunVersion_Output(t *testing.T) {
 // --- Gate tests ---
 
 func BenchmarkFullRepoCheck(b *testing.B) {
-	root := findModuleRoot()
+	root := config.ModuleRoot("")
 	if root == "" {
 		b.Fatal("module root not found")
 	}
@@ -412,7 +412,7 @@ func TestGate_CleanFixturePasses(t *testing.T) {
 }
 
 func TestGate_AgentDirectivesExist(t *testing.T) {
-	root := findModuleRoot()
+	root := config.ModuleRoot("")
 	files := []string{
 		root + "/.agents/lurpiclint.md",
 	}

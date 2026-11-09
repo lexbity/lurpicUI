@@ -285,7 +285,7 @@ func TestSuppressByBaseline_Suppresses(t *testing.T) {
 			{RuleID: "LL003", File: "a.go", Line: 10, Message: "err"},
 		},
 	}
-	filtered, stale := SuppressByBaseline(diags, baseline)
+	filtered, stale := SuppressByBaseline("", diags, baseline)
 	if len(filtered) != 1 {
 		t.Fatalf("got %d diagnostics after baseline suppress, want 1", len(filtered))
 	}
@@ -304,7 +304,7 @@ func TestSuppressByBaseline_Stale(t *testing.T) {
 			{RuleID: "LL003", File: "gone.go", Line: 10, Message: "fixed"},
 		},
 	}
-	_, stale := SuppressByBaseline(diags, baseline)
+	_, stale := SuppressByBaseline("", diags, baseline)
 	if len(stale) != 1 {
 		t.Fatalf("got %d stale entries, want 1", len(stale))
 	}
@@ -315,7 +315,7 @@ func TestSuppressByBaseline_Stale(t *testing.T) {
 
 func TestSuppressByBaseline_Nil(t *testing.T) {
 	diags := []*diag.Diagnostic{{RuleID: "LL003"}}
-	filtered, stale := SuppressByBaseline(diags, nil)
+	filtered, stale := SuppressByBaseline("", diags, nil)
 	if len(filtered) != 1 {
 		t.Errorf("got %d filtered, want 1 (nil baseline should not suppress)", len(filtered))
 	}
@@ -334,7 +334,7 @@ func TestSuppressByBaseline_NewFindingStillFails(t *testing.T) {
 			{RuleID: "LL003", File: "a.go", Line: 10, Message: "existing"},
 		},
 	}
-	filtered, _ := SuppressByBaseline(diags, baseline)
+	filtered, _ := SuppressByBaseline("", diags, baseline)
 	if len(filtered) != 1 {
 		t.Fatalf("got %d filtered, want 1 (new finding should remain)", len(filtered))
 	}

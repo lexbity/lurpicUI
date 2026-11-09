@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	driveserver "codeburg.org/lexbit/lurpicui/drive/server"
 	"codeburg.org/lexbit/lurpicui/facet"
 	"codeburg.org/lexbit/lurpicui/gfx"
+	"codeburg.org/lexbit/lurpicui/internal/testtmp"
 	"codeburg.org/lexbit/lurpicui/platform"
 )
 
@@ -204,10 +204,10 @@ func runInputSocketScenario(t *testing.T, disconnectHeldGesture bool) {
 		}
 		unwatch()
 	})
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	// Short path: t.TempDir() honors GOTMPDIR, which the CMake wrapper points
+	// at <build>/go-tmp — deep enough to exceed the sun_path limit and make
+	// bind(2) fail with EINVAL.
+	dir := testtmp.ShortSocketDir(t)
 	socket := filepath.Join(dir, "drive.sock")
 	token := strings.Repeat("ab", 32)
 	srv, err := driveserver.Listen(driveserver.Config{SocketPath: socket, Token: token, Grants: drive.Grants{Read: true, Input: true, Time: true}, Sessions: sessions, Streams: rt.DriveStreams(), Port: rt.DrivePort()})

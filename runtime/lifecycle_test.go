@@ -846,6 +846,37 @@ func TestShutdownNeverStartedRuntime(t *testing.T) {
 	}
 }
 
+// TestShutdownRacingStartIsRaceFree is the regression test for the data race
+// the CI race gate (test-race-ci) caught under load: Shutdown, called from an
+// arbitrary goroutine, reads rt.runtimeGoroutine via onRuntimeThread while
+// start's goroutine writes it inside startOnce. The field is atomic now; run
+// with -race, this test must stay clean.
+func TestShutdownRacingStartIsRaceFree(t *testing.T) {
+	// Many runtimes starting and shutting down concurrently maximizes the
+	// chance that Shutdown's read of runtimeGoroutine (onRuntimeThread)
+	// overlaps start's write to it. Pre-fix (plain uint64 field) this reports
+	// WARNING: DATA RACE under -race; post-fix (atomic.Uint64) it must stay
+	// clean.
+	const n = 64
+	rts := make([]*Runtime, n)
+	for i := range rts {
+		rts[i], _ = mustLifecycleRuntime(t, &backendFixture{})
+	}
+	var wg sync.WaitGroup
+	for i := range rts {
+		wg.Add(2)
+		go func(rt *Runtime) { defer wg.Done(); _ = rt.Run() }(rts[i])
+		go func(rt *Runtime) { defer wg.Done(); rt.Shutdown() }(rts[i])
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		t.Fatal("runtimes did not stop after racing Run/Shutdown")
+	}
+}
+
 // TestDoubleShutdownIdempotent verifies that calling Shutdown twice is safe
 // and idempotent.
 func TestDoubleShutdownIdempotent(t *testing.T) {

@@ -199,7 +199,7 @@ type Runtime struct {
 	teardownClaim    atomic.Uint32 // 0 = open, 1 = owner claimed
 	teardownGrace    time.Duration // default 5s, bounded supervisor fallback
 	loopStopped      chan struct{} // closed when Run() loop exits
-	runtimeGoroutine uint64        // goroutine ID of the runtime thread (D7)
+	runtimeGoroutine atomic.Uint64 // goroutine ID of the runtime thread (D7); atomic: written by start's goroutine, read by Shutdown from any goroutine
 	doneChClosed     atomic.Bool   // guard to prevent double-close of doneCh
 }
 
@@ -894,8 +894,8 @@ func currentGoroutineID() uint64 {
 // The runtime thread is the one that calls start(), which sets runtimeGoroutine.
 // Before start() is called, no goroutine is the runtime thread.
 func (rt *Runtime) onRuntimeThread() bool {
-	if rt.runtimeGoroutine == 0 {
+	if rt.runtimeGoroutine.Load() == 0 {
 		return false
 	}
-	return currentGoroutineID() == rt.runtimeGoroutine
+	return currentGoroutineID() == rt.runtimeGoroutine.Load()
 }

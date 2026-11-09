@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math/rand"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -570,6 +571,12 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 
 	// Fill the interactive queue with a barrier job.
 	release := make(chan struct{})
+	var releaseOnce sync.Once
+	releaseBarrier := func() { releaseOnce.Do(func() { close(release) }) }
+	// Release the barrier on every exit path. This defer is registered after
+	// pool.Shutdown()'s, so it runs first and a failed assertion below cannot
+	// deadlock Shutdown waiting on the held barrier.
+	defer releaseBarrier()
 	err = Schedule(pool, Job[int, int]{
 		ID:       1,
 		Priority: PriorityInteractive,
@@ -589,7 +596,10 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 	}
 
 	// Try to schedule another interactive job - should be refused immediately.
-	start := time.Now()
+	// The refusal error itself proves non-blocking admission; do NOT assert a
+	// sub-100ms wall-clock bound here — under -race with the suite running in
+	// parallel, scheduling noise routinely exceeds 1ms (repo timing guard
+	// forbids sub-100ms wall-clock assertions for this reason).
 	err = Schedule(pool, Job[int, int]{
 		ID:       2,
 		Priority: PriorityInteractive,
@@ -603,7 +613,6 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 			MaxOutputBytes:  10,
 		},
 	}, nil)
-	elapsed := time.Since(start)
 
 	// Should get an admission refusal error.
 	if err == nil {
@@ -619,13 +628,8 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 		t.Fatalf("expected queue=interactive, got %s", refused.Queue)
 	}
 
-	// Should return immediately (non-blocking).
-	if elapsed > 1*time.Millisecond {
-		t.Fatalf("admission took %v, expected <1ms", elapsed)
-	}
-
 	// Clean up.
-	close(release)
+	releaseBarrier()
 	waitForResults(t, pool, 1)
 	_ = pool.Drain()
 }

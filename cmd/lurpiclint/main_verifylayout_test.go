@@ -4,11 +4,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"codeburg.org/lexbit/lurpicui/cmd/lurpiclint/internal/config"
 )
 
 func TestVerifyLayout_CLI_QuickSquareApp(t *testing.T) {
 	// Requires the demo to exist and be buildable.
-	root := findModuleRoot()
+	root := config.ModuleRoot("")
 	if root == "" {
 		t.Skip("module root not found")
 	}

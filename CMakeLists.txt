@@ -77,6 +77,7 @@ function(_lurpic_reject_unknown_options)
     LURPIC_GOLANGCI_EXECUTABLE
     LURPIC_GOLANGCI_VERSION
     LURPIC_GOLANGCI_VERSION_SHORT
+    LURPIC_GIT_EXECUTABLE
   )
 
   get_cmake_property(_lurpic_cache_vars CACHE_VARIABLES)
@@ -230,7 +231,6 @@ _lurpic_add_test_suite_target(
     ./theme/...
     ./facet/...
     ./runtime/...
-    ./graph/index/...
     ./internal/hashutil/...
     ./internal/renderutil/...
     ./render/vulkan/...
@@ -246,7 +246,6 @@ _lurpic_add_test_suite_target(
     ./internal/testkit/...
     ./projection/...
     ./diagnostics/...
-    ./graph/canvas/...
 )
 list(APPEND _lurpic_test_all_targets test-headless)
 
@@ -260,14 +259,6 @@ _lurpic_add_test_suite_target(
 if(LURPIC_BACKEND_SOFTWARE)
   list(APPEND _lurpic_test_all_targets test-render-software)
 endif()
-
-_lurpic_add_test_suite_target(
-  NAME test-integration
-  DESCRIPTION "Go test integration suite"
-  AVAILABLE ON
-  PACKAGES ./marks/integration/...
-)
-list(APPEND _lurpic_test_all_targets test-integration)
 
 lurpic_add_go_test_target(
   NAME test-drive
@@ -299,8 +290,6 @@ set(_lurpic_nonplatform_test_packages
   ./theme/...
   ./facet/...
   ./runtime/...
-  ./graph/index/...
-  ./graph/canvas/...
   ./internal/hashutil/...
   ./internal/renderutil/...
   ./internal/testkit/...
@@ -322,8 +311,6 @@ set(_lurpic_demo_test_packages
 
 set(_lurpic_benchmark_packages
   ./layout/...
-  ./graph/index/...
-  ./graph/canvas/...
   ./marks/viz/...
   ./render/software/...
   ./internal/renderutil/...
@@ -399,6 +386,67 @@ lurpic_add_optional_go_test_target(
   ARGS -race -count=10 -timeout 3600s
 )
 
+# ---- CI gate targets (devdocs/plans/host-ci-gate.md, Phase 2) --------------
+# Every analysis the CI workflow runs is defined here as a CMake target;
+# workflow YAML only configures the build and calls these targets.
+
+lurpic_add_go_test_target(
+  NAME test-fuzz-pakfs
+  DESCRIPTION "Fuzz smoke: pakfs from FD (30s, CI gate)"
+  PACKAGES ./assets/
+  ARGS -run ^$ -fuzz FuzzNewPakFSFromFD -fuzztime 30s
+)
+
+lurpic_add_go_test_target(
+  NAME test-fuzz-linear
+  DESCRIPTION "Fuzz smoke: linear round-trip (30s, CI gate)"
+  PACKAGES ./scale/
+  ARGS -run ^$ -fuzz FuzzLinear_round_trip -fuzztime 30s
+)
+
+add_custom_target(test-fuzz-smoke
+  DEPENDS test-fuzz-pakfs test-fuzz-linear
+  COMMENT "Run all PR-time fuzz smoke targets"
+  VERBATIM
+)
+
+# Scheduled (weekly) long fuzz runs — NOT part of the PR gate (ci-gate).
+lurpic_add_go_test_target(
+  NAME test-fuzz-drive-proto
+  DESCRIPTION "Fuzz LDP envelopes (10m, scheduled)"
+  PACKAGES ./drive/proto/
+  ARGS -run ^$ -fuzz FuzzEnvelope -fuzztime 10m
+)
+
+lurpic_add_go_test_target(
+  NAME test-fuzz-drive-locate
+  DESCRIPTION "Fuzz LDP locators (10m, scheduled)"
+  PACKAGES ./drive/locate/
+  ARGS -run ^$ -fuzz FuzzLocator -fuzztime 10m
+)
+
+lurpic_add_go_test_target(
+  NAME test-fuzz-drive-server
+  DESCRIPTION "Fuzz LDP subscription filters (10m, scheduled)"
+  PACKAGES ./drive/server/
+  ARGS -run ^$ -fuzz FuzzFilter -fuzztime 10m
+)
+
+add_custom_target(test-fuzz-drive
+  DEPENDS test-fuzz-drive-proto test-fuzz-drive-locate test-fuzz-drive-server
+  COMMENT "Run all scheduled (weekly) drive fuzz targets"
+  VERBATIM
+)
+
+lurpic_add_optional_go_test_target(
+  NAME test-race-ci
+  DESCRIPTION "Race detector suite, single pass (CI gate; scheduled runs use test-race -count=10)"
+  AVAILABLE ${LURPIC_HAVE_RACE}
+  UNAVAILABLE_MESSAGE "test-race-ci is unavailable because the Go race detector is not supported by this toolchain: ${LURPIC_RACE_HINT}"
+  PACKAGES ${_lurpic_nonplatform_test_packages} ${_lurpic_demo_test_packages} ./scale/...
+  ARGS -race -count=1 -timeout 1200s
+)
+
 # RX-1 NFR-2/NFR-3 budget gates. Timing gates must run in isolation (the
 # parallel `go test ./...` suite moves µs/ms medians), so this serial target
 # enforces them with LURPIC_BUDGET_GATES=1.
@@ -425,11 +473,9 @@ lurpic_add_go_test_target(
 )
 
 lurpic_add_go_test_target(
-  NAME bench-graph
-  DESCRIPTION "Go benchmark graph suite"
+  NAME bench-viz
+  DESCRIPTION "Go benchmark marks/viz suite"
   PACKAGES
-    ./graph/index/...
-    ./graph/canvas/...
     ./marks/viz/...
   ARGS -run ^$ -bench . -benchmem -count=1
 )
@@ -535,9 +581,41 @@ add_custom_target(drive-gate
   VERBATIM
 )
 
+find_program(LURPIC_GIT_EXECUTABLE NAMES git)
+if(NOT LURPIC_GIT_EXECUTABLE)
+  message(WARNING "git not found on PATH; lint-drive-drift will fail at build time")
+endif()
+
+file(MAKE_DIRECTORY
+  "${CMAKE_CURRENT_BINARY_DIR}/go-cache"
+  "${CMAKE_CURRENT_BINARY_DIR}/go-tmp"
+)
+
+add_custom_target(lint-drive-drift
+  COMMAND ${CMAKE_COMMAND} -E env "GOCACHE=${CMAKE_CURRENT_BINARY_DIR}/go-cache" "GOTMPDIR=${CMAKE_CURRENT_BINARY_DIR}/go-tmp" ${LURPIC_GO_EXECUTABLE} run ./cmd/lurpiclint drive-schema --out drive/schema
+  COMMAND ${LURPIC_GIT_EXECUTABLE} diff --exit-code -- drive/schema/
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Regenerate LDP schema; fail on drift vs committed drive/schema"
+  VERBATIM
+)
+
+add_custom_target(lint-scripts
+  COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/ci-no-raw-drift.sh" .github/workflows/
+  COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/agents-md-drift.sh" AGENTS.md CMakeLists.txt
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  COMMENT "Repo drift guards: CI YAML routes through CMake; AGENTS.md targets exist"
+  VERBATIM
+)
+
 add_custom_target(lint
-  DEPENDS lint-golangci lint-lurpiclint $<$<BOOL:${LURPIC_HAVE_CLIPPY}>:lint-rust-clippy>
-  COMMENT "Run all linters (golangci-lint + lurpiclint + cargo clippy)"
+  DEPENDS lint-golangci lint-lurpiclint lint-scripts $<$<BOOL:${LURPIC_HAVE_CLIPPY}>:lint-rust-clippy>
+  COMMENT "Run all linters (golangci-lint + lurpiclint + drift guards + cargo clippy)"
+  VERBATIM
+)
+
+add_custom_target(ci-gate
+  DEPENDS test-unit lint lint-drive-drift test-race-ci test-fuzz-smoke
+  COMMENT "Full host CI gate — same target set as build preset ci-gate"
   VERBATIM
 )
 

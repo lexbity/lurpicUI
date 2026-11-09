@@ -149,7 +149,7 @@ func runCheck(args []string) int {
 	var capabilities []capindex.Capability
 	root := cliflags.root
 	if root == "" {
-		root = findModuleRoot()
+		root = config.ModuleRoot("")
 	}
 	if root != "" {
 		capResult, capErr := loader.Load([]string{
@@ -244,12 +244,12 @@ func runCheck(args []string) int {
 	var staleBaseline []config.BaselineEntry
 	if cliflags.baseline != "" {
 		if _, statErr := os.Stat(cliflags.baseline); statErr == nil {
-			baseline, berr := config.LoadBaseline(cliflags.baseline)
+			baseline, berr := config.LoadBaseline(cliflags.baseline, root)
 			if berr != nil {
 				fmt.Fprintf(os.Stderr, "error: loading baseline: %v\n", berr)
 				return 3
 			}
-			diagnostics, staleBaseline = config.SuppressByBaseline(diagnostics, baseline)
+			diagnostics, staleBaseline = config.SuppressByBaseline(root, diagnostics, baseline)
 		}
 	}
 
@@ -605,25 +605,6 @@ func mergeFrameworkTestFiles(result *loader.LoadResult, root string) {
 	}
 }
 
-// findModuleRoot walks up from the working directory to find the module root
-// (directory containing go.mod).  Returns empty string when not found.
-func findModuleRoot() string {
-	dir, err := os.Getwd()
-	if err != nil {
-		return ""
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			return ""
-		}
-		dir = parent
-	}
-}
-
 // filterDiagnostics returns a new slice containing only diagnostics whose
 // severity is at least min.
 func filterDiagnostics(d []*diag.Diagnostic, min diag.Severity) []*diag.Diagnostic {
@@ -657,7 +638,7 @@ func runCapabilities(args []string) int {
 		return 2
 	}
 
-	root := findModuleRoot()
+	root := config.ModuleRoot("")
 	if root == "" {
 		fmt.Fprintln(os.Stderr, "error: cannot find module root (no go.mod found)")
 		return 3
@@ -763,7 +744,7 @@ func runBaseline(args []string) int {
 	var capabilities []capindex.Capability
 	modRoot := *root
 	if modRoot == "" {
-		modRoot = findModuleRoot()
+		modRoot = config.ModuleRoot("")
 	}
 	if modRoot != "" {
 		capResult, capErr := loader.Load([]string{
@@ -815,7 +796,7 @@ func runBaseline(args []string) int {
 	for _, d := range filtered {
 		entries = append(entries, config.BaselineEntry{
 			RuleID:  d.RuleID,
-			File:    d.Pos.Filename,
+			File:    config.RelPath(modRoot, d.Pos.Filename),
 			Line:    d.Pos.Line,
 			Message: d.Message,
 		})

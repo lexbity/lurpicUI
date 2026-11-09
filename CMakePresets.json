@@ -248,6 +248,19 @@
         "build-examples",
         "package"
       ]
+    },
+    {
+      "name": "ci-gate",
+      "configurePreset": "ci-software-headless",
+      "displayName": "Host CI gate",
+      "description": "Run exactly the targets CI runs: test-unit, lint, lint-drive-drift, test-race-ci, test-fuzz-smoke. Use: cmake --preset ci-software-headless && cmake --build --preset ci-gate.",
+      "targets": [
+        "test-unit",
+        "lint",
+        "lint-drive-drift",
+        "test-race-ci",
+        "test-fuzz-smoke"
+      ]
     }
   ]
 }

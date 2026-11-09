@@ -1,4 +1,6 @@
-/docs
+
+content/
+
 /full-app-demos
 /build
 /lurpic
@@ -6,6 +8,7 @@
 demos/lurpic_studio/studio/testdata/
 /render/vulkan/crates/lurpic_render/target/
 marks/**/**/testdata/
+
 *_actual.png
 .claude
 .codex

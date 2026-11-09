@@ -587,7 +587,7 @@ func (rt *Runtime) start() error {
 			runtimeTracef("start begin runtimeThread=%v", rt.onRuntimeThread())
 		}
 		rt.installRecoveryHooks()
-		rt.runtimeGoroutine = currentGoroutineID()
+		rt.runtimeGoroutine.Store(currentGoroutineID())
 		rt.renderPipeline.start()
 		rt.bindLifecycleCallbacks()
 		rt.contentScale = rt.effectiveContentScale()
@@ -718,7 +718,7 @@ func (rt *Runtime) shutdown() error {
 	}
 	input.ClearRecoveryHook()
 	facet.ClearCallbackRecoveryHook()
-	rt.runtimeGoroutine = 0
+	rt.runtimeGoroutine.Store(0)
 	return nil
 }
 
