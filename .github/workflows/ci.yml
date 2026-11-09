@@ -51,12 +51,15 @@ jobs:
           tar -xzf zizmor.tar.gz
           ./zizmor --version
       - name: actionlint all tracked workflow files
-        run: '"$(go env GOPATH)/bin/actionlint" $(git ls-files .github/workflows/)'
+        run: |
+          mapfile -t wf < <(git ls-files .github/workflows/)
+          test "${#wf[@]}" -gt 0
+          "$(go env GOPATH)/bin/actionlint" "${wf[@]}"
       - name: zizmor supply-chain gates (must be 0)
         run: |
-          files=$(git ls-files .github/workflows/)
-          test -n "$files"
-          out=$(./zizmor --no-online-audits --format json $files)
+          mapfile -t wf < <(git ls-files .github/workflows/)
+          test "${#wf[@]}" -gt 0
+          out=$(./zizmor --no-online-audits --format json "${wf[@]}")
           n=$(echo "$out" | jq '[.[] | select(.ident == "unpinned-uses" or .ident == "excessive-permissions" or .ident == "artipacked" or .ident == "template-injection")] | length')
           echo "zizmor gated findings (unpinned-uses/excessive-permissions/artipacked/template-injection): $n"
           test "$n" -eq 0
