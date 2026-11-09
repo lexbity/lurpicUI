@@ -86,10 +86,16 @@ jobs:
           key: ${{ runner.os }}-ci-${{ hashFiles('go.mod', 'go.sum', 'CMakeLists.txt') }}
           restore-keys: |
             ${{ runner.os }}-ci-
-      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
-        with:
-          version: v2.12
-          install-only: true
+      # Build golangci-lint from source with the pinned Go toolchain: the
+      # prebuilt action binaries lag Go releases and refuse to run when built
+      # with an older Go than go.mod targets ("language version go1.26 lower
+      # than 1.27.2"). go install is verified by the Go checksum DB, and the
+      # binary is then built by exactly the Go version this workflow pins.
+      # When go-version above changes, bump this tag in the same commit.
+      - name: Install golangci-lint v2.15.0 (sumdb-verified, built by pinned Go)
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       - name: Configure (CI preset; presets v10 needs cmake >= 3.29)
         run: cmake --version && cmake --preset ci-software-headless
       - name: Host CI gate (test-unit, lint, lint-drive-drift, test-race-ci, test-fuzz-smoke)
