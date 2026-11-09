@@ -7,6 +7,11 @@ content/
 /cmd/quick_square_app
 demos/lurpic_studio/studio/testdata/
 /render/vulkan/crates/lurpic_render/target/
+# Testdata dirs are ignored so generated *_actual.png and scratch files stay
+# out — but the GOLDEN fixtures (testdata/golden/**.png) are the expected
+# outputs and MUST be tracked: golden tests fail in CI without them.
+# New/regenerated goldens: `git add -f <path>` (tracked goldens then commit
+# normally; only new files need -f).
 marks/**/**/testdata/
 
 *_actual.png
