@@ -1,0 +1,9 @@
+# Pin the Rust toolchain so clippy results are identical on dev machines and
+# CI runners. GitHub's ubuntu images ship a floating "stable" that moves
+# forward; a newer rustc turned `fetch_update` deprecation into a hard error
+# under `cargo clippy -- -D warnings` (lint-rust-clippy), failing CI with no
+# code change. Bump this deliberately (with the goldens/lint re-run), not
+# implicitly. rustup shims honor this file automatically.
+[toolchain]
+channel = "1.98.1"
+components = ["clippy", "rustfmt"]
