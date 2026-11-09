@@ -1,0 +1,8 @@
+# actionlint configuration. The workflow files pin runs-on: ubuntu-26.04.
+# actionlint v1.7.12's built-in runner-label database predates the
+# ubuntu-26.04 hosted image, so the label is declared here to keep the
+# workflow-lint job green. Remove this entry once the pinned actionlint
+# release knows the ubuntu-26.04 label natively.
+self-hosted-runner:
+  labels:
+    - ubuntu-26.04
