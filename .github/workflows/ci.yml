@@ -42,6 +42,12 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.2"
+          # Module caching is owned by the pinned actions/cache step (test and
+          # heavy jobs). setup-go's default cache:true also restores
+          # ~/go/pkg/mod; on runner images with a warm module cache the second
+          # restore then fails with tar "Cannot open: File exists" and the
+          # actions/cache restore is marked failed, forcing cold runs.
+          cache: false
       - name: Install actionlint v1.7.12 (Go checksum DB verifies the module)
         run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Install zizmor v1.32.0 (release binary, sha256-verified)
@@ -78,6 +84,12 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.2"
+          # Module caching is owned by the pinned actions/cache step (test and
+          # heavy jobs). setup-go's default cache:true also restores
+          # ~/go/pkg/mod; on runner images with a warm module cache the second
+          # restore then fails with tar "Cannot open: File exists" and the
+          # actions/cache restore is marked failed, forcing cold runs.
+          cache: false
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -123,6 +135,12 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27.2"
+          # Module caching is owned by the pinned actions/cache step (test and
+          # heavy jobs). setup-go's default cache:true also restores
+          # ~/go/pkg/mod; on runner images with a warm module cache the second
+          # restore then fails with tar "Cannot open: File exists" and the
+          # actions/cache restore is marked failed, forcing cold runs.
+          cache: false
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -131,6 +149,12 @@ jobs:
           key: ${{ runner.os }}-ci-${{ hashFiles('go.mod', 'go.sum', 'CMakeLists.txt') }}
           restore-keys: |
             ${{ runner.os }}-ci-
+      # Same pinned golangci-lint build as the test job: the CMake configure
+      # step requires a v2 binary on PATH (FindGolangciLint.cmake).
+      - name: Install golangci-lint v2.15.0 (sumdb-verified, built by pinned Go)
+        run: |
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.15.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
       # `go test -race` requires cgo, and the demo apps transitively build the
       # linux XCB display backend — the runner image lacks the XCB dev headers.
       - name: XCB dev headers (CGO build of platform/linux for -race)
