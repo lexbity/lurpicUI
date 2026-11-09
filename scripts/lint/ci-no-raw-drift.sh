@@ -49,7 +49,29 @@ for f in "${files[@]}"; do
   check 'go\s+build\s+'         "raw 'go build' (must route through CMake)"
   check 'go\s+vet\b'            "raw 'go vet' (must route through CMake)"
   check 'go\s+test\b'           "raw 'go test' (must route through CMake)"
-  check '\$\{\{[^}]*github\.event' 'raw ${{ github.event.* }} interpolation (script-injection risk; bare github.event_name in if: is fine)'
+  # Pattern 6: ${{ github.event.* }} interpolated INSIDE a run: block — that is
+  # string interpolation into a shell command (script-injection risk).
+  # Expression-only fields (if:, cancel-in-progress:, group:, key:) are
+  # evaluated by GitHub's expression engine, not the shell, and are allowed.
+  if awk '
+    /^[ ]*run:[ ]*$/          { inrun=1; ind=match($0,/[^ ]/)-1; next }
+    /^[ ]*run:[ ]*(\||>)/     { inrun=1; ind=match($0,/[^ ]/)-1; next }
+    /^[ ]*run:[ ]*[^ ]/ {
+      rest=$0; sub(/^[ ]*run:[ ]*/, "", rest)
+      if (rest ~ /\$\{\{[^}]*github\.event/) { print; bad=1 }
+      next
+    }
+    inrun {
+      if ($0 ~ /^[ ]*$/) next
+      c=match($0,/[^ ]/); ci = c>0 ? c-1 : 0
+      if (ci <= ind) { inrun=0 }
+      else if ($0 ~ /\$\{\{[^}]*github\.event/) { print; bad=1 }
+    }
+    END { exit bad ? 1 : 0 }
+  ' "$f"; then :; else
+    echo "NFR-1 DRIFT: FAIL — \${{ github.event.* }} interpolated inside a run: block in $f"
+    exit_code=1
+  fi
 done
 
 if [ "$exit_code" -eq 0 ]; then

@@ -601,6 +601,7 @@ add_custom_target(lint-drive-drift
 
 add_custom_target(lint-scripts
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/ci-no-raw-drift.sh" .github/workflows/
+  COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/ci-no-suppression.sh" .github/workflows/
   COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/scripts/lint/agents-md-drift.sh" AGENTS.md CMakeLists.txt
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Repo drift guards: CI YAML routes through CMake; AGENTS.md targets exist"
