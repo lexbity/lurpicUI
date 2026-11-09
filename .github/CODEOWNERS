@@ -1,0 +1,11 @@
+# CODEOWNERS — review requirements for the paths that gate the project.
+# With a single maintainer every path resolves to @lexbity; the explicit
+# entries below document (and pin) which areas must never change without
+# maintainer review, so a future second committer cannot weaken them silently.
+* @lexbity
+
+.github/**        @lexbity   # CI workflows, Dependabot, this file
+CMakeLists.txt    @lexbity   # build orchestration and gate targets
+cmake/**          @lexbity
+cmd/lurpiclint/** @lexbity   # the analyzer the lint gate runs
+scripts/lint/**   @lexbity   # drift/suppression guards the gate runs

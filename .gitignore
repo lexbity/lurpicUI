@@ -13,11 +13,19 @@ marks/**/**/testdata/
 .claude
 .codex
 .windsurf
-.github
+# The Android pipeline is deferred: it needs the NDK/SDK and emulator and has
+# never run. Tracked host CI lives in the ROOT .github (ci.yml, dependabot.yml,
+# CODEOWNERS); only the deferred workflow stays ignored.
+# See devdocs/plans/host-ci-gate.md (NG-1/D1) for the follow-on slice.
+.github/workflows/android.yml
+# ...but nested .github dirs inside vendored crates / bundled static assets
+# stay ignored (they are third-party metadata, not ours). Anchored patterns,
+# so the root .github above is unaffected.
+render/vulkan/crates/lurpic_render/vendor/**/.github/
+assets/static-default/**/.github/
 .tools
 .zcode
 *.test
-"/
 /lurpic_studio
 devdocs/
 /vendor/

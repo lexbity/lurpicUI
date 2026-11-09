@@ -1,0 +1,124 @@
+name: CI
+
+# Host CI gate for lurpicUI. All analysis routes through CMake targets
+# (see devdocs/plans/host-ci-gate.md); this file only sets up toolchains,
+# caches, and calls `cmake --build --preset ci-gate`.
+#
+# The Android pipeline (android.yml) is deliberately NOT tracked — it needs
+# the NDK/SDK and emulator and is deferred to a follow-on slice.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+  schedule:
+    # Weekly Monday 04:17 UTC: heavy race (-count=10) + 10m drive fuzz.
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      heavy:
+        description: "Also run the heavy scheduled targets (test-race -count=10, 10m drive fuzz)"
+        type: boolean
+        default: false
+
+# Read-only token for the whole workflow; no secrets are used anywhere.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Cancel superseded push/PR runs; never cancel scheduled or manual runs.
+  cancel-in-progress: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' }}
+
+jobs:
+  workflow-lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.27.2"
+      - name: Install actionlint v1.7.12 (Go checksum DB verifies the module)
+        run: go install github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
+      - name: Install zizmor v1.32.0 (release binary, sha256-verified)
+        run: |
+          curl -sSfL -o zizmor.tar.gz https://github.com/zizmorcore/zizmor/releases/download/v1.32.0/zizmor-x86_64-unknown-linux-gnu.tar.gz
+          echo "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b  zizmor.tar.gz" | sha256sum -c -
+          tar -xzf zizmor.tar.gz
+          ./zizmor --version
+      - name: actionlint all tracked workflow files
+        run: '"$(go env GOPATH)/bin/actionlint" $(git ls-files .github/workflows/)'
+      - name: zizmor supply-chain gates (must be 0)
+        run: |
+          files=$(git ls-files .github/workflows/)
+          test -n "$files"
+          out=$(./zizmor --no-online-audits --format json $files)
+          n=$(echo "$out" | jq '[.[] | select(.ident == "unpinned-uses" or .ident == "excessive-permissions" or .ident == "artipacked" or .ident == "template-injection")] | length')
+          echo "zizmor gated findings (unpinned-uses/excessive-permissions/artipacked/template-injection): $n"
+          test "$n" -eq 0
+      - name: CI YAML routes all analysis through CMake targets
+        run: bash scripts/lint/ci-no-raw-drift.sh .github/workflows/
+      - name: No failure suppression, all actions SHA-pinned
+        run: bash scripts/lint/ci-no-suppression.sh .github/workflows/
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.27.2"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            build/ci-software-headless/go-cache
+          key: ${{ runner.os }}-ci-${{ hashFiles('go.mod', 'go.sum', 'CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ci-
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.12
+          install-only: true
+      - name: Configure (CI preset; presets v10 needs cmake >= 3.29)
+        run: cmake --version && cmake --preset ci-software-headless
+      - name: Host CI gate (test-unit, lint, lint-drive-drift, test-race-ci, test-fuzz-smoke)
+        id: gate
+        run: cmake --build --preset ci-gate
+      - name: Step summary (non-gate)
+        if: always()
+        run: 'echo "ci-gate outcome: ${{ steps.gate.outcome }} (run ${{ github.run_id }}, sha ${{ github.sha }})" >> "$GITHUB_STEP_SUMMARY"'
+
+  # Heavy scheduled work in its own job so the required `test` job stays
+  # under its 60-minute timeout: worst case here is ~15min gate-equivalent
+  # setup + ~33min test-race -count=10 + 3x10min fuzz.
+  heavy:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.heavy)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: "1.27.2"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            build/ci-software-headless/go-cache
+          key: ${{ runner.os }}-ci-${{ hashFiles('go.mod', 'go.sum', 'CMakeLists.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-ci-
+      - name: Configure (CI preset)
+        run: cmake --preset ci-software-headless
+      - name: Heavy race (-count=10) + 10m drive fuzz
+        run: cmake --build --preset ci-gate --target test-race test-fuzz-drive

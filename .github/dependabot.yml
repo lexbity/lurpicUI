@@ -1,0 +1,21 @@
+version: 2
+updates:
+  # Keep the SHA-pinned actions current: Dependabot rewrites the `uses:` SHA
+  # and comment in .github/workflows/ci.yml. The in-CI zizmor gate
+  # (unpinned-uses == 0) keeps the pins honest.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+  # Go module updates; integrity is anchored by go.sum (vendor/ is not
+  # tracked — D16 in devdocs/plans/host-ci-gate.md).
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
