@@ -568,6 +568,9 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 	}
 	pool := NewPoolWithConfig(config)
 	defer pool.Shutdown()
+	// Pause so the worker cannot dequeue the barrier job and free the queue
+	// slot before the second schedule — the refusal must be deterministic.
+	pool.Pause()
 
 	// Fill the interactive queue with a barrier job.
 	release := make(chan struct{})
@@ -628,7 +631,8 @@ func TestBusyInteractiveAdmissionDoesNotBlock(t *testing.T) {
 		t.Fatalf("expected queue=interactive, got %s", refused.Queue)
 	}
 
-	// Clean up.
+	// Clean up: resume so the worker can pull the barrier job, then release it.
+	pool.Resume()
 	releaseBarrier()
 	waitForResults(t, pool, 1)
 	_ = pool.Drain()
@@ -834,6 +838,10 @@ func TestQueueCapacityRefusal(t *testing.T) {
 	}
 	pool := NewPoolWithConfig(config)
 	defer pool.Shutdown()
+	// Pause so the worker cannot dequeue the barrier jobs: otherwise the
+	// queue-full condition is a scheduling race (on fast/loaded machines the
+	// worker wins and the third job is legitimately admitted).
+	pool.Pause()
 
 	// Fill the interactive queue. The barrier releases MUST be closed on
 	// cleanup: registered after pool.Shutdown()'s defer so it runs first
