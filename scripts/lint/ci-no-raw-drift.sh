@@ -37,7 +37,10 @@ fi
 
 exit_code=0
 for f in "${files[@]}"; do
-  content=$(cat "$f")
+  # Strip comment lines (YAML `# ...` and shell `# ...` inside run blocks) so
+  # prose like "cgo build" or "go test -race requires cgo" in comments does not
+  # trip the patterns; only executable lines are checked.
+  content=$(grep -v '^[[:space:]]*#' "$f")
   check() { # check <extended-regex> <description>
     if echo "$content" | grep -qE "$1"; then
       echo "NFR-1 DRIFT: FAIL — $2 found in $f"
