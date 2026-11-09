@@ -259,7 +259,8 @@
         "lint",
         "lint-drive-drift",
         "test-race-ci",
-        "test-fuzz-smoke"
+        "test-fuzz-smoke",
+        "test-budget"
       ]
     }
   ]

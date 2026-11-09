@@ -526,7 +526,12 @@ func TestCommandAwaitsOwnedJobCommitAndReadyFrame(t *testing.T) {
 	}
 	rt.driveDrain()
 	<-cmd.Accepted
-	for frame := 1; frame <= 16; frame++ {
+	// Frames run on a synthetic clock and can complete in microseconds, so a
+	// bare 16-frame bound starves the background job worker on loaded CI
+	// runners. Keep pumping frames until the reply lands, with a wall-clock
+	// backstop so the test stays bounded.
+	deadline := time.Now().Add(10 * time.Second)
+	for frame := 1; frame <= 16 || time.Now().Before(deadline); frame++ {
 		rt.RunOneFrameAt(time.Date(2026, 1, 1, 0, 0, frame+1, 0, time.UTC))
 		select {
 		case result := <-cmd.Reply:

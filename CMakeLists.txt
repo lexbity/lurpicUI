@@ -452,6 +452,7 @@ lurpic_add_optional_go_test_target(
 # enforces them with LURPIC_BUDGET_GATES=1.
 add_custom_target(test-budget
   COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_BUDGET_GATES=1 ${LURPIC_GO_EXECUTABLE} test -count=1 -run TestLayoutPassBudget ./runtime/
+  COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_BUDGET_GATES=1 ${LURPIC_GO_EXECUTABLE} test -count=1 -run TestRuntime_DirtySnapshotSinkFrameNeutrality ./runtime/
   COMMAND ${CMAKE_COMMAND} -E env CGO_ENABLED=0 LURPIC_BUDGET_GATES=1 ${LURPIC_GO_EXECUTABLE} test -count=1 -run TestProjectionBudgetWithinBaseline ./projection/
   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   COMMENT "Run the RX-1 NFR-2/NFR-3 timing budget gates in isolation"
@@ -615,8 +616,8 @@ add_custom_target(lint
 )
 
 add_custom_target(ci-gate
-  DEPENDS test-unit lint lint-drive-drift test-race-ci test-fuzz-smoke
-  COMMENT "Full host CI gate — same target set as build preset ci-gate"
+  DEPENDS test-unit lint lint-drive-drift test-race-ci test-fuzz-smoke test-budget
+  COMMENT "Full host CI gate — same target set as build preset ci-gate (budget gates run last, in isolation)"
   VERBATIM
 )
 

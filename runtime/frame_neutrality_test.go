@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"os"
 	"sort"
 	"testing"
 	"time"
@@ -117,10 +118,21 @@ func measureProjectMedian(t *testing.T, scope *store.Scope, root facet.FacetImpl
 // workload projected with and without the sink must have statistically
 // equivalent projection-time distributions.
 func TestRuntime_DirtySnapshotSinkFrameNeutrality(t *testing.T) {
+	// Timing gate: the parallel `go test ./...` suite moves µs medians, so this
+	// only runs in isolation via the test-budget target (same pattern as
+	// TestLayoutPassBudget). The caps are relative (probe vs baseline measured
+	// on the same machine), so they hold on any runner speed — but only when
+	// measured in isolation.
+	if os.Getenv("LURPIC_BUDGET_GATES") != "1" {
+		t.Skip("timing gate; set LURPIC_BUDGET_GATES=1 (the test-budget target)")
+	}
 	const (
-		facets  = 48 // projection-dominant workload
-		warm    = 80
-		samples = 400
+		facets = 48 // projection-dominant workload
+		// µs-scale frame times are scheduler-noise dominated; small sample
+		// counts make p90 a coin flip (a handful of slow frames move it), so
+		// use enough samples for a stable tail estimate.
+		warm    = 200
+		samples = 1200
 		// Caps are float64 to avoid int64 truncation when scaled by durations.
 		medianCap float64 = 1.10 // with-sink median within 10% of baseline
 		p90Cap    float64 = 1.25 // no tail regression beyond 25%
