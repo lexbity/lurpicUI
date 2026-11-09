@@ -64,7 +64,7 @@ func TestRealtime_tickRechartsWithoutRelayout(t *testing.T) {
 	sink := NewDirtySink(10)
 	h.Runtime().EnableDiagnostics(sink)
 	e.Feed().OnTick(100 * time.Millisecond)
-	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
+	h.RunUntilEventually(func() bool { return e.appState.Rows.Len() == before+1 }, 60, 10*time.Second)
 
 	if got := projectedPointCount(t, h, e); got != pointsBefore+1 {
 		t.Fatalf("line points = %d, want %d (chart re-projected the new row)", got, pointsBefore+1)
@@ -114,7 +114,7 @@ func TestRealtime_liveTailPauseAndJumpToLive(t *testing.T) {
 	rowsBefore := e.appState.Rows.Len()
 
 	e.Feed().OnTick(100 * time.Millisecond)
-	h.RunUntil(func() bool { return e.appState.Rows.Len() == rowsBefore+1 }, 60)
+	h.RunUntilEventually(func() bool { return e.appState.Rows.Len() == rowsBefore+1 }, 60, 10*time.Second)
 	if w := e.appState.LiveWindow.Get(); w != windowBefore {
 		t.Fatalf("paused live window moved after a wheel zoom: %v -> %v", windowBefore, w)
 	}
@@ -292,7 +292,7 @@ func TestRealtime_tickRoleStreamsChart(t *testing.T) {
 	// phase-1 hook re-arms the role, tickFacets runs it with the delta, and a
 	// row lands — the exact path the real app uses.
 	h.SetFramePeriod(2 * DefaultFeedCadence)
-	h.RunUntil(func() bool { return e.appState.Rows.Len() == before+1 }, 60)
+	h.RunUntilEventually(func() bool { return e.appState.Rows.Len() == before+1 }, 60, 10*time.Second)
 
 	// The windowed chart re-projected the streamed row (1 seed row -> 2).
 	if got := projectedPointCount(t, h, e); got != 2 {

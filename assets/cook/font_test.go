@@ -1,7 +1,6 @@
 package cook
 
 import (
-	"os"
 	"testing"
 
 	flatbuffers "github.com/google/flatbuffers/go"
@@ -10,6 +9,7 @@ import (
 	"golang.org/x/image/math/fixed"
 
 	"codeburg.org/lexbit/lurpicui/assets/schema/lurpic/cfnt"
+	"codeburg.org/lexbit/lurpicui/internal/fontdata"
 )
 
 func TestFontCompilerCompilesMetricsGlyphsAndKerns(t *testing.T) {
@@ -150,11 +150,10 @@ func TestParseUnicodeRange(t *testing.T) {
 func mustReadTestFont(t *testing.T) []byte {
 	t.Helper()
 
-	src, err := os.ReadFile("/usr/share/fonts/liberation/LiberationSerif-Regular.ttf")
-	if err != nil {
-		t.Fatalf("read test font: %v", err)
-	}
-	return src
+	// Use the embedded test font, never a system font path: CI runners do not
+	// ship /usr/share/fonts/liberation, and system fonts make the test
+	// environment-dependent.
+	return fontdata.TestFontBytes()
 }
 
 func mustParseTestFont(t *testing.T, src []byte) *sfnt.Font {

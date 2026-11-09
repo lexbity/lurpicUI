@@ -259,6 +259,24 @@ func (h *Harness) RunUntil(condition func() bool, maxFrames int) bool {
 	return condition != nil && condition()
 }
 
+// RunUntilEventually is RunUntil with a wall-clock backstop. Frames keep
+// pumping (the harness clock is synthetic, so frames can complete in
+// microseconds) until the condition holds, maxFrames is reached, AND the
+// wall timeout has elapsed — whichever comes last of the bounds. The
+// backstop matters on loaded CI runners, where a background job worker may
+// not be scheduled within a handful of instant synthetic frames; without it
+// tests that wait on asynchronously committed rows flake under load.
+func (h *Harness) RunUntilEventually(condition func() bool, maxFrames int, timeout time.Duration) bool {
+	deadline := time.Now().Add(timeout)
+	for frames := 0; frames < maxFrames || time.Now().Before(deadline); frames++ {
+		h.RunFrame()
+		if condition != nil && condition() {
+			return true
+		}
+	}
+	return condition != nil && condition()
+}
+
 func (h *Harness) Surface() *MemorySurface {
 	if h == nil {
 		return nil

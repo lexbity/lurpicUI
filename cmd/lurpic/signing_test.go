@@ -275,6 +275,10 @@ func TestGetDebugKeystore_keytoolNotFoundIsFatal(t *testing.T) {
 func TestGetDebugKeystore_CreatesNew(t *testing.T) {
 	tmpHome := t.TempDir()
 	t.Setenv("HOME", tmpHome)
+	// Isolate from the host JDK: CI runners set JAVA_HOME, and the builder
+	// prefers $JAVA_HOME/bin/keytool directly, bypassing the fake runner's
+	// Look("keytool") stub this test relies on.
+	t.Setenv("JAVA_HOME", "")
 
 	f := newFakeRunner()
 	// Make keytool appear to succeed

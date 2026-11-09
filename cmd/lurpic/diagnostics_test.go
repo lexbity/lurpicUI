@@ -248,6 +248,10 @@ func TestFindNDKStack_fromSDK(t *testing.T) {
 }
 
 func TestFindNDKStack_notFound(t *testing.T) {
+	// Isolate from the host environment: GitHub runners ship an Android SDK
+	// with ANDROID_NDK_HOME set, which findNDKStack honors before the sdk arg.
+	t.Setenv("ANDROID_NDK_HOME", "")
+	t.Setenv("NDK_HOME", "")
 	path := findNDKStack("/nonexistent")
 	if path != "" {
 		t.Fatalf("expected empty for nonexistent, got %q", path)

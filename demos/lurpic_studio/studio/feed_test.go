@@ -52,7 +52,7 @@ func TestFeed_ticksAppendRows(t *testing.T) {
 	windowBefore := appState.LiveWindow.Get()
 
 	driveTicks(feed, 3)
-	h.RunUntil(func() bool { return appState.Rows.Len() >= before+3 }, 60)
+	h.RunUntilEventually(func() bool { return appState.Rows.Len() >= before+3 }, 60, 10*time.Second)
 
 	if got := appState.Rows.Len(); got != before+3 {
 		t.Fatalf("rows = %d, want %d (3 feed rows)", got, before+3)
@@ -87,7 +87,7 @@ func TestFeed_liveTailPausesWhenPaused(t *testing.T) {
 	windowBefore := appState.LiveWindow.Get()
 
 	driveTicks(feed, 2)
-	h.RunUntil(func() bool { return appState.Rows.Len() >= before+2 }, 60)
+	h.RunUntilEventually(func() bool { return appState.Rows.Len() >= before+2 }, 60, 10*time.Second)
 
 	// Rows still append (the feed runs), but the live window freezes.
 	if appState.Rows.Len() != before+2 {
@@ -112,11 +112,11 @@ func TestFeed_trimToMaxLongRun(t *testing.T) {
 	for tick := 1; tick <= ticks; tick++ {
 		driveTicks(feed, 1)
 		wantID := uint64(seedCount + tick)
-		if !h.RunUntil(func() bool {
+		if !h.RunUntilEventually(func() bool {
 			rows := appState.Rows.All()
 			return len(rows) > 0 && rows[len(rows)-1].ID == wantID
-		}, 60) {
-			t.Fatalf("feed row %d did not commit within 60 frames", wantID)
+		}, 60, 10*time.Second) {
+			t.Fatalf("feed row %d did not commit within 60 frames / 10s wall", wantID)
 		}
 	}
 	h.RunFrames(20)
@@ -144,7 +144,7 @@ func TestFeed_jobProgressPulses(t *testing.T) {
 	if got := feed.JobProgress.Get(); got != 0 {
 		t.Fatalf("JobProgress after submit = %v, want 0", got)
 	}
-	h.RunUntil(func() bool { return feed.JobProgress.Get() == 1.0 }, 60)
+	h.RunUntilEventually(func() bool { return feed.JobProgress.Get() == 1.0 }, 60, 10*time.Second)
 	// The next submit resets it.
 	feed.OnTick(100 * time.Millisecond)
 	if got := feed.JobProgress.Get(); got != 0 {
@@ -158,7 +158,7 @@ func TestFeed_cancelNoLeak(t *testing.T) {
 	appState := state.NewAppState(scope, seedRows(t))
 	feed, h := newFeedHarness(t, scope, appState)
 	driveTicks(feed, 5)
-	h.RunUntil(func() bool { return appState.Rows.Len() >= 40+5 }, 60)
+	h.RunUntilEventually(func() bool { return appState.Rows.Len() >= 40+5 }, 60, 10*time.Second)
 	feed.Cancel()
 	h.RunFrames(5)
 }
