@@ -835,9 +835,20 @@ func TestQueueCapacityRefusal(t *testing.T) {
 	pool := NewPoolWithConfig(config)
 	defer pool.Shutdown()
 
-	// Fill the interactive queue.
+	// Fill the interactive queue. The barrier releases MUST be closed on
+	// cleanup: registered after pool.Shutdown()'s defer so it runs first
+	// (LIFO) — otherwise a worker that picked up a barrier job blocks in Work
+	// forever and Shutdown's wg.Wait() hangs (observed as a 10m timeout on
+	// loaded CI runners).
+	var releases []chan struct{}
+	defer func() {
+		for _, r := range releases {
+			close(r)
+		}
+	}()
 	for i := 0; i < 2; i++ {
 		release := make(chan struct{})
+		releases = append(releases, release)
 		err = Schedule(pool, Job[int, int]{
 			ID:       JobID(i),
 			Priority: PriorityInteractive,
@@ -855,8 +866,7 @@ func TestQueueCapacityRefusal(t *testing.T) {
 		if err != nil {
 			t.Fatalf("schedule %d failed: %v", i, err)
 		}
-		// Don't close release - keep jobs queued.
-		_ = release
+		// Keep the jobs queued for the refusal check; released by the defer above.
 	}
 
 	// Third interactive job should be refused.
